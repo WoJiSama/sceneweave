@@ -1,6 +1,7 @@
 import { newId } from '../../core/types'
 import type { SceneDocumentV2 } from '../../core/v2/types'
 import { validateSceneV2 } from '../../core/v2/schema'
+import { applyCommandsV2, type SceneCommandV2 } from '../../core/v2/commands'
 import { validateCompleteProjectV2 } from '../../io/v2/project-file'
 import type { CompleteProjectV2 } from '../../io/v2/types'
 
@@ -45,7 +46,7 @@ export class WorkspaceV2 {
   private copying = false
   private version = 0
 
-  constructor(private readonly repository: WorkspaceRepository) {}
+  constructor(private readonly repository: WorkspaceRepository, private readonly validateCandidate: (document: SceneDocumentV2) => void = () => {}) {}
   getState = (): WorkspaceState => this.state
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   checkpoint = () => this.version
@@ -156,28 +157,23 @@ export class WorkspaceV2 {
     this.publish({ project: next })
     this.enqueue(next)
   }
+  /** Preview uses the same candidate checks as adoption, without changing state. */
+  preview(commands: readonly SceneCommandV2[]): SceneDocumentV2 {
+    const scene = this.state.project?.document
+    if (!scene) throw new Error('尚未打开工程。')
+    const next = applyCommandsV2(scene, commands)
+    if (JSON.stringify(next) !== JSON.stringify(scene)) this.validateCandidate(next)
+    return next
+  }
+  execute(commands: readonly SceneCommandV2[]) {
+    const next = this.preview(commands)
+    if (JSON.stringify(next) !== JSON.stringify(this.state.project!.document)) this.commit(next, 'edit')
+  }
   updateProp(id: string, changes: { positionMm?: { x: number; y: number }; rotationDeg?: number }) {
-    const scene = this.state.project?.document, prop = scene?.props[id]
-    if (!scene || !prop) throw new Error('物件不存在。')
-    if (prop.editLocked) throw new Error('物件已锁定。')
-    if (Object.values(scene.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === id)) ||
-        Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === id))) {
-      throw new Error('组合与散布成员的编辑工具尚未开放。')
-    }
-    if (Object.keys(changes).some(key => !['positionMm', 'rotationDeg'].includes(key))) throw new Error('不支持的物件编辑。')
-    if (JSON.stringify({ ...prop, ...changes }) === JSON.stringify(prop)) return
-    const next = copy(scene)
-    Object.assign(next.props[id], changes)
-    this.commit(next, 'edit')
+    this.execute([{ type: 'updateProp', id, changes }])
   }
   rotateRoomMaterial(id: string, rotationDeg: number) {
-    const scene = this.state.project?.document, room = scene?.rooms[id]
-    if (!scene || !room?.floorStyle) throw new Error('房间没有底材。')
-    if (room.editLocked) throw new Error('房间已锁定。')
-    if (room.floorStyle.base.rotationDeg === rotationDeg) return
-    const next = copy(scene)
-    next.rooms[id].floorStyle!.base.rotationDeg = rotationDeg
-    this.commit(next, 'edit')
+    this.execute([{ type: 'setSurfacePaint', kind: 'room', id, changes: { rotationDeg } }])
   }
   undo() {
     const previous = this.past.at(-1), current = this.state.project?.document

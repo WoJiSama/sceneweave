@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-20",
+  "buildMode": "production preview",
+  "browser": "155.0.8059.84",
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  },
+  "sourceRevision": 4,
+  "structurePreviewUncommitted": true,
+  "adoptedAndUndone": true,
+  "propEditUndone": true,
+  "reloadRevisionRetained": true,
+  "complete": {
+    "bytes": 123260,
+    "sha256": "d52e8bca275baf4229306539be9d6a979e01f88b9cabb717366c4acf9f02878f",
+    "suggestedFilename": "sceneweave-complete.sceneweave"
+  },
+  "gm": {
+    "bytes": 1506533,
+    "sha256": "2e34913dff0d9dbde92d921eaad9258b39e7f7083a0230c8ed322c23e84e3a6f",
+    "suggestedFilename": "sceneweave-gm-map.png",
+    "width": 4096,
+    "height": 2926
+  },
+  "player": {
+    "bytes": 1506533,
+    "sha256": "2e34913dff0d9dbde92d921eaad9258b39e7f7083a0230c8ed322c23e84e3a6f",
+    "suggestedFilename": "sceneweave-player-map.png",
+    "width": 4096,
+    "height": 2926
+  },
+  "freshContextOfflineImportAndEdit": true,
+  "pageErrors": [],
+  "failedResponses": []
+}

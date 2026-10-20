@@ -1,0 +1,13 @@
+{
+  "propEditRejected": true,
+  "groupEditRejected": true,
+  "revisionUnchangedOnFailure": true,
+  "historyRetained": true,
+  "savedDocumentUnchanged": true,
+  "entranceWidthMm": 1000,
+  "terraceWidthMm": 1200,
+  "approachDepthEachSideMm": [
+    1000,
+    1500
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "cancelledUnchanged": true,
+  "illegalUnchanged": true,
+  "adoptedThenUndo": [
+    "vertex",
+    "wallThickness",
+    "reverseWall",
+    "terracePoint"
+  ],
+  "stableOpening": {
+    "id": "diagonal-window",
+    "floorId": "study-floor",
+    "editLocked": false,
+    "wallId": "study-w1",
+    "offsetReferenceVertexId": "study-v1",
+    "offsetMm": 400,
+    "widthMm": 600,
+    "kind": "window",
+    "state": "closed",
+    "locked": false,
+    "secret": false,
+    "revealed": false
+  },
+  "finalPaint": {
+    "materialRef": {
+      "id": "b2-m-02",
+      "version": 1
+    },
+    "tileSizeMm": {
+      "width": 2000,
+      "height": 2000
+    },
+    "rotationDeg": 90,
+    "alignment": "world",
+    "originMm": {
+      "x": 0,
+      "y": 0
+    },
+    "tint": null,
+    "opacity": 1
+  },
+  "revision": 10
+}

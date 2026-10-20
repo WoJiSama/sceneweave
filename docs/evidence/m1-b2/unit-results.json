@@ -1,0 +1,116 @@
+{
+  "success": true,
+  "tests": 244,
+  "passed": 244,
+  "failed": 0,
+  "files": [
+    {
+      "file": "src/editor/store.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "durationMs": 935.235107421875
+    },
+    {
+      "file": "src/core/commands.test.ts",
+      "status": "passed",
+      "tests": 15,
+      "durationMs": 188.9658203125
+    },
+    {
+      "file": "src/core/geometry.test.ts",
+      "status": "passed",
+      "tests": 20,
+      "durationMs": 372.591552734375
+    },
+    {
+      "file": "src/io/project-file.test.ts",
+      "status": "passed",
+      "tests": 21,
+      "durationMs": 357.9775390625
+    },
+    {
+      "file": "src/io/storage.test.ts",
+      "status": "passed",
+      "tests": 14,
+      "durationMs": 922.47119140625
+    },
+    {
+      "file": "src/rendering/draw.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "durationMs": 15.202880859375
+    },
+    {
+      "file": "src/rendering/png.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "durationMs": 10.2197265625
+    },
+    {
+      "file": "src/rendering/projection.test.ts",
+      "status": "passed",
+      "tests": 15,
+      "durationMs": 20.3046875
+    },
+    {
+      "file": "src/core/v2/commands.test.ts",
+      "status": "passed",
+      "tests": 28,
+      "durationMs": 774.0732421875
+    },
+    {
+      "file": "src/core/v2/domain.test.ts",
+      "status": "passed",
+      "tests": 24,
+      "durationMs": 637.684814453125
+    },
+    {
+      "file": "src/core/v2/doorway-clearance.test.ts",
+      "status": "passed",
+      "tests": 9,
+      "durationMs": 140.555908203125
+    },
+    {
+      "file": "src/editor/v2/b2-workspace.test.ts",
+      "status": "passed",
+      "tests": 6,
+      "durationMs": 1045.8525390625
+    },
+    {
+      "file": "src/editor/v2/study-sample.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "durationMs": 1557.2099609375
+    },
+    {
+      "file": "src/editor/v2/workspace.test.ts",
+      "status": "passed",
+      "tests": 21,
+      "durationMs": 1330.8349609375
+    },
+    {
+      "file": "src/io/v2/project-file.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "durationMs": 843.12451171875
+    },
+    {
+      "file": "src/io/v2/resources.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "durationMs": 177.390380859375
+    },
+    {
+      "file": "src/io/v2/storage.test.ts",
+      "status": "passed",
+      "tests": 25,
+      "durationMs": 2717.16455078125
+    },
+    {
+      "file": "src/render/v2/projection.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "durationMs": 44.88525390625
+    }
+  ]
+}

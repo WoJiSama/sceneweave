@@ -1,0 +1,605 @@
+{
+  "catalogId": "sceneweave-handdrawn",
+  "version": 1,
+  "name": "墨绘原野",
+  "status": "P2",
+  "author": "Sceneweave contributors; original SVG artwork authored with Codex assistance",
+  "source": "tools/build-study-art.mjs and assets/sceneweave-handdrawn/*.svg",
+  "rights": "Project original artwork; no external reference tracing or extracted image components",
+  "licenseRef": "MIT",
+  "licenseFile": "LICENSE.txt",
+  "densityPxPerMetre": 256,
+  "longCastShadowBaked": false,
+  "colorSpace": "sRGB",
+  "bitDepth": 8,
+  "alpha": "straight; zero-alpha RGB cleared",
+  "assets": [
+    {
+      "key": "wood-dark",
+      "catalogId": "material.sw.wood-dark",
+      "kind": "material",
+      "name": "深色木板",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "surfaces": [
+        "room"
+      ],
+      "file": "wood-dark.png",
+      "sourceFile": "wood-dark.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "8159c5e8f3e787c01a93530a911b5c6de7d109968eb8ac071cbdbf46fdc21c5e",
+      "sourceSha256": "2285cca25c088f4a2853c5c15d513dfec5c1dbf184b0d79283f983de05928a8d",
+      "sizeBytes": 30302,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "wood-worn",
+      "catalogId": "material.sw.wood-worn",
+      "kind": "material",
+      "name": "磨损木板",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "surfaces": [
+        "room"
+      ],
+      "file": "wood-worn.png",
+      "sourceFile": "wood-worn.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "39ee3fb3730cd7e77e10786df15606a011b7a4c286f64745f92f0923f6816886",
+      "sourceSha256": "b4823f9e1610fb4bc1843c4525475a324c69f25f1d50e3fc05b8db758b1f5532",
+      "sizeBytes": 37823,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "stone-paver",
+      "catalogId": "material.sw.stone-paver",
+      "kind": "material",
+      "name": "露台石板",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "surfaces": [
+        "room",
+        "terrain",
+        "path"
+      ],
+      "file": "stone-paver.png",
+      "sourceFile": "stone-paver.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "ce6e02c78330d60b9a50a017709484d84b634eb19dfda5f5ec586088d8b751e9",
+      "sourceSha256": "60e60aa3c348540e728bad8f53c2cebea4fb8eb62f6b4c81f366c6661755f825",
+      "sizeBytes": 12224,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "wall-stone",
+      "catalogId": "material.sw.wall-stone",
+      "kind": "material",
+      "name": "浅灰墙石",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "surfaces": [
+        "wall"
+      ],
+      "file": "wall-stone.png",
+      "sourceFile": "wall-stone.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "663759a20d85306fbcfa651979a80fbe0c6e778615b9788d5b888e9948a810d1",
+      "sourceSha256": "c8cae321be4f1c169a10b227749d9d2b9192d8830544d172100ed8758b8c7d83",
+      "sizeBytes": 6847,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "desk-oak",
+      "catalogId": "prop.sw.desk-oak",
+      "kind": "prop",
+      "name": "深橡木书桌",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -1000,
+        "y": -500,
+        "width": 2000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 1800,
+        "height": 800
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "desk-oak.png",
+      "sourceFile": "desk-oak.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 256,
+      "sha256": "dd638de79d673b0101c4d2a929976a2b45b8eca0bb245be9d3962e171e668e3e",
+      "sourceSha256": "2a636fa0d24f44da239a37601d5882660dab200c0f63146a8691f117dd3d9a6c",
+      "sizeBytes": 4149,
+      "alphaContentBoundsPx": {
+        "x": 24,
+        "y": 24,
+        "width": 464,
+        "height": 208
+      },
+      "minTransparentPaddingPx": 24,
+      "fullyOpaque": false
+    },
+    {
+      "key": "chair-oak",
+      "catalogId": "prop.sw.chair-oak",
+      "kind": "prop",
+      "name": "橡木座椅",
+      "logicalSizeMm": {
+        "width": 1000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -500,
+        "y": -500,
+        "width": 1000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "chair-oak.png",
+      "sourceFile": "chair-oak.svg",
+      "pixelWidth": 256,
+      "pixelHeight": 256,
+      "sha256": "9074593175cf3c30f0c85b54b72c25ad172980c181f92233892cc1196f121c32",
+      "sourceSha256": "bef11ee6ac60bc8543ce448f68ea07999b9ca4c9920757be399a6c988e34ceaf",
+      "sizeBytes": 3033,
+      "alphaContentBoundsPx": {
+        "x": 37,
+        "y": 37,
+        "width": 182,
+        "height": 177
+      },
+      "minTransparentPaddingPx": 37,
+      "fullyOpaque": false
+    },
+    {
+      "key": "chair-worn",
+      "catalogId": "prop.sw.chair-worn",
+      "kind": "prop",
+      "name": "磨损座椅",
+      "logicalSizeMm": {
+        "width": 1000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -500,
+        "y": -500,
+        "width": 1000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "chair-worn.png",
+      "sourceFile": "chair-worn.svg",
+      "pixelWidth": 256,
+      "pixelHeight": 256,
+      "sha256": "6ee664f4c8efd9a4f7f2a0c39861aa7d054733cf47333e7f57043c66eac43d20",
+      "sourceSha256": "6add23b8122c4944de6c599732feabfd4ec081beec079c7be08ad50d321e9275",
+      "sizeBytes": 3579,
+      "alphaContentBoundsPx": {
+        "x": 37,
+        "y": 37,
+        "width": 182,
+        "height": 177
+      },
+      "minTransparentPaddingPx": 37,
+      "fullyOpaque": false
+    },
+    {
+      "key": "book-stack",
+      "catalogId": "prop.sw.book-stack",
+      "kind": "prop",
+      "name": "三本叠书",
+      "logicalSizeMm": {
+        "width": 500,
+        "height": 500
+      },
+      "visualBoundsMm": {
+        "x": -250,
+        "y": -250,
+        "width": 500,
+        "height": 500
+      },
+      "footprintMm": {
+        "width": 350,
+        "height": 250
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "none",
+      "file": "book-stack.png",
+      "sourceFile": "book-stack.svg",
+      "pixelWidth": 128,
+      "pixelHeight": 128,
+      "sha256": "ce19a0416dd1383343f7ff5736e2bff17d610fe36217c3b4f127cf752908b9dd",
+      "sourceSha256": "b9f99e2e842a2c0390d094890ba8083096ac42b2bfac79f2d7a3d4ed0eb35baa",
+      "sizeBytes": 768,
+      "alphaContentBoundsPx": {
+        "x": 18,
+        "y": 21,
+        "width": 91,
+        "height": 75
+      },
+      "minTransparentPaddingPx": 18,
+      "fullyOpaque": false
+    },
+    {
+      "key": "papers",
+      "catalogId": "prop.sw.papers",
+      "kind": "prop",
+      "name": "手稿纸张组",
+      "logicalSizeMm": {
+        "width": 750,
+        "height": 500
+      },
+      "visualBoundsMm": {
+        "x": -375,
+        "y": -250,
+        "width": 750,
+        "height": 500
+      },
+      "footprintMm": {
+        "width": 450,
+        "height": 300
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "none",
+      "file": "papers.png",
+      "sourceFile": "papers.svg",
+      "pixelWidth": 192,
+      "pixelHeight": 128,
+      "sha256": "7c9c0c2181fdc583deb1c1de9e511b5e1b82936c57fe194bb82675934675adaf",
+      "sourceSha256": "9ac7ae532e6ccfb9e402cabe5184b6ea205e3ff430c390954267325ee70087a1",
+      "sizeBytes": 1002,
+      "alphaContentBoundsPx": {
+        "x": 40,
+        "y": 23,
+        "width": 112,
+        "height": 82
+      },
+      "minTransparentPaddingPx": 23,
+      "fullyOpaque": false
+    },
+    {
+      "key": "bookshelf",
+      "catalogId": "prop.sw.bookshelf",
+      "kind": "prop",
+      "name": "橡木书架",
+      "logicalSizeMm": {
+        "width": 1000,
+        "height": 2500
+      },
+      "visualBoundsMm": {
+        "x": -500,
+        "y": -1250,
+        "width": 1000,
+        "height": 2500
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 2000
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "bookshelf.png",
+      "sourceFile": "bookshelf.svg",
+      "pixelWidth": 256,
+      "pixelHeight": 640,
+      "sha256": "a5544d511fee8e040b643abbd374d97cd474e0c8a8b43d958bd798781ad62567",
+      "sourceSha256": "82950210b051363356f51a03114e3532ca9f79a1f8f28e3906f969c655d4bea4",
+      "sizeBytes": 6411,
+      "alphaContentBoundsPx": {
+        "x": 37,
+        "y": 50,
+        "width": 182,
+        "height": 540
+      },
+      "minTransparentPaddingPx": 37,
+      "fullyOpaque": false
+    },
+    {
+      "key": "rug-study",
+      "catalogId": "prop.sw.rug-study",
+      "kind": "prop",
+      "name": "暖灰红纹书房毯",
+      "logicalSizeMm": {
+        "width": 3000,
+        "height": 2250
+      },
+      "visualBoundsMm": {
+        "x": -1500,
+        "y": -1125,
+        "width": 3000,
+        "height": 2250
+      },
+      "footprintMm": {
+        "width": 2400,
+        "height": 1800
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "ground",
+      "shadowClass": "none",
+      "file": "rug-study.png",
+      "sourceFile": "rug-study.svg",
+      "pixelWidth": 768,
+      "pixelHeight": 576,
+      "sha256": "502cc2ea4193792ff3564ab8f2afa13360be487da3288a6a07041b9fb3449e55",
+      "sourceSha256": "9a27bc9e846224dbc9f87e45053dd7e1de1bf60607990fb6c5df676f7ea639c5",
+      "sizeBytes": 11624,
+      "alphaContentBoundsPx": {
+        "x": 78,
+        "y": 53,
+        "width": 612,
+        "height": 470
+      },
+      "minTransparentPaddingPx": 53,
+      "fullyOpaque": false
+    },
+    {
+      "key": "table-round",
+      "catalogId": "prop.sw.table-round",
+      "kind": "prop",
+      "name": "露台圆桌",
+      "logicalSizeMm": {
+        "width": 1000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -500,
+        "y": -500,
+        "width": 1000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 700,
+        "height": 700
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "table-round.png",
+      "sourceFile": "table-round.svg",
+      "pixelWidth": 256,
+      "pixelHeight": 256,
+      "sha256": "82ed098421bdc7a8498e24933766795f867f51016ccd8da05dc419174d52a839",
+      "sourceSha256": "ec20c5d54db026aae469433740444aa15edb28feed184de0ad095e1bd293b790",
+      "sizeBytes": 8403,
+      "alphaContentBoundsPx": {
+        "x": 36,
+        "y": 36,
+        "width": 184,
+        "height": 184
+      },
+      "minTransparentPaddingPx": 36,
+      "fullyOpaque": false
+    },
+    {
+      "key": "flowerpot",
+      "catalogId": "prop.sw.flowerpot",
+      "kind": "prop",
+      "name": "陶盆与叶簇",
+      "logicalSizeMm": {
+        "width": 1000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -500,
+        "y": -500,
+        "width": 1000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 500,
+        "height": 500
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "flowerpot.png",
+      "sourceFile": "flowerpot.svg",
+      "pixelWidth": 256,
+      "pixelHeight": 256,
+      "sha256": "1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337",
+      "sourceSha256": "40259b2dcd0e6ed08865a7e9d6aa5a94753595f859855c68f645d45567d337ec",
+      "sizeBytes": 8176,
+      "alphaContentBoundsPx": {
+        "x": 40,
+        "y": 31,
+        "width": 182,
+        "height": 190
+      },
+      "minTransparentPaddingPx": 31,
+      "fullyOpaque": false
+    },
+    {
+      "key": "lamp-table",
+      "catalogId": "prop.sw.lamp-table",
+      "kind": "prop",
+      "name": "铜色桌灯",
+      "logicalSizeMm": {
+        "width": 500,
+        "height": 500
+      },
+      "visualBoundsMm": {
+        "x": -250,
+        "y": -250,
+        "width": 500,
+        "height": 500
+      },
+      "footprintMm": {
+        "width": 200,
+        "height": 200
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "none",
+      "file": "lamp-table.png",
+      "sourceFile": "lamp-table.svg",
+      "pixelWidth": 128,
+      "pixelHeight": 128,
+      "sha256": "e5c4736961b1c8b1a6b3025e9a6a6176ab04491420fd39203ac4d84dfb587968",
+      "sourceSha256": "e1f1c9b501bfb177d6b45fb79753369df4ee0192bb6a338416b34d4ab82e14ae",
+      "sizeBytes": 2604,
+      "alphaContentBoundsPx": {
+        "x": 27,
+        "y": 27,
+        "width": 74,
+        "height": 74
+      },
+      "minTransparentPaddingPx": 27,
+      "fullyOpaque": false
+    },
+    {
+      "key": "envelope",
+      "catalogId": "prop.sw.envelope",
+      "kind": "prop",
+      "name": "封蜡空白信封",
+      "logicalSizeMm": {
+        "width": 500,
+        "height": 500
+      },
+      "visualBoundsMm": {
+        "x": -250,
+        "y": -250,
+        "width": 500,
+        "height": 500
+      },
+      "footprintMm": {
+        "width": 300,
+        "height": 200
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "none",
+      "file": "envelope.png",
+      "sourceFile": "envelope.svg",
+      "pixelWidth": 128,
+      "pixelHeight": 128,
+      "sha256": "7d8a6efb88421f387dbebe02392efca509673e62bce9ea9514d51476a11346ad",
+      "sourceSha256": "7c34a6072694319ab1b114777a9de900aa025f0c473318e4953bfdf38f44718e",
+      "sizeBytes": 1010,
+      "alphaContentBoundsPx": {
+        "x": 24,
+        "y": 37,
+        "width": 80,
+        "height": 54
+      },
+      "minTransparentPaddingPx": 24,
+      "fullyOpaque": false
+    }
+  ]
+}

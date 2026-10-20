@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-20",
+  "applicationVersion": "0.2.0-m1-b2",
+  "baselineCommit": "70ab7c0dfea08ce1f1ab5ae4fe3a0064d9b72853",
+  "environment": {
+    "chip": "Apple M1",
+    "memoryGiB": 16,
+    "os": "macOS 26.6.2 / 25G83",
+    "node": "24.14.1",
+    "browserVersion": "155.0.8059.84",
+    "headless": true,
+    "viewport": {
+      "width": 1512,
+      "height": 982
+    },
+    "dpr": 1
+  },
+  "commands": [
+    {
+      "command": "npm test",
+      "passed": 244,
+      "files": 18,
+      "exitCode": 0
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "dependencyAnnotationWarnings": 2,
+      "entryChunkBytesApprox": 489010,
+      "lazyStudyChunkBytesApprox": 20250,
+      "chunkSizeWarning": false
+    },
+    {
+      "command": "SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e",
+      "passed": 30,
+      "exitCode": 0,
+      "durationMs": 215696.94
+    }
+  ],
+  "scope": {
+    "baselineProps": 13,
+    "prefabGroups": 2,
+    "materials": 4,
+    "propDefinitions": 11,
+    "imageCount": 15,
+    "imageBytes": 137955,
+    "uniqueSourcePixels": 2121728,
+    "full4k": [
+      4096,
+      2926
+    ],
+    "baselineSecrets": false,
+    "artStatus": "P2",
+    "playerPrivatePairPixelSha256": "a4b836c62f0d3d2f45203f7eba3720f20c6b0151242b7c4ad62aab9a489f0c17"
+  },
+  "sourceFingerprintCount": 114,
+  "sourceFingerprintSha256": "504e191ca469f50a26f004dd9d11c907b41e29f629b5a88350e7f18db91c8b33",
+  "history": {
+    "m0ReportAndEvidenceUnchanged": true,
+    "b1ReportAndEvidenceUnchanged": true,
+    "historicalSourceFingerprintsRemainHistorical": true
+  },
+  "limitations": [
+    "Only VIS-01 indoor first pass; no VIS-02 terrain or complete SCN scenarios",
+    "P2 art candidates; no full P3 theme or human user art acceptance",
+    "Finite named doorway approaches only; no full-map routes or collisions outside them",
+    "No generic drawing/asset management/scatter generation UI or AI",
+    "No persistent decoded bitmap cache; repeated rendering is not a controlled cold/hot benchmark",
+    "No measured real texture 500/2000 workload or resource peak; M0 procedural regression is separate",
+    "No actual browser quota exhaustion or cross-browser validation"
+  ]
+}
