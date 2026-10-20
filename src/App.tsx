@@ -11,6 +11,7 @@ import { importProject, exportProject } from './io/project-file'
 import { renderPng } from './rendering/png'
 import { projectScene } from './rendering/projection'
 import { getMetrics, resetMetrics } from './editor/metrics'
+import AssetWorkbench from './editor/v2/AssetWorkbench'
 
 function Logo({small=false}:{small?:boolean}) {
   return <svg width={small?27:32} height={small?27:32} viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M5 12 18 4l13 8v13l-13 8L5 25V12Z" stroke="currentColor" strokeWidth="1.4"/><path d="m5 12 13 8 13-8M18 20v13M11 8l13 8v12M25 8l-13 8v12" stroke="currentColor" strokeWidth="1.4"/></svg>
@@ -150,7 +151,7 @@ const downloadBlob=(blob:Blob,filename:string)=>{
   a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),30_000)
 }
 type Dialog='export'|'help'|'lab'|'history'|'reload'|null
-export default function App() {
+function GeometryApp({onOpenAssets}:{onOpenAssets:()=>void}) {
   const state=useEditorStore(),{document:scene,save,history,audience,tool,grid}=state
   const [dialog,setDialog]=useState<Dialog>(null),[busy,setBusy]=useState(false)
   const [candidate,setCandidate]=useState<SceneDocument|null>(null)
@@ -195,7 +196,7 @@ export default function App() {
   const savedLabel={saved:'本地已保存',saving:'正在保存',unsaved:'等待保存',error:'保存失败',conflict:'存在版本冲突'}[save.status]
   return <>
     <div className="app-shell" data-revision={scene?.revision}>
-      <nav className="app-rail" aria-label="主导航"><div className="rail-logo" title="织境 Sceneweave"><Logo/></div><button className="rail-item active" aria-label="场景工坊"><Map size={22}/><span>场景</span></button><button className="rail-item" aria-label="历史快照" onClick={showHistory}><Archive size={20}/><span>快照</span></button><div className="rail-spacer"/><button className="rail-item" aria-label="技术验证面板" onClick={()=>setDialog('lab')}><Gauge size={20}/><span>实验</span></button><button className="rail-help" aria-label="使用说明" title="使用说明" onClick={()=>setDialog('help')}><CircleHelp size={21}/></button><div className="rail-avatar" title="本地主持人">GM</div></nav>
+      <nav className="app-rail" aria-label="主导航"><div className="rail-logo" title="织境 Sceneweave"><Logo/></div><button className="rail-item active" aria-label="场景工坊"><Map size={22}/><span>场景</span></button><button className="rail-item" aria-label="素材工坊" disabled={busy} onClick={()=>void attempt(async()=>{const before=useEditorStore.getState().document;await flushSave();const after=useEditorStore.getState().document;if(before?.sceneId!==after?.sceneId||before?.revision!==after?.revision)throw new Error('保存期间场景已有修改，请重新打开素材工坊。');onOpenAssets()})}><Layers size={20}/><span>素材</span></button><button className="rail-item" aria-label="历史快照" onClick={showHistory}><Archive size={20}/><span>快照</span></button><div className="rail-spacer"/><button className="rail-item" aria-label="技术验证面板" onClick={()=>setDialog('lab')}><Gauge size={20}/><span>实验</span></button><button className="rail-help" aria-label="使用说明" title="使用说明" onClick={()=>setDialog('help')}><CircleHelp size={21}/></button><div className="rail-avatar" title="本地主持人">GM</div></nav>
       <div className="app-main">
         <header className="topbar"><div className="brand-title"><span>织境</span><b>Sceneweave</b><span className="prototype-tag">M0 原型</span></div><div className="topbar-right"><span className={`save-indicator ${save.status}`} role="status">{save.status==='saved'?<CheckCircle2 size={14}/>:save.status==='saving'?<LoaderCircle className="spin" size={14}/>:<span className="small-dot"/>}{savedLabel}</span><span className="topbar-divider"/><button className="text-button" onClick={()=>file.current?.click()} disabled={busy}><Upload size={15}/>打开工程</button><button className="text-button" onClick={backup} disabled={busy||!scene}><FileDown size={15}/>主持人工程</button><button className="primary export-main" onClick={()=>{setExportAudience('player');setExportGrid(grid);setDialog('export')}} disabled={busy||!scene}><ArrowDownToLine size={16}/>导出地图<ChevronDown size={13}/></button></div></header>
         <div className="document-bar"><div className="breadcrumb"><FolderOpen size={15}/><span>我的场景</span><ChevronRight size={13}/><h1>{scene?.title??'正在打开场景'}</h1><span className="document-format">调查场景</span></div><div className="document-actions"><button className="text-button muted" onClick={()=>void attempt(newHouse)} disabled={busy}><Plus size={15}/>新建样例</button><IconButton label="另存场景副本" onClick={()=>void attempt(()=>saveAsCopy())} disabled={busy||!scene}><Copy size={16}/></IconButton><IconButton label="使用说明" onClick={()=>setDialog('help')}><MoreHorizontal size={18}/></IconButton></div></div>
@@ -213,4 +214,11 @@ export default function App() {
     {dialog==='history'&&<Modal title="本地历史快照" onClose={()=>setDialog(null)}><p className="modal-intro">保留最近 20 次成功保存。恢复会创建副本，当前工程保持原样。</p><div className="snapshot-list">{snapshots.length?snapshots.map(s=><div className="snapshot-row" key={s.revision}><Clock3 size={16}/><div><strong>修订 r{s.revision}</strong><small>{new Date(s.updatedAt).toLocaleString('zh-CN')}</small></div><button className="secondary small" onClick={()=>void attempt(async()=>{await saveAsCopy(s);setDialog(null)})}>恢复为副本</button></div>):<p className="empty-state">当前场景尚无成功保存的快照。</p>}</div><div className="modal-actions"><button className="primary" onClick={()=>setDialog(null)}>完成</button></div></Modal>}
     {dialog==='reload'&&<Modal title="载入最新本地版本" onClose={()=>setDialog(null)}><p className="modal-intro">此标签尚未保存的修改会被替换。建议先下载主持人工程，或另存为副本保留当前分支。</p><div className="modal-actions"><button className="secondary" onClick={backup}>先下载当前工程</button><button className="primary" onClick={()=>void attempt(async()=>{await reloadPersisted();setDialog(null);notify('已载入最新的本地完整快照。')})}>放弃本地分支并载入</button></div></Modal>}
   </>
+}
+
+export default function App() {
+  const [assets,setAssets]=useState(()=>window.location.hash==='#assets')
+  useEffect(()=>{const change=()=>setAssets(window.location.hash==='#assets');window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change)},[])
+  const open=(value:boolean)=>{window.history.replaceState(null,'',value?'#assets':window.location.pathname);setAssets(value)}
+  return assets?<AssetWorkbench onBack={()=>open(false)}/>:<GeometryApp onOpenAssets={()=>open(true)}/>
 }

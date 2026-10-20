@@ -1,6 +1,6 @@
 {
   "name": "sceneweave",
-  "version": "0.1.0-m0",
+  "version": "0.2.0-m1-b1",
   "private": true,
   "type": "module",
   "engines": {

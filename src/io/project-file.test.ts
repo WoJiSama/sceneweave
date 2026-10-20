@@ -1,7 +1,7 @@
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { createHouse } from '../core/seed'
-import { exportProject, importProject, PROJECT_LIMITS } from './project-file'
+import { exportProject, importProject, readProjectV1, PROJECT_LIMITS } from './project-file'
 
 const encode = (text: string) => new TextEncoder().encode(text)
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
@@ -46,6 +46,14 @@ function duplicatePathZip(): Blob {
 }
 
 describe('.sceneweave M0 project container', () => {
+  it('reads the exact source identity and revision before explicit migration', async () => {
+    const source = createHouse('migration-original')
+    source.revision = 42
+    expect(await readProjectV1(await exportProject(source))).toEqual(source)
+    const fork = await importProject(await exportProject(source))
+    expect(fork.sceneId).not.toBe(source.sceneId)
+    expect(fork.revision).toBe(0)
+  })
   it('roundtrips full secret-bearing geometry into an independent new scene', async () => {
     const original = createHouse()
     original.revision = 17
