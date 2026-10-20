@@ -7,7 +7,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
-  use: { baseURL: 'http://127.0.0.1:5173', viewport: { width: 1512, height: 982 }, screenshot: 'only-on-failure', trace: 'retain-on-failure' },
+  use: { baseURL: process.env.SCENEWEAVE_TEST_BASE_URL ?? 'http://127.0.0.1:5173', viewport: { width: 1512, height: 982 }, screenshot: 'only-on-failure', trace: 'retain-on-failure' },
   projects: [{ name: 'chromium', use: { browserName: 'chromium', viewport: { width: 1512, height: 982 }, channel: process.env.SCENEWEAVE_BROWSER_CHANNEL } }],
-  webServer: { command: 'npm run dev -- --port 5173 --strictPort', url: 'http://127.0.0.1:5173', reuseExistingServer: !process.env.CI, timeout: 30_000 },
+  webServer: process.env.SCENEWEAVE_TEST_BASE_URL ? undefined : { command: 'npm run dev -- --port 5173 --strictPort', url: 'http://127.0.0.1:5173', reuseExistingServer: !process.env.CI, timeout: 30_000 },
 })

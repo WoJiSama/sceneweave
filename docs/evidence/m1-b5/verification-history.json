@@ -1,0 +1,51 @@
+{
+  "pilot": {
+    "config": {
+      "runs": 1,
+      "editsPerKind": 2,
+      "selections": 4,
+      "requestedCases": [
+        "study-500",
+        "study-2000",
+        "island-500",
+        "island-2000"
+      ],
+      "channel": "chrome",
+      "viewport": {
+        "width": 1512,
+        "height": 1120
+      },
+      "dpr": 1,
+      "osSampleIntervalMs": 100,
+      "cdpHeapIntervalMs": 200,
+      "decodedBitmapCache": "none; each renderer call decodes and closes its own SHA-deduplicated bitmaps",
+      "processState": "fresh Chrome process and profile per measured run; HTTP cache disabled; OS caches not purged",
+      "rendering": "production modules, Canvas2D; drawSubmission is CPU submission; paint is two-rAF scheduling proxy"
+    },
+    "status": "complete",
+    "note": "Four edits/selections per case: diagnostic only. Tool timing/phase/failure handling was corrected before the formal baseline. Pilot raw files remain in local work and are not capacity evidence."
+  },
+  "candidates": [
+    {
+      "directory": "candidate-reuse",
+      "note": "Formal 12-run rejected experiment: same-size paint reuse plus global single-decoder correction; all raw arrays retained. Final removes reuse, retaining decoder and failure ownership fixes."
+    }
+  ],
+  "focusedBeforeFinal": {
+    "tests": 45,
+    "passed": true,
+    "note": "Queue, render metrics/projection/paint ownership and fixtures; final full regression supersedes it."
+  },
+  "testPolicy": {
+    "implicitRetries": false,
+    "increasedTimeout": false,
+    "parallelBrowserDuringMeasurement": false,
+    "idleSleepPrevention": "command-scoped caffeinate -i, no system preferences modified"
+  },
+  "staticAuditHistory": [
+    {
+      "result": "initial link check reported two missing generated reports",
+      "resolution": "Copy generated doc/delivery reports into evidence first, then rerun links; no product source or runtime results changed."
+    }
+  ]
+}

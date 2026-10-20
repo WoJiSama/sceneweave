@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { inspectImageBytes, normalizeImageAsset, sha256Bytes, validateImageAssetRecord } from './resources'
+import { inspectImageBytes, normalizeImageAsset, sha256Bytes, validateImageAssetRecord, withImageDecoderSlotV2 } from './resources'
 import { imageRecord, pixelPng, pngChunk } from './test-fixtures'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -55,6 +55,42 @@ describe('v2 static bitmap normalization and validation', () => {
     expect(peak).toBe(1); expect(active).toBe(0)
     vi.stubGlobal('createImageBitmap', vi.fn(async () => { controller.abort(); return { width: 1, height: 1, close: vi.fn() } }))
     await expect(validateImageAssetRecord(record, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('shares one native decode slot between render callers and complete-resource validation', async () => {
+    const record = await imageRecord(), close = vi.fn(), finish: (() => void)[] = []
+    let active = 0, peak = 0
+    const decode = vi.fn((_blob: Blob, _options?: ImageBitmapOptions) => {
+      active++; peak = Math.max(peak, active)
+      return new Promise<ImageBitmap>(resolve => finish.push(() => { active--; resolve({ width: 1, height: 1, close } as unknown as ImageBitmap) }))
+    })
+    vi.stubGlobal('createImageBitmap', decode)
+    const rendered = withImageDecoderSlotV2(undefined, async () => {
+      const bitmap = await createImageBitmap(record.blob, { premultiplyAlpha: 'default' })
+      bitmap.close()
+    })
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1))
+    const validated = validateImageAssetRecord(record)
+    finish[0]()
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(2))
+    finish[1](); await Promise.all([rendered, validated])
+    expect(peak).toBe(1); expect(active).toBe(0); expect(close).toHaveBeenCalledTimes(2)
+    expect(decode.mock.calls[0][1]).toEqual({ premultiplyAlpha: 'default' })
+    expect(decode.mock.calls[1][1]).toMatchObject({ premultiplyAlpha: 'none' })
+  })
+
+  it('skips an aborted queued decode and releases failed or cancelled positions for later callers', async () => {
+    let release!: () => void
+    const first = withImageDecoderSlotV2(undefined, () => new Promise<void>(resolve => { release = resolve }))
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    const controller = new AbortController(), skipped = vi.fn(async () => {})
+    const waiting = withImageDecoderSlotV2(controller.signal, skipped)
+    const rejected = expect(waiting).rejects.toMatchObject({ name: 'AbortError' })
+    const healthy = vi.fn(async () => 42), last = withImageDecoderSlotV2(undefined, healthy)
+    controller.abort(); release(); await first; await rejected
+    expect(await last).toBe(42); expect(skipped).not.toHaveBeenCalled(); expect(healthy).toHaveBeenCalledOnce()
+    await expect(withImageDecoderSlotV2(undefined, async () => { throw new Error('decode rejected') })).rejects.toThrow('decode rejected')
+    expect(await withImageDecoderSlotV2(undefined, async () => 'recovered')).toBe('recovered')
   })
 
   it('normalizes source metadata to newly hashed sRGB PNG and releases its canvas', async () => {
