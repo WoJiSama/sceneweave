@@ -174,27 +174,33 @@ export function inspectImageBytes(bytes: Uint8Array, normalized = true): ImageHe
   return failV2('仅支持静态 PNG、JPEG 或 WebP；实际格式不符。')
 }
 
-// One decoder across import, export, save and normalization, not one per caller.
+// One decoder slot across validation/normalization and renderers, not one per caller.
 let decoderQueue: Promise<void> = Promise.resolve()
-async function withDecodedImage<T>(blob: Blob, signal: AbortSignal | undefined, action: (bitmap: ImageBitmap) => Promise<T>): Promise<T> {
+/** The callback owns its output/lifecycle. Waiting cancellation still releases this queue position. */
+export async function withImageDecoderSlotV2<T>(signal: AbortSignal | undefined, action: () => Promise<T>): Promise<T> {
   checkCancelled(signal)
   const previous = decoderQueue
   let release!: () => void
   decoderQueue = new Promise<void>(resolve => { release = resolve })
   await previous
-  let bitmap: ImageBitmap | undefined
-  try {
-    checkCancelled(signal)
-    if (typeof createImageBitmap !== 'function') failV2('当前环境缺少真实位图解码能力。')
-    try { bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'none' }) }
-    catch { checkCancelled(signal); return failV2('位图实际解码失败。') }
-    checkCancelled(signal)
-    dimensions(bitmap.width, bitmap.height)
-    return await action(bitmap)
-  } finally {
-    bitmap?.close()
-    release()
-  }
+  try { checkCancelled(signal); return await action() }
+  finally { release() }
+}
+async function withDecodedImage<T>(blob: Blob, signal: AbortSignal | undefined, action: (bitmap: ImageBitmap) => Promise<T>): Promise<T> {
+  return withImageDecoderSlotV2(signal, async () => {
+    let bitmap: ImageBitmap | undefined
+    try {
+      checkCancelled(signal)
+      if (typeof createImageBitmap !== 'function') failV2('当前环境缺少真实位图解码能力。')
+      try { bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'none' }) }
+      catch { checkCancelled(signal); return failV2('位图实际解码失败。') }
+      checkCancelled(signal)
+      dimensions(bitmap.width, bitmap.height)
+      return await action(bitmap)
+    } finally {
+      bitmap?.close()
+    }
+  })
 }
 
 /** Full byte/header/hash/decode check; never substitutes a failed image. */

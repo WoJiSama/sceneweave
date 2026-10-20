@@ -1,12 +1,36 @@
 import { validateSceneV2 } from '../../core/v2/schema'
 import type { BoundsMm, MaterialPaint, PointMm, PropV2, ShadowStyle, SurfaceStyle } from '../../core/v2/types'
 import { checkCancelled, PROJECT_LIMITS_V2 } from '../../io/v2/limits'
-import { inspectImageBytes, sha256Bytes } from '../../io/v2/resources'
+import { inspectImageBytes, sha256Bytes, withImageDecoderSlotV2 } from '../../io/v2/resources'
 import type { CompleteProjectV2 } from '../../io/v2/types'
 import { orderedPropsV2, pointsBoundsV2, projectSceneV2 } from './projection'
 import type { AudienceV2, ProjectedConnectionV2, ProjectedOpeningV2, ProjectedTerrainEdgeV2, ProjectedWallV2, ProjectionV2 } from './projection'
 
-export interface RenderOptionsV2 { audience: AudienceV2; longEdgePx: number; signal?: AbortSignal }
+/** Monotonic elapsed milliseconds for one successful render, not GPU completion or memory peaks. */
+export interface RenderMetricsV2 {
+  /** Strict document validation, snapshot/projection and output/support checks. */
+  validationProjectionMs: number
+  /** Resource-record checks plus Blob reads, header/CRC inspection and SHA-256; summed across projected assets. */
+  resourceVerificationMs: number
+  /** Elapsed wait for the shared validation/normalization/render decoder slot. */
+  decoderQueueWaitMs: number
+  /** Elapsed createImageBitmap calls, summed across unique SHA-256 resources. */
+  imageDecodeMs: number
+  /** Synchronous drawProjection call only; excludes output canvas/context allocation. */
+  drawSubmissionMs: number
+  /** Includes temporary-resource cleanup; excludes observer and PNG encoding. Phases need not sum to this value. */
+  totalMs: number
+  decodedImages: number
+  decodedPixels: number
+  width: number
+  height: number
+  audience: AudienceV2
+}
+export interface RenderOptionsV2 {
+  audience: AudienceV2; longEdgePx: number; signal?: AbortSignal
+  /** Called once after a successful render and temporary-resource cleanup; observer errors are ignored. PNG encoding is excluded. */
+  onMetrics?: (metrics: RenderMetricsV2) => void
+}
 export const PNG_MAX_LONG_EDGE_V2 = 4096
 export const PNG_MAX_PIXELS_V2 = 16_777_216
 export interface WallGeometryV2 { wall: ProjectedWallV2; polygons: PointMm[][] }
@@ -65,25 +89,34 @@ function polygonPath(points: PointMm[]): Path2D { const path = new Path2D(); add
 function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX: number, scaleY: number) { ctx.setTransform(scaleX, 0, 0, scaleY, -bounds.x * scaleX, -bounds.y * scaleY) }
 
 interface RasterSetV2 { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; paintCache?: { key: string; image: HTMLCanvasElement } }
-async function decodeRequired(project: CompleteProjectV2, projection: ProjectionV2, signal?: AbortSignal): Promise<RasterSetV2> {
+async function decodeRequired(project: CompleteProjectV2, projection: ProjectionV2, signal?: AbortSignal, metrics?: Pick<RenderMetricsV2, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>): Promise<RasterSetV2> {
   const bitmaps = new Map<string, ImageBitmap>(), byAssetId = new Map<string, ImageBitmap>(); let totalPixels = 0
   try {
     for (const id of projection.assetIds) {
       checkCancelled(signal)
+      const verificationStarted = metrics ? performance.now() : 0
       const ref = project.document.assets[id], resource = ref && project.assets[ref.sha256]
       if (!ref || !resource || !(resource.blob instanceof Blob)) throw new Error(`绘制所需素材 ${id} 缺失，无法生成完整图片。`)
       if (ref.sha256 !== resource.sha256 || ref.mimeType !== resource.mimeType || ref.pixelWidth !== resource.pixelWidth || ref.pixelHeight !== resource.pixelHeight || resource.blob.size !== resource.sizeBytes || resource.blob.type && resource.blob.type !== ref.mimeType) throw new Error(`素材 ${id} 的字节记录与工程不一致。`)
       const cached = bitmaps.get(ref.sha256)
-      if (cached) { byAssetId.set(id, cached); continue }
+      if (cached) { byAssetId.set(id, cached); if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted; continue }
       const bytes = new Uint8Array(await resource.blob.arrayBuffer()); checkCancelled(signal)
       const header = inspectImageBytes(bytes)
       if (header.mimeType !== ref.mimeType || header.width !== ref.pixelWidth || header.height !== ref.pixelHeight || await sha256Bytes(bytes) !== ref.sha256) throw new Error(`素材 ${id} 的实际格式、尺寸或 hash 不匹配。`)
       checkCancelled(signal)
       totalPixels += header.width * header.height
       if (bitmaps.size >= PROJECT_LIMITS_V2.uniqueImages || totalPixels > PROJECT_LIMITS_V2.totalImagePixels) throw new Error('绘制素材超过候选解码预算。')
+      if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted
+      const queuedStarted = metrics ? performance.now() : 0
       let bitmap: ImageBitmap
-      try { bitmap = await createImageBitmap(resource.blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'default' }) }
-      catch { throw new Error(`素材 ${id} 实际解码失败，已停止出图。`) }
+      try {
+        bitmap = await withImageDecoderSlotV2(signal, async () => {
+          const decodeStarted = metrics ? performance.now() : 0
+          if (metrics) metrics.decoderQueueWaitMs += decodeStarted - queuedStarted
+          try { return await createImageBitmap(resource.blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'default' }) }
+          finally { if (metrics) metrics.imageDecodeMs += performance.now() - decodeStarted }
+        })
+      } catch { checkCancelled(signal); throw new Error(`素材 ${id} 实际解码失败，已停止出图。`) }
       if (signal?.aborted) { bitmap.close(); checkCancelled(signal) }
       if (bitmap.width !== ref.pixelWidth || bitmap.height !== ref.pixelHeight) { bitmap.close(); throw new Error(`素材 ${id} 的实际解码尺寸不符。`) }
       bitmaps.set(ref.sha256, bitmap); byAssetId.set(id, bitmap)
@@ -98,15 +131,17 @@ function paintImage(ctx: CanvasRenderingContext2D, paint: MaterialPaint, project
   const key = JSON.stringify([paint, ctx.canvas.width, ctx.canvas.height])
   if (raster.paintCache?.key !== key) {
     if (raster.paintCache) disposeCanvas(raster.paintCache.image)
-    const image = canvas(ctx.canvas.width, ctx.canvas.height), imageCtx = context(image), pattern = imageCtx.createPattern(bitmap, 'repeat')
-    if (!pattern) { disposeCanvas(image); throw new Error('无法建立重复材质。') }
+    const image = canvas(ctx.canvas.width, ctx.canvas.height)
+    // Own the surface before setup; a synchronous paint failure aborts this render and its finally releases it.
+    raster.paintCache = { key, image }
+    const imageCtx = context(image), pattern = imageCtx.createPattern(bitmap, 'repeat')
+    if (!pattern) throw new Error('无法建立重复材质。')
     // Full fixed-view rasterization keeps texture phase independent of clipping and mutable bounds.
     const b = projection.bounds
     worldTransform(imageCtx, b, image.width / b.width, image.height / b.height)
     pattern.setTransform(new DOMMatrix().translate(paint.originMm.x, paint.originMm.y).rotate(paint.rotationDeg).scale(paint.tileSizeMm.width / bitmap.width, paint.tileSizeMm.height / bitmap.height))
     imageCtx.fillStyle = pattern; imageCtx.fillRect(b.x, b.y, b.width, b.height)
     if (paint.tint) { imageCtx.globalCompositeOperation = 'multiply'; imageCtx.fillStyle = paint.tint; imageCtx.fillRect(b.x, b.y, b.width, b.height); imageCtx.globalCompositeOperation = 'source-over' }
-    raster.paintCache = { key, image }
   }
   return raster.paintCache.image
 }
@@ -326,6 +361,8 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: ProjectionV2,
 /** Preview and PNG share this projection and renderer; each call owns and closes its decoded bitmaps. */
 export async function renderProjectV2(project: CompleteProjectV2, options: RenderOptionsV2): Promise<HTMLCanvasElement> {
   options = { ...options }
+  const started = options.onMetrics ? performance.now() : 0
+  const metrics: RenderMetricsV2 | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience } : undefined
   checkCancelled(options.signal)
   if (!Number.isInteger(options.longEdgePx) || options.longEdgePx < 256 || options.longEdgePx > PNG_MAX_LONG_EDGE_V2) throw new Error('图片长边须为 256–4096 整数像素。')
   const validated = validateSceneV2(project.document)
@@ -336,12 +373,25 @@ export async function renderProjectV2(project: CompleteProjectV2, options: Rende
   const ratio = options.longEdgePx / Math.max(projection.bounds.width, projection.bounds.height), width = Math.max(1, Math.round(projection.bounds.width * ratio)), height = Math.max(1, Math.round(projection.bounds.height * ratio))
   if (width * height > PNG_MAX_PIXELS_V2) throw new Error('图片超过 16M 像素预算。')
   if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') throw new Error('图片绘制需要支持真实位图解码与 Canvas 的浏览器。')
-  const raster = await decodeRequired(snapshot, projection, options.signal)
+  if (metrics) { metrics.validationProjectionMs = performance.now() - started; metrics.width = width; metrics.height = height }
+  const raster = await decodeRequired(snapshot, projection, options.signal, metrics)
   let output: HTMLCanvasElement | undefined
+  let completed = false
   try {
-    checkCancelled(options.signal); output = canvas(width, height); drawProjection(context(output), projection, raster, options.signal); checkCancelled(options.signal); return output
+    checkCancelled(options.signal); output = canvas(width, height)
+    const ctx = context(output), drawStarted = metrics ? performance.now() : 0
+    drawProjection(ctx, projection, raster, options.signal)
+    if (metrics) metrics.drawSubmissionMs = performance.now() - drawStarted
+    checkCancelled(options.signal); completed = true; return output
   } catch (error) { if (output) disposeCanvas(output); throw error }
-  finally { raster.bitmaps.forEach(bitmap => bitmap.close()); if (raster.paintCache) disposeCanvas(raster.paintCache.image) }
+  finally {
+    if (metrics) { metrics.decodedImages = raster.bitmaps.size; metrics.decodedPixels = [...raster.bitmaps.values()].reduce((sum, bitmap) => sum + bitmap.width * bitmap.height, 0) }
+    raster.bitmaps.forEach(bitmap => bitmap.close()); if (raster.paintCache) disposeCanvas(raster.paintCache.image)
+    if (completed && metrics) {
+      metrics.totalMs = performance.now() - started
+      try { options.onMetrics?.(metrics) } catch { /* Observers cannot change the render result or retain temporary resources. */ }
+    }
+  }
 }
 
 export async function exportPngV2(project: CompleteProjectV2, options: RenderOptionsV2): Promise<Blob> {

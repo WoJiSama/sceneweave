@@ -6,6 +6,8 @@ local-data/
 work/
 node_modules/
 dist/
+dist-performance/
+performance-results/
 *.tsbuildinfo
 test-results/
 playwright-report/

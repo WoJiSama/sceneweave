@@ -1,6 +1,6 @@
 {
   "name": "sceneweave",
-  "version": "0.2.0-m1-b4",
+  "version": "0.2.0-m1-b5",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
+    "build:performance": "tsc -b && vite build --config vite.performance.config.ts",
+    "perf:b5": "node tools/performance/run-b5.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc -b",
     "test": "vitest run",
