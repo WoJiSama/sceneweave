@@ -1,6 +1,6 @@
 # 场景文档与编辑契约
 
-状态：M0 几何版原型首轮验证完成，格式 v1 尚未正式发行；M1 视觉与地形扩展为草案。最后更新：2026-10-20。
+状态：M0 几何版原型首轮验证完成，格式 v1 尚未正式发行；下文 M1-A 的 schemaVersion=2 开发契约已冻结为本批设计基线，尚未实现或实测。最后更新：2026-10-20。
 
 这是对象字段、坐标、修订和几何不变量的主定义。当前类型、严格 Zod Schema、几何校验和事务入口位于 src/core；文件封装见[存储与导出](06-storage-and-export.md)，AI 后续参数见[AI 与生成](05-ai-and-generation.md)。
 
@@ -21,7 +21,7 @@ M0 工程只接受 assets 为空且 Prop.assetId=null 的原创程序符号。�
 - revision 为非负安全整数，成功文档事务增加 1；撤销、重做也增加。禁止把旧快照修订号覆盖回正在编辑的文档。
 - 角度使用 degree，顺时针为正，归一化到 [0, 360)。所有数值必须有限。M0 对房间面积与线段相交使用整数判定，面积/叉积用 BigInt 避免大坐标消减误差；只在旋转矩形家具与楼层边界比较时使用 1e-6 mm 容差。触边允许，房间正面积重叠不允许；最终持久坐标仍是整数毫米。
 
-## 顶层字段
+## M0 v1 顶层字段
 
 | 字段 | 含义与约束 |
 |---|---|
@@ -31,7 +31,7 @@ M0 工程只接受 assets 为空且 Prop.assetId=null 的原创程序符号。�
 | createdAt / updatedAt | UTC 时间字符串；用于显示/审计，不替代修订冲突判断 |
 | units | 世界单位 mm，显示单位、网格/吸附设置；世界单位不可变 |
 | exportBoundsMm | 显式的导出矩形，不根据秘密几何自动扩大/裁剪 |
-| floors | Floor 集合；当前恰好一层；M1 仍为单 Floor，离散地面高度按下文草案另行表达 |
+| floors | Floor 集合；当前恰好一层；M1 仍为单 Floor，离散地面高度按下文 v2 契约另行表达 |
 | vertices / rooms / walls / openings | 稳定 ID 索引的几何实体集合 |
 | props / regions / notes | 物件、区域和注记集合 |
 | assets | AssetRef 清单，不含 Blob 或外部执行内容 |
@@ -41,7 +41,7 @@ M0 工程只接受 assets 为空且 Prop.assetId=null 的原创程序符号。�
 
 文件中的集合不可含重复 ID；schema 校验不能通过静默丢弃重复键来“修复”文档。持久化文档不保存 Konva 类名、React state、访问令牌、当前选区、视口或未采用的 AI 提案。
 
-## 对象定义
+## M0 v1 对象定义
 
 ### Floor、Vertex、Room
 
@@ -107,65 +107,191 @@ Note.discovered 只记录线索发现状态，不自动公开正文；主持人�
 
 AssetRef.origin 存原创/导入/生成的来源类别与必要授权信息，避免绝对本地路径、provider 凭据或完整提示词。多个引用可共用相同 hash。原始资产许可及可嵌入标记见[规则与素材](10-rules-assets-and-licensing.md)。
 
-## 未来 M1 扩展草案（当前代码未接受）
+## M1-A v2 开发契约（当前代码未接受）
 
-以下定义约束实现方向，概念名与字段将在 M1-A 冻结。它们不是 schemaVersion=1 的新增合法字段：现有严格 Schema、命令和 m0-geometry 导入器继续拒绝未知字段与外部素材。M1-A 确定新文档版本、资产 profile、迁移规则及候选容器预算，M1-B 按新格式实现并用真实样板验证预算；不能用更换 profile 绕过旧版本的校验。
+本节是 M1-B/C 的实现输入，文档采用 `format="sceneweave"`、`schemaVersion=2`；工程容器采用 `containerVersion=2`、`profile="m1-assets"`、`packageMode="complete"`。它与上文 v1 是独立的严格 Schema，不能向 v1 塞入未知字段、更换 profile 冒充兼容或在导入时丢字段。当前 src/core 和 IO 继续只支持 v1；冻结设计不代表 v2 文件已能打开，预算也不是性能实测。修改本节基线须同步06、14及验收，不在实现过程中暗改含义。
 
-### 模型分层与最小对象集
+### 公共类型、定义身份与顶层集合
 
-结构、外观、组件和跑团语义分别存储：改材质不改墙厚或占地，改阴影不改遮挡，切换风格不改地形高度。已有 Room、Wall、Prop、Region 和 Note 继续承担各自职责；新对象不成为另一套独立存档。
+所有 v2 对象采用严格对象校验：表中字段均为必填，只有标为“可省略”的字段例外；`null` 与省略不同。整数必须是安全整数；ID 为1～256字符且不接受 `__proto__`；未知字段、重复 JSON 键、集合键与 id 不一致、跨 Floor 引用、坏引用与重复身份全部拒绝。定义与场景实体不共享 ID，内嵌轮廓顶点/边段 ID 也在整个工程中唯一；模板子项键只要求在该模板内唯一。
 
-| 概念 | 拟议持久内容 | 语义边界 |
-|---|---|---|
-| MaterialRef | 稳定 id、版本、实际纹理 AssetRef 引用、建议平铺尺寸、适用表面、来源／许可 | 材质定义不直接包含场景几何或素材字节；草地、木板等名称不自动决定移动代价 |
-| SurfaceStyle | materialId、tileSizeMm、rotationDeg、alignment、originMm、外观覆盖与边缘样式 | 可绑定房间、墙顶或地形表面；记录当前采用的参数，不依赖目录最新默认值 |
-| TerrainArea | id、floorId、完整 boundaryMm、groundElevationMm、coveragePriority、SurfaceStyle、visibility、editLocked | 地表覆盖优先级与高度／绘制顺序独立；阻挡／移动代价显式设置，颜色无判定权 |
-| TerrainEdge | id、来源区域及稳定边段引用、邻接面／外部、kind、边缘样式、显式阻挡语义、visibility、editLocked | 轮廓位置从来源边段派生；保存悬崖／岸线／材质过渡类型和覆盖参数 |
-| TerrainConnection | id、两端地面引用与锚点、连接走廊、净宽、kind、通行属性、visibility、editLocked | 显式表达跨高差的台阶或坡道；装饰台阶贴图不能替代连接 |
-| Path | id、floorId、完整中心折线、widthMm、SurfaceStyle、visibility、editLocked | 道路／小径的可编辑带状外观；若有移动代价须显式声明，不覆盖悬崖、水域或结构墙 |
-| PrefabDefinition | id、版本、局部物件模板、稳定子项键、默认尺度、适用标签、来源／许可 | M1 只组合物件和装饰，不打包房间、墙门或地形结构；定义快照用于再次放置 |
-| PrefabInstance | id、definitionId／version、完整成员 ID、实例覆盖、visibility、editLocked | 成员为真实场景实体；支持整组操作与拆开，已采用内容不依赖重新展开定义 |
-| ScatterGroup | id、floorId、区域／路径引用、目录版本、规则参数、seed、算法版本、成员 ID、人工覆盖与排除记录、visibility、editLocked | 完整采用的物件仍存于 props；seed 只记录生成来源，不是重开时的重建依据 |
-| StyleTheme | id、版本、材质／组件建议、调色与线条／装饰阴影参数快照 | 调整视觉风格，不修改物理尺度、墙厚、地面高度或可见性 |
+| 公共类型 | 固定结构／约束 |
+|---|---|
+| PointMm / SizeMm / BoundsMm | `{x,y}` / `{width,height}` / `{x,y,width,height}`；位置为整数mm，宽高为正整数mm；Bounds可有负局部起点 |
+| VersionRef | `{id,version}`；id必须命中对应定义集合的记录，version为正整数并与该记录完全一致 |
+| DefinitionIdentity | `{id,catalogId,version,licenseRef,origin}`；id是不透明工程快照ID，catalogId是逻辑目录身份，origin为 `{kind,attribution,canEmbed}`，kind沿用original/imported/generated |
+| SurfaceRef | `{kind:"floor",id}`、`{kind:"terrainArea",id}` 或 `{kind:"room",id}` 的严格联合；指同一个Floor |
+| Appearance | `{kind:"image",assetId,tint,opacity}` 或 `{kind:"symbol",symbol,tint,opacity}`；symbol仅五种v1符号；tint为null或 `#RRGGBB`，opacity为[0,1]有限数 |
+| ShadowStyle | `{directionDeg,offsetMm,blurMm,opacity,color}`；方向为世界+x轴顺时针角度[0,360)，offset/blur为非负整数mm，opacity为[0,1]，color为 `#RRGGBB` |
+| 编辑实体 | 沿用id/floorId/editLocked；需要受众控制的实体另有visibility=public/gm。定义快照不可原地编辑，不以editLocked代替版本 |
 
-新对象的引用、锁、单位与受众规则沿用现有领域契约。只有实际采用的定义与参数进入工程；未采用候选、缩略图缓存和模型完整响应不成为必需存档。基础字节仍由 AssetRef 与资产仓库管理，组件定义的目录版本与图片内容 hash 分别记录。
+同一 catalogId 的多个版本可以同时存在；同一个“定义种类＋catalogId＋version”只能对应一份内容，不能用不同 id 隐藏内容冲突。集合中的固定版本是完整快照，不能依赖目录服务器“最新版本”。复制实例复用定义快照和图片 hash，复制定义并修改内容则建立新版本。用户名称、技术ID和catalogId不自动成为公开标签。
 
-### 真实尺寸、材质与厚度
+v2 保留 v1 顶层元数据、units、exportBoundsMm、单个Floor及 vertices/rooms/walls/openings/props/regions/notes/assets、presetSnapshot、constraints、generationMetadata；按下文替换相关对象类型，并新增以下**必填**集合：
 
-- 图片字节描述像素；素材定义描述建议尺寸、分类与许可；场景 Prop 描述实际位置、旋转、显示尺寸及物理 footprint。替换图片或组件变体不自动重写 footprint、blocksMovement 或 blocksSight；需要变更时形成单独可预览的领域操作。
-- 材质 tileSizeMm 为一个平铺单元的实际宽高。world 对齐使用保存的世界原点，适合跨区域连续铺设；surface 对齐使用保存的表面局部原点及方向，适合不同房间的木板方向。改边界不重置原点，也不把整张纹理拉伸到新包围盒。
-- 墙中心线与 thicknessMm 继续定义真实墙体；墙顶材质、描边、门框装饰和投影独立定义外观。带斜角的墙连接必须处理外角／内角、共墙、开口位置和实际净空，不能仅把现有矩形画法旋转后视为支持。
-- 阴影方向与强度由已采用主题和对象覆盖保存，是静态装饰参数。M1 不模拟动态灯光；火把、壁炉和吊灯素材不自动成为 VTT 光源。材质或主题更新先预览，再通过一次事务采用；旧工程按原快照重开。
+| 顶层字段 | 内容 |
+|---|---|
+| propDefinitions | 物件定义快照；资产字节与物件物理默认值分开 |
+| materials | MaterialRef定义快照 |
+| terrainAreas / terrainEdges / terrainConnections / paths | 支撑面、边缘、高差连接和路径 |
+| prefabDefinitions / prefabInstances | 固定物件组合定义及采用后的实例 |
+| scatterGroups | 已采用散布、人工覆盖和删除记录 |
+| styleThemes / activeStyleThemeRef | 主题快照集合；当前VersionRef或null。null使用固定的v2程序默认外观，不伪称已采用插画主题 |
 
-### 地形高度、轮廓与连接
+`assets` 的 AssetRef 保留v1字段；sha256标识规范化后实际采用并持久化的文件字节，logicalSizeMm只是导入建议，不能直接改实例占地。合法图片种类为PNG/JPEG/WebP，外部URL、SVG、HTML、脚本和字体不成为AssetRef。每个图像引用必须命中assets；每个采用的资产及定义必须具备licenseRef和必要来源记录。可嵌入完整包要求引用闭包内origin.canEmbed=true及对应许可文本，具体容器和字节校验见06。v2不把未采用目录条目、缩略图缓存或AI候选变成必需资产；素材缺失可进入独立修复预览，不能作为正常可提交工程或“完整导出成功”。
 
-M1 仍恰好一个 Floor。Room 与 TerrainArea 拟增加 groundElevationMm，以整数毫米表达分段恒定地面高度；一个 Floor 内可以有高台、低地与水岸。渲染排序用于决定树冠、地毯或悬崖装饰的覆盖先后，不能作为高度值。支持范围不含同一 XY 上下重叠的可行走面、桥下通行、多楼层或连续三维地形。
+### 物件定义、实例、显示范围与占地
 
-地表支持“海水基底＋岛屿／台地覆盖”：基底使用最低覆盖优先级，任一 XY 的实际支撑面取包含该点且 coveragePriority 最高的区域。同优先级区域正面积重叠必须拒绝或在明确的布尔操作中分割，不能靠数组顺序决定；面积为空的接触不算重叠。较低优先级区域可以完整保留为可编辑输入，但被覆盖处不能同时通行。该覆盖顺序属于地面解析契约，与渲染排序和高度值分别保存；这不构成桥面与桥下双层模型。
+| 对象 | v2字段 |
+|---|---|
+| PropDefinition | DefinitionIdentity、name、tags、defaultAppearance、defaultVisualBoundsMm、defaultFootprintMm、defaultFootprintOffsetMm、defaultBlocksMovement、defaultBlocksSight、defaultRenderLayer、defaultShadowClass；name为普通文本，tags为去重文本数组，defaultAppearance为Appearance；新建Prop的renderOrder固定初始0、shadowOverride=null，不从图片载入顺序决定 |
+| Prop | v1的id/floorId/editLocked/positionMm/rotationDeg/footprintMm/blocksMovement/blocksSight/visibility及可省略roomId；移除assetId和symbol，新增definitionRef、appearance、visualBoundsMm、footprintOffsetMm、supportRef、renderLayer、renderOrder、shadowClass、shadowOverride |
 
-建筑地面引用所在支撑区域，或通过同一覆盖契约明确覆盖并记录自身高度；不允许由画布排序自动决定地板高度。露台与相邻室外地面不能仅因图片相接就视作连通。草地与岩面的纯材质覆盖由 SurfaceStyle 的表面区域／装饰处理，不新增支撑面或改变高差。地形边缘从解析后的支撑面邻接派生，底部海水轮廓不会在被岛屿覆盖处绘出。M1-A 的最小输入轮廓为简单多边形；复杂区域可用多个输入区域组合，解析产生的裁切轮廓属于确定派生结果，不承诺任意孔洞的独立手工编辑。
+definitionRef为物件定义VersionRef或null；null允许迁移的原创符号，不接受没有定义的新增图片物件。Prop保存的是当前采用的**完整结果**，不能加载时重套definition默认值。`renderLayer` 为ground/object/canopy，renderOrder为[-10000,10000]整数，只在同类绘制层内排序；`shadowClass` 为none/furniture/vegetation，shadowOverride为null或完整ShadowStyle。定义标签、图片尺寸和树冠层均不推导通行属性。
 
-VIS-02 首批采用海水基底和接壤的高低台地，台地之间无正面积重叠，先验证有效边界、高差与连接。嵌套台地或任意孔洞不作为这轮样板的必要范围；不得仅凭模型可描述就声明这些编辑与布尔操作已经通过。
+Prop.positionMm是局部原点的世界位置；局部x右、y下、未旋转的北为-y，正旋转顺时针。图片完整像素矩形（含透明留白）线性映射到局部visualBoundsMm，再围绕局部(0,0)旋转和平移，不再叠加目录或组变换。像素锚点只能从visualBounds反算，工程不另存第二个pixel pivot。footprintMm是保守矩形，中心位于局部footprintOffsetMm；圆桌、树干首批也使用矩形。其全部旋转角点和所属支撑面参与物理校验，视觉树冠、书页留白和装饰阴影不会扩张碰撞。
 
-自然曲线输入采用固定世界精度、版本化采样算法生成整数毫米轮廓。工程保存完整已采用轮廓与稳定边段身份，可同时保存用于继续编辑的曲线控制点和采样参数；正式几何与历史回放以保存的轮廓为准。不能因视口缩放、应用升级或 seed 改变而重新采样存档。移动控制点会产生一份新候选轮廓，并检查自交、零面积、边段引用、邻接和锁后整体提交。
+supportRef指实际地面；supportRef为room时，roomId若存在必须为同一Room；非room支撑上的roomId仍只表示用途归属，不作为物理父节点，且继承该房间的保密限制。物件占地应落在对应的有效支撑面内，边界接触允许；装饰画面可越出支撑面，但仍受Floor边界与显式导出裁剪控制。M1不支持把书本/纸张作为另一物件的三维支撑面：桌面装饰与桌子引用同一地面，使用renderOrder显示叠放。替换图片/物件变体保留position、footprint、offset、支撑、阻挡和可见性；可预览更新visualBounds。改变物理值必须通过显式操作，不能因加载新定义暗改通道。
 
-TerrainEdge 的**几何位置派生，语义和外观可编辑**：岸线、悬崖或材质交界依赖已采用轮廓和相邻区域。改变边缘位置应编辑来源区域；边段拆分／合并要在同一事务中重映射边缘覆盖和连接锚点，无法保持引用时明确报错。不能让用户单独拖开悬崖侧面后仍保留旧的结构边缘。地形轮廓改变可以使相邻纹理与阴影失效重算，但不会自动重置人工物件布置。
+### 材质、局部覆盖与主题
 
-相邻区域高差不会自动获得可通行连接。悬崖边默认阻断跨边移动；需要通行时显式添加 TerrainConnection，并校验两端接触有效地面、端点高度、净宽及引用。坡道／台阶连接描述抽象连接及端点高度，不创建连续三维网格。Path 穿过高差边也不自动生成坡道；深水颜色、浅水透明度或阴影都不能替代阻挡和移动代价。连通／路径结果属于专项校验，不因这些字段存在就宣布求解器已经实现。
+| 对象 | v2字段与含义 |
+|---|---|
+| MaterialRef | DefinitionIdentity、name、tags、textureAssetId、defaultTileSizeMm、applicableSurfaces；applicableSurfaces为room/wall/terrain/path中的非空去重集合 |
+| MaterialPaint | materialRef:VersionRef、tileSizeMm:SizeMm、rotationDeg、alignment、originMm、tint、opacity；alignment为world/surface，tint/opacity沿用Appearance约束 |
+| SurfaceStyle | `{base,overlays}`；base为MaterialPaint，overlays为有序SurfaceOverlay数组；整个SurfaceStyle为null时使用固定程序颜色 |
+| SurfaceOverlay | id、boundaryMm、paint、blendWidthMm、renderOrder；boundaryMm为世界坐标简单整数多边形，paint为MaterialPaint，blendWidthMm为非负整数，renderOrder为[-10000,10000]整数 |
+| StyleTheme | DefinitionIdentity、name、materialSuggestions、propSuggestions、prefabSuggestions、outline、openingStyle、edgeStyles、shadowPresets、terrainCliff；建议项均为相应VersionRef数组 |
 
-### 组合、散布与手工覆盖
+Room.floorStyle、Wall.topStyle、TerrainArea.surfaceStyle、Path.surfaceStyle取SurfaceStyle或null。每个材质引用必须满足适用表面；tileSizeMm表示**整张纹理一周期**的世界宽高，不能误当单根木板宽度。base必须为不透明铺装（opacity=1），局部overlays可以透明；overlay按renderOrder升序、相同时按稳定id排序，并裁剪到所属表面。它们只改变材质，没有独立高程/通行/秘密属性；需要不同受众时建立独立受众实体。草/岩/沙过渡用overlay，不额外制造台地。SurfaceOverlay的边界改变也必须原子校验，不能留下自交遮罩。
 
-PrefabDefinition 使用局部坐标描述一组物件；放置后创建稳定 ID 的真实 Prop 成员，并保存定义版本快照。PrefabInstance 的成员世界变换及实例覆盖是当前采用结果，不在每次加载时从定义重新生成。组的锚点／变换用于后续整组命令，渲染时不再叠加第二次变换。M1 的组合不跨 Floor，也不借组操作修改墙门或地形。
+MaterialPaint.originMm始终存世界坐标，rotationDeg始终存当前世界方向；alignment规定整面移动/旋转时的行为：world保持原点和纹理方向，surface随明确的整面变换更新两者。仅拖动边界顶点不重置纹理原点或尺度。这样既能跨区域连续铺设，也能旋转房间铺装，不从新包围盒重新拉伸纹理。
 
-整组移动、旋转、复制或删除都先计算完整成员影响集合；有成员被编辑锁定则整组失败。拆开仅移除组合关系，成员 ID、世界位置、外观和占地保持不变。实例可以覆盖颜色、变体、位置及显式占地，替换定义版本时展示差异和冲突；新增／删除模板子项不能静默删除手工成员或覆盖实例修改。复制生成新实体 ID，仍引用同一份可嵌入素材字节。
+主题的outline为 `{widthMm,color}`，仅用于墙的主轮廓；物件本体线条在PNG中，崖/岸/路径边线使用edgeStyles。openingStyle为 `{doorStrokeWidthMm,windowStrokeWidthMm,frameWidthMm,doorFill,windowFill}`；edgeStyles是shore/cliff/materialTransition/path四个必填条目，每项为 `{strokeWidthMm,color,bandWidthMm}`。宽度均为非负整数，颜色均为 `#RRGGBB`。门框只作装饰，不能侵占声明净宽。shadowPresets包含none/furniture/vegetation/wall四个完整ShadowStyle；terrainCliff为 `{directionDeg,offsetFactor,maxOffsetMm,blurMm,opacity,color}`，offsetFactor为[0,1]有限数，其装饰偏移为 `round(min(maxOffsetMm,offsetFactor*abs(deltaHeightMm)))`。Prop覆盖只替换自身shadowStyle；阴影始终沿世界方向，不随图片旋转。主题中的建议引用也是完整包依赖；仅已制作且采用的定义可进入快照，不能用未来占位引用破坏闭包。
 
-散布首先生成候选：例如在草地区域布树、沿悬崖放碎石、沿岸线放水纹。采用后保存全部成员的位置、旋转、尺寸、资产引用、规则参数、seed 和算法／目录版本。手动移动或替换的成员标为人工覆盖，删除成员或划定排除区留下排除记录。修改区域或密度不会自动重撒；重新生成先展示候选，仅替换仍由该组管理且未人工调整的成员，保留人工覆盖、排除记录与编辑锁。退出散布组后物件成为普通手工对象，加载工程不依赖原生成器可用。
+首批主题逻辑身份为catalogId=sceneweave-handdrawn、version=1；其工程记录id仍是不透明ID。14定义艺术参数，15定义素材清单；256px/m为制作基准，不是世界坐标或Schema的硬单位。主题变更只改外观，不能暗改墙厚、物理尺寸、高度或受众。
 
-### 依赖、锁与玩家投影
+### 地形支撑、轮廓和边缘
 
-地形边界、附着路径、边缘、连接、素材覆盖和组合成员构成显式依赖图。领域操作先计算影响集合，再校验所有被改变的实体及引用；锁定边缘或连接同样可以阻止来源区域的几何变更。纯渲染缓存可重建，但任何改变实际几何、锚点或成员关系的派生结果都必须包含在同一文档事务中。未采用的候选使用基线修订，过期结果不得覆盖新修改。
+| 对象 | v2字段 |
+|---|---|
+| TerrainArea | id/floorId/editLocked、visibility、boundaryMm、groundElevationMm、coveragePriority、surfaceStyle、blocksMovement、blocksSight、movementCostMultiplier |
+| TerrainArea.boundaryMm子项 | `{id,segmentId,positionMm}`；id是该轮廓顶点ID，segmentId是从此点到下一个点的有向边段ID；末尾连接第一点，不重复闭合点 |
+| TerrainEdge | id/floorId/editLocked、visibility、source、neighborAreaId、kind、shoreline、blocksMovement、blocksSight、surfaceStyle、styleOverride；source为 `{areaId,segmentId}`，neighborAreaId为Id或null，kind为shore/cliff/materialTransition，shoreline为boolean，surfaceStyle采用terrain适用材质以绘崖侧/岸带，styleOverride为null或与主题edgeStyles单项同形的完整覆盖 |
+| TerrainConnection | id/floorId/editLocked、visibility、kind、from、to、widthMm、openingId、blocksMovement、movementCostMultiplier、surfaceStyle；kind为stairs/ramp，from/to为 `{surfaceRef,positionMm}`，openingId为Id或null，surfaceStyle使用path适用材质 |
+| Path | id/floorId/editLocked、visibility、centerlineMm、widthMm、supportRefs、surfaceStyle、movementCostMultiplier、renderOrder；centerlineMm为至少2点的世界整数折线，supportRefs为非空去重SurfaceRef数组 |
 
-TerrainArea、Path、连接、组合和散布均参与受众投影。组合的 gm 状态或成员自身 gm 状态都可使成员隐藏；组合公开不能公开原本私密的成员。边缘与连接还须其来源／锚点可公开，公共外观按过滤后的边界重建，不能泄露隐藏相邻区域的存在。先投影再计算阴影、材质接缝、悬崖或岸线；只过滤最终贴图不满足保密契约。详细输出和配对场景验证见[存储与导出](06-storage-and-export.md)与[质量计划](09-quality-plan.md)。
+M1恰好一个Floor。未被TerrainArea覆盖的Floor基底高程固定0、允许普通步行、移动代价1；材料为空时使用程序底色，不隐藏未覆盖地面。groundElevationMm是整数离散高度，与renderOrder、coveragePriority分别保存。TerrainArea的blocksMovement/blocksSight显式给值，movementCostMultiplier为[1,100]有限数；水色、草名、阴影都不决定这些值。不会形成同一XY上下两层可行走面，桥下通行、多楼层与连续三维地形不在M1范围。
+
+一个点的地形支撑面取包含它且coveragePriority最高的TerrainArea，否则取Floor；coveragePriority为[-10000,10000]整数，与高度大小无绑定。同优先级正面积重叠拒绝；触边允许。被覆盖的低优先级区域保留完整输入，但不在覆盖处同时通行。临界边界以两侧面邻接表达，不由点在边上的包含顺序决定。GM/玩家分别在各自过滤结果中解析，秘密小台地不得挖空公开高地。
+
+输入轮廓为正带符号面积的简单整数多边形，不含孔洞、自交、相邻重复点或零长边。低/高台地接壤的重合段必须有一致端点；相交边先在交点显式分段。非整数交点不得偷偷截断：转换操作预览一次量化的新整数轮廓，整体重新验证，不能通过时拒绝。M1-B采用“水基底＋互相接壤的台地”，允许完整包含的高优先级私密小区域用于VIS-02隐私用例；覆盖解析可能派生孔洞/裁切环，但不提供任意孔洞的独立手工编辑。
+
+自然轮廓的**权威存档是采用后的完整整数折线**。M1-B支持不规则多边形；M1-C笔刷/曲线输入须先转换为候选折线，再量化、简化和校验，采用后保存每个顶点/边段ID。v2不保存未定义的Bezier控制点格式，不在重开时按视口、seed或新版算法重新采样。移动已有顶点保留其ID和相邻边段ID；拆分保留一个子段的原ID、另建新ID；合并显式选择保留ID并提供旧到新引用映射。不能依靠数组下标推断TerrainEdge或连接的身份。
+
+TerrainEdge的**位置从source派生，语义/样式可编辑**。它必须对应有效支撑面边界，neighborAreaId必须与完整GM地形解析的邻接相符，null表示未覆盖Floor侧；不能单独拖开崖面。接壤区域共边只存一个TerrainEdge，以areaId字典序较小一侧的有效源边段为source；海水基底内的岸线以岛屿轮廓为源。每个有效源边段至多一个边缘；被覆盖而不暴露的边段不保留有效边缘实体。边界交会处显式分段，使每段具有恒定的两侧邻接。生成边缘、重映射或删除旧边缘都进入同一次地形事务，绝不由渲染器私自写文档。
+
+不同高度的邻接边强制kind=cliff、blocksMovement=true；shoreline=true可以在同一崖边额外绘主题shore岸沫，避免高差海岸必须二选一；该开关只决定外观。相同高度的shore/materialTransition仍按显式边缘阻挡与两侧地面语义计算。跨高差需TerrainConnection，不能简单把悬崖blocksMovement改成false。连接端点必须分别落在from/to的有效支撑面内且两端高度不同，from/to不能相同；widthMm为净宽，blocksMovement为显式boolean，movementCostMultiplier沿用[1,100]范围。首批连接为两端点间直线矩形走廊，必须仅跨越所声明两地面的一条邻接边，无自交或第三个支撑面，无未声明实体墙/障碍侵入；它在声明走廊内提供有条件的跨边连接，不把台阶变成第二层支撑面。M1最多一个room端，必须同时引用其有效门openingId；无room端时openingId=null。开口净宽必须不小于连接宽度，连接仍受真实门状态控制，关闭门只是当前不可通行，不使连接结构损坏。端高程从引用地面派生，不保存会失同步的第二份高度；改高度必须重验连接。
+
+Path为带状外观及可选代价覆盖，不生成连接。缓冲形状采用世界直线段、方端帽、斜接转角（miterLimit=2，超过转为bevel），相交或折返导致自重叠时拒绝；实际带区由中心线和widthMm确定，不另存第二份可编辑轮廓。路径所有带区必须落在supportRefs并集内；跨高差仍需独立有效连接。它不会解除水域、悬崖、Region或墙的阻挡；重叠非阻挡代价按最大值合成，不承诺道路一定降低移动代价。沿岸碎石带可用TerrainEdge作散布域，无需伪造Path。
+
+### Room支撑、高差入口与斜墙
+
+Room v2新增 `supportRef`、`groundElevationMm`、`floorStyle`；supportRef仅允许floor/terrainArea，room内部墙中心线包围区域必须始终落在该有效支撑面内，groundElevationMm必须等于该支撑面的高度。Room地板是该地面的室内表现，不创建新的上下叠层；覆盖地形图像不抹去原地面高度。外扩墙体可跨同高程地面接缝，不可悬在不同高程地面上。Wall新增 `topStyle`，独立墙的高度归属从相邻地面验证；共墙两室高度必须相同，不能一墙暗接不同高程房间。露台用TerrainArea或明确的Floor地面，不要求造一个封闭Room。
+
+门内/外同高度时，真实门提供结构连接；门外高度不同则还要TerrainConnection，只有门图像或贴图相接不算连通。Room/Prop的支撑引用是实际几何依赖：改台地轮廓不能把建筑或物件留在引用面之外；候选须显式重绑到等高合法面或整体失败。单独提高支撑台地可以在同事务更新该Room高度，不移动其XY；支撑不成立时不能靠自动改visibility或删物件修复。
+
+M1手工Room允许任意整数顶点构成的直边简单多边形，包括VIS-01斜角；曲线墙不在本版。共享墙、拆分、相交点及厚度不变量沿用v1，二维净空按真实墙厚和斜墙带区计算。墙带区为中心线两侧各thickness/2的几何带，相邻墙带取并集，转角miterLimit=2、超出用bevel；不得为画面好看而挪动中心线或改变物理净宽。持久坐标是整数，表现/求交的派生点可为非整数，不写回文档充当新顶点。
+
+Opening v2新增**必填** `offsetReferenceVertexId`，必须为所引用墙的任一端点。offsetMm从该稳定端点沿墙朝另一端量到开口近端；整数offset和width仍代表真实沿墙mm，不能用x/y投影替代。UI明确显示基准端点，moveOpening以该基准输入；反转Wall.start/end不改reference或offset，非整数斜边长也不会累积反转漂移。v1仍按Wall.start计偏移，迁移时把原start写入reference，不能回改M0历史定义。
+
+令参考端到另一端的向量为(dx,dy)，真实长度L=sqrt(dx²+dy²)，开口两端只在表现/检查中按 `reference + s/L*(dx,dy)` 派生；s分别为offset、offset+width。端部安全间隙与全长比较可用整数平方/BigInt判定，不先把L截成轴长或整数。VIS-01斜窗offset400、width600在长sqrt(2000000)的墙上合法。拆分后开口整段必须归属唯一墙段，跨拆点即拒绝；需更换基准端点时，候选把新的沿墙offset四舍五入到最近整数mm（恰半向远离0），显示实际位移及误差，重新检查宽度/间隙/重叠后才可采用。量化只发生在一次明确编辑提交中，重开/绘制/撤销不重复量化；反转本身不触发量化。
+
+### 组合定义、实例与人工覆盖
+
+| 对象 | v2字段 |
+|---|---|
+| PrefabDefinition | DefinitionIdentity、name、tags、members；members为非空有序数组，每项严格为 `{key,propTemplate}`，key为稳定模板子项键，propTemplate为下行完整PropTemplate |
+| PropTemplate | definitionRef、appearance、positionMm、rotationDeg、visualBoundsMm、footprintMm、footprintOffsetMm、blocksMovement、blocksSight、renderLayer、renderOrder、shadowClass、shadowOverride；position为模板局部坐标，其他类型沿用Prop |
+| PrefabInstance | id/floorId/editLocked、visibility、definitionRef、anchorMm、rotationDeg、members；members为稳定模板key索引的 `{propId,overrideFields}` 记录，propId为Id或null（人工删除），overrideFields为已覆盖字段名去重数组 |
+
+M1组合只含Prop，不能打包墙门、TerrainArea、其他组合或ScatterGroup。放置时模板展开为独立稳定ID的完整Prop；成员世界变换和属性是权威，anchor/rotation仅用于下一次整组变换，不在渲染时再乘一次。模板和实例都不支持隐式比例缩放，首次比例由真实mm默认值确定。整组平移/旋转先对当前成员结果计算新候选坐标并一次量化；取消不量化存档，撤销恢复原值。
+
+overrideFields采用Prop字段名白名单（definitionRef、supportRef、roomId、visibility、appearance、visualBoundsMm、positionMm、rotationDeg、footprintMm、footprintOffsetMm、blocksMovement、blocksSight、shadowClass、shadowOverride、renderLayer、renderOrder）；成员实际值仅存props，不存另一份补丁数据。手工删除成员保留key及propId=null，升级定义时不能复活。M1首版不提供自动升级已有组合到新定义：用户可放置新版本对照，再显式替换/拆开；旧实例完整保留。拆开只删组合关系并保存有效受众，成员ID/位置/占地不变。复制创建新组/成员ID，继承覆盖与删除记录。
+
+一个Prop最多属于一个PrefabInstance或一个ScatterGroup；不允许嵌套/双重管理。整组移动/旋转/删除/拆开必须检查组及全部成员编辑锁；组锁也禁止直接修改其成员。公开组不能公开私密成员，gm组隐含隐藏所有成员；拆组不能顺带把gm内容发布。
+
+### 可控散布与稳定重生成
+
+ScatterGroup字段固定为id/floorId/editLocked、visibility、domain、palette、seed、algorithmVersion、gridOriginMm、cellSizeMm、densityFactor、minDistanceMm、rotationRangeDeg、members、exclusions。domain是 `{kind:"area",areaId}`、`{kind:"path",pathId}` 或 `{kind:"edgeBand",edgeId,widthMm}`；palette为 `{key,propDefinitionRef,weight}` 非空数组，weight为正整数；key在palette内唯一，所有propDefinitionRef固定版本。algorithmVersion首批为scatter-cell-v1，seed为1～128字符文本，gridOriginMm为世界整数原点，cellSizeMm/minDistanceMm为正整数，densityFactor为[0,1]，rotationRangeDeg为 `{min,max}` 且0<=min<=max<360。
+
+members按稳定candidateKey索引，每项为 `{propId,state,overrideFields}`；state为managed/manual/deleted/detached。managed/manual必须引用真实Prop，deleted/detached的propId为null，作为永久抑制记录；manual的实际值仍仅存props。exclusions为 `{id,boundaryMm,reason,sourceCandidateKey}` 数组，sourceCandidateKey为文本或null，reason为manual/delete/entrance；boundaryMm是固定世界简单整数多边形，不因域变大或密度变高消失。
+
+scatter-cell-v1使用固定世界网格，以“seed命名空间＋带符号列号＋行号”形成candidateKey（为SHA-256(UTF-8(JSON.stringify([seed,列号,行号])))的64位十六进制摘要）；定义选择、单元内位置、旋转及密度筛选均从该key的确定性hash子流取样，按稳定候选顺序做间距/占地筛选。densityFactor只改变采纳阈值，不能重编号全部候选。seed、网格原点和cellSize在既有组的普通密度重生成中固定；更换这些参数是显式“重建候选网格”，仍继承全部世界排除区和人工物件。hash子流固定为SHA-256(UTF-8(JSON.stringify([seed,列号,行号,channel])))，channel仅density/x/y/palette/rotation；取摘要前13位十六进制为整数除以2^52，得到u∈[0,1)。候选保留条件u_density<densityFactor；单元内位置为gridOrigin+(列/行+u_x/y)*cellSize后按最近整数mm量化，恰半向远离0；旋转在保存范围内线性插值并量化至0.001°，随后按模360归一化到[0,360)，360回到0。palette按key字典序按weight累积分段选择；候选按行号再列号升序筛选，实际占地须完全在域内且不碰排除区，物理矩形间距至少minDistanceMm。采用过程须将具体测试向量记入M1-B证据；改变上述输出即新算法版本，不在开档时迁移随机结果。
+
+采用时完整保存所有Prop、候选key、seed、算法/定义版本、参数和排除记录，加载从不重撒。手动移动/替换/改占地把成员标为manual；手工删除把成员标为deleted，并保存删除前旋转占地的保守世界轴对齐包围矩形（最小值向下、最大值向上取整到mm），再按minDistanceMm外扩为世界排除区。人工划区/入口保留也保存世界排除区。退出组时保留普通Prop，并将原key标为detached，避免生成第二份。
+
+重新生成先产出候选；只可替换仍managed且未锁定的成员，保留manual、deleted、detached和所有exclusions。锁定成员不在重生成影响集合中，其位置作为间距障碍；需要修改锁定实体时整批失败。排除区禁止新候选占地相交，删除的key即使落点改变也不得复活；人工覆盖移到域外可以保留并提示，但其支撑/场景硬约束仍须合法。缺失算法版本时可继续编辑已存实例，禁用重生成并说明原因。M2的ScatterProps只能新增组与Prop，不能用此机制重写旧组、清除删除记录或解除锁。
+
+### 原子依赖、锁、受众与设计限额
+
+| 修改 | 同一候选事务内必须完成的依赖处理 |
+|---|---|
+| 改/拆/删建筑顶点或墙 | 相邻Room、共享Wall、Opening基准与偏移、材质覆盖边界、支撑及附属注记；开口无法保持时整批拒绝 |
+| 改/拆/删TerrainArea轮廓或高程 | 解析覆盖邻接，显式增删/重映射TerrainEdge，检查连接/Path/Room/Prop支撑与散布域；不自动重新散布 |
+| 改TerrainEdge或Connection | 验证源边段/两端引用、走廊净宽与阻挡；不得只改贴图位置 |
+| 改/删组合或散布成员 | 同步members、覆盖或删除记录、实体注记和引用；禁止留下半组或悬空ID |
+| 更换定义/材质/主题 | 先验证完整资产和许可依赖闭包，再按明确外观/物理操作更新引用；定义快照原地不改 |
+
+影响集合先计算、预览并校验，所有需要改变的锁定实体使整批失败；纯渲染缓存可以失效重算，实体/锚点/引用/实际轮廓不能在事务外修复。只读取锁定表面的缓存不算修改该实体，但更新其依赖关系或使其几何含义变化算修改。手工删除依赖默认拒绝并列出引用者；用户选择的级联删除/重绑必须显式列在同一批次，不能静默删除建筑、连接或人工物件。定义/资产移除也执行反向引用检查。所有成功批次只增一次revision，过期候选拒绝，撤销恢复完整实体、覆盖、抑制记录和引用。
+
+有效受众由实体自身、支撑引用、所属组合/散布共同约束：任一上游为gm则该内容不进入玩家投影，public不会反向公开依赖。TerrainEdge须source及所声明邻接均可公开，Connection须两端可公开，Path的supportRefs须全部可公开；出现混合秘密依赖时保守隐藏该实体，不用秘密裁切出的洞提示位置。玩家管线先过滤，随后重算支撑覆盖、默认边缘、材质裁剪、阴影与排序，最后按固定manualMask合成；不能沿用GM缓存。私密Note与来源元数据不进入PNG文本/元数据。规范细节与秘密配对证据见06、08、09。
+
+本版设计限额：每个Room最多256边、每个TerrainArea最多2048边、每个SurfaceOverlay或排除区最多512边、每个Path最多256个中心点、单个PrefabDefinition最多128成员、单个ScatterGroup最多5000个活成员及10000条抑制/排除记录。总工程容量与图片/解压预算以06为主，多个小集合不能绕过总限额。这些是M1-A拒绝策略的设计数值，尚未证明其性能；M1-B用真实纹理与两样板实测后若要调整，须改规范及负例一起提交。
+
+Note.anchor的entityKind在v1种类上新增terrainArea/terrainEdge/terrainConnection/path/prefabInstance/scatterGroup，引用必须同Floor；定义快照不是场景锚点。删除实体时附属注记按既有原子删除/改坐标锚点策略处理。constraints.pathChecks仍独立表达专项检查，不因Note支持新锚点就默认增加已实现路径求解能力。
+
+M1新手工领域能力不扩充M2的AI权限。05仍定义11个白名单操作；AI不可直接改地形高程/轮廓、定义快照、秘密、锁或旧散布覆盖，不可发送任意JSON patch。M1/B的字段完整性、几何校验和可编辑样板也不自动代表占地寻路求解器已经完成。
+
+### v1 → v2 显式迁移默认值
+
+迁移在隔离副本中完成，并生成独立sceneId；原v1工程/IndexedDB记录保留，完整流程见06。原有世界几何、门状态、秘密、锁、预设与注记逐字段保留；不得把旧Region转换为TerrainArea或从颜色推断高度。
+
+| 旧对象 | 新字段／默认值 |
+|---|---|
+| 顶层 | schemaVersion=2；新增定义/地形/组合/散布集合为空，activeStyleThemeRef=null |
+| Room | supportRef指原Floor、groundElevationMm=0、floorStyle=null |
+| Wall / Opening | topStyle=null；Opening.offsetReferenceVertexId=迁移前Wall.startVertexId |
+| Prop | definitionRef=null；appearance为原symbol、tint=null、opacity=1；visualBounds为以(0,0)为中心且等于footprint的矩形，footprintOffsetMm=(0,0)；supportRef指原Floor且roomId继续保留归属；renderLayer=object、renderOrder=0、shadowClass=none、shadowOverride=null；移除原assetId/symbol |
+| Region / Note / AssetRef | 保留既有字段；M0支持的输入assets为空，无需伪造外部素材或许可记录 |
+
+旧footprint若奇数mm导致居中视觉边界为半毫米，迁移visualBounds采用x=-floor(width/2)、y=-floor(height/2)，只在视觉锚点产生至多0.5mm差异，物理footprint和中心保持原值。迁移后须通过严格v2结构/引用/几何校验，失败不覆盖原文档。新增默认值不回写到v1。
+
+以下仅演示一个迁移后的Prop和固定材质引用片段，**不是可独立导入的SceneDocument**；floor-1及mat-snapshot-1等需存在于所属完整工程：
+
+```json
+{
+  "propFragment": {
+    "id": "prop-1", "floorId": "floor-1", "editLocked": false,
+    "positionMm": {"x": 3000, "y": 2500}, "rotationDeg": 0,
+    "footprintMm": {"width": 1800, "height": 800},
+    "footprintOffsetMm": {"x": 0, "y": 0},
+    "visualBoundsMm": {"x": -900, "y": -400, "width": 1800, "height": 800},
+    "definitionRef": null,
+    "appearance": {"kind": "symbol", "symbol": "table", "tint": null, "opacity": 1},
+    "blocksMovement": true, "blocksSight": false, "visibility": "public",
+    "supportRef": {"kind": "floor", "id": "floor-1"},
+    "renderLayer": "object", "renderOrder": 0,
+    "shadowClass": "none", "shadowOverride": null
+  },
+  "materialPaintFragment": {
+    "materialRef": {"id": "mat-snapshot-1", "version": 1},
+    "tileSizeMm": {"width": 2000, "height": 2000},
+    "rotationDeg": 0, "alignment": "world", "originMm": {"x": 0, "y": 0},
+    "tint": null, "opacity": 1
+  }
+}
+```
 
 ## 连接与通行
 

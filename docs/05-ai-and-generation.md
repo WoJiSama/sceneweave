@@ -63,7 +63,7 @@ SceneBrief 是生成意图，不是另一份可直接保存的地图。下表为
 | furnishing | 家具用途、密度偏好、单类数量与总数量上限 | 素材来自本次目录；不能堵住必须保留的通路 |
 | narrativeHooks | 可选的线索、互动点、环境描述需求及其目标对象 | 默认只生成 gm 文字；不推导“玩家应已知道” |
 | secrecyRequirements | 用户明确要求隐藏的新房间、通路、物件、区域和秘密门；使用临时引用及需求来源 | 应用核对来源，核心创建为对应 gm 几何或未揭示秘密门；不能用于修改既有可见性 |
-| assetPalette | 本次允许的 AssetRef 及尺寸、标签摘要 | 由应用提供；模型不能添加 URL、文件路径或未知素材 |
+| assetPalette | 本次允许的 PropDefinition 固定版本、实际可用图片/符号与尺寸、占地、标签摘要 | 由应用提供并解析到工程内定义/AssetRef；模型不能添加 URL、文件路径、未知素材或自创占地 |
 | prefabPalette / styleTheme | 本次允许的组合定义版本、成员占地、可用变体和主题快照 | 只引用已入库、通过验证的版本；模型不能生成图片或篡改材质/占地定义；不隐式给已有全图换主题 |
 | scatterIntent | 允许的既有区域/路径、类别、密度、间距、数量上限和 seed | 按地形、碰撞和排除区求解；人工调整、人工删除记录、锁定对象及范围外内容保持；不凭水色或阴影判断可通行 |
 | fixedAnchors | 既有入口、共享边、门窗位置、锁定物件等不可移动的锚点 | 从文档与选区派生；模型无权删除 |
@@ -101,8 +101,8 @@ required 不要求默认处于 closed 的门自动打开。当前状态下可通
 | AddRoom | 新房间临时 key、用途、尺寸约束、scope 内放置偏好、可选相邻房间引用 | 求解简单正交边界，复用共边；不与既有室内面积重叠；不得挤压范围外房间 |
 | ResizeRoom | Room ID、目标宽深或边界偏移意图、固定边 / 固定点、需保留的 Opening ID | 校验共享顶点、相邻墙与开口；涉及邻室的实际修改必须在 scope 内；不允许隐式删除墙门 |
 | ConnectRooms | 两端 Room 引用、连接方式、允许路线区域、最小净宽、开口宽度、必要 / 可选标志 | 相邻房间可建立开口；不相邻时可创建 purpose 为 corridor 的 Room 及两端开口；所有新增几何都在 scope 内 |
-| MoveOpening | Opening ID、目标 Wall ID、offsetMm；widthMm 保持既有值 | offsetMm 从 Wall.startVertexId 量到开口近端；整个开口须位于墙段内；保留 kind、secret、revealed、state、locked 与 editLocked |
-| PlaceProp | 素材目录中的 AssetRef、目标房间或位置意图、朝向、可选尺寸偏好 | 基于已批准的素材占地求解位置；不接受外部资源地址；校验家具之间及门前净空 |
+| MoveOpening | Opening ID、目标 Wall ID、offsetMm；widthMm 保持既有值 | 提案的 offsetMm 从目标 Wall.startVertexId 量到开口近端；编译 v2 时显式设置 offsetReferenceVertexId 为该端点，之后按04的稳定基准计量；整个开口须位于墙段内；保留 kind、secret、revealed、state、locked 与 editLocked |
+| PlaceProp | 素材目录中已允许的 PropDefinition 固定版本、目标房间或位置意图、朝向、可选尺寸偏好 | 基于已批准的素材占地求解位置；不接受外部资源地址；校验家具之间及门前净空 |
 | PlacePrefab | 已提供的 PrefabDefinition 固定版本、目标范围、位置/朝向意图 | 在同一候选中展开并验证所有成员与组合关系，按展开后的实体数计算预算；不能借组合绕过秘密、锁或范围限制 |
 | ScatterProps | 已提供的素材类别、既有 Room/TerrainArea/Path 范围、密度/间距、排除区、seed、数量上限 | 只增添新物件与新的 ScatterGroup；地形和已有对象作为约束，不重写旧散布结果，不复活人工删除对象；输出完整候选位置与占地 |
 | UpdateProp | Prop ID、位置 / 朝向 / 尺寸调整意图 | 只更新允许的变换；不能改变素材来源、可见性、编辑锁或碰撞语义以绕过检查 |
