@@ -1,13 +1,17 @@
 import { zipSync } from 'fflate'
-import { collectDependenciesV2 } from '../../core/v2/dependencies'
-import { validateSceneV2 } from '../../core/v2/schema'
+import { inspectDependenciesV2 } from '../../core/v2/dependencies'
+import { sceneSchemaV2, validateSceneV2 } from '../../core/v2/schema'
 import { checkCancelled, failV2, hasExactKeys, isSha256, PROJECT_LIMITS_V2 } from './limits'
 import { parseBoundedJson, utf8Decoder, utf8Encoder } from './json'
 import { inspectImageBytes, sha256Bytes, validateImageAssetRecord } from './resources'
 import { inspectZipV2 } from './zip'
+import { version as applicationVersion } from '../../../package.json'
+import { ProjectValidationErrorV2, projectErrorV2, type ProjectDiagnosticV2, type ProjectDiagnosticsV2 } from './diagnostics'
 import type { AssetBlobRecord, CompleteProjectV2, LicenseBinding, LicenseSubject, MigrationSourceV2 } from './types'
 
 export { PROJECT_LIMITS_V2 } from './limits'
+export { PROJECT_DIAGNOSTIC_LIMIT_V2, ProjectValidationErrorV2 } from './diagnostics'
+export type { ProjectDiagnosticV2, ProjectDiagnosticsV2, ProjectDependencySummaryV2 } from './diagnostics'
 interface ManifestEntry { path: string; role: 'scene' | 'asset' | 'license'; sha256: string; sizeBytes: number; mimeType: string }
 interface ManifestV2 {
   format: 'sceneweave-project'; containerVersion: 2; documentSchemaVersion: 2
@@ -16,7 +20,6 @@ interface ManifestV2 {
 }
 const subjectKinds = ['asset', 'material', 'propDefinition', 'prefabDefinition', 'styleTheme'] as const
 const suffix: Record<AssetBlobRecord['mimeType'], string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
-const applicationVersion = '0.2.0-m1-b1'
 const nonemptyString = (value: unknown, max = 256): value is string => typeof value === 'string' && value.length > 0 && Array.from(value).length <= max
 const subjectKey = (subject: Pick<LicenseSubject, 'subjectKind' | 'subjectId'>) => JSON.stringify([subject.subjectKind, subject.subjectId])
 
@@ -86,7 +89,7 @@ async function validateMigration(source: MigrationSourceV2, signal?: AbortSignal
 }
 
 /** Validate every adopted definition/resource/license before any DB transaction. */
-export async function validateCompleteProjectV2(project: CompleteProjectV2, options: { signal?: AbortSignal } = {}): Promise<void> {
+async function validateCompleteProject(project: CompleteProjectV2, options: { signal?: AbortSignal } = {}): Promise<void> {
   checkCancelled(options.signal)
   if (!hasExactKeys(project, ['document', 'assets', 'licenses', 'licenseBindings'], ['migrationSource'])
     || !hasExactKeys(project.assets, [], Object.keys(project.assets ?? {})) || !hasExactKeys(project.licenses, [], Object.keys(project.licenses ?? {}))
@@ -98,52 +101,74 @@ export async function validateCompleteProjectV2(project: CompleteProjectV2, opti
   const jsonBudget = { values: 0 }
   parseBoundedJson(documentBytes, jsonBudget)
   const checked = validateSceneV2(project.document)
-  if (!checked.ok) failV2(checked.errors.map(issue => issue.message).join('；'))
-  const scene = checked.document
-  const dependencies = collectDependenciesV2(scene)
+  // A malformed shape must never enter dependency traversal or image decoding.
+  const shaped = checked.ok ? { success: true as const, data: checked.document } : sceneSchemaV2.safeParse(project.document)
+  if (!shaped.success) throw new ProjectValidationErrorV2(checked.ok ? [] : checked.errors)
+  const scene = shaped.data
+  const dependencies = inspectDependenciesV2(scene)
+  const issues: ProjectDiagnosticV2[] = checked.ok ? [] : [...checked.errors]
   const requiredHashes = new Set<string>()
   for (const id of dependencies.assetIds) {
     const ref = scene.assets[id]
-    if (!ref) failV2(`缺少资产 ${id}。`)
     requiredHashes.add(ref.sha256)
-    const record = project.assets[ref.sha256]
-    if (!record || record.sha256 !== ref.sha256 || record.mimeType !== ref.mimeType
-      || record.pixelWidth !== ref.pixelWidth || record.pixelHeight !== ref.pixelHeight) failV2(`资产 ${id} 的字节、MIME 或尺寸依赖缺失/不匹配。`)
+    const record = Object.hasOwn(project.assets, ref.sha256) ? project.assets[ref.sha256] : undefined
+    if (!record) issues.push({ code: 'MISSING_BITMAP', entityId: id, dependencyId: id, sha256: ref.sha256,
+      message: `资产 ${id} 的字节依赖缺失；请恢复 SHA-256 ${ref.sha256} 的原位图或显式采用可用替代。` })
+    else if (record.sha256 !== ref.sha256 || record.mimeType !== ref.mimeType
+      || record.pixelWidth !== ref.pixelWidth || record.pixelHeight !== ref.pixelHeight) issues.push({ code: 'ASSET_RECORD_MISMATCH', entityId: id, dependencyId: id, sha256: ref.sha256,
+        message: `资产 ${id} 的字节、MIME 或尺寸依赖缺失/不匹配；请恢复与素材记录一致的原位图。` })
   }
-  if (requiredHashes.size !== Object.keys(project.assets).length || Object.keys(project.assets).some(hash => !isSha256(hash) || !requiredHashes.has(hash))) failV2('位图资源必须恰好覆盖依赖闭包，不能包含缓存或缺项。')
-  if (requiredHashes.size > PROJECT_LIMITS_V2.uniqueImages) failV2('独立位图超过 256 张。')
+  for (const hash of Object.keys(project.assets)) if (!isSha256(hash) || !requiredHashes.has(hash)) issues.push({ code: 'UNUSED_BITMAP',
+    ...(isSha256(hash) ? { sha256: hash } : {}), message: '位图资源必须恰好覆盖依赖闭包，不能包含缓存或缺项。' })
+  if (requiredHashes.size > PROJECT_LIMITS_V2.uniqueImages) issues.push({ code: 'IMAGE_COUNT_BUDGET', message: '独立位图超过 256 张。' })
   let pixels = 0, expanded = documentBytes.length
   for (const hash of requiredHashes) {
     const record = project.assets[hash]
+    if (!record) continue
     const count = record.pixelWidth * record.pixelHeight
-    if (!Number.isSafeInteger(count) || count < 1 || (pixels += count) > PROJECT_LIMITS_V2.totalImagePixels) failV2('累计位图像素超过 64000000。')
-    if (!Number.isSafeInteger(record.sizeBytes) || (expanded += record.sizeBytes) > PROJECT_LIMITS_V2.expandedBytes) failV2('完整工程展开量超过 300 MiB。')
+    if (!Number.isSafeInteger(count) || count < 1 || (pixels += count) > PROJECT_LIMITS_V2.totalImagePixels) issues.push({ code: 'IMAGE_PIXEL_BUDGET', sha256: hash, message: '累计位图像素超过 64000000。' })
+    if (!Number.isSafeInteger(record.sizeBytes) || (expanded += record.sizeBytes) > PROJECT_LIMITS_V2.expandedBytes) issues.push({ code: 'EXPANDED_BYTE_BUDGET', sha256: hash, message: '完整工程展开量超过 300 MiB。' })
   }
   const requiredSubjects = new Map<string, LicenseSubject>(dependencies.subjects.map(subject => [subjectKey(subject), subject]))
   const bindingSubjects = new Set<string>(), usedLicenses = new Set<string>(), refs = new Map<string, string>()
-  if (requiredSubjects.size !== dependencies.subjects.length) failV2('重复的许可依赖主体。')
-  for (const binding of project.licenseBindings) {
-    validateBinding(binding)
+  if (requiredSubjects.size !== dependencies.subjects.length) issues.push({ code: 'DUPLICATE_LICENSE_SUBJECT', message: '重复的许可依赖主体。' })
+  for (const [index, binding] of project.licenseBindings.entries()) {
+    try { validateBinding(binding) } catch {
+      issues.push({ code: 'INVALID_LICENSE_BINDING', path: `licenseBindings[${index}]`, message: '许可绑定字段缺失、未知或无效。' }); continue
+    }
     const key = subjectKey(binding), subject = requiredSubjects.get(key)
-    if (!subject || bindingSubjects.has(key) || subject.licenseRef !== binding.licenseRef) failV2('许可绑定悬空、重复或 licenseRef 不一致。')
-    const adopted = adoptedSubject({ ...project, document: scene }, subject)
-    if (!adopted || adopted.licenseRef !== binding.licenseRef || adopted.origin.canEmbed !== true) failV2(`主体 ${binding.subjectId} 未获准嵌入。`)
+    if (!subject || bindingSubjects.has(key) || subject.licenseRef !== binding.licenseRef) {
+      issues.push({ code: 'INVALID_LICENSE_BINDING', entityId: binding.subjectId, path: `licenseBindings[${index}]`, message: '许可绑定悬空、重复或 licenseRef 不一致。' }); continue
+    }
     bindingSubjects.add(key)
+    const adopted = adoptedSubject({ ...project, document: scene }, subject)
+    if (!adopted || adopted.licenseRef !== binding.licenseRef || adopted.origin.canEmbed !== true) issues.push({ code: 'EMBEDDING_FORBIDDEN', entityId: binding.subjectId,
+      message: `主体 ${binding.subjectId} 未获准嵌入；请核对来源或显式采用允许嵌入的替代。` })
     const hash = binding.licensePath.slice(9, -4)
-    if (!Object.hasOwn(project.licenses, hash)) failV2(`主体 ${binding.subjectId} 缺少许可文本。`)
-    if (refs.has(binding.licenseRef) && refs.get(binding.licenseRef) !== hash) failV2('同一 licenseRef 不能绑定多份不同文本。')
-    refs.set(binding.licenseRef, hash); usedLicenses.add(hash)
+    usedLicenses.add(hash)
+    if (!Object.hasOwn(project.licenses, hash)) issues.push({ code: 'MISSING_LICENSE', entityId: binding.subjectId, sha256: hash, path: binding.licensePath,
+      message: `主体 ${binding.subjectId} 缺少许可文本；请恢复对应许可及必要署名。` })
+    if (refs.has(binding.licenseRef) && refs.get(binding.licenseRef) !== hash) issues.push({ code: 'AMBIGUOUS_LICENSE', entityId: binding.subjectId, message: '同一 licenseRef 不能绑定多份不同文本。' })
+    refs.set(binding.licenseRef, hash)
   }
-  if (bindingSubjects.size !== requiredSubjects.size) failV2('有实际采用对象缺少许可绑定。')
-  if (usedLicenses.size !== Object.keys(project.licenses).length || Object.keys(project.licenses).some(hash => !isSha256(hash) || !usedLicenses.has(hash))) failV2('许可文本必须恰好覆盖依赖闭包。')
+  for (const [key, subject] of requiredSubjects) if (!bindingSubjects.has(key)) issues.push({ code: 'MISSING_LICENSE_BINDING', entityId: subject.subjectId,
+    message: `采用对象 ${subject.subjectId} 缺少许可绑定；请恢复来源、许可与允许嵌入记录。` })
+  for (const hash of Object.keys(project.licenses)) if (!isSha256(hash) || !usedLicenses.has(hash)) issues.push({ code: 'UNUSED_LICENSE',
+    ...(isSha256(hash) ? { sha256: hash } : {}), message: '许可文本必须恰好覆盖依赖闭包。' })
   for (const hash of usedLicenses) {
     checkCancelled(options.signal)
     const record = project.licenses[hash]
-    if (!hasExactKeys(record, ['sha256', 'text']) || record.sha256 !== hash) failV2('许可文本记录无效。')
-    const bytes = bytesOfLicense(record.text)
-    if (await sha256Bytes(bytes) !== hash) failV2('许可文本 SHA-256 不匹配。')
-    expanded += bytes.length
+    if (!record) continue
+    if (!hasExactKeys(record, ['sha256', 'text']) || record.sha256 !== hash) {
+      issues.push({ code: 'INVALID_LICENSE', sha256: hash, path: `licenses/${hash}.txt`, message: '许可文本记录无效。' }); continue
+    }
+    try {
+      const bytes = bytesOfLicense(record.text)
+      if (await sha256Bytes(bytes) !== hash) issues.push({ code: 'LICENSE_HASH_MISMATCH', sha256: hash, path: `licenses/${hash}.txt`, message: '许可文本 SHA-256 不匹配。' })
+      expanded += bytes.length
+    } catch { issues.push({ code: 'INVALID_LICENSE', sha256: hash, path: `licenses/${hash}.txt`, message: '许可文本编码、控制字符、大小或来源信息无效；请恢复有效许可文本。' }) }
   }
+  if (issues.length) throw new ProjectValidationErrorV2(issues)
   // Local saves must also remain representable by the same complete container.
   const previewEntries: ManifestEntry[] = [{ path: 'scene.json', role: 'scene', sha256: '0'.repeat(64), sizeBytes: documentBytes.length, mimeType: 'application/json' }]
   for (const hash of requiredHashes) {
@@ -174,7 +199,7 @@ function snapshotProject(project: CompleteProjectV2): CompleteProjectV2 {
 }
 
 /** Version dispatch only. The selected strict reader still validates its profile. */
-export async function inspectProjectVersionV2(file: Blob, options: { signal?: AbortSignal } = {}): Promise<1 | 2> {
+async function inspectProjectVersion(file: Blob, options: { signal?: AbortSignal } = {}): Promise<1 | 2> {
   const zip = await inspectZipV2(file, options.signal)
   const manifest = parseBoundedJson(await zip.read('manifest.json'))
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)
@@ -185,7 +210,7 @@ export async function inspectProjectVersionV2(file: Blob, options: { signal?: Ab
   return candidate.containerVersion
 }
 
-export async function exportProjectV2(project: CompleteProjectV2, options: { signal?: AbortSignal } = {}): Promise<Blob> {
+async function exportCompleteProject(project: CompleteProjectV2, options: { signal?: AbortSignal } = {}): Promise<Blob> {
   checkCancelled(options.signal)
   const snapshot = snapshotProject(project)
   await validateCompleteProjectV2(snapshot, options)
@@ -217,28 +242,39 @@ export async function exportProjectV2(project: CompleteProjectV2, options: { sig
 }
 
 /** Returns an isolated candidate; caller forks identity and atomically adopts it. */
-export async function importProjectV2(file: Blob, options: { signal?: AbortSignal } = {}): Promise<CompleteProjectV2> {
+async function importCompleteProject(file: Blob, options: { signal?: AbortSignal } = {}): Promise<CompleteProjectV2> {
   const zip = await inspectZipV2(file, options.signal)
   const budget = { values: 0 }
   const manifest = readManifest(parseBoundedJson(await zip.read('manifest.json'), budget))
-  if (zip.entries.size !== manifest.entries.length + 1 || manifest.entries.some(entry => !zip.entries.has(entry.path))) failV2('ZIP 实际条目与 manifest 不一致。')
+  const declaredPaths = new Set(['manifest.json', ...manifest.entries.map(entry => entry.path)])
+  const entryIssues: ProjectDiagnosticV2[] = []
+  for (const entry of manifest.entries) if (!zip.entries.has(entry.path)) entryIssues.push({ code: 'MISSING_PACKAGE_ENTRY', path: entry.path, sha256: entry.sha256,
+    message: `ZIP 缺少 ${entry.path}；请保留原文件并恢复完整备份。` })
+  for (const path of zip.entries.keys()) if (!declaredPaths.has(path)) entryIssues.push({ code: 'UNDECLARED_PACKAGE_ENTRY', path, message: `ZIP 实际条目 ${path} 未在 manifest 声明。` })
+  if (entryIssues.length) throw new ProjectValidationErrorV2(entryIssues)
   const files = new Map<string, Uint8Array>()
   for (const entry of manifest.entries) {
     checkCancelled(options.signal)
     if (zip.entries.get(entry.path)!.expanded !== entry.sizeBytes) failV2('manifest 与 ZIP 声明长度不一致。')
-    const bytes = await zip.read(entry.path)
-    if (bytes.length !== entry.sizeBytes || await sha256Bytes(bytes) !== entry.sha256) failV2(`${entry.path} 的大小或 SHA-256 不匹配。`)
+    let bytes: Uint8Array
+    try { bytes = await zip.read(entry.path) } catch (error) { return projectErrorV2(error, { code: 'ZIP_ENTRY_INVALID', path: entry.path, sha256: entry.sha256 }) }
+    if (bytes.length !== entry.sizeBytes || await sha256Bytes(bytes) !== entry.sha256) throw new ProjectValidationErrorV2([{ code: 'PACKAGE_HASH_MISMATCH', path: entry.path, sha256: entry.sha256,
+      message: `${entry.path} 的大小或 SHA-256 不匹配；请恢复未经损坏的完整备份。` }])
     files.set(entry.path, bytes)
   }
-  const checked = validateSceneV2(parseBoundedJson(files.get('scene.json')!, budget))
-  if (!checked.ok) failV2(checked.errors.map(issue => issue.message).join('；'))
-  if (checked.document.sceneId !== manifest.sceneId || checked.document.revision !== manifest.revision) failV2('manifest 场景 ID/revision 与 scene.json 不一致。')
-  const project: CompleteProjectV2 = { document: checked.document, assets: Object.create(null), licenses: Object.create(null), licenseBindings: manifest.licenseBindings }
+  const input = parseBoundedJson(files.get('scene.json')!, budget), shaped = sceneSchemaV2.safeParse(input)
+  if (!shaped.success) {
+    const checked = validateSceneV2(input)
+    throw new ProjectValidationErrorV2(checked.ok ? [] : checked.errors)
+  }
+  if (shaped.data.sceneId !== manifest.sceneId || shaped.data.revision !== manifest.revision) failV2('manifest 场景 ID/revision 与 scene.json 不一致。')
+  const project: CompleteProjectV2 = { document: shaped.data, assets: Object.create(null), licenses: Object.create(null), licenseBindings: manifest.licenseBindings }
   for (const entry of manifest.entries) {
     const bytes = files.get(entry.path)!
     if (entry.role === 'asset') {
       if (Object.hasOwn(project.assets, entry.sha256)) failV2('同一位图 hash 不得包含多个文件。')
-      const header = inspectImageBytes(bytes)
+      let header: ReturnType<typeof inspectImageBytes>
+      try { header = inspectImageBytes(bytes) } catch (error) { return projectErrorV2(error, { code: 'IMAGE_ENCODING_INVALID', path: entry.path, sha256: entry.sha256 }) }
       if (header.mimeType !== entry.mimeType) failV2('位图实际 MIME 与 manifest 不一致。')
       project.assets[entry.sha256] = { sha256: entry.sha256, blob: new Blob([bytes.slice().buffer], { type: header.mimeType }), mimeType: header.mimeType, sizeBytes: bytes.length, pixelWidth: header.width, pixelHeight: header.height }
     } else if (entry.role === 'license') {
@@ -250,4 +286,38 @@ export async function importProjectV2(file: Blob, options: { signal?: AbortSigna
   }
   await validateCompleteProjectV2(project, options)
   return project
+}
+
+export async function validateCompleteProjectV2(project: CompleteProjectV2, options: { signal?: AbortSignal } = {}): Promise<void> {
+  try { await validateCompleteProject(project, options) } catch (error) { projectErrorV2(error) }
+}
+
+/** A report is diagnostic only; failed reports never produce an adoptable project. */
+export async function diagnoseCompleteProjectV2(project: CompleteProjectV2, options: { signal?: AbortSignal } = {}): Promise<ProjectDiagnosticsV2> {
+  try {
+    await validateCompleteProjectV2(project, options)
+    const scene = project.document
+    return { complete: true, issues: [], summary: {
+      assets: Object.keys(scene.assets).length, bitmapBlobs: Object.keys(project.assets).length,
+      materials: Object.keys(scene.materials).length, propDefinitions: Object.keys(scene.propDefinitions).length,
+      prefabDefinitions: Object.keys(scene.prefabDefinitions).length, styleThemes: Object.keys(scene.styleThemes).length,
+      licenseBindings: project.licenseBindings.length, licenseTexts: Object.keys(project.licenses).length,
+      bitmapPixels: Object.values(project.assets).reduce((sum, asset) => sum + asset.pixelWidth * asset.pixelHeight, 0),
+    } }
+  } catch (error) {
+    if (error instanceof ProjectValidationErrorV2) return { complete: false, issues: error.issues, summary: null }
+    throw error
+  }
+}
+
+export async function inspectProjectVersionV2(file: Blob, options: { signal?: AbortSignal } = {}): Promise<1 | 2> {
+  try { return await inspectProjectVersion(file, options) } catch (error) { return projectErrorV2(error) }
+}
+
+export async function exportProjectV2(project: CompleteProjectV2, options: { signal?: AbortSignal } = {}): Promise<Blob> {
+  try { return await exportCompleteProject(project, options) } catch (error) { return projectErrorV2(error) }
+}
+
+export async function importProjectV2(file: Blob, options: { signal?: AbortSignal } = {}): Promise<CompleteProjectV2> {
+  try { return await importCompleteProject(file, options) } catch (error) { return projectErrorV2(error) }
 }

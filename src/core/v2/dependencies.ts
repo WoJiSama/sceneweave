@@ -5,9 +5,12 @@ const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item !== null && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
 
-function inspectDependencies(scene: SceneDocumentV2): { errors: Issue[]; assetIds: string[]; subjects: LicenseSubject[] } {
-  const errors: Issue[] = [], assetIds = new Set<string>(), subjects: LicenseSubject[] = []
-  const error = (code: string, message: string, entityId?: string) => errors.push({ code, message, ...(entityId ? { entityId } : {}) })
+export interface DependencyIssueV2 extends Issue { dependencyId?: string; expectedVersion?: number; actualVersion?: number }
+
+/** Caller must first validate the document shape; this report also covers broken closures. */
+export function inspectDependenciesV2(scene: SceneDocumentV2): { errors: DependencyIssueV2[]; assetIds: string[]; subjects: LicenseSubject[] } {
+  const errors: DependencyIssueV2[] = [], assetIds = new Set<string>(), subjects: LicenseSubject[] = []
+  const error = (code: string, message: string, entityId?: string, detail: Partial<DependencyIssueV2> = {}) => errors.push({ code, message, ...(entityId ? { entityId } : {}), ...detail })
   const seenIds = new Set<string>()
   const register = (id: string, key?: string) => {
     if (key !== undefined && id !== key) error('ID_KEY_MISMATCH', '集合键必须等于快照/实体 id。', id)
@@ -29,12 +32,12 @@ function inspectDependencies(scene: SceneDocumentV2): { errors: Issue[]; assetId
   for (const check of scene.constraints.pathChecks) register(check.id)
   const checkVersion = <T extends DefinitionIdentity>(ref: VersionRef, record: Record<string, T>, owner: string): T | undefined => {
     const target = own(record, ref.id)
-    if (!target) error('MISSING_DEFINITION', `定义快照 ${ref.id} 不存在。`, owner)
-    else if (target.version !== ref.version) error('DEFINITION_VERSION', `引用版本 ${ref.version} 与快照 ${target.version} 不同。`, owner)
+    if (!target) error('MISSING_DEFINITION', `定义快照 ${ref.id}@${ref.version} 不存在；请恢复该固定版本或采用可用定义。`, owner, { dependencyId: ref.id, expectedVersion: ref.version })
+    else if (target.version !== ref.version) error('DEFINITION_VERSION', `定义 ${ref.id} 引用版本 ${ref.version} 与快照 ${target.version} 不同；请恢复引用的固定版本。`, owner, { dependencyId: ref.id, expectedVersion: ref.version, actualVersion: target.version })
     return target
   }
   const useAsset = (id: string, owner: string) => {
-    if (!own(scene.assets, id)) error('MISSING_ASSET', `图片素材 ${id} 不存在；完整工程不能用占位补齐。`, owner)
+    if (!own(scene.assets, id)) error('MISSING_ASSET', `图片素材 ${id} 不存在；请恢复原素材或显式采用可用替代。完整工程不能用占位补齐。`, owner, { dependencyId: id })
     else assetIds.add(id)
   }
   const checkAppearance = (appearance: Appearance, definitionRef: VersionRef | null, owner: string) => {
@@ -150,11 +153,11 @@ function inspectDependencies(scene: SceneDocumentV2): { errors: Issue[]; assetId
   return { errors, assetIds: [...assetIds].sort(), subjects: subjects.sort((a, b) => a.subjectKind.localeCompare(b.subjectKind) || a.subjectId.localeCompare(b.subjectId)) }
 }
 
-export const validateDependenciesV2 = (scene: SceneDocumentV2): Issue[] => inspectDependencies(scene).errors
+export const validateDependenciesV2 = (scene: SceneDocumentV2): DependencyIssueV2[] => inspectDependenciesV2(scene).errors
 
 /** Adopted definitions are editing roots even when no current scene instance uses them. */
 export function collectDependenciesV2(scene: SceneDocumentV2): { assetIds: string[]; subjects: LicenseSubject[] } {
-  const result = inspectDependencies(scene)
+  const result = inspectDependenciesV2(scene)
   if (result.errors.length) throw new Error(result.errors.map(issue => `${issue.code}: ${issue.message}`).join('\n'))
   return { assetIds: result.assetIds, subjects: result.subjects }
 }
