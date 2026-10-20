@@ -1,0 +1,77 @@
+{
+  "treeCandidate": "13de95be533e7a665ff852484518f040a9cc22cd73037fefcb13cd8ff2b953c4",
+  "preservedManualLockedTree": {
+    "id": "scatter-d09eb4534efc9c56d32867ac5a4457a73ceedc19781093bf806406ffce5cb809",
+    "floorId": "island-floor",
+    "editLocked": true,
+    "definitionRef": {
+      "id": "b3-p-02",
+      "version": 1
+    },
+    "appearance": {
+      "kind": "image",
+      "assetId": "b3-a-08",
+      "tint": null,
+      "opacity": 1
+    },
+    "positionMm": {
+      "x": 19561,
+      "y": 7205
+    },
+    "rotationDeg": 235.516,
+    "visualBoundsMm": {
+      "x": -2250,
+      "y": -2250,
+      "width": 4500,
+      "height": 4500
+    },
+    "footprintMm": {
+      "width": 600,
+      "height": 600
+    },
+    "footprintOffsetMm": {
+      "x": 0,
+      "y": 0
+    },
+    "blocksMovement": true,
+    "blocksSight": false,
+    "renderLayer": "canopy",
+    "renderOrder": 0,
+    "shadowClass": "vegetation",
+    "shadowOverride": null,
+    "visibility": "public",
+    "supportRef": {
+      "kind": "terrainArea",
+      "id": "island-high"
+    }
+  },
+  "shrubDeletedCandidate": "2b61c993147434a1ec77886cc78e3bf63afca3515534cacaa83cbc246e7e9820",
+  "exclusion": {
+    "id": "scatter-delete-492f38b00140a1056b031e3b54517cf1a0e78b73173bc0a2db0acf8ba2681b20",
+    "boundaryMm": [
+      {
+        "x": 9526,
+        "y": 5197
+      },
+      {
+        "x": 11142,
+        "y": 5197
+      },
+      {
+        "x": 11142,
+        "y": 6857
+      },
+      {
+        "x": 9526,
+        "y": 6857
+      }
+    ],
+    "reason": "delete",
+    "sourceCandidateKey": "2b61c993147434a1ec77886cc78e3bf63afca3515534cacaa83cbc246e7e9820"
+  },
+  "cancelUnchanged": true,
+  "atomicRegeneration": true,
+  "deletionNeverRevived": true,
+  "historyAndReloadExact": true,
+  "finalRevision": 7
+}

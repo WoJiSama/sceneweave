@@ -1,0 +1,26 @@
+{
+  "coastCancelUnchanged": true,
+  "coastAndShallowAtomic": true,
+  "height4000ThenUndo": true,
+  "overlayThenUndo": true,
+  "persistedBasePaint": {
+    "materialRef": {
+      "id": "b3-m-01",
+      "version": 1
+    },
+    "tileSizeMm": {
+      "width": 3000,
+      "height": 3000
+    },
+    "rotationDeg": 0,
+    "alignment": "world",
+    "originMm": {
+      "x": 0,
+      "y": 0
+    },
+    "tint": null,
+    "opacity": 1
+  },
+  "reloadExact": true,
+  "sourceProps": 39
+}

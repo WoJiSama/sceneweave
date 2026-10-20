@@ -1,14 +1,16 @@
 # 场景文档与编辑契约
 
-状态：M0 几何版原型首轮验证完成，格式v1尚未正式发行；B1已实现并列严格v2领域/完整工程与隔离迁移，B2新增室内样板所需的有限原子事务。证据分别见[17](17-m1b-b1-validation.md)和[18](18-m1b-b2-validation.md)。B3–B5、完整手工编辑器及双样板尚未完成。最后更新：2026-10-20。
+状态：M0 v1原型、并列严格v2/B1、B2有限建筑编辑与B3有限地形/散布编辑已实现；历史与本批分别见[17](17-m1b-b1-validation.md)、[18](18-m1b-b2-validation.md)及[19](19-m1b-b3-validation.md)。B4/B5和完整手工工具仍待推进。最后更新：2026-10-20。
 
 这是对象字段、坐标、修订和几何不变量的主定义。当前类型、严格 Zod Schema、几何校验和事务入口位于 src/core；文件封装见[存储与导出](06-storage-and-export.md)，AI 后续参数见[AI 与生成](05-ai-and-generation.md)。
 
 B1的v2类型与校验位于src/core/v2，覆盖定义快照、资源引用/版本、斜墙开口、地形支撑、连接带区及组合/散布存档关系；格式可以接受完整结构，不表示所有工具已开放。B2的 `applyCommandsV2` 接受有限严格指令，整体克隆与校验，`WorkspaceV2.execute` 对变化批次只提交一次、增加revision并纳入保存/历史。支持顶点移动、墙厚/反转/拆分、材质/铺装设置、地形轮廓点、组合变换/拆分、成员位置/旋转及外观替换。墙拆分暂只提供领域API；UI提供边界、墙厚与反转候选预览。
 
-所有受影响的实体与锚定依赖共同检查编辑锁；组合成员修改保留overrideFields，拆组保留成员身份/实际物理参数，并把组的有效GM受众写回。带局部覆盖材质的墙拆分、被组锚点注记引用的拆组、散布成员编辑明确拒绝。完整范围/基线/来源协议的v2 CommandBatch、任意绘图、新放组合、散布生成与通用占地路径仍待后续；不支持的路径硬约束继续拒绝，v1入口保持独立。
+所有受影响的实体与锚定依赖共同检查编辑锁；组合成员修改保留overrideFields，拆组保留成员身份/实际物理参数，并把组的有效GM受众写回。带局部覆盖材质的墙拆分、被组锚点注记引用的拆组明确拒绝。B3新增高程、覆盖边界、连接阻断/移除、既有散布组重生成、成员删除/退出和有限编辑锁命令；散布成员手改变为manual，删除保留旋转占地的世界AABB外扩排除区，退出固化有效私密受众。被注记引用的删除/生成移除拒绝。完整范围/基线/来源协议的v2 CommandBatch、任意绘图、新放组合/散布域与通用占地路径仍待后续；不支持的路径硬约束继续拒绝，v1入口保持独立。
 
 B2另有明确启用的有限门口校验：仅持久化预设 `sceneweave-vis01@1` 应用入口1000 mm净宽/两侧各1000 mm，以及露台门1200 mm净宽/两侧各1500 mm的预留区。`WorkspaceV2.preview/execute` 在变化候选提交前调用同一校验，矩形跟随当前开口端点与方向，检查完整旋转阻挡占地、扣除门洞的实体墙带、miter/bevel转角和Floor边界。边界接触允许，冲突整笔拒绝且不改变修订、历史和保存队列；换外观、受众和组合中心不绕过成员检查。它不求解开门/锁门状态、通用路径、地形通行或预留区外的家具碰墙；其他工程不因标题/实体ID相似而自动启用。完整路径硬约束仍明确拒绝。
+
+B3的 `checkTerrainTravelV2` 只检查一条明确的全宽直线走廊：有效支撑、水阻挡、真实旋转占地、墙/门状态、显式边缘和足宽未阻挡的高差连接，不搜索替代路径。`sceneweave-vis02@1` 在新编辑候选上启用required台阶（2000 mm）及两端各2000 mm接入区守卫；普通无此预设的草稿可缺连接，由局部检查说明无路。高低共边顶点和显式1500 mm浅水覆盖在UI候选中成批更新；尖角/破环/冲突整体拒绝。通用pathChecks/minPathWidthMm仍不支持。
 
 ## M0 实现范围
 
@@ -228,6 +230,8 @@ overrideFields采用Prop字段名白名单（definitionRef、supportRef、roomId
 一个Prop最多属于一个PrefabInstance或一个ScatterGroup；不允许嵌套/双重管理。整组移动/旋转/删除/拆开必须检查组及全部成员编辑锁；组锁也禁止直接修改其成员。公开组不能公开私密成员，gm组隐含隐藏所有成员；拆组不能顺带把gm内容发布。
 
 ### 可控散布与稳定重生成
+
+当前同步实现每次最多遍历250000候选网格，超出明确拒绝；这是保护限额，不是已测容量或性能承诺。有效公开散布使用过滤后的公开地形、路径、边缘、支撑和物件生成候选，保留已有私密managed成员。最终采用仍校验完整真实几何；若公开候选与隐藏高优先级支撑或保留的私密成员硬间距冲突，整笔拒绝，不能暗中筛掉或移动公开候选来适应秘密。
 
 ScatterGroup字段固定为id/floorId/editLocked、visibility、domain、palette、seed、algorithmVersion、gridOriginMm、cellSizeMm、densityFactor、minDistanceMm、rotationRangeDeg、members、exclusions。domain是 `{kind:"area",areaId}`、`{kind:"path",pathId}` 或 `{kind:"edgeBand",edgeId,widthMm}`；palette为 `{key,propDefinitionRef,weight}` 非空数组，weight为正整数；key在palette内唯一，所有propDefinitionRef固定版本。algorithmVersion首批为scatter-cell-v1，seed为1～128字符文本，gridOriginMm为世界整数原点，cellSizeMm/minDistanceMm为正整数，densityFactor为[0,1]，rotationRangeDeg为 `{min,max}` 且0<=min<=max<360。
 

@@ -68,7 +68,7 @@ export function polygonsOverlapV2(a: PointMm[], b: PointMm[]): boolean {
   }
   return false
 }
-function segmentCuts(a: PointMm, b: PointMm, boundaries: [PointMm, PointMm][]): number[] {
+export function segmentCuts(a: PointMm, b: PointMm, boundaries: [PointMm, PointMm][]): number[] {
   const result = [0, 1], dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy
   if (!length2) return result
   for (const [c, d] of boundaries) {
@@ -84,7 +84,7 @@ function segmentCuts(a: PointMm, b: PointMm, boundaries: [PointMm, PointMm][]): 
   }
   return [...new Set(result)].sort((x, y) => x - y)
 }
-function polygonInside(subject: PointMm[], container: PointMm[]): boolean {
+export function polygonInside(subject: PointMm[], container: PointMm[]): boolean {
   if (!subject.length || container.length < 3 || subject.some(p => !pointInPolygonV2(p, container))) return false
   const boundary = edges(container)
   for (const [a, b] of edges(subject)) {
@@ -119,7 +119,7 @@ export function supportSurfaceAtV2(scene: SceneDocumentV2, point: PointMm, floor
 }
 const elevation = (scene: SceneDocumentV2, ref: SurfaceRef): number | undefined => ref.kind === 'floor' ? own(scene.floors, ref.id) && 0 : ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id)?.groundElevationMm : own(scene.rooms, ref.id)?.groundElevationMm
 const refEqual = (a: SurfaceRef, b: SurfaceRef): boolean => a.kind === b.kind && a.id === b.id
-function pointOnSurface(scene: SceneDocumentV2, p: PointMm, ref: SurfaceRef, floorId: string): boolean {
+export function pointOnSurface(scene: SceneDocumentV2, p: PointMm, ref: SurfaceRef, floorId: string): boolean {
   const floor = own(scene.floors, floorId)
   if (!floor || !boundsContain(p, floor.boundsMm)) return false
   if (ref.kind === 'room') {
@@ -130,7 +130,7 @@ function pointOnSurface(scene: SceneDocumentV2, p: PointMm, ref: SurfaceRef, flo
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !pointInPolygonV2(p, terrainPointsV2(candidate))) return false
   return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && pointInPolygonV2(p, terrainPointsV2(item), false))
 }
-function supportedPolygon(scene: SceneDocumentV2, polygon: PointMm[], ref: SurfaceRef, floorId: string): boolean {
+export function supportedPolygon(scene: SceneDocumentV2, polygon: PointMm[], ref: SurfaceRef, floorId: string): boolean {
   if (ref.kind === 'room') {
     const room = own(scene.rooms, ref.id)
     return !!room && polygonInside(polygon, roomPointsV2(scene, room)) && supportedPolygon(scene, polygon, room.supportRef, floorId)
@@ -140,7 +140,7 @@ function supportedPolygon(scene: SceneDocumentV2, polygon: PointMm[], ref: Surfa
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !polygonInside(polygon, terrainPointsV2(candidate))) return false
   return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && polygonsOverlapV2(polygon, terrainPointsV2(item)))
 }
-function corridor(a: PointMm, b: PointMm, width: number, squareCaps = false): PointMm[] {
+export function corridor(a: PointMm, b: PointMm, width: number, squareCaps = false): PointMm[] {
   const length = Math.hypot(b.x - a.x, b.y - a.y)
   if (!length) return []
   const ux = (b.x - a.x) / length, uy = (b.y - a.y) / length, r = width / 2, extension = squareCaps ? r : 0
@@ -178,7 +178,7 @@ function distanceToSegment(p: PointMm, a: PointMm, b: PointMm): number {
   const q = at(a, b, t)
   return Math.hypot(q.x - p.x, q.y - p.y)
 }
-function polygonDistance(a: PointMm[], b: PointMm[]): number {
+export function polygonDistance(a: PointMm[], b: PointMm[]): number {
   if (polygonsOverlapV2(a, b)) return 0
   let distance = Infinity
   for (const [a1, a2] of edges(a)) for (const [b1, b2] of edges(b)) {
@@ -188,7 +188,7 @@ function polygonDistance(a: PointMm[], b: PointMm[]): number {
   return distance
 }
 /** Every face of the segment arrangement is sampled on both sides of its split edges. */
-function coveredEverywhere(polygon: PointMm[], boundaries: PointMm[][], predicate: (p: PointMm) => boolean): boolean {
+export function coveredEverywhere(polygon: PointMm[], boundaries: PointMm[][], predicate: (p: PointMm) => boolean): boolean {
   if (!polygon.length) return false
   const allEdges = [...edges(polygon), ...boundaries.flatMap(edges)]
   if (polygon.some(p => !predicate(p))) return false

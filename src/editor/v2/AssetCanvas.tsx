@@ -4,7 +4,7 @@ import type { PointMm, SceneDocumentV2 } from '../../core/v2/types'
 import type { CompleteProjectV2 } from '../../io/v2/types'
 import { orderedPropsV2, pointsBoundsV2, projectSceneV2 } from '../../render/v2/projection'
 import type { AudienceV2 } from '../../render/v2/projection'
-import { renderProjectV2 } from '../../render/v2/renderer'
+import { connectionPolygonV2, renderProjectV2 } from '../../render/v2/renderer'
 
 /** The supported visual subset is shared with PNG; no incomplete success preview. */
 export function previewLimitations(scene: SceneDocumentV2): string[] {
@@ -32,6 +32,11 @@ function hitTest(scene: SceneDocumentV2, point: PointMm, tolerance: number): str
     const a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId]
     if (distanceToSegment(point, { x: a.xMm, y: a.yMm }, { x: b.xMm, y: b.yMm }) <= wall.thicknessMm / 2 + tolerance / 2) return wall.id
   }
+  for (const connection of Object.values(scene.terrainConnections)) if (pointInPolygonV2(point, connectionPolygonV2({ start: connection.from.positionMm, end: connection.to.positionMm, widthMm: connection.widthMm }))) return connection.id
+  for (const edge of Object.values(scene.terrainEdges)) {
+    const area = scene.terrainAreas[edge.source.areaId], i = area?.boundaryMm.findIndex(p => p.segmentId === edge.source.segmentId) ?? -1
+    if (area && i >= 0 && distanceToSegment(point, area.boundaryMm[i].positionMm, area.boundaryMm[(i + 1) % area.boundaryMm.length].positionMm) <= tolerance) return edge.id
+  }
   for (const room of Object.values(scene.rooms)) if (pointInPolygonV2(point, roomPointsV2(scene, room))) return room.id
   return Object.values(scene.terrainAreas).sort((a, b) => b.coveragePriority - a.coveragePriority || b.id.localeCompare(a.id)).find(a => pointInPolygonV2(point, terrainPointsV2(a)))?.id ?? null
 }
@@ -40,7 +45,7 @@ function selection(ctx: CanvasRenderingContext2D, scene: SceneDocumentV2, id: st
   ctx.save(); ctx.scale(scale, ctx.canvas.height / bounds.height); ctx.translate(-bounds.x, -bounds.y); ctx.strokeStyle = '#2C7A65'; ctx.fillStyle = '#F6F0DD'; ctx.lineWidth = 2 / scale; ctx.setLineDash([7 / scale, 5 / scale])
   const polygon = (points: PointMm[]) => { ctx.beginPath(); points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke() }
   const handle = (p: PointMm) => { ctx.setLineDash([]); ctx.beginPath(); ctx.arc(p.x, p.y, 5 / scale, 0, Math.PI * 2); ctx.fill(); ctx.stroke() }
-  const prop = scene.props[id], vertex = scene.vertices[id], wall = scene.walls[id], room = scene.rooms[id], opening = scene.openings[id], area = scene.terrainAreas[id], prefab = scene.prefabInstances[id]
+  const prop = scene.props[id], vertex = scene.vertices[id], wall = scene.walls[id], room = scene.rooms[id], opening = scene.openings[id], area = scene.terrainAreas[id], prefab = scene.prefabInstances[id], edge = scene.terrainEdges[id], connection = scene.terrainConnections[id], scatter = scene.scatterGroups[id]
   if (prop) {
     ctx.translate(prop.positionMm.x, prop.positionMm.y); ctx.rotate(prop.rotationDeg * Math.PI / 180)
     const v = prop.visualBoundsMm; ctx.strokeRect(v.x - 45, v.y - 45, v.width + 90, v.height + 90)
@@ -48,6 +53,14 @@ function selection(ctx: CanvasRenderingContext2D, scene: SceneDocumentV2, id: st
   } else if (vertex) handle({ x: vertex.xMm, y: vertex.yMm })
   else if (wall) { const a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId]; ctx.beginPath(); ctx.moveTo(a.xMm, a.yMm); ctx.lineTo(b.xMm, b.yMm); ctx.stroke(); handle({ x: a.xMm, y: a.yMm }); handle({ x: b.xMm, y: b.yMm }) }
   else if (opening) { const [a, b] = openingEndpointsV2(scene, opening); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); handle(a); handle(b) }
+  else if (edge) { const area = scene.terrainAreas[edge.source.areaId], i = area.boundaryMm.findIndex(p => p.segmentId === edge.source.segmentId), a = area.boundaryMm[i].positionMm, b = area.boundaryMm[(i + 1) % area.boundaryMm.length].positionMm; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); handle(a); handle(b) }
+  else if (connection) { polygon(connectionPolygonV2({ start: connection.from.positionMm, end: connection.to.positionMm, widthMm: connection.widthMm })); handle(connection.from.positionMm); handle(connection.to.positionMm) }
+  else if (scatter) {
+    if (scatter.domain.kind === 'area' && scene.terrainAreas[scatter.domain.areaId]) polygon(terrainPointsV2(scene.terrainAreas[scatter.domain.areaId]))
+    else if (scatter.domain.kind === 'edgeBand') { const e = scene.terrainEdges[scatter.domain.edgeId], a = e && scene.terrainAreas[e.source.areaId], i = a?.boundaryMm.findIndex(p => p.segmentId === e.source.segmentId) ?? -1; if (a && i >= 0) polygon(connectionPolygonV2({ start: a.boundaryMm[i].positionMm, end: a.boundaryMm[(i + 1) % a.boundaryMm.length].positionMm, widthMm: scatter.domain.widthMm })) }
+    for (const exclusion of scatter.exclusions) { ctx.strokeStyle = '#A75F45'; polygon(exclusion.boundaryMm) }
+    ctx.strokeStyle = '#2C7A65'; for (const member of Object.values(scatter.members)) { const p = member.propId && scene.props[member.propId]; if (p) handle(p.positionMm) }
+  }
   else if (room) polygon(roomPointsV2(scene, room))
   else if (area) { polygon(terrainPointsV2(area)); area.boundaryMm.forEach(p => handle(p.positionMm)) }
   else if (prefab) {

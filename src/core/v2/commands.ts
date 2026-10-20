@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { inspectJsonInput } from '../schema'
-import { polygonsOverlapV2, terrainPointsV2 } from './geometry'
+import { polygonsOverlapV2, propFootprintV2, terrainPointsV2 } from './geometry'
+import { buildScatterRegenerationV2, sha256TextV2 } from './scatter'
 import { validateSceneV2 } from './schema'
+import { createPublicVisibilityV2 } from './visibility'
 import type { Editable, MaterialPaint, PointMm, PrefabInstance, PropOverrideField, SceneDocumentV2, SizeMm, VersionRef, WallV2 } from './types'
 
 type SurfaceKind = 'room' | 'terrainArea'
@@ -13,6 +15,14 @@ export type SceneCommandV2 =
   | { type: 'setSurfaceMaterial'; kind: SurfaceKind; id: string; materialRef: VersionRef }
   | { type: 'setSurfacePaint'; kind: SurfaceKind; id: string; changes: { rotationDeg?: number; originMm?: PointMm; tileSizeMm?: SizeMm } }
   | { type: 'moveTerrainPoint'; areaId: string; pointId: string; positionMm: PointMm }
+  | { type: 'setTerrainElevation'; id: string; groundElevationMm: number }
+  | { type: 'setConnectionBlocked'; id: string; blocksMovement: boolean }
+  | { type: 'removeTerrainConnection'; id: string }
+  | { type: 'setOverlayBoundary'; kind: SurfaceKind; id: string; overlayId: string; boundaryMm: PointMm[] }
+  | { type: 'regenerateScatter'; id: string; densityFactor?: number }
+  | { type: 'deleteProp'; id: string }
+  | { type: 'detachScatterMember'; groupId: string; propId: string }
+  | { type: 'setEditLock'; kind: 'prop' | 'scatterGroup' | 'terrainArea' | 'terrainConnection'; id: string; locked: boolean }
   | { type: 'transformPrefab'; id: string; anchorMm?: PointMm; rotationDeg?: number }
   | { type: 'unpackPrefab'; id: string }
   | { type: 'updateProp'; id: string; changes: { positionMm?: PointMm; rotationDeg?: number } }
@@ -34,6 +44,14 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('setSurfaceMaterial'), kind, id, materialRef: version }).strict(),
   z.object({ type: z.literal('setSurfacePaint'), kind, id, changes: z.object({ rotationDeg: angle.optional(), originMm: point.optional(), tileSizeMm: size.optional() }).strict() }).strict(),
   z.object({ type: z.literal('moveTerrainPoint'), areaId: id, pointId: id, positionMm: point }).strict(),
+  z.object({ type: z.literal('setTerrainElevation'), id, groundElevationMm: integer }).strict(),
+  z.object({ type: z.literal('setConnectionBlocked'), id, blocksMovement: z.boolean() }).strict(),
+  z.object({ type: z.literal('removeTerrainConnection'), id }).strict(),
+  z.object({ type: z.literal('setOverlayBoundary'), kind, id, overlayId: id, boundaryMm: z.array(point).min(3).max(512) }).strict(),
+  z.object({ type: z.literal('regenerateScatter'), id, densityFactor: z.number().finite().min(0).max(1).optional() }).strict(),
+  z.object({ type: z.literal('deleteProp'), id }).strict(),
+  z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
+  z.object({ type: z.literal('setEditLock'), kind: z.enum(['prop', 'scatterGroup', 'terrainArea', 'terrainConnection']), id, locked: z.boolean() }).strict(),
   z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
@@ -111,14 +129,20 @@ function terrainDependants(scene: SceneDocumentV2, areaId: string): Editable[] {
   ]
 }
 function memberRecord(scene: SceneDocumentV2, propId: string) {
-  if (Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === propId))) throw new Error('B2 尚未开放散布成员编辑；已保留整个事务。')
+  for (const group of Object.values(scene.scatterGroups)) {
+    const member = Object.values(group.members).find(member => member.propId === propId)
+    if (member) return member
+  }
   for (const group of Object.values(scene.prefabInstances)) {
     const member = Object.values(group.members).find(member => member.propId === propId)
     if (member) return member
   }
 }
 function addOverrides(member: { overrideFields: PropOverrideField[] } | undefined, fields: PropOverrideField[]) {
-  if (member) member.overrideFields = [...new Set([...member.overrideFields, ...fields])]
+  if (member) {
+    member.overrideFields = [...new Set([...member.overrideFields, ...fields])]
+    if ('state' in member) member.state = 'manual'
+  }
 }
 function hasId(value: unknown, id: string): boolean {
   if (!value || typeof value !== 'object') return false
@@ -187,6 +211,41 @@ function unpackPrefab(scene: SceneDocumentV2, group: PrefabInstance) {
   delete scene.prefabInstances[group.id]
 }
 
+function assertNoAnchoredNotes(scene: SceneDocumentV2, entityId: string): void {
+  const notes = Object.values(scene.notes).filter(note => note.anchor.type === 'entity' && note.anchor.entityId === entityId)
+  if (notes.length) throw new Error(`实体仍被注记引用，不能删除：${notes.map(note => note.id).join('、')}。`)
+}
+function deleteProp(scene: SceneDocumentV2, propId: string): void {
+  const prop = requireEntity(scene.props, propId, '物件')
+  assertUnlocked(scene, [prop], true); assertNoAnchoredNotes(scene, prop.id)
+  for (const group of Object.values(scene.prefabInstances)) {
+    const member = Object.values(group.members).find(member => member.propId === prop.id)
+    if (member) member.propId = null
+  }
+  for (const group of Object.values(scene.scatterGroups)) {
+    const entry = Object.entries(group.members).find(([, member]) => member.propId === prop.id)
+    if (!entry) continue
+    const [key, member] = entry, footprint = propFootprintV2(prop), distance = group.minDistanceMm
+    const minX = Math.floor(Math.min(...footprint.map(p => p.x))) - distance, minY = Math.floor(Math.min(...footprint.map(p => p.y))) - distance
+    const maxX = Math.ceil(Math.max(...footprint.map(p => p.x))) + distance, maxY = Math.ceil(Math.max(...footprint.map(p => p.y))) + distance
+    member.propId = null; member.state = 'deleted'
+    group.exclusions.push({ id: `scatter-delete-${sha256TextV2(JSON.stringify([group.id, key]))}`, reason: 'delete', sourceCandidateKey: key, boundaryMm: [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY }] })
+  }
+  delete scene.props[prop.id]
+}
+function regenerateScatter(scene: SceneDocumentV2, command: Extract<SceneCommandV2, { type: 'regenerateScatter' }>): void {
+  const proposal = buildScatterRegenerationV2(scene, command.id, command.densityFactor), group = scene.scatterGroups[command.id]
+  const adoptedIds = new Set(proposal.props.map(prop => prop.id))
+  const deletions = proposal.removePropIds.filter(id => !adoptedIds.has(id))
+  const changes = proposal.props.filter(prop => !equal(scene.props[prop.id], prop))
+  if (equal(group, proposal.group) && !deletions.length && !changes.length) return
+  assertUnlocked(scene, [group, ...deletions.map(id => scene.props[id]), ...changes.flatMap(prop => scene.props[prop.id] ?? [])], true)
+  for (const id of deletions) assertNoAnchoredNotes(scene, id)
+  for (const id of proposal.removePropIds) delete scene.props[id]
+  for (const prop of proposal.props) scene.props[prop.id] = prop
+  scene.scatterGroups[group.id] = proposal.group
+}
+
 /** Atomic finite command set shared by manual edits and future adopted proposals. */
 export function applyCommandsV2(scene: SceneDocumentV2, commands: readonly SceneCommandV2[]): SceneDocumentV2 {
   const input = validateSceneV2(scene)
@@ -252,6 +311,57 @@ export function applyCommandsV2(scene: SceneDocumentV2, commands: readonly Scene
             else surface.surfaceStyle = created
           }
         }
+        break
+      }
+      case 'setTerrainElevation': {
+        const area = requireEntity(next.terrainAreas, command.id, '地形')
+        if (area.groundElevationMm === command.groundElevationMm) break
+        assertUnlocked(next, terrainDependants(next, area.id), true)
+        area.groundElevationMm = command.groundElevationMm
+        break
+      }
+      case 'setConnectionBlocked': {
+        const connection = requireEntity(next.terrainConnections, command.id, '地形连接')
+        if (connection.blocksMovement === command.blocksMovement) break
+        assertUnlocked(next, [connection], true); connection.blocksMovement = command.blocksMovement
+        break
+      }
+      case 'removeTerrainConnection': {
+        const connection = requireEntity(next.terrainConnections, command.id, '地形连接')
+        assertUnlocked(next, [connection], true); assertNoAnchoredNotes(next, connection.id)
+        delete next.terrainConnections[connection.id]
+        break
+      }
+      case 'setOverlayBoundary': {
+        const surface = command.kind === 'room' ? requireEntity(next.rooms, command.id, '房间') : requireEntity(next.terrainAreas, command.id, '地形')
+        const style = 'floorStyle' in surface ? surface.floorStyle : surface.surfaceStyle
+        const overlay = style?.overlays.find(item => item.id === command.overlayId)
+        if (!overlay) throw new Error(`局部材质覆盖不存在：${command.overlayId}。`)
+        if (equal(overlay.boundaryMm, command.boundaryMm)) break
+        assertUnlocked(next, [surface]); overlay.boundaryMm = structuredClone(command.boundaryMm)
+        break
+      }
+      case 'regenerateScatter': regenerateScatter(next, command); break
+      case 'deleteProp': deleteProp(next, command.id); break
+      case 'detachScatterMember': {
+        const group = requireEntity(next.scatterGroups, command.groupId, '散布组'), prop = requireEntity(next.props, command.propId, '散布成员')
+        const member = Object.values(group.members).find(member => member.propId === prop.id)
+        if (!member) throw new Error('该物件不是此散布组的活成员。')
+        assertUnlocked(next, [group, prop], true)
+        const wasPublic = createPublicVisibilityV2(next).prop(prop)
+        member.propId = null; member.state = 'detached'
+        if (!wasPublic) prop.visibility = 'gm'
+        break
+      }
+      case 'setEditLock': {
+        const collection = command.kind === 'prop' ? next.props : command.kind === 'scatterGroup' ? next.scatterGroups : command.kind === 'terrainArea' ? next.terrainAreas : next.terrainConnections
+        const entity = requireEntity<Editable>(collection, command.id, '可锁定实体')
+        if (entity.editLocked === command.locked) break
+        if (command.kind === 'prop') {
+          const parents = [...Object.values(next.prefabInstances), ...Object.values(next.scatterGroups)].filter(group => Object.values(group.members).some(member => member.propId === entity.id))
+          assertUnlocked(next, parents)
+        }
+        entity.editLocked = command.locked
         break
       }
       case 'transformPrefab': transformPrefab(next, command); break

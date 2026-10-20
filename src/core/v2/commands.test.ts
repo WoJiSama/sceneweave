@@ -208,15 +208,17 @@ describe('v2 persisted prefab edits and material invariants', () => {
     scene.terrainAreas.low.editLocked = false
     expect(() => apply(scene, { type: 'moveTerrainPoint', areaId: 'high', pointId: 'high-v1', positionMm: { x: 18000, y: 3000 } })).not.toThrow()
   })
-  it('explicitly rejects scatter-member edits while preserving its manual records', () => {
+  it('edits adopted scatter members while preserving and extending their manual records', () => {
     const scene = fixture()
     delete scene.prefabInstances.group
     scene.props.book.definitionRef = { id: 'variant', version: 1 }
     scene.terrainAreas.scatterDomain = { id: 'scatterDomain', floorId: 'f-a1', editLocked: false, visibility: 'public', boundaryMm: [{ x: 12000, y: 1000 }, { x: 18000, y: 1000 }, { x: 18000, y: 7000 }, { x: 12000, y: 7000 }].map((positionMm, i) => ({ id: `scatter-v${i}`, segmentId: `scatter-s${i}`, positionMm })), groundElevationMm: 0, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
     scene.scatterGroups.scatter = { id: 'scatter', floorId: 'f-a1', editLocked: false, visibility: 'public', domain: { kind: 'area', areaId: 'scatterDomain' }, palette: [{ key: 'book', propDefinitionRef: { id: 'variant', version: 1 }, weight: 1 }], seed: 'test', algorithmVersion: 'scatter-cell-v1', gridOriginMm: { x: 0, y: 0 }, cellSizeMm: 1000, densityFactor: 0.5, minDistanceMm: 100, rotationRangeDeg: { min: 0, max: 359 }, members: { ['a'.repeat(64)]: { propId: 'book', state: 'manual', overrideFields: ['positionMm'] } }, exclusions: [] }
     const before = structuredClone(scene)
-    expect(() => apply(scene, { type: 'updateProp', id: 'book', changes: { rotationDeg: 30 } })).toThrow(/散布成员/)
-    expect(() => apply(scene, { type: 'replacePropAppearance', id: 'book', definitionRef: { id: 'variant', version: 1 } })).toThrow(/散布成员/)
+    const rotated = apply(scene, { type: 'updateProp', id: 'book', changes: { rotationDeg: 30 } })
+    expect(rotated.scatterGroups.scatter.members['a'.repeat(64)]).toMatchObject({ state: 'manual', overrideFields: ['positionMm', 'rotationDeg'] })
+    const replaced = apply(rotated, { type: 'replacePropAppearance', id: 'book', definitionRef: { id: 'variant', version: 1 } })
+    expect(replaced.scatterGroups.scatter.members['a'.repeat(64)].overrideFields).toEqual(['positionMm', 'rotationDeg', 'definitionRef', 'appearance'])
     expect(scene).toEqual(before)
   })
   it('rejects unknown mutation keys, fractional world positions and non-JSON commands', () => {

@@ -1,8 +1,10 @@
-import type { BoundsMm, MaterialRef, NoteV2, PointMm, PropV2, SceneDocumentV2, ShadowStyle, StyleTheme, SurfaceRef, SurfaceStyle } from '../../core/v2/types'
-import { openingEndpointsV2, roomPointsV2, terrainPointsV2 } from '../../core/v2/geometry'
+import type { BoundsMm, EdgeStyle, MaterialRef, NoteV2, PointMm, PropV2, SceneDocumentV2, ShadowStyle, StyleTheme, SurfaceRef, SurfaceStyle, TerrainArea, TerrainEdge } from '../../core/v2/types'
+import { openingEndpointsV2, pointInPolygonV2, roomPointsV2, terrainPointsV2 } from '../../core/v2/geometry'
 
 export type AudienceV2 = 'gm' | 'player'
 export interface ProjectedSurfaceV2 { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number }
+export interface ProjectedTerrainEdgeV2 { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
+export interface ProjectedConnectionV2 { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null }
 export interface ProjectedOpeningV2 { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean }
 export interface ProjectedWallV2 { id: string; sourceIds: string[]; start: PointMm; end: PointMm; thicknessMm: number; style: SurfaceStyle | null; openings: ProjectedOpeningV2[] }
 export interface ProjectedNoteV2 { id: string; positionMm: PointMm; text: string; kind: NoteV2['kind']; visibility: 'gm' | 'public' }
@@ -11,8 +13,9 @@ export interface ProjectedRegionV2 { id: string; points: PointMm[]; kind: 'terra
 export interface ProjectionV2 {
   audience: AudienceV2; sourceRevision: number; bounds: BoundsMm; gridSizeMm: number | null
   rooms: ProjectedSurfaceV2[]; terrain: ProjectedSurfaceV2[]; walls: ProjectedWallV2[]; props: PropV2[]
+  edges: ProjectedTerrainEdgeV2[]; connections: ProjectedConnectionV2[]
   notes: ProjectedNoteV2[]; regions: ProjectedRegionV2[]; masks: PointMm[][]
-  theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets'> | null
+  theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets' | 'edgeStyles' | 'terrainCliff'> | null
   materials: Record<string, Pick<MaterialRef, 'id' | 'version' | 'textureAssetId'>>
   assetIds: string[]; limitations: string[]; diagnostics: string[]
 }
@@ -83,6 +86,34 @@ function canonicalWalls(walls: ProjectedWallV2[]): ProjectedWallV2[] {
 export const propLayerV2 = { ground: 0, object: 1, canopy: 2 }
 export const orderedPropsV2 = (props: PropV2[]) => [...props].sort((a, b) => propLayerV2[a.renderLayer] - propLayerV2[b.renderLayer] || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))
 
+const defaultEdgeStyles: Record<TerrainEdge['kind'], EdgeStyle> = {
+  shore: { strokeWidthMm: 12, color: '#D9D4B4', bandWidthMm: 180 },
+  cliff: { strokeWidthMm: 24, color: '#39443E', bandWidthMm: 450 },
+  materialTransition: { strokeWidthMm: 0, color: '#71865A', bandWidthMm: 250 },
+}
+/** Only this audience's surfaces enter coverage resolution. No GM hole/edge cache is reused. */
+function deriveTerrainEdges(areas: TerrainArea[], declarations: TerrainEdge[], theme: ProjectionV2['theme']): ProjectedTerrainEdgeV2[] {
+  const byPriority = [...areas].sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
+  const support = (p: PointMm) => byPriority.find(a => pointInPolygonV2(p, terrainPointsV2(a), false))
+  const declared = new Map(declarations.map(e => [`${e.source.areaId}\0${e.source.segmentId}`, e]))
+  const result = new Map<string, ProjectedTerrainEdgeV2>()
+  for (const area of [...areas].sort((a, b) => a.id.localeCompare(b.id))) for (let i = 0; i < area.boundaryMm.length; i++) {
+    const vertex = area.boundaryMm[i], a = vertex.positionMm, b = area.boundaryMm[(i + 1) % area.boundaryMm.length].positionMm
+    const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy)
+    if (!length) continue
+    const mid = midpoint(a, b), step = Math.min(.01, length / 100), inward = point(-dy / length * step, dx / length * step)
+    const inside = support(point(mid.x + inward.x, mid.y + inward.y)), outside = support(point(mid.x - inward.x, mid.y - inward.y))
+    if (inside?.id !== area.id || outside?.id === area.id) continue
+    const declaration = declared.get(`${area.id}\0${vertex.segmentId}`), neighborElevationMm = outside?.groundElevationMm ?? 0
+    if (!declaration && area.groundElevationMm === neighborElevationMm) continue
+    const kind = area.groundElevationMm !== neighborElevationMm ? 'cliff' : declaration?.kind ?? 'materialTransition'
+    const key = [a, b].map(p => `${p.x},${p.y}`).sort().join('|')
+    if (result.has(key)) continue
+    result.set(key, { id: declaration?.id ?? `derived-${area.id}-${vertex.segmentId}`, start: clone(a), end: clone(b), sourceAreaId: area.id, neighborAreaId: outside?.id ?? null, elevationMm: area.groundElevationMm, neighborElevationMm, kind, shoreline: !!declaration?.shoreline || declaration?.kind === 'shore', style: clone(declaration?.styleOverride ?? theme?.edgeStyles[kind] ?? defaultEdgeStyles[kind]), surfaceStyle: clone(declaration?.surfaceStyle ?? null) })
+  }
+  return [...result.values()].sort((a, b) => Math.max(a.elevationMm, a.neighborElevationMm) - Math.max(b.elevationMm, b.neighborElevationMm) || a.start.y - b.start.y || a.start.x - b.start.x || a.end.y - b.end.y || a.end.x - b.end.x)
+}
+
 /** Audience filtering precedes textures, joins, shadows and resource decoding. */
 export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): ProjectionV2 {
   if (audience !== 'gm' && audience !== 'player') throw new Error('必须明确选择主持人或玩家输出。')
@@ -91,7 +122,7 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
   if (Object.values(bounds).some(v => !Number.isFinite(v)) || bounds.width <= 0 || bounds.height <= 0) throw new Error('导出边界必须是有效固定矩形。')
   const themeDefinition = scene.activeStyleThemeRef ? scene.styleThemes[scene.activeStyleThemeRef.id] : null
   if (scene.activeStyleThemeRef && (!themeDefinition || themeDefinition.version !== scene.activeStyleThemeRef.version)) throw new Error('主题快照缺失或版本不匹配。')
-  const theme = themeDefinition ? clone({ outline: themeDefinition.outline, openingStyle: themeDefinition.openingStyle, shadowPresets: themeDefinition.shadowPresets }) : null
+  const theme = themeDefinition ? clone({ outline: themeDefinition.outline, openingStyle: themeDefinition.openingStyle, shadowPresets: themeDefinition.shadowPresets, edgeStyles: themeDefinition.edgeStyles, terrainCliff: themeDefinition.terrainCliff }) : null
   const masks = Object.values(scene.regions).filter(r => r.kind === 'manualMask').map(r => clone(r.boundaryMm))
   const rectangles = audience === 'player' ? masks.map(maskRectangle) : []
   const maskedPoint = (p: PointMm) => rectangles.some(r => includesPoint(r, p))
@@ -113,6 +144,10 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
   const visibleTerrain = Object.values(scene.terrainAreas).filter(a => audience === 'gm' || areaPublic(a.id))
   const rooms = visibleRooms.map(r => ({ id: r.id, points: simplify(roomPointsV2(scene, r)), style: clone(r.floorStyle), elevationMm: r.groundElevationMm, priority: 0 }))
   const terrain = visibleTerrain.map(a => ({ id: a.id, points: simplify(terrainPointsV2(a)), style: clone(a.surfaceStyle), elevationMm: a.groundElevationMm, priority: a.coveragePriority })).sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))
+  const edges = deriveTerrainEdges(visibleTerrain, Object.values(scene.terrainEdges).filter(e => audience === 'gm' || edgePublic(e.id)), theme)
+  const connectionPublic = (id: string) => { const c = scene.terrainConnections[id]; return c?.visibility === 'public' && surfacePublic(c.from.surfaceRef) && surfacePublic(c.to.surfaceRef) }
+  const surfaceElevation = (ref: SurfaceRef) => ref.kind === 'terrainArea' ? scene.terrainAreas[ref.id]?.groundElevationMm ?? 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm ?? 0 : 0
+  const connections: ProjectedConnectionV2[] = Object.values(scene.terrainConnections).filter(c => audience === 'gm' || connectionPublic(c.id)).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle) })).sort((a, b) => a.id.localeCompare(b.id))
   const visibleProps = Object.values(scene.props).filter(p => audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm))
   const props = orderedPropsV2(visibleProps.map(clone))
   const diagnostics: string[] = []
@@ -142,7 +177,7 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
     walls.push({ id: wall.id, sourceIds: [wall.id], start, end, thicknessMm: wall.thicknessMm, style: clone(wall.topStyle), openings })
   }
   const regionVisible = (id: string) => scene.regions[id]?.kind !== 'manualMask' && scene.regions[id]?.visibility === 'public'
-  const visibleIds: Partial<Record<string, Set<string>>> = { room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: new Set(props.map(p => p.id)), region: new Set(Object.values(scene.regions).filter(r => regionVisible(r.id)).map(r => r.id)), vertex: new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId])), prefabInstance: new Set(Object.values(scene.prefabInstances).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && props.some(p => p.id === m.propId))).map(g => g.id)), scatterGroup: new Set(Object.values(scene.scatterGroups).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && props.some(p => p.id === m.propId))).map(g => g.id)) }
+  const visibleIds: Partial<Record<string, Set<string>>> = { terrainEdge: new Set(edges.map(e => e.id)), terrainConnection: new Set(connections.map(c => c.id)), room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: new Set(props.map(p => p.id)), region: new Set(Object.values(scene.regions).filter(r => regionVisible(r.id)).map(r => r.id)), vertex: new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId])), prefabInstance: new Set(Object.values(scene.prefabInstances).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && props.some(p => p.id === m.propId))).map(g => g.id)), scatterGroup: new Set(Object.values(scene.scatterGroups).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && props.some(p => p.id === m.propId))).map(g => g.id)) }
   function anchorPosition(note: NoteV2, seen = new Set<string>()): PointMm | null {
     if (seen.has(note.id)) return null
     seen.add(note.id)
@@ -161,6 +196,8 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
     if (kind === 'terrainArea') return scene.terrainAreas[id] ? center(terrainPointsV2(scene.terrainAreas[id])) : null
     if (kind === 'wall') { const w = scene.walls[id]; return w ? midpoint(point(scene.vertices[w.startVertexId].xMm, scene.vertices[w.startVertexId].yMm), point(scene.vertices[w.endVertexId].xMm, scene.vertices[w.endVertexId].yMm)) : null }
     if (kind === 'opening') { const o = scene.openings[id]; return o ? midpoint(...openingEndpointsV2(scene, o)) : null }
+    if (kind === 'terrainEdge') { const e = edges.find(e => e.id === id); return e ? midpoint(e.start, e.end) : null }
+    if (kind === 'terrainConnection') { const c = connections.find(c => c.id === id); return c ? midpoint(c.start, c.end) : null }
     if (kind === 'region') return scene.regions[id] ? center(scene.regions[id].boundaryMm) : null
     if (kind === 'prefabInstance') return scene.prefabInstances[id] ? clone(scene.prefabInstances[id].anchorMm) : null
     if (kind === 'scatterGroup') { const g = scene.scatterGroups[id], first = g && Object.values(g.members).find(m => m.propId && (audience === 'gm' || visibleIds.prop?.has(m.propId))); return first?.propId ? clone(scene.props[first.propId].positionMm) : null }
@@ -181,24 +218,31 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
       privateBounds.push(inflate(pointsBoundsV2(roomPointsV2(scene, room)), Math.max(0, ...adjacent.map(w => w.thicknessMm)) / 2 * 2 + shadowPadding(theme?.shadowPresets.wall)))
     }
     for (const prop of Object.values(scene.props)) if (!propPublic(prop)) privateBounds.push(inflate(transformedVisualBoundsV2(prop), shadowPadding(prop.shadowOverride ?? theme?.shadowPresets[prop.shadowClass])))
-    for (const area of Object.values(scene.terrainAreas)) if (!areaPublic(area.id)) privateBounds.push(pointsBoundsV2(terrainPointsV2(area)))
+    // Face and shadow extents are bounded by one controlled displacement, not stacked offsets.
+    const cliff = theme?.terrainCliff, shore = theme?.edgeStyles.shore ?? defaultEdgeStyles.shore
+    const styles = [...Object.values(theme?.edgeStyles ?? defaultEdgeStyles), ...Object.values(scene.terrainEdges).flatMap(e => e.styleOverride ? [e.styleOverride] : [])]
+    const edgePadding = Math.max(cliff?.maxOffsetMm ?? 600, shore.bandWidthMm * .65 + shore.strokeWidthMm / 2, ...styles.map(s => Math.max(s.bandWidthMm * 1.7, s.strokeWidthMm / 2))) + (cliff?.opacity ? cliff.blurMm * 4 : 0)
+    for (const area of Object.values(scene.terrainAreas)) if (!areaPublic(area.id)) privateBounds.push(inflate(pointsBoundsV2(terrainPointsV2(area)), edgePadding))
+    for (const edge of Object.values(scene.terrainEdges)) if (!edgePublic(edge.id)) {
+      const area = scene.terrainAreas[edge.source.areaId], index = area?.boundaryMm.findIndex(p => p.segmentId === edge.source.segmentId) ?? -1
+      if (area && index >= 0) privateBounds.push(inflate(pointsBoundsV2([area.boundaryMm[index].positionMm, area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm]), edgePadding))
+    }
+    for (const connection of Object.values(scene.terrainConnections)) if (!connectionPublic(connection.id)) privateBounds.push(inflate(pointsBoundsV2([connection.from.positionMm, connection.to.positionMm]), connection.widthMm / 2 + 24))
     for (const region of Object.values(scene.regions)) if (region.kind !== 'manualMask' && region.visibility !== 'public') privateBounds.push(pointsBoundsV2(region.boundaryMm))
     for (const box of privateBounds) { const clipped = intersects(box, bounds); if (clipped && !boundsCoveredV2(clipped, rectangles)) throw new Error('玩家输出不安全：固定遮罩未覆盖私密几何、视觉范围或装饰阴影；请扩大遮罩或恢复公开。') }
   }
   const limitations: string[] = []
-  if (rooms.some(r => r.elevationMm !== 0) || terrain.some(a => a.elevationMm !== 0)) limitations.push('B2 暂不绘制非零高程地形；请在 B3 样板中继续。')
-  if (Object.values(scene.terrainEdges).some(e => audience === 'gm' || edgePublic(e.id)) || Object.values(scene.terrainConnections).some(c => audience === 'gm' || c.visibility === 'public' && surfacePublic(c.from.surfaceRef) && surfacePublic(c.to.surfaceRef)) || Object.values(scene.paths).some(p => audience === 'gm' || pathPublic(p.id))) limitations.push('B2 暂不绘制地形边缘、高差连接和道路。')
-  const styles = [...rooms, ...terrain].map(s => s.style).concat(walls.map(w => w.style))
-  if (styles.some(s => s && (s.overlays.length || s.base.tint))) limitations.push('B2 暂不绘制材质覆盖层与材质着色。')
-  if (props.some(p => p.appearance.tint)) limitations.push('B2 暂不绘制物件着色。')
-  if (audience === 'gm' && Object.values(scene.notes).some(n => n.anchor.type === 'entity' && ['terrainEdge', 'terrainConnection', 'path'].includes(n.anchor.entityKind))) limitations.push('B2 暂不绘制道路、地形边缘和连接上的注记。')
+  if (Object.values(scene.paths).some(p => audience === 'gm' || pathPublic(p.id))) limitations.push('B3 暂不绘制道路。')
+  if (props.some(p => p.appearance.tint)) limitations.push('B3 暂不绘制物件着色。')
+  if (audience === 'gm' && Object.values(scene.notes).some(n => n.anchor.type === 'entity' && n.anchor.entityKind === 'path')) limitations.push('B3 暂不绘制道路上的注记。')
+  const styles = [...rooms, ...terrain].map(s => s.style).concat(walls.map(w => w.style), edges.map(e => e.surfaceStyle), connections.map(c => c.style))
   const materials: ProjectionV2['materials'] = {}, assetIds = new Set<string>()
-  for (const style of styles) if (style) {
-    const material = scene.materials[style.base.materialRef.id]
-    if (!material || material.version !== style.base.materialRef.version) throw new Error('绘制需要的材质快照缺失或版本不符。')
+  for (const style of styles) if (style) for (const paint of [style.base, ...style.overlays.map(o => o.paint)]) {
+    const material = scene.materials[paint.materialRef.id]
+    if (!material || material.version !== paint.materialRef.version) throw new Error('绘制需要的材质快照缺失或版本不符。')
     materials[material.id] = { id: material.id, version: material.version, textureAssetId: material.textureAssetId }; assetIds.add(material.textureAssetId)
   }
   for (const prop of props) if (prop.appearance.kind === 'image') assetIds.add(prop.appearance.assetId)
   const regions = Object.values(scene.regions).filter(r => r.kind !== 'manualMask' && (audience === 'gm' || regionVisible(r.id))).map(r => ({ id: r.id, points: clone(r.boundaryMm), kind: r.kind as 'terrain' | 'hazard' }))
-  return { audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: audience === 'player' ? canonicalWalls(walls) : walls.sort(wallOrder), props, notes, regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
+  return { audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: audience === 'player' ? canonicalWalls(walls) : walls.sort(wallOrder), props, edges, connections, notes, regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
 }

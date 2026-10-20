@@ -1,0 +1,158 @@
+{
+  "success": true,
+  "tests": 299,
+  "passed": 299,
+  "failed": 0,
+  "files": [
+    {
+      "file": "src/core/commands.test.ts",
+      "status": "passed",
+      "tests": 15,
+      "durationMs": 117.13134765625
+    },
+    {
+      "file": "src/core/geometry.test.ts",
+      "status": "passed",
+      "tests": 20,
+      "durationMs": 242.350341796875
+    },
+    {
+      "file": "src/editor/store.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "durationMs": 454.31640625
+    },
+    {
+      "file": "src/io/project-file.test.ts",
+      "status": "passed",
+      "tests": 21,
+      "durationMs": 294.51318359375
+    },
+    {
+      "file": "src/io/storage.test.ts",
+      "status": "passed",
+      "tests": 14,
+      "durationMs": 646.72021484375
+    },
+    {
+      "file": "src/rendering/draw.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "durationMs": 9.057861328125
+    },
+    {
+      "file": "src/rendering/png.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "durationMs": 9.161865234375
+    },
+    {
+      "file": "src/rendering/projection.test.ts",
+      "status": "passed",
+      "tests": 15,
+      "durationMs": 30.50048828125
+    },
+    {
+      "file": "src/core/v2/commands.test.ts",
+      "status": "passed",
+      "tests": 28,
+      "durationMs": 376.454345703125
+    },
+    {
+      "file": "src/core/v2/domain.test.ts",
+      "status": "passed",
+      "tests": 24,
+      "durationMs": 254.679931640625
+    },
+    {
+      "file": "src/core/v2/doorway-clearance.test.ts",
+      "status": "passed",
+      "tests": 9,
+      "durationMs": 39.524169921875
+    },
+    {
+      "file": "src/core/v2/scatter-privacy.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "durationMs": 1392.45458984375
+    },
+    {
+      "file": "src/core/v2/scatter.test.ts",
+      "status": "passed",
+      "tests": 12,
+      "durationMs": 1172.43505859375
+    },
+    {
+      "file": "src/core/v2/terrain-commands.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "durationMs": 92.181884765625
+    },
+    {
+      "file": "src/core/v2/terrain-travel.test.ts",
+      "status": "passed",
+      "tests": 9,
+      "durationMs": 205.44287109375
+    },
+    {
+      "file": "src/editor/v2/b2-workspace.test.ts",
+      "status": "passed",
+      "tests": 6,
+      "durationMs": 325.0048828125
+    },
+    {
+      "file": "src/editor/v2/b3-workspace.test.ts",
+      "status": "passed",
+      "tests": 4,
+      "durationMs": 1311.1259765625
+    },
+    {
+      "file": "src/editor/v2/island-constraints.test.ts",
+      "status": "passed",
+      "tests": 2,
+      "durationMs": 70.06005859375
+    },
+    {
+      "file": "src/editor/v2/island-sample.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "durationMs": 1925.406005859375
+    },
+    {
+      "file": "src/editor/v2/study-sample.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "durationMs": 870.388916015625
+    },
+    {
+      "file": "src/editor/v2/workspace.test.ts",
+      "status": "passed",
+      "tests": 21,
+      "durationMs": 850.834716796875
+    },
+    {
+      "file": "src/io/v2/project-file.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "durationMs": 550.45068359375
+    },
+    {
+      "file": "src/io/v2/resources.test.ts",
+      "status": "passed",
+      "tests": 5,
+      "durationMs": 45.817138671875
+    },
+    {
+      "file": "src/io/v2/storage.test.ts",
+      "status": "passed",
+      "tests": 25,
+      "durationMs": 2021.09326171875
+    },
+    {
+      "file": "src/render/v2/projection.test.ts",
+      "status": "passed",
+      "tests": 13,
+      "durationMs": 47.912353515625
+    }
+  ]
+}
