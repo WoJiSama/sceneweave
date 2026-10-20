@@ -1,0 +1,527 @@
+{
+  "catalogId": "sceneweave-handdrawn-outdoor",
+  "themeCatalogId": "sceneweave-handdrawn",
+  "version": 1,
+  "name": "墨绘原野 · 室外",
+  "status": "P2",
+  "author": "Sceneweave contributors; original SVG artwork authored with Codex assistance",
+  "source": "tools/build-island-art.mjs and assets/sceneweave-handdrawn-outdoor/*.svg",
+  "rights": "Project original artwork; no external reference tracing or extracted image components",
+  "licenseRef": "MIT",
+  "licenseFile": "LICENSE.txt",
+  "densityPxPerMetre": 256,
+  "longCastShadowBaked": false,
+  "colorSpace": "sRGB",
+  "bitDepth": 8,
+  "alpha": "straight; zero-alpha RGB cleared",
+  "assets": [
+    {
+      "key": "grass",
+      "catalogId": "material.sw.grass",
+      "kind": "material",
+      "name": "簇生草地",
+      "logicalSizeMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "baseColor": "#71865A",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "grass.png",
+      "sourceFile": "grass.svg",
+      "pixelWidth": 1024,
+      "pixelHeight": 1024,
+      "sha256": "5fa4ea16803395e8dd56147289bc89c32395a948b7781415f2ed02dd4122eaed",
+      "sourceSha256": "56c87b1197a68d9656214212b5456e59df714356d4dfd8b85ed2b14bd758dd46",
+      "sizeBytes": 85855,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1024
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "rock",
+      "catalogId": "material.sw.rock",
+      "kind": "material",
+      "name": "灰绿裸岩",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#777D72",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "rock.png",
+      "sourceFile": "rock.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "d617984fd110f4b171cec627735f0c40a5ae1913aaf80907c4c24703df5eff51",
+      "sourceSha256": "40393e7b1d35ef76d1ac5c30a92ad4c89e12a9d8681193670dcdfdf131e1c4fe",
+      "sizeBytes": 19487,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "cliff-rock",
+      "catalogId": "material.sw.cliff-rock",
+      "kind": "material",
+      "name": "墨绿崖侧岩",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#525E55",
+      "surfaces": [
+        "terrain"
+      ],
+      "file": "cliff-rock.png",
+      "sourceFile": "cliff-rock.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "e3037bfef41ec259ab4975e8515768aa91330c22e0ed07b2d2f632391e2d10fd",
+      "sourceSha256": "2477b36a2f515a3b8f813ec20e0eb210f90d35b534d275d383a489b6888779e9",
+      "sizeBytes": 19661,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "sand",
+      "catalogId": "material.sw.sand",
+      "kind": "material",
+      "name": "细砂岸地",
+      "logicalSizeMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "baseColor": "#C4B486",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "sand.png",
+      "sourceFile": "sand.svg",
+      "pixelWidth": 1024,
+      "pixelHeight": 1024,
+      "sha256": "81be5c5b0450c9b934cdeefeab490818435bc482cb18e247220513585169dfab",
+      "sourceSha256": "a03f571bdab146be72cd44700caa9748e18d9721c7298129957a3a3797b3c516",
+      "sizeBytes": 17984,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1024
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "water-shallow",
+      "catalogId": "material.sw.water-shallow",
+      "kind": "material",
+      "name": "浅青海水",
+      "logicalSizeMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "baseColor": "#679A9B",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "water-shallow.png",
+      "sourceFile": "water-shallow.svg",
+      "pixelWidth": 1024,
+      "pixelHeight": 1024,
+      "sha256": "89618b3d055fc221eb8519750eaab2a8814fda30b7ce9137af2097cf12b6d103",
+      "sourceSha256": "b395d4b377703264e22d7d5c8bf60c3e85d8f83f144c7c7ce27165f6ad7fad86",
+      "sizeBytes": 15653,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1024
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "water-deep",
+      "catalogId": "material.sw.water-deep",
+      "kind": "material",
+      "name": "深蓝海面",
+      "logicalSizeMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "baseColor": "#345B73",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "water-deep.png",
+      "sourceFile": "water-deep.svg",
+      "pixelWidth": 1024,
+      "pixelHeight": 1024,
+      "sha256": "03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413",
+      "sourceSha256": "6ee8b14025a1f0267f4d30b7e50510a3cad2c5ec3a455f7d048c76b413ece3a0",
+      "sizeBytes": 15796,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1024
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "tree-broadleaf",
+      "catalogId": "prop.sw.tree-broadleaf",
+      "kind": "prop",
+      "name": "阔叶树冠",
+      "spanMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "logicalSizeMm": {
+        "width": 4500,
+        "height": 4500
+      },
+      "visualBoundsMm": {
+        "x": -2250,
+        "y": -2250,
+        "width": 4500,
+        "height": 4500
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "canopy",
+      "shadowClass": "vegetation",
+      "file": "tree-broadleaf.png",
+      "sourceFile": "tree-broadleaf.svg",
+      "pixelWidth": 1152,
+      "pixelHeight": 1152,
+      "sha256": "7f77adf779cbafc8cdee67eba3f6280bef7415155cab97b781eb51af4fa2d04f",
+      "sourceSha256": "e38994b008d46596753cc6d5fe5e7336f40d21b74c2171b40a01e34026c635ca",
+      "sizeBytes": 51400,
+      "alphaContentBoundsPx": {
+        "x": 86,
+        "y": 96,
+        "width": 978,
+        "height": 940
+      },
+      "minTransparentPaddingPx": 86,
+      "fullyOpaque": false
+    },
+    {
+      "key": "tree-sparse",
+      "catalogId": "prop.sw.tree-sparse",
+      "kind": "prop",
+      "name": "疏叶树冠",
+      "spanMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "logicalSizeMm": {
+        "width": 4500,
+        "height": 4500
+      },
+      "visualBoundsMm": {
+        "x": -2250,
+        "y": -2250,
+        "width": 4500,
+        "height": 4500
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "canopy",
+      "shadowClass": "vegetation",
+      "file": "tree-sparse.png",
+      "sourceFile": "tree-sparse.svg",
+      "pixelWidth": 1152,
+      "pixelHeight": 1152,
+      "sha256": "7c6e5ee95f551c75367f27234e9c5389d9e5a9e644772f28700ea67fa2f79abf",
+      "sourceSha256": "e90d58c73e04c274de42e2e136f827205325dc25311079b2e62de04931e40eb8",
+      "sizeBytes": 49349,
+      "alphaContentBoundsPx": {
+        "x": 140,
+        "y": 149,
+        "width": 846,
+        "height": 806
+      },
+      "minTransparentPaddingPx": 140,
+      "fullyOpaque": false
+    },
+    {
+      "key": "shrub-round",
+      "catalogId": "prop.sw.shrub-round",
+      "kind": "prop",
+      "name": "圆叶灌丛",
+      "spanMm": {
+        "width": 1400,
+        "height": 1200
+      },
+      "logicalSizeMm": {
+        "width": 1750,
+        "height": 1500
+      },
+      "visualBoundsMm": {
+        "x": -875,
+        "y": -750,
+        "width": 1750,
+        "height": 1500
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 500
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "vegetation",
+      "file": "shrub-round.png",
+      "sourceFile": "shrub-round.svg",
+      "pixelWidth": 448,
+      "pixelHeight": 384,
+      "sha256": "04ab182252d4bdb341f5dcde5a95276c615f0dd49ac977e3c608878e5a6e14aa",
+      "sourceSha256": "e5ff2673d264b15dfa1f6b8ba897ca468309b75ebb3c43e19063876d5e948f44",
+      "sizeBytes": 8997,
+      "alphaContentBoundsPx": {
+        "x": 52,
+        "y": 51,
+        "width": 350,
+        "height": 267
+      },
+      "minTransparentPaddingPx": 46,
+      "fullyOpaque": false
+    },
+    {
+      "key": "shrub-dry",
+      "catalogId": "prop.sw.shrub-dry",
+      "kind": "prop",
+      "name": "枯叶灌丛",
+      "spanMm": {
+        "width": 1400,
+        "height": 1200
+      },
+      "logicalSizeMm": {
+        "width": 1750,
+        "height": 1500
+      },
+      "visualBoundsMm": {
+        "x": -875,
+        "y": -750,
+        "width": 1750,
+        "height": 1500
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 500
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "vegetation",
+      "file": "shrub-dry.png",
+      "sourceFile": "shrub-dry.svg",
+      "pixelWidth": 448,
+      "pixelHeight": 384,
+      "sha256": "b0840650142ccde6b10552e8e648a3adff16b755f87f2816f60dc3b2afe7e44e",
+      "sourceSha256": "58d6d42b868ccf309cb5cbf5ba87a45c9552852ed1119291cc5cfa1332d9ae16",
+      "sizeBytes": 8184,
+      "alphaContentBoundsPx": {
+        "x": 75,
+        "y": 69,
+        "width": 295,
+        "height": 230
+      },
+      "minTransparentPaddingPx": 69,
+      "fullyOpaque": false
+    },
+    {
+      "key": "rock-small",
+      "catalogId": "prop.sw.rock-small",
+      "kind": "prop",
+      "name": "灰绿碎石簇",
+      "spanMm": {
+        "width": 900,
+        "height": 650
+      },
+      "logicalSizeMm": {
+        "width": 1250,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -625,
+        "y": -500,
+        "width": 1250,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 800,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "rock-small.png",
+      "sourceFile": "rock-small.svg",
+      "pixelWidth": 320,
+      "pixelHeight": 256,
+      "sha256": "54d6624a67ca2aa81e1a14e958abbf8cd529fe460da1ea2fa9699a313c00471c",
+      "sourceSha256": "68a369fc964d35d6be003dc1809b5595d8f1c95a74b5970b0c178f6ecc00bd7f",
+      "sizeBytes": 4153,
+      "alphaContentBoundsPx": {
+        "x": 45,
+        "y": 57,
+        "width": 225,
+        "height": 146
+      },
+      "minTransparentPaddingPx": 45,
+      "fullyOpaque": false
+    },
+    {
+      "key": "rock-small-worn",
+      "catalogId": "prop.sw.rock-small-worn",
+      "kind": "prop",
+      "name": "风化碎石簇",
+      "spanMm": {
+        "width": 900,
+        "height": 650
+      },
+      "logicalSizeMm": {
+        "width": 1250,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -625,
+        "y": -500,
+        "width": 1250,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 800,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "rock-small-worn.png",
+      "sourceFile": "rock-small-worn.svg",
+      "pixelWidth": 320,
+      "pixelHeight": 256,
+      "sha256": "2b9ee2b1f2284745fa3b1cba30e647092f2e19f466ca632bd7e4a133a266b3f4",
+      "sourceSha256": "6cf369924fcf72ee364e0fbaf487b4b469d1ec89450b814c8d97821b2a53bde7",
+      "sizeBytes": 4542,
+      "alphaContentBoundsPx": {
+        "x": 45,
+        "y": 57,
+        "width": 225,
+        "height": 146
+      },
+      "minTransparentPaddingPx": 45,
+      "fullyOpaque": false
+    },
+    {
+      "key": "reef-decoration",
+      "catalogId": "prop.sw.reef-decoration",
+      "kind": "prop",
+      "name": "近岸裸礁装饰",
+      "spanMm": {
+        "width": 2200,
+        "height": 1600
+      },
+      "logicalSizeMm": {
+        "width": 2500,
+        "height": 2000
+      },
+      "visualBoundsMm": {
+        "x": -1250,
+        "y": -1000,
+        "width": 2500,
+        "height": 2000
+      },
+      "footprintMm": {
+        "width": 1800,
+        "height": 1200
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "reef-decoration.png",
+      "sourceFile": "reef-decoration.svg",
+      "pixelWidth": 640,
+      "pixelHeight": 512,
+      "sha256": "cb439cafa404b8cd9e02c2e89d9ac15a19f9c564fa86fd333eb6298253f391e4",
+      "sourceSha256": "e66dda7201189a6aa517f02598ccff8d728c7e21aaeb76425f46b2aff75fdf9b",
+      "sizeBytes": 8962,
+      "alphaContentBoundsPx": {
+        "x": 56,
+        "y": 98,
+        "width": 499,
+        "height": 287
+      },
+      "minTransparentPaddingPx": 56,
+      "fullyOpaque": false
+    }
+  ]
+}

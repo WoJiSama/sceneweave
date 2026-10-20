@@ -1,10 +1,10 @@
 import { validateSceneV2 } from '../../core/v2/schema'
-import type { BoundsMm, PointMm, PropV2, ShadowStyle, SurfaceStyle } from '../../core/v2/types'
+import type { BoundsMm, MaterialPaint, PointMm, PropV2, ShadowStyle, SurfaceStyle } from '../../core/v2/types'
 import { checkCancelled, PROJECT_LIMITS_V2 } from '../../io/v2/limits'
 import { inspectImageBytes, sha256Bytes } from '../../io/v2/resources'
 import type { CompleteProjectV2 } from '../../io/v2/types'
 import { orderedPropsV2, pointsBoundsV2, projectSceneV2 } from './projection'
-import type { AudienceV2, ProjectedOpeningV2, ProjectedWallV2, ProjectionV2 } from './projection'
+import type { AudienceV2, ProjectedConnectionV2, ProjectedOpeningV2, ProjectedTerrainEdgeV2, ProjectedWallV2, ProjectionV2 } from './projection'
 
 export interface RenderOptionsV2 { audience: AudienceV2; longEdgePx: number; signal?: AbortSignal }
 export const PNG_MAX_LONG_EDGE_V2 = 4096
@@ -92,25 +92,41 @@ async function decodeRequired(project: CompleteProjectV2, projection: Projection
   } catch (error) { bitmaps.forEach(bitmap => bitmap.close()); throw error }
 }
 
+function paintImage(ctx: CanvasRenderingContext2D, paint: MaterialPaint, projection: ProjectionV2, raster: RasterSetV2): HTMLCanvasElement {
+  const material = projection.materials[paint.materialRef.id], bitmap = material && raster.byAssetId.get(material.textureAssetId)
+  if (!bitmap) throw new Error('铺装所需位图没有完成解码。')
+  const key = JSON.stringify([paint, ctx.canvas.width, ctx.canvas.height])
+  if (raster.paintCache?.key !== key) {
+    if (raster.paintCache) disposeCanvas(raster.paintCache.image)
+    const image = canvas(ctx.canvas.width, ctx.canvas.height), imageCtx = context(image), pattern = imageCtx.createPattern(bitmap, 'repeat')
+    if (!pattern) { disposeCanvas(image); throw new Error('无法建立重复材质。') }
+    // Full fixed-view rasterization keeps texture phase independent of clipping and mutable bounds.
+    const b = projection.bounds
+    worldTransform(imageCtx, b, image.width / b.width, image.height / b.height)
+    pattern.setTransform(new DOMMatrix().translate(paint.originMm.x, paint.originMm.y).rotate(paint.rotationDeg).scale(paint.tileSizeMm.width / bitmap.width, paint.tileSizeMm.height / bitmap.height))
+    imageCtx.fillStyle = pattern; imageCtx.fillRect(b.x, b.y, b.width, b.height)
+    if (paint.tint) { imageCtx.globalCompositeOperation = 'multiply'; imageCtx.fillStyle = paint.tint; imageCtx.fillRect(b.x, b.y, b.width, b.height); imageCtx.globalCompositeOperation = 'source-over' }
+    raster.paintCache = { key, image }
+  }
+  return raster.paintCache.image
+}
 function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: SurfaceStyle | null, projection: ProjectionV2, raster: RasterSetV2, fallback: string): void {
   ctx.save(); ctx.clip(path); ctx.fillStyle = fallback
   const b = projection.bounds; ctx.fillRect(b.x, b.y, b.width, b.height)
   if (style) {
-    const paint = style.base, material = projection.materials[paint.materialRef.id], bitmap = raster.byAssetId.get(material.textureAssetId)
-    if (!bitmap) throw new Error('铺装所需位图没有完成解码。')
-    const key = JSON.stringify([paint, ctx.canvas.width, ctx.canvas.height])
-    if (raster.paintCache?.key !== key) {
-      if (raster.paintCache) disposeCanvas(raster.paintCache.image)
-      const image = canvas(ctx.canvas.width, ctx.canvas.height), imageCtx = context(image), pattern = imageCtx.createPattern(bitmap, 'repeat')
-      if (!pattern) { disposeCanvas(image); throw new Error('无法建立重复材质。') }
-      // Rasterize the whole fixed world view before clipping. Some Canvas backends slightly change
-      // repeated-image sampling when a clip polygon changes its bounds; that must not shift grain.
-      worldTransform(imageCtx, b, image.width / b.width, image.height / b.height)
-      pattern.setTransform(new DOMMatrix().translate(paint.originMm.x, paint.originMm.y).rotate(paint.rotationDeg).scale(paint.tileSizeMm.width / bitmap.width, paint.tileSizeMm.height / bitmap.height))
-      imageCtx.fillStyle = pattern; imageCtx.fillRect(b.x, b.y, b.width, b.height)
-      raster.paintCache = { key, image }
+    ctx.save(); ctx.resetTransform(); ctx.globalAlpha = style.base.opacity; ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0); ctx.restore()
+    for (const overlay of [...style.overlays].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) {
+      const layer = canvas(ctx.canvas.width, ctx.canvas.height), mask = canvas(ctx.canvas.width, ctx.canvas.height)
+      try {
+        const layerCtx = context(layer), maskCtx = context(mask), sx = mask.width / b.width, sy = mask.height / b.height
+        worldTransform(maskCtx, b, sx, sy); maskCtx.fillStyle = '#fff'
+        // A deterministic world-size feather; the owner clip remains authoritative.
+        if (overlay.blendWidthMm) maskCtx.filter = `blur(${overlay.blendWidthMm * .5 * Math.max(sx, sy)}px)`
+        maskCtx.fill(polygonPath(overlay.boundaryMm)); maskCtx.filter = 'none'
+        layerCtx.drawImage(paintImage(ctx, overlay.paint, projection, raster), 0, 0); layerCtx.globalCompositeOperation = 'destination-in'; layerCtx.drawImage(mask, 0, 0)
+        ctx.save(); ctx.resetTransform(); ctx.globalAlpha = overlay.paint.opacity; ctx.drawImage(layer, 0, 0); ctx.restore()
+      } finally { disposeCanvas(layer); disposeCanvas(mask) }
     }
-    ctx.resetTransform(); ctx.globalAlpha = paint.opacity; ctx.drawImage(raster.paintCache.image, 0, 0)
   }
   ctx.restore()
 }
@@ -194,11 +210,91 @@ function drawProp(ctx: CanvasRenderingContext2D, prop: PropV2, projection: Proje
   } else symbol(ctx, prop)
   ctx.restore()
 }
+export function connectionPolygonV2(connection: Pick<ProjectedConnectionV2, 'start' | 'end' | 'widthMm'>): PointMm[] {
+  return wallBand(connection.start, connection.end, connection.widthMm)
+}
+function linePath(a: PointMm, b: PointMm): Path2D { const path = new Path2D(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); return path }
+function excludeRing(ctx: CanvasRenderingContext2D, ring: PointMm[], bounds: BoundsMm): void {
+  const path = new Path2D(); path.rect(bounds.x - 10000, bounds.y - 10000, bounds.width + 20000, bounds.height + 20000); addRing(path, ring); ctx.clip(path, 'evenodd')
+}
+/** Face thickness follows the real lower side, including canonical sources that are the lower area.
+ * This surface decoration is distinct from the independently controlled world-direction shadow. */
+export function terrainFaceV2(edge: ProjectedTerrainEdgeV2, projection: Pick<ProjectionV2, 'theme'>): PointMm[] {
+  const delta = Math.abs(edge.elevationMm - edge.neighborElevationMm)
+  if (!delta || edge.kind !== 'cliff') return []
+  const a = edge.start, b = edge.end, length = Math.hypot(b.x - a.x, b.y - a.y), sign = edge.elevationMm > edge.neighborElevationMm ? 1 : -1
+  const cliff = projection.theme?.terrainCliff, width = Math.min(edge.style.bandWidthMm, cliff?.maxOffsetMm ?? 600, Math.round((cliff?.offsetFactor ?? .18) * delta))
+  const dx = (b.y - a.y) / length * sign * width, dy = -(b.x - a.x) / length * sign * width
+  return width ? [a, b, point(b.x + dx, b.y + dy), point(a.x + dx, a.y + dy)] : []
+}
+/** A swept edge silhouette, displaced once toward world SE; face-normal offset is not added. */
+export function terrainShadowV2(edge: ProjectedTerrainEdgeV2, projection: Pick<ProjectionV2, 'theme'>): PointMm[] {
+  const cliff = projection.theme?.terrainCliff
+  if (edge.kind !== 'cliff' || !cliff?.opacity) return []
+  const delta = Math.abs(edge.elevationMm - edge.neighborElevationMm), offset = Math.round(Math.min(cliff.maxOffsetMm, cliff.offsetFactor * delta)), angle = cliff.directionDeg * Math.PI / 180
+  const dx = Math.cos(angle) * offset, dy = Math.sin(angle) * offset
+  return offset ? [edge.start, edge.end, point(edge.end.x + dx, edge.end.y + dy), point(edge.start.x + dx, edge.start.y + dy)] : []
+}
+function clipConnections(ctx: CanvasRenderingContext2D, projection: ProjectionV2): void {
+  for (const c of projection.connections) excludeRing(ctx, connectionPolygonV2(c), projection.bounds)
+}
+function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: ProjectionV2, raster: RasterSetV2, sx: number, sy: number): void {
+  for (const edge of projection.edges) {
+    const path = linePath(edge.start, edge.end), face = terrainFaceV2(edge, projection), shadow = terrainShadowV2(edge, projection), cliff = projection.theme?.terrainCliff
+    ctx.save(); clipConnections(ctx, projection)
+    if (face.length || shadow.length) {
+      const highId = edge.elevationMm > edge.neighborElevationMm ? edge.sourceAreaId : edge.neighborAreaId
+      const high = projection.terrain.find(a => a.id === highId)
+      ctx.save(); if (high) excludeRing(ctx, high.points, projection.bounds)
+      if (cliff && shadow.length) {
+        ctx.save(); ctx.filter = `blur(${cliff.blurMm * Math.max(sx, sy)}px)`; ctx.globalAlpha = cliff.opacity; ctx.fillStyle = cliff.color; ctx.fill(polygonPath(shadow)); ctx.restore()
+      }
+      if (face.length) {
+        fillSurface(ctx, polygonPath(face), edge.surfaceStyle, projection, raster, '#525E55')
+        ctx.save(); ctx.strokeStyle = '#39443E'; ctx.globalAlpha = .28; ctx.lineWidth = 18; ctx.stroke(linePath(face[3], face[2])); ctx.restore()
+      }
+      ctx.restore()
+    }
+    if (edge.kind === 'materialTransition' && edge.style.bandWidthMm > 0) {
+      ctx.save(); ctx.globalAlpha = .22; ctx.filter = `blur(${edge.style.bandWidthMm * .3 * Math.max(sx, sy)}px)`; ctx.strokeStyle = edge.style.color; ctx.lineWidth = edge.style.bandWidthMm; ctx.stroke(path); ctx.restore()
+      if (edge.surfaceStyle) fillSurface(ctx, polygonPath(wallBand(edge.start, edge.end, edge.style.bandWidthMm)), edge.surfaceStyle, projection, raster, edge.style.color)
+    }
+    if (edge.style.strokeWidthMm) { ctx.strokeStyle = edge.style.color; ctx.lineWidth = edge.style.strokeWidthMm; ctx.lineCap = 'butt'; ctx.stroke(path) }
+    if (edge.shoreline || edge.kind === 'shore') {
+      const shore = projection.theme?.edgeStyles.shore ?? { strokeWidthMm: 12, color: '#D9D4B4', bandWidthMm: 180 }
+      const dx = edge.end.x - edge.start.x, dy = edge.end.y - edge.start.y, length = Math.hypot(dx, dy)
+      const shift = Math.min(shore.bandWidthMm, 180) * .65, nx = dy / length * shift, ny = -dx / length * shift
+      ctx.save(); ctx.strokeStyle = shore.color; ctx.lineWidth = shore.strokeWidthMm; ctx.lineCap = 'round'; ctx.setLineDash([145, 90, 65, 115]); ctx.lineDashOffset = -(edge.start.x + edge.start.y) % 415; ctx.stroke(linePath(point(edge.start.x + nx, edge.start.y + ny), point(edge.end.x + nx, edge.end.y + ny))); ctx.restore()
+    }
+    ctx.restore()
+  }
+}
+function drawConnections(ctx: CanvasRenderingContext2D, projection: ProjectionV2, raster: RasterSetV2): void {
+  for (const c of projection.connections) {
+    const polygon = connectionPolygonV2(c), path = polygonPath(polygon), length = Math.hypot(c.end.x - c.start.x, c.end.y - c.start.y)
+    if (!(length > 0)) throw new Error('连接长度必须大于零。')
+    ctx.save(); fillSurface(ctx, path, c.style, projection, raster, '#919180'); ctx.clip(path)
+    const gradient = ctx.createLinearGradient(c.start.x, c.start.y, c.end.x, c.end.y)
+    gradient.addColorStop(0, c.toElevationMm > c.fromElevationMm ? '#24313A44' : '#F2EAD420'); gradient.addColorStop(1, c.toElevationMm > c.fromElevationMm ? '#F2EAD420' : '#24313A44')
+    ctx.fillStyle = gradient; ctx.fill(path)
+    const dx = (c.end.x - c.start.x) / length, dy = (c.end.y - c.start.y) / length, nx = -dy * c.widthMm / 2, ny = dx * c.widthMm / 2
+    ctx.strokeStyle = '#39443E'; ctx.lineWidth = 25; ctx.lineCap = 'butt'; ctx.globalAlpha = .8
+    if (c.kind === 'stairs') {
+      const count = Math.max(2, Math.min(40, Math.ceil(Math.abs(c.toElevationMm - c.fromElevationMm) / 180)))
+      for (let i = 1; i < count; i++) { const x = c.start.x + dx * length * i / count, y = c.start.y + dy * length * i / count; ctx.stroke(linePath(point(x - nx, y - ny), point(x + nx, y + ny))) }
+    } else { ctx.setLineDash([110, 85]); ctx.stroke(linePath(c.start, c.end)); ctx.setLineDash([]) }
+    ctx.globalAlpha = 1
+    if (c.blocksMovement) { const mid = point((c.start.x + c.end.x) / 2, (c.start.y + c.end.y) / 2); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 85; ctx.stroke(linePath(point(mid.x - nx, mid.y - ny), point(mid.x + nx, mid.y + ny))) }
+    ctx.restore(); ctx.save(); ctx.strokeStyle = '#39443E'; ctx.lineWidth = 24; ctx.stroke(linePath(polygon[0], polygon[3])); ctx.stroke(linePath(polygon[1], polygon[2])); ctx.restore()
+  }
+}
 function drawProjection(ctx: CanvasRenderingContext2D, projection: ProjectionV2, raster: RasterSetV2, signal?: AbortSignal) {
   const bounds = projection.bounds, sx = ctx.canvas.width / bounds.width, sy = ctx.canvas.height / bounds.height
   ctx.fillStyle = '#D8D5C5'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
   worldTransform(ctx, bounds, sx, sy)
   for (const area of projection.terrain) fillSurface(ctx, polygonPath(area.points), area.style, projection, raster, '#C3BEA8')
+  drawTerrainEdges(ctx, projection, raster, sx, sy)
+  drawConnections(ctx, projection, raster)
   for (const room of projection.rooms) fillSurface(ctx, polygonPath(room.points), room.style, projection, raster, '#B9AA88')
   for (const prop of orderedPropsV2(projection.props).filter(p => p.renderLayer === 'ground')) drawProp(ctx, prop, projection, raster, sx, sy)
   checkCancelled(signal)

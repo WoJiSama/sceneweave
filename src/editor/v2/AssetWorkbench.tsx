@@ -7,20 +7,23 @@ import { SceneRepository } from '../../io/storage'
 import { bootEditor, flushSave, useEditorStore } from '../store'
 import { createCalibrationProject } from './calibration'
 import { validateStudyEditsV2 } from './study-constraints'
+import { validateIslandEditsV2 } from './island-constraints'
 import type { SceneCommandV2 } from '../../core/v2/commands'
 import type { SceneDocumentV2 } from '../../core/v2/types'
 import { exportPngV2 } from '../../render/v2/renderer'
 import { NumberInput } from './controls'
 import SceneInspector from './SceneInspector'
 import SceneLibrary from './SceneLibrary'
+import TerrainTravelPanel from './TerrainTravelPanel'
 import { migrateProjectV1, prepareProjectFile } from './migration-project'
 import { forkProjectV2, WorkspaceV2 } from './workspace'
 import AssetCanvas from './AssetCanvas'
 import './assets.css'
 
 const repository = new SceneRepositoryV2()
-export const assetWorkspace = new WorkspaceV2(repository, validateStudyEditsV2)
+export const assetWorkspace = new WorkspaceV2(repository, document => { validateStudyEditsV2(document); validateIslandEditsV2(document) })
 const createStudyProject = async (signal: AbortSignal) => (await import('./study-sample')).createStudyProject(signal)
+const createIslandProject = async (signal: AbortSignal) => (await import('./island-sample')).createIslandProject(signal)
 let opened: Promise<void> | undefined
 const ready = () => opened ??= repository.open().catch(error => { opened = undefined; throw error })
 const bytesLabel = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`
@@ -124,9 +127,10 @@ export default function AssetWorkbench({ onBack }: { onBack: () => void }) {
   }, '从 M0 已保存修订创建独立副本，保留原工程及迁移来源。')
   const backup = () => { if (project) void action(async () => { download(await exportProjectV2(project), 'sceneweave-complete.sceneweave'); setMessage('完整主持人工程已生成，包含全部资源、许可和秘密。') }) }
   const commit = (run: () => void) => { try { if (structure) throw new Error('请先采用或取消结构预览。'); run(); setMessage(null) } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } }
-  const preview = (commands: SceneCommandV2[], description: string) => {
+  const preview = (input: SceneCommandV2[] | (() => SceneCommandV2[]), description: string) => {
     if (!project) return
     try {
+      const commands = typeof input === 'function' ? input() : input
       const checkpoint = structure?.checkpoint ?? assetWorkspace.checkpoint()
       assetWorkspace.assertCheckpoint(checkpoint)
       const document = assetWorkspace.preview(commands)
@@ -144,11 +148,12 @@ export default function AssetWorkbench({ onBack }: { onBack: () => void }) {
   const saveLabels = { empty: '尚未打开工程', saved: '本地已保存', unsaved: '等待保存', saving: '正在保存', error: '保存失败', conflict: '版本冲突' }
   return <>
     <div className="asset-shell" ref={shell} data-testid="asset-workbench" data-revision={project?.document.revision}>
-      <header className="asset-header"><button className="asset-brand" disabled={!!structure} onClick={() => void action(async () => { await assetWorkspace.flush(); onBack() })}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><Layers3 size={20}/><span>素材工坊</span><b>B2 建筑样板</b></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`}>{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : <CheckCircle2 size={14}/>} {saveLabels[state.status]}</span><button className="secondary" disabled={busy || !!structure} onClick={() => file.current?.click()}><Upload size={15}/>打开工程</button><button className="primary" disabled={busy || !!structure || !project} onClick={backup}><Download size={15}/>完整工程</button><button className="secondary" disabled={busy || !!structure || !project} onClick={exportImage}><Download size={15}/>4K PNG</button></div></header>
-      <div className="asset-phase-note">墨绘原野 · 可编辑室内样板<span>厚墙与斜窗 / 真实尺度铺装 / 独立组件与组合</span></div>
+      <header className="asset-header"><button className="asset-brand" disabled={!!structure} onClick={() => void action(async () => { await assetWorkspace.flush(); onBack() })}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><Layers3 size={20}/><span>素材工坊</span><b>B3 室内与室外</b></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`}>{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : <CheckCircle2 size={14}/>} {saveLabels[state.status]}</span><button className="secondary" disabled={busy || !!structure} onClick={() => file.current?.click()}><Upload size={15}/>打开工程</button><button className="primary" disabled={busy || !!structure || !project} onClick={backup}><Download size={15}/>完整工程</button><button className="secondary" disabled={busy || !!structure || !project} onClick={exportImage}><Download size={15}/>4K PNG</button></div></header>
+      <div className="asset-phase-note">墨绘原野 · 可编辑场景样板<span>厚墙与斜窗 / 台地与悬崖 / 真实材质与植被散布</span></div>
       {(state.error || message) && <div className="asset-notice" role="alert"><span>{message ?? state.error}</span>{state.status === 'error' && <button onClick={() => void action(() => assetWorkspace.retry())}>重试保存</button>}{['conflict', 'error'].includes(state.status) && <button onClick={() => void action(async () => { await assetWorkspace.saveAsCopy(); await refresh() })}>另存副本</button>}<button aria-label="关闭工坊提示" onClick={() => setMessage(null)}><X size={16}/></button></div>}
       <div className="asset-layout">
         <SceneLibrary project={project} selected={selected} busy={busy || !!structure} recent={recent} onSelect={select}
+          onIsland={() => prepare(createIslandProject, '原创室外样板：双层岩岛、草岩浅水、高差台阶与可保留人工调整的散布。')}
           onStudy={() => prepare(createStudyProject, '原创室内建筑样板：书房与露台、厚墙与斜窗、墨绘原野材质及可拆分组合。')}
           onCalibration={() => prepare(createCalibrationProject, 'B1 原创程序校样：重复木纹、透明书桌与椅子，用于验证素材和工程保存。')}
           onMigrate={migrateCurrent} onOpen={id => void action(async () => {
@@ -162,16 +167,17 @@ export default function AssetWorkbench({ onBack }: { onBack: () => void }) {
             try { assetWorkspace.assertCheckpoint(structure.checkpoint); assetWorkspace.execute(structure.commands); setStructure(null); setMessage(null) }
             catch (error) { setStructure(null); setMessage(error instanceof Error ? error.message : String(error)) }
           }}>采用结构修改</button></div>}
-          <div className="asset-stage">{visibleProject ? <AssetCanvas project={visibleProject} selected={audience === 'gm' ? selected : null} onSelect={select} audience={audience} disabled={busy || !!structure || audience === 'player'}/> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>给故事一间有细节的书房</span><p>墙体、铺装、家具与杂物各自可编辑。<br/>从书房走向露台，再逐步扩展到室外场景。</p><button className="primary" disabled={busy} onClick={() => prepare(createStudyProject, '创建书房与露台完整样板。')}>打开书房与露台</button></div>}</div><footer className="asset-canvas-footer"><span>{audience === 'gm' ? '主持人视图 · 工程可能包含秘密' : '玩家视图 · 已过滤私密内容'}</span>{project && <span>{Object.keys(project.assets).length} 张位图 · {Object.keys(project.document.props).length} 件物件 · r{project.document.revision}</span>}</footer>
+          <div className="asset-stage">{visibleProject ? <AssetCanvas project={visibleProject} selected={audience === 'gm' ? selected : null} onSelect={select} audience={audience} disabled={busy || !!structure || audience === 'player'}/> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>给故事一间有细节的书房</span><p>墙体、铺装、家具与杂物各自可编辑。<br/>从书房走向露台，或打开有高差的岩岛。</p><button className="primary" disabled={busy} onClick={() => prepare(createStudyProject, '创建书房与露台完整样板。')}>打开书房与露台</button></div>}</div><footer className="asset-canvas-footer"><span>{audience === 'gm' ? '主持人视图 · 工程可能包含秘密' : '玩家视图 · 已过滤私密内容'}</span>{project && <span>{Object.keys(project.assets).length} 张位图 · {Object.keys(project.document.props).length} 件物件 · r{project.document.revision}</span>}</footer>
         </main>
-        <aside className="asset-inspector">{visibleProject && selected && audience === 'gm' ? <SceneInspector project={visibleProject} selected={selected} busy={busy} workspace={assetWorkspace} onSelect={select} onCommit={commit} onPreview={preview}/> : <>
+        <aside className="asset-inspector">{visibleProject && selected && audience === 'gm' ? <SceneInspector project={visibleProject} selected={selected} busy={busy || !!structure} workspace={assetWorkspace} onSelect={select} onCommit={commit} onPreview={preview}/> : <>
           <div className="asset-section-heading"><Move size={16}/><h2>{audience === 'player' ? '玩家输出' : '工程信息'}</h2></div>
-          {project ? <><h3>{project.document.activeStyleThemeRef ? '墨绘原野 · v1' : '完整工程 · v2'}</h3><p className="asset-muted">{audience === 'player' ? '预览与 PNG 使用同一投影和绘制流程，私密内容在材质与阴影派生前过滤。' : '选择画面中的物件，或从左侧切换组合与建筑结构。全部素材、定义和许可随工程保存。'}</p>
+          {project ? <><h3>{project.document.activeStyleThemeRef ? '墨绘原野 · v1' : '完整工程 · v2'}</h3><p className="asset-muted">{audience === 'player' ? '预览与 PNG 使用同一投影和绘制流程，私密内容在材质与阴影派生前过滤。' : '选择画面中的物件，或从左侧切换组合、散布与场景结构。全部素材、定义和许可随工程保存。'}</p>
             <dl className="asset-facts"><dt>场景修订</dt><dd>r{project.document.revision}</dd><dt>素材字节</dt><dd>{bytesLabel(Object.values(project.assets).reduce((sum, asset) => sum + asset.sizeBytes, 0))}</dd><dt>定义快照</dt><dd>{Object.keys(project.document.propDefinitions).length} 件物件 / {Object.keys(project.document.materials).length} 种材质</dd><dt>许可绑定</dt><dd>{project.licenseBindings.length} 条</dd></dl>
             {audience === 'gm' && <><h3>地面材质</h3>{Object.values(project.document.rooms).filter(room => room.floorStyle).map(room => <fieldset key={room.id} disabled={busy || !!structure || room.editLocked}><NumberInput label="木纹方向" value={room.floorStyle!.base.rotationDeg} unit="°" onCommit={rotation => commit(() => assetWorkspace.rotateRoomMaterial(room.id, rotation))}/></fieldset>)}<button className="secondary asset-wide" disabled={busy || !!structure} onClick={() => void action(async () => { await validateCompleteProjectV2(project); setMessage('完整工程校验通过：格式、引用、位图与许可一致。') })}><CheckCircle2 size={15}/>校验完整工程</button></>}
+            {audience === 'gm' && project.document.presetSnapshot.presetId === 'sceneweave-vis02' && <TerrainTravelPanel scene={project.document} disabled={busy || !!structure}/>}
             {project.migrationSource && <div className="asset-provenance"><strong>M0 迁移副本</strong><p>来源修订 r{project.migrationSource.sourceRevision}，原始文件保存在本地迁移记录中。</p><button onClick={() => download(project.migrationSource!.original, project.migrationSource!.original.type === 'application/json' ? 'sceneweave-original-v1.json' : 'sceneweave-original-v1.sceneweave')}>下载迁移原件</button></div>}
-          </> : <p className="asset-muted">打开建筑样板、迁移旧场景，或导入完整工程。</p>}
-          <div className="asset-next"><RotateCw size={16}/><strong>下一批：自然场景</strong><p>不规则台地、草岩沙水、岸线与高差连接，以及可保留人工修改的散布。</p></div>
+          </> : <p className="asset-muted">打开室内或室外样板、迁移旧场景，或导入完整工程。</p>}
+          <div className="asset-next"><RotateCw size={16}/><strong>接下来：双样板联合验收</strong><p>补齐室内与室外的保存、秘密与真实素材负载矩阵，再进入完整手工工具。</p></div>
         </>}</aside>
       </div>
       <input hidden ref={file} type="file" accept=".sceneweave" aria-label="选择完整素材工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected) prepare(signal => prepareProjectFile(selected, signal), '打开为独立副本，不覆盖当前工程。M0 文件会显式迁移到 v2。') }}/>

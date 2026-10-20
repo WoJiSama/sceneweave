@@ -4,7 +4,7 @@ import { migrateSceneV1 } from '../../core/v2/migration'
 import { pointInPolygonV2 } from '../../core/v2/geometry'
 import type { PointMm, PropV2, SceneDocumentV2, SurfaceStyle } from '../../core/v2/types'
 import { boundsCoveredV2, projectSceneV2, transformedVisualBoundsV2 } from './projection'
-import { wallGeometryV2 } from './renderer'
+import { connectionPolygonV2, terrainFaceV2, terrainShadowV2, wallGeometryV2 } from './renderer'
 
 function empty(): SceneDocumentV2 {
   const scene = createHouse('source')
@@ -89,7 +89,7 @@ describe('B2 audience projection before visual derivation', () => {
     scene.vertices.v0.xMm = 500; expect(projectSceneV2(scene, 'gm').rooms[0].style).toEqual(before)
     scene.terrainAreas.hidden = { id: 'hidden', floorId: 'f-a1', editLocked: false, visibility: 'gm', groundElevationMm: 3500, coveragePriority: 50, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1, boundaryMm: rect(12000, 10000, 1000, 1000).map((p, i) => ({ id: `hidden-v${i}`, segmentId: `hidden-s${i}`, positionMm: p })) }; mask(scene, 11000, 9000, 4000, 4000)
     const player = projectSceneV2(scene, 'player'); expect(player.terrain).toEqual([]); expect(player.limitations).toEqual([])
-    expect(projectSceneV2(scene, 'gm').limitations.join('')).toContain('非零高程')
+    expect(projectSceneV2(scene, 'gm').limitations).toEqual([]); expect(projectSceneV2(scene, 'gm').edges).toHaveLength(4)
   })
 
   it('canonicalizes public collinear wall splits and removes all hidden wall-only geometry', () => {
@@ -117,5 +117,63 @@ describe('B2 derived wall bands', () => {
     for (const wall of projected.walls) [wall.start, wall.end] = [wall.end, wall.start]
     const after = wallGeometryV2(projected.walls).flatMap(g => g.polygons)
     for (const p of [{ x: 8500, y: 1500 }, { x: 8041, y: 900 }, { x: 9050, y: 2020 }, { x: 1000, y: 1000 }]) expect(before.some(r => pointInPolygonV2(p, r))).toBe(after.some(r => pointInPolygonV2(p, r)))
+  })
+})
+
+
+describe('B3 audience-derived terrain and connections', () => {
+  function island() {
+    const scene = empty()
+    const area = (id: string, points: PointMm[], height: number, priority = 10) => ({ id, floorId: 'f-a1', editLocked: false, visibility: 'public' as const, groundElevationMm: height, coveragePriority: priority, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1, boundaryMm: points.map((positionMm, i) => ({ id: `${id}-v${i}`, segmentId: `${id}-s${i}`, positionMm })) })
+    scene.terrainAreas.water = { ...area('water', rect(0, 0, 20000, 20000), 0, 0), blocksMovement: true }
+    scene.terrainAreas.low = area('low', rect(1000, 1000, 9000, 16000), 1000)
+    scene.terrainAreas.high = area('high', rect(10000, 1000, 7000, 16000), 3000)
+    scene.terrainEdges.shared = { id: 'shared', floorId: 'f-a1', editLocked: false, visibility: 'public', source: { areaId: 'high', segmentId: 'high-s3' }, neighborAreaId: 'low', kind: 'cliff', shoreline: false, blocksMovement: true, blocksSight: false, surfaceStyle: null, styleOverride: null }
+    scene.terrainConnections.stairs = { id: 'stairs', floorId: 'f-a1', editLocked: false, visibility: 'public', kind: 'stairs', from: { surfaceRef: { kind: 'terrainArea', id: 'low' }, positionMm: { x: 8500, y: 10000 } }, to: { surfaceRef: { kind: 'terrainArea', id: 'high' }, positionMm: { x: 11500, y: 10000 } }, widthMm: 2000, openingId: null, blocksMovement: false, movementCostMultiplier: 1, surfaceStyle: null }
+    return scene
+  }
+
+  it('resolves a shared cliff once, updates derived heights, and keeps connection corridors explicit', () => {
+    const scene = island(), projection = projectSceneV2(scene, 'gm')
+    const shared = projection.edges.filter(e => e.start.x === 10000 && e.end.x === 10000)
+    expect(shared).toHaveLength(1); expect(shared[0].id).toBe('shared'); expect(shared[0].neighborElevationMm).toBe(1000)
+    expect(projection.connections[0]).toMatchObject({ fromElevationMm: 1000, toElevationMm: 3000, widthMm: 2000, blocksMovement: false })
+    expect(connectionPolygonV2(projection.connections[0]).map(p => `${p.x},${p.y}`).sort()).toEqual(rect(8500, 9000, 3000, 2000).map(p => `${p.x},${p.y}`).sort())
+    const faceEdge = projection.edges.find(e => e.sourceAreaId === 'high' && e.start.y === 17000 && e.end.y === 17000)!
+    const original = terrainFaceV2(faceEdge, projection)
+    expect(original).toHaveLength(4); expect(original[2].x).toBe(faceEdge.end.x); expect(original[2].y - faceEdge.end.y).toBe(450)
+    scene.terrainAreas.high.groundElevationMm = 4000
+    const changed = projectSceneV2(scene, 'gm'); expect(changed.connections[0].toElevationMm).toBe(4000)
+    expect(terrainFaceV2(changed.edges.find(e => e.id === faceEdge.id)!, changed)[2].y - faceEdge.end.y).toBe(450)
+    const sharedFace = terrainFaceV2(shared[0], projection); expect(sharedFace[2].x).toBe(9640)
+    const lowerCanonical = { ...shared[0], start: shared[0].end, end: shared[0].start, elevationMm: 1000, neighborElevationMm: 3000 }; expect(terrainFaceV2(lowerCanonical, projection)[2].x).toBe(9640)
+    const withTheme = { theme: { terrainCliff: { directionDeg: 45, offsetFactor: .18, maxOffsetMm: 600, blurMm: 120, opacity: .24, color: '#24313A' } } } as typeof projection
+    const shadow = terrainShadowV2(shared[0], withTheme); expect(shadow[2].x - shared[0].end.x).toBeCloseTo(360 / Math.SQRT2); expect(shadow[2].y - shared[0].end.y).toBeCloseTo(360 / Math.SQRT2)
+    expect(changed.limitations).toEqual([])
+  })
+
+  it('filters a private plateau before effective coverage, cliffs, connections and resource collection', () => {
+    const scene = island(), baseline = projectSceneV2(scene, 'player')
+    const secret = structuredClone(scene.terrainAreas.high); secret.id = 'secret'; secret.visibility = 'gm'; secret.coveragePriority = 30; secret.groundElevationMm = 3500; secret.boundaryMm = rect(12500, 4000, 1500, 1800).map((positionMm, i) => ({ id: `secret-v${i}`, segmentId: `secret-s${i}`, positionMm })); scene.terrainAreas.secret = secret
+    mask(scene, 11000, 2500, 5000, 5000)
+    scene.terrainConnections.private = { ...scene.terrainConnections.stairs, id: 'private', visibility: 'gm', from: { surfaceRef: { kind: 'terrainArea', id: 'high' }, positionMm: { x: 12000, y: 5000 } }, to: { surfaceRef: { kind: 'terrainArea', id: 'secret' }, positionMm: { x: 13000, y: 5000 } }, widthMm: 500 }
+    note(scene, 'private-edge-label', { type: 'entity', entityKind: 'terrainConnection', entityId: 'private' })
+    const player = projectSceneV2(scene, 'player')
+    expect(player.terrain).toEqual(baseline.terrain); expect(player.edges).toEqual(baseline.edges); expect(player.connections).toEqual(baseline.connections); expect(player.notes).toEqual([])
+    const gm = projectSceneV2(scene, 'gm'); expect(gm.edges.filter(e => e.sourceAreaId === 'secret')).toHaveLength(4); expect(gm.connections).toHaveLength(2)
+    scene.terrainAreas.secret.groundElevationMm = 4300; scene.terrainAreas.secret.boundaryMm[0].positionMm.x += 200
+    expect(projectSceneV2(scene, 'player').edges).toEqual(baseline.edges)
+    mask(scene, 12400, 3900, 1800, 2000); expect(() => projectSceneV2(scene, 'player')).toThrow('装饰阴影')
+  })
+
+  it('requires actual visible overlay and cliff material bytes, after privacy filtering', () => {
+    const scene = island(), material = (id: string) => ({ id, catalogId: id, version: 1, name: id, licenseRef: 'MIT', origin: { kind: 'original' as const, attribution: 'original', canEmbed: true }, tags: [], textureAssetId: `${id}-texture`, defaultTileSizeMm: { width: 2000, height: 2000 }, applicableSurfaces: ['terrain' as const] })
+    for (const id of ['grass', 'rock', 'cliff']) scene.materials[id] = material(id)
+    const paint = (id: string) => ({ materialRef: { id, version: 1 }, tileSizeMm: { width: 2000, height: 2000 }, rotationDeg: 0, alignment: 'world' as const, originMm: { x: 0, y: 0 }, tint: null, opacity: 1 })
+    scene.terrainAreas.high.surfaceStyle = { base: paint('grass'), overlays: [{ id: 'rock-patch', paint: paint('rock'), boundaryMm: rect(11000, 3000, 3000, 3000), blendWidthMm: 250, renderOrder: 5 }] }
+    scene.terrainEdges.shared.surfaceStyle = { base: paint('cliff'), overlays: [] }
+    const gm = projectSceneV2(scene, 'gm'); expect(gm.assetIds).toEqual(['cliff-texture', 'grass-texture', 'rock-texture']); expect(gm.limitations).toEqual([])
+    scene.terrainEdges.shared.visibility = 'gm'; mask(scene, 8500, 0, 3000, 20000)
+    expect(projectSceneV2(scene, 'player').assetIds).toEqual(['grass-texture', 'rock-texture'])
   })
 })

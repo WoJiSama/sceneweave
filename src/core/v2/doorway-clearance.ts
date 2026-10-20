@@ -30,13 +30,13 @@ function band(start: PointMm, end: PointMm, thicknessMm: number): PointMm[] {
 }
 
 /** Real blocking bands with structural door apertures removed; windows remain solid. */
-function wallShapes(scene: SceneDocumentV2): WallShape[] {
+function wallShapes(scene: SceneDocumentV2, current = false): WallShape[] {
   return Object.values(scene.walls).filter(wall => wall.blocksMovement).map(wall => {
     const a = own(scene.vertices, wall.startVertexId), b = own(scene.vertices, wall.endVertexId)
     if (!a || !b) throw new Error(`门前检查缺少墙端点：${wall.id}。`)
     const start = { x: a.xMm, y: a.yMm }, end = { x: b.xMm, y: b.yMm }, length = Math.hypot(end.x - start.x, end.y - start.y)
     if (!length) throw new Error(`门前检查遇到零长墙：${wall.id}。`)
-    const gaps = Object.values(scene.openings).filter(opening => opening.wallId === wall.id && opening.kind === 'door').map(opening => {
+    const gaps = Object.values(scene.openings).filter(opening => opening.wallId === wall.id && opening.kind === 'door' && (!current || opening.state === 'open' && !opening.locked)).map(opening => {
       const offset = opening.offsetReferenceVertexId === wall.startVertexId ? opening.offsetMm : length - opening.offsetMm - opening.widthMm
       return [offset, offset + opening.widthMm]
     }).sort(([a], [b]) => a - b)
@@ -70,6 +70,12 @@ function wallJoins(shapes: WallShape[]): { wallIds: string[]; floorId: string; p
     }
   }
   return result
+}
+
+/** Shared actual solid bands and miter/bevel joins. Current mode keeps closed/locked doors solid. */
+export function wallMovementPolygonsV2(scene: SceneDocumentV2, current = false): { floorId: string; entityId: string; polygon: PointMm[] }[] {
+  const shapes = wallShapes(scene, current)
+  return [...shapes.flatMap(shape => shape.polygons.map(polygon => ({ floorId: shape.wall.floorId, entityId: shape.wall.id, polygon }))), ...wallJoins(shapes).map(join => ({ floorId: join.floorId, entityId: join.wallIds.join('、'), polygon: join.polygon }))]
 }
 
 /**

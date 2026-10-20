@@ -2,11 +2,11 @@
 
 织境 · Sceneweave 当前 M0 几何版原型首轮验证完成。领域内核、画布编辑、保存与双受众输出已有实现；完整编辑器、AI 与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
 
-室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义和下一批B3输入。M0支持范围不变；新模型同步格式、迁移和验收。
+室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)，下一批B4联合矩阵、B5真实负载。M0支持范围不变；新模型同步格式、迁移和验收。
 
 ## 开发环境与命令
 
-建议使用.nvmrc的Node.js24.14.1；B2使用该版本/npm11.11.0，B1历史覆盖24与26，依赖由package-lock.json锁定。package.json允许Node.js>=22.12.0且<27；其他允许版本不等于已验证。
+建议使用.nvmrc的Node.js24.14.1；B2/B3使用该版本/npm11.11.0，B1历史覆盖24与26，依赖由package-lock.json锁定。package.json允许Node.js>=22.12.0且<27；其他允许版本不等于已验证。
 
 ```sh
 npm ci
@@ -53,7 +53,7 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 - M2 的 AI 使用已入库目录生成布局/布景；新素材生成按可选 A1 独立实施，不能把候选图片直接当成已审核组件。
 - 修正文档矛盾与含糊定义，附上来源或可复核的最小例子。
 
-文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01首轮结果见[18](docs/18-m1b-b2-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、VIS-02和完整SCN-01/02/03/04尚未验证。真实负载与峰值仍待测量，不能由程序符号或单样板结果推定通过。后续另建验证记录，保留M0/B1历史报告与原始证据。
+文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/18-m1b-b2-validation.md)/[19](docs/19-m1b-b3-validation.md)；其他浏览器、真实配额耗尽、完整主题P3和完整SCN-01/02/03/04尚未验证。真实负载与峰值仍待测量，不能由程序符号或单样板结果推定通过。后续另建验证记录，保留M0/B1历史报告与原始证据。
 
 ## 内容与许可
 
