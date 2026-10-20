@@ -4,3 +4,9 @@
 !.env.example
 local-data/
 work/
+node_modules/
+dist/
+*.tsbuildinfo
+test-results/
+playwright-report/
+coverage/
