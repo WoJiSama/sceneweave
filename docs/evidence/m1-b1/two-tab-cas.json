@@ -1,0 +1,10 @@
+{
+  "staleWriteRejected": true,
+  "firstBranchX": 5500,
+  "independentCopyX": 6000,
+  "hashesRetained": [
+    "3f77a8f14ff3dc84b2a3065fb74de477357f1bf77461123d2cad7b884bfa5916",
+    "85e336f45f4732715095d6673fd4532460dc8e2a4e5fb570c3835e4651952674",
+    "fa2d9c58e1930b95b0b48b47551816bf33d5ee15e9cc697fa7740d2221cf68fb"
+  ]
+}

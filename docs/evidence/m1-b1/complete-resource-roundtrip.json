@@ -1,0 +1,43 @@
+{
+  "browserVersion": "155.0.8059.84",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+  "newDatabaseInitiallyEmpty": true,
+  "sourceIdentityRetainedByParser": true,
+  "forkedBeforeSave": true,
+  "packageBytes": 34184,
+  "packageMimeType": "application/x-sceneweave",
+  "resourceCount": 3,
+  "resources": [
+    {
+      "hash": "3f77a8f14ff3dc84b2a3065fb74de477357f1bf77461123d2cad7b884bfa5916",
+      "actualHash": "3f77a8f14ff3dc84b2a3065fb74de477357f1bf77461123d2cad7b884bfa5916",
+      "width": 512,
+      "height": 256,
+      "bytes": 17409,
+      "mimeType": "image/png"
+    },
+    {
+      "hash": "85e336f45f4732715095d6673fd4532460dc8e2a4e5fb570c3835e4651952674",
+      "actualHash": "85e336f45f4732715095d6673fd4532460dc8e2a4e5fb570c3835e4651952674",
+      "width": 256,
+      "height": 256,
+      "bytes": 4647,
+      "mimeType": "image/png"
+    },
+    {
+      "hash": "fa2d9c58e1930b95b0b48b47551816bf33d5ee15e9cc697fa7740d2221cf68fb",
+      "actualHash": "fa2d9c58e1930b95b0b48b47551816bf33d5ee15e9cc697fa7740d2221cf68fb",
+      "width": 512,
+      "height": 512,
+      "bytes": 11656,
+      "mimeType": "image/png"
+    }
+  ],
+  "fullDocumentEqual": true,
+  "licensesAndBindingsEqual": true,
+  "privateNotePreserved": true,
+  "pageReloaded": true,
+  "snapshotRevisions": [
+    0
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "browserVersion": "155.0.8059.84",
+  "errors": [
+    {
+      "case": "missing bitmap",
+      "name": "Error",
+      "message": "M1 工程无效：资产 a-cal-desk 的字节、MIME 或尺寸依赖缺失/不匹配。"
+    },
+    {
+      "case": "mismatched bitmap/hash",
+      "name": "Error",
+      "message": "M1 工程无效：资产 3f77a8f14ff3dc84b2a3065fb74de477357f1bf77461123d2cad7b884bfa5916 的 SHA-256 不匹配。"
+    },
+    {
+      "case": "missing license binding",
+      "name": "Error",
+      "message": "M1 工程无效：有实际采用对象缺少许可绑定。"
+    },
+    {
+      "case": "cancelled save",
+      "name": "AbortError",
+      "message": "操作已取消；原存档保持不变。"
+    },
+    {
+      "case": "cancelled import",
+      "name": "AbortError",
+      "message": "操作已取消。"
+    },
+    {
+      "case": "damaged complete package",
+      "name": "Error",
+      "message": "M1 工程无效：invalid distance"
+    }
+  ],
+  "memoryDocumentUnchanged": true,
+  "persistedDocumentUnchanged": true,
+  "persistentResourceHashesUnchanged": true,
+  "sceneCount": 1,
+  "snapshotRevisions": [
+    0
+  ],
+  "originalImageBytesRead": 17409,
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+}

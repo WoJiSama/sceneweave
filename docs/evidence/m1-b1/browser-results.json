@@ -1,0 +1,281 @@
+{
+  "full": {
+    "stats": {
+      "startTime": "2026-10-20T07:58:55.895Z",
+      "duration": 79436.34300000001,
+      "expected": 19,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "errors": [],
+    "tests": [
+      {
+        "title": "asset workbench edits, undo, reload and complete import preserve all resources",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 4447,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "M0 migration uses its saved revision, keeps its original and restores history as a copy",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 2085,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "two v2 tabs retain a stale edited branch and can save it as an independent copy",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 7392,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "real browser normalizes static PNG/JPEG/WebP to sRGB PNG and preserves alpha",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 661,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "complete v2 resources roundtrip through ZIP and a new IndexedDB after page reload",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 936,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "resource/hash/license failures and cancellation leave the persisted revision intact",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 696,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "property edits, atomic rejection, undo/redo, and reopening remain consistent",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 1157,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "one drag is one command, Escape cancels, and undo invalidates an in-flight drag",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 1298,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "shared-wall edits preserve its door; indirect edit locks reject the whole move",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 1140,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "player preview, PNG download, and GM project import complete through the UI",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 2082,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "two editor tabs surface a conflict and preserve the losing branch as a copy",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 10766,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "measure 500 and 2000 procedural props with continuous pointer input",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 23550,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "4K player PNG is pixel-identical across private edits and contains no private metadata",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 1255,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "PNG encoding preserves the revision snapshot while public edits continue",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 1215,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "unsafe player masks fail without changing the active document",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 966,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "real IndexedDB survives connection close and a page reload with the full document",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 841,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "two browser tabs cannot overwrite one another using a stale CAS baseline",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 943,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "browser auto-save coalesces revisions and retains the newest 20 snapshots",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 776,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "browser ZIP roundtrip preserves secrets and damaged import leaves the open project intact",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 843,
+            "errors": 0
+          }
+        ]
+      }
+    ]
+  },
+  "finalWorkbench": {
+    "stats": {
+      "startTime": "2026-10-20T08:01:34.308Z",
+      "duration": 32606.232,
+      "expected": 4,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "errors": [],
+    "tests": [
+      {
+        "title": "unavailable selection preferences keep complete projects usable through the recent list",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 2365,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "asset workbench edits, undo, reload and complete import preserve all resources",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 3465,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "M0 migration uses its saved revision, keeps its original and restores history as a copy",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 2846,
+            "errors": 0
+          }
+        ]
+      },
+      {
+        "title": "two v2 tabs retain a stale edited branch and can save it as an independent copy",
+        "status": "expected",
+        "results": [
+          {
+            "status": "passed",
+            "durationMs": 16709,
+            "errors": 0
+          }
+        ]
+      }
+    ]
+  }
+}

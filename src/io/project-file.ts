@@ -57,7 +57,8 @@ export async function exportProject(scene: SceneDocument): Promise<Blob> {
   return new Blob([bytes.slice().buffer], { type: 'application/x-sceneweave' })
 }
 
-export async function importProject(file: Blob): Promise<SceneDocument> {
+/** Read the validated M0 source unchanged; migration retains its real identity and bytes. */
+export async function readProjectV1(file: Blob): Promise<SceneDocument> {
   if (!file.size || file.size > PROJECT_LIMITS.compressedBytes) fail('压缩文件大小必须在 1 字节至 5 MiB 之间。')
   const entries = readZip(new Uint8Array(await file.arrayBuffer()))
   const manifest = readManifest(parseJson(entries['manifest.json']))
@@ -69,6 +70,11 @@ export async function importProject(file: Blob): Promise<SceneDocument> {
   const document = checked.document
   if (document.sceneId !== manifest.sceneId) fail('manifest 与 scene 的场景 ID 不匹配。')
   assertM0(document)
+  return document
+}
+
+export async function importProject(file: Blob): Promise<SceneDocument> {
+  const document = await readProjectV1(file)
   const imported = cloneScene(document)
   const stamp = new Date().toISOString()
   imported.sceneId = newId()

@@ -1,0 +1,90 @@
+{
+  "date": "2026-10-20",
+  "applicationVersion": "0.2.0-m1-b1",
+  "baselineCommit": "ee9021847a5b6214a3d5eff22092942fc689b435",
+  "environment": {
+    "chip": "Apple M1",
+    "memoryGiB": 16,
+    "os": "macOS 26.6.2 / 25G83",
+    "nodeInitial": "26.0.0",
+    "nodeRecommendedRetest": "24.14.1",
+    "npmInitial": "11.12.1",
+    "browserVersion": "155.0.8059.84",
+    "headless": true,
+    "viewport": {
+      "width": 1512,
+      "height": 982
+    },
+    "npmRecommendedRetest": "11.11.0"
+  },
+  "commands": [
+    {
+      "command": "npm test",
+      "node": "26.0.0",
+      "passed": 181,
+      "files": 13,
+      "exitCode": 0
+    },
+    {
+      "command": "npm test",
+      "node": "24.14.1",
+      "passed": 181,
+      "files": 13,
+      "exitCode": 0
+    },
+    {
+      "command": "npm run build",
+      "node": "24.14.1",
+      "exitCode": 0,
+      "dependencyAnnotationWarnings": 2
+    },
+    {
+      "command": "SCENEWEAVE_BROWSER_CHANNEL=chrome playwright test",
+      "node": "26.0.0",
+      "passed": 19,
+      "exitCode": 0,
+      "runnerDurationMinutes": 4
+    },
+    {
+      "command": "SCENEWEAVE_BROWSER_CHANNEL=chrome playwright test",
+      "node": "24.14.1",
+      "passed": 19,
+      "exitCode": 0,
+      "durationMs": 79436.34300000001
+    },
+    {
+      "command": "SCENEWEAVE_BROWSER_CHANNEL=chrome playwright test tests/assets-browser.spec.ts",
+      "node": "24.14.1",
+      "passed": 4,
+      "exitCode": 0,
+      "durationMs": 32606.232
+    },
+    {
+      "command": "npm install --package-lock-only --ignore-scripts",
+      "auditedPackages": 114,
+      "vulnerabilities": 0,
+      "exitCode": 0
+    }
+  ],
+  "distinctBrowserCasesPassed": 20,
+  "sourceFingerprintCount": 61,
+  "sourceFingerprintSha256": "e3b23c22273050c21113b571b6c97e45ddb8bb42c448063207e5c52d39685843",
+  "history": {
+    "m0ReportAndEvidenceUnchanged": true,
+    "m0SourceFingerprintsRemainHistorical": true
+  },
+  "limitations": [
+    "B1 original calibration only; no VIS-01/02 or final theme artwork",
+    "No v2 player projection or PNG output",
+    "No generic asset-management UI, building/terrain tools or AI",
+    "No measured large-resource capacity, cold/hot triple runs or memory peak",
+    "Actual browser quota exhaustion and cross-browser validation not performed"
+  ],
+  "documentation": {
+    "markdownFiles": 22,
+    "tables": 142,
+    "localLinks": 201,
+    "definedIds": 165,
+    "errors": 0
+  }
+}
