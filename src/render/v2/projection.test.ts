@@ -81,6 +81,31 @@ describe('B2 audience projection before visual derivation', () => {
     expect(projectSceneV2(scene, 'player').assetIds).toEqual([]); expect(projectSceneV2(scene, 'gm').assetIds).toEqual(['secret-bitmap'])
   })
 
+  it('filters public-looking members of private scatter domains before resources and dependent labels', () => {
+    const scene = empty(); mask(scene, 1000, 1000, 9000, 9000)
+    scene.terrainAreas.private = { id: 'private', floorId: 'f-a1', editLocked: false, visibility: 'gm', groundElevationMm: 0, coveragePriority: 10, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1, boundaryMm: rect(3000, 3000, 2000, 2000).map((positionMm, i) => ({ id: `p-v${i}`, segmentId: `p-s${i}`, positionMm })) }
+    scene.props.member = { ...prop('member'), appearance: { kind: 'image', assetId: 'private-scatter-bitmap', opacity: 1, tint: null }, supportRef: { kind: 'terrainArea', id: 'private' } }
+    scene.scatterGroups.scatter = { id: 'scatter', floorId: 'f-a1', editLocked: false, visibility: 'public', domain: { kind: 'area', areaId: 'private' }, palette: [], seed: 'never-run-during-projection', algorithmVersion: 'scatter-cell-v1', gridOriginMm: { x: 0, y: 0 }, cellSizeMm: 1000, densityFactor: 1, minDistanceMm: 100, rotationRangeDeg: { min: 0, max: 359 }, members: { ['a'.repeat(64)]: { propId: 'member', state: 'managed', overrideFields: [] }, ['b'.repeat(64)]: { propId: null, state: 'detached', overrideFields: [] } }, exclusions: [] }
+    // Detached records contain no propId; the independently retained public prop is an editing root.
+    scene.props.detached = prop('detached', 14000, 12000)
+    note(scene, 'scatter-label', { type: 'entity', entityKind: 'scatterGroup', entityId: 'scatter' })
+    note(scene, 'nested-scatter-label', { type: 'entity', entityKind: 'note', entityId: 'scatter-label' })
+    const before = structuredClone(scene), player = projectSceneV2(scene, 'player'), gm = projectSceneV2(scene, 'gm')
+    expect(player.props.map(item => item.id)).toEqual(['detached']); expect(player.assetIds).toEqual([]); expect(player.notes).toEqual([])
+    expect(gm.props.map(item => item.id).sort()).toEqual(['detached', 'member']); expect(gm.assetIds).toEqual(['private-scatter-bitmap']); expect(scene).toEqual(before)
+  })
+
+  it('removes a wholly masked wall material and public notes depending on that wall', () => {
+    const scene = empty(); mask(scene, 1000, 1000, 7000, 7000)
+    scene.vertices.a = { id: 'a', floorId: 'f-a1', editLocked: false, xMm: 3000, yMm: 3000 }; scene.vertices.b = { id: 'b', floorId: 'f-a1', editLocked: false, xMm: 5000, yMm: 3000 }
+    scene.materials.secret = { id: 'secret', catalogId: 'secret', version: 1, name: 'PRIVATE SOURCE PROMPT', tags: [], licenseRef: 'MIT', origin: { kind: 'original', attribution: 'PRIVATE SOURCE PROMPT', canEmbed: true }, textureAssetId: 'private-wall-texture', defaultTileSizeMm: { width: 500, height: 500 }, applicableSurfaces: ['wall'] }
+    scene.walls.secret = { id: 'secret', floorId: 'f-a1', editLocked: false, startVertexId: 'a', endVertexId: 'b', thicknessMm: 100, blocksMovement: false, blocksSight: false, topStyle: { base: { materialRef: { id: 'secret', version: 1 }, tileSizeMm: { width: 500, height: 500 }, rotationDeg: 90, alignment: 'world', originMm: { x: 0, y: 0 }, opacity: 1, tint: null }, overlays: [] } }
+    note(scene, 'wall-secret-note', { type: 'entity', entityKind: 'wall', entityId: 'secret' })
+    const player = projectSceneV2(scene, 'player'), gm = projectSceneV2(scene, 'gm')
+    expect(player.walls).toEqual([]); expect(player.materials).toEqual({}); expect(player.assetIds).toEqual([]); expect(player.notes).toEqual([])
+    expect(JSON.stringify(player)).not.toContain('PRIVATE SOURCE PROMPT'); expect(gm.assetIds).toEqual(['private-wall-texture']); expect(gm.notes).toHaveLength(1)
+  })
+
   it('keeps world-coordinate paint phase independent of room bounds and filters private terrain first', () => {
     const scene = empty(); room(scene)
     const style: SurfaceStyle = { base: { materialRef: { id: 'wood', version: 1 }, tileSizeMm: { width: 2000, height: 2000 }, rotationDeg: 90, alignment: 'surface', originMm: { x: -750, y: 1200 }, opacity: 1, tint: null }, overlays: [] }

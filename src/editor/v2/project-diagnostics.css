@@ -1,0 +1,27 @@
+.asset-diagnostics {
+  flex: none;
+  max-height: min(270px, 32dvh);
+  overflow: auto;
+  padding: 14px 26px;
+  background: #f7f9f2;
+  border-bottom: 1px solid #d5dfca;
+  color: #4f6346;
+  font-size: 12px;
+}
+.asset-diagnostics.incomplete { background: #fff8eb; border-color: #e7d4ae; color: #815c34; }
+.asset-diagnostics-heading { display: flex; align-items: center; gap: 10px; }
+.asset-diagnostics-heading > div { display: flex; align-items: baseline; gap: 15px; flex: 1; }
+.asset-diagnostics-heading strong { font-size: 12px; }
+.asset-diagnostics-heading span { font-size: 11px; opacity: .8; }
+.asset-diagnostics-heading .icon-button { color: inherit; }
+.asset-diagnostics-summary { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 12px 0 0 27px; font-size: 11px; }
+.asset-diagnostics-summary > div { display: flex; gap: 10px; }
+.asset-diagnostics-summary dt { opacity: .8; }
+.asset-diagnostics-summary dd { margin: 0; }
+.asset-diagnostics p { line-height: 1.6; margin: 10px 0; }
+.asset-diagnostics details { margin: 10px 0 14px; }
+.asset-diagnostics summary { cursor: pointer; font-size: 11px; }
+.asset-diagnostics ol { max-height: 118px; overflow: auto; padding-left: 22px; line-height: 1.7; }
+.asset-diagnostics li { padding: 4px 6px; overflow-wrap: anywhere; }
+.asset-diagnostics li small { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 10px; opacity: .85; }
+.asset-diagnostics-heading > button { flex: none; font-size: 11px; }

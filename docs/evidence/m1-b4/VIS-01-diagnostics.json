@@ -1,0 +1,15 @@
+{
+  "sample": "VIS-01",
+  "missingPaths": [
+    "assets/1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337.png",
+    "assets/39ee3fb3730cd7e77e10786df15606a011b7a4c286f64745f92f0923f6816886.png",
+    "licenses/8e479bd3dc90224be155f01bf3b05759446b6acf6f3911858f0473e2c5db9bc2.txt"
+  ],
+  "repairPreparedButCancelled": true,
+  "identityHistoryAndPersistedUnchanged": true,
+  "completeCheckPassed": true,
+  "diagnosticClearedOnPrepare": true,
+  "diagnosticClearedOnAudienceSwitch": true,
+  "corruptRecentOpenFromPlayerShowsDiagnostic": true,
+  "browserErrors": []
+}

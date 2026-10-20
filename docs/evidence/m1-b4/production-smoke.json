@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-20T12:59:09.762Z",
+  "buildMode": "production preview",
+  "browser": "155.0.8059.84",
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  },
+  "dpr": 1,
+  "results": [
+    {
+      "sample": "study",
+      "complete": {
+        "sizeBytes": 123257,
+        "sha256": "6fda9dc41647236897d07efd00590d4e4ae62dca1987bab23996c2c74286c7c6",
+        "suggestedFilename": "sceneweave-complete.sceneweave"
+      },
+      "gm": {
+        "sizeBytes": 1506533,
+        "sha256": "2e34913dff0d9dbde92d921eaad9258b39e7f7083a0230c8ed322c23e84e3a6f",
+        "suggestedFilename": "sceneweave-gm-map.png",
+        "dimensions": [
+          4096,
+          2926
+        ]
+      },
+      "player": {
+        "sizeBytes": 1506533,
+        "sha256": "2e34913dff0d9dbde92d921eaad9258b39e7f7083a0230c8ed322c23e84e3a6f",
+        "suggestedFilename": "sceneweave-player-map.png",
+        "dimensions": [
+          4096,
+          2926
+        ]
+      },
+      "diagnostics": true,
+      "corruptImportRejectedWithoutReplacement": true,
+      "corruptRecentOpenFromPlayerShowsDiagnostic": true,
+      "reloadPreserved": true,
+      "freshStorageOfflineImportEditUndo": true,
+      "version": "0.2.0-m1-b4"
+    },
+    {
+      "sample": "island",
+      "complete": {
+        "sizeBytes": 302374,
+        "sha256": "74cbfcfc1e375494dfbed563c4b77122e096fe9a9bdaee3561e71f7cf3fcc5db",
+        "suggestedFilename": "sceneweave-complete.sceneweave"
+      },
+      "gm": {
+        "sizeBytes": 5573525,
+        "sha256": "5ad5506703df78df50b184945c246fd87a7037625b0044c2f3345daeaa243443",
+        "suggestedFilename": "sceneweave-gm-map.png",
+        "dimensions": [
+          4096,
+          3686
+        ]
+      },
+      "player": {
+        "sizeBytes": 5573525,
+        "sha256": "5ad5506703df78df50b184945c246fd87a7037625b0044c2f3345daeaa243443",
+        "suggestedFilename": "sceneweave-player-map.png",
+        "dimensions": [
+          4096,
+          3686
+        ]
+      },
+      "diagnostics": true,
+      "corruptImportRejectedWithoutReplacement": true,
+      "corruptRecentOpenFromPlayerShowsDiagnostic": true,
+      "reloadPreserved": true,
+      "freshStorageOfflineImportEditUndo": true,
+      "version": "0.2.0-m1-b4"
+    }
+  ],
+  "pageErrors": [],
+  "offlineScope": "Application shell loaded online first; new browser storage and then offline complete-file import, no source asset catalog. No offline cold-start or PWA claim."
+}

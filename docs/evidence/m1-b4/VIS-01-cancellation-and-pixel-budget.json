@@ -1,0 +1,99 @@
+{
+  "browserVersion": "155.0.8059.84",
+  "sample": "VIS-01",
+  "nativeCalls": 1,
+  "closed": 1,
+  "cancelled": {
+    "name": "AbortError",
+    "message": "操作已取消。",
+    "issues": []
+  },
+  "cancelledDiagnosis": {
+    "name": "AbortError",
+    "message": "操作已取消。",
+    "issues": []
+  },
+  "budget": {
+    "result": {
+      "complete": false,
+      "issues": [
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "ce6e02c78330d60b9a50a017709484d84b634eb19dfda5f5ec586088d8b751e9",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "663759a20d85306fbcfa651979a80fbe0c6e778615b9788d5b888e9948a810d1",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "dd638de79d673b0101c4d2a929976a2b45b8eca0bb245be9d3962e171e668e3e",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "9074593175cf3c30f0c85b54b72c25ad172980c181f92233892cc1196f121c32",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "6ee664f4c8efd9a4f7f2a0c39861aa7d054733cf47333e7f57043c66eac43d20",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "ce19a0416dd1383343f7ff5736e2bff17d610fe36217c3b4f127cf752908b9dd",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "7c9c0c2181fdc583deb1c1de9e511b5e1b82936c57fe194bb82675934675adaf",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "a5544d511fee8e040b643abbd374d97cd474e0c8a8b43d958bd798781ad62567",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "502cc2ea4193792ff3564ab8f2afa13360be487da3288a6a07041b9fb3449e55",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "82ed098421bdc7a8498e24933766795f867f51016ccd8da05dc419174d52a839",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "e5c4736961b1c8b1a6b3025e9a6a6176ab04491420fd39203ac4d84dfb587968",
+          "message": "累计位图像素超过 64000000。"
+        },
+        {
+          "code": "IMAGE_PIXEL_BUDGET",
+          "sha256": "7d8a6efb88421f387dbebe02392efca509673e62bce9ea9514d51476a11346ad",
+          "message": "累计位图像素超过 64000000。"
+        }
+      ],
+      "summary": null
+    },
+    "calls": 0,
+    "peak": 0,
+    "active": 0,
+    "closed": 0,
+    "rejected": 0
+  },
+  "inputHash": "69e4e3bd9f317e52ead098318421ecca938ef8c4d047db256cd1969993a84d7a",
+  "unchangedInputHash": "69e4e3bd9f317e52ead098318421ecca938ef8c4d047db256cd1969993a84d7a",
+  "memoryDocumentUnchanged": true,
+  "recoveryDocumentEqual": true,
+  "recoveryAssets": 15
+}

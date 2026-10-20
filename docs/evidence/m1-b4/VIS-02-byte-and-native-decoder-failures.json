@@ -1,0 +1,108 @@
+{
+  "browserVersion": "155.0.8059.84",
+  "sample": "VIS-02",
+  "originalHash": "039c3b0f316e4f03cbbcc9e51ca6bc754bdbb5ee8522fab5f28cb7b9f8a461b4",
+  "unchangedPackageHash": "039c3b0f316e4f03cbbcc9e51ca6bc754bdbb5ee8522fab5f28cb7b9f8a461b4",
+  "failures": [
+    {
+      "label": "actual encoded SHA-256 mismatch",
+      "expected": "PACKAGE_HASH_MISMATCH",
+      "failure": {
+        "name": "ProjectValidationErrorV2",
+        "message": "M1 工程无效：assets/03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413.png 的大小或 SHA-256 不匹配；请恢复未经损坏的完整备份。",
+        "issues": [
+          {
+            "code": "PACKAGE_HASH_MISMATCH",
+            "path": "assets/03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413.png",
+            "sha256": "03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413",
+            "message": "assets/03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413.png 的大小或 SHA-256 不匹配；请恢复未经损坏的完整备份。"
+          }
+        ]
+      },
+      "calls": 0,
+      "path": "assets/03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413.png",
+      "sha256": "03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413"
+    },
+    {
+      "label": "ZIP CRC damage",
+      "expected": "ZIP_ENTRY_INVALID",
+      "failure": {
+        "name": "ProjectValidationErrorV2",
+        "message": "M1 工程无效：ZIP 实际展开总量超限或 CRC 校验失败。",
+        "issues": [
+          {
+            "code": "ZIP_ENTRY_INVALID",
+            "path": "assets/03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413.png",
+            "sha256": "03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413",
+            "message": "ZIP 实际展开总量超限或 CRC 校验失败。"
+          }
+        ]
+      },
+      "calls": 0,
+      "path": "assets/03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413.png",
+      "sha256": "03b868f37036cab480c812986a2c41555860671618e04868cb7784672f4bc413"
+    },
+    {
+      "label": "PNG CRC with valid outer hash and ZIP CRC",
+      "expected": "IMAGE_ENCODING_INVALID",
+      "failure": {
+        "name": "ProjectValidationErrorV2",
+        "message": "M1 工程无效：PNG CRC 校验失败。",
+        "issues": [
+          {
+            "code": "IMAGE_ENCODING_INVALID",
+            "path": "assets/50125c5a2fc0046754de0b66baf6a0a24cd95e84ff674d3f32da53ffd364cbb2.png",
+            "sha256": "50125c5a2fc0046754de0b66baf6a0a24cd95e84ff674d3f32da53ffd364cbb2",
+            "message": "PNG CRC 校验失败。"
+          }
+        ]
+      },
+      "calls": 0,
+      "path": "assets/50125c5a2fc0046754de0b66baf6a0a24cd95e84ff674d3f32da53ffd364cbb2.png",
+      "sha256": "50125c5a2fc0046754de0b66baf6a0a24cd95e84ff674d3f32da53ffd364cbb2"
+    },
+    {
+      "label": "metadata with valid hashes and CRCs",
+      "expected": "IMAGE_ENCODING_INVALID",
+      "failure": {
+        "name": "ProjectValidationErrorV2",
+        "message": "M1 工程无效：PNG 含未规范化的元数据或色彩块；请重新导入素材。",
+        "issues": [
+          {
+            "code": "IMAGE_ENCODING_INVALID",
+            "path": "assets/ebfb2c8da702f7d8541f5efc752b6ab7b9d7d6ea8b91c70069552157acd451fc.png",
+            "sha256": "ebfb2c8da702f7d8541f5efc752b6ab7b9d7d6ea8b91c70069552157acd451fc",
+            "message": "PNG 含未规范化的元数据或色彩块；请重新导入素材。"
+          }
+        ]
+      },
+      "calls": 0,
+      "path": "assets/ebfb2c8da702f7d8541f5efc752b6ab7b9d7d6ea8b91c70069552157acd451fc.png",
+      "sha256": "ebfb2c8da702f7d8541f5efc752b6ab7b9d7d6ea8b91c70069552157acd451fc"
+    }
+  ],
+  "nativeDecode": {
+    "result": {
+      "failure": {
+        "name": "ProjectValidationErrorV2",
+        "message": "M1 工程无效：位图实际解码失败。",
+        "issues": [
+          {
+            "code": "IMAGE_INVALID",
+            "sha256": "be404ebb0960cb516b3bce0cf6a789cfd0879ef39150fee43b8f1d52b44fe75a",
+            "message": "位图实际解码失败。"
+          }
+        ]
+      },
+      "good": true
+    },
+    "calls": 19,
+    "peak": 1,
+    "active": 0,
+    "closed": 18,
+    "rejected": 1,
+    "path": "assets/be404ebb0960cb516b3bce0cf6a789cfd0879ef39150fee43b8f1d52b44fe75a.png",
+    "sha256": "be404ebb0960cb516b3bce0cf6a789cfd0879ef39150fee43b8f1d52b44fe75a"
+  },
+  "resourceCount": 13
+}

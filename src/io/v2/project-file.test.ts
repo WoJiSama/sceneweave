@@ -1,9 +1,10 @@
 import { unzipSync, zipSync } from 'fflate'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { version as applicationVersion } from '../../../package.json'
 import { createHouse } from '../../core/seed'
 import { exportProject } from '../project-file'
 import { parseBoundedJson } from './json'
-import { exportProjectV2, importProjectV2, inspectProjectVersionV2, PROJECT_LIMITS_V2, validateCompleteProjectV2 } from './project-file'
+import { diagnoseCompleteProjectV2, exportProjectV2, importProjectV2, inspectProjectVersionV2, PROJECT_DIAGNOSTIC_LIMIT_V2, PROJECT_LIMITS_V2, ProjectValidationErrorV2, validateCompleteProjectV2 } from './project-file'
 import { sha256Bytes } from './resources'
 import { emptyProject, imageProject } from './test-fixtures'
 import { inspectZipV2 } from './zip'
@@ -26,9 +27,50 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('v2 complete project package', () => {
+  it('bounds diagnostic presentation explicitly while preserving rejection and source issues', () => {
+    const issues = Array.from({ length: 1000 }, (_, index) => ({ code: 'MISSING_BITMAP', entityId: `asset-${index}`, message: `missing-${index}` }))
+    const failure = new ProjectValidationErrorV2(issues)
+    expect(failure.issues).toHaveLength(PROJECT_DIAGNOSTIC_LIMIT_V2)
+    expect(failure.issues.at(-1)).toMatchObject({ code: 'DIAGNOSTIC_LIMIT', message: expect.stringContaining('745') })
+    expect(failure.message).toContain('依赖清单'); expect(failure.message).not.toContain('missing-8')
+    expect(issues).toHaveLength(1000); expect(issues[0]).toEqual({ code: 'MISSING_BITMAP', entityId: 'asset-0', message: 'missing-0' })
+  })
+
+  it('lists every missing adopted bitmap and license binding without decoding or mutating the candidate', async () => {
+    const project = await imageProject(), hash = Object.keys(project.assets)[0]
+    project.document.assets['second-image'] = { ...structuredClone(project.document.assets['test-image']), id: 'second-image' }
+    project.document.materials['second-material'] = { ...structuredClone(project.document.materials['test-material']), id: 'second-material', catalogId: 'test.second-material', textureAssetId: 'second-image' }
+    delete project.assets[hash]; project.licenseBindings = []
+    const before = structuredClone(project), decodeBitmap = vi.mocked(createImageBitmap); decodeBitmap.mockClear()
+    const report = await diagnoseCompleteProjectV2(project)
+    expect(report.complete).toBe(false); expect(report.summary).toBeNull()
+    expect(report.issues.filter(issue => issue.code === 'MISSING_BITMAP').map(issue => issue.entityId).sort()).toEqual(['second-image', 'test-image'])
+    expect(report.issues.filter(issue => issue.code === 'MISSING_LICENSE_BINDING').map(issue => issue.entityId).sort()).toEqual(['second-image', 'second-material', 'test-image', 'test-material'])
+    expect(decodeBitmap).not.toHaveBeenCalled(); expect(project).toEqual(before)
+    await expect(exportProjectV2(project)).rejects.toBeInstanceOf(ProjectValidationErrorV2)
+  })
+
+  it('reports successful closure counts and keeps cancellation distinct from an incomplete report', async () => {
+    const project = await imageProject(), report = await diagnoseCompleteProjectV2(project)
+    expect(report).toEqual({ complete: true, issues: [], summary: { assets: 1, bitmapBlobs: 1, materials: 1, propDefinitions: 0, prefabDefinitions: 0, styleThemes: 0, licenseBindings: 2, licenseTexts: 1, bitmapPixels: 1 } })
+    const controller = new AbortController(); controller.abort()
+    await expect(diagnoseCompleteProjectV2(project, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('returns project-local identities for missing image references and preserves typed format failures', async () => {
+    const project = await imageProject()
+    project.document.materials['test-material'].textureAssetId = 'missing-original-image'
+    const report = await diagnoseCompleteProjectV2(project)
+    expect(report.issues).toContainEqual(expect.objectContaining({ code: 'MISSING_ASSET', entityId: 'test-material', dependencyId: 'missing-original-image' }))
+    const unknown = await modifyManifest(manifest => { manifest.containerVersion = 99 })
+    await expect(importProjectV2(unknown)).rejects.toBeInstanceOf(ProjectValidationErrorV2)
+  })
+
   it('roundtrips geometry, adopted definition, resource and licenses without changing identity/revision', async () => {
     const project = await imageProject(); project.document.revision = 7
     const result = await importProjectV2(await exportProjectV2(project))
+    const manifest = JSON.parse(decode(unzipSync(new Uint8Array(await (await exportProjectV2(project)).arrayBuffer()))['manifest.json']))
+    expect(manifest.applicationVersion).toBe(applicationVersion)
     expect(result.document).toEqual(project.document)
     expect(result.licenseBindings).toEqual(project.licenseBindings)
     expect(result.licenses).toEqual(project.licenses)

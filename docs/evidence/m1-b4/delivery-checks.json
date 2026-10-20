@@ -1,0 +1,176 @@
+{
+  "scope": "B4 original art bytes, complete package ZIP/hash/PNG, retained M0/B1/B2/B3 history, nested repository, private-data scan and current source fingerprints. No additional runtime or performance claim.",
+  "originalAssetCount": 13,
+  "assetBytes": 310023,
+  "uniqueSourcePixels": 8208384,
+  "manifestBytesEqual": true,
+  "mitLicenseBytesEqual": true,
+  "assets": [
+    {
+      "file": "grass.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "rock.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "cliff-rock.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "sand.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "water-shallow.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "water-deep.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "tree-broadleaf.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "tree-sparse.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "shrub-round.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "shrub-dry.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "rock-small.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "rock-small-worn.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    },
+    {
+      "file": "reef-decoration.png",
+      "checks": {
+        "hash": true,
+        "svgHash": true,
+        "distBytesEqual": true,
+        "byteLength": true,
+        "pngDimensions": true,
+        "staticSrgbChunks": true
+      }
+    }
+  ],
+  "historicalAndOriginalArtChanged": [],
+  "textFilesScanned": 240,
+  "nestedRepositories": [],
+  "verifiedSourceFingerprints": 175,
+  "completePackages": [
+    {
+      "sample": "study",
+      "bytes": 123257,
+      "sha256": "6fda9dc41647236897d07efd00590d4e4ae62dca1987bab23996c2c74286c7c6",
+      "imageCount": 15,
+      "applicationVersion": "0.2.0-m1-b4",
+      "zipAndHashesAndPngCrcValid": true
+    },
+    {
+      "sample": "island",
+      "bytes": 302374,
+      "sha256": "74cbfcfc1e375494dfbed563c4b77122e096fe9a9bdaee3561e71f7cf3fcc5db",
+      "imageCount": 13,
+      "applicationVersion": "0.2.0-m1-b4",
+      "zipAndHashesAndPngCrcValid": true
+    }
+  ],
+  "errors": []
+}

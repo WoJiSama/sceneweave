@@ -1,5 +1,6 @@
 import type { AssetBlobRecord } from './types'
 import { checkCancelled, crc32, failV2, hasExactKeys, isSha256, PROJECT_LIMITS_V2 } from './limits'
+import { projectErrorV2 } from './diagnostics'
 
 export { PROJECT_LIMITS_V2 } from './limits'
 type ImageMime = AssetBlobRecord['mimeType']
@@ -186,7 +187,7 @@ async function withDecodedImage<T>(blob: Blob, signal: AbortSignal | undefined, 
     checkCancelled(signal)
     if (typeof createImageBitmap !== 'function') failV2('当前环境缺少真实位图解码能力。')
     try { bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'none' }) }
-    catch { return failV2('位图实际解码失败。') }
+    catch { checkCancelled(signal); return failV2('位图实际解码失败。') }
     checkCancelled(signal)
     dimensions(bitmap.width, bitmap.height)
     return await action(bitmap)
@@ -197,7 +198,7 @@ async function withDecodedImage<T>(blob: Blob, signal: AbortSignal | undefined, 
 }
 
 /** Full byte/header/hash/decode check; never substitutes a failed image. */
-export async function validateImageAssetRecord(record: AssetBlobRecord, options: { signal?: AbortSignal } = {}): Promise<void> {
+async function validateImageAsset(record: AssetBlobRecord, options: { signal?: AbortSignal } = {}): Promise<void> {
   checkCancelled(options.signal)
   if (!hasExactKeys(record, ['sha256', 'blob', 'mimeType', 'sizeBytes', 'pixelWidth', 'pixelHeight'])
     || !isSha256(record.sha256) || !(record.blob instanceof Blob)
@@ -212,6 +213,12 @@ export async function validateImageAssetRecord(record: AssetBlobRecord, options:
     if (bitmap.width !== header.width || bitmap.height !== header.height) failV2(`资产 ${record.sha256} 的实际解码尺寸不匹配。`)
   })
   checkCancelled(options.signal)
+}
+
+export async function validateImageAssetRecord(record: AssetBlobRecord, options: { signal?: AbortSignal } = {}): Promise<void> {
+  try { await validateImageAsset(record, options) } catch (error) {
+    projectErrorV2(error, { code: 'IMAGE_INVALID', ...(record && isSha256(record.sha256) ? { sha256: record.sha256 } : {}) })
+  }
 }
 
 function normalizePngChunks(bytes: Uint8Array): Uint8Array {

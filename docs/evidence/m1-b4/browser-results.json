@@ -1,0 +1,709 @@
+{
+  "stats": {
+    "startTime": "2026-10-20T12:54:44.069Z",
+    "duration": 190612.09399999998,
+    "expected": 58,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "errors": [],
+  "tests": [
+    {
+      "file": "assets-browser.spec.ts",
+      "title": "unavailable selection preferences keep complete projects usable through the recent list",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1676,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "assets-browser.spec.ts",
+      "title": "asset workbench edits, undo, reload and complete import preserve all resources",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 3317,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "assets-browser.spec.ts",
+      "title": "M0 migration uses its saved revision, keeps its original and restores history as a copy",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2157,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "assets-browser.spec.ts",
+      "title": "two v2 tabs retain a stale edited branch and can save it as an independent copy",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 5768,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "assets-resources.spec.ts",
+      "title": "real browser normalizes static PNG/JPEG/WebP to sRGB PNG and preserves alpha",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 653,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "assets-resources.spec.ts",
+      "title": "complete v2 resources roundtrip through ZIP and a new IndexedDB after page reload",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1028,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "assets-resources.spec.ts",
+      "title": "resource/hash/license failures and cancellation leave the persisted revision intact",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 722,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-package.spec.ts",
+      "title": "VIS-01 complete package lists missing fixed dependencies and refuses incomplete export before decode",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1307,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-package.spec.ts",
+      "title": "VIS-01 CRC hash metadata and native decode faults remain bounded and do not produce partial projects",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 923,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-package.spec.ts",
+      "title": "VIS-01 cancellation closes real decoded bitmaps and cumulative budget rejects before decode",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 883,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-package.spec.ts",
+      "title": "VIS-02 complete package lists missing fixed dependencies and refuses incomplete export before decode",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1607,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-package.spec.ts",
+      "title": "VIS-02 CRC hash metadata and native decode faults remain bounded and do not produce partial projects",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1157,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-package.spec.ts",
+      "title": "VIS-02 cancellation closes real decoded bitmaps and cumulative budget rejects before decode",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 998,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-privacy.spec.ts",
+      "title": "B4 VIS-01-S01: cold/warm real Canvas privacy, fixed 4K PNG, and private decoder isolation",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 8901,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-privacy.spec.ts",
+      "title": "B4 VIS-02-S01: cold/warm real Canvas privacy, fixed 4K PNG, and private decoder isolation",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 15423,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-privacy.spec.ts",
+      "title": "B4 VIS-02-S02: cold/warm real Canvas privacy, fixed 4K PNG, and private decoder isolation",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 15766,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-storage.spec.ts",
+      "title": "VIS-01 edited complete project opens, saves and resumes offline in fresh storage without catalog or model",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2837,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-storage.spec.ts",
+      "title": "VIS-01 two actual browser tabs preserve CAS branches, conflict copy and historical recovery copy",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 4204,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-storage.spec.ts",
+      "title": "VIS-01 cancellation, decoding and injected transaction failures preserve the current complete editable project",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1289,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-storage.spec.ts",
+      "title": "VIS-02 edited complete project opens, saves and resumes offline in fresh storage without catalog or model",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 4346,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-storage.spec.ts",
+      "title": "VIS-02 two actual browser tabs preserve CAS branches, conflict copy and historical recovery copy",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 8055,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-storage.spec.ts",
+      "title": "VIS-02 cancellation, decoding and injected transaction failures preserve the current complete editable project",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1475,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-workbench.spec.ts",
+      "title": "B4 VIS-01 UI lists all missing dependencies and repair/cancel never replaces the current project",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2864,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-workbench.spec.ts",
+      "title": "B4 VIS-01 cancelling an actual pending decode discards its late result and retains saved editing history",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1550,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-workbench.spec.ts",
+      "title": "B4 VIS-02 UI lists all missing dependencies and repair/cancel never replaces the current project",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 3940,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "b4-workbench.spec.ts",
+      "title": "B4 VIS-02 cancelling an actual pending decode discards its late result and retains saved editing history",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1860,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "editor-browser.spec.ts",
+      "title": "property edits, atomic rejection, undo/redo, and reopening remain consistent",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1107,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "editor-browser.spec.ts",
+      "title": "one drag is one command, Escape cancels, and undo invalidates an in-flight drag",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1319,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "editor-browser.spec.ts",
+      "title": "shared-wall edits preserve its door; indirect edit locks reject the whole move",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1071,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "editor-browser.spec.ts",
+      "title": "player preview, PNG download, and GM project import complete through the UI",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 1838,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "editor-browser.spec.ts",
+      "title": "two editor tabs surface a conflict and preserve the losing branch as a copy",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 3309,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-assets.spec.ts",
+      "title": "VIS-02 Chrome decodes all original images and opens the full project offline in a fresh context",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 3426,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-assets.spec.ts",
+      "title": "VIS-02 missing or modified original aborts adoption and an aborted request reads no assets",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 742,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-browser.spec.ts",
+      "title": "VIS-02 coast, height, grass-rock overlay candidates are atomic and all saved paint parameters reopen exactly",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 5014,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-browser.spec.ts",
+      "title": "VIS-02 scatter preview preserves manual tree, locked member and permanent shrub deletion through regeneration and history",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 3965,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-browser.spec.ts",
+      "title": "VIS-02 finite UI passage checks explain cliffs and required connection edits cannot consume history or saving",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2431,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-browser.spec.ts",
+      "title": "VIS-02 complete package and GM/player 4K export reopen in fresh offline storage and remain editable",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 6249,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-renderer.spec.ts",
+      "title": "B3 actual 4K renderer: island surfaces, private alpha objects and private plateau pairs",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 13248,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-renderer.spec.ts",
+      "title": "B3 coast and overlay edits preserve world texture phase, update extents and undo actual pixels",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2356,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "island-renderer.spec.ts",
+      "title": "B3 required outdoor image failure and cancellation close actual decoded bitmaps",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 683,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "performance.spec.ts",
+      "title": "measure 500 and 2000 procedural props with continuous pointer input",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 19838,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "privacy-browser.spec.ts",
+      "title": "4K player PNG is pixel-identical across private edits and contains no private metadata",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 933,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "privacy-browser.spec.ts",
+      "title": "PNG encoding preserves the revision snapshot while public edits continue",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 664,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "privacy-browser.spec.ts",
+      "title": "unsafe player masks fail without changing the active document",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 589,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "storage-browser.spec.ts",
+      "title": "real IndexedDB survives connection close and a page reload with the full document",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 864,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "storage-browser.spec.ts",
+      "title": "two browser tabs cannot overwrite one another using a stale CAS baseline",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 853,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "storage-browser.spec.ts",
+      "title": "browser auto-save coalesces revisions and retains the newest 20 snapshots",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 686,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "storage-browser.spec.ts",
+      "title": "browser ZIP roundtrip preserves secrets and damaged import leaves the open project intact",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 673,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-assets.spec.ts",
+      "title": "VIS-01 real Chrome PNG decode and complete package open without asset network or old context",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2254,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-assets.spec.ts",
+      "title": "VIS-01 missing or modified static source aborts adoption and pre-aborted request reads no images",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 655,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-browser.spec.ts",
+      "title": "VIS-01 structure candidates cancel atomically, follow attached windows, and preserve material scale",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 3000,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-browser.spec.ts",
+      "title": "VIS-01 groups retain expanded members through move, rotate, appearance swap, unpack, history and reload",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2850,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-browser.spec.ts",
+      "title": "VIS-01 blocks doorway-obstructing prop and group edits without consuming history or saving",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 2313,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-browser.spec.ts",
+      "title": "VIS-01 UI exports both 4K audiences and reopens complete project with no old cache or asset network",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 4313,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-renderer.spec.ts",
+      "title": "B2 actual bitmap renderer: fixed 4K bounds, private pair pixels, and PNG metadata",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 3850,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-renderer.spec.ts",
+      "title": "B2 real floor phase and diagonal window are independent of bounds edits and wall direction",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 916,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-renderer.spec.ts",
+      "title": "B2 player skips private-only bytes; required failures reject and cancellation closes the actual bitmap",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 628,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "file": "study-renderer.spec.ts",
+      "title": "B2 alpha shadow remains southeast through four body rotations",
+      "status": "expected",
+      "results": [
+        {
+          "status": "passed",
+          "durationMs": 731,
+          "errors": []
+        }
+      ]
+    }
+  ]
+}
