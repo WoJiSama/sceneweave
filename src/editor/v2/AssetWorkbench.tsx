@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Archive, ArrowLeft, CheckCircle2, Download, FolderOpen, Layers3, LoaderCircle, Move, Redo2, RotateCw, Undo2, Upload, X } from 'lucide-react'
 import { SceneRepositoryV2 } from '../../io/v2/storage'
 import { diagnoseCompleteProjectV2, exportProjectV2, ProjectValidationErrorV2 } from '../../io/v2/project-file'
@@ -46,11 +46,13 @@ export default function AssetWorkbench({ onBack }: { onBack: () => void }) {
   const previewRef = useRef(false)
   previewRef.current = !!structure
   const file = useRef<HTMLInputElement>(null), controller = useRef<AbortController | null>(null), shell = useRef<HTMLDivElement>(null), dialog = useRef<HTMLDivElement>(null)
+  const modalOrigin = useRef<HTMLElement | null>(null)
   const actionPending = useRef(false)
   const refresh = async () => { await ready(); setRecent(await repository.list()) }
   const action = async (run: () => Promise<void>, failureSource = '工程操作') => {
     if (actionPending.current) return
     actionPending.current = true
+    if (!candidate && !snapshots && !document.activeElement?.closest('[role="dialog"]')) modalOrigin.current = document.activeElement as HTMLElement | null
     setBusy(true); setMessage(null)
     try { await run() } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') setMessage('准备已取消，当前工程和本地存档未改变。')
@@ -91,7 +93,7 @@ export default function AssetWorkbench({ onBack }: { onBack: () => void }) {
   }, [])
   useEffect(() => {
     if (!candidate && !snapshots) return
-    const prior = document.activeElement as HTMLElement | null, background = shell.current
+    const prior = modalOrigin.current, background = shell.current
     if (background) background.inert = true
     dialog.current?.querySelector<HTMLButtonElement>('button')?.focus()
     const key = (event: KeyboardEvent) => {
@@ -103,7 +105,7 @@ export default function AssetWorkbench({ onBack }: { onBack: () => void }) {
       }
     }
     window.addEventListener('keydown', key)
-    return () => { if (background) background.inert = false; window.removeEventListener('keydown', key); prior?.focus() }
+    return () => { if (background) background.inert = false; window.removeEventListener('keydown', key); requestAnimationFrame(() => { if (prior?.isConnected) prior.focus() }) }
   }, [candidate, snapshots, busy])
   // Reopen the last successful asset scene without changing M0's database or selection.
   useEffect(() => {
@@ -150,7 +152,7 @@ export default function AssetWorkbench({ onBack }: { onBack: () => void }) {
     } catch (error) { setMessage(`候选未通过，工程未修改：${error instanceof Error ? error.message : String(error)}`) }
   }
   const select = (id: string | null) => { if (structure) return; setSelected(id) }
-  const visibleProject = project && structure ? { ...project, document: structure.document } : project
+  const visibleProject = useMemo(() => project && structure ? { ...project, document: structure.document } : project, [project, structure])
   const exportImage = () => { if (project) void action(async () => {
     // Capture the complete immutable project and audience at the click boundary.
     const blob = await exportPngV2(project, { audience, longEdgePx: 4096 })

@@ -76,6 +76,25 @@ describe('B2 audience projection before visual derivation', () => {
     scene.openings.window.revealed = true; expect(projectSceneV2(scene, 'player').walls.flatMap(w => w.openings)).toHaveLength(1)
   })
 
+  it('keeps mixed wall openings and their dependent labels scoped to the current audience and call', () => {
+    const scene = empty(); room(scene)
+    const opening = (id: string, wallId: string, secret: boolean, revealed: boolean) => ({ id, floorId: 'f-a1', editLocked: false, wallId, offsetReferenceVertexId: scene.walls[wallId].startVertexId, offsetMm: 250, widthMm: 500, kind: 'door' as const, state: 'closed' as const, locked: false, secret, revealed })
+    // Interleaved insertion order must not move an opening to another wall or reveal its note.
+    scene.openings.hidden = opening('hidden', 'w1', true, false)
+    scene.openings.public = opening('public', 'w0', false, false)
+    scene.openings.revealed = opening('revealed', 'w2', true, true)
+    for (const id of Object.keys(scene.openings)) note(scene, `label-${id}`, { type: 'entity', entityKind: 'opening', entityId: id })
+    const before = structuredClone(scene), gm = projectSceneV2(scene, 'gm'), player = projectSceneV2(scene, 'player')
+    expect(gm.walls.flatMap(w => w.openings.map(o => [w.id, o.id])).sort()).toEqual([['w0', 'public'], ['w1', 'hidden'], ['w2', 'revealed']])
+    expect(player.walls.flatMap(w => w.openings)).toHaveLength(2)
+    expect(player.walls.flatMap(w => w.openings).every(o => !o.secret)).toBe(true)
+    expect(player.notes.map(n => n.id).sort()).toEqual(['label-public', 'label-revealed'])
+    expect(scene).toEqual(before)
+    scene.openings.hidden.revealed = true
+    expect(projectSceneV2(scene, 'player').notes.map(n => n.id).sort()).toEqual(['label-hidden', 'label-public', 'label-revealed'])
+    expect(player.notes.map(n => n.id).sort()).toEqual(['label-public', 'label-revealed'])
+  })
+
   it('filters private resources before collecting decode dependencies', () => {
     const scene = empty(); mask(scene); scene.props.secret = prop('secret'); scene.props.secret.visibility = 'gm'; scene.props.secret.appearance = { kind: 'image', assetId: 'secret-bitmap', tint: null, opacity: 1 }
     expect(projectSceneV2(scene, 'player').assetIds).toEqual([]); expect(projectSceneV2(scene, 'gm').assetIds).toEqual(['secret-bitmap'])

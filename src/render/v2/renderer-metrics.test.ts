@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PropV2 } from '../../core/v2/types'
+import * as schema from '../../core/v2/schema'
+import { validateSceneSnapshotV2 } from '../../core/v2/snapshots'
 import * as resources from '../../io/v2/resources'
 import { imageProject } from '../../io/v2/test-fixtures'
 import type { CompleteProjectV2 } from '../../io/v2/types'
@@ -51,7 +53,7 @@ function primitives(project: CompleteProjectV2) {
   const close = vi.fn(() => advance(5))
   const decode = vi.fn(async () => { advance(13); return { width: 1, height: 1, close } })
   vi.stubGlobal('createImageBitmap', decode)
-  const drawImage = vi.fn(() => advance(3))
+  const drawImage = vi.fn(() => advance(3)), translate = vi.fn()
   const getContext = vi.fn<() => Partial<CanvasRenderingContext2D>>()
   const output = {
     width: 0, height: 0,
@@ -61,14 +63,60 @@ function primitives(project: CompleteProjectV2) {
   getContext.mockImplementation(() => ({
     canvas: output as unknown as HTMLCanvasElement, fillStyle: '', globalAlpha: 1,
     fillRect: vi.fn(() => advance(11)), setTransform: vi.fn(), resetTransform: vi.fn(),
-    save: vi.fn(), restore: vi.fn(), translate: vi.fn(), rotate: vi.fn(), drawImage,
+    save: vi.fn(), restore: vi.fn(), translate, rotate: vi.fn(), drawImage,
   }))
   const createElement = vi.fn(() => output)
   vi.stubGlobal('document', { createElement })
-  return { now, advance, close, decode, output, drawImage, createElement }
+  return { now, advance, close, decode, output, drawImage, translate, createElement }
 }
 
 describe('optional v2 renderer metrics', () => {
+  it.each(['gm', 'player'] as const)('preserves layer, renderOrder and id compositing order for %s output', async audience => {
+    const project = await fixture(), source = project.document.props.first
+    project.document.props = Object.fromEntries([
+      { id: 'canopy', renderLayer: 'canopy', renderOrder: -1, x: 700 },
+      { id: 'object-z', renderLayer: 'object', renderOrder: 5, x: 600 },
+      { id: 'ground-z', renderLayer: 'ground', renderOrder: 0, x: 200 },
+      { id: 'object-early', renderLayer: 'object', renderOrder: -5, x: 400 },
+      { id: 'object-a', renderLayer: 'object', renderOrder: 5, x: 500 },
+      { id: 'ground-a', renderLayer: 'ground', renderOrder: 0, x: 100 },
+    ].map(item => [item.id, { ...structuredClone(source), id: item.id, appearance: { ...source.appearance, assetId: item.id === 'canopy' ? 'alias' : 'test-image' }, renderLayer: item.renderLayer as PropV2['renderLayer'], renderOrder: item.renderOrder, positionMm: { x: item.x + 1000, y: 2000 } }]))
+    const before = structuredClone(project.document), browser = primitives(project)
+    await renderProjectV2(project, { audience, longEdgePx: 256 })
+    expect(browser.translate.mock.calls).toEqual([100, 200, 400, 500, 600, 700].map(x => [x + 1000, 2000]))
+    expect(project.document).toEqual(before)
+    browser.translate.mockClear()
+    project.document.props['object-z'].renderOrder = -10
+    await renderProjectV2(project, { audience, longEdgePx: 256 })
+    expect(browser.translate.mock.calls).toEqual([100, 200, 600, 400, 500, 700].map(x => [x + 1000, 2000]))
+  })
+
+  it('reuses only a certified immutable document while rechecking resources on every render', async () => {
+    const project = await fixture(), validate = vi.spyOn(schema, 'validateSceneV2'), certified = validateSceneSnapshotV2(project.document)
+    expect(certified.ok).toBe(true)
+    if (!certified.ok) throw new Error('fixture validation failed')
+    project.document = certified.document
+    const browser = primitives(project)
+    await renderProjectV2(project, { audience: 'gm', longEdgePx: 256 })
+    await renderProjectV2(project, { audience: 'player', longEdgePx: 256 })
+    expect(validate).toHaveBeenCalledOnce(); expect(browser.decode).toHaveBeenCalledTimes(2)
+    const resource = Object.values(project.assets)[0], damaged = new Uint8Array(await resource.blob.arrayBuffer()); damaged[20] ^= 1
+    resource.blob = new Blob([damaged.buffer], { type: 'image/png' })
+    await expect(renderProjectV2(project, { audience: 'gm', longEdgePx: 256 })).rejects.toThrow('CRC')
+    expect(validate).toHaveBeenCalledOnce(); expect(browser.decode).toHaveBeenCalledTimes(2)
+  })
+
+  it('validates every external document including shallow-frozen lookalikes and detects later mutations', async () => {
+    const project = await fixture(), validate = vi.spyOn(schema, 'validateSceneV2'), browser = primitives(project)
+    Object.freeze(project.document)
+    await renderProjectV2(project, { audience: 'gm', longEdgePx: 256 })
+    await renderProjectV2(project, { audience: 'player', longEdgePx: 256 })
+    expect(validate).toHaveBeenCalledTimes(2)
+    project.document.props.first.rotationDeg = Number.NaN
+    await expect(renderProjectV2(project, { audience: 'gm', longEdgePx: 256 })).rejects.toThrow('场景不能绘制')
+    expect(validate).toHaveBeenCalledTimes(3); expect(browser.decode).toHaveBeenCalledTimes(2)
+  })
+
   it('separates verification, decode and synchronous drawing, and reports SHA-deduplicated pixels after cleanup', async () => {
     const project = await fixture(), before = structuredClone(project), browser = primitives(project)
     const samples: { metrics: RenderMetricsV2; closeCalls: number }[] = []

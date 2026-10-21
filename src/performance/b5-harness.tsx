@@ -12,6 +12,8 @@ import { exportPngV2 } from '../render/v2/renderer'
 import type { RenderMetricsV2 } from '../render/v2/renderer'
 import type { SceneCommandV2 } from '../core/v2/commands'
 import type { CompleteProjectV2 } from '../io/v2/types'
+import '../styles.css'
+import '../editor/v2/assets.css'
 
 const now = () => performance.now()
 const frame = () => new Promise<number>(resolve => requestAnimationFrame(resolve))
@@ -68,15 +70,17 @@ function Harness() {
   const [selected, setSelected] = useState<string | null>(null)
   return <main><h1>Sceneweave B5 · production module measurement</h1><p>专用测量入口；产品的场景模型、候选校验、Canvas 和存储实现与主页面相同。</p>
     <output id="status">{state.status} · revision {state.project?.document.revision ?? 'empty'} · selected {selected ?? 'none'}</output>
-    {state.project && <AssetCanvas project={state.project} selected={selected} onSelect={id => {
+    {state.project && <div className="b5-map-host"><AssetCanvas project={state.project} selected={selected} onSelect={id => {
       selection = id
       selectionResult = { selected: id, handlerMs: now() - clickStart, eventToPaintMs: 0 }
       setSelected(id)
-    }} onRenderMetrics={observeRender} onPaint={painted} />}
+    }} onRenderMetrics={observeRender} onPaint={painted} /></div>}
   </main>
 }
 document.addEventListener('click', event => { if (event.target instanceof HTMLCanvasElement) clickStart = now() }, true)
-document.head.insertAdjacentHTML('beforeend', '<style>body{font:14px system-ui;background:#e8e5da;color:#30382f;margin:20px}h1{font-size:20px}.asset-map-wrap{width:1200px;position:relative;margin-top:12px}canvas{display:block;width:1200px;height:auto}.asset-preview-message{position:absolute;padding:12px;background:#f6f0dd}</style>')
+// The bounded host supplies layout only. Main/selection canvases, positioning,
+// clipping and fitting use the production viewport stylesheet without overrides.
+document.head.insertAdjacentHTML('beforeend', '<style>body{font:14px system-ui;background:#e8e5da;color:#30382f;margin:20px}h1{font-size:20px;margin:0 0 12px}main>p{margin:0 0 12px}.b5-map-host{width:1200px;height:900px;margin-top:12px}</style>')
 createRoot(document.getElementById('root')!).render(<Harness />)
 
 const buffers = new Map<string, Blob>()
@@ -125,6 +129,7 @@ const api = {
   bounds() { return project().document.exportBoundsMm },
   selectionState() { return selection },
   async edit(kind: 'prop' | 'contour', ordinal: number) {
+    const intentStartMs = now()
     const scene = project().document, props = Object.values(scene.props)
     let commands: SceneCommandV2[]
     if (kind === 'prop') {
@@ -145,7 +150,10 @@ const api = {
     if (project().document.revision !== before + 1) throw new Error('Edit failed to produce exactly one revision')
     const paintedMs = await pendingPaint, flushStartMs = now()
     await workspace.flush()
-    return { kind, ordinal, startMs, commitMs: committedMs - startMs, canvasCopyMs: copyCompletedMs - startMs, displayProxyMs: paintedMs - startMs,
+    return { kind, ordinal, intentStartMs, startMs, prepMs: startMs - intentStartMs,
+      committedMs, canvasCopiedMs: copyCompletedMs, paintedMs,
+      intentToCommitMs: committedMs - intentStartMs, intentToCanvasCopyMs: copyCompletedMs - intentStartMs, intentToDisplayProxyMs: paintedMs - intentStartMs,
+      commitMs: committedMs - startMs, canvasCopyMs: copyCompletedMs - startMs, displayProxyMs: paintedMs - startMs,
       flushMs: now() - flushStartMs, endMs: now(), revision: project().document.revision,
       renders: renders.slice(renderIndex), status: workspace.getState().status }
   },

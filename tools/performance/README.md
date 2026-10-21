@@ -91,6 +91,27 @@ npm run perf:b5 -- --output performance-results/b5-smoke --runs 1 --edits 2 --se
 
 该命令只产生 `diagnostic-smoke`，不能替代正式矩阵。此短跑不足 20 个快照，不适用正式汇总器的快照门槛，直接查看 manifest 和逐轮 JSON。`--edits` 为每类次数且必须是正偶数，使可逆轮廓返回原几何；所有数值参数必须是正整数。`measurementClass=formal` 仅是次数分类，仍须确认四组齐全、全部轮次完成及最终验收证据。
 
+## C0 归档夹具与真实工作台
+
+C0方法与结果由[22](../../docs/22-m1c-c0-validation.md)独立记录，21及其原始证据保留。`run-b5.mjs --fixtures /absolute/archive` 会逐字节复制已完成归档的完整包，检查包SHA/长度、内部场景SHA/身份/数量/范围与资源摘要，同时保存原summary指纹。每次冷打开仍经过完整产品读取器，不以工具的摘要检查代替资源校验。
+
+当前专用入口使用生产视口CSS和双层画布，长边1200栅格不变；主画布用aria标签定位。原`startMs`、`commitMs`和`displayProxyMs`保留命令准备完成后的起点，新增`intentStartMs`在读取当前工程和构造命令之前。`prepMs`、`intentToCommitMs`、`intentToCanvasCopyMs`、`intentToDisplayProxyMs`逐次保留，汇总器仅在新字段完整时输出新增统计。专用入口的意图是工具调用起点，不冒充真实用户事件。
+
+正常生产工作台测量使用以下独立运行器，无需Vite服务或产品测量API：
+
+```sh
+npm run build
+node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c0-workbench" --fixtures "$PWD/docs/evidence/m1-b5/final" --runs 3 --edits 10 --channel chrome
+```
+
+默认四组×3个新Chrome进程，每轮10次物件编辑、10次轮廓预览及10次采用，原始事件分别保存。工具只安装采集用init-script，真实可信Enter capture开始计时；focusout capture至document bubble经过React同步处理，包含命令准备与候选校验；采用点击单列。MutationObserver观察到新底图计数、正确修订及主画布可见后等待双rAF。`event.timeStamp`至capture只描述浏览器创建事件后的排队，不含物理设备时间。
+
+每轮另执行30次平移pointermove和20次滚轮，按rAF发出可信事件，保留事件至DOM变换/双rAF、合并事件归属与rAF间隔；校验视口不改变修订、保存状态或底图计数。自动化节奏、观察器与浏览器调度均会影响结果；没有GPU完成、输入到光子、自由物件拖动或完整QA-PERF-01/04结论。该运行器不采集资源峰值，RSS/CDP数据只引用专用模块矩阵。
+
+`--output`、`--fixtures`必须绝对路径；输出须为空。`--cases study-500 --runs 1 --edits 2`只做诊断，不归类为正式工作台观测。失败保留partial及manifest，不自动重试；正常dist的全部字节在前后核对。正式两组采样与其他浏览器/测试/构建串行，源码/构建指纹另行保存。
+
+每轮产品计时和资源采样结束后，采集器直接关闭自己启动的BrowserServer；不先等待远程Browser关闭通知。收尾有独立限时：必要时终止本轮专用进程，根进程已退出后才释放其继承管道，确认退出才启动下一轮。实际收尾方式和耗时单列`manifest.teardowns`，不计入产品性能；失败则停止矩阵，不自动续跑或混入中断批次。
+
 每轮原始文件为 `<case>-run-N.json`，含时间窗口、操作、render/save/native decoder、资源样本/汇总、GPU 信息、错误、双受众 PNG 尺寸与 hash。第一轮保留 PNG、编辑后的完整工程和预览截图，工程含失败恢复后撤销产生的新 revision。`fixtures/` 和 manifest 保留各负载的完整工程与资源/alpha/几何统计。源 alpha 面积会重复计入实例交叠，投影纳入数也不是遮挡后的实际可见数。
 
 失败不会自动重试：manifest 标记 failed，已有完整轮次保留，当前轮另写 `-partial-failure.json` 和已取得的资源样本。默认 action timeout 为 30 秒；画布等待有 30 秒诊断上限，页面另有 8 分钟 watchdog。这些是防挂起限制，不能当成产品性能通过线。失败文件可能不含尚未采到的页面 observations，不能补造缺失数据。修复后使用新输出目录，并保留失败与复测的对应关系。

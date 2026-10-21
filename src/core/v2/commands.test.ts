@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createHouse } from '../seed'
-import { applyCommandsV2, type SceneCommandV2 } from './commands'
+import { applyCommandsV2, applySnapshotCommandsV2, type SceneCommandV2 } from './commands'
 import { openingEndpointsV2 } from './geometry'
 import { migrateSceneV1 } from './migration'
 import { validateSceneV2 } from './schema'
+import { validateSceneSnapshotV2 } from './snapshots'
 import type { PropV2, SceneDocumentV2 } from './types'
 
 const origin = { kind: 'original' as const, attribution: 'Sceneweave command test original', canEmbed: true }
@@ -34,6 +35,47 @@ function fixture(): SceneDocumentV2 {
   return scene
 }
 const apply = (scene: SceneDocumentV2, ...commands: SceneCommandV2[]) => applyCommandsV2(scene, commands)
+
+describe('immutable v2 command snapshots', () => {
+  it('returns the certified current identity for empty, unchanged and exactly reversed batches', () => {
+    const checked = validateSceneSnapshotV2(fixture())
+    if (!checked.ok) throw new Error('fixture invalid')
+    const scene = checked.document
+    expect(applySnapshotCommandsV2(scene, [])).toBe(scene)
+    expect(applySnapshotCommandsV2(scene, [{ type: 'updateProp', id: 'book', changes: { rotationDeg: 0 } }])).toBe(scene)
+    expect(applySnapshotCommandsV2(scene, [{ type: 'reverseWall', id: 'w1' }, { type: 'reverseWall', id: 'w1' }])).toBe(scene)
+    const next = applySnapshotCommandsV2(scene, [{ type: 'updateProp', id: 'book', changes: { rotationDeg: 30 } }])
+    expect(next).not.toBe(scene)
+    expect(next.props.book.rotationDeg).toBe(30)
+    expect(next.revision).toBe(scene.revision)
+    expect(Object.isFrozen(next.prefabInstances.group.members.book.overrideFields)).toBe(true)
+    expect(() => { next.props.book.rotationDeg = 45 }).toThrow()
+  })
+
+  it('keeps external commands strict, atomic and detached from the returned snapshot', () => {
+    const scene = fixture(), command: SceneCommandV2 = { type: 'updateProp', id: 'book', changes: { positionMm: { x: 3500, y: 3200 } } }
+    const next = applySnapshotCommandsV2(scene, [command])
+    command.changes.positionMm!.x = 3600
+    expect(next.props.book.positionMm.x).toBe(3500)
+    expect(scene.props.book.positionMm.x).toBe(3400)
+    expect(() => applySnapshotCommandsV2(next, [{ type: 'updateProp', id: 'book', changes: { rotationDeg: 45 } }, { type: 'moveVertex', id: 'v1', positionMm: { x: 1000, y: 1000 } }])).toThrow(/事务未采用/)
+    expect(next.props.book.rotationDeg).toBe(0)
+    expect(() => applySnapshotCommandsV2(next, [{ type: 'updateProp', id: 'book', changes: { visibility: 'public' } }] as unknown as SceneCommandV2[])).toThrow(/指令无效/)
+    const empty: SceneCommandV2[] = []
+    Object.defineProperty(empty, 'ignored', { value: true, enumerable: true })
+    expect(() => applySnapshotCommandsV2(next, empty)).toThrow(/编辑指令无效/)
+    scene.props.book.rotationDeg = 400
+    expect(() => applySnapshotCommandsV2(scene, [])).toThrow(/当前场景无效/)
+  })
+
+  it('preserves the general API mutable candidate and never marks it as certified', () => {
+    const next = applyCommandsV2(fixture(), [{ type: 'updateProp', id: 'book', changes: { rotationDeg: 30 } }])
+    next.props.book.rotationDeg = 45
+    expect(applySnapshotCommandsV2(next, []).props.book.rotationDeg).toBe(45)
+    next.props.book.rotationDeg = 400
+    expect(() => applySnapshotCommandsV2(next, [])).toThrow(/当前场景无效/)
+  })
+})
 
 describe('v2 atomic architectural editing', () => {
   it('returns a separate preview candidate without mutating a cancelled scene or revision', () => {

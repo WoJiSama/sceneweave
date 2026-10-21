@@ -6,6 +6,19 @@ const manifest = JSON.parse(await fs.readFile(path.join(directory, 'manifest.jso
 if (manifest.status !== 'complete') throw new Error('Only a completed run can produce a verification summary')
 const percentile = (values, q) => [...values].sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * q) - 1)]
 const stats = values => ({ n: values.length, min: Math.min(...values), p50: percentile(values, .5), p95: percentile(values, .95), max: Math.max(...values) })
+const intentFields = ['prepMs', 'intentToCommitMs', 'intentToCanvasCopyMs', 'intentToDisplayProxyMs']
+function intentStatistics(edits) {
+  const hasIntent = edits.some(edit => intentFields.some(field => Object.hasOwn(edit, field)))
+  if (!hasIntent) return { editIntentEvidence: 'not-collected-in-this-build' }
+  if (edits.some(edit => intentFields.some(field => !Number.isFinite(edit[field]) || edit[field] < 0))) throw new Error('Partial/invalid edit preparation/intent timing evidence')
+  for (const edit of edits) for (const [intentField, preparedField] of [['intentToCommitMs', 'commitMs'], ['intentToCanvasCopyMs', 'canvasCopyMs'], ['intentToDisplayProxyMs', 'displayProxyMs']]) {
+    if (Math.abs(edit[intentField] - edit[preparedField] - edit.prepMs) > .001) throw new Error('Intent and prepared-command timing boundaries disagree')
+  }
+  const fields = { PrepMs: 'prepMs', IntentToCommitMs: 'intentToCommitMs', IntentToCanvasCopyMs: 'intentToCanvasCopyMs', IntentToDisplayProxyMs: 'intentToDisplayProxyMs' }
+  return { editIntentEvidence: 'complete', ...Object.fromEntries(Object.entries(fields).flatMap(([suffix, field]) => ['edit', 'prop', 'contour'].map(kind => [
+    `${kind}${suffix}`, stats(edits.filter(edit => kind === 'edit' || edit.kind === kind).map(edit => edit[field])),
+  ]))) }
+}
 const rows = []
 for (const item of manifest.cases) {
   const runs = []
@@ -25,6 +38,7 @@ for (const item of manifest.cases) {
     coldImportMs: stats(runs.map(run => run.cold.strictImportMs)), coldFullDisplayMs: stats(runs.map(run => run.cold.fullDisplayMs)),
     commitMs: stats(edits.map(edit => edit.commitMs)), propCommitMs: stats(edits.filter(edit => edit.kind === 'prop').map(edit => edit.commitMs)), contourCommitMs: stats(edits.filter(edit => edit.kind === 'contour').map(edit => edit.commitMs)),
     editDisplayProxyMs: stats(edits.map(edit => edit.displayProxyMs)), editCanvasCopyMs: stats(edits.map(edit => edit.canvasCopyMs)),
+    ...intentStatistics(edits),
     selectionHandlerMs: stats(selections.map(s => s.handlerMs)), selectionCanvasCopyMs: stats(selections.map(s => s.eventToCanvasCopyMs)), selectionDisplayProxyMs: stats(selections.map(s => s.eventToPaintMs)),
     validationProjectionMs: renderMetric('validationProjectionMs'), resourceVerificationMs: renderMetric('resourceVerificationMs'), imageDecodeMs: renderMetric('imageDecodeMs'), decoderQueueWaitMs: stats(edits.flatMap(edit => edit.renders.map(r => r.decoderQueueWaitMs ?? 0))), drawSubmissionMs: renderMetric('drawSubmissionMs'), renderTotalMs: renderMetric('totalMs'),
     warmSaveMs: stats(runs.flatMap(run => run.observations.saves.filter(save => save.startMs >= run.edits[0].startMs && save.endMs <= run.edits.at(-1).endMs).map(save => save.durationMs))),
@@ -43,6 +57,7 @@ for (const item of manifest.cases) {
 }
 const report = { measurementClass: manifest.measurementClass, statisticalMethod: 'Nearest rank percentile: sorted[ceil(n*q)-1]; pooled discrete operations, no mean substituted for p95; raw per-run arrays retained',
   boundaries: 'Dedicated production-module harness; full-workbench correctness is separate; Canvas draw is submission; display is two-rAF scheduling proxy; RSS sampled simultaneous process-tree sum, not unique physical/GPU peak',
+  editTiming: 'Original commit/canvas/display fields start after command preparation. Optional prep/intent fields begin before project lookup and command preparation; their display values still use the two-rAF proxy and do not measure physical input or full-workbench sidebar handling.',
   startedAt: manifest.startedAt, finishedAt: manifest.finishedAt, rows }
 await fs.writeFile(path.join(directory, 'summary.json'), JSON.stringify(report, null, 2))
 console.table(rows.map(row => ({ case: row.name, commitP95: row.commitMs.p95.toFixed(1), drawP95: row.drawSubmissionMs.p95.toFixed(1), editDisplayP95: row.editDisplayProxyMs.p95.toFixed(1), saveP95: row.warmSaveMs.p95.toFixed(1), rssPeakMiB: (row.productRssSampledPeakBytes.max / 1048576).toFixed(1) })))

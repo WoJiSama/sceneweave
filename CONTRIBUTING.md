@@ -2,7 +2,7 @@
 
 织境 · Sceneweave 当前 M0 几何版原型首轮验证完成。领域内核、画布编辑、保存与双受众输出已有实现；完整编辑器、AI 与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
 
-室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，下一入口M1-C手工工具与组件库，滚动周计划及投入假设见07。完整M1、主题P3、SCN-04与全交互性能仍待完成；新模型同步格式、迁移和验收。
+室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)，下一入口C1空白工程，滚动周计划及投入假设见07。完整M1、主题P3、SCN-04与全交互性能仍待完成；新模型同步格式、迁移和验收。
 
 ## 开发环境与命令
 
@@ -42,7 +42,19 @@ npm run build:performance
 npm run perf:b5
 ```
 
-专用产物位于 `dist-performance/`，运行器自行创建仅绑定回环地址的临时服务，输出默认保存在 `performance-results/b5/`。运行器默认使用系统Chrome，每个VIS-01/02的500/2000物件组合分别启动三个独立浏览器进程；每轮执行30次物件编辑、30次轮廓编辑与60次真实指针选择，并记录导入、保存、重开和双受众4K。统计窗口、缓存状态、各项测量边界和未覆盖操作以[21](docs/21-m1b-b5-validation.md)为准。
+专用产物位于 `dist-performance/`，运行器自行创建仅绑定回环地址的临时服务，输出默认保存在 `performance-results/b5/`。运行器默认使用系统Chrome，每个VIS-01/02的500/2000物件组合分别启动三个独立浏览器进程；每轮执行30次物件编辑、30次轮廓编辑与60次真实指针选择，并记录导入、保存、重开和双受众4K。B5历史口径见[21](docs/21-m1b-b5-validation.md)，C0新增命令准备与真实工作台测量见[22](docs/22-m1c-c0-validation.md)。
+
+C0复用B5原始完整包，`--fixtures` 必须是包含manifest和fixtures的绝对目录；每次选择独立输出，禁止覆盖历史。两类测量必须依次运行，不能与浏览器测试或构建并行：
+
+```sh
+npm run build:performance
+npm run perf:b5 -- --output performance-results/c0-modules --fixtures "$PWD/docs/evidence/m1-b5/final"
+node tools/performance/summarize-b5.mjs performance-results/c0-modules
+npm run build
+node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c0-workbench" --fixtures "$PWD/docs/evidence/m1-b5/final"
+```
+
+第一组保留原事务计时并新增准备前起点；第二组只通过正常生产页面真实操作，分列Enter提交、轮廓候选、采用点击与视口手势。两组数据不混池，双rAF均是调度代理。`SCENEWEAVE_B5_FIXTURE_DIR`可为 `tests/b5-workbench.spec.ts`、`tests/c0-viewport.spec.ts`提供相同归档包，在正常生产地址配合 `SCENEWEAVE_TEST_BASE_URL`验证，无需DEV API。
 
 现有RSS采样使用macOS `/bin/ps` 的进程树与单位约定，完整复现目前仅支持macOS；Linux/Windows的资源采集尚未适配。系统需已安装Chrome，仅安装Playwright Chromium不提供默认Chrome通道。所有正式测量串行运行，期间不并行运行单元/浏览器测试、构建或其他性能任务；macOS运行器使用本次命令范围内的防空闲休眠，不修改系统电源设置。
 

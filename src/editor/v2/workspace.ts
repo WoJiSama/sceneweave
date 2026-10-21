@@ -1,7 +1,7 @@
 import { newId } from '../../core/types'
 import type { SceneDocumentV2 } from '../../core/v2/types'
-import { validateSceneV2 } from '../../core/v2/schema'
-import { applyCommandsV2, type SceneCommandV2 } from '../../core/v2/commands'
+import { applySnapshotCommandsV2, type SceneCommandV2 } from '../../core/v2/commands'
+import { reviseSceneSnapshotV2, validateSceneSnapshotV2 } from '../../core/v2/snapshots'
 import { validateCompleteProjectV2 } from '../../io/v2/project-file'
 import type { CompleteProjectV2 } from '../../io/v2/types'
 
@@ -58,10 +58,14 @@ export class WorkspaceV2 {
     this.listeners.forEach(listener => listener())
   }
   private install(project: CompleteProjectV2) {
+    // Keep repository/caller references outside the owned immutable boundary.
+    const owned = copy(project), checked = validateSceneSnapshotV2(owned.document)
+    if (!checked.ok) throw new Error(checked.errors.map(error => error.message).join('；'))
+    owned.document = checked.document
     this.version++
     this.past = []; this.future = []; this.pending = null; this.blocked = null
     this.persistedRevision = project.document.revision
-    this.publish({ project: freeze(copy(project)), status: 'saved', error: null })
+    this.publish({ project: freeze(owned), status: 'saved', error: null })
   }
   /** Read-only validation and CAS creation precede switching; late results cannot discard edits. */
   async adoptNew(input: CompleteProjectV2, checkpoint = this.checkpoint()) {
@@ -87,21 +91,27 @@ export class WorkspaceV2 {
   }
   private enqueue(project: CompleteProjectV2) {
     this.pending = project
-    if (this.blocked) return
-    this.publish({ status: 'unsaved', error: null })
-    if (this.copying) return
     if (this.timer) clearTimeout(this.timer)
-    this.timer = setTimeout(() => { this.timer = null; void this.startSave().catch(() => {}) }, 120)
+    this.timer = null
+    if (!this.blocked && !this.copying) this.timer = setTimeout(() => { this.timer = null; void this.startSave().catch(() => {}) }, 120)
+    // A synchronous subscriber may edit, undo, redo or flush. No older queue or
+    // history mutation may run after it has observed this complete transition.
+    this.publish({ project, status: this.blocked ? this.state.status : 'unsaved', error: this.blocked ? this.state.error : null })
   }
   private startSave(): Promise<void> {
     if (this.copying) return Promise.resolve()
     if (this.saving) return this.saving
-    this.saving = (async () => {
+    let resolve!: () => void, reject!: (reason: unknown) => void
+    const saving = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+    // Install the serialization lock before the first synchronous notification.
+    // Starting the worker immediately preserves flush's existing status timing.
+    this.saving = saving
+    void (async () => {
       while (this.pending && !this.blocked && !this.copying) {
         const snapshot = this.pending
         this.pending = null
-        this.publish({ status: 'saving' })
         try {
+          this.publish({ status: 'saving' })
           await this.repository.save(snapshot, this.persistedRevision)
           this.persistedRevision = snapshot.document.revision
           this.publish({ status: this.pending ? 'unsaved' : 'saved', error: null })
@@ -112,8 +122,8 @@ export class WorkspaceV2 {
           throw error
         }
       }
-    })().finally(() => { this.saving = null })
-    return this.saving
+    })().then(() => { this.saving = null; resolve() }, error => { this.saving = null; reject(error) })
+    return saving
   }
   async flush() {
     if (this.copying) throw new Error('正在保存独立副本，请稍后重试。')
@@ -147,27 +157,26 @@ export class WorkspaceV2 {
   private commit(document: SceneDocumentV2, history: 'edit' | 'undo' | 'redo') {
     const project = this.state.project
     if (!project) throw new Error('尚未打开工程。')
-    document.revision = project.document.revision + 1
-    document.updatedAt = new Date().toISOString()
-    const result = validateSceneV2(document)
-    if (!result.ok) throw new Error(result.errors.map(error => error.message).join('；'))
+    const nextDocument = reviseSceneSnapshotV2(document, project.document.revision + 1, new Date().toISOString())
+    const next = freeze({ ...project, document: nextDocument })
     if (history === 'edit') { this.past.push(project.document); this.future = [] }
+    else if (history === 'undo') { this.past.pop(); this.future.push(project.document) }
+    else { this.future.pop(); this.past.push(project.document) }
     this.version++
-    const next = freeze({ ...project, document: result.document })
-    this.publish({ project: next })
     this.enqueue(next)
   }
   /** Preview uses the same candidate checks as adoption, without changing state. */
   preview(commands: readonly SceneCommandV2[]): SceneDocumentV2 {
     const scene = this.state.project?.document
     if (!scene) throw new Error('尚未打开工程。')
-    const next = applyCommandsV2(scene, commands)
-    if (JSON.stringify(next) !== JSON.stringify(scene)) this.validateCandidate(next)
+    const checkpoint = this.checkpoint(), next = applySnapshotCommandsV2(scene, commands)
+    if (next !== scene) this.validateCandidate(next)
+    this.assertCheckpoint(checkpoint)
     return next
   }
   execute(commands: readonly SceneCommandV2[]) {
     const next = this.preview(commands)
-    if (JSON.stringify(next) !== JSON.stringify(this.state.project!.document)) this.commit(next, 'edit')
+    if (next !== this.state.project!.document) this.commit(next, 'edit')
   }
   updateProp(id: string, changes: { positionMm?: { x: number; y: number }; rotationDeg?: number }) {
     this.execute([{ type: 'updateProp', id, changes }])
@@ -179,16 +188,11 @@ export class WorkspaceV2 {
     const previous = this.past.at(-1), current = this.state.project?.document
     if (!previous || !current) return
     // Validate first so an unsuccessful history operation cannot consume the stacks.
-    const next = copy(previous)
-    this.commit(next, 'undo')
-    this.past.pop(); this.future.push(current)
-    this.publish({})
+    this.commit(previous, 'undo')
   }
   redo() {
     const next = this.future.at(-1), current = this.state.project?.document
     if (!next || !current) return
-    this.commit(copy(next), 'redo')
-    this.future.pop(); this.past.push(current)
-    this.publish({})
+    this.commit(next, 'redo')
   }
 }
