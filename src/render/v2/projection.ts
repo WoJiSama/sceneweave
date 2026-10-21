@@ -12,7 +12,9 @@ export interface ProjectedRegionV2 { id: string; points: PointMm[]; kind: 'terra
 /** Disposable visual data. In particular, a player projection has no source document or hidden definitions. */
 export interface ProjectionV2 {
   audience: AudienceV2; sourceRevision: number; bounds: BoundsMm; gridSizeMm: number | null
-  rooms: ProjectedSurfaceV2[]; terrain: ProjectedSurfaceV2[]; walls: ProjectedWallV2[]; props: PropV2[]
+  rooms: ProjectedSurfaceV2[]; terrain: ProjectedSurfaceV2[]; walls: ProjectedWallV2[]
+  /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
+  props: PropV2[]
   edges: ProjectedTerrainEdgeV2[]; connections: ProjectedConnectionV2[]
   notes: ProjectedNoteV2[]; regions: ProjectedRegionV2[]; masks: PointMm[][]
   theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets' | 'edgeStyles' | 'terrainCliff'> | null
@@ -93,8 +95,9 @@ const defaultEdgeStyles: Record<TerrainEdge['kind'], EdgeStyle> = {
 }
 /** Only this audience's surfaces enter coverage resolution. No GM hole/edge cache is reused. */
 function deriveTerrainEdges(areas: TerrainArea[], declarations: TerrainEdge[], theme: ProjectionV2['theme']): ProjectedTerrainEdgeV2[] {
-  const byPriority = [...areas].sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
-  const support = (p: PointMm) => byPriority.find(a => pointInPolygonV2(p, terrainPointsV2(a), false))
+  // This local index is built only after audience filtering and never survives the projection.
+  const byPriority = [...areas].sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id)).map(area => ({ area, points: terrainPointsV2(area) }))
+  const support = (p: PointMm) => byPriority.find(item => pointInPolygonV2(p, item.points, false))?.area
   const declared = new Map(declarations.map(e => [`${e.source.areaId}\0${e.source.segmentId}`, e]))
   const result = new Map<string, ProjectedTerrainEdgeV2>()
   for (const area of [...areas].sort((a, b) => a.id.localeCompare(b.id))) for (let i = 0; i < area.boundaryMm.length; i++) {
@@ -150,6 +153,7 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
   const connections: ProjectedConnectionV2[] = Object.values(scene.terrainConnections).filter(c => audience === 'gm' || connectionPublic(c.id)).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle) })).sort((a, b) => a.id.localeCompare(b.id))
   const visibleProps = Object.values(scene.props).filter(p => audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm))
   const props = orderedPropsV2(visibleProps.map(clone))
+  const visiblePropIds = new Set(props.map(p => p.id))
   const diagnostics: string[] = []
   const allRoomEdges = new Map<string, string[]>()
   const edgeKey = (a: string, b: string) => [a, b].sort().join('\0')
@@ -158,6 +162,13 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
     allRoomEdges.set(key, [...allRoomEdges.get(key) ?? [], room.id])
   }
   const visibleWallIds = new Set<string>(), visibleOpeningIds = new Set<string>()
+  const openingsByWall = new Map<string, SceneDocumentV2['openings'][string][]>()
+  for (const opening of Object.values(scene.openings)) {
+    if (audience === 'player' && opening.secret && !opening.revealed) continue
+    const group = openingsByWall.get(opening.wallId)
+    if (group) group.push(opening)
+    else openingsByWall.set(opening.wallId, [opening])
+  }
   const walls: ProjectedWallV2[] = []
   for (const wall of Object.values(scene.walls)) {
     const av = scene.vertices[wall.startVertexId], bv = scene.vertices[wall.endVertexId]
@@ -169,7 +180,7 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
       if (!neighbors.length && boundsCoveredV2(inflate(pointsBoundsV2([start, end]), wall.thicknessMm / 2 + shadowPadding(theme?.shadowPresets.wall)), rectangles)) continue
     }
     visibleWallIds.add(wall.id)
-    const openings = Object.values(scene.openings).filter(o => o.wallId === wall.id && (audience === 'gm' || !o.secret || o.revealed)).map(o => {
+    const openings = (openingsByWall.get(wall.id) ?? []).map(o => {
       visibleOpeningIds.add(o.id)
       const [a, b] = openingEndpointsV2(scene, o)
       return { id: o.id, start: { ...a }, end: { ...b }, widthMm: o.widthMm, kind: o.kind, state: o.state, secret: audience === 'gm' && o.secret }
@@ -177,7 +188,7 @@ export function projectSceneV2(scene: SceneDocumentV2, audience: AudienceV2): Pr
     walls.push({ id: wall.id, sourceIds: [wall.id], start, end, thicknessMm: wall.thicknessMm, style: clone(wall.topStyle), openings })
   }
   const regionVisible = (id: string) => scene.regions[id]?.kind !== 'manualMask' && scene.regions[id]?.visibility === 'public'
-  const visibleIds: Partial<Record<string, Set<string>>> = { terrainEdge: new Set(edges.map(e => e.id)), terrainConnection: new Set(connections.map(c => c.id)), room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: new Set(props.map(p => p.id)), region: new Set(Object.values(scene.regions).filter(r => regionVisible(r.id)).map(r => r.id)), vertex: new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId])), prefabInstance: new Set(Object.values(scene.prefabInstances).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && props.some(p => p.id === m.propId))).map(g => g.id)), scatterGroup: new Set(Object.values(scene.scatterGroups).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && props.some(p => p.id === m.propId))).map(g => g.id)) }
+  const visibleIds: Partial<Record<string, Set<string>>> = { terrainEdge: new Set(edges.map(e => e.id)), terrainConnection: new Set(connections.map(c => c.id)), room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: visiblePropIds, region: new Set(Object.values(scene.regions).filter(r => regionVisible(r.id)).map(r => r.id)), vertex: new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId])), prefabInstance: new Set(Object.values(scene.prefabInstances).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && visiblePropIds.has(m.propId))).map(g => g.id)), scatterGroup: new Set(Object.values(scene.scatterGroups).filter(g => g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && visiblePropIds.has(m.propId))).map(g => g.id)) }
   function anchorPosition(note: NoteV2, seen = new Set<string>()): PointMm | null {
     if (seen.has(note.id)) return null
     seen.add(note.id)

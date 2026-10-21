@@ -1,0 +1,18 @@
+{
+  "counts": {
+    "markdown_files": 32,
+    "tables": 178,
+    "json_fragments": 1,
+    "local_links": 537,
+    "defined_ids": 168,
+    "referenced_ids": 168,
+    "PRD": 28,
+    "QA": 56,
+    "SCN": 4,
+    "VIS": 2,
+    "ADR": 31,
+    "OQ": 14
+  },
+  "errors": [],
+  "scope": "C0 documentation: Markdown links, anchors, tables, JSON examples and identifiers. Static delivery evidence; runtime verification is recorded separately."
+}

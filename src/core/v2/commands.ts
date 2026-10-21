@@ -3,6 +3,7 @@ import { inspectJsonInput } from '../schema'
 import { polygonsOverlapV2, propFootprintV2, terrainPointsV2 } from './geometry'
 import { buildScatterRegenerationV2, sha256TextV2 } from './scatter'
 import { validateSceneV2 } from './schema'
+import { validateSceneSnapshotV2 } from './snapshots'
 import { createPublicVisibilityV2 } from './visibility'
 import type { Editable, MaterialPaint, PointMm, PrefabInstance, PropOverrideField, SceneDocumentV2, SizeMm, VersionRef, WallV2 } from './types'
 
@@ -246,17 +247,17 @@ function regenerateScatter(scene: SceneDocumentV2, command: Extract<SceneCommand
   scene.scatterGroups[group.id] = proposal.group
 }
 
-/** Atomic finite command set shared by manual edits and future adopted proposals. */
-export function applyCommandsV2(scene: SceneDocumentV2, commands: readonly SceneCommandV2[]): SceneDocumentV2 {
-  const input = validateSceneV2(scene)
-  if (!input.ok) throw new Error(`当前场景无效：${input.errors.map(error => error.message).join('；')}`)
+function checkedCommandsV2(commands: readonly SceneCommandV2[]): SceneCommandV2[] {
   if (!Array.isArray(commands) || commands.length > 256) throw new Error('编辑指令必须是数组，单次事务最多 256 个操作。')
   const jsonIssue = inspectJsonInput(commands)
   if (jsonIssue) throw new Error(`编辑指令无效：${jsonIssue.message}`)
   const checked = commandSchema.safeParse(commands)
   if (!checked.success) throw new Error(`编辑指令无效：${checked.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
-  const next = structuredClone(scene)
-  for (const command of checked.data as SceneCommandV2[]) {
+  return checked.data as SceneCommandV2[]
+}
+
+function applyCommandDraftV2(next: SceneDocumentV2, commands: readonly SceneCommandV2[]): SceneDocumentV2 {
+  for (const command of commands) {
     switch (command.type) {
       case 'moveVertex': {
         const vertex = requireEntity(next.vertices, command.id, '顶点')
@@ -386,7 +387,42 @@ export function applyCommandsV2(scene: SceneDocumentV2, commands: readonly Scene
       }
     }
   }
-  const result = validateSceneV2(next)
-  if (!result.ok) throw new Error(`事务未采用：${result.errors.map(error => `${error.entityId ? `${error.entityId}：` : ''}${error.message}`).join('；')}`)
   return next
+}
+
+const transactionError = (result: Extract<ReturnType<typeof validateSceneV2>, { ok: false }>) => new Error(`事务未采用：${result.errors.map(error => `${error.entityId ? `${error.entityId}：` : ''}${error.message}`).join('；')}`)
+
+// Scene snapshots contain plain, bounded JSON only. Compare values without
+// allocating full-document JSON strings; an exactly reversed batch is a no-op.
+function sameJsonValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false
+  const aKeys = Object.keys(a), bKeys = Object.keys(b)
+  if (aKeys.length !== bKeys.length) return false
+  return aKeys.every((key, index) => key === bKeys[index] && sameJsonValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
+}
+
+/** Atomic finite command set shared by manual edits and future adopted proposals. */
+export function applyCommandsV2(scene: SceneDocumentV2, commands: readonly SceneCommandV2[]): SceneDocumentV2 {
+  const input = validateSceneV2(scene)
+  if (!input.ok) throw new Error(`当前场景无效：${input.errors.map(error => error.message).join('；')}`)
+  const checked = checkedCommandsV2(commands)
+  const next = applyCommandDraftV2(structuredClone(scene), checked)
+  const result = validateSceneV2(next)
+  if (!result.ok) throw transactionError(result)
+  // Preserve the general API's independently mutable candidate and JSON order.
+  return next
+}
+
+/** Immutable editor path; external inputs and every changed result stay strict. */
+export function applySnapshotCommandsV2(scene: SceneDocumentV2, commands: readonly SceneCommandV2[]): SceneDocumentV2 {
+  const input = validateSceneSnapshotV2(scene)
+  if (!input.ok) throw new Error(`当前场景无效：${input.errors.map(error => error.message).join('；')}`)
+  const checked = checkedCommandsV2(commands)
+  if (!checked.length) return input.document
+  const next = applyCommandDraftV2(structuredClone(input.document), checked)
+  if (sameJsonValue(next, input.document)) return input.document
+  const result = validateSceneSnapshotV2(next)
+  if (!result.ok) throw transactionError(result)
+  return result.document
 }

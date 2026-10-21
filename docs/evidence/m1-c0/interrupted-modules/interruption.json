@@ -1,0 +1,17 @@
+{
+  "interruptedAt": "2026-10-20T17:04:45.211117+00:00",
+  "reason": "After island-500-run-1 was persisted at 16:53:38.378Z, the collector remained idle for over 10 minutes in browser teardown. The dedicated Chrome root had already exited; no next round started. A 1-second Node sample at 17:00:22Z showed idle event-loop and worker threads.",
+  "completedRounds": [
+    "island-500-run-1.json",
+    "study-2000-run-1.json",
+    "study-2000-run-2.json",
+    "study-2000-run-3.json",
+    "study-500-run-1.json",
+    "study-500-run-2.json",
+    "study-500-run-3.json"
+  ],
+  "manifestStatusAtInterruption": "running",
+  "productMeasurementAffected": false,
+  "formalDatasetComplete": false,
+  "action": "Stop only this owned collector, retain original bytes and diagnostic, fix collector teardown and run a new complete matrix. No measurements are pooled or overwritten."
+}

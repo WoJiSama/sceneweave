@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHouse } from '../../core/seed'
 import { migrateSceneV1 } from '../../core/v2/migration'
+import * as sceneSchema from '../../core/v2/schema'
 import { validateCompleteProjectV2 } from '../../io/v2/project-file'
 import type { CompleteProjectV2 } from '../../io/v2/types'
 import { forkProjectV2, WorkspaceV2, type WorkspaceRepository } from './workspace'
@@ -40,7 +41,118 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('WorkspaceV2 certified immutable edit path', () => {
+  it('strictly validates each changed transaction once and reuses immutable content for history', async () => {
+    const { workspace, save } = setup()
+    await workspace.openPersisted(project())
+    const validateScene = vi.spyOn(sceneSchema, 'validateSceneV2'), zero = workspace.getState().project!.document
+    expect(workspace.preview([])).toBe(zero)
+    workspace.updateProp(PROP, { rotationDeg: 0 })
+    expect(validateScene).not.toHaveBeenCalled()
+    workspace.updateProp(PROP, { rotationDeg: 30 })
+    const one = workspace.getState().project!.document
+    expect(validateScene).toHaveBeenCalledTimes(1)
+    workspace.undo()
+    expect(workspace.getState().project!.document.props).toBe(zero.props)
+    workspace.redo()
+    expect(workspace.getState().project!.document.props).toBe(one.props)
+    expect(workspace.getState().project!.document.revision).toBe(3)
+    expect(validateScene).toHaveBeenCalledTimes(1)
+    await workspace.flush()
+    expect(save.mock.calls.map(([value, baseline]) => [value.document.revision, baseline])).toEqual([[3, 0]])
+  })
+
+  it('rejects a guard attempting to alter its frozen candidate before any state changes', async () => {
+    const save = vi.fn<WorkspaceRepository['save']>(async () => {})
+    const workspace = new WorkspaceV2({ save }, document => { document.props[PROP].rotationDeg = 400 })
+    await workspace.openPersisted(project())
+    const before = workspace.getState(), checkpoint = workspace.checkpoint()
+    expect(() => workspace.updateProp(PROP, { rotationDeg: 30 })).toThrow()
+    expect(workspace.getState()).toBe(before)
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    expect(workspace.getState()).toMatchObject({ canUndo: false, canRedo: false })
+    await workspace.flush()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale outer candidate when a guard makes another workspace edit', async () => {
+    const save = vi.fn<WorkspaceRepository['save']>(async () => {})
+    let nested = true
+    const workspace = new WorkspaceV2({ save }, () => {
+      if (nested) { nested = false; workspace.updateProp(PROP, { rotationDeg: 45 }) }
+    })
+    await workspace.openPersisted(project())
+    expect(() => workspace.updateProp(PROP, { rotationDeg: 30 })).toThrow(/已有修改/)
+    expect(workspace.getState().project!.document).toMatchObject({ revision: 1, props: { [PROP]: { rotationDeg: 45 } } })
+    workspace.undo()
+    expect(workspace.getState().project!.document).toMatchObject({ revision: 2, props: { [PROP]: { rotationDeg: 0 } } })
+    await workspace.flush()
+    expect(save.mock.calls.map(([value, baseline]) => [value.document.revision, baseline])).toEqual([[2, 0]])
+  })
+
+  it('rejects revision overflow without consuming history, saving or changing the checkpoint', async () => {
+    const { workspace, save } = setup(), input = project()
+    input.document.revision = Number.MAX_SAFE_INTEGER
+    await workspace.openPersisted(input)
+    const before = workspace.getState(), checkpoint = workspace.checkpoint()
+    expect(() => workspace.updateProp(PROP, { rotationDeg: 30 })).toThrow(/安全整数/)
+    expect(workspace.getState()).toBe(before)
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    expect(workspace.getState()).toMatchObject({ canUndo: false, canRedo: false })
+    await workspace.flush()
+    expect(save).not.toHaveBeenCalled()
+  })
+})
+
 describe('WorkspaceV2 serial saves and recovery', () => {
+  it('persists the latest revision when a synchronous edit subscriber edits again and flushes', async () => {
+    const { workspace, save } = setup()
+    await workspace.openPersisted(project())
+    let nested = false, flushing: Promise<void> | undefined
+    workspace.subscribe(() => {
+      if (nested || workspace.getState().project!.document.revision !== 1) return
+      nested = true
+      expect(workspace.getState()).toMatchObject({ status: 'unsaved', canUndo: true, canRedo: false })
+      workspace.updateProp(PROP, { rotationDeg: 60 })
+      flushing = workspace.flush()
+    })
+    workspace.updateProp(PROP, { rotationDeg: 30 })
+    expect(nested).toBe(true)
+    expect(workspace.getState().project!.document).toMatchObject({ revision: 2, props: { [PROP]: { rotationDeg: 60 } } })
+    await flushing
+    await workspace.flush()
+    expect(save.mock.calls.map(([input, expected]) => [input.document.revision, expected])).toEqual([[2, 0]])
+    expect(workspace.getState()).toMatchObject({ status: 'saved', canUndo: true, canRedo: false })
+    workspace.undo()
+    expect(workspace.getState().project!.document.props[PROP].rotationDeg).toBe(30)
+    workspace.undo()
+    expect(workspace.getState().project!.document.props[PROP].rotationDeg).toBe(0)
+    await workspace.flush()
+    expect(save.mock.calls.map(([input, expected]) => [input.document.revision, expected])).toEqual([[2, 0], [4, 2]])
+  })
+
+  it('serializes a synchronous saving subscriber that edits and joins the active flush', async () => {
+    const { workspace, save } = setup(), writing = deferred()
+    await workspace.openPersisted(project())
+    save.mockImplementationOnce(() => writing.promise)
+    workspace.updateProp(PROP, { rotationDeg: 30 })
+    let nested = false, nestedFlush: Promise<void> | undefined
+    workspace.subscribe(() => {
+      if (nested || workspace.getState().status !== 'saving') return
+      nested = true
+      workspace.updateProp(PROP, { rotationDeg: 60 })
+      nestedFlush = workspace.flush()
+    })
+    const flushing = workspace.flush()
+    expect(nested).toBe(true)
+    expect(save.mock.calls.map(([input, expected]) => [input.document.revision, expected])).toEqual([[1, 0]])
+    writing.resolve()
+    await Promise.all([flushing, nestedFlush])
+    expect(save.mock.calls.map(([input, expected]) => [input.document.revision, expected])).toEqual([[1, 0], [2, 1]])
+    expect(workspace.getState()).toMatchObject({ status: 'saved', canUndo: true, canRedo: false })
+    expect(workspace.getState().project!.document).toMatchObject({ revision: 2, props: { [PROP]: { rotationDeg: 60 } } })
+  })
+
   it('debounces unsaved edits into one newest revision with the loaded CAS baseline', async () => {
     const { workspace, save } = setup()
     await workspace.openPersisted(project())
@@ -322,6 +434,36 @@ describe('WorkspaceV2 asynchronous switching preserves current edits', () => {
 })
 
 describe('WorkspaceV2 immutable snapshots and history', () => {
+  it.each(['undo', 'redo'] as const)('finishes %s history before notifying a subscriber that immediately reverses it', async action => {
+    const { workspace, save } = setup()
+    await workspace.openPersisted(project())
+    workspace.updateProp(PROP, { rotationDeg: 30 })
+    workspace.updateProp(PROP, { rotationDeg: 60 })
+    if (action === 'redo') workspace.undo()
+    const triggerRevision = workspace.getState().project!.document.revision + 1
+    let nested = false
+    const unsubscribe = workspace.subscribe(() => {
+      if (nested || workspace.getState().project!.document.revision !== triggerRevision) return
+      nested = true
+      expect(workspace.getState()).toMatchObject({ status: 'unsaved', canUndo: true, canRedo: action === 'undo' })
+      if (action === 'undo') workspace.redo()
+      else workspace.undo()
+    })
+    workspace[action]()
+    unsubscribe()
+    expect(nested).toBe(true)
+    const revision = triggerRevision + 1, rotationDeg = action === 'undo' ? 60 : 30
+    expect(workspace.getState().project!.document).toMatchObject({ revision, props: { [PROP]: { rotationDeg } } })
+    expect(workspace.getState()).toMatchObject({ canUndo: true, canRedo: action === 'redo' })
+    await workspace.flush()
+    expect(save.mock.calls.map(([input, expected]) => [input.document.revision, expected])).toEqual([[revision, 0]])
+    if (action === 'undo') workspace.undo()
+    else workspace.redo()
+    expect(workspace.getState().project!.document.props[PROP].rotationDeg).toBe(action === 'undo' ? 30 : 60)
+    await workspace.flush()
+    expect(save.mock.calls.map(([input, expected]) => [input.document.revision, expected])).toEqual([[revision, 0], [revision + 1, revision]])
+  })
+
   it('copies input before asynchronous validation and deeply freezes the adopted project', async () => {
     const { workspace } = setup(), checking = deferred(), input = project()
     validate.mockImplementationOnce(() => checking.promise)

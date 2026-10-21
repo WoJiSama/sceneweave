@@ -1,14 +1,14 @@
-import { validateSceneV2 } from '../../core/v2/schema'
+import { validateSceneSnapshotV2 } from '../../core/v2/snapshots'
 import type { BoundsMm, MaterialPaint, PointMm, PropV2, ShadowStyle, SurfaceStyle } from '../../core/v2/types'
 import { checkCancelled, PROJECT_LIMITS_V2 } from '../../io/v2/limits'
 import { inspectImageBytes, sha256Bytes, withImageDecoderSlotV2 } from '../../io/v2/resources'
 import type { CompleteProjectV2 } from '../../io/v2/types'
-import { orderedPropsV2, pointsBoundsV2, projectSceneV2 } from './projection'
+import { pointsBoundsV2, projectSceneV2 } from './projection'
 import type { AudienceV2, ProjectedConnectionV2, ProjectedOpeningV2, ProjectedTerrainEdgeV2, ProjectedWallV2, ProjectionV2 } from './projection'
 
 /** Monotonic elapsed milliseconds for one successful render, not GPU completion or memory peaks. */
 export interface RenderMetricsV2 {
-  /** Strict document validation, snapshot/projection and output/support checks. */
+  /** Strict document validation or certified immutable-snapshot reuse, then projection and output/support checks. */
   validationProjectionMs: number
   /** Resource-record checks plus Blob reads, header/CRC inspection and SHA-256; summed across projected assets. */
   resourceVerificationMs: number
@@ -331,11 +331,12 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: ProjectionV2,
   drawTerrainEdges(ctx, projection, raster, sx, sy)
   drawConnections(ctx, projection, raster)
   for (const room of projection.rooms) fillSurface(ctx, polygonPath(room.points), room.style, projection, raster, '#B9AA88')
-  for (const prop of orderedPropsV2(projection.props).filter(p => p.renderLayer === 'ground')) drawProp(ctx, prop, projection, raster, sx, sy)
+  // Projection owns the canonical layer/order/id sorting; keep its order through the wall split.
+  for (const prop of projection.props) if (prop.renderLayer === 'ground') drawProp(ctx, prop, projection, raster, sx, sy)
   checkCancelled(signal)
   drawWallBody(ctx, projection, raster, sx, sy)
   for (const wall of projection.walls) for (const opening of wall.openings) drawOpening(ctx, opening, wall, projection)
-  for (const prop of orderedPropsV2(projection.props).filter(p => p.renderLayer !== 'ground')) drawProp(ctx, prop, projection, raster, sx, sy)
+  for (const prop of projection.props) if (prop.renderLayer !== 'ground') drawProp(ctx, prop, projection, raster, sx, sy)
   for (const region of projection.regions) {
     ctx.save(); ctx.strokeStyle = region.kind === 'hazard' ? '#9A674A' : '#71865A'; ctx.lineWidth = 18; ctx.setLineDash([85, 65]); ctx.stroke(polygonPath(region.points)); ctx.restore()
   }
@@ -365,7 +366,7 @@ export async function renderProjectV2(project: CompleteProjectV2, options: Rende
   const metrics: RenderMetricsV2 | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience } : undefined
   checkCancelled(options.signal)
   if (!Number.isInteger(options.longEdgePx) || options.longEdgePx < 256 || options.longEdgePx > PNG_MAX_LONG_EDGE_V2) throw new Error('图片长边须为 256–4096 整数像素。')
-  const validated = validateSceneV2(project.document)
+  const validated = validateSceneSnapshotV2(project.document)
   if (!validated.ok) throw new Error(`场景不能绘制：${validated.errors[0]?.message ?? '结构不合法。'}`)
   const snapshot: CompleteProjectV2 = { ...project, document: validated.document, assets: Object.fromEntries(Object.entries(project.assets).map(([hash, resource]) => [hash, { ...resource }])) }
   const projection = projectSceneV2(snapshot.document, options.audience)
