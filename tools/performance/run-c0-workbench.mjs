@@ -120,6 +120,8 @@ function installObserver() {
 
 const dist = path.join(root, 'dist'), html = await fs.readFile(path.join(dist, 'index.html'), 'utf8')
 if (html.includes('/@vite/client')) throw new Error('Expected a normal production dist, found a development client')
+// 正式站点构建可能带部署前缀（GitHub Pages 子路径）；本工具以根路径伺服，需按构建产物声明的 base 剥前缀
+const servedBase = /<script[^>]+src="([^"]+\/assets\/)/.exec(html)?.[1]?.replace(/assets\/$/, '') ?? '/'
 const manifest = { startedAt: new Date().toISOString(), status: 'running', sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceDirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }), runnerSha256: hash(await fs.readFile(fileURLToPath(import.meta.url))),
   node: process.version, device: { platform: os.platform(), release: os.release(), arch: os.arch(), cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem() },
@@ -135,7 +137,9 @@ const sleepGuard = process.platform === 'darwin' ? spawn('caffeinate', ['-i', '-
 sleepGuard?.on('error', () => {})
 const server = createServer(async (req, res) => {
   try {
-    const relative = decodeURIComponent(new URL(req.url, 'http://localhost').pathname).replace(/^\//, ''), file = path.resolve(dist, relative || 'index.html')
+    const requested = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
+    const relative = (servedBase !== '/' && requested.startsWith(servedBase) ? requested.slice(servedBase.length - 1) : requested).replace(/^\//, '')
+    const file = path.resolve(dist, relative || 'index.html')
     if (!file.startsWith(dist + path.sep)) { res.writeHead(403); res.end(); return }
     const bytes = await fs.readFile(file), type = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' }[path.extname(file)] ?? 'application/octet-stream'
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' }); res.end(bytes)
@@ -223,7 +227,10 @@ try {
     check(canvas, 'No product primary canvas')
     await page.mouse.click(canvas.x + (marker.x - bounds.x) / bounds.width * canvas.width, canvas.y + (marker.y - bounds.y) / bounds.height * canvas.height)
     await page.getByRole('heading', { name: '物件属性', exact: true }).waitFor()
-    check(await page.locator(`[data-entity-id="${item.summary.editablePropId}"]`).evaluate(node => node.classList.contains('selected')), 'Actual map pointer did not select the fixture marker')
+    check(await page.locator('.asset-viewport').evaluate((node, id) => {
+      const selected = JSON.parse(node.getAttribute('data-selected-ids') ?? '[]')
+      return selected.length === 1 && selected[0] === id
+    }, item.summary.editablePropId), 'Actual map pointer did not select the fixture marker')
     for (let ordinal = 0; ordinal < edits; ordinal++) {
       const input = page.getByLabel('物件旋转', { exact: true }); await input.fill(String(ordinal % 2 ? 0 : 1))
       const before = await probeCall(page, 'snapshot')

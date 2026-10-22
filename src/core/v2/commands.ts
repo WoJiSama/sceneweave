@@ -5,7 +5,7 @@ import { buildScatterRegenerationV2, sha256TextV2 } from './scatter'
 import { validateSceneV2 } from './schema'
 import { validateSceneSnapshotV2 } from './snapshots'
 import { createPublicVisibilityV2 } from './visibility'
-import type { Editable, MaterialPaint, PointMm, PrefabInstance, PropOverrideField, SceneDocumentV2, SizeMm, VersionRef, WallV2 } from './types'
+import type { Editable, MaterialPaint, PointMm, PrefabInstance, PropOverrideField, PropV2, SceneDocumentV2, SizeMm, SurfaceRef, VersionRef, WallV2 } from './types'
 
 type SurfaceKind = 'room' | 'terrainArea'
 export type SceneCommandV2 =
@@ -21,9 +21,11 @@ export type SceneCommandV2 =
   | { type: 'removeTerrainConnection'; id: string }
   | { type: 'setOverlayBoundary'; kind: SurfaceKind; id: string; overlayId: string; boundaryMm: PointMm[] }
   | { type: 'regenerateScatter'; id: string; densityFactor?: number }
+  | { type: 'addProp'; id: string; floorId: string; definitionRef: VersionRef; positionMm: PointMm; rotationDeg?: number; supportRef?: SurfaceRef }
+  | { type: 'copyProp'; id: string; newId: string; offsetMm: PointMm }
   | { type: 'deleteProp'; id: string }
   | { type: 'detachScatterMember'; groupId: string; propId: string }
-  | { type: 'setEditLock'; kind: 'prop' | 'scatterGroup' | 'terrainArea' | 'terrainConnection'; id: string; locked: boolean }
+  | { type: 'setEditLock'; kind: 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainConnection'; id: string; locked: boolean }
   | { type: 'transformPrefab'; id: string; anchorMm?: PointMm; rotationDeg?: number }
   | { type: 'unpackPrefab'; id: string }
   | { type: 'updateProp'; id: string; changes: { positionMm?: PointMm; rotationDeg?: number } }
@@ -36,6 +38,7 @@ const angle = z.number().finite().min(0).lt(360)
 const point = z.object({ x: integer, y: integer }).strict()
 const size = z.object({ width: positive, height: positive }).strict()
 const version = z.object({ id, version: positive }).strict()
+const surfaceRef = z.object({ kind: z.enum(['floor', 'room', 'terrainArea']), id }).strict()
 const kind = z.enum(['room', 'terrainArea'])
 const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
@@ -50,9 +53,11 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('removeTerrainConnection'), id }).strict(),
   z.object({ type: z.literal('setOverlayBoundary'), kind, id, overlayId: id, boundaryMm: z.array(point).min(3).max(512) }).strict(),
   z.object({ type: z.literal('regenerateScatter'), id, densityFactor: z.number().finite().min(0).max(1).optional() }).strict(),
+  z.object({ type: z.literal('addProp'), id, floorId: id, definitionRef: version, positionMm: point, rotationDeg: angle.optional(), supportRef: surfaceRef.optional() }).strict(),
+  z.object({ type: z.literal('copyProp'), id, newId: id, offsetMm: point }).strict(),
   z.object({ type: z.literal('deleteProp'), id }).strict(),
   z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
-  z.object({ type: z.literal('setEditLock'), kind: z.enum(['prop', 'scatterGroup', 'terrainArea', 'terrainConnection']), id, locked: z.boolean() }).strict(),
+  z.object({ type: z.literal('setEditLock'), kind: z.enum(['prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainConnection']), id, locked: z.boolean() }).strict(),
   z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
@@ -67,7 +72,7 @@ const requireEntity = <T>(record: Record<string, T>, key: string, label: string)
 }
 const normalizeAngle = (value: number) => ((value % 360) + 360) % 360
 // Explicit edits quantize once, including negative half millimetres away from zero.
-const roundMm = (value: number) => {
+export const roundMmV2 = (value: number) => {
   const magnitude = Math.abs(value), half = Math.round(magnitude * 2) / 2
   // Trigonometric evaluations can land a few ulps to either side of an exact half.
   const stable = Math.abs(magnitude - half) <= Number.EPSILON * Math.max(1, magnitude) * 4 ? half : magnitude
@@ -76,8 +81,7 @@ const roundMm = (value: number) => {
 }
 const distance2 = (a: PointMm, b: PointMm) => (BigInt(a.x) - BigInt(b.x)) ** 2n + (BigInt(a.y) - BigInt(b.y)) ** 2n
 
-/** Locks cover geometry meaning and anchored dependants, even when their own fields are unchanged. */
-function assertUnlocked(scene: SceneDocumentV2, entities: Editable[], includeAnchoredNotes = false) {
+function lockDependants(scene: SceneDocumentV2, entities: Editable[], includeAnchoredNotes = false): Editable[] {
   const affected = new Map(entities.map(entity => [entity.id, entity]))
   if (includeAnchoredNotes) {
     let changed = true
@@ -92,7 +96,11 @@ function assertUnlocked(scene: SceneDocumentV2, entities: Editable[], includeAnc
   for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) {
     if (Object.values(group.members).some(member => member.propId !== null && affected.has(member.propId))) affected.set(group.id, group)
   }
-  const locked = [...affected.values()].filter(entity => entity.editLocked)
+  return [...affected.values()]
+}
+/** Locks cover geometry meaning and anchored dependants, even when their own fields are unchanged. */
+function assertUnlocked(scene: SceneDocumentV2, entities: Editable[], includeAnchoredNotes = false) {
+  const locked = lockDependants(scene, entities, includeAnchoredNotes).filter(entity => entity.editLocked)
   if (locked.length) throw new Error(`事务涉及已锁定的实体：${locked.map(entity => entity.id).join('、')}。`)
 }
 
@@ -129,6 +137,29 @@ function terrainDependants(scene: SceneDocumentV2, areaId: string): Editable[] {
     ...Object.values(scene.scatterGroups).filter(group => group.domain.kind === 'area' && group.domain.areaId === areaId || group.domain.kind === 'path' && pathIds.has(group.domain.pathId) || group.domain.kind === 'edgeBand' && edgeIds.has(group.domain.edgeId)),
   ]
 }
+
+/** Read-only selection affordance; commands still check their exact affected set when applied. */
+export function isEntityEditLockedV2(scene: SceneDocumentV2, entityId: string): boolean {
+  let affected: Editable[]
+  const prop = own(scene.props, entityId), vertex = own(scene.vertices, entityId), wall = own(scene.walls, entityId)
+  const prefab = own(scene.prefabInstances, entityId), scatter = own(scene.scatterGroups, entityId)
+  const area = own(scene.terrainAreas, entityId) ?? Object.values(scene.terrainAreas).find(item => item.boundaryMm.some(point => point.id === entityId))
+  if (prop) affected = [prop]
+  else if (prefab || scatter) {
+    const group = (prefab ?? scatter)!
+    affected = [group, ...Object.values(group.members).flatMap(member => member.propId === null ? [] : own(scene.props, member.propId) ?? [])]
+  } else if (vertex) {
+    const walls = Object.values(scene.walls).filter(item => item.startVertexId === vertex.id || item.endVertexId === vertex.id)
+    affected = [vertex, ...Object.values(scene.rooms).filter(room => room.boundaryVertexIds.includes(vertex.id)), ...architecturalDependants(scene, walls)]
+  } else if (wall) affected = architecturalDependants(scene, [wall])
+  else if (area) affected = terrainDependants(scene, area.id)
+  else {
+    const entity = own(scene.openings, entityId) ?? own(scene.rooms, entityId) ?? own(scene.terrainEdges, entityId) ?? own(scene.terrainConnections, entityId) ?? own(scene.paths, entityId) ?? own(scene.regions, entityId) ?? own(scene.notes, entityId)
+    if (!entity) return false
+    affected = [entity]
+  }
+  return lockDependants(scene, affected, true).some(entity => entity.editLocked)
+}
 function memberRecord(scene: SceneDocumentV2, propId: string) {
   for (const group of Object.values(scene.scatterGroups)) {
     const member = Object.values(group.members).find(member => member.propId === propId)
@@ -150,6 +181,84 @@ function hasId(value: unknown, id: string): boolean {
   return ('id' in value && value.id === id) || Object.values(value).some(child => hasId(child, id))
 }
 
+function assertPlacementSupportUnlocked(scene: SceneDocumentV2, floorId: string, support: SurfaceRef): void {
+  requireEntity(scene.floors, floorId, '楼层')
+  const supportEntities: Editable[] = []
+  const checkSupport = (ref: SurfaceRef): void => {
+    if (ref.kind === 'floor') {
+      requireEntity(scene.floors, ref.id, '支撑楼层')
+      if (ref.id !== floorId) throw new Error('物件与支撑表面必须属于同一楼层。')
+      return
+    }
+    const entity = ref.kind === 'room' ? requireEntity(scene.rooms, ref.id, '支撑房间') : requireEntity(scene.terrainAreas, ref.id, '支撑地形')
+    if (entity.floorId !== floorId) throw new Error('物件与支撑表面必须属于同一楼层。')
+    supportEntities.push(entity)
+    if (ref.kind === 'room') checkSupport(scene.rooms[ref.id].supportRef)
+  }
+  checkSupport(support)
+  assertUnlocked(scene, supportEntities)
+}
+function nextPropRenderOrder(scene: SceneDocumentV2, floorId: string, layer: PropV2['renderLayer']): number {
+  // Newly placed objects appear above existing peers within their system render band.
+  let renderOrder = 0
+  for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.renderLayer === layer) renderOrder = Math.max(renderOrder, prop.renderOrder + 1)
+  if (!Number.isSafeInteger(renderOrder)) throw new Error('当前叠放顺序已达到安全上限，不能继续放置。')
+  return renderOrder
+}
+function buildAddedProp(scene: SceneDocumentV2, command: Extract<SceneCommandV2, { type: 'addProp' }>): PropV2 {
+  if (hasId(scene, command.id)) throw new Error('新物件必须使用工程中未占用的独立 ID。')
+  const definition = requireEntity(scene.propDefinitions, command.definitionRef.id, '物件定义')
+  if (definition.version !== command.definitionRef.version) throw new Error('物件引用版本与已采用快照不同。')
+  const support = command.supportRef ?? { kind: 'floor' as const, id: command.floorId }
+  assertPlacementSupportUnlocked(scene, command.floorId, support)
+  const renderOrder = nextPropRenderOrder(scene, command.floorId, definition.defaultRenderLayer)
+  return {
+    id: command.id, floorId: command.floorId, editLocked: false, definitionRef: structuredClone(command.definitionRef),
+    appearance: structuredClone(definition.defaultAppearance), visualBoundsMm: structuredClone(definition.defaultVisualBoundsMm),
+    positionMm: structuredClone(command.positionMm), rotationDeg: command.rotationDeg ?? 0,
+    footprintMm: structuredClone(definition.defaultFootprintMm), footprintOffsetMm: structuredClone(definition.defaultFootprintOffsetMm),
+    blocksMovement: definition.defaultBlocksMovement, blocksSight: definition.defaultBlocksSight,
+    visibility: createPublicVisibilityV2(scene).surface(support) ? 'public' : 'gm',
+    supportRef: structuredClone(support), ...(support.kind === 'room' ? { roomId: support.id } : {}),
+    renderLayer: definition.defaultRenderLayer, renderOrder, shadowClass: definition.defaultShadowClass, shadowOverride: null,
+  }
+}
+
+function copyProp(scene: SceneDocumentV2, command: Extract<SceneCommandV2, { type: 'copyProp' }>): PropV2 {
+  const source = requireEntity(scene.props, command.id, '源物件')
+  if (hasId(scene, command.newId)) throw new Error('副本必须使用工程中未占用的独立 ID。')
+  if (memberRecord(scene, source.id)) throw new Error('此复制入口只支持独立物件；组合或散布成员须先明确拆开或脱离。')
+  assertUnlocked(scene, [source], true)
+  assertPlacementSupportUnlocked(scene, source.floorId, source.supportRef)
+  if (source.roomId !== undefined && (source.supportRef.kind !== 'room' || source.supportRef.id !== source.roomId)) assertPlacementSupportUnlocked(scene, source.floorId, { kind: 'room', id: source.roomId })
+  const copy = structuredClone(source)
+  copy.id = command.newId
+  copy.positionMm = { x: source.positionMm.x + command.offsetMm.x, y: source.positionMm.y + command.offsetMm.y }
+  copy.renderOrder = nextPropRenderOrder(scene, source.floorId, source.renderLayer)
+  // A source may inherit privacy from its room as well as its explicit support.
+  // Keep that effective restriction on the new object, including later re-parenting.
+  if (!createPublicVisibilityV2(scene).prop(source)) copy.visibility = 'gm'
+  return copy
+}
+
+export type PlacePropOptionsV2 = { id?: string; rotationDeg?: number; supportRef?: SurfaceRef }
+const placementOptions = z.object({ id: id.optional(), rotationDeg: angle.optional(), supportRef: surfaceRef.optional() }).strict()
+
+/** Detached preview template from an adopted definition. Acceptance still requires addProp's whole-scene validation. */
+export function createPlacedPropV2(scene: SceneDocumentV2, definitionId: string, positionMm: PointMm, options: PlacePropOptionsV2 = {}): PropV2 {
+  const jsonIssue = inspectJsonInput({ definitionId, positionMm, options })
+  if (jsonIssue) throw new Error(`放置参数无效：${jsonIssue.message}`)
+  const checked = placementOptions.safeParse(options)
+  if (!checked.success) throw new Error(`放置参数无效：${checked.error.issues.map(issue => issue.message).join('；')}`)
+  const definition = requireEntity(scene.propDefinitions, definitionId, '物件定义'), floorId = Object.keys(scene.floors)[0]
+  const command = checkedCommandsV2([{ type: 'addProp', id: checked.data.id ?? crypto.randomUUID(), floorId,
+    definitionRef: { id: definitionId, version: definition.version }, positionMm,
+    ...(checked.data.rotationDeg === undefined ? {} : { rotationDeg: checked.data.rotationDeg }),
+    ...(checked.data.supportRef === undefined ? {} : { supportRef: checked.data.supportRef }),
+  }])[0] as Extract<SceneCommandV2, { type: 'addProp' }>
+  return buildAddedProp(scene, command)
+}
+
 function splitWall(scene: SceneDocumentV2, command: Extract<SceneCommandV2, { type: 'splitWall' }>) {
   const wall = requireEntity(scene.walls, command.id, '墙'), a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId]
   const p = command.positionMm, start = { x: a.xMm, y: a.yMm }, end = { x: b.xMm, y: b.yMm }
@@ -168,7 +277,7 @@ function splitWall(scene: SceneDocumentV2, command: Extract<SceneCommandV2, { ty
     opening.wallId = onFirst ? wall.id : command.newWallId
     if (!staysWithReference) {
       opening.offsetReferenceVertexId = command.newVertexId
-      opening.offsetMm = roundMm(opening.offsetMm - Math.hypot(p.x - reference.x, p.y - reference.y))
+      opening.offsetMm = roundMmV2(opening.offsetMm - Math.hypot(p.x - reference.x, p.y - reference.y))
     }
   }
   const originalEnd = wall.endVertexId
@@ -196,7 +305,7 @@ function transformPrefab(scene: SceneDocumentV2, command: Extract<SceneCommandV2
   const radians = (rotation - group.rotationDeg) * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians)
   for (const prop of props) {
     const x = prop.positionMm.x - group.anchorMm.x, y = prop.positionMm.y - group.anchorMm.y
-    prop.positionMm = { x: roundMm(anchor.x + x * cos - y * sin), y: roundMm(anchor.y + x * sin + y * cos) }
+    prop.positionMm = { x: roundMmV2(anchor.x + x * cos - y * sin), y: roundMmV2(anchor.y + x * sin + y * cos) }
     prop.rotationDeg = normalizeAngle(prop.rotationDeg + rotation - group.rotationDeg)
   }
   group.anchorMm = structuredClone(anchor); group.rotationDeg = rotation
@@ -343,6 +452,8 @@ function applyCommandDraftV2(next: SceneDocumentV2, commands: readonly SceneComm
         break
       }
       case 'regenerateScatter': regenerateScatter(next, command); break
+      case 'addProp': next.props[command.id] = buildAddedProp(next, command); break
+      case 'copyProp': next.props[command.newId] = copyProp(next, command); break
       case 'deleteProp': deleteProp(next, command.id); break
       case 'detachScatterMember': {
         const group = requireEntity(next.scatterGroups, command.groupId, '散布组'), prop = requireEntity(next.props, command.propId, '散布成员')
@@ -355,7 +466,7 @@ function applyCommandDraftV2(next: SceneDocumentV2, commands: readonly SceneComm
         break
       }
       case 'setEditLock': {
-        const collection = command.kind === 'prop' ? next.props : command.kind === 'scatterGroup' ? next.scatterGroups : command.kind === 'terrainArea' ? next.terrainAreas : next.terrainConnections
+        const collection = command.kind === 'prop' ? next.props : command.kind === 'prefabInstance' ? next.prefabInstances : command.kind === 'scatterGroup' ? next.scatterGroups : command.kind === 'terrainArea' ? next.terrainAreas : next.terrainConnections
         const entity = requireEntity<Editable>(collection, command.id, '可锁定实体')
         if (entity.editLocked === command.locked) break
         if (command.kind === 'prop') {

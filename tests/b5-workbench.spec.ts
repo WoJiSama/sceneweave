@@ -77,6 +77,7 @@ for (const sample of ['study', 'island'] as const) for (const count of [500, 200
       await expect(reopened.locator('.asset-canvas-footer')).toContainText(`${count} 件物件`)
       await expect(reopened.getByLabel('材质场景主持人预览')).toBeVisible()
       await reopened.getByRole('group', { name: '场景对象分类' }).getByRole('button', { name: '物件', exact: true }).click()
+      await reopened.getByRole('searchbox', { name: '搜索场景物件', exact: true }).fill(fixture.summary.editablePropId)
       await reopened.locator(`[data-entity-id="${fixture.summary.editablePropId}"]`).click()
       await expect(reopened.getByLabel('物件旋转')).toHaveValue('15')
       await reopened.getByLabel('物件旋转').fill('16'); await reopened.getByLabel('物件旋转').press('Enter')

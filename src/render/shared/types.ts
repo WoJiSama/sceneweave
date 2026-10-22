@@ -1,0 +1,24 @@
+import type { BoundsMm, EdgeStyle, MaterialRef, NoteV2, PointMm, PropV2, StyleTheme, SurfaceStyle, TerrainEdge } from '../../core/v2/types'
+
+export type Audience = 'gm' | 'player'
+export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number }
+export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
+export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null }
+export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean; /** Editor-only symbol suppression preserves the physical wall hole. */ paintSymbol?: boolean }
+export interface ProjectedWall { id: string; sourceIds: string[]; start: PointMm; end: PointMm; thicknessMm: number; style: SurfaceStyle | null; openings: ProjectedOpening[] }
+export interface ProjectedNote { id: string; positionMm: PointMm; text: string; kind: NoteV2['kind']; visibility: 'gm' | 'public' }
+export interface ProjectedRegion { id: string; points: PointMm[]; kind: 'terrain' | 'hazard' }
+/** Disposable visual data. In particular, a player projection has no source document or hidden definitions. */
+export interface Projection {
+  audience: Audience; sourceRevision: number; bounds: BoundsMm; gridSizeMm: number | null
+  rooms: ProjectedSurface[]; terrain: ProjectedSurface[]; walls: ProjectedWall[]
+  /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
+  props: PropV2[]
+  edges: ProjectedTerrainEdge[]; connections: ProjectedConnection[]
+  /** Disposable symbol-band order; only projected public IDs appear in player output. */
+  openingPaintOrder?: string[]
+  notes: ProjectedNote[]; regions: ProjectedRegion[]; masks: PointMm[][]
+  theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets' | 'edgeStyles' | 'terrainCliff'> | null
+  materials: Record<string, Pick<MaterialRef, 'id' | 'version' | 'textureAssetId'>>
+  assetIds: string[]; limitations: string[]; diagnostics: string[]
+}

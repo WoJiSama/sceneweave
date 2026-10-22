@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createHouse } from '../seed'
-import { applyCommandsV2, applySnapshotCommandsV2, type SceneCommandV2 } from './commands'
+import { applyCommandsV2, applySnapshotCommandsV2, createPlacedPropV2, type SceneCommandV2 } from './commands'
 import { openingEndpointsV2 } from './geometry'
 import { migrateSceneV1 } from './migration'
 import { validateSceneV2 } from './schema'
@@ -35,6 +35,186 @@ function fixture(): SceneDocumentV2 {
   return scene
 }
 const apply = (scene: SceneDocumentV2, ...commands: SceneCommandV2[]) => applyCommandsV2(scene, commands)
+
+describe('v2 finite single-object placement', () => {
+  const add = (changes: Partial<Extract<SceneCommandV2, { type: 'addProp' }>> = {}): Extract<SceneCommandV2, { type: 'addProp' }> => ({
+    type: 'addProp', id: 'new-prop', floorId: 'f-a1', definitionRef: { id: 'variant', version: 1 }, positionMm: { x: 12000, y: 12000 }, ...changes,
+  })
+
+  it('adopts fixed appearance and physical defaults without mutating the source or sharing mutable references', () => {
+    const scene = fixture(), before = structuredClone(scene), command = add({ rotationDeg: 45 })
+    const preview = createPlacedPropV2(scene, 'variant', command.positionMm, { id: command.id, rotationDeg: command.rotationDeg })
+    const next = apply(scene, command), placed = next.props['new-prop']
+    expect(placed).toEqual(preview)
+    expect(placed).toMatchObject({ definitionRef: { id: 'variant', version: 1 }, positionMm: { x: 12000, y: 12000 }, rotationDeg: 45,
+      footprintMm: { width: 1900, height: 1900 }, footprintOffsetMm: { x: 100, y: 100 }, blocksMovement: false, blocksSight: true,
+      supportRef: { kind: 'floor', id: 'f-a1' }, renderLayer: 'canopy', shadowClass: 'vegetation', visibility: 'public', editLocked: false })
+    expect(placed).not.toHaveProperty('roomId')
+    expect(next.revision).toBe(scene.revision); expect(next.updatedAt).toBe(scene.updatedAt)
+    command.positionMm.x = 13000; preview.appearance.opacity = 0.2; placed.footprintMm.width = 500
+    expect(scene).toEqual(before)
+    expect(next.props['new-prop'].positionMm.x).toBe(12000)
+    expect(next.props['new-prop'].appearance.opacity).toBe(0.8)
+    expect(next.propDefinitions.variant.defaultFootprintMm.width).toBe(1900)
+  })
+
+  it('keeps the ghost a preview and accepts only the final complete visual bounds and physical support', () => {
+    const scene = fixture()
+    expect(createPlacedPropV2(scene, 'variant', { x: 0, y: 0 }, { id: 'ghost' }).positionMm).toEqual({ x: 0, y: 0 })
+    expect(() => apply(scene, add({ positionMm: { x: 0, y: 0 } }))).toThrow(/事务未采用/)
+    expect(() => apply(scene, add({ positionMm: { x: 1000, y: 1000 }, rotationDeg: 45 }))).toThrow(/世界边界/)
+    expect(() => apply(scene, add({ positionMm: { x: 12000, y: 12000 }, supportRef: { kind: 'room', id: 'study' } }))).toThrow(/支撑/)
+    const next = apply(scene, add({ positionMm: { x: 4000, y: 4000 }, supportRef: { kind: 'room', id: 'study' } }))
+    expect(next.props['new-prop']).toMatchObject({ roomId: 'study', supportRef: { kind: 'room', id: 'study' } })
+  })
+
+  it('places new objects above peers only within the same rendering band', () => {
+    const scene = fixture()
+    scene.props.desk.renderOrder = 50
+    const first = apply(scene, add()), second = apply(first, add({ id: 'second-prop' }))
+    expect(first.props['new-prop'].renderOrder).toBe(0)
+    expect(second.props['second-prop'].renderOrder).toBe(1)
+    expect(second.props.desk).toEqual(scene.props.desk)
+    expect(second.props['new-prop']).toEqual(first.props['new-prop'])
+  })
+
+  it.each(['desk', 'variant', 'v0', 'f-a1'])('rejects a new ID already owned by %s anywhere in the document', duplicateId => {
+    expect(() => apply(fixture(), add({ id: duplicateId }))).toThrow(/未占用/)
+  })
+
+  it('rejects absent or mismatched fixed definitions and unsupported references', () => {
+    const scene = fixture()
+    expect(() => apply(scene, add({ definitionRef: { id: 'missing', version: 1 } }))).toThrow(/不存在/)
+    expect(() => apply(scene, add({ definitionRef: { id: 'variant', version: 2 } }))).toThrow(/版本/)
+    expect(() => apply(scene, add({ floorId: 'missing' }))).toThrow(/楼层不存在/)
+    expect(() => apply(scene, add({ supportRef: { kind: 'room', id: 'missing' } }))).toThrow(/支撑房间不存在/)
+    expect(() => apply(scene, add({ supportRef: { kind: 'terrainArea', id: 'missing' } }))).toThrow(/支撑地形不存在/)
+    expect(() => apply(scene, add({ supportRef: { kind: 'floor', id: 'missing' } }))).toThrow(/支撑楼层不存在/)
+  })
+
+  it('inherits private room or upstream terrain privacy and refuses either support lock', () => {
+    const scene = fixture(), command = add({ positionMm: { x: 4000, y: 4000 }, supportRef: { kind: 'room', id: 'study' } })
+    scene.rooms.study.visibility = 'gm'
+    expect(apply(scene, command).props['new-prop'].visibility).toBe('gm')
+    scene.rooms.study.editLocked = true
+    expect(() => apply(scene, command)).toThrow(/锁定.*study/)
+    scene.rooms.study.editLocked = false; scene.rooms.study.visibility = 'public'
+    scene.terrainAreas.base = { id: 'base', floorId: 'f-a1', editLocked: false, visibility: 'gm',
+      boundaryMm: [{ x: 0, y: 0 }, { x: 20000, y: 0 }, { x: 20000, y: 20000 }, { x: 0, y: 20000 }].map((positionMm, index) => ({ id: `base-v${index}`, segmentId: `base-s${index}`, positionMm })),
+      groundElevationMm: 0, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
+    scene.rooms.study.supportRef = { kind: 'terrainArea', id: 'base' }
+    expect(apply(scene, command).props['new-prop'].visibility).toBe('gm')
+    expect(apply(scene, add({ supportRef: { kind: 'terrainArea', id: 'base' } })).props['new-prop'].visibility).toBe('gm')
+    expect(() => apply(scene, add({ id: 'base-s1', supportRef: { kind: 'terrainArea', id: 'base' } }))).toThrow(/事务未采用/)
+    scene.terrainAreas.base.editLocked = true
+    expect(() => apply(scene, command)).toThrow(/锁定.*base/)
+  })
+
+  it('keeps a failed batch atomic, and supports ordinary move/delete plus a no-op add/delete batch', () => {
+    const scene = fixture(), before = structuredClone(scene)
+    expect(() => apply(scene, add(), add({ id: 'desk' }))).toThrow(/未占用/)
+    expect(scene).toEqual(before)
+    const placed = apply(scene, add()), moved = apply(placed, { type: 'updateProp', id: 'new-prop', changes: { positionMm: { x: 14000, y: 13000 }, rotationDeg: 90 } })
+    expect(moved.props['new-prop']).toMatchObject({ positionMm: { x: 14000, y: 13000 }, rotationDeg: 90 })
+    expect(apply(moved, { type: 'deleteProp', id: 'new-prop' }).props).toEqual(scene.props)
+    const checked = validateSceneSnapshotV2(scene)
+    if (!checked.ok) throw new Error('invalid fixture')
+    expect(applySnapshotCommandsV2(checked.document, [add(), { type: 'deleteProp', id: 'new-prop' }])).toBe(checked.document)
+  })
+
+  it('rejects nonfinite, noninteger, reserved and injected placement fields before invoking accessors', () => {
+    const scene = fixture()
+    for (const command of [add({ positionMm: { x: 10.5, y: 20 } }), add({ positionMm: { x: Infinity, y: 20 } }), add({ id: '__proto__' }), add({ rotationDeg: 360 }),
+      { ...add(), footprintMm: { width: 1, height: 1 } }, { ...add(), visibility: 'public' }]) {
+      expect(() => applyCommandsV2(scene, [command] as SceneCommandV2[])).toThrow(/编辑指令无效/)
+    }
+    const getter = { ...add(), get positionMm(): { x: number; y: number } { throw new Error('must not execute') } }
+    expect(() => applyCommandsV2(scene, [getter])).toThrow(/访问器/)
+    expect(() => createPlacedPropV2(scene, 'variant', { x: 1000, y: 1000 }, { visibility: 'public' } as never)).toThrow(/放置参数无效/)
+  })
+})
+
+describe('C1b atomic independent-prop copies and prefab locks', () => {
+  const copy = (changes: Partial<Extract<SceneCommandV2, { type: 'copyProp' }>> = {}): Extract<SceneCommandV2, { type: 'copyProp' }> => ({ type: 'copyProp', id: 'desk', newId: 'desk-copy', offsetMm: { x: 500, y: 500 }, ...changes })
+  const independent = () => { const scene = fixture(); scene.prefabInstances = {}; return scene }
+
+  it('preserves complete appearance, physical/support fields and fixed references, with a fresh ID and top-band order', () => {
+    const scene = independent(), source = scene.props.desk
+    source.definitionRef = { id: 'variant', version: 1 }; source.appearance = { kind: 'image', assetId: 'texture', tint: '#C0FFEE', opacity: .63 }
+    source.rotationDeg = 37; source.visualBoundsMm = { x: -200, y: -100, width: 700, height: 400 }
+    source.footprintOffsetMm = { x: 35, y: -20 }; source.blocksMovement = false; source.blocksSight = true
+    source.visibility = 'gm'; source.renderOrder = 4
+    source.shadowOverride = { directionDeg: 135, offsetMm: 100, blurMm: 80, opacity: .3, color: '#223344' }
+    scene.props.book.renderOrder = 8
+    const before = structuredClone(scene), next = apply(scene, copy()), copied = next.props['desk-copy']
+    expect(copied).toEqual({ ...source, id: 'desk-copy', positionMm: { x: 3500, y: 3500 }, renderOrder: 9 })
+    expect(next.props.desk).toEqual(source); expect(next.revision).toBe(scene.revision); expect(next.updatedAt).toBe(scene.updatedAt)
+    expect(next.assets).toEqual(scene.assets); expect(next.propDefinitions).toEqual(scene.propDefinitions)
+    copied.appearance.opacity = .1; copied.footprintOffsetMm.x = 200
+    expect(next.props.desk.appearance.opacity).toBe(.63); expect(scene).toEqual(before)
+  })
+
+  it('preserves effective upstream privacy and refuses adding a copy onto a locked support', () => {
+    const scene = independent(); scene.rooms.study.visibility = 'gm'
+    expect(apply(scene, copy()).props['desk-copy'].visibility).toBe('gm')
+    scene.rooms.study.editLocked = true
+    expect(() => apply(scene, copy())).toThrow(/锁定.*study/)
+    scene.props.desk.supportRef = { kind: 'floor', id: 'f-a1' }
+    expect(() => apply(scene, copy())).toThrow(/锁定.*study/)
+    scene.rooms.study.editLocked = false; scene.props.desk.editLocked = true
+    expect(() => apply(scene, copy())).toThrow(/锁定.*desk/)
+  })
+
+  it('rejects prefab and scatter members, allowing only explicitly unpacked or detached props', () => {
+    const scene = fixture()
+    expect(() => apply(scene, copy())).toThrow(/独立物件/)
+    expect(apply(apply(scene, { type: 'unpackPrefab', id: 'group' }), copy()).props['desk-copy']).toBeDefined()
+    scene.prefabInstances = {}; scene.props.desk.definitionRef = { id: 'variant', version: 1 }
+    scene.terrainAreas.domain = { id: 'domain', floorId: 'f-a1', editLocked: false, visibility: 'public', boundaryMm: [{ x: 12000, y: 1000 }, { x: 18000, y: 1000 }, { x: 18000, y: 7000 }, { x: 12000, y: 7000 }].map((positionMm, i) => ({ id: `d-v${i}`, segmentId: `d-s${i}`, positionMm })), groundElevationMm: 0, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
+    scene.scatterGroups.scatter = { id: 'scatter', floorId: 'f-a1', editLocked: false, visibility: 'gm', domain: { kind: 'area', areaId: 'domain' }, palette: [{ key: 'desk', propDefinitionRef: { id: 'variant', version: 1 }, weight: 1 }], seed: 'test', algorithmVersion: 'scatter-cell-v1', gridOriginMm: { x: 0, y: 0 }, cellSizeMm: 1000, densityFactor: .5, minDistanceMm: 100, rotationRangeDeg: { min: 0, max: 359 }, members: { ['a'.repeat(64)]: { propId: 'desk', state: 'manual', overrideFields: ['positionMm'] } }, exclusions: [] }
+    expect(() => apply(scene, copy())).toThrow(/独立物件/)
+    const next = apply(scene, { type: 'detachScatterMember', groupId: 'scatter', propId: 'desk' }, copy())
+    expect(next.props['desk-copy'].visibility).toBe('gm')
+    expect(next.scatterGroups.scatter.members['a'.repeat(64)].state).toBe('detached')
+  })
+
+  it('retains existing anchored notes and rejects their recursive lock without duplicating annotations', () => {
+    const scene = independent()
+    scene.notes.note = { id: 'note', floorId: 'f-a1', editLocked: false, visibility: 'gm', kind: 'clue', text: 'existing', anchor: { type: 'entity', entityKind: 'prop', entityId: 'desk' } }
+    expect(apply(scene, copy()).notes).toEqual(scene.notes)
+    scene.notes.note.editLocked = true
+    expect(() => apply(scene, copy())).toThrow(/锁定.*note/)
+  })
+
+  it('rejects ID collisions, missing sources and invalid final geometry without changing either prior prop', () => {
+    const scene = independent(), before = structuredClone(scene)
+    for (const newId of ['desk', 'variant', 'v0', 'f-a1']) expect(() => apply(scene, copy({ newId }))).toThrow(/未占用/)
+    expect(() => apply(scene, copy({ id: 'missing' }))).toThrow(/不存在/)
+    expect(() => apply(scene, copy(), copy({ newId: 'bad-copy', offsetMm: { x: 7000, y: 0 } }))).toThrow(/事务未采用/)
+    expect(() => apply(scene, copy(), copy())).toThrow(/未占用/)
+    expect(scene).toEqual(before)
+  })
+
+  it('keeps the 256-command transaction ceiling explicit and rejects untrusted copy fields', () => {
+    const scene = independent(), commands = Array.from({ length: 256 }, (_, i) => copy({ newId: `copy-${i}`, offsetMm: { x: 0, y: 0 } }))
+    expect(Object.keys(applyCommandsV2(scene, commands).props)).toHaveLength(258)
+    expect(() => applyCommandsV2(scene, [...commands, copy()])).toThrow(/最多 256/)
+    for (const command of [copy({ offsetMm: { x: .5, y: 0 } }), copy({ offsetMm: { x: Infinity, y: 0 } }), copy({ newId: '__proto__' }), { ...copy(), visibility: 'public' }]) {
+      expect(() => applyCommandsV2(scene, [command] as SceneCommandV2[])).toThrow(/编辑指令无效/)
+    }
+    expect(() => applyCommandsV2(scene, [{ ...copy(), get offsetMm(): { x: number; y: number } { throw new Error('must not evaluate') } }])).toThrow(/访问器/)
+  })
+
+  it('locks prefab containers and prevents member edits or member unlocks until that container is explicitly unlocked', () => {
+    const scene = fixture(), locked = apply(scene, { type: 'setEditLock', kind: 'prefabInstance', id: 'group', locked: true })
+    expect(locked.prefabInstances.group.editLocked).toBe(true); expect(scene.prefabInstances.group.editLocked).toBe(false)
+    expect(() => apply(locked, { type: 'updateProp', id: 'desk', changes: { rotationDeg: 30 } })).toThrow(/锁定.*group/)
+    expect(() => apply(locked, { type: 'setEditLock', kind: 'prop', id: 'desk', locked: true })).toThrow(/锁定.*group/)
+    const unlocked = apply(locked, { type: 'setEditLock', kind: 'prefabInstance', id: 'group', locked: false }, { type: 'updateProp', id: 'desk', changes: { rotationDeg: 30 } })
+    expect(unlocked.props.desk.rotationDeg).toBe(30)
+    expect(() => apply(scene, { type: 'setEditLock', kind: 'prefabInstance', id: 'missing', locked: false })).toThrow(/不存在/)
+  })
+})
 
 describe('immutable v2 command snapshots', () => {
   it('returns the certified current identity for empty, unchanged and exactly reversed batches', () => {
