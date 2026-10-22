@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "scope": "C2 local implementation and verification; no commit or push",
+  "unit": {
+    "filesPassed": 59,
+    "testsPassed": 721,
+    "log": "unit.log"
+  },
+  "build": {
+    "passed": true,
+    "includesTypeScriptCheck": true,
+    "log": "build.log"
+  },
+  "browser": {
+    "c2-target": {
+      "stats": {
+        "startTime": "2026-10-22T07:28:28.727Z",
+        "duration": 128153.601,
+        "expected": 11,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "caseCount": 11,
+      "summary": "browser/c2-target-summary.json",
+      "raw": "browser/c2-target-run.json.gz"
+    },
+    "full": {
+      "stats": {
+        "startTime": "2026-10-22T07:33:35.209Z",
+        "duration": 714036.73,
+        "expected": 132,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "caseCount": 132,
+      "summary": "browser/full-summary.json",
+      "raw": "browser/full-run.json.gz"
+    },
+    "initial": {
+      "stats": {
+        "startTime": "2026-10-22T07:16:43.614Z",
+        "duration": 62501.240000000005,
+        "expected": 5,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "caseCount": 6,
+      "summary": "diagnostic/initial-summary.json",
+      "raw": "diagnostic/initial-run.json.gz"
+    },
+    "scn01-recheck": {
+      "stats": {
+        "startTime": "2026-10-22T07:25:09.247Z",
+        "duration": 52250.621999999996,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "caseCount": 1,
+      "summary": "diagnostic/scn01-recheck-summary.json",
+      "raw": "diagnostic/scn01-recheck-run.json.gz"
+    }
+  },
+  "productionUi": "production-ui/report.json",
+  "attachments": "browser/attachment-index.json",
+  "sourceFingerprints": "source-fingerprints.json",
+  "buildFingerprints": "build-fingerprints.json",
+  "localDiagnosticArtifacts": "diagnostic/local-artifacts.json",
+  "tracePolicy": "Large traces and full-suite regression artifacts retained locally with path/size/hash; target C2 attachments and failure screenshots/contexts copied; full raw reporter preserved losslessly",
+  "sourceFiles": [
+    {
+      "source": "/tmp/sceneweave-c2-browser-final.json",
+      "path": "browser/c2-target-run.json.gz",
+      "sourceBytes": 3526549,
+      "sourceSha256": "0840714e5781207841ed092f252122801f754ed8fece8db3ce497c4033754755",
+      "compression": "gzip-lossless",
+      "compressedBytes": 926770
+    },
+    {
+      "source": "/tmp/sceneweave-c2-browser-full.json",
+      "path": "browser/full-run.json.gz",
+      "sourceBytes": 97197875,
+      "sourceSha256": "7c4599025a865c76bc3327238667ead7f900dff7cdabb6c716ad5d84bb82b9a0",
+      "compression": "gzip-lossless",
+      "compressedBytes": 68845880
+    },
+    {
+      "source": "/tmp/sceneweave-c2-browser-first.json",
+      "path": "diagnostic/initial-run.json.gz",
+      "sourceBytes": 1157470,
+      "sourceSha256": "8a8074f4938a88ada8801e796f094b701035cda806987e5f457c3787807560db",
+      "compression": "gzip-lossless",
+      "compressedBytes": 262874
+    },
+    {
+      "source": "/tmp/sceneweave-c2-browser-scn01-recheck.json",
+      "path": "diagnostic/scn01-recheck-run.json.gz",
+      "sourceBytes": 7168,
+      "sourceSha256": "d2c7df4c30396fdb52cc97cea0d1df55644be905cde7357da4414702df5d832c",
+      "compression": "gzip-lossless",
+      "compressedBytes": 1764
+    },
+    {
+      "source": "/tmp/sceneweave-c2-annotations-first.log",
+      "path": "diagnostic/annotations-first.log",
+      "sourceBytes": 221,
+      "sourceSha256": "ff865675f3f90ff209e48a7a0dc1e3bb2775fd2ae82e1f0cbb5ae5db5b1843b2"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-browser-final.log",
+      "path": "browser/c2-target-run.log",
+      "sourceBytes": 2858,
+      "sourceSha256": "7ae1d6e3c08a0635009ecad7facfa87dfa81289bfbb90fea87be0ed75caa68af"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-browser-first.log",
+      "path": "diagnostic/browser-first.log",
+      "sourceBytes": 5449,
+      "sourceSha256": "f1ee26b315d0e19640c0101e8aaa7954d15524c2f3d74047f32a0495afe35626"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-browser-full.log",
+      "path": "browser/full-run.log",
+      "sourceBytes": 23905,
+      "sourceSha256": "2ffc8daa51ef304b3831e10a6503b7d5c3c51e1a9bd15d165149c4679c8a8928"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-browser-scn01-recheck.log",
+      "path": "diagnostic/browser-scn01-recheck.log",
+      "sourceBytes": 3827,
+      "sourceSha256": "e6968440089795a37624b6aee7ef2a122db940927b699a6ade1325aeed1416f2"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-build-final.log",
+      "path": "build.log",
+      "sourceBytes": 2256,
+      "sourceSha256": "069f12f63a274accb289fb066d7fcf0255bb9371cd71c8144ce7b1f8ec57976e"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-lock-restore-recheck.log",
+      "path": "diagnostic/lock-restore-recheck.log",
+      "sourceBytes": 223,
+      "sourceSha256": "bc5883c680d7175acf84c8c1822adbd364c446d4d3390e324c2e2250ad148ccc"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-preview-server.log",
+      "path": "diagnostic/preview-server.log",
+      "sourceBytes": 142,
+      "sourceSha256": "55ced15869096bedda3a8368c43fd394eecc3b1d158131042900c21d21fc5ec6"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-production-ui.log",
+      "path": "production-ui/run.log",
+      "sourceBytes": 0,
+      "sourceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-qa-typecheck.log",
+      "path": "diagnostic/qa-typecheck.log",
+      "sourceBytes": 47,
+      "sourceSha256": "2bba24916d1d59c71d16a02676272b400012a54aea0fd497418ec3424c106e9d"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-scn01-command-recheck.log",
+      "path": "diagnostic/scn01-command-recheck.log",
+      "sourceBytes": 223,
+      "sourceSha256": "cbf94ad4857068e0daadb3cf84148cb8e22c65e292bae7a8d9c6d3a9fd999f42"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-scn01-first.log",
+      "path": "diagnostic/scn01-first.log",
+      "sourceBytes": 2600,
+      "sourceSha256": "53e5c5167d455307ab523fb6f34c296f30f245dfb26b87ef44ac6f354015cb2d"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-typecheck-first.log",
+      "path": "diagnostic/typecheck-first.log",
+      "sourceBytes": 47,
+      "sourceSha256": "2bba24916d1d59c71d16a02676272b400012a54aea0fd497418ec3424c106e9d"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-typecheck-integrated.log",
+      "path": "diagnostic/typecheck-integrated.log",
+      "sourceBytes": 47,
+      "sourceSha256": "2bba24916d1d59c71d16a02676272b400012a54aea0fd497418ec3424c106e9d"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-typecheck-second.log",
+      "path": "diagnostic/typecheck-second.log",
+      "sourceBytes": 250,
+      "sourceSha256": "2013e11dcc0727701c860375610c5e15b6e032feebc00726f2014a674623a769"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-typecheck-third.log",
+      "path": "diagnostic/typecheck-third.log",
+      "sourceBytes": 47,
+      "sourceSha256": "2bba24916d1d59c71d16a02676272b400012a54aea0fd497418ec3424c106e9d"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-typecheck-ui-tests.log",
+      "path": "diagnostic/typecheck-ui-tests.log",
+      "sourceBytes": 46,
+      "sourceSha256": "4e54ef2da8ab4bd352674114dca721a512151bbc75d3b323ac0873520f8a9218"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-typecheck-ui.log",
+      "path": "diagnostic/typecheck-ui.log",
+      "sourceBytes": 47,
+      "sourceSha256": "2bba24916d1d59c71d16a02676272b400012a54aea0fd497418ec3424c106e9d"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-unit-final.log",
+      "path": "unit.log",
+      "sourceBytes": 275,
+      "sourceSha256": "79544abd15cd2464909d5131b7d0e0efdb8e5f80e08cc38c82414606b842aff1"
+    },
+    {
+      "source": "/tmp/sceneweave-c2-unit-first.log",
+      "path": "diagnostic/unit-first.log",
+      "sourceBytes": 276,
+      "sourceSha256": "a3b230a8c6c75446bfce297b8109b486614555a96acfdcc8041a9fed7d3f8f61"
+    },
+    {
+      "source": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md",
+      "path": "diagnostic/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md",
+      "sourceBytes": 17929,
+      "sourceSha256": "70c386dabbe03e466694a03569e0a607e7bc00e6fb675513a6b1a281f7dfffa8"
+    },
+    {
+      "source": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png",
+      "path": "diagnostic/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png",
+      "sourceBytes": 119934,
+      "sourceSha256": "0487ed089d3f987d27cbd982df1405a189eae51d1e20a16221df5ae3c3291a1a"
+    },
+    {
+      "source": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md",
+      "path": "diagnostic/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md",
+      "sourceBytes": 19019,
+      "sourceSha256": "2a0af82c87f63f5d300c7fef9524fd7233776ebd7158c3db0191791c50763a04"
+    },
+    {
+      "source": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png",
+      "path": "diagnostic/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png",
+      "sourceBytes": 125843,
+      "sourceSha256": "3f562faea5e3175b05d86126a8f766cc2ddaccb1ec94f2f3a6d53fe3a412f44e"
+    },
+    {
+      "source": "/Users/shiqi/IdeaProjects/sceneweave/work/c2-production-runner.mjs",
+      "path": "production-ui/runner-used.mjs",
+      "sourceBytes": 13988,
+      "sourceSha256": "608e8b520b3e4a38a5116bc8dbbdb90f6efff265656ac62df44011c378d5659d"
+    }
+  ],
+  "limits": [
+    "Session-only structure continuity; no cross-session or deleted structure reconstruction",
+    "No complete SCN-01/pathfinding/full-interaction-performance claim",
+    "Offline import preloads code; not PWA cold start",
+    "Injected QuotaExceededError is not actual quota exhaustion",
+    "Chrome only; no cross-browser, Chinese IME or real small-group acceptance"
+  ]
+}

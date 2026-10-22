@@ -1,0 +1,12 @@
+{
+  "capturedAt": "2026-10-22T10:06:07.546248+00:00",
+  "protectedHistoryFiles": 666,
+  "historicalMismatches": [],
+  "todoMatchesStartingHash": false,
+  "todoHandling": "The task did not edit or restore todo.md; all current unrelated edits are left in place and excluded from this task whitespace check.",
+  "brokenLocalLinks": [],
+  "credentialPatternHits": [],
+  "gitDiffCheck": "",
+  "head": "2e14885444a5c8827d7a624887da0df5b73fe488",
+  "version": "0.2.0-m1-c3"
+}

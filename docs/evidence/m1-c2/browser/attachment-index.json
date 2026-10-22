@@ -1,0 +1,146 @@
+[
+  {
+    "name": "c2-ui-polygon-diagonal.png",
+    "path": "browser/attachments/c2-ui-polygon-diagonal.png",
+    "contentType": "image/png",
+    "bytes": 120090,
+    "sha256": "c1394eeac48e622a327d885bfbcf67cb551d6b9040782d76b677d352b86bfe14",
+    "case": "C2 numeric concave polygon UI rejects malformed and crossing boundaries, cancels cleanly and preserves attached diagonal openings when reversing a wall"
+  },
+  {
+    "name": "c2-ui-polygon-diagonal.json",
+    "path": "browser/attachments/c2-ui-polygon-diagonal.json",
+    "contentType": "application/json",
+    "bytes": 185879,
+    "sha256": "93a7cfcdbfc486c924a1c3914c01e342b462e4d50f2fa92d0b31cc40af148475",
+    "case": "C2 numeric concave polygon UI rejects malformed and crossing boundaries, cancels cleanly and preserves attached diagonal openings when reversing a wall"
+  },
+  {
+    "name": "c2-scn01-player-4k.png",
+    "path": "browser/attachments/c2-scn01-player-4k.png",
+    "contentType": "image/png",
+    "bytes": 283037,
+    "sha256": "4029d43868bae25ac92b718269fd7ea8577c3bfe0d3e60119d11a59bc5358f8c",
+    "case": "C2 SCN-01 real 4K output matches an independent public reference and hides private variants"
+  },
+  {
+    "name": "c2-scn01-gm-4k.png",
+    "path": "browser/attachments/c2-scn01-gm-4k.png",
+    "contentType": "image/png",
+    "bytes": 335004,
+    "sha256": "fb91e814fbe651cb6553f4741e1728bbe8095c45226da5a4319fcbe19b38321d",
+    "case": "C2 SCN-01 real 4K output matches an independent public reference and hides private variants"
+  },
+  {
+    "name": "c2-scn01-4k-privacy.json",
+    "path": "browser/attachments/c2-scn01-4k-privacy.json",
+    "contentType": "application/json",
+    "bytes": 4428,
+    "sha256": "470f1cddc76118d37e544476ac21ae4fed1c0f56a3f241b402a7f9ce3a676289",
+    "case": "C2 SCN-01 real 4K output matches an independent public reference and hides private variants"
+  },
+  {
+    "name": "c2-scn01-offline-package.json",
+    "path": "browser/attachments/c2-scn01-offline-package.json",
+    "contentType": "application/json",
+    "bytes": 1124,
+    "sha256": "547bddefc593792efdcb826c7954646faab0cb269249603b742afef2b4f93325",
+    "case": "C2 SCN-01 bundled resource project roundtrips offline with exact native geometry and audience pixels"
+  },
+  {
+    "name": "c2-reveal-and-mask-guard.json",
+    "path": "browser/attachments/c2-reveal-and-mask-guard.json",
+    "contentType": "application/json",
+    "bytes": 948,
+    "sha256": "6cbeccb006bffbed5be6c5573d1c6d5f694f1ec9b98638d1fc9e77c81d062b38",
+    "case": "C2 revealing one secret entrance keeps the other door, corridor and clues private and unsafe masks fail closed"
+  },
+  {
+    "name": "c2-structure-restore-preview.png",
+    "path": "browser/attachments/c2-structure-restore-preview.png",
+    "contentType": "image/png",
+    "bytes": 156129,
+    "sha256": "3fc9d98907df5b00b44bf1e0d8fba38eb7f483572e800b30e8d72a1983133a43",
+    "case": "C2 structure UI confirms the complete shared and moved-layer scope, cancels safely, and protects one monotonic scoped restore"
+  },
+  {
+    "name": "c2-ui-structure-scoped-restore.json",
+    "path": "browser/attachments/c2-ui-structure-scoped-restore.json",
+    "contentType": "application/json",
+    "bytes": 239205,
+    "sha256": "e552f21caf14478ce58e241549fe2e49dd8196d5a9c03b7da0c1f2a6afbf3c08",
+    "case": "C2 structure UI confirms the complete shared and moved-layer scope, cancels safely, and protects one monotonic scoped restore"
+  },
+  {
+    "name": "c2-ui-reopened-structure-boundary.json",
+    "path": "browser/attachments/c2-ui-reopened-structure-boundary.json",
+    "contentType": "application/json",
+    "bytes": 108865,
+    "sha256": "07e9ace729d892de1bb9f222859edce1c587bc435408d22033cd7912b38215a1",
+    "case": "C2 structure UI refuses old structure snapshots after reopening and accepts a newly established session snapshot"
+  },
+  {
+    "name": "c2-ui-structure-protection-failure.json",
+    "path": "browser/attachments/c2-ui-structure-protection-failure.json",
+    "contentType": "application/json",
+    "bytes": 72756,
+    "sha256": "abca856bf5cd578cd61ddcdba321958c4c078b162e2bee9c898fc032db614f58",
+    "case": "C2 structure protection write failure leaves the current durable scene and undo branch available"
+  },
+  {
+    "name": "c2-ui-structure-note-privacy-review.json",
+    "path": "browser/attachments/c2-ui-structure-note-privacy-review.json",
+    "contentType": "application/json",
+    "bytes": 110891,
+    "sha256": "0430001bc03323c3be5adf61906df9bc38fdaea9b1643ce8d25432bee9802278",
+    "case": "C2 structure business-property preview explicitly reviews a private note becoming visible and preserves other later notes"
+  },
+  {
+    "name": "c2-ui-scn01-gm-4k.png",
+    "path": "browser/attachments/c2-ui-scn01-gm-4k.png",
+    "contentType": "image/png",
+    "bytes": 291838,
+    "sha256": "2d455f32432da7904bb8602b7dba7c5e47f0b2115d0f8444f2226e9596a5896e",
+    "case": "C2 authors SCN-01 seven rooms and twelve openings from blank UI, saves exact geometry and exports both 4K audiences"
+  },
+  {
+    "name": "c2-ui-scn01-player-4k.png",
+    "path": "browser/attachments/c2-ui-scn01-player-4k.png",
+    "contentType": "image/png",
+    "bytes": 270659,
+    "sha256": "8821cfc7ff2d1fb1149c69aaeeaf9ac2125f3df32015f34a9bda3b96f21b1e5a",
+    "case": "C2 authors SCN-01 seven rooms and twelve openings from blank UI, saves exact geometry and exports both 4K audiences"
+  },
+  {
+    "name": "c2-ui-scn01-player.png",
+    "path": "browser/attachments/c2-ui-scn01-player.png",
+    "contentType": "image/png",
+    "bytes": 122557,
+    "sha256": "93bfdac260257984d3047e73d67b10b1d7fab628fbea5d93bacf7fae658653ea",
+    "case": "C2 authors SCN-01 seven rooms and twelve openings from blank UI, saves exact geometry and exports both 4K audiences"
+  },
+  {
+    "name": "c2-ui-scn01-authoring.json",
+    "path": "browser/attachments/c2-ui-scn01-authoring.json",
+    "contentType": "application/json",
+    "bytes": 96007,
+    "sha256": "9fcd273db1a9540d5bc43099ca1e17caf8142300a07b70732cd9bea7c6008192",
+    "case": "C2 authors SCN-01 seven rooms and twelve openings from blank UI, saves exact geometry and exports both 4K audiences"
+  },
+  {
+    "name": "c2-ui-shared-wall-locks.json",
+    "path": "browser/attachments/c2-ui-shared-wall-locks.json",
+    "contentType": "application/json",
+    "bytes": 231464,
+    "sha256": "19cb1292cb390d6fb62b8640fd17421369325a4735e096240cfb0627dfe66e43",
+    "case": "C2 room previews cancel cleanly, shared thickness is one undoable edit, and entity/layer locks reject changes"
+  },
+  {
+    "name": "c2-ui-pointer-ruler.json",
+    "path": "browser/attachments/c2-ui-pointer-ruler.json",
+    "contentType": "application/json",
+    "bytes": 301,
+    "sha256": "446f5d30f0842c9d8138049cb0ba93c6fd97e97625b1a0107b214d5d1f417dc7",
+    "case": "C2 pointer rectangles and zoomed ruler use snapped world coordinates and leave measurement out of history"
+  }
+]

@@ -10,6 +10,19 @@ const apply = (scene: SceneDocumentV3, ...commands: SceneCommandV3[]) => applyCo
 const withTarget = (scene = layerSceneV3()) => apply(scene, { type: 'createLayer', id: 'target', floorId: 'blank-floor', name: '目标层' })
 
 describe('v3 atomic layer organization', () => {
+  it('keeps parent prefab and scatter locks authoritative when changing member locks', () => {
+    for (const scene of [groupLayerSceneV3(), scatterLayerSceneV3()]) {
+      const group = [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)][0]
+      const propId = Object.values(group.members).find(member => member.propId !== null)!.propId!
+      const locked = apply(scene, { type: 'setEditLock', kind: 'prop', id: propId, locked: true })
+      expect(apply(locked, { type: 'setEditLock', kind: 'prop', id: propId, locked: false }).props[propId].editLocked).toBe(false)
+      group.editLocked = true
+      expect(() => apply(scene, { type: 'setEditLock', kind: 'prop', id: propId, locked: true })).toThrow(/所属组合、散布/)
+      scene.props[propId].editLocked = true
+      expect(() => apply(scene, { type: 'setEditLock', kind: 'prop', id: propId, locked: false })).toThrow(/所属组合、散布/)
+    }
+  })
+
   it('creates, trims, renames and reorders complete Floor layer lists without changing physical meaning', () => {
     const source = layerSceneV3(), oldId = source.entityLayers.item, before = structuredClone(source)
     const created = apply(source, { type: 'createLayer', id: 'target', floorId: 'blank-floor', name: '  道具层  ' })

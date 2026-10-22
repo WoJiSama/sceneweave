@@ -1,0 +1,42 @@
+{
+  "secretA": {
+    "id": "H5-HS",
+    "floorId": "blank-floor",
+    "editLocked": false,
+    "wallId": "H5:wall:2",
+    "offsetReferenceVertexId": "H5:vertex:1",
+    "offsetMm": 2550,
+    "widthMm": 900,
+    "kind": "door",
+    "state": "closed",
+    "locked": false,
+    "secret": true,
+    "revealed": true
+  },
+  "secretB": {
+    "id": "H6-HS",
+    "floorId": "blank-floor",
+    "editLocked": false,
+    "wallId": "H6:wall:1",
+    "offsetReferenceVertexId": "H6:vertex:0",
+    "offsetMm": 2550,
+    "widthMm": 900,
+    "kind": "door",
+    "state": "closed",
+    "locked": false,
+    "secret": true,
+    "revealed": false
+  },
+  "playerRoomIds": [
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6"
+  ],
+  "playerNoteCount": 0,
+  "gmSecretOpeningCount": 2,
+  "playerOpeningCount": 11,
+  "unsafeError": "Error: 玩家输出不安全：固定遮罩未覆盖私密几何、视觉范围或装饰阴影；请扩大遮罩或恢复公开。"
+}

@@ -1,0 +1,68 @@
+
+> sceneweave@0.2.0-m1-c1d test:e2e
+> playwright test tests/c2-renderer.spec.ts tests/c2-workbench.spec.ts --output=test-results/c2-first --reporter=list,json
+
+[2m[WebServer] [22m(node:95942) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[2m[WebServer] [22m(Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+(node:95945) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:95945) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/c2-renderer.spec.ts:2:1 › C2 SCN-01 real 4K output matches an independent public reference and hides private variants (2.5s)
+  ✓  2 [chromium] › tests/c2-renderer.spec.ts:158:1 › C2 SCN-01 bundled resource project roundtrips offline with exact native geometry and audience pixels (2.0s)
+  ✓  3 [chromium] › tests/c2-renderer.spec.ts:291:1 › C2 revealing one secret entrance keeps the other door, corridor and clues private and unsafe masks fail closed (765ms)
+  ✘  4 [chromium] › tests/c2-workbench.spec.ts:156:1 › C2 authors SCN-01 seven rooms and twelve openings from blank UI, saves exact geometry and exports both 4K audiences (24.6s)
+(node:96580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  5 [chromium] › tests/c2-workbench.spec.ts:343:1 › C2 room previews cancel cleanly, shared thickness is one undoable edit, and entity/layer locks reject changes (7.4s)
+  ✓  6 [chromium] › tests/c2-workbench.spec.ts:451:1 › C2 pointer rectangles and zoomed ruler use snapped world coordinates and leave measurement out of history (5.9s)
+
+
+  1) [chromium] › tests/c2-workbench.spec.ts:156:1 › C2 authors SCN-01 seven rooms and twelve openings from blank UI, saves exact geometry and exports both 4K audiences 
+
+    Error: locator.check: Clicking the checkbox did not change its state
+    Call log:
+    [2m  - waiting for getByRole('checkbox', { name: '设为外部入口', exact: true })[22m
+    [2m    - locator resolved to <input type="checkbox" aria-label="设为外部入口"/>[22m
+    [2m  - attempting click action[22m
+    [2m    - waiting for element to be visible, enabled and stable[22m
+    [2m    - element is visible, enabled and stable[22m
+    [2m    - scrolling into view if needed[22m
+    [2m    - done scrolling[22m
+    [2m    - performing click action[22m
+    [2m    - click action done[22m
+    [2m    - waiting for scheduled navigations to finish[22m
+    [2m    - navigations have finished[22m
+
+
+      117 |   }
+      118 |   await opening(page, opened['outside-H1'])
+    > 119 |   await page.getByRole('checkbox', { name: '设为外部入口', exact: true }).check(); await adopt(page)
+          |                                                                     ^
+      120 |   await page.getByText('固定玩家遮罩', { exact: true }).click()
+      121 |   for (const [label, value] of [['遮罩 X', 5500], ['遮罩 Y', 12200], ['遮罩宽度', 13000], ['遮罩高度', 2300]] as const) await number(page, label, value)
+      122 |   await page.getByRole('button', { name: '预览新增遮罩', exact: true }).click(); await adopt(page)
+        at /Users/shiqi/IdeaProjects/sceneweave/tests/c2-workbench.spec.ts:119:69
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › tests/c2-workbench.spec.ts:156:1 › C2 authors SCN-01 seven rooms and twelve openings from blank UI, saves exact geometry and exports both 4K audiences 
+  5 passed (1.0m)

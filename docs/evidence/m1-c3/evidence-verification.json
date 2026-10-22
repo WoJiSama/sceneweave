@@ -1,0 +1,126 @@
+{
+  "source-fingerprints.json": {
+    "files": 276,
+    "mismatches": []
+  },
+  "build-fingerprints.json": {
+    "files": 45,
+    "mismatches": []
+  },
+  "archives": {
+    "reports": 11,
+    "attachments": 3,
+    "allHashesVerified": true
+  },
+  "chrome-full-final.compact.json.gz": {
+    "startTime": "2026-10-22T09:29:33.519Z",
+    "duration": 680347.805,
+    "expected": 145,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "c3-final-frozen.json.gz": {
+    "startTime": "2026-10-22T09:54:31.206Z",
+    "duration": 170198.058,
+    "expected": 16,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "originalFullRegressionRawHashVerified": true,
+  "productionPackages": [
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/appearance-baseline.sceneweave",
+      "bytes": 204088,
+      "sha256": "972fc6868ba0d27b3a179022fb6dc8db4cd4c78f393334d337263eb94a691cbe",
+      "entries": 24
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/blank-complete.sceneweave",
+      "bytes": 179306,
+      "sha256": "0427ff3cfcab2b6d3d2615c11d56070ebd0ddd49d94f3332a1050742aa299a6c",
+      "entries": 22
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/restored-complete.sceneweave",
+      "bytes": 215764,
+      "sha256": "d2605d2b2c689f62a6f04ca3d1bcfa40e1306598ee9e211da595b225fb4ae0de",
+      "entries": 25
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/selected-history.sceneweave",
+      "bytes": 222723,
+      "sha256": "53ccd2d3efaa75d34ab7b772ed6be0704a8aa9541985bd9d8e27480a12d8ccd2",
+      "entries": 29
+    }
+  ],
+  "productionFiles": [
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/appearance-baseline.sceneweave",
+      "bytes": 204088,
+      "sha256": "972fc6868ba0d27b3a179022fb6dc8db4cd4c78f393334d337263eb94a691cbe"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/appearance-desktop.png",
+      "bytes": 141493,
+      "sha256": "6e02f4f3bba4c6a0c00f9479a460d28eeb46739350add492bc9f63daa97bd479"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/appearance-restore-preview-390.png",
+      "bytes": 266774,
+      "sha256": "99012c2c1d08ab22525ff98ab66272bb7415f43e36caba1cb8f2115ac1803188"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/appearance-restore-preview-desktop.png",
+      "bytes": 191838,
+      "sha256": "0980831362fc0dacdd0167b0330767cd6fa5b2c2f981e151ccc1609e921568a9"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/blank-complete.sceneweave",
+      "bytes": 179306,
+      "sha256": "0427ff3cfcab2b6d3d2615c11d56070ebd0ddd49d94f3332a1050742aa299a6c"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/gm-4k.png",
+      "bytes": 261100,
+      "sha256": "9e6818a0dde10d6cd31c41777b944a4c628febe93287995f94f590ef732f1afe"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/library-reopened-390.png",
+      "bytes": 196438,
+      "sha256": "14bd4c9a3543e598a6dd82561135ee3fe0431037074237159867f31fef102961"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/library-reopened-desktop.png",
+      "bytes": 185175,
+      "sha256": "e9fe4f3da779a34a100d116972b3a37b3ec1ec410054448eb07fbab883c8b661"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/player-4k.png",
+      "bytes": 261100,
+      "sha256": "9e6818a0dde10d6cd31c41777b944a4c628febe93287995f94f590ef732f1afe"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/report.json",
+      "bytes": 28289,
+      "sha256": "f5f341aec03f7ca1959a1836d3b47ecdb70d3320df6ae53be8f104b819c24a4c"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/restored-complete.sceneweave",
+      "bytes": 215764,
+      "sha256": "d2605d2b2c689f62a6f04ca3d1bcfa40e1306598ee9e211da595b225fb4ae0de"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/runner-used.mjs",
+      "bytes": 24275,
+      "sha256": "4970c9b7e90a5688f7920846cbd574e42d4275d6ea113b0b13b16b3828a8c656"
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/selected-history.sceneweave",
+      "bytes": 222723,
+      "sha256": "53ccd2d3efaa75d34ab7b772ed6be0704a8aa9541985bd9d8e27480a12d8ccd2"
+    }
+  ],
+  "capturedAt": "2026-10-22T10:05:20.618848+00:00"
+}

@@ -1,0 +1,680 @@
+[
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-first/.last-run.json",
+    "bytes": 96,
+    "sha256": "615b126e49e5ddebf4335f754c472e1ac8515a84cc234f242112f0874b8db6bd",
+    "policy": "local-run-status"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md",
+    "bytes": 17929,
+    "sha256": "70c386dabbe03e466694a03569e0a607e7bc00e6fb675513a6b1a281f7dfffa8",
+    "archivedPath": "diagnostic/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png",
+    "bytes": 119934,
+    "sha256": "0487ed089d3f987d27cbd982df1405a189eae51d1e20a16221df5ae3c3291a1a",
+    "archivedPath": "diagnostic/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-first/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/trace.zip",
+    "bytes": 17407186,
+    "sha256": "640ceb393c0945821b6166dc576fdf9202153a00260f351a651548a20a519cad",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-scn01-recheck/.last-run.json",
+    "bytes": 96,
+    "sha256": "615b126e49e5ddebf4335f754c472e1ac8515a84cc234f242112f0874b8db6bd",
+    "policy": "local-run-status"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md",
+    "bytes": 19019,
+    "sha256": "2a0af82c87f63f5d300c7fef9524fd7233776ebd7158c3db0191791c50763a04",
+    "archivedPath": "diagnostic/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/error-context.md"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png",
+    "bytes": 125843,
+    "sha256": "3f562faea5e3175b05d86126a8f766cc2ddaccb1ec94f2f3a6d53fe3a412f44e",
+    "archivedPath": "diagnostic/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/test-failed-1.png"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-scn01-recheck/c2-workbench-C2-authors-SC-82659-d-exports-both-4K-audiences-chromium/trace.zip",
+    "bytes": 27977613,
+    "sha256": "12e743442cda5dc0bd3e4fbb1b3716a5ec845bbd19c5417f22338b30f33847ce",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-final/.last-run.json",
+    "bytes": 45,
+    "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+    "policy": "local-run-status"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/.last-run.json",
+    "bytes": 45,
+    "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+    "policy": "local-run-status"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-browser-asset-workb-63cb0-port-preserve-all-resources-chromium/asset-workbench.png",
+    "bytes": 185680,
+    "sha256": "28984cd8ff96a81b73fa2378301041ba0c9da7be1d06f88b42f00cb2ba3c63cf",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-browser-asset-workb-63cb0-port-preserve-all-resources-chromium/attachments/asset-workbench-png-35250717b50f34ff3646f304bd1e854054128b58.png",
+    "bytes": 185680,
+    "sha256": "28984cd8ff96a81b73fa2378301041ba0c9da7be1d06f88b42f00cb2ba3c63cf",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-resources-complete--deeb7-IndexedDB-after-page-reload-chromium/attachments/m1-b1-complete-resource-roundtrip-json-643c23f52be13fe2fb34c8da73c9c1ca6e6b415b.json",
+    "bytes": 1391,
+    "sha256": "5af5f3141c54e87c163f534aebfd539b47181b1c4d7e2398a2dfe3a47a76c093",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-resources-complete--deeb7-IndexedDB-after-page-reload-chromium/m1-b1-complete-resource-roundtrip.json",
+    "bytes": 1391,
+    "sha256": "5af5f3141c54e87c163f534aebfd539b47181b1c4d7e2398a2dfe3a47a76c093",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-resources-real-brow-25a23-RGB-PNG-and-preserves-alpha-chromium/attachments/m1-b1-static-image-normalization-json-6ed6cb90da95b8ddac6975f20b194008c18215fe.json",
+    "bytes": 1405,
+    "sha256": "0db4a7f6b6ddc1d23f9dd76def9c411540fd044c4461b9c9395ca4c08237d277",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-resources-real-brow-25a23-RGB-PNG-and-preserves-alpha-chromium/m1-b1-static-image-normalization.json",
+    "bytes": 1405,
+    "sha256": "0db4a7f6b6ddc1d23f9dd76def9c411540fd044c4461b9c9395ca4c08237d277",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-resources-resource--66a29-e-persisted-revision-intact-chromium/attachments/m1-b1-resource-failure-preservation-json-efb2b740d3875810330dbeedf18e83a39e7cf21d.json",
+    "bytes": 1582,
+    "sha256": "e5539e66ab210609b2ab5524995be9d8cd3bbcee367c98160b635aa0bae282ef",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/assets-resources-resource--66a29-e-persisted-revision-intact-chromium/m1-b1-resource-failure-preservation.json",
+    "bytes": 1582,
+    "sha256": "e5539e66ab210609b2ab5524995be9d8cd3bbcee367c98160b635aa0bae282ef",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-01-CRC-hash-bb534-ot-produce-partial-projects-chromium/VIS-01-byte-and-native-decoder-failures.json",
+    "bytes": 4468,
+    "sha256": "f45dac61b2efeb09f7c47e986c27cc302c75bd6bf1de0ce327530698c069bba4",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-01-CRC-hash-bb534-ot-produce-partial-projects-chromium/attachments/VIS-01-byte-and-native-decoder-failures-json-b285e7d648aa511c1e15393ad2f34e22d4160052.json",
+    "bytes": 4468,
+    "sha256": "f45dac61b2efeb09f7c47e986c27cc302c75bd6bf1de0ce327530698c069bba4",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-01-cancella-4eb19-udget-rejects-before-decode-chromium/VIS-01-cancellation-and-pixel-budget.json",
+    "bytes": 3491,
+    "sha256": "508ba3abbd2b713a827a4a9cae41483d084258e3f6c553980e85b5d4ea498455",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-01-cancella-4eb19-udget-rejects-before-decode-chromium/attachments/VIS-01-cancellation-and-pixel-budget-json-4991ba1b2b0a9265bdeba37678fffab4c51b2452.json",
+    "bytes": 3491,
+    "sha256": "508ba3abbd2b713a827a4a9cae41483d084258e3f6c553980e85b5d4ea498455",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-01-complete-fece9-mplete-export-before-decode-chromium/VIS-01-dependency-failure-matrix.json",
+    "bytes": 20383,
+    "sha256": "e4586c715a20bd069574501a7ec12ab21b8bbdb5b6065cb4d1c1d16809f903ce",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-01-complete-fece9-mplete-export-before-decode-chromium/attachments/VIS-01-dependency-failure-matrix-json-95b0afe2b12a20acb3b0d0af91e312975638c240.json",
+    "bytes": 20383,
+    "sha256": "e4586c715a20bd069574501a7ec12ab21b8bbdb5b6065cb4d1c1d16809f903ce",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-02-CRC-hash-82097-ot-produce-partial-projects-chromium/VIS-02-byte-and-native-decoder-failures.json",
+    "bytes": 4468,
+    "sha256": "0626ca4aca8dcac91928b0dc080b5ac938e78381673446a82ae78e1f0240bf33",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-02-CRC-hash-82097-ot-produce-partial-projects-chromium/attachments/VIS-02-byte-and-native-decoder-failures-json-cedf2039fcede1e85558f1e80763b40ba7ed72d7.json",
+    "bytes": 4468,
+    "sha256": "0626ca4aca8dcac91928b0dc080b5ac938e78381673446a82ae78e1f0240bf33",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-02-cancella-94071-udget-rejects-before-decode-chromium/VIS-02-cancellation-and-pixel-budget.json",
+    "bytes": 3073,
+    "sha256": "35b445c091c87bc041d81f743309b14e810e0f3e08a46a23bd943b0c53376963",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-02-cancella-94071-udget-rejects-before-decode-chromium/attachments/VIS-02-cancellation-and-pixel-budget-json-2cc150bfe340c2086274a3c2c916d491e15cf0c8.json",
+    "bytes": 3073,
+    "sha256": "35b445c091c87bc041d81f743309b14e810e0f3e08a46a23bd943b0c53376963",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-02-complete-7e51e-mplete-export-before-decode-chromium/VIS-02-dependency-failure-matrix.json",
+    "bytes": 22182,
+    "sha256": "066209839608899e6e1ad0281947e7a8eabe902df18208b2c0b98757cba41d39",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-package-VIS-02-complete-7e51e-mplete-export-before-decode-chromium/attachments/VIS-02-dependency-failure-matrix-json-b31e57a53d8e220378096cf9aa2a27e80967b705.json",
+    "bytes": 22182,
+    "sha256": "066209839608899e6e1ad0281947e7a8eabe902df18208b2c0b98757cba41d39",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/VIS-01-S01-cold-a-player-4096.png",
+    "bytes": 1363750,
+    "sha256": "60439c042ac61de14c2ef0bfc10727c4a9721fb91a8d8c411bbbccda68f05a2d",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/VIS-01-S01-privacy-matrix.json",
+    "bytes": 91344,
+    "sha256": "1826afe69cbe6cd77eef77881426f9a57526bfe5b5ddd7f8140ff1096ddd4520",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/VIS-01-S01-warm-a-gm-4096.png",
+    "bytes": 1524567,
+    "sha256": "41053a3b66e89eb620b4c1d3c6326d8c4d351d6b6928e8f0e36b545abaa13abd",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/VIS-01-S01-warm-b-gm-4096.png",
+    "bytes": 1535822,
+    "sha256": "64c104d8518b7977502fab2cb8ff1be82c649cda7aac4c1fc0422ddd7ae96e91",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/attachments/VIS-01-S01-cold-a-player-4096-png-0ac11ae16fb70af03bff401732fcf4ab99d91b21.png",
+    "bytes": 1363750,
+    "sha256": "60439c042ac61de14c2ef0bfc10727c4a9721fb91a8d8c411bbbccda68f05a2d",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/attachments/VIS-01-S01-privacy-matrix-json-1b536fa4e1e756f53dd357a191cb4b2bc9a836c5.json",
+    "bytes": 91344,
+    "sha256": "1826afe69cbe6cd77eef77881426f9a57526bfe5b5ddd7f8140ff1096ddd4520",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/attachments/VIS-01-S01-warm-a-gm-4096-png-91812f4b40926ec41afb25e8ec7340a0f83daec4.png",
+    "bytes": 1524567,
+    "sha256": "41053a3b66e89eb620b4c1d3c6326d8c4d351d6b6928e8f0e36b545abaa13abd",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-01-S01-c-ea467-d-private-decoder-isolation-chromium/attachments/VIS-01-S01-warm-b-gm-4096-png-f5401c7df9d68d4b189578f14536c707ba5d96e2.png",
+    "bytes": 1535822,
+    "sha256": "64c104d8518b7977502fab2cb8ff1be82c649cda7aac4c1fc0422ddd7ae96e91",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/VIS-02-S01-cold-a-player-4096.png",
+    "bytes": 5252832,
+    "sha256": "8e9fda664f91669d6d33daae575b40885f1e120516c30ab30fe01c7680095cc8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/VIS-02-S01-privacy-matrix.json",
+    "bytes": 222051,
+    "sha256": "17be2acc46dd423b642e1edd3c053f9320d77baad7351924ff6ece9c5e604ed8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/VIS-02-S01-warm-a-gm-4096.png",
+    "bytes": 5583166,
+    "sha256": "ce30dfa5d1f810225c905475dd0e66baa122f15d620a2b710d89b0bb03aa281d",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/VIS-02-S01-warm-b-gm-4096.png",
+    "bytes": 5588721,
+    "sha256": "9dea7f441f30a8c564f935163ea65544f1bea77b84f8c716eebf5e81ff1c6479",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/attachments/VIS-02-S01-cold-a-player-4096-png-95ad78d70738d5c3bfa00f1fda8cd5c2bdb71179.png",
+    "bytes": 5252832,
+    "sha256": "8e9fda664f91669d6d33daae575b40885f1e120516c30ab30fe01c7680095cc8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/attachments/VIS-02-S01-privacy-matrix-json-1da3915a71c0a5b5fc4d5f458d76172c96ef4920.json",
+    "bytes": 222051,
+    "sha256": "17be2acc46dd423b642e1edd3c053f9320d77baad7351924ff6ece9c5e604ed8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/attachments/VIS-02-S01-warm-a-gm-4096-png-863b40f6b9e65c0ebc86e144489ddd3179691c69.png",
+    "bytes": 5583166,
+    "sha256": "ce30dfa5d1f810225c905475dd0e66baa122f15d620a2b710d89b0bb03aa281d",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S01-c-64dcd-d-private-decoder-isolation-chromium/attachments/VIS-02-S01-warm-b-gm-4096-png-f77dc7f7f9eafd615e88eda8439b832cc1adb4c2.png",
+    "bytes": 5588721,
+    "sha256": "9dea7f441f30a8c564f935163ea65544f1bea77b84f8c716eebf5e81ff1c6479",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/VIS-02-S02-cold-a-player-4096.png",
+    "bytes": 5252832,
+    "sha256": "8e9fda664f91669d6d33daae575b40885f1e120516c30ab30fe01c7680095cc8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/VIS-02-S02-privacy-matrix.json",
+    "bytes": 222830,
+    "sha256": "ff11bd0386bcfbc05b2596a34ebde999876829c297a4bb1ffe84f464ae6a6365",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/VIS-02-S02-warm-a-gm-4096.png",
+    "bytes": 5584411,
+    "sha256": "f865534d2a5f6ce31d70d663ef64964ce9f6bdbbdab2e6de60a202fa129a99d4",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/VIS-02-S02-warm-b-gm-4096.png",
+    "bytes": 5589601,
+    "sha256": "205a89f64aec9ea7f74362d8aceb1d31b07c47d87b6b917ffba500b169b5fcce",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/attachments/VIS-02-S02-cold-a-player-4096-png-f7fa4a4a70fd854698d6716fc1a7b94062b82c44.png",
+    "bytes": 5252832,
+    "sha256": "8e9fda664f91669d6d33daae575b40885f1e120516c30ab30fe01c7680095cc8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/attachments/VIS-02-S02-privacy-matrix-json-ec3ef11aa6c5605168e8314e5f4163c008058548.json",
+    "bytes": 222830,
+    "sha256": "ff11bd0386bcfbc05b2596a34ebde999876829c297a4bb1ffe84f464ae6a6365",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/attachments/VIS-02-S02-warm-a-gm-4096-png-d33d3fee13759a32d0848f2bdc102bcd8e6ae3b9.png",
+    "bytes": 5584411,
+    "sha256": "f865534d2a5f6ce31d70d663ef64964ce9f6bdbbdab2e6de60a202fa129a99d4",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-privacy-B4-VIS-02-S02-c-b0f32-d-private-decoder-isolation-chromium/attachments/VIS-02-S02-warm-b-gm-4096-png-50046f0b592de3b3a08eb84398d9a34e5c29e60a.png",
+    "bytes": 5589601,
+    "sha256": "205a89f64aec9ea7f74362d8aceb1d31b07c47d87b6b917ffba500b169b5fcce",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-01-cancella-72094-t-complete-editable-project-chromium/attachments/vis-01-failure-preservation-json-8123006863ae6963da8453b10441629cebef8d76.json",
+    "bytes": 324510,
+    "sha256": "faeb5cb60f77118e7c44054ea2d01eb38d4103081736d7513abf391599257419",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-01-cancella-72094-t-complete-editable-project-chromium/vis-01-failure-preservation.json",
+    "bytes": 324510,
+    "sha256": "faeb5cb60f77118e7c44054ea2d01eb38d4103081736d7513abf391599257419",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-01-edited-c-54dfc-ge-without-catalog-or-model-chromium/attachments/vis-01-fresh-complete-storage-json-c2d63d75e32f0d6f9fcbe41e9a1989086cfcba1d.json",
+    "bytes": 268209,
+    "sha256": "38fbdc5c1ca04cf86e303365864d07c148469e42e6e96e97c32c217559f1eae9",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-01-edited-c-54dfc-ge-without-catalog-or-model-chromium/vis-01-fresh-complete-storage.json",
+    "bytes": 268209,
+    "sha256": "38fbdc5c1ca04cf86e303365864d07c148469e42e6e96e97c32c217559f1eae9",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-01-two-actu-5542b-nd-historical-recovery-copy-chromium/attachments/vis-01-cross-tab-recovery-json-634f3135cebc2e9762921988fe203c5da3ddc10b.json",
+    "bytes": 386236,
+    "sha256": "f76e2b5e3c7d3dde706123dff6f4ccd3fea328a1460a78b786dfb1bef2b729b7",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-01-two-actu-5542b-nd-historical-recovery-copy-chromium/vis-01-cross-tab-recovery.json",
+    "bytes": 386236,
+    "sha256": "f76e2b5e3c7d3dde706123dff6f4ccd3fea328a1460a78b786dfb1bef2b729b7",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-02-cancella-2d335-t-complete-editable-project-chromium/attachments/vis-02-failure-preservation-json-5f559c4b6a875b0fcd8e1c3eb1adce339ef71557.json",
+    "bytes": 551510,
+    "sha256": "f175b339b616969973997c3ebbbf526802cd30880fc2eb1534b6567345679a21",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-02-cancella-2d335-t-complete-editable-project-chromium/vis-02-failure-preservation.json",
+    "bytes": 551510,
+    "sha256": "f175b339b616969973997c3ebbbf526802cd30880fc2eb1534b6567345679a21",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-02-edited-c-1bccb-ge-without-catalog-or-model-chromium/attachments/vis-02-fresh-complete-storage-json-1bdae277006b2ef72c9591d431660efbc5493e52.json",
+    "bytes": 479089,
+    "sha256": "a85f0ddb4e55669b97ed579b3ee0ba8e5b20ca1afc70bea75a10244630dff1d5",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-02-edited-c-1bccb-ge-without-catalog-or-model-chromium/vis-02-fresh-complete-storage.json",
+    "bytes": 479089,
+    "sha256": "a85f0ddb4e55669b97ed579b3ee0ba8e5b20ca1afc70bea75a10244630dff1d5",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-02-two-actu-d9d50-nd-historical-recovery-copy-chromium/attachments/vis-02-cross-tab-recovery-json-a96329612a7d535c9bada5b951c57c03c6ed5d62.json",
+    "bytes": 658636,
+    "sha256": "9832f9a3480708c7bd6f483ca97f215ee8658c106ebe9e80b665c46c93ddb2fa",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-storage-VIS-02-two-actu-d9d50-nd-historical-recovery-copy-chromium/vis-02-cross-tab-recovery.json",
+    "bytes": 658636,
+    "sha256": "9832f9a3480708c7bd6f483ca97f215ee8658c106ebe9e80b665c46c93ddb2fa",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-01-UI--f09b9-eplaces-the-current-project-chromium/attachments/diagnostics-json-ede8f502ca125d7b0dc1a2abdd63e42fd9bc25ef.json",
+    "bytes": 576,
+    "sha256": "f1645a15b97f8741a9a3c644a8417f5b737a5b9446f9860359f35cc3eaca3aa1",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-01-UI--f09b9-eplaces-the-current-project-chromium/attachments/missing-dependencies-png-ac8b3faa61d9498822f5dc65d85f216ae558d1ba.png",
+    "bytes": 227173,
+    "sha256": "5c3c659d7b23572cfd266a2eeae0ffe9a7fbe7721b487c3e9ef194521717f6f5",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-01-UI--f09b9-eplaces-the-current-project-chromium/b4-VIS-01-diagnostics.json",
+    "bytes": 576,
+    "sha256": "f1645a15b97f8741a9a3c644a8417f5b737a5b9446f9860359f35cc3eaca3aa1",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-01-UI--f09b9-eplaces-the-current-project-chromium/b4-VIS-01-missing-dependencies.png",
+    "bytes": 227173,
+    "sha256": "5c3c659d7b23572cfd266a2eeae0ffe9a7fbe7721b487c3e9ef194521717f6f5",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-01-can-3e720-tains-saved-editing-history-chromium/attachments/cancel-json-807465b51c1df02ceedadf50e167bb402fbbf655.json",
+    "bytes": 160,
+    "sha256": "6fc0dad58a7f4b333760abeb1adf037559e783121ef9f95223805782b052d450",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-01-can-3e720-tains-saved-editing-history-chromium/b4-VIS-01-cancel.json",
+    "bytes": 160,
+    "sha256": "6fc0dad58a7f4b333760abeb1adf037559e783121ef9f95223805782b052d450",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-02-UI--9118b-eplaces-the-current-project-chromium/attachments/diagnostics-json-34777d170e0b1c4edebf0cec733ed641306461f6.json",
+    "bytes": 576,
+    "sha256": "fafbc39dcc12651fc40de2b360e117ed2934c09e7a65a5de14f6caa95b36da59",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-02-UI--9118b-eplaces-the-current-project-chromium/attachments/missing-dependencies-png-010334b378ff0a977bf148eef29146e6dad20a95.png",
+    "bytes": 275036,
+    "sha256": "5747d1e6c7204643a0328f78ad1cfad8bfe99de5d59185884c9e0c7be47816df",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-02-UI--9118b-eplaces-the-current-project-chromium/b4-VIS-02-diagnostics.json",
+    "bytes": 576,
+    "sha256": "fafbc39dcc12651fc40de2b360e117ed2934c09e7a65a5de14f6caa95b36da59",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-02-UI--9118b-eplaces-the-current-project-chromium/b4-VIS-02-missing-dependencies.png",
+    "bytes": 275036,
+    "sha256": "5747d1e6c7204643a0328f78ad1cfad8bfe99de5d59185884c9e0c7be47816df",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-02-can-260a5-tains-saved-editing-history-chromium/attachments/cancel-json-532759695b367cf614aa84abe2632751e2d01c80.json",
+    "bytes": 159,
+    "sha256": "788b269a50fcba31b3c6971056fdf972153512232b598300f50dc4f99ac591ee",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b4-workbench-B4-VIS-02-can-260a5-tains-saved-editing-history-chromium/b4-VIS-02-cancel.json",
+    "bytes": 159,
+    "sha256": "788b269a50fcba31b3c6971056fdf972153512232b598300f50dc4f99ac591ee",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b5-workbench-B5-island-200-3bc6d-acks-up-and-reopens-offline-chromium/island-2000-workbench.png",
+    "bytes": 532704,
+    "sha256": "91f177e6b6809e80e2cdc1aae75025efaf3a65e8303286e86f4489c18308b54e",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b5-workbench-B5-island-500-8f689-acks-up-and-reopens-offline-chromium/island-500-workbench.png",
+    "bytes": 481126,
+    "sha256": "470e8e1d71a5740511e46afe5772db761684425095967447accaa7aa28266f1f",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b5-workbench-B5-study-2000-fda62-acks-up-and-reopens-offline-chromium/study-2000-workbench.png",
+    "bytes": 499859,
+    "sha256": "e6d9d7eb1485d0f5e5997d7a85bd4d3d4cb7d31aaf21bfb361879ad9943c3039",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/b5-workbench-B5-study-500--03479-acks-up-and-reopens-offline-chromium/study-500-workbench.png",
+    "bytes": 462669,
+    "sha256": "5971d3671151372dd6a3340d4d36b81e1ec0fc39307e28bb59562498da4e491e",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-01-actual--1df92-nd-complete-recovery-copies-chromium/attachments/vis-01-native-v3-cross-tab-cas-json-c9a9569a36b5ecc20843d52b6399c7a2d5b6689d.json",
+    "bytes": 533045,
+    "sha256": "ff7dedcc43f28380372be36ea8b7b4e18cd7789ddf0c292fdff87a70b9d42528",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-01-actual--1df92-nd-complete-recovery-copies-chromium/vis-01-native-v3-cross-tab-cas.json",
+    "bytes": 533045,
+    "sha256": "ff7dedcc43f28380372be36ea8b7b4e18cd7789ddf0c292fdff87a70b9d42528",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-01-strict--526ff-plete-layer-package-offline-chromium/attachments/vis-01-native-v3-complete-migration-offline-json-90391a1ea45649f75ae98cf89d90a398cc91ddb3.json",
+    "bytes": 724216,
+    "sha256": "65b8cee2e99ca0da726560e17568f41513f11297a736f3d9ab0ee39133e0a17e",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-01-strict--526ff-plete-layer-package-offline-chromium/vis-01-native-v3-complete-migration-offline.json",
+    "bytes": 724216,
+    "sha256": "65b8cee2e99ca0da726560e17568f41513f11297a736f3d9ab0ee39133e0a17e",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-02-actual--46656-nd-complete-recovery-copies-chromium/attachments/vis-02-native-v3-cross-tab-cas-json-a3abdb4062b8b4656f5c8319aa9c8a9e598dbb9a.json",
+    "bytes": 926494,
+    "sha256": "e883ad64023c3ede8f2ec4575f15924ecca54ab09e12d289fe339856c6988ad7",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-02-actual--46656-nd-complete-recovery-copies-chromium/vis-02-native-v3-cross-tab-cas.json",
+    "bytes": 926494,
+    "sha256": "e883ad64023c3ede8f2ec4575f15924ecca54ab09e12d289fe339856c6988ad7",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-02-strict--ab531-plete-layer-package-offline-chromium/attachments/vis-02-native-v3-complete-migration-offline-json-367b54a9b97159c476f50798054abbb775b3563d.json",
+    "bytes": 1215340,
+    "sha256": "0423c78d97888add87b0b6c2a22837e97dec651003d653e1dad24e97168eb86f",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-VIS-02-strict--ab531-plete-layer-package-offline-chromium/vis-02-native-v3-complete-migration-offline.json",
+    "bytes": 1215340,
+    "sha256": "0423c78d97888add87b0b6c2a22837e97dec651003d653e1dad24e97168eb86f",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-native-v3-fail-c60bc--every-atomic-storage-table-chromium/attachments/native-v3-failure-preservation-json-5208138ad2005466e3efd72ae600ae5f56813eec.json",
+    "bytes": 332271,
+    "sha256": "47b909a70df9be88f3a85df09decb64db5dc53cedd1e78e7e4dc68752be8072f",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-native-v3-fail-c60bc--every-atomic-storage-table-chromium/native-v3-failure-preservation.json",
+    "bytes": 332271,
+    "sha256": "47b909a70df9be88f3a85df09decb64db5dc53cedd1e78e7e4dc68752be8072f",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-native-v3-migr-de8a3-le-M0-and-v2-original-bytes-chromium/attachments/native-v3-m0-v2-original-chain-json-275e76cf47d9215b0f4a35f7aa5a0a8568f507c9.json",
+    "bytes": 1394,
+    "sha256": "3e5d24e87477badbbf2d52147cd8bda38f5d87e80a343326b249469f66c4adf1",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1c-storage-native-v3-migr-de8a3-le-M0-and-v2-original-bytes-chromium/native-v3-m0-v2-original-chain.json",
+    "bytes": 1394,
+    "sha256": "3e5d24e87477badbbf2d52147cd8bda38f5d87e80a343326b249469f66c4adf1",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1d-storage-actual-tabs-re-153a4-le-preserving-both-branches-chromium/attachments/c1d-two-tab-cas-json-65bdf0d02bdf1188b62286985f5a4dc64c045328.json",
+    "bytes": 9035,
+    "sha256": "4000ecf1b42296aaa03c808bd92b897771ac83f4ee95faec9c30185f0372e181",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1d-storage-actual-tabs-re-153a4-le-preserving-both-branches-chromium/c1d-two-tab-cas.json",
+    "bytes": 9035,
+    "sha256": "4000ecf1b42296aaa03c808bd92b897771ac83f4ee95faec9c30185f0372e181",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1d-storage-island-complet-19ded-thout-replacing-later-edits-chromium/attachments/island-c1d-offline-history-json-37cd6e8520a3e9817cb891d09771ef782277c31c.json",
+    "bytes": 9264,
+    "sha256": "b285d4517b9b71cff65140bcea498a3cd968c8c0391215c2ee53d286c8c27d0b",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1d-storage-island-complet-19ded-thout-replacing-later-edits-chromium/island-c1d-offline-history.json",
+    "bytes": 9264,
+    "sha256": "b285d4517b9b71cff65140bcea498a3cd968c8c0391215c2ee53d286c8c27d0b",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1d-storage-study-complete-f776c-thout-replacing-later-edits-chromium/attachments/study-c1d-offline-history-json-dc20959c47f10cda4cf0ff850f6befdeab0c204a.json",
+    "bytes": 9770,
+    "sha256": "12be0b434eb2b9095afa8f01ae02562796d459deccf5b4fb040daa89099a63eb",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/c1d-storage-study-complete-f776c-thout-replacing-later-edits-chromium/study-c1d-offline-history.json",
+    "bytes": 9770,
+    "sha256": "12be0b434eb2b9095afa8f01ae02562796d459deccf5b4fb040daa89099a63eb",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/editor-browser-player-prev-e401f-ort-complete-through-the-UI-chromium/house.sceneweave",
+    "bytes": 2130,
+    "sha256": "00580b047805139bbcefca05ee9fbecc6beff4db3ac53d245f667bed6ec51504",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/editor-browser-player-prev-e401f-ort-complete-through-the-UI-chromium/player-ui-4k.png",
+    "bytes": 233692,
+    "sha256": "18380c2a3a76e58e30f666bf822ac0d4257cfe74be26dcf5d913543288b7edbb",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/editor-browser-player-prev-e401f-ort-complete-through-the-UI-chromium/sceneweave-editor.png",
+    "bytes": 122782,
+    "sha256": "8639647a3793ed15a216e820b9cfab3a20bcfa092f3a07b9f31dd94583d56efd",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/island-browser-VIS-02-comp-d1f8c-storage-and-remain-editable-chromium/attachments/vis02-workbench-png-80e456e619bbf5fb336f46b117287619eab2fc43.png",
+    "bytes": 359243,
+    "sha256": "22434e1a5c3aab747c346c42debd90ad79e849a687b91ab4b14b402f251e49c8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/island-browser-VIS-02-comp-d1f8c-storage-and-remain-editable-chromium/vis02-workbench.png",
+    "bytes": 359243,
+    "sha256": "22434e1a5c3aab747c346c42debd90ad79e849a687b91ab4b14b402f251e49c8",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/performance-measure-500-an-29fdf-th-continuous-pointer-input-chromium/attachments/performance-3cfb82f6d53a8bd11799f1ebd06c1c28c90e7d82.json",
+    "bytes": 52750,
+    "sha256": "ff703d473fb272d3915b444b91cdb6c0854b25dce4e6cdf2edefc9e83eb5b2f9",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/performance-measure-500-an-29fdf-th-continuous-pointer-input-chromium/performance.json",
+    "bytes": 52750,
+    "sha256": "ff703d473fb272d3915b444b91cdb6c0854b25dce4e6cdf2edefc9e83eb5b2f9",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/performance-measure-500-an-29fdf-th-continuous-pointer-input-chromium/workload-2000.png",
+    "bytes": 295680,
+    "sha256": "5738ceea2790f59c5786ef6b82a8a6715649ddfd92b3ea548f1954986be7d469",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/performance-measure-500-an-29fdf-th-continuous-pointer-input-chromium/workload-500.png",
+    "bytes": 151266,
+    "sha256": "64be75d55ac28c0e04e515ba85abe2649f42489ed22aec57fbd42dd7efb02f8f",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/privacy-browser-4K-player--c21ba-ontains-no-private-metadata-chromium/player-4k.png",
+    "bytes": 233692,
+    "sha256": "18380c2a3a76e58e30f666bf822ac0d4257cfe74be26dcf5d913543288b7edbb",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/privacy-browser-4K-player--c21ba-ontains-no-private-metadata-chromium/privacy-and-export.json",
+    "bytes": 1763,
+    "sha256": "6f4aa5706ced402453d5fac1507fbc99c4cf5c382ae3da129e5465a220b90b70",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/study-browser-VIS-01-UI-ex-23ad3--old-cache-or-asset-network-chromium/attachments/vis01-workbench-png-9deaf7a166c8fceeba660e8438377f796444088f.png",
+    "bytes": 280791,
+    "sha256": "d461b75bf4613050dfe3e5a8979210f3f9cd73960adc27a0192004bc83bd1e8a",
+    "policy": "retained-local-only; full reporter preserved separately"
+  },
+  {
+    "path": "/Users/shiqi/IdeaProjects/sceneweave/test-results/c2-full/study-browser-VIS-01-UI-ex-23ad3--old-cache-or-asset-network-chromium/vis01-workbench.png",
+    "bytes": 280791,
+    "sha256": "d461b75bf4613050dfe3e5a8979210f3f9cd73960adc27a0192004bc83bd1e8a",
+    "policy": "retained-local-only; full reporter preserved separately"
+  }
+]

@@ -1,0 +1,5 @@
+
+> sceneweave@0.2.0-m1-c2 preview
+> vite preview --host 127.0.0.1 --port 4173 --strictPort
+
+  ➜  Local:   http://127.0.0.1:4173/sceneweave/

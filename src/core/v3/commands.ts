@@ -1,8 +1,11 @@
 import { z } from 'zod'
 import { inspectJsonInput } from '../schema'
-import { applySnapshotCommandsV2, createPlacedPropV2, isEntityEditLockedV2, type PlacePropOptionsV2, type SceneCommandV2 } from '../v2/commands'
+import { applyCommandDraftV2, applySnapshotCommandsV2, createPlacedPropV2, isEntityEditLockedV2, type PlacePropOptionsV2, type SceneCommandV2 } from '../v2/commands'
 import type { PointMm } from '../v2/types'
-import { geometryIdentityIdsV3 } from './domain'
+import { canvasBoundsCommandSchemaV3, applyCanvasBoundsCommandV3, type CanvasBoundsCommandV3 } from './canvas-bounds'
+import { annotationCommandSchemasV3, applyAnnotationCommandV3, isAnnotationCommandV3, type AnnotationCommandV3 } from './annotations'
+import { applyBuildingCommandV3, buildingCommandSchemasV3, isBuildingCommandV3, type BuildingCommandV3 } from './building'
+import { geometryDocumentForValidationV3, geometryIdentityIdsV3 } from './domain'
 import { toGeometryDocumentV2 } from './geometry-view'
 import { entitiesInLayerV3, enumerateLayerEntitiesV3, orderedLayersV3, previewLayerMoveV3, previewLayerRemovalV3 } from './layers'
 import { validateSceneV3 } from './schema'
@@ -10,8 +13,12 @@ import { validateSceneSnapshotV3 } from './snapshots'
 import { COMMAND_LIMIT_V3, LAYER_ENTITY_COLLECTIONS_V3, USER_LAYER_LIMIT_V3, type SceneDocumentV3 } from './types'
 
 export type SceneCommandV3 =
-  | Exclude<SceneCommandV2, { type: 'addProp' }>
+  | Exclude<SceneCommandV2, { type: 'addProp' | 'setEditLock' }>
   | (Extract<SceneCommandV2, { type: 'addProp' }> & { layerId?: string })
+  | BuildingCommandV3
+  | AnnotationCommandV3
+  | CanvasBoundsCommandV3
+  | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainConnection'; id: string; locked: boolean }
   | { type: 'createLayer'; id: string; floorId: string; name: string }
   | { type: 'renameLayer'; id: string; name: string }
   | { type: 'setLayerLock'; id: string; locked: boolean }
@@ -31,6 +38,9 @@ const uniqueIds = z.array(id).refine(values => new Set(values).size === values.l
 
 /** Explicit native command contract; unknown fields cannot hide a second operation. */
 export const sceneCommandSchemaV3 = z.discriminatedUnion('type', [
+  ...buildingCommandSchemasV3,
+  ...annotationCommandSchemasV3,
+  canvasBoundsCommandSchemaV3,
   z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
   z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
   z.object({ type: z.literal('reverseWall'), id }).strict(),
@@ -47,7 +57,7 @@ export const sceneCommandSchemaV3 = z.discriminatedUnion('type', [
   z.object({ type: z.literal('copyProp'), id, newId: id, offsetMm: point }).strict(),
   z.object({ type: z.literal('deleteProp'), id }).strict(),
   z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
-  z.object({ type: z.literal('setEditLock'), kind: z.enum(['prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainConnection']), id, locked: z.boolean() }).strict(),
+  z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainConnection']), id, locked: z.boolean() }).strict(),
   z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
@@ -97,7 +107,7 @@ function restoreActualLocks(next: SceneDocumentV3, source: SceneDocumentV3, expl
     else if (actual.has(entity.id)) entity.editLocked = actual.get(entity.id)!
   }
 }
-function applyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[]): SceneDocumentV3 {
+function applyLegacyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[], draftOnly = false): SceneDocumentV3 {
   const memberships = { ...scene.entityLayers }, explicitLocks = new Map<string, boolean>(), legacy: SceneCommandV2[] = []
   for (const command of commands) {
     if (command.type === 'addProp') {
@@ -112,14 +122,16 @@ function applyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[
       const targetLayer = memberships[command.id]
       if (!targetLayer) throw new Error(`实体图层归属不存在：${command.id}。`)
       assertLayerUnlocked(scene, targetLayer)
-      explicitLocks.set(command.id, command.locked); legacy.push(command)
+      explicitLocks.set(command.id, command.locked); legacy.push(command as SceneCommandV2)
     } else if (category(command) === 'content') {
       legacy.push(command as SceneCommandV2)
       if (command.type === 'copyProp') memberships[command.newId] = memberships[command.id]
       else if (command.type === 'splitWall') { memberships[command.newVertexId] = memberships[command.id]; memberships[command.newWallId] = memberships[command.id] }
     } else throw new Error('此批次不能混入图层组织命令。')
   }
-  const result = applySnapshotCommandsV2(toGeometryDocumentV2(scene, { effectiveLocks: true }), legacy)
+  const result = draftOnly
+    ? applyCommandDraftV2(structuredClone(geometryDocumentForValidationV3(scene, true)), legacy)
+    : applySnapshotCommandsV2(toGeometryDocumentV2(scene, { effectiveLocks: true }), legacy)
   const { schemaVersion: _version, ...domain } = structuredClone(result)
   const next: SceneDocumentV3 = { ...domain, schemaVersion: 3, userLayers: structuredClone(scene.userLayers), entityLayers: {} }
   const present = new Set(enumerateLayerEntitiesV3(next).map(entity => entity.id))
@@ -130,6 +142,37 @@ function applyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[
     for (const member of Object.values(group.members)) if (member.propId !== null) next.entityLayers[member.propId] = next.entityLayers[group.id]
   }
   restoreActualLocks(next, scene, explicitLocks)
+  return next
+}
+function applyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[]): SceneDocumentV3 {
+  // Keep the certified legacy path unchanged for the common prop-only workload.
+  if (commands[0]?.type === 'setEditLock') {
+    const next = structuredClone(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainConnection: 'terrainConnections' } as const
+    for (const command of commands) {
+      if (command.type !== 'setEditLock') throw new Error('编辑锁须单独提交。')
+      const entity = own(next[collections[command.kind]] as Record<string, { id: string; editLocked: boolean }>, command.id)
+      if (!entity) throw new Error('编辑锁目标不存在或类型不符。')
+      assertLayerUnlocked(next, next.entityLayers[command.id])
+      if (entity.editLocked === command.locked) continue
+      if (command.kind === 'prop') {
+        const parents = [...Object.values(next.prefabInstances), ...Object.values(next.scatterGroups)].filter(group => Object.values(group.members).some(member => member.propId === command.id))
+        if (parents.some(group => group.editLocked || next.userLayers[next.entityLayers[group.id]].editLocked)) throw new Error('物件所属组合、散布或其图层已锁定，不能修改成员编辑锁。')
+      }
+      entity.editLocked = command.locked
+    }
+    return next
+  }
+  if (!commands.some(command => isBuildingCommandV3(command) || isAnnotationCommandV3(command) || command.type === 'setCanvasBounds')) return applyLegacyContent(scene, commands)
+  let next = structuredClone(scene), cost = 0, pending: SceneCommandV3[] = []
+  const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT_V3) throw new Error('展开后的整体建筑事务超过256条操作预算，不能拆批绕过。') }
+  const flush = () => { if (pending.length) { consume(pending.length); next = applyLegacyContent(next, pending, true); pending = [] } }
+  for (const command of commands) {
+    if (isBuildingCommandV3(command)) { flush(); consume(applyBuildingCommandV3(next, command).commandCost) }
+    else if (isAnnotationCommandV3(command)) { flush(); applyAnnotationCommandV3(next, command); consume(1) }
+    else if (command.type === 'setCanvasBounds') { flush(); consume(applyCanvasBoundsCommandV3(next, command).commandCost) }
+    else pending.push(command)
+  }
+  flush()
   return next
 }
 function applyOrganization(scene: SceneDocumentV3, commands: readonly SceneCommandV3[]): SceneDocumentV3 {

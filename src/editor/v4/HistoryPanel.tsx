@@ -6,8 +6,9 @@ import { HISTORY_LIMITS_V4, type RestoreModeV4 } from '../../core/v4/types'
 import type { SceneRepositoryV4 } from '../../io/v4/storage'
 import type { CompleteProjectV4, NamedSnapshotSummaryV4, NamedSnapshotV4 } from '../../io/v4/types'
 import type { SelectionSessionV2 } from '../v2/selection-session'
-import type { RestorePreviewV4, WorkspaceV4 } from './workspace'
+import type { RestorePreviewV4, StructureRestorePreviewV4, WorkspaceV4 } from './workspace'
 import { projectSceneV3 } from '../../render/v3/projection'
+import StructureHistoryPanel from './StructureHistoryPanel'
 
 type Props = {
   project: CompleteProjectV4
@@ -18,6 +19,7 @@ type Props = {
   refreshKey: number
   onAction: (run: () => Promise<void>, source?: string) => Promise<void>
   onPreview: (preview: RestorePreviewV4) => void
+  onStructurePreview: (preview: StructureRestorePreviewV4) => void
   onBackup: (snapshotIds: string[] | undefined, sceneId: string) => void
 }
 type Usage = Awaited<ReturnType<SceneRepositoryV4['usage']>>
@@ -31,7 +33,7 @@ function propLabel(scene: SceneDocumentV3, prop: PropV2): string {
   return prop.definitionRef ? scene.propDefinitions[prop.definitionRef.id]?.name ?? prop.id : prop.id
 }
 
-export default function HistoryPanel({ project, repository, workspace, session, disabled, refreshKey, onAction, onPreview, onBackup }: Props) {
+export default function HistoryPanel({ project, repository, workspace, session, disabled, refreshKey, onAction, onPreview, onStructurePreview, onBackup }: Props) {
   const sceneId = project.document.sceneId, canvasIds = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [summaries, setSummaries] = useState<NamedSnapshotSummaryV4[]>([]), [usage, setUsage] = useState<Usage | null>(null)
   const [name, setName] = useState(''), [creating, setCreating] = useState(false), [snapshot, setSnapshot] = useState<NamedSnapshotV4 | null>(null)
@@ -40,6 +42,7 @@ export default function HistoryPanel({ project, repository, workspace, session, 
   const [query, setQuery] = useState(''), [scrollTop, setScrollTop] = useState(0), [activeId, setActiveId] = useState<string | null>(null), [focusRequest, setFocusRequest] = useState(0), [includeHistory, setIncludeHistory] = useState(false)
   const [backupIds, setBackupIds] = useState<ReadonlySet<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
+  const [scopeType, setScopeType] = useState<'props' | 'structure'>('props')
   const request = useRef(0), viewport = useRef<HTMLDivElement>(null), pendingFocus = useRef<string | null>(null), focusFrame = useRef<number | null>(null)
   const refresh = async () => {
     const ticket = ++request.current, [items, nextUsage] = await Promise.all([repository.listNamedSnapshots(sceneId), repository.usage(sceneId)])
@@ -134,7 +137,9 @@ export default function HistoryPanel({ project, repository, workspace, session, 
     </div>)}
     {rename && <form className="history-name-form" onSubmit={event => { event.preventDefault(); if (!rename.name.trim()) return; void onAction(async () => { await repository.renameNamedSnapshot(rename.snapshot.id, rename.name.trim(), rename.snapshot.contentHash, usage?.metadataVersion, sceneId); if (snapshot?.id === rename.snapshot.id) setSnapshot(await repository.loadNamedSnapshot(rename.snapshot.id, sceneId)); setRename(null); await refresh() }, '重命名快照') }}><label>快照名称<input autoFocus aria-label="修改快照名称" value={rename.name} maxLength={80} disabled={disabled} onChange={event => setRename({ ...rename, name: event.target.value })}/></label><button className="secondary" disabled={disabled || !rename.name.trim()}>保存名称</button><button type="button" aria-label="取消快照改名" disabled={disabled} onClick={() => setRename(null)}><X size={13}/></button></form>}
     {deleting && <div className="history-delete-confirm" role="group" aria-label="删除快照确认"><strong>删除「{deleting.name}」？</strong><span>此快照将从本工程历史移除</span><button className="secondary" disabled={disabled} onClick={() => setDeleting(null)}>取消删除</button><button className="history-danger" disabled={disabled} onClick={() => void onAction(async () => { await repository.deleteNamedSnapshot(deleting.id, deleting.contentHash, usage?.metadataVersion, sceneId); setDeleting(null); await refresh() }, '删除快照')}><Trash2 size={13}/>确认删除快照</button></div>}
-    {snapshot && <div className="history-scope" aria-label="局部恢复范围">
+    {snapshot && <label className="history-mode history-scope-type">恢复对象<select aria-label="恢复对象类型" disabled={disabled} value={scopeType} onChange={event => setScopeType(event.target.value as typeof scopeType)}><option value="props">独立物件</option><option value="structure">建筑结构与注记</option></select></label>}
+    {snapshot && scopeType === 'structure' && <StructureHistoryPanel key={snapshot.id} project={project} snapshot={snapshot} workspace={workspace} session={session} disabled={disabled} onAction={onAction} onPreview={onStructurePreview}/>}
+    {snapshot && scopeType === 'props' && <div className="history-scope" aria-label="局部恢复范围">
       <h3>{snapshot.name}<small>r{snapshot.sourceRevision} · {rows.length} 件独立物件</small></h3>
       <label className="history-mode">恢复属性<select aria-label="局部恢复模式" value={mode} disabled={disabled} onChange={event => { setMode(event.target.value as RestoreModeV4); setError(null) }}>{modes.map(item => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
       <div className="history-scope-tools"><button className="secondary" disabled={disabled || !canvasIds.length || invalidCanvas.length > 0} onClick={() => { setSelected(new Set(canvasIds)); setError(null) }}>使用画布所选 · {canvasIds.length}</button><button type="button" title="清空恢复范围" aria-label="清空恢复范围" disabled={disabled || !selected.size} onClick={() => setSelected(new Set())}><X size={13}/></button></div>

@@ -1,0 +1,6 @@
+
+> sceneweave@0.2.0-m1-c1d typecheck
+> tsc -b
+
+src/editor/v4/BuildingInspector.tsx(45,1082): error TS2339: Property 'entityId' does not exist on type 'AnchorV2'.
+  Property 'entityId' does not exist on type '{ type: "point"; positionMm: PointMm; }'.

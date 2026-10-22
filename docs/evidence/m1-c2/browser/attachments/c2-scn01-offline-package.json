@@ -1,0 +1,37 @@
+{
+  "method": "Fresh browser context, code preloaded, network offline before strict ZIP import, actual bundled image decode and both native Canvas2D outputs; no cached sample images reused.",
+  "source": {
+    "hashes": {
+      "gm": "1d47255272217feef576af6493377d6d6c7737b560b714324f0a48be9dcda366",
+      "player": "cb52df1a8d690b0aa71c1e138510b68a25db93b18ff0522a2f110fea4cfb2871"
+    },
+    "resources": 18,
+    "bindings": 36,
+    "licenses": 1,
+    "size": 181745
+  },
+  "reopened": {
+    "hashes": {
+      "gm": "1d47255272217feef576af6493377d6d6c7737b560b714324f0a48be9dcda366",
+      "player": "cb52df1a8d690b0aa71c1e138510b68a25db93b18ff0522a2f110fea4cfb2871"
+    },
+    "resources": 18,
+    "licenses": 1,
+    "bindings": 36,
+    "editedDoorState": "open",
+    "untouchedSecret": {
+      "id": "H5-HS",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "wallId": "H5:wall:2",
+      "offsetReferenceVertexId": "H5:vertex:1",
+      "offsetMm": 2550,
+      "widthMm": 900,
+      "kind": "door",
+      "state": "closed",
+      "locked": false,
+      "secret": true,
+      "revealed": false
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "capturedAt": "2026-10-22T07:58:05.052615+00:00",
+  "markdownFilesChecked": 35,
+  "localLinksChecked": 686,
+  "localAnchorsChecked": 11,
+  "tablesChecked": 205,
+  "productRequirements": 33,
+  "qaIds": 67,
+  "protectedHistoricalChanges": [],
+  "archivedOriginalsChecked": 29,
+  "attachmentsChecked": 18,
+  "sourceFilesChecked": 31,
+  "buildFilesChecked": 43,
+  "localDiagnosticFilesChecked": 113,
+  "unit": "59 files / 721 tests passed",
+  "browser": "132/132 full and 11/11 C2 target passed without skips, failures or flaky results",
+  "productionUi": "passed; desktop and 390px screenshots visually reviewed",
+  "productionBackupZipCrcHashesAndLicensesChecked": true,
+  "credentialPatterns": [
+    "private-key-header",
+    "openai-key-shape",
+    "github-token-shape",
+    "aws-access-key-shape",
+    "slack-token-shape"
+  ],
+  "credentialScanFileCount": 110,
+  "gitWhitespaceExcludingUnrelatedTodoPassed": true,
+  "unrelatedTodoSha256": "cc40a406f1e584fa861f5d51640024f7218661523dbc7c9bc61e4e734bc3d514",
+  "limits": "Mechanical checks and listed functional evidence only; no full SCN-01, performance capacity or cross-browser acceptance",
+  "errors": []
+}

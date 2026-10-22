@@ -1,0 +1,9 @@
+
+ RUN  v4.1.12 /Users/shiqi/IdeaProjects/sceneweave
+
+
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+   Start at  15:02:06
+   Duration  1.29s (transform 986ms, setup 0ms, import 1.23s, tests 139ms, environment 1ms)
+
