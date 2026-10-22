@@ -1,0 +1,54 @@
+{
+  "openingHole": [
+    216,
+    213,
+    197,
+    255
+  ],
+  "wallBody": [
+    137,
+    144,
+    135,
+    255
+  ],
+  "wallAndLabelsAbsent": [
+    216,
+    213,
+    197,
+    255
+  ],
+  "wallBodyAbsent": [
+    216,
+    213,
+    197,
+    255
+  ],
+  "supportedChair": [
+    113,
+    134,
+    90,
+    255
+  ],
+  "bareSupport": [
+    216,
+    213,
+    197,
+    255
+  ],
+  "formal": [
+    {
+      "audience": "gm",
+      "baseline": "e87aec72ce98916c6e5ea82bb00771d98287eb58818c62fdc172d4f3b269ba09",
+      "ignored": "e87aec72ce98916c6e5ea82bb00771d98287eb58818c62fdc172d4f3b269ba09",
+      "png": "e87aec72ce98916c6e5ea82bb00771d98287eb58818c62fdc172d4f3b269ba09"
+    },
+    {
+      "audience": "player",
+      "baseline": "e87aec72ce98916c6e5ea82bb00771d98287eb58818c62fdc172d4f3b269ba09",
+      "ignored": "e87aec72ce98916c6e5ea82bb00771d98287eb58818c62fdc172d4f3b269ba09",
+      "png": "e87aec72ce98916c6e5ea82bb00771d98287eb58818c62fdc172d4f3b269ba09"
+    }
+  ],
+  "playerEditor": "e87aec72ce98916c6e5ea82bb00771d98287eb58818c62fdc172d4f3b269ba09",
+  "sourceUnchanged": true
+}

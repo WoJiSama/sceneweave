@@ -1,0 +1,33 @@
+{
+  "url": "http://127.0.0.1:4173/sceneweave/#layers",
+  "browser": "155.0.8059.84",
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  },
+  "errors": [],
+  "consoleErrors": [
+    {
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "url": "http://127.0.0.1:4173/favicon.ico"
+    }
+  ],
+  "httpErrors": [],
+  "screenshots": [
+    "layers-study.png",
+    "layers-hidden.png"
+  ],
+  "productDevApisAbsent": true,
+  "expandedMoveIds": [
+    "study-group",
+    "study-desk",
+    "study-chair",
+    "study-books-left",
+    "study-books-middle",
+    "study-books-right",
+    "study-papers"
+  ],
+  "revisionUnchangedByHiding": true,
+  "status": "passed",
+  "finishedAt": "2026-10-21T16:37:07.721Z"
+}

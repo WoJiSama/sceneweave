@@ -1,0 +1,282 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - button "织境 Sceneweave" [ref=e5] [cursor=pointer]:
+      - img [ref=e6]
+      - generic [ref=e8]:
+        - text: 织境
+        - generic [ref=e9]: Sceneweave
+    - generic [ref=e10]:
+      - img [ref=e11]
+      - generic [ref=e15]: 素材工坊
+      - generic [ref=e16]: 室内 · 室外
+    - generic [ref=e17]:
+      - button "用户图层" [ref=e18] [cursor=pointer]:
+        - img [ref=e19]
+        - text: 用户图层
+      - status [ref=e23]:
+        - img [ref=e24]
+        - text: 本地已保存
+      - button "打开工程" [ref=e27] [cursor=pointer]:
+        - img [ref=e28]
+        - text: 打开工程
+      - button "完整工程" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - text: 完整工程
+      - button "4K PNG" [ref=e35] [cursor=pointer]:
+        - img [ref=e36]
+        - text: 4K PNG
+  - generic [ref=e39]:
+    - text: 空白创作 · 墨绘原野素材
+    - generic [ref=e40]: 放置与编辑 / 完整本地保存 / 室内外样板参考
+  - alert [ref=e41]:
+    - generic [ref=e42]: 准备已取消，当前工程和本地存档未改变。
+    - button "关闭工坊提示" [ref=e43] [cursor=pointer]:
+      - img [ref=e44]
+  - generic [ref=e47]:
+    - complementary [ref=e48]:
+      - generic [ref=e49]:
+        - img [ref=e50]
+        - heading "场景与组件" [level=2] [ref=e54]
+      - button "新建空白场景" [ref=e55] [cursor=pointer]:
+        - img [ref=e56]
+        - text: 新建空白场景
+      - group "场景对象分类" [ref=e57]:
+        - button "放置" [ref=e58] [cursor=pointer]
+        - button "物件" [pressed] [ref=e59] [cursor=pointer]
+        - button "组合" [ref=e60] [cursor=pointer]
+        - button "结构" [ref=e61] [cursor=pointer]
+      - generic [ref=e62]:
+        - paragraph [ref=e63]: Shift 点击 / Enter 增选 · Option/Alt 点击 / Enter 减选
+        - generic [ref=e64]:
+          - generic [ref=e65]:
+            - img [ref=e66]
+            - searchbox "搜索场景物件" [ref=e69]
+          - generic [ref=e70]:
+            - generic [ref=e71]: 39 件物件
+            - button "定位所选对象" [disabled] [ref=e72]:
+              - img [ref=e73]
+              - text: 定位所选
+          - group "场景物件列表" [ref=e76]:
+            - generic [ref=e77]:
+              - button "近岸裸礁装饰" [ref=e78] [cursor=pointer]:
+                - img [ref=e79]
+                - generic [ref=e84]: 近岸裸礁装饰
+              - button "近岸裸礁装饰" [ref=e85] [cursor=pointer]:
+                - img [ref=e86]
+                - generic [ref=e91]: 近岸裸礁装饰
+              - button "近岸裸礁装饰" [ref=e92] [cursor=pointer]:
+                - img [ref=e93]
+                - generic [ref=e98]: 近岸裸礁装饰
+              - button "疏叶树冠" [ref=e99] [cursor=pointer]:
+                - img [ref=e100]
+                - generic [ref=e105]: 疏叶树冠
+              - button "疏叶树冠" [ref=e106] [cursor=pointer]:
+                - img [ref=e107]
+                - generic [ref=e112]: 疏叶树冠
+              - button "阔叶树冠" [ref=e113] [cursor=pointer]:
+                - img [ref=e114]
+                - generic [ref=e119]: 阔叶树冠
+              - button "阔叶树冠" [ref=e120] [cursor=pointer]:
+                - img [ref=e121]
+                - generic [ref=e126]: 阔叶树冠
+              - button "阔叶树冠" [ref=e127] [cursor=pointer]:
+                - img [ref=e128]
+                - generic [ref=e133]: 阔叶树冠
+              - button "阔叶树冠" [ref=e134] [cursor=pointer]:
+                - img [ref=e135]
+                - generic [ref=e140]: 阔叶树冠
+              - button "枯叶灌丛" [ref=e141] [cursor=pointer]:
+                - img [ref=e142]
+                - generic [ref=e147]: 枯叶灌丛
+              - button "圆叶灌丛" [ref=e148] [cursor=pointer]:
+                - img [ref=e149]
+                - generic [ref=e154]: 圆叶灌丛
+              - button "枯叶灌丛" [ref=e155] [cursor=pointer]:
+                - img [ref=e156]
+                - generic [ref=e161]: 枯叶灌丛
+              - button "圆叶灌丛" [ref=e162] [cursor=pointer]:
+                - img [ref=e163]
+                - generic [ref=e168]: 圆叶灌丛
+              - button "枯叶灌丛" [ref=e169] [cursor=pointer]:
+                - img [ref=e170]
+                - generic [ref=e175]: 枯叶灌丛
+              - button "圆叶灌丛" [ref=e176] [cursor=pointer]:
+                - img [ref=e177]
+                - generic [ref=e182]: 圆叶灌丛
+              - button "圆叶灌丛" [ref=e183] [cursor=pointer]:
+                - img [ref=e184]
+                - generic [ref=e189]: 圆叶灌丛
+              - button "枯叶灌丛" [ref=e190] [cursor=pointer]:
+                - img [ref=e191]
+                - generic [ref=e196]: 枯叶灌丛
+              - button "圆叶灌丛" [ref=e197] [cursor=pointer]:
+                - img [ref=e198]
+                - generic [ref=e203]: 圆叶灌丛
+              - button "圆叶灌丛" [ref=e204] [cursor=pointer]:
+                - img [ref=e205]
+                - generic [ref=e210]: 圆叶灌丛
+              - button "圆叶灌丛" [ref=e211] [cursor=pointer]:
+                - img [ref=e212]
+                - generic [ref=e217]: 圆叶灌丛
+              - button "圆叶灌丛" [ref=e218] [cursor=pointer]:
+                - img [ref=e219]
+                - generic [ref=e224]: 圆叶灌丛
+              - button "灰绿碎石簇" [ref=e225] [cursor=pointer]:
+                - img [ref=e226]
+                - generic [ref=e231]: 灰绿碎石簇
+              - button "灰绿碎石簇" [ref=e232] [cursor=pointer]:
+                - img [ref=e233]
+                - generic [ref=e238]: 灰绿碎石簇
+              - button "风化碎石簇" [ref=e239] [cursor=pointer]:
+                - img [ref=e240]
+                - generic [ref=e245]: 风化碎石簇
+              - button "灰绿碎石簇" [ref=e246] [cursor=pointer]:
+                - img [ref=e247]
+                - generic [ref=e252]: 灰绿碎石簇
+              - button "风化碎石簇" [ref=e253] [cursor=pointer]:
+                - img [ref=e254]
+                - generic [ref=e259]: 风化碎石簇
+              - button "灰绿碎石簇" [ref=e260] [cursor=pointer]:
+                - img [ref=e261]
+                - generic [ref=e266]: 灰绿碎石簇
+              - button "灰绿碎石簇" [ref=e267] [cursor=pointer]:
+                - img [ref=e268]
+                - generic [ref=e273]: 灰绿碎石簇
+              - button "风化碎石簇" [ref=e274] [cursor=pointer]:
+                - img [ref=e275]
+                - generic [ref=e280]: 风化碎石簇
+              - button "灰绿碎石簇" [ref=e281] [cursor=pointer]:
+                - img [ref=e282]
+                - generic [ref=e287]: 灰绿碎石簇
+              - button "灰绿碎石簇" [ref=e288] [cursor=pointer]:
+                - img [ref=e289]
+                - generic [ref=e294]: 灰绿碎石簇
+              - button "风化碎石簇" [ref=e295] [cursor=pointer]:
+                - img [ref=e296]
+                - generic [ref=e301]: 风化碎石簇
+              - button "灰绿碎石簇" [ref=e302] [cursor=pointer]:
+                - img [ref=e303]
+                - generic [ref=e308]: 灰绿碎石簇
+              - button "灰绿碎石簇" [ref=e309] [cursor=pointer]:
+                - img [ref=e310]
+                - generic [ref=e315]: 灰绿碎石簇
+              - button "灰绿碎石簇" [ref=e316] [cursor=pointer]:
+                - img [ref=e317]
+                - generic [ref=e322]: 灰绿碎石簇
+              - button "灰绿碎石簇" [ref=e323] [cursor=pointer]:
+                - img [ref=e324]
+                - generic [ref=e329]: 灰绿碎石簇
+              - button "灰绿碎石簇" [ref=e330] [cursor=pointer]:
+                - img [ref=e331]
+                - generic [ref=e336]: 灰绿碎石簇
+              - button "风化碎石簇" [ref=e337] [cursor=pointer]:
+                - img [ref=e338]
+                - generic [ref=e343]: 风化碎石簇
+              - button "灰绿碎石簇" [ref=e344] [cursor=pointer]:
+                - img [ref=e345]
+                - generic [ref=e350]: 灰绿碎石簇
+          - paragraph [ref=e351]: ↑↓ / Home / End / Page 浏览 · Enter 选择
+      - button "书房与露台 打开可编辑建筑样板 厚墙 · 斜窗 · 木石铺装 · 组件组合" [ref=e352] [cursor=pointer]:
+        - strong [ref=e358]: 书房与露台
+        - generic [ref=e359]: 打开可编辑建筑样板
+        - generic [ref=e360]: 厚墙 · 斜窗 · 木石铺装 · 组件组合
+      - button "双层岩岛 打开可编辑室外样板 台地与悬崖 · 草岩浅水 · 植被散布" [ref=e361] [cursor=pointer]:
+        - strong [ref=e368]: 双层岩岛
+        - generic [ref=e369]: 打开可编辑室外样板
+        - generic [ref=e370]: 台地与悬崖 · 草岩浅水 · 植被散布
+      - group [ref=e371]:
+        - generic "工程工具与 B1 校样" [ref=e372] [cursor=pointer]
+        - button "木纹书房 打开材质校样 B1 · 3 张位图 · 2 件家具" [ref=e373] [cursor=pointer]:
+          - strong [ref=e374]: 木纹书房
+          - generic [ref=e375]: 打开材质校样
+          - generic [ref=e376]: B1 · 3 张位图 · 2 件家具
+        - button "迁移当前 M0 场景" [ref=e377] [cursor=pointer]:
+          - img [ref=e378]
+          - text: 迁移当前 M0 场景
+      - group [ref=e380]:
+        - generic "最近的完整工程 1" [ref=e381] [cursor=pointer]:
+          - text: 最近的完整工程
+          - generic [ref=e382]: "1"
+    - main [ref=e383]:
+      - generic [ref=e384]:
+        - generic [ref=e385]:
+          - text: 主持人场景
+          - heading "双层岩岛 · 墨绘原野" [level=1] [ref=e386]
+        - generic [ref=e387]:
+          - button "撤销素材编辑" [disabled] [ref=e388]:
+            - img [ref=e389]
+          - button "重做素材编辑" [disabled] [ref=e392]:
+            - img [ref=e393]
+          - button "素材历史快照" [ref=e396] [cursor=pointer]:
+            - img [ref=e397]
+      - generic [ref=e400]:
+        - group "预览受众" [ref=e401]:
+          - button "主持人" [pressed] [ref=e402] [cursor=pointer]
+          - button "玩家" [ref=e403] [cursor=pointer]
+        - generic [ref=e404]: 30.0 × 27.0 m · 固定范围
+      - generic [ref=e406]:
+        - group "地图视口工具" [ref=e407]:
+          - button "选择地图对象" [pressed] [ref=e408] [cursor=pointer]:
+            - img [ref=e409]
+          - button "平移地图" [ref=e411] [cursor=pointer]:
+            - img [ref=e412]
+          - button "缩小地图" [ref=e418] [cursor=pointer]:
+            - img [ref=e419]
+          - status "地图缩放比例" [ref=e422]: 100%
+          - button "放大地图" [ref=e423] [cursor=pointer]:
+            - img [ref=e424]
+          - button "适应全图" [ref=e427] [cursor=pointer]:
+            - img [ref=e428]
+            - generic [ref=e433]: 全图
+          - button "全选可编辑对象" [ref=e434] [cursor=pointer]: 全选
+          - button "替换选择" [pressed] [ref=e436] [cursor=pointer]: 替换
+          - button "增加选择" [ref=e437] [cursor=pointer]: 增加
+          - button "减去选择" [ref=e438] [cursor=pointer]: 减去
+          - generic [ref=e439]:
+            - checkbox "包含相交对象" [ref=e440]
+            - text: 相交
+          - generic [ref=e441]:
+            - checkbox "选择组合成员" [ref=e442]
+            - text: 成员
+          - generic [ref=e443]: 滚轮缩放 · 空格拖动
+        - group "地图视口" [ref=e444]:
+          - generic "材质场景主持人预览" [ref=e445]
+        - status [ref=e446]: 单击选择 · 拖动框选 · Shift 增选 · Option/Alt 减选
+      - generic [ref=e447]:
+        - generic [ref=e448]: 主持人视图 · 工程可能包含秘密
+        - generic [ref=e449]: 13 张位图 · 39 件物件 · r0
+    - complementary [ref=e450]:
+      - generic [ref=e451]:
+        - img [ref=e452]
+        - heading "工程信息" [level=2] [ref=e457]
+      - heading "墨绘原野 · v1" [level=3] [ref=e458]
+      - paragraph [ref=e459]: 选择画面中的物件，或从左侧切换组合、散布与场景结构。全部素材、定义和许可随工程保存。
+      - generic [ref=e460]:
+        - term [ref=e461]: 场景修订
+        - definition [ref=e462]: r0
+        - term [ref=e463]: 素材字节
+        - definition [ref=e464]: 302.8 KiB
+        - term [ref=e465]: 定义快照
+        - definition [ref=e466]: 7 件物件 / 6 种材质
+        - term [ref=e467]: 许可绑定
+        - definition [ref=e468]: 27 条
+      - heading "地面材质" [level=3] [ref=e469]
+      - button "校验完整工程" [ref=e470] [cursor=pointer]:
+        - img [ref=e471]
+        - text: 校验完整工程
+      - generic [ref=e474]:
+        - heading "局部通行检查" [level=3] [ref=e475]:
+          - img [ref=e476]
+          - text: 局部通行检查
+        - paragraph [ref=e480]: 检查样板两处直线走廊的地面、高差和占地。
+        - generic [ref=e481]:
+          - button "检查台阶通路" [ref=e482] [cursor=pointer]
+          - button "检查崖边直行" [ref=e483] [cursor=pointer]
+      - generic [ref=e484]:
+        - img [ref=e485]
+        - strong [ref=e488]: 把场景保存完整
+        - paragraph [ref=e489]: 工程文件携带素材、材质与许可。定期下载备份，继续编辑前可检查工程完整性。
+```

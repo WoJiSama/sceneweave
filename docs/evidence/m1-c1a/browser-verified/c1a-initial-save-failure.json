@@ -1,0 +1,8 @@
+{
+  "injectedFailure": "snapshot table write, simulated quota",
+  "unsavedMemoryPreserved": true,
+  "originalPersistedBranchPreserved": true,
+  "newSceneAndResourceBindingsRolledBack": true,
+  "retryRetainedX": 4100,
+  "laterCreationSucceeded": true
+}

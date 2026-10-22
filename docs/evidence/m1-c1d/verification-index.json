@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "scope": "C1d local implementation and verification; no commit or push",
+  "unit": {
+    "filesPassed": 53,
+    "testsPassed": 649,
+    "log": "unit.log"
+  },
+  "build": {
+    "passed": true,
+    "log": "build.log"
+  },
+  "typecheck": {
+    "passed": true,
+    "log": "typecheck.log"
+  },
+  "browser": {
+    "full": {
+      "stats": {
+        "startTime": "2026-10-22T03:53:22.507Z",
+        "duration": 613891.1009999999,
+        "expected": 120,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "caseCount": 121,
+      "summary": "browser/full-run-summary.json",
+      "raw": "browser/full-run.json.gz"
+    },
+    "c1dTarget": {
+      "stats": {
+        "startTime": "2026-10-22T03:51:13.420Z",
+        "duration": 54376.162,
+        "expected": 12,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "caseCount": 12,
+      "report": "browser/c1d-target-run.json"
+    },
+    "b4ProbeFixedTarget": {
+      "stats": {
+        "startTime": "2026-10-22T04:04:29.579Z",
+        "duration": 16223.555,
+        "expected": 4,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "caseCount": 4,
+      "report": "browser/b4-target-run.json"
+    },
+    "all121CasesHavePassedAcrossRuns": true,
+    "notASingleAllGreenFullRun": true
+  },
+  "productionUi": "production-ui/report.json",
+  "attachments": "browser/attachment-index.json",
+  "initialFailures": "diagnostic/local-artifacts.json",
+  "tracePolicy": "Retained locally with original path, size and sha256; screenshots and error contexts archived",
+  "sourceFiles": [
+    {
+      "source": "/tmp/sceneweave-c1d-unit-final.log",
+      "path": "unit.log",
+      "sourceSha256": "b42d5e77a0a2ac952099495355979bd6691ecd4a36cfeb9ab9d105564d9b4962",
+      "bytes": 277
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-build-final.log",
+      "path": "build.log",
+      "sourceSha256": "ef6e46d892f5cd9e360f8e399fda5b61619f02a591319d3b1527240ca8260ff2",
+      "bytes": 2257
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-typecheck-final-clean.log",
+      "path": "typecheck.log",
+      "sourceSha256": "2bba24916d1d59c71d16a02676272b400012a54aea0fd497418ec3424c106e9d",
+      "bytes": 47
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-browser-full.log",
+      "path": "browser/full-run.log",
+      "sourceSha256": "a4c595cb73872028b24b426692801e297485973c128d261452a80027a8cc2a12",
+      "bytes": 25049
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-browser-fixed.log",
+      "path": "browser/c1d-target-run.log",
+      "sourceSha256": "f1a5e0595d8badfbfc4a62f0a5a0d7f0c74c165502f6c584315129f30319281c",
+      "bytes": 2792
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-browser-fixed.json",
+      "path": "browser/c1d-target-run.json",
+      "sourceSha256": "200ab9f401b0b85c59778acd9e614a7ec1dd9e1529af695f98cc27a18b1e8aa8",
+      "bytes": 460966
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-b4-probe-target-output.log",
+      "path": "browser/b4-target-run.log",
+      "sourceSha256": "cc10a5f1bda96ccc07cd028a2888af543565b479610d3349ed21aae28d586a3a",
+      "bytes": 9777
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-production-ui-fixed.log",
+      "path": "production-ui/run.log",
+      "sourceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-unit-full.log",
+      "path": "diagnostic/unit-initial.log",
+      "sourceSha256": "650c0562ec1f7839c0111490ce48d0bf84cbc6c9d7849c42d317d0cabe1d1794",
+      "bytes": 1239
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-unit-full-fixed.log",
+      "path": "diagnostic/unit-intermediate.log",
+      "sourceSha256": "81a5cc3b09ab2e2d9f345383e7e52cb789ada5a67e987488e0985ba9c62a73b3",
+      "bytes": 1275
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-typecheck-final.log",
+      "path": "diagnostic/typecheck-fixture-failure.log",
+      "sourceSha256": "8f8e9a8f6ee408a58af5ed8a5d9079c42ae5f0bb1fcd3205324ed5750ec8c795",
+      "bytes": 1401
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-typecheck-clean.log",
+      "path": "diagnostic/typecheck-probe-failure.log",
+      "sourceSha256": "513b26dc7f0aac1f4ff12ac8e8fda03de588e0341ffac294483dd0055a553817",
+      "bytes": 379
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-browser-initial.log",
+      "path": "diagnostic/c1d-browser-initial.log",
+      "sourceSha256": "75f74574d44d2ef159869423e2c589d6cf35ae43a09725429178c859ec0554a3",
+      "bytes": 14450
+    },
+    {
+      "source": "/tmp/sceneweave-c1d-browser-full.json",
+      "path": "browser/full-run.json.gz",
+      "uncompressedSha256": "90a53467ab91929985c91362282ee7bd5bbb4dd20922cbf03df7c550ad5877d8",
+      "uncompressedBytes": 93670192,
+      "compression": "gzip-lossless"
+    }
+  ],
+  "limits": [
+    "No full interaction performance claim",
+    "No cross-browser, Chinese IME, real quota exhaustion or small-group acceptance claim",
+    "Offline history import preloads runtime before disconnecting; not PWA cold start evidence"
+  ],
+  "artifactIndex": "artifact-index.json",
+  "finalChecks": "final-checks.json",
+  "sourceFingerprints": "source-fingerprints.json"
+}

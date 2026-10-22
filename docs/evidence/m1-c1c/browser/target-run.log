@@ -1,0 +1,22 @@
+
+> sceneweave@0.2.0-m1-c1c test:e2e
+> playwright test tests/b4-workbench.spec.ts tests/c1c-layers.spec.ts --output=work/c1c-target-browser --reporter=list,json
+
+[2m[WebServer] [22m(node:92936) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[2m[WebServer] [22m(Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 7 tests using 1 worker
+
+(node:92939) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:92939) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/b4-workbench.spec.ts:57:3 › B4 VIS-01 UI lists all missing dependencies and repair/cancel never replaces the current project (3.7s)
+  ✓  2 [chromium] › tests/b4-workbench.spec.ts:218:3 › B4 VIS-01 cancelling an actual pending decode discards its late result and retains saved editing history (2.1s)
+  ✓  3 [chromium] › tests/b4-workbench.spec.ts:57:3 › B4 VIS-02 UI lists all missing dependencies and repair/cancel never replaces the current project (4.3s)
+  ✓  4 [chromium] › tests/b4-workbench.spec.ts:218:3 › B4 VIS-02 cancelling an actual pending decode discards its late result and retains saved editing history (2.3s)
+  ✓  5 [chromium] › tests/c1c-layers.spec.ts:104:1 › C1c real v2 entry preserves its source, reviews complete group membership, and saves monotonic layer undo (5.4s)
+  ✓  6 [chromium] › tests/c1c-layers.spec.ts:278:1 › C1c current layer placement, session eye/solo/scope and layer menu do not write geometry or hidden state (4.1s)
+  ✓  7 [chromium] › tests/c1c-layers.spec.ts:406:1 › C1c rename/reorder and whole-layer deletion use one previewed transaction and undo restores all membership (3.8s)
+
+  7 passed (46.6s)

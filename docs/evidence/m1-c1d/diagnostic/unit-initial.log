@@ -1,0 +1,31 @@
+
+> sceneweave@0.2.0-m1-c1d test
+> vitest run
+
+
+ RUN  v4.1.12 /Users/shiqi/IdeaProjects/sceneweave
+
+ ❯ src/io/v4/storage.test.ts (14 tests | 1 failed) 11826ms
+     × keeps named and protection limits independent and rolls the thirty-third named write back 5045ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/io/v4/storage.test.ts > independent history repository > keeps named and protection limits independent and rolls the thirty-third named write back
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/io/v4/storage.test.ts:92:3
+     90|   })
+     91|
+     92|   it('keeps named and protection limits independent and rolls the thir…
+       |   ^
+     93|     const repo = repository(), initial = emptyProject(); await repo.sa…
+     94|     for (let index = 0; index < 32; index++) await repo.createNamedSna…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 52 passed (53)
+      Tests  1 failed | 648 passed (649)
+   Start at  11:37:23
+   Duration  15.08s (transform 3.88s, setup 0ms, import 12.30s, tests 66.42s, environment 6ms)
+

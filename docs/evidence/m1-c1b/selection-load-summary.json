@@ -1,0 +1,49 @@
+{
+  "scope": "Single gesture per case, pointerdown to two rAF callbacks after pointerup; scheduling observations only, no p95/GPU/display completion acceptance.",
+  "runs": [
+    {
+      "sample": "study",
+      "props": 500,
+      "selectedTotal": 519,
+      "baseRenderCount": 1,
+      "gestureToDoubleRafMs": 280.59999999403954,
+      "maxFrameGapMs": 116.69999999999982,
+      "trustedInputs": 9,
+      "pointerMoves": 8,
+      "documentAndStorageUnchanged": true
+    },
+    {
+      "sample": "study",
+      "props": 2000,
+      "selectedTotal": 2019,
+      "baseRenderCount": 1,
+      "gestureToDoubleRafMs": 448.80000000447035,
+      "maxFrameGapMs": 283.40000000000055,
+      "trustedInputs": 9,
+      "pointerMoves": 8,
+      "documentAndStorageUnchanged": true
+    },
+    {
+      "sample": "island",
+      "props": 500,
+      "selectedTotal": 531,
+      "baseRenderCount": 1,
+      "gestureToDoubleRafMs": 269.5,
+      "maxFrameGapMs": 116.70000000000027,
+      "trustedInputs": 9,
+      "pointerMoves": 8,
+      "documentAndStorageUnchanged": true
+    },
+    {
+      "sample": "island",
+      "props": 2000,
+      "selectedTotal": 2031,
+      "baseRenderCount": 1,
+      "gestureToDoubleRafMs": 502,
+      "maxFrameGapMs": 350.10000000000036,
+      "trustedInputs": 9,
+      "pointerMoves": 8,
+      "documentAndStorageUnchanged": true
+    }
+  ]
+}

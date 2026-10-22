@@ -1,0 +1,7 @@
+{
+  "guardedTarget": "c1b-chair-b",
+  "rejectedDeletionAndOutOfBoundsMove": true,
+  "atomicLockRevision": 1,
+  "atomicUnlockRevision": 2,
+  "unrelatedLockRetained": true
+}

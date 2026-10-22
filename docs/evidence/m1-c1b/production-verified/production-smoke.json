@@ -1,0 +1,36 @@
+{
+  "startedAt": "2026-10-21T09:42:39.316Z",
+  "browser": "155.0.8059.84",
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  },
+  "origin": "production preview on loopback",
+  "results": {
+    "developmentApisAbsent": true,
+    "selectionAndBatch": {
+      "selectedCount": 3,
+      "selectionDidNotRenderBase": true,
+      "cancelRevision": 3,
+      "adoptedRevision": 4,
+      "offsetMm": {
+        "x": 200,
+        "y": 100
+      },
+      "keyboardMenuAndFocusReturn": true
+    },
+    "completeProject": {
+      "schemaVersion": 2,
+      "revision": 4,
+      "props": 3,
+      "adoptedDefinitions": 18,
+      "resourceEntries": 21,
+      "packageBytes": 179014
+    },
+    "reloadRetainedRevision": 4,
+    "selectionWasNotPersisted": true,
+    "browserErrors": []
+  },
+  "status": "passed",
+  "finishedAt": "2026-10-21T09:42:42.959Z"
+}

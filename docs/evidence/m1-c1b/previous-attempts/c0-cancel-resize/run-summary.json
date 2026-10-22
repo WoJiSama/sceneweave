@@ -1,0 +1,31 @@
+{
+  "testsExecuted": 85,
+  "reportedPassed": 84,
+  "reportedFailed": 1,
+  "exitCode": 130,
+  "testFailure": {
+    "title": "C0 keyboard focus, cancelled pan, candidate/undo retention, audience reset and window resize remain safe",
+    "file": "c0-viewport.spec.ts",
+    "status": "unexpected",
+    "attempts": [
+      {
+        "status": "failed",
+        "durationMs": 3167,
+        "retry": 0,
+        "errors": [
+          {
+            "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeCloseTo\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m, \u001b[22mprecision\u001b[2m)\u001b[22m\n\nExpected: \u001b[32m-40\u001b[39m\nReceived: \u001b[31m-36.024844720496894\u001b[39m\n\nExpected precision:    3\nExpected difference: < \u001b[32m0.0005\u001b[39m\nReceived difference:   \u001b[31m3.975155279503106\u001b[39m\n\n  67 |   const actual = await viewState(page)\n  68 |   expect(actual.zoom).toBeCloseTo(expected.zoom, 5)\n> 69 |   expect(actual.panX).toBeCloseTo(expected.panX, 3)\n     |                       ^\n  70 |   expect(actual.panY).toBeCloseTo(expected.panY, 3)\n  71 | }\n  72 |\n    at expectSameView (<workspace>/tests/c0-viewport.spec.ts:69:23)\n    at <workspace>/tests/c0-viewport.spec.ts:252:3",
+            "stack": ""
+          }
+        ]
+      }
+    ]
+  },
+  "exitReason": "The HTML reporter started a report server after the completed failing run; the owned report server was closed with SIGINT. This is not a successful command.",
+  "repair": "Only tests/c0-viewport.spec.ts awaits double-rAF after the cancelled candidate restores its input. Product runtime and exact numeric expectations are unchanged.",
+  "recheck": {
+    "result": "../../c0-resize-recheck-results.json",
+    "exitCode": 0,
+    "passed": 1
+  }
+}

@@ -1,0 +1,334 @@
+{
+  "artifacts": [
+    {
+      "source": "performance-results/selection-baseline-verified/summary.json",
+      "path": "selection-baseline-verified/summary.json",
+      "originalBytes": 18081,
+      "originalSha256": "6f7b9c5882cef1024b3b349ffa940f032b3f632e865c870685d5550f15027ff5",
+      "storedSha256": "6f7b9c5882cef1024b3b349ffa940f032b3f632e865c870685d5550f15027ff5"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/island-2000-run-2.json",
+      "path": "selection-baseline-verified/island-2000-run-2.json.gz",
+      "originalBytes": 3948002,
+      "originalSha256": "e9d22c55872db68463fc9fe57b4af5364fd3985c2fbe99e827e8efeb52815634",
+      "storedSha256": "9bf1f6a4b316d26391c2d47d7cfb754a73c4468d36524ceba014df0f11cea648"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/island-500-run-3.json",
+      "path": "selection-baseline-verified/island-500-run-3.json.gz",
+      "originalBytes": 1304565,
+      "originalSha256": "c3b98493201c9e7bc2308ef91250fb3ed5dd0c2c14646fef9e83a6acf4d9a22d",
+      "storedSha256": "e53c3c9d9edec9b3ec1a2a618d76f4d9e5ab8c2842db4fce29038fba5e97a3a6"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/island-500-run-2.json",
+      "path": "selection-baseline-verified/island-500-run-2.json.gz",
+      "originalBytes": 1304688,
+      "originalSha256": "d79144f9048e98e979e21f1ca8e97fd80c83581999fd6f94996fcae06e6cb39e",
+      "storedSha256": "2cf341d6aa6c100a634eaa002e94718ef6597595cf54117361d9a82cea3948ad"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/study-500-run-1.json",
+      "path": "selection-baseline-verified/study-500-run-1.json.gz",
+      "originalBytes": 1043517,
+      "originalSha256": "d9f295f9f81d47459fc130d3c0850ab8d73b492ddb82a67fa2f71fc338e1191e",
+      "storedSha256": "c8d806c445bdb0526df12899f7fde57d72ca1ca8173bddab69d90071cdc89c45"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/island-2000-run-3.json",
+      "path": "selection-baseline-verified/island-2000-run-3.json.gz",
+      "originalBytes": 3948607,
+      "originalSha256": "629fee1b1004b6d3f0f6a71a7fdf4e07f9d449dcc139f0fcc4cb8f41cc3a7371",
+      "storedSha256": "46750e04f0be353d57e00db8bc42da29e52d0b337825f21941eac2c71676fe12"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/study-2000-run-1.json",
+      "path": "selection-baseline-verified/study-2000-run-1.json.gz",
+      "originalBytes": 3550212,
+      "originalSha256": "0159c0bd8bd44f6646823ff5561b468c1caf4680ea9a8ee3c5eaf5e1b9df6e06",
+      "storedSha256": "0494ebe6e5e0771291ca54ae8d8a44f794b504b392bd481f51c2c44d0c029a88"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/study-2000-run-3.json",
+      "path": "selection-baseline-verified/study-2000-run-3.json.gz",
+      "originalBytes": 3549285,
+      "originalSha256": "45dcb334aa5775f6a32349f40467cb2d018dc2b547ea9973fcbe39c93d39ff81",
+      "storedSha256": "3bd4affe8c686ce802260821974b18c0f807103c771be60b9757e7b9dac0083f"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/study-2000-run-2.json",
+      "path": "selection-baseline-verified/study-2000-run-2.json.gz",
+      "originalBytes": 3549048,
+      "originalSha256": "e9b438c908bcaaae16579d1a30bad31ddcffad805445c0a328f15c69b84e9774",
+      "storedSha256": "2b952b736b2d2ac71a08dbcd5484b0f07ffbffd15d437d127ac8224f271520c5"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/manifest.json",
+      "path": "selection-baseline-verified/manifest.json",
+      "originalBytes": 102047,
+      "originalSha256": "3aac7e90ffe0e717cc28857aa1cfcd1e5c1f2f3d948ee9a787c82aa895e174fe",
+      "storedSha256": "3aac7e90ffe0e717cc28857aa1cfcd1e5c1f2f3d948ee9a787c82aa895e174fe"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/island-500-run-1.json",
+      "path": "selection-baseline-verified/island-500-run-1.json.gz",
+      "originalBytes": 1303935,
+      "originalSha256": "38a7bb86b0bb09b03a115d52413a6cdfdb228c22a62d353f36c548a330500462",
+      "storedSha256": "2fab772d0425b40c96d26514b8a8774e6859efdb05c856f6029b3eedc8b01cf2"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/study-500-run-2.json",
+      "path": "selection-baseline-verified/study-500-run-2.json.gz",
+      "originalBytes": 1043083,
+      "originalSha256": "c89bace90697121831bb9c2203dddb062b47c51f7ccc9563b7d5290120a6f84e",
+      "storedSha256": "5d502f9498da2afaf4b6288ea72b8923bbb0361b2589f72418c14968475e82b0"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/island-2000-run-1.json",
+      "path": "selection-baseline-verified/island-2000-run-1.json.gz",
+      "originalBytes": 3949945,
+      "originalSha256": "54330a50afe059a39a37960802d60d119a526c1aea38fe47b03f44372bc1c75c",
+      "storedSha256": "09dd6b7e0f6521d395e7e0de3bea85e286b27467770d727c0b04018f5228016b"
+    },
+    {
+      "source": "performance-results/selection-baseline-verified/study-500-run-3.json",
+      "path": "selection-baseline-verified/study-500-run-3.json.gz",
+      "originalBytes": 1042495,
+      "originalSha256": "1b2f39c259f8af44cfd544b66d3d27663eb8ff1b7bfb89a3593fab1daaab5374",
+      "storedSha256": "0f7f363a005a0ff0c99d1830fd410682cd16830e52007921c1c66664302cb4b5"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/summary.json",
+      "path": "selection-optimized-verified/summary.json",
+      "originalBytes": 18030,
+      "originalSha256": "3df323b6c38753906318a2318727727e51e239eb18b0e082abc4de2036f1866f",
+      "storedSha256": "3df323b6c38753906318a2318727727e51e239eb18b0e082abc4de2036f1866f"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/island-2000-run-2.json",
+      "path": "selection-optimized-verified/island-2000-run-2.json.gz",
+      "originalBytes": 3948027,
+      "originalSha256": "1adcc71366ff777c9b8d70c28ac31347605abe06b7976e9608a76306f2a79465",
+      "storedSha256": "ac827955fe9a25d050fca3abe7bed21ae3c2d4c5a274d3abd904b17cc63041e7"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/island-500-run-3.json",
+      "path": "selection-optimized-verified/island-500-run-3.json.gz",
+      "originalBytes": 1303979,
+      "originalSha256": "74df822898ba3dd566bd33d7610728f4c6641a7616d9da8d52f969bc6c8b4b55",
+      "storedSha256": "4bd910d6494e669e21358ae9e133fc30b95231e97c9caca2d2175c16948f1391"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/island-500-run-2.json",
+      "path": "selection-optimized-verified/island-500-run-2.json.gz",
+      "originalBytes": 1304110,
+      "originalSha256": "adbcc8518a0e00b6babe13b4aeb649e92454494b2e0b791bba16488d77a8d883",
+      "storedSha256": "17304de7cee51d00cef7b09fb96d315fa153feae68dd9691ac824e2ad8b6bca7"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/study-500-run-1.json",
+      "path": "selection-optimized-verified/study-500-run-1.json.gz",
+      "originalBytes": 1042655,
+      "originalSha256": "b5585b5a222dbd1ffde25aca6f37f0b595255475e02826ab479b93c23c306414",
+      "storedSha256": "797d975fd83ba280aeaa6c74522b6f5ab2c5e03a529868f26dfb9c50f69fe299"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/island-2000-run-3.json",
+      "path": "selection-optimized-verified/island-2000-run-3.json.gz",
+      "originalBytes": 3947453,
+      "originalSha256": "6b6ab24fe3aa474565cd7296e82c17c0b7a41c43a7742b1a15f27275e7c74381",
+      "storedSha256": "86e14130fde1f454a2970ee55cc61cc98c1f07f63db5094c05c0c9401dbbacb0"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/study-2000-run-1.json",
+      "path": "selection-optimized-verified/study-2000-run-1.json.gz",
+      "originalBytes": 3547719,
+      "originalSha256": "20a6afb0a33acb4b40943554d2980c755318efc21ce83c27472b1831c773fc92",
+      "storedSha256": "1120b533c20c37e3c3bd39ea4ae5ef83e3c8bb591da9157c6d890dd82c3fb509"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/study-2000-run-3.json",
+      "path": "selection-optimized-verified/study-2000-run-3.json.gz",
+      "originalBytes": 3547031,
+      "originalSha256": "2d579f9ee0e2016839d10e45e581cf64cfe055ad80b43abe12cf8b812d6cdd66",
+      "storedSha256": "e7bc92a507b9507736cc886ef7b101bb0b68d371bce7fcd05278bbf257cc92cb"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/study-2000-run-2.json",
+      "path": "selection-optimized-verified/study-2000-run-2.json.gz",
+      "originalBytes": 3547504,
+      "originalSha256": "bba8e0a9d1a67b10144b79a21cd2d3acc0efa2bee23a5835136038fcac324107",
+      "storedSha256": "9e55d8d7df4e344286c7777e80f1cd93d6b0cf2488b0420d84d80716325d63d7"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/manifest.json",
+      "path": "selection-optimized-verified/manifest.json",
+      "originalBytes": 101796,
+      "originalSha256": "9c8b3e2eb962491f0307d975c89fa6def05ea93ce8b37ec98c7b09e7c5511b13",
+      "storedSha256": "9c8b3e2eb962491f0307d975c89fa6def05ea93ce8b37ec98c7b09e7c5511b13"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/island-500-run-1.json",
+      "path": "selection-optimized-verified/island-500-run-1.json.gz",
+      "originalBytes": 1305378,
+      "originalSha256": "f33b11a8c31fe6ed94f7c764a421f6787b16c3084942234f67a8d21728d03c38",
+      "storedSha256": "bc495ba538f5b984203c263ebbfde64e93203fdea7287cb7078c6b9f3f9985bc"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/study-500-run-2.json",
+      "path": "selection-optimized-verified/study-500-run-2.json.gz",
+      "originalBytes": 1042863,
+      "originalSha256": "baa06dd5af4658e1fa9de9826941d79d62579bda1e7399491e0b195551240329",
+      "storedSha256": "472fa29e8ed9729c0f2cabf1e482e8a86bc598d3f0ef68017ba16c383d755fe7"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/island-2000-run-1.json",
+      "path": "selection-optimized-verified/island-2000-run-1.json.gz",
+      "originalBytes": 3948732,
+      "originalSha256": "b73e5ca1b80a1b722c5860747510857b2cb3263c41bf9997adbd1ef3ec556967",
+      "storedSha256": "5fe9885269ad83b1144fc6be600abf0281acf575b5531935bdab863cdcd74fef"
+    },
+    {
+      "source": "performance-results/selection-optimized-verified/study-500-run-3.json",
+      "path": "selection-optimized-verified/study-500-run-3.json.gz",
+      "originalBytes": 1043035,
+      "originalSha256": "073925e8443747a64ca013c0507ce4c115d73e4b671ef862b4bfa5a2289a75b3",
+      "storedSha256": "53553f87023d55fb144201981e3421f1b3c07078cd98f7e04df3fa581cab8365"
+    },
+    {
+      "source": "performance-results/selection-diagnostic-overview/overview.json",
+      "path": "selection-diagnostic-overview/overview.json",
+      "originalBytes": 121320,
+      "originalSha256": "9922f44c783f820204263f8af40de88d296567aa9d883d805a3b9ec3d9f338b2",
+      "storedSha256": "9922f44c783f820204263f8af40de88d296567aa9d883d805a3b9ec3d9f338b2"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/comparison.json",
+      "path": "selection-designed-verified-setup-fixed/comparison.json",
+      "originalBytes": 103022,
+      "originalSha256": "623df02ba8db6f22b49e590bbb81ec3a38cdfd3f5652b5cb50baaf13ffcb3d92",
+      "storedSha256": "623df02ba8db6f22b49e590bbb81ec3a38cdfd3f5652b5cb50baaf13ffcb3d92"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/comparison.md",
+      "path": "selection-designed-verified-setup-fixed/comparison.md",
+      "originalBytes": 4180,
+      "originalSha256": "2dc6f9190b6bd2983a72243c9d9b4e6fd983a5b5c1edf53a763bb6878d58a29b",
+      "storedSha256": "2dc6f9190b6bd2983a72243c9d9b4e6fd983a5b5c1edf53a763bb6878d58a29b"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/island-2000-run-1.json",
+      "path": "selection-designed-verified-setup-fixed/island-2000-run-1.json.gz",
+      "originalBytes": 3949681,
+      "originalSha256": "9a08091502415be426999a3698638a1c571c56d8095ed1f10fd897551a8da798",
+      "storedSha256": "eae5c5252fb14350a5e848e00fe8bb09a7642b043d13a40d05c37fcf49f36349"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/island-2000-run-2.json",
+      "path": "selection-designed-verified-setup-fixed/island-2000-run-2.json.gz",
+      "originalBytes": 3950329,
+      "originalSha256": "56701558abaacec16ede2b904e815f6a57916c1a965970c8470c97b28360fc6a",
+      "storedSha256": "cf4977347e2bc76ca10004c160e1a2d65b367a111ccf6f59ca53f37409481827"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/island-2000-run-3.json",
+      "path": "selection-designed-verified-setup-fixed/island-2000-run-3.json.gz",
+      "originalBytes": 3949870,
+      "originalSha256": "39c7f9ce2272450c561c6ac72dc450428e7f1fe30ca9308db65cb50e039fd09a",
+      "storedSha256": "69e2f7965df37819279a47672be6a094d236127116ae23d3847bac00d564e803"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/island-500-run-1.json",
+      "path": "selection-designed-verified-setup-fixed/island-500-run-1.json.gz",
+      "originalBytes": 1312458,
+      "originalSha256": "0c15921aaf0014a865022f4af5652eb5bdfd64f694ac1d97b5ae2e7f06a7265e",
+      "storedSha256": "6dc805234a78ec5ec7b8772a0250f6ea22c0a531706ba9748523c1180e452f3a"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/island-500-run-2.json",
+      "path": "selection-designed-verified-setup-fixed/island-500-run-2.json.gz",
+      "originalBytes": 1312728,
+      "originalSha256": "24b5c6316283f150947729e4da5080b3f4f1ae7a732148baf1a2d76fc4d3de64",
+      "storedSha256": "f2e2e99f55f2ed5a1be1f4c00effb7acfdcc1f70b51764f29e377a9e25c94361"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/island-500-run-3.json",
+      "path": "selection-designed-verified-setup-fixed/island-500-run-3.json.gz",
+      "originalBytes": 1312845,
+      "originalSha256": "25277280dcfe497ddca52cd2401220e00b548a0d19a30ce5c704bff036d47f4f",
+      "storedSha256": "d306a2f5a4f84b2b6d30d2bfaafec1cbe1cee2965ccff685ce249937694498c7"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/manifest.json",
+      "path": "selection-designed-verified-setup-fixed/manifest.json",
+      "originalBytes": 103407,
+      "originalSha256": "78cf31725518dc3eca476aab8f13ca1be311b2b1476024268a3b7ef9b0793e54",
+      "storedSha256": "78cf31725518dc3eca476aab8f13ca1be311b2b1476024268a3b7ef9b0793e54"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/runner-used.mjs",
+      "path": "selection-designed-verified-setup-fixed/runner-used.mjs",
+      "originalBytes": 47041,
+      "originalSha256": "92af53697dcdbb09f3c4983c9b5e95d1c70baaace3a190f13cafa64c88a2369d",
+      "storedSha256": "92af53697dcdbb09f3c4983c9b5e95d1c70baaace3a190f13cafa64c88a2369d"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/study-2000-run-1.json",
+      "path": "selection-designed-verified-setup-fixed/study-2000-run-1.json.gz",
+      "originalBytes": 3550460,
+      "originalSha256": "00b0b86d84a3b5e60ca247e1346518562634c84c0a50e2706f1f63edf7ee5d33",
+      "storedSha256": "faa95843e8ec8cf323dfe3419a25654274761938b56148fda0db270903f0fdce"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/study-2000-run-2.json",
+      "path": "selection-designed-verified-setup-fixed/study-2000-run-2.json.gz",
+      "originalBytes": 3550434,
+      "originalSha256": "d7e97972695286776c116ecef2fcf089b299f0fe9b2ae19c3de4eca27af2e648",
+      "storedSha256": "dd3c93fbaca358d7d4f63eb77866d8992ae4d7e04bd8bebe17df7a06e00ed451"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/study-2000-run-3.json",
+      "path": "selection-designed-verified-setup-fixed/study-2000-run-3.json.gz",
+      "originalBytes": 3550462,
+      "originalSha256": "a4d038cc30f980781c38077b7eea44ab1a7d0f2bbf48e60da2f1459d46a91f7b",
+      "storedSha256": "997f2734e5402c34025683fe9b97eeb788b8a0d2ac82531b60f82219558ffb1e"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/study-500-run-1.json",
+      "path": "selection-designed-verified-setup-fixed/study-500-run-1.json.gz",
+      "originalBytes": 1051161,
+      "originalSha256": "04caf841c845f6e8ee74bc2a0671963b18831d0c12653c9ff57b61d22094e5af",
+      "storedSha256": "122a527701c35f3798faf716dee88eaf32fa3d13217f417e0291f568640e0acc"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/study-500-run-2.json",
+      "path": "selection-designed-verified-setup-fixed/study-500-run-2.json.gz",
+      "originalBytes": 1051163,
+      "originalSha256": "eb8938c1a1d871db54a2912566097941b47fc526afffa428fec6c603c709af96",
+      "storedSha256": "4f974206a2ee7c03ba11e72c69bd80505d6959d1130e5be14f38931a647d8225"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/study-500-run-3.json",
+      "path": "selection-designed-verified-setup-fixed/study-500-run-3.json.gz",
+      "originalBytes": 1051652,
+      "originalSha256": "8744e25d8b96dfffd2167d549177d19e111403df5952e6218b83aa9bece1d4e4",
+      "storedSha256": "02b56e6f89f5bcb1ac074514133fd012ced72e83f9c2c8b1bda50047a90c2ff7"
+    },
+    {
+      "source": "performance-results/selection-designed-verified-setup-fixed/summary.json",
+      "path": "selection-designed-verified-setup-fixed/summary.json",
+      "originalBytes": 18527,
+      "originalSha256": "a9fa7c6b0c5108232490d653406216a3613988d7aa39c18b4672c1f5cae76381",
+      "storedSha256": "a9fa7c6b0c5108232490d653406216a3613988d7aa39c18b4672c1f5cae76381"
+    },
+    {
+      "source": "performance-results/selection-designed-verified/runner-boundary-analysis.json",
+      "path": "failed-run-boundary-analysis.json",
+      "originalBytes": 791,
+      "originalSha256": "826bcfbf007979025238a1428a77304c5a86c1cbf9256dc7b4d6a1435f0a482f",
+      "storedSha256": "826bcfbf007979025238a1428a77304c5a86c1cbf9256dc7b4d6a1435f0a482f"
+    }
+  ],
+  "note": "Original per-sample JSON losslessly compressed; full source packages, screenshots and CDP timelines stay in local performance-results; B5 fixed source packages referenced by manifest hashes."
+}

@@ -1,0 +1,292 @@
+{
+  "collectedAt": "2026-10-21T16:44:24.448Z",
+  "fullBrowserStats": {
+    "startTime": "2026-10-21T16:25:55.633Z",
+    "duration": 467617.356,
+    "expected": 108,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "failures": [
+    {
+      "file": "b4-workbench.spec.ts",
+      "title": "B4 VIS-02 cancelling an actual pending decode discards its late result and retains saved editing history",
+      "status": "failed",
+      "errors": [
+        {
+          "location": {
+            "file": "/Users/shiqi/IdeaProjects/sceneweave/tests/b4-workbench.spec.ts",
+            "column": 74,
+            "line": 126
+          },
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m22\u001b[39m\nReceived: \u001b[31m14\u001b[39m\n\n  124 |       expect(await identity(page)).toEqual(original)\n  125 |       const cleanup = await page.evaluate(() => { const probe = Reflect.get(window, '__b4WorkbenchDecode'); return { decoded: probe.decoded, closed: probe.closed } })\n> 126 |       expect(cleanup.decoded).toBeGreaterThan(0); expect(cleanup.closed).toBe(cleanup.decoded)\n      |                                                                          ^\n  127 |       const report = testInfo.outputPath(`b4-${sample.key}-cancel.json`)\n  128 |       await writeFile(report, JSON.stringify({ sample: sample.key, lateDecodeDiscarded: true, identityHistoryAndPersistedUnchanged: true, ...cleanup }, null, 2))\n  129 |       await testInfo.attach('cancel.json', { path: report, contentType: 'application/json' })\n    at /Users/shiqi/IdeaProjects/sceneweave/tests/b4-workbench.spec.ts:126:74"
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "source": "../../../../tmp/sceneweave-c1c-final-browser.log",
+      "path": "browser/full-run.log",
+      "role": "verification",
+      "sizeBytes": 23016,
+      "sha256": "f0905239a4356e06089c75fb1fc7653603a388f9ca5af50706ad7c9d328c1492"
+    },
+    {
+      "path": "browser/attachments/group-migration-and-source.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 271029,
+      "sha256": "586e451b18dd0868c3a5f4c2d2c66d882066b1b9b6648f4f3ad495fcb4ea7869"
+    },
+    {
+      "path": "browser/attachments/session-state-unchanged.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 66883,
+      "sha256": "2d9dd6ba9ef1f8a06b37e2ed8677551687d202bf6bc756809afef69cde5d8f73"
+    },
+    {
+      "path": "browser/attachments/c1c-default-pixel-parity.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 1584,
+      "sha256": "71d55c2d92b1a909590dd139c39e8bc77b712c96f93a0f03c129fc67d6a7e1cb"
+    },
+    {
+      "path": "browser/attachments/c1c-band-order-pixels.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 824,
+      "sha256": "081b16a1df3b1c3e240be28c5072d0d5dd18b064cf8d59369b7ee7fa07739ac3"
+    },
+    {
+      "path": "browser/attachments/c1c-hidden-dependency-pixels.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 1077,
+      "sha256": "b48d288e27bc9a95f6d1b8685e18692690497e252208ae91b7f272bca7a41ec1"
+    },
+    {
+      "path": "browser/attachments/c1c-VIS-01-S01-privacy-matrix.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 37254,
+      "sha256": "69c20e8fe3e7907fbd2580d8fefd22ed3e7f0e728cf0f5657f61e339dda06c12"
+    },
+    {
+      "path": "browser/attachments/c1c-VIS-02-S01-privacy-matrix.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 43342,
+      "sha256": "3ca569322223a9b94c353d205bd03ab94dcbae1008da28ecc9119f9b8d70216c"
+    },
+    {
+      "path": "browser/attachments/c1c-VIS-02-S02-privacy-matrix.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 45026,
+      "sha256": "fc712c824d1180301551ddfb75eef68331fbe0752515ec3603d06f136f337f63"
+    },
+    {
+      "path": "browser/attachments/c1c-required-bytes-late-cancel.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 3700,
+      "sha256": "d4bfa98a19ae155744b26433673d6b9114f410234d9502b8447878caf9ea52c3"
+    },
+    {
+      "source": "test-results/c1c-storage-VIS-01-strict--526ff-plete-layer-package-offline-chromium/attachments/vis-01-native-v3-complete-migration-offline-json-a6ca4366321007e9c5ce63a0d6fff7f9cd615a66.json",
+      "path": "browser/attachments/vis-01-native-v3-complete-migration-offline-json-a6ca4366321007e9c5ce63a0d6fff7f9cd615a66.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 724217,
+      "sha256": "ed223edd003a4d7b1908fb7ac399097161282761d8ae64bcc2184bc4ab84b04c"
+    },
+    {
+      "source": "test-results/c1c-storage-VIS-01-actual--1df92-nd-complete-recovery-copies-chromium/attachments/vis-01-native-v3-cross-tab-cas-json-b99b37cdc54fd91b9b63087e27ca40ae85198c90.json",
+      "path": "browser/attachments/vis-01-native-v3-cross-tab-cas-json-b99b37cdc54fd91b9b63087e27ca40ae85198c90.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 533045,
+      "sha256": "5c8155051de49a1a412ed6032cdfde293c523ea9519a4218c5157cc21393504e"
+    },
+    {
+      "source": "test-results/c1c-storage-VIS-02-strict--ab531-plete-layer-package-offline-chromium/attachments/vis-02-native-v3-complete-migration-offline-json-5ec2d94b722e799103da60321cbd86b09e7bb506.json",
+      "path": "browser/attachments/vis-02-native-v3-complete-migration-offline-json-5ec2d94b722e799103da60321cbd86b09e7bb506.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 1215341,
+      "sha256": "118f7ba5dd1dd94e2835091b2298d8a4fab3a8fc6a414bcc7a3514b4ee5fa01d"
+    },
+    {
+      "source": "test-results/c1c-storage-VIS-02-actual--46656-nd-complete-recovery-copies-chromium/attachments/vis-02-native-v3-cross-tab-cas-json-ee223fcb2fa4c7a963f5d5dd930bd93fecb17c2b.json",
+      "path": "browser/attachments/vis-02-native-v3-cross-tab-cas-json-ee223fcb2fa4c7a963f5d5dd930bd93fecb17c2b.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 926494,
+      "sha256": "3e500c1e6bc01fede0ad462d89aeaf37752e4a9bb027ef0b5d06462f3c9d415e"
+    },
+    {
+      "source": "test-results/c1c-storage-native-v3-migr-de8a3-le-M0-and-v2-original-bytes-chromium/attachments/native-v3-m0-v2-original-chain-json-ff879d4381c56f6e30553991d5536d8d464385c7.json",
+      "path": "browser/attachments/native-v3-m0-v2-original-chain-json-ff879d4381c56f6e30553991d5536d8d464385c7.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 1394,
+      "sha256": "33e1347233c8b1917e9839dfc52c8cad360efc85df21496f501533198fd52239"
+    },
+    {
+      "source": "test-results/c1c-storage-native-v3-fail-c60bc--every-atomic-storage-table-chromium/attachments/native-v3-failure-preservation-json-985496b854bb34e94ddaa5aef54b0dd6525b4413.json",
+      "path": "browser/attachments/native-v3-failure-preservation-json-985496b854bb34e94ddaa5aef54b0dd6525b4413.json",
+      "role": "native-v3-regression",
+      "sizeBytes": 332271,
+      "sha256": "f058a7974ef1594e56907969e7fcf95411e01f5d092b38905276272403e09a4e"
+    },
+    {
+      "source": "../../../../tmp/sceneweave-c1c-final-typecheck.log",
+      "path": "typecheck.log",
+      "role": "verification",
+      "sizeBytes": 47,
+      "sha256": "5e3b40eb7953d416200a84fa939f06a34a0f14db5c4ef28ec43aee40e9661098"
+    },
+    {
+      "source": "../../../../tmp/sceneweave-c1c-final-unit.log",
+      "path": "unit.log",
+      "role": "verification",
+      "sizeBytes": 277,
+      "sha256": "ebbd78cde2b0a92e2dfc180fc4f3895eb0b78204b87b4459bc824a51308f804b"
+    },
+    {
+      "source": "../../../../tmp/sceneweave-c1c-unit-fixture-failure.log",
+      "path": "diagnostic/unit-fixture-failure.log",
+      "role": "retained-failure",
+      "sizeBytes": 2514,
+      "sha256": "620e5d14cc05c1497ca1a50c46e0aa951fa715c551190cc6b385ff63d27b43d9"
+    },
+    {
+      "source": "test-results/b4-workbench-B4-VIS-02-can-260a5-tains-saved-editing-history-chromium/error-context.md",
+      "path": "diagnostic/b4-idle-render-error-context.md",
+      "role": "retained-failure",
+      "sizeBytes": 13701,
+      "sha256": "7144f24d3692633e7fbe970ae69ee1c5ca59c83879440a9b9db699b5f4adfad2"
+    },
+    {
+      "source": "test-results/b4-workbench-B4-VIS-02-can-260a5-tains-saved-editing-history-chromium/test-failed-1.png",
+      "path": "diagnostic/b4-idle-render-test-failed-1.png",
+      "role": "retained-failure",
+      "sizeBytes": 338747,
+      "sha256": "f1494cb2a1e741eaa7f4a5881619b75d6bb170a9810d813ff262a50a27d4cb28"
+    },
+    {
+      "path": "browser/full-run-summary.json",
+      "source": "/tmp/sceneweave-c1c-final-browser.json",
+      "role": "all status, timing, errors and attachment hashes; inline PNG bodies retained locally",
+      "sizeBytes": 203702,
+      "sha256": "989a8ad0862ceab13c7d4af469305faec6075e938aa2a6cb2b83c841274e7266"
+    },
+    {
+      "source": "/tmp/sceneweave-c1c-target-browser.json",
+      "path": "browser/target-run.json",
+      "sizeBytes": 464936,
+      "sha256": "67f0807d3c80c5b41bbb1b2c499e9fa6af0fd0c9843eb43217d3ea7b3e3043ad"
+    },
+    {
+      "source": "/tmp/sceneweave-c1c-target-browser.log",
+      "path": "browser/target-run.log",
+      "sizeBytes": 1938,
+      "sha256": "d4798ab3ba235ce9dfd3c8c2891e574f6a353ca46ac0e8ecf6b8b4b92cb3a041"
+    },
+    {
+      "source": "/tmp/sceneweave-c1c-final-build.log",
+      "path": "build.log",
+      "sizeBytes": 2257,
+      "sha256": "9ae3b324573a4348b3835ea3168ebd76da9cf9dcceb43825ee65e3c51cd5c802"
+    },
+    {
+      "path": "production-ui/layers-hidden.png",
+      "role": "normal-production UI and visual inspection",
+      "sizeBytes": 286564,
+      "sha256": "97f8124ac3cf2951644d3787d94325212cb867f3b59d2a7bbb9d8033788e82fc"
+    },
+    {
+      "path": "production-ui/layers-study.png",
+      "role": "normal-production UI and visual inspection",
+      "sizeBytes": 269188,
+      "sha256": "e9e97c824acd33c3cbc59bc1b0224c99615ce50cb6f0d0cd394e1f4ea9fd2c90"
+    },
+    {
+      "path": "production-ui/report.json",
+      "role": "normal-production UI and visual inspection",
+      "sizeBytes": 747,
+      "sha256": "f3a927ed0efb078638bc0281d8bd43f918cb2a13d2aa83ce0831fce093314780"
+    },
+    {
+      "path": "production-ui/run.log",
+      "role": "normal-production UI and visual inspection",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "production-ui/runner-used.mjs",
+      "role": "normal-production UI and visual inspection",
+      "sizeBytes": 4533,
+      "sha256": "0380dcba6f28678dd31028a07caca866cb8d52b1afb89244a4068ef7df943d3c"
+    },
+    {
+      "path": "native-selection.log",
+      "role": "serial native-v3 formal run",
+      "sizeBytes": 2304,
+      "sha256": "eb34d4744e275c715f9d59aa506bad14c7deec79f259e1fa92ddaf89332a0a62"
+    }
+  ],
+  "localRawReports": [
+    {
+      "path": "/tmp/sceneweave-c1c-final-browser.json",
+      "sizeBytes": 93209540,
+      "sha256": "d98c97d49190d18cb2db5c5b1ffeb563c5449b80053f1a1e952b038b79103b96",
+      "note": "Full report includes existing historical suites and embedded 4K PNG attachments; excluded from repository duplicate payloads."
+    },
+    {
+      "path": "work/c1c-full-browser-failure/full-run.json.gz",
+      "sizeBytes": 67210923,
+      "sha256": "0f97cae8fc6b3bb901028b03f83d473daae5159e2510a8b0699e9cfd67f677b2",
+      "encoding": "gzip lossless",
+      "note": "Recoverable full raw browser report with embedded historical and native 4K PNGs; local duplicate payload excluded from repository."
+    },
+    {
+      "path": "work/c1c-full-browser-failure/trace.zip",
+      "sizeBytes": 1958691,
+      "sha256": "916cddf7243fb786e7198891d09996f4c9e099ddc80cc4c876969a8eb398dba1",
+      "note": "Retained B4 initial idle-render cancellation probe failure; final target tests pass."
+    }
+  ],
+  "finalTargetBrowserStats": {
+    "startTime": "2026-10-21T16:34:02.242Z",
+    "duration": 46594.97900000001,
+    "expected": 7,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "finalOutcome": {
+    "unit": {
+      "files": 47,
+      "passed": 568
+    },
+    "browser": {
+      "uniqueCases": 109,
+      "fullRunPassed": 108,
+      "fullRunFailed": 1,
+      "targetedRetestPassed": 7,
+      "unresolved": 0,
+      "nativeV3Cases": 16
+    },
+    "productionBuild": "passed",
+    "normalProductionUi": "passed; preexisting favicon.ico 404 recorded separately",
+    "nativeV3Performance": {
+      "status": "complete",
+      "runs": 12,
+      "samples": 720,
+      "selectionWindowLongTasks": 0,
+      "index": "selection-layers-verified/artifact-index.json"
+    },
+    "scope": "Local implementation and focused verification; complete M1 and full QA-PERF remain open."
+  },
+  "finalInspection": {
+    "localLinksChecked": 561,
+    "missingLinks": 0,
+    "artifactHashMismatches": 0,
+    "decodedNativePerformanceSamples": 720,
+    "newNativeWhitespaceIssues": 0,
+    "secretPatternMatches": 0,
+    "gitDiffCheck": "passes except preexisting todo.md blank EOF; unrelated file preserved",
+    "delivery": "local only; no commit or push"
+  }
+}

@@ -1,0 +1,122 @@
+[
+  {
+    "case": "C1d complete history view preserves both samples and audiences pixel for pixel",
+    "path": "browser/attachments/c1d-default-pixel-parity.json",
+    "sha256": "cad16a306f5467618169973b7c1369570a117334c584e4201c1e8383b2aa25ac",
+    "bytes": 1464
+  },
+  {
+    "case": "C1d VIS-01-S01 independent secret restore changes GM pixels while player pixels and PNG remain identical",
+    "path": "browser/attachments/c1d-secret-VIS-01-S01.json",
+    "sha256": "6de00ab79f26e2a2a49bd89a5744171d98dfe2891692d28ee18b7a2806569619",
+    "bytes": 778
+  },
+  {
+    "case": "C1d VIS-02-S02 independent secret restore changes GM pixels while player pixels and PNG remain identical",
+    "path": "browser/attachments/c1d-secret-VIS-02-S02.json",
+    "sha256": "1b8a567f55c34d57fa652e92b349c78cda8db0d0590eb344c586ae663e386fbb",
+    "bytes": 778
+  },
+  {
+    "case": "study complete named history reopens offline and restores a deleted prop without replacing later edits",
+    "path": "browser/attachments/study-c1d-offline-history.json",
+    "sha256": "b9e54f19feea1e6a49df9ce3a31841a8cbc4717cc999956cafc6997ecabcb8cf",
+    "bytes": 9770
+  },
+  {
+    "case": "island complete named history reopens offline and restores a deleted prop without replacing later edits",
+    "path": "browser/attachments/island-c1d-offline-history.json",
+    "sha256": "f1910861741c89fe7ab60997af374d51e3c08cf9c8457deebc7c54fa12ffcc06",
+    "bytes": 9264
+  },
+  {
+    "case": "actual tabs reject stale history metadata and scene CAS while preserving both branches",
+    "path": "browser/attachments/c1d-two-tab-cas.json",
+    "sha256": "86eaa1c1d6621c5024ac4cdf7b0e3f1cbe1fc4b6b768959e8163d71673c2093d",
+    "bytes": 9035
+  },
+  {
+    "case": "C1d preview and cancel preserve the scene; applying protects the current state and restores only the explicit scope",
+    "path": "browser/attachments/c1d-restore-preview.png",
+    "sha256": "b62b70ca5a74dc109d5d442d72dce0ca4ac22e23a26678df049156bf73a5a26e",
+    "bytes": 125361
+  },
+  {
+    "case": "C1d preview and cancel preserve the scene; applying protects the current state and restores only the explicit scope",
+    "path": "browser/attachments/c1d-scoped-restore.json",
+    "sha256": "1fe7cf5117328b491e2b76d4f8cef0841418e5790853f702ea743f30cbb1474a",
+    "bytes": 19940
+  },
+  {
+    "case": "C1d renames and deletes snapshots and downloads exactly the explicitly checked history subset",
+    "path": "browser/attachments/c1d-explicit-backup-subset.json",
+    "sha256": "c0752246345474860e193596197d118326e608e8c6f67f1f9c35ce4208eb23fd",
+    "bytes": 7590
+  },
+  {
+    "case": "C1d virtual history picker retains keyboard focus and exposes complete stable IDs",
+    "path": "browser/attachments/c1d-history-picker.json",
+    "sha256": "57d7db4fafc40e080d6881528db3a0db8fc5b9c9b9e163139f052a3084dd51c3",
+    "bytes": 87
+  },
+  {
+    "case": "C1d complete-entity recreation explicitly reviews newly visible player content",
+    "path": "browser/attachments/c1d-player-visibility-review.png",
+    "sha256": "f9cc6609dc0ad9dad3a22f1f2bb45b96e89946c25443e85e82197c1f124a376a",
+    "bytes": 142803
+  },
+  {
+    "case": "C1d complete-entity recreation explicitly reviews newly visible player content",
+    "path": "browser/attachments/c1d-player-visibility-review.json",
+    "sha256": "49a0ce56326ac1508a66269f7b4f71c866b38e6a19b57dea36cd24f61298427d",
+    "bytes": 4572
+  },
+  {
+    "case": "C1d injected IndexedDB repository write failures roll back named and protection metadata and preserve both scene branches",
+    "path": "browser/attachments/c1d-write-failure-rollback.json",
+    "sha256": "cddf5886a61fc173a3551ff7c857afa251dbd745f267651c9eec697493239aed",
+    "bytes": 13633
+  },
+  {
+    "case": "C1d v3 file migration requires adoption, retains exact source bytes and rejects a strict-schema violation without changing the current project",
+    "path": "browser/attachments/c1d-v3-ui-migration.json",
+    "sha256": "ba7607c3f2dc3d37c614f12257b3074cec8007113d3b17cd79a7f8a16124f05f",
+    "bytes": 11224
+  },
+  {
+    "case": "B4 VIS-01 UI lists all missing dependencies and repair/cancel never replaces the current project",
+    "path": "browser/attachments/missing-dependencies.png",
+    "sha256": "85ffca4752c20714223cd68aeed2af009e71fe1fe6bc398aadcd4b020c91aece",
+    "bytes": 227173
+  },
+  {
+    "case": "B4 VIS-01 UI lists all missing dependencies and repair/cancel never replaces the current project",
+    "path": "browser/attachments/diagnostics.json",
+    "sha256": "f1645a15b97f8741a9a3c644a8417f5b737a5b9446f9860359f35cc3eaca3aa1",
+    "bytes": 576
+  },
+  {
+    "case": "B4 VIS-01 cancelling an actual pending decode discards its late result and retains saved editing history",
+    "path": "browser/attachments/cancel.json",
+    "sha256": "12c4c5f922adee4ebed92e6eb5b35cf23c6a9b0d128557514d2cc6f205048746",
+    "bytes": 159
+  },
+  {
+    "case": "B4 VIS-02 UI lists all missing dependencies and repair/cancel never replaces the current project",
+    "path": "browser/attachments/missing-dependencies-a8799f5bcc.png",
+    "sha256": "a8799f5bccf80c7b40609fe806a6663f6ceaba1384e915ad1cd0e113d476a188",
+    "bytes": 275036
+  },
+  {
+    "case": "B4 VIS-02 UI lists all missing dependencies and repair/cancel never replaces the current project",
+    "path": "browser/attachments/diagnostics-fafbc39dcc.json",
+    "sha256": "fafbc39dcc12651fc40de2b360e117ed2934c09e7a65a5de14f6caa95b36da59",
+    "bytes": 576
+  },
+  {
+    "case": "B4 VIS-02 cancelling an actual pending decode discards its late result and retains saved editing history",
+    "path": "browser/attachments/cancel-96b15b096b.json",
+    "sha256": "96b15b096bc0e526ba99ee5192348f0a445f6ee9b0fb0811cd73033b0f27782a",
+    "bytes": 159
+  }
+]

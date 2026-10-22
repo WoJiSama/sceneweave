@@ -1,0 +1,26 @@
+{
+  "exitCode": 0,
+  "stats": {
+    "startTime": "2026-10-21T09:50:44.036Z",
+    "duration": 10309.062,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "tests": [
+    {
+      "title": "C0 keyboard focus, cancelled pan, candidate/undo retention, audience reset and window resize remain safe",
+      "file": "c0-viewport.spec.ts",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "durationMs": 7254,
+          "retry": 0,
+          "errors": []
+        }
+      ]
+    }
+  ]
+}

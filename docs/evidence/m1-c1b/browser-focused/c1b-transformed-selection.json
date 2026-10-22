@@ -1,0 +1,42 @@
+{
+  "selected": [
+    "c1b-chair-c"
+  ],
+  "zoomMatrix": [
+    {
+      "zoom": 0.25,
+      "selected": [
+        "c1b-chair-a"
+      ],
+      "renderCount": 1
+    },
+    {
+      "zoom": 1,
+      "selected": [
+        "c1b-chair-a"
+      ],
+      "renderCount": 1
+    },
+    {
+      "zoom": 8,
+      "selected": [
+        "c1b-chair-a"
+      ],
+      "renderCount": 1
+    }
+  ],
+  "initialView": {
+    "zoom": 1,
+    "panX": 0,
+    "panY": 0,
+    "renderCount": 1
+  },
+  "finalView": {
+    "zoom": 1.25,
+    "panX": -40,
+    "panY": 0,
+    "renderCount": 1
+  },
+  "documentUnchanged": true,
+  "storageUnchanged": true
+}

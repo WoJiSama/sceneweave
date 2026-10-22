@@ -1,0 +1,7 @@
+{
+  "escape": true,
+  "focusLoss": true,
+  "captureLoss": true,
+  "middleAndSpacePan": true,
+  "documentAndHistoryUnchanged": true
+}

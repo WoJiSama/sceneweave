@@ -1,0 +1,588 @@
+{
+  "measurementClass": "formal-selection-observation",
+  "method": {
+    "runs": 3,
+    "selectionsPerKindPerRun": 30,
+    "requestedCases": [
+      "study-500",
+      "study-2000",
+      "island-500",
+      "island-2000"
+    ],
+    "channel": "chrome",
+    "profile": false,
+    "viewport": {
+      "width": 1512,
+      "height": 982
+    },
+    "dpr": 1,
+    "warmupPairs": 3,
+    "processState": "Fresh dedicated headless Chrome process/profile per case/run; HTTP cache disabled; OS caches not purged. caffeinate -i prevents idle sleep, not lid-closure sleep; keep the laptop lid open during measurements.",
+    "interruptionDetection": "A Node event-loop wall gap over 5 seconds invalidates the run as an environment interruption. Browser Date/performance clock discontinuities over 250ms also invalidate the sample. These detect tool/host suspension, not slow product work on the separate renderer process; slow product samples are retained.",
+    "method": "Real member-mode contained marquee from 100mm inside top-left to 100mm inside bottom-right, eight rAF-paced pointer moves; alternate each with one real marker click. Pointerup capture starts response timing, document bubble follows React handler, MutationObserver requires expected selectedIds and inspector, then two rAF callbacks. All samples and slow observations retained.",
+    "correctness": "Each run calibrates stable actual ID order; prop membership is independently checked against rotated visual corners and fixture entity/container locks. Complete UI package bytes/content, raw IndexedDB stores, revision/save state and base-render count checked before/after.",
+    "limitations": [
+      "Selection DOM readiness is a scheduling/commit proxy, not a direct Canvas drawing boundary or GPU completion.",
+      "Canvas, React and product functions are not wrapped. Formal runs do not use CPU profiler.",
+      "LongTask entries cover main-thread tasks over 50ms and can span multiple phases; no function-level attribution is inferred.",
+      "Pointer event timestamps omit physical/OS input latency. rAF intervals contain browser/automation/observer scheduling.",
+      "Before/after IndexedDB equality does not prove no transient writes occurred.",
+      "Calibrated structural IDs are checked for stability, not independently geometry-audited here.",
+      "No complete QA-PERF-01/04, resource peak, cross-browser or physical presentation claim."
+    ]
+  },
+  "cases": [
+    {
+      "name": "study-500",
+      "runs": 3,
+      "statistics": {
+        "marquee": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 7.700000002980232,
+            "p50": 11.300000004470348,
+            "p95": 18,
+            "max": 21.399999998509884
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 7.700000002980232,
+            "p50": 11.300000004470348,
+            "p95": 17.899999998509884,
+            "max": 21.399999998509884
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 31.100000001490116,
+            "p50": 35.70000000298023,
+            "p95": 51,
+            "max": 53.600000001490116
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 291.79999999701977,
+            "p50": 303.70000000298023,
+            "p95": 335.5,
+            "max": 418.1000000014901
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 0,
+            "p95": 0.10000000149011612,
+            "max": 0.10000000149011612
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 16.699999999999818,
+            "p50": 16.799999999999272,
+            "p95": 33.30000000000109,
+            "max": 33.400000000001455
+          },
+          "frameGapMs": {
+            "n": 1550,
+            "min": 16.5,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 33.400000000001455
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.09999999403953552,
+            "p50": 0.20000000298023224,
+            "p95": 0.5,
+            "max": 3.100000001490116
+          },
+          "longTasks": 0,
+          "longTaskDurationMs": {
+            "n": 0,
+            "min": null,
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        },
+        "replacement": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 0.10000000149011612,
+            "p95": 0.20000000298023224,
+            "max": 0.30000000447034836
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 5.100000001490116,
+            "p50": 7.199999995529652,
+            "p95": 11.200000002980232,
+            "max": 14.799999997019768
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 26.299999997019768,
+            "p50": 39.5,
+            "p95": 89.5,
+            "max": 133.5
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 26.5,
+            "p50": 39.599999994039536,
+            "p95": 89.69999999552965,
+            "max": 133.60000000149012
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 4.899999998509884,
+            "p50": 7,
+            "p95": 10.899999998509884,
+            "max": 14.5
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 16.5,
+            "p50": 16.667999999999665,
+            "p95": 49.9340000000002,
+            "max": 99.90200000000004
+          },
+          "frameGapMs": {
+            "n": 90,
+            "min": 16.5,
+            "p50": 16.667999999999665,
+            "p95": 49.9340000000002,
+            "max": 99.90200000000004
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.10000000149011612,
+            "p50": 0.3999999985098839,
+            "p95": 13.100000001490116,
+            "max": 30
+          },
+          "longTasks": 6,
+          "longTaskDurationMs": {
+            "n": 6,
+            "min": 50,
+            "p50": 52,
+            "p95": 87,
+            "max": 87
+          }
+        }
+      }
+    },
+    {
+      "name": "study-2000",
+      "runs": 3,
+      "statistics": {
+        "marquee": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 38.100000001490116,
+            "p50": 51.80000000447035,
+            "p95": 82.30000000447035,
+            "max": 144
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 38.100000001490116,
+            "p50": 51.79999999701977,
+            "p95": 82.30000000447035,
+            "max": 143.89999999850988
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 104,
+            "p50": 131.5,
+            "p95": 192.89999999850988,
+            "max": 270.70000000298023
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 362.70000000298023,
+            "p50": 399.5,
+            "p95": 536.2999999970198,
+            "max": 640.7999999970198
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 0,
+            "p95": 0.10000000149011612,
+            "max": 0.10000000149011612
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 83.20000000000073,
+            "p50": 100,
+            "p95": 166.70000000000073,
+            "max": 233.29999999999927
+          },
+          "frameGapMs": {
+            "n": 1552,
+            "min": 16.5,
+            "p50": 16.69999999999891,
+            "p95": 83.40000000000146,
+            "max": 233.29999999999927
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.09999999403953552,
+            "p50": 0.29999999701976776,
+            "p95": 0.3999999985098839,
+            "max": 0.6999999955296516
+          },
+          "longTasks": 100,
+          "longTaskDurationMs": {
+            "n": 100,
+            "min": 50,
+            "p50": 91,
+            "p95": 143,
+            "max": 245
+          }
+        },
+        "replacement": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0.09999999403953552,
+            "p50": 0.19999999552965164,
+            "p95": 0.30000000447034836,
+            "max": 1.6000000014901161
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 18.100000001490116,
+            "p50": 22.799999997019768,
+            "p95": 34.5,
+            "max": 69.79999999701977
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 153.69999999552965,
+            "p50": 442.3999999985099,
+            "p95": 531.1999999955297,
+            "max": 572.6999999955297
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 153.89999999850988,
+            "p50": 442.79999999701977,
+            "p95": 531.3999999985099,
+            "max": 572.8999999985099
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 17.700000002980232,
+            "p50": 22.399999998509884,
+            "p95": 34.100000001490116,
+            "max": 67.79999999701977
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 33.177999999999884,
+            "p50": 266.6720000000005,
+            "p95": 383.2360000000008,
+            "max": 400.0040000000008
+          },
+          "frameGapMs": {
+            "n": 90,
+            "min": 33.177999999999884,
+            "p50": 266.6720000000005,
+            "p95": 383.2360000000008,
+            "max": 400.0040000000008
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.19999999552965164,
+            "p50": 56.100000001490116,
+            "p95": 106.30000000447035,
+            "max": 193.70000000298023
+          },
+          "longTasks": 152,
+          "longTaskDurationMs": {
+            "n": 152,
+            "min": 52,
+            "p50": 221,
+            "p95": 396,
+            "max": 463
+          }
+        }
+      }
+    },
+    {
+      "name": "island-500",
+      "runs": 3,
+      "statistics": {
+        "marquee": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 8.100000001490116,
+            "p50": 12.399999998509884,
+            "p95": 19.900000005960464,
+            "max": 28.200000002980232
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 8.100000001490116,
+            "p50": 12.399999998509884,
+            "p95": 19.80000000447035,
+            "max": 28.200000002980232
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 30.299999997019768,
+            "p50": 37.600000001490116,
+            "p95": 52.5,
+            "max": 68.80000000447035
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 288.29999999701977,
+            "p50": 307.20000000298023,
+            "p95": 337.6000000014901,
+            "max": 475.69999999552965
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 0,
+            "p95": 0.10000000149011612,
+            "max": 0.10000000149011612
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 16.699999999999818,
+            "p50": 16.799999999999272,
+            "p95": 33.30000000000109,
+            "max": 50
+          },
+          "frameGapMs": {
+            "n": 1553,
+            "min": 16.5,
+            "p50": 16.69999999999891,
+            "p95": 16.700000000000728,
+            "max": 50
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.09999999403953552,
+            "p50": 0.20000000298023224,
+            "p95": 0.5,
+            "max": 0.7000000029802322
+          },
+          "longTasks": 0,
+          "longTaskDurationMs": {
+            "n": 0,
+            "min": null,
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        },
+        "replacement": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 0.10000000149011612,
+            "p95": 0.20000000298023224,
+            "max": 0.3999999985098839
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 5.100000001490116,
+            "p50": 7.100000001490116,
+            "p95": 11.600000001490116,
+            "max": 17.19999999552965
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 27.899999998509884,
+            "p50": 34.79999999701977,
+            "p95": 64.09999999403954,
+            "max": 88.59999999403954
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 28.099999994039536,
+            "p50": 35,
+            "p95": 64.29999999701977,
+            "max": 88.89999999850988
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 5,
+            "p50": 6.800000004470348,
+            "p95": 11.399999998509884,
+            "max": 17
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 16.667999999999665,
+            "p95": 33.402000000000044,
+            "max": 50
+          },
+          "frameGapMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 16.667999999999665,
+            "p95": 33.402000000000044,
+            "max": 50
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.19999999552965164,
+            "p50": 0.3999999985098839,
+            "p95": 9.799999997019768,
+            "max": 30.900000005960464
+          },
+          "longTasks": 4,
+          "longTaskDurationMs": {
+            "n": 4,
+            "min": 52,
+            "p50": 53,
+            "p95": 58,
+            "max": 58
+          }
+        }
+      }
+    },
+    {
+      "name": "island-2000",
+      "runs": 3,
+      "statistics": {
+        "marquee": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 59,
+            "p50": 67.39999999850988,
+            "p95": 85.89999999850988,
+            "max": 109.19999999552965
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 59,
+            "p50": 67.29999999701977,
+            "p95": 85.79999999701977,
+            "max": 109.19999999552965
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 125.20000000298023,
+            "p50": 145.19999999552965,
+            "p95": 185.69999999552965,
+            "max": 240.79999999701977
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 384,
+            "p50": 414.20000000298023,
+            "p95": 506.70000000298023,
+            "max": 690.3000000044703
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 0,
+            "p95": 0.10000000149011612,
+            "max": 0.10000000149011612
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 99.89999999999964,
+            "p50": 116.69999999999709,
+            "p95": 166.70000000000073,
+            "max": 216.6999999999971
+          },
+          "frameGapMs": {
+            "n": 1552,
+            "min": 16.5,
+            "p50": 16.69999999999891,
+            "p95": 100.10000000000036,
+            "max": 216.6999999999971
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.09999999403953552,
+            "p50": 0.20000000298023224,
+            "p95": 0.4000000059604645,
+            "max": 1
+          },
+          "longTasks": 98,
+          "longTaskDurationMs": {
+            "n": 98,
+            "min": 52,
+            "p50": 103,
+            "p95": 151,
+            "max": 287
+          }
+        },
+        "replacement": {
+          "releaseToHandlerBubbleMs": {
+            "n": 90,
+            "min": 0,
+            "p50": 0.19999999552965164,
+            "p95": 0.30000000447034836,
+            "max": 0.7000000029802322
+          },
+          "releaseToDomMs": {
+            "n": 90,
+            "min": 18.700000002980232,
+            "p50": 23.200000002980232,
+            "p95": 32.5,
+            "max": 46.600000001490116
+          },
+          "releaseToDisplayProxyMs": {
+            "n": 90,
+            "min": 170.60000000149012,
+            "p50": 449.1000000014901,
+            "p95": 522.7999999970198,
+            "max": 582.1000000014901
+          },
+          "pointerdownToDisplayProxyMs": {
+            "n": 90,
+            "min": 170.80000000447035,
+            "p50": 449.30000000447035,
+            "p95": 523.1000000014901,
+            "max": 582.3000000044703
+          },
+          "clickToHandlerBubbleMs": {
+            "n": 90,
+            "min": 18.400000005960464,
+            "p50": 22.900000005960464,
+            "p95": 32.20000000298023,
+            "max": 46.100000001490116
+          },
+          "maxFrameGapMs": {
+            "n": 90,
+            "min": 33.315999999998894,
+            "p50": 283.27399999999943,
+            "p95": 366.5699999999997,
+            "max": 400.0020000000004
+          },
+          "frameGapMs": {
+            "n": 90,
+            "min": 33.315999999998894,
+            "p50": 283.27399999999943,
+            "p95": 366.5699999999997,
+            "max": 400.0020000000004
+          },
+          "queuedUntilCaptureMs": {
+            "n": 90,
+            "min": 0.3999999985098839,
+            "p50": 57.100000001490116,
+            "p95": 83,
+            "max": 266.5
+          },
+          "longTasks": 154,
+          "longTaskDurationMs": {
+            "n": 154,
+            "min": 53,
+            "p50": 226,
+            "p95": 402,
+            "max": 461
+          }
+        }
+      }
+    }
+  ]
+}

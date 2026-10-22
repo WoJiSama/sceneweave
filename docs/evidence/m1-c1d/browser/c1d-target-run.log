@@ -1,0 +1,27 @@
+
+> sceneweave@0.2.0-m1-c1d test:e2e
+> playwright test tests/c1d-storage.spec.ts tests/c1d-renderer.spec.ts tests/c1d-workbench.spec.ts --reporter=list,json
+
+[2m[WebServer] [22m(node:31378) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[2m[WebServer] [22m(Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 12 tests using 1 worker
+
+(node:31380) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:31380) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › tests/c1d-renderer.spec.ts:2:1 › C1d complete history view preserves both samples and audiences pixel for pixel (12.3s)
+  ✓   2 [chromium] › tests/c1d-renderer.spec.ts:87:3 › C1d VIS-01-S01 independent secret restore changes GM pixels while player pixels and PNG remain identical (1.4s)
+  ✓   3 [chromium] › tests/c1d-renderer.spec.ts:87:3 › C1d VIS-02-S02 independent secret restore changes GM pixels while player pixels and PNG remain identical (2.4s)
+  ✓   4 [chromium] › tests/c1d-storage.spec.ts:41:3 › study complete named history reopens offline and restores a deleted prop without replacing later edits (7.1s)
+  ✓   5 [chromium] › tests/c1d-storage.spec.ts:41:3 › island complete named history reopens offline and restores a deleted prop without replacing later edits (10.7s)
+  ✓   6 [chromium] › tests/c1d-storage.spec.ts:263:1 › actual tabs reject stale history metadata and scene CAS while preserving both branches (1.4s)
+  ✓   7 [chromium] › tests/c1d-workbench.spec.ts:157:1 › C1d preview and cancel preserve the scene; applying protects the current state and restores only the explicit scope (3.7s)
+  ✓   8 [chromium] › tests/c1d-workbench.spec.ts:274:1 › C1d renames and deletes snapshots and downloads exactly the explicitly checked history subset (3.9s)
+  ✓   9 [chromium] › tests/c1d-workbench.spec.ts:406:1 › C1d virtual history picker retains keyboard focus and exposes complete stable IDs (1.7s)
+  ✓  10 [chromium] › tests/c1d-workbench.spec.ts:478:1 › C1d complete-entity recreation explicitly reviews newly visible player content (2.2s)
+  ✓  11 [chromium] › tests/c1d-workbench.spec.ts:545:1 › C1d injected IndexedDB repository write failures roll back named and protection metadata and preserve both scene branches (3.4s)
+  ✓  12 [chromium] › tests/c1d-workbench.spec.ts:663:1 › C1d v3 file migration requires adoption, retains exact source bytes and rejects a strict-schema violation without changing the current project (1.8s)
+
+  12 passed (54.4s)

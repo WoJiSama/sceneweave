@@ -1,0 +1,66 @@
+[
+  {
+    "name": "study",
+    "audience": "gm",
+    "width": 4096,
+    "height": 2926,
+    "differingChannels": 0,
+    "hash": "4465c2d3e29518a6b30ad851523cdeeee3e7f52c10bf6f7871a858b047bac4d2",
+    "viewKeys": [
+      "assets",
+      "document",
+      "licenseBindings",
+      "licenses"
+    ],
+    "sourceUnchanged": true,
+    "historyMetadataInPng": false
+  },
+  {
+    "name": "study",
+    "audience": "player",
+    "width": 4096,
+    "height": 2926,
+    "differingChannels": 0,
+    "hash": "4465c2d3e29518a6b30ad851523cdeeee3e7f52c10bf6f7871a858b047bac4d2",
+    "viewKeys": [
+      "assets",
+      "document",
+      "licenseBindings",
+      "licenses"
+    ],
+    "sourceUnchanged": true,
+    "historyMetadataInPng": false
+  },
+  {
+    "name": "island",
+    "audience": "gm",
+    "width": 4096,
+    "height": 3686,
+    "differingChannels": 0,
+    "hash": "b53a5352d371dcae1766242ea504c62b8aaba9eda3c2b4e798a743e42851b7e6",
+    "viewKeys": [
+      "assets",
+      "document",
+      "licenseBindings",
+      "licenses"
+    ],
+    "sourceUnchanged": true,
+    "historyMetadataInPng": false
+  },
+  {
+    "name": "island",
+    "audience": "player",
+    "width": 4096,
+    "height": 3686,
+    "differingChannels": 0,
+    "hash": "b53a5352d371dcae1766242ea504c62b8aaba9eda3c2b4e798a743e42851b7e6",
+    "viewKeys": [
+      "assets",
+      "document",
+      "licenseBindings",
+      "licenses"
+    ],
+    "sourceUnchanged": true,
+    "historyMetadataInPng": false
+  }
+]

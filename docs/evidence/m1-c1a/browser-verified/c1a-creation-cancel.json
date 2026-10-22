@@ -1,0 +1,18 @@
+{
+  "cancelledDuringAssetFetch": true,
+  "sceneId": "6b66ad38-3f82-401a-b90c-184fe4fab1cb",
+  "revision": 2,
+  "memoryAndStoragePreserved": true,
+  "resourceCounts": {
+    "scenes": 1,
+    "snapshots": 2,
+    "resourceBindings": 2,
+    "assetBlobs": 18,
+    "licenseTexts": 1
+  },
+  "lateResponseAttempted": true,
+  "requestFailure": {
+    "errorText": "net::ERR_ABORTED"
+  },
+  "lateResponseError": null
+}

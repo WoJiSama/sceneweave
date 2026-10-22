@@ -1,0 +1,34 @@
+{
+  "url": "http://127.0.0.1:4173/sceneweave/#history",
+  "browser": "155.0.8059.84",
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  },
+  "errors": [],
+  "consoleErrors": [
+    {
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "url": "http://127.0.0.1:4173/favicon.ico"
+    }
+  ],
+  "httpErrors": [],
+  "screenshots": [
+    "history-preview-desktop.png",
+    "history-preview-narrow.png"
+  ],
+  "productDevApisAbsent": true,
+  "initialRevision": 0,
+  "initialRotation": 0,
+  "beforeRestoreRevision": 2,
+  "narrowViewport": {
+    "width": 390,
+    "height": 844
+  },
+  "narrowDocumentWidth": 390,
+  "cancelPreservesRevisionAndHistory": true,
+  "adoptedRevision": 2,
+  "status": "failed",
+  "failure": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 3\nReceived: 2",
+  "finishedAt": "2026-10-22T04:06:20.463Z"
+}

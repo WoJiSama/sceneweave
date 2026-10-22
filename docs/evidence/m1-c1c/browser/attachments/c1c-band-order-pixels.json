@@ -1,0 +1,70 @@
+[
+  {
+    "label": "later-layer-overrides-local-order",
+    "rgba": [
+      148,
+      103,
+      85,
+      255
+    ],
+    "bands": [
+      "object",
+      "object"
+    ],
+    "layers": [
+      0,
+      1
+    ]
+  },
+  {
+    "label": "reverse-layers",
+    "rgba": [
+      113,
+      134,
+      90,
+      255
+    ],
+    "bands": [
+      "object",
+      "object"
+    ],
+    "layers": [
+      1,
+      0
+    ]
+  },
+  {
+    "label": "ground-cannot-cover-object",
+    "rgba": [
+      113,
+      134,
+      90,
+      255
+    ],
+    "bands": [
+      "object",
+      "ground"
+    ],
+    "layers": [
+      0,
+      1
+    ]
+  },
+  {
+    "label": "canopy-stays-above-object",
+    "rgba": [
+      148,
+      103,
+      85,
+      255
+    ],
+    "bands": [
+      "object",
+      "canopy"
+    ],
+    "layers": [
+      1,
+      0
+    ]
+  }
+]

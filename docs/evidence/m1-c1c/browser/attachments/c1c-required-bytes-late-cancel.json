@@ -1,0 +1,109 @@
+{
+  "attempts": [
+    {
+      "damage": "missing",
+      "mode": "hidden",
+      "error": "Error: 绘制所需素材 b4-private-object-image 缺失，无法生成完整图片。",
+      "playerSucceeded": true
+    },
+    {
+      "damage": "missing",
+      "mode": "offscreen",
+      "error": "Error: 绘制所需素材 b4-private-object-image 缺失，无法生成完整图片。",
+      "playerSucceeded": true
+    },
+    {
+      "damage": "missing",
+      "mode": "tiny",
+      "error": "Error: 绘制所需素材 b4-private-object-image 缺失，无法生成完整图片。",
+      "playerSucceeded": true
+    },
+    {
+      "damage": "corrupt",
+      "mode": "hidden",
+      "error": "Error: M1 工程无效：PNG CRC 校验失败。",
+      "playerSucceeded": true
+    },
+    {
+      "damage": "corrupt",
+      "mode": "offscreen",
+      "error": "Error: M1 工程无效：PNG CRC 校验失败。",
+      "playerSucceeded": true
+    },
+    {
+      "damage": "corrupt",
+      "mode": "tiny",
+      "error": "Error: M1 工程无效：PNG CRC 校验失败。",
+      "playerSucceeded": true
+    }
+  ],
+  "gmError": "AbortError",
+  "actual": [
+    {
+      "hash": "8159c5e8f3e787c01a93530a911b5c6de7d109968eb8ac071cbdbf46fdc21c5e",
+      "closed": true,
+      "phase": "gm"
+    },
+    {
+      "hash": "8159c5e8f3e787c01a93530a911b5c6de7d109968eb8ac071cbdbf46fdc21c5e",
+      "closed": true,
+      "phase": "player"
+    },
+    {
+      "hash": "ce6e02c78330d60b9a50a017709484d84b634eb19dfda5f5ec586088d8b751e9",
+      "closed": true,
+      "phase": "player"
+    },
+    {
+      "hash": "663759a20d85306fbcfa651979a80fbe0c6e778615b9788d5b888e9948a810d1",
+      "closed": true,
+      "phase": "player"
+    },
+    {
+      "hash": "9074593175cf3c30f0c85b54b72c25ad172980c181f92233892cc1196f121c32",
+      "closed": true,
+      "phase": "player"
+    },
+    {
+      "hash": "a5544d511fee8e040b643abbd374d97cd474e0c8a8b43d958bd798781ad62567",
+      "closed": true,
+      "phase": "player"
+    },
+    {
+      "hash": "502cc2ea4193792ff3564ab8f2afa13360be487da3288a6a07041b9fb3449e55",
+      "closed": true,
+      "phase": "player"
+    },
+    {
+      "hash": "82ed098421bdc7a8498e24933766795f867f51016ccd8da05dc419174d52a839",
+      "closed": true,
+      "phase": "player"
+    },
+    {
+      "hash": "1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337",
+      "closed": true,
+      "phase": "player"
+    }
+  ],
+  "expectedPlayer": [
+    "1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337",
+    "502cc2ea4193792ff3564ab8f2afa13360be487da3288a6a07041b9fb3449e55",
+    "663759a20d85306fbcfa651979a80fbe0c6e778615b9788d5b888e9948a810d1",
+    "8159c5e8f3e787c01a93530a911b5c6de7d109968eb8ac071cbdbf46fdc21c5e",
+    "82ed098421bdc7a8498e24933766795f867f51016ccd8da05dc419174d52a839",
+    "9074593175cf3c30f0c85b54b72c25ad172980c181f92233892cc1196f121c32",
+    "a5544d511fee8e040b643abbd374d97cd474e0c8a8b43d958bd798781ad62567",
+    "ce6e02c78330d60b9a50a017709484d84b634eb19dfda5f5ec586088d8b751e9"
+  ],
+  "actualPlayer": [
+    "1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337",
+    "502cc2ea4193792ff3564ab8f2afa13360be487da3288a6a07041b9fb3449e55",
+    "663759a20d85306fbcfa651979a80fbe0c6e778615b9788d5b888e9948a810d1",
+    "8159c5e8f3e787c01a93530a911b5c6de7d109968eb8ac071cbdbf46fdc21c5e",
+    "82ed098421bdc7a8498e24933766795f867f51016ccd8da05dc419174d52a839",
+    "9074593175cf3c30f0c85b54b72c25ad172980c181f92233892cc1196f121c32",
+    "a5544d511fee8e040b643abbd374d97cd474e0c8a8b43d958bd798781ad62567",
+    "ce6e02c78330d60b9a50a017709484d84b634eb19dfda5f5ec586088d8b751e9"
+  ],
+  "playerHash": "ae7d3fecaae06afd7d9226d6c5cfec8d28ebffcfd50f1d3488e2b3fa5c85d571"
+}

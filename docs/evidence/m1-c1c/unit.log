@@ -1,0 +1,13 @@
+
+> sceneweave@0.2.0-m1-c1c test
+> vitest run
+
+
+ RUN  v4.1.12 /Users/shiqi/IdeaProjects/sceneweave
+
+
+ Test Files  47 passed (47)
+      Tests  568 passed (568)
+   Start at  00:29:10
+   Duration  13.37s (transform 4.27s, setup 0ms, import 16.55s, tests 57.96s, environment 12ms)
+

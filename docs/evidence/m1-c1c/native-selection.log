@@ -1,0 +1,36 @@
+Measuring production layers selection study-500-run-1
+Complete study-500-run-1: marquee release→double-rAF p95 32.8ms; replacement 29.1ms
+Closed study-500-run-1: 100ms; forced kill=false
+Measuring production layers selection study-500-run-2
+Complete study-500-run-2: marquee release→double-rAF p95 32.0ms; replacement 27.8ms
+Closed study-500-run-2: 117ms; forced kill=false
+Measuring production layers selection study-500-run-3
+Complete study-500-run-3: marquee release→double-rAF p95 32.6ms; replacement 29.9ms
+Closed study-500-run-3: 96ms; forced kill=false
+Measuring production layers selection study-2000-run-1
+Complete study-2000-run-1: marquee release→double-rAF p95 31.8ms; replacement 28.1ms
+Closed study-2000-run-1: 106ms; forced kill=false
+Measuring production layers selection study-2000-run-2
+Complete study-2000-run-2: marquee release→double-rAF p95 32.0ms; replacement 27.1ms
+Closed study-2000-run-2: 120ms; forced kill=false
+Measuring production layers selection study-2000-run-3
+Complete study-2000-run-3: marquee release→double-rAF p95 32.4ms; replacement 27.9ms
+Closed study-2000-run-3: 109ms; forced kill=false
+Measuring production layers selection island-500-run-1
+Complete island-500-run-1: marquee release→double-rAF p95 31.0ms; replacement 27.1ms
+Closed island-500-run-1: 99ms; forced kill=false
+Measuring production layers selection island-500-run-2
+Complete island-500-run-2: marquee release→double-rAF p95 31.4ms; replacement 28.6ms
+Closed island-500-run-2: 115ms; forced kill=false
+Measuring production layers selection island-500-run-3
+Complete island-500-run-3: marquee release→double-rAF p95 32.9ms; replacement 30.7ms
+Closed island-500-run-3: 104ms; forced kill=false
+Measuring production layers selection island-2000-run-1
+Complete island-2000-run-1: marquee release→double-rAF p95 32.8ms; replacement 27.2ms
+Closed island-2000-run-1: 5030ms; forced kill=false
+Measuring production layers selection island-2000-run-2
+Complete island-2000-run-2: marquee release→double-rAF p95 32.6ms; replacement 27.5ms
+Closed island-2000-run-2: 245ms; forced kill=false
+Measuring production layers selection island-2000-run-3
+Complete island-2000-run-3: marquee release→double-rAF p95 32.8ms; replacement 27.7ms
+Closed island-2000-run-3: 5032ms; forced kill=false

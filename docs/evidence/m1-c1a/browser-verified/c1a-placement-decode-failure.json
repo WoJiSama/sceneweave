@@ -1,0 +1,9 @@
+{
+  "injectedFailure": "C1a placement decoder unavailable",
+  "failedDecodeCalls": 1,
+  "previewDiscarded": true,
+  "failedAttemptPreservedMemoryAndStorage": true,
+  "laterPlacementId": "dd130fe3-749e-4a49-9a44-31e1c9cc6491",
+  "laterRevision": 1,
+  "browserErrors": []
+}

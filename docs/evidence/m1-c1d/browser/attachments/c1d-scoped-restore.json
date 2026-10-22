@@ -1,0 +1,845 @@
+{
+  "before": {
+    "format": "sceneweave",
+    "schemaVersion": 3,
+    "sceneId": "ff8650bf-7b12-4080-a371-445c3697c496",
+    "revision": 3,
+    "title": "历史交互 2 件",
+    "createdAt": "2026-10-21T00:00:00.000Z",
+    "updatedAt": "2026-10-22T03:51:52.631Z",
+    "units": {
+      "world": "mm",
+      "display": "m",
+      "gridSizeMm": 1000,
+      "snapMm": 100,
+      "gridVisible": false
+    },
+    "exportBoundsMm": {
+      "x": 0,
+      "y": 0,
+      "width": 20000,
+      "height": 20000
+    },
+    "floors": {
+      "blank-floor": {
+        "id": "blank-floor",
+        "name": "一层",
+        "boundsMm": {
+          "x": 0,
+          "y": 0,
+          "width": 20000,
+          "height": 20000
+        }
+      }
+    },
+    "vertices": {},
+    "rooms": {},
+    "walls": {},
+    "openings": {},
+    "props": {
+      "item-000": {
+        "id": "item-000",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 4400,
+          "y": 2000
+        },
+        "rotationDeg": 35,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      },
+      "item-001": {
+        "id": "item-001",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 7300,
+          "y": 2000
+        },
+        "rotationDeg": 0,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      }
+    },
+    "regions": {},
+    "notes": {},
+    "assets": {},
+    "presetSnapshot": {
+      "presetId": "investigation",
+      "presetVersion": 1,
+      "distanceMode": "metric",
+      "source": "Sceneweave 通用调查偏好；非官方规则",
+      "gridSizeMm": 1000
+    },
+    "constraints": {
+      "entranceOpeningIds": [],
+      "wallEndClearanceMm": 100,
+      "minDoorWidthMm": 900,
+      "pathChecks": []
+    },
+    "propDefinitions": {},
+    "materials": {},
+    "terrainAreas": {},
+    "terrainEdges": {},
+    "terrainConnections": {},
+    "paths": {},
+    "prefabDefinitions": {},
+    "prefabInstances": {},
+    "scatterGroups": {},
+    "styleThemes": {},
+    "activeStyleThemeRef": null,
+    "userLayers": {
+      "layer-default-0": {
+        "id": "layer-default-0",
+        "floorId": "blank-floor",
+        "name": "默认图层",
+        "order": 0,
+        "editLocked": false
+      }
+    },
+    "entityLayers": {
+      "item-000": "layer-default-0",
+      "item-001": "layer-default-0"
+    }
+  },
+  "adopted": {
+    "format": "sceneweave",
+    "schemaVersion": 3,
+    "sceneId": "ff8650bf-7b12-4080-a371-445c3697c496",
+    "revision": 4,
+    "title": "历史交互 2 件",
+    "createdAt": "2026-10-21T00:00:00.000Z",
+    "updatedAt": "2026-10-22T03:51:53.762Z",
+    "units": {
+      "world": "mm",
+      "display": "m",
+      "gridSizeMm": 1000,
+      "snapMm": 100,
+      "gridVisible": false
+    },
+    "exportBoundsMm": {
+      "x": 0,
+      "y": 0,
+      "width": 20000,
+      "height": 20000
+    },
+    "floors": {
+      "blank-floor": {
+        "id": "blank-floor",
+        "name": "一层",
+        "boundsMm": {
+          "x": 0,
+          "y": 0,
+          "width": 20000,
+          "height": 20000
+        }
+      }
+    },
+    "vertices": {},
+    "rooms": {},
+    "walls": {},
+    "openings": {},
+    "props": {
+      "item-000": {
+        "id": "item-000",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 2000,
+          "y": 2000
+        },
+        "rotationDeg": 0,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      },
+      "item-001": {
+        "id": "item-001",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 7300,
+          "y": 2000
+        },
+        "rotationDeg": 0,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      }
+    },
+    "regions": {},
+    "notes": {},
+    "assets": {},
+    "presetSnapshot": {
+      "presetId": "investigation",
+      "presetVersion": 1,
+      "distanceMode": "metric",
+      "source": "Sceneweave 通用调查偏好；非官方规则",
+      "gridSizeMm": 1000
+    },
+    "constraints": {
+      "entranceOpeningIds": [],
+      "wallEndClearanceMm": 100,
+      "minDoorWidthMm": 900,
+      "pathChecks": []
+    },
+    "propDefinitions": {},
+    "materials": {},
+    "terrainAreas": {},
+    "terrainEdges": {},
+    "terrainConnections": {},
+    "paths": {},
+    "prefabDefinitions": {},
+    "prefabInstances": {},
+    "scatterGroups": {},
+    "styleThemes": {},
+    "activeStyleThemeRef": null,
+    "userLayers": {
+      "layer-default-0": {
+        "id": "layer-default-0",
+        "floorId": "blank-floor",
+        "name": "默认图层",
+        "order": 0,
+        "editLocked": false
+      }
+    },
+    "entityLayers": {
+      "item-000": "layer-default-0",
+      "item-001": "layer-default-0"
+    }
+  },
+  "entries": [
+    {
+      "id": "d5a3d394-4562-48e4-b5e0-99423f344878",
+      "sceneId": "ff8650bf-7b12-4080-a371-445c3697c496",
+      "lineageId": "6f7de1d6-478b-4a5f-a84d-fcbb92d84d88",
+      "sourceRevision": 3,
+      "name": "恢复前 · 位置初稿",
+      "kind": "protection",
+      "createdAt": "2026-10-22T03:51:53.750Z",
+      "contentHash": "5044ad0c0be65de444fd453ef6010a829bb521931270ebcec07318fb4c8e4649"
+    },
+    {
+      "id": "8255e666-b03f-49fa-8b0c-0bc710c88efe",
+      "sceneId": "ff8650bf-7b12-4080-a371-445c3697c496",
+      "lineageId": "6f7de1d6-478b-4a5f-a84d-fcbb92d84d88",
+      "sourceRevision": 0,
+      "name": "位置初稿",
+      "kind": "named",
+      "createdAt": "2026-10-22T03:51:51.860Z",
+      "contentHash": "b2c9d7603cc5e65b84350f42edc0e9b1536dddae713b6ad0ac39e4befaff4d1c"
+    }
+  ],
+  "protection": {
+    "format": "sceneweave",
+    "schemaVersion": 3,
+    "sceneId": "ff8650bf-7b12-4080-a371-445c3697c496",
+    "revision": 3,
+    "title": "历史交互 2 件",
+    "createdAt": "2026-10-21T00:00:00.000Z",
+    "updatedAt": "2026-10-22T03:51:52.631Z",
+    "units": {
+      "world": "mm",
+      "display": "m",
+      "gridSizeMm": 1000,
+      "snapMm": 100,
+      "gridVisible": false
+    },
+    "exportBoundsMm": {
+      "x": 0,
+      "y": 0,
+      "width": 20000,
+      "height": 20000
+    },
+    "floors": {
+      "blank-floor": {
+        "id": "blank-floor",
+        "name": "一层",
+        "boundsMm": {
+          "x": 0,
+          "y": 0,
+          "width": 20000,
+          "height": 20000
+        }
+      }
+    },
+    "vertices": {},
+    "rooms": {},
+    "walls": {},
+    "openings": {},
+    "props": {
+      "item-000": {
+        "id": "item-000",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 4400,
+          "y": 2000
+        },
+        "rotationDeg": 35,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      },
+      "item-001": {
+        "id": "item-001",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 7300,
+          "y": 2000
+        },
+        "rotationDeg": 0,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      }
+    },
+    "regions": {},
+    "notes": {},
+    "assets": {},
+    "presetSnapshot": {
+      "presetId": "investigation",
+      "presetVersion": 1,
+      "distanceMode": "metric",
+      "source": "Sceneweave 通用调查偏好；非官方规则",
+      "gridSizeMm": 1000
+    },
+    "constraints": {
+      "entranceOpeningIds": [],
+      "wallEndClearanceMm": 100,
+      "minDoorWidthMm": 900,
+      "pathChecks": []
+    },
+    "propDefinitions": {},
+    "materials": {},
+    "terrainAreas": {},
+    "terrainEdges": {},
+    "terrainConnections": {},
+    "paths": {},
+    "prefabDefinitions": {},
+    "prefabInstances": {},
+    "scatterGroups": {},
+    "styleThemes": {},
+    "activeStyleThemeRef": null,
+    "userLayers": {
+      "layer-default-0": {
+        "id": "layer-default-0",
+        "floorId": "blank-floor",
+        "name": "默认图层",
+        "order": 0,
+        "editLocked": false
+      }
+    },
+    "entityLayers": {
+      "item-000": "layer-default-0",
+      "item-001": "layer-default-0"
+    }
+  },
+  "undone": {
+    "format": "sceneweave",
+    "schemaVersion": 3,
+    "sceneId": "ff8650bf-7b12-4080-a371-445c3697c496",
+    "revision": 5,
+    "title": "历史交互 2 件",
+    "createdAt": "2026-10-21T00:00:00.000Z",
+    "updatedAt": "2026-10-22T03:51:53.944Z",
+    "units": {
+      "world": "mm",
+      "display": "m",
+      "gridSizeMm": 1000,
+      "snapMm": 100,
+      "gridVisible": false
+    },
+    "exportBoundsMm": {
+      "x": 0,
+      "y": 0,
+      "width": 20000,
+      "height": 20000
+    },
+    "floors": {
+      "blank-floor": {
+        "id": "blank-floor",
+        "name": "一层",
+        "boundsMm": {
+          "x": 0,
+          "y": 0,
+          "width": 20000,
+          "height": 20000
+        }
+      }
+    },
+    "vertices": {},
+    "rooms": {},
+    "walls": {},
+    "openings": {},
+    "props": {
+      "item-000": {
+        "id": "item-000",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 4400,
+          "y": 2000
+        },
+        "rotationDeg": 35,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      },
+      "item-001": {
+        "id": "item-001",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 7300,
+          "y": 2000
+        },
+        "rotationDeg": 0,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      }
+    },
+    "regions": {},
+    "notes": {},
+    "assets": {},
+    "presetSnapshot": {
+      "presetId": "investigation",
+      "presetVersion": 1,
+      "distanceMode": "metric",
+      "source": "Sceneweave 通用调查偏好；非官方规则",
+      "gridSizeMm": 1000
+    },
+    "constraints": {
+      "entranceOpeningIds": [],
+      "wallEndClearanceMm": 100,
+      "minDoorWidthMm": 900,
+      "pathChecks": []
+    },
+    "propDefinitions": {},
+    "materials": {},
+    "terrainAreas": {},
+    "terrainEdges": {},
+    "terrainConnections": {},
+    "paths": {},
+    "prefabDefinitions": {},
+    "prefabInstances": {},
+    "scatterGroups": {},
+    "styleThemes": {},
+    "activeStyleThemeRef": null,
+    "userLayers": {
+      "layer-default-0": {
+        "id": "layer-default-0",
+        "floorId": "blank-floor",
+        "name": "默认图层",
+        "order": 0,
+        "editLocked": false
+      }
+    },
+    "entityLayers": {
+      "item-000": "layer-default-0",
+      "item-001": "layer-default-0"
+    }
+  },
+  "redone": {
+    "format": "sceneweave",
+    "schemaVersion": 3,
+    "sceneId": "ff8650bf-7b12-4080-a371-445c3697c496",
+    "revision": 6,
+    "title": "历史交互 2 件",
+    "createdAt": "2026-10-21T00:00:00.000Z",
+    "updatedAt": "2026-10-22T03:51:54.344Z",
+    "units": {
+      "world": "mm",
+      "display": "m",
+      "gridSizeMm": 1000,
+      "snapMm": 100,
+      "gridVisible": false
+    },
+    "exportBoundsMm": {
+      "x": 0,
+      "y": 0,
+      "width": 20000,
+      "height": 20000
+    },
+    "floors": {
+      "blank-floor": {
+        "id": "blank-floor",
+        "name": "一层",
+        "boundsMm": {
+          "x": 0,
+          "y": 0,
+          "width": 20000,
+          "height": 20000
+        }
+      }
+    },
+    "vertices": {},
+    "rooms": {},
+    "walls": {},
+    "openings": {},
+    "props": {
+      "item-000": {
+        "id": "item-000",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 2000,
+          "y": 2000
+        },
+        "rotationDeg": 0,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      },
+      "item-001": {
+        "id": "item-001",
+        "floorId": "blank-floor",
+        "editLocked": false,
+        "definitionRef": null,
+        "appearance": {
+          "kind": "symbol",
+          "symbol": "table",
+          "tint": null,
+          "opacity": 1
+        },
+        "positionMm": {
+          "x": 7300,
+          "y": 2000
+        },
+        "rotationDeg": 0,
+        "visualBoundsMm": {
+          "x": -100,
+          "y": -100,
+          "width": 200,
+          "height": 200
+        },
+        "footprintMm": {
+          "width": 200,
+          "height": 200
+        },
+        "footprintOffsetMm": {
+          "x": 0,
+          "y": 0
+        },
+        "blocksMovement": false,
+        "blocksSight": false,
+        "renderLayer": "object",
+        "renderOrder": 0,
+        "shadowClass": "none",
+        "shadowOverride": null,
+        "visibility": "public",
+        "supportRef": {
+          "kind": "floor",
+          "id": "blank-floor"
+        }
+      }
+    },
+    "regions": {},
+    "notes": {},
+    "assets": {},
+    "presetSnapshot": {
+      "presetId": "investigation",
+      "presetVersion": 1,
+      "distanceMode": "metric",
+      "source": "Sceneweave 通用调查偏好；非官方规则",
+      "gridSizeMm": 1000
+    },
+    "constraints": {
+      "entranceOpeningIds": [],
+      "wallEndClearanceMm": 100,
+      "minDoorWidthMm": 900,
+      "pathChecks": []
+    },
+    "propDefinitions": {},
+    "materials": {},
+    "terrainAreas": {},
+    "terrainEdges": {},
+    "terrainConnections": {},
+    "paths": {},
+    "prefabDefinitions": {},
+    "prefabInstances": {},
+    "scatterGroups": {},
+    "styleThemes": {},
+    "activeStyleThemeRef": null,
+    "userLayers": {
+      "layer-default-0": {
+        "id": "layer-default-0",
+        "floorId": "blank-floor",
+        "name": "默认图层",
+        "order": 0,
+        "editLocked": false
+      }
+    },
+    "entityLayers": {
+      "item-000": "layer-default-0",
+      "item-001": "layer-default-0"
+    }
+  },
+  "errors": []
+}

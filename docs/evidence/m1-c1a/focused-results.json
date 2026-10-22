@@ -1,0 +1,12 @@
+{
+  "command": "B4 offline reopen + C1a focused regression",
+  "exitCode": 0,
+  "stats": {
+    "startTime": "2026-10-21T08:30:01.501Z",
+    "duration": 47943.486000000004,
+    "expected": 7,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "focused": {
+    "report": "browser-focused.json",
+    "exitCode": 0,
+    "passed": 11,
+    "stats": {
+      "startTime": "2026-10-21T09:38:54.946Z",
+      "duration": 59532.05,
+      "expected": 11,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "full": {
+    "report": "browser-full.json",
+    "compactReport": "browser-full-compact.json",
+    "exitCode": 130,
+    "passed": 84,
+    "failed": 1,
+    "testExecutionCompleted": true,
+    "failure": "C0 keyboard test checked panX before ResizeObserver -> rAF completed after cancelling a candidate. Expected -40, received -36.024844720496894 at tests/c0-viewport.spec.ts:252 / helper line 69.",
+    "processNote": "The CLI HTML reporter kept a report server open after finalized results. SIGINT closed only that report process."
+  },
+  "exactRecheck": {
+    "report": "c0-resize-recheck.json",
+    "exitCode": 0,
+    "passed": 1,
+    "stats": {
+      "startTime": "2026-10-21T09:50:44.036Z",
+      "duration": 10309.062,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "change": "Only a double-rAF settle was added after cancelling the candidate. Expected values and precision unchanged; product source unchanged."
+  },
+  "additionalC0File": {
+    "report": "c0-verified.json",
+    "exitCode": 130,
+    "reportedPassed": 6,
+    "stats": {
+      "startTime": "2026-10-21T09:51:10.256Z",
+      "duration": 138395.591,
+      "expected": 6,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "note": "All six results finalized as passed after SIGINT released runner cleanup. Chrome had already exited while Playwright awaited its close notification; this command is not recorded as successful."
+  },
+  "coverageStatement": "The original full run finalized 84 passes; its only failed case subsequently passed with unchanged numeric expectations in an exit-0 exact recheck. All 85 distinct browser cases therefore have a passing result. There was no single exit-0 85/85 run after the test-only synchronization change.",
+  "sourceHashes": {
+    "tests/c1b-selection.spec.ts": "4def1916feffc5634026142460c7661a8f5c0bcde7da47f107aebb0c995b7f98",
+    "tests/c0-viewport.spec.ts": "b95ba8d2cb4733f1dcdc8781c727895516c2062ab69f10e524f9b0d1f7f4712f"
+  },
+  "limits": [
+    "Chromium via installed Chrome, single worker, one host; not cross-browser verification.",
+    "Four C1b load cases use archived B5 real-asset packages. Pointer and rAF observations do not establish GPU/display latency or complete interaction performance acceptance.",
+    "The focused 2000-prop samples retained slow post-pointerup frame gaps of about 283 ms (study) and 350 ms (island)."
+  ]
+}

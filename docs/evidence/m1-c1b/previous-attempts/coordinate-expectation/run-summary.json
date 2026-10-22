@@ -1,0 +1,21 @@
+{
+  "command": "SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c1b-selection.spec.ts --workers=1",
+  "exitCode": 130,
+  "passed": 4,
+  "failed": 1,
+  "interrupted": 1,
+  "didNotRun": 5,
+  "failure": "The captured-context-point assertion used requested fractional mouse coordinates. Chromium emitted quantized client coordinates: expected X=5500 but the actual trusted contextmenu event produced X=5494. The test now independently derives its expectation from the real event and displayed canvas rectangle.",
+  "interruption": "After saving the failed screenshot/context, the browser process had already exited while Playwright was waiting for worker cleanup. Only the owned Playwright runner was interrupted with SIGINT. This run is not a successful command.",
+  "artifacts": [
+    "c1b-selection-C1b-context--6058c--captured-blank-world-point-chromium/error-context.md",
+    "c1b-selection-C1b-context--6058c--captured-blank-world-point-chromium/test-failed-1.png",
+    "c1b-selection-C1b-context--6058c--captured-blank-world-point-chromium/trace.zip",
+    "playwright-report/index.html"
+  ],
+  "archivedArtifacts": [
+    "test-failed-1.png",
+    "error-context.md"
+  ],
+  "completeRawLocation": "ignored local work directory; historical run was not successful"
+}

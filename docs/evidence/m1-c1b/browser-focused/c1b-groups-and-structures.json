@@ -1,0 +1,21 @@
+{
+  "movedMemberIds": [
+    "study-desk",
+    "study-chair",
+    "study-books-left",
+    "study-books-middle",
+    "study-books-right",
+    "study-papers",
+    "terrace-table",
+    "terrace-chair-north",
+    "terrace-chair-south"
+  ],
+  "groupMoveRevision": 1,
+  "groupLockRevision": 2,
+  "groupUnlockRevision": 3,
+  "mixedSelection": [
+    "study-chair",
+    "study-w0"
+  ],
+  "disabledReasonVisible": true
+}

@@ -1,0 +1,984 @@
+{
+  "method": {
+    "workbench": "layers",
+    "workbenchTestId": "layer-workbench",
+    "route": "#layers",
+    "fixturePreparation": "Original strict v2 B5 archived package imported through the native v3 UI as a complete independent migrated copy; migration is excluded from selection timing.",
+    "runs": 3,
+    "selectionsPerKindPerRun": 30,
+    "requestedCases": [
+      "study-500",
+      "study-2000",
+      "island-500",
+      "island-2000"
+    ],
+    "channel": "chrome",
+    "profile": false,
+    "diagnostic": false,
+    "isolations": [],
+    "isolationRules": {},
+    "trace": false,
+    "diagnosticTailMs": 0,
+    "viewport": {
+      "width": 1512,
+      "height": 982
+    },
+    "dpr": 1,
+    "warmupPairs": 3,
+    "processState": "Fresh dedicated headless Chrome process/profile per case/run; HTTP cache disabled; OS caches not purged. caffeinate -i prevents idle sleep, not lid-closure sleep; keep the laptop lid open during measurements.",
+    "interruptionDetection": "A Node event-loop wall gap over 5 seconds invalidates the run as an environment interruption. Browser Date/performance clock discontinuities over 250ms also invalidate the sample. These detect tool/host suspension, not slow product work on the separate renderer process; slow product samples are retained.",
+    "method": "Real member-mode contained marquee from 100mm inside top-left to 100mm inside bottom-right, eight rAF-paced pointer moves; alternate each with one real marker click. Pointerup capture starts response timing, document bubble follows React handler, MutationObserver requires expected selectedIds and inspector, then two rAF callbacks. All samples and slow observations retained.",
+    "correctness": "Each run calibrates stable actual ID order; prop membership is independently checked against rotated visual corners and fixture entity/container locks. Complete UI package bytes/content, raw IndexedDB stores, revision/save state and base-render count checked before/after. When exposed, initial viewport refinement finishes and stabilizes for 320ms in setup; per-sample and whole-window refinement counts must remain unchanged.",
+    "limitations": [
+      "Selection DOM readiness is a scheduling/commit proxy, not a direct Canvas drawing boundary or GPU completion.",
+      "Canvas, React and product functions are not wrapped. Formal runs do not use CPU profiler.",
+      "LongTask entries cover main-thread tasks over 50ms and can span multiple phases; no function-level attribution is inferred.",
+      "Pointer event timestamps omit physical/OS input latency. rAF intervals contain browser/automation/observer scheduling.",
+      "Before/after IndexedDB equality does not prove no transient writes occurred.",
+      "Calibrated structural IDs are checked for stability, not independently geometry-audited here.",
+      "No complete QA-PERF-01/04, resource peak, cross-browser or physical presentation claim."
+    ]
+  },
+  "status": "complete",
+  "nativeResult": {
+    "status": "complete",
+    "startedAt": "2026-10-21T16:38:14.693Z",
+    "finishedAt": "2026-10-21T16:41:53.162Z",
+    "samples": 720,
+    "allChecksUnchanged": true,
+    "allNative3": true,
+    "allBrowsers": [
+      "155.0.8059.84"
+    ],
+    "pageErrors": [],
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "cases": [
+      {
+        "name": "study-500",
+        "kindN": 90,
+        "domMarqueeP95": 7.600000001490116,
+        "displayMarqueeP95": 32.20000000298023,
+        "displayReplacementP95": 29.100000001490116,
+        "v2": {
+          "marquee": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 1.7999999970197678,
+              "p50": 3.7999999970197678,
+              "p95": 5.5,
+              "max": 7.299999997019768
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 1.7999999970197678,
+              "p50": 3.7999999970197678,
+              "p95": 5.5,
+              "max": 7.299999997019768
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 22.899999998509884,
+              "p50": 30.599999994039536,
+              "p95": 32.100000001490116,
+              "max": 33.100000001490116
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 294.5,
+              "p50": 298.6000000014901,
+              "p95": 300.19999999552965,
+              "max": 348.8999999985099
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "max": 0.10000000149011612
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.699999999999818,
+              "p50": 16.799999999999272,
+              "p95": 16.80000000000109,
+              "max": 16.80000000000109
+            },
+            "frameGapMs": {
+              "n": 1538,
+              "min": 16.5,
+              "p50": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.80000000000109
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.10000000149011612,
+              "p50": 0.29999999701976776,
+              "p95": 0.5,
+              "max": 0.6000000014901161
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          },
+          "replacement": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0,
+              "p50": 0.19999999552965164,
+              "p95": 0.30000000447034836,
+              "max": 0.3999999985098839
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 0.7999999970197678,
+              "p50": 1.5,
+              "p95": 2.1999999955296516,
+              "max": 2.600000001490116
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 4.199999995529652,
+              "p50": 26.400000005960464,
+              "p95": 29.200000002980232,
+              "max": 30.30000000447035
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 4.399999998509884,
+              "p50": 26.700000002980232,
+              "p95": 29.400000005960464,
+              "max": 30.400000005960464
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0.7000000029802322,
+              "p50": 1.2999999970197678,
+              "p95": 1.7999999970197678,
+              "max": 2
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.700000000000728,
+              "max": 16.73400000000038
+            },
+            "frameGapMs": {
+              "n": 90,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.700000000000728,
+              "max": 16.73400000000038
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.19999999552965164,
+              "p50": 0.5,
+              "p95": 0.7000000029802322,
+              "max": 0.7000000029802322
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "longTasks": 0,
+        "frameGapP95": 16.799999999999272,
+        "frameGapMax": 16.80000000000109,
+        "rounds": [
+          {
+            "run": 1,
+            "marquee": 32.80000000447035,
+            "replacement": 29.100000001490116
+          },
+          {
+            "run": 2,
+            "marquee": 32,
+            "replacement": 27.799999997019768
+          },
+          {
+            "run": 3,
+            "marquee": 32.599999994039536,
+            "replacement": 29.900000005960464
+          }
+        ]
+      },
+      {
+        "name": "study-2000",
+        "kindN": 90,
+        "domMarqueeP95": 16.899999998509884,
+        "displayMarqueeP95": 32.100000001490116,
+        "displayReplacementP95": 27.899999998509884,
+        "v2": {
+          "marquee": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 4.5999999940395355,
+              "p50": 8.799999997019768,
+              "p95": 12.100000001490116,
+              "max": 12.400000005960464
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 4.5,
+              "p50": 8.700000002980232,
+              "p95": 12.100000001490116,
+              "max": 12.300000004470348
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 28.099999994039536,
+              "p50": 31,
+              "p95": 32.29999999701977,
+              "max": 32.79999999701977
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 290.8999999985099,
+              "p50": 298.79999999701977,
+              "p95": 300.29999999701977,
+              "max": 307.29999999701977
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "max": 0.10000000149011612
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.699999999999818,
+              "p50": 16.799999999999272,
+              "p95": 16.80000000000109,
+              "max": 16.80000000000109
+            },
+            "frameGapMs": {
+              "n": 1532,
+              "min": 16.5,
+              "p50": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.80000000000109
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.09999999403953552,
+              "p50": 0.29999999701976776,
+              "p95": 0.4000000059604645,
+              "max": 0.5
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          },
+          "replacement": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0.10000000149011612,
+              "p50": 0.20000000298023224,
+              "p95": 0.3999999985098839,
+              "max": 0.5
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 0.8000000044703484,
+              "p50": 1.5999999940395355,
+              "p95": 2,
+              "max": 2.2999999970197678
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 18.900000005960464,
+              "p50": 24.399999998509884,
+              "p95": 28.400000005960464,
+              "max": 32.29999999701977
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 19.100000001490116,
+              "p50": 24.69999999552965,
+              "p95": 28.5,
+              "max": 32.600000001490116
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0.6999999955296516,
+              "p50": 1.2000000029802322,
+              "p95": 1.6000000014901161,
+              "max": 2.2000000029802322
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.700000000000728,
+              "max": 16.73400000000038
+            },
+            "frameGapMs": {
+              "n": 91,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.700000000000728,
+              "max": 16.73400000000038
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.10000000149011612,
+              "p50": 0.5,
+              "p95": 0.6999999955296516,
+              "max": 0.7000000029802322
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "longTasks": 0,
+        "frameGapP95": 16.700000000000728,
+        "frameGapMax": 16.80000000000109,
+        "rounds": [
+          {
+            "run": 1,
+            "marquee": 31.799999997019768,
+            "replacement": 28.100000001490116
+          },
+          {
+            "run": 2,
+            "marquee": 32,
+            "replacement": 27.100000001490116
+          },
+          {
+            "run": 3,
+            "marquee": 32.399999998509884,
+            "replacement": 27.899999998509884
+          }
+        ]
+      },
+      {
+        "name": "island-500",
+        "kindN": 90,
+        "domMarqueeP95": 6.700000002980232,
+        "displayMarqueeP95": 31.700000002980232,
+        "displayReplacementP95": 29.299999997019768,
+        "v2": {
+          "marquee": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 2,
+              "p50": 3.600000001490116,
+              "p95": 5.799999997019768,
+              "max": 6.199999995529652
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 2,
+              "p50": 3.600000001490116,
+              "p95": 5.799999997019768,
+              "max": 6.199999995529652
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 27.5,
+              "p50": 30.600000001490116,
+              "p95": 32.5,
+              "max": 32.70000000298023
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 290.3999999985099,
+              "p50": 298.8999999985099,
+              "p95": 300.5,
+              "max": 400.6000000014901
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "max": 0.10000000149011612
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.699999999999818,
+              "p50": 16.799999999999272,
+              "p95": 16.80000000000109,
+              "max": 16.80000000000109
+            },
+            "frameGapMs": {
+              "n": 1542,
+              "min": 16.5,
+              "p50": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.80000000000109
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.10000000149011612,
+              "p50": 0.29999999701976776,
+              "p95": 0.5,
+              "max": 0.6000000014901161
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          },
+          "replacement": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0,
+              "p50": 0.19999999552965164,
+              "p95": 0.30000000447034836,
+              "max": 0.30000000447034836
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 0.8999999985098839,
+              "p50": 1.5,
+              "p95": 2.100000001490116,
+              "max": 2.2000000029802322
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 16.399999998509884,
+              "p50": 26.200000002980232,
+              "p95": 29.200000002980232,
+              "max": 30.399999998509884
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 16.600000001490116,
+              "p50": 26.5,
+              "p95": 29.399999998509884,
+              "max": 30.600000001490116
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0.7999999970197678,
+              "p50": 1.3000000044703484,
+              "p95": 1.8000000044703484,
+              "max": 1.9000000059604645
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.73400000000038,
+              "max": 16.799999999999272
+            },
+            "frameGapMs": {
+              "n": 90,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.73400000000038,
+              "max": 16.799999999999272
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.20000000298023224,
+              "p50": 0.5,
+              "p95": 0.7000000029802322,
+              "max": 0.8000000044703484
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "longTasks": 0,
+        "frameGapP95": 16.799999999999272,
+        "frameGapMax": 16.80000000000109,
+        "rounds": [
+          {
+            "run": 1,
+            "marquee": 31,
+            "replacement": 27.100000001490116
+          },
+          {
+            "run": 2,
+            "marquee": 31.399999998509884,
+            "replacement": 28.600000001490116
+          },
+          {
+            "run": 3,
+            "marquee": 32.899999998509884,
+            "replacement": 30.700000002980232
+          }
+        ]
+      },
+      {
+        "name": "island-2000",
+        "kindN": 90,
+        "domMarqueeP95": 14.600000001490116,
+        "displayMarqueeP95": 32.80000000447035,
+        "displayReplacementP95": 27.30000000447035,
+        "v2": {
+          "marquee": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 4.399999998509884,
+              "p50": 11.899999998509884,
+              "p95": 13.300000004470348,
+              "max": 15.099999994039536
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 4.399999998509884,
+              "p50": 11.899999998509884,
+              "p95": 13.300000004470348,
+              "max": 15
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 27.100000001490116,
+              "p50": 30.099999994039536,
+              "p95": 32.5,
+              "max": 33.100000001490116
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 285.59999999403954,
+              "p50": 299.20000000298023,
+              "p95": 300.6000000014901,
+              "max": 301.1000000014901
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0,
+              "p50": 0,
+              "p95": 0.10000000149011612,
+              "max": 0.19999999552965164
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.699999999999818,
+              "p50": 16.799999999999272,
+              "p95": 16.80000000000109,
+              "max": 16.80000000000109
+            },
+            "frameGapMs": {
+              "n": 1530,
+              "min": 16.5,
+              "p50": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.80000000000109
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.10000000149011612,
+              "p50": 0.3999999985098839,
+              "p95": 0.6000000014901161,
+              "max": 0.8000000044703484
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          },
+          "replacement": {
+            "releaseToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0.10000000149011612,
+              "p50": 0.20000000298023224,
+              "p95": 0.3999999985098839,
+              "max": 0.4000000059604645
+            },
+            "releaseToDomMs": {
+              "n": 90,
+              "min": 0.9000000059604645,
+              "p50": 1.7000000029802322,
+              "p95": 2.0999999940395355,
+              "max": 2.3000000044703484
+            },
+            "releaseToDisplayProxyMs": {
+              "n": 90,
+              "min": 19,
+              "p50": 23.100000001490116,
+              "p95": 28.5,
+              "max": 29.30000000447035
+            },
+            "pointerdownToDisplayProxyMs": {
+              "n": 90,
+              "min": 19.30000000447035,
+              "p50": 23.30000000447035,
+              "p95": 28.80000000447035,
+              "max": 29.5
+            },
+            "clickToHandlerBubbleMs": {
+              "n": 90,
+              "min": 0.7000000029802322,
+              "p50": 1.3999999985098839,
+              "p95": 1.7000000029802322,
+              "max": 1.7999999970197678
+            },
+            "maxFrameGapMs": {
+              "n": 90,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.700000000000728,
+              "max": 16.73400000000038
+            },
+            "frameGapMs": {
+              "n": 90,
+              "min": 16.53399999999965,
+              "p50": 16.634000000000015,
+              "p95": 16.700000000000728,
+              "max": 16.73400000000038
+            },
+            "queuedUntilCaptureMs": {
+              "n": 90,
+              "min": 0.10000000149011612,
+              "p50": 0.5,
+              "p95": 0.7000000029802322,
+              "max": 0.7000000029802322
+            },
+            "longTasks": 0,
+            "longTaskDurationMs": {
+              "n": 0,
+              "min": null,
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "longTasks": 0,
+        "frameGapP95": 16.700000000000728,
+        "frameGapMax": 16.80000000000291,
+        "rounds": [
+          {
+            "run": 1,
+            "marquee": 32.80000000447035,
+            "replacement": 27.200000002980232
+          },
+          {
+            "run": 2,
+            "marquee": 32.600000001490116,
+            "replacement": 27.5
+          },
+          {
+            "run": 3,
+            "marquee": 32.80000000447035,
+            "replacement": 27.69999999552965
+          }
+        ]
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "source": "performance-results/selection-layers-verified/island-2000-run-1.json",
+      "path": "island-2000-run-1.json.gz",
+      "originalBytes": 3950088,
+      "originalSha256": "3d9dc344a45b9e2f3233ead6861bbd5054fcf8198da7d50996b10a1695b31fc6",
+      "sizeBytes": 660766,
+      "sha256": "6fca94007c78b4095417a9dbe8abb0a4f3b9ac111188e96f8bc13d6f26f4fda0",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/island-2000-run-2.json",
+      "path": "island-2000-run-2.json.gz",
+      "originalBytes": 3950618,
+      "originalSha256": "64aea78f5510f72a580ffb5e8f4815365f11807611a22a407fa2a21ebd2388cf",
+      "sizeBytes": 661080,
+      "sha256": "95965e7e47da98a7ffa5784d758b7668ba872da63236eea2fd5191e33432d305",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/island-2000-run-3.json",
+      "path": "island-2000-run-3.json.gz",
+      "originalBytes": 3950801,
+      "originalSha256": "2479b9464029475d19074762bf1b9fbed3f3ef6881620ea6fe376d73683c0f26",
+      "sizeBytes": 661141,
+      "sha256": "2eb3f93fe55a858788354899bffbbdded626054366a704a0a2879ead590baa09",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/island-500-run-1.json",
+      "path": "island-500-run-1.json.gz",
+      "originalBytes": 1312530,
+      "originalSha256": "c7ccd7cec65ff3c9a04c13633266f39f436b5925121f3b0b09502cf364de41a4",
+      "sizeBytes": 32335,
+      "sha256": "132428f09e9c732af30df0b2a2bd064c0a2ae079ba23ba9ab708f35bc329f096",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/island-500-run-2.json",
+      "path": "island-500-run-2.json.gz",
+      "originalBytes": 1313443,
+      "originalSha256": "41fd003a8078e7e039f642b3075694f77002b3c79f7a6a85c0fc8db273efd295",
+      "sizeBytes": 32192,
+      "sha256": "d70cc6092b7d38ca02f16ad5b200e2a5014600ddd01eade7eedb5456d3e973e2",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/island-500-run-3.json",
+      "path": "island-500-run-3.json.gz",
+      "originalBytes": 1312984,
+      "originalSha256": "0a218cbc51306965dc259d66c11e51774d032d53e56af263a04c05f5a5010edc",
+      "sizeBytes": 32207,
+      "sha256": "1e4e3d863fbd581acf642d5886ab092f2a80dc2968b7505ddf46c31fa14a2a84",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/manifest.json",
+      "path": "manifest.json",
+      "originalBytes": 103745,
+      "originalSha256": "6821e6ca4f2942f7a75eabff496e20a7e3ffdee3c5e6160a4456d6d50222ad88",
+      "sizeBytes": 103745,
+      "sha256": "6821e6ca4f2942f7a75eabff496e20a7e3ffdee3c5e6160a4456d6d50222ad88"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/study-2000-run-1.json",
+      "path": "study-2000-run-1.json.gz",
+      "originalBytes": 3550354,
+      "originalSha256": "cae003c4fa9eaabeb80c7c5cd3e6035b50003ee08d1d40092880548c7dead2cb",
+      "sizeBytes": 506133,
+      "sha256": "4ec2f482cc911ee0916a5fa9d67dd543386e1cb1e467877a5f357e19ba80c24f",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/study-2000-run-2.json",
+      "path": "study-2000-run-2.json.gz",
+      "originalBytes": 3550664,
+      "originalSha256": "596a9435367bba189666b011c6a36b96f36c7d3db548ef36cdd19eba4493fe7d",
+      "sizeBytes": 506234,
+      "sha256": "d7542e706fe45d930bdb65322416765af2e09863679f530df9c86de964ffa8b4",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/study-2000-run-3.json",
+      "path": "study-2000-run-3.json.gz",
+      "originalBytes": 3550606,
+      "originalSha256": "8ae6f5eb96fd65344c9f2e7c8ede95cdecc6e6d8d859a11205ef8fdd9963746e",
+      "sizeBytes": 506109,
+      "sha256": "7b7082c70a5a91c088397c52ef69d41cb06cf603836aaf4c0980b185803e1033",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/study-500-run-1.json",
+      "path": "study-500-run-1.json.gz",
+      "originalBytes": 1052052,
+      "originalSha256": "e894fd9aa922cccae0eae6994b417672968a8384d008bad8ee5d40cc19bcfec5",
+      "sizeBytes": 28267,
+      "sha256": "5687c672e63b7311debb15135446ffdc83c2a39b5d91dc9bef9c25fcc13ce1c2",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/study-500-run-2.json",
+      "path": "study-500-run-2.json.gz",
+      "originalBytes": 1051380,
+      "originalSha256": "5b4ced11bc21ca9ef3f1163497eb47961f9ecb83981060c86132bdabf2985eac",
+      "sizeBytes": 28241,
+      "sha256": "af652bdc7bcbeece46667f15ca2c2a0a5bc33fc1c1a17ae0ad02c2d7771a2289",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/study-500-run-3.json",
+      "path": "study-500-run-3.json.gz",
+      "originalBytes": 1051733,
+      "originalSha256": "d502e49fe0d5cca8a51c70483941e5efcf775335b02688b360314b9b69fdf488",
+      "sizeBytes": 28339,
+      "sha256": "9d652b0f505359b484547d44e0dae56813ee61b2c9944f67761dc4843e60a37b",
+      "encoding": "gzip lossless"
+    },
+    {
+      "source": "performance-results/selection-layers-verified/summary.json",
+      "path": "summary.json",
+      "originalBytes": 18614,
+      "originalSha256": "79d78baad77b3b13ce836fc932c11b7e72a9ef88e2e272435c2d246a83972c6e",
+      "sizeBytes": 18614,
+      "sha256": "79d78baad77b3b13ce836fc932c11b7e72a9ef88e2e272435c2d246a83972c6e"
+    }
+  ],
+  "externalArtifacts": [
+    {
+      "path": "performance-results/selection-layers-verified/island-2000-run-1-after.sceneweave",
+      "sizeBytes": 350356,
+      "sha256": "56e1f1f66048e6eb7141852b3398758fe03b5e16485c0b0c28a3ce03002acf62"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-2000-run-1-before.sceneweave",
+      "sizeBytes": 350356,
+      "sha256": "72c42ea1e3182c1573e5593be1bb5dede0e8f4a81f28e82f2fbd51beacf59091"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-2000-run-2-after.sceneweave",
+      "sizeBytes": 350348,
+      "sha256": "eb487119d7c3fde4cbec1419e1caa83ed5e5ea83bd77b057082ad3430d7ec24c"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-2000-run-2-before.sceneweave",
+      "sizeBytes": 350348,
+      "sha256": "b5aec1e8339267104c22a3ddaf236dbbc985807c902ff6dbd4b2acbf72e2fd27"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-2000-run-3-after.sceneweave",
+      "sizeBytes": 350348,
+      "sha256": "8a176bd6877a09e28e44d4d2655b03201977cd05ccc641e338ea30340c39164a"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-2000-run-3-before.sceneweave",
+      "sizeBytes": 350348,
+      "sha256": "aaa2566fa0933a2b6ceb99bf9110d6abc13698de1770295f34ee351bdd1c9c7a"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-500-run-1-after.sceneweave",
+      "sizeBytes": 314336,
+      "sha256": "6e8ffd2bab49137edda1ea90c43e55e3caffc83085040ed32edc06c9cf57591d"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-500-run-1-before.sceneweave",
+      "sizeBytes": 314336,
+      "sha256": "7bfad0a72b7dc07ef19d07857c97e89157ef41f3fb88932eeea804a9beb6646d"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-500-run-2-after.sceneweave",
+      "sizeBytes": 314337,
+      "sha256": "e1c4e36af1bf04dc12dc5c5bcc4c22d7f0eedbdce53f944e88fa7cb122b89d54"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-500-run-2-before.sceneweave",
+      "sizeBytes": 314337,
+      "sha256": "547b09b01b456bb0403770e2e141c34f0aa98e4cbfd84b6a92ea29eb8cb35cd1"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-500-run-3-after.sceneweave",
+      "sizeBytes": 314345,
+      "sha256": "54821027567576a9adcf7d4048a541ffe6b139ba674d7b0249cc9caa2de7059e"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/island-500-run-3-before.sceneweave",
+      "sizeBytes": 314345,
+      "sha256": "374109f58e8b2b1883aa9cc62151271169bb96c67bd7cb9d5203d65c62b879ae"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-2000-run-1-after.sceneweave",
+      "sizeBytes": 175304,
+      "sha256": "1ed9c9924d36ddfe824077190305f2f84552eabae0015e42686c402266bbe70a"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-2000-run-1-before.sceneweave",
+      "sizeBytes": 175304,
+      "sha256": "74c110bda3a043862cca07b0ad270cea14eb6fd2ff96d6cb1b7a3149d41bf565"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-2000-run-2-after.sceneweave",
+      "sizeBytes": 175304,
+      "sha256": "1d58898392641ad130d7acd04b473621d39b06ce776c019c96c141c1e4298e23"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-2000-run-2-before.sceneweave",
+      "sizeBytes": 175304,
+      "sha256": "369448616e99fc4f7663b902bcb1642ef238716b41c7bc14af9b55134a8222f0"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-2000-run-3-after.sceneweave",
+      "sizeBytes": 175309,
+      "sha256": "d3db5e470d221e4b72e558d439d6dbd778183237f78e28bdcf4e8e3951249290"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-2000-run-3-before.sceneweave",
+      "sizeBytes": 175309,
+      "sha256": "980330daa2464f8788a43c2acba91373ac611f9f32c9cf018f46f70f9e122214"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-500-run-1-after.sceneweave",
+      "sizeBytes": 137032,
+      "sha256": "fdcb282ef1fcea576d1399fd7ba63748a3a20dddd2faaa660e556314efea8ca3"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-500-run-1-before.sceneweave",
+      "sizeBytes": 137032,
+      "sha256": "cb8681af5692737252c287af3c94fedb4dbee1ea820bc737435922e3c81bdf62"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-500-run-2-after.sceneweave",
+      "sizeBytes": 137027,
+      "sha256": "5e7b7daacc1ae812c0ddfa10e9c114081bf83026bfa9f80e0d9bd478883a90bb"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-500-run-2-before.sceneweave",
+      "sizeBytes": 137027,
+      "sha256": "66892f2a67e7de64f69bf1e53d910d40119496683218fa17d6074cb6dd1711b7"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-500-run-3-after.sceneweave",
+      "sizeBytes": 137031,
+      "sha256": "5fd02fde5d16ed219568313b3aedcce4e63b345b3f97db0df4663912e80857ff"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/study-500-run-3-before.sceneweave",
+      "sizeBytes": 137031,
+      "sha256": "3b81e95e86b2ed15a263173f09aec1bc91aa28fa09c0d6b49f9f545489fdd436"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/fixtures/island-2000.sceneweave",
+      "sizeBytes": 344337,
+      "sha256": "324db38c7fef543f4d9e1193f493460f6436cc62c09e1706d5e6dd181a4116b6"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/fixtures/island-500.sceneweave",
+      "sizeBytes": 312701,
+      "sha256": "74064e3e478da5edd0ea88dd2056aac36d0b1b81e81ffa9f2f186932e91c5f71"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/fixtures/study-2000.sceneweave",
+      "sizeBytes": 169160,
+      "sha256": "a8bbc7b44c433f6f611ab897e344220d9240ce06883a4f6215097b5091ebe508"
+    },
+    {
+      "path": "performance-results/selection-layers-verified/fixtures/study-500.sceneweave",
+      "sizeBytes": 135135,
+      "sha256": "0baf6845117eb4840bb2dab3153cd48ac13116b97d83fe0006033e4101689dcc"
+    }
+  ],
+  "note": "Per-run raw JSON losslessly compressed. Repeated backup packages remain local, referenced by hashes; original B5 packages already archived under docs/evidence/m1-b5/final."
+}

@@ -1,0 +1,11 @@
+{
+  "selectAllToolbarAndShortcut": true,
+  "treePointerAndKeyboardModifiers": true,
+  "moreButton": true,
+  "shiftF10": true,
+  "arrowsAndEnter": true,
+  "blankMenuTabSelectAndPlacement": true,
+  "focusRestored": true,
+  "textContextNotIntercepted": true,
+  "playerActionsUnavailable": true
+}

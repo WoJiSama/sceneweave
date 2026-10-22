@@ -1,0 +1,295 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - navigation "主导航" [ref=e4]:
+    - generic "织境 Sceneweave" [ref=e5]:
+      - img [ref=e6]
+    - button "场景工坊" [ref=e9] [cursor=pointer]:
+      - img [ref=e10]
+      - generic [ref=e12]: 场景
+    - button "素材工坊" [ref=e13] [cursor=pointer]:
+      - img [ref=e14]
+      - generic [ref=e18]: 素材
+    - button "历史快照" [ref=e19] [cursor=pointer]:
+      - img [ref=e20]
+      - generic [ref=e23]: 快照
+    - button "技术验证面板" [ref=e24] [cursor=pointer]:
+      - img [ref=e25]
+      - generic [ref=e28]: 实验
+    - button "使用说明" [ref=e29] [cursor=pointer]:
+      - img [ref=e30]
+    - generic "本地主持人" [ref=e33]: GM
+  - generic [ref=e34]:
+    - banner [ref=e35]:
+      - generic [ref=e36]:
+        - generic [ref=e37]: 织境
+        - generic [ref=e38]: Sceneweave
+        - generic [ref=e39]: M0 原型
+      - generic [ref=e40]:
+        - status [ref=e41]:
+          - img [ref=e42]
+          - text: 本地已保存
+        - button "打开工程" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+          - text: 打开工程
+        - button "主持人工程" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+          - text: 主持人工程
+        - button "导出地图" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+          - text: 导出地图
+          - img [ref=e58]
+    - generic [ref=e60]:
+      - generic [ref=e61]:
+        - img [ref=e62]
+        - generic [ref=e64]: 我的场景
+        - img [ref=e65]
+        - heading "雾灯宅" [level=1] [ref=e67]
+        - generic [ref=e68]: 调查场景
+      - generic [ref=e69]:
+        - button "新建样例" [ref=e70] [cursor=pointer]:
+          - img [ref=e71]
+          - text: 新建样例
+        - button "另存场景副本" [ref=e72] [cursor=pointer]:
+          - img [ref=e73]
+        - button "使用说明" [ref=e76] [cursor=pointer]:
+          - img [ref=e77]
+    - generic [ref=e81]:
+      - complementary [ref=e82]:
+        - generic [ref=e83]:
+          - heading "场景内容" [level=2] [ref=e84]
+          - img [ref=e85]
+        - generic [ref=e89]:
+          - img [ref=e90]
+          - textbox "搜索场景内容" [ref=e93]:
+            - /placeholder: 查找房间、物件…
+          - generic [ref=e94]: /
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - img [ref=e97]
+            - img [ref=e99]
+            - text: 一层
+          - generic [ref=e103]: 平面
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - generic [ref=e106]: 房间
+            - generic [ref=e107]: "03"
+          - button "选择会客厅" [ref=e108] [cursor=pointer]:
+            - img [ref=e110]
+            - generic [ref=e113]:
+              - generic [ref=e114]: 会客厅
+              - generic [ref=e115]: 可探索区域
+          - button "选择书房" [ref=e116] [cursor=pointer]:
+            - img [ref=e118]
+            - generic [ref=e121]:
+              - generic [ref=e122]: 书房
+              - generic [ref=e123]: 可探索区域
+          - button "选择密道 · 净宽 1.20 m" [ref=e124] [cursor=pointer]:
+            - img [ref=e126]
+            - generic [ref=e129]:
+              - generic [ref=e130]: 密道 · 净宽 1.20 m
+              - generic [ref=e131]: 隐藏空间
+            - img [ref=e132]
+          - generic [ref=e137]:
+            - generic [ref=e138]: 家具与物件
+            - generic [ref=e139]: "08"
+          - button "选择地毯" [ref=e140] [cursor=pointer]:
+            - img [ref=e142]
+            - generic [ref=e145]:
+              - generic [ref=e146]: 地毯
+              - generic [ref=e147]: 3.8 × 3.2 m
+          - button "选择木桌" [ref=e148] [cursor=pointer]:
+            - img [ref=e150]
+            - generic [ref=e153]:
+              - generic [ref=e154]: 木桌
+              - generic [ref=e155]: 1.8 × 1 m
+          - button "选择木椅" [ref=e156] [cursor=pointer]:
+            - img [ref=e158]
+            - generic [ref=e161]:
+              - generic [ref=e162]: 木椅
+              - generic [ref=e163]: 0.65 × 0.65 m
+          - button "选择木椅" [ref=e164] [cursor=pointer]:
+            - img [ref=e166]
+            - generic [ref=e169]:
+              - generic [ref=e170]: 木椅
+              - generic [ref=e171]: 0.65 × 0.65 m
+          - button "选择书架" [ref=e172] [cursor=pointer]:
+            - img [ref=e174]
+            - generic [ref=e177]:
+              - generic [ref=e178]: 书架
+              - generic [ref=e179]: 3.7 × 0.65 m
+          - button "选择木桌" [ref=e180] [cursor=pointer]:
+            - img [ref=e182]
+            - generic [ref=e185]:
+              - generic [ref=e186]: 木桌
+              - generic [ref=e187]: 2 × 1 m
+          - button "选择木椅" [ref=e188] [cursor=pointer]:
+            - img [ref=e190]
+            - generic [ref=e193]:
+              - generic [ref=e194]: 木椅
+              - generic [ref=e195]: 0.65 × 0.65 m
+          - button "选择木箱" [ref=e196] [cursor=pointer]:
+            - img [ref=e198]
+            - generic [ref=e201]:
+              - generic [ref=e202]: 木箱
+              - generic [ref=e203]: 0.6 × 0.5 m
+            - img [ref=e204]
+          - generic [ref=e209]:
+            - generic [ref=e210]: 墙与门
+            - generic [ref=e211]: "3"
+          - button "选择宅邸入口" [ref=e212] [cursor=pointer]:
+            - img [ref=e214]
+            - generic [ref=e217]:
+              - generic [ref=e218]: 宅邸入口
+              - generic [ref=e219]: 已打开
+          - button "选择房间门" [ref=e220] [cursor=pointer]:
+            - img [ref=e222]
+            - generic [ref=e225]:
+              - generic [ref=e226]: 房间门
+              - generic [ref=e227]: 已关闭
+          - button "选择书架后的暗门" [ref=e228] [cursor=pointer]:
+            - img [ref=e230]
+            - generic [ref=e233]:
+              - generic [ref=e234]: 书架后的暗门
+              - generic [ref=e235]: 已关闭
+            - img [ref=e236]
+          - button "选择会客厅 / 书房共用墙" [ref=e241] [cursor=pointer]:
+            - img [ref=e243]
+            - generic [ref=e245]:
+              - generic [ref=e246]: 会客厅 / 书房共用墙
+              - generic [ref=e247]: 两间房共用一份墙体
+          - generic [ref=e248]:
+            - generic [ref=e249]: 线索与注记
+            - generic [ref=e250]: "1"
+          - button "选择未寄出的信" [ref=e251] [cursor=pointer]:
+            - img [ref=e253]
+            - generic [ref=e256]:
+              - generic [ref=e257]: 未寄出的信
+              - generic [ref=e258]: 待发现
+            - img [ref=e259]
+        - generic [ref=e264]: 所有改动保存在此浏览器
+      - main "地图编辑区" [ref=e266]:
+        - generic [ref=e267]:
+          - generic [ref=e268]:
+            - button "选择工具 V" [ref=e269] [cursor=pointer]:
+              - img [ref=e270]
+            - button "平移工具 H" [ref=e272] [cursor=pointer]:
+              - img [ref=e273]
+            - button "撤销" [disabled] [ref=e279]:
+              - img [ref=e280]
+            - button "重做" [disabled] [ref=e283]:
+              - img [ref=e284]
+            - button "显示网格 G" [ref=e288] [cursor=pointer]:
+              - img [ref=e289]
+          - generic "视图" [ref=e291]:
+            - button "主持人" [ref=e292] [cursor=pointer]:
+              - img [ref=e293]
+              - text: 主持人
+            - button "玩家预览" [ref=e296] [cursor=pointer]:
+              - img [ref=e297]
+              - text: 玩家预览
+        - generic [ref=e300]:
+          - generic:
+            - generic: 1F
+            - generic: 一层平面
+            - generic: 5 ft 方格
+          - generic:
+            - generic:
+              - generic: 2 m
+            - generic: 已选择 木桌
+          - generic [ref=e302]:
+            - button "缩小" [ref=e303] [cursor=pointer]:
+              - img [ref=e304]
+            - generic [ref=e305]: 90%
+            - button "放大" [ref=e306] [cursor=pointer]:
+              - img [ref=e307]
+            - button "适应画布" [ref=e309] [cursor=pointer]:
+              - img [ref=e310]
+          - generic [ref=e315]:
+            - img [ref=e316]
+            - text: 空格拖动画布 · 滚轮缩放
+      - complementary [ref=e321]:
+        - generic [ref=e322]:
+          - button "属性" [ref=e323] [cursor=pointer]
+          - button "主持人笔记" [ref=e324] [cursor=pointer]: 主持人笔记
+        - generic [ref=e326]:
+          - generic [ref=e327]:
+            - generic [ref=e328]: SCENE OBJECT
+            - generic [ref=e329]:
+              - heading "木桌" [level=3] [ref=e330]
+              - button "锁定编辑" [ref=e331] [cursor=pointer]:
+                - img [ref=e333]
+            - paragraph [ref=e336]: 原创符号物件 · 实际占地
+          - generic [ref=e337]:
+            - heading "位置" [level=4] [ref=e338]
+            - generic [ref=e339]:
+              - generic [ref=e340]:
+                - generic [ref=e341]: X 坐标
+                - generic [ref=e342]:
+                  - spinbutton "X 坐标" [ref=e343]: "5"
+                  - generic [ref=e344]: m
+              - generic [ref=e345]:
+                - generic [ref=e346]: Y 坐标
+                - generic [ref=e347]:
+                  - spinbutton "Y 坐标" [ref=e348]: "7.6"
+                  - generic [ref=e349]: m
+          - generic [ref=e350]:
+            - heading "占地与朝向" [level=4] [ref=e351]
+            - generic [ref=e352]:
+              - generic [ref=e353]:
+                - generic [ref=e354]: 宽度
+                - generic [ref=e355]:
+                  - spinbutton "宽度" [disabled] [ref=e356]: "1.8"
+                  - generic [ref=e357]: m
+              - generic [ref=e358]:
+                - generic [ref=e359]: 深度
+                - generic [ref=e360]:
+                  - spinbutton "深度" [disabled] [ref=e361]: "1"
+                  - generic [ref=e362]: m
+            - generic [ref=e363]:
+              - generic [ref=e364]:
+                - generic [ref=e365]: 旋转角度
+                - generic [ref=e366]:
+                  - spinbutton "旋转角度" [ref=e367]: "0"
+                  - generic [ref=e368]: °
+              - button "顺时针旋转90度" [ref=e369] [cursor=pointer]:
+                - img [ref=e370]
+          - generic [ref=e373]:
+            - heading "空间影响" [level=4] [ref=e374]
+            - generic [ref=e375]:
+              - generic [ref=e376]: 阻挡移动
+              - switch "物件阻挡移动" [checked] [ref=e377] [cursor=pointer]
+            - generic [ref=e379]:
+              - generic [ref=e380]: 阻挡视线
+              - switch "物件阻挡视线" [ref=e381] [cursor=pointer]
+          - generic [ref=e383]:
+            - heading "可见性" [level=4] [ref=e384]
+            - generic [ref=e385]:
+              - button "玩家可见" [ref=e386] [cursor=pointer]:
+                - img [ref=e387]
+                - text: 玩家可见
+              - button "仅主持人" [ref=e390] [cursor=pointer]:
+                - img [ref=e391]
+                - text: 仅主持人
+            - paragraph [ref=e396]: 玩家图片会包含此对象；私密锚点上的文字仍会被过滤。
+          - generic [ref=e397]:
+            - img [ref=e398]
+            - paragraph [ref=e400]: 拖动调整位置，按方向数值精确定位。一次操作可以完整撤销。
+        - generic [ref=e401]:
+          - img [ref=e402]
+          - generic [ref=e405]: 主持人掌握每一处秘密
+    - contentinfo [ref=e406]:
+      - generic [ref=e407]:
+        - generic [ref=e409]: 本地工坊
+        - generic [ref=e410]: ·
+        - generic [ref=e411]: 毫米精度
+        - generic [ref=e412]: ·
+        - generic [ref=e413]: 吸附 100 mm
+      - generic [ref=e414]:
+        - generic [ref=e415]: r0
+        - button "校验场景" [ref=e417] [cursor=pointer]:
+          - img [ref=e418]
+          - text: 校验场景
+        - generic [ref=e422]: 0.1 · 单层原型
+```

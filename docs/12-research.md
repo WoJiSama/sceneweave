@@ -1,6 +1,6 @@
 # 调研依据与复用判断
 
-核验日期：2026-10-20。方式：读取 README、许可证、关键源码、Git 提交元数据与官方文档。未构建或运行三个参考项目，也未执行真实 AI 请求、性能测量或 VTT 导入。以下仓库证据固定到核验提交，外部网站可能更新。
+原仓库/规则核验日期：2026-10-20；PS编辑思路资料补充日期：2026-10-21。方式：读取README、许可证、关键源码、Git提交元数据与官方文档。未构建或运行三个参考项目，也未执行真实AI请求、PS操作验证、性能测量或VTT导入。以下仓库证据固定到核验提交，外部网站可能更新。
 
 ## 三个参考项目
 
@@ -53,3 +53,15 @@
 - [Foundry官方导入器页面](https://foundryvtt.com/packages/dd-import)、[固定提交README](https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/README.md)与[图片/墙门/光源读取](https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/ddimport.js#L292-L373)：支持把Universal VTT作为后续导出候选；不证明全平台无损互通。
 
 这些链接是研究证据，不是已选依赖清单。源码发布、实际性能、模型能力、兼容版本与资产授权需在各里程碑按真实集成结果验证。
+
+## Photoshop编辑思路参考（2026-10-21）
+
+按用户提出的编辑习惯阅读Adobe官方资料，只借鉴交互和非破坏性思路。右键目标、矩形命中规则、图层空间语义和持久恢复协议由Sceneweave自行设计，主定义分别在02/04/06。
+
+| 官方资料 | 资料支持的事实 | Sceneweave的采用判断 |
+|---|---|---|
+| [非破坏性编辑](https://helpx.adobe.com/photoshop/desktop/create-manage-layers/create-layer-compositions/non-destructive-editing-techniques.html) | 调整层、智能对象等方式保留原始内容，使后续调整可修改或移除 | 采用源素材/派生版本/覆盖分离，保留本地参数路径；不据此承诺全部滤镜、像素绘画或PSD兼容 |
+| [历史面板快照](https://helpx.adobe.com/photoshop/desktop/get-started/set-up-toolbars-panels/create-work-snapshots.html) | 文档说明快照用于比较历史状态，其快照在关闭文档前的会话内可用 | 借鉴命名和比较入口；Sceneweave另行设计跨重开的完整命名快照及资源保留，不把会话历史当长期备份 |
+| [History Brush局部恢复](https://helpx.adobe.com/photoshop/desktop/get-started/set-up-toolbars-panels/paint-image-states.html) | 可从历史状态或快照选择性恢复图像局部，保留其他编辑 | 将“只找回一部分”的意图映射到稳定对象ID/属性组及依赖闭包；地图结构恢复是新事务，不直接复制旧像素或旧revision |
+
+以上是外部产品文档的事实与本项目的设计推论，尚未形成Sceneweave实现或可用性证据。界面隐藏与玩家秘密、高程与绘制顺序继续分离；完整PSD工具集和自动全图同化未进入当前排期。

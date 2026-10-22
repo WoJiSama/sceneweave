@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "scope": "Final C1d module and integration inputs; retained C1a-C1c edits remain in the shared checkout",
+  "files": [
+    {
+      "path": "package-lock.json",
+      "bytes": 84043,
+      "sha256": "d606aa8c41bd397a59f66de2d0753c65dbbe0e3d987e5c1bfd036a344e4aaf53"
+    },
+    {
+      "path": "package.json",
+      "bytes": 1077,
+      "sha256": "036957686647d4e26e5b1bccfbdc6538ae6cc6bef30b077c9f129f57fa24a353"
+    },
+    {
+      "path": "src/App.tsx",
+      "bytes": 38839,
+      "sha256": "34b0a4317018cc406b998a5acdb026c0991ad4be8b4351e4de4c40e1db1ed475"
+    },
+    {
+      "path": "src/core/v4/identity.test.ts",
+      "bytes": 9378,
+      "sha256": "fdd6351273258c2704ee7254bcb60022789136b2af9e967cfb51959bac431ccd"
+    },
+    {
+      "path": "src/core/v4/identity.ts",
+      "bytes": 5430,
+      "sha256": "3f0878bbfeefaf64b99fc954825186cb5b61512a7009e741bf608e90272bb89b"
+    },
+    {
+      "path": "src/core/v4/restore.test.ts",
+      "bytes": 25709,
+      "sha256": "88656125337cf723f60bf79932750b473741bc03c003a2f2f31d55c0b9a70ad8"
+    },
+    {
+      "path": "src/core/v4/restore.ts",
+      "bytes": 9389,
+      "sha256": "b1e5bae82e259f9d966f7197bc073f48670a41cb0653d991d3de9df71e255f8b"
+    },
+    {
+      "path": "src/core/v4/types.ts",
+      "bytes": 1483,
+      "sha256": "deffa1a0c32e59150a39946842987a12a823e213dbb6277b2d2ea346ccd831c5"
+    },
+    {
+      "path": "src/editor/v3/LayerWorkbench.tsx",
+      "bytes": 43006,
+      "sha256": "c3188131d01ce5a10b8e5b24f4bf2f0762fd4ab758252aa6c8d4c86bad21e1f8"
+    },
+    {
+      "path": "src/editor/v4/HistoryPanel.tsx",
+      "bytes": 27375,
+      "sha256": "4aa2f85b07215942d4c82d9b67259e4b869a6e1534fb1bf7f642f21b1eeaebd7"
+    },
+    {
+      "path": "src/editor/v4/HistoryWorkbench.tsx",
+      "bytes": 46179,
+      "sha256": "c473f91506b5f24ad4f2e4f9581590cf92fda7f791986ff330b1a58aa258c421"
+    },
+    {
+      "path": "src/editor/v4/history.css",
+      "bytes": 12771,
+      "sha256": "97d09f2f5e7c0c683e8c1bb7e53e1e00d3bcedf49a702044340ec50a23d47298"
+    },
+    {
+      "path": "src/editor/v4/workspace.test.ts",
+      "bytes": 15236,
+      "sha256": "80c4be1a468a8d71385a96525779eb64c4adbb2bf0533b2b20a5583e50eca92a"
+    },
+    {
+      "path": "src/editor/v4/workspace.ts",
+      "bytes": 19008,
+      "sha256": "6826f499e80b401a0f669591f66c8cfdc706cbf556e8d0f66089e06ad01f4b48"
+    },
+    {
+      "path": "src/io/v4/identity.ts",
+      "bytes": 3298,
+      "sha256": "a4206642166158b6bdd45b55c11867af8c6d3949a775d8a8a66d28f2a45b331f"
+    },
+    {
+      "path": "src/io/v4/limits.ts",
+      "bytes": 930,
+      "sha256": "17ef0b24b8a3164d98054c140418f00dbfdf1dbdd8dd0a0d45e3b5e38f2da77a"
+    },
+    {
+      "path": "src/io/v4/migration.test.ts",
+      "bytes": 6846,
+      "sha256": "da6e014f3a54d123cc3d9c45e39e1d3dbfa50cf6fce65ee32f78f5f8da1bf166"
+    },
+    {
+      "path": "src/io/v4/migration.ts",
+      "bytes": 5473,
+      "sha256": "b3c9c9575bb317035e01a3b0cbb1f8e2242b0070be842fcc2f918961243584da"
+    },
+    {
+      "path": "src/io/v4/project-file.test.ts",
+      "bytes": 16229,
+      "sha256": "0716a58737f213c2f0d3920919cf553b3c6253956b7a0194850aa20909faac68"
+    },
+    {
+      "path": "src/io/v4/project-file.ts",
+      "bytes": 27747,
+      "sha256": "5032b92a80c453d2b3d3f703b5b2412d3017293be8712ef208cc4180e338cc01"
+    },
+    {
+      "path": "src/io/v4/storage.test.ts",
+      "bytes": 15632,
+      "sha256": "84047c154fc7a9675c3a18639407a83e4a394780619db52022471592960f480b"
+    },
+    {
+      "path": "src/io/v4/storage.ts",
+      "bytes": 41459,
+      "sha256": "f42ae858f13bd138947409a1f4dfa4a6c6291c049d6d318a98692a7bb5cffc9a"
+    },
+    {
+      "path": "src/io/v4/test-fixtures.ts",
+      "bytes": 1746,
+      "sha256": "42b886e5cb62e98b19c9ca5c951469bc4d1bf97f120cecb390c4a44ba69e93c1"
+    },
+    {
+      "path": "src/io/v4/types.ts",
+      "bytes": 1192,
+      "sha256": "9537333b1b2856819e887081d666087e15640dfad28d7110fca07503d1c0e942"
+    },
+    {
+      "path": "src/io/v4/zip.ts",
+      "bytes": 9961,
+      "sha256": "16be6a98bf63acf14e5a556be7f8aa0a2b2e6e2b7d469d1b4daf0ac20e0f196a"
+    },
+    {
+      "path": "tests/b4-workbench.spec.ts",
+      "bytes": 10420,
+      "sha256": "045ff9c3c4b8bd8c986325e4854dccf882ec991637baa2c31c2f279bc976559c"
+    },
+    {
+      "path": "tests/c1d-renderer.spec.ts",
+      "bytes": 6946,
+      "sha256": "e7dbd03e9408a22db6c8fe48e0fecd0ac5ca00de990575486e13afb1cf757291"
+    },
+    {
+      "path": "tests/c1d-storage.spec.ts",
+      "bytes": 14711,
+      "sha256": "6e9c1949bdad076c2c42b6c73104552ab24347ad80ad8a3fce626e4b50d9befa"
+    },
+    {
+      "path": "tests/c1d-workbench.spec.ts",
+      "bytes": 24743,
+      "sha256": "4f3a63ec0f1af5a94b02604622480b8839a122a4a22d8637b7fef25299606eeb"
+    },
+    {
+      "path": "vite.config.ts",
+      "bytes": 719,
+      "sha256": "83faf447657e737e58f0d658df12c4b5d5b6f34588bbbcf8406fb242d824fd40"
+    },
+    {
+      "path": "vite.performance.config.ts",
+      "bytes": 422,
+      "sha256": "db6502870faf1e73b45b92d406fe2cc655a90ce011e382dce500cd5a1d6ff95b"
+    }
+  ],
+  "postVerificationChanges": "Removed only one extra blank EOF line in HistoryWorkbench.tsx, io/v4/identity.ts, project-file.test.ts and project-file.ts; no semantic changes after verification."
+}

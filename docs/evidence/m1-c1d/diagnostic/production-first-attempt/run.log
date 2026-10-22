@@ -1,0 +1,23 @@
+/Users/shiqi/IdeaProjects/sceneweave/node_modules/playwright/lib/matchers/expect.js:221
+        return matcher.call(target, ...args);
+                       ^
+
+Je [Error]: expect(received).toBe(expected) // Object.is equality
+
+Expected: 3
+Received: 2
+    at Proxy.<anonymous> (/Users/shiqi/IdeaProjects/sceneweave/node_modules/playwright/lib/matchers/expect.js:221:24)
+    at file:///Users/shiqi/IdeaProjects/sceneweave/docs/evidence/m1-c1d/production-ui/runner-used.mjs:76:34 {
+  matcherResult: {
+    actual: 2,
+    expected: 3,
+    message: 'expect(received).toBe(expected) // Object.is equality\n' +
+      '\n' +
+      'Expected: 3\n' +
+      'Received: 2',
+    name: 'toBe',
+    pass: false
+  }
+}
+
+Node.js v24.14.1
