@@ -1,8 +1,10 @@
 # 贡献说明
 
-织境 · Sceneweave 当前 M0 几何版原型首轮验证完成。领域内核、画布编辑、保存与双受众输出已有实现；完整编辑器、AI 与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
+织境 · Sceneweave 当前本地版本为 `0.2.0-m1-c1d`。M0几何版原型首轮验证完成，M1-C/C1a已实现空白完整工程与物件放置/修改/删除闭环，C1b已实现框选/多选、右键及有限原子批量操作，C1c新增严格v3用户图层和暂态隐藏管理，C1d增加独立v4历史信封、命名/保护快照和首批独立物件局部恢复；完整编辑器、AI与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
 
-室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)，下一入口C1空白工程，滚动周计划及投入假设见07。完整M1、主题P3、SCN-04与全交互性能仍待完成；新模型同步格式、迁移和验收。
+室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，下一入口C2建筑工具。完整M1、主题P3、SCN-04与全交互性能仍待完成；新模型同步格式、迁移和验收。
+
+当前创作入口是素材工坊「新建空白场景」：填写名称、范围与调查/战术/叙事预设，使用18个既有B2/B3物件素材。放置支持画布点击或坐标输入、显式表面选择和暂态图片/占地预览；位置/旋转修改、普通删除与撤销重做复用原子事务。完整资源和许可随工程保存、重开及导入导出，PNG沿用现有双受众管线。独立严格v3图层工坊可新建完整工程或从v2迁移副本，原工程/历史保留；历史工坊通过独立v4完整信封支持命名/保护快照、首批独立物件局部恢复与所选历史备份；通用素材入库、房间绘图和通用依赖恢复尚未实现。
 
 ## 开发环境与命令
 
@@ -29,7 +31,7 @@ Vitest 运行 `src/**/*.test.ts` 中的领域、存储、工程文件及渲染�
 SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 ```
 
-测试使用独立 profile/浏览器上下文。M0历史在系统 Chrome 上通过 13 个浏览器测试，另有 95 个单元测试（8 文件）、构建与生产依赖审计通过，见 [M0 验证报告](docs/13-m0-validation.md)。B1当前检查、环境和未测范围另见[17](docs/17-m1b-b1-validation.md)。构建、单元和浏览器证据分别记录。
+测试使用独立 profile/浏览器上下文。M0历史在系统 Chrome 上通过 13 个浏览器测试，另有 95 个单元测试（8 文件）、构建与生产依赖审计通过，见 [M0 验证报告](docs/13-m0-validation.md)。B1历史检查、环境和未测范围见[17](docs/17-m1b-b1-validation.md)，C1a历史批次见[23](docs/23-m1c-c1a-validation.md)，C1b历史批次见[24](docs/24-m1c-c1b-validation.md)。构建、单元和浏览器证据分别记录；C1a浏览器旅程位于 `tests/c1a-creation.spec.ts`，可用 `npm run test:e2e -- tests/c1a-creation.spec.ts` 定向执行，C1b选择/菜单/批量及500/2000物件真实框选回归位于 `tests/c1b-selection.spec.ts`，可用 `npm run test:e2e -- tests/c1b-selection.spec.ts` 定向执行。需要使用系统Chrome时设置 `SCENEWEAVE_BROWSER_CHANNEL=chrome`；复用B5正式完整夹具可设置 `SCENEWEAVE_B5_FIXTURE_DIR=docs/evidence/m1-b5/final`。实际结果以验证记录为准。
 
 生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。当前没有云部署或正式发布流程。
 
@@ -60,13 +62,29 @@ node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c
 
 重测可用 `npm run perf:b5 -- --output performance-results/b5-recheck` 指定新目录，保留旧原始数据。少于默认轮数或操作数的运行仅作诊断，不替代正式采集；每类30次编辑的p95仍须连同样本数和各轮差异解读。进程树RSS和目标JS堆都是采样观测，不是完整浏览器/GPU物理峰值；Canvas提交、画布复制和双rAF显示调度近似值也须分别报告，不能把它们直接写成全部交互已达目标。
 
+## 大量选择及native v3复测
+
+使用正常生产构建、同一B5原始完整包和独立空输出目录；每组3个新Chrome进程、每轮30次框选/30次替换选择。`layers` 路由通过真实UI把完整v2包迁为v3，不使用开发API；v2历史对照见25，v3独立结果见26。两次正式采集需依次执行，期间不运行其他浏览器/测试/构建：
+
+```sh
+npm run build
+node tools/performance/run-selection.mjs --output "$PWD/performance-results/selection-assets-recheck" --fixtures "$PWD/docs/evidence/m1-b5/final" --workbench assets
+node tools/performance/run-selection.mjs --output "$PWD/performance-results/selection-layers-recheck" --fixtures "$PWD/docs/evidence/m1-b5/final" --workbench layers
+```
+
+每个case每种操作90样本、nearest-rank p95；计时分列DOM就绪、双rAF显示调度代理和LongTask，完整包/资源/原始IDB/revision/保存/底图及采样窗口细节计数必须保持。双rAF不是GPU或物理呈现，也不替代完整交互/资源峰值矩阵。`--diagnostic`、`--isolate`、`--trace` 或减少轮数仅供诊断，不混入正式通过记录。
+
+C1c真实UI、持久化/故障与双受众渲染矩阵可用 `SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c1c-layers.spec.ts tests/c1c-storage.spec.ts tests/c1c-renderer.spec.ts` 串行运行。v1/v2/v3读者分别严格分派，v3领域视图不可用于旧版渲染或落盘。
+
+C1d真实UI、严格来源迁移、空存储离线历史往返、实际双标签CAS/故障和原生双受众像素用例可运行 `SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c1d-workbench.spec.ts tests/c1d-storage.spec.ts tests/c1d-renderer.spec.ts`。v4信封内仍为严格v3 SceneDocument；仅通过显式完整v3视图进入v3渲染/IO，完整v4包不得送入旧读者。实际证据及首批独立物件边界归27；此正确性矩阵不替代历史操作性能/容量或真实配额耗尽。
+
 ## 修改流程
 
 先读 [AGENTS.md](AGENTS.md) 与[文档导航](docs/README.md)，核对工作区和 Git 状态，保留无关修改。较小澄清直接改主文档；范围或数据契约变化同时更新[决策记录](docs/11-decisions-and-open-questions.md)及对应任务/验收。PR 说明具体问题、修改后的行为、相关验证与实际限制。
 
 - 持久修改走领域命令和原子校验，不直接改冻结的 SceneHistory.document 或画布节点。
 - 保存完整 SceneDocument；保留整数毫米、共享墙、门附着和单调 revision。
-- 锁、候选失败、撤销与跨标签冲突不能以局部成功或最后写入覆盖处理。
+- 锁、候选失败、撤销与跨标签冲突不能以局部成功或最后写入覆盖处理。新增图层锁、固定范围批量操作及局部恢复同样遵守这些边界；持久化语义改变先更新04/06的版本和完整迁移。
 - 玩家预览、图层列表与 PNG 共用过滤规则，秘密像素和文本都纳入回归。
 - 实现只接受声明支持的范围；尚未实现的硬约束应报错，不能省略后继续保存。
 
@@ -77,10 +95,10 @@ node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c
 - 用具体备团场景说明需求与卡点，注明规则体系、地图尺度和输出去向。
 - 复核 M0 的共享结构、异常恢复、保密输出和可复现负载，补充真实证据。
 - 按 M1-A/B/C/D 完善视觉规范、双样板、手工绘图、真实素材与组件，先用样板测量再扩展工具。
-- M2 的 AI 使用已入库目录生成布局/布景；新素材生成按可选 A1 独立实施，不能把候选图片直接当成已审核组件。
+- M2以素材生成/同化为主线：单件→组合→明确范围的渐进批次，候选/入库/采用分别校验；旧布局/布景/文字为可选M2-L。M1先提供参数调整、原件/版本保护与局部恢复。
 - 修正文档矛盾与含糊定义，附上来源或可复核的最小例子。
 
-文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/18-m1b-b2-validation.md)/[19](docs/19-m1b-b3-validation.md)，B5技术观测见[21](docs/21-m1b-b5-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。后续另建验证记录，保留13/17/18/19/20与各自原始证据。
+文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/18-m1b-b2-validation.md)/[19](docs/19-m1b-b3-validation.md)，B5技术观测见[21](docs/21-m1b-b5-validation.md)，C1a创作闭环见[23](docs/23-m1c-c1a-validation.md)，C1b有限选择/批改/菜单见[24](docs/24-m1c-c1b-validation.md)，选择性能、C1c与C1d见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)/[27](docs/27-m1c-c1d-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。各批另建验证记录，保留13/17–23与各自原始证据。
 
 ## 内容与许可
 
