@@ -33,7 +33,7 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 
 测试使用独立 profile/浏览器上下文。M0历史在系统 Chrome 上通过 13 个浏览器测试，另有 95 个单元测试（8 文件）、构建与生产依赖审计通过，见 [M0 验证报告](docs/13-m0-validation.md)。B1历史检查、环境和未测范围见[17](docs/17-m1b-b1-validation.md)，C1a历史批次见[23](docs/23-m1c-c1a-validation.md)，C1b历史批次见[24](docs/24-m1c-c1b-validation.md)。构建、单元和浏览器证据分别记录；C1a浏览器旅程位于 `tests/c1a-creation.spec.ts`，可用 `npm run test:e2e -- tests/c1a-creation.spec.ts` 定向执行，C1b选择/菜单/批量及500/2000物件真实框选回归位于 `tests/c1b-selection.spec.ts`，可用 `npm run test:e2e -- tests/c1b-selection.spec.ts` 定向执行。需要使用系统Chrome时设置 `SCENEWEAVE_BROWSER_CHANNEL=chrome`；复用B5正式完整夹具可设置 `SCENEWEAVE_B5_FIXTURE_DIR=docs/evidence/m1-b5/final`。实际结果以验证记录为准。
 
-生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。当前没有云部署或正式发布流程。
+生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。[GitHub Pages 工作流](.github/workflows/deploy.yml)在推送 main 或手动触发时，读取 `.nvmrc` 安装 Node，执行 `npm ci` 和 `npm run build` 后部署静态站点至[在线预览](https://wojisama.github.io/sceneweave/)。该工作流只负责构建和部署，不代替上述单元/浏览器验证；成功结果以 GitHub Actions 运行记录为准。它不包含 AI 网关、工程云同步或正式发行版流程。
 
 ## B5性能复现
 
