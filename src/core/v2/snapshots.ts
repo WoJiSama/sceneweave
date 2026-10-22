@@ -7,6 +7,11 @@ type ValidSnapshot = Extract<ValidationResultV2, { ok: true }>
 const snapshots = new WeakMap<object, ValidSnapshot>()
 const revisionSchema = sceneSchemaV2.pick({ revision: true, updatedAt: true })
 
+/** Read-only identity check for disposable derived indexes, never a caller credential. */
+export function isCertifiedSceneSnapshotV2(input: unknown): input is SceneDocumentV2 {
+  return !!input && typeof input === 'object' && snapshots.has(input)
+}
+
 function freezeJson<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     Object.freeze(value)

@@ -7,6 +7,7 @@ import type { WorkspaceV2 } from './workspace'
 import ScatterInspector from './ScatterInspector'
 import TerrainInspector from './TerrainInspector'
 import { scatterNameV2 } from './terrain-editing'
+import { effectiveEditLockedV2 } from './selection'
 
 export const propName = (project: CompleteProjectV2, id: string) => {
   const prop = project.document.props[id]
@@ -15,7 +16,7 @@ export const propName = (project: CompleteProjectV2, id: string) => {
 export const groupName = (project: CompleteProjectV2, id: string) => project.document.prefabDefinitions[project.document.prefabInstances[id].definitionRef.id].name
 
 type Props = {
-  project: CompleteProjectV2; selected: string; busy: boolean; workspace: WorkspaceV2
+  project: CompleteProjectV2; selected: string; busy: boolean; workspace: Pick<WorkspaceV2, 'execute' | 'updateProp' | 'rotateRoomMaterial'>
   onSelect: (id: string | null) => void
   onCommit: (run: () => void) => void
   onPreview: (commands: SceneCommandV2[] | (() => SceneCommandV2[]), description: string) => void
@@ -33,21 +34,24 @@ export default function SceneInspector({ project, selected, busy, workspace, onS
   if (scene.scatterGroups[selected]) return <ScatterInspector {...{ project, selected, busy, onSelect, onPreview }} onCommit={commands => onCommit(() => workspace.execute(commands))}/>
   if (scene.terrainEdges[selected] || scene.terrainConnections[selected] || area && area.id !== 'terrace-area' || terrain && terrain.id !== 'terrace-area') return <TerrainInspector {...{ project, selected, busy, onSelect, onPreview }} onCommit={commands => onCommit(() => workspace.execute(commands))}/>
   if (prop) {
+    const effectivelyLocked = effectiveEditLockedV2(scene, selected)
     const variants = Object.values(scene.propDefinitions).filter(definition => definition.defaultFootprintMm.width === prop.footprintMm.width && definition.defaultFootprintMm.height === prop.footprintMm.height && definition.defaultVisualBoundsMm.width === prop.visualBoundsMm.width && definition.defaultVisualBoundsMm.height === prop.visualBoundsMm.height)
     return <><div className="asset-section-heading"><Move size={16}/><h2>物件属性</h2></div><h3>{propName(project, selected)}</h3>
       <p className="asset-muted">虚线分别显示图像范围与物理占地。一次修改可以完整撤销。</p>
+      {effectivelyLocked && <p className="asset-muted">此物件受自身、容器或锚定依赖的编辑锁保护，只可查看。</p>}
       {owner && <button className="asset-group-link" onClick={() => onSelect(owner.id)}><Layers3 size={14}/>选择整个{groupName(project, owner.id)}</button>}
       {scatterOwner && <button className="asset-group-link" disabled={busy} onClick={() => onSelect(scatterOwner.id)}><Sprout size={14}/>管理{scatterNameV2(scene, scatterOwner)}</button>}
-      <fieldset disabled={busy || prop.editLocked || owner?.editLocked || scatterOwner?.editLocked}>
+      <fieldset disabled={busy || effectivelyLocked}>
         <NumberInput label="物件 X" value={prop.positionMm.x} onCommit={x => onCommit(() => workspace.updateProp(selected, { positionMm: { ...prop.positionMm, x } }))}/>
         <NumberInput label="物件 Y" value={prop.positionMm.y} onCommit={y => onCommit(() => workspace.updateProp(selected, { positionMm: { ...prop.positionMm, y } }))}/>
         <NumberInput label="物件旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => onCommit(() => workspace.updateProp(selected, { rotationDeg }))}/>
         {variants.length > 1 && <label className="asset-select">外观变体<select aria-label="物件外观变体" value={prop.definitionRef?.id ?? ''} onChange={event => onCommit(() => workspace.execute([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: event.target.value, version: scene.propDefinitions[event.target.value].version } }]))}>{variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</select><small>保留位置、尺寸、占地和公开状态</small></label>}
       </fieldset>
+      {!scatterOwner && <button className="secondary asset-wide" disabled={busy || effectivelyLocked} onClick={() => onCommit(() => { workspace.execute([{ type: 'deleteProp', id: selected }]); onSelect(null) })}>删除物件</button>}
       {scatterOwner && <><button className="asset-group-link asset-wide" disabled={busy || scatterOwner.editLocked} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prop', id: selected, locked: !prop.editLocked }]))}><LockKeyhole size={14}/>{prop.editLocked ? '解除物件固定' : '固定此物件'}</button><fieldset disabled={busy || prop.editLocked || scatterOwner.editLocked}><button className="secondary asset-wide" onClick={() => onCommit(() => { workspace.execute([{ type: 'deleteProp', id: selected }]); onSelect(scatterOwner.id) })}>删除并保留排除区</button><button className="secondary asset-wide" onClick={() => onCommit(() => { workspace.execute([{ type: 'detachScatterMember', groupId: scatterOwner.id, propId: selected }]); onSelect(null) })}>退出散布，保留物件</button></fieldset><p className="asset-muted">手工修改后会保留实际位置。删除与退出记录可撤销，重新散布不会生成副本。</p></>}
       <dl className="asset-facts"><dt>物理占地</dt><dd>{prop.footprintMm.width} × {prop.footprintMm.height} mm</dd><dt>图像范围</dt><dd>{prop.visualBoundsMm.width} × {prop.visualBoundsMm.height} mm</dd><dt>阻挡移动</dt><dd>{prop.blocksMovement ? '是' : '否'}</dd><dt>可见范围</dt><dd>{createPublicVisibilityV2(scene).prop(prop) ? '公开' : '仅主持人'}</dd></dl>{clear}</>
   }
-  if (group) return <><div className="asset-section-heading"><Layers3 size={16}/><h2>组合属性</h2></div><h3>{groupName(project, selected)}</h3><p className="asset-muted">成员以实际位置保存。整体变换遵守每一件成员的编辑锁。</p><fieldset disabled={busy || group.editLocked}>
+  if (group) return <><div className="asset-section-heading"><Layers3 size={16}/><h2>组合属性</h2></div><h3>{groupName(project, selected)}</h3><p className="asset-muted">成员以实际位置保存。整体变换遵守每一件成员的编辑锁。</p><fieldset disabled={busy || effectiveEditLockedV2(scene, selected)}>
     <NumberInput label="组合 X" value={group.anchorMm.x} onCommit={x => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, anchorMm: { ...group.anchorMm, x } }]))}/>
     <NumberInput label="组合 Y" value={group.anchorMm.y} onCommit={y => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, anchorMm: { ...group.anchorMm, y } }]))}/>
     <NumberInput label="组合旋转" value={group.rotationDeg} unit="°" onCommit={rotationDeg => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, rotationDeg }]))}/>

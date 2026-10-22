@@ -110,8 +110,15 @@ async function selectMarker(page: Page, summary: PerformanceFixtureSummaryV2) {
   const point = await markerPosition(page, summary)
   await page.mouse.click(point.x, point.y)
   await expect(page.getByRole('heading', { name: '物件属性', exact: true })).toBeVisible()
-  await expect(page.locator(`[data-entity-id="${summary.editablePropId}"]`)).toHaveClass(/selected/)
+  await expectSelectedMarkerRow(page, summary)
   await expect(page.getByLabel('物件旋转', { exact: true })).toHaveValue('0')
+}
+
+async function expectSelectedMarkerRow(page: Page, summary: PerformanceFixtureSummaryV2) {
+  const search = page.getByRole('searchbox', { name: '搜索场景物件', exact: true })
+  await search.fill(summary.editablePropId)
+  await expect(page.locator(`[data-entity-id="${summary.editablePropId}"]`)).toHaveClass(/selected/)
+  await search.clear()
 }
 
 async function changeNumber(input: Locator, value: string) {
@@ -183,7 +190,7 @@ for (const sample of ['study', 'island'] as const) for (const count of [500, 200
     const panned = await viewState(page)
     expect(panned.panX - selectedView.panX).toBeCloseTo(24, 0)
     expect(panned.panY - selectedView.panY).toBeCloseTo(12, 0)
-    await expect(page.locator(`[data-entity-id="${summary.editablePropId}"]`)).toHaveClass(/selected/)
+    await expectSelectedMarkerRow(page, summary)
     await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
     await selectMarker(page, summary)
     await page.getByRole('button', { name: '适应全图', exact: true }).click()
@@ -211,6 +218,7 @@ test('C0 keyboard focus, cancelled pan, candidate/undo retention, audience reset
   const moved = await viewState(page)
 
   await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
+  await page.getByRole('searchbox', { name: '搜索场景物件', exact: true }).fill(summary.editablePropId)
   await page.locator(`[data-entity-id="${summary.editablePropId}"]`).click()
   const rotation = page.getByLabel('物件旋转', { exact: true })
   await rotation.focus(); await rotation.press('ArrowRight'); await rotation.press('0'); await rotation.press('Escape')
@@ -249,6 +257,9 @@ test('C0 keyboard focus, cancelled pan, candidate/undo retention, audience reset
   await expectSameRelativeView(page, beforeCandidate)
   await page.getByRole('button', { name: '取消结构预览', exact: true }).click()
   await expect(x).toHaveValue(String(summary.contourEditTarget.positionMm.x))
+  // Cancellation restores DOM layout first; ResizeObserver then schedules the
+  // ephemeral pan restoration in rAF, as it does when the candidate opens.
+  await settle(page)
   await expectSameView(page, moved)
   await expect(page.getByTestId('asset-workbench')).toHaveAttribute('data-revision', '2')
 

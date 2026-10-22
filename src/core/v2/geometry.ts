@@ -31,7 +31,7 @@ const boundsContain = (p: PointMm, b: BoundsMm): boolean => p.x >= b.x - EPS && 
 const boundsPolygon = (b: BoundsMm): PointMm[] => [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }]
 const edgeKey = (a: string, b: string): string => [a, b].sort().join('\0')
 export const terrainPointsV2 = (area: TerrainArea): PointMm[] => area.boundaryMm.map(vertex => vertex.positionMm)
-export function roomPointsV2(scene: SceneDocumentV2, room: RoomV2): PointMm[] {
+export function roomPointsV2(scene: Pick<SceneDocumentV2, 'vertices'>, room: RoomV2): PointMm[] {
   return room.boundaryVertexIds.flatMap(id => { const v = own(scene.vertices, id); return v ? [{ x: v.xMm, y: v.yMm }] : [] })
 }
 export function pointInPolygonV2(p: PointMm, polygon: PointMm[], includeBoundary = true): boolean {
@@ -101,7 +101,7 @@ const transformBounds = (bounds: BoundsMm, position: PointMm, rotation: number):
   const radians = rotation * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians)
   return boundsPolygon(bounds).map(p => ({ x: position.x + p.x * cos - p.y * sin, y: position.y + p.x * sin + p.y * cos }))
 }
-export function openingEndpointsV2(scene: SceneDocumentV2, opening: OpeningV2): [PointMm, PointMm] {
+export function openingEndpointsV2(scene: Pick<SceneDocumentV2, 'vertices' | 'walls'>, opening: OpeningV2): [PointMm, PointMm] {
   const wall = own(scene.walls, opening.wallId)
   if (!wall || ![wall.startVertexId, wall.endVertexId].includes(opening.offsetReferenceVertexId)) throw new Error('开口缺少有效的附着墙/稳定计量端点。')
   const reference = own(scene.vertices, opening.offsetReferenceVertexId), other = own(scene.vertices, wall.startVertexId === opening.offsetReferenceVertexId ? wall.endVertexId : wall.startVertexId)

@@ -101,11 +101,17 @@ for (const sample of samples) {
     test.setTimeout(90_000)
     await openSample(page, sample)
     const original = await identity(page), complete = await completePackage(page)
+    // Resizes can schedule another viewport crop at any time. Only hold/count
+    // fresh imported Blobs; previews keep the current project's Blob identities.
     await page.evaluate(() => {
+      const { workspace } = Reflect.get(window, '__sceneweaveAssetsDev')
+      const assets = workspace.getState().project.assets as Record<string, { blob: Blob }>
+      const visibleResources = new WeakSet(Object.values(assets).map(resource => resource.blob))
       const original = window.createImageBitmap.bind(window)
-      const probe = { decoded: 0, closed: 0, release: null as (() => void) | null, restore: () => { window.createImageBitmap = original } }
+      const probe = { decoded: 0, closed: 0, ignoredPreview: 0, release: null as (() => void) | null, restore: () => { window.createImageBitmap = original } }
       window.createImageBitmap = (async (...args: Parameters<typeof createImageBitmap>) => {
         const bitmap = await (original as (...input: Parameters<typeof createImageBitmap>) => Promise<ImageBitmap>)(...args)
+        if (visibleResources.has(args[0] as Blob)) { probe.ignoredPreview++; return bitmap }
         probe.decoded++
         const close = bitmap.close.bind(bitmap); bitmap.close = () => { probe.closed++; close() }
         if (probe.decoded === 1) await new Promise<void>(resolve => { probe.release = resolve })
@@ -122,7 +128,7 @@ for (const sample of samples) {
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(page.locator('.asset-busy')).toHaveCount(0)
       expect(await identity(page)).toEqual(original)
-      const cleanup = await page.evaluate(() => { const probe = Reflect.get(window, '__b4WorkbenchDecode'); return { decoded: probe.decoded, closed: probe.closed } })
+      const cleanup = await page.evaluate(() => { const probe = Reflect.get(window, '__b4WorkbenchDecode'); return { decoded: probe.decoded, closed: probe.closed, ignoredPreview: probe.ignoredPreview } })
       expect(cleanup.decoded).toBeGreaterThan(0); expect(cleanup.closed).toBe(cleanup.decoded)
       const report = testInfo.outputPath(`b4-${sample.key}-cancel.json`)
       await writeFile(report, JSON.stringify({ sample: sample.key, lateDecodeDiscarded: true, identityHistoryAndPersistedUnchanged: true, ...cleanup }, null, 2))

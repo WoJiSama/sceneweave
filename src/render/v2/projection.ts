@@ -1,27 +1,8 @@
 import type { BoundsMm, EdgeStyle, MaterialRef, NoteV2, PointMm, PropV2, SceneDocumentV2, ShadowStyle, StyleTheme, SurfaceRef, SurfaceStyle, TerrainArea, TerrainEdge } from '../../core/v2/types'
 import { openingEndpointsV2, pointInPolygonV2, roomPointsV2, terrainPointsV2 } from '../../core/v2/geometry'
 
-export type AudienceV2 = 'gm' | 'player'
-export interface ProjectedSurfaceV2 { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number }
-export interface ProjectedTerrainEdgeV2 { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
-export interface ProjectedConnectionV2 { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null }
-export interface ProjectedOpeningV2 { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean }
-export interface ProjectedWallV2 { id: string; sourceIds: string[]; start: PointMm; end: PointMm; thicknessMm: number; style: SurfaceStyle | null; openings: ProjectedOpeningV2[] }
-export interface ProjectedNoteV2 { id: string; positionMm: PointMm; text: string; kind: NoteV2['kind']; visibility: 'gm' | 'public' }
-export interface ProjectedRegionV2 { id: string; points: PointMm[]; kind: 'terrain' | 'hazard' }
-/** Disposable visual data. In particular, a player projection has no source document or hidden definitions. */
-export interface ProjectionV2 {
-  audience: AudienceV2; sourceRevision: number; bounds: BoundsMm; gridSizeMm: number | null
-  rooms: ProjectedSurfaceV2[]; terrain: ProjectedSurfaceV2[]; walls: ProjectedWallV2[]
-  /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
-  props: PropV2[]
-  edges: ProjectedTerrainEdgeV2[]; connections: ProjectedConnectionV2[]
-  notes: ProjectedNoteV2[]; regions: ProjectedRegionV2[]; masks: PointMm[][]
-  theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets' | 'edgeStyles' | 'terrainCliff'> | null
-  materials: Record<string, Pick<MaterialRef, 'id' | 'version' | 'textureAssetId'>>
-  assetIds: string[]; limitations: string[]; diagnostics: string[]
-}
-
+import type { Audience as AudienceV2, ProjectedTerrainEdge as ProjectedTerrainEdgeV2, ProjectedConnection as ProjectedConnectionV2, ProjectedWall as ProjectedWallV2, ProjectedNote as ProjectedNoteV2, Projection as ProjectionV2 } from '../shared/types'
+export type { Audience as AudienceV2, ProjectedSurface as ProjectedSurfaceV2, ProjectedTerrainEdge as ProjectedTerrainEdgeV2, ProjectedConnection as ProjectedConnectionV2, ProjectedOpening as ProjectedOpeningV2, ProjectedWall as ProjectedWallV2, ProjectedNote as ProjectedNoteV2, ProjectedRegion as ProjectedRegionV2, Projection as ProjectionV2 } from '../shared/types'
 const EPS = 1e-6
 const clone = <T>(value: T): T => structuredClone(value)
 const point = (x: number, y: number): PointMm => ({ x, y })
@@ -67,6 +48,7 @@ export function transformedVisualBoundsV2(prop: PropV2): BoundsMm {
 const shadowPadding = (shadow: ShadowStyle | null | undefined) => shadow && shadow.opacity ? shadow.offsetMm + shadow.blurMm * 4 : 0
 const styleKey = (style: SurfaceStyle | null) => JSON.stringify(style)
 const wallOrder = (a: ProjectedWallV2, b: ProjectedWallV2) => a.start.y - b.start.y || a.start.x - b.start.x || a.end.y - b.end.y || a.end.x - b.end.x || a.thicknessMm - b.thicknessMm || styleKey(a.style).localeCompare(styleKey(b.style))
+export { wallOrder as wallOrderV2 }
 const close = (a: PointMm, b: PointMm) => Math.abs(a.x - b.x) < EPS && Math.abs(a.y - b.y) < EPS
 
 /** Canonical collinear merges prevent private split vertices creating public seams or joins. */
