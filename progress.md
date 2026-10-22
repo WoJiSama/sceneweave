@@ -46,3 +46,43 @@
 - native v3相同四组B5负载正式选择测量已启动，期间无其他浏览器、测试或构建。
 - native v3正式12轮完成，720样本无LongTask；500/2000双rAF框选p95为31.7–32.8ms、替换27.3–29.3ms。完整native v3包/原始IDB/revision/save/base/refinement及构建指纹不变；独立样本已归档26，未混用v2成绩。
 - 最终检查561个本地文档链接无缺失，归档哈希与解压720样本一致；本批native源码无尾随空白、目标密钥模式未命中。git diff --check仅既有todo.md末尾空行提示，保持无关文件原样。未提交、未推送；C1c本地交付完成，下一入口C1d仍待后续授权与新历史合同。
+
+## C2，2026-10-22
+- 用户“做吧”授权C2。已重读AGENTS/README/导航、07与现有v3命令/v4身份/恢复/历史工坊。使用planning-with-files，保留历史计划记录并追加新阶段。
+- memory快速检索Sceneweave无命中；无相关历史memory事实。工作区干净，从main/2e14885开始。
+
+- C2已接入建筑面板/画布整数吸附、矩形与斜边多边形、墙门属性与显式依赖确认、会话量尺、固定遮罩/注记及既有世界/导出范围字段的事务入口。独立 annotations/范围/绘图暂态9项单测通过，当前类型检查通过；建筑拓扑和结构恢复由分工代理继续实现，尚无完整UI或SCN01通过声明。
+- 工作期间todo.md出现用户新增“打开场景等待准备/确认”的缺陷记录，保留原样，未纳入C2结论或覆盖。
+
+- C2结构恢复已接工坊：类型筛选/虚拟列表、精确依赖与跨层确认、字段差异、保护点后一次采用及取消。修复建筑列表展开交互；补组合/散布父锁回归。集成类型检查及SCN01/命令32项通过；SCN01首轮两失败为支撑边界夹具和浮点端点断言，修正测试后复验通过，未放宽产品守卫。现串行Chrome C2首轮执行中，尚无浏览器通过结论。
+
+- C2首轮Chrome 6项5过1败；渲染/离线/秘密3项及共墙锁/量尺2项通过。SCN01入口复选框直接预览后checked读旧文档造成控件复位，修为暂态勾选+显式预览入口修改，待复验；完整失败日志和trace保留在c2-first。
+
+- C2最终全量单测59文件721项通过，正常生产构建含类型检查通过；C2定向Chrome11/11通过，全量Chrome同批132/132通过（714.04秒），没有跳过、失败或重试通过。此前失败现场与修正后独立记录均保留。
+- 正常生产构建真实UI双室/门窗、r4命名后r6共墙厚度恢复、取消、保护采用r7/撤销r8/重做r9及所选历史完整包通过。目视1512×982与390×844截图，无横向溢出；邻室后改名称和完整资源保持，正常页面无开发/性能API。仅既有favicon404留在报告。
+- C2报告与主文档已同步实际子项结果及会话结构恢复/预算限制。归档18份目标附件、113份本地诊断索引、原始reporter无损gzip及31份本批源码指纹；现在完成文档/哈希/许可与私人信息机械检查。未改用户todo.md，未提交、推送或开始C3。
+- 另目视符号家具的玩家/GM 4K对照：固定遮罩隐藏密道、秘密门及GM文字，GM保留对应内容；这组图仍只作28所列有限子集证据，不升级完整SCN-01或主题P3。
+- C2交付机械检查通过：35份主文档及全部本地链接/锚点、205个表格、33项PRD/67项QA引用、原reporter无损hash、18附件、31源码/43构建和113本地产物指纹一致；完整ZIP CRC/hash/许可复核通过，目标凭据模式无命中，排除用户todo.md后无空白错误。去除了103份已核对相同的全量旧用例重复产物（原始test-results保留，原reporter无损归档），C2与失败截图独立保留。所有阶段完成，未提交推送、未开始C3。
+
+## C3，2026-10-22
+- 用户明确授权C3。已读取README、导航、协作、路线与04/06的来源/覆盖/恢复合同；继续planning-with-files，保留完整C2脏基线和所有历史证据。
+- 采用新严格v5完整工程信封及独立仓库，完整有效SceneDocument保持v3；新的源/派生/层与实例覆盖图不偷加旧字段，identity2加入非复用组合身份。旧v4只通过显式严格视图用于既有几何/渲染，不能以视图替代保存。
+
+### C3 integration progress — 2026-10-22
+- Froze a new strict v5 composition envelope/container and independent repository; effective scene remains native strict v3. Public contract appended to 04/06; implementation still under verification.
+- Root added /#composition, explicit V4→V5 entry, searchable stock/custom catalog, PNG/JPEG/WebP import form with physical/license declarations, parameter scope/per-rule removal controls, fixed prefab/member controls, generic reviewed candidates and V5 history UI.
+- SceneInspector public workspace contract now explicitly permits async execution; compound delete/detach/unpack handlers await before changing selection. Existing V2/V3/V4 routes remain separate.
+- New C3 real browser fixture and UI tests written; NOT yet run. Agents own core V5, complete IO/storage/migration/pixel validation, and restore/workspace semantics and tests. No historical report/evidence overwritten.
+
+### C3 verification and fixes — 2026-10-22
+- Domain targeted unit: 32 new tests across commands/graph/identity passed after enforcing source ancestry, immutable template privacy, continuous adjustment mutual exclusion and retained source/variant native-v3 roots. IO targeted unit: 51 tests passed; restore/workspace targeted: 31 passed before the final cross-branch ancestor-root addition. These are scoped results, not final all-suite evidence.
+- System Chrome real PNG/JPEG/WebP metadata removal, wrong-pixel refusal, offline selected-history package and decode cancellation passed. Initial UI fixture missed a valid GM mask and was corrected without relaxing privacy guards; subsequent UI source/layer/undo, import/search/license and private prefab cases passed. A stable isolated scoped effective restore passed after a real orphan-derived-asset failure prompted fixed root retention. Targeted combined runs before that fix were interrupted/failed and retained under work/c3-20261022; final stable run pending.
+- Root inspected desktop UI screenshot. Bounded surface opacity and custom source shadow rules now have explicit UI wording. Normal production runner prepared but not yet run. Final source freeze waits for branch-ancestor resource/license restore test, then unit/build/full Chrome/production and final documentation.
+
+### C3 最终交付记录
+
+- 跨分支祖先资源恢复、候选注册/采用二次校验已完成。最终审查进一步将公开previewPrepared限为纯目录/素材追加；既有实体、私密性、锁、层、identity、源映射和覆盖不变，旧资源/许可不可改删；普通编辑只走有限命令及私有注册。15种绕过拒绝与实际入库/CRC失败回归已通过。
+- 最终全量单元70文件839项全部通过（55.05秒）；全量Chrome145/145（680.35秒），其后App一次性交接修复和v5入库限制由最终C3专项16/16（170.20秒）覆盖，两个源码批次指纹分开保留。新原生存储测试实际验证双标签revision冲突与完整另存副本、保护点metadata竞争拒绝与重新预览成功。没有把不同批次相加成一次全量结果。
+- 最终构建首次仅因新测试条目unknown类型失败；补两处会被擦除的as const后正常npm run build通过。正常构建C3按需加载，仍保留主包>500kB及第三方注释警告；未作正式性能容量声明。
+- 正常生产UI不调用dev API：创建16×12m空白、解码18内置素材、放置书桌r1、分别调色/亮度至r3、命名后再改色r4、只恢复物件外观并落保护点至r5、下载与重开通过。18原图+3派生真实解码且派生逐像素符合固定源计算；选一命名历史包222723字节、全部条目hash/许可核验，GM/玩家PNG4096×3072。桌面与390px截图已目视，无横向溢出，无开发/性能API；仅既有favicon404。
+- 主文档和docs29已同步实际范围与下一入口C4。839单元/最终C3原reporter、日志、生产包/PNG/截图已归档；145全量reporter原件留work，永久compact索引保留用例与附件真实hash，避免重复大附件。历史666文件逐项hash受保护，todo.md工作期间存在无关新编辑，全部保留，任务未写入或恢复该文件。未提交、推送或发布，未开始C4。

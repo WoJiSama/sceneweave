@@ -11,6 +11,8 @@ type Props = {
   locateId: string | null
   busy: boolean
   onSelect: (id: string, operation?: SelectionOperation) => void
+  noun?: string
+  selectionHint?: string
 }
 
 const ROW_HEIGHT = 40
@@ -35,7 +37,7 @@ const VirtualRow = memo(function VirtualRow({ item, index, selected, busy, tabSt
 })
 
 /** Only visible object rows are mounted for long scenes; the complete data stays searchable. */
-export default function VirtualEntityList({ items, selectedIds, locateId, busy, onSelect }: Props) {
+export default function VirtualEntityList({ items, selectedIds, locateId, busy, onSelect, noun = '物件', selectionHint = 'Enter 选择' }: Props) {
   const [query, setQuery] = useState(''), [scrollTop, setScrollTop] = useState(0), [activeId, setActiveId] = useState<string | null>(null), [focusRequest, setFocusRequest] = useState(0)
   const viewport = useRef<HTMLDivElement>(null), pendingFocus = useRef<string | null>(null), pendingLocate = useRef<string | null>(null)
   const focusFrame = useRef<number | null>(null)
@@ -87,20 +89,20 @@ export default function VirtualEntityList({ items, selectedIds, locateId, busy, 
     if (next !== null) { event.preventDefault(); event.stopPropagation(); reveal(Math.max(0, Math.min(filtered.length - 1, next)), true) }
   }
   return <div className="asset-object-browser">
-    <label className="asset-object-search"><Search size={13}/><input type="search" aria-label="搜索场景物件" placeholder="搜索名称或 ID" value={query} disabled={busy} autoComplete="off" spellCheck={false}
+    <label className="asset-object-search"><Search size={13}/><input type="search" aria-label={`搜索场景${noun}`} placeholder="搜索名称或 ID" value={query} disabled={busy} autoComplete="off" spellCheck={false}
       onChange={event => { setQuery(event.target.value); setActiveId(null); pendingFocus.current = null; setScrollTop(0); if (viewport.current) viewport.current.scrollTop = 0 }}
       onKeyDown={event => {
         if (event.nativeEvent.isComposing) return
         if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery(''); setScrollTop(0); if (viewport.current) viewport.current.scrollTop = 0 }
         else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && filtered.length) { event.preventDefault(); reveal(event.key === 'ArrowDown' ? 0 : filtered.length - 1, true) }
       }}/></label>
-    <div className="asset-object-list-tools"><span aria-live="polite">{query.trim() ? `${filtered.length} / ${items.length}` : items.length} 件物件</span><button type="button" aria-label="定位所选对象" disabled={busy || !locateId} onClick={() => {
+    <div className="asset-object-list-tools"><span aria-live="polite">{query.trim() ? `${filtered.length} / ${items.length}` : items.length} {noun === '物件' ? '件' : '项'}{noun}</span><button type="button" aria-label="定位所选对象" disabled={busy || !locateId} onClick={() => {
       if (!locateId) return
       const index = positions.get(locateId)
       if (index !== undefined) reveal(index, true)
       else { pendingLocate.current = locateId; setQuery(''); setScrollTop(0); if (viewport.current) viewport.current.scrollTop = 0 }
     }}><LocateFixed size={12}/>定位所选</button></div>
-    {filtered.length ? <div ref={viewport} className="asset-object-viewport" role="group" aria-label="场景物件列表" tabIndex={-1} style={{ height }}
+    {filtered.length ? <div ref={viewport} className="asset-object-viewport" role="group" aria-label={`场景${noun}列表`} tabIndex={-1} style={{ height }}
       data-total-rows={filtered.length} data-mounted-rows={end - first}
       onKeyDown={navigate} onScroll={event => {
         const node = event.currentTarget, top = node.scrollTop
@@ -115,7 +117,7 @@ export default function VirtualEntityList({ items, selectedIds, locateId, busy, 
         }
       }}>
       <div className="asset-object-spacer" style={{ height: filtered.length * ROW_HEIGHT }}>{filtered.slice(first, end).map((item, offset) => <VirtualRow key={item.id} item={item} index={first + offset} selected={selectedIds.has(item.id)} busy={busy} tabStop={first + offset === tabIndex} onSelect={onSelect} onFocus={focusRow}/>)}</div>
-    </div> : <p className="asset-muted asset-object-empty">{items.length ? '没有匹配的物件。可按名称或完整 ID 搜索。' : '场景中还没有物件。'}</p>}
-    <p className="asset-object-key-hint">↑↓ / Home / End / Page 浏览 · Enter 选择</p>
+    </div> : <p className="asset-muted asset-object-empty">{items.length ? `没有匹配的${noun}。可按名称或完整 ID 搜索。` : `场景中还没有${noun}。`}</p>}
+    <p className="asset-object-key-hint">↑↓ / Home / End / Page 浏览 · {selectionHint}</p>
   </div>
 }

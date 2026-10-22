@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Archive, ArrowLeft, CheckCircle2, Download, Layers3, LoaderCircle, Move, Redo2, RotateCw, Undo2, Upload, X } from 'lucide-react'
+import { Archive, ArrowLeft, CheckCircle2, Download, Layers3, PencilRuler, LoaderCircle, Move, Redo2, RotateCw, Undo2, Upload, X } from 'lucide-react'
 import { SceneRepositoryV4 } from '../../io/v4/storage'
 import { importProjectV3 } from '../../io/v3/project-file'
 import type { CompleteProjectV2 } from '../../io/v2/types'
@@ -11,7 +11,11 @@ import { exportProjectV4, exportHistoryArchiveV4, importProjectV4, importHistory
 import type { CompleteProjectV4, HistoryArchiveV4 } from '../../io/v4/types'
 import { toGeometryDocumentV2 } from '../../core/v3/geometry-view'
 import type { SceneCommandV3 } from '../../core/v3/commands'
-import type { SceneDocumentV3 } from '../../core/v3/types'
+import { LAYER_ENTITY_COLLECTIONS_V3, type SceneDocumentV3 } from '../../core/v3/types'
+import { buildingDependantsV3 } from '../../core/v3/building'
+import BuildingPanel from './BuildingPanel'
+import BuildingInspector from './BuildingInspector'
+import type { BuildingSketch } from './building-session'
 import UserLayerPanel from '../v3/UserLayerPanel'
 import { domainProjectV3, hiddenEntitiesV3, scopedHiddenEntitiesV3, hitTestLayersV3, selectInBoundsLayersV3, selectionGeometryLayersV3, summarizeSelectionLayersV3 } from '../v3/layer-view'
 
@@ -28,8 +32,9 @@ import SceneInspector from '../v2/SceneInspector'
 import SceneLibrary from '../v2/SceneLibrary'
 import TerrainTravelPanel from '../v2/TerrainTravelPanel'
 import { migrateProjectV1, prepareProjectFile } from '../v2/migration-project'
-import { WorkspaceV4, type RestorePreviewV4 } from './workspace'
+import { WorkspaceV4, type RestorePreviewV4, type StructureRestorePreviewV4 } from './workspace'
 import HistoryPanel, { RestoreChangesPanel } from './HistoryPanel'
+import { StructureRestoreChangesPanel } from './StructureHistoryPanel'
 import AssetCanvas from '../v2/AssetCanvas'
 import NewSceneForm, { type NewSceneOptionsV2 } from '../v2/NewSceneForm'
 import PlacementInspector from '../v2/PlacementInspector'
@@ -55,9 +60,9 @@ const download = (blob: Blob, name: string) => {
   anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 type Candidate = { project: CompleteProjectV4; checkpoint: number; description: string; archive?: HistoryArchiveV4 }
-type StructurePreview = { checkpoint: number; commands: SceneCommandV3[]; document: SceneDocumentV3; description: string; kind?: 'batch' | 'layer'; scopeIds?: string[] }
+type StructurePreview = { checkpoint: number; commands: SceneCommandV3[]; document: SceneDocumentV3; description: string; kind?: 'batch' | 'layer' | 'building'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean }
 
-export default function HistoryWorkbench({ onBack, source }: { onBack: () => void; source?: CompleteProjectV3 | null }) {
+export default function HistoryWorkbench({ onBack, source, onOpenComposition }: { onBack: () => void; source?: CompleteProjectV3 | null; onOpenComposition?: (source: CompleteProjectV4) => void }) {
   const state = useSyncExternalStore(historyWorkspace.subscribe, historyWorkspace.getState), completeProject = state.project
   const project = useMemo(() => completeProject ? domainProjectV3(toCompleteProjectV3(completeProject)) : null, [completeProject])
   const [currentLayerId, setCurrentLayerId] = useState(''), [hiddenLayerIds, setHiddenLayerIds] = useState<ReadonlySet<string>>(new Set()), [soloLayerId, setSoloLayerId] = useState<string | null>(null), [currentOnly, setCurrentOnly] = useState(false)
@@ -72,19 +77,23 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
   const [layerMoveRequest, setLayerMoveRequest] = useState(0)
   const [memberMode, setMemberMode] = useState(false), [menu, setMenu] = useState<SceneMenuV2 | null>(null), [fitRequest, setFitRequest] = useState(0)
   const [candidate, setCandidate] = useState<Candidate | null>(null)
-  const [sidebar, setSidebar] = useState<'scene' | 'history'>('scene'), [historyRefresh, setHistoryRefresh] = useState(0)
+  const [sidebar, setSidebar] = useState<'scene' | 'history' | 'building'>('scene'), [historyRefresh, setHistoryRefresh] = useState(0)
   const [restore, setRestore] = useState<RestorePreviewV4 | null>(null)
   const restoreRef = useRef<RestorePreviewV4 | null>(null)
   restoreRef.current = restore
+  const [structureRestore, setStructureRestore] = useState<StructureRestorePreviewV4 | null>(null)
+  const structureRestoreRef = useRef<StructureRestorePreviewV4 | null>(null)
+  structureRestoreRef.current = structureRestore
   const [structure, setStructure] = useState<StructurePreview | null>(null), [audience, setAudience] = useState<'gm' | 'player'>('gm')
+  const [sketch, setSketch] = useState<BuildingSketch | null>(null)
   const [newScene, setNewScene] = useState(false)
   const [creatingStage, setCreatingStage] = useState<'preparing' | 'saving' | null>(null)
   const creatingStageRef = useRef<'preparing' | 'saving' | null>(null)
   const [placement, setPlacement] = useState<{ prop: PropV2; checkpoint: number } | null>(null)
   const [placementReady, setPlacementReady] = useState(false)
   const previewRef = useRef(false)
-  previewRef.current = !!structure || !!restore
-  const editingBlocked = !!structure || !!restore
+  previewRef.current = !!structure || !!restore || !!structureRestore
+  const editingBlocked = !!structure || !!restore || !!structureRestore
   const placingRef = useRef(false)
   placingRef.current = !!placement
   const file = useRef<HTMLInputElement>(null), controller = useRef<AbortController | null>(null), shell = useRef<HTMLDivElement>(null), dialog = useRef<HTMLDivElement>(null)
@@ -107,18 +116,19 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
     // Remembering the selection is optional; IndexedDB owns the complete project.
     try { if (project) localStorage.setItem('sceneweave.historySceneId', project.document.sceneId) } catch { /* The recent list still permits reopening. */ }
     setSelected(null)
-    setStructure(null); setRestore(null); setAudience('gm'); setMemberMode(false); setHiddenLayerIds(new Set()); setSoloLayerId(null); setCurrentOnly(false); setLayerMoveRequest(0); setCurrentLayerId(Object.keys(completeProject?.document.userLayers ?? {})[0] ?? '')
+    setStructure(null); setRestore(null); setStructureRestore(null); setSketch(null); setAudience('gm'); setMemberMode(false); setHiddenLayerIds(new Set()); setSoloLayerId(null); setCurrentOnly(false); setLayerMoveRequest(0); setCurrentLayerId(Object.keys(completeProject?.document.userLayers ?? {})[0] ?? '')
     if (project) void refresh().catch(() => {})
   }, [project?.document.sceneId])
   useEffect(() => { if (state.status === 'saved') void refresh().catch(() => {}) }, [state.status, project?.document.revision])
   useEffect(() => { if (restoreRef.current) historyWorkspace.cancelRestore(restoreRef.current); setRestore(null) }, [project?.document.sceneId, project?.document.revision])
-  useEffect(() => { setPlacement(null); setMenu(null); if (project) selectionSession.set(normalizeSelectionV2(project.document, selectionSession.getSnapshot(), true).filter(id => !scopedHiddenIds.has(id))) }, [project, audience, scopedHiddenIds])
+  useEffect(() => { if (structureRestoreRef.current) historyWorkspace.cancelStructureRestore(structureRestoreRef.current); setStructureRestore(null) }, [project?.document.sceneId, project?.document.revision])
+  useEffect(() => { setPlacement(null); setMenu(null); setSketch(null); if (project) selectionSession.set(normalizeSelectionV2(project.document, selectionSession.getSnapshot(), true).filter(id => !scopedHiddenIds.has(id))) }, [project, audience, scopedHiddenIds])
   useEffect(() => {
     if (import.meta.env.DEV) Reflect.set(window, '__sceneweaveHistoryDev', { workspace: historyWorkspace, repository })
     const unload = (event: BeforeUnloadEvent) => { if (!['empty', 'saved'].includes(historyWorkspace.getState().status)) { event.preventDefault(); event.returnValue = '' } }
     const key = (event: KeyboardEvent) => {
       if (actionPending.current) return
-      if (previewRef.current) { if (event.key === 'Escape' && !(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); setStructure(null); if (restoreRef.current) historyWorkspace.cancelRestore(restoreRef.current); setRestore(null) }; return }
+      if (previewRef.current) { if (event.key === 'Escape' && !(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); setStructure(null); if (restoreRef.current) historyWorkspace.cancelRestore(restoreRef.current); setRestore(null); if (structureRestoreRef.current) historyWorkspace.cancelStructureRestore(structureRestoreRef.current); setStructureRestore(null) }; return }
       if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]') || event.isComposing || document.querySelector('[role="dialog"],[role="menu"]')) return
       if (event.key === 'Escape' && placingRef.current) { event.preventDefault(); setPlacement(null); return }
       if ((event.metaKey || event.ctrlKey) && ['z', 'y', 's'].includes(event.key.toLowerCase())) {
@@ -131,7 +141,7 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
       }
     }
     window.addEventListener('beforeunload', unload); window.addEventListener('keydown', key)
-    return () => { if (restoreRef.current) historyWorkspace.cancelRestore(restoreRef.current); window.removeEventListener('beforeunload', unload); window.removeEventListener('keydown', key) }
+    return () => { if (restoreRef.current) historyWorkspace.cancelRestore(restoreRef.current); if (structureRestoreRef.current) historyWorkspace.cancelStructureRestore(structureRestoreRef.current); window.removeEventListener('beforeunload', unload); window.removeEventListener('keydown', key) }
   }, [])
   useEffect(() => {
     if (!candidate && !newScene) return
@@ -187,7 +197,7 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
   }, '从 M0 已保存修订创建独立副本，保留原工程及迁移来源。')
   const openNewScene = () => {
     modalOrigin.current = document.activeElement as HTMLElement | null
-    setPlacement(null); setMessage(null); setNewScene(true)
+    setPlacement(null); setSketch(null); setMessage(null); setNewScene(true)
   }
   const createScene = (options: NewSceneOptionsV2) => void action(async () => {
     controller.current?.abort(); const abort = new AbortController(); controller.current = abort
@@ -225,7 +235,7 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
       if (!layer || layer.editLocked || effectiveHiddenLayers.has(layer.id)) throw new Error('请先选择可见且未锁定的当前图层。')
       const b = project.document.exportBoundsMm
       const prop = createPlacedPropV3(completeProject.document, definitionId, position ?? { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }, { layerId: currentLayerId })
-      setPlacementReady(false); setPlacement({ prop, checkpoint: historyWorkspace.checkpoint() }); setSelected(null); setMessage(null)
+      setSketch(null); setPlacementReady(false); setPlacement({ prop, checkpoint: historyWorkspace.checkpoint() }); setSelected(null); setMessage(null)
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
   }
   const placeAt = (positionMm: PointMm) => {
@@ -260,7 +270,7 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
   }
   const commit = (run: () => void) => { try { if (editingBlocked) throw new Error('请先采用或取消当前预览。'); run(); setMessage(null) } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } }
   const preview = (input: SceneCommandV3[] | (() => SceneCommandV3[]), description: string, scopeIds?: string[]) => {
-    if (!project || restore) return
+    if (!project || restore || structureRestore) return
     try {
       const commands = typeof input === 'function' ? input() : input
       const checkpoint = structure?.checkpoint ?? historyWorkspace.checkpoint()
@@ -269,8 +279,46 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
       setStructure({ checkpoint, commands, document, description, scopeIds, ...(scopeIds ? { kind: 'layer' as const } : {}) }); setMessage(null)
     } catch (error) { setMessage(`候选未通过，工程未修改：${error instanceof Error ? error.message : String(error)}`) }
   }
-  const select = (id: string | null, operation: 'replace' | 'add' | 'subtract' = 'replace') => { if (editingBlocked) return; if (id && scopedHiddenIds.has(id)) { setMessage('该对象在隐藏图层或当前选择范围外，请先调整图层。'); return } setPlacement(null); setMenu(null); if (id && project?.document.props[id] && Object.values(project.document.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === id))) setMemberMode(true); else if (id && project?.document.prefabInstances[id]) setMemberMode(false); selectionSession.set(!id ? [] : normalizeSelectionV2(project!.document, operation === 'replace' ? [id] : operation === 'add' ? [...selectionSession.getSnapshot(), id] : selectionSession.getSnapshot().filter(current => current !== id), true)) }
-  const selectMany = (ids: readonly string[]) => { if (editingBlocked) return; setPlacement(null); setMenu(null); selectionSession.set(ids.filter(id => !scopedHiddenIds.has(id))) }
+  const previewBuilding = (commands: SceneCommandV3[], description: string) => {
+    if (!completeProject || editingBlocked || busy || audience !== 'gm') return
+    try {
+      const checkpoint = historyWorkspace.checkpoint(), document = historyWorkspace.preview(commands)
+      const before = completeProject.document, affected = new Set<string>()
+      for (const collection of LAYER_ENTITY_COLLECTIONS_V3) {
+        const ids = new Set([...Object.keys(before[collection]), ...Object.keys(document[collection])])
+        for (const id of ids) if (JSON.stringify(before[collection][id]) !== JSON.stringify(document[collection][id])) affected.add(id)
+      }
+      for (const command of commands) if (command.type === 'setCanvasBounds') for (const id of Object.keys(before.entityLayers)) affected.add(id)
+      for (const command of commands) if (command.type === 'setEntranceOpenings') for (const id of [...before.constraints.entranceOpeningIds, ...document.constraints.entranceOpeningIds]) affected.add(id)
+      const roots = new Set(affected)
+      for (const scene of [before, document]) {
+        // Coordinate edits change adjacent joins without changing wall JSON. Room,
+        // opening and note edits also need their actual dependencies in the review.
+        const walls = Object.values(scene.walls).filter(wall => roots.has(wall.id) || roots.has(wall.startVertexId) || roots.has(wall.endVertexId)
+          || Object.values(scene.openings).some(opening => roots.has(opening.id) && opening.wallId === wall.id)
+          || Object.values(scene.rooms).some(room => roots.has(room.id) && room.boundaryVertexIds.some((id, index) => {
+            const next = room.boundaryVertexIds[(index + 1) % room.boundaryVertexIds.length]
+            return id === wall.startVertexId && next === wall.endVertexId || id === wall.endVertexId && next === wall.startVertexId
+          })))
+        const dependencies = new Set([...roots].filter(id => scene.entityLayers[id]))
+        for (const id of roots) {
+          let note = scene.notes[id]
+          const seen = new Set<string>()
+          while (note?.anchor.type === 'entity' && !seen.has(note.id)) {
+            seen.add(note.id); dependencies.add(note.anchor.entityId)
+            note = scene.notes[note.anchor.entityId]
+          }
+        }
+        for (const id of buildingDependantsV3(scene, walls.map(wall => wall.id), [...dependencies])) affected.add(id)
+      }
+      const layerIds = [...new Set([...affected].flatMap(id => [before.entityLayers[id], document.entityLayers[id]]).filter(Boolean))]
+      if (!affected.size && JSON.stringify(before.constraints) === JSON.stringify(document.constraints) && JSON.stringify(before.exportBoundsMm) === JSON.stringify(document.exportBoundsMm) && JSON.stringify(before.floors) === JSON.stringify(document.floors)) throw new Error('参数与当前工程一致，无需采用。')
+      setStructure({ checkpoint, commands, document, description, kind: 'building', scopeIds: [...affected].sort(), layerIds, confirmed: false })
+      setSketch(null); setPlacement(null); setMessage(null)
+    } catch (error) { setMessage(`候选未通过，工程未修改：${error instanceof Error ? error.message : String(error)}`) }
+  }
+  const select = (id: string | null, operation: 'replace' | 'add' | 'subtract' = 'replace') => { if (editingBlocked) return; if (id && scopedHiddenIds.has(id)) { setMessage('该对象在隐藏图层或当前选择范围外，请先调整图层。'); return } setPlacement(null); setSketch(null); setMenu(null); if (id && project?.document.props[id] && Object.values(project.document.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === id))) setMemberMode(true); else if (id && project?.document.prefabInstances[id]) setMemberMode(false); selectionSession.set(!id ? [] : normalizeSelectionV2(project!.document, operation === 'replace' ? [id] : operation === 'add' ? [...selectionSession.getSnapshot(), id] : selectionSession.getSnapshot().filter(current => current !== id), true)) }
+  const selectMany = (ids: readonly string[]) => { if (editingBlocked) return; setSketch(null); setPlacement(null); setMenu(null); selectionSession.set(ids.filter(id => !scopedHiddenIds.has(id))) }
   const batchAction = (action: SelectionActionV2, values?: { dx?: number; dy?: number; angle?: number }, ids = selectionSession.getSnapshot(), checkpoint = historyWorkspace.checkpoint()) => {
     if (!project || busy || editingBlocked || audience !== 'gm') return
     try {
@@ -288,7 +336,7 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
     setMenu({ ...position, point, hits, ids, checkpoint: historyWorkspace.checkpoint(), origin, blank: !hits.length })
   }
   const closeMenu = (restore = false) => { const origin = menu?.origin; setMenu(null); if (restore) requestAnimationFrame(() => origin?.isConnected && origin.focus({ preventScroll: true })) }
-  const visibleCompleteProject = useMemo(() => restore?.project ?? (completeProject && structure ? { ...completeProject, document: structure.document } : completeProject), [completeProject, structure, restore])
+  const visibleCompleteProject = useMemo(() => structureRestore?.project ?? restore?.project ?? (completeProject && structure ? { ...completeProject, document: structure.document } : completeProject), [completeProject, structure, restore, structureRestore])
   const renderProject = useMemo(() => visibleCompleteProject ? toCompleteProjectV3(visibleCompleteProject) : null, [visibleCompleteProject])
   const visibleProject = useMemo(() => renderProject ? domainProjectV3(renderProject) : null, [renderProject])
   const editorRenderer = useMemo(() => renderProject ? (options: Parameters<typeof renderEditorProjectV3>[1]) => renderEditorProjectV3(renderProject, { ...options, hiddenLayerIds: effectiveHiddenLayers }) : undefined, [renderProject, effectiveHiddenLayers])
@@ -311,14 +359,21 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
     download(blob, `sceneweave-${audience}-map.png`)
     setMessage(`${audience === 'gm' ? '主持人' : '玩家'} PNG 已生成 · r${completeProject.document.revision} · 固定工程范围 · 长边 4096 px`)
   }) }
+  const canvasWorldTool = sketch && audience === 'gm' ? { ...sketch, snapMm: project?.document.units.snapMm ?? 100, onCancel: () => setSketch(null),
+    onPoint: (point: PointMm) => setSketch(current => {
+      if (!current) return null
+      const points = current.kind !== 'polygon' && current.points.length >= 2 ? [point] : [...current.points, point]
+      return { ...current, points, cursor: null }
+    }), onMove: (point: PointMm) => setSketch(current => current && !(current.kind !== 'polygon' && current.points.length >= 2) ? { ...current, cursor: point } : current),
+  } : null
   const saveLabels = { empty: '尚未打开工程', saved: '本地已保存', unsaved: '等待保存', saving: '正在保存', error: '保存失败', conflict: '版本冲突' }
   return <>
     <div className="asset-shell history-shell" ref={shell} data-testid="history-workbench" data-revision={project?.document.revision}>
-      <header className="asset-header"><button className="asset-brand" disabled={busy || editingBlocked} onClick={() => void action(async () => { await historyWorkspace.flush(); onBack() })}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><Archive size={20}/><span>历史工坊</span><b>命名快照</b></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`}>{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : <CheckCircle2 size={14}/>} {saveLabels[state.status]}</span><button className="secondary" disabled={busy || editingBlocked} onClick={() => file.current?.click()}><Upload size={15}/>打开工程</button><button className="primary" disabled={busy || editingBlocked || !project} onClick={() => backup()}><Download size={15}/>完整工程</button><button className="secondary" disabled={busy || editingBlocked || !project} onClick={exportImage}><Download size={15}/>4K PNG</button></div></header>
-      <div className="asset-phase-note">命名历史 · 局部恢复<span>独立物件 · 外观 / 位置角度 / 完整物件</span></div>
+      <header className="asset-header"><button className="asset-brand" disabled={busy || editingBlocked} onClick={() => void action(async () => { await historyWorkspace.flush(); onBack() })}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><Archive size={20}/><span>历史工坊</span><b>建筑与历史</b></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`}>{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : <CheckCircle2 size={14}/>} {saveLabels[state.status]}</span><button className="secondary" disabled={busy || editingBlocked} onClick={() => file.current?.click()}><Upload size={15}/>打开工程</button><button className="primary" disabled={busy || editingBlocked || !project} onClick={() => backup()}><Download size={15}/>完整工程</button><button className="secondary" disabled={busy || editingBlocked || !completeProject || !onOpenComposition} onClick={() => void action(async () => { await historyWorkspace.flush(); const current = historyWorkspace.getState().project; if (current) onOpenComposition?.(current) }, '准备组件副本')}>组件与外观</button><button className="secondary" disabled={busy || editingBlocked || !project} onClick={exportImage}><Download size={15}/>4K PNG</button></div></header>
+      <div className="asset-phase-note">手工建筑 · 命名历史<span>房间 / 共墙 / 门窗 / 量尺 · 局部恢复</span></div>
       {(state.error || message) && <div className="asset-notice" role="alert"><span>{message ?? state.error}</span>{state.status === 'error' && <button onClick={() => void action(() => historyWorkspace.retry())}>重试保存</button>}{['conflict', 'error'].includes(state.status) && <button onClick={() => void action(async () => { await historyWorkspace.saveAsCopy(); await refresh() })}>另存副本</button>}<button aria-label="关闭工坊提示" onClick={() => setMessage(null)}><X size={16}/></button></div>}
       <div className="asset-layout">
-        <div className="layer-library-stack history-library-stack"><div className="history-sidebar-tabs" role="tablist" aria-label="工坊侧栏"><button role="tab" aria-selected={sidebar === 'scene' || audience === 'player'} disabled={busy || editingBlocked} onClick={() => setSidebar('scene')}><Layers3 size={14}/>场景</button><button role="tab" aria-selected={sidebar === 'history' && audience === 'gm'} disabled={!completeProject || busy || editingBlocked || audience === 'player'} onClick={() => { setSidebar('history'); setPlacement(null) }}><Archive size={14}/>历史</button></div>{sidebar === 'history' && completeProject && audience === 'gm' ? <HistoryPanel project={completeProject} repository={repository} workspace={historyWorkspace} session={selectionSession} disabled={busy || editingBlocked} refreshKey={historyRefresh} onAction={action} onPreview={next => { setPlacement(null); setRestore(next) }} onBackup={backup}/> : <>{completeProject && audience === 'gm' && <UserLayerPanel scene={completeProject.document} session={selectionSession} currentLayerId={currentLayerId} hiddenLayerIds={hiddenLayerIds} soloLayerId={soloLayerId} currentOnly={currentOnly} disabled={busy || editingBlocked} onCurrent={id => { setPlacement(null); setCurrentLayerId(id) }} onHidden={id => setHiddenLayerIds(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })} onSolo={id => setSoloLayerId(current => current === id ? null : id)} onScope={setCurrentOnly} moveRequest={layerMoveRequest} onSelectLayer={selectLayer} onCommand={commands => commit(() => historyWorkspace.execute(commands))} onPreview={preview}/> }<SelectionSubscriber session={selectionSession}>{ids => <SceneLibrary project={project} selected={ids.length === 1 ? ids[0] : null} selectedIds={[...ids]} busy={busy || editingBlocked} recent={recent} onSelect={select} onNew={openNewScene} onPlace={choosePlacement} placingId={placement?.prop.definitionRef?.id ?? null} canPlace={audience === 'gm' && !!completeProject?.document.userLayers[currentLayerId] && !completeProject.document.userLayers[currentLayerId].editLocked && !effectiveHiddenLayers.has(currentLayerId)}
+        <div className="layer-library-stack history-library-stack"><div className="history-sidebar-tabs" role="tablist" aria-label="工坊侧栏"><button role="tab" aria-selected={sidebar === 'scene' || audience === 'player'} disabled={busy || editingBlocked} onClick={() => { setSidebar('scene'); setSketch(null) }}><Layers3 size={14}/>场景</button><button role="tab" aria-selected={sidebar === 'history' && audience === 'gm'} disabled={!completeProject || busy || editingBlocked || audience === 'player'} onClick={() => { setSidebar('history'); setPlacement(null); setSketch(null) }}><Archive size={14}/>历史</button><button role="tab" aria-selected={sidebar === 'building' && audience === 'gm'} disabled={!completeProject || busy || editingBlocked || audience === 'player'} onClick={() => { setSidebar('building'); setPlacement(null); setSelected(null) }}><PencilRuler size={14}/>建筑</button></div>{sidebar === 'history' && completeProject && audience === 'gm' ? <HistoryPanel project={completeProject} repository={repository} workspace={historyWorkspace} session={selectionSession} disabled={busy || editingBlocked} refreshKey={historyRefresh} onAction={action} onPreview={next => { setPlacement(null); setSketch(null); setRestore(next) }} onStructurePreview={next => { setPlacement(null); setSketch(null); setStructureRestore(next) }} onBackup={backup}/> : sidebar === 'building' && completeProject && audience === 'gm' ? <><UserLayerPanel scene={completeProject.document} session={selectionSession} currentLayerId={currentLayerId} hiddenLayerIds={hiddenLayerIds} soloLayerId={soloLayerId} currentOnly={currentOnly} disabled={busy || editingBlocked} onCurrent={id => { setSketch(null); setCurrentLayerId(id) }} onHidden={id => { setSketch(null); setHiddenLayerIds(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next }) }} onSolo={id => { setSketch(null); setSoloLayerId(current => current === id ? null : id) }} onScope={setCurrentOnly} moveRequest={layerMoveRequest} onSelectLayer={selectLayer} onCommand={commands => commit(() => historyWorkspace.execute(commands))} onPreview={preview}/><BuildingPanel key={completeProject.document.sceneId} scene={completeProject.document} layerId={currentLayerId} disabled={busy || editingBlocked || effectiveHiddenLayers.has(currentLayerId)} sketch={sketch} onSketch={next => { setSketch(next); setPlacement(null); setSelected(null) }} onPreview={previewBuilding} onSelect={select}/></> : <>{completeProject && audience === 'gm' && <UserLayerPanel scene={completeProject.document} session={selectionSession} currentLayerId={currentLayerId} hiddenLayerIds={hiddenLayerIds} soloLayerId={soloLayerId} currentOnly={currentOnly} disabled={busy || editingBlocked} onCurrent={id => { setSketch(null); setPlacement(null); setCurrentLayerId(id) }} onHidden={id => setHiddenLayerIds(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })} onSolo={id => setSoloLayerId(current => current === id ? null : id)} onScope={setCurrentOnly} moveRequest={layerMoveRequest} onSelectLayer={selectLayer} onCommand={commands => commit(() => historyWorkspace.execute(commands))} onPreview={preview}/> }<SelectionSubscriber session={selectionSession}>{ids => <SceneLibrary project={project} selected={ids.length === 1 ? ids[0] : null} selectedIds={[...ids]} busy={busy || editingBlocked} recent={recent} onSelect={select} onNew={openNewScene} onPlace={choosePlacement} placingId={placement?.prop.definitionRef?.id ?? null} canPlace={audience === 'gm' && !!completeProject?.document.userLayers[currentLayerId] && !completeProject.document.userLayers[currentLayerId].editLocked && !effectiveHiddenLayers.has(currentLayerId)}
           onIsland={() => prepare(createIslandProject, '原创室外样板：双层岩岛、草岩浅水、高差台阶与可保留人工调整的散布。')}
           onStudy={() => prepare(createStudyProject, '原创室内建筑样板：书房与露台、厚墙与斜窗、墨绘原野材质及可拆分组合。')}
           onCalibration={() => prepare(createCalibrationProject, 'B1 原创程序校样：重复木纹、透明书桌与椅子，用于验证素材和工程保存。')}
@@ -328,16 +383,17 @@ export default function HistoryWorkbench({ onBack, source }: { onBack: () => voi
             if (!saved) throw new Error('工程不存在。')
             await historyWorkspace.openPersisted(saved, checkpoint); setSelected(null)
           }, '打开本地工程')}/>}</SelectionSubscriber></>}</div>
-        <main className="asset-center"><div className="asset-scene-bar"><div><small>{audience === 'gm' ? '主持人场景' : '玩家场景'}</small><h1>{project?.document.title ?? '织境场景'}</h1></div><div className="asset-toolbar"><button aria-label="撤销素材编辑" title="撤销" disabled={!state.canUndo || busy || editingBlocked} onClick={() => commit(() => historyWorkspace.undo())}><Undo2 size={17}/></button><button aria-label="重做素材编辑" title="重做" disabled={!state.canRedo || busy || editingBlocked} onClick={() => commit(() => historyWorkspace.redo())}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || busy || editingBlocked || audience === 'player'} onClick={() => { setSidebar('history'); setPlacement(null) }}><Archive size={17}/></button></div></div>
-          <div className="asset-view-bar"><div role="group" aria-label="预览受众" className="asset-audience"><button disabled={busy || editingBlocked} aria-pressed={audience === 'gm'} onClick={() => setAudience('gm')}>主持人</button><button disabled={busy || editingBlocked} aria-pressed={audience === 'player'} onClick={() => { setAudience('player'); setSelected(null) }}>玩家</button></div><span>{project ? `${(project.document.exportBoundsMm.width / 1000).toFixed(1)} × ${(project.document.exportBoundsMm.height / 1000).toFixed(1)} m · 固定范围` : '二维俯视 · 毫米世界坐标'}</span></div>
-          {structure && <div className="asset-structure-preview" role="status"><div><strong>{structure.description} · 候选预览</strong><span>尚未写入工程，采用后作为一次编辑保存</span>{structure.scopeIds && <details className="layer-preview-scope"><summary>实际操作范围 · {structure.scopeIds.length} 项</summary><textarea readOnly aria-label="待采用图层操作 ID" rows={4} value={structure.scopeIds.join('\n')}/></details>}</div><button className="secondary" onClick={() => setStructure(null)}>{structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : '取消结构预览'}</button><button className="primary" onClick={() => {
+        <main className="asset-center"><div className="asset-scene-bar"><div><small>{audience === 'gm' ? '主持人场景' : '玩家场景'}</small><h1>{project?.document.title ?? '织境场景'}</h1></div><div className="asset-toolbar"><button aria-label="撤销素材编辑" title="撤销" disabled={!state.canUndo || busy || editingBlocked} onClick={() => commit(() => historyWorkspace.undo())}><Undo2 size={17}/></button><button aria-label="重做素材编辑" title="重做" disabled={!state.canRedo || busy || editingBlocked} onClick={() => commit(() => historyWorkspace.redo())}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || busy || editingBlocked || audience === 'player'} onClick={() => { setSidebar('history'); setPlacement(null); setSketch(null) }}><Archive size={17}/></button></div></div>
+          <div className="asset-view-bar"><div role="group" aria-label="预览受众" className="asset-audience"><button disabled={busy || editingBlocked} aria-pressed={audience === 'gm'} onClick={() => setAudience('gm')}>主持人</button><button disabled={busy || editingBlocked} aria-pressed={audience === 'player'} onClick={() => { setAudience('player'); setSelected(null); setSketch(null) }}>玩家</button></div><span>{project ? `${(project.document.exportBoundsMm.width / 1000).toFixed(1)} × ${(project.document.exportBoundsMm.height / 1000).toFixed(1)} m · 固定范围` : '二维俯视 · 毫米世界坐标'}</span></div>
+          {structure && <div className="asset-structure-preview" role="status"><div><strong>{structure.description} · 候选预览</strong><span>尚未写入工程，采用后作为一次编辑保存</span>{structure.kind === 'building' && <label className="building-check"><input type="checkbox" aria-label="确认建筑完整影响范围" checked={structure.confirmed ?? false} onChange={event => setStructure(current => current ? { ...current, confirmed: event.target.checked } : current)}/>确认 {structure.scopeIds?.length} 个实体及 {structure.layerIds?.length} 个图层的影响范围</label>}{structure.layerIds && <span>{structure.layerIds.map(id => completeProject?.document.userLayers[id]?.name ?? id).join(' · ')}</span>}{structure.scopeIds && <details className="layer-preview-scope"><summary>实际操作范围 · {structure.scopeIds.length} 项</summary><textarea readOnly aria-label={structure.kind === 'building' ? '待采用建筑操作 ID' : '待采用图层操作 ID'} rows={4} value={structure.scopeIds.join('\n')}/></details>}</div><button className="secondary" onClick={() => setStructure(null)}>{structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : '取消结构预览'}</button><button className="primary" disabled={structure.kind === 'building' && !structure.confirmed} onClick={() => {
             try { historyWorkspace.assertCheckpoint(structure.checkpoint); historyWorkspace.execute(structure.commands); setStructure(null); setMessage(null) }
             catch (error) { setStructure(null); setMessage(error instanceof Error ? error.message : String(error)) }
           }}>{structure.kind === 'batch' ? '采用批量修改' : structure.kind === 'layer' ? '采用图层修改' : '采用结构修改'}</button></div>}
           {restore && <div className="asset-structure-preview history-restore-banner" role="status" aria-label="局部恢复候选"><div><strong>{restore.snapshot.name} · 局部恢复预览</strong><span>{restore.plan.request.ids.length} 件请求 · {restore.plan.changes.length} 件变化 · 当前 r{restore.currentRevision}</span></div><button className="secondary" disabled={busy} onClick={() => { historyWorkspace.cancelRestore(restore); setRestore(null) }}>取消局部恢复</button><button className="primary" disabled={busy || !restore.plan.changed} onClick={() => void action(async () => { try { await historyWorkspace.applyRestore(restore); setSelected(null); await refresh() } finally { setRestore(null); setHistoryRefresh(value => value + 1) } }, '采用局部恢复')}>保护当前并采用</button></div>}
-          <div className="asset-stage">{visibleProject ? <AssetCanvas project={visibleProject} editorRenderer={editorRenderer} selectionOptions={selectionOptions} pointHitTest={pointHitTest} boundsSelector={boundsSelector} selectionGeometry={selectionGeometry} selectionSummaryReader={selectionSummaryReader} selected={null} selectionSession={selectionSession} onSelect={select} onSelectMany={selectMany} onContext={openMenu} memberMode={memberMode} onMemberMode={setMemberMode} fitRequest={fitRequest} audience={audience} disabled={busy || editingBlocked || audience === 'player'} placement={placement?.prop} onPlacementMove={positionMm => setPlacement(current => current ? { ...current, prop: { ...current.prop, positionMm } } : null)} onPlace={placeAt} onPlacementReady={setPlacementReady} onPlacementError={error => { setPlacement(null); setMessage(error) }} onCancelPlacement={() => setPlacement(null)}/> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>从一张空白画布开始</span><p>选择画布范围与使用预设，逐件放入素材。<br/>也可从左侧打开书房或岩岛样板。</p><button className="primary" disabled={busy} onClick={openNewScene}>新建场景</button></div>}</div><footer className="asset-canvas-footer"><span>{audience === 'gm' ? '主持人视图 · 工程可能包含秘密' : '玩家视图 · 已过滤私密内容'}</span>{project && <span>{Object.keys(project.assets).length} 张位图 · {Object.keys(project.document.props).length} 件物件 · r{project.document.revision}</span>}</footer>
+          {structureRestore && <div className="asset-structure-preview history-restore-banner" role="status" aria-label="结构恢复候选"><div><strong>{structureRestore.snapshot.name} · 结构恢复预览</strong><span>{structureRestore.plan.request.ids.length} 项请求 · {structureRestore.plan.changes.length} 项变化 · 当前 r{structureRestore.currentRevision}</span></div><button className="secondary" disabled={busy} onClick={() => { historyWorkspace.cancelStructureRestore(structureRestore); setStructureRestore(null) }}>取消结构恢复</button><button className="primary" disabled={busy || !structureRestore.plan.changed} onClick={() => void action(async () => { try { await historyWorkspace.applyStructureRestore(structureRestore); setSelected(null); await refresh() } finally { setStructureRestore(null); setHistoryRefresh(value => value + 1) } }, '采用结构恢复')}>保护当前并采用结构恢复</button></div>}
+          <div className="asset-stage">{visibleProject ? <AssetCanvas project={visibleProject} editorRenderer={editorRenderer} selectionOptions={selectionOptions} pointHitTest={pointHitTest} boundsSelector={boundsSelector} selectionGeometry={selectionGeometry} selectionSummaryReader={selectionSummaryReader} worldTool={canvasWorldTool} selected={null} selectionSession={selectionSession} onSelect={select} onSelectMany={selectMany} onContext={openMenu} memberMode={memberMode} onMemberMode={setMemberMode} fitRequest={fitRequest} audience={audience} disabled={busy || editingBlocked || audience === 'player'} placement={placement?.prop} onPlacementMove={positionMm => setPlacement(current => current ? { ...current, prop: { ...current.prop, positionMm } } : null)} onPlace={placeAt} onPlacementReady={setPlacementReady} onPlacementError={error => { setPlacement(null); setMessage(error) }} onCancelPlacement={() => setPlacement(null)}/> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>从一张空白画布开始</span><p>选择画布范围与使用预设，逐件放入素材。<br/>也可从左侧打开书房或岩岛样板。</p><button className="primary" disabled={busy} onClick={openNewScene}>新建场景</button></div>}</div><footer className="asset-canvas-footer"><span>{audience === 'gm' ? '主持人视图 · 工程可能包含秘密' : '玩家视图 · 已过滤私密内容'}</span>{project && <span>{Object.keys(project.assets).length} 张位图 · {Object.keys(project.document.props).length} 件物件 · r{project.document.revision}</span>}</footer>
         </main>
-        <SelectionSubscriber session={selectionSession}>{ids => { const selectedIds = ids, selected = ids.length === 1 ? ids[0] : null; return <aside className="asset-inspector">{!restore && project && selectedIds.length > 0 && audience === 'gm' && !placement && <button className="secondary asset-wide" disabled={busy || editingBlocked} onClick={event => { const b = event.currentTarget.getBoundingClientRect(), bounds = project.document.exportBoundsMm; openMenu(project.document.props[selectedIds[0]]?.positionMm ?? { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }, [...selectedIds], { x: b.left, y: b.bottom }, event.currentTarget) }}>更多操作</button>}{restore ? <RestoreChangesPanel preview={restore} current={completeProject!}/> : project && placement && audience === 'gm' ? <PlacementInspector scene={project.document} prop={placement.prop} busy={busy} ready={placementReady} onChange={changes => setPlacement(current => current ? { ...current, prop: { ...current.prop, ...changes } } : null)} onPlace={() => placeAt(placement.prop.positionMm)} onCancel={() => setPlacement(null)}/> : visibleProject && selectedIds.length > 1 && audience === 'gm' ? <SelectionInspector scene={project!.document} ids={selectedIds} summaryReader={selectionSummaryReader} busy={busy || editingBlocked} onAction={batchAction} onClear={() => select(null)}/> : visibleProject && selected && audience === 'gm' ? <SceneInspector project={visibleProject} selected={selected} busy={busy || editingBlocked} workspace={historyWorkspace} onSelect={select} onCommit={commit} onPreview={preview}/> : <>
+        <SelectionSubscriber session={selectionSession}>{ids => { const selectedIds = ids, selected = ids.length === 1 ? ids[0] : null; return <aside className="asset-inspector">{!restore && !structureRestore && project && selectedIds.length > 0 && audience === 'gm' && !placement && <button className="secondary asset-wide" disabled={busy || editingBlocked} onClick={event => { const b = event.currentTarget.getBoundingClientRect(), bounds = project.document.exportBoundsMm; openMenu(project.document.props[selectedIds[0]]?.positionMm ?? { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }, [...selectedIds], { x: b.left, y: b.bottom }, event.currentTarget) }}>更多操作</button>}{structureRestore ? <StructureRestoreChangesPanel preview={structureRestore} current={completeProject!}/> : restore ? <RestoreChangesPanel preview={restore} current={completeProject!}/> : project && placement && audience === 'gm' ? <PlacementInspector scene={project.document} prop={placement.prop} busy={busy} ready={placementReady} onChange={changes => setPlacement(current => current ? { ...current, prop: { ...current.prop, ...changes } } : null)} onPlace={() => placeAt(placement.prop.positionMm)} onCancel={() => setPlacement(null)}/> : visibleProject && selectedIds.length > 1 && audience === 'gm' ? <SelectionInspector scene={project!.document} ids={selectedIds} summaryReader={selectionSummaryReader} busy={busy || editingBlocked} onAction={batchAction} onClear={() => select(null)}/> : completeProject && selected && audience === 'gm' && (completeProject.document.rooms[selected] || completeProject.document.walls[selected] || completeProject.document.vertices[selected] || completeProject.document.openings[selected] || completeProject.document.notes[selected] || completeProject.document.regions[selected]?.kind === 'manualMask') ? <BuildingInspector key={`${selected}-${completeProject.document.revision}`} scene={completeProject.document} selected={selected} layerId={currentLayerId} disabled={busy || editingBlocked} onPreview={previewBuilding} onSelect={select} onLock={(kind, id, locked) => commit(() => historyWorkspace.execute([{ type: 'setEditLock', kind, id, locked }]))}/> : visibleProject && selected && audience === 'gm' ? <SceneInspector project={visibleProject} selected={selected} busy={busy || editingBlocked} workspace={historyWorkspace} onSelect={select} onCommit={commit} onPreview={preview}/> : <>
           <div className="asset-section-heading"><Move size={16}/><h2>{audience === 'player' ? '玩家输出' : '工程信息'}</h2></div>
           {project ? <><h3>{project.document.activeStyleThemeRef ? '墨绘原野 · v1' : '用户图层 · 完整工程'}</h3><p className="asset-muted">{audience === 'player' ? '预览与 PNG 使用同一投影和绘制流程，私密内容在材质与阴影派生前过滤。' : '选择画面中的物件，或从左侧切换组合、散布与场景结构。全部素材、定义和许可随工程保存。'}</p>
             <dl className="asset-facts"><dt>场景修订</dt><dd>r{project.document.revision}</dd><dt>素材字节</dt><dd>{bytesLabel(Object.values(project.assets).reduce((sum, asset) => sum + asset.sizeBytes, 0))}</dd><dt>定义快照</dt><dd>{Object.keys(project.document.propDefinitions).length} 件物件 / {Object.keys(project.document.materials).length} 种材质</dd><dt>许可绑定</dt><dd>{project.licenseBindings.length} 条</dd></dl>

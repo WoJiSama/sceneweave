@@ -1,10 +1,10 @@
 # 贡献说明
 
-织境 · Sceneweave 当前本地版本为 `0.2.0-m1-c1d`。M0几何版原型首轮验证完成，M1-C/C1a已实现空白完整工程与物件放置/修改/删除闭环，C1b已实现框选/多选、右键及有限原子批量操作，C1c新增严格v3用户图层和暂态隐藏管理，C1d增加独立v4历史信封、命名/保护快照和首批独立物件局部恢复；完整编辑器、AI与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
+织境 · Sceneweave 当前本地版本为 `0.2.0-m1-c3`。M0几何版原型首轮验证完成，M1-C/C1a已实现空白完整工程与物件放置/修改/删除闭环，C1b已实现框选/多选、右键及有限原子批量操作，C1c新增严格v3用户图层和暂态隐藏管理，C1d增加独立v4历史信封、命名/保护快照和首批独立物件局部恢复，C2增加空白绘房、共墙、附着门窗、量尺与会话内结构恢复，C3增加独立v5组件工程、素材入库、非破坏性参数、固定组合及适用局部恢复；完整编辑器、AI与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
 
-室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，下一入口C2建筑工具。完整M1、主题P3、SCN-04与全交互性能仍待完成；新模型同步格式、迁移和验收。
+室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/28-m1c-c2-validation.md)，C3组件与参数外观的实际验证见[29](docs/29-m1c-c3-validation.md)，下一入口C4室外与地形依赖恢复。完整M1、主题P3、SCN-04与全交互性能仍待完成；新模型同步格式、迁移和验收。
 
-当前创作入口是素材工坊「新建空白场景」：填写名称、范围与调查/战术/叙事预设，使用18个既有B2/B3物件素材。放置支持画布点击或坐标输入、显式表面选择和暂态图片/占地预览；位置/旋转修改、普通删除与撤销重做复用原子事务。完整资源和许可随工程保存、重开及导入导出，PNG沿用现有双受众管线。独立严格v3图层工坊可新建完整工程或从v2迁移副本，原工程/历史保留；历史工坊通过独立v4完整信封支持命名/保护快照、首批独立物件局部恢复与所选历史备份；通用素材入库、房间绘图和通用依赖恢复尚未实现。
+当前创作入口是素材工坊「新建空白场景」：填写名称、范围与调查/战术/叙事预设，使用18个既有B2/B3物件素材。放置支持画布点击或坐标输入、显式表面选择和暂态图片/占地预览；位置/旋转修改、普通删除与撤销重做复用原子事务。完整资源和许可随工程保存、重开及导入导出，PNG沿用现有双受众管线。独立严格v3图层工坊可新建完整工程或从v2迁移副本，原工程/历史保留；历史工坊通过独立v4完整信封支持命名/保护快照、首批独立物件局部恢复与所选历史备份；C2建筑入口位于历史工坊；严格v3场景和v4信封版本不变，未增加结构出生令牌。通用素材入库、组合与地形依赖恢复尚未实现。
 
 ## 开发环境与命令
 
@@ -78,6 +78,8 @@ C1c真实UI、持久化/故障与双受众渲染矩阵可用 `SCENEWEAVE_BROWSER
 
 C1d真实UI、严格来源迁移、空存储离线历史往返、实际双标签CAS/故障和原生双受众像素用例可运行 `SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c1d-workbench.spec.ts tests/c1d-storage.spec.ts tests/c1d-renderer.spec.ts`。v4信封内仍为严格v3 SceneDocument；仅通过显式完整v3视图进入v3渲染/IO，完整v4包不得送入旧读者。实际证据及首批独立物件边界归27；此正确性矩阵不替代历史操作性能/容量或真实配额耗尽。
 
+C2从空白建立建筑、共墙/门窗/注记/遮罩、缩放量尺、会话结构恢复与原生4K/离线往返可运行 `SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c2-workbench.spec.ts tests/c2-polygon-workbench.spec.ts tests/c2-structure-history.spec.ts tests/c2-renderer.spec.ts`。结构恢复须明确依赖及跨层确认；重开/导入后没有连续性witness，旧结构恢复会拒绝。本批不扩大持久结构身份、物件完整恢复或全交互性能声明；实际证据见[28](docs/28-m1c-c2-validation.md)。
+
 ## 修改流程
 
 先读 [AGENTS.md](AGENTS.md) 与[文档导航](docs/README.md)，核对工作区和 Git 状态，保留无关修改。较小澄清直接改主文档；范围或数据契约变化同时更新[决策记录](docs/11-decisions-and-open-questions.md)及对应任务/验收。PR 说明具体问题、修改后的行为、相关验证与实际限制。
@@ -98,10 +100,14 @@ C1d真实UI、严格来源迁移、空存储离线历史往返、实际双标签
 - M2以素材生成/同化为主线：单件→组合→明确范围的渐进批次，候选/入库/采用分别校验；旧布局/布景/文字为可选M2-L。M1先提供参数调整、原件/版本保护与局部恢复。
 - 修正文档矛盾与含糊定义，附上来源或可复核的最小例子。
 
-文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/18-m1b-b2-validation.md)/[19](docs/19-m1b-b3-validation.md)，B5技术观测见[21](docs/21-m1b-b5-validation.md)，C1a创作闭环见[23](docs/23-m1c-c1a-validation.md)，C1b有限选择/批改/菜单见[24](docs/24-m1c-c1b-validation.md)，选择性能、C1c与C1d见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)/[27](docs/27-m1c-c1d-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。各批另建验证记录，保留13/17–23与各自原始证据。
+文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/18-m1b-b2-validation.md)/[19](docs/19-m1b-b3-validation.md)，B5技术观测见[21](docs/21-m1b-b5-validation.md)，C1a创作闭环见[23](docs/23-m1c-c1a-validation.md)，C1b有限选择/批改/菜单见[24](docs/24-m1c-c1b-validation.md)，选择性能、C1c与C1d见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)/[27](docs/27-m1c-c1d-validation.md)，C2建筑与有限恢复见[28](docs/28-m1c-c2-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。各批另建验证记录，保留13/17–23与各自原始证据。
 
 ## 内容与许可
 
 原创贡献按本仓库 [MIT 许可](LICENSE)提供；第三方素材和规则标明各自来源与许可。请勿提交官方规则书全文、商业模组、API Key、个人聊天、私密工程或未授权素材。使用原创最小例子说明问题。
 
 参考项目代码的 GPL/AGPL 义务不能用换语言或改文件名消除；拟复用前先说明兼容安排。有关规则、素材与生成内容的边界见[许可文档](docs/10-rules-assets-and-licensing.md)。提交前核查文档链接、许可与秘密数据，只提交本次明确相关的文件。
+
+C3组件工坊入口为 `/#composition`，历史工坊「组件与外观」先保存再迁移当前v4为独立副本。开发与新代码位于 `core/v5`、`io/v5`、`editor/v5`；严格v5完整信封内保留有效v3场景，显式v3视图只用于原生渲染/领域工具，禁止替代v5保存或导出。内部固定保全定义用于保持源/非活动派生资源闭包，不作为普通放置目录条目。
+
+C3真实图片、离线资源/历史及UI可串行运行 `SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c3-workbench.spec.ts tests/c3-resources.spec.ts`；全量单元可用 `npm test -- --maxWorkers=1` 避免高负载身份/预算测试互相争用。C3单位中的图像/存储替身不能代替真实Canvas/IndexedDB结论。正常生产验收必须使用 `npm run build` 的产物且没有 `__sceneweave` 开发/性能入口；本批实际命令、原始证据及边界归[29](docs/29-m1c-c3-validation.md)，不覆盖13/17–28的历史结果。

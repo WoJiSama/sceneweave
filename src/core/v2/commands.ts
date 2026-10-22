@@ -365,7 +365,8 @@ function checkedCommandsV2(commands: readonly SceneCommandV2[]): SceneCommandV2[
   return checked.data as SceneCommandV2[]
 }
 
-function applyCommandDraftV2(next: SceneDocumentV2, commands: readonly SceneCommandV2[]): SceneDocumentV2 {
+/** Internal only: caller owns a detached draft, strict command parsing and final validation. */
+export function applyCommandDraftV2(next: SceneDocumentV2, commands: readonly SceneCommandV2[]): SceneDocumentV2 {
   for (const command of commands) {
     switch (command.type) {
       case 'moveVertex': {
