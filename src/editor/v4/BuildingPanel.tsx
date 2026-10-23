@@ -4,7 +4,7 @@ import { newId } from '../../core/types'
 import type { SceneCommandV3 } from '../../core/v3/commands'
 import type { SceneDocumentV3 } from '../../core/v3/types'
 import { NumberInput } from '../v2/controls'
-import { parseBoundary, rectangleFromPoints, rectanglePoints, rulerDistance, type BuildingSketch } from './building-session'
+import { formatDistanceMm, parseBoundary, rectangleFromPoints, rectanglePoints, rulerDistance, type BuildingSketch } from './building-session'
 import './building.css'
 
 type Props = { scene: SceneDocumentV3; layerId: string; disabled: boolean; sketch: BuildingSketch | null; onSketch: (sketch: BuildingSketch | null) => void; onPreview: (commands: SceneCommandV3[], description: string) => void; onSelect: (id: string) => void }
@@ -30,7 +30,7 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
     <div className="asset-section-heading"><PencilRuler size={16}/><h2>建筑工具</h2></div>
     <p className="asset-muted">先画房间，再在墙上开门窗。候选确认后一次采用；共墙会显示完整影响范围。</p>
     <div className="building-tools"><button className="secondary" aria-pressed={sketch?.kind !== 'ruler' && !!sketch} disabled={disabled || layerLocked} onClick={() => onSketch({ kind: shape, points: [], cursor: null })}><MousePointer2 size={14}/>在图上画房间</button><button className="secondary" aria-pressed={sketch?.kind === 'ruler'} disabled={disabled} onClick={() => onSketch({ kind: 'ruler', points: [], cursor: null })}><Ruler size={14}/>量尺</button></div>
-    {sketch && <div className="building-sketch-status" role="status"><span>{sketch.kind === 'ruler' ? '依次点击起点与终点' : sketch.kind === 'rectangle' ? `点击矩形对角 · ${sketch.points.length}/2` : `依次点击顶点 · ${sketch.points.length} 点`}</span><button aria-label="取消绘图或量尺" onClick={() => onSketch(null)}><X size={14}/></button>{measure && <output aria-label="量尺结果">{(measure.distanceMm / 1000).toFixed(3)} m<small>ΔX {measure.dxMm} · ΔY {measure.dyMm} mm</small></output>}</div>}
+    {sketch && <div className="building-sketch-status" role="status"><span>{sketch.kind === 'ruler' ? '依次点击起点与终点' : sketch.kind === 'rectangle' ? `点击矩形对角 · ${sketch.points.length}/2` : `依次点击顶点 · ${sketch.points.length} 点`}</span><button aria-label="取消绘图或量尺" onClick={() => onSketch(null)}><X size={14}/></button>{measure && <output aria-label="量尺结果">{formatDistanceMm(measure.distanceMm, scene.units.display)}<small>ΔX {measure.dxMm} · ΔY {measure.dyMm} mm</small></output>}</div>}
     <form onSubmit={event => { event.preventDefault(); try {
       const boundaryMm = shape === 'rectangle' ? rectanglePoints(rect) : parseBoundary(boundary)
       const [kind, id] = support.split(':')

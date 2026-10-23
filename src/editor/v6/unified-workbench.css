@@ -1,0 +1,60 @@
+/* The unified shell owns its chrome; compatibility workbenches retain their styles. */
+.asset-shell.workspace-unified{width:100%;height:100dvh;min-width:0;min-height:0;overflow:hidden}
+.workspace-unified .asset-header{height:68px;min-height:68px;gap:15px;padding:8px 16px;flex-wrap:nowrap}
+.workspace-unified .asset-brand{gap:9px;flex:none}
+.workspace-unified .asset-brand>span{font-size:18px;letter-spacing:2px}
+.workspace-unified .asset-brand small{font-size:9px}
+.workspace-unified .asset-header-title{min-width:0;padding-left:15px;flex:1}
+.workspace-project-title{min-width:0}
+.workspace-project-title small{font-size:9px;color:#8a967e}
+.workspace-project-title h1{font-size:15px;line-height:1.6;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4d6442}
+.workspace-unified .asset-header-actions{min-width:0;gap:6px;flex:none;margin-left:0}
+.workspace-unified .asset-header-actions button{padding:7px 9px;font-size:10px;flex:none}
+.workspace-unified .asset-save{display:flex;font-size:10px;white-space:nowrap;margin-right:3px;flex:none}
+.workspace-unified .asset-toolbar{flex:none}
+.workspace-unified .workspace-canvas>.asset-center{height:auto;min-height:0;min-width:0;flex:1;order:0}
+.workspace-unified .workspace-panel-body>.history-library-stack{height:auto;max-height:none;min-height:0;display:block;overflow:visible;grid-row:auto;border:0}
+.workspace-unified .workspace-panel-body .asset-inspector{min-width:0;height:auto;min-height:100%;border:0;grid-column:auto}
+.workspace-unified .history-sidebar-tabs{position:sticky;top:0;display:flex;flex-wrap:wrap;gap:3px;padding:8px;background:#f8faf4;z-index:2}
+.workspace-unified .history-sidebar-tabs button{min-width:0;flex:1;font-size:10px;padding:7px 5px}
+.workspace-project-tools{padding:16px;font-size:11px}
+.workspace-project-tools h2{font-size:14px;margin:0 0 12px;color:#5f7750}
+.workspace-project-tools h3{font-size:11px;margin:20px 0 10px}
+.workspace-unified .workspace-session-feedback:empty{display:none}
+.workspace-unified .workspace-session-feedback{display:flex;align-items:center;gap:10px;padding:0 12px;flex:none;max-height:90px;overflow:auto;border-bottom:1px solid #e0e6d8;background:#f4f6e9;font-size:10px}
+.workspace-session-feedback .asset-muted{min-width:170px;line-height:1.6}
+.workspace-session-feedback .asset-wide{width:auto;flex:none;min-height:30px;font-size:10px;margin:4px 0}
+.workspace-session-feedback .building-sketch-status{flex:none;display:flex;align-items:center;gap:10px;margin:4px 0}
+.workspace-unified .asset-structure-preview{max-height:42%;min-height:0;overflow:auto;flex-wrap:wrap;align-items:flex-start}
+.workspace-unified .asset-structure-preview>div{min-width:150px}
+.workspace-unified .asset-view-bar{padding:7px 12px;gap:8px;flex-wrap:wrap;height:auto;min-height:38px;flex:none}
+.workspace-unified .asset-view-bar>span{font-size:9px;overflow-wrap:anywhere}
+.workspace-unified .workspace-tools>button{flex-direction:column;gap:3px;flex:none;font-size:10px}
+.workspace-unified .workspace-tools small{font-size:8px}
+.workspace-unified .workspace-footer>span{flex:none;white-space:nowrap}
+.workspace-display-summary{font-size:10px;padding:4px 7px;flex:none;border-radius:4px;white-space:nowrap;color:#6e835d}
+.workspace-unified .asset-empty{max-width:100%;padding:20px;font-size:13px;text-align:center}
+.workspace-unified .asset-empty p{font-size:11px;line-height:1.8}
+.workspace-unified .asset-notice{flex:none;max-height:100px;overflow:auto;flex-wrap:wrap;overflow-wrap:anywhere}
+@media(max-width:1190px){
+ .workspace-unified .asset-header{gap:8px;padding:8px 10px}
+ .workspace-unified .asset-header-actions{max-width:54%;overflow-x:auto}
+ .workspace-unified .asset-header-title{padding-left:9px}
+}
+@media(max-width:760px){
+ .workspace-unified .asset-header{height:auto;min-height:0;flex-wrap:wrap;gap:6px;padding:7px 9px}
+ .workspace-unified .asset-header-title{border:0;padding:0;margin:0;min-width:40px;flex:1}
+ .workspace-unified .asset-brand>span{font-size:14px}
+ .workspace-unified .asset-brand small{display:none}
+ .workspace-project-title h1{font-size:12px}
+ .workspace-unified .asset-header-actions{flex:0 0 100%;width:100%;max-width:100%;overflow-x:auto;flex-wrap:nowrap;justify-content:flex-start;padding-bottom:2px}
+ .workspace-unified .asset-header-actions button{flex:none;min-width:max-content;padding:6px 8px}
+ .workspace-unified .asset-toolbar{padding:2px;gap:1px}
+ .workspace-unified .asset-toolbar button{width:28px;height:27px}
+ .workspace-unified .workspace-panel-body .asset-inspector{padding:14px}
+ .workspace-unified .asset-audience button{padding:5px 9px}
+ .workspace-unified .asset-viewport-toolbar{padding:4px 6px;gap:2px}
+ .workspace-unified .asset-viewport-toolbar button{font-size:9px;padding:4px}
+ .workspace-unified .asset-viewport-toolbar label{font-size:9px}
+ .workspace-unified .workspace-footer{padding:4px 6px;gap:5px}
+}

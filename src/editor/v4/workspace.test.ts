@@ -241,3 +241,29 @@ describe('C1d allocated identities and editor safety', () => {
     expect(guarded.getState().canUndo).toBe(false)
   })
 })
+
+
+describe('U1a compatibility route departure', () => {
+  it('closes only after save and invalidates the old checkpoint and undo session', async () => {
+    const { workspace, api, input } = setup()
+    await workspace.openPersisted(input)
+    workspace.updateProp('item', { rotationDeg: 30 })
+    const checkpoint = workspace.checkpoint()
+    expect(workspace.getState().canUndo).toBe(true)
+    await workspace.close(checkpoint)
+    expect(workspace.getState()).toMatchObject({ project: null, status: 'empty', canUndo: false, canRedo: false })
+    expect(() => workspace.assertCheckpoint(checkpoint)).toThrow()
+  })
+  it('preserves the current document and usable undo when save fails', async () => {
+    const { workspace, api, input } = setup()
+    await workspace.openPersisted(input)
+    workspace.updateProp('item', { rotationDeg: 30 })
+    const current = workspace.getState().project
+    api.save.mockRejectedValueOnce(new Error('关闭前保存失败'))
+    await expect(workspace.close()).rejects.toThrow('关闭前保存失败')
+    expect(workspace.getState().project).toBe(current)
+    expect(workspace.getState().canUndo).toBe(true)
+    workspace.undo()
+    expect(workspace.getState().project!.document.props['item'].rotationDeg).toBe(0)
+  })
+})

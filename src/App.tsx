@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Archive, Armchair, ArrowDownToLine, BookOpen, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Clock3, Copy, DoorOpen, Download, Eye, EyeOff, FileDown, FolderOpen, Gauge, Grid2X2, Hand, House, Layers, LoaderCircle, Lock, Map, MoreHorizontal, MousePointer2, Plus, Redo2, RotateCw, Search, Settings2, ShieldCheck, StickyNote, Undo2, Unlock, Upload, X, AlertTriangle } from 'lucide-react'
 import CanvasView from './editor/CanvasView'
-import { bootEditor, entityLabel, flushSave, listSnapshots, newHouse, openBenchmark, openNewDocument, propNames, reloadPersisted, retrySave, saveAsCopy, useEditorStore } from './editor/store'
+import { closeEditorSession, bootEditor, entityLabel, flushSave, listSnapshots, newHouse, openBenchmark, openNewDocument, propNames, reloadPersisted, retrySave, saveAsCopy, useEditorStore } from './editor/store'
 import type { Selection } from './editor/store'
 import { collectionFor } from './core/types'
 import type { SceneDocument, Visibility } from './core/types'
@@ -18,6 +18,10 @@ import type { CompleteProjectV5 } from './io/v5/types'
 import type { CompleteProjectV4 } from './io/v4/types'
 import type { CompleteProjectV2 } from './io/v2/types'
 import type { CompleteProjectV3 } from './io/v3/types'
+
+import WorkspaceHome from './editor/workspace/WorkspaceHome'
+import { leaveLegacySession, useLegacyNavigationGuard } from './editor/workspace/legacy-navigation'
+import type { WorkspaceController, WorkspaceRequest, WorkspaceSessionSummary } from './editor/workspace/session'
 
 const OutdoorWorkbench = lazy(() => import('./editor/v6/OutdoorWorkbench'))
 const CompositionWorkbench = lazy(() => import('./editor/v5/CompositionWorkbench'))
@@ -167,6 +171,10 @@ function GeometryApp({onOpenAssets}:{onOpenAssets:()=>void}) {
   const [snapshots,setSnapshots]=useState<SceneDocument[]>([])
   const [exportAudience,setExportAudience]=useState<'gm'|'player'>('player'),[exportEdge,setExportEdge]=useState(4096),[exportGrid,setExportGrid]=useState(true),[exportLabels,setExportLabels]=useState(true)
   const file=useRef<HTMLInputElement>(null)
+  useLegacyNavigationGuard(async internal => {
+    if ((!internal && busy) || dialog || candidate) throw new Error('请先完成或取消当前工程操作与对话框，再离开几何原型。')
+    await closeEditorSession()
+  }, true, !!(busy || dialog || candidate), scene?.revision)
   const notify=state.notify
   useEffect(()=>{void bootEditor()},[])
   useEffect(()=>{
@@ -225,15 +233,154 @@ function GeometryApp({onOpenAssets}:{onOpenAssets:()=>void}) {
   </>
 }
 
+type AppRoute = 'home' | 'workspace' | 'geometry' | 'assets' | 'layers' | 'history' | 'composition' | 'outdoor'
+function readRoute(): AppRoute {
+  const value = window.location.hash.slice(1)
+  return ['workspace', 'geometry', 'assets', 'layers', 'history', 'composition', 'outdoor'].includes(value) ? value as AppRoute : 'home'
+}
+const isLegacyRoute = (route: AppRoute) => route !== 'home' && route !== 'workspace'
+function legacyFormOwner(element: HTMLElement): HTMLElement | null {
+  return element.closest<HTMLElement>('.appearance-panel,.prefab-panel,.building-panel,.building-inspector,.composition-import')
+    ?? (/批量|散布密度/.test(element.getAttribute('aria-label') ?? element.textContent ?? '') ? element.closest<HTMLElement>('.asset-inspector') : null)
+}
+
+
 export default function App() {
-  const readMode = () => window.location.hash === '#outdoor' ? 'outdoor' : window.location.hash === '#composition' ? 'composition' : window.location.hash === '#history' ? 'history' : window.location.hash === '#layers' ? 'layers' : window.location.hash === '#assets' ? 'assets' : 'geometry'
-  const [mode, setMode] = useState(readMode), [layerSource, setLayerSource] = useState<CompleteProjectV2 | null>(null), [historySource, setHistorySource] = useState<CompleteProjectV3 | null>(null), [compositionSource, setCompositionSource] = useState<CompleteProjectV4 | null>(null), [outdoorSource, setOutdoorSource] = useState<CompleteProjectV5 | null>(null)
-  useEffect(() => { const change = () => { setLayerSource(null); setHistorySource(null); setCompositionSource(null); setOutdoorSource(null); setMode(readMode()) }; window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change) }, [])
-  const open = (value: string) => { window.history.replaceState(null, '', value === 'geometry' ? window.location.pathname : `#${value}`); setMode(value) }
-  return mode === 'outdoor' ? <Suspense fallback={<div className="asset-busy" role="status">正在打开室外工坊…</div>}><OutdoorWorkbench source={outdoorSource} onBack={() => { setOutdoorSource(null); open('composition') }}/></Suspense>
-    : mode === 'composition' ? <Suspense fallback={<div className="asset-busy" role="status">正在打开组件工坊…</div>}><CompositionWorkbench source={compositionSource} onOpenOutdoor={source => { setOutdoorSource(source); setCompositionSource(null); open('outdoor') }} onBack={() => { setCompositionSource(null); open('history') }}/></Suspense>
-    : mode === 'history' ? <HistoryWorkbench source={historySource} onBack={() => { setHistorySource(null); open('layers') }} onOpenComposition={source => { setCompositionSource(source); setHistorySource(null); open('composition') }}/>
-    : mode === 'layers' ? <LayerWorkbench source={layerSource} onBack={() => { setLayerSource(null); open('assets') }} onOpenHistory={source => { setHistorySource(source); setLayerSource(null); open('history') }}/>
-    : mode === 'assets' ? <AssetWorkbench onBack={() => open('geometry')} onOpenLayers={source => { setLayerSource(source); open('layers') }}/>
-      : <GeometryApp onOpenAssets={() => open('assets')}/>
+  const [mode, setMode] = useState<AppRoute>(readRoute)
+  const modeRef = useRef(mode)
+  const acceptedUrl = useRef(window.location.pathname + window.location.search + window.location.hash)
+  const navigating = useRef(false)
+  const legacyBody = useRef<HTMLDivElement>(null), legacyDeparture = useRef(false)
+  const legacyDirty = useRef(false), legacyDiscard = useRef(false)
+  const legacyDraftOwners = useRef(new Set<HTMLElement>())
+  const legacyPreviewOwner = useRef<HTMLElement | null>(null), legacyAdoptingOwner = useRef<HTMLElement | null>(null)
+  const [legacyPending, setLegacyPending] = useState<(() => void) | null>(null)
+  const [mounted, setMounted] = useState(mode === 'workspace')
+  const controller = useRef<WorkspaceController | null>(null)
+  const pendingRequest = useRef<WorkspaceRequest | null>(null)
+  const [session, setSession] = useState<WorkspaceSessionSummary | null>(null)
+  const [routeMessage, setRouteMessage] = useState<string | null>(null)
+  const [layerSource, setLayerSource] = useState<CompleteProjectV2 | null>(null), [historySource, setHistorySource] = useState<CompleteProjectV3 | null>(null), [compositionSource, setCompositionSource] = useState<CompleteProjectV4 | null>(null), [outdoorSource, setOutdoorSource] = useState<CompleteProjectV5 | null>(null)
+  const navigate = useCallback(async (value: AppRoute, internal = false, browserUrl?: string, activate?: () => void) => {
+    const previous = modeRef.current
+    if (previous === value && !activate) return true
+    if (navigating.current) return false
+    navigating.current = true
+    const departureBody = isLegacyRoute(previous) ? legacyBody.current : null
+    const wasInert = departureBody?.inert ?? false
+    // Hold the entire compatibility editor while its asynchronous close saves.
+    // Unsubmitted form input does not advance the workspace checkpoint.
+    legacyDeparture.current = isLegacyRoute(previous)
+    try {
+      if (departureBody) departureBody.inert = true
+      if (previous === 'workspace' && pendingRequest.current && !controller.current) throw new Error('工作区正在初始化，请稍后再离开。')
+      if (isLegacyRoute(previous) && legacyDirty.current && !legacyDiscard.current) {
+        setRouteMessage('旧版编辑器有尚未提交的输入。请留在当前工程完成预览/采用，或明确放弃这些输入后离开；已采用内容仍会先保存。')
+        setLegacyPending(() => () => {
+          legacyDiscard.current = true
+          void navigate(value, internal, browserUrl, activate).finally(() => { legacyDiscard.current = false })
+        })
+        return false
+      }
+      if (previous === 'workspace'  || previous === 'home' && isLegacyRoute(value)) {
+        if (controller.current && !await controller.current.leave(isLegacyRoute(value) ? 'legacy' : 'home')) return false
+      } else if (isLegacyRoute(previous)) await leaveLegacySession(internal)
+      if (isLegacyRoute(value)) { setMounted(false); setSession(null) }
+      if (value === 'workspace') setMounted(true)
+      setLayerSource(null); setHistorySource(null); setCompositionSource(null); setOutdoorSource(null)
+      activate?.()
+      legacyDirty.current = false; legacyDraftOwners.current.clear(); legacyPreviewOwner.current = null; legacyAdoptingOwner.current = null; setLegacyPending(null)
+      if (isLegacyRoute(value)) pendingRequest.current = null
+      const url = browserUrl ?? `${window.location.pathname}${window.location.search}#${value}`
+      if (browserUrl !== undefined) window.history.replaceState(null, '', url)
+      else if (url !== acceptedUrl.current) window.history.pushState(null, '', url)
+      acceptedUrl.current = url
+      modeRef.current = value; setMode(value); setRouteMessage(null)
+      return true
+    } catch (error) {
+      setRouteMessage(error instanceof Error ? error.message : String(error))
+      return false
+    } finally {
+      if (departureBody) departureBody.inert = wasInert
+      legacyDeparture.current = false
+      navigating.current = false
+    }
+  }, [])
+  const onController = useCallback((value: WorkspaceController | null) => {
+    controller.current = value
+    if (value && pendingRequest.current) {
+      // React StrictMode may register, clean up and register again before this
+      // microtask. Consume only when a live controller actually takes the request.
+      queueMicrotask(() => {
+        const current = controller.current, request = pendingRequest.current
+        if (current && request && modeRef.current === 'workspace') { pendingRequest.current = null; current.request(request) }
+      })
+    }
+  }, [])
+  const openWorkspace = useCallback((request?: WorkspaceRequest) => {
+    void navigate('workspace').then(allowed => {
+      if (!allowed || !request) return
+      if (controller.current) controller.current.request(request)
+      else pendingRequest.current = request
+    })
+  }, [navigate])
+  useEffect(() => {
+    const change = () => {
+      const target = readRoute(), targetUrl = window.location.pathname + window.location.search + window.location.hash
+      // Restore the accepted address while the same asynchronous departure guard runs.
+      window.history.replaceState(null, '', acceptedUrl.current)
+      void navigate(target, false, targetUrl, () => { setLayerSource(null); setHistorySource(null); setCompositionSource(null); setOutdoorSource(null) })
+    }
+    window.addEventListener('hashchange', change)
+    return () => window.removeEventListener('hashchange', change)
+  }, [navigate])
+  useEffect(() => {
+    const committed = () => {
+      // A document commit only finishes the form that produced that adopted
+      // candidate. An unrelated immediate edit cannot discard another draft.
+      if (legacyAdoptingOwner.current) legacyDraftOwners.current.delete(legacyAdoptingOwner.current)
+      legacyAdoptingOwner.current = null
+      legacyDirty.current = legacyDraftOwners.current.size > 0
+      if (!legacyDirty.current) setLegacyPending(null)
+    }
+    const unload = (event: BeforeUnloadEvent) => {
+      if (legacyDeparture.current || isLegacyRoute(modeRef.current) && legacyDirty.current) { event.preventDefault(); event.returnValue = '' }
+    }
+    const key = (event: KeyboardEvent) => {
+      // Inert prevents DOM input, but the old editors also listen on window.
+      if (legacyDeparture.current) { event.preventDefault(); event.stopImmediatePropagation() }
+    }
+    window.addEventListener('sceneweave:legacy-commit', committed)
+    window.addEventListener('beforeunload', unload)
+    window.addEventListener('keydown', key, true)
+    return () => { window.removeEventListener('sceneweave:legacy-commit', committed); window.removeEventListener('beforeunload', unload); window.removeEventListener('keydown', key, true) }
+  }, [])
+  const open = (value: AppRoute, activate?: () => void) => { void navigate(value, true, undefined, activate) }
+  const legacy = mode === 'outdoor' ? <Suspense fallback={<div className="asset-busy" role="status">正在打开室外工坊…</div>}><OutdoorWorkbench source={outdoorSource} onBack={() => open('composition', () => setOutdoorSource(null))}/></Suspense>
+    : mode === 'composition' ? <Suspense fallback={<div className="asset-busy" role="status">正在打开组件工坊…</div>}><CompositionWorkbench source={compositionSource} onOpenOutdoor={source => open('outdoor', () => { setOutdoorSource(source); setCompositionSource(null) })} onBack={() => open('history', () => setCompositionSource(null))}/></Suspense>
+    : mode === 'history' ? <HistoryWorkbench source={historySource} onBack={() => open('layers', () => setHistorySource(null))} onOpenComposition={source => open('composition', () => { setCompositionSource(source); setHistorySource(null) })}/>
+    : mode === 'layers' ? <LayerWorkbench source={layerSource} onBack={() => open('assets', () => setLayerSource(null))} onOpenHistory={source => open('history', () => { setHistorySource(source); setLayerSource(null) })}/>
+    : mode === 'assets' ? <AssetWorkbench onBack={() => open('geometry')} onOpenLayers={source => open('layers', () => setLayerSource(source))}/>
+    : mode === 'geometry' ? <GeometryApp onOpenAssets={() => open('assets')}/> : null
+  return <>
+    {routeMessage && <div className="workspace-route-message" role="alert"><span>{routeMessage}</span>{legacyPending && <button onClick={legacyPending}>放弃未提交输入并离开</button>}<button aria-label="关闭导航提示" onClick={() => setRouteMessage(null)}><X size={16}/></button></div>}
+    {mode === 'home' && <WorkspaceHome session={session} onRequest={openWorkspace} onContinue={() => openWorkspace()} onLegacy={route => void navigate(route as AppRoute)}/>}
+    {mounted && !isLegacyRoute(mode) && <div className="workspace-mounted" hidden={mode !== 'workspace'}><Suspense fallback={<div className="asset-busy" role="status">正在打开统一工作区…</div>}><OutdoorWorkbench unified active={mode === 'workspace'} onController={onController} onSession={setSession} onBack={() => void navigate('home')}/></Suspense></div>}
+    {legacy && <><nav className="workspace-legacy-nav" aria-label="兼容编辑器导航"><button onClick={() => void navigate('home')}><House size={14}/>回到首页</button><span>旧版兼容入口 · 切换会结束此编辑会话</span></nav><div ref={legacyBody} className="workspace-legacy-body" onChangeCapture={event => {
+      if (modeRef.current === 'outdoor') return // v6 owns exact per-form draft and adoption guards.
+      const target = event.target
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) return
+      if (target instanceof HTMLInputElement && (target.type === 'search' || target.type === 'file') || target.getAttribute('aria-label')?.includes('搜索')) return
+      const owner = legacyFormOwner(target)
+      if (!owner) return // Existing immediate property fields commit on blur.
+      legacyDraftOwners.current.add(owner); legacyDirty.current = true; legacyPreviewOwner.current = owner
+    }} onClickCapture={event => {
+      if (modeRef.current === 'outdoor') return
+      const button = (event.target as HTMLElement).closest('button'), text = button?.textContent ?? ''
+      legacyAdoptingOwner.current = null
+      if (/预览/.test(text)) legacyPreviewOwner.current = button ? legacyFormOwner(button) : null
+      else if (/采用/.test(text)) legacyAdoptingOwner.current = legacyPreviewOwner.current
+      else if (/取消/.test(text)) legacyPreviewOwner.current = null
+    }}>{legacy}</div></>}
+  </>
 }

@@ -1,3 +1,4 @@
+import { useLegacyNavigationGuard } from '../workspace/legacy-navigation'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Archive, ArrowLeft, CheckCircle2, Download, FolderOpen, Layers3, LoaderCircle, Move, Redo2, RotateCw, Undo2, Upload, X } from 'lucide-react'
 import { SceneRepositoryV3 } from '../../io/v3/storage'
@@ -85,6 +86,11 @@ export default function LayerWorkbench({ onBack, source, onOpenHistory }: { onBa
   const file = useRef<HTMLInputElement>(null), controller = useRef<AbortController | null>(null), shell = useRef<HTMLDivElement>(null), dialog = useRef<HTMLDivElement>(null)
   const modalOrigin = useRef<HTMLElement | null>(null)
   const actionPending = useRef(false)
+  useLegacyNavigationGuard(async internal => {
+    if (!internal && (busy || actionPending.current || controller.current)) throw new Error('工程操作仍在进行，请完成或取消后再离开。')
+    if (candidate || newScene || placement || structure || snapshots) throw new Error('请先采用或明确取消当前草稿、放置、预览或对话框，再离开工程。')
+    await layerWorkspace.close()
+  }, true, !!(busy || candidate || newScene || placement || structure || snapshots), state.project?.document.revision)
   const refresh = async () => { await ready(); setRecent(await repository.list()) }
   const action = async (run: () => Promise<void>, failureSource = '工程操作') => {
     if (actionPending.current) return

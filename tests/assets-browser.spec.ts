@@ -114,7 +114,7 @@ test('asset workbench edits, undo, reload and complete import preserve all resou
 })
 
 test('M0 migration uses its saved revision, keeps its original and restores history as a copy', async ({ page }, testInfo) => {
-  await page.goto('/')
+  await page.goto('/#geometry')
   await expect(page.getByRole('heading', { name: '雾灯宅', exact: true })).toBeVisible()
   await expect(page.getByText('本地已保存', { exact: true })).toBeVisible()
   const source = await page.evaluate(() => structuredClone(Reflect.get(window, '__sceneweaveDev').store.getState().document))

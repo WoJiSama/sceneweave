@@ -30,3 +30,7 @@ export function rulerDistance(a: PointMm, b: PointMm): { distanceMm: number; dxM
   const dxMm = b.x - a.x, dyMm = b.y - a.y
   return { distanceMm: Math.hypot(dxMm, dyMm), dxMm, dyMm }
 }
+
+export function formatDistanceMm(distanceMm: number, display: 'm' | 'ft'): string {
+  return `${(distanceMm / (display === 'ft' ? 304.8 : 1000)).toFixed(3)} ${display}`
+}

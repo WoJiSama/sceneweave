@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
 async function ready(page: Page) {
-  await page.goto('/')
+  await page.goto('/#geometry')
   await expect(page.getByRole('heading', { name: '雾灯宅', exact: true })).toBeVisible()
   await expect(page.getByText('本地已保存', { exact: true })).toBeVisible()
 }

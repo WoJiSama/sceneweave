@@ -3,6 +3,7 @@ import { inspectJsonInput } from '../schema'
 import { applyCommandDraftV2, applySnapshotCommandsV2, createPlacedPropV2, isEntityEditLockedV2, type PlacePropOptionsV2, type SceneCommandV2 } from '../v2/commands'
 import type { PointMm } from '../v2/types'
 import { canvasBoundsCommandSchemaV3, applyCanvasBoundsCommandV3, type CanvasBoundsCommandV3 } from './canvas-bounds'
+import { sceneDisplayCommandSchemaV3, applySceneDisplayCommandV3, type SceneDisplayCommandV3 } from './scene-display'
 import { annotationCommandSchemasV3, applyAnnotationCommandV3, isAnnotationCommandV3, type AnnotationCommandV3 } from './annotations'
 import { applyBuildingCommandV3, buildingCommandSchemasV3, isBuildingCommandV3, type BuildingCommandV3 } from './building'
 import { applyOutdoorCommandV3, isOutdoorCommandV3, outdoorCommandSchemasV3, type OutdoorCommandV3 } from './outdoor'
@@ -19,6 +20,7 @@ export type SceneCommandV3 =
   | BuildingCommandV3
   | AnnotationCommandV3
   | CanvasBoundsCommandV3
+  | SceneDisplayCommandV3
   | OutdoorCommandV3
   | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path'; id: string; locked: boolean }
   | { type: 'createLayer'; id: string; floorId: string; name: string }
@@ -49,6 +51,7 @@ export const sceneCommandSchemaV3 = z.discriminatedUnion('type', [
   ...annotationCommandSchemasV3,
   ...outdoorCommandSchemasV3,
   canvasBoundsCommandSchemaV3,
+  sceneDisplayCommandSchemaV3,
   z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
   z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
   z.object({ type: z.literal('reverseWall'), id }).strict(),
@@ -86,7 +89,7 @@ const equal = (a: unknown, b: unknown): boolean => {
   return ak.length === bk.length && ak.every(key => Object.hasOwn(b, key) && equal((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
 }
 const layerTypes = new Set(['createLayer', 'renameLayer', 'reorderLayers', 'moveEntitiesToLayer', 'removeLayer'])
-const category = (command: SceneCommandV3) => command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
+const category = (command: SceneCommandV3) => command.type === 'setSceneDisplay' ? 'display' : command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
 const needsOutdoorExpansion = (scene: SceneDocumentV3, command: SceneCommandV3): command is OutdoorCommandV3 => isOutdoorCommandV3(command)
   && ((command.type !== 'deleteProp' && command.type !== 'updateProp' && command.type !== 'replacePropAppearance') || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === command.id)))
 
@@ -97,7 +100,7 @@ function checkedCommands(commands: readonly SceneCommandV3[]): SceneCommandV3[] 
   const checked = commandsSchemaV3.safeParse(commands)
   if (!checked.success) throw new Error(`编辑指令无效：${checked.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
   const parsed = checked.data as SceneCommandV3[]
-  if (new Set(parsed.map(category)).size > 1) throw new Error('图层组织、内容编辑、实体锁和图层锁须分别独立提交；不能同批解锁后编辑。')
+  if (new Set(parsed.map(category)).size > 1) throw new Error('显示设置、图层组织、内容编辑、实体锁和图层锁须分别独立提交；不能同批解锁后编辑。')
   return parsed
 }
 function requiredLayer(scene: SceneDocumentV3, id: string) {
@@ -242,6 +245,14 @@ function applyOrganization(scene: SceneDocumentV3, commands: readonly SceneComma
   return next
 }
 function candidate(scene: SceneDocumentV3, commands: readonly SceneCommandV3[], options?: ApplyCommandsOptionsV3): SceneDocumentV3 {
+  if (commands[0]?.type === 'setSceneDisplay') {
+    const next = structuredClone(scene)
+    for (const command of commands) {
+      if (command.type !== 'setSceneDisplay') throw new Error('显示设置须独立提交。')
+      applySceneDisplayCommandV3(next, command)
+    }
+    return next
+  }
   return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock') ? applyContent(scene, commands, options) : applyOrganization(scene, commands)
 }
 /** Detached mutable candidate; all-or-nothing native v3 validation. Revision is committed by Workspace. */

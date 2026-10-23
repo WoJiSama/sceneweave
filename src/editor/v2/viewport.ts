@@ -20,6 +20,16 @@ export function constrainViewportV2(view: MapViewportV2, size: ViewportSizeV2, b
   const clamp = (value: number, limit: number) => Math.max(-limit, Math.min(limit, Number.isFinite(value) ? value : 0))
   return { zoom, panX: clamp(view.panX, limitX), panY: clamp(view.panY, limitY) }
 }
+/** Resize editor chrome without refitting the world. Clamp only at existing view limits. */
+export function resizeViewportV2(view: MapViewportV2, previous: ViewportSizeV2, next: ViewportSizeV2, bounds: BoundsMm): MapViewportV2 {
+  const oldFit = fittedMapSizeV2(previous, bounds), nextFit = fittedMapSizeV2(next, bounds)
+  const requestedZoom = view.zoom * oldFit.width / nextFit.width
+  const zoom = Math.max(MIN_VIEW_ZOOM_V2, Math.min(MAX_VIEW_ZOOM_V2, requestedZoom))
+  // Pan is measured in screen pixels. It stays constant when scale is retained;
+  // at a zoom limit, scale pan by the same ratio to retain the center world point.
+  const scaleRatio = nextFit.width * zoom / (oldFit.width * view.zoom)
+  return constrainViewportV2({ zoom, panX: view.panX * scaleRatio, panY: view.panY * scaleRatio }, next, bounds)
+}
 /** Keep the map point under the pointer fixed while zooming, except at pan limits. */
 export function zoomViewportV2(view: MapViewportV2, factor: number, pointer: PointMm, size: ViewportSizeV2, bounds: BoundsMm): MapViewportV2 {
   const zoom = Math.max(MIN_VIEW_ZOOM_V2, Math.min(MAX_VIEW_ZOOM_V2, view.zoom * (Number.isFinite(factor) && factor > 0 ? factor : 1)))

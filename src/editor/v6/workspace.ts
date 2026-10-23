@@ -286,6 +286,20 @@ export class WorkspaceV6 {
     if (this.pending) await this.startSave()
     if (this.blocked) throw this.blocked
   }
+  /** A true departure releases the editing branch only after its complete save succeeds. */
+  async close() {
+    const checkpoint = this.checkpoint()
+    await this.flush()
+    this.assertCheckpoint(checkpoint)
+    const current = this.state.project
+    if (!current) return
+    // Reset the existing witness owner so even previously issued proofs expire.
+    this.structureContinuity.reset(current.document)
+    this.version++
+    this.past = []; this.future = []; this.pending = null; this.blocked = null
+    this.persistedRevision = null
+    this.publish({ project: null, status: 'empty', error: null, lastTransaction: null })
+  }
   async retry() { this.blocked = null; await this.flush() }
   async saveAsCopy() {
     const checkpoint = this.checkpoint(), project = forkProjectV6(this.requireProject())
