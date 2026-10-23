@@ -1,0 +1,38 @@
+import { useEffect, useMemo, useState } from 'react'
+import { LAYER_ENTITY_COLLECTIONS_V3 } from '../../core/v3/types'
+import { inspectAppearanceScopeV6 } from '../../core/v6/graph'
+import type { CompositionCommandV6 } from '../../core/v6/types'
+import type { CompleteProjectV6 } from '../../io/v6/types'
+const fields: Record<string, string> = { positionMm: '位置', rotationDeg: '角度', appearance: '有效图像与透明度', definitionRef: '固定定义版本', visualBoundsMm: '图像范围', shadowClass: '阴影类别', shadowOverride: '阴影参数', footprintMm: '物理占地', supportRef: '支撑表面', members: '成员映射及人工记录', anchorMm: '组合锚点', visibility: '可见范围', editLocked: '编辑锁', floorStyle: '地面铺装', surfaceStyle: '表面铺装', topStyle: '墙顶铺装', boundaryVertexIds: '房间边界', offsetMm: '开口偏移', widthMm: '净宽', startVertexId: '墙起点', endVertexId: '墙终点', xMm: 'X', yMm: 'Y', thicknessMm: '墙厚' }
+function AdoptedImage({ blob, name }: { blob: Blob; name: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => { const next = URL.createObjectURL(blob); setUrl(next); return () => { URL.revokeObjectURL(next) } }, [blob])
+  return url ? <img className="composition-import-preview" src={url} alt={`待入库素材预览 ${name}`}/> : null
+}
+const label = (value: unknown): string => value == null ? '无' : typeof value === 'boolean' ? value ? '是' : '否' : value === 'gm' ? '仅主持人' : value === 'public' ? '公开' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+export default function CompositionChangesPanel({ current, candidate, commands }: { current: CompleteProjectV6; candidate: CompleteProjectV6; commands: readonly CompositionCommandV6[] }) {
+  const changes = useMemo(() => LAYER_ENTITY_COLLECTIONS_V3.flatMap(collection => [...new Set([...Object.keys(current.document[collection]), ...Object.keys(candidate.document[collection])])].flatMap(id => {
+    const before = current.document[collection][id] as unknown as Record<string, unknown> | undefined, after = candidate.document[collection][id] as unknown as Record<string, unknown> | undefined
+    if (JSON.stringify(before) === JSON.stringify(after)) return []
+    const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].filter(key => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
+    return [{ id, collection, before, after, keys }]
+  })), [current, candidate])
+  const scopes = useMemo(() => commands.flatMap(command => {
+    if (!['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment'].includes(command.type)) return []
+    if (!('scope' in command)) return []
+    let kind = 'adjustment' in command ? command.adjustment.kind : undefined
+    if (!kind && 'adjustmentId' in command) { const records = command.scope.kind === 'layer' ? current.appearance.layerAdjustments[command.scope.layerId] ?? [] : command.scope.ids.flatMap(id => current.appearance.instanceAdjustments[id] ?? []); kind = records.find(item => item.id === command.adjustmentId)?.kind }
+    try { return [{ scope: command.scope, plan: inspectAppearanceScopeV6(current, command.scope, kind ? [kind] : undefined) }] } catch { return [] }
+  }), [current, commands])
+  const addedDefinitions = Object.keys(candidate.document.propDefinitions).filter(id => !current.document.propDefinitions[id]).length + Object.keys(candidate.document.materials).filter(id => !current.document.materials[id]).length + Object.keys(candidate.document.prefabDefinitions).filter(id => !current.document.prefabDefinitions[id]).length
+  const addedAssets = Object.keys(candidate.assets).filter(hash => !current.assets[hash]).length
+  const newDefinitions = [...Object.values(candidate.document.propDefinitions).filter(item => !current.document.propDefinitions[item.id] && !item.tags.includes('sceneweave:retained-appearance')).map(item => ({ id: item.id, name: item.name, assetId: item.defaultAppearance.kind === 'image' ? item.defaultAppearance.assetId : null, size: `${item.defaultVisualBoundsMm.width} × ${item.defaultVisualBoundsMm.height} mm`, origin: item.origin.attribution, license: item.licenseRef })), ...Object.values(candidate.document.materials).filter(item => !current.document.materials[item.id] && !item.id.startsWith('composition-material-')).map(item => ({ id: item.id, name: item.name, assetId: item.textureAssetId, size: `${item.defaultTileSizeMm.width} × ${item.defaultTileSizeMm.height} mm`, origin: item.origin.attribution, license: item.licenseRef }))]
+  const newlyPublic = changes.filter(change => change.after?.visibility === 'public' && change.before?.visibility !== 'public')
+  return <details className="composition-preview-details" open={newDefinitions.length > 0}><summary>核对实际变化 · {changes.length} 个实体 · {addedDefinitions} 个新固定定义 · {addedAssets} 份新位图</summary>
+    {newDefinitions.map(item => { const asset = item.assetId && candidate.document.assets[item.assetId], record = asset && candidate.assets[asset.sha256], binding = candidate.licenseBindings.find(binding => binding.subjectId === item.id), license = binding && candidate.licenses[binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')]; return <article className="composition-diff-item" key={item.id}><h3>{item.name}</h3>{record && <AdoptedImage blob={record.blob} name={item.name}/>}<p>{item.size} · {item.origin}</p><p>许可：{item.license}</p>{license && <details><summary>待采用完整许可</summary><pre>{license.text}</pre></details>}</article> })}
+    {newlyPublic.length > 0 && <p role="alert" className="history-limit">其中 {newlyPublic.length} 个对象将新增公开内容，请核对可见范围。</p>}
+    {scopes.map(({ scope, plan }, index) => <div key={index}><p>{scope.kind === 'layer' ? `持续图层：${current.document.userLayers[scope.layerId]?.name ?? scope.layerId}` : '冻结所选范围'} · {plan.targetIds.length} 个适用目标 · {plan.commandCost} / 256 条操作</p><p>不适用 {plan.inapplicableIds.length} 项</p><textarea readOnly aria-label="外观完整影响范围" rows={5} value={[...plan.targetIds.map(id => `调整 · ${id}`), ...plan.affectedIds.filter(id => !plan.targetIds.includes(id)).map(id => `关系与依赖 · ${id}`), ...plan.inapplicableIds.map(id => `不适用 · ${id}`)].join('\n')}/></div>)}
+    {changes.map(change => <article key={`${change.collection}-${change.id}`} className="composition-diff-item"><strong>{!change.before ? '新增' : !change.after ? '删除' : '更新'} · {change.id}</strong><p>图层：{current.document.userLayers[current.document.entityLayers[change.id]]?.name ?? '无'} → {candidate.document.userLayers[candidate.document.entityLayers[change.id]]?.name ?? '无'}</p><dl>{change.keys.map(key => <div key={key}><dt>{fields[key] ?? key}</dt><dd>{label(change.before?.[key])} → {label(change.after?.[key])}</dd></div>)}</dl></article>)}
+    {scopes.length > 0 && <p>规则来源、独立开关及实际位图一同保存。采用时重新检查完整范围和编辑锁。</p>}
+  </details>
+}

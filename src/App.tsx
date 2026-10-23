@@ -14,10 +14,12 @@ import { getMetrics, resetMetrics } from './editor/metrics'
 import AssetWorkbench from './editor/v2/AssetWorkbench'
 import LayerWorkbench from './editor/v3/LayerWorkbench'
 import HistoryWorkbench from './editor/v4/HistoryWorkbench'
+import type { CompleteProjectV5 } from './io/v5/types'
 import type { CompleteProjectV4 } from './io/v4/types'
 import type { CompleteProjectV2 } from './io/v2/types'
 import type { CompleteProjectV3 } from './io/v3/types'
 
+const OutdoorWorkbench = lazy(() => import('./editor/v6/OutdoorWorkbench'))
 const CompositionWorkbench = lazy(() => import('./editor/v5/CompositionWorkbench'))
 
 function Logo({small=false}:{small?:boolean}) {
@@ -224,11 +226,12 @@ function GeometryApp({onOpenAssets}:{onOpenAssets:()=>void}) {
 }
 
 export default function App() {
-  const readMode = () => window.location.hash === '#composition' ? 'composition' : window.location.hash === '#history' ? 'history' : window.location.hash === '#layers' ? 'layers' : window.location.hash === '#assets' ? 'assets' : 'geometry'
-  const [mode, setMode] = useState(readMode), [layerSource, setLayerSource] = useState<CompleteProjectV2 | null>(null), [historySource, setHistorySource] = useState<CompleteProjectV3 | null>(null), [compositionSource, setCompositionSource] = useState<CompleteProjectV4 | null>(null)
-  useEffect(() => { const change = () => { setLayerSource(null); setHistorySource(null); setCompositionSource(null); setMode(readMode()) }; window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change) }, [])
+  const readMode = () => window.location.hash === '#outdoor' ? 'outdoor' : window.location.hash === '#composition' ? 'composition' : window.location.hash === '#history' ? 'history' : window.location.hash === '#layers' ? 'layers' : window.location.hash === '#assets' ? 'assets' : 'geometry'
+  const [mode, setMode] = useState(readMode), [layerSource, setLayerSource] = useState<CompleteProjectV2 | null>(null), [historySource, setHistorySource] = useState<CompleteProjectV3 | null>(null), [compositionSource, setCompositionSource] = useState<CompleteProjectV4 | null>(null), [outdoorSource, setOutdoorSource] = useState<CompleteProjectV5 | null>(null)
+  useEffect(() => { const change = () => { setLayerSource(null); setHistorySource(null); setCompositionSource(null); setOutdoorSource(null); setMode(readMode()) }; window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change) }, [])
   const open = (value: string) => { window.history.replaceState(null, '', value === 'geometry' ? window.location.pathname : `#${value}`); setMode(value) }
-  return mode === 'composition' ? <Suspense fallback={<div className="asset-busy" role="status">正在打开组件工坊…</div>}><CompositionWorkbench source={compositionSource} onBack={() => { setCompositionSource(null); open('history') }}/></Suspense>
+  return mode === 'outdoor' ? <Suspense fallback={<div className="asset-busy" role="status">正在打开室外工坊…</div>}><OutdoorWorkbench source={outdoorSource} onBack={() => { setOutdoorSource(null); open('composition') }}/></Suspense>
+    : mode === 'composition' ? <Suspense fallback={<div className="asset-busy" role="status">正在打开组件工坊…</div>}><CompositionWorkbench source={compositionSource} onOpenOutdoor={source => { setOutdoorSource(source); setCompositionSource(null); open('outdoor') }} onBack={() => { setCompositionSource(null); open('history') }}/></Suspense>
     : mode === 'history' ? <HistoryWorkbench source={historySource} onBack={() => { setHistorySource(null); open('layers') }} onOpenComposition={source => { setCompositionSource(source); setHistorySource(null); open('composition') }}/>
     : mode === 'layers' ? <LayerWorkbench source={layerSource} onBack={() => { setLayerSource(null); open('assets') }} onOpenHistory={source => { setHistorySource(source); setLayerSource(null); open('history') }}/>
     : mode === 'assets' ? <AssetWorkbench onBack={() => open('geometry')} onOpenLayers={source => { setLayerSource(source); open('layers') }}/>

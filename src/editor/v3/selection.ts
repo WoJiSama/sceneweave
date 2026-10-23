@@ -23,6 +23,7 @@ export function hiddenDependentsV3(scene: SceneDocumentV3, hidden: ReadonlySet<s
     const opening = connection.openingId === null ? undefined : scene.openings[connection.openingId]
     if (ids.has(connection.from.surfaceRef.id) || ids.has(connection.to.surfaceRef.id) || opening && (ids.has(opening.id) || ids.has(opening.wallId))) ids.add(connection.id)
   }
+  for (const path of Object.values(scene.paths)) if (path.supportRefs.some(ref => ids.has(ref.id))) ids.add(path.id)
   let changed = true
   while (changed) {
     changed = false
@@ -69,6 +70,11 @@ function sourceFor(scene: SceneDocumentV3): SelectionSourceV3 {
   for (const area of Object.values(source.terrainAreas)) for (const point of area.boundaryMm) { bands.set(point.id, 10); layerOrder.set(point.id, layerOrder.get(area.id)!) }
   for (const [collection, band] of [['openings', 9], ['walls', 8], ['rooms', 6], ['terrainConnections', 4], ['terrainEdges', 3], ['terrainAreas', 2]] as const) {
     for (const id of Object.keys(source[collection])) bands.set(id, band)
+  }
+  if (Object.keys(source.paths).length) {
+    for (const id of Object.keys(source.rooms)) bands.set(id, 4)
+    for (const id of Object.keys(source.paths)) bands.set(id, 5)
+    for (const id of Object.keys(source.terrainConnections)) bands.set(id, 6)
   }
   const openingsByWall = new Map<string, ProjectedWallV3['openings']>()
   for (const opening of Object.values(source.openings)) {
@@ -120,6 +126,8 @@ function sortIds(source: SelectionSourceV3, view: WallSelectionGeometryV3, ids: 
     }
     const layer = (source.layerOrder.get(b.id) ?? 0) - (source.layerOrder.get(a.id) ?? 0)
     if (layer) return layer
+    const pathA = own(scene.paths, a.id), pathB = own(scene.paths, b.id)
+    if (pathA && pathB) return pathB.renderOrder - pathA.renderOrder || pathB.id.localeCompare(pathA.id)
     if (source.wallIds.has(a.id) && source.wallIds.has(b.id)) return view.wallRank.get(b.id)! - view.wallRank.get(a.id)!
     if (own(scene.openings, a.id) && own(scene.openings, b.id)) return (view.openingRank.get(b.id) ?? 0) - (view.openingRank.get(a.id) ?? 0)
     return a.index - b.index

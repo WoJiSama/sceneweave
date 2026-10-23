@@ -1,6 +1,7 @@
 import { zipSync } from 'fflate'
 import { inspectDependenciesV3 } from '../../core/v3/dependencies'
 import { sceneSchemaV3, validateSceneV3 } from '../../core/v3/schema'
+import { isCertifiedSceneSnapshotV3, validateSceneSnapshotV3 } from '../../core/v3/snapshots'
 import { checkCancelled, failV3, hasExactKeys, isSha256, PROJECT_LIMITS_V3 } from './limits'
 import { parseBoundedJson, utf8Decoder, utf8Encoder } from './json'
 import { inspectImageBytes, sha256Bytes, validateImageAssetRecord } from './resources'
@@ -9,6 +10,7 @@ import { version as applicationVersion } from '../../../package.json'
 import { ProjectValidationErrorV3, projectErrorV3, type ProjectDiagnosticV3, type ProjectDiagnosticsV3 } from './diagnostics'
 import type { AssetBlobRecord, CompleteProjectV3, LicenseBinding, LicenseSubject } from './types'
 import { validateMigrationSourceV3 } from './migration'
+import { assertDataObject, captureOwnedData, freezeOwnedData } from './owned-data'
 
 export { PROJECT_LIMITS_V3 } from './limits'
 export { PROJECT_DIAGNOSTIC_LIMIT_V3, ProjectValidationErrorV3 } from './diagnostics'
@@ -23,6 +25,40 @@ const subjectKinds = ['asset', 'material', 'propDefinition', 'prefabDefinition',
 const suffix: Record<AssetBlobRecord['mimeType'], string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
 const nonemptyString = (value: unknown, max = 256): value is string => typeof value === 'string' && value.length > 0 && Array.from(value).length <= max
 const subjectKey = (subject: Pick<LicenseSubject, 'subjectKind' | 'subjectId'>) => JSON.stringify([subject.subjectKind, subject.subjectId])
+type ResourceClosureV3 = Pick<CompleteProjectV3, 'assets' | 'licenses' | 'licenseBindings'>
+const resourceClosures = new WeakMap<object, WeakMap<object, WeakSet<object>>>()
+function hasOwnedResources(project: ResourceClosureV3): boolean {
+  return resourceClosures.get(project.assets)?.get(project.licenses)?.has(project.licenseBindings) === true
+}
+function registerResources(project: ResourceClosureV3): void {
+  freezeOwnedData(project.assets); freezeOwnedData(project.licenses); freezeOwnedData(project.licenseBindings)
+  let licenses = resourceClosures.get(project.assets)
+  if (!licenses) { licenses = new WeakMap(); resourceClosures.set(project.assets, licenses) }
+  let bindings = licenses.get(project.licenses)
+  if (!bindings) { bindings = new WeakSet(); licenses.set(project.licenses, bindings) }
+  bindings.add(project.licenseBindings)
+}
+
+/** Eligibility is private object identity, never a caller-supplied skip flag. */
+export function getOwnedResourcesV3(input: ResourceClosureV3): ResourceClosureV3 | undefined {
+  assertDataObject(input)
+  const resources = { assets: input.assets, licenses: input.licenses, licenseBindings: input.licenseBindings }
+  return hasOwnedResources(resources) ? resources : undefined
+}
+
+/** Internal capture: unknown closures are detached and fully verified before registration. */
+export async function captureValidatedResourcesV3(input: CompleteProjectV3, options: { signal?: AbortSignal } = {}): Promise<CompleteProjectV3> {
+  checkCancelled(options.signal)
+  assertDataObject(input)
+  const resources = getOwnedResourcesV3(input)
+  const document = isCertifiedSceneSnapshotV3(input.document) ? input.document : captureOwnedData(input.document)
+  const captured = { ...captureOwnedData({ ...input, document: undefined, ...(resources ? { assets: undefined, licenses: undefined, licenseBindings: undefined } : {}) }),
+    document, ...(resources ?? {}) } as CompleteProjectV3
+  try { await validateCompleteProject(captured, options, resources !== undefined) } catch (error) { return projectErrorV3(error) }
+  checkCancelled(options.signal)
+  if (!resources) registerResources(captured)
+  return captured
+}
 
 function validateBinding(input: unknown): asserts input is LicenseBinding {
   if (!hasExactKeys(input, ['subjectKind', 'subjectId', 'licenseRef', 'licensePath', 'embedding'])
@@ -80,7 +116,7 @@ function adoptedSubject(project: CompleteProjectV3, subject: LicenseSubject): { 
 }
 
 /** Validate every adopted definition/resource/license before any DB transaction. */
-async function validateCompleteProject(project: CompleteProjectV3, options: { signal?: AbortSignal } = {}): Promise<void> {
+async function validateCompleteProject(project: CompleteProjectV3, options: { signal?: AbortSignal } = {}, reuseOwnedResources = false): Promise<void> {
   checkCancelled(options.signal)
   if (!hasExactKeys(project, ['document', 'assets', 'licenses', 'licenseBindings'], ['migrationSource'])
     || !hasExactKeys(project.assets, [], Object.keys(project.assets ?? {})) || !hasExactKeys(project.licenses, [], Object.keys(project.licenses ?? {}))
@@ -91,7 +127,7 @@ async function validateCompleteProject(project: CompleteProjectV3, options: { si
   if (documentBytes.length > PROJECT_LIMITS_V3.sceneBytes) failV3('场景 JSON 超过 20 MiB。')
   const jsonBudget = { values: 0 }
   parseBoundedJson(documentBytes, jsonBudget)
-  const checked = validateSceneV3(project.document)
+  const checked = validateSceneSnapshotV3(project.document)
   // A malformed shape must never enter dependency traversal or image decoding.
   const shaped = checked.ok ? { success: true as const, data: checked.document } : sceneSchemaV3.safeParse(project.document)
   if (!shaped.success) throw new ProjectValidationErrorV3(checked.ok ? [] : checked.errors)
@@ -155,7 +191,7 @@ async function validateCompleteProject(project: CompleteProjectV3, options: { si
     }
     try {
       const bytes = bytesOfLicense(record.text)
-      if (await sha256Bytes(bytes) !== hash) issues.push({ code: 'LICENSE_HASH_MISMATCH', sha256: hash, path: `licenses/${hash}.txt`, message: '许可文本 SHA-256 不匹配。' })
+      if (!reuseOwnedResources && await sha256Bytes(bytes) !== hash) issues.push({ code: 'LICENSE_HASH_MISMATCH', sha256: hash, path: `licenses/${hash}.txt`, message: '许可文本 SHA-256 不匹配。' })
       expanded += bytes.length
     } catch { issues.push({ code: 'INVALID_LICENSE', sha256: hash, path: `licenses/${hash}.txt`, message: '许可文本编码、控制字符、大小或来源信息无效；请恢复有效许可文本。' }) }
   }
@@ -175,7 +211,7 @@ async function validateCompleteProject(project: CompleteProjectV3, options: { si
   if (expanded + manifestBytes.length > PROJECT_LIMITS_V3.expandedBytes) failV3('完整工程展开量超过 300 MiB。')
   if (requiredHashes.size + usedLicenses.size + 2 > PROJECT_LIMITS_V3.entries) failV3('完整工程条目超过保护值。')
   // Header/hash/decode only after the entire closure and cumulative pixels pass.
-  for (const hash of requiredHashes) await validateImageAssetRecord(project.assets[hash], options)
+  if (!reuseOwnedResources) for (const hash of requiredHashes) await validateImageAssetRecord(project.assets[hash], options)
   await validateMigrationSourceV3(project.migrationSource, scene.sceneId, options)
   checkCancelled(options.signal)
 }
