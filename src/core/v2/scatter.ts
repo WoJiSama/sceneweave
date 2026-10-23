@@ -94,8 +94,14 @@ function visualInsideFloor(scene: SceneDocumentV2, prop: PropV2): boolean {
   return visual.every(p => p.x >= floor.boundsMm.x && p.y >= floor.boundsMm.y && p.x <= floor.boundsMm.x + floor.boundsMm.width && p.y <= floor.boundsMm.y + floor.boundsMm.height)
 }
 export interface ScatterRegenerationV2 { group: ScatterGroup; props: PropV2[]; removePropIds: string[] }
+export interface ScatterRegenerationOptionsV2 {
+  /** Native history-aware callers allocate a new birth ID for a vacant slot. */
+  allocatePropId?: (candidateKey: string) => string
+  /** Keep the adopted source/physical/appearance fields of surviving managed members. */
+  preserveManagedAppearance?: boolean
+}
 /** Pure proposal preparation: persisted manual/deleted/detached/locked results are never overwritten. */
-export function buildScatterRegenerationV2(scene: SceneDocumentV2, groupId: string, densityFactor?: number): ScatterRegenerationV2 {
+export function buildScatterRegenerationV2(scene: SceneDocumentV2, groupId: string, densityFactor?: number, options: ScatterRegenerationOptionsV2 = {}): ScatterRegenerationV2 {
   const source = scene.scatterGroups[groupId]
   if (!source) throw new Error(`散布组不存在：${groupId}。`)
   if (source.algorithmVersion !== 'scatter-cell-v1') throw new Error(`散布算法 ${source.algorithmVersion} 不可重新生成；仍可手工编辑已保存实例。`)
@@ -123,12 +129,15 @@ export function buildScatterRegenerationV2(scene: SceneDocumentV2, groupId: stri
     const definition = scene.propDefinitions[cell.definitionRef.id]
     if (!definition || definition.version !== cell.definitionRef.version) throw new Error('散布需要已采用的固定版本物件定义。')
     const previousId = previous[cell.candidateKey]?.propId
-    const propId = previousId && removed.has(previousId) ? previousId : `scatter-${sha256TextV2(JSON.stringify([group.id, cell.candidateKey]))}`
+    const propId = previousId && removed.has(previousId) ? previousId : options.allocatePropId?.(cell.candidateKey) ?? `scatter-${sha256TextV2(JSON.stringify([group.id, cell.candidateKey]))}`
     if (ids.has(propId) && !removed.has(propId)) throw new Error(`散布生成 ID 已被其他实体占用：${propId}。`)
-    const prop: PropV2 = { id: propId, floorId: group.floorId, editLocked: false, visibility: group.visibility,
+    let prop: PropV2 = { id: propId, floorId: group.floorId, editLocked: false, visibility: group.visibility,
       definitionRef: cell.definitionRef, appearance: structuredClone(definition.defaultAppearance), visualBoundsMm: structuredClone(definition.defaultVisualBoundsMm),
       positionMm: cell.positionMm, rotationDeg: cell.rotationDeg, footprintMm: structuredClone(definition.defaultFootprintMm), footprintOffsetMm: structuredClone(definition.defaultFootprintOffsetMm),
       blocksMovement: definition.defaultBlocksMovement, blocksSight: definition.defaultBlocksSight, supportRef: refs[0], renderLayer: definition.defaultRenderLayer, renderOrder: 0, shadowClass: definition.defaultShadowClass, shadowOverride: null }
+    if (options.preserveManagedAppearance && previousId && removed.has(previousId) && scene.props[previousId]) {
+      prop = { ...structuredClone(scene.props[previousId]), positionMm: cell.positionMm, rotationDeg: cell.rotationDeg }
+    }
     const footprint = propFootprintV2(prop)
     if (!polygonInside(footprint, polygon) || !visualInsideFloor(scene, prop) || group.exclusions.some(exclusion => polygonDistance(footprint, exclusion.boundaryMm) <= 1e-7)) continue
     const support = refs.find(ref => supportedPolygon(supportScene, footprint, ref, group.floorId))

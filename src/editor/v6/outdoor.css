@@ -1,0 +1,16 @@
+.outdoor-shell .history-sidebar-tabs { flex-wrap: wrap; }
+.outdoor-panel, .outdoor-inspector { padding: 18px 16px; border-top: 1px solid var(--line, #e0ded5); }
+.outdoor-panel fieldset, .outdoor-inspector fieldset { min-width: 0; display: grid; gap: 12px; margin: 0; padding: 0; border: 0; }
+.outdoor-panel label, .outdoor-inspector label { display: grid; gap: 5px; color: #5b6256; font-size: 12px; }
+.outdoor-panel textarea, .outdoor-inspector textarea { width: 100%; min-width: 0; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
+.outdoor-panel select, .outdoor-panel input, .outdoor-inspector select, .outdoor-inspector input { min-width: 0; width: 100%; }
+.outdoor-panel small, .outdoor-inspector small { color: #70786a; font-size: 11px; line-height: 1.6; }
+.outdoor-panel .composition-check, .outdoor-inspector .composition-check { display: flex; align-items: center; gap: 7px; }
+.outdoor-panel .composition-check input, .outdoor-inspector .composition-check input { width: auto; }
+.outdoor-object-list { display: grid; gap: 5px; max-height: 240px; overflow: auto; margin-top: 12px; }
+.outdoor-object-list button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 11px; }
+.outdoor-inspector code { display: block; font-size: 11px; overflow-wrap: anywhere; color: #747b70; }
+.outdoor-inspector details { margin: 12px 0; }
+.outdoor-inspector pre { font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.outdoor-delete { color: #984b3f; border-color: #d3b7ad; }
+@media (max-width: 700px) { .outdoor-panel, .outdoor-inspector { padding: 14px; } }

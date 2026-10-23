@@ -1,7 +1,7 @@
 import type { BoundsMm, PointMm } from '../../core/v3/types'
 
 export type BuildingSketch = { kind: 'rectangle' | 'polygon' | 'ruler'; points: PointMm[]; cursor: PointMm | null }
-export type CanvasWorldTool = BuildingSketch & { snapMm: number; onPoint: (point: PointMm) => void; onMove: (point: PointMm) => void; onCancel: () => void; onFinish?: () => void }
+export type CanvasWorldTool = Omit<BuildingSketch, 'kind'> & { kind: BuildingSketch['kind'] | 'polyline'; label?: string; snapMm: number; onPoint: (point: PointMm) => void; onMove: (point: PointMm) => void; onCancel: () => void; onFinish?: () => void }
 
 export function snapBuildingPoint(point: PointMm, snapMm: number): PointMm {
   const snap = (value: number) => {

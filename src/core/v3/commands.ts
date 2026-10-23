@@ -5,6 +5,7 @@ import type { PointMm } from '../v2/types'
 import { canvasBoundsCommandSchemaV3, applyCanvasBoundsCommandV3, type CanvasBoundsCommandV3 } from './canvas-bounds'
 import { annotationCommandSchemasV3, applyAnnotationCommandV3, isAnnotationCommandV3, type AnnotationCommandV3 } from './annotations'
 import { applyBuildingCommandV3, buildingCommandSchemasV3, isBuildingCommandV3, type BuildingCommandV3 } from './building'
+import { applyOutdoorCommandV3, isOutdoorCommandV3, outdoorCommandSchemasV3, type OutdoorCommandV3 } from './outdoor'
 import { geometryDocumentForValidationV3, geometryIdentityIdsV3 } from './domain'
 import { toGeometryDocumentV2 } from './geometry-view'
 import { entitiesInLayerV3, enumerateLayerEntitiesV3, orderedLayersV3, previewLayerMoveV3, previewLayerRemovalV3 } from './layers'
@@ -18,13 +19,19 @@ export type SceneCommandV3 =
   | BuildingCommandV3
   | AnnotationCommandV3
   | CanvasBoundsCommandV3
-  | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainConnection'; id: string; locked: boolean }
+  | OutdoorCommandV3
+  | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path'; id: string; locked: boolean }
   | { type: 'createLayer'; id: string; floorId: string; name: string }
   | { type: 'renameLayer'; id: string; name: string }
   | { type: 'setLayerLock'; id: string; locked: boolean }
   | { type: 'reorderLayers'; floorId: string; ids: string[] }
   | { type: 'moveEntitiesToLayer'; ids: string[]; layerId: string }
   | { type: 'removeLayer'; id: string; targetLayerId?: string }
+
+export interface ApplyCommandsOptionsV3 {
+  /** Internal synchronous observer: inspect immediately; never mutate or retain the draft. */
+  onOutdoorDraft?: (draft: Readonly<SceneDocumentV3>, command: Readonly<OutdoorCommandV3>) => void
+}
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
 const integer = z.number().finite().refine(Number.isSafeInteger, '毫米坐标必须是安全整数')
@@ -40,6 +47,7 @@ const uniqueIds = z.array(id).refine(values => new Set(values).size === values.l
 export const sceneCommandSchemaV3 = z.discriminatedUnion('type', [
   ...buildingCommandSchemasV3,
   ...annotationCommandSchemasV3,
+  ...outdoorCommandSchemasV3,
   canvasBoundsCommandSchemaV3,
   z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
   z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
@@ -57,7 +65,7 @@ export const sceneCommandSchemaV3 = z.discriminatedUnion('type', [
   z.object({ type: z.literal('copyProp'), id, newId: id, offsetMm: point }).strict(),
   z.object({ type: z.literal('deleteProp'), id }).strict(),
   z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
-  z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainConnection']), id, locked: z.boolean() }).strict(),
+  z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainEdge', 'terrainConnection', 'path']), id, locked: z.boolean() }).strict(),
   z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
@@ -79,6 +87,8 @@ const equal = (a: unknown, b: unknown): boolean => {
 }
 const layerTypes = new Set(['createLayer', 'renameLayer', 'reorderLayers', 'moveEntitiesToLayer', 'removeLayer'])
 const category = (command: SceneCommandV3) => command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
+const needsOutdoorExpansion = (scene: SceneDocumentV3, command: SceneCommandV3): command is OutdoorCommandV3 => isOutdoorCommandV3(command)
+  && ((command.type !== 'deleteProp' && command.type !== 'updateProp' && command.type !== 'replacePropAppearance') || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === command.id)))
 
 function checkedCommands(commands: readonly SceneCommandV3[]): SceneCommandV3[] {
   if (!Array.isArray(commands) || commands.length > COMMAND_LIMIT_V3) throw new Error('编辑指令必须是数组，单次事务最多 256 个操作。')
@@ -144,10 +154,10 @@ function applyLegacyContent(scene: SceneDocumentV3, commands: readonly SceneComm
   restoreActualLocks(next, scene, explicitLocks)
   return next
 }
-function applyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[]): SceneDocumentV3 {
+function applyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[], options?: ApplyCommandsOptionsV3): SceneDocumentV3 {
   // Keep the certified legacy path unchanged for the common prop-only workload.
   if (commands[0]?.type === 'setEditLock') {
-    const next = structuredClone(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainConnection: 'terrainConnections' } as const
+    const next = structuredClone(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections', path: 'paths' } as const
     for (const command of commands) {
       if (command.type !== 'setEditLock') throw new Error('编辑锁须单独提交。')
       const entity = own(next[collections[command.kind]] as Record<string, { id: string; editLocked: boolean }>, command.id)
@@ -162,12 +172,13 @@ function applyContent(scene: SceneDocumentV3, commands: readonly SceneCommandV3[
     }
     return next
   }
-  if (!commands.some(command => isBuildingCommandV3(command) || isAnnotationCommandV3(command) || command.type === 'setCanvasBounds')) return applyLegacyContent(scene, commands)
+  if (!commands.some(command => isBuildingCommandV3(command) || isAnnotationCommandV3(command) || needsOutdoorExpansion(scene, command) || command.type === 'setCanvasBounds')) return applyLegacyContent(scene, commands)
   let next = structuredClone(scene), cost = 0, pending: SceneCommandV3[] = []
-  const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT_V3) throw new Error('展开后的整体建筑事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT_V3) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   const flush = () => { if (pending.length) { consume(pending.length); next = applyLegacyContent(next, pending, true); pending = [] } }
   for (const command of commands) {
-    if (isBuildingCommandV3(command)) { flush(); consume(applyBuildingCommandV3(next, command).commandCost) }
+    if (needsOutdoorExpansion(next, command)) { flush(); consume(applyOutdoorCommandV3(next, command).commandCost); options?.onOutdoorDraft?.(next, command) }
+    else if (isBuildingCommandV3(command)) { flush(); consume(applyBuildingCommandV3(next, command).commandCost) }
     else if (isAnnotationCommandV3(command)) { flush(); applyAnnotationCommandV3(next, command); consume(1) }
     else if (command.type === 'setCanvasBounds') { flush(); consume(applyCanvasBoundsCommandV3(next, command).commandCost) }
     else pending.push(command)
@@ -230,14 +241,14 @@ function applyOrganization(scene: SceneDocumentV3, commands: readonly SceneComma
   }
   return next
 }
-function candidate(scene: SceneDocumentV3, commands: readonly SceneCommandV3[]): SceneDocumentV3 {
-  return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock') ? applyContent(scene, commands) : applyOrganization(scene, commands)
+function candidate(scene: SceneDocumentV3, commands: readonly SceneCommandV3[], options?: ApplyCommandsOptionsV3): SceneDocumentV3 {
+  return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock') ? applyContent(scene, commands, options) : applyOrganization(scene, commands)
 }
 /** Detached mutable candidate; all-or-nothing native v3 validation. Revision is committed by Workspace. */
-export function applyCommandsV3(scene: SceneDocumentV3, commands: readonly SceneCommandV3[]): SceneDocumentV3 {
+export function applyCommandsV3(scene: SceneDocumentV3, commands: readonly SceneCommandV3[], options?: ApplyCommandsOptionsV3): SceneDocumentV3 {
   const source = validateSceneV3(scene)
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
-  const next = candidate(source.document, checkedCommands(commands)), result = validateSceneV3(next)
+  const next = candidate(source.document, checkedCommands(commands), options), result = validateSceneV3(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   return next
 }

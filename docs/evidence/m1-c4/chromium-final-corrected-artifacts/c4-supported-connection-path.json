@@ -1,0 +1,147 @@
+{
+  "area": {
+    "id": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741",
+    "floorId": "blank-floor",
+    "editLocked": false,
+    "visibility": "public",
+    "boundaryMm": [
+      {
+        "id": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:point:0",
+        "segmentId": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:segment:0",
+        "positionMm": {
+          "x": 16000,
+          "y": 8000
+        }
+      },
+      {
+        "id": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:point:1",
+        "segmentId": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:segment:1",
+        "positionMm": {
+          "x": 24000,
+          "y": 8000
+        }
+      },
+      {
+        "id": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:point:2",
+        "segmentId": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:segment:2",
+        "positionMm": {
+          "x": 24000,
+          "y": 16000
+        }
+      },
+      {
+        "id": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:point:3",
+        "segmentId": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741:segment:3",
+        "positionMm": {
+          "x": 16000,
+          "y": 16000
+        }
+      }
+    ],
+    "groundElevationMm": 1000,
+    "coveragePriority": 0,
+    "surfaceStyle": {
+      "base": {
+        "materialRef": {
+          "id": "b3-m-01",
+          "version": 1
+        },
+        "tileSizeMm": {
+          "width": 4000,
+          "height": 4000
+        },
+        "rotationDeg": 0,
+        "alignment": "world",
+        "originMm": {
+          "x": 0,
+          "y": 0
+        },
+        "tint": null,
+        "opacity": 1
+      },
+      "overlays": []
+    },
+    "blocksMovement": false,
+    "blocksSight": false,
+    "movementCostMultiplier": 1
+  },
+  "connection": {
+    "id": "connection-e071fffe-ee80-47aa-a98e-55794d8f3a36",
+    "floorId": "blank-floor",
+    "editLocked": false,
+    "visibility": "public",
+    "kind": "stairs",
+    "from": {
+      "surfaceRef": {
+        "kind": "floor",
+        "id": "blank-floor"
+      },
+      "positionMm": {
+        "x": 10000,
+        "y": 12000
+      }
+    },
+    "to": {
+      "surfaceRef": {
+        "kind": "terrainArea",
+        "id": "terrain-5eb029a1-10dc-49b7-b1dd-4f9d3816c741"
+      },
+      "positionMm": {
+        "x": 17000,
+        "y": 12000
+      }
+    },
+    "widthMm": 2000,
+    "openingId": null,
+    "blocksMovement": false,
+    "movementCostMultiplier": 1,
+    "surfaceStyle": null
+  },
+  "path": {
+    "id": "path-c6745b32-010c-46cc-9af8-e42efa34643d",
+    "floorId": "blank-floor",
+    "editLocked": false,
+    "visibility": "public",
+    "centerlineMm": [
+      {
+        "x": 2000,
+        "y": 20000
+      },
+      {
+        "x": 12000,
+        "y": 20000
+      }
+    ],
+    "widthMm": 1200,
+    "supportRefs": [
+      {
+        "kind": "floor",
+        "id": "blank-floor"
+      }
+    ],
+    "surfaceStyle": {
+      "base": {
+        "materialRef": {
+          "id": "b2-m-03",
+          "version": 1
+        },
+        "tileSizeMm": {
+          "width": 2000,
+          "height": 2000
+        },
+        "rotationDeg": 0,
+        "alignment": "world",
+        "originMm": {
+          "x": 0,
+          "y": 0
+        },
+        "tint": null,
+        "opacity": 1
+      },
+      "overlays": []
+    },
+    "movementCostMultiplier": 1,
+    "renderOrder": 0
+  },
+  "rooms": {}
+}

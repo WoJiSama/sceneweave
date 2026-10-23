@@ -1,0 +1,2537 @@
+{
+  "format": "sceneweave-c5-perf1-diagnostic-comparison",
+  "version": 1,
+  "sameConfigDeviceBrowserFixtureRunners": true,
+  "completeFormalMatrix": false,
+  "performanceGatePassed": false,
+  "allSamplesRetained": true,
+  "method": "One fresh normal-production Chrome process per before/after study-500 diagnostic. 10 ordinary edits each; nearest-rank p95 is rank 10, equal to max. First certification sample is included. These two runs do not form a formal performance matrix.",
+  "comparison": {
+    "before": {
+      "status": "complete",
+      "measurementClass": "diagnostic-c5-production-ui",
+      "sourceRevision": "8fcf8ed835778da59fcf564a39ae9c5c0b2d7303",
+      "device": {
+        "platform": "darwin",
+        "release": "25.6.0",
+        "arch": "arm64",
+        "cpu": "Apple M1",
+        "logicalCpus": 8,
+        "memoryBytes": 17179869184
+      },
+      "node": "v24.14.1",
+      "browser": "156.0.8078.47",
+      "config": {
+        "runs": 1,
+        "selections": 1,
+        "edits": 10,
+        "layers": 2,
+        "appearances": 1,
+        "restores": 1,
+        "menus": 1,
+        "gestures": 1,
+        "requestedCases": [
+          "study-500"
+        ],
+        "channel": "chrome",
+        "diagnostic": true,
+        "diagnosticProfile": false,
+        "waitTimeoutMs": 60000,
+        "route": "#outdoor",
+        "viewport": {
+          "width": 1512,
+          "height": 982
+        },
+        "dpr": 1,
+        "processState": "Fresh dedicated headless Chrome process and profile per case/run; HTTP cache disabled, OS caches not purged. macOS caffeinate prevents idle sleep only.",
+        "fixturePreparation": "Unmodified original B5 strict-v2 packages; native production UI validates, migrates through v3/v4/v5 to strict v6, and saves an independent copy. Two small user layers are added through UI; only the independent marker is moved to C5 Focus, keeping all measured member transactions within 256.",
+        "localReopen": "Manual recent-project open. Preparation removes only the optional localStorage sceneweave.outdoorSceneId hint, reloads the normal page, opens the recent-project details if needed and verifies the native repository is unchanged. The timed interval starts at the trusted recent-project button click; reload and preparation are excluded.",
+        "intent": "Trusted capture of the committing click, Enter keydown, file change, selection pointerup, contextmenu or first continuous input. The tool observes DOM/events; it never wraps product functions, Canvas, React or storage.",
+        "domainCommit": "Exact page performance.now captured by WorkspaceV6 after all domain validation, identity/freeze/undo updates and before publish. DOM data-transaction-revision must match the new data-revision. Import/open/name are separate operations and do not claim a domain edit commit.",
+        "completion": "DOM revision, Canvas base render counter with map aria-busy=false, local-save status and double-rAF are separate observations. A retained preview raster can be reused on adoption. Double-rAF is a scheduling proxy, never GPU or physical display completion.",
+        "continuousInputs": {
+          "panPointerMoves": 30,
+          "wheelInputs": 20,
+          "pacing": "One requestAnimationFrame awaited before every Playwright input; input timestamps, gaps, trusted event counts, view state and frame intervals retained. Wheel is continuous positive deltaY=12. Fit reset is outside each measured gesture."
+        },
+        "networkAudit": {
+          "allowIncidentalFavicon404": true,
+          "policy": "Retain every HTTP response URL/status, failed request, console error with source location and CDP browser log error. Only same-origin /favicon.ico with no query, status 404, no declared HTML icon, and a matching resource-load console/log source URL is incidental. All other HTTP errors and unexpected console/browser log errors fail the run. Canceled ERR_ABORTED requests are retained separately."
+        },
+        "cpuProfile": {
+          "enabled": false,
+          "phase": "first ordinary-edit only per case/run",
+          "samplingIntervalUs": 1000,
+          "boundary": "CDP Profiler.start before the first ordinary-edit field fill/arm; stop after that sample has reached the same revision domain commit, DOM, Canvas ready, saved status and double-rAF proxy. Includes field preparation and automation/observer waits. Profile serialization is outside the sample; all profiled runs are diagnostic only."
+        },
+        "limits": [
+          "Original fixtures retain their original extent/grid; this runner does not claim a 50 by 50 displayed grid.",
+          "RSS is sampled macOS dedicated-process-tree sum and can double-count shared pages; JS heap is target CDP metrics, not GPU or total physical memory.",
+          "Tooling audit phases include package downloads, readonly IndexedDB hashing and output verification. Their peaks are separated from product phases; phase-boundary samples remain raw.",
+          "Real UI operations are automated headless Chrome observations, not human UX, cross-browser, VTT import, or a complete QA-PERF-04 pass.",
+          "Formal runs use no CPU profiling. Optional diagnostic profiling adds overhead and is restricted to the first ordinary-edit; no tracing, forced GC, heap snapshot or source/dev API. Observer, automation, frame and resource polling overhead are included.",
+          "A Node wall gap above 5 seconds or browser wall/monotonic discontinuity above 250 ms invalidates the run. Slow renderer samples are retained."
+        ]
+      },
+      "samples": 36,
+      "fixture": {
+        "fixtureVersion": "b5-real-assets-v1",
+        "sample": "study",
+        "propCount": 500,
+        "originalPropCount": 13,
+        "addedPropCount": 487,
+        "worldBoundsMm": {
+          "x": 0,
+          "y": 0,
+          "width": 14000,
+          "height": 10000
+        },
+        "assetReferenceCount": 15,
+        "uniqueImageCount": 15,
+        "uniqueImagePixels": 2121728,
+        "uniqueImageEncodedBytes": 137955,
+        "materialDefinitionCount": 4,
+        "propDefinitionCount": 11,
+        "prefabDefinitionCount": 2,
+        "prefabInstanceCount": 2,
+        "scatterGroupCount": 0,
+        "originalScatterMemberCount": 0,
+        "propInstanceCountsByCatalogId": {
+          "prop.sw.desk-oak": 1,
+          "prop.sw.chair-oak": 3,
+          "prop.sw.book-stack": 101,
+          "prop.sw.papers": 99,
+          "prop.sw.table-round": 1,
+          "prop.sw.bookshelf": 1,
+          "prop.sw.rug-study": 1,
+          "prop.sw.flowerpot": 49,
+          "prop.sw.lamp-table": 98,
+          "prop.sw.envelope": 98,
+          "prop.sw.chair-worn": 48
+        },
+        "renderLayerCounts": {
+          "object": 499,
+          "ground": 1
+        },
+        "projectedPropCounts": {
+          "gm": 500,
+          "player": 500
+        },
+        "propsWhollyInsideExport": 500,
+        "projectedAssetCounts": {
+          "gm": 14,
+          "player": 14
+        },
+        "projectedUniqueImagePixels": {
+          "gm": 1859584,
+          "player": 1859584
+        },
+        "postOcclusionVisiblePropCount": null,
+        "editablePropId": "b5-study-editable",
+        "selectionPointMm": {
+          "x": 7800,
+          "y": 1700
+        },
+        "contourEditTarget": {
+          "kind": "vertex",
+          "id": "study-v0",
+          "positionMm": {
+            "x": 1000,
+            "y": 1000
+          }
+        },
+        "alphaStatistics": [
+          {
+            "sha256": "8159c5e8f3e787c01a93530a911b5c6de7d109968eb8ac071cbdbf46fdc21c5e",
+            "file": "wood-dark.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 30302,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "39ee3fb3730cd7e77e10786df15606a011b7a4c286f64745f92f0923f6816886",
+            "file": "wood-worn.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 37823,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "ce6e02c78330d60b9a50a017709484d84b634eb19dfda5f5ec586088d8b751e9",
+            "file": "stone-paver.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 12224,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "663759a20d85306fbcfa651979a80fbe0c6e778615b9788d5b888e9948a810d1",
+            "file": "wall-stone.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 6847,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "dd638de79d673b0101c4d2a929976a2b45b8eca0bb245be9d3962e171e668e3e",
+            "file": "desk-oak.png",
+            "kind": "prop",
+            "width": 512,
+            "height": 256,
+            "encodedBytes": 4149,
+            "zeroAlphaPixels": 34704,
+            "partialAlphaPixels": 40,
+            "opaquePixels": 96328,
+            "alphaWeightedPixels": 96348.06274509804
+          },
+          {
+            "sha256": "9074593175cf3c30f0c85b54b72c25ad172980c181f92233892cc1196f121c32",
+            "file": "chair-oak.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 3033,
+            "zeroAlphaPixels": 36008,
+            "partialAlphaPixels": 639,
+            "opaquePixels": 28889,
+            "alphaWeightedPixels": 29013.709803921567
+          },
+          {
+            "sha256": "6ee664f4c8efd9a4f7f2a0c39861aa7d054733cf47333e7f57043c66eac43d20",
+            "file": "chair-worn.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 3579,
+            "zeroAlphaPixels": 36008,
+            "partialAlphaPixels": 639,
+            "opaquePixels": 28889,
+            "alphaWeightedPixels": 29013.709803921567
+          },
+          {
+            "sha256": "ce19a0416dd1383343f7ff5736e2bff17d610fe36217c3b4f127cf752908b9dd",
+            "file": "book-stack.png",
+            "kind": "prop",
+            "width": 128,
+            "height": 128,
+            "encodedBytes": 768,
+            "zeroAlphaPixels": 9668,
+            "partialAlphaPixels": 313,
+            "opaquePixels": 6403,
+            "alphaWeightedPixels": 6428.894117647059
+          },
+          {
+            "sha256": "7c9c0c2181fdc583deb1c1de9e511b5e1b82936c57fe194bb82675934675adaf",
+            "file": "papers.png",
+            "kind": "prop",
+            "width": 192,
+            "height": 128,
+            "encodedBytes": 1002,
+            "zeroAlphaPixels": 16368,
+            "partialAlphaPixels": 317,
+            "opaquePixels": 7891,
+            "alphaWeightedPixels": 7970.945098039216
+          },
+          {
+            "sha256": "a5544d511fee8e040b643abbd374d97cd474e0c8a8b43d958bd798781ad62567",
+            "file": "bookshelf.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 640,
+            "encodedBytes": 6411,
+            "zeroAlphaPixels": 65608,
+            "partialAlphaPixels": 1424,
+            "opaquePixels": 96808,
+            "alphaWeightedPixels": 96885.96078431372
+          },
+          {
+            "sha256": "502cc2ea4193792ff3564ab8f2afa13360be487da3288a6a07041b9fb3449e55",
+            "file": "rug-study.png",
+            "kind": "prop",
+            "width": 768,
+            "height": 576,
+            "encodedBytes": 11624,
+            "zeroAlphaPixels": 164384,
+            "partialAlphaPixels": 2112,
+            "opaquePixels": 275872,
+            "alphaWeightedPixels": 276140.9254901961
+          },
+          {
+            "sha256": "82ed098421bdc7a8498e24933766795f867f51016ccd8da05dc419174d52a839",
+            "file": "table-round.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 8403,
+            "zeroAlphaPixels": 38844,
+            "partialAlphaPixels": 572,
+            "opaquePixels": 26120,
+            "alphaWeightedPixels": 26385.678431372547
+          },
+          {
+            "sha256": "1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337",
+            "file": "flowerpot.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 8176,
+            "zeroAlphaPixels": 47240,
+            "partialAlphaPixels": 591,
+            "opaquePixels": 17705,
+            "alphaWeightedPixels": 18004.243137254904
+          },
+          {
+            "sha256": "e5c4736961b1c8b1a6b3025e9a6a6176ab04491420fd39203ac4d84dfb587968",
+            "file": "lamp-table.png",
+            "kind": "prop",
+            "width": 128,
+            "height": 128,
+            "encodedBytes": 2604,
+            "zeroAlphaPixels": 12176,
+            "partialAlphaPixels": 236,
+            "opaquePixels": 3972,
+            "alphaWeightedPixels": 4083.286274509804
+          },
+          {
+            "sha256": "7d8a6efb88421f387dbebe02392efca509673e62bce9ea9514d51476a11346ad",
+            "file": "envelope.png",
+            "kind": "prop",
+            "width": 128,
+            "height": 128,
+            "encodedBytes": 1010,
+            "zeroAlphaPixels": 12068,
+            "partialAlphaPixels": 260,
+            "opaquePixels": 4056,
+            "alphaWeightedPixels": 4188.6627450980395
+          }
+        ],
+        "transparency": {
+          "instanceVisualRectangleAreaMm2": 223625000,
+          "instanceZeroAlphaAreaMm2": 143852539.0625,
+          "instancePartialAlphaAreaMm2": 2705383.30078125,
+          "instanceAlphaWeightedAreaMm2": 77922983.02743931,
+          "visualRectangleAreaToExportRatio": 1.5973214285714286,
+          "rectangleGrid": {
+            "columns": 128,
+            "rows": 92,
+            "unionFraction": 0.298828125,
+            "multipleCoverageFraction": 0.25382133152173914,
+            "maximumRectanglesAtCell": 16
+          }
+        },
+        "limitations": [
+          "高密度测量副本有大量真实尺寸物件相互覆盖，不是可玩地图布局或美术验收。",
+          "projectedPropCounts 是受众投影纳入数，propsWhollyInsideExport 是几何范围数；遮挡后的实际可见物件数未测。",
+          "源 PNG alpha 计数为实际文件像素；实例 alpha 面积按图像矩形缩放且重复计入交叠，不含阴影与合成后的可见覆盖。",
+          "rectangleGrid 以网格中心抽样旋转图像矩形，忽略源 alpha；不是精确并集，也不是内存或资源峰值。",
+          "保留原样板公开性；普通样板没有新增 GM 秘密，秘密差分回归另用 B4 配对夹具。"
+        ]
+      },
+      "runners": [
+        {
+          "path": "tools/performance/run-c5.mjs",
+          "sizeBytes": 56110,
+          "sha256": "64591983a8a7d28bc37a12f9e71d01eb4c8b633da02afb184540fcaeafdbe1fb"
+        },
+        {
+          "path": "tools/performance/c5-observer.mjs",
+          "sizeBytes": 8875,
+          "sha256": "f2270085df53391612deae99493c116d5a6893d63bd2b84b6c7b0a1663a578ca"
+        },
+        {
+          "path": "tools/performance/summarize-c5.mjs",
+          "sizeBytes": 8831,
+          "sha256": "7410e7552b42bd783cf36d30dbdd9dce8ff8414c43111b96801c8821eb53e0de"
+        },
+        {
+          "path": "tools/performance/resources.mjs",
+          "sizeBytes": 12217,
+          "sha256": "df2c064100d211591e899436213273f6b8d20c605dc6e5c0941d697cba6b9567"
+        },
+        {
+          "path": "tools/performance/archived-fixtures.mjs",
+          "sizeBytes": 7374,
+          "sha256": "6c9e4148efa12904aed053eeee710ca2611256f67a0206d68c16b8dd0a937e6c"
+        },
+        {
+          "path": "tools/performance/close-browser.mjs",
+          "sizeBytes": 1683,
+          "sha256": "806b97f31420d8a43c57c31fe3fdfdc44aa177ccb2e8a33785b02ad799f240c5"
+        }
+      ],
+      "correctness": {
+        "nativeV6": true,
+        "selectionUnchanged": true,
+        "pointerAndKeyboardMenus": true,
+        "namedAndProtection": true,
+        "networkErrorsReviewed": true
+      },
+      "operations": {
+        "appearance-adopt": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 494.40000000596046,
+            "median": 494.40000000596046,
+            "p95": 494.40000000596046,
+            "max": 494.40000000596046,
+            "values": [
+              494.40000000596046
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 522.2000000178814,
+            "median": 522.2000000178814,
+            "p95": 522.2000000178814,
+            "max": 522.2000000178814,
+            "values": [
+              522.2000000178814
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 573.4000000059605,
+            "median": 573.4000000059605,
+            "p95": 573.4000000059605,
+            "max": 573.4000000059605,
+            "values": [
+              573.4000000059605
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 2787.7000000178814,
+            "median": 2787.7000000178814,
+            "p95": 2787.7000000178814,
+            "max": 2787.7000000178814,
+            "values": [
+              2787.7000000178814
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 2849.0999999940395,
+            "median": 2849.0999999940395,
+            "p95": 2849.0999999940395,
+            "max": 2849.0999999940395,
+            "values": [
+              2849.0999999940395
+            ]
+          }
+        },
+        "appearance-preview": {
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 1660.300000011921,
+            "median": 1660.300000011921,
+            "p95": 1660.300000011921,
+            "max": 1660.300000011921,
+            "values": [
+              1660.300000011921
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.20000001788139343,
+            "median": 0.20000001788139343,
+            "p95": 0.20000001788139343,
+            "max": 0.20000001788139343,
+            "values": [
+              0.20000001788139343
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1664.300000011921,
+            "median": 1664.300000011921,
+            "p95": 1664.300000011921,
+            "max": 1664.300000011921,
+            "values": [
+              1664.300000011921
+            ]
+          }
+        },
+        "cold-import-save-raster": {
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 2463.9000000059605,
+            "median": 2463.9000000059605,
+            "p95": 2463.9000000059605,
+            "max": 2463.9000000059605,
+            "values": [
+              2463.9000000059605
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 2383.2000000178814,
+            "median": 2383.2000000178814,
+            "p95": 2383.2000000178814,
+            "max": 2383.2000000178814,
+            "values": [
+              2383.2000000178814
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 2484.4000000059605,
+            "median": 2484.4000000059605,
+            "p95": 2484.4000000059605,
+            "max": 2484.4000000059605,
+            "values": [
+              2484.4000000059605
+            ]
+          }
+        },
+        "cold-package-prepare": {
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 3917.5999999940395,
+            "median": 3917.5999999940395,
+            "p95": 3917.5999999940395,
+            "max": 3917.5999999940395,
+            "values": [
+              3917.5999999940395
+            ]
+          }
+        },
+        "continuous-pan": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.7000000178813934,
+            "median": 0.7000000178813934,
+            "p95": 0.7000000178813934,
+            "max": 0.7000000178813934,
+            "values": [
+              0.7000000178813934
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1825.6000000238419,
+            "median": 1825.6000000238419,
+            "p95": 1825.6000000238419,
+            "max": 1825.6000000238419,
+            "values": [
+              1825.6000000238419
+            ]
+          }
+        },
+        "continuous-wheel": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.3999999761581421,
+            "median": 0.3999999761581421,
+            "p95": 0.3999999761581421,
+            "max": 0.3999999761581421,
+            "values": [
+              0.3999999761581421
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 982.6999999880791,
+            "median": 982.6999999880791,
+            "p95": 982.6999999880791,
+            "max": 982.6999999880791,
+            "values": [
+              982.6999999880791
+            ]
+          }
+        },
+        "export-4k-gm": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 768.2999999821186,
+            "median": 768.2999999821186,
+            "p95": 768.2999999821186,
+            "max": 768.2999999821186,
+            "values": [
+              768.2999999821186
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 798.0999999940395,
+            "median": 798.0999999940395,
+            "p95": 798.0999999940395,
+            "max": 798.0999999940395,
+            "values": [
+              798.0999999940395
+            ]
+          }
+        },
+        "export-4k-player": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 590.9000000059605,
+            "median": 590.9000000059605,
+            "p95": 590.9000000059605,
+            "max": 590.9000000059605,
+            "values": [
+              590.9000000059605
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 613.9000000059605,
+            "median": 613.9000000059605,
+            "p95": 613.9000000059605,
+            "max": 613.9000000059605,
+            "values": [
+              613.9000000059605
+            ]
+          }
+        },
+        "history-open": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 661.6999999880791,
+            "median": 661.6999999880791,
+            "p95": 661.6999999880791,
+            "max": 661.6999999880791,
+            "values": [
+              661.6999999880791
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 681.0999999940395,
+            "median": 681.0999999940395,
+            "p95": 681.0999999940395,
+            "max": 681.0999999940395,
+            "values": [
+              681.0999999940395
+            ]
+          }
+        },
+        "layer-create-setup": {
+          "intentToDomainCommitMs": {
+            "n": 2,
+            "min": 1107.699999988079,
+            "median": 1218.1499999910593,
+            "p95": 1328.5999999940395,
+            "max": 1328.5999999940395,
+            "values": [
+              1107.699999988079,
+              1328.5999999940395
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 2,
+            "min": 1124.5999999940395,
+            "median": 1234.8999999910593,
+            "p95": 1345.199999988079,
+            "max": 1345.199999988079,
+            "values": [
+              1124.5999999940395,
+              1345.199999988079
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 2,
+            "min": 1175.5999999940395,
+            "median": 1291.8999999910593,
+            "p95": 1408.199999988079,
+            "max": 1408.199999988079,
+            "values": [
+              1175.5999999940395,
+              1408.199999988079
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 2,
+            "min": 3391.5999999940395,
+            "median": 3517.2999999970198,
+            "p95": 3643,
+            "max": 3643,
+            "values": [
+              3391.5999999940395,
+              3643
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 2,
+            "min": 3473.4000000059605,
+            "median": 3590.3500000089407,
+            "p95": 3707.300000011921,
+            "max": 3707.300000011921,
+            "values": [
+              3473.4000000059605,
+              3707.300000011921
+            ]
+          }
+        },
+        "layer-hide": {
+          "intentToRasterReadyMs": {
+            "n": 2,
+            "min": 56.30000001192093,
+            "median": 57.3500000089407,
+            "p95": 58.400000005960464,
+            "max": 58.400000005960464,
+            "values": [
+              58.400000005960464,
+              56.30000001192093
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 2,
+            "min": 4.800000011920929,
+            "median": 7.9000000059604645,
+            "p95": 11,
+            "max": 11,
+            "values": [
+              11,
+              4.800000011920929
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 2,
+            "min": 80.90000000596046,
+            "median": 81.40000000596046,
+            "p95": 81.90000000596046,
+            "max": 81.90000000596046,
+            "values": [
+              81.90000000596046,
+              80.90000000596046
+            ]
+          }
+        },
+        "layer-move-adopt": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 446.09999999403954,
+            "median": 446.09999999403954,
+            "p95": 446.09999999403954,
+            "max": 446.09999999403954,
+            "values": [
+              446.09999999403954
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 471.30000001192093,
+            "median": 471.30000001192093,
+            "p95": 471.30000001192093,
+            "max": 471.30000001192093,
+            "values": [
+              471.30000001192093
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 529.1999999880791,
+            "median": 529.1999999880791,
+            "p95": 529.1999999880791,
+            "max": 529.1999999880791,
+            "values": [
+              529.1999999880791
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 2526,
+            "median": 2526,
+            "p95": 2526,
+            "max": 2526,
+            "values": [
+              2526
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 2587.5999999940395,
+            "median": 2587.5999999940395,
+            "p95": 2587.5999999940395,
+            "max": 2587.5999999940395,
+            "values": [
+              2587.5999999940395
+            ]
+          }
+        },
+        "layer-move-preview": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1413.7999999821186,
+            "median": 1413.7999999821186,
+            "p95": 1413.7999999821186,
+            "max": 1413.7999999821186,
+            "values": [
+              1413.7999999821186
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1421,
+            "median": 1421,
+            "p95": 1421,
+            "max": 1421,
+            "values": [
+              1421
+            ]
+          }
+        },
+        "layer-reorder": {
+          "intentToDomainCommitMs": {
+            "n": 2,
+            "min": 1003.7999999821186,
+            "median": 1027.6499999910593,
+            "p95": 1051.5,
+            "max": 1051.5,
+            "values": [
+              1051.5,
+              1003.7999999821186
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 2,
+            "min": 1019.5,
+            "median": 1044.1000000089407,
+            "p95": 1068.7000000178814,
+            "max": 1068.7000000178814,
+            "values": [
+              1068.7000000178814,
+              1019.5
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 2,
+            "min": 1063.0999999940395,
+            "median": 1093.3500000089407,
+            "p95": 1123.6000000238419,
+            "max": 1123.6000000238419,
+            "values": [
+              1123.6000000238419,
+              1063.0999999940395
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 2,
+            "min": 3224.100000023842,
+            "median": 3274.1000000089407,
+            "p95": 3324.0999999940395,
+            "max": 3324.0999999940395,
+            "values": [
+              3224.100000023842,
+              3324.0999999940395
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 2,
+            "min": 3284.9000000059605,
+            "median": 3334.9500000029802,
+            "p95": 3385,
+            "max": 3385,
+            "values": [
+              3284.9000000059605,
+              3385
+            ]
+          }
+        },
+        "local-reopen": {
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 1279.199999988079,
+            "median": 1279.199999988079,
+            "p95": 1279.199999988079,
+            "max": 1279.199999988079,
+            "values": [
+              1279.199999988079
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 1455.699999988079,
+            "median": 1455.699999988079,
+            "p95": 1455.699999988079,
+            "max": 1455.699999988079,
+            "values": [
+              1455.699999988079
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1286.0999999940395,
+            "median": 1286.0999999940395,
+            "p95": 1286.0999999940395,
+            "max": 1286.0999999940395,
+            "values": [
+              1286.0999999940395
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1461.9000000059605,
+            "median": 1461.9000000059605,
+            "p95": 1461.9000000059605,
+            "max": 1461.9000000059605,
+            "values": [
+              1461.9000000059605
+            ]
+          }
+        },
+        "marquee": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 9.5,
+            "median": 9.5,
+            "p95": 9.5,
+            "max": 9.5,
+            "values": [
+              9.5
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 25.69999998807907,
+            "median": 25.69999998807907,
+            "p95": 25.69999998807907,
+            "max": 25.69999998807907,
+            "values": [
+              25.69999998807907
+            ]
+          }
+        },
+        "menu-dismiss": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1.4000000059604645,
+            "median": 1.4000000059604645,
+            "p95": 1.4000000059604645,
+            "max": 1.4000000059604645,
+            "values": [
+              1.4000000059604645
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 24.900000005960464,
+            "median": 24.900000005960464,
+            "p95": 24.900000005960464,
+            "max": 24.900000005960464,
+            "values": [
+              24.900000005960464
+            ]
+          }
+        },
+        "named-snapshot": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.09999999403953552,
+            "median": 0.09999999403953552,
+            "p95": 0.09999999403953552,
+            "max": 0.09999999403953552,
+            "values": [
+              0.09999999403953552
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 4646.5,
+            "median": 4646.5,
+            "p95": 4646.5,
+            "max": 4646.5,
+            "values": [
+              4646.5
+            ]
+          }
+        },
+        "ordinary-edit": {
+          "intentToDomainCommitMs": {
+            "n": 10,
+            "min": 1037.5,
+            "median": 1118.5999999940395,
+            "p95": 1817.0999999940395,
+            "max": 1817.0999999940395,
+            "values": [
+              1268,
+              1219.800000011921,
+              1086.800000011921,
+              1817.0999999940395,
+              1057.300000011921,
+              1060.800000011921,
+              1091.0999999940395,
+              1146.0999999940395,
+              1037.5,
+              1227.9000000059605
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 10,
+            "min": 1054.4000000059605,
+            "median": 1135.5,
+            "p95": 1833.5,
+            "max": 1833.5,
+            "values": [
+              1286.4000000059605,
+              1235.699999988079,
+              1103.7000000178814,
+              1833.5,
+              1075.5,
+              1076.9000000059605,
+              1108.2999999821186,
+              1162.7000000178814,
+              1054.4000000059605,
+              1247.4000000059605
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 10,
+            "min": 1106.5999999940395,
+            "median": 1190.4999999850988,
+            "p95": 1901.699999988079,
+            "max": 1901.699999988079,
+            "values": [
+              1339.2000000178814,
+              1301.9000000059605,
+              1159.4000000059605,
+              1901.699999988079,
+              1144.5,
+              1126.4000000059605,
+              1159.8999999761581,
+              1221.0999999940395,
+              1106.5999999940395,
+              1320
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 10,
+            "min": 2574.9000000059605,
+            "median": 3135.6500000059605,
+            "p95": 3637.0999999940395,
+            "max": 3637.0999999940395,
+            "values": [
+              2756.300000011921,
+              2749.5,
+              2574.9000000059605,
+              3505.899999976158,
+              3393.600000023842,
+              2824.800000011921,
+              3220.5999999940395,
+              3050.7000000178814,
+              3637.0999999940395,
+              3608.9000000059605
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 10,
+            "min": 2648.300000011921,
+            "median": 3203.249999985099,
+            "p95": 3671.199999988079,
+            "max": 3671.199999988079,
+            "values": [
+              2828.7000000178814,
+              2809.5999999940395,
+              2648.300000011921,
+              3567.5,
+              3486.600000023842,
+              2887.7000000178814,
+              3292.899999976158,
+              3113.5999999940395,
+              3639.4000000059605,
+              3671.199999988079
+            ]
+          }
+        },
+        "pointer-menu": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 4,
+            "median": 4,
+            "p95": 4,
+            "max": 4,
+            "values": [
+              4
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 22.200000017881393,
+            "median": 22.200000017881393,
+            "p95": 22.200000017881393,
+            "max": 22.200000017881393,
+            "values": [
+              22.200000017881393
+            ]
+          }
+        },
+        "replacement": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.19999998807907104,
+            "median": 0.19999998807907104,
+            "p95": 0.19999998807907104,
+            "max": 0.19999998807907104,
+            "values": [
+              0.19999998807907104
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 22.19999998807907,
+            "median": 22.19999998807907,
+            "p95": 22.19999998807907,
+            "max": 22.19999998807907,
+            "values": [
+              22.19999998807907
+            ]
+          }
+        },
+        "restore-change-setup": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 1066.5,
+            "median": 1066.5,
+            "p95": 1066.5,
+            "max": 1066.5,
+            "values": [
+              1066.5
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 1083.2999999821186,
+            "median": 1083.2999999821186,
+            "p95": 1083.2999999821186,
+            "max": 1083.2999999821186,
+            "values": [
+              1083.2999999821186
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 1136.9000000059605,
+            "median": 1136.9000000059605,
+            "p95": 1136.9000000059605,
+            "max": 1136.9000000059605,
+            "values": [
+              1136.9000000059605
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 3453.5,
+            "median": 3453.5,
+            "p95": 3453.5,
+            "max": 3453.5,
+            "values": [
+              3453.5
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 3516.0999999940395,
+            "median": 3516.0999999940395,
+            "p95": 3516.0999999940395,
+            "max": 3516.0999999940395,
+            "values": [
+              3516.0999999940395
+            ]
+          }
+        },
+        "restore-preview": {
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 1786,
+            "median": 1786,
+            "p95": 1786,
+            "max": 1786,
+            "values": [
+              1786
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1711.0999999940395,
+            "median": 1711.0999999940395,
+            "p95": 1711.0999999940395,
+            "max": 1711.0999999940395,
+            "values": [
+              1711.0999999940395
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1798.0999999940395,
+            "median": 1798.0999999940395,
+            "p95": 1798.0999999940395,
+            "max": 1798.0999999940395,
+            "values": [
+              1798.0999999940395
+            ]
+          }
+        },
+        "restore-protect-adopt-save": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 6760.4000000059605,
+            "median": 6760.4000000059605,
+            "p95": 6760.4000000059605,
+            "max": 6760.4000000059605,
+            "values": [
+              6760.4000000059605
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 6782.0999999940395,
+            "median": 6782.0999999940395,
+            "p95": 6782.0999999940395,
+            "max": 6782.0999999940395,
+            "values": [
+              6782.0999999940395
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 10276.59999999404,
+            "median": 10276.59999999404,
+            "p95": 10276.59999999404,
+            "max": 10276.59999999404,
+            "values": [
+              10276.59999999404
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 13260.800000011921,
+            "median": 13260.800000011921,
+            "p95": 13260.800000011921,
+            "max": 13260.800000011921,
+            "values": [
+              13260.800000011921
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 13268.90000000596,
+            "median": 13268.90000000596,
+            "p95": 13268.90000000596,
+            "max": 13268.90000000596,
+            "values": [
+              13268.90000000596
+            ]
+          }
+        }
+      },
+      "productResources": {
+        "rssPeakBytes": {
+          "value": 1497546752,
+          "phase": "export-4k-player"
+        },
+        "jsHeapPeakUsedBytes": {
+          "value": 184009284,
+          "phase": "export-4k-player"
+        },
+        "processSamplingIntervalsMs": {
+          "count": 1002,
+          "min": 98.47000000000116,
+          "p50": 100.48220800000126,
+          "p95": 163.19874999999956,
+          "max": 721.5362909999967,
+          "mean": 111.00364570858291
+        },
+        "heapSamplingIntervalsMs": {
+          "count": 548,
+          "min": 197.89866600000823,
+          "p50": 200.26495799999975,
+          "p95": 207.27049999999872,
+          "max": 425.6889169999995,
+          "mean": 202.5939171222629
+        },
+        "errorCount": 0
+      }
+    },
+    "after": {
+      "status": "complete",
+      "measurementClass": "diagnostic-c5-production-ui",
+      "sourceRevision": "8fcf8ed835778da59fcf564a39ae9c5c0b2d7303",
+      "device": {
+        "platform": "darwin",
+        "release": "25.6.0",
+        "arch": "arm64",
+        "cpu": "Apple M1",
+        "logicalCpus": 8,
+        "memoryBytes": 17179869184
+      },
+      "node": "v24.14.1",
+      "browser": "156.0.8078.47",
+      "config": {
+        "runs": 1,
+        "selections": 1,
+        "edits": 10,
+        "layers": 2,
+        "appearances": 1,
+        "restores": 1,
+        "menus": 1,
+        "gestures": 1,
+        "requestedCases": [
+          "study-500"
+        ],
+        "channel": "chrome",
+        "diagnostic": true,
+        "diagnosticProfile": false,
+        "waitTimeoutMs": 60000,
+        "route": "#outdoor",
+        "viewport": {
+          "width": 1512,
+          "height": 982
+        },
+        "dpr": 1,
+        "processState": "Fresh dedicated headless Chrome process and profile per case/run; HTTP cache disabled, OS caches not purged. macOS caffeinate prevents idle sleep only.",
+        "fixturePreparation": "Unmodified original B5 strict-v2 packages; native production UI validates, migrates through v3/v4/v5 to strict v6, and saves an independent copy. Two small user layers are added through UI; only the independent marker is moved to C5 Focus, keeping all measured member transactions within 256.",
+        "localReopen": "Manual recent-project open. Preparation removes only the optional localStorage sceneweave.outdoorSceneId hint, reloads the normal page, opens the recent-project details if needed and verifies the native repository is unchanged. The timed interval starts at the trusted recent-project button click; reload and preparation are excluded.",
+        "intent": "Trusted capture of the committing click, Enter keydown, file change, selection pointerup, contextmenu or first continuous input. The tool observes DOM/events; it never wraps product functions, Canvas, React or storage.",
+        "domainCommit": "Exact page performance.now captured by WorkspaceV6 after all domain validation, identity/freeze/undo updates and before publish. DOM data-transaction-revision must match the new data-revision. Import/open/name are separate operations and do not claim a domain edit commit.",
+        "completion": "DOM revision, Canvas base render counter with map aria-busy=false, local-save status and double-rAF are separate observations. A retained preview raster can be reused on adoption. Double-rAF is a scheduling proxy, never GPU or physical display completion.",
+        "continuousInputs": {
+          "panPointerMoves": 30,
+          "wheelInputs": 20,
+          "pacing": "One requestAnimationFrame awaited before every Playwright input; input timestamps, gaps, trusted event counts, view state and frame intervals retained. Wheel is continuous positive deltaY=12. Fit reset is outside each measured gesture."
+        },
+        "networkAudit": {
+          "allowIncidentalFavicon404": true,
+          "policy": "Retain every HTTP response URL/status, failed request, console error with source location and CDP browser log error. Only same-origin /favicon.ico with no query, status 404, no declared HTML icon, and a matching resource-load console/log source URL is incidental. All other HTTP errors and unexpected console/browser log errors fail the run. Canceled ERR_ABORTED requests are retained separately."
+        },
+        "cpuProfile": {
+          "enabled": false,
+          "phase": "first ordinary-edit only per case/run",
+          "samplingIntervalUs": 1000,
+          "boundary": "CDP Profiler.start before the first ordinary-edit field fill/arm; stop after that sample has reached the same revision domain commit, DOM, Canvas ready, saved status and double-rAF proxy. Includes field preparation and automation/observer waits. Profile serialization is outside the sample; all profiled runs are diagnostic only."
+        },
+        "limits": [
+          "Original fixtures retain their original extent/grid; this runner does not claim a 50 by 50 displayed grid.",
+          "RSS is sampled macOS dedicated-process-tree sum and can double-count shared pages; JS heap is target CDP metrics, not GPU or total physical memory.",
+          "Tooling audit phases include package downloads, readonly IndexedDB hashing and output verification. Their peaks are separated from product phases; phase-boundary samples remain raw.",
+          "Real UI operations are automated headless Chrome observations, not human UX, cross-browser, VTT import, or a complete QA-PERF-04 pass.",
+          "Formal runs use no CPU profiling. Optional diagnostic profiling adds overhead and is restricted to the first ordinary-edit; no tracing, forced GC, heap snapshot or source/dev API. Observer, automation, frame and resource polling overhead are included.",
+          "A Node wall gap above 5 seconds or browser wall/monotonic discontinuity above 250 ms invalidates the run. Slow renderer samples are retained."
+        ]
+      },
+      "samples": 36,
+      "fixture": {
+        "fixtureVersion": "b5-real-assets-v1",
+        "sample": "study",
+        "propCount": 500,
+        "originalPropCount": 13,
+        "addedPropCount": 487,
+        "worldBoundsMm": {
+          "x": 0,
+          "y": 0,
+          "width": 14000,
+          "height": 10000
+        },
+        "assetReferenceCount": 15,
+        "uniqueImageCount": 15,
+        "uniqueImagePixels": 2121728,
+        "uniqueImageEncodedBytes": 137955,
+        "materialDefinitionCount": 4,
+        "propDefinitionCount": 11,
+        "prefabDefinitionCount": 2,
+        "prefabInstanceCount": 2,
+        "scatterGroupCount": 0,
+        "originalScatterMemberCount": 0,
+        "propInstanceCountsByCatalogId": {
+          "prop.sw.desk-oak": 1,
+          "prop.sw.chair-oak": 3,
+          "prop.sw.book-stack": 101,
+          "prop.sw.papers": 99,
+          "prop.sw.table-round": 1,
+          "prop.sw.bookshelf": 1,
+          "prop.sw.rug-study": 1,
+          "prop.sw.flowerpot": 49,
+          "prop.sw.lamp-table": 98,
+          "prop.sw.envelope": 98,
+          "prop.sw.chair-worn": 48
+        },
+        "renderLayerCounts": {
+          "object": 499,
+          "ground": 1
+        },
+        "projectedPropCounts": {
+          "gm": 500,
+          "player": 500
+        },
+        "propsWhollyInsideExport": 500,
+        "projectedAssetCounts": {
+          "gm": 14,
+          "player": 14
+        },
+        "projectedUniqueImagePixels": {
+          "gm": 1859584,
+          "player": 1859584
+        },
+        "postOcclusionVisiblePropCount": null,
+        "editablePropId": "b5-study-editable",
+        "selectionPointMm": {
+          "x": 7800,
+          "y": 1700
+        },
+        "contourEditTarget": {
+          "kind": "vertex",
+          "id": "study-v0",
+          "positionMm": {
+            "x": 1000,
+            "y": 1000
+          }
+        },
+        "alphaStatistics": [
+          {
+            "sha256": "8159c5e8f3e787c01a93530a911b5c6de7d109968eb8ac071cbdbf46fdc21c5e",
+            "file": "wood-dark.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 30302,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "39ee3fb3730cd7e77e10786df15606a011b7a4c286f64745f92f0923f6816886",
+            "file": "wood-worn.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 37823,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "ce6e02c78330d60b9a50a017709484d84b634eb19dfda5f5ec586088d8b751e9",
+            "file": "stone-paver.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 12224,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "663759a20d85306fbcfa651979a80fbe0c6e778615b9788d5b888e9948a810d1",
+            "file": "wall-stone.png",
+            "kind": "material",
+            "width": 512,
+            "height": 512,
+            "encodedBytes": 6847,
+            "zeroAlphaPixels": 0,
+            "partialAlphaPixels": 0,
+            "opaquePixels": 262144,
+            "alphaWeightedPixels": 262144
+          },
+          {
+            "sha256": "dd638de79d673b0101c4d2a929976a2b45b8eca0bb245be9d3962e171e668e3e",
+            "file": "desk-oak.png",
+            "kind": "prop",
+            "width": 512,
+            "height": 256,
+            "encodedBytes": 4149,
+            "zeroAlphaPixels": 34704,
+            "partialAlphaPixels": 40,
+            "opaquePixels": 96328,
+            "alphaWeightedPixels": 96348.06274509804
+          },
+          {
+            "sha256": "9074593175cf3c30f0c85b54b72c25ad172980c181f92233892cc1196f121c32",
+            "file": "chair-oak.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 3033,
+            "zeroAlphaPixels": 36008,
+            "partialAlphaPixels": 639,
+            "opaquePixels": 28889,
+            "alphaWeightedPixels": 29013.709803921567
+          },
+          {
+            "sha256": "6ee664f4c8efd9a4f7f2a0c39861aa7d054733cf47333e7f57043c66eac43d20",
+            "file": "chair-worn.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 3579,
+            "zeroAlphaPixels": 36008,
+            "partialAlphaPixels": 639,
+            "opaquePixels": 28889,
+            "alphaWeightedPixels": 29013.709803921567
+          },
+          {
+            "sha256": "ce19a0416dd1383343f7ff5736e2bff17d610fe36217c3b4f127cf752908b9dd",
+            "file": "book-stack.png",
+            "kind": "prop",
+            "width": 128,
+            "height": 128,
+            "encodedBytes": 768,
+            "zeroAlphaPixels": 9668,
+            "partialAlphaPixels": 313,
+            "opaquePixels": 6403,
+            "alphaWeightedPixels": 6428.894117647059
+          },
+          {
+            "sha256": "7c9c0c2181fdc583deb1c1de9e511b5e1b82936c57fe194bb82675934675adaf",
+            "file": "papers.png",
+            "kind": "prop",
+            "width": 192,
+            "height": 128,
+            "encodedBytes": 1002,
+            "zeroAlphaPixels": 16368,
+            "partialAlphaPixels": 317,
+            "opaquePixels": 7891,
+            "alphaWeightedPixels": 7970.945098039216
+          },
+          {
+            "sha256": "a5544d511fee8e040b643abbd374d97cd474e0c8a8b43d958bd798781ad62567",
+            "file": "bookshelf.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 640,
+            "encodedBytes": 6411,
+            "zeroAlphaPixels": 65608,
+            "partialAlphaPixels": 1424,
+            "opaquePixels": 96808,
+            "alphaWeightedPixels": 96885.96078431372
+          },
+          {
+            "sha256": "502cc2ea4193792ff3564ab8f2afa13360be487da3288a6a07041b9fb3449e55",
+            "file": "rug-study.png",
+            "kind": "prop",
+            "width": 768,
+            "height": 576,
+            "encodedBytes": 11624,
+            "zeroAlphaPixels": 164384,
+            "partialAlphaPixels": 2112,
+            "opaquePixels": 275872,
+            "alphaWeightedPixels": 276140.9254901961
+          },
+          {
+            "sha256": "82ed098421bdc7a8498e24933766795f867f51016ccd8da05dc419174d52a839",
+            "file": "table-round.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 8403,
+            "zeroAlphaPixels": 38844,
+            "partialAlphaPixels": 572,
+            "opaquePixels": 26120,
+            "alphaWeightedPixels": 26385.678431372547
+          },
+          {
+            "sha256": "1f16f1088c01886d3ef3efb97f54e5d3f8f8e36b8d76eaebf7a4209faadad337",
+            "file": "flowerpot.png",
+            "kind": "prop",
+            "width": 256,
+            "height": 256,
+            "encodedBytes": 8176,
+            "zeroAlphaPixels": 47240,
+            "partialAlphaPixels": 591,
+            "opaquePixels": 17705,
+            "alphaWeightedPixels": 18004.243137254904
+          },
+          {
+            "sha256": "e5c4736961b1c8b1a6b3025e9a6a6176ab04491420fd39203ac4d84dfb587968",
+            "file": "lamp-table.png",
+            "kind": "prop",
+            "width": 128,
+            "height": 128,
+            "encodedBytes": 2604,
+            "zeroAlphaPixels": 12176,
+            "partialAlphaPixels": 236,
+            "opaquePixels": 3972,
+            "alphaWeightedPixels": 4083.286274509804
+          },
+          {
+            "sha256": "7d8a6efb88421f387dbebe02392efca509673e62bce9ea9514d51476a11346ad",
+            "file": "envelope.png",
+            "kind": "prop",
+            "width": 128,
+            "height": 128,
+            "encodedBytes": 1010,
+            "zeroAlphaPixels": 12068,
+            "partialAlphaPixels": 260,
+            "opaquePixels": 4056,
+            "alphaWeightedPixels": 4188.6627450980395
+          }
+        ],
+        "transparency": {
+          "instanceVisualRectangleAreaMm2": 223625000,
+          "instanceZeroAlphaAreaMm2": 143852539.0625,
+          "instancePartialAlphaAreaMm2": 2705383.30078125,
+          "instanceAlphaWeightedAreaMm2": 77922983.02743931,
+          "visualRectangleAreaToExportRatio": 1.5973214285714286,
+          "rectangleGrid": {
+            "columns": 128,
+            "rows": 92,
+            "unionFraction": 0.298828125,
+            "multipleCoverageFraction": 0.25382133152173914,
+            "maximumRectanglesAtCell": 16
+          }
+        },
+        "limitations": [
+          "高密度测量副本有大量真实尺寸物件相互覆盖，不是可玩地图布局或美术验收。",
+          "projectedPropCounts 是受众投影纳入数，propsWhollyInsideExport 是几何范围数；遮挡后的实际可见物件数未测。",
+          "源 PNG alpha 计数为实际文件像素；实例 alpha 面积按图像矩形缩放且重复计入交叠，不含阴影与合成后的可见覆盖。",
+          "rectangleGrid 以网格中心抽样旋转图像矩形，忽略源 alpha；不是精确并集，也不是内存或资源峰值。",
+          "保留原样板公开性；普通样板没有新增 GM 秘密，秘密差分回归另用 B4 配对夹具。"
+        ]
+      },
+      "runners": [
+        {
+          "path": "tools/performance/run-c5.mjs",
+          "sizeBytes": 56110,
+          "sha256": "64591983a8a7d28bc37a12f9e71d01eb4c8b633da02afb184540fcaeafdbe1fb"
+        },
+        {
+          "path": "tools/performance/c5-observer.mjs",
+          "sizeBytes": 8875,
+          "sha256": "f2270085df53391612deae99493c116d5a6893d63bd2b84b6c7b0a1663a578ca"
+        },
+        {
+          "path": "tools/performance/summarize-c5.mjs",
+          "sizeBytes": 8831,
+          "sha256": "7410e7552b42bd783cf36d30dbdd9dce8ff8414c43111b96801c8821eb53e0de"
+        },
+        {
+          "path": "tools/performance/resources.mjs",
+          "sizeBytes": 12217,
+          "sha256": "df2c064100d211591e899436213273f6b8d20c605dc6e5c0941d697cba6b9567"
+        },
+        {
+          "path": "tools/performance/archived-fixtures.mjs",
+          "sizeBytes": 7374,
+          "sha256": "6c9e4148efa12904aed053eeee710ca2611256f67a0206d68c16b8dd0a937e6c"
+        },
+        {
+          "path": "tools/performance/close-browser.mjs",
+          "sizeBytes": 1683,
+          "sha256": "806b97f31420d8a43c57c31fe3fdfdc44aa177ccb2e8a33785b02ad799f240c5"
+        }
+      ],
+      "correctness": {
+        "nativeV6": true,
+        "selectionUnchanged": true,
+        "pointerAndKeyboardMenus": true,
+        "namedAndProtection": true,
+        "networkErrorsReviewed": true
+      },
+      "operations": {
+        "appearance-adopt": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 53.400000005960464,
+            "median": 53.400000005960464,
+            "p95": 53.400000005960464,
+            "max": 53.400000005960464,
+            "values": [
+              53.400000005960464
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 81.7999999821186,
+            "median": 81.7999999821186,
+            "p95": 81.7999999821186,
+            "max": 81.7999999821186,
+            "values": [
+              81.7999999821186
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 139.19999998807907,
+            "median": 139.19999998807907,
+            "p95": 139.19999998807907,
+            "max": 139.19999998807907,
+            "values": [
+              139.19999998807907
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 2482.5999999940395,
+            "median": 2482.5999999940395,
+            "p95": 2482.5999999940395,
+            "max": 2482.5999999940395,
+            "values": [
+              2482.5999999940395
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 2545.199999988079,
+            "median": 2545.199999988079,
+            "p95": 2545.199999988079,
+            "max": 2545.199999988079,
+            "values": [
+              2545.199999988079
+            ]
+          }
+        },
+        "appearance-preview": {
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 429.7000000178814,
+            "median": 429.7000000178814,
+            "p95": 429.7000000178814,
+            "max": 429.7000000178814,
+            "values": [
+              429.7000000178814
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.09999999403953552,
+            "median": 0.09999999403953552,
+            "p95": 0.09999999403953552,
+            "max": 0.09999999403953552,
+            "values": [
+              0.09999999403953552
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 430.80000001192093,
+            "median": 430.80000001192093,
+            "p95": 430.80000001192093,
+            "max": 430.80000001192093,
+            "values": [
+              430.80000001192093
+            ]
+          }
+        },
+        "cold-import-save-raster": {
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 1754.300000011921,
+            "median": 1754.300000011921,
+            "p95": 1754.300000011921,
+            "max": 1754.300000011921,
+            "values": [
+              1754.300000011921
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1675.800000011921,
+            "median": 1675.800000011921,
+            "p95": 1675.800000011921,
+            "max": 1675.800000011921,
+            "values": [
+              1675.800000011921
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1776.1000000238419,
+            "median": 1776.1000000238419,
+            "p95": 1776.1000000238419,
+            "max": 1776.1000000238419,
+            "values": [
+              1776.1000000238419
+            ]
+          }
+        },
+        "cold-package-prepare": {
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 7716.699999988079,
+            "median": 7716.699999988079,
+            "p95": 7716.699999988079,
+            "max": 7716.699999988079,
+            "values": [
+              7716.699999988079
+            ]
+          }
+        },
+        "continuous-pan": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.19999998807907104,
+            "median": 0.19999998807907104,
+            "p95": 0.19999998807907104,
+            "max": 0.19999998807907104,
+            "values": [
+              0.19999998807907104
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1161.4000000059605,
+            "median": 1161.4000000059605,
+            "p95": 1161.4000000059605,
+            "max": 1161.4000000059605,
+            "values": [
+              1161.4000000059605
+            ]
+          }
+        },
+        "continuous-wheel": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.4000000059604645,
+            "median": 0.4000000059604645,
+            "p95": 0.4000000059604645,
+            "max": 0.4000000059604645,
+            "values": [
+              0.4000000059604645
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1066.699999988079,
+            "median": 1066.699999988079,
+            "p95": 1066.699999988079,
+            "max": 1066.699999988079,
+            "values": [
+              1066.699999988079
+            ]
+          }
+        },
+        "export-4k-gm": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 857.8000000119209,
+            "median": 857.8000000119209,
+            "p95": 857.8000000119209,
+            "max": 857.8000000119209,
+            "values": [
+              857.8000000119209
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 913.5,
+            "median": 913.5,
+            "p95": 913.5,
+            "max": 913.5,
+            "values": [
+              913.5
+            ]
+          }
+        },
+        "export-4k-player": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 830.9000000059605,
+            "median": 830.9000000059605,
+            "p95": 830.9000000059605,
+            "max": 830.9000000059605,
+            "values": [
+              830.9000000059605
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 863.3000000119209,
+            "median": 863.3000000119209,
+            "p95": 863.3000000119209,
+            "max": 863.3000000119209,
+            "values": [
+              863.3000000119209
+            ]
+          }
+        },
+        "history-open": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 687.5999999940395,
+            "median": 687.5999999940395,
+            "p95": 687.5999999940395,
+            "max": 687.5999999940395,
+            "values": [
+              687.5999999940395
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 697.0999999940395,
+            "median": 697.0999999940395,
+            "p95": 697.0999999940395,
+            "max": 697.0999999940395,
+            "values": [
+              697.0999999940395
+            ]
+          }
+        },
+        "layer-create-setup": {
+          "intentToDomainCommitMs": {
+            "n": 2,
+            "min": 249.80000001192093,
+            "median": 252.15000000596046,
+            "p95": 254.5,
+            "max": 254.5,
+            "values": [
+              254.5,
+              249.80000001192093
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 2,
+            "min": 265.59999999403954,
+            "median": 268.65000000596046,
+            "p95": 271.7000000178814,
+            "max": 271.7000000178814,
+            "values": [
+              271.7000000178814,
+              265.59999999403954
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 2,
+            "min": 313.30000001192093,
+            "median": 316.75000001490116,
+            "p95": 320.2000000178814,
+            "max": 320.2000000178814,
+            "values": [
+              320.2000000178814,
+              313.30000001192093
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 2,
+            "min": 2389.5,
+            "median": 2446.2000000029802,
+            "p95": 2502.9000000059605,
+            "max": 2502.9000000059605,
+            "values": [
+              2389.5,
+              2502.9000000059605
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 2,
+            "min": 2453.9000000059605,
+            "median": 2510.050000011921,
+            "p95": 2566.2000000178814,
+            "max": 2566.2000000178814,
+            "values": [
+              2453.9000000059605,
+              2566.2000000178814
+            ]
+          }
+        },
+        "layer-hide": {
+          "intentToRasterReadyMs": {
+            "n": 2,
+            "min": 55.099999994039536,
+            "median": 55.6000000089407,
+            "p95": 56.10000002384186,
+            "max": 56.10000002384186,
+            "values": [
+              55.099999994039536,
+              56.10000002384186
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 2,
+            "min": 4.5,
+            "median": 7.700000002980232,
+            "p95": 10.900000005960464,
+            "max": 10.900000005960464,
+            "values": [
+              10.900000005960464,
+              4.5
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 2,
+            "min": 81.5,
+            "median": 81.95000000298023,
+            "p95": 82.40000000596046,
+            "max": 82.40000000596046,
+            "values": [
+              81.5,
+              82.40000000596046
+            ]
+          }
+        },
+        "layer-move-adopt": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 49.30000001192093,
+            "median": 49.30000001192093,
+            "p95": 49.30000001192093,
+            "max": 49.30000001192093,
+            "values": [
+              49.30000001192093
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 77.5,
+            "median": 77.5,
+            "p95": 77.5,
+            "max": 77.5,
+            "values": [
+              77.5
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 131.90000000596046,
+            "median": 131.90000000596046,
+            "p95": 131.90000000596046,
+            "max": 131.90000000596046,
+            "values": [
+              131.90000000596046
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 2534.5,
+            "median": 2534.5,
+            "p95": 2534.5,
+            "max": 2534.5,
+            "values": [
+              2534.5
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 2596.5999999940395,
+            "median": 2596.5999999940395,
+            "p95": 2596.5999999940395,
+            "max": 2596.5999999940395,
+            "values": [
+              2596.5999999940395
+            ]
+          }
+        },
+        "layer-move-preview": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 278.69999998807907,
+            "median": 278.69999998807907,
+            "p95": 278.69999998807907,
+            "max": 278.69999998807907,
+            "values": [
+              278.69999998807907
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 284.59999999403954,
+            "median": 284.59999999403954,
+            "p95": 284.59999999403954,
+            "max": 284.59999999403954,
+            "values": [
+              284.59999999403954
+            ]
+          }
+        },
+        "layer-reorder": {
+          "intentToDomainCommitMs": {
+            "n": 2,
+            "min": 282.2999999821186,
+            "median": 287.29999999701977,
+            "p95": 292.30000001192093,
+            "max": 292.30000001192093,
+            "values": [
+              282.2999999821186,
+              292.30000001192093
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 2,
+            "min": 297.69999998807907,
+            "median": 303.75,
+            "p95": 309.80000001192093,
+            "max": 309.80000001192093,
+            "values": [
+              297.69999998807907,
+              309.80000001192093
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 2,
+            "min": 346.89999997615814,
+            "median": 359.24999998509884,
+            "p95": 371.59999999403954,
+            "max": 371.59999999403954,
+            "values": [
+              346.89999997615814,
+              371.59999999403954
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 2,
+            "min": 2630.399999976158,
+            "median": 2634.3999999910593,
+            "p95": 2638.4000000059605,
+            "max": 2638.4000000059605,
+            "values": [
+              2630.399999976158,
+              2638.4000000059605
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 2,
+            "min": 2700.5999999940395,
+            "median": 2703.5499999970198,
+            "p95": 2706.5,
+            "max": 2706.5,
+            "values": [
+              2700.5999999940395,
+              2706.5
+            ]
+          }
+        },
+        "local-reopen": {
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 1384.0999999940395,
+            "median": 1384.0999999940395,
+            "p95": 1384.0999999940395,
+            "max": 1384.0999999940395,
+            "values": [
+              1384.0999999940395
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 1597.300000011921,
+            "median": 1597.300000011921,
+            "p95": 1597.300000011921,
+            "max": 1597.300000011921,
+            "values": [
+              1597.300000011921
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1391,
+            "median": 1391,
+            "p95": 1391,
+            "max": 1391,
+            "values": [
+              1391
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1611.5,
+            "median": 1611.5,
+            "p95": 1611.5,
+            "max": 1611.5,
+            "values": [
+              1611.5
+            ]
+          }
+        },
+        "marquee": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 6.299999982118607,
+            "median": 6.299999982118607,
+            "p95": 6.299999982118607,
+            "max": 6.299999982118607,
+            "values": [
+              6.299999982118607
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 32.69999998807907,
+            "median": 32.69999998807907,
+            "p95": 32.69999998807907,
+            "max": 32.69999998807907,
+            "values": [
+              32.69999998807907
+            ]
+          }
+        },
+        "menu-dismiss": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1.5999999940395355,
+            "median": 1.5999999940395355,
+            "p95": 1.5999999940395355,
+            "max": 1.5999999940395355,
+            "values": [
+              1.5999999940395355
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 23.5,
+            "median": 23.5,
+            "p95": 23.5,
+            "max": 23.5,
+            "values": [
+              23.5
+            ]
+          }
+        },
+        "named-snapshot": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.20000001788139343,
+            "median": 0.20000001788139343,
+            "p95": 0.20000001788139343,
+            "max": 0.20000001788139343,
+            "values": [
+              0.20000001788139343
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 5629.9000000059605,
+            "median": 5629.9000000059605,
+            "p95": 5629.9000000059605,
+            "max": 5629.9000000059605,
+            "values": [
+              5629.9000000059605
+            ]
+          }
+        },
+        "ordinary-edit": {
+          "intentToDomainCommitMs": {
+            "n": 10,
+            "min": 275.40000000596046,
+            "median": 324.99999998509884,
+            "p95": 858.6999999880791,
+            "max": 858.6999999880791,
+            "values": [
+              858.6999999880791,
+              290.90000000596046,
+              275.40000000596046,
+              284.2000000178814,
+              332.69999998807907,
+              380.10000002384186,
+              348.90000000596046,
+              317.2999999821186,
+              342.30000001192093,
+              308.7000000178814
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 10,
+            "min": 291.40000000596046,
+            "median": 343.45000000298023,
+            "p95": 876.3000000119209,
+            "max": 876.3000000119209,
+            "values": [
+              876.3000000119209,
+              310,
+              291.40000000596046,
+              301,
+              351.80000001192093,
+              407.30000001192093,
+              368,
+              335.09999999403954,
+              362.09999999403954,
+              330.30000001192093
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 10,
+            "min": 333.30000001192093,
+            "median": 414.84999999403954,
+            "p95": 925.9000000059605,
+            "max": 925.9000000059605,
+            "values": [
+              925.9000000059605,
+              363.59999999403954,
+              333.30000001192093,
+              353.5,
+              434,
+              624.4000000059605,
+              425.59999999403954,
+              387.7999999821186,
+              435.69999998807907,
+              404.09999999403954
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 10,
+            "min": 1917.199999988079,
+            "median": 2900.2000000029802,
+            "p95": 4220.4000000059605,
+            "max": 4220.4000000059605,
+            "values": [
+              2443.199999988079,
+              1917.199999988079,
+              2654.800000011921,
+              2391.2000000178814,
+              3386.5999999940395,
+              4220.4000000059605,
+              3027.0999999940395,
+              3333.199999988079,
+              3169.300000011921,
+              2773.300000011921
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 10,
+            "min": 1981.5,
+            "median": 2970.0,
+            "p95": 4306.5,
+            "max": 4306.5,
+            "values": [
+              2505.9000000059605,
+              1981.5,
+              2727.5,
+              2392.600000023842,
+              3482.800000011921,
+              4306.5,
+              3102.199999988079,
+              3336.5,
+              3232.5,
+              2837.800000011921
+            ]
+          }
+        },
+        "pointer-menu": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 7.299999982118607,
+            "median": 7.299999982118607,
+            "p95": 7.299999982118607,
+            "max": 7.299999982118607,
+            "values": [
+              7.299999982118607
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 35.29999998211861,
+            "median": 35.29999998211861,
+            "p95": 35.29999998211861,
+            "max": 35.29999998211861,
+            "values": [
+              35.29999998211861
+            ]
+          }
+        },
+        "replacement": {
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 0.30000001192092896,
+            "median": 0.30000001192092896,
+            "p95": 0.30000001192092896,
+            "max": 0.30000001192092896,
+            "values": [
+              0.30000001192092896
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 18.80000001192093,
+            "median": 18.80000001192093,
+            "p95": 18.80000001192093,
+            "max": 18.80000001192093,
+            "values": [
+              18.80000001192093
+            ]
+          }
+        },
+        "restore-change-setup": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 343.59999999403954,
+            "median": 343.59999999403954,
+            "p95": 343.59999999403954,
+            "max": 343.59999999403954,
+            "values": [
+              343.59999999403954
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 360.59999999403954,
+            "median": 360.59999999403954,
+            "p95": 360.59999999403954,
+            "max": 360.59999999403954,
+            "values": [
+              360.59999999403954
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 418.90000000596046,
+            "median": 418.90000000596046,
+            "p95": 418.90000000596046,
+            "max": 418.90000000596046,
+            "values": [
+              418.90000000596046
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 2920.5,
+            "median": 2920.5,
+            "p95": 2920.5,
+            "max": 2920.5,
+            "values": [
+              2920.5
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 2983.7999999821186,
+            "median": 2983.7999999821186,
+            "p95": 2983.7999999821186,
+            "max": 2983.7999999821186,
+            "values": [
+              2983.7999999821186
+            ]
+          }
+        },
+        "restore-preview": {
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 1450.2000000178814,
+            "median": 1450.2000000178814,
+            "p95": 1450.2000000178814,
+            "max": 1450.2000000178814,
+            "values": [
+              1450.2000000178814
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 1396.5999999940395,
+            "median": 1396.5999999940395,
+            "p95": 1396.5999999940395,
+            "max": 1396.5999999940395,
+            "values": [
+              1396.5999999940395
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 1463.7000000178814,
+            "median": 1463.7000000178814,
+            "p95": 1463.7000000178814,
+            "max": 1463.7000000178814,
+            "values": [
+              1463.7000000178814
+            ]
+          }
+        },
+        "restore-protect-adopt-save": {
+          "intentToDomainCommitMs": {
+            "n": 1,
+            "min": 6850.5,
+            "median": 6850.5,
+            "p95": 6850.5,
+            "max": 6850.5,
+            "values": [
+              6850.5
+            ]
+          },
+          "intentToDomRevisionMs": {
+            "n": 1,
+            "min": 6872.100000023842,
+            "median": 6872.100000023842,
+            "p95": 6872.100000023842,
+            "max": 6872.100000023842,
+            "values": [
+              6872.100000023842
+            ]
+          },
+          "intentToRasterReadyMs": {
+            "n": 1,
+            "min": 10458.5,
+            "median": 10458.5,
+            "p95": 10458.5,
+            "max": 10458.5,
+            "values": [
+              10458.5
+            ]
+          },
+          "intentToSavedMs": {
+            "n": 1,
+            "min": 13008.700000017881,
+            "median": 13008.700000017881,
+            "p95": 13008.700000017881,
+            "max": 13008.700000017881,
+            "values": [
+              13008.700000017881
+            ]
+          },
+          "intentToDisplayProxyMs": {
+            "n": 1,
+            "min": 13077.300000011921,
+            "median": 13077.300000011921,
+            "p95": 13077.300000011921,
+            "max": 13077.300000011921,
+            "values": [
+              13077.300000011921
+            ]
+          }
+        }
+      },
+      "productResources": {
+        "rssPeakBytes": {
+          "value": 1254948864,
+          "phase": "export-4k-gm"
+        },
+        "jsHeapPeakUsedBytes": {
+          "value": 186607004,
+          "phase": "export-4k-player"
+        },
+        "processSamplingIntervalsMs": {
+          "count": 859,
+          "min": 98.45195799999783,
+          "p50": 100.6437919999953,
+          "p95": 254.5104169999977,
+          "max": 1089.6153329999943,
+          "mean": 124.9290400174622
+        },
+        "heapSamplingIntervalsMs": {
+          "count": 528,
+          "min": 194.52366699999993,
+          "p50": 200.37483300000167,
+          "p95": 211.12820799999463,
+          "max": 559.7778330000001,
+          "mean": 203.24293315909094
+        },
+        "errorCount": 0
+      }
+    }
+  },
+  "ordinaryEditReduction": {
+    "intentToDomainCommitMs": {
+      "medianPercent": 70.94582513974336,
+      "p95Percent": 52.74338231297695
+    },
+    "intentToDomRevisionMs": {
+      "medianPercent": 69.75341259330865,
+      "p95Percent": 52.20616307543382
+    },
+    "intentToRasterReadyMs": {
+      "medianPercent": 65.15329693412582,
+      "p95Percent": 51.31198401368435
+    },
+    "intentToSavedMs": {
+      "medianPercent": 7.508809975683917,
+      "p95Percent": -16.03750240611688
+    },
+    "intentToDisplayProxyMs": {
+      "medianPercent": 7.281667056464025,
+      "p95Percent": -17.30496840308302
+    }
+  }
+}

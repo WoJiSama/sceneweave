@@ -1,6 +1,7 @@
 import type { BoundsMm, PropV2 } from '../../core/v2/types'
 import { transformedVisualBounds } from './geometry'
 import type { Projection } from './types'
+import { pathDecorationPadding } from './paths'
 
 export type EditorPropDetail = 'outline' | 'image' | 'full'
 export interface EditorPropPlan {
@@ -34,8 +35,9 @@ export function editorPaintBounds(projection: Projection, plan: EditorRenderPlan
   padding = Math.max(padding, shadowPadding(theme?.shadowPresets.wall), theme?.outline.widthMm ?? 24)
   if (theme?.terrainCliff.opacity) padding = Math.max(padding, theme.terrainCliff.maxOffsetMm + theme.terrainCliff.blurMm * 4)
   for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(entry.prop.shadowOverride ?? theme?.shadowPresets[entry.prop.shadowClass]))
-  const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style)]
+  const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style), ...projection.paths.map(path => path.style)]
   for (const style of styles) for (const overlay of style?.overlays ?? []) padding = Math.max(padding, overlay.blendWidthMm * 2)
+  for (const path of projection.paths) padding = Math.max(padding, pathDecorationPadding(path.edgeStyle))
   for (const edge of projection.edges) padding = Math.max(padding, edge.style.bandWidthMm * 2, edge.style.strokeWidthMm * 2)
   if (projection.edges.some(edge => edge.shoreline || edge.kind === 'shore')) {
     const shore = theme?.edgeStyles.shore ?? { bandWidthMm: 180, strokeWidthMm: 12 }

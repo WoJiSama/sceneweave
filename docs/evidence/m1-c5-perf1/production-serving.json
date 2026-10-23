@@ -1,0 +1,11 @@
+{
+  "url": "http://127.0.0.1:4173/sceneweave/",
+  "indexMatches": true,
+  "assetsMatched": [
+    "/sceneweave/assets/index-CwVF0Yor.js",
+    "/sceneweave/assets/canvas-vendor-D563FzaD.js",
+    "/sceneweave/assets/document-vendor-DiXRpgfh.js",
+    "/sceneweave/assets/react-vendor-OEkTcEBI.js",
+    "/sceneweave/assets/index-B8eSNMDt.css"
+  ]
+}

@@ -1,0 +1,3198 @@
+{
+  "method": "Only the method entry is gated. The other page commits native metadata and the actual compare/write transaction is native IndexedDB.",
+  "source": {
+    "id": "800e952c-3c9d-4337-ae84-a51c28243fc3",
+    "contentHash": "e9a9f3d3281bcc11ba2ba107805df960c25afbed69aa816183c6db6ab2625ea1"
+  },
+  "before": {
+    "document": {
+      "format": "sceneweave",
+      "schemaVersion": 3,
+      "sceneId": "0c1a46c3-98a3-437b-a931-7ebcda53ed30",
+      "revision": 1,
+      "title": "C4 原生持久化与地形夹具",
+      "createdAt": "2026-10-22T08:00:00.000Z",
+      "updatedAt": "2026-10-22T14:44:28.882Z",
+      "units": {
+        "world": "mm",
+        "display": "m",
+        "gridSizeMm": 1000,
+        "snapMm": 100,
+        "gridVisible": false
+      },
+      "exportBoundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 20000,
+        "height": 20000
+      },
+      "floors": {
+        "blank-floor": {
+          "id": "blank-floor",
+          "name": "一层",
+          "boundsMm": {
+            "x": 0,
+            "y": 0,
+            "width": 20000,
+            "height": 20000
+          }
+        }
+      },
+      "vertices": {},
+      "rooms": {},
+      "walls": {},
+      "openings": {},
+      "props": {
+        "c3-left": {
+          "id": "c3-left",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 4000,
+            "y": 4000
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "floor",
+            "id": "blank-floor"
+          }
+        },
+        "c3-right": {
+          "id": "c3-right",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 6000,
+            "y": 4000
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 1,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "floor",
+            "id": "blank-floor"
+          }
+        },
+        "c3-secret": {
+          "id": "c3-secret",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 8000,
+            "y": 4000
+          },
+          "rotationDeg": 15,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 2,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "gm",
+          "supportRef": {
+            "kind": "floor",
+            "id": "blank-floor"
+          }
+        },
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": {
+          "id": "scatter-663de5b6-697b-4073-bec8-dad796ca8865",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 6295,
+            "y": 10315
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": {
+          "id": "scatter-efe2d626-85e6-4f92-8267-63c0815f2890",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 8207,
+            "y": 10729
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": {
+          "id": "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 15246,
+            "y": 9601
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": {
+          "id": "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 4691,
+            "y": 13734
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": {
+          "id": "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 11609,
+            "y": 14366
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": {
+          "id": "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 12764,
+            "y": 12872
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": {
+          "id": "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 3581,
+            "y": 18489
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": {
+          "id": "scatter-a70dedad-844b-4f0a-bb24-7659093aed20",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 6455,
+            "y": 17909
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        }
+      },
+      "regions": {
+        "c3-private-mask": {
+          "id": "c3-private-mask",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "boundaryMm": [
+            {
+              "x": 7000,
+              "y": 1000
+            },
+            {
+              "x": 12000,
+              "y": 1000
+            },
+            {
+              "x": 12000,
+              "y": 7500
+            },
+            {
+              "x": 7000,
+              "y": 7500
+            }
+          ],
+          "kind": "manualMask",
+          "blocksMovement": false,
+          "movementCostMultiplier": 1,
+          "visibility": "gm"
+        }
+      },
+      "notes": {},
+      "assets": {
+        "import-image-57d47d93-51c5-4278-8a19-8b1421af706b": {
+          "id": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+          "sha256": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+          "mimeType": "image/png",
+          "pixelWidth": 8,
+          "pixelHeight": 8,
+          "logicalSizeMm": {
+            "width": 1400,
+            "height": 1400
+          },
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          }
+        },
+        "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c": {
+          "id": "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c",
+          "sha256": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+          "mimeType": "image/png",
+          "pixelWidth": 8,
+          "pixelHeight": 8,
+          "logicalSizeMm": {
+            "width": 1200,
+            "height": 1200
+          },
+          "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          }
+        },
+        "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0": {
+          "id": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+          "sha256": "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc",
+          "mimeType": "image/png",
+          "pixelWidth": 8,
+          "pixelHeight": 8,
+          "logicalSizeMm": {
+            "width": 1400,
+            "height": 1400
+          },
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          }
+        }
+      },
+      "presetSnapshot": {
+        "presetId": "investigation",
+        "presetVersion": 1,
+        "distanceMode": "metric",
+        "source": "Sceneweave 通用调查偏好；非官方规则",
+        "gridSizeMm": 1000
+      },
+      "constraints": {
+        "entranceOpeningIds": [],
+        "wallEndClearanceMm": 100,
+        "minDoorWidthMm": 900,
+        "pathChecks": []
+      },
+      "propDefinitions": {
+        "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b": {
+          "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+          "catalogId": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+          "version": 1,
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          },
+          "name": "原创测试叶片",
+          "tags": [
+            "C3",
+            "原创"
+          ],
+          "defaultAppearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "defaultVisualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "defaultFootprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "defaultFootprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "defaultBlocksMovement": false,
+          "defaultBlocksSight": false,
+          "defaultRenderLayer": "object",
+          "defaultShadowClass": "furniture"
+        },
+        "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27": {
+          "id": "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27",
+          "catalogId": "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27",
+          "version": 1,
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          },
+          "name": "原创测试叶片",
+          "tags": [
+            "sceneweave:retained-appearance",
+            "C3",
+            "原创"
+          ],
+          "defaultAppearance": {
+            "kind": "image",
+            "assetId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+            "tint": null,
+            "opacity": 1
+          },
+          "defaultVisualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "defaultFootprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "defaultFootprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "defaultBlocksMovement": false,
+          "defaultBlocksSight": false,
+          "defaultRenderLayer": "object",
+          "defaultShadowClass": "furniture"
+        }
+      },
+      "materials": {
+        "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2": {
+          "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+          "catalogId": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+          "version": 1,
+          "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          },
+          "name": "原创室外纹理",
+          "tags": [
+            "C4",
+            "原创材质"
+          ],
+          "textureAssetId": "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c",
+          "defaultTileSizeMm": {
+            "width": 1200,
+            "height": 1200
+          },
+          "applicableSurfaces": [
+            "room",
+            "wall",
+            "terrain",
+            "path"
+          ]
+        }
+      },
+      "terrainAreas": {
+        "c4-terrain": {
+          "id": "c4-terrain",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "boundaryMm": [
+            {
+              "id": "c4-terrain:point:0",
+              "segmentId": "c4-terrain:segment:0",
+              "positionMm": {
+                "x": 1000,
+                "y": 9000
+              }
+            },
+            {
+              "id": "c4-terrain:point:1",
+              "segmentId": "c4-terrain:segment:1",
+              "positionMm": {
+                "x": 19000,
+                "y": 9000
+              }
+            },
+            {
+              "id": "c4-terrain:point:2",
+              "segmentId": "c4-terrain:segment:2",
+              "positionMm": {
+                "x": 19000,
+                "y": 19000
+              }
+            },
+            {
+              "id": "c4-terrain:point:3",
+              "segmentId": "c4-terrain:segment:3",
+              "positionMm": {
+                "x": 1000,
+                "y": 19000
+              }
+            }
+          ],
+          "groundElevationMm": 300,
+          "coveragePriority": 1,
+          "surfaceStyle": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "movementCostMultiplier": 1
+        }
+      },
+      "terrainEdges": {},
+      "terrainConnections": {},
+      "paths": {
+        "c4-path": {
+          "id": "c4-path",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "centerlineMm": [
+            {
+              "x": 2000,
+              "y": 7000
+            },
+            {
+              "x": 10000,
+              "y": 7000
+            },
+            {
+              "x": 17000,
+              "y": 7500
+            }
+          ],
+          "widthMm": 1600,
+          "supportRefs": [
+            {
+              "kind": "floor",
+              "id": "blank-floor"
+            }
+          ],
+          "surfaceStyle": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          },
+          "movementCostMultiplier": 2,
+          "renderOrder": 0
+        }
+      },
+      "prefabDefinitions": {
+        "c4-prefab-definition": {
+          "id": "c4-prefab-definition",
+          "catalogId": "c4-prefab-definition",
+          "version": 1,
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "original",
+            "attribution": "Sceneweave user composition; member assets retain their individual provenance and licenses.",
+            "canEmbed": true
+          },
+          "name": "C4 固定双物件",
+          "tags": [],
+          "members": [
+            {
+              "key": "member-1",
+              "propTemplate": {
+                "definitionRef": {
+                  "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+                  "version": 1
+                },
+                "appearance": {
+                  "kind": "image",
+                  "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+                  "tint": null,
+                  "opacity": 1
+                },
+                "positionMm": {
+                  "x": -1000,
+                  "y": 0
+                },
+                "rotationDeg": 0,
+                "visualBoundsMm": {
+                  "x": -700,
+                  "y": -700,
+                  "width": 1400,
+                  "height": 1400
+                },
+                "footprintMm": {
+                  "width": 1000,
+                  "height": 1000
+                },
+                "footprintOffsetMm": {
+                  "x": 0,
+                  "y": 0
+                },
+                "blocksMovement": false,
+                "blocksSight": false,
+                "renderLayer": "object",
+                "renderOrder": 0,
+                "shadowClass": "furniture",
+                "shadowOverride": null
+              }
+            },
+            {
+              "key": "member-2",
+              "propTemplate": {
+                "definitionRef": {
+                  "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+                  "version": 1
+                },
+                "appearance": {
+                  "kind": "image",
+                  "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+                  "tint": null,
+                  "opacity": 1
+                },
+                "positionMm": {
+                  "x": 1000,
+                  "y": 0
+                },
+                "rotationDeg": 0,
+                "visualBoundsMm": {
+                  "x": -700,
+                  "y": -700,
+                  "width": 1400,
+                  "height": 1400
+                },
+                "footprintMm": {
+                  "width": 1000,
+                  "height": 1000
+                },
+                "footprintOffsetMm": {
+                  "x": 0,
+                  "y": 0
+                },
+                "blocksMovement": false,
+                "blocksSight": false,
+                "renderLayer": "object",
+                "renderOrder": 1,
+                "shadowClass": "furniture",
+                "shadowOverride": null
+              }
+            }
+          ]
+        }
+      },
+      "prefabInstances": {
+        "c4-prefab": {
+          "id": "c4-prefab",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "definitionRef": {
+            "id": "c4-prefab-definition",
+            "version": 1
+          },
+          "anchorMm": {
+            "x": 5000,
+            "y": 4000
+          },
+          "rotationDeg": 0,
+          "members": {
+            "member-1": {
+              "propId": "c3-left",
+              "overrideFields": []
+            },
+            "member-2": {
+              "propId": "c3-right",
+              "overrideFields": []
+            }
+          }
+        }
+      },
+      "scatterGroups": {
+        "c4-scatter": {
+          "id": "c4-scatter",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "domain": {
+            "kind": "area",
+            "areaId": "c4-terrain"
+          },
+          "palette": [
+            {
+              "key": "original-image",
+              "propDefinitionRef": {
+                "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+                "version": 1
+              },
+              "weight": 1
+            }
+          ],
+          "seed": "c4-native-storage-fixture",
+          "algorithmVersion": "scatter-cell-v1",
+          "gridOriginMm": {
+            "x": 0,
+            "y": 0
+          },
+          "cellSizeMm": 4000,
+          "densityFactor": 1,
+          "minDistanceMm": 100,
+          "rotationRangeDeg": {
+            "min": 0,
+            "max": 0
+          },
+          "members": {
+            "37ba5a3fabf5d2d6828920814fdf5ca15fe3d29db0d118793a2d04fd9641f919": {
+              "propId": "scatter-663de5b6-697b-4073-bec8-dad796ca8865",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "7c52deecd0411706be3c9bcc92bf419d22af4cae104f67dc7647c335f28576a5": {
+              "propId": "scatter-efe2d626-85e6-4f92-8267-63c0815f2890",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "22f1d93c18bdcfb9aae70b8d6dd085c39594dfef73fb73f4492e1af3d691a774": {
+              "propId": "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "71d5e6cf0cabb6eae6a46a1cdba820adf0e2138d6cc9d82bb0c453635ce10389": {
+              "propId": "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "6791b8b86ce8491485b8aa79846fd0adaa70c75e484f5ee20f69745e634fd99f": {
+              "propId": "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "f198189246b2c884edf425ae53ae0a35cf1aee165ef604ca13e59d83a91b6386": {
+              "propId": "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "80fed57f51d9f49bd037ae497ce4bb8fe6a2e597798f53aecfaf4b4f6b6eaed4": {
+              "propId": "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "6be1f31177f281ab9ff57834bae654f4b7aa744aa5b2cf44ec0efbdda70193f2": {
+              "propId": "scatter-a70dedad-844b-4f0a-bb24-7659093aed20",
+              "state": "managed",
+              "overrideFields": []
+            }
+          },
+          "exclusions": [
+            {
+              "id": "c4-entrance-exclusion",
+              "boundaryMm": [
+                {
+                  "x": 16500,
+                  "y": 16500
+                },
+                {
+                  "x": 18500,
+                  "y": 16500
+                },
+                {
+                  "x": 18500,
+                  "y": 18500
+                },
+                {
+                  "x": 16500,
+                  "y": 18500
+                }
+              ],
+              "reason": "entrance",
+              "sourceCandidateKey": null
+            }
+          ]
+        }
+      },
+      "styleThemes": {},
+      "activeStyleThemeRef": null,
+      "userLayers": {
+        "layer-default-0": {
+          "id": "layer-default-0",
+          "floorId": "blank-floor",
+          "name": "默认图层",
+          "order": 0,
+          "editLocked": false
+        }
+      },
+      "entityLayers": {
+        "c3-left": "layer-default-0",
+        "c3-right": "layer-default-0",
+        "c3-secret": "layer-default-0",
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": "layer-default-0",
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": "layer-default-0",
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": "layer-default-0",
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": "layer-default-0",
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": "layer-default-0",
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": "layer-default-0",
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": "layer-default-0",
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": "layer-default-0",
+        "c3-private-mask": "layer-default-0",
+        "c4-terrain": "layer-default-0",
+        "c4-path": "layer-default-0",
+        "c4-prefab": "layer-default-0",
+        "c4-scatter": "layer-default-0"
+      }
+    },
+    "historyIdentity": {
+      "version": 3,
+      "lineageId": "2ccdd07b-3b97-4b20-912b-56dfbd589d80",
+      "rootSceneId": "bb9cdd95-c64f-4308-b60c-25a60279d276",
+      "propTokens": {
+        "c3-left": "df382003-874c-4e9b-88f5-8a37b6f2c1b1",
+        "c3-right": "0c4df4e7-0499-4b65-8d83-711c8a50b456",
+        "c3-secret": "f68957fc-e0a4-453c-a23c-32ad4cc47411",
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": "d8f68b9e-e394-4ac7-a7fb-506ded38c05f",
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": "552793ce-502e-44ce-ab99-ab20763aa252",
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": "0bb2bcf9-e115-434d-bf4b-9de9100df428",
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": "16c82658-064f-4497-9b80-4cb8504c2acc",
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": "0627b09b-8c0d-4f18-a67b-7f4d32569a38",
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": "e01c9260-6852-4c65-a862-98643d0d4276",
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": "13c43406-4f81-417e-8227-9aa8d34910de",
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": "6a11fd94-eb93-4075-aa94-e9e9d9e1bac5"
+      },
+      "prefabTokens": {
+        "c4-prefab": "6f6e1175-d625-4cf5-9b01-34709ba69327"
+      },
+      "outdoorTokens": {
+        "c4-terrain": {
+          "kind": "terrainArea",
+          "token": "ea18fbcb-8755-41e2-b3a1-1cf748f8a142",
+          "topologyToken": "53c82e07-31a9-46c7-93b6-2edeebd22f80",
+          "topologyHash": "bc28059aa27ac7c02d6aca1d0c8d730f4068cb57e1fecf04cfb65f7a53cda496"
+        },
+        "c4-terrain:point:0": {
+          "kind": "terrainPoint",
+          "token": "a6a40313-2503-4bbd-85d3-cbe212aee464",
+          "topologyToken": "faa3f46f-5f7d-42b1-9b00-5ef4720d8fcf",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:0": {
+          "kind": "terrainSegment",
+          "token": "64959402-8c1c-401b-8990-b344f47bb52b",
+          "topologyToken": "51ea243f-a760-4ea2-a37a-16cd292f9a73",
+          "topologyHash": "1b3706ccbe86584a47891066f3bd98688f915abaa08f9e8b4d0f239f6b0e41ed"
+        },
+        "c4-terrain:point:1": {
+          "kind": "terrainPoint",
+          "token": "d13813d0-e81a-42ab-8600-5b92dc8dd548",
+          "topologyToken": "8b27db21-dc5f-45a8-a8ec-947f67fc165b",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:1": {
+          "kind": "terrainSegment",
+          "token": "41a716fe-9032-462d-aff7-a39a6a9bc918",
+          "topologyToken": "ae0a7ae3-1e4c-474b-a3e4-fe9294c0c498",
+          "topologyHash": "30c3b7e2a3629254cd5c7a799e29fbc985055ea230895527a6d09f595c09033f"
+        },
+        "c4-terrain:point:2": {
+          "kind": "terrainPoint",
+          "token": "42bee1e7-005e-4edb-88e7-a48ac9bf3bbf",
+          "topologyToken": "264c6c50-c145-4a91-a2d8-dc255668f08b",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:2": {
+          "kind": "terrainSegment",
+          "token": "cad94dba-b133-4552-b3ce-44cb818b31a8",
+          "topologyToken": "cc3f890d-70d1-4b48-b904-66d4e01e6fe0",
+          "topologyHash": "c079981b9d3d1acd6e9f980365bb98fdd75c20e75696cdb1f2be50d0eb5ab395"
+        },
+        "c4-terrain:point:3": {
+          "kind": "terrainPoint",
+          "token": "48bac603-ffe9-4be3-9aa6-bcc93c37201f",
+          "topologyToken": "84055435-0f0b-40c1-9231-168c4f096dec",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:3": {
+          "kind": "terrainSegment",
+          "token": "33397f21-c01b-4226-b68b-5a10843cd06a",
+          "topologyToken": "466110a2-649c-489a-b3b3-7d9a1057dbaa",
+          "topologyHash": "724be4f27e3aa9e906c7fc6bbe259eb36517ca2298c82a03a1e2c1374f59db00"
+        },
+        "c4-path": {
+          "kind": "path",
+          "token": "6c4f88ad-e4c6-47fe-a97b-234bd35912e5",
+          "topologyToken": "05f2ce16-e650-4503-89d2-d234d1d6bba3",
+          "topologyHash": "46a376fc0cb93d27faf6888886c3ffd07a76445f83855d6f38a7e536635f3e7d"
+        },
+        "c4-scatter": {
+          "kind": "scatterGroup",
+          "token": "140d134d-b20a-47f0-a6df-18322de9e4b7",
+          "topologyToken": "48016f73-22c5-485a-8bf3-6814f42b74e3",
+          "topologyHash": "347ac5c61296b67602b564cc5d0318b86e5dffe569e7794b801721039e93f38a"
+        },
+        "c4-entrance-exclusion": {
+          "kind": "scatterExclusion",
+          "token": "fc7e9ecf-a251-4582-aa3c-66434d572553",
+          "topologyToken": "14d45ed8-748a-4a42-9138-9c82fedd476d",
+          "topologyHash": "48f0875526503a2b7257a3f42c6cb3deaafc07753c1a6d02168a17b82af45514"
+        }
+      }
+    },
+    "appearance": {
+      "version": 1,
+      "sources": {
+        "import-source-7defc9c7-af69-48d4-863c-a79b9b23281b": {
+          "id": "import-source-7defc9c7-af69-48d4-863c-a79b9b23281b",
+          "kind": "prop",
+          "parentSourceId": null,
+          "snapshot": {
+            "definitionRef": {
+              "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+              "version": 1
+            },
+            "appearance": {
+              "kind": "image",
+              "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+              "tint": null,
+              "opacity": 1
+            },
+            "visualBoundsMm": {
+              "x": -700,
+              "y": -700,
+              "width": 1400,
+              "height": 1400
+            },
+            "shadowClass": "furniture",
+            "shadowOverride": null
+          }
+        },
+        "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b": {
+          "id": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+          "kind": "prop",
+          "parentSourceId": null,
+          "snapshot": {
+            "definitionRef": {
+              "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+              "version": 1
+            },
+            "appearance": {
+              "kind": "image",
+              "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+              "tint": null,
+              "opacity": 1
+            },
+            "visualBoundsMm": {
+              "x": -700,
+              "y": -700,
+              "width": 1400,
+              "height": 1400
+            },
+            "shadowClass": "furniture",
+            "shadowOverride": null
+          }
+        },
+        "import-source-36fb5c53-9e7e-40ba-9a99-b0f4f04db0e9": {
+          "id": "import-source-36fb5c53-9e7e-40ba-9a99-b0f4f04db0e9",
+          "kind": "surface",
+          "parentSourceId": null,
+          "snapshot": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          }
+        },
+        "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620": {
+          "id": "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620",
+          "kind": "prop",
+          "parentSourceId": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+          "snapshot": {
+            "definitionRef": {
+              "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+              "version": 1
+            },
+            "appearance": {
+              "kind": "image",
+              "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+              "tint": null,
+              "opacity": 1
+            },
+            "visualBoundsMm": {
+              "x": -700,
+              "y": -700,
+              "width": 1400,
+              "height": 1400
+            },
+            "shadowClass": "furniture",
+            "shadowOverride": null
+          }
+        },
+        "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645": {
+          "id": "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645",
+          "kind": "surface",
+          "parentSourceId": null,
+          "snapshot": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          }
+        }
+      },
+      "propSources": {
+        "c3-left": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "c3-right": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "c3-secret": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b"
+      },
+      "surfaceSources": {
+        "c4-terrain": "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645",
+        "c4-path": "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645"
+      },
+      "instanceAdjustments": {
+        "c3-secret": [
+          {
+            "id": "c4-retained-tint",
+            "kind": "tint",
+            "value": "#80FF00",
+            "enabled": true
+          }
+        ]
+      },
+      "layerAdjustments": {},
+      "variants": {
+        "composition-variant-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0": {
+          "id": "composition-variant-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+          "sourceAssetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+          "tint": "#80FF00",
+          "brightness": 1,
+          "outputAssetId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0"
+        }
+      },
+      "prefabAppearanceTemplates": {
+        "c4-prefab-definition": {
+          "definitionRef": {
+            "id": "c4-prefab-definition",
+            "version": 1
+          },
+          "visibility": "public",
+          "members": {
+            "member-1": {
+              "sourceId": "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620",
+              "adjustments": [
+                {
+                  "id": "frozen-opacity-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "opacity",
+                  "value": 1,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-shadow-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "shadowClass",
+                  "value": "furniture",
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-tint-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "tint",
+                  "value": null,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-brightness-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "brightness",
+                  "value": 1,
+                  "enabled": true
+                }
+              ]
+            },
+            "member-2": {
+              "sourceId": "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620",
+              "adjustments": [
+                {
+                  "id": "frozen-opacity-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "opacity",
+                  "value": 1,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-shadow-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "shadowClass",
+                  "value": "furniture",
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-tint-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "tint",
+                  "value": null,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-brightness-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "brightness",
+                  "value": 1,
+                  "enabled": true
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "assets": {
+      "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3": {
+        "sha256": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+        "actualHash": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+        "sizeBytes": 131,
+        "mimeType": "image/png",
+        "pixelWidth": 8,
+        "pixelHeight": 8
+      },
+      "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc": {
+        "sha256": "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc",
+        "actualHash": "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc",
+        "sizeBytes": 132,
+        "mimeType": "image/png",
+        "pixelWidth": 8,
+        "pixelHeight": 8
+      }
+    },
+    "licenses": {
+      "750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737": {
+        "sha256": "750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "text": "CC0-1.0. Original Sceneweave C3 test artwork; dedicated to the public domain.",
+        "actualHash": "750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737"
+      },
+      "f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f": {
+        "sha256": "f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+        "text": "CC0-1.0. Original Sceneweave C4 outdoor texture; dedicated to the public domain.",
+        "actualHash": "f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f"
+      }
+    },
+    "licenseBindings": [
+      {
+        "subjectKind": "asset",
+        "subjectId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "propDefinition",
+        "subjectId": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "asset",
+        "subjectId": "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c",
+        "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+        "licensePath": "licenses/f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "material",
+        "subjectId": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+        "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+        "licensePath": "licenses/f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "asset",
+        "subjectId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "propDefinition",
+        "subjectId": "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "prefabDefinition",
+        "subjectId": "c4-prefab-definition",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      }
+    ],
+    "originals": [
+      {
+        "schemaVersion": 5,
+        "sourceSceneId": "bb9cdd95-c64f-4308-b60c-25a60279d276",
+        "sourceRevision": 0,
+        "sourceHash": "36973faf701e4f09964926a352e8d6aee406d476056edb8226314502a922783b",
+        "actualHash": "36973faf701e4f09964926a352e8d6aee406d476056edb8226314502a922783b",
+        "sizeBytes": 6130
+      }
+    ],
+    "contentHash": "b45797a8eebc58f45e043c43ac993da1204e4de41b846c5b832b5bae226e6c17",
+    "status": "saved",
+    "error": null
+  },
+  "inserted": {
+    "id": "a3d51ec2-3efd-43ab-976e-05437b72787a",
+    "usage": {
+      "metadataVersion": 2,
+      "namedCount": 2,
+      "protectionCount": 0,
+      "resourceBytes": 420,
+      "documentBytes": 146634,
+      "originalBytes": 6130,
+      "limits": {
+        "namedPerScene": 32,
+        "protectionPerScene": 32,
+        "archiveSnapshots": 64,
+        "identityProps": 65536,
+        "storedResourceBytes": 268435456,
+        "storedDocumentBytes": 134217728,
+        "storedOriginalBytes": 134217728,
+        "archiveDocumentBytes": 134217728
+      }
+    }
+  },
+  "rejected": {
+    "failure": {
+      "name": "HistoryConflictErrorV6",
+      "message": "HistoryConflictErrorV6: 历史元数据已被其他操作修改；请刷新快照列表后重试。"
+    },
+    "adopted": false,
+    "expectedMetadataVersion": 1,
+    "usage": {
+      "metadataVersion": 2,
+      "namedCount": 2,
+      "protectionCount": 0,
+      "resourceBytes": 420,
+      "documentBytes": 146634,
+      "originalBytes": 6130,
+      "limits": {
+        "namedPerScene": 32,
+        "protectionPerScene": 32,
+        "archiveSnapshots": 64,
+        "identityProps": 65536,
+        "storedResourceBytes": 268435456,
+        "storedDocumentBytes": 134217728,
+        "storedOriginalBytes": 134217728,
+        "archiveDocumentBytes": 134217728
+      }
+    },
+    "snapshots": [
+      {
+        "id": "a3d51ec2-3efd-43ab-976e-05437b72787a",
+        "sceneId": "0c1a46c3-98a3-437b-a931-7ebcda53ed30",
+        "lineageId": "2ccdd07b-3b97-4b20-912b-56dfbd589d80",
+        "sourceRevision": 1,
+        "name": "Other native page",
+        "kind": "named",
+        "createdAt": "2026-10-22T14:44:30.791Z",
+        "contentHash": "b45797a8eebc58f45e043c43ac993da1204e4de41b846c5b832b5bae226e6c17"
+      },
+      {
+        "id": "800e952c-3c9d-4337-ae84-a51c28243fc3",
+        "sceneId": "0c1a46c3-98a3-437b-a931-7ebcda53ed30",
+        "lineageId": "2ccdd07b-3b97-4b20-912b-56dfbd589d80",
+        "sourceRevision": 0,
+        "name": "Native C4 source",
+        "kind": "named",
+        "createdAt": "2026-10-22T14:44:28.501Z",
+        "contentHash": "e9a9f3d3281bcc11ba2ba107805df960c25afbed69aa816183c6db6ab2625ea1"
+      }
+    ]
+  },
+  "retried": {
+    "protection": {
+      "id": "3630bd96-4e83-40de-a8ec-21bd8251aaa2",
+      "contentHash": "b45797a8eebc58f45e043c43ac993da1204e4de41b846c5b832b5bae226e6c17"
+    },
+    "usage": {
+      "metadataVersion": 3,
+      "namedCount": 2,
+      "protectionCount": 1,
+      "resourceBytes": 420,
+      "documentBytes": 205290,
+      "originalBytes": 6130,
+      "limits": {
+        "namedPerScene": 32,
+        "protectionPerScene": 32,
+        "archiveSnapshots": 64,
+        "identityProps": 65536,
+        "storedResourceBytes": 268435456,
+        "storedDocumentBytes": 134217728,
+        "storedOriginalBytes": 134217728,
+        "archiveDocumentBytes": 134217728
+      }
+    }
+  },
+  "after": {
+    "document": {
+      "format": "sceneweave",
+      "schemaVersion": 3,
+      "sceneId": "0c1a46c3-98a3-437b-a931-7ebcda53ed30",
+      "revision": 2,
+      "title": "C4 原生持久化与地形夹具",
+      "createdAt": "2026-10-22T08:00:00.000Z",
+      "updatedAt": "2026-10-22T14:44:31.956Z",
+      "units": {
+        "world": "mm",
+        "display": "m",
+        "gridSizeMm": 1000,
+        "snapMm": 100,
+        "gridVisible": false
+      },
+      "exportBoundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 20000,
+        "height": 20000
+      },
+      "floors": {
+        "blank-floor": {
+          "id": "blank-floor",
+          "name": "一层",
+          "boundsMm": {
+            "x": 0,
+            "y": 0,
+            "width": 20000,
+            "height": 20000
+          }
+        }
+      },
+      "vertices": {},
+      "rooms": {},
+      "walls": {},
+      "openings": {},
+      "props": {
+        "c3-left": {
+          "id": "c3-left",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 4000,
+            "y": 4000
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "floor",
+            "id": "blank-floor"
+          }
+        },
+        "c3-right": {
+          "id": "c3-right",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 6000,
+            "y": 4000
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 1,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "floor",
+            "id": "blank-floor"
+          }
+        },
+        "c3-secret": {
+          "id": "c3-secret",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 8000,
+            "y": 4000
+          },
+          "rotationDeg": 15,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 2,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "gm",
+          "supportRef": {
+            "kind": "floor",
+            "id": "blank-floor"
+          }
+        },
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": {
+          "id": "scatter-663de5b6-697b-4073-bec8-dad796ca8865",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 6295,
+            "y": 10315
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": {
+          "id": "scatter-efe2d626-85e6-4f92-8267-63c0815f2890",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 8207,
+            "y": 10729
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": {
+          "id": "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 15246,
+            "y": 9601
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": {
+          "id": "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 4691,
+            "y": 13734
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": {
+          "id": "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 11609,
+            "y": 14366
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": {
+          "id": "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 12764,
+            "y": 12872
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": {
+          "id": "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 3581,
+            "y": 18489
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        },
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": {
+          "id": "scatter-a70dedad-844b-4f0a-bb24-7659093aed20",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "definitionRef": {
+            "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+            "version": 1
+          },
+          "appearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "positionMm": {
+            "x": 6455,
+            "y": 17909
+          },
+          "rotationDeg": 0,
+          "visualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "footprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "footprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "renderLayer": "object",
+          "renderOrder": 0,
+          "shadowClass": "furniture",
+          "shadowOverride": null,
+          "visibility": "public",
+          "supportRef": {
+            "kind": "terrainArea",
+            "id": "c4-terrain"
+          }
+        }
+      },
+      "regions": {
+        "c3-private-mask": {
+          "id": "c3-private-mask",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "boundaryMm": [
+            {
+              "x": 7000,
+              "y": 1000
+            },
+            {
+              "x": 12000,
+              "y": 1000
+            },
+            {
+              "x": 12000,
+              "y": 7500
+            },
+            {
+              "x": 7000,
+              "y": 7500
+            }
+          ],
+          "kind": "manualMask",
+          "blocksMovement": false,
+          "movementCostMultiplier": 1,
+          "visibility": "gm"
+        }
+      },
+      "notes": {},
+      "assets": {
+        "import-image-57d47d93-51c5-4278-8a19-8b1421af706b": {
+          "id": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+          "sha256": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+          "mimeType": "image/png",
+          "pixelWidth": 8,
+          "pixelHeight": 8,
+          "logicalSizeMm": {
+            "width": 1400,
+            "height": 1400
+          },
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          }
+        },
+        "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c": {
+          "id": "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c",
+          "sha256": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+          "mimeType": "image/png",
+          "pixelWidth": 8,
+          "pixelHeight": 8,
+          "logicalSizeMm": {
+            "width": 1200,
+            "height": 1200
+          },
+          "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          }
+        },
+        "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0": {
+          "id": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+          "sha256": "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc",
+          "mimeType": "image/png",
+          "pixelWidth": 8,
+          "pixelHeight": 8,
+          "logicalSizeMm": {
+            "width": 1400,
+            "height": 1400
+          },
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          }
+        }
+      },
+      "presetSnapshot": {
+        "presetId": "investigation",
+        "presetVersion": 1,
+        "distanceMode": "metric",
+        "source": "Sceneweave 通用调查偏好；非官方规则",
+        "gridSizeMm": 1000
+      },
+      "constraints": {
+        "entranceOpeningIds": [],
+        "wallEndClearanceMm": 100,
+        "minDoorWidthMm": 900,
+        "pathChecks": []
+      },
+      "propDefinitions": {
+        "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b": {
+          "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+          "catalogId": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+          "version": 1,
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          },
+          "name": "原创测试叶片",
+          "tags": [
+            "C3",
+            "原创"
+          ],
+          "defaultAppearance": {
+            "kind": "image",
+            "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+            "tint": null,
+            "opacity": 1
+          },
+          "defaultVisualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "defaultFootprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "defaultFootprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "defaultBlocksMovement": false,
+          "defaultBlocksSight": false,
+          "defaultRenderLayer": "object",
+          "defaultShadowClass": "furniture"
+        },
+        "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27": {
+          "id": "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27",
+          "catalogId": "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27",
+          "version": 1,
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          },
+          "name": "原创测试叶片",
+          "tags": [
+            "sceneweave:retained-appearance",
+            "C3",
+            "原创"
+          ],
+          "defaultAppearance": {
+            "kind": "image",
+            "assetId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+            "tint": null,
+            "opacity": 1
+          },
+          "defaultVisualBoundsMm": {
+            "x": -700,
+            "y": -700,
+            "width": 1400,
+            "height": 1400
+          },
+          "defaultFootprintMm": {
+            "width": 1000,
+            "height": 1000
+          },
+          "defaultFootprintOffsetMm": {
+            "x": 0,
+            "y": 0
+          },
+          "defaultBlocksMovement": false,
+          "defaultBlocksSight": false,
+          "defaultRenderLayer": "object",
+          "defaultShadowClass": "furniture"
+        }
+      },
+      "materials": {
+        "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2": {
+          "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+          "catalogId": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+          "version": 1,
+          "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+          "origin": {
+            "kind": "imported",
+            "attribution": "Sceneweave original browser fixture",
+            "canEmbed": true
+          },
+          "name": "原创室外纹理",
+          "tags": [
+            "C4",
+            "原创材质"
+          ],
+          "textureAssetId": "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c",
+          "defaultTileSizeMm": {
+            "width": 1200,
+            "height": 1200
+          },
+          "applicableSurfaces": [
+            "room",
+            "wall",
+            "terrain",
+            "path"
+          ]
+        }
+      },
+      "terrainAreas": {
+        "c4-terrain": {
+          "id": "c4-terrain",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "boundaryMm": [
+            {
+              "id": "c4-terrain:point:0",
+              "segmentId": "c4-terrain:segment:0",
+              "positionMm": {
+                "x": 1000,
+                "y": 9000
+              }
+            },
+            {
+              "id": "c4-terrain:point:1",
+              "segmentId": "c4-terrain:segment:1",
+              "positionMm": {
+                "x": 19000,
+                "y": 9000
+              }
+            },
+            {
+              "id": "c4-terrain:point:2",
+              "segmentId": "c4-terrain:segment:2",
+              "positionMm": {
+                "x": 19000,
+                "y": 19000
+              }
+            },
+            {
+              "id": "c4-terrain:point:3",
+              "segmentId": "c4-terrain:segment:3",
+              "positionMm": {
+                "x": 1000,
+                "y": 19000
+              }
+            }
+          ],
+          "groundElevationMm": 300,
+          "coveragePriority": 1,
+          "surfaceStyle": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          },
+          "blocksMovement": false,
+          "blocksSight": false,
+          "movementCostMultiplier": 1
+        }
+      },
+      "terrainEdges": {},
+      "terrainConnections": {},
+      "paths": {
+        "c4-path": {
+          "id": "c4-path",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "centerlineMm": [
+            {
+              "x": 2000,
+              "y": 7000
+            },
+            {
+              "x": 10000,
+              "y": 7000
+            },
+            {
+              "x": 17000,
+              "y": 7500
+            }
+          ],
+          "widthMm": 1000,
+          "supportRefs": [
+            {
+              "kind": "floor",
+              "id": "blank-floor"
+            }
+          ],
+          "surfaceStyle": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          },
+          "movementCostMultiplier": 1,
+          "renderOrder": 0
+        }
+      },
+      "prefabDefinitions": {
+        "c4-prefab-definition": {
+          "id": "c4-prefab-definition",
+          "catalogId": "c4-prefab-definition",
+          "version": 1,
+          "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+          "origin": {
+            "kind": "original",
+            "attribution": "Sceneweave user composition; member assets retain their individual provenance and licenses.",
+            "canEmbed": true
+          },
+          "name": "C4 固定双物件",
+          "tags": [],
+          "members": [
+            {
+              "key": "member-1",
+              "propTemplate": {
+                "definitionRef": {
+                  "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+                  "version": 1
+                },
+                "appearance": {
+                  "kind": "image",
+                  "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+                  "tint": null,
+                  "opacity": 1
+                },
+                "positionMm": {
+                  "x": -1000,
+                  "y": 0
+                },
+                "rotationDeg": 0,
+                "visualBoundsMm": {
+                  "x": -700,
+                  "y": -700,
+                  "width": 1400,
+                  "height": 1400
+                },
+                "footprintMm": {
+                  "width": 1000,
+                  "height": 1000
+                },
+                "footprintOffsetMm": {
+                  "x": 0,
+                  "y": 0
+                },
+                "blocksMovement": false,
+                "blocksSight": false,
+                "renderLayer": "object",
+                "renderOrder": 0,
+                "shadowClass": "furniture",
+                "shadowOverride": null
+              }
+            },
+            {
+              "key": "member-2",
+              "propTemplate": {
+                "definitionRef": {
+                  "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+                  "version": 1
+                },
+                "appearance": {
+                  "kind": "image",
+                  "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+                  "tint": null,
+                  "opacity": 1
+                },
+                "positionMm": {
+                  "x": 1000,
+                  "y": 0
+                },
+                "rotationDeg": 0,
+                "visualBoundsMm": {
+                  "x": -700,
+                  "y": -700,
+                  "width": 1400,
+                  "height": 1400
+                },
+                "footprintMm": {
+                  "width": 1000,
+                  "height": 1000
+                },
+                "footprintOffsetMm": {
+                  "x": 0,
+                  "y": 0
+                },
+                "blocksMovement": false,
+                "blocksSight": false,
+                "renderLayer": "object",
+                "renderOrder": 1,
+                "shadowClass": "furniture",
+                "shadowOverride": null
+              }
+            }
+          ]
+        }
+      },
+      "prefabInstances": {
+        "c4-prefab": {
+          "id": "c4-prefab",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "definitionRef": {
+            "id": "c4-prefab-definition",
+            "version": 1
+          },
+          "anchorMm": {
+            "x": 5000,
+            "y": 4000
+          },
+          "rotationDeg": 0,
+          "members": {
+            "member-1": {
+              "propId": "c3-left",
+              "overrideFields": []
+            },
+            "member-2": {
+              "propId": "c3-right",
+              "overrideFields": []
+            }
+          }
+        }
+      },
+      "scatterGroups": {
+        "c4-scatter": {
+          "id": "c4-scatter",
+          "floorId": "blank-floor",
+          "editLocked": false,
+          "visibility": "public",
+          "domain": {
+            "kind": "area",
+            "areaId": "c4-terrain"
+          },
+          "palette": [
+            {
+              "key": "original-image",
+              "propDefinitionRef": {
+                "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+                "version": 1
+              },
+              "weight": 1
+            }
+          ],
+          "seed": "c4-native-storage-fixture",
+          "algorithmVersion": "scatter-cell-v1",
+          "gridOriginMm": {
+            "x": 0,
+            "y": 0
+          },
+          "cellSizeMm": 4000,
+          "densityFactor": 1,
+          "minDistanceMm": 100,
+          "rotationRangeDeg": {
+            "min": 0,
+            "max": 0
+          },
+          "members": {
+            "37ba5a3fabf5d2d6828920814fdf5ca15fe3d29db0d118793a2d04fd9641f919": {
+              "propId": "scatter-663de5b6-697b-4073-bec8-dad796ca8865",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "7c52deecd0411706be3c9bcc92bf419d22af4cae104f67dc7647c335f28576a5": {
+              "propId": "scatter-efe2d626-85e6-4f92-8267-63c0815f2890",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "22f1d93c18bdcfb9aae70b8d6dd085c39594dfef73fb73f4492e1af3d691a774": {
+              "propId": "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "71d5e6cf0cabb6eae6a46a1cdba820adf0e2138d6cc9d82bb0c453635ce10389": {
+              "propId": "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "6791b8b86ce8491485b8aa79846fd0adaa70c75e484f5ee20f69745e634fd99f": {
+              "propId": "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "f198189246b2c884edf425ae53ae0a35cf1aee165ef604ca13e59d83a91b6386": {
+              "propId": "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "80fed57f51d9f49bd037ae497ce4bb8fe6a2e597798f53aecfaf4b4f6b6eaed4": {
+              "propId": "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf",
+              "state": "managed",
+              "overrideFields": []
+            },
+            "6be1f31177f281ab9ff57834bae654f4b7aa744aa5b2cf44ec0efbdda70193f2": {
+              "propId": "scatter-a70dedad-844b-4f0a-bb24-7659093aed20",
+              "state": "managed",
+              "overrideFields": []
+            }
+          },
+          "exclusions": [
+            {
+              "id": "c4-entrance-exclusion",
+              "boundaryMm": [
+                {
+                  "x": 16500,
+                  "y": 16500
+                },
+                {
+                  "x": 18500,
+                  "y": 16500
+                },
+                {
+                  "x": 18500,
+                  "y": 18500
+                },
+                {
+                  "x": 16500,
+                  "y": 18500
+                }
+              ],
+              "reason": "entrance",
+              "sourceCandidateKey": null
+            }
+          ]
+        }
+      },
+      "styleThemes": {},
+      "activeStyleThemeRef": null,
+      "userLayers": {
+        "layer-default-0": {
+          "id": "layer-default-0",
+          "floorId": "blank-floor",
+          "name": "默认图层",
+          "order": 0,
+          "editLocked": false
+        }
+      },
+      "entityLayers": {
+        "c3-left": "layer-default-0",
+        "c3-right": "layer-default-0",
+        "c3-secret": "layer-default-0",
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": "layer-default-0",
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": "layer-default-0",
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": "layer-default-0",
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": "layer-default-0",
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": "layer-default-0",
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": "layer-default-0",
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": "layer-default-0",
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": "layer-default-0",
+        "c3-private-mask": "layer-default-0",
+        "c4-terrain": "layer-default-0",
+        "c4-path": "layer-default-0",
+        "c4-prefab": "layer-default-0",
+        "c4-scatter": "layer-default-0"
+      }
+    },
+    "historyIdentity": {
+      "version": 3,
+      "lineageId": "2ccdd07b-3b97-4b20-912b-56dfbd589d80",
+      "rootSceneId": "bb9cdd95-c64f-4308-b60c-25a60279d276",
+      "propTokens": {
+        "c3-left": "df382003-874c-4e9b-88f5-8a37b6f2c1b1",
+        "c3-right": "0c4df4e7-0499-4b65-8d83-711c8a50b456",
+        "c3-secret": "f68957fc-e0a4-453c-a23c-32ad4cc47411",
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": "d8f68b9e-e394-4ac7-a7fb-506ded38c05f",
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": "552793ce-502e-44ce-ab99-ab20763aa252",
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": "0bb2bcf9-e115-434d-bf4b-9de9100df428",
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": "16c82658-064f-4497-9b80-4cb8504c2acc",
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": "0627b09b-8c0d-4f18-a67b-7f4d32569a38",
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": "e01c9260-6852-4c65-a862-98643d0d4276",
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": "13c43406-4f81-417e-8227-9aa8d34910de",
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": "6a11fd94-eb93-4075-aa94-e9e9d9e1bac5"
+      },
+      "prefabTokens": {
+        "c4-prefab": "6f6e1175-d625-4cf5-9b01-34709ba69327"
+      },
+      "outdoorTokens": {
+        "c4-terrain": {
+          "kind": "terrainArea",
+          "token": "ea18fbcb-8755-41e2-b3a1-1cf748f8a142",
+          "topologyToken": "53c82e07-31a9-46c7-93b6-2edeebd22f80",
+          "topologyHash": "bc28059aa27ac7c02d6aca1d0c8d730f4068cb57e1fecf04cfb65f7a53cda496"
+        },
+        "c4-terrain:point:0": {
+          "kind": "terrainPoint",
+          "token": "a6a40313-2503-4bbd-85d3-cbe212aee464",
+          "topologyToken": "faa3f46f-5f7d-42b1-9b00-5ef4720d8fcf",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:0": {
+          "kind": "terrainSegment",
+          "token": "64959402-8c1c-401b-8990-b344f47bb52b",
+          "topologyToken": "51ea243f-a760-4ea2-a37a-16cd292f9a73",
+          "topologyHash": "1b3706ccbe86584a47891066f3bd98688f915abaa08f9e8b4d0f239f6b0e41ed"
+        },
+        "c4-terrain:point:1": {
+          "kind": "terrainPoint",
+          "token": "d13813d0-e81a-42ab-8600-5b92dc8dd548",
+          "topologyToken": "8b27db21-dc5f-45a8-a8ec-947f67fc165b",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:1": {
+          "kind": "terrainSegment",
+          "token": "41a716fe-9032-462d-aff7-a39a6a9bc918",
+          "topologyToken": "ae0a7ae3-1e4c-474b-a3e4-fe9294c0c498",
+          "topologyHash": "30c3b7e2a3629254cd5c7a799e29fbc985055ea230895527a6d09f595c09033f"
+        },
+        "c4-terrain:point:2": {
+          "kind": "terrainPoint",
+          "token": "42bee1e7-005e-4edb-88e7-a48ac9bf3bbf",
+          "topologyToken": "264c6c50-c145-4a91-a2d8-dc255668f08b",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:2": {
+          "kind": "terrainSegment",
+          "token": "cad94dba-b133-4552-b3ce-44cb818b31a8",
+          "topologyToken": "cc3f890d-70d1-4b48-b904-66d4e01e6fe0",
+          "topologyHash": "c079981b9d3d1acd6e9f980365bb98fdd75c20e75696cdb1f2be50d0eb5ab395"
+        },
+        "c4-terrain:point:3": {
+          "kind": "terrainPoint",
+          "token": "48bac603-ffe9-4be3-9aa6-bcc93c37201f",
+          "topologyToken": "84055435-0f0b-40c1-9231-168c4f096dec",
+          "topologyHash": "842ae90a41f1df73459f89f59547ecb82c554c952ed9cefc8395aae1d46fc7f6"
+        },
+        "c4-terrain:segment:3": {
+          "kind": "terrainSegment",
+          "token": "33397f21-c01b-4226-b68b-5a10843cd06a",
+          "topologyToken": "466110a2-649c-489a-b3b3-7d9a1057dbaa",
+          "topologyHash": "724be4f27e3aa9e906c7fc6bbe259eb36517ca2298c82a03a1e2c1374f59db00"
+        },
+        "c4-path": {
+          "kind": "path",
+          "token": "6c4f88ad-e4c6-47fe-a97b-234bd35912e5",
+          "topologyToken": "05f2ce16-e650-4503-89d2-d234d1d6bba3",
+          "topologyHash": "46a376fc0cb93d27faf6888886c3ffd07a76445f83855d6f38a7e536635f3e7d"
+        },
+        "c4-scatter": {
+          "kind": "scatterGroup",
+          "token": "140d134d-b20a-47f0-a6df-18322de9e4b7",
+          "topologyToken": "48016f73-22c5-485a-8bf3-6814f42b74e3",
+          "topologyHash": "347ac5c61296b67602b564cc5d0318b86e5dffe569e7794b801721039e93f38a"
+        },
+        "c4-entrance-exclusion": {
+          "kind": "scatterExclusion",
+          "token": "fc7e9ecf-a251-4582-aa3c-66434d572553",
+          "topologyToken": "14d45ed8-748a-4a42-9138-9c82fedd476d",
+          "topologyHash": "48f0875526503a2b7257a3f42c6cb3deaafc07753c1a6d02168a17b82af45514"
+        }
+      }
+    },
+    "appearance": {
+      "version": 1,
+      "sources": {
+        "import-source-7defc9c7-af69-48d4-863c-a79b9b23281b": {
+          "id": "import-source-7defc9c7-af69-48d4-863c-a79b9b23281b",
+          "kind": "prop",
+          "parentSourceId": null,
+          "snapshot": {
+            "definitionRef": {
+              "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+              "version": 1
+            },
+            "appearance": {
+              "kind": "image",
+              "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+              "tint": null,
+              "opacity": 1
+            },
+            "visualBoundsMm": {
+              "x": -700,
+              "y": -700,
+              "width": 1400,
+              "height": 1400
+            },
+            "shadowClass": "furniture",
+            "shadowOverride": null
+          }
+        },
+        "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b": {
+          "id": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+          "kind": "prop",
+          "parentSourceId": null,
+          "snapshot": {
+            "definitionRef": {
+              "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+              "version": 1
+            },
+            "appearance": {
+              "kind": "image",
+              "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+              "tint": null,
+              "opacity": 1
+            },
+            "visualBoundsMm": {
+              "x": -700,
+              "y": -700,
+              "width": 1400,
+              "height": 1400
+            },
+            "shadowClass": "furniture",
+            "shadowOverride": null
+          }
+        },
+        "import-source-36fb5c53-9e7e-40ba-9a99-b0f4f04db0e9": {
+          "id": "import-source-36fb5c53-9e7e-40ba-9a99-b0f4f04db0e9",
+          "kind": "surface",
+          "parentSourceId": null,
+          "snapshot": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          }
+        },
+        "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620": {
+          "id": "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620",
+          "kind": "prop",
+          "parentSourceId": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+          "snapshot": {
+            "definitionRef": {
+              "id": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+              "version": 1
+            },
+            "appearance": {
+              "kind": "image",
+              "assetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+              "tint": null,
+              "opacity": 1
+            },
+            "visualBoundsMm": {
+              "x": -700,
+              "y": -700,
+              "width": 1400,
+              "height": 1400
+            },
+            "shadowClass": "furniture",
+            "shadowOverride": null
+          }
+        },
+        "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645": {
+          "id": "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645",
+          "kind": "surface",
+          "parentSourceId": null,
+          "snapshot": {
+            "base": {
+              "materialRef": {
+                "id": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+                "version": 1
+              },
+              "tileSizeMm": {
+                "width": 1200,
+                "height": 1200
+              },
+              "rotationDeg": 0,
+              "alignment": "world",
+              "originMm": {
+                "x": 0,
+                "y": 0
+              },
+              "tint": null,
+              "opacity": 1
+            },
+            "overlays": []
+          }
+        }
+      },
+      "propSources": {
+        "c3-left": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "c3-right": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "c3-secret": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-663de5b6-697b-4073-bec8-dad796ca8865": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-efe2d626-85e6-4f92-8267-63c0815f2890": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-8bcb2fb4-e27a-46aa-a92a-3cd74e19840a": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-41d507f4-e3b1-4f16-8b2e-29f22798736a": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-b5548663-e535-4c08-b22c-e1f6d476edc3": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-baccc14f-392c-4def-a318-d0b25b7e77c7": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-81906ddd-ee33-48ff-b80c-7a97e35ff5bf": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b",
+        "scatter-a70dedad-844b-4f0a-bb24-7659093aed20": "composition-source-dd29aa7731b97c037c6d8fc7f15c5993a31873e5dd1d7e426b4517d6ac1d1e6b"
+      },
+      "surfaceSources": {
+        "c4-terrain": "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645",
+        "c4-path": "composition-source-f115bf3287a7917446a842bafb2b936320ead7b87c536ca30122ed44088ff645"
+      },
+      "instanceAdjustments": {
+        "c3-secret": [
+          {
+            "id": "c4-retained-tint",
+            "kind": "tint",
+            "value": "#80FF00",
+            "enabled": true
+          }
+        ]
+      },
+      "layerAdjustments": {},
+      "variants": {
+        "composition-variant-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0": {
+          "id": "composition-variant-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+          "sourceAssetId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+          "tint": "#80FF00",
+          "brightness": 1,
+          "outputAssetId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0"
+        }
+      },
+      "prefabAppearanceTemplates": {
+        "c4-prefab-definition": {
+          "definitionRef": {
+            "id": "c4-prefab-definition",
+            "version": 1
+          },
+          "visibility": "public",
+          "members": {
+            "member-1": {
+              "sourceId": "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620",
+              "adjustments": [
+                {
+                  "id": "frozen-opacity-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "opacity",
+                  "value": 1,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-shadow-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "shadowClass",
+                  "value": "furniture",
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-tint-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "tint",
+                  "value": null,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-brightness-1f13c6c24862525183185acb3d728576551bcda74ae4065028c679dce4be896f",
+                  "kind": "brightness",
+                  "value": 1,
+                  "enabled": true
+                }
+              ]
+            },
+            "member-2": {
+              "sourceId": "composition-source-202e6c16ae4019b0904e9bcc1bde44200a676f484b519e38bdf4956608667620",
+              "adjustments": [
+                {
+                  "id": "frozen-opacity-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "opacity",
+                  "value": 1,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-shadow-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "shadowClass",
+                  "value": "furniture",
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-tint-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "tint",
+                  "value": null,
+                  "enabled": true
+                },
+                {
+                  "id": "frozen-brightness-0f0fbbfd68a20914964c9bf9b0b5b8f968ce2360db9d2f50d25ec02a0a6bd626",
+                  "kind": "brightness",
+                  "value": 1,
+                  "enabled": true
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "assets": {
+      "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc": {
+        "sha256": "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc",
+        "actualHash": "1f25ec49f77fa6de772dd66e1d413021d86e9426172b5e7e96f46b753bfa76cc",
+        "sizeBytes": 132,
+        "mimeType": "image/png",
+        "pixelWidth": 8,
+        "pixelHeight": 8
+      },
+      "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3": {
+        "sha256": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+        "actualHash": "b6055d18e3560d9ef1c635f76333cb5505843bb0f07e07d0b091d2a61b5dcdd3",
+        "sizeBytes": 131,
+        "mimeType": "image/png",
+        "pixelWidth": 8,
+        "pixelHeight": 8
+      }
+    },
+    "licenses": {
+      "750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737": {
+        "sha256": "750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "text": "CC0-1.0. Original Sceneweave C3 test artwork; dedicated to the public domain.",
+        "actualHash": "750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737"
+      },
+      "f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f": {
+        "sha256": "f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+        "text": "CC0-1.0. Original Sceneweave C4 outdoor texture; dedicated to the public domain.",
+        "actualHash": "f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f"
+      }
+    },
+    "licenseBindings": [
+      {
+        "subjectKind": "asset",
+        "subjectId": "composition-image-8c942bd6b56a43b0a9466d8fbe0cf6c2b5812b15ce6185756d14973c90aef0e0",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "asset",
+        "subjectId": "import-image-57d47d93-51c5-4278-8a19-8b1421af706b",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "asset",
+        "subjectId": "import-image-eabb9533-bdd5-4f28-8d22-37042d47a38c",
+        "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+        "licensePath": "licenses/f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "material",
+        "subjectId": "import-material-f1f28b7b-d72d-47c8-a770-82c85bb9c8a2",
+        "licenseRef": "import-license-f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f",
+        "licensePath": "licenses/f8b6c8af4ad14bbc5353cacef98e87710ca9dde83c7255fea727edb1f81ba16f.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "prefabDefinition",
+        "subjectId": "c4-prefab-definition",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "propDefinition",
+        "subjectId": "composition-retained-prop-69bbeaaed4350c185542b8e3d331671bffc41c2ce0206e5312112c9d43abde27",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      },
+      {
+        "subjectKind": "propDefinition",
+        "subjectId": "import-prop-4ce7ad9e-1ab2-40ef-9cb8-eee794209a2b",
+        "licenseRef": "import-license-750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737",
+        "licensePath": "licenses/750aa7215624555e0593a8aa992fcfc0c615f2f584942eaf74021d9cf0335737.txt",
+        "embedding": "allowed"
+      }
+    ],
+    "originals": [
+      {
+        "schemaVersion": 5,
+        "sourceSceneId": "bb9cdd95-c64f-4308-b60c-25a60279d276",
+        "sourceRevision": 0,
+        "sourceHash": "36973faf701e4f09964926a352e8d6aee406d476056edb8226314502a922783b",
+        "actualHash": "36973faf701e4f09964926a352e8d6aee406d476056edb8226314502a922783b",
+        "sizeBytes": 6130
+      }
+    ],
+    "contentHash": "ee8b8256a5c21cb0ec07018a49415ba860849726ebcb20c4c1c7087b87af5a3d",
+    "status": "saved",
+    "error": null
+  }
+}

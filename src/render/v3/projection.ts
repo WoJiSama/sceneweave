@@ -1,10 +1,11 @@
 import type { BoundsMm, EdgeStyle, NoteV2, PointMm, PropV2, ShadowStyle, SurfaceRef, SurfaceStyle, TerrainArea, TerrainEdge } from '../../core/v3/types'
 import type { SceneDocumentV3 } from '../../core/v3/types'
 import { validateSceneSnapshotV3 } from '../../core/v3/snapshots'
-import { openingEndpointsV2, pointInPolygonV2, roomPointsV2, terrainPointsV2 } from '../../core/v2/geometry'
+import { openingEndpointsV2, pathPolygonV2, pointInPolygonV2, roomPointsV2, terrainPointsV2 } from '../../core/v2/geometry'
+import { pathAnchorPosition, pathDecorationPadding, pathEdgeStyle, projectPath } from '../shared/paths'
 
 import type { Audience as AudienceV3, ProjectedTerrainEdge as ProjectedTerrainEdgeV3, ProjectedConnection as ProjectedConnectionV3, ProjectedWall as ProjectedWallV3, ProjectedNote as ProjectedNoteV3, Projection as ProjectionV3 } from '../shared/types'
-export type { Audience as AudienceV3, ProjectedSurface as ProjectedSurfaceV3, ProjectedTerrainEdge as ProjectedTerrainEdgeV3, ProjectedConnection as ProjectedConnectionV3, ProjectedOpening as ProjectedOpeningV3, ProjectedWall as ProjectedWallV3, ProjectedNote as ProjectedNoteV3, ProjectedRegion as ProjectedRegionV3, Projection as ProjectionV3 } from '../shared/types'
+export type { Audience as AudienceV3, ProjectedSurface as ProjectedSurfaceV3, ProjectedTerrainEdge as ProjectedTerrainEdgeV3, ProjectedConnection as ProjectedConnectionV3, ProjectedPath as ProjectedPathV3, ProjectedOpening as ProjectedOpeningV3, ProjectedWall as ProjectedWallV3, ProjectedNote as ProjectedNoteV3, ProjectedRegion as ProjectedRegionV3, Projection as ProjectionV3 } from '../shared/types'
 const EPS = 1e-6
 const clone = <T>(value: T): T => structuredClone(value)
 const point = (x: number, y: number): PointMm => ({ x, y })
@@ -171,6 +172,7 @@ function projectSceneInternalV3(scene: SceneDocumentV3, audience: AudienceV3, hi
   const connectionPublic = (id: string) => { const c = scene.terrainConnections[id]; return c?.visibility === 'public' && surfacePublic(c.from.surfaceRef) && surfacePublic(c.to.surfaceRef) }
   const surfaceElevation = (ref: SurfaceRef) => ref.kind === 'terrainArea' ? scene.terrainAreas[ref.id]?.groundElevationMm ?? 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm ?? 0 : 0
   const connections: ProjectedConnectionV3[] = Object.values(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
+  const paths = Object.values(scene.paths).filter(path => entityShown(path.id) && path.supportRefs.every(ref => ref.kind === 'floor' || entityShown(ref.id)) && (audience === 'gm' || pathPublic(path.id))).sort((a, b) => compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id)).map(path => projectPath(path, theme))
   const visibleProps = Object.values(scene.props).filter(p => entityShown(p.id) && (audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm)))
   const props = visibleProps.map(clone).sort((a, b) => propLayerV3[a.renderLayer] - propLayerV3[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))
   const visiblePropIds = new Set(props.map(p => p.id))
@@ -210,7 +212,7 @@ function projectSceneInternalV3(scene: SceneDocumentV3, audience: AudienceV3, hi
   }
   const regionVisible = (id: string) => scene.regions[id]?.kind !== 'manualMask' && scene.regions[id]?.visibility === 'public'
   const visibleWallVertices = new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId]))
-  const visibleIds: Partial<Record<string, Set<string>>> = { terrainEdge: new Set(edges.map(e => e.id)), terrainConnection: new Set(connections.map(c => c.id)), room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: visiblePropIds, region: new Set(Object.values(scene.regions).filter(r => entityShown(r.id) && (audience === 'gm' || regionVisible(r.id))).map(r => r.id)), vertex: new Set(Object.values(scene.vertices).filter(v => entityShown(v.id) && (audience === 'gm' || visibleWallVertices.has(v.id))).map(v => v.id)), prefabInstance: new Set(Object.values(scene.prefabInstances).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && visiblePropIds.has(m.propId)))).map(g => g.id)), scatterGroup: new Set(Object.values(scene.scatterGroups).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public') && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && visiblePropIds.has(m.propId))).map(g => g.id)) }
+  const visibleIds: Partial<Record<string, Set<string>>> = { path: new Set(paths.map(path => path.id)), terrainEdge: new Set(edges.map(e => e.id)), terrainConnection: new Set(connections.map(c => c.id)), room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: visiblePropIds, region: new Set(Object.values(scene.regions).filter(r => entityShown(r.id) && (audience === 'gm' || regionVisible(r.id))).map(r => r.id)), vertex: new Set(Object.values(scene.vertices).filter(v => entityShown(v.id) && (audience === 'gm' || visibleWallVertices.has(v.id))).map(v => v.id)), prefabInstance: new Set(Object.values(scene.prefabInstances).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && visiblePropIds.has(m.propId)))).map(g => g.id)), scatterGroup: new Set(Object.values(scene.scatterGroups).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public') && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && visiblePropIds.has(m.propId))).map(g => g.id)) }
   function anchorPosition(note: NoteV2, seen = new Set<string>()): PointMm | null {
     if (seen.has(note.id) || !entityShown(note.id)) return null
     seen.add(note.id)
@@ -231,6 +233,7 @@ function projectSceneInternalV3(scene: SceneDocumentV3, audience: AudienceV3, hi
     if (kind === 'opening') { const o = scene.openings[id]; return o ? midpoint(...openingEndpointsV2(scene, o)) : null }
     if (kind === 'terrainEdge') { const e = edges.find(e => e.id === id); return e ? midpoint(e.start, e.end) : null }
     if (kind === 'terrainConnection') { const c = connections.find(c => c.id === id); return c ? midpoint(c.start, c.end) : null }
+    if (kind === 'path') return paths.some(path => path.id === id) ? pathAnchorPosition(scene.paths[id]) : null
     if (kind === 'region') return scene.regions[id] ? center(scene.regions[id].boundaryMm) : null
     if (kind === 'prefabInstance') return scene.prefabInstances[id] ? clone(scene.prefabInstances[id].anchorMm) : null
     if (kind === 'scatterGroup') { const g = scene.scatterGroups[id], first = g && Object.values(g.members).find(m => m.propId && (audience === 'gm' || visibleIds.prop?.has(m.propId))); return first?.propId ? clone(scene.props[first.propId].positionMm) : null }
@@ -261,14 +264,13 @@ function projectSceneInternalV3(scene: SceneDocumentV3, audience: AudienceV3, hi
       if (area && index >= 0) privateBounds.push(inflate(pointsBoundsV3([area.boundaryMm[index].positionMm, area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm]), edgePadding))
     }
     for (const connection of Object.values(scene.terrainConnections)) if (!connectionPublic(connection.id)) privateBounds.push(inflate(pointsBoundsV3([connection.from.positionMm, connection.to.positionMm]), connection.widthMm / 2 + 24))
+    for (const path of Object.values(scene.paths)) if (!pathPublic(path.id)) privateBounds.push(inflate(pointsBoundsV3(pathPolygonV2(path)), pathDecorationPadding(pathEdgeStyle(theme))))
     for (const region of Object.values(scene.regions)) if (region.kind !== 'manualMask' && region.visibility !== 'public') privateBounds.push(pointsBoundsV3(region.boundaryMm))
     for (const box of privateBounds) { const clipped = intersects(box, bounds); if (clipped && !boundsCoveredV3(clipped, rectangles)) throw new Error('玩家输出不安全：固定遮罩未覆盖私密几何、视觉范围或装饰阴影；请扩大遮罩或恢复公开。') }
   }
   const limitations: string[] = []
-  if (Object.values(scene.paths).some(p => entityShown(p.id) && (audience === 'gm' || pathPublic(p.id)))) limitations.push('B3 暂不绘制道路。')
   if (props.some(p => p.appearance.tint)) limitations.push('B3 暂不绘制物件着色。')
-  if (audience === 'gm' && Object.values(scene.notes).some(n => entityShown(n.id) && n.anchor.type === 'entity' && n.anchor.entityKind === 'path')) limitations.push('B3 暂不绘制道路上的注记。')
-  const styles = [...rooms, ...terrain].map(s => s.style).concat(walls.map(w => w.style), edges.map(e => e.surfaceStyle), connections.map(c => c.style))
+  const styles = [...rooms, ...terrain].map(s => s.style).concat(walls.map(w => w.style), edges.map(e => e.surfaceStyle), connections.map(c => c.style), paths.map(path => path.style))
   const materials: ProjectionV3['materials'] = {}, assetIds = new Set<string>()
   for (const style of styles) if (style) for (const paint of [style.base, ...style.overlays.map(o => o.paint)]) {
     const material = scene.materials[paint.materialRef.id]
@@ -282,5 +284,6 @@ function projectSceneInternalV3(scene: SceneDocumentV3, audience: AudienceV3, hi
   const orderedWalls = audience === 'player' ? canonicalWalls(walls, compareLayer, openingRanks, projectedOpeningRanks) : walls.sort((a, b) => compareLayer(a, b) || wallOrder(a, b))
   const symbolRanks = audience === 'player' ? projectedOpeningRanks : openingRanks
   const openingPaintOrder = new Set(symbolRanks.values()).size > 1 ? orderedWalls.flatMap(wall => wall.openings.map(opening => opening.id)).sort((a, b) => symbolRanks.get(a)! - symbolRanks.get(b)!) : undefined
-  return { audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: orderedWalls, ...(openingPaintOrder ? { openingPaintOrder } : {}), props, edges, connections, notes: notes.sort((a, b) => compareLayer(a, b) || noteOrder.get(a.id)! - noteOrder.get(b.id)! || a.id.localeCompare(b.id)), regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
+  const pathPaintOrder = Object.values(scene.paths).some(path => audience === 'gm' || pathPublic(path.id)) ? 'over-room-before-connection' as const : undefined
+  return { audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: orderedWalls, ...(openingPaintOrder ? { openingPaintOrder } : {}), props, edges, paths, ...(pathPaintOrder ? { pathPaintOrder } : {}), connections, notes: notes.sort((a, b) => compareLayer(a, b) || noteOrder.get(a.id)! - noteOrder.get(b.id)! || a.id.localeCompare(b.id)), regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
 }

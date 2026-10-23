@@ -1,0 +1,140 @@
+{
+  "selected": [
+    "scatter-1c206115-05f0-44f2-b061-d22040e42f47",
+    "scatter-eece27a7-39e0-4245-af03-4743a8014bae"
+  ],
+  "moveScope": [
+    "c4-scatter",
+    "c4-terrain",
+    "scatter-1c206115-05f0-44f2-b061-d22040e42f47",
+    "scatter-4c0db0f9-5912-4b17-90ab-f7c1bbc0441c",
+    "scatter-4d3c8691-aa7d-4b3e-b96e-0d05c352c74b",
+    "scatter-87a37fa4-fb39-4d78-b959-72228ba1063b",
+    "scatter-9ad056ef-253a-4c65-842c-b2a41b434c86",
+    "scatter-d088be27-97aa-4763-92d8-c0c8a907771f",
+    "scatter-d35cda2c-a1cf-4006-bf42-9cbc60ed912d",
+    "scatter-eece27a7-39e0-4245-af03-4743a8014bae"
+  ],
+  "lockScope": [
+    "c4-scatter",
+    "c4-terrain",
+    "scatter-1c206115-05f0-44f2-b061-d22040e42f47",
+    "scatter-4c0db0f9-5912-4b17-90ab-f7c1bbc0441c",
+    "scatter-4d3c8691-aa7d-4b3e-b96e-0d05c352c74b",
+    "scatter-87a37fa4-fb39-4d78-b959-72228ba1063b",
+    "scatter-9ad056ef-253a-4c65-842c-b2a41b434c86",
+    "scatter-d088be27-97aa-4763-92d8-c0c8a907771f",
+    "scatter-d35cda2c-a1cf-4006-bf42-9cbc60ed912d",
+    "scatter-eece27a7-39e0-4245-af03-4743a8014bae"
+  ],
+  "canceledUnchanged": true,
+  "revisions": [
+    0,
+    1,
+    2
+  ],
+  "group": {
+    "id": "c4-scatter",
+    "floorId": "blank-floor",
+    "editLocked": false,
+    "visibility": "public",
+    "domain": {
+      "kind": "area",
+      "areaId": "c4-terrain"
+    },
+    "palette": [
+      {
+        "key": "original-image",
+        "propDefinitionRef": {
+          "id": "import-prop-0ed47bfc-7495-425d-b800-118ad36dc3e1",
+          "version": 1
+        },
+        "weight": 1
+      }
+    ],
+    "seed": "c4-native-storage-fixture",
+    "algorithmVersion": "scatter-cell-v1",
+    "gridOriginMm": {
+      "x": 0,
+      "y": 0
+    },
+    "cellSizeMm": 4000,
+    "densityFactor": 1,
+    "minDistanceMm": 100,
+    "rotationRangeDeg": {
+      "min": 0,
+      "max": 0
+    },
+    "members": {
+      "37ba5a3fabf5d2d6828920814fdf5ca15fe3d29db0d118793a2d04fd9641f919": {
+        "propId": "scatter-1c206115-05f0-44f2-b061-d22040e42f47",
+        "state": "manual",
+        "overrideFields": [
+          "positionMm"
+        ]
+      },
+      "7c52deecd0411706be3c9bcc92bf419d22af4cae104f67dc7647c335f28576a5": {
+        "propId": "scatter-eece27a7-39e0-4245-af03-4743a8014bae",
+        "state": "manual",
+        "overrideFields": [
+          "positionMm"
+        ]
+      },
+      "22f1d93c18bdcfb9aae70b8d6dd085c39594dfef73fb73f4492e1af3d691a774": {
+        "propId": "scatter-4c0db0f9-5912-4b17-90ab-f7c1bbc0441c",
+        "state": "managed",
+        "overrideFields": []
+      },
+      "71d5e6cf0cabb6eae6a46a1cdba820adf0e2138d6cc9d82bb0c453635ce10389": {
+        "propId": "scatter-d088be27-97aa-4763-92d8-c0c8a907771f",
+        "state": "managed",
+        "overrideFields": []
+      },
+      "6791b8b86ce8491485b8aa79846fd0adaa70c75e484f5ee20f69745e634fd99f": {
+        "propId": "scatter-87a37fa4-fb39-4d78-b959-72228ba1063b",
+        "state": "managed",
+        "overrideFields": []
+      },
+      "f198189246b2c884edf425ae53ae0a35cf1aee165ef604ca13e59d83a91b6386": {
+        "propId": "scatter-d35cda2c-a1cf-4006-bf42-9cbc60ed912d",
+        "state": "managed",
+        "overrideFields": []
+      },
+      "80fed57f51d9f49bd037ae497ce4bb8fe6a2e597798f53aecfaf4b4f6b6eaed4": {
+        "propId": "scatter-4d3c8691-aa7d-4b3e-b96e-0d05c352c74b",
+        "state": "managed",
+        "overrideFields": []
+      },
+      "6be1f31177f281ab9ff57834bae654f4b7aa744aa5b2cf44ec0efbdda70193f2": {
+        "propId": "scatter-9ad056ef-253a-4c65-842c-b2a41b434c86",
+        "state": "managed",
+        "overrideFields": []
+      }
+    },
+    "exclusions": [
+      {
+        "id": "c4-entrance-exclusion",
+        "boundaryMm": [
+          {
+            "x": 16500,
+            "y": 16500
+          },
+          {
+            "x": 18500,
+            "y": 16500
+          },
+          {
+            "x": 18500,
+            "y": 18500
+          },
+          {
+            "x": 16500,
+            "y": 18500
+          }
+        ],
+        "reason": "entrance",
+        "sourceCandidateKey": null
+      }
+    ]
+  }
+}

@@ -122,15 +122,18 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     geometryCache.set(id, value)
     return value
   }
-  // This list covers the current canvas's selectable content. Paths and annotation
-  // editing are not implemented; do not make invisible paths intercept a pointer.
+  // Selectable content follows the actual system paint bands. Path picking uses
+  // the same square-cap/miter/bevel band as strict validation and rendering.
   const props = orderedPropsV2(Object.values(scene.props))
+  const paths = Object.values(scene.paths).sort((a, b) => b.renderOrder - a.renderOrder || b.id.localeCompare(a.id)).map(path => path.id)
+  const connections = Object.keys(scene.terrainConnections).sort((a, b) => a.localeCompare(b)).reverse()
+  const surfaces = paths.length ? [...connections, ...paths, ...Object.keys(scene.rooms).reverse()] : [...Object.keys(scene.rooms).reverse(), ...connections]
   const topFirst = [
     ...props.filter(prop => prop.renderLayer !== 'ground').reverse().map(prop => prop.id),
     ...Object.keys(scene.vertices).reverse(), ...[...terrainPoints.keys()].reverse(),
     ...projectedWalls.flatMap(wall => wall.openings.map(opening => opening.id)).reverse(), ...projectedWalls.map(wall => wall.id).reverse(),
     ...props.filter(prop => prop.renderLayer === 'ground').reverse().map(prop => prop.id),
-    ...Object.keys(scene.rooms).reverse(), ...Object.keys(scene.terrainConnections).sort((a, b) => a.localeCompare(b)).reverse(),
+    ...surfaces,
     ...Object.keys(scene.terrainEdges).reverse(),
     ...Object.values(scene.terrainAreas).sort((a, b) => b.coveragePriority - a.coveragePriority || b.id.localeCompare(a.id)).map(area => area.id),
   ]

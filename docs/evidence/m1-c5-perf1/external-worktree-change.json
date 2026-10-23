@@ -1,0 +1,10 @@
+{
+  "path": "todo.md",
+  "baselineSha256": "3c4ae9476d77bea4b2f9b04897e20cdccd7819874db378f4ca8d935678cf054c",
+  "observedSha256": "1b98b0ffabf7ad21bdebfc04caacdd23b3bf0eb51343ed794f2f9fe297f15a28",
+  "observedAt": "2026-10-23T03:08:20.459476+00:00",
+  "fileModifiedAt": "2026-10-23T02:33:37.559687+00:00",
+  "writtenByThisBatch": false,
+  "actor": "unknown external writer",
+  "action": "Preserve current worktree file. Do not restore baseline or claim unchanged from baseline. Verify it remains at the observed value during final checks."
+}

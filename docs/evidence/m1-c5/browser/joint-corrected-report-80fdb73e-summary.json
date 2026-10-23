@@ -1,0 +1,297 @@
+{
+  "metadata": {
+    "actualWorkers": 1
+  },
+  "startTime": 1792683915581,
+  "duration": 47235.048,
+  "projectNames": [
+    "chromium"
+  ],
+  "stats": {
+    "total": 6,
+    "expected": 6,
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "ok": true
+  },
+  "errors": [],
+  "options": {},
+  "files": [
+    {
+      "fileName": "c5-integration.spec.ts",
+      "fileId": "a2c485365cdb3ce3d09c",
+      "tests": [
+        {
+          "testId": "a2c485365cdb3ce3d09c-d2c8d82bb65fe5ab129c",
+          "title": "C5 one v6 UI journey joins building, outdoor, fixed composition, layers, appearance and protected restore",
+          "projectName": "chromium",
+          "location": {
+            "file": "c5-integration.spec.ts",
+            "line": 134,
+            "column": 1
+          },
+          "duration": 17045,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 17045,
+              "startTime": "2026-10-22T15:45:16.726Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c5-joint-ui-restore",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 110752,
+                  "sha256": "a0e0298bb3bb6f14caf0946e446284f4cdd159afe549b409475252d34ff6cb8a"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "a2c485365cdb3ce3d09c-1efbe180d05342ed3235",
+          "title": "C5 shared UI preserves the complete v6 branch when layer, batch, appearance and support edits are refused",
+          "projectName": "chromium",
+          "location": {
+            "file": "c5-integration.spec.ts",
+            "line": 433,
+            "column": 1
+          },
+          "duration": 5240,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 5240,
+              "startTime": "2026-10-22T15:45:34.659Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c5-rejected-cross-tool-branches",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 431692,
+                  "sha256": "eedf166a447b1036dc19cf70bea30538d28bacf2626a478fa6dc0cd2ece15fd2"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "a2c485365cdb3ce3d09c-f0abb30dcf0c670316bf",
+          "title": "C5 mixed native-v6 4K audiences ignore editing eye and solo while secret appearance stays out of player pixels",
+          "projectName": "chromium",
+          "location": {
+            "file": "c5-integration.spec.ts",
+            "line": 641,
+            "column": 1
+          },
+          "duration": 7759,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 7759,
+              "startTime": "2026-10-22T15:45:39.909Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c5-baseline-gm-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/b644f11ac93387e8cb0b2134d88bc81acd8b4b16.png",
+                  "source": "work/c5-20261022/joint-corrected-report/data/b644f11ac93387e8cb0b2134d88bc81acd8b4b16.png",
+                  "bytes": 452051,
+                  "sha256": "ae41fc95cb93145924d11f5a68393d86b0ea917f654cbcbec022ea6e6472e122"
+                },
+                {
+                  "name": "c5-baseline-player-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/07129969e50f79a555feb7b2352b006cf8976be8.png",
+                  "source": "work/c5-20261022/joint-corrected-report/data/07129969e50f79a555feb7b2352b006cf8976be8.png",
+                  "bytes": 440365,
+                  "sha256": "7f909c37af3321fb2675a29553ec8e0d1ac6b76b1c38468ddabf9d4924149b3f"
+                },
+                {
+                  "name": "c5-hidden-solo-gm-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/b644f11ac93387e8cb0b2134d88bc81acd8b4b16.png",
+                  "source": "work/c5-20261022/joint-corrected-report/data/b644f11ac93387e8cb0b2134d88bc81acd8b4b16.png",
+                  "bytes": 452051,
+                  "sha256": "ae41fc95cb93145924d11f5a68393d86b0ea917f654cbcbec022ea6e6472e122"
+                },
+                {
+                  "name": "c5-hidden-solo-player-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/07129969e50f79a555feb7b2352b006cf8976be8.png",
+                  "source": "work/c5-20261022/joint-corrected-report/data/07129969e50f79a555feb7b2352b006cf8976be8.png",
+                  "bytes": 440365,
+                  "sha256": "7f909c37af3321fb2675a29553ec8e0d1ac6b76b1c38468ddabf9d4924149b3f"
+                },
+                {
+                  "name": "c5-secret-adjusted-gm-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/fc18dcd486fea3715ec0f313fa7a0596873818bb.png",
+                  "source": "work/c5-20261022/joint-corrected-report/data/fc18dcd486fea3715ec0f313fa7a0596873818bb.png",
+                  "bytes": 451914,
+                  "sha256": "99cb14a0b3b21cd7fd8c2592771cd3229835a28a0845210fa9fa2c6693aa923d"
+                },
+                {
+                  "name": "c5-secret-adjusted-player-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/07129969e50f79a555feb7b2352b006cf8976be8.png",
+                  "source": "work/c5-20261022/joint-corrected-report/data/07129969e50f79a555feb7b2352b006cf8976be8.png",
+                  "bytes": 440365,
+                  "sha256": "7f909c37af3321fb2675a29553ec8e0d1ac6b76b1c38468ddabf9d4924149b3f"
+                },
+                {
+                  "name": "c5-native-v6-paired-audience-pixels",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 11935,
+                  "sha256": "7b1c52b4477a77db1b86a894440341aef5a8b14ff349fb5eec864f4cf4637ab6"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fileName": "c5-storage.spec.ts",
+      "fileId": "896f4cc6a4aca531a822",
+      "tests": [
+        {
+          "testId": "896f4cc6a4aca531a822-4ec5632a85bd0d06fe7e",
+          "title": "C5 six native repositories retain five exact migration originals and old named history after reopened v6 editing",
+          "projectName": "chromium",
+          "location": {
+            "file": "c5-storage.spec.ts",
+            "line": 105,
+            "column": 1
+          },
+          "duration": 2550,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 2550,
+              "startTime": "2026-10-22T15:45:47.710Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c5-native-full-migration-chain.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 142357,
+                  "sha256": "b8238b32fb1cdefd7b227968673611e4f918f831539f3c37ad758baa332592be"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "896f4cc6a4aca531a822-c2c0963c924a3b716660",
+          "title": "C5 mixed selected-history package imports into an empty offline context and continues scoped restoration after native reopen",
+          "projectName": "chromium",
+          "location": {
+            "file": "c5-storage.spec.ts",
+            "line": 319,
+            "column": 1
+          },
+          "duration": 4777,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 4777,
+              "startTime": "2026-10-22T15:45:50.267Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c5-native-mixed-offline-selected-history.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 711252,
+                  "sha256": "7ace4047d75ff7401ccb88b7e43434770bb8d560027c074c4f49029be4fc7833"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "896f4cc6a4aca531a822-42360197d16f2d6dd01a",
+          "title": "C5 native save failure after protected restoration rolls back current/resource rows and retains memory, undo and retry",
+          "projectName": "chromium",
+          "location": {
+            "file": "c5-storage.spec.ts",
+            "line": 572,
+            "column": 1
+          },
+          "duration": 2603,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 2603,
+              "startTime": "2026-10-22T15:45:55.053Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c5-native-post-restore-save-failure.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 485520,
+                  "sha256": "f03b54b631b4e4428a7e0980a5a75c8fc451354ffdb220614e89399c654ef460"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "_sceneweaveEvidence": {
+    "rawReporter": "browser/joint-corrected-report-80fdb73e.report.zip",
+    "rawReporterSha256": "5fac5d4e054ffe0dffad68b833a3abe38173f51839e28dbd5e28363903c6f5af",
+    "attachmentPolicy": "Every original reporter JSON and inline body is retained. Final C5 and failing-test attachments are content-addressed; other cohort external bytes retain actual local source path/hash/size. Traces are retained only for failures, without duplicated trace copies."
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "format": "sceneweave-c5-perf1-evidence",
+  "version": 1,
+  "files": {
+    "README.md": {
+      "sizeBytes": 2434,
+      "sha256": "4919d794f5e4c3c3d822c0a0173f2c38a2ab830d1cf9801075270a7964dd23ca"
+    },
+    "baseline-dist.tar.gz": {
+      "sizeBytes": 1054693,
+      "sha256": "35caaab4dc417f0bdec8ecf135f7b856e2e5943eab87cd3f950608bd3abd6281"
+    },
+    "baseline-source.tar.gz": {
+      "sizeBytes": 1088010,
+      "sha256": "eb2bb8d72d5af21c624beca0a71b01605ee637824a44d89acb57097ef3566eba"
+    },
+    "baseline.json": {
+      "sizeBytes": 202488,
+      "sha256": "db4fa90e544721cd134708105e0209d8ba11a9b68f7cb473dd8405175da3e957"
+    },
+    "chrome-reports.tar.gz": {
+      "sizeBytes": 2102254,
+      "sha256": "65e49ae92c8156e802a80e475e7b6887cf3ecc06ac746b4244d86b8d73378917"
+    },
+    "comparison.json": {
+      "sizeBytes": 83052,
+      "sha256": "76c38430b7bac3e134e5e9ba3a519c60735bbeba5df678e171422c49791125f9"
+    },
+    "current-dist.tar.gz": {
+      "sizeBytes": 1056269,
+      "sha256": "5c624ab2300a6f84dfd98b1c3559160c693f6482d072bef3d9f09a2e8cb8c86f"
+    },
+    "current-source.tar.gz": {
+      "sizeBytes": 1099099,
+      "sha256": "32a91fa21a2bd178b97f446b6c42e625d2447404d68543ea0f1d5f612ec5a324"
+    },
+    "design.md": {
+      "sizeBytes": 3103,
+      "sha256": "1de664cfd727a0c039917452f54ed5fcba9c6ce91f60abd4bb49afb508d9ce05"
+    },
+    "external-worktree-change.json": {
+      "sizeBytes": 543,
+      "sha256": "2e12ac775079051418d5472b75d978bee43b08ec77c0a0878823498048c2c176"
+    },
+    "frozen-application.json": {
+      "sizeBytes": 42265,
+      "sha256": "f774792790966b8d75a31549eb8494a955aa61dcdd048ee36e6ee47de345e905"
+    },
+    "performance-after.tar.gz": {
+      "sizeBytes": 10174707,
+      "sha256": "777921b5662e0317ac996078ea18579895ab63a0dcbe6b27d59f9bad0bf74b24"
+    },
+    "performance-before.tar.gz": {
+      "sizeBytes": 10193192,
+      "sha256": "79c9cb8fd052d5d6d01b42d8f2ae39c0c7969fad7019d8bbafdc2361ac53acb6"
+    },
+    "production-serving.json": {
+      "sizeBytes": 343,
+      "sha256": "fb466183d46e18dae53440996d708bc15521a3cb208a545ec67582890d88697c"
+    },
+    "production-ui.tar.gz": {
+      "sizeBytes": 5300950,
+      "sha256": "0ec88b984ffb150d661d26658a4346589da64fc62af6cbac2bdef3a7d76f4e72"
+    },
+    "scripts/archive.py": {
+      "sizeBytes": 2243,
+      "sha256": "54f96fbd6b8b3010403a77f939a315e0dc87ecaf3b269f96e9cb7002d5f243bf"
+    },
+    "scripts/final-checks.py": {
+      "sizeBytes": 4482,
+      "sha256": "d4614afe179ede4acd6de9ea00515561b6509bf4bbdb0a24cc747bc0f543b2dc"
+    },
+    "scripts/verify.py": {
+      "sizeBytes": 11874,
+      "sha256": "c1edfa59f2883edb4dd541ccfc4baf7b4523d32085e8f346c5a39e51b491295e"
+    },
+    "validation-logs.tar.gz": {
+      "sizeBytes": 6974,
+      "sha256": "b53c8184bf8b6c73b9b6295c7dcd565a9eeec44d170d79becab90942fc333885"
+    },
+    "verification-attempt1.log": {
+      "sizeBytes": 267,
+      "sha256": "f41c8349c8e6c4503bea0af09ea9620ed728096621f57d5cff3178076ed53fc8"
+    }
+  }
+}

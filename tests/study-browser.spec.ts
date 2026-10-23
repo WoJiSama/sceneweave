@@ -105,6 +105,7 @@ test('VIS-01 groups retain expanded members through move, rotate, appearance swa
 })
 
 test('VIS-01 blocks doorway-obstructing prop and group edits without consuming history or saving', async ({ page }, testInfo) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await openStudy(page)
   await select(page, 'terrace-chair-south')
   await number(page, '物件 Y', '4700'); await saved(page)
@@ -128,6 +129,7 @@ test('VIS-01 blocks doorway-obstructing prop and group edits without consuming h
     return (await dev.repository.load(dev.workspace.getState().project.document.sceneId)).document
   })
   expect(persisted).toEqual(baseline)
+  expect(errors).toEqual([])
   await testInfo.attach('doorway-edit-rejection.json', { body: JSON.stringify({ propEditRejected: true, groupEditRejected: true, revisionUnchangedOnFailure: true, historyRetained: true, savedDocumentUnchanged: true, entranceWidthMm: 1000, terraceWidthMm: 1200, approachDepthEachSideMm: [1000, 1500] }, null, 2), contentType: 'application/json' })
 })
 

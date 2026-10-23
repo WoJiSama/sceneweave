@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-10-22T14:54:24.587881+00:00",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.6.2\nBuildVersion:\t\t25G83",
+  "architecture": "arm64",
+  "hardwareModel": "MacBookPro17,1",
+  "cpu": "Apple M1",
+  "memoryBytes": 17179869184,
+  "node": "v24.14.1",
+  "npm": "11.11.0",
+  "browser": "Google Chrome 156.0.8078.47",
+  "playwrightVersion": "1.56.1",
+  "unitCommand": "npm test -- --reporter=default --reporter=json --outputFile=work/c4-20261022/unit-final-corrected.json",
+  "buildCommand": "npm run build",
+  "browserCommand": "SCENEWEAVE_BROWSER_CHANNEL=chrome PLAYWRIGHT_HTML_OUTPUT_DIR=work/c4-20261022/chromium-final-corrected-report npm run test:e2e -- --output=work/c4-20261022/chromium-final-corrected-results",
+  "browserWorkers": 1,
+  "productionCommand": "node work/c4-20261022/production-runner.mjs",
+  "productionServe": "npm run preview -- --port 4173 --strictPort",
+  "formalPerformanceSampling": false,
+  "executionBoundary": "Browser batches, build and production runs were serial. Unit test files used the configured Vitest worker pool within their own batch. No whole-interaction performance or capacity claim."
+}

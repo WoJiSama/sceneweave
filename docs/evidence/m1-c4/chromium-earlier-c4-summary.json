@@ -1,0 +1,497 @@
+{
+  "metadata": {
+    "actualWorkers": 1
+  },
+  "startTime": 1792675466082,
+  "duration": 78599.511,
+  "projectNames": [
+    "chromium"
+  ],
+  "stats": {
+    "total": 12,
+    "expected": 12,
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "ok": true
+  },
+  "errors": [],
+  "options": {},
+  "files": [
+    {
+      "fileName": "c4-renderer.spec.ts",
+      "fileId": "1934f41fac2e9c90f504",
+      "tests": [
+        {
+          "testId": "1934f41fac2e9c90f504-f478dbecde717f476d26",
+          "title": "C4 real 4K road material and overlay outputs preserve public reference pixels across private path variants",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-renderer.spec.ts",
+            "line": 2,
+            "column": 1
+          },
+          "duration": 6530,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 6530,
+              "startTime": "2026-10-22T13:24:27.292Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-road-player-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/827fa9cab1b0ae7cc8856a1f7e64c4477ab857fd.png",
+                  "source": "work/c4-20261022/chromium-final-report/data/827fa9cab1b0ae7cc8856a1f7e64c4477ab857fd.png",
+                  "bytes": 1002308,
+                  "sha256": "cf74069a69e590da2ea66303fca04fe651bd934ade37bf777ca64e857c635373"
+                },
+                {
+                  "name": "c4-road-gm-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/56ebd8a1558ef45d9dc1ebb9ae04dc1541b3927a.png",
+                  "source": "work/c4-20261022/chromium-final-report/data/56ebd8a1558ef45d9dc1ebb9ae04dc1541b3927a.png",
+                  "bytes": 1078399,
+                  "sha256": "751e8e6b511c0e738f480edb0020de715c47c9df61ede3d9b8f152dae9b4947d"
+                },
+                {
+                  "name": "c4-road-material-4k-privacy.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 15076,
+                  "sha256": "9c1d789067a18a38adc9a304a6780a3c1f010ea4266b1edb516bf128fa224992"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "1934f41fac2e9c90f504-cdb8aeb3b1941031f917",
+          "title": "C4 exact road caps and miters are selectable and concave path labels and hiding follow native drawing dependencies",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-renderer.spec.ts",
+            "line": 184,
+            "column": 1
+          },
+          "duration": 795,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 795,
+              "startTime": "2026-10-22T13:24:34.150Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-road-selection-anchor-hiding.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 2870,
+                  "sha256": "5a8a765fab7c7037d61860ffa782849dc4baccb6d3dc4f1b4f7a8c6a3f70a150"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "1934f41fac2e9c90f504-262b6d36c6dda5997ff2",
+          "title": "C4 path exports reject unsafe band masks and hidden or offscreen missing road resources before rendering",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-renderer.spec.ts",
+            "line": 382,
+            "column": 1
+          },
+          "duration": 571,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 571,
+              "startTime": "2026-10-22T13:24:34.952Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-road-output-resource-guards.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 1068,
+                  "sha256": "3c25b11029745b904069277762cb7f241eae1c46f3879a1eb00d644827bb459b"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fileName": "c4-storage.spec.ts",
+      "fileId": "463f1601d830d4076643",
+      "tests": [
+        {
+          "testId": "463f1601d830d4076643-3ad906b3732ba4241f5b",
+          "title": "C4 native two-page revision CAS preserves outdoor edits and exact sources in an independent reopened conflict copy",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-storage.spec.ts",
+            "line": 98,
+            "column": 1
+          },
+          "duration": 2535,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 2535,
+              "startTime": "2026-10-22T13:24:35.541Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-native-two-page-cas.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 265975,
+                  "sha256": "4a98233c54309015a9d34b26bcfc5b053f2e3eb3e162fb5a16015d3896b5c82b"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "463f1601d830d4076643-40f3b70cc5c344492f90",
+          "title": "C4 native protection metadata CAS rejects a stale outdoor restore and a fresh retry protects the current complete branch",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-storage.spec.ts",
+            "line": 195,
+            "column": 1
+          },
+          "duration": 2948,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 2948,
+              "startTime": "2026-10-22T13:24:38.082Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-native-protection-metadata-cas.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 109279,
+                  "sha256": "e449ecf3ece34ffcbc8d7218c55b47e0c6cbb8024a29867aeb8b1d009878c61e"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "463f1601d830d4076643-53eebaddd94b019fb3d5",
+          "title": "C4 native reopen keeps durable terrain continuity and selectively restores a deleted scatter birth without erasing manual records",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-storage.spec.ts",
+            "line": 379,
+            "column": 1
+          },
+          "duration": 2639,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 2639,
+              "startTime": "2026-10-22T13:24:41.035Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-native-checkpoint-recovery.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 383310,
+                  "sha256": "3886c48134554d9d3a746cf763fbc5445abf2fbc6ade5523a25ce5cd85d71883"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "463f1601d830d4076643-bf030559e8b5cce7811b",
+          "title": "C4 selected native and portable history branches retain licensed bytes and malformed packages leave the opened branch intact",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-storage.spec.ts",
+            "line": 599,
+            "column": 1
+          },
+          "duration": 2743,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 2743,
+              "startTime": "2026-10-22T13:24:43.683Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-native-selected-history-packages.json",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 392639,
+                  "sha256": "26f522f7cd63f3ddc5059a162a0aea6a593c3eea12b7cc407fae2f6d9f823f83"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fileName": "c4-workbench.spec.ts",
+      "fileId": "fe56fe1dab2f284cedca",
+      "tests": [
+        {
+          "testId": "fe56fe1dab2f284cedca-c4ec30dd4ee31c3240b4",
+          "title": "C4 blank terrain edits require explicit edge remapping and confirm the exact impact once",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-workbench.spec.ts",
+            "line": 142,
+            "column": 1
+          },
+          "duration": 8100,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 8100,
+              "startTime": "2026-10-22T13:24:46.461Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-terrain-edge-overlay",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 3593,
+                  "sha256": "ad572873812a6b9fb0d553d74f6c8687835463f900053696e6ce201b0b40da5f"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "fe56fe1dab2f284cedca-245dff3599d9719556ce",
+          "title": "C4 outdoor geometry restore after reload preserves later road edits and writes a protection point",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-workbench.spec.ts",
+            "line": 301,
+            "column": 1
+          },
+          "duration": 9792,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 9792,
+              "startTime": "2026-10-22T13:24:54.569Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-restore-after-reload",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 129307,
+                  "sha256": "789a6dd479141d6b3e31b52f0d499dc112eb3525908c67ca74fc83f13378a5b4"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "fe56fe1dab2f284cedca-6a1e2c891eed615ca398",
+          "title": "C4 creates supported roads and explicit stairs without treating drawing as movement",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-workbench.spec.ts",
+            "line": 439,
+            "column": 1
+          },
+          "duration": 4940,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 4940,
+              "startTime": "2026-10-22T13:25:04.368Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-supported-connection-path",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 3313,
+                  "sha256": "02cd62eebbf111f08c1dcea7242bf607c17670f3ba09300da7aaa65936df5f72"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "fe56fe1dab2f284cedca-b2749b9b5749be68ec06",
+          "title": "C4 scatter density cycles preserve manual, deleted, detached, locked and stored births after reopen",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-workbench.spec.ts",
+            "line": 542,
+            "column": 1
+          },
+          "duration": 14260,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 14260,
+              "startTime": "2026-10-22T13:25:09.316Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-scatter-density-reopen",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 26006,
+                  "sha256": "ae339766ea9adddeb375d7b40de4c640c8ebb7c29901a3f7dd9f27b13073747e"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "testId": "fe56fe1dab2f284cedca-6da475b2554a67db0294",
+          "title": "C4 creates an open SCN-03 technical baseline with exact temporary rulers, blocked water and paired private notes",
+          "projectName": "chromium",
+          "location": {
+            "file": "c4-workbench.spec.ts",
+            "line": 788,
+            "column": 1
+          },
+          "duration": 20907,
+          "annotations": [],
+          "tags": [],
+          "outcome": "expected",
+          "path": [],
+          "ok": true,
+          "results": [
+            {
+              "duration": 20907,
+              "startTime": "2026-10-22T13:25:23.581Z",
+              "retry": 0,
+              "errors": [],
+              "status": "passed",
+              "annotations": [],
+              "attachments": [
+                {
+                  "name": "c4-scn03-gm-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/5851f81f0cbc72643a8c5799218791d759751f41.png",
+                  "source": "work/c4-20261022/chromium-final-report/data/5851f81f0cbc72643a8c5799218791d759751f41.png",
+                  "bytes": 380523,
+                  "sha256": "5a34e44650fbf4bd158d1d663b1c4155991da24db31a21e791a6c6a5c4d9258f"
+                },
+                {
+                  "name": "c4-scn03-player-4k.png",
+                  "contentType": "image/png",
+                  "path": "data/e2db93db16f453dd9caa48136d69a7d597536c2b.png",
+                  "source": "work/c4-20261022/chromium-final-report/data/e2db93db16f453dd9caa48136d69a7d597536c2b.png",
+                  "bytes": 361721,
+                  "sha256": "6520435fd76232f140add4718304522d936f9fd183e611a56b764e7514f10180"
+                },
+                {
+                  "name": "c4-scn03-open-camp-rulers-travel-privacy-and-4k",
+                  "contentType": "application/json",
+                  "inlineBodyInRawReporter": true,
+                  "bytes": 11379,
+                  "sha256": "231f0404cd4af231778d66a65a607acfbc4ddbc19944778dabdb42a06bab7192"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "_sceneweaveEvidence": {
+    "rawReporter": "chromium-earlier-c4.report.zip",
+    "rawReporterSha256": "1d6515cc1a317280c22f2a817b0d422985c52a0c567c7b8cde84c4753a48b417",
+    "attachmentPolicy": "Raw reporter ZIP preserves all original per-file JSON and inline bodies. Final C4 attachments are also archived by name; other existing-cohort external attachments retain their actual byte hash and original local path in this summary."
+  }
+}

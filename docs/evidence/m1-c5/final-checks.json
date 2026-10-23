@@ -1,0 +1,419 @@
+{
+  "capturedAt": "2026-10-22T19:30:20.940075+00:00",
+  "protectedHistory": {
+    "files": 826,
+    "expectedFiles": 826,
+    "mismatches": []
+  },
+  "todo": {
+    "sha256": "3c4ae9476d77bea4b2f9b04897e20cdccd7819874db378f4ca8d935678cf054c",
+    "matchesStartingHash": true,
+    "handling": "Preserved byte-for-byte without editing or restoring; excluded only from task whitespace scope."
+  },
+  "head": "8fcf8ed835778da59fcf564a39ae9c5c0b2d7303",
+  "headMatchesStartingAndFrozenCommit": true,
+  "version": "0.2.0-m1-c5",
+  "versionMatchesFrozenSource": true,
+  "gitBranch": "main",
+  "gitStatus": [
+    "M AGENTS.md",
+    " M CONTRIBUTING.md",
+    " M README.md",
+    " M docs/04-scene-document.md",
+    " M docs/06-storage-and-export.md",
+    " M docs/07-roadmap.md",
+    " M docs/09-quality-plan.md",
+    " M docs/README.md",
+    " M findings.md",
+    " M package-lock.json",
+    " M package.json",
+    " M progress.md",
+    " M src/App.tsx",
+    " M src/core/v2/scatter.ts",
+    " M src/core/v3/commands.ts",
+    " M src/editor/v2/AssetCanvas.tsx",
+    " M src/editor/v2/SceneInspector.tsx",
+    " M src/editor/v2/selection.ts",
+    " M src/editor/v3/selection.ts",
+    " M src/editor/v4/building-session.ts",
+    " M src/editor/v5/CompositionWorkbench.tsx",
+    " M src/io/v3/project-file.ts",
+    " M src/render/shared/canvas-renderer.ts",
+    " M src/render/shared/editor-render-plan.ts",
+    " M src/render/shared/types.ts",
+    " M src/render/v2/projection.ts",
+    " M src/render/v3/projection.ts",
+    " M task_plan.md",
+    " M tests/study-browser.spec.ts",
+    " M todo.md",
+    "?? docs/30-m1c-c4-handoff.md",
+    "?? docs/31-m1c-c4-validation.md",
+    "?? docs/32-m1c-c5-validation.md",
+    "?? docs/evidence/m1-c4-preparation/",
+    "?? docs/evidence/m1-c4/",
+    "?? docs/evidence/m1-c5/",
+    "?? src/core/v3/outdoor.test.ts",
+    "?? src/core/v3/outdoor.ts",
+    "?? src/core/v6/",
+    "?? src/editor/v6/",
+    "?? src/io/v6/",
+    "?? src/render/shared/paths.ts",
+    "?? src/render/v3/path-rendering.test.ts",
+    "?? tests/c4-fixtures.ts",
+    "?? tests/c4-render-fixtures.ts",
+    "?? tests/c4-renderer.spec.ts",
+    "?? tests/c4-storage.spec.ts",
+    "?? tests/c4-workbench.spec.ts",
+    "?? tests/c5-integration.spec.ts",
+    "?? tests/c5-storage-fixtures.ts",
+    "?? tests/c5-storage.spec.ts",
+    "?? tests/c5-ui-fixtures.ts",
+    "?? tools/performance/c5-observer.mjs",
+    "?? tools/performance/run-c5.mjs",
+    "?? tools/performance/summarize-c5.mjs"
+  ],
+  "stagedFiles": [],
+  "configuredToolingDeviations": {
+    "verified": {
+      "tools/performance/run-c5.mjs": {
+        "frozenSha256": "ea4d297266df24db86d28819b4f61dc45a6bc0b5b35398dd4ee60e6530b666a6",
+        "currentSha256": "64591983a8a7d28bc37a12f9e71d01eb4c8b633da02afb184540fcaeafdbe1fb",
+        "currentBytes": 56110,
+        "reason": "Runner-only configurable wait timeout added after the original formal batch failed; application, tests, other frozen tools and production dist were not changed. The original runner bytes are unavailable; retain the original hash without relabeling the current runner as original."
+      }
+    },
+    "invalid": [],
+    "boundary": "The frozen original runner hash and current configurable-timeout runner are distinct; this allowance does not relabel current bytes as the original formal runner."
+  },
+  "frozenSourceMismatches": [],
+  "delivery": "Local C5 implementation and applicable verification; these checks do not commit, push, deploy or confer complete M1 acceptance.",
+  "markdownLinks": {
+    "documents": 40,
+    "localReferences": 892,
+    "anchorReferences": 12,
+    "broken": []
+  },
+  "markdownTables": {
+    "tables": 230,
+    "issues": []
+  },
+  "qualityReferences": {
+    "defined": 67,
+    "referenced": 67,
+    "undefined": []
+  },
+  "targetedCredentialAndPrivateDataScan": {
+    "textPayloadsScanned": 869,
+    "skipped": [
+      {
+        "path": "docs/evidence/m1-c4/chromium-earlier-full-artifacts/error-context",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/chromium-earlier-full-artifacts/screenshot",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/chromium-earlier-full-artifacts/trace",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-gm-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-player-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-scn03-gm-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-scn03-player-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-03-19-825Z/gm-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-03-19-825Z/outdoor-reopened-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-03-19-825Z/outdoor-reopened-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-03-19-825Z/outdoor-restore-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-03-19-825Z/outdoor-restore-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-03-19-825Z/player-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/gm-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-reopened-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-reopened-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-restore-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-restore-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/player-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/attachments/1cc3cd4362c8072d2d5dd121559bd9fa00762febb3682fc5a52ad6b843f9b285.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/attachments/7f909c37af3321fb2675a29553ec8e0d1ac6b76b1c38468ddabf9d4924149b3f.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/attachments/99cb14a0b3b21cd7fd8c2592771cd3229835a28a0845210fa9fa2c6693aa923d.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/attachments/ae41fc95cb93145924d11f5a68393d86b0ea917f654cbcbec022ea6e6472e122.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/attachments/d8336c23dc80b5b56a29c8327569e2c2ed499470df858ec551c862b965411571.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/attachments/e8a061e8ac7519db247935e743839d72f3afedb883c5f70f9af76cb1ac1bd7a6.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-1/study-500-run-1-failure.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-2/study-500-run-1-failure.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-2/study-500-run-1-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-2/study-500-run-1-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-3/study-500-run-1-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-3/study-500-run-1-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-4/study-500-run-1-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/diagnostics/perf-diagnostic-4/study-500-run-1-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/island-2000-run-1-failure.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/island-500-run-1-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/island-500-run-1-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/island-500-run-2-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/island-500-run-2-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/island-500-run-3-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/island-500-run-3-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-2000-run-1-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-2000-run-1-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-2000-run-2-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-2000-run-2-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-2000-run-3-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-2000-run-3-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-500-run-1-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-500-run-1-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-500-run-2-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-500-run-2-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-500-run-3-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-final/study-500-run-3-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-repaired/study-500-run-1-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-repaired/study-500-run-1-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-repaired/study-500-run-2-gm-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-repaired/study-500-run-2-player-4096.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-repaired/study-500-run-3-failure.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/performance/performance-repaired-2/study-500-run-1-failure.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T15-52-49-262Z/gm-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T15-52-49-262Z/mixed-reopened-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T15-52-49-262Z/mixed-reopened-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T15-52-49-262Z/mixed-restore-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T15-52-49-262Z/mixed-restore-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T15-52-49-262Z/player-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T16-32-53-066Z/gm-4k.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T16-32-53-066Z/mixed-reopened-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T16-32-53-066Z/mixed-reopened-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T16-32-53-066Z/mixed-restore-390.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T16-32-53-066Z/mixed-restore-desktop.png",
+        "reason": "nontext file"
+      },
+      {
+        "path": "docs/evidence/m1-c5/production-ui/run-2026-10-22T16-32-53-066Z/player-4k.png",
+        "reason": "nontext file"
+      }
+    ],
+    "patterns": [
+      "credential",
+      "provider-token",
+      "contextual-personal-contact"
+    ],
+    "hits": [],
+    "errors": [],
+    "boundary": "Targeted credential/provider/contact patterns only, not a universal PII classifier. Local workspace paths and deliberately retained fictional GM text are evidence context."
+  },
+  "whitespace": {
+    "taskScopeExitCode": 0,
+    "taskScopeOutput": "",
+    "fullWorktreeExitCode": 2,
+    "fullWorktreeOutput": "todo.md:95: trailing whitespace.\n+    \ntodo.md:98: trailing whitespace.\n+    \ntodo.md:100: trailing whitespace.\n+    \ntodo.md:105: trailing whitespace.\n+    \ntodo.md:113: trailing whitespace.\n+    \ntodo.md:116: trailing whitespace.\n+    \ntodo.md:120: trailing whitespace.\n+    \n",
+    "untrackedTextFilesChecked": 161,
+    "untrackedTrailingWhitespace": []
+  },
+  "evidenceVerificationPassed": true,
+  "performanceConclusions": {
+    "completeFormalMatrix": false,
+    "performanceGatePassed": false,
+    "flagsRetained": true,
+    "batchNames": [
+      "performance-final",
+      "performance-repaired",
+      "performance-repaired-2"
+    ],
+    "boundary": "Evidence integrity checks may pass while the formal matrix remains incomplete and the performance gate remains failed."
+  },
+  "allPassed": true
+}

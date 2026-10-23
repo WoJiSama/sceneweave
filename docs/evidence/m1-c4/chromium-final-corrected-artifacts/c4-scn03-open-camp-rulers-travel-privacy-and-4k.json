@@ -1,0 +1,521 @@
+{
+  "method": "Native blank v6 authored through Chromium UI; every region/note used preview, explicit impact confirmation and one transaction. N-M01 uses Region/Prop/Note only and no Room or Path. Three ruler pairs were clicked on the actual canvas. Two sequential UI 4K PNG downloads were parsed from their actual bytes.",
+  "limits": "SCN-03 technical baseline only: one technical P2 stone prop, no full fire/tent/lamp artwork, no small-group or pathfinding acceptance. The east highland is a region at ground level; nonzero-height stairs are a separate C4 case.",
+  "preset": {
+    "presetId": "narrative",
+    "presetVersion": 1,
+    "distanceMode": "abstract",
+    "source": "Sceneweave 通用叙事偏好；非官方规则",
+    "gridSizeMm": 1000
+  },
+  "rooms": [],
+  "regions": {
+    "region-7081ffc3-7ffe-4b50-a163-0e3da2e4e85f": {
+      "id": "region-7081ffc3-7ffe-4b50-a163-0e3da2e4e85f",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "boundaryMm": [
+        {
+          "x": 2000,
+          "y": 5000
+        },
+        {
+          "x": 12000,
+          "y": 5000
+        },
+        {
+          "x": 12000,
+          "y": 19000
+        },
+        {
+          "x": 2000,
+          "y": 19000
+        }
+      ],
+      "kind": "terrain",
+      "blocksMovement": false,
+      "movementCostMultiplier": 1,
+      "visibility": "public"
+    },
+    "region-485085f8-973f-456a-b5d0-ecc4e715e90f": {
+      "id": "region-485085f8-973f-456a-b5d0-ecc4e715e90f",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "boundaryMm": [
+        {
+          "x": 14000,
+          "y": 0
+        },
+        {
+          "x": 18000,
+          "y": 0
+        },
+        {
+          "x": 18000,
+          "y": 11000
+        },
+        {
+          "x": 14000,
+          "y": 11000
+        }
+      ],
+      "kind": "hazard",
+      "blocksMovement": true,
+      "movementCostMultiplier": 1,
+      "visibility": "public"
+    },
+    "region-af499371-cd13-466b-8bb8-2276ce59921e": {
+      "id": "region-af499371-cd13-466b-8bb8-2276ce59921e",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "boundaryMm": [
+        {
+          "x": 14000,
+          "y": 13000
+        },
+        {
+          "x": 18000,
+          "y": 13000
+        },
+        {
+          "x": 18000,
+          "y": 24000
+        },
+        {
+          "x": 14000,
+          "y": 24000
+        }
+      ],
+      "kind": "hazard",
+      "blocksMovement": true,
+      "movementCostMultiplier": 1,
+      "visibility": "public"
+    },
+    "region-2bd32000-e78d-4da4-ad12-fc3e6054d8f6": {
+      "id": "region-2bd32000-e78d-4da4-ad12-fc3e6054d8f6",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "boundaryMm": [
+        {
+          "x": 20000,
+          "y": 6000
+        },
+        {
+          "x": 28000,
+          "y": 6000
+        },
+        {
+          "x": 28000,
+          "y": 18000
+        },
+        {
+          "x": 20000,
+          "y": 18000
+        }
+      ],
+      "kind": "terrain",
+      "blocksMovement": false,
+      "movementCostMultiplier": 1,
+      "visibility": "public"
+    },
+    "region-d685c278-6566-4520-a648-f49ae0580a87": {
+      "id": "region-d685c278-6566-4520-a648-f49ae0580a87",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "boundaryMm": [
+        {
+          "x": 14000,
+          "y": 11000
+        },
+        {
+          "x": 18000,
+          "y": 11000
+        },
+        {
+          "x": 18000,
+          "y": 13000
+        },
+        {
+          "x": 14000,
+          "y": 13000
+        }
+      ],
+      "kind": "terrain",
+      "blocksMovement": false,
+      "movementCostMultiplier": 1,
+      "visibility": "public"
+    }
+  },
+  "paths": {},
+  "notes": {
+    "4f917751-fc75-4b25-90a0-400514b76889": {
+      "id": "4f917751-fc75-4b25-90a0-400514b76889",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "anchor": {
+        "type": "point",
+        "positionMm": {
+          "x": 8000,
+          "y": 12000
+        }
+      },
+      "kind": "note",
+      "text": "营火地标 · 8000,12000（技术标记，营火美术待补）",
+      "visibility": "public"
+    },
+    "1c139878-eaed-4a81-8de4-f6d74d5967f7": {
+      "id": "1c139878-eaed-4a81-8de4-f6d74d5967f7",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "anchor": {
+        "type": "point",
+        "positionMm": {
+          "x": 14000,
+          "y": 12000
+        }
+      },
+      "kind": "note",
+      "text": "西桥头",
+      "visibility": "public"
+    },
+    "cbec6fc0-258d-4e64-9a41-1d689d23da5f": {
+      "id": "cbec6fc0-258d-4e64-9a41-1d689d23da5f",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "anchor": {
+        "type": "point",
+        "positionMm": {
+          "x": 18000,
+          "y": 12000
+        }
+      },
+      "kind": "note",
+      "text": "东桥头",
+      "visibility": "public"
+    },
+    "7818799a-d780-4d35-8c54-49d0fea50600": {
+      "id": "7818799a-d780-4d35-8c54-49d0fea50600",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "anchor": {
+        "type": "point",
+        "positionMm": {
+          "x": 24000,
+          "y": 12000
+        }
+      },
+      "kind": "note",
+      "text": "瞭望台 · 旧灯架（技术标记，灯架美术待补）",
+      "visibility": "public"
+    },
+    "e56d4fb2-da17-4bdb-9431-e67455fb3f60": {
+      "id": "e56d4fb2-da17-4bdb-9431-e67455fb3f60",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "anchor": {
+        "type": "point",
+        "positionMm": {
+          "x": 14000,
+          "y": 12000
+        }
+      },
+      "kind": "note",
+      "text": "其中一根支撑绳被新打的绳结临时接长。",
+      "visibility": "gm"
+    },
+    "37dac887-a0f7-4b3d-80c7-75a53d210ec9": {
+      "id": "37dac887-a0f7-4b3d-80c7-75a53d210ec9",
+      "floorId": "blank-floor",
+      "editLocked": false,
+      "anchor": {
+        "type": "point",
+        "positionMm": {
+          "x": 24000,
+          "y": 12000
+        }
+      },
+      "kind": "note",
+      "text": "灯油的气味来自营地同一批物资。",
+      "visibility": "gm"
+    }
+  },
+  "measured": [
+    {
+      "from": [
+        8000,
+        12000
+      ],
+      "to": [
+        14000,
+        12000
+      ],
+      "expectedMm": 6000,
+      "displayed": "6.000 m\nΔX 6000 · ΔY 0 mm"
+    },
+    {
+      "from": [
+        14000,
+        12000
+      ],
+      "to": [
+        18000,
+        12000
+      ],
+      "expectedMm": 4000,
+      "displayed": "4.000 m\nΔX 4000 · ΔY 0 mm"
+    },
+    {
+      "from": [
+        18000,
+        12000
+      ],
+      "to": [
+        24000,
+        12000
+      ],
+      "expectedMm": 6000,
+      "displayed": "6.000 m\nΔX 6000 · ΔY 0 mm"
+    }
+  ],
+  "rulerWasTemporary": true,
+  "movement": {
+    "bridgeRoute": {
+      "ok": true,
+      "issues": []
+    },
+    "waterRoute": {
+      "ok": false,
+      "issues": [
+        {
+          "code": "TERRAIN_TRAVEL_OBSTACLE",
+          "message": "有限通行净宽被阻挡区域侵入。",
+          "entityId": "region-485085f8-973f-456a-b5d0-ecc4e715e90f"
+        }
+      ]
+    }
+  },
+  "audienceResults": {
+    "gm": {
+      "fileName": "sceneweave-gm-map.png",
+      "byteLength": 359204,
+      "width": 4096,
+      "height": 3277,
+      "chunks": [
+        "IHDR",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IEND"
+      ],
+      "privateTextMarkers": [],
+      "projection": {
+        "noteIds": [
+          "4f917751-fc75-4b25-90a0-400514b76889",
+          "1c139878-eaed-4a81-8de4-f6d74d5967f7",
+          "cbec6fc0-258d-4e64-9a41-1d689d23da5f",
+          "7818799a-d780-4d35-8c54-49d0fea50600",
+          "e56d4fb2-da17-4bdb-9431-e67455fb3f60",
+          "37dac887-a0f7-4b3d-80c7-75a53d210ec9"
+        ],
+        "pathIds": [],
+        "propIds": [
+          "a4bfc290-e43a-43d7-b3be-5298557629fe"
+        ]
+      }
+    },
+    "player": {
+      "fileName": "sceneweave-player-map.png",
+      "byteLength": 341406,
+      "width": 4096,
+      "height": 3277,
+      "chunks": [
+        "IHDR",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IDAT",
+        "IEND"
+      ],
+      "privateTextMarkers": [],
+      "projection": {
+        "noteIds": [
+          "4f917751-fc75-4b25-90a0-400514b76889",
+          "1c139878-eaed-4a81-8de4-f6d74d5967f7",
+          "cbec6fc0-258d-4e64-9a41-1d689d23da5f",
+          "7818799a-d780-4d35-8c54-49d0fea50600"
+        ],
+        "pathIds": [],
+        "propIds": [
+          "a4bfc290-e43a-43d7-b3be-5298557629fe"
+        ]
+      }
+    }
+  }
+}

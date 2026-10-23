@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "evidenceDirectory": "docs/evidence/m1-c5",
+  "baseline": "work/c5-20261022/baseline.json",
+  "sourceBaseline": "work/c5-20261022/final-source-baseline.json",
+  "toolingDeviations": {
+    "tools/performance/run-c5.mjs": {
+      "frozenSha256": "ea4d297266df24db86d28819b4f61dc45a6bc0b5b35398dd4ee60e6530b666a6",
+      "currentSha256": "64591983a8a7d28bc37a12f9e71d01eb4c8b633da02afb184540fcaeafdbe1fb",
+      "currentBytes": 56110,
+      "reason": "Runner-only configurable wait timeout added after the original formal batch failed; application, tests, other frozen tools and production dist were not changed. The original runner bytes are unavailable; retain the original hash without relabeling the current runner as original."
+    }
+  },
+  "expectedProtectedFiles": 826,
+  "unit": {
+    "json": "work/c5-20261022/unit-final.json",
+    "log": "work/c5-20261022/unit-final.log",
+    "expectedFiles": 82,
+    "expectedTests": 979
+  },
+  "build": {
+    "log": "work/c5-20261022/build-final.log",
+    "directory": "dist",
+    "successPattern": "✓ built in"
+  },
+  "browser": {
+    "directory": "work/c5-20261022/browser-final-report",
+    "expectedTotal": 168,
+    "expectedCohort": {
+      "c5-integration.spec.ts": 3,
+      "c5-storage.spec.ts": 3
+    }
+  },
+  "production": {
+    "directory": "work/c5-20261022/production-ui",
+    "finalRun": "run-2026-10-22T16-32-53-066Z"
+  },
+  "performance": {
+    "batches": [
+      {
+        "name": "performance-final",
+        "directory": "work/c5-20261022/performance-final",
+        "log": "work/c5-20261022/performance-final.log",
+        "logExists": true,
+        "status": "failed",
+        "expectedResults": 9,
+        "failureKind": "product-timeout",
+        "failureCase": "island-2000-run-1",
+        "failureMessageContains": "page.waitForFunction: Timeout 60000ms exceeded",
+        "partialSampleCount": 137,
+        "pendingKind": "restore-protect-adopt-save",
+        "pendingOrdinal": 0,
+        "probeComplete": true,
+        "waitTimeoutMs": 60000,
+        "includeInFormalSubset": true
+      },
+      {
+        "name": "performance-repaired",
+        "directory": "work/c5-20261022/performance-repaired",
+        "log": "work/c5-20261022/performance-repaired.log",
+        "logExists": false,
+        "status": "failed",
+        "expectedResults": 2,
+        "failureKind": "host-wall-gap",
+        "failureCase": "study-500-run-3",
+        "failureMessageContains": "Runner event loop wall gap 853553ms exceeds interruption limit",
+        "partialSampleCount": 89,
+        "pendingKind": "ordinary-edit",
+        "pendingOrdinal": 0,
+        "probeComplete": false,
+        "waitTimeoutMs": 180000,
+        "includeInFormalSubset": false
+      },
+      {
+        "name": "performance-repaired-2",
+        "directory": "work/c5-20261022/performance-repaired-2",
+        "log": "work/c5-20261022/performance-repaired-2.log",
+        "logExists": true,
+        "status": "failed",
+        "expectedResults": 0,
+        "failureKind": "host-wall-gap",
+        "failureCase": "study-500-run-1",
+        "failureMessageContains": "Runner event loop wall gap 898445ms exceeds interruption limit",
+        "partialSampleCount": 112,
+        "pendingKind": "layer-hide",
+        "pendingOrdinal": 9,
+        "probeComplete": true,
+        "waitTimeoutMs": 180000,
+        "includeInFormalSubset": false
+      }
+    ],
+    "completeFormalMatrix": false,
+    "performanceGatePassed": false,
+    "expectedRuns": 3,
+    "expectedCases": [
+      "study-500",
+      "study-2000",
+      "island-500",
+      "island-2000"
+    ],
+    "expectedCounts": {
+      "selections": 30,
+      "edits": 10,
+      "layers": 10,
+      "appearances": 5,
+      "restores": 3,
+      "menus": 10,
+      "gestures": 3
+    },
+    "runnerHashExceptions": [
+      {
+        "batch": "performance-final",
+        "path": "tools/performance/run-c5.mjs",
+        "declaredSha256": "ea4d297266df24db86d28819b4f61dc45a6bc0b5b35398dd4ee60e6530b666a6",
+        "currentSha256": "64591983a8a7d28bc37a12f9e71d01eb4c8b633da02afb184540fcaeafdbe1fb",
+        "reason": "The historical 60-second batch declared an older runner. The current 180-second runner is retained separately and is not relabeled as the historical bytes."
+      }
+    ]
+  }
+}

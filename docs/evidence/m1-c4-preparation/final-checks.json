@@ -1,0 +1,38 @@
+{
+  "capturedAt": "2026-10-22T11:04:48.414995+00:00",
+  "scope": "C4 preparation document and worktree checks only; no runtime tests run",
+  "documents": [
+    "docs/30-m1c-c4-handoff.md",
+    "docs/07-roadmap.md",
+    "docs/README.md"
+  ],
+  "localLinksChecked": 93,
+  "linkErrors": [],
+  "tableErrors": [],
+  "documentWhitespaceErrors": [],
+  "qaReferencesChecked": [
+    "QA-ASSET-02",
+    "QA-IMPORT-03",
+    "QA-IO-01",
+    "QA-PERF-01",
+    "QA-REC-01",
+    "QA-SCATTER-01",
+    "QA-SEC-01",
+    "QA-SEC-06",
+    "QA-TERRAIN-01",
+    "QA-TERRAIN-02"
+  ],
+  "missingQaReferences": [],
+  "gitDiffCheckExitCode": 0,
+  "gitDiffCheckOutput": "",
+  "headUnchanged": true,
+  "packageVersionUnchanged": true,
+  "todoSha256Unchanged": true,
+  "todoSha256": "3c4ae9476d77bea4b2f9b04897e20cdccd7819874db378f4ca8d935678cf054c",
+  "unexpectedTrackedChanges": [],
+  "unexpectedUntrackedFiles": [],
+  "productAndHistoricalTrackedFilesUnchanged": true,
+  "baselineAuditCountsChecked": true,
+  "runtimeTestsRerun": false,
+  "passed": true
+}

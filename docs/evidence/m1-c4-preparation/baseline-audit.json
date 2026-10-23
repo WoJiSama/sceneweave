@@ -1,0 +1,115 @@
+{
+  "capturedAt": "2026-10-22T10:55:49.690339+00:00",
+  "scope": "C3 source/evidence integrity and Git baseline audit for C4 preparation; no tests rerun",
+  "head": "8fcf8ed835778da59fcf564a39ae9c5c0b2d7303",
+  "remoteMainVerified": "8fcf8ed835778da59fcf564a39ae9c5c0b2d7303",
+  "version": "0.2.0-m1-c3",
+  "source": {
+    "fingerprint": "docs/evidence/m1-c3/source-fingerprints.json",
+    "files": 276,
+    "mismatches": []
+  },
+  "archives": {
+    "unit-final-frozen.json.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "unit-final-frozen.log.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "chrome-full-final.compact.json.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "chrome-full-final.log.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "c3-final-entry-return.json.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "c3-final-entry-return.log.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "c3-final-frozen.json.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "c3-final-frozen.log.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "build-frozen-final.log.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "build-frozen-final-retry.log.gz": {
+      "compressedAndRawHashMatch": true
+    },
+    "production-final.log.gz": {
+      "compressedAndRawHashMatch": true
+    }
+  },
+  "productionPackages": [
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/appearance-baseline.sceneweave",
+      "bytes": 204088,
+      "entriesChecked": 24,
+      "crcEntryHashesAndArchiveHashMatch": true
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/blank-complete.sceneweave",
+      "bytes": 179306,
+      "entriesChecked": 22,
+      "crcEntryHashesAndArchiveHashMatch": true
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/restored-complete.sceneweave",
+      "bytes": 215764,
+      "entriesChecked": 25,
+      "crcEntryHashesAndArchiveHashMatch": true
+    },
+    {
+      "path": "production-ui/run-2026-10-22T09-58-32-715Z/selected-history.sceneweave",
+      "bytes": 222723,
+      "entriesChecked": 29,
+      "crcEntryHashesAndArchiveHashMatch": true
+    }
+  ],
+  "errors": [],
+  "build": {
+    "fingerprint": "docs/evidence/m1-c3/build-fingerprints.json",
+    "files": 45,
+    "mismatches": []
+  },
+  "recordedUnit": {
+    "fileCountFromLog": 70,
+    "testsPassed": 839,
+    "testsFailed": 0,
+    "success": true
+  },
+  "recordedBrowser": {
+    "chrome-full-final.compact.json.gz": {
+      "startTime": "2026-10-22T09:29:33.519Z",
+      "duration": 680347.805,
+      "expected": 145,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "c3-final-frozen.json.gz": {
+      "startTime": "2026-10-22T09:54:31.206Z",
+      "duration": 170198.058,
+      "expected": 16,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "recordedProduction": {
+    "path": "docs/evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/report.json",
+    "status": "passed",
+    "finishedAt": "2026-10-22T09:59:07.534Z"
+  },
+  "todoSha256AtPreparationStart": "3c4ae9476d77bea4b2f9b04897e20cdccd7819874db378f4ca8d935678cf054c",
+  "interpretation": [
+    "Recorded C3 unit 70 files / 839 cases; earlier full Chrome 145 and final C3 16 are separate cohorts",
+    "Current source and retained build fingerprints checked against C3 final record",
+    "No C4 product implementation or runtime validation claimed",
+    "Remote main hash verified by git ls-remote; deployment success not inferred"
+  ]
+}

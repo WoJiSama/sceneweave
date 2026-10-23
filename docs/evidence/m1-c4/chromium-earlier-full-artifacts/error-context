@@ -1,0 +1,212 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - button "织境 Sceneweave" [ref=e5] [cursor=pointer]:
+      - img [ref=e6]
+      - generic [ref=e8]:
+        - text: 织境
+        - generic [ref=e9]: Sceneweave
+    - generic [ref=e10]:
+      - img [ref=e11]
+      - generic [ref=e15]: 素材工坊
+      - generic [ref=e16]: 室内 · 室外
+    - generic [ref=e17]:
+      - button "用户图层" [ref=e18] [cursor=pointer]:
+        - img [ref=e19]
+        - text: 用户图层
+      - status [ref=e23]:
+        - img [ref=e24]
+        - text: 本地已保存
+      - button "打开工程" [ref=e27] [cursor=pointer]:
+        - img [ref=e28]
+        - text: 打开工程
+      - button "完整工程" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - text: 完整工程
+      - button "4K PNG" [ref=e35] [cursor=pointer]:
+        - img [ref=e36]
+        - text: 4K PNG
+  - generic [ref=e39]:
+    - text: 空白创作 · 墨绘原野素材
+    - generic [ref=e40]: 放置与编辑 / 完整本地保存 / 室内外样板参考
+  - generic [ref=e41]:
+    - complementary [ref=e42]:
+      - generic [ref=e43]:
+        - img [ref=e44]
+        - heading "场景与组件" [level=2] [ref=e48]
+      - button "新建空白场景" [ref=e49] [cursor=pointer]:
+        - img [ref=e50]
+        - text: 新建空白场景
+      - group "场景对象分类" [ref=e51]:
+        - button "放置" [ref=e52] [cursor=pointer]
+        - button "物件" [pressed] [ref=e53] [cursor=pointer]
+        - button "组合" [ref=e54] [cursor=pointer]
+        - button "结构" [ref=e55] [cursor=pointer]
+      - generic [ref=e56]:
+        - paragraph [ref=e57]: Shift 点击 / Enter 增选 · Option/Alt 点击 / Enter 减选
+        - generic [ref=e58]:
+          - generic [ref=e59]:
+            - img [ref=e60]
+            - searchbox "搜索场景物件" [ref=e63]
+          - generic [ref=e64]:
+            - generic [ref=e65]: 13 件物件
+            - button "定位所选对象" [ref=e66] [cursor=pointer]:
+              - img [ref=e67]
+              - text: 定位所选
+          - group "场景物件列表" [ref=e70]:
+            - generic [ref=e71]:
+              - button "深橡木书桌" [ref=e72] [cursor=pointer]:
+                - img [ref=e73]
+                - generic [ref=e78]: 深橡木书桌
+              - button "橡木座椅" [ref=e79] [cursor=pointer]:
+                - img [ref=e80]
+                - generic [ref=e85]: 橡木座椅
+              - button "三本叠书" [ref=e86] [cursor=pointer]:
+                - img [ref=e87]
+                - generic [ref=e92]: 三本叠书
+              - button "三本叠书" [ref=e93] [cursor=pointer]:
+                - img [ref=e94]
+                - generic [ref=e99]: 三本叠书
+              - button "三本叠书" [ref=e100] [cursor=pointer]:
+                - img [ref=e101]
+                - generic [ref=e106]: 三本叠书
+              - button "手稿纸张组" [ref=e107] [cursor=pointer]:
+                - img [ref=e108]
+                - generic [ref=e113]: 手稿纸张组
+              - button "露台圆桌" [ref=e114] [cursor=pointer]:
+                - img [ref=e115]
+                - generic [ref=e120]: 露台圆桌
+              - button "橡木座椅" [ref=e121] [cursor=pointer]:
+                - img [ref=e122]
+                - generic [ref=e127]: 橡木座椅
+              - button "橡木座椅" [pressed] [ref=e128] [cursor=pointer]:
+                - img [ref=e129]
+                - generic [ref=e134]: 橡木座椅
+              - button "橡木书架" [ref=e135] [cursor=pointer]:
+                - img [ref=e136]
+                - generic [ref=e141]: 橡木书架
+              - button "暖灰红纹书房毯" [ref=e142] [cursor=pointer]:
+                - img [ref=e143]
+                - generic [ref=e148]: 暖灰红纹书房毯
+              - button "陶盆与叶簇" [ref=e149] [cursor=pointer]:
+                - img [ref=e150]
+                - generic [ref=e155]: 陶盆与叶簇
+              - button "铜色桌灯" [ref=e156] [cursor=pointer]:
+                - img [ref=e157]
+                - generic [ref=e162]: 铜色桌灯
+          - paragraph [ref=e163]: ↑↓ / Home / End / Page 浏览 · Enter 选择
+      - button "书房与露台 打开可编辑建筑样板 厚墙 · 斜窗 · 木石铺装 · 组件组合" [ref=e164] [cursor=pointer]:
+        - strong [ref=e170]: 书房与露台
+        - generic [ref=e171]: 打开可编辑建筑样板
+        - generic [ref=e172]: 厚墙 · 斜窗 · 木石铺装 · 组件组合
+      - button "双层岩岛 打开可编辑室外样板 台地与悬崖 · 草岩浅水 · 植被散布" [ref=e173] [cursor=pointer]:
+        - strong [ref=e180]: 双层岩岛
+        - generic [ref=e181]: 打开可编辑室外样板
+        - generic [ref=e182]: 台地与悬崖 · 草岩浅水 · 植被散布
+      - group [ref=e183]:
+        - generic "工程工具与 B1 校样" [ref=e184] [cursor=pointer]
+        - button "木纹书房 打开材质校样 B1 · 3 张位图 · 2 件家具" [ref=e185] [cursor=pointer]:
+          - strong [ref=e186]: 木纹书房
+          - generic [ref=e187]: 打开材质校样
+          - generic [ref=e188]: B1 · 3 张位图 · 2 件家具
+        - button "迁移当前 M0 场景" [ref=e189] [cursor=pointer]:
+          - img [ref=e190]
+          - text: 迁移当前 M0 场景
+      - group [ref=e192]:
+        - generic "最近的完整工程 1" [ref=e193] [cursor=pointer]:
+          - text: 最近的完整工程
+          - generic [ref=e194]: "1"
+    - main [ref=e195]:
+      - generic [ref=e196]:
+        - generic [ref=e197]:
+          - text: 主持人场景
+          - heading "书房与露台 · 墨绘原野" [level=1] [ref=e198]
+        - generic [ref=e199]:
+          - button "撤销素材编辑" [ref=e200] [cursor=pointer]:
+            - img [ref=e201]
+          - button "重做素材编辑" [disabled] [ref=e204]:
+            - img [ref=e205]
+          - button "素材历史快照" [ref=e208] [cursor=pointer]:
+            - img [ref=e209]
+      - generic [ref=e212]:
+        - group "预览受众" [ref=e213]:
+          - button "主持人" [pressed] [ref=e214] [cursor=pointer]
+          - button "玩家" [ref=e215] [cursor=pointer]
+        - generic [ref=e216]: 14.0 × 10.0 m · 固定范围
+      - generic [ref=e218]:
+        - group "地图视口工具" [ref=e219]:
+          - button "选择地图对象" [pressed] [ref=e220] [cursor=pointer]:
+            - img [ref=e221]
+          - button "平移地图" [ref=e223] [cursor=pointer]:
+            - img [ref=e224]
+          - button "缩小地图" [ref=e230] [cursor=pointer]:
+            - img [ref=e231]
+          - status "地图缩放比例" [ref=e234]: 100%
+          - button "放大地图" [ref=e235] [cursor=pointer]:
+            - img [ref=e236]
+          - button "适应全图" [ref=e239] [cursor=pointer]:
+            - img [ref=e240]
+            - generic [ref=e245]: 全图
+          - button "全选可编辑对象" [ref=e246] [cursor=pointer]: 全选
+          - button "替换选择" [pressed] [ref=e248] [cursor=pointer]: 替换
+          - button "增加选择" [ref=e249] [cursor=pointer]: 增加
+          - button "减去选择" [ref=e250] [cursor=pointer]: 减去
+          - generic [ref=e251]:
+            - checkbox "包含相交对象" [ref=e252]
+            - text: 相交
+          - generic [ref=e253]:
+            - checkbox "选择组合成员" [checked] [ref=e254]
+            - text: 成员
+          - generic [ref=e255]: 滚轮缩放 · 空格拖动
+        - group "地图视口" [ref=e256]:
+          - generic "材质场景主持人预览" [ref=e257]
+        - status [ref=e258]: 单击选择 · 拖动框选 · Shift 增选 · Option/Alt 减选
+      - generic [ref=e259]:
+        - generic [ref=e260]: 主持人视图 · 工程可能包含秘密
+        - generic [ref=e261]: 15 张位图 · 13 件物件 · r1
+    - complementary [ref=e262]:
+      - button "更多操作" [ref=e263] [cursor=pointer]
+      - generic [ref=e264]:
+        - img [ref=e265]
+        - heading "物件属性" [level=2] [ref=e270]
+      - heading "橡木座椅" [level=3] [ref=e271]
+      - paragraph [ref=e272]: 虚线分别显示图像范围与物理占地。一次修改可以完整撤销。
+      - button "选择整个露台一桌两椅" [ref=e273] [cursor=pointer]:
+        - img [ref=e274]
+        - text: 选择整个露台一桌两椅
+      - group [ref=e278]:
+        - generic [ref=e279]:
+          - text: 物件 X
+          - generic [ref=e280]:
+            - spinbutton "物件 X" [ref=e281]: "11100"
+            - generic [ref=e282]: mm
+        - generic [ref=e283]:
+          - text: 物件 Y
+          - generic [ref=e284]:
+            - spinbutton "物件 Y" [active] [ref=e285]: "4700"
+            - generic [ref=e286]: mm
+        - generic [ref=e287]:
+          - text: 物件旋转
+          - generic [ref=e288]:
+            - spinbutton "物件旋转" [ref=e289]: "0"
+            - generic [ref=e290]: °
+        - generic [ref=e291]:
+          - text: 外观变体
+          - combobox "物件外观变体" [ref=e292]:
+            - option "橡木座椅" [selected]
+            - option "磨损座椅"
+          - generic [ref=e293]: 保留位置、尺寸、占地和公开状态
+      - button "删除物件" [ref=e294] [cursor=pointer]
+      - generic [ref=e295]:
+        - term [ref=e296]: 物理占地
+        - definition [ref=e297]: 600 × 600 mm
+        - term [ref=e298]: 图像范围
+        - definition [ref=e299]: 1000 × 1000 mm
+        - term [ref=e300]: 阻挡移动
+        - definition [ref=e301]: 是
+        - term [ref=e302]: 可见范围
+        - definition [ref=e303]: 公开
+      - button "返回工程信息" [ref=e304] [cursor=pointer]
+```

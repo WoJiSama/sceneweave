@@ -1,0 +1,208 @@
+{
+  "source-fingerprints.json": {
+    "files": 371,
+    "allHashesAndSizesMatch": true
+  },
+  "build-fingerprints.json": {
+    "files": 48,
+    "allHashesAndSizesMatch": true
+  },
+  "archives": {
+    "losslessGzipReports": 24,
+    "archivedAttachments": 21,
+    "allHashesAndSizesMatch": true
+  },
+  "unit": {
+    "files": 81,
+    "passedTests": 969,
+    "failedTests": 0,
+    "durationSecondsFromLog": 21.14
+  },
+  "browserReporters": [
+    {
+      "path": "chromium-final-corrected.report.zip",
+      "stats": {
+        "total": 162,
+        "expected": 162,
+        "unexpected": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "ok": true
+      },
+      "members": 38,
+      "localExternalAttachmentsVerified": 92,
+      "crcAndHashVerified": true
+    },
+    {
+      "path": "chromium-earlier-c4.report.zip",
+      "stats": {
+        "total": 12,
+        "expected": 12,
+        "unexpected": 0,
+        "flaky": 0,
+        "skipped": 0,
+        "ok": true
+      },
+      "members": 4,
+      "localExternalAttachmentsVerified": 4,
+      "crcAndHashVerified": true
+    },
+    {
+      "path": "chromium-earlier-full.report.zip",
+      "stats": {
+        "total": 162,
+        "expected": 161,
+        "unexpected": 1,
+        "flaky": 0,
+        "skipped": 0,
+        "ok": false
+      },
+      "members": 38,
+      "localExternalAttachmentsVerified": 95,
+      "crcAndHashVerified": true
+    }
+  ],
+  "productionRuns": [
+    {
+      "path": "production-ui/run-2026-10-22T14-03-19-825Z",
+      "finalCorrectedSource": false,
+      "packages": [
+        {
+          "path": "production-ui/run-2026-10-22T14-03-19-825Z/blank-complete.sceneweave",
+          "bytes": 412822,
+          "sha256": "bd9d2df490ab90e1391679d904d00bbbf64964ca9a7ce767d2224ebfb401af9c",
+          "contentHash": "73ab66930ff7843f3395950a397faff6e014a757156ab0ebf6de4fb2cab88a37",
+          "revision": 0,
+          "entries": 32,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [],
+          "crcManifestResourceLicenseClosureVerified": true
+        },
+        {
+          "path": "production-ui/run-2026-10-22T14-03-19-825Z/outdoor-baseline.sceneweave",
+          "bytes": 415661,
+          "sha256": "7fcfaa012cfdec4867b779b1be5473ac116c5b3e4598826d1f8b28a5768fb493",
+          "contentHash": "60d02f79910dd098a8ea5f395d23520c6f4d89502bc8b97d3010796480144b29",
+          "revision": 4,
+          "entries": 32,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [],
+          "crcManifestResourceLicenseClosureVerified": true
+        },
+        {
+          "path": "production-ui/run-2026-10-22T14-03-19-825Z/restored-complete.sceneweave",
+          "bytes": 415660,
+          "sha256": "b55bfe244ab4ae042abffa644a9cc344a38f2a583850463a87b386d7f8ea78e3",
+          "contentHash": "7f0c8a27e0b956c4401992aa003daf1f7f7da1dddb3e77eb69b29bd5955350f9",
+          "revision": 7,
+          "entries": 32,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [],
+          "crcManifestResourceLicenseClosureVerified": true
+        },
+        {
+          "path": "production-ui/run-2026-10-22T14-03-19-825Z/selected-history.sceneweave",
+          "bytes": 425407,
+          "sha256": "dbc189642172167f9aa01ae3d9e274c5457bb2605c0f1d8f7204466097e6c34d",
+          "contentHash": "7f0c8a27e0b956c4401992aa003daf1f7f7da1dddb3e77eb69b29bd5955350f9",
+          "revision": 7,
+          "entries": 36,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [
+            {
+              "id": "c54b2568-3fbe-487d-9642-e12a58132184",
+              "contentHash": "60d02f79910dd098a8ea5f395d23520c6f4d89502bc8b97d3010796480144b29"
+            }
+          ],
+          "crcManifestResourceLicenseClosureVerified": true
+        }
+      ],
+      "nativeImageDecodeEvidence": "report.json and runner-used.mjs; this independent check verifies PNG header/CRC/IDAT, not a second browser run",
+      "allRecordedFileHashesMatch": true
+    },
+    {
+      "path": "production-ui/run-2026-10-22T14-50-23-377Z",
+      "finalCorrectedSource": true,
+      "packages": [
+        {
+          "path": "production-ui/run-2026-10-22T14-50-23-377Z/blank-complete.sceneweave",
+          "bytes": 412825,
+          "sha256": "a8aeb45524b18541add08230ae6c077114d05aafb1a9d05600ddf1bd06ae3809",
+          "contentHash": "aefd9a5de9d5d9d9dffa9d2e7ff9ff99fbeb9a0c07ce121ffb4efdaa775d0054",
+          "revision": 0,
+          "entries": 32,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [],
+          "crcManifestResourceLicenseClosureVerified": true
+        },
+        {
+          "path": "production-ui/run-2026-10-22T14-50-23-377Z/outdoor-baseline.sceneweave",
+          "bytes": 415651,
+          "sha256": "efeb9572b20a997d58f4b491c3b7007a9559065ab971838129846e5ec04aaf70",
+          "contentHash": "d2b449e3512da3a1c0a7ccda64122fd68bc5acb1f49f56c12b1228520b777d8e",
+          "revision": 4,
+          "entries": 32,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [],
+          "crcManifestResourceLicenseClosureVerified": true
+        },
+        {
+          "path": "production-ui/run-2026-10-22T14-50-23-377Z/restored-complete.sceneweave",
+          "bytes": 415645,
+          "sha256": "0341e9d1df2353e96d7ee48bb0fbf1e6f3f2feb0b1e937c4e19078fc3b941fd8",
+          "contentHash": "9b7857c486f15d7d002c590d620a45527ab32e3d6544c9975044bc7d978335b7",
+          "revision": 7,
+          "entries": 32,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [],
+          "crcManifestResourceLicenseClosureVerified": true
+        },
+        {
+          "path": "production-ui/run-2026-10-22T14-50-23-377Z/selected-history.sceneweave",
+          "bytes": 425377,
+          "sha256": "828ffc320dc72add05ec89a179bbfba9770d15cb4244ec0df2b5981d486fbd23",
+          "contentHash": "9b7857c486f15d7d002c590d620a45527ab32e3d6544c9975044bc7d978335b7",
+          "revision": 7,
+          "entries": 36,
+          "images": 28,
+          "licenses": 1,
+          "snapshots": [
+            {
+              "id": "a99c41b1-aa20-41d8-8f55-07aee98bf6a0",
+              "contentHash": "d2b449e3512da3a1c0a7ccda64122fd68bc5acb1f49f56c12b1228520b777d8e"
+            }
+          ],
+          "crcManifestResourceLicenseClosureVerified": true
+        }
+      ],
+      "nativeImageDecodeEvidence": "report.json and runner-used.mjs; this independent check verifies PNG header/CRC/IDAT, not a second browser run",
+      "allRecordedFileHashesMatch": true
+    }
+  ],
+  "verificationScripts": [
+    {
+      "path": "archive-evidence-used.py",
+      "bytes": 9360,
+      "sha256": "06bbdaae1d6f8cd54dbe5d18219f26cee1849a6d8adb48d068677f19c623ab79"
+    },
+    {
+      "path": "verify-evidence-used.py",
+      "bytes": 13815,
+      "sha256": "66d6989072dadbc785491da754dcf4fb512ec49eb4f47fab013d11c372497821"
+    },
+    {
+      "path": "final-checks-used.py",
+      "bytes": 11095,
+      "sha256": "6ec909ac307486fa44bb5f5900c44307df39cafe1dee8f8522ea4f5719d4d901"
+    }
+  ],
+  "capturedAt": "2026-10-22T15:09:25.145421+00:00",
+  "allPassed": true
+}

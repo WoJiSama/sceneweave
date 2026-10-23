@@ -321,6 +321,18 @@ function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection,
     ctx.restore()
   }
 }
+function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, sx: number, sy: number): void {
+  for (const path of projection.paths) {
+    const outline = polygonPath(path.points), edge = path.edgeStyle
+    ctx.save()
+    if (edge.bandWidthMm) {
+      ctx.save(); ctx.globalAlpha = .22; ctx.filter = `blur(${edge.bandWidthMm * .3 * Math.max(sx, sy)}px)`; ctx.strokeStyle = edge.color; ctx.lineWidth = edge.bandWidthMm; ctx.lineJoin = 'round'; ctx.stroke(outline); ctx.restore()
+    }
+    fillSurface(ctx, outline, path.style, projection, raster, '#B49D77')
+    if (edge.strokeWidthMm) { ctx.strokeStyle = edge.color; ctx.lineWidth = edge.strokeWidthMm; ctx.lineJoin = 'round'; ctx.stroke(outline) }
+    ctx.restore()
+  }
+}
 function drawConnections(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
   for (const c of projection.connections) {
     const polygon = connectionPolygon(c), path = polygonPath(polygon), length = Math.hypot(c.end.x - c.start.x, c.end.y - c.start.y)
@@ -346,8 +358,14 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   worldTransform(ctx, bounds, sx, sy)
   for (const area of projection.terrain) fillSurface(ctx, polygonPath(area.points), area.style, projection, raster, '#C3BEA8')
   drawTerrainEdges(ctx, projection, raster, sx, sy)
-  drawConnections(ctx, projection, raster)
+  // Keep historical scenes without paths on their old paint order. The
+  // audience-owned flag survives temporary hiding of the last editor path.
+  const pathsOverRooms = projection.pathPaintOrder !== undefined
+  if (!pathsOverRooms) drawConnections(ctx, projection, raster)
   for (const room of projection.rooms) fillSurface(ctx, polygonPath(room.points), room.style, projection, raster, '#B9AA88')
+  drawPaths(ctx, projection, raster, sx, sy)
+  // A road color never conceals the explicit crossing's stair/ramp marks.
+  if (pathsOverRooms) drawConnections(ctx, projection, raster)
   // Projection owns the canonical layer/order/id sorting; keep its order through the wall split.
   for (const prop of projection.props) if (prop.renderLayer === 'ground') drawProp(ctx, prop, projection, raster, sx, sy, propDetails?.get(prop.id))
   checkCancelled(signal)
