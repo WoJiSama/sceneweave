@@ -1,8 +1,0 @@
-{
-  "finiteStairsWidthMm": 2000,
-  "stairPassable": true,
-  "elsewhereCliffBlocked": true,
-  "requiredConnectionRemovalRejected": true,
-  "revisionHistorySaveUnchanged": true,
-  "sameRevisionOtherSceneClearsStaleResult": true
-}

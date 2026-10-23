@@ -1,5 +1,7 @@
 # 大量选择与编辑预览性能
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 2026-10-21。本批承接 C1b 的明显卡顿，先验证优化再进入 C1c；完整 QA-PERF-01/04 仍保持开放。
 
 ## 原因与设计
@@ -20,11 +22,11 @@
 
 每组3次独立浏览器运行，每轮3对预热后30次真实大范围框选与30次替换单选，8次rAF节奏指针移动；同一采集器观测pointerup、准确selectedIds与属性面板就绪的DOM、双rAF、帧间隔及LongTask。双rAF是显示调度代理，既不是GPU完成也不是物理呈现或INP。拖动全过程包括测试工具人为移动，不以其总时长当作松手响应。
 
-精确选择独立计算旋转轮廓与锁；检查超256操作禁用、底图绘制计数、revision、保存状态、完整导出包和原始IndexedDB内容均不变。新的可见范围补细节只在采样前稳定，不把后台重绘掩盖到选择成绩中。每类每组90次，nearest-rank p95；逐轮和全部原始样本无损归档于[evidence](evidence/m1-c-selection/artifact-index.json)。失败批次仍保留本地，不混入成功矩阵。
+精确选择独立计算旋转轮廓与锁；检查超256操作禁用、底图绘制计数、revision、保存状态、完整导出包和原始IndexedDB内容均不变。新的可见范围补细节只在采样前稳定，不把后台重绘掩盖到选择成绩中。每类每组90次，nearest-rank p95；逐轮和全部原始样本无损归档于evidence（原附件已清理，旧路径：`docs/evidence/m1-c-selection/artifact-index.json`）。失败批次仍保留本地，不混入成功矩阵。
 
 ## 最终结果与入口判定
 
-四组各3轮完整通过；每类每组合并90次的p95如下（毫秒）。完整三版对照及逐轮表见[正式对照](evidence/m1-c-selection/selection-designed-verified-setup-fixed/comparison.md)。
+四组各3轮完整通过；每类每组合并90次的p95如下（毫秒）。完整三版对照及逐轮表见正式对照（原附件已清理，旧路径：`docs/evidence/m1-c-selection/selection-designed-verified-setup-fixed/comparison.md`）。
 
 | 负载 | DOM框选 基线→最终 | 双rAF框选 基线→最终 | 双rAF改单选 基线→最终 |
 |---|---:|---:|---:|

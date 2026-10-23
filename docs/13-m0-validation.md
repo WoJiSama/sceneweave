@@ -1,5 +1,7 @@
 # M0 几何版原型验证报告
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 验证日期：2026-10-20。应用版本：`0.1.0-m0`。文档与容器版本均为 1，工程配置为 `m0-geometry`。
 
 **几何版原型首轮验证完成。** 95 项单元测试、13 项真实 Chrome 浏览器测试及生产构建通过。当前证据支持保留 React + TypeScript + Konva、独立场景文档和 IndexedDB CAS 方案，继续开发手工编辑器。这里的通过仅覆盖下文列明的 M0 子集；完整 SCN-01/02/03、真实素材和全部里程碑退出门槛仍未通过验收。
@@ -10,9 +12,9 @@
 
 这不是从空白完成房屋的编辑器：没有房间新建/自由绘制、完整素材管线、家具占地路径求解、AI、Worker、PWA 离线冷启动或 UVTT。未支持的 `pathChecks`、`minPathWidthMm`、多楼层、外部素材工程会明确拒绝。
 
-测试针对本报告所在提交的实现运行。为避免让文档提交自身成为循环版本引用，保留 [35 个实现/测试/配置文件的 SHA-256 清单](evidence/m0/implementation-files.sha256)。清单自身 SHA-256 为 `f03c46dd2f9b8cbc5727bbf7dab14feccb1bff75e0e5e785caffa1ebee482ee1`；[运行汇总](evidence/m0/validation-summary.json)记录命令结果和环境。后续源码改变后，这些结果只代表此清单对应的实现。
+测试针对本报告所在提交的实现运行。为避免让文档提交自身成为循环版本引用，保留 35 个实现/测试/配置文件的 SHA-256 清单（原附件已清理，旧路径：`docs/evidence/m0/implementation-files.sha256`）。清单自身 SHA-256 为 `f03c46dd2f9b8cbc5727bbf7dab14feccb1bff75e0e5e785caffa1ebee482ee1`；运行汇总（原附件已清理，旧路径：`docs/evidence/m0/validation-summary.json`）记录命令结果和环境。后续源码改变后，这些结果只代表此清单对应的实现。
 
-![M0 场景编辑器](evidence/m0/sceneweave-editor.png)
+原图：M0 场景编辑器（原附件已清理，旧路径：`docs/evidence/m0/sceneweave-editor.png`）
 
 ## 2. 环境与复现
 
@@ -46,7 +48,7 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 
 测试使用独立临时浏览器上下文，不读写用户的日常 Chrome profile。配置会在 `127.0.0.1:5173` 启动服务或在非 CI 环境复用同端口开发服务；源码不同时应先重启正确服务。E2E 覆盖开发服务，`npm run preview` 的生产构建另做了页面加载、玩家预览和控制台冒烟检查，没有声称完整生产版 E2E 已运行。
 
-`test-results/` 与 `playwright-report/` 是本地临时结果，下次测试会刷新。[归档证据目录](evidence/m0/README.md)保存本轮原始样本和图片。
+`test-results/` 与 `playwright-report/` 是本地临时结果，下次测试会刷新。归档证据目录（原附件已清理，旧路径：`docs/evidence/m0/README.md`）保存本轮原始样本和图片。
 
 ## 3. 自动化结果与覆盖范围
 
@@ -83,7 +85,7 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 
 ## 4. 500 / 2000 物件实测
 
-原始数据：[performance.json](evidence/m0/performance.json)。采集结束时间为 `2026-10-20T05:26:49.319Z`。本轮只有一次统一运行，不提供跨运行置信区间或最低配置承诺。
+原始数据：performance.json（原附件已清理，旧路径：`docs/evidence/m0/performance.json`）。采集结束时间为 `2026-10-20T05:26:49.319Z`。本轮只有一次统一运行，不提供跨运行置信区间或最低配置承诺。
 
 场景为 50 × 50 网格，格长 1524 mm，500 或 2000 个原创程序符号，无外部纹理，不用复杂房间/墙体数量代表该负载。数量为文档中的总物件数；初始适应画布，平移/缩放期间未逐帧统计视口可见数量。应用页面已加载，再装载新的负载文档，没有图片纹理的冷/热解码差异。
 
@@ -102,11 +104,11 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 
 JS heap 仅在负载结束时采到约 **46.7/65.2 MiB** 的点值，原始记录包含对应 total/limit。它不是浏览器完整内存或峰值内存，没有测到的峰值不填成零。未覆盖真实纹理、批量选区、数百房间/墙、移动端、高分屏和长期编辑。
 
-负载截图：[500 物件](evidence/m0/workload-500.png)、[2000 物件](evidence/m0/workload-2000.png)。
+负载截图：500 物件（原附件已清理，旧路径：`docs/evidence/m0/workload-500.png`）、2000 物件（原附件已清理，旧路径：`docs/evidence/m0/workload-2000.png`）。
 
 ## 5. 4K 玩家输出与秘密验证
 
-原始记录：[privacy-and-export.json](evidence/m0/privacy-and-export.json)；实际文件：[玩家 PNG](evidence/m0/player-4k.png)。固定导出世界范围为 19000 × 15000 mm，长边 4096，对应 **4096 × 3234 px**。
+原始记录：privacy-and-export.json（原附件已清理，旧路径：`docs/evidence/m0/privacy-and-export.json`）；实际文件：玩家 PNG（原附件已清理，旧路径：`docs/evidence/m0/player-4k.png`）。固定导出世界范围为 19000 × 15000 mm，长边 4096，对应 **4096 × 3234 px**。
 
 配对场景改变隐藏密道范围、秘密门的 offset/width/state、私密箱子的坐标/朝向、主持人正文以及 revision（0 → 9），公开内容和固定遮罩相同。结果：
 
@@ -140,7 +142,7 @@ IndexedDB 保存完整 SceneDocument，比较持久化 revision 与写入在同�
 
 负例覆盖超预算压缩输入、超预算展开声明、伪造小声明的实际膨胀、重复条目、路径/目录不一致、额外数据、截断、CRC/hash 错误、未知版本/字段、多楼层及外部资产；不是对所有预算“恰等于/略低于/略高于”的穷举容量验收。后续 20 MiB 单资产、100 MiB 工程等候选预算不属于本配置，详见 [存储与导出](06-storage-and-export.md)。
 
-[主持人样例工程](evidence/m0/house.sceneweave)仅含原创固定样例，可导入原型复核。它有意包含 GM 秘密，玩家交付应使用玩家 PNG。运行时编辑和存储不依赖 AI；首次打开仍需可用的本地服务和应用资源，未实现 PWA 离线冷启动。
+主持人样例工程（原附件已清理，旧路径：`docs/evidence/m0/house.sceneweave`）仅含原创固定样例，可导入原型复核。它有意包含 GM 秘密，玩家交付应使用玩家 PNG。运行时编辑和存储不依赖 AI；首次打开仍需可用的本地服务和应用资源，未实现 PWA 离线冷启动。
 
 ## 7. 后续门槛与下一步
 

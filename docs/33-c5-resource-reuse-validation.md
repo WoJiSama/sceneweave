@@ -1,5 +1,7 @@
 # C5 性能第一批：资源与迁移原件内部复用
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-23。本地版本仍为`0.2.0-m1-c5`，严格v6完整信封、identity3、appearance1和有效v3场景不变。用户授权本批实现及500对象验证；未提交、推送或进入M1-D/M2。[32](32-m1c-c5-validation.md)及其证据保持历史原样。
 
 **内部复用已实现，适用正确性回归通过，500对象普通编辑明显加快；100ms目标和完整性能门仍未通过。** 同方法单轮诊断各保留10次普通编辑：领域提交中位数1118.6→325.0ms，减少70.95%；诊断p95/最大1817.1→858.7ms。保存及显示尾部没有改善，保护恢复仍约13秒，不能据本批关闭C5或完整QA-PERF-01/04。
@@ -17,7 +19,7 @@
 
 派生图仍逐次核对源/结果实际像素，未新增变体缓存。公开`validateCompleteProjectV6`、导入/导出、冷载入、仓库save与原生CAS、持久资源比较、保护点和渲染资源检查未放宽；没有长期Bitmap缓存、Worker或持久格式扩展。只有成功且未取消的捕获返回对应可用凭证，调用方修改不影响独立候选。
 
-完整设计保存在[design.md](evidence/m1-c5-perf1/design.md)，源码前后及生产产物分别归档，文件清单见[index.json](evidence/m1-c5-perf1/index.json)。
+完整设计保存在design.md（原附件已清理，旧路径：`docs/evidence/m1-c5-perf1/design.md`），源码前后及生产产物分别归档，文件清单见index.json（原附件已清理，旧路径：`docs/evidence/m1-c5-perf1/index.json`）。
 
 ## 2. 正确性验证
 
@@ -87,10 +89,10 @@ node tools/performance/run-c5.mjs \
 
 ## 6. 独立证据与保全
 
-[证据目录](evidence/m1-c5-perf1/README.md)保留前后source/dist、两次完整诊断、全部样本/资源采样/包/PNG、两份Chrome reporter、生产旅程及初始失败日志。[comparison.json](evidence/m1-c5-perf1/comparison.json)保存全部原值和逐类统计；[verification.json](evidence/m1-c5-perf1/verification.json)独立从归档重算并核对字节，证据完整性通过与性能门失败分开。
+证据目录（原附件已清理，旧路径：`docs/evidence/m1-c5-perf1/README.md`）保留前后source/dist、两次完整诊断、全部样本/资源采样/包/PNG、两份Chrome reporter、生产旅程及初始失败日志。comparison.json（原附件已清理，旧路径：`docs/evidence/m1-c5-perf1/comparison.json`）保存全部原值和逐类统计；verification.json（原附件已清理，旧路径：`docs/evidence/m1-c5-perf1/verification.json`）独立从归档重算并核对字节，证据完整性通过与性能门失败分开。
 
 348份本批应用源码/测试/配置和48份生产产物保持冻结；相对开工基线仅10个新增/修改应用测试文件，仓库存储实现未改。原1131份报告/证据/文档指纹中，1127份完全未变，另外4份为本次明确同步的06/07/09/导航。docs32及全部旧C5证据均未改。
 
-最终独立证据核查10366项全部通过，覆盖原始统计重算、归档/完整包条目hash与许可、PNG CRC/尺寸/元数据及真实浏览器报告；最终范围、235处本地链接、目标凭据模式与空白检查通过，结果见[final-checks.json](evidence/m1-c5-perf1/final-checks.json)。这些是证据完整性与交付检查，不代表完整性能门通过。
+最终独立证据核查10366项全部通过，覆盖原始统计重算、归档/完整包条目hash与许可、PNG CRC/尺寸/元数据及真实浏览器报告；最终范围、235处本地链接、目标凭据模式与空白检查通过，结果见final-checks.json（原附件已清理，旧路径：`docs/evidence/m1-c5-perf1/final-checks.json`）。这些是证据完整性与交付检查，不代表完整性能门通过。
 
-`todo.md`本批没有写入；期间它由其他来源更新，基线hash`3c4ae947…`与观测现状`1b98b0ff…`不同。首次核查因此失败，现场及[外部变更记录](evidence/m1-c5-perf1/external-worktree-change.json)保留；保全当前内容，未回滚或声称起止相同。最终核查以外部观测版本继续保持为准。不合并、覆盖或提交其他既有C4/C5脏工作。
+`todo.md`本批没有写入；期间它由其他来源更新，基线hash`3c4ae947…`与观测现状`1b98b0ff…`不同。首次核查因此失败，现场及外部变更记录（原附件已清理，旧路径：`docs/evidence/m1-c5-perf1/external-worktree-change.json`）保留；保全当前内容，未回滚或声称起止相同。最终核查以外部观测版本继续保持为准。不合并、覆盖或提交其他既有C4/C5脏工作。

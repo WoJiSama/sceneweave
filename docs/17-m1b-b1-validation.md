@@ -1,5 +1,7 @@
 # M1-B / B1 素材工程基础验证
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 验证日期：2026-10-20。应用版本：`0.2.0-m1-b1`。本批仅交付 B1，不表示整个 M1-B、M1 或正式美术素材完成。
 
 ## 1. 交付范围
@@ -41,7 +43,7 @@ npm run build
 SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 ```
 
-全量现已包含20个浏览器用例；本次先完成19项全量，再运行新增用例所在工作台文件。原始分批结果见[检查汇总](evidence/m1-b1/validation-summary.json)。源码和测试对应[实现指纹](evidence/m1-b1/implementation-files.sha256)。M0历史报告13及其证据未修改。
+全量现已包含20个浏览器用例；本次先完成19项全量，再运行新增用例所在工作台文件。原始分批结果见检查汇总（原附件已清理，旧路径：`docs/evidence/m1-b1/validation-summary.json`）。源码和测试对应实现指纹（原附件已清理，旧路径：`docs/evidence/m1-b1/implementation-files.sha256`）。M0历史报告13及其证据未修改。
 
 ## 3. 领域与存档检查
 
@@ -62,9 +64,9 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 
 ### 资源与空仓库往返
 
-40×24 的 PNG、JPEG、WebP 通过实际解码后绘入 sRGB Canvas，规范化为PNG；采用字节的 hash 一致，PNG/WebP 的透明角像素 alpha=0，JPEG为255。来源PNG的文本元数据被移除；完整包内未规范化的元数据PNG被拒绝。详见[规范化记录](evidence/m1-b1/static-image-normalization.json)。
+40×24 的 PNG、JPEG、WebP 通过实际解码后绘入 sRGB Canvas，规范化为PNG；采用字节的 hash 一致，PNG/WebP 的透明角像素 alpha=0，JPEG为255。来源PNG的文本元数据被移除；完整包内未规范化的元数据PNG被拒绝。详见规范化记录（原附件已清理，旧路径：`docs/evidence/m1-b1/static-image-normalization.json`）。
 
-原创校样完整包经导出、解析，在全新空 IndexedDB 创建副本，再页面重载、重新连接后：完整文档、三张实际位图 hash、许可与绑定一致，附加的主持人私密注记保留。此用例包约34 KiB，具体字节及每图尺寸见[资源往返记录](evidence/m1-b1/complete-resource-roundtrip.json)。压缩大小会随新 sceneId/时间等JSON内容变化。
+原创校样完整包经导出、解析，在全新空 IndexedDB 创建副本，再页面重载、重新连接后：完整文档、三张实际位图 hash、许可与绑定一致，附加的主持人私密注记保留。此用例包约34 KiB，具体字节及每图尺寸见资源往返记录（原附件已清理，旧路径：`docs/evidence/m1-b1/complete-resource-roundtrip.json`）。压缩大小会随新 sceneId/时间等JSON内容变化。
 
 | 位图 | 像素 | 规范化编码bytes |
 |---|---|---|
@@ -77,14 +79,14 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 ### 实际操作与故障保留
 
 - 工作台输入/撤销/重做、Escape放弃草稿、方向修改、刷新重开、完整包下载/副本导入通过。画布实际产生非平面材质像素，画面完整容纳于预览区。
-- 预览确认取消、损坏ZIP、缺图、实际hash错误、缺许可绑定和取消操作均保留原文档、资源及成功快照，详见[资源失败记录](evidence/m1-b1/resource-failure-preservation.json)和[工作台记录](evidence/m1-b1/workbench-roundtrip.json)。
-- M0迁移保持来源已保存修订、原始JSON字节对应内容、秘密门和注记；历史恢复新建副本，原M0及v2修订均保留，见[迁移记录](evidence/m1-b1/migration.json)。v1 ZIP原件及来源真实性还由单元测试覆盖。
-- 两个真实标签从同一v2修订编辑，A的5500mm位置成功保存，B的6000mm分支被CAS拒绝但继续保留，可另存完整独立副本，见[双标签记录](evidence/m1-b1/two-tab-cas.json)。
+- 预览确认取消、损坏ZIP、缺图、实际hash错误、缺许可绑定和取消操作均保留原文档、资源及成功快照，详见资源失败记录（原附件已清理，旧路径：`docs/evidence/m1-b1/resource-failure-preservation.json`）和工作台记录（原附件已清理，旧路径：`docs/evidence/m1-b1/workbench-roundtrip.json`）。
+- M0迁移保持来源已保存修订、原始JSON字节对应内容、秘密门和注记；历史恢复新建副本，原M0及v2修订均保留，见迁移记录（原附件已清理，旧路径：`docs/evidence/m1-b1/migration.json`）。v1 ZIP原件及来源真实性还由单元测试覆盖。
+- 两个真实标签从同一v2修订编辑，A的5500mm位置成功保存，B的6000mm分支被CAS拒绝但继续保留，可另存完整独立副本，见双标签记录（原附件已清理，旧路径：`docs/evidence/m1-b1/two-tab-cas.json`）。
 - 即使可选的localStorage选中偏好不可用，IndexedDB工程仍可保存；刷新后从最近列表重开。偏好失败不使画面崩溃。
 
 联调修复了旧ImageBitmap释放后仍被下一次绘制使用的生命周期问题、复制时原分支自动写竞态、复制期间保存状态错误，以及同scene过期读取在flush后回退的风险。对应工作台/浏览器回归均通过。
 
-[生产校样截图](evidence/m1-b1/asset-workbench.png)与[生产冒烟记录](evidence/m1-b1/production-smoke.json)展示的是B1校样；不是玩家PNG、VIS-01/02或目标美术成图。
+生产校样截图（原附件已清理，旧路径：`docs/evidence/m1-b1/asset-workbench.png`）与生产冒烟记录（原附件已清理，旧路径：`docs/evidence/m1-b1/production-smoke.json`）展示的是B1校样；不是玩家PNG、VIS-01/02或目标美术成图。
 
 ## 5. 明确保留的边界
 

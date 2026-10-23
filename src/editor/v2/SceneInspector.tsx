@@ -1,4 +1,5 @@
 import { Layers3, LockKeyhole, Move, PencilRuler, Sprout } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import type { SceneCommandV2 } from '../../core/v2/commands'
 import { createPublicVisibilityV2 } from '../../core/v2/visibility'
 import type { CompleteProjectV2 } from '../../io/v2/types'
@@ -7,6 +8,7 @@ import ScatterInspector from './ScatterInspector'
 import TerrainInspector from './TerrainInspector'
 import { scatterNameV2 } from './terrain-editing'
 import { effectiveEditLockedV2 } from './selection'
+import { appearanceSwapInfoV6 } from '../v6/appearance-swap-info'
 
 export const propName = (project: CompleteProjectV2, id: string) => {
   const prop = project.document.props[id]
@@ -20,10 +22,22 @@ type Props = {
   onCommit: (run: () => void | Promise<void>) => void
   onPreview: (commands: SceneCommandV2[] | (() => SceneCommandV2[]), description: string) => void
   onPropCommand?: (commands: SceneCommandV2[], description: string, selectionAfterCommit?: string | null) => void
+  /** Unified sessions track this explicit pending form; legacy callers preview
+   * immediately and therefore do not acquire an unguarded local draft. */
+  onAppearanceDraftChange?: (dirty: boolean) => void
+  appearanceResetKey?: number
 }
 
-export default function SceneInspector({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand }: Props) {
+export default function SceneInspector({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey }: Props) {
+  const [appearanceChoice, setAppearanceChoice] = useState<{ propId: string; definitionId: string } | null>(null)
+  const appearanceDraftCallback = useRef(onAppearanceDraftChange)
+  appearanceDraftCallback.current = onAppearanceDraftChange
   const scene = project.document, prop = scene.props[selected], vertex = scene.vertices[selected], wall = scene.walls[selected]
+  const appearanceDirty = !!onAppearanceDraftChange && appearanceChoice?.propId === selected
+    && !!scene.propDefinitions[appearanceChoice.definitionId] && appearanceChoice.definitionId !== prop?.definitionRef?.id
+  useEffect(() => { setAppearanceChoice(null) }, [appearanceResetKey, selected])
+  useEffect(() => { appearanceDraftCallback.current?.(appearanceDirty) }, [appearanceDirty])
+  useEffect(() => () => { appearanceDraftCallback.current?.(false) }, [])
   const group = scene.prefabInstances[selected], room = scene.rooms[selected], area = scene.terrainAreas[selected]
   const terrain = Object.values(scene.terrainAreas).find(area => area.boundaryMm.some(point => point.id === selected))
   const point = terrain?.boundaryMm.find(point => point.id === selected)
@@ -44,7 +58,10 @@ export default function SceneInspector({ project, selected, busy, workspace, onS
   if (scene.terrainEdges[selected] || scene.terrainConnections[selected] || area && area.id !== 'terrace-area' || terrain && terrain.id !== 'terrace-area') return <TerrainInspector {...{ project, selected, busy, onSelect, onPreview }} onCommit={commands => onCommit(() => workspace.execute(commands))}/>
   if (prop) {
     const effectivelyLocked = effectiveEditLockedV2(scene, selected)
-    const variants = Object.values(scene.propDefinitions).filter(definition => !(definition.id.startsWith('composition-retained-prop-') && definition.tags.includes('sceneweave:retained-appearance')) && definition.defaultFootprintMm.width === prop.footprintMm.width && definition.defaultFootprintMm.height === prop.footprintMm.height && definition.defaultVisualBoundsMm.width === prop.visualBoundsMm.width && definition.defaultVisualBoundsMm.height === prop.visualBoundsMm.height)
+    const variants = Object.values(scene.propDefinitions).filter(definition => !(definition.id.startsWith('composition-retained-prop-') && definition.tags.includes('sceneweave:retained-appearance')))
+    const chosenId = appearanceChoice?.propId === selected && scene.propDefinitions[appearanceChoice.definitionId] ? appearanceChoice.definitionId : prop.definitionRef?.id ?? variants[0]?.id
+    const chosen = chosenId ? scene.propDefinitions[chosenId] : null
+    const swap = chosen ? appearanceSwapInfoV6(prop, chosen) : null
     return <><div className="asset-section-heading"><Move size={16}/><h2>物件属性</h2></div><h3>{propName(project, selected)}</h3>
       <p className="asset-muted">虚线分别显示图像范围与物理占地。一次修改可以完整撤销。</p>
       {effectivelyLocked && <p className="asset-muted">此物件受自身、容器或锚定依赖的编辑锁保护，只可查看。</p>}
@@ -54,7 +71,16 @@ export default function SceneInspector({ project, selected, busy, workspace, onS
         <NumberInput label="物件 X" value={prop.positionMm.x} onCommit={x => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, x } } }], scatterOwner ? '移动散布成员' : '移动物件')}/>
         <NumberInput label="物件 Y" value={prop.positionMm.y} onCommit={y => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, y } } }], scatterOwner ? '移动散布成员' : '移动物件')}/>
         <NumberInput label="物件旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => editProp([{ type: 'updateProp', id: selected, changes: { rotationDeg } }], scatterOwner ? '旋转散布成员' : '旋转物件')}/>
-        {variants.length > 1 && <label className="asset-select">外观变体<select aria-label="物件外观变体" value={prop.definitionRef?.id ?? ''} onChange={event => editProp([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: event.target.value, version: scene.propDefinitions[event.target.value].version } }], scatterOwner ? '替换散布成员外观' : '替换物件外观')}>{variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</select><small>保留位置、尺寸、占地和公开状态</small></label>}
+        {variants.length > 1 && <><label className="asset-select">外观变体<select aria-label="物件外观变体" value={chosenId ?? ''} onChange={event => {
+          const definitionId = event.target.value
+          if (onAppearanceDraftChange) setAppearanceChoice({ propId: selected, definitionId })
+          else {
+            const definition = scene.propDefinitions[definitionId], info = appearanceSwapInfoV6(prop, definition)
+            onPreview([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: definitionId, version: definition.version } }], `替换物件外观，保留占地。${info.message}`)
+          }
+        }}>{variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</select><small>{onAppearanceDraftChange ? '选择后先检查图像差异，再预览采用' : '选择后准备可取消的外观候选，保留当前图像映射与物理占地'}</small></label>
+          {swap && <p className="asset-muted" role="status">{swap.message}{swap.visualDiffers && ` 按当前 ${prop.rotationDeg}° 旋转，新源外包范围为 ${swap.sourceRotatedSizeMm.width} × ${swap.sourceRotatedSizeMm.height} mm，保留的映射范围为 ${swap.currentRotatedSizeMm.width} × ${swap.currentRotatedSizeMm.height} mm。`}{swap.footprintDiffers && ' 新素材默认占地与当前实例不同，本次仍保留当前实例占地。'}</p>}
+          {onAppearanceDraftChange && <button className="secondary asset-wide" disabled={!chosen || chosen.id === prop.definitionRef?.id} onClick={() => { if (chosen) onPreview([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: chosen.id, version: chosen.version } }], scatterOwner ? '预览替换散布成员外观，保留占地' : '预览替换物件外观，保留占地') }}>预览外观替换</button>}</>}
       </fieldset>
       {!scatterOwner && <button className="secondary asset-wide" disabled={busy || effectivelyLocked} onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除物件', null)}>删除物件</button>}
       {scatterOwner && <><button className="asset-group-link asset-wide" disabled={busy || scatterOwner.editLocked} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prop', id: selected, locked: !prop.editLocked }]))}><LockKeyhole size={14}/>{prop.editLocked ? '解除物件固定' : '固定此物件'}</button><fieldset disabled={busy || prop.editLocked || scatterOwner.editLocked}><button className="secondary asset-wide" onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除散布成员并保留排除区', scatterOwner.id)}>删除并保留排除区</button><button className="secondary asset-wide" onClick={() => editProp([{ type: 'detachScatterMember', groupId: scatterOwner.id, propId: selected }], '退出散布并保留物件', null)}>退出散布，保留物件</button></fieldset><p className="asset-muted">手工修改后会保留实际位置。删除与退出记录可撤销，重新散布不会生成副本。</p></>}

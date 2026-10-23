@@ -1,5 +1,7 @@
 # M1-C / C1a：空白工程与单物件创作验证
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-21。应用版本：`0.2.0-m1-c1a`。本批在C0基础上实现C1a；[07路线](07-roadmap.md)的下一入口为C1b。源代码仍处于本地未提交状态，历史基线为`62ba55b`；本批代码指纹随证据记录。
 
 ## 1. 实际实现
@@ -20,20 +22,20 @@
 
 ## 3. 运行结果
 
-本批最终通过记录覆盖68项既有浏览器用例与6项新增C1a用例；各次命令的退出状态分别记录，不把测试工具错误隐藏为单次全量通过。环境为Apple M1 / MacBookPro17,1、16GiB、Darwin25.6.0 arm64、Chrome155.0.8059.84；截图窗口1512×982。完整[环境及命令记录](evidence/m1-c1a/verification-environment.json)和[代码指纹](evidence/m1-c1a/source-fingerprints.json)独立保存。
+本批最终通过记录覆盖68项既有浏览器用例与6项新增C1a用例；各次命令的退出状态分别记录，不把测试工具错误隐藏为单次全量通过。环境为Apple M1 / MacBookPro17,1、16GiB、Darwin25.6.0 arm64、Chrome155.0.8059.84；截图窗口1512×982。完整环境及命令记录（原附件已清理，旧路径：`docs/evidence/m1-c1a/verification-environment.json`）和代码指纹（原附件已清理，旧路径：`docs/evidence/m1-c1a/source-fingerprints.json`）独立保存。
 
 | 检查 | 实际结果 | 证据及范围 |
 |---|---|---|
 | `npm test` | 32文件、402项通过，13.01s | 领域、资源、存储、历史及渲染单元；Node解码替身边界见第2节 |
 | `npm run build` | 通过，包含TypeScript检查及Vite生产打包 | 保留Zod注释及应用chunk大于500kB的构建警告；不当作性能结论 |
-| 修复后B4离线重开及新增C1a定向浏览器 | 7项通过，正常退出 | [定向结果](evidence/m1-c1a/focused-results.json)，47.9s；确认额外目录请求回归已消除 |
-| 系统Chrome既有浏览器回归 | 68项既有用例全部通过 | [全量原始结果](evidence/m1-c1a/browser-full-results.json)：74项中73通过、1新增故障注入用例的测试工具错误，退出1；约6.7min，修复说明见第4节 |
-| C1a最终专项复验 | 6项全部通过，正常退出，48.4s | [最终通过清单与附件索引](evidence/m1-c1a/browser-verified-results.json)；全量后只修测试用例的decoder恢复/读回顺序，产品运行源码不变；合计74个独立用例已有通过记录 |
-| 正常生产构建真实UI检查 | 通过 | [生产检查记录](evidence/m1-c1a/production-verified/production-smoke.json)：3次放置后r3、18定义、完整包179027bytes，刷新后r3保留，无pageerror，DEV/性能API均不存在 |
-| 生产界面视检 | 通过本窗口布局检查 | [新建表单](evidence/m1-c1a/production-verified/production-new-scene.png)、[放置图片/占地预览](evidence/m1-c1a/production-verified/production-placement.png)；没有宣称其他窗口/触屏已验收 |
-| 文档与交付检查 | 本次相关文档的链接/锚点、表格、需求映射及格式通过 | [机械检查记录](evidence/m1-c1a/document-checks.json)；历史13/17–22与原始证据无修改，代码指纹与最终检查源一致 |
+| 修复后B4离线重开及新增C1a定向浏览器 | 7项通过，正常退出 | 定向结果（原附件已清理，旧路径：`docs/evidence/m1-c1a/focused-results.json`），47.9s；确认额外目录请求回归已消除 |
+| 系统Chrome既有浏览器回归 | 68项既有用例全部通过 | 全量原始结果（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-full-results.json`）：74项中73通过、1新增故障注入用例的测试工具错误，退出1；约6.7min，修复说明见第4节 |
+| C1a最终专项复验 | 6项全部通过，正常退出，48.4s | 最终通过清单与附件索引（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified-results.json`）；全量后只修测试用例的decoder恢复/读回顺序，产品运行源码不变；合计74个独立用例已有通过记录 |
+| 正常生产构建真实UI检查 | 通过 | 生产检查记录（原附件已清理，旧路径：`docs/evidence/m1-c1a/production-verified/production-smoke.json`）：3次放置后r3、18定义、完整包179027bytes，刷新后r3保留，无pageerror，DEV/性能API均不存在 |
+| 生产界面视检 | 通过本窗口布局检查 | 新建表单（原附件已清理，旧路径：`docs/evidence/m1-c1a/production-verified/production-new-scene.png`）、放置图片/占地预览（原附件已清理，旧路径：`docs/evidence/m1-c1a/production-verified/production-placement.png`）；没有宣称其他窗口/触屏已验收 |
+| 文档与交付检查 | 本次相关文档的链接/锚点、表格、需求映射及格式通过 | 机械检查记录（原附件已清理，旧路径：`docs/evidence/m1-c1a/document-checks.json`）；历史13/17–22与原始证据无修改，代码指纹与最终检查源一致 |
 
-关键流程的原始附件包括[空白内容与取消/非法输入](evidence/m1-c1a/browser-verified/c1a-blank-creation.json)、[变换后放置与历史](evidence/m1-c1a/browser-verified/c1a-placement-history.json)、[完整离线往返及双4096×2926 PNG](evidence/m1-c1a/browser-verified/c1a-portability.json)、[首次保存失败回滚](evidence/m1-c1a/browser-verified/c1a-initial-save-failure.json)、[挂起资源取消/迟到结果](evidence/m1-c1a/browser-verified/c1a-creation-cancel.json)及[待放置解码失败保护](evidence/m1-c1a/browser-verified/c1a-placement-decode-failure.json)。实际[主持人工程包](evidence/m1-c1a/browser-verified/c1a-complete.sceneweave)、[GM图](evidence/m1-c1a/browser-verified/c1a-gm-4k.png)和[玩家图](evidence/m1-c1a/browser-verified/c1a-player-4k.png)来自测试下载，不是占位文件。
+关键流程的原始附件包括空白内容与取消/非法输入（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-blank-creation.json`）、变换后放置与历史（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-placement-history.json`）、完整离线往返及双4096×2926 PNG（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-portability.json`）、首次保存失败回滚（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-initial-save-failure.json`）、挂起资源取消/迟到结果（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-creation-cancel.json`）及待放置解码失败保护（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-placement-decode-failure.json`）。实际主持人工程包（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-complete.sceneweave`）、GM图（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-gm-4k.png`）和玩家图（原附件已清理，旧路径：`docs/evidence/m1-c1a/browser-verified/c1a-player-4k.png`）来自测试下载，不是占位文件。
 
 生产UI复现：先`npm run build`，另开终端`npm run preview -- --port 4173 --strictPort`，从仓库根运行`node docs/evidence/m1-c1a/production-smoke.mjs`。该脚本创建独立浏览器上下文，复现放置/备份/重开；默认写入带时间戳的`performance-results/c1a-production-*`目录，也可通过`SCENEWEAVE_C1A_EVIDENCE_DIR`指定新位置，不覆盖本页的历史证据。正常应用不包含该检查脚本或专用性能API。
 

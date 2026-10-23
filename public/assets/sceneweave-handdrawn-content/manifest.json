@@ -1,0 +1,1301 @@
+{
+  "catalogId": "sceneweave-handdrawn-content",
+  "themeCatalogId": "sceneweave-handdrawn",
+  "version": 1,
+  "name": "墨绘原野 · 墓园、火山与自然精修",
+  "status": "P2",
+  "author": "Sceneweave contributors; original SVG artwork authored with Codex assistance",
+  "source": "tools/build-themed-art.mjs and assets/sceneweave-handdrawn-content/*.svg",
+  "rights": "Project original artwork; no external reference tracing or extracted image components",
+  "licenseRef": "MIT",
+  "licenseFile": "LICENSE.txt",
+  "densityPxPerMetre": 256,
+  "longCastShadowBaked": false,
+  "colorSpace": "sRGB",
+  "bitDepth": 8,
+  "alpha": "straight; zero-alpha RGB cleared",
+  "assets": [
+    {
+      "key": "moss-paver",
+      "catalogId": "material.sw.moss-paver",
+      "version": 1,
+      "kind": "material",
+      "name": "苔痕旧石板",
+      "topic": "graveyard",
+      "tags": [
+        "墓地",
+        "铺装",
+        "石板",
+        "苔藓"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#92917C",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "moss-paver.png",
+      "sourceFile": "moss-paver.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "94363eb8c3c0f29e087d77596b0baea1d59ca656eaf56aa43b4dfa852b101031",
+      "sourceSha256": "11f95de5c07531bdeda827a349dc703048846c976b93eed955900317a7b24e22",
+      "sizeBytes": 55104,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "grave-soil",
+      "catalogId": "material.sw.grave-soil",
+      "version": 1,
+      "kind": "material",
+      "name": "墓园细砾土",
+      "topic": "graveyard",
+      "tags": [
+        "墓地",
+        "泥土",
+        "碎石",
+        "地面"
+      ],
+      "colors": [
+        "棕",
+        "灰",
+        "绿"
+      ],
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#77715B",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "grave-soil.png",
+      "sourceFile": "grave-soil.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "3be2cc20e13c8e9ea07297cede1f1d0698ba9d3fd5c293039d99e64ceee3888f",
+      "sourceSha256": "acf295baac5623223b99cbea7ff35caf08d9ec1516f3b2059991ebb1f4a86d5d",
+      "sizeBytes": 53041,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "headstone",
+      "catalogId": "prop.sw.headstone",
+      "version": 1,
+      "kind": "prop",
+      "name": "苔痕墓碑顶盖",
+      "topic": "graveyard",
+      "tags": [
+        "墓地",
+        "墓碑",
+        "石制",
+        "俯视"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "spanMm": {
+        "width": 938,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 1250,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -625,
+        "y": -500,
+        "width": 1250,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 700,
+        "height": 300
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "headstone.png",
+      "sourceFile": "headstone.svg",
+      "pixelWidth": 320,
+      "pixelHeight": 256,
+      "sha256": "039cbe7c7d2dd6fe896ba41aedc0136570e7d630c679ddaeba50555ec323ed6a",
+      "sourceSha256": "f601d20e646ba23d736d0dec802e6cc75aad95db54e690e802723f2ae098f5f0",
+      "sizeBytes": 4599,
+      "alphaContentBoundsPx": {
+        "x": 59,
+        "y": 86,
+        "width": 202,
+        "height": 86
+      },
+      "minTransparentPaddingPx": 59,
+      "fullyOpaque": false
+    },
+    {
+      "key": "sarcophagus",
+      "catalogId": "prop.sw.sarcophagus",
+      "version": 1,
+      "kind": "prop",
+      "name": "苔痕石棺",
+      "topic": "graveyard",
+      "tags": [
+        "墓地",
+        "石棺",
+        "石制",
+        "储藏"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "spanMm": {
+        "width": 938,
+        "height": 2188
+      },
+      "logicalSizeMm": {
+        "width": 1250,
+        "height": 2500
+      },
+      "visualBoundsMm": {
+        "x": -625,
+        "y": -1250,
+        "width": 1250,
+        "height": 2500
+      },
+      "footprintMm": {
+        "width": 700,
+        "height": 1900
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "sarcophagus.png",
+      "sourceFile": "sarcophagus.svg",
+      "pixelWidth": 320,
+      "pixelHeight": 640,
+      "sha256": "08f236383bb3c729f4b92730bb3218771b55a3e8293d17870d355161964deb74",
+      "sourceSha256": "fc81a952c7c1118774ba9791cb0399b3d7de4c96ed8dde01807b6de778c9b994",
+      "sizeBytes": 14740,
+      "alphaContentBoundsPx": {
+        "x": 59,
+        "y": 55,
+        "width": 202,
+        "height": 525
+      },
+      "minTransparentPaddingPx": 55,
+      "fullyOpaque": false
+    },
+    {
+      "key": "iron-fence",
+      "catalogId": "prop.sw.iron-fence",
+      "version": 1,
+      "kind": "prop",
+      "name": "旧铁围栏短段",
+      "topic": "graveyard",
+      "tags": [
+        "墓地",
+        "围栏",
+        "金属",
+        "边界"
+      ],
+      "colors": [
+        "灰",
+        "黑",
+        "棕"
+      ],
+      "spanMm": {
+        "width": 2188,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 2500,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -1250,
+        "y": -500,
+        "width": 2500,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 2000,
+        "height": 160
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "iron-fence.png",
+      "sourceFile": "iron-fence.svg",
+      "pixelWidth": 640,
+      "pixelHeight": 256,
+      "sha256": "4eae89949ffedd5499e168426de3ee942829bf2fec50ffae7972cc622a386a6d",
+      "sourceSha256": "f430ca450c3a7e54b30ef999a5b114d050550eebdf52c37f79de868d6d36cca9",
+      "sizeBytes": 4815,
+      "alphaContentBoundsPx": {
+        "x": 45,
+        "y": 105,
+        "width": 550,
+        "height": 49
+      },
+      "minTransparentPaddingPx": 45,
+      "fullyOpaque": false
+    },
+    {
+      "key": "basalt",
+      "catalogId": "material.sw.basalt",
+      "version": 1,
+      "kind": "material",
+      "name": "冷却玄武岩",
+      "topic": "volcano",
+      "tags": [
+        "火山",
+        "玄武岩",
+        "岩地",
+        "冷却"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#62685F",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "basalt.png",
+      "sourceFile": "basalt.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "20c9c486dc639017b973a9de158548e69620b5ff8af9c8ef21a415c673a3bdae",
+      "sourceSha256": "20ab037ce69fd3fb40892e84cb82c1a86a029a39268e802f21635c6e194ced05",
+      "sizeBytes": 64215,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "volcanic-ash",
+      "catalogId": "material.sw.volcanic-ash",
+      "version": 1,
+      "kind": "material",
+      "name": "细层火山灰",
+      "topic": "volcano",
+      "tags": [
+        "火山",
+        "火山灰",
+        "灰土",
+        "地面"
+      ],
+      "colors": [
+        "灰",
+        "棕"
+      ],
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#918D7D",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "volcanic-ash.png",
+      "sourceFile": "volcanic-ash.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "14f2cc2c8c24e10a4ea0ee4c6c27c490a946e3553423df86413aad3f15a3388c",
+      "sourceSha256": "0c58386b38806e7a1ffcaa32bf3055010c64b205323a12c04ef14e20894f7725",
+      "sizeBytes": 53711,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "lava",
+      "catalogId": "material.sw.lava",
+      "version": 1,
+      "kind": "material",
+      "name": "熔岩冷壳纹理",
+      "topic": "volcano",
+      "tags": [
+        "火山",
+        "熔岩",
+        "冷壳",
+        "热纹外观"
+      ],
+      "colors": [
+        "棕",
+        "灰",
+        "橙"
+      ],
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#665348",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "lava.png",
+      "sourceFile": "lava.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "f664008a0e6002038223a4cc099755f68781637b8b57a63b42706166eabfddb5",
+      "sourceSha256": "565170f0d4223f3145670be1f2f65efb8843b9fcd52186895844122d2724e194",
+      "sizeBytes": 51952,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "basalt-boulder",
+      "catalogId": "prop.sw.basalt-boulder",
+      "version": 1,
+      "kind": "prop",
+      "name": "气孔玄武岩块",
+      "topic": "volcano",
+      "tags": [
+        "火山",
+        "玄武岩",
+        "岩块",
+        "障碍"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "spanMm": {
+        "width": 1438,
+        "height": 1188
+      },
+      "logicalSizeMm": {
+        "width": 1750,
+        "height": 1500
+      },
+      "visualBoundsMm": {
+        "x": -875,
+        "y": -750,
+        "width": 1750,
+        "height": 1500
+      },
+      "footprintMm": {
+        "width": 1300,
+        "height": 1000
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "basalt-boulder.png",
+      "sourceFile": "basalt-boulder.svg",
+      "pixelWidth": 448,
+      "pixelHeight": 384,
+      "sha256": "4ae996ebb64a1d7b51b28ae28428cec636f37b62265588c16382a885ac7da2b7",
+      "sourceSha256": "91e35f912d343a3b7a502f957f46cd8e068dcde3d8b7ddb125dd5cd7914ef5cc",
+      "sizeBytes": 13126,
+      "alphaContentBoundsPx": {
+        "x": 66,
+        "y": 59,
+        "width": 308,
+        "height": 259
+      },
+      "minTransparentPaddingPx": 59,
+      "fullyOpaque": false
+    },
+    {
+      "key": "volcanic-crack",
+      "catalogId": "prop.sw.volcanic-crack",
+      "version": 1,
+      "kind": "prop",
+      "name": "余热裂隙装饰",
+      "topic": "volcano",
+      "tags": [
+        "火山",
+        "裂隙",
+        "地表装饰",
+        "热纹外观"
+      ],
+      "colors": [
+        "灰",
+        "棕",
+        "橙"
+      ],
+      "spanMm": {
+        "width": 2688,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 3000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -1500,
+        "y": -500,
+        "width": 3000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 2400,
+        "height": 300
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "ground",
+      "shadowClass": "none",
+      "file": "volcanic-crack.png",
+      "sourceFile": "volcanic-crack.svg",
+      "pixelWidth": 768,
+      "pixelHeight": 256,
+      "sha256": "afdcdbfd723fe0dbb68d02d93cc5282acf4f359b5ec3e5f4f92d0a22e066cc1b",
+      "sourceSha256": "a0b20c343d90aa7b1324497f529acf1aac9a73a6347067d657387ece65bb4a6c",
+      "sizeBytes": 11893,
+      "alphaContentBoundsPx": {
+        "x": 64,
+        "y": 41,
+        "width": 639,
+        "height": 169
+      },
+      "minTransparentPaddingPx": 41,
+      "fullyOpaque": false
+    },
+    {
+      "key": "refined-tree-broadleaf",
+      "catalogId": "prop.sw.tree-broadleaf.refined",
+      "kind": "prop",
+      "name": "阔叶树冠·精修",
+      "spanMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "logicalSizeMm": {
+        "width": 4500,
+        "height": 4500
+      },
+      "visualBoundsMm": {
+        "x": -2250,
+        "y": -2250,
+        "width": 4500,
+        "height": 4500
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "canopy",
+      "shadowClass": "vegetation",
+      "version": 1,
+      "topic": "refined",
+      "tags": [
+        "精修",
+        "树木",
+        "阔叶树",
+        "植被",
+        "室外"
+      ],
+      "colors": [
+        "绿"
+      ],
+      "refines": {
+        "catalogId": "prop.sw.tree-broadleaf",
+        "version": 1,
+        "assetSha256": "7f77adf779cbafc8cdee67eba3f6280bef7415155cab97b781eb51af4fa2d04f"
+      },
+      "provenance": {
+        "sourceFile": "assets/sceneweave-handdrawn-outdoor/tree-broadleaf.svg",
+        "sourceSha256": "e38994b008d46596753cc6d5fe5e7336f40d21b74c2171b40a01e34026c635ca",
+        "method": "Original SVG re-illustration; original geometry and fixed content retained"
+      },
+      "file": "refined-tree-broadleaf.png",
+      "sourceFile": "refined-tree-broadleaf.svg",
+      "pixelWidth": 1152,
+      "pixelHeight": 1152,
+      "sha256": "0878430e50e5d320da2fb00ee7d138dee47a57705222ad1f185c2e745c7dd2d4",
+      "sourceSha256": "9d7e0c9ccc4df0e4b439397e226a4884ad4a4e743fa4e9fe9ed69fa6c47e30dc",
+      "sizeBytes": 171992,
+      "alphaContentBoundsPx": {
+        "x": 136,
+        "y": 172,
+        "width": 888,
+        "height": 830
+      },
+      "minTransparentPaddingPx": 128,
+      "fullyOpaque": false
+    },
+    {
+      "key": "refined-shrub-round",
+      "catalogId": "prop.sw.shrub-round.refined",
+      "kind": "prop",
+      "name": "圆叶灌丛·精修",
+      "spanMm": {
+        "width": 1400,
+        "height": 1200
+      },
+      "logicalSizeMm": {
+        "width": 1750,
+        "height": 1500
+      },
+      "visualBoundsMm": {
+        "x": -875,
+        "y": -750,
+        "width": 1750,
+        "height": 1500
+      },
+      "footprintMm": {
+        "width": 600,
+        "height": 500
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "vegetation",
+      "version": 1,
+      "topic": "refined",
+      "tags": [
+        "精修",
+        "灌木",
+        "植被",
+        "室外"
+      ],
+      "colors": [
+        "绿"
+      ],
+      "refines": {
+        "catalogId": "prop.sw.shrub-round",
+        "version": 1,
+        "assetSha256": "04ab182252d4bdb341f5dcde5a95276c615f0dd49ac977e3c608878e5a6e14aa"
+      },
+      "provenance": {
+        "sourceFile": "assets/sceneweave-handdrawn-outdoor/shrub-round.svg",
+        "sourceSha256": "e5ff2673d264b15dfa1f6b8ba897ca468309b75ebb3c43e19063876d5e948f44",
+        "method": "Original SVG re-illustration; original geometry and fixed content retained"
+      },
+      "file": "refined-shrub-round.png",
+      "sourceFile": "refined-shrub-round.svg",
+      "pixelWidth": 448,
+      "pixelHeight": 384,
+      "sha256": "3dad3e26aa6c5193f6a60983b47ade8e46e12f372f8cce3fa3953334a7649d01",
+      "sourceSha256": "51eec4fa88888724151b863ec9476c2c6b312195612e79bf63290860fd3e378f",
+      "sizeBytes": 31900,
+      "alphaContentBoundsPx": {
+        "x": 47,
+        "y": 61,
+        "width": 344,
+        "height": 264
+      },
+      "minTransparentPaddingPx": 47,
+      "fullyOpaque": false
+    },
+    {
+      "key": "refined-rock-small",
+      "catalogId": "prop.sw.rock-small.refined",
+      "kind": "prop",
+      "name": "灰绿碎石簇·精修",
+      "spanMm": {
+        "width": 900,
+        "height": 650
+      },
+      "logicalSizeMm": {
+        "width": 1250,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -625,
+        "y": -500,
+        "width": 1250,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 800,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "version": 1,
+      "topic": "refined",
+      "tags": [
+        "精修",
+        "岩石",
+        "自然",
+        "室外"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "refines": {
+        "catalogId": "prop.sw.rock-small",
+        "version": 1,
+        "assetSha256": "54d6624a67ca2aa81e1a14e958abbf8cd529fe460da1ea2fa9699a313c00471c"
+      },
+      "provenance": {
+        "sourceFile": "assets/sceneweave-handdrawn-outdoor/rock-small.svg",
+        "sourceSha256": "68a369fc964d35d6be003dc1809b5595d8f1c95a74b5970b0c178f6ecc00bd7f",
+        "method": "Original SVG re-illustration; original geometry and fixed content retained"
+      },
+      "file": "refined-rock-small.png",
+      "sourceFile": "refined-rock-small.svg",
+      "pixelWidth": 320,
+      "pixelHeight": 256,
+      "sha256": "b3a17c880a57130e9391e1702af3a16cf108f5339292380dc2780f4e6e8bbf9d",
+      "sourceSha256": "9288fb5e17fd649358e5d1ab04cf0ce3309da506062f4f363cd81b73ca893001",
+      "sizeBytes": 10008,
+      "alphaContentBoundsPx": {
+        "x": 48,
+        "y": 58,
+        "width": 219,
+        "height": 155
+      },
+      "minTransparentPaddingPx": 43,
+      "fullyOpaque": false
+    },
+    {
+      "key": "refined-grass",
+      "catalogId": "material.sw.grass.refined",
+      "kind": "material",
+      "name": "簇生草地·精修",
+      "logicalSizeMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "baseColor": "#71865A",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "version": 1,
+      "topic": "refined",
+      "tags": [
+        "精修",
+        "草地",
+        "植被",
+        "地面"
+      ],
+      "colors": [
+        "绿"
+      ],
+      "refines": {
+        "catalogId": "material.sw.grass",
+        "version": 1,
+        "assetSha256": "5fa4ea16803395e8dd56147289bc89c32395a948b7781415f2ed02dd4122eaed"
+      },
+      "provenance": {
+        "sourceFile": "assets/sceneweave-handdrawn-outdoor/grass.svg",
+        "sourceSha256": "56c87b1197a68d9656214212b5456e59df714356d4dfd8b85ed2b14bd758dd46",
+        "method": "Original SVG re-illustration; original geometry and fixed content retained"
+      },
+      "file": "refined-grass.png",
+      "sourceFile": "refined-grass.svg",
+      "pixelWidth": 1024,
+      "pixelHeight": 1024,
+      "sha256": "7829e003346cd594ff623638ff7eb0bb809140fa85ccead21d670b6455519f13",
+      "sourceSha256": "48c4bd74b9488fc0c7f33743fe836d73f52eea1b728b246fd573e266cd359b04",
+      "sizeBytes": 251287,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1024
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "refined-rock",
+      "catalogId": "material.sw.rock.refined",
+      "kind": "material",
+      "name": "灰绿裸岩·精修",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#777D72",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "version": 1,
+      "topic": "refined",
+      "tags": [
+        "精修",
+        "岩石",
+        "自然",
+        "室外"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "refines": {
+        "catalogId": "material.sw.rock",
+        "version": 1,
+        "assetSha256": "d617984fd110f4b171cec627735f0c40a5ae1913aaf80907c4c24703df5eff51"
+      },
+      "provenance": {
+        "sourceFile": "assets/sceneweave-handdrawn-outdoor/rock.svg",
+        "sourceSha256": "40393e7b1d35ef76d1ac5c30a92ad4c89e12a9d8681193670dcdfdf131e1c4fe",
+        "method": "Original SVG re-illustration; original geometry and fixed content retained"
+      },
+      "file": "refined-rock.png",
+      "sourceFile": "refined-rock.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "7ffbe45f418cc62b7063c2a40c7a5298e751026b8e19be33e7a94171de92355b",
+      "sourceSha256": "66d760e6d1038de4d8367e99e9f04cfe014f3c2c2faaf5bdb214c15b1c93d87b",
+      "sizeBytes": 60260,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "refined-sand",
+      "catalogId": "material.sw.sand.refined",
+      "kind": "material",
+      "name": "细砂岸地·精修",
+      "logicalSizeMm": {
+        "width": 4000,
+        "height": 4000
+      },
+      "baseColor": "#C4B486",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "version": 1,
+      "topic": "refined",
+      "tags": [
+        "精修",
+        "砂地",
+        "岸地",
+        "地面"
+      ],
+      "colors": [
+        "棕",
+        "黄"
+      ],
+      "refines": {
+        "catalogId": "material.sw.sand",
+        "version": 1,
+        "assetSha256": "81be5c5b0450c9b934cdeefeab490818435bc482cb18e247220513585169dfab"
+      },
+      "provenance": {
+        "sourceFile": "assets/sceneweave-handdrawn-outdoor/sand.svg",
+        "sourceSha256": "a03f571bdab146be72cd44700caa9748e18d9721c7298129957a3a3797b3c516",
+        "method": "Original SVG re-illustration; original geometry and fixed content retained"
+      },
+      "file": "refined-sand.png",
+      "sourceFile": "refined-sand.svg",
+      "pixelWidth": 1024,
+      "pixelHeight": 1024,
+      "sha256": "f17bd7a05ab66fbef6b1bd619d2da5b13c9a061f9908e334e0d06fa0e53cce8a",
+      "sourceSha256": "830045cc9537491ec8399886b235ca12ef64332a78522ed99f24bc82552c77e1",
+      "sizeBytes": 178698,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 1024
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "coat-rack",
+      "catalogId": "prop.sw.coat-rack",
+      "version": 1,
+      "kind": "prop",
+      "name": "挂衣木架",
+      "topic": "interior",
+      "tags": [
+        "室内",
+        "衣架",
+        "收纳",
+        "木制"
+      ],
+      "colors": [
+        "棕",
+        "绿"
+      ],
+      "spanMm": {
+        "width": 688,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 1000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -500,
+        "y": -500,
+        "width": 1000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 500,
+        "height": 500
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "coat-rack.png",
+      "sourceFile": "coat-rack.svg",
+      "pixelWidth": 256,
+      "pixelHeight": 256,
+      "sha256": "ed73bdfa80d2c4813058cf783d431fd459bdef85d01236be8e8f4d12acc35c73",
+      "sourceSha256": "b78194b54b446259a7ed01e5145458880b23e22d8a56f6452f59264a133bb376",
+      "sizeBytes": 4482,
+      "alphaContentBoundsPx": {
+        "x": 54,
+        "y": 54,
+        "width": 148,
+        "height": 148
+      },
+      "minTransparentPaddingPx": 54,
+      "fullyOpaque": false
+    },
+    {
+      "key": "bench",
+      "catalogId": "prop.sw.bench",
+      "version": 1,
+      "kind": "prop",
+      "name": "磨边木长凳",
+      "topic": "interior",
+      "tags": [
+        "室内",
+        "长凳",
+        "座具",
+        "木制"
+      ],
+      "colors": [
+        "棕"
+      ],
+      "spanMm": {
+        "width": 1688,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -1000,
+        "y": -500,
+        "width": 2000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 1600,
+        "height": 500
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "bench.png",
+      "sourceFile": "bench.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 256,
+      "sha256": "d40891160c4fb80f8b10fc8f3e63abf530adee0ef35918c620fb9889bbadaa80",
+      "sourceSha256": "735d7ee8bc8e38224e4eed45114f71b2e292bbc1b7c27cfe85252bba2fd3d4de",
+      "sizeBytes": 4470,
+      "alphaContentBoundsPx": {
+        "x": 46,
+        "y": 60,
+        "width": 420,
+        "height": 136
+      },
+      "minTransparentPaddingPx": 46,
+      "fullyOpaque": false
+    },
+    {
+      "key": "hearth",
+      "catalogId": "prop.sw.hearth",
+      "version": 1,
+      "kind": "prop",
+      "name": "灰石炉台",
+      "topic": "interior",
+      "tags": [
+        "室内",
+        "炉台",
+        "石制",
+        "照明装饰"
+      ],
+      "colors": [
+        "灰",
+        "棕",
+        "橙"
+      ],
+      "spanMm": {
+        "width": 1688,
+        "height": 938
+      },
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 1250
+      },
+      "visualBoundsMm": {
+        "x": -1000,
+        "y": -625,
+        "width": 2000,
+        "height": 1250
+      },
+      "footprintMm": {
+        "width": 1600,
+        "height": 900
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "hearth.png",
+      "sourceFile": "hearth.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 320,
+      "sha256": "cda8a0dd212c6210b244ae0d73b4a0d52bab09092317e6e9488cf4a4ed374cd6",
+      "sourceSha256": "7c15fe8645262b3cc42304c842f5f8973443b78afe5e09ebbd51a98c51211003",
+      "sizeBytes": 12329,
+      "alphaContentBoundsPx": {
+        "x": 45,
+        "y": 45,
+        "width": 422,
+        "height": 231
+      },
+      "minTransparentPaddingPx": 44,
+      "fullyOpaque": false
+    },
+    {
+      "key": "worktable",
+      "catalogId": "prop.sw.worktable",
+      "version": 1,
+      "kind": "prop",
+      "name": "旧木操作桌",
+      "topic": "interior",
+      "tags": [
+        "室内",
+        "操作桌",
+        "桌子",
+        "工作台"
+      ],
+      "colors": [
+        "棕",
+        "绿"
+      ],
+      "spanMm": {
+        "width": 1688,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -1000,
+        "y": -500,
+        "width": 2000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 1800,
+        "height": 800
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "worktable.png",
+      "sourceFile": "worktable.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 256,
+      "sha256": "095b1c6cbf9a878b07d7aa4e30a337c41fe4a42833039b1cf88f1dee91d63ac4",
+      "sourceSha256": "65792a322ceba59181cde9ebd20f14c0e9d8ab039a53340a8dafcae5b6cf9254",
+      "sizeBytes": 6547,
+      "alphaContentBoundsPx": {
+        "x": 22,
+        "y": 22,
+        "width": 468,
+        "height": 212
+      },
+      "minTransparentPaddingPx": 22,
+      "fullyOpaque": false
+    },
+    {
+      "key": "sideboard",
+      "catalogId": "prop.sw.sideboard",
+      "version": 1,
+      "kind": "prop",
+      "name": "矮木边柜",
+      "topic": "interior",
+      "tags": [
+        "室内",
+        "边柜",
+        "储物",
+        "木制"
+      ],
+      "colors": [
+        "棕"
+      ],
+      "spanMm": {
+        "width": 1688,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -1000,
+        "y": -500,
+        "width": 2000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 1600,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "sideboard.png",
+      "sourceFile": "sideboard.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 256,
+      "sha256": "f2c76067fc361ed05c9f7c94f1b4feb125cb5b5bd52ab83bb26712a1d9e86502",
+      "sourceSha256": "c7e0783dfd8a086bf0e540de958b77bc5cb927805efd4c8936b4843be4b90b5a",
+      "sizeBytes": 5069,
+      "alphaContentBoundsPx": {
+        "x": 46,
+        "y": 46,
+        "width": 420,
+        "height": 164
+      },
+      "minTransparentPaddingPx": 46,
+      "fullyOpaque": false
+    },
+    {
+      "key": "bed-single",
+      "catalogId": "prop.sw.bed-single",
+      "version": 1,
+      "kind": "prop",
+      "name": "绿毯单人床",
+      "topic": "interior",
+      "tags": [
+        "室内",
+        "单人床",
+        "寝具",
+        "木制"
+      ],
+      "colors": [
+        "棕",
+        "绿",
+        "白"
+      ],
+      "spanMm": {
+        "width": 1188,
+        "height": 2188
+      },
+      "logicalSizeMm": {
+        "width": 1500,
+        "height": 2500
+      },
+      "visualBoundsMm": {
+        "x": -750,
+        "y": -1250,
+        "width": 1500,
+        "height": 2500
+      },
+      "footprintMm": {
+        "width": 1100,
+        "height": 2100
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "bed-single.png",
+      "sourceFile": "bed-single.svg",
+      "pixelWidth": 384,
+      "pixelHeight": 640,
+      "sha256": "8d21d6c47c63f0e742cf99293f0a3d32ba89c73fd9831ba0554bfd68e95cc3cb",
+      "sourceSha256": "df0cd0065a632e5513dbcfaa9116ca21451a0430393ddd563104a3d9810d3d44",
+      "sizeBytes": 9932,
+      "alphaContentBoundsPx": {
+        "x": 46,
+        "y": 46,
+        "width": 292,
+        "height": 548
+      },
+      "minTransparentPaddingPx": 46,
+      "fullyOpaque": false
+    },
+    {
+      "key": "wardrobe",
+      "catalogId": "prop.sw.wardrobe",
+      "version": 1,
+      "kind": "prop",
+      "name": "旧木衣柜",
+      "topic": "interior",
+      "tags": [
+        "室内",
+        "衣柜",
+        "储物",
+        "木制"
+      ],
+      "colors": [
+        "棕"
+      ],
+      "spanMm": {
+        "width": 1438,
+        "height": 688
+      },
+      "logicalSizeMm": {
+        "width": 1750,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -875,
+        "y": -500,
+        "width": 1750,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 1400,
+        "height": 600
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "wardrobe.png",
+      "sourceFile": "wardrobe.svg",
+      "pixelWidth": 448,
+      "pixelHeight": 256,
+      "sha256": "44c83b76490ff4168051b5d45c3f24a1f03a6a395cc5742de1f620a9896ce09c",
+      "sourceSha256": "218b9f06403726c5fcbd5611188e6651ce36ab40ea7a80257153d5a94c9ca705",
+      "sizeBytes": 5321,
+      "alphaContentBoundsPx": {
+        "x": 40,
+        "y": 46,
+        "width": 368,
+        "height": 164
+      },
+      "minTransparentPaddingPx": 40,
+      "fullyOpaque": false
+    }
+  ]
+}

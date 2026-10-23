@@ -76,6 +76,9 @@ try {
   await page.goto(report.url); await expect(page.getByRole('heading', { level: 1, name: '把故事画成可以探索的地方', exact: true })).toBeVisible()
   report.devApiAtHome = await noDev(); await shot('home-desktop.png')
   await page.setViewportSize({ width: 390, height: 844 })
+  // Wait for fonts and compositor frames after resizing before full-page capture.
+  // Actual scrolling is audited separately if the browser capture tiles repeat.
+  await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))) })
   report.homeNarrowWidth = await page.evaluate(() => document.documentElement.scrollWidth)
   expect(report.homeNarrowWidth).toBeLessThanOrEqual(390); await shot('home-390.png'); await page.setViewportSize(report.viewport)
 
@@ -102,7 +105,7 @@ try {
   await page.getByRole('button', { name: '在此放置', exact: true }).click(); await settled()
   const placed = await archive(), propId = Object.keys(placed.document.props)[0]
   expect(Object.keys(placed.document.props)).toHaveLength(1)
-  await page.getByRole('tab', { name: '场景', exact: true }).click()
+  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
   await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
   await page.getByLabel('搜索场景物件', { exact: true }).fill(propId)
   await page.locator(`.asset-entity-list [data-entity-id="${propId}"]`).click()
@@ -111,8 +114,11 @@ try {
   expect(edited.document.props[propId].rotationDeg).toBe(25); expect(edited.document.revision).toBe(placed.document.revision + 1)
   expect(edited.identity).toEqual(placed.identity); expect(edited.resources).toEqual(blank.resources)
   expect(edited.manifest.licenseBindings).toEqual(blank.manifest.licenseBindings)
-  await page.getByRole('button', { name: '放大地图', exact: true }).click()
   const viewport = page.getByRole('group', { name: '地图视口', exact: true })
+  const beforeZoom = Number(await viewport.getAttribute('data-zoom'))
+  await page.getByRole('button', { name: '放大地图', exact: true }).click()
+  await expect.poll(async () => Number(await viewport.getAttribute('data-zoom'))).toBeGreaterThan(beforeZoom)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   const selected = await viewport.getAttribute('data-selected-ids'), zoom = await viewport.getAttribute('data-zoom')
   await expect(page.getByRole('button', { name: '撤销素材编辑', exact: true })).toBeEnabled(); await shot('workspace-edited-desktop.png')
 

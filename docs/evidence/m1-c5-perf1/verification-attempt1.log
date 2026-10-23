@@ -1,2 +1,0 @@
-Initial verification failed: AssertionError: user todo unchanged
-Baseline todo hash differs from separately observed current file. This batch did not write todo.md. Preserve external update; record exception explicitly and verify current file stays at observed hash.

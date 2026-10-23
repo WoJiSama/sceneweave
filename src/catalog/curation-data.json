@@ -1,0 +1,847 @@
+{
+  "format": "sceneweave-catalog-curation",
+  "version": 1,
+  "records": [
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.basalt\",1,\"f2b74f4b2bd1d333042091b1f5248d787cd2f501b96fe107d8c484e01a4aa7f1\"]",
+      "tags": [
+        "火山",
+        "玄武岩",
+        "岩地",
+        "冷却"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.cliff-rock\",1,\"aed0fe1ff996a91816f341de0abdbb02036e7f2bfc192fd1b132559a6531c9da\"]",
+      "tags": [
+        "室外",
+        "崖面",
+        "岩石",
+        "自然"
+      ],
+      "colors": [
+        "灰",
+        "绿",
+        "黑"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.dirt-gravel\",1,\"211fda3b8122f12394e29007eda388836d29bf8e88be7c7a75ac69b3bcf6779c\"]",
+      "tags": [
+        "室外",
+        "地面",
+        "道路",
+        "泥土",
+        "碎石",
+        "院落"
+      ],
+      "colors": [
+        "棕",
+        "灰"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.grass.refined\",1,\"b1f6fb8b318f2cc5938c40ca5445c2c4be6cc3bd0a2dbbddc98e45b9a74e83ea\"]",
+      "tags": [
+        "精修",
+        "草地",
+        "植被",
+        "地面"
+      ],
+      "colors": [
+        "绿"
+      ],
+      "refines": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.grass\",1,\"efd7fa61d470d781d0e3f8cdc54e710c25104897ed056d1014f349dbaa97cd35\"]"
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.grass\",1,\"efd7fa61d470d781d0e3f8cdc54e710c25104897ed056d1014f349dbaa97cd35\"]",
+      "tags": [
+        "室外",
+        "地面",
+        "植被",
+        "草地",
+        "自然"
+      ],
+      "colors": [
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.grave-soil\",1,\"5ca141f6c439a6c6f940dd4b93c0049096d7ac7bf47ba40288ad94ab58df6438\"]",
+      "tags": [
+        "墓地",
+        "泥土",
+        "碎石",
+        "地面"
+      ],
+      "colors": [
+        "棕",
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.lava\",1,\"2061e929cce776f4982a7c5ed958fa358a4bb3e4ef025435aef4b7dbdf9eb548\"]",
+      "tags": [
+        "火山",
+        "熔岩",
+        "冷壳",
+        "热纹外观"
+      ],
+      "colors": [
+        "棕",
+        "灰",
+        "橙"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.moss-paver\",1,\"31582abe3acf80aac9f3b70e7856a0adcaf549678bf62634a631b4f3966ad7df\"]",
+      "tags": [
+        "墓地",
+        "铺装",
+        "石板",
+        "苔藓"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.rock.refined\",1,\"a518504f9b3dd88d429b134ccd9e4124694cefcd7571eb0360af4a2fbdc2cba7\"]",
+      "tags": [
+        "精修",
+        "岩石",
+        "自然",
+        "室外"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "refines": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.rock\",1,\"5ae33e6be22c5f95ebc65a3268ec84215c41d70c9a9962a5ccf640cf12e0c741\"]"
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.rock\",1,\"5ae33e6be22c5f95ebc65a3268ec84215c41d70c9a9962a5ccf640cf12e0c741\"]",
+      "tags": [
+        "室外",
+        "地面",
+        "岩石",
+        "自然",
+        "裸岩"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.sand.refined\",1,\"eab2013f477bc427c55512bf0a0dd1a14d05454b861f2c4bc9917e853565f594\"]",
+      "tags": [
+        "精修",
+        "砂地",
+        "岸地",
+        "地面"
+      ],
+      "colors": [
+        "棕",
+        "黄"
+      ],
+      "refines": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.sand\",1,\"10125219036bca7dcea460406c1d90e15398223756fa87f2f90f92d78b89a589\"]"
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.sand\",1,\"10125219036bca7dcea460406c1d90e15398223756fa87f2f90f92d78b89a589\"]",
+      "tags": [
+        "室外",
+        "地面",
+        "海岸",
+        "细砂",
+        "自然"
+      ],
+      "colors": [
+        "黄",
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.stone-paver\",1,\"c92e7df64dbdf1deefb15c327708a3d03440c7a28161ed7ab38f192912480ee5\"]",
+      "tags": [
+        "室外",
+        "地面",
+        "石质",
+        "铺装",
+        "露台"
+      ],
+      "colors": [
+        "灰",
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.volcanic-ash\",1,\"e01327398b6aad3bd1d5c5fda1b425650aabc5f9154020c8d6f15a287cb05a18\"]",
+      "tags": [
+        "火山",
+        "火山灰",
+        "灰土",
+        "地面"
+      ],
+      "colors": [
+        "灰",
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.wall-stone\",1,\"bd61266df1f652deed098a1a7a98a82fb00d5de67b591b1e150aeea5ae050736\"]",
+      "tags": [
+        "建筑",
+        "墙面",
+        "石质",
+        "浅色"
+      ],
+      "colors": [
+        "灰",
+        "白"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.water-deep\",1,\"b76351ecab159c5406c133cd57bc821106df7ad327b6feb15e898dd1692abbb8\"]",
+      "tags": [
+        "室外",
+        "水面",
+        "海岸",
+        "深水",
+        "自然"
+      ],
+      "colors": [
+        "蓝"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.water-shallow\",1,\"ca6e21fc40216401942155d553414f444274e504480ce9f9ab3253f0f654a859\"]",
+      "tags": [
+        "室外",
+        "水面",
+        "海岸",
+        "浅水",
+        "自然"
+      ],
+      "colors": [
+        "青",
+        "蓝"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.wood-dark\",1,\"e255ccbea8206df13e90b00218258ace635c80b7d6036534318706eac349f9d4\"]",
+      "tags": [
+        "室内",
+        "地面",
+        "木质",
+        "深色",
+        "书房"
+      ],
+      "colors": [
+        "棕",
+        "黑"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"material\",\"material.sw.wood-worn\",1,\"efb005fdf3105e4abf9d5a443646c01a647803d2933194099b7e2ab6a65f27d2\"]",
+      "tags": [
+        "室内",
+        "地面",
+        "木质",
+        "磨损",
+        "旧建筑"
+      ],
+      "colors": [
+        "棕",
+        "灰"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prefab\",\"prefab.sw.graveyard-memorial\",1,\"75bc4d32ee85b5f91f581cc155e52c1517dbd6f1961311d971198d1fcc180756\"]",
+      "tags": [
+        "室外",
+        "墓地",
+        "纪念",
+        "石质",
+        "金属"
+      ],
+      "colors": [
+        "灰",
+        "绿",
+        "黑"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prefab\",\"prefab.sw.outpost-supplies\",1,\"005a6733f46102f430efbcd315b7ed4e078c39e2ee3807f47be1fb9f0d42990f\"]",
+      "tags": [
+        "室外",
+        "海岸哨所",
+        "补给",
+        "木质",
+        "收纳"
+      ],
+      "colors": [
+        "棕",
+        "白"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prefab\",\"prefab.sw.study-desk\",1,\"d6b8683e4b19fa8af657087d20e1b071916e7e39ffc350a571a73ece39ece53b\"]",
+      "tags": [
+        "室内",
+        "家具",
+        "书房",
+        "桌面布景"
+      ],
+      "colors": [
+        "棕",
+        "白",
+        "红"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prefab\",\"prefab.sw.terrace-table\",1,\"854cc19e58994d13ab95b9c0ae4fde843c5e0430441f8c00a497eab801a29dca\"]",
+      "tags": [
+        "室外",
+        "露台",
+        "家具",
+        "休息"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prefab\",\"prefab.sw.volcanic-rock-cluster\",1,\"61e19360a10fb39a2c45c7d7f0ac919e14cf0b768b2191bd63c4905232ca82c2\"]",
+      "tags": [
+        "室外",
+        "火山",
+        "岩石",
+        "熔岩"
+      ],
+      "colors": [
+        "黑",
+        "灰",
+        "橙",
+        "红"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.basalt-boulder\",1,\"f444671a90a6121712db22df15e871224bc448ba4b51dec473ec87f6ecfb063c\"]",
+      "tags": [
+        "火山",
+        "玄武岩",
+        "岩块",
+        "障碍"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.bed-single\",1,\"801888c6934c758c2cf9e235b17449f4872a8149c3735b617fee2f07870932d1\"]",
+      "tags": [
+        "室内",
+        "单人床",
+        "寝具",
+        "木制"
+      ],
+      "colors": [
+        "棕",
+        "绿",
+        "白"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.bench\",1,\"27ac9536261def62f56cd6e8a204ccf92a545d855705b4b30667f86c9a3bdcfc\"]",
+      "tags": [
+        "室内",
+        "长凳",
+        "座具",
+        "木制"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.book-stack\",1,\"6a3a0577e3261c58b5090b47dd517a1b807d8e4f2fc3ac6361a1f2265dfef6b7\"]",
+      "tags": [
+        "室内",
+        "书房",
+        "书籍",
+        "桌面",
+        "道具"
+      ],
+      "colors": [
+        "棕",
+        "绿",
+        "红"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.bookshelf\",1,\"fbde35dc922f55466172097b1177caae1ff35cf2816dfc6ddb2ae73752e64400\"]",
+      "tags": [
+        "室内",
+        "家具",
+        "书房",
+        "收纳",
+        "木质"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.campfire\",1,\"520093f6a5d102604e1dc72223bd1fabd12ce64b5d3221781c6819ff02828bd6\"]",
+      "tags": [
+        "室外",
+        "营地",
+        "火焰",
+        "照明",
+        "石质"
+      ],
+      "colors": [
+        "红",
+        "橙",
+        "灰"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.chair-oak\",1,\"295c06285f4d9951e61a97516e683f018bd53028a970364a91dc00aea5d9d53d\"]",
+      "tags": [
+        "室内",
+        "家具",
+        "座椅",
+        "木质"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.chair-worn\",1,\"47add5f799f805cc6c112430abec53db634a3574b80d2c3bb456e2e9ec0c21fe\"]",
+      "tags": [
+        "室内",
+        "家具",
+        "座椅",
+        "磨损",
+        "木质"
+      ],
+      "colors": [
+        "棕",
+        "灰"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.coat-rack\",1,\"a2a8484ba01268676a30740c6aa9ca3fd3f8a7567b34aab8a33a8b3c27b5a97c\"]",
+      "tags": [
+        "室内",
+        "衣架",
+        "收纳",
+        "木制"
+      ],
+      "colors": [
+        "棕",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.crate\",1,\"25f65526f278defc92dfd330da1de63913b9f3974430f252104620190a707130\"]",
+      "tags": [
+        "室内",
+        "室外",
+        "收纳",
+        "木箱",
+        "木质",
+        "补给"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.desk-oak\",1,\"dbde96aa57357e5ad58bce93e3e9b7d795f2b5017cf360fd59f4ac8327ac7f36\"]",
+      "tags": [
+        "室内",
+        "家具",
+        "书房",
+        "桌子",
+        "木质"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.envelope\",1,\"3896229908ac4a4424128ef93b57a0a7ea60ba8b1d497f8a69526b42dc6161e1\"]",
+      "tags": [
+        "室内",
+        "纸张",
+        "桌面",
+        "信件",
+        "线索"
+      ],
+      "colors": [
+        "白",
+        "红"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.flowerpot\",1,\"035358bee71b021f824e9bb69dbfa18542352b30985754858ee8637e9c4e9bdf\"]",
+      "tags": [
+        "室内",
+        "室外",
+        "植被",
+        "盆栽",
+        "装饰"
+      ],
+      "colors": [
+        "棕",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.headstone\",1,\"423169df67e47778b78f9923666bce0cec7b840ed642aedaaacb7bef2b549043\"]",
+      "tags": [
+        "墓地",
+        "墓碑",
+        "石制",
+        "俯视"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.hearth\",1,\"07d34ba3e320f12c5d9f59cedf8e39c130c93a232002bfccf06182563630f29f\"]",
+      "tags": [
+        "室内",
+        "炉台",
+        "石制",
+        "照明装饰"
+      ],
+      "colors": [
+        "灰",
+        "棕",
+        "橙"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.iron-fence\",1,\"c673f638bb3492b8c3cf413eb0ad3cd1dade4629f2bdd46562780f6025918f19\"]",
+      "tags": [
+        "墓地",
+        "围栏",
+        "金属",
+        "边界"
+      ],
+      "colors": [
+        "灰",
+        "黑",
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.lamp-stand\",1,\"90e0bc53b4b3cd1e87ad31f3898767291a19580f867aa7b29f208e74a1dde536\"]",
+      "tags": [
+        "室外",
+        "照明",
+        "金属",
+        "灯具"
+      ],
+      "colors": [
+        "棕",
+        "黄"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.lamp-table\",1,\"96a79767bb2e2e11a1a068b690d67daec2f548970acec5b7589d740e2109d269\"]",
+      "tags": [
+        "室内",
+        "照明",
+        "桌面",
+        "金属",
+        "书房"
+      ],
+      "colors": [
+        "棕",
+        "黄"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.papers\",1,\"892228eeb68c2a9f0c93d113eabb23186899a1164f4a60e5e8156a465c39280e\"]",
+      "tags": [
+        "室内",
+        "书房",
+        "纸张",
+        "桌面",
+        "线索"
+      ],
+      "colors": [
+        "白",
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.reef-decoration\",1,\"36d2dd92147689fe7be082c6207cb638b80eba6ecebbe95c4aff8c32b91b1ef2\"]",
+      "tags": [
+        "室外",
+        "岩石",
+        "海岸",
+        "礁石",
+        "装饰"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.rock-small-worn\",1,\"b1d86c27ac7a2166c4f90ce965c8f849ff6cfdca2363382f23ceaa17d8311744\"]",
+      "tags": [
+        "室外",
+        "岩石",
+        "碎石",
+        "风化",
+        "自然"
+      ],
+      "colors": [
+        "灰",
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.rock-small.refined\",1,\"c8bb0cd781a64d3941cc24c0cb2c860126ceeac7dbd60c9208a4c562103a35d0\"]",
+      "tags": [
+        "精修",
+        "岩石",
+        "自然",
+        "室外"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ],
+      "refines": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.rock-small\",1,\"cf2db1c4f19f55b515f68edfe7166778dc12a078e8a81fad36be4c6b9ba9cd5d\"]"
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.rock-small\",1,\"cf2db1c4f19f55b515f68edfe7166778dc12a078e8a81fad36be4c6b9ba9cd5d\"]",
+      "tags": [
+        "室外",
+        "岩石",
+        "碎石",
+        "自然"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.rug-study\",1,\"d45875c238b98fc7e1c420bffb3de50f47a05930eb20a02d07a06fdadfc2901c\"]",
+      "tags": [
+        "室内",
+        "地毯",
+        "布质",
+        "书房",
+        "装饰"
+      ],
+      "colors": [
+        "红",
+        "灰"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.sarcophagus\",1,\"48cb83223bed9c992ed431f58b217e456a987af157dfd84ecdcaca0c86d2e9dd\"]",
+      "tags": [
+        "墓地",
+        "石棺",
+        "石制",
+        "储藏"
+      ],
+      "colors": [
+        "灰",
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.shrub-dry\",1,\"e85164bdcb2a1647b0f8194cfbb30dbe5d39f0806adb9dc4cc8c963a68eb793a\"]",
+      "tags": [
+        "室外",
+        "植被",
+        "灌木",
+        "枯叶",
+        "自然"
+      ],
+      "colors": [
+        "棕",
+        "灰"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.shrub-round.refined\",1,\"ecefb7f670fc4c3a8a7ae1688357ece07e79c531c531cade306f27b806f19e8b\"]",
+      "tags": [
+        "精修",
+        "灌木",
+        "植被",
+        "室外"
+      ],
+      "colors": [
+        "绿"
+      ],
+      "refines": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.shrub-round\",1,\"da1aef4870d17d664e060cd73ed5c3b1dea915c200c2375f841ef50ddcc35d6e\"]"
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.shrub-round\",1,\"da1aef4870d17d664e060cd73ed5c3b1dea915c200c2375f841ef50ddcc35d6e\"]",
+      "tags": [
+        "室外",
+        "植被",
+        "灌木",
+        "自然"
+      ],
+      "colors": [
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.sideboard\",1,\"d5dd1ea701c7e1a2796084f727d1fe4a2f1683adde52cf43a1a7ba759ae40b0e\"]",
+      "tags": [
+        "室内",
+        "边柜",
+        "储物",
+        "木制"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.supply-rack\",1,\"cbbeb095d4574315a29a9f1e584594ae7f8006a19b7c88d454d8028fcbef6a43\"]",
+      "tags": [
+        "室外",
+        "家具",
+        "收纳",
+        "木质",
+        "补给"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.table-round\",1,\"03639e893a00b5e90236e67045a8f4e6148c13ec5dbdfcb7676d059ff4b92cfb\"]",
+      "tags": [
+        "室外",
+        "露台",
+        "家具",
+        "桌子",
+        "木质"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.tent\",1,\"4cb58cacce760b19607e5b1e639d3ad2d55e3603b316c65cf7fef53baed408b4\"]",
+      "tags": [
+        "室外",
+        "营地",
+        "帐篷",
+        "布质",
+        "遮蔽"
+      ],
+      "colors": [
+        "棕",
+        "白"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.tree-broadleaf.refined\",1,\"3c20e41cd6172f5ae03c7486a588a454f6f98f48d2dd25ae4606d430040230c7\"]",
+      "tags": [
+        "精修",
+        "树木",
+        "阔叶树",
+        "植被",
+        "室外"
+      ],
+      "colors": [
+        "绿"
+      ],
+      "refines": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.tree-broadleaf\",1,\"cf9202f6cfe5fe5a6f39b882220c9652d84b8d6ce3f9a75a840000bc8a37496b\"]"
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.tree-broadleaf\",1,\"cf9202f6cfe5fe5a6f39b882220c9652d84b8d6ce3f9a75a840000bc8a37496b\"]",
+      "tags": [
+        "室外",
+        "植被",
+        "树木",
+        "阔叶",
+        "自然"
+      ],
+      "colors": [
+        "绿"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.tree-sparse\",1,\"431750a3068b92cc0b9d5df510d24ea873c6535573ba286e2fd36ddfcfc849ce\"]",
+      "tags": [
+        "室外",
+        "植被",
+        "树木",
+        "疏叶",
+        "自然"
+      ],
+      "colors": [
+        "绿",
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.volcanic-crack\",1,\"a1f0ea90be8456aae51220a7f2f756b2104b70a357347456867e064735fba9c4\"]",
+      "tags": [
+        "火山",
+        "裂隙",
+        "地表装饰",
+        "热纹外观"
+      ],
+      "colors": [
+        "灰",
+        "棕",
+        "橙"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.wardrobe\",1,\"6a6d336e5ab56dfc72768ace4d985e43ecfb22257676773e83a988c3d1722423\"]",
+      "tags": [
+        "室内",
+        "衣柜",
+        "储物",
+        "木制"
+      ],
+      "colors": [
+        "棕"
+      ]
+    },
+    {
+      "key": "[1,\"49c2ffa58a80d9f4b73a8c4031e1617e5d8295db58e1a4a7f9f6f591e5716e4b\",\"prop\",\"prop.sw.worktable\",1,\"a6cd30acd8b629735a9a1d1cafb5ead424b4729d90070924556ecfa2b5750e90\"]",
+      "tags": [
+        "室内",
+        "操作桌",
+        "桌子",
+        "工作台"
+      ],
+      "colors": [
+        "棕",
+        "绿"
+      ]
+    }
+  ]
+}

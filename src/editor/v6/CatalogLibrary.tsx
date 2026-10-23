@@ -5,6 +5,7 @@ import { describeCatalogItems, prepareCatalogEntry, readCatalogEntry } from '../
 import { CatalogRepositoryV1 } from '../../catalog/repository'
 import { exportCatalogBackup, readCatalogBackup } from '../../catalog/backup'
 import { normalizeCatalogText, validateCatalogOrganization } from '../../catalog/organization'
+import { catalogCurationFor, catalogReadonlyTags } from '../../catalog/curation'
 import { EMPTY_CATALOG_FILTER_V1, filterCatalogItems, type CatalogFilterV1 } from '../../catalog/query'
 import {
   CATALOG_COLORS_V1, CATALOG_LIMITS_V1, EMPTY_CATALOG_ORGANIZATION_V1,
@@ -61,6 +62,10 @@ export default function CatalogLibrary({
   const [detailProject, setDetailProject] = useState<CompleteProjectV6 | null>(null)
   const [missingThumbnails, setMissingThumbnails] = useState<Set<string>>(() => new Set())
   const capsuleCache = useRef(new Map<string, Promise<CompleteProjectV6>>())
+  const updateThumbnailState = useCallback((key: string, missing: boolean) => setMissingThumbnails(value => {
+    if (value.has(key) === missing) return value
+    const next = new Set(value); if (missing) next.add(key); else next.delete(key); return next
+  }), [])
   const currentItems = useMemo(() => describeCatalogItems(project), [project])
   const builtinItems = useMemo(() => builtinProject ? describeCatalogItems(builtinProject) : [], [builtinProject])
   const mineItems = useMemo(() => snapshot.entries.map(entry => entry.item), [snapshot.entries])
@@ -70,10 +75,13 @@ export default function CatalogLibrary({
   const sourceItems = scope === 'project' ? currentItems : scope === 'builtin' ? builtinItems : mineItems
   const found = useMemo(() => filterCatalogItems(sourceItems, snapshot.organizations, filter), [sourceItems, snapshot.organizations, filter])
   const detail = detailKey ? allItems.get(detailKey) : undefined
+  const detailCuration = detail ? catalogCurationFor(detail) : undefined
+  const refinedSource = detailCuration?.refines ? allItems.get(detailCuration.refines) : undefined
+  const refinedIdentity = detailCuration?.refines ? JSON.parse(detailCuration.refines) as [number, string, string, string, number, string] : undefined
   const selectedItems = selected.flatMap(key => allItems.has(key) ? [allItems.get(key)!] : [])
   const selectedInstalled = selected.filter(key => installed.has(key))
   const selectedMissing = selectedItems.filter(item => !installed.has(item.identity.key))
-  const publisherTags = useMemo(() => [...new Set(sourceItems.flatMap(item => item.publisherTags))].sort((a, b) => a.localeCompare(b, 'zh')), [sourceItems])
+  const publisherTags = useMemo(() => [...new Set(sourceItems.flatMap(item => catalogReadonlyTags(item)))].sort((a, b) => a.localeCompare(b, 'zh')), [sourceItems])
   const personalTags = useMemo(() => [...new Map(Object.values(snapshot.organizations).flatMap(item => item.tags).map(tag => [normalizeCatalogText(tag), tag])).values()].sort((a, b) => a.localeCompare(b, 'zh')), [snapshot.organizations])
 
   useEffect(() => {
@@ -208,15 +216,15 @@ export default function CatalogLibrary({
     <label className="composition-search"><Search size={14}/><input type="search" aria-label="搜索组件素材" placeholder="名称、标签、来源或 ID" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
     <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部</button>{(['prop', 'material', 'prefab'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
     <details className="catalog-filters"><summary>标签、颜色与收藏筛选</summary>
-      <fieldset><legend>发布者标签（任一）</legend><div className="catalog-filter-options">{publisherTags.length ? publisherTags.map(tag => <label key={tag}><input type="checkbox" checked={filter.publisherTags.includes(tag)} onChange={() => updateFilter('publisherTags', toggleValue(filter.publisherTags, tag))}/>{tag}</label>) : <span className="asset-muted">此范围没有发布者标签</span>}</div></fieldset>
+      <fieldset><legend>只读标签（发布者＋目录补充，任一）</legend><div className="catalog-filter-options">{publisherTags.length ? publisherTags.map(tag => <label key={tag}><input type="checkbox" checked={filter.publisherTags.includes(tag)} onChange={() => updateFilter('publisherTags', toggleValue(filter.publisherTags, tag))}/>{tag}</label>) : <span className="asset-muted">此范围没有只读标签</span>}</div></fieldset>
       <fieldset><legend>个人标签</legend><label className="catalog-inline">匹配<select aria-label="个人标签匹配方式" value={filter.tagMatch} onChange={event => updateFilter('tagMatch', event.target.value as 'all' | 'any')}><option value="all">全部所选标签</option><option value="any">任一所选标签</option></select></label><div className="catalog-filter-options">{personalTags.length ? personalTags.map(tag => <label key={normalizeCatalogText(tag)}><input type="checkbox" checked={filter.tags.includes(tag)} onChange={() => updateFilter('tags', toggleValue(filter.tags, tag))}/>{tag}</label>) : <span className="asset-muted">尚未保存个人标签</span>}</div></fieldset>
-      <fieldset><legend>个人颜色（任一）</legend><div className="catalog-colors">{CATALOG_COLORS_V1.map(color => <ColorButton key={color} color={color} selected={filter.colors.includes(color)} onClick={() => updateFilter('colors', toggleValue(filter.colors, color))}/>)}</div></fieldset>
+      <fieldset><legend>颜色（个人＋目录人工标记，任一）</legend><div className="catalog-colors">{CATALOG_COLORS_V1.map(color => <ColorButton key={color} color={color} selected={filter.colors.includes(color)} onClick={() => updateFilter('colors', toggleValue(filter.colors, color))}/>)}</div></fieldset>
       <label className="catalog-inline"><input type="checkbox" checked={filter.favoriteOnly} onChange={event => updateFilter('favoriteOnly', event.target.checked)}/><Heart size={13}/>仅收藏</label>
     </details>
     {hasFilters && <div className="catalog-filter-chips" aria-label="当前素材筛选条件">
       {filter.query && <FilterChip label={`关键词：${filter.query}`} onRemove={() => updateFilter('query', '')}/>}
       {filter.kinds.map(kind => <FilterChip key={kind} label={KIND_LABELS[kind]} onRemove={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}/>)}
-      {filter.publisherTags.map(tag => <FilterChip key={`publisher:${tag}`} label={`发布：${tag}`} onRemove={() => updateFilter('publisherTags', toggleValue(filter.publisherTags, tag))}/>)}
+      {filter.publisherTags.map(tag => <FilterChip key={`publisher:${tag}`} label={`只读：${tag}`} onRemove={() => updateFilter('publisherTags', toggleValue(filter.publisherTags, tag))}/>)}
       {filter.tags.map(tag => <FilterChip key={`personal:${tag}`} label={`个人${filter.tagMatch === 'all' ? '全部' : '任一'}：${tag}`} onRemove={() => updateFilter('tags', toggleValue(filter.tags, tag))}/>)}
       {filter.colors.map(color => <FilterChip key={color} label={`颜色：${color}`} onRemove={() => updateFilter('colors', toggleValue(filter.colors, color))}/>)}
       {filter.favoriteOnly && <FilterChip label="仅收藏" onRemove={() => updateFilter('favoriteOnly', false)}/>}
@@ -224,18 +232,18 @@ export default function CatalogLibrary({
     </div>}
     <div className="catalog-count"><span>{found.length} 项匹配 · 已选{selected.length}项</span><button onClick={() => setSelected([])} disabled={!selected.length || busy}>清空选择</button></div>
     <div className="catalog-entries">{found.slice(0, limit).map(item => {
-      const key = item.identity.key, organization = organizationOf(snapshot, key), inProject = currentKeys.has(key)
+      const key = item.identity.key, organization = organizationOf(snapshot, key), inProject = currentKeys.has(key), curation = catalogCurationFor(item)
       return <article key={key} data-definition-id={item.selector.definitionId} className={detailKey === key ? 'selected' : ''}>
         <label className="catalog-select"><input type="checkbox" aria-label={`选择素材 ${item.name}`} checked={selected.includes(key)} disabled={busy} onChange={() => toggleSelection(key)}/></label>
         <button className="catalog-item-main" aria-label={`查看素材 ${item.name}`} onClick={() => setDetailKey(value => value === key ? null : key)}>
-          <CatalogThumbnail item={item} loadProject={loadProject} onThumbnailState={(key, missing) => setMissingThumbnails(value => { if (value.has(key) === missing) return value; const next = new Set(value); if (missing) next.add(key); else next.delete(key); return next })}/><span className="catalog-item-copy"><strong>{item.name}{organization.favorite && <Heart size={11} aria-label="已收藏" fill="currentColor"/>}</strong><small>{KIND_LABELS[item.identity.kind]} · v{item.identity.fixedVersion} · {item.widthMm} × {item.heightMm} mm</small><small>{missingThumbnails.has(key) ? '缺失 / 校验失败' : installed.has(key) ? '已安装' : '可安装'}{item.visibility === 'gm' ? ' · 私密组合' : ''}</small><small className="catalog-tag-line">{item.publisherTags.join(' · ')}</small>{(organization.tags.length > 0 || organization.colors.length > 0) && <small className="catalog-personal-line">个人：{[...organization.tags, ...organization.colors.map(color => `${color}色`)].join(' · ')}</small>}</span>
+          <CatalogThumbnail item={item} loadProject={loadProject} onThumbnailState={updateThumbnailState}/><span className="catalog-item-copy"><strong>{item.name}{organization.favorite && <Heart size={11} aria-label="已收藏" fill="currentColor"/>}</strong><small>{KIND_LABELS[item.identity.kind]} · v{item.identity.fixedVersion} · {item.widthMm} × {item.heightMm} mm</small><small>{missingThumbnails.has(key) ? '缺失 / 校验失败' : installed.has(key) ? '已安装' : '可安装'}{item.visibility === 'gm' ? ' · 私密组合' : ''}</small><small className="catalog-tag-line">{item.publisherTags.join(' · ')}</small>{curation && <small className="catalog-curation-line">目录补充：{[...curation.tags, ...curation.colors.map(color => `${color}色`)].join(' · ')}（只读）</small>}{(organization.tags.length > 0 || organization.colors.length > 0) && <small className="catalog-personal-line">个人：{[...organization.tags, ...organization.colors.map(color => `${color}色`)].join(' · ')}</small>}</span>
         </button>
         {inProject && <button className="catalog-place" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '应用材质' : '放置组件'} ${item.name}`} onClick={() => item.identity.kind === 'prop' ? onPlace(item.selector.definitionId) : item.identity.kind === 'material' ? onMaterial(item.selector.definitionId) : onPrefab(item.selector.definitionId)}><Plus size={14}/>{item.identity.kind === 'material' ? '应用' : '放置'}</button>}
       </article>
     })}</div>
     {!found.length && !(scope === 'builtin' && builtinLoading) && <p className="catalog-empty">{scope === 'mine' && !mineItems.length ? '我的素材还没有完整安装条目。请从内置素材或本工程明确保存，或导入完整库备份。' : '没有匹配素材。可移除筛选条件后再试。'}</p>}
     {found.length > limit && <button className="asset-wide" onClick={() => setLimit(value => value + 24)}>再显示24项（余{found.length - limit}项）</button>}
-    {detail && <div className="composition-source catalog-source" aria-label="素材来源详情"><h3>{detail.name}</h3><dl className="asset-facts"><dt>固定来源</dt><dd>{detail.originLabel}</dd><dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd><dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd><dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd><dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd><dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd><dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd><dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd></dl><p className="asset-muted">缩略图显示固定源图片；个人颜色是整理标记，场景中的层与实例覆盖可能产生不同外观。</p>{detailProject && <details><summary>完整许可与署名</summary>{[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef)).map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))].map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}</details>}<button disabled={!ready || busy || !!draft} onClick={() => { setSelected([detail.identity.key]); const existing = organizationOf(snapshot, detail.identity.key); setDraft({ keys: [detail.identity.key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite }) }}>编辑此项个人整理</button></div>}
+    {detail && <div className="composition-source catalog-source" aria-label="素材来源详情"><h3>{detail.name}</h3><dl className="asset-facts"><dt>固定来源</dt><dd>{detail.originLabel}</dd><dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd><dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd><dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd><dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd><dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd><dt>目录补充标签／颜色</dt><dd>{detailCuration ? [...detailCuration.tags, ...detailCuration.colors.map(color => `${color}色`)].join(' · ') : '无'}（只读、人工描述）</dd>{refinedIdentity && <><dt>精修来源</dt><dd>{refinedSource?.name ?? refinedIdentity[3]} · v{refinedIdentity[4]}；保留旧版，可分别选择</dd></>}<dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd><dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd></dl>{refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照"><figure><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>精修版：{detail.name} · v{detail.identity.fixedVersion}</figcaption></figure><figure>{refinedSource ? <><CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>保留旧版：{refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption></> : <><span className="catalog-comparison-missing">旧版完整来源未在当前可用目录中找到；请读取内置目录或明确安装对应旧版。</span><figcaption>{refinedIdentity[3]} · v{refinedIdentity[4]}</figcaption></>}</figure></div>}<p className="asset-muted">缩略图显示固定源图片；目录补充标签／颜色来自应用只读索引，不改发布者信息，也不写入库备份。颜色为人工描述或个人整理，场景中的层与实例覆盖可能产生不同外观。</p>{detailProject && <details><summary>完整许可与署名</summary>{[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef)).map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))].map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}</details>}<button disabled={!ready || busy || !!draft} onClick={() => { setSelected([detail.identity.key]); const existing = organizationOf(snapshot, detail.identity.key); setDraft({ keys: [detail.identity.key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite }) }}>编辑此项个人整理</button></div>}
     <div className="catalog-batch" aria-label="素材批量操作"><p className="asset-muted">操作仅作用于明确勾选的{selected.length}项，最多64项；切换范围保留所选。</p><div className="catalog-actions">
       <button disabled={!ready || busy || !selectedMissing.length} onClick={saveToMine}><Download size={13}/>{scope === 'project' ? '保存到我的素材' : '安装到我的素材'}{selectedMissing.length > 0 ? `（${selectedMissing.length}）` : ''}</button>
       <button disabled={disabled || busy || !selected.length} onClick={adoptSelected}>预览采用到本工程</button>
@@ -259,7 +267,7 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 function ColorButton({ color, selected, onClick, disabled }: { color: CatalogColorV1; selected: boolean; onClick: () => void; disabled?: boolean }) {
   return <button type="button" className="catalog-color" aria-pressed={selected} aria-label={`${color}色`} disabled={disabled} onClick={onClick}><i style={{ background: COLORS[color] }}/>{color}{selected && <Check size={10}/>}</button>
 }
-function CatalogThumbnail({ item, loadProject, onThumbnailState }: { item: CatalogItemV1; loadProject: (item: CatalogItemV1) => Promise<CompleteProjectV6>; onThumbnailState: (key: string, missing: boolean) => void }) {
+function CatalogThumbnail({ item, loadProject, onThumbnailState, eager = false }: { item: CatalogItemV1; loadProject: (item: CatalogItemV1) => Promise<CompleteProjectV6>; onThumbnailState: (key: string, missing: boolean) => void; eager?: boolean }) {
   const thumbnailCallback = useRef(onThumbnailState); thumbnailCallback.current = onThumbnailState
   const host = useRef<HTMLSpanElement>(null), [urls, setUrls] = useState<string[]>([]), [state, setState] = useState<'waiting' | 'loading' | 'ready' | 'missing'>('waiting')
   useEffect(() => {
@@ -272,10 +280,12 @@ function CatalogThumbnail({ item, loadProject, onThumbnailState }: { item: Catal
         setUrls([...created]); setState(created.length || !item.thumbnailAssetIds.length ? 'ready' : 'missing'); thumbnailCallback.current(item.identity.key, created.length < Math.min(4, item.thumbnailAssetIds.length))
       }).catch(() => { if (active) { setState('missing'); thumbnailCallback.current(item.identity.key, true) } })
     }
-    const observer = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) { load(); observer?.disconnect() } }, { rootMargin: '80px' })
+    // A selected source comparison is explicit demand, including when details extend below the panel's clipped viewport.
+    if (eager) load()
+    const observer = eager || typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) { load(); observer?.disconnect() } }, { rootMargin: '80px' })
     if (observer && host.current) observer.observe(host.current); else load()
     return () => { active = false; observer?.disconnect(); created.forEach(url => URL.revokeObjectURL(url)) }
-  }, [item, loadProject])
+  }, [item, loadProject, eager])
   return <span ref={host} className={`catalog-thumbnail ${urls.length > 1 ? 'multiple' : ''}`} aria-label={`${item.name}固定源缩略图`}>
     {urls.map(url => <img key={url} src={url} alt="" onError={() => { setState('missing'); thumbnailCallback.current(item.identity.key, true) }}/>)}
     {state === 'missing' && <span>图片缺失</span>}{state === 'ready' && !item.thumbnailAssetIds.length && <span>几何素材</span>}{(state === 'waiting' || state === 'loading') && <span>载入图片</span>}

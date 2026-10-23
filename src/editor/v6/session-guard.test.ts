@@ -4,7 +4,7 @@ import { workspaceTransitionReasonV6, type WorkspaceTransientV6 } from './sessio
 const idle: WorkspaceTransientV6 = { busy: false, preparing: false, newScene: false, candidate: false,
   placement: false, prefabPlacement: false, sketch: false, outdoorSketch: false,
   restore: false, structureRestore: false, structure: false, buildingForm: false, outdoorForm: false, assetImportForm: false,
-  appearanceForm: false, prefabForm: false, buildingInspector: false, outdoorInspector: false, selectionForm: false, displayForm: false, catalogForm: false }
+  appearanceForm: false, prefabForm: false, buildingInspector: false, outdoorInspector: false, selectionForm: false, displayForm: false, catalogForm: false, propAppearanceForm: false }
 
 describe('unified workspace transition guard', () => {
   it('permits leaving the settled session without requiring selection, view or undo to be discarded', () => {
@@ -17,7 +17,7 @@ describe('unified workspace transition guard', () => {
     ['restore', '取消候选'], ['structureRestore', '取消候选'], ['structure', '取消候选'],
     ['buildingForm', '取消建筑草稿'], ['outdoorForm', '取消室外草稿'], ['assetImportForm', '取消素材导入草稿'],
     ['appearanceForm', '取消外观草稿'], ['prefabForm', '取消组合草稿'], ['buildingInspector', '取消建筑属性草稿'],
-    ['catalogForm', '取消素材整理草稿'],
+    ['catalogForm', '取消素材整理草稿'], ['propAppearanceForm', '取消换图草稿'],
     ['outdoorInspector', '取消室外属性草稿'], ['selectionForm', '取消批量参数草稿'], ['displayForm', '取消显示设置草稿'],
   ] as const)('blocks %s with a concrete way to finish it', (field, expected) => {
     expect(workspaceTransitionReasonV6({ ...idle, [field]: true })).toContain(expected)

@@ -5,6 +5,7 @@
 !.env.example
 local-data/
 work/
+/docs/evidence/
 node_modules/
 dist/
 dist-performance/

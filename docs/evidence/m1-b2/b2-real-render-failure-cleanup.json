@@ -1,7 +1,0 @@
-{
-  "gmError": "Error: 绘制所需素材 b2-a-15 缺失，无法生成完整图片。",
-  "requiredError": "Error: M1 工程无效：仅支持静态 PNG、JPEG 或 WebP；实际格式不符。",
-  "cancelName": "AbortError",
-  "decoded": 1,
-  "closed": 1
-}

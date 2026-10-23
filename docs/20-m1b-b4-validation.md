@@ -1,6 +1,8 @@
 # M1-B / B4 双受众与持久化联合验证
 
-日期：2026-10-20。应用版本：`0.2.0-m1-b4`。开发基线：`9c964f09797a7b77ca0396ae48d2ebdc83c03320`。本批针对可编辑 VIS-01「书房与露台」和 VIS-02「双层岩岛」完成依赖诊断、秘密配对、保存恢复与失败处理的联合矩阵。最终统一运行与生产复核见[独立证据索引](evidence/m1-b4/README.md)，不代替 B5 负载与峰值验收。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
+日期：2026-10-20。应用版本：`0.2.0-m1-b4`。开发基线：`9c964f09797a7b77ca0396ae48d2ebdc83c03320`。本批针对可编辑 VIS-01「书房与露台」和 VIS-02「双层岩岛」完成依赖诊断、秘密配对、保存恢复与失败处理的联合矩阵。最终统一运行与生产复核见独立证据索引（原附件已清理，旧路径：`docs/evidence/m1-b4/README.md`），不代替 B5 负载与峰值验收。
 
 [M0](13-m0-validation.md)、[B1](17-m1b-b1-validation.md)、[B2](18-m1b-b2-validation.md)、[B3](19-m1b-b3-validation.md)报告及旧证据保留不变。样板内容见[08](08-test-scenarios.md)，存储与输出契约见[06](06-storage-and-export.md)，B4/B5切片见[16](16-m1a-handoff.md)。
 
@@ -25,14 +27,14 @@ Apple M1、16 GiB、macOS 26.6.2（25G83），Node.js 24.14.1/npm 11.11.0，Play
 
 | 检查 | 实际结果 |
 |---|---|
-| `npm test` | [305/305单测](evidence/m1-b4/unit-results.json)通过，25个文件；相对B3新增4项IO诊断及2项投影回归 |
+| `npm test` | 305/305单测（原附件已清理，旧路径：`docs/evidence/m1-b4/unit-results.json`）通过，25个文件；相对B3新增4项IO诊断及2项投影回归 |
 | `npm run build` | 类型与生产构建通过；2条上游Zod注释告警，主chunk541279字节（约541.28kB）触发体积告警 |
-| Chrome完整回归 | [58/58通过](evidence/m1-b4/browser-results.json)，190612.094ms，0失败/跳过/重试/不稳定通过；新增19项B4用例：包6、隐私3、存档6、UI4 |
-| 生产静态预览 | [最终构建复核](evidence/m1-b4/production-smoke.json)：两样板依赖摘要、玩家视图坏包及坏本地资源拒绝、重开、完整工程、双受众4K和空存储离线续编通过 |
+| Chrome完整回归 | 58/58通过（原附件已清理，旧路径：`docs/evidence/m1-b4/browser-results.json`），190612.094ms，0失败/跳过/重试/不稳定通过；新增19项B4用例：包6、隐私3、存档6、UI4 |
+| 生产静态预览 | 最终构建复核（原附件已清理，旧路径：`docs/evidence/m1-b4/production-smoke.json`）：两样板依赖摘要、玩家视图坏包及坏本地资源拒绝、重开、完整工程、双受众4K和空存储离线续编通过 |
 
 B4没有扩展渲染功能，真实矩阵下现有受众投影、位图关闭与存档事务无需生产代码修改。主要实现改动是完整性诊断、可读清单和版本来源；新增测试针对保存/秘密等高影响不变量，不能把测试数量当作整个QA编号关闭。
 
-[中间验证历史](evidence/m1-b4/verification-history.json)保留失败轮次：生产复核发现玩家视图导入失败时清单被隐藏，最终审阅又补齐最近工程入口；两者已修复并在两样板回归。曾有两条测试仍点击已被新准备动作清掉的诊断，已改为断言清理；另两条室外用例与系统休眠重叠。一次后台工程读取41.020秒后返回正确数据但已触发45秒超时，原因未定位；其后独立完整运行通过，不据此声称修复后台延迟。最终运行采用命令级防自动休眠且不并行生产浏览器任务，没有提高超时或忽略断言。
+中间验证历史（原附件已清理，旧路径：`docs/evidence/m1-b4/verification-history.json`）保留失败轮次：生产复核发现玩家视图导入失败时清单被隐藏，最终审阅又补齐最近工程入口；两者已修复并在两样板回归。曾有两条测试仍点击已被新准备动作清掉的诊断，已改为断言清理；另两条室外用例与系统休眠重叠。一次后台工程读取41.020秒后返回正确数据但已触发45秒超时，原因未定位；其后独立完整运行通过，不据此声称修复后台延迟。最终运行采用命令级防自动休眠且不并行生产浏览器任务，没有提高超时或忽略断言。
 
 ## 3. 完整包与资源失败矩阵
 
@@ -49,7 +51,7 @@ B4没有扩展渲染功能，真实矩阵下现有受众投影、位图关闭与
 
 VIS-01依赖/版本/格式故障16种、VIS-02为14种；Prefabs差异解释上述数量。像素预算负例只修改三张真实工程图片的尺寸声明为8192×3906，没有分配大图；这是前置保护证据，不是64百万像素容量或资源峰值证明。原生解码失败的私密标记不进入诊断。来源图片规范化与PNG/JPEG/WebP基础历史见17，B4未覆盖全部外部图片格式/攻击组合。
 
-原始矩阵：[书房依赖](evidence/m1-b4/VIS-01-dependency-failure-matrix.json)、[岩岛依赖](evidence/m1-b4/VIS-02-dependency-failure-matrix.json)、[实际字节/解码故障](evidence/m1-b4/VIS-02-byte-and-native-decoder-failures.json)、[取消/预算](evidence/m1-b4/VIS-01-cancellation-and-pixel-budget.json)。完整工程实际下载见[书房](evidence/m1-b4/study.sceneweave)和[岩岛](evidence/m1-b4/island.sceneweave)。
+原始矩阵：书房依赖（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-01-dependency-failure-matrix.json`）、岩岛依赖（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-02-dependency-failure-matrix.json`）、实际字节/解码故障（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-02-byte-and-native-decoder-failures.json`）、取消/预算（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-01-cancellation-and-pixel-budget.json`）。完整工程实际下载见书房（原附件已清理，旧路径：`docs/evidence/m1-b4/study.sceneweave`）和岩岛（原附件已清理，旧路径：`docs/evidence/m1-b4/island.sceneweave`）。
 
 ## 4. 48格真实隐私矩阵
 
@@ -75,7 +77,7 @@ S02为保证真实支撑合法，两份副本都将同一公开树从(20277,1030
 
 48次观察中每次实际解码hash集合等于该受众投影依赖，所有成功位图均close；玩家不解码两份新增秘密位图。删除仅GM使用的两份Blob后，玩家仍可导出，GM明确拒绝。全部输出完全不透明；遮罩中心为[216,213,197,255]；PNG无tEXt/zTXt/iTXt/eXIf或私密来源/seed/prompt/注记明文。
 
-原始观察：[VIS-01-S01](evidence/m1-b4/VIS-01-S01-privacy-matrix.json)、[VIS-02-S01](evidence/m1-b4/VIS-02-S01-privacy-matrix.json)、[VIS-02-S02](evidence/m1-b4/VIS-02-S02-privacy-matrix.json)。[缩图索引](evidence/m1-b4/privacy-thumbnails.json)中的1024图仅供展示；哈希比较使用真实4K全RGBA。
+原始观察：VIS-01-S01（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-01-S01-privacy-matrix.json`）、VIS-02-S01（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-02-S01-privacy-matrix.json`）、VIS-02-S02（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-02-S02-privacy-matrix.json`）。缩图索引（原附件已清理，旧路径：`docs/evidence/m1-b4/privacy-thumbnails.json`）中的1024图仅供展示；哈希比较使用真实4K全RGBA。
 
 ## 5. 保存、恢复与失败保留
 
@@ -93,12 +95,12 @@ S02为保证真实支撑合法，两份副本都将同一公开树从(20277,1030
 
 UI另覆盖两样板各2项：多缺位图/许可清单、重选修复包后取消、健康完整摘要、从玩家视图读取损坏的最近工程；实际挂起首张解码后点击取消，释放迟到位图且不消耗历史/存档。完整摘要随受众切换和准备新工程清理。
 
-书房/岩岛原始记录：[离线往返](evidence/m1-b4/vis-01-fresh-complete-storage.json) / [离线往返](evidence/m1-b4/vis-02-fresh-complete-storage.json)、[CAS与恢复](evidence/m1-b4/vis-01-cross-tab-recovery.json) / [CAS与恢复](evidence/m1-b4/vis-02-cross-tab-recovery.json)、[故障保留](evidence/m1-b4/vis-01-failure-preservation.json) / [故障保留](evidence/m1-b4/vis-02-failure-preservation.json)、[诊断UI](evidence/m1-b4/VIS-01-diagnostics.json) / [诊断UI](evidence/m1-b4/VIS-02-diagnostics.json)。
+书房/岩岛原始记录：离线往返（原附件已清理，旧路径：`docs/evidence/m1-b4/vis-01-fresh-complete-storage.json`） / 离线往返（原附件已清理，旧路径：`docs/evidence/m1-b4/vis-02-fresh-complete-storage.json`）、CAS与恢复（原附件已清理，旧路径：`docs/evidence/m1-b4/vis-01-cross-tab-recovery.json`） / CAS与恢复（原附件已清理，旧路径：`docs/evidence/m1-b4/vis-02-cross-tab-recovery.json`）、故障保留（原附件已清理，旧路径：`docs/evidence/m1-b4/vis-01-failure-preservation.json`） / 故障保留（原附件已清理，旧路径：`docs/evidence/m1-b4/vis-02-failure-preservation.json`）、诊断UI（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-01-diagnostics.json`） / 诊断UI（原附件已清理，旧路径：`docs/evidence/m1-b4/VIS-02-diagnostics.json`）。
 
 ## 6. 范围与下一入口
 
 B4关闭的是16定义的三组VIS隐私配对、双样板完整依赖/往返和此处列明的失败流程；QA-SEC-06/QA-IMPORT-03中的SCN-04、其他浏览器及更广输入仍未运行。旧13/17/18/19证据不重写，原素材仍为O/P2；技术正确性不代替用户美术签收或完整主题P3。
 
-[175项实现指纹](evidence/m1-b4/implementation-files.sha256)与当前文件一致；[交付检查](evidence/m1-b4/delivery-checks.json)确认原报告/证据/素材未变、无嵌套仓库及私人路径或凭据特征，两份实际下载包的ZIP、逐项hash、PNG CRC和B4版本一致。[文档检查](evidence/m1-b4/doc-checks.json)独立核对引用、锚点、表格和验收编号。
+175项实现指纹（原附件已清理，旧路径：`docs/evidence/m1-b4/implementation-files.sha256`）与当前文件一致；交付检查（原附件已清理，旧路径：`docs/evidence/m1-b4/delivery-checks.json`）确认原报告/证据/素材未变、无嵌套仓库及私人路径或凭据特征，两份实际下载包的ZIP、逐项hash、PNG CRC和B4版本一致。文档检查（原附件已清理，旧路径：`docs/evidence/m1-b4/doc-checks.json`）独立核对引用、锚点、表格和验收编号。
 
 没有新增自由绘图、素材管理/外链补图、任意地形工具、全图寻路、AI、云部署或真实小团功能。当前主chunk仍有体积告警；不提高阈值掩盖。下一入口 **B5：真实素材500基线/2000压力、冷热加载、编辑/持久化/双受众4K耗时与可测资源峰值**，据结果决定预算与渲染优化，再形成M1-C滚动周计划。B4正确性运行里的单次时长不作为性能承诺。

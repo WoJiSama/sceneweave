@@ -101,7 +101,7 @@ C0方法与结果由[22](../../docs/22-m1c-c0-validation.md)独立记录，21及
 
 ```sh
 npm run build
-node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c0-workbench" --fixtures "$PWD/docs/evidence/m1-b5/final" --runs 3 --edits 10 --channel chrome
+node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c0-workbench" --fixtures "$PWD/tests/fixtures/performance-b5" --runs 3 --edits 10 --channel chrome
 ```
 
 默认四组×3个新Chrome进程，每轮10次物件编辑、10次轮廓预览及10次采用，原始事件分别保存。工具只安装采集用init-script，真实可信Enter capture开始计时；focusout capture至document bubble经过React同步处理，包含命令准备与候选校验；采用点击单列。MutationObserver观察到新底图计数、正确修订及主画布可见后等待双rAF。`event.timeStamp`至capture只描述浏览器创建事件后的排队，不含物理设备时间。

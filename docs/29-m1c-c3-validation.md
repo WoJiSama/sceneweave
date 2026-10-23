@@ -1,5 +1,7 @@
 # M1-C / C3 组件库与参数外观验证
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-22。状态：C3有限切片已本地实现并完成下列适用验证，本地版本 `0.2.0-m1-c3`，未提交、推送或发布。当前用户授权为“做c3吧”；下一入口为C4室外工具与地形依赖恢复，完整M1、C4/C5、M2 AI、真实小团和全交互性能不由本报告推定。
 
 ## 实现范围与严格版本
@@ -32,7 +34,7 @@
 
 ## 正常生产页面实测
 
-使用正常 `npm run build` 产物与 `npm run preview -- --port 4173 --strictPort`，通过UI操作 `/#composition`；脚本不导入源码模块、不调用开发API。原始运行与脚本见[生产报告](evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/report.json)及同目录 `runner-used.mjs`。
+使用正常 `npm run build` 产物与 `npm run preview -- --port 4173 --strictPort`，通过UI操作 `/#composition`；脚本不导入源码模块、不调用开发API。原始运行与脚本见生产报告（原附件已清理，旧路径：`docs/evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/report.json`）及同目录 `runner-used.mjs`。
 
 从16×12m空白创建开始，完整解码18件内置素材，放置「深橡木书桌」r1，分别预览/采用调色 `#80C080` 和亮度0.7至r3，命名快照后再改色至r4；仅恢复该物件历史有效外观，先生成保护点再一次采用至r5。固定源、位置、占地、支撑、锁和物理字段保持，当前层规则不改。生产下载中的每一张源/派生图均原生解码，三份派生逐像素等于按固定源计算的sRGB结果，alpha保留。
 
@@ -40,9 +42,9 @@
 
 GM/玩家PNG均4096×3072，原生解码像素hash一致，PNG仅IHDR/IDAT/IEND，无文字/时间/EXIF块；该场景全部公开，符合预期。桌面1512×982与窄屏390×844已实际操作并目视截图；窄屏素材库、恢复预览的document宽度均390，没有横向溢出。页面未暴露任何 `__sceneweave*` 开发/性能API，无页面异常；仅保留既有 `/favicon.ico` 404控制台记录，不作为地图资源成功的替代或隐藏失败。
 
-- [桌面局部恢复候选](evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/appearance-restore-preview-desktop.png)
-- [390px素材库与许可](evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/library-reopened-390.png)
-- [GM 4K](evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/gm-4k.png)、[玩家4K](evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/player-4k.png)
+- 桌面局部恢复候选（原附件已清理，旧路径：`docs/evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/appearance-restore-preview-desktop.png`）
+- 390px素材库与许可（原附件已清理，旧路径：`docs/evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/library-reopened-390.png`）
+- GM 4K（原附件已清理，旧路径：`docs/evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/gm-4k.png`）、玩家4K（原附件已清理，旧路径：`docs/evidence/m1-c3/production-ui/run-2026-10-22T09-58-32-715Z/player-4k.png`）
 
 ## 本批发现、修正与证据边界
 
@@ -54,13 +56,13 @@ GM/玩家PNG均4096×3072，原生解码像素hash一致，PNG仅IHDR/IDAT/IEND�
 
 新工坊使用异步候选准备，既有复合删除/拆组入口已等待事务成功后再改选择。C3返回历史时清除已消费的旧v3→v4交接源，专项真实UI验证往返不会重复弹迁移确认。C3模块按需加载；正常构建仍有主包大于500kB和第三方注释警告，本批没有容量/性能通过结论。
 
-最终unit/C3原始reporter及各轮日志无损gzip归档，解压后hash及附件索引见[evidence-index](evidence/m1-c3/evidence-index.json)。145项全量reporter原件保留在本地 `work/c3-20261022/chrome-full-final.json`；永久证据中的 `chrome-full-final.compact.json.gz` 保留全部用例状态/名称/时序，将重复的大附件正文替换为实际字节hash、长度与原JSON路径，并记录原reporter完整hash，明确不是原始reporter。最终C3的原生像素/存储JSON附件正文另在未裁剪的最终16项reporter中。
+最终unit/C3原始reporter及各轮日志无损gzip归档，解压后hash及附件索引见evidence-index（原附件已清理，旧路径：`docs/evidence/m1-c3/evidence-index.json`）。145项全量reporter原件保留在本地 `work/c3-20261022/chrome-full-final.json`；永久证据中的 `chrome-full-final.compact.json.gz` 保留全部用例状态/名称/时序，将重复的大附件正文替换为实际字节hash、长度与原JSON路径，并记录原reporter完整hash，明确不是原始reporter。最终C3的原生像素/存储JSON附件正文另在未裁剪的最终16项reporter中。
 
-最终源码/构建见[source-fingerprints](evidence/m1-c3/source-fingerprints.json)和[build-fingerprints](evidence/m1-c3/build-fingerprints.json)；145项全量回归对应的较早源码/构建独立保留为 `*-before-entry-return.json`，差异为App交接、v5候选入口及相关测试。最终16项专项源码另见[source-fingerprints-browser-final](evidence/m1-c3/source-fingerprints-browser-final.json)；其后唯一源码差异是上述测试中两处会被TypeScript擦除的 `as const`，未改变运行行为。历史报告13及17–28与其666份受保护文件逐项hash不变；本批文档链接、目标凭据模式与排除无关todo.md后的空白检查见[final-checks](evidence/m1-c3/final-checks.json)。用户todo.md及其他当前无关编辑保留，未提交推送。
+最终源码/构建见source-fingerprints（原附件已清理，旧路径：`docs/evidence/m1-c3/source-fingerprints.json`）和build-fingerprints（原附件已清理，旧路径：`docs/evidence/m1-c3/build-fingerprints.json`）；145项全量回归对应的较早源码/构建独立保留为 `*-before-entry-return.json`，差异为App交接、v5候选入口及相关测试。最终16项专项源码另见source-fingerprints-browser-final（原附件已清理，旧路径：`docs/evidence/m1-c3/source-fingerprints-browser-final.json`）；其后唯一源码差异是上述测试中两处会被TypeScript擦除的 `as const`，未改变运行行为。历史报告13及17–28与其666份受保护文件逐项hash不变；本批文档链接、目标凭据模式与排除无关todo.md后的空白检查见final-checks（原附件已清理，旧路径：`docs/evidence/m1-c3/final-checks.json`）。用户todo.md及其他当前无关编辑保留，未提交推送。
 
 PRD-030/031/032、QA-ASSET-02、QA-LAYER-02和QA-REC相关子项仅按上述有限范围得到证据；完整E-M04/05、E-R02素材美术评估、完整场景和M2扩围仍按各自主定义验收。
 
-归档后独立复核276份源码/测试/配置、45份生产文件、11份reporter/日志归档、3份最终浏览器截图及4份生产工程包的CRC/entry hash均一致，见[evidence-verification](evidence/m1-c3/evidence-verification.json)。
+归档后独立复核276份源码/测试/配置、45份生产文件、11份reporter/日志归档、3份最终浏览器截图及4份生产工程包的CRC/entry hash均一致，见evidence-verification（原附件已清理，旧路径：`docs/evidence/m1-c3/evidence-verification.json`）。
 
 ## 已知边界与后续
 
