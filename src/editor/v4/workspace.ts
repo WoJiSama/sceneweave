@@ -188,6 +188,18 @@ export class WorkspaceV4 {
     this.assertCheckpoint(checkpoint)
     this.install(project)
   }
+  /** A compatibility route departure is a real close, after preserving the current branch. */
+  async close(checkpoint = this.checkpoint()) {
+    await this.flush()
+    this.assertCheckpoint(checkpoint)
+    if (this.state.project) this.structureContinuity.reset(this.state.project.document)
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    this.version++
+    this.past = []; this.future = []; this.pending = null; this.blocked = null
+    this.persistedRevision = null
+    this.publish({ project: null, status: 'empty', error: null })
+  }
   private enqueue(project: CompleteProjectV4) {
     this.pending = project
     if (this.timer) clearTimeout(this.timer)

@@ -1,0 +1,168 @@
+{
+  "checkedAt": "2026-10-23T04:14:14.548Z",
+  "node": "v24.14.1",
+  "rasterizer": "Chrome 156.0.8078.47",
+  "status": "P2 candidate; no P3 or user art acceptance",
+  "manifestIdentical": true,
+  "mitCopiesIdentical": true,
+  "totalPngBytes": 102296,
+  "visualReview": "Contact sheet and 2x2 / 3x3 dirt repeats viewed; no obvious rectangular tile seam; top-down outlines, no long baked shadow",
+  "assets": [
+    {
+      "key": "dirt-gravel",
+      "sha256": "dfa8746b8476bc4528239ddf63d7b8bf82385da86fec3ab7fc9753e97f74ccd6",
+      "sourceSha256": "200446c1d50ece4a4bb4428bf5fe145d3aad3162d8e923bb1e44ed8c07551b02",
+      "sizeBytes": 30561,
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "chunks": [
+        "IHDR",
+        "sRGB",
+        "IDAT",
+        "IEND"
+      ],
+      "bitDepth": 8,
+      "colorType": 6,
+      "transparentPixels": 0,
+      "fullyOpaque": true,
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "hashesCrcAndPixelsVerified": true
+    },
+    {
+      "key": "crate",
+      "sha256": "cbc456631f35ce900919bc9fe00ed89e2aa86c0769b99a8986b0b03c8564cd6c",
+      "sourceSha256": "b09b6642b5ec2f54141e2e1df54e945e02dbf5504c17544248ca17b01e400f54",
+      "sizeBytes": 4545,
+      "pixelWidth": 320,
+      "pixelHeight": 320,
+      "chunks": [
+        "IHDR",
+        "sRGB",
+        "IDAT",
+        "IEND"
+      ],
+      "bitDepth": 8,
+      "colorType": 6,
+      "transparentPixels": 42896,
+      "fullyOpaque": false,
+      "bounds": {
+        "x": 38,
+        "y": 38,
+        "width": 244,
+        "height": 244
+      },
+      "minTransparentPaddingPx": 38,
+      "hashesCrcAndPixelsVerified": true
+    },
+    {
+      "key": "supply-rack",
+      "sha256": "3a843541f5bf613ed8346fa0194c7d1965a155f0e14e1205930b453a6fcd367d",
+      "sourceSha256": "72ef81e2ff5f112f252a7dd2a289f5e24a5833020ab9f308449e67d80e985398",
+      "sizeBytes": 15189,
+      "pixelWidth": 384,
+      "pixelHeight": 704,
+      "chunks": [
+        "IHDR",
+        "sRGB",
+        "IDAT",
+        "IEND"
+      ],
+      "bitDepth": 8,
+      "colorType": 6,
+      "transparentPixels": 109062,
+      "fullyOpaque": false,
+      "bounds": {
+        "x": 51,
+        "y": 57,
+        "width": 282,
+        "height": 589
+      },
+      "minTransparentPaddingPx": 51,
+      "hashesCrcAndPixelsVerified": true
+    },
+    {
+      "key": "campfire",
+      "sha256": "c7f59ec3a474f6b2d0e258ca7b218469af7768f684983b930662cb7710c2c23e",
+      "sourceSha256": "3201ffcb16dfb82857cc5d7fbb3d23849432f944fd0e24445dd7bfeb578a8a39",
+      "sizeBytes": 23147,
+      "pixelWidth": 448,
+      "pixelHeight": 448,
+      "chunks": [
+        "IHDR",
+        "sRGB",
+        "IDAT",
+        "IEND"
+      ],
+      "bitDepth": 8,
+      "colorType": 6,
+      "transparentPixels": 122952,
+      "fullyOpaque": false,
+      "bounds": {
+        "x": 44,
+        "y": 44,
+        "width": 360,
+        "height": 360
+      },
+      "minTransparentPaddingPx": 44,
+      "hashesCrcAndPixelsVerified": true
+    },
+    {
+      "key": "lamp-stand",
+      "sha256": "29d190ff608a65ab15bf53d257056d8b10acd553c160d3ac4e1138d269dc9adb",
+      "sourceSha256": "3a3772040f5331c6a70b3cde41b72bf8c269f765dca854a44306c50a45ffc03d",
+      "sizeBytes": 6221,
+      "pixelWidth": 256,
+      "pixelHeight": 256,
+      "chunks": [
+        "IHDR",
+        "sRGB",
+        "IDAT",
+        "IEND"
+      ],
+      "bitDepth": 8,
+      "colorType": 6,
+      "transparentPixels": 54240,
+      "fullyOpaque": false,
+      "bounds": {
+        "x": 52,
+        "y": 52,
+        "width": 152,
+        "height": 152
+      },
+      "minTransparentPaddingPx": 52,
+      "hashesCrcAndPixelsVerified": true
+    },
+    {
+      "key": "tent",
+      "sha256": "fb289d5ae55197e62ea6fee5aa319a30e02bb8cff6d9bcc298f2cfc886da5275",
+      "sourceSha256": "770cbfcdaae3bbe6f23d2272dfd2ec431fdf3ef0bd9d50f5408c8560d1eb9b9d",
+      "sizeBytes": 22633,
+      "pixelWidth": 832,
+      "pixelHeight": 704,
+      "chunks": [
+        "IHDR",
+        "sRGB",
+        "IDAT",
+        "IEND"
+      ],
+      "bitDepth": 8,
+      "colorType": 6,
+      "transparentPixels": 295289,
+      "fullyOpaque": false,
+      "bounds": {
+        "x": 56,
+        "y": 45,
+        "width": 720,
+        "height": 614
+      },
+      "minTransparentPaddingPx": 45,
+      "hashesCrcAndPixelsVerified": true
+    }
+  ]
+}

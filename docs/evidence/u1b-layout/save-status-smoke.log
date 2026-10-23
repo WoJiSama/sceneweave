@@ -1,0 +1,16 @@
+[1A[2K[2m[WebServer] [22m(node:37150) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[2m[WebServer] [22m(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 1 test using 1 worker
+
+[1A[2K(node:37168) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K(node:37168) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K[1/1] [chromium] › tests/u1b-layout.spec.ts:224:3 › U1b narrow workspace › U1b narrow drawers remain reachable, restore focus and reject unusable preferences
+[1A[2K  1 passed (8.5s)

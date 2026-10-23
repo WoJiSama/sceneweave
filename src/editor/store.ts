@@ -111,6 +111,14 @@ export async function flushSave() {
   if (state.status === 'error' || state.status === 'conflict') throw new Error(state.error || '当前分支尚未保存，请先下载备份或另存副本。')
 }
 
+/** Explicit departure from the historical M0 editor; persistence must succeed first. */
+export async function closeEditorSession() {
+  await bootPromise
+  await flushSave()
+  saver?.stop(); saver = null; bootPromise = null
+  useEditorStore.setState({ document: null, history: null, selection: null, ready: false })
+}
+
 /** Persist the isolated candidate before changing the open editor. */
 export async function openNewDocument(document: SceneDocument) {
   const before = useEditorStore.getState().document

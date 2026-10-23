@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Hand, Maximize, MousePointer2, ZoomIn, ZoomOut } from 'lucide-react'
 import { openingEndpointsV2, roomPointsV2, terrainPointsV2 } from '../../core/v2/geometry'
 import type { BoundsMm, PointMm, PropV2, SceneDocumentV2 } from '../../core/v2/types'
@@ -9,13 +10,13 @@ import type { AudienceV2 } from '../../render/v2/projection'
 import { connectionPolygonV2, renderEditorProjectV2 } from '../../render/v2/renderer'
 import type { EditorRenderOptionsV2, RenderOptionsV2 } from '../../render/v2/renderer'
 import type { SelectionOptionsV2 } from './selection'
-import { constrainViewportV2, FIT_VIEWPORT_V2, fittedMapSizeV2, MAX_VIEW_ZOOM_V2, MIN_VIEW_ZOOM_V2, viewportMapRectV2, zoomViewportV2 } from './viewport'
+import { constrainViewportV2, FIT_VIEWPORT_V2, MAX_VIEW_ZOOM_V2, MIN_VIEW_ZOOM_V2, resizeViewportV2, viewportMapRectV2, zoomViewportV2 } from './viewport'
 import type { MapViewportV2, ViewportSizeV2 } from './viewport'
 import type { SelectionSessionV2 } from './selection-session'
 import { useSelectionIdsV2 } from './SelectionSubscriber'
 import { hitTestAllV2, normalizeSelectionV2, selectInBoundsV2, selectionGeometryV2 } from './selection'
 import { summarizeSelectionV2 } from './selection-summary'
-import { rectanglePoints, rectangleFromPoints, rulerDistance, snapBuildingPoint, type CanvasWorldTool } from '../v4/building-session'
+import { formatDistanceMm, rectanglePoints, rectangleFromPoints, rulerDistance, snapBuildingPoint, type CanvasWorldTool } from '../v4/building-session'
 
 /** The supported visual subset is checked before editor-only simplification. */
 export function previewLimitations(scene: SceneDocumentV2): string[] {
@@ -57,7 +58,7 @@ function selection(ctx: CanvasRenderingContext2D, scene: SceneDocumentV2, id: st
   ctx.restore()
 }
 
-export default function AssetCanvas({ project, selected, onSelect, audience = 'gm', disabled = false, onRenderMetrics, onPaint, placement, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, memberMode = false, onMemberMode, fitRequest = 0, editorRenderer, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool }: { worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
+export default function AssetCanvas({ project, selected, onSelect, audience = 'gm', disabled = false, onRenderMetrics, onPaint, placement, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, memberMode = false, onMemberMode, fitRequest = 0, editorRenderer, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, toolControlsTarget, viewControlsTarget }: { toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
   const sessionIds = useSelectionIdsV2(selectionSession)
   // The v3 caller supplies a strict renderer; this project is only its domain geometry view.
   const renderPreview = editorRenderer ?? ((options: EditorRenderOptionsV2) => renderEditorProjectV2(project, options))
@@ -76,7 +77,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
   const cancelMarquee = (suppress = true) => { const active = marqueeRef.current; marqueeRef.current = null; setMarquee(null); if (active && suppress) suppressClick.current = true; if (active && viewport.current?.hasPointerCapture(active.pointer)) viewport.current.releasePointerCapture(active.pointer) }
   const canvas = useRef<HTMLCanvasElement>(null), overlay = useRef<HTMLCanvasElement>(null), detailCanvas = useRef<HTMLCanvasElement>(null), viewport = useRef<HTMLDivElement>(null), current = useRef<object | null>(null)
   const [result, setResult] = useState<{ project: CompleteProjectV2; audience: AudienceV2; token: object; image: HTMLCanvasElement } | null>(null), [error, setError] = useState<{ project: CompleteProjectV2; audience: AudienceV2; message: string } | null>(null)
-  const [refinement, setRefinement] = useState<{ project: CompleteProjectV2; audience: AudienceV2; bounds: BoundsMm; image: HTMLCanvasElement } | null>(null), [refinementCount, setRefinementCount] = useState(0)
+  const [refinement, setRefinement] = useState<{ project: CompleteProjectV2; audience: AudienceV2; bounds: BoundsMm; screenScalePxPerMm: number; image: HTMLCanvasElement } | null>(null), [refinementCount, setRefinementCount] = useState(0)
   const [placementImage, setPlacementImage] = useState<{ placementId: string; assetId: string; blob: Blob; bitmap: ImageBitmap } | null>(null)
   const placementAssetId = placement?.appearance.kind === 'image' ? placement.appearance.assetId : null
   const placementAsset = placementAssetId ? project.document.assets[placementAssetId] : null
@@ -128,10 +129,15 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
     const node = viewport.current
     if (!node) return
     const resize = () => {
-      const previous = sizeRef.current, next = { width: Math.max(1, node.clientWidth), height: Math.max(1, node.clientHeight) }
-      const oldFit = fittedMapSizeV2(previous, boundsRef.current), nextFit = fittedMapSizeV2(next, boundsRef.current)
-      const ratio = previous.width > 1 && previous.height > 1 ? nextFit.width / oldFit.width : 1
-      const adjusted = constrainViewportV2({ ...viewRef.current, panX: viewRef.current.panX * ratio, panY: viewRef.current.panY * ratio }, next, boundsRef.current)
+      // Home keeps this canvas mounted but hidden. A zero-size observation must
+      // not rescale its saved pan to 1px before the same session is shown again.
+      if (node.clientWidth <= 0 || node.clientHeight <= 0) return
+      const previous = sizeRef.current, next = { width: node.clientWidth, height: node.clientHeight }
+      // Initial measurement fits the scene; subsequent chrome resizes preserve
+      // the center world point and actual pixels/mm rather than fitting again.
+      const adjusted = previous.width > 1 && previous.height > 1
+        ? resizeViewportV2(viewRef.current, previous, next, boundsRef.current)
+        : constrainViewportV2(viewRef.current, next, boundsRef.current)
       sizeRef.current = next; viewRef.current = adjusted; setSize(next); setView(adjusted)
     }
     resize()
@@ -179,7 +185,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       void renderPreview({ audience, longEdgePx, viewBoundsMm: crop, screenScalePxPerMm: scale, signal: controller.signal }).then(rendered => {
         image = rendered
         if (controller.signal.aborted) { rendered.width = 0; rendered.height = 0; return }
-        setRefinement({ project, audience, bounds: crop, image: rendered }); setRefinementCount(count => count + 1); setError(null)
+        setRefinement({ project, audience, bounds: crop, screenScalePxPerMm: scale, image: rendered }); setRefinementCount(count => count + 1); setError(null)
       }).catch(reason => { if (!controller.signal.aborted) setError({ project, audience, message: reason instanceof Error ? reason.message : String(reason) }) })
     }, 160)
     return () => { clearTimeout(timer); controller.abort(); if (image) { image.width = 0; image.height = 0 } }
@@ -256,15 +262,21 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
     const found = boundsHits(project.document, { x, y, width: right - x, height: bottom - y }, 'intersect', { ...selectionOptions, memberMode })
     publish(found.ids); setSelectionNotice(`全选 ${found.ids.length} 个对象；排除锁定 ${found.excludedLocked} 个、隐藏 ${found.excludedHidden} 个。`)
   }
-  return <div className="asset-map-wrap" aria-busy={!ready && !failed}>
-    <div className="asset-viewport-toolbar" role="group" aria-label="地图视口工具">
+  const toolControls = <>
       <button aria-label="选择地图对象" aria-pressed={mode === 'select'} disabled={!ready || audience === 'player' || disabled} onClick={() => { endDrag(false); setMode('select'); onCancelPlacement?.(); worldTool?.onCancel() }} title="选择对象"><MousePointer2 size={15}/></button>
       <button aria-label="平移地图" aria-pressed={mode === 'pan'} disabled={!ready} onClick={() => { endDrag(false); setMode('pan'); worldTool?.onCancel() }} title="拖动画布"><Hand size={15}/></button>
-      <span className="asset-viewport-divider"/>
+  </>
+  const viewControls = <>
       <button aria-label="缩小地图" disabled={!ready || view.zoom <= MIN_VIEW_ZOOM_V2} onClick={() => zoom(1 / 1.25)}><ZoomOut size={15}/></button>
       <output aria-label="地图缩放比例" title="相对于适应全图的倍率">{Math.round(view.zoom * 100)}%</output>
       <button aria-label="放大地图" disabled={!ready || view.zoom >= MAX_VIEW_ZOOM_V2} onClick={() => zoom(1.25)}><ZoomIn size={15}/></button>
       <button aria-label="适应全图" disabled={!ready} onClick={fit} title="适应全图（0）"><Maximize size={15}/><span>全图</span></button>
+  </>
+  return <div className="asset-map-wrap" aria-busy={!ready && !failed}>
+    <div className="asset-viewport-toolbar" role="group" aria-label="地图视口工具">
+      {toolControlsTarget ? createPortal(<div className="asset-external-tool-controls" role="group" aria-label="地图选择与平移">{toolControls}</div>, toolControlsTarget) : toolControls}
+      {!toolControlsTarget && !viewControlsTarget && <span className="asset-viewport-divider"/>}
+      {viewControlsTarget ? createPortal(<div className="asset-external-view-controls" role="group" aria-label="地图缩放与全图">{viewControls}</div>, viewControlsTarget) : viewControls}
       {audience === 'gm' && <><button aria-label="全选可编辑对象" disabled={!ready || disabled || !!placement || !!worldTool} onClick={selectAll}>全选</button><span className="asset-viewport-divider"/>{(['replace', 'add', 'subtract'] as const).map(value => <button key={value} aria-label={{ replace: '替换选择', add: '增加选择', subtract: '减去选择' }[value]} aria-pressed={operation === value} disabled={disabled || !!placement || !!worldTool} onClick={() => setOperation(value)}>{{ replace: '替换', add: '增加', subtract: '减去' }[value]}</button>)}<label><input type="checkbox" aria-label="包含相交对象" checked={intersect} disabled={disabled || !!placement || !!worldTool} onChange={event => setIntersect(event.target.checked)}/>相交</label><label><input type="checkbox" aria-label="选择组合成员" checked={memberMode} disabled={disabled || !!placement || !!worldTool} onChange={event => onMemberMode?.(event.target.checked)}/>成员</label></>}
       <span className="asset-viewport-hint">{worldTool ? worldTool.label ?? (worldTool.kind === 'ruler' ? '量尺 · 点击两点 · Escape 退出' : '点击绘图 · 按网格吸附 · Escape 退出') : placement ? '点击放置 · Escape 取消 · 空格拖动' : '滚轮缩放 · 空格拖动'}</span>
     </div>
@@ -353,7 +365,8 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       }}>
       <div className="asset-viewport-image" style={{ width: rect.width, height: rect.height, transform: `translate(${rect.x}px, ${rect.y}px)`, visibility: ready ? 'visible' : 'hidden' }}>
         <canvas ref={canvas} aria-label={audience === 'gm' ? '材质场景主持人预览' : '材质场景玩家预览'}/>
-        <canvas ref={detailCanvas} className="asset-detail-preview" aria-hidden="true" style={refinementBounds ? { left: `${(refinementBounds.x - bounds.x) / bounds.width * 100}%`, top: `${(refinementBounds.y - bounds.y) / bounds.height * 100}%`, width: `${refinementBounds.width / bounds.width * 100}%`, height: `${refinementBounds.height / bounds.height * 100}%` } : { display: 'none' }}/>
+        {/* Session-only render inputs preserve precision that CSS percentage serialization can round. */}
+        <canvas ref={detailCanvas} className="asset-detail-preview" aria-hidden="true" data-refinement-bounds={refinementBounds ? JSON.stringify(refinementBounds) : undefined} data-refinement-scale={refinementBounds ? refinement?.screenScalePxPerMm : undefined} style={refinementBounds ? { left: `${(refinementBounds.x - bounds.x) / bounds.width * 100}%`, top: `${(refinementBounds.y - bounds.y) / bounds.height * 100}%`, width: `${refinementBounds.width / bounds.width * 100}%`, height: `${refinementBounds.height / bounds.height * 100}%` } : { display: 'none' }}/>
         <canvas ref={overlay} className="asset-selection-overlay" aria-hidden="true"/>
         {worldTool && audience === 'gm' && !disabled && <svg className="asset-selection-overlay" data-testid="building-sketch" aria-hidden="true" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
           {(() => {
@@ -361,7 +374,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
             if (worldTool.cursor && (worldTool.kind === 'polygon' || worldTool.kind === 'polyline' || points.length === 1)) points.push(worldTool.cursor)
             const path = worldTool.kind === 'rectangle' && points.length >= 2 ? rectanglePoints(rectangleFromPoints(points[0], points[1])) : points
             const unit = bounds.width / rect.width
-            return <><polyline points={path.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.kind === 'ruler' || worldTool.kind === 'polyline' ? 'none' : '#5c865722'} stroke="#3c7650" strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/>{worldTool.kind === 'rectangle' && path.length === 4 && <line x1={path[3].x} y1={path[3].y} x2={path[0].x} y2={path[0].y} stroke="#3c7650" strokeWidth={2 * unit}/>}{worldTool.points.map((p, index) => <circle key={index} cx={p.x} cy={p.y} r={4 * unit} fill="#f9f7e8" stroke="#3c7650" strokeWidth={2 * unit}/>)}{worldTool.kind === 'ruler' && points.length >= 2 && <text x={(points[0].x + points[1].x) / 2} y={(points[0].y + points[1].y) / 2 - 10 * unit} textAnchor="middle" fontSize={14 * unit} fill="#355e34" stroke="#fffcee" strokeWidth={3 * unit} paintOrder="stroke">{(rulerDistance(points[0], points[1]).distanceMm / 1000).toFixed(3)} m</text>}</>
+            return <><polyline points={path.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.kind === 'ruler' || worldTool.kind === 'polyline' ? 'none' : '#5c865722'} stroke="#3c7650" strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/>{worldTool.kind === 'rectangle' && path.length === 4 && <line x1={path[3].x} y1={path[3].y} x2={path[0].x} y2={path[0].y} stroke="#3c7650" strokeWidth={2 * unit}/>}{worldTool.points.map((p, index) => <circle key={index} cx={p.x} cy={p.y} r={4 * unit} fill="#f9f7e8" stroke="#3c7650" strokeWidth={2 * unit}/>)}{worldTool.kind === 'ruler' && points.length >= 2 && <text x={(points[0].x + points[1].x) / 2} y={(points[0].y + points[1].y) / 2 - 10 * unit} textAnchor="middle" fontSize={14 * unit} fill="#355e34" stroke="#fffcee" strokeWidth={3 * unit} paintOrder="stroke">{formatDistanceMm(rulerDistance(points[0], points[1]).distanceMm, project.document.units.display)}</text>}</>
           })()}
         </svg>}
       </div>

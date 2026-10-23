@@ -1,0 +1,77 @@
+{
+  "scope": "Only targeted unit checks and 2 Chrome smoke workflows. Full regression deferred by the user.",
+  "applicationVersion": "0.2.0-m1-u2",
+  "projectFormat": {
+    "container": 6,
+    "document": 3,
+    "identity": 3,
+    "appearance": 1
+  },
+  "unitBatches": [
+    {
+      "command": "npx vitest run src/catalog/content.test.ts --reporter=dot",
+      "files": 1,
+      "passed": 7,
+      "durationMs": 1120,
+      "execution": "content subagent final tool execution report; no raw stdout retained",
+      "limitation": "variant pixels use bounded 1px PNG/Canvas unit double; not a real browser privacy/4K acceptance"
+    },
+    {
+      "command": "npm test -- --run src/catalog/organization.test.ts src/catalog/repository.test.ts src/catalog/backup.test.ts",
+      "files": 3,
+      "passed": 11,
+      "durationMs": 836,
+      "execution": "storage subagent; raw storage-simple.log retained"
+    },
+    {
+      "command": "npx vitest run src/catalog/query.test.ts",
+      "files": 1,
+      "passed": 4,
+      "durationMs": 175,
+      "execution": "UI subagent tool execution report; no raw stdout retained"
+    },
+    {
+      "command": "npm test -- --run src/editor/v6/session-guard.test.ts",
+      "files": 1,
+      "passed": 29,
+      "durationMs": 170,
+      "execution": "root; guard-simple.log retained"
+    }
+  ],
+  "build": {
+    "command": "npm run build",
+    "passed": true,
+    "viteDurationSeconds": 3.16,
+    "includesTypecheck": true,
+    "warnings": [
+      "existing mixed static/dynamic import chunking notices",
+      "chunk >500kB advisory"
+    ]
+  },
+  "browser": {
+    "method": "Playwright against Vite dev server, channel=chrome, one worker, no retries, only tests/u2-catalog.spec.ts",
+    "initial": "2 script locator/name failures; retained separately",
+    "corrected": "2/2 passed, 0 retries/skips, 18.22433 seconds",
+    "desktopViewport": [
+      1512,
+      982
+    ],
+    "narrowViewport": [
+      390,
+      844
+    ],
+    "touchNarrow": true,
+    "offline": "Browser context offline after target blank creation; native personal library adoption and placement/undo succeed without network"
+  },
+  "notRun": [
+    "full unit suite",
+    "full browser regression",
+    "old six-store/history migration matrix",
+    "full private-prefab cross-library/backup dual-audience 4K browser matrix",
+    "real quota exhaustion",
+    "formal performance matrix",
+    "P3 human visual approval",
+    "production UI smoke"
+  ],
+  "orgOnlyManifest": "not offered; branch not applicable"
+}

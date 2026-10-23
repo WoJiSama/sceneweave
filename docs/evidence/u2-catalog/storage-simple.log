@@ -1,0 +1,13 @@
+
+> sceneweave@0.2.0-m1-u2 test
+> vitest run --run src/catalog/organization.test.ts src/catalog/repository.test.ts src/catalog/backup.test.ts
+
+
+ RUN  v4.1.12 /Users/shiqi/IdeaProjects/sceneweave
+
+
+ Test Files  3 passed (3)
+      Tests  11 passed (11)
+   Start at  17:32:17
+   Duration  836ms (transform 880ms, setup 0ms, import 1.34s, tests 224ms, environment 0ms)
+

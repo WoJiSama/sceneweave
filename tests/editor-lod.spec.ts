@@ -285,25 +285,44 @@ test('Editor LOD late GM refinement cannot replace a newer player canvas after r
     const finalCrop = await settledCrop(page, fixture.bounds, afterSwitches)
     const result = await page.evaluate(async bounds => {
       const gate = Reflect.get(window, '__editorLodDecodeGate'), project = Reflect.get(window, '__sceneweaveAssetsDev').workspace.getState().project
-      const renderPath = '/src/render/v2/renderer.ts', { renderEditorProjectV2 } = await import(renderPath)
-      const hash = async (canvas: HTMLCanvasElement) => {
-        const rgba = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
-        return [...new Uint8Array(await crypto.subtle.digest('SHA-256', rgba))].map(n => n.toString(16).padStart(2, '0')).join('')
-      }
       const base = document.querySelector<HTMLCanvasElement>('[aria-label="材质场景玩家预览"]')!, detail = document.querySelector<HTMLCanvasElement>('.asset-detail-preview')!
+      const viewport = document.querySelector<HTMLElement>('[aria-label="地图视口"]')!
+      const refinementState = () => ({ count: Number(viewport.dataset.refinementCount), bounds: detail.dataset.refinementBounds, scale: detail.dataset.refinementScale,
+        width: detail.width, height: detail.height, baseWidth: base.width, baseHeight: base.height, baseLabel: base.getAttribute('aria-label') })
+      const capturedRefinement = refinementState()
+      if (!capturedRefinement.bounds || !capturedRefinement.scale) throw new Error('The visible refinement must expose its exact session-only render inputs.')
+      const actualCrop = JSON.parse(capturedRefinement.bounds) as BoundsMm, actualScale = Number(capturedRefinement.scale)
+      if (![actualCrop.x, actualCrop.y, actualCrop.width, actualCrop.height, actualScale].every(Number.isFinite) || actualCrop.width <= 0 || actualCrop.height <= 0 || actualScale <= 0) throw new Error('Invalid exact refinement render inputs.')
       const fraction = (text: string) => Number.parseFloat(text) / 100
-      const crop = { x: bounds.x + fraction(detail.style.left) * bounds.width, y: bounds.y + fraction(detail.style.top) * bounds.height,
+      const cssRoundedCrop = { x: bounds.x + fraction(detail.style.left) * bounds.width, y: bounds.y + fraction(detail.style.top) * bounds.height,
         width: fraction(detail.style.width) * bounds.width, height: fraction(detail.style.height) * bounds.height }
-      const expectedBase = await renderEditorProjectV2(project, { audience: 'player', longEdgePx: Math.max(base.width, base.height) })
-      const expectedDetail = await renderEditorProjectV2(project, { audience: 'player', longEdgePx: Math.max(detail.width, detail.height), viewBoundsMm: crop, screenScalePxPerMm: base.getBoundingClientRect().width / bounds.width })
-      const values = { actualBase: await hash(base), expectedBase: await hash(expectedBase), actualDetail: await hash(detail), expectedDetail: await hash(expectedDetail),
-        heldBitmapClosed: gate.closed, playerFrames: gate.playerFrames, checkedCanvases: gate.checkedCanvases, playerMaskFailures: gate.failures }
-      expectedBase.width = expectedBase.height = expectedDetail.width = expectedDetail.height = 0
-      return values
+      const cssScale = base.getBoundingClientRect().width / bounds.width
+      const cssMappingErrorPx = Math.max(Math.abs(cssRoundedCrop.x - actualCrop.x), Math.abs(cssRoundedCrop.y - actualCrop.y),
+        Math.abs(cssRoundedCrop.x + cssRoundedCrop.width - actualCrop.x - actualCrop.width), Math.abs(cssRoundedCrop.y + cssRoundedCrop.height - actualCrop.y - actualCrop.height)) * actualScale
+      const pixels = (canvas: HTMLCanvasElement) => new Uint8Array(canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data)
+      // Capture the actual pixels and their render inputs together, before any asynchronous reference render.
+      const actualBasePixels = pixels(base), actualDetailPixels = pixels(detail)
+      const hash = async (rgba: Uint8Array<ArrayBuffer>) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', rgba))].map(n => n.toString(16).padStart(2, '0')).join('')
+      const renderPath = '/src/render/v2/renderer.ts', { renderEditorProjectV2 } = await import(renderPath)
+      const references: HTMLCanvasElement[] = []
+      try {
+        const expectedBase = await renderEditorProjectV2(project, { audience: 'player', longEdgePx: Math.max(capturedRefinement.baseWidth, capturedRefinement.baseHeight) }); references.push(expectedBase)
+        const expectedDetail = await renderEditorProjectV2(project, { audience: 'player', longEdgePx: Math.max(capturedRefinement.width, capturedRefinement.height), viewBoundsMm: actualCrop, screenScalePxPerMm: actualScale }); references.push(expectedDetail)
+        // Retain the old CSS round-trip as diagnostic evidence, without treating rounded geometry as the raster oracle.
+        const expectedRounded = await renderEditorProjectV2(project, { audience: 'player', longEdgePx: Math.max(capturedRefinement.width, capturedRefinement.height), viewBoundsMm: cssRoundedCrop, screenScalePxPerMm: cssScale }); references.push(expectedRounded)
+        return { actualBase: await hash(actualBasePixels), expectedBase: await hash(pixels(expectedBase)), actualDetail: await hash(actualDetailPixels), expectedDetail: await hash(pixels(expectedDetail)), expectedRounded: await hash(pixels(expectedRounded)),
+          actualCrop, cssRoundedCrop, actualScale, cssScale, cssMappingErrorPx, cssScaleErrorPx: Math.abs(actualScale - cssScale) * bounds.width,
+          capturedRefinement, afterRefinement: refinementState(), sameProject: Reflect.get(window, '__sceneweaveAssetsDev').workspace.getState().project === project,
+          expectedDetailSize: { width: expectedDetail.width, height: expectedDetail.height },
+          heldBitmapClosed: gate.closed, playerFrames: gate.playerFrames, checkedCanvases: gate.checkedCanvases, playerMaskFailures: gate.failures }
+      } finally { references.forEach(canvas => { canvas.width = canvas.height = 0 }) }
     }, fixture.bounds)
+    await attach(testInfo, 'editor-lod-late-gm-player-race.json', { initial, finalCrop, ...result, scope: 'One held real bitmap decode, trusted UI zoom/audience changes, player mask samples during visible animation frames and independent renderer RGBA hashes from exact captured inputs. CSS round-trip replay is diagnostic; CSS/world alignment and exact pixel equivalence remain asserted. No exhaustive race or performance claim.' })
+    expect(result.capturedRefinement.count).toBe(finalCrop.count); expect(result.afterRefinement).toEqual(result.capturedRefinement); expect(result.sameProject).toBe(true)
+    expect(result.expectedDetailSize).toEqual({ width: result.capturedRefinement.width, height: result.capturedRefinement.height })
+    expect(result.cssMappingErrorPx).toBeLessThan(1); expect(result.cssScaleErrorPx).toBeLessThan(1)
     expect(result.actualBase).toBe(result.expectedBase); expect(result.actualDetail).toBe(result.expectedDetail)
     expect(result.heldBitmapClosed).toBe(1); expect(result.playerFrames).toBeGreaterThan(0); expect(result.checkedCanvases).toBeGreaterThan(0); expect(result.playerMaskFailures).toEqual([]); expect(errors).toEqual([])
-    await attach(testInfo, 'editor-lod-late-gm-player-race.json', { initial, finalCrop, ...result, scope: 'One held real bitmap decode, trusted UI zoom/audience changes, player mask samples during visible animation frames and final independent renderer RGBA hashes. No exhaustive race or performance claim.' })
   } finally {
     await page.evaluate(() => { const gate = Reflect.get(window, '__editorLodDecodeGate'); gate.release(); gate.restore(); cancelAnimationFrame(gate.frame); Reflect.deleteProperty(window, '__editorLodDecodeGate') })
   }

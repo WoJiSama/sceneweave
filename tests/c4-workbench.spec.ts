@@ -28,7 +28,7 @@ async function blank(page: Page, title: string, width = 14000, height = 10000, p
   await page.getByRole('tab', { name: '室外', exact: true }).click()
   const initial = await scene(page)
   expect(Object.keys(initial.rooms)).toEqual([]); expect(Object.keys(initial.terrainAreas)).toEqual([]); expect(Object.keys(initial.props)).toEqual([])
-  expect(Object.keys(initial.propDefinitions)).toHaveLength(18); expect(Object.keys(initial.materials)).toHaveLength(10)
+  expect(Object.keys(initial.propDefinitions)).toHaveLength(23); expect(Object.keys(initial.materials)).toHaveLength(11)
 }
 async function outdoorAdopt(page: Page) {
   const apply = page.getByRole('button', { name: '采用室外修改', exact: true })

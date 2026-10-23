@@ -1,36 +1,38 @@
-import indoor from '../../../assets/sceneweave-handdrawn/manifest.json'
-import outdoor from '../../../assets/sceneweave-handdrawn-outdoor/manifest.json'
-import { collectDependenciesV2 } from '../../core/v2/dependencies'
-import type { MaterialRef } from '../../core/v2/types'
-import { migrateSceneV2 } from '../../core/v3/migration'
+import { geometryDocumentForValidationV3 } from '../../core/v3/domain'
+import { validateSceneV3 } from '../../core/v3/schema'
+import { LAYER_ENTITY_COLLECTIONS_V3, type SceneDocumentV2, type SceneDocumentV3 } from '../../core/v3/types'
 import { createCompositionContentV6 } from '../../core/v6/graph'
-import { validateCompleteProjectV2 } from '../../io/v2/project-file'
 import { validateCompleteProjectV6 } from '../../io/v6/project-file'
 import type { CompleteProjectV6 } from '../../io/v6/types'
-import { createBlankProjectV2, type BlankDocumentOptionsV2 } from '../v2/blank-project'
+import { createBlankDocumentV2, type BlankDocumentOptionsV2 } from '../v2/blank-project'
+import { adoptOutdoorCatalogV2, loadOutdoorCatalogResources } from './outpost-catalog'
 
-/** Adopt the existing fixed material catalog without bringing sample geometry into a blank scene. */
-export async function createOutdoorBlankProject(options: BlankDocumentOptionsV2, signal?: AbortSignal) {
-  const project = await createBlankProjectV2(options, signal)
-  const bindings = new Map(project.licenseBindings.map(binding => [binding.subjectId.slice(0, 2), binding.licensePath]))
-  for (const pack of [{ prefix: 'b2', folder: 'sceneweave-handdrawn', manifest: indoor }, { prefix: 'b3', folder: 'sceneweave-handdrawn-outdoor', manifest: outdoor }]) {
-    let number = 0
-    for (const [index, entry] of pack.manifest.assets.entries()) {
-      if (entry.kind !== 'material') continue
-      signal?.throwIfAborted()
-      const id = `${pack.prefix}-m-${String(++number).padStart(2, '0')}`, imageId = `${pack.prefix}-a-${String(index + 1).padStart(2, '0')}`
-      const origin = { kind: 'original' as const, attribution: 'Sceneweave contributors；项目原创 SVG 绘制，Codex 辅助；源文件及 MIT 记录随仓库保存', canEmbed: true }
-      project.document.assets[imageId] = { id: imageId, sha256: entry.sha256, mimeType: 'image/png', pixelWidth: entry.pixelWidth, pixelHeight: entry.pixelHeight, logicalSizeMm: { ...entry.logicalSizeMm }, licenseRef: 'MIT', origin }
-      project.document.materials[id] = { id, catalogId: entry.catalogId, version: 1, name: entry.name, tags: ['墨绘原野', '原创', 'P2'], licenseRef: 'MIT', origin, textureAssetId: imageId, defaultTileSizeMm: { ...entry.logicalSizeMm }, applicableSurfaces: entry.surfaces as MaterialRef['applicableSurfaces'] }
-      const response = await fetch(`${import.meta.env.BASE_URL}assets/${pack.folder}/${entry.file}`, { signal })
-      if (!response.ok) throw new Error(`内置材质读取失败：${entry.file} (${response.status})`)
-      const blob = new Blob([await response.arrayBuffer()], { type: 'image/png' })
-      project.assets[entry.sha256] = { sha256: entry.sha256, blob, mimeType: 'image/png', sizeBytes: entry.sizeBytes, pixelWidth: entry.pixelWidth, pixelHeight: entry.pixelHeight }
-    }
+/** Native creation, with no fictional migration source or old stored project to downgrade. */
+export function createNativeOutdoorDocument(scene: SceneDocumentV2): SceneDocumentV3 {
+  const document: SceneDocumentV3 = { ...structuredClone(scene), schemaVersion: 3, userLayers: {}, entityLayers: {} }
+  for (const [index, floor] of Object.values(document.floors).entries()) {
+    const id = `layer-default-${index}`
+    document.userLayers[id] = { id, floorId: floor.id, name: '默认图层', order: 0, editLocked: false }
+    for (const collection of LAYER_ENTITY_COLLECTIONS_V3) for (const entity of Object.values(document[collection])) if (entity.floorId === floor.id) document.entityLayers[entity.id] = id
   }
-  project.licenseBindings = collectDependenciesV2(project.document).subjects.map(subject => ({ ...subject, licensePath: bindings.get(subject.subjectId.slice(0, 2))!, embedding: 'allowed' }))
-  await validateCompleteProjectV2(project, { signal })
-  const result: CompleteProjectV6 = { ...createCompositionContentV6(migrateSceneV2(project.document)), assets: project.assets, licenses: project.licenses, licenseBindings: project.licenseBindings }
+  const checked = validateSceneV3(document)
+  if (!checked.ok) throw new Error(`新建室外场景校验失败：${checked.errors.map(issue => `${issue.code}: ${issue.message}`).join('；')}`)
+  return checked.document
+}
+
+/** Blank geometry plus complete fixed indoor/outdoor/outpost catalogs and three editable group definitions. */
+export function createOutdoorBlankDocument(options: BlankDocumentOptionsV2): SceneDocumentV3 {
+  const document = createBlankDocumentV2(options)
+  adoptOutdoorCatalogV2(document)
+  return createNativeOutdoorDocument(document)
+}
+
+export async function createOutdoorBlankProject(options: BlankDocumentOptionsV2, signal?: AbortSignal): Promise<CompleteProjectV6> {
+  signal?.throwIfAborted()
+  const document = createOutdoorBlankDocument(options)
+  const resources = await loadOutdoorCatalogResources(geometryDocumentForValidationV3(document), signal)
+  const result: CompleteProjectV6 = { ...createCompositionContentV6(document), ...resources }
   await validateCompleteProjectV6(result, { signal })
+  signal?.throwIfAborted()
   return result
 }

@@ -1,0 +1,70 @@
+{
+  "startedAt": "2026-10-23T08:56:55.225Z",
+  "method": "Playwright assertions; attachments addressed by SHA-256, oversized files recorded without pretending they were retained.",
+  "tests": [
+    {
+      "title": " / chromium / u1b-layout.spec.ts / U1b desktop panels resize, fold, retain passive drafts and remember layout without editing the project",
+      "file": "tests/u1b-layout.spec.ts",
+      "line": 86,
+      "status": "passed",
+      "expectedStatus": "passed",
+      "retry": 0,
+      "durationMs": 6003,
+      "errors": [],
+      "attachments": [
+        {
+          "name": "u1b-desktop.png",
+          "contentType": "image/png",
+          "sha256": "36165e5ecd794f24dcaf4495b6bbf3a9b82cc95383ff4274b4e7f1a8761b2d27",
+          "sizeBytes": 161536,
+          "retained": true,
+          "path": "attachments/36165e5ecd794f24dcaf4495b6bbf3a9b82cc95383ff4274b4e7f1a8761b2d27.png"
+        },
+        {
+          "name": "u1b-desktop-smoke.json",
+          "contentType": "application/json",
+          "sha256": "ba2f03dd90e97edaa724e74c7efec87c83ced4aea2e49ba39cfe4f0beab6e965",
+          "sizeBytes": 327,
+          "retained": true,
+          "path": "attachments/ba2f03dd90e97edaa724e74c7efec87c83ced4aea2e49ba39cfe4f0beab6e965.json"
+        }
+      ]
+    },
+    {
+      "title": " / chromium / u1b-layout.spec.ts / U1b narrow workspace / U1b narrow drawers remain reachable, restore focus and reject unusable preferences",
+      "file": "tests/u1b-layout.spec.ts",
+      "line": 224,
+      "status": "passed",
+      "expectedStatus": "passed",
+      "retry": 0,
+      "durationMs": 3992,
+      "errors": [],
+      "attachments": [
+        {
+          "name": "u1b-narrow.png",
+          "contentType": "image/png",
+          "sha256": "1a73d980b3fe2d21cc42f5f891a27a09e866d2955096598f3f3a2c0771580525",
+          "sizeBytes": 39857,
+          "retained": true,
+          "path": "attachments/1a73d980b3fe2d21cc42f5f891a27a09e866d2955096598f3f3a2c0771580525.png"
+        },
+        {
+          "name": "u1b-narrow-smoke.json",
+          "contentType": "application/json",
+          "sha256": "638cd29f5d5c3b8e2f4e6191f66f1f0936ad880b9d719d5ec1afe30067b8a9d6",
+          "sizeBytes": 257,
+          "retained": true,
+          "path": "attachments/638cd29f5d5c3b8e2f4e6191f66f1f0936ad880b9d719d5ec1afe30067b8a9d6.json"
+        }
+      ]
+    }
+  ],
+  "expectedTests": 2,
+  "workers": 1,
+  "status": "passed",
+  "durationMs": 12307.631000000001,
+  "finishedAt": "2026-10-23T08:57:07.534Z",
+  "counts": {
+    "passed": 2
+  }
+}

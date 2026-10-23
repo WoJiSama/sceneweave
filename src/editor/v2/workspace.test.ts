@@ -554,3 +554,29 @@ describe('WorkspaceV2 immutable snapshots and history', () => {
     expect(input.document.notes['n-d4'].text).toBe(source.document.notes['n-d4'].text)
   })
 })
+
+
+describe('U1a compatibility route departure', () => {
+  it('closes only after save and invalidates the old checkpoint and undo session', async () => {
+    const { workspace, save } = setup()
+    await workspace.openPersisted(project())
+    workspace.updateProp('p-b2', { rotationDeg: 30 })
+    const checkpoint = workspace.checkpoint()
+    expect(workspace.getState().canUndo).toBe(true)
+    await workspace.close(checkpoint)
+    expect(workspace.getState()).toMatchObject({ project: null, status: 'empty', canUndo: false, canRedo: false })
+    expect(() => workspace.assertCheckpoint(checkpoint)).toThrow()
+  })
+  it('preserves the current document and usable undo when save fails', async () => {
+    const { workspace, save } = setup()
+    await workspace.openPersisted(project())
+    workspace.updateProp('p-b2', { rotationDeg: 30 })
+    const current = workspace.getState().project
+    save.mockRejectedValueOnce(new Error('关闭前保存失败'))
+    await expect(workspace.close()).rejects.toThrow('关闭前保存失败')
+    expect(workspace.getState().project).toBe(current)
+    expect(workspace.getState().canUndo).toBe(true)
+    workspace.undo()
+    expect(workspace.getState().project!.document.props['p-b2'].rotationDeg).toBe(0)
+  })
+})

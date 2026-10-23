@@ -14,9 +14,9 @@ async function project(page: Page): Promise<CompleteProjectV6> {
   return page.evaluate(() => structuredClone((Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.getState().project!))
 }
 async function settled(page: Page) {
-  await expect(page.locator('.asset-save')).toHaveText('本地已保存')
-  await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false')
   await expect(page.locator('.asset-busy')).toHaveCount(0)
+  await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false')
+  await expect(page.locator('.asset-save')).toHaveText('本地已保存')
 }
 async function number(page: Page, label: string, value: number) {
   const input = page.getByRole('spinbutton', { name: label, exact: true })
@@ -68,7 +68,7 @@ async function placeChair(page: Page, roomId: string, x: number) {
 test('C5 one v6 UI journey joins building, outdoor, fixed composition, layers, appearance and protected restore', async ({ page }, info) => {
   test.setTimeout(300_000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
-  await page.goto('/#outdoor'); await expect(page.getByTestId('outdoor-workbench')).toBeVisible()
+  await page.goto('/#outdoor'); await expect(page.getByTestId('outdoor-workbench')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('C5 书房与庭院联合旅程')
@@ -174,6 +174,11 @@ test('C5 one v6 UI journey joins building, outdoor, fixed composition, layers, a
     return (await repository.listNamedSnapshots(workspace.getState().project!.document.sceneId)).filter(item => item.kind === 'protection')
   })
   expect(protection).toHaveLength(1)
+  await expect.poll(() => page.evaluate(async () => {
+    const { workspace, repository } = Reflect.get(window, '__sceneweaveOutdoorDev') as Dev
+    const saved = await repository.load(workspace.getState().project!.document.sceneId)
+    return saved ? { document: saved.document, appearance: saved.appearance, historyIdentity: saved.historyIdentity } : null
+  }), { timeout: 30_000 }).toEqual({ document: restored.document, appearance: restored.appearance, historyIdentity: restored.historyIdentity })
   await page.reload(); await expect(page.getByTestId('outdoor-workbench')).toBeVisible(); await settled(page)
   expect(await project(page)).toEqual(restored)
   expect(errors).toEqual([])
@@ -206,6 +211,9 @@ test('C5 shared UI preserves the complete v6 branch when layer, batch, appearanc
   expect(await project(page)).toEqual(before)
   await page.getByRole('button', { name: '关闭工坊提示', exact: true }).click()
 
+  await expect(page.getByRole('button', { name: '锁定图层 C5 支撑物件', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '取消外观草稿', exact: true }).click()
+  expect(await project(page)).toEqual(before)
   await page.getByRole('button', { name: '锁定图层 C5 支撑物件', exact: true }).click(); await settled(page)
   const locked = await project(page)
   await page.getByRole('tab', { name: '室外', exact: true }).click()
@@ -216,7 +224,11 @@ test('C5 shared UI preserves the complete v6 branch when layer, batch, appearanc
   await expect(page.getByRole('button', { name: '采用室外修改', exact: true })).toHaveCount(0)
   expect(await project(page)).toEqual(locked)
   await page.getByRole('button', { name: '关闭工坊提示', exact: true }).click()
+  await page.getByRole('button', { name: '取消室外属性草稿', exact: true }).click()
+  expect(await project(page)).toEqual(locked)
   await chooseProp(page, C5_SUPPORTED_PROP)
+  await appearance.getByLabel('外观调整项目', { exact: true }).selectOption('brightness')
+  await appearance.getByLabel('外观亮度', { exact: true }).fill('0.5')
   await appearance.getByRole('button', { name: '预览外观调整', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: /锁/ })).toBeVisible()
   expect(await project(page)).toEqual(locked)

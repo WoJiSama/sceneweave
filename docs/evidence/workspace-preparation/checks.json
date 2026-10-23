@@ -1,0 +1,86 @@
+{
+  "capturedAt": "2026-10-23T06:46:03.948028+00:00",
+  "method": "Documentation preparation only; exact starting-file hash comparisons and Markdown/reference checks. No product tests, build, browser, performance measurement, data deletion, staging, commit or push.",
+  "startingFiles": 1641,
+  "protectedExistingFiles": 1624,
+  "protectedMismatches": [],
+  "unexpectedNewFiles": [],
+  "changedOwnedFiles": [
+    "AGENTS.md",
+    "README.md",
+    "docs/01-product.md",
+    "docs/02-editor-ux.md",
+    "docs/03-architecture.md",
+    "docs/04-scene-document.md",
+    "docs/06-storage-and-export.md",
+    "docs/07-roadmap.md",
+    "docs/08-test-scenarios.md",
+    "docs/09-quality-plan.md",
+    "docs/11-decisions-and-open-questions.md",
+    "docs/14-visual-and-asset-system.md",
+    "docs/15-m1a-asset-production-list.md",
+    "docs/README.md",
+    "findings.md",
+    "progress.md",
+    "task_plan.md"
+  ],
+  "headUnchanged": true,
+  "version": "0.2.0-m1-d-outpost",
+  "todoUnchanged": true,
+  "report35Unchanged": true,
+  "discussion36Unchanged": true,
+  "stagedFiles": [],
+  "protectedGroups": {
+    "sourceTestsToolsConfigs": 361,
+    "assets": 83,
+    "evidence": 1149
+  },
+  "markdown": {
+    "documents": 45,
+    "localReferences": 1015,
+    "anchors": 14,
+    "tables": 248,
+    "brokenTargets": [],
+    "brokenAnchors": [],
+    "tableErrors": []
+  },
+  "identifiers": {
+    "qaDefinitions": 79,
+    "prdDefinitions": 37,
+    "unknownQA": [],
+    "unknownPRD": [],
+    "missingNewQA": [],
+    "missingNewPRD": [],
+    "existingDuplicateQARows": [
+      "QA-IMPORT-01",
+      "QA-IO-01",
+      "QA-VIS-01",
+      "QA-VIS-02"
+    ],
+    "newDuplicateQA": [],
+    "duplicatePRD": [],
+    "newQAProductStatuses": {
+      "QA-WS-01": "未运行",
+      "QA-WS-02": "未运行",
+      "QA-WS-03": "未运行",
+      "QA-WS-04": "未运行",
+      "QA-WS-05": "未运行",
+      "QA-WS-06": "未运行",
+      "QA-CAT-01": "未运行",
+      "QA-CAT-02": "未运行",
+      "QA-CAT-03": "未运行",
+      "QA-CAT-04": "未运行",
+      "QA-CAT-05": "未运行",
+      "QA-CAT-06": "未运行"
+    },
+    "allNewQAUnrun": true
+  },
+  "newTextTrailingWhitespace": [],
+  "newTextCredentialPatternHits": [],
+  "archivedStartingDocuments": {
+    "count": 17,
+    "allMatchStartingHashes": true
+  },
+  "baselineCopyMatches": true,
+  "allPassed": true
+}

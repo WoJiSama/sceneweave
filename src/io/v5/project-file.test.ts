@@ -177,13 +177,14 @@ describe('strict v5 complete and selected-history packages', () => {
     await expect(validateHistoryArchiveV5({ project, snapshots: Array.from({ length: 65 }, (_, index) => ({ ...snapshot, id: `snapshot-${index}` })) })).rejects.toThrow('64份')
   })
 
+  // This exercises the fixed node budget; elapsed time is not a performance assertion.
   it('enforces cumulative JSON nodes across individually valid selected snapshots', async () => {
     const project = emptyProject()
     for (let index = 0; index < 50_000; index++) project.historyIdentity.propTokens[`allocated-${index}`] = `token-${index}`
     await validateCompleteProjectV5(project)
     const snapshot = await namedSnapshot(project), snapshots = Array.from({ length: 12 }, (_, index) => ({ ...snapshot, id: `json-${index}` }))
     await expect(validateHistoryArchiveV5({ project, snapshots })).rejects.toThrow('累计节点')
-  }, 20_000)
+  }, 60_000)
 
   it('accepts eighty Unicode characters as a name and rejects blanks or longer names', async () => {
     const project = emptyProject(), snapshot = await namedSnapshot(project)

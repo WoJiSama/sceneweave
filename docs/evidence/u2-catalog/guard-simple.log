@@ -1,0 +1,13 @@
+
+> sceneweave@0.2.0-m1-u2 test
+> vitest run --run src/editor/v6/session-guard.test.ts
+
+
+ RUN  v4.1.12 /Users/shiqi/IdeaProjects/sceneweave
+
+
+ Test Files  1 passed (1)
+      Tests  29 passed (29)
+   Start at  17:32:45
+   Duration  170ms (transform 34ms, setup 0ms, import 45ms, tests 4ms, environment 0ms)
+

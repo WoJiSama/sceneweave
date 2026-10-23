@@ -1,0 +1,284 @@
+{
+  "catalogId": "sceneweave-handdrawn-outpost",
+  "themeCatalogId": "sceneweave-handdrawn",
+  "version": 1,
+  "name": "墨绘原野 · 海岸哨所",
+  "status": "P2",
+  "author": "Sceneweave contributors; original SVG artwork authored with Codex assistance",
+  "source": "tools/build-outpost-art.mjs and assets/sceneweave-handdrawn-outpost/*.svg",
+  "rights": "Project original artwork; no external reference tracing or extracted image components",
+  "licenseRef": "MIT",
+  "licenseFile": "LICENSE.txt",
+  "densityPxPerMetre": 256,
+  "longCastShadowBaked": false,
+  "colorSpace": "sRGB",
+  "bitDepth": 8,
+  "alpha": "straight; zero-alpha RGB cleared",
+  "assets": [
+    {
+      "key": "dirt-gravel",
+      "catalogId": "material.sw.dirt-gravel",
+      "kind": "material",
+      "name": "院落土砾",
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#9B8B68",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "file": "dirt-gravel.png",
+      "sourceFile": "dirt-gravel.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "dfa8746b8476bc4528239ddf63d7b8bf82385da86fec3ab7fc9753e97f74ccd6",
+      "sourceSha256": "200446c1d50ece4a4bb4428bf5fe145d3aad3162d8e923bb1e44ed8c07551b02",
+      "sizeBytes": 30561,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    },
+    {
+      "key": "crate",
+      "catalogId": "prop.sw.crate",
+      "kind": "prop",
+      "name": "绑带木箱",
+      "spanMm": {
+        "width": 950,
+        "height": 950
+      },
+      "logicalSizeMm": {
+        "width": 1250,
+        "height": 1250
+      },
+      "visualBoundsMm": {
+        "x": -625,
+        "y": -625,
+        "width": 1250,
+        "height": 1250
+      },
+      "footprintMm": {
+        "width": 900,
+        "height": 900
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "crate.png",
+      "sourceFile": "crate.svg",
+      "pixelWidth": 320,
+      "pixelHeight": 320,
+      "sha256": "cbc456631f35ce900919bc9fe00ed89e2aa86c0769b99a8986b0b03c8564cd6c",
+      "sourceSha256": "b09b6642b5ec2f54141e2e1df54e945e02dbf5504c17544248ca17b01e400f54",
+      "sizeBytes": 4545,
+      "alphaContentBoundsPx": {
+        "x": 38,
+        "y": 38,
+        "width": 244,
+        "height": 244
+      },
+      "minTransparentPaddingPx": 38,
+      "fullyOpaque": false
+    },
+    {
+      "key": "supply-rack",
+      "catalogId": "prop.sw.supply-rack",
+      "kind": "prop",
+      "name": "敞口补给木架",
+      "spanMm": {
+        "width": 1100,
+        "height": 2300
+      },
+      "logicalSizeMm": {
+        "width": 1500,
+        "height": 2750
+      },
+      "visualBoundsMm": {
+        "x": -750,
+        "y": -1375,
+        "width": 1500,
+        "height": 2750
+      },
+      "footprintMm": {
+        "width": 1000,
+        "height": 2200
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "supply-rack.png",
+      "sourceFile": "supply-rack.svg",
+      "pixelWidth": 384,
+      "pixelHeight": 704,
+      "sha256": "3a843541f5bf613ed8346fa0194c7d1965a155f0e14e1205930b453a6fcd367d",
+      "sourceSha256": "72ef81e2ff5f112f252a7dd2a289f5e24a5833020ab9f308449e67d80e985398",
+      "sizeBytes": 15189,
+      "alphaContentBoundsPx": {
+        "x": 51,
+        "y": 57,
+        "width": 282,
+        "height": 589
+      },
+      "minTransparentPaddingPx": 51,
+      "fullyOpaque": false
+    },
+    {
+      "key": "campfire",
+      "catalogId": "prop.sw.campfire",
+      "kind": "prop",
+      "name": "石圈短焰营火",
+      "spanMm": {
+        "width": 1400,
+        "height": 1400
+      },
+      "logicalSizeMm": {
+        "width": 1750,
+        "height": 1750
+      },
+      "visualBoundsMm": {
+        "x": -875,
+        "y": -875,
+        "width": 1750,
+        "height": 1750
+      },
+      "footprintMm": {
+        "width": 1000,
+        "height": 1000
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": false,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "none",
+      "file": "campfire.png",
+      "sourceFile": "campfire.svg",
+      "pixelWidth": 448,
+      "pixelHeight": 448,
+      "sha256": "c7f59ec3a474f6b2d0e258ca7b218469af7768f684983b930662cb7710c2c23e",
+      "sourceSha256": "3201ffcb16dfb82857cc5d7fbb3d23849432f944fd0e24445dd7bfeb578a8a39",
+      "sizeBytes": 23147,
+      "alphaContentBoundsPx": {
+        "x": 44,
+        "y": 44,
+        "width": 360,
+        "height": 360
+      },
+      "minTransparentPaddingPx": 44,
+      "fullyOpaque": false
+    },
+    {
+      "key": "lamp-stand",
+      "catalogId": "prop.sw.lamp-stand",
+      "kind": "prop",
+      "name": "旧铜灯架",
+      "spanMm": {
+        "width": 600,
+        "height": 600
+      },
+      "logicalSizeMm": {
+        "width": 1000,
+        "height": 1000
+      },
+      "visualBoundsMm": {
+        "x": -500,
+        "y": -500,
+        "width": 1000,
+        "height": 1000
+      },
+      "footprintMm": {
+        "width": 300,
+        "height": 300
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "lamp-stand.png",
+      "sourceFile": "lamp-stand.svg",
+      "pixelWidth": 256,
+      "pixelHeight": 256,
+      "sha256": "29d190ff608a65ab15bf53d257056d8b10acd553c160d3ac4e1138d269dc9adb",
+      "sourceSha256": "3a3772040f5331c6a70b3cde41b72bf8c269f765dca854a44306c50a45ffc03d",
+      "sizeBytes": 6221,
+      "alphaContentBoundsPx": {
+        "x": 52,
+        "y": 52,
+        "width": 152,
+        "height": 152
+      },
+      "minTransparentPaddingPx": 52,
+      "fullyOpaque": false
+    },
+    {
+      "key": "tent",
+      "catalogId": "prop.sw.tent",
+      "kind": "prop",
+      "name": "短绳帆布帐篷",
+      "spanMm": {
+        "width": 2800,
+        "height": 2400
+      },
+      "logicalSizeMm": {
+        "width": 3250,
+        "height": 2750
+      },
+      "visualBoundsMm": {
+        "x": -1625,
+        "y": -1375,
+        "width": 3250,
+        "height": 2750
+      },
+      "footprintMm": {
+        "width": 2400,
+        "height": 2000
+      },
+      "footprintOffsetMm": {
+        "x": 0,
+        "y": 0
+      },
+      "blocksMovement": true,
+      "blocksSight": false,
+      "renderLayer": "object",
+      "shadowClass": "furniture",
+      "file": "tent.png",
+      "sourceFile": "tent.svg",
+      "pixelWidth": 832,
+      "pixelHeight": 704,
+      "sha256": "fb289d5ae55197e62ea6fee5aa319a30e02bb8cff6d9bcc298f2cfc886da5275",
+      "sourceSha256": "770cbfcdaae3bbe6f23d2272dfd2ec431fdf3ef0bd9d50f5408c8560d1eb9b9d",
+      "sizeBytes": 22633,
+      "alphaContentBoundsPx": {
+        "x": 56,
+        "y": 45,
+        "width": 720,
+        "height": 614
+      },
+      "minTransparentPaddingPx": 45,
+      "fullyOpaque": false
+    }
+  ]
+}

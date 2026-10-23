@@ -1,0 +1,96 @@
+{
+  "startedAt": "2026-10-23T09:32:45.305Z",
+  "method": "Playwright assertions; attachments addressed by SHA-256, oversized files recorded without pretending they were retained.",
+  "tests": [
+    {
+      "title": " / chromium / u2-catalog.spec.ts / U2 simple real-image library backup and offline cross-project preview/adopt/undo",
+      "file": "tests/u2-catalog.spec.ts",
+      "line": 58,
+      "status": "failed",
+      "expectedStatus": "passed",
+      "retry": 0,
+      "durationMs": 13158,
+      "errors": [
+        {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-entries article').filter({ has: getByRole('region', { name: '组件素材库', exact: true }).getByRole('button', { name: '查看素材 U2 独立灯具', exact: true }) })\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  8000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveCount\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-entries article').filter({ has: getByRole('region', { name: '组件素材库', exact: true }).getByRole('button', { name: '查看素材 U2 独立灯具', exact: true }) })\u001b[22m\n\u001b[2m    12 × locator resolved to 0 elements\u001b[22m\n\u001b[2m       - unexpected value \"0\"\u001b[22m\n",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-entries article').filter({ has: getByRole('region', { name: '组件素材库', exact: true }).getByRole('button', { name: '查看素材 U2 独立灯具', exact: true }) })\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  8000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveCount\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-entries article').filter({ has: getByRole('region', { name: '组件素材库', exact: true }).getByRole('button', { name: '查看素材 U2 独立灯具', exact: true }) })\u001b[22m\n\u001b[2m    12 × locator resolved to 0 elements\u001b[22m\n\u001b[2m       - unexpected value \"0\"\u001b[22m\n\n    at /Users/shiqi/IdeaProjects/sceneweave/tests/u2-catalog.spec.ts:45:21"
+        }
+      ],
+      "attachments": [
+        {
+          "name": "screenshot",
+          "contentType": "image/png",
+          "sha256": "382ae54e0ad903c85e94e8c1d1f98a791e9e00c8644d92ee0634b6b1d8e5c3d8",
+          "sizeBytes": 171074,
+          "retained": true,
+          "path": "attachments/382ae54e0ad903c85e94e8c1d1f98a791e9e00c8644d92ee0634b6b1d8e5c3d8.png"
+        },
+        {
+          "name": "error-context",
+          "contentType": "text/markdown",
+          "sha256": "204d7315d6403d581e0f8e55b2725ead88b58f205e7596810317baae5dd4d4db",
+          "sizeBytes": 18746,
+          "retained": true,
+          "path": "attachments/204d7315d6403d581e0f8e55b2725ead88b58f205e7596810317baae5dd4d4db.bin"
+        },
+        {
+          "name": "trace",
+          "contentType": "application/zip",
+          "sha256": "3bc774bad427ec643d35e0f4a4faafc78f7064c4e3d02ef92f4dd5faefb74a1d",
+          "sizeBytes": 2856143,
+          "retained": true,
+          "path": "attachments/3bc774bad427ec643d35e0f4a4faafc78f7064c4e3d02ef92f4dd5faefb74a1d.zip"
+        }
+      ]
+    },
+    {
+      "title": " / chromium / u2-catalog.spec.ts / U2 narrow simple keyboard workflow / U2 preserves an organization draft across panel browsing and guards Home",
+      "file": "tests/u2-catalog.spec.ts",
+      "line": 286,
+      "status": "failed",
+      "expectedStatus": "passed",
+      "retry": 0,
+      "durationMs": 10277,
+      "errors": [
+        {
+          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-item-main').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-item-main').first()\u001b[22m\n",
+          "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-item-main').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('region', { name: '组件素材库', exact: true }).locator('.catalog-item-main').first()\u001b[22m\n\n    at /Users/shiqi/IdeaProjects/sceneweave/tests/u2-catalog.spec.ts:120:26"
+        }
+      ],
+      "attachments": [
+        {
+          "name": "screenshot",
+          "contentType": "image/png",
+          "sha256": "7afbbb41af76709398c32d0d6ab35b7f0b7c1bb84788d4cadc44cfc91e7cb811",
+          "sizeBytes": 81946,
+          "retained": true,
+          "path": "attachments/7afbbb41af76709398c32d0d6ab35b7f0b7c1bb84788d4cadc44cfc91e7cb811.png"
+        },
+        {
+          "name": "error-context",
+          "contentType": "text/markdown",
+          "sha256": "0d87000c9ececbf3ce2f3f9beacbe12b98d7302f14c3122ebb6f090a69bb5acb",
+          "sizeBytes": 8330,
+          "retained": true,
+          "path": "attachments/0d87000c9ececbf3ce2f3f9beacbe12b98d7302f14c3122ebb6f090a69bb5acb.bin"
+        },
+        {
+          "name": "trace",
+          "contentType": "application/zip",
+          "sha256": "80b7458c989dff1789054e38ea96849c5cc5377c179a426a24a5c94df65e45fe",
+          "sizeBytes": 1812547,
+          "retained": true,
+          "path": "attachments/80b7458c989dff1789054e38ea96849c5cc5377c179a426a24a5c94df65e45fe.zip"
+        }
+      ]
+    }
+  ],
+  "expectedTests": 2,
+  "workers": 1,
+  "status": "failed",
+  "durationMs": 27298.921,
+  "finishedAt": "2026-10-23T09:33:12.606Z",
+  "counts": {
+    "failed": 2
+  }
+}

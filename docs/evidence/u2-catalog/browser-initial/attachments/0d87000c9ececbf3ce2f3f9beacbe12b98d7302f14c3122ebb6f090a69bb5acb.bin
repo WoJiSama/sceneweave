@@ -1,0 +1,174 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - button "回到首页" [ref=e6] [cursor=pointer]:
+      - img [ref=e7]
+      - generic [ref=e9]: 织境
+    - generic [ref=e11]:
+      - text: 统一工作区
+      - heading "U2 窄屏整理简单测试" [level=1] [ref=e12]
+    - generic [ref=e13]:
+      - button "撤销素材编辑" [disabled] [ref=e14]:
+        - img [ref=e15]
+      - button "重做素材编辑" [disabled] [ref=e18]:
+        - img [ref=e19]
+      - button "命名历史快照" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+    - generic [ref=e26]:
+      - status [ref=e27]:
+        - img [ref=e28]
+        - text: 本地已保存
+      - button "打开工程" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - text: 打开工程
+      - button "重新载入已保存版本" [ref=e35] [cursor=pointer]
+      - button "完整工程" [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+        - text: 完整工程
+      - button "4K PNG" [ref=e40] [cursor=pointer]:
+        - img [ref=e41]
+        - text: 4K PNG
+  - generic [ref=e44]:
+    - generic "工作区布局" [ref=e45]:
+      - button "资源面板" [expanded] [ref=e46] [cursor=pointer]
+      - button "属性面板" [ref=e47] [cursor=pointer]
+      - button "场景导航" [ref=e48] [cursor=pointer]
+      - button "展开全部面板" [ref=e49] [cursor=pointer]
+      - button "重置布局" [ref=e50] [cursor=pointer]
+    - generic [ref=e51]:
+      - navigation "画布工具" [ref=e52]:
+        - group "地图选择与平移" [ref=e54]:
+          - button "选择地图对象" [pressed] [ref=e55] [cursor=pointer]:
+            - img [ref=e56]
+          - button "平移地图" [ref=e58] [cursor=pointer]:
+            - img [ref=e59]
+        - button "工具：画房间" [ref=e64] [cursor=pointer]:
+          - img [ref=e65]
+          - generic [ref=e72]: 房间
+        - button "工具：画地形" [ref=e73] [cursor=pointer]:
+          - img [ref=e74]
+          - generic [ref=e76]: 地形
+        - button "工具：放置素材" [ref=e77] [cursor=pointer]:
+          - img [ref=e78]
+          - generic [ref=e79]: 放置
+        - button "工具：注记" [ref=e80] [cursor=pointer]:
+          - img [ref=e81]
+          - generic [ref=e84]: 注记
+        - button "工具：量尺" [ref=e85] [cursor=pointer]:
+          - img [ref=e86]
+          - generic [ref=e92]: 量尺
+      - region "资源面板" [ref=e93]:
+        - generic [ref=e94]:
+          - heading "资源面板" [level=2] [ref=e95]
+          - button "关闭资源面板" [expanded] [ref=e96] [cursor=pointer]:
+            - generic [ref=e97]: ×
+        - generic [ref=e99]:
+          - tablist "工坊侧栏" [ref=e100]:
+            - tab "工程" [ref=e101] [cursor=pointer]:
+              - img [ref=e102]
+              - text: 工程
+            - tab "建筑" [ref=e106] [cursor=pointer]:
+              - img [ref=e107]
+              - text: 建筑
+            - tab "素材库" [selected] [ref=e114] [cursor=pointer]:
+              - img [ref=e115]
+              - text: 素材库
+            - tab "室外" [ref=e119] [cursor=pointer]:
+              - img [ref=e120]
+              - text: 室外
+          - region "组件素材库" [ref=e128]:
+            - generic [ref=e129]:
+              - img [ref=e130]
+              - heading "素材库" [level=2] [ref=e134]
+              - generic [ref=e135]: "37"
+            - group "素材范围" [ref=e136]:
+              - button "内置素材" [ref=e137] [cursor=pointer]
+              - button "我的素材" [ref=e138] [cursor=pointer]
+              - button "本工程" [pressed] [ref=e139] [cursor=pointer]
+            - paragraph [ref=e140]: 工程已保存的固定素材。浏览不会自动保存到“我的素材”。
+            - paragraph [ref=e141]: 保存固定素材不截取当前实例或图层覆盖；组合保留固定模板成员和私密性。
+            - generic [ref=e142]:
+              - img [ref=e143]
+              - searchbox "搜索组件素材" [active] [ref=e146]: 台灯
+            - group "素材类型" [ref=e147]:
+              - button "全部" [pressed] [ref=e148] [cursor=pointer]
+              - button "物件" [ref=e149] [cursor=pointer]
+              - button "材质" [ref=e150] [cursor=pointer]
+              - button "组合" [ref=e151] [cursor=pointer]
+            - group [ref=e152]:
+              - generic "标签、颜色与收藏筛选" [ref=e153] [cursor=pointer]
+              - option "全部所选标签" [selected]
+              - option "任一所选标签"
+            - generic "当前素材筛选条件" [ref=e154]:
+              - button "移除筛选 关键词：台灯" [ref=e155] [cursor=pointer]:
+                - text: 关键词：台灯
+                - img [ref=e156]
+              - button "清空筛选" [ref=e159] [cursor=pointer]
+            - generic [ref=e160]:
+              - generic [ref=e161]: 0 项匹配 · 已选0项
+              - button "清空选择" [disabled] [ref=e162]
+            - paragraph [ref=e163]: 没有匹配素材。可移除筛选条件后再试。
+            - generic "素材批量操作" [ref=e164]:
+              - paragraph [ref=e165]: 操作仅作用于明确勾选的0项，最多64项；切换范围保留所选。
+              - generic [ref=e166]:
+                - button "保存到我的素材" [disabled] [ref=e167]:
+                  - img [ref=e168]
+                  - text: 保存到我的素材
+                - button "预览采用到本工程" [disabled] [ref=e171]
+                - button "整理所选" [disabled] [ref=e172]
+                - button "备份已选安装条目（0）" [disabled] [ref=e173]:
+                  - img [ref=e174]
+                  - text: 备份已选安装条目（0）
+                - button "移除个人安装条目" [disabled] [ref=e177]
+            - group [ref=e178]:
+              - generic "完整库备份与导入" [ref=e179] [cursor=pointer]:
+                - img [ref=e180]
+                - text: 完整库备份与导入
+            - button "刷新素材库" [ref=e184] [cursor=pointer]:
+              - img [ref=e185]
+              - text: 刷新素材库
+            - group [ref=e190]:
+              - generic "导入自有素材" [ref=e191] [cursor=pointer]:
+                - img [ref=e192]
+                - text: 导入自有素材
+              - option "独立物件" [selected]
+              - option "平铺材质"
+      - region "场景画布" [ref=e195]:
+        - main [ref=e196]:
+          - generic [ref=e197]:
+            - group "预览受众" [ref=e198]:
+              - button "主持人" [pressed] [ref=e199] [cursor=pointer]
+              - button "玩家" [ref=e200] [cursor=pointer]
+            - generic [ref=e201]: 14.000 m × 10.000 m · 固定范围
+          - generic [ref=e203]:
+            - group "地图视口工具" [ref=e204]:
+              - button "全选可编辑对象" [ref=e205] [cursor=pointer]: 全选
+              - button "替换选择" [pressed] [ref=e207] [cursor=pointer]: 替换
+              - button "增加选择" [ref=e208] [cursor=pointer]: 增加
+              - button "减去选择" [ref=e209] [cursor=pointer]: 减去
+              - generic [ref=e210]:
+                - checkbox "包含相交对象" [ref=e211]
+                - text: 相交
+              - generic [ref=e212]:
+                - checkbox "选择组合成员" [ref=e213]
+                - text: 成员
+            - group "地图视口" [ref=e214]:
+              - generic "材质场景主持人预览" [ref=e215]
+            - status [ref=e216]: 单击选择 · 拖动框选 · Shift 增选 · Option/Alt 减选
+    - contentinfo [ref=e217]:
+      - group "地图缩放与全图" [ref=e219]:
+        - button "缩小地图" [ref=e220] [cursor=pointer]:
+          - img [ref=e221]
+        - status "地图缩放比例" [ref=e224]: 100%
+        - button "放大地图" [ref=e225] [cursor=pointer]:
+          - img [ref=e226]
+        - button "适应全图" [ref=e229] [cursor=pointer]:
+          - img [ref=e230]
+          - generic [ref=e235]: 全图
+      - button "米 · 格线隐藏 · 吸附 100 mm" [ref=e236] [cursor=pointer]
+      - generic [ref=e237]: 已选 0 项
+      - generic [ref=e238]: 选择 / 平移
+      - generic [ref=e239]: 主持人视图
+```

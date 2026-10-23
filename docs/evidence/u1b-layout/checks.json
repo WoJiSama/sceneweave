@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0-m1-u1b",
+  "simpleOnly": true,
+  "fullRegression": "deferred_until_user_request",
+  "typecheck": "passed",
+  "build": "passed; Vite3.52s",
+  "targetedUnit": {
+    "files": 2,
+    "passed": 11,
+    "durationMs": 221
+  },
+  "layoutSmoke": {
+    "passed": 2,
+    "durationMs": 12307.631
+  },
+  "narrowSaveStatus": {
+    "passed": 1,
+    "durationMs": 8471.405
+  },
+  "baseline": {
+    "startingFiles": 1663,
+    "unchangedFiles": 1642,
+    "changedFiles": [
+      "AGENTS.md",
+      "CONTRIBUTING.md",
+      "README.md",
+      "docs/01-product.md",
+      "docs/02-editor-ux.md",
+      "docs/03-architecture.md",
+      "docs/06-storage-and-export.md",
+      "docs/07-roadmap.md",
+      "docs/09-quality-plan.md",
+      "docs/11-decisions-and-open-questions.md",
+      "docs/README.md",
+      "findings.md",
+      "package-lock.json",
+      "package.json",
+      "progress.md",
+      "src/editor/v2/AssetCanvas.tsx",
+      "src/editor/v2/SceneLibrary.tsx",
+      "src/editor/v2/viewport.test.ts",
+      "src/editor/v2/viewport.ts",
+      "src/editor/v6/OutdoorWorkbench.tsx",
+      "task_plan.md"
+    ],
+    "missing": [],
+    "protectedFilesUnchanged": 1396,
+    "head": "55894649dafe2ffb0d5fb8d545379e3925e3c8ff"
+  },
+  "sourceHashes": {
+    "package-lock.json": "2d71175b4d7a66507ca23ff091a3d50e8f51e8ab788a836eeaf9a0ccc7d69f6d",
+    "package.json": "3b24b4207a7782985bc1470e707a495f448fdecc0939869c35afa4bfe88c0335",
+    "src/editor/v2/AssetCanvas.tsx": "3f3c48413f66fe81cf90be496dd44ca3f48b1081e922c9298532b90d26be2021",
+    "src/editor/v2/SceneLibrary.tsx": "e8834e5ac6a40df02832d3678a4c99635a9a3c2792f01c18870499481c12124f",
+    "src/editor/v2/viewport.test.ts": "745705f208376f900dcf2a569ff5e27587d16c782887caab2974bf85aa725457",
+    "src/editor/v2/viewport.ts": "c2657374804990ca6cc1e0ec62f30cc1375779c29b367938d58a89eaa75b9672",
+    "src/editor/v6/OutdoorWorkbench.tsx": "5e40d426002fe65afd77d23574b5af1039cf66732b56ca2c9472512cd4b9ffd7",
+    "src/editor/v6/unified-workbench.css": "54e6b4828eff54702d71791576253848f6c53fcb217cb60c91a8f0d868cb1e01",
+    "src/editor/workspace/WorkspaceLayout.tsx": "9311257b84ee1abad85863eec6f581a38daa6e34f401f43f5b73e52d53219aba",
+    "src/editor/workspace/layout-preferences.test.ts": "571afbc2849fe3e8a91202de1dd4e88bfdffbabfd2bc17800d789ad9bff85739",
+    "src/editor/workspace/layout-preferences.ts": "dded13b3090c25e9c9452e15e3c38e8367c1dc5e1d4e1ae0fa497618ece9b573",
+    "src/editor/workspace/workspace-layout.css": "8c61fc4102b1068696dbd0a0a9a7b76a076554f283a714ce04451792e8cbdd43",
+    "tests/u1b-layout.spec.ts": "b91dbaaeee73887317662ad54089d3b0a47477ca15d37e31ed0e1b9bb8465364"
+  },
+  "notRun": [
+    "full unit/browser regression",
+    "QA-WS-04 complete accessibility matrix",
+    "QA-WS-06 complete mixed journey",
+    "4K privacy and legacy compatibility matrices",
+    "formal performance"
+  ],
+  "git": "no commit or push"
+}

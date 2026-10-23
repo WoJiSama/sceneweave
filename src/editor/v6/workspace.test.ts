@@ -7,7 +7,7 @@ import type { CompleteProjectV6, NamedSnapshotV6 } from '../../io/v6/types'
 import { pixelPng } from '../../io/v3/test-fixtures'
 import { outdoorProject } from '../../io/v6/test-fixtures'
 import { WorkspaceV6 } from './workspace'
-import { deferred, projectV6, snapshotV6, workspaceSetupV6 } from './workspace-test-fixtures'
+import { buildingProjectV6, deferred, projectV6, snapshotV6, workspaceSetupV6 } from './workspace-test-fixtures'
 
 // Real V6 graph/identity/commands/restore; durability and bitmap decoding have their own IO/browser suites.
 vi.mock('../../io/v6/project-file', async importOriginal => {
@@ -45,6 +45,116 @@ function catalogCandidate(input: CompleteProjectV6): CompleteProjectV6 {
 }
 
 describe('V6 full candidate workspace', () => {
+  it('flushes for passive Home without replacing the branch, undo or session structure witness', async () => {
+    const { workspace, input, durable } = workspaceSetupV6(buildingProjectV6())
+    await workspace.openPersisted(input)
+    const named = await workspace.createNamedSnapshot('离开前结构')
+    await workspace.execute([{ type: 'updateRoom', id: 'room', changes: { purpose: '继续编辑的房间' } }])
+    const current = workspace.getState().project, checkpoint = workspace.checkpoint()
+    await workspace.flush()
+    expect(workspace.getState().project).toBe(current)
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    expect(workspace.getState().canUndo).toBe(true)
+    expect(durable().document.rooms.room.purpose).toBe('继续编辑的房间')
+    expect((await workspace.inspectStructureRestore(named.id, { ids: ['room'], mode: 'properties' })).scope.rootIds).toEqual(['room'])
+    workspace.undo()
+    expect(workspace.getState().project!.document.rooms.room.purpose).toBe('original room')
+    await workspace.flush()
+  })
+
+  it('closes only after the complete save and invalidates undo, pending previews and C2 witnesses', async () => {
+    const { workspace, input, durable } = workspaceSetupV6(buildingProjectV6())
+    await workspace.openPersisted(input)
+    const named = await workspace.createNamedSnapshot('真正离开前')
+    await workspace.execute([{ type: 'updateRoom', id: 'room', changes: { purpose: '已保存的房间' } }])
+    const preview = await workspace.preview([{ type: 'updateProp', id: 'item', changes: { rotationDeg: 45 } }])
+    const checkpoint = workspace.checkpoint()
+    await workspace.close()
+    expect(durable().document.rooms.room.purpose).toBe('已保存的房间')
+    expect(workspace.getState()).toEqual({ project: null, status: 'empty', error: null, canUndo: false, canRedo: false, lastTransaction: null })
+    expect(workspace.checkpoint()).toBeGreaterThan(checkpoint)
+    await expect(workspace.adoptPreview(preview)).rejects.toThrow(/已有修改/)
+    workspace.undo(); workspace.redo()
+    expect(workspace.getState().project).toBeNull()
+    await workspace.openPersisted(durable())
+    await expect(workspace.inspectStructureRestore(named.id, { ids: ['room'], mode: 'properties' })).rejects.toThrow(/本会话.*连续性/)
+  })
+
+  it.each(['error', 'conflict'] as const)('retains the complete branch, undo and witness when close meets a save %s', async failure => {
+    const { workspace, input, api, durable } = workspaceSetupV6(buildingProjectV6())
+    await workspace.openPersisted(input)
+    const named = await workspace.createNamedSnapshot('失败时保留')
+    await workspace.execute([{ type: 'updateRoom', id: 'room', changes: { purpose: '内存分支' } }])
+    const current = workspace.getState().project, checkpoint = workspace.checkpoint(), persisted = durable()
+    const error = new Error('离开前保存被拒绝'); error.name = failure === 'conflict' ? 'ConflictErrorV6' : 'QuotaExceededError'
+    api.save.mockRejectedValueOnce(error)
+    await expect(workspace.close()).rejects.toThrow(/保存被拒绝/)
+    expect(workspace.getState()).toMatchObject({ project: current, status: failure, canUndo: true })
+    expect(workspace.getState().project).toBe(current)
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    expect(durable()).toEqual(persisted)
+    expect((await workspace.inspectStructureRestore(named.id, { ids: ['room'], mode: 'properties' })).scope.rootIds).toEqual(['room'])
+    await workspace.retry()
+    await workspace.close()
+    expect(workspace.getState().project).toBeNull()
+  })
+
+  it('refuses close if a newer edit arrives during the save and preserves that branch', async () => {
+    const { workspace, input, api } = workspaceSetupV6()
+    await workspace.openPersisted(input)
+    await workspace.updateProp('item', { rotationDeg: 15 })
+    const saved = deferred<void>()
+    api.save.mockReturnValueOnce(saved.promise)
+    const closing = workspace.close()
+    await workspace.updateProp('item', { rotationDeg: 30 })
+    // This race uses held save completions; real repository CAS is covered by
+    // the persistence suite, while this assertion concerns session ownership.
+    api.save.mockResolvedValueOnce()
+    saved.resolve()
+    await expect(closing).rejects.toThrow(/已有修改/)
+    expect(workspace.getState().project!.document).toMatchObject({ revision: 2, props: { item: { rotationDeg: 30 } } })
+    expect(workspace.getState().canUndo).toBe(true)
+  })
+
+  it('rejects delayed preparation after close without installing or writing its candidate', async () => {
+    const { workspace, input, api } = workspaceSetupV6()
+    await workspace.openPersisted(input)
+    const original = prepare.getMockImplementation()!, candidate = await original(workspace.getState().project!, [{ type: 'updateProp', id: 'item', changes: { rotationDeg: 15 } }])
+    const late = deferred<CompleteProjectV6>()
+    prepare.mockReturnValueOnce(late.promise)
+    const operation = workspace.updateProp('item', { rotationDeg: 15 })
+    await workspace.close()
+    late.resolve(candidate)
+    await expect(operation).rejects.toThrow(/已有修改/)
+    expect(workspace.getState().project).toBeNull()
+    expect(api.save).not.toHaveBeenCalled()
+  })
+
+  it('previews and saves display preferences as one undoable revision without rescaling locked entities', async () => {
+    const { workspace, input, durable } = workspaceSetupV6()
+    input.document.props.item.editLocked = true
+    await workspace.openPersisted(input)
+    const initial = workspace.getState().project!, physical = structuredClone(initial.document.props)
+    const commands = [{ type: 'setSceneDisplay' as const, display: 'ft' as const, distanceMode: 'grid' as const, gridSizeMm: 1524, snapMm: 254, gridVisible: true }]
+    const cancelled = await workspace.preview(commands)
+    workspace.cancelPreview(cancelled)
+    expect(workspace.getState().project).toBe(initial)
+    const preview = await workspace.preview(commands)
+    expect(workspace.getState().project).toBe(initial)
+    await workspace.adoptPreview(preview)
+    expect(workspace.getState().project!.document).toMatchObject({ revision: initial.document.revision + 1, units: { display: 'ft', gridSizeMm: 1524 } })
+    expect(workspace.getState().project!.document.props).toEqual(physical)
+    await workspace.flush()
+    expect(durable().document.units.display).toBe('ft')
+    workspace.undo()
+    expect(workspace.getState().project!.document.units).toEqual(initial.document.units)
+    expect(workspace.getState().project!.document.revision).toBe(initial.document.revision + 2)
+    workspace.redo()
+    expect(workspace.getState().project!.document.revision).toBe(initial.document.revision + 3)
+    expect(workspace.getState().project!.document.props).toEqual(physical)
+    await workspace.flush()
+  })
+
   it('captures immediate commands and commits once only after both preparation validations finish', async () => {
     const actual = await vi.importActual<typeof import('../../io/v6/prepare')>('../../io/v6/prepare')
     const { workspace, input, durable } = workspaceSetupV6()
