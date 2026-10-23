@@ -4,6 +4,7 @@ export const workspaceFormDraftLabelsV6 = {
   assetImportForm: { name: '素材导入表单', cancel: '取消素材导入草稿' },
   catalogForm: { name: '素材个人整理', cancel: '取消素材整理草稿' },
   appearanceForm: { name: '外观参数', cancel: '取消外观草稿' },
+  propAppearanceForm: { name: '物件换图', cancel: '取消换图草稿' },
   prefabForm: { name: '组合参数', cancel: '取消组合草稿' },
   buildingInspector: { name: '建筑属性', cancel: '取消建筑属性草稿' },
   outdoorInspector: { name: '室外属性', cancel: '取消室外属性草稿' },

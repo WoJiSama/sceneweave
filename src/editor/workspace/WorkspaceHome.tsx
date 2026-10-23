@@ -8,6 +8,8 @@ const samples = [
   { id: 'study' as const, name: '书房与露台', kind: '室内建筑', detail: '厚墙、共边与门窗，木纹家具与组合。', className: 'study' },
   { id: 'island' as const, name: '双层岩岛', kind: '地形与室外', detail: '高差、岩岸和台阶，保留人工调整的散布。', className: 'island' },
   { id: 'outpost' as const, name: '海岸哨所', kind: '混合场景', detail: '房间、院子与海岸，在同一工程里继续创作。', className: 'outpost' },
+  { id: 'graveyard' as const, name: '苔石墓园', kind: '墓地内容小样', detail: '墓碑、石棺与铁栏组合，逐件编辑苔石墓园。', className: 'study' },
+  { id: 'volcano' as const, name: '灰烬熔脉', kind: '火山内容小样', detail: '玄武岩、灰烬与熔脉，危险和高差分别设置。', className: 'island' },
 ]
 export default function WorkspaceHome({ session, onRequest, onContinue, onLegacy }: {
   session: WorkspaceSessionSummary | null

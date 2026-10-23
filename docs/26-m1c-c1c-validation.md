@@ -1,5 +1,7 @@
 # C1c 用户图层与严格 v3 验证
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 2026-10-21开始实施，2026-10-22收尾验证。本批承接[大量选择优化](25-selection-performance.md)性能门，用户授权优化稳定后继续C1c。当前本地版本为 `0.2.0-m1-c1c`，尚未提交或发布。本文区分实现范围、实际运行证据与剩余验收，历史13/17–24不改写。
 
 ## 实现范围
@@ -21,7 +23,7 @@
 
 ## 实际验证
 
-环境为Apple M1、16 GiB、Darwin25.6.0、Node24.14.1、Chrome155.0.8059.84，浏览器1512×982/DPR1。以下为本批边界修正后的实际结果；[验证索引](evidence/m1-c1c/verification-index.json)保留日志、逐项结果、JSON附件及失败现场。首次553项单测和首轮浏览器检查只作过程记录，不作为最终计数。
+环境为Apple M1、16 GiB、Darwin25.6.0、Node24.14.1、Chrome155.0.8059.84，浏览器1512×982/DPR1。以下为本批边界修正后的实际结果；验证索引（原附件已清理，旧路径：`docs/evidence/m1-c1c/verification-index.json`）保留日志、逐项结果、JSON附件及失败现场。首次553项单测和首轮浏览器检查只作过程记录，不作为最终计数。
 
 | 检查 | 实际结果与证据 |
 |---|---|
@@ -30,7 +32,7 @@
 | 全量Chrome回归 | 109项中108过、1项旧取消解码探针失败；下面说明原因及最终复验，不把该批写成一次全过 |
 | 最终定向Chrome回归 | 修正探针边界及接入原生选区摘要后，B4工作台4项+C1c图层3项，共7项全部通过；全部109个用例已在全量及定向两批中分别获得通过结果 |
 | C1c持久化与渲染 | 6项真实存档/来源链/CAS/故障，7项原生Canvas/4K/隐藏/隐私/取消，均在全量回归内通过；其中三组配对各16格，共48格 |
-| 正常生产UI | 真实副本迁移、展开7项整组移层、隐藏不改revision及无DEV API通过；[可见图层](evidence/m1-c1c/production-ui/layers-study.png)、[隐藏后](evidence/m1-c1c/production-ui/layers-hidden.png)已目视核对。原有favicon.ico 404单列在报告中，地图资源及页面异常为零 |
+| 正常生产UI | 真实副本迁移、展开7项整组移层、隐藏不改revision及无DEV API通过；可见图层（原附件已清理，旧路径：`docs/evidence/m1-c1c/production-ui/layers-study.png`）、隐藏后（原附件已清理，旧路径：`docs/evidence/m1-c1c/production-ui/layers-hidden.png`）已目视核对。原有favicon.ico 404单列在报告中，地图资源及页面异常为零 |
 
 旧B4取消测试原先把所有createImageBitmap调用都视作导入资源；编辑LOD的初始idle crop在探针安装后开始时，尚在绘制的预览Bitmap也被计入。现在先等待初始crop完成，再暂停实际导入的第一个Bitmap，取消后仍要求每个已解码Bitmap关闭及原文档/历史/存档不变；两张样板均复验通过。失败日志/截图和本地trace保留。全量单测首次4个新增用例失败则来自跨门高差无效夹具，最终改用合法B3连接及明确的防御性闭包测试，未放宽领域校验。
 
@@ -60,7 +62,7 @@
 
 v3共720样本，选择窗口LongTask为0，帧间隔p95约16.7–16.8ms、最大16.8ms。v3的DOM就绪略慢，双rAF调度代理保持同一范围；不把这组差异当作逐函数成本归因。每轮精确物件集合与独立旋转轮廓/锁期望一致，超256操作继续禁用，完整v3工程内容/资源/manifest、原始IndexedDB、revision、保存状态、底图及采样窗口细节绘制计数均不变。ZIP外壳时间元数据可以变化，不声称整包字节相同。
 
-测量完成于2026-10-21T16:41:53.162Z（本地2026-10-22 00:41），Chrome155.0.8059.84。[逐轮对照](evidence/m1-c1c/selection-layers-verified/comparison.md)、[原始样本/runner/构建/原包索引](evidence/m1-c1c/selection-layers-verified/artifact-index.json)独立归档；每轮JSON无损gzip，重复完整包保留本地哈希引用。该轮选择性能门通过，未测资源峰值、层隐藏/重排延迟或完整交互矩阵；双rAF仅为调度代理，不能解释为GPU完成或物理屏幕呈现。
+测量完成于2026-10-21T16:41:53.162Z（本地2026-10-22 00:41），Chrome155.0.8059.84。逐轮对照（原附件已清理，旧路径：`docs/evidence/m1-c1c/selection-layers-verified/comparison.md`）、原始样本/runner/构建/原包索引（原附件已清理，旧路径：`docs/evidence/m1-c1c/selection-layers-verified/artifact-index.json`）独立归档；每轮JSON无损gzip，重复完整包保留本地哈希引用。该轮选择性能门通过，未测资源峰值、层隐藏/重排延迟或完整交互矩阵；双rAF仅为调度代理，不能解释为GPU完成或物理屏幕呈现。
 
 ## 验收边界与下一步
 

@@ -1,5 +1,7 @@
 # M1-C / C4 室外工具与地形恢复验证
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-22。状态：C4有限切片已本地实现并完成下列适用验证，版本 `0.2.0-m1-c4`，未提交、推送或发布。用户授权为“做”；本批从 `main / 8fcf8ed835778da59fcf564a39ae9c5c0b2d7303` 开始，保留C4准备文档及用户已有编辑。下一入口为C5联合验收，本报告不关闭完整M1、完整场景、美术或全交互性能门槛。[30](30-m1c-c4-handoff.md)保留实施前的准备状态。
 
 ## 实现范围与版本
@@ -24,36 +26,36 @@
 
 ## 验证方法与最终结果
 
-环境：macOS 26.6.2（25G83）、MacBookPro17,1、Apple M1、16 GiB，Node v24.14.1、npm 11.11.0、系统Chrome `156.0.8078.47`。浏览器、构建和生产页面批次串行执行；浏览器1 worker，单元批次内部使用配置的Vitest worker pool。本批没有正式性能采样，环境与命令见[environment](evidence/m1-c4/environment.json)。
+环境：macOS 26.6.2（25G83）、MacBookPro17,1、Apple M1、16 GiB，Node v24.14.1、npm 11.11.0、系统Chrome `156.0.8078.47`。浏览器、构建和生产页面批次串行执行；浏览器1 worker，单元批次内部使用配置的Vitest worker pool。本批没有正式性能采样，环境与命令见environment（原附件已清理，旧路径：`docs/evidence/m1-c4/environment.json`）。
 
 最终同一冻结源码批次：
 
 | 验证 | 实际命令与结果 | 原始记录 |
 | --- | --- | --- |
-| 全量单元 | `npm test -- --reporter=default --reporter=json --outputFile=work/c4-20261022/unit-final-corrected.json`；81文件、969/969通过，21.14秒，exit 0 | [JSON无损gzip](evidence/m1-c4/unit-final-corrected.json.gz)、[日志](evidence/m1-c4/unit-final-corrected.log.gz) |
-| 正常生产构建 | `npm run build`，含类型检查，exit 0 | [构建日志](evidence/m1-c4/build-final-corrected.log.gz) |
-| 全量真实Chrome | `SCENEWEAVE_BROWSER_CHANNEL=chrome PLAYWRIGHT_HTML_OUTPUT_DIR=work/c4-20261022/chromium-final-corrected-report npm run test:e2e -- --output=work/c4-20261022/chromium-final-corrected-results`；162/162通过，731.65秒，0跳过/重试通过/失败，exit 0 | [原始reporter ZIP](evidence/m1-c4/chromium-final-corrected.report.zip)、[全部用例索引](evidence/m1-c4/chromium-final-corrected-summary.json)、[日志](evidence/m1-c4/chromium-final-corrected.log.gz) |
-| C4子集 | 上述全量中的14/14：renderer 3、storage 4、workbench 7 | 同一reporter和[目标附件目录](evidence/m1-c4/chromium-final-corrected-artifacts/) |
-| 正常生产UI | `node work/c4-20261022/production-runner.mjs`；正常build/preview，仅实际UI和下载内容核查，通过 | [最终生产报告](evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/report.json) |
+| 全量单元 | `npm test -- --reporter=default --reporter=json --outputFile=work/c4-20261022/unit-final-corrected.json`；81文件、969/969通过，21.14秒，exit 0 | JSON无损gzip（原附件已清理，旧路径：`docs/evidence/m1-c4/unit-final-corrected.json.gz`）、日志（原附件已清理，旧路径：`docs/evidence/m1-c4/unit-final-corrected.log.gz`） |
+| 正常生产构建 | `npm run build`，含类型检查，exit 0 | 构建日志（原附件已清理，旧路径：`docs/evidence/m1-c4/build-final-corrected.log.gz`） |
+| 全量真实Chrome | `SCENEWEAVE_BROWSER_CHANNEL=chrome PLAYWRIGHT_HTML_OUTPUT_DIR=work/c4-20261022/chromium-final-corrected-report npm run test:e2e -- --output=work/c4-20261022/chromium-final-corrected-results`；162/162通过，731.65秒，0跳过/重试通过/失败，exit 0 | 原始reporter ZIP（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected.report.zip`）、全部用例索引（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-summary.json`）、日志（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected.log.gz`） |
+| C4子集 | 上述全量中的14/14：renderer 3、storage 4、workbench 7 | 同一reporter和目标附件目录（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts`） |
+| 正常生产UI | `node work/c4-20261022/production-runner.mjs`；正常build/preview，仅实际UI和下载内容核查，通过 | 最终生产报告（原附件已清理，旧路径：`docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/report.json`） |
 
 单元的Canvas、原生解码或IndexedDB替身只证明明确覆盖的逻辑、容器及故障注入。真实图片解码、Canvas像素、原生IndexedDB保存重开和跨页面竞争另由Chrome及生产页面证明，不相互替代。
 
 | 适用子项 | 实际证据与结果 |
 | --- | --- |
-| 地形/来源/覆盖 | [地形与边段](evidence/m1-c4/chromium-final-corrected-artifacts/c4-terrain-edge-overlay.json)：取消不改revision，隐式换段拒绝，显式范围/身份保持。完整场景守卫、锁、预算及非法几何由相关单元覆盖 |
-| 道路/连接 | [显式连接](evidence/m1-c4/chromium-final-corrected-artifacts/c4-supported-connection-path.json)及[多支撑/铺装](evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-multiple-supports-and-paint.json)：高差守卫、支撑完整保留、取消、缺支撑拒绝与持久化 |
-| 真实道路像素/秘密 | [4K配对](evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-material-4k-privacy.json)：5次顺序4K、独立公开参考、GM有效不同/玩家一致及4个材质/phase变体；实际解码和原生Canvas，不用快照替身 |
-| 选择/编辑隐藏/资源失败 | [命中与隐藏](evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-selection-anchor-hiding.json)：端帽/转角/凹形带区命中、半路径长度注记锚点、支撑隐藏递归隐藏道路/注记；正式PNG忽略编辑隐藏。[出图守卫](evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-output-resource-guards.json)：装饰外扩遮罩不足、隐藏/屏外公开缺资源仍拒绝；私密资源先过滤，玩家不要求解码 |
-| 散布人工记录 | [密度循环与重开](evidence/m1-c4/chromium-final-corrected-artifacts/c4-scatter-density-reopen.json)：人工移动/删除/退出/锁/exclusion及出生身份保持；[批量及右键](evidence/m1-c4/chromium-final-corrected-artifacts/c4-scatter-batch-confirmation.json)：完整依赖确认、取消及一次采用 |
-| 跨重开有限恢复 | [UI地形恢复](evidence/m1-c4/chromium-final-corrected-artifacts/c4-restore-after-reload.json)保留后改道路；[原生checkpoint](evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-checkpoint-recovery.json)覆盖室外身份、选定已删散布出生、自动检查点及单调undo/redo |
-| 原生跨页面CAS | [revision竞争](evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-two-page-cas.json)：两页面、独立连接、原生IndexedDB保留两分支，冲突副本完整重开。[保护点metadata竞争](evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-protection-metadata-cas.json)只暂停方法入口，另一页面真实提交metadata，真实事务拒绝旧保护并允许重新预览重试 |
-| 完整迁移/明确历史包 | [原生包与失败](evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-selected-history-packages.json)：本地分支保留确切v5原件，便携包排除本地原件，所选历史/资源许可完整；坏内容、许可及原件字节失败均保留当前 |
+| 地形/来源/覆盖 | 地形与边段（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-terrain-edge-overlay.json`）：取消不改revision，隐式换段拒绝，显式范围/身份保持。完整场景守卫、锁、预算及非法几何由相关单元覆盖 |
+| 道路/连接 | 显式连接（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-supported-connection-path.json`）及多支撑/铺装（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-multiple-supports-and-paint.json`）：高差守卫、支撑完整保留、取消、缺支撑拒绝与持久化 |
+| 真实道路像素/秘密 | 4K配对（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-material-4k-privacy.json`）：5次顺序4K、独立公开参考、GM有效不同/玩家一致及4个材质/phase变体；实际解码和原生Canvas，不用快照替身 |
+| 选择/编辑隐藏/资源失败 | 命中与隐藏（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-selection-anchor-hiding.json`）：端帽/转角/凹形带区命中、半路径长度注记锚点、支撑隐藏递归隐藏道路/注记；正式PNG忽略编辑隐藏。出图守卫（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-road-output-resource-guards.json`）：装饰外扩遮罩不足、隐藏/屏外公开缺资源仍拒绝；私密资源先过滤，玩家不要求解码 |
+| 散布人工记录 | 密度循环与重开（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-scatter-density-reopen.json`）：人工移动/删除/退出/锁/exclusion及出生身份保持；批量及右键（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-scatter-batch-confirmation.json`）：完整依赖确认、取消及一次采用 |
+| 跨重开有限恢复 | UI地形恢复（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-restore-after-reload.json`）保留后改道路；原生checkpoint（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-checkpoint-recovery.json`）覆盖室外身份、选定已删散布出生、自动检查点及单调undo/redo |
+| 原生跨页面CAS | revision竞争（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-two-page-cas.json`）：两页面、独立连接、原生IndexedDB保留两分支，冲突副本完整重开。保护点metadata竞争（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-protection-metadata-cas.json`）只暂停方法入口，另一页面真实提交metadata，真实事务拒绝旧保护并允许重新预览重试 |
+| 完整迁移/明确历史包 | 原生包与失败（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-native-selected-history-packages.json`）：本地分支保留确切v5原件，便携包排除本地原件，所选历史/资源许可完整；坏内容、许可及原件字节失败均保留当前 |
 
 QA-TERRAIN-01/02、QA-MAT-01、QA-SCATTER-01、QA-REC-01至04及QA-IO/IMPORT/SEC仅按以上适用子项判定；[09](09-quality-plan.md)中的完整矩阵仍逐项验收。
 
 ## SCN-03 技术基线
 
-[真实UI记录](evidence/m1-c4/chromium-final-corrected-artifacts/c4-scn03-open-camp-rulers-travel-privacy-and-4k.json)从30×24m空白工程制作原基线，只用Region/Prop/Note，无Room和Path。南北阻挡水域主动留出长4000mm、净宽2000mm的同平面桥带，两端各有2000mm接入；东“高地”为地面Region名称，不捏造高差或第二层。
+真实UI记录（原附件已清理，旧路径：`docs/evidence/m1-c4/chromium-final-corrected-artifacts/c4-scn03-open-camp-rulers-travel-privacy-and-4k.json`）从30×24m空白工程制作原基线，只用Region/Prop/Note，无Room和Path。南北阻挡水域主动留出长4000mm、净宽2000mm的同平面桥带，两端各有2000mm接入；东“高地”为地面Region名称，不捏造高差或第二层。
 
 实际画布点击量尺三段为6000/4000/6000mm，暂态测量不改revision/历史。有限直线桥路线检查通过，过水负例为 `TERRAIN_TRAVEL_OBSTACLE`。两条GM线索在玩家侧过滤，真实双受众PNG为4096×3277，文件无私密文字元数据。
 
@@ -61,7 +63,7 @@ QA-TERRAIN-01/02、QA-MAT-01、QA-SCATTER-01、QA-REC-01至04及QA-IO/IMPORT/SEC
 
 ## 正常生产页面实测
 
-最终运行目录为 [run-2026-10-22T14-50-23-377Z](evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/)，使用正常 `npm run build` 和 `npm run preview -- --port 4173 --strictPort`。脚本见同目录[runner-used.mjs](evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/runner-used.mjs)，不导入源码、不调用开发/性能API。
+最终运行目录为 run-2026-10-22T14-50-23-377Z（原附件已清理，旧路径：`docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z`），使用正常 `npm run build` 和 `npm run preview -- --port 4173 --strictPort`。脚本见同目录runner-used.mjs（原附件已清理，旧路径：`docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/runner-used.mjs`），不导入源码、不调用开发/性能API。
 
 从16×12m空白开始，18个物件定义、10材质、28张实际图片全部原生解码。先预览/采用草地、显式Floor支撑的道路、固定散布组并显式生成3个物件；r4建立“C4 地形与道路基线”命名快照，再改地形和独立道路至r6。页面重开后只恢复地形几何至r7，保留道路后改宽度1200mm与3个物件，落1个保护点。
 
@@ -71,8 +73,8 @@ GM/玩家PNG均4096×3072、各1,132,385字节；解码像素hash均为 `22fa7dd
 
 桌面1512×982及390px窄屏实际操作与截图目视完成，窄屏无横向溢出；无pageerror、地图HTTP错误或 `__sceneweave*` 开发API，仅保留既有favicon.ico 404控制台记录。
 
-- [桌面重开](evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-reopened-desktop.png)、[390px重开](evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-reopened-390.png)
-- [GM 4K](evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/gm-4k.png)、[玩家4K](evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/player-4k.png)
+- 桌面重开（原附件已清理，旧路径：`docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-reopened-desktop.png`）、390px重开（原附件已清理，旧路径：`docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/outdoor-reopened-390.png`）
+- GM 4K（原附件已清理，旧路径：`docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/gm-4k.png`）、玩家4K（原附件已清理，旧路径：`docs/evidence/m1-c4/production-ui/run-2026-10-22T14-50-23-377Z/player-4k.png`）
 
 ## 发现、修正与批次归属
 
@@ -84,11 +86,11 @@ GM/玩家PNG均4096×3072、各1,132,385字节；解码像素hash均为 `22fa7dd
 
 ## 证据与最终机械核查
 
-本批证据独立归 [evidence-index](evidence/m1-c4/evidence-index.json)：24份原日志/JSON无损gzip，3份真实Playwright HTML内嵌原始reporter ZIP，以及两份生产UI运行。原始reporter ZIP保留report.json、各文件完整JSON及inline附件正文，不以裁剪索引冒充原件。
+本批证据独立归 evidence-index（原附件已清理，旧路径：`docs/evidence/m1-c4/evidence-index.json`）：24份原日志/JSON无损gzip，3份真实Playwright HTML内嵌原始reporter ZIP，以及两份生产UI运行。原始reporter ZIP保留report.json、各文件完整JSON及inline附件正文，不以裁剪索引冒充原件。
 
 最终reporter含162项、38成员（report.json＋37份文件JSON），SHA-256为 `eba2bd16b38cd00567a4f6f5a08c2fa03c42b92098137a942153977443e12e9a`。14项C4的14份JSON附件、4张真实4K PNG另外归档；较早唯一失败的截图/error-context/trace另保留。其他旧回归的外部大PNG/包没有重复永久归档，仍在本地 `work/c4-20261022/*report/data`；各summary记录实际大小/hash和原路径，明确不是完整外部附件备份。
 
-最终371份应用/测试/素材/配置和48份正常构建产物分别见[source-fingerprints](evidence/m1-c4/source-fingerprints.json)、[build-fingerprints](evidence/m1-c4/build-fingerprints.json)；较早源码基线独立保留。归档压缩/解压hash、ZIP CRC/条目集合/许可闭包、用例计数和生产包复核见[evidence-verification](evidence/m1-c4/evidence-verification.json)。历史13/17–30及705份受保护文件、用户todo.md保持起始hash，文档链接/锚点/表格/QA引用、凭据与私人资料目标模式及排除todo.md的空白检查见[final-checks](evidence/m1-c4/final-checks.json)。核查脚本随证据保存，方便复现。
+最终371份应用/测试/素材/配置和48份正常构建产物分别见source-fingerprints（原附件已清理，旧路径：`docs/evidence/m1-c4/source-fingerprints.json`）、build-fingerprints（原附件已清理，旧路径：`docs/evidence/m1-c4/build-fingerprints.json`）；较早源码基线独立保留。归档压缩/解压hash、ZIP CRC/条目集合/许可闭包、用例计数和生产包复核见evidence-verification（原附件已清理，旧路径：`docs/evidence/m1-c4/evidence-verification.json`）。历史13/17–30及705份受保护文件、用户todo.md保持起始hash，文档链接/锚点/表格/QA引用、凭据与私人资料目标模式及排除todo.md的空白检查见final-checks（原附件已清理，旧路径：`docs/evidence/m1-c4/final-checks.json`）。核查脚本随证据保存，方便复现。
 
 ## 后续与已知限制
 

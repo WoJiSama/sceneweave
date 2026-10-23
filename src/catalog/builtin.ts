@@ -1,4 +1,5 @@
 import { createOutdoorBlankProject } from '../editor/v6/blank-project'
+import { extendBuiltinCatalogProject } from '../editor/v6/themed-catalog'
 import type { CompleteProjectV6 } from '../io/v6/types'
 
 // This is a resource provider, not a persistent installation or decoded bitmap cache.
@@ -7,6 +8,7 @@ let prepared: Promise<CompleteProjectV6> | undefined
 export async function loadBuiltinCatalogV1(signal?: AbortSignal): Promise<CompleteProjectV6> {
   signal?.throwIfAborted()
   prepared ??= createOutdoorBlankProject({ title: '内置素材目录', widthMm: 20_000, heightMm: 20_000, preset: 'investigation' })
+    .then(project => extendBuiltinCatalogProject(project))
     .catch(error => { prepared = undefined; throw error })
   const project = await prepared
   signal?.throwIfAborted()

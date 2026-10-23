@@ -27,6 +27,9 @@ import type { CompositionCommandV6 } from '../../core/v6/types'
 import { prepareAssetImportV6 } from '../../io/v6/prepare'
 import CompositionLibrary from './CompositionLibrary'
 import CatalogLibrary from './CatalogLibrary'
+import AuthoringGuide from './AuthoringGuide'
+import { authoringStageKindV6 } from './authoring-recipes'
+import { describeCatalogItems, prepareCatalogEntry } from '../../catalog/content'
 import { loadBuiltinCatalogV1 } from '../../catalog/builtin'
 import { prepareCatalogAdoption } from '../../catalog/content'
 import type { PreparedCatalogEntryV1 } from '../../catalog/types'
@@ -85,6 +88,8 @@ export const compositionWorkspace = new WorkspaceV6(repository, document => { co
 const createStudyProject = async (signal: AbortSignal) => (await import('../v2/study-sample')).createStudyProject(signal)
 const createIslandProject = async (signal: AbortSignal) => (await import('../v2/island-sample')).createIslandProject(signal)
 const createOutpostProject = async (signal: AbortSignal) => (await import('./outpost-project')).createOutpostProject(signal)
+const createGraveyardProject = async (signal: AbortSignal) => (await import('./themed-samples')).createThemedSampleProject('graveyard', signal)
+const createVolcanoProject = async (signal: AbortSignal) => (await import('./themed-samples')).createThemedSampleProject('volcano', signal)
 let opened: Promise<void> | undefined
 const ready = () => opened ??= repository.open().catch(error => { opened = undefined; throw error })
 type ProjectInput = CompleteProjectV2 | CompleteProjectV3 | CompleteProjectV4 | CompleteProjectV5 | CompleteProjectV6
@@ -121,6 +126,7 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
   const selectionOptions = useMemo(() => ({ hiddenIds: scopedHiddenIds }), [scopedHiddenIds])
   const [recent, setRecent] = useState<Awaited<ReturnType<SceneRepositoryV6['list']>>>([])
   const [sessionGeneration, setSessionGeneration] = useState(0)
+  const [authoringOpen, setAuthoringOpen] = useState(false)
   const [navigationTab, setNavigationTab] = useState<'layers' | 'objects' | 'history'>('objects')
   const [toolControlsTarget, setToolControlsTarget] = useState<HTMLDivElement | null>(null)
   const [viewControlsTarget, setViewControlsTarget] = useState<HTMLDivElement | null>(null)
@@ -134,6 +140,7 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
   const [builtinLoading, setBuiltinLoading] = useState(false), [builtinError, setBuiltinError] = useState<string>()
   const onCatalogPending = useCallback((pending: boolean) => { catalogPending.current = pending; setCatalogBusy(pending) }, [])
   const onCatalogDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.catalogForm === dirty ? current : { ...current, catalogForm: dirty }), [])
+  const onPropAppearanceDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.propAppearanceForm === dirty ? current : { ...current, propAppearanceForm: dirty }), [])
   const [busy, setBusy] = useState(false), [message, setMessage] = useState<string | null>(null)
   const [selectionSession] = useState(() => new SelectionSessionV2())
   const setSelected = (id: string | null) => selectionSession.set(id ? [id] : [])
@@ -372,6 +379,8 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
         island: { create: createIslandProject, description: '原创室外样板：双层岩岛、草岩浅水、高差台阶与可保留人工调整的散布。' },
         outpost: { create: createOutpostProject, description: '原创混合场景：36 × 28 m 海岸哨所，含建筑、地形、道路及布景。全部实体可继续编辑。' },
         calibration: { create: createCalibrationProject, description: 'B1 原创程序校样：重复木纹、透明书桌与椅子，用于验证素材和工程保存。' },
+        graveyard: { create: createGraveyardProject, description: '原创墓地内容小样：20 × 16 m 苔石墓园，真实地面、步道、石棺墓碑和铁栏组合，可逐件编辑。' },
+        volcano: { create: createVolcanoProject, description: '原创火山内容小样：20 × 16 m 灰烬熔脉，独立熔岩外观、危险区、岩台和坡道，可逐件编辑。' },
       }
       prepare(samples[requested.sample].create, samples[requested.sample].description)
     }
@@ -459,7 +468,7 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
       if (structure) compositionWorkspace.cancelPreview(structure.prepared)
       setStructure({ prepared, checkpoint, commands, document: prepared.document, description, scopeIds, ...(commands.every(command => command.type === 'setSceneDisplay') ? { kind: 'display' as const } : scopeIds ? { kind: 'layer' as const } : {}) })
       if (completingPrefab) setPrefabPlacement(null)
-      if (form) finishFormDraft(form)
+      if (form) finishFormDraft(form, form === 'propAppearanceForm')
     }, '候选未通过，工程未修改')
   }
   const previewOutdoor = (commands: OutdoorCommandV3[], description: string, selectionAfterAdopt?: string | null, form: 'outdoorForm' | 'outdoorInspector' = 'outdoorForm') => {
@@ -488,7 +497,7 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
       } finally { if (controller.current === abort) controller.current = null }
     }, '素材导入未采用')
   }
-  const adoptCatalog = async (entries: PreparedCatalogEntryV1[], signal?: AbortSignal) => {
+  const adoptCatalog = async (input: PreparedCatalogEntryV1[] | ((signal: AbortSignal) => Promise<PreparedCatalogEntryV1[]>), signal?: AbortSignal) => {
     // The catalog owns its own pending flag; all other scene tools/drafts still guard adoption.
     const reason = workspaceTransitionReasonV6({ ...transientRef.current(), busy: busy || actionPending.current })
     if (!completeProject || audience !== 'gm' || reason) throw new Error(reason ?? '请先打开主持人工程。')
@@ -498,6 +507,7 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
     if (signal?.aborted) abort.abort()
     actionPending.current = true; setBusy(true); setMessage(null); controller.current = abort
     try {
+      const entries = typeof input === 'function' ? await input(abort.signal) : input
       const candidate = await prepareCatalogAdoption(completeProject, entries, abort.signal)
       abort.signal.throwIfAborted()
       compositionWorkspace.assertCheckpoint(checkpoint)
@@ -514,6 +524,26 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
       if (controller.current === abort) controller.current = null
       actionPending.current = false; setBusy(false)
     }
+  }
+  const adoptAuthoringCatalog = (catalogIds: string[]) => {
+    if (!guard()) return
+    void adoptCatalog(async signal => {
+      const provider = await loadBuiltinCatalogV1(signal), items = describeCatalogItems(provider)
+      const required = catalogIds.map(id => {
+        const matches = items.filter(item => item.identity.catalogId === id && item.identity.kind === 'prop')
+        if (matches.length !== 1) throw new Error(`室内素材版本未明确：${id}。`)
+        return matches[0]
+      })
+      const entries: PreparedCatalogEntryV1[] = []
+      for (const item of required) entries.push(await prepareCatalogEntry(provider, item.selector, signal))
+      return entries
+    }).catch(() => { /* The shared adoption path already reports the concrete failure. */ })
+  }
+  const previewAuthoring = (commands: CompositionCommandV6[], description: string) => {
+    const kind = authoringStageKindV6(commands)
+    if (kind === 'composition' || kind === 'display') preview(commands, description)
+    else if (kind === 'outdoor') previewOutdoor(commands as OutdoorCommandV3[], description)
+    else previewBuilding(commands as SceneCommandV3[], description)
   }
   const previewBuilding = (commands: SceneCommandV3[], description: string, form: 'buildingForm' | 'buildingInspector' = 'buildingForm') => {
     if (!completeProject || audience !== 'gm' || !guard([form, ...(form === 'buildingForm' ? ['sketch' as const] : [])])) return
@@ -649,7 +679,7 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
             onIsland={() => request({ type: 'sample', sample: 'island' })} onStudy={() => request({ type: 'sample', sample: 'study' })}
             onOutpost={() => request({ type: 'sample', sample: 'outpost' })} onCalibration={() => request({ type: 'sample', sample: 'calibration' })}
             onMigrate={migrateCurrent} onOpen={id => openReference({ repository: 'v6', sceneId: id })}/>}</SelectionSubscriber>
-  const projectTools = <section className="workspace-project-tools" aria-label="工程与显示设置"><h2>工程</h2><p className="asset-muted">在同一画布中继续建筑、素材与室外创作。</p><button className="primary asset-wide" disabled={editDisabled} onClick={openNewScene}><Plus size={14}/>新建空白场景</button><button className="secondary asset-wide" disabled={editDisabled} onClick={requestImport}><Upload size={14}/>打开完整工程</button>{project && <p className="asset-muted">{project.document.title} · r{project.document.revision}</p>}{project && audience === 'gm' && <div onChangeCapture={() => markFormDraft('displayForm')}><SceneDisplayPanel key={`${project.document.sceneId}-${project.document.revision}-${formReset.displayForm}`} scene={completeProject!.document} disabled={toolDisabled(['displayForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'displayForm')}/></div>}<h3>可编辑样板</h3><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'study' })}>书房与露台</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'island' })}>双层岩岛</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'outpost' })}>海岸哨所</button></section>
+  const projectTools = <section className="workspace-project-tools" aria-label="工程与显示设置"><h2>工程</h2><p className="asset-muted">在同一画布中继续建筑、素材与室外创作。</p><button className="primary asset-wide" disabled={editDisabled} onClick={openNewScene}><Plus size={14}/>新建空白场景</button><button className="secondary asset-wide" disabled={editDisabled} onClick={requestImport}><Upload size={14}/>打开完整工程</button>{project && <p className="asset-muted">{project.document.title} · r{project.document.revision}</p>}{project && audience === 'gm' && <div onChangeCapture={() => markFormDraft('displayForm')}><SceneDisplayPanel key={`${project.document.sceneId}-${project.document.revision}-${formReset.displayForm}`} scene={completeProject!.document} disabled={toolDisabled(['displayForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'displayForm')}/></div>}{project && <details className="workspace-authoring-details" open={authoringOpen} onToggle={event => setAuthoringOpen(event.currentTarget.open)}><summary>分步制作 SCN-01 / SCN-04</summary>{authoringOpen && <AuthoringGuide project={completeProject!} disabled={editDisabled} onPreview={previewAuthoring} onAdoptRequiredCatalog={adoptAuthoringCatalog}/>}</details>}<h3>可编辑样板</h3><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'study' })}>书房与露台</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'island' })}>双层岩岛</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'outpost' })}>海岸哨所</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'graveyard' })}>苔石墓园 · 内容小样</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'volcano' })}>灰烬熔脉 · 内容小样</button></section>
   const resourcePanels = <div className="layer-library-stack history-library-stack">
           <div className="history-sidebar-tabs" role="tablist" aria-label="工坊侧栏">
             <button role="tab" aria-selected={sidebar === 'scene' || audience === 'player'} onClick={() => setSidebar('scene')}><Layers3 size={14}/>{unified ? '工程' : '场景'}</button>
@@ -682,7 +712,7 @@ export default function OutdoorWorkbench({ onBack, source, unified = false, acti
             onSketch={next => { if (!next) setSketch(null); else if (guard('buildingForm')) setSketch(next) }} onPreview={previewBuilding} onSelect={select}/>}</div>
           <div hidden={sidebar !== 'scene' && audience === 'gm'}>{unified ? projectTools : sceneBrowser}</div>
         </div>
-  const inspectorPanel = <SelectionSubscriber session={selectionSession}>{ids => { const selectedIds = ids, selected = ids.length === 1 ? ids[0] : null; return <aside className="asset-inspector">{completeProject && audience === 'gm' && !restore && !structureRestore && <><div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel key={`${panelKey}-${formReset.appearanceForm}`} project={completeProject} ids={ids} layerId={currentLayerId} disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div><div onChangeCapture={() => markFormDraft('prefabForm')}><PrefabPanel key={`${panelKey}-${prefabPlacement ?? ''}-${formReset.prefabForm}`} project={completeProject} ids={ids} layerId={currentLayerId} placementDefinitionId={prefabPlacement} onSelect={select} disabled={toolDisabled(['prefabPlacement', 'prefabForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'prefabForm')}/></div></>}{!restore && !structureRestore && project && selectedIds.length > 0 && audience === 'gm' && !placement && <button className="secondary asset-wide" disabled={busy || editingBlocked} onClick={event => { const b = event.currentTarget.getBoundingClientRect(), bounds = project.document.exportBoundsMm; openMenu(project.document.props[selectedIds[0]]?.positionMm ?? { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }, [...selectedIds], { x: b.left, y: b.bottom }, event.currentTarget) }}>更多操作</button>}{structureRestore ? <StructureRestoreChangesPanel preview={structureRestore} current={completeProject!}/> : restore ? <RestoreChangesPanel preview={restore} current={completeProject!}/> : project && placement && audience === 'gm' ? <PlacementInspector scene={project.document} prop={placement.prop} busy={busy} ready={placementReady} onChange={changes => setPlacement(current => current ? { ...current, prop: { ...current.prop, ...changes } } : null)} onPlace={() => placeAt(placement.prop.positionMm)} onCancel={() => setPlacement(null)}/> : visibleProject && selectedIds.length > 1 && audience === 'gm' ? <div onChangeCapture={() => markFormDraft('selectionForm')}><SelectionInspector key={`${panelKey}-${formReset.selectionForm}`} scene={project!.document} ids={selectedIds} summaryReader={selectionSummaryReader} busy={toolDisabled(['selectionForm'])} onAction={batchAction} onClear={() => select(null)}/></div> : completeProject && selected && audience === 'gm' && outdoorEntityKind(completeProject.document, selected) ? <div onChangeCapture={() => markFormDraft('outdoorInspector')}><OutdoorInspector key={`${selected}-${completeProject.document.revision}-${formReset.outdoorInspector}`} scene={completeProject.document} id={selected} disabled={toolDisabled(['outdoorInspector'])} onPreview={(commands, label) => previewOutdoor(commands as OutdoorCommandV3[], label, undefined, 'outdoorInspector')} onSelect={select}/></div> : completeProject && selected && audience === 'gm' && (completeProject.document.rooms[selected] || completeProject.document.walls[selected] || completeProject.document.vertices[selected] || completeProject.document.openings[selected] || completeProject.document.notes[selected] || completeProject.document.regions[selected]?.kind === 'manualMask') ? <div onChangeCapture={() => markFormDraft('buildingInspector')}><BuildingInspector key={`${selected}-${completeProject.document.revision}-${formReset.buildingInspector}`} scene={completeProject.document} selected={selected} layerId={currentLayerId} disabled={toolDisabled(['buildingInspector'])} onPreview={(commands, label) => previewBuilding(commands, label, 'buildingInspector')} onSelect={select} onLock={(kind, id, locked) => commit(() => compositionWorkspace.execute([{ type: 'setEditLock', kind, id, locked }]))}/></div> : visibleProject && selected && audience === 'gm' ? <SceneInspector project={visibleProject} selected={selected} busy={editDisabled} workspace={compositionWorkspace} onSelect={select} onCommit={commit} onPreview={preview} onPropCommand={(commands, description, selectionAfterCommit) => {
+  const inspectorPanel = <SelectionSubscriber session={selectionSession}>{ids => { const selectedIds = ids, selected = ids.length === 1 ? ids[0] : null; return <aside className="asset-inspector">{completeProject && audience === 'gm' && !restore && !structureRestore && <><div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel key={`${panelKey}-${formReset.appearanceForm}`} project={completeProject} ids={ids} layerId={currentLayerId} disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div><div onChangeCapture={() => markFormDraft('prefabForm')}><PrefabPanel key={`${panelKey}-${prefabPlacement ?? ''}-${formReset.prefabForm}`} project={completeProject} ids={ids} layerId={currentLayerId} placementDefinitionId={prefabPlacement} onSelect={select} disabled={toolDisabled(['prefabPlacement', 'prefabForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'prefabForm')}/></div></>}{!restore && !structureRestore && project && selectedIds.length > 0 && audience === 'gm' && !placement && <button className="secondary asset-wide" disabled={busy || editingBlocked} onClick={event => { const b = event.currentTarget.getBoundingClientRect(), bounds = project.document.exportBoundsMm; openMenu(project.document.props[selectedIds[0]]?.positionMm ?? { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }, [...selectedIds], { x: b.left, y: b.bottom }, event.currentTarget) }}>更多操作</button>}{structureRestore ? <StructureRestoreChangesPanel preview={structureRestore} current={completeProject!}/> : restore ? <RestoreChangesPanel preview={restore} current={completeProject!}/> : project && placement && audience === 'gm' ? <PlacementInspector scene={project.document} prop={placement.prop} busy={busy} ready={placementReady} onChange={changes => setPlacement(current => current ? { ...current, prop: { ...current.prop, ...changes } } : null)} onPlace={() => placeAt(placement.prop.positionMm)} onCancel={() => setPlacement(null)}/> : visibleProject && selectedIds.length > 1 && audience === 'gm' ? <div onChangeCapture={() => markFormDraft('selectionForm')}><SelectionInspector key={`${panelKey}-${formReset.selectionForm}`} scene={project!.document} ids={selectedIds} summaryReader={selectionSummaryReader} busy={toolDisabled(['selectionForm'])} onAction={batchAction} onClear={() => select(null)}/></div> : completeProject && selected && audience === 'gm' && outdoorEntityKind(completeProject.document, selected) ? <div onChangeCapture={() => markFormDraft('outdoorInspector')}><OutdoorInspector key={`${selected}-${completeProject.document.revision}-${formReset.outdoorInspector}`} scene={completeProject.document} id={selected} disabled={toolDisabled(['outdoorInspector'])} onPreview={(commands, label) => previewOutdoor(commands as OutdoorCommandV3[], label, undefined, 'outdoorInspector')} onSelect={select}/></div> : completeProject && selected && audience === 'gm' && (completeProject.document.rooms[selected] || completeProject.document.walls[selected] || completeProject.document.vertices[selected] || completeProject.document.openings[selected] || completeProject.document.notes[selected] || completeProject.document.regions[selected]?.kind === 'manualMask') ? <div onChangeCapture={() => markFormDraft('buildingInspector')}><BuildingInspector key={`${selected}-${completeProject.document.revision}-${formReset.buildingInspector}`} scene={completeProject.document} selected={selected} layerId={currentLayerId} disabled={toolDisabled(['buildingInspector'])} onPreview={(commands, label) => previewBuilding(commands, label, 'buildingInspector')} onSelect={select} onLock={(kind, id, locked) => commit(() => compositionWorkspace.execute([{ type: 'setEditLock', kind, id, locked }]))}/></div> : visibleProject && selected && audience === 'gm' ? <SceneInspector project={visibleProject} selected={selected} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onPropAppearanceDraft} workspace={compositionWorkspace} onSelect={select} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => command.type === 'replacePropAppearance') ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => {
             const scatterOwner = completeProject && Object.values(completeProject.document.scatterGroups).find(group => Object.values(group.members).some(member => member.propId === selected))
             if (!scatterOwner) { commit(async () => { await compositionWorkspace.execute(commands); if (selectionAfterCommit !== undefined) setSelected(selectionAfterCommit) }); return }
             if (!commands.every(isOutdoorCommandV3)) { setMessage('散布成员修改包含不支持的室外操作。'); return }

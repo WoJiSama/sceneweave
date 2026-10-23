@@ -1,10 +1,10 @@
 # 贡献说明
 
-织境 · Sceneweave 当前本地版本为 `0.2.0-m1-d-outpost`，C5联合功能与最终生产通过，正式性能矩阵未完成，性能门未通过。M0几何版原型首轮验证完成，M1-C/C1a已实现空白完整工程与物件放置/修改/删除闭环，C1b已实现框选/多选、右键及有限原子批量操作，C1c新增严格v3用户图层和暂态隐藏管理，C1d增加独立v4历史信封、命名/保护快照和首批独立物件局部恢复，C2增加空白绘房、共墙、附着门窗、量尺与会话内结构恢复，C3增加独立v5组件工程、素材入库、非破坏性参数、固定组合及适用局部恢复，C4增加严格v6室外工程、地形/道路/散布工具和有限持久室外恢复；完整编辑器、AI与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
+织境 · Sceneweave 当前本地版本为 `0.2.0-m1-d2`，C5联合功能与最终生产通过，正式性能矩阵未完成，性能门未通过。M0几何版原型首轮验证完成，M1-C/C1a已实现空白完整工程与物件放置/修改/删除闭环，C1b已实现框选/多选、右键及有限原子批量操作，C1c新增严格v3用户图层和暂态隐藏管理，C1d增加独立v4历史信封、命名/保护快照和首批独立物件局部恢复，C2增加空白绘房、共墙、附着门窗、量尺与会话内结构恢复，C3增加独立v5组件工程、素材入库、非破坏性参数、固定组合及适用局部恢复，C4增加严格v6室外工程、地形/道路/散布工具和有限持久室外恢复；完整编辑器、AI与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
 
 室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/28-m1c-c2-validation.md)，C3组件与参数外观见[29](docs/29-m1c-c3-validation.md)，C4室外工具与有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合验证和现版性能结论归[32](docs/32-m1c-c5-validation.md)。完整M1、主题P3、SCN-04与全交互性能仍按各自门槛判断；新模型同步格式、迁移和验收。
 
-当前完整创作入口为 `/#outdoor` 室外工坊，包含场景、建筑、室外和历史面板。当前v6新建空白工程携带23个物件素材、11种材质和3种组合；旧v2–v5目录保持；物件放置支持画布点击或坐标输入、显式支撑面和暂态预览。建筑绘制、地形/道路/散布、组合、图层和有限外观调整使用统一原子事务。静态PNG/JPEG/WebP可显式入库；源与派生字节、完整许可随工程保存、重开和完整包。当前严格v6信封包含有效v3场景、appearance1与identity3，显式v3视图仅用于领域/渲染，不能替代完整保存。v2→v3→v4→v5→v6均为独立副本迁移并保留旧原件/来源链，旧历史留原库。建筑恢复仍要求本会话连续性witness，持久身份只扩展至明确支持的室外实体；有限局部恢复范围见[28](docs/28-m1c-c2-validation.md)、[29](docs/29-m1c-c3-validation.md)和[31](docs/31-m1c-c4-validation.md)。
+当前默认首页为`/#home`，完整创作入口为`/#workspace`统一工作区，包含工程、建筑、素材库、室外及图层/对象/历史；`/#outdoor`等旧入口作为兼容保留。当前v6新建空白工程携带23个物件素材、11种材质和3种组合；旧v2–v5目录保持；物件放置支持画布点击或坐标输入、显式支撑面和暂态预览。建筑绘制、地形/道路/散布、组合、图层和有限外观调整使用统一原子事务。静态PNG/JPEG/WebP可显式入库；源与派生字节、完整许可随工程保存、重开和完整包。当前严格v6信封包含有效v3场景、appearance1与identity3，显式v3视图仅用于领域/渲染，不能替代完整保存。v2→v3→v4→v5→v6均为独立副本迁移并保留旧原件/来源链，旧历史留原库。建筑恢复仍要求本会话连续性witness，持久身份只扩展至明确支持的室外实体；有限局部恢复范围见[28](docs/28-m1c-c2-validation.md)、[29](docs/29-m1c-c3-validation.md)和[31](docs/31-m1c-c4-validation.md)。
 
 C5联合验收批次冻结349份应用源码，最终单元82文件979/979通过（68.85秒），正常构建通过（2.75秒）；最终全量Chrome168/168通过，0失败/重试/跳过（12.8分钟）；最终正常生产UI通过（46.791秒）；study/island×500/2000各三轮正式性能矩阵未完成，已执行批次未形成可合并的完整p95结果。优化后study-500单次诊断普通领域提交1110.4ms，优化前诊断2174.2ms，均不是正式分布且仍超100ms；性能门未通过，本批不能宣布C5或全交互性能通过，实际证据与待验项见[32](docs/32-m1c-c5-validation.md)。
 
@@ -35,7 +35,7 @@ Vitest 运行 `src/**/*.test.ts` 中的领域、存储、工程文件及渲染�
 SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 ```
 
-测试使用独立 profile/浏览器上下文。M0历史在系统 Chrome 上通过 13 个浏览器测试，另有 95 个单元测试（8 文件）、构建与生产依赖审计通过，见 [M0 验证报告](docs/13-m0-validation.md)。B1历史检查、环境和未测范围见[17](docs/17-m1b-b1-validation.md)，C1a历史批次见[23](docs/23-m1c-c1a-validation.md)，C1b历史批次见[24](docs/24-m1c-c1b-validation.md)。构建、单元和浏览器证据分别记录；C1a浏览器旅程位于 `tests/c1a-creation.spec.ts`，可用 `npm run test:e2e -- tests/c1a-creation.spec.ts` 定向执行，C1b选择/菜单/批量及500/2000物件真实框选回归位于 `tests/c1b-selection.spec.ts`，可用 `npm run test:e2e -- tests/c1b-selection.spec.ts` 定向执行。需要使用系统Chrome时设置 `SCENEWEAVE_BROWSER_CHANNEL=chrome`；复用B5正式完整夹具可设置 `SCENEWEAVE_B5_FIXTURE_DIR=docs/evidence/m1-b5/final`。实际结果以验证记录为准。
+测试使用独立 profile/浏览器上下文。M0历史在系统 Chrome 上通过 13 个浏览器测试，另有 95 个单元测试（8 文件）、构建与生产依赖审计通过，见 [M0 验证报告](docs/13-m0-validation.md)。B1历史检查、环境和未测范围见[17](docs/17-m1b-b1-validation.md)，C1a历史批次见[23](docs/23-m1c-c1a-validation.md)，C1b历史批次见[24](docs/24-m1c-c1b-validation.md)。构建、单元和浏览器证据分别记录；C1a浏览器旅程位于 `tests/c1a-creation.spec.ts`，可用 `npm run test:e2e -- tests/c1a-creation.spec.ts` 定向执行，C1b选择/菜单/批量及500/2000物件真实框选回归位于 `tests/c1b-selection.spec.ts`，可用 `npm run test:e2e -- tests/c1b-selection.spec.ts` 定向执行。需要使用系统Chrome时设置 `SCENEWEAVE_BROWSER_CHANNEL=chrome`；复用B5正式完整夹具可设置 `SCENEWEAVE_B5_FIXTURE_DIR=tests/fixtures/performance-b5`。实际结果以验证记录为准。
 
 生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。[GitHub Pages 工作流](.github/workflows/deploy.yml)在推送 main 或手动触发时，读取 `.nvmrc` 安装 Node，执行 `npm ci` 和 `npm run build` 后部署静态站点至[在线预览](https://wojisama.github.io/sceneweave/)。该工作流只负责构建和部署，不代替上述单元/浏览器验证；成功结果以 GitHub Actions 运行记录为准。它不包含 AI 网关、工程云同步或正式发行版流程。
 
@@ -54,10 +54,10 @@ C0复用B5原始完整包，`--fixtures` 必须是包含manifest和fixtures的�
 
 ```sh
 npm run build:performance
-npm run perf:b5 -- --output performance-results/c0-modules --fixtures "$PWD/docs/evidence/m1-b5/final"
+npm run perf:b5 -- --output performance-results/c0-modules --fixtures "$PWD/tests/fixtures/performance-b5"
 node tools/performance/summarize-b5.mjs performance-results/c0-modules
 npm run build
-node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c0-workbench" --fixtures "$PWD/docs/evidence/m1-b5/final"
+node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c0-workbench" --fixtures "$PWD/tests/fixtures/performance-b5"
 ```
 
 第一组保留原事务计时并新增准备前起点；第二组只通过正常生产页面真实操作，分列Enter提交、轮廓候选、采用点击与视口手势。两组数据不混池，双rAF均是调度代理。`SCENEWEAVE_B5_FIXTURE_DIR`可为 `tests/b5-workbench.spec.ts`、`tests/c0-viewport.spec.ts`提供相同归档包，在正常生产地址配合 `SCENEWEAVE_TEST_BASE_URL`验证，无需DEV API。
@@ -72,8 +72,8 @@ node tools/performance/run-c0-workbench.mjs --output "$PWD/performance-results/c
 
 ```sh
 npm run build
-node tools/performance/run-selection.mjs --output "$PWD/performance-results/selection-assets-recheck" --fixtures "$PWD/docs/evidence/m1-b5/final" --workbench assets
-node tools/performance/run-selection.mjs --output "$PWD/performance-results/selection-layers-recheck" --fixtures "$PWD/docs/evidence/m1-b5/final" --workbench layers
+node tools/performance/run-selection.mjs --output "$PWD/performance-results/selection-assets-recheck" --fixtures "$PWD/tests/fixtures/performance-b5" --workbench assets
+node tools/performance/run-selection.mjs --output "$PWD/performance-results/selection-layers-recheck" --fixtures "$PWD/tests/fixtures/performance-b5" --workbench layers
 ```
 
 每个case每种操作90样本、nearest-rank p95；计时分列DOM就绪、双rAF显示调度代理和LongTask，完整包/资源/原始IDB/revision/保存/底图及采样窗口细节计数必须保持。双rAF不是GPU或物理呈现，也不替代完整交互/资源峰值矩阵。`--diagnostic`、`--isolate`、`--trace` 或减少轮数仅供诊断，不混入正式通过记录。
@@ -102,7 +102,7 @@ C2从空白建立建筑、共墙/门窗/注记/遮罩、缩放量尺、会话结
 - 用具体备团场景说明需求与卡点，注明规则体系、地图尺度和输出去向。
 - 复核 M0 的共享结构、异常恢复、保密输出和可复现负载，补充真实证据。
 - 按 M1-A/B/C/D 完善视觉规范、双样板、手工绘图、真实素材与组件，先用样板测量再扩展工具。
-- M2以素材生成/同化为主线：单件→组合→明确范围的渐进批次，候选/入库/采用分别校验；旧布局/布景/文字为可选M2-L。M1先提供参数调整、原件/版本保护与局部恢复。
+- M2按[45](docs/45-ai-authoring-and-unified-v1-plan.md)先统一完整v1/共享核心，再接自有任务后端、流式技能/工具草稿、场景创作及SVG/渐进同化；首版无生图API，最终采用保持保护点/CAS/锁/256预算。
 - 修正文档矛盾与含糊定义，附上来源或可复核的最小例子。
 
 文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/18-m1b-b2-validation.md)/[19](docs/19-m1b-b3-validation.md)，B5技术观测见[21](docs/21-m1b-b5-validation.md)，C1a创作闭环见[23](docs/23-m1c-c1a-validation.md)，C1b有限选择/批改/菜单见[24](docs/24-m1c-c1b-validation.md)，选择性能、C1c与C1d见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)/[27](docs/27-m1c-c1d-validation.md)，C2建筑与有限恢复见[28](docs/28-m1c-c2-validation.md)，C3组件/参数及适用恢复见[29](docs/29-m1c-c3-validation.md)，C4室外/有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合功能与最终生产通过、性能未达和正式矩阵未完成结论见[32](docs/32-m1c-c5-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。各批另建验证记录，保留13/17–23与各自原始证据。
@@ -139,7 +139,7 @@ C5使用正常生产页面和可信输入，不使用B5专用性能构建或产�
 
 ```sh
 npm run build
-node tools/performance/run-c5.mjs --output /ABS/NEW-EMPTY-DIR --fixtures /ABS/sceneweave/docs/evidence/m1-b5/final
+node tools/performance/run-c5.mjs --output /ABS/NEW-EMPTY-DIR --fixtures /ABS/sceneweave/tests/fixtures/performance-b5
 ```
 
 默认study/island×500/2000、每组3个全新系统Chrome进程/profile，原始v2包经正常UI完整迁v6。每轮框选/替换各30次、普通编辑10次、隐藏/合法重排各10次、有限层参数5次、局部恢复3次、命名1次、指针/键盘菜单共10次，平移/缩放各3段（每段30次pointermove/20次wheel、逐rAF输入），另冷导入/本地重开和双受众4K。只有marker进入小工作层，遵守256实际展开预算。输出目录必须为空，失败及慢样本保留。
@@ -161,3 +161,13 @@ U1b开发期仅小范围检查：`npx vitest run src/editor/workspace/layout-pre
 ### U2a/U2b（2026-10-23）
 
 U2定向检查可运行 `npm test -- --run src/catalog/content.test.ts src/catalog/repository.test.ts src/catalog/backup.test.ts src/catalog/organization.test.ts src/catalog/query.test.ts`；两项简单界面旅程为 `npx playwright test tests/u2-catalog.spec.ts --project=chromium`。本批只运行必要的定向检查、类型/正常构建和少量Chrome冒烟，不启动完整回归/性能矩阵；完整回归等用户通知。严格独立目录合同见docs/40，实现证据与未覆盖项见docs/41。
+
+## 0.2.0-m1-d2全量自动化回归
+
+用户2026-10-23明确启动本次全量；实际批次、失败与修正、覆盖和人工/性能边界见[44](docs/44-full-regression-validation.md)。1123全量单元通过，203项Chrome完整首轮200通过/3旧测试合同失败，相关三个文件14/14复验通过；产品源码未改变，未混写为一轮203项全绿。新U2真实私密库/派生/空库离线4K及两页CAS用例在`tests/u2-catalog-regression.spec.ts`，随完整`npm run test:e2e`运行。正常生产U1工具按右下“对象”导航，并等待实际缩放完成后记录Home继续基线。窄屏首页以单DOM与实际分段滚动核对；一次fullPage重复拼接及等待后最终正常图均保留，详44，P3、人工矩阵与正式性能仍单独验收。
+
+## 证据归档与资料体量
+
+现状和候选见[46](docs/46-validation-retention-audit.md)。普通Git保留测试/必要夹具、简短结论、失败及修正、环境/命令/源码指纹、紧凑结果与关键附件。新批次沿用`tools/testing/compact-reporter.mjs`，避免base64附件内嵌大JSON和重复源码/dist全量快照；未保留附件如实标记。
+
+2026-10-23用户随后明确要求清理work/与docs/evidence/，现已删除两个目录。B5 manifest与四个原始包按原字节保存在tests/fixtures/performance-b5，以上复现命令已更新；其余原始附件未另建大包备份，报告已标注可用性。新运行仍可在work/生成被忽略的紧凑结果，docs/evidence/也已忽略，按需清理，不默认提交大附件。删除当前文件不缩减Git历史，本轮不重写历史；测试随统一v1迁移与去重，不按行数删除行为保障。

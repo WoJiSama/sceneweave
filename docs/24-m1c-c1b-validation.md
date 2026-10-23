@@ -1,5 +1,7 @@
 # M1-C / C1b：框选、多选与上下文菜单验证
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-21。应用版本：`0.2.0-m1-c1b`。本批按用户“做c1b”授权实现；本地源码未提交，Git历史基线仍为`62ba55b`。本页记录本批实际能力和适用验证，不覆写[23](23-m1c-c1a-validation.md)或更早证据。
 
 ## 1. 实际实现
@@ -20,26 +22,26 @@
 
 | 检查 | 实际结果 | 范围与证据 |
 |---|---|---|
-| 全部单元 | 34文件、432项通过 | [单元汇总](evidence/m1-c1b/unit-results.json)；选择几何、锁/成员、复制、量化、原子事务等新增负例及既有回归 |
-| `npm run build` | 通过，含TypeScript与生产打包 | [构建日志](evidence/m1-c1b/build.log)；保留Zod注释和应用chunk超过500kB警告，不当作性能结论 |
-| C1b真实浏览器专项 | 11项通过、正常退出，59.5s | [逐项结果](evidence/m1-c1b/browser-focused-results.json)、[命令/附件hash](evidence/m1-c1b/browser-focused-summary.json)；7项功能和4组真实素材负载 |
-| 完整浏览器回归及定向复验 | 85个独立用例均有通过记录 | [通过证据并集](evidence/m1-c1b/browser-verified-results.json)；全量84通过/1失败，修复旧测试等待后该1项正常通过；各命令退出状态分开保留，不写成单轮85/85成功 |
-| 正常生产构建UI | 通过 | [生产记录](evidence/m1-c1b/production-verified/production-smoke.json)：3件物件/18定义，r3取消不写入，批量采用至r4；完整包179020bytes，刷新保留r4，选择未持久化，无pageerror，DEV/性能API均不存在 |
-| 生产界面视检 | 本窗口检查通过 | [多选面板](evidence/m1-c1b/production-verified/production-multiselect.png)、[批量候选](evidence/m1-c1b/production-verified/production-batch-preview.png)、[菜单及焦点](evidence/m1-c1b/production-verified/production-context-menu.png)；1512×982，不外推其他窗口/触屏 |
+| 全部单元 | 34文件、432项通过 | 单元汇总（原附件已清理，旧路径：`docs/evidence/m1-c1b/unit-results.json`）；选择几何、锁/成员、复制、量化、原子事务等新增负例及既有回归 |
+| `npm run build` | 通过，含TypeScript与生产打包 | 构建日志（原附件已清理，旧路径：`docs/evidence/m1-c1b/build.log`）；保留Zod注释和应用chunk超过500kB警告，不当作性能结论 |
+| C1b真实浏览器专项 | 11项通过、正常退出，59.5s | 逐项结果（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused-results.json`）、命令/附件hash（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused-summary.json`）；7项功能和4组真实素材负载 |
+| 完整浏览器回归及定向复验 | 85个独立用例均有通过记录 | 通过证据并集（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-verified-results.json`）；全量84通过/1失败，修复旧测试等待后该1项正常通过；各命令退出状态分开保留，不写成单轮85/85成功 |
+| 正常生产构建UI | 通过 | 生产记录（原附件已清理，旧路径：`docs/evidence/m1-c1b/production-verified/production-smoke.json`）：3件物件/18定义，r3取消不写入，批量采用至r4；完整包179020bytes，刷新保留r4，选择未持久化，无pageerror，DEV/性能API均不存在 |
+| 生产界面视检 | 本窗口检查通过 | 多选面板（原附件已清理，旧路径：`docs/evidence/m1-c1b/production-verified/production-multiselect.png`）、批量候选（原附件已清理，旧路径：`docs/evidence/m1-c1b/production-verified/production-batch-preview.png`）、菜单及焦点（原附件已清理，旧路径：`docs/evidence/m1-c1b/production-verified/production-context-menu.png`）；1512×982，不外推其他窗口/触屏 |
 
-专项覆盖真实25%/适应全图/800%及平移后的框选，45°物件的实际轮廓、包含/相交、Shift/Alt和按钮增减、全选与对象树键盘、Escape后延迟松手、失焦/失捕获、中键/空格平移互斥、批量移动/旋转/复制/删除的预览/取消/单调撤销、非法末项目/边界整批拒绝、锁排除及显式查看、右键保留/替换/重叠候选、捕获空白世界位置、键盘素材选择路径、原生输入菜单及玩家禁用编辑、真实组与成员及结构混选禁用。直接附件见[变换选择](evidence/m1-c1b/browser-focused/c1b-transformed-selection.json)、[原子批次](evidence/m1-c1b/browser-focused/c1b-atomic-batches.json)、[拒绝及锁](evidence/m1-c1b/browser-focused/c1b-rejection-and-locks.json)、[上下文点位](evidence/m1-c1b/browser-focused/c1b-context-selection.json)、[键盘菜单](evidence/m1-c1b/browser-focused/c1b-keyboard-menu.json)和[组合/结构](evidence/m1-c1b/browser-focused/c1b-groups-and-structures.json)。
+专项覆盖真实25%/适应全图/800%及平移后的框选，45°物件的实际轮廓、包含/相交、Shift/Alt和按钮增减、全选与对象树键盘、Escape后延迟松手、失焦/失捕获、中键/空格平移互斥、批量移动/旋转/复制/删除的预览/取消/单调撤销、非法末项目/边界整批拒绝、锁排除及显式查看、右键保留/替换/重叠候选、捕获空白世界位置、键盘素材选择路径、原生输入菜单及玩家禁用编辑、真实组与成员及结构混选禁用。直接附件见变换选择（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-transformed-selection.json`）、原子批次（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-atomic-batches.json`）、拒绝及锁（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-rejection-and-locks.json`）、上下文点位（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-context-selection.json`）、键盘菜单（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-keyboard-menu.json`）和组合/结构（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-groups-and-structures.json`）。
 
-完整回归及定向复验覆盖85个独立用例，包含原74项和新增11项；没有以提前终止或报告服务退出码130代替正常命令成功。最终链接/锚点、表格、需求映射、源码指纹与历史保护检查见[机械检查](evidence/m1-c1b/document-checks.json)。环境与命令逐项见[运行记录](evidence/m1-c1b/verification-environment.json)，[源码指纹](evidence/m1-c1b/source-fingerprints.json)保留本批可复核状态。生产UI复现：先`npm run build`并另启`npm run preview -- --port 4173 --strictPort`，运行`node docs/evidence/m1-c1b/production-smoke.mjs`；默认输出到带时间戳的忽略目录，可用`SCENEWEAVE_C1B_EVIDENCE_DIR`指定新的证据位置，不覆盖历史批次。
+完整回归及定向复验覆盖85个独立用例，包含原74项和新增11项；没有以提前终止或报告服务退出码130代替正常命令成功。最终链接/锚点、表格、需求映射、源码指纹与历史保护检查见机械检查（原附件已清理，旧路径：`docs/evidence/m1-c1b/document-checks.json`）。环境与命令逐项见运行记录（原附件已清理，旧路径：`docs/evidence/m1-c1b/verification-environment.json`），源码指纹（原附件已清理，旧路径：`docs/evidence/m1-c1b/source-fingerprints.json`）保留本批可复核状态。生产UI复现：先`npm run build`并另启`npm run preview -- --port 4173 --strictPort`，运行`node docs/evidence/m1-c1b/production-smoke.mjs`；默认输出到带时间戳的忽略目录，可用`SCENEWEAVE_C1B_EVIDENCE_DIR`指定新的证据位置，不覆盖历史批次。
 
 ## 3. 修复与非成功执行
 
 审查阶段修复了批量复制按顶层优先生成导致副本叠放反转、负转与跨360归一、共同旋转半毫米浮点稳定量化、父容器锁与锚注记锁的提示区分，以及墙/门窗/连接选择顺序与实际GM渲染不一致。选择与命令复用核心量化/锁影响集和既有墙排序；新增顺序扰动与原子负例。取消手势改为抑制这一次松手产生的click，下一次指针按下恢复；未越过阈值的普通单击仍正常选择。
 
-浏览器首轮前4项通过，第5项断言用请求的理想浮点鼠标位置，而真实contextmenu事件屏幕坐标经过整数化；测试改为捕获可信事件后独立反算。该轮trace/worker清理挂起，只中断本轮拥有的进程，退出130；不是一次成功命令。[首轮记录及现场](evidence/m1-c1b/previous-attempts/coordinate-expectation/run-summary.json)保留4通过、1失败、1中断、5未运行。
+浏览器首轮前4项通过，第5项断言用请求的理想浮点鼠标位置，而真实contextmenu事件屏幕坐标经过整数化；测试改为捕获可信事件后独立反算。该轮trace/worker清理挂起，只中断本轮拥有的进程，退出130；不是一次成功命令。首轮记录及现场（原附件已清理，旧路径：`docs/evidence/m1-c1b/previous-attempts/coordinate-expectation/run-summary.json`）保留4通过、1失败、1中断、5未运行。
 
-第二轮前5项通过，第6项玩家预览正确拒绝未被固定遮罩覆盖的GM物件：夹具漏配遮罩，产品隐私检查保持原样；补覆盖实际图像及阴影的固定mask。该轮失败清理再次挂起，终止本轮拥有的worker后退出130，reporter仅提交5通过/6未报告完成；不把未完成项记通过或已定稿失败。[第二轮记录及现场](evidence/m1-c1b/previous-attempts/private-mask-fixture/run-summary.json)保留安全拒绝说明。后续关闭trace采集，保留真实截图与JSON，最终11项正常退出通过。源码未为测试降低隐私或事务检查。
+第二轮前5项通过，第6项玩家预览正确拒绝未被固定遮罩覆盖的GM物件：夹具漏配遮罩，产品隐私检查保持原样；补覆盖实际图像及阴影的固定mask。该轮失败清理再次挂起，终止本轮拥有的worker后退出130，reporter仅提交5通过/6未报告完成；不把未完成项记通过或已定稿失败。第二轮记录及现场（原附件已清理，旧路径：`docs/evidence/m1-c1b/previous-attempts/private-mask-fixture/run-summary.json`）保留安全拒绝说明。后续关闭trace采集，保留真实截图与JSON，最终11项正常退出通过。源码未为测试降低隐私或事务检查。
 
-全量真实Chrome执行85项，84通过，唯一失败来自既有C0取消结构候选后的立即视口断言：输入已恢复，但ResizeObserver调度的rAF尚未把平移像素从候选视口的`-36.024844720496894`还原为原值`-40`。仅在该旧测试取消后补与候选打开时相同的双rAF等待，保持原数值和精度，不修改产品逻辑或放宽容差；该1项定向复验正常退出通过，10.3s。[全量原结果](evidence/m1-c1b/browser-full-initial-results.json)、[现场](evidence/m1-c1b/previous-attempts/c0-cancel-resize/run-summary.json)及[定向通过](evidence/m1-c1b/c0-resize-recheck-results.json)分别保留。全量失败后HTML reporter自动开启报告服务，结束本轮拥有的报告服务后退出130，不记命令成功。随后额外运行C0整文件，6项均报告通过，但Chrome退出后worker收尾挂起，终止本轮runner后退出130；[额外结果](evidence/m1-c1b/c0-file-recheck-results.json)单列，不记成功命令、不据此重复扩大全量。[全部浏览器命令摘要](evidence/m1-c1b/browser-verification-summary.json)保留每轮退出状态；唯一原失败项另有上述正常退出的独立通过记录。
+全量真实Chrome执行85项，84通过，唯一失败来自既有C0取消结构候选后的立即视口断言：输入已恢复，但ResizeObserver调度的rAF尚未把平移像素从候选视口的`-36.024844720496894`还原为原值`-40`。仅在该旧测试取消后补与候选打开时相同的双rAF等待，保持原数值和精度，不修改产品逻辑或放宽容差；该1项定向复验正常退出通过，10.3s。全量原结果（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-full-initial-results.json`）、现场（原附件已清理，旧路径：`docs/evidence/m1-c1b/previous-attempts/c0-cancel-resize/run-summary.json`）及定向通过（原附件已清理，旧路径：`docs/evidence/m1-c1b/c0-resize-recheck-results.json`）分别保留。全量失败后HTML reporter自动开启报告服务，结束本轮拥有的报告服务后退出130，不记命令成功。随后额外运行C0整文件，6项均报告通过，但Chrome退出后worker收尾挂起，终止本轮runner后退出130；额外结果（原附件已清理，旧路径：`docs/evidence/m1-c1b/c0-file-recheck-results.json`）单列，不记成功命令、不据此重复扩大全量。全部浏览器命令摘要（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-verification-summary.json`）保留每轮退出状态；唯一原失败项另有上述正常退出的独立通过记录。
 
 生产视检后只把多选面板的可见范围值翻译为“公开/仅主持人”；再次构建及生产UI通过，随后全量回归针对这一最终呈现运行。
 
@@ -54,7 +56,7 @@
 | 岩岛500 | 500 / 531 | 1 / 1 | 269.5ms | 116.7ms |
 | 岩岛2000 | 2000 / 2031 | 1 / 1 | 502.0ms | 350.1ms |
 
-四组均保持文档、历史及仓库存档不变，超过256条命令的操作显示禁用原因，没有自动拆批。[汇总](evidence/m1-c1b/selection-load-summary.json)及[书房500](evidence/m1-c1b/browser-focused/c1b-study-500-selection.json)、[书房2000](evidence/m1-c1b/browser-focused/c1b-study-2000-selection.json)、[岩岛500](evidence/m1-c1b/browser-focused/c1b-island-500-selection.json)、[岩岛2000](evidence/m1-c1b/browser-focused/c1b-island-2000-selection.json)含实际素材/唯一像素量、成员、稳定ID和原始帧间隔。
+四组均保持文档、历史及仓库存档不变，超过256条命令的操作显示禁用原因，没有自动拆批。汇总（原附件已清理，旧路径：`docs/evidence/m1-c1b/selection-load-summary.json`）及书房500（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-study-500-selection.json`）、书房2000（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-study-2000-selection.json`）、岩岛500（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-island-500-selection.json`）、岩岛2000（原附件已清理，旧路径：`docs/evidence/m1-c1b/browser-focused/c1b-island-2000-selection.json`）含实际素材/唯一像素量、成员、稳定ID和原始帧间隔。
 
 本次已观察到大量对象一次选中后的明显调度间隔，500物件也有116.7ms单帧间隔，不能宣称普通编辑100ms p95或完整交互性能通过。后续先拆分选择集合、覆盖层、面板和对象树更新成本再优化，保持真实几何、锁/隐藏过滤及不重绘底图的正确性；C1c扩大到图层选择时复用相同四组回归，并补连续样本和各子区间。浏览器/GPU资源峰值未在本批重测。
 

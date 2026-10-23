@@ -1,6 +1,8 @@
 # M1-C / C0 视口与性能基础验证
 
-日期：2026-10-21（Asia/Shanghai）。版本：`0.2.0-m1-c0`。实现基线：`6a52d4215586c52d89c2df3041a48fcf2b056333`；本批应用源码及两类构建冻结SHA见[指纹](evidence/m1-c0/source-build-fingerprints.json)。本文仅记录C0，13与17–21及其原始证据、原创素材保持历史内容。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
+日期：2026-10-21（Asia/Shanghai）。版本：`0.2.0-m1-c0`。实现基线：`6a52d4215586c52d89c2df3041a48fcf2b056333`；本批应用源码及两类构建冻结SHA见指纹（原附件已清理，旧路径：`docs/evidence/m1-c0/source-build-fingerprints.json`）。本文仅记录C0，13与17–21及其原始证据、原创素材保持历史内容。
 
 C0已完成地图视口、内部认证快照复用和选框分层，并通过适用回归。同一四夹具的事务提交明显减少，室外大量材质绘制仍占主要延迟；2000件继续作为压力负载。下一入口是C1空白工程与首个放置/保存/重开/导出闭环，完整M1、主题P3、SCN-04和完整QA-PERF-01/04继续开放。
 
@@ -19,7 +21,7 @@ C0已完成地图视口、内部认证快照复用和选框分层，并通过适
 
 正式模块矩阵：2026-10-21T04:00:12.129Z 至 2026-10-21T04:06:56.883Z；真实工作台矩阵：2026-10-21T04:52:05.433Z 至 2026-10-21T04:56:58.349Z。Apple M1、8逻辑CPU、16GiB、macOS Darwin 25.6.0、Node v24.14.1、Chrome 155.0.8059.84、DPR 1。正常生产构建没有DEV/性能产品API，采集器自己的init-script不进入产品。
 
-四包直接使用[B5 final](evidence/m1-b5/final/manifest.json)原始bytes和summary，逐一验证SHA、内部scene hash、身份、数量、范围及资源摘要后复制。全部四包与摘要一致，见[对照](evidence/m1-c0/comparison.json)。密集摆放保留原材质/透明物件/装饰阴影，500/2000表示物件总数，不是可玩布景、美术签收或遮挡后可见数。
+四包直接使用[B5 final](../tests/fixtures/performance-b5/manifest.json)原始bytes和summary，逐一验证SHA、内部scene hash、身份、数量、范围及资源摘要后复制。全部四包与摘要一致，见对照（原附件已清理，旧路径：`docs/evidence/m1-c0/comparison.json`）。密集摆放保留原材质/透明物件/装饰阴影，500/2000表示物件总数，不是可玩布景、美术签收或遮挡后可见数。
 
 模块矩阵为4组×3个新Chrome进程/独立配置，每轮30次物件+30次轮廓编辑、60次可信选择，共720编辑、720选择、24次GM/player固定4K；每次编辑等待实际底图并保存，最后重开完整文档、核对20快照、超限拒绝后继续编辑/撤销。服务器及目标HTTP缓存关闭，未清操作系统缓存。模块页面外壳1200×900，栅格长边仍1200；B5与C0的视口布局及选择层不同，显示代理差异包含这些变化，不能归因于一个优化。
 
@@ -38,7 +40,7 @@ C0已完成地图视口、内部认证快照复用和选框分层，并通过适
 | 岩岛500 | 38.3 → 19.6 | 98.8 → 121.1 | 197.7 → 197.4 | 71.7 → 75.7 |
 | 岩岛2000 | 131.3 → 63.4 | 433.3 → 465.5 | 708.0 → 631.8 | 186.2 → 188.4 |
 
-完整原始与统计分别见[模块manifest](evidence/m1-c0/modules/manifest.json)、[summary](evidence/m1-c0/modules/summary.json)及[对照](evidence/m1-c0/comparison.json)。保存仍按原严格完整工程流程校验，不因内存认证快照直接跳过；资源和绘制未保证全面下降。性能数据只支持本表操作和固定内容。
+完整原始与统计分别见模块manifest（原附件已清理，旧路径：`docs/evidence/m1-c0/modules/manifest.json`）、summary（原附件已清理，旧路径：`docs/evidence/m1-c0/modules/summary.json`）及对照（原附件已清理，旧路径：`docs/evidence/m1-c0/comparison.json`）。保存仍按原严格完整工程流程校验，不因内存认证快照直接跳过；资源和绘制未保证全面下降。性能数据只支持本表操作和固定内容。
 
 ## 4. 新增准备前与真实输入测量
 
@@ -60,7 +62,7 @@ C0已完成地图视口、内部认证快照复用和选框分层，并通过适
 | 岩岛500 | 29.8 | 28.5 | 39.7 | 184.3 | 187.1 | 178.8 |
 | 岩岛2000 | 68.3 | 92.7 | 108.5 | 326.5 | 253.4 | 318.1 |
 
-原始样本保留Enter/focusout或采用click的对应timestamp、capture、document冒泡、DOM和双rAF时间，以及可信状态和前后修订/底图计数，见[工作台manifest](evidence/m1-c0/workbench/manifest.json)与[summary](evidence/m1-c0/workbench/summary.json)。这补齐此前未计的工具准备与实际面板路径；有限一毫米轮廓/一度旋转不代表完整手工工具达标。
+原始样本保留Enter/focusout或采用click的对应timestamp、capture、document冒泡、DOM和双rAF时间，以及可信状态和前后修订/底图计数，见工作台manifest（原附件已清理，旧路径：`docs/evidence/m1-c0/workbench/manifest.json`）与summary（原附件已清理，旧路径：`docs/evidence/m1-c0/workbench/summary.json`）。这补齐此前未计的工具准备与实际面板路径；有限一毫米轮廓/一度旋转不代表完整手工工具达标。
 
 ## 5. 真实视口交互
 
@@ -88,25 +90,25 @@ C0已完成地图视口、内部认证快照复用和选框分层，并通过适
 
 RSS是同时进程和，会重复共享映射；不是去重物理内存、GPU/驱动分配峰值。目标堆也不含其他目标/原生资源，工具像素审计/下载/尾部idle排除于本表产品阶段；原始全程值仍保留。短阶段或瞬态可能漏采，没有完整GPU、物理峰值或泄漏排除结论。12轮原生解码在途峰均为1，不代表只驻留一张位图。
 
-8个负载/受众输出跨三轮确定，并与B5完整4K RGBA逐一一致：书房4096×2926，岩岛4096×3686。完整原图保留在本地交付，Git保存原图hash及1024缩略图，见[artifact index](evidence/m1-c0/artifact-index.json)；缩略图不充当像素证据。相同普通负载的GM/player图可能相同，秘密保护另用B4三组16格共48格差分：历史玩家4K hash保持，GM配对有效不同，见[隐私回归](evidence/m1-c0/privacy-regression/summary.json)。
+8个负载/受众输出跨三轮确定，并与B5完整4K RGBA逐一一致：书房4096×2926，岩岛4096×3686。完整原图保留在本地交付，Git保存原图hash及1024缩略图，见artifact index（原附件已清理，旧路径：`docs/evidence/m1-c0/artifact-index.json`）；缩略图不充当像素证据。相同普通负载的GM/player图可能相同，秘密保护另用B4三组16格共48格差分：历史玩家4K hash保持，GM配对有效不同，见隐私回归（原附件已清理，旧路径：`docs/evidence/m1-c0/privacy-regression/summary.json`）。
 
 ## 7. 最终回归与失败记录
 
 | 检查 | 实际结果 | 证据 |
 |---|---|---|
-| 单元 | 352/352，30文件 | [unit](evidence/m1-c0/unit-results.json) |
-| 类型及两类构建 | 通过；正常JS入口约551.44kB，保留大块告警及上游Zod两条注释告警 | [build](evidence/m1-c0/build-checks.json) |
-| 完整真实Chrome | 68/68；无失败/跳过/重试/不稳定 | [browser](evidence/m1-c0/browser-results.json) |
-| 正常生产真实页面 | 10/10（四负载工作台+六视口），无DEV/性能产品API | [production](evidence/m1-c0/production-results.json) |
-| 严格包/资源/秘密/CAS | 沿用并重跑B4和既有回归；新增认证伪装、资源损坏及同步订阅重入 | [summary](evidence/m1-c0/validation-summary.json) |
+| 单元 | 352/352，30文件 | unit（原附件已清理，旧路径：`docs/evidence/m1-c0/unit-results.json`） |
+| 类型及两类构建 | 通过；正常JS入口约551.44kB，保留大块告警及上游Zod两条注释告警 | build（原附件已清理，旧路径：`docs/evidence/m1-c0/build-checks.json`） |
+| 完整真实Chrome | 68/68；无失败/跳过/重试/不稳定 | browser（原附件已清理，旧路径：`docs/evidence/m1-c0/browser-results.json`） |
+| 正常生产真实页面 | 10/10（四负载工作台+六视口），无DEV/性能产品API | production（原附件已清理，旧路径：`docs/evidence/m1-c0/production-results.json`） |
+| 严格包/资源/秘密/CAS | 沿用并重跑B4和既有回归；新增认证伪装、资源损坏及同步订阅重入 | summary（原附件已清理，旧路径：`docs/evidence/m1-c0/validation-summary.json`） |
 
 完整Chrome运行起点2026-10-20T16:37:43.380Z，墙钟246.8秒；正常生产起点2026-10-21T05:03:35.148Z，墙钟68.5秒。计时不是人工开发工时。
 
 前两次视口诊断保留失败：首轮发现原有模态焦点返回问题并修复；第二轮首组在应用Workspace文件热更新时工程被重新载入，采集监听超时，其余5项通过。最终应用冻结后完整68项重新通过。两类四夹具短跑均仅诊断2次每类，不纳入正式统计。
 
-首批正式模块采样完成7/12轮后，采集器等待已退出Chrome的关闭通知超过10分钟，主线中断该采集进程。原manifest、7轮raw、旧采集器与指纹独立保留于[中断批次](evidence/m1-c0/interrupted-modules/manifest.json)，整批不计入正式结果。仅修正工具收尾为直接关闭拥有的BrowserServer、独立限时和根退出检查，产品实现和两构建不变；经两负载短跑后，新目录重新完整12轮。本报告全部正式数字来自重跑完整批次，保留全部慢样本，无自动重试。每轮实际收尾方式在manifest.teardowns单列，发生在计时/资源采样结束后。原始失败trace留本地work，摘要见[验证历史](evidence/m1-c0/verification-history.json)。
+首批正式模块采样完成7/12轮后，采集器等待已退出Chrome的关闭通知超过10分钟，主线中断该采集进程。原manifest、7轮raw、旧采集器与指纹独立保留于中断批次（原附件已清理，旧路径：`docs/evidence/m1-c0/interrupted-modules/manifest.json`），整批不计入正式结果。仅修正工具收尾为直接关闭拥有的BrowserServer、独立限时和根退出检查，产品实现和两构建不变；经两负载短跑后，新目录重新完整12轮。本报告全部正式数字来自重跑完整批次，保留全部慢样本，无自动重试。每轮实际收尾方式在manifest.teardowns单列，发生在计时/资源采样结束后。原始失败trace留本地work，摘要见验证历史（原附件已清理，旧路径：`docs/evidence/m1-c0/verification-history.json`）。
 
-正式采样串行，不并行浏览器/测试/构建，使用命令生命周期caffeinate防空闲休眠，不改系统电源配置；源码和两构建全部文件前后SHA相同。工具归档包10项纯文件检查和旧/新增summary兼容检查独立归档，合成数据明确不作性能证据。文档/许可/历史保护/链接检查见[交付检查](evidence/m1-c0/delivery-checks.json)。复现命令与字段见[工具说明](../tools/performance/README.md)和[贡献说明](../CONTRIBUTING.md)。
+正式采样串行，不并行浏览器/测试/构建，使用命令生命周期caffeinate防空闲休眠，不改系统电源配置；源码和两构建全部文件前后SHA相同。工具归档包10项纯文件检查和旧/新增summary兼容检查独立归档，合成数据明确不作性能证据。文档/许可/历史保护/链接检查见交付检查（原附件已清理，旧路径：`docs/evidence/m1-c0/delivery-checks.json`）。复现命令与字段见[工具说明](../tools/performance/README.md)和[贡献说明](../CONTRIBUTING.md)。
 
 ## 8. 交接
 

@@ -1,5 +1,7 @@
 # C2 建筑工具与有限结构恢复验证
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-22。当前本地版本为 `0.2.0-m1-c2`。本批按用户“做吧”授权，承接[C1d](27-m1c-c1d-validation.md)，实现建筑创作与有限的同会话结构恢复。实现、实际运行证据和未完成范围分别记录；13/17–27的历史结论与原证据不覆写。本批尚未提交、推送或发布。
 
 ## 实现范围
@@ -31,47 +33,47 @@ C1d的持久身份版本1只记录物件出生令牌，不能拿结构ID或相�
 
 ## 实际验证
 
-本批使用Apple M1、16GiB、macOS/Darwin arm64、Node24.14.1及Chrome；精确版本和命令由[环境记录](evidence/m1-c2/environment.json)保存。浏览器单worker串行，常规视口1512×982、DPR1；正式生产页面另检查390×844。没有运行C2正式性能采样。
+本批使用Apple M1、16GiB、macOS/Darwin arm64、Node24.14.1及Chrome；精确版本和命令由环境记录（原附件已清理，旧路径：`docs/evidence/m1-c2/environment.json`）保存。浏览器单worker串行，常规视口1512×982、DPR1；正式生产页面另检查390×844。没有运行C2正式性能采样。
 
 | 检查 | 本批结果与证据 |
 |---|---|
-| 全量单测 | `npm test`：59文件、721项通过，15.04s；[日志](evidence/m1-c2/unit.log) |
-| 正常生产构建 | `npm run build`含TypeScript构建检查通过；[日志](evidence/m1-c2/build.log)。Zod注释和大于500kB chunk提示保留，不作运行性能成绩 |
-| C2定向Chrome | 11/11通过，128.15s；[逐项摘要](evidence/m1-c2/browser/c2-target-summary.json)、[原reporter无损gzip](evidence/m1-c2/browser/c2-target-run.json.gz) |
-| 全量Chrome | 同批132/132通过，714.04s，无失败、跳过或重试通过；[逐项摘要](evidence/m1-c2/browser/full-summary.json)、[原reporter无损gzip](evidence/m1-c2/browser/full-run.json.gz) |
-| 正常生产UI与目视 | 正常构建页面真实操作通过，1512×982与390×844截图已目视检查，两种窄屏状态文档宽度均390px；[操作报告](evidence/m1-c2/production-ui/report.json)、[实际runner](evidence/m1-c2/production-ui/runner-used.mjs) |
+| 全量单测 | `npm test`：59文件、721项通过，15.04s；日志（原附件已清理，旧路径：`docs/evidence/m1-c2/unit.log`） |
+| 正常生产构建 | `npm run build`含TypeScript构建检查通过；日志（原附件已清理，旧路径：`docs/evidence/m1-c2/build.log`）。Zod注释和大于500kB chunk提示保留，不作运行性能成绩 |
+| C2定向Chrome | 11/11通过，128.15s；逐项摘要（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/c2-target-summary.json`）、原reporter无损gzip（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/c2-target-run.json.gz`） |
+| 全量Chrome | 同批132/132通过，714.04s，无失败、跳过或重试通过；逐项摘要（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/full-summary.json`）、原reporter无损gzip（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/full-run.json.gz`） |
+| 正常生产UI与目视 | 正常构建页面真实操作通过，1512×982与390×844截图已目视检查，两种窄屏状态文档宽度均390px；操作报告（原附件已清理，旧路径：`docs/evidence/m1-c2/production-ui/report.json`）、实际runner（原附件已清理，旧路径：`docs/evidence/m1-c2/production-ui/runner-used.mjs`） |
 
 新增核心/工作区测试覆盖部分共墙拆分、反向边界、开口整数重映射、非整数/切点/净距拒绝、不同层/实体/父容器及递归锚点锁、显式地形支撑、混合事务最终一次校验、严格未知字段和预算；结构恢复覆盖精确依赖确认、两种字段组、范围外保留、伪造证据、旧会话、删除重建与拓扑断裂、取消/迟到、保护失败及采用后保存失败。不把fake-indexeddb或注入错误当作真实配额耗尽。
 
 ### 建筑与SCN-01子集
 
-真实UI从空白制作7个房间、9扇门、3扇窗，使用实际随机稳定ID，保存/重开并下载完整工程，再严格导入核对文档与全部资源闭包；检查18张位图的实际SHA-256、资源记录、许可全文/hash和绑定。墙厚100mm，密道中心线宽1300mm，扣除两侧墙半厚得到1200mm净宽；唯一几何为14顶点、20墙。其结果和稳定ID对应见[UI制作记录](evidence/m1-c2/browser/attachments/c2-ui-scn01-authoring.json)。
+真实UI从空白制作7个房间、9扇门、3扇窗，使用实际随机稳定ID，保存/重开并下载完整工程，再严格导入核对文档与全部资源闭包；检查18张位图的实际SHA-256、资源记录、许可全文/hash和绑定。墙厚100mm，密道中心线宽1300mm，扣除两侧墙半厚得到1200mm净宽；唯一几何为14顶点、20墙。其结果和稳定ID对应见UI制作记录（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-scn01-authoring.json`）。
 
 该UI用例只制作建筑与一条GM注记，没有SCN-01要求的全部家具布景，不能写成完整SCN-01验收。另有领域命令夹具包含符号家具/3条GM注记，用于门前300mm有限净空、结构连接及秘密像素配对；有限门前检查及打开普通门后的房间邻接图不证明全图占地寻路。
 
-六点凹多边形与3:4斜墙的真实界面操作覆盖非法输入/交叉边界拒绝、取消不写入、附着窗和反转墙后端点保持；[记录](evidence/m1-c2/browser/attachments/c2-ui-polygon-diagonal.json)。矩形点击、缩放后量尺和会话暂态由[量尺记录](evidence/m1-c2/browser/attachments/c2-ui-pointer-ruler.json)证明。共墙厚度采用/撤销及实体/层锁见[共墙记录](evidence/m1-c2/browser/attachments/c2-ui-shared-wall-locks.json)。
+六点凹多边形与3:4斜墙的真实界面操作覆盖非法输入/交叉边界拒绝、取消不写入、附着窗和反转墙后端点保持；记录（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-polygon-diagonal.json`）。矩形点击、缩放后量尺和会话暂态由量尺记录（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-pointer-ruler.json`）证明。共墙厚度采用/撤销及实体/层锁见共墙记录（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-shared-wall-locks.json`）。
 
 ### 双受众与离线
 
-独立公开参考仅含H1–H6，没有密道或秘密门；与含HS/两秘密门及GM注记的领域夹具在相同固定遮罩/范围下分别生成真实Canvas2D与PNG，尺寸均4096×3234。玩家输出与独立参考以及改变秘密物件/注记后的版本逐像素hash相同，GM有效变化；GM/玩家PNG解码像素等于各自Canvas，且无历史身份或PNG文本/EXIF/时间元数据。[4K对照记录](evidence/m1-c2/browser/attachments/c2-scn01-4k-privacy.json)与[玩家图](evidence/m1-c2/browser/attachments/c2-scn01-player-4k.png)、[GM图](evidence/m1-c2/browser/attachments/c2-scn01-gm-4k.png)保留。
+独立公开参考仅含H1–H6，没有密道或秘密门；与含HS/两秘密门及GM注记的领域夹具在相同固定遮罩/范围下分别生成真实Canvas2D与PNG，尺寸均4096×3234。玩家输出与独立参考以及改变秘密物件/注记后的版本逐像素hash相同，GM有效变化；GM/玩家PNG解码像素等于各自Canvas，且无历史身份或PNG文本/EXIF/时间元数据。4K对照记录（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-scn01-4k-privacy.json`）与玩家图（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-scn01-player-4k.png`）、GM图（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-scn01-gm-4k.png`）保留。
 
-这组4K独立隐私对照使用符号家具。真实18张资源的完整包在新浏览器context预载代码后断网，再严格导入、实际解码并输出双受众1600长边，文档/身份和像素保持，之后可继续修改普通门。[离线记录](evidence/m1-c2/browser/attachments/c2-scn01-offline-package.json)单独记录，不混作4K真实纹理对照，也不证明PWA离线冷启动。
+这组4K独立隐私对照使用符号家具。真实18张资源的完整包在新浏览器context预载代码后断网，再严格导入、实际解码并输出双受众1600长边，文档/身份和像素保持，之后可继续修改普通门。离线记录（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-scn01-offline-package.json`）单独记录，不混作4K真实纹理对照，也不证明PWA离线冷启动。
 
-揭示一处秘密入口后，另一门、密道及GM线索继续私密；固定遮罩不足则拒绝玩家PNG，见[揭示与遮罩记录](evidence/m1-c2/browser/attachments/c2-reveal-and-mask-guard.json)。真实UI双4K出图也有独立附件，但不以截图代替上述像素检查。
+揭示一处秘密入口后，另一门、密道及GM线索继续私密；固定遮罩不足则拒绝玩家PNG，见揭示与遮罩记录（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-reveal-and-mask-guard.json`）。真实UI双4K出图也有独立附件，但不以截图代替上述像素检查。
 
 ### 结构恢复真实界面
 
 4项界面检查分别覆盖：共墙跨层范围确认及180→100mm恢复、取消零写入、保护点后一次采用、保留邻室后改名称与当前图层、撤销/重做；重开后拒绝旧结构快照并允许新建本会话快照；IndexedDB保护写入注入`QuotaExceededError`后当前持久工程和撤销仍可用；私密注记恢复为玩家可见时明确显示变化，其他后增注记保持。
 
-对应完整前后JSON见[跨层恢复](evidence/m1-c2/browser/attachments/c2-ui-structure-scoped-restore.json)、[重开边界](evidence/m1-c2/browser/attachments/c2-ui-reopened-structure-boundary.json)、[保护失败](evidence/m1-c2/browser/attachments/c2-ui-structure-protection-failure.json)和[公开变化审阅](evidence/m1-c2/browser/attachments/c2-ui-structure-note-privacy-review.json)。这是注入的存储失败，不是真实浏览器配额用尽。
+对应完整前后JSON见跨层恢复（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-structure-scoped-restore.json`）、重开边界（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-reopened-structure-boundary.json`）、保护失败（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-structure-protection-failure.json`）和公开变化审阅（原附件已清理，旧路径：`docs/evidence/m1-c2/browser/attachments/c2-ui-structure-note-privacy-review.json`）。这是注入的存储失败，不是真实浏览器配额用尽。
 
 ### 正常构建页面与窄屏核验
 
 在正常`npm run build`产物上使用真实界面新建18×12m空白工程，绘两间4×4m相邻房间、添加一门一窗；下载完整包核对2房间、7面唯一墙、6顶点与2开口。在r4建立命名“双室 · 初稿”，随后共墙100→180mm并将邻室改名，当前r6。恢复预览只把共墙180→100mm，完整列出16项扩展依赖，取消后revision及命名/保护历史数量保持；重新预览并保护采用为r7，撤销r8、重做r9。导出的当前工程保留邻室“右室后续编辑”、完整几何、18张位图及许可，所有manifest条目字节数与SHA-256逐项一致。
 
-备份只明确勾选“双室 · 初稿”，不隐含恢复前保护快照。最终[双室历史工程](evidence/m1-c2/production-ui/double-room-history.sceneweave)为185652字节，SHA-256为`78c8a0b63d695bf111f8eebd109f0b0e08124b3c8f97982cd437ceb16b883bbc`。正常页面没有`window.__sceneweave*`开发/性能入口，没有脚本异常或地图资源HTTP错误；仅有既有`favicon.ico`的404控制台提示，保留在报告中。
+备份只明确勾选“双室 · 初稿”，不隐含恢复前保护快照。最终双室历史工程（原附件已清理，旧路径：`docs/evidence/m1-c2/production-ui/double-room-history.sceneweave`）为185652字节，SHA-256为`78c8a0b63d695bf111f8eebd109f0b0e08124b3c8f97982cd437ceb16b883bbc`。正常页面没有`window.__sceneweave*`开发/性能入口，没有脚本异常或地图资源HTTP错误；仅有既有`favicon.ico`的404控制台提示，保留在报告中。
 
-[桌面结构差异](evidence/m1-c2/production-ui/structure-preview-desktop.png)、[390px结构差异](evidence/m1-c2/production-ui/structure-preview-narrow.png)、[桌面采用结果](evidence/m1-c2/production-ui/building-adopted-desktop.png)和[390px建筑面板](evidence/m1-c2/production-ui/building-narrow.png)已目视检查。桌面三栏可读；窄屏按画布、工具、差异纵向排列，输入与采用入口可达，没有横向溢出。该核验不代表触屏、中文输入法或完整无障碍验收。
+桌面结构差异（原附件已清理，旧路径：`docs/evidence/m1-c2/production-ui/structure-preview-desktop.png`）、390px结构差异（原附件已清理，旧路径：`docs/evidence/m1-c2/production-ui/structure-preview-narrow.png`）、桌面采用结果（原附件已清理，旧路径：`docs/evidence/m1-c2/production-ui/building-adopted-desktop.png`）和390px建筑面板（原附件已清理，旧路径：`docs/evidence/m1-c2/production-ui/building-narrow.png`）已目视检查。桌面三栏可读；窄屏按画布、工具、差异纵向排列，输入与采用入口可达，没有横向溢出。该核验不代表触屏、中文输入法或完整无障碍验收。
 
 ## 失败与修正
 
@@ -83,11 +85,11 @@ C1d的持久身份版本1只记录物件出生令牌，不能拿结构ID或相�
 4. 注记附着依赖审阅发现父组合/散布锁和删除时锚点锁存在遗漏，已修闭包并补两项回归；成员自身锁仍可在父容器未锁时单独解除，不引入自锁死。
 5. 注记锚点选择的TypeScript类型缩窄错误已修，保留原失败诊断；最终类型由正常构建确认。
 
-原日志、原reporter和失败截图/上下文见[诊断索引](evidence/m1-c2/diagnostic/local-artifacts.json)；较大的trace及全量旧用例产物保留本地路径、大小和hash，不宣称为可携带备份；C2目标附件及失败截图/上下文独立归档，避免重复复制全量旧用例的4K图片。通过批次保留原reporter的无损gzip及目标附件，[验证索引](evidence/m1-c2/verification-index.json)记录各批范围，[源码指纹](evidence/m1-c2/source-fingerprints.json)用于定位实际文件状态。
+原日志、原reporter和失败截图/上下文见诊断索引（原附件已清理，旧路径：`docs/evidence/m1-c2/diagnostic/local-artifacts.json`）；较大的trace及全量旧用例产物保留本地路径、大小和hash，不宣称为可携带备份；C2目标附件及失败截图/上下文独立归档，避免重复复制全量旧用例的4K图片。通过批次保留原reporter的无损gzip及目标附件，验证索引（原附件已清理，旧路径：`docs/evidence/m1-c2/verification-index.json`）记录各批范围，源码指纹（原附件已清理，旧路径：`docs/evidence/m1-c2/source-fingerprints.json`）用于定位实际文件状态。
 
 ## 交付检查
 
-[机械核验](evidence/m1-c2/final-checks.json)核对主文档本地链接/锚点、表格与PRD/QA引用、原reporter压缩前后hash、18份目标附件、31份本批源码和43份正常构建产物指纹，以及113份本地诊断产物索引。生产完整包再次核对ZIP CRC、所有条目的字节数/hash和原始MIT许可全文；目标凭据模式未命中，排除用户无关`todo.md`后`git diff --check`通过。历史报告/证据、LICENSE与既有public素材未修改；归档文件的大小/hash见[产物索引](evidence/m1-c2/artifact-index.json)。这些是交付检查，不追加功能、性能或兼容性结论。
+机械核验（原附件已清理，旧路径：`docs/evidence/m1-c2/final-checks.json`）核对主文档本地链接/锚点、表格与PRD/QA引用、原reporter压缩前后hash、18份目标附件、31份本批源码和43份正常构建产物指纹，以及113份本地诊断产物索引。生产完整包再次核对ZIP CRC、所有条目的字节数/hash和原始MIT许可全文；目标凭据模式未命中，排除用户无关`todo.md`后`git diff --check`通过。历史报告/证据、LICENSE与既有public素材未修改；归档文件的大小/hash见产物索引（原附件已清理，旧路径：`docs/evidence/m1-c2/artifact-index.json`）。这些是交付检查，不追加功能、性能或兼容性结论。
 
 ## 判定与下一入口
 

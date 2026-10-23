@@ -88,13 +88,16 @@ async function expectFit(page: Page) {
 async function relativeView(page: Page) {
   const state = await viewState(page), canvas = await page.locator('.asset-viewport canvas:not([aria-hidden="true"])').boundingBox()
   if (!canvas) throw new Error('No visible map for relative viewport observation')
-  return { zoom: state.zoom, x: state.panX / canvas.width, y: state.panY / canvas.height }
+  // Fixed export bounds: actual canvas size measures px/mm, and normalized
+  // pan measures the world centre independently of the changing fit scale.
+  return { width: canvas.width, height: canvas.height, x: state.panX / canvas.width, y: state.panY / canvas.height }
 }
 
 async function expectSameRelativeView(page: Page, expected: Awaited<ReturnType<typeof relativeView>>) {
   await settle(page)
   const actual = await relativeView(page)
-  expect(actual.zoom).toBeCloseTo(expected.zoom, 5)
+  expect(actual.width).toBeCloseTo(expected.width, 3)
+  expect(actual.height).toBeCloseTo(expected.height, 3)
   expect(actual.x).toBeCloseTo(expected.x, 4)
   expect(actual.y).toBeCloseTo(expected.y, 4)
 }
@@ -252,8 +255,8 @@ test('C0 keyboard focus, cancelled pan, candidate/undo retention, audience reset
   await changeNumber(x, String(summary.contourEditTarget.positionMm.x + 1))
   await expect(page.getByRole('button', { name: '取消结构预览', exact: true })).toBeVisible()
   await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible()
-  // The candidate bar resizes the viewport. Preserve the world centre and zoom;
-  // CSS pan pixels scale with the fitted image as the available height changes.
+  // The candidate bar changes fit size. Preserve world centre and actual px/mm;
+  // relative fit zoom must compensate rather than remaining constant.
   await expectSameRelativeView(page, beforeCandidate)
   await page.getByRole('button', { name: '取消结构预览', exact: true }).click()
   await expect(x).toHaveValue(String(summary.contourEditTarget.positionMm.x))
@@ -285,9 +288,11 @@ test('C0 keyboard focus, cancelled pan, candidate/undo retention, audience reset
   expect((await viewState(page)).renderCount).toBe(playerInitial.renderCount)
   await page.getByRole('group', { name: '预览受众', exact: true }).getByRole('button', { name: '主持人', exact: true }).click()
   await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible(); await expectFit(page)
+  const beforeResize = await relativeView(page)
   for (const size of [{ width: 1100, height: 820 }, { width: 1920, height: 1200 }]) {
-    await page.setViewportSize(size); await settle(page); await expectFit(page)
+    await page.setViewportSize(size); await expectSameRelativeView(page, beforeResize)
   }
+  await viewport.focus(); await viewport.press('0'); await expectFit(page)
   await viewport.focus()
   for (let i = 0; i < 24; i++) await viewport.press('+')
   await expect.poll(async () => (await viewState(page)).zoom).toBe(8)

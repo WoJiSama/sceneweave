@@ -1,5 +1,7 @@
 # M1-B / B5 真实纹理性能与 M1-C 交接
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-20。应用版本：`0.2.0-m1-b5`。开发基线：`dadb099f82db8cbbc43ba24a260bca532c30f9cd`。本批建立 VIS-01「书房与露台」和 VIS-02「双层岩岛」的真实素材 500/2000 物件负载，记录可复核的分段时间和采样资源，修复预览与保存之间的解码并发预算。下一入口为 M1-C，周计划见[07](07-roadmap.md#43-b5-后的-m1-c-滚动周计划)。
 
 本批技术测量完成不等于完整 QA-PERF-01/04、主题 P3 或整个 M1 通过。v2 尚无平移、缩放和自由拖动；完整工作台的功能验证与专用测量入口分别记录。[M0](13-m0-validation.md)、[B1](17-m1b-b1-validation.md)、[B2](18-m1b-b2-validation.md)、[B3](19-m1b-b3-validation.md)、[B4](20-m1b-b4-validation.md)及旧证据保持历史原状。
@@ -104,7 +106,7 @@ RSS 是 macOS `ps` 目标间隔 100ms 的独立 Chrome root PID 及后代**同�
 
 baseline、已撤回的 candidate-reuse 和最终 final 各自完成 12 轮，并逐项对照核对同一夹具 ZIP 内所有条目字节，以及四组×GM/player 的完整 4K sRGB RGBA SHA-256。普通 B5 夹具没有新增秘密，保密正确性另由 B4 三组 48 格配对在最终回归中验证，不拿普通 GM/player 图相同替代秘密差分。
 
-复现命令和平台边界见[性能工具说明](../tools/performance/README.md)，原始采样、每轮数组、源/构建指纹、完整工程与缩图见[证据索引](evidence/m1-b5/README.md)。旧证据、原创素材和许可均不覆写。仓库保留可复核的 compact JSON 和 1024 缩图；真实 4K 的尺寸/PNG hash/RGBA hash 留档，原图在本轮本地交付目录，不把缩图用作像素比较输入。
+复现命令和平台边界见[性能工具说明](../tools/performance/README.md)，原始采样、每轮数组、源/构建指纹、完整工程与缩图见证据索引（原附件已清理，旧路径：`docs/evidence/m1-b5/README.md`）。旧证据、原创素材和许可均不覆写。仓库保留可复核的 compact JSON 和 1024 缩图；真实 4K 的尺寸/PNG hash/RGBA hash 留档，原图在本轮本地交付目录，不把缩图用作像素比较输入。
 
 ## 6. 下一入口
 

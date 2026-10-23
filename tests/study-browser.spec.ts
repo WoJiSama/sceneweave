@@ -89,6 +89,12 @@ test('VIS-01 groups retain expanded members through move, rotate, appearance swa
   const chairBefore = (await scene(page)).props['study-chair']
   const worn = Object.values(initial.propDefinitions).find((definition: any) => definition.catalogId === 'prop.sw.chair-worn') as any
   await page.getByLabel('物件外观变体').selectOption(worn.id)
+  await expect(page.getByRole('button', { name: '采用结构修改', exact: true })).toBeVisible()
+  expect((await scene(page)).props['study-chair']).toEqual(chairBefore)
+  await page.getByRole('button', { name: '取消结构预览', exact: true }).click()
+  expect((await scene(page)).props['study-chair']).toEqual(chairBefore)
+  await page.getByLabel('物件外观变体').selectOption(worn.id)
+  await page.getByRole('button', { name: '采用结构修改', exact: true }).click(); await saved(page)
   const chairAfter = (await scene(page)).props['study-chair']
   expect(chairAfter).toEqual({ ...chairBefore, definitionRef: { id: worn.id, version: 1 }, appearance: worn.defaultAppearance })
   await page.getByRole('button', { name: '选择整个书桌六件组', exact: true }).click()

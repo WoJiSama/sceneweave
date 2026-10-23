@@ -1,5 +1,7 @@
 # U2b：三库、个人整理与完整库备份
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 2026-10-23，用户授权“做u2a和u2b”。当前本地版本`0.2.0-m1-u2`。先在[40](40-u2a-catalog-contract.md)及04/06冻结独立catalog v1合同，再实现内容、仓库和界面。U1a/U1b及此前M1-D未提交工作保留；本批未commit/push或发布。
 
 用户已要求先需求开发与简单测试，完整回归等通知。本报告只记录本批定向检查和两个Chrome冒烟，不关闭完整QA-CAT、QA-WS-06、完整M1、C5或性能门。[34](34-performance-followup.md)的性能后置安排保持，35–39及更早记录和证据不改写。
@@ -32,7 +34,7 @@
 
 ## 实际简单检查
 
-各定向批次分别执行，不伪装为一次全量验收。结果摘要与保留的原始输出见[simple-checks.json](evidence/u2-catalog/simple-checks.json)。内容与查询代理只留执行回报摘要，未保存原始stdout，报告中明确注明；存储、守卫、类型及构建有原始日志。
+各定向批次分别执行，不伪装为一次全量验收。结果摘要与保留的原始输出见simple-checks.json（原附件已清理，旧路径：`docs/evidence/u2-catalog/simple-checks.json`）。内容与查询代理只留执行回报摘要，未保存原始stdout，报告中明确注明；存储、守卫、类型及构建有原始日志。
 
 | 检查 | 结果 | 范围/边界 |
 |---|---|---|
@@ -49,7 +51,7 @@
 
 窄屏旅程从首页创建工程，触摸打开资源抽屉，键盘Enter打开“铜色桌灯”详情，建立个人整理草稿；建筑/素材库面板往返后输入保持。关闭抽屉并回首页时守卫提示取消素材整理草稿；明确取消后可回首页，文档无横向溢出。未把这一小旅程当作全部键盘/触摸和P3视觉验收。
 
-首轮两项被脚本定位阻断：桌面使用了错误的嵌套相对`has`定位，窄屏检索误写“台灯”（实际名称“铜色桌灯”）；原报告/trace/截图保留在[browser-initial](evidence/u2-catalog/browser-initial/report.json)。修正定位和检索词后的独立批次为[browser-corrected](evidence/u2-catalog/browser-corrected/report.json)，不覆写原失败。初轮类型检查的BlobPart和泛型收窄错误已修复，失败日志同样保留。开发中发现的数据库关闭竞争已增加定向保护并复查。
+首轮两项被脚本定位阻断：桌面使用了错误的嵌套相对`has`定位，窄屏检索误写“台灯”（实际名称“铜色桌灯”）；原报告/trace/截图保留在browser-initial（原附件已清理，旧路径：`docs/evidence/u2-catalog/browser-initial/report.json`）。修正定位和检索词后的独立批次为browser-corrected（原附件已清理，旧路径：`docs/evidence/u2-catalog/browser-corrected/report.json`），不覆写原失败。初轮类型检查的BlobPart和泛型收窄错误已修复，失败日志同样保留。开发中发现的数据库关闭竞争已增加定向保护并复查。
 
 ## 未覆盖与后续
 
@@ -57,4 +59,4 @@
 
 下一开发入口按07为既有素材补标与墓地小样，再火山小样、M1-D完整续批和M2素材主线。AI、实例标签、自动提色、自动更新固定版本、仅整理清单及按需新建策略均没有随本批顺带实现。完整回归由用户后续通知启动。
 
-源码指纹见[source-fingerprints.json](evidence/u2-catalog/source-fingerprints.json)，收尾链接/范围及历史保全检查见[delivery-checks.json](evidence/u2-catalog/delivery-checks.json)。
+源码指纹见source-fingerprints.json（原附件已清理，旧路径：`docs/evidence/u2-catalog/source-fingerprints.json`），收尾链接/范围及历史保全检查见delivery-checks.json（原附件已清理，旧路径：`docs/evidence/u2-catalog/delivery-checks.json`）。

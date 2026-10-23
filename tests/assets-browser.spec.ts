@@ -94,10 +94,16 @@ test('asset workbench edits, undo, reload and complete import preserve all resou
   expect(imported.document.rooms).toEqual(edited.document.rooms)
   await page.getByRole('button', { name: '校验完整工程', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('完整工程校验通过')
-  const canvasBox = (await page.getByLabel('材质场景主持人预览').boundingBox())!, stageBox = (await page.locator('.asset-stage').boundingBox())!
-  expect(canvasBox.x).toBeGreaterThanOrEqual(stageBox.x)
-  expect(canvasBox.y).toBeGreaterThanOrEqual(stageBox.y)
-  expect(canvasBox.y + canvasBox.height).toBeLessThanOrEqual(stageBox.y + stageBox.height)
+  // A report changes the available viewport while preserving actual px/mm.
+  // Fitting the whole image is an explicit action under the U1b contract.
+  await page.getByRole('button', { name: '适应全图', exact: true }).click()
+  await expect.poll(() => page.locator('.asset-viewport').evaluate(element => ({ zoom: Number((element as HTMLElement).dataset.zoom), x: Number((element as HTMLElement).dataset.panX), y: Number((element as HTMLElement).dataset.panY) }))).toEqual({ zoom: 1, x: 0, y: 0 })
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  const canvasBox = (await page.getByLabel('材质场景主持人预览').boundingBox())!, viewportBox = (await page.locator('.asset-viewport').boundingBox())!
+  expect(canvasBox.x).toBeGreaterThanOrEqual(viewportBox.x - 2)
+  expect(canvasBox.y).toBeGreaterThanOrEqual(viewportBox.y - 2)
+  expect(canvasBox.x + canvasBox.width).toBeLessThanOrEqual(viewportBox.x + viewportBox.width + 2)
+  expect(canvasBox.y + canvasBox.height).toBeLessThanOrEqual(viewportBox.y + viewportBox.height + 2)
   // Ensure the preview has really decoded and drawn non-flat material pixels.
   const pixels = await page.getByLabel('材质场景主持人预览').evaluate((element: HTMLCanvasElement) => {
     const ctx = element.getContext('2d')!, bytes = ctx.getImageData(0, 0, element.width, element.height).data

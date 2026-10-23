@@ -60,7 +60,7 @@ async function goHome(page: Page) {
   await expect(home(page)).toBeVisible(); await expect(page).toHaveURL(/#home$/)
 }
 async function selectProp(page: Page, id = 'c3-left') {
-  await page.getByRole('tab', { name: '场景', exact: true }).click()
+  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
   await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
   await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
   await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
@@ -235,7 +235,7 @@ test('U1a unpreviewed appearance input retains its target across browsing and re
   await page.getByLabel('外观调整项目', { exact: true }).selectOption('brightness')
   await page.getByLabel('外观亮度', { exact: true }).fill('0.55')
   await page.getByRole('tab', { name: '素材库', exact: true }).click()
-  await page.getByRole('tab', { name: '场景', exact: true }).click()
+  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
   await expect(page.getByLabel('外观调整项目', { exact: true })).toHaveValue('brightness')
   await expect(page.getByLabel('外观亮度', { exact: true })).toHaveValue('0.55')
   await expect(page.getByRole('button', { name: '预览外观调整', exact: true })).toBeEnabled()

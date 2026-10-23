@@ -1,6 +1,6 @@
 # M1-A 首批素材制作清单
 
-状态：B2室内4材质/11物件/2Prefab及B3室外6材质/7物件作为原创P2候选用于VIS-01/02；M1-D新增海岸哨所1材质/5物件及补给组合，保持O/P2候选。更新：2026-10-23。保留SVG、PNG、作者声明、MIT、真实hash/尺寸/透明边界：[室内manifest](../assets/sceneweave-handdrawn/manifest.json)、[室外manifest](../assets/sceneweave-handdrawn-outdoor/manifest.json)、[哨所manifest](../assets/sceneweave-handdrawn-outpost/manifest.json)及[哨所来源](../assets/sceneweave-handdrawn-outpost/README.md)。首轮结果见[18](18-m1b-b2-validation.md)、[19](19-m1b-b3-validation.md)，B5技术负载见[21](21-m1b-b5-validation.md)；本批SCN-04首批实际结果与限制归[35](35-m1d-outpost-validation.md)。新增文件与技术检查不代表SCN-04、主题P3或用户美术签收通过。
+状态：既有B2/B3及哨所34图保持O/P2候选，本轮新增墓地5、火山5、自然精修6和室内家具7，共23图（8材质/15物件）及两组合，仍为O/P2；实测清单与对照在末节，结果见43。更新：2026-10-23。保留SVG、PNG、作者声明、MIT、真实hash/尺寸/透明边界：[室内manifest](../assets/sceneweave-handdrawn/manifest.json)、[室外manifest](../assets/sceneweave-handdrawn-outdoor/manifest.json)、[哨所manifest](../assets/sceneweave-handdrawn-outpost/manifest.json)及[哨所来源](../assets/sceneweave-handdrawn-outpost/README.md)。首轮结果见[18](18-m1b-b2-validation.md)、[19](19-m1b-b3-validation.md)，B5技术负载见[21](21-m1b-b5-validation.md)；本批SCN-04首批实际结果与限制归[35](35-m1d-outpost-validation.md)。新增文件与技术检查不代表SCN-04、主题P3或用户美术签收通过。
 
 视觉规范主定义见[14](14-visual-and-asset-system.md)，快照、引用与几何字段主定义见[04](04-scene-document.md)，工程/资产边界见[06](06-storage-and-export.md)，来源核验见[10](10-rules-assets-and-licensing.md)，固定内容见[08](08-test-scenarios.md)。制作清单不新增第二套资产Schema。
 
@@ -217,3 +217,39 @@ U1统一会话与面板稳定后，U2a须先冻结独立个人目录/组织身�
 实际生产沿用本表既有记录要求：源文件、作者/来源、许可及嵌入条件、固定定义/成员、真实资源hash/像素、透明度或平铺、世界视觉范围/锚点/占地、检索标注和人工评审结果缺一不得虚记完成。数量和尺寸在样品真实形成后登记；当前墓地/火山仅为计划范围，不设伪P1/P2/P3行。人工颜色描述标明对应固定源或变体，不以场景覆盖后的颜色回写全库；视觉标签也不推导游戏规则。
 
 验收分别记录组织可用性与视觉质量：QA-CAT-01—06检验目录范围/搜索、个人组织隔离、完整采用/离线、备份冲突、资源/许可/删除保护、颜色/缩略图可访问性；现有QA-ASSET/VIS检查继续用于真实小样。测试通过不能提升现有P2或代替P3美术签收。本次未运行产品测试、浏览器或构建，未开始数据清理；M1-D剩余完整旅程、M2素材流程和按34暂缓的性能欠项仍分别跟踪。
+
+## 2026-10-23墓地、火山、精修与室内补件（O/P2候选）
+
+准备阶段“未制作”保留当时背景，本批已实际形成23张PNG（8材质/15物件）与相应原创可编辑SVG，源与运行目录各有相同manifest/MIT。实际清单见[content manifest](../assets/sceneweave-handdrawn-content/manifest.json)，制作/复现与来源见[content README](../assets/sceneweave-handdrawn-content/README.md)，检查与对照见[43](43-content-m1d-validation.md)。未修改旧34图或同ID固定定义。P2仅用于当前开发候选/小样，不自行提升P3。
+
+下表物件世界范围为源默认图像矩形，材质为平铺尺寸，单位mm；真实占地另列，材质不定义物理占地。全部@1。PNG/SVG完整SHA与alpha边界由manifest逐件记录，许可为项目MIT。
+
+| 题材 / 名称 | 固定catalogId | PNG px | 世界范围 mm | 占地 mm / 阻挡 | 状态 |
+|---|---|---|---|---|---|
+| graveyard / 苔痕旧石板 | material.sw.moss-paver | 512×512 | 2000×2000 | 无 / 不定义 | O/P2 |
+| graveyard / 墓园细砾土 | material.sw.grave-soil | 512×512 | 2000×2000 | 无 / 不定义 | O/P2 |
+| graveyard / 苔痕墓碑顶盖 | prop.sw.headstone | 320×256 | 1250×1000 | 700×300 / 是 | O/P2 |
+| graveyard / 苔痕石棺 | prop.sw.sarcophagus | 320×640 | 1250×2500 | 700×1900 / 是 | O/P2 |
+| graveyard / 旧铁围栏短段 | prop.sw.iron-fence | 640×256 | 2500×1000 | 2000×160 / 是 | O/P2 |
+| volcano / 冷却玄武岩 | material.sw.basalt | 512×512 | 2000×2000 | 无 / 不定义 | O/P2 |
+| volcano / 细层火山灰 | material.sw.volcanic-ash | 512×512 | 2000×2000 | 无 / 不定义 | O/P2 |
+| volcano / 熔岩冷壳纹理 | material.sw.lava | 512×512 | 2000×2000 | 无 / 不定义 | O/P2 |
+| volcano / 气孔玄武岩块 | prop.sw.basalt-boulder | 448×384 | 1750×1500 | 1300×1000 / 是 | O/P2 |
+| volcano / 余热裂隙装饰 | prop.sw.volcanic-crack | 768×256 | 3000×1000 | 2400×300 / 否 | O/P2 |
+| refined / 阔叶树冠·精修 | prop.sw.tree-broadleaf.refined | 1152×1152 | 4500×4500 | 600×600 / 是 | O/P2 |
+| refined / 圆叶灌丛·精修 | prop.sw.shrub-round.refined | 448×384 | 1750×1500 | 600×500 / 否 | O/P2 |
+| refined / 灰绿碎石簇·精修 | prop.sw.rock-small.refined | 320×256 | 1250×1000 | 800×600 / 否 | O/P2 |
+| refined / 簇生草地·精修 | material.sw.grass.refined | 1024×1024 | 4000×4000 | 无 / 不定义 | O/P2 |
+| refined / 灰绿裸岩·精修 | material.sw.rock.refined | 512×512 | 2000×2000 | 无 / 不定义 | O/P2 |
+| refined / 细砂岸地·精修 | material.sw.sand.refined | 1024×1024 | 4000×4000 | 无 / 不定义 | O/P2 |
+| interior / 挂衣木架 | prop.sw.coat-rack | 256×256 | 1000×1000 | 500×500 / 是 | O/P2 |
+| interior / 磨边木长凳 | prop.sw.bench | 512×256 | 2000×1000 | 1600×500 / 是 | O/P2 |
+| interior / 灰石炉台 | prop.sw.hearth | 512×320 | 2000×1250 | 1600×900 / 是 | O/P2 |
+| interior / 旧木操作桌 | prop.sw.worktable | 512×256 | 2000×1000 | 1800×800 / 是 | O/P2 |
+| interior / 矮木边柜 | prop.sw.sideboard | 512×256 | 2000×1000 | 1600×600 / 是 | O/P2 |
+| interior / 绿毯单人床 | prop.sw.bed-single | 384×640 | 1500×2500 | 1100×2100 / 是 | O/P2 |
+| interior / 旧木衣柜 | prop.sw.wardrobe | 448×256 | 1750×1000 | 1400×600 / 是 | O/P2 |
+
+新增固定组合：`prefab.sw.graveyard-memorial@1`（墓碑顶盖、石棺、铁栏）与`prefab.sw.volcanic-rock-cluster@1`（两块玄武岩与裂隙），保存真实成员模板，均为公开O/P2候选。墓地/火山各一个20×16m可编辑小构图。
+
+六项`.refined@1`记录`refines`旧catalogId/version/assetSHA，像素/毫米范围、占地偏移、阻挡、渲染与阴影类别逐字段保持。全内置62项（38物件/19材质/5组合）读取57张实际图，原空白仍37项/34图；本批实际新增PNG合计1,079,491B。既有37项与新项的用途/场景/人工多色补标在独立只读索引，精确绑定完整身份，不改旧发布者tags、工程或个人组织/备份。

@@ -11,7 +11,7 @@ const stats=(samples:number[])=>{
 
 test('measure 500 and 2000 procedural props with continuous pointer input',async({page,browser},testInfo)=>{
   test.setTimeout(120_000)
-  await page.goto('/')
+  await page.goto('/#geometry')
   await expect(page.getByText('本地已保存',{exact:true})).toBeVisible()
   const results=[]
   for(const count of [500,2000] as const){

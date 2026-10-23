@@ -1,8 +1,10 @@
 # M1-C / C5 联合验收记录
 
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](46-validation-retention-audit.md#7-按用户要求执行清理)。
+
 日期：2026-10-22至2026-10-23。状态：**功能联合回归及最终正常生产复验已完成；三批正式性能测量均已停止，完整矩阵未完成，性能门未通过。** 当前本地版本 `0.2.0-m1-c5`，起始提交为 `main / 8fcf8ed835778da59fcf564a39ae9c5c0b2d7303`。本批核对同一严格v6工程中的建筑、室外、组件/参数、图层、选择/菜单、命名历史及存档边界；保持identity3、appearance1和有效严格v3场景，不新增持久化格式。
 
-下列记录属于各自实际执行的批次。最终源码的979项单元、168项真实Chrome与正常生产流程均通过；原始正式批次完整轮次子集的普通领域提交p95为1095.5–3613ms，明显超过100ms。**功能通过不能关闭C5整体、完整M1或全交互性能门槛，本批未进入M1-D/M2。** 三批性能记录独立统计，partial/pending不补为成功样本。本批未提交、推送或发布；C4及此前历史报告、证据和用户已有编辑继续保留。范围依据为[07路线图](07-roadmap.md)、[09质量计划](09-quality-plan.md)及本批[执行矩阵](../work/c5-20261022/matrix.md)。
+下列记录属于各自实际执行的批次。最终源码的979项单元、168项真实Chrome与正常生产流程均通过；原始正式批次完整轮次子集的普通领域提交p95为1095.5–3613ms，明显超过100ms。**功能通过不能关闭C5整体、完整M1或全交互性能门槛，本批未进入M1-D/M2。** 三批性能记录独立统计，partial/pending不补为成功样本。本批未提交、推送或发布；C4及此前历史报告、证据和用户已有编辑继续保留。范围依据为[07路线图](07-roadmap.md)、[09质量计划](09-quality-plan.md)及本批执行矩阵（原附件已清理，旧路径：`work/c5-20261022/matrix.md`）。
 
 原始现场位于本地 `work/c5-20261022`。本批独立归档、配置驱动事实表及机械核查单列于后文；归档核查只确认记录完整和合同一致，不改变`completeFormalMatrix=false`、`performanceGatePassed=false`。原始runner字节缺失与部分旧回归外部附件仅保留本地路径的边界继续明确记录。
 
@@ -10,17 +12,17 @@
 
 | 批次 | 实际结果 | 证据与解释 |
 | --- | --- | --- |
-| 优化前集成单元 | 81文件、970/970通过，68.36秒 | [JSON](../work/c5-20261022/unit-integration.json)、[日志](../work/c5-20261022/unit-integration.log)；这是优化前集成批，不是最终冻结源码结果 |
-| 优化前正常构建 | `npm run build`成功，Vite构建2.63秒 | [日志](../work/c5-20261022/build-integration.log)；含类型检查，保留主包大于500kB提示，不作性能通过依据 |
-| corrected联合Chrome专项 | 6/6通过，47.235秒；0失败、0跳过、0重试通过 | [日志](../work/c5-20261022/joint-corrected.log)、[原始HTML reporter](../work/c5-20261022/joint-corrected-report/index.html)；3项跨工具/受众UI＋3项原生存储联合测试，不是全量Chrome回归 |
-| 初次正常生产页面 | `run-2026-10-22T15-52-49-262Z`为passed | [实际报告](../work/c5-20261022/production-ui/run-2026-10-22T15-52-49-262Z/report.json)、[日志](../work/c5-20261022/production-initial.log)；正常构建/preview、仅实际UI与下载内容核查，属于初次集成版本 |
-| 诊断1、2 | 两批均failed，未形成完成的正式case/run | 各自[日志1](../work/c5-20261022/perf-diagnostic-1.log)、[manifest1](../work/c5-20261022/perf-diagnostic-1/manifest.json)、[日志2](../work/c5-20261022/perf-diagnostic-2.log)、[manifest2](../work/c5-20261022/perf-diagnostic-2/manifest.json)独立保留 |
-| CPU诊断3 | 单个study-500、单轮、28条观测完成；`diagnostic-c5-cpu-profile` | [日志](../work/c5-20261022/perf-diagnostic-3.log)、[manifest](../work/c5-20261022/perf-diagnostic-3/manifest.json)、[summary](../work/c5-20261022/perf-diagnostic-3/summary.json)及[原始CPU profile](../work/c5-20261022/perf-diagnostic-3/study-500-run-1-ordinary-edit-1.cpuprofile)；用于定位，不属于正式性能证据 |
-| 优化后诊断4 | 单个study-500、单轮、28条观测完成，无CPU profile | [日志](../work/c5-20261022/perf-diagnostic-4.log)、[manifest](../work/c5-20261022/perf-diagnostic-4/manifest.json)、[summary](../work/c5-20261022/perf-diagnostic-4/summary.json)；仍为低次数诊断，不并入正式矩阵 |
-| 最终单元 | 82文件、979/979通过，68.85秒 | [JSON](../work/c5-20261022/unit-final.json)、[日志](../work/c5-20261022/unit-final.log)；349份冻结源码/测试/工具/配置的最终批次 |
-| 最终正常构建 | 类型检查与正常生产构建成功，Vite 2.75秒 | [日志](../work/c5-20261022/build-final.log)；保留既有chunk大于500kB与第三方注释提示 |
-| 最终全量Chrome | 168/168通过，770381.158ms；0失败、0跳过、0重试通过 | [日志](../work/c5-20261022/browser-final.log)、[原始HTML reporter](../work/c5-20261022/browser-final-report/index.html)；含C5六项，不与corrected批次相加 |
-| 最终正常生产页面 | `run-2026-10-22T16-32-53-066Z`为passed，46.791秒 | [实际报告](../work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/report.json)、[日志](../work/c5-20261022/production-final.log)；页面与全部15个JS/CSS匹配最终dist，无产品dev/perf API |
+| 优化前集成单元 | 81文件、970/970通过，68.36秒 | JSON（原附件已清理，旧路径：`work/c5-20261022/unit-integration.json`）、日志（原附件已清理，旧路径：`work/c5-20261022/unit-integration.log`）；这是优化前集成批，不是最终冻结源码结果 |
+| 优化前正常构建 | `npm run build`成功，Vite构建2.63秒 | 日志（原附件已清理，旧路径：`work/c5-20261022/build-integration.log`）；含类型检查，保留主包大于500kB提示，不作性能通过依据 |
+| corrected联合Chrome专项 | 6/6通过，47.235秒；0失败、0跳过、0重试通过 | 日志（原附件已清理，旧路径：`work/c5-20261022/joint-corrected.log`）、原始HTML reporter（原附件已清理，旧路径：`work/c5-20261022/joint-corrected-report/index.html`）；3项跨工具/受众UI＋3项原生存储联合测试，不是全量Chrome回归 |
+| 初次正常生产页面 | `run-2026-10-22T15-52-49-262Z`为passed | 实际报告（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T15-52-49-262Z/report.json`）、日志（原附件已清理，旧路径：`work/c5-20261022/production-initial.log`）；正常构建/preview、仅实际UI与下载内容核查，属于初次集成版本 |
+| 诊断1、2 | 两批均failed，未形成完成的正式case/run | 各自日志1（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-1.log`）、manifest1（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-1/manifest.json`）、日志2（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-2.log`）、manifest2（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-2/manifest.json`）独立保留 |
+| CPU诊断3 | 单个study-500、单轮、28条观测完成；`diagnostic-c5-cpu-profile` | 日志（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-3.log`）、manifest（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-3/manifest.json`）、summary（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-3/summary.json`）及原始CPU profile（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-3/study-500-run-1-ordinary-edit-1.cpuprofile`）；用于定位，不属于正式性能证据 |
+| 优化后诊断4 | 单个study-500、单轮、28条观测完成，无CPU profile | 日志（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-4.log`）、manifest（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-4/manifest.json`）、summary（原附件已清理，旧路径：`work/c5-20261022/perf-diagnostic-4/summary.json`）；仍为低次数诊断，不并入正式矩阵 |
+| 最终单元 | 82文件、979/979通过，68.85秒 | JSON（原附件已清理，旧路径：`work/c5-20261022/unit-final.json`）、日志（原附件已清理，旧路径：`work/c5-20261022/unit-final.log`）；349份冻结源码/测试/工具/配置的最终批次 |
+| 最终正常构建 | 类型检查与正常生产构建成功，Vite 2.75秒 | 日志（原附件已清理，旧路径：`work/c5-20261022/build-final.log`）；保留既有chunk大于500kB与第三方注释提示 |
+| 最终全量Chrome | 168/168通过，770381.158ms；0失败、0跳过、0重试通过 | 日志（原附件已清理，旧路径：`work/c5-20261022/browser-final.log`）、原始HTML reporter（原附件已清理，旧路径：`work/c5-20261022/browser-final-report/index.html`）；含C5六项，不与corrected批次相加 |
+| 最终正常生产页面 | `run-2026-10-22T16-32-53-066Z`为passed，46.791秒 | 实际报告（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/report.json`）、日志（原附件已清理，旧路径：`work/c5-20261022/production-final.log`）；页面与全部15个JS/CSS匹配最终dist，无产品dev/perf API |
 
 初次和最终生产报告均记录Chrome `156.0.8078.47`。349份冻结源码/测试/工具/配置的指纹捕获于 `2026-10-22T16:19:38.248Z`；其后唯一变化为性能runner增加可配置等待时长，其余348份一致。该工具例外与原始声明hash/当前hash/实际字节单列，不能把当前runner标为原始字节。正式性能的环境、DPR、负载构成与构建指纹按各批manifest独立记录，不继承旧批结果。
 
@@ -52,7 +54,7 @@ node work/c5-20261022/production-runner.mjs
 
 ## 初次正常生产页面
 
-实际运行目录为[run-2026-10-22T15-52-49-262Z](../work/c5-20261022/production-ui/run-2026-10-22T15-52-49-262Z/)。[runner-used.mjs](../work/c5-20261022/production-ui/run-2026-10-22T15-52-49-262Z/runner-used.mjs)只操作正常生产UI和下载内容，不导入产品源码，不调用开发/性能API；页面 `__sceneweave*` API名单为空。
+实际运行目录为run-2026-10-22T15-52-49-262Z（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T15-52-49-262Z`）。runner-used.mjs（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T15-52-49-262Z/runner-used.mjs`）只操作正常生产UI和下载内容，不导入产品源码，不调用开发/性能API；页面 `__sceneweave*` API名单为空。
 
 从20×20m空白新建，18个内置物件定义、10种材质、28张图全部实际解码。建筑工具绘房后新建家具层，放置两把明确房间支撑的椅子，保存固定组合并采用有限外观；再创建带材质地形、显式Floor支撑道路、固定散布并显式生成。r10建立“C5 书房与庭院基线”命名快照，之后分别修改地形、道路和组件参数。重开后只恢复地形几何，由r14到r15，落1保护点，保留道路1200mm、6个物件、后改旋转20°、建筑/组合和外观/图层归属。
 
@@ -64,7 +66,7 @@ GM/玩家PNG均为4096×4096、各1528271字节，解码像素hash同为 `1c0e5e
 
 ## 最终正常生产页面
 
-[最终生产报告](../work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/report.json)对应优化后冻结源码，运行于 `2026-10-22T16:32:53.067Z` 至 `16:33:39.858Z`。独立HTTP核对正常preview的index及全部15份JS/CSS与当前dist逐字节一致，见[核对记录](../work/c5-20261022/preview-final-server-verification.json)。运行不调用开发/性能API；与初次生产分开保留。
+最终生产报告（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/report.json`）对应优化后冻结源码，运行于 `2026-10-22T16:32:53.067Z` 至 `16:33:39.858Z`。独立HTTP核对正常preview的index及全部15份JS/CSS与当前dist逐字节一致，见核对记录（原附件已清理，旧路径：`work/c5-20261022/preview-final-server-verification.json`）。运行不调用开发/性能API；与初次生产分开保留。
 
 同一20×20m工程从空白新建，18定义、10材质、28原图实际解码；绘房、两把明确room支撑的椅子/固定组合、家具层及外观、地形/道路/散布依次采用。r10命名后编辑到r14，重开后仅恢复所选地形几何到r15，创建1保护点；道路1200mm、6物件、后改20°旋转、建筑/组合、appearance和层归属均保持。再次重开完整内容hash为 `7cdb3da3a0e537bf5804413a183cf3cd2c0c73617dddce566fab2024218e356a`，与采用后相同。
 
@@ -72,11 +74,11 @@ GM/玩家PNG均为4096×4096、各1528271字节，解码像素hash同为 `1c0e5e
 
 双受众PNG均为4096×4096、1526789字节，文件SHA-256同为 `73f40602ee17b6194be2447c657c5c083300da7801d4f903b6e917ac050cbac4`，RGBA hash为 `b9039cd19397d2231325ebc30f37e2d7e4c9b71ee58b8f5e333c42b75134eff8`；只含IHDR/IDAT/IEND。该生产工程全公开，所以两图相同；秘密变化隔离由最终Chrome中的独立配对证明。
 
-已目视[桌面恢复](../work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/mixed-restore-desktop.png)、[390px重开](../work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/mixed-reopened-390.png)及[GM 4K](../work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/gm-4k.png)：实际材质/椅子/道路/树冠可见，恢复差异面板与画布分开，窄屏纵向排列。两次窄屏scrollWidth均390，无横向溢出；不由此推定完整美术或可访问性通过。pageerror为空；只保留默认favicon.ico的404记录，没有地图资源错误。
+已目视桌面恢复（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/mixed-restore-desktop.png`）、390px重开（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/mixed-reopened-390.png`）及GM 4K（原附件已清理，旧路径：`work/c5-20261022/production-ui/run-2026-10-22T16-32-53-066Z/gm-4k.png`）：实际材质/椅子/道路/树冠可见，恢复差异面板与画布分开，窄屏纵向排列。两次窄屏scrollWidth均390，无横向溢出；不由此推定完整美术或可访问性通过。pageerror为空；只保留默认favicon.ico的404记录，没有地图资源错误。
 
 ## CPU证据与有限优化
 
-[CPU分析](../work/c5-20261022/cpu-analysis.md)与[完整映射](../work/c5-20261022/cpu-analysis.json)核对诊断3的profile、67个压缩函数位置/源码符号以及4份原JS产物hash。普通编辑领域提交2464.6ms；提交前严格场景解析约占采样权重30.5%，迁移导入/ZIP并集约43.9%，纯外观resolve约1.8%。分类是inclusive，存在嵌套重叠，不能相加；时钟对齐误差、敏感性与profile开销均保留。这是单次诊断，不能作最终p95。
+CPU分析（原附件已清理，旧路径：`work/c5-20261022/cpu-analysis.md`）与完整映射（原附件已清理，旧路径：`work/c5-20261022/cpu-analysis.json`）核对诊断3的profile、67个压缩函数位置/源码符号以及4份原JS产物hash。普通编辑领域提交2464.6ms；提交前严格场景解析约占采样权重30.5%，迁移导入/ZIP并集约43.9%，纯外观resolve约1.8%。分类是inclusive，存在嵌套重叠，不能相加；时钟对齐误差、敏感性与profile开销均保留。这是单次诊断，不能作最终p95。
 
 据此实现以下有限优化，持久格式不变：
 
@@ -112,11 +114,11 @@ GM/玩家PNG均为4096×4096、各1528271字节，解码像素hash同为 `1c0e5e
 
 | 原始批次 | 实际状态 | 保留方式与后续 |
 | --- | --- | --- |
-| ui-initial | No tests found，0项实际执行 | [日志](../work/c5-20261022/ui-initial.log)、[reporter](../work/c5-20261022/ui-initial-report/index.html)；不能把reporter的0/0当成产品通过 |
-| ui-verified | 3项中2过1败 | [日志](../work/c5-20261022/ui-verified.log)、[reporter](../work/c5-20261022/ui-verified-report/index.html)，失败截图/error-context/trace保留 |
-| ui-budget-recheck | 仅重跑预算/锁项，0过1败 | [日志](../work/c5-20261022/ui-budget-recheck.log)、[reporter](../work/c5-20261022/ui-budget-recheck-report/index.html)；与其他批次独立 |
-| joint-verified | 6项中4过2败 | [日志](../work/c5-20261022/joint-verified.log)、[reporter](../work/c5-20261022/joint-verified-report/index.html)；失败为跨工具拒绝项与完整迁移链续编项 |
-| joint-corrected | 同六项6/6 | [日志](../work/c5-20261022/joint-corrected.log)及原始reporter；保持旧失败，不把通过数和早期批次相加 |
+| ui-initial | No tests found，0项实际执行 | 日志（原附件已清理，旧路径：`work/c5-20261022/ui-initial.log`）、reporter（原附件已清理，旧路径：`work/c5-20261022/ui-initial-report/index.html`）；不能把reporter的0/0当成产品通过 |
+| ui-verified | 3项中2过1败 | 日志（原附件已清理，旧路径：`work/c5-20261022/ui-verified.log`）、reporter（原附件已清理，旧路径：`work/c5-20261022/ui-verified-report/index.html`），失败截图/error-context/trace保留 |
+| ui-budget-recheck | 仅重跑预算/锁项，0过1败 | 日志（原附件已清理，旧路径：`work/c5-20261022/ui-budget-recheck.log`）、reporter（原附件已清理，旧路径：`work/c5-20261022/ui-budget-recheck-report/index.html`）；与其他批次独立 |
+| joint-verified | 6项中4过2败 | 日志（原附件已清理，旧路径：`work/c5-20261022/joint-verified.log`）、reporter（原附件已清理，旧路径：`work/c5-20261022/joint-verified-report/index.html`）；失败为跨工具拒绝项与完整迁移链续编项 |
+| joint-corrected | 同六项6/6 | 日志（原附件已清理，旧路径：`work/c5-20261022/joint-corrected.log`）及原始reporter；保持旧失败，不把通过数和早期批次相加 |
 | perf-diagnostic-1 | 近期工程按钮处等待超时 | 原始partial failure、资源采样、截图和日志保留；未完成矩阵 |
 | perf-diagnostic-2 | 完成若干操作后页面/控制台错误检查失败 | 原始partial failure、完整下载与资源/错误记录保留；不删慢样本，也不把诊断失败算作正式性能结果 |
 | perf-diagnostic-3 | 单轮CPU profile诊断完成 | CPU采样仅覆盖首个普通编辑窗口，含诊断开销；不能与无profile的正式结果混并 |
@@ -156,12 +158,12 @@ SCN-02完整地下城与三场景真实小团属于后续相应阶段。本批�
 
 ## 独立归档与机械核查
 
-三批均已停止，未完成部分按失败现场归档，不再等待不存在的完整summary。独立目录为`docs/evidence/m1-c5`；[证据索引](evidence/m1-c5/evidence-index.json)保留配置、受保护历史基线、冻结源码/构建指纹、35份原始日志/JSON无损压缩、6份原始reporter ZIP及24份C5/失败附件、两次生产完整内容、四批诊断/CPU产物和三批性能完整树。性能树共132份文件，诊断树共47份文件，CPU基线另有4份dist产物。旧回归非C5大附件的实际本地路径、hash/大小继续保留在reporter索引；这不冒充它们的完整分发备份。
+三批均已停止，未完成部分按失败现场归档，不再等待不存在的完整summary。独立目录为`docs/evidence/m1-c5`；证据索引（原附件已清理，旧路径：`docs/evidence/m1-c5/evidence-index.json`）保留配置、受保护历史基线、冻结源码/构建指纹、35份原始日志/JSON无损压缩、6份原始reporter ZIP及24份C5/失败附件、两次生产完整内容、四批诊断/CPU产物和三批性能完整树。性能树共132份文件，诊断树共47份文件，CPU基线另有4份dist产物。旧回归非C5大附件的实际本地路径、hash/大小继续保留在reporter索引；这不冒充它们的完整分发备份。
 
 唯一冻结工具例外为`tools/performance/run-c5.mjs`：原声明SHA-256 `ea4d297266df24db86d28819b4f61dc45a6bc0b5b35398dd4ee60e6530b666a6`（55826字节），当前SHA-256 `64591983a8a7d28bc37a12f9e71d01eb4c8b633da02afb184540fcaeafdbe1fb`（56110字节）。仅增加可配置等待，默认60000ms、补测180000ms；原始runner字节不可得，保留声明和当前实际字节，不以当前文件冒充原件。delivery-config的toolingDeviations与仅对应原始批的runnerHashExceptions精确声明该例外，其余348份源码及其他不匹配仍必须拒绝。
 
-离线收尾已按`report-formal.mjs`→`archive-evidence.py`→`verify-evidence.py`→`final-checks.py`实际顺序执行，不启动浏览器、测试、构建或新测量。[证据复核](evidence/m1-c5/evidence-verification.json)包含每批全部树成员和原字节/hash、无summary/finishedAt、partial/pending/probe/失败原因与日志状态、完整轮次可信输入/时钟/时延/资源/网络、8种时延字段按case/run独立分布及9行perRun p95复算、PNG实际解码、ZIP CRC/资源/许可/身份/快照闭包及349份源码与48份构建产物；348份冻结源码未变，唯一工具例外按上述声明处理。最终执行脚本以证据索引的`scripts`清单中内容寻址版本为准；根目录`*-used.py`保留首次归档快照，不覆盖历史字节。
+离线收尾已按`report-formal.mjs`→`archive-evidence.py`→`verify-evidence.py`→`final-checks.py`实际顺序执行，不启动浏览器、测试、构建或新测量。证据复核（原附件已清理，旧路径：`docs/evidence/m1-c5/evidence-verification.json`）包含每批全部树成员和原字节/hash、无summary/finishedAt、partial/pending/probe/失败原因与日志状态、完整轮次可信输入/时钟/时延/资源/网络、8种时延字段按case/run独立分布及9行perRun p95复算、PNG实际解码、ZIP CRC/资源/许可/身份/快照闭包及349份源码与48份构建产物；348份冻结源码未变，唯一工具例外按上述声明处理。最终执行脚本以证据索引的`scripts`清单中内容寻址版本为准；根目录`*-used.py`保留首次归档快照，不覆盖历史字节。
 
-[最终检查](evidence/m1-c5/final-checks.json)核对826份历史保护文件与todo起始hash保持；40份文档、892处本地引用、12处锚点、230个表格及67项QA编号有效。869份文本载荷的目标凭据/私人资料模式无命中，本批排除未改写的用户todo.md后空白检查通过；该文件原有空白保留，工作区仍未暂存、提交、推送或发布。证据复核与最终检查均为`allPassed=true`，只表示上述机械核查通过；`completeFormalMatrix=false`、`performanceGatePassed=false`保持。
+最终检查（原附件已清理，旧路径：`docs/evidence/m1-c5/final-checks.json`）核对826份历史保护文件与todo起始hash保持；40份文档、892处本地引用、12处锚点、230个表格及67项QA编号有效。869份文本载荷的目标凭据/私人资料模式无命中，本批排除未改写的用户todo.md后空白检查通过；该文件原有空白保留，工作区仍未暂存、提交、推送或发布。证据复核与最终检查均为`allPassed=true`，只表示上述机械核查通过；`completeFormalMatrix=false`、`performanceGatePassed=false`保持。
 
 最终功能回归与生产结果已独立登记，正式性能矩阵未完成、普通编辑100ms目标未达，不据功能通过交接M1-D。完整M1、主题P3、真实配额、跨浏览器、小团、AI、Worker、PWA与UVTT继续各自验收。

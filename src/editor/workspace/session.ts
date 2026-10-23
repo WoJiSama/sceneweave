@@ -3,7 +3,7 @@ import type { ProjectReference } from './project-registry'
 export type WorkspaceRequest =
   | { type: 'new' }
   | { type: 'import' }
-  | { type: 'sample'; sample: 'study' | 'island' | 'outpost' | 'calibration' }
+  | { type: 'sample'; sample: 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano' }
   | { type: 'open'; reference: ProjectReference }
   | { type: 'reload' }
 
