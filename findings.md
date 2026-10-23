@@ -193,3 +193,5 @@ U1b布局pref采用sceneweave:workspace-layout:v1，两个展开宽度+三项折
 现有workspace.previewPrepared提供严格append-only目录候选入口，采用继续同一revision/undo/CAS；新库不改场景语义。用只含所选固定闭包的中性v6载体复用实际PNG/派生像素/许可/ZIP校验，明确禁止场景几何、历史及迁移原件入库。个人组织独立CAS，组合必须复制确切prefabAppearanceTemplates及私密性。原空白34图预装保留。
 
 U2最终：内容API以中性原生v6载体复用严格IO；独立catalog v1不改变工程格式。个人整理只有库revision，采用才revision+1/undo；同逻辑异内容连org-only记录也拒绝。完整备份仅选中安装条目，JSON内嵌真实v6 ZIP与许可，不含工程/历史/迁移原件。默认新建仍预装34PNG。完整QA-CAT与旧版/历史/双受众4K/性能后置，不把小单元或两个Chrome旅程升级为全验收。
+
+2026-10-23累计交付核对：M1-D、U1和U2此前相关脏文件共205份；仅todo.md为独立编辑排除。素材实际布局为assets/SVG源与public/PNG，分别按sourceSha256与图片hash/尺寸检查。GitHub接受88.79MiB压缩历史报告但给建议警告；原报告和日志保留，不在提交任务内启动数据清理或LFS迁移。下一开发任务保持既有补标＋墓地小样，随后火山、M1-D完整旅程及M2。
