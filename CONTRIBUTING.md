@@ -1,6 +1,6 @@
 # 贡献说明
 
-织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，M2-0f默认主路径已切到新完整v1、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library。旧整页入口退役，兼容边界保留严格读取、只读发现/完整保全转换与原件取回；不自动迁移真实用户数据。f适用必要检查、混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)，最终批次以报告为准；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5部署配置已实现、真实HTTPS服务待资料；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09，34正式性能继续后置，不关闭QA-AI-16、完整M1或性能门。
+织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，M2-0f默认主路径已切到新完整v1、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library。旧整页入口退役，兼容边界保留严格读取、只读发现/完整保全转换与原件取回；不自动迁移真实用户数据。f适用必要检查、混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)，最终批次以报告为准；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5服务器容器及受信任IP HTTPS已部署，Pages公开地址已配置，必要线上创作/采用/保存导出旅程已通过，见05第15节；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09，34正式性能继续后置，不关闭QA-AI-16、完整M1或性能门。
 
 室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/28-m1c-c2-validation.md)，C3组件与参数外观见[29](docs/29-m1c-c3-validation.md)，C4室外工具与有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合验证和现版性能结论归[32](docs/32-m1c-c5-validation.md)。完整M1、主题P3、SCN-04与全交互性能仍按各自门槛判断；新模型同步格式、迁移和验收。
 
@@ -56,7 +56,7 @@ npm run ai:build
 npm run ai:start
 ```
 
-另一个终端运行`npm run dev`。在统一工作区“AI对话”填写后端地址和`.env.ai`中的应用访问凭据，点击连接；页面不填写provider key。应用凭据仅本次页面内存，刷新后重新输入；模型/地址由服务器固定。生产前端可通过`VITE_SCENEWEAVE_AI_URL`设置公开后端origin；真实HTTPS部署另归M2-5，当前仅有部署脚手架，尚未部署。使用127.0.0.1与localhost时需分别配置准确Origin。
+另一个终端运行`npm run dev`。在统一工作区“AI对话”填写后端地址和`.env.ai`中的应用访问凭据，点击连接；页面不填写provider key。应用凭据仅本次页面内存，刷新后重新输入；模型/地址由服务器固定。生产前端可通过`VITE_SCENEWEAVE_AI_URL`设置公开后端origin；M2-5已部署[公网HTTPS后端](https://124.223.95.142)，[Pages前端](https://wojisama.github.io/sceneweave/)已预填该地址，必要线上创作/采用/保存导出旅程已通过，详05第15节。使用127.0.0.1与localhost时需分别配置准确Origin。
 
 ```sh
 npm run ai:test
@@ -103,15 +103,15 @@ docker compose --env-file .env.deploy -f deploy/compose.yaml -f deploy/compose.i
 curl --fail --silent --show-error https://203.0.113.10/healthz
 ```
 
-IP 方案使用`deploy/Caddyfile.ip`：显式指定 Let's Encrypt ACME issuer 和`shortlived`证书配置，以 TLS-ALPN-01 在 443 完成验证；禁用 HTTP challenge 和自动 HTTP 跳转，保留现有 80 端口服务。全局`default_sni`指向该公网 IP，使浏览器不发送 SNI 时，Docker/NAT 后的服务也能选择正确的 IP 证书。IP 证书有效期为 **160 小时**，由持续运行的 Caddy 自动续期，必须保留`caddy-data`卷和公网验证通路；不能把默认的内部 CA 证书当作浏览器已信任的证书。此配置固定使用上述 Caddy 版本，不将旧版本的 ACME profile 支持等同于完整的 IP/TLS-ALPN 支持。
+IP 方案使用`deploy/Caddyfile.ip`：显式指定 Let's Encrypt ACME issuer 和`shortlived`证书配置，以 TLS-ALPN-01 在 443 完成验证；禁用 HTTP challenge 和自动 HTTP 跳转，保留现有 80 端口服务。全局`default_sni`指向该公网 IP，使浏览器不发送 SNI 时，Docker/NAT 后的服务也能选择正确的 IP 证书。IP 证书有效期为 **160 小时**，由持续运行的 Caddy 自动续期，必须保留`caddy-data`卷、公网 TCP 443 验证通路、服务器正确时钟，以及到 ACME 服务的出站 HTTPS；不能把默认的内部 CA 证书当作浏览器已信任的证书。此配置固定使用上述 Caddy 版本，不将旧版本的 ACME profile 支持等同于完整的 IP/TLS-ALPN 支持。
 
 依据为 [Let's Encrypt 的 IP/短期证书正式开放公告](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability/)、[验证类型说明](https://letsencrypt.org/docs/challenge-types/)、[Caddy ACME issuer 配置](https://caddyserver.com/docs/caddyfile/directives/tls#acme)及[默认 SNI 配置](https://caddyserver.com/docs/caddyfile/options#default-sni)。这些资料说明方案可用，不代替目标服务器的实际证书签发与浏览器检查。
 
-`deploy/ai.env.example`中的`SCENEWEAVE_AI_ALLOWED_ORIGINS`必须写 Pages 的精确Origin，例如`https://wojisama.github.io`，不带`/sceneweave/`路径；若另有自定义域名，按逗号加入完整Origin。应用访问令牌和模型供应商密钥只放在服务器的`.env.ai.production`，不能提交仓库，也不能以`VITE_`前缀或GitHub Pages变量发布。数据卷和 Caddy 证书卷应纳入服务器备份；只允许一个 AI 容器实例独占数据卷，更新前用`docker compose ... up -d --build`，服务重启后会按协议将未决任务置为暂停并保留可查询进度。
+`deploy/ai.env.example`中的`SCENEWEAVE_AI_ALLOWED_ORIGINS`必须写 Pages 的精确Origin，例如`https://wojisama.github.io`，不带`/sceneweave/`路径；若另有自定义域名，按逗号加入完整Origin。应用访问令牌和模型供应商密钥只放在服务器的`.env.ai.production`，不能提交仓库，也不能以`VITE_`前缀或GitHub Pages变量发布。数据卷和 Caddy 证书卷应纳入服务器备份；只允许一个 AI 容器实例独占数据卷，更新时用`docker compose ... up -d --build`，服务重启后会按协议将未决任务置为暂停并保留可查询进度。IP 部署的更新、检查、重启和停止命令始终同时传入`-f deploy/compose.yaml -f deploy/compose.ip.yaml`；遗漏覆盖文件可能重新占用 80 端口或换回域名证书配置。不要用`down -v`删除任务及证书卷，恢复数据卷前先停止唯一 AI 实例。
 
-Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。**HTTPS Pages 无法调用公网 HTTP 后端**，浏览器会阻止这类混合内容；CORS 配置不能解除该限制。容器内的 HTTP 转发不影响浏览器对公网 HTTPS 的要求。证书签发并实际验证后，将仓库变量设为`https://ai.example.com`或`https://实际公网IP`，再手动运行或推送触发 Pages 工作流。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。检查命令中的示例域名/IP也应替换成实际部署地址。
+Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。**HTTPS Pages 无法调用公网 HTTP 后端**，浏览器会阻止这类混合内容；CORS 配置不能解除该限制。容器内的 HTTP 转发不影响浏览器对公网 HTTPS 的要求。证书签发并实际验证后，将仓库变量设为`https://ai.example.com`或`https://实际公网IP`，再手动运行或推送触发 Pages 工作流。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。检查命令中的示例域名/IP也应替换成实际部署地址。当前仓库变量已设为`VITE_SCENEWEAVE_AI_URL=https://124.223.95.142`，[Pages工作流40113648232](https://github.com/WoJiSama/sceneweave/actions/runs/40113648232)成功，前端地址为[https://wojisama.github.io/sceneweave/](https://wojisama.github.io/sceneweave/)。
 
-上线前必须实测：域名方案的 A/AAAA 解析、所选方案对应的公网端口、Caddy 证书签发、受信任 HTTPS 下的`/healthz`、Pages Origin 的 OPTIONS/GET/POST/SSE/DELETE、断线重连/取消、容器重启后的暂停任务、数据卷权限与备份恢复，以及一次完整的创建→草稿校验→采用→保存流程。2026-10-25已在目标服务器完成 Docker 镜像构建，非 root/只读容器的内部健康检查通过；当前公网 TCP 443 连接超时，IP 证书申请未成功，仍待放行网络后重验。容器内部健康和配置检查不代表公网 HTTPS 或 Pages 联通已经通过，当前不能宣称已上线。
+2026-10-25实际部署：服务器 Docker 镜像构建、非 root/只读容器内部健康通过；初次公网 TCP 443 超时后，云侧已放行，当前[HTTPS健康端点](https://124.223.95.142/healthz)返回200。受信任证书由 Let's Encrypt YE2 签发，SAN 为`IP Address:124.223.95.142`，本次有效期为`2026-10-24T15:54:28Z`至`2026-10-31T07:54:27Z`（以UTC记录，非固定续期时间）。Node默认信任验证/TLS1.3、缺凭据401、错误Origin403和Pages精确Origin的GET/POST/DELETE预检204已通过；经SSH的单次真实模型流/断线回读/幂等1请求、重启检查点/取消/备份还原及合成7日清理结果见[05第15节](docs/05-ai-and-generation.md)。公网HTTPS及静态Pages地址现已可用，实际Pages中的真实模型场景/SVG→草稿校验→保护一次采用→本机保存→完整包/4K PNG/重开必要旅程通过；9请求、44展开、43条完整包hash正确，0页面错误。公网SSE断流续读、任务归属隔离及重启保全/合成取消也通过；完整私密/两批扩围和自由创作质量仍单独验收。
 
 ## 当前主路径回归
 
@@ -126,7 +126,7 @@ npm run build
 SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/home-showcase.spec.ts tests/sample-loading.spec.ts tests/m20c-resources.spec.ts tests/m20d-conversion.spec.ts tests/m20e-library.spec.ts tests/m20f-entry.spec.ts tests/m20f-ui.spec.ts tests/m20f-render.spec.ts tests/m21-ai-conversation.spec.ts tests/m22-ai-authoring.spec.ts tests/m23-m24-authoring.spec.ts tests/m24-svg-raster.spec.ts --workers=1 --reporter=line
 ```
 
-首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。正式P3、真实HTTPS、跨浏览器/配额和性能专项仍单独验收。
+首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。必要线上AI旅程见05第15节；正式P3、完整私密/两批扩围、跨浏览器/配额和性能专项仍单独验收。
 
 ## 当前原生样板加载诊断
 

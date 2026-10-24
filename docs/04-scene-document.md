@@ -2,7 +2,7 @@
 
 ## 完整v1现行合同（2026-10-24）
 
-**M2-0f已将默认主会话切到本节新标识完整v1，M2-3/4现已接通场景工具、非空SVG源与渐进同化。** 应用版本号仍为`0.2.0-m1-d2`，默认工程/个人库为sceneweave-projects和sceneweave-library，旧v6/有效v3及旧个人库仅经兼容边界只读保全转换。a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f当时必要检查见[52](52-m20f-native-workspace-validation.md)，不自动转换真实用户数据。任务授权/草稿合同及本轮实际结果见[05](05-ai-and-generation.md)，M2-5服务器容器已部署，公网443/受信任IP证书及Pages联合仍待，详05第15节。M2-0交接见[47](47-m20-unified-v1-handoff.md)；旧格式段保留历史能力，不原地偷换字段。
+**M2-0f已将默认主会话切到本节新标识完整v1，M2-3/4现已接通场景工具、非空SVG源与渐进同化。** 应用版本号仍为`0.2.0-m1-d2`，默认工程/个人库为sceneweave-projects和sceneweave-library，旧v6/有效v3及旧个人库仅经兼容边界只读保全转换。a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f当时必要检查见[52](52-m20f-native-workspace-validation.md)，不自动转换真实用户数据。任务授权/草稿合同及本轮实际结果见[05](05-ai-and-generation.md)，M2-5受信任IP HTTPS后端与Pages真实模型必要旅程已通过，详05第15节。M2-0交接见[47](47-m20-unified-v1-handoff.md)；旧格式段保留历史能力，不原地偷换字段。
 
 ### A. 格式识别与完整模型
 
@@ -72,7 +72,7 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 
 最终采用前保护当前保存点，再源/场景/历史元数据CAS，主工程只一次revision+1与一个撤销单位。旧基线、锁/范围/资源/预算失败不部分采用；草稿保留供显式重算。M2-2建立本机授权/重放与采用入口，M2-3现已扩到有限建筑、室外、组合/散布和GM文字，M2-4加入延后物化的SVG/参数配方；均复用同一原子入口，`previewPrepared`仍限追加素材。本机依据确切基线重放全部账本，物化后的完整候选重新验证资源/像素并确认真实变化；确定性身份、256累计预算、等待本机校验及30秒采用租约保持，详细合同见[05](05-ai-and-generation.md)。场景工具不因此获得秘密改写、未授权依赖、通用寻路或持久建筑恢复能力。
 
-以下旧格式段保留各批实现语义与历史证据；内容续批及重构前自动化结果见[43](43-content-m1d-validation.md)、[44](44-full-regression-validation.md)，现行新v1读写和主会话以上节及52为准。M1-D首批新增混合素材、可编辑SCN-04及房间材质/整墙平移/单位显示的当时范围见[35](35-m1d-outpost-validation.md)；C4当时严格v6/identity3、有效v3及appearance1语义由新完整v1承接。C5联合功能历史见[32](32-m1c-c5-validation.md)，资源复用见[33](33-c5-resource-reuse-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；余下性能按[34](34-performance-followup.md)暂缓，C5及完整性能验收仍未通过，人工P3/完整SCN、小团、持久建筑/任意拓扑恢复和线上HTTPS仍待。
+以下旧格式段保留各批实现语义与历史证据；内容续批及重构前自动化结果见[43](43-content-m1d-validation.md)、[44](44-full-regression-validation.md)，现行新v1读写和主会话以上节及52为准。M1-D首批新增混合素材、可编辑SCN-04及房间材质/整墙平移/单位显示的当时范围见[35](35-m1d-outpost-validation.md)；C4当时严格v6/identity3、有效v3及appearance1语义由新完整v1承接。C5联合功能历史见[32](32-m1c-c5-validation.md)，资源复用见[33](33-c5-resource-reuse-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；余下性能按[34](34-performance-followup.md)暂缓，C5及完整性能验收仍未通过，人工P3/完整SCN、小团和持久建筑/任意拓扑恢复仍待，线上HTTPS必要旅程另见05第15节。
 
 这是对象字段、坐标、修订和几何不变量的主定义。当前类型、严格Zod Schema、几何校验和事务入口位于src/shared及src/application/workspace；src/core保留旧格式实现。文件封装见[存储与导出](06-storage-and-export.md)，AI参数见[AI 与生成](05-ai-and-generation.md)。
 
