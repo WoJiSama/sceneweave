@@ -203,7 +203,7 @@ function commandsFor(project: ProjectData, scope: SceneAuthoringScope, operation
     required(ref.id)
     if (!createPublicVisibility(scene).surface(ref) || effectiveEditLocked(scene, ref.id)) deny('支撑必须公开且未锁定。')
   }
-  const material = (id: string | undefined, kind: 'room' | 'terrain' | 'path') => {
+  const material = (id: string | undefined, kind: 'room' | 'wall' | 'terrain' | 'path') => {
     if (id === undefined) return {}
     if (!scope.materialIds.includes(id) || !scene.materials[id]?.applicableSurfaces.includes(kind)) deny('固定材质未获授权或不适用。')
     return { materialRef: { id, version: scene.materials[id].version } }
@@ -215,7 +215,14 @@ function commandsFor(project: ProjectData, scope: SceneAuthoringScope, operation
       if (operation.supportRef) support(operation.supportRef)
       return [{ type: 'createRoom', id: operation.id, ...common, boundaryMm: operation.boundaryMm, thicknessMm: operation.thicknessMm, purpose: operation.purpose ?? 'AI 房间', ...(operation.supportRef ? { supportRef: operation.supportRef } : {}), ...material(operation.materialId, 'room') }]
     }
-    case 'wall': required(operation.id); if (!scene.walls[operation.id]) deny('目标不是墙体。'); return [{ type: 'setWallThickness', id: operation.id, thicknessMm: operation.thicknessMm }]
+    case 'wall': {
+      required(operation.id); if (!scene.walls[operation.id]) deny('目标不是墙体。')
+      const grantedMaterial = material(operation.materialId, 'wall')
+      const commands: CompositionCommand[] = []
+      if (operation.thicknessMm !== undefined) commands.push({ type: 'setWallThickness', id: operation.id, thicknessMm: operation.thicknessMm })
+      if (grantedMaterial.materialRef) commands.push({ type: 'setSurfaceMaterial', kind: 'wall', id: operation.id, materialRef: grantedMaterial.materialRef })
+      return commands
+    }
     case 'vertex': required(operation.id); if (!scene.vertices[operation.id]) deny('目标不是建筑顶点。'); return [{ type: 'moveVertex', id: operation.id, positionMm: operation.positionMm }]
     case 'opening':
       fresh(operation.id); required(operation.wallId); required(operation.offsetReferenceVertexId)
@@ -373,10 +380,10 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneAutho
     }
     prepared = outdoorContent
   }
-  if (operation.kind === 'wall' || operation.kind === 'vertex') {
+  if (operation.kind === 'wall' && operation.thicknessMm !== undefined || operation.kind === 'vertex') {
     const wallIds = operation.kind === 'wall' ? [operation.id] : Object.values(scene.walls).filter(wall => [wall.startVertexId, wall.endVertexId].includes(operation.id)).map(wall => wall.id)
     buildingDependants(scene, wallIds, [operation.id]).forEach(id => affected.add(id))
-  }
+  } else if (operation.kind === 'wall') affected.add(operation.id)
   if (operation.kind === 'prefab' || operation.kind === 'furnish') referencedIds(scene, operation.supportRef.id).forEach(id => affected.add(id))
   if (operation.kind === 'gmNote' && operation.anchor.type === 'entity') {
     referencedIds(scene, operation.anchor.entityId).forEach(id => affected.add(id))
@@ -391,7 +398,7 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneAutho
   const createdIds = sorted([...after.keys()].filter(id => !before.has(id)))
   writeIds.forEach(id => affected.add(id))
   if (commands.every(isOutdoorCommand)) inspectOutdoorChanges(scene, next.document, commands.map(command => 'areaId' in command ? command.areaId : 'groupId' in command ? command.groupId : command.id)).affectedIds.forEach(id => affected.add(id))
-  if (operation.kind === 'wall' || operation.kind === 'vertex') {
+  if (operation.kind === 'wall' && operation.thicknessMm !== undefined || operation.kind === 'vertex') {
     const wallIds = operation.kind === 'wall' ? [operation.id] : Object.values(next.document.walls).filter(wall => [wall.startVertexId, wall.endVertexId].includes(operation.id)).map(wall => wall.id)
     buildingDependants(next.document, wallIds, [operation.id]).forEach(id => affected.add(id))
   }

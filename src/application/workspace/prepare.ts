@@ -13,7 +13,7 @@ import { canonicalJson, captureJson, encodeUtf8, inspectJsonInput } from '../../
 import { normalizeBrowserImage } from '../../platform/browser/images/index.js'
 import { adoptLibraryEntries, listCatalogItems, prepareLibraryEntry } from '../../shared/library/content.js'
 import type { CatalogSelector, PreparedLibraryEntry } from '../../shared/library/types.js'
-import { captureEditableDraft, fromBundle, toBundle, validateEditableProject, type EditableProject } from './project.js'
+import { captureEditableDraft, fromBundle, getVerifiedEditableProject, toBundle, validateEditableProject, type EditableProject } from './project.js'
 
 export interface PrepareOptions {
   validation: CompleteValidationOptions
@@ -96,8 +96,15 @@ export async function materializeProject(input: EditableProject, options: Prepar
 
 /** Preparation changes no current revision; runtime identity is allocated here once. */
 export async function prepareCompositionCommands(input: EditableProject, commands: readonly CompositionCommand[], options: PrepareOptions): Promise<EditableProject> {
-  const capturedCommands = captureJson(commands), project = await validateEditableProject(input, validation(options))
-  checkCancelled(options.signal)
+  const checked = validation(options)
+  checkCancelled(checked.signal)
+  const capturedCommands = captureJson(commands)
+  // Workspace-owned projects carry the validator's exact immutable byte closure.
+  // Reuse that certificate for the read-only input side; the materialization
+  // below still clones, derives, and fully validates the candidate before it is
+  // returned. External or cloned wrappers take the public validation path.
+  const project = getVerifiedEditableProject(input) ?? await validateEditableProject(input, checked)
+  checkCancelled(checked.signal)
   const draft = applyCompositionCommands(contentOf(project), capturedCommands, options.runtime)
   return materializeProject({ ...project, ...draft }, options)
 }

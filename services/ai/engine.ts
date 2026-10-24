@@ -229,7 +229,7 @@ export class TaskEngine {
   }
   validateDraft(owner: string, id: string, request: DraftStamp & { valid: boolean }): TaskSnapshot {
     const task = this.stamped(owner, id, request)
-    if (!['waiting_browser', 'paused'].includes(task.snapshot.status) || !task.authoring!.state.draftRevision || task.authoring!.claim) throw new TaskFault('invalid_task_state')
+    if (!['waiting_browser', 'paused', 'failed'].includes(task.snapshot.status) || !task.authoring!.state.draftRevision || task.authoring!.claim) throw new TaskFault('invalid_task_state')
     return this.store.change(id, request.expectedGeneration, current => {
       if (request.valid) { checkAuthoringDraft(current.authoring!.start, current.authoring!.state); current.snapshot.status = 'ready'; current.snapshot.error = null }
       else { current.snapshot.status = 'paused'; current.snapshot.error = safeTaskError('browser_validation_failed', 'finished') }

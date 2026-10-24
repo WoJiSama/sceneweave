@@ -11,7 +11,7 @@ import { validateProjectData } from '../project/validate.js'
 import { sha256Text } from '../validation/hash.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import type { AuthoringOperation, AuthoringStart, AuthoringStep } from './authoring-protocol.js'
-import { applyAuthoringStep, authoringProjectHash, checkAuthoringDraft, findAuthoringAssets, publicAuthoringContext, replayAuthoring, validateAuthoringStart } from './authoring.js'
+import { applyAuthoringStep, authoringProjectHash, checkAuthoringDraft, findAuthoringAssets, authoringAssetPage, publicAuthoringContext, replayAuthoring, validateAuthoringStart } from './authoring.js'
 
 const stamp = '2026-10-24T00:00:00.000Z'
 function fixture(): ProjectData {
@@ -186,6 +186,11 @@ describe('shared public prop authoring ledger', () => {
     const noPlacement = cloneJson(input); noPlacement.scope.placement = null; noPlacement.scope.operations = ['transform']
     expect(findAuthoringAssets(noPlacement, '', 10)).toEqual([])
     expect(() => findAuthoringAssets(input, '', 100)).toThrow()
+    expect(authoringAssetPage(input, '', 1)).toMatchObject({ total: 1, nextOffset: null, assets: [{ id: 'definition' }] })
+    expect(authoringAssetPage(input, '', 1, 1).assets).toEqual([])
+    expect(() => authoringAssetPage(input, '', 1, -1)).toThrow()
+    expect(authoringAssetPage(input, '', 1, 1024).assets).toEqual([])
+    expect(() => authoringAssetPage(input, '', 1, 1025)).toThrow()
     expect(edited.state.readIds).toEqual(expect.arrayContaining(['target', 'blank-floor', 'layer-default-0', 'definition', 'MIT', 'layer-opacity']))
   })
   it('records ordering reads without disclosing unrelated private props or treating them as writes', () => {

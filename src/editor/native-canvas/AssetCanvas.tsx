@@ -70,15 +70,23 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
   const ids = audience !== 'gm' ? [] : selectionSession ? sessionIds : selectedIds ?? (selected ? [selected] : [])
   const [operation, setOperation] = useState<'replace' | 'add' | 'subtract'>('replace'), [intersect, setIntersect] = useState(false), [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null), [selectionNotice, setSelectionNotice] = useState('')
   const marqueeRef = useRef<{ pointer: number; x: number; y: number; world: PointMm; ids: string[]; operation: 'replace' | 'add' | 'subtract' } | null>(null)
+  const selectingRef = useRef(false)
+  const resumeRefinement = useRef(false)
+  const refinementTask = useRef<{ timer: ReturnType<typeof setTimeout>; controller: AbortController } | null>(null)
   const publish = (next: string[]) => { if (onSelectMany) onSelectMany(next); else onSelect(next[0] ?? null) }
   const mergeSelection = (base: readonly string[], found: readonly string[], op: 'replace' | 'add' | 'subtract') => {
     const foundSet = new Set(found)
     return normalizeSelectionV2(project.document, op === 'replace' ? found : op === 'add' ? [...base, ...found] : base.filter(id => !foundSet.has(id)), memberMode).filter(id => !selectionOptions?.hiddenIds?.has(id))
   }
-  const cancelMarquee = (suppress = true) => { const active = marqueeRef.current; marqueeRef.current = null; setMarquee(null); if (active && suppress) suppressClick.current = true; if (active && viewport.current?.hasPointerCapture(active.pointer)) viewport.current.releasePointerCapture(active.pointer) }
+  const cancelRefinement = () => {
+    const task = refinementTask.current
+    if (!task) return
+    clearTimeout(task.timer); task.controller.abort(); refinementTask.current = null; resumeRefinement.current = true
+  }
+  const cancelMarquee = (suppress = true) => { const active = marqueeRef.current; marqueeRef.current = null; selectingRef.current = false; setMarquee(null); if (active && resumeRefinement.current) { resumeRefinement.current = false; setRefinementTick(value => value + 1) }; if (active && suppress) suppressClick.current = true; if (active && viewport.current?.hasPointerCapture(active.pointer)) viewport.current.releasePointerCapture(active.pointer) }
   const canvas = useRef<HTMLCanvasElement>(null), overlay = useRef<HTMLCanvasElement>(null), detailCanvas = useRef<HTMLCanvasElement>(null), viewport = useRef<HTMLDivElement>(null), current = useRef<object | null>(null)
   const [result, setResult] = useState<{ project: CompleteProjectV2; audience: AudienceV2; token: object; image: HTMLCanvasElement } | null>(null), [error, setError] = useState<{ project: CompleteProjectV2; audience: AudienceV2; message: string } | null>(null)
-  const [refinement, setRefinement] = useState<{ project: CompleteProjectV2; audience: AudienceV2; bounds: BoundsMm; screenScalePxPerMm: number; image: HTMLCanvasElement } | null>(null), [refinementCount, setRefinementCount] = useState(0)
+  const [refinement, setRefinement] = useState<{ project: CompleteProjectV2; audience: AudienceV2; bounds: BoundsMm; screenScalePxPerMm: number; image: HTMLCanvasElement } | null>(null), [refinementCount, setRefinementCount] = useState(0), [refinementTick, setRefinementTick] = useState(0), [refinementPending, setRefinementPending] = useState(false)
   const [placementImage, setPlacementImage] = useState<{ placementId: string; assetId: string; resourcePort: CompleteProjectV2['resources']; bitmap: ImageBitmap } | null>(null)
   const placementAssetId = placement?.appearance.kind === 'image' ? placement.appearance.assetId : null
   const placementAsset = placementAssetId ? project.document.assets[placementAssetId] : null
@@ -175,22 +183,26 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
   // rebuilt only after the gesture settles; no selection dependency enters here.
   useEffect(() => {
     if (!result || result.project !== project || result.audience !== audience || size.width <= 1 || size.height <= 1 || dragging) return
+    if (selectingRef.current) { resumeRefinement.current = true; setRefinementPending(true); return }
     const controller = new AbortController(); let image: HTMLCanvasElement | null = null
-    const timer = setTimeout(() => {
+    const task = { controller, timer: null as unknown as ReturnType<typeof setTimeout> }
+    refinementTask.current = task; setRefinementPending(true)
+    task.timer = setTimeout(() => {
       const rect = viewportMapRectV2(view, size, bounds), scale = rect.width / bounds.width
       const x = Math.max(bounds.x, bounds.x - rect.x / scale), y = Math.max(bounds.y, bounds.y - rect.y / scale)
       const right = Math.min(bounds.x + bounds.width, bounds.x + (size.width - rect.x) / scale), bottom = Math.min(bounds.y + bounds.height, bounds.y + (size.height - rect.y) / scale)
-      if (right <= x || bottom <= y) return
+      if (right <= x || bottom <= y) { if (refinementTask.current === task) { refinementTask.current = null; setRefinementPending(false) }; return }
       const crop = { x, y, width: right - x, height: bottom - y }, dpr = Math.min(2, window.devicePixelRatio || 1)
       const longEdgePx = Math.max(256, Math.min(2048, Math.ceil(Math.max(crop.width, crop.height) * scale * dpr)))
       void renderPreview({ audience, longEdgePx, viewBoundsMm: crop, screenScalePxPerMm: scale, signal: controller.signal }).then(rendered => {
         image = rendered
-        if (controller.signal.aborted) { rendered.width = 0; rendered.height = 0; return }
+        if (controller.signal.aborted || refinementTask.current !== task) { rendered.width = 0; rendered.height = 0; return }
+        refinementTask.current = null; setRefinementPending(false)
         setRefinement({ project, audience, bounds: crop, screenScalePxPerMm: scale, image: rendered }); setRefinementCount(count => count + 1); setError(null)
-      }).catch(reason => { if (!controller.signal.aborted) setError({ project, audience, message: reason instanceof Error ? reason.message : String(reason) }) })
-    }, 160)
-    return () => { clearTimeout(timer); controller.abort(); if (image) { image.width = 0; image.height = 0 } }
-  }, [project, audience, result, view.zoom, view.panX, view.panY, size.width, size.height, dragging, editorRenderer])
+      }).catch(reason => { if (refinementTask.current === task) { refinementTask.current = null; setRefinementPending(false) }; if (!controller.signal.aborted) setError({ project, audience, message: reason instanceof Error ? reason.message : String(reason) }) })
+    }, 300)
+    return () => { if (refinementTask.current === task) { refinementTask.current = null; setRefinementPending(false) }; clearTimeout(task.timer); controller.abort(); if (image) { image.width = 0; image.height = 0 } }
+  }, [project, audience, result, view.zoom, view.panX, view.panY, size.width, size.height, dragging, refinementTick, editorRenderer])
   useLayoutEffect(() => {
     // Returning from a candidate can reuse the same project identity after an
     // earlier crop task was disposed. That released canvas must never be read.
@@ -282,7 +294,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       <span className="asset-viewport-hint">{worldTool ? worldTool.label ?? (worldTool.kind === 'ruler' ? '量尺 · 点击两点 · Escape 退出' : '点击绘图 · 按网格吸附 · Escape 退出') : placement ? '点击放置 · Escape 取消 · 空格拖动' : '滚轮缩放 · 空格拖动'}</span>
     </div>
     <div ref={viewport} className={`asset-viewport${mode === 'pan' ? ' is-pan' : ''}${dragging ? ' is-dragging' : ''}${worldTool ? ' building-world-tool' : ''}`} role="group" aria-label="地图视口" tabIndex={0}
-      data-selected-ids={JSON.stringify(ids)} data-selection-detail={ids.length > 256 ? 'bounds' : ids.length > 32 ? 'outlines' : 'handles'} data-zoom={view.zoom} data-pan-x={view.panX} data-pan-y={view.panY} data-render-count={renderCount} data-refinement-count={refinementCount}
+      data-selected-ids={JSON.stringify(ids)} data-selection-detail={ids.length > 256 ? 'bounds' : ids.length > 32 ? 'outlines' : 'handles'} data-zoom={view.zoom} data-pan-x={view.panX} data-pan-y={view.panY} data-render-count={renderCount} data-refinement-count={refinementCount} data-refinement-pending={refinementPending}
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { endDrag(true); cancelMarquee() } }}
       onContextMenu={event => {
         if (!ready || disabled || audience !== 'gm' || placement || worldTool || mode === 'pan' || drag.current || marqueeRef.current) return
@@ -301,7 +313,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
           cancelMarquee(); event.currentTarget.setPointerCapture(event.pointerId); setDragging(true)
         } else if (!disabled && audience === 'gm' && !placement && !worldTool) {
           const world = pointerWorld(event.clientX, event.clientY)
-          if (world) { marqueeRef.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, world, ids: [...ids], operation: event.altKey ? 'subtract' : event.shiftKey ? 'add' : operation }; event.currentTarget.setPointerCapture(event.pointerId) }
+          if (world) { cancelRefinement(); selectingRef.current = true; marqueeRef.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, world, ids: [...ids], operation: event.altKey ? 'subtract' : event.shiftKey ? 'add' : operation }; event.currentTarget.setPointerCapture(event.pointerId) }
         }
       }}
       onPointerMove={event => {

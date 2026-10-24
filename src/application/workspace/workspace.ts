@@ -422,7 +422,7 @@ export class Workspace {
   /** Only the command preparation path may register candidates that change scene semantics. */
   private async registerPrepared(input: EditableProject, description: string, checkpoint: number, commands: readonly CompositionCommand[] = []): Promise<CompositionPreview> {
     this.assertCandidateBaseline(input, checkpoint)
-    const candidate = captureEditableDraft(await validateEditableProject(input, this.validation()))
+    const candidate = captureEditableDraft(getVerifiedEditableProject(input) ?? await validateEditableProject(input, this.validation()))
     this.assertCandidateBaseline(candidate, checkpoint)
     Object.assign(candidate, certifyCompositionContent({ document: candidate.document, historyIdentity: candidate.historyIdentity, appearance: candidate.appearance }))
     this.validateCandidate(candidate.document)

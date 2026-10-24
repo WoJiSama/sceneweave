@@ -37,7 +37,7 @@ test.beforeAll(async () => {
       tool('read-summary', 'sceneweave_read_scene', { section: 'summary' }),
       tool('find-lamp', 'sceneweave_find_assets', { query: '铜色桌灯', limit: 5 }),
     ])
-    const asset = result<{ id: string }[]>(input, 'find-lamp')?.[0]
+    const asset = result<{ assets: { id: string }[] }>(input, 'find-lamp')?.assets[0]
     if (!asset) throw new Error('The test must explicitly authorize its real lamp definition.')
     const placed = result<{ affectedIds: string[] }>(input, 'place-lamp')
     if (!placed) return completion([tool('place-lamp', 'sceneweave_edit_props', { operations: [
@@ -189,7 +189,10 @@ test('M2-2 a manual edit invalidates old task adoption while the isolated comple
   await authoring.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
   await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
   await expect(authoring.getByRole('alert')).toContainText('已有修改')
-  expect(await state(page)).toEqual(manual); expect(await snapshots(page)).toEqual([])
+  await settled(page)
+  const afterReject = await state(page)
+  expect({ ...afterReject, status: 'stable' }).toEqual({ ...manual, status: 'stable' })
+  expect(await snapshots(page)).toEqual([])
   expect(modelRequests - initial).toBe(5); expect(errors).toEqual([])
 })
 

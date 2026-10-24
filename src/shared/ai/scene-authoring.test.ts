@@ -31,6 +31,22 @@ function fixture(): ProjectData {
   return validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: { [hash]: { sha256: hash, text } },
     licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${hash}.txt`, embedding: 'allowed' as const })), authoringSources: {} })
 }
+function materialFixture(): ProjectData {
+  const project = fixture(), builtin = cloneJson(native.scenes.blank) as unknown as ProjectData
+  const licence = builtin.licenseBindings.find(value => value.subjectKind === 'material' && value.subjectId === 'b2-m-04')!
+  project.licenses = cloneJson(builtin.licenses)
+  project.licenseBindings = project.licenseBindings.map(value => ({ ...value, licensePath: licence.licensePath }))
+  for (const id of ['b2-m-04', 'b2-m-01']) {
+    const material = builtin.document.materials[id], assetId = material.textureAssetId, asset = builtin.document.assets[assetId]
+    project.document.materials[id] = material; project.document.assets[assetId] = asset
+    project.assets[asset.sha256] = builtin.assets[asset.sha256]
+    for (const binding of builtin.licenseBindings.filter(value => value.subjectKind === 'material' && value.subjectId === id || value.subjectKind === 'asset' && value.subjectId === assetId)) {
+      project.licenseBindings.push(binding)
+      const hash = binding.licensePath.slice(9, -4); project.licenses[hash] = builtin.licenses[hash]
+    }
+  }
+  return validateProjectData(project)
+}
 function scope(entityIds: string[] = []): SceneAuthoringScope {
   return { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm: { x: 500, y: 500, width: 18000, height: 18000 }, entityIds,
     definitionIds: ['tree'], prefabDefinitionIds: ['camp'], materialIds: [], operations: [...SceneAuthoringOperationKindSchema.options] }
@@ -171,6 +187,69 @@ describe('finite complete scene authoring', () => {
     expect(f.project.document.terrainAreas.island.blocksSight).toBe(true)
     expect(() => f.apply({ kind: 'terrainUpdate', id: 'island', boundaryMm: box(10000, 10000, 9000, 5000) })).toThrow(/授权范围/)
     expect(f.project.document.terrainAreas.island.boundaryMm[1].positionMm.x).toBe(15500)
+  })
+
+  it('applies a real authorised wall texture without changing geometry, passage, privacy, fixed material or licence closure', () => {
+    const f = flow(materialFixture(), { ...scope(), materialIds: ['b2-m-04', 'b2-m-01'] })
+    f.apply({ kind: 'room', id: 'house', boundaryMm: box(2000, 2000, 4000, 4000), thicknessMm: 200 })
+    const id = 'house:wall:0', wall = f.project.document.walls[id]
+    f.apply({ kind: 'opening', id: 'door', wallId: id, offsetReferenceVertexId: wall.startVertexId, offsetMm: 1000, widthMm: 1000, openingKind: 'door', state: 'open' })
+    f.apply({ kind: 'entrance', openingIds: ['door'] })
+    f.apply({ kind: 'furnish', id: 'table', definitionId: 'tree', positionMm: { x: 4000, y: 4000 }, supportRef: { kind: 'room', id: 'house' } })
+    f.apply({ kind: 'gmNote', id: 'clue', anchor: { type: 'entity', entityKind: 'room', entityId: 'house' }, noteKind: 'clue', text: 'Unchanged private clue.' })
+    const before = cloneJson(f.project), beforeJson = canonicalJson(f.project), material = before.document.materials['b2-m-04']
+    const result = f.apply({ kind: 'wall', id, materialId: material.id })
+    const externalGrant = { ...scope([id, wall.startVertexId, wall.endVertexId]), materialIds: [material.id] }
+    validateSceneScope(before, externalGrant)
+    const external = applySceneOperation(before, externalGrant, { kind: 'wall', id, materialId: material.id }, runtime(), new Set(externalGrant.entityIds))
+    expect(external.project.document).toEqual(f.project.document)
+    const publicContext = canonicalJson(publicSceneContext(external.project, externalGrant, new Set(externalGrant.entityIds)))
+    expect(publicContext).not.toContain('Unchanged private clue.')
+    expect(publicContext).not.toContain('clue')
+    const expected = cloneJson(before.document)
+    expected.walls[id].topStyle = cloneJson(f.project.document.walls[id].topStyle)
+    expect(f.project.document).toEqual(expected)
+    expect(f.project.document.walls[id].topStyle?.base).toMatchObject({ materialRef: { id: material.id, version: material.version }, opacity: 1 })
+    expect(result.writeIds).toEqual([id]); expect(result.cost).toBe(1)
+    const asset = before.document.assets[material.textureAssetId], binding = before.licenseBindings.find(value => value.subjectKind === 'material' && value.subjectId === material.id)!
+    expect(result.readIds).toEqual(expect.arrayContaining([id, wall.startVertexId, wall.endVertexId, material.id, asset.id, asset.sha256, binding.licensePath, binding.licensePath.slice(9, -4)]))
+    for (const privateOrUnchanged of ['house', 'door', 'table', 'clue']) expect(result.readIds).not.toContain(privateOrUnchanged)
+    for (const key of ['assets', 'licenses', 'licenseBindings', 'authoringSources', 'historyIdentity'] as const) expect(f.project[key]).toEqual(before[key])
+    expect(f.project.document.materials).toEqual(before.document.materials)
+    expect(f.project.appearance.surfaceSources[id]).toBeTruthy()
+    expect(canonicalJson(before)).toBe(beforeJson)
+    const noChange = f.apply({ kind: 'wall', id, materialId: material.id })
+    expect(noChange.cost).toBe(1); expect(noChange.writeIds).toEqual([])
+    expect(noChange.readIds).toEqual(expect.arrayContaining([id, wall.startVertexId, wall.endVertexId, material.id, asset.sha256]))
+    const locked = modify(f.project, [{ type: 'setEditLock', kind: 'wall', id, locked: true }])
+    expect(() => applySceneOperation(locked, externalGrant, { kind: 'wall', id, materialId: material.id }, runtime(), new Set(externalGrant.entityIds))).toThrow(/锁定/)
+    const combined = f.apply({ kind: 'wall', id, thicknessMm: 250, materialId: material.id })
+    expect(combined.cost).toBe(2); expect(f.project.document.walls[id].thicknessMm).toBe(250)
+    expect(f.project.document.walls[id].topStyle?.base.materialRef).toEqual({ id: material.id, version: material.version })
+    const stable = canonicalJson(f.project)
+    expect(() => f.apply({ kind: 'wall', id })).toThrow()
+    expect(canonicalJson(f.project)).toBe(stable)
+  })
+
+  it('rejects ungranted or inapplicable wall materials and locked wall, layer or real dependency without a partial thickness change', () => {
+    const f = flow(materialFixture(), { ...scope(), materialIds: ['b2-m-04', 'b2-m-01'] })
+    f.apply({ kind: 'room', id: 'house', boundaryMm: box(2000, 2000, 4000, 4000), thicknessMm: 200 })
+    const id = 'house:wall:0', operation: SceneAuthoringOperation = { kind: 'wall', id, thicknessMm: 300, materialId: 'b2-m-04' }, before = canonicalJson(f.project)
+    expect(() => applySceneOperation(f.project, { ...f.grant, materialIds: [] }, operation, runtime(), f.allowed)).toThrow(/材质未获授权/)
+    expect(() => f.apply({ ...operation, materialId: 'b2-m-01' })).toThrow(/不适用/)
+    expect(canonicalJson(f.project)).toBe(before)
+    for (const commands of [
+      [{ type: 'setEditLock', kind: 'wall', id, locked: true }],
+      [{ type: 'setEditLock', kind: 'vertex', id: 'house:vertex:1', locked: true }],
+      [{ type: 'setLayerLock', id: f.grant.layerId, locked: true }],
+    ] satisfies CompositionCommand[][]) {
+      const locked = modify(f.project, commands), original = canonicalJson(locked)
+      expect(() => applySceneOperation(locked, f.grant, operation, runtime(), f.allowed)).toThrow(/锁定/)
+      expect(canonicalJson(locked)).toBe(original)
+    }
+    expect(() => applySceneOperation(f.project, { ...f.grant, operations: ['room'] }, operation, runtime(), f.allowed)).toThrow(/未获明确授权/)
+    expect(() => applySceneOperation(f.project, f.grant, operation, runtime(), new Set([id]))).toThrow(/真实依赖未明确授权/)
+    expect(canonicalJson(f.project)).toBe(before)
   })
 
   it('keeps generated dependencies available without expanding geography, definitions or operation grants', () => {

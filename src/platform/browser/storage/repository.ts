@@ -6,7 +6,7 @@ import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
 import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
 import { captureProjectBundleInput, createMemoryResources, validateProjectBundle, validateProjectBundles } from '../../../shared/project/resources.js'
-import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
+import { projectContentHash } from '../../../shared/project/validate.js'
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
 import { parseBoundedJson } from '../../../shared/project/json.js'
@@ -33,32 +33,32 @@ function name(input: unknown): string {
   return input.trim()
 }
 function assertContent(project: ProjectData, hash: string): void {
-  if (!hashValue(hash) || projectContentHash(validateProjectData(project)) !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
+  if (!hashValue(hash) || projectContentHash(project) !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
 }
-function assertCurrent(record: StoredProject): void {
+function assertCurrent(record: StoredProject, content: typeof assertContent = assertContent): void {
   exact(record, ['sceneId', 'revision', 'savedAt', 'contentHash', 'status', 'conversionJobId', 'project'])
   id(record.sceneId); time(record.savedAt)
   if (!integer(record.revision) || record.sceneId !== record.project?.document.sceneId || record.revision !== record.project.document.revision
     || !['preparing', 'ready'].includes(record.status) || record.conversionJobId !== null && !validId(record.conversionJobId)
     || record.status === 'preparing' && record.conversionJobId === null) throw new Error('当前工程身份、版本或发布状态损坏。')
-  assertContent(record.project, record.contentHash)
+  content(record.project, record.contentHash)
 }
-function assertAutomatic(record: StoredAutomatic): void {
+function assertAutomatic(record: StoredAutomatic, content: typeof assertContent = assertContent): void {
   exact(record, ['ownerSceneId', 'revision', 'savedAt', 'contentHash', 'project'])
   id(record.ownerSceneId); time(record.savedAt)
   if (!integer(record.revision) || record.project?.document.sceneId !== record.ownerSceneId || record.project.document.revision !== record.revision) throw new Error('自动快照身份损坏。')
-  assertContent(record.project, record.contentHash)
+  content(record.project, record.contentHash)
 }
 function summaryOf(record: SnapshotSummary): SnapshotSummary {
   return { id: record.id, ownerSceneId: record.ownerSceneId, lineageId: record.lineageId, sourceRevision: record.sourceRevision,
     name: record.name, kind: record.kind, createdAt: record.createdAt, contentHash: record.contentHash }
 }
-function assertSnapshot(record: StoredSnapshot, imported = false): void {
+function assertSnapshot(record: StoredSnapshot, imported = false, content: typeof assertContent = assertContent): void {
   exact(record, ['id', 'ownerSceneId', 'lineageId', 'sourceRevision', 'name', 'kind', 'createdAt', 'contentHash', 'project'])
   validateSnapshotSummary(summaryOf(record))
   if ((record.kind === 'imported-auto') !== imported || record.sourceRevision !== record.project?.document.revision
     || record.lineageId !== record.project.historyIdentity.lineageId) throw new Error('历史快照归属、类型或版本损坏。')
-  assertContent(record.project, record.contentHash)
+  content(record.project, record.contentHash)
 }
 function assertMetadata(record: StoredHistoryMetadata | undefined, owner: string): asserts record is StoredHistoryMetadata {
   exact(record, ['ownerSceneId', 'metadataVersion'])
@@ -341,10 +341,25 @@ export class ProjectRepository {
     ])
     if (projects.some(row => row.sceneId === ownerSceneId)) assertMetadata(metadata, ownerSceneId)
     let documentBytes = 0, resourceBytes = 0, legacyBytes = 0
-    for (const row of projects) { assertCurrent(row); documentBytes += encodeUtf8(canonicalJson(row.project)).length }
-    for (const row of automatic) { assertAutomatic(row); documentBytes += encodeUtf8(canonicalJson(row.project)).length }
-    for (const row of snapshots) { assertSnapshot(row); documentBytes += encodeUtf8(canonicalJson(row.project)).length }
-    for (const row of imported) { assertSnapshot(row, true); documentBytes += encodeUtf8(canonicalJson(row.project)).length }
+    // IDB rows are fresh mutable clones. Only this scan's actual complete JSON
+    // content can share a successful check; declared hashes or record IDs cannot.
+    const contents = new Map<string, { hash: string; byteLength: number }>()
+    const countContent: typeof assertContent = (project, hash) => {
+      if (!hashValue(hash)) throw new Error('存档完整内容hash损坏；原记录保持。')
+      const json = canonicalJson(project)
+      let checked = contents.get(json)
+      if (!checked) {
+        assertContent(project, hash)
+        checked = { hash, byteLength: encodeUtf8(json).length }
+        contents.set(json, checked)
+      } else if (checked.hash !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
+      // Identical current/history copies still each consume document storage.
+      documentBytes += checked.byteLength
+    }
+    for (const row of projects) assertCurrent(row, countContent)
+    for (const row of automatic) assertAutomatic(row, countContent)
+    for (const row of snapshots) assertSnapshot(row, false, countContent)
+    for (const row of imported) assertSnapshot(row, true, countContent)
     for (const row of resources) resourceBytes += bytesOf(row).length
     for (const row of licenses) {
       exact(row, ['sha256', 'text'])

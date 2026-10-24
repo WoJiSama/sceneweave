@@ -60,7 +60,8 @@ const noteAnchor = z.discriminatedUnion('type', [
 const connectionEnd = z.object({ surfaceRef, positionMm: point }).strict()
 export const SceneAuthoringOperationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('room'), id, boundaryMm: z.array(point).min(3).max(64), thicknessMm: integer.positive(), purpose: z.string().trim().min(1).max(1000).optional(), supportRef: z.object({ kind: z.enum(['floor', 'terrainArea']), id }).strict().optional(), materialId: id.optional() }).strict(),
-  z.object({ kind: z.literal('wall'), id, thicknessMm: integer.positive() }).strict(),
+  z.object({ kind: z.literal('wall'), id, thicknessMm: integer.positive().optional(), materialId: id.optional() }).strict()
+    .refine(value => value.thicknessMm !== undefined || value.materialId !== undefined),
   z.object({ kind: z.literal('vertex'), id, positionMm: point }).strict(),
   z.object({ kind: z.literal('opening'), id, wallId: id, offsetReferenceVertexId: id, offsetMm: integer.nonnegative(), widthMm: integer.positive(), openingKind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']).optional() }).strict(),
   z.object({ kind: z.literal('entrance'), openingIds: ids.min(1) }).strict(),

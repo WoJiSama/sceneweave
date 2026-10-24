@@ -639,7 +639,7 @@ export default function Workbench({ onBack, onImportFile, unified = true, active
             if (key === 'prefabForm') setPrefabPlacement(null)
             finishFormDraft(key as keyof typeof formDrafts, true)
           }}>{workspaceFormDraftLabels[key as WorkspaceFormDraft].cancel}</button>)}</>
-  const historyBrowser = completeProject && <HistoryPanel key={panelKey} project={completeProject} repository={repository} workspace={compositionWorkspace}
+  const historyBrowser = completeProject && <HistoryPanel key={panelKey} active={active && audience === 'gm' && (unified ? navigationTab === 'history' : sidebar === 'history')} project={completeProject} repository={repository} workspace={compositionWorkspace}
             session={selectionSession} disabled={editDisabled} refreshKey={historyRefresh} onAction={action} onPreview={setRestore} onStructurePreview={setStructureRestore} onBackup={backup}/>
   const sceneBrowser = <SelectionSubscriber session={selectionSession}>{ids => <SceneLibrary key={panelKey} navigationOnly={unified} project={audience === 'player' ? visibleProject : project}
             selected={ids.length === 1 ? ids[0] : null} selectedIds={[...ids]} busy={editDisabled} recent={recent} onSelect={select} onNew={openNewScene} onPlace={choosePlacement}

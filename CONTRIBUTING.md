@@ -1,6 +1,6 @@
 # 贡献说明
 
-织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，M2-0f默认主路径已切到新完整v1、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library。旧整页入口退役，兼容边界保留严格读取、只读发现/完整保全转换与原件取回；不自动迁移真实用户数据。f适用必要检查、混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)，最终批次以报告为准；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5服务器容器及受信任IP HTTPS已部署，Pages公开地址已配置，必要线上创作/采用/保存导出旅程已通过，见05第15节；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09，34正式性能继续后置，不关闭QA-AI-16、完整M1或性能门。
+织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，M2-0f默认主路径已切到新完整v1、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library。旧整页入口退役，兼容边界保留严格读取、只读发现/完整保全转换与原件取回；不自动迁移真实用户数据。f适用必要检查、混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)，最终批次以报告为准；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5服务器容器及受信任IP HTTPS已部署，Pages公开地址已配置，必要线上创作/采用/保存导出旅程已通过，见05第15节；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09。2026-10-25用户进一步要求完成M2实际使用验收与修复，并恢复此前后置的性能验收；本轮新主路径正式性能已完成四组×三轮，但普通编辑100ms门槛未通过，完整M1、QA-AI-16与性能门仍分别保持开放，细节见[34](docs/34-performance-followup.md)。
 
 室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/28-m1c-c2-validation.md)，C3组件与参数外观见[29](docs/29-m1c-c3-validation.md)，C4室外工具与有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合验证和现版性能结论归[32](docs/32-m1c-c5-validation.md)。完整M1、主题P3、SCN-04与全交互性能仍按各自门槛判断；新模型同步格式、迁移和验收。
 
@@ -8,7 +8,7 @@
 
 C5联合验收批次冻结349份应用源码，最终单元82文件979/979通过（68.85秒），正常构建通过（2.75秒）；最终全量Chrome168/168通过，0失败/重试/跳过（12.8分钟）；最终正常生产UI通过（46.791秒）；study/island×500/2000各三轮正式性能矩阵未完成，已执行批次未形成可合并的完整p95结果。优化后study-500单次诊断普通领域提交1110.4ms，优化前诊断2174.2ms，均不是正式分布且仍超100ms；性能门未通过，本批不能宣布C5或全交互性能通过，实际证据与待验项见[32](docs/32-m1c-c5-validation.md)。
 
-其后资源复用批次通过992项单元、20项适用Chrome及正常构建/生产UI，独立诊断归[33](docs/33-c5-resource-reuse-validation.md)。2026-10-23用户要求将余下性能优化暂缓，待其他需求完成后集中处理；性能欠项暂不阻塞后续需求开发，正式性能门保持未通过。后续入口见[34](docs/34-performance-followup.md)，后续功能仍运行适用正确性回归，不因暂缓改为性能通过或容量承诺。
+其后资源复用批次通过992项单元、20项适用Chrome及正常构建/生产UI，独立诊断归[33](docs/33-c5-resource-reuse-validation.md)。2026-10-23用户曾要求将余下性能优化暂缓；2026-10-25已恢复本轮验收，按当前新完整v1主路径重新采集并完成四组×三轮；结果见[34](docs/34-performance-followup.md)，功能正确性回归与性能指标分开判断。性能门仍未通过，不作容量承诺。
 
 ## 开发环境与命令
 
@@ -115,7 +115,7 @@ Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为
 
 ## 当前主路径回归
 
-M2-0f之后，旧整页hash已退役；旧203项Chrome结果保留为历史，不能直接作为当前入口的通过证据。当前适用的联合回归命令：
+M2-0f之后，旧整页hash已退役；旧203项Chrome结果保留为历史，不能直接作为当前入口的通过证据。此前首页交付批次的12文件主路径命令继续保留，实际批次结果见05第16节；后续修复须按当批源码重新验证：
 
 ```sh
 npm test -- --maxWorkers=1
@@ -126,7 +126,22 @@ npm run build
 SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/home-showcase.spec.ts tests/sample-loading.spec.ts tests/m20c-resources.spec.ts tests/m20d-conversion.spec.ts tests/m20e-library.spec.ts tests/m20f-entry.spec.ts tests/m20f-ui.spec.ts tests/m20f-render.spec.ts tests/m21-ai-conversation.spec.ts tests/m22-ai-authoring.spec.ts tests/m23-m24-authoring.spec.ts tests/m24-svg-raster.spec.ts --workers=1 --reporter=line
 ```
 
-首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。必要线上AI旅程见05第15节；正式P3、完整私密/两批扩围、跨浏览器/配额和性能专项仍单独验收。
+本轮同化与失败草稿恢复使用默认Playwright配置和确定性provider，经过真实HTTP/SSE、SQLite、IndexedDB与Canvas，不调用付费模型。单件→固定组合→两个新基线明确范围，以及请求上限后的有效草稿备份/重绑/审阅/保护采用分别由下列专项复现：
+
+```sh
+SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m2-assimilation-acceptance.spec.ts tests/m2-failed-draft-recovery.spec.ts --workers=1 --reporter=line
+```
+
+三引擎联合验收使用专用串行配置，须先安装对应Playwright浏览器；该配置固定使用Playwright Chromium、Firefox和WebKit，`SCENEWEAVE_BROWSER_CHANNEL=chrome`不改变其中的Chromium项目。默认输出在被忽略的`test-results/m2-joint`，可用`SCENEWEAVE_JOINT_OUTPUT`指定独立输出目录：
+
+```sh
+npx playwright install chromium firefox webkit
+npx playwright test --config=tests/m2-joint-playwright.config.ts --workers=1
+```
+
+默认配置与专用配置均可启动或复用`127.0.0.1:5173`开发服务；使用已启动的同版开发服务时可设置`SCENEWEAVE_TEST_BASE_URL`。这些专项包含开发模块入口，不能直接把生产`dist`地址当作等价入口。冻结源码后再运行，分别保留失败与复验结果；命令说明不代表已经执行，测试不得与正式性能测量并行。
+
+首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。必要线上AI旅程见05第15节；本轮实际使用与失败修复的适用结果见[05第17节](docs/05-ai-and-generation.md#17-2026-10-25-m2实际使用验收与修复)及09：确定性单件/组合/两批范围、三引擎四个完整v1秘密配对的实际4K、保存失败/CAS/迁移/离线与390px，以及Chromium隔离origin真实配额和原生200%等子项已有通过证据。Firefox/WebKit的Chromium专属配额override和原生缩放两项为不适用跳过；未覆盖秘密/输入矩阵、默认设备容量/真实磁盘满、Firefox/WebKit配额、其他浏览器原生200%、完整无引导SCN、真实模型风格与用户P3仍分别验收。本机修复不自动等于线上已发布；正式性能方法、实际结果和剩余边界集中于[34](docs/34-performance-followup.md)，不预填本轮通过结论。
 
 ## 当前原生样板加载诊断
 
@@ -142,9 +157,39 @@ node tools/testing/sample-load-diagnostic.mjs --runs 1 --samples study --delay-m
 
 工具默认真实`http://127.0.0.1:5174/sceneweave/`页面，系统Chrome独立上下文，不启用应用调试API；每个上下文首次/回首页再次打开各一次。记录点击至确认、采用至保存/画布就绪代理、PNG读取调用、位图创建及长任务，等待本次后台活动稳定再计数。`--delay-ms`仅模拟每次PNG请求的延迟，路由会禁用HTTP缓存，不能当作GitHub Pages实测；低次数结果不产生正式p95/通过结论。没有长期位图缓存或Worker，本批不替代下述历史矩阵，也不重建work/evidence。
 
+## M2 原生完整v1正常生产性能复现
+
+本轮使用`tools/performance/run-native-m2.mjs`，从正常`npm run build`产物的`/sceneweave/#home`进入同一原生完整v1工作区，不使用B5专用构建、旧v6入口或产品开发API。先完成受测功能修改与正确性验证，再冻结源码、构建和运行器；下列命令依次执行，采样期间不运行其他浏览器、单元/浏览器测试、构建或性能任务。系统须已安装Chrome；当前进程树RSS采样仅适配macOS。运行器使用独立回环HTTP服务和新Chrome进程/profile，拦截站外网络，不调用模型；macOS防空闲休眠仅在命令存活期间生效。
+
+先以新的空临时目录验证运行器并诊断热点；此命令仅是低次数诊断，不产生正式通过结论：
+
+```sh
+npm run build
+native_m2_diag_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-native-m2-profile.XXXXXX")
+node tools/performance/run-native-m2.mjs --output "$native_m2_diag_dir" --fixtures "$PWD/tests/fixtures/performance-b5" --diagnostic-profile --cases study-500 --runs 1 --selections 1 --edits 1 --layers 2 --appearances 1 --restores 1 --menus 1 --gestures 1
+```
+
+`--diagnostic-profile`自动标为诊断，以1000μs间隔分别采集每轮首个普通编辑、首个保护/恢复采用的CDP CPU profile；包含对应字段准备、自动化与观测等待。LongTask、CPU采样和资源轮询均有观测开销，带profile的结果不能与无profile正式样本混池。只需无profile诊断时使用`--diagnostic`，并保留同样的样本缩减参数。
+
+完成诊断修复、相关正确性验证及新一轮正常构建后，在新的空目录执行正式矩阵：
+
+```sh
+npm run build
+native_m2_formal_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-native-m2-formal.XXXXXX")
+node tools/performance/run-native-m2.mjs --output "$native_m2_formal_dir" --fixtures "$PWD/tests/fixtures/performance-b5"
+```
+
+默认study/island × 500/2000四组，每组3轮、每轮独立Chrome进程/profile。保留的B5严格v2原包先在独立工具准备进程中，经正常UI下载全部保全文件、重新选择全卷核验、转换并导出原生完整v1包；检查原始物件字段、范围、图片/许可字节和新包每条hash。准备阶段不计入新主路径分布。每个测量进程直接冷导入该原生包；首页完整重载后再点击最近工程的“打开”，重载与只读仓库核对属于重开前置。冷导入、保存、首次画布就绪记录为一个实际区间，不拆造内部耗时。
+
+每轮框选/替换选择各30次、普通编辑10次、图层隐藏/合法重排各10次、图层外观预览/采用各5次、局部恢复3次、命名快照1次、指针/键盘菜单合计10次；平移和缩放各3段，分别逐rAF发送30次pointermove和20次wheel，另含本地重开和双受众4K导出。每组普通编辑合并n30、每种选择n90、恢复n9；同时报告每轮和合并nearest-rank p95及样本数，不把小样本包装成完整用户体验验收。新增两个小图层，仅marker进入被测层，仍检查实际依赖与256展开预算。选择/菜单/视口须保持文档和保存状态，选择前后完整包及持久库保持；最终检查保护点、自动历史、原生完整包条目和4K PNG尺寸。
+
+精确领域区间从可信提交输入（普通物件编辑为Enter）开始，到Workspace完成领域校验、身份与撤销状态、在通知React前记录的会话时间结束；对应`data-transaction-revision`必须等于提交后revision。DOM revision、Canvas计数/就绪、保存完成和双rAF显示调度代理各自报告，不能用保存或双rAF替代领域提交。时戳只在会话/DOM，不进入工程、历史或导出。500物件普通领域p95目标100ms，连续输入帧间隔目标约33ms，2000物件作为压力观察；运行器完成不代表达标。
+
+`manifest.json`及每轮结果记录Node、操作系统、CPU/逻辑核数、内存、Chrome版本、1512×982/DPR1视口和实际命令参数，并记录源码、构建输入、dist与运行器SHA256及采样前后未变核对。每轮原始输入/事务/LongTask、独立资源记录和CPU诊断文件保留，成功完成后自动写`summary.json`。RSS目标间隔100ms、目标页JS堆200ms，报告真实间隔、阶段、边界样本及采样错误；RSS可能重复共享页，JS堆不含完整浏览器/GPU，二者均非物理峰值。双rAF不是GPU或屏幕呈现完成；HTTP缓存关闭但不清系统缓存，不宣称50×50显示网格、自由拖拽或完整QA-PERF-04通过。输出目录必须为空且独立于原夹具，失败、取消与慢样本保留，修正后另开目录重跑。方法说明不是运行结果，本轮实际结果、失败修正、证据路径和剩余边界以[34后续记录](docs/34-performance-followup.md)为准。
+
 ## B5性能复现
 
-本节保留B5当时的v2素材Canvas2D与M0 Konva历史管线。B5采用独立生产工具入口，复用当时AssetCanvas、Workspace、样板候选守卫、资源校验和仓库；正常 `npm run build` 不暴露专用性能API。M2-0f默认格式/入口已经改变，恢复正式测量前须先核对并适配新主路径、夹具与测量合同；不直接把历史脚本结果作为新完整v1性能结论。当前正式性能仍按34后置，本轮没有执行本节专项。
+本节保留B5当时的v2素材Canvas2D与M0 Konva历史管线。B5采用独立生产工具入口，复用当时AssetCanvas、Workspace、样板候选守卫、资源校验和仓库；正常 `npm run build` 不暴露专用性能API。M2-0f默认格式/入口已经改变，不直接把历史脚本结果作为新完整v1性能结论；本轮新主路径测量使用上节原生M2运行器，本节只作历史方法复现。
 
 ```sh
 npm run build:performance
@@ -238,7 +283,7 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c5-integration.spec.
 
 ## C5 正常生产性能复现
 
-C5当时使用正常生产页面和可信输入，不使用B5专用性能构建或产品开发API。以下是32记录的v6历史方法，脚本/夹具/默认入口尚须按M2-0f的新主路径重新核对，当前没有执行或重新认定性能通过；恢复专项前先按34安排适配，再构建并独立串行测量：
+C5当时使用正常生产页面和可信输入，不使用B5专用性能构建或产品开发API。以下是32记录的v6历史方法，不能直接用于M2-0f的新主路径，也不重新认定旧结果为性能通过；本轮使用上方M2原生完整v1运行器，实际结果归34。保留的C5历史复现命令为：
 
 ```sh
 npm run build
@@ -256,7 +301,7 @@ node tools/performance/run-c5.mjs --output /ABS/NEW-EMPTY-DIR --fixtures /ABS/sc
 U1a默认首页为`/`或`/#home`，最新统一工作区为`/#workspace`；旧几何原型显式从`/#geometry`访问，其他旧深链接保持。专项回归命令为`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/u1a-workspace.spec.ts tests/u1a-legacy.spec.ts`，正常生产UI可在`npm run build`并服务dist后，以`SCENEWEAVE_PRODUCTION_URL=http://127.0.0.1:4173/sceneweave/#home node tools/u1a-production-smoke.mjs`运行；默认Chrome与输出路径见脚本。这些是功能/存储/导航证据，不是正式性能矩阵。实际批次与失败归docs/38。
 
 
-2026-10-23 用户最新要求：先进行需求开发和简单测试，完整回归由用户后续明确通知后统一执行。开发切片只做必要的类型/构建检查与少量定向验证，不默认启动全量单元、全量浏览器、长时间专项或大规模证据归档。已运行的结果和失败现场保留；尚未复验的修正明确列为待验证，不据此宣布完整验收或性能通过。
+2026-10-23 用户当时要求先进行需求开发和简单测试，完整回归由后续明确通知后统一执行；2026-10-25本轮已恢复M2实际使用与性能等验收，范围及结果依当前任务记录。普通开发切片仍只做必要的类型/构建检查与少量定向验证，不默认启动额外全量单元、全量浏览器、长时间专项或大规模证据归档。已运行的结果和失败现场保留；尚未复验的修正明确列为待验证，不据此宣布完整验收或性能通过。
 
 
 U1b开发期仅小范围检查：`npx vitest run src/editor/workspace/layout-preferences.test.ts src/editor/v2/viewport.test.ts --maxWorkers=1`、`npm run build`与`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/u1b-layout.spec.ts`（两条冒烟）。完整单元/浏览器/联合与性能矩阵等用户通知后统一执行，实际范围及待办见docs/39。

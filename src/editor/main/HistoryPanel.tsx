@@ -15,6 +15,7 @@ import { projectScene } from '../../shared/projection/projection'
 import { prepareOriginalDownload } from './legacy-original-download'
 
 type Props = {
+  active: boolean
   project: EditableProject
   repository: WorkspaceRepository
   workspace: Workspace
@@ -37,7 +38,7 @@ function propLabel(scene: SceneDocument, prop: Prop): string {
   return prop.definitionRef ? scene.propDefinitions[prop.definitionRef.id]?.name ?? prop.id : prop.id
 }
 
-export default function HistoryPanel({ project, repository, workspace, session, disabled, refreshKey, onAction, onPreview, onStructurePreview, onBackup }: Props) {
+export default function HistoryPanel({ active, project, repository, workspace, session, disabled, refreshKey, onAction, onPreview, onStructurePreview, onBackup }: Props) {
   const sceneId = project.document.sceneId, canvasIds = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [summaries, setSummaries] = useState<SnapshotSummary[]>([]), [usage, setUsage] = useState<Usage | null>(null)
   const [legacySources, setLegacySources] = useState<LegacySource[]>([])
@@ -60,7 +61,12 @@ export default function HistoryPanel({ project, repository, workspace, session, 
     setSummaries([]); setUsage(null); setLegacySources([]); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setActiveId(null); pendingFocus.current = null
     return () => { request.current++ }
   }, [sceneId])
-  useEffect(() => { void refresh().catch(failure => setError(failure instanceof Error ? failure.message : String(failure))) }, [sceneId, project.document.revision, refreshKey])
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+    void refresh().catch(failure => { if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure)) })
+    return () => { cancelled = true; request.current++ }
+  }, [active, sceneId, project.document.revision, refreshKey])
   const historicalMembers = useMemo(() => snapshot ? memberIds(snapshot.project.document) : new Set<string>(), [snapshot])
   const currentMembers = useMemo(() => memberIds(project.document), [project.document])
   const rows = useMemo(() => {

@@ -1,6 +1,6 @@
 import type { BoundsMm, MaterialPaint, PointMm, Prop, ShadowStyle, SurfaceStyle } from '../../../shared/model/scene.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
-import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
+import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { PACKAGE_LIMITS } from '../../../shared/project/limits.js'
 import { withRenderDecoderSlot } from './image-decoder'
@@ -50,6 +50,12 @@ export interface EditorRenderOptions extends RenderOptions {
 export const EDITOR_MAX_LONG_EDGE = 2048
 export const PNG_MAX_LONG_EDGE = 4096
 export const PNG_MAX_PIXELS = 16_777_216
+// RGBA8 scanlines including their filter bytes, zlib compressBound overhead,
+// and 1 MiB for PNG chunks. This exceeds a worst-case 4K Canvas encoding without
+// applying the separate 20 MiB per-asset import limit to a complete map export.
+const PNG_SCANLINE_BYTES = PNG_MAX_PIXELS * 4 + PNG_MAX_LONG_EDGE
+export const PNG_MAX_ENCODED_BYTES = PNG_SCANLINE_BYTES + Math.floor(PNG_SCANLINE_BYTES / 4096)
+  + Math.floor(PNG_SCANLINE_BYTES / 16384) + Math.floor(PNG_SCANLINE_BYTES / 33554432) + 13 + 1024 * 1024
 export interface WallGeometry { wall: ProjectedWall; polygons: PointMm[][] }
 const EPS = 1e-6
 const point = (x: number, y: number): PointMm => ({ x, y })
@@ -93,8 +99,8 @@ export function wallGeometry(walls: ProjectedWall[]): WallGeometry[] {
 function canvas(width: number, height: number): HTMLCanvasElement {
   const result = document.createElement('canvas'); result.width = width; result.height = height; return result
 }
-function context(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
-  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' })
+function context(canvas: HTMLCanvasElement, readFrequently = false): CanvasRenderingContext2D {
+  const ctx = canvas.getContext('2d', readFrequently ? { colorSpace: 'srgb', willReadFrequently: true } : { colorSpace: 'srgb' })
   if (!ctx) throw new Error('无法分配 sRGB Canvas；请降低输出尺寸后重试。')
   return ctx
 }
@@ -105,7 +111,7 @@ function addRing(path: Path2D, points: PointMm[]): void {
 function polygonPath(points: PointMm[]): Path2D { const path = new Path2D(); addRing(path, points); return path }
 function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX: number, scaleY: number) { ctx.setTransform(scaleX, 0, 0, scaleY, -bounds.x * scaleX, -bounds.y * scaleY) }
 
-interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; paintCache?: { key: string; image: HTMLCanvasElement } }
+interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean }
 async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal, metrics?: Pick<RenderMetrics, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>): Promise<RasterSet> {
   const bitmaps = new Map<string, ImageBitmap>(), byAssetId = new Map<string, ImageBitmap>(); let totalPixels = 0
   try {
@@ -151,7 +157,7 @@ function paintImage(ctx: CanvasRenderingContext2D, paint: MaterialPaint, project
     const image = canvas(ctx.canvas.width, ctx.canvas.height)
     // Own the surface before setup; a synchronous paint failure aborts this render and its finally releases it.
     raster.paintCache = { key, image }
-    const imageCtx = context(image), pattern = imageCtx.createPattern(bitmap, 'repeat')
+    const imageCtx = context(image, raster.readFrequently), pattern = imageCtx.createPattern(bitmap, 'repeat')
     if (!pattern) throw new Error('无法建立重复材质。')
     // Full fixed-view rasterization keeps texture phase independent of clipping and mutable bounds.
     const b = projection.bounds
@@ -170,7 +176,7 @@ function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: Surface
     for (const overlay of [...style.overlays].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) {
       const layer = canvas(ctx.canvas.width, ctx.canvas.height), mask = canvas(ctx.canvas.width, ctx.canvas.height)
       try {
-        const layerCtx = context(layer), maskCtx = context(mask), sx = mask.width / b.width, sy = mask.height / b.height
+        const layerCtx = context(layer, raster.readFrequently), maskCtx = context(mask, raster.readFrequently), sx = mask.width / b.width, sy = mask.height / b.height
         worldTransform(maskCtx, b, sx, sy); maskCtx.fillStyle = '#fff'
         // A deterministic world-size feather; the owner clip remains authoritative.
         if (overlay.blendWidthMm) maskCtx.filter = `blur(${overlay.blendWidthMm * .5 * Math.max(sx, sy)}px)`
@@ -187,7 +193,7 @@ function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, ras
   if (!projection.walls.length) return
   const width = ctx.canvas.width, height = ctx.canvas.height, mask = canvas(width, height), color = canvas(width, height), interior = canvas(width, height)
   try {
-    const maskCtx = context(mask), colorCtx = context(color), interiorCtx = context(interior), geometry = wallGeometry(projection.walls)
+    const maskCtx = context(mask, raster.readFrequently), colorCtx = context(color, raster.readFrequently), interiorCtx = context(interior, raster.readFrequently), geometry = wallGeometry(projection.walls)
     worldTransform(maskCtx, projection.bounds, scaleX, scaleY); worldTransform(colorCtx, projection.bounds, scaleX, scaleY)
     const union = new Path2D()
     for (const item of geometry) {
@@ -424,11 +430,16 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') throw new Error('图片绘制需要支持真实位图解码与 Canvas 的浏览器。')
   if (metrics) { metrics.validationProjectionMs = performance.now() - started; metrics.width = width; metrics.height = height }
   const raster = await decodeRequired(sources, projection, options.signal, metrics)
+  // Formal 4K output is read back for PNG encoding. Keep all of its temporary
+  // surfaces on the readback path: WebKit's accelerated material composition
+  // can vary by one color level even between two exports of the same input.
+  // Interactive/editor canvases retain their existing rendering path.
+  raster.readFrequently = !editor && options.longEdgePx === PNG_MAX_LONG_EDGE
   let output: HTMLCanvasElement | undefined, padded: HTMLCanvasElement | undefined
   let completed = false
   try {
     checkCancelled(options.signal); output = canvas(width, height)
-    const ctx = context(output)
+    const ctx = context(output, raster.readFrequently)
     if (plan && (drawingProjection.bounds.x !== outputBounds.x || drawingProjection.bounds.y !== outputBounds.y || drawingProjection.bounds.width !== outputBounds.width || drawingProjection.bounds.height !== outputBounds.height)) {
       // Source silhouettes outside the visible crop must contribute to wall
       // masks, material feathers and shadows before the final view is cut out.
@@ -436,7 +447,7 @@ export async function renderRasterProjection(sources: RasterSources, projection:
       // density rather than allocating an unbounded intermediate surface.
       const paintBounds = drawingProjection.bounds, paintRatio = Math.min(ratio, PNG_MAX_LONG_EDGE / Math.max(paintBounds.width, paintBounds.height))
       padded = canvas(Math.max(1, Math.round(paintBounds.width * paintRatio)), Math.max(1, Math.round(paintBounds.height * paintRatio)))
-      const paintContext = context(padded), drawStarted = metrics ? performance.now() : 0
+      const paintContext = context(padded, raster.readFrequently), drawStarted = metrics ? performance.now() : 0
       drawProjection(paintContext, drawingProjection, raster, options.signal, propDetails)
       const sx = padded.width / paintBounds.width, sy = padded.height / paintBounds.height
       ctx.drawImage(padded, (outputBounds.x - paintBounds.x) * sx, (outputBounds.y - paintBounds.y) * sy, outputBounds.width * sx, outputBounds.height * sy, 0, 0, width, height)
@@ -465,6 +476,13 @@ export async function encodePng(output: HTMLCanvasElement, signal?: AbortSignal)
     checkCancelled(signal)
     const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(result => result ? resolve(result) : reject(new Error('PNG 编码失败，请降低输出尺寸。')), 'image/png'))
     checkCancelled(signal)
-    return blob
+    if (blob.type !== 'image/png' || !blob.size || blob.size > PNG_MAX_ENCODED_BYTES) throw new Error('PNG 编码格式或字节数超过输出保护值。')
+    const bytes = normalizePngChunks(new Uint8Array(await blob.arrayBuffer()), PNG_MAX_ENCODED_BYTES)
+    checkCancelled(signal)
+    // Normalization already validates the actual PNG container/CRC/dimensions.
+    // Its header remains first; avoid reapplying the per-asset 20 MiB budget here.
+    const header = new DataView(bytes.buffer, bytes.byteOffset + 16, 8)
+    if (header.getUint32(0) !== output.width || header.getUint32(4) !== output.height) throw new Error('PNG 实际编码尺寸与输出画布不一致。')
+    return new Blob([bytes.slice().buffer], { type: 'image/png' })
   } finally { disposeCanvas(output) }
 }

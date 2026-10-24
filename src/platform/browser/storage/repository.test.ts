@@ -12,6 +12,7 @@ import { CONVERTER_VERSION } from '../../../shared/migration/types.js'
 import { exportMigrationSet, importMigrationSet } from '../../../shared/migration/set.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
+import * as projectValidation from '../../../shared/project/validate.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES } from './database.js'
@@ -117,6 +118,76 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     expect(sha256Bytes(await (await repo.load(before.document.sceneId))!.resources.read(hash))).toBe(hash)
     expect(decodedTransactions.length).toBeGreaterThanOrEqual(3); expect(decodedTransactions.every(value => !value)).toBe(true)
     expect(await reopener.usage(before.document.sceneId)).toMatchObject({ namedCount: 0, protectionCount: 0, importedCount: 0 })
+  })
+  it('counts every identical stored copy while validating its actual complete content once per usage scan', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const named = await repo.createSnapshot(input, '相同内容命名', { expectedRevision: 0, expectedMetadataVersion: 0 })
+    await repo.createSnapshot(input, '相同内容保护', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 1 })
+    const stored = (await repo.database.snapshots.get([owner, named.id]))!
+    await repo.database.importedSnapshots.add({ ...stored, id: 'usage-imported', kind: 'imported-auto' })
+    const checking = vi.spyOn(projectValidation, 'projectContentHash')
+    expect(await repo.usage(owner)).toEqual({ documentBytes: encodeUtf8(canonicalJson(input.project)).length * 5,
+      resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 1 })
+    expect(checking).toHaveBeenCalledTimes(1)
+    checking.mockClear()
+    await repo.usage(owner)
+    expect(checking).toHaveBeenCalledTimes(1)
+  })
+  it('checks every stored envelope and claimed hash even when identical content was already checked in the scan', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const automatic = (await repo.database.automaticSnapshots.get([owner, 0]))!
+    await repo.database.automaticSnapshots.put({ ...automatic, contentHash: 'f'.repeat(64) })
+    await expect(repo.usage(owner)).rejects.toThrow(/hash/)
+    await repo.database.automaticSnapshots.put({ ...automatic, savedAt: 'invalid-time' })
+    await expect(repo.usage(owner)).rejects.toThrow(/时间/)
+    const unknown = { ...automatic, unexpected: 'cannot be ignored' }
+    await repo.database.automaticSnapshots.put(unknown)
+    await expect(repo.usage(owner)).rejects.toThrow(/字段/)
+    await repo.database.automaticSnapshots.put(automatic)
+    expect((await repo.usage(owner)).documentBytes).toBe(encodeUtf8(canonicalJson(input.project)).length * 2)
+  })
+  it('rejects changed full content under a reused hash and schema-invalid content under an honest raw hash', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const automatic = (await repo.database.automaticSnapshots.get([owner, 0]))!
+    const changed = cloneJson(automatic); changed.project.document.title = 'same declared hash, different actual content'
+    await repo.database.automaticSnapshots.put(changed)
+    await expect(repo.usage(owner)).rejects.toThrow(/hash/)
+    const invalid = cloneJson(automatic)
+    Object.assign(invalid.project.authoringSources, { orphan: { kind: 'svg' } })
+    invalid.contentHash = sha256Bytes(encodeUtf8(canonicalJson(invalid.project)))
+    await repo.database.automaticSnapshots.put(invalid)
+    await expect(repo.usage(owner)).rejects.toThrow(/字段无效/)
+    await repo.database.automaticSnapshots.put(automatic)
+    expect((await repo.usage(owner)).documentBytes).toBe(encodeUtf8(canonicalJson(input.project)).length * 2)
+  })
+  it('rereads historical content, resources, licenses and originals changed by another connection after a successful scan', async () => {
+    const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const named = await repo.createSnapshot(input, '跨事务保护', { expectedRevision: 0, expectedMetadataVersion: 0 })
+    const original = encodeUtf8('retained original bytes'), originalHash = sha256Bytes(original)
+    await repo.database.legacyBlobs.put({ sha256: originalHash, bytes: original })
+    await repo.usage(owner)
+    const other = repository(repo.database.name); await other.open()
+    const stored = (await other.database.snapshots.get([owner, named.id]))!, changed = cloneJson(stored)
+    changed.project.document.title = 'external history tampering'
+    await other.database.snapshots.put(changed)
+    await expect(repo.usage(owner)).rejects.toThrow(/hash/)
+    await other.database.snapshots.put(stored)
+    const resource = (await other.database.resources.toArray())[0]
+    await other.database.resources.put({ ...resource, bytes: new Uint8Array([1, 2, 3]) })
+    await expect(repo.usage(owner)).rejects.toThrow(/资源字节hash/)
+    await other.database.resources.put(resource)
+    const license = (await other.database.licenseTexts.toArray())[0]
+    await other.database.licenseTexts.put({ ...license, text: 'external changed license text' })
+    await expect(repo.usage(owner)).rejects.toThrow(/许可正文hash/)
+    await other.database.licenseTexts.put(license)
+    await other.database.legacyBlobs.put({ sha256: originalHash, bytes: new Uint8Array([9]) })
+    await expect(repo.usage(owner)).rejects.toThrow(/资源字节hash/)
+    await other.database.legacyBlobs.put({ sha256: originalHash, bytes: original })
+    expect((await repo.usage(owner)).legacyBytes).toBe(original.length)
   })
   it('uses one transaction revision CAS across connections and refuses equal or decreasing revisions', async () => {
     const first = repository(), second = repository(first.database.name), input = fixture(); await first.save(input, null)
