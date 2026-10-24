@@ -215,7 +215,7 @@ M2-2在M2-1文字/连接工具之外增加版本固定的应用技能`sceneweave
 
 用户已提供目标服务器并授权部署。真实目标为Debian13/amd64、Docker26.1.5/Compose2.26.1；独立Node24.14.1镜像已构建运行。现有80与8787端口属于其他业务，保持运行；AI容器只在独立网络暴露8787，非root `node`、根只读，任务卷目录700/SQLite600，健康检查通过。Compose的宿主CLI同名插件不可执行，使用已有`/usr/libexec/docker/cli-plugins/docker-compose`，未覆盖系统工具。私有环境文件为600，模型供应商配置与应用随机凭据分开，未输出或纳入Git。
 
-公网后端为[https://124.223.95.142](https://124.223.95.142)，匿名[健康检查](https://124.223.95.142/healthz)返回200，任务API仍需应用凭据。[Pages前端](https://wojisama.github.io/sceneweave/)已通过仓库公开变量预填此origin，[工作流40113648232](https://github.com/WoJiSama/sceneweave/actions/runs/40113648232)发布成功。公开变量只有origin，使用者在页面内存中填写应用凭据；后端不接收前端提供的任意provider地址或密钥。
+公网后端为[https://124.223.95.142](https://124.223.95.142)，匿名[健康检查](https://124.223.95.142/healthz)返回200，任务API仍需应用凭据。[Pages前端](https://wojisama.github.io/sceneweave/)已通过仓库公开变量预填此origin；初次部署由[工作流40113648232](https://github.com/WoJiSama/sceneweave/actions/runs/40113648232)发布，首页修复后的最终发布由[工作流40142916372](https://github.com/WoJiSama/sceneweave/actions/runs/40142916372)完成，并已做发布后公网复测。公开变量只有origin，使用者在页面内存中填写应用凭据；后端不接收前端提供的任意provider地址或密钥。
 
 无自有域名时采用受信任IP证书：固定Caddy2.11.7、显式Let's Encrypt `shortlived`、TLS-ALPN仅使用443，禁用HTTP challenge和自动80跳转；`default_sni`绑定公网IP，使Docker/NAT下不发送SNI的浏览器也能选择证书。`deploy/compose.ip.yaml`要求Compose>=2.24.4，以`!override`移除默认80映射。初次云侧TCP443未放行导致公网与ACME超时；用户调整后多点验证成功，已签发正式证书。Node默认信任校验通过TLS1.3，SAN为`IP Address:124.223.95.142`，签发者Let's Encrypt YE2，本次有效期`2026-10-24T15:54:28Z`至`2026-10-31T07:54:27Z`。160小时证书由Caddy及保留证书卷自动续期，续期须保持TCP443、ACME出站与正确时钟；此次已验证首次签发和重启保全，尚未经历到期续签。复现及官方依据见[贡献说明](../CONTRIBUTING.md#m2-5线上-ai-服务与-pages)。
 
@@ -333,4 +333,4 @@ Chromium使用独立profile与临时扩展真实`chrome.tabs.setZoom(tabId,2)`�
 
 墙面及安全诊断、failed草稿接管、PNG出口的改动后，正常生产构建通过（2.62秒），M22/M23联合创作和failed恢复同次7/7 Chrome通过（1.1分钟），AI服务分页另17项定向通过。旧M22夹具曾按旧检索数组合同读取，现按实际`assets/total/nextOffset`合同修正后复验；分页读取上限1024只覆盖原明确授权scope，不放宽输出、秘密或预算。最终集成检查为1471/1471单元、131/131 AI、67共享模块、类型/前后端构建及Chromium主路径27/27通过；正式四组×三轮性能已完成但100ms普通编辑门槛未通过，详见34。各批定向与历史第16节全量单元/39项不重复相加，也不宣称本轮又做了全部旧入口回归。
 
-当前结果没有关闭完整SCN-01/04无引导人工制作、真实小团、用户最终审美/P3、视觉输入能力、通用寻路、持久建筑/删除重建/任意拓扑恢复或UVTT目标软件实际导入；真实成本未知仍显示未知，不自动重发付费请求。第15节公网HTTPS/Pages结果不自动覆盖本轮修复，需在本次部署后重新核对线上构建；短期证书续签也未经历。正式性能已按34完成四组×三轮，但普通编辑100ms门槛未通过，保存与保护恢复仍有秒级长尾。
+当前结果没有关闭完整SCN-01/04无引导人工制作、真实小团、用户最终审美/P3、视觉输入能力、通用寻路、持久建筑/删除重建/任意拓扑恢复或UVTT目标软件实际导入；真实成本未知仍显示未知，不自动重发付费请求。本轮修复提交`887aad9`已推送，Pages工作流[40142916372](https://github.com/WoJiSama/sceneweave/actions/runs/40142916372)成功，服务器`/opt/sceneweave/current`已切换到`/opt/sceneweave-ai/releases/887aad9`；发布后`/healthz`返回200、无凭据401、错误Origin403、Pages Origin的GET/POST/DELETE预检204，`sceneDraft`与`svg`能力均为true。线上真实任务`c7e5214d-8c99-4eac-b708-60318cde0ee2`复测9次模型请求、44条展开操作、1个保护快照、一次采用/保存/重载和43条完整包闭包通过，0页面错误/失败API；这些数字不覆盖未完成的模型审美或全量输入矩阵。短期证书续签也未经历。正式性能已按34完成四组×三轮，但普通编辑100ms门槛未通过，保存与保护恢复仍有秒级长尾。

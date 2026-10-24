@@ -141,7 +141,7 @@ npx playwright test --config=tests/m2-joint-playwright.config.ts --workers=1
 
 默认配置与专用配置均可启动或复用`127.0.0.1:5173`开发服务；使用已启动的同版开发服务时可设置`SCENEWEAVE_TEST_BASE_URL`。这些专项包含开发模块入口，不能直接把生产`dist`地址当作等价入口。冻结源码后再运行，分别保留失败与复验结果；命令说明不代表已经执行，测试不得与正式性能测量并行。
 
-首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。必要线上AI旅程见05第15节；本轮实际使用与失败修复的适用结果见[05第17节](docs/05-ai-and-generation.md#17-2026-10-25-m2实际使用验收与修复)及09：确定性单件/组合/两批范围、三引擎四个完整v1秘密配对的实际4K、保存失败/CAS/迁移/离线与390px，以及Chromium隔离origin真实配额和原生200%等子项已有通过证据。Firefox/WebKit的Chromium专属配额override和原生缩放两项为不适用跳过；未覆盖秘密/输入矩阵、默认设备容量/真实磁盘满、Firefox/WebKit配额、其他浏览器原生200%、完整无引导SCN、真实模型风格与用户P3仍分别验收。本机修复不自动等于线上已发布；正式性能方法、实际结果和剩余边界集中于[34](docs/34-performance-followup.md)，不预填本轮通过结论。
+首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。必要线上AI旅程见05第15节；本轮实际使用与失败修复的适用结果见[05第17节](docs/05-ai-and-generation.md#17-2026-10-25-m2实际使用验收与修复)及09：确定性单件/组合/两批范围、三引擎四个完整v1秘密配对的实际4K、保存失败/CAS/迁移/离线与390px，以及Chromium隔离origin真实配额和原生200%等子项已有通过证据。Firefox/WebKit的Chromium专属配额override和原生缩放两项为不适用跳过；未覆盖秘密/输入矩阵、默认设备容量/真实磁盘满、Firefox/WebKit配额、其他浏览器原生200%、完整无引导SCN、真实模型风格与用户P3仍分别验收。修复提交`887aad9`已由[Pages工作流40142916372](https://github.com/WoJiSama/sceneweave/actions/runs/40142916372)发布并完成公网复测；正式性能方法、实际结果和剩余边界集中于[34](docs/34-performance-followup.md)，不预填本轮通过结论。
 
 ## 当前原生样板加载诊断
 
