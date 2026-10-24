@@ -2,7 +2,7 @@
 
 ## 完整v1现行存储与转换合同（2026-10-24）
 
-**新完整v1、sceneweave-projects及sceneweave-library已接入默认主会话，M2-4非空SVG源及算法2目录闭包已接通。** M2-0a至e历史结果保留于48至[51](51-m20e-library-conversion-validation.md)，f当时实际检查见[52](52-m20f-native-workspace-validation.md)。六旧库、旧catalog及原文件仅通过兼容边界只读保全转换，不自动迁移真实用户数据；旧整页编辑器退役。交接见[47](47-m20-unified-v1-handoff.md)，M2-1至4任务/场景/素材与服务私有存储见H节及[05](05-ai-and-generation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；M2-5服务器容器已部署，公网443/受信任IP证书及Pages联合仍待，详05第15节，正式性能继续后置。不恢复已清理的work/evidence或生成新的原始验收大包。
+**新完整v1、sceneweave-projects及sceneweave-library已接入默认主会话，M2-4非空SVG源及算法2目录闭包已接通。** M2-0a至e历史结果保留于48至[51](51-m20e-library-conversion-validation.md)，f当时实际检查见[52](52-m20f-native-workspace-validation.md)。六旧库、旧catalog及原文件仅通过兼容边界只读保全转换，不自动迁移真实用户数据；旧整页编辑器退役。交接见[47](47-m20-unified-v1-handoff.md)，M2-1至4任务/场景/素材与服务私有存储见H节及[05](05-ai-and-generation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；M2-5服务器容器与可信公网IP HTTPS已上线，Pages真实模型创作→保护采用→保存/导出/重载的必要联合旅程已通过，详05第15节，正式性能继续后置。不恢复已清理的work/evidence或生成新的原始验收大包。
 
 ### A. 工程容器及严格分发
 
@@ -104,7 +104,7 @@ e的旧目录scope.repository为实际sceneweave-catalog-v1，sourceSceneId为nu
 
 新界面可按本地owner列举已保留的legacy来源节点，核对节点/前序/来源hash与实际原字节后由GM明确下载；JSON原记录与旧ZIP分别以对应文件类型取回，不重序列化冒充原件。普通完整/历史包仍不默认携带本地旧原件，原件与完整保全set边界不变。另存副本不删除原来源owner/旧库或先前保全文件，不宣称普通副本已经携带全部旧档案。
 
-以下旧格式段保留各批实现语义和历史证据；内容续批及重构前自动化结果见[43](43-content-m1d-validation.md)、[44](44-full-regression-validation.md)，现行新v1文件读写以上节及52为准。M1-D首批混合素材/SCN-04、房间材质/整墙平移与单位显示的当时范围见[35](35-m1d-outpost-validation.md)；C4严格v6/identity3、有效v3及appearance1语义由新完整v1承接。C5联合功能历史见[32](32-m1c-c5-validation.md)，资源复用见[33](33-c5-resource-reuse-validation.md)。余下性能按[34](34-performance-followup.md)暂缓，C5及完整性能验收仍未通过；人工P3/完整SCN、小团、持久建筑/任意拓扑恢复及线上HTTPS仍待。
+以下旧格式段保留各批实现语义和历史证据；内容续批及重构前自动化结果见[43](43-content-m1d-validation.md)、[44](44-full-regression-validation.md)，现行新v1文件读写以上节及52为准。M1-D首批混合素材/SCN-04、房间材质/整墙平移与单位显示的当时范围见[35](35-m1d-outpost-validation.md)；C4严格v6/identity3、有效v3及appearance1语义由新完整v1承接。C5联合功能历史见[32](32-m1c-c5-validation.md)，资源复用见[33](33-c5-resource-reuse-validation.md)。余下性能按[34](34-performance-followup.md)暂缓，C5及完整性能验收仍未通过；人工P3/完整SCN、小团、持久建筑/任意拓扑恢复仍待。可信公网HTTPS与Pages必要旅程现已通过，完整私密/两批扩围及视觉质量、跨浏览器/配额/UVTT不因该子项关闭。
 
 ### H. M2-1至4服务私有任务与SVG制品
 
@@ -116,7 +116,9 @@ M2-2建立的任务授权元数据、成功步骤账本和采用回执已支持M
 
 ### I. M2-5服务器容器与公网联合边界
 
-服务器独立容器已真实构建运行，非root/node、只读根、私有持久卷及内部健康检查通过；应用/provider凭据分离，Pages仅构建静态前端。经SSH访问的单次真实模型流、断线回读与幂等1请求，以及重启检查点、取消、备份还原和合成7日清理检查通过，实际过程与边界见[05第15节](05-ai-and-generation.md)。公网TCP443仍云安全组超时，受信任IP证书尚未签发成功，Pages后端URL变量未设置；公网鉴权/精确Origin、SSE重连与创作→采用→本机保存→导出旅程仍待HTTPS下联合验证，不能宣称完整M2-5或公网上线。
+服务器独立容器已真实构建运行，非root/node、只读根、私有持久卷及内部健康检查通过；应用/provider凭据分离，Pages仅构建静态前端。经SSH访问的单次真实模型流、断线回读与幂等1请求，以及重启检查点、取消、备份还原和合成7日清理检查通过。后续公网TCP443和受信任LE YE2/IP SAN证书已生效，默认信任TLS1.3，Pages后端URL变量与发布40113648232完成；[05第15节](05-ai-and-generation.md)保留初次443/证书失败及后续成功过程。短期IP证书的确切有效期与维护边界也归该节，不把一次握手作为永久可用保证。
+
+实际Pages/Chrome→公网HTTPS→真实grok工具的必要创作旅程已通过：双房、内外门、院路、灯具和GM线索、96px SVG、brightness0.8/opacity0.7，9次模型请求、44展开操作/5草稿步，全部工具成功。保护快照1份后一次采用到r1并本机保存；完整包43条目逐hash核对，SVG原始/规范化源及实际PNG闭包和4K主持人PNG通过，重载后再导出内容相同；0页面错误/失败API，凭据未进local/sessionStorage。核对依据为包内内容与hash，不以压缩字节数大小证明保全。该结果不关闭完整私密/两个明确批次扩围、自由创作与视觉质量、P3、人工SCN、性能、跨浏览器、真实配额或UVTT。
 
 本文件规定保存成功的含义、导入失败的行为与玩家输出边界。字段以[场景文档](04-scene-document.md)为准，案例以[固定场景](08-test-scenarios.md)为准。
 
