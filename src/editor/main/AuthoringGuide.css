@@ -1,0 +1,14 @@
+.authoring-guide { display: grid; gap: .6rem; font-size: .8rem; }
+.authoring-guide > h3,.authoring-guide p { margin: 0; }
+.authoring-guide p { line-height: 1.6; overflow-wrap: anywhere; }
+.authoring-guide ol { padding: 0 0 0 1.4rem; margin: 0; display: grid; gap: .55rem; }
+.authoring-guide li { padding-left: .1rem; }
+.authoring-guide li[data-status="complete"] { color: var(--muted, #717970); }
+.authoring-guide li > details { border: 1px solid #d8dcd0; border-radius: .4rem; padding: .55rem; }
+.authoring-guide summary { cursor: pointer; }
+.authoring-guide li summary > span { font-weight: 600; }
+.authoring-guide li summary > small { margin-left: .5rem; white-space: nowrap; }
+.authoring-guide details[open] > p { margin-top: .5rem; }
+.authoring-guide details > button { margin-top: .55rem; }
+.authoring-guide-reason { color: #8c502f; }
+.authoring-guide-catalog { border: 1px solid #c8d4c0; padding: .6rem; border-radius: .4rem; display: grid; gap: .45rem; }

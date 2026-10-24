@@ -1,5 +1,87 @@
 # 发现
 
+## M2-2起点（2026-10-24）
+
+- 用户“继续”承接明确下一M2-2。现有previewPrepared只允许目录追加，preview按一批CompositionCommand准备；需新建持有私有证据的任务授权/原子候选，不直接信任网络完整文档。04要求完整步骤重放、单调身份/256累计展开、原主锁/范围、保护点与CAS一次提交。
+- 首批在已采用固定素材上开放独立公开物件place/transform/opacity及显式授权delete；组合/散布成员、带注记等隐式依赖及建筑/室外留后续。服务只拿明确授权的完整ProjectData元数据，不上传实际图片/历史；provider仅公开摘要/目标及显式允许的素材信息。共享纯校验与本机实际资源校验分开，最终采用需要本机重放和保护。
+
+- M2-2已实现固定应用技能、确定性步骤、后端私有账本/本机ready确认/短租约及本机私有授权、完整真实资源重放、保护与同事务revision/metadata/保护hash CAS。公开独立物件place/transform/opacity及显式delete是首批范围；纯对话4/8/120s不变，草稿16/64/300s，累计256含no-op。暂停可追加继续，也可不续费直接结束生成并送审。
+- 本机grant和服务器JSON不可互相替代；同场景重开需明确重新绑定确切内容，旧主工程变化则拒绝。客户端JSON读20秒期限/草稿8MiB有界，待重试元数据随连接变化清除，回执绑定原client；采用临界区同时阻止连接更改与其他主工程写入。预览切换显式守卫，后台草稿不抢手工候选。
+- 必要145个不同单元、7个不同Chrome流程分批通过；测试刷新自动重开假设和saved等待竞态已修正，未最终单轮完整7项重跑。真实渠道4请求合成符号工程准确得到指定坐标/角度/透明度、主工程不改；provider工具回执只给本步ID/计数，不外发许可/来源依赖集合。63模块无DOM/Node、正常构建/生产UI通过。结果集中05第12节，下一M2-3，未全量回归/部署/commit/push。
+
+## M2-1起点（2026-10-24）
+
+- 用户“继续下一步”承接当前明确下一入口M2-1。05/07/45规定Node/Hono、SQLite＋制品、有序SSE、应用鉴权与精确Origin、固定provider/模型，实际文本及至少一轮工具结果续答。当前无后端目录或本地env，Node24.14.1可用；不再讨论是否需要后端。
+- 本轮先接通对话与只读连接能力工具，工程内容/素材/历史不自动外发，场景草稿及采用留M2-2，SVG留M2-4。完整回归和正式性能继续后置；不新增编号验收报告，保留现有a至f和加载修复/独立todo。
+- 已完成65项定向与两条Chrome/正常生产链路；真实渠道grok-4.5三请求文本/工具/续答、首段后本地中止和坏凭据均通过，生产真实任务另1请求输入392/输出400 token。渠道max_tokens参数与回报不一致，明确费用未知/不承诺计费上限，视觉未测。恢复审查修复完整工具消息事务、写故障终态也失败时503、单实例SQLite锁、SSE背压重入与journal残留；原生浏览器fetch需要global receiver，Node替身未暴露，已由真实Chrome定位并修正。
+
+## 当前样板加载诊断
+
+- 用户授权修复加载性能；新原生v1样板已经没有旧v2→v3 ZIP往返。仍有逐张fetch、公共完整校验的反复字节/像素检查；内置目录loadBuiltinCatalog完整验证后fromBundle再次全验，且与首屏共用图片串行队列。
+- 先在正常生产及隔离Chrome记录点击到确认/采用到首屏、请求/解码/像素读取和长任务，诊断与正式性能门分开；保留外部输入及保存/导出的完整检查，只复用应用可证明持有的不可变数据/字节。
+- 同方法2上下文/样板诊断：首次书房PNG读取72→15、位图创建214→85；岩岛70→13、206→79。无延迟首开总耗时书房1620.9→1557.1ms、岩岛2255.2→2126.5ms，改善有限；模拟每PNG延迟80ms的书房确认1919.2→970.7ms。岩岛再次确认阶段变慢且波动，单长任务仍246ms，不能把网络等待优化当作全主线程性能通过。实现/方法/限制只补34，无新增编号报告。
+
+## 2026-10-24 M2-0f完成与边界
+
+- 原生EditableProject直接持有ProjectData及独立资源端口；唯一toBundle不构造旧格式视图。七模板742184字节新格式数据使用57既有public图片＋3校样嵌入图，运行时不调旧工厂。书房/岩岛/哨所双受众4K逐RGBA与旧参考完全一致，固定遮罩私密样板另验实际像素。完整保全set可在空浏览器取回，源库缺失默认拒绝，明确captured-copy才继续；新job仍需重新绑定保全。当前开发基础完成不代替QA-AI-16全矩阵、人工P3/完整SCN或正式性能。旧core/io/render/catalog及素材、48–51、独立todo和依赖原字节保持。
+
+## 2026-10-24 M2-0f输入
+
+- 现行App仍静态导入M0及v2/v3/v4整页编辑器，默认工作区挂载v6 OutdoorWorkbench（777行）并调用旧workspace/IO、旧catalog及v3渲染。仅把repository换名会继续向旧格式投影，不符合f收敛要求。
+- 共享模型字段承接当前完整持久语义；可用原生ProjectData与独立资源端口作为编辑态，并以显式toBundle保存。需接通真实外观物化、保护恢复、Canvas/命中、样板/空白内容和文件迁移UI，不能丢失现有工具或把模块API测试写成主路径验收。
+
+## 2026-10-24 M2-0e输入
+
+- 旧个人库实际名称sceneweave-catalog-v1，三表entries/organizations/metadata和schema1/native10；现有普通备份只保存所选最多64安装项，不能代替512安装/2048组织的全库保全。
+- 新合同为sceneweave-library五表和私有conversionStaging；新中性完整v1载体仍须精确重抽固定根闭包，算法1完整key保持，重算实际载体字节hash。全部个人显示文本/顺序、颜色/收藏及未安装organization-only保持，坏内容只能保全后明确失败。
+- 旧builtin反向依赖editor/v6空白/主题工厂，e需抽出内容provider；curation为62个精确key与6条refines，不能按名称猜测重绑。06全库预算128MiB包含staging，普通批64和转换全库512/2048必须分开。
+- 新provider固定数据125205字节，只含原定义/外观/完整许可及57既有PNG路径，无复制图片；运行依赖递归检查排除editor/旧catalog TS，仅补标JSON复用。生成时头尺寸替身仅用于内容快照生成，不作为像素证据；真实浏览器将用新图片端口全验57图。
+- 元数据保全采用catalog-metadata单行集合{rows:[{key,value}]}，空库rows[]不虚构源revision，未知/损坏行可先保全后严格拒绝转换。旧所选备份file-catalog-v1保留确切原JSONbytes，不能把所选文件称全库捕获。
+- 共享批量输入先读取原生真实长度/累计预算再复制，备份47MiB与全库128MiB分开；逻辑身份同时检查安装与organization-only。新capsule必须完全等于精确中性工程的重抽固定闭包，派生真实像素/祖先/非活动根和私密模板保留。
+- 最后审查补策略重试保持：prepared取消/失败或目标revision冲突清暂存时，organizationPolicy仍保留，prepare也拒绝改策略；真实Chrome省略重复策略仍正确replace-selected。非法原主键begin明确失败不静默trim，底层capture＋set仍可保全；不把任意坏主键写成应用begin都能转换。
+- 最终15文件165/165串行（18.79秒）、Chrome4/4（7.8秒）、60共享模块AST/无DOM/Node及类型/正常构建（Vite2.71秒）通过。57图实际bytes/解码、62完整item与6精修关系另由Chrome核对，Node替身不作为图片实测。
+- 51与主文档同步e完成/下一f，56文档796链接/锚点、267表格及编号/空白/凭据检查通过。698起始文件677保持，21相关调整及26新增；旧产品路径/测试/素材、48至50、todo/依赖/版本/HEAD/空暂存保持，未全量回归/正式性能、操作真实用户库或commit/push。
+
+## 2026-10-24 M2-0d实施与集成
+
+- 新主库sceneweave-projects明确11表、schema1/native10；旧六库与个人目录不写入。普通完整保存/最近20自动、named/protection各32与只读imported-auto20分开，metadata/source/revision CAS和全库资源256MiB/文档128MiB/原件128MiB保持。
+- 保全set直接携带精确字段/实际Blob或旧文件bytes，分卷32MiB/块8MiB/索引16MiB/最多512卷，完整重读CRC/长度/hash/重组覆盖才登记私有receipt。IDB规范行编码不称原磁盘JSON；序列化坏行可保全但转换严格失败，不裁剪历史。
+- 六库每scope一个readonly事务捕获；指纹覆盖当前、全部历史/元数据、绑定与资源/许可/来源实际bytes。scope=file-v1至file-v6直接保全确切输入ZIP，restore重新走对应严格读者，临时规范行仅复用转换、不作为IDB原记录；文件来源不伪造DB并发检查。
+- v6家族保留lineage/root、出生/拓扑与全部墓碑；历史保留原sceneId/revision并归属新owner，自动生成`自动保存 · r<revision>`的只读imported-auto。v1–v5仅当前转换，旧历史在set/旧库或原文件保全；不追认C2 witness。journal预留一次固定ID/映射，jobVersion CAS、完整prepared/原子committed、冷读再ready/verified，重试不覆盖已手改目标。
+- 审查修正两个资源放大点：共享batch上限85以覆盖当前+64+20（普通便携history仍64），兼容准备和新库冷读都只持一份union字节；各份内容/绑定/许可/真实像素仍独立验证。旧捕获私有原始指纹/bytes与外部对象分离，读取不暴露可改内部行。
+- 初轮4文件54项通过，集成最终前10文件122项通过（7.34秒）；无DOM/Node/保全set重读通过52模块。类型整合发现descriptor.value可选类型，root与兼容层按已有运行时字段检查补TS断言后通过。旧文件夹具首轮v4/v5两次构造不同lineage导致1失败，仅修同源夹具后兼容16项通过；仓库首轮1失败仅receipt正则大小写，修断言后通过。Chrome首轮3/1是测试误传完整ProjectData到严格三元命令入口，仅修测试解构后4/4；未放宽产品检查。
+- 最终审查发现仓库原先仅拒绝未知历史，未强制全部预留v6映射到齐；已补v6/file-v6全历史、kind及自动revision最终检查，遗漏候选prepare/commit均拒绝，完整候选通过。实际旧个人库sceneweave-catalog-v1名称守卫及低版本外来库升级竞争回滚也已补齐。
+- 最终10文件124/124（8.00秒）、4项真实Chrome（8.8秒）、52模块无DOM/Node及类型/正常构建（Vite2.74秒）通过；源码冻结后只同步说明。54文档801本地链接/锚点、266表格、编号/空白/凭据及677基线保护通过；655原字节保持、22相关调整及21新增。下一e个人库/载体，主UI留f；完整回归/性能、真实用户库和AI服务未运行，未commit/push。
+
+## 2026-10-24 M2-0c实现与集成
+
+- 新完整资源验证与ZIP读写在shared/project，真实PNG/JPEG/WebP解码、Canvas变换及PNG编码在platform/browser/images；shared共48源码模块，独立ES2023/types空/NodeNext编译与真实Node原生ESM通过，Node只验证无图片当前/历史IO，不伪称已有Node图片解码器。
+- JSON/读取方法在首个await前捕获，实际字节在进入异步图片处理前独立捕获。认证只绑定拥有且深冻结ProjectData与不可变字节端口，公开入口重读/hash/解码；输入可变或伪冻结对象无免检权。派生输出须真实逐像素等于源/参数，许可来源完整保持。
+- 整合审查发现历史逐快照捕获可能重复持有整个资源union，已改为单份不可变联合字节、分工程hash范围，并保留每个外部端口实际读取校验。联合256张/64M像素/300MiB元数据预检、同hash描述冲突、超长字节拷贝前拒绝及变换后取消均补上定向测试；没有测量内存峰值或正式性能。
+- 便携历史summary的ownerSceneId与历史document.sceneId/revision分开，保持真实lineage/root、内容hash与出生墓碑冲突检查；自动历史/legacy原件不放入普通所选包，全scope保全和生产转换留d。四JSON/精确索引、ZIP CRC/长度/hash/路径/累计JSON、全部六代旧读者拒绝新包均有定向检查。
+- Chrome首轮1/3失败来自测试Canvas JPEG/WebP冗余ICC元数据，原生规范化检查正确拒绝；仅移除明确sRGB夹具的profile并保持压缩像素流，产品检查未放宽。修正4/4、最终源码4/4（5.8秒）；实际半透明派生全像素、历史专属WebP、失败/取消释放Bitmap及IDB清单不变通过。类型整合的捕获方法收窄与测试Uint8Array泛型另已修正。
+- 最终6文件77/77共享定向（1.78秒）、48模块无DOM/Node、类型与正常构建（Vite2.79秒）通过；简短49及主定义/路线同步c完成、d下一。新主库/保全set/journal/目录/UI未实现，不关闭整个M2-0/QA-AI-16，48及早期结果保持历史，不全量回归或调用provider。
+
+## 2026-10-24 M2-0b实现与集成
+
+- 已提取37个独立共享源码模块，模型为新完整v1；场景/命令/身份/外观/恢复/纯投影不再导入旧core/editor/io/render或生成旧格式视图。旧产品路径仍原样运行，切换到共享主路径留f，暂态两路径是迁移过程，不是长期保留重复算法。
+- 字节/真实像素校验留c；b的ProjectData校验明确只覆盖严格纯JSON、身份/外观、资源声明/许可闭包和预算，不发图片认证。authoringSources非空显式unsupported-feature。
+- 独立ES2023/types:[]/NodeNext编译与真实Node ESM导入已通过；所有相对模块用.js规范发射，ID/时间经PreparationContext，固定散布SHA使用无DOM UTF-8。
+- 首次边界检查器的正则误把源字符串中的from当导入，改为TypeScript AST；首次编译发现放置schema局部名遮蔽并修复。首次45项定向38通过/7失败：6个历史用例的测试适配器遗漏旧format，1个物理端点断言未容纳约1e-12浮点差；产品新旧候选等价已通过，修正测试适配/精度后复验，不放宽领域规则。
+- 最终4文件45/45通过（2.15秒）、类型/正常构建通过（Vite3.61秒）、最终37模块AST边界/无DOM编译/Node ESM闭环通过。第二轮43/2中另一个用例错误预期锁定注记ID，新旧实际均拒绝并报告依赖根domain；最终对照两者同拒绝。48仅简短记录，真实字节/PNG/ZIP/转换/目录/UI留c–f，QA-AI-16仍开放。
+
+## 2026-10-24 M2-0实际合同缺口
+
+- 六库均Dexie schema 1/native IndexedDB version 10，不能与产品v1–v6混为一谈。现有prepareProjectReference只转换当前；自动、命名、保护和原件链不能靠逐快照独立调用迁移器保全连续性。
+- 完整history便携包只含明确命名/保护（最多64），不含20份自动历史或本地迁移原件；须定义独立迁移保全格式。旧历史库的资源256MiB/文档128MiB/原件128MiB按全库累计，六库合并需预检。
+- catalog固定身份不含载体格式和ZIP bytes，可冻结身份算法1以保留原key，只重算capsuleSha256；但现有库备份只含所选安装项，遗漏organization-only记录，最多64项也不能代表512项全库。
+- 跨旧/新IndexedDB无单事务CAS，只能每库一致捕获、目标单库原子发布及源指纹复查，源始终保留。
+- WorkspaceV6.previewPrepared仅支持追加固定素材，adoptPreview不落保护点；v3/v6还禁止某些领域命令混批。未来AI多步草稿最终一次采用需独立共享准备/重放/预算/保护CAS接口，不能把当前workspace.execute循环当作实现。
+- 收敛选择：M2-0先保证v6同一家族的当前/命名/保护及独立导入自动历史可转换；v1–v5当前转换，旧全部历史保留legacy档案，不在首批伪造缺失连续性。当前副本new sceneId/revision0，lineage/root和已有token保持，历史内容保留原sceneId/revision，owner显式区分。
+- 目录采用新库/新备份format而保持现有无SVG内容的身份算法1与精确key；全库保全须包含全部2048组织记录和512安装项的有界分卷。共享层只吸收实现，完整图片校验走窄端口，不能伪称去DOM后已完成真实像素验证。
+- 只读交叉审查补齐：journal首次预留固定ID后只能CAS更新，最终不能再次add；目录用私有staging冷读后一次发布，迁移专用512/2048事务与普通64/工程256区分；原件仅按rawSha256去重。资源JSON抽离Blob后，复用凭证还须绑定不可变字节闭包/受控句柄代次；草稿解锁不能绕主工程有效锁。
+- 04/06机器合同、03模块边界与47交接一致；M2-0a准备完成，b共享模型/纯规则为下一入口，c新完整IO、d工程保全转换、e目录、f主会话。新增QA-V1-01至08与ADR-047至050；产品实现、用户IDB盘点和新QA均未运行。
+
 ## 2026-10-23 work/evidence实际清理
 
 - 用户明确要求清理两目录，授权覆盖先前仅盘点/先迁档安排。实际删除work 3345文件/2428559970字节，docs/evidence 1299文件/795931945字节，总3224491915字节；没有复制大包到其他目录。
@@ -225,3 +307,32 @@ U2最终：内容API以中性原生v6载体复用严格IO；独立catalog v1不�
 浏览器首轮完整203项200通过3失败，14项相关文件复验全通过（65.123s），产品src无变化。新增U2真实派生/私密模板→空库离线→真实4K及两页CAS均通过。正常生产首次脚本在点击zoom后过早采样旧data-zoom=1，而实际已1.25，Home Continue保持1.25；补真实缩放完成等待后独立重跑，保留原失败。已实际查看本次390px首页fullPage截图，内容连续、无旧报告38所列重复画面，宽度390无横溢出；不推定全部触摸/200%缩放通过。
 
 重要视觉复核更正：第二次正常生产功能通过，但其390px整页截图又出现拼接重复；第一轮同尺寸图正常。新独立正常生产诊断：DOM始终只有1 home/header/h1与5样板，scrollY真实0/650/1040时header分别0/-650/-1040，根高度1884；实际viewport分段截图中部/底部连续正常，未重复。等字体与双rAF后独立fullPage也正常，支持整页捕获时序/拼接问题的推断，尚不声称已确认Chrome内部原因。工具补resize后字体/双rAF再重新截图，原重复图保留，不用于视觉签收。
+## M2-3/4/5 startup observations (2026-10-24, historical)
+
+以下为开发启动时观察，后续实现已接通场景工具、非空SVG、实际PNG/像素/许可/离线闭包及capabilities.svg:true。用户后续也已授权本轮提交推送，todo.md除外。
+
+- `services/ai/authoring-tools.ts` and `src/shared/ai/authoring.ts` currently expose only independent public prop operations (`place`, `transform`, `opacity`, explicitly authorized `delete`). The store/engine already supports isolated draft revisions, browser validation, short adoption lease, and applied receipt.
+- `src/shared/model/project.ts` already has `authoringSources`/`SvgAuthoringSource` slots, but `src/shared/ai/protocol.ts` advertises `svg: false`; runtime SVG authoring and artifact persistence are absent.
+- v6 SceneDocument already contains building, terrain, path, connection, prefab and scatter command families. Existing native workbench panels preview and adopt those commands through the shared workspace, so AI should produce the same command-shaped changes in a detached project rather than inventing a second scene model.
+- GitHub Pages workflow currently builds only the static `dist`; the Node/Hono service has local start/build scripts but no deployment image, health endpoint contract, reverse proxy, or production environment template.
+- Current branch is `main...origin/main` with the large M2-0f/M2-1/M2-2 working tree uncommitted. Preserve it and do not stage or push automatically.
+- Live integration review: `Workspace.prepareAtomicCandidate` already replays exact server ledger locally, fully validates image resources, and `adoptAtomicCandidate` protects/CAS-commits one undo unit. Current `atomicChanges` only summarizes touched props, so scene-entity diffs need an explicit summary path without weakening the existing commit path.
+- `applyCompositionCommands` owns the strict native command schemas and rejects mixing appearance commands with ordinary scene commands; M2-3 wrappers must continue to use that entry and its lock/dependency/256-expanded-operation checks.
+- ProjectData has strict SVG source metadata fields and package paths, but `validateProjectData` currently rejects every nonempty `authoringSources`; M2-4 must verify source, normalized source, raster hash, and actual PNG bytes before lifting that gate.
+- M2-5 runtime already has configurable host/port/private data dir, `/healthz`, strict Origin/Bearer checks, task restart/cleanup handling, and Pages endpoint configuration. Deployment work can focus on reproducible TLS/reverse-proxy/container setup and explicit Pages variable wiring.
+# M2-3/4/5 implementation startup findings (2026-10-24, historical)
+
+- The working tree already contains the M2-0f/M2-1/M2-2 implementation and documentation as uncommitted work. Preserve it; M2-3/4/5 must extend the native complete-v1 path rather than revive an old editor path.
+- M2-2 already provides the required safety seam: the service stores only an isolated authoring ledger; the browser replays it against an exact locally authorized baseline, validates real resources, then creates a protected, single atomic adoption. M2-3 and M2-4 should retain that seam.
+- M2-5 has a local deployment scaffold only: a non-root Node image, internal Compose network, Caddy HTTPS proxy, durable task/TLS volumes, a Pages public-origin build variable, and deployment instructions. No target server, DNS, credentials, or live HTTPS evidence are present.
+- `src/shared/ai/svg.ts` and its unit test now exist in the working tree. They define a strict static SVG parser/normalizer that rejects executable and remote SVG features. Runtime rasterization, source/asset persistence, authoring protocol integration, and browser adoption still need to be checked against the M2-4 implementation.
+
+## 首页与最终回归续批
+
+- 用户已追加 commit/push 授权，并明确要求首页展示详情和修正火山后执行回归；`todo.md` 仍保持独立，不纳入提交。
+- 原火山完整场景中的熔岩冷壳主要是灰绿板片，缩图下近似普通石板；新热裂候选使用独立 `lava-hot` 源/PNG和固定材质，不覆盖已有 `lava` SVG/PNG/身份。
+- 首页首次打开样板时，StrictMode 的 controller 注册/清理会取消过早消费的队列；首页子任务已将消费推迟到 microtask 并检查仍为当前 controller。
+- `tests/m23-m24-authoring.spec.ts` 清理处的 ServerType 不保证 closeAllConnections；改用通用 close。类型检查已通过，浏览器联合结果待最终串行运行。
+- 未发布lava-hot第二候选PNG为77293cce6b4d42e1dffa991a9753f524b987301d57550f31a805cd07eecd6e94、61237字节。旧热裂候选7c7f…000b92没有提交或发布，移除后重新应用；生成工具从此拒绝同固定ID不同字节，以免日后覆盖发布内容。
+
+- 最终lava-hot候选已通过完整58图资源校验，原始源/PNG及manifest保留。文档与台账单独记录此P2样板变体，不将目录62/57膨胀为新入库计数。AI本地最终126项通过，正常生产构建2.54秒通过。

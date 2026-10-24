@@ -220,6 +220,37 @@ function lava() {
   return svg(size, size, b + speckle(size, 430, ['#C99A62', '#303E35', '#A39071'], .18), defs)
 }
 
+function lavaHot() {
+  reset(0x4C415641)
+  const size = 512, { b: base, defs } = materialBase(size, '#B74324', 61)
+  let b = base
+  // Broad irregular molten currents separate charred rafts. All details wrap;
+  // avoid a tessellated paving pattern in this independent hot variant.
+  for (let i = 0; i < 18; i++) {
+    const x = between(0, size), y = between(0, size)
+    const rx = between(18, 71), ry = between(12, 49), angle = between(-80, 80)
+    const d = contour(x, y, rx, ry, i * 1.73, 13, .29)
+    let raft = path(d, '#EB722F', 8, '#6D3028')
+    raft += path(d, '#3B2729', 2, ['#30282A', '#47302C', '#38272A', '#54322B'][i % 4])
+    raft += path(contour(x, y, rx * .76, ry * .7, i * 1.73, 13, .28), '#94513A', 1.1, 'none', .48)
+    raft += path(`M${f(x-rx*.5)} ${f(y)}q${f(rx*.3)} ${f(-ry*.6)} ${f(rx*.7)} ${f(-ry*.2)}m${f(-rx*.28)} ${f(ry*.07)}l${f(rx*.12)} ${f(ry*.34)}`, '#B36B44', 1.4, 'none', .53)
+    b += wrap(size, `<g transform="rotate(${f(angle)} ${f(x)} ${f(y)})">${raft}</g>`)
+  }
+  const currents = [
+    'M-42 77C38 116 52 213 133 226S239 151 292 185 362 307 418 320 485 355 554 390',
+    'M70 -30C134 53 250 51 236 114S168 215 206 297 343 373 342 448 308 484 325 542',
+    'M-35 379C55 323 91 387 136 355S155 299 206 297',
+  ]
+  for (const [i, d] of currents.entries()) {
+    b += wrap(size, path(d, '#78271E', 23, 'none', .86) + path(d, '#EA6226', 12, 'none', .9) + path(d, '#FFAA41', i === 1 ? 4 : 3, 'none', .9))
+  }
+  for (let i = 0; i < 75; i++) {
+    const x = between(0, size), y = between(0, size), r = between(2, 8)
+    b += wrap(size, path(contour(x, y, r, r * .6, i, 7, .25), '#CA592D', 1.3, '#4A2B29', .8))
+  }
+  return svg(size, size, b + speckle(size, 560, ['#FFC36A', '#292127', '#E57A37'], .24), defs)
+}
+
 function stone(cx, cy, rx, ry, color, phase, scoria = false) {
   const angles = [-.93, -.52, .12, .66, .97, .77, .13, -.54, -.94], ys = [-.25, -.87, -.99, -.68, -.08, .61, .94, .77, .28]; const points = angles.map((x, i) => [cx + x * rx * (1 + Math.sin(phase + i) * .06), cy + ys[i] * ry * (1 + Math.cos(phase + i * 2) * .06)]); const d = 'M' + points.map(p => p.map(f).join(' ')).join('L') + 'Z'
   const clipId = `stone${String(phase).replace('.', '_')}`
@@ -506,6 +537,10 @@ artworks.push(
   prop('bed-single', '绿毯单人床', 384, 640, [1100, 2100], true, 'furniture', 'interior', ['室内', '单人床', '寝具', '木制'], ['棕', '绿', '白'], bed()),
   prop('wardrobe', '旧木衣柜', 448, 256, [1400, 600], true, 'furniture', 'interior', ['室内', '衣柜', '储物', '木制'], ['棕'], wardrobe()),
 )
+// Homepage sample revision: an independent fixed variant; retain the published lava identity and bytes.
+const lavaHotOnly = process.argv.includes('--lava-hot')
+if (lavaHotOnly) artworks.splice(0, artworks.length, { ...material('lava-hot', '熔岩热裂纹理', '#5A302D', 'volcano', ['火山', '熔岩', '热裂', '冷壳'], ['黑', '红', '橙'], lavaHot()),
+  provenance: { sourceFile: 'assets/sceneweave-handdrawn-content/lava.svg', sourceSha256: '565170f0d4223f3145670be1f2f65efb8843b9fcd52186895844122d2724e194', method: 'Independent hot-fissure variant; published lava v1 retained' } })
 const crc32 = bytes => { let crc = 0xffffffff; for (const byte of bytes) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1)) }; return (crc ^ 0xffffffff) >>> 0 }
 const chunk = (name, data) => { const type = Buffer.from(name), out = Buffer.alloc(data.length + 12); out.writeUInt32BE(data.length); type.copy(out, 4); data.copy(out, 8); out.writeUInt32BE(crc32(Buffer.concat([type, data])), data.length + 8); return out }
 function encodePng(width, height, rgba) {
@@ -542,7 +577,7 @@ try {
     previews.push({ key: artwork.key, name: artwork.name, topic: artwork.topic, width, height, png: bytes.toString('base64') })
   }
   const license = await readFile(new URL('LICENSE', root), 'utf8')
-  for (const dir of [sourceRoot, publicRoot]) { await writeFile(new URL('LICENSE.txt', dir), license); await writeFile(new URL('manifest.json', dir), JSON.stringify(manifest, null, 2) + '\n') }
+  for (const dir of [sourceRoot, publicRoot]) { await writeFile(new URL('LICENSE.txt', dir), license); await writeFile(new URL(lavaHotOnly ? 'lava-hot-manifest.json' : 'manifest.json', dir), JSON.stringify(manifest, null, 2) + '\n') }
   if (process.argv.includes('--preview')) {
     const oldImages = await Promise.all(manifest.assets.filter(a => a.refines).map(async a => ({ key: a.key, png: (await readFile(new URL(`public/assets/sceneweave-handdrawn-outdoor/${a.key.replace('refined-', '')}.png`, root))).toString('base64') })))
     const render = async (mode, width, height) => {
@@ -567,6 +602,6 @@ try {
     }
     await render('contact', 1600, 1650); await render('comparison', 1440, 1180); await render('tiles', 1440, 800)
   }
-  await writeFile(new URL('art-statistics.json', reviewRoot), JSON.stringify({ node: process.version, chrome: browser.version(), assets: manifest.assets.map(({ key, sha256, sourceSha256, pixelWidth, pixelHeight, sizeBytes, alphaContentBoundsPx, minTransparentPaddingPx, fullyOpaque, refines }) => ({ key, sha256, sourceSha256, pixelWidth, pixelHeight, sizeBytes, alphaContentBoundsPx, minTransparentPaddingPx, fullyOpaque, refines })), pngTotalBytes: manifest.assets.reduce((sum, a) => sum + a.sizeBytes, 0), rgba8CalculatedBytes: manifest.assets.reduce((sum, a) => sum + a.pixelWidth * a.pixelHeight * 4, 0) }, null, 2) + '\n')
+  await writeFile(new URL(lavaHotOnly ? 'lava-hot-statistics.json' : 'art-statistics.json', reviewRoot), JSON.stringify({ node: process.version, chrome: browser.version(), assets: manifest.assets.map(({ key, sha256, sourceSha256, pixelWidth, pixelHeight, sizeBytes, alphaContentBoundsPx, minTransparentPaddingPx, fullyOpaque, refines }) => ({ key, sha256, sourceSha256, pixelWidth, pixelHeight, sizeBytes, alphaContentBoundsPx, minTransparentPaddingPx, fullyOpaque, refines })), pngTotalBytes: manifest.assets.reduce((sum, a) => sum + a.sizeBytes, 0), rgba8CalculatedBytes: manifest.assets.reduce((sum, a) => sum + a.pixelWidth * a.pixelHeight * 4, 0) }, null, 2) + '\n')
   process.stdout.write(`Wrote ${manifest.assets.length} SVG/PNG candidates; ${manifest.assets.reduce((n, a) => n + a.sizeBytes, 0)} actual PNG bytes.\n`)
 } finally { await context.close(); await browser.close() }

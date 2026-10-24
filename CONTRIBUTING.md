@@ -1,10 +1,10 @@
 # 贡献说明
 
-织境 · Sceneweave 当前本地版本为 `0.2.0-m1-d2`，C5联合功能与最终生产通过，正式性能矩阵未完成，性能门未通过。M0几何版原型首轮验证完成，M1-C/C1a已实现空白完整工程与物件放置/修改/删除闭环，C1b已实现框选/多选、右键及有限原子批量操作，C1c新增严格v3用户图层和暂态隐藏管理，C1d增加独立v4历史信封、命名/保护快照和首批独立物件局部恢复，C2增加空白绘房、共墙、附着门窗、量尺与会话内结构恢复，C3增加独立v5组件工程、素材入库、非破坏性参数、固定组合及适用局部恢复，C4增加严格v6室外工程、地形/道路/散布工具和有限持久室外恢复；完整编辑器、AI与真实小团验证仍按[路线图](docs/07-roadmap.md)推进。
+织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，M2-0f默认主路径已切到新完整v1、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library。旧整页入口退役，兼容边界保留严格读取、只读发现/完整保全转换与原件取回；不自动迁移真实用户数据。f适用必要检查、混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)，最终批次以报告为准；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5部署配置已实现、真实HTTPS服务待资料；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09，34正式性能继续后置，不关闭QA-AI-16、完整M1或性能门。
 
 室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/28-m1c-c2-validation.md)，C3组件与参数外观见[29](docs/29-m1c-c3-validation.md)，C4室外工具与有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合验证和现版性能结论归[32](docs/32-m1c-c5-validation.md)。完整M1、主题P3、SCN-04与全交互性能仍按各自门槛判断；新模型同步格式、迁移和验收。
 
-当前默认首页为`/#home`，完整创作入口为`/#workspace`统一工作区，包含工程、建筑、素材库、室外及图层/对象/历史；`/#outdoor`等旧入口作为兼容保留。当前v6新建空白工程携带23个物件素材、11种材质和3种组合；旧v2–v5目录保持；物件放置支持画布点击或坐标输入、显式支撑面和暂态预览。建筑绘制、地形/道路/散布、组合、图层和有限外观调整使用统一原子事务。静态PNG/JPEG/WebP可显式入库；源与派生字节、完整许可随工程保存、重开和完整包。当前严格v6信封包含有效v3场景、appearance1与identity3，显式v3视图仅用于领域/渲染，不能替代完整保存。v2→v3→v4→v5→v6均为独立副本迁移并保留旧原件/来源链，旧历史留原库。建筑恢复仍要求本会话连续性witness，持久身份只扩展至明确支持的室外实体；有限局部恢复范围见[28](docs/28-m1c-c2-validation.md)、[29](docs/29-m1c-c3-validation.md)和[31](docs/31-m1c-c4-validation.md)。
+当前默认首页为`/#home`，完整创作入口为`/#workspace`，包含工程、建筑、素材库、室外及图层/对象/历史；`/#outdoor`等旧整页hash统一回首页。新完整v1空白工程保留23个物件、11种材质和3种组合预装策略，画布/坐标放置使用显式支撑和暂态预览。主路径由editor/main、editor/native-canvas、application/workspace及新platform适配构成，共用shared，不经旧core/io/render视图往返；实际资源/派生像素、许可、锁、256预算、单调revision和CAS保持。旧输入必须先保全完整scope、重新选择全卷核验，再建立独立转换副本；普通新包导入也整体安装为新owner/r0。建筑恢复仍要求本会话witness，持久身份限明确支持的物件/组合/室外范围，历史能力边界见28/29/31，原生新路径结果见52。
 
 C5联合验收批次冻结349份应用源码，最终单元82文件979/979通过（68.85秒），正常构建通过（2.75秒）；最终全量Chrome168/168通过，0失败/重试/跳过（12.8分钟）；最终正常生产UI通过（46.791秒）；study/island×500/2000各三轮正式性能矩阵未完成，已执行批次未形成可合并的完整p95结果。优化后study-500单次诊断普通领域提交1110.4ms，优化前诊断2174.2ms，均不是正式分布且仍超100ms；性能门未通过，本批不能宣布C5或全交互性能通过，实际证据与待验项见[32](docs/32-m1c-c5-validation.md)。
 
@@ -29,6 +29,12 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+M2-0共享内核可单独运行`npm run check:shared`：AST依赖边界、无DOM/无Node类型编译、真实Node原生ESM命令/身份/投影、无图片当前/历史ZIP及保全set重读闭环，临时发射目录自动清理。d批适用定向命令为`npx vitest run src/shared src/compat/legacy src/platform/browser/storage`，当批10文件124项，Node图片端口使用明确替身；真实资源/像素IO运行`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m20c-resources.spec.ts --reporter=line`，d家族/文件保全转换与新库冷读另运行`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m20d-conversion.spec.ts --reporter=line`。b/c/d历史分别见[48](docs/48-m20b-shared-core-validation.md)、[49](docs/49-m20c-resource-io-validation.md)、[50](docs/50-m20d-preservation-conversion-validation.md)；f的新默认主路径另按52验证，完整回归仍按用户通知。
+
+e整合定向命令为`npx vitest run src/shared src/compat/legacy src/platform/browser/storage src/platform/browser/library src/platform/browser/content --maxWorkers=1`，当批15文件165项；串行避免62项内容对照受并发负载触发默认测试超时。当批`check:shared`为60模块，并实际执行organization-only新库备份的Node往返。真实目录/原文件保全、私密模板/派生像素、冷开/续跑与57内置图片检查为`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m20e-library.spec.ts --reporter=line`，4项历史结果见[51](docs/51-m20e-library-conversion-validation.md)。f已切换主UI/新个人库，不把这些早期模块API测试写成已迁移真实用户数据或全量回归通过。
+
+f原生定向入口位于`src/application/workspace`、`src/editor/main`、`src/editor/native-canvas`、`src/platform/browser/render`及新主库的历史包/原件测试。真实浏览器可定向运行`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m20f-ui.spec.ts tests/m20f-render.spec.ts tests/m20f-entry.spec.ts --reporter=line`，分别检查混合主会话/目录、实际GM/player 4K逐RGBA对照及完整保全重读/取消重试/原件下载；执行前核对本轮改动和用户授权，不默认启动全部测试。最终命令、批次结果及失败修正以[52](docs/52-m20f-native-workspace-validation.md)为准。
+
 Vitest 运行 `src/**/*.test.ts` 中的领域、存储、工程文件及渲染测试；Playwright 使用 `tests/` 下的浏览器旅程，会按配置启动本地服务或复用已有同端口服务。默认安装并使用 Playwright Chromium。系统 Chrome 可用时也可运行：
 
 ```sh
@@ -39,9 +45,86 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 
 生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。[GitHub Pages 工作流](.github/workflows/deploy.yml)在推送 main 或手动触发时，读取 `.nvmrc` 安装 Node，执行 `npm ci` 和 `npm run build` 后部署静态站点至[在线预览](https://wojisama.github.io/sceneweave/)。该工作流只负责构建和部署，不代替上述单元/浏览器验证；成功结果以 GitHub Actions 运行记录为准。它不包含 AI 网关、工程云同步或正式发行版流程。
 
+## M2-1本地任务服务
+
+使用`.nvmrc`的Node24.14.1。本地Node/Hono服务、只读对话工具及M2-2独立物件草稿已经实现，协议、预算/保留期和实际结果集中[05第11节](docs/05-ai-and-generation.md#11-m2-1连接与任务协议2026-10-24实施合同)。`node:sqlite`在本批Node仍有experimental提示；未声明其他Node版本通过。服务单实例独占一个数据目录，主工程/个人素材仍在浏览器。
+
+首次配置且`.env.ai`不存在时，将`.env.example`复制为`.env.ai`并设为0600，在文件里填写`SCENEWEAVE_AI_PROVIDER_BASE_URL`、`PROVIDER_API_KEY`、`PROVIDER_MODEL`及独立随机`SCENEWEAVE_AI_ACCESS_TOKEN`（所有变量均带`SCENEWEAVE_AI_`前缀）。后端默认127.0.0.1:8787、数据根local-data/ai；允许Origin必须精确到协议/主机/端口，不含Pages路径。保留现有配置，不盲目覆盖；真实配置被Git忽略，provider key不能使用VITE_前缀。
+
+```sh
+npm run ai:build
+npm run ai:start
+```
+
+另一个终端运行`npm run dev`。在统一工作区“AI对话”填写后端地址和`.env.ai`中的应用访问凭据，点击连接；页面不填写provider key。应用凭据仅本次页面内存，刷新后重新输入；模型/地址由服务器固定。生产前端可通过`VITE_SCENEWEAVE_AI_URL`设置公开后端origin；真实HTTPS部署另归M2-5，当前仅有部署脚手架，尚未部署。使用127.0.0.1与localhost时需分别配置准确Origin。
+
+```sh
+npm run ai:test
+SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m21-ai-conversation.spec.ts tests/m22-ai-authoring.spec.ts --reporter=line
+```
+
+草稿操作前先在产品内明确授权对象、允许操作、固定素材与支撑范围，并同意两层元数据发送范围。任务不会直接改主工程；等待本机实际资源校验、审阅差异后，才保护当前并一次采用。重新绑定/查询只读取任务，明确继续才再次调用模型。完整合同与结果见[05第12节](docs/05-ai-and-generation.md#12-m2-2-技能与独立物件草稿2026-10-24实施合同)。
+
+ai:test覆盖共享草稿/后端/provider/客户端；本机原子采用另运行`npx vitest run src/application/workspace/atomic.test.ts src/application/workspace/workspace.test.ts src/platform/browser/storage/repository.test.ts --maxWorkers=1`。Chrome使用真实HTTP/SSE/SQLite和受控模型替身，普通测试不调用真实模型。`npm run build`和typecheck也检查服务类型；ai:build另输出被忽略的dist-ai。确需验证真实渠道时，在编译后明确运行`node --env-file=.env.ai tools/testing/ai-provider-probe.mjs`；默认三次请求测文字和工具续答，`--interrupt-and-error`另测首段后中止及坏凭据，可能产生模型费用且无自动重试。探针不输出密钥/正文；用`--out`保存到新系统临时路径，不归档大报告。
+
+## M2-5线上 AI 服务与 Pages
+
+仓库提供可复现的 Node 24 服务镜像和 Caddy HTTPS 反向代理，但不会代替目标服务器、DNS 或凭据配置。部署入口位于`Dockerfile`和`deploy/compose.yaml`：AI 容器以非 root `node` 用户运行，根文件系统只读，任务 SQLite/私有制品写入独立的`ai-data`卷；Caddy 为域名申请/续期证书并只把请求转发到内部 AI 服务，事件流保持即时刷新。`/healthz`不需要应用凭据，Docker 和 Compose 健康检查只返回 `{ "ok": true }`，不会暴露模型、Origin、令牌或存储信息。
+
+在一台已安装 Docker Engine/Compose、且可从公网接收 TCP/UDP 80/443 的服务器上执行：
+
+```sh
+cp deploy/compose.env.example .env.deploy
+chmod 600 .env.deploy
+# 编辑 .env.deploy，把 SCENEWEAVE_AI_DOMAIN 改成已解析到此服务器的 HTTPS 域名
+cp deploy/ai.env.example .env.ai.production
+chmod 600 .env.ai.production
+# 用 openssl rand -hex 32 生成仅供应用登录使用的访问令牌
+# 编辑 .env.ai.production，替换访问令牌、模型供应商地址/密钥/模型和 Pages Origin
+docker compose --env-file .env.deploy -f deploy/compose.yaml config --quiet
+docker compose --env-file .env.deploy -f deploy/compose.yaml up -d --build
+docker compose --env-file .env.deploy -f deploy/compose.yaml ps
+curl --fail --silent --show-error https://ai.example.com/healthz
+```
+
+`deploy/ai.env.example`中的`SCENEWEAVE_AI_ALLOWED_ORIGINS`必须写 Pages 的精确Origin，例如`https://wojisama.github.io`，不带`/sceneweave/`路径；若另有自定义域名，按逗号加入完整Origin。应用访问令牌和模型供应商密钥只放在服务器的`.env.ai.production`，不能提交仓库，也不能以`VITE_`前缀或GitHub Pages变量发布。数据卷和 Caddy 证书卷应纳入服务器备份；只允许一个 AI 容器实例独占数据卷，更新前用`docker compose ... up -d --build`，服务重启后会按协议将未决任务置为暂停并保留可查询进度。
+
+Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。将仓库变量设为例如`https://ai.example.com`后，再手动运行或推送触发 Pages 工作流。检查命令中的`ai.example.com`也应替换成实际部署域名。
+
+上线前必须由部署方完成并实测：域名 A/AAAA 解析、80/443 防火墙、Caddy 证书签发、`/healthz`、Pages Origin 的 OPTIONS/GET/POST/SSE/DELETE、断线重连/取消、容器重启后的暂停任务、数据卷权限与备份恢复，以及一次完整的创建→草稿校验→采用→保存流程。本地 Docker 构建和 Compose 配置检查不代表这些线上条件已满足；本仓库没有目标主机凭据，也不会在此处宣称已部署。
+
+## 当前主路径回归
+
+M2-0f之后，旧整页hash已退役；旧203项Chrome结果保留为历史，不能直接作为当前入口的通过证据。当前适用的联合回归命令：
+
+```sh
+npm test -- --maxWorkers=1
+npm run ai:test
+npm run typecheck
+npm run check:shared
+npm run build
+SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/home-showcase.spec.ts tests/sample-loading.spec.ts tests/m20c-resources.spec.ts tests/m20d-conversion.spec.ts tests/m20e-library.spec.ts tests/m20f-entry.spec.ts tests/m20f-ui.spec.ts tests/m20f-render.spec.ts tests/m21-ai-conversation.spec.ts tests/m22-ai-authoring.spec.ts tests/m23-m24-authoring.spec.ts tests/m24-svg-raster.spec.ts --workers=1 --reporter=line
+```
+
+首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。正式P3、真实HTTPS、跨浏览器/配额和性能专项仍单独验收。
+
+## 当前原生样板加载诊断
+
+2026-10-24按用户授权修复的范围及前后结果集中在[34](docs/34-performance-followup.md#2026-10-24原生完整v1样板加载修复)，不新增逐批验收报告。必要定向入口为`npx vitest run src/application/workspace src/platform/browser/content src/platform/browser/storage src/editor/main/*.test.ts src/platform/browser/render --maxWorkers=1`及`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/sample-loading.spec.ts tests/m20f-ui.spec.ts tests/m20f-entry.spec.ts tests/m20f-render.spec.ts --reporter=line`；本批结果分两批Chrome运行，不等同完整回归。
+
+诊断使用正常`npm run build`，先在一个终端执行`npm run preview -- --port 5174`，再在另一终端逐条运行下列命令；期间不并行测试、构建或其他浏览器负载。输出使用新的系统临时目录：
+
+```sh
+sample_load_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-sample-load.XXXXXX")
+node tools/testing/sample-load-diagnostic.mjs --runs 2 --out "$sample_load_dir/local.json"
+node tools/testing/sample-load-diagnostic.mjs --runs 1 --samples study --delay-ms 80 --out "$sample_load_dir/delay.json"
+```
+
+工具默认真实`http://127.0.0.1:5174/sceneweave/`页面，系统Chrome独立上下文，不启用应用调试API；每个上下文首次/回首页再次打开各一次。记录点击至确认、采用至保存/画布就绪代理、PNG读取调用、位图创建及长任务，等待本次后台活动稳定再计数。`--delay-ms`仅模拟每次PNG请求的延迟，路由会禁用HTTP缓存，不能当作GitHub Pages实测；低次数结果不产生正式p95/通过结论。没有长期位图缓存或Worker，本批不替代下述历史矩阵，也不重建work/evidence。
+
 ## B5性能复现
 
-当前v2素材预览/PNG使用原生Canvas2D，M0几何工坊使用Konva。B5采用独立生产工具入口，复用实际AssetCanvas、Workspace、样板候选守卫、资源校验和仓库；正常 `npm run build` 只构建应用，不暴露专用性能API。
+本节保留B5当时的v2素材Canvas2D与M0 Konva历史管线。B5采用独立生产工具入口，复用当时AssetCanvas、Workspace、样板候选守卫、资源校验和仓库；正常 `npm run build` 不暴露专用性能API。M2-0f默认格式/入口已经改变，恢复正式测量前须先核对并适配新主路径、夹具与测量合同；不直接把历史脚本结果作为新完整v1性能结论。当前正式性能仍按34后置，本轮没有执行本节专项。
 
 ```sh
 npm run build:performance
@@ -129,13 +212,13 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/c5-integration.spec.
 
 ## M1-D 混合场景首批
 
-`/#outdoor` 打开「海岸哨所 · 混合场景」。`tools/build-outpost-art.mjs` 只重建新增原创包，源SVG、manifest与许可位于 `assets/sceneweave-handdrawn-outpost/`，静态PNG位于对应 `public/assets/`；旧包不重建。
+以下保留35当批的入口和复现语境；f以后从首页选择「海岸哨所」进入原生主工作区，旧`/#outdoor`已统一回首页，旧浏览器脚本恢复执行前须适配当前入口。`tools/build-outpost-art.mjs`只重建新增原创包，源SVG、manifest与许可位于`assets/sceneweave-handdrawn-outpost/`，静态PNG位于对应`public/assets/`；旧包不重建。
 
 串行定向浏览器验证：`SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/m1d-outpost.spec.ts`。覆盖真实空白结构、混合样板编辑/恢复、原生资源/离线完整历史包和固定遮罩4K；正常生产UI独立验证，不把开发入口当生产证据。实际环境、命令与限制见[35](docs/35-m1d-outpost-validation.md)。本批不启动性能专项或正式补测。
 
 ## C5 正常生产性能复现
 
-C5使用正常生产页面和可信输入，不使用B5专用性能构建或产品开发API。先构建，再独立串行运行：
+C5当时使用正常生产页面和可信输入，不使用B5专用性能构建或产品开发API。以下是32记录的v6历史方法，脚本/夹具/默认入口尚须按M2-0f的新主路径重新核对，当前没有执行或重新认定性能通过；恢复专项前先按34安排适配，再构建并独立串行测量：
 
 ```sh
 npm run build

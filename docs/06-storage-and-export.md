@@ -1,18 +1,122 @@
 # 本地存储、工程文件与地图导出
 
-## 统一v1与任务数据去向（准备，未实现）
+## 完整v1现行存储与转换合同（2026-10-24）
 
-用户2026-10-23确认前端GitHub Pages＋自有AI任务后端，下一步统一新的完整v1，详见[45](45-ai-authoring-and-unified-v1-plan.md)。现行v6/v3、六库和catalog v1读写仍保持，下文旧版本边界是现有实现记录。
+**新完整v1、sceneweave-projects及sceneweave-library已接入默认主会话，M2-4非空SVG源及算法2目录闭包已接通。** M2-0a至e历史结果保留于48至[51](51-m20e-library-conversion-validation.md)，f当时实际检查见[52](52-m20f-native-workspace-validation.md)。六旧库、旧catalog及原文件仅通过兼容边界只读保全转换，不自动迁移真实用户数据；旧整页编辑器退役。交接见[47](47-m20-unified-v1-handoff.md)，M2-1至4任务/场景/素材与服务私有存储见H节及[05](05-ai-and-generation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；M2-5只有部署脚手架与本地服务，实际HTTPS/Pages联合验证未完成，正式性能继续后置。不恢复已清理的work/evidence或生成新的原始验收大包。
 
-转换前先盘点并备份当前工程、自动/命名/保护快照、完整资源/许可、原件来源链及个人目录。新工程标识区分旧M0 v1，独立副本转换并回读验证后切换；失败保留旧库与当前打开工程。无法可靠映射的旧历史保留独立可取回档案，不悄悄丢弃或宣称支持新格式局部恢复。清退旧库/旧UI在能力等价和数据保全完成之后。
+### A. 工程容器及严格分发
 
-40的个人目录使用中性v6内容载体；M2-0必须同时明确新载体、固定内容身份/hash及curation键映射、完整库备份和个人标签/颜色/收藏关联。工程仍自包含所需资源，目录整理保持独立；转换不能依赖当前在线目录或再向模型生成旧字节。
+扩展名仍为`.sceneweave`。新manifest精确字段：`format:'sceneweave-complete-project'/schemaVersion:1/application:'Sceneweave'/applicationVersion/packageMode/sceneId/revision/entries/assetRecords/licenseBindings`，packageMode仅`complete/history`。entries每条精确为`path/role/sha256/sizeBytes/mimeType`，不把旧containerVersion数字拿来识别新格式。
 
-主工程/个人目录继续浏览器本地。自有服务器的SQLite保存有限任务上下文/对话、工具步骤、草稿检查点与事件索引，制品目录保存任务SVG/PNG等；它不是工程云同步。两层存储的授权、保留期、删除、重连和磁盘预算在任务写入器前冻结。浏览器关闭后的依赖步骤等待，服务重启恢复可查询检查点，不盲目重发未知付费请求。
+必需JSON为`scene.json/identity.json/appearance.json/sources.json`，分别对应04的新场景、完整身份、完整外观、authoringSources；M2-0初期sources为`{}`，M2-4已接收严格非空来源。manifest的assetRecords给出以hash为键的实际图片五字段描述，license正文由对应UTF-8文件提供；读者重建纯ProjectData，再与独立捕获字节组成ProjectBundle完整校验。
 
-新完整v1须定义SVG源、规范化内容/PNG、处理器版本、实际hash和来源/许可闭包；当前静态PNG/JPEG/WebP入口不因此接受SVG。离线包与素材库备份携带已采用的真实源/派生，任务完整对话不默认进入工程，key从不入档。最终AI采用仍按保护点、源/场景/元数据CAS和单调事务处理，失败分支与有限局部恢复边界保持。
+允许路径仅manifest及以上JSON、history.json、`snapshots/00`至`63`的`.scene/.identity/.appearance/.sources.json`、`assets/<sha256>.png|jpg|webp`、`sources/<sha256>.svg`、`licenses/<sha256>.txt`。角色/MIME/后缀必须匹配，重复/未知/目录/嵌套ZIP/路径穿越拒绝；目录和实际内容的CRC/长度/SHA及完整引用闭包逐项核对。M2-0当时拒绝非空SVG源；现行M2-4对每份原始/规范化源执行04的语法、安全、规范化、真实PNG比例及逐RGBA校验，缺SVG端口明确拒绝，不因已有hash而省略。
 
-状态：当前本地版本 `0.2.0-m1-u2`；M1-D首批新增6件原创混合素材、可编辑SCN-04海岸哨所、房间材质与整墙平移、单位/格线显示设置。实际验证与限制见[M1-D海岸哨所记录](35-m1d-outpost-validation.md)。C4严格v6/identity3和有效v3场景、appearance1保持；C5联合功能历史见[32](32-m1c-c5-validation.md)，资源复用见[33](33-c5-resource-reuse-validation.md)。余下性能按[34](34-performance-followup.md)暂缓，C5及完整性能验收仍未通过。完整SCN-01、SCN-04全套从空白制作、主题P3、持久建筑/任意拓扑恢复、真实小团与M2仍待后续。更新：2026-10-23。
+complete仅当前；history带history.json及明确选择的命名/保护快照（合计最多64），索引含当前/各快照的资源hash、许可hash/绑定、源hash及四份JSON路径。快照摘要使用ownerSceneId，历史document的sceneId/revision不暗改。资源按hash去重，但各受众/历史的引用与许可不能混同。imported-auto和本地legacy原件不默认塞进普通便携包；完整转换保全用下一节的独立set。
+
+c将索引精确落实为`{schemaVersion:1,current,snapshots}`。current引用字段为`scenePath/identityPath/appearancePath/sourcesPath/assetHashes/licenseHashes/sourceHashes/licenseBindings`；snapshots每条含相同引用字段及04的`summary`。当前路径固定四份根JSON，快照按显式顺序使用00至63；三类hash列表按UTF-16键序唯一排列。manifest.assetRecords为全包联合图片描述，manifest.licenseBindings须与当前引用一致；各快照仅取得自己声明且完整闭合的资源/许可。多余JSON、未引用图片/许可或来源均拒绝。
+
+entry.role与根四JSON分别为`scene/identity/appearance/sources`，历史索引为`history`，快照为`snapshot-scene/snapshot-identity/snapshot-appearance/snapshot-sources`，图片/许可/源文件为`asset/license/source`；JSON用application/json，许可用text/plain，SVG源用image/svg+xml，图片使用对应实际MIME。sourceHashes必须精确列出原始/规范化源的真实hash，不能用assetId代替；当前与每份快照各自限定可读闭包，缺失、多余或跨范围源拒绝。新`importProject`与`importHistoryArchive`互相拒绝另一packageMode；全部六代旧工程读者也拒绝新标识，不降级试读。
+
+已实施保护值：压缩100MiB、展开300MiB、manifest/history索引各1MiB、单scene/identity/appearance JSON20MiB、许可256KiB、ZIP3000条、JSON深128/累计600000值；历史四份JSON累计128MiB，包含sources。单图20MiB、边8192、单图3200万像素、256张/累计6400万像素。sources JSON至多1MiB、来源记录256项、原始/规范化源至多512个不同hash，单SVG源1MiB/实际源总32MiB且计入累计资源/展开预算；当前及所选历史的联合资源分别核对图片和源上限。新metadata引起超限也必须预检明确拒绝，不静默丢数据。这些是保护值，非实测容量。
+
+### B. 一个主工程仓库与独立个人库
+
+新主工程库名固定`sceneweave-projects`，个人库名固定`sceneweave-library`，Dexie schema均从1开始（native IDB version 10）；不得写入旧库或升级旧库schema。发现旧库用精确表/键/索引检查，不存在的库不自动创建。新库未知版本/外来schema拒绝。
+
+| 新主工程表 | 主键 | 职责 |
+|---|---|---|
+| projects | sceneId | 当前纯ProjectData、revision/savedAt/contentHash、status及conversionJobId；status仅preparing/ready，最近工程只列ready；普通新建/导入的conversionJobId为null，转换目标必指向journal |
+| automaticSnapshots | [ownerSceneId,revision] | 新主工程最近20次成功保存，含当前；绑定完整资源 |
+| snapshots | [ownerSceneId,id] | named/protection，两种各最多32；同owner跨kind的id唯一 |
+| importedSnapshots | [ownerSceneId,id] | 只读imported-auto，单来源v6家族最多20；不进入自动淘汰或占命名额度 |
+| resources / licenseTexts | sha256 | 实际图片/源字节及许可正文，hash去重；语义/引用由绑定与描述决定 |
+| resourceBindings | [ownerSceneId,kind,recordId] | kind为current/automatic/named/protection/imported-auto，关联asset/source/license hash与许可绑定；current的recordId固定current，automatic为revision十进制，其余为快照id |
+| historyMetadata | ownerSceneId | 单调metadataVersion，与命名/保护/来源快照CAS同事务比较 |
+| legacyBlobs / legacySources | sha256 / [ownerSceneId,nodeId] | 旧原件实际字节与来源节点；节点保留原sourceSchemaVersion/sceneId/revision/hash/migratorVersion/migratedAt/前序关系，不再递归嵌成第七代信封 |
+| conversionJobs | jobId，jobKey唯一 | 固定源指纹、转换器/目标format、目标ID与快照映射、备份receipt、状态及单调jobVersion；不是可编辑业务字段 |
+
+ownerSceneId/相关kind/id、savedAt/status、jobKey按实际查询设索引，唯一约束在写入器前落实为上述键及jobKey；不允许旁路表重复存一份可独立编辑场景。新主保存不依赖旧仓库。legacyBlobs只保留已有确切原件/输入文件；从IDB重新序列化的全家族保全包在独立set中，不冒充先前磁盘原文件，也不自动额外复制整包进原件表。
+
+累计保护值按**整个新工程库**计算：resources/许可256MiB，全部当前/自动/命名/保护/imported-auto文档128MiB，legacy原件128MiB；SVG源计入资源，不另开逃逸额度。六库合并可能超过旧单库上限，须提前显示范围/字节并拒绝超限转换，保留完整备份和旧库。65,536出生/墓碑、65,536外观源、源深16、每目标64调整、4096变体和单采用256展开保持。不能把备份分卷当作扩大主库/工程容量。
+
+### C. 专用迁移保全set
+
+新增文件集合格式`sceneweave-migration-set/schemaVersion:1`，主索引扩展名`.sceneweave-migration.json`，这是转换/取回工具的输入，不是第七套可编辑工程。一次scope为一个旧工程家族，或一个完整旧个人库；不伪称全站同一时刻快照。
+
+索引精确字段为`format/schemaVersion/setId/createdAt/converterVersion/scope/sourceFingerprint/volumes/records/complete`。scope精确为`kind:'project-family'|'catalog'/repository/sourceSceneId`（目录的sourceSceneId为null）；volumes为`path/sizeBytes/sha256`；records为`role/recordKey/sourceFormat/contentHash/rawSha256/parts`，parts为`volume/entry/offset/length`，明确重组字节的完整覆盖，无洞/重叠/重复。role仅`current/automatic/named/protection/resource/license/resource-binding/history-metadata/legacy-source/legacy-blob/catalog-entry/catalog-organization/catalog-metadata`，不执行任意内容。
+
+每卷为ZIP，文件名限`part-0000.sceneweave-migration-part`至`part-0511.sceneweave-migration-part`，仅含volume.json及`chunks/<sha256>.bin`。volume.json精确为`format:'sceneweave-migration-volume'/schemaVersion:1/setId/index/entries`，entries每条为`path/sha256/sizeBytes`；清单至多1MiB，每卷至多3000条，实际CRC/长度/hash及setId/index逐项核对。每卷展开负载含清单不超过32MiB，单块8MiB；大原件按确切字节分块，重组后再验原始总hash。主索引最多16MiB/512卷，JSON深128/累计600000值；解析前先检查声明总量。parts中的offset是重组记录内的字节偏移，length须等于对应完整chunk字节数。卷名/entry不接受外部URL、任意本地路径或嵌套ZIP。缺任一卷、坏hash、超限/不可读记录都不能complete。文件数量是保护值，不是存储能力承诺。
+
+工程scope包含捕获时的当前、全部现存自动/命名/保护、相应资源/许可/绑定、historyMetadata和完整旧来源链。目录scope包含所有安装载体、全部organization记录（包括未安装或内容暂不可解析者）、metadata revision、确切安装状态。存储字节仅按rawSha256去重，contentHash只用于语义指纹；内容等价但原ZIP字节不同也分别保全，不丢角色/时间/来源对应。旧文件输入保留原始bytes；IDB行保留独立捕获的精确字段值及Blob bytes，规范序列化只用于保全/指纹，不声称原JSON排版。
+
+普通history导出不含自动/原件，旧库所选备份最多64安装项，不足以替代此set。转换前必须重新读取本scope完整索引/全部卷核验，取得绑定setId/sourceFingerprint/hash的backupReceipt；“已开始下载”或用户点过保存按钮不等于取回验证。取消/损坏留在旧库原状；无法完整保全的输入隔离并明确失败，不跳过后称全部成功。
+
+M2-0d将工程scope.repository明确为v1至v6，对应六个原生仓库；确切文件输入使用file-v1至file-v6，唯一current记录直接保存上传ZIP原bytes，重读时重新走对应严格读者。IDB行编码保留字段值及Blob MIME/bytes，单行512MiB、行元数据16MiB保护值不提高目标库预算。每卷压缩字节另限33MiB。导出器不产生receipt，只有完整索引/全部卷重新读取、核验及重组后登记的私有凭证可推进转换；复制JSON不能获得凭证。
+
+### D. 指纹、幂等和两阶段开放
+
+每旧库一个只读事务捕获scope的全部记录；事务结束再做hash/解码。sourceFingerprint覆盖repository/原sceneId、当前revision/contentHash、metadataVersion、全部历史键/内容摘要、资源/许可/原件摘要；目录含全局revision、条目和organization-only精确值。旧无contentHash的记录按规范捕获值计算，不能只看当前revision。
+
+jobKey为规范JSON的SHA256，字段固定`sourceRepository/scopeId/sourceFingerprint/converterVersion/targetFormat`，converterVersion初版`m20-converter-1`。首次以目标短事务按唯一jobKey添加预留journal，固定jobId、新sceneId及快照id映射，状态captured、jobVersion0；之后每次状态推进比较并递增jobVersion。重复请求复用已预留映射，不凭名称或旧sceneId跨库合并。新转换器发现旧映射也不能覆盖已编辑目标，需明确另建副本或重算。
+
+状态：captured→backup-verified→prepared→committed→verified；failed/cancelled明确停止。prepared先完整校验候选/全部历史/固定内容/资源/许可和目标累计预算，source库始终只读。一个目标事务以add/唯一键写入所有内容、引用、历史及来源索引，同时CAS更新已存在的prepared journal为committed，projects先标preparing；不是再次add journal。事务失败不留半份工程，预留journal可记录失败供重试。
+
+冷读通过完整校验后，第二个目标短事务比较job/目标revision0、metadataVersion及contentHash，原子置ready/verified，之后才列入首页或切换会话。commit后断线/崩溃，重试找到同一journal并继续冷读，不新建第二份。verified之后已有手改时返回当前目标/已有映射，绝不重新覆盖或要求恢复到revision0；坏目标明确失败，不以原候选静默修复。
+
+发布前后复查源指纹；源变化只说明独立副本来自旧捕获，要重新捕获或明确补迁，旧新成果均保留。跨源/目标库没有原子CAS，也不通过后台继续扫描去修改已开放工程。正常保存仍比较expectedRevision且新revision严格更大；快照/保护恢复还比较metadataVersion和真实源ID/hash，采用只一次新事务。
+
+应用层beginProjectConversion/beginProjectFileConversion仅捕获、预留和导出；continueProjectConversion接收重新提供的set，重算真实来源指纹/历史键/hash后推进阶段，cancelProjectConversion停止同一journal。源库默认必须保持捕获状态；明确sourcePolicy=captured-copy才允许把已保全内容作为独立副本继续，原源及后续编辑始终保留。固定文件来源不扫描旧库。f已接入首页和文件选择/保全转换UI，实际重新下载/选择/核验、取消重试及原件取回归52；d当时的模块接口结果仍独立保留，不表示已转换真实用户数据。
+
+### E. 历史映射与旧来源
+
+首批v6家族中current只重置为新sceneId/revision0；历史四部分JSON转新schema，源时间/sceneId/revision保留，由ownerSceneId关联新当前。lineage/root及已有token不重造，合入同家族墓碑，冲突拒绝；快照ID按repository/源owner/kind/源id固定映射，自动用源revision定位。同名不合并，原始与新内容hash分别记录。v6/file-v6的全部预留历史必须到齐，来源kind和自动revision必须匹配；旧自动转换为只读imported-auto，名称固定为`自动保存 · r<源revision>`。当前＋64命名/保护＋20来源自动的完整资源验证批次最多85份，普通便携history仍最多64份。
+
+v1–v5当前转换为新完整v1；其全部旧历史在set及旧库保全，首批不作为新当前可局部恢复快照。之后可读取明确旧档案另建独立工程，不能把按当前新分配的token套给旧历史。v6只保留既有恢复范围，建筑witness失效、拓扑不连续继续拒绝。任何旧库删除或源档案回收仍是后续明确操作，不属于此次转换或入口退役。
+
+### F. 个人库、载体与新备份
+
+新sceneweave-library表为entries（key主键、logicalKey唯一索引）、organizations（key）、metadata（id固定catalog，revision）、conversionJobs（jobId/jobKey唯一，含jobVersion）及conversionStaging（主键[jobId,kind,key]，kind仅entry/organization，保存拟发布的完整行）。普通读者只读entries/organizations，staging不出现在搜索、备份或已安装状态；已有可用内容始终可读。仍512安装项/2048组织项、普通变更单批64、标签32×40码点、人工12色最多8、单载体32MiB/库总128MiB、工程采用256展开。staging实际字节也计入库总预算，不另开容量。native capsule使用完整v1中性工程，精确重抽根闭包核对；无SVG旧内容只改载体和byte hash、不改算法1内容key。新增非空SVG内容使用04定义的算法2，身份覆盖所选原始/规范化源元数据；实际源字节、PNG、祖先源与许可随载体完整校验并在安装、采用和所选备份中保留，不能忽略源后降成算法1。
+
+保留所选根全部固定定义/祖先、变体输入输出、必要SVG原始/规范化源、非活动保全根与私密组合模板，不带场景实例/层覆盖/秘密注记/历史/旧原件。新中性场景固定ID与时间，不能只检查props为空就接受任意合法工程；所选闭包不能捎带邻近对象的SVG源。个人整理的原显示文本和顺序、颜色顺序、favorite与是否安装原样保持；内容暂不可解析的organization-only仍保留旧key，不自动安装或猜测重绑。
+
+新普通所选库备份仍使用`.sceneweave-library`扩展名，但format改为`sceneweave-asset-library`、schemaVersion1。顶层精确字段为`format/schemaVersion/capsuleFormat/records/organizations`；capsuleFormat为`sceneweave-complete-project@1`；records各为`item/capsuleBase64/capsuleSha256`，organizations为明确选入key到tags/colors/favorite的映射，可含未安装key。原单文件64MiB/载体47MiB/最多64安装项及单载体限额保持；这是所选内容/整理备份，全库保全仍用set，不能混称全库。
+
+旧format sceneweave-library/schemaVersion1只通过legacy读者接收其v6载体；不能在同一旧严格合同内偷换载体。目录转换复用D的指纹/预留journal/状态与备份receipt：首个提交只原子添加staging并CAS journal为committed；冷读完整核验后，发布事务比较目标catalog revision和jobVersion，再一次写入正式条目/组织、递增revision、清除该job的staging并置verified。冷读失败、目标冲突或取消均不改变现有已安装内容/整理；不能分批写入公开表后宣称全库原子。
+
+迁移发布是专用有界全库事务，最多512安装项/2048组织项，先预检合并后总量；不受普通变更64项限制，也不改变工程256展开限制。没有与工程仓库的跨库事务。相同精确内容幂等复用，逻辑键不同内容始终冲突；组织冲突明确保留本机或替换所选，范围外保持。重试仍用既有job和固定映射，已verified后不覆盖后来的个人编辑。
+
+e的旧目录scope.repository为实际sceneweave-catalog-v1，sourceSceneId为null；catalog-metadata唯一记录保存全部原元数据行的`{rows:[{key,value}]}`，空库rows为空，不虚构revision。旧所选文件使用file-catalog-v1、唯一catalog-metadata记录保存确切原JSONbytes，不能称全库。合法精确key的坏载体/整理可先完整保全再明确拒绝转换；非法主键会在begin预留阶段明确失败，仍可通过底层capture＋set导出取回，不静默略过。
+
+应用层beginLibraryConversion/beginLibraryFileConversion、continueLibraryConversion/cancelLibraryConversion复用全set重读及源指纹策略；冲突策略明确keep-local/replace-selected，准备后取消、失败或目标冲突重试仍保留原策略。发布前完整冷读暂存及实际复用的既有载体，事务内再核对字节摘要、完整键集合、目标revision及jobVersion；失败不拿有效新候选遮蔽坏的已安装载体。普通列表只读公开metadata/hash，load及转换仍完整核验。实际65安装＋2048整理一次发布已测，512是保护/预留边界，非容量实测。
+
+主工程/目录继续浏览器本地。SQLite任务、对话和事件属于M2-1服务存储，不进入以上工程/目录/保全合同；M2-0不提前建立后端或调用模型。d/e模块结果归50/51，f主会话混合操作、备份、实际样板双受众4K与旧入口收敛的必要检查归52，不从文档准备或旧44结果推定新路径通过。
+
+### G. 原生会话、便携安装与原件取回（M2-0f）
+
+主会话直接持有完整v1元数据和不可变字节端口，保存只进入新主库；公开保存、冷读取、导入/导出、派生像素和渲染均完整验证。普通新建与另存副本保存完整内容及资源，当前和最近20个成功自动版本同事务绑定，CAS比较实际持久revision；撤销/重做仍递增revision。个人库写入使用独立catalog revision，不进入工程undo或玩家输出。
+
+2026-10-24加载修复只复用已通过完整验证的内部交接结果：新主库load/loadNamedSnapshot先完整冷验，应用随后凭确切不可变元数据/字节证明建立编辑包装，避免再次全验同一结果；伪造/克隆或换端口无此资格。样板准备的4路字节读取仍受原资源预算和完整校验约束；失败/取消不生成可采用半套工程，当前内容及撤销保持。准备提示和按需目录不改变存档格式或新建预装内容，实测及限制见[34](34-performance-followup.md#2026-10-24原生完整v1样板加载修复)。
+
+新便携当前/所选历史包导入在隔离候选完整验证后，一次创建新owner及revision0；命名/保护摘要重新绑定owner并分配独立快照ID，历史document的原sceneId/revision、lineage/root和token不改写。当前、自动版本、所选历史、实际资源/许可及绑定在新主库同一事务写入，预算/取消/冲突失败整体回滚。安装后最终字节捕获与激活前再次检查当前会话checkpoint，迟到结果不替换后续编辑；已保存的独立导入成果保留。
+
+局部恢复继续先保存当前和保护点，再重新核来源快照ID/hash、当前revision、metadataVersion与会话checkpoint，一次采用保留范围外修改。C2 witness不持久化，回首页/继续及被动flush保持，真实重开/导入/另存副本/切工程清空；室外出生/拓扑连续性与现有有限组合/散布恢复范围不扩大。imported-auto在新界面只读，不改名、删除或进入普通便携历史勾选。
+
+新界面可按本地owner列举已保留的legacy来源节点，核对节点/前序/来源hash与实际原字节后由GM明确下载；JSON原记录与旧ZIP分别以对应文件类型取回，不重序列化冒充原件。普通完整/历史包仍不默认携带本地旧原件，原件与完整保全set边界不变。另存副本不删除原来源owner/旧库或先前保全文件，不宣称普通副本已经携带全部旧档案。
+
+以下旧格式段保留各批实现语义和历史证据；内容续批及重构前自动化结果见[43](43-content-m1d-validation.md)、[44](44-full-regression-validation.md)，现行新v1文件读写以上节及52为准。M1-D首批混合素材/SCN-04、房间材质/整墙平移与单位显示的当时范围见[35](35-m1d-outpost-validation.md)；C4严格v6/identity3、有效v3及appearance1语义由新完整v1承接。C5联合功能历史见[32](32-m1c-c5-validation.md)，资源复用见[33](33-c5-resource-reuse-validation.md)。余下性能按[34](34-performance-followup.md)暂缓，C5及完整性能验收仍未通过；人工P3/完整SCN、小团、持久建筑/任意拓扑恢复及线上HTTPS仍待。
+
+### H. M2-1至4服务私有任务与SVG制品
+
+本地任务服务已使用独立SQLite和私有制品目录，默认根为被忽略的`local-data/ai`，不进入以上浏览器工程/目录/转换库。任务私有对话、幂等请求及有序事件/checkpoint同事务保存；完整assistant调用和本轮工具结果/receipt整体提交。单实例SQLite独占锁在恢复前取得；重启保全running为paused/unknown，未知付费请求不自动重发。落故障状态也失败时停止执行并对任务API返回503，避免假运行。
+
+任务按创建起7日保留，可鉴权后主动删除；数量、累计运行、任务/全服务实际磁盘和事件限额以[05第11节](05-ai-and-generation.md#11-m2-1连接与任务协议2026-10-24实施合同)为准。SQLite采用DELETE journal、secure_delete与零journal保留，私有目录0700/DB0600；删除/过期仅清服务私有数据，不操作主工程、素材或历史资源。M2-4私有制品已持久化原始SVG、规范化SVG和处理器/hash记录，以任务UUID与源hash固定路径、暂存后rename发布；拒绝符号链接，每次读取重验规范化和hash，不返回公开URL或服务器路径。制品计入同一任务磁盘与清理边界，实际PNG由浏览器本机物化后进入完整工程。应用访问凭据仅前端内存，provider key仅后端环境；普通工程包不携带任务对话或凭据。
+
+M2-2建立的任务授权元数据、成功步骤账本和采用回执已支持M2-3场景步骤与M2-4SVG/样式配方，服务不持有主工程图片闭包或历史快照。`waiting_browser/ready`停止执行时钟；30秒`applying`租约排斥取消/删除，到期或重启保留未解决claim并暂停。本机重放后生成SVG/PNG与固定来源，完整校验实际字节/像素/许可；最终保存与revision、metadata版本、保护ID/hash在同一IndexedDB写事务校对，失败保留新内存/撤销和旧持久分支。对话及步骤仍不进入普通工程包，下载物化草稿走完整工程IO并可导入独立副本；保存重开和所选历史/有限外观恢复不依赖再次调用模型。详细合同见[05](05-ai-and-generation.md)。
+
+### I. M2-5部署脚手架与未完成边界
+
+仓库提供Node服务Dockerfile、非root/只读容器、持久数据卷、Compose健康检查、Caddy HTTPS/SSE反代和分离的应用/provider环境变量示例。Pages仅构建静态前端，模型密钥只装配到后端环境。以上是可部署配置；尚未提供真实服务器运行、DNS/证书、实际HTTPS地址或Pages到线上后端的验证结果。线上鉴权/精确Origin、断流重连、服务重启、取消、归属/清理和创作→采用→本机保存→导出旅程仍须在真实环境联合检查，不能凭本地服务或配置文件宣称M2-5完成。
 
 本文件规定保存成功的含义、导入失败的行为与玩家输出边界。字段以[场景文档](04-scene-document.md)为准，案例以[固定场景](08-test-scenarios.md)为准。
 
@@ -272,7 +376,7 @@ M1-B 只写出完整包。禁止嵌入或缺失依赖时，完整工程导出失
 
 ## 资产输入与候选资源保护策略（B1 已设防护／未测容量）
 
-M0 不导入外部位图。M1 仅支持静态 PNG、JPEG、WebP；活动 SVG、HTML、脚本、外链资源、字体、动画、多帧与 3D 内容不在支持范围，APNG／动画 WebP 也须明确拒绝。只看扩展名或浏览器成功显示不算格式校验。文本始终按普通 UTF-8 文本处理，打开工程不得发出外部请求。
+M0不导入外部位图，M1当时仅支持静态PNG、JPEG、WebP。M2-4现按本页A及04的严格合同接收有界静态SVG源并物化实际PNG；活动SVG、HTML、脚本、外链资源、字体、动画、多帧与3D内容继续拒绝，APNG／动画WebP也不接受。只看扩展名或浏览器成功显示不算格式校验；文本按普通UTF-8文本处理，打开工程不得发出外部请求。
 
 外部素材先受控解码并规范化为本地、静态、sRGB 位图，再供采用；先应用来源方向和色彩转换，再移除 EXIF、XMP、注释、文本块等不必要元数据，必要来源／署名单独写许可。规范化后的实际字节产生新 hash，AssetRef 的尺寸与 MIME 与之对应；不能先以原字节 hash 入库再暗改内容。导入 v2 完整包应已满足同一规范，元数据／编码不符合时拒绝并报告，不能校验 hash 后静默替换为另一张图。许可要求的署名通过许可闭包保留。
 
@@ -406,7 +510,7 @@ v6继续串行自动保存与expectedPersistedRevision同事务比较；保护�
 
 ## U1统一发现与U2个人素材库备份（U1a已实现，U2计划）
 
-本节对应PRD-034—037；实施先后与准备退出条件归[37](37-workspace-and-asset-library-handoff.md)。[36](36-workspace-and-asset-library-proposal.md)为保留的讨论记录。U1a实际实现/验证见38；U2仍只冻结职责与行为要求，目录schema、数据库/包版本、数量与字节限额、并发和导入冲突的精确规则留U2a完成，不以当前v6工程容器冒充新素材库备份。
+本节保留U1/U2阶段PRD-034—037的准备与实施历史，实施先后与当时准备退出条件见[37](37-workspace-and-asset-library-handoff.md)，[36](36-workspace-and-asset-library-proposal.md)保留讨论。U1a当时实现/验证见38；U2在该准备节点只冻结职责，随后40/41定稿旧目录及备份。现行M2-0新库/新载体/新备份以本页开头为准，51/52记录实现检查；不将以下旧v6阶段描述当作新主路径仍使用旧写入器。
 
 ### U1a：发现旧工程，安全打开一个当前工程
 

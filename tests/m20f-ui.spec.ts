@@ -1,0 +1,208 @@
+import { readFile } from 'node:fs/promises'
+import { expect, test, type Page } from '@playwright/test'
+
+const home = (page: Page) => page.getByTestId('workspace-home')
+const library = (page: Page) => page.getByRole('region', { name: '组件素材库', exact: true })
+const errors = new WeakMap<Page, string[]>()
+test.beforeEach(({ page }) => { const values: string[] = []; errors.set(page, values); page.on('pageerror', error => values.push(error.message)) })
+test.afterEach(({ page }) => { expect(errors.get(page)).toEqual([]) })
+
+async function state(page: Page) {
+  return page.evaluate(async () => {
+    const path = '/src/editor/main/Workbench.tsx', { nativeWorkspace } = await import(path) as typeof import('../src/editor/main/Workbench')
+    const value = nativeWorkspace.getState(), project = value.project
+    if (!project) throw new Error('Expected a native main-workspace project.')
+    return { format: project.format, schemaVersion: project.schemaVersion, document: structuredClone(project.document),
+      identity: structuredClone(project.historyIdentity), appearance: structuredClone(project.appearance), status: value.status, canUndo: value.canUndo, canRedo: value.canRedo }
+  })
+}
+async function settled(page: Page) {
+  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
+  await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
+  await expect(page.locator('.asset-busy')).toHaveCount(0)
+  await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
+}
+async function createBlank(page: Page, title: string) {
+  await page.goto('/#home')
+  await home(page).getByRole('button', { name: '新建场景', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
+  await dialog.getByLabel('场景名称', { exact: true }).fill(title)
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
+  await expect(dialog).toHaveCount(0); await settled(page)
+}
+async function chooseProp(page: Page, id: string) {
+  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
+  await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
+  await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
+}
+async function placeLamp(page: Page) {
+  await page.getByRole('tab', { name: '素材库', exact: true }).click()
+  await library(page).getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
+  await library(page).getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
+  await page.getByRole('button', { name: '在此放置', exact: true }).click(); await settled(page)
+  const current = await state(page), id = Object.keys(current.document.props).at(-1)
+  if (!id) throw new Error('Expected a placed lamp.')
+  return id
+}
+async function number(page: Page, label: string, value: number) {
+  const input = page.getByRole('spinbutton', { name: label, exact: true }); await input.fill(String(value)); await input.press('Tab')
+}
+async function adopt(page: Page, kind: '组件' | '结构' | '室外' | '批量') {
+  const button = page.getByRole('button', { name: `采用${kind}修改`, exact: true })
+  if (kind === '结构' || kind === '室外') { await expect(button).toBeDisabled(); await page.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check() }
+  await button.click(); await expect(button).toHaveCount(0); await settled(page)
+}
+async function opacity(page: Page, value: string) {
+  await page.getByLabel('外观调整项目', { exact: true }).selectOption('opacity')
+  await page.getByLabel('外观透明度', { exact: true }).fill(value)
+  await page.getByRole('button', { name: '预览外观调整', exact: true }).click(); await adopt(page, '组件')
+}
+
+test('M2-0f native creation, box selection, context copy, layers and mounted Home continuation', async ({ page }, info) => {
+  test.setTimeout(90_000)
+  await createBlank(page, 'M2-0f 原生交互')
+  const id = await placeLamp(page), initial = await state(page)
+  expect(initial).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, document: { format: 'sceneweave-scene', schemaVersion: 1 }, identity: { version: 1 } })
+  await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
+  const canvas = page.getByLabel('材质场景主持人预览', { exact: true }), box = await canvas.boundingBox()
+  if (!box) throw new Error('Expected a real native canvas.')
+  await page.mouse.move(box.x + 4, box.y + 4); await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 4, box.y + box.height - 4, { steps: 6 }); await page.mouse.up()
+  await expect(page.locator('.asset-selection-notice')).toContainText('框选 1 个对象')
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' })
+  await page.getByRole('menuitem', { name: '复制所选', exact: true }).click()
+  expect(Object.keys((await state(page)).document.props)).toHaveLength(1)
+  await adopt(page, '批量'); expect(Object.keys((await state(page)).document.props)).toHaveLength(2)
+  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  expect(Object.keys((await state(page)).document.props)).toHaveLength(1)
+  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await settled(page)
+  expect(Object.keys((await state(page)).document.props)).toHaveLength(2)
+  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '图层', exact: true }).click()
+  await page.getByRole('button', { name: '新建用户图层', exact: true }).click()
+  await page.getByLabel('新图层名称', { exact: true }).fill('原生家具层')
+  await page.getByRole('button', { name: '创建图层', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '设为当前图层 原生家具层', exact: true }).click()
+  const revision = (await state(page)).document.revision
+  await page.getByRole('button', { name: '隐藏图层 原生家具层', exact: true }).click()
+  await page.getByRole('button', { name: '显示图层 原生家具层', exact: true }).click()
+  expect((await state(page)).document.revision).toBe(revision)
+  await chooseProp(page, id)
+  await page.getByRole('button', { name: '放大地图', exact: true }).click()
+  await expect(page.getByLabel('地图缩放比例', { exact: true })).toHaveText('125%')
+  const zoom = await page.getByLabel('地图缩放比例', { exact: true }).innerText(), before = await state(page)
+  await page.getByRole('button', { name: '回到首页', exact: true }).click(); await expect(home(page)).toBeVisible()
+  await home(page).getByRole('button', { name: '继续编辑', exact: true }).first().click(); await settled(page)
+  await expect(page.getByLabel('地图缩放比例', { exact: true })).toHaveText(zoom)
+  await expect(page.locator(`.asset-entity-list [data-entity-id="${id}"]`)).toHaveClass(/selected/)
+  expect((await state(page)).document).toEqual(before.document)
+  expect((await state(page)).canUndo).toBe(true)
+  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  const after = await state(page)
+  expect(after.document).toEqual(before.document); expect(after.canUndo).toBe(false)
+  const persisted = await page.evaluate(async sceneId => {
+    const path = '/src/platform/browser/runtime.ts', { projectRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
+    const project = await projectRepository.load(sceneId)
+    return { format: project?.project.format, document: project?.project.document, databases: (await indexedDB.databases()).map(value => value.name) }
+  }, after.document.sceneId)
+  expect(persisted.document).toEqual(after.document)
+  expect(persisted.databases).toContain('sceneweave-projects')
+  for (const name of ['sceneweave-m0', 'sceneweave-m1', 'sceneweave-m1-layers', 'sceneweave-m1-history', 'sceneweave-m1-composition', 'sceneweave-m1-outdoor', 'sceneweave-catalog-v1']) expect(persisted.databases).not.toContain(name)
+  await info.attach('native-main-continuation.json', { body: JSON.stringify({ sceneId: after.document.sceneId, revision: after.document.revision, zoom, props: Object.keys(after.document.props).length, layers: Object.keys(after.document.userLayers).length, nativeDatabases: persisted.databases }), contentType: 'application/json' })
+})
+
+test('M2-0f mixed native room, terrain, appearance and protected partial history restore', async ({ page }, info) => {
+  test.setTimeout(90_000)
+  await createBlank(page, 'M2-0f 混合工具与局部恢复')
+  await page.getByRole('tab', { name: '建筑', exact: true }).click()
+  await page.getByLabel('房间名称', { exact: true }).fill('原生值守室')
+  await page.getByRole('button', { name: '预览新房间', exact: true }).click()
+  expect(Object.keys((await state(page)).document.rooms)).toHaveLength(0)
+  await adopt(page, '结构')
+  const propId = await placeLamp(page)
+  await opacity(page, '0.6')
+  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '历史', exact: true }).click()
+  await page.getByRole('button', { name: '新建命名快照', exact: true }).click()
+  await page.getByLabel('命名快照名称', { exact: true }).fill('原生混合基线')
+  await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
+  await chooseProp(page, propId); await opacity(page, '0.3')
+  const movedX = (await state(page)).document.props[propId].positionMm.x + 500
+  await number(page, '物件 X', movedX); await settled(page)
+  await page.getByRole('tab', { name: '室外', exact: true }).click()
+  const tools = page.getByRole('region', { name: '室外制作工具', exact: true })
+  await tools.getByLabel('室外坐标', { exact: true }).fill('10000,1000\n16000,1000\n16000,4500\n10000,4500')
+  await tools.getByRole('button', { name: '预览室外修改', exact: true }).click(); await adopt(page, '室外')
+  const beforeRestore = await state(page), terrain = beforeRestore.document.terrainAreas
+  expect(Object.keys(terrain)).toHaveLength(1)
+  await chooseProp(page, propId)
+  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '历史', exact: true }).click()
+  await page.getByRole('button', { name: '查看快照 原生混合基线', exact: true }).click()
+  await page.getByLabel('局部恢复模式', { exact: true }).selectOption('appearance')
+  await page.getByRole('checkbox', { name: `恢复物件 ${propId}`, exact: true }).check()
+  await page.getByRole('button', { name: '预览局部恢复 · 1 件', exact: true }).click()
+  expect((await state(page)).document).toEqual(beforeRestore.document)
+  await page.getByRole('checkbox', { name: '确认恢复完整影响范围', exact: true }).check()
+  await page.getByRole('button', { name: '保护当前并采用', exact: true }).click(); await settled(page)
+  const restored = await state(page)
+  expect(restored.document.props[propId].appearance.opacity).toBe(0.6)
+  expect(restored.document.props[propId].positionMm.x).toBe(movedX)
+  expect(restored.document.terrainAreas).toEqual(terrain)
+  expect(restored.document.rooms).toEqual(beforeRestore.document.rooms)
+  expect(restored.document.revision).toBe(beforeRestore.document.revision + 1)
+  const summaries = await page.evaluate(async sceneId => {
+    const path = '/src/platform/browser/runtime.ts', { projectRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
+    return projectRepository.listSnapshots(sceneId)
+  }, restored.document.sceneId)
+  expect(summaries.filter(value => value.kind === 'protection')).toHaveLength(1)
+  await info.attach('native-mixed-partial-restore.json', { body: JSON.stringify({ sceneId: restored.document.sceneId, revision: restored.document.revision, propId, movedX, roomCount: Object.keys(restored.document.rooms).length, terrainCount: Object.keys(terrain).length, snapshots: summaries.map(value => ({ kind: value.kind, name: value.name, sourceRevision: value.sourceRevision })) }), contentType: 'application/json' })
+})
+
+test('M2-0f native personal organization-only backup roundtrip keeps installation and scene unchanged', async ({ page }, info) => {
+  test.setTimeout(90_000)
+  await createBlank(page, 'M2-0f 未安装素材整理')
+  const lib = library(page), initial = await state(page)
+  await expect(lib.getByRole('button', { name: '刷新素材库', exact: true })).toBeEnabled()
+  await lib.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
+  await lib.getByRole('checkbox', { name: '选择素材 铜色桌灯', exact: true }).check()
+  await lib.getByRole('button', { name: '整理所选', exact: true }).click()
+  const draft = lib.getByRole('form', { name: '个人素材整理草稿', exact: true })
+  await draft.getByLabel('个人素材标签', { exact: true }).fill('  Ｍ２－０ｆ  \n灯具')
+  await draft.getByRole('button', { name: '蓝色', exact: true }).click()
+  await draft.getByRole('button', { name: '绿色', exact: true }).click()
+  await draft.getByLabel('收藏所选素材', { exact: true }).check()
+  await draft.getByRole('button', { name: '保存这1项整理', exact: true }).click(); await expect(draft).toHaveCount(0)
+  const read = () => page.evaluate(async () => {
+    const path = '/src/platform/browser/runtime.ts', { libraryRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
+    return libraryRepository.read()
+  })
+  const organized = await read(), keys = Object.keys(organized.organizations)
+  expect(organized.entries).toEqual([]); expect(keys).toHaveLength(1)
+  const original = organized.organizations[keys[0]]
+  expect(original).toEqual({ tags: ['  Ｍ２－０ｆ  ', '灯具'], colors: ['蓝', '绿'], favorite: true })
+  await lib.getByRole('button', { name: '我的素材', exact: true }).click()
+  await lib.locator('.catalog-organization-only > summary').click()
+  await expect(lib.locator('.catalog-organization-only')).toContainText('铜色桌灯')
+  const pending = page.waitForEvent('download')
+  await lib.getByRole('button', { name: '备份所选内容与整理（1）', exact: true }).click()
+  const download = await pending, backupPath = await download.path()
+  if (!backupPath) throw new Error('Expected an actual native library download.')
+  const backup = JSON.parse(await readFile(backupPath, 'utf8'))
+  expect(backup).toMatchObject({ format: 'sceneweave-asset-library', schemaVersion: 1, capsuleFormat: 'sceneweave-complete-project@1', records: [] })
+  expect(backup.organizations).toEqual(organized.organizations)
+  await lib.getByRole('button', { name: '整理所选', exact: true }).click()
+  await draft.getByLabel('个人素材标签', { exact: true }).fill('备份后的新整理')
+  await draft.getByRole('button', { name: '保存这1项整理', exact: true }).click(); await expect(draft).toHaveCount(0)
+  expect((await read()).organizations[keys[0]].tags).toEqual(['备份后的新整理'])
+  await lib.locator('.catalog-backup > summary').click()
+  await lib.getByLabel('导入素材库备份', { exact: true }).setInputFiles(backupPath)
+  await expect(lib.locator('.catalog-review')).toContainText('0项素材、1项整理')
+  await lib.getByLabel('导入个人整理策略', { exact: true }).selectOption('replace-selected')
+  await lib.getByRole('button', { name: '确认导入所选1项', exact: true }).click()
+  await expect(lib.locator('.catalog-review')).toHaveCount(0)
+  const restored = await read()
+  expect(restored.entries).toEqual([]); expect(restored.organizations).toEqual(organized.organizations)
+  expect((await state(page)).document).toEqual(initial.document)
+  await info.attach('native-organization-only.json', { body: JSON.stringify({ sceneId: initial.document.sceneId, initialRevision: initial.document.revision, libraryRevision: restored.revision, installed: restored.entries.length, organization: original }), contentType: 'application/json' })
+})

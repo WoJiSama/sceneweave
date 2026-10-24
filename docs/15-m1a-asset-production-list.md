@@ -253,3 +253,10 @@ U1统一会话与面板稳定后，U2a须先冻结独立个人目录/组织身�
 新增固定组合：`prefab.sw.graveyard-memorial@1`（墓碑顶盖、石棺、铁栏）与`prefab.sw.volcanic-rock-cluster@1`（两块玄武岩与裂隙），保存真实成员模板，均为公开O/P2候选。墓地/火山各一个20×16m可编辑小构图。
 
 六项`.refined@1`记录`refines`旧catalogId/version/assetSHA，像素/毫米范围、占地偏移、阻挡、渲染与阴影类别逐字段保持。全内置62项（38物件/19材质/5组合）读取57张实际图，原空白仍37项/34图；本批实际新增PNG合计1,079,491B。既有37项与新项的用途/场景/人工多色补标在独立只读索引，精确绑定完整身份，不改旧发布者tags、工程或个人组织/备份。
+
+
+## 2026-10-24 首页火山热裂候选
+
+首页展示改为六份真实完整场景图与详情；灰烬熔脉使用独立 `material.sw.lava-hot@1` 热裂候选，橙红熔流与炭黑冷壳区分危险外观。源SVG、PNG及独立manifest分别位于 `assets/sceneweave-handdrawn-content/` 与 `public/assets/sceneweave-handdrawn-content/` 的 `lava-hot` 文件；项目原创、MIT、无外部抽取，来源记录绑定保留的 `lava.svg` 源hash。
+
+旧lava v1源/PNG/manifest及目录身份保持；热裂材质只加入原生火山样板闭包，保留旧材质和固定父源，样板闭包58张图片，内置目录仍62项/57图。轮廓、物理支撑、高程和危险区不因换外观改变。生成与完整资源校验入口为 `tools/build-themed-art.mjs --lava-hot`、`tools/build-volcano-variant.mjs` 与 `tools/build-home-showcase.mjs`。新图仍为P2候选，开发目视检查不替代人工P3签收。

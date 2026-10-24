@@ -1,5 +1,7 @@
 # U2a：独立素材目录与完整库合同 v1
 
+M2-0进度补充（2026-10-24）：本文以下保留**U2历史合同**sceneweave-catalog-v1、中性v6载体及旧严格备份，未原地换义。现行默认UI已由f切到sceneweave-library、新完整v1中性载体和sceneweave-asset-library所选备份，精确字段与保全转换以04/06为主；e模块历史见[51](51-m20e-library-conversion-validation.md)，f实际个人组织/organization-only备份、主会话采用及旧库保全转换子项与最终批次见[52](52-m20f-native-workspace-validation.md)。算法1精确身份、原显示文本/顺序、全部组织和安装状态保持；旧库仅只读捕获转换，不自动迁移真实用户数据。本文历史运行仍见41/44，不当作新内核验证；后续M2-1后端/流式连接，顺序见[47](47-m20-unified-v1-handoff.md)、07。
+
 2026-10-23 用户授权U2a/U2b。本合同在新目录写入器之前冻结；本文件定义本批可执行边界，实现与简单测试另归41。严格完整工程v6、identity3、appearance1和有效SceneDocument v3保持，不在工程内添加个人整理字段。完整回归等用户通知，性能继续按34后置。
 
 ## 身份与固定内容

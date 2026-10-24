@@ -1,0 +1,39 @@
+.layer-library-stack { min-width: 0; overflow-y: auto; background: #f8f5ed; border-right: 1px solid #ddd9cd; }
+.layer-library-stack .asset-library { border-right: 0; height: auto; overflow: visible; }
+.user-layer-panel { padding: 18px 14px 16px; border-bottom: 1px solid #d9d6c9; }
+.user-layer-panel .asset-section-heading { margin: 0; gap: 7px; }
+.user-layer-panel .asset-section-heading h2 { flex: 1; }
+.user-layer-panel button { transition: none; }
+.layer-total { color: #85877d; font-size: 10px; }
+.user-layer-panel .asset-section-heading button, .user-layer-primary>button:not(.layer-current), .user-layer-tools>button, .layer-operation>div>button { display: inline-flex; align-items: center; justify-content: center; padding: 5px; border: 0; background: transparent; border-radius: 4px; color: #798577; }
+.user-layer-panel button:hover { background-color: #e5e9de; }
+.layer-session-hint { font-size: 10px; color: #7a8474; line-height: 1.6; margin: 7px 0 12px; }
+.user-layer-list { display: grid; gap: 3px; max-height: 340px; overflow-y: auto; }
+.user-layer-row { border: 1px solid transparent; border-radius: 6px; margin-bottom: 3px; }
+.user-layer-row.current { background: #edf0e6; border-color: #b8c8b5; }
+.user-layer-primary { display: flex; align-items: center; min-height: 36px; padding: 2px; gap: 2px; }
+.user-layer-primary .layer-current { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; align-items: flex-start; background: transparent; border: none; border-radius: 4px; text-align: left; padding: 3px 2px; }
+.layer-current span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #364e40; }
+.layer-current small { font-size: 9px; color: #83907e; }
+.hidden-layer .layer-current span { opacity: .55; }
+.user-layer-primary button[aria-pressed=true]:not(.layer-current) { color: #286b53; background: #e0e9d9; }
+.user-layer-tools { display: flex; align-items: center; justify-content: flex-end; gap: 2px; border-top: 1px solid #dce2d2; padding: 2px; }
+.user-layer-tools>button { gap: 3px; font-size: 10px; min-height: 23px; }
+.user-layer-tools>button:first-child { margin-right: auto; padding-left: 31px; }
+.layer-scope { display: flex; align-items: center; justify-content: space-between; margin: 11px 0 8px; color: #75816f; font-size: 10px; gap: 5px; }
+.layer-scope select { flex: 1; min-width: 0; }
+.user-layer-panel select, .layer-create input { font-size: 11px; border: 1px solid #d3d9cb; background: #fafaf4; color: #3e5541; border-radius: 4px; padding: 5px; max-width: 100%; }
+.user-layer-panel .asset-wide { padding: 7px 5px; font-size: 10px; justify-content: center; }
+.layer-create { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 0; }
+.layer-create input { width: 100%; }
+.layer-create button { font-size: 10px; padding: 5px 8px; }
+.layer-operation { border-top: 1px solid #d8ddce; margin-top: 10px; padding-top: 10px; color: #64735f; }
+.layer-operation>div { display: flex; justify-content: space-between; font-size: 11px; }
+.layer-operation label { display: grid; gap: 5px; font-size: 10px; margin-top: 7px; }
+.layer-operation p, .layer-operation summary { font-size: 10px; line-height: 1.6; }
+.layer-operation textarea, .layer-preview-scope textarea { box-sizing: border-box; width: 100%; font: 10px/1.5 ui-monospace, monospace; border: 1px solid #d5daca; background: #f7f8f1; color: #687761; border-radius: 4px; padding: 5px; resize: vertical; }
+.layer-preview-scope { max-width: 290px; font-size: 10px; }
+.layer-operation details { margin-bottom: 8px; }
+.user-layer-menu { position: fixed; z-index: 80; width: 205px; padding: 5px; border: 1px solid #bbcbb2; background: #fafcf5; border-radius: 7px; box-shadow: 0 8px 28px #293e322e; }
+.user-layer-menu button { display: block; background: transparent; border: 0; color: #4d6549; text-align: left; width: 100%; font-size: 11px; padding: 9px; border-radius: 4px; }
+.user-layer-menu button:focus { outline: 2px solid #6e9660; outline-offset: -2px; }
