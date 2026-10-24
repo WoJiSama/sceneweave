@@ -1,0 +1,67 @@
+{
+  "catalogId": "sceneweave-handdrawn-content",
+  "themeCatalogId": "sceneweave-handdrawn",
+  "version": 1,
+  "name": "墨绘原野 · 墓园、火山与自然精修",
+  "status": "P2",
+  "author": "Sceneweave contributors; original SVG artwork authored with Codex assistance",
+  "source": "tools/build-themed-art.mjs and assets/sceneweave-handdrawn-content/*.svg",
+  "rights": "Project original artwork; no external reference tracing or extracted image components",
+  "licenseRef": "MIT",
+  "licenseFile": "LICENSE.txt",
+  "densityPxPerMetre": 256,
+  "longCastShadowBaked": false,
+  "colorSpace": "sRGB",
+  "bitDepth": 8,
+  "alpha": "straight; zero-alpha RGB cleared",
+  "assets": [
+    {
+      "key": "lava-hot",
+      "catalogId": "material.sw.lava-hot",
+      "version": 1,
+      "kind": "material",
+      "name": "熔岩热裂纹理",
+      "topic": "volcano",
+      "tags": [
+        "火山",
+        "熔岩",
+        "热裂",
+        "冷壳"
+      ],
+      "colors": [
+        "黑",
+        "红",
+        "橙"
+      ],
+      "logicalSizeMm": {
+        "width": 2000,
+        "height": 2000
+      },
+      "baseColor": "#5A302D",
+      "surfaces": [
+        "terrain",
+        "path"
+      ],
+      "provenance": {
+        "sourceFile": "assets/sceneweave-handdrawn-content/lava.svg",
+        "sourceSha256": "565170f0d4223f3145670be1f2f65efb8843b9fcd52186895844122d2724e194",
+        "method": "Independent hot-fissure variant; published lava v1 retained"
+      },
+      "file": "lava-hot.png",
+      "sourceFile": "lava-hot.svg",
+      "pixelWidth": 512,
+      "pixelHeight": 512,
+      "sha256": "1765e64d64b7590d0a60f060b70deb048a45bf3312c3a78da8bba2cc5e40b30e",
+      "sourceSha256": "4deeb74ae61a5b2228314611e0149f16c984c55f70c4b2004406b17bc2c17c67",
+      "sizeBytes": 74296,
+      "alphaContentBoundsPx": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512
+      },
+      "minTransparentPaddingPx": null,
+      "fullyOpaque": true
+    }
+  ]
+}

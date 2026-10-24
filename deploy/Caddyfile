@@ -1,0 +1,7 @@
+{$SCENEWEAVE_AI_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy ai:8787 {
+		# Keep task event streams responsive and forward cancellation promptly.
+		flush_interval -1
+	}
+}

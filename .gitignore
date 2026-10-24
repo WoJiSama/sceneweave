@@ -8,6 +8,7 @@ work/
 /docs/evidence/
 node_modules/
 dist/
+dist-ai/
 dist-performance/
 performance-results/
 *.tsbuildinfo

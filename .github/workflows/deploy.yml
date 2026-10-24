@@ -28,8 +28,18 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Validate public AI endpoint
+        env:
+          VITE_SCENEWEAVE_AI_URL: ${{ vars.VITE_SCENEWEAVE_AI_URL }}
+        run: |
+          if [ -n "$VITE_SCENEWEAVE_AI_URL" ]; then
+            node --input-type=module -e 'const url = new URL(process.env.VITE_SCENEWEAVE_AI_URL); if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) process.exit(1)'
+          fi
       # base 前缀（/sceneweave/）由 vite.config.ts 统一提供
       - name: Build
+        env:
+          # This is a public endpoint only; application/provider credentials never enter Pages builds.
+          VITE_SCENEWEAVE_AI_URL: ${{ vars.VITE_SCENEWEAVE_AI_URL }}
         run: npm run build
       - name: Configure Pages
         uses: actions/configure-pages@v5

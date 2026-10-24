@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "rootDir": ".",
+    "outDir": "dist-ai",
+    "noEmitOnError": true
+  },
+  "include": ["services/ai/**/*.ts", "src/shared/ai/**/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}

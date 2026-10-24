@@ -1,0 +1,6 @@
+export { LEGACY_DATABASES, captureLegacyFamily, discoverLegacyRepositories, restoreLegacyCapture, legacySnapshotKey } from './capture.js'
+export type { CaptureOptions, LegacyCapture, LegacyReference, LegacyRepository } from './capture.js'
+export { prepareLegacyFamily } from './convert.js'
+export type { LegacyPreparation } from './convert.js'
+export { encodeLegacyRow, decodeLegacyRow } from './row-codec.js'
+export { captureLegacyFile } from './file.js'

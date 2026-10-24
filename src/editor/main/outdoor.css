@@ -1,0 +1,34 @@
+.outdoor-shell .history-sidebar-tabs { flex-wrap: wrap; }
+.outdoor-panel, .outdoor-inspector { padding: 18px 16px; border-top: 1px solid var(--line, #e0ded5); }
+.outdoor-panel fieldset, .outdoor-inspector fieldset { min-width: 0; display: grid; gap: 12px; margin: 0; padding: 0; border: 0; }
+.outdoor-panel label, .outdoor-inspector label { display: grid; gap: 5px; color: #5b6256; font-size: 12px; }
+.outdoor-panel textarea, .outdoor-inspector textarea { width: 100%; min-width: 0; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
+.outdoor-panel select, .outdoor-panel input, .outdoor-inspector select, .outdoor-inspector input { min-width: 0; width: 100%; }
+.outdoor-panel small, .outdoor-inspector small { color: #70786a; font-size: 11px; line-height: 1.6; }
+.outdoor-panel .composition-check, .outdoor-inspector .composition-check { display: flex; align-items: center; gap: 7px; }
+.outdoor-panel .composition-check input, .outdoor-inspector .composition-check input { width: auto; }
+.outdoor-object-list { display: grid; gap: 5px; max-height: 240px; overflow: auto; margin-top: 12px; }
+.outdoor-object-list button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 11px; }
+.outdoor-inspector code { display: block; font-size: 11px; overflow-wrap: anywhere; color: #747b70; }
+.outdoor-inspector details { margin: 12px 0; }
+.outdoor-inspector pre { font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.asset-travel-panel small { display: block; line-height: 1.6; margin-top: 3px; }
+.outdoor-delete { color: #984b3f; border-color: #d3b7ad; }
+.scene-display-panel { margin: 18px 0; border-top: 1px solid var(--line, #e0ded5); padding-top: 12px; }
+.scene-display-panel summary { font-size: 13px; font-weight: 600; cursor: pointer; }
+.scene-display-panel fieldset { display: grid; gap: 10px; border: 0; padding: 0; min-width: 0; }
+.scene-display-panel label { display: grid; gap: 5px; font-size: 12px; color: #5b6256; }
+.scene-display-panel select, .scene-display-panel input { width: 100%; min-width: 0; }
+.scene-display-panel .composition-check { display: flex; align-items: center; gap: 7px; }
+.scene-display-panel .composition-check input { width: auto; }
+.asset-outpost-card { width: 100%; display: grid; gap: 4px; text-align: left; background: #f3f0e5; border: 1px solid #d7d8c8; border-radius: 10px; margin: 18px 0 12px; padding: 10px; color: #394b3d; }
+.asset-outpost-card strong { font-size: 13px; }
+.asset-outpost-card span, .asset-outpost-card small { font-size: 11px; color: #6e786b; }
+.asset-outpost-illustration { height: 88px; position: relative; overflow: hidden; border-radius: 6px; background: #8baeb0; margin-bottom: 5px; }
+.asset-outpost-illustration i { position: absolute; display: block; }
+.outpost-low { inset: 10px 28% 8px 9%; background: #8b9b71; clip-path: polygon(0 10%, 75% 0, 100% 16%, 100% 76%, 72% 100%, 0 90%); }
+.outpost-high { inset: 20px 7% 18px 71%; background: #a7a58c; transform: rotate(6deg); border-left: 4px solid #777d67; }
+.outpost-path { left: 30%; top: 56%; width: 44%; height: 11px; border-bottom: 5px solid #b6a385; border-right: 5px solid #b6a385; border-radius: 0 0 4px; }
+.outpost-building { left: 23%; top: 25%; width: 34%; height: 31%; background: linear-gradient(90deg, #bda786 60%, #7f7662 60%, #7f7662 64%, #b3ae96 64%); border: 3px solid #616658; }
+.outpost-beacon { left: 80%; top: 42%; width: 6px; height: 6px; border-radius: 50%; background: #d0b66e; box-shadow: 0 0 0 4px #727966; }
+@media (max-width: 700px) { .outdoor-panel, .outdoor-inspector { padding: 14px; } }

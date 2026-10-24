@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": [],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "rootDir": "src/shared",
+    "noEmit": true
+  },
+  "include": ["src/shared/**/*.ts"],
+  "exclude": ["src/shared/**/*.test.ts"]
+}

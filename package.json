@@ -8,18 +8,24 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && tsc -p tsconfig.ai.json --noEmit && vite build",
     "build:performance": "tsc -b && vite build --config vite.performance.config.ts",
     "perf:b5": "node tools/performance/run-b5.mjs",
     "preview": "vite preview --host 127.0.0.1",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.ai.json --noEmit",
+    "check:shared": "node tools/check-shared.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "ai:build": "tsc -p tsconfig.ai.json",
+    "ai:start": "node --env-file-if-exists=.env.ai dist-ai/services/ai/server.js",
+    "ai:test": "vitest run --config vitest.ai.config.ts"
   },
   "dependencies": {
+    "@hono/node-server": "2.1.5",
     "dexie": "4.4.6",
     "fflate": "0.8.3",
+    "hono": "4.13.13",
     "konva": "10.9.0",
     "lucide-react": "1.59.0",
     "react": "19.3.1",

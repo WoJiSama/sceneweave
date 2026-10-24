@@ -1,0 +1,70 @@
+name: sceneweave-ai
+
+services:
+  ai:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: sceneweave-ai:local
+    restart: unless-stopped
+    env_file:
+      - ../.env.ai.production
+    environment:
+      SCENEWEAVE_AI_HOST: 0.0.0.0
+      SCENEWEAVE_AI_PORT: "8787"
+      SCENEWEAVE_AI_DATA_DIR: /var/lib/sceneweave-ai
+    expose:
+      - "8787"
+    volumes:
+      - ai-data:/var/lib/sceneweave-ai
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/healthz').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2.10.0-alpine
+    restart: unless-stopped
+    depends_on:
+      ai:
+        condition: service_healthy
+    env_file:
+      - ../.env.deploy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    init: true
+
+volumes:
+  ai-data:
+  caddy-data:
+  caddy-config:

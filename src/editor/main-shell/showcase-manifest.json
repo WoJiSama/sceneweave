@@ -1,0 +1,126 @@
+{
+  "generator": "tools/build-home-showcase.mjs",
+  "renderer": "native-complete-v1",
+  "entries": {
+    "study": {
+      "file": "study.png",
+      "title": "书房与露台 · 墨绘原野",
+      "audience": "gm",
+      "width": 1600,
+      "height": 1143,
+      "boundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 14000,
+        "height": 10000
+      },
+      "rooms": 1,
+      "terrainAreas": 1,
+      "props": 13,
+      "prefabInstances": 2,
+      "sourceSceneSha256": "436b3629e28c624d866c62ef475021c86a9207eeba71aa74ec6731ac0468501b",
+      "pngSha256": "52b67cfe19ca07d3a3bd4559470cb1f6567e741fed736084fab9b0e3e07075f0",
+      "rgbaSha256": "a45d621241b783ff392044c08384f9b842627054670b6e13b292aee8c2211e3a"
+    },
+    "island": {
+      "file": "island.png",
+      "title": "双层岩岛 · 墨绘原野",
+      "audience": "gm",
+      "width": 1600,
+      "height": 1440,
+      "boundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 30000,
+        "height": 27000
+      },
+      "rooms": 0,
+      "terrainAreas": 3,
+      "props": 39,
+      "prefabInstances": 0,
+      "sourceSceneSha256": "a3bbf1862356eff190c4f11df9f1f9ababd14ab87b9e1dd2590206b8c55b0e6e",
+      "pngSha256": "010c6e6b0020ac0bd95fbb63551dc22b0afcb1ed18007ed2c8ec33abdac8aeae",
+      "rgbaSha256": "41d8dc7dc77fa67b37e3fe41b27a2469bf4e2d68a2b4e9d7a33b542a64841027"
+    },
+    "outpost": {
+      "file": "outpost.png",
+      "title": "海岸哨所 · 墨绘原野",
+      "audience": "gm",
+      "width": 1600,
+      "height": 1244,
+      "boundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 36000,
+        "height": 28000
+      },
+      "rooms": 2,
+      "terrainAreas": 3,
+      "props": 28,
+      "prefabInstances": 2,
+      "sourceSceneSha256": "eb8c375398292c7e4e2300eb0d2bd6b2c5fec56eda54a4ed40cdbb966ca914ba",
+      "pngSha256": "2cbc77592863a6cb436b0b431597ea1694631ddeb8b770662dcf8b41ad05991c",
+      "rgbaSha256": "bb6c4742ffd73c4c883d1545fc619b90fc4550579cadd49ba9aef9a1975c5be0"
+    },
+    "graveyard": {
+      "file": "graveyard.png",
+      "title": "苔石墓园 · 内容小样",
+      "audience": "gm",
+      "width": 1600,
+      "height": 1280,
+      "boundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 20000,
+        "height": 16000
+      },
+      "rooms": 0,
+      "terrainAreas": 1,
+      "props": 20,
+      "prefabInstances": 4,
+      "sourceSceneSha256": "75ac839794453585fd7dd9d8c9669052054022f87fc33b6abf8945883066332b",
+      "pngSha256": "8119f3c08b65ca5e7dbaa4408a2f6ef2b39243dda26d6a96cf9021314e6f0e4e",
+      "rgbaSha256": "84373e56c2952e9d22b8ae6fbca1e868001155160e624733c9763ba952c60004"
+    },
+    "volcano": {
+      "file": "volcano.png",
+      "title": "灰烬熔脉 · 内容小样",
+      "audience": "gm",
+      "width": 1600,
+      "height": 1280,
+      "boundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 20000,
+        "height": 16000
+      },
+      "rooms": 0,
+      "terrainAreas": 3,
+      "props": 7,
+      "prefabInstances": 2,
+      "sourceSceneSha256": "1f96f163b38bae2def55ff992d5ef5b5b2e615a49bbbe238ec8b4c51dfff6fda",
+      "pngSha256": "d71bf333390be93d0d9ef873c1170895c885ad5e28078e1809a74e24ef2dc44f",
+      "rgbaSha256": "7b4157d1e98d0df1e920bac84fc4efba836fd90da6d8f58579a7ea16996fc067"
+    },
+    "calibration": {
+      "file": "calibration.png",
+      "title": "木纹书房 · 材质校样",
+      "audience": "gm",
+      "width": 1600,
+      "height": 1280,
+      "boundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 10000,
+        "height": 8000
+      },
+      "rooms": 1,
+      "terrainAreas": 0,
+      "props": 2,
+      "prefabInstances": 0,
+      "sourceSceneSha256": "31759390d95d42d234fdabc7101e1768aefb91fdc7fbcbf1ccc7349dfa9aba64",
+      "pngSha256": "8a3319b46466cef7b504093eb5ad981955b95c7d03aea72c58aaab97dcbe5098",
+      "rgbaSha256": "6baa01c025b5d128caf3155a5046dda7e439e881a132bc0fa99c39f881f986f5"
+    }
+  }
+}
