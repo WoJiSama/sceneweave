@@ -69,29 +69,49 @@ ai:test覆盖共享草稿/后端/provider/客户端；本机原子采用另运�
 
 ## M2-5线上 AI 服务与 Pages
 
-仓库提供可复现的 Node 24 服务镜像和 Caddy HTTPS 反向代理，但不会代替目标服务器、DNS 或凭据配置。部署入口位于`Dockerfile`和`deploy/compose.yaml`：AI 容器以非 root `node` 用户运行，根文件系统只读，任务 SQLite/私有制品写入独立的`ai-data`卷；Caddy 为域名申请/续期证书并只把请求转发到内部 AI 服务，事件流保持即时刷新。`/healthz`不需要应用凭据，Docker 和 Compose 健康检查只返回 `{ "ok": true }`，不会暴露模型、Origin、令牌或存储信息。
+仓库提供可复现的 Node 24 服务镜像和 Caddy HTTPS 反向代理。部署入口位于`Dockerfile`和`deploy/compose.yaml`：AI 容器以非 root `node` 用户运行，根文件系统只读，任务 SQLite/私有制品写入独立的`ai-data`卷；Caddy 固定为`2.11.7-alpine`，申请/续期证书并只把请求转发到内部 AI 服务，事件流保持即时刷新。`/healthz`不需要应用凭据，Docker 和 Compose 健康检查只返回 `{ "ok": true }`，不会暴露模型、Origin、令牌或存储信息。
 
-在一台已安装 Docker Engine/Compose、且可从公网接收 TCP/UDP 80/443 的服务器上执行：
+先在服务器安装 Docker Engine/Compose，保留已有配置；下列`cp`仅适用于目标文件尚不存在的首次部署。公共配置与私有凭据分别准备：
 
 ```sh
 cp deploy/compose.env.example .env.deploy
 chmod 600 .env.deploy
-# 编辑 .env.deploy，把 SCENEWEAVE_AI_DOMAIN 改成已解析到此服务器的 HTTPS 域名
+# 编辑 .env.deploy，SCENEWEAVE_AI_DOMAIN 仅填域名或公网 IP，不带协议、端口或路径
 cp deploy/ai.env.example .env.ai.production
 chmod 600 .env.ai.production
 # 用 openssl rand -hex 32 生成仅供应用登录使用的访问令牌
 # 编辑 .env.ai.production，替换访问令牌、模型供应商地址/密钥/模型和 Pages Origin
+```
+
+有域名时，将 A/AAAA 记录指向服务器并放行公网 TCP 80/443；UDP 443 用于可选的 HTTP/3。确认端口可用后使用默认配置：
+
+```sh
 docker compose --env-file .env.deploy -f deploy/compose.yaml config --quiet
 docker compose --env-file .env.deploy -f deploy/compose.yaml up -d --build
 docker compose --env-file .env.deploy -f deploy/compose.yaml ps
 curl --fail --silent --show-error https://ai.example.com/healthz
 ```
 
+没有自有域名时，可直接使用受信任的 HTTPS IP 证书。将`.env.deploy`中的`SCENEWEAVE_AI_DOMAIN`设为服务器的固定公网 IP，再使用`deploy/compose.ip.yaml`覆盖配置；**Docker Compose 须为 2.24.4 或更高版本**，以支持`!override`完整替换端口列表。该配置只映射 TCP/UDP 443，不占用或重启已有的 80 端口服务。证书验证和 HTTPS 需要放行云安全组及主机防火墙的公网 TCP 443；UDP 443 不参与证书验证。
+
+```sh
+docker compose version
+docker compose --env-file .env.deploy -f deploy/compose.yaml -f deploy/compose.ip.yaml config --quiet
+docker compose --env-file .env.deploy -f deploy/compose.yaml -f deploy/compose.ip.yaml up -d --build
+docker compose --env-file .env.deploy -f deploy/compose.yaml -f deploy/compose.ip.yaml ps
+# 将下列文档示例 IP 替换为实际公网 IP；证书签发成功前此检查不会通过
+curl --fail --silent --show-error https://203.0.113.10/healthz
+```
+
+IP 方案使用`deploy/Caddyfile.ip`：显式指定 Let's Encrypt ACME issuer 和`shortlived`证书配置，以 TLS-ALPN-01 在 443 完成验证；禁用 HTTP challenge 和自动 HTTP 跳转，保留现有 80 端口服务。全局`default_sni`指向该公网 IP，使浏览器不发送 SNI 时，Docker/NAT 后的服务也能选择正确的 IP 证书。IP 证书有效期为 **160 小时**，由持续运行的 Caddy 自动续期，必须保留`caddy-data`卷和公网验证通路；不能把默认的内部 CA 证书当作浏览器已信任的证书。此配置固定使用上述 Caddy 版本，不将旧版本的 ACME profile 支持等同于完整的 IP/TLS-ALPN 支持。
+
+依据为 [Let's Encrypt 的 IP/短期证书正式开放公告](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability/)、[验证类型说明](https://letsencrypt.org/docs/challenge-types/)、[Caddy ACME issuer 配置](https://caddyserver.com/docs/caddyfile/directives/tls#acme)及[默认 SNI 配置](https://caddyserver.com/docs/caddyfile/options#default-sni)。这些资料说明方案可用，不代替目标服务器的实际证书签发与浏览器检查。
+
 `deploy/ai.env.example`中的`SCENEWEAVE_AI_ALLOWED_ORIGINS`必须写 Pages 的精确Origin，例如`https://wojisama.github.io`，不带`/sceneweave/`路径；若另有自定义域名，按逗号加入完整Origin。应用访问令牌和模型供应商密钥只放在服务器的`.env.ai.production`，不能提交仓库，也不能以`VITE_`前缀或GitHub Pages变量发布。数据卷和 Caddy 证书卷应纳入服务器备份；只允许一个 AI 容器实例独占数据卷，更新前用`docker compose ... up -d --build`，服务重启后会按协议将未决任务置为暂停并保留可查询进度。
 
-Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。将仓库变量设为例如`https://ai.example.com`后，再手动运行或推送触发 Pages 工作流。检查命令中的`ai.example.com`也应替换成实际部署域名。
+Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。**HTTPS Pages 无法调用公网 HTTP 后端**，浏览器会阻止这类混合内容；CORS 配置不能解除该限制。容器内的 HTTP 转发不影响浏览器对公网 HTTPS 的要求。证书签发并实际验证后，将仓库变量设为`https://ai.example.com`或`https://实际公网IP`，再手动运行或推送触发 Pages 工作流。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。检查命令中的示例域名/IP也应替换成实际部署地址。
 
-上线前必须由部署方完成并实测：域名 A/AAAA 解析、80/443 防火墙、Caddy 证书签发、`/healthz`、Pages Origin 的 OPTIONS/GET/POST/SSE/DELETE、断线重连/取消、容器重启后的暂停任务、数据卷权限与备份恢复，以及一次完整的创建→草稿校验→采用→保存流程。本地 Docker 构建和 Compose 配置检查不代表这些线上条件已满足；本仓库没有目标主机凭据，也不会在此处宣称已部署。
+上线前必须实测：域名方案的 A/AAAA 解析、所选方案对应的公网端口、Caddy 证书签发、受信任 HTTPS 下的`/healthz`、Pages Origin 的 OPTIONS/GET/POST/SSE/DELETE、断线重连/取消、容器重启后的暂停任务、数据卷权限与备份恢复，以及一次完整的创建→草稿校验→采用→保存流程。2026-10-25已在目标服务器完成 Docker 镜像构建，非 root/只读容器的内部健康检查通过；当前公网 TCP 443 连接超时，IP 证书申请未成功，仍待放行网络后重验。容器内部健康和配置检查不代表公网 HTTPS 或 Pages 联通已经通过，当前不能宣称已上线。
 
 ## 当前主路径回归
 
