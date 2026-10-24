@@ -2,7 +2,7 @@
 
 ## 完整v1现行合同（2026-10-24）
 
-**M2-0f已将默认主会话切到本节新标识完整v1，M2-3/4现已接通场景工具、非空SVG源与渐进同化。** 应用版本号仍为`0.2.0-m1-d2`，默认工程/个人库为sceneweave-projects和sceneweave-library，旧v6/有效v3及旧个人库仅经兼容边界只读保全转换。a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f当时必要检查见[52](52-m20f-native-workspace-validation.md)，不自动转换真实用户数据。任务授权/草稿合同及本轮实际结果见[05](05-ai-and-generation.md)，M2-5只有本地服务与部署脚手架、尚未真实HTTPS部署。M2-0交接见[47](47-m20-unified-v1-handoff.md)；旧格式段保留历史能力，不原地偷换字段。
+**M2-0f已将默认主会话切到本节新标识完整v1，M2-3/4现已接通场景工具、非空SVG源与渐进同化。** 应用版本号仍为`0.2.0-m1-d2`，默认工程/个人库为sceneweave-projects和sceneweave-library，旧v6/有效v3及旧个人库仅经兼容边界只读保全转换。a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f当时必要检查见[52](52-m20f-native-workspace-validation.md)，不自动转换真实用户数据。任务授权/草稿合同及本轮实际结果见[05](05-ai-and-generation.md)，M2-5服务器容器已部署，公网443/受信任IP证书及Pages联合仍待，详05第15节。M2-0交接见[47](47-m20-unified-v1-handoff.md)；旧格式段保留历史能力，不原地偷换字段。
 
 ### A. 格式识别与完整模型
 

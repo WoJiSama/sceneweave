@@ -336,3 +336,12 @@ U2最终：内容API以中性原生v6载体复用严格IO；独立catalog v1不�
 - 未发布lava-hot第二候选PNG为77293cce6b4d42e1dffa991a9753f524b987301d57550f31a805cd07eecd6e94、61237字节。旧热裂候选7c7f…000b92没有提交或发布，移除后重新应用；生成工具从此拒绝同固定ID不同字节，以免日后覆盖发布内容。
 
 - 最终lava-hot候选已通过完整58图资源校验，原始源/PNG及manifest保留。文档与台账单独记录此P2样板变体，不将目录62/57膨胀为新入库计数。AI本地最终126项通过，正常生产构建2.54秒通过。
+
+## M2-5真实部署核对（2026-10-25）
+
+- 官方IP证书已可用，Caddy2.11.7 + 显式ACME/shortlived + TLS-ALPN仅占443；默认IP内部CA不足，Docker NAT须default_sni。来源为https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability/与Caddy官方TLS/全局选项文档，未因资料存在宣称实签通过。
+- 服务器Docker26.1.5/Compose2.26.1通过真实配置/镜像构建；普通docker compose被/usr/local下不可执行同名插件遮蔽，未修改系统插件，显式调用/usr/libexec/docker/cli-plugins/docker-compose。新增deploy/compose.ip.yaml需要Compose>=2.24.4的!override，只映射443。
+- 后端容器非root/node、根只读、8787无宿主发布、独立卷目录700/SQLite600、健康通过；既有80业务200保持。私有环境文件通过SSH stdin写服务器600，独立应用凭据另存被忽略本机.env.ai-online，供应商key未输出。
+- 公网TCP443超时，ACME生产和staging均报告Timeout during connect；主机Docker NAT/转发已建，判断云侧网络仍待用户放行，不改已有80业务或关闭TLS检查。未设置Pages公开变量指向尚不可用服务。
+- SSH私有隧道真实部署服务：无凭据401、错Origin403、Pages精确GET/POST/DELETE预检204、严格请求400、能力svg与sceneDraft true；1次真实模型请求完成，394输入/197输出tokens，SSE断开回读、有序事件与同ID幂等未重发。
+- 实际重启保留已完成任务；离线注入running检查点（0请求）重启后paused/service_restarted/unknown，明确取消后0新增请求。停服务一致性备份再无网络独立还原，2个检查点正确；另隔离时钟越过7日清理源/任务通过，真实配额耗尽未测。两验证任务已DELETE并核对404/空列表。

@@ -1,0 +1,9 @@
+# Combine with compose.yaml using Docker Compose >= 2.24.4.
+# Set SCENEWEAVE_AI_DOMAIN to the server's public IP in .env.deploy.
+services:
+  caddy:
+    ports: !override
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.ip:/etc/caddy/Caddyfile:ro

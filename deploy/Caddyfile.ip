@@ -1,0 +1,19 @@
+{
+	# IP certificates use only TLS-ALPN on 443; leave an existing HTTP service alone.
+	auto_https disable_redirects
+	default_sni {$SCENEWEAVE_AI_DOMAIN}
+}
+
+{$SCENEWEAVE_AI_DOMAIN} {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+			disable_http_challenge
+		}
+	}
+	encode zstd gzip
+	reverse_proxy ai:8787 {
+		flush_interval -1
+	}
+}

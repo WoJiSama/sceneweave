@@ -2,7 +2,7 @@
 
 ## 完整v1现行存储与转换合同（2026-10-24）
 
-**新完整v1、sceneweave-projects及sceneweave-library已接入默认主会话，M2-4非空SVG源及算法2目录闭包已接通。** M2-0a至e历史结果保留于48至[51](51-m20e-library-conversion-validation.md)，f当时实际检查见[52](52-m20f-native-workspace-validation.md)。六旧库、旧catalog及原文件仅通过兼容边界只读保全转换，不自动迁移真实用户数据；旧整页编辑器退役。交接见[47](47-m20-unified-v1-handoff.md)，M2-1至4任务/场景/素材与服务私有存储见H节及[05](05-ai-and-generation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；M2-5只有部署脚手架与本地服务，实际HTTPS/Pages联合验证未完成，正式性能继续后置。不恢复已清理的work/evidence或生成新的原始验收大包。
+**新完整v1、sceneweave-projects及sceneweave-library已接入默认主会话，M2-4非空SVG源及算法2目录闭包已接通。** M2-0a至e历史结果保留于48至[51](51-m20e-library-conversion-validation.md)，f当时实际检查见[52](52-m20f-native-workspace-validation.md)。六旧库、旧catalog及原文件仅通过兼容边界只读保全转换，不自动迁移真实用户数据；旧整页编辑器退役。交接见[47](47-m20-unified-v1-handoff.md)，M2-1至4任务/场景/素材与服务私有存储见H节及[05](05-ai-and-generation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；M2-5服务器容器已部署，公网443/受信任IP证书及Pages联合仍待，详05第15节，正式性能继续后置。不恢复已清理的work/evidence或生成新的原始验收大包。
 
 ### A. 工程容器及严格分发
 
@@ -114,9 +114,9 @@ e的旧目录scope.repository为实际sceneweave-catalog-v1，sourceSceneId为nu
 
 M2-2建立的任务授权元数据、成功步骤账本和采用回执已支持M2-3场景步骤与M2-4SVG/样式配方，服务不持有主工程图片闭包或历史快照。`waiting_browser/ready`停止执行时钟；30秒`applying`租约排斥取消/删除，到期或重启保留未解决claim并暂停。本机重放后生成SVG/PNG与固定来源，完整校验实际字节/像素/许可；最终保存与revision、metadata版本、保护ID/hash在同一IndexedDB写事务校对，失败保留新内存/撤销和旧持久分支。对话及步骤仍不进入普通工程包，下载物化草稿走完整工程IO并可导入独立副本；保存重开和所选历史/有限外观恢复不依赖再次调用模型。详细合同见[05](05-ai-and-generation.md)。
 
-### I. M2-5部署脚手架与未完成边界
+### I. M2-5服务器容器与公网联合边界
 
-仓库提供Node服务Dockerfile、非root/只读容器、持久数据卷、Compose健康检查、Caddy HTTPS/SSE反代和分离的应用/provider环境变量示例。Pages仅构建静态前端，模型密钥只装配到后端环境。以上是可部署配置；尚未提供真实服务器运行、DNS/证书、实际HTTPS地址或Pages到线上后端的验证结果。线上鉴权/精确Origin、断流重连、服务重启、取消、归属/清理和创作→采用→本机保存→导出旅程仍须在真实环境联合检查，不能凭本地服务或配置文件宣称M2-5完成。
+服务器独立容器已真实构建运行，非root/node、只读根、私有持久卷及内部健康检查通过；应用/provider凭据分离，Pages仅构建静态前端。经SSH访问的单次真实模型流、断线回读与幂等1请求，以及重启检查点、取消、备份还原和合成7日清理检查通过，实际过程与边界见[05第15节](05-ai-and-generation.md)。公网TCP443仍云安全组超时，受信任IP证书尚未签发成功，Pages后端URL变量未设置；公网鉴权/精确Origin、SSE重连与创作→采用→本机保存→导出旅程仍待HTTPS下联合验证，不能宣称完整M2-5或公网上线。
 
 本文件规定保存成功的含义、导入失败的行为与玩家输出边界。字段以[场景文档](04-scene-document.md)为准，案例以[固定场景](08-test-scenarios.md)为准。
 
