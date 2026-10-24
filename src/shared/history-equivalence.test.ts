@@ -9,7 +9,7 @@ import { createCompositionContentV6, inspectAppearanceScopeV6, listRequiredVaria
 import { advanceHistoryIdentityV6, createHistoryIdentityTraceV6, outdoorIdentityDescriptorsV6 } from '../core/v6/identity.js'
 import { buildRestorePlanV6 } from '../core/v6/restore.js'
 import { compositionFixtureV6, imageFixtureV6, prefabFixtureV6, surfaceFixtureV6 } from '../core/v6/test-fixtures.js'
-import type { CompositionContentV6 } from '../core/v6/types.js'
+import type { CompositionCommandV6, CompositionContentV6 } from '../core/v6/types.js'
 import { applyCompositionCommands } from './appearance/commands.js'
 import { createAppearanceGraph, createCompositionContent, inspectAppearanceScope, listRequiredVariants, resolveAppearance } from './appearance/graph.js'
 import { advanceHistoryIdentity, assertOutdoorContinuity, createHistoryIdentity, createHistoryIdentityTrace, mergeIdentityRecords, outdoorIdentityDescriptors, validateHistoryIdentity } from './history/identity.js'
@@ -23,6 +23,8 @@ import { certifyCompositionContent, getCertifiedCompositionContent, reviseCompos
 import { cloneJson, inspectJsonInput } from './validation/json.js'
 
 const stamp = '2026-10-24T00:00:00.000Z'
+// Differential fixtures contain only commands supported by both historical and current contracts.
+type EquivalenceCommand = CompositionCommand & CompositionCommandV6
 const context = (): PreparationContext => {
   let allocated = 0
   return { ids: { nextId: () => `native-test-${++allocated}` }, clock: { now: () => stamp } }
@@ -89,7 +91,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
 
   it('matches source → layer → instance opacity including zero and respects current edit locks', () => {
     const old = compositionFixtureV6(), current = native(old), layerId = current.document.entityLayers.item
-    const commands: CompositionCommand[] = [
+    const commands: EquivalenceCommand[] = [
       { type: 'setAppearanceAdjustment', scope: { kind: 'layer', layerId }, adjustment: { id: 'layer-opacity', kind: 'opacity', enabled: true, value: .4 } },
       { type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'item-opacity', kind: 'opacity', enabled: true, value: 0 } },
     ]
@@ -106,7 +108,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
   it('retains fixed bitmap-source and variant IDs, rejects missing actual outputs and detects corrupt ancestors', () => {
     const old = imageFixtureV6(), current = native(old)
     expect(createAppearanceGraph(current.document)).toEqual(old.appearance)
-    const commands: CompositionCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'tint', kind: 'tint', value: '#aA8844', enabled: true } }]
+    const commands: EquivalenceCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'tint', kind: 'tint', value: '#aA8844', enabled: true } }]
     const pending = applyCompositionCommands(current, commands, context()), oldPending = applyCompositionCommandsV6(old, commands)
     expect(listRequiredVariants(pending)).toEqual(listRequiredVariantsV6(oldPending))
     expect(() => resolveAppearance(pending)).toThrow(/尚未完整采用/)
@@ -128,7 +130,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
 
   it('keeps mixed command families separate and charges the real expanded layer scope against 256', () => {
     const old = compositionFixtureV6(), current = native(old)
-    const mixed: CompositionCommand[] = [
+    const mixed: EquivalenceCommand[] = [
       { type: 'updateProp', id: 'item', changes: { rotationDeg: 10 } },
       { type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'opacity', kind: 'opacity', enabled: true, value: .5 } },
     ]
@@ -139,7 +141,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
       const id = `extra-${index}`; document.props[id] = symbolPropV3(id, 8000 + index, 8000); document.entityLayers[id] = layerId
     }
     const largeOld = createCompositionContentV6(document), large = native(largeOld)
-    const commands: CompositionCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'layer', layerId }, adjustment: { id: 'too-wide', kind: 'opacity', enabled: true, value: .5 } }]
+    const commands: EquivalenceCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'layer', layerId }, adjustment: { id: 'too-wide', kind: 'opacity', enabled: true, value: .5 } }]
     expect(() => applyCompositionCommands(large, commands, context())).toThrow(/256/)
     expect(() => applyCompositionCommandsV6(largeOld, commands)).toThrow(/256/)
   })
@@ -184,7 +186,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
   it('rebuilds only the explicit historical scatter birth and keeps other deletions and manual exclusions', () => {
     const document = scatterLayerSceneV3(3); document.scatterGroups.scatter.visibility = 'public'
     const oldHistoric = createCompositionContentV6(document), historic = native(oldHistoric)
-    const commands: CompositionCommand[] = [
+    const commands: EquivalenceCommand[] = [
       { type: 'deleteProp', id: 'scatter-item-0' }, { type: 'deleteProp', id: 'scatter-item-1' },
       { type: 'upsertScatterExclusion', groupId: 'scatter', exclusion: { id: 'later-entrance', boundaryMm: [{ x: 10000, y: 10000 }, { x: 10600, y: 10000 }, { x: 10600, y: 10600 }, { x: 10000, y: 10600 }], reason: 'entrance' } },
     ]

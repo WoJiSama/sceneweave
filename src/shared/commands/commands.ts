@@ -56,7 +56,7 @@ export const sceneCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
   z.object({ type: z.literal('reverseWall'), id }).strict(),
   z.object({ type: z.literal('splitWall'), id, positionMm: point, newVertexId: id, newWallId: id }).strict(),
-  z.object({ type: z.literal('setSurfaceMaterial'), kind, id, materialRef: version }).strict(),
+  z.object({ type: z.literal('setSurfaceMaterial'), kind: z.enum(['room', 'terrainArea', 'wall']), id, materialRef: version }).strict(),
   z.object({ type: z.literal('setSurfacePaint'), kind, id, changes: z.object({ rotationDeg: angle.optional(), originMm: point.optional(), tileSizeMm: size.optional() }).strict() }).strict(),
   z.object({ type: z.literal('moveTerrainPoint'), areaId: id, pointId: id, positionMm: point }).strict(),
   z.object({ type: z.literal('setTerrainElevation'), id, groundElevationMm: integer }).strict(),

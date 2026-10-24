@@ -169,8 +169,12 @@ export function inspectImageBytes(bytes: Uint8Array, normalized = true): ImageHe
   return failImage('仅支持静态 PNG、JPEG 或 WebP；实际格式不符。')
 }
 /** Strip metadata from an actual sRGB Canvas encoding; this never replaces color-space decoding. */
-export function normalizePngChunks(bytes: Uint8Array): Uint8Array {
-  if (inspectImageBytes(bytes, false).mimeType !== 'image/png') failImage('规范化只接受实际静态 PNG。')
+export function normalizePngChunks(bytes: Uint8Array, maxBytes = PACKAGE_LIMITS.imageBytes): Uint8Array {
+  // Asset/import callers retain the 20 MiB default. A platform's bounded Canvas
+  // export may have more encoded bytes than an individual project asset.
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || !bytes.length || bytes.length > maxBytes) failImage('PNG 规范化编码超过字节保护值或为空。')
+  if (!pngSignature.every((value, index) => bytes[index] === value)) failImage('规范化只接受实际静态 PNG。')
+  readPng(bytes, false)
   const chunks = pngChunks(bytes)
   const keep = chunks.filter(chunk => ['IHDR', 'PLTE', 'tRNS', 'IDAT', 'IEND'].includes(chunk.type))
   // Canvas is explicitly sRGB. Record that fact without retaining source metadata.
@@ -178,6 +182,7 @@ export function normalizePngChunks(bytes: Uint8Array): Uint8Array {
   const view = new DataView(srgb.buffer)
   view.setUint32(0, 1); srgb.set([115, 82, 71, 66, 0], 4); view.setUint32(9, crc32(srgb.subarray(4, 9)))
   const result = new Uint8Array(8 + srgb.length + keep.reduce((sum, chunk) => sum + chunk.end - chunk.start, 0))
+  if (result.length > maxBytes) failImage('PNG 规范化编码超过字节保护值或为空。')
   result.set(pngSignature)
   let offset = 8
   for (const chunk of keep) {

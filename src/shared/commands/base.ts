@@ -12,7 +12,7 @@ export type BaseSceneCommand =
   | { type: 'setWallThickness'; id: string; thicknessMm: number }
   | { type: 'reverseWall'; id: string }
   | { type: 'splitWall'; id: string; positionMm: PointMm; newVertexId: string; newWallId: string }
-  | { type: 'setSurfaceMaterial'; kind: SurfaceKind; id: string; materialRef: VersionRef }
+  | { type: 'setSurfaceMaterial'; kind: SurfaceKind | 'wall'; id: string; materialRef: VersionRef }
   | { type: 'setSurfacePaint'; kind: SurfaceKind; id: string; changes: { rotationDeg?: number; originMm?: PointMm; tileSizeMm?: SizeMm } }
   | { type: 'moveTerrainPoint'; areaId: string; pointId: string; positionMm: PointMm }
   | { type: 'setTerrainElevation'; id: string; groundElevationMm: number }
@@ -44,7 +44,7 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
   z.object({ type: z.literal('reverseWall'), id }).strict(),
   z.object({ type: z.literal('splitWall'), id, positionMm: point, newVertexId: id, newWallId: id }).strict(),
-  z.object({ type: z.literal('setSurfaceMaterial'), kind, id, materialRef: version }).strict(),
+  z.object({ type: z.literal('setSurfaceMaterial'), kind: z.enum(['room', 'terrainArea', 'wall']), id, materialRef: version }).strict(),
   z.object({ type: z.literal('setSurfacePaint'), kind, id, changes: z.object({ rotationDeg: angle.optional(), originMm: point.optional(), tileSizeMm: size.optional() }).strict() }).strict(),
   z.object({ type: z.literal('moveTerrainPoint'), areaId: id, pointId: id, positionMm: point }).strict(),
   z.object({ type: z.literal('setTerrainElevation'), id, groundElevationMm: integer }).strict(),
@@ -401,8 +401,8 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
         break
       }
       case 'setSurfaceMaterial': case 'setSurfacePaint': {
-        const surface = command.kind === 'room' ? requireEntity(next.rooms, command.id, '房间') : requireEntity(next.terrainAreas, command.id, '地形')
-        const style = 'floorStyle' in surface ? surface.floorStyle : surface.surfaceStyle
+        const surface = command.kind === 'room' ? requireEntity(next.rooms, command.id, '房间') : command.kind === 'wall' ? requireEntity(next.walls, command.id, '墙') : requireEntity(next.terrainAreas, command.id, '地形')
+        const style = 'floorStyle' in surface ? surface.floorStyle : 'topStyle' in surface ? surface.topStyle : surface.surfaceStyle
         if (command.type === 'setSurfacePaint') {
           if (!style) throw new Error('表面尚未设置底材。')
           if (Object.entries(command.changes).every(([key, value]) => equal(style.base[key as keyof MaterialPaint], value))) break
@@ -411,13 +411,14 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
         } else {
           const material = requireEntity(next.materials, command.materialRef.id, '材质定义')
           if (material.version !== command.materialRef.version) throw new Error('材质引用版本与已采用快照不同。')
-          if (!material.applicableSurfaces.includes(command.kind === 'room' ? 'room' : 'terrain')) throw new Error('材质不适用于此表面。')
+          if (!material.applicableSurfaces.includes(command.kind === 'room' ? 'room' : command.kind === 'wall' ? 'wall' : 'terrain')) throw new Error('材质不适用于此表面。')
           if (style && equal(style.base.materialRef, command.materialRef)) break
           assertUnlocked(next, [surface])
           if (style) style.base.materialRef = cloneJson(command.materialRef)
           else {
             const created = { base: { materialRef: cloneJson(command.materialRef), tileSizeMm: cloneJson(material.defaultTileSizeMm), rotationDeg: 0, alignment: 'world' as const, originMm: { x: 0, y: 0 }, tint: null, opacity: 1 }, overlays: [] }
             if ('floorStyle' in surface) surface.floorStyle = created
+            else if ('topStyle' in surface) surface.topStyle = created
             else surface.surfaceStyle = created
           }
         }

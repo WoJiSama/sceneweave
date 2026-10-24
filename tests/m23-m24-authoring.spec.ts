@@ -36,7 +36,7 @@ test.beforeAll(async () => {
       return done([call('door', [{ kind: 'opening', id: 'ai-door', wallId: bottom.id, offsetReferenceVertexId: bottom.startVertexId, offsetMm: 1200, widthMm: 1000, openingKind: 'door', state: 'open' }, { kind: 'entrance', openingIds: ['ai-door'] }])])
     }
     if (!receipt('find')) return done([{ id: 'find', name: 'sceneweave_find_assets', arguments: JSON.stringify({ query: '铜色桌灯', limit: 1 }) }])
-    const definition = JSON.parse(input.messages.find(m => m.role === 'tool' && m.toolCallId === 'find')!.content!)[0].id
+    const definition = JSON.parse(input.messages.find(m => m.role === 'tool' && m.toolCallId === 'find')!.content!).assets[0].id
     if (!receipt('furnish')) return done([call('furnish', [{ kind: 'furnish', id: 'ai-lamp', definitionId: definition, positionMm: { x: 3500, y: 3500 }, supportRef: { kind: 'room', id: 'ai-room-one' } }, { kind: 'gmNote', id: 'ai-clue', anchor: { type: 'entity', entityKind: 'room', entityId: 'ai-room-one' }, noteKind: 'clue', title: '来客', text: '桌上有一封没有署名的信。' }])])
     if (!receipt('artwork')) return done([call('artwork', [{ kind: 'svg', id: 'ai-lamp', sourceSvg: svg, longEdgePx: 96, name: '铜色营灯变体' }, { kind: 'style', ids: ['ai-lamp'], brightness: .8, opacity: .7 }])])
     if (!receipt('check')) return done([{ id: 'check', name: 'sceneweave_check_draft', arguments: '{}' }])

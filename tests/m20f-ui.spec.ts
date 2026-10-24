@@ -113,6 +113,68 @@ test('M2-0f native creation, box selection, context copy, layers and mounted Hom
   await info.attach('native-main-continuation.json', { body: JSON.stringify({ sceneId: after.document.sceneId, revision: after.document.revision, zoom, props: Object.keys(after.document.props).length, layers: Object.keys(after.document.userLayers).length, nativeDatabases: persisted.databases }), contentType: 'application/json' })
 })
 
+test('native viewport resumes deferred refinement after selection cancellation and a layout resize', async ({ page }) => {
+  test.setTimeout(90_000)
+  await createBlank(page, 'M2 细化任务取消与恢复')
+  await placeLamp(page)
+  const viewport = page.locator('.asset-viewport')
+  const waitRefinement = async () => {
+    await expect(viewport).toHaveAttribute('data-refinement-pending', 'false')
+    await expect.poll(async () => Number(await viewport.getAttribute('data-refinement-count'))).toBeGreaterThan(0)
+    await expect(page.locator('.asset-detail-preview')).toBeVisible()
+  }
+  await waitRefinement()
+  const before = await state(page), renderCount = await viewport.getAttribute('data-render-count')
+  const first = Number(await viewport.getAttribute('data-refinement-count'))
+  const box = await page.getByLabel('材质场景主持人预览', { exact: true }).boundingBox()
+  if (!box) throw new Error('Expected a real native canvas.')
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 40)
+  await page.setViewportSize({ width: 1400, height: 982 })
+  await expect(viewport).toHaveAttribute('data-refinement-pending', 'true')
+  await page.keyboard.press('Escape'); await page.mouse.up()
+  await waitRefinement()
+  await expect.poll(async () => Number(await viewport.getAttribute('data-refinement-count'))).toBeGreaterThan(first)
+  const second = Number(await viewport.getAttribute('data-refinement-count'))
+  await page.getByRole('button', { name: '放大地图', exact: true }).click()
+  await expect(viewport).toHaveAttribute('data-refinement-pending', 'true')
+  await viewport.hover(); await page.mouse.down(); await page.mouse.up()
+  await waitRefinement()
+  await expect.poll(async () => Number(await viewport.getAttribute('data-refinement-count'))).toBeGreaterThan(second)
+  expect(await viewport.getAttribute('data-render-count')).toBe(renderCount)
+  expect((await state(page)).document).toEqual(before.document)
+})
+
+test('native history refresh waits for its tab and preserves a form across inactive edits', async ({ page }) => {
+  await createBlank(page, '历史按需读取')
+  await page.evaluate(async () => {
+    const path = '/src/editor/main/repository.ts', { WorkspaceRepository } = await import(path) as typeof import('../src/editor/main/repository')
+    const usage = WorkspaceRepository.prototype.usage
+    Reflect.set(window, '__historyUiUsageReads', 0)
+    WorkspaceRepository.prototype.usage = function (id: string) {
+      Reflect.set(window, '__historyUiUsageReads', Number(Reflect.get(window, '__historyUiUsageReads')) + 1)
+      return usage.call(this, id)
+    }
+  })
+  const reads = () => page.evaluate(() => Number(Reflect.get(window, '__historyUiUsageReads')))
+  const id = await placeLamp(page)
+  expect(await reads()).toBe(0)
+  const navigation = page.getByTestId('workspace-navigation')
+  await navigation.getByRole('tab', { name: '历史', exact: true }).click()
+  await expect.poll(reads).toBeGreaterThan(0)
+  await page.getByRole('button', { name: '新建命名快照', exact: true }).click()
+  await page.getByLabel('命名快照名称', { exact: true }).fill('保留中的历史表单')
+  await chooseProp(page, id)
+  const before = await reads(), x = (await state(page)).document.props[id].positionMm.x
+  await number(page, '物件 X', x + 100); await settled(page)
+  expect(await reads()).toBe(before)
+  await navigation.getByRole('tab', { name: '历史', exact: true }).click()
+  await expect.poll(reads).toBeGreaterThan(before)
+  await expect(page.getByLabel('命名快照名称', { exact: true })).toHaveValue('保留中的历史表单')
+  await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
+  await expect(page.getByRole('button', { name: '查看快照 保留中的历史表单', exact: true })).toBeVisible()
+})
+
 test('M2-0f mixed native room, terrain, appearance and protected partial history restore', async ({ page }, info) => {
   test.setTimeout(90_000)
   await createBlank(page, 'M2-0f 混合工具与局部恢复')

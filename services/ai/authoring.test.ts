@@ -110,6 +110,57 @@ describe('isolated AI prop authoring backend', () => {
     expect(events.map(event => event.sequence)).toEqual(events.map((_, i) => i + 1))
     expect((await subject.request(`/v1/tasks/${snapshot.id}/draft`, 'GET', undefined, true)).status).toBe(404)
   })
+  it('browses the granted multilingual palette by bounded pages after an empty exact search', async () => {
+    const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) }), authoring = start()
+    authoring.project.document.propDefinitions.definition.name = '铜色桌灯'
+    authoring.project.document.propDefinitions.definition.tags = ['原创']
+    const other = cloneJson(authoring.project.document.propDefinitions.definition)
+    other.id = 'unauthorised-lamp'; other.catalogId = 'test.authoring.other'; other.name = 'PRIVATE_PALETTE_LAMP'
+    authoring.project.document.propDefinitions[other.id] = other
+    authoring.project.licenseBindings.push({ ...authoring.project.licenseBindings[0], subjectId: other.id })
+    authoring.baseContentHash = authoringProjectHash(authoring.project)
+    const response = await subject.create(authoring)
+    expect(response.status).toBe(201)
+    const created = await response.json() as TaskSnapshot, task = subject.store.read(created.id)
+    const run = (args: unknown) => executeAuthoringTool(task, call('find', 'sceneweave_find_assets', args), args)
+    const missing = run({ query: 'lamp', limit: 1 })
+    expect(JSON.parse(missing.output)).toMatchObject({ assets: [], total: 0, nextOffset: null, hint: expect.stringContaining('query empty') })
+    const first = run({ query: '', limit: 1 })
+    expect(JSON.parse(first.output)).toMatchObject({ assets: [{ id: 'definition', name: '铜色桌灯' }], total: 1, nextOffset: null })
+    expect(JSON.parse(run({ query: '', limit: 1, offset: 1 }).output).assets).toEqual([])
+    expect(run({ query: '', limit: 1, offset: 1024 }).success).toBe(true)
+    expect(run({ query: '', limit: 1, offset: 1025 }).success).toBe(false)
+    const lateRead = { section: 'targets', offset: 768, limit: 16 }
+    expect(executeAuthoringTool(task, call('read-late', 'sceneweave_read_scene', lateRead), lateRead).success).toBe(true)
+    expect(first.output).not.toContain('PRIVATE_PALETTE_LAMP')
+    expect(JSON.parse(run({ query: 'definition', limit: 1 }).output).assets).toHaveLength(1)
+    const invalid = run({ query: '', limit: 1, offset: -1 })
+    expect(invalid.success).toBe(false)
+    expect(JSON.parse(invalid.output)).toMatchObject({ error: { code: 'invalid_arguments', issues: [{ path: 'offset' }] } })
+  })
+  it('identifies the failing scene recipe with a fixed boundary hint and keeps the whole step atomic', async () => {
+    const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) }), authoring = start()
+    const boundsMm = cloneJson(authoring.project.document.floors['blank-floor'].boundsMm)
+    authoring.skill = { id: 'sceneweave-scene-authoring', version: 1 }
+    authoring.scope.scene = { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm, entityIds: [], definitionIds: ['definition'], prefabDefinitionIds: [], materialIds: [], operations: ['furnish'] }
+    const response = await subject.create(authoring)
+    expect(response.status).toBe(201)
+    const created = await response.json() as TaskSnapshot, task = subject.store.read(created.id), before = cloneJson(task.authoring!.state)
+    const operations = [
+      { kind: 'furnish', id: 'valid-furniture', definitionId: 'definition', positionMm: { x: 6000, y: 6000 }, supportRef: { kind: 'floor', id: 'blank-floor' } },
+      { kind: 'furnish', id: 'SUBMITTED_ID_MUST_NOT_BE_ECHOED', definitionId: 'definition', positionMm: { x: boundsMm.x + boundsMm.width - 10, y: 6000 }, rotationDeg: 45, supportRef: { kind: 'floor', id: 'blank-floor' } },
+    ]
+    const failed = executeAuthoringTool(task, call('bad-boundary', 'sceneweave_edit_scene', { operations }), { operations })
+    expect(failed.success).toBe(false)
+    expect(JSON.parse(failed.output)).toMatchObject({ error: { code: 'invalid_geometry', operationIndex: 1, hint: expect.stringContaining('rotated image and physical footprint') } })
+    for (const forbidden of ['SUBMITTED_ID_MUST_NOT_BE_ECHOED', 'PRIVATE_GM_PROJECT_TITLE', 'SECRET_GM_PROP', '实际几何']) expect(failed.output).not.toContain(forbidden)
+    expect(task.authoring!.state).toEqual(before)
+    operations[1].positionMm.x -= 500
+    const repaired = executeAuthoringTool(task, call('repaired-boundary', 'sceneweave_edit_scene', { operations }), { operations })
+    expect(repaired.success).toBe(true)
+    expect(task.authoring!.state).toMatchObject({ draftRevision: 1, operationCost: 2 })
+    expect(task.authoring!.state.steps[0].operations).toHaveLength(2)
+  })
   it('requires matching browser validation before claim; claims and applied receipts are idempotent', async () => {
     const subject = setup(editProvider()), snapshot = await (await subject.create()).json() as TaskSnapshot
     const waiting = await wait(subject.store, snapshot.id), base = { expectedGeneration: 1, draftRevision: 1, contentHash: waiting.authoring!.contentHash }
@@ -178,6 +229,20 @@ describe('isolated AI prop authoring backend', () => {
     expect(after.authoring!.state).toEqual(before.authoring!.state)
     expect(after.snapshot.usage.requests).toBe(before.snapshot.usage.requests)
     expect(after.runStartedAt).toBeNull()
+  })
+  it('lets a failed generation review its last valid draft without another provider request', async () => {
+    let round = 0
+    const complete = vi.fn(async () => ++round === 1 ? done([edit()]) : done([call(`check-${round}`, 'sceneweave_check_draft', {})]))
+    const subject = setup({ complete }), created = await (await subject.create()).json() as TaskSnapshot
+    const failed = await wait(subject.store, created.id, 'failed')
+    expect(failed.error?.code).toBe('request_limit')
+    const before = subject.store.read(created.id), stamp = { expectedGeneration: failed.generation, draftRevision: before.authoring!.state.draftRevision, contentHash: before.authoring!.state.contentHash }
+    const response = await subject.request(`/v1/tasks/${created.id}/draft/validate`, 'POST', { ...stamp, valid: true })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ status: 'ready', error: null })
+    expect(complete).toHaveBeenCalledTimes(16)
+    expect(subject.store.read(created.id).authoring!.state).toEqual(before.authoring!.state)
+    expect(subject.store.read(created.id).snapshot.usage).toEqual(failed.usage)
   })
   it('does not duplicate successful draft call IDs, and cannot change an existing call identity', async () => {
     let rounds = 0

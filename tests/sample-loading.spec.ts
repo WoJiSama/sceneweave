@@ -29,6 +29,11 @@ async function settled(page: Page) {
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 30_000 })
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
+  await expect.poll(() => page.evaluate(async () => {
+    const workspacePath = '/src/editor/main/Workbench.tsx'
+    const { nativeWorkspace } = await import(workspacePath) as typeof import('../src/editor/main/Workbench')
+    return nativeWorkspace.getState().status
+  }), { timeout: 30_000 }).toBe('saved')
 }
 
 async function createBlank(page: Page, title: string) {
