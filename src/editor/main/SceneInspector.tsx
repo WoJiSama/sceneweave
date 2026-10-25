@@ -22,8 +22,7 @@ type Props = {
   onCommit: (run: () => void | Promise<void>) => void
   onPreview: (commands: SceneCommand[] | (() => SceneCommand[]), description: string) => void
   onPropCommand?: (commands: SceneCommand[], description: string, selectionAfterCommit?: string | null) => void
-  /** Unified sessions track this explicit pending form; legacy callers preview
-   * immediately and therefore do not acquire an unguarded local draft. */
+  /** Report local appearance edits so workspace transitions preserve the draft. */
   onAppearanceDraftChange?: (dirty: boolean) => void
   appearanceResetKey?: number
 }

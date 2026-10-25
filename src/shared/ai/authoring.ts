@@ -281,6 +281,14 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[]): { 
       allowed.add(id); touched.add(id); read.add(id)
     }
   }
+  // Artwork is materialized after all structural/prop recipes. Recheck its
+  // targets against that final geometry so later moves cannot escape a grant.
+  const finalSvgTargets = new Set<string>()
+  for (const operation of artwork) {
+    const checked = checkArtworkOperation(project, start, operation, created, finalSvgTargets)
+    checked.readIds.forEach(id => read.add(id))
+    if (operation.kind === 'svg') finalSvgTargets.add(operation.id)
+  }
   if (read.size > 4096) deny('真实只读依赖超过4096。')
   const state: AuthoringState = { schemaVersion: 1, draftRevision: steps.length, contentHash: artwork.length ? sha256Text(canonicalJson({ project: authoringProjectHash(project), artwork })) : authoringProjectHash(project), operationCost,
     changedIds: sorted(touched), readIds: sorted(read), writeIds: sorted(touched), steps: cloneJson([...steps]) }

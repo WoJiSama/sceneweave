@@ -10,6 +10,6 @@ export type WorkspaceRequest =
 
 export type WorkspaceSessionSummary = { sceneId: string; title: string; revision: number; status: string }
 export interface WorkspaceController {
-  leave(destination: 'home' | 'legacy'): Promise<boolean>
+  leave(): Promise<boolean>
   request(request: WorkspaceRequest): void
 }

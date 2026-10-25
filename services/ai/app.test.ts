@@ -332,6 +332,38 @@ describe('task lifecycle and physical private storage', () => {
     const orphan = join(directory, 'artifacts', randomUUID()); mkdirSync(orphan); writeFileSync(join(orphan, 'temp'), 'private')
     store.artifacts.cleanOrphans(new Set()); expect(() => statSync(orphan)).toThrow()
   })
+  it('aborts an expired running task and isolates its late response from newer tasks', async () => {
+    let now = 1000
+    const pending: { input: ProviderInput; resolve: (value: ProviderCompletion) => void }[] = []
+    const complete = vi.fn((input: ProviderInput) => new Promise<ProviderCompletion>(resolve => { pending.push({ input, resolve }) }))
+    const { engine, store, create, request, directory } = setup({ complete }, () => now)
+    const old = await (await create()).json() as TaskSnapshot
+    await vi.waitFor(() => expect(pending).toHaveLength(1))
+    const paused = engine.control('alice', old.id, { schemaVersion: 1, expectedGeneration: old.generation, action: 'pause' })
+    now = old.expiresAt - 500
+    engine.control('alice', old.id, { schemaVersion: 1, expectedGeneration: paused.generation, action: 'resume' })
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
+    const survivor = await (await create()).json() as TaskSnapshot
+    await vi.waitFor(() => expect(pending).toHaveLength(3))
+    const artifacts = join(directory, 'artifacts', old.id); mkdirSync(artifacts); writeFileSync(join(artifacts, 'private'), 'expired')
+    const stream = await request(`/v1/tasks/${old.id}/events?after=0`)
+    now = old.expiresAt + 1
+    store.sweep()
+    expect(pending[1].input.signal.aborted).toBe(true)
+    expect(pending[2].input.signal.aborted).toBe(false)
+    expect(() => store.read(old.id)).toThrow('not_found')
+    expect(() => statSync(artifacts)).toThrow()
+    expect(() => pending[1].input.onText('迟到文本')).toThrow('Execution interrupted')
+    pending[0].resolve(done()); pending[1].resolve(done())
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect((await request(`/v1/tasks/${survivor.id}`)).status).toBe(200)
+    expect(pending[2].input.signal.aborted).toBe(false)
+    pending[2].resolve(done())
+    expect((await request('/v1/capabilities')).status).toBe(200)
+    await stream.text()
+    expect(complete).toHaveBeenCalledTimes(3)
+    await waitStatus(store, survivor.id, 'completed')
+  })
   it('counts actual SQLite/private files toward the service budget and task artifacts toward its own budget', () => {
     const { directory, store } = setup()
     const task = store.create('alice', taskRequest(), 4).task

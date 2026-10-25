@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
-import type { WorkspaceV6 } from '../src/editor/v6/workspace'
-import type { SceneRepositoryV6 } from '../src/io/v6/storage'
+import type { Workspace } from '../src/application/workspace/workspace'
+import type { WorkspaceRepository } from '../src/editor/main/repository'
 
 // Bounded feature checks, not the postponed full regression/4K/performance matrix.
-type Dev = { workspace: WorkspaceV6; repository: SceneRepositoryV6 }
+type Dev = { workspace: Workspace; repository: WorkspaceRepository }
 const home = (page: Page) => page.getByTestId('workspace-home')
 const library = (page: Page) => page.getByRole('region', { name: '组件素材库', exact: true })
 async function settled(page: Page) {
@@ -43,18 +45,48 @@ for (const sample of [{ name: '苔石墓园', kind: 'graveyard' }, { name: '灰�
     test.setTimeout(90000)
     await page.goto('/#home')
     await home(page).getByRole('button', { name: sample.name, exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '确认打开室外工程', exact: true })
+    const dialog = page.getByRole('dialog', { name: '确认打开工程', exact: true })
     await expect(dialog).toBeVisible({ timeout: 30000 })
     await dialog.getByRole('button', { name: '保存并打开副本', exact: true }).click()
     await expect(dialog).toHaveCount(0); await settled(page)
     const before = await current(page)
     expect(before.persisted).toEqual(before.document)
-    expect(before.assetCount).toBe(57)
+    expect(before.assetCount).toBe(sample.kind === 'graveyard' ? 57 : 58)
     expect(Object.keys(before.document.prefabInstances)).toHaveLength(sample.kind === 'graveyard' ? 4 : 2)
     if (sample.kind === 'volcano') {
       expect(before.document.terrainAreas['volcano-lava-visual'].blocksMovement).toBe(false)
+      expect(before.document.terrainAreas['volcano-lava-visual'].surfaceStyle?.base.materialRef).toEqual({ id: 'content-m-lava-hot', version: 1 })
       expect(before.document.regions['volcano-lava-hazard']).toMatchObject({ kind: 'hazard', blocksMovement: true })
       expect(before.document.terrainConnections['volcano-access-ramp'].kind).toBe('ramp')
+      const resources = await page.evaluate(async () => {
+        const project = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.getState().project!
+        const hot = project.document.assets['content-a-lava-hot'], original = project.document.assets['content-a-lava']
+        const sha = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)), value => value.toString(16).padStart(2, '0')).join('')
+        const bindings = project.licenseBindings.filter(binding => ['content-a-lava-hot', 'content-m-lava-hot'].includes(binding.subjectId))
+        return { hot, original, material: project.document.materials['content-m-lava-hot'], record: project.assets[hot.sha256],
+          actualHash: await sha(await project.resources.read(hot.sha256)), originalActualHash: await sha(await project.resources.read(original.sha256)), bindings,
+          licenses: await Promise.all(bindings.map(async binding => {
+            const hash = binding.licensePath.slice('licenses/'.length, -'.txt'.length), license = project.licenses[hash]
+            return { hash, sha256: license.sha256, actualHash: await sha(new TextEncoder().encode(license.text)) }
+          })) }
+      })
+      const [hotBytes, originalBytes] = await Promise.all([
+        readFile('public/assets/sceneweave-handdrawn-content/lava-hot.png'),
+        readFile('public/assets/sceneweave-handdrawn-content/lava.png'),
+      ])
+      const hotHash = createHash('sha256').update(hotBytes).digest('hex'), originalHash = createHash('sha256').update(originalBytes).digest('hex')
+      expect(resources.hot).toMatchObject({ sha256: hotHash, mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512, origin: { kind: 'original', canEmbed: true } })
+      expect(resources.actualHash).toBe(hotHash); expect(resources.original.sha256).toBe(originalHash); expect(resources.originalActualHash).toBe(originalHash)
+      expect(hotHash).not.toBe(originalHash)
+      expect(resources.material).toMatchObject({ version: 1, textureAssetId: resources.hot.id, origin: { kind: 'original', canEmbed: true } })
+      expect(resources.record).toMatchObject({ sha256: hotHash, sizeBytes: hotBytes.length, pixelWidth: 512, pixelHeight: 512 })
+      expect(resources.bindings).toHaveLength(2)
+      expect(resources.bindings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ subjectKind: 'asset', subjectId: 'content-a-lava-hot', licenseRef: 'MIT', embedding: 'allowed' }),
+        expect.objectContaining({ subjectKind: 'material', subjectId: 'content-m-lava-hot', licenseRef: 'MIT', embedding: 'allowed' }),
+      ]))
+      for (const license of resources.licenses) { expect(license.actualHash).toBe(license.hash); expect(license.sha256).toBe(license.hash) }
+      await info.attach('volcano-original-and-hot-resources.json', { body: JSON.stringify(resources, null, 2), contentType: 'application/json' })
     }
     await page.getByRole('tab', { name: '对象', exact: true }).click()
     await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()

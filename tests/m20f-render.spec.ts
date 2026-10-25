@@ -28,6 +28,19 @@ test.describe('M2-0f actual native-v1 PNG parity', () => {
           exportReference = options => exportPngV2(reference, options)
         }
         const referenceBefore = JSON.stringify(reference.document)
+        // The current formal 4K renderer requests software readback surfaces.
+        // Align only the independent old reference's Canvas settings; retain
+        // its own projection/drawing implementation and restore before native IO.
+        const originalGetContext = HTMLCanvasElement.prototype.getContext
+        let referenceReadbackContexts = 0
+        const withReferenceReadback = async (run: () => Promise<Blob>) => {
+          HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, settings?: CanvasRenderingContext2DSettings) {
+            if (kind !== '2d') return Reflect.apply(originalGetContext, this, [kind, settings])
+            referenceReadbackContexts++
+            return Reflect.apply(originalGetContext, this, [kind, { ...settings, colorSpace: 'srgb', willReadFrequently: true }])
+          } as typeof originalGetContext
+          try { return await run() } finally { HTMLCanvasElement.prototype.getContext = originalGetContext }
+        }
         const sha = async (bytes: Uint8ClampedArray<ArrayBuffer>) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), n => n.toString(16).padStart(2, '0')).join('')
         const readPng = async (blob: Blob) => {
           const bytes = new Uint8Array(await blob.arrayBuffer()), view = new DataView(bytes.buffer), chunks: string[] = []
@@ -54,7 +67,7 @@ test.describe('M2-0f actual native-v1 PNG parity', () => {
         for (const audience of ['gm', 'player'] as const) {
           // Sequential export and decode keeps the peak bounded to two RGBA
           // arrays and ensures this test never runs simultaneous renderers.
-          const old = await readPng(await exportReference({ audience, longEdgePx: 4096 }))
+          const old = await readPng(await withReferenceReadback(() => exportReference({ audience, longEdgePx: 4096 })))
           const current = await readPng(await exportPng(toBundle(native), { audience, longEdgePx: 4096 }))
           let differingChannels = 0, maximumChannelDifference = 0, opaquePixels = 0
           if (old.pixels.length === current.pixels.length) {
@@ -68,6 +81,11 @@ test.describe('M2-0f actual native-v1 PNG parity', () => {
           results.push({ audience, width: current.width, height: current.height, referenceWidth: old.width, referenceHeight: old.height,
             differingChannels, maximumChannelDifference, nativeRgbaHash: current.rgbaHash, referenceRgbaHash: old.rgbaHash,
             pngBytes: current.pngBytes, metadataChunks: current.metadataChunks, opaquePixels })
+        }
+        const studyRepeatedOutputs: { audience: 'gm' | 'player'; rgbaHash: string }[] = []
+        if (sample === 'study') for (const audience of ['gm', 'player'] as const) {
+          const output = await readPng(await exportPng(toBundle(native), { audience, longEdgePx: 4096 }))
+          studyRepeatedOutputs.push({ audience, rgbaHash: output.rgbaHash })
         }
         const player = projectScene(native.document, 'player'), gm = projectScene(native.document, 'gm'), playerJson = JSON.stringify(player)
         const privateNotes = Object.values(native.document.notes).filter((note: any) => note.visibility === 'gm') as { id: string; text: string; title?: string }[]
@@ -88,7 +106,9 @@ test.describe('M2-0f actual native-v1 PNG parity', () => {
             if (x >= 0 && y >= 0 && x < output.width && y < output.height) maskPixels.push(Array.from(output.pixels.subarray((y * output.width + x) * 4, (y * output.width + x) * 4 + 4)))
           }
         }
-        return { sample, format: native.format, sceneFormat: native.document.format, results,
+        return { sample, format: native.format, sceneFormat: native.document.format, results, studyRepeatedOutputs,
+          referenceContextMode: 'sRGB readback surfaces; native export unchanged', referenceReadbackContexts,
+          contextRestored: HTMLCanvasElement.prototype.getContext === originalGetContext,
           nativeUnchanged: nativeBefore === JSON.stringify(toBundle(native).project), referenceUnchanged: referenceBefore === JSON.stringify(reference.document),
           privacy: { privateNoteCount: privateNotes.length, privatePropCount: privateProps.length,
             gmRetainsPrivateNotes: privateNotes.every(note => gmNoteIds.has(note.id)),
@@ -100,6 +120,18 @@ test.describe('M2-0f actual native-v1 PNG parity', () => {
       await testInfo.attach(`m20f-${sample}-native-reference-4k-rgba.json`, { body: JSON.stringify(report, null, 2), contentType: 'application/json' })
       expect(report.format).toBe('sceneweave-complete-project'); expect(report.sceneFormat).toBe('sceneweave-scene')
       expect(report.nativeUnchanged).toBe(true); expect(report.referenceUnchanged).toBe(true)
+      expect(report.referenceReadbackContexts).toBeGreaterThan(0); expect(report.contextRestored).toBe(true)
+      if (sample === 'study') {
+        expect(report.privacy.privateNoteCount).toBe(0); expect(report.privacy.privatePropCount).toBe(0)
+        // Player projection canonicalizes wall direction and collinear pieces;
+        // GM retains editable wall geometry. Each audience must be repeatable
+        // and match its independent reference, without requiring cross-audience
+        // raster identity from these two intentionally distinct projections.
+        expect(report.studyRepeatedOutputs).toHaveLength(2)
+        for (const repeated of report.studyRepeatedOutputs) {
+          expect(repeated.rgbaHash).toBe(report.results.find(result => result.audience === repeated.audience)!.nativeRgbaHash)
+        }
+      }
       for (const result of report.results) {
         expect(result.width).toBe(4096); expect(result.width).toBe(result.referenceWidth); expect(result.height).toBe(result.referenceHeight)
         expect(result.differingChannels).toBe(0); expect(result.maximumChannelDifference).toBe(0); expect(result.nativeRgbaHash).toBe(result.referenceRgbaHash)
@@ -126,6 +158,17 @@ test.describe('M2-0f actual native-v1 PNG parity', () => {
       const { toBundle, fromBundle } = await import(projectPath), { createCompositionContent } = await import(graphPath), { projectScene } = await import(projectionPath)
       const { createStudyProject, createStudyPrivacyDocument } = await import(legacyStudyPath), { exportPngV2 } = await import(legacyRenderPath)
       const { runtime, validation } = await import(runtimePath)
+      // Match the native formal 4K surface mode without changing either renderer.
+      const originalGetContext = HTMLCanvasElement.prototype.getContext
+      let referenceReadbackContexts = 0
+      const withReferenceReadback = async (run: () => Promise<Blob>) => {
+        HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, settings?: CanvasRenderingContext2DSettings) {
+          if (kind !== '2d') return Reflect.apply(originalGetContext, this, [kind, settings])
+          referenceReadbackContexts++
+          return Reflect.apply(originalGetContext, this, [kind, { ...settings, colorSpace: 'srgb', willReadFrequently: true }])
+        } as typeof originalGetContext
+        try { return await run() } finally { HTMLCanvasElement.prototype.getContext = originalGetContext }
+      }
       const ordinary = await createSampleProject('study'), source = await createStudyProject(), privateDocument = createStudyPrivacyDocument('a')
       const scene = structuredClone(ordinary.document), baseLayer = Object.keys(scene.userLayers)[0]
       // Test-only fixture construction keeps the native layer/document model.
@@ -157,19 +200,22 @@ test.describe('M2-0f actual native-v1 PNG parity', () => {
       }
       const outputs = []
       for (const audience of ['gm', 'player'] as const) {
-        const old = await read(await exportPngV2(reference, { audience, longEdgePx: 4096 })), current = await read(await exportPng(toBundle(native), { audience, longEdgePx: 4096 }))
+        const old = await read(await withReferenceReadback(() => exportPngV2(reference, { audience, longEdgePx: 4096 })))
+        const current = await read(await exportPng(toBundle(native), { audience, longEdgePx: 4096 }))
         let differingChannels = old.pixels.length === current.pixels.length ? 0 : Math.max(old.pixels.length, current.pixels.length)
         if (!differingChannels) for (let i = 0; i < current.pixels.length; i++) if (old.pixels[i] !== current.pixels[i]) differingChannels++
         outputs.push({ audience, width: current.width, height: current.height, referenceWidth: old.width, referenceHeight: old.height,
           nativeRgbaHash: current.rgbaHash, referenceRgbaHash: old.rgbaHash, differingChannels, maskPixel: current.maskPixel })
       }
-      return { outputs, unchanged: before === JSON.stringify(toBundle(native).project),
+      return { outputs, unchanged: before === JSON.stringify(toBundle(native).project), referenceReadbackContexts,
+        contextRestored: HTMLCanvasElement.prototype.getContext === originalGetContext,
         gmRetainsSecretProp: gm.props.some((prop: any) => prop.id === secretProp.id), gmRetainsSecretNote: gm.notes.some((note: any) => note.id === secret.id),
         playerOmitsSecretProp: !project.props.some((prop: any) => prop.id === secretProp.id), playerOmitsSecretNote: !project.notes.some((note: any) => note.id === secret.id),
         playerOmitsSecretText: !playerJson.includes(secret.text) && !playerJson.includes(secret.title), masks: project.masks.length }
     })
     await testInfo.attach('m20f-study-private-mask-4k-rgba.json', { body: JSON.stringify(report, null, 2), contentType: 'application/json' })
     expect(report.unchanged).toBe(true); expect(report.gmRetainsSecretProp).toBe(true); expect(report.gmRetainsSecretNote).toBe(true)
+    expect(report.referenceReadbackContexts).toBeGreaterThan(0); expect(report.contextRestored).toBe(true)
     expect(report.playerOmitsSecretProp).toBe(true); expect(report.playerOmitsSecretNote).toBe(true); expect(report.playerOmitsSecretText).toBe(true); expect(report.masks).toBe(1)
     for (const output of report.outputs) {
       expect(output.width).toBe(4096); expect(output.width).toBe(output.referenceWidth); expect(output.height).toBe(output.referenceHeight)

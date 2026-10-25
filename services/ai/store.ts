@@ -38,6 +38,7 @@ export class TaskStore {
   private readonly db: DatabaseSync
   private readonly now: () => number
   private listeners = new Map<string, Set<() => void>>()
+  private deletionListeners = new Set<(id: string) => void>()
   constructor(dataDir: string, options: { now?: () => number } = {}) {
     this.now = options.now ?? Date.now
     this.root = resolve(dataDir)
@@ -78,7 +79,7 @@ export class TaskStore {
       throw new Error('Private task storage is unavailable or already in use')
     }
   }
-  close() { this.db.close(); this.listeners.clear() }
+  close() { this.db.close(); this.listeners.clear(); this.deletionListeners.clear() }
   private all(): StoredTask[] { return (this.db.prepare('SELECT data FROM tasks').all() as { data: string }[]).map(row => JSON.parse(row.data) as StoredTask) }
   count() { return Number((this.db.prepare('SELECT count(*) AS count FROM tasks').get() as { count: number }).count) }
   read(id: string, owner?: string): StoredTask {
@@ -178,9 +179,15 @@ export class TaskStore {
     const set = this.listeners.get(id) ?? new Set<() => void>(); set.add(callback); this.listeners.set(id, set)
     return () => { set.delete(callback); if (!set.size) this.listeners.delete(id) }
   }
+  onDelete(callback: (id: string) => void) {
+    this.deletionListeners.add(callback)
+    return () => { this.deletionListeners.delete(callback) }
+  }
   delete(id: string, owner: string) {
     this.read(id, owner)
     this.db.prepare('DELETE FROM tasks WHERE id=? AND owner=?').run(id, owner)
+    // Retention cleanup must stop in-flight execution as soon as its checkpoint is removed.
+    for (const notify of [...this.deletionListeners]) notify(id)
     this.artifacts.removeTask(id)
     for (const notify of this.listeners.get(id) ?? []) notify()
     this.listeners.delete(id)

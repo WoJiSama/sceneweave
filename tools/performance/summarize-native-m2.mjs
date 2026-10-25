@@ -13,7 +13,7 @@ export function summarizeNativeM2(manifest, runs) {
     && manifest.runnersUnchangedAfterMeasurement
     && manifest.cases.length === 4 && runs.length === manifest.cases.length * manifest.config.runs
   for (const item of summary.cases) item.ordinaryEditTarget.formalMatrix = summary.completeFormalMatrix
-  summary.interpretation.push('The fixtures are new complete-v1 packages prepared through the normal preservation/conversion UI from exact original B5 bytes. Fixture preparation runs are tooling, outside all measured cold native imports and product distributions.')
+  summary.interpretation.push(`Fixture preparation is tooling, outside all measured cold native imports and product distributions. The recorded method for this run is: ${manifest.config.fixturePreparation}`)
   summary.interpretation.push('Completing the matrix never grants a performance pass. Every 500-object case must separately satisfy the 100 ms exact-domain target, and continuous frame scheduling observations remain distinct from physical presentation.')
   return summary
 }

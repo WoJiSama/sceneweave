@@ -20,11 +20,16 @@ export class TaskEngine {
   private active = new Map<string, { generation: number; abort: AbortController; timer: ReturnType<typeof setTimeout> }>()
   private readonly now: () => number
   private readonly maxConcurrent: number
+  private readonly unsubscribeDeleted: () => void
   private unavailable = false
   private unavailableListeners = new Set<() => void>()
   constructor(readonly store: TaskStore, private readonly provider: ProviderAdapter, readonly connectionInfo: ConnectionInfo, options: { now?: () => number; maxConcurrent?: number } = {}) {
     this.now = options.now ?? Date.now
     this.maxConcurrent = options.maxConcurrent ?? 4
+    this.unsubscribeDeleted = store.onDelete(id => {
+      const active = this.active.get(id)
+      if (active) { active.abort.abort(); clearTimeout(active.timer); this.active.delete(id) }
+    })
   }
   create(owner: string, request: CreateTaskRequest): TaskSnapshot {
     this.assertStorageAvailable()
@@ -82,7 +87,10 @@ export class TaskEngine {
         current.snapshot.error = safeTaskError(code, requestState)
         return [{ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } }]
       })
-    } catch { this.markUnavailable() /* Inaccessible storage is explicitly 503 until a controlled restart. */ }
+    } catch (error) {
+      if (error instanceof TaskFault && error.code === 'not_found') return
+      this.markUnavailable() /* Inaccessible storage is explicitly 503 until a controlled restart. */
+    }
   }
   private async run(id: string, generation: number, signal: AbortSignal) {
     try {
@@ -255,6 +263,7 @@ export class TaskEngine {
   releaseDraft(owner: string, id: string, request: DraftClaim): TaskSnapshot {
     const task = this.stamped(owner, id, request), claim = task.authoring!.claim
     if (!claim || claim.lease.claimId !== request.claimId || claim.appliedRevision !== undefined) throw new TaskFault('claim_conflict')
+    if (!['applying', 'paused'].includes(task.snapshot.status)) throw new TaskFault('invalid_task_state')
     return this.store.change(id, request.expectedGeneration, current => {
       const expired = claim.lease.expiresAt <= this.now() || current.snapshot.status === 'paused'
       delete current.authoring!.claim; current.snapshot.status = expired ? 'paused' : 'ready'; updateAuthoringSummary(current)
@@ -277,6 +286,7 @@ export class TaskEngine {
       finally { active.abort.abort(); clearTimeout(active.timer) }
     }
     this.active.clear()
+    this.unsubscribeDeleted()
     this.unavailable = true
     for (const listener of [...this.unavailableListeners]) listener()
     this.unavailableListeners.clear()

@@ -130,7 +130,7 @@ function parsePath(value: string, budget: Budget): string {
       else if (active === 'V') pairs.push([currentX, args[0]])
       else if (active === 'A') pairs.push([args[5], args[6]])
       else for (let j = 0; j < count; j += 2) pairs.push([args[j], args[j + 1]])
-      const mapped = pairs.map(([x, y]) => [relative ? currentX + x : x, relative ? currentY + y : y] as const)
+      const mapped = pairs.map(([x, y]) => [relative && active !== 'V' ? currentX + x : x, relative && active !== 'H' ? currentY + y : y] as const)
       if (mapped.some(([x, y]) => !Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > STATIC_SVG_LIMITS.coordinate || Math.abs(y) > STATIC_SVG_LIMITS.coordinate)) return invalid('path相对坐标累计超限。')
       if (active === 'M') {
         currentX = mapped[0][0]; currentY = mapped[0][1]
@@ -417,8 +417,8 @@ export function verifyNormalizedStaticSvg(input: unknown): NormalizedStaticSvg {
     values[key] = descriptor.value
   }
   if (values.kind !== 'normalized-static-svg' || values.processorId !== STATIC_SVG_PROCESSOR_ID || values.processorVersion !== STATIC_SVG_PROCESSOR_VERSION
-    || typeof values.sourceSvg !== 'string' || typeof values.normalizedSource !== 'string' || typeof values.normalizedSha256 !== 'string'
-    || !/^[0-9a-f]{64}$/.test(values.sourceSha256 as string) || !/^[0-9a-f]{64}$/.test(values.normalizedSha256)
+    || typeof values.sourceSvg !== 'string' || typeof values.normalizedSource !== 'string' || typeof values.sourceSha256 !== 'string' || typeof values.normalizedSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/.test(values.sourceSha256) || !/^[0-9a-f]{64}$/.test(values.normalizedSha256)
     || !Number.isSafeInteger(values.sourceSizeBytes) || (values.sourceSizeBytes as number) < 1 || (values.sourceSizeBytes as number) > STATIC_SVG_LIMITS.sourceBytes
     || !Number.isSafeInteger(values.normalizedSizeBytes) || (values.normalizedSizeBytes as number) < 1 || (values.normalizedSizeBytes as number) > STATIC_SVG_LIMITS.normalizedBytes
     || !Number.isSafeInteger(values.nodeCount) || !Number.isSafeInteger(values.pathCount) || !Number.isSafeInteger(values.pathCommandCount)) return invalid('规范化凭证值无效。')

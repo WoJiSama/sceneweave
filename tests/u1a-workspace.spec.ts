@@ -1,13 +1,13 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
-import type { WorkspaceV6 } from '../src/editor/v6/workspace'
-import type { SceneRepositoryV6 } from '../src/io/v6/storage'
-import type { CompositionCommandV6 } from '../src/core/v6/types'
+import type { Workspace } from '../src/application/workspace/workspace'
+import type { WorkspaceRepository } from '../src/editor/main/repository'
+import type { CompositionCommand } from '../src/shared/model/appearance'
 
-type Dev = { workspace: WorkspaceV6; repository: SceneRepositoryV6 }
+type Dev = { workspace: Workspace; repository: WorkspaceRepository }
 const headline = '把故事画成可以探索的地方'
 const home = (page: Page) => page.getByTestId('workspace-home')
 const row = (page: Page, key: string) => page.locator(`[data-project-key="${key}"]`)
-const openDialog = (page: Page) => page.getByRole('dialog', { name: '确认打开室外工程', exact: true })
+const openDialog = (page: Page) => page.getByRole('dialog', { name: '确认打开工程', exact: true })
 const pageErrors = new WeakMap<Page, string[]>()
 
 test.beforeEach(({ page }) => {
@@ -34,24 +34,24 @@ async function number(page: Page, name: string, value: number) {
 }
 async function current(page: Page) {
   return page.evaluate(async () => {
-    const path = '/tests/helpers/u1a-browser.ts', { readU1ACurrent } = await import(path) as typeof import('./helpers/u1a-browser')
+    const path = '/tests/helpers/native-workspace-browser.ts', { readNativeCurrent } = await import(path) as typeof import('./helpers/native-workspace-browser')
     const { workspace, repository } = Reflect.get(window, '__sceneweaveOutdoorDev') as Dev
     const state = workspace.getState(), project = state.project
-    if (!project) throw new Error('Expected an active complete v6 project')
+    if (!project) throw new Error('Expected an active complete-v1 project')
     const persisted = await repository.load(project.document.sceneId)
-    return { ...await readU1ACurrent(project), status: state.status, error: state.error ?? null, canUndo: state.canUndo, canRedo: state.canRedo,
-      persisted: persisted ? await readU1ACurrent(persisted) : null }
+    return { ...await readNativeCurrent(project), status: state.status, error: state.error ?? null, canUndo: state.canUndo, canRedo: state.canRedo,
+      persisted: persisted ? await readNativeCurrent(persisted) : null }
   })
 }
 async function seedCurrent(page: Page, title = 'U1a 当前工程') {
   await page.goto('/#workspace'); await expect(page.getByTestId('outdoor-workbench')).toBeVisible()
   await page.evaluate(async title => {
-    const path = '/tests/helpers/u1a-browser.ts', { createU1AProject } = await import(path) as typeof import('./helpers/u1a-browser')
-    await (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.adoptNew(await createU1AProject(title))
+    const path = '/tests/helpers/native-workspace-browser.ts', { createNativeProject } = await import(path) as typeof import('./helpers/native-workspace-browser')
+    await (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.adoptNew(await createNativeProject(title))
   }, title)
   await settled(page); return current(page)
 }
-async function execute(page: Page, commands: CompositionCommandV6[]) {
+async function execute(page: Page, commands: CompositionCommand[]) {
   await page.evaluate(async commands => { const { workspace } = Reflect.get(window, '__sceneweaveOutdoorDev') as Dev; await workspace.execute(commands); await workspace.flush() }, commands)
   await settled(page)
 }
@@ -76,7 +76,7 @@ async function fileFromHome(page: Page, buffer: Buffer, name: string) {
   await (await chooser).setFiles({ name, mimeType: 'application/octet-stream', buffer })
 }
 
-test('U1a default Home creates one complete native v6 blank project through real UI', async ({ page }, info) => {
+test('U1a default Home creates one native complete-v1 blank project through real UI', async ({ page }, info) => {
   test.setTimeout(150_000)
   await page.goto('/'); await expect(page.getByRole('heading', { level: 1, name: headline, exact: true })).toBeVisible()
   for (const name of ['新建场景', '打开工程文件', '刷新工程列表', '书房与露台', '双层岩岛', '海岸哨所']) await expect(home(page).getByRole('button', { name, exact: true })).toBeVisible()
@@ -91,7 +91,7 @@ test('U1a default Home creates one complete native v6 blank project through real
   expect(Object.keys(created.document.materials)).toHaveLength(11); expect(Object.keys(created.document.prefabDefinitions)).toHaveLength(3)
   expect(Object.keys(created.assets)).toHaveLength(34); expect(created.persisted?.contentHash).toBe(created.contentHash)
   for (const item of [...Object.values(created.assets), ...Object.values(created.licenses)]) expect(item.actualHash).toBe(item.sha256)
-  await goHome(page); await expect(row(page, `v6:${created.sceneId}`).getByRole('button', { name: '继续编辑', exact: true })).toBeVisible()
+  await goHome(page); await expect(row(page, `native:${created.sceneId}`).getByRole('button', { name: '继续编辑', exact: true })).toBeVisible()
   await report(info, 'u1a-home-create.json', { method: 'Home form, actual stock bytes, native IDB save; DEV observation only.', created })
 })
 
@@ -113,56 +113,7 @@ for (const sample of [
   expect(adopted.document.presetSnapshot.presetVersion).toBe(1)
   expect(Object.keys(adopted.document.props).length).toBeGreaterThan(0); expect(Object.keys(adopted.assets).length).toBeGreaterThan(0)
   expect(adopted.persisted?.contentHash).toBe(adopted.contentHash)
-  await report(info, 'u1a-home-sample.json', { sample: sample.name, method: 'Real sample resources, review/cancel, explicit native v6 copy adoption.', adopted })
-})
-
-test('U1a six native repositories disambiguate identical names and IDs, retaining every row during read-only discovery', async ({ page }, info) => {
-  test.setTimeout(180_000)
-  await page.goto('/#home'); await expect(home(page)).toBeVisible()
-  const fixture = await page.evaluate(async () => { const path = '/tests/helpers/u1a-browser.ts'; return (await import(path) as typeof import('./helpers/u1a-browser')).seedU1ADiscoveryFixture() })
-  await home(page).getByRole('button', { name: '刷新工程列表', exact: true }).click()
-  for (let version = 1; version <= 6; version++) {
-    const item = row(page, `v${version}:${fixture.sceneId}`)
-    await expect(item).toBeVisible(); await expect(item).toContainText(fixture.title)
-    await expect(item.getByRole('button', { name: version === 6 ? '打开' : '升级为副本', exact: true })).toBeEnabled()
-  }
-  await expect(row(page, `v2:${fixture.brokenId}`)).toBeVisible()
-  await expect(row(page, `v2:${fixture.brokenId}`).getByRole('alert')).toBeVisible()
-  await expect(row(page, `v2:${fixture.brokenId}`).getByRole('button', { name: '升级为副本', exact: true })).toBeDisabled()
-  await home(page).getByRole('button', { name: '刷新工程列表', exact: true }).click()
-  const after = await page.evaluate(async () => { const path = '/tests/helpers/u1a-browser.ts'; return (await import(path) as typeof import('./helpers/u1a-browser')).fingerprintU1ADatabases() })
-  expect(after).toEqual(fixture.before)
-  await row(page, `v6:${fixture.sceneId}`).getByRole('button', { name: '打开', exact: true }).click(); await settled(page)
-  expect((await current(page)).sceneId).toBe(fixture.sceneId)
-  const afterOpen = await page.evaluate(async () => { const path = '/tests/helpers/u1a-browser.ts'; return (await import(path) as typeof import('./helpers/u1a-browser')).fingerprintU1ADatabases() })
-  expect(afterOpen).toEqual(fixture.before)
-  await report(info, 'u1a-native-discovery.json', { method: 'Six actual default Chromium IDBs; valid independent same-ID/name projects plus one deliberately corrupt v2 row. Every store/Blob fingerprint must remain identical after discovery, refresh and native v6 open.', fixture, after, afterOpen })
-})
-
-test('U1a explicit upgrade captures complete native v5 content and preserves four exact ancestor originals and old history', async ({ page }, info) => {
-  test.setTimeout(180_000)
-  await page.goto('/#home')
-  const source = await page.evaluate(async () => { const path = '/tests/helpers/u1a-browser.ts'; return (await import(path) as typeof import('./helpers/u1a-browser')).seedU1AMigrationFixture() })
-  await home(page).getByRole('button', { name: '刷新工程列表', exact: true }).click()
-  await row(page, `v5:${source.sourceSceneId}`).getByRole('button', { name: '升级为副本', exact: true }).click()
-  await expect(openDialog(page)).toBeVisible({ timeout: 30_000 }); await openDialog(page).getByRole('button', { name: '取消', exact: true }).click()
-  const cancelled = await page.evaluate(async () => { const path = '/tests/helpers/u1a-browser.ts', helpers = await import(path) as typeof import('./helpers/u1a-browser'); return helpers.fingerprintU1ADatabases(helpers.U1A_DATABASES.slice(0, 5)) })
-  expect(cancelled).toEqual(source.before)
-  if (!(await home(page).isVisible())) await goHome(page)
-  await row(page, `v5:${source.sourceSceneId}`).getByRole('button', { name: '升级为副本', exact: true }).click(); await adoptOpen(page)
-  const adopted = await page.evaluate(async () => { const path = '/tests/helpers/u1a-browser.ts', helpers = await import(path) as typeof import('./helpers/u1a-browser'); return helpers.describeU1AUpgrade((Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.getState().project!) })
-  expect(adopted.sceneId).not.toBe(source.sourceSceneId); expect(adopted.revision).toBe(0)
-  expect(adopted.sourceSceneId).toBe(source.sourceSceneId); expect(adopted.sourceRevision).toBe(source.sourceRevision)
-  expect(adopted.oldRepositories).toEqual(source.before)
-  expect(adopted.existingAncestors.map(item => item.schema)).toEqual([1, 2, 3, 4])
-  expect(adopted.existingAncestors.map(item => item.sha256)).toEqual(source.existingAncestorHashes)
-  for (const original of adopted.existingAncestors) { expect(original.exact).toBe(true); expect(original.sha256).toBe(original.expectedHash) }
-  expect(adopted.capturedNativeV5.sceneId).toBe(source.sourceSceneId); expect(adopted.capturedNativeV5.revision).toBe(source.sourceRevision)
-  expect(adopted.capturedNativeV5.actualBlobSha256).toBe(adopted.capturedNativeV5.recordedSourceHash)
-  expect(adopted.capturedNativeV5.importedContentHash).toBe(source.nativeSourceContentHash)
-  expect(adopted.capturedNativeV5.currentNativeContentHash).toBe(source.nativeSourceContentHash)
-  expect(adopted.capturedNativeV5.fixtureContentHash).toBe(source.nativeSourceContentHash)
-  await report(info, 'u1a-explicit-upgrade.json', { method: 'Home review/cancel/confirm against a real native v5 source. Newly serialized v5 capture is fully imported/validated and its content hash compared with native source and fixture; captured Blob SHA must match recorded sourceHash. Existing v1-v4 ancestor originals stay byte-exact, and all old native store/history fingerprints remain unchanged.', source, cancelled, adopted })
+  await report(info, 'u1a-home-sample.json', { sample: sample.name, method: 'Real sample resources, review/cancel, explicit native complete-v1 copy adoption.', adopted })
 })
 
 test('U1a Home Continue retains the same session, selected object, viewport, search and undo while explicit reload opens the persisted ID', async ({ page }, info) => {
@@ -176,7 +127,7 @@ test('U1a Home Continue retains the same session, selected object, viewport, sea
   const before = await current(page); expect(before.canUndo).toBe(true)
   await page.evaluate(() => Reflect.set(window, '__u1aOriginalCanvas', document.querySelector('.asset-map-wrap canvas')))
   await goHome(page)
-  await row(page, `v6:${before.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
+  await row(page, `native:${before.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
   expect(await page.evaluate(() => Reflect.get(window, '__u1aOriginalCanvas') === document.querySelector('.asset-map-wrap canvas'))).toBe(true)
   expect((await current(page)).contentHash).toBe(before.contentHash)
   expect({ selected: await viewport.getAttribute('data-selected-ids'), zoom: await viewport.getAttribute('data-zoom'), x: await viewport.getAttribute('data-pan-x'), y: await viewport.getAttribute('data-pan-y') }).toEqual(visual)
@@ -195,7 +146,7 @@ test('U1a Home Continue retains the same session, selected object, viewport, sea
 test('U1a passive module browsing retains inputs and selection; active drawing and review guard Home, hash and browser Back', async ({ page }, info) => {
   test.setTimeout(150_000)
   const source = await seedCurrent(page); await selectProp(page)
-  await goHome(page); await row(page, `v6:${source.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
+  await goHome(page); await row(page, `native:${source.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
   await page.getByRole('tab', { name: '建筑', exact: true }).click()
   await page.getByLabel('房间名称', { exact: true }).fill('U1a 保留的房间输入')
   await number(page, '房间起点 Y', 10000)
@@ -211,7 +162,7 @@ test('U1a passive module browsing retains inputs and selection; active drawing a
   await page.getByRole('tab', { name: '素材库', exact: true }).click(); await expect(page.getByLabel('搜索组件素材', { exact: true })).toHaveValue('原创测试')
   await page.goBack(); await expect(page).toHaveURL(/#workspace$/); await expect(home(page)).not.toBeVisible()
   await page.evaluate(() => { location.hash = '#home' }); await expect(page).toHaveURL(/#workspace$/); await expect(home(page)).not.toBeVisible()
-  await page.evaluate(() => { location.hash = '#history' }); await expect(page).toHaveURL(/#workspace$/); await expect(page.getByTestId('history-workbench')).toHaveCount(0)
+  await page.evaluate(() => { location.hash = '#unknown-route' }); await expect(page).toHaveURL(/#workspace$/); await expect(home(page)).not.toBeVisible()
   await page.getByRole('tab', { name: '建筑', exact: true }).click(); await expect(page.getByRole('button', { name: '取消绘图或量尺', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '取消绘图或量尺', exact: true }).click()
   const before = await current(page)
@@ -270,7 +221,7 @@ test('U1a Home navigation retains C2 same-session witness but explicit persisted
     const before = await workspace.inspectStructureRestore(snapshot.id, { ids: [wallId], mode: 'geometry' })
     return { snapshotId: snapshot.id, wallId, scope: before.scope, sceneId: workspace.getState().project!.document.sceneId }
   })
-  await settled(page); await goHome(page); await row(page, `v6:${proof.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
+  await settled(page); await goHome(page); await row(page, `native:${proof.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
   const continued = await page.evaluate(async proof => (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.inspectStructureRestore(proof.snapshotId, { ids: [proof.wallId], mode: 'geometry' }), proof)
   expect(continued.scope).toEqual(proof.scope)
   await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
@@ -282,31 +233,39 @@ test('U1a Home navigation retains C2 same-session witness but explicit persisted
   await report(info, 'u1a-c2-witness.json', { method: 'DEV commands seed an actual C2 room/named checkpoint; UI Home/Continue versus explicit reload; native snapshot read and real continuity check.', proof, continued, reloadError })
 })
 
-test('U1a Home file review, cancel and malformed input retain the current branch; valid v6 import creates a complete copy', async ({ page }, info) => {
+test('U1a Home malformed file retains the current branch; native complete-v1 import creates an independent project', async ({ page }, info) => {
   test.setTimeout(180_000)
   const before = await seedCurrent(page, 'U1a 保留的当前分支')
   const source = await page.evaluate(async () => {
-    const helperPath = '/tests/helpers/u1a-browser.ts', ioPath = '/src/io/v6/project-file.ts'
-    const { createU1AProject } = await import(helperPath) as typeof import('./helpers/u1a-browser')
-    const { exportProjectV6 } = await import(ioPath) as typeof import('../src/io/v6/project-file')
-    const project = await createU1AProject('U1a 文件中的另一工程'), blob = await exportProjectV6(project)
-    return { sceneId: project.document.sceneId, bytes: Array.from(new Uint8Array(await blob.arrayBuffer())) }
+    const helperPath = '/tests/helpers/native-workspace-browser.ts', ioPath = '/src/shared/project/file.ts'
+    const { createNativeProject } = await import(helperPath) as typeof import('./helpers/native-workspace-browser')
+    const { exportProject } = await import(ioPath) as typeof import('../src/shared/project/file')
+    const bundlePath = '/src/application/workspace/project.ts', runtimePath = '/src/platform/browser/runtime.ts'
+    const { toBundle } = await import(bundlePath) as typeof import('../src/application/workspace/project')
+    const { validation } = await import(runtimePath) as typeof import('../src/platform/browser/runtime')
+    const project = await createNativeProject('U1a 文件中的另一工程'), bytes = await exportProject(toBundle(project), validation)
+    return { sceneId: project.document.sceneId, bytes: Array.from(bytes) }
   })
-  await goHome(page); await fileFromHome(page, Buffer.from(source.bytes), 'u1a-complete.sceneweave')
-  await expect(openDialog(page)).toBeVisible({ timeout: 30_000 }); expect((await current(page)).contentHash).toBe(before.contentHash)
-  await openDialog(page).getByRole('button', { name: '取消', exact: true }).click()
-  if (!(await home(page).isVisible())) await goHome(page)
+  await goHome(page)
   await fileFromHome(page, Buffer.from('deliberately invalid sceneweave input'), 'u1a-malformed.sceneweave')
-  await expect(page.getByRole('alert').filter({ hasText: /格式|工程|ZIP|文件|容器|signature/i })).toBeVisible()
-  expect((await current(page)).contentHash).toBe(before.contentHash); await expect(openDialog(page)).toHaveCount(0)
-  if (!(await home(page).isVisible())) await goHome(page)
-  await fileFromHome(page, Buffer.from(source.bytes), 'u1a-complete.sceneweave'); await adoptOpen(page)
+  await expect(page.locator('.workspace-notice')).toContainText(/格式|工程|ZIP|文件|容器|signature/i)
+  expect((await current(page)).contentHash).toBe(before.contentHash)
+  await expect(page.getByRole('dialog', { name: '检查完整工程', exact: true })).toHaveCount(0)
+  await expect(openDialog(page)).toHaveCount(0)
+  await fileFromHome(page, Buffer.from(source.bytes), 'u1a-complete.sceneweave')
+  await expect(home(page)).toBeHidden()
+  await expect(page.locator('.workspace-project-title h1')).toHaveText('U1a 文件中的另一工程', { timeout: 30_000 })
+  await settled(page)
   const adopted = await current(page)
   expect(adopted.sceneId).not.toBe(before.sceneId); expect(adopted.sceneId).not.toBe(source.sceneId); expect(adopted.revision).toBe(0)
-  expect(adopted.title).toBe('U1a 文件中的另一工程 · 副本'); expect(adopted.persisted?.contentHash).toBe(adopted.contentHash)
-  const old = await page.evaluate(async id => { const helperPath = '/tests/helpers/u1a-browser.ts', { readU1ACurrent } = await import(helperPath) as typeof import('./helpers/u1a-browser'); return readU1ACurrent((await (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).repository.load(id))!) }, before.sceneId)
+  expect(adopted.title).toBe('U1a 文件中的另一工程'); expect(adopted.persisted?.contentHash).toBe(adopted.contentHash)
+  const old = await page.evaluate(async id => {
+    const helperPath = '/tests/helpers/native-workspace-browser.ts'
+    const { readNativeCurrent } = await import(helperPath) as typeof import('./helpers/native-workspace-browser')
+    return readNativeCurrent((await (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).repository.load(id))!)
+  }, before.sceneId)
   expect(old.contentHash).toBe(before.contentHash)
-  await report(info, 'u1a-file-open.json', { method: 'Real v6 zip through Home file chooser; cancellation and malformed input before explicit imported copy.', before, sourceSceneId: source.sceneId, adopted, old })
+  await report(info, 'u1a-file-open.json', { method: 'Real native complete-v1 ZIP through Home file chooser; malformed input preserves the active branch and a valid file installs a fresh independent project.', before, sourceSceneId: source.sceneId, adopted, old })
 })
 
 test('U1a cancelled real stock resource request cannot adopt a late blank candidate or lose the current project', async ({ page }, info) => {
@@ -335,7 +294,7 @@ test('U1a genuine cross-tab native CAS conflict blocks Home departure and preser
   test.setTimeout(180_000)
   const source = await seedCurrent(page), second = await context.newPage()
   try {
-    await second.goto('/#home'); await row(second, `v6:${source.sceneId}`).getByRole('button', { name: '打开', exact: true }).click(); await settled(second)
+    await second.goto('/#home'); await row(second, `native:${source.sceneId}`).getByRole('button', { name: '打开', exact: true }).click(); await settled(second)
     await execute(page, [{ type: 'updateProp', id: 'c3-left', changes: { rotationDeg: 10 } }])
     const conflict = await second.evaluate(async () => {
       const { workspace } = Reflect.get(window, '__sceneweaveOutdoorDev') as Dev
@@ -350,6 +309,6 @@ test('U1a genuine cross-tab native CAS conflict blocks Home departure and preser
     expect(afterLeave.contentHash).toBe(beforeLeave.contentHash); expect(afterLeave.canUndo).toBe(true)
     expect(afterLeave.document.props['c3-right'].rotationDeg).toBe(25); expect(afterLeave.persisted?.document.props['c3-right'].rotationDeg).toBe(0)
     expect(afterLeave.persisted?.document.props['c3-left'].rotationDeg).toBe(10)
-    await report(info, 'u1a-native-cas-navigation.json', { method: 'Two pages in one actual Chrome origin use the same default v6 IDB; independent old baseline, real CAS failure and guarded UI Home.', conflict, beforeLeave, afterLeave })
+    await report(info, 'u1a-native-cas-navigation.json', { method: 'Two pages in one actual Chrome origin use the same default complete-v1 IDB; independent old baseline, real CAS failure and guarded UI Home.', conflict, beforeLeave, afterLeave })
   } finally { await second.close() }
 })

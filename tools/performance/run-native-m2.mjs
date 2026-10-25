@@ -13,11 +13,12 @@ import { closeMeasuredBrowser } from './close-browser.mjs'
 import { startResourceSampling } from './resources.mjs'
 import { installNativeM2Observer } from './native-m2-observer.mjs'
 import { summarizeNativeM2 } from './summarize-native-m2.mjs'
+import { startNativeFixtureTooling, beginNativeFixturePreparation, completeNativeFixturePreparation } from './prepare-native-m2-fixture.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), args = process.argv.slice(2)
 if (args.includes('--help')) {
   console.log('node tools/performance/run-native-m2.mjs --output ABS --fixtures ABS [--dist ABS] [--cases study-500,study-2000,island-500,island-2000] [--runs 3] [--selections 30] [--edits 10] [--layers 10] [--appearances 5] [--restores 3] [--menus 10] [--gestures 3] [--wait-timeout-ms 120000] [--case-timeout-ms 3600000] [--channel chrome] [--diagnostic] [--diagnostic-profile]')
-  console.log('Normal production UI only. Empty independent output directory required. Run serially without other browser/test/build work. Reduced samples/matrix are diagnostic. --diagnostic-profile always excludes the run from formal evidence and records the first ordinary-edit and first restore-protect-adopt-save in each case/run at a 1000us CDP sampling interval. Continuous gestures contain 30 rAF-paced pointer moves or 20 rAF-paced wheel inputs. No GPU/presentation or full QA pass is inferred.')
+  console.log('Measured operations use only the normal production UI. Fixture preparation uses an isolated tooling server/browser with strict reader, disk-reread preservation set and fixed-journal conversion, closed before measurement. Empty independent output directory required. Run serially without other browser/test/build work. Reduced samples/matrix are diagnostic. --diagnostic-profile always excludes the run from formal evidence and records the first ordinary-edit and first restore-protect-adopt-save in each case/run at a 1000us CDP sampling interval. Continuous gestures contain 30 rAF-paced pointer moves or 20 rAF-paced wheel inputs. No GPU/presentation or full QA pass is inferred.')
   process.exit(0)
 }
 const argument = (name, fallback) => { const i = args.indexOf(name); return i < 0 ? fallback : args[i + 1] }
@@ -50,7 +51,7 @@ const html = await fs.readFile(path.join(dist, 'index.html'), 'utf8')
 check(!html.includes('/@vite/client'), 'Expected a normal production build')
 const servedBase = /<script[^>]+src="([^"]+\/assets\/)/.exec(html)?.[1]?.replace(/assets\/$/, '') ?? '/'
 const allowIncidentalFavicon404 = !/<link\b[^>]*\brel\s*=\s*["'][^"']*\bicon\b/i.test(html)
-const runnerFiles = ['run-native-m2.mjs', 'native-m2-observer.mjs', 'summarize-native-m2.mjs', 'summarize-c5.mjs', 'resources.mjs', 'archived-fixtures.mjs', 'close-browser.mjs']
+const runnerFiles = ['run-native-m2.mjs', 'prepare-native-m2-fixture.mjs', 'native-m2-observer.mjs', 'summarize-native-m2.mjs', 'summarize-c5.mjs', 'resources.mjs', 'archived-fixtures.mjs', 'close-browser.mjs']
 const manifest = {
   format: 'sceneweave-native-m2-performance', version: 1, startedAt: new Date().toISOString(), status: 'running',
   measurementClass: diagnosticProfile ? 'diagnostic-native-m2-cpu-profile' : formal ? 'formal-native-m2-production-ui-observation' : 'diagnostic-native-m2-production-ui',
@@ -63,7 +64,7 @@ const manifest = {
   build: await fingerprints(dist),
   config: { ...counts, requestedCases, channel, diagnostic, diagnosticProfile, waitTimeoutMs, caseTimeoutMs, route: '#home', viewport: { width: 1512, height: 982 }, dpr: 1,
     processState: 'Fresh dedicated headless Chrome process and profile per case/run; HTTP cache disabled, OS caches not purged. macOS caffeinate prevents idle sleep only.',
-    fixturePreparation: 'Exact original B5 strict-v2 packages are preserved, downloaded, reread and converted through the normal UI in a separate tooling-only Chrome process per case. The resulting native complete-v1 package is exported and hashed. Each measured case/run uses a fresh independent Chrome process and imports that exact native package. Two small user layers are added through UI; only the marker is moved to M2 Focus, keeping measured transactions within 256.',
+    fixturePreparation: 'Exact original B5 strict-v2 packages are captured by the strict reader in a separate tooling-only Vite/Chrome process per case. Every preservation file is written to disk and reread before the fixed-journal converter performs its full resource validation and cold-read publication. The resulting native complete-v1 package is exported, saved and hashed. No retired legacy UI is used. The tooling server is closed before measured runs. Each measured case/run uses only the normal frozen production build in a fresh independent Chrome process and imports that exact native package. Two small user layers are added through UI; only the marker is moved to M2 Focus, keeping measured transactions within 256.',
     localReopen: 'Reload the normal home page without clearing localStorage or IndexedDB, then click the one available native recent-project Open button. The timed interval starts at this trusted click; reload and the read-only repository comparison are setup.',
     intent: 'Trusted capture of the committing click, Enter keydown, file change, selection pointerup, contextmenu or first continuous input. The tool observes DOM/events; it never wraps product functions, Canvas, React or storage.',
     domainCommit: 'Exact page performance.now captured by Native Workspace after all domain validation, identity/freeze/undo updates and before publish. DOM data-transaction-revision must match the new data-revision. Import/open/name are separate operations and do not claim a domain edit commit.',
@@ -92,7 +93,7 @@ await new Promise((resolve, reject) => { server.once('error', reject); server.li
 const origin = `http://127.0.0.1:${server.address().port}`, pageUrl = `${origin}${servedBase}#home`
 const sleepGuard = process.platform === 'darwin' ? spawn('caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' }) : null
 sleepGuard?.on('error', () => {})
-let browserServer = null, browser = null, page = null, sampler = null, result = null, label = null, interruption = null, lastPrintedKind = null
+let browserServer = null, browser = null, page = null, sampler = null, result = null, label = null, interruption = null, lastPrintedKind = null, fixtureTooling = null
 const listeners = new Set()
 const interrupt = message => { if (!interruption) { interruption = new Error(message); for (const listener of listeners) listener(interruption) } }
 const handleSigint = () => interrupt('Runner canceled by SIGINT')
@@ -291,9 +292,9 @@ async function profileSample(cdp, kind, action) {
   }
   return sample
 }
-function reviewNetworkEvidence(ownedResult) {
+function reviewNetworkEvidence(ownedResult, auditOrigin = origin) {
   const incidentalFaviconUrl = value => {
-    try { const url = new URL(value); return allowIncidentalFavicon404 && url.origin === origin && url.pathname === '/favicon.ico' && url.search === '' }
+    try { const url = new URL(value); return allowIncidentalFavicon404 && url.origin === auditOrigin && url.pathname === '/favicon.ico' && url.search === '' }
     catch { return false }
   }
   const favicon404 = response => response.status === 404 && incidentalFaviconUrl(response.url)
@@ -301,7 +302,7 @@ function reviewNetworkEvidence(ownedResult) {
   const knownFavicon404 = url => incidentalFaviconUrl(url) && responses.some(response => favicon404(response) && response.url === url)
   const incidentalFaviconError = entry => knownFavicon404(entry.url ?? entry.location?.url) && /Failed to load resource/.test(entry.text) && /\b404\b/.test(entry.text)
   const errors = responses.filter(response => response.status >= 400)
-  return { policy: manifest.config.networkAudit, pageResponseCount: ownedResult.httpResponses.length, cdpResponseCount: ownedResult.cdpNetworkResponses.length,
+  return { policy: { ...manifest.config.networkAudit, origin: auditOrigin }, pageResponseCount: ownedResult.httpResponses.length, cdpResponseCount: ownedResult.cdpNetworkResponses.length,
     responseObserverNote: 'Playwright suppresses favicon request/response page events. Target CDP Network.responseReceived is retained separately so the actual favicon URL/status remains auditable. The two observers can report the same product response; these counts are not unique requests.',
     incidentalFavicon404Responses: errors.filter(favicon404), productHttpErrors: errors.filter(response => !favicon404(response)),
     incidentalFaviconConsoleErrors: ownedResult.consoleErrorEvents.filter(incidentalFaviconError), unexpectedConsoleErrors: ownedResult.consoleErrorEvents.filter(entry => !incidentalFaviconError(entry)),
@@ -348,18 +349,18 @@ async function failureEvidence() {
   return evidence
 }
 
-// Fixture conversion is a normal, fully preserved UI operation in its own
-// process/profile. It is deliberately outside measured cold native imports.
+// Strict fixture conversion is tooling in its own server/process/profile. The
+// measured product receives only complete-v1 bytes through its native import UI.
 async function prepareNativeFixture(item) {
   label = `prepare-${item.name}`
   result = { case: item.name, phase: 'tooling-fixture-preparation', startedAt: new Date().toISOString(), samples: [], errors: [], pageErrorEvents: [],
-    consoleErrors: [], consoleErrorEvents: [], httpResponses: [], cdpNetworkResponses: [], requestFailures: [], browserLogErrors: [], correctness: {}, downloads: [] }
+    consoleErrors: [], consoleErrorEvents: [], httpResponses: [], cdpNetworkResponses: [], requestFailures: [], browserLogErrors: [], correctness: {}, preservationFiles: [] }
   const preparationResult = result
   console.log(`Native M2 fixture preparation ${item.name}`)
+  fixtureTooling = await startNativeFixtureTooling({ root })
   browserServer = await chromium.launchServer({ channel, headless: true }); browser = await chromium.connect(browserServer.wsEndpoint())
   const context = await browser.newContext({ viewport: manifest.config.viewport, deviceScaleFactor: 1, acceptDownloads: true })
-  await context.addInitScript(installNativeM2Observer)
-  await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort('blockedbyclient'))
+  await context.route('**/*', route => new URL(route.request().url()).origin === fixtureTooling.origin ? route.continue() : route.abort('blockedbyclient'))
   page = await context.newPage(); page.setDefaultTimeout(waitTimeoutMs)
   page.on('pageerror', error => { preparationResult.errors.push(error.message); preparationResult.pageErrorEvents.push({ at: new Date().toISOString(), name: error.name, message: error.message, stack: error.stack }) })
   page.on('response', response => preparationResult.httpResponses.push({ url: response.url(), status: response.status() }))
@@ -371,50 +372,56 @@ async function prepareNativeFixture(item) {
   await cdp.send('Log.enable'); await cdp.send('Performance.enable'); await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: true })
   sampler = startResourceSampling({ rootPid: browserServer.process().pid, cdp, intervalMs: 100, heapIntervalMs: 200 })
   sampler.setPhase('tooling-audit-fixture-conversion')
-  await page.goto(pageUrl); await page.getByTestId('workspace-home').waitFor({ state: 'visible' })
-  await page.getByTestId('native-project-file').setInputFiles(path.join(output, item.artifact.path))
-  const dialog = page.getByRole('dialog', { name: '旧存档保全与转换', exact: true })
-  await dialog.waitFor({ state: 'visible' })
-  check(await dialog.getByRole('button', { name: '核验并转换', exact: true }).isDisabled(), 'Legacy conversion bypassed mandatory backup reread')
+  await page.goto(fixtureTooling.url)
+  const originalBytes = await fs.readFile(path.join(output, item.artifact.path))
+  check(originalBytes.length === item.artifact.sizeBytes && hash(originalBytes) === item.artifact.sha256, 'Copied original fixture bytes changed before preparation')
+  const captured = await page.evaluate(beginNativeFixturePreparation, Array.from(originalBytes))
   const directory = path.join(output, 'preparation', item.name)
   await fs.mkdir(directory, { recursive: true })
-  for (const button of await dialog.getByRole('button', { name: /^下载保全索引$|^下载分卷 / }).all()) {
-    const pending = page.waitForEvent('download'); await button.click()
-    const download = await pending, filename = download.suggestedFilename()
-    check(filename && path.basename(filename) === filename, 'Unsafe preservation filename')
-    const target = path.join(directory, filename); await download.saveAs(target)
+  const preservation = [{ name: 'preservation.sceneweave-migration.json', bytes: captured.index }, ...captured.volumes]
+  check(captured.volumes.length > 0, 'Missing complete preservation index/volume')
+  const reread = []
+  for (const file of preservation) {
+    check(file.name && path.basename(file.name) === file.name, 'Unsafe preservation filename')
+    const target = path.join(directory, file.name), source = Buffer.from(file.bytes)
+    await fs.writeFile(target, source, { flag: 'wx' })
     const bytes = await fs.readFile(target)
-    preparationResult.downloads.push({ path: path.relative(output, target), sizeBytes: bytes.length, sha256: hash(bytes) })
+    check(bytes.equals(source), 'Preservation file bytes changed during disk reread')
+    preparationResult.preservationFiles.push({ path: path.relative(output, target), sizeBytes: bytes.length, sha256: hash(bytes) })
+    reread.push({ name: file.name, bytes: Array.from(bytes) })
   }
-  check(preparationResult.downloads.length >= 2, 'Missing complete preservation index/volume')
-  await dialog.getByLabel('重新选择完整保全文件', { exact: true }).setInputFiles(preparationResult.downloads.map(item => path.join(output, item.path)))
-  await dialog.getByRole('button', { name: '核验并转换', exact: true }).click()
-  await dialog.waitFor({ state: 'hidden' }); await ready()
+  const completed = await page.evaluate(completeNativeFixturePreparation, { jobId: captured.jobId, index: reread[0].bytes, volumes: reread.slice(1) })
   const prepared = await storageAudit()
   check(prepared.scenes.length === 1 && prepared.scenes[0].propCount === item.summary.propCount, 'Fixture conversion lost original prop count')
-  const original = unzipSync(await fs.readFile(path.join(output, item.artifact.path)))
+  const original = unzipSync(originalBytes)
   const sourceScene = JSON.parse(new TextDecoder().decode(original['scene.json']))
   check(isDeepStrictEqual(prepared.scenes[0].worldBoundsMm, item.summary.worldBoundsMm), 'Fixture conversion changed world extent')
   check(isDeepStrictEqual(prepared.scenes[0].props, sourceScene.props), 'Fixture conversion changed actual original props')
   await fs.mkdir(path.join(output, 'native-fixtures'), { recursive: true })
-  const artifact = await backup(`native-fixtures/${item.name}.sceneweave`)
-  const nativeFiles = unzipSync(await fs.readFile(path.join(output, artifact.path)))
+  const relative = `native-fixtures/${item.name}.sceneweave`, exported = Buffer.from(completed.bytes)
+  await fs.writeFile(path.join(output, relative), exported, { flag: 'wx' })
+  const nativeBytes = await fs.readFile(path.join(output, relative))
+  check(nativeBytes.equals(exported), 'Native fixture bytes changed during disk reread')
+  const artifact = { path: relative, sizeBytes: nativeBytes.length, sha256: hash(nativeBytes), snapshot: packageSnapshot(nativeBytes) }
+  const nativeFiles = unzipSync(nativeBytes)
   const sourceHeader = JSON.parse(new TextDecoder().decode(original['manifest.json']))
   for (const entry of sourceHeader.entries.filter(entry => entry.role === 'asset' || entry.role === 'license')) {
     check(artifact.snapshot.entries.some(value => value.sha256 === entry.sha256 && value.sizeBytes === entry.sizeBytes), 'Fixture conversion lost original resource or license bytes')
   }
   preparationResult.nativePackage = artifact
+  preparationResult.conversionJournal = completed.job
   preparationResult.browser = browser.version()
   preparationResult.storage = { database: prepared.database, projectCount: prepared.scenes.length, stores: prepared.stores }
-  preparationResult.correctness = { fullPreservationDownloadedAndReread: true, originalPropFieldsUnchanged: true, worldExtentUnchanged: true,
+  preparationResult.correctness = { fullPreservationWrittenAndReread: true, strictColdReadPublication: completed.job.stage === 'verified', originalPropFieldsUnchanged: true, worldExtentUnchanged: true,
     originalResourceAndLicenseBytesUnchanged: true, nativeManifestAndEveryEntryVerified: Object.keys(nativeFiles).length === artifact.snapshot.entries.length + 1 }
   check(!preparationResult.errors.length, 'Fixture conversion emitted page errors')
-  preparationResult.networkAudit = reviewNetworkEvidence(preparationResult)
+  preparationResult.networkAudit = reviewNetworkEvidence(preparationResult, fixtureTooling.origin)
   check(!preparationResult.networkAudit.productHttpErrors.length && !preparationResult.networkAudit.unexpectedRequestFailures.length
     && !preparationResult.networkAudit.unexpectedConsoleErrors.length && !preparationResult.networkAudit.unexpectedBrowserLogErrors.length,
   'Fixture conversion resource or console/browser log error; inspect preparation evidence')
   preparationResult.finishedAt = new Date().toISOString()
   await closeBrowser()
+  await fixtureTooling.close(); fixtureTooling = null
   await writeJson(`${label}.json`, preparationResult, true)
   item.nativeArtifact = artifact
   manifest.fixturePreparation.push({ case: item.name, path: `${label}.json`, nativeArtifact: artifact, resourcePath: preparationResult.resources.path })
@@ -699,6 +706,7 @@ try {
   process.removeListener('SIGINT', handleSigint); process.removeListener('SIGTERM', handleSigterm)
   clearInterval(suspensionMonitor)
   try { await closeBrowser() } catch (error) { manifest.failures.push({ phase: 'teardown', message: String(error) }); manifest.status = 'failed'; process.exitCode = 1 }
+  try { await fixtureTooling?.close(); fixtureTooling = null } catch (error) { manifest.failures.push({ phase: 'fixture-tooling-teardown', message: String(error) }); manifest.status = 'failed'; process.exitCode = 1 }
   if (result) await writeJson(`${label}-partial-failure.json`, result, true)
   await writeJson('manifest.json', manifest); await new Promise(resolve => server.close(resolve)); sleepGuard?.kill()
 }

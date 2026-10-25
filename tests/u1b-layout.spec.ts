@@ -1,11 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
-import type { WorkspaceV6 } from '../src/editor/v6/workspace'
+import type { Workspace } from '../src/application/workspace/workspace'
 
 // Two small U1b smoke cases only. Creation uses the public Home form; DEV access
 // observes the active project and never installs fixtures or calls editor writes.
 const preferenceKey = 'sceneweave:workspace-layout:v1'
 const defaults = { version: 1, resourcesWidth: 280, detailsWidth: 320, resourcesCollapsed: false, inspectorCollapsed: false, navigationCollapsed: false }
-type Dev = { workspace: WorkspaceV6 }
+type Dev = { workspace: Workspace }
 const home = (page: Page) => page.getByTestId('workspace-home')
 const layout = (page: Page) => page.getByTestId('workspace-layout')
 const resources = (page: Page) => page.getByTestId('workspace-resources')
@@ -30,7 +30,7 @@ async function createBlank(page: Page, title: string) {
 async function projectState(page: Page) {
   return page.evaluate(() => {
     const state = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.getState()
-    if (!state.project) throw new Error('Expected a native v6 project created through Home')
+    if (!state.project) throw new Error('Expected a native complete-v1 project created through Home')
     return {
       document: structuredClone(state.project.document),
       identity: structuredClone(state.project.historyIdentity),
@@ -61,7 +61,7 @@ async function expectSameCanvas(page: Page) {
 
 async function reopenFromHome(page: Page, sceneId: string) {
   await expect(home(page)).toBeVisible()
-  await home(page).locator(`[data-project-key="v6:${sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click()
+  await home(page).locator(`[data-project-key="native:${sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click()
   await settled(page)
 }
 

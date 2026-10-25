@@ -44,8 +44,12 @@ test('home showcase serves the six native scene images without creating projects
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
-  await page.goto('/#home')
+  await page.goto('/#unknown-route')
   await expect(home(page)).toBeVisible()
+  await expect(page).toHaveURL(/#home$/)
+  await expect(home(page).getByRole('button', { name: /查找旧工程|保全并转换|导入保全索引|转换旧个人素材库/ })).toHaveCount(0)
+  await expect(page.getByTestId('preservation-files')).toHaveCount(0)
+  await expect(home(page)).toContainText('当前版本只使用完整 v1 工程和统一工作区')
   const initialProjects = await storedProjects(page)
   expect(initialProjects).toEqual([])
   expect(Object.keys(showcaseManifest.entries).sort()).toEqual(Object.keys(names).sort())
