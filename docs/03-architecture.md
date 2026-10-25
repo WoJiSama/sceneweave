@@ -1,8 +1,8 @@
 # 技术架构与模块边界
 
-**2026-10-25 当前主路径为新完整v1，M2-3/4场景与素材工具已接通：** 默认Workspace/Canvas/Workbench/样板直接使用shared，工程/个人库为sceneweave-projects及sceneweave-library；新主路径不经旧core/io/render格式视图。兼容边界保留严格旧读者、只读发现/保全/转换及原件取回，旧整页入口退役。M2-0a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f及当时必要检查见[52](52-m20f-native-workspace-validation.md)。M2-1本地服务/流式续答、M2-2保护采用已扩至M2-3建筑/室外/组合/散布/GM文字，以及M2-4受限SVG和明确范围同化；精确授权及结果见[05](05-ai-and-generation.md)。M2-5服务器容器与可信公网IP HTTPS已上线，Pages真实模型创作→保护采用→保存/导出/重载的必要联合旅程已通过，实际结果见[05第15节](05-ai-and-generation.md)。交接见[47](47-m20-unified-v1-handoff.md)，方向见[45](45-ai-authoring-and-unified-v1-plan.md)，状态见07。
+**2026-10-25 当前主路径为新完整v1，M2-3/4场景与素材工具已接通：** 默认Workspace/Canvas/Workbench/样板直接使用shared，工程/个人库为sceneweave-projects及sceneweave-library；新主路径不经旧core/io/render格式视图。按用户2026-10-25决定删除旧整页工作台、首页旧版本入口及转换UI；当前产品只接受完整v1当前/所选历史包。旧领域/IO/严格读者仍供底层夹具与历史验证使用，不构成产品旧版本支持。M2-0a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f及当时必要检查见[52](52-m20f-native-workspace-validation.md)。M2-1本地服务/流式续答、M2-2保护采用已扩至M2-3建筑/室外/组合/散布/GM文字，以及M2-4受限SVG和明确范围同化；精确授权及结果见[05](05-ai-and-generation.md)。M2-5服务器容器与可信公网IP HTTPS已上线，Pages真实模型创作→保护采用→保存/导出/重载的必要联合旅程已通过，实际结果见[05第15节](05-ai-and-generation.md)。交接见[47](47-m20-unified-v1-handoff.md)，方向见[45](45-ai-authoring-and-unified-v1-plan.md)，状态见07。
 
-本地版本号仍为 `0.2.0-m1-d2`，现行格式为新标识完整v1及原生场景v1，承接identity3/appearance1已有语义。B1–C3历史见17–29，C4严格v6/有效v3当时实现见[31](31-m1c-c4-validation.md)，C5联合功能/原性能与资源复用见[32](32-m1c-c5-validation.md)、[33](33-c5-resource-reuse-validation.md)，M1-D首批见[35](35-m1d-outpost-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；完整SCN、P3、持久建筑/任意拓扑恢复及完整M1未因此完成，完整私密/两批扩围、自由创作与视觉质量、跨浏览器/配额/UVTT仍开放，正式性能继续按[34](34-performance-followup.md)后置。
+本地版本号仍为 `0.2.0-m1-d2`，现行格式为新标识完整v1及原生场景v1，承接identity3/appearance1已有语义。B1–C3历史见17–29，C4严格v6/有效v3当时实现见[31](31-m1c-c4-validation.md)，C5联合功能/原性能与资源复用见[32](32-m1c-c5-validation.md)、[33](33-c5-resource-reuse-validation.md)，M1-D首批见[35](35-m1d-outpost-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；完整SCN、P3、持久建筑/任意拓扑恢复及完整M1未因此完成，完整私密/两批扩围、自由创作与视觉质量、跨浏览器/配额/UVTT仍开放，正式性能四组×三轮见[34](34-performance-followup.md)，100ms普通编辑门未通过，后续优化继续独立追踪。
 
 U1a首页、六仓库安全入口与连续会话的历史验证归[38](38-u1a-workspace-validation.md)。U1b固定布局/偏好见[39](39-u1b-layout-validation.md)，U2原合同/实现见40/41，重构前完整自动化结果见44；37/36保留准备与讨论。M2-0f随后显式切换格式及核心，沿用既有领域、受众和有限恢复边界，不能把U1当时“不重写格式”的批次范围解释为永久保留六套写入器。
 
@@ -23,7 +23,7 @@ U1a首页、六仓库安全入口与连续会话的历史验证归[38](38-u1a-wo
 | `src/compat/legacy/{v1,v2,v3,v4,v5,v6}` | 严格旧读者、六库发现/保全、独立转换 | 依赖shared输出新模型；新主路径不能反向依赖旧写入器 |
 | `src/platform/browser/content` | 内置固定内容及与UI无关的浏览器provider，e实际落点 | 冻结纯内容JSON/既有资源路径，运行时无editor/旧catalog TS依赖；62项补标/6项精修键保持 |
 
-shared在b建立37个模型/规则模块，c/d/e增至60个源码模块，实际入口为src/shared/index.ts；这些数量保留当时切片事实。ProjectData检查纯元数据，ProjectBundle另经真实字节/图片端口验证。f将application/workspace、editor/main、editor/native-canvas及platform/browser/render接入默认主路径，样板由platform/browser/content/factories直接提供原生完整v1，不由旧编辑器工厂运行时转换。application/migration继续编排完整保全转换。services/ai提供Hono HTTP/SQLite、provider和私有SVG制品；shared/ai提供严格任务/事件协议、固定应用技能、确定性物件/场景步骤重放及静态SVG规范化，platform/browser/ai提供鉴权fetch SSE和隔离SVG栅格化。AiAuthoringPane展示单件、场景和单件/组合/明确范围同化授权，application/workspace先本机重放，再由artwork物化实际PNG/固定来源与许可，最后提供私有原子候选及保护采用。服务端不执行Canvas或持有主工程写入权。
+shared在b建立37个模型/规则模块，c/d/e增至60个源码模块，实际入口为src/shared/index.ts；这些数量保留当时切片事实。ProjectData检查纯元数据，ProjectBundle另经真实字节/图片端口验证。f将application/workspace、editor/main、editor/native-canvas及platform/browser/render接入默认主路径，样板由platform/browser/content/factories直接提供原生完整v1，不由旧编辑器工厂运行时转换。application/migration保留历史保全转换的底层实现和工具夹具用途，当前App不导入该模块。services/ai提供Hono HTTP/SQLite、provider和私有SVG制品；shared/ai提供严格任务/事件协议、固定应用技能、确定性物件/场景步骤重放及静态SVG规范化，platform/browser/ai提供鉴权fetch SSE和隔离SVG栅格化。AiAuthoringPane展示单件、场景和单件/组合/明确范围同化授权，application/workspace先本机重放，再由artwork物化实际PNG/固定来源与许可，最后提供私有原子候选及保护采用。服务端不执行Canvas或持有主工程写入权。
 
 端口按用途分开：ID/时钟注入确定的准备上下文；hash/字节端口使用Uint8Array和独立捕获；图片端口提供解码描述/像素处理/编码与显式释放；存储端口接受完整候选及expectedRevision/metadataVersion，不接收任意表写入。具体TypeScript签名随对应切片及定向检查落地，字段/容器/失败语义不能偏离04/06。
 
@@ -59,18 +59,18 @@ C2复用上述严格v3文档、v4历史信封、仓库和native v3渲染，不�
 
 ## U1应用壳/单一会话与U2目录边界
 
-当前`App`以默认首页/`#home`与`#workspace`编排原生完整v1会话。`src/editor/main-shell`负责首页和保全转换对话框，`src/editor/main`承载工作台及面板，`src/application/workspace`拥有工程/撤销/保存分支；旧geometry/assets/layers/history/composition/outdoor整页入口统一回首页。固定分栏继续使用WorkspaceLayout和常驻slots，目录读写接sceneweave-library。`src/editor/workspace`的U1注册表及旧v6工作台仅保留历史/兼容用途，不再是默认工程写入路径。
+当前`App`以默认首页/`#home`与`#workspace`编排原生完整v1会话。`src/editor/main-shell`负责当前首页和样板详情，`src/editor/main`承载工作台及面板，`src/application/workspace`拥有工程/撤销/保存分支；非home/workspace的hash统一规范化到首页，并经过当前会话离开守卫。固定分栏继续使用WorkspaceLayout和常驻slots，目录读写接sceneweave-library。旧几何Canvas、五整页工坊、旧首页及旧导航协议已经删除；`src/editor/workspace`仅保留当前布局依赖及底层历史注册表代码。当前Workbench也不再保留非统一布局分支。
 
 | 责任 | 拥有的数据与动作 | 必须遵守的边界 |
 |---|---|---|
-| 应用壳（U1a/b，f原生化） | 首页、新主库打开、旧工程只读发现/保全转换、导航守卫、全局动作、分栏及焦点恢复 | 首页与只读面板不直接写实体；旧深链接回首页，严格兼容读者和原件取回保留 |
+| 应用壳（U1a/b，f原生化） | 首页、新主库打开、完整v1当前/历史文件导入、导航守卫、全局动作、分栏及焦点恢复 | 首页与只读面板不直接写实体；未知hash回首页，当前工程失败保护与已有确切来源原件保持 |
 | 当前编辑会话（f） | 唯一原生完整v1工程与字节端口、撤销/重做、保存/错误；选择、视口、当前层、编辑隐藏、模块搜索/草稿、唯一候选、异步代次 | 面板订阅同一会话，不依靠整页卸载重建；不建立第二份持久几何或多文档并行编辑 |
 | 工具与面板（U1a/b） | 指针工具、建筑/地形/素材选项、场景属性、图层/对象/历史、差异预览 | 展示与提交共用已有命令/Workspace；有效锁、依赖、256展开、保护点、玩家投影和CAS不变 |
 | 布局偏好（U1b） | 独立本机的版本化宽度/折叠等界面配置 | 损坏/旧版/越界配置回到可达默认；不进入工程、revision、撤销、快照或PNG |
 | 目录与个人组织（U2a/b，e/f原生化） | 内置/我的/本工程检索、索引/缩略图、个人标签/多色/收藏及安装状态 | 固定内容不可改义；个人组织独立于完整工程；采用须复制完整已验证闭包，organization-only备份不虚构安装 |
-| 兼容与完整IO | 新完整v1当前/所选历史保存导出、六旧库只读捕获及完整保全转换、真实资源/许可/旧来源原件与失败保护 | 旧工程身份包含来源仓库与sceneId；列表元数据不是完整工程认证，浏览不批量迁移；不向旧库保存 |
+| 完整IO | 新完整v1当前/所选历史保存导入导出、真实资源/许可/来源与失败保护 | 列表元数据不是完整工程认证；不支持旧格式导入；不读取或清空旧库 |
 
-U1a先统一工程发现与安全激活，U1b在此基础上调整固定面板；e/f继承这些会话责任并切到新仓库。最近列表命中当前新主工程时走Continue，显式重开才install/reset；首页往返不重新open/import，C2 witness保持，实际切工程/导入/另存副本仍清空。旧深链接回首页经同一离开守卫，旧工程必须先完整保全并明确转换，不把打开另一个工程当面板浏览。U2a/b原合同见40/41，现行新目录及备份以04/06为主，实际原生主界面结果归52；开发顺序与授权归07。
+U1a先统一工程发现与安全激活，U1b在此基础上调整固定面板；e/f继承这些会话责任并切到新仓库。最近列表命中当前新主工程时走Continue，显式重开才install/reset；首页往返不重新open/import，C2 witness保持，实际切工程/导入/另存副本仍清空。未知hash回首页经同一离开守卫，打开另一个当前工程属于真实切换，不作为面板浏览。U2a/b原合同见40/41，现行新目录及备份以04/06为主，实际原生主界面结果归52；开发顺序与授权归07。
 
 ### 会话转换与异步失效（U1a已实现，验证见38）
 
@@ -153,7 +153,7 @@ flowchart TD
 
 领域内核不依赖 React、Konva、IndexedDB、HTTP 或具体模型。画布、存储、AI 与导出依赖领域模型；它们之间通过明确的文档与事件交互，不互相读取内部状态。绘图节点是文档的表现，可以全部重建。
 
-历史模块src/core/v2–v6、src/editor/v2–v6、src/rendering、src/render/v2–v3及src/io/v2–v6保留各批实现；新主路径使用上文shared/application/platform分层。src/performance与tools/performance用于测量，B5专用构建与C5正常生产UI方法分别按21/32记录，不混用。下表按当前职责归类，旧版本名称不表示新主路径反向调用旧写入器：
+历史领域/IO模块src/core/v2–v6、src/rendering、src/render/v2–v3及src/io/v2–v6和仍有底层依赖的editor/v2–v6代码保留；旧整页Workbench已删除；新主路径使用上文shared/application/platform分层。src/performance与tools/performance用于测量，B5专用构建与C5正常生产UI方法分别按21/32记录，不混用。下表按当前职责归类，旧版本名称不表示新主路径反向调用旧写入器：
 
 | 模块 | 职责 | 不承担的职责 |
 |---|---|---|
@@ -163,7 +163,7 @@ flowchart TD
 | shared/ai与application/workspace | 固定技能、受控场景/参数/SVG步骤重放、真实资源物化和原子候选准备 | 直接信任远端工程、任意执行脚本、扩大scope或放宽硬约束 |
 | rules | 通用预设、比例尺显示、距离策略、版本快照 | 战斗结算、自动判定角色行动合法性 |
 | services/ai | provider适配、严格工具协议、多轮任务、SQLite/私有SVG制品/事件、预算和访问控制；可信公网HTTPS与Pages必要旅程已通过（05第15节） | 任意外联/执行、改变固定源定义或公开权限、自动采用主工程；必要旅程不授予主工程云写入权或证明完整QA |
-| shared/project/library与platform/browser存储 | 完整v1容器/新工程和个人库、实际字节/许可/源链/SVG、命名/保护历史及CAS；六旧库只经compat只读保全转换，UVTT待后续 | 以最后写入覆盖冲突、只保存seed或远端URL、输出完整GM数据给玩家 |
+| shared/project/library与platform/browser存储 | 完整v1容器/新工程和个人库、实际字节/许可/源链/SVG、命名/保护历史及CAS；旧读取器限底层历史/工具用途，当前UI不提供旧格式支持，UVTT待后续 | 以最后写入覆盖冲突、只保存seed或远端URL、输出完整GM数据给玩家 |
 | performance / tools/performance | 复用产品模块的显式负载夹具、操作观测与独立资源采样 | 替代真实工坊全部操作验收、绕过候选守卫或拥有额外提交权 |
 
 M0 使用少量文件完成边界验证，没有引入泛化插件框架。接口稳定的判断依据是两种调用方确实需要同一能力，例如手工工具和 AI 都经由 CommandBatch。

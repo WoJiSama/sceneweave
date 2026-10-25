@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
-import type { WorkspaceV6 } from '../src/editor/v6/workspace'
+import type { Workspace } from '../src/application/workspace/workspace'
 
-type Dev = { workspace: WorkspaceV6 }
+type Dev = { workspace: Workspace }
 const library = (page: Page) => page.getByRole('region', { name: '组件素材库', exact: true })
 const home = (page: Page) => page.getByTestId('workspace-home')
 async function settled(page: Page) {
@@ -20,7 +20,7 @@ async function createBlank(page: Page, title: string) {
 async function state(page: Page) {
   return page.evaluate(() => {
     const value = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.getState()
-    if (!value.project) throw new Error('Expected Home-created v6 project')
+    if (!value.project) throw new Error('Expected Home-created complete-v1 project')
     return { document: structuredClone(value.project.document), identity: structuredClone(value.project.historyIdentity), appearance: structuredClone(value.project.appearance), canUndo: value.canUndo, canRedo: value.canRedo }
   })
 }
@@ -61,7 +61,7 @@ test('U2 simple real-image library backup and offline cross-project preview/adop
   await lib.getByLabel('搜索组件素材', { exact: true }).fill('u2 常用')
   await expect(lib.locator('.catalog-entries article')).toHaveCount(1)
   const downloadEvent = page.waitForEvent('download')
-  await lib.getByRole('button', { name: '备份已选安装条目（1）', exact: true }).click()
+  await lib.getByRole('button', { name: '备份所选内容与整理（1）', exact: true }).click()
   const download = await downloadEvent, backupPath = await download.path()
   if (!backupPath) throw new Error('Expected a real complete library download')
   await readyLibrary(page)

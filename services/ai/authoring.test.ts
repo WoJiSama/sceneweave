@@ -194,6 +194,43 @@ describe('isolated AI prop authoring backend', () => {
     const doc = subject.store.read(id).authoring!.start.project.document
     expect(await (await subject.request(`${path}/applied`, 'POST', { ...claim, sceneId: doc.sceneId, revision: doc.revision + 1 })).json()).toMatchObject({ status: 'applied' })
   })
+  it('keeps cancellation terminal when an expired adoption claim is later released', async () => {
+    const complete = vi.fn(editProvider().complete), subject = setup({ complete }), { id, stamp } = await ready(subject)
+    const path = `/v1/tasks/${id}/draft`, claim = { ...stamp, claimId: randomUUID() }
+    expect((await subject.request(`${path}/claim`, 'POST', claim)).status).toBe(200)
+    subject.now.value += 30001
+    const cancellation = await subject.request(`/v1/tasks/${id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: stamp.expectedGeneration, action: 'cancel' })
+    expect(cancellation.status).toBe(200)
+    const cancelled = await cancellation.json() as TaskSnapshot
+    expect(cancelled).toMatchObject({ status: 'cancelled', generation: stamp.expectedGeneration + 1 })
+    const currentClaim = { ...claim, expectedGeneration: cancelled.generation }, before = subject.store.read(id)
+    expect((await subject.request(`${path}/release`, 'POST', currentClaim)).status).toBe(409)
+    expect((await subject.request(`${path}/validate`, 'POST', { ...stamp, expectedGeneration: cancelled.generation, valid: true })).status).toBe(409)
+    expect((await subject.request(`/v1/tasks/${id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: cancelled.generation, action: 'resume' })).status).toBe(409)
+    const doc = before.authoring!.start.project.document
+    expect((await subject.request(`${path}/applied`, 'POST', { ...currentClaim, sceneId: doc.sceneId, revision: doc.revision + 1 })).status).toBe(409)
+    expect(subject.store.read(id)).toEqual(before)
+    expect(complete).toHaveBeenCalledTimes(2)
+  })
+  it('releases an expired claim while paused and runs again only after explicit continuation', async () => {
+    const complete = vi.fn(editProvider().complete), subject = setup({ complete }), { id, stamp } = await ready(subject)
+    const path = `/v1/tasks/${id}/draft`, claim = { ...stamp, claimId: randomUUID() }
+    await subject.request(`${path}/claim`, 'POST', claim)
+    subject.now.value += 30001
+    const before = subject.store.read(id)
+    const released = await subject.request(`${path}/release`, 'POST', claim)
+    expect(released.status).toBe(200)
+    expect(await released.json()).toMatchObject({ status: 'paused', generation: stamp.expectedGeneration, authoring: { claim: null } })
+    expect(complete).toHaveBeenCalledTimes(2)
+    expect(subject.store.read(id).authoring!.state).toEqual(before.authoring!.state)
+    const doc = before.authoring!.start.project.document
+    expect((await subject.request(`${path}/applied`, 'POST', { ...claim, sceneId: doc.sceneId, revision: doc.revision + 1 })).status).toBe(409)
+    const resumed = await subject.request(`/v1/tasks/${id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: stamp.expectedGeneration, action: 'resume' })
+    expect(resumed.status).toBe(200)
+    await wait(subject.store, id)
+    expect(complete).toHaveBeenCalledTimes(3)
+    expect(subject.store.read(id).authoring!.state).toEqual(before.authoring!.state)
+  })
   it('releases an unsuccessful lease and keeps browser failure draft available for explicit continuation', async () => {
     const subject = setup(editProvider()), { id, stamp } = await ready(subject), path = `/v1/tasks/${id}/draft`, claim = { ...stamp, claimId: randomUUID() }
     await subject.request(`${path}/claim`, 'POST', claim)

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import type { WorkspaceV6 } from '../src/editor/v6/workspace'
+import type { Workspace } from '../src/application/workspace/workspace'
 
 test('U2 private fixed template and real derived bytes survive complete library backup, empty-library offline restore and 4K audience output', async ({ page, browser }, info) => {
   test.setTimeout(180_000)
@@ -66,7 +66,7 @@ async function beginOrganization(page: Page, name: string, tags: string) {
 }
 async function projectState(page: Page) {
   return page.evaluate(() => {
-    const workspace = (Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: WorkspaceV6 }).workspace
+    const workspace = (Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: Workspace }).workspace
     const state = workspace.getState(), project = state.project!
     return { sceneId: project.document.sceneId, document: structuredClone(project.document), identity: structuredClone(project.historyIdentity), appearance: structuredClone(project.appearance), canUndo: state.canUndo, canRedo: state.canRedo }
   })
@@ -92,9 +92,9 @@ test('U2 two real pages retain a stale personal-organization draft across catalo
     await library(page).getByRole('button', { name: '保存这1项整理', exact: true }).click()
     await expect(library(page).getByRole('form', { name: '个人素材整理草稿', exact: true })).toHaveCount(0)
     const catalog = await page.evaluate(async () => {
-      const path = '/src/catalog/repository.ts', { CatalogRepositoryV1 } = await import(path) as typeof import('../src/catalog/repository')
-      const repository = new CatalogRepositoryV1()
-      try { return await repository.read() } finally { repository.close() }
+      const path = '/src/platform/browser/runtime.ts'
+      const { libraryRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
+      return libraryRepository.read()
     })
     expect(catalog.revision).toBe(2); expect(catalog.entries).toHaveLength(0)
     expect(Object.values(catalog.organizations).map(value => value.tags)).toEqual(expect.arrayContaining([['甲页未保存草稿'], ['乙页已保存记录']]))

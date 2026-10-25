@@ -7,12 +7,12 @@ import { fileURLToPath } from 'node:url'
 import { strFromU8, unzipSync } from 'fflate'
 
 // Root runs this serially after a normal production build is served; no DEV API, source import or IDB injection.
-const base = path.resolve(process.env.SCENEWEAVE_U1A_OUTPUT ?? 'work/u1a-20261023/production-ui')
+const base = path.resolve(process.env.SCENEWEAVE_U1A_OUTPUT ?? 'test-results/u1a-production')
 const output = path.join(base, `run-${new Date().toISOString().replace(/[:.]/g, '-')}`)
 await fs.mkdir(output, { recursive: true })
 await fs.copyFile(fileURLToPath(import.meta.url), path.join(output, 'runner-used.mjs'))
 const report = { status: 'running', startedAt: new Date().toISOString(), url: process.env.SCENEWEAVE_PRODUCTION_URL ?? 'http://127.0.0.1:4173/sceneweave/#home',
-  method: 'Normal production UI only: Home, blank creation, actual stock placement/rotation, passive Home Continue, native persisted reopen. Downloaded v6 container entries hashed and bitmap dimensions decoded independently. No DEV API/source import/IDB fixture.',
+  method: 'Normal production UI only: Home, blank creation, actual stock placement/rotation, passive Home Continue, native persisted reopen. Downloaded complete-v1 container entries hashed and bitmap dimensions decoded independently. No DEV API/source import/IDB fixture.',
   viewport: { width: 1512, height: 982 }, output, steps: [], screenshots: [], dialogs: [], pageErrors: [], consoleErrors: [], httpErrors: [] }
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 let browser, context, page
@@ -48,8 +48,8 @@ try {
     const data = await fs.readFile(downloadedPath), files = unzipSync(data)
     const manifest = JSON.parse(strFromU8(files['manifest.json'])), document = JSON.parse(strFromU8(files['scene.json']))
     const identity = JSON.parse(strFromU8(files['identity.json'])), appearance = JSON.parse(strFromU8(files['appearance.json']))
-    expect(manifest).toMatchObject({ containerVersion: 6, documentSchemaVersion: 3, profile: 'm1-outdoor', packageMode: 'complete' })
-    expect(identity.version).toBe(3); expect(appearance.version).toBe(1); expect(document.schemaVersion).toBe(3)
+    expect(manifest).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, packageMode: 'complete' })
+    expect(identity.version).toBe(1); expect(appearance.version).toBe(1); expect(document).toMatchObject({ format: 'sceneweave-scene', schemaVersion: 1 })
     expect(manifest.sceneId).toBe(document.sceneId); expect(manifest.revision).toBe(document.revision)
     expect(Object.keys(files).sort()).toEqual(['manifest.json', ...manifest.entries.map(entry => entry.path)].sort())
     for (const entry of manifest.entries) { expect(files[entry.path].length).toBe(entry.sizeBytes); expect(hash(files[entry.path])).toBe(entry.sha256) }
@@ -124,17 +124,17 @@ try {
 
   step('Home Continue preserves the visible editing session and undo')
   await page.getByRole('button', { name: '回到首页', exact: true }).click(); await expect(home()).toBeVisible()
-  await page.locator(`[data-project-key="v6:${edited.document.sceneId}"]`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled()
+  await page.locator(`[data-project-key="native:${edited.document.sceneId}"]`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled()
   await expect(viewport).toHaveAttribute('data-selected-ids', selected); await expect(viewport).toHaveAttribute('data-zoom', zoom)
   await expect(page.getByRole('button', { name: '撤销素材编辑', exact: true })).toBeEnabled()
   const continued = await archive('continued.sceneweave')
   expect(continued.document).toEqual(edited.document); expect(continued.identity).toEqual(edited.identity); expect(continued.appearance).toEqual(edited.appearance)
   expect(continued.resources).toEqual(edited.resources); expect(continued.manifest.licenseBindings).toEqual(edited.manifest.licenseBindings)
 
-  step('Refresh Home and explicitly reopen the same persisted v6 project')
+  step('Refresh Home and explicitly reopen the same persisted complete-v1 project')
   await page.getByRole('button', { name: '回到首页', exact: true }).click(); await expect(home()).toBeVisible(); await page.reload()
   await expect(home()).toBeVisible(); await home().getByRole('button', { name: '刷新工程列表', exact: true }).click()
-  await page.locator(`[data-project-key="v6:${edited.document.sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click(); await settled()
+  await page.locator(`[data-project-key="native:${edited.document.sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click(); await settled()
   const reopened = await archive('reopened.sceneweave')
   expect(reopened.document).toEqual(edited.document); expect(reopened.identity).toEqual(edited.identity); expect(reopened.appearance).toEqual(edited.appearance); expect(reopened.resources).toEqual(edited.resources)
   expect(reopened.manifest.licenseBindings).toEqual(edited.manifest.licenseBindings)

@@ -37,7 +37,7 @@ node work/c5-20261022/production-runner.mjs
 
 ## corrected六项联合正确性
 
-实现入口为[跨工具测试](../tests/c5-integration.spec.ts)和[存储测试](../tests/c5-storage.spec.ts)。原始reporter包含各项完整JSON附件；截图、下载PNG和inline报告按原批次保留。
+实现入口为[跨工具测试](https://github.com/WoJiSama/sceneweave/blob/9ceb91b/tests/c5-integration.spec.ts)和[存储测试](https://github.com/WoJiSama/sceneweave/blob/9ceb91b/tests/c5-storage.spec.ts)。原始reporter包含各项完整JSON附件；截图、下载PNG和inline报告按原批次保留。
 
 | 子项 | 实际输入与观察到的结果 | 范围边界 |
 | --- | --- | --- |
