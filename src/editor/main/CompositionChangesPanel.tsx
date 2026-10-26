@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { LAYER_ENTITY_COLLECTIONS } from '../../shared/model/scene'
+import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics'
 import { inspectAppearanceScope } from '../../shared/appearance/graph'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { EditableProject } from '../../application/workspace/project'
@@ -11,12 +12,16 @@ function AdoptedImage({ project, hash, name }: { project: EditableProject; hash:
 }
 const label = (value: unknown): string => value == null ? '无' : typeof value === 'boolean' ? value ? '是' : '否' : value === 'gm' ? '仅主持人' : value === 'public' ? '公开' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 export default function CompositionChangesPanel({ current, candidate, commands }: { current: EditableProject; candidate: EditableProject; commands: readonly CompositionCommand[] }) {
-  const changes = useMemo(() => LAYER_ENTITY_COLLECTIONS.flatMap(collection => [...new Set([...Object.keys(current.document[collection]), ...Object.keys(candidate.document[collection])])].flatMap(id => {
-    const before = current.document[collection][id] as unknown as Record<string, unknown> | undefined, after = candidate.document[collection][id] as unknown as Record<string, unknown> | undefined
+  const changes = useMemo(() => {
+    const records = [...LAYER_ENTITY_COLLECTIONS.map(collection => ({ collection: String(collection), before: current.document[collection], after: candidate.document[collection] })),
+      ...VISUAL_ENTITY_COLLECTIONS.map(collection => ({ collection: `visual.${collection}`, before: current.document.visual?.[collection] ?? {}, after: candidate.document.visual?.[collection] ?? {} })),
+      { collection: 'visual.environment', before: current.document.visual ? { 'visual-environment': current.document.visual.environment } : {}, after: candidate.document.visual ? { 'visual-environment': candidate.document.visual.environment } : {} }]
+    return records.flatMap(({ collection, before: a, after: b }) => [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap(id => {
+    const before = (a as Record<string, unknown>)[id] as Record<string, unknown> | undefined, after = (b as Record<string, unknown>)[id] as Record<string, unknown> | undefined
     if (JSON.stringify(before) === JSON.stringify(after)) return []
     const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].filter(key => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
     return [{ id, collection, before, after, keys }]
-  })), [current, candidate])
+  })) }, [current, candidate])
   const scopes = useMemo(() => commands.flatMap(command => {
     if (!['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment'].includes(command.type)) return []
     if (!('scope' in command)) return []
@@ -40,7 +45,7 @@ export default function CompositionChangesPanel({ current, candidate, commands }
     {newDefinitions.map(item => { const asset = item.assetId && candidate.document.assets[item.assetId], record = asset && candidate.assets[asset.sha256], binding = candidate.licenseBindings.find(binding => binding.subjectId === item.id), license = binding && candidate.licenses[binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')]; return <article className="composition-diff-item" key={item.id}><h3>{item.name}</h3>{record && <AdoptedImage project={candidate} hash={record.sha256} name={item.name}/>}<p>{item.size} · {item.origin}</p><p>许可：{item.license}</p>{license && <details><summary>待采用完整许可</summary><pre>{license.text}</pre></details>}</article> })}
     {newlyPublic.length > 0 && <p role="alert" className="history-limit">其中 {newlyPublic.length} 个对象将新增公开内容，请核对可见范围。</p>}
     {scopes.map(({ scope, plan }, index) => <div key={index}><p>{scope.kind === 'layer' ? `持续图层：${current.document.userLayers[scope.layerId]?.name ?? scope.layerId}` : '冻结所选范围'} · {plan.targetIds.length} 个适用目标 · {plan.commandCost} / 256 条操作</p><p>不适用 {plan.inapplicableIds.length} 项</p><textarea readOnly aria-label="外观完整影响范围" rows={5} value={[...plan.targetIds.map(id => `调整 · ${id}`), ...plan.affectedIds.filter(id => !plan.targetIds.includes(id)).map(id => `关系与依赖 · ${id}`), ...plan.inapplicableIds.map(id => `不适用 · ${id}`)].join('\n')}/></div>)}
-    {changes.map(change => <article key={`${change.collection}-${change.id}`} className="composition-diff-item"><strong>{!change.before ? '新增' : !change.after ? '删除' : '更新'} · {change.id}</strong><p>图层：{current.document.userLayers[current.document.entityLayers[change.id]]?.name ?? '无'} → {candidate.document.userLayers[candidate.document.entityLayers[change.id]]?.name ?? '无'}</p><dl>{change.keys.map(key => <div key={key}><dt>{fields[key] ?? key}</dt><dd>{label(change.before?.[key])} → {label(change.after?.[key])}</dd></div>)}</dl></article>)}
+    {changes.map(change => <article key={`${change.collection}-${change.id}`} className="composition-diff-item"><strong>{!change.before ? '新增' : !change.after ? '删除' : '更新'} · {change.id}</strong><p>图层：{current.document.userLayers[(change.before?.layerId as string) ?? current.document.entityLayers[change.id]]?.name ?? '全图或无'} → {candidate.document.userLayers[(change.after?.layerId as string) ?? candidate.document.entityLayers[change.id]]?.name ?? '全图或无'}</p><dl>{change.keys.map(key => <div key={key}><dt>{fields[key] ?? key}</dt><dd>{label(change.before?.[key])} → {label(change.after?.[key])}</dd></div>)}</dl></article>)}
     {scopes.length > 0 && <p>规则来源、独立开关及实际位图一同保存。采用时重新检查完整范围和编辑锁。</p>}
   </details>
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createChatProvider } from './chat-provider.js'
-import { ProviderFailure, type ProviderInput } from './provider-types.js'
+import { PROVIDER_REASONING_BYTES, ProviderFailure, type ChatProviderConfig, type ProviderInput } from './provider-types.js'
+import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
 
 const config = { baseUrl: 'https://example.test/v1/', apiKey: 'test-key-keep-private', model: 'test-grok' }
 const tool = { name: 'connection_info', description: 'Read connection capability.', parameters: { type: 'object', properties: {}, additionalProperties: false } }
@@ -58,6 +59,62 @@ describe('chat-completions provider adapter', () => {
     expect(result.text).toBe('可见回答')
     expect(onText).toHaveBeenCalledExactlyOnceWith('可见回答')
     expect(result.usage).toEqual({ inputTokens: null, outputTokens: null })
+    expect(result).not.toHaveProperty('reasoningContent')
+  })
+  it('preserves opaque reasoning exactly across a real protocol tool-result continuation without visible callbacks', async () => {
+    const firstText = 'private\n\t计划🌋\u0000{"tool":"not executable"}', onText = vi.fn(), mutable: ChatProviderConfig = { ...config, preserveReasoning: 'enabled' }
+    const events = wire(event({ reasoning_content: firstText.slice(0, 12) }), event({ reasoning_content: firstText.slice(12) }),
+      event({ tool_calls: [{ index: 0, id: 'call_a', function: { name: tool.name, arguments: '{}' } }] }), event({}, 'tool_calls'), '[DONE]')
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(streamingResponse(events, 1)).mockResolvedValueOnce(streamingResponse(wire(event({ content: '公开答复' }, 'stop'), '[DONE]')))
+    const provider = createChatProvider(mutable, fetcher)
+    mutable.preserveReasoning = 'disabled'
+    const first = await provider.complete(input({ onText }))
+    expect(first.reasoningContent).toBe(firstText); expect(first.text).toBe(''); expect(onText).not.toHaveBeenCalled()
+    const messages: ProviderInput['messages'] = [...input().messages, { role: 'assistant', content: null, reasoningContent: first.reasoningContent, toolCalls: first.toolCalls }, { role: 'tool', content: '{"success":true}', toolCallId: 'call_a' }]
+    const second = await provider.complete(input({ messages, onText }))
+    const body = JSON.parse(fetcher.mock.calls[1]![1]!.body as string)
+    expect(body.messages).toEqual([
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: null, reasoning_content: firstText, tool_calls: [{ id: 'call_a', type: 'function', function: { name: tool.name, arguments: '{}' } }] },
+      { role: 'tool', content: '{"success":true}', tool_call_id: 'call_a' },
+    ])
+    expect(second.text).toBe('公开答复'); expect(onText).toHaveBeenCalledExactlyOnceWith('公开答复')
+    expect(first.toolCalls).toHaveLength(1); expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+  it('ignores saved reasoning and never returns it when preservation is disabled', async () => {
+    for (const preserveReasoning of [undefined, 'disabled'] as const) {
+      const fetcher = fakeFetch(streamingResponse(wire(event({ reasoning_content: 'do not retain this' }), event({}, 'stop'), '[DONE]')))
+      const result = await createChatProvider({ ...config, preserveReasoning }, fetcher).complete(input({ messages: [{ role: 'assistant', content: 'public history', reasoningContent: 'saved private continuation' }, ...input().messages] }))
+      expect(result).not.toHaveProperty('reasoningContent')
+      expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string).messages[0]).toEqual({ role: 'assistant', content: 'public history' })
+    }
+  })
+  it('bounds private reasoning independently of visible output and counts complete UTF-8 across delta splits', async () => {
+    const parts = ['x'.repeat(PROVIDER_REASONING_BYTES - 4), '\ud83c', '\udf0b']
+    const events = wire(...Array.from({ length: 8 }, (_, index) => event({ reasoning_content: parts[0].slice(index * 8192, (index + 1) * 8192) })),
+      event({ reasoning_content: parts[1] }), event({ reasoning_content: parts[2] }), event({ content: 'ok' }, 'stop'), '[DONE]')
+    const result = await createChatProvider({ ...config, preserveReasoning: 'enabled' }, fakeFetch(streamingResponse(events, 4096))).complete(input({ maxOutputTokens: 8192 }))
+    expect(result.reasoningContent).toBe(parts.join('')); expect(new TextEncoder().encode(result.reasoningContent).byteLength).toBe(PROVIDER_REASONING_BYTES)
+    const oversized = wire(...Array.from({ length: 9 }, () => event({ reasoning_content: '🌋'.repeat(2048) })), event({}, 'stop'), '[DONE]')
+    const fetcher = fakeFetch(streamingResponse(oversized, 4096)), onText = vi.fn()
+    await expect(createChatProvider({ ...config, preserveReasoning: 'enabled' }, fetcher).complete(input({ maxOutputTokens: 8192, onText }))).rejects.toMatchObject({ code: 'provider_limit', requestState: 'unknown' })
+    expect(onText).not.toHaveBeenCalled(); expect(fetcher).toHaveBeenCalledOnce()
+  })
+  it('rejects malformed or late private reasoning and invalid retained history without exposing it', async () => {
+    for (const value of [128, {}, []]) {
+      const fetcher = fakeFetch(streamingResponse(wire(event({ reasoning_content: value }), event({}, 'stop'), '[DONE]')))
+      await expect(createChatProvider({ ...config, preserveReasoning: 'enabled' }, fetcher).complete(input())).rejects.toMatchObject({ code: 'provider_protocol' })
+      expect(fetcher).toHaveBeenCalledOnce()
+    }
+    await expect(createChatProvider({ ...config, preserveReasoning: 'enabled' }, fakeFetch(streamingResponse(wire(event({}, 'stop'), event({ reasoning_content: 'late' }), '[DONE]')))).complete(input())).rejects.toMatchObject({ code: 'provider_protocol' })
+    const fetcher = vi.fn<typeof fetch>()
+    for (const message of [
+      { role: 'assistant' as const, content: null, reasoningContent: 128 as unknown as string },
+      { role: 'user' as const, content: 'User text', reasoningContent: 'cannot be user data' },
+      { role: 'assistant' as const, content: null, reasoningContent: 'x'.repeat(PROVIDER_REASONING_BYTES + 1) },
+    ]) await expect(createChatProvider({ ...config, preserveReasoning: 'enabled' }, fetcher).complete(input({ messages: [message] }))).rejects.toMatchObject({ requestState: 'not_sent' })
+    expect(fetcher).not.toHaveBeenCalled()
+    for (const value of ['true', '', 128, null]) expect(() => createChatProvider({ ...config, preserveReasoning: value } as unknown as ChatProviderConfig, fetcher)).toThrow(ProviderFailure)
   })
   it.each([
     ['no DONE', wire(event({ content: 'partial' }), event({}, 'stop'))],
@@ -110,12 +167,80 @@ describe('chat-completions provider adapter', () => {
     const toolCall = { index: 0, id: 'a', function: { name: tool.name, arguments: JSON.stringify({ huge: 'x'.repeat(8192) }) } }
     await expect(createChatProvider(config, fakeFetch(streamingResponse(wire(event({ tool_calls: [toolCall] }), event({}, 'tool_calls'), '[DONE]'), 4096))).complete(input())).rejects.toMatchObject({ code: 'provider_limit' })
   })
+  it('uses the explicit large-output SSE envelope for bounded authoring reasoning without exposing it', async () => {
+    const reasoning: unknown[] = Array.from({ length: 3000 }, (_, index) => event({ reasoning_content: `private-step-${index.toString().padStart(4, '0')}` }))
+    reasoning.push(event({ content: '已完成草稿。' }, 'stop'), { choices: [], usage: { prompt_tokens: 12, completion_tokens: 3001 } }, '[DONE]')
+    const fetcher = fakeFetch(streamingResponse(wire(...reasoning), 4096))
+    const onText = vi.fn(), result = await createChatProvider(config, fetcher).complete(input({ maxOutputTokens: 4096, tools: [], onText }))
+    expect(result).toMatchObject({ text: '已完成草稿。', finishReason: 'stop', toolCalls: [], usage: { inputTokens: 12, outputTokens: 3001 } })
+    expect(onText).toHaveBeenCalledExactlyOnceWith('已完成草稿。')
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string).max_tokens).toBe(4096)
+  })
+  it('preserves tool calls and usage after more than 2048 private reasoning deltas', async () => {
+    const events: unknown[] = Array.from({ length: 3000 }, () => event({ reasoning_content: 'hidden reasoning' }))
+    events.push(event({ tool_calls: [{ index: 0, id: 'call_a', type: 'function', function: { name: tool.name, arguments: '{}' } }] }),
+      event({}, 'tool_calls'), { choices: [], usage: { prompt_tokens: 12, completion_tokens: 3001 } }, '[DONE]')
+    const onText = vi.fn(), fetcher = fakeFetch(streamingResponse(wire(...events), 4096))
+    const result = await createChatProvider(config, fetcher).complete(input({ maxOutputTokens: 8192, onText }))
+    expect(result).toMatchObject({ text: '', finishReason: 'tool_calls', toolCalls: [{ id: 'call_a', name: tool.name, arguments: '{}' }], usage: { inputTokens: 12, outputTokens: 3001 } })
+    expect(onText).not.toHaveBeenCalled(); expect(fetcher).toHaveBeenCalledOnce()
+    expect(JSON.stringify(result)).not.toContain('hidden reasoning')
+  })
+  it('keeps the standard SSE envelope for ordinary 1024-token requests', async () => {
+    const many: unknown[] = Array.from({ length: 2049 }, () => event({ reasoning_content: 'private' }))
+    many.push(event({ content: 'done' }, 'stop'), '[DONE]')
+    await expect(createChatProvider(config, fakeFetch(streamingResponse(wire(...many), 4096))).complete(input({ maxOutputTokens: 1024, tools: [] }))).rejects.toMatchObject({ code: 'provider_limit' })
+  })
+  it('keeps large-output reasoning bounded and never retries after wire limits are reached', async () => {
+    const tooMany: unknown[] = Array.from({ length: 16385 }, () => event({ reasoning_content: 'private' }))
+    tooMany.push(event({}, 'stop'), '[DONE]')
+    const tooLarge = `:${'x'.repeat(10000)}\n`.repeat(420) + wire(event({}, 'stop'), '[DONE]')
+    for (const value of [wire(...tooMany), tooLarge]) {
+      const fetcher = fakeFetch(streamingResponse(value, 65536)), onText = vi.fn()
+      await expect(createChatProvider(config, fetcher).complete(input({ maxOutputTokens: 8192, onText }))).rejects.toMatchObject({ code: 'provider_limit' })
+      expect(onText).not.toHaveBeenCalled(); expect(fetcher).toHaveBeenCalledOnce()
+    }
+  })
+  it('does not expand visible text or individual tool argument limits for large-output requests', async () => {
+    const tooMuch = wire(...Array.from({ length: 9 }, () => event({ content: 'x'.repeat(8192) })), event({}, 'stop'), '[DONE]')
+    const toolCall = { index: 0, id: 'a', function: { name: tool.name, arguments: JSON.stringify({ huge: 'x'.repeat(8192) }) } }
+    for (const value of [tooMuch, wire(event({ tool_calls: [toolCall] }), event({}, 'tool_calls'), '[DONE]')]) {
+      const fetcher = fakeFetch(streamingResponse(value, 4096))
+      await expect(createChatProvider(config, fetcher).complete(input({ maxOutputTokens: 8192 }))).rejects.toMatchObject({ code: 'provider_limit' })
+      expect(fetcher).toHaveBeenCalledOnce()
+    }
+  })
   it('rejects unsafe provider destinations and config before sending anything', () => {
     const fetcher = vi.fn<typeof fetch>()
     for (const baseUrl of ['http://example.test/v1', 'https://user:secret@example.test/v1', 'https://example.test/v1?x=1', 'https://example.test/v1#x', 'https://example.test/v1?', 'file:///tmp/test']) {
       expect(() => createChatProvider({ ...config, baseUrl }, fetcher)).toThrow(ProviderFailure)
     }
     for (const baseUrl of ['http://localhost:8080/v1', 'http://127.0.0.1:8080/v1', 'http://[::1]:8080/v1']) expect(() => createChatProvider({ ...config, baseUrl }, fetcher)).not.toThrow()
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('rejects invalid text or visual model identifiers before any request, including text-only requests', () => {
+    const fetcher = vi.fn<typeof fetch>()
+    for (const invalid of ['', ' ', 'glm 5.3', 'glm-5.3\n', 'glm-5.3\x7f', 'x'.repeat(129), null, 53]) {
+      for (const field of ['model', 'visionModel'] as const) {
+        let error: unknown
+        try { createChatProvider({ ...config, [field]: invalid } as ChatProviderConfig, fetcher) } catch (caught) { error = caught }
+        expect(error).toBeInstanceOf(ProviderFailure)
+        expect(error).toMatchObject({ code: 'provider_config', requestState: 'not_sent' })
+      }
+    }
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it.each([1, 4096, AUTHORING_LIMITS.maxOutputTokensPerRequest])('sends the bounded explicit output budget unchanged (%s)', async maxOutputTokens => {
+    const fetcher = fakeFetch(streamingResponse(wire(event({}, 'stop'), '[DONE]')))
+    await createChatProvider(config, fetcher).complete(input({ maxOutputTokens }))
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string).max_tokens).toBe(maxOutputTokens)
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+  it('rejects unbounded or invalid output budgets before sending a provider request', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    for (const maxOutputTokens of [0, -1, 1.5, NaN, Infinity, AUTHORING_LIMITS.maxOutputTokensPerRequest + 1]) {
+      await expect(createChatProvider(config, fetcher).complete(input({ maxOutputTokens }))).rejects.toMatchObject({ code: 'provider_limit', requestState: 'not_sent' })
+    }
     expect(fetcher).not.toHaveBeenCalled()
   })
   it('returns safe HTTP/network errors, never retries and disposes unread bodies', async () => {

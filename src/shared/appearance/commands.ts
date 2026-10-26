@@ -2,14 +2,14 @@ import { z } from 'zod'
 import { inspectJsonInput, cloneJson } from '../validation/json.js'
 import { roundMm } from '../commands/base.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
-import { applyCommands, sceneCommandSchema, type SceneCommand } from '../commands/commands.js'
+import { applyCommands, applySnapshotCommands, sceneCommandSchema, type SceneCommand } from '../commands/commands.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
 import type { PointMm, Prop, SceneDocument, SurfaceRef } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { advanceHistoryIdentity, createHistoryIdentityTrace } from '../history/identity.js'
-import { addPropAppearanceSource, effectiveAdjustments, equalCompositionValue, freezeEffectivePropAppearance, inspectAppearanceScope, propAppearanceSnapshot, supportedAppearanceKinds, syncAppearanceGraph } from './graph.js'
-import { appearanceAdjustmentSchema, compositionIdSchema, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
+import { addPropAppearanceSource, effectiveAdjustments, equalCompositionValue, freezeEffectivePropAppearance, inspectAppearanceScope, propAppearanceSnapshot, supportedAppearanceKinds, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './graph.js'
+import { appearanceAdjustmentSchema, certifyCompositionContent, certifyCompositionDraft, compositionIdSchema, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
 import { COMPOSITION_LIMITS, type AdjustmentKind, type AppearanceAdjustment, type AppearanceScope, type CompositionCommand, type CompositionContent } from '../model/appearance.js'
 
 export type { CompositionCommand } from '../model/appearance.js'
@@ -34,6 +34,16 @@ const c3Schema = z.discriminatedUnion('type', [
 const schemas = z.array(z.union([c3Schema, sceneCommandSchema])).max(256)
 const c3Types = new Set(['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource', 'createPrefab', 'instantiatePrefab', 'duplicatePrefab', 'deletePrefab', 'detachPrefabMember', 'resetPrefabMember'])
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
+/** Internal changed-entity accounting receives only independently parsed JSON records. */
+function equalOwnedEntity(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false
+  if (Array.isArray(left)) return Array.isArray(right) && left.length === right.length
+    && left.every((value, index) => equalOwnedEntity(value, right[index]))
+  if (Array.isArray(right)) return false
+  const a = left as Record<string, unknown>, b = right as Record<string, unknown>, keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && equalOwnedEntity(a[key], b[key]))
+}
 const required = <T>(record: Record<string, T>, key: string, label: string): T => { const value = own(record, key); if (!value) throw new Error(`${label}不存在：${key}。`); return value }
 function assertUnlocked(document: SceneDocument, ids: readonly string[]): void {
   for (const id of ids) if (effectiveEditLocked(document, id)) throw new Error(`实体、成员、图层或依赖已锁定：${id}。`)
@@ -167,7 +177,14 @@ function resetMember(content: CompositionContent, command: Extract<CompositionCo
 
 /** Pure draft only. IO must materialize required bytes, resolve and fully validate before adoption. */
 export function applyCompositionCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext): CompositionContent {
-  const source = validateCompositionContent(input), issue = inspectJsonInput(inputCommands)
+  return applyCompositionCommandsInternal(input, inputCommands, context, false)
+}
+/** Internal immutable draft only; complete resolving/materialization is still mandatory. */
+export function applyCompositionDraftCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext): CompositionContent {
+  return applyCompositionCommandsInternal(input, inputCommands, context, true)
+}
+function applyCompositionCommandsInternal(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, ownedDraft: boolean): CompositionContent {
+  const source = ownedDraft ? certifyCompositionContent(input) : validateCompositionContent(input), issue = inspectJsonInput(inputCommands)
   if (issue) throw new Error(`组合指令无效：${issue.message}`)
   const parsed = schemas.safeParse(inputCommands)
   if (!parsed.success) throw new Error(`组合指令无效，单事务最多256条：${parsed.error.issues.map(issue => issue.message).join('；')}`)
@@ -176,22 +193,32 @@ export function applyCompositionCommands(input: CompositionContent, inputCommand
   if (!commands.length) return source
   const isComposition = commands.map(command => c3Types.has(command.type))
   if (isComposition.some(Boolean) && isComposition.some(value => !value)) throw new Error('外观/组件操作与普通场景操作须分别预览采用，不能混批绕过锁或资源准备。')
-  let content = cloneJson(source), cost = 0
+  // Ordinary commands own their new scene below; do not clone a scene that is
+  // immediately replaced. Composition commands still require mutable members.
+  let content = ownedDraft && !isComposition[0]
+    ? { document: source.document, historyIdentity: source.historyIdentity, appearance: source.appearance }
+    : cloneJson(source), cost = 0
   const consume = (value: number) => { cost += value; if (cost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
     const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context)
-    content.document = applyCommands(source.document, sceneCommands, context, { onOutdoorDraft: draft => identityTrace.observe(draft) })
+    const observer = { onOutdoorDraft: (draft: Readonly<SceneDocument>) => identityTrace.observe(draft) }
+    content.document = ownedDraft
+      ? applySnapshotCommands(source.document, sceneCommands, context, { ...observer, preserveNoopIdentity: false })
+      : applyCommands(source.document, sceneCommands, context, observer)
     const previousEntities = new Map(enumerateLayerEntities(source.document).map(entity => [entity.id, entity]))
     const currentEntities = new Map(enumerateLayerEntities(content.document).map(entity => [entity.id, entity]))
-    const changed = new Set([...previousEntities.keys(), ...currentEntities.keys()].filter(id => !equalCompositionValue(previousEntities.get(id), currentEntities.get(id))))
+    const equalEntity = ownedDraft ? equalOwnedEntity : equalCompositionValue
+    const changed = new Set([...previousEntities.keys(), ...currentEntities.keys()].filter(id => !equalEntity(previousEntities.get(id), currentEntities.get(id))))
     // Relationship-only operations still touch their members even when their JSON is otherwise unchanged.
     for (const command of sceneCommands) if (command.type === 'unpackPrefab') {
       changed.add(command.id)
       for (const member of Object.values(source.document.prefabInstances[command.id]?.members ?? {})) if (member.propId !== null) changed.add(member.propId)
     }
     consume(Math.max(commands.length, changed.size))
-    content = syncAppearanceGraph(content, source.document, sceneCommands)
+    content = ownedDraft
+      ? syncAppearanceGraphSnapshot(content, source.document, sceneCommands)
+      : syncAppearanceGraph(content, source.document, sceneCommands)
     content.historyIdentity = identityTrace.finish(content.document)
   } else {
     const appearanceOnly = commands.every(command => ['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource'].includes(command.type))
@@ -267,5 +294,5 @@ export function applyCompositionCommands(input: CompositionContent, inputCommand
     content = syncAppearanceGraph(content)
   }
   if (isComposition[0]) content.historyIdentity = advanceHistoryIdentity(source.historyIdentity, source.document, content.document, context)
-  return validateCompositionDraft(content)
+  return ownedDraft ? certifyCompositionDraft(content) : validateCompositionDraft(content)
 }

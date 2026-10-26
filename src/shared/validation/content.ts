@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { inspectJsonInput } from './json.js'
-import { sceneSchema, validateScene } from './scene.js'
+import { cloneJson, inspectJsonInput } from './json.js'
+import { sceneSchema } from './scene.js'
 import { reviseSceneSnapshot, validateSceneSnapshot } from './snapshots.js'
 import { enumerateLayerEntities } from '../commands/layers.js'
 import type { MaterialPaint, SceneDocument } from '../model/scene.js'
 import { bitmapVariant, equalCompositionValue, propAppearanceSnapshot, resolveAppearance, supportedAppearanceKinds, surfaceStyle } from '../appearance/graph.js'
-import { historyIdentitySchema, validateHistoryIdentity } from '../history/identity.js'
+import { validateHistoryIdentity } from '../history/identity.js'
 import { COMPOSITION_LIMITS, type AppearanceGraph, type AppearanceSource, type CompositionContent } from '../model/appearance.js'
 
 
@@ -36,18 +36,41 @@ export const appearanceGraphSchema = z.object({
     members: z.record(id, z.object({ sourceId: id, adjustments }).strict()),
   }).strict()),
 }).strict()
-const contentSchema = z.object({ document: sceneSchema, historyIdentity: historyIdentitySchema, appearance: appearanceGraphSchema }).strict()
+// The wrapper owns no domain fields. Each strict domain parser below captures
+// its branch exactly once instead of parsing the same scene through this
+// wrapper, scene validation and the identity check again.
+const contentEnvelopeSchema = z.object({ document: z.unknown(), historyIdentity: z.unknown(), appearance: z.unknown() }).strict()
 
 // A certificate belongs to these three owned immutable objects together, never
 // to a scene ID/revision, a caller's frozen flag, or a mutable project wrapper.
-const certifiedContents = new WeakMap<object, WeakMap<object, WeakMap<object, CompositionContent>>>()
-export function getCertifiedCompositionContent(input: unknown): CompositionContent | undefined {
+type ContentRegistry = WeakMap<object, WeakMap<object, WeakMap<object, CompositionContent>>>
+const certifiedContents: ContentRegistry = new WeakMap()
+// A valid draft may require actual bitmap materialization or appearance resolving.
+// It never grants the complete/resolved content or resource certificate.
+const certifiedDrafts: ContentRegistry = new WeakMap()
+function captureContentFields(input: unknown): CompositionContent | undefined {
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) return
   const fields = Object.getOwnPropertyDescriptors(input)
-  if (Reflect.ownKeys(input).length !== 3 || !['document', 'historyIdentity', 'appearance'].every(key => fields[key]?.enumerable && 'value' in fields[key])) return
-  const { document, historyIdentity, appearance } = input as CompositionContent
+  if (Reflect.ownKeys(fields).length !== 3 || !['document', 'historyIdentity', 'appearance'].every(key => fields[key]?.enumerable && 'value' in fields[key])) return
+  // Use only this descriptor snapshot, never re-read caller/Proxy properties.
+  const document = fields.document.value, historyIdentity = fields.historyIdentity.value, appearance = fields.appearance.value
   if (!document || !historyIdentity || !appearance || typeof document !== 'object' || typeof historyIdentity !== 'object' || typeof appearance !== 'object') return
-  return certifiedContents.get(document)?.get(historyIdentity)?.get(appearance)
+  return { document, historyIdentity, appearance }
+}
+function knownContent(input: unknown, registries: readonly ContentRegistry[]): CompositionContent | undefined {
+  const fields = captureContentFields(input)
+  if (!fields) return
+  for (const registry of registries) {
+    const known = registry.get(fields.document)?.get(fields.historyIdentity)?.get(fields.appearance)
+    if (known) return known
+  }
+}
+export function getCertifiedCompositionContent(input: unknown): CompositionContent | undefined {
+  return knownContent(input, [certifiedContents])
+}
+/** Internal draft proof only; public validation does not reuse this as full content. */
+export function getCertifiedCompositionDraft(input: unknown): CompositionContent | undefined {
+  return knownContent(input, [certifiedDrafts])
 }
 function freezeContent<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -62,10 +85,19 @@ export function certifyCompositionContent(input: unknown): CompositionContent {
   if (known) return known
   return registerContent(readCompositionContent(input, true))
 }
+/** Independent domain parsing, identity and appearance references, then immutable draft ownership. */
+export function certifyCompositionDraft(input: unknown): CompositionContent {
+  const known = knownContent(input, [certifiedContents, certifiedDrafts])
+  if (known) return known
+  return registerOwnedContent(certifiedDrafts, readCompositionDraft(input, true))
+}
 function registerContent(content: CompositionContent): CompositionContent {
+  return registerOwnedContent(certifiedContents, content)
+}
+function registerOwnedContent(registry: ContentRegistry, content: CompositionContent): CompositionContent {
   freezeContent(content)
-  let identities = certifiedContents.get(content.document)
-  if (!identities) { identities = new WeakMap(); certifiedContents.set(content.document, identities) }
+  let identities = registry.get(content.document)
+  if (!identities) { identities = new WeakMap(); registry.set(content.document, identities) }
   let appearances = identities.get(content.historyIdentity)
   if (!appearances) { appearances = new WeakMap(); identities.set(content.historyIdentity, appearances) }
   appearances.set(content.appearance, content)
@@ -153,20 +185,25 @@ function readCompositionDraft(input: unknown, certifyScene: boolean): Compositio
   if (known) return known
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(`组合工程无效：${issue.message}`)
-  const parsed = contentSchema.safeParse(input)
+  const parsed = contentEnvelopeSchema.safeParse(input)
   if (!parsed.success) throw new Error(`组合工程无效：${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
-  const checked = certifyScene ? validateSceneSnapshot(parsed.data.document) : validateScene(parsed.data.document)
+  const checked = validateSceneSnapshot(parsed.data.document)
   if (!checked.ok) throw new Error(`组合场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
-  const content = parsed.data as CompositionContent
-  content.document = checked.document; content.historyIdentity = validateHistoryIdentity(content.historyIdentity, content.document)
-  checkGraph(content.appearance, content.document)
-  return content
+  // Identity validation may reuse only this exact privately certified scene.
+  // Public drafts still receive detached mutable data, never the witness.
+  const historyIdentity = validateHistoryIdentity(parsed.data.historyIdentity, checked.document)
+  const appearance = validateAppearanceGraph(parsed.data.appearance, checked.document)
+  return { document: certifyScene ? checked.document : cloneJson(checked.document), historyIdentity, appearance }
 }
 export function validateCompositionDraft(input: unknown): CompositionContent { return readCompositionDraft(input, false) }
 function readCompositionContent(input: unknown, certifyScene: boolean): CompositionContent {
   const known = getCertifiedCompositionContent(input)
   if (known) return known
-  const content = readCompositionDraft(input, certifyScene), resolved = resolveAppearance(content)
+  // Only internal complete certification may reuse an exact immutable draft.
+  // Public validation still returns the established detached mutable path and
+  // every draft must pass the actual resolved-appearance comparisons below.
+  const content = (certifyScene ? getCertifiedCompositionDraft(input) : undefined) ?? readCompositionDraft(input, certifyScene)
+  const resolved = resolveAppearance(content)
   for (const prop of Object.values(content.document.props)) if (!equalCompositionValue(propAppearanceSnapshot(prop), propAppearanceSnapshot(resolved.document.props[prop.id]))) throw new Error(`完整物件外观与源/覆盖图不一致：${prop.id}。`)
   for (const id of Object.keys(content.appearance.surfaceSources)) if (!equalCompositionValue(surfaceStyle(content.document, id), surfaceStyle(resolved.document, id))) throw new Error(`完整表面外观与源/覆盖图不一致：${id}。`)
   for (const [id, material] of Object.entries(resolved.document.materials)) if (!Object.hasOwn(content.document.materials, id) || !equalCompositionValue(content.document.materials[id], material)) throw new Error(`固定派生材质未实际保存：${id}。`)

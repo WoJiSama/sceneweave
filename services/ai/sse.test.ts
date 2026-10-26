@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readSseData, SSE_LIMITS } from './sse.js'
+import { readSseData, SSE_LIMITS, SSE_LARGE_OUTPUT_LIMITS, type SseOutputMode } from './sse.js'
 
 const encode = new TextEncoder()
 function fragmented(text: string, step = 1) {
@@ -10,23 +10,23 @@ function fragmented(text: string, step = 1) {
     controller.enqueue(bytes.slice(offset, offset += step))
   } })
 }
-async function collect(body: ReadableStream<Uint8Array>, signal = new AbortController().signal) {
+async function collect(body: ReadableStream<Uint8Array>, signal = new AbortController().signal, mode?: SseOutputMode) {
   const data: string[] = []
-  for await (const item of readSseData(body, signal)) data.push(item)
+  for await (const item of readSseData(body, signal, mode)) data.push(item)
   return data
 }
 
 describe('bounded SSE wire decoder', () => {
-  it('handles byte-split UTF-8, CRLF and lone CR, comments, multiline data and a BOM', async () => {
+  it.each(['standard', 'large-output'] as const)('handles byte-split UTF-8, CRLF and lone CR, comments, multiline data and a BOM (%s)', async mode => {
     const text = '\ufeff: 心跳\r\nid: ignored\r\nevent: message\r\ndata: 你好🌋\r\ndata: 第二行\r\n\r\ndata: last\r\r'
-    expect(await collect(fragmented(text))).toEqual(['你好🌋\n第二行', 'last'])
+    expect(await collect(fragmented(text), undefined, mode)).toEqual(['你好🌋\n第二行', 'last'])
   })
   it('does not dispatch an unfinished event at EOF', async () => {
     expect(await collect(fragmented('data: partial\n'))).toEqual([])
   })
-  it('rejects invalid UTF-8 without exposing wire bytes', async () => {
+  it.each(['standard', 'large-output'] as const)('rejects invalid UTF-8 without exposing wire bytes (%s)', async mode => {
     const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([100, 97, 116, 97, 58, 32, 0xff])); controller.close() } })
-    await expect(collect(stream)).rejects.toMatchObject({ code: 'provider_protocol' })
+    await expect(collect(stream, undefined, mode)).rejects.toMatchObject({ code: 'provider_protocol' })
   })
   it('limits line, event, response and event count independently', async () => {
     const cases = [
@@ -37,11 +37,30 @@ describe('bounded SSE wire decoder', () => {
     ]
     for (const wire of cases) await expect(collect(fragmented(wire, 65536))).rejects.toMatchObject({ code: 'provider_limit' })
   })
-  it('cancels a stalled reader on external abort and always releases its lock', async () => {
+  it('requires explicit large-output mode for streams above the standard event and byte budgets', async () => {
+    const events = 'data: x\n\n'.repeat(SSE_LIMITS.events + 1)
+    await expect(collect(fragmented(events, 65536))).rejects.toMatchObject({ code: 'provider_limit' })
+    expect(await collect(fragmented(events, 65536), undefined, 'large-output')).toHaveLength(SSE_LIMITS.events + 1)
+    const comments = `:${'x'.repeat(10000)}\n`.repeat(106) + 'data: end\n\n'
+    await expect(collect(fragmented(comments, 65536))).rejects.toMatchObject({ code: 'provider_limit' })
+    expect(await collect(fragmented(comments, 65536), undefined, 'large-output')).toEqual(['end'])
+  })
+  it('keeps large-output limits finite without changing per-line or per-event limits', async () => {
+    expect(SSE_LARGE_OUTPUT_LIMITS).toEqual({ responseBytes: 4 * 1024 * 1024, events: 16384, lineBytes: SSE_LIMITS.lineBytes, eventBytes: SSE_LIMITS.eventBytes })
+    expect(await collect(fragmented('data: x\n\n'.repeat(SSE_LARGE_OUTPUT_LIMITS.events), 65536), undefined, 'large-output')).toHaveLength(16384)
+    const cases = [
+      `:${'x'.repeat(SSE_LIMITS.lineBytes)}\n\n`,
+      `${Array.from({ length: 4 }, () => `data: ${'x'.repeat(20000)}\n`).join('')}\n`,
+      `:${'x'.repeat(10000)}\n`.repeat(420),
+      'data: x\n\n'.repeat(SSE_LARGE_OUTPUT_LIMITS.events + 1),
+    ]
+    for (const wire of cases) await expect(collect(fragmented(wire, 65536), undefined, 'large-output')).rejects.toMatchObject({ code: 'provider_limit' })
+  })
+  it.each(['standard', 'large-output'] as const)('cancels a stalled reader on external abort and always releases its lock (%s)', async mode => {
     const abort = new AbortController()
     let cancelled = 0
     const stream = new ReadableStream<Uint8Array>({ cancel() { cancelled++ } })
-    const reading = collect(stream, abort.signal)
+    const reading = collect(stream, abort.signal, mode)
     abort.abort(new Error('private abort reason'))
     await expect(reading).rejects.toMatchObject({ name: 'AbortError', message: '模型请求已取消。' })
     expect(cancelled).toBe(1)

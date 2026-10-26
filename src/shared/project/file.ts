@@ -17,7 +17,7 @@ export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'his
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'asset' | 'license' | 'source'
 export interface ManifestEntry { path: string; role: PackageRole; sha256: string; sizeBytes: number; mimeType: string }
 export interface ProjectManifest {
-  format: 'sceneweave-complete-project'; schemaVersion: 1; application: 'Sceneweave'; applicationVersion: string
+  format: 'sceneweave-complete-project'; schemaVersion: 1 | 2; application: 'Sceneweave'; applicationVersion: string
   packageMode: 'complete' | 'history'; sceneId: string; revision: number; entries: ManifestEntry[]
   assetRecords: Record<string, AssetRecord>; licenseBindings: LicenseBinding[]
 }
@@ -82,7 +82,7 @@ function roleFor(path: string, mimeType: string, hash: string, mode: ProjectMani
 }
 function readManifest(input: unknown): ProjectManifest {
   if (!hasExactKeys(input, ['format', 'schemaVersion', 'application', 'applicationVersion', 'packageMode', 'sceneId', 'revision', 'entries', 'assetRecords', 'licenseBindings'])
-    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 || input.application !== 'Sceneweave'
+    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 && input.schemaVersion !== 2 || input.application !== 'Sceneweave'
     || input.packageMode !== 'complete' && input.packageMode !== 'history'
     || !nonempty(input.applicationVersion, 100) || !nonempty(input.sceneId) || !Number.isSafeInteger(input.revision) || Number(input.revision) < 0
     || !Array.isArray(input.entries) || input.entries.length < 4 || input.entries.length >= PACKAGE_LIMITS.entries) return failPackage('manifest格式、版本、字段或身份无效。')
@@ -95,7 +95,7 @@ function readManifest(input: unknown): ProjectManifest {
     paths.add(value.path); entries.push(value as unknown as ManifestEntry)
   }
   if (Object.values(rootPaths).some(path => !paths.has(path)) || paths.has('history.json') !== (input.packageMode === 'history')) return failPackage('manifest缺少唯一四份JSON或历史索引。')
-  return { format: 'sceneweave-complete-project', schemaVersion: 1, application: 'Sceneweave', applicationVersion: input.applicationVersion,
+  return { format: 'sceneweave-complete-project', schemaVersion: input.schemaVersion, application: 'Sceneweave', applicationVersion: input.applicationVersion,
     packageMode: input.packageMode, sceneId: input.sceneId, revision: Number(input.revision), entries,
     assetRecords: readAssetRecords(input.assetRecords), licenseBindings: readBindings(input.licenseBindings) }
 }
@@ -185,7 +185,7 @@ async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'],
     if ((totalSources += bytes.length) > PACKAGE_LIMITS.totalSourceBytes || bytes.length !== size || sha256Bytes(bytes) !== hash) return failPackage('导出SVG源读取与已验证字节不一致或累计超限。')
     add(`sources/${hash}.svg`, 'source', bytes, 'image/svg+xml')
   }
-  const manifest: ProjectManifest = { format: 'sceneweave-complete-project', schemaVersion: 1, application: 'Sceneweave', applicationVersion: 'development', packageMode: mode,
+  const manifest: ProjectManifest = { format: 'sceneweave-complete-project', schemaVersion: archive.current.project.schemaVersion, application: 'Sceneweave', applicationVersion: 'development', packageMode: mode,
     sceneId: archive.current.project.document.sceneId, revision: archive.current.project.document.revision, entries, assetRecords: assets, licenseBindings: archive.current.project.licenseBindings }
   const manifestBytes = encodeUtf8(canonicalJson(manifest))
   if (manifestBytes.length > PACKAGE_LIMITS.manifestBytes || entries.length + 1 > PACKAGE_LIMITS.entries || expanded + manifestBytes.length > PACKAGE_LIMITS.expandedBytes) return failPackage('manifest、条目或展开累计预算超限。')
@@ -252,7 +252,8 @@ async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], o
       if (!Object.hasOwn(licenses, hash)) return failPackage('历史引用缺少许可正文。')
       selectedLicenses[hash] = licenses[hash]; usedLicenses.add(hash)
     }
-    const project = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 1, document: json(refs.scenePath) as ProjectData['document'],
+    const document = json(refs.scenePath) as ProjectData['document']
+    const project = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: document?.schemaVersion, document,
       historyIdentity: json(refs.identityPath) as ProjectData['historyIdentity'], appearance: json(refs.appearancePath) as ProjectData['appearance'], authoringSources: json(refs.sourcesPath) as ProjectData['authoringSources'],
       assets, licenses: selectedLicenses, licenseBindings: refs.licenseBindings })
     const expectedSources = projectSourceRecords(project)
@@ -272,7 +273,7 @@ async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], o
   } else current = bundle({ ...rootPaths, assetHashes: sorted(Object.keys(manifest.assetRecords)), licenseHashes: sorted(Object.keys(licenses)), sourceHashes: sorted([...sourcePaths.keys()]), licenseBindings: manifest.licenseBindings })
   if (usedAssets.size !== assetPaths.size || usedLicenses.size !== Object.keys(licenses).length || usedSources.size !== sourcePaths.size) return failPackage('归档包含未引用资源或许可。')
   for (const entry of manifest.entries) if (entry.mimeType === 'application/json' && !consumed.has(entry.path)) return failPackage('归档包含未引用历史JSON。')
-  if (current.project.document?.sceneId !== manifest.sceneId || current.project.document?.revision !== manifest.revision) return failPackage('manifest场景身份与实际文档不一致。')
+  if (current.project.schemaVersion !== manifest.schemaVersion || current.project.document?.sceneId !== manifest.sceneId || current.project.document?.revision !== manifest.revision) return failPackage('manifest版本、场景身份与实际文档不一致。')
   checkCancelled(options.signal)
   if (mode === 'history') return validateHistoryArchive({ current, snapshots }, options)
   return { current: await validateProjectBundle(current, options), snapshots: [] }

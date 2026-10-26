@@ -8,7 +8,7 @@ import type { SceneDocument } from '../../../shared/model/scene.js'
 import { crc32, sha256Bytes } from '../../../shared/project/binary.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
-import { exportPng, renderEditorProject, renderProject } from './renderer'
+import { exportPng, exportPublicViewportPng, renderEditorProject, renderProject } from './renderer'
 import { encodePng, PNG_MAX_ENCODED_BYTES } from './canvas-renderer'
 import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
 
@@ -87,6 +87,25 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
     input.resources = { read: vi.fn(async () => { throw new Error('missing original bytes') }) }
     await expect(renderEditorProject(input, { audience: 'gm', longEdgePx: 256, hiddenLayerIds: new Set([layer]), viewBoundsMm: { x: 15000, y: 15000, width: 1000, height: 1000 } })).rejects.toThrow('missing original bytes')
     expect(browser.createElement).not.toHaveBeenCalled(); expect(browser.decode).not.toHaveBeenCalled()
+  })
+
+  it('rejects malformed public visual readback bounds before resource IO', async () => {
+    const input = fixture(), browser = primitives(), read = vi.fn(input.resources.read)
+    input.resources = { read }
+    for (const bounds of [{ x: .5, y: 0, width: 1000, height: 1000 }, { x: 0, y: 0, width: 0, height: 1000 }]) await expect(exportPublicViewportPng(input, bounds)).rejects.toThrow(/整数毫米/)
+    await expect(exportPublicViewportPng(input, { x: 0, y: 0, width: 1000, height: 1000 }, 255)).rejects.toThrow(/256/)
+    expect(read).not.toHaveBeenCalled(); expect(browser.createElement).not.toHaveBeenCalled()
+  })
+
+  it('renders a full-detail public crop after complete validation and rejects exterior bounds', async () => {
+    const input = fixture(), browser = primitives()
+    const blob = await exportPublicViewportPng(input, { x: 3000, y: 3000, width: 2000, height: 1000 }, 256)
+    expect(inspectImageBytes(new Uint8Array(await blob.arrayBuffer()))).toEqual({ mimeType: 'image/png', width: 256, height: 128 })
+    expect(browser.canvases.some(surface => (surface.context.drawImage as ReturnType<typeof vi.fn>).mock.calls.length === 1)).toBe(true)
+    expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+    await expect(exportPublicViewportPng(input, { x: -1, y: 0, width: 1000, height: 1000 })).rejects.toThrow(/固定导出范围/)
+    input.resources = { read: vi.fn(async () => { throw new Error('full validation before crop') }) }
+    await expect(exportPublicViewportPng(input, { x: 14000, y: 14000, width: 1000, height: 1000 })).rejects.toThrow('full validation before crop')
   })
 
   it('checks actual bytes even when a caller supplies a self-consistent modified metadata wrapper', async () => {

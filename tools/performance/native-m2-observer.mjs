@@ -42,7 +42,7 @@ export function installNativeM2Observer() {
     && (spec.key === undefined || event.key === spec.key) && (spec.button === undefined || event.button === spec.button)
   const ready = (sample, state) => {
     const until = sample.until ?? {}
-    if (sample.requireSaved && state.nativeFormat !== 'sceneweave-complete-project@1') return false
+    if (sample.requireSaved && !/^sceneweave-complete-project@[12]$/.test(state.nativeFormat ?? '')) return false
     if (sample.expectedRevision !== undefined && state.revision !== sample.expectedRevision) return false
     if (sample.domainCommit && (state.transactionRevision !== sample.expectedRevision || state.committedAtMs === null)) return false
     if (until.selection !== undefined) {

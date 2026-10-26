@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { VISION_LIMITS } from '../../../shared/ai/vision.js'
 import {
   AI_LIMITS, AiErrorSchema, ConnectionInfoSchema, ControlTaskSchema, CreateTaskSchema,
   TaskEventSchema, TaskSnapshotSchema, isTerminalTask, utf8Size,
@@ -20,6 +21,9 @@ const safeErrors: Record<string, string> = {
   model_request_limit: '任务已达到模型请求次数上限。',
   tool_limit: '任务已达到工具调用次数上限。',
   output_limit: '任务输出已达到上限。',
+  vision_disabled: '此模型连接尚未启用图片输入；可移除截图，继续使用结构检查。',
+  invalid_vision: '截图格式、公开授权范围或草稿基线不匹配，请重新生成当前玩家截图。',
+  vision_limit: '本任务已达到四张截图上限，请使用结构诊断或新建明确范围的修正任务。',
 }
 export class AiClientError extends Error {
   constructor(public readonly code: string, message: string, public readonly requestState: 'not_sent' | 'unknown' | 'finished' = 'not_sent', public readonly status?: number) {
@@ -112,7 +116,7 @@ export class AiClient {
   capabilities(signal?: AbortSignal): Promise<ConnectionInfo> { return this.#json('capabilities', ConnectionInfoSchema, 'GET', undefined, signal) }
   async create(request: CreateTaskRequest, signal?: AbortSignal): Promise<TaskSnapshot> {
     const input = parseSchema(CreateTaskSchema, request)
-    if (utf8Size(JSON.stringify(input)) > (input.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')
+    if (utf8Size(JSON.stringify(input)) > (input.vision ? VISION_LIMITS.requestBytes : input.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')
     const value = await this.#json('tasks', TaskSnapshotSchema, 'POST', input, signal)
     if (value.clientRequestId !== input.clientRequestId || value.context?.sceneId !== input.context?.sceneId || value.context?.revision !== input.context?.revision) throw new AiClientError('protocol', '创建响应与本次请求不匹配，请保留同一请求 ID 重试。', 'unknown')
     return value
@@ -128,7 +132,9 @@ export class AiClient {
     return result.tasks
   }
   async control(taskId: string, request: ControlTaskRequest, signal?: AbortSignal): Promise<TaskSnapshot> {
-    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/control`, TaskSnapshotSchema, 'POST', parseSchema(ControlTaskSchema, request), signal)
+    const input = parseSchema(ControlTaskSchema, request)
+    if (utf8Size(JSON.stringify(input)) > (input.vision ? VISION_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/control`, TaskSnapshotSchema, 'POST', input, signal)
     if (value.id !== taskId || value.generation < request.expectedGeneration) throw new AiClientError('protocol', '控制响应与任务不匹配，请刷新完整任务。', 'unknown')
     return value
   }

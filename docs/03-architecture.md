@@ -1,8 +1,16 @@
 # 技术架构与模块边界
 
-**2026-10-25 当前主路径为新完整v1，M2-3/4场景与素材工具已接通：** 默认Workspace/Canvas/Workbench/样板直接使用shared，工程/个人库为sceneweave-projects及sceneweave-library；新主路径不经旧core/io/render格式视图。按用户2026-10-25决定删除旧整页工作台、首页旧版本入口及转换UI；当前产品只接受完整v1当前/所选历史包。旧领域/IO/严格读者仍供底层夹具与历史验证使用，不构成产品旧版本支持。M2-0a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f及当时必要检查见[52](52-m20f-native-workspace-validation.md)。M2-1本地服务/流式续答、M2-2保护采用已扩至M2-3建筑/室外/组合/散布/GM文字，以及M2-4受限SVG和明确范围同化；精确授权及结果见[05](05-ai-and-generation.md)。M2-5服务器容器与可信公网IP HTTPS已上线，Pages真实模型创作→保护采用→保存/导出/重载的必要联合旅程已通过，实际结果见[05第15节](05-ai-and-generation.md)。交接见[47](47-m20-unified-v1-handoff.md)，方向见[45](45-ai-authoring-and-unified-v1-plan.md)，状态见07。
+## 当前视觉扩展（2026-10-25）
 
-本地版本号仍为 `0.2.0-m1-d2`，现行格式为新标识完整v1及原生场景v1，承接identity3/appearance1已有语义。B1–C3历史见17–29，C4严格v6/有效v3当时实现见[31](31-m1c-c4-validation.md)，C5联合功能/原性能与资源复用见[32](32-m1c-c5-validation.md)、[33](33-c5-resource-reuse-validation.md)，M1-D首批见[35](35-m1d-outpost-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；完整SCN、P3、持久建筑/任意拓扑恢复及完整M1未因此完成，完整私密/两批扩围、自由创作与视觉质量、跨浏览器/配额/UVTT仍开放，正式性能四组×三轮见[34](34-performance-followup.md)，100ms普通编辑门未通过，后续优化继续独立追踪。
+原生主路径支持严格完整v1/v2与对应场景1/2；新空白为2，独立升级副本保留原件，旧工作台和转换入口继续退役。共享 `visual` 模块定义曲线/边带/环境/光雾/滤镜及同源命令、确定性采样/依赖/预算，`platform/browser/render/visual-renderer` 从纯受众投影绘制；真实资源验证先于裁剪。编辑LOD不进入正式PNG或AI公开裁切。透明物件局部滤镜在独立透明源上处理，再合成；所有影/遮挡/光雾先过滤秘密，最终仍应用不透明遮罩。
+
+`VisualPanel`、`VisualSurfacePanel` 和控制柄只产生会话草稿，Workspace候选审阅后一次提交。`VisualContinuitySession`仅在本次会话记录真实命名/保护快照、删除/绑定/分段身份变化；手工逐命令及AI本机逐步重放的中间失效都进入采用，不能以最终JSON相等绕过。重开/导入清空witness，现存连续参数恢复走原保护点/元数据CAS与撤销流程。
+
+AI扩展使用同源有限视觉工具、制作清单与确定性诊断；图片端口单独采用本机实际玩家PNG、确切范围和场景/草稿修订绑定，后端只接有界字节并校验，provider能力默认未验证。三份原创样板与视觉空白使用独立源包，运行时静态SVG规范化/真实PNG及许可闭包，不改旧固定目录身份。合同/实际结果见[53](53-visual-authoring.md)和05第19节。以下M2-0及M1段落保留当批版本事实，现行新增语义以上述扩展及04/06为准。
+
+**2026-10-25 当前主路径为新完整v1，M2-3/4场景与素材工具已接通：** 默认Workspace/Canvas/Workbench/样板直接使用shared，工程/个人库为sceneweave-projects及sceneweave-library；新主路径不经旧core/io/render格式视图。按用户2026-10-25决定删除旧整页工作台、首页旧版本入口及转换UI；当前产品接受完整v1/v2当前/所选历史包。旧领域/IO/严格读者仍供底层夹具与历史验证使用，不构成产品旧版本支持。M2-0a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f及当时必要检查见[52](52-m20f-native-workspace-validation.md)。M2-1本地服务/流式续答、M2-2保护采用已扩至M2-3建筑/室外/组合/散布/GM文字，以及M2-4受限SVG和明确范围同化；精确授权及结果见[05](05-ai-and-generation.md)。M2-5服务器容器与可信公网IP HTTPS已上线，Pages真实模型创作→保护采用→保存/导出/重载的必要联合旅程已通过，实际结果见[05第15节](05-ai-and-generation.md)。交接见[47](47-m20-unified-v1-handoff.md)，方向见[45](45-ai-authoring-and-unified-v1-plan.md)，状态见07。
+
+本地版本号仍为 `0.2.0-m1-d2`，现行格式为新标识完整v1/v2及对应原生场景v1/v2，承接identity3/appearance1已有语义。B1–C3历史见17–29，C4严格v6/有效v3当时实现见[31](31-m1c-c4-validation.md)，C5联合功能/原性能与资源复用见[32](32-m1c-c5-validation.md)、[33](33-c5-resource-reuse-validation.md)，M1-D首批见[35](35-m1d-outpost-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；完整SCN、P3、持久建筑/任意拓扑恢复及完整M1未因此完成，完整私密/两批扩围、自由创作与视觉质量、跨浏览器/配额/UVTT仍开放，正式性能各冻结结果见[34](34-performance-followup.md)，第三冻结500普通领域提交100ms子指标通过、完整性能继续开放。
 
 U1a首页、六仓库安全入口与连续会话的历史验证归[38](38-u1a-workspace-validation.md)。U1b固定布局/偏好见[39](39-u1b-layout-validation.md)，U2原合同/实现见40/41，重构前完整自动化结果见44；37/36保留准备与讨论。M2-0f随后显式切换格式及核心，沿用既有领域、受众和有限恢复边界，不能把U1当时“不重写格式”的批次范围解释为永久保留六套写入器。
 

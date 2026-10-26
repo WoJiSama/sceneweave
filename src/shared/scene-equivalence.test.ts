@@ -61,7 +61,7 @@ describe('native complete-v1 scene rules and legacy equivalence', () => {
     let reads = 0
     const accessor = native(layerSceneV3())
     Object.defineProperty(accessor, 'title', { enumerable: true, get: () => { reads++; throw new Error('caller getter executed') } })
-    expect(validateSceneDocument(accessor).ok).toBe(false)
+    expect(sceneErrors(accessor)).toContain('JSON_BUDGET')
     expect(reads).toBe(0)
     for (const value of [new Date(STAMP_V3), 1n, () => 'not JSON', Number.NaN, undefined]) {
       expect(sceneErrors({ ...native(layerSceneV3()), unknown: value })).toContain('NON_JSON_INPUT')
@@ -72,6 +72,16 @@ describe('native complete-v1 scene rules and legacy equivalence', () => {
     const unsafe = native(layerSceneV3())
     Object.defineProperty(unsafe.props, '__proto__', { enumerable: true, value: unsafe.props.item })
     expect(sceneErrors(unsafe)).toContain('UNSAFE_KEY')
+  })
+
+  it('retains JSON depth/value guards in the ownership pass and rejects cycles without throwing', () => {
+    let nested: unknown = null
+    for (let i = 0; i < 129; i++) nested = { child: nested }
+    expect(sceneErrors(nested)).toContain('JSON_BUDGET')
+    expect(sceneErrors(Array.from({ length: 600_000 }, () => null))).toContain('JSON_BUDGET')
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    expect(sceneErrors(cyclic)).toContain('NON_JSON_INPUT')
   })
 
   it('retains layer membership, group-layer and embedded identity invariants', () => {

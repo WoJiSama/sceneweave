@@ -8,6 +8,7 @@ import { createHistoryIdentity } from '../../../shared/history/identity.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { captureJson, freezeJson } from '../../../shared/validation/json.js'
 import { fromBundle, type EditableProject } from '../../../application/workspace/project.js'
+import { emptyVisualSystem } from '../../../shared/visual/types.js'
 
 export type SampleKind = 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano'
 export const BLANK_PRESETS = [
@@ -53,6 +54,9 @@ export async function createBlankProject(input: BlankOptions, signal?: AbortSign
   floor.boundsMm = { ...bounds }
   project.document.units = { world: 'mm', display: preset.display, gridSizeMm: preset.gridSizeMm, snapMm: preset.snapMm, gridVisible: options.gridVisible ?? preset.gridVisible }
   project.document.presetSnapshot = { presetId: preset.id, presetVersion: 1, distanceMode: preset.distanceMode, source: `Sceneweave 通用${preset.name}偏好；非官方规则`, gridSizeMm: preset.gridSizeMm }
+  project.schemaVersion = 2
+  project.document.schemaVersion = 2
+  project.document.visual = emptyVisualSystem()
   project.historyIdentity = createHistoryIdentity(project.document, runtime)
   return complete(project, signal, onProgress)
 }

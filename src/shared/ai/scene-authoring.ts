@@ -178,6 +178,13 @@ function collectEntity(project: ProjectData, id: string, read: Set<string>): voi
   if (scene.scatterGroups[id]) for (const palette of scene.scatterGroups[id].palette) collectSubject(project, 'propDefinition', palette.propDefinitionRef.id, read)
   if (scene.terrainAreas[id]) for (const point of scene.terrainAreas[id].boundaryMm) { read.add(point.id); read.add(point.segmentId) }
 }
+/** Visual tools share exactly the public geometry/lock/resource boundary of scene tools. */
+export function assertPublicSceneEntity(project: ProjectData, scope: Pick<SceneAuthoringScope, 'floorId' | 'boundsMm'>, id: string): string[] {
+  const scene = project.document, value = entity(scene, id), read = new Set<string>()
+  if (!value || value.floorId !== scope.floorId || !isPublic(scene, id) || effectiveEditLocked(scene, id)) deny('视觉目标须为明确公开、同Floor且未锁定的实体。')
+  assertGeometry(scene, scope as SceneAuthoringScope, id); collectEntity(project, id, read)
+  return sorted(read)
+}
 export function sceneReadIds(project: ProjectData, scope: SceneAuthoringScope): string[] {
   const read = new Set([scope.floorId, scope.layerId])
   scope.entityIds.forEach(id => collectEntity(project, id, read))

@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { unzipSync } from 'fflate'
 import { isDeepStrictEqual } from 'node:util'
 import { copyArchivedFixtures } from './archived-fixtures.mjs'
+import { copyVisualV2Fixtures } from './visual-v2-fixtures.mjs'
 import { closeMeasuredBrowser } from './close-browser.mjs'
 import { startResourceSampling } from './resources.mjs'
 import { installNativeM2Observer } from './native-m2-observer.mjs'
@@ -17,19 +18,21 @@ import { startNativeFixtureTooling, beginNativeFixturePreparation, completeNativ
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), args = process.argv.slice(2)
 if (args.includes('--help')) {
-  console.log('node tools/performance/run-native-m2.mjs --output ABS --fixtures ABS [--dist ABS] [--cases study-500,study-2000,island-500,island-2000] [--runs 3] [--selections 30] [--edits 10] [--layers 10] [--appearances 5] [--restores 3] [--menus 10] [--gestures 3] [--wait-timeout-ms 120000] [--case-timeout-ms 3600000] [--channel chrome] [--diagnostic] [--diagnostic-profile]')
+  console.log('node tools/performance/run-native-m2.mjs --output ABS (--fixtures ABS | --visual-v2-fixtures ABS) [--dist ABS] [--cases study-500,study-2000,island-500,island-2000] [--runs 3] [--selections 30] [--edits 10] [--layers 10] [--appearances 5] [--restores 3] [--menus 10] [--gestures 3] [--wait-timeout-ms 120000] [--case-timeout-ms 3600000] [--channel chrome] [--diagnostic] [--diagnostic-profile]')
   console.log('Measured operations use only the normal production UI. Fixture preparation uses an isolated tooling server/browser with strict reader, disk-reread preservation set and fixed-journal conversion, closed before measurement. Empty independent output directory required. Run serially without other browser/test/build work. Reduced samples/matrix are diagnostic. --diagnostic-profile always excludes the run from formal evidence and records the first ordinary-edit and first restore-protect-adopt-save in each case/run at a 1000us CDP sampling interval. Continuous gestures contain 30 rAF-paced pointer moves or 20 rAF-paced wheel inputs. No GPU/presentation or full QA pass is inferred.')
+  console.log('--visual-v2-fixtures imports exact independent complete-v2 Q1/Q2 packages, preserves SVG/PNG/license bytes and never uses the legacy B5 converter. It adds 30-move real curve-handle drag, explicit preview/confirmed adoption and ordinary UI undo per gesture. Native-v1 remains the default --fixtures path; result classes stay separate.')
   process.exit(0)
 }
 const argument = (name, fallback) => { const i = args.indexOf(name); return i < 0 ? fallback : args[i + 1] }
 const output = argument('--output', null), fixtureDirectory = argument('--fixtures', null), dist = path.resolve(argument('--dist', path.join(root, 'dist')))
+const visualFixtureDirectory = argument('--visual-v2-fixtures', null), visualV2 = visualFixtureDirectory !== null, expectedSchemaVersion = visualV2 ? 2 : 1
 const channel = argument('--channel', 'chrome'), requestedCases = argument('--cases', 'study-500,study-2000,island-500,island-2000').split(',')
 const diagnosticProfile = args.includes('--diagnostic-profile'), diagnostic = args.includes('--diagnostic') || diagnosticProfile
 const waitTimeoutMs = Number(argument('--wait-timeout-ms', '120000'))
 const caseTimeoutMs = Number(argument('--case-timeout-ms', '3600000'))
 const counts = Object.fromEntries(Object.entries({ runs: 3, selections: 30, edits: 10, layers: 10, appearances: 5, restores: 3, menus: 10, gestures: 3 }).map(([key, value]) => [key, Number(argument(`--${key}`, String(value)))]))
 const check = (condition, message) => { if (!condition) throw new Error(message) }, hash = bytes => createHash('sha256').update(bytes).digest('hex')
-check(output && path.isAbsolute(output) && fixtureDirectory && path.isAbsolute(fixtureDirectory), '--output ABS and --fixtures ABS are required')
+check(output && path.isAbsolute(output) && (fixtureDirectory === null) !== (visualFixtureDirectory === null) && path.isAbsolute(visualFixtureDirectory ?? fixtureDirectory), '--output ABS and exactly one of --fixtures ABS / --visual-v2-fixtures ABS are required')
 check(Object.values(counts).every(value => Number.isSafeInteger(value) && value > 0), 'Sample counts must be positive integers')
 check(Number.isSafeInteger(waitTimeoutMs) && waitTimeoutMs > 0 && waitTimeoutMs <= 10 * 60_000, '--wait-timeout-ms must be a positive integer no greater than 600000')
 check(Number.isSafeInteger(caseTimeoutMs) && caseTimeoutMs > waitTimeoutMs && caseTimeoutMs <= 2 * 60 * 60_000, '--case-timeout-ms must exceed the sample timeout and be no greater than 7200000')
@@ -51,10 +54,11 @@ const html = await fs.readFile(path.join(dist, 'index.html'), 'utf8')
 check(!html.includes('/@vite/client'), 'Expected a normal production build')
 const servedBase = /<script[^>]+src="([^"]+\/assets\/)/.exec(html)?.[1]?.replace(/assets\/$/, '') ?? '/'
 const allowIncidentalFavicon404 = !/<link\b[^>]*\brel\s*=\s*["'][^"']*\bicon\b/i.test(html)
-const runnerFiles = ['run-native-m2.mjs', 'prepare-native-m2-fixture.mjs', 'native-m2-observer.mjs', 'summarize-native-m2.mjs', 'summarize-c5.mjs', 'resources.mjs', 'archived-fixtures.mjs', 'close-browser.mjs']
+const runnerFiles = ['run-native-m2.mjs', 'prepare-native-m2-fixture.mjs', 'native-m2-observer.mjs', 'summarize-native-m2.mjs', 'summarize-c5.mjs', 'resources.mjs', 'archived-fixtures.mjs', 'close-browser.mjs', ...(visualV2 ? ['visual-v2-fixtures.mjs', 'visual-v2-fixtures-browser.ts'] : [])]
 const manifest = {
   format: 'sceneweave-native-m2-performance', version: 1, startedAt: new Date().toISOString(), status: 'running',
-  measurementClass: diagnosticProfile ? 'diagnostic-native-m2-cpu-profile' : formal ? 'formal-native-m2-production-ui-observation' : 'diagnostic-native-m2-production-ui',
+  measurementClass: visualV2 ? diagnosticProfile ? 'diagnostic-visual-v2-cpu-profile' : formal ? 'formal-visual-v2-production-ui-observation' : 'diagnostic-visual-v2-production-ui'
+    : diagnosticProfile ? 'diagnostic-native-m2-cpu-profile' : formal ? 'formal-native-m2-production-ui-observation' : 'diagnostic-native-m2-production-ui',
   sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceDirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }),
   runners: await Promise.all(runnerFiles.map(async name => { const bytes = await fs.readFile(path.join(root, 'tools/performance', name)); return { path: `tools/performance/${name}`, sizeBytes: bytes.length, sha256: hash(bytes) } })),
@@ -62,9 +66,11 @@ const manifest = {
   source: await fingerprints(path.join(root, 'src')),
   sourceInputs: await Promise.all(['package.json', 'package-lock.json', 'vite.config.ts', 'tsconfig.json'].map(async name => { const bytes = await fs.readFile(path.join(root, name)); return { path: name, sizeBytes: bytes.length, sha256: hash(bytes) } })),
   build: await fingerprints(dist),
-  config: { ...counts, requestedCases, channel, diagnostic, diagnosticProfile, waitTimeoutMs, caseTimeoutMs, route: '#home', viewport: { width: 1512, height: 982 }, dpr: 1,
+  config: { ...counts, requestedCases, channel, diagnostic, diagnosticProfile, waitTimeoutMs, caseTimeoutMs, fixtureMode: visualV2 ? 'exact-native-visual-v2' : 'archived-b5-conversion', expectedSchemaVersion, route: '#home', viewport: { width: 1512, height: 982 }, dpr: 1,
     processState: 'Fresh dedicated headless Chrome process and profile per case/run; HTTP cache disabled, OS caches not purged. macOS caffeinate prevents idle sleep only.',
-    fixturePreparation: 'Exact original B5 strict-v2 packages are captured by the strict reader in a separate tooling-only Vite/Chrome process per case. Every preservation file is written to disk and reread before the fixed-journal converter performs its full resource validation and cold-read publication. The resulting native complete-v1 package is exported, saved and hashed. No retired legacy UI is used. The tooling server is closed before measured runs. Each measured case/run uses only the normal frozen production build in a fresh independent Chrome process and imports that exact native package. Two small user layers are added through UI; only the marker is moved to M2 Focus, keeping measured transactions within 256.',
+    fixturePreparation: visualV2 ? 'Exact independent complete-v2 Q1/Q2 fixture packages are copied, byte-hashed and disk-reread. Every ZIP entry and scene2/visual1 identity/count/source/marker is checked. Full actual SVG/PNG pixels, licenses and native scene validation occur in each normal product cold import. No legacy/B5 conversion, no tooling browser during measurement. Original refined benchmarks are preserved in the fixture archive. Two small user layers are added through UI; only the independent image marker is moved to M2 Focus, keeping measured transactions within 256.'
+      : 'Exact original B5 strict-v2 packages are captured by the strict reader in a separate tooling-only Vite/Chrome process per case. Every preservation file is written to disk and reread before the fixed-journal converter performs its full resource validation and cold-read publication. The resulting native complete-v1 package is exported, saved and hashed. No retired legacy UI is used. The tooling server is closed before measured runs. Each measured case/run uses only the normal frozen production build in a fresh independent Chrome process and imports that exact native package. Two small user layers are added through UI; only the marker is moved to M2 Focus, keeping measured transactions within 256.',
+    ...(visualV2 ? { curveInputs: { movesPerDrag: 30, trialsPerRun: counts.gestures, method: 'Trusted SVG control-handle pointerdown, 30 rAF-paced pointermoves, pointerup; the draft stays outside persistence. Ordinary visible preview and full-scope confirmation/adoption are measured separately. Ordinary visible UI undo resets the original curve and bound coordinates after every adoption; it never rewrites topology with an opposite command. Interior uses explicit decorative yard border; island uses the bound real q1-coast.' } } : {}),
     localReopen: 'Reload the normal home page without clearing localStorage or IndexedDB, then click the one available native recent-project Open button. The timed interval starts at this trusted click; reload and the read-only repository comparison are setup.',
     intent: 'Trusted capture of the committing click, Enter keydown, file change, selection pointerup, contextmenu or first continuous input. The tool observes DOM/events; it never wraps product functions, Canvas, React or storage.',
     domainCommit: 'Exact page performance.now captured by Native Workspace after all domain validation, identity/freeze/undo updates and before publish. DOM data-transaction-revision must match the new data-revision. Import/open/name are separate operations and do not claim a domain edit commit.',
@@ -113,7 +119,7 @@ const probe = () => page.evaluate(() => Reflect.get(window, '__sceneweaveNativeM
 const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 const nextFrame = () => page.evaluate(() => new Promise(requestAnimationFrame))
 async function ready() {
-  await page.waitForFunction(() => document.querySelector('[data-testid="outdoor-workbench"]')?.getAttribute('data-native-format') === 'sceneweave-complete-project@1' && document.querySelector('.asset-save')?.textContent.trim() === '本地已保存' && document.querySelector('.asset-map-wrap')?.getAttribute('aria-busy') === 'false' && !document.querySelector('.asset-busy') && !document.querySelector('.native-app-content[inert]'), null, { timeout: waitTimeoutMs })
+  await page.waitForFunction(schemaVersion => document.querySelector('[data-testid="outdoor-workbench"]')?.getAttribute('data-native-format') === `sceneweave-complete-project@${schemaVersion}` && document.querySelector('.asset-save')?.textContent.trim() === '本地已保存' && document.querySelector('.asset-map-wrap')?.getAttribute('aria-busy') === 'false' && !document.querySelector('.asset-busy') && !document.querySelector('.native-app-content[inert]'), expectedSchemaVersion, { timeout: waitTimeoutMs })
   await page.locator('canvas[aria-label="材质场景主持人预览"],canvas[aria-label="材质场景玩家预览"]').waitFor({ state: 'visible' }); await frames()
 }
 async function refine() {
@@ -198,7 +204,7 @@ function expectedProps(scene, bounds) {
   }).map(prop => prop.id).sort()
 }
 async function storageAudit({ includeResources = true } = {}) {
-  return page.evaluate(async ({ includeResources }) => {
+  return page.evaluate(async ({ includeResources, visualV2 }) => {
     const digest = async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(value => value.toString(16).padStart(2, '0')).join('')
     const normalize = async value => {
       if (ArrayBuffer.isView(value)) return { bytes: value.byteLength, sha256: await digest(value) }
@@ -228,17 +234,18 @@ async function storageAudit({ includeResources = true } = {}) {
       scenes: (rows.projects ?? []).map(row => ({ sceneId: row.sceneId, revision: row.revision, contentHash: row.contentHash, format: row.project.format,
         documentSchemaVersion: row.project.document.schemaVersion, identityVersion: row.project.historyIdentity.version,
         propCount: Object.keys(row.project.document.props).length, title: row.project.document.title, grid: row.project.document.grid, worldBoundsMm: row.project.document.exportBoundsMm,
-        props: row.project.document.props, userLayers: row.project.document.userLayers, entityLayers: row.project.document.entityLayers })),
+        props: row.project.document.props, userLayers: row.project.document.userLayers, entityLayers: row.project.document.entityLayers,
+        ...(visualV2 ? { visual: row.project.document.visual, terrainAreas: row.project.document.terrainAreas } : {}) })),
       automatic: (rows.automaticSnapshots ?? []).map(row => ({ revision: row.revision, contentHash: row.contentHash })),
       named: (rows.snapshots ?? []).filter(row => row.kind === 'named').map(row => ({ id: row.id, name: row.name, sourceRevision: row.sourceRevision, contentHash: row.contentHash })),
       protection: (rows.snapshots ?? []).filter(row => row.kind === 'protection').map(row => ({ id: row.id, sourceRevision: row.sourceRevision, contentHash: row.contentHash })), metadata: rows.historyMetadata ?? [] }
-  }, { includeResources })
+  }, { includeResources, visualV2 })
 }
 function packageSnapshot(bytes) {
   const files = unzipSync(bytes), parse = name => files[name] ? JSON.parse(new TextDecoder().decode(files[name])) : null
   const container = parse('manifest.json'), scene = parse('scene.json'), identity = parse('identity.json')
-  check(container?.format === 'sceneweave-complete-project' && container.schemaVersion === 1 && container.packageMode === 'complete'
-    && scene?.format === 'sceneweave-scene' && scene.schemaVersion === 1 && identity?.version === 1, 'Expected a strict native complete-v1 package')
+  check(container?.format === 'sceneweave-complete-project' && container.schemaVersion === expectedSchemaVersion && container.packageMode === 'complete'
+    && scene?.format === 'sceneweave-scene' && scene.schemaVersion === expectedSchemaVersion && identity?.version === 1 && (!visualV2 || scene.visual?.version === 1), `Expected a strict native complete-v${expectedSchemaVersion} package`)
   check(container.sceneId === scene.sceneId && container.revision === scene.revision, 'Native package manifest identity mismatch')
   check(Object.keys(files).length === container.entries.length + 1, 'Native package has undeclared or missing entries')
   for (const entry of container.entries) check(files[entry.path]?.length === entry.sizeBytes && hash(files[entry.path]) === entry.sha256, `Native package byte/hash mismatch: ${entry.path}`)
@@ -260,6 +267,60 @@ async function plainEdit(item, kind, ordinal, value) {
   const sample = await measure(kind, ordinal, { start: { event: 'keydown', selector: 'input[aria-label="物件 X"]', key: 'Enter' }, expectedRevision: before.revision + 1, domainCommit: true, requireRaster: true, requireSaved: true }, () => field.press('Enter'))
   sample.request = { id: item.summary.editablePropId, property: 'positionMm.x', value }
   return sample
+}
+async function measureVisualCurve(item) {
+  const request = item.summary.curveEdit
+  check(request && request.segment === 0 && request.handle === 'control1', 'Fixture curve edit contract missing')
+  sampler.setPhase('tooling-audit-curve-before')
+  const beforeStorage = await storageAudit({ includeResources: false }), initial = beforeStorage.scenes[0]
+  const originalCurve = initial.visual.boundaries[request.boundaryId]
+  check(originalCurve && originalCurve.binding.kind === request.binding, 'Curve workload/binding differs from package')
+  const originalGeometry = JSON.stringify(Object.fromEntries(Object.entries(initial.terrainAreas).map(([id, area]) => [id, area.boundaryMm.map(point => point.positionMm)])))
+  await page.getByRole('button', { name: '适应全图', exact: true }).click(); await ready(); await refine()
+  await page.getByRole('tablist', { name: '工坊侧栏', exact: true }).getByRole('tab', { name: '视觉', exact: true }).click()
+  const panel = page.getByRole('region', { name: '视觉场景创作', exact: true })
+  await panel.getByRole('button', { name: '边界', exact: true }).click()
+  for (let ordinal = 0; ordinal < counts.gestures; ordinal++) {
+    sampler.setPhase('curve-drag-setup')
+    const select = panel.getByLabel('视觉已有曲线', { exact: true })
+    await select.selectOption(''); await select.selectOption(request.boundaryId)
+    const handle = page.getByTestId('curve-handle-0-control1'); await handle.waitFor({ state: 'visible' })
+    const position = await handle.boundingBox(), box = await canvasBox()
+    check(position && box, 'Curve control handle/canvas has no real screen box')
+    const start = { x: position.x + position.width / 2, y: position.y + position.height / 2 }, beforePoint = { x: Number(await handle.getAttribute('cx')), y: Number(await handle.getAttribute('cy')) }
+    check(beforePoint.x === originalCurve.segments[0].control1.x && beforePoint.y === originalCurve.segments[0].control1.y, 'UI undo failed to reset original control')
+    const dx = request.deltaMm.x / item.summary.worldBoundsMm.width * box.width, dy = request.deltaMm.y / item.summary.worldBoundsMm.height * box.height
+    await page.mouse.move(start.x, start.y)
+    sampler.setPhase('continuous-curve-draft')
+    const sample = await measure('continuous-curve-draft', ordinal, { start: { event: 'pointerdown', selector: '.visual-controls', button: 0 }, eventScope: '.visual-controls', externalEnd: true,
+      endEvent: { event: 'pointerup', selector: '.visual-controls', button: 0 }, unchangedDocument: true, requireSaved: true }, async () => {
+      await page.mouse.down()
+      for (let move = 1; move <= 30; move++) { await nextFrame(); await page.mouse.move(start.x + dx * move / 30, start.y + dy * move / 30) }
+      await page.mouse.up()
+    })
+    const afterPoint = { x: Number(await handle.getAttribute('cx')), y: Number(await handle.getAttribute('cy')) }
+    check(sample.eventCounts.pointermove === 30 && afterPoint.x === beforePoint.x + request.deltaMm.x && afterPoint.y === beforePoint.y + request.deltaMm.y, 'Curve draft requires exactly 30 actual moves and the declared exact control delta')
+    sample.request = { ...request, beforePoint, actualDraftPoint: afterPoint, screenDeltaPx: { x: dx, y: dy } }
+    sampler.setPhase('curve-preview')
+    await measure('curve-preview', ordinal, { start: buttonStart('预览曲线与边带'), until: { preview: true }, unchangedDocument: true, requireRaster: true }, () => panel.getByRole('button', { name: '预览曲线与边带', exact: true }).click())
+    const preview = page.locator('.asset-structure-preview'), affectedIds = (await preview.getByLabel('待采用视觉操作 ID', { exact: true }).inputValue()).split('\n')
+    check(affectedIds.includes(request.boundaryId) && new Set(affectedIds).size === affectedIds.length && isDeepStrictEqual([...affectedIds].sort(), request.expectedAffectedIds)
+      && Number.isSafeInteger(request.expandedWriteCost) && request.expandedWriteCost > 0 && request.expandedWriteCost <= 256,
+    'Curve preview differs from its fully validated exact affected closure/write budget; unchanged read-only support dependants are separate from writes')
+    await preview.getByLabel('确认完整影响范围', { exact: true }).check()
+    sampler.setPhase('curve-adopt-save')
+    const adopted = await transaction('curve-adopt-save', ordinal, () => preview.getByRole('button', { name: '采用视觉修改', exact: true }).click(), { until: { preview: false } })
+    adopted.affectedIds = affectedIds
+    sampler.setPhase('curve-undo-save')
+    await transaction('curve-undo-save', ordinal, () => page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(), { requireRaster: true })
+  }
+  sampler.setPhase('tooling-audit-curve-after')
+  const afterStorage = await storageAudit({ includeResources: false }), final = afterStorage.scenes[0]
+  check(isDeepStrictEqual(final.visual, initial.visual), 'Curve drag/adoption/undo changed the original final visual fields')
+  check(JSON.stringify(Object.fromEntries(Object.entries(final.terrainAreas).map(([id, area]) => [id, area.boundaryMm.map(point => point.positionMm)]))) === originalGeometry, 'Curve undo failed to restore bound physical coordinates')
+  check(isDeepStrictEqual(final.props, initial.props), 'Curve edit changed unrelated props')
+  result.correctness.realCurveDragPreviewAdoptUndo = true
+  result.curveWorkload = { ...request, trials: counts.gestures, originalControl: originalCurve.segments[0].control1, finalVisualAndPhysicalCoordinatesEqual: true, outOfScopePropsEqual: true }
 }
 async function profileSample(cdp, kind, action) {
   const window = { kind, ordinal: 0, status: 'running', samplingIntervalUs: 1000, startedAt: new Date().toISOString(),
@@ -464,11 +525,11 @@ async function runCase(item, run) {
   await ready()
   sampler.setPhase('tooling-audit-import')
   const imported = await storageAudit(); result.auditArtifacts.push({ kind: 'import-storage', path: `${label}-import-storage.json` }); await writeJson(`${label}-import-storage.json`, imported, true)
-  check(imported.scenes.length === 1 && imported.scenes[0].format === 'sceneweave-complete-project' && imported.scenes[0].documentSchemaVersion === 1
-    && imported.scenes[0].identityVersion === 1 && imported.scenes[0].propCount === item.summary.propCount, 'Native complete-v1 import counts failed')
+  check(imported.scenes.length === 1 && imported.scenes[0].format === 'sceneweave-complete-project' && imported.scenes[0].documentSchemaVersion === expectedSchemaVersion
+    && imported.scenes[0].identityVersion === 1 && imported.scenes[0].propCount === item.summary.propCount, `Native complete-v${expectedSchemaVersion} import counts failed`)
   check(!imported.allDatabases.some(name => /^sceneweave-m[01]/.test(name)), 'Measured native import created a legacy repository')
   check(imported.scenes[0].sceneId !== sourceScene.sceneId && imported.scenes[0].revision === 0, 'Native import failed to create an independent saved owner at r0')
-  result.sceneId = imported.scenes[0].sceneId; result.title = imported.scenes[0].title; result.correctness.nativeCompleteV1 = true
+  result.sceneId = imported.scenes[0].sceneId; result.title = imported.scenes[0].title; result.correctness[visualV2 ? 'nativeCompleteV2' : 'nativeCompleteV1'] = true
   sampler.setPhase('local-reopen-navigation-setup')
   const reloadStarted = performance.now()
   await page.goto(pageUrl); await page.reload(); await page.getByTestId('workspace-home').waitFor({ state: 'visible' })
@@ -559,6 +620,7 @@ async function runCase(item, run) {
   }
   // Return marker to its documented click point before the remaining UI setup.
   if (counts.edits % 2) { sampler.setPhase('edit-reset-setup'); await plainEdit(item, 'edit-reset-setup', 0, x) }
+  if (visualV2) { await measureVisualCurve(item); await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click(); await markerClick(item); await frames() }
   sampler.setPhase('layer-setup')
   await page.getByTestId('workspace-navigation').getByRole('tab', { name: '图层', exact: true }).click()
   const layerIds = {}
@@ -659,7 +721,7 @@ async function runCase(item, run) {
   result.exports = exports
   await page.getByRole('group', { name: '预览受众', exact: true }).getByRole('button', { name: '主持人', exact: true }).click(); await ready()
   result.finalPackage = await backup(`${label}-final.sceneweave`)
-  check(result.finalPackage.snapshot.format === 'sceneweave-complete-project' && result.finalPackage.snapshot.identityVersion === 1, 'Export lost native complete-v1 identity')
+  check(result.finalPackage.snapshot.format === 'sceneweave-complete-project' && result.finalPackage.snapshot.schemaVersion === expectedSchemaVersion && result.finalPackage.snapshot.identityVersion === 1, `Export lost native complete-v${expectedSchemaVersion} identity`)
   const finalStorage = await storageAudit()
   check(finalStorage.automatic.length === Math.min(20, finalStorage.scenes[0].revision + 1), 'Automatic history retention count differs from committed revisions')
   check(finalStorage.automatic.some(row => row.revision === finalStorage.scenes[0].revision), 'Latest saved revision is missing from automatic history')
@@ -680,9 +742,10 @@ async function runCase(item, run) {
 
 try {
   check(process.platform === 'darwin', 'Native M2 RSS sampler currently requires macOS; unsupported platforms must not produce formal evidence')
-  const copied = await copyArchivedFixtures({ sourceDirectory: fixtureDirectory, outputDirectory: output, requestedCases })
+  const copied = visualV2 ? await copyVisualV2Fixtures({ sourceDirectory: visualFixtureDirectory, outputDirectory: output, requestedCases })
+    : await copyArchivedFixtures({ sourceDirectory: fixtureDirectory, outputDirectory: output, requestedCases })
   manifest.cases = copied.cases; manifest.fixtureSource = copied.provenance; await writeJson('manifest.json', manifest)
-  for (const item of manifest.cases) {
+  for (const item of visualV2 ? [] : manifest.cases) {
     const watchdog = setTimeout(() => interrupt(`Fixture preparation exceeded ${caseTimeoutMs}ms watchdog`), caseTimeoutMs)
     try { await guarded(prepareNativeFixture(item)) } finally { clearTimeout(watchdog) }
   }

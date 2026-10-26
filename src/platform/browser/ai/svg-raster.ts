@@ -104,7 +104,9 @@ export async function rasterizeNormalizedSvg(input: NormalizedStaticSvg, options
     decoded = await decodeSvg(svgBlob, width, height, options.signal)
     checkAborted(options.signal)
     canvas = makeCanvas(width, height)
-    const context = canvas.getContext('2d', { alpha: true, colorSpace: 'srgb' })
+    // PNG pixels are checked again after save/import. Use the CPU readback path:
+    // accelerated Canvas can rasterize the same SVG with different edge coverage.
+    const context = canvas.getContext('2d', { alpha: true, colorSpace: 'srgb', willReadFrequently: true })
     if (!context) throw new Error('浏览器Canvas 2D上下文不可用。')
     context.clearRect(0, 0, width, height)
     context.drawImage(decoded.image, 0, 0, width, height)

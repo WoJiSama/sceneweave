@@ -17,7 +17,7 @@ const call = (id: string, operations: unknown[]): ProviderToolCall => ({ id, nam
 const done = (toolCalls: ProviderToolCall[] = []): ProviderCompletion => ({ text: toolCalls.length ? '' : '小屋与院落草稿已完成，请检查。', toolCalls, finishReason: toolCalls.length ? 'tool_calls' : 'stop', usage: { inputTokens: 20, outputTokens: 30 }, requestId: 'controlled-m23-m24' })
 test.beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'sceneweave-m234-')); token = randomBytes(24).toString('hex')
-  const config = loadAiConfig({ SCENEWEAVE_AI_DATA_DIR: directory, SCENEWEAVE_AI_ALLOWED_ORIGINS: 'http://127.0.0.1:5173', SCENEWEAVE_AI_ACCESS_TOKEN: token, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'no-network-controlled-provider', SCENEWEAVE_AI_PROVIDER_MODEL: 'controlled-m234' })
+  const config = loadAiConfig({ SCENEWEAVE_AI_DATA_DIR: directory, SCENEWEAVE_AI_ALLOWED_ORIGINS: new URL(process.env.SCENEWEAVE_TEST_BASE_URL ?? 'http://127.0.0.1:5173').origin, SCENEWEAVE_AI_ACCESS_TOKEN: token, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'no-network-controlled-provider', SCENEWEAVE_AI_PROVIDER_MODEL: 'controlled-m234' })
   const provider: ProviderAdapter = { async complete(input) {
     const receipt = (id: string) => input.messages.some(m => m.role === 'tool' && m.toolCallId === id)
     const authorization = JSON.parse(input.messages.find(m => m.role === 'user' && m.content?.startsWith('Authorized public'))!.content!.split('\n').slice(1).join('\n'))

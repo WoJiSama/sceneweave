@@ -1,6 +1,8 @@
 import { ProviderFailure } from './provider-types.js'
 
 export const SSE_LIMITS = Object.freeze({ responseBytes: 1024 * 1024, lineBytes: 32 * 1024, eventBytes: 64 * 1024, events: 2048 })
+export const SSE_LARGE_OUTPUT_LIMITS = Object.freeze({ ...SSE_LIMITS, responseBytes: 4 * 1024 * 1024, events: 16384 })
+export type SseOutputMode = 'standard' | 'large-output'
 
 export function providerAbort(): Error {
   const error = new Error('模型请求已取消。')
@@ -12,8 +14,10 @@ const protocolFailure = () => new ProviderFailure('provider_protocol', '模型�
 const limitFailure = () => new ProviderFailure('provider_limit', '模型服务响应超过允许的大小。')
 
 /** Incremental UTF-8/SSE decoder. No upstream text is included in errors. */
-export async function* readSseData(body: ReadableStream<Uint8Array>, signal: AbortSignal): AsyncGenerator<string> {
+export async function* readSseData(body: ReadableStream<Uint8Array>, signal: AbortSignal, mode: SseOutputMode = 'standard'): AsyncGenerator<string> {
   if (signal.aborted) throw providerAbort()
+  if (mode !== 'standard' && mode !== 'large-output') throw new ProviderFailure('provider_config', '模型服务配置无效。', 'not_sent')
+  const limits = mode === 'large-output' ? SSE_LARGE_OUTPUT_LIMITS : SSE_LIMITS
   const reader = body.getReader()
   const decoder = new TextDecoder('utf-8', { fatal: true })
   const encoder = new TextEncoder()
@@ -26,7 +30,7 @@ export async function* readSseData(body: ReadableStream<Uint8Array>, signal: Abo
   const acceptLine = () => {
     if (line === '') {
       if (data.length) {
-        if (++events > SSE_LIMITS.events) throw limitFailure()
+        if (++events > limits.events) throw limitFailure()
         ready.push(data.join('\n'))
       }
       data = []; eventBytes = 0
@@ -37,7 +41,7 @@ export async function* readSseData(body: ReadableStream<Uint8Array>, signal: Abo
       if (value.startsWith(' ')) value = value.slice(1)
       if (field === 'data') {
         eventBytes += encoder.encode(value).byteLength + 1
-        if (eventBytes > SSE_LIMITS.eventBytes) throw limitFailure()
+        if (eventBytes > limits.eventBytes) throw limitFailure()
         data.push(value)
       }
     }
@@ -49,7 +53,7 @@ export async function* readSseData(body: ReadableStream<Uint8Array>, signal: Abo
       if (char === '\r' || char === '\n') { acceptLine(); skipLf = char === '\r' }
       else {
         lineBytes += encoder.encode(char).byteLength
-        if (lineBytes > SSE_LIMITS.lineBytes) throw limitFailure()
+        if (lineBytes > limits.lineBytes) throw limitFailure()
         line += char
       }
     }
@@ -66,7 +70,7 @@ export async function* readSseData(body: ReadableStream<Uint8Array>, signal: Abo
         return
       }
       total += value.byteLength
-      if (total > SSE_LIMITS.responseBytes) throw limitFailure()
+      if (total > limits.responseBytes) throw limitFailure()
       try { acceptText(decoder.decode(value, { stream: true })) } catch (error) { if (error instanceof ProviderFailure) throw error; throw protocolFailure() }
       while (ready.length) {
         if (signal.aborted) throw providerAbort()

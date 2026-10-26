@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AUTHORING_LIMITS, AuthoringStartSchema, AuthoringSummarySchema } from './authoring-protocol.js'
+import { VisionInputSchema } from './vision.js'
 
 // Conversation and explicitly scoped scene/artwork drafts use separate execution budgets.
 export const AI_LIMITS = Object.freeze({ promptBytes: 16_384, requestBytes: 32_768, outputBytes: 65_536,
@@ -9,7 +10,7 @@ export const utf8Size = (text: string) => { let bytes = 0; for (const char of te
 const id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/)
 const prompt = z.string().trim().min(1).max(16_384).refine(value => utf8Size(value) <= AI_LIMITS.promptBytes, '请求文字超过16KiB。')
 export const TaskContextSchema = z.object({ sceneId: id, revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), audience: z.literal('public') }).strict().nullable()
-export const CreateTaskSchema = z.object({ schemaVersion: z.literal(1), clientRequestId: z.string().uuid(), prompt, context: TaskContextSchema, authoring: AuthoringStartSchema.optional() }).strict()
+export const CreateTaskSchema = z.object({ schemaVersion: z.literal(1), clientRequestId: z.string().uuid(), prompt, context: TaskContextSchema, authoring: AuthoringStartSchema.optional(), vision: VisionInputSchema.optional() }).strict()
 export type CreateTaskRequest = z.infer<typeof CreateTaskSchema>
 export type TaskContext = z.infer<typeof TaskContextSchema>
 export const TaskStatusSchema = z.enum(['running', 'paused', 'completed', 'cancelled', 'failed', 'expired', 'waiting_browser', 'ready', 'applying', 'applied'])
@@ -39,9 +40,9 @@ export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, cl
     if (!value.authoring && value.tools.length > AI_LIMITS.toolCalls) ctx.addIssue({ code: 'custom', path: ['tools'], message: 'Conversation tool budget exceeded.' })
   })
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>
-export const ControlTaskSchema = z.object({ schemaVersion: z.literal(1), expectedGeneration: z.number().int().positive(), action: z.enum(['pause', 'cancel', 'resume']), prompt: prompt.optional() }).strict()
+export const ControlTaskSchema = z.object({ schemaVersion: z.literal(1), expectedGeneration: z.number().int().positive(), action: z.enum(['pause', 'cancel', 'resume']), prompt: prompt.optional(), vision: VisionInputSchema.optional() }).strict()
 export type ControlTaskRequest = z.infer<typeof ControlTaskSchema>
-export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), protocol: z.literal('chat-completions'),
-  capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.literal('unverified') }).strict(),
+export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), visionModel: z.string().min(1).max(128).optional(), authoringOutputTokens: z.number().int().min(1).max(AUTHORING_LIMITS.maxOutputTokensPerRequest).optional(), protocol: z.literal('chat-completions'),
+  capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']) }).strict(),
   retentionDays: z.literal(7), limits: z.object({ modelRequests: z.literal(4), toolCalls: z.literal(8), executionMs: z.literal(120000), promptBytes: z.literal(16384), outputBytes: z.literal(65536) }).strict() }).strict()
 export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>

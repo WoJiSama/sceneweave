@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { projectDataSchema } from '../project/validate.js'
+import { AuthoringBriefSchema, AuthoringPlanStateSchema } from './plan.js'
+import { VisualAuthoringScopeSchema, VisualAuthoringOperationSchema } from './visual-protocol.js'
 
 export const AUTHORING_LIMITS = Object.freeze({ metadataBytes: 4 * 1024 * 1024, requestBytes: 5 * 1024 * 1024,
-  operations: 256, operationsPerStep: 16, steps: 256, modelRequests: 16, toolCalls: 64, executionMs: 300_000, claimMs: 30_000 })
+  operations: 256, operationsPerStep: 16, steps: 256, modelRequests: 16, toolCalls: 64, maxOutputTokensPerRequest: 8192, executionMs: 300_000, claimMs: 30_000 })
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__')
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
 const integer = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER)
@@ -45,6 +47,7 @@ export const AuthoringScopeSchema = z.object({ targetIds: ids,
   operations: z.array(z.enum(['place', 'transform', 'opacity', 'delete'])).max(4).refine(values => new Set(values).size === values.length),
   scene: SceneAuthoringScopeSchema.nullable().optional(),
   artwork: ArtworkScopeSchema.nullable().optional(),
+  visual: VisualAuthoringScopeSchema.nullable().optional(),
 }).strict()
 export type AuthoringScope = z.infer<typeof AuthoringScopeSchema>
 
@@ -93,12 +96,14 @@ export const AuthoringOperationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('delete'), id }).strict(),
   ...SceneAuthoringOperationSchema.options,
   ...ArtworkOperationSchema.options,
+  ...VisualAuthoringOperationSchema.options,
 ])
 export type AuthoringOperation = z.infer<typeof AuthoringOperationSchema>
 export const AuthoringStartSchema = z.object({ schemaVersion: z.literal(1), project: projectDataSchema, baseContentHash: hash,
   scope: AuthoringScopeSchema, seed: z.string().uuid(), preparedAt: z.string().datetime(),
   skill: AuthoringSkillSchema,
   disclosure: z.literal('complete-metadata/public-model'),
+  brief: AuthoringBriefSchema.optional(),
 }).strict()
 export type AuthoringStart = z.infer<typeof AuthoringStartSchema>
 export const AuthoringStepSchema = z.object({ index: z.number().int().positive().max(AUTHORING_LIMITS.steps), stepId: id,
@@ -121,5 +126,5 @@ export const DraftLeaseSchema = z.object({ schemaVersion: z.literal(1), taskId: 
 export type DraftLease = z.infer<typeof DraftLeaseSchema>
 export const DraftAppliedSchema = DraftClaimSchema.extend({ sceneId: id, revision: z.number().int().min(0) }).strict()
 export const AuthoringSummarySchema = z.object({ draftRevision: z.number().int().min(0), contentHash: hash, operationCost: z.number().int().min(0).max(256),
-  changedIds: ids, skill: AuthoringSkillSchema, claim: DraftLeaseSchema.nullable() }).strict()
+  changedIds: ids, skill: AuthoringSkillSchema, claim: DraftLeaseSchema.nullable(), plan: AuthoringPlanStateSchema.optional() }).strict()
 export type AuthoringSummary = z.infer<typeof AuthoringSummarySchema>

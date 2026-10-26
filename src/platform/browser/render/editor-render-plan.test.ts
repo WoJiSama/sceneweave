@@ -3,6 +3,7 @@ import type { Prop } from '../../../shared/model/scene.js'
 import { createBlankDocumentV2 } from '../../../editor/v2/blank-project'
 import { migrateSceneV2 } from '../../../core/v3/migration'
 import { projectScene } from '../../../shared/projection/projection.js'
+import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { createEditorRenderPlan as createEditorRenderPlanV2, editorPaintBounds as editorPaintBoundsV2 } from './editor-render-plan'
 
 function projection() {
@@ -46,6 +47,18 @@ describe('editor-only prop rendering plan', () => {
     expect(withShadow.props[0].paintBoundsMm).toEqual({ x: 470, y: 670, width: 660, height: 660 })
     // The medium representation draws no shadow, so that hidden body is omitted.
     expect(createEditorRenderPlanV2(source, { viewBoundsMm: crop, screenScalePxPerMm: .2 }).omittedPropCount).toBe(1)
+  })
+
+  it('retains offscreen source alpha for visual contact shadows at every detail level', () => {
+    const source = projection(), prop = source.props[0], visual = emptyVisualSystem()
+    prop.positionMm = { x: 800, y: 1000 }; prop.shadowClass = 'furniture'
+    visual.environment.contactShadowMm = 100; visual.environment.contactShadowOpacity = .4
+    source.visual = { ...visual, boundsMm: source.bounds, boundaries: [], edgeLooks: [], lights: [], fogs: [], filters: [], occluderRings: [], contactRings: [], suppressedTerrainEdgeIds: [] }
+    const crop = { x: 1000, y: 900, width: 1000, height: 1000 }
+    expect(createEditorRenderPlanV2(source, { viewBoundsMm: crop, screenScalePxPerMm: .1 }).props).toHaveLength(1)
+    expect(createEditorRenderPlanV2(source, { viewBoundsMm: crop, screenScalePxPerMm: .4 }).props).toHaveLength(1)
+    visual.environment.contactShadowMm = 0
+    expect(createEditorRenderPlanV2(source, { viewBoundsMm: crop, screenScalePxPerMm: .4 }).props).toHaveLength(0)
   })
 
   it('clamps a temporary crop while preserving order, exact source props and resource closure', () => {

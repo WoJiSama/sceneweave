@@ -1,3 +1,4 @@
+import { projectVisualSystem } from '../visual/projection.js'
 import { cloneJson } from '../validation/json.js'
 import type { BoundsMm, EdgeStyle, Note, PointMm, Prop, ShadowStyle, SurfaceRef, SurfaceStyle, TerrainArea, TerrainEdge } from '../model/scene.js'
 import type { SceneDocument } from '../model/scene.js'
@@ -63,7 +64,7 @@ function canonicalWalls(walls: ProjectedWall[], compareLayer: (a: { id: string }
   for (const wall of walls) {
     const previous = result.find(item => {
       const dx = item.end.x - item.start.x, dy = item.end.y - item.start.y
-      return compareLayer(item, wall) === 0 && item.thicknessMm === wall.thicknessMm && styleKey(item.style) === styleKey(wall.style) && close(item.end, wall.start) && Math.abs(dx * (wall.end.y - wall.start.y) - dy * (wall.end.x - wall.start.x)) < EPS * Math.hypot(dx, dy)
+      return compareLayer(item, wall) === 0 && item.thicknessMm === wall.thicknessMm && styleKey(item.style) === styleKey(wall.style) && item.blocksLight === wall.blocksLight && close(item.end, wall.start) && Math.abs(dx * (wall.end.y - wall.start.y) - dy * (wall.end.x - wall.start.x)) < EPS * Math.hypot(dx, dy)
     })
     if (previous) { previous.end = wall.end; previous.sourceIds.push(...wall.sourceIds); previous.openings.push(...wall.openings) }
     else result.push(wall)
@@ -132,8 +133,11 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   const entityShown = (id: string): boolean => !hiddenLayerIds?.has(scene.entityLayers[id])
   const layerOrder = (id: string) => scene.userLayers[scene.entityLayers[id]]?.order ?? 0
   const compareLayer = (a: { id: string }, b: { id: string }) => layerOrder(a.id) - layerOrder(b.id)
-  // Preserve the existing local order in bands without an explicit renderOrder.
-  const localOrder = (items: { id: string }[]) => new Map(items.map((item, index) => [item.id, index]))
+  // v2 dictionaries have no paint order: canonical file serialization reorders
+  // their keys. Use stable IDs within each user layer, retaining v1 behavior.
+  const localOrder = (items: { id: string }[]) => new Map((scene.schemaVersion === 2
+    ? [...items].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    : items).map((item, index) => [item.id, index]))
   const roomOrder = localOrder(Object.values(scene.rooms)), noteOrder = localOrder(Object.values(scene.notes)), regionOrder = localOrder(Object.values(scene.regions))
   if (audience !== 'gm' && audience !== 'player') throw new Error('必须明确选择主持人或玩家输出。')
   if (Object.keys(scene.floors).length !== 1) throw new Error('素材场景渲染仅支持单楼层。')
@@ -209,7 +213,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
       const [a, b] = openingEndpoints(scene, o)
       return { id: o.id, start: { ...a }, end: { ...b }, widthMm: o.widthMm, kind: o.kind, state: o.state, secret: audience === 'gm' && o.secret, ...(!entityShown(o.id) ? { paintSymbol: false } : {}) }
     })
-    walls.push({ id: wall.id, sourceIds: [wall.id], start, end, thicknessMm: wall.thicknessMm, style: clone(wall.topStyle), openings })
+    walls.push({ id: wall.id, sourceIds: [wall.id], ...(scene.schemaVersion === 2 ? { blocksLight: wall.blocksSight } : {}), start, end, thicknessMm: wall.thicknessMm, style: clone(wall.topStyle), openings })
   }
   const regionVisible = (id: string) => scene.regions[id]?.kind !== 'manualMask' && scene.regions[id]?.visibility === 'public'
   const visibleWallVertices = new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId]))
@@ -286,5 +290,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   const symbolRanks = audience === 'player' ? projectedOpeningRanks : openingRanks
   const openingPaintOrder = new Set(symbolRanks.values()).size > 1 ? orderedWalls.flatMap(wall => wall.openings.map(opening => opening.id)).sort((a, b) => symbolRanks.get(a)! - symbolRanks.get(b)!) : undefined
   const pathPaintOrder = Object.values(scene.paths).some(path => audience === 'gm' || pathPublic(path.id)) ? 'over-room-before-connection' as const : undefined
-  return { audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: orderedWalls, ...(openingPaintOrder ? { openingPaintOrder } : {}), props, edges, paths, ...(pathPaintOrder ? { pathPaintOrder } : {}), connections, notes: notes.sort((a, b) => compareLayer(a, b) || noteOrder.get(a.id)! - noteOrder.get(b.id)! || a.id.localeCompare(b.id)), regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
+  const result: Projection = { audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: orderedWalls, ...(openingPaintOrder ? { openingPaintOrder } : {}), props, edges, paths, ...(pathPaintOrder ? { pathPaintOrder } : {}), connections, notes: notes.sort((a, b) => compareLayer(a, b) || noteOrder.get(a.id)! - noteOrder.get(b.id)! || a.id.localeCompare(b.id)), regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
+  if (scene.schemaVersion === 2 && scene.visual) result.visual = projectVisualSystem(scene, scene.visual, result, audience, hiddenLayerIds, visibleWallIds)
+  return result
 }

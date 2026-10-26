@@ -184,7 +184,7 @@ test('M2-2 a manual edit invalidates old task adoption while the isolated comple
   const filename = await download.path(); expect(filename).not.toBeNull()
   const archive = unzipSync(new Uint8Array(await readFile(filename!))), decode = new TextDecoder()
   const manifest = JSON.parse(decode.decode(archive['manifest.json'])), scene = JSON.parse(decode.decode(archive['scene.json']))
-  expect(manifest).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, packageMode: 'complete', revision: 0 })
+  expect(manifest).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 2, packageMode: 'complete', revision: 0 })
   expect(Object.keys(scene.props)).toHaveLength(1); expect(scene.revision).toBe(0)
   await authoring.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
   await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()

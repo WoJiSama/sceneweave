@@ -1,4 +1,5 @@
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
+import { emptyVisualSystem } from '../../shared/visual/types.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
 import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
@@ -12,6 +13,7 @@ import { projectScene } from '../../shared/projection/projection.js'
 import { advanceHistoryIdentity, mergeIdentityRecords, mergeHistoryIdentities } from '../../shared/history/identity.js'
 import { buildRestorePlan, type RestorePlan, type RestoreRequest } from '../../shared/history/restore.js'
 import { StructureContinuitySession } from '../../shared/history/structure-continuity.js'
+import { VisualContinuitySession, visualTopology } from '../../shared/history/visual-continuity.js'
 import { buildStructureRestorePlan, inspectStructureRestoreScope, type StructureRestorePlan, type StructureRestoreRequest, type StructureRestoreScope } from '../../shared/history/structure-restore.js'
 import { validateHistoryArchive, type HistoryArchive } from '../../shared/project/history.js'
 import { captureJson } from '../../shared/validation/json.js'
@@ -24,7 +26,7 @@ import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStar
   type AtomicAuthorization, type AtomicCandidate, type AtomicCandidateRecord, type AtomicAdoptionResult, type AtomicCandidateStatus } from './atomic.js'
 import { materializeAuthoringArtwork } from './artwork.js'
 import { materializeProject, prepareCompositionCommands } from './prepare.js'
-import { captureEditableDraft, fromBundle, getVerifiedEditableProject, toBundle, validateEditableProject, type EditableProject } from './project.js'
+import { captureEditableDraft, fromBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
 
 export type WorkspaceRepository = Pick<ProjectRepository, 'save' | 'loadSnapshot' | 'createSnapshot' | 'usage' | 'importArchive' | 'checkProtection'>
 export interface WorkspaceOptions { validation: CompleteValidationOptions; runtime: PreparationContext; validateCandidate?: (document: SceneDocument) => void }
@@ -87,6 +89,20 @@ function captureCommands(commands: readonly CompositionCommand[]): readonly Comp
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
+/** Only compare privately validated JSON branches; this is not an input validator or a hash. */
+function equalOwnedJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false
+  if (Array.isArray(left)) return Array.isArray(right) && left.length === right.length
+    && left.every((value, index) => equalOwnedJson(value, right[index]))
+  if (Array.isArray(right)) return false
+  const a = left as Record<string, unknown>, b = right as Record<string, unknown>, keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && equalOwnedJson(a[key], b[key]))
+}
+function equalOwnedContent(left: CompositionContent, right: CompositionContent): boolean {
+  return equalOwnedJson(left.document, right.document) && equalOwnedJson(left.appearance, right.appearance)
+    && equalOwnedJson(left.historyIdentity, right.historyIdentity)
+}
 const anchorTopology = (anchor: SceneDocument['notes'][string]['anchor'] | undefined) => anchor?.type === 'point' ? { type: 'point' } : anchor
 const bindingKey = (binding: Pick<LicenseBinding, 'subjectKind' | 'subjectId'>) => JSON.stringify([binding.subjectKind, binding.subjectId])
 const catalogCollections = ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const
@@ -110,6 +126,31 @@ function invalidatedStructureIds(document: SceneDocument, commands: readonly Com
       && canonical(anchorTopology(command.changes.anchor)) !== canonical(anchorTopology(document.notes[command.id]?.anchor))) return [command.id]
     return []
   })
+}
+/** Observe destructive intermediate visual identities even if a later command restores equal JSON. */
+function invalidatedVisualIds(document: SceneDocument, commands: readonly CompositionCommand[]): string[] {
+  if (!document.visual) return []
+  const visualCommands = commands.filter(command => command.type === 'removeVisualBoundary' || command.type === 'removeVisualEffect'
+    || command.type === 'upsertVisualBoundary' || command.type === 'upsertVisualEdgeLook' || command.type === 'upsertVisualLight'
+    || command.type === 'upsertVisualFog' || command.type === 'upsertVisualFilter')
+  if (!visualCommands.length) return []
+  // Only visual records are changed by this intermediate-topology witness.
+  // Keep the remaining immutable scene branches rather than cloning every prop.
+  const scene = { ...document, visual: copy(document.visual) }, invalid = new Set<string>()
+  for (const command of visualCommands) {
+    const before = visualTopology(scene), visual = scene.visual
+    if (!visual) continue
+    if (command.type === 'removeVisualBoundary') delete visual.boundaries[command.id]
+    else if (command.type === 'removeVisualEffect') { const key = { edgeLook: 'edgeLooks', light: 'lights', fog: 'fogs', filter: 'filters' } as const; delete visual[key[command.kind]][command.id] }
+    else if (command.type === 'upsertVisualBoundary') visual.boundaries[command.boundary.id] = command.boundary
+    else if (command.type === 'upsertVisualEdgeLook') visual.edgeLooks[command.edgeLook.id] = command.edgeLook
+    else if (command.type === 'upsertVisualLight') visual.lights[command.light.id] = command.light
+    else if (command.type === 'upsertVisualFog') visual.fogs[command.fog.id] = command.fog
+    else if (command.type === 'upsertVisualFilter') visual.filters[command.filter.id] = command.filter
+    const after = visualTopology(scene)
+    for (const id of new Set([...before.keys(), ...after.keys()])) if (before.get(id) !== after.get(id)) invalid.add(id)
+  }
+  return [...invalid]
 }
 
 export function forkProject(project: EditableProject, runtime: PreparationContext): EditableProject {
@@ -198,7 +239,9 @@ export class Workspace {
   private readonly saveGuards = new WeakMap<EditableProject, ProjectSaveGuard>()
   private atomicLock: object | null = null
   private readonly structureContinuity = new StructureContinuitySession()
+  private readonly visualContinuity = new VisualContinuitySession()
   private readonly structuralInvalidations = new WeakMap<EditableProject, string[]>()
+  private readonly visualInvalidations = new WeakMap<EditableProject, string[]>()
   private past: EditableProject[] = []
   private future: EditableProject[] = []
   private persistedRevision: number | null = null
@@ -212,7 +255,7 @@ export class Workspace {
   constructor(private readonly repository: WorkspaceRepository, private readonly options: WorkspaceOptions) {}
   private validateCandidate = (document: SceneDocument) => this.options.validateCandidate?.(document)
   private validation = () => this.options.validation
-  private preparation = () => ({ validation: this.options.validation, runtime: this.options.runtime })
+  private preparation = (baseline?: EditableProject) => ({ validation: this.options.validation, runtime: this.options.runtime, ...(baseline ? { baseline } : {}) })
   getDocument = () => this.state.project?.document ?? null
   open = (project: EditableProject) => this.openPersisted(project)
   retrySave = () => this.retry()
@@ -239,6 +282,7 @@ export class Workspace {
     const owned = verified ?? captureEditableDraft(project)
     if (!verified) Object.assign(owned, certifyCompositionContent({ document: owned.document, historyIdentity: owned.historyIdentity, appearance: owned.appearance }))
     this.structureContinuity.reset(owned.document)
+    this.visualContinuity.reset(owned.document)
     this.version++
     this.past = []; this.future = []; this.pending = null; this.blocked = null
     this.persistedRevision = project.document.revision
@@ -338,6 +382,7 @@ export class Workspace {
     if (!current) return
     // Reset the existing witness owner so even previously issued proofs expire.
     this.structureContinuity.reset(current.document)
+    this.visualContinuity.reset(current.document)
     this.version++
     this.past = []; this.future = []; this.pending = null; this.blocked = null
     this.persistedRevision = null
@@ -362,18 +407,45 @@ export class Workspace {
       if (this.pending && !this.blocked) this.timer = setTimeout(() => { this.timer = null; void this.startSave().catch(() => {}) }, 120)
     }
   }
-  private commit(candidate: EditableProject, history: 'edit' | 'undo' | 'redo', token?: object, saveGuard?: ProjectSaveGuard) {
+  /** Upgrade a saved current-v1 branch by publishing a separately validated copy. */
+  async enableVisualCopy() {
+    this.assertWritable()
+    const current = this.requireProject()
+    if (current.schemaVersion === 2) return
+    const checkpoint = this.checkpoint()
+    await this.flush()
+    this.assertCheckpoint(checkpoint)
+    const draft = forkProject(current, this.options.runtime)
+    draft.schemaVersion = 2
+    draft.document.schemaVersion = 2
+    draft.document.visual = emptyVisualSystem()
+    draft.document.title = `${current.document.title} · 视觉副本`
+    const candidate = await validateEditableProject(draft, this.validation())
+    this.assertCheckpoint(checkpoint)
+    await this.repository.save(toBundle(candidate), null)
+    this.assertCheckpoint(checkpoint)
+    this.install(candidate)
+  }
+  /** Complete public validation returns a new wrapper; retain transaction-only witnesses explicitly. */
+  private transferInvalidations(source: EditableProject, target: EditableProject) {
+    const structural = this.structuralInvalidations.get(source), visual = this.visualInvalidations.get(source)
+    if (structural) this.structuralInvalidations.set(target, [...structural])
+    if (visual) this.visualInvalidations.set(target, [...visual])
+  }
+  private commit(candidate: EditableProject, history: 'edit' | 'undo' | 'redo', token?: object, saveGuard?: ProjectSaveGuard, baseline: EditableProject = candidate) {
     this.assertWritable(token)
     const current = this.requireProject(), checkpoint = this.checkpoint()
     const historyIdentity = mergeIdentityRecords(candidate.historyIdentity, [current.historyIdentity])
     const content = reviseCompositionContent({ document: candidate.document, historyIdentity: candidate.historyIdentity, appearance: candidate.appearance },
       current.document.revision + 1, this.options.runtime.clock.now(), historyIdentity)
     this.validateCandidate(content.document)
+    const next = tryDeriveEditableProject({ ...candidate, ...content }, baseline, this.validation())
+    if (!next) throw new Error('提交工程未能保留确切不可变资源闭包的验证证明，已保留当前内容。')
     this.assertCheckpoint(checkpoint)
-    const next = freeze({ ...candidate, ...content })
     const retainedGuard = saveGuard ?? this.saveGuards.get(current)
     if (retainedGuard) this.saveGuards.set(next, retainedGuard)
     this.structureContinuity.advance(current.document, content.document, this.structuralInvalidations.get(candidate))
+    this.visualContinuity.advance(current.document, content.document, this.visualInvalidations.get(candidate))
     if (history === 'edit') { this.past.push(current); this.future = [] }
     else if (history === 'undo') { this.past.pop(); this.future.push(current) }
     else { this.future.pop(); this.past.push(current) }
@@ -422,9 +494,8 @@ export class Workspace {
   /** Only the command preparation path may register candidates that change scene semantics. */
   private async registerPrepared(input: EditableProject, description: string, checkpoint: number, commands: readonly CompositionCommand[] = []): Promise<CompositionPreview> {
     this.assertCandidateBaseline(input, checkpoint)
-    const candidate = captureEditableDraft(getVerifiedEditableProject(input) ?? await validateEditableProject(input, this.validation()))
+    const candidate = getVerifiedEditableProject(input) ?? await validateEditableProject(input, this.validation())
     this.assertCandidateBaseline(candidate, checkpoint)
-    Object.assign(candidate, certifyCompositionContent({ document: candidate.document, historyIdentity: candidate.historyIdentity, appearance: candidate.appearance }))
     this.validateCandidate(candidate.document)
     projectScene(candidate.document, 'player')
     this.assertCheckpoint(checkpoint)
@@ -440,6 +511,7 @@ export class Workspace {
     this.assertCheckpoint(checkpoint)
     const preview = await this.registerPrepared(candidate, '场景与外观修改', checkpoint, frozenCommands)
     this.structuralInvalidations.set(preview.project, invalidatedStructureIds(current.document, frozenCommands))
+    this.visualInvalidations.set(preview.project, invalidatedVisualIds(current.document, frozenCommands))
     return preview
   }
   cancelPreview(preview: CompositionPreview) {
@@ -455,14 +527,15 @@ export class Workspace {
     this.assertPreview(preview)
     this.compositionPreviews.set(preview, 'applying')
     try {
-      await validateEditableProject(preview.project, this.validation())
+      const candidate = await validateEditableProject(preview.project, this.validation())
       this.assertPreview(preview)
-      this.validateCandidate(preview.project.document)
+      this.validateCandidate(candidate.document)
       this.assertPreview(preview)
       const current = this.requireProject()
-      if (canonical({ document: current.document, appearance: current.appearance, identity: current.historyIdentity })
-        !== canonical({ document: preview.project.document, appearance: preview.project.appearance, identity: preview.project.historyIdentity })) {
-        this.commit(preview.project, 'edit')
+      if (!equalOwnedContent(current, candidate)
+        || this.structuralInvalidations.get(preview.project)?.length || this.visualInvalidations.get(preview.project)?.length) {
+        this.transferInvalidations(preview.project, candidate)
+        this.commit(candidate, 'edit')
       }
       this.compositionPreviews.set(preview, 'applied')
     } catch (error) { this.compositionPreviews.set(preview, 'cancelled'); throw error }
@@ -473,17 +546,18 @@ export class Workspace {
     // Preparation fully validates both the captured input and the materialized
     // candidate. Only validator-owned immutable byte/original closures are reused.
     // Immediate commands have no user-visible preview lifetime to register/recheck.
-    const prepared = await prepareCompositionCommands(current, frozenCommands, this.preparation())
-    this.assertCandidateBaseline(prepared, checkpoint)
-    const candidate = captureEditableDraft(prepared)
-    Object.assign(candidate, certifyCompositionContent({ document: candidate.document, historyIdentity: candidate.historyIdentity, appearance: candidate.appearance }))
+    const candidate = await prepareCompositionCommands(current, frozenCommands, this.preparation())
+    this.assertCandidateBaseline(candidate, checkpoint)
     this.validateCandidate(candidate.document)
     projectScene(candidate.document, 'player')
     this.assertCandidateBaseline(candidate, checkpoint)
-    if (canonical({ document: current.document, appearance: current.appearance, identity: current.historyIdentity })
-      !== canonical({ document: candidate.document, appearance: candidate.appearance, identity: candidate.historyIdentity })) {
-      this.structuralInvalidations.set(candidate, invalidatedStructureIds(current.document, frozenCommands))
-      this.commit(freeze(candidate), 'edit')
+    const structuralInvalidations = invalidatedStructureIds(current.document, frozenCommands)
+    const visualInvalidations = invalidatedVisualIds(current.document, frozenCommands)
+    if (!equalOwnedContent(current, candidate)
+      || structuralInvalidations.length || visualInvalidations.length) {
+      this.structuralInvalidations.set(candidate, structuralInvalidations)
+      this.visualInvalidations.set(candidate, visualInvalidations)
+      this.commit(candidate, 'edit')
     }
   }
   updateProp(id: string, changes: { positionMm?: { x: number; y: number }; rotationDeg?: number }) { return this.execute([{ type: 'updateProp', id, changes }]) }
@@ -496,7 +570,7 @@ export class Workspace {
     const historyIdentity = advanceHistoryIdentity(current.historyIdentity, current.document, candidate.document, this.options.runtime, { allowResurrection: true })
     this.validateCandidate(candidate.document)
     this.assertCheckpoint(checkpoint)
-    this.commit({ ...candidate, historyIdentity }, history)
+    this.commit({ ...candidate, historyIdentity }, history, undefined, undefined, candidate)
   }
   undo() { this.assertWritable(); const previous = this.past.at(-1); if (previous) this.restoreHistory(previous, 'undo') }
   redo() { this.assertWritable(); const next = this.future.at(-1); if (next) this.restoreHistory(next, 'redo') }
@@ -514,7 +588,7 @@ export class Workspace {
   }
 
   /** Explicitly freezes one local authority; JSON returned by a task can never create it. */
-  async authorizeAtomic(scope: AuthoringScope): Promise<AtomicAuthorization> {
+  async authorizeAtomic(scope: AuthoringScope, brief?: import('../../shared/ai/plan.js').AuthoringBrief): Promise<AtomicAuthorization> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), current = this.requireProject()
     const capturedScope = AuthoringScopeSchema.parse(captureJson(scope))
@@ -522,7 +596,7 @@ export class Workspace {
     this.assertCheckpoint(checkpoint)
     const project = pureProject(verified), baseContentHash = authoringProjectHash(project)
     const start = captureAtomicStart({ schemaVersion: 1, project, baseContentHash, scope: capturedScope, seed: crypto.randomUUID(),
-      preparedAt: this.options.runtime.clock.now(), skill: { id: capturedScope.scene ? 'sceneweave-scene-authoring' : capturedScope.artwork ? 'sceneweave-artwork-authoring' : 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model' })
+      preparedAt: this.options.runtime.clock.now(), skill: { id: capturedScope.scene || capturedScope.visual ? 'sceneweave-scene-authoring' : capturedScope.artwork ? 'sceneweave-artwork-authoring' : 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model', ...(brief ? { brief } : {}) })
     const authorization = freezeAtomic({ start, scope: start.scope, checkpoint, currentSceneId: current.document.sceneId,
       currentRevision: current.document.revision, baseContentHash })
     this.assertWritable(); this.assertCheckpoint(checkpoint)
@@ -553,7 +627,7 @@ export class Workspace {
     const project = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal })
     checkCancelled(signal)
     this.validateCandidate(project.document); projectScene(project.document, 'player')
-    const changes = atomicChanges(authorization.start.project, pureProject(project), replayed.state.changedIds)
+    const changes = atomicChanges(authorization.start.project, pureProject(project), replayed.state.changedIds, replayed.visualInvalidatedIds)
     if (!changes.length) throw new Error('草稿没有可采用的实际修改。')
     const candidate = freezeAtomic({ project, document: project.document, changes, operationCost: replayed.state.operationCost,
       readIds: replayed.state.readIds, writeIds: replayed.state.writeIds, taskId: replayed.draft.taskId, generation: replayed.draft.generation,
@@ -596,8 +670,8 @@ export class Workspace {
       const raw = await fromBundle({ project: replayed.project, resources: source.resources }, { ...this.validation(), signal })
       const checkedProject = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal })
       if (canonical(pureProject(checkedProject)) !== canonical(pureProject(candidate.project))) throw new Error('素材本机物化结果与已审阅草稿不同，请重新审阅。')
-      // Finish the metadata certification before requesting a short-lived server claim.
-      const project = freeze({ ...checkedProject, ...certifyCompositionContent(contentOf(checkedProject)) })
+      // Preserve the exact verified wrapper before requesting a short-lived server claim.
+      const project = checkedProject
       checkCancelled(signal); this.assertAtomicBaseline(candidate, record)
       this.validateCandidate(project.document); projectScene(project.document, 'player')
       reviseSceneSnapshot(project.document, this.requireProject().document.revision + 1, this.options.runtime.clock.now())
@@ -609,6 +683,7 @@ export class Workspace {
         expectedMetadataVersion: usage.metadataVersion, signal })
       checkCancelled(signal); this.assertAtomicBaseline(candidate, record)
       this.structureContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
+      this.visualContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
       const requestedAt = performance.now(), lease = assertAtomicLease(await options.claim(), candidate, requestedAt)
       checkCancelled(signal); this.assertAtomicBaseline(candidate, record)
       // A read transaction rejects already moved branches; the final write must repeat this exact guard.
@@ -617,6 +692,7 @@ export class Workspace {
       await this.repository.checkProtection(candidate.currentSceneId, candidate.currentRevision, protection.contentHash, guard, { signal })
       checkCancelled(signal); this.assertAtomicBaseline(candidate, record); assertAtomicLease(lease, candidate, requestedAt)
       record.status = 'applied'
+      this.visualInvalidations.set(project, replayed.visualInvalidatedIds)
       this.commit(project, 'edit', token, guard)
       committed = true
       const save = this.flush().finally(() => { if (this.atomicLock === token) this.atomicLock = null })
@@ -643,10 +719,12 @@ export class Workspace {
     })
     this.assertCheckpoint(checkpoint)
     this.structureContinuity.recordSnapshot(snapshot.id, snapshot.contentHash, project.document)
+    this.visualContinuity.recordSnapshot(snapshot.id, snapshot.contentHash, project.document)
     return snapshot
   }
   private restoreEvidence(snapshot: EditableSnapshot, request: RestoreRequest) {
     const current = this.requireProject()
+    if (request.mode === 'visual') return { visualContinuity: this.visualContinuity.prove(snapshot.id, snapshot.contentHash, current.document, snapshot.project.document) }
     const structuralSurface = request.mode !== 'layer' && request.ids.some(id =>
       (current.appearance.surfaceSources[id] || snapshot.project.appearance.surfaceSources[id])
       && (current.document.rooms[id] || current.document.walls[id] || snapshot.project.document.rooms[id] || snapshot.project.document.walls[id]))
@@ -660,9 +738,10 @@ export class Workspace {
     const plan = buildRestorePlan(contentOf(current), contentOf(snapshot.project), frozenRequest, this.restoreEvidence(snapshot, frozenRequest))
     this.validateCandidate(plan.document)
     this.assertCheckpoint(checkpoint)
-    const project = await materializeProject(restorationProject(current, snapshot.project, plan), this.preparation())
+    const materialized = await materializeProject(restorationProject(current, snapshot.project, plan), this.preparation(current))
     this.assertCheckpoint(checkpoint)
-    await validateEditableProject(project, this.validation())
+    const project = await validateEditableProject(materialized, this.validation())
+    this.transferInvalidations(materialized, project)
     this.assertCheckpoint(checkpoint)
     this.validateCandidate(project.document)
     projectScene(project.document, 'player')
@@ -698,9 +777,10 @@ export class Workspace {
       const plan = buildRestorePlan(contentOf(current), contentOf(source.project), preview.plan.request, this.restoreEvidence(source, preview.plan.request))
       this.validateCandidate(plan.document)
       this.assertRestore(preview)
-      const candidate = await materializeProject(restorationProject(current, source.project, plan), this.preparation())
+      const materialized = await materializeProject(restorationProject(current, source.project, plan), this.preparation(current))
       this.assertRestore(preview)
-      await validateEditableProject(candidate, this.validation())
+      const candidate = await validateEditableProject(materialized, this.validation())
+      this.transferInvalidations(materialized, candidate)
       this.assertRestore(preview)
       this.validateCandidate(candidate.document)
       projectScene(candidate.document, 'player')
@@ -716,6 +796,7 @@ export class Workspace {
       })
       this.assertRestore(preview)
       this.structureContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
+      this.visualContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
       const retained = await this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId)
       this.assertRestore(preview)
       if (!retained || retained.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容变化，保护快照已保留，未采用恢复。')
@@ -751,8 +832,8 @@ export class Workspace {
     this.validateCandidate(plan.document)
     this.assertCheckpoint(checkpoint)
     // C2 restores geometry/business fields only, so the exact current resource and license closure remains authoritative.
-    const project = { ...current, document: plan.document, historyIdentity: mergeHistoryIdentities(current.historyIdentity, current.document, snapshot.project.historyIdentity, snapshot.project.document) }
-    await validateEditableProject(project, this.validation())
+    const project = await validateEditableProject({ ...current, document: plan.document,
+      historyIdentity: mergeHistoryIdentities(current.historyIdentity, current.document, snapshot.project.historyIdentity, snapshot.project.document) }, this.validation())
     this.assertCheckpoint(checkpoint)
     const { project: _project, ...summary } = snapshot
     const preview = freeze({ snapshot: summary, plan, project, checkpoint, currentSceneId: current.document.sceneId,
@@ -789,8 +870,8 @@ export class Workspace {
       const plan = buildStructureRestorePlan(current.document, current.historyIdentity, source.project.document, source.project.historyIdentity, preview.plan.request, continuity)
       this.validateCandidate(plan.document)
       this.assertStructureRestore(preview)
-      const candidate = { ...current, document: plan.document, historyIdentity: mergeHistoryIdentities(current.historyIdentity, current.document, source.project.historyIdentity, source.project.document) }
-      await validateEditableProject(candidate, this.validation())
+      const candidate = await validateEditableProject({ ...current, document: plan.document,
+        historyIdentity: mergeHistoryIdentities(current.historyIdentity, current.document, source.project.historyIdentity, source.project.document) }, this.validation())
       this.assertStructureRestore(preview)
       reviseSceneSnapshot(candidate.document, current.document.revision + 1, this.options.runtime.clock.now())
       const usage = await this.repository.usage(preview.currentSceneId)
@@ -803,6 +884,7 @@ export class Workspace {
       })
       this.assertStructureRestore(preview)
       this.structureContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
+      this.visualContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
       const retained = await this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId)
       this.assertStructureRestore(preview)
       if (!retained || retained.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容变化，保护快照已保留，未采用结构恢复。')

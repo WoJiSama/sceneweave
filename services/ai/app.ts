@@ -8,10 +8,11 @@ import { createChatProvider } from './chat-provider.js'
 import { TaskEngine } from './engine.js'
 import { TaskFault, TaskStore } from './store.js'
 import { AUTHORING_LIMITS, DraftAppliedSchema, DraftClaimSchema, DraftValidationSchema } from '../../src/shared/ai/authoring-protocol.js'
+import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
-  return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, protocol: 'chat-completions',
-    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: 'unverified' }, retentionDays: AI_LIMITS.retentionDays,
+  return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified' }, retentionDays: AI_LIMITS.retentionDays,
     limits: { modelRequests: AI_LIMITS.modelRequests, toolCalls: AI_LIMITS.toolCalls, executionMs: AI_LIMITS.executionMs, promptBytes: AI_LIMITS.promptBytes, outputBytes: AI_LIMITS.outputBytes } })
 }
 export function authenticate(config: AiConfig, authorization: string | undefined): string | undefined {
@@ -43,7 +44,7 @@ async function boundedJson(request: Request, limit: number = AI_LIMITS.requestBy
     let offset = 0; for (const part of parts) { bytes.set(part, offset); offset += part.byteLength }
     let value: unknown
     try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown } catch { throw new TaskFault('invalid_request', 400) }
-    if (size > AI_LIMITS.requestBytes && (!value || typeof value !== 'object' || !Object.hasOwn(value, 'authoring'))) throw new TaskFault('request_limit', 413)
+    if (size > AI_LIMITS.requestBytes && (!value || typeof value !== 'object' || (!Object.hasOwn(value, 'authoring') && !Object.hasOwn(value, 'vision')))) throw new TaskFault('request_limit', 413)
     return value
   } finally { reader.releaseLock() }
 }
@@ -51,7 +52,7 @@ const errorPayload = (code: string, requestState: AiError['requestState'] = 'not
 export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider?: ProviderAdapter }
 export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir)
-  const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent })
+  const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
   const app = new Hono<{ Variables: { owner: string } }>()
   const streams = new Map<string, number>()
   let streamCount = 0
@@ -82,9 +83,9 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     return next()
   })
   app.get('/healthz', context => context.json({ ok: true }))
-  app.get('/v1/capabilities', context => context.json(connectionInfo(config)))
+  app.get('/v1/capabilities', context => context.json(engine.connectionInfo))
   app.post('/v1/tasks', async context => {
-    const body = await boundedJson(context.req.raw, AUTHORING_LIMITS.requestBytes)
+    const body = await boundedJson(context.req.raw, VISION_LIMITS.requestBytes)
     const parsed = CreateTaskSchema.safeParse(body)
     if (!parsed.success) throw new TaskFault('invalid_request', 400)
     const snapshot = engine.create(context.get('owner'), parsed.data)
@@ -119,7 +120,7 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     return context.json(engine.appliedDraft(context.get('owner'), context.req.param('id'), parsed.data))
   })
   app.post('/v1/tasks/:id/control', async context => {
-    const parsed = ControlTaskSchema.safeParse(await boundedJson(context.req.raw))
+    const parsed = ControlTaskSchema.safeParse(await boundedJson(context.req.raw, VISION_LIMITS.requestBytes))
     if (!parsed.success) throw new TaskFault('invalid_request', 400)
     return context.json(engine.control(context.get('owner'), context.req.param('id'), parsed.data))
   })

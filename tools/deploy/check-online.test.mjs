@@ -41,13 +41,14 @@ function contractRequest(calls) {
 test('CLI requires exact HTTPS origins and never accepts credentials as an argument', () => {
   assert.equal(options.minHours, 48)
   assert.equal(parseOptions([...argumentsFor, '--min-hours', '72', '--timeout-ms', '500'], {}).minHours, 72)
+  assert.equal(parseOptions([...argumentsFor, '--vision', 'enabled'], {}).expectedVision, 'enabled')
   for (const invalid of [
     [], ['--url', 'http://124.223.95.142', '--origin', options.origin],
     ['--url', `${options.endpoint}/healthz`, '--origin', options.origin],
     ['--url', options.endpoint, '--origin', `${options.origin}/sceneweave/`],
     ['--url', 'https://user:secret@example.com', '--origin', options.origin],
     [...argumentsFor, '--url', options.endpoint], [...argumentsFor, '--token', token],
-    [...argumentsFor, '--timeout-ms', 'Infinity'], [...argumentsFor, '--min-hours', '-1'],
+    [...argumentsFor, '--timeout-ms', 'Infinity'], [...argumentsFor, '--min-hours', '-1'], [...argumentsFor, '--vision', 'maybe'],
   ]) assert.throws(() => parseOptions(invalid, {}), /invalid_arguments/)
   assert.throws(() => parseOptions([...argumentsFor, '--authenticated'], {}), /missing_access_token/)
   assert.equal(parseOptions([...argumentsFor, '--authenticated'], { SCENEWEAVE_AI_ACCESS_TOKEN: token }).token, token)
@@ -129,6 +130,21 @@ test('optional capability check keeps the token and model out of its report', as
   assert.equal(authorized[0].path, '/v1/capabilities')
   assert.equal(JSON.stringify(report).includes(token), false)
   assert.equal(JSON.stringify(report).includes('private-model-value'), false)
+})
+
+test('authenticated checks require the explicitly expected vision capability', async () => {
+  const request = async (...args) => {
+    const result = await contractRequest([])(...args)
+    if (args[1] === '/v1/capabilities' && args[2].headers.Authorization) {
+      const body = JSON.parse(result.body); body.capabilities.vision = 'enabled'; result.body = JSON.stringify(body)
+    }
+    return result
+  }
+  const accepted = await runOnlineChecks({ ...options, token, expectedVision: 'enabled' }, { inspect, request, now })
+  assert.equal(accepted.ok, true)
+  const mismatch = await runOnlineChecks({ ...options, token }, { inspect, request, now })
+  assert.equal(mismatch.ok, false)
+  assert.equal(mismatch.checks.find(value => value.name === 'authenticated_capabilities').error, 'unexpected_body')
 })
 
 test('certificate threshold and exact CORS mismatches produce actionable failure codes', async () => {

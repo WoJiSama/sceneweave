@@ -9,7 +9,7 @@ import type { SceneDocument } from './model/scene.js'
 import type { CompleteValidationOptions, ImageProcessingPort, RasterImage } from './ports/resources.js'
 import { crc32 } from './project/binary.js'
 import { validateHistoryArchive, type HistoryArchive } from './project/history.js'
-import { createMemoryResources, deriveBitmapVariant, getVerifiedProjectBundle, validateProjectBundle, validateProjectBundles } from './project/resources.js'
+import { createMemoryResources, deriveBitmapVariant, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectBundles } from './project/resources.js'
 import { projectContentHash } from './project/validate.js'
 import { cloneJson } from './validation/json.js'
 
@@ -190,6 +190,62 @@ describe('complete-v1 owned resources and selected-history boundary (Node image 
     expect(getVerifiedProjectBundle({ project: cloneJson(verified.project), resources: verified.resources })).toBeUndefined()
     expect(getVerifiedProjectBundle({ project: verified.project, resources: { read: verified.resources.read } })).toBeUndefined()
     expect(getVerifiedProjectBundle({ ...verified, validated: true })).toBeUndefined()
+  })
+
+  it('reuses only the owned byte closure for a fully rechecked metadata derivation', async () => {
+    const { bundle, pixels } = fixture(RED), verified = await validateProjectBundle(bundle, nodeImages(pixels).options)
+    const candidateProject = cloneJson(verified.project)
+    candidateProject.document.title = 'derived title'
+    candidateProject.assets = verified.project.assets
+    candidateProject.licenses = verified.project.licenses
+    candidateProject.licenseBindings = verified.project.licenseBindings
+    candidateProject.authoringSources = verified.project.authoringSources
+    const candidate = { project: candidateProject, resources: verified.resources }
+    const derived = tryDerivedProjectBundle(candidate, verified)
+    expect(derived).toBeDefined()
+    expect(derived!.project.document.title).toBe('derived title')
+    expect(derived!.resources).toBe(verified.resources)
+    expect(getVerifiedProjectBundle(derived!)).toBe(derived)
+    expect(await derived!.resources.read(Object.keys(derived!.project.assets)[0])).toEqual(await verified.resources.read(Object.keys(verified.project.assets)[0]))
+  })
+
+  it('falls back when any proof branch, resource port, or asset mapping changes', async () => {
+    const { bundle, pixels } = fixture(RED), verified = await validateProjectBundle(bundle, nodeImages(pixels).options)
+    const cloneWith = (changes: Partial<ProjectData>): ProjectBundle => ({ project: { ...verified.project, ...changes }, resources: verified.resources })
+    expect(tryDerivedProjectBundle(cloneWith({ assets: cloneJson(verified.project.assets) }), verified)).toBeUndefined()
+    expect(tryDerivedProjectBundle(cloneWith({ licenses: cloneJson(verified.project.licenses) }), verified)).toBeUndefined()
+    expect(tryDerivedProjectBundle(cloneWith({ licenseBindings: cloneJson(verified.project.licenseBindings) }), verified)).toBeUndefined()
+    expect(tryDerivedProjectBundle(cloneWith({ authoringSources: cloneJson(verified.project.authoringSources) }), verified)).toBeUndefined()
+    expect(tryDerivedProjectBundle({ project: verified.project, resources: { read: verified.resources.read } }, verified)).toBeUndefined()
+    const redirected = cloneJson(verified.project)
+    redirected.document.assets.image.sha256 = 'f'.repeat(64)
+    redirected.assets = verified.project.assets
+    redirected.licenses = verified.project.licenses
+    redirected.licenseBindings = verified.project.licenseBindings
+    redirected.authoringSources = verified.project.authoringSources
+    expect(tryDerivedProjectBundle({ project: redirected, resources: verified.resources }, verified)).toBeUndefined()
+  })
+
+  it('never issues a derived certificate after cancellation', async () => {
+    const { bundle, pixels } = fixture(RED), verified = await validateProjectBundle(bundle, nodeImages(pixels).options)
+    const candidate = { project: { ...verified.project, document: cloneJson(verified.project.document) }, resources: verified.resources }
+    expect(() => tryDerivedProjectBundle(candidate, verified, { signal: { aborted: true } })).toThrow(/取消/)
+  })
+
+  it('certifies the captured resource branches when a proxy changes later property reads', async () => {
+    const { bundle, pixels } = fixture(RED), verified = await validateProjectBundle(bundle, nodeImages(pixels).options)
+    const replacement = cloneJson(verified.project.assets), hash = Object.keys(replacement)[0]
+    replacement[hash].sizeBytes++
+    let reads = 0
+    const project = new Proxy({ ...verified.project }, { get(target, key, receiver) {
+      if (key === 'assets') { reads++; return replacement }
+      return Reflect.get(target, key, receiver)
+    } })
+    const derived = tryDerivedProjectBundle({ project, resources: verified.resources }, verified)
+    expect(derived).toBeDefined()
+    expect(reads).toBe(0)
+    expect(derived!.project.assets).toEqual(verified.project.assets)
+    expect((await derived!.resources.read(hash)).length).toBe(derived!.project.assets[hash].sizeBytes)
   })
 
   it('publicly rechecks and decodes even an already certified bundle', async () => {

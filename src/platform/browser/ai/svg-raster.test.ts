@@ -24,8 +24,9 @@ class TestOffscreenCanvas {
   cleared = false
   drawn = false
   constructor(width: number, height: number) { this.width = width; this.height = height }
-  getContext(kind: string) {
+  getContext(kind: string, options: { alpha: boolean; colorSpace: string; willReadFrequently: boolean }) {
     if (kind !== '2d') return null
+    expect(options).toEqual({ alpha: true, colorSpace: 'srgb', willReadFrequently: true })
     return { clearRect: () => { this.cleared = true }, drawImage: () => { this.drawn = true } }
   }
   async convertToBlob(options: { type: string }): Promise<Blob> {

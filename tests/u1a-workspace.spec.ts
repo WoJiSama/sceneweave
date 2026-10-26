@@ -123,6 +123,7 @@ test('U1a Home Continue retains the same session, selected object, viewport, sea
   await page.getByRole('button', { name: '放大地图', exact: true }).click()
   await page.getByRole('button', { name: '放大地图', exact: true }).click()
   const viewport = page.getByRole('group', { name: '地图视口', exact: true })
+  await expect(viewport).toHaveAttribute('data-zoom', '1.5625')
   const visual = { selected: await viewport.getAttribute('data-selected-ids'), zoom: await viewport.getAttribute('data-zoom'), x: await viewport.getAttribute('data-pan-x'), y: await viewport.getAttribute('data-pan-y') }
   const before = await current(page); expect(before.canUndo).toBe(true)
   await page.evaluate(() => Reflect.set(window, '__u1aOriginalCanvas', document.querySelector('.asset-map-wrap canvas')))
