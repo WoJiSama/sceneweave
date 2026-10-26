@@ -16,6 +16,7 @@ import { StructureContinuitySession } from '../../shared/history/structure-conti
 import { VisualContinuitySession, visualTopology } from '../../shared/history/visual-continuity.js'
 import { buildStructureRestorePlan, inspectStructureRestoreScope, type StructureRestorePlan, type StructureRestoreRequest, type StructureRestoreScope } from '../../shared/history/structure-restore.js'
 import { validateHistoryArchive, type HistoryArchive } from '../../shared/project/history.js'
+import { getVerifiedProjectBundle } from '../../shared/project/resources.js'
 import { captureJson } from '../../shared/validation/json.js'
 import type { AuthoringDraft, AuthoringScope, AuthoringStart, DraftLease } from '../../shared/ai/authoring-protocol.js'
 import { AuthoringScopeSchema } from '../../shared/ai/authoring-protocol.js'
@@ -26,7 +27,7 @@ import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStar
   type AtomicAuthorization, type AtomicCandidate, type AtomicCandidateRecord, type AtomicAdoptionResult, type AtomicCandidateStatus } from './atomic.js'
 import { materializeAuthoringArtwork } from './artwork.js'
 import { materializeProject, prepareCompositionCommands } from './prepare.js'
-import { captureEditableDraft, fromBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
+import { captureEditableDraft, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, tryReviseEditableProject, validateEditableProject, type EditableProject } from './project.js'
 
 export type WorkspaceRepository = Pick<ProjectRepository, 'save' | 'loadSnapshot' | 'createSnapshot' | 'usage' | 'importArchive' | 'checkProtection'>
 export interface WorkspaceOptions { validation: CompleteValidationOptions; runtime: PreparationContext; validateCandidate?: (document: SceneDocument) => void }
@@ -200,7 +201,18 @@ function restorationProject(current: EditableProject, historic: EditableProject,
     if (!license) throw new Error(`恢复所需许可文本缺失：${subject.subjectId}。`)
     licenses[hash] = license
   }
-  return { ...current, document: plan.document, historyIdentity: plan.historyIdentity, appearance: plan.appearance, assets, licenses, authoringSources, licenseBindings: [...bindings.values()], resources: Object.freeze({ read: (hash: string) => Object.hasOwn(current.assets, hash) || Object.values(current.authoringSources).some(source => source.sourceSha256 === hash || source.normalizedSha256 === hash) ? current.resources.read(hash) : historic.resources.read(hash) }) }
+  const licenseBindings = [...bindings.values()]
+  const sameRecords = (selected: Record<string, unknown>, original: Record<string, unknown>) => Object.keys(selected).length === Object.keys(original).length
+    && Object.entries(selected).every(([key, value]) => Object.hasOwn(original, key) && value === original[key])
+  // A transform-only restore can retain the exact current owned byte closure.
+  // New historic assets, SVG sources or bindings still take the merged reader
+  // and full byte/pixel validation path below.
+  if (getVerifiedEditableProject(current) && sameRecords(assets, current.assets) && sameRecords(licenses, current.licenses)
+    && sameRecords(authoringSources, current.authoringSources) && licenseBindings.length === current.licenseBindings.length
+    && licenseBindings.every((binding, index) => binding === current.licenseBindings[index])) {
+    return { ...current, document: plan.document, historyIdentity: plan.historyIdentity, appearance: plan.appearance }
+  }
+  return { ...current, document: plan.document, historyIdentity: plan.historyIdentity, appearance: plan.appearance, assets, licenses, authoringSources, licenseBindings, resources: Object.freeze({ read: (hash: string) => Object.hasOwn(current.assets, hash) || Object.values(current.authoringSources).some(source => source.sourceSha256 === hash || source.normalizedSha256 === hash) ? current.resources.read(hash) : historic.resources.read(hash) }) }
 }
 
 /** Diff rows describe the actual materialized result, including today's layer in source mode. */
@@ -436,16 +448,18 @@ export class Workspace {
     this.assertWritable(token)
     const current = this.requireProject(), checkpoint = this.checkpoint()
     const historyIdentity = mergeIdentityRecords(candidate.historyIdentity, [current.historyIdentity])
+    const sameIdentity = equalOwnedJson(historyIdentity, candidate.historyIdentity)
     const content = reviseCompositionContent({ document: candidate.document, historyIdentity: candidate.historyIdentity, appearance: candidate.appearance },
-      current.document.revision + 1, this.options.runtime.clock.now(), historyIdentity)
+      current.document.revision + 1, this.options.runtime.clock.now(), sameIdentity ? undefined : historyIdentity)
     this.validateCandidate(content.document)
-    const next = tryDeriveEditableProject({ ...candidate, ...content }, baseline, this.validation())
+    const next = (sameIdentity ? tryReviseEditableProject(candidate, content.document.revision, content.document.updatedAt, this.validation()) : undefined)
+      ?? tryDeriveEditableProject({ ...candidate, ...content }, baseline, this.validation())
     if (!next) throw new Error('提交工程未能保留确切不可变资源闭包的验证证明，已保留当前内容。')
     this.assertCheckpoint(checkpoint)
     const retainedGuard = saveGuard ?? this.saveGuards.get(current)
     if (retainedGuard) this.saveGuards.set(next, retainedGuard)
-    this.structureContinuity.advance(current.document, content.document, this.structuralInvalidations.get(candidate))
-    this.visualContinuity.advance(current.document, content.document, this.visualInvalidations.get(candidate))
+    this.structureContinuity.advance(current.document, next.document, this.structuralInvalidations.get(candidate))
+    this.visualContinuity.advance(current.document, next.document, this.visualInvalidations.get(candidate))
     if (history === 'edit') { this.past.push(current); this.future = [] }
     else if (history === 'undo') { this.past.pop(); this.future.push(current) }
     else { this.future.pop(); this.past.push(current) }
@@ -579,12 +593,14 @@ export class Workspace {
     const snapshot = await this.repository.loadSnapshot(ownerSceneId, snapshotId)
     if (!snapshot) return null
     const { bundle, ...summary } = snapshot
-    return { ...summary, project: await fromBundle(bundle, this.validation()) }
+    const verified = getVerifiedProjectBundle(bundle)
+    return { ...summary, project: verified ? fromVerifiedBundle(verified, this.validation()) : await fromBundle(bundle, this.validation()) }
   }
   private async createSnapshot(project: EditableProject, name: string, options: CreateSnapshotOptions): Promise<EditableSnapshot> {
     const snapshot = await this.repository.createSnapshot(toBundle(project), name, options)
     const { bundle, ...summary } = snapshot
-    return { ...summary, project: await fromBundle(bundle, this.validation()) }
+    const verified = getVerifiedProjectBundle(bundle)
+    return { ...summary, project: verified ? fromVerifiedBundle(verified, this.validation()) : await fromBundle(bundle, this.validation()) }
   }
 
   /** Explicitly freezes one local authority; JSON returned by a task can never create it. */
@@ -740,7 +756,9 @@ export class Workspace {
     this.assertCheckpoint(checkpoint)
     const materialized = await materializeProject(restorationProject(current, snapshot.project, plan), this.preparation(current))
     this.assertCheckpoint(checkpoint)
-    const project = await validateEditableProject(materialized, this.validation())
+    checkCancelled(this.validation().signal)
+    const project = getVerifiedEditableProject(materialized) ?? await validateEditableProject(materialized, this.validation())
+    checkCancelled(this.validation().signal)
     this.transferInvalidations(materialized, project)
     this.assertCheckpoint(checkpoint)
     this.validateCandidate(project.document)
@@ -779,7 +797,9 @@ export class Workspace {
       this.assertRestore(preview)
       const materialized = await materializeProject(restorationProject(current, source.project, plan), this.preparation(current))
       this.assertRestore(preview)
-      const candidate = await validateEditableProject(materialized, this.validation())
+      checkCancelled(this.validation().signal)
+      const candidate = getVerifiedEditableProject(materialized) ?? await validateEditableProject(materialized, this.validation())
+      checkCancelled(this.validation().signal)
       this.transferInvalidations(materialized, candidate)
       this.assertRestore(preview)
       this.validateCandidate(candidate.document)

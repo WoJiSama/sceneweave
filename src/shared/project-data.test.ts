@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { layerSceneV3 } from '../core/v3/test-fixtures'
 import { createCompositionContent } from './appearance/graph.js'
 import { inspectDependencies } from './geometry/dependencies.js'
-import { certifyProjectData, PROJECT_DATA_LIMITS, projectContentHash, projectDataSchema, validateProjectData } from './project/validate.js'
+import { certifyProjectData, PROJECT_DATA_LIMITS, projectContentHash, projectDataSchema, reviseCertifiedProjectData, validateProjectData } from './project/validate.js'
 import { canonicalJson, cloneJson, encodeUtf8, inspectJsonInput } from './validation/json.js'
 import { certifyCompositionContent, getCertifiedCompositionContent, validateCompositionDraft } from './validation/content.js'
 import { isCertifiedSceneSnapshot } from './validation/snapshots.js'
@@ -37,6 +37,60 @@ function fixture(image = false): ProjectData {
 }
 
 describe('native complete-v1 pure metadata contract', () => {
+  it('revises only privately certified metadata and rejects forged proofs and invalid scalars', () => {
+    const input = certifyProjectData(fixture(true)), updatedAt = '2026-10-26T00:00:00Z'
+    const revised = reviseCertifiedProjectData(input, input.document.revision + 1, updatedAt)!
+    expect(revised.document).toEqual({ ...input.document, revision: input.document.revision + 1, updatedAt })
+    for (const key of ['historyIdentity', 'appearance', 'assets', 'licenses', 'licenseBindings', 'authoringSources'] as const) expect(revised[key]).toBe(input[key])
+    expect(revised.document.props).toBe(input.document.props)
+    expect(Object.isFrozen(revised)).toBe(true)
+    expect(reviseCertifiedProjectData(revised, revised.document.revision + 1, updatedAt)).toBeDefined()
+    for (const fake of [fixture(), validateProjectData(input), Object.freeze({ ...input }), Object.freeze(cloneJson(input))]) {
+      expect(reviseCertifiedProjectData(fake, 100, updatedAt)).toBeUndefined()
+    }
+    for (const revision of [input.document.revision, -1, .5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => reviseCertifiedProjectData(input, revision, updatedAt)).toThrow()
+    }
+    expect(() => reviseCertifiedProjectData(input, 100, 'invalid-date')).toThrow()
+    expect(input.document.updatedAt).not.toBe(updatedAt)
+  })
+  it('retains exact JSON byte guards across repeated revisions and timestamp length changes', () => {
+    const input = fixture()
+    input.document.revision = 9; input.document.updatedAt = '2026-10-24T00:00:00Z'
+    input.document.title += 'x'.repeat(PROJECT_DATA_LIMITS.jsonBytes - Buffer.byteLength(JSON.stringify(input.document)) - 1)
+    const certified = certifyProjectData(input)
+    const exact = reviseCertifiedProjectData(certified, 10, input.document.updatedAt)!
+    expect(Buffer.byteLength(JSON.stringify(exact.document))).toBe(PROJECT_DATA_LIMITS.jsonBytes)
+    expect(validateProjectData(exact).document).toEqual(exact.document)
+    expect(() => reviseCertifiedProjectData(exact, 100, input.document.updatedAt)).toThrow(/20MiB/)
+    expect(() => reviseCertifiedProjectData(exact, 11, '2026-10-24T00:00:00.000Z')).toThrow(/20MiB/)
+    const shorter = reviseCertifiedProjectData(certifyProjectData({ ...input, document: { ...input.document, updatedAt: '2026-10-24T00:00:00.000Z', title: input.document.title.slice(0, -4) } }), 10, input.document.updatedAt)!
+    expect(Buffer.byteLength(JSON.stringify(shorter.document))).toBe(PROJECT_DATA_LIMITS.jsonBytes - 4)
+    expect(reviseCertifiedProjectData(shorter, 100, input.document.updatedAt)).toBeDefined()
+  })
+  it('retains the 300MiB declared expansion guard without granting a resource certificate', () => {
+    const input = fixture(true), asset = input.document.assets.image, definition = input.document.propDefinitions.definition
+    input.document.revision = 9
+    input.assets = {}; input.document.assets = {}; input.document.propDefinitions = {}
+    for (let i = 0; i < 15; i++) {
+      const id = `budget-image-${i}`, sha256 = digest(id), definitionId = `budget-definition-${i}`
+      input.document.assets[id] = { ...asset, id, sha256 }
+      input.document.propDefinitions[definitionId] = { ...cloneJson(definition), id: definitionId, catalogId: `test.${definitionId}`, defaultAppearance: { kind: 'image', assetId: id, tint: null, opacity: 1 } }
+      input.assets[sha256] = { sha256, mimeType: 'image/png', sizeBytes: PROJECT_DATA_LIMITS.imageBytes, pixelWidth: 2, pixelHeight: 2 }
+    }
+    input.document.props.item.definitionRef = { id: 'budget-definition-0', version: 1 }
+    input.document.props.item.appearance = cloneJson(input.document.propDefinitions['budget-definition-0'].defaultAppearance)
+    const fresh = createCompositionContent(input.document, { ids: { nextId: (() => { let i = 0; return () => `budget-token-${++i}` })() }, clock: { now: () => '2026-10-24T00:00:00.000Z' } })
+    input.historyIdentity = fresh.historyIdentity; input.appearance = fresh.appearance
+    const licensePath = input.licenseBindings[0].licensePath
+    input.licenseBindings = inspectDependencies(input.document).subjects.map(subject => ({ ...subject, licensePath, embedding: 'allowed' }))
+    const overhead = [input.document, input.historyIdentity, input.appearance, input.authoringSources].reduce((sum, value) => sum + Buffer.byteLength(JSON.stringify(value)), 0)
+      + Object.values(input.licenses).reduce((sum, value) => sum + Buffer.byteLength(value.text), 0)
+    Object.values(input.assets).at(-1)!.sizeBytes -= overhead
+    const certified = certifyProjectData(input)
+    expect(() => reviseCertifiedProjectData(certified, 10, input.document.updatedAt)).toThrow(/300MiB/)
+    expect('resources' in certified).toBe(false)
+  })
   it('owns strict complete JSON while preserving all three content parts', () => {
     const input = fixture(), parsed = validateProjectData(input)
     expect(parsed).toEqual(input); expect(parsed).not.toBe(input); expect(parsed.document).not.toBe(input.document)

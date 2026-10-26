@@ -204,24 +204,31 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     }
     return next
   }
-  let next = cloneJson(scene), cost = 0
+  let next = scene, owned = false, cost = 0
+  // Native commands already produce a detached mutable scene. Only commands
+  // that write in place need to acquire a draft before the first such write.
+  const writable = () => {
+    if (!owned) { next = cloneJson(next); owned = true }
+    return next
+  }
   const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
     if (isVisualCommand(command)) {
-      consume(applyVisualCommand(next, command, context).commandCost)
+      consume(applyVisualCommand(writable(), command, context).commandCost)
       options?.onOutdoorDraft?.(next, command)
     } else if (needsOutdoorExpansion(next, command)) {
-      consume(applyOutdoorCommand(next, command, context).commandCost)
+      consume(applyOutdoorCommand(writable(), command, context).commandCost)
       options?.onOutdoorDraft?.(next, command)
-    } else if (isBuildingCommand(command)) consume(applyBuildingCommand(next, command).commandCost)
+    } else if (isBuildingCommand(command)) consume(applyBuildingCommand(writable(), command).commandCost)
     else if (isAnnotationCommand(command)) {
-      const before = cloneJson(next)
+      const before = cloneJson(writable())
       applyAnnotationCommand(next, command)
       consume(nativeCommandCost(before, next))
-    } else if (command.type === 'setCanvasBounds') consume(applyCanvasBoundsCommand(next, command).commandCost)
+    } else if (command.type === 'setCanvasBounds') consume(applyCanvasBoundsCommand(writable(), command).commandCost)
     else {
       const before = next
       next = applyNativeContent(next, [command], context)
+      owned = true
       consume(nativeCommandCost(before, next))
     }
   }
