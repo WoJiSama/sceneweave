@@ -53,8 +53,9 @@ export function validateHistoryIdentityShape(input: unknown): HistoryIdentity {
 export function validateHistoryIdentity(input: unknown, document: SceneDocument): HistoryIdentity {
   const identity = validateHistoryIdentityShape(input), checked = validateSceneSnapshot(document)
   if (!checked.ok) throw new Error(`历史身份对应场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
-  const occupiedBirths = geometryIdentityIds(checked.document)
-  for (const layerId of Object.keys(checked.document.userLayers)) occupiedBirths.add(layerId)
+  const allIds = geometryIdentityIds(checked.document)
+  for (const layerId of Object.keys(checked.document.userLayers)) allIds.add(layerId)
+  const occupiedBirths = new Set(allIds)
   for (const [collection, field] of [['props', 'propTokens'], ['prefabInstances', 'prefabTokens']] as const) {
     for (const liveId of Object.keys(checked.document[collection])) {
       if (!Object.hasOwn(identity[field], liveId)) throw new Error(`当前物件/组合缺少身份 token：${liveId}。`)
@@ -64,8 +65,7 @@ export function validateHistoryIdentity(input: unknown, document: SceneDocument)
   for (const allocatedId of [...Object.keys(identity.propTokens), ...Object.keys(identity.prefabTokens)]) {
     if (occupiedBirths.has(allocatedId)) throw new Error(`已分配历史 ID 与其他场景身份冲突：${allocatedId}。`)
   }
-  const descriptors = outdoorIdentityDescriptors(checked.document), occupied = geometryIdentityIds(checked.document)
-  for (const layerId of Object.keys(checked.document.userLayers)) occupied.add(layerId)
+  const descriptors = outdoorIdentityDescriptors(checked.document), occupied = new Set(allIds)
   for (const [id, descriptor] of Object.entries(descriptors)) {
     const record = identity.outdoorTokens[id]
     if (!record || record.kind !== descriptor.kind || record.topologyHash !== descriptor.topologyHash) throw new Error(`室外对象缺少有效出生/拓扑身份：${id}。`)

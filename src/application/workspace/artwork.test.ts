@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ARTWORK_SVG, artworkDraft, artworkValidation } from '../../../tests/helpers/m24-artwork-fixtures'
 import { ProjectRepository } from '../../platform/browser/storage/repository'
 import { replayAuthoring } from '../../shared/ai/authoring'
@@ -153,5 +153,71 @@ describe('deferred SVG/style artwork materialization using actual PNG fixtures',
       expect(decodeUtf8(await bundle.resources.read(source.sourceSha256))).toBe(ARTWORK_SVG)
       for (const hash of projectResourceHashes(bundle.project)) expect(sha256Bytes(await bundle.resources.read(hash))).toBe(hash)
     }
+  })
+
+  it('revalidates historic SVG/PNG and licences when appearance recovery reintroduces an undone artwork closure', async () => {
+    const validation = artworkValidation(), name = `m24-artwork-undo-restore-${crypto.randomUUID()}`
+    const repo = new ProjectRepository({ name, validation, runtime })
+    repos.push(repo); names.add(name)
+    const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
+    await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
+    const before = workspace.getState().project!, owner = before.document.sceneId
+    const authorization = await workspace.authorizeAtomic({ targetIds: [], operations: [], placement: null, artwork: single })
+    const draft = artworkDraft(toBundle(before), [[svg()]], single); draft.start = authorization.start
+    draft.state = replayAuthoring(draft.start, draft.state.steps).state
+    const candidate = await workspace.prepareAtomicCandidate(authorization, draft)
+    const adopted = await workspace.adoptAtomicCandidate(candidate, { claim: async () => ({ schemaVersion: 1, taskId: candidate.taskId, generation: candidate.generation,
+      draftRevision: candidate.draftRevision, contentHash: candidate.contentHash, claimId: crypto.randomUUID(), serverNow: 1000, expiresAt: 31000 }) })
+    await adopted.save
+    const artwork = workspace.getState().project!, named = await workspace.createNamedSnapshot('SVG before undo')
+    const [assetId, source] = Object.entries(artwork.authoringSources)[0], pngHash = artwork.document.assets[assetId].sha256
+    workspace.undo()
+    await workspace.updateProp('other', { rotationDeg: 25 }); await workspace.flush()
+    const current = workspace.getState().project!, stored = await repo.database.projects.get(owner)
+    expect(current.authoringSources).toEqual({})
+    expect(current.assets[pngHash]).toBeUndefined()
+    await expect(current.resources.read(source.sourceSha256)).rejects.toThrow(/闭包/)
+    await expect(current.resources.read(pngHash)).rejects.toThrow(/闭包/)
+
+    // Each boundary must reject damaged persisted data even though the older
+    // current branch and the snapshot previously held real private proofs.
+    for (const hash of new Set([source.sourceSha256, source.normalizedSha256, pngHash])) {
+      const actual = (await repo.database.resources.get(hash))!
+      await repo.database.resources.put({ ...actual, bytes: new Uint8Array([0]) })
+      await expect(workspace.prepareRestore(named.id, { ids: ['item'], mode: 'appearance' })).rejects.toThrow(/资源|字节|SHA256/)
+      expect(workspace.getState().project).toBe(current)
+      expect(await repo.database.projects.get(owner)).toEqual(stored)
+      await repo.database.resources.put(actual)
+    }
+    const licenseHash = artwork.licenseBindings.find(binding => binding.subjectKind === 'asset' && binding.subjectId === assetId)!.licensePath.slice(9, -4)
+    const license = (await repo.database.licenseTexts.get(licenseHash))!
+    await repo.database.licenseTexts.put({ ...license, text: 'tampered historic licence' })
+    await expect(workspace.prepareRestore(named.id, { ids: ['item'], mode: 'appearance' })).rejects.toThrow(/许可/)
+    expect(workspace.getState().project).toBe(current)
+    expect(await repo.database.projects.get(owner)).toEqual(stored)
+    await repo.database.licenseTexts.put(license)
+
+    const rasterize = vi.spyOn(validation.svg!, 'rasterize'), decode = vi.spyOn(validation.images, 'decode')
+    const preview = await workspace.prepareRestore(named.id, { ids: ['item'], mode: 'appearance' })
+    // Both the cold snapshot and the newly merged candidate validate the real
+    // SVG/PNG pair; the current branch cannot grant a proof for absent bytes.
+    expect(rasterize.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(decode.mock.calls.filter(([, record]) => record.sha256 === pngHash).length).toBeGreaterThanOrEqual(4)
+    expect(preview.project.resources).not.toBe(current.resources)
+    expect(preview.project.authoringSources).toEqual(artwork.authoringSources)
+    expect(preview.project.licenseBindings).toEqual(expect.arrayContaining(artwork.licenseBindings))
+    expect(preview.project.licenses[licenseHash]).toEqual(license)
+    expect(decodeUtf8(await preview.project.resources.read(source.sourceSha256))).toBe(ARTWORK_SVG)
+    expect(decodeUtf8(await preview.project.resources.read(source.normalizedSha256))).toBe(normalizeStaticSvg(ARTWORK_SVG).normalizedSource)
+    expect(await preview.project.resources.read(pngHash)).toEqual(await artwork.resources.read(pngHash))
+    const protection = await workspace.applyRestore(preview); await workspace.flush()
+    expect(protection.project.authoringSources).toEqual({})
+    const cold = (await repo.load(owner))!
+    expect(cold.project.document.revision).toBe(4)
+    expect(cold.project.document.props.other.rotationDeg).toBe(25)
+    expect(cold.project.document.props.item.appearance).toEqual(artwork.document.props.item.appearance)
+    expect(cold.project.authoringSources).toEqual(artwork.authoringSources)
+    expect(cold.project.licenseBindings).toEqual(expect.arrayContaining(artwork.licenseBindings))
+    for (const hash of projectResourceHashes(cold.project)) expect(sha256Bytes(await cold.resources.read(hash))).toBe(hash)
   })
 })

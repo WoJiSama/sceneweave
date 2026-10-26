@@ -65,6 +65,55 @@ describe('native complete-v1 workspace and repository boundary', () => {
     expect(await repo.list()).toHaveLength(1)
   })
 
+  it('hands off a verified named snapshot once while every cold snapshot read still decodes', async () => {
+    const { workspace, owner } = await setup({ image: true })
+    const decode = vi.spyOn(validation.images, 'decode')
+    const named = await workspace.createNamedSnapshot('actual bytes')
+    expect(decode).toHaveBeenCalledTimes(1)
+    expect(getVerifiedEditableProject(named.project)).toBe(named.project)
+    const first = await workspace.loadNamedSnapshot(named.id, owner)
+    expect(decode).toHaveBeenCalledTimes(2)
+    expect(first!.project.document).toEqual(named.project.document)
+    const second = await workspace.loadNamedSnapshot(named.id, owner)
+    expect(decode).toHaveBeenCalledTimes(3)
+    expect(second!.project.resources).not.toBe(first!.project.resources)
+  })
+
+  it.each(['load', 'create'] as const)('rejects a replaced snapshot byte port at the %s handoff', async operation => {
+    const { workspace, repo, owner } = await setup({ image: true })
+    const named = await workspace.createNamedSnapshot('source')
+    const snapshot = (await repo.loadSnapshot(owner, named.id))!
+    const forged = { ...snapshot, bundle: Object.freeze({ ...snapshot.bundle,
+      resources: Object.freeze({ read: async () => new Uint8Array([1, 2, 3]) }) }) }
+    const before = workspace.getState().project
+    if (operation === 'load') {
+      vi.spyOn(repo, 'loadSnapshot').mockResolvedValueOnce(forged)
+      await expect(workspace.loadNamedSnapshot(named.id, owner)).rejects.toThrow(/字节/)
+    } else {
+      vi.spyOn(repo, 'createSnapshot').mockResolvedValueOnce(forged)
+      await expect(workspace.createNamedSnapshot('forged result')).rejects.toThrow(/字节/)
+    }
+    expect(workspace.getState().project).toBe(before)
+    expect((await repo.load(owner))!.project.document).toEqual(before!.document)
+  })
+
+  it('checks cancellation after a repository returns an owned snapshot', async () => {
+    const repo = repository(), signal = { aborted: false }
+    const workspace = new Workspace(repo, { runtime, validation: { ...validation, signal } })
+    sessions.push(workspace)
+    await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
+    const named = await workspace.createNamedSnapshot('source'), before = workspace.getState().project
+    const load = repo.loadSnapshot.bind(repo)
+    vi.spyOn(repo, 'loadSnapshot').mockImplementationOnce(async (...args) => {
+      const snapshot = await load(...args)
+      signal.aborted = true
+      return snapshot
+    })
+    await expect(workspace.loadNamedSnapshot(named.id)).rejects.toMatchObject({ name: 'AbortError' })
+    expect(workspace.getState().project).toBe(before)
+    signal.aborted = false
+  })
+
   it('saves full native v1 and advances revisions monotonically across edit, undo, redo and cold reopen', async () => {
     const { repo, workspace, owner } = await setup()
     await workspace.updateProp('item', { rotationDeg: 20 }); await workspace.flush()
@@ -210,6 +259,28 @@ describe('native complete-v1 workspace and repository boundary', () => {
     expect((await repo.usage(owner)).protectionCount).toBe(1)
     workspace.undo(); expect(workspace.getDocument()).toMatchObject({ revision: 4, props: { item: { rotationDeg: 50 }, other: { rotationDeg: 70 } } })
     await expect(workspace.applyRestore(preview)).rejects.toThrow(/不可重复采用/)
+  })
+
+  it('retains an unchanged restore resource closure while verifying each persistence boundary', async () => {
+    const { workspace, repo, owner } = await setup({ image: true })
+    const named = await workspace.createNamedSnapshot('original')
+    await workspace.updateProp('item', { rotationDeg: 50 })
+    await workspace.flush()
+    const current = workspace.getState().project!, decode = vi.spyOn(validation.images, 'decode')
+    const preview = await workspace.prepareRestore(named.id, { ids: ['item'], mode: 'transform' })
+    expect(decode).toHaveBeenCalledTimes(1)
+    expect(preview.project.resources).toBe(current.resources)
+    expect(preview.project.assets).toEqual(current.assets)
+    expect(preview.project.licenseBindings).toEqual(current.licenseBindings)
+    await workspace.applyRestore(preview)
+    await workspace.flush()
+    // Source re-read, protection input, protection's source check, retained
+    // source re-read, and actual final save all keep their full pixel checks.
+    expect(decode).toHaveBeenCalledTimes(6)
+    const cold = await repo.load(owner)
+    expect(decode).toHaveBeenCalledTimes(7)
+    expect(cold!.project.document.props.item.rotationDeg).toBe(0)
+    expect((await repo.usage(owner)).protectionCount).toBe(1)
   })
 
   it('retains the branch on source deletion or protection failure without adopting restoration', async () => {

@@ -1,7 +1,7 @@
 import type { ProjectBundle, ProjectData, ResourceBytePort } from '../../shared/model/project.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
-import { captureProjectBundleInput, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, type VerifiedProjectBundle } from '../../shared/project/resources.js'
+import { captureProjectBundleInput, getVerifiedProjectBundle, reviseVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, type VerifiedProjectBundle } from '../../shared/project/resources.js'
 import { captureJson } from '../../shared/validation/json.js'
 
 /** Native complete-v1 metadata plus an owned byte reader, never a legacy view. */
@@ -65,6 +65,15 @@ export function tryDeriveEditableProject(input: EditableProject, baseline: Edita
 
 /** Compatibility spelling for callers that prefer the adjective-first form. */
 export const tryDerivedEditableProject = tryDeriveEditableProject
+
+/** Internal revision-only handoff; external wrappers cannot inherit it. */
+export function tryReviseEditableProject(input: EditableProject, revision: number, updatedAt: string, options: ResourceOptions = {}): EditableProject | undefined {
+  checkCancelled(options.signal)
+  const verified = verifiedProjects.get(input)
+  if (!verified) return undefined
+  const revised = reviseVerifiedProjectBundle(verified, revision, updatedAt, options)
+  return revised ? fromVerifiedBundle(revised, options) : undefined
+}
 
 /** Adopt only a certificate issued for exact independently owned metadata/bytes. */
 export function fromVerifiedBundle(input: ProjectBundle, options: ResourceOptions = {}): EditableProject {

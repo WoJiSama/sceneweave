@@ -53,6 +53,30 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
     expect(() => validateHistoryIdentity(aliased, current.document)).toThrow(/全局唯一/)
   })
 
+  it('retains all occupied scene IDs for independent prop, prefab and outdoor tombstone conflict checks', () => {
+    const current = native(createCompositionContentV6(scatterLayerSceneV3(1))), layerId = current.document.entityLayers.item
+    current.document.notes['occupied-note'] = { id: 'occupied-note', floorId: 'blank-floor', editLocked: false,
+      anchor: { type: 'point', positionMm: { x: 4000, y: 4000 } }, kind: 'note', text: 'occupied', visibility: 'gm' }
+    current.document.entityLayers['occupied-note'] = layerId
+    expect(validateHistoryIdentity(current.historyIdentity, current.document)).toEqual(current.historyIdentity)
+    const descriptor = current.historyIdentity.outdoorTokens.domain
+    for (const id of [current.document.sceneId, 'blank-floor', layerId, 'occupied-note']) {
+      for (const field of ['propTokens', 'prefabTokens', 'outdoorTokens'] as const) {
+        const identity = cloneJson(current.historyIdentity)
+        if (field === 'outdoorTokens') identity.outdoorTokens[id] = { ...descriptor, token: 'conflict-birth', topologyToken: 'conflict-topology' }
+        else identity[field][id] = 'conflict-birth'
+        expect(() => validateHistoryIdentity(identity, current.document)).toThrow(/冲突/)
+        expect(current.historyIdentity[field]).not.toHaveProperty(id)
+      }
+    }
+    const tombstones = cloneJson(current.historyIdentity)
+    tombstones.propTokens['deleted-prop'] = 'deleted-prop-birth'
+    tombstones.prefabTokens['deleted-prefab'] = 'deleted-prefab-birth'
+    tombstones.outdoorTokens['deleted-outdoor'] = { ...descriptor, token: 'deleted-outdoor-birth', topologyToken: 'deleted-outdoor-topology' }
+    expect(validateHistoryIdentity(tombstones, current.document)).toEqual(tombstones)
+    expect(tombstones.outdoorTokens.domain).toEqual(current.historyIdentity.outdoorTokens.domain)
+  })
+
   it('observes a topology change and change-back inside one draft and never restores the old continuity token', () => {
     const old = createCompositionContentV6(scatterLayerSceneV3(0)), current = native(old)
     const changed = cloneJson(current.document); changed.scatterGroups.scatter.seed = 'another-seed'

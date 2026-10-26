@@ -12,6 +12,7 @@ import type { PointMm, SceneDocument, Wall } from './model/scene.js'
 import type { PreparationContext } from './ports/runtime.js'
 import { validateSceneDocument } from './validation/scene.js'
 import { validateSceneSnapshot } from './validation/snapshots.js'
+import { emptyVisualSystem } from './visual/types.js'
 
 const floorId = 'blank-floor'
 const context = (): PreparationContext => {
@@ -40,7 +41,7 @@ function verticalWall(scene: SceneDocument, x: number): Wall {
   if (!wall) throw new Error(`Missing fixture wall at x=${x}`)
   return wall
 }
-function fullPrefab(): SceneDocument {
+function fullPrefab(memberCount = 128): SceneDocument {
   const old = groupLayerSceneV3(), layerId = old.entityLayers.group
   const template = structuredClone(old.prefabDefinitions.definition.members[0].propTemplate)
   delete old.props.left
@@ -49,7 +50,7 @@ function fullPrefab(): SceneDocument {
   delete old.entityLayers.right
   old.prefabDefinitions.definition.members = []
   old.prefabInstances.group.members = {}
-  for (let index = 0; index < 128; index++) {
+  for (let index = 0; index < memberCount; index++) {
     const key = `member-${index}`, propId = `prefab-prop-${index}`
     old.prefabDefinitions.definition.members.push({ key, propTemplate: structuredClone(template) })
     old.prefabInstances.group.members[key] = { propId, overrideFields: ['positionMm'] }
@@ -137,6 +138,51 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
     expect(source).toEqual(before)
   })
 
+  it('preserves mixed native and in-place command order, visual drafts and independent output ownership', () => {
+    const source = native(layerSceneV3()), before = structuredClone(source), observations: SceneDocument[] = []
+    const commands: SceneCommand[] = [
+      { type: 'copyProp', id: 'item', newId: 'copy', offsetMm: { x: 1000, y: 0 } },
+      createRoom('mixed-room'),
+      { type: 'createTerrainArea', id: 'mixed-area', floorId, boundaryMm: rectangle(1000, 10000, 8000, 8000) },
+      { type: 'createNote', id: 'mixed-note', floorId, anchor: { type: 'entity', entityKind: 'prop', entityId: 'copy' }, kind: 'clue', text: 'mixed draft', visibility: 'gm' },
+      { type: 'setCanvasBounds', floorId, floorBoundsMm: { x: 0, y: 0, width: 22000, height: 22000 }, exportBoundsMm: { x: 0, y: 0, width: 22000, height: 22000 } },
+      { type: 'setVisualEnvironment', environment: { ...emptyVisualSystem().environment, ambientColor: '#556677', ambientOpacity: .2 } },
+      { type: 'updateProp', id: 'copy', changes: { positionMm: { x: 5500, y: 4500 }, rotationDeg: 35 } },
+      { type: 'updateNote', id: 'mixed-note', changes: { text: 'final clue' } },
+    ]
+    const expected = commands.reduce((scene, command) => apply(scene, command), source)
+    const next = applyCommands(source, commands, context(), { onOutdoorDraft: draft => observations.push(structuredClone(draft)) })
+    expect(next).toEqual(expected)
+    expect(observations).toHaveLength(2)
+    expect(observations[0].props.copy.positionMm).toEqual({ x: 5000, y: 4000 })
+    expect(observations[0].rooms['mixed-room']).toBeDefined()
+    expect(observations[0].notes['mixed-note']).toBeUndefined()
+    expect(observations[1].notes['mixed-note'].text).toBe('mixed draft')
+    expect(observations[1].schemaVersion).toBe(2)
+    expect(next.props.copy).toMatchObject({ positionMm: { x: 5500, y: 4500 }, rotationDeg: 35 })
+    expect(next.notes['mixed-note'].text).toBe('final clue')
+    expect(source).toEqual(before)
+    next.props.item.positionMm.x = 9999
+    next.userLayers[next.entityLayers.item].name = 'independent result'
+    expect(source).toEqual(before)
+  })
+
+  it.each<[string, SceneCommand]>([
+    ['building', createRoom('first-room')],
+    ['outdoor', { type: 'createTerrainArea', id: 'first-area', floorId, boundaryMm: rectangle(1000, 10000, 8000, 8000) }],
+    ['annotation', { type: 'createNote', id: 'first-note', floorId, anchor: { type: 'point', positionMm: { x: 2000, y: 2000 } }, kind: 'note', text: 'first draft', visibility: 'gm' }],
+    ['canvas', { type: 'setCanvasBounds', floorId, floorBoundsMm: { x: 0, y: 0, width: 22000, height: 22000 }, exportBoundsMm: { x: 0, y: 0, width: 22000, height: 22000 } }],
+    ['visual', { type: 'setVisualEnvironment', environment: { ...emptyVisualSystem().environment, ambientOpacity: .2 } }],
+  ])('owns a first %s mutation and discards the entire draft after a later failure', (_kind, command) => {
+    const source = native(layerSceneV3()), before = structuredClone(source)
+    const commands: SceneCommand[] = [command, { type: 'updateProp', id: 'item', changes: { rotationDeg: 45 } }]
+    const next = applyCommands(source, commands, context())
+    expect(next.props.item.rotationDeg).toBe(45)
+    expect(source).toEqual(before)
+    expect(() => applyCommands(source, [...commands, { type: 'deleteProp', id: 'missing' }], context())).toThrow(/不存在/)
+    expect(source).toEqual(before)
+  })
+
   it('keeps entity unlocking, layer unlocking and content editing in separate atomic batches', () => {
     const old = layerSceneV3(), source = native(old), layerId = source.entityLayers.item
     const batches: SceneCommandV3[][] = [
@@ -211,6 +257,22 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
       { type: 'transformPrefab', id: group.id, anchorMm: moved },
       { type: 'transformPrefab', id: group.id, anchorMm: group.anchorMm },
     )).toThrow(/256/)
+    expect(source).toEqual(before)
+  })
+
+  it('shares one exact 256 expansion budget across native and in-place commands', () => {
+    const source = fullPrefab(126), before = structuredClone(source), group = source.prefabInstances.group
+    const commands: SceneCommand[] = [
+      { type: 'transformPrefab', id: group.id, anchorMm: { x: group.anchorMm.x + 1000, y: group.anchorMm.y } },
+      { type: 'setCanvasBounds', floorId, floorBoundsMm: { x: 0, y: 0, width: 22000, height: 22000 }, exportBoundsMm: { x: 0, y: 0, width: 22000, height: 22000 } },
+    ]
+    // 126 members + their container, then 128 current entities + the bounds.
+    const next = applyCommands(source, commands, context())
+    expect(next.props['prefab-prop-0'].positionMm.x).toBe(source.props['prefab-prop-0'].positionMm.x + 1000)
+    expect(next.exportBoundsMm.width).toBe(22000)
+    expect(() => applyCommands(source, [...commands,
+      { type: 'createNote', id: 'over-budget', floorId, anchor: { type: 'point', positionMm: { x: 2000, y: 2000 } }, kind: 'note', text: '257th operation', visibility: 'gm' },
+    ], context())).toThrow(/256/)
     expect(source).toEqual(before)
   })
 

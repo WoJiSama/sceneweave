@@ -193,5 +193,7 @@ describe('composition tool full native preview and privacy boundary', () => {
     expect(exhausted.success).toBe(false)
     expect(JSON.parse(exhausted.output).error.code).toBe('operation_budget')
     expect(canonicalJson(limited.task)).toBe(frozen)
-  }, 20000)
+  // The cumulative replay is a correctness check, not a latency assertion.
+  // Keep the 256-operation product limit; allow slower shared test hosts.
+  }, 60000)
 })

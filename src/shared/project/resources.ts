@@ -3,7 +3,7 @@ import type { BitmapParameters, CompleteValidationOptions, ImageProcessingPort, 
 import { CancelledOperationError, checkCancelled, ImageCapabilityError, SvgCapabilityError } from '../ports/resources.js'
 import { normalizeStaticSvg } from '../ai/svg.js'
 import { canonicalJson, captureJson, freezeJson, inspectJsonInput } from '../validation/json.js'
-import { assetRecordSchema, certifyProjectData, validateProjectData } from './validate.js'
+import { assetRecordSchema, certifyProjectData, reviseCertifiedProjectData, validateProjectData } from './validate.js'
 import { captureBytes, decodeUtf8, sha256Bytes } from './binary.js'
 import { inspectImageBytes } from './image-bytes.js'
 import { PACKAGE_LIMITS } from './limits.js'
@@ -202,6 +202,16 @@ export function getVerifiedProjectBundle(input: unknown): VerifiedProjectBundle 
     const fields = dataFields(input, ['project', 'resources'])
     return fields.project.value && fields.resources.value ? captured.get(fields.project.value)?.get(fields.resources.value) : undefined
   } catch { return }
+}
+
+/** Revise only metadata on an exact owned project/byte closure pair. */
+export function reviseVerifiedProjectBundle(input: ProjectBundle, revision: number, updatedAt: string, options: ResourceOptions = {}): VerifiedProjectBundle | undefined {
+  checkCancelled(options.signal)
+  const verified = getVerifiedProjectBundle(input)
+  if (!verified) return undefined
+  const project = reviseCertifiedProjectData(verified.project, revision, updatedAt)
+  checkCancelled(options.signal)
+  return project ? registerVerifiedBundle(project, verified.resources) : undefined
 }
 
 /**

@@ -1,12 +1,34 @@
 import { describe, expect, it, vi } from 'vitest'
 import { cloneJson } from '../../shared/validation/json.js'
-import { getVerifiedProjectBundle, validateProjectBundle } from '../../shared/project/resources.js'
+import { getVerifiedProjectBundle, reviseVerifiedProjectBundle, validateProjectBundle } from '../../shared/project/resources.js'
 import { fixture, validation } from './test-fixtures.js'
-import { fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject } from './project.js'
+import { fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, tryReviseEditableProject, validateEditableProject } from './project.js'
 
 const options = () => ({ images: { ...validation.images, decode: vi.fn(validation.images.decode) } })
 
 describe('owned editable project verification handoff', () => {
+  it('hands off a revision-only proof without granting reuse to changed identity or resource wrappers', async () => {
+    const checking = options(), original = await fromBundle(fixture({ image: true }), checking)
+    const revision = original.document.revision + 1, updatedAt = '2026-10-26T00:00:00.000Z'
+    const revised = tryReviseEditableProject(original, revision, updatedAt)!
+    expect(getVerifiedEditableProject(revised)).toBe(revised)
+    expect(revised.document).toEqual({ ...original.document, revision, updatedAt })
+    expect(revised.resources).toBe(original.resources)
+    expect(revised.assets).toBe(original.assets)
+    expect(checking.images.decode).toHaveBeenCalledTimes(1)
+    const bundle = toBundle(original)
+    expect(reviseVerifiedProjectBundle({ ...bundle, resources: Object.freeze({ read: bundle.resources.read }) }, revision, updatedAt)).toBeUndefined()
+    for (const fake of [Object.freeze({ ...original }), Object.freeze({ ...original, historyIdentity: cloneJson(original.historyIdentity) }), Object.freeze({ ...original, resources: Object.freeze({ read: original.resources.read }) })]) {
+      expect(tryReviseEditableProject(fake, revision, updatedAt)).toBeUndefined()
+    }
+    expect(() => tryReviseEditableProject(original, revision, updatedAt, { signal: { aborted: true } })).toThrow(/取消/)
+    await fromBundle(toBundle(revised), checking)
+    await validateEditableProject(revised, checking)
+    expect(checking.images.decode).toHaveBeenCalledTimes(3)
+    const hash = Object.keys(revised.assets)[0], bytes = await revised.resources.read(hash)
+    bytes.fill(0)
+    expect(await original.resources.read(hash)).not.toEqual(bytes)
+  })
   it('requires a real private certificate instead of frozen metadata or a caller flag', async () => {
     const input = fixture({ image: true }), checking = options()
     expect(() => fromVerifiedBundle(input)).toThrow(/验证证明/)

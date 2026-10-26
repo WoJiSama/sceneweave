@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { sceneDocumentSchema } from '../validation/scene.js'
-import { historyIdentitySchema } from '../history/identity.js'
-import { appearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, validateCompositionContent } from '../validation/content.js'
+import { historyIdentitySchema, validateHistoryIdentity } from '../history/identity.js'
+import { appearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, reviseCompositionContent, validateCompositionContent } from '../validation/content.js'
 import { inspectDependencies } from '../geometry/dependencies.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { canonicalJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput } from '../validation/json.js'
@@ -11,6 +11,9 @@ import { PACKAGE_LIMITS } from './limits.js'
 import { projectSourceRecords } from './source-resources.js'
 
 const MiB = 1024 * 1024
+// Only independently parsed, privately owned metadata can retain these exact
+// byte budgets across a revision/timestamp-only change.
+const certifiedBudgets = new WeakMap<ProjectData, { documentBytes: number; expandedBytes: number }>()
 export const PROJECT_DATA_LIMITS = Object.freeze({ jsonBytes: 20 * MiB, imageBytes: 20 * MiB, imageSide: 8192, imagePixels: 32_000_000,
   totalImagePixels: 64_000_000, images: 256, licenseBytes: 256 * 1024, bindings: 10_000, expandedBytes: 300 * MiB })
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__')
@@ -121,13 +124,16 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
       || /(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,})/.test(record.text)) throw new Error('许可正文hash、编码、预算或来源信息无效。')
     expanded += bytes.length
   }
+  let documentBytes = 0
   for (const value of [project.document, project.historyIdentity, project.appearance, project.authoringSources]) {
     const size = ownedJsonByteLength(value)
+    if (value === project.document) documentBytes = size
     if (value === project.authoringSources && size > PACKAGE_LIMITS.sourcesBytes) throw new Error('SVG来源JSON超过1MiB。')
     if (size > PROJECT_DATA_LIMITS.jsonBytes) throw new Error('场景、身份或外观JSON超过20MiB。')
     expanded += size
   }
   if (expanded > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节超过300MiB。')
+  if (certifyContent) certifiedBudgets.set(project, { documentBytes, expandedBytes: expanded })
   return project
 }
 
@@ -140,6 +146,29 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
  */
 export function certifyProjectData(input: unknown): ProjectData {
   return freezeJson(readProjectData(input, true))
+}
+
+/** Internal metadata-only revision; grants no byte or pixel certificate. */
+export function reviseCertifiedProjectData(input: ProjectData, revision: number, updatedAt: string): ProjectData | undefined {
+  const budget = certifiedBudgets.get(input)
+  if (!budget) return undefined
+  // The helper itself constructs the sole allowed change. It accepts no
+  // caller-supplied document, identity, appearance, resource or licence branch.
+  const content = reviseCompositionContent({ document: input.document, historyIdentity: input.historyIdentity, appearance: input.appearance }, revision, updatedAt)
+  if (revision <= input.document.revision) throw new Error('内部工程修订必须单调增加。')
+  // Revision-only commits still independently check current birth/topology
+  // identities; the immutable, equal input record can retain its reference.
+  validateHistoryIdentity(input.historyIdentity, content.document)
+  const delta = JSON.stringify(content.document.revision).length - JSON.stringify(input.document.revision).length
+    + encodeUtf8(JSON.stringify(content.document.updatedAt)).length - encodeUtf8(JSON.stringify(input.document.updatedAt)).length
+  const nextBudget = { documentBytes: budget.documentBytes + delta, expandedBytes: budget.expandedBytes + delta }
+  // Every JSON key, value count, depth and non-metadata branch is unchanged.
+  // The two scalar sizes above are the exact UTF-8 budget difference.
+  if (nextBudget.documentBytes > PROJECT_DATA_LIMITS.jsonBytes) throw new Error('场景、身份或外观JSON超过20MiB。')
+  if (nextBudget.expandedBytes > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节超过300MiB。')
+  const project = Object.freeze({ ...input, ...content })
+  certifiedBudgets.set(project, nextBudget)
+  return project
 }
 
 export const projectContentHash = (input: unknown): string => sha256Text(canonicalJson(validateProjectData(input)))
