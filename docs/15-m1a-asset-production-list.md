@@ -1,6 +1,8 @@
 # M1-A 首批素材制作清单
 
-状态：既有B2/B3及哨所34图保持O/P2候选，本轮新增墓地5、火山5、自然精修6和室内家具7，共23图（8材质/15物件）及两组合，仍为O/P2；实测清单与对照在末节，结果见43。更新：2026-10-23。保留SVG、PNG、作者声明、MIT、真实hash/尺寸/透明边界：[室内manifest](../assets/sceneweave-handdrawn/manifest.json)、[室外manifest](../assets/sceneweave-handdrawn-outdoor/manifest.json)、[哨所manifest](../assets/sceneweave-handdrawn-outpost/manifest.json)及[哨所来源](../assets/sceneweave-handdrawn-outpost/README.md)。首轮结果见[18](18-m1b-b2-validation.md)、[19](19-m1b-b3-validation.md)，B5技术负载见[21](21-m1b-b5-validation.md)；本批SCN-04首批实际结果与限制归[35](35-m1d-outpost-validation.md)。新增文件与技术检查不代表SCN-04、主题P3或用户美术签收通过。
+当前更新（2026-10-25）：本台账追加「潮苔墨绘」24件独立原创素材（7材质/17物件）、原创素材空白入口及三份可编辑视觉样板，详末节。它们保留SVG源、规范化源、实际PNG和完整MIT闭包，均为O/P2技术候选；未改写旧固定定义，不计入旧内置目录62项/57图。视觉能力见[14第11节](14-visual-and-asset-system.md#11-2026-10-25-m3前视觉创作)，本批实际验证与真实模型限制见[53](53-visual-authoring.md)，不据新增素材数量推定P3、美术签收或已发布。
+
+历史状态（截至2026-10-23）：既有B2/B3及哨所34图保持O/P2候选，当批新增墓地5、火山5、自然精修6和室内家具7，共23图（8材质/15物件）及两组合，仍为O/P2；实测清单与对照在后文，结果见43。保留SVG、PNG、作者声明、MIT、真实hash/尺寸/透明边界：[室内manifest](../assets/sceneweave-handdrawn/manifest.json)、[室外manifest](../assets/sceneweave-handdrawn-outdoor/manifest.json)、[哨所manifest](../assets/sceneweave-handdrawn-outpost/manifest.json)及[哨所来源](../assets/sceneweave-handdrawn-outpost/README.md)。首轮结果见[18](18-m1b-b2-validation.md)、[19](19-m1b-b3-validation.md)，B5技术负载见[21](21-m1b-b5-validation.md)；当批SCN-04实际结果与限制归[35](35-m1d-outpost-validation.md)。历史结果不代替本批回归、主题P3或用户美术签收。
 
 视觉规范主定义见[14](14-visual-and-asset-system.md)，快照、引用与几何字段主定义见[04](04-scene-document.md)，工程/资产边界见[06](06-storage-and-export.md)，来源核验见[10](10-rules-assets-and-licensing.md)，固定内容见[08](08-test-scenarios.md)。制作清单不新增第二套资产Schema。
 
@@ -10,7 +12,7 @@
 
 首批主题 `catalogId=sceneweave-handdrawn`、`version=1`，名称「墨绘原野」。以下每行的 `catalogId` 都是稳定目录身份，计划版本均为1；工程内另有不透明快照 `id`，引用按04的 `{id,version}` 精确绑定。图片字节以真实hash识别，同一图片可以被多件定义引用；本表不虚构hash。
 
-来源路线O表示项目原创，逐项按实际状态管理。B2室内候选当前为 **O / P2 待验收**：SVG由Sceneweave contributors以Codex辅助原创编写，保留绘制/栅格化源和MIT许可，技术与VIS-01首轮结果见18；B2可使用候选验证工具，但不把这次工程评审升级为整套主题最终P3入库或默认素材库发布。B3室外13张PNG同样保留 **O / P2 待验收**，尚无用户美术签收；2026-10-23混合追加6张PNG已完成来源、实际字节、尺寸、透明度与平铺检查，补给组已有固定完整定义，均登记为 **O / P2 待验收**。选用外部素材时须逐项记录链接、作者和实际许可，不能继承O。三包均未从参考截图拆图或描摹；本次追加由原创SVG制作，没有调用图像生成服务，M2素材生成/同化仍另行实现。
+来源路线O表示项目原创，逐项按实际状态管理。B2室内候选当前为 **O / P2 待验收**：SVG由Sceneweave contributors以Codex辅助原创编写，保留绘制/栅格化源和MIT许可，技术与VIS-01首轮结果见18；B2可使用候选验证工具，但不把这次工程评审升级为整套主题最终P3入库或默认素材库发布。B3室外13张PNG同样保留 **O / P2 待验收**，尚无用户美术签收；2026-10-23混合追加6张PNG已完成来源、实际字节、尺寸、透明度与平铺检查，补给组已有固定完整定义，均登记为 **O / P2 待验收**。选用外部素材时须逐项记录链接、作者和实际许可，不能继承O。三包均未从参考截图拆图或描摹；当时追加由原创SVG制作，没有调用图像生成服务。M2-4后续实现受限SVG制作/渐进同化，其当前范围与验证归05，不追溯提升这些P2记录。
 
 | 状态 | 意义 | 可用于什么 |
 |---|---|---|
@@ -260,3 +262,147 @@ U1统一会话与面板稳定后，U2a须先冻结独立个人目录/组织身�
 首页展示改为六份真实完整场景图与详情；灰烬熔脉使用独立 `material.sw.lava-hot@1` 热裂候选，橙红熔流与炭黑冷壳区分危险外观。源SVG、PNG及独立manifest分别位于 `assets/sceneweave-handdrawn-content/` 与 `public/assets/sceneweave-handdrawn-content/` 的 `lava-hot` 文件；项目原创、MIT、无外部抽取，来源记录绑定保留的 `lava.svg` 源hash。
 
 旧lava v1源/PNG/manifest及目录身份保持；热裂材质只加入原生火山样板闭包，保留旧材质和固定父源，样板闭包58张图片，内置目录仍62项/57图。轮廓、物理支撑、高程和危险区不因换外观改变。生成与完整资源校验入口为 `tools/build-themed-art.mjs --lava-hot`、`tools/build-volcano-variant.mjs` 与 `tools/build-home-showcase.mjs`。新图仍为P2候选，开发目视检查不替代人工P3签收。
+
+## 2026-10-25 视觉创作原创素材与三份样板（O/P2候选）
+
+### 来源、固定身份与资源闭包
+
+新增独立主题「潮苔墨绘」`theme.sceneweave.visual.coastal-ink@1`，主题快照ID为`visual-theme`。实际24件作品由[原创SVG制作源](../src/shared/visual/sample-art.ts)的`VISUAL_SAMPLE_ART`定义，由[视觉工程构造与栅格化](../src/platform/browser/content/visual-samples.ts)在本机规范化、生成PNG并完整校验后交给统一工作区；没有复用参考地图像素，没有调用生图API。地图构图也是原创可编辑实体组合，不是整图PNG或SVG。
+
+材质目录身份为`material.sceneweave.visual.<key>@1`，快照ID为`visual-material-<key>`；物件为`prop.sceneweave.visual.<key>@1`，快照ID为`visual-prop-<key>`；对应实际图片ID为`visual-art-<key>`。下表每项均为O/P2，不与旧`material.sw.*`/`prop.sw.*`共用固定身份，不覆盖「墨绘原野」主题或任何旧源。
+
+| 材质key | 实际名称 | 默认平铺范围（mm） | 状态 |
+|---|---|---|---|
+| water | 雾青海水 | 3200×3200 | O/P2 |
+| sand | 暖象牙细沙 | 2200×2200 | O/P2 |
+| grass | 风蚀苔草 | 2200×2200 | O/P2 |
+| rockfloor | 浅灰层岩 | 2200×2200 | O/P2 |
+| earth | 灰褐碎土 | 2200×2200 | O/P2 |
+| wood | 暖褐木板 | 2800×2800 | O/P2 |
+| stone | 苔灰砌石 | 1800×1800 | O/P2 |
+
+| 物件key | 实际名称 | 用途 | 状态 |
+|---|---|---|---|
+| rock | 海蚀灰岩 | 海岸、岩岛独立石块 | O/P2 |
+| tree | 盐风阔叶树 | 冠层与小树干占地分开 | O/P2 |
+| shrub | 海岸叶簇 | 可编辑低植被 | O/P2 |
+| shell | 象牙贝壳 | 非阻挡岸边细节 | O/P2 |
+| table | 橡木长桌 | 室内主体家具 | O/P2 |
+| chair | 皮垫木椅 | 独立座具 | O/P2 |
+| rug | 暗红编织毯 | 地面装饰 | O/P2 |
+| bed | 亚麻木床 | 客房家具 | O/P2 |
+| shelf | 书卷储物架 | 室内储物 | O/P2 |
+| crate | 铁箍补给箱 | 生活/补给细节 | O/P2 |
+| lantern | 铜框提灯 | 灯具本体；不自动产生光源 | O/P2 |
+| clutter | 纸页茶盏 | 桌面生活细节 | O/P2 |
+| stove | 砌石柴火灶 | 厨房主体 | O/P2 |
+| counter | 水槽备餐台 | 厨房操作区 | O/P2 |
+| cupboard | 餐具矮柜 | 厨房储物 | O/P2 |
+| barrel | 橡木储水桶 | 储水/生活细节 | O/P2 |
+| basket | 亚麻杂物篮 | 布料与生活杂物 | O/P2 |
+
+物件世界图像范围、锚点、矩形占地、阻挡、渲染层和阴影类别由同一固定源显式生成，图片alpha不代替物理占地。素材采用时保留真实毫米值，旋转/缩放或滤镜不能暗改阻挡与秘密。新主题自己的50°默认阴影、轮廓和门窗参数另存快照，第14文档「墨绘原野」的旧参数保持。
+
+栅格化使用受限SVG规范化器和长边512px设置，记录实际PNG宽高/字节/hash，不以设置值假定全部实际尺寸；同时保存源SVG、规范化SVG的实际字节/hash、PNG对应hash和处理器ID/版本。完整v2项目的`authoringSources`和资源记录保留三者闭包，导出/冷载入继续检查真实源、PNG、像素、许可与预算，不能用占位hash或重新生成的近似图片代替。
+
+来源声明为`original`，署名为「Sceneweave原创视觉素材与地图；确定性SVG源及MIT许可完整保存；未嵌入参考图像」，允许嵌入。完整许可由同一源中的`VISUAL_SAMPLE_LICENSE`提供，包含`Sceneweave Visual Authoring Samples, version 1`、`Copyright (c) 2026 Sceneweave contributors`、编码辅助原创声明和完整MIT条款；工程保存许可原文/hash及资产、材质、物件、主题的明确绑定。参考图只用于观感分析，不从中推定素材许可。
+
+### 空白入口与三份可编辑作品
+
+「工程 → 新建视觉空白 · 原创素材」默认24×18m，可填写名称、尺寸与预设；预装上述24份图片/制作源、7材质/17物件、主题和四个用户层。没有预置房间、地形、道路、家具、曲线或效果，环境为中性。取消保留原工程，成功创建先保存新ID工程再切换。它提供从空白使用同一素材组进行手工或AI制作的入口，不把样板作品复制后称为新创作。
+
+| 样板入口 | 范围 | 实际构成与制作重点 | 状态 |
+|---|---|---|---|
+| 潮声浅湾 · 连续海岸 | 24×18m | 沙/水两侧共享一条控制曲线，湿沙/浅水/泡沫边带、草沿、独立树石灌木与贝壳、暖色分级 | 原创可编辑O/P2 |
+| 苔冠岩岛 · 高差与草沿 | 24×18m | 海水底、800mm低岩台、2600mm高草台、1300mm宽真实台阶；连续海岸/崖面/草沿、树石、局部薄雾与冷色分级 | 原创可编辑O/P2 |
+| 灯下旅舍 · 材质与灯光 | 20×15m | 两房共用真实隔墙、7墙、外门/内门/窗，木石材质、厨房/会客/客房逐件家具与生活细节；显式遮挡点光和旧纸分级 | 原创可编辑O/P2 |
+
+三份作品分别保留结构、物件、曲线与效果数据，保存、导出和离线包携带完整源/图/许可。它们是工具与美术技术候选，人工制作成功不代表真实模型能自主完成同样作品。24件为新视觉工程单独保全的素材组，原内置目录仍62项/57图，旧空白仍37项/34图；本节不凭相加数量宣称发布了更大默认素材库。
+
+### 技术检查与艺术签收
+
+实际严格格式、资源闭包、保存重开、离线往返、确定性双受众4K、曲线候选/一次采用/撤销及有限视觉恢复的运行结果集中[53](53-visual-authoring.md)。本台账不复制未冻结的测试数量，不把此前M2回归当成本批通过结果；后续grok-4.6岩岛v6达到明确配方的结构/效果清单，仍不代表素材P3或无引导稳定性。
+
+24项与三图保持**O/P2**；用户还需按14检查贴边与转角、材质重复、纹理尺度、主次/疏密、净空与出入口、灯光/雾/滤镜强度及统一画风，再决定P3。技术闭包完整、样板可编辑、模型自报完成和最终美术满意分别成立。M3真实小团、UVTT真实导入、完整2.5D/动态天气及[34](34-performance-followup.md)未通过的正式性能门不随本批素材交付关闭。
+
+### 精修与变体制作（M2-Q1/Q2已制作）
+
+Q1已制作独立13项固定源，配方/结果见[54第10节](54-reference-quality-plan.md#10-q0q1实际实施与交付2026-10-26)。源定义在[island-art.ts](../src/shared/visual/island-art.ts)，下列key均加前缀island-；固定catalog版本1、asset为refined-art-加完整key，prop/material为refined-prop-/refined-material-加完整key。原24项、默认62项/57图和旧空白目录保持，不将新批次混进旧固定集合。
+
+| key / 名称 | 世界图像宽×高mm / 物理占地mm | 阻挡与绘制 |
+|---|---|---|
+| rock-north-ridge / 北坡断层岩 | 1950×1550 / 1370×1030 | 阻移动、不阻视线；object/furniture影 |
+| rock-layered-shelf / 潮线层岩 | 2100×1250 / 1530×760 | 同上 |
+| rock-tidepool / 浅洼潮池岩 | 1700×1450 / 1190×980 | 同上 |
+| tree-north-asym / 北坡偏冠古树 | 2850×2650 / 520×520 | 阻移动/视线；canopy/vegetation影 |
+| tree-windbent / 海风横冠树 | 2950×2450 / 520×520 | 同上 |
+| tree-split-crown / 双冠石缝树 | 2750×2700 / 520×520 | 同上 |
+| shrub-coastal-heath / 灰银海岸矮灌 | 1350×950 / 530×330 | 不阻移动/视线；object/vegetation影 |
+| shrub-scree-sedge / 石隙苔草簇 | 1150×1000 / 460×400 | 同上 |
+| debris-scree / 浅灰碎石片 | 1300×760 / 910×420 | 不阻移动/视线；ground/无影 |
+| debris-driftwood / 盐漂枯枝 | 1650×1050 / 1260×340 | 同上 |
+| material-strata / 暖灰层岩面 | 2400×2400原tile | 地形/道路/房间/墙材质 |
+| material-moss / 灰绿苔草地 | 2500×2500原tile | 同上 |
+| material-shallows / 浅湾玻璃水 | 3200×3200原tile | 同上；外观不授予水面通行 |
+
+10物件定义均图像居中锚定、占地offset0；实际实例缩放的图像/占地一同保存，显式支撑分别为水底/低台/高台，完整旋转占地仍校验。3材质无物理占地。所有13源均保留原创SVG/规范化SVG/实际512×512PNG/hash和明确MIT全文，未嵌参考图或第三方像素；源/物理字段完整，像素预算按本作品实际验证，不把512推广到任意4K特写。
+
+「岬湾苔岛 · 精修版」为独立24×18m样板：800/2600mm、1500mm实际台阶、19段曲线、48物件与9覆盖。水tint另生成真实固定派生图/材质，所以完整工程14图/4材质、13源、40资源、29许可绑定。技术子项和实际双受众4K往返已通过，本批素材/作品为O/P2，P3待用户；规则崖分格和简洁踏面保留审阅项。本轮未扩大默认素材入库/首页目录，使用工作台工程页入口。
+
+#### Q2海岸与室内精修制作（2026-10-26）
+
+Q2新增海岸15项（4材质/11物件）、室内23项（4材质/19物件），均为Sceneweave contributors编码辅助原创SVG，没有嵌入参考图像或第三方素材，没有调用生图API。源码分别为[coast-art.ts](../src/shared/visual/coast-art.ts)、[interior-art.ts](../src/shared/visual/interior-art.ts)；各批保留自己的完整MIT许可正文、原创声明和版本1。catalog身份为`prop.sceneweave.q2.<完整key>@1`或`material.sceneweave.q2.<完整key>@1`；asset为`refined-art-<完整key>`，定义为`refined-prop-`/`refined-material-`加完整key。全部保存源SVG、规范化SVG、实际512×512 PNG、真实hash、许可绑定和毫米元数据，精修素材不改写旧源。
+
+下表海岸key均加`coast-`；物件锚点居中、占地offset为0，全部不阻视线。3礁石阻移动、object/furniture影，其余物件不阻移动、ground/无影。材质无占地，不以水面外观推导通行。
+
+| key / 名称 | 世界图像宽×高mm / 物理占地mm |
+|---|---|
+| reef-split / 裂脊礁石 | 2100×1750 / 1530×1270 |
+| reef-shelf / 潮蚀页岩 | 2350×1600 / 1730×1130 |
+| reef-pool / 凹心潮池岩 | 2000×1850 / 1450×1320 |
+| grass-fan / 扇展海岸草 | 1150×960 / 518×384 |
+| grass-wind / 偏丛盐地草 | 1350×830 / 608×332 |
+| shell-fan / 象牙扇贝簇 | 560×410 / 430×260 |
+| shell-spiral / 淡赭螺壳 | 260×230 / 180×160 |
+| starfish / 沙赭海星 | 340×330 / 250×240 |
+| driftwood / 分叉盐漂木 | 2300×1150 / 1860×470 |
+| wrack / 潮痕褐藻 | 1250×500 / 940×230 |
+| pebbles / 潮磨卵石 | 900×550 / 660×330 |
+| material-dry-sand / 暖赭干沙 | 4600×4600原tile |
+| material-wet-sand / 潮痕湿沙 | 4400×4400原tile |
+| material-shallows / 青灰浅水 | 5800×5800原tile |
+| material-deep-water / 靛青深水 | 6400×6400原tile |
+
+下表室内key均加`interior-`；默认物件阻移动、不阻视线、object/furniture影。地毯/门厅毯不阻移动、ground/无影；提灯/餐具/书纸不阻移动、object/无影。所有图像与占地分别保存，不用透明边距推算家具净空；实际实例缩放/旋转后重新检查完整占地。
+
+| key / 名称 | 世界图像宽×高mm / 物理占地mm |
+|---|---|
+| bed-indigo / 蓝灰亚麻客床 | 1850×2700 / 1660×2470 |
+| bed-sage / 鼠尾草卷被客床 | 1850×2700 / 1660×2470 |
+| table-long / 拼板橡木餐桌 | 3100×1900 / 2830×1640 |
+| table-round / 圆面拼木小桌 | 1500×1500 / 1340×1340 |
+| chair-slat / 灰橡靠背木椅 | 820×900 / 620×710 |
+| chair-cushion / 亚麻垫圆背椅 | 880×940 / 650×770 |
+| shelf-books / 窄身书卷架 | 2800×900 / 2630×730 |
+| cupboard-linen / 双门布草柜 | 1850×1000 / 1650×850 |
+| stove-masonry / 双炉灰石灶 | 2000×1750 / 1780×1550 |
+| counter-kitchen / 木面备餐台 | 2900×1150 / 2690×980 |
+| desk-writing / 窄橡木书桌 | 2300×1250 / 2110×1080 |
+| armchair / 青灰织布扶手椅 | 1200×1250 / 980×1030 |
+| rug-geometric / 青灰菱纹织毯 | 5700×4700 / 5500×4500 |
+| runner / 窄幅门厅织毯 | 2300×7100 / 2100×6900 |
+| lantern-brass / 黄铜玻璃提灯 | 400×480 / 230×310 |
+| tableware / 陶盘餐具与面包 | 1030×720 / 650×430 |
+| papers-books / 摊开书卷与纸页 | 1090×720 / 730×410 |
+| basket-linen / 布巾藤编篮 | 800×780 / 590×540 |
+| crate-small / 旧木食材箱 | 950×900 / 820×780 |
+| material-planks / 灰橡窄木板 | 2400×2400原tile，12板对应200mm板宽 |
+| material-flags / 厨房灰石板 | 1800×1800原tile |
+| material-plaster / 暖灰抹墙顶 | 1800×1800原tile |
+| material-earth / 旅舍灰褐院土 | 3000×3000原tile |
+
+「潮痕浅湾 · 精修版」24×18m、7段共享岸线、56独立物件与4显式材质覆盖；完整工程15源/15图、45份资源、31许可绑定。「灯下旅舍 · 精修版」26×19m、5用途空间、16墙、6门/4窗、45物件/5固定组合；完整工程23源/23图、69份资源、52许可绑定。室内组合以`prefab.sceneweave.q2.interior.<role>@1`固定，role为kitchen/dining/bedroom/study/reading，保留完整成员与独立编辑能力，不以整图替代实体。成品包hash、正式双受众4K、开发复核和首轮修正归[54第11节](54-reference-quality-plan.md#11-q2素材作品与同源空白实际交付2026-10-26)。
+
+「原创素材组」另提供与三精修作品同源的13/15/23项空白工程；只带固定定义/源/许可和实际图片，不复制样板实体、效果或历史。原24项仍为默认选项，旧62项/57图目录没有扩充。所有Q2素材/作品保持**O/P2**，泡沫/水纹规则感与室内重复细节等仍交用户审阅，未授予P3或完整质量门通过。
+
+制作时每项追加独立key/固定版本、原SVG/规范化SVG/实际PNG及真实hash/许可、尺寸/锚点/占地/支撑/阻挡。候选、采用、工程往返和人工签收分开登记；未制作的条目只标计划，不用占位素材宣称完成。

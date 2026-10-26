@@ -1,7 +1,7 @@
 import type { ProjectBundle, ProjectData, ResourceBytePort } from '../../shared/model/project.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
-import { captureProjectBundleInput, getVerifiedProjectBundle, validateProjectBundle, type VerifiedProjectBundle } from '../../shared/project/resources.js'
+import { captureProjectBundleInput, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, type VerifiedProjectBundle } from '../../shared/project/resources.js'
 import { captureJson } from '../../shared/validation/json.js'
 
 /** Native complete-v1 metadata plus an owned byte reader, never a legacy view. */
@@ -16,13 +16,18 @@ export function getVerifiedEditableProject(input: EditableProject): EditableProj
   return verifiedProjects.has(input) ? input : undefined
 }
 
-/** Capture descriptors before reading values, including drafts awaiting bitmap materialization. */
-export function captureEditableDraft(input: EditableProject): EditableProject {
+/** Capture top-level data once, before any caller-owned wrapper can change it. */
+export function captureEditableInput(input: EditableProject): EditableProject {
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('编辑工程必须为普通数据对象。')
   const descriptors = Object.getOwnPropertyDescriptors(input), keys = [...fields, 'resources']
   if (Reflect.ownKeys(input).length !== keys.length || !keys.every(key => descriptors[key]?.enumerable && 'value' in descriptors[key])) throw new Error('编辑工程含未知、访问器、隐藏或Symbol字段。')
-  const data = captureJson(Object.fromEntries(fields.map(key => [key, descriptors[key].value]))) as unknown as ProjectData
-  const source = descriptors.resources.value
+  return Object.fromEntries(keys.map(key => [key, descriptors[key].value])) as unknown as EditableProject
+}
+
+/** Capture descriptors before reading values, including drafts awaiting bitmap materialization. */
+export function captureEditableDraft(input: EditableProject): EditableProject {
+  const { resources: source, ...metadata } = captureEditableInput(input)
+  const data = captureJson(metadata) as unknown as ProjectData
   if (!source || typeof source !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(source))) throw new Error('资源端口无效。')
   const methods = Object.getOwnPropertyDescriptors(source)
   if (Reflect.ownKeys(source).length !== 1 || !methods.read?.enumerable || !('value' in methods.read) || typeof methods.read.value !== 'function') throw new Error('资源端口必须只提供read方法。')
@@ -37,6 +42,29 @@ export function toBundle(input: EditableProject): ProjectBundle {
   const { resources, ...project } = captureEditableDraft(input)
   return captureProjectBundleInput({ project, resources })
 }
+
+/** Capture an application wrapper without cloning branches used by derivation. */
+function captureEditableDerivation(input: EditableProject): ProjectBundle | undefined {
+  try {
+    const { resources, ...project } = captureEditableInput(input)
+    return { project, resources }
+  } catch { return undefined }
+}
+
+/** Re-certify an edited composition while retaining the baseline byte closure. */
+export function tryDeriveEditableProject(input: EditableProject, baseline: EditableProject, options: ResourceOptions = {}): EditableProject | undefined {
+  checkCancelled(options.signal)
+  if (!baseline || typeof baseline !== 'object') return undefined
+  const verified = verifiedProjects.get(baseline)
+  if (!verified) return undefined
+  const candidate = captureEditableDerivation(input)
+  if (!candidate) return undefined
+  const derived = tryDerivedProjectBundle(candidate, verified, options)
+  return derived ? fromVerifiedBundle(derived, options) : undefined
+}
+
+/** Compatibility spelling for callers that prefer the adjective-first form. */
+export const tryDerivedEditableProject = tryDeriveEditableProject
 
 /** Adopt only a certificate issued for exact independently owned metadata/bytes. */
 export function fromVerifiedBundle(input: ProjectBundle, options: ResourceOptions = {}): EditableProject {

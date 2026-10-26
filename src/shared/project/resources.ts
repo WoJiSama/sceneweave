@@ -1,9 +1,9 @@
 import type { AssetRecord, ProjectBundle, ProjectData, ResourceBytePort } from '../model/project.js'
 import type { BitmapParameters, CompleteValidationOptions, ImageProcessingPort, RasterImage, ResourceOptions, SvgProcessingPort } from '../ports/resources.js'
-import { checkCancelled, ImageCapabilityError, SvgCapabilityError } from '../ports/resources.js'
+import { CancelledOperationError, checkCancelled, ImageCapabilityError, SvgCapabilityError } from '../ports/resources.js'
 import { normalizeStaticSvg } from '../ai/svg.js'
 import { canonicalJson, captureJson, freezeJson, inspectJsonInput } from '../validation/json.js'
-import { assetRecordSchema, validateProjectData } from './validate.js'
+import { assetRecordSchema, certifyProjectData, validateProjectData } from './validate.js'
 import { captureBytes, decodeUtf8, sha256Bytes } from './binary.js'
 import { inspectImageBytes } from './image-bytes.js'
 import { PACKAGE_LIMITS } from './limits.js'
@@ -13,6 +13,8 @@ const captured = new WeakMap<object, WeakMap<object, VerifiedProjectBundle>>()
 declare const verifiedBundle: unique symbol
 /** Only the private certificate map, never this type assertion, grants reuse. */
 export type VerifiedProjectBundle = ProjectBundle & { readonly [verifiedBundle]: true }
+const projectFields = ['format', 'schemaVersion', 'document', 'historyIdentity', 'appearance', 'assets', 'licenses', 'licenseBindings', 'authoringSources'] as const
+const proofBranches = ['assets', 'licenses', 'licenseBindings', 'authoringSources'] as const
 
 function dataFields(input: unknown, keys: readonly string[]): Record<string, PropertyDescriptor> {
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('完整工程包装必须是普通数据对象。')
@@ -23,8 +25,11 @@ function dataFields(input: unknown, keys: readonly string[]): Record<string, Pro
 
 /** Capture JSON and the reader method synchronously before awaiting any byte IO. */
 export function captureProjectBundleInput(input: unknown): ProjectBundle {
+  return captureBundle(input, validateProjectData)
+}
+function captureBundle(input: unknown, metadataValidator: (input: unknown) => ProjectData): ProjectBundle {
   const fields = dataFields(input, ['project', 'resources'])
-  const project = validateProjectData(fields.project.value)
+  const project = metadataValidator(fields.project.value)
   const source = fields.resources.value, methods = dataFields(source, ['read']), read = methods.read.value
   if (typeof read !== 'function') throw new Error('资源端口必须提供可调用的read。')
   const resources = Object.freeze({ read: (hash: string): Promise<Uint8Array> => read.call(source, hash) })
@@ -61,6 +66,14 @@ function scopedResourcePort(owned: ReadonlyMap<string, Uint8Array>, scope: Reado
   } })
 }
 
+function registerVerifiedBundle(project: ProjectData, resources: ResourceBytePort): VerifiedProjectBundle {
+  const result = Object.freeze({ project: freezeJson(project), resources }) as VerifiedProjectBundle
+  let entries = captured.get(result.project)
+  if (!entries) { entries = new WeakMap(); captured.set(result.project, entries) }
+  entries.set(result.resources, result)
+  return result
+}
+
 function imageMethods(input: ImageProcessingPort): ImageProcessingPort {
   if (!input || typeof input !== 'object') throw new ImageCapabilityError()
   const fields = Object.getOwnPropertyDescriptors(input)
@@ -89,7 +102,7 @@ export async function validateProjectBundles(inputs: readonly ProjectBundle[], o
   if (!Array.isArray(inputs) || Object.getPrototypeOf(inputs) !== Array.prototype || inputs.length < 1 || inputs.length > 85) throw new Error('完整工程批次必须包含1至85份明确工程。')
   const descriptors = Object.getOwnPropertyDescriptors(inputs)
   if (Reflect.ownKeys(inputs).length !== inputs.length + 1 || !Array.from({ length: inputs.length }, (_, i) => descriptors[String(i)]).every(field => field?.enumerable && 'value' in field)) throw new Error('完整工程批次不能含访问器、空洞或额外字段。')
-  const bundles = inputs.map((_, i) => captureProjectBundleInput(descriptors[String(i)].value)), images = imageMethods(options?.images), signal = options?.signal
+  const bundles = inputs.map((_, i) => captureBundle(descriptors[String(i)].value, certifyProjectData)), images = imageMethods(options?.images), signal = options?.signal
   const svg = bundles.some(bundle => Object.keys(bundle.project.authoringSources).length) ? svgMethods(options?.svg) : undefined
   checkCancelled(signal)
   const records = new Map<string, AssetRecord>()
@@ -177,13 +190,7 @@ export async function validateProjectBundles(inputs: readonly ProjectBundle[], o
     }
   }
   checkCancelled(signal)
-  return bundles.map(bundle => {
-    const result = Object.freeze({ project: freezeJson(bundle.project), resources: scopedResourcePort(bytesByHash, new Set(projectResourceHashes(bundle.project))) }) as VerifiedProjectBundle
-    let resources = captured.get(result.project)
-    if (!resources) { resources = new WeakMap(); captured.set(result.project, resources) }
-    resources.set(result.resources, result)
-    return result
-  })
+  return bundles.map(bundle => registerVerifiedBundle(bundle.project, scopedResourcePort(bytesByHash, new Set(projectResourceHashes(bundle.project)))))
 }
 export async function validateProjectBundle(input: ProjectBundle, options: CompleteValidationOptions): Promise<VerifiedProjectBundle> {
   return (await validateProjectBundles([input], options))[0]
@@ -196,6 +203,50 @@ export function getVerifiedProjectBundle(input: unknown): VerifiedProjectBundle 
     return fields.project.value && fields.resources.value ? captured.get(fields.project.value)?.get(fields.resources.value) : undefined
   } catch { return }
 }
+
+/**
+ * Re-certify changed composition branches while retaining an already-owned
+ * resource closure. A miss is deliberately represented by undefined so the
+ * caller can fall back to the public byte/pixel validator.
+ */
+export function tryDerivedProjectBundle(input: ProjectBundle, baseline: ProjectBundle, options: ResourceOptions = {}): VerifiedProjectBundle | undefined {
+  checkCancelled(options.signal)
+  const base = getVerifiedProjectBundle(baseline)
+  if (!base) return undefined
+  try {
+    const inputFields = dataFields(input, ['project', 'resources'])
+    if (inputFields.resources.value !== base.resources) return undefined
+    const candidateFields = dataFields(inputFields.project.value, projectFields)
+    const baseFields = dataFields(base.project, projectFields)
+    for (const key of proofBranches) {
+      const candidate = candidateFields[key].value, original = baseFields[key].value
+      if (candidate !== original || !Object.isFrozen(original)) return undefined
+    }
+
+    // Capture an immutable candidate before any certificate can be registered.
+    // This repeats the complete metadata, geometry, dependency, identity,
+    // visual, license, and budget checks.
+    // Parse the exact descriptor values checked above. A caller-owned wrapper
+    // (including a Proxy) must not substitute a different resource branch on a
+    // later property read after passing the reference checks.
+    const candidate = Object.fromEntries(projectFields.map(key => [key, candidateFields[key].value]))
+    const certified = certifyProjectData(candidate)
+    checkCancelled(options.signal)
+    if (canonicalJson(certified.document.assets) !== canonicalJson(base.project.document.assets)
+      || canonicalJson(certified.appearance.variants) !== canonicalJson(base.project.appearance.variants)) return undefined
+
+    const candidateHashes = projectResourceHashes(certified), baseHashes = projectResourceHashes(base.project)
+    if (candidateHashes.length !== baseHashes.length || candidateHashes.some(hash => !baseHashes.includes(hash))) return undefined
+    checkCancelled(options.signal)
+    return registerVerifiedBundle(certified, base.resources)
+  } catch (error) {
+    if (error instanceof CancelledOperationError) throw error
+    return undefined
+  }
+}
+
+/** Compatibility spelling for callers that prefer the verb-first form. */
+export const tryDeriveProjectBundle = tryDerivedProjectBundle
 
 /** Generates real normalized output; it does not adopt it into a scene. */
 export async function deriveBitmapVariant(sourceInput: Uint8Array, source: AssetRecord, parameters: BitmapParameters, options: CompleteValidationOptions): Promise<{ record: AssetRecord; bytes: Uint8Array }> {

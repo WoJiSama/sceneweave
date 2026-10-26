@@ -9,7 +9,7 @@ import { TaskEngine } from './engine.js'
 
 export function startAiServer(config: AiConfig = loadAiConfig()) {
   const store = new TaskStore(config.dataDir)
-  const engine = new TaskEngine(store, createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent })
+  const engine = new TaskEngine(store, createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
   const app = createAiApp(config, { store, engine })
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port })
   const cleanup = setInterval(() => store.sweep(), 3600000)

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { applyVisualCommand, isVisualCommand, visualCommandSchemas, type VisualCommand } from '../visual/commands.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { applyCommandDraft, createBasePlacedProp, isEntityEditLocked, type BasePlacePropOptions, type BaseSceneCommand } from './base.js'
@@ -22,6 +23,7 @@ export type SceneCommand =
   | CanvasBoundsCommand
   | SceneDisplayCommand
   | OutdoorCommand
+  | VisualCommand
   | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path'; id: string; locked: boolean }
   | { type: 'createLayer'; id: string; floorId: string; name: string }
   | { type: 'renameLayer'; id: string; name: string }
@@ -30,9 +32,14 @@ export type SceneCommand =
   | { type: 'moveEntitiesToLayer'; ids: string[]; layerId: string }
   | { type: 'removeLayer'; id: string; targetLayerId?: string }
 
+export interface ApplySnapshotCommandsOptions extends ApplyCommandsOptions {
+  /** Internal immediate preparation may defer no-op comparison to Workspace. */
+  preserveNoopIdentity?: boolean
+}
+
 export interface ApplyCommandsOptions {
   /** Internal synchronous observer: inspect immediately; never mutate or retain the draft. */
-  onOutdoorDraft?: (draft: Readonly<SceneDocument>, command: Readonly<OutdoorCommand>) => void
+  onOutdoorDraft?: (draft: Readonly<SceneDocument>, command: Readonly<OutdoorCommand | VisualCommand>) => void
 }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -50,6 +57,7 @@ export const sceneCommandSchema = z.discriminatedUnion('type', [
   ...buildingCommandSchemas,
   ...annotationCommandSchemas,
   ...outdoorCommandSchemas,
+  ...visualCommandSchemas,
   canvasBoundsCommandSchema,
   sceneDisplayCommandSchema,
   z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
@@ -199,7 +207,10 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
   let next = cloneJson(scene), cost = 0
   const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
-    if (needsOutdoorExpansion(next, command)) {
+    if (isVisualCommand(command)) {
+      consume(applyVisualCommand(next, command, context).commandCost)
+      options?.onOutdoorDraft?.(next, command)
+    } else if (needsOutdoorExpansion(next, command)) {
       consume(applyOutdoorCommand(next, command, context).commandCost)
       options?.onOutdoorDraft?.(next, command)
     } else if (isBuildingCommand(command)) consume(applyBuildingCommand(next, command).commandCost)
@@ -284,20 +295,22 @@ function candidate(scene: SceneDocument, commands: readonly SceneCommand[], cont
 }
 /** Detached mutable candidate; all-or-nothing native scene validation. Revision is committed by Workspace. */
 export function applyCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
-  const source = validateSceneDocument(scene)
+  // Only the validator's independently owned immutable scene can reuse its
+  // input proof. Caller-owned or cloned scenes still take the complete path.
+  const source = validateSceneSnapshot(scene)
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
   const next = candidate(source.document, checkedCommands(commands), context, options), result = validateSceneDocument(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   return next
 }
 /** Certified immutable editor path; no-op batches preserve identity and consume no history. */
-export function applySnapshotCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext): SceneDocument {
+export function applySnapshotCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options: ApplySnapshotCommandsOptions = {}): SceneDocument {
   const source = validateSceneSnapshot(scene)
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
   const checked = checkedCommands(commands)
   if (!checked.length) return source.document
-  const next = candidate(source.document, checked, context)
-  if (equal(next, source.document)) return source.document
+  const next = candidate(source.document, checked, context, options)
+  if (options.preserveNoopIdentity !== false && equal(next, source.document)) return source.document
   const result = validateSceneSnapshot(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   return result.document

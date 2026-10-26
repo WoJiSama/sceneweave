@@ -1,16 +1,16 @@
 # 贡献说明
 
-织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，当前唯一产品主路径为完整v1、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library。按用户2026-10-25决定，删除旧整页工作台、首页旧版本发现和旧格式保全/转换入口；工程导入仅接收完整v1当前包与所选历史包。现有新库schema、历史与确切来源原件保全语义保持，旧领域/IO模块按真实依赖保留，不构成旧版产品支持。此次裁剪后的检查另按05/09登记，不能沿用既有结果。
+织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，当前产品主路径为完整v1/v2、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library；新空白使用完整v2，已有新标识完整v1可保存独立视觉升级副本。按用户2026-10-25决定，旧整页工作台、首页旧版本发现和旧格式保全/转换入口已删除；工程导入接收完整v1/v2当前包与所选历史包。现有新库schema、历史与确切来源原件保全语义保持，旧领域/IO模块按真实依赖保留，不构成旧版产品支持。视觉开发与当前验证见[53](docs/53-visual-authoring.md)，旧入口裁剪批次另按05/09保留历史，不能沿用既有结果。
 
-M2-0f当时的混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5服务器容器及受信任IP HTTPS已部署，Pages公开地址已配置，必要线上创作/采用/保存导出旅程已通过，见05第15节；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09。2026-10-25用户进一步要求完成M2实际使用验收与修复，并恢复此前后置的性能验收；新主路径正式性能已完成四组×三轮，但普通编辑100ms门槛未通过，完整M1、现行范围QA-AI-16与性能门仍分别保持开放，细节见[34](docs/34-performance-followup.md)。
+M2-0f当时的混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5服务器容器及受信任IP HTTPS已部署，Pages公开地址已配置，必要线上创作/采用/保存导出旅程已通过，见05第15节；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09。2026-10-25用户进一步要求完成M2实际使用验收与修复，并恢复此前后置的性能验收；此前M2正式四组×三轮的100ms未通过结果保留历史；此前视觉完整v1第三冻结两组500普通领域提交p95为74.2/93.8ms，该指标通过，连续帧/保存恢复与完整性能覆盖缺项仍开放，不代替当前完整v2测量。完整M1、现行范围QA-AI-16与完整性能分别判断，细节见[34](docs/34-performance-followup.md#第三次冻结正式结果)。
 
 室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/28-m1c-c2-validation.md)，C3组件与参数外观见[29](docs/29-m1c-c3-validation.md)，C4室外工具与有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合验证和现版性能结论归[32](docs/32-m1c-c5-validation.md)。完整M1、主题P3、SCN-04与全交互性能仍按各自门槛判断；新模型同步格式、迁移和验收。
 
-当前默认首页为`/#home`，完整创作入口为`/#workspace`，包含工程、建筑、素材库、室外及图层/对象/历史；其他hash统一回首页，离开工作区仍检查未保存内容。完整v1空白工程保留23个物件、11种材质和3种组合预装策略，画布/坐标放置使用显式支撑和暂态预览。主路径由editor/main、editor/native-canvas、application/workspace及新platform适配构成，共用shared，不经旧core/io/render视图往返；实际资源/派生像素、许可、锁、256预算、单调revision和CAS保持。当前/所选历史包导入整体安装为新owner/r0，旧格式和迁移set明确拒绝，失败或取消不替换当前工程。建筑恢复仍要求本会话witness，持久身份限明确支持的物件/组合/室外范围，现行契约见04/06，历史边界见28/29/31和52。
+当前默认首页为`/#home`，完整创作入口为`/#workspace`，包含工程、建筑、素材库、室外、视觉及图层/对象/历史；其他hash统一回首页，离开工作区仍检查未保存内容。普通空白工程保留23个物件、11种材质和3种组合预装策略；原创视觉空白另提供24素材闭包，画布/坐标放置使用显式支撑和暂态预览。主路径由editor/main、editor/native-canvas、application/workspace及新platform适配构成，共用shared，不经旧core/io/render视图往返；实际资源/派生像素、许可、锁、256预算、单调revision和CAS保持。当前/所选历史包导入整体安装为新owner/r0，旧格式和迁移set明确拒绝，失败或取消不替换当前工程。建筑恢复仍要求本会话witness，持久身份限明确支持的物件/组合/室外范围，现行契约见04/06，历史边界见28/29/31和52。
 
 C5联合验收批次冻结349份应用源码，最终单元82文件979/979通过（68.85秒），正常构建通过（2.75秒）；最终全量Chrome168/168通过，0失败/重试/跳过（12.8分钟）；最终正常生产UI通过（46.791秒）；study/island×500/2000各三轮正式性能矩阵未完成，已执行批次未形成可合并的完整p95结果。优化后study-500单次诊断普通领域提交1110.4ms，优化前诊断2174.2ms，均不是正式分布且仍超100ms；性能门未通过，本批不能宣布C5或全交互性能通过，实际证据与待验项见[32](docs/32-m1c-c5-validation.md)。
 
-其后资源复用批次通过992项单元、20项适用Chrome及正常构建/生产UI，独立诊断归[33](docs/33-c5-resource-reuse-validation.md)。2026-10-23用户曾要求将余下性能优化暂缓；2026-10-25已恢复本轮验收，按当前新完整v1主路径重新采集并完成四组×三轮；结果见[34](docs/34-performance-followup.md)，功能正确性回归与性能指标分开判断。性能门仍未通过，不作容量承诺。
+其后资源复用批次通过992项单元、20项适用Chrome及正常构建/生产UI，独立诊断归[33](docs/33-c5-resource-reuse-validation.md)。2026-10-23用户曾要求将余下性能优化暂缓；2026-10-25已恢复本轮验收，按当前新完整v1主路径重新采集并完成四组×三轮；结果见[34](docs/34-performance-followup.md)，功能正确性回归与性能指标分开判断。该M2冻结当时性能门未通过；后续视觉第三冻结结果独立见34，不作容量承诺。
 
 ## 开发环境与命令
 
@@ -49,7 +49,7 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 
 使用`.nvmrc`的Node24.14.1。本地Node/Hono服务、只读对话工具及M2-2独立物件草稿已经实现，协议、预算/保留期和实际结果集中[05第11节](docs/05-ai-and-generation.md#11-m2-1连接与任务协议2026-10-24实施合同)。`node:sqlite`在本批Node仍有experimental提示；未声明其他Node版本通过。服务单实例独占一个数据目录，主工程/个人素材仍在浏览器。
 
-首次配置且`.env.ai`不存在时，将`.env.example`复制为`.env.ai`并设为0600，在文件里填写`SCENEWEAVE_AI_PROVIDER_BASE_URL`、`PROVIDER_API_KEY`、`PROVIDER_MODEL`及独立随机`SCENEWEAVE_AI_ACCESS_TOKEN`（所有变量均带`SCENEWEAVE_AI_`前缀）。后端默认127.0.0.1:8787、数据根local-data/ai；允许Origin必须精确到协议/主机/端口，不含Pages路径。保留现有配置，不盲目覆盖；真实配置被Git忽略，provider key不能使用VITE_前缀。
+首次配置且`.env.ai`不存在时，将`.env.example`复制为`.env.ai`并设为0600，在文件里填写`SCENEWEAVE_AI_PROVIDER_BASE_URL`、`PROVIDER_API_KEY`、`PROVIDER_MODEL`及独立随机`SCENEWEAVE_AI_ACCESS_TOKEN`（所有变量均带`SCENEWEAVE_AI_`前缀）。可选`SCENEWEAVE_AI_PROVIDER_VISION_MODEL`固定视觉模型，未填时沿用文字模型；完整请求历史含图片时选择视觉模型，带图历史的后续答仍走该模型。连接信息会显示实际配置，前端不能修改provider模型。后端默认127.0.0.1:8787、数据根local-data/ai；允许Origin必须精确到协议/主机/端口，不含Pages路径。保留现有配置，不盲目覆盖；真实配置被Git忽略，provider key不能使用VITE_前缀。
 
 ```sh
 npm run ai:build
@@ -66,6 +66,43 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m21-ai-conversation.
 草稿操作前先在产品内明确授权对象、允许操作、固定素材与支撑范围，并同意两层元数据发送范围。任务不会直接改主工程；等待本机实际资源校验、审阅差异后，才保护当前并一次采用。重新绑定/查询只读取任务，明确继续才再次调用模型。完整合同与结果见[05第12节](docs/05-ai-and-generation.md#12-m2-2-技能与独立物件草稿2026-10-24实施合同)。
 
 ai:test覆盖共享草稿/后端/provider/客户端；本机原子采用另运行`npx vitest run src/application/workspace/atomic.test.ts src/application/workspace/workspace.test.ts src/platform/browser/storage/repository.test.ts --maxWorkers=1`。Chrome使用真实HTTP/SSE/SQLite和受控模型替身，普通测试不调用真实模型。`npm run build`和typecheck也检查服务类型；ai:build另输出被忽略的dist-ai。确需验证真实渠道时，在编译后明确运行`node --env-file=.env.ai tools/testing/ai-provider-probe.mjs`；默认三次请求测文字和工具续答，`--interrupt-and-error`另测首段后中止及坏凭据，可能产生模型费用且无自动重试。探针不输出密钥/正文；用`--out`保存到新系统临时路径，不归档大报告。
+
+## M3前视觉AI开发与可选截图
+
+本地开发版增加严格v2视觉工程、连续曲线/边沿、材质铺贴、局部光雾、有限滤镜与AI制作清单。既有完整v1在工作区先明确保存独立v2副本，再冻结Floor/图层/矩形/对象/素材/允许操作；AI不暗中升级。制作计划与结构诊断不代表模型已看到画面或完成审美验收。完整合同、真实模型失败/修正和本机保护采用结果见[05第19节](docs/05-ai-and-generation.md#19-m3前视觉创作的ai合同与本地真实验证)，产品范围见[53](docs/53-visual-authoring.md)。这批功能尚未据本地结果宣称已发布到Pages或线上后端。
+
+可选制作证据检查支持明确活动区净空、分离物件组数量、双高程足宽台阶/坡道、房间用途与真实家具/材质、已启用边沿种类。检查矩形和固定素材必须位于冻结授权内，独立分组矩形不得重叠；仅以授权公开子集及本任务创建内容判定，不把房名或claimed当成完成。实际旋转图像的占幅/重叠另行诊断，不能只用较小碰撞占地安排树冠。大量采样点的地形读回超过8KiB回执预算时，明确返回`geometryOmitted`，随后以`sceneweave_read_scene`的`anchors`和单个地形ID、offset/limit分页取得真实point/segment；连续边沿直接引用真实boundaryId，不能沿用重采样前的旧segmentId。
+
+`sceneweave_probe_placement`是无写入的有限诊断：固定definition/support、候选毫米坐标、旋转、最小净距与是否避让完整图像，返回实际地面支撑、整块占地是否受支撑、授权障碍、实测净距及最多5个确定性建议。支撑包围盒各轴固定17等分，检查16×16内部点、最多256个样点，只读取冻结公开子集；没有建议不等于穷尽证明。候选必须再次通过原本完整几何、锁/依赖/预算及本机采用，不自动放置、不扩大范围。开发验收中的确定性局部修复与真实模型生成报告分开保留，尤其不能因本机恢复/采用成功把request_limit或计费unknown写成自动创作通过。
+
+在现有服务器环境文件中可显式设置`SCENEWEAVE_AI_PROVIDER_VISION=unverified|disabled|enabled`，默认unverified。保持unverified时可使用全部文字工具/结构诊断，截图复选框禁用。只有确认该固定渠道/实际视觉模型支持Chat Completions内联PNG后，维护者才设置enabled并重启服务；不要因模型名称或一次HTTP成功自动启用。旧`grok-4.6`渠道high随机12/12、实际地图5/5、三图有限修改及其后额度预扣失败均保留历史。用户最新指定BigModel文字`glm-5.3`、视觉`glm-5.3-flash`，新组保持unverified：文字/工具最小检查通过，flash8192预算随机12/12、实际地图4/5，不能借旧渠道实证启用。每消息一图/每任务四图及披露/范围绑定保持，未知请求不自动重发；详细实测与线上是否更新分别记05第19.10节及54。
+
+创作任务可在私有服务器配置中设置`SCENEWEAVE_AI_AUTHORING_OUTPUT_TOKENS`，默认1024、允许整数1–8192；普通对话仍1024。连接信息展示创作预算，工具参数/完整回执8KiB、65536可见输出字节、16请求/64工具/300秒及256累计展开等原保护不变。高输出创作请求可能有较多推理流事件：普通≤1024预算保留1MiB/2048事件的SSE解码门，较高预算使用4MiB/16384事件；32KiB单行和64KiB单事件保持。配置值不保证完整创作或渠道费用；模型/共享实现/预算改变后重新冻结独立任务组，保留旧失败与unknown。
+
+GLM-5.3/FLASH的强制思考及交错工具续答按[供应商说明](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode)处理。私有配置可显式设置`SCENEWEAVE_AI_PROVIDER_PRESERVE_REASONING=enabled|disabled`，默认disabled，当前BigModel本机配置显式enabled。启用时仅在服务端私有消息中保留每回复最多64KiB的不透明`reasoning_content`，供provider续答，计入原每任务16MiB、全库256MiB及七日生命周期；不解释或执行该字段，不进入文字回调、snapshot/SSE、工具回执或工程/导出。关闭后不再保存或发给provider；既有任务在下次请求时移除本任务历史中的该字段，不批量改写全部旧任务。不要在诊断中打印该字段，配置变更需重启并独立验收。
+
+组合候选工具向provider同时提供根`type:object`、分支属性并集、必填`kind`和`additionalProperties:false`，原严格`oneOf`分支及运行时校验保持。该兼容适配后的GLM v4确实返回有效候选并生成部分可编辑内容；旧v3的两次实际参数`{}`仍保留为失败，尚无证据证明根schema是其唯一原因。v4随后HTTP429/errorcode1305（官方定义为模型过载）/unknown、其余八任务未执行，完整创作与视觉验收仍开放。最新串行AI277/277、最终真实HTTP浏览器专项10/10、86共享边界及正常前后端构建通过；完整Chrome142/142运行期间后端有变更，各批冻结边界分别保留，详[54第13.4节](docs/54-reference-quality-plan.md#134-bigmodel分模型独立验收组)及第14节。正常生产11步独立复跑通过（262.092秒），首轮画布默认5秒等待超时与仅脚本延长为90秒的修正保留。严格v2正式性能正在独占运行，结果另见34，不用旧完整v1结果代替。
+
+需要单独核对渠道时，以下命令**会执行一次真实付费请求**：随机4×3色块、384×288px、369600种等量颜色排列，不读取工程或用户图片，不用工具，默认请求128输出token，可显式用`--probe-max-output-tokens`设1–8192并记录实际值；使用已配置视觉模型或文字模型回退。成功只证明该颜色观察，不证明地图美术能力，不改环境文件或连接能力，输出配置也不是费用硬上限。默认超时60秒，可显式以`--probe-timeout-ms`在1000–90000ms内设置。未知结果须保留并核对任务，不为补日志自动重跑。
+
+```sh
+npm run ai:build
+node --env-file=.env.ai dist-ai/services/ai/vision-probe.js --run-vision-probe
+```
+
+截图须在新任务或明确继续时分别勾选同意。浏览器重新生成真实玩家投影并裁剪授权矩形，长边先768px，字节超限时降到512/384px；每张最多512KiB，任务累计最多4张。后端还验证真实PNG/CRC/hash/有限解压、sceneId/revision和当前草稿stamp；请求体上限6MiB，普通文字与元数据预算保持。图片只在私有任务消息中按七日/任务删除规则保留，不进snapshot/SSE；后续模型请求会重复携带带图历史，不能把一次上传当作仅计一次图片费用。`deploy/Caddyfile`和IP覆盖文件没有额外请求体限制；若外层另有反向代理，须核对6MiB创建/继续请求可达及SSE禁缓冲，不能只提高前端上限。现有线上版本尚未据本批本地检查更新或验证图片流程。
+
+本批无费用的定向入口：
+
+```sh
+npm run ai:test
+npx vitest run src/shared/ai/visual-authoring.test.ts src/application/workspace/visual.test.ts --maxWorkers=1
+SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/visual-authoring.spec.ts tests/visual-ai-authoring.spec.ts tests/visual-renderer.spec.ts --workers=1 --reporter=line
+npx playwright test --config=tests/visual-playwright.config.ts --workers=1
+node tools/testing/visual-production-smoke.mjs
+```
+
+真实模型验收须另行明确发起，记录自然语言要求、冻结范围、请求/token、失败工具和最终本机候选/实际资源/保护采用；unknown不自动重发，也不按未知价格换算金额。普通测试使用受控provider，不调用上述真实探针或模型。
 
 ## M2-5线上 AI 服务与 Pages
 
@@ -187,6 +224,27 @@ node tools/performance/run-native-m2.mjs --output "$native_m2_formal_dir" --fixt
 精确领域区间从可信提交输入（普通物件编辑为Enter）开始，到Workspace完成领域校验、身份与撤销状态、在通知React前记录的会话时间结束；对应`data-transaction-revision`必须等于提交后revision。DOM revision、Canvas计数/就绪、保存完成和双rAF显示调度代理各自报告，不能用保存或双rAF替代领域提交。时戳只在会话/DOM，不进入工程、历史或导出。500物件普通领域p95目标100ms，连续输入帧间隔目标约33ms，2000物件作为压力观察；运行器完成不代表达标。
 
 `manifest.json`及每轮结果记录Node、操作系统、CPU/逻辑核数、内存、Chrome版本、1512×982/DPR1视口和实际命令参数，并记录源码、构建输入、dist与运行器SHA256及采样前后未变核对。每轮原始输入/事务/LongTask、独立资源记录和CPU诊断文件保留，成功完成后自动写`summary.json`。RSS目标间隔100ms、目标页JS堆200ms，报告真实间隔、阶段、边界样本及采样错误；RSS可能重复共享页，JS堆不含完整浏览器/GPU，二者均非物理峰值。双rAF不是GPU或屏幕呈现完成；HTTP缓存关闭但不清系统缓存，不宣称50×50显示网格、自由拖拽或完整QA-PERF-04通过。输出目录必须为空且独立于原夹具，失败、取消与慢样本保留，修正后另开目录重跑。方法说明不是运行结果，本轮实际结果、失败修正、证据路径和剩余边界以[34后续记录](docs/34-performance-followup.md)为准。
+
+## Q5 完整v2视觉负载性能复现
+
+参考图质量阶段使用独立的严格完整v2岩岛/旅舍负载，不走上节B5转换。先冻结实现，完成正常构建与其它检查，再准备四个固定工程包：
+
+```sh
+npm run build
+node tools/performance/visual-v2-fixtures.mjs --output "$PWD/work/visual-v2-fixtures"
+```
+
+输出目录必须为空。准备器保留两份原精修作品，再增加独立持久物件至study/island各500/2000：室内保留23源/23实际PNG/五固定家具组，岩岛13源/14实际PNG含固定tint派生图。源、PNG、许可、完整包各条hash与完整v2/scene2/visual1均核对，原作品和密集合成负载分别记录；500为普通观察、2000为压力观察，不将合成密度称作自然布景。
+
+确认准备浏览器、其它测试、构建与模型任务均结束后，独占串行执行完整矩阵：
+
+```sh
+node tools/performance/run-native-m2.mjs --output "$PWD/work/visual-v2-formal" --visual-v2-fixtures "$PWD/work/visual-v2-fixtures"
+```
+
+默认四组×三轮，每轮159观察、共1908；沿用上节普通编辑/选择/图层/外观/保护恢复/菜单/平移缩放/冷导入重开/双4K及资源采样，另含真实曲线手柄30次rAF指针移动、普通预览/完整影响范围确认/采用及普通UI撤销。岛屿500/2000的完整只读支撑依赖为507/2007，必须披露，实际展开写入仅10；旅舍装饰曲线依赖/展开均2。只读依赖数量不充当写入预算，也不能因此省略依赖检查。
+
+完整矩阵分类为`formal-visual-v2-production-ui-observation`；缩样或`--diagnostic`/`--diagnostic-profile`另列诊断，不混入正式分布。普通500物件intent→domain commit逐轮及合并p95仍以100ms为子指标，连续输入/曲线调度、保存/恢复、渲染和4K独立报告。相同冻结、时钟中断检测、实际采样间隔和RSS/JS堆边界沿用上节；运行完成不等于达到性能门，也不替代P3、完整QA-PERF-01/04或九份真实AI新作。当前实际结果与剩余瓶颈只写[34](docs/34-performance-followup.md)，不覆盖旧完整v1或B5历史。
 
 ## 历史性能与旧工作台记录
 

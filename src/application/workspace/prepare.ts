@@ -1,4 +1,4 @@
-import { applyCompositionCommands } from '../../shared/appearance/commands.js'
+import { applyCompositionDraftCommands } from '../../shared/appearance/commands.js'
 import { listRequiredVariants, resolveAppearance, syncAppearanceGraph } from '../../shared/appearance/graph.js'
 import { certifyCompositionContent, validateCompositionDraft } from '../../shared/validation/content.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
@@ -13,12 +13,14 @@ import { canonicalJson, captureJson, encodeUtf8, inspectJsonInput } from '../../
 import { normalizeBrowserImage } from '../../platform/browser/images/index.js'
 import { adoptLibraryEntries, listCatalogItems, prepareLibraryEntry } from '../../shared/library/content.js'
 import type { CatalogSelector, PreparedLibraryEntry } from '../../shared/library/types.js'
-import { captureEditableDraft, fromBundle, getVerifiedEditableProject, toBundle, validateEditableProject, type EditableProject } from './project.js'
+import { captureEditableDraft, captureEditableInput, fromBundle, getVerifiedEditableProject, tryDeriveEditableProject, toBundle, validateEditableProject, type EditableProject } from './project.js'
 
 export interface PrepareOptions {
   validation: CompleteValidationOptions
   runtime: PreparationContext
   signal?: CancellationSignal
+  /** Exact workspace-owned baseline for composition-only derivation reuse. */
+  baseline?: EditableProject
 }
 export interface AssetImportRequest {
   file: Blob
@@ -63,7 +65,17 @@ function draftBudgets(project: EditableProject): void {
 export async function materializeProject(input: EditableProject, options: PrepareOptions): Promise<EditableProject> {
   const checked = validation(options)
   checkCancelled(checked.signal)
-  const project = captureEditableDraft(input)
+  const baseline = getVerifiedEditableProject(options.baseline ?? input)
+  const captured = captureEditableInput(input)
+  // Ordinary geometry edits already carry a resolved composition. The strict
+  // derivation validates that fact and the exact unchanged resource closure;
+  // unresolved adjustments or new resource branches continue to materialize.
+  if (baseline) {
+    const derived = tryDeriveEditableProject(captured, baseline, checked)
+    if (derived) return derived
+  }
+  const project = captureEditableDraft(captured)
+  const inputResources = captured.resources
   draftBudgets(project)
   Object.assign(project, validateCompositionDraft(contentOf(project)))
   const added = new Map<string, Uint8Array>(), originalResources = project.resources
@@ -91,6 +103,21 @@ export async function materializeProject(input: EditableProject, options: Prepar
   Object.assign(project, certifyCompositionContent(resolveAppearance(contentOf(project))))
   inheritMissingBindings(project)
   project.resources = Object.freeze({ read: async (hash: string) => added.get(hash)?.slice() ?? originalResources.read(hash) })
+  // A composition-only edit on an already certified project cannot change the
+  // resource/license closure. Reattach those exact immutable branches and let
+  // the private derivation certificate avoid re-reading/decoding every image.
+  // Any changed closure branch (imports, new variants, or inherited bindings)
+  // deliberately falls back to the complete validator below.
+  if (baseline && added.size === 0
+    && inputResources === baseline.resources
+    && canonicalJson(project.assets) === canonicalJson(baseline.assets)
+    && canonicalJson(project.licenses) === canonicalJson(baseline.licenses)
+    && canonicalJson(project.licenseBindings) === canonicalJson(baseline.licenseBindings)
+    && canonicalJson(project.authoringSources) === canonicalJson(baseline.authoringSources)) {
+    const derived = tryDeriveEditableProject({ ...project, assets: baseline.assets, licenses: baseline.licenses,
+      licenseBindings: baseline.licenseBindings, authoringSources: baseline.authoringSources, resources: baseline.resources }, baseline, checked)
+    if (derived) return derived
+  }
   return validateEditableProject(project, checked)
 }
 
@@ -105,8 +132,8 @@ export async function prepareCompositionCommands(input: EditableProject, command
   // returned. External or cloned wrappers take the public validation path.
   const project = getVerifiedEditableProject(input) ?? await validateEditableProject(input, checked)
   checkCancelled(checked.signal)
-  const draft = applyCompositionCommands(contentOf(project), capturedCommands, options.runtime)
-  return materializeProject({ ...project, ...draft }, options)
+  const draft = applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime)
+  return materializeProject({ ...project, ...draft, schemaVersion: draft.document.schemaVersion }, { ...options, baseline: project })
 }
 
 function captureImportRequest(input: AssetImportRequest): AssetImportRequest {

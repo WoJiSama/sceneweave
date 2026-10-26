@@ -1,5 +1,7 @@
 import { resolve } from 'node:path'
-import type { ChatProviderConfig } from './provider-types.js'
+import { isProviderModel, type ChatProviderConfig } from './provider-types.js'
+import { AI_LIMITS } from '../../src/shared/ai/protocol.js'
+import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
 
 export interface AiConfig {
   host: string
@@ -9,6 +11,7 @@ export interface AiConfig {
   accessTokens: ReadonlyMap<string, string>
   provider: ChatProviderConfig
   maxConcurrent: number
+  authoringOutputTokens?: number
 }
 function invalid(name: string): never { throw new Error(`Invalid server configuration: ${name}`) }
 const token = (value: unknown): value is string => typeof value === 'string' && value.length >= 32 && value.length <= 512 && /^[\x21-\x7e]+$/.test(value)
@@ -41,13 +44,21 @@ export function loadAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
     }
   }
   if (!accessTokens.size) invalid('ACCESS_TOKEN')
-  const base = read('PROVIDER_BASE_URL'), apiKey = read('PROVIDER_API_KEY'), model = read('PROVIDER_MODEL')
-  if (!base || !apiKey || !model || model.length > 128 || /[\x00-\x1f\x7f]/.test(apiKey + model)) invalid('PROVIDER')
+  const base = read('PROVIDER_BASE_URL'), apiKey = read('PROVIDER_API_KEY'), model = read('PROVIDER_MODEL'), visionModel = read('PROVIDER_VISION_MODEL')
+  if (!base || !apiKey || !isProviderModel(model) || /[\x00-\x1f\x7f]/.test(apiKey)) invalid('PROVIDER')
+  if (visionModel !== undefined && !isProviderModel(visionModel)) invalid('PROVIDER_VISION_MODEL')
   if (accessTokens.has(apiKey)) invalid('ACCESS_TOKEN')
+  const vision = read('PROVIDER_VISION') ?? 'unverified'
+  if (!['unverified', 'disabled', 'enabled'].includes(vision)) invalid('PROVIDER_VISION')
+  const preserveReasoning = read('PROVIDER_PRESERVE_REASONING') ?? 'disabled'
+  if (preserveReasoning !== 'enabled' && preserveReasoning !== 'disabled') invalid('PROVIDER_PRESERVE_REASONING')
+  const outputBudget = read('AUTHORING_OUTPUT_TOKENS')
+  const authoringOutputTokens = outputBudget === undefined ? AI_LIMITS.maxOutputTokensPerRequest : Number(outputBudget)
+  if ((outputBudget !== undefined && !/^[0-9]+$/.test(outputBudget)) || !Number.isInteger(authoringOutputTokens) || authoringOutputTokens < 1 || authoringOutputTokens > AUTHORING_LIMITS.maxOutputTokensPerRequest) invalid('AUTHORING_OUTPUT_TOKENS')
   let url: URL
   try { url = new URL(base) } catch { invalid('PROVIDER_BASE_URL') }
   if (url!.username || url!.password || url!.search || url!.hash ||
     !(url!.protocol === 'https:' || url!.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url!.hostname))) invalid('PROVIDER_BASE_URL')
   return { host, port, dataDir: resolve(read('DATA_DIR') ?? 'local-data/ai'), allowedOrigins, accessTokens,
-    provider: { baseUrl: base.replace(/\/$/, ''), apiKey, model }, maxConcurrent: 4 }
+    provider: { baseUrl: base.replace(/\/$/, ''), apiKey, model, ...(visionModel !== undefined ? { visionModel } : {}), vision: vision as 'unverified' | 'disabled' | 'enabled', preserveReasoning }, maxConcurrent: 4, authoringOutputTokens }
 }

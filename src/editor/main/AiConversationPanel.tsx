@@ -6,6 +6,8 @@ import {
 import { AiClient, AiClientError, describeTaskError, safeAiError } from '../../platform/browser/ai/client'
 import AiAuthoringPane, { type AiAuthoringHost } from './AiAuthoringPane'
 import { AUTHORING_LIMITS } from '../../shared/ai/authoring-protocol'
+import { renderPublicVision } from '../../platform/browser/ai/public-vision'
+import type { VisionInput } from '../../shared/ai/vision'
 import './ai-conversation.css'
 
 export interface AiConversationPanelProps { context: TaskContext; disabled?: boolean; authoring?: AiAuthoringHost }
@@ -26,6 +28,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   const [streamState, setStreamState] = useState<'idle' | 'connected' | 'reconnecting' | 'disconnected'>('idle')
   const [startedTools, setStartedTools] = useState<{ callId: string; name: string }[]>([])
   const [deleteConfirmation, setDeleteConfirmation] = useState(false), [resumeConfirmed, setResumeConfirmed] = useState(false)
+  const [resumeVision, setResumeVision] = useState(false)
   const contextRef = useRef(context), sceneRef = useRef(sceneOf(context)), clientRef = useRef<AiClient | null>(null), taskRef = useRef<TaskSnapshot | null>(null)
   const operation = useRef(0), request = useRef<AbortController | null>(null), stream = useRef<AbortController | null>(null), mounted = useRef(true)
   contextRef.current = context; sceneRef.current = sceneOf(context)
@@ -70,7 +73,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   }
   const select = (snapshot: TaskSnapshot, active: AiClient) => {
     if (sceneOf(snapshot.context) !== sceneRef.current) throw new AiClientError('protocol', '服务器返回了其他工程的任务，已停止显示。')
-    stopReading(); taskRef.current = snapshot; setTask(snapshot); setDeleteConfirmation(false); setResumeConfirmed(false); setAddition(''); follow(snapshot, active)
+    stopReading(); taskRef.current = snapshot; setTask(snapshot); setDeleteConfirmation(false); setResumeConfirmed(false); setResumeVision(false); setAddition(''); follow(snapshot, active)
   }
   const disconnect = () => {
     invalidate(); clientRef.current = null; setClient(null); setConnection(null); setBusy(false); setStreamState('idle'); setStartedTools([]); setDeleteConfirmation(false); taskRef.current = null; setTask(null); setTasks([])
@@ -121,10 +124,24 @@ export default function AiConversationPanel({ context, disabled: externalDisable
     if (!client || !task || busy || disabled) return
     const active = client, selected = task, action = begin(); stopReading()
     try {
-      const value = await active.control(selected.id, { schemaVersion: 1, expectedGeneration: selected.generation, action: kind, ...(kind === 'resume' && addition.trim() ? { prompt: addition } : {}) }, action.controller.signal)
+      let vision: VisionInput | undefined
+      if (kind === 'resume' && resumeVision) {
+        if (connection?.capabilities.vision !== 'enabled' || !selected.authoring || !authoring) throw new Error('当前任务未具备公开截图回读条件。')
+        const local = authoring.workspace, checkpoint = local.checkpoint(), draft = await active.draft(selected.id, action.controller.signal)
+        if (draft.generation !== selected.generation || draft.state.contentHash !== selected.authoring.contentHash) throw new Error('草稿已变化，请刷新后重新回读。')
+        const grant = await local.reattachAtomic(draft.start)
+        const bounds = draft.start.scope.visual?.boundsMm ?? draft.start.scope.scene?.boundsMm ?? draft.start.scope.artwork?.boundsMm ?? draft.start.scope.placement?.boundsMm
+        if (!bounds) throw new Error('当前任务未明确授权截图范围。')
+        const prepared = draft.state.draftRevision ? await local.prepareAtomicCandidate(grant, draft, { signal: action.controller.signal }) : null
+        try { vision = await renderPublicVision(prepared?.project ?? authoring.project, bounds, action.controller.signal, { draftRevision: draft.state.draftRevision, contentHash: draft.state.contentHash }) }
+        finally { if (prepared) local.cancelAtomicCandidate(prepared) }
+        local.assertCheckpoint(checkpoint)
+        if (!action.valid()) return
+      }
+      const value = await active.control(selected.id, { schemaVersion: 1, expectedGeneration: selected.generation, action: kind, ...(kind === 'resume' && addition.trim() ? { prompt: addition } : {}), ...(vision ? { vision } : {}) }, action.controller.signal)
       if (action.valid() && clientRef.current === active && taskRef.current?.id === selected.id) {
         if (value.id !== selected.id || value.generation < selected.generation || !applySnapshot(value, active)) throw new AiClientError('protocol', '任务控制响应不匹配，请刷新完整任务。')
-        setResumeConfirmed(false); setAddition(''); setNotice(kind === 'resume' ? '已明确继续，可能产生新的模型费用。' : kind === 'pause' ? '已暂停，最后确认的文字保留。' : '已取消，已发生的模型用量仍可能计费。'); follow(value, active)
+        setResumeConfirmed(false); setResumeVision(false); setAddition(''); setNotice(kind === 'resume' ? '已明确继续，可能产生新的模型费用。' : kind === 'pause' ? '已暂停，最后确认的文字保留。' : '已取消，已发生的模型用量仍可能计费。'); follow(value, active)
       }
     } catch (failure) { if (action.valid() && !cancelled(failure)) { setError(safeAiError(failure)); setStreamState('disconnected'); setNotice('控制结果未确认，请先刷新任务；不会自动重发控制或模型请求。') } } finally { action.finish() }
   }
@@ -148,7 +165,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       <div className="ai-actions"><button type="button" disabled={disabled || busy || !!pending || !baseUrl.trim() || !token.trim()} onClick={() => void connect()}>连接 AI 后端</button>{connected && <button type="button" disabled={busy || !!pending || disabled} onClick={disconnect}>断开本地连接</button>}</div>
     </details>
     <p className="ai-disclosure">普通对话发送范围：自有后端接收本次文字及工程 ID、修订号；模型只接收对话文字和只读连接工具结果，工程 ID 与修订号仅用于后端绑定。普通对话不上传地图、素材或快照；场景草稿需另行明确授权元数据。服务器保留任务 7 日，可主动删除。</p>
-    <p className="ai-context">{context ? `当前工程 ${context.sceneId} · 修订 ${context.revision}` : '未打开工程，仅发送文字。'}{connection ? ` · 模型 ${connection.model}` : ''}</p>
+    <p className="ai-context">{context ? `当前工程 ${context.sceneId} · 修订 ${context.revision}` : '未打开工程，仅发送文字。'}{connection ? ` · 文字模型 ${connection.model}${connection.visionModel ? ` · 视觉模型 ${connection.visionModel}` : ''}` : ''}</p>
     {notice && <p role="status">{notice}</p>}{error && <p className="ai-error" role="alert">{error}</p>}
     <div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void list()}>查询最近任务</button>{(busy || streamState === 'connected' || streamState === 'reconnecting') && <button type="button" onClick={stopLocal}>停止本地读取</button>}{task && <button type="button" disabled={!connected || busy || disabled} onClick={() => void refresh(task.id)}>{streamState === 'disconnected' ? '重新连接' : '刷新任务'}</button>}</div>
     {tasks.length > 0 && <ul className="ai-recent" aria-label="当前工程 AI 最近任务">{tasks.map(value => <li key={value.id}><span>{new Date(value.createdAt).toLocaleString()} · {labels[value.status]}</span><button type="button" disabled={busy || disabled || !connected} aria-label={`查看任务 ${value.id}`} onClick={() => void refresh(value.id)}>查看任务</button></li>)}</ul>}
@@ -162,11 +179,11 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       <p className="ai-usage" aria-label="AI 用量">模型请求 {task.usage.requests}/{task.authoring ? AUTHORING_LIMITS.modelRequests : AI_LIMITS.modelRequests}；输入 token {task.usage.inputTokens ?? '未知'}，输出 token {task.usage.outputTokens ?? '未知'}。{task.usage.unknown ? '部分或全部用量未知，不能按零计费。' : '此处为服务返回的实际 token 记录，未换算价格。'}</p>
       <small>保留至 {new Date(task.expiresAt).toLocaleString()}</small>
       <div className="ai-actions">{['running', 'waiting_browser', 'ready'].includes(task.status) && <button type="button" disabled={!connected || busy || disabled} onClick={() => void control('pause')}>暂停回复</button>}{activeTask && task.status !== 'applying' && <button type="button" disabled={!connected || busy || disabled} onClick={() => void control('cancel')}>取消任务</button>}</div>
-      {task.status === 'paused' && !task.authoring?.claim && <div className="ai-resume"><label>补充要求（可留空）<textarea aria-label="AI 继续补充要求" value={addition} maxLength={AI_LIMITS.promptBytes} disabled={busy || disabled} onChange={event => setAddition(event.target.value)} /></label><small>{additionBytes}/{AI_LIMITS.promptBytes} 字节</small><label className="ai-check"><input type="checkbox" checked={resumeConfirmed} disabled={busy || disabled} onChange={event => setResumeConfirmed(event.target.checked)} />我确认继续会发起新的模型请求，可能产生费用；上一请求未知时不会自动重发。</label><button type="button" disabled={!connected || busy || disabled || !resumeConfirmed || additionBytes > AI_LIMITS.promptBytes} onClick={() => void control('resume')}>确认继续任务</button></div>}
+      {task.status === 'paused' && !task.authoring?.claim && <div className="ai-resume"><label>补充要求（可留空）<textarea aria-label="AI 继续补充要求" value={addition} maxLength={AI_LIMITS.promptBytes} disabled={busy || disabled} onChange={event => setAddition(event.target.value)} /></label><small>{additionBytes}/{AI_LIMITS.promptBytes} 字节</small>{task.authoring && <label className="ai-check"><input type="checkbox" aria-label="AI 继续发送公开截图" checked={resumeVision} disabled={busy || disabled || connection?.capabilities.vision !== 'enabled'} onChange={e => setResumeVision(e.target.checked)}/>另行同意发送本次草稿明确范围的实际玩家画面给模型供应商，用于回看修正（任务累计最多4张）</label>}<label className="ai-check"><input type="checkbox" checked={resumeConfirmed} disabled={busy || disabled} onChange={event => setResumeConfirmed(event.target.checked)} />我确认继续会发起新的模型请求，可能产生费用；上一请求未知时不会自动重发。</label><button type="button" disabled={!connected || busy || disabled || !resumeConfirmed || additionBytes > AI_LIMITS.promptBytes} onClick={() => void control('resume')}>确认继续任务</button></div>}
       {!deleteConfirmation ? <button type="button" className="ai-delete" disabled={!connected || busy || disabled || task.status === 'applying'} onClick={() => setDeleteConfirmation(true)}>删除服务器任务</button> : <div className="ai-delete-confirm"><p>删除会终止此任务，并删除服务器保存的对话与检查点。此操作不能恢复。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void remove()}>确认删除服务器任务</button><button type="button" disabled={busy} onClick={() => setDeleteConfirmation(false)}>保留任务</button></div></div>}
     </article>}
     {pending ? <div className="ai-pending"><p>本次创建请求尚未确认。重试使用同一个请求 ID，不会主动创建另一个任务。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void send(pending)}>重试本次发送</button><button type="button" disabled={busy} onClick={() => { setPending(null); setNotice('已停止本地重试。服务器可能已创建任务，请先查询最近任务；不会自动取消服务器任务。') }}>停止本地重试</button></div></div> : <form className="ai-compose" onSubmit={event => { event.preventDefault(); void send() }}><label>本次对话<textarea aria-label="AI 对话输入" value={prompt} maxLength={AI_LIMITS.promptBytes} disabled={busy || disabled} placeholder="描述你的想法，或请求检查连接…" onChange={event => setPrompt(event.target.value)} /></label><small>{promptBytes}/{AI_LIMITS.promptBytes} 字节</small>{activeTask && <p>当前任务尚未结束。暂停后可补充并明确继续，或取消后再发送新任务。</p>}<button type="submit" disabled={!connected || busy || disabled || !!activeTask || !prompt.trim() || promptBytes > AI_LIMITS.promptBytes}>发送新任务</button></form>}
-    <AiAuthoringPane client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
+    <AiAuthoringPane visionEnabled={connection?.capabilities.vision === 'enabled'} client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
     <p className="ai-footnote">草稿支持明确授权的物件、建筑、室外、组合、散布、主持人文字，以及 SVG 制作和素材风格同化。隐藏面板保留对话；断开连接或切换工程只停止本地读取，取消服务器任务请使用“取消任务”。</p>
   </section>
 }

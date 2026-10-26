@@ -1,10 +1,11 @@
 import { sceneDocumentSchema, validateSceneDocument, type ValidationResult } from './scene.js'
 import { freezeJson } from './json.js'
 import type { SceneDocument } from '../model/scene.js'
+import { z } from 'zod'
 
 type ValidSnapshot = Extract<ValidationResult, { ok: true }>
 const snapshots = new WeakMap<object, ValidSnapshot>()
-const revisionSchema = sceneDocumentSchema.pick({ revision: true, updatedAt: true })
+const revisionSchema = z.object({ revision: sceneDocumentSchema.shape.revision, updatedAt: sceneDocumentSchema.shape.updatedAt }).strict()
 
 /** Certification belongs only to the independently parsed, owned result. */
 export function isCertifiedSceneSnapshot(input: unknown): input is SceneDocument {

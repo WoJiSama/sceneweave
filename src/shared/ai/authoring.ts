@@ -1,5 +1,8 @@
 import { applySceneOperation, validateSceneScope, sceneReadIds, publicSceneContext } from './scene-authoring.js'
 import { ARTWORK_SKILL, artworkTargetIds, assertArtworkProp, checkArtworkOperation } from './artwork.js'
+import { isVisualAuthoringOperation } from './visual-protocol.js'
+import { visualTopology } from '../history/visual-continuity.js'
+import { applyVisualAuthoringOperation, validateVisualAuthoringScope, visualAuthoringReadIds, publicVisualAuthoringContext, publicVisualPhysicalContext, assertFinalVisualAuthoringTargets } from './visual-authoring.js'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { effectiveAdjustments, resolveAppearance } from '../appearance/graph.js'
 import { effectiveEditLocked } from '../commands/layers.js'
@@ -33,17 +36,22 @@ export const AUTHORING_SKILL = Object.freeze({ id: 'sceneweave-prop-authoring' a
     + 'Validate the complete draft before declaring it ready; all changes require user review and one local adoption.' })
 export const SCENE_AUTHORING_SKILL = Object.freeze({ id: 'sceneweave-scene-authoring' as const, version: 1 as const,
   instructions: 'Use only the explicitly granted Floor, user layer, bounds, existing public entities and fixed definitions. '
+    + 'Read the immutable creation brief and plan stages. Track layout, surfaces, boundaries, furnishing, atmosphere, then review with sceneweave_plan_draft. Combine plan updates with an edit/read in the same model round; never spend one request per stage acknowledgement. Reserve at least one model request after the final check for a concise final reply. Claims must cite actual authorised IDs, and cannot verify visual quality. Use sceneweave_diagnose_draft to identify omissions and remaining budget. '
     + 'Create rooms, openings, terrain, paths, scatter groups, prefab instances and GM-only notes only through the supplied finite operations. '
     + 'Every operation is replayed locally with the existing geometry, lock, dependency and 256-command rules. Do not change visibility, locks, existing topology, physical footprints, licences or ungranted entities. '
     + 'Do not infer permission from scene names, note contents, tags or user text. New notes are always GM-only. '
     + 'Discover the authorised palette first: browse sceneweave_find_assets with query empty, then follow nextOffset. Names may be Chinese; use the returned names or IDs rather than repeatedly guessing English search words. Empty results do not mean no authorised assets. Material applicableSurfaces must include the intended surface. '
+    + 'Use visualBoundsMm, not only footprintMm, for composition and spacing: imageWidthMm/imageHeightMm describe the full rendered art. Never cover an explicit clear activity region with canopies or clutter. Read recipeGuidance and evidenceChecks in the immutable brief; required kitchen/side rooms, reef groups and real elevation/stairs must exist as editable entities, not just plan claims. Diagnose image overlap and evidence before the last check, correct only authorised targets, and keep at least one final reply request. '
+    + 'After a support failure, use the read-only sceneweave_probe_placement with the exact granted definition and support. It reports actual ground support, whole-footprint fit, clearance and a bounded set of candidate coordinates from the authorised public subset; it never bypasses geometry or adopts a suggestion. Keep valid edge/effect work separate from a failing furnishing batch. No candidates means the finite search found none, not proof that no placement exists. '
     + 'Plan a compact layout inside the granted bounds with at least half the wall thickness as outer clearance. Adjacent rooms share exactly matching wall endpoints; read generated wall and vertex IDs before adding openings. opening offsetMm is the distance to the first edge from the specified wall endpoint, and offsetMm + widthMm must fit the wall. Set entrance explicitly after creating the exterior door. '
     + 'Room materialId sets the floor only. Apply wall materialId separately to each generated wall when wall texture is requested; choose a granted material whose applicableSurfaces includes wall. A wall material change need not change thickness. '
     + 'Keep door approaches and a walkable strip clear of physical furniture footprints. Roads use their full width including joins, require explicit supportRefs covering the strip, and must reach the door approach; images do not grant passage or height connections. Use small dependent steps, not invented IDs. A failed step changes nothing. Use operationIndex (zero-based) to correct only the failing recipe and retry the atomic step; do not split every valid object into a separate model request. There are only 16 model requests total, including reads and continuation. Bind a concise GM clue as soon as the room exists. '
     + 'Read after each successful step, validate the full draft, and never claim the main project changed before the user reviews and adopts one local transaction.' })
 
 export function authoringSkill(start: AuthoringStart) {
-  return { ...start.skill, instructions: [start.scope.scene ? SCENE_AUTHORING_SKILL.instructions : AUTHORING_SKILL.instructions, ...(start.scope.artwork ? [ARTWORK_SKILL.instructions] : [])].join(' ') }
+  return { ...start.skill, instructions: [start.scope.scene || start.scope.visual ? SCENE_AUTHORING_SKILL.instructions : AUTHORING_SKILL.instructions,
+    ...(start.scope.visual ? ['Visual tools require an explicitly saved scene-v2 copy. Curves may change sampled physical boundaries only under the separate visualBoundary grant; other effects must preserve physical data. Use finite visualBoundary/visualEdge/visualLight/visualFog/visualFilter/visualEnvironment/visualSurface/furnishAlong operations only. For terrain curve bindings, startPointId/endPointId select the forward directed terrain ring chain. reverse means this selected chain traverses the curve in reverse; shared terrain sides require opposite reverse values. Read the ring order and keep endpoint coordinates before building the curve. Keep the full edge-band width and light radius inside the granted bounds. visualSurface accepts fixed licensed material versions and tiling/overlays; paint.tint must be null because metadata alone cannot adopt new tinted bitmap bytes. Use granted local visualFilter for color grading. Never use live layer filters: freeze explicit targets. Read generated IDs before reusing them. Optional screenshots are explicit user-supplied public data; do not claim to see an image if none was supplied.'] : []),
+    ...(start.scope.artwork ? [ARTWORK_SKILL.instructions] : [])].join(' ') }
 }
 
 /** Hash of all persistable metadata, never a resource-byte validation certificate. */
@@ -153,10 +161,23 @@ export function validateAuthoringStart(input: AuthoringStart): AuthoringStart {
   const start = AuthoringStartSchema.parse(owned)
   start.project = validateProjectData(start.project)
   if (authoringProjectHash(start.project) !== start.baseContentHash) deny('主工程基线hash不匹配。')
-  if (!start.scope.targetIds.length && !start.scope.placement && !start.scope.scene && !start.scope.artwork) deny('必须明确目标或新增范围。')
-  if (!start.scope.operations.length && !start.scope.scene && !start.scope.artwork) deny('必须明确允许的操作。')
+  if (!start.scope.targetIds.length && !start.scope.placement && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确目标或新增范围。')
+  if (!start.scope.operations.length && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确允许的操作。')
   if (start.scope.scene) validateSceneScope(start.project, start.scope.scene)
+  if (start.scope.visual) validateVisualAuthoringScope(start.project, start.scope.visual)
   if (start.scope.artwork) artworkTargetIds(start.project, start.scope)
+  const permittedDefinitions = new Set([...(start.scope.placement?.definitionIds ?? []), ...(start.scope.scene?.definitionIds ?? []), ...(start.scope.visual?.definitionIds ?? [])])
+  if (start.brief?.requiredDefinitionIds?.some(id => !permittedDefinitions.has(id))) deny('制作清单的固定素材不在明确授权范围。')
+  const permittedMaterials = new Set([...(start.scope.scene?.materialIds ?? []), ...(start.scope.visual?.materialIds ?? [])])
+  const grants = [start.scope.scene, start.scope.visual, start.scope.placement].filter(scope => scope !== undefined && scope !== null)
+  for (const check of start.brief?.checks ?? []) {
+    if ('definitionIds' in check && check.definitionIds.some(id => !permittedDefinitions.has(id))) deny('制作证据检查的固定素材未获授权。')
+    if ('materialId' in check && check.materialId && !permittedMaterials.has(check.materialId)) deny('制作证据检查的固定材质未获授权。')
+    const bounds = check.kind === 'clearArea' ? [check.boundsMm] : check.kind === 'propCount' ? (check.groups ?? []).map(group => group.boundsMm) : []
+    if (bounds.some(bounds => !grants.some(scope => (!('floorId' in check) || scope.floorId === check.floorId) && contains(scope.boundsMm, boundsPoints(bounds))))) deny('制作证据检查超出冻结范围。')
+    if (check.kind === 'propCount' && bounds.some((a, index) => bounds.slice(index + 1).some(b =>
+      Math.max(a.x, b.x) < Math.min(a.x + a.width, b.x + b.width) && Math.max(a.y, b.y) < Math.min(a.y + a.height, b.y + b.height)))) deny('独立物件分组检查的矩形不可重叠。')
+  }
   for (const id of start.scope.targetIds) assertIndependentPublic(start.project, id)
   const placement = start.scope.placement, document = start.project.document
   if (start.scope.operations.includes('place') && !placement) deny('新增操作须明确授权放置范围。')
@@ -189,13 +210,15 @@ function initialReads(start: AuthoringStart): Set<string> {
     p.definitionIds.forEach(id => collectDefinition(project, id, read))
   }
   if (start.scope.scene) for (const id of sceneReadIds(project, start.scope.scene)) read.add(id)
+  if (start.scope.visual) for (const id of visualAuthoringReadIds(project, start.scope.visual)) read.add(id)
   for (const id of artworkTargetIds(project, start.scope)) for (const dependency of assertArtworkProp(project, id)) read.add(dependency)
   return read
 }
-function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[]): { project: ProjectData; state: AuthoringState } {
+export interface ReplayedAuthoring { project: ProjectData; state: AuthoringState; visualInvalidatedIds: string[] }
+function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[]): ReplayedAuthoring {
   let project = cloneJson(start.project), operationCost = 0
   const read = initialReads(start), touched = new Set<string>(), allowed = new Set(start.scope.targetIds), created = new Set<string>(), sceneAllowed = new Set(start.scope.scene?.entityIds ?? []), stepIds = new Set<string>(), opacityIds = new Map<string, string>()
-  const artwork: ArtworkOperation[] = [], newPropBounds = new Map<string, BoundsMm>()
+  const artwork: ArtworkOperation[] = [], newPropBounds = new Map<string, BoundsMm>(), visualInvalidated = new Set<string>()
   if (!Array.isArray(steps) || steps.length > AUTHORING_LIMITS.steps) deny('任务步骤须为数组且最多256。')
   for (let i = 0; i < steps.length; i++) {
     const step = AuthoringStepSchema.parse(steps[i])
@@ -203,6 +226,21 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[]): { 
     stepIds.add(step.stepId)
     const context = contextFor(start, step.index)
     for (const [operationIndex, operation] of step.operations.entries()) {
+      if (isVisualAuthoringOperation(operation)) {
+        if (!start.scope.visual) deny('视觉创作未授权。')
+        let result: ReturnType<typeof applyVisualAuthoringOperation>
+        try { result = applyVisualAuthoringOperation(project, start.scope.visual, operation, context, created) }
+        catch (error) { throw new AuthoringOperationError(operationIndex, error) }
+        const beforeTopology = visualTopology(project.document), afterTopology = visualTopology(result.project.document)
+        for (const [id, previous] of beforeTopology) if (afterTopology.get(id) !== previous) visualInvalidated.add(id)
+        project = result.project; project.document.revision = start.project.document.revision; project.document.updatedAt = start.project.document.updatedAt
+        result.readIds.forEach(id => read.add(id)); result.writeIds.forEach(id => touched.add(id))
+        result.createdIds.forEach(id => { sceneAllowed.add(id); created.add(id)
+          if (project.document.props[id]) { allowed.add(id); newPropBounds.set(id, start.scope.visual!.boundsMm) } })
+        operationCost += result.cost
+        if (operationCost > AUTHORING_LIMITS.operations) deny('任务累计展开超过256条操作。')
+        continue
+      }
       if (operation.kind === 'svg' || operation.kind === 'style') {
         const checked = checkArtworkOperation(project, start, operation, created, new Set(artwork.flatMap(item => item.kind === 'svg' ? [item.id] : [])))
         operationCost += checked.cost
@@ -289,22 +327,23 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[]): { 
     checked.readIds.forEach(id => read.add(id))
     if (operation.kind === 'svg') finalSvgTargets.add(operation.id)
   }
+  if (start.scope.visual) assertFinalVisualAuthoringTargets(project, start.scope.visual, touched)
   if (read.size > 4096) deny('真实只读依赖超过4096。')
   const state: AuthoringState = { schemaVersion: 1, draftRevision: steps.length, contentHash: artwork.length ? sha256Text(canonicalJson({ project: authoringProjectHash(project), artwork })) : authoringProjectHash(project), operationCost,
     changedIds: sorted(touched), readIds: sorted(read), writeIds: sorted(touched), steps: cloneJson([...steps]) }
-  return { project, state: AuthoringStateSchema.parse(state) }
+  return { project, state: AuthoringStateSchema.parse(state), visualInvalidatedIds: sorted(visualInvalidated) }
 }
 
 /** Replays only supported ledger entries; no remote project or self-reported cost is trusted. */
-export function replayAuthoring(input: AuthoringStart, steps: readonly AuthoringStep[]): { project: ProjectData; state: AuthoringState } {
+export function replayAuthoring(input: AuthoringStart, steps: readonly AuthoringStep[]): ReplayedAuthoring {
   return replayOwned(validateAuthoringStart(input), captureJson(steps))
 }
-function verifiedState(start: AuthoringStart, state: AuthoringState): { project: ProjectData; state: AuthoringState } {
+function verifiedState(start: AuthoringStart, state: AuthoringState): ReplayedAuthoring {
   const parsed = AuthoringStateSchema.parse(captureJson(state)), replayed = replayOwned(start, parsed.steps)
   if (canonicalJson(parsed) !== canonicalJson(replayed.state)) deny('草稿状态与可重放账本不一致。')
   return replayed
 }
-export function applyAuthoringStep(input: AuthoringStart, state: AuthoringState, operations: AuthoringOperation[], stepId: string): { project: ProjectData; state: AuthoringState } {
+export function applyAuthoringStep(input: AuthoringStart, state: AuthoringState, operations: AuthoringOperation[], stepId: string): ReplayedAuthoring {
   const start = validateAuthoringStart(input), checked = verifiedState(start, state)
   const step = AuthoringStepSchema.parse(captureJson({ index: checked.state.draftRevision + 1, stepId, operations }))
   return replayOwned(start, [...checked.state.steps, step])
@@ -313,6 +352,8 @@ export function applyAuthoringStep(input: AuthoringStart, state: AuthoringState,
 function publicAsset(project: ProjectData, id: string) {
   const d = project.document.propDefinitions[id]
   return { id: d.id, version: d.version, name: d.name, tags: [...d.tags], visualBoundsMm: cloneJson(d.defaultVisualBoundsMm),
+    imageWidthMm: d.defaultVisualBoundsMm.width, imageHeightMm: d.defaultVisualBoundsMm.height,
+    placementHint: 'Space the full rotated image bounds; the collision footprint may be much smaller. Props keep this fixed visual size.',
     footprintMm: cloneJson(d.defaultFootprintMm), footprintOffsetMm: cloneJson(d.defaultFootprintOffsetMm),
     blocksMovement: d.defaultBlocksMovement, blocksSight: d.defaultBlocksSight, renderLayer: d.defaultRenderLayer }
 }
@@ -321,9 +362,9 @@ export function authoringAssetPage(input: AuthoringStart, query: string, limit: 
   if (typeof query !== 'string' || query.length > 256 || !Number.isSafeInteger(limit) || limit < 1 || limit > 32 || !Number.isSafeInteger(offset) || offset < 0 || offset > 1024) deny('素材搜索参数无效。')
   const text = query.trim().toLocaleLowerCase('en-US')
   const assets = [
-    ...sorted([...(start.scope.placement?.definitionIds ?? []), ...(start.scope.scene?.definitionIds ?? [])]).map(id => ({ kind: 'prop', ...publicAsset(start.project, id) })),
+    ...sorted([...(start.scope.placement?.definitionIds ?? []), ...(start.scope.scene?.definitionIds ?? []), ...(start.scope.visual?.definitionIds ?? [])]).map(id => ({ kind: 'prop', ...publicAsset(start.project, id) })),
     ...(start.scope.scene?.prefabDefinitionIds ?? []).map(id => { const d = start.project.document.prefabDefinitions[id]; return { kind: 'prefab', id, version: d.version, name: d.name, tags: [...d.tags], memberCount: d.members.length } }),
-    ...(start.scope.scene?.materialIds ?? []).map(id => { const d = start.project.document.materials[id]; return { kind: 'material', id, version: d.version, name: d.name, tags: [...d.tags], applicableSurfaces: [...d.applicableSurfaces], tileSizeMm: cloneJson(d.defaultTileSizeMm) } }),
+    ...sorted([...(start.scope.scene?.materialIds ?? []), ...(start.scope.visual?.materialIds ?? [])]).map(id => { const d = start.project.document.materials[id]; return { kind: 'material', id, version: d.version, name: d.name, tags: [...d.tags], applicableSurfaces: [...d.applicableSurfaces], tileSizeMm: cloneJson(d.defaultTileSizeMm) } }),
   ]
   const matches = assets.filter(asset => `${asset.id}\n${asset.name}\n${asset.tags.join('\n')}`.toLocaleLowerCase('en-US').includes(text))
   return { assets: matches.slice(offset, offset + limit), total: matches.length, nextOffset: offset + limit < matches.length ? offset + limit : null }
@@ -339,11 +380,13 @@ export function publicAuthoringContext(input: AuthoringStart, state: AuthoringSt
     : { kind: placement.supportRef.kind, id: placement.supportRef.id, boundaryMm: placement.supportRef.kind === 'room'
       ? roomPoints(document, document.rooms[placement.supportRef.id]) : terrainPoints(document.terrainAreas[placement.supportRef.id]) }
   if (support && 'boundaryMm' in support && support.boundaryMm) assertUnmasked(document, support.boundaryMm)
-  const floorIds = sorted([...targetIds.map(id => document.props[id].floorId), ...(placement ? [placement.floorId] : []), ...(start.scope.scene ? [start.scope.scene.floorId] : [])])
+  const floorIds = sorted([...targetIds.map(id => document.props[id].floorId), ...(placement ? [placement.floorId] : []), ...(start.scope.scene ? [start.scope.scene.floorId] : []), ...(start.scope.visual ? [start.scope.visual.floorId] : [])])
   return { units: 'mm', worldBoundsMm: floorIds.map(id => ({ floorId: id, boundsMm: cloneJson(document.floors[id].boundsMm) })),
     draftRevision: replayed.state.draftRevision, contentHash: replayed.state.contentHash, operationCost: replayed.state.operationCost,
-    remainingOperations: AUTHORING_LIMITS.operations - replayed.state.operationCost, allowedOperations: [...start.scope.operations, ...(start.scope.scene?.operations ?? []), ...(start.scope.artwork?.operations ?? [])],
-    scene: start.scope.scene ? publicSceneContext(project, start.scope.scene, new Set([...start.scope.scene.entityIds, ...replayed.state.changedIds])) : null,
+    remainingOperations: AUTHORING_LIMITS.operations - replayed.state.operationCost, allowedOperations: [...start.scope.operations, ...(start.scope.scene?.operations ?? []), ...(start.scope.artwork?.operations ?? []), ...(start.scope.visual?.operations ?? [])],
+    visual: start.scope.visual ? publicVisualAuthoringContext(project, start.scope.visual, new Set(replayed.state.changedIds)) : null,
+    scene: start.scope.scene ? publicSceneContext(project, start.scope.scene, new Set([...start.scope.scene.entityIds, ...replayed.state.changedIds]))
+      : start.scope.visual ? publicVisualPhysicalContext(project, start.scope.visual, new Set(replayed.state.changedIds)) : null,
     artwork: start.scope.artwork ? { mode: start.scope.artwork.mode, targetIds: artworkTargetIds(start.project, start.scope), boundsMm: start.scope.artwork.boundsMm ?? null, includeNewProps: start.scope.artwork.includeNewProps ?? false } : null,
     targets: targetIds.map(id => { const prop = document.props[id]; assertArtworkProp(project, id)
       return { id, pendingSvg: replayed.state.steps.some(step => step.operations.some(operation => operation.kind === 'svg' && operation.id === id)), floorId: prop.floorId, layerId: document.entityLayers[id], definitionRef: cloneJson(prop.definitionRef), positionMm: cloneJson(prop.positionMm),

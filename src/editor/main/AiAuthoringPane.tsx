@@ -1,4 +1,5 @@
 import AiScopeFields, { initialExtendedScope, extendedAuthoringScope } from './AiScopeFields'
+import AiBriefChecks from './AiBriefChecks'
 import { useEffect, useRef, useState } from 'react'
 import type { Workspace } from '../../application/workspace/workspace'
 import type { AtomicAuthorization, AtomicCandidate } from '../../application/workspace/atomic'
@@ -10,6 +11,8 @@ import { validation } from '../../platform/browser/runtime'
 import { AiClient, safeAiError } from '../../platform/browser/ai/client'
 import { AUTHORING_LIMITS, type AuthoringScope, type DraftClaim } from '../../shared/ai/authoring-protocol'
 import { AI_LIMITS, isTerminalTask, utf8Size, type CreateTaskRequest, type TaskSnapshot } from '../../shared/ai/protocol'
+import { AuthoringBriefSchema, type AuthoringBrief, type AuthoringEvidenceCheck } from '../../shared/ai/plan'
+import { renderPublicVision } from '../../platform/browser/ai/public-vision'
 
 export interface AiAuthoringHost {
   workspace: Workspace
@@ -22,7 +25,7 @@ export interface AiAuthoringHost {
   onAdopted: () => void
   onCritical: (busy: boolean) => void
 }
-interface Props { client: AiClient | null; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
+interface Props { client: AiClient | null; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; visionEnabled?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
 const message = (error: unknown) => error instanceof Error && error.name !== 'AiClientError' ? error.message : safeAiError(error)
 const stamp = (candidate: AtomicCandidate) => ({ expectedGeneration: candidate.generation, draftRevision: candidate.draftRevision, contentHash: candidate.contentHash })
 const stop = (task: TaskSnapshot | null) => !task || isTerminalTask(task.status)
@@ -32,11 +35,19 @@ const collectionLabel: Record<string, string> = { props: '独立物件', rooms: 
 const changeAction = (collection: string | undefined, change: AtomicCandidate['changes'][number]) => collection === 'props'
   ? !rowProp(change.before) ? '新增' : !rowProp(change.after) ? '删除' : '调整'
   : change.before === null ? '新增' : change.after === null ? '删除' : '调整'
+Object.assign(collectionLabel, { 'visual.boundaries': '共享曲线', 'visual.edgeLooks': '连续边缘', 'visual.lights': '点光', 'visual.fogs': '区域雾', 'visual.filters': '外观滤镜', 'visual.environment': '全图环境' })
+const phaseLabel = { layout: '布局与通路', surfaces: '材质', boundaries: '边缘', furnishing: '布景', atmosphere: '环境', review: '复核' }
+const requirementLabel = { pending: '待完成', claimed: 'AI 已标记，待人工核对', unsupported: '当前工具不支持' }
 
 
 /** Server metadata is untrusted: replay against the exact local grant and owned image bytes. */
-export default function AiAuthoringPane({ client, task, host, disabled, onTask }: Props) {
+export default function AiAuthoringPane({ client, task, host, disabled, visionEnabled = false, onTask }: Props) {
   const [extended, setExtended] = useState(initialExtendedScope)
+  const [recipe, setRecipe] = useState<AuthoringBrief['recipe']>('custom'), [requirements, setRequirements] = useState('')
+  const [checks, setChecks] = useState<AuthoringEvidenceCheck[]>([])
+  const [useStyle, setUseStyle] = useState(false), [palette, setPalette] = useState('#D9BD83, #67836B, #488B99')
+  const [lineWeight, setLineWeight] = useState(20), [textureScale, setTextureScale] = useState(1000), [density, setDensity] = useState(.45), [lightDirection, setLightDirection] = useState(135)
+  const [sendVision, setSendVision] = useState(false)
   const [prompt, setPrompt] = useState(''), [consent, setConsent] = useState(false), [placing, setPlacing] = useState(false)
   const [targets, setTargets] = useState<string[]>([]), [definitions, setDefinitions] = useState<string[]>([])
   const [opacity, setOpacity] = useState(true), [transform, setTransform] = useState(true), [deleting, setDeleting] = useState(false)
@@ -50,7 +61,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, onTask }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; serial.current++; controller.current?.abort() } }, [])
   const preview = (next: AtomicCandidate | null) => { setCandidate(next); setReviewed(false); lastHost.current?.onPreview(next) }
   useEffect(() => {
-    controller.current?.abort(); serial.current++; grants.current.clear(); setBusy(false); setPending(null); setReceipt(null); setTargets([]); setDefinitions([]); setConsent(false); setExtended(initialExtendedScope()); preview(null)
+    controller.current?.abort(); serial.current++; grants.current.clear(); setBusy(false); setPending(null); setReceipt(null); setTargets([]); setDefinitions([]); setConsent(false); setSendVision(false); setChecks([]); setExtended(initialExtendedScope()); preview(null)
   }, [host?.project.document.sceneId, host?.sessionKey, client])
   const head = task?.authoring ? `${task.id}:${task.generation}:${task.authoring.draftRevision}:${task.authoring.contentHash}` : ''
   const fetchPreview = async (reattach = false) => {
@@ -93,8 +104,17 @@ export default function AiAuthoringPane({ client, task, host, disabled, onTask }
         const operations: AuthoringScope['operations'] = [...(transform ? ['transform' as const] : []), ...(opacity ? ['opacity' as const] : []), ...(deleting ? ['delete' as const] : []), ...(placing ? ['place' as const] : [])]
         if (placing && (!parts.length || !definitions.length)) throw new Error('请明确选择放置表面和允许使用的素材。')
         const scope: AuthoringScope = { ...extendedAuthoringScope(extended, local.project, floorId, local.layerId, definitions), targetIds: targets, operations, placement: placing ? { floorId, layerId: local.layerId, supportRef: { kind: kind as 'floor' | 'room' | 'terrainArea', id: parts.join(':') }, boundsMm: extended.bounds ?? local.project.document.exportBoundsMm, definitionIds: definitions } : null }
-        const grant = await local.workspace.authorizeAtomic(scope); grants.current.clear(); grants.current.set(grant.start.seed, grant)
+        const items = requirements.split('\n').map(value => value.trim()).filter(Boolean)
+        const brief = items.length ? AuthoringBriefSchema.parse({ recipe, requirements: items, ...(checks.length ? { checks } : {}), ...(useStyle ? { style: { palette: palette.split(',').map(value => value.trim()), lineWeightMm: lineWeight, textureScaleMm: textureScale, detailDensity: density, lightDirectionDeg: lightDirection } } : {}) }) : undefined
+        if ((useStyle || checks.length) && !items.length) throw new Error('使用风格参数或可核对目标时，请填写至少一项制作要求。')
+        const grant = await local.workspace.authorizeAtomic(scope, brief); grants.current.clear(); grants.current.set(grant.start.seed, grant)
         payload = { schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: { sceneId: grant.currentSceneId, revision: grant.currentRevision, audience: 'public' }, authoring: grant.start }
+        if (sendVision) {
+          if (!visionEnabled) throw new Error('当前渠道尚未启用图片输入，可继续使用结构诊断。')
+          if (!scope.visual && !scope.scene && !scope.artwork && !scope.placement) throw new Error('发送截图前，请在视觉、场景、素材或放置工具中明确授权矩形范围。')
+          payload.vision = await renderPublicVision(local.project, extended.bounds ?? local.project.document.exportBoundsMm, abort.signal)
+          local.workspace.assertCheckpoint(grant.checkpoint)
+        }
       }
       if (!valid()) return
       setPending(payload)
@@ -170,15 +190,19 @@ export default function AiAuthoringPane({ client, task, host, disabled, onTask }
       <div className="ai-actions"><label className="ai-check"><input type="checkbox" checked={transform} onChange={e => setTransform(e.target.checked)}/>移动 / 旋转</label><label className="ai-check"><input type="checkbox" checked={opacity} onChange={e => setOpacity(e.target.checked)}/>透明度</label><label className="ai-check"><input type="checkbox" checked={deleting} onChange={e => setDeleting(e.target.checked)}/>允许删除</label></div>
       <label className="ai-check"><input type="checkbox" checked={placing} onChange={e => setPlacing(e.target.checked)}/>允许使用明确素材放置新物件</label>
       {placing && <><label>放置表面<select aria-label="AI 放置表面" value={support} onChange={e => setSupport(e.target.value)}><option value="">请选择</option>{Object.keys(scene?.floors ?? {}).map(id => <option key={id} value={`floor:${id}`}>Floor · {scene?.floors[id].name}</option>)}{Object.values(scene?.rooms ?? {}).map(room => <option key={room.id} value={`room:${room.id}`}>房间 · {room.id}</option>)}{Object.values(scene?.terrainAreas ?? {}).map(area => <option key={area.id} value={`terrainArea:${area.id}`}>地形 · {area.id}</option>)}</select></label><p>当前图层 {host.layerId}；放置限制为当前导出范围 {scene?.exportBoundsMm.width} × {scene?.exportBoundsMm.height} mm。只接受公开支撑与完整几何。</p></>}
-      {(placing || extended.scene) && <><details><summary>授权本工程素材（{definitions.length}）</summary><button disabled={busy || disabled} onClick={() => setDefinitions(available.map(value => value.id))}>授权本工程全部物件素材</button>{available.map(definition => <label className="ai-check" key={definition.id}><input type="checkbox" checked={definitions.includes(definition.id)} onChange={() => toggleDefinition(definition.id)}/>{definition.name}</label>)}</details></>}
+      {(placing || extended.scene || extended.visual) && <><details><summary>授权本工程素材（{definitions.length}）</summary><button disabled={busy || disabled} onClick={() => setDefinitions(available.map(value => value.id))}>授权本工程全部物件素材</button>{available.map(definition => <label className="ai-check" key={definition.id}><input type="checkbox" checked={definitions.includes(definition.id)} onChange={() => toggleDefinition(definition.id)}/>{definition.name}</label>)}</details></>}
       <AiScopeFields value={extended} onChange={setExtended} project={host.project} selectedIds={host.selectedIds} disabled={busy || disabled}/>
       <label>草稿要求<textarea aria-label="AI 草稿要求" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="例如：把选中的椅子向右移动500毫米，并将透明度改为0.8。"/></label>
-      <p className="ai-disclosure">发送范围：自有后端接收本次要求、完整工程元数据（含主持人字段）及授权范围，用于完整校验；不发送图片字节或历史快照。模型仅接收授权公开对象、必要支撑几何、授权素材名称/标签/尺寸及工具结果。任务保留七日，可删除。</p>
+      <details><summary>制作清单与统一风格</summary><label>场景类型<select aria-label="AI 场景类型" value={recipe} onChange={e => setRecipe(e.target.value as AuthoringBrief['recipe'])}><option value="custom">自定义</option><option value="beach">海岸</option><option value="island">岩岛</option><option value="interior">室内</option></select></label><label>逐项要求（每行一项，最多16项）<textarea aria-label="AI 制作清单" value={requirements} onChange={e => setRequirements(e.target.value)} placeholder="保留六米活动区\n沿岸布置三组可单独编辑的礁石\n上方入口保持通畅"/></label><label className="ai-check"><input type="checkbox" checked={useStyle} onChange={e => setUseStyle(e.target.checked)}/>使用明确风格参数</label>{useStyle && <><label>配色（十六进制，用逗号分隔）<input aria-label="AI 风格配色" value={palette} onChange={e => setPalette(e.target.value)}/></label>{([['线条毫米',lineWeight,setLineWeight],['纹理毫米',textureScale,setTextureScale],['细节密度',density,setDensity],['光照方向',lightDirection,setLightDirection]] as const).map(([label,value,setter]) => <label key={label}>{label}<input type="number" aria-label={`AI ${label}`} value={value} step={label === '细节密度' ? .05 : 1} onChange={e => setter(Number(e.target.value))}/></label>)}</>}<p>AI 按布局、材质、边缘、布景、环境、复核分阶段工作；文字目标的美术效果仍需人工核对。</p></details>
+      <details><summary>可核对目标</summary><AiBriefChecks value={checks} onChange={setChecks} project={host.project} bounds={extended.bounds ?? host.project.document.exportBoundsMm} definitionIds={definitions} materialIds={extended.materials} disabled={busy || disabled}/></details>
+      <label className="ai-check"><input type="checkbox" aria-label="AI 发送公开截图" checked={sendVision} disabled={!visionEnabled || busy || disabled} onChange={e => setSendVision(e.target.checked)}/>另行同意把明确范围的实际玩家画面发送给模型供应商（本次最多768像素，任务累计最多4张）</label><p>{visionEnabled ? '截图会经过玩家秘密过滤，绑定当前工程修订；图片随任务在自有后端保留七日，可删除。' : '当前连接未启用视觉输入，结构诊断仍可使用。'}</p>
+      <p className="ai-disclosure">发送范围：自有后端接收本次要求、完整工程元数据（含主持人字段）及授权范围，用于完整校验；除另行勾选的公开截图外，不发送图片字节；不发送历史快照。模型仅接收授权公开对象、必要支撑几何、授权素材名称/标签/尺寸及工具结果。任务保留七日，可删除。</p>
       <label className="ai-check"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}/>同意向自有后端发送上述完整元数据，并向模型发送授权的公开内容</label>
-      <small>固定技能 v1：独立物件 / 完整场景 / SVG与同化 · 最多16轮模型请求、64次工具、累计300秒、256条实际操作。</small>
-      {pending ? <div className="ai-actions"><button disabled={busy || disabled || !client} onClick={() => void start(pending)}>重试同一草稿请求</button><button disabled={busy} onClick={() => { setPending(null); setNotice('已停止本地重试，请查询服务器任务确认创建结果。') }}>停止草稿重试</button></div> : <button disabled={!client || disabled || busy || !stop(task) || !consent || !prompt.trim() || utf8Size(prompt) > AI_LIMITS.promptBytes || !targets.length && !placing && !extended.scene && !extended.artwork} onClick={() => void start()}>创建独立草稿任务</button>}
+      <small>固定技能 v1：独立物件 / 完整场景 / SVG与同化 / 视觉创作 · 最多16轮模型请求、64次工具、累计300秒、256条实际操作。</small>
+      {pending ? <div className="ai-actions"><button disabled={busy || disabled || !client} onClick={() => void start(pending)}>重试同一草稿请求</button><button disabled={busy} onClick={() => { setPending(null); setNotice('已停止本地重试，请查询服务器任务确认创建结果。') }}>停止草稿重试</button></div> : <button disabled={!client || disabled || busy || !stop(task) || !consent || !prompt.trim() || utf8Size(prompt) > AI_LIMITS.promptBytes || !targets.length && !placing && !extended.scene && !extended.artwork && !extended.visual} onClick={() => void start()}>创建独立草稿任务</button>}
     </details>}
     {task?.authoring && <><p>草稿 {task.authoring.draftRevision} · 实际操作 {task.authoring.operationCost}/{AUTHORING_LIMITS.operations} · 改动目标 {task.authoring.changedIds.length} 件。主工程只在最终采用时改变。</p>
+      {task.authoring.plan && <div aria-label="AI 制作进度"><p>当前阶段：{phaseLabel[task.authoring.plan.phase]}。清单状态来自 AI 的工具记录，画面效果仍需人工核对。</p><ol>{task.authoring.plan.requirements.map(item => <li key={item.index}>清单第 {item.index + 1} 项 · {requirementLabel[item.state]}{item.note && <p>{item.note}</p>}{!!item.evidenceIds.length && <small>关联 {item.evidenceIds.length} 项对象或素材</small>}</li>)}</ol></div>}
       <button disabled={!client || !host || busy || disabled || !task.authoring.draftRevision} onClick={() => void fetchPreview(true)}>重新绑定并校验草稿</button>
       {candidate && <><p>本机完整校验通过，读依赖 {candidate.readIds.length} 项，写目标 {candidate.writeIds.length} 项。</p><ul aria-label="AI 草稿差异">{candidate.changes.map(change => { const collection = change.collection ?? 'props', prop = rowProp(change.after) ?? rowProp(change.before), action = changeAction(collection, change); return <li key={`${collection}:${change.id}`}><strong>{collectionLabel[collection] ?? collection} · {prop?.definitionRef ? candidate.project.document.propDefinitions[prop.definitionRef.id]?.name ?? '物件' : change.id} · {action}</strong>{collection === 'props' && <><p>原：{describeProp(rowProp(change.before))}</p><p>新：{describeProp(rowProp(change.after))}</p></>}<p>变化字段：{change.fields.join('、') || '关系'}</p><details><summary>对象 ID 与完整差异</summary><small>{change.id}</small><pre>{JSON.stringify({ before: change.before, after: change.after }, null, 2)}</pre></details></li> })}</ul><button disabled={busy} onClick={() => void backup()}>下载完整草稿备份</button>{['paused', 'failed'].includes(task.status) && !task.authoring.claim && <button disabled={disabled || busy} onClick={() => void finishPaused()}>结束生成并审阅当前草稿</button>}<label className="ai-check"><input type="checkbox" checked={reviewed} disabled={busy} onChange={e => setReviewed(e.target.checked)}/>已检查范围和差异，采用前创建保护快照</label><button disabled={disabled || busy || !reviewed || task.status !== 'ready' || candidate.contentHash !== task.authoring.contentHash || candidate.generation !== task.generation || !candidate.changes.length} onClick={() => void adopt()}>保护当前并一次采用 AI 草稿</button></>}
       {task.authoring.claim && task.status !== 'applied' && !receipt && <><p>有尚未确认的采用租约。若当前工程已经采用，请保留任务并核对工程；释放后不能再补认旧租约。</p><button disabled={busy || disabled} onClick={() => void release()}>确认本机未采用并释放租约</button></>}

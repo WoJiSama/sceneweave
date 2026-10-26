@@ -1,15 +1,17 @@
 # 场景文档与编辑契约
 
-## 完整v1现行合同（2026-10-24）
+<a id="完整v1现行合同2026-10-24"></a>
 
-**M2-0f已将默认主会话切到本节新标识完整v1，M2-3/4现已接通场景工具、非空SVG源与渐进同化。** 应用版本号仍为`0.2.0-m1-d2`，默认工程/个人库为sceneweave-projects和sceneweave-library，按用户2026-10-25决定，当前产品只支持完整v1当前/所选历史包，旧工作台和旧格式发现/转换入口已删除；下述旧格式转换合同保留历史与底层工具语境，不作为当前UI能力。a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f当时必要检查见[52](52-m20f-native-workspace-validation.md)，不自动转换真实用户数据。任务授权/草稿合同及本轮实际结果见[05](05-ai-and-generation.md)，M2-5受信任IP HTTPS后端与Pages真实模型必要旅程已通过，详05第15节。M2-0交接见[47](47-m20-unified-v1-handoff.md)；旧格式段保留历史能力，不原地偷换字段。
+## 完整v1/v2现行合同（2026-10-25）
+
+**M2-0f已将默认主会话切到本节新标识完整v1，M2-3/4现已接通场景工具、非空SVG源与渐进同化。** 应用版本号仍为`0.2.0-m1-d2`，默认工程/个人库为sceneweave-projects和sceneweave-library，按用户2026-10-25决定，当前产品支持完整v1/v2当前/所选历史包，旧工作台和旧格式发现/转换入口已删除；下述旧格式转换合同保留历史与底层工具语境，不作为当前UI能力。a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f当时必要检查见[52](52-m20f-native-workspace-validation.md)，不自动转换真实用户数据。任务授权/草稿合同及本轮实际结果见[05](05-ai-and-generation.md)，M2-5受信任IP HTTPS后端与Pages真实模型必要旅程已通过，详05第15节。M2-0交接见[47](47-m20-unified-v1-handoff.md)；旧格式段保留历史能力，不原地偷换字段。
 
 ### A. 格式识别与完整模型
 
 | 对象 | 固定标识与版本 | 必需字段/约束 |
 |---|---|---|
-| `ProjectData`，纯JSON | `format:'sceneweave-complete-project', schemaVersion:1` | 精确字段为format/schemaVersion/document/historyIdentity/appearance/assets/licenses/licenseBindings/authoringSources，无其他顶层键 |
-| `SceneDocument` | `format:'sceneweave-scene', schemaVersion:1` | 下列完整场景字段，不继承旧SceneDocumentV2/V3，也不靠旧领域视图保存 |
+| `ProjectData`，纯JSON | `format:'sceneweave-complete-project', schemaVersion:1\|2` | 精确字段为format/schemaVersion/document/historyIdentity/appearance/assets/licenses/licenseBindings/authoringSources，无其他顶层键 |
+| `SceneDocument` | `format:'sceneweave-scene', schemaVersion:1\|2` | 下列完整场景字段，不继承旧SceneDocumentV2/V3，也不靠旧领域视图保存 |
 | `HistoryIdentity` | `version:1` | lineageId/rootSceneId/propTokens/prefabTokens/outdoorTokens全部必需；语义完整承接identity3，不是旧identity1 |
 | `AppearanceGraph` | `version:1` | sources/propSources/surfaceSources/instanceAdjustments/layerAdjustments/variants/prefabAppearanceTemplates，完整承接appearance1 |
 | `ProjectBundle`，运行时交付 | `project:ProjectData`＋资源字节端口 | 每个已引用图片/SVG字节按hash可读、独立捕获；纯JSON通过不表示完整校验通过 |
@@ -25,6 +27,28 @@
 c实现采用前一种方式：独立深冻结ProjectData和私有不可变字节闭包的确切对象对由WeakMap认证，读取只返回字节副本；联合历史按hash持有一份字节，每个工程端口只开放自身资源范围。所有输入端口逐个读取、核对hash/尺寸并真实解码，公开入口即使接收已认证包也重验。取消/失败不返回完整认证结果；图片端口为应用注入的受信实现，任务JSON不能指定实现或传免检标记。
 
 新内容hash为规范JSON的SHA256，覆盖完整ProjectData（含源元数据、许可正文/绑定），不含资源端口、运行时认证、转换journal或本地旧原件。规范JSON递归按键的确定性UTF-16顺序排列、数组顺序保留、UTF-8无BOM、拒绝非有限数和非法JSON数据；不使用localeCompare。旧hash单独作为sourceContentHash保存，转换后必须重算，不能继续声称旧hash覆盖新结构。
+
+### A2. 完整v2视觉系统
+
+新空白使用完整v2，ProjectData.schemaVersion须等于SceneDocument.schemaVersion。场景1严格拒绝visual，场景2必须有严格 `visual:{version:1,boundaries,edgeLooks,lights,fogs,filters,environment}`，其余完整字段不丢失。当前命名空间的完整v1仍可读；从视觉面板启用时先保存原工程，再创建新sceneId/r0、独立完整校验和保存的v2副本，成功后切换。原v1及历史不覆盖。该版本号与旧M1 `sceneweave/schemaVersion:2` 不同。
+
+场景2的房间、注记和用途区在各自合法绘制带内先按用户图层，再按稳定ID排序；字典键的插入顺序不是持久层序。规范JSON重排键后仍产生相同投影和画面。场景1保持原有局部顺序规则。
+
+| 对象 | 必需字段（除共同字段外） | 约束 |
+|---|---|---|
+| 共同视觉实体 | id/floorId/layerId/visibility/editLocked | 显式Floor/层/受众/锁，不能藏入physical entityLayers或以层序充当高程 |
+| Boundary | closed/segments/sampleSpacingMm/toleranceMm/binding | 分段稳定id及start/control1/control2/end整数毫米；terrain绑定1–2条有向端点链，path绑定一个真实路径，decoration不改物理几何 |
+| EdgeLook | boundaryId/kind/side/widthMm/color/accentColor/opacity/intensity/seed/repeatMm/enabled | kind=shore/cliff/grass/path/fence；世界弧长派生，不持久化像素，视觉外扩进入实际范围 |
+| Light | positionMm/radiusMm/color/intensity/wallOcclusion/enabled | 静态二维遮挡，不自动成为VTT灯或物理通行证明 |
+| Fog | boundaryMm/color/opacity/directionDeg/scaleMm/seed/enabled | 确定性静态区域，向内羽化，不向范围外溢出 |
+| Filter | target/preset/exposure/saturation/contrast/vignette/grain/seed/enabled | target为scene/region/entities/layer；layer持续规则与AI冻结目标分开；preset仅neutral/warm/cool/aged/moonlight |
+| Environment | ambientColor/ambientOpacity/exposure/lightDirectionDeg/contactShadowMm/contactShadowOpacity | 显式全图参数，无共同实体字段；AI须单独授权完整Floor |
+
+曲线控制源和现行TerrainArea轮廓/Path中心线必须逐点等于确定性采样，不能分别存出不一致几何。两侧绑定以稳定端点、有向顺序和reverse描述，不偷换附着/支撑。实际几何变化更新既有室外出生/拓扑身份，完整锁/依赖/预算继续约束；解绑需明确处理依附边带，保留当前采样轮廓。材质编辑沿用完整SurfaceStyle和不可变父源；底材仍不透明，覆盖最多8、单覆盖最多128点，AI不伪造未物化tint位图。
+
+保护值：64曲线、每条32分段/512采样点，场景总256分段/4096采样；128边带、各最多1024装饰；光/雾/滤镜各16，区域最多128点。一次手工/AI真实展开仍最多256，渲染像素和装饰复杂度另受预算。超限拒绝，不通过跳效果输出成功。实际定义见shared/visual，验证记录归[53](53-visual-authoring.md)。
+
+视觉有限恢复只处理本会话真实快照后的现存连续参数/曲线几何与环境。绑定/分段ID/闭合结构、显式对象滤镜目标等视为拓扑；同批删后重建或改变后改回也永久失效，undo不能追认。恢复保留当前层、锁、受众及范围外内容，绑定几何还需当前物理出生/拓扑证明；不重建已删效果，不支持跨重开/导入witness。完整历史包的持久保全与这些局部恢复权限分开。
 
 ### B. 身份、外观与当前/历史归属
 

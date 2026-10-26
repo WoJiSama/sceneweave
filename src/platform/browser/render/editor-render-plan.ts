@@ -43,6 +43,13 @@ export function editorPaintBounds(projection: Projection, plan: EditorRenderPlan
     const shore = theme?.edgeStyles.shore ?? { bandWidthMm: 180, strokeWidthMm: 12 }
     padding = Math.max(padding, Math.min(shore.bandWidthMm, 180) * .65 + shore.strokeWidthMm / 2)
   }
+  if (projection.visual) {
+    const environment = projection.visual.environment
+    padding = Math.max(padding, environment.contactShadowMm * 4)
+    for (const look of projection.visual.edgeLooks) padding = Math.max(padding, look.widthMm * 2)
+    // Light polygons use the full audience-owned occluder closure. Radial
+    // gradients/fog noise use fixed world coordinates and need no light buffer.
+  }
   const full = projection.bounds, crop = plan.boundsMm
   const x = Math.max(full.x, crop.x - padding), y = Math.max(full.y, crop.y - padding)
   const right = Math.min(full.x + full.width, crop.x + crop.width + padding), bottom = Math.min(full.y + full.height, crop.y + crop.height + padding)
@@ -70,7 +77,8 @@ export function createEditorRenderPlan(projection: Projection, options: EditorRe
     const shadow = prop.shadowOverride ?? projection.theme?.shadowPresets[prop.shadowClass]
     // The same conservative world padding used by public privacy checks. A
     // body outside the crop can still cast a visible shadow inside it.
-    const padding = detail === 'full' && shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : detail === 'outline' ? .5 / options.screenScalePxPerMm : 0
+    const padding = Math.max(detail === 'full' && shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : detail === 'outline' ? .5 / options.screenScalePxPerMm : 0,
+      projection.visual && prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' ? projection.visual.environment.contactShadowMm * 4 : 0)
     const paintBoundsMm = { x: visualBoundsMm.x - padding, y: visualBoundsMm.y - padding, width: visualBoundsMm.width + padding * 2, height: visualBoundsMm.height + padding * 2 }
     if (!overlaps(paintBoundsMm, boundsMm)) continue
     detailCounts[detail]++; props.push({ prop, detail, screenSizePx, visualBoundsMm, paintBoundsMm })

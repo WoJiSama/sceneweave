@@ -89,14 +89,14 @@ export default function App() {
       const zip = inspectZip(bytes, signal)
       header = parseBoundedJson(await zip.read('manifest.json'))
     } catch {
-      throw new Error('只支持完整 v1 工程文件；旧格式或损坏文件不会导入。')
+      throw new Error('只支持当前完整工程文件（v1/v2）；旧工作台格式或损坏文件不会导入。')
     }
-    if (!header || typeof header !== 'object' || Array.isArray(header) || !('format' in header) || header.format !== 'sceneweave-complete-project') throw new Error('只支持完整 v1 工程文件；旧格式不会导入。')
+    if (!header || typeof header !== 'object' || Array.isArray(header) || !('format' in header) || header.format !== 'sceneweave-complete-project') throw new Error('只支持当前完整工程文件（v1/v2）；旧工作台格式不会导入。')
     const mode = 'packageMode' in header ? header.packageMode : undefined
     const archive = mode === 'history' ? await importHistoryArchive(bytes, { ...validation, signal })
       : mode === 'complete' ? { current: await importProject(bytes, { ...validation, signal }), snapshots: [] }
         : null
-    if (!archive) throw new Error('未知的完整 v1 工程包模式。')
+    if (!archive) throw new Error('未知的完整工程包模式。')
     const imported = await projectRepository.importArchive(archive, { signal }); await openInstalled(imported.project, signal)
   })
   const cancel = () => operation.current?.abort()

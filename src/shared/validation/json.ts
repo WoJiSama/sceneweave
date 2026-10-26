@@ -1,13 +1,14 @@
 /** Pure JSON ownership boundary. Never read a caller's getter while inspecting. */
 export interface JsonInputIssue { code: string; message: string }
+interface JsonInspectionOptions { budgetCode?: string; accessorCode?: string }
 export const JSON_LIMITS = Object.freeze({ depth: 128, values: 600_000 })
 
-export function inspectJsonInput(input: unknown): JsonInputIssue | undefined {
+export function inspectJsonInput(input: unknown, options: JsonInspectionOptions = {}): JsonInputIssue | undefined {
   const ancestors = new Set<object>()
   let values = 0
   const invalid = (message: string): JsonInputIssue => ({ code: 'NON_JSON_INPUT', message })
   const visit = (value: unknown, depth: number): JsonInputIssue | undefined => {
-    if (++values > JSON_LIMITS.values || depth > JSON_LIMITS.depth) return invalid('JSON超过128层或600000值的保护限制。')
+    if (++values > JSON_LIMITS.values || depth > JSON_LIMITS.depth) return { code: options.budgetCode ?? 'NON_JSON_INPUT', message: 'JSON超过128层或600000值的保护限制。' }
     if (value === null || typeof value === 'string' || typeof value === 'boolean') return
     if (typeof value === 'number') return Number.isFinite(value) ? undefined : invalid('JSON数字必须有限。')
     if (typeof value !== 'object') return invalid('输入只能包含JSON值，不接受undefined、函数、BigInt或Symbol。')
@@ -22,7 +23,8 @@ export function inspectJsonInput(input: unknown): JsonInputIssue | undefined {
       if (array && key === 'length') continue
       if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) return invalid('JSON数组不能带额外属性。')
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
-      if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) return invalid('JSON不能含访问器或隐藏字段。')
+      if (!descriptor || !('value' in descriptor)) return { code: options.accessorCode ?? 'NON_JSON_INPUT', message: 'JSON不能含访问器或隐藏字段。' }
+      if (!descriptor.enumerable) return invalid('JSON不能含访问器或隐藏字段。')
       if (array) indexes++
       const issue = visit(descriptor.value, depth + 1)
       if (issue) return issue

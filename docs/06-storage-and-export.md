@@ -1,8 +1,10 @@
 # 本地存储、工程文件与地图导出
 
-## 完整v1现行存储合同（2026-10-25）
+<a id="完整v1现行存储合同2026-10-25"></a>
 
-**完整v1、sceneweave-projects及sceneweave-library是当前唯一产品主路径，M2-4非空SVG源及算法2目录闭包已接通。** 按用户2026-10-25的开发阶段决定，删除旧整页工作台、旧库发现、旧工程/个人库文件转换及保全集合选择入口。工程导入只接受`sceneweave-complete-project/schemaVersion:1`的`complete/history`包；旧格式、迁移set及其他不支持的输入明确拒绝，失败/取消不替换当前工程。未知hash按一般导航回首页，仍经过未保存守卫。
+## 完整v1/v2现行存储合同（2026-10-25）
+
+**完整v1/v2、sceneweave-projects及sceneweave-library是当前唯一产品主路径，M2-4非空SVG源及算法2目录闭包已接通。** 按用户2026-10-25的开发阶段决定，删除旧整页工作台、旧库发现、旧工程/个人库文件转换及保全集合选择入口。工程导入接受`sceneweave-complete-project/schemaVersion:1|2`的`complete/history`包；旧格式、迁移set及其他不支持的输入明确拒绝，失败/取消不替换当前工程。未知hash按一般导航回首页，仍经过未保存守卫。
 
 入口裁剪不修改新库schema，不清理现有工程、快照、源文件或确切来源原件，不将完整工程降级成视图。下文A/B、F的当前完整v1/个人库条款及G/H/I继续适用；C/D/E和F中旧目录转换段是历史兼容实现记录，不再是当前产品工作流。仍被领域、工具或测试依赖的旧模块可保留，不能据此宣称当前产品支持旧版本。
 
@@ -10,7 +12,7 @@ M2-0a至e历史结果保留于48至[51](51-m20e-library-conversion-validation.md
 
 ### A. 工程容器及严格分发
 
-扩展名仍为`.sceneweave`。新manifest精确字段：`format:'sceneweave-complete-project'/schemaVersion:1/application:'Sceneweave'/applicationVersion/packageMode/sceneId/revision/entries/assetRecords/licenseBindings`，packageMode仅`complete/history`。entries每条精确为`path/role/sha256/sizeBytes/mimeType`，不把旧containerVersion数字拿来识别新格式。
+扩展名仍为`.sceneweave`。新manifest精确字段：`format:'sceneweave-complete-project'/schemaVersion:1|2/application:'Sceneweave'/applicationVersion/packageMode/sceneId/revision/entries/assetRecords/licenseBindings`，packageMode仅`complete/history`。entries每条精确为`path/role/sha256/sizeBytes/mimeType`，不把旧containerVersion数字拿来识别新格式。
 
 必需JSON为`scene.json/identity.json/appearance.json/sources.json`，分别对应04的新场景、完整身份、完整外观、authoringSources；M2-0初期sources为`{}`，M2-4已接收严格非空来源。manifest的assetRecords给出以hash为键的实际图片五字段描述，license正文由对应UTF-8文件提供；读者重建纯ProjectData，再与独立捕获字节组成ProjectBundle完整校验。
 
@@ -23,6 +25,14 @@ c将索引精确落实为`{schemaVersion:1,current,snapshots}`。current引用�
 entry.role与根四JSON分别为`scene/identity/appearance/sources`，历史索引为`history`，快照为`snapshot-scene/snapshot-identity/snapshot-appearance/snapshot-sources`，图片/许可/源文件为`asset/license/source`；JSON用application/json，许可用text/plain，SVG源用image/svg+xml，图片使用对应实际MIME。sourceHashes必须精确列出原始/规范化源的真实hash，不能用assetId代替；当前与每份快照各自限定可读闭包，缺失、多余或跨范围源拒绝。新`importProject`与`importHistoryArchive`互相拒绝另一packageMode；全部六代旧工程读者也拒绝新标识，不降级试读。
 
 已实施保护值：压缩100MiB、展开300MiB、manifest/history索引各1MiB、单scene/identity/appearance JSON20MiB、许可256KiB、ZIP3000条、JSON深128/累计600000值；历史四份JSON累计128MiB，包含sources。单图20MiB、边8192、单图3200万像素、256张/累计6400万像素。sources JSON至多1MiB、来源记录256项、原始/规范化源至多512个不同hash，单SVG源1MiB/实际源总32MiB且计入累计资源/展开预算；当前及所选历史的联合资源分别核对图片和源上限。新metadata引起超限也必须预检明确拒绝，不静默丢数据。这些是保护值，非实测容量。
+
+### A2. 视觉v2保存、历史与输出
+
+manifest版本匹配当前ProjectData与SceneDocument版本；每份所选历史按自己的场景1/2和信封版本严格读取，历史索引仍schemaVersion1。视觉v2的visual字段完整保存在scene.json，不以seed或Canvas替代；实际SVG原始/规范化源、PNG、固定父源/许可继续完整保全。v1读者拒绝v2，不以删visual降级保存。
+
+已有完整v1启用视觉采用独立副本：先flush原工程、绑定checkpoint，再独立完整校验/保存新ID/r0，成功后才切换；保存失败仍保留原工程。新工程使用原仓库与CAS，不新增一套工程库；旧工作台/旧格式转换入口仍不恢复。混合版本历史包不自动授予跨会话视觉恢复，visual witness仅会话暂态。
+
+原生正式双受众PNG与AI公开局部PNG都先完整读取验证资源再派生已过滤的玩家投影。影、遮挡、光、雾和滤镜不从秘密几何产生旁证，最终不透明遮罩仍覆盖；实体滤镜处理独立alpha源，不污染其透明范围下的地表。公开裁切范围绑定场景/草稿修订，使用完整细节与影响外扩，不能用编辑器隐藏或LOD画面冒充。图片尺寸/字节及发送授权归05；三份原创建图/离线/4K实际结果归[53](53-visual-authoring.md)。
 
 ### B. 一个主工程仓库与独立个人库
 

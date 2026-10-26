@@ -1,0 +1,15 @@
+.visual-panel { display: grid; gap: 12px; min-width: 0; }
+.visual-panel h2 { margin-bottom: 0; }
+.visual-panel fieldset { display: grid; gap: 12px; padding: 0; border: 0; min-width: 0; }
+.visual-panel label { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
+.visual-panel input, .visual-panel select { width: 100%; box-sizing: border-box; min-width: 0; }
+.visual-panel input[type=color] { min-height: 32px; }
+.visual-panel .visual-check { display: flex; align-items: center; gap: 8px; }
+.visual-check input { width: auto; }
+.visual-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.visual-tabs { display: flex; flex-wrap: wrap; gap: 5px; }
+.visual-tabs button[aria-pressed=true] { background: var(--accent, #365f50); color: white; }
+.visual-segment { display: grid; gap: 8px; padding: 10px 0; border-bottom: 1px solid #8883; }
+.visual-controls { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.visual-controls circle { pointer-events: all; cursor: grab; touch-action: none; }
+.visual-controls circle:active { cursor: grabbing; }

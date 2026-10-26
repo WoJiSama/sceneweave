@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { cloneJson } from '../../shared/validation/json.js'
 import { getVerifiedProjectBundle, validateProjectBundle } from '../../shared/project/resources.js'
 import { fixture, validation } from './test-fixtures.js'
-import { fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, validateEditableProject } from './project.js'
+import { fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject } from './project.js'
 
 const options = () => ({ images: { ...validation.images, decode: vi.fn(validation.images.decode) } })
 
@@ -77,5 +77,33 @@ describe('owned editable project verification handoff', () => {
     const verified = await validateProjectBundle(fixture({ image: true }), options())
     expect(() => fromVerifiedBundle(verified, { signal: { aborted: true } })).toThrow(/取消/)
     expect(fromVerifiedBundle(verified).document).toBe(verified.project.document)
+  })
+
+  it('derives an edited project while retaining the exact baseline resource closure', async () => {
+    const baseline = await fromBundle(fixture({ image: true }), options())
+    const candidate = Object.freeze({ ...baseline, document: cloneJson(baseline.document) })
+    candidate.document.title = 'derived title'
+    const derived = tryDeriveEditableProject(candidate, baseline)
+    expect(derived).toBeDefined()
+    expect(derived!.document.title).toBe('derived title')
+    expect(derived!.resources).toBe(baseline.resources)
+    expect(toBundle(derived!).resources).toBe(toBundle(baseline).resources)
+    expect(getVerifiedEditableProject(derived!)).toBe(derived)
+  })
+
+  it('returns no derived project for an unverified baseline, replacement port, or cloned proof branch', async () => {
+    const baseline = await fromBundle(fixture({ image: true }), options())
+    const candidate = Object.freeze({ ...baseline, document: cloneJson(baseline.document) })
+    expect(tryDeriveEditableProject(candidate, fixture({ image: true }) as never)).toBeUndefined()
+    expect(tryDeriveEditableProject(Object.freeze({ ...candidate, resources: Object.freeze({ read: baseline.resources.read }) }), baseline)).toBeUndefined()
+    expect(tryDeriveEditableProject(Object.freeze({ ...candidate, assets: cloneJson(baseline.assets) }), baseline)).toBeUndefined()
+  })
+
+  it('rejects accessor wrappers without evaluating their getters', async () => {
+    const baseline = await fromBundle(fixture({ image: true }), options()), candidate = { ...baseline }
+    let reads = 0
+    Object.defineProperty(candidate, 'document', { enumerable: true, get() { reads++; throw new Error('hostile getter') } })
+    expect(tryDeriveEditableProject(candidate, baseline)).toBeUndefined()
+    expect(reads).toBe(0)
   })
 })

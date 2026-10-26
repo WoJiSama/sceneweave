@@ -1,3 +1,4 @@
+import type { VisualSystem } from '../visual/types.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson } from '../validation/json.js'
 
@@ -122,7 +123,7 @@ export interface PathCheck {
 }
 /** Complete, independent persisted model. No legacy view is used by the native path. */
 export interface SceneDocument {
-  format: 'sceneweave-scene'; schemaVersion: 1; sceneId: Id; revision: number
+  format: 'sceneweave-scene'; schemaVersion: 1 | 2; sceneId: Id; revision: number
   title: string; createdAt: string; updatedAt: string
   units: { world: 'mm'; display: 'm' | 'ft'; gridSizeMm: number; snapMm: number; gridVisible: boolean }
   exportBoundsMm: BoundsMm
@@ -143,6 +144,7 @@ export interface SceneDocument {
     entranceOpeningIds: Id[]; wallEndClearanceMm: number; minDoorWidthMm?: number
     minPathWidthMm?: number; pathChecks: PathCheck[]
   }
+  visual?: VisualSystem
   generationMetadata?: { generatorVersion: string; seed: string; summary?: string; adoptedAt: string }
 }
 export interface Issue { code: string; message: string; entityId?: Id }

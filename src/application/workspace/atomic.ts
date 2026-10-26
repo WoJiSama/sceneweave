@@ -3,6 +3,7 @@ import { AuthoringDraftSchema, DraftLeaseSchema, AUTHORING_LIMITS } from '../../
 import { authoringProjectHash, replayAuthoring, validateAuthoringStart } from '../../shared/ai/authoring.js'
 import type { ProjectData } from '../../shared/model/project.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../../shared/model/scene.js'
+import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics.js'
 import { canonicalJson, captureJson } from '../../shared/validation/json.js'
 import type { EditableProject } from './project.js'
 import type { EditableSnapshot } from './workspace.js'
@@ -58,9 +59,9 @@ export function captureAtomicDraft(input: AuthoringDraft, authorization: AtomicA
   // Canonical hashes compare every state field; task JSON has no trusted valid flag.
   if (canonicalJson(replayed.state) !== canonicalJson(draft.state)) throw new Error('任务步骤、实际范围、成本或内容校验值与本机重放不一致。')
   if (!draft.state.draftRevision || !draft.state.operationCost || draft.state.operationCost > AUTHORING_LIMITS.operations) throw new Error('任务草稿为空或超过256条实际操作预算。')
-  return { draft, project: replayed.project, state: replayed.state }
+  return { draft, project: replayed.project, state: replayed.state, visualInvalidatedIds: replayed.visualInvalidatedIds }
 }
-export function atomicChanges(before: ProjectData, after: ProjectData, touched: readonly string[]): AtomicChange[] {
+export function atomicChanges(before: ProjectData, after: ProjectData, touched: readonly string[], invalidatedVisualIds: readonly string[] = []): AtomicChange[] {
   const row = (project: ProjectData, id: string): { collection: string; value: unknown } | null => {
     for (const collection of LAYER_ENTITY_COLLECTIONS) {
       const records = project.document[collection] as Record<string, unknown>
@@ -68,6 +69,10 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
       if (collection === 'props') return { collection, value: { prop: records[id], layerId: project.document.entityLayers[id] ?? null,
         sourceId: project.appearance.propSources[id] ?? null, adjustments: project.appearance.instanceAdjustments[id] ?? [] } }
       return { collection, value: { entity: records[id], layerId: project.document.entityLayers[id] ?? null } }
+    }
+    for (const collection of VISUAL_ENTITY_COLLECTIONS) {
+      const entity = project.document.visual?.[collection][id]
+      if (entity) return { collection: `visual.${collection}`, value: entity }
     }
     // SVG authoring and licensing records are persisted alongside, but outside,
     // the scene entity collections. They still need to be visible in review.
@@ -78,7 +83,8 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
     return null
   }
   const artworkIds = [...new Set([...Object.keys(before.authoringSources), ...Object.keys(after.authoringSources), ...Object.keys(before.document.assets), ...Object.keys(after.document.assets), ...Object.keys(before.assets), ...Object.keys(after.assets), ...Object.keys(before.document.propDefinitions), ...Object.keys(after.document.propDefinitions)])]
-  const changes = [...new Set([...touched, ...artworkIds])].flatMap(id => {
+  const visualIds = [before, after].flatMap(project => VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.keys(project.document.visual?.[collection] ?? {})))
+  const changes = [...new Set([...touched, ...artworkIds, ...visualIds])].flatMap(id => {
     const previous = row(before, id), next = row(after, id)
     if (!previous && !next) return []
     const collection = next?.collection ?? previous!.collection
@@ -96,6 +102,16 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
   if (JSON.stringify(before.document.constraints) !== JSON.stringify(after.document.constraints)) changes.push({
     id: 'scene-constraints', collection: 'constraints', before: before.document.constraints, after: after.document.constraints, fields: ['constraints'],
   })
+  if (JSON.stringify(before.document.visual?.environment) !== JSON.stringify(after.document.visual?.environment)) changes.push({
+    id: 'visual-environment', collection: 'visual.environment', before: before.document.visual?.environment ?? null,
+    after: after.document.visual?.environment ?? null, fields: ['environment'],
+  })
+  for (const id of invalidatedVisualIds) {
+    if (changes.some(change => change.id === id)) continue
+    const previous = row(before, id), next = row(after, id)
+    if (previous || next) changes.push({ id, collection: next?.collection ?? previous!.collection,
+      before: previous?.value ?? null, after: next?.value ?? null, fields: ['identity'] })
+  }
   return changes
 }
 /** A lease's remaining time is bounded using local monotonic elapsed time from before the request. */

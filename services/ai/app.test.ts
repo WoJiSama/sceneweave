@@ -10,6 +10,7 @@ import { loadAiConfig } from './config.js'
 import { TaskEngine } from './engine.js'
 import { TaskFault, TaskStore } from './store.js'
 import { ProviderFailure } from './provider-types.js'
+import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
 import type { ProviderAdapter, ProviderCompletion, ProviderInput, ProviderToolCall } from './provider-types.js'
 
 const tokenA = 'a'.repeat(40), tokenB = 'b'.repeat(40), origin = 'https://editor.example.test'
@@ -401,5 +402,45 @@ describe('server-only fixed configuration', () => {
     const valid = { SCENEWEAVE_AI_ACCESS_TOKEN: tokenA, SCENEWEAVE_AI_ALLOWED_ORIGINS: origin, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'https://provider.example.test/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'private', SCENEWEAVE_AI_PROVIDER_MODEL: 'model' }
     expect(loadAiConfig(valid).host).toBe('127.0.0.1')
     for (const override of [{ SCENEWEAVE_AI_ACCESS_TOKEN: 'weak' }, { SCENEWEAVE_AI_PROVIDER_API_KEY: tokenA }, { SCENEWEAVE_AI_ALLOWED_ORIGINS: `${origin}/sceneweave` }, { SCENEWEAVE_AI_ALLOWED_ORIGINS: 'null' }, { SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://provider.example.test/v1' }, { SCENEWEAVE_AI_PROVIDER_BASE_URL: 'https://user:secret@provider.example.test/v1' }, { SCENEWEAVE_AI_PROVIDER_BASE_URL: 'https://provider.example.test/v1?key=secret' }]) expect(() => loadAiConfig({ ...valid, ...override })).toThrow('Invalid server configuration')
+  })
+  it('loads an optional fixed visual model without changing existing single-model configuration', () => {
+    const valid = { SCENEWEAVE_AI_ACCESS_TOKEN: tokenA, SCENEWEAVE_AI_ALLOWED_ORIGINS: origin, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'https://provider.example.test/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'private', SCENEWEAVE_AI_PROVIDER_MODEL: 'glm-5.3' }
+    const single = loadAiConfig(valid), split = loadAiConfig({ ...valid, SCENEWEAVE_AI_PROVIDER_VISION_MODEL: 'glm-5.3-flash' })
+    expect(single.provider).not.toHaveProperty('visionModel')
+    expect(split.provider).toMatchObject({ model: 'glm-5.3', visionModel: 'glm-5.3-flash', vision: 'unverified' })
+    expect(connectionInfo(single)).not.toHaveProperty('visionModel')
+    expect(ConnectionInfoSchema.parse(connectionInfo(split))).toMatchObject({ model: 'glm-5.3', visionModel: 'glm-5.3-flash', capabilities: { vision: 'unverified' } })
+    for (const field of ['SCENEWEAVE_AI_PROVIDER_MODEL', 'SCENEWEAVE_AI_PROVIDER_VISION_MODEL'] as const) {
+      for (const value of ['', ' ', 'glm 5.3', 'glm-5.3\t', 'glm-5.3\x7f', 'x'.repeat(129)]) {
+        expect(() => loadAiConfig({ ...valid, [field]: value })).toThrow('Invalid server configuration')
+      }
+    }
+  })
+  it('accepts only a bounded server-selected authoring output budget and reports its actual default', () => {
+    const valid = { SCENEWEAVE_AI_ACCESS_TOKEN: tokenA, SCENEWEAVE_AI_ALLOWED_ORIGINS: origin, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'https://provider.example.test/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'private', SCENEWEAVE_AI_PROVIDER_MODEL: 'model' }
+    const fallback = loadAiConfig(valid)
+    expect(fallback.authoringOutputTokens).toBe(AI_LIMITS.maxOutputTokensPerRequest)
+    expect(connectionInfo(fallback).authoringOutputTokens).toBe(1024)
+    expect(connectionInfo({ ...fallback, authoringOutputTokens: undefined }).authoringOutputTokens).toBe(1024)
+    for (const authoringOutputTokens of [1, 4096, AUTHORING_LIMITS.maxOutputTokensPerRequest]) {
+      const configured = loadAiConfig({ ...valid, SCENEWEAVE_AI_AUTHORING_OUTPUT_TOKENS: String(authoringOutputTokens) })
+      expect(configured.authoringOutputTokens).toBe(authoringOutputTokens)
+      expect(ConnectionInfoSchema.parse(connectionInfo(configured)).authoringOutputTokens).toBe(authoringOutputTokens)
+    }
+    for (const value of ['', ' ', '0', '-1', '1.5', 'NaN', 'Infinity', '1e3', '0x1000', ' 4096', '4096\n', String(AUTHORING_LIMITS.maxOutputTokensPerRequest + 1)]) {
+      expect(() => loadAiConfig({ ...valid, SCENEWEAVE_AI_AUTHORING_OUTPUT_TOKENS: value })).toThrow('Invalid server configuration: AUTHORING_OUTPUT_TOKENS')
+    }
+  })
+  it('enables private reasoning continuation only through explicit fixed server configuration', () => {
+    const valid = { SCENEWEAVE_AI_ACCESS_TOKEN: tokenA, SCENEWEAVE_AI_ALLOWED_ORIGINS: origin, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'https://provider.example.test/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'private', SCENEWEAVE_AI_PROVIDER_MODEL: 'model' }
+    expect(loadAiConfig(valid).provider.preserveReasoning).toBe('disabled')
+    for (const preserveReasoning of ['enabled', 'disabled'] as const) {
+      const config = loadAiConfig({ ...valid, SCENEWEAVE_AI_PROVIDER_PRESERVE_REASONING: preserveReasoning })
+      expect(config.provider.preserveReasoning).toBe(preserveReasoning)
+      expect(connectionInfo(config)).not.toHaveProperty('preserveReasoning')
+    }
+    for (const value of ['', 'true', '1', 'enabled ', 'ENABLED']) {
+      expect(() => loadAiConfig({ ...valid, SCENEWEAVE_AI_PROVIDER_PRESERVE_REASONING: value })).toThrow('Invalid server configuration: PROVIDER_PRESERVE_REASONING')
+    }
   })
 })

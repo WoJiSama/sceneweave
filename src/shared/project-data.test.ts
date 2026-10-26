@@ -3,8 +3,11 @@ import { createHash } from 'node:crypto'
 import { layerSceneV3 } from '../core/v3/test-fixtures'
 import { createCompositionContent } from './appearance/graph.js'
 import { inspectDependencies } from './geometry/dependencies.js'
-import { projectContentHash, projectDataSchema, validateProjectData } from './project/validate.js'
+import { certifyProjectData, PROJECT_DATA_LIMITS, projectContentHash, projectDataSchema, validateProjectData } from './project/validate.js'
 import { canonicalJson, cloneJson, encodeUtf8, inspectJsonInput } from './validation/json.js'
+import { certifyCompositionContent, getCertifiedCompositionContent, validateCompositionDraft } from './validation/content.js'
+import { isCertifiedSceneSnapshot } from './validation/snapshots.js'
+import { emptyVisualSystem } from './visual/types.js'
 import type { SceneDocument } from './model/scene.js'
 import type { ProjectData } from './model/project.js'
 import type { PreparationContext } from './ports/runtime.js'
@@ -102,5 +105,80 @@ describe('native complete-v1 pure metadata contract', () => {
   })
   it('uses the same UTF-8 and SHA rules for Chinese, astral characters and lone surrogates', () => {
     for (const text of ['', '织境', '🪨🌋', '\ud800', 'a\udc00b']) expect(encodeUtf8(text)).toEqual(new TextEncoder().encode(text))
+  })
+  it('enforces the exact serialized byte boundary for owned JSON, including multibyte characters and escapes', () => {
+    const input = fixture()
+    input.document.title = '织境🪨\n\u0000\ud800'
+    const padding = PROJECT_DATA_LIMITS.jsonBytes - Buffer.byteLength(canonicalJson(input.document), 'utf8')
+    input.document.title += 'x'.repeat(padding)
+    expect(Buffer.byteLength(canonicalJson(input.document), 'utf8')).toBe(PROJECT_DATA_LIMITS.jsonBytes)
+    expect(validateProjectData(input).document.title).toBe(input.document.title)
+    input.document.title += '中'
+    expect(() => validateProjectData(input)).toThrow(/20MiB/)
+  })
+  it('hands off only owned immutable content while keeping public drafts detached and mutable', () => {
+    const input = fixture(), certified = certifyProjectData(input)
+    const content = (project: ProjectData) => ({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance })
+    expect(certified).toEqual(input)
+    expect(certified.document).not.toBe(input.document)
+    expect(getCertifiedCompositionContent(content(certified))).toEqual(content(certified))
+    expect(isCertifiedSceneSnapshot(certified.document)).toBe(true)
+    expect(Object.isFrozen(certified)).toBe(true)
+    expect(Object.isFrozen(certified.document.props.item.positionMm)).toBe(true)
+    const publicProject = validateProjectData(cloneJson(certified)), publicFromCertified = validateProjectData(certified), draft = validateCompositionDraft(content(input))
+    expect(getCertifiedCompositionContent(content(publicProject))).toBeUndefined()
+    expect(getCertifiedCompositionContent(content(publicFromCertified))).toBeUndefined()
+    expect(isCertifiedSceneSnapshot(publicProject.document)).toBe(false)
+    expect(isCertifiedSceneSnapshot(publicFromCertified.document)).toBe(false)
+    publicProject.document.title = 'public mutable copy'; publicFromCertified.document.title = 'mutable handoff'; draft.document.props.item.positionMm.x++
+    expect(input.document.title).not.toBe(publicProject.document.title)
+    expect(draft.document.props.item.positionMm).not.toEqual(input.document.props.item.positionMm)
+    expect(certified.document.props.item.positionMm).toEqual(input.document.props.item.positionMm)
+  })
+  it('does not transfer a composition proof to a changed identity, graph or cloned scene', () => {
+    const input = certifyProjectData(fixture()), content = { document: input.document, historyIdentity: input.historyIdentity, appearance: input.appearance }
+    const changedIdentity = { ...content, historyIdentity: cloneJson(content.historyIdentity) }
+    delete changedIdentity.historyIdentity.propTokens.item
+    expect(getCertifiedCompositionContent(changedIdentity)).toBeUndefined()
+    expect(() => certifyCompositionContent(changedIdentity)).toThrow(/身份|token/)
+    const changedAppearance = { ...content, appearance: cloneJson(content.appearance) }
+    delete changedAppearance.appearance.propSources.item
+    expect(() => certifyCompositionContent(changedAppearance)).toThrow(/外观源/)
+    const changedScene = { ...content, document: cloneJson(content.document) }
+    changedScene.document.props.item.positionMm.x = -100000
+    expect(() => certifyCompositionContent(changedScene)).toThrow(/边界|占地/)
+    const unissuedFrozen = Object.freeze(cloneJson(content))
+    expect(getCertifiedCompositionContent(unissuedFrozen)).toBeUndefined()
+    expect(certifyCompositionContent(unissuedFrozen)).not.toBe(unissuedFrozen)
+  })
+  it('keeps visual v2 domain and identity validation behind the shallower envelopes', () => {
+    const input = fixture()
+    input.schemaVersion = 2; input.document.schemaVersion = 2; input.document.visual = emptyVisualSystem()
+    expect(projectDataSchema.safeParse(input).success).toBe(true)
+    expect(certifyProjectData(input).document.visual).toEqual(input.document.visual)
+    const badVersion = cloneJson(input); badVersion.schemaVersion = 1
+    expect(() => certifyProjectData(badVersion)).toThrow(/版本/)
+    const badLight = cloneJson(input)
+    badLight.document.visual!.lights.missing = { id: 'missing', floorId: Object.keys(input.document.floors)[0], layerId: 'absent-layer', visibility: 'public', editLocked: false,
+      positionMm: { x: 1000, y: 1000 }, radiusMm: 1000, color: '#ffeedd', intensity: .5, wallOcclusion: true, enabled: true }
+    expect(() => certifyProjectData(badLight)).toThrow(/用户图层/)
+    const unknownScene = cloneJson(input) as unknown as { document: Record<string, unknown> }
+    unknownScene.document.secretExtra = 'invalid'
+    expect(() => certifyProjectData(unknownScene)).toThrow()
+  })
+  it('rejects hostile content and metadata wrappers before touching their accessors', () => {
+    const input = fixture(), content = { document: input.document, historyIdentity: input.historyIdentity, appearance: input.appearance }
+    let calls = 0
+    const accessor = { ...content }
+    Object.defineProperty(accessor, 'appearance', { enumerable: true, get() { calls++; throw new Error('must not be called') } })
+    expect(() => certifyCompositionContent(accessor)).toThrow(); expect(calls).toBe(0)
+    for (const key of ['document', 'historyIdentity', 'appearance'] as const) {
+      const missing = { ...content } as Partial<typeof content>; delete missing[key]
+      expect(() => certifyCompositionContent(missing)).toThrow()
+    }
+    for (const value of [Object.assign({ ...content }, { extra: 1 }), Object.defineProperty({ ...content }, 'hidden', { value: 1 }), Object.assign({ ...content }, { [Symbol('hidden')]: 1 })]) expect(() => certifyCompositionContent(value)).toThrow()
+    const metadata = { ...input }
+    Object.defineProperty(metadata, 'assets', { enumerable: true, get() { calls++; throw new Error('must not be called') } })
+    expect(() => certifyProjectData(metadata)).toThrow(); expect(calls).toBe(0)
   })
 })

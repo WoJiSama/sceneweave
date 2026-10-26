@@ -17,7 +17,7 @@ export function parseOptions(args, env = process.env) {
   const values = new Map()
   for (let index = 0; index < args.length; index++) {
     const name = args[index]
-    assert(['--url', '--origin', '--min-hours', '--timeout-ms', '--authenticated'].includes(name) && !values.has(name), 'invalid_arguments')
+    assert(['--url', '--origin', '--min-hours', '--timeout-ms', '--authenticated', '--vision'].includes(name) && !values.has(name), 'invalid_arguments')
     if (name === '--authenticated') values.set(name, true)
     else {
       const value = args[++index]
@@ -40,12 +40,14 @@ export function parseOptions(args, env = process.env) {
   const origin = exactHttpsOrigin(values.get('--origin'))
   const minHours = integer(values.get('--min-hours'), 48, 0, 8760)
   const timeoutMs = integer(values.get('--timeout-ms'), 10000, 100, 60000)
+  const expectedVision = values.get('--vision') ?? 'unverified'
+  assert(['unverified', 'disabled', 'enabled'].includes(expectedVision), 'invalid_arguments')
   let token
   if (values.has('--authenticated')) {
     token = env.SCENEWEAVE_AI_ACCESS_TOKEN
     assert(typeof token === 'string' && /^[\x21-\x7e]{32,512}$/.test(token), 'missing_access_token')
   }
-  return { endpoint, origin, minHours, timeoutMs, token }
+  return { endpoint, origin, minHours, timeoutMs, token, expectedVision }
 }
 
 export function certificateSummary(certificate, protocol, now = Date.now()) {
@@ -130,7 +132,7 @@ function allowedOrigin(response, origin) { assert(header(response, 'access-contr
 function rejectedOrigin(response) { assert(header(response, 'access-control-allow-origin') === undefined, 'unexpected_headers') }
 
 export async function runOnlineChecks(options, { inspect = inspectCertificate, request = requestEndpoint, now = Date.now() } = {}) {
-  const { endpoint, origin, minHours, timeoutMs, token } = options
+  const { endpoint, origin, minHours, timeoutMs, token, expectedVision = 'unverified' } = options
   const report = { checkedAt: new Date(now).toISOString(), endpoint, frontendOrigin: origin, minCertificateHours: minHours, authenticated: token !== undefined, ok: false, checks: [] }
   const check = async (name, operation) => {
     try { await operation(); report.checks.push({ name, ok: true }) }
@@ -181,7 +183,7 @@ export async function runOnlineChecks(options, { inspect = inspectCertificate, r
       const response = await send('/v1/capabilities', 'GET', { Origin: origin, Authorization: `Bearer ${token}` })
       assert(response.status === 200, 'unexpected_status'); commonHeaders(response); allowedOrigin(response, origin)
       const value = json(response)
-      assert(value?.schemaVersion === 1 && value?.retentionDays === 7 && value?.capabilities?.conversation === true && value?.capabilities?.connectionTool === true && value?.capabilities?.sceneDraft === true && value?.capabilities?.svg === true && value?.capabilities?.vision === 'unverified', 'unexpected_body')
+      assert(value?.schemaVersion === 1 && value?.retentionDays === 7 && value?.capabilities?.conversation === true && value?.capabilities?.connectionTool === true && value?.capabilities?.sceneDraft === true && value?.capabilities?.svg === true && value?.capabilities?.vision === expectedVision, 'unexpected_body')
     })
   }
   report.ok = report.checks.every(value => value.ok)

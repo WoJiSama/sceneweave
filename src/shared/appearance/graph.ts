@@ -2,7 +2,7 @@ import { sha256Text } from '../geometry/scatter.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
-import { cloneJson } from '../validation/json.js'
+import { captureJson, cloneJson } from '../validation/json.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import type { MaterialPaint, Prop, SceneDocument, SurfaceStyle } from '../model/scene.js'
 import type { SceneCommand } from '../commands/commands.js'
@@ -143,7 +143,21 @@ export function ensureSourceAssetRoots(input: CompositionContent): CompositionCo
 
 /** Sync only real source edits; geometry, layer moves and output recomputation never bake overrides into a source. */
 export function syncAppearanceGraph(input: CompositionContent, previousDocument?: SceneDocument, commands: readonly SceneCommand[] = []): CompositionContent {
-  const content = cloneJson(input), graph = content.appearance, document = content.document
+  return syncOwnedAppearanceGraph(cloneJson(input), previousDocument, commands)
+}
+
+/** Internal handoff: graph synchronization writes only its owned appearance graph. */
+export function syncAppearanceGraphSnapshot(input: CompositionContent, previousDocument?: SceneDocument, commands: readonly SceneCommand[] = []): CompositionContent {
+  if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('组合工程必须为普通对象。')
+  const fields = Object.getOwnPropertyDescriptors(input)
+  if (Reflect.ownKeys(fields).length !== 3 || !['document', 'historyIdentity', 'appearance'].every(key => fields[key]?.enumerable && 'value' in fields[key])) throw new Error('组合工程含未知、访问器、隐藏或Symbol字段。')
+  const checked = validateSceneSnapshot(fields.document.value)
+  if (!checked.ok) throw new Error(`组合场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
+  const owned = captureJson({ historyIdentity: fields.historyIdentity.value!, appearance: fields.appearance.value! })
+  return syncOwnedAppearanceGraph({ document: checked.document, ...owned }, previousDocument, commands)
+}
+function syncOwnedAppearanceGraph(content: CompositionContent, previousDocument?: SceneDocument, commands: readonly SceneCommand[] = []): CompositionContent {
+  const graph = content.appearance, document = content.document
   for (const command of commands) {
     if (command.type === 'copyProp' && own(graph.propSources, command.id)) {
       graph.propSources[command.newId] = graph.propSources[command.id]
@@ -154,6 +168,9 @@ export function syncAppearanceGraph(input: CompositionContent, previousDocument?
         const snapshot = { ...source.snapshot, definitionRef: command.definitionRef, appearance: definition.defaultAppearance }
         if (!equalCompositionValue(source.snapshot, snapshot)) graph.propSources[command.id] = addPropAppearanceSource(graph, snapshot, sourceId)
       }
+    } else if (command.type === 'setVisualSurface') {
+      const sourceId = graph.surfaceSources[command.id], source = graph.sources[sourceId]
+      if (command.style && source?.kind === 'surface' && !equalCompositionValue(source.snapshot, command.style)) graph.surfaceSources[command.id] = addSurfaceAppearanceSource(graph, command.style, sourceId)
     } else if ((command.type === 'updateTerrainArea' || command.type === 'updateTerrainEdge' || command.type === 'updateTerrainConnection' || command.type === 'updatePath') && 'surfaceStyle' in command.changes) {
       const sourceId = graph.surfaceSources[command.id], source = graph.sources[sourceId]
       const style = command.changes.surfaceStyle

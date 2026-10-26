@@ -14,9 +14,11 @@ import { TaskEngine } from '../services/ai/engine'
 import type { ProviderAdapter, ProviderToolCall } from '../services/ai/provider-types'
 
 // Real native UI/HTTP/SSE/SQLite/IndexedDB. The deterministic provider deliberately
-// exhausts its request budget; no .env file or paid provider is used.
+// exhausts its request budget and ignores the final text-only boundary; no .env
+// file or paid provider is used. Its last tool call must remain unexecuted.
 let url: string, token: string, directory: string, store: TaskStore, engine: TaskEngine, server: ReturnType<typeof serve>
 let providerRequests = 0
+const providerToolCounts: number[] = []
 test.beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'sceneweave-failed-draft-')); token = randomBytes(24).toString('hex')
   const origin = new URL(process.env.SCENEWEAVE_TEST_BASE_URL ?? 'http://127.0.0.1:5173').origin
@@ -24,6 +26,7 @@ test.beforeAll(async () => {
     SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:1/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'deterministic-no-network', SCENEWEAVE_AI_PROVIDER_MODEL: 'deterministic-failed-draft' })
   const provider: ProviderAdapter = { async complete(input) {
     providerRequests++
+    providerToolCounts.push(input.tools.length)
     const created = input.messages.some(message => message.role === 'tool' && message.toolCallId === 'create-valid-clue')
     const call: ProviderToolCall = created
       ? { id: `check-${providerRequests}`, name: 'sceneweave_check_draft', arguments: '{}' }
@@ -78,8 +81,11 @@ test('request-limit failure keeps a valid local draft reviewable, downloadable a
   expect(providerRequests - count).toBe(16)
   const task = store.list('maintainer').find(item => item.context?.sceneId === original.document.sceneId)!
   const failed = store.read(task.id, 'maintainer')
-  expect(failed.snapshot).toMatchObject({ status: 'failed', usage: { requests: 16 }, error: { code: 'request_limit' } })
-  expect(failed.authoring!.state.draftRevision).toBe(1); expect(failed.snapshot.tools).toHaveLength(16)
+  expect(failed.snapshot).toMatchObject({ status: 'failed', usage: { requests: 16, unknown: false }, error: { code: 'request_limit', requestState: 'finished' } })
+  expect(providerToolCounts.slice(count, count + 15).every(value => value > 0)).toBe(true)
+  expect(providerToolCounts[count + 15]).toBe(0)
+  expect(failed.authoring!.state.draftRevision).toBe(1); expect(failed.snapshot.tools).toHaveLength(15)
+  expect(failed.snapshot.tools.some(item => item.callId === `check-${count + 16}`)).toBe(false)
   expect(failed.snapshot.tools.every(item => item.success)).toBe(true)
   expect(await state(page)).toEqual(original)
   await authoring.getByRole('button', { name: '重新绑定并校验草稿', exact: true }).click()
@@ -92,7 +98,7 @@ test('request-limit failure keeps a valid local draft reviewable, downloadable a
   expect(download.suggestedFilename()).toBe('sceneweave-ai-draft.sceneweave'); expect(filename).not.toBeNull()
   const archive = unzipSync(new Uint8Array(await readFile(filename!))), decode = new TextDecoder()
   const manifest = JSON.parse(decode.decode(archive['manifest.json'])), draftScene = JSON.parse(decode.decode(archive['scene.json']))
-  expect(manifest).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, packageMode: 'complete', revision: 0 })
+  expect(manifest).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 2, packageMode: 'complete', revision: 0 })
   expect(draftScene.notes['preserved-gm-clue']).toMatchObject({ visibility: 'gm', kind: 'clue', title: '未寄出的信' })
   const entries = manifest.entries as { path: string; sizeBytes: number; sha256: string }[]
   for (const entry of entries) {

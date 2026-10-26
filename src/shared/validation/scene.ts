@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { visualSystemSchema } from '../visual/schema.js'
+import { validateVisualSystem } from '../visual/diagnostics.js'
 import { inspectJsonInput } from './json.js'
 import { validateGeometry } from '../geometry/geometry.js'
 import { geometryDocumentForValidation } from '../commands/domain.js'
@@ -17,7 +19,7 @@ export const userLayerSchema = z.object({
 
 /** Every persisted field is native and strict, including all fixed definitions and layers. */
 export const sceneDocumentSchema = z.object({
-  format: z.literal('sceneweave-scene'), schemaVersion: z.literal(1), sceneId: id, revision: nonnegative,
+  format: z.literal('sceneweave-scene'), schemaVersion: z.union([z.literal(1), z.literal(2)]), sceneId: id, revision: nonnegative,
   title: z.string().min(1), createdAt: timestamp, updatedAt: timestamp,
   units: z.object({ world: z.literal('mm'), display: z.enum(['m', 'ft']), gridSizeMm: positive, snapMm: positive, gridVisible: z.boolean() }).strict(),
   exportBoundsMm: bounds,
@@ -71,28 +73,23 @@ export const sceneDocumentSchema = z.object({
   constraints: z.object({ entranceOpeningIds: ids, wallEndClearanceMm: nonnegative, minDoorWidthMm: positive.optional(), minPathWidthMm: positive.optional(),
     pathChecks: z.array(z.object({ id, from: anchor, to: anchor, clearanceMm: positive, mode: z.enum(['structural', 'current']), assumedOpenDoorIds: ids }).strict()) }).strict(),
 
-  userLayers: record(userLayerSchema), entityLayers: record(id),
-}).strict()
+  userLayers: record(userLayerSchema), entityLayers: record(id), visual: visualSystemSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.schemaVersion === 1 && value.visual !== undefined) context.addIssue({ code: 'custom', path: ['visual'], message: '原生v1不得携带视觉字段；请显式升级。' })
+  if (value.schemaVersion === 2 && value.visual === undefined) context.addIssue({ code: 'custom', path: ['visual'], message: '原生v2须携带完整视觉系统。' })
+})
 
 export type ValidationResult = { ok: true; document: SceneDocument; warnings: Issue[] } | { ok: false; errors: Issue[] }
 export function validateSceneDocument(input: unknown): ValidationResult {
-  let values = 0
-  const budget = (value: unknown, depth = 0): boolean => {
-    if (++values > 600000 || depth > 128) return false
-    if (value !== null && typeof value === 'object') for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
-      if (Array.isArray(value) && key === 'length') continue
-      if (!('value' in descriptor) || !budget(descriptor.value, depth + 1)) return false
-    }
-    return true
-  }
-  if (!budget(input)) return { ok: false, errors: [{ code: 'JSON_BUDGET', message: '文档超过 128 层/600000 值预算，或包含访问器。' }] }
-  const jsonIssue = inspectJsonInput(input)
+  // The ownership inspector already enforces the complete depth/value budget
+  // and descriptors. Preserve scene error codes without scanning twice.
+  const jsonIssue = inspectJsonInput(input, { budgetCode: 'JSON_BUDGET', accessorCode: 'JSON_BUDGET' })
   if (jsonIssue) return { ok: false, errors: [jsonIssue] }
   const parsed = sceneDocumentSchema.safeParse(input)
   if (!parsed.success) return { ok: false, errors: parsed.error.issues.map(issue => ({ code: 'SCHEMA', message: `${issue.path.join('.') || 'document'}: ${issue.message}` })) }
   const document = parsed.data as SceneDocument
   const dependencies = inspectDependencies(document), geometry = validateGeometry(geometryDocumentForValidation(document))
-  const errors = [...dependencies.errors, ...geometry.errors]
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document)]
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }
 export const sceneSchema = sceneDocumentSchema

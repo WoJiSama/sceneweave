@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import { sceneDocumentSchema } from '../validation/scene.js'
 import { historyIdentitySchema } from '../history/identity.js'
-import { appearanceGraphSchema, validateCompositionContent } from '../validation/content.js'
+import { appearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, validateCompositionContent } from '../validation/content.js'
 import { inspectDependencies } from '../geometry/dependencies.js'
 import { sha256Text } from '../geometry/scatter.js'
-import { canonicalJson, encodeUtf8, inspectJsonInput } from '../validation/json.js'
+import { canonicalJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput } from '../validation/json.js'
 import type { ProjectData } from '../model/project.js'
 import { STATIC_SVG_LIMITS } from '../ai/svg.js'
 import { PACKAGE_LIMITS } from './limits.js'
@@ -22,21 +22,55 @@ export const licenseBindingSchema = z.object({ subjectKind: z.enum(['asset', 'ma
   subjectId: id, licenseRef: id, licensePath: z.string().regex(/^licenses\/[a-f0-9]{64}\.txt$/), embedding: z.literal('allowed') }).strict()
 const svgSchema = z.object({ kind: z.literal('svg'), sourceSha256: hash, normalizedSha256: hash, sourceSizeBytes: positive.max(MiB),
   normalizedSizeBytes: positive.max(MiB), rasterSha256: hash, processorId: z.literal('sceneweave-static-svg'), processorVersion: z.literal(1) }).strict()
-export const projectDataSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.literal(1),
+export const projectDataSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2)]),
   document: sceneDocumentSchema, historyIdentity: historyIdentitySchema, appearance: appearanceGraphSchema,
+  assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
+  licenseBindings: z.array(licenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
+}).strict().superRefine((project, ctx) => {
+  if (project.schemaVersion !== project.document.schemaVersion) ctx.addIssue({ code: 'custom', path: ['schemaVersion'], message: '完整工程与场景契约版本必须一致。' })
+})
+// Keep the exported complete schema unchanged. Runtime validation delegates the
+// three domain branches to their strict validators, avoiding recursive parsing
+// of the scene and identity in both the envelope and the domain boundary.
+const projectEnvelopeSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  document: z.unknown(), historyIdentity: z.unknown(), appearance: z.unknown(),
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
   licenseBindings: z.array(licenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
 }).strict()
 
+/** Only for strict-parser-owned JSON. Key order cannot change its byte length. */
+function ownedJsonByteLength(value: unknown): number {
+  const text = JSON.stringify(value)
+  let length = 0
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code < 0x80) length++
+    else if (code < 0x800) length += 2
+    else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length
+      && text.charCodeAt(i + 1) >= 0xdc00 && text.charCodeAt(i + 1) <= 0xdfff) { length += 4; i++ }
+    else length += 3
+  }
+  return length
+}
+
 /** Strict native metadata/closure validation. No byte/hash/decode certificate is issued. */
 export function validateProjectData(input: unknown): ProjectData {
+  return readProjectData(input, false)
+}
+function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(issue.message)
-  const parsed = projectDataSchema.safeParse(input)
-  if (!parsed.success) throw new Error(`完整v1字段无效：${parsed.error.issues.map(item => `${item.path.join('.')}: ${item.message}`).join('；')}`)
-  const project: ProjectData = parsed.data
-  const content = validateCompositionContent({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance })
-  project.document = content.document; project.historyIdentity = content.historyIdentity; project.appearance = content.appearance
+  const parsed = projectEnvelopeSchema.safeParse(input)
+  if (!parsed.success) throw new Error(`完整工程字段无效：${parsed.error.issues.map(item => `${item.path.join('.')}: ${item.message}`).join('；')}`)
+  const content = (certifyContent ? certifyCompositionContent : validateCompositionContent)({ document: parsed.data.document, historyIdentity: parsed.data.historyIdentity, appearance: parsed.data.appearance })
+  // Public validation must return a detached mutable project even when the
+  // caller passes an internally certified immutable project. Only the private
+  // certification path may retain the exact frozen triad.
+  const publicContent = !certifyContent && getCertifiedCompositionContent(content)
+    ? { document: cloneJson(content.document), historyIdentity: cloneJson(content.historyIdentity), appearance: cloneJson(content.appearance) }
+    : content
+  const project: ProjectData = { ...parsed.data, ...publicContent }
+  if (project.schemaVersion !== project.document.schemaVersion) throw new Error('完整工程字段无效：schemaVersion: 完整工程与场景契约版本必须一致。')
   const dependencies = inspectDependencies(project.document)
   if (dependencies.errors.length) throw new Error(dependencies.errors.map(item => item.message).join('；'))
   const hashes = new Set<string>()
@@ -88,13 +122,24 @@ export function validateProjectData(input: unknown): ProjectData {
     expanded += bytes.length
   }
   for (const value of [project.document, project.historyIdentity, project.appearance, project.authoringSources]) {
-    const size = encodeUtf8(canonicalJson(value)).length
+    const size = ownedJsonByteLength(value)
     if (value === project.authoringSources && size > PACKAGE_LIMITS.sourcesBytes) throw new Error('SVG来源JSON超过1MiB。')
     if (size > PROJECT_DATA_LIMITS.jsonBytes) throw new Error('场景、身份或外观JSON超过20MiB。')
     expanded += size
   }
   if (expanded > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节超过300MiB。')
   return project
+}
+
+/**
+ * Internal immutable metadata handoff. This still performs the complete native
+ * metadata/dependency/license closure check; it only adds the private
+ * composition certificate and deep freeze used by already-owned byte bundles.
+ * Resource bytes, SVG pixels and PNG pixels remain the responsibility of the
+ * complete resource validator.
+ */
+export function certifyProjectData(input: unknown): ProjectData {
+  return freezeJson(readProjectData(input, true))
 }
 
 export const projectContentHash = (input: unknown): string => sha256Text(canonicalJson(validateProjectData(input)))

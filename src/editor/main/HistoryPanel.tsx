@@ -13,6 +13,7 @@ import type { EditableSnapshot, RestorePreview, StructureRestorePreview, Workspa
 import StructureHistoryPanel from './StructureHistoryPanel'
 import { projectScene } from '../../shared/projection/projection'
 import { prepareOriginalDownload } from './legacy-original-download'
+import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics'
 
 type Props = {
   active: boolean
@@ -28,7 +29,7 @@ type Props = {
   onBackup: (snapshotIds: string[] | undefined, sceneId: string) => void
 }
 type Usage = Awaited<ReturnType<WorkspaceRepository['usage']>>
-const modes: { id: RestoreMode; label: string }[] = [{ id: 'appearance', label: '历史有效外观（保留当前层）' }, { id: 'source', label: '历史源与参数（跟随当前层）' }, { id: 'transform', label: '位置角度' }, { id: 'entity', label: '完整独立物件' }, { id: 'relationship', label: '整组关系与成员' }, { id: 'layer', label: '持续图层规则' }, { id: 'outdoorGeometry', label: '地形与通路几何（保留当前拓扑）' }, { id: 'outdoorProperties', label: '室外几何与业务属性' }, { id: 'scatterMembers', label: '显式历史散布成员与抑制记录' }]
+const modes: { id: RestoreMode; label: string }[] = [{ id: 'appearance', label: '历史有效外观（保留当前层）' }, { id: 'source', label: '历史源与参数（跟随当前层）' }, { id: 'transform', label: '位置角度' }, { id: 'entity', label: '完整独立物件' }, { id: 'relationship', label: '整组关系与成员' }, { id: 'layer', label: '持续图层规则' }, { id: 'outdoorGeometry', label: '地形与通路几何（保留当前拓扑）' }, { id: 'outdoorProperties', label: '室外几何与业务属性' }, { id: 'scatterMembers', label: '显式历史散布成员与抑制记录' }, { id: 'visual', label: '本会话视觉参数与环境（保留绑定拓扑）' }]
 const dateLabel = (stamp: string) => new Date(stamp).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 const bytes = (value: number) => `${(value / 1024 / 1024).toFixed(1)} MiB`
 function memberIds(scene: SceneDocument): Set<string> {
@@ -72,6 +73,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const rows = useMemo(() => {
     if (!snapshot) return []
     const historic = snapshot.project.document
+    if (mode === 'visual') return historic.visual ? [{ id: historic.sceneId, name: '全图环境与接触阴影', deleted: !project.document.visual, managed: false }, ...VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(historic.visual![collection]).map(entity => ({ id: entity.id, name: `${{ boundaries: '曲线', edgeLooks: '连续边带', lights: '灯光', fogs: '区域雾', filters: '滤镜' }[collection]} · ${entity.id}`, deleted: !project.document.visual?.[collection][entity.id], managed: false })))] : []
     if (mode === 'layer') return Object.values(historic.userLayers).map(layer => ({ id: layer.id, name: `图层 · ${layer.name}`, deleted: !project.document.userLayers[layer.id], managed: false }))
     if (mode === 'outdoorGeometry' || mode === 'outdoorProperties') return (['terrainAreas', 'terrainEdges', 'terrainConnections', 'paths'] as const).flatMap(collection => Object.values(historic[collection]).map(entity => ({ id: entity.id, name: `${{ terrainAreas: '地形', terrainEdges: '来源边缘', terrainConnections: '高差连接', paths: '道路' }[collection]} · ${entity.id}`, deleted: !project.document[collection][entity.id], managed: false })))
     if (mode === 'scatterMembers') {
@@ -226,7 +228,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   </section>
 }
 
-const modeLabels: Record<RestoreMode, string> = { appearance: '历史有效外观，保留当前层规则', source: '历史固定源与参数，跟随当前层效果', transform: '位置与角度', entity: '完整独立物件', relationship: '整组关系与实际成员', layer: '持续图层规则及当前成员', outdoorGeometry: '现存室外几何，保留当前拓扑', outdoorProperties: '现存室外几何与业务属性', scatterMembers: '显式历史散布成员及明确抑制记录' }
+const modeLabels: Record<RestoreMode, string> = { appearance: '历史有效外观，保留当前层规则', source: '历史固定源与参数，跟随当前层效果', transform: '位置与角度', entity: '完整独立物件', relationship: '整组关系与实际成员', layer: '持续图层规则及当前成员', outdoorGeometry: '现存室外几何，保留当前拓扑', outdoorProperties: '现存室外几何与业务属性', scatterMembers: '显式历史散布成员及明确抑制记录', visual: '本会话视觉参数，保持当前绑定与采样拓扑' }
 const json = (value: unknown) => value === undefined ? '无' : JSON.stringify(value, null, 2)
 export function RestoreChangesPanel({ preview, current }: { preview: RestorePreview; current: EditableProject }) {
   const publicIds = (scene: SceneDocument) => {

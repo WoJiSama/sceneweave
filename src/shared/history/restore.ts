@@ -13,14 +13,19 @@ import { addSurfaceAppearanceSource, ensureSourceAssetRoots, freezeEffectiveProp
 import { assertOutdoorContinuity, mergeHistoryIdentities, validateHistoryIdentity } from './identity.js'
 import { validateCompositionContent } from '../validation/content.js'
 import type { CompositionContent } from '../model/appearance.js'
+import { applyVisualCommand, type VisualCommand } from '../visual/commands.js'
+import { VISUAL_ENTITY_COLLECTIONS, visualBindingEntityIds } from '../visual/diagnostics.js'
+import type { VisualEntity, VisualBoundary } from '../visual/types.js'
+import { assertVisualContinuity, type VisualContinuity, visualTopology } from './visual-continuity.js'
+import { outdoorIdentityDescriptors } from './identity.js'
 
 
-export type RestoreMode = 'appearance' | 'source' | 'transform' | 'entity' | 'relationship' | 'layer' | 'outdoorGeometry' | 'outdoorProperties' | 'scatterMembers'
+export type RestoreMode = 'appearance' | 'source' | 'transform' | 'entity' | 'relationship' | 'layer' | 'outdoorGeometry' | 'outdoorProperties' | 'scatterMembers' | 'visual'
 export interface RestoreRequest { ids: string[]; mode: RestoreMode }
-export interface RestoreEvidence { surfaceContinuity?: StructureContinuity }
+export interface RestoreEvidence { surfaceContinuity?: StructureContinuity; visualContinuity?: VisualContinuity }
 export interface RestoreChange {
   id: string
-  kind: 'prop' | 'prefabInstance' | 'surface' | 'layer' | 'outdoor' | 'scatterGroup'
+  kind: 'prop' | 'prefabInstance' | 'surface' | 'layer' | 'outdoor' | 'scatterGroup' | 'visual'
   name: string
   action: 'update' | 'recreate' | 'delete'
   layerId: string
@@ -41,7 +46,7 @@ export interface RestorePlan extends CompositionContent {
 }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
-const requestSchema = z.object({ ids: z.array(id).min(1).max(256), mode: z.enum(['appearance', 'source', 'transform', 'entity', 'relationship', 'layer', 'outdoorGeometry', 'outdoorProperties', 'scatterMembers']) }).strict()
+const requestSchema = z.object({ ids: z.array(id).min(1).max(256), mode: z.enum(['appearance', 'source', 'transform', 'entity', 'relationship', 'layer', 'outdoorGeometry', 'outdoorProperties', 'scatterMembers', 'visual']) }).strict()
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
 const copy = <T>(value: T): T => cloneJson(value)
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item !== null && typeof item === 'object' && !Array.isArray(item)
@@ -171,12 +176,13 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
   const candidate = copy(current)
   candidate.historyIdentity = mergeHistoryIdentities(current.historyIdentity, current.document, historic.historyIdentity, historic.document)
   const changes: RestoreChange[] = [], affected = new Set<string>(), writes = new Set<string>(), inapplicable = new Set<string>(), relationshipRecords = new Set<string>(), subjects = new Map<string, Pick<LicenseSubject, 'subjectKind' | 'subjectId'>>()
+  let visualCost = 0
   const closure = historicalClosure(candidate, historic, subjects)
   const occupied = geometryIdentityIds(current.document)
   for (const layerId of Object.keys(current.document.userLayers)) occupied.add(layerId)
   const reserve = (entityId: string) => {
     affected.add(entityId); writes.add(entityId)
-    if (writes.size + relationshipRecords.size > 256) throw new Error('恢复对象及组合关系展开超过单次 256 条预算，不能拆批绕过。')
+    if (writes.size + relationshipRecords.size + visualCost > 256) throw new Error('恢复对象及组合关系展开超过单次 256 条预算，不能拆批绕过。')
   }
   const addChange = (change: RestoreChange) => {
     if (!equal(change.before, change.after) || change.beforeLayerId !== change.layerId) changes.push(change)
@@ -284,9 +290,65 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     for (const id of dependencies) { affected.add(id); if (meaningChanged || ids.includes(id)) assertCurrentUnlocked(current.document, id) }
     return dependencies
   }
+  const restoreVisual = (targetId: string) => {
+    if (!evidence.visualContinuity) throw new Error('视觉恢复须有本会话连续性证明；请先建立命名快照。')
+    if (!current.document.visual || !historic.document.visual) throw new Error('视觉恢复只支持当前与历史均有完整视觉系统的快照。')
+    assertVisualContinuity(evidence.visualContinuity, current.document, historic.document, [targetId])
+    const before = copy(candidate.document)
+    let command: VisualCommand, layerId: string
+    if (targetId === current.document.sceneId) {
+      for (const layer of Object.values(current.document.userLayers)) if (layer.editLocked) throw new Error(`全景环境恢复涉及锁定图层：${layer.id}。`)
+      command = { type: 'setVisualEnvironment', environment: copy(historic.document.visual.environment) }
+      layerId = ''
+    } else {
+      const collection = VISUAL_ENTITY_COLLECTIONS.find(key => Object.hasOwn(current.document.visual![key], targetId))
+      if (!collection || !Object.hasOwn(historic.document.visual[collection], targetId)) throw new Error('视觉恢复只支持同类型现存对象；不重建已删除对象。')
+      const present = current.document.visual[collection][targetId] as VisualEntity
+      const historical = historic.document.visual[collection][targetId] as VisualEntity
+      if (present.floorId !== historical.floorId || visualTopology(current.document).get(targetId) !== visualTopology(historic.document).get(targetId)) throw new Error('视觉绑定、作用范围或控制段拓扑已变化，不能恢复旧参数。')
+      const restored = { ...copy(historical), id: present.id, floorId: present.floorId, layerId: present.layerId, visibility: present.visibility, editLocked: present.editLocked }
+      layerId = present.layerId
+      if (collection === 'boundaries') {
+        const curve = restored as VisualBoundary
+        for (const rootId of visualBindingEntityIds(curve)) proveOutdoor(rootId)
+        if (curve.binding.kind === 'path') {
+          const pathId = curve.binding.pathId
+          if (current.document.paths[pathId].centerlineMm.length !== historic.document.paths[pathId].centerlineMm.length) throw new Error('道路曲线采样拓扑已变化，不能恢复旧曲线。')
+        }
+        command = { type: 'upsertVisualBoundary', boundary: curve }
+      } else if (collection === 'edgeLooks') command = { type: 'upsertVisualEdgeLook', edgeLook: restored as NonNullable<SceneDocument['visual']>['edgeLooks'][string] }
+      else if (collection === 'lights') command = { type: 'upsertVisualLight', light: restored as NonNullable<SceneDocument['visual']>['lights'][string] }
+      else if (collection === 'fogs') command = { type: 'upsertVisualFog', fog: restored as NonNullable<SceneDocument['visual']>['fogs'][string] }
+      else command = { type: 'upsertVisualFilter', filter: restored as NonNullable<SceneDocument['visual']>['filters'][string] }
+    }
+    // A partial restore must never allocate or resurrect a physical point/segment identity.
+    const impact = applyVisualCommand(candidate.document, command, {
+      ids: { nextId: () => { throw new Error('曲线恢复需要新增采样拓扑；本阶段只支持相同拓扑的参数恢复。') } },
+      clock: { now: () => current.document.updatedAt },
+    })
+    const oldTopology = outdoorIdentityDescriptors(before), nextTopology = outdoorIdentityDescriptors(candidate.document)
+    if (!equal(oldTopology, nextTopology)) throw new Error('曲线恢复改变物理采样拓扑；不能隐式重绑或重建。')
+    visualCost += Math.max(1, impact.commandCost)
+    if (writes.size + relationshipRecords.size + visualCost > 256) throw new Error('视觉对象、控制段和物理采样展开超过单次256条恢复预算，不能拆批绕过。')
+    impact.affectedIds.forEach(value => affected.add(value)); affected.add(targetId)
+    const visual = (scene: SceneDocument) => targetId === scene.sceneId ? scene.visual!.environment
+      : VISUAL_ENTITY_COLLECTIONS.flatMap(key => Object.values(scene.visual![key])).find(value => value.id === targetId)
+    const restoredValue = visual(candidate.document), previousValue = visual(before)
+    addChange({ id: targetId, kind: 'visual', name: targetId === current.document.sceneId ? '全景环境' : targetId, action: 'update', layerId, beforeLayerId: layerId,
+      fields: Object.keys(restoredValue as object).filter(key => !['id', 'floorId', 'layerId', 'visibility', 'editLocked'].includes(key)), before: copy(previousValue), after: copy(restoredValue) })
+    for (const entityId of impact.changedIds) {
+      if (entityId === targetId) continue
+      const collection = outdoorCollections.find(key => Object.hasOwn(before[key], entityId))
+      if (!collection) continue
+      const a = before[collection][entityId], b = candidate.document[collection][entityId]
+      addChange({ id: entityId, kind: 'outdoor', name: entityId, action: 'update', layerId: candidate.document.entityLayers[entityId], beforeLayerId: before.entityLayers[entityId],
+        fields: collection === 'terrainAreas' ? ['boundaryMm'] : ['centerlineMm'], before: copy(a), after: copy(b) })
+    }
+  }
   const restoreOutdoor = (targetId: string) => {
     const collection = outdoorCollections.find(key => Object.hasOwn(current.document[key], targetId))
     if (!collection || collection === 'scatterGroups' || !Object.hasOwn(historic.document[collection], targetId)) throw new Error('此模式只恢复现存地形、来源边缘、连接或道路；不重建实体或历史拓扑。')
+    if ((collection === 'terrainAreas' || collection === 'paths') && Object.values(current.document.visual?.boundaries ?? {}).some(curve => visualBindingEntityIds(curve).includes(targetId))) throw new Error('此几何由视觉曲线控制；请显式选择曲线的visual参数恢复。')
     proveOutdoor(targetId); inspectOutdoorImpact([targetId], true); reserve(targetId)
     const present = current.document[collection][targetId], historical = historic.document[collection][targetId]
     if (present.floorId !== historical.floorId) throw new Error('室外对象Floor变化，不能恢复。')
@@ -408,6 +470,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
       after: { surfaceStyle: surfaceStyle(candidate.document, targetId), sourceId: candidate.appearance.surfaceSources[targetId], adjustments: candidate.appearance.instanceAdjustments[targetId] ?? [] } })
   }
   for (const rootId of request.ids) {
+    if (request.mode === 'visual') { restoreVisual(rootId); continue }
     if (request.mode === 'outdoorGeometry' || request.mode === 'outdoorProperties') { restoreOutdoor(rootId); continue }
     if (request.mode === 'scatterMembers') { restoreScatterProp(rootId, true); continue }
     if (scatterOwner(current.document, rootId) || scatterOwner(historic.document, rootId)) { restoreScatterProp(rootId, false); continue }
@@ -496,5 +559,5 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
   // Re-run after materialization as well: a new layer bitmap may enlarge/alter its true player mask.
   projectScene(candidate.document, 'player')
   const changed = !equal(current.document, candidate.document) || !equal(current.appearance, candidate.appearance)
-  return { ...candidate, request, changes, affectedIds: [...affected].sort(), inapplicableIds: [...inapplicable].sort(), commandCost: writes.size + relationshipRecords.size, adoptedSubjects: [...subjects.values()], changed }
+  return { ...candidate, request, changes, affectedIds: [...affected].sort(), inapplicableIds: [...inapplicable].sort(), commandCost: writes.size + relationshipRecords.size + visualCost, adoptedSubjects: [...subjects.values()], changed }
 }

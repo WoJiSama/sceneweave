@@ -9,6 +9,7 @@ export const workspaceFormDraftLabels = {
   buildingInspector: { name: '建筑属性', cancel: '取消建筑属性草稿' },
   outdoorInspector: { name: '室外属性', cancel: '取消室外属性草稿' },
   selectionForm: { name: '多选批量参数', cancel: '取消批量参数草稿' },
+  visualForm: { name: '视觉效果与曲线', cancel: '取消视觉草稿' },
   displayForm: { name: '单位与格线设置', cancel: '取消显示设置草稿' },
 } as const
 export type WorkspaceFormDraft = keyof typeof workspaceFormDraftLabels

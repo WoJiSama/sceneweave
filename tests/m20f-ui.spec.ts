@@ -17,7 +17,7 @@ async function state(page: Page) {
   })
 }
 async function settled(page: Page) {
-  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
+  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@2')
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
   await expect(page.locator('.asset-busy')).toHaveCount(0)
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
@@ -65,7 +65,7 @@ test('M2-0f native creation, box selection, context copy, layers and mounted Hom
   test.setTimeout(90_000)
   await createBlank(page, 'M2-0f 原生交互')
   const id = await placeLamp(page), initial = await state(page)
-  expect(initial).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, document: { format: 'sceneweave-scene', schemaVersion: 1 }, identity: { version: 1 } })
+  expect(initial).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 2, document: { format: 'sceneweave-scene', schemaVersion: 2 }, identity: { version: 1 } })
   await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
   const canvas = page.getByLabel('材质场景主持人预览', { exact: true }), box = await canvas.boundingBox()
   if (!box) throw new Error('Expected a real native canvas.')
