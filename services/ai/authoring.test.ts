@@ -619,7 +619,7 @@ describe('isolated AI prop authoring backend', () => {
     const subject = setup({ complete: async () => { rounds++; return done(Array.from({ length: 8 }, (_, index) => call(`round-${rounds}-${index}`, 'sceneweave_check_draft', {}))) } })
     const snapshot = await (await subject.create()).json() as TaskSnapshot
     const failed = await wait(subject.store, snapshot.id, 'failed')
-    expect(failed.error?.code).toBe('tool_limit'); expect(failed.tools).toHaveLength(64); expect(rounds).toBe(9)
+    expect(failed.error?.code).toBe('tool_budget_limit'); expect(failed.tools).toHaveLength(64); expect(rounds).toBe(8)
     expect(subject.store.read(snapshot.id).messages.filter(message => message.role === 'tool')).toHaveLength(64)
   })
   it('does not spend execution time waiting for the browser and enforces authoring round/tool budgets independently of M2-1', async () => {
