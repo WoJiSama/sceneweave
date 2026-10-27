@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Archive, ArrowLeft, CheckCircle2, Download, Layers3, PencilRuler, LoaderCircle, Move, Mountain, Plus, Ruler, StickyNote, Redo2, RotateCw, Undo2, Upload, X } from 'lucide-react'
 import { WorkspaceRepository } from './repository'
-import { Workspace, type CompositionPreview, type RestorePreview, type StructureRestorePreview } from '../../application/workspace/workspace'
+import { Workspace, type CompositionPreview, type RestorePreview, type StructureRestorePreview, type RegionalPreview } from '../../application/workspace/workspace'
+import RegionalPanel from './RegionalPanel'
+import { createRegionalBlankProject } from '../../platform/browser/content/regional-symbols'
+import { compareRegionalSource, type RegionalCreateUiRequest, type RegionalDrillDownUiRequest } from '../../application/workspace/regional'
+import type { RegionalEditRequest } from '../../shared/terrain-generation/regional-authoring'
+import { fromBundle } from '../../application/workspace/project'
 import { prepareAssetImport } from '../../application/workspace/prepare'
 import { toBundle, type EditableProject } from '../../application/workspace/project'
 import { exportProject, exportHistoryArchive } from '../../shared/project/file'
@@ -24,10 +29,18 @@ import OutdoorInspector, { outdoorEntityKind } from './OutdoorInspector'
 import SceneDisplayPanel from './SceneDisplayPanel'
 import { inspectVisualChanges, isVisualCommand } from '../../shared/visual/commands'
 import { createRefinedIslandProject, REFINED_ISLAND_NAME } from '../../platform/browser/content/refined-island.js'
+import { createNearSideIslandProject, NEAR_SIDE_ISLAND_NAME } from '../../platform/browser/content/near-side.js'
 import { createRefinedCoastProject, REFINED_COAST_NAME } from '../../platform/browser/content/refined-coast.js'
 import { createRefinedInteriorProject, REFINED_INTERIOR_NAME } from '../../platform/browser/content/refined-interior.js'
 import { createVisualSampleProject, createVisualBlankProject } from '../../platform/browser/content/visual-samples'
 import { createRefinedBlankProject } from '../../platform/browser/content/refined-blank'
+import TerrainGenerationPanel, { type TerrainGenerationRequest } from './TerrainGenerationPanel'
+import TerrainEditingPanel, { type TerrainEditCanvasSession } from './TerrainEditingPanel'
+import type { TerrainEditRequest } from '../../shared/terrain-generation/edit'
+import type { TerrainEditPreview } from '../../application/workspace/terrain-edit'
+import { createTerrainEditClient } from '../../platform/browser/terrain-generation/edit-client'
+import type { TerrainPreview } from '../../application/workspace/terrain'
+import { createTerrainGenerationClient } from '../../platform/browser/terrain-generation/client'
 import VisualPanel, { type VisualBoundaryEditor } from './VisualPanel'
 import OutpostTravelPanel from './OutpostTravelPanel'
 import CatalogLibrary from './CatalogLibrary'
@@ -156,6 +169,27 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const setSelected = (id: string | null) => selectionSession.set(id ? [id] : [])
   const [layerMoveRequest, setLayerMoveRequest] = useState(0)
   const [memberMode, setMemberMode] = useState(false), [menu, setMenu] = useState<SceneMenu | null>(null), [fitRequest, setFitRequest] = useState(0)
+  const [terrainPreview, setTerrainPreview] = useState<TerrainPreview | null>(null)
+  const [regionalPreview, setRegionalPreview] = useState<RegionalPreview | null>(null), [regionalBusy, setRegionalBusy] = useState(false), [regionalError, setRegionalError] = useState<string | null>(null)
+  const [regionalDraft, setRegionalDraft] = useState(false), [regionalReset, setRegionalReset] = useState(0), [regionalComparison, setRegionalComparison] = useState<string | null>(null)
+  const regionalPreviewRef = useRef<RegionalPreview | null>(null), regionalAbort = useRef<AbortController | null>(null), regionalEpoch = useRef(0)
+  regionalPreviewRef.current = regionalPreview
+  const [terrainEditPreview, setTerrainEditPreview] = useState<TerrainEditPreview | null>(null)
+  const terrainEditPreviewRef = useRef<TerrainEditPreview | null>(null)
+  terrainEditPreviewRef.current = terrainEditPreview
+  const terrainEditClient = useRef<ReturnType<typeof createTerrainEditClient> | null>(null), terrainEditAbort = useRef<AbortController | null>(null), terrainEditOperation = useRef(0)
+  const [terrainEditBusy, setTerrainEditBusy] = useState(false), [terrainEditError, setTerrainEditError] = useState<string | null>(null)
+  const [terrainEditDraft, setTerrainEditDraft] = useState(false), [terrainEditReset, setTerrainEditReset] = useState(0)
+  const [terrainEditCanvas, setTerrainEditCanvas] = useState<TerrainEditCanvasSession | null>(null)
+  const terrainEditDraftRef = useRef(false)
+  terrainEditDraftRef.current = terrainEditDraft
+  const terrainEditBaseline = useRef(compositionWorkspace.checkpoint())
+  const terrainPreviewRef = useRef<TerrainPreview | null>(null)
+  terrainPreviewRef.current = terrainPreview
+  const terrainClient = useRef<ReturnType<typeof createTerrainGenerationClient> | null>(null)
+  const terrainOperation = useRef(0)
+  const terrainAbort = useRef<AbortController | null>(null)
+  const [terrainBusy, setTerrainBusy] = useState(false), [terrainError, setTerrainError] = useState<string | null>(null)
   const [candidate, setCandidate] = useState<Candidate | null>(null)
   const [preparation, setPreparation] = useState<{ abort: AbortController; description: string; progress: ContentLoadProgress | null; cancelling: boolean } | null>(null)
   const cancelPreparation = () => { controller.current?.abort(); setPreparation(current => current ? { ...current, cancelling: true } : current) }
@@ -167,7 +201,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [structureRestore, setStructureRestore] = useState<StructureRestorePreview | null>(null)
   const structureRestoreRef = useRef<StructureRestorePreview | null>(null)
   structureRestoreRef.current = structureRestore
-  const [structure, setStructure] = useState<StructurePreview | null>(null), [audience, setAudience] = useState<'gm' | 'player'>('gm')
+  const [structure, setStructure] = useState<StructurePreview | null>(null), [audience, setAudience] = useState<'gm' | 'player'>('gm'), [groundView, setGroundView] = useState(false)
   const structureRef = useRef<StructurePreview | null>(null)
   structureRef.current = structure
   const [sketch, setSketch] = useState<BuildingSketch | null>(null)
@@ -183,8 +217,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const aiShown = !!aiPreview && showAiDraft && audience === 'gm'
   useEffect(() => { setAiPreview(null); setShowAiDraft(false) }, [completeProject?.document.sceneId, sessionGeneration])
   const previewRef = useRef(false)
-  previewRef.current = !!structure || !!restore || !!structureRestore
-  const editingBlocked = !!structure || !!restore || !!structureRestore || aiShown || aiCritical
+  previewRef.current = !!regionalPreview || !!structure || !!restore || !!structureRestore || !!terrainPreview || !!terrainEditPreview
+  const editingBlocked = regionalBusy || !!regionalPreview || !!structure || !!restore || !!structureRestore || !!terrainPreview || terrainBusy || !!terrainEditPreview || terrainEditBusy || aiShown || aiCritical
   const placingRef = useRef(false)
   placingRef.current = !!placement
   const file = useRef<HTMLInputElement>(null), controller = useRef<AbortController | null>(null), shell = useRef<HTMLDivElement>(null), dialog = useRef<HTMLDivElement>(null)
@@ -192,8 +226,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const actionPending = useRef(false)
   const activeRef = useRef(active)
   activeRef.current = active
-  const transient = (): WorkspaceTransient => ({ busy: busy || actionPending.current || catalogPending.current || aiCritical, preparing: !!controller.current && creatingStageRef.current !== 'saving',
-    newScene, candidate: !!candidate, placement: !!placement, prefabPlacement: !!prefabPlacement, sketch: !!sketch,
+  const transient = (): WorkspaceTransient => ({ busy: busy || terrainBusy || terrainEditBusy || regionalBusy || actionPending.current || catalogPending.current || aiCritical, preparing: !!controller.current && creatingStageRef.current !== 'saving',
+    newScene, candidate: !!candidate, terrainPreview: !!terrainPreview || !!terrainEditPreview || terrainEditDraft || !!regionalPreview || regionalDraft, placement: !!placement, prefabPlacement: !!prefabPlacement, sketch: !!sketch,
     outdoorSketch: !!outdoorSketch, restore: !!restore, structureRestore: !!structureRestore, structure: !!structure, aiPreview: aiShown, ...formDrafts })
   const transientRef = useRef(transient)
   transientRef.current = transient
@@ -202,7 +236,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (reason) { setMessage(reason); return false }
     return true
   }
-  const hasDraft = !!placement || !!prefabPlacement || !!sketch || !!outdoorSketch || Object.values(formDrafts).some(Boolean)
+  const hasDraft = regionalDraft || terrainEditDraft || !!placement || !!prefabPlacement || !!sketch || !!outdoorSketch || Object.values(formDrafts).some(Boolean)
   const editDisabled = busy || catalogBusy || editingBlocked || hasDraft
   const markFormDraft = (key: keyof typeof formDrafts) => setFormDrafts(current => current[key] ? current : { ...current, [key]: true })
   const finishFormDraft = (key: keyof typeof formDrafts, reset = false) => {
@@ -250,7 +284,12 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     const key = (event: KeyboardEvent) => {
       if (!activeRef.current) return
       if (actionPending.current) return
-      if (previewRef.current) { if (event.key === 'Escape' && !(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); if (structureRef.current) compositionWorkspace.cancelPreview(structureRef.current.prepared); setStructure(null); if (restoreRef.current) compositionWorkspace.cancelRestore(restoreRef.current); setRestore(null); if (structureRestoreRef.current) compositionWorkspace.cancelStructureRestore(structureRestoreRef.current); setStructureRestore(null) }; return }
+      if (terrainEditDraftRef.current || terrainEditPreviewRef.current || terrainEditAbort.current) {
+        if (event.key === 'Escape' && !(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); cancelTerrainEditing() }
+        if ((event.metaKey || event.ctrlKey) && ['z', 'y', 's'].includes(event.key.toLowerCase()) && !(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); setMessage('请先采用或取消当前地形修改。') }
+        return
+      }
+      if (previewRef.current) { if (event.key === 'Escape' && !(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); if (regionalPreviewRef.current) { compositionWorkspace.cancelRegional(regionalPreviewRef.current); regionalPreviewRef.current = null; setRegionalPreview(null); setRegionalDraft(false); setRegionalReset(value => value + 1) }; if (terrainPreviewRef.current) { terrainOperation.current++; terrainClient.current?.cancel(); compositionWorkspace.cancelTerrainGeneration(terrainPreviewRef.current); terrainPreviewRef.current = null; setTerrainPreview(null) }; if (structureRef.current) compositionWorkspace.cancelPreview(structureRef.current.prepared); setStructure(null); if (restoreRef.current) compositionWorkspace.cancelRestore(restoreRef.current); setRestore(null); if (structureRestoreRef.current) compositionWorkspace.cancelStructureRestore(structureRestoreRef.current); setStructureRestore(null) }; return }
       if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]') || event.isComposing || document.querySelector('[role="dialog"],[role="menu"]')) return
       if (event.key === 'Escape' && placingRef.current) { event.preventDefault(); setPlacement(null); return }
       if (event.key === 'Escape' && transientRef.current().prefabPlacement) { event.preventDefault(); setPrefabPlacement(null); finishFormDraft('prefabForm', true); return }
@@ -323,6 +362,170 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (!guard()) return
     modalOrigin.current = document.activeElement as HTMLElement | null
     setMessage(null); setVisualNewScene(false); setNewScene(true)
+  }
+  const cancelTerrain = () => {
+    terrainOperation.current++; terrainAbort.current?.abort(); terrainAbort.current = null
+    terrainClient.current?.cancel()
+    if (terrainPreviewRef.current) compositionWorkspace.cancelTerrainGeneration(terrainPreviewRef.current)
+    terrainPreviewRef.current = null; setTerrainPreview(null); setTerrainBusy(false); setTerrainError(null)
+  }
+  useEffect(() => () => { terrainOperation.current++; terrainAbort.current?.abort(); terrainClient.current?.dispose(); if (terrainPreviewRef.current) compositionWorkspace.cancelTerrainGeneration(terrainPreviewRef.current) }, [])
+  useEffect(() => {
+    if (terrainPreviewRef.current && terrainPreviewRef.current.checkpoint !== compositionWorkspace.checkpoint()) cancelTerrain()
+  }, [completeProject?.document.sceneId, completeProject?.document.revision, sessionGeneration])
+  const generateTerrain = async (request: TerrainGenerationRequest) => {
+    if (terrainBusy || busy) return
+    if (terrainPreviewRef.current) cancelTerrain()
+    const reason = workspaceTransitionReason({ ...transientRef.current(), terrainPreview: false })
+    if (reason) { setTerrainError(reason); return }
+    const epoch = ++terrainOperation.current, checkpoint = compositionWorkspace.checkpoint()
+    const workspaceSceneId = compositionWorkspace.getState().project?.document.sceneId ?? 'empty-workspace'
+    const abort = new AbortController(); terrainAbort.current = abort; setTerrainBusy(true); setTerrainError(null)
+    try {
+      const sceneId = runtime.ids.nextId()
+      const palette = request.kind === 'coast' ? 'coast' : 'island'
+      const base = await createRefinedBlankProject(palette, { title: '自然地形候选', widthMm: 24000, heightMm: 18000, preset: 'narrative', gridVisible: false, sceneId }, abort.signal)
+      abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
+      const input = { ...request, sceneId, widthMm: 24000, heightMm: 18000 }
+      terrainClient.current ??= createTerrainGenerationClient()
+      const result = await terrainClient.current.generate({ sceneId: workspaceSceneId, checkpoint, operationEpoch: epoch, base: base.document, input }, {
+        signal: abort.signal, isCurrent: () => terrainOperation.current === epoch && compositionWorkspace.checkpoint() === checkpoint,
+      })
+      abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
+      const preview = await compositionWorkspace.previewTerrainGeneration(base, input, result)
+      if (terrainOperation.current !== epoch || abort.signal.aborted) { compositionWorkspace.cancelTerrainGeneration(preview); return }
+      terrainPreviewRef.current = preview; setTerrainPreview(preview); setSelected(null); setAudience('gm'); setHiddenLayerIds(new Set()); setSoloLayerId(null); setCurrentOnly(false); setFitRequest(value => value + 1)
+    } catch (failure) {
+      if (terrainOperation.current === epoch && !abort.signal.aborted) setTerrainError(failure instanceof Error ? failure.message : String(failure))
+    } finally { if (terrainOperation.current === epoch) { terrainAbort.current = null; setTerrainBusy(false) } }
+  }
+  const adoptTerrain = async () => {
+    const preview = terrainPreviewRef.current
+    if (!preview || busy || terrainBusy) return
+    await action(async () => {
+      await ready(); await compositionWorkspace.adoptTerrainGeneration(preview)
+      terrainPreviewRef.current = null; setTerrainPreview(null); setSelected(null); setSessionGeneration(value => value + 1)
+      setMessage('地形工程已保存并打开，可继续移动树石和编辑轮廓。')
+    }, '采用地形方案')
+  }
+  const exportTerrain = async () => {
+    const preview = terrainPreviewRef.current
+    if (!preview || busy || terrainBusy) return
+    await action(async () => { download(new Blob([new Uint8Array(await exportProject(toBundle(preview.project), validation)).buffer], { type: 'application/zip' }), `terrain-${preview.input.kind}-${preview.input.seed}.sceneweave`) }, '导出地形候选')
+  }
+  const cancelTerrainEditing = () => {
+    terrainEditOperation.current++; terrainEditAbort.current?.abort(); terrainEditAbort.current = null; terrainEditClient.current?.cancel()
+    if (terrainEditPreviewRef.current) compositionWorkspace.cancelTerrainEdit(terrainEditPreviewRef.current)
+    terrainEditPreviewRef.current = null; setTerrainEditPreview(null); setTerrainEditBusy(false); setTerrainEditError(null); setTerrainEditCanvas(null); setTerrainEditDraft(false); setTerrainEditReset(value => value + 1)
+  }
+  useEffect(() => () => { terrainEditOperation.current++; terrainEditAbort.current?.abort(); terrainEditClient.current?.dispose(); if (terrainEditPreviewRef.current) compositionWorkspace.cancelTerrainEdit(terrainEditPreviewRef.current) }, [])
+  useEffect(() => {
+    const checkpoint = compositionWorkspace.checkpoint()
+    if (terrainEditBaseline.current !== checkpoint && (terrainEditDraftRef.current || terrainEditPreviewRef.current || terrainEditAbort.current)) cancelTerrainEditing()
+    terrainEditBaseline.current = checkpoint
+  }, [completeProject?.document.sceneId, completeProject?.document.revision, sessionGeneration])
+  const previewTerrainEditing = async (input: TerrainEditRequest) => {
+    if (terrainEditBusy || busy || audience !== 'gm') return
+    const base = compositionWorkspace.getState().project
+    if (!base || base.schemaVersion !== 3) return
+    const reason = workspaceTransitionReason({ ...transientRef.current(), terrainPreview: !!terrainPreviewRef.current })
+    if (reason) { setTerrainEditError(reason); return }
+    if (terrainEditPreviewRef.current) compositionWorkspace.cancelTerrainEdit(terrainEditPreviewRef.current)
+    terrainEditPreviewRef.current = null; setTerrainEditPreview(null)
+    const epoch = ++terrainEditOperation.current, checkpoint = compositionWorkspace.checkpoint(), abort = new AbortController()
+    terrainEditAbort.current = abort; setTerrainEditBusy(true); setTerrainEditError(null)
+    try {
+      terrainEditClient.current ??= createTerrainEditClient()
+      const result = await terrainEditClient.current.edit({ sceneId: base.document.sceneId, checkpoint, operationEpoch: epoch, base: base.document, input }, { signal: abort.signal, isCurrent: () => terrainEditOperation.current === epoch && compositionWorkspace.checkpoint() === checkpoint })
+      abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
+      const preview = await compositionWorkspace.previewTerrainEdit(input, { result, signal: abort.signal })
+      if (epoch !== terrainEditOperation.current || abort.signal.aborted) { compositionWorkspace.cancelTerrainEdit(preview); return }
+      terrainEditPreviewRef.current = preview; setTerrainEditPreview(preview); setSelected(null)
+    } catch (failure) { if (epoch === terrainEditOperation.current && !abort.signal.aborted) setTerrainEditError(failure instanceof Error ? failure.message : String(failure)) }
+    finally { if (epoch === terrainEditOperation.current) { terrainEditAbort.current = null; setTerrainEditBusy(false) } }
+  }
+  const adoptTerrainEditing = async () => {
+    const preview = terrainEditPreviewRef.current
+    if (!preview || busy || terrainEditBusy) return
+    await action(async () => {
+      let adopted: Awaited<ReturnType<typeof compositionWorkspace.adoptTerrainEdit>>
+      try { await ready(); adopted = await compositionWorkspace.adoptTerrainEdit(preview) }
+      catch (failure) {
+        compositionWorkspace.cancelTerrainEdit(preview); terrainEditPreviewRef.current = null; setTerrainEditPreview(null)
+        setTerrainEditError(`尚未采用，笔画仍保留；请重新预览。${failure instanceof Error ? failure.message : String(failure)}`)
+        return
+      }
+      terrainEditPreviewRef.current = null; setTerrainEditPreview(null); setTerrainEditCanvas(null); setTerrainEditDraft(false); setTerrainEditReset(value => value + 1); setSelected(null)
+      try { await adopted.save; setMessage('已保护当前版本并采用局部地形修改；本地保存完成，可整笔撤销。') }
+      catch (failure) { setMessage(`地形修改已采用，保存失败；当前成果仍可撤销。${failure instanceof Error ? failure.message : String(failure)}`) }
+    }, '采用局部地形修改')
+  }
+  const cancelRegional = () => {
+    regionalEpoch.current++; regionalAbort.current?.abort(); regionalAbort.current = null
+    if (regionalPreviewRef.current) compositionWorkspace.cancelRegional(regionalPreviewRef.current)
+    regionalPreviewRef.current = null; setRegionalPreview(null); setRegionalBusy(false); setRegionalError(null); setRegionalDraft(false); setRegionalReset(value => value + 1)
+  }
+  const receiveAiRegionalPreview = (next: RegionalPreview | null) => {
+    const current = regionalPreviewRef.current
+    if (current) compositionWorkspace.cancelRegional(current)
+    regionalPreviewRef.current = next
+    setRegionalPreview(next)
+    setRegionalError(null)
+    setRegionalBusy(false)
+    if (next) {
+      setRegionalDraft(false)
+      setAudience('gm')
+      setSidebar('scene')
+      setSelected(null)
+      setFitRequest(value => value + 1)
+    }
+  }
+  useEffect(() => () => { regionalEpoch.current++; regionalAbort.current?.abort(); if (regionalPreviewRef.current) compositionWorkspace.cancelRegional(regionalPreviewRef.current) }, [])
+  useEffect(() => { if (regionalPreviewRef.current && regionalPreviewRef.current.checkpoint !== compositionWorkspace.checkpoint()) cancelRegional() }, [completeProject?.document.sceneId, completeProject?.document.revision, sessionGeneration])
+  const previewRegional = async (kind: 'create' | 'edit' | 'drillDown', input: RegionalCreateUiRequest | RegionalEditRequest | RegionalDrillDownUiRequest) => {
+    if (regionalBusy || busy || audience !== 'gm') return
+    const reason = workspaceTransitionReason({ ...transientRef.current(), terrainPreview: !!terrainPreview || !!terrainEditPreview || terrainEditDraft })
+    if (reason) { setRegionalError(reason); return }
+    if (regionalPreviewRef.current) compositionWorkspace.cancelRegional(regionalPreviewRef.current)
+    regionalPreviewRef.current = null; setRegionalPreview(null)
+    const epoch = ++regionalEpoch.current, checkpoint = compositionWorkspace.checkpoint(), abort = new AbortController()
+    regionalAbort.current = abort; setRegionalBusy(true); setRegionalError(null)
+    try {
+      let next: RegionalPreview
+      if (kind === 'create') {
+        const base = await createRegionalBlankProject({}, abort.signal)
+        abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
+        next = await compositionWorkspace.previewRegionalCreate(base, input as RegionalCreateUiRequest, { signal: abort.signal })
+      } else if (kind === 'edit') next = await compositionWorkspace.previewRegionalEdit(input as RegionalEditRequest, { signal: abort.signal })
+      else {
+        const sceneBase = await createRefinedBlankProject('coast', { title: '区域下钻材质基线', widthMm: 24000, heightMm: 18000, preset: 'narrative', gridVisible: false, sceneId: runtime.ids.nextId() }, abort.signal)
+        abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
+        next = await compositionWorkspace.previewRegionalDrillDown(sceneBase, input as RegionalDrillDownUiRequest, { signal: abort.signal })
+      }
+      if (epoch !== regionalEpoch.current || abort.signal.aborted || checkpoint !== compositionWorkspace.checkpoint()) { compositionWorkspace.cancelRegional(next); return }
+      regionalPreviewRef.current = next; setRegionalPreview(next); setSelected(null); setAudience('gm'); setFitRequest(value => value + 1)
+    } catch (error) { if (epoch === regionalEpoch.current && !abort.signal.aborted) setRegionalError(error instanceof Error ? error.message : String(error)) }
+    finally { if (epoch === regionalEpoch.current) { regionalAbort.current = null; setRegionalBusy(false) } }
+  }
+  const adoptRegional = async () => {
+    const next = regionalPreviewRef.current
+    if (!next || busy || regionalBusy) return
+    await action(async () => {
+      const adopted = await compositionWorkspace.adoptRegional(next)
+      regionalPreviewRef.current = null; setRegionalPreview(null); setRegionalDraft(false); setRegionalReset(value => value + 1); setSelected(null); setSessionGeneration(value => value + 1)
+      try { await adopted.save; setMessage(next.kind === 'edit' ? '已保护并采用区域修改，本地保存完成。' : '独立地图已完整保存并打开。') }
+      catch (error) { setMessage('区域修改已采用，本地保存失败；当前成果仍可撤销。' + (error instanceof Error ? error.message : String(error))) }
+    }, '采用区域候选')
+  }
+  const compareRegional = async () => {
+    const current = compositionWorkspace.getState().project, link = Object.values(current?.document.generation?.sourceLinks ?? {})[0]
+    if (!current || !link || busy || regionalBusy) return
+    await action(async () => {
+      const checkpoint = compositionWorkspace.checkpoint(), bundle = await projectRepository.load(link.sourceSceneId)
+      const parent = bundle ? await fromBundle(bundle, validation) : null
+      const result = await compareRegionalSource(current, parent, { runtime, validation })
+      compositionWorkspace.assertCheckpoint(checkpoint); setRegionalComparison(result)
+    }, '比较区域来源')
   }
   const openVisualNewScene = () => { if (!guard()) return; openNewScene(); setVisualNewScene(true) }
   const requestImport = () => { if (guard()) file.current?.click() }
@@ -580,7 +783,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     setMenu({ ...position, point, hits, ids, checkpoint: compositionWorkspace.checkpoint(), origin, blank: !hits.length })
   }
   const closeMenu = (restore = false) => { const origin = menu?.origin; setMenu(null); if (restore) requestAnimationFrame(() => origin?.isConnected && origin.focus({ preventScroll: true })) }
-  const visibleCompleteProject = useMemo(() => aiShown ? aiPreview!.project : structureRestore?.project ?? restore?.project ?? (structure?.prepared.project ?? completeProject), [completeProject, structure, restore, structureRestore, aiShown, aiPreview])
+  const visibleCompleteProject = useMemo(() => regionalPreview?.project ?? terrainEditPreview?.project ?? terrainPreview?.project ?? (aiShown ? aiPreview!.project : structureRestore?.project ?? restore?.project ?? (structure?.prepared.project ?? completeProject)), [completeProject, structure, restore, structureRestore, aiShown, aiPreview, terrainPreview, terrainEditPreview, regionalPreview])
   const renderProject = useMemo(() => visibleCompleteProject ? visibleCompleteProject : null, [visibleCompleteProject])
   const visibleProject = useMemo(() => renderProject ? domainProject(renderProject) : null, [renderProject])
   const editorRenderer = useMemo(() => renderProject ? (options: Parameters<typeof renderEditorProject>[1]) => renderEditorProject(toBundle(renderProject), { ...options, hiddenLayerIds: effectiveHiddenLayers }) : undefined, [renderProject, effectiveHiddenLayers])
@@ -610,10 +813,10 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       return { ...current, points, cursor: null }
     }), onMove: (point: PointMm) => setSketch(current => current && !(current.kind !== 'polygon' && current.points.length >= 2) ? { ...current, cursor: point } : current),
   } : null
-  const canvasWorldTool = outdoorSketch && audience === 'gm' ? { ...outdoorSketch, snapMm: project?.document.units.snapMm ?? 100, label: '室外草图 · 逐点取坐标 · Escape 退出',
+  const canvasWorldTool = terrainEditCanvas?.scopeTool ?? (outdoorSketch && audience === 'gm' ? { ...outdoorSketch, snapMm: project?.document.units.snapMm ?? 100, label: '室外草图 · 逐点取坐标 · Escape 退出',
     onCancel: () => setOutdoorSketch(null), onPoint: (point: PointMm) => setOutdoorSketch(current => current ? { ...current, points: current.purpose === 'connection' && current.points.length >= 2 ? [point] : [...current.points, point], cursor: null } : current),
     onMove: (point: PointMm) => setOutdoorSketch(current => current ? { ...current, cursor: point } : current),
-  } : buildingWorldTool
+  } : buildingWorldTool)
   const saveLabels = { empty: '尚未打开工程', saved: '本地已保存', unsaved: '等待保存', saving: '正在保存', error: '保存失败', conflict: '版本冲突' }
   const layerPanel = completeProject && audience === 'gm' ? <UserLayerPanel scene={completeProject.document} session={selectionSession}
     currentLayerId={currentLayerId} hiddenLayerIds={hiddenLayerIds} soloLayerId={soloLayerId} currentOnly={currentOnly}
@@ -648,7 +851,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             session={selectionSession} disabled={editDisabled} refreshKey={historyRefresh} onAction={action} onPreview={setRestore} onStructurePreview={setStructureRestore} onBackup={backup}/>
   const sceneBrowser = <SelectionSubscriber session={selectionSession}>{ids => <SceneLibrary key={panelKey} project={audience === 'player' ? visibleProject : project}
     selected={ids.length === 1 ? ids[0] : null} selectedIds={[...ids]} busy={editDisabled} onSelect={select}/>}</SelectionSubscriber>
-  const projectTools = <section className="workspace-project-tools" aria-label="工程与显示设置"><h2>工程</h2><p className="asset-muted">在同一画布中继续建筑、素材与室外创作。</p><button className="primary asset-wide" disabled={editDisabled} onClick={openNewScene}><Plus size={14}/>新建空白场景</button><button className="secondary asset-wide" disabled={editDisabled} onClick={requestImport}><Upload size={14}/>打开完整工程</button>{project && <p className="asset-muted">{project.document.title} · r{project.document.revision}</p>}{project && audience === 'gm' && <div onChangeCapture={() => markFormDraft('displayForm')}><SceneDisplayPanel key={`${project.document.sceneId}-${project.document.revision}-${formReset.displayForm}`} scene={completeProject!.document} disabled={toolDisabled(['displayForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'displayForm')}/></div>}{project && <details className="workspace-authoring-details" open={authoringOpen} onToggle={event => setAuthoringOpen(event.currentTarget.open)}><summary>分步制作 SCN-01 / SCN-04</summary>{authoringOpen && <AuthoringGuide project={completeProject!} disabled={editDisabled} onPreview={previewAuthoring} onAdoptRequiredCatalog={adoptAuthoringCatalog}/>}</details>}<h3>视觉创作</h3><button className="secondary asset-wide" disabled={editDisabled} onClick={openVisualNewScene}>新建视觉空白 · 原创素材</button><h3>视觉创作样板</h3>{(['beach','island','interior'] as const).map(kind => <button key={kind} className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createVisualSampleProject(kind, signal), ({beach:'潮声浅湾',island:'苔冠岩岛',interior:'灯下旅舍'})[kind])}>{({beach:'潮声浅湾 · 连续海岸',island:'苔冠岩岛 · 高差与草沿',interior:'灯下旅舍 · 材质与灯光'})[kind]}</button>)}<button className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createRefinedIslandProject(signal), REFINED_ISLAND_NAME)}>岬湾苔岛 · 精修版</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createRefinedCoastProject(signal), REFINED_COAST_NAME)}>{REFINED_COAST_NAME}</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createRefinedInteriorProject(signal), REFINED_INTERIOR_NAME)}>{REFINED_INTERIOR_NAME}</button><h3>可编辑样板</h3><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'study' })}>书房与露台</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'island' })}>双层岩岛</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'outpost' })}>海岸哨所</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'graveyard' })}>苔石墓园 · 内容小样</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'volcano' })}>灰烬熔脉 · 内容小样</button></section>
+  const projectTools = <section className="workspace-project-tools" aria-label="工程与显示设置"><h2>工程</h2><p className="asset-muted">在同一画布中继续建筑、素材与室外创作。</p><button className="primary asset-wide" disabled={editDisabled} onClick={openNewScene}><Plus size={14}/>新建空白场景</button><button className="secondary asset-wide" disabled={editDisabled} onClick={requestImport}><Upload size={14}/>打开完整工程</button>{project && <p className="asset-muted">{project.document.title} · r{project.document.revision}</p>}{project && audience === 'gm' && <div onChangeCapture={() => markFormDraft('displayForm')}><SceneDisplayPanel key={`${project.document.sceneId}-${project.document.revision}-${formReset.displayForm}`} scene={completeProject!.document} disabled={toolDisabled(['displayForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'displayForm')}/></div>}{project && <details className="workspace-authoring-details" open={authoringOpen} onToggle={event => setAuthoringOpen(event.currentTarget.open)}><summary>分步制作 SCN-01 / SCN-04</summary>{authoringOpen && <AuthoringGuide project={completeProject!} disabled={editDisabled} onPreview={previewAuthoring} onAdoptRequiredCatalog={adoptAuthoringCatalog}/>}</details>}{completeProject?.schemaVersion === 3 && completeProject.document.mapMode === 'scene' && completeProject.document.generation && audience === 'gm' && <TerrainEditingPanel key={panelKey + '-terrain-edit-' + terrainEditReset} scene={completeProject.document} busy={terrainEditBusy || busy} adopting={busy} disabled={!!workspaceTransitionReason({ ...transient(), terrainPreview: !!terrainPreview, busy: busy || terrainBusy || catalogBusy || aiCritical })} error={terrainEditError} candidate={terrainEditPreview?.result ?? null} onPreview={previewTerrainEditing} onAdopt={adoptTerrainEditing} onCancel={cancelTerrainEditing} onCanvasSession={setTerrainEditCanvas} onDraftChange={setTerrainEditDraft}/>}{audience === 'gm' && <RegionalPanel key={panelKey + '-regional-' + regionalReset} document={completeProject?.document ?? null} busy={regionalBusy || busy} disabled={!!workspaceTransitionReason({ ...transient(), terrainPreview: !!terrainPreview || !!terrainEditPreview || terrainEditDraft, busy: busy || terrainBusy || terrainEditBusy || catalogBusy || aiCritical })} error={regionalError} candidate={regionalPreview} sourceComparison={regionalComparison} onPreviewCreate={input => previewRegional('create', input)} onPreviewEdit={input => previewRegional('edit', input)} onPreviewDrillDown={input => previewRegional('drillDown', input)} onCompareSource={compareRegional} onAdopt={adoptRegional} onCancel={cancelRegional} onDraftChange={setRegionalDraft}/>}<TerrainGenerationPanel busy={terrainBusy || busy} error={terrainError} disabled={!terrainPreview && !terrainBusy && !!workspaceTransitionReason(transient())} disabledReason={workspaceTransitionReason(transient()) ?? undefined} candidate={terrainPreview ? { id: terrainPreview.project.document.sceneId, name: terrainPreview.project.document.title, ...terrainPreview.input, terrainCount: Object.keys(terrainPreview.project.document.terrainAreas).length, propCount: Object.keys(terrainPreview.project.document.props).length, connectionCount: Object.keys(terrainPreview.project.document.terrainConnections).length, cost: { ...terrainPreview.cost, items: Object.entries(terrainPreview.cost.items).filter(([, value]) => value > 0).map(([label, value]) => ({ label, value })) }, checks: [{ label: '活动空地与合法登高连接', status: 'passed', detail: '登高连接净宽 1.5 米；完整支撑与几何已检查。' }, ...(terrainPreview.result.route ? [{ label: '指定路线与完整转角净宽', status: 'passed' as const, detail: `净宽 ${terrainPreview.result.route.widthMm / 1000} 米；${terrainPreview.result.route.pointsMm.length - 1} 段道路已检查。` }] : [])] } : null} onGenerate={generateTerrain} onAdopt={adoptTerrain} onCancel={cancelTerrain} onExport={exportTerrain}/>{completeProject?.schemaVersion === 2 && <button className="secondary asset-wide" disabled={editDisabled} onClick={() => { if (guard()) void action(async () => { await compositionWorkspace.enableTerrainCopy(); setSessionGeneration(value => value + 1); setMessage('已保存独立地形副本及原工程保全记录。') }, '启用地形副本') }}>保存独立地形副本</button>}<h3>视觉创作</h3><button className="secondary asset-wide" disabled={editDisabled} onClick={openVisualNewScene}>新建视觉空白 · 原创素材</button><h3>视觉创作样板</h3>{(['beach','island','interior'] as const).map(kind => <button key={kind} className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createVisualSampleProject(kind, signal), ({beach:'潮声浅湾',island:'苔冠岩岛',interior:'灯下旅舍'})[kind])}>{({beach:'潮声浅湾 · 连续海岸',island:'苔冠岩岛 · 高差与草沿',interior:'灯下旅舍 · 材质与灯光'})[kind]}</button>)}<button className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createRefinedIslandProject(signal), REFINED_ISLAND_NAME)}>岬湾苔岛 · 精修版</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createRefinedCoastProject(signal), REFINED_COAST_NAME)}>{REFINED_COAST_NAME}</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createRefinedInteriorProject(signal), REFINED_INTERIOR_NAME)}>{REFINED_INTERIOR_NAME}</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => prepare(signal => createNearSideIslandProject(signal), NEAR_SIDE_ISLAND_NAME)}>新建近侧视苔岛</button><h3>可编辑样板</h3><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'study' })}>书房与露台</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'island' })}>双层岩岛</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'outpost' })}>海岸哨所</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'graveyard' })}>苔石墓园 · 内容小样</button><button className="secondary asset-wide" disabled={editDisabled} onClick={() => request({ type: 'sample', sample: 'volcano' })}>灰烬熔脉 · 内容小样</button></section>
   const resourcePanels = <div className="layer-library-stack history-library-stack">
           <div className="history-sidebar-tabs" role="tablist" aria-label="工坊侧栏">
             <button role="tab" aria-selected={sidebar === 'scene' || audience === 'player'} onClick={() => setSidebar('scene')}><Layers3 size={14}/>工程</button>
@@ -658,7 +861,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             <button role="tab" aria-selected={sidebar === 'visual' && audience === 'gm'} disabled={!completeProject || audience === 'player'} onClick={() => setSidebar('visual')}><Mountain size={14}/>视觉</button>
             <button role="tab" aria-selected={sidebar === 'ai' && audience === 'gm'} disabled={audience === 'player'} onClick={() => setSidebar('ai')}>AI对话</button>
           </div>
-          <div hidden={sidebar !== 'ai' || audience !== 'gm'}><SelectionSubscriber session={selectionSession}>{ids => <AiConversationPanel context={completeProject ? { sceneId: completeProject.document.sceneId, revision: completeProject.document.revision, audience: 'public' } : null} disabled={busy || !!structure || !!restore || !!structureRestore || audience === 'player'} authoring={completeProject ? { workspace: compositionWorkspace, sessionKey: sessionGeneration, project: completeProject, selectedIds: ids, layerId: currentLayerId, canPrepare: () => guard(), onPreview: next => { setAiPreview(next); if (!next) setShowAiDraft(false) }, onAdopted: () => { setAiPreview(null); setShowAiDraft(false); setHistoryRefresh(value => value + 1) }, onCritical: setAiCritical } : undefined}/>}</SelectionSubscriber></div>
+          <div hidden={sidebar !== 'ai' || audience !== 'gm'}><SelectionSubscriber session={selectionSession}>{ids => <AiConversationPanel context={completeProject ? { sceneId: completeProject.document.sceneId, revision: completeProject.document.revision, audience: 'public' } : null} disabled={regionalBusy || regionalDraft || !!regionalPreview || busy || terrainBusy || terrainEditBusy || terrainEditDraft || !!terrainEditPreview || !!terrainPreview || !!structure || !!restore || !!structureRestore || audience === 'player'} authoring={completeProject ? { workspace: compositionWorkspace, sessionKey: sessionGeneration, project: completeProject, selectedIds: ids, layerId: currentLayerId, canPrepare: () => guard(), onPreview: next => { setAiPreview(next); if (!next) setShowAiDraft(false) }, onRegionalPreview: receiveAiRegionalPreview, onAdopted: () => { setAiPreview(null); setShowAiDraft(false); setHistoryRefresh(value => value + 1) }, onCritical: setAiCritical } : undefined}/>}</SelectionSubscriber></div>
           <div hidden={sidebar !== 'outdoor' || audience !== 'gm'} onChangeCapture={() => markFormDraft('outdoorForm')}>{completeProject && <OutdoorToolsPanel key={`${panelKey}-${formReset.outdoorForm}`} scene={completeProject.document} layerId={currentLayerId}
             disabled={toolDisabled(['outdoorSketch', 'outdoorForm']) || effectiveHiddenLayers.has(currentLayerId)} sketch={outdoorSketch}
             onSketch={next => { if (!next) setOutdoorSketch(null); else if (guard('outdoorForm')) setOutdoorSketch(next) }} onPreview={previewOutdoor} onSelect={select}/>}</div>
@@ -700,8 +903,10 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           <div className="asset-next"><RotateCw size={16}/><strong>把场景保存完整</strong><p>工程文件携带素材、材质与许可。定期下载备份，继续编辑前可检查工程完整性。</p></div>
         </>}</aside> }}</SelectionSubscriber>
   const canvasPanel = <main className="asset-center">
-          <div className="asset-view-bar"><div role="group" aria-label="预览受众" className="asset-audience"><button disabled={editDisabled} aria-pressed={audience === 'gm'} onClick={() => { if (guard()) setAudience('gm') }}>主持人</button><button disabled={editDisabled} aria-pressed={audience === 'player'} onClick={() => { if (guard()) { setAudience('player'); setSelected(null) } }}>玩家</button></div><span>{project ? `${formatDistanceMm(project.document.exportBoundsMm.width, project.document.units.display)} × ${formatDistanceMm(project.document.exportBoundsMm.height, project.document.units.display)} · 固定范围` : '二维俯视 · 毫米世界坐标'}</span></div>
-          {structure && <div className="asset-structure-preview" role="status"><div><strong>{structure.description} · 候选预览</strong><span>尚未写入工程，采用后作为一次编辑保存</span><CompositionChangesPanel current={completeProject!} candidate={structure.prepared.project} commands={structure.commands}/>{(structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && <label className="building-check"><input type="checkbox" aria-label="确认完整影响范围" checked={structure.confirmed ?? false} onChange={event => setStructure(current => current ? { ...current, confirmed: event.target.checked } : current)}/>确认 {structure.scopeIds?.length} 个实体及 {structure.layerIds?.length} 个图层的影响范围</label>}{structure.layerIds && <span>{structure.layerIds.map(id => completeProject?.document.userLayers[id]?.name ?? id).join(' · ')}</span>}{structure.scopeIds && <details className="layer-preview-scope"><summary>实际操作范围 · {structure.scopeIds.length} 项</summary><textarea readOnly aria-label={structure.kind === 'building' ? '待采用建筑操作 ID' : structure.kind === 'visual' ? '待采用视觉操作 ID' : structure.kind === 'outdoor' ? '待采用室外操作 ID' : '待采用图层操作 ID'} rows={4} value={structure.scopeIds.join('\n')}/></details>}</div><button className="secondary" disabled={busy} onClick={() => { compositionWorkspace.cancelPreview(structure.prepared); setStructure(null) }}>{structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : structure.kind === 'outdoor' ? '取消室外预览' : structure.kind === 'building' ? '取消结构预览' : structure.kind === 'visual' ? '取消视觉预览' : structure.kind === 'display' ? '取消显示预览' : '取消组件预览'}</button><button className="primary" disabled={busy || (structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && !structure.confirmed} onClick={() => void action(async () => {
+          <div className="asset-view-bar"><div role="group" aria-label="预览受众" className="asset-audience"><button disabled={editDisabled} aria-pressed={audience === 'gm'} onClick={() => { if (guard()) setAudience('gm') }}>主持人</button><button disabled={editDisabled} aria-pressed={audience === 'player'} onClick={() => { if (guard()) { setAudience('player'); setGroundView(false); setSelected(null) } }}>玩家</button></div><div className="asset-view-actions"><span>{project ? `${formatDistanceMm(project.document.exportBoundsMm.width, project.document.units.display)} × ${formatDistanceMm(project.document.exportBoundsMm.height, project.document.units.display)} · 固定范围` : '二维俯视 · 毫米世界坐标'}</span>{project && audience === 'gm' && <button className="secondary" disabled={editDisabled} aria-pressed={groundView} onClick={() => setGroundView(value => !value)}>地面查看</button>}</div></div>
+          {(regionalPreview || regionalBusy) && <div className="asset-structure-preview" role="status" aria-label="区域候选状态"><div><strong>{regionalBusy ? '正在准备区域完整候选' : '区域候选 · 主工程尚未改变'}</strong><span>在工程面板审阅后采用或取消。</span></div><button className="secondary" disabled={busy} onClick={cancelRegional}>取消区域预览</button></div>}
+          {(terrainEditPreview || terrainEditBusy) && <div className="asset-structure-preview" role="status" aria-label="局部地形候选"><div><strong>{terrainEditBusy ? '正在计算局部地形修改' : '局部地形候选 · 主工程尚未改变'}</strong><span>{terrainEditBusy ? '可取消计算，当前工程保持。' : '请在工程面板查看完整影响范围，再保护并采用。'}</span></div><button className="secondary" disabled={busy} onClick={cancelTerrainEditing}>取消局部地形预览</button></div>}
+          {terrainPreview && <div className="asset-structure-preview" role="status"><div><strong>自然地形候选 · 主工程尚未改变</strong><span>请在工程面板采用或取消此方案。</span></div><button className="secondary" disabled={busy} onClick={cancelTerrain}>取消地形预览</button></div>}{structure && <div className="asset-structure-preview" role="status"><div><strong>{structure.description} · 候选预览</strong><span>尚未写入工程，采用后作为一次编辑保存</span><CompositionChangesPanel current={completeProject!} candidate={structure.prepared.project} commands={structure.commands}/>{(structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && <label className="building-check"><input type="checkbox" aria-label="确认完整影响范围" checked={structure.confirmed ?? false} onChange={event => setStructure(current => current ? { ...current, confirmed: event.target.checked } : current)}/>确认 {structure.scopeIds?.length} 个实体及 {structure.layerIds?.length} 个图层的影响范围</label>}{structure.layerIds && <span>{structure.layerIds.map(id => completeProject?.document.userLayers[id]?.name ?? id).join(' · ')}</span>}{structure.scopeIds && <details className="layer-preview-scope"><summary>实际操作范围 · {structure.scopeIds.length} 项</summary><textarea readOnly aria-label={structure.kind === 'building' ? '待采用建筑操作 ID' : structure.kind === 'visual' ? '待采用视觉操作 ID' : structure.kind === 'outdoor' ? '待采用室外操作 ID' : '待采用图层操作 ID'} rows={4} value={structure.scopeIds.join('\n')}/></details>}</div><button className="secondary" disabled={busy} onClick={() => { compositionWorkspace.cancelPreview(structure.prepared); setStructure(null) }}>{structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : structure.kind === 'outdoor' ? '取消室外预览' : structure.kind === 'building' ? '取消结构预览' : structure.kind === 'visual' ? '取消视觉预览' : structure.kind === 'display' ? '取消显示预览' : '取消组件预览'}</button><button className="primary" disabled={busy || (structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && !structure.confirmed} onClick={() => void action(async () => {
             try {
               await compositionWorkspace.adoptPreview(structure.prepared)
               setStructure(null)
@@ -711,7 +916,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           }, '采用候选')}>{structure.kind === 'batch' ? '采用批量修改' : structure.kind === 'layer' ? '采用图层修改' : structure.kind === 'outdoor' ? '采用室外修改' : structure.kind === 'building' ? '采用结构修改' : structure.kind === 'visual' ? '采用视觉修改' : structure.kind === 'display' ? '采用显示设置' : '采用组件修改'}</button></div>}
           {restore && <div className="asset-structure-preview history-restore-banner" role="status" aria-label="局部恢复候选"><div><strong>{restore.snapshot.name} · 局部恢复预览</strong><span>{restore.plan.request.ids.length} 件请求 · {restore.plan.changes.length} 件变化 · 当前 r{restore.currentRevision}</span><label className="building-check"><input type="checkbox" aria-label="确认恢复完整影响范围" checked={restoreConfirmed} onChange={event => setRestoreConfirmed(event.target.checked)}/>确认下方列出的全部依赖与跨层变化</label></div><button className="secondary" disabled={busy} onClick={() => { compositionWorkspace.cancelRestore(restore); setRestore(null) }}>取消局部恢复</button><button className="primary" disabled={busy || !restore.plan.changed || !restoreConfirmed} onClick={() => void action(async () => { try { await compositionWorkspace.applyRestore(restore); setSelected(null) } finally { setRestore(null); setHistoryRefresh(value => value + 1) } }, '采用局部恢复')}>保护当前并采用</button></div>}
           {structureRestore && <div className="asset-structure-preview history-restore-banner" role="status" aria-label="结构恢复候选"><div><strong>{structureRestore.snapshot.name} · 结构恢复预览</strong><span>{structureRestore.plan.request.ids.length} 项请求 · {structureRestore.plan.changes.length} 项变化 · 当前 r{structureRestore.currentRevision}</span></div><button className="secondary" disabled={busy} onClick={() => { compositionWorkspace.cancelStructureRestore(structureRestore); setStructureRestore(null) }}>取消结构恢复</button><button className="primary" disabled={busy || !structureRestore.plan.changed} onClick={() => void action(async () => { try { await compositionWorkspace.applyStructureRestore(structureRestore); setSelected(null) } finally { setStructureRestore(null); setHistoryRefresh(value => value + 1) } }, '采用结构恢复')}>保护当前并采用结构恢复</button></div>}
-          {aiPreview && audience === 'gm' && <div className="ai-preview-banner" role="status"><strong>{aiShown ? 'AI草稿预览 · 主工程未改变' : '正在查看主工程'}</strong><span>草稿 {aiPreview.draftRevision} · {aiPreview.changes.length} 件差异</span><button disabled={aiCritical || busy} onClick={() => { if (showAiDraft) setShowAiDraft(false); else if (guard()) setShowAiDraft(true) }}>{aiShown ? '查看主工程' : '查看AI草稿'}</button></div>}<div className="asset-stage">{visibleProject ? <AssetCanvas key={panelKey} toolControlsTarget={toolControlsTarget} viewControlsTarget={viewControlsTarget} project={visibleProject} editorRenderer={editorRenderer} selectionOptions={selectionOptions} pointHitTest={pointHitTest} boundsSelector={boundsSelector} selectionGeometry={selectionGeometry} selectionSummaryReader={selectionSummaryReader} worldTool={canvasWorldTool} visualBoundary={sidebar === 'visual' && audience === 'gm' ? boundaryEditor?.boundary : null} onVisualBoundaryChange={next => { if (boundaryEditor) { markFormDraft('visualForm'); boundaryEditor.onChange(next) } }} selected={null} selectionSession={selectionSession} onSelect={select} onSelectMany={selectMany} onContext={openMenu} memberMode={memberMode} onMemberMode={setMemberMode} fitRequest={fitRequest} audience={audience} disabled={busy || editingBlocked || !!prefabPlacement || audience === 'player'} placement={placement?.prop} onPlacementMove={positionMm => setPlacement(current => current ? { ...current, prop: { ...current.prop, positionMm } } : null)} onPlace={placeAt} onPlacementReady={setPlacementReady} onPlacementError={error => { setPlacement(null); setMessage(error) }} onCancelPlacement={() => setPlacement(null)}/> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>从一张空白画布开始</span><p>选择画布范围与使用预设，逐件放入素材。<br/>也可从左侧打开书房、岩岛或海岸哨所。</p><button className="primary" disabled={busy} onClick={openNewScene}>新建场景</button></div>}</div>
+          {aiPreview && audience === 'gm' && <div className="ai-preview-banner" role="status"><strong>{aiShown ? 'AI草稿预览 · 主工程未改变' : '正在查看主工程'}</strong><span>草稿 {aiPreview.draftRevision} · {aiPreview.changes.length} 件差异</span><button disabled={aiCritical || busy} onClick={() => { if (showAiDraft) setShowAiDraft(false); else if (guard()) setShowAiDraft(true) }}>{aiShown ? '查看主工程' : '查看AI草稿'}</button></div>}<div className="asset-stage">{visibleProject ? <AssetCanvas key={panelKey} groundView={groundView} toolControlsTarget={toolControlsTarget} viewControlsTarget={viewControlsTarget} project={visibleProject} editorRenderer={editorRenderer} selectionOptions={selectionOptions} pointHitTest={pointHitTest} boundsSelector={boundsSelector} selectionGeometry={selectionGeometry} selectionSummaryReader={selectionSummaryReader} worldTool={canvasWorldTool} terrainBrush={audience === 'gm' ? terrainEditCanvas?.brush : null} visualBoundary={terrainEditCanvas?.boundary ?? (sidebar === 'visual' && audience === 'gm' ? boundaryEditor?.boundary : null)} onVisualBoundaryFinish={terrainEditCanvas?.onBoundaryFinish} onVisualBoundaryChange={next => { if (terrainEditCanvas?.onBoundaryChange) terrainEditCanvas.onBoundaryChange(next); else if (boundaryEditor) { markFormDraft('visualForm'); boundaryEditor.onChange(next) } }} selected={null} selectionSession={selectionSession} onSelect={select} onSelectMany={selectMany} onContext={openMenu} memberMode={memberMode} onMemberMode={setMemberMode} fitRequest={fitRequest} audience={audience} disabled={busy || terrainEditBusy || (!!terrainEditCanvas ? false : editingBlocked) || !!prefabPlacement || audience === 'player'} placement={placement?.prop} onPlacementMove={positionMm => setPlacement(current => current ? { ...current, prop: { ...current.prop, positionMm } } : null)} onPlace={placeAt} onPlacementReady={setPlacementReady} onPlacementError={error => { setPlacement(null); setMessage(error) }} onCancelPlacement={() => setPlacement(null)}/> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>从一张空白画布开始</span><p>选择画布范围与使用预设，逐件放入素材。<br/>也可从左侧打开书房、岩岛或海岸哨所。</p><button className="primary" disabled={busy} onClick={openNewScene}>新建场景</button></div>}</div>
         </main>
   const workspaceTools = <><div ref={setToolControlsTarget}/><button title="画矩形房间" aria-label="工具：画房间" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!sketch && sketch.kind !== 'ruler'} onClick={() => startBuildingTool('rectangle')}><PencilRuler size={18}/><small>房间</small></button><button title="绘制地形" aria-label="工具：画地形" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!outdoorSketch} onClick={startTerrainTool}><Mountain size={18}/><small>地形</small></button><button title="选择待放置素材" aria-label="工具：放置素材" disabled={editDisabled || !completeProject || audience === 'player'} onClick={() => { if (guard()) openResources('library') }}><Plus size={18}/><small>放置</small></button><button title="文字与线索" aria-label="工具：注记" disabled={editDisabled || !completeProject || audience === 'player'} onClick={showNotes}><StickyNote size={18}/><small>注记</small></button><button title="量尺" aria-label="工具：量尺" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={sketch?.kind === 'ruler'} onClick={() => startBuildingTool('ruler')}><Ruler size={18}/><small>量尺</small></button></>
   const workspaceFooter = <><div ref={setViewControlsTarget}/>{project && <button className="workspace-display-summary" disabled={audience === 'player'} onClick={showSettings} title="打开单位与格线设置">{project.document.units.display === 'm' ? '米' : '英尺'} · 格线{project.document.units.gridVisible ? '显示' : '隐藏'} · 吸附 {project.document.units.snapMm} mm</button>}<SelectionSubscriber session={selectionSession}>{ids => <span>已选 {ids.length} 项</span>}</SelectionSubscriber><span>{placement ? '放置物件' : prefabPlacement ? '放置组合' : sketch?.kind === 'ruler' ? '量尺' : sketch ? '绘制房间' : outdoorSketch ? '绘制室外' : '选择 / 平移'}</span><span>{audience === 'gm' ? '主持人视图' : '玩家视图'}</span></>

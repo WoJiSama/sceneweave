@@ -82,6 +82,17 @@ describe('editor-only prop rendering plan', () => {
     expect(editorPaintBoundsV2(source, full)).toEqual(source.bounds)
   })
 
+  it('keeps wide materialized strokes visible when their centerline falls outside the editor crop', () => {
+    const source = projection(), visual = emptyVisualSystem()
+    visual.environment.contactShadowMm = 0
+    source.visual = { environment: visual.environment, boundsMm: source.bounds, boundaries: [], edgeLooks: [], lights: [], fogs: [], filters: [],
+      occluderRings: [], contactRings: [], suppressedTerrainEdgeIds: [], materializedEdges: [{ id: 'wide-edge', kind: 'shore', polygons: [],
+        strokes: [{ id: 'wide-stroke', pointsMm: [{ x: 700, y: 900 }, { x: 700, y: 1400 }], widthMm: 600, color: '#FFFFFF', opacity: 1 }], fillColor: '#FFFFFF', opacity: 1 }] }
+    const plan = createEditorRenderPlanV2(source, { viewBoundsMm: { x: 900, y: 900, width: 500, height: 500 }, screenScalePxPerMm: 1 })
+    expect(editorPaintBoundsV2(source, plan)).toEqual({ x: 600, y: 600, width: 1100, height: 1100 })
+    expect(editorPaintBoundsV2(source, createEditorRenderPlanV2(source, { screenScalePxPerMm: 1 }))).toEqual(source.bounds)
+  })
+
   it('rejects invalid scales and non-intersecting or invalid crops', () => {
     const source = projection()
     for (const scale of [0, -1, NaN, Infinity]) expect(() => createEditorRenderPlanV2(source, { screenScalePxPerMm: scale })).toThrow(/比例/)

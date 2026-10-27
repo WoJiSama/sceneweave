@@ -296,7 +296,7 @@ function splitWall(scene: SceneDocument, command: Extract<BaseSceneCommand, { ty
   }
 }
 
-function transformPrefab(scene: SceneDocument, command: Extract<BaseSceneCommand, { type: 'transformPrefab' }>) {
+function transformPrefab(scene: SceneDocument, command: Extract<BaseSceneCommand, { type: 'transformPrefab' }>, fixedUprightPropIds?: ReadonlySet<string>) {
   const group = requireEntity(scene.prefabInstances, command.id, '组合'), anchor = command.anchorMm ?? group.anchorMm, rotation = command.rotationDeg ?? group.rotationDeg
   if (equal(anchor, group.anchorMm) && rotation === group.rotationDeg) return
   const props = Object.values(group.members).flatMap(member => member.propId === null ? [] : [requireEntity(scene.props, member.propId, '组合成员')])
@@ -305,7 +305,7 @@ function transformPrefab(scene: SceneDocument, command: Extract<BaseSceneCommand
   for (const prop of props) {
     const x = prop.positionMm.x - group.anchorMm.x, y = prop.positionMm.y - group.anchorMm.y
     prop.positionMm = { x: roundMm(anchor.x + x * cos - y * sin), y: roundMm(anchor.y + x * sin + y * cos) }
-    prop.rotationDeg = normalizeAngle(prop.rotationDeg + rotation - group.rotationDeg)
+    prop.rotationDeg = fixedUprightPropIds?.has(prop.id) ? 0 : normalizeAngle(prop.rotationDeg + rotation - group.rotationDeg)
   }
   group.anchorMm = cloneJson(anchor); group.rotationDeg = rotation
 }
@@ -365,7 +365,7 @@ function checkedCommands(commands: readonly BaseSceneCommand[]): BaseSceneComman
 }
 
 /** Internal only: caller owns a detached draft, strict command parsing and final validation. */
-export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSceneCommand[], context: PreparationContext): SceneDocument {
+export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSceneCommand[], context: PreparationContext, fixedUprightPropIds?: ReadonlySet<string>): SceneDocument {
   for (const command of commands) {
     switch (command.type) {
       case 'moveVertex': {
@@ -477,7 +477,7 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
         entity.editLocked = command.locked
         break
       }
-      case 'transformPrefab': transformPrefab(next, command); break
+      case 'transformPrefab': transformPrefab(next, command, fixedUprightPropIds); break
       case 'unpackPrefab': unpackPrefab(next, requireEntity(next.prefabInstances, command.id, '组合')); break
       case 'updateProp': case 'replacePropAppearance': {
         const prop = requireEntity(next.props, command.id, '物件')

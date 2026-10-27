@@ -1,3 +1,4 @@
+import { propPaintPolygon, scenePresentation } from '../../shared/appearance/presentation.js'
 import { isEntityEditLocked as isEntityEditLockedV2 } from '../../shared/commands/base.js'
 import { isCertifiedSceneSnapshot as isCertifiedSceneSnapshotV2 } from '../../shared/validation/snapshots.js'
 import { corridor, openingEndpoints as openingEndpointsV2, pathPolygon as pathPolygonV2, pointInPolygon as pointInPolygonV2, polygonDistance, roomPoints as roomPointsV2, terrainPoints as terrainPointsV2 } from '../../shared/geometry/geometry.js'
@@ -79,7 +80,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
   let geometry!: (id: string) => PointMm[][]
   const computeGeometry = (id: string): PointMm[][] => {
     const prop = own(scene.props, id)
-    if (prop) return [propVisualPolygonV2(prop)]
+    if (prop) return [propPaintPolygon(prop, scenePresentation(scene, prop.id))]
     const vertex = own(scene.vertices, id), terrainPoint = terrainPoints.get(id)
     if (vertex) return [[{ x: vertex.xMm, y: vertex.yMm }]]
     if (terrainPoint) return [[{ ...terrainPoint }]]

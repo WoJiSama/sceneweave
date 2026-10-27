@@ -1,3 +1,5 @@
+import { detachChangedOutputs } from '../terrain-generation/integrity.js'
+import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
 import { applyVisualCommand, isVisualCommand, visualCommandSchemas, type VisualCommand } from '../visual/commands.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -38,8 +40,12 @@ export interface ApplySnapshotCommandsOptions extends ApplyCommandsOptions {
 }
 
 export interface ApplyCommandsOptions {
+  /** Internal complete-composition semantics for explicit group rotations. */
+  fixedUprightPropIds?: ReadonlySet<string>
   /** Internal synchronous observer: inspect immediately; never mutate or retain the draft. */
   onOutdoorDraft?: (draft: Readonly<SceneDocument>, command: Readonly<OutdoorCommand | VisualCommand>) => void
+  /** Includes base/building edits and runs after generation records are reconciled. */
+  onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>) => void
 }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -128,7 +134,7 @@ function restoreActualLocks(next: SceneDocument, source: SceneDocument, explicit
     else if (actual.has(entity.id)) entity.editLocked = actual.get(entity.id)!
   }
 }
-function applyNativeContent(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext): SceneDocument {
+function applyNativeContent(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
   const memberships = { ...scene.entityLayers }, explicitLocks = new Map<string, boolean>(), baseCommands: BaseSceneCommand[] = []
   for (const command of commands) {
     if (command.type === 'addProp') {
@@ -150,7 +156,7 @@ function applyNativeContent(scene: SceneDocument, commands: readonly SceneComman
       else if (command.type === 'splitWall') { memberships[command.newVertexId] = memberships[command.id]; memberships[command.newWallId] = memberships[command.id] }
     } else throw new Error('此批次不能混入图层组织命令。')
   }
-  const next = applyCommandDraft(cloneJson(geometryDocumentForValidation(scene, true)), baseCommands, context)
+  const next = applyCommandDraft(cloneJson(geometryDocumentForValidation(scene, true)), baseCommands, context, options?.fixedUprightPropIds)
   next.userLayers = cloneJson(scene.userLayers)
   next.entityLayers = {}
   const present = new Set(enumerateLayerEntities(next).map(entity => entity.id))
@@ -190,40 +196,63 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
   // Entity locks are an independent transaction category; content cannot unlock itself.
   if (commands[0]?.type === 'setEditLock') {
     const next = cloneJson(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections', path: 'paths' } as const
+    let cost = 0
     for (const command of commands) {
       if (command.type !== 'setEditLock') throw new Error('编辑锁须单独提交。')
+      const beforeTerrain = next.schemaVersion === 3 ? cloneJson(next) : null
       const entity = own(next[collections[command.kind]] as Record<string, { id: string; editLocked: boolean }>, command.id)
       if (!entity) throw new Error('编辑锁目标不存在或类型不符。')
       assertLayerUnlocked(next, next.entityLayers[command.id])
-      if (entity.editLocked === command.locked) continue
-      if (command.kind === 'prop') {
-        const parents = [...Object.values(next.prefabInstances), ...Object.values(next.scatterGroups)].filter(group => Object.values(group.members).some(member => member.propId === command.id))
-        if (parents.some(group => group.editLocked || next.userLayers[next.entityLayers[group.id]].editLocked)) throw new Error('物件所属组合、散布或其图层已锁定，不能修改成员编辑锁。')
+      if (entity.editLocked !== command.locked) {
+        if (command.kind === 'prop') {
+          const parents = [...Object.values(next.prefabInstances), ...Object.values(next.scatterGroups)].filter(group => Object.values(group.members).some(member => member.propId === command.id))
+          if (parents.some(group => group.editLocked || next.userLayers[next.entityLayers[group.id]].editLocked)) throw new Error('物件所属组合、散布或其图层已锁定，不能修改成员编辑锁。')
+        }
+        entity.editLocked = command.locked
       }
-      entity.editLocked = command.locked
+      if (beforeTerrain) {
+        detachChangedOutputs(beforeTerrain, next)
+        // Reconcile and charge every transition, including changes later undone
+        // in this same batch. A repeated lock request still consumes one step.
+        cost += Math.max(1, terrainCommandCost(beforeTerrain, next).total)
+        if (cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
+        options?.onSceneDraft?.(next, command)
+      }
     }
     return next
   }
   let next = cloneJson(scene), cost = 0
   const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
+    const beforeTerrain=next.schemaVersion===3?cloneJson(next):null
+    let commandCost: number
     if (isVisualCommand(command)) {
-      consume(applyVisualCommand(next, command, context).commandCost)
+      commandCost = applyVisualCommand(next, command, context).commandCost
       options?.onOutdoorDraft?.(next, command)
     } else if (needsOutdoorExpansion(next, command)) {
-      consume(applyOutdoorCommand(next, command, context).commandCost)
+      commandCost = applyOutdoorCommand(next, command, context).commandCost
       options?.onOutdoorDraft?.(next, command)
-    } else if (isBuildingCommand(command)) consume(applyBuildingCommand(next, command).commandCost)
+    } else if (isBuildingCommand(command)) commandCost = applyBuildingCommand(next, command).commandCost
     else if (isAnnotationCommand(command)) {
       const before = cloneJson(next)
       applyAnnotationCommand(next, command)
-      consume(nativeCommandCost(before, next))
-    } else if (command.type === 'setCanvasBounds') consume(applyCanvasBoundsCommand(next, command).commandCost)
+      commandCost = nativeCommandCost(before, next)
+    } else if (command.type === 'setCanvasBounds') commandCost = applyCanvasBoundsCommand(next, command).commandCost
     else {
       const before = next
-      next = applyNativeContent(next, [command], context)
-      consume(nativeCommandCost(before, next))
+      next = applyNativeContent(next, [command], context, options)
+      commandCost = nativeCommandCost(before, next)
     }
+    if (beforeTerrain) {
+      detachChangedOutputs(beforeTerrain, next)
+      const expanded = terrainCommandCost(beforeTerrain, next)
+      // Charge no-ops together with every real per-command expansion. Comparing
+      // only the final net delta loses earlier edits and repeated requests.
+      consume(Math.max(1, commandCost, expanded.items.physicalAndVisual) + expanded.total - expanded.items.physicalAndVisual)
+    } else {
+      consume(commandCost)
+    }
+    options?.onSceneDraft?.(next, command)
   }
   return next
 }
@@ -231,19 +260,21 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
   const next = cloneJson(scene)
   let cost = 0
   const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
+  const consumeCommand = (amount: number) => consume(scene.schemaVersion === 3 ? Math.max(1, amount) : amount)
   for (const command of commands) {
+    const beforeTerrain=next.schemaVersion===3?cloneJson(next):null
     switch (command.type) {
       case 'createLayer': {
-        consume(1)
+        consumeCommand(1)
         if (!Object.hasOwn(next.floors, command.floorId)) throw new Error('新图层所在 Floor 不存在。')
         if (Object.keys(next.userLayers).length >= USER_LAYER_LIMIT) throw new Error('用户图层总数最多 128，不能继续新建。')
         if (Object.hasOwn(next.userLayers, command.id) || geometryIdentityIds(next).has(command.id)) throw new Error('新图层须使用未占用的独立 ID。')
         next.userLayers[command.id] = { id: command.id, floorId: command.floorId, name: command.name, order: orderedLayers(next, command.floorId).length, editLocked: false }
         break
       }
-      case 'renameLayer': consume(1); assertLayerUnlocked(next, command.id).name = command.name; break
+      case 'renameLayer': consumeCommand(1); assertLayerUnlocked(next, command.id).name = command.name; break
       case 'reorderLayers': {
-        consume(1)
+        consumeCommand(1)
         const layers = orderedLayers(next, command.floorId)
         if (!Object.hasOwn(next.floors, command.floorId) || command.ids.length !== layers.length || command.ids.some(id => !layers.some(layer => layer.id === id))) throw new Error('图层重排必须列出同 Floor 的全部图层且恰好一次。')
         const moved = command.ids.filter((id, index) => next.userLayers[id].order !== index)
@@ -262,23 +293,24 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
       case 'moveEntitiesToLayer': {
         const preview = previewLayerMove(next, command.ids, command.layerId)
         if (preview.reason) throw new Error(preview.reason)
-        consume(preview.commandCost)
+        consumeCommand(preview.commandCost)
         for (const change of preview.changes) next.entityLayers[change.id] = change.toLayerId
         break
       }
       case 'removeLayer': {
         const preview = previewLayerRemoval(next, command.id, command.targetLayerId)
         if (preview.reason) throw new Error(preview.reason)
-        consume(preview.commandCost)
+        consumeCommand(preview.commandCost)
         const floorId = next.userLayers[command.id].floorId
         for (const change of preview.changes) next.entityLayers[change.id] = change.toLayerId
         delete next.userLayers[command.id]
         orderedLayers(next, floorId).forEach((layer, order) => { layer.order = order })
         break
       }
-      case 'setLayerLock': consume(1); requiredLayer(next, command.id).editLocked = command.locked; break
+      case 'setLayerLock': consumeCommand(1); requiredLayer(next, command.id).editLocked = command.locked; break
       default: throw new Error('图层组织批次不能混入内容或实体锁命令。')
     }
+    if(beforeTerrain) { detachChangedOutputs(beforeTerrain,next); const all=terrainCommandCost(beforeTerrain,next); consume(all.total-all.items.physicalAndVisual) }
   }
   return next
 }

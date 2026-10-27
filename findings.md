@@ -1,5 +1,21 @@
 # 发现
 
+## 2026-10-27 当前统一验收
+
+- 实测发现区域下钻道路窄交叉可能不包含任何一方顶点/中点，activeTerrainSupports有限采样漏收实际支撑。复用coveredEverywhere对全部地形边界的每个面采样，不放宽完整路径验证；默认/大装饰主题GM道路用例现已通过。
+
+- 本轮默认Vitest没有独立vitest.config.ts；AI单独使用vitest.ai.config.ts。Chromium主配置单worker，地形跨引擎配置涵盖六文件Firefox/WebKit；正常生产四入口脚本分别负责生成、编辑、区域和近侧视，不调用模型。
+
+## 2026-10-27 按用户要求继续代码收尾
+
+- 已停止接手时运行中的完整Chromium：101通过、1中断、54未执行，exit 130。当前不再启动验证。
+- 已修复获准来源比较：重建子集时按kind/id匹配，清除未获准地标areaId/图符sourceRef，并保留快照明确携带的授权关系（包括选区外关系）；父图已不是区域模式时不调用区域子集比较。
+- 原预算漏计疑点复核未成立：基线虽保留Prop、label和GM遮罩，但清空entityLayers后，既有变化检查逐实体计入同等新建成本。保留预算实现，不为此改动基线。
+- 独立GM道路、地标和图符原先缺少玩家遮罩；现按每个物化实体建立固定遮罩，避免同一来源多个分量互相覆盖。地形装饰、道路描边和物件阴影与玩家投影共用范围公式，向外整数取整并裁到导出范围，替换固定5米外扩。
+- 完整落入选区的反向折线现在保留全部折点并按flow反向，和裁切分支保持一致；不改父图数组。
+- 新增来源关联、独立GM实体/大主题装饰、完整反向折线用例。最后一次有界静态复核未发现其他确定问题；当前修复与新增用例未运行验证，历史通过数字不外推。
+- 第一次计划/进展联合补丁因进展文件标题实际为“执行记录”而未应用；现按实际标题更新，未改用户独立todo.md。
+
 ## M2-2起点（2026-10-24）
 
 - 用户“继续”承接明确下一M2-2。现有previewPrepared只允许目录追加，preview按一批CompositionCommand准备；需新建持有私有证据的任务授权/原子候选，不直接信任网络完整文档。04要求完整步骤重放、单调身份/256累计展开、原主锁/范围、保护点与CAS一次提交。
@@ -499,3 +515,83 @@ todo4–8应按依赖重新排序：
 ## 2026-10-26 线上实际交付
 
 功能5aae375/Pages40272226261与自有后端已发布，实际公网入口JS hash对制品一致。服务器优先Compose插件不可执行，已有/usr/bin/docker-compose2.26.1-4可用，显式选择而未改全局；任务/事件/草稿及应用访问设置保持。线上失败来自检查脚本对折叠details与reload后重开流程的旧假设，改脚本后空profile第四轮完整通过；不改产品或把旧轮拼接。GLM视觉unverified、九空白/三新作局部受1305阻塞，P3/完整性能仍未过。
+
+## 2026-10-26 T3
+
+T3当前：初版五地貌生成通过；真实浏览器发现compose固定岸线ID空引用。完整折线路线尚须转角净宽、连接锚点和真实代价；T3规则需单独支持局部编辑，不得冒充未知算法重算。
+
+## T3最终合同与已发现问题
+
+- T3 terrain-scene-t3@1独立于T1 terrain-scene@1；五配方保持完整v3/SceneDocument3/visual2，界面24×18m，核心最多120×90m有限范围。
+- 指定路线先搜索再布景，实际Path带区留300mm占地净空；浅滩真实200mm、低地800mm、台地2600mm，经1400/1500mm有效坡道转换。不能用图片或hash代替通过证据。
+- 代码审查发现冷读回执只比hash不足，已加入已知route/ground算法@1真实全带重验；ground用固定算法身份持久并由T2重验，不能重开后忘掉渡水要求。
+- 125纯生成组合全验及T1兼容通过；路线25组合/最终相关回归尚在收尾。正常生产首次五配方逐包/双4K运行，实例paint可辨性调整后要重建重新验证，不拼旧图到当前证据。
+- 现存建筑周边自动重生成、湖中岛/分裂合并、完整生态/近侧视/区域/AI和正式性能不由本批有限矩阵关闭。
+
+T3最终结果：正常生产34/34五类/route/双4K和逐包hash，6编译Worker，所有错误0；最终Chrome5/5、组装修复32/32及99共享/build通过。实例paint先有未物化派生PNG的完整拒绝，生成编排已补真实materialize→新生关系hash→成本→全验；仅重置本次独立新生成generation，不覆盖任何旧人工状态。旧38生产和4/5失败完整保留，详细归55第19节。原始输出ignored work，不commit/push/部署。
+
+
+## 2026-10-27 地形后续起点
+
+T2现有prepareTerrainEdit支持既有岸线推拉和草/清除，没有外围重生成入口。SceneDocument3已预留严格regional1/presentation/来源快照，但当前明确拒绝非空regional与nearSide行为；不能据schema已有就标已实现。T3算法terrain-scene-t3@1与T1保持独立。
+
+## T-S06/T7 continuation audit (2026-10-27)
+
+- polygon-clipping 0.15.7 runtime exports default operations, unlike its named declarations. Default import plus explicit pure dependency whitelist restored production and Node shared checks (104 modules).
+- Current full unit batch: 185 files, 2013/2013; initial Chrome batch: 151/152 (22.2m). T-S06 failure was accessible button name mismatch, then a test race reading pre-adoption saved status. After accessible label and awaiting hidden candidate/revision+1, targeted T-S06 passed 1/1 (18.4s); no receipt loss occurred.
+- Topology audit found incomplete per-slot support matching, missing scope/lock checks, v2 stroke loss on promotion, insufficient receipt coordinate budget, and weak current output validation. Tightened these before UI integration. Full generated low input now correctly exceeds 256 including archived coordinates; no budget increase. A simple explicit rectangle fixture covers supported bounded success.
+- T4, T5, T6 independent content/UI/tools delegated to existing agents; final regression/production freeze has not occurred.
+# T7 continuation (2026-10-27)
+
+- The latest user instruction supersedes the earlier sequence after T7: stop once T7 is complete, then discuss the next work together. Do not begin P3 or formal performance in this turn.
+- The T5 browser flow reaches the regional drill-down operation after create/edit/protection/undo/redo. Three attempts failed before producing a child because `prepareRegionalDrillDown` cloned the complete regional document, nulled `regional`, and then ran complete scene validation while regional-symbol raster assets were still present. `inspectDependencies` correctly reports these as `UNUSED_ASSET`; do not weaken that validator.
+- The workspace adapter materializes the child from an independent blank scene and retains the full parent source snapshot/link. Verify which regional symbol definitions/assets should be materialized in the child versus preserved only in the parent source record before changing closure behavior.
+- T7 scope still requires a fresh current-source freeze: full unit + AI + shared + typecheck + normal build, relevant Chromium, applicable Firefox/WebKit, and normal production UI. Existing 12/12 terrain Chromium, 30/30 older visual cross-browser, and 283 AI results are useful prior evidence but do not form a same-freeze final pass.
+
+## T7最终结果与停止点（2026-10-27）
+
+- T5子图只剔除失去全部定义引用的父图符专属资产，严格UNUSED_ASSET规则保留。规范化projectContentHash解决测试的字典顺序比较；真实Chromium区域旅程及Firefox/WebKit区域复跑通过。下钻只保证完全位于子图内且不与道路带重叠的区域面物化，其他几何由来源快照保留。
+- 完整Chromium45文件156/156同次通过，单worker、0失败/重试/跳过/flaky。新增Firefox/WebKit首轮27/28，WebKit区域位图解码失败根因未确认；区域专项另批2/2通过。早期视觉30/30不拼入本次结果。
+- 最终全量Vitest189文件2036/2036、AI23文件287/287、共享107模块、前后端类型/正常构建与ai:build通过。AI首轮visual-review因带refinement的Zod对象调用.extend()加载失败，改.safeExtend()保留校验后完整复验通过；客户端源码未因此改变。
+- 正常生产区域10步、T2编辑6个主要UI阶段及岩岛/混合路线16步完整通过，均正常退出。完整包、冷读与已执行双受众4K检查通过，错误计数为0。T2首轮旧按钮名超时、区域清理/channel差异及复验分列保留，不能把smoke耗时作为正式性能。
+- 原t7-freeze.json共823份文件；收尾比对只有服务端schema修复、三份已复验生产脚本和tests/README说明变化。客户端源码及todo/34/54保持原hash。另生成最终清单并保留原冻结，不覆写运行历史。
+- T7按55第20节列明范围完成。用户要求在此暂停；真实模型16项及4项局部任务、用户P3和v3正式性能未执行，未commit/push/部署。
+
+## T4 P3评审准备（2026-10-27）
+
+- 已展示T4同构图中性前后图、固定近景、根锚/占地辅助图，以及主持人/玩家和私密配对4K输出。`content-facts.json`显示20个近侧视实例均为固定竖直方向、`rotation=0`，根锚/地形/源字节/完整包/冷读保持一致；私密配对输出按固定遮罩保留。
+- 目视初评：新树岩的近侧视轮廓清楚，根部定位和阴影关系可辨，整体构图没有空白渲染；但新素材的深色粗描边、大范围软阴影和较大的树冠体量明显强于原地形，产生风格与视觉重量不一致。该判断是评审意见，不是自动化失败或几何错误。
+- 当前不把T4记为用户P3签收。下一步需用户决定：接受现状作为P3候选，或先调整描边/阴影外扩/树冠比例后再做一次同构图与4K复评。
+
+## 2026-10-27 T5内容代码收尾起点
+
+- 设计第20.4节将当前区域下钻限定为有限物化，但用户已要求先补剩余内容代码再统一测试；本轮补齐来源图符快照、道路带相交区域面分割、河流带、地标和图符物化。
+- `SourceRegionLink.inherited`目前只允许area/line/landmark/port，且没有固定图符定义；区域图符转入场景必须复制为普通`Prop`，保留真实资产、`propDefinition`、许可绑定和完整资源字节闭包，严格校验器不能放宽。
+- 当前工作区适配器从独立空白场景物化子图，适合由共享快照携带几何与定义快照，再在工作区将河流转为阻挡地形、地标/图符转为普通物件。相交道路带应使用布尔差集，孔洞或非连续结果明确拒绝，不能整块静默丢面。
+
+## 2026-10-27 T5代码阶段收尾
+
+- 区域下钻不再把低优先级外层包住高优先级内湖的合法包含关系做成孔洞。完整覆盖面保留为重叠 `TerrainArea`，由子图 `coveragePriority` 解析有效表面；即使完整包含，也保留独立来源面。
+- 真正边界交叉需要新的显式整数交点时保留不可变来源并写明原因；包含式覆盖面完整保留，不把合法内湖做成孔洞。区域图符、地标、水系、道路和许可闭包合同保持。
+- GM 表面先检查公开分区；若私密边界需要拆改公开面边界，则该私密来源只保留快照，避免通过公开几何分割泄露秘密范围。完全包含的私密覆盖仍可作为 GM-only 的高优先级面。
+- 代码、文档与测试用例已经补齐；依用户要求，尚未运行统一测试、类型检查、构建或生产 smoke。
+
+## 2026-10-27 T5报告与支撑逻辑补充
+
+- 来源条目按候选片段和实际物化片段计数，支持 `materialized`、`partial`、`sourceOnly` 三种状态；辅助进出口、部分线段和部分裁切面不再伪装成整条成功。
+- 子图保留独立 `port` 来源为 `generation.constraints` 的 soft port，并继续保留完整父图来源快照。
+- 道路/图符支撑按覆盖优先级采样和 `pointOnSurface` 判断；只有真实相交且当前可见的 TerrainArea 才进入支撑集合，公开对象触及 GM 覆盖则保留来源。
+- 新增工作区用例覆盖反向包含、连续顶点无重复、边界交叉来源保留和仅端口的部分物化；这些用例尚未执行。
+
+## 2026-10-27 T4正常生产dist最终复验
+
+- 当前源码重新构建后，真实生产入口 smoke 通过7步（41341ms）：入口无DEV钩子，候选“南望苔岛 · 近侧视”显示20张位图/48件物件，实际Canvas渲染完成；完整包64条清单逐条哈希、20张PNG、19个SVG来源及许可闭包均通过。
+- 通过“重新载入已保存版本”冷读后，本轮包SHA-256仍为`93bc9776626ecdbd929c82dba4d9bb51dc23fc6ce9977bdba6517d448f483202`（1,085,725字节）。GM/player实际PNG均4096×3072并由浏览器原生解码；页面错误、console错误、HTTP错误、失败请求和外网阻断均为0。工程创建时间会使不同轮次完整包哈希变化，不能跨轮比较该哈希。
+- 该结果补齐T4正常dist UI技术证据，不改变首轮跨浏览器失败记录，也不把公共样板两张同哈希PNG误作私密配对证明；私密配对仍依赖固定遮罩夹具，描边偏重、阴影外扩和树冠比例属于待用户P3决定的视觉问题。
+
+## 2026-10-27 统一验收收口
+
+- 当前修复后全量单元189文件2058/2058、AI23文件292/292、共享108模块、类型/构建和ai:build通过；窄交叉道路支撑改为完整覆盖面采样后，区域相关回归不再漏检真实支撑。
+- 当前完整Chromium156/156及适用Firefox/WebKit28/28通过。首轮跨引擎位图失败与此前中止的101通过/1中断/54未执行均保留，不把历史现场改写成当前失败或当前通过。
+- 生产区域、T2、T3与T4均从真实dist UI走完整包/冷读/双受众PNG检查，页面、console、HTTP、失败请求和外网阻断均为0；这些是技术链证据，不等同P3视觉签收或正式性能。
+- 统一验收后仍未启动T6真实模型任务、用户P3、UVTT真实导入和v3正式性能，也未commit/push/deploy。后续顺序需要用户决定。

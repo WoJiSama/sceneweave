@@ -20,7 +20,9 @@ for (const path of files) {
   const source = await readFile(path, 'utf8')
   const syntax = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true)
   const inspectImport = specifier => {
-    if (specifier === 'zod' || specifier === 'fflate') return
+    // Pure, deterministic geometry dependency. Its runtime has no DOM or
+    // platform access and is covered by the shared-layer smoke test below.
+    if (specifier === 'zod' || specifier === 'fflate' || specifier === 'polygon-clipping') return
     if (!specifier.startsWith('.') || !specifier.endsWith('.js') || relative(shared, resolve(dirname(path), specifier)).startsWith('..')) throw new Error(`共享层越界依赖：${relative(root, path)} → ${specifier}`)
   }
   const visit = node => {

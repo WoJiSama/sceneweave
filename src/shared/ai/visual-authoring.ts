@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import type { ProjectData } from '../model/project.js'
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../model/scene.js'
@@ -35,10 +36,10 @@ function rectangle(bounds: BoundsMm): PointMm[] {
   return [{ x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.width, y: bounds.y }, { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, { x: bounds.x, y: bounds.y + bounds.height }]
 }
 function visualEntity(project: ProjectData, id: string): VisualEntity | undefined {
-  return VISUAL_ENTITY_COLLECTIONS.flatMap(key => Object.hasOwn(project.document.visual?.[key] ?? {}, id) ? [project.document.visual![key][id]] : [])[0]
+  return VISUAL_ENTITY_COLLECTIONS.flatMap(key => Object.hasOwn(visualBase(project.document)?.[key] ?? {}, id) ? [visualBase(project.document)![key][id]] : [])[0]
 }
 function shapes(project: ProjectData, id: string): { points: PointMm[]; padding: number } | null {
-  const visual = project.document.visual
+  const visual = visualBase(project.document)
   if (!visual) return null
   if (visual.boundaries[id]) return { points: sampleVisualBoundary(visual.boundaries[id]).points, padding: 0 }
   const edge = visual.edgeLooks[id]
@@ -63,7 +64,7 @@ function assertVisual(project: ProjectData, scope: VisualAuthoringScope, id: str
   return [id, value.floorId, value.layerId]
 }
 function visualReferences(project: ProjectData, id: string): string[] {
-  const visual = project.document.visual
+  const visual = visualBase(project.document)
   const boundary = visual?.boundaries[id], edge = visual?.edgeLooks[id], filter = visual?.filters[id]
   return boundary?.binding.kind === 'terrain' ? boundary.binding.sides.map(side => side.areaId) : boundary?.binding.kind === 'path' ? [boundary.binding.pathId]
     : edge ? [edge.boundaryId] : filter?.target.kind === 'entities' ? filter.target.ids : []
@@ -77,7 +78,7 @@ export function validateVisualAuthoringScope(project: ProjectData, input: Visual
     if (visualEntity(project, id)) {
       assertVisual(project, scope, id)
       if (visualReferences(project, id).some(id => !scope.entityIds.includes(id))) deny('现存视觉引用须一起明确授权。')
-      const target = scene.visual?.filters[id]?.target
+      const target = visualBase(scene)?.filters[id]?.target
       if (target?.kind === 'layer') deny('AI不采用持续图层滤镜，请明确选择冻结实体。')
       if (target?.kind === 'scene' && !scope.allowGlobalEnvironment) deny('现存全图滤镜须单独授权全图。')
     }
@@ -203,7 +204,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
       if (!wall) deny('沿墙布景须引用真实墙体。')
       const a = project.document.vertices[wall.startVertexId], b = project.document.vertices[wall.endVertexId], start = { x: a.xMm, y: a.yMm }, end = { x: b.xMm, y: b.yMm }
       boundary = { closed: false, segments: [{ id: 'furnish-line', start, end, control1: start, control2: end }], sampleSpacingMm: 20000, toleranceMm: 20 }
-    } else { const value = project.document.visual!.boundaries[operation.source.id]; if (!value) deny('沿岸布景须引用视觉曲线。'); boundary = value }
+    } else { const value = visualBase(project.document)!.boundaries[operation.source.id]; if (!value) deny('沿岸布景须引用视觉曲线。'); boundary = value }
     const sampled = sampleVisualBoundary(boundary)
     if (operation.startDistanceMm + (operation.count - 1) * operation.spacingMm > sampled.lengthMm) deny('沿边布景超过曲线长度。')
     let current = project; const read = new Set<string>(), write = new Set<string>(), fresh = new Set<string>(); let cost = 0
@@ -287,9 +288,9 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
 
 export function publicVisualAuthoringContext(project: ProjectData, scope: VisualAuthoringScope, created: ReadonlySet<string>) {
   const allowed = new Set([...scope.entityIds, ...created])
-  const entities = VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(project.document.visual?.[collection] ?? {}).filter(value => allowed.has(value.id) && value.visibility === 'public').map(value => ({ collection, ...cloneJson(value) })))
+  const entities = VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(visualBase(project.document)?.[collection] ?? {}).filter(value => allowed.has(value.id) && value.visibility === 'public').map(value => ({ collection, ...cloneJson(value) })))
   return { floorId: scope.floorId, layerId: scope.layerId, boundsMm: scope.boundsMm, allowedOperations: scope.operations, allowGlobalEnvironment: scope.allowGlobalEnvironment ?? false,
-    entities, environment: scope.allowGlobalEnvironment ? project.document.visual!.environment : null }
+    entities, environment: scope.allowGlobalEnvironment ? visualBase(project.document)!.environment : null }
 }
 /** Physical read projection for visual-only tasks uses the same frozen public closure. */
 export function publicVisualPhysicalContext(project: ProjectData, scope: VisualAuthoringScope, created: ReadonlySet<string>) {

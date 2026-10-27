@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import type { SceneDocument } from '../model/scene.js'
 import { VISUAL_ENTITY_COLLECTIONS } from '../visual/diagnostics.js'
 import type { VisualBoundary } from '../visual/types.js'
@@ -8,9 +9,10 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_key, item:
 /** Parameter changes are restorable; bindings, control identities and explicit scopes are not. */
 export function visualTopology(scene: SceneDocument): Map<string, string> {
   const result = new Map<string, string>()
-  if (!scene.visual) return result
+  const visual = visualBase(scene)
+  if (!visual) return result
   result.set(scene.sceneId, canonical(['environment', scene.sceneId]))
-  for (const collection of VISUAL_ENTITY_COLLECTIONS) for (const item of Object.values(scene.visual[collection])) {
+  for (const collection of VISUAL_ENTITY_COLLECTIONS) for (const item of Object.values(visual[collection])) {
     const topology = 'segments' in item ? [item.closed, item.binding, (item as VisualBoundary).segments.map(segment => segment.id)]
       : 'boundaryId' in item ? item.boundaryId
       : 'target' in item ? item.target.kind === 'entities' ? ['entities', [...item.target.ids].sort()]

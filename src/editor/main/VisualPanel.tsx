@@ -1,3 +1,4 @@
+import { visualBase } from '../../shared/visual/base.js'
 import VisualSurfacePanel from './VisualSurfacePanel'
 import type { AppearanceGraph } from '../../shared/model/appearance'
 import { useEffect, useState } from 'react'
@@ -16,7 +17,7 @@ export default function VisualPanel({ scene, appearance, layerId, selectedIds, d
   onPreview: (commands: SceneCommand[], label: string) => void; onUpgrade: () => void
   onBoundaryEditor: (value: VisualBoundaryEditor | null) => void
 }) {
-  const visual = scene.visual ?? emptyVisualSystem(), floorId = Object.keys(scene.floors)[0]
+  const visual = visualBase(scene) ?? emptyVisualSystem(), floorId = Object.keys(scene.floors)[0]
   const entity = () => ({ id: newId(), floorId, layerId, visibility: 'public' as const, editLocked: false })
   const [tab, setTab] = useState<'surface' | 'edge' | 'environment' | 'light' | 'fog' | 'filter'>('edge')
   const [boundary, setBoundary] = useState<VisualBoundary | null>(null), [source, setSource] = useState('decoration')
@@ -53,7 +54,7 @@ export default function VisualPanel({ scene, appearance, layerId, selectedIds, d
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
   }
   return <section className="visual-panel" aria-label="视觉场景创作"><h2>视觉创作</h2>
-    {scene.schemaVersion !== 2 ? <><p>启用曲线、连续边带和环境效果，将当前工程完整保存为独立的视觉副本。</p><button disabled={disabled} className="primary asset-wide" onClick={onUpgrade}>启用视觉创作并保存独立副本</button></> : <>
+    {scene.schemaVersion === 1 ? <><p>启用曲线、连续边带和环境效果，将当前工程完整保存为独立的视觉副本。</p><button disabled={disabled} className="primary asset-wide" onClick={onUpgrade}>启用视觉创作并保存独立副本</button></> : <>
     <p className="asset-muted">曲线控制点、环境和效果随工程保存。参数先预览，采用后可一次撤销。</p>
     <nav className="visual-tabs" aria-label="视觉工具">{(['edge', 'surface', 'environment', 'light', 'fog', 'filter'] as const).map(key => <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>{({ edge: '边界', surface: '铺装', environment: '环境', light: '灯光', fog: '雾', filter: '滤镜' })[key]}</button>)}</nav>
     <fieldset disabled={disabled}>

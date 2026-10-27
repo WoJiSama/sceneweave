@@ -60,8 +60,23 @@ function selection(ctx: CanvasRenderingContext2D, scene: SceneDocumentV2, id: st
   ctx.restore()
 }
 
-export default function AssetCanvas({ project, selected, onSelect, audience = 'gm', disabled = false, onRenderMetrics, onPaint, placement, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, memberMode = false, onMemberMode, fitRequest = 0, editorRenderer, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, visualBoundary, onVisualBoundaryChange, toolControlsTarget, viewControlsTarget }: { visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
+export interface CanvasTerrainBrush {
+  radiusMm: number
+  strokes: readonly { pointsMm: readonly PointMm[]; radiusMm: number }[]
+  scope?: BoundsMm
+  label: string
+  onStroke: (points: PointMm[]) => void
+  onError?: (message: string) => void
+  onCancel: () => void
+}
+
+export default function AssetCanvas({ project, selected, onSelect, audience = 'gm', groundView = false, disabled = false, onRenderMetrics, onPaint, placement, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, memberMode = false, onMemberMode, fitRequest = 0, editorRenderer, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, toolControlsTarget, viewControlsTarget }: { groundView?: boolean; terrainBrush?: CanvasTerrainBrush | null; onVisualBoundaryFinish?: (value: VisualBoundary) => void; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
+  const brushDrag = useRef<{ pointer: number; points: PointMm[] } | null>(null)
+  const [brushPoints, setBrushPoints] = useState<PointMm[]>([]), [brushCursor, setBrushCursor] = useState<PointMm | null>(null)
+  const cancelBrushStroke = () => { const active = brushDrag.current; brushDrag.current = null; setBrushPoints([]); if (active && resumeRefinement.current) { resumeRefinement.current = false; setRefinementTick(value => value + 1) }; if (active && viewport.current?.hasPointerCapture(active.pointer)) viewport.current.releasePointerCapture(active.pointer) }
   const visualDrag = useRef<{ pointer: number; segment: number; key: 'start' | 'control1' | 'control2' | 'end'; original: VisualBoundary; current: VisualBoundary } | null>(null)
+  const visualCallbacks = useRef({ onVisualBoundaryChange }); visualCallbacks.current = { onVisualBoundaryChange }
+  const cancelVisualDrag = () => { const active = visualDrag.current; visualDrag.current = null; if (active) visualCallbacks.current.onVisualBoundaryChange?.(active.original) }
   const sessionIds = useSelectionIdsV2(selectionSession)
   // The caller supplies the complete native-v1 project and its immutable resource port.
   const renderPreview = editorRenderer ?? ((options: EditorRenderOptionsV2) => renderEditorProjectV2(toBundle(project), options))
@@ -159,7 +174,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       const rect = node.getBoundingClientRect(), delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientHeight : 1)
       zoom(Math.exp(-Math.max(-500, Math.min(500, delta)) * .002), { x: event.clientX - rect.left, y: event.clientY - rect.top })
     }
-    const blur = () => { endDrag(true); cancelMarquee() }
+    const blur = () => { endDrag(true); cancelMarquee(); cancelBrushStroke(); cancelVisualDrag() }
     node.addEventListener('wheel', wheel, { passive: false }); window.addEventListener('blur', blur)
     return () => { observer.disconnect(); node.removeEventListener('wheel', wheel); window.removeEventListener('blur', blur); if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null }; if (releaseTimer.current) clearTimeout(releaseTimer.current); drag.current = null; space.current = false }
     // Handlers read current ephemeral view/bounds through refs; no scene work on a gesture.
@@ -168,19 +183,20 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
     endDrag(false); if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null }
     viewRef.current = { ...FIT_VIEWPORT_V2 }; setView(viewRef.current); setMode('select')
   }, [project.document.sceneId, audience])
-  useEffect(() => { endDrag(true); cancelMarquee() }, [project, disabled, selectionOptions])
+  useEffect(() => { endDrag(true); cancelMarquee(); cancelBrushStroke(); visualDrag.current = null }, [project, disabled, selectionOptions])
+  useEffect(() => { if (!terrainBrush) { cancelBrushStroke(); setBrushCursor(null) } }, [!!terrainBrush])
   useEffect(() => { if (fitRequest) fit() }, [fitRequest])
-  useEffect(() => { if (placement || worldTool) { endDrag(false); setMode('select') } }, [placement?.id, worldTool?.kind])
+  useEffect(() => { if (placement || worldTool || terrainBrush) { endDrag(false); cancelMarquee(); setMode('select') } }, [placement?.id, worldTool?.kind, !!terrainBrush])
   useEffect(() => {
     const controller = new AbortController(), token = {}; let image: HTMLCanvasElement | null = null; current.current = token; setResult(null); setError(null)
-    void renderPreview({ audience, longEdgePx: 1200, signal: controller.signal, onMetrics: onRenderMetrics }).then(rendered => {
+    void renderPreview({ audience, longEdgePx: 1200, signal: controller.signal, onMetrics: onRenderMetrics, groundView }).then(rendered => {
       image = rendered
       if (controller.signal.aborted || current.current !== token) { image.width = 0; image.height = 0; return }
       setResult({ project, audience, token, image })
       setRenderCount(count => count + 1)
     }).catch(reason => { if (!controller.signal.aborted && current.current === token) setError({ project, audience, message: reason instanceof Error ? reason.message : String(reason) }) })
     return () => { controller.abort(); if (current.current === token) current.current = null; if (image) { image.width = 0; image.height = 0 } }
-  }, [project, audience, onRenderMetrics, editorRenderer])
+  }, [project, audience, groundView, onRenderMetrics, editorRenderer])
   // Keep the existing world raster moving immediately. A bounded visible crop is
   // rebuilt only after the gesture settles; no selection dependency enters here.
   useEffect(() => {
@@ -196,7 +212,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       if (right <= x || bottom <= y) { if (refinementTask.current === task) { refinementTask.current = null; setRefinementPending(false) }; return }
       const crop = { x, y, width: right - x, height: bottom - y }, dpr = Math.min(2, window.devicePixelRatio || 1)
       const longEdgePx = Math.max(256, Math.min(2048, Math.ceil(Math.max(crop.width, crop.height) * scale * dpr)))
-      void renderPreview({ audience, longEdgePx, viewBoundsMm: crop, screenScalePxPerMm: scale, signal: controller.signal }).then(rendered => {
+      void renderPreview({ audience, longEdgePx, viewBoundsMm: crop, screenScalePxPerMm: scale, signal: controller.signal, groundView }).then(rendered => {
         image = rendered
         if (controller.signal.aborted || refinementTask.current !== task) { rendered.width = 0; rendered.height = 0; return }
         refinementTask.current = null; setRefinementPending(false)
@@ -204,7 +220,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       }).catch(reason => { if (refinementTask.current === task) { refinementTask.current = null; setRefinementPending(false) }; if (!controller.signal.aborted) setError({ project, audience, message: reason instanceof Error ? reason.message : String(reason) }) })
     }, 300)
     return () => { if (refinementTask.current === task) { refinementTask.current = null; setRefinementPending(false) }; clearTimeout(task.timer); controller.abort(); if (image) { image.width = 0; image.height = 0 } }
-  }, [project, audience, result, view.zoom, view.panX, view.panY, size.width, size.height, dragging, refinementTick, editorRenderer])
+  }, [project, audience, groundView, result, view.zoom, view.panX, view.panY, size.width, size.height, dragging, refinementTick, editorRenderer])
   useLayoutEffect(() => {
     // Returning from a candidate can reuse the same project identity after an
     // earlier crop task was disposed. That released canvas must never be read.
@@ -292,14 +308,14 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       {toolControlsTarget ? createPortal(<div className="asset-external-tool-controls" role="group" aria-label="地图选择与平移">{toolControls}</div>, toolControlsTarget) : toolControls}
       {!toolControlsTarget && !viewControlsTarget && <span className="asset-viewport-divider"/>}
       {viewControlsTarget ? createPortal(<div className="asset-external-view-controls" role="group" aria-label="地图缩放与全图">{viewControls}</div>, viewControlsTarget) : viewControls}
-      {audience === 'gm' && <><button aria-label="全选可编辑对象" disabled={!ready || disabled || !!placement || !!worldTool} onClick={selectAll}>全选</button><span className="asset-viewport-divider"/>{(['replace', 'add', 'subtract'] as const).map(value => <button key={value} aria-label={{ replace: '替换选择', add: '增加选择', subtract: '减去选择' }[value]} aria-pressed={operation === value} disabled={disabled || !!placement || !!worldTool} onClick={() => setOperation(value)}>{{ replace: '替换', add: '增加', subtract: '减去' }[value]}</button>)}<label><input type="checkbox" aria-label="包含相交对象" checked={intersect} disabled={disabled || !!placement || !!worldTool} onChange={event => setIntersect(event.target.checked)}/>相交</label><label><input type="checkbox" aria-label="选择组合成员" checked={memberMode} disabled={disabled || !!placement || !!worldTool} onChange={event => onMemberMode?.(event.target.checked)}/>成员</label></>}
-      <span className="asset-viewport-hint">{worldTool ? worldTool.label ?? (worldTool.kind === 'ruler' ? '量尺 · 点击两点 · Escape 退出' : '点击绘图 · 按网格吸附 · Escape 退出') : placement ? '点击放置 · Escape 取消 · 空格拖动' : '滚轮缩放 · 空格拖动'}</span>
+      {audience === 'gm' && <><button aria-label="全选可编辑对象" disabled={!ready || disabled || !!placement || !!worldTool || !!terrainBrush} onClick={selectAll}>全选</button><span className="asset-viewport-divider"/>{(['replace', 'add', 'subtract'] as const).map(value => <button key={value} aria-label={{ replace: '替换选择', add: '增加选择', subtract: '减去选择' }[value]} aria-pressed={operation === value} disabled={disabled || !!placement || !!worldTool || !!terrainBrush} onClick={() => setOperation(value)}>{{ replace: '替换', add: '增加', subtract: '减去' }[value]}</button>)}<label><input type="checkbox" aria-label="包含相交对象" checked={intersect} disabled={disabled || !!placement || !!worldTool || !!terrainBrush} onChange={event => setIntersect(event.target.checked)}/>相交</label><label><input type="checkbox" aria-label="选择组合成员" checked={memberMode} disabled={disabled || !!placement || !!worldTool || !!terrainBrush} onChange={event => onMemberMode?.(event.target.checked)}/>成员</label></>}
+      <span className="asset-viewport-hint">{terrainBrush ? terrainBrush.label : worldTool ? worldTool.label ?? (worldTool.kind === 'ruler' ? '量尺 · 点击两点 · Escape 退出' : '点击绘图 · 按网格吸附 · Escape 退出') : placement ? '点击放置 · Escape 取消 · 空格拖动' : '滚轮缩放 · 空格拖动'}</span>
     </div>
-    <div ref={viewport} className={`asset-viewport${mode === 'pan' ? ' is-pan' : ''}${dragging ? ' is-dragging' : ''}${worldTool ? ' building-world-tool' : ''}`} role="group" aria-label="地图视口" tabIndex={0}
+    <div ref={viewport} className={`asset-viewport${mode === 'pan' ? ' is-pan' : ''}${dragging ? ' is-dragging' : ''}${worldTool || terrainBrush ? ' building-world-tool' : ''}`} role="group" aria-label="地图视口" tabIndex={0}
       data-selected-ids={JSON.stringify(ids)} data-selection-detail={ids.length > 256 ? 'bounds' : ids.length > 32 ? 'outlines' : 'handles'} data-zoom={view.zoom} data-pan-x={view.panX} data-pan-y={view.panY} data-render-count={renderCount} data-refinement-count={refinementCount} data-refinement-pending={refinementPending}
-      onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { endDrag(true); cancelMarquee() } }}
+      onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { endDrag(true); cancelMarquee(); cancelBrushStroke() } }}
       onContextMenu={event => {
-        if (!ready || disabled || audience !== 'gm' || placement || worldTool || mode === 'pan' || drag.current || marqueeRef.current) return
+        if (!ready || disabled || audience !== 'gm' || placement || worldTool || terrainBrush || mode === 'pan' || drag.current || marqueeRef.current) return
         const point = pointerWorld(event.clientX, event.clientY)
         if (!point || !onContext) return
         event.preventDefault(); event.currentTarget.focus({ preventScroll: true })
@@ -307,18 +323,37 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       }}
       onPointerDown={event => {
         if (!ready || event.button > 1) return
+        if (brushDrag.current) { event.preventDefault(); return }
         suppressClick.current = false
         event.currentTarget.focus({ preventScroll: true })
-        if (event.button === 1 || mode === 'pan' || space.current || event.pointerType === 'touch') {
+        if (terrainBrush && !disabled && audience === 'gm' && event.button === 0 && mode !== 'pan' && !space.current) {
+          const point = pointerWorld(event.clientX, event.clientY)
+          if (!point) return
+          event.preventDefault(); suppressClick.current = true; cancelMarquee(); cancelRefinement()
+          brushDrag.current = { pointer: event.pointerId, points: [point] }; setBrushPoints([point]); setBrushCursor(point)
+          event.currentTarget.setPointerCapture(event.pointerId)
+        } else if (event.button === 1 || mode === 'pan' || space.current || event.pointerType === 'touch') {
           event.preventDefault(); suppressClick.current = true
           drag.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, start: { ...viewRef.current }, original: { ...viewRef.current } }
           cancelMarquee(); event.currentTarget.setPointerCapture(event.pointerId); setDragging(true)
-        } else if (!disabled && audience === 'gm' && !placement && !worldTool) {
+        } else if (!disabled && audience === 'gm' && !placement && !worldTool && !terrainBrush) {
           const world = pointerWorld(event.clientX, event.clientY)
           if (world) { cancelRefinement(); selectingRef.current = true; marqueeRef.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, world, ids: [...ids], operation: event.altKey ? 'subtract' : event.shiftKey ? 'add' : operation }; event.currentTarget.setPointerCapture(event.pointerId) }
         }
       }}
       onPointerMove={event => {
+        const brush = brushDrag.current
+        if (terrainBrush && !disabled && audience === 'gm' && mode === 'select') {
+          const point = pointerWorld(event.clientX, event.clientY); if (point) setBrushCursor(point)
+          if (brush?.pointer === event.pointerId && point) {
+            event.preventDefault(); const last = brush.points[brush.points.length - 1]
+            if (Math.hypot(point.x - last.x, point.y - last.y) >= Math.max(20, terrainBrush.radiusMm / 8)) {
+              if (brush.points.length >= 512) { cancelBrushStroke(); suppressClick.current = true; terrainBrush.onError?.('本笔超过 512 个采样点，整笔已取消。请缩短笔画后重新预览。'); return }
+              brush.points.push(point); setBrushPoints([...brush.points])
+            }
+            return
+          }
+        }
         const start = drag.current
         if (start?.pointer === event.pointerId) { event.preventDefault(); start.lastX = event.clientX; start.lastY = event.clientY; changeView({ ...start.start, panX: start.start.panX + event.clientX - start.x, panY: start.start.panY + event.clientY - start.y }) }
         else if (marqueeRef.current?.pointer === event.pointerId) {
@@ -329,6 +364,15 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
         else if (ready && placement && !disabled && audience === 'gm' && mode === 'select') { const point = pointerWorld(event.clientX, event.clientY); if (point) onPlacementMove?.(point) }
       }}
       onPointerUp={event => {
+        const brush = brushDrag.current
+        if (brush?.pointer === event.pointerId && terrainBrush) {
+          event.preventDefault(); const point = pointerWorld(event.clientX, event.clientY)
+          if (point && (point.x !== brush.points[brush.points.length - 1].x || point.y !== brush.points[brush.points.length - 1].y)) {
+            if (brush.points.length >= 512) { cancelBrushStroke(); suppressClick.current = true; terrainBrush.onError?.('本笔超过 512 个采样点，整笔已取消。请缩短笔画后重新预览。'); return }
+            brush.points.push(point)
+          }
+          const points = [...brush.points]; cancelBrushStroke(); suppressClick.current = true; terrainBrush.onStroke(points); return
+        }
         if (drag.current?.pointer === event.pointerId) endDrag(false)
         const active = marqueeRef.current
         if (active?.pointer === event.pointerId) {
@@ -341,16 +385,16 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
           cancelMarquee(Math.hypot(event.clientX - active.x, event.clientY - active.y) >= 4)
         }
       }}
-      onPointerCancel={() => { endDrag(true); cancelMarquee(); suppressClick.current = true }} onLostPointerCapture={() => { if (drag.current) endDrag(true); if (marqueeRef.current) { cancelMarquee(); suppressClick.current = true } }}
+      onPointerCancel={() => { cancelBrushStroke(); endDrag(true); cancelMarquee(); suppressClick.current = true }} onLostPointerCapture={() => { if (brushDrag.current) cancelBrushStroke(); if (drag.current) endDrag(true); if (marqueeRef.current) { cancelMarquee(); suppressClick.current = true } }}
       onKeyDown={event => {
         if (event.target !== event.currentTarget || !ready) return
-        if (event.key === 'Escape') { event.preventDefault(); if (marqueeRef.current) suppressClick.current = true; cancelMarquee(); endDrag(true); setMode('select'); onCancelPlacement?.(); worldTool?.onCancel(); return }
-        if ((event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) && !disabled && audience === 'gm' && !placement && !worldTool && onContext) {
+        if (event.key === 'Escape') { event.preventDefault(); if (marqueeRef.current) suppressClick.current = true; cancelMarquee(); cancelBrushStroke(); endDrag(true); setMode('select'); onCancelPlacement?.(); worldTool?.onCancel(); terrainBrush?.onCancel(); return }
+        if ((event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) && !disabled && audience === 'gm' && !placement && !worldTool && !terrainBrush && onContext) {
           event.preventDefault(); const image = canvas.current!.getBoundingClientRect(), prop = ids.length === 1 ? project.document.props[ids[0]] : null, point = prop?.positionMm ?? { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }
           onContext(point, ids.length ? [...ids] : pointHits(project.document, point, 7 / image.width * bounds.width, { ...selectionOptions, memberMode }), { x: image.left + (point.x - bounds.x) / bounds.width * image.width, y: image.top + (point.y - bounds.y) / bounds.height * image.height }, event.currentTarget); return
         }
         if (event.key === 'Enter' && worldTool?.onFinish && !disabled) { event.preventDefault(); worldTool.onFinish(); return }
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && !disabled && audience === 'gm' && !placement && !worldTool) { event.preventDefault(); selectAll(); return }
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && !disabled && audience === 'gm' && !placement && !worldTool && !terrainBrush) { event.preventDefault(); selectAll(); return }
         if (event.metaKey || event.ctrlKey || event.altKey) return
         if (event.code === 'Space') { event.preventDefault(); space.current = true; return }
         if (['+', '='].includes(event.key)) { event.preventDefault(); zoom(1.25) }
@@ -362,7 +406,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
         }
       }} onKeyUp={event => { if (event.code === 'Space') { space.current = false; event.preventDefault() } }}
       onDoubleClick={event => {
-        if (!ready || disabled || audience !== 'gm' || mode !== 'select' || placement || worldTool) return
+        if (!ready || disabled || audience !== 'gm' || mode !== 'select' || placement || worldTool || terrainBrush) return
         const point = pointerWorld(event.clientX, event.clientY)
         if (!point) return
         const id = pointHits(project.document, point, 7 / canvas.current!.getBoundingClientRect().width * bounds.width, { ...selectionOptions, memberMode: true })[0]
@@ -370,6 +414,7 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       }}
       onClick={event => {
         if (!ready || disabled || audience !== 'gm' || mode === 'pan' || suppressClick.current || !canvas.current) return
+        if (terrainBrush) return
         if (worldTool) { const point = pointerWorld(event.clientX, event.clientY); if (point) worldTool.onPoint(snapBuildingPoint(point, worldTool.snapMm)); return }
         if (placement) { const point = pointerWorld(event.clientX, event.clientY); if (point) onPlace?.(point); return }
         const image = canvas.current.getBoundingClientRect()
@@ -383,6 +428,11 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
         {/* Session-only render inputs preserve precision that CSS percentage serialization can round. */}
         <canvas ref={detailCanvas} className="asset-detail-preview" aria-hidden="true" data-refinement-bounds={refinementBounds ? JSON.stringify(refinementBounds) : undefined} data-refinement-scale={refinementBounds ? refinement?.screenScalePxPerMm : undefined} style={refinementBounds ? { left: `${(refinementBounds.x - bounds.x) / bounds.width * 100}%`, top: `${(refinementBounds.y - bounds.y) / bounds.height * 100}%`, width: `${refinementBounds.width / bounds.width * 100}%`, height: `${refinementBounds.height / bounds.height * 100}%` } : { display: 'none' }}/>
         <canvas ref={overlay} className="asset-selection-overlay" aria-hidden="true"/>
+        {terrainBrush && audience === 'gm' && <svg className="asset-selection-overlay terrain-brush-overlay" aria-hidden="true" data-testid="terrain-brush-overlay" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+          {terrainBrush.scope && <rect x={terrainBrush.scope.x} y={terrainBrush.scope.y} width={terrainBrush.scope.width} height={terrainBrush.scope.height} fill="none" stroke="#b16b2d" strokeWidth={2 * bounds.width / rect.width} strokeDasharray={`${6 * bounds.width / rect.width} ${4 * bounds.width / rect.width}`}/>}
+          {[...terrainBrush.strokes, ...(brushPoints.length ? [{ pointsMm: brushPoints, radiusMm: terrainBrush.radiusMm }] : [])].map((stroke, index) => <g key={index}>{stroke.pointsMm.length === 1 ? <circle cx={stroke.pointsMm[0].x} cy={stroke.pointsMm[0].y} r={stroke.radiusMm} fill="#4d956452"/> : <polyline points={stroke.pointsMm.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#4d956452" strokeWidth={stroke.radiusMm * 2} strokeLinecap="round" strokeLinejoin="round"/>}</g>)}
+          {brushCursor && <circle cx={brushCursor.x} cy={brushCursor.y} r={terrainBrush.radiusMm} fill="none" stroke="#205d48" strokeWidth={1.5 * bounds.width / rect.width}/>}
+        </svg>}
         {visualBoundary && audience === 'gm' && !disabled && <svg className="visual-controls" aria-label="曲线控制点" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%' }} onClick={event => event.stopPropagation()}
           onPointerMove={event => {
             const drag = visualDrag.current
@@ -401,8 +451,8 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
             }
             drag.current = next; onVisualBoundaryChange(next)
           }}
-          onPointerUp={event => { if (visualDrag.current?.pointer !== event.pointerId) return; event.preventDefault(); event.stopPropagation(); visualDrag.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
-          onPointerCancel={event => { const drag = visualDrag.current; if (drag) onVisualBoundaryChange?.(drag.original); visualDrag.current = null; event.stopPropagation() }}>
+          onPointerUp={event => { if (visualDrag.current?.pointer !== event.pointerId) return; event.preventDefault(); event.stopPropagation(); const finished = visualDrag.current.current; visualDrag.current = null; onVisualBoundaryFinish?.(finished); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+          onPointerCancel={event => { const drag = visualDrag.current; if (drag) onVisualBoundaryChange?.(drag.original); visualDrag.current = null; event.stopPropagation() }} onLostPointerCapture={() => { const drag = visualDrag.current; if (drag) onVisualBoundaryChange?.(drag.original); visualDrag.current = null }}>
           <path d={visualBoundary.segments.map((s, i) => `${i ? '' : `M ${s.start.x} ${s.start.y}`} C ${s.control1.x} ${s.control1.y} ${s.control2.x} ${s.control2.y} ${s.end.x} ${s.end.y}`).join(' ')} fill="none" stroke="#165F78" strokeWidth={2 * bounds.width / rect.width}/>
           {visualBoundary.segments.map((segment, i) => <g key={segment.id}>
             <path d={`M ${segment.start.x} ${segment.start.y} L ${segment.control1.x} ${segment.control1.y} M ${segment.end.x} ${segment.end.y} L ${segment.control2.x} ${segment.control2.y}`} fill="none" stroke="#165F78" strokeWidth={bounds.width / rect.width} strokeDasharray={`${4 * bounds.width / rect.width} ${3 * bounds.width / rect.width}`}/>
@@ -421,6 +471,6 @@ export default function AssetCanvas({ project, selected, onSelect, audience = 'g
       {marquee && <div className="asset-marquee" data-testid="selection-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }}/> }
       {!ready && <div className="asset-viewport-message"><div className="asset-preview-message" role={failed ? 'alert' : 'status'}>{failed ? <><strong>此场景暂时无法绘制</strong><p>{error.message}</p><p>完整工程仍保留，可继续备份与修改。</p></> : '正在解码素材并绘制场景…'}</div></div>}
     </div>
-    <div className="asset-selection-notice" role="status">{worldTool ? worldTool.label ?? (worldTool.kind === 'ruler' ? '量尺只在本次会话显示，不写入工程或 PNG。' : '按网格吸附顶点，在建筑面板预览并采用；当前工程尚未改变。') : selectionNotice || (audience === 'gm' ? '单击选择 · 拖动框选 · Shift 增选 · Option/Alt 减选' : '玩家预览仅提供视口操作')}</div>
+    <div className="asset-selection-notice" role="status">{terrainBrush ? terrainBrush.label : worldTool ? worldTool.label ?? (worldTool.kind === 'ruler' ? '量尺只在本次会话显示，不写入工程或 PNG。' : '按网格吸附顶点，在建筑面板预览并采用；当前工程尚未改变。') : selectionNotice || (audience === 'gm' ? '单击选择 · 拖动框选 · Shift 增选 · Option/Alt 减选' : '玩家预览仅提供视口操作')}</div>
   </div>
 }

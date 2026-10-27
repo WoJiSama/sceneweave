@@ -6,7 +6,7 @@ export function validateCatalogKey(value: unknown): string {
   if (typeof value !== 'string' || value.length > 4096) throw new Error('素材精确身份键无效。')
   let tuple: unknown
   try { tuple = JSON.parse(value) } catch { throw new Error('素材精确身份键无效。') }
-  if (!Array.isArray(tuple) || tuple.length !== 6 || ![1, 2].includes(tuple[0] as number) || !isSha256(tuple[1]) || !['prop', 'material', 'prefab'].includes(tuple[2])
+  if (!Array.isArray(tuple) || tuple.length !== 6 || ![1, 2, 3].includes(tuple[0] as number) || !isSha256(tuple[1]) || !['prop', 'material', 'prefab'].includes(tuple[2])
     || typeof tuple[3] !== 'string' || !tuple[3] || tuple[3].length > 1024 || !Number.isSafeInteger(tuple[4]) || tuple[4] < 1 || !isSha256(tuple[5])
     || JSON.stringify(tuple) !== value) throw new Error('素材精确身份键无效。')
   return value

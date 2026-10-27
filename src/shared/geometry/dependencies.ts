@@ -1,6 +1,6 @@
 import type { Appearance, DefinitionIdentity, Editable, Issue, SceneDocument, SurfaceRef, SurfaceStyle, VersionRef } from '../model/scene.js'
 
-export type LicenseSubject = { subjectKind: 'asset' | 'material' | 'propDefinition' | 'prefabDefinition' | 'styleTheme'; subjectId: string; licenseRef: string }
+export type LicenseSubject = { subjectKind: 'asset' | 'material' | 'propDefinition' | 'prefabDefinition' | 'styleTheme' | 'regionalSymbolDefinition'; subjectId: string; licenseRef: string }
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item !== null && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
@@ -80,6 +80,7 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
     if (new Set(definition.members.map(item => item.key)).size !== definition.members.length) error('DUPLICATE_TEMPLATE_KEY', '组合模板的子项 key 必须唯一。', definition.id)
     for (const member of definition.members) checkAppearance(member.propTemplate.appearance, member.propTemplate.definitionRef, definition.id)
   }
+  if(scene.schemaVersion===3 && scene.regional) for(const definition of Object.values(scene.regional.symbolDefinitions)) { adopted('regionalSymbolDefinition',definition); useAsset(definition.assetId,definition.id) }
   for (const theme of Object.values(scene.styleThemes)) {
     adopted('styleTheme', theme)
     for (const ref of theme.materialSuggestions) checkVersion(ref, scene.materials, theme.id)

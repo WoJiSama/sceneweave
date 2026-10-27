@@ -12,11 +12,16 @@ import { StaticSvgArtifacts } from './svg-artifacts.js'
 import { authoringTools, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
 import { validateTaskVision } from './vision-input.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
+import { canonicalJson } from '../../src/shared/validation/json.js'
+import { sha256Text } from '../../src/shared/validation/hash.js'
+import { RegionSceneCandidateResponseSchema } from '../../src/shared/ai/region-candidate-protocol.js'
+import type { RegionSceneCandidateQuery } from '../../src/shared/ai/region-candidate-protocol.js'
 
 const connectionArguments = z.object({ topic: z.literal('connection') }).strict()
 const tool: ProviderToolDefinition = { name: 'sceneweave_connection_info', description: 'Read this Sceneweave connection and its actual supported capabilities. This does not read or change any scene.', parameters: { type: 'object', properties: { topic: { type: 'string', enum: ['connection'] } }, required: ['topic'], additionalProperties: false } }
 const validId = /^[A-Za-z0-9_.:-]{1,128}$/
 const aborted = () => new DOMException('Execution interrupted', 'AbortError')
+const REGION_CANDIDATE_MAX_BYTES = 8 * 1024 * 1024
 
 export interface TaskEngineOptions { now?: () => number; maxConcurrent?: number; authoringOutputTokens?: number; preserveReasoning?: 'enabled' | 'disabled' }
 
@@ -273,6 +278,22 @@ export class TaskEngine {
     const task = this.store.read(id, owner)
     if (!task.authoring) throw new TaskFault('draft_not_found', 404)
     return AuthoringDraftSchema.parse({ schemaVersion: 1, taskId: id, generation: task.snapshot.generation, start: task.authoring.start, state: task.authoring.state })
+  }
+  regionSceneCandidate(owner: string, id: string, query: RegionSceneCandidateQuery) {
+    this.assertStorageAvailable()
+    const task = this.store.read(id, owner), authoring = task.authoring, candidate = authoring?.regionSceneCandidate
+    if (!candidate) throw new TaskFault('not_found', 404)
+    const scope = authoring.start.scope.scene
+    if (!scope) throw new TaskFault('candidate_conflict')
+    const scopeHash = sha256Text(canonicalJson(scope))
+    if (candidate.id !== query.candidateId || candidate.hash !== query.candidateHash || candidate.atContentHash !== query.atContentHash
+      || candidate.atDraftRevision !== query.draftRevision || candidate.scopeHash !== query.scopeHash || candidate.hash !== candidate.result.hash
+      || authoring.state.contentHash !== query.atContentHash || authoring.state.draftRevision !== query.draftRevision || scopeHash !== candidate.scopeHash) throw new TaskFault('candidate_conflict')
+    const response = RegionSceneCandidateResponseSchema.parse({ schemaVersion: 1, taskId: id, generation: task.snapshot.generation,
+      candidateId: candidate.id, candidateHash: candidate.hash, atContentHash: candidate.atContentHash, draftRevision: authoring.state.draftRevision, scopeHash,
+      scope, result: candidate.result })
+    if (utf8Size(JSON.stringify(response)) > REGION_CANDIDATE_MAX_BYTES) throw new TaskFault('candidate_limit', 413)
+    return response
   }
   private stamped(owner: string, id: string, stamp: DraftStamp) {
     this.assertStorageAvailable()

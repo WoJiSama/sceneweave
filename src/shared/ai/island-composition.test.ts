@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
 import type { AuthoringStart } from './authoring-protocol.js'
@@ -41,7 +42,7 @@ describe('finite authorised island boundary shape review', () => {
     expect(inspectIslandBoundaryProposal(subject.project, subject.scope, subject.allowed, operation)).toEqual(review)
     expect(canonicalJson({ project: subject.project, state: subject.state, operation })).toBe(before)
     const edit = applyAuthoringStep(subject.source, subject.state, [operation], 'explicit-coast')
-    expect(edit.project.document.visual!.boundaries['real-coast'].segments).toEqual(operation.segments)
+    expect(visualBase(edit.project.document)!.boundaries['real-coast'].segments).toEqual(operation.segments)
   })
 
   it('flags a symmetric four-anchor ring honestly instead of claiming smoothing created an irregular coastline', () => {

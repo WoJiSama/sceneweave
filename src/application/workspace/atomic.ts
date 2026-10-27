@@ -1,3 +1,5 @@
+import { visualBase } from '../../shared/visual/base.js'
+import { terrainRecordChanges } from '../../shared/terrain-generation/review.js'
 import type { AuthoringDraft, AuthoringScope, AuthoringStart, DraftLease } from '../../shared/ai/authoring-protocol.js'
 import { AuthoringDraftSchema, DraftLeaseSchema, AUTHORING_LIMITS } from '../../shared/ai/authoring-protocol.js'
 import { authoringProjectHash, replayAuthoring, validateAuthoringStart } from '../../shared/ai/authoring.js'
@@ -21,6 +23,8 @@ export interface AtomicCandidate {
   project: EditableProject
   document: EditableProject['document']
   changes: readonly AtomicChange[]
+  /** Empty candidates are read-only review credentials for regional drill-down. */
+  reviewOnly: boolean
   operationCost: number
   readIds: readonly string[]
   writeIds: readonly string[]
@@ -51,14 +55,14 @@ export function captureAtomicStart(input: AuthoringStart): AuthoringStart {
   const captured = captureJson(input) as unknown as AuthoringStart
   return freezeAtomic(validateAuthoringStart(captured))
 }
-export function captureAtomicDraft(input: AuthoringDraft, authorization: AtomicAuthorization) {
+export function captureAtomicDraft(input: AuthoringDraft, authorization: AtomicAuthorization, options: { allowEmpty?: boolean } = {}) {
   const draft = freezeAtomic(AuthoringDraftSchema.parse(captureJson(input)))
   if (authoringProjectHash(draft.start.project) !== authorization.baseContentHash
     || canonicalJson(draft.start) !== canonicalJson(authorization.start)) throw new Error('任务草稿不属于本机授权的确切基线和范围。')
   const replayed = replayAuthoring(authorization.start, draft.state.steps)
   // Canonical hashes compare every state field; task JSON has no trusted valid flag.
   if (canonicalJson(replayed.state) !== canonicalJson(draft.state)) throw new Error('任务步骤、实际范围、成本或内容校验值与本机重放不一致。')
-  if (!draft.state.draftRevision || !draft.state.operationCost || draft.state.operationCost > AUTHORING_LIMITS.operations) throw new Error('任务草稿为空或超过256条实际操作预算。')
+  if ((!draft.state.draftRevision || !draft.state.operationCost) && !options.allowEmpty || draft.state.operationCost > AUTHORING_LIMITS.operations) throw new Error('任务草稿为空或超过256条实际操作预算。')
   return { draft, project: replayed.project, state: replayed.state, visualInvalidatedIds: replayed.visualInvalidatedIds }
 }
 export function atomicChanges(before: ProjectData, after: ProjectData, touched: readonly string[], invalidatedVisualIds: readonly string[] = []): AtomicChange[] {
@@ -71,8 +75,8 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
       return { collection, value: { entity: records[id], layerId: project.document.entityLayers[id] ?? null } }
     }
     for (const collection of VISUAL_ENTITY_COLLECTIONS) {
-      const entity = project.document.visual?.[collection][id]
-      if (entity) return { collection: `visual.${collection}`, value: entity }
+      const entity = visualBase(project.document)?.[collection][id]
+      if (entity) return { collection: `${project.document.visual?.version === 2 ? 'visual.base' : 'visual'}.${collection}`, value: entity }
     }
     // SVG authoring and licensing records are persisted alongside, but outside,
     // the scene entity collections. They still need to be visible in review.
@@ -83,8 +87,8 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
     return null
   }
   const artworkIds = [...new Set([...Object.keys(before.authoringSources), ...Object.keys(after.authoringSources), ...Object.keys(before.document.assets), ...Object.keys(after.document.assets), ...Object.keys(before.assets), ...Object.keys(after.assets), ...Object.keys(before.document.propDefinitions), ...Object.keys(after.document.propDefinitions)])]
-  const visualIds = [before, after].flatMap(project => VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.keys(project.document.visual?.[collection] ?? {})))
-  const changes = [...new Set([...touched, ...artworkIds, ...visualIds])].flatMap(id => {
+  const visualIds = [before, after].flatMap(project => VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.keys(visualBase(project.document)?.[collection] ?? {})))
+  const changes: AtomicChange[] = [...new Set([...touched, ...artworkIds, ...visualIds])].flatMap(id => {
     const previous = row(before, id), next = row(after, id)
     if (!previous && !next) return []
     const collection = next?.collection ?? previous!.collection
@@ -102,10 +106,11 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
   if (JSON.stringify(before.document.constraints) !== JSON.stringify(after.document.constraints)) changes.push({
     id: 'scene-constraints', collection: 'constraints', before: before.document.constraints, after: after.document.constraints, fields: ['constraints'],
   })
-  if (JSON.stringify(before.document.visual?.environment) !== JSON.stringify(after.document.visual?.environment)) changes.push({
-    id: 'visual-environment', collection: 'visual.environment', before: before.document.visual?.environment ?? null,
-    after: after.document.visual?.environment ?? null, fields: ['environment'],
+  if (JSON.stringify(visualBase(before.document)?.environment) !== JSON.stringify(visualBase(after.document)?.environment)) changes.push({
+    id: 'visual-environment', collection: after.document.visual?.version === 2 ? 'visual.base.environment' : 'visual.environment', before: visualBase(before.document)?.environment ?? null,
+    after: visualBase(after.document)?.environment ?? null, fields: ['environment'],
   })
+  changes.push(...terrainRecordChanges(before.document, after.document))
   for (const id of invalidatedVisualIds) {
     if (changes.some(change => change.id === id)) continue
     const previous = row(before, id), next = row(after, id)

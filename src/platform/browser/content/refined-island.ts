@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import type { PointMm, Prop, SceneDocument, SurfaceOverlay, SurfaceStyle, TerrainArea } from '../../../shared/model/scene.js'
 import type { CubicSegment, VisualBoundary, VisualEdgeLook } from '../../../shared/visual/types.js'
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
@@ -40,12 +41,12 @@ function boundary(scene: SceneDocument, id: string, rows: number[][][], areaId: 
   const curve: VisualBoundary = { ...entity(id, GROUND), closed: true, segments, sampleSpacingMm: 650, toleranceMm: 30, binding: { kind: 'decoration' } }
   const area = terrain(scene, areaId, sampleVisualBoundary(curve).points, key, priority, elevation)
   curve.binding = { kind: 'terrain', sides: [{ areaId, startPointId: area.boundaryMm[0].id, endPointId: area.boundaryMm[0].id, reverse: false }] }
-  scene.visual!.boundaries[id] = curve
+  visualBase(scene)!.boundaries[id] = curve
   return { curve, area }
 }
 function look(scene: SceneDocument, boundaryId: string, kind: VisualEdgeLook['kind'], options: Partial<VisualEdgeLook>): void {
   const id = `${boundaryId}-${kind}`
-  scene.visual!.edgeLooks[id] = { ...entity(id), boundaryId, kind, side: 'right', widthMm: 600, color: '#79664F', accentColor: '#DDCEAD', opacity: 1, intensity: 1,
+  visualBase(scene)!.edgeLooks[id] = { ...entity(id), boundaryId, kind, side: 'right', widthMm: 600, color: '#79664F', accentColor: '#DDCEAD', opacity: 1, intensity: 1,
     seed: `q1-${id}-1`, repeatMm: 260, enabled: true, ...options }
 }
 function place(scene: SceneDocument, key: string, x: number, y: number, rotationDeg: number, supportId: string, scale = 1): void {
@@ -166,11 +167,11 @@ export function createRefinedIslandDocument(options: { sceneId?: string; now?: s
   ].entries()) place(scene, 'debris-scree', x as number, y as number, i * 71 % 360, support as string, .7)
   place(scene, 'debris-driftwood', 7600, 10100, 36, low.id, .85)
   place(scene, 'debris-driftwood', 18400, 11900, 121, low.id, .65)
-  scene.visual!.environment = { ambientColor: '#E8E7C9', ambientOpacity: .025, exposure: 1.02, lightDirectionDeg: 50, contactShadowMm: 55, contactShadowOpacity: .2 }
-  scene.visual!.filters['q1-paper-tone'] = { ...entity('q1-paper-tone', EFFECTS), target: { kind: 'scene' }, preset: 'warm', exposure: 1.01, saturation: 1.03, contrast: 1.04,
+  visualBase(scene)!.environment = { ambientColor: '#E8E7C9', ambientOpacity: .025, exposure: 1.02, lightDirectionDeg: 50, contactShadowMm: 55, contactShadowOpacity: .2 }
+  visualBase(scene)!.filters['q1-paper-tone'] = { ...entity('q1-paper-tone', EFFECTS), target: { kind: 'scene' }, preset: 'warm', exposure: 1.01, saturation: 1.03, contrast: 1.04,
     vignette: .025, grain: .012, seed: 'q1-paper-1', enabled: true }
   // Water haze remains local and faint; land heights must read with this effect disabled.
-  scene.visual!.fogs['q1-water-haze'] = { ...entity('q1-water-haze', EFFECTS), boundaryMm: ring([[800, 14900], [6600, 15400], [10800, 16200], [11400, 17700], [800, 17700]]),
+  visualBase(scene)!.fogs['q1-water-haze'] = { ...entity('q1-water-haze', EFFECTS), boundaryMm: ring([[800, 14900], [6600, 15400], [10800, 16200], [11400, 17700], [800, 17700]]),
     color: '#D9E8CF', opacity: .035, directionDeg: 12, scaleMm: 1900, seed: 'q1-water-haze-1', enabled: true }
   const checked = validateSceneDocument(scene)
   if (!checked.ok) throw new Error(`精修岩岛无效：${checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('；')}`)

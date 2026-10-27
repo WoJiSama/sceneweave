@@ -27,7 +27,20 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     boundaries.push({ id: boundary.id, points: copy(sampled.points), samples: copy(sampled.samples), lengthMm: sampled.lengthMm, closed: sampled.closed, terrainAreaIds: binding.kind === 'terrain' ? binding.sides.map(side => side.areaId) : [] })
   }
   const boundaryIds = new Set(boundaries.map(b => b.id)), edgeLooks = Object.values(visual.edgeLooks).filter(look => shown(look) && boundaryIds.has(look.boundaryId)).sort((a, b) => a.id.localeCompare(b.id)).map(copy)
-  const decorated = new Set(edgeLooks.map(look => look.boundaryId)), replacedSegments = new Set<string>()
+  // Filter both the edge and its source before sorting or suppressing physical
+  // outlines. Private/hidden decorations must not change the public picture.
+  const materialized = scene.visual?.version === 2
+    ? Object.values(scene.visual.materializedEdges).filter(edge => shown(edge) && boundaryIds.has(edge.boundaryId)) : []
+  if (materialized.some(edge => edge.materialRef !== null)) throw new Error('当前物化边缘预览仅支持明确颜色几何；材质边缘尚未支持。')
+  const order = (a: { id: string; layerId: string }, b: { id: string; layerId: string }) =>
+    (scene.userLayers[a.layerId]?.order ?? 0) - (scene.userLayers[b.layerId]?.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  const materializedEdges = materialized.sort(order).map(edge => ({ id: edge.id, kind: edge.kind, polygons: copy(edge.polygons),
+    strokes: copy(edge.strokes), fillColor: edge.fillColor, opacity: edge.opacity }))
+  const edgePaintOrder = scene.visual?.version === 2 ? [
+    ...edgeLooks.map(edge => ({ ...edge, representation: 'edgeLook' as const })),
+    ...materialized.map(edge => ({ ...edge, representation: 'materializedEdge' as const })),
+  ].sort(order).map(edge => ({ kind: edge.representation, id: edge.id })) : undefined
+  const decorated = new Set([...edgeLooks, ...materialized].map(look => look.boundaryId)), replacedSegments = new Set<string>()
   for (const boundary of boundaries) if (decorated.has(boundary.id)) {
     for (let i = 1; i < boundary.points.length; i++) replacedSegments.add(segmentKey(boundary.points[i - 1], boundary.points[i]))
     if (boundary.closed) replacedSegments.add(segmentKey(boundary.points[boundary.points.length - 1], boundary.points[0]))
@@ -79,6 +92,7 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     filters.push({ ...copy(parameters), ...(sourceEntityIds ? { sourceEntityIds } : {}), ...(target.kind === 'region' ? { regionFeatherMm: Math.min(1200, Math.min(targetBoundsMm.width, targetBoundsMm.height) * .16) } : {}), targetRings: rings, targetBoundsMm })
   }
   return { environment: copy(visual.environment), boundsMm: copy(scene.exportBoundsMm), boundaries, edgeLooks,
+    ...(scene.visual?.version === 2 ? { materializedEdges, edgePaintOrder } : {}),
     lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !projection.masks.some(mask => { const b = bounds(mask); return light.positionMm.x >= b.x && light.positionMm.y >= b.y && light.positionMm.x <= b.x + b.width && light.positionMm.y <= b.y + b.height }))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
     fogs: Object.values(visual.fogs).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).map(copy), filters,
     occluderRings: [...projectedWallFootprints(projection), ...projectedPropFootprints(projection)],

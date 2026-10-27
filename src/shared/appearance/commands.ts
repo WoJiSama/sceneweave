@@ -1,3 +1,4 @@
+import { propPresentation } from './presentation.js'
 import { z } from 'zod'
 import { inspectJsonInput, cloneJson } from '../validation/json.js'
 import { roundMm } from '../commands/base.js'
@@ -7,7 +8,9 @@ import { geometryIdentityIds } from '../commands/domain.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
 import type { PointMm, Prop, SceneDocument, SurfaceRef } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
-import { advanceHistoryIdentity, createHistoryIdentityTrace } from '../history/identity.js'
+import { createHistoryIdentityTrace } from '../history/identity.js'
+import { detachChangedAppearance } from '../terrain-generation/appearance-lifecycle.js'
+import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { addPropAppearanceSource, effectiveAdjustments, equalCompositionValue, freezeEffectivePropAppearance, inspectAppearanceScope, propAppearanceSnapshot, supportedAppearanceKinds, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './graph.js'
 import { appearanceAdjustmentSchema, certifyCompositionContent, certifyCompositionDraft, compositionIdSchema, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
 import { COMPOSITION_LIMITS, type AdjustmentKind, type AppearanceAdjustment, type AppearanceScope, type CompositionCommand, type CompositionContent } from '../model/appearance.js'
@@ -109,6 +112,7 @@ function createPrefab(content: CompositionContent, command: Extract<CompositionC
     const prop = props[index], frozen = freezeEffectivePropAppearance(content, prop.id, prop)
     // The reusable fixed template captures this selection, never a live link to its old layer.
     Object.assign(graph.sources, frozen.appearance.sources)
+    if (graph.version === 2) Object.assign(graph.presentations!, frozen.appearance.presentations)
     graph.prefabAppearanceTemplates[command.definitionId].members[members[index].key] = { sourceId: frozen.appearance.propSources[prop.id], adjustments: frozen.appearance.instanceAdjustments[prop.id] }
   }
   return props.length + 2
@@ -126,7 +130,7 @@ function instantiate(content: CompositionContent, command: Extract<CompositionCo
   document.entityLayers[command.id] = layer.id
   for (const member of definition.members) {
     const id = command.memberIds[member.key]; assertFresh(content, id)
-    const prop: Prop = { ...cloneJson(member.propTemplate), id, floorId: layer.floorId, editLocked: false, visibility: privatePlacement ? 'gm' : 'public', supportRef: cloneJson(command.supportRef), ...(command.supportRef.kind === 'room' ? { roomId: command.supportRef.id } : {}), positionMm: transformed(member.propTemplate.positionMm, command.anchorMm, rotation), rotationDeg: angle(member.propTemplate.rotationDeg + rotation) }
+    const prop: Prop = { ...cloneJson(member.propTemplate), id, floorId: layer.floorId, editLocked: false, visibility: privatePlacement ? 'gm' : 'public', supportRef: cloneJson(command.supportRef), ...(command.supportRef.kind === 'room' ? { roomId: command.supportRef.id } : {}), positionMm: transformed(member.propTemplate.positionMm, command.anchorMm, rotation), rotationDeg: graph.presentations?.[template.members[member.key].sourceId]?.mode === 'nearSide' ? 0 : angle(member.propTemplate.rotationDeg + rotation) }
     prop.renderOrder = topOrder(document, prop); document.props[id] = prop; document.entityLayers[id] = layer.id
     document.prefabInstances[command.id].members[member.key] = { propId: id, overrideFields: [] }
     graph.propSources[id] = template.members[member.key].sourceId; graph.instanceAdjustments[id] = cloneJson(template.members[member.key].adjustments)
@@ -167,7 +171,7 @@ function resetMember(content: CompositionContent, command: Extract<CompositionCo
   assertSupport(document, group.floorId, support)
   const visibility = createPublicVisibility(document)
   const privatePlacement = group.visibility === 'gm' || graph.prefabAppearanceTemplates[definition.id].visibility === 'gm' || (current !== undefined && !visibility.prop(current)) || !visibility.surface(support)
-  const prop: Prop = { ...cloneJson(template.propTemplate), id, floorId: group.floorId, editLocked: false, supportRef: cloneJson(support), ...(support.kind === 'room' ? { roomId: support.id } : {}), visibility: privatePlacement ? 'gm' : 'public', positionMm: transformed(template.propTemplate.positionMm, group.anchorMm, group.rotationDeg), rotationDeg: angle(template.propTemplate.rotationDeg + group.rotationDeg) }
+  const prop: Prop = { ...cloneJson(template.propTemplate), id, floorId: group.floorId, editLocked: false, supportRef: cloneJson(support), ...(support.kind === 'room' ? { roomId: support.id } : {}), visibility: privatePlacement ? 'gm' : 'public', positionMm: transformed(template.propTemplate.positionMm, group.anchorMm, group.rotationDeg), rotationDeg: graph.presentations?.[graph.prefabAppearanceTemplates[definition.id].members[command.key].sourceId]?.mode === 'nearSide' ? 0 : angle(template.propTemplate.rotationDeg + group.rotationDeg) }
   prop.renderOrder = current?.renderOrder ?? topOrder(document, prop); document.props[id] = prop; document.entityLayers[id] = document.entityLayers[group.id]
   group.members[command.key] = { propId: id, overrideFields: [] }
   const appearance = graph.prefabAppearanceTemplates[definition.id].members[command.key]
@@ -197,12 +201,13 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   // immediately replaced. Composition commands still require mutable members.
   let content = ownedDraft && !isComposition[0]
     ? { document: source.document, historyIdentity: source.historyIdentity, appearance: source.appearance }
-    : cloneJson(source), cost = 0
+    : cloneJson(source), cost = 0, generationCost = 0
+  const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context)
   const consume = (value: number) => { cost += value; if (cost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
-    const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context)
-    const observer = { onOutdoorDraft: (draft: Readonly<SceneDocument>) => identityTrace.observe(draft) }
+    const fixedUprightPropIds = new Set(Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'))
+    const observer = { fixedUprightPropIds, onSceneDraft: (draft: Readonly<SceneDocument>) => identityTrace.observe(draft) }
     content.document = ownedDraft
       ? applySnapshotCommands(source.document, sceneCommands, context, { ...observer, preserveNoopIdentity: false })
       : applyCommands(source.document, sceneCommands, context, observer)
@@ -219,12 +224,12 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     content = ownedDraft
       ? syncAppearanceGraphSnapshot(content, source.document, sceneCommands)
       : syncAppearanceGraph(content, source.document, sceneCommands)
-    content.historyIdentity = identityTrace.finish(content.document)
   } else {
     const appearanceOnly = commands.every(command => ['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource'].includes(command.type))
     const anyAppearance = commands.some(command => ['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource'].includes(command.type))
     if (anyAppearance && !appearanceOnly) throw new Error('新外观派生须先完成资源准备，再保存/放置固定组合。')
     for (const command of commands) {
+      const beforeTerrain = content.document.schemaVersion === 3 ? cloneJson(content) : null
       switch (command.type) {
         case 'setAppearanceAdjustment': case 'toggleAppearanceAdjustment': case 'removeAppearanceAdjustment': {
           const graph = content.appearance, record = command.scope.kind === 'layer' ? graph.layerAdjustments : graph.instanceAdjustments
@@ -290,9 +295,25 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         }
         default: throw new Error('不支持的组合操作。')
       }
+      if (beforeTerrain) {
+        detachChangedAppearance(beforeTerrain, content)
+        const expanded = terrainCommandCost(beforeTerrain.document, content.document)
+        generationCost += expanded.total - expanded.items.physicalAndVisual
+        if (cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
+      }
+      identityTrace.observe(content.document)
     }
     content = syncAppearanceGraph(content)
   }
-  if (isComposition[0]) content.historyIdentity = advanceHistoryIdentity(source.historyIdentity, source.document, content.document, context)
+  if (content.document.schemaVersion === 3) {
+    // Snapshot-command results can already be privately frozen. Detachment
+    // owns a detached generation branch rather than mutating that witness.
+    content = { ...content, document: cloneJson(content.document) }
+    detachChangedAppearance(source, content)
+    const expanded = terrainCommandCost(source.document, content.document)
+    generationCost = Math.max(generationCost, expanded.total - expanded.items.physicalAndVisual)
+    if (Math.max(cost, expanded.items.physicalAndVisual) + generationCost > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
+  }
+  content.historyIdentity = identityTrace.finish(content.document)
   return ownedDraft ? certifyCompositionDraft(content) : validateCompositionDraft(content)
 }

@@ -1,3 +1,4 @@
+import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { randomBytes } from 'node:crypto'
@@ -130,10 +131,10 @@ test('a visual-only AI grant submits the complete brief, streams its plan and ad
   await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已采用', { timeout: 40_000 }); await expect(authoring).toContainText('保护快照和保存已完成', { timeout: 40_000 }); await saved(page)
   const adopted = await current(page)
-  expect(adopted.revision).toBe(before.revision + 1); expect(adopted.document.visual!.lights[lightId]).toMatchObject({ color: '#EAC582', intensity: .65, visibility: 'public' })
-  expect(adopted.document.visual!.fogs[fogId]).toMatchObject({ seed: 'visual-browser-fog', opacity: .2, visibility: 'public' })
+  expect(adopted.revision).toBe(before.revision + 1); expect(visualBase(adopted.document)!.lights[lightId]).toMatchObject({ color: '#EAC582', intensity: .65, visibility: 'public' })
+  expect(visualBase(adopted.document)!.fogs[fogId]).toMatchObject({ seed: 'visual-browser-fog', opacity: .2, visibility: 'public' })
   const physical = (scene: typeof adopted.document) => { const { visual: _visual, revision: _revision, updatedAt: _updatedAt, ...rest } = scene; return rest }
-  expect(physical(adopted.document)).toEqual(physical(before.document)); expect(adopted.document.visual!.environment).toEqual(before.document.visual!.environment)
+  expect(physical(adopted.document)).toEqual(physical(before.document)); expect(visualBase(adopted.document)!.environment).toEqual(visualBase(before.document)!.environment)
   const snapshots = await page.evaluate(async sceneId => { const path = '/src/platform/browser/runtime.ts'; return (await import(path) as typeof import('../src/platform/browser/runtime')).projectRepository.listSnapshots(sceneId) }, adopted.sceneId)
   expect(snapshots).toHaveLength(1); expect(snapshots[0]).toMatchObject({ kind: 'protection', sourceRevision: before.revision })
   await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)

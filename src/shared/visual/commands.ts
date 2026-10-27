@@ -1,3 +1,4 @@
+import { visualBase } from './base.js'
 import { z } from 'zod'
 import type { PreparationContext } from '../ports/runtime.js'
 import type { SceneDocument, TerrainArea, PointMm } from '../model/scene.js'
@@ -51,9 +52,10 @@ function assertVisualWritable(scene: SceneDocument, incoming: VisualEntity, prev
   }
 }
 export function visualCommandRootIds(scene: SceneDocument, command: VisualCommand): string[] {
+  const visual = visualBase(scene)
   switch (command.type) {
-    case 'upsertVisualBoundary': return [command.boundary.id, ...visualBindingEntityIds(command.boundary), ...(scene.visual?.boundaries[command.boundary.id] ? visualBindingEntityIds(scene.visual.boundaries[command.boundary.id]) : [])]
-    case 'removeVisualBoundary': return [command.id, ...(scene.visual?.boundaries[command.id] ? visualBindingEntityIds(scene.visual.boundaries[command.id]) : [])]
+    case 'upsertVisualBoundary': return [command.boundary.id, ...visualBindingEntityIds(command.boundary), ...(visual?.boundaries[command.boundary.id] ? visualBindingEntityIds(visual.boundaries[command.boundary.id]) : [])]
+    case 'removeVisualBoundary': return [command.id, ...(visual?.boundaries[command.id] ? visualBindingEntityIds(visual.boundaries[command.id]) : [])]
     case 'upsertVisualEdgeLook': return [command.edgeLook.id, command.edgeLook.boundaryId]
     case 'upsertVisualLight': return [command.light.id]
     case 'upsertVisualFog': return [command.fog.id]
@@ -64,13 +66,17 @@ export function visualCommandRootIds(scene: SceneDocument, command: VisualComman
   }
 }
 function checkPhysicalLocks(scene: SceneDocument, ids: readonly string[]): void {
+  const base = visualBase(scene)
+  const materialized = scene.visual?.version === 2 ? scene.visual.materializedEdges : {}
   const entities = physicalEntities(scene), locked = [...new Set(ids)].filter(id => {
     const entity = entities.get(id)
     if (entity && (entity.editLocked || scene.userLayers[scene.entityLayers[id]]?.editLocked)) return true
     for (const collection of VISUAL_ENTITY_COLLECTIONS) {
-      const visual = scene.visual && own(scene.visual[collection] as Record<string, VisualEntity>, id)
+      const visual = base && own(base[collection] as Record<string, VisualEntity>, id)
       if (visual && (visual.editLocked || scene.userLayers[visual.layerId]?.editLocked)) return true
     }
+    const edge = own(materialized, id)
+    if (edge && (edge.editLocked || scene.userLayers[edge.layerId]?.editLocked)) return true
     return false
   })
   if (locked.length) throw new Error(`视觉事务涉及锁定对象、图层或依赖：${locked.join('、')}。`)
@@ -119,7 +125,7 @@ function replaceTerrainChain(scene: SceneDocument, boundary: VisualBoundary, sid
   area.boundaryMm = next
 }
 function applyBoundary(scene: SceneDocument, boundary: VisualBoundary, context: PreparationContext): void {
-  const visual = scene.visual!, previous = own(visual.boundaries, boundary.id)
+  const visual = visualBase(scene)!, previous = own(visual.boundaries, boundary.id)
   assertVisualWritable(scene, boundary, previous)
   if (previous && !equal(previous.binding, boundary.binding)) throw new Error('更换曲线绑定须先显式解除原绑定，再创建新的边界身份。')
   sampleVisualBoundary(boundary)
@@ -133,6 +139,22 @@ function applyBoundary(scene: SceneDocument, boundary: VisualBoundary, context: 
     path.centerlineMm = cloneJson(points)
   }
   visual.boundaries[boundary.id] = cloneJson(boundary)
+}
+/** T2 writes a stable terrain chain; dependent props remain read-only unless
+ * its separate support pass explicitly moves them and checks their locks.
+ * The ordinary visual command retains its broader dependency-lock policy. */
+export function applyTerrainBoundaryShape(scene: SceneDocument, input: VisualBoundary, context: PreparationContext): void {
+  const boundary = visualBoundarySchema.parse(input), previous = visualBase(scene)?.boundaries[boundary.id]
+  if (!previous || boundary.binding.kind !== 'terrain' || previous.binding.kind !== 'terrain'
+    || !equal(previous.binding, boundary.binding) || previous.closed !== boundary.closed
+    || !equal(previous.segments.map(segment => segment.id), boundary.segments.map(segment => segment.id))) {
+    throw new Error('局部地形曲线必须保留现存地形绑定与拓扑。')
+  }
+  if (!equal({ ...previous, segments: [] }, { ...boundary, segments: [] })) {
+    throw new Error('局部地形曲线只允许修改控制点，必须保留Floor、图层、锁、秘密与采样参数。')
+  }
+  checkPhysicalLocks(scene, [boundary.id, ...visualBindingEntityIds(boundary)])
+  applyBoundary(scene, boundary, context)
 }
 function entityShape(scene: SceneDocument, id: string): PointMm[][] {
   if (scene.terrainAreas[id]) return [terrainPoints(scene.terrainAreas[id])]
@@ -183,21 +205,25 @@ function spatialTargets(scene: SceneDocument, entity: VisualSystem['lights'][str
   return relatedVisualLocks(scene, affected)
 }
 function effectDependencies(scene: SceneDocument, command: VisualCommand): string[] {
+  const visual = visualBase(scene)
+  const materialized = scene.visual?.version === 2 ? scene.visual.materializedEdges : {}
   const roots = visualCommandRootIds(scene, command), result = new Set<string>(roots)
   if (command.type === 'upsertVisualBoundary' || command.type === 'removeVisualBoundary') for (const id of outdoorDependencies(scene, roots)) result.add(id)
   if (command.type === 'setVisualSurface') for (const id of relatedVisualLocks(scene, [command.id])) result.add(id)
   for (const root of roots) {
-    const boundary = scene.visual?.boundaries[root]
+    const boundary = visual?.boundaries[root]
     if (boundary) for (const id of outdoorDependencies(scene, visualBindingEntityIds(boundary))) result.add(id)
-    for (const effect of Object.values(scene.visual?.edgeLooks ?? {})) if (effect.boundaryId === root) result.add(effect.id)
+    for (const effect of Object.values(visual?.edgeLooks ?? {})) if (effect.boundaryId === root) result.add(effect.id)
+    for (const edge of Object.values(materialized)) if (edge.boundaryId === root) result.add(edge.id)
     for (const collection of ['lights', 'fogs', 'filters'] as const) {
-      const existing = scene.visual?.[collection][root]
+      const existing = visual?.[collection][root]
       if (existing) for (const id of spatialTargets(scene, existing)) result.add(id)
     }
   }
   if (command.type === 'setVisualEnvironment') {
     for (const id of physicalEntities(scene).keys()) result.add(id)
-    for (const collection of VISUAL_ENTITY_COLLECTIONS) for (const id of Object.keys(scene.visual?.[collection] ?? {})) result.add(id)
+    for (const collection of VISUAL_ENTITY_COLLECTIONS) for (const id of Object.keys(visual?.[collection] ?? {})) result.add(id)
+    for (const id of Object.keys(materialized)) result.add(id)
   }
   if (command.type === 'upsertVisualFilter') for (const id of spatialTargets(scene, command.filter)) result.add(id)
   if (command.type === 'upsertVisualFog' || command.type === 'upsertVisualLight') for (const id of spatialTargets(scene, command.type === 'upsertVisualFog' ? command.fog : command.light)) result.add(id)
@@ -205,11 +231,13 @@ function effectDependencies(scene: SceneDocument, command: VisualCommand): strin
 }
 function mutate(scene: SceneDocument, command: VisualCommand, context: PreparationContext): void {
   if (scene.schemaVersion === 1) {
-    scene.schemaVersion = 2; scene.visual = emptyVisualSystem()
+    const initial = emptyVisualSystem()
     const theme = scene.activeStyleThemeRef && scene.styleThemes[scene.activeStyleThemeRef.id]
-    if (theme) scene.visual.environment.lightDirectionDeg = theme.terrainCliff.directionDeg ?? theme.shadowPresets.wall.directionDeg
+    if (theme) initial.environment.lightDirectionDeg = theme.terrainCliff.directionDeg ?? theme.shadowPresets.wall.directionDeg
+    scene.schemaVersion = 2; scene.visual = initial
   }
-  const visual = scene.visual!
+  const visual = visualBase(scene)
+  if (!visual) throw new Error('视觉指令需要完整视觉系统。')
   switch (command.type) {
     case 'upsertVisualBoundary': applyBoundary(scene, command.boundary, context); break
     case 'removeVisualBoundary': {
@@ -218,6 +246,9 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
       assertVisualWritable(scene, boundary, boundary)
       if (boundary.binding.kind !== 'decoration' && !command.detach) throw new Error('物理曲线须明确detach=true，保留当前几何后解除控制。')
       if (Object.values(visual.edgeLooks).some(edge => edge.boundaryId === boundary.id)) throw new Error('边界仍有边缘外观，请先显式移除外观。')
+      if (scene.visual?.version === 2 && Object.values(scene.visual.materializedEdges).some(edge => edge.boundaryId === boundary.id)) {
+        throw new Error('边界仍有物化边缘，请先通过明确候选处理依赖；不能只移除来源曲线。')
+      }
       delete visual.boundaries[command.id]; break
     }
     case 'upsertVisualEdgeLook': assertVisualWritable(scene, command.edgeLook, own(visual.edgeLooks, command.edgeLook.id)); visual.edgeLooks[command.edgeLook.id] = cloneJson(command.edgeLook); break
@@ -248,16 +279,16 @@ function diffRecord(before: Record<string, unknown>, after: Record<string, unkno
 export function visualCommandCost(before: SceneDocument, after: SceneDocument): number {
   let cost = inspectOutdoorChanges(before, after, []).commandCost
   if (before.schemaVersion !== after.schemaVersion) cost++
-  for (const collection of VISUAL_ENTITY_COLLECTIONS) cost += diffRecord(before.visual?.[collection] ?? {}, after.visual?.[collection] ?? {})
-  for (const id of new Set([...Object.keys(before.visual?.boundaries ?? {}), ...Object.keys(after.visual?.boundaries ?? {})])) {
-    const segments = (scene: SceneDocument) => Object.fromEntries((scene.visual?.boundaries[id]?.segments ?? []).map(segment => [segment.id, segment]))
+  for (const collection of VISUAL_ENTITY_COLLECTIONS) cost += diffRecord(visualBase(before)?.[collection] ?? {}, visualBase(after)?.[collection] ?? {})
+  for (const id of new Set([...Object.keys(visualBase(before)?.boundaries ?? {}), ...Object.keys(visualBase(after)?.boundaries ?? {})])) {
+    const segments = (scene: SceneDocument) => Object.fromEntries((visualBase(scene)?.boundaries[id]?.segments ?? []).map(segment => [segment.id, segment]))
     cost += diffRecord(segments(before), segments(after))
   }
   for (const id of new Set([...Object.keys(before.paths), ...Object.keys(after.paths)])) {
     const a = before.paths[id]?.centerlineMm ?? [], b = after.paths[id]?.centerlineMm ?? []
     cost += Array.from({ length: Math.max(a.length, b.length) }, (_, index) => index).filter(index => !equal(a[index], b[index])).length
   }
-  if (!equal(before.visual?.environment, after.visual?.environment)) cost++
+  if (!equal(visualBase(before)?.environment, visualBase(after)?.environment)) cost++
   const surfaceOverlays = (document: SceneDocument) => Object.fromEntries([
     ...Object.values(document.rooms).map(value => [value.id, value.floorStyle] as const), ...Object.values(document.walls).map(value => [value.id, value.topStyle] as const),
     ...[...Object.values(document.terrainAreas), ...Object.values(document.paths), ...Object.values(document.terrainEdges), ...Object.values(document.terrainConnections)].map(value => [value.id, value.surfaceStyle] as const),
@@ -269,7 +300,10 @@ export function visualCommandCost(before: SceneDocument, after: SceneDocument): 
 export function inspectVisualChanges(before: Readonly<SceneDocument>, after: Readonly<SceneDocument>, commands: readonly VisualCommand[]): OutdoorImpact {
   const roots = [...new Set(commands.flatMap(command => [...visualCommandRootIds(before, command), ...visualCommandRootIds(after, command)]))]
   const physical = inspectOutdoorChanges(before, after, roots)
-  const visualIds = (document: Readonly<SceneDocument>) => new Map(VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(document.visual?.[collection] ?? {})).map(entity => [entity.id, entity]))
+  const visualIds = (document: Readonly<SceneDocument>) => new Map<string, { id: string; layerId: string }>([
+    ...VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(visualBase(document)?.[collection] ?? {})),
+    ...Object.values(document.visual?.version === 2 ? document.visual.materializedEdges : {}),
+  ].map(entity => [entity.id, entity]))
   const a = visualIds(before), b = visualIds(after)
   const dependencies = [...new Set(commands.flatMap(command => [...effectDependencies(before, command), ...effectDependencies(after, command)]))]
   const affectedIds = [...new Set([...physical.affectedIds, ...dependencies])].sort()

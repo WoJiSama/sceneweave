@@ -1,3 +1,4 @@
+import { effectivePropShadow, nearSidePaintEnvelope, propPaintPolygon, presentationContact } from '../../../shared/appearance/presentation.js'
 import type { BoundsMm, Prop } from '../../../shared/model/scene.js'
 import { transformedVisualBounds } from './geometry'
 import type { Projection } from '../../../shared/projection/types.js'
@@ -34,7 +35,7 @@ export function editorPaintBounds(projection: Projection, plan: EditorRenderPlan
   const theme = projection.theme
   padding = Math.max(padding, shadowPadding(theme?.shadowPresets.wall), theme?.outline.widthMm ?? 24)
   if (theme?.terrainCliff.opacity) padding = Math.max(padding, theme.terrainCliff.maxOffsetMm + theme.terrainCliff.blurMm * 4)
-  for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(entry.prop.shadowOverride ?? theme?.shadowPresets[entry.prop.shadowClass]))
+  for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(effectivePropShadow(entry.prop, projection.propPresentations?.[entry.prop.id], theme?.shadowPresets[entry.prop.shadowClass])))
   const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style), ...projection.paths.map(path => path.style)]
   for (const style of styles) for (const overlay of style?.overlays ?? []) padding = Math.max(padding, overlay.blendWidthMm * 2)
   for (const path of projection.paths) padding = Math.max(padding, pathDecorationPadding(path.edgeStyle))
@@ -47,6 +48,7 @@ export function editorPaintBounds(projection: Projection, plan: EditorRenderPlan
     const environment = projection.visual.environment
     padding = Math.max(padding, environment.contactShadowMm * 4)
     for (const look of projection.visual.edgeLooks) padding = Math.max(padding, look.widthMm * 2)
+    for (const edge of projection.visual.materializedEdges ?? []) for (const stroke of edge.strokes) padding = Math.max(padding, stroke.widthMm / 2)
     // Light polygons use the full audience-owned occluder closure. Radial
     // gradients/fog noise use fixed world coordinates and need no light buffer.
   }
@@ -71,15 +73,25 @@ export function createEditorRenderPlan(projection: Projection, options: EditorRe
   const boundsMm = { x, y, width: right - x, height: bottom - y }
   const detailCounts: Record<EditorPropDetail, number> = { outline: 0, image: 0, full: 0 }, props: EditorPropPlan[] = []
   for (const prop of projection.props) {
-    const visualBoundsMm = transformedVisualBounds(prop)
+    const presentation = projection.propPresentations?.[prop.id]
+    const corners = propPaintPolygon(prop, presentation)
+    const minX = Math.min(...corners.map(p => p.x)), minY = Math.min(...corners.map(p => p.y))
+    const visualBoundsMm = presentation ? { x: minX, y: minY, width: Math.max(...corners.map(p => p.x)) - minX, height: Math.max(...corners.map(p => p.y)) - minY } : transformedVisualBounds(prop)
     const screenSizePx = Math.max(visualBoundsMm.width, visualBoundsMm.height) * options.screenScalePxPerMm
     const detail: EditorPropDetail = screenSizePx < EDITOR_OUTLINE_THRESHOLD_PX ? 'outline' : screenSizePx < EDITOR_FULL_THRESHOLD_PX ? 'image' : 'full'
-    const shadow = prop.shadowOverride ?? projection.theme?.shadowPresets[prop.shadowClass]
+    const shadow = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
     // The same conservative world padding used by public privacy checks. A
     // body outside the crop can still cast a visible shadow inside it.
     const padding = Math.max(detail === 'full' && shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : detail === 'outline' ? .5 / options.screenScalePxPerMm : 0,
-      projection.visual && prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' ? projection.visual.environment.contactShadowMm * 4 : 0)
-    const paintBoundsMm = { x: visualBoundsMm.x - padding, y: visualBoundsMm.y - padding, width: visualBoundsMm.width + padding * 2, height: visualBoundsMm.height + padding * 2 }
+      projection.visual?.environment.contactShadowOpacity && prop.renderLayer !== 'ground' ? projection.visual.environment.contactShadowMm * 4 : 0)
+    const paintShadow = detail === 'full' ? shadow : null
+    const contactBlur = detail === 'full' && presentation?.mode === 'nearSide' && shadow && projection.visual?.environment.contactShadowOpacity ? projection.visual.environment.contactShadowMm : null
+    const nearSideEnvelope = nearSidePaintEnvelope(prop, presentation, paintShadow, projection.visual?.environment.lightDirectionDeg, contactBlur)
+    const all = [...corners, ...presentationContact(prop, presentation)], x = Math.min(...all.map(p => p.x)), y = Math.min(...all.map(p => p.y))
+    const outlinePadding = detail === 'outline' ? .5 / options.screenScalePxPerMm : 0
+    const paintBoundsMm = nearSideEnvelope
+      ? { x: nearSideEnvelope.x - outlinePadding, y: nearSideEnvelope.y - outlinePadding, width: nearSideEnvelope.width + outlinePadding * 2, height: nearSideEnvelope.height + outlinePadding * 2 }
+      : { x: x - padding, y: y - padding, width: Math.max(...all.map(p => p.x)) - x + padding * 2, height: Math.max(...all.map(p => p.y)) - y + padding * 2 }
     if (!overlaps(paintBoundsMm, boundsMm)) continue
     detailCounts[detail]++; props.push({ prop, detail, screenSizePx, visualBoundsMm, paintBoundsMm })
   }

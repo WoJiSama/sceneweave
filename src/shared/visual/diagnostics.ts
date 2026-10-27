@@ -1,3 +1,4 @@
+import { visualBase } from './base.js'
 import type { Issue, PointMm, SceneDocument, Editable } from '../model/scene.js'
 import { sampleVisualBoundary, assertSimpleVisualPolyline, terrainBoundaryChain } from './geometry.js'
 import { VISUAL_LIMITS, type VisualBoundary, type VisualEntity } from './types.js'
@@ -14,14 +15,20 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
   const errors: Issue[] = []
   const add = (code: string, message: string, entityId?: string) => errors.push({ code, message, ...(entityId ? { entityId } : {}) })
   if (scene.schemaVersion === 1) { if (scene.visual !== undefined) add('VISUAL_VERSION', '原生v1不能携带visual字段；请显式升级。'); return errors }
-  if (!scene.visual) { add('VISUAL_VERSION', '原生v2必须携带完整视觉系统。'); return errors }
-  const visual = scene.visual, ids = new Set<string>([scene.sceneId])
+  const visual = visualBase(scene)
+  if (!visual || !scene.visual) { add('VISUAL_VERSION', '视觉工程必须携带完整视觉系统。'); return errors }
+  if (scene.schemaVersion === 2 && scene.visual.version !== 1 || scene.schemaVersion === 3 && scene.visual.version !== 2) {
+    add('VISUAL_VERSION', '视觉系统版本与场景版本不一致，不能降级读取。'); return errors
+  }
+  const ids = new Set<string>([scene.sceneId])
   const visit = (value: unknown) => {
     if (!value || typeof value !== 'object') return
     if (!Array.isArray(value)) { const record = value as Record<string, unknown>; if (typeof record.id === 'string') ids.add(record.id); if (typeof record.segmentId === 'string') ids.add(record.segmentId) }
     for (const item of Object.values(value)) visit(item)
   }
   const { visual: _visual, ...rest } = scene; visit(rest)
+  // The visual2 wrapper is retained; its records share the global identity space.
+  if (scene.visual.version === 2) visit(scene.visual.materializedEdges)
   for (const collection of VISUAL_ENTITY_COLLECTIONS) for (const [key, item] of Object.entries(visual[collection])) {
     if (key !== item.id || ids.has(item.id)) add('VISUAL_ID', '视觉实体ID须等于记录键且全局唯一。', item.id)
     ids.add(item.id)
@@ -115,7 +122,8 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
 export function inspectVisualPixelBudget(scene: SceneDocument, width: number, height: number): { ok: boolean; estimatedWorkingPixels: number; issues: Issue[] } {
   const pixels = width * height, issues: Issue[] = []
   if (![width, height].every(value => Number.isInteger(value) && value > 0 && value <= 4096) || pixels > 16_777_216) issues.push({ code: 'VISUAL_PIXEL_BUDGET', message: '视觉输出须在4096长边/16M像素预算内。' })
-  const enabled = scene.visual ? [...Object.values(scene.visual.fogs), ...Object.values(scene.visual.filters), ...Object.values(scene.visual.lights)].filter(value => value.enabled).length : 0
+  const visual = visualBase(scene)
+  const enabled = visual ? [...Object.values(visual.fogs), ...Object.values(visual.filters), ...Object.values(visual.lights)].filter(value => value.enabled).length : 0
   // Renderer must process effects serially and release each layer; this is a simultaneous-buffer ceiling.
   const estimatedWorkingPixels = pixels * (enabled ? 8 : 5)
   if (estimatedWorkingPixels > 134_217_728) issues.push({ code: 'VISUAL_PIXEL_BUDGET', message: '视觉合成临时像素超过128M预算。' })

@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import type { PointMm, Prop, SceneDocument, SurfaceStyle, TerrainArea } from '../../../shared/model/scene.js'
 import { emptyVisualSystem, type CubicSegment, type VisualBoundary, type VisualEdgeLook } from '../../../shared/visual/types.js'
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
@@ -39,11 +40,11 @@ function place(scene: SceneDocument, key: string, x: number, y: number, rotation
 }
 function addLook(scene: SceneDocument, boundaryId: string, kind: VisualEdgeLook['kind'], options: Partial<VisualEdgeLook> = {}): void {
   const id = `${boundaryId}-${kind}`
-  scene.visual!.edgeLooks[id] = { ...entity(id, DETAILS), boundaryId, kind, side: 'right', widthMm: 600, color: '#9DB4A0', accentColor: '#F1E8CB', opacity: .8, intensity: 1, seed: `${id}-v1`, repeatMm: 300, enabled: true, ...options }
+  visualBase(scene)!.edgeLooks[id] = { ...entity(id, DETAILS), boundaryId, kind, side: 'right', widthMm: 600, color: '#9DB4A0', accentColor: '#F1E8CB', opacity: .8, intensity: 1, seed: `${id}-v1`, repeatMm: 300, enabled: true, ...options }
 }
 function curve(scene: SceneDocument, id: string, segments: CubicSegment[], closed = false): VisualBoundary {
   const boundary: VisualBoundary = { ...entity(id, GROUND), closed, segments, sampleSpacingMm: 650, toleranceMm: 35, binding: { kind: 'decoration' } }
-  scene.visual!.boundaries[id] = boundary; return boundary
+  visualBase(scene)!.boundaries[id] = boundary; return boundary
 }
 function bindWhole(scene: SceneDocument, boundary: VisualBoundary, id: string, key: string, priority: number, elevationMm = 0): TerrainArea {
   const sampled = sampleVisualBoundary(boundary), area = terrain(scene, id, sampled.points, key, priority, elevationMm)
@@ -74,7 +75,7 @@ function baseScene(kind: VisualSampleKind, sceneId: string, now: string): SceneD
     edgeStyles: { shore: { strokeWidthMm: 0, color: '#E9DFC3', bandWidthMm: 0 }, cliff: { strokeWidthMm: 15, color: '#47594A', bandWidthMm: 350 }, materialTransition: { strokeWidthMm: 0, color: '#889165', bandWidthMm: 100 }, path: { strokeWidthMm: 8, color: '#7C7C5C', bandWidthMm: 100 } },
     shadowPresets: { none: shadow(0, 0, 0), furniture: shadow(180, 85, .25), vegetation: shadow(350, 130, .25), wall: shadow(250, 90, .3) }, terrainCliff: { directionDeg: 50, offsetFactor: .18, maxOffsetMm: 600, blurMm: 100, opacity: .22, color: '#253A35' } }
   scene.styleThemes[theme.id] = theme; scene.activeStyleThemeRef = ref(theme.id)
-  scene.visual!.environment = { ambientColor: '#DCE2C8', ambientOpacity: .08, exposure: 1, lightDirectionDeg: 50, contactShadowMm: 50, contactShadowOpacity: .18 }
+  visualBase(scene)!.environment = { ambientColor: '#DCE2C8', ambientOpacity: .08, exposure: 1, lightDirectionDeg: 50, contactShadowMm: 50, contactShadowOpacity: .18 }
   return scene
 }
 function beach(scene: SceneDocument): void {
@@ -89,7 +90,7 @@ function beach(scene: SceneDocument): void {
   for (const [x, y, rotation] of [[2700, 14500, 36], [6200, 15300, 132], [14300, 14600, 25], [17700, 15700, 73], [21400, 15900, 191]]) place(scene, 'tree', x, y, rotation, sand.id)
   for (const [x, y] of [[1800, 15700], [4200, 14300], [8700, 15500], [12500, 15700], [15100, 13700], [19800, 14800], [22200, 16200]]) place(scene, 'shrub', x, y, 25, sand.id)
   for (const [i, [x, y]] of [[2900, 10000], [4200, 9400], [6800, 12200], [9000, 11400], [11900, 12900], [13400, 11700], [17100, 13900], [19900, 14000], [22100, 14600], [10700, 14300], [5300, 13600], [16700, 15300]].entries()) place(scene, 'shell', x, y, (i * 53) % 360, sand.id)
-  scene.visual!.filters['beach-tone'] = { ...entity('beach-tone'), target: { kind: 'scene' }, preset: 'warm', exposure: 1.02, saturation: .9, contrast: 1.02, vignette: .08, grain: .025, seed: 'beach-paper-v1', enabled: true }
+  visualBase(scene)!.filters['beach-tone'] = { ...entity('beach-tone'), target: { kind: 'scene' }, preset: 'warm', exposure: 1.02, saturation: .9, contrast: 1.02, vignette: .08, grain: .025, seed: 'beach-paper-v1', enabled: true }
 }
 function island(scene: SceneDocument): void {
   terrain(scene, 'island-water', rectangle(0, 0, 24000, 18000), 'water', 0, 0, true)
@@ -105,8 +106,8 @@ function island(scene: SceneDocument): void {
   for (const [x, y, rotation] of [[11100, 6500, 10], [13800, 5700, 78], [15700, 7400, 132], [13200, 9300, 41], [10700, 9200, 194]]) place(scene, 'tree', x, y, rotation, high.id, undefined, .8)
   for (const [i, [x, y]] of [[5200, 8100], [7000, 5000], [17200, 5400], [19100, 9200], [17100, 13200], [11800, 14000], [7200, 12100], [5300, 10100]].entries()) { place(scene, 'rock', x, y, i * 42, low.id, undefined, .7); if (i % 2) place(scene, 'shrub', x + 600, y + 800, i * 21, low.id, undefined, .9) }
   for (const [x, y] of [[1200, 11300], [21900, 13400], [16000, 16400]]) place(scene, 'rock', x, y, 35, 'island-water', undefined, .65)
-  scene.visual!.fogs['island-mist'] = { ...entity('island-mist'), boundaryMm: rectangle(1200, 11200, 22600, 17300), color: '#D6DFCA', opacity: .12, directionDeg: 15, scaleMm: 1700, seed: 'island-mist-v1', enabled: true }
-  scene.visual!.filters['island-tone'] = { ...entity('island-tone'), target: { kind: 'scene' }, preset: 'cool', exposure: 1.03, saturation: .82, contrast: 1.05, vignette: .12, grain: .02, seed: 'island-paper-v1', enabled: true }
+  visualBase(scene)!.fogs['island-mist'] = { ...entity('island-mist'), boundaryMm: rectangle(1200, 11200, 22600, 17300), color: '#D6DFCA', opacity: .12, directionDeg: 15, scaleMm: 1700, seed: 'island-mist-v1', enabled: true }
+  visualBase(scene)!.filters['island-tone'] = { ...entity('island-tone'), target: { kind: 'scene' }, preset: 'cool', exposure: 1.03, saturation: .82, contrast: 1.05, vignette: .12, grain: .02, seed: 'island-paper-v1', enabled: true }
 }
 function interior(scene: SceneDocument): void {
   terrain(scene, 'interior-earth', rectangle(0, 0, 20000, 15000), 'earth', 0)
@@ -140,12 +141,12 @@ function interior(scene: SceneDocument): void {
   place(scene, 'clutter', 15100, 9500, 72, undefined, 'inn-bedroom', .8)
   place(scene, 'shelf', 16500, 11900, 0, undefined, 'inn-bedroom', .8)
   place(scene, 'lantern', 14400, 9700, 0, undefined, 'inn-bedroom')
-  scene.visual!.environment = { ambientColor: '#46584D', ambientOpacity: .46, exposure: .88, lightDirectionDeg: 55, contactShadowMm: 85, contactShadowOpacity: .28 }
-  scene.visual!.lights['inn-light-common'] = { ...entity('inn-light-common'), positionMm: p(7800, 6900), radiusMm: 5000, color: '#E9BC70', intensity: .75, wallOcclusion: true, enabled: true }
-  scene.visual!.lights['inn-light-bedroom'] = { ...entity('inn-light-bedroom'), positionMm: p(14400, 9700), radiusMm: 3600, color: '#E9B36B', intensity: .7, wallOcclusion: true, enabled: true }
-  scene.visual!.lights['inn-light-window'] = { ...entity('inn-light-window'), positionMm: p(2700, 4900), radiusMm: 3000, color: '#A9C4B1', intensity: .22, wallOcclusion: true, enabled: true }
-  scene.visual!.lights['inn-light-stove'] = { ...entity('inn-light-stove'), positionMm: p(3300, 3500), radiusMm: 2100, color: '#E6AB64', intensity: .5, wallOcclusion: true, enabled: true }
-  scene.visual!.filters['inn-tone'] = { ...entity('inn-tone'), target: { kind: 'scene' }, preset: 'aged', exposure: 1, saturation: .88, contrast: 1.08, vignette: .14, grain: .03, seed: 'inn-paper-v1', enabled: true }
+  visualBase(scene)!.environment = { ambientColor: '#46584D', ambientOpacity: .46, exposure: .88, lightDirectionDeg: 55, contactShadowMm: 85, contactShadowOpacity: .28 }
+  visualBase(scene)!.lights['inn-light-common'] = { ...entity('inn-light-common'), positionMm: p(7800, 6900), radiusMm: 5000, color: '#E9BC70', intensity: .75, wallOcclusion: true, enabled: true }
+  visualBase(scene)!.lights['inn-light-bedroom'] = { ...entity('inn-light-bedroom'), positionMm: p(14400, 9700), radiusMm: 3600, color: '#E9B36B', intensity: .7, wallOcclusion: true, enabled: true }
+  visualBase(scene)!.lights['inn-light-window'] = { ...entity('inn-light-window'), positionMm: p(2700, 4900), radiusMm: 3000, color: '#A9C4B1', intensity: .22, wallOcclusion: true, enabled: true }
+  visualBase(scene)!.lights['inn-light-stove'] = { ...entity('inn-light-stove'), positionMm: p(3300, 3500), radiusMm: 2100, color: '#E6AB64', intensity: .5, wallOcclusion: true, enabled: true }
+  visualBase(scene)!.filters['inn-tone'] = { ...entity('inn-tone'), target: { kind: 'scene' }, preset: 'aged', exposure: 1, saturation: .88, contrast: 1.08, vignette: .14, grain: .03, seed: 'inn-paper-v1', enabled: true }
 }
 
 /** Pure scene composition for tests and browser materialization; placeholder hashes are replaced before publication. */

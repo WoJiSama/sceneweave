@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { projectDataSchema } from '../project/validate.js'
 import { AuthoringBriefSchema, AuthoringPlanStateSchema } from './plan.js'
 import { VisualAuthoringScopeSchema, VisualAuthoringOperationSchema } from './visual-protocol.js'
+import { TerrainAuthoringOperationSchema, TERRAIN_AUTHORING_KINDS } from './terrain-protocol.js'
 
 export const AUTHORING_LIMITS = Object.freeze({ metadataBytes: 4 * 1024 * 1024, requestBytes: 5 * 1024 * 1024,
   operations: 256, operationsPerStep: 16, steps: 256, modelRequests: 16, toolCalls: 64, maxOutputTokensPerRequest: 8192, executionMs: 300_000, claimMs: 30_000 })
@@ -22,7 +23,7 @@ export const AuthoringSkillSchema = z.union([
 ])
 export type AuthoringSkill = z.infer<typeof AuthoringSkillSchema>
 
-export const SceneAuthoringOperationKindSchema = z.enum(['room', 'wall', 'vertex', 'opening', 'entrance', 'terrain', 'terrainUpdate', 'edge', 'connection', 'region', 'path', 'pathUpdate', 'scatter', 'scatterRegenerate', 'prefab', 'furnish', 'gmNote', 'gmNoteUpdate'])
+export const SceneAuthoringOperationKindSchema = z.enum(['room', 'wall', 'vertex', 'opening', 'entrance', 'terrain', 'terrainUpdate', 'edge', 'connection', 'region', 'path', 'pathUpdate', 'scatter', 'scatterRegenerate', 'prefab', 'furnish', 'gmNote', 'gmNoteUpdate', ...TERRAIN_AUTHORING_KINDS])
 export type SceneAuthoringOperationKind = z.infer<typeof SceneAuthoringOperationKindSchema>
 export const SceneAuthoringScopeSchema = z.object({
   floorId: id,
@@ -34,7 +35,10 @@ export const SceneAuthoringScopeSchema = z.object({
   definitionIds: ids,
   prefabDefinitionIds: ids,
   materialIds: ids,
-  operations: z.array(SceneAuthoringOperationKindSchema).min(1).max(18).refine(values => new Set(values).size === values.length),
+  operations: z.array(SceneAuthoringOperationKindSchema).min(1).max(22).refine(values => new Set(values).size === values.length),
+  /** Multi-layer generation is a separate explicit grant; the current layer alone never grants other layers. */
+  generationLayerIds: ids.optional(),
+  regionalDefinitionIds: ids.optional(),
 }).strict()
 export type SceneAuthoringScope = z.infer<typeof SceneAuthoringScopeSchema>
 export const ArtworkScopeSchema = z.object({ mode: z.enum(['single', 'prefab', 'range']), targetIds: ids,
@@ -97,6 +101,7 @@ export const AuthoringOperationSchema = z.discriminatedUnion('kind', [
   ...SceneAuthoringOperationSchema.options,
   ...ArtworkOperationSchema.options,
   ...VisualAuthoringOperationSchema.options,
+  ...TerrainAuthoringOperationSchema.options,
 ])
 export type AuthoringOperation = z.infer<typeof AuthoringOperationSchema>
 export const AuthoringStartSchema = z.object({ schemaVersion: z.literal(1), project: projectDataSchema, baseContentHash: hash,

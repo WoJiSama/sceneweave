@@ -28,6 +28,7 @@
     "hono": "4.13.13",
     "konva": "10.9.0",
     "lucide-react": "1.59.0",
+    "polygon-clipping": "0.15.7",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-konva": "19.3.2",

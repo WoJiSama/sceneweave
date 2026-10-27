@@ -7,6 +7,7 @@ import {
 } from '../../../shared/ai/protocol'
 
 import { AUTHORING_LIMITS, AuthoringDraftSchema, DraftValidationSchema, DraftClaimSchema, DraftLeaseSchema, DraftAppliedSchema, type DraftClaim, type DraftStamp } from '../../../shared/ai/authoring-protocol'
+import { RegionSceneCandidateQuerySchema, RegionSceneCandidateResponseSchema, type RegionSceneCandidateQuery } from '../../../shared/ai/region-candidate-protocol'
 
 const MAX_JSON_BYTES = 1024 * 1024
 const stopped = (value: TaskSnapshot) => isTerminalTask(value.status) || value.status === 'paused'
@@ -141,6 +142,16 @@ export class AiClient {
   async draft(taskId: string, signal?: AbortSignal) {
     const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft`, AuthoringDraftSchema, 'GET', undefined, signal, 8 * 1024 * 1024)
     if (value.taskId !== taskId) throw new AiClientError('protocol', '草稿身份不匹配，已停止显示。')
+    return value
+  }
+  async regionSceneCandidate(taskId: string, query: RegionSceneCandidateQuery, signal?: AbortSignal) {
+    const input = parseSchema(RegionSceneCandidateQuerySchema, query), params = new URLSearchParams({
+      candidateId: input.candidateId, candidateHash: input.candidateHash, atContentHash: input.atContentHash,
+      draftRevision: String(input.draftRevision), scopeHash: input.scopeHash,
+    })
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/region-scene-candidate?${params}`, RegionSceneCandidateResponseSchema, 'GET', undefined, signal, 8 * 1024 * 1024)
+    if (value.taskId !== taskId || value.candidateId !== input.candidateId || value.candidateHash !== input.candidateHash
+      || value.atContentHash !== input.atContentHash || value.draftRevision !== input.draftRevision || value.result.hash !== value.candidateHash) throw new AiClientError('protocol', '区域候选身份或基线不匹配，已停止显示。')
     return value
   }
   async validateDraft(taskId: string, stamp: DraftStamp & { valid: boolean }, signal?: AbortSignal) {

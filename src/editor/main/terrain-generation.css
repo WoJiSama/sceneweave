@@ -1,0 +1,53 @@
+.terrain-generation-panel { display: grid; gap: 14px; min-width: 0; padding: 18px 16px; border-top: 1px solid var(--line, #e0ded5); color: #425444; }
+.terrain-generation-panel .terrain-generation-heading { margin: 0; }
+.terrain-generation-intro { margin: 0; color: #6d7a66; font-size: 12px; line-height: 1.8; }
+.terrain-generation-panel form, .terrain-generation-panel fieldset { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.terrain-generation-panel legend { padding: 0 0 8px; color: #5b6b54; font-size: 12px; font-weight: 600; }
+.terrain-generation-kinds { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.terrain-generation-kinds button { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 53px; padding: 9px 10px; border: 1px solid #dce3d6; border-radius: 7px; background: #f8faf4; color: #61755a; text-align: left; cursor: pointer; }
+.terrain-generation-kinds button[aria-pressed=true] { border-color: #94ae84; background: #edf3e5; color: #3e6334; }
+.terrain-generation-kinds button span { min-width: 0; font-size: 13px; font-weight: 600; }
+.terrain-generation-kinds button small { display: block; margin-top: 3px; font-size: 10px; font-weight: 400; color: #6e7e65; line-height: 1.5; }
+.terrain-generation-seed { display: grid; gap: 5px; min-width: 0; color: #5b6b54; font-size: 12px; }
+.terrain-generation-seed input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px 9px; border: 1px solid #d6dfce; border-radius: 5px; color: #4c6142; background: #fafcf7; font: 12px ui-monospace, monospace; }
+.terrain-generation-hint { color: #718068; font-size: 11px; line-height: 1.65; }
+.terrain-generation-route { display: grid; gap: 9px; padding: 10px; border: 1px solid #dce3d6; border-radius: 6px; background: #f8faf4; font-size: 11px; line-height: 1.6; }
+.terrain-generation-route label { display: grid; gap: 4px; min-width: 0; }
+.terrain-generation-route .terrain-route-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.terrain-route-point { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 5px; align-items: end; }
+.terrain-generation-route input[type=number], .terrain-generation-route select { width: 100%; min-width: 0; box-sizing: border-box; padding: 6px 5px; border: 1px solid #d6dfce; border-radius: 4px; background: #fafcf7; color: #4c6142; font: inherit; }
+.terrain-generation-route small { color: #718068; font-size: 10px; }
+.terrain-generation-panel .terrain-generation-submit { width: 100%; justify-content: center; min-height: 34px; font-size: 12px; }
+.terrain-generation-series, .terrain-generation-cost { min-width: 0; padding-top: 10px; border-top: 1px solid #dce4d4; }
+.terrain-generation-series summary, .terrain-generation-cost summary { color: #627758; font-size: 11px; cursor: pointer; line-height: 1.8; }
+.terrain-generation-series p { margin: 8px 0; color: #718068; font-size: 11px; line-height: 1.7; }
+.terrain-generation-seeds { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.terrain-generation-seeds button { min-width: 0; min-height: 32px; border: 1px solid #d6dfce; border-radius: 5px; background: #f8faf4; color: #61755a; cursor: pointer; font: inherit; font-size: 12px; }
+.terrain-generation-seeds button[aria-pressed=true] { background: #e8f0df; border-color: #94ae84; color: #3e6334; font-weight: 650; }
+.terrain-generation-panel .terrain-generation-next { justify-content: center; width: 100%; margin-top: 7px; font-size: 11px; }
+.terrain-generation-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 9px 10px; border: 1px solid #cddcc1; border-radius: 6px; background: #eef4e7; color: #526b43; font-size: 11px; line-height: 1.6; }
+.terrain-generation-progress span { flex: 1; min-width: 100px; }
+.terrain-generation-progress button { font-size: 11px; }
+.terrain-generation-notice { margin: 0; padding: 8px 9px; border: 1px solid #dfd4b8; border-radius: 5px; background: #f7f2e6; color: #806640; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.terrain-generation-error { margin: 0; overflow-wrap: anywhere; }
+.terrain-generation-candidate { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid #ceddc3; border-radius: 8px; background: #f1f6eb; }
+.terrain-generation-candidate-heading { display: grid; gap: 5px; }
+.terrain-generation-candidate-heading span { color: #748569; font-size: 10px; }
+.terrain-generation-candidate-heading strong { color: #47613c; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.terrain-generation-candidate-seed { margin: 0; color: #6f8064; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.terrain-generation-facts, .terrain-generation-cost dl { display: grid; gap: 7px; margin: 0; font-size: 11px; }
+.terrain-generation-facts > div, .terrain-generation-cost dl > div { display: flex; justify-content: space-between; gap: 10px; min-width: 0; }
+.terrain-generation-facts dt, .terrain-generation-cost dt { color: #748569; min-width: 0; overflow-wrap: anywhere; }
+.terrain-generation-facts dd, .terrain-generation-cost dd { margin: 0; color: #4e6842; text-align: right; font-variant-numeric: tabular-nums; }
+.terrain-generation-cost dl { margin-top: 9px; }
+.terrain-generation-checks { display: grid; gap: 7px; list-style: none; margin: 0; padding: 10px 0 0; border-top: 1px solid #dae3d1; }
+.terrain-generation-checks li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: start; font-size: 11px; line-height: 1.6; }
+.terrain-generation-checks strong { color: #486b3d; font-size: 10px; font-weight: 600; }
+.terrain-generation-checks li[data-status=failed] strong { color: #9a503f; }
+.terrain-generation-checks li[data-status=unchecked] strong { color: #82704c; }
+.terrain-generation-checks small { grid-column: 1 / -1; color: #718068; font-size: 10px; overflow-wrap: anywhere; }
+.terrain-generation-actions { display: grid; gap: 6px; }
+.terrain-generation-actions button { justify-content: center; min-height: 33px; min-width: 0; font-size: 11px; }
+.terrain-generation-panel button:focus-visible, .terrain-generation-panel input:focus-visible, .terrain-generation-panel summary:focus-visible { outline: 2px solid #6d935b; outline-offset: 3px; }
+.terrain-generation-panel button:disabled { opacity: .45; cursor: default; }
+@media (max-width: 480px) { .terrain-generation-panel { padding: 14px 12px; } .terrain-generation-candidate { padding: 10px; } }

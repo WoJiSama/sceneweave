@@ -2,7 +2,7 @@ import { projectRepository } from '../../platform/browser/runtime'
 import { fromVerifiedBundle } from '../../application/workspace/project'
 import { HISTORY_LIMITS } from '../../shared/model/history'
 
-/** UI view of the native repository; all persistence goes through its strict complete-v1 boundary. */
+/** UI view of the repository; complete formats keep their strict version boundaries. */
 export class WorkspaceRepository {
   open() { return projectRepository.open() }
   list() { return projectRepository.list() }
@@ -10,6 +10,9 @@ export class WorkspaceRepository {
   listNamedSnapshots(sceneId: string) { return projectRepository.listSnapshots(sceneId) }
   listLegacySources(sceneId: string) { return projectRepository.listLegacySources(sceneId) }
   loadLegacyOriginal(sceneId: string, nodeId: string) { return projectRepository.loadLegacyOriginal(sceneId, nodeId) }
+  listNativeUpgradeSummaries(sceneId: string) { return projectRepository.listNativeUpgradeSummaries(sceneId) }
+  exportNativeUpgradeFile(sceneId: string) { return projectRepository.exportNativeUpgradeFile(sceneId) }
+  importNativeUpgradeFile(bytes: Uint8Array) { return projectRepository.importNativeUpgradeFile(bytes) }
   async loadNamedSnapshot(id: string, ownerSceneId: string) {
     const value = await projectRepository.loadSnapshot(ownerSceneId, id)
     if (!value) return null

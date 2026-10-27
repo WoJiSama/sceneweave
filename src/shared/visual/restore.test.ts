@@ -1,3 +1,4 @@
+import { visualBase } from './base.js'
 import { describe, expect, it } from 'vitest'
 import type { SceneDocument, PointMm } from '../model/scene.js'
 import type { CompositionContent } from '../model/appearance.js'
@@ -37,7 +38,7 @@ describe('finite visual restore and exact prepared impact', () => {
     const current = applyCompositionCommands(historic, [{ type: 'upsertVisualLight', light: incoming }, { type: 'createTerrainArea', id: 'yard', floorId: 'floor', boundaryMm: [p(16000, 10000), p(20000, 10000), p(20000, 14000), p(16000, 14000)] }], context())
     const before = structuredClone(current), { evidence } = capture(historic, current)
     const plan = buildRestorePlan(current, historic, { ids: ['light'], mode: 'visual' }, evidence)
-    expect(plan.document.visual!.lights.light).toEqual({ ...light(), layerId: 'effects', visibility: 'gm' })
+    expect(visualBase(plan.document)!.lights.light).toEqual({ ...light(), layerId: 'effects', visibility: 'gm' })
     expect(plan.document.terrainAreas).toEqual(current.document.terrainAreas)
     expect(plan.historyIdentity).toEqual(current.historyIdentity)
     expect(plan.commandCost).toBe(1); expect(plan.affectedIds).toEqual(['light'])
@@ -56,7 +57,7 @@ describe('finite visual restore and exact prepared impact', () => {
     expect(current.historyIdentity.outdoorTokens.sand).toEqual(historic.historyIdentity.outdoorTokens.sand)
     const plan = buildRestorePlan(current, historic, { ids: ['curve'], mode: 'visual' }, evidence)
     expect(plan.document.terrainAreas).toEqual(historic.document.terrainAreas)
-    expect(plan.document.visual!.boundaries.curve).toEqual(bound)
+    expect(visualBase(plan.document)!.boundaries.curve).toEqual(bound)
     expect(plan.changes.map(change => change.id).sort()).toEqual(['curve', 'sand', 'water'])
     expect(plan.changes.find(change => change.id === 'water')!.layerId).toBe('effects')
     expect(plan.commandCost).toBeGreaterThan(3)
@@ -100,7 +101,7 @@ describe('finite visual restore and exact prepared impact', () => {
   it('checks local dependency locks and makes global environment restoration explicit', () => {
     const historic = content({ type: 'upsertVisualLight', light: light() }), current = applyCompositionCommands(historic, [{ type: 'setVisualEnvironment', environment: { ...emptyVisualSystem().environment, ambientOpacity: .3, ambientColor: '#445566' } }], context())
     const { evidence } = capture(historic, current), plan = buildRestorePlan(current, historic, { ids: [current.document.sceneId], mode: 'visual' }, evidence)
-    expect(plan.document.visual!.environment).toEqual(historic.document.visual!.environment)
+    expect(visualBase(plan.document)!.environment).toEqual(visualBase(historic.document)!.environment)
     const locked = structuredClone(current); locked.document.userLayers.effects.editLocked = true
     const lockedProof = capture(historic, locked).evidence
     expect(() => buildRestorePlan(locked, historic, { ids: [locked.document.sceneId], mode: 'visual' }, lockedProof)).toThrow(/锁定图层/)
@@ -122,13 +123,13 @@ describe('finite visual restore and exact prepared impact', () => {
     const historicScene = blank(); historicScene.schemaVersion = 2; historicScene.visual = emptyVisualSystem()
     for (let index = 0; index < 64; index++) {
       const y = 1000 + index * 200
-      historicScene.visual.boundaries[`curve-${index}`] = { ...common, id: `curve-${index}`, closed: false, binding: { kind: 'decoration' }, sampleSpacingMm: 1500, toleranceMm: 30,
+      visualBase(historicScene)!.boundaries[`curve-${index}`] = { ...common, id: `curve-${index}`, closed: false, binding: { kind: 'decoration' }, sampleSpacingMm: 1500, toleranceMm: 30,
         segments: Array.from({ length: 4 }, (_, segment) => ({ id: `cubic-${index}-${segment}`, start: p(1000 + segment * 4000, y), control1: p(2000 + segment * 4000, y), control2: p(4000 + segment * 4000, y), end: p(5000 + segment * 4000, y) })) }
     }
     const historic = createCompositionContent(historicScene, context()), current = structuredClone(historic)
-    for (const boundary of Object.values(current.document.visual!.boundaries)) for (const segment of boundary.segments) { segment.control1.y += 10; segment.control2.y += 10 }
+    for (const boundary of Object.values(visualBase(current.document)!.boundaries)) for (const segment of boundary.segments) { segment.control1.y += 10; segment.control2.y += 10 }
     const before = structuredClone(current), { evidence } = capture(historic, current)
-    expect(() => buildRestorePlan(current, historic, { ids: Object.keys(historicScene.visual!.boundaries), mode: 'visual' }, evidence)).toThrow(/256/)
+    expect(() => buildRestorePlan(current, historic, { ids: Object.keys(visualBase(historicScene)!.boundaries), mode: 'visual' }, evidence)).toThrow(/256/)
     expect(current).toEqual(before)
   })
 })

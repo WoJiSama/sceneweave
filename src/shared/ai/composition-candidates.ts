@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import { z } from 'zod'
 import type { ProjectData } from '../model/project.js'
 import type { BoundsMm, PointMm, Prop, SurfaceRef, SurfaceStyle } from '../model/scene.js'
@@ -165,7 +166,7 @@ function style(project: ProjectData, start: AuthoringStart, ids: ReadonlySet<str
     operations.push(VisualAuthoringOperationSchema.parse({ kind: 'visualSurface', id, surfaceKind, style: next }))
   }
   for (const id of [...new Set(query.edgeIds ?? [])]) {
-    const edge = scene.visual?.edgeLooks[id]
+    const edge = visualBase(scene)?.edgeLooks[id]
     if (!scope || !scope.operations.includes('visualEdge') || !allowed.has(id) || !edge || edge.visibility !== 'public') deny()
     const { floorId: _floor, layerId: _layer, visibility: _visibility, editLocked: _locked, kind: edgeKind, ...fields } = edge
     operations.push({ kind: 'visualEdge', edgeKind, ...fields, color: brief.palette[0], accentColor: brief.palette[1] ?? brief.palette[0] })
@@ -176,8 +177,9 @@ function style(project: ProjectData, start: AuthoringStart, ids: ReadonlySet<str
     operations.push({ kind: 'style', ids: [...new Set(query.propIds)], tint: brief.palette[0] })
   }
   if (query.includeEnvironment) {
-    if (!scope?.allowGlobalEnvironment || !scope.operations.includes('visualEnvironment') || !scene.visual) deny()
-    operations.push({ kind: 'visualEnvironment', environment: { ...scene.visual.environment, lightDirectionDeg: brief.lightDirectionDeg } })
+    const visual = visualBase(scene)
+    if (!scope?.allowGlobalEnvironment || !scope.operations.includes('visualEnvironment') || !visual) deny()
+    operations.push({ kind: 'visualEnvironment', environment: { ...visual.environment, lightDirectionDeg: brief.lightDirectionDeg } })
   }
   if (!query.propIds?.length && !query.edgeIds?.length) unsupported.push('palette_requires_matching_fixed_sources_or_explicit_artwork_or_edge_targets')
   unsupported.push('lineWeightMm_requires_matching_fixed_art_or_a_new_restricted_SVG_version; existing_bitmap_strokes_are_not_resized')

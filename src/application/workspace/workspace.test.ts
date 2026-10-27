@@ -1,3 +1,4 @@
+import { visualBase } from '../../shared/visual/base.js'
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -282,7 +283,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
     await workspace.execute([{ type: 'upsertVisualLight', light }])
     const named = await workspace.createNamedSnapshot('before visual recreation')
     const preview = await workspace.preview([{ type: 'removeVisualEffect', kind: 'light', id: light.id }, { type: 'upsertVisualLight', light }])
-    expect(preview.document.visual!.lights[light.id]).toEqual(light)
+    expect(visualBase(preview.document)!.lights[light.id]).toEqual(light)
     await workspace.adoptPreview(preview)
     const current = workspace.getState().project!
     expect(getVerifiedEditableProject(current)).toBe(current)

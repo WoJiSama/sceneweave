@@ -1,3 +1,4 @@
+import { visualBase } from './base.js'
 import { describe, expect, it } from 'vitest'
 import { applyCommands, type SceneCommand } from '../commands/commands.js'
 import { createCompositionContent } from '../appearance/graph.js'
@@ -9,6 +10,8 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { sampleVisualBoundary, visualSampleAtDistance, terrainBoundaryChain } from './geometry.js'
 import { emptyVisualSystem, type CubicSegment, type VisualBoundary, type VisualEdgeLook, type VisualLight } from './types.js'
 import { inspectVisualPixelBudget } from './diagnostics.js'
+import { createEmptyGeneration, type MaterializedEdge } from '../terrain-generation/contracts.js'
+import { materializedBoundaryHash } from '../terrain-generation/integrity.js'
 
 const p = (x: number, y: number): PointMm => ({ x, y })
 const context = (): PreparationContext => { let id = 0; return { ids: { nextId: () => `curve-new-${id++}` }, clock: { now: () => '2026-10-25T00:00:00.000Z' } } }
@@ -88,7 +91,7 @@ describe('strict visual-v2 model and deterministic curve geometry', () => {
     expect(() => apply(source, { type: 'upsertVisualBoundary', boundary: curve })).toThrow(/控制点|范围/)
     const v2 = apply(source, { type: 'upsertVisualLight', light: l })
     expect(v2.schemaVersion).toBe(2); expect(source.schemaVersion).toBe(1); expect(source.visual).toBeUndefined()
-    const bad = structuredClone(v2); (bad.visual!.lights[l.id] as unknown as Record<string, unknown>).style = {}
+    const bad = structuredClone(v2); (visualBase(bad)!.lights[l.id] as unknown as Record<string, unknown>).style = {}
     expect(validateSceneDocument(bad).ok).toBe(false)
   })
 })
@@ -155,7 +158,7 @@ describe('atomic shared boundary, curve/path binding and physical invariants', (
     expect(() => apply(next, { type: 'removeVisualBoundary', id: curve.id, detach: false })).toThrow(/detach/)
     expect(() => apply(next, { type: 'removeVisualBoundary', id: curve.id, detach: true })).toThrow(/外观/)
     next = apply(next, { type: 'removeVisualEffect', kind: 'edgeLook', id: 'shore-look' }, { type: 'removeVisualBoundary', id: curve.id, detach: true })
-    expect(next.terrainAreas).toEqual(geometry); expect(next.visual!.boundaries).toEqual({})
+    expect(next.terrainAreas).toEqual(geometry); expect(visualBase(next)!.boundaries).toEqual({})
   })
   it('counts actual point/segment/control expansion and rejects an overbudget shared transaction atomically', () => {
     const { document, curve } = sharedFixture(), before = structuredClone(document)
@@ -166,7 +169,7 @@ describe('atomic shared boundary, curve/path binding and physical invariants', (
   it('makes every visual geometry step observable to irreversible topology continuity', () => {
     const { document, curve } = sharedFixture(), seen: SceneDocument[] = []
     const result = applyCommands(document, [{ type: 'upsertVisualBoundary', boundary: curve }, { type: 'removeVisualBoundary', id: curve.id, detach: true }], context(), { onOutdoorDraft: draft => seen.push(structuredClone(draft)) })
-    expect(seen).toHaveLength(2); expect(seen[0].visual!.boundaries[curve.id]).toEqual(curve); expect(seen[1].visual!.boundaries[curve.id]).toBeUndefined()
+    expect(seen).toHaveLength(2); expect(visualBase(seen[0])!.boundaries[curve.id]).toEqual(curve); expect(visualBase(seen[1])!.boundaries[curve.id]).toBeUndefined()
     expect(result.terrainAreas.sand.boundaryMm.length).toBeGreaterThan(4)
     const content = createCompositionContent(document, context()), adopted = applyCompositionCommands(content, [{ type: 'upsertVisualBoundary', boundary: curve }], context())
     expect(adopted.historyIdentity.outdoorTokens.sand.topologyToken).not.toBe(content.historyIdentity.outdoorTokens.sand.topologyToken)
@@ -177,17 +180,17 @@ describe('visual effect safety and bounded workloads', () => {
   it('validates light/fog/filter payloads and preserves physical fields', () => {
     const source = blank(), next = apply(source, { type: 'upsertVisualLight', light: light() }, { type: 'setVisualEnvironment', environment: { ...emptyVisualSystem().environment, ambientColor: '#88AACC', ambientOpacity: .2 } })
     expect(next.floors).toEqual(source.floors); expect(next.walls).toEqual(source.walls); expect(next.props).toEqual(source.props)
-    expect(next.visual!.lights['warm-light'].wallOcclusion).toBe(true)
+    expect(visualBase(next)!.lights['warm-light'].wallOcclusion).toBe(true)
     const filter = { ...common, id: 'grade', target: { kind: 'entities' as const, ids: ['missing'] }, preset: 'warm' as const, exposure: 1, saturation: 1, contrast: 1, vignette: 0, grain: 0, seed: 'grade', enabled: true }
     expect(() => apply(next, { type: 'upsertVisualFilter', filter })).toThrow(/目标/)
     expect(() => apply(next, { type: 'upsertVisualFog', fog: { ...common, id: 'too-dense', boundaryMm: [p(0, 0), p(24000, 0), p(24000, 18000), p(0, 18000)], color: '#FFFFFF', opacity: .2, directionDeg: 30, scaleMm: 50, seed: 'fog', enabled: true } })).toThrow(/16384/)
   })
   it('checks layer/effect locks, global scope locks and unknown visual identifiers', () => {
     const source = apply(blank(), { type: 'upsertVisualLight', light: light() })
-    source.visual!.lights['warm-light'].editLocked = true
+    visualBase(source)!.lights['warm-light'].editLocked = true
     expect(() => apply(source, { type: 'upsertVisualLight', light: light() })).toThrow(/锁定/)
     expect(() => apply(source, { type: 'removeVisualEffect', kind: 'light', id: 'warm-light' })).toThrow(/锁定/)
-    const duplicate = structuredClone(source); duplicate.visual!.lights['warm-light'].id = 'not-record-key'
+    const duplicate = structuredClone(source); visualBase(duplicate)!.lights['warm-light'].id = 'not-record-key'
     expect(validateSceneDocument(duplicate).ok).toBe(false)
     const layerLocked = blank(); layerLocked.userLayers.layer.editLocked = true
     expect(() => apply(layerLocked, { type: 'upsertVisualLight', light: light() })).toThrow(/锁定/)
@@ -198,9 +201,55 @@ describe('visual effect safety and bounded workloads', () => {
     const long = coast(); long.segments[0].start = p(1000, 1000); long.segments[0].end = p(23000, 17000)
     const next = apply(blank(), { type: 'upsertVisualBoundary', boundary: long })
     expect(() => apply(next, { type: 'upsertVisualEdgeLook', edgeLook: look })).toThrow(/1024/)
-    const duplicate = structuredClone(source); duplicate.visual!.boundaries.another = { ...structuredClone(coast()), id: 'another' }
+    const duplicate = structuredClone(source); visualBase(duplicate)!.boundaries.another = { ...structuredClone(coast()), id: 'another' }
     expect(validateSceneDocument(duplicate).ok).toBe(false)
     expect(inspectVisualPixelBudget(source, 4096, 3072).ok).toBe(true)
     expect(inspectVisualPixelBudget(source, 8192, 8192).ok).toBe(false)
+  })
+})
+
+describe('native visual2 wrapper and persisted edge dependencies', () => {
+  const native = (): SceneDocument => ({ ...blank(), schemaVersion: 3, mapMode: 'scene', generation: createEmptyGeneration(), regional: null,
+    visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} } })
+  const materialized = (): { scene: SceneDocument; edge: MaterializedEdge } => {
+    const scene = native(), curve = coast()
+    const edge: MaterializedEdge = { ...common, id: 'materialized-shore', boundaryId: curve.id, inputHash: materializedBoundaryHash(curve), kind: 'shore',
+      polygons: [[p(11500, 1000), p(12500, 1000), p(12500, 17000), p(11500, 17000)]], strokes: [], materialRef: null, fillColor: '#AE916A', opacity: .8 }
+    if (scene.visual?.version !== 2) throw new Error('Expected native visual2 fixture')
+    scene.visual.base.boundaries[curve.id] = curve; scene.visual.materializedEdges[edge.id] = edge
+    return { scene, edge }
+  }
+
+  it('edits base effects without dropping the native wrapper or generation records', () => {
+    const source = native(), before = structuredClone(source)
+    const next = apply(source, { type: 'upsertVisualLight', light: light() },
+      { type: 'setVisualEnvironment', environment: { ...emptyVisualSystem().environment, ambientOpacity: .2 } })
+    expect(next.schemaVersion).toBe(3)
+    expect(next.visual).toMatchObject({ version: 2, materializedEdges: {}, base: { version: 1, environment: { ambientOpacity: .2 } } })
+    expect(visualBase(next)!.lights['warm-light']).toEqual(light())
+    expect(next.generation).toEqual(source.generation); expect(next.mapMode).toBe('scene'); expect(next.regional).toBeNull()
+    expect(validateSceneDocument(next).ok).toBe(true); expect(source).toEqual(before)
+  })
+
+  it('respects materialized edge locks and rejects source changes without rematerialization', () => {
+    const { scene, edge } = materialized()
+    expect(validateSceneDocument(scene).ok).toBe(true)
+    const curve = structuredClone(visualBase(scene)!.boundaries[edge.boundaryId]); curve.segments[0].control1.x += 100
+    edge.editLocked = true
+    expect(() => apply(scene, { type: 'upsertVisualBoundary', boundary: curve })).toThrow(/锁定/)
+    expect(() => apply(scene, { type: 'setVisualEnvironment', environment: emptyVisualSystem().environment })).toThrow(/锁定/)
+    edge.editLocked = false
+    const before = structuredClone(scene)
+    expect(() => apply(scene, { type: 'upsertVisualBoundary', boundary: curve })).toThrow(/物化边缘/)
+    expect(() => apply(scene, { type: 'removeVisualBoundary', id: curve.id, detach: true })).toThrow(/物化边缘/)
+    expect(scene).toEqual(before)
+  })
+
+  it('rejects a materialized identity that aliases a base visual identity', () => {
+    const { scene, edge } = materialized()
+    if (scene.visual?.version !== 2) throw new Error('Expected native visual2 fixture')
+    delete scene.visual.materializedEdges[edge.id]
+    scene.visual.materializedEdges[edge.boundaryId] = { ...edge, id: edge.boundaryId }
+    expect(validateSceneDocument(scene).ok).toBe(false)
   })
 })

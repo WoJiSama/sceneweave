@@ -1,3 +1,5 @@
+import { visualBase } from '../../shared/visual/base.js'
+import { terrainRecordChanges } from '../../shared/terrain-generation/review.js'
 import { useEffect, useMemo, useState } from 'react'
 import { LAYER_ENTITY_COLLECTIONS } from '../../shared/model/scene'
 import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics'
@@ -11,17 +13,33 @@ function AdoptedImage({ project, hash, name }: { project: EditableProject; hash:
   return url ? <img className="composition-import-preview" src={url} alt={`待入库素材预览 ${name}`}/> : null
 }
 const label = (value: unknown): string => value == null ? '无' : typeof value === 'boolean' ? value ? '是' : '否' : value === 'gm' ? '仅主持人' : value === 'public' ? '公开' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+const terrainCollectionNames: Record<string, string> = {
+  'generation.recipes': '地形配方', 'generation.intents': '制作要求', 'generation.rules': '地形联动规则',
+  'generation.ownership': '自动与手工编辑记录', 'generation.exclusions': '保留与排除范围',
+  'generation.strokes': '地形笔画', 'generation.version': '地形记录版本',
+  'generation.constraints': '地形要求', 'generation.checks': '要求检查', 'generation.sourceLinks': '区域来源',
+  'regional.areas': '区域地貌', 'regional.lines': '区域河流与路线', 'regional.landmarks': '区域地标',
+  'regional.symbols': '地图图符', 'regional.symbolDefinitions': '固定图符定义', 'regional.profile': '区域地图样式',
+  'visual.materializedEdges': '地形边缘细节',
+}
+const terrainFieldNames: Record<string, string> = { state: '管理状态', managedFields: '自动管理字段', manualFields: '手工保留字段',
+  parameters: '规则参数', inputHash: '输入校验', managedOutputHash: '输出校验', issues: '检查结果', boundaryMm: '范围轮廓',
+  pointsMm: '线路坐标', polygons: '边缘面', strokes: '边缘线条', fillColor: '填充颜色', opacity: '透明度',
+  inherited: '继承内容', sourceContentHash: '来源原图校验', publicInputHash: '公开输入校验', symbolScale: '图符比例',
+  sourceRef: '来源要素', style: '外观样式', reason: '保留原因' }
 export default function CompositionChangesPanel({ current, candidate, commands }: { current: EditableProject; candidate: EditableProject; commands: readonly CompositionCommand[] }) {
   const changes = useMemo(() => {
+    const currentVisual = visualBase(current.document), candidateVisual = visualBase(candidate.document)
     const records = [...LAYER_ENTITY_COLLECTIONS.map(collection => ({ collection: String(collection), before: current.document[collection], after: candidate.document[collection] })),
-      ...VISUAL_ENTITY_COLLECTIONS.map(collection => ({ collection: `visual.${collection}`, before: current.document.visual?.[collection] ?? {}, after: candidate.document.visual?.[collection] ?? {} })),
-      { collection: 'visual.environment', before: current.document.visual ? { 'visual-environment': current.document.visual.environment } : {}, after: candidate.document.visual ? { 'visual-environment': candidate.document.visual.environment } : {} }]
+      ...VISUAL_ENTITY_COLLECTIONS.map(collection => ({ collection: `visual.${collection}`, before: currentVisual?.[collection] ?? {}, after: candidateVisual?.[collection] ?? {} })),
+      { collection: 'visual.environment', before: currentVisual ? { 'visual-environment': currentVisual.environment } : {}, after: candidateVisual ? { 'visual-environment': candidateVisual.environment } : {} }]
     return records.flatMap(({ collection, before: a, after: b }) => [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap(id => {
     const before = (a as Record<string, unknown>)[id] as Record<string, unknown> | undefined, after = (b as Record<string, unknown>)[id] as Record<string, unknown> | undefined
     if (JSON.stringify(before) === JSON.stringify(after)) return []
     const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].filter(key => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
     return [{ id, collection, before, after, keys }]
   })) }, [current, candidate])
+  const terrainChanges = useMemo(() => terrainRecordChanges(current.document, candidate.document), [current, candidate])
   const scopes = useMemo(() => commands.flatMap(command => {
     if (!['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment'].includes(command.type)) return []
     if (!('scope' in command)) return []
@@ -36,16 +54,26 @@ export default function CompositionChangesPanel({ current, candidate, commands }
   const newVariants = Object.keys(candidate.appearance.variants).filter(id => !current.appearance.variants[id]).length
   const newLicenses = Object.keys(candidate.licenses).filter(hash => !current.licenses[hash]).length
   const newDefinitions = [...Object.values(candidate.document.propDefinitions).filter(item => !current.document.propDefinitions[item.id] && !item.tags.includes('sceneweave:retained-appearance')).map(item => ({ id: item.id, name: item.name, assetId: item.defaultAppearance.kind === 'image' ? item.defaultAppearance.assetId : null, size: `${item.defaultVisualBoundsMm.width} × ${item.defaultVisualBoundsMm.height} mm`, origin: item.origin.attribution, license: item.licenseRef })), ...Object.values(candidate.document.materials).filter(item => !current.document.materials[item.id] && !item.id.startsWith('composition-material-')).map(item => ({ id: item.id, name: item.name, assetId: item.textureAssetId, size: `${item.defaultTileSizeMm.width} × ${item.defaultTileSizeMm.height} mm`, origin: item.origin.attribution, license: item.licenseRef }))]
-  const newlyPublic = changes.filter(change => change.after?.visibility === 'public' && change.before?.visibility !== 'public')
+  const newlyPublic = changes.filter(change => change.after?.visibility === 'public' && change.before?.visibility !== 'public').length
+    + terrainChanges.filter(change => ['regional.areas', 'regional.lines', 'regional.landmarks', 'regional.symbols', 'visual.materializedEdges'].includes(change.collection)
+      && (change.after as { visibility?: string } | null)?.visibility === 'public' && (change.before as { visibility?: string } | null)?.visibility !== 'public').length
   const displayChanged = JSON.stringify(current.document.units) !== JSON.stringify(candidate.document.units) || JSON.stringify(current.document.presetSnapshot) !== JSON.stringify(candidate.document.presetSnapshot)
-  return <details className="composition-preview-details" open={newDefinitions.length > 0 || newPrefabs.length > 0 || displayChanged}><summary>核对实际变化 · {changes.length} 个实体 · {addedDefinitions} 个新固定定义 · {addedAssets} 份新位图</summary>
+  return <details className="composition-preview-details" open={newDefinitions.length > 0 || newPrefabs.length > 0 || displayChanged}><summary>核对实际变化 · {changes.length} 个实体{terrainChanges.length > 0 ? ` · ${terrainChanges.length} 项地形记录` : ''} · {addedDefinitions} 个新固定定义 · {addedAssets} 份新位图</summary>
     {(newSources > 0 || newVariants > 0 || newLicenses > 0) && <p>完整依赖：{newSources} 个固定外观来源 · {newVariants} 份位图派生 · {newLicenses} 份许可文本。仅采用素材不会自动放置场景对象。</p>}
     {newPrefabs.map(item => { const template = candidate.appearance.prefabAppearanceTemplates[item.id], binding = candidate.licenseBindings.find(value => value.subjectKind === 'prefabDefinition' && value.subjectId === item.id), license = binding && candidate.licenses[binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')]; return <article className="composition-diff-item" key={item.id}><h3>{item.name}</h3><p>组合 · v{item.version} · {item.members.length} 个固定成员 · {template.visibility === 'gm' ? '仅主持人' : '公开'}</p><p>{item.origin.attribution} · {item.licenseRef}</p>{template.visibility === 'gm' && <p>放置此组合仍须满足主持人内容的遮罩与支撑检查。</p>}{license && <details><summary>待采用组合许可</summary><pre>{license.text}</pre></details>}</article> })}
     {displayChanged && <article className="composition-diff-item" aria-label="显示设置变化"><strong>显示设置 · 场景毫米尺寸保持</strong><dl><div><dt>单位</dt><dd>{current.document.units.display} → {candidate.document.units.display}</dd></div><div><dt>距离习惯</dt><dd>{current.document.presetSnapshot.distanceMode} → {candidate.document.presetSnapshot.distanceMode}</dd></div><div><dt>格距</dt><dd>{current.document.units.gridSizeMm} → {candidate.document.units.gridSizeMm} mm</dd></div><div><dt>吸附</dt><dd>{current.document.units.snapMm} → {candidate.document.units.snapMm} mm</dd></div><div><dt>显示格线</dt><dd>{label(current.document.units.gridVisible)} → {label(candidate.document.units.gridVisible)}</dd></div></dl></article>}
     {newDefinitions.map(item => { const asset = item.assetId && candidate.document.assets[item.assetId], record = asset && candidate.assets[asset.sha256], binding = candidate.licenseBindings.find(binding => binding.subjectId === item.id), license = binding && candidate.licenses[binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')]; return <article className="composition-diff-item" key={item.id}><h3>{item.name}</h3>{record && <AdoptedImage project={candidate} hash={record.sha256} name={item.name}/>}<p>{item.size} · {item.origin}</p><p>许可：{item.license}</p>{license && <details><summary>待采用完整许可</summary><pre>{license.text}</pre></details>}</article> })}
-    {newlyPublic.length > 0 && <p role="alert" className="history-limit">其中 {newlyPublic.length} 个对象将新增公开内容，请核对可见范围。</p>}
+    {newlyPublic > 0 && <p role="alert" className="history-limit">其中 {newlyPublic} 个对象将新增公开内容，请核对可见范围。</p>}
     {scopes.map(({ scope, plan }, index) => <div key={index}><p>{scope.kind === 'layer' ? `持续图层：${current.document.userLayers[scope.layerId]?.name ?? scope.layerId}` : '冻结所选范围'} · {plan.targetIds.length} 个适用目标 · {plan.commandCost} / 256 条操作</p><p>不适用 {plan.inapplicableIds.length} 项</p><textarea readOnly aria-label="外观完整影响范围" rows={5} value={[...plan.targetIds.map(id => `调整 · ${id}`), ...plan.affectedIds.filter(id => !plan.targetIds.includes(id)).map(id => `关系与依赖 · ${id}`), ...plan.inapplicableIds.map(id => `不适用 · ${id}`)].join('\n')}/></div>)}
     {changes.map(change => <article key={`${change.collection}-${change.id}`} className="composition-diff-item"><strong>{!change.before ? '新增' : !change.after ? '删除' : '更新'} · {change.id}</strong><p>图层：{current.document.userLayers[(change.before?.layerId as string) ?? current.document.entityLayers[change.id]]?.name ?? '全图或无'} → {candidate.document.userLayers[(change.after?.layerId as string) ?? candidate.document.entityLayers[change.id]]?.name ?? '全图或无'}</p><dl>{change.keys.map(key => <div key={key}><dt>{fields[key] ?? key}</dt><dd>{label(change.before?.[key])} → {label(change.after?.[key])}</dd></div>)}</dl></article>)}
+    {terrainChanges.map(change => {
+      const before = change.before as Record<string, unknown> | null, after = change.after as Record<string, unknown> | null
+      return <article key={`${change.collection}-${change.id}`} className="composition-diff-item" aria-label={`${terrainCollectionNames[change.collection]}变化`}>
+        <strong>{before === null ? '新增' : after === null ? '删除' : '更新'} · {terrainCollectionNames[change.collection]}</strong>
+        <p>{change.fields.map(key => terrainFieldNames[key] ?? fields[key] ?? key).join('、')}</p>
+        <details><summary>查看这项变化</summary><p>记录：{change.id}</p><dl>{change.fields.map(key => <div key={key}><dt>{terrainFieldNames[key] ?? fields[key] ?? key}</dt><dd>{label(before?.[key])} → {label(after?.[key])}</dd></div>)}</dl></details>
+      </article>
+    })}
     {scopes.length > 0 && <p>规则来源、独立开关及实际位图一同保存。采用时重新检查完整范围和编辑锁。</p>}
   </details>
 }

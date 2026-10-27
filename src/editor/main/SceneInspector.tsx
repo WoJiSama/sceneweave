@@ -1,3 +1,4 @@
+import { propPresentation } from '../../shared/appearance/presentation'
 import { Layers3, LockKeyhole, Move, PencilRuler, Sprout } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { SceneCommand } from '../../shared/commands/commands'
@@ -69,7 +70,7 @@ export default function SceneInspector({ project, selected, busy, workspace, onS
       <fieldset disabled={busy || effectivelyLocked}>
         <NumberInput label="物件 X" value={prop.positionMm.x} onCommit={x => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, x } } }], scatterOwner ? '移动散布成员' : '移动物件')}/>
         <NumberInput label="物件 Y" value={prop.positionMm.y} onCommit={y => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, y } } }], scatterOwner ? '移动散布成员' : '移动物件')}/>
-        <NumberInput label="物件旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => editProp([{ type: 'updateProp', id: selected, changes: { rotationDeg } }], scatterOwner ? '旋转散布成员' : '旋转物件')}/>
+        {propPresentation(project.appearance, prop.id)?.mode === 'nearSide' ? <p className="asset-muted">近侧视素材保持直立，位置为树根；选择固定变体改变树形。</p> : <NumberInput label="物件旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => editProp([{ type: 'updateProp', id: selected, changes: { rotationDeg } }], scatterOwner ? '旋转散布成员' : '旋转物件')}/>}
         {variants.length > 1 && <><label className="asset-select">外观变体<select aria-label="物件外观变体" value={chosenId ?? ''} onChange={event => {
           const definitionId = event.target.value
           if (onAppearanceDraftChange) setAppearanceChoice({ propId: selected, definitionId })

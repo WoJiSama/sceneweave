@@ -1,3 +1,5 @@
+import { createEmptyGeneration, createEmptyIdentity2Fields } from '../terrain-generation/contracts.js'
+import { emptyVisualSystem } from '../visual/types.js'
 import { z } from 'zod'
 import type { Appearance, DefinitionIdentity, PropTemplate, SceneDocument } from '../model/scene.js'
 import type { ProjectBundle, ProjectData } from '../model/project.js'
@@ -57,6 +59,14 @@ function fixedAssetRoots(document: SceneDocument): Set<string> {
 /** Only fixed roots participate. Live instance/layer mappings are deliberately never traversed. */
 function extractClosure(source: ProjectData, selectorInput: CatalogSelector): ProjectData {
   const selector = selectorSchema.parse(selectorInput), result = neutralProject(), document = result.document, graph = result.appearance
+  const activatePresentations = () => {
+    if (result.schemaVersion === 3) return
+    result.schemaVersion = 3; document.schemaVersion = 3; document.mapMode = 'scene'; document.generation = createEmptyGeneration(); document.regional = null
+    document.visual = { version: 2, base: emptyVisualSystem(), materializedEdges: {} }
+    result.historyIdentity = { ...result.historyIdentity, version: 2, ...createEmptyIdentity2Fields() }
+    graph.version = 2; graph.presentations = {}
+    for (const sourceId of Object.keys(graph.sources)) if (graph.sources[sourceId].kind === 'prop') graph.presentations[sourceId] = cloneJson(source.appearance.presentations?.[sourceId] ?? { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null })
+  }
   const addAsset = (id: string): void => {
     if (Object.hasOwn(document.assets, id)) return
     document.assets[id] = cloneJson(own(source.document.assets, id))
@@ -70,6 +80,7 @@ function extractClosure(source: ProjectData, selectorInput: CatalogSelector): Pr
     if (Object.hasOwn(document.propDefinitions, id)) return
     const definition = own(source.document.propDefinitions, id)
     document.propDefinitions[id] = cloneJson(definition); addAppearance(definition.defaultAppearance)
+    for (const fixed of Object.values(source.appearance.sources)) if (fixed.kind === 'prop' && fixed.parentSourceId === null && fixed.snapshot.definitionRef?.id === id && source.appearance.presentations?.[fixed.id]?.mode === 'nearSide') addSource(fixed.id)
   }
   const addMaterial = (id: string): void => {
     if (Object.hasOwn(document.materials, id)) return
@@ -80,6 +91,9 @@ function extractClosure(source: ProjectData, selectorInput: CatalogSelector): Pr
     if (Object.hasOwn(graph.sources, id)) return
     const record = own(source.appearance.sources, id)
     graph.sources[id] = cloneJson(record)
+    const presentation = source.appearance.presentations?.[id]
+    if (presentation?.mode === 'nearSide') activatePresentations()
+    if (record.kind === 'prop' && graph.version === 2) graph.presentations![id] = cloneJson(presentation ?? { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null })
     if (record.parentSourceId !== null) addSource(record.parentSourceId)
     if (record.kind === 'prop') {
       if (record.snapshot.definitionRef) addProp(record.snapshot.definitionRef.id)
@@ -148,6 +162,7 @@ function fixedHash(project: ProjectData): string {
   const base = { definitions: Object.fromEntries(fixedCollections.map(key => [key, project.document[key]])),
     appearance: Object.fromEntries(appearanceCollections.map(key => [key, project.appearance[key]])), assets: resourceMetadata(project),
     licenseHashes: sorted(Object.keys(project.licenses)), licenseBindings: project.licenseBindings }
+  if (project.schemaVersion === 3) return sha256Text(canonicalJson({ domain: 'sceneweave-fixed-presentation-library', version: 1, base, presentations: project.appearance.presentations, authoringSources: project.authoringSources }))
   return sha256Text(canonicalJson(Object.keys(project.authoringSources).length
     ? { domain: 'sceneweave-svg-fixed', version: 1, base, authoringSources: project.authoringSources } : base))
 }
@@ -165,7 +180,7 @@ function prefabBounds(members: readonly { propTemplate: PropTemplate }[]): { wid
 }
 function describeItem(project: ProjectData, selector: CatalogSelector): CatalogItem {
   const capsule = extractClosure(project, selector), definition = definitionFor(capsule, selector), namespace = sha256Text(canonicalJson(definition.origin)), contentHash = fixedHash(capsule)
-  const algorithm = Object.keys(capsule.authoringSources).length ? 2 : 1
+  const algorithm = capsule.schemaVersion === 3 ? 3 : Object.keys(capsule.authoringSources).length ? 2 : 1
   const logicalKey = JSON.stringify([algorithm, namespace, selector.kind, definition.catalogId, definition.version]), key = JSON.stringify([algorithm, namespace, selector.kind, definition.catalogId, definition.version, contentHash])
   const dimension = selector.kind === 'prop' ? own(capsule.document.propDefinitions, selector.definitionId).defaultVisualBoundsMm : selector.kind === 'material' ? own(capsule.document.materials, selector.definitionId).defaultTileSizeMm : prefabBounds(own(capsule.document.prefabDefinitions, selector.definitionId).members)
   const thumbnailAssetIds = selector.kind === 'prop' ? (() => { const image = capsule.document.propDefinitions[selector.definitionId].defaultAppearance; return image.kind === 'image' ? [image.assetId] : [] })()
@@ -276,9 +291,17 @@ export async function adoptLibraryEntries(input: ProjectBundle, entriesInput: Pr
     for (const definition of Object.values(existingDefinitions)) if (definition.catalogId === identity.catalogId && definition.version === identity.fixedVersion
       && sha256Text(canonicalJson(definition.origin)) === identity.namespace
       && describeItem(project, { kind: identity.kind, definitionId: definition.id }).identity.contentHash !== identity.contentHash) throw new Error('相同逻辑素材身份对应不同固定内容。')
+    if (incoming.schemaVersion === 3 && project.schemaVersion !== 3) throw new Error('近侧视素材需要先保存独立完整v3升级副本，不能丢失表现降级。')
     assertFixedProjectCompatible(project, incoming)
     for (const key of fixedCollections) copyFixed(project.document[key], incoming.document[key], key !== 'assets')
     for (const key of appearanceCollections) copyFixed(project.appearance[key], incoming.appearance[key])
+    if (project.appearance.version === 2) {
+      project.appearance.presentations ??= {}
+      for (const source of Object.values(incoming.appearance.sources)) if (source.kind === 'prop' && !Object.hasOwn(project.appearance.presentations, source.id)) {
+        project.appearance.presentations[source.id] = cloneJson(incoming.appearance.presentations?.[source.id] ?? { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null })
+        operationCost++
+      }
+    }
     for (const [hash, record] of Object.entries(incoming.assets)) {
       if (Object.hasOwn(project.assets, hash)) {
         if (canonicalJson(project.assets[hash]) !== canonicalJson(record)) throw new Error('相同资源摘要对应不同元数据。')

@@ -2,7 +2,7 @@
 
 该工具测量 VIS-01 书房与露台、VIS-02 双层岩岛的 500/2000 物件副本。它通过独立生产入口复用实际 `AssetCanvas`、`WorkspaceV2`、样板候选守卫、资源校验、IndexedDB 仓库及 PNG 管线。普通 `npm run build` 不暴露 `window.__sceneweavePerformance`。
 
-这里定义复现方法，不预先宣布最终性能或容量通过。实际版本、设备、原始数据、失败记录及退出判断以 [B5 验证报告](../../docs/21-m1b-b5-validation.md) 为准。普通负载保留原创真实材质、透明物件、覆盖层和阴影；高密度摆放允许视觉重叠，不是可玩布局或美术验收。
+这里定义复现方法，不预先宣布最终性能或容量通过。实际版本、设备、原始数据、失败记录及退出判断以 [B5 验证报告](../../docs/archive/21-m1b-b5-validation.md) 为准。普通负载保留原创真实材质、透明物件、覆盖层和阴影；高密度摆放允许视觉重叠，不是可玩布局或美术验收。
 
 ## 环境与正式命令
 
@@ -93,7 +93,7 @@ npm run perf:b5 -- --output performance-results/b5-smoke --runs 1 --edits 2 --se
 
 ## C0 归档夹具与真实工作台
 
-C0方法与结果由[22](../../docs/22-m1c-c0-validation.md)独立记录，21及其原始证据保留。`run-b5.mjs --fixtures /absolute/archive` 会逐字节复制已完成归档的完整包，检查包SHA/长度、内部场景SHA/身份/数量/范围与资源摘要，同时保存原summary指纹。每次冷打开仍经过完整产品读取器，不以工具的摘要检查代替资源校验。
+C0方法与结果由[22](../../docs/archive/22-m1c-c0-validation.md)独立记录，21及其原始证据保留。`run-b5.mjs --fixtures /absolute/archive` 会逐字节复制已完成归档的完整包，检查包SHA/长度、内部场景SHA/身份/数量/范围与资源摘要，同时保存原summary指纹。每次冷打开仍经过完整产品读取器，不以工具的摘要检查代替资源校验。
 
 当前专用入口使用生产视口CSS和双层画布，长边1200栅格不变；主画布用aria标签定位。原`startMs`、`commitMs`和`displayProxyMs`保留命令准备完成后的起点，新增`intentStartMs`在读取当前工程和构造命令之前。`prepMs`、`intentToCommitMs`、`intentToCanvasCopyMs`、`intentToDisplayProxyMs`逐次保留，汇总器仅在新字段完整时输出新增统计。专用入口的意图是工具调用起点，不冒充真实用户事件。
 

@@ -10,8 +10,8 @@ import type { ProjectData } from '../../src/shared/model/project.js'
 import type { SceneDocument } from '../../src/shared/model/scene.js'
 import { validateProjectData } from '../../src/shared/project/validate.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
-import { cloneJson } from '../../src/shared/validation/json.js'
-import { authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
+import { canonicalJson, cloneJson } from '../../src/shared/validation/json.js'
+import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import * as authoringCore from '../../src/shared/ai/authoring.js'
 import { AUTHORING_LIMITS, type AuthoringDraft, type AuthoringStart, type DraftClaim } from '../../src/shared/ai/authoring-protocol.js'
 import { AI_LIMITS, utf8Size, type TaskSnapshot } from '../../src/shared/ai/protocol.js'
@@ -22,6 +22,8 @@ import { TaskEngine, type TaskEngineOptions } from './engine.js'
 import { executeAuthoringTool } from './authoring-tools.js'
 import { emptyVisualSystem } from '../../src/shared/visual/types.js'
 import { PROVIDER_REASONING_BYTES, type ProviderAdapter, type ProviderCompletion, type ProviderInput, type ProviderToolCall } from './provider-types.js'
+import { terrainAuthoringFixture } from '../../tests/helpers/terrain-authoring-fixture.js'
+import { RegionSceneCandidateToolOutputSchema } from '../../src/shared/ai/region-candidate-protocol.js'
 
 const stamp = '2026-10-24T00:00:00.000Z', token = 'a'.repeat(40), tokenB = 'b'.repeat(40)
 const cleanups: (() => void)[] = []
@@ -103,6 +105,66 @@ async function ready(subject: ReturnType<typeof setup>) {
 }
 
 describe('isolated AI prop authoring backend', () => {
+  it('serves a complete regional scene candidate only for its exact task, draft and scope stamp', async () => {
+    const source = terrainAuthoringFixture(false, true)
+    const generated = applyAuthoringStep(source, replayAuthoring(source, []).state, [{ kind: 'regionalGenerate', request: {
+      kind: 'regional', sceneId: source.project.document.sceneId, operationId: 'region-fetch-source', seed: 'fixed', widthMm: 1_000_000, heightMm: 800_000,
+    } }], 'region-fetch-source')
+    source.project = generated.project
+    source.baseContentHash = authoringProjectHash(source.project)
+    source.scope.scene!.boundsMm = source.project.document.exportBoundsMm
+    source.scope.scene!.entityIds = [...Object.keys(source.project.document.regional!.areas), ...Object.keys(source.project.document.regional!.lines)]
+    source.scope.scene!.operations = ['regionalEdit']
+    source.scope.scene!.regionalDefinitionIds = []
+    const request = { kind: 'regionalDrillDown', sourceSceneId: source.project.document.sceneId, sceneId: 'region-fetch-child', operationId: 'region-fetch-child',
+      selectionMm: { x: 0, y: 0, width: 500_000, height: 400_000 }, includePrivate: false }
+    const subject = setup({ complete: async input => input.tools.some(item => item.name === 'sceneweave_region_scene_candidate')
+      ? done([call('region-fetch', 'sceneweave_region_scene_candidate', { request })]) : done() })
+    const created = await (await subject.create(source)).json() as TaskSnapshot
+    const completed = await wait(subject.store, created.id, 'completed')
+    expect(completed.tools).toHaveLength(1)
+    expect(completed.tools[0].success).toBe(true)
+    const summary = RegionSceneCandidateToolOutputSchema.parse(JSON.parse(completed.tools[0].output))
+    const base = `/v1/tasks/${created.id}/draft/region-scene-candidate`
+    const scopeHash = sha256Text(canonicalJson(source.scope.scene))
+    expect(summary).toMatchObject({ atContentHash: completed.authoring!.contentHash, atDraftRevision: completed.authoring!.draftRevision, scopeHash })
+    const query = new URLSearchParams({ candidateId: summary.candidateId, candidateHash: summary.candidateHash,
+      atContentHash: summary.atContentHash, draftRevision: String(summary.atDraftRevision),
+      scopeHash: summary.scopeHash })
+    const response = await subject.request(`${base}?${query}`)
+    expect(response.status).toBe(200)
+    const body = await response.json() as { candidateId: string; candidateHash: string; atContentHash: string; draftRevision: number; scopeHash: string; scope: unknown; result: { document: SceneDocument; hash: string; sourceLink: unknown } }
+    expect(body).toMatchObject({ candidateId: summary.candidateId, candidateHash: summary.candidateHash, atContentHash: source.baseContentHash,
+      draftRevision: completed.authoring!.draftRevision, scopeHash: sha256Text(canonicalJson(source.scope.scene)), result: { hash: summary.candidateHash } })
+    expect(body.result.document.sceneId).toBe(request.sceneId)
+    expect(body.result.sourceLink).toBeTruthy()
+    expect(body.result.document.regional).toBeNull()
+
+    const conflict = async (changes: Record<string, string>) => {
+      const changed = new URLSearchParams(query)
+      for (const [key, value] of Object.entries(changes)) changed.set(key, value)
+      return subject.request(`${base}?${changed}`)
+    }
+    const conflicts: Record<string, string>[] = [
+      { candidateId: 'another-candidate' }, { candidateHash: '0'.repeat(64) }, { atContentHash: '0'.repeat(64) },
+      { draftRevision: String(completed.authoring!.draftRevision + 1) }, { scopeHash: '0'.repeat(64) },
+    ]
+    for (const changes of conflicts) expect((await conflict(changes)).status).toBe(409)
+    expect((await subject.request(`${base}?${query}&extra=1`)).status).toBe(400)
+    expect((await subject.request(`${base}?${query}&candidateId=${encodeURIComponent(summary.candidateId)}`)).status).toBe(400)
+    expect((await subject.request(`${base}?${query}`, 'GET', undefined, true)).status).toBe(404)
+    expect((await subject.request(`/v1/tasks/${randomUUID()}/draft/region-scene-candidate?${query}`)).status).toBe(404)
+    subject.store.change(created.id, completed.generation, task => {
+      task.authoring!.start.scope!.scene!.boundsMm.width += 1
+      task.authoring!.state.draftRevision += 1
+      return []
+    })
+    const changedAuthoring = subject.store.read(created.id).authoring!
+    const reboundQuery = new URLSearchParams(query)
+    reboundQuery.set('scopeHash', sha256Text(canonicalJson(changedAuthoring.start.scope!.scene)))
+    reboundQuery.set('draftRevision', String(changedAuthoring.state.draftRevision))
+    expect((await subject.request(`${base}?${reboundQuery}`)).status).toBe(409)
+  })
   it('keeps ordinary conversation at 1024 tokens while capturing a server-selected 4096-token authoring budget for every round', async () => {
     const inputs: ProviderInput[] = []
     const subject = setup({ complete: async input => {

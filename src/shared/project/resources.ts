@@ -218,6 +218,7 @@ export function tryDerivedProjectBundle(input: ProjectBundle, baseline: ProjectB
     if (inputFields.resources.value !== base.resources) return undefined
     const candidateFields = dataFields(inputFields.project.value, projectFields)
     const baseFields = dataFields(base.project, projectFields)
+    if(candidateFields.schemaVersion.value !== baseFields.schemaVersion.value) return undefined
     for (const key of proofBranches) {
       const candidate = candidateFields[key].value, original = baseFields[key].value
       if (candidate !== original || !Object.isFrozen(original)) return undefined

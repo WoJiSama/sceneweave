@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { createVisualSampleDocument, createVisualBlankDocument, createVisualBlankProject, type VisualSampleKind } from './visual-samples.js'
 import { VISUAL_SAMPLE_ART } from '../../../shared/visual/sample-art.js'
@@ -41,7 +42,7 @@ describe('original editable visual sample scenes', () => {
     expect(createVisualSampleDocument(kind)).toEqual(original)
   })
   it('uses the same real curve samples on both beach terrain boundaries', () => {
-    const scene = createVisualSampleDocument('beach'), curve = scene.visual!.boundaries['beach-coast']
+    const scene = createVisualSampleDocument('beach'), curve = visualBase(scene)!.boundaries['beach-coast']
     if (curve.binding.kind !== 'terrain') throw new Error('expected shared terrain curve')
     const sample = sampleVisualBoundary(curve).points
     const sides = curve.binding.sides.map(side => terrainBoundaryChain(scene.terrainAreas[side.areaId], side, false).map(point => point.positionMm))
@@ -58,7 +59,7 @@ describe('original editable visual sample scenes', () => {
     expect(Object.keys(inn.rooms)).toHaveLength(2)
     expect(Object.keys(inn.walls)).toHaveLength(7)
     expect(inn.constraints.entranceOpeningIds).toHaveLength(1)
-    expect(Object.values(inn.visual!.lights).every(light => light.wallOcclusion)).toBe(true)
+    expect(Object.values(visualBase(inn)!.lights).every(light => light.wallOcclusion)).toBe(true)
     for (const key of ['stove', 'counter', 'cupboard', 'barrel', 'basket']) expect(Object.values(inn.props).some(prop => prop.definitionRef?.id === `visual-prop-${key}`)).toBe(true)
   })
   it('creates a bounded empty visual scene with searchable kitchen and full original palette', () => {

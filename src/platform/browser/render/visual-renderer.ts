@@ -156,8 +156,21 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       copyBuffer(ctx, buffer, 1, 'multiply')
     } finally { release(buffer.surface) }
   }
-  for (const look of visual.edgeLooks) {
+  const looksById = new Map(visual.edgeLooks.map(look => [look.id, look]))
+  const materializedById = new Map((visual.materializedEdges ?? []).map(edge => [edge.id, edge]))
+  const paintOrder = visual.edgePaintOrder ?? [
+    ...visual.edgeLooks.map(look => ({ kind: 'edgeLook' as const, id: look.id })),
+    ...(visual.materializedEdges ?? []).map(edge => ({ kind: 'materializedEdge' as const, id: edge.id })),
+  ]
+  for (const entry of paintOrder) {
     checkCancelled(signal)
+    if (entry.kind === 'materializedEdge') {
+      const edge = materializedById.get(entry.id)
+      if (edge) drawMaterializedEdge(ctx, edge)
+      continue
+    }
+    const look = looksById.get(entry.id)
+    if (!look) continue
     const boundary = byId.get(look.boundaryId)
     if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, look.widthMm * 2), projection.bounds)) continue
     ctx.save(); clipConnections(ctx, projection)
@@ -324,4 +337,16 @@ export function drawVisualEntity(ctx: CanvasRenderingContext2D, projection: Proj
     applyVisualFilters(buffer.ctx, localProjection, undefined, readFrequently, filters)
     copyBuffer(ctx, buffer)
   } finally { release(buffer.surface) }
+}
+
+type ProjectedMaterializedEdge = NonNullable<NonNullable<Projection['visual']>['materializedEdges']>[number]
+/** Native visual2 geometry; the shared surface pass owns its audience-filtered order. */
+function drawMaterializedEdge(ctx: CanvasRenderingContext2D, edge: ProjectedMaterializedEdge): void {
+  ctx.save(); ctx.globalAlpha = edge.opacity; ctx.fillStyle = edge.fillColor
+  for (const ring of edge.polygons) ctx.fill(ringsPath([ring]))
+  for (const stroke of edge.strokes) {
+    ctx.strokeStyle = stroke.color; ctx.lineWidth = stroke.widthMm; ctx.globalAlpha = edge.opacity * stroke.opacity
+    ctx.lineJoin = 'round'; ctx.lineCap = 'butt'; ctx.stroke(linePath(stroke.pointsMm))
+  }
+  ctx.restore()
 }

@@ -3,7 +3,7 @@ import type { AssetRecord, LicenseBinding, LicenseTextRecord, ProjectBundle, Pro
 import type { CompleteValidationOptions } from '../ports/resources.js'
 import { checkCancelled } from '../ports/resources.js'
 import { canonicalJson, encodeUtf8 } from '../validation/json.js'
-import { assetRecordSchema, licenseBindingSchema, validateProjectData } from './validate.js'
+import { assetRecordSchema, nativeLicenseBindingSchema, validateProjectData } from './validate.js'
 import { projectSourceRecords } from './source-resources.js'
 import { createMemoryResources, validateProjectBundle } from './resources.js'
 import type { HistoryArchive, SnapshotBundle } from './history.js'
@@ -17,7 +17,7 @@ export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'his
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'asset' | 'license' | 'source'
 export interface ManifestEntry { path: string; role: PackageRole; sha256: string; sizeBytes: number; mimeType: string }
 export interface ProjectManifest {
-  format: 'sceneweave-complete-project'; schemaVersion: 1 | 2; application: 'Sceneweave'; applicationVersion: string
+  format: 'sceneweave-complete-project'; schemaVersion: 1 | 2 | 3; application: 'Sceneweave'; applicationVersion: string
   packageMode: 'complete' | 'history'; sceneId: string; revision: number; entries: ManifestEntry[]
   assetRecords: Record<string, AssetRecord>; licenseBindings: LicenseBinding[]
 }
@@ -45,7 +45,7 @@ function readBindings(input: unknown): LicenseBinding[] {
   if (!Array.isArray(input) || input.length > 10_000) return failPackage('许可绑定数量无效。')
   const result: LicenseBinding[] = []
   for (const item of input) {
-    const parsed = licenseBindingSchema.safeParse(item)
+    const parsed = nativeLicenseBindingSchema.safeParse(item)
     if (!parsed.success) return failPackage('许可绑定字段缺失、未知或无效。')
     result.push(parsed.data)
   }
@@ -82,7 +82,7 @@ function roleFor(path: string, mimeType: string, hash: string, mode: ProjectMani
 }
 function readManifest(input: unknown): ProjectManifest {
   if (!hasExactKeys(input, ['format', 'schemaVersion', 'application', 'applicationVersion', 'packageMode', 'sceneId', 'revision', 'entries', 'assetRecords', 'licenseBindings'])
-    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 && input.schemaVersion !== 2 || input.application !== 'Sceneweave'
+    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 || input.application !== 'Sceneweave'
     || input.packageMode !== 'complete' && input.packageMode !== 'history'
     || !nonempty(input.applicationVersion, 100) || !nonempty(input.sceneId) || !Number.isSafeInteger(input.revision) || Number(input.revision) < 0
     || !Array.isArray(input.entries) || input.entries.length < 4 || input.entries.length >= PACKAGE_LIMITS.entries) return failPackage('manifest格式、版本、字段或身份无效。')

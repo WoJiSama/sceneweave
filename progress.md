@@ -1,5 +1,29 @@
 # 执行记录
 
+## 2026-10-28 文档归档与导航收尾
+
+- 将 37 份历史批次报告移入 `docs/archive/`，顶层保留 18 份现行主题文档（含 34 性能专题、53–55 视觉/质量/地形专题）及导航；历史内容未删除。
+- 重写 `docs/README.md` 为按任务找入口，明确 M2-E 当前收口、M3 前置条件、主定义责任和后续维护规则；把调研文档改为按需参考，并修正 T2/复杂拓扑的当前状态表述。
+- 修正归档文档到顶层文档、仓库源码/素材/测试/工具的相对路径；归档内报告彼此引用保持原文件名。另修正 `01` 与 `07` 指向已删除导航锚点的问题。
+- 临时检查脚本曾有语法、绝对路径缓存及 Unicode 标题识别问题，修正检查器后重新完整检查；未据中间错误输出判定通过。
+- Markdown 检查覆盖 72 个文件、1095 个相对链接和 135 个本地锚点，缺失目标为 0；`git diff --check` 通过。未运行产品测试/构建，未提交或推送。
+
+## 2026-10-27 启动当前源码统一验收
+
+- 修复后全量189文件2058/2058（212.52秒）、独立AI23文件292/292（29.06秒）、108共享模块/无DOM Node及前后端typecheck、正常build、ai:build全部通过。构建保留既有Zod注释及大chunk提示；源码冻结不改，开始完整Chromium独立报告。
+
+- 首轮全量189文件：2056通过/2失败（215.84秒），失败为两个独立GM道路遮罩用例。诊断证实道路窄交叉森林边缘，原顶点/中点采样漏掉实际支撑面。改用既有完整带区覆盖检查收集真实活跃支撑，完整区域19/19定向复验通过（9.85秒）；首轮及诊断结果独立保留。随后启动修复后全量复跑，源码冻结另存tested-freeze.json。
+
+- 用户“跑做”明确启动刚说明的统一验收，替代上一阶段验证后置安排。核对README/文档导航、工作区脏改与package脚本，没有残留测试/开发服务进程。
+- 沿用planning-with-files记录当前冻结与结果，保全todo.md和无关改动。已启动`npm test -- --maxWorkers=1 --testTimeout=30000`，串行继续AI/共享、类型/构建、浏览器及正常生产；未启动模型、P3或正式性能。
+
+## 2026-10-27 用户再次要求先完成代码
+
+- 停止接手时仍在运行的完整Chromium回归：101通过、1中断、54未执行，exit 130。未继续跨引擎、生产smoke或性能；已有结果与当前代码状态分开记录。
+- 沿用planning-with-files，完成获准来源关联hash、独立GM实体遮罩、实际主题范围外扩和完整反向折线方向修复；补代码用例但不执行测试/类型检查/构建。
+- 预算漏计疑点复核未成立：清空entityLayers后的变化检查已计入Prop、label和遮罩的新建成本，预算实现保持。
+- 完成最后一次有界静态复核及55/09/tests说明同步，本批代码阶段收尾；统一验证待后续执行，未自动启动P3、付费模型矩阵、正式性能或交付发布，独立todo.md保持。
+
 ## 2026-10-24 M2-2技能与独立物件草稿
 
 - 按用户“继续”推进首批技能、严格范围/操作合同与两层发送许可。并行分工共享纯重放、后端工具/账本/租约和本机原子采用；root集成客户端/授权/差异/Canvas及跨文档一致性。起点856份文件hash保存在系统临时目录，原有M2-0、加载修复、M2-1和todo保持。
@@ -692,3 +716,111 @@ GLM-v4独立九任务组已冻结601源码/运行时，新island-basic修schema�
 - 发布记录助手首次子进程报源文件编码错误，尚未写项目文件；确认源文件UTF8有效，改显式UTF8解码后执行通过。后续清理脚本首次被历史段落的精确断言拦下，未部分写入，按实际上下文修正。docs55哈希与旧排除观察值不同，来自另一会话继续编辑，未恢复或纳入提交。
 
 - 独立交付说明最终检查：12份文档402本地链接、64锚点、83表格无误，实际凭据/模式0命中，diff空白通过；808份Git内受测文件与功能提交相等。独立todo原SHA保持，地形改动未纳入暂存。
+
+## 2026-10-26 T3
+
+T3接续：generate.test 17/17、terrain-generation七文件76/76、路线4/4、npx tsc -b通过。浏览器混合候选首轮失败保留，原因sampleSpacingMm空引用，修复后将重跑。
+
+## T3集成收尾（2026-10-26）
+
+五新配方、真实浅滩、全净宽有限路线与UI/严格v3保存已接入。125地貌/seed/尺寸矩阵同次通过；相关17文件313/313（冷读守卫追加前），真实浏览器T2/T3同次5/5；审查补已知路线回执冷读重验、ground方式持久化，专项14/14。正常构建/99共享通过后生产五配方route流程运行中。首轮生产图像发现浅滩/道路/森林和周边材质可辨性不足，仅调整实例paint，须重建后完整复跑；旧结果不可当最终源码证据。未修改todo/54/34，不commit/push/部署。
+
+## T3资源完整收尾
+
+最终染色首次Chrome4/5暴露未物化派生PNG，错误完整保留；修复生成编排通过materializeProject实际物化、冻结新生受管关系并核对成本，相关4文件32/32。最新同次Chrome5/5（1.9分钟）、正常构建（Vite5.00秒）与99共享通过。首轮旧dist生产38/38（1121394ms）通过但非最终paint；最终正常dist五类/route生产复验进行中，CANCEL=first。614源码/84产物及todo/54/34保护hash冻结，不执行其他浏览器/测试/构建并发。
+
+## T3本地首批完成（2026-10-26）
+
+最终同次正常生产34/34、865741ms，6编译Worker、5类实际Path/完整包候选→采用→冷重载字节相同、每类GM/player4096×3072共10PNG通过，页面/控制台/HTTP/失败请求/外网阻断均0。河谷/混合15图/13源/46entry；内湖/森林/丘陵14图/13源/45entry。最后材质/实际派生资源组装后的Chrome5/5、受影响4文件32/32、前后端类型/正常build/99共享通过，前广泛24文件409/409及首轮4/5失败分别保留，不拼为一次全仓回归。614源码/84dist与todo/54/34原hash保持，645路径/70锚点及diff检查通过，无暂存/提交/推送/部署。55第19节集中入口/合同/结果/失败/未覆盖边界；下一阶段T4需用户后续授权。
+
+
+## 2026-10-27 地形后续完整实施
+
+用户授权按序完成T-S06、复杂拓扑、T4–T7、P3与正式性能。已复核当前脏工作区/README/主设计，起点全文件hash保存在ignored work/terrain-followup-20261027/starting-files.json；todo保持独立。已有T3所有结果仍只对应原冻结。不继承commit/push/部署授权。
+
+## 2026-10-27 continuation verification
+
+Default polygon import/shared pure dependency allowlist fixed; complete typecheck, 104-module Node shared and normal build passed (Zod/chunk warnings retained). Full Vitest 185 files 2013/2013 in54.23s. Initial Chromium152 tests:151 passed/1 T-S06 failed in22.2m, preserved. Accessible cancel name fixed; test now waits adoption completion/revision, T-S06 targeted1/1 in18.4s. Two intermediate generation1 assertions were pre-commit test races, not confirmed receipt loss. More T4/T5/T6 implementation underway; these earlier counts are not final freeze evidence.
+
+## 2026-10-27 T4 browser verification continuation
+
+- T4 content/near-side Chromium test passed (47.1s): old terrain/roots/footprints, 19 sources, 20 PNG/instances, complete package round-trip, cold load, GM/player 4K exports and review artifacts all completed without page errors.
+- The personal-library/private 4K test initially failed at the intended player projection safety guard because a private near-side prop had no explicit manual mask. The fixture now adds one fixed axis-aligned mask covering both paired positions and shadow padding; the targeted rerun passed 1/1 (25.9s). The projection guard remains unchanged.
+- A final two-test T4 rerun is still required after the remaining UI/T6 edits; no user P3 sign-off is implied by these automated checks.
+
+## 2026-10-27 T7继续：T5下钻与复杂拓扑
+
+- 复杂拓扑真实Chromium UI通过1/1（18.9秒）：差集打孔、未授权范围不变、逐槽显式支撑重绑、保护采用、generation v4冷读和单次撤销。审查后补“未完成重绑时预览禁用”断言；重叠union/分离intersection正例补充后，布尔单元7/7通过。
+- T5首次真实UI在下钻时将三个父区域图符资产判为UNUSED_ASSET。修复只移除独立子场景中失去所有定义引用的资产，保留仍被场景定义引用的资源；共享T5下钻单元3/3通过，校验器未放宽。
+- 修复后第二次T5 UI已下钻并执行离线包流程，但测试用JSON字符串比较导致key顺序差异失败。已改为完整工程规范化projectContentHash；第三次全旅程运行中，输出在ignored work/terrain-followup-20261027/t7-regional-final-3。
+- 当前T5物化的边界裁切/道路重叠面/河流/地标/图符范围须如实报告，来源快照不能等同全部物化；最终源码冻结回归尚未执行。
+- 用户要求T7后暂停共同讨论；P3、正式性能、真实付费模型矩阵和提交/推送/部署未启动。
+
+## 2026-10-27 T7最终冻结续验
+
+- 接手时完整Chromium仍运行，保留原进程直到自然结束；OS PID不能作为exec session使用，一次write_stdin返回Unknown process id，随后通过进程与最终HTML内嵌正式报告取回结果，未重启全量浏览器。
+- 完整Chromium45文件156/156同次通过，1244209.154ms、单worker、0失败/跳过/flaky，报告及全部逐项结果保存在ignored work/terrain-followup-20261027/t7-chromium-full/report-summary.json。
+- 新增Firefox/WebKit地形/拓扑/近侧视/区域共28项首轮27过/1 WebKit位图解码失败；区域专项独立复跑2/2通过（82649.948ms）。首轮原因未确认，不能合并成28项同次全绿。
+- 最终源码/测试/工具冻结在t7-freeze.json；当前全量Vitest串行执行，之后AI/共享/类型/正常构建及生产UI；未开始P3/真实模型/正式性能/交付发布。
+
+## 2026-10-27 T7完成并按用户要求暂停
+
+- 全量Vitest189文件2036/2036（190.92秒）；AI23文件287/287（27.81秒）；共享107模块、前后端类型/正常build与ai:build通过。AI首轮22文件283项通过且visual-review加载失败，.safeExtend()修复后独立完整复跑；没有修改Chromium受测客户端源码。
+- 正常生产最终区域10步/14770ms、T2编辑6个主要UI阶段/23277ms、岩岛和混合路线16步/38921ms均passed、exit0。完整包逐条hash、冷读字节和已执行双受众4K通过，页面/console/HTTP/失败请求/外网阻断均0；首轮错误和清理修正保持独立记录。
+- README、文档索引、55/路线图/质量计划/测试说明已同步最终结果和有限边界；findings补入最终结论，计划明确T7停止点。未将WebKit首轮27/28与区域另批2/2拼成28项同次全绿，未把T5来源快照写成全部物化。
+- 文档检查覆盖15份入口/主文档的648个本地链接和77个锚点，缺失为0；git diff --check通过。
+- 保留原823文件t7-freeze.json，最终源码/测试/工具清单另存t7-freeze-final.json；四份实现/脚本修复和一份测试说明变化逐项列明。客户端源码、todo.md、34及54原hash保持。最终三份脚本node --check通过；任务自建浏览器/预览进程已退出。
+- 本轮不启动真实模型矩阵、P3或正式性能，不commit/push/部署。下一步共同评估视觉审阅、T5下钻范围、真实模型和性能的优先级。
+
+## 2026-10-27 T4视觉评审准备
+
+- 用户选择先看T4。已展示同构图中性前后图、近侧视素材近景、根锚/占地辅助图、GM/player 4K及私密配对4K；未修改产品源码、未启动模型或性能。
+- 技术链复核保持通过：20个近侧视实例固定`rotation=0`，根锚/地形/源字节/完整包/冷读一致，4K输出存在且私密配对由固定遮罩覆盖。
+- 目视初评保留两项待决意见：新树岩描边与原地形风格对比偏重；软阴影和树冠体量使中部视觉重量偏大。等待用户决定接受为P3候选，或先做描边/阴影/比例修订。
+
+## 2026-10-27 T5内容代码收尾开始
+
+- 用户要求先暂停后续内容，完成剩余代码后统一测试；本轮不启动T6真实模型、P3或正式性能，不commit/push/部署。
+- 先按55第20.4节和现有工作区实现盘点：来源快照缺图符；区域面遇道路带整块跳过；河流只算带区未物化；地标和图符只保留来源，不进入子场景实体。
+- 代码阶段顺序固定为：扩展严格快照并保留图符定义；布尔分割道路相交面并物化河流；用完整资源/许可闭包物化地标与图符；补冷读/来源比较和定向测试，之后统一回归。
+
+## 2026-10-27 T4正常生产dist最终复验
+
+- 在当前源码重新执行`npm run build`后，新增并执行`tools/testing/terrain-presentation-production-smoke.mjs`。真实生产UI点击“新建近侧视苔岛”，完成候选准备、实际Canvas渲染、完整工程下载、保存版本冷读和GM/player 4K导出；7步/41341ms/exit0。
+- 完整包逐条校验64个ZIP清单项、20张PNG资源、19个SVG来源和许可闭包；本轮包1,085,725字节，SHA-256 `93bc9776626ecdbd929c82dba4d9bb51dc23fc6ce9977bdba6517d448f483202`，冷读字节一致，20个近侧视实例保持rotation=0。两受众PNG均4096×3072、9,382,210字节并由浏览器原生解码；页面/console/HTTP/失败请求/外网阻断均0，无生产钩子。工程创建时间会使不同轮次完整包哈希变化，本证据只要求同轮冷读一致。
+- 证据保存在忽略目录`work/terrain-followup-20261027/t4-production-final/`，首轮失败和跨浏览器边界未覆盖或改写；该技术smoke不等同用户P3视觉签收，视觉描边/阴影/树冠体量问题留到技术收尾后讨论。
+## 2026-10-27 T5剩余物化修复与统一测试准备
+
+- 修正 `src/application/workspace/regional.ts`：不再对全量候选反复差集；以 Floor 作为完整基础支撑，仅保留边界可证明的河流/山脊/区域覆盖；道路不生成额外 road-band 地形面，Path 显式声明已物化覆盖面和 Floor 支撑；边缘图符视觉范围越界时保留来源证据但不物化非法 Prop。
+- 修正近侧视显式阴影方向优先级：`shadowOverride.directionDeg` 在投影、Canvas 绘制及编辑计划中优先于全局光照方向。
+- 修正 `tests/terrain-presentation.spec.ts` 的缺失导入。
+- 定向复验：T5工作区/合同/下钻 19/19；T4表现/投影/编辑计划13/13；`npm run check:shared`和`npx tsc --noEmit`通过。统一测试尚未开始。
+
+## 2026-10-27 T5代码阶段补充收尾
+
+- 区域物化报告现在区分完整物化、部分物化和仅来源；多分量裁切、孔洞、退化面、宽度无效和边界交叉会保留来源并带原因。
+- 独立 `port` 来源会在子图 `generation.constraints` 中保存为 soft port；道路端口与只生成辅助约束的来源不会再被报告为完整物化。
+- 道路和图符支撑只使用当前覆盖优先级下实际可见的 TerrainArea；远处或未相交的 GM 面不再影响公开路径/物件，公开实体与私密覆盖相交时保留来源。
+- 新增代码级回归用例覆盖逆向嵌套面、连续顶点、边界交叉来源保留和仅端口的部分道路物化。尚未运行测试、类型检查、构建或生产 smoke，等待全部代码完成后统一验证。
+
+## 2026-10-27 T5代码阶段收尾
+
+- 修正区域下钻的包含式覆盖语义：不再对外层面与内湖做差集孔洞，完整面保留并按公开/GM与稳定顺序分配唯一`coveragePriority`；即使高优先级面完整包含低优先级面，也保留两者的独立实体。
+- 真正边界交叉需要新的显式整数交点时保留来源；完整包含面不做差集孔洞。新增工作区用例验证内外层面、优先级、连续顶点和物化报告。
+- GM 来源在公开分区之后检查；需要改变公开边界的私密交叉只保留来源，完全包含的私密表面仍独立物化并分配更高优先级。
+- 同步存储、质量和主设计合同。此前19/19及类型/共享检查属于本次修改前的代码状态；本轮代码完成后按用户要求未运行任何测试、类型检查、构建或生产检查。未commit/push/deploy。
+
+## 2026-10-27 代码收尾后的统一验收完成
+
+- 修复区域窄交叉道路支撑漏检后，全量串行单元189文件2058/2058、AI23文件292/292、共享108模块通过；前后端typecheck、正常build和ai:build均通过。构建提示保持为既有警告，不改写为失败。
+- 当前完整Chromium156/156同次通过；适用Firefox/WebKit地形与区域专项最终日志28/28通过。此前首轮27/28及区域2/2复验、完整Chromium中止101/1/54均独立保留，不拼成当前结果。
+- 区域生产复跑10项通过：真实UI创建/取消、父区域完整包/三图符定义、500m下钻、来源比较、独立包逐hash、冷读逐字节一致及GM/player 4096×4096；页面、console、HTTP、失败请求、外网阻断均0。T2生产6项、岩岛/混合生产16项同批通过。
+- 近侧视生产复跑7项通过：真实dist入口、20位图/48物件、完整包64条清单、冷读逐字节一致及GM/player 4096×3072；本轮包hash为`e8688bc1adf60f23591496aba1bb8461b5f252230b6cf8bfc1f5d515475b5dac`，错误计数均0。
+- 四份生产脚本语法、`git diff --check`、本地Markdown链接、源码/文档指纹和todo独立性检查完成；自建浏览器、预览和生产进程已退出。证据集中在ignored `work/terrain-followup-20261027/unified-final-20261027/`，没有commit/push/deploy。
+- 截至该停点，T6真实模型矩阵、P3视觉签收、UVTT真实导入和v3正式性能未执行；当时等待用户共同决定。
+
+## 2026-10-28 调整验收节奏
+
+- 用户决定将T7之后剩余内容统一视为交付验收，并全部放在真实小团之前；不再把这些专项与M3真实小团并行安排。
+- 新增M2-E交付前验收收口：真实模型16项自然语言任务与4项局部任务、P3视觉签收、v3正式性能、无引导SCN/QA-WS-06、UVTT目标软件真实导入，以及配额/未覆盖输入/已知限制记录。
+- M2-E各项完成，或对未通过项形成明确的阻塞、限制试用或延期决定后，才进入M3真实小团；发布与后续维护放在真实小团之后。当前仍未执行这些专项，未commit/push/deploy。

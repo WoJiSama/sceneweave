@@ -1,3 +1,5 @@
+import { createVisual2Schema, generationSchema, regionalSchema } from '../terrain-generation/contracts.js'
+import { validateTerrainContracts } from '../terrain-generation/integrity.js'
 import { z } from 'zod'
 import { visualSystemSchema } from '../visual/schema.js'
 import { validateVisualSystem } from '../visual/diagnostics.js'
@@ -79,17 +81,27 @@ export const sceneDocumentSchema = z.object({
   if (value.schemaVersion === 2 && value.visual === undefined) context.addIssue({ code: 'custom', path: ['visual'], message: '原生v2须携带完整视觉系统。' })
 })
 
+/** New persisted contract; old strict object and its reusable shape stay unchanged. */
+export const sceneDocument3Schema = z.object({ ...sceneDocumentSchema.shape,
+  schemaVersion: z.literal(3), visual: createVisual2Schema(visualSystemSchema),
+  mapMode: z.enum(['scene', 'regional']), generation: generationSchema, regional: regionalSchema.nullable(),
+}).strict().superRefine((value, ctx) => {
+  if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
+  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体。' })
+})
+export const nativeSceneSchema = z.union([sceneDocumentSchema, sceneDocument3Schema])
+
 export type ValidationResult = { ok: true; document: SceneDocument; warnings: Issue[] } | { ok: false; errors: Issue[] }
 export function validateSceneDocument(input: unknown): ValidationResult {
   // The ownership inspector already enforces the complete depth/value budget
   // and descriptors. Preserve scene error codes without scanning twice.
   const jsonIssue = inspectJsonInput(input, { budgetCode: 'JSON_BUDGET', accessorCode: 'JSON_BUDGET' })
   if (jsonIssue) return { ok: false, errors: [jsonIssue] }
-  const parsed = sceneDocumentSchema.safeParse(input)
+  const parsed = nativeSceneSchema.safeParse(input)
   if (!parsed.success) return { ok: false, errors: parsed.error.issues.map(issue => ({ code: 'SCHEMA', message: `${issue.path.join('.') || 'document'}: ${issue.message}` })) }
   const document = parsed.data as SceneDocument
   const dependencies = inspectDependencies(document), geometry = validateGeometry(geometryDocumentForValidation(document))
-  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document)]
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document)]
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }
 export const sceneSchema = sceneDocumentSchema

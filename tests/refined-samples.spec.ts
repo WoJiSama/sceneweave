@@ -1,3 +1,4 @@
+import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page, type Request, type Route } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import type { CompositionPreview, Workspace } from '../src/application/workspace/workspace'
@@ -77,7 +78,7 @@ test('Q2 refined palette selection creates truly blank complete projects with ac
     expect(result.schemaVersion).toBe(2)
     expect(result.document.title).toBe(`Q2 ${palette.value} 空白素材`)
     for (const group of [result.document.props, result.document.rooms, result.document.walls, result.document.terrainAreas, result.document.prefabInstances, result.document.scatterGroups, result.document.notes]) expect(Object.keys(group)).toHaveLength(0)
-    expect(Object.keys(result.document.visual!.boundaries)).toHaveLength(0)
+    expect(Object.keys(visualBase(result.document)!.boundaries)).toHaveLength(0)
     expect(Object.keys(result.closure.sources)).toHaveLength(palette.sources)
     expect(Object.keys(result.closure.assets)).toHaveLength(palette.sources)
     for (const [hash, actual] of Object.entries(result.closure.hashes)) expect(actual).toBe(hash)

@@ -15,6 +15,9 @@ import { assertBackupReceipt } from '../../../shared/migration/set.js'
 import { CONVERTER_VERSION, TARGET_FORMAT, type ConversionJob, type ConversionStage, type ConvertedFamily, type LegacySource } from '../../../shared/migration/types.js'
 import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES, type BindingKind, type StoredAutomatic,
   type StoredBinding, type StoredBytes, type StoredHistoryMetadata, type StoredProject, type StoredSnapshot } from './database.js'
+import { preserveNativeUpgrade, exportNativeUpgradeCapsule, importNativeUpgradeCapsule, listNativeUpgradeSummaries, nativeUpgradeCapsuleDocumentBytes,
+  type NativeUpgradeContext, type NativeUpgradeTransfer, type NativeUpgradeSummary } from './native-upgrade.js'
+import { encodeNativeUpgradeFile, decodeNativeUpgradeFile } from './native-upgrade-file.js'
 
 export const PROJECT_STORAGE_LIMITS = Object.freeze({ resourceBytes: 256 * 1024 * 1024, documentBytes: 128 * 1024 * 1024,
   legacyBytes: 128 * 1024 * 1024, automatic: 20, named: 32, protection: 32, imported: 20 } as const)
@@ -238,6 +241,31 @@ export class ProjectRepository {
   }
   close(): void { this.database.close() }
   private validation(options: ResourceOptions = {}): CompleteValidationOptions { return { images: this.options.validation.images, svg: this.options.validation.svg, signal: options.signal ?? this.options.validation.signal } }
+  private nativeUpgradeContext(options: ResourceOptions = {}): NativeUpgradeContext {
+    return { database: this.database, open: () => this.open(), validation: this.validation(options), now: () => this.options.runtime.clock.now(),
+      assertCurrent, assertAutomatic, assertSnapshot, assertMetadata, assertBinding, assertJob, assertLegacyNodes,
+      assertBudgets: owner => this.assertBudgets(owner) }
+  }
+  /** Preserve every source history/original before a caller saves its independent complete-v3 target. */
+  async preserveNativeUpgrade(source: ProjectBundle, target: ProjectBundle, options: ResourceOptions = {}): Promise<void> {
+    await preserveNativeUpgrade(this.nativeUpgradeContext(options), source, target, options)
+  }
+  async exportNativeUpgradeCapsule(targetSceneId: string, options: ResourceOptions = {}): Promise<NativeUpgradeTransfer> {
+    return exportNativeUpgradeCapsule(this.nativeUpgradeContext(options), targetSceneId, options)
+  }
+  async importNativeUpgradeCapsule(transfer: NativeUpgradeTransfer, options: ResourceOptions = {}): Promise<void> {
+    await importNativeUpgradeCapsule(this.nativeUpgradeContext(options), transfer, options)
+  }
+  async listNativeUpgradeSummaries(targetSceneId: string, options: ResourceOptions = {}): Promise<NativeUpgradeSummary[]> {
+    return listNativeUpgradeSummaries(this.nativeUpgradeContext(options), targetSceneId, options)
+  }
+  async exportNativeUpgradeFile(targetSceneId: string, options: ResourceOptions = {}): Promise<Uint8Array> {
+    return encodeNativeUpgradeFile(await this.exportNativeUpgradeCapsule(targetSceneId, options), options)
+  }
+  /** Archives originals only. It never opens, installs or replaces a current project. */
+  async importNativeUpgradeFile(bytes: Uint8Array, options: ResourceOptions = {}): Promise<void> {
+    await this.importNativeUpgradeCapsule(await decodeNativeUpgradeFile(bytes, options), options)
+  }
   private async atomic<T>(options: ResourceOptions, run: () => Promise<T>): Promise<T> {
     checkCancelled(options.signal); await this.open(); checkCancelled(options.signal)
     return this.database.transaction('rw', PROJECT_TABLES, async () => {
@@ -335,9 +363,10 @@ export class ProjectRepository {
     }
   }
   private async usageInTransaction(ownerSceneId: string): Promise<StorageUsage> {
-    const [projects, automatic, snapshots, imported, resources, licenses, originals, metadata] = await Promise.all([
+    const [projects, automatic, snapshots, imported, resources, licenses, originals, metadata, capsules] = await Promise.all([
       this.database.projects.toArray(), this.database.automaticSnapshots.toArray(), this.database.snapshots.toArray(), this.database.importedSnapshots.toArray(),
       this.database.resources.toArray(), this.database.licenseTexts.toArray(), this.database.legacyBlobs.toArray(), this.database.historyMetadata.get(ownerSceneId),
+      this.database.nativeUpgradeCapsules.toArray(),
     ])
     if (projects.some(row => row.sceneId === ownerSceneId)) assertMetadata(metadata, ownerSceneId)
     let documentBytes = 0, resourceBytes = 0, legacyBytes = 0
@@ -369,6 +398,8 @@ export class ProjectRepository {
       resourceBytes += bytes
     }
     for (const row of originals) legacyBytes += bytesOf(row, PROJECT_STORAGE_LIMITS.legacyBytes).length
+    const upgradeContext = this.nativeUpgradeContext()
+    for (const row of capsules) documentBytes += nativeUpgradeCapsuleDocumentBytes(row, upgradeContext)
     return { resourceBytes, documentBytes, legacyBytes, metadataVersion: metadata?.metadataVersion ?? 0,
       namedCount: snapshots.filter(row => row.ownerSceneId === ownerSceneId && row.kind === 'named').length,
       protectionCount: snapshots.filter(row => row.ownerSceneId === ownerSceneId && row.kind === 'protection').length,
