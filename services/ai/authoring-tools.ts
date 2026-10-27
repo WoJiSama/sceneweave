@@ -8,9 +8,11 @@ import { TerrainBoundaryProposalSchema } from '../../src/shared/ai/visual-protoc
 import { proposeAuthoringTerrainBoundary, VisualBoundaryConnectionError } from '../../src/shared/ai/visual-authoring.js'
 import { inspectIslandBoundaryProposal } from '../../src/shared/ai/island-composition.js'
 import { CompositionCandidateSchema, connectCompositionRooms, proposeAuthoringComposition } from '../../src/shared/ai/composition-candidates.js'
-import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
+import { AUTHORING_LIMITS, AuthoringCloseoutSchema } from '../../src/shared/ai/authoring-protocol.js'
 import { utf8Size } from '../../src/shared/ai/protocol.js'
-import type { AuthoringSummary } from '../../src/shared/ai/authoring-protocol.js'
+import { sha256Text } from '../../src/shared/validation/hash.js'
+import { proposeVisualReview, visualReviewTool, VisualReviewError } from './visual-review.js'
+import type { AuthoringCloseout, AuthoringOperation, AuthoringSummary } from '../../src/shared/ai/authoring-protocol.js'
 import type { ToolResult } from '../../src/shared/ai/protocol.js'
 import type { StoredTask } from './store.js'
 import type { ProviderToolCall, ProviderToolDefinition } from './provider-types.js'
@@ -31,6 +33,8 @@ export const authoringTools: ProviderToolDefinition[] = [
   { name: 'sceneweave_find_assets', description: 'Browse or search only explicitly authorized prop, prefab and material definitions. Start with query empty and follow nextOffset; names may be Chinese. Search matches exact name/tag/ID substrings, not semantic translation. If no match, browse with query empty. Never accesses other assets or an external library.', parameters: { type: 'object', properties: { query: { type: 'string', maxLength: 80 }, limit: { type: 'integer', minimum: 1, maximum: 20 }, offset: { type: 'integer', minimum: 0, maximum: 1024 } }, required: ['query', 'limit'], additionalProperties: false } },
   { name: 'sceneweave_edit_props', description: 'Apply 1–16 supported prop operations to an isolated draft only, within immutable authorization. It does not change the main project. Failed steps apply no operations. Coordinates are integer millimetres.', parameters: { type: 'object', properties: { operations: { type: 'array', items: propOperation, minItems: 1, maxItems: 16 } }, required: ['operations'], additionalProperties: false } },
   { name: 'sceneweave_edit_scene', description: 'Apply 1–16 finite building, outdoor, prefab/scatter, GM note, SVG or style recipes. Only explicitly granted kinds and bounds are accepted. gmNote always creates GM-only prose; gmNoteUpdate can revise only GM notes created by this task. To rewrite existing public prose, create a fresh gmNote anchored to the original note; never replace the public text or read existing private notes. Re-read scene entities after creation for generated wall, vertex, segment and member IDs. Failed steps are atomic; no main project writes.', parameters: { type: 'object', properties: { operations: { type: 'array', items: operation, minItems: 1, maxItems: 16 } }, required: ['operations'], additionalProperties: false } },
+  { name: 'sceneweave_apply_stage', description: 'Apply one named creation stage as an all-or-nothing batch of 1–48 finite operations. The server replays chunks of at most 16 operations against the full immutable ledger before installing the final isolated draft. Use for layout, surfaces, boundaries, furnishing, atmosphere or review; failed validation installs nothing and still respects the 256 cumulative operation budget.', parameters: { type: 'object', properties: { stage: { type: 'string', enum: ['layout', 'surfaces', 'boundaries', 'furnishing', 'atmosphere', 'review'] }, operations: { type: 'array', items: operation, minItems: 1, maxItems: AUTHORING_LIMITS.stageOperations } }, required: ['stage', 'operations'], additionalProperties: false } },
+  visualReviewTool,
   { name: 'sceneweave_check_draft', description: 'Validate the complete draft ledger and dependency closure. Browser resources and human adoption are still required.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'sceneweave_plan_draft', description: 'Record the current creation stage and requirement claims against the immutable brief. Evidence must name authorised or task-created IDs. Claims never become visual verification or change any scene.', parameters: z.toJSONSchema(AuthoringPlanStateSchema, { io: 'input' }) },
   { name: 'sceneweave_diagnose_draft', description: 'Read a structural requirements/material/entrance/furniture and remaining-budget report. It does not inspect images or prove aesthetics or global pathfinding.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
@@ -41,6 +45,7 @@ export const authoringTools: ProviderToolDefinition[] = [
 const readArguments = z.object({ section: z.enum(['summary', 'targets', 'scene', 'visual', 'anchors']), ids: z.array(z.string().min(1).max(256)).max(16).optional(), offset: z.number().int().min(0).max(1024).optional(), limit: z.number().int().min(1).max(16).optional() }).strict()
 const findArguments = z.object({ query: z.string().max(80), limit: z.number().int().min(1).max(20), offset: z.number().int().min(0).max(1024).optional() }).strict()
 const editArguments = z.object({ operations: z.array(AuthoringOperationSchema).min(1).max(16) }).strict()
+const stageArguments = z.object({ stage: z.enum(['layout', 'surfaces', 'boundaries', 'furnishing', 'atmosphere', 'review']), operations: z.array(AuthoringOperationSchema).min(1).max(AUTHORING_LIMITS.stageOperations) }).strict()
 const emptyArguments = z.object({}).strict()
 function boundedDiagnosis(report: ReturnType<typeof diagnoseAuthoringProject>) {
   // Requirement prose is already frozen in the initial brief. Do not spend a
@@ -79,9 +84,26 @@ export function initialAuthoringContext(task: StoredTask): unknown {
 export function updateAuthoringSummary(task: StoredTask): AuthoringSummary {
   const authoring = task.authoring!
   const summary: AuthoringSummary = { draftRevision: authoring.state.draftRevision, contentHash: authoring.state.contentHash,
-    operationCost: authoring.state.operationCost, changedIds: [...authoring.state.changedIds], skill: authoring.start.skill, claim: authoring.claim?.lease ?? null, ...(authoring.plan ? { plan: authoring.plan } : {}) }
+    operationCost: authoring.state.operationCost, changedIds: [...authoring.state.changedIds], skill: authoring.start.skill, claim: authoring.claim?.lease ?? null,
+    ...(authoring.plan ? { plan: authoring.plan } : {}), ...(authoring.closeout ? { closeout: authoring.closeout } : {}) }
   task.snapshot.authoring = summary
   return summary
+}
+export function buildAuthoringCloseout(task: StoredTask, reason: AuthoringCloseout['reason'], remainingExecutionMs: number): AuthoringCloseout {
+  const authoring = task.authoring!
+  const replayed = replayAuthoring(authoring.start, authoring.state.steps)
+  const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoring.state.changedIds])
+  const report = diagnoseAuthoringProject(replayed.project, ids, authoring.start.brief)
+  return AuthoringCloseoutSchema.parse({ reason, completedSteps: authoring.state.draftRevision, operationCost: authoring.state.operationCost,
+    remainingOperations: AUTHORING_LIMITS.operations - authoring.state.operationCost,
+    remainingModelRequests: Math.max(0, AUTHORING_LIMITS.modelRequests - task.snapshot.usage.requests),
+    remainingToolCalls: Math.max(0, AUTHORING_LIMITS.toolCalls - task.toolAttempts),
+    remainingExecutionMs: Math.max(0, Math.min(AUTHORING_LIMITS.executionMs, Math.floor(remainingExecutionMs))),
+    requestOutcome: task.snapshot.usage.requests === 0 ? 'not_sent' : task.completedRequests < task.snapshot.usage.requests ? 'unknown' : 'finished',
+    requirements: report.requirements.map((item, index) => ({ index, status: item.status })),
+    nextAction: authoring.state.draftRevision > 0
+      ? '请在浏览器中检查当前隔离草稿；确认资源、边界和视觉效果后执行本机校验与一次采用。未完成要求需在新的明确任务中继续。'
+      : '当前没有可审阅草稿；请缩小范围或预算后重新提交明确创作任务。', appearanceReview: 'unconfirmed' })
 }
 const failure = (code: string) => ({ error: { code, message: '工具未采用此步骤。请使用明确授权的公开对象、素材与操作，修正参数后重试。' } })
 export type AuthoringToolBudget = { modelRequests: number; toolCalls: number; executionRemainingMs?: number; maxOutputTokens?: number }
@@ -136,6 +158,28 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       // Keep every page inside the existing receipt budget, even for large names/tags.
       while (utf8Size(JSON.stringify(page)) > 7800 && page.assets.length > 1) page = authoringAssetPage(task.authoring!.start, parsed.query, page.assets.length - 1, parsed.offset)
       output = { ...page, ...(page.total === 0 && parsed.query.trim() ? { hint: 'No exact name, tag or ID match. Browse the authorised palette with query empty and use returned names/IDs; do not keep guessing translations.' } : {}) }
+    } else if (call.name === 'sceneweave_apply_stage') {
+      const parsed = stageArguments.parse(args), authoring = task.authoring!
+      const chunks: AuthoringOperation[][] = []
+      for (let offset = 0; offset < parsed.operations.length; offset += AUTHORING_LIMITS.operationsPerStep) chunks.push(parsed.operations.slice(offset, offset + AUTHORING_LIMITS.operationsPerStep))
+      let checked = replayAuthoring(authoring.start, authoring.state.steps)
+      const stageIdentity = sha256Text(call.id).slice(0, 32)
+      for (let index = 0; index < chunks.length; index++) {
+        checked = applyAuthoringStep(authoring.start, checked.state, chunks[index], `stage-${stageIdentity}-${index + 1}`)
+      }
+      const previousIds = new Set(authoring.state.changedIds)
+      const affectedIds = [...new Set([...parsed.operations.flatMap(item => 'id' in item ? [item.id] : 'ids' in item ? item.ids : []), ...checked.state.changedIds.filter(id => !previousIds.has(id))])].sort()
+      output = { stage: parsed.stage, stepsApplied: chunks.length, draftRevision: checked.state.draftRevision, contentHash: checked.state.contentHash,
+        operationCost: checked.state.operationCost, actualOperationCost: checked.state.operationCost - authoring.state.operationCost, affectedIds,
+        changedCount: checked.state.changedIds.length, remainingOperations: AUTHORING_LIMITS.operations - checked.state.operationCost, atomic: true }
+      if (utf8Size(JSON.stringify(output)) > 8000) throw new Error('output_limit')
+      install = () => {
+        for (const operation of parsed.operations) if (operation.kind === 'svg') artifacts?.store(task.snapshot.id, operation.sourceSvg)
+        authoring.state = checked.state
+      }
+    } else if (call.name === visualReviewTool.name) {
+      output = proposeVisualReview(task, args, call.id)
+      if (utf8Size(JSON.stringify(output)) > 8000) throw new Error('output_limit')
     } else if (call.name === 'sceneweave_edit_props' || call.name === 'sceneweave_edit_scene') {
       const parsed = (call.name === 'sceneweave_edit_props' ? z.object({ operations: z.array(propOperations).min(1).max(16) }).strict() : editArguments).parse(args), authoring = task.authoring!
       // Compute into a detached value. Any invalid operation rejects the whole step.
@@ -227,7 +271,8 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
     const text = error instanceof Error ? error.message.replace(/^AI(?:场景)?草稿范围无效：/, '') : ''
     const connectionError = error instanceof VisualBoundaryConnectionError ? error
       : error instanceof AuthoringOperationError && error.cause instanceof VisualBoundaryConnectionError ? error.cause : undefined
-    const category = connectionError ? ['invalid_geometry', '曲线候选改变了已授权连接的有效支撑，此步骤未采用。']
+    const category = error instanceof VisualReviewError ? [error.code, error.message]
+      : connectionError ? ['invalid_geometry', '曲线候选改变了已授权连接的有效支撑，此步骤未采用。']
       : error instanceof z.ZodError ? ['invalid_arguments', '参数不符合有限工具合同，请检查kind、必填字段与整数毫米。']
       : /锁/.test(text) ? ['locked_dependency', '对象、图层或真实依赖已锁定，此步骤未采用。']
       : /256|预算|上限/.test(text) ? ['operation_budget', '步骤的真实展开超过任务剩余预算；请缩小改动。']

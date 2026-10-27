@@ -726,3 +726,16 @@ GLM-v4独立九任务组已冻结601源码/运行时，新island-basic修schema�
 - README、05/07/09/34/53/54、文档导航与当前计划统一改为代码完成、回归暂缓、正式性能未启动。两组500物件诊断不作为正式性能门通过，Q4与视觉unverified保持。
 - 本轮仅做差异/记录静态检查，主工作区、另一会话地形开发和todo.md保持独立。
 - 收尾静态检查：24份相关修改的本地文档链接无缺失、凭据模式0命中、git diff --check通过。未执行任何新测试。提交推送使用codex/q4-q5-closeout独立分支；现有Pages工作流仅main推送触发，不触发部署或回归。node_modules符号链接不暂存。
+## 2026-10-27 Q4代码收束（仅实施，不验收）
+
+- 确认本轮应继续M2-Q4；沿用独立工作树`codex/q4-q5-closeout`，主工作区地形改动与todo.md独立保全。
+- 协议层新增`AuthoringCloseoutSchema`，约束收束原因、完成步骤、展开/请求/工具/时间剩余量、有限需求状态、下一步和`appearanceReview: unconfirmed`；新增阶段操作上限48及closeout时间储备5秒。服务端阶段、引擎、视觉复核仍在开发中。
+- 新增54第13.6节、05第19.13节、README与07路线状态说明，记录代码实现和本机验证边界；真实模型、浏览器全量回归、P3和性能仍开放。
+- 首轮定向测试暴露无效导入和Zod 4 schema扩展异常并修复；最终AI套件22文件/283项、AI构建、全项目类型检查和正常生产构建通过。未运行浏览器、真实模型或性能矩阵；未提交推送。
+
+## 2026-10-27 Q4代码收束复核
+
+- 静态复查发现并修正视觉复核的无效 `visual/base.js` 导入，以及 Zod 4 对带 refine schema 的 `.extend()` 启动错误；视觉复核现在直接读取严格 `scene.visual`，截图 schema 使用 `safeExtend`。
+- 视觉复核授权补齐 artwork-only 任务：无 Floor grant 时仍只允许明确授权的公开场景物件，视觉实体继续要求显式视觉 Floor grant。
+- 新增阶段工具跨16操作分段的失败不安装测试，新增 artwork-only 视觉复核成功测试；服务端 AI 完整套件 `22 files / 283 tests` 通过，`npm run ai:build` 与 `npm run typecheck` 通过。
+- 本次验证仍未运行真实模型请求、浏览器全量回归、P3人工签收或正式性能矩阵；Q4外部验收结论不变，代码尚未commit/push。

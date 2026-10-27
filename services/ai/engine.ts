@@ -9,7 +9,7 @@ import { AUTHORING_LIMITS, AuthoringDraftSchema } from '../../src/shared/ai/auth
 import type { AuthoringDraft, DraftClaim, DraftLease, DraftStamp } from '../../src/shared/ai/authoring-protocol.js'
 import { validateAuthoringStart, checkAuthoringDraft } from '../../src/shared/ai/authoring.js'
 import { StaticSvgArtifacts } from './svg-artifacts.js'
-import { authoringTools, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
+import { authoringTools, buildAuthoringCloseout, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
 import { validateTaskVision } from './vision-input.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 
@@ -76,9 +76,9 @@ export class TaskEngine {
     const { id, generation } = task.snapshot
     const abort = new AbortController()
     const timer = setTimeout(() => {
-      this.fail(id, generation, 'execution_limit')
+      this.closeout(id, generation, 'time')
       abort.abort()
-    }, this.store.remaining(task))
+    }, Math.max(1, this.store.remaining(task) - (task.authoring ? AUTHORING_LIMITS.closeoutReserveMs : 0)))
     timer.unref?.()
     this.active.set(id, { generation, abort, timer })
     queueMicrotask(() => { void this.run(id, generation, abort.signal).finally(() => {
@@ -108,11 +108,50 @@ export class TaskEngine {
       this.markUnavailable() /* Inaccessible storage is explicitly 503 until a controlled restart. */
     }
   }
+  private closeout(id: string, generation: number, reason: 'time' | 'request_budget' | 'tool_budget' | 'operation_budget') {
+    try {
+      const task = this.store.read(id)
+      if (task.snapshot.generation !== generation || task.snapshot.status !== 'running' || !task.authoring) {
+        if (task.snapshot.generation === generation && task.snapshot.status === 'running') this.fail(id, generation, reason === 'time' ? 'execution_limit' : `${reason}_limit`)
+        return
+      }
+      const remainingMs = this.store.remaining(task)
+      this.store.change(id, generation, current => {
+        const hasDraft = current.authoring!.state.draftRevision > 0 && current.authoring!.state.contentHash !== current.authoring!.start.baseContentHash
+        this.store.stopClock(current)
+        if (!hasDraft) {
+          current.snapshot.status = 'failed'
+          current.snapshot.error = safeTaskError(reason === 'time' ? 'execution_limit' : `${reason}_limit`, 'finished')
+          return [{ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } }]
+        }
+        current.authoring!.closeout = buildAuthoringCloseout(current, reason, remainingMs)
+        current.snapshot.status = 'waiting_browser'; current.snapshot.error = null
+        const summary = updateAuthoringSummary(current)
+        return [{ type: 'draft_updated', data: summary }, { type: 'status', data: { status: 'waiting_browser', reason: '已到达本次预算边界；当前隔离草稿可供本机检查，外观仍未确认。' } }]
+      })
+    } catch (error) {
+      if (error instanceof TaskFault && error.code === 'not_found') return
+      this.markUnavailable()
+    }
+  }
   private async run(id: string, generation: number, signal: AbortSignal) {
     try {
       while (!signal.aborted) {
         const task = this.current(id, generation)
-        if (task.snapshot.usage.requests >= this.store.limits(task).modelRequests) throw new TaskFault('request_limit')
+        if (task.authoring && this.store.remaining(task) <= AUTHORING_LIMITS.closeoutReserveMs) {
+          this.closeout(id, generation, 'time'); return
+        }
+        if (task.authoring && task.toolAttempts >= this.store.limits(task).toolCalls) {
+          this.closeout(id, generation, 'tool_budget'); return
+        }
+        if (task.authoring && task.authoring.state.operationCost >= AUTHORING_LIMITS.operations) {
+          this.closeout(id, generation, 'operation_budget'); return
+        }
+        if (task.snapshot.usage.requests >= this.store.limits(task).modelRequests) {
+          if (task.authoring) this.closeout(id, generation, 'request_budget')
+          else throw new TaskFault('request_limit')
+          return
+        }
         const textOnlyFinalRound = !!task.authoring && task.snapshot.usage.requests + 1 === this.store.limits(task).modelRequests
         const requestTask = this.change(id, generation, current => {
           current.snapshot.usage.requests++; current.snapshot.usage.unknown = true; current.pendingText = ''
@@ -186,6 +225,20 @@ export class TaskEngine {
       }
     } catch (error) {
       if (signal.aborted || error instanceof Error && error.name === 'AbortError') return
+      if (error instanceof TaskFault && error.code === 'execution_limit') {
+        const task = this.store.read(id)
+        if (task.authoring && task.snapshot.status === 'running') this.closeout(id, generation, 'time')
+        else this.fail(id, generation, 'execution_limit')
+        this.active.get(id)?.abort.abort()
+        return
+      }
+      if (error instanceof TaskFault && error.code === 'tool_limit') {
+        const task = this.store.read(id)
+        if (task.authoring && task.snapshot.status === 'running') this.closeout(id, generation, 'tool_budget')
+        else this.fail(id, generation, 'tool_limit', 'finished')
+        this.active.get(id)?.abort.abort()
+        return
+      }
       const code = error instanceof TaskFault ? error.code : error instanceof ProviderFailure && /^[a-z_]{1,64}$/.test(error.code) ? error.code : 'provider_error'
       this.fail(id, generation, code, error instanceof ProviderFailure ? error.requestState
         : error instanceof TaskFault && error.code === 'request_limit' ? 'finished' : 'unknown')
@@ -246,6 +299,7 @@ export class TaskEngine {
       current.snapshot.status = request.action === 'resume' ? 'running' : request.action === 'pause' ? 'paused' : 'cancelled'
       if (request.action === 'resume') {
         current.runStartedAt = this.now(); current.snapshot.error = null
+        if (current.authoring) { delete current.authoring.closeout; updateAuthoringSummary(current) }
         current.messages.push({ role: 'user', content: request.prompt ?? '明确继续上一任务；不要假定中断请求已经完成。', ...(request.vision ? { images: [request.vision] } : {}) })
       } else if (status === 'running') {
         current.snapshot.usage.unknown = true
@@ -254,7 +308,10 @@ export class TaskEngine {
         // A partial assistant response is visible in the checkpoint, never replayed as an uncompleted tool call.
         current.messages.push({ role: 'system', content: 'The preceding generation was interrupted. Its request outcome is unknown. Continue only after an explicit user resume; do not assume any incomplete tool call was executed.' })
       }
-      return [{ type: 'status', data: { status: current.snapshot.status, reason: request.action === 'resume' ? null : '执行已中止；已保留当前进度。' } }]
+      return [
+        ...(request.action === 'resume' && current.authoring ? [{ type: 'draft_updated' as const, data: current.snapshot.authoring! }] : []),
+        { type: 'status', data: { status: current.snapshot.status, reason: request.action === 'resume' ? null : '执行已中止；已保留当前进度。' } },
+      ]
     })!
     interrupted?.abort.abort(); if (interrupted) clearTimeout(interrupted.timer)
     this.active.delete(id)

@@ -4,7 +4,7 @@ import { AuthoringBriefSchema, AuthoringPlanStateSchema } from './plan.js'
 import { VisualAuthoringScopeSchema, VisualAuthoringOperationSchema } from './visual-protocol.js'
 
 export const AUTHORING_LIMITS = Object.freeze({ metadataBytes: 4 * 1024 * 1024, requestBytes: 5 * 1024 * 1024,
-  operations: 256, operationsPerStep: 16, steps: 256, modelRequests: 16, toolCalls: 64, maxOutputTokensPerRequest: 8192, executionMs: 300_000, claimMs: 30_000 })
+  operations: 256, operationsPerStep: 16, stageOperations: 48, steps: 256, modelRequests: 16, toolCalls: 64, maxOutputTokensPerRequest: 8192, executionMs: 300_000, closeoutReserveMs: 5_000, claimMs: 30_000 })
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__')
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
 const integer = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER)
@@ -125,6 +125,20 @@ export const DraftLeaseSchema = z.object({ schemaVersion: z.literal(1), taskId: 
   draftRevision: z.number().int().min(0), contentHash: hash, claimId: z.string().uuid(), serverNow: z.number().int().min(0), expiresAt: z.number().int().min(0) }).strict()
 export type DraftLease = z.infer<typeof DraftLeaseSchema>
 export const DraftAppliedSchema = DraftClaimSchema.extend({ sceneId: id, revision: z.number().int().min(0) }).strict()
+export const AuthoringCloseoutSchema = z.object({
+  reason: z.enum(['time', 'request_budget', 'tool_budget', 'operation_budget']),
+  completedSteps: z.number().int().min(0).max(AUTHORING_LIMITS.steps),
+  operationCost: z.number().int().min(0).max(AUTHORING_LIMITS.operations),
+  remainingOperations: z.number().int().min(0).max(AUTHORING_LIMITS.operations),
+  remainingModelRequests: z.number().int().min(0).max(AUTHORING_LIMITS.modelRequests),
+  remainingToolCalls: z.number().int().min(0).max(AUTHORING_LIMITS.toolCalls),
+  remainingExecutionMs: z.number().int().min(0).max(AUTHORING_LIMITS.executionMs),
+  requestOutcome: z.enum(['not_sent', 'unknown', 'finished']),
+  requirements: z.array(z.object({ index: z.number().int().min(0).max(15), status: z.string().max(64) }).strict()).max(16),
+  nextAction: z.string().max(512),
+  appearanceReview: z.literal('unconfirmed'),
+}).strict()
+export type AuthoringCloseout = z.infer<typeof AuthoringCloseoutSchema>
 export const AuthoringSummarySchema = z.object({ draftRevision: z.number().int().min(0), contentHash: hash, operationCost: z.number().int().min(0).max(256),
-  changedIds: ids, skill: AuthoringSkillSchema, claim: DraftLeaseSchema.nullable(), plan: AuthoringPlanStateSchema.optional() }).strict()
+  changedIds: ids, skill: AuthoringSkillSchema, claim: DraftLeaseSchema.nullable(), plan: AuthoringPlanStateSchema.optional(), closeout: AuthoringCloseoutSchema.optional() }).strict()
 export type AuthoringSummary = z.infer<typeof AuthoringSummarySchema>
