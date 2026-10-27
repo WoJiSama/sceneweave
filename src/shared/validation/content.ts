@@ -1,3 +1,5 @@
+import { associateScenePresentations, validatePresentations } from '../appearance/presentation.js'
+import { presentationRecordSchema } from '../terrain-generation/contracts.js'
 import { z } from 'zod'
 import { cloneJson, inspectJsonInput } from './json.js'
 import { sceneSchema } from './scene.js'
@@ -36,6 +38,8 @@ export const appearanceGraphSchema = z.object({
     members: z.record(id, z.object({ sourceId: id, adjustments }).strict()),
   }).strict()),
 }).strict()
+export const appearanceGraph2Schema = appearanceGraphSchema.extend({ version: z.literal(2), presentations: presentationRecordSchema }).strict()
+export const nativeAppearanceGraphSchema = z.union([appearanceGraphSchema, appearanceGraph2Schema])
 // The wrapper owns no domain fields. Each strict domain parser below captures
 // its branch exactly once instead of parsing the same scene through this
 // wrapper, scene validation and the identity check again.
@@ -95,6 +99,7 @@ function registerContent(content: CompositionContent): CompositionContent {
   return registerOwnedContent(certifiedContents, content)
 }
 function registerOwnedContent(registry: ContentRegistry, content: CompositionContent): CompositionContent {
+  associateScenePresentations(content.document, content.appearance)
   freezeContent(content)
   let identities = registry.get(content.document)
   if (!identities) { identities = new WeakMap(); registry.set(content.document, identities) }
@@ -176,8 +181,10 @@ function checkGraph(graph: AppearanceGraph, document: SceneDocument): void {
 export function validateAppearanceGraph(input: unknown, document: SceneDocument): AppearanceGraph {
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(`外观图无效：${issue.message}`)
-  const parsed = appearanceGraphSchema.safeParse(input)
+  const parsed = nativeAppearanceGraphSchema.safeParse(input)
   if (!parsed.success) throw new Error(`外观图无效：${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
+  if ((document.schemaVersion === 3) !== (parsed.data.version === 2)) throw new Error('场景版本与appearance版本不匹配。')
+  validatePresentations(parsed.data, document)
   checkGraph(parsed.data, document); return parsed.data
 }
 function readCompositionDraft(input: unknown, certifyScene: boolean): CompositionContent {
@@ -208,6 +215,7 @@ function readCompositionContent(input: unknown, certifyScene: boolean): Composit
   for (const id of Object.keys(content.appearance.surfaceSources)) if (!equalCompositionValue(surfaceStyle(content.document, id), surfaceStyle(resolved.document, id))) throw new Error(`完整表面外观与源/覆盖图不一致：${id}。`)
   for (const [id, material] of Object.entries(resolved.document.materials)) if (!Object.hasOwn(content.document.materials, id) || !equalCompositionValue(content.document.materials[id], material)) throw new Error(`固定派生材质未实际保存：${id}。`)
   for (const [id, definition] of Object.entries(resolved.document.propDefinitions)) if (!Object.hasOwn(content.document.propDefinitions, id) || !equalCompositionValue(content.document.propDefinitions[id], definition)) throw new Error(`固定外观保全定义未实际保存：${id}。`)
+  associateScenePresentations(content.document, content.appearance)
   return content
 }
 export function validateCompositionContent(input: unknown): CompositionContent { return readCompositionContent(input, false) }

@@ -1,3 +1,4 @@
+import { visualBase } from './visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { layerSceneV3 } from '../core/v3/test-fixtures'
@@ -159,7 +160,7 @@ describe('native complete-v1 pure metadata contract', () => {
     const badVersion = cloneJson(input); badVersion.schemaVersion = 1
     expect(() => certifyProjectData(badVersion)).toThrow(/版本/)
     const badLight = cloneJson(input)
-    badLight.document.visual!.lights.missing = { id: 'missing', floorId: Object.keys(input.document.floors)[0], layerId: 'absent-layer', visibility: 'public', editLocked: false,
+    visualBase(badLight.document)!.lights.missing = { id: 'missing', floorId: Object.keys(input.document.floors)[0], layerId: 'absent-layer', visibility: 'public', editLocked: false,
       positionMm: { x: 1000, y: 1000 }, radiusMm: 1000, color: '#ffeedd', intensity: .5, wallOcclusion: true, enabled: true }
     expect(() => certifyProjectData(badLight)).toThrow(/用户图层/)
     const unknownScene = cloneJson(input) as unknown as { document: Record<string, unknown> }

@@ -10,18 +10,27 @@ export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; wi
 export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; style: SurfaceStyle | null; openings: ProjectedOpening[] }
 export interface ProjectedNote { id: string; positionMm: PointMm; text: string; kind: Note['kind']; visibility: 'gm' | 'public' }
 export interface ProjectedRegion { id: string; points: PointMm[]; kind: 'terrain' | 'hazard' }
+export interface ProjectedRegionalArea { id: string; points: PointMm[]; kind: 'land' | 'water' | 'forest' | 'hill'; style: { fill: string; stroke: string; strokeWidthMm: number; opacity: number }; relativeElevationMm: number | null }
+export interface ProjectedRegionalLine { id: string; points: PointMm[]; kind: 'river' | 'ridge' | 'road'; displayWidthMm: number; actualWidthMm: number | null; style: { fill: string; stroke: string; strokeWidthMm: number; opacity: number } }
+export interface ProjectedRegionalLandmark { id: string; positionMm: PointMm; purpose: string; name: string; description: string; assetId: string; visualBoundsMm: BoundsMm; rootAnchorMm: PointMm }
+export interface ProjectedRegionalSymbol { id: string; positionMm: PointMm; visualBoundsMm: BoundsMm; assetId: string; rootAnchorMm: PointMm; renderOrder: number; sourceRef: { kind: 'area' | 'line' | 'landmark'; id: string } | null }
 /** Disposable visual data. In particular, a player projection has no source document or hidden definitions. */
 export interface Projection {
   audience: Audience; sourceRevision: number; bounds: BoundsMm; gridSizeMm: number | null
   rooms: ProjectedSurface[]; terrain: ProjectedSurface[]; walls: ProjectedWall[]
   /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
   props: Prop[]
+  /** Only visible near-side instances; no fixed-source or private metadata. */
+  propPresentations?: Record<string, import('../appearance/presentation.js').PaintPresentation>
+  /** GM editor session only; ignored by formal exports. */
+  groundView?: boolean
   edges: ProjectedTerrainEdge[]; paths: ProjectedPath[]; connections: ProjectedConnection[]
   /** Audience-filtered C4 band choice survives GM-only temporary path hiding. */
   pathPaintOrder?: 'over-room-before-connection'
   /** Disposable symbol-band order; only projected public IDs appear in player output. */
   openingPaintOrder?: string[]
   notes: ProjectedNote[]; regions: ProjectedRegion[]; masks: PointMm[][]
+  regional?: { areas: ProjectedRegionalArea[]; lines: ProjectedRegionalLine[]; landmarks: ProjectedRegionalLandmark[]; symbols: ProjectedRegionalSymbol[] }
   theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets' | 'edgeStyles' | 'terrainCliff'> | null
   materials: Record<string, Pick<MaterialRef, 'id' | 'version' | 'textureAssetId'>>
   visual?: ProjectedVisualSystem
@@ -48,6 +57,9 @@ export interface ProjectedVisualFilter extends Omit<VisualFilter, 'target' | 'fl
   regionFeatherMm?: number
 }
 export interface ProjectedVisualSystem {
+  materializedEdges?: Pick<import('../terrain-generation/contracts.js').MaterializedEdge,'id'|'kind'|'polygons'|'strokes'|'fillColor'|'opacity'>[]
+  /** Audience-filtered IDs only; visual2 shares one surface-detail band across both edge representations. */
+  edgePaintOrder?: { kind: 'edgeLook' | 'materializedEdge'; id: string }[]
   environment: import('../visual/types.js').VisualEnvironment
   /** Stable export bounds, independent of temporary editor crop. */
   boundsMm: BoundsMm

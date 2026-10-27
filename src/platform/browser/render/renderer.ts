@@ -12,6 +12,7 @@ export { EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS, wallGeometry, 
 export interface EditorProjectRenderOptions extends EditorRenderOptions {
   /** GM session only. Ignored by player previews and both formal audiences. */
   hiddenLayerIds?: ReadonlySet<string>
+  groundView?: boolean
 }
 
 /** Complete native-v1 boundary. Pure shared validation precedes any browser resource IO. */
@@ -32,9 +33,10 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
   const bundle = await validateProjectBundle(input, { images: createBrowserImagePort(), svg: createBrowserSvgPort(), signal: options.signal }), project = bundle.project, scene = project.document
   const sources = { assetRefs: scene.assets, assets: project.assets, resources: bundle.resources }
   // The unhidden audience closure is verified before session hiding, crop or LOD.
-  const projection = projectScene(scene, options.audience)
-  const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: options.audience === 'gm' && editor.hiddenLayerIds?.size
-    ? projectEditorScene(scene, { hiddenLayerIds: new Set(editor.hiddenLayerIds) }) : projection }
+  const projection = projectScene(scene, options.audience, project.appearance)
+  const drawing = options.audience === 'gm' && editor?.hiddenLayerIds?.size
+    ? projectEditorScene(scene, { hiddenLayerIds: new Set(editor.hiddenLayerIds) }, project.appearance) : projection
+  const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: options.audience === 'gm' && editor.groundView ? { ...drawing, groundView: true } : drawing }
   return renderRasterProjection(sources, projection, options, preview, started)
 }
 
@@ -55,7 +57,7 @@ export async function exportPublicViewportPng(input: ProjectBundle, boundsMm: im
   if (!Number.isSafeInteger(longEdgePx) || longEdgePx < 256 || longEdgePx > PNG_MAX_LONG_EDGE) throw new Error('视觉回读长边须为256–4096整数像素。')
   checkCancelled(signal)
   const bundle = await validateProjectBundle(input, { images: createBrowserImagePort(), svg: createBrowserSvgPort(), signal }), scene = bundle.project.document
-  const projection = projectScene(scene, 'player'), b = projection.bounds
+  const projection = projectScene(scene, 'player', bundle.project.appearance), b = projection.bounds
   if (boundsMm.x < b.x || boundsMm.y < b.y || boundsMm.x + boundsMm.width > b.x + b.width || boundsMm.y + boundsMm.height > b.y + b.height) throw new Error('视觉回读范围须完全落在固定导出范围内。')
   const sources = { assetRefs: scene.assets, assets: bundle.project.assets, resources: bundle.resources }
   return encodePng(await renderRasterProjection(sources, projection, { audience: 'player', longEdgePx, signal }, undefined, undefined, { ...boundsMm }), signal)

@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import { z } from 'zod'
 import type { ProjectData } from '../model/project.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
@@ -104,7 +105,7 @@ export function diagnoseAuthoringProject(project: ProjectData, ids: ReadonlySet<
   }
   if (conflictingProps.size) issues.push({ code: 'authorized_blocking_furniture_overlap', ids: [...conflictingProps].sort(), severity: 'warning' })
   if (obstructedDoors.size) issues.push({ code: 'authorized_door_approach_blocked_500mm', ids: [...obstructedDoors].sort(), severity: 'warning' })
-  const visual = scene.visual
+  const visual = visualBase(scene)
   const count = (values: Record<string, { id: string; visibility: string }> | undefined) => Object.values(values ?? {}).filter(value => ids.has(value.id) && value.visibility === 'public').length
   const composition = inspectVisualComposition(project, props, ids)
   if (composition.excessivePairs.length) issues.push({ code: 'authorized_major_image_overlap', ids: [...new Set(composition.excessivePairs.flatMap(pair => pair.ids))].sort(), severity: 'warning' })

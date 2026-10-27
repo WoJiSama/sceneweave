@@ -1,3 +1,4 @@
+import type { FixedPresentation } from '../terrain-generation/contracts.js'
 import type { SceneCommand } from '../commands/commands.js'
 import type { PointMm, Prop, SceneDocument, ShadowClass, SurfaceRef, SurfaceStyle, VersionRef, Visibility } from './scene.js'
 import type { HistoryIdentity } from './history.js'
@@ -20,7 +21,8 @@ export interface PrefabAppearanceTemplate {
   members: Record<string, { sourceId: string; adjustments: AppearanceAdjustment[] }>
 }
 export interface AppearanceGraph {
-  version: 1
+  version: 1 | 2
+  presentations?: Record<string, FixedPresentation>
   sources: Record<string, AppearanceSource>
   propSources: Record<string, string>
   surfaceSources: Record<string, string>

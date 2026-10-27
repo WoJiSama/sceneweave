@@ -78,11 +78,11 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 project repository and two-phase conversion', () => {
-  it('creates only on explicit use, owns exact eleven stores/schema1 and refuses old names or unknown schemas', async () => {
+  it('creates only on explicit use, owns exact twelve stores/schema2 and refuses old names or unknown schemas', async () => {
     const repo = repository(), before = (await indexedDB.databases()).map(db => db.name)
     expect(before).not.toContain(repo.database.name)
     await repo.open()
-    expect(repo.database.verno).toBe(1); expect(repo.database.backendDB().version).toBe(10)
+    expect(repo.database.verno).toBe(2); expect(repo.database.backendDB().version).toBe(20)
     expect(repo.database.tables.map(table => table.name).sort()).toEqual([...PROJECT_TABLES].sort())
     expect(repo.database.table('conversionJobs').schema.indexes.find(index => index.name === 'jobKey')?.unique).toBe(true)
     for (const name of ['sceneweave-m0', 'sceneweave-m1-outdoor', 'sceneweave-catalog-v1', 'sceneweave-library']) expect(() => repository(name)).toThrow(/不能/)

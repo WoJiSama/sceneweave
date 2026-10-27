@@ -21,7 +21,8 @@ async function setup() {
     placement: { floorId: floor.id, layerId: document.entityLayers.item, supportRef: { kind: 'floor', id: floor.id }, boundsMm: floor.boundsMm, definitionIds: ['definition'] } }
   const authorization = await workspace.authorizeAtomic(scope)
   const draft = (operations: AuthoringOperation[]): AuthoringDraft => ({ schemaVersion: 1, taskId: 'atomic-task', generation: 1, start: authorization.start,
-    state: applyAuthoringStep(authorization.start, replayAuthoring(authorization.start, []).state, operations, 'step-1').state })
+    state: operations.length ? applyAuthoringStep(authorization.start, replayAuthoring(authorization.start, []).state, operations, 'step-1').state
+      : replayAuthoring(authorization.start, []).state })
   return { repo, workspace, scope, authorization, draft }
 }
 function lease(candidate: AtomicCandidate, changes: Partial<DraftLease> = {}): DraftLease {
@@ -83,6 +84,16 @@ describe('task-scoped local authority and atomic adoption', () => {
     const candidate = await workspace.prepareAtomicCandidate(authorization, remote)
     await expect(workspace.adoptAtomicCandidate({ ...candidate }, { claim: async () => lease(candidate) })).rejects.toThrow(/不属于/)
     expect(workspace.getState().project).toBe(before)
+  })
+
+  it('marks an explicitly allowed empty replay as review-only and never claims it for adoption', async () => {
+    const { workspace, authorization, draft } = await setup()
+    const review = await workspace.prepareAtomicCandidate(authorization, draft([]), { allowEmpty: true })
+    expect(review.reviewOnly).toBe(true)
+    expect(review.changes).toHaveLength(0)
+    const claim = vi.fn(async () => lease(review))
+    await expect(workspace.adoptAtomicCandidate(review, { claim })).rejects.toThrow(/审阅凭证只能用于独立下钻/)
+    expect(claim).not.toHaveBeenCalled()
   })
 
   it('rejects more than 256 cumulative operations even when the final state reports only 256', async () => {

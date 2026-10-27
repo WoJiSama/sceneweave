@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedInteriorDocument, createRefinedInteriorProject } from './refined-interior.js'
 import { REFINED_INTERIOR_ART } from '../../../shared/visual/interior-art.js'
@@ -59,8 +60,8 @@ describe('independent Q2 editable interior', () => {
       const props = Object.values(scene.props).filter(value => value.roomId === roomId)
       for (const key of keys) expect(props.some(value => value.definitionRef!.id.includes(key))).toBe(true)
     }
-    expect(scene.visual!.environment.ambientOpacity).toBeLessThan(.15)
-    expect(Object.values(scene.visual!.lights).every(value => value.wallOcclusion && value.intensity < .3)).toBe(true)
+    expect(visualBase(scene)!.environment.ambientOpacity).toBeLessThan(.15)
+    expect(Object.values(visualBase(scene)!.lights).every(value => value.wallOcclusion && value.intensity < .3)).toBe(true)
     const second = createRefinedInteriorDocument(); Object.values(scene.props)[0].positionMm.x += 1
     expect(scene).not.toEqual(second)
     const controller = new AbortController(); controller.abort()

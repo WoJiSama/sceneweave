@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import type { PointMm, Prop, PropTemplate, SceneDocument, SurfaceStyle } from '../../../shared/model/scene.js'
 import { REFINED_INTERIOR_ART, REFINED_INTERIOR_LICENSE } from '../../../shared/visual/interior-art.js'
 import { assertDoorwayClearances } from '../../../shared/geometry/doorway-clearance.js'
@@ -155,16 +156,16 @@ export function createRefinedInteriorDocument(options: { sceneId?: string; now?:
   place(scene, 'runner', 12750, 10700, 0, 'q2-hall')
 
   scene.styleThemes[themeId].prefabSuggestions = Object.keys(scene.prefabDefinitions).map(ref)
-  scene.visual!.environment = { ambientColor: '#606F5D', ambientOpacity: .11, exposure: 1.01, lightDirectionDeg: 50, contactShadowMm: 50, contactShadowOpacity: .18 }
+  visualBase(scene)!.environment = { ambientColor: '#606F5D', ambientOpacity: .11, exposure: 1.01, lightDirectionDeg: 50, contactShadowMm: 50, contactShadowOpacity: .18 }
   const light = (id: string, x: number, y: number, radiusMm: number, intensity: number) => {
-    scene.visual!.lights[id] = { ...entity(id, EFFECTS), positionMm: point(x, y), radiusMm, color: '#E9C78D', intensity, wallOcclusion: true, enabled: true }
+    visualBase(scene)!.lights[id] = { ...entity(id, EFFECTS), positionMm: point(x, y), radiusMm, color: '#E9C78D', intensity, wallOcclusion: true, enabled: true }
   }
   light('q2-light-kitchen', 8100, 6750, 2800, .2)
   light('q2-light-dining', 6500, 13150, 4700, .26)
   light('q2-light-bedroom', 18100, 7350, 2500, .18)
   light('q2-light-study', 18700, 14300, 2700, .22)
   light('q2-light-reading', 21620, 13180, 2500, .17)
-  scene.visual!.filters['q2-paper-tone'] = { ...entity('q2-paper-tone', EFFECTS), target: { kind: 'scene' }, preset: 'warm', exposure: 1, saturation: .96, contrast: 1.03, vignette: .035, grain: .012, seed: 'q2-inn-paper-1', enabled: true }
+  visualBase(scene)!.filters['q2-paper-tone'] = { ...entity('q2-paper-tone', EFFECTS), target: { kind: 'scene' }, preset: 'warm', exposure: 1, saturation: .96, contrast: 1.03, vignette: .035, grain: .012, seed: 'q2-inn-paper-1', enabled: true }
   const checked = validateSceneDocument(scene)
   if (!checked.ok) throw new Error(`精修旅舍无效：${checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('；')}`)
   assertDoorwayClearances(checked.document, Object.values(checked.document.openings).filter(value => value.kind === 'door').map(value => ({ openingId: value.id, minWidthMm: 1200, approachDepthMm: 1200 })))

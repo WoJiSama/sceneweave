@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import native from '../../platform/browser/content/scenes-data.json'
 import { createCompositionContent } from '../appearance/graph.js'
 import { applyCompositionCommands } from '../appearance/commands.js'
+import { emptyTerrainDocument } from '../terrain-generation/compose.js'
+import { emptyVisualSystem } from '../visual/types.js'
 import type { CompositionCommand } from '../model/appearance.js'
 import { inspectDependencies } from '../geometry/dependencies.js'
 import type { ProjectData } from '../model/project.js'
@@ -60,6 +62,18 @@ describe('shared public prop authoring ledger', () => {
     let reads = 0
     const getter = start(); Object.defineProperty(getter.project, 'assets', { enumerable: true, get() { reads++; throw new Error('must not call') } })
     expect(() => validateAuthoringStart(getter)).toThrow(); expect(reads).toBe(0)
+  })
+  it('requires explicit scene scope for complete3 and accepts the T6 scene grant', () => {
+    const project=fixture(),context={ids:{nextId:()=>crypto.randomUUID()},clock:{now:()=>stamp}}
+    const visual={...project.document,schemaVersion:2 as const,visual:emptyVisualSystem()}
+    const document=emptyTerrainDocument(visual),content=createCompositionContent(document,context)
+    const terrain=validateProjectData({...project,schemaVersion:3,...content})
+    expect(()=>validateAuthoringStart(start(terrain))).toThrow(/T6/)
+    const floorId = Object.keys(terrain.document.floors)[0], layerId = Object.keys(terrain.document.userLayers).find(id => terrain.document.userLayers[id].floorId === floorId)!
+    const explicit = start(terrain)
+    explicit.scope = { targetIds: [], operations: [], placement: null, scene: { floorId, layerId, boundsMm: terrain.document.exportBoundsMm,
+      entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], generationLayerIds: [layerId], regionalDefinitionIds: [], operations: ['terrainGenerate'] } }
+    expect(validateAuthoringStart(explicit).scope.scene).toMatchObject({ floorId, layerId, generationLayerIds: [layerId], operations: ['terrainGenerate'] })
   })
   it('replays deterministic generated IDs, birth tokens and mixed supported operations without changing main revision', () => {
     const input = start(), initial = replayAuthoring(input, [])

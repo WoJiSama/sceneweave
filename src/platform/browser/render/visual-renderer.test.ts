@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Projection } from '../../../shared/projection/types.js'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
-import { applyVisualFilters, drawVisualAtmosphere, projectedLightBlockers } from './visual-renderer'
+import { applyVisualFilters, drawVisualAtmosphere, drawVisualBoundaries, projectedLightBlockers } from './visual-renderer'
 import { lightVisibilityPolygon } from './visual-geometry'
+import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
+import type { VisualBoundary } from '../../../shared/visual/types.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function projection(): Projection {
@@ -59,5 +61,48 @@ describe('visual renderer bounded deterministic effects', () => {
     filter.contrast = .8; controller.abort()
     expect(() => applyVisualFilters(ctx, source, controller.signal)).toThrow()
     expect(ctx.getImageData).not.toHaveBeenCalled()
+  })
+})
+
+describe('materialized edges share the surface detail pass', () => {
+  function surfaceFixture() {
+    const source = projection(), visual = source.visual!
+    const common = { floorId: 'floor', layerId: 'layer', visibility: 'public' as const, editLocked: false }
+    const boundary: VisualBoundary = { ...common, id: 'boundary', closed: false, sampleSpacingMm: 100, toleranceMm: 10, binding: { kind: 'decoration' },
+      segments: [{ id: 'segment', start: { x: 10, y: 100 }, control1: { x: 110, y: 100 }, control2: { x: 290, y: 100 }, end: { x: 390, y: 100 } }] }
+    visual.boundaries = [{ id: boundary.id, ...sampleVisualBoundary(boundary), terrainAreaIds: [] }]
+    visual.edgeLooks = [{ ...common, id: 'look', boundaryId: boundary.id, kind: 'path', side: 'right', widthMm: 50, color: '#00AA00',
+      accentColor: '#003300', opacity: 1, intensity: 0, seed: 'paint-order', repeatMm: 100, enabled: true }]
+    const ring = [{ x: 50, y: 80 }, { x: 350, y: 80 }, { x: 350, y: 130 }, { x: 50, y: 130 }]
+    visual.materializedEdges = [
+      { id: 'low', kind: 'grass', polygons: [ring], strokes: [], fillColor: '#AA0000', opacity: .8 },
+      { id: 'high', kind: 'shore', polygons: [ring], strokes: [{ id: 'line', pointsMm: [{ x: 50, y: 100 }, { x: 350, y: 100 }], widthMm: 20, color: '#FFFFFF', opacity: .5 }], fillColor: '#0000AA', opacity: .6 },
+    ]
+    visual.edgePaintOrder = [{ kind: 'materializedEdge', id: 'low' }, { kind: 'edgeLook', id: 'look' }, { kind: 'materializedEdge', id: 'high' }]
+    class TestPath { moveTo() {} lineTo() {} closePath() {} rect() {} }
+    vi.stubGlobal('Path2D', TestPath)
+    const fills: { color: string; alpha: number }[] = [], strokes: { color: string; alpha: number; width: number; cap: string }[] = []
+    const properties = { fillStyle: '', strokeStyle: '', globalAlpha: 1, lineWidth: 1, lineJoin: '', lineCap: 'round' }
+    const ctx = Object.assign(properties, { save: vi.fn(), restore: vi.fn(),
+      fill: vi.fn(() => fills.push({ color: properties.fillStyle, alpha: properties.globalAlpha })),
+      stroke: vi.fn(() => strokes.push({ color: properties.strokeStyle, alpha: properties.globalAlpha, width: properties.lineWidth, cap: properties.lineCap })) })
+    return { source, ctx: ctx as unknown as CanvasRenderingContext2D, fills, strokes }
+  }
+
+  it('draws both representations in the audience-owned layer order and preserves saved opacity/width', () => {
+    const { source, ctx, fills, strokes } = surfaceFixture()
+    drawVisualBoundaries(ctx, source)
+    expect(fills).toEqual([{ color: '#AA0000', alpha: .8 }, { color: '#00AA00', alpha: 1 }, { color: '#0000AA', alpha: .6 }])
+    expect(strokes.at(-1)).toEqual({ color: '#FFFFFF', alpha: .3, width: 20, cap: 'butt' })
+    source.visual!.edgePaintOrder!.reverse(); fills.length = 0; strokes.length = 0
+    drawVisualBoundaries(ctx, source)
+    expect(fills.map(fill => fill.color)).toEqual(['#0000AA', '#00AA00', '#AA0000'])
+  })
+
+  it('checks cancellation before drawing materialized geometry', () => {
+    const { source, ctx, fills } = surfaceFixture(), controller = new AbortController()
+    controller.abort()
+    expect(() => drawVisualBoundaries(ctx, source, controller.signal)).toThrow()
+    expect(fills).toEqual([])
   })
 })

@@ -1,9 +1,13 @@
+import type { ExtendedIdentityToken } from '../terrain-generation/contracts.js'
 
 export type OutdoorIdentityKind = 'terrainArea' | 'terrainPoint' | 'terrainSegment' | 'terrainEdge' | 'terrainConnection' | 'path' | 'scatterGroup' | 'scatterExclusion'
 export interface OutdoorIdentityToken { kind: OutdoorIdentityKind; token: string; topologyToken: string; topologyHash: string }
 /** Birth records include deleted entities. Tokens and topology evidence are never reassigned. */
 export interface HistoryIdentity {
-  version: 1
+  version: 1 | 2
+  generationTokens?: Record<string, ExtendedIdentityToken>
+  regionalTokens?: Record<string, ExtendedIdentityToken>
+  presentationTokens?: Record<string, ExtendedIdentityToken>
   lineageId: string
   rootSceneId: string
   propTokens: Record<string, string>

@@ -1,3 +1,4 @@
+import { visualBase } from '../../shared/visual/base.js'
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -61,7 +62,7 @@ describe('complete visual v2 workspace persistence and protection', () => {
     const light = lamp(workspace.getDocument()!)
     await workspace.execute([{ type: 'upsertVisualLight', light }]); await workspace.flush()
     const current = workspace.getState().project!, cold = await repo.load(current.document.sceneId)
-    expect(cold!.project.document.visual!.lights[light.id]).toEqual(light)
+    expect(visualBase(cold!.project.document)!.lights[light.id]).toEqual(light)
     const encoded = await exportProject(toBundle(current), validation), imported = await importProject(encoded, validation)
     expect(projectContentHash(imported.project)).toBe(projectContentHash(toBundle(current).project))
     expect(() => validateProjectData({ ...imported.project, schemaVersion: 1 })).toThrow()
@@ -78,10 +79,10 @@ describe('complete visual v2 workspace persistence and protection', () => {
     expect(preview.plan.changes.some(change => change.id === light.id && change.kind === 'visual')).toBe(true)
     const protection = await workspace.applyRestore(preview)
     expect(protection.kind).toBe('protection')
-    expect(workspace.getDocument()!.visual!.lights[light.id].intensity).toBe(.4)
+    expect(visualBase(workspace.getDocument()!)!.lights[light.id].intensity).toBe(.4)
     expect(workspace.getDocument()!.props.other.rotationDeg).toBe(75)
     workspace.undo(); await workspace.flush()
-    expect(workspace.getDocument()!.visual!.lights[light.id].intensity).toBe(.8)
+    expect(visualBase(workspace.getDocument()!)!.lights[light.id].intensity).toBe(.8)
     const loaded = await repo.load(workspace.getDocument()!.sceneId)
     await workspace.openPersisted(await fromBundle(loaded!, validation))
     await expect(workspace.prepareRestore(snapshot.id, { mode: 'visual', ids: [light.id] })).rejects.toThrow(/本会话/)
@@ -113,7 +114,7 @@ describe('complete visual v2 workspace persistence and protection', () => {
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => ({ schemaVersion: 1, taskId: candidate.taskId,
       generation: 1, draftRevision: candidate.draftRevision, contentHash: candidate.contentHash, claimId: crypto.randomUUID(), serverNow: 1000, expiresAt: 31000 }) })
     await result.save
-    expect(workspace.getDocument()!.visual!.lights[id]).toEqual(light)
+    expect(visualBase(workspace.getDocument()!)!.lights[id]).toEqual(light)
     await expect(workspace.prepareRestore(snapshot.id, { mode: 'visual', ids: [id] })).rejects.toThrow(/删除.*重建/)
     workspace.undo(); await workspace.flush()
     await expect(workspace.prepareRestore(snapshot.id, { mode: 'visual', ids: [id] })).rejects.toThrow(/删除.*重建/)

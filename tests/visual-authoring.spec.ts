@@ -1,3 +1,4 @@
+import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import type { Workspace } from '../src/application/workspace/workspace'
@@ -175,7 +176,7 @@ test('manual curve drag stays a draft, previews both bound sides, adopts once an
   await expect(candidate).toHaveCount(0); await settled(page)
   const adopted = await current(page)
   expect(adopted.revision).toBe(before.revision + 1)
-  expect(adopted.document.visual!.boundaries['beach-coast']).not.toEqual(before.document.visual!.boundaries['beach-coast'])
+  expect(visualBase(adopted.document)!.boundaries['beach-coast']).not.toEqual(visualBase(before.document)!.boundaries['beach-coast'])
   expect(adopted.document.terrainAreas['beach-sand'].boundaryMm).not.toEqual(before.document.terrainAreas['beach-sand'].boundaryMm)
   const unchanged = await page.evaluate(async ({ a, b }) => {
     const path = '/tests/helpers/visual-authoring-browser.ts', helper = await import(path) as typeof import('./helpers/visual-authoring-browser')
@@ -226,7 +227,7 @@ test('visual history restores an existing light with protection and once undo, k
   })
   await settled(page)
   const beforeRestore = await current(page)
-  expect(beforeRestore.document.visual!.lights[id].intensity).toBe(.35)
+  expect(visualBase(beforeRestore.document)!.lights[id].intensity).toBe(.35)
   await page.getByRole('tab', { name: '历史', exact: true }).click()
   const selectHistoricalLight = async () => {
     await page.getByRole('button', { name: `查看快照 ${name}`, exact: true }).click()
@@ -244,11 +245,11 @@ test('visual history restores an existing light with protection and once undo, k
   await page.getByRole('button', { name: '保护当前并采用', exact: true }).click(); await settled(page)
   const restored = await current(page)
   expect(restored.revision).toBe(beforeRestore.revision + 1)
-  expect(restored.document.visual!.lights[id]).toEqual(original.document.visual!.lights[id])
+  expect(visualBase(restored.document)!.lights[id]).toEqual(visualBase(original.document)!.lights[id])
   const omitSelectedLight = (scene: typeof restored.document) => {
     const { revision: _revision, updatedAt: _updatedAt, visual, ...rest } = scene
-    const { [id]: _light, ...lights } = visual!.lights
-    return { ...rest, visual: { ...visual, lights } }
+    const { [id]: _light, ...lights } = visualBase(scene)!.lights
+    return { ...rest, visual: visual?.version === 2 ? { ...visual, base: { ...visual.base, lights } } : { ...visual, lights } }
   }
   expect(omitSelectedLight(restored.document)).toEqual(omitSelectedLight(beforeRestore.document))
   const snapshots = await page.evaluate(async sceneId => {

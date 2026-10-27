@@ -1,5 +1,7 @@
 # 技术架构与模块边界
 
+**2026-10-27 地形架构当前状态：** 严格完整3已扩展到generation3外围重生成、generation4复杂布尔拓扑、appearance2固定近侧视表现、regional1区域编辑及T6隔离作者工具。各代严格语义、重放与保存合同见本文末节和[55第20节](55-terrain-generation-design.md#20-t4t6实现与t7收口边界)；T7适用冻结验收已完成。下列M0/M2/视觉批次的旧格式描述只覆盖其原阶段。
+
 ## 当前视觉扩展（2026-10-25）
 
 原生主路径支持严格完整v1/v2与对应场景1/2；新空白为2，独立升级副本保留原件，旧工作台和转换入口继续退役。共享 `visual` 模块定义曲线/边带/环境/光雾/滤镜及同源命令、确定性采样/依赖/预算，`platform/browser/render/visual-renderer` 从纯受众投影绘制；真实资源验证先于裁剪。编辑LOD不进入正式PNG或AI公开裁切。透明物件局部滤镜在独立透明源上处理，再合成；所有影/遮挡/光雾先过滤秘密，最终仍应用不透明遮罩。
@@ -8,11 +10,11 @@
 
 AI扩展使用同源有限视觉工具、制作清单与确定性诊断；图片端口单独采用本机实际玩家PNG、确切范围和场景/草稿修订绑定，后端只接有界字节并校验，provider能力默认未验证。三份原创样板与视觉空白使用独立源包，运行时静态SVG规范化/真实PNG及许可闭包，不改旧固定目录身份。合同/实际结果见[53](53-visual-authoring.md)和05第19节。以下M2-0及M1段落保留当批版本事实，现行新增语义以上述扩展及04/06为准。
 
-**2026-10-25 当前主路径为新完整v1，M2-3/4场景与素材工具已接通：** 默认Workspace/Canvas/Workbench/样板直接使用shared，工程/个人库为sceneweave-projects及sceneweave-library；新主路径不经旧core/io/render格式视图。按用户2026-10-25决定删除旧整页工作台、首页旧版本入口及转换UI；当前产品接受完整v1/v2当前/所选历史包。旧领域/IO/严格读者仍供底层夹具与历史验证使用，不构成产品旧版本支持。M2-0a至e历史见48至[51](51-m20e-library-conversion-validation.md)，f及当时必要检查见[52](52-m20f-native-workspace-validation.md)。M2-1本地服务/流式续答、M2-2保护采用已扩至M2-3建筑/室外/组合/散布/GM文字，以及M2-4受限SVG和明确范围同化；精确授权及结果见[05](05-ai-and-generation.md)。M2-5服务器容器与可信公网IP HTTPS已上线，Pages真实模型创作→保护采用→保存/导出/重载的必要联合旅程已通过，实际结果见[05第15节](05-ai-and-generation.md)。交接见[47](47-m20-unified-v1-handoff.md)，方向见[45](45-ai-authoring-and-unified-v1-plan.md)，状态见07。
+**2026-10-25 当前主路径为新完整v1，M2-3/4场景与素材工具已接通：** 默认Workspace/Canvas/Workbench/样板直接使用shared，工程/个人库为sceneweave-projects及sceneweave-library；新主路径不经旧core/io/render格式视图。按用户2026-10-25决定删除旧整页工作台、首页旧版本入口及转换UI；当前产品接受完整v1/v2当前/所选历史包。旧领域/IO/严格读者仍供底层夹具与历史验证使用，不构成产品旧版本支持。M2-0a至e历史见48至[51](archive/51-m20e-library-conversion-validation.md)，f及当时必要检查见[52](archive/52-m20f-native-workspace-validation.md)。M2-1本地服务/流式续答、M2-2保护采用已扩至M2-3建筑/室外/组合/散布/GM文字，以及M2-4受限SVG和明确范围同化；精确授权及结果见[05](05-ai-and-generation.md)。M2-5服务器容器与可信公网IP HTTPS已上线，Pages真实模型创作→保护采用→保存/导出/重载的必要联合旅程已通过，实际结果见[05第15节](05-ai-and-generation.md)。交接见[47](archive/47-m20-unified-v1-handoff.md)，方向见[45](archive/45-ai-authoring-and-unified-v1-plan.md)，状态见07。
 
-本地版本号仍为 `0.2.0-m1-d2`，现行格式为新标识完整v1/v2及对应原生场景v1/v2，承接identity3/appearance1已有语义。B1–C3历史见17–29，C4严格v6/有效v3当时实现见[31](31-m1c-c4-validation.md)，C5联合功能/原性能与资源复用见[32](32-m1c-c5-validation.md)、[33](33-c5-resource-reuse-validation.md)，M1-D首批见[35](35-m1d-outpost-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；完整SCN、P3、持久建筑/任意拓扑恢复及完整M1未因此完成，完整私密/两批扩围、自由创作与视觉质量、跨浏览器/配额/UVTT仍开放，正式性能各冻结结果见[34](34-performance-followup.md)，第三冻结500普通领域提交100ms子指标通过、完整性能继续开放。
+本地版本号仍为 `0.2.0-m1-d2`，现行格式为新标识完整v1/v2及对应原生场景v1/v2，承接identity3/appearance1已有语义。B1–C3历史见17–29，C4严格v6/有效v3当时实现见[31](archive/31-m1c-c4-validation.md)，C5联合功能/原性能与资源复用见[32](archive/32-m1c-c5-validation.md)、[33](archive/33-c5-resource-reuse-validation.md)，M1-D首批见[35](archive/35-m1d-outpost-validation.md)。现行回归结果集中在[05](05-ai-and-generation.md)与[09](09-quality-plan.md)；完整SCN、P3、持久建筑/任意拓扑恢复及完整M1未因此完成，完整私密/两批扩围、自由创作与视觉质量、跨浏览器/配额/UVTT仍开放，正式性能各冻结结果见[34](34-performance-followup.md)，第三冻结500普通领域提交100ms子指标通过、完整性能继续开放。
 
-U1a首页、六仓库安全入口与连续会话的历史验证归[38](38-u1a-workspace-validation.md)。U1b固定布局/偏好见[39](39-u1b-layout-validation.md)，U2原合同/实现见40/41，重构前完整自动化结果见44；37/36保留准备与讨论。M2-0f随后显式切换格式及核心，沿用既有领域、受众和有限恢复边界，不能把U1当时“不重写格式”的批次范围解释为永久保留六套写入器。
+U1a首页、六仓库安全入口与连续会话的历史验证归[38](archive/38-u1a-workspace-validation.md)。U1b固定布局/偏好见[39](archive/39-u1b-layout-validation.md)，U2原合同/实现见40/41，重构前完整自动化结果见44；37/36保留准备与讨论。M2-0f随后显式切换格式及核心，沿用既有领域、受众和有限恢复边界，不能把U1当时“不重写格式”的批次范围解释为永久保留六套写入器。
 
 本文件定义技术选择及职责。对象字段以[场景文档](04-scene-document.md)为准，保存协议以[存储与导出](06-storage-and-export.md)为准，AI 协议以[AI 与生成](05-ai-and-generation.md)为准。
 
@@ -51,9 +53,9 @@ B1采用并列模块：`core/v2`拥有严格新版领域、依赖和隔离迁移
 
 C1a由 `editor/v2/blank-project.ts` 直接构造单Floor空白文档，并从现有B2/B3清单采用18个固定单件定义及对应PNG/许可；不生成样板几何或散布结果。完整资源校验与新工程保存成功后才切换工作区。放置幽灵是会话暂态，`core/v2/commands.ts` 的有限 `addProp` 从固定定义构造完整Prop，点击采用时执行全场景校验；移动/旋转和删除继续复用既有命令、Workspace历史和保存协议。schemaVersion仍为2，没有新增持久字段或仓库格式，具体范围与支撑选择语义归04/06。
 
-每次绘制拥有独立位图，结束/取消后关闭；C0将底图与透明选框分成两个Canvas，选择改变仅更新选框，平移/缩放复用底图栅格，工程或受众改变则重新绘制。切换时两层同步隐藏，旧绘制通过取消信号与身份token失效，不能让GM底图或选框残留到玩家预览。当前没有持久位图缓存、纹理atlas、同尺寸paintCanvas复用或Worker。M0使用Konva，v2素材预览与PNG实际使用原生Canvas2D；历史负载与选型依据见[21](21-m1b-b5-validation.md)，C0对应证据归22，不能把有限样板结果外推为通用容量。B3沿同一管线加入高程、来源边缘、朝低侧的崖面、独立世界东南阴影、显式台阶和覆盖层；先过滤受众，再解析有效地形与派生边。散布使用同步有限候选和完整Prop存档，加载/绘制不重撒。后续按实测瓶颈评估优化和其他渲染引擎，B3证据见[19](19-m1b-b3-validation.md)，B1/B2证据见[17](17-m1b-b1-validation.md)和[18](18-m1b-b2-validation.md)。
+每次绘制拥有独立位图，结束/取消后关闭；C0将底图与透明选框分成两个Canvas，选择改变仅更新选框，平移/缩放复用底图栅格，工程或受众改变则重新绘制。切换时两层同步隐藏，旧绘制通过取消信号与身份token失效，不能让GM底图或选框残留到玩家预览。当前没有持久位图缓存、纹理atlas、同尺寸paintCanvas复用或Worker。M0使用Konva，v2素材预览与PNG实际使用原生Canvas2D；历史负载与选型依据见[21](archive/21-m1b-b5-validation.md)，C0对应证据归22，不能把有限样板结果外推为通用容量。B3沿同一管线加入高程、来源边缘、朝低侧的崖面、独立世界东南阴影、显式台阶和覆盖层；先过滤受众，再解析有效地形与派生边。散布使用同步有限候选和完整Prop存档，加载/绘制不重撒。后续按实测瓶颈评估优化和其他渲染引擎，B3证据见[19](archive/19-m1b-b3-validation.md)，B1/B2证据见[17](archive/17-m1b-b1-validation.md)和[18](archive/18-m1b-b2-validation.md)。
 
-C1a待放置图片的临时预览同样逐次检查引用/记录、实际字节、CRC/hash、尺寸与单图预算，经过共享原生解码槽。预览未就绪不能采用，失败退出待放置并保留当前工程；取消、换素材或离开时释放本次位图，不建立长期缓存。相关验证见[23](23-m1c-c1a-validation.md)。
+C1a待放置图片的临时预览同样逐次检查引用/记录、实际字节、CRC/hash、尺寸与单图预算，经过共享原生解码槽。预览未就绪不能采用，失败退出待放置并保留当前工程；取消、换素材或离开时释放本次位图，不建立长期缓存。相关验证见[23](archive/23-m1c-c1a-validation.md)。
 
 C1c的 `core/v3`、`io/v3`、`editor/v3` 与 `render/v3` 保留严格边界；显式v2领域视图只复用几何命令/面板，不进入v2渲染或IO。两版renderer共享schema无关的Canvas绘制与资源层。v3点选、框选、全选及选框范围使用同一按真实隐藏集合和层序生成的墙连接轮廓；仅当前层的选择范围不改该几何。
 
@@ -176,7 +178,7 @@ flowchart TD
 
 M0 使用少量文件完成边界验证，没有引入泛化插件框架。接口稳定的判断依据是两种调用方确实需要同一能力，例如手工工具和 AI 都经由 CommandBatch。
 
-M1-A 已明确新领域/存储规范与首批素材规格，实施切片见[设计交接](16-m1a-handoff.md)，素材制作任务见[清单](15-m1a-asset-production-list.md)。M1 在这些边界内增加材质／素材目录、组合定义、地形领域操作与外观派生，不预先拆成独立服务。素材目录管理尺寸建议、分类、风格与许可；io 管理实际字节；core 保存实例引用、完整已采用结果和约束；rendering 生成纹理裁切、悬崖侧面和阴影。地形布景或散布算法只能产生待校验候选，不能绕过事务直接往画布加图。
+M1-A 已明确新领域/存储规范与首批素材规格，实施切片见[设计交接](archive/16-m1a-handoff.md)，素材制作任务见[清单](15-m1a-asset-production-list.md)。M1 在这些边界内增加材质／素材目录、组合定义、地形领域操作与外观派生，不预先拆成独立服务。素材目录管理尺寸建议、分类、风格与许可；io 管理实际字节；core 保存实例引用、完整已采用结果和约束；rendering 生成纹理裁切、悬崖侧面和阴影。地形布景或散布算法只能产生待校验候选，不能绕过事务直接往画布加图。
 
 ## 工程编辑的四类状态
 
@@ -294,17 +296,53 @@ M2按45/07已接通流式对话、技能工具、隔离草稿、场景制作与S
 
 已采用的非活动派生及祖先源也由真实固定定义保持native-v3引用闭包；内部保全定义不进入普通放置目录，资产、许可与完整有效场景仍在完整包中。历史恢复先保全祖先源及确切许可，不能因撤销分支缺少该根而删图成功。来源/变体/模板固定身份冲突、悬空、循环、超预算或像素不符均拒绝。图层持续规则与固定目标批改分开，采用后重新求值并核对全部有效锁、玩家遮罩与资源。完整契约归04/06，实际证据归29。
 
-U1a当时的应用壳以`#home`/默认首页与`#workspace`编排一个v6工作台，历史实现证据见[38](38-u1a-workspace-validation.md)。首页往返保持同一React子树与Canvas，隐藏时忽略零尺寸视口测量并暂停编辑热键；五个模块保持挂载，各表单明确登记/取消草稿，预览复用Workspace现有凭证。六仓库注册表只读发现和完整准备分开；当时原生v6调用openPersisted，旧版逐级副本迁移，兼容入口离开时清除旧undo/结构witness。f已将相同会话责任接入原生主路径及新格式，不沿用逐级写入器；新检查归52，没有增加长期位图缓存。
+U1a当时的应用壳以`#home`/默认首页与`#workspace`编排一个v6工作台，历史实现证据见[38](archive/38-u1a-workspace-validation.md)。首页往返保持同一React子树与Canvas，隐藏时忽略零尺寸视口测量并暂停编辑热键；五个模块保持挂载，各表单明确登记/取消草稿，预览复用Workspace现有凭证。六仓库注册表只读发现和完整准备分开；当时原生v6调用openPersisted，旧版逐级副本迁移，兼容入口离开时清除旧undo/结构witness。f已将相同会话责任接入原生主路径及新格式，不沿用逐级写入器；新检查归52，没有增加长期位图缓存。
 
 
 U1b的WorkspaceLayout保有固定面板树，折叠/右导航tab/窄抽屉只隐藏，不重装画布与表单。layout-preferences严格读写独立版本1的本机宽度/折叠配置。选择/平移与缩放按钮通过Portal进入工具/底栏，ResizeObserver按实际比例保持世界中心，触达既有限额时约束。UI偏好不经过工程命令或保存队列，原历史/资源/CAS保持；完整联合回归待用户通知，不能由39简单检查推定通过。
 
 ### U2a/U2b（2026-10-23）
 
-U2新增独立src/catalog：content提取中性原生v6完整固定闭包、确切身份和append-only采用候选；repository/organization用独立Dexie v1和全局CAS存安装条目与个人整理；backup严格JSON封装有hash/CRC的完整原生v6载体；query负责规范化多维筛选。CatalogLibrary仅用于统一工作区，旧版CompositionLibrary保持。采用复用workspace.previewPrepared而非任意场景patch；库修改不调用工程保存队列。可见缩略图按assetID→资源SHA→实际Blob取图，URL回收；缓存有界且不存Bitmap。新库不演进工程格式；合同/实现边界见[40](40-u2a-catalog-contract.md)/[41](41-u2b-catalog-validation.md)。
+U2新增独立src/catalog：content提取中性原生v6完整固定闭包、确切身份和append-only采用候选；repository/organization用独立Dexie v1和全局CAS存安装条目与个人整理；backup严格JSON封装有hash/CRC的完整原生v6载体；query负责规范化多维筛选。CatalogLibrary仅用于统一工作区，旧版CompositionLibrary保持。采用复用workspace.previewPrepared而非任意场景patch；库修改不调用工程保存队列。可见缩略图按assetID→资源SHA→实际Blob取图，URL回收；缓存有界且不存Bitmap。新库不演进工程格式；合同/实现边界见[40](archive/40-u2a-catalog-contract.md)/[41](archive/41-u2b-catalog-validation.md)。
 
 ### 内容补标与普通阶段创作（2026-10-23）
 
 `catalog/curation`为严格只读应用索引，精确关联完整CatalogIdentity key，独立于固定定义、DB、个人组织和库备份。生成器从真实完整内置资源提取确切身份；查询只读标签合并发布者与补标，个人语义保持独立。内置提供器append-only追加新23图与两组合，原空白工厂保持34图；精修新身份保全旧固定来源，详情按需立即加载对照实图，普通列表仍懒加载。
 
-`themed-samples`仅用于新建独立可编辑内容小样；`authoring-recipes`则从当前真实工程推导下一组普通有限命令，通过现有building/outdoor/composition/display候选和工作区采用，没有场景替换、隐藏进度、任意patch或资源跳检。选中物件换图使用独立表单守卫；C2 witness、保护点、256预算、资源和CAS边界保持。实现与简单检查见[43](43-content-m1d-validation.md)。
+`themed-samples`仅用于新建独立可编辑内容小样；`authoring-recipes`则从当前真实工程推导下一组普通有限命令，通过现有building/outdoor/composition/display候选和工作区采用，没有场景替换、隐藏进度、任意patch或资源跳检。选中物件换图使用独立表单守卫；C2 witness、保护点、256预算、资源和CAS边界保持。实现与简单检查见[43](archive/43-content-m1d-validation.md)。
+
+## 地形生成 T0/T1 模块与异步合同（2026-10-26）
+
+新路径采用严格完整 v3 / SceneDocument3 / visual2 / identity2 / appearance2。SceneDocument3保存地图模式、完整生成结果、配方/输入/规则/所有权/约束/来源及区域分区；visual2显式包住既有visual1并允许物化边缘，不能把新工程降为v2后丢字段保存。持久化与副本迁移主合同见[04](04-scene-document.md)、[06](06-storage-and-export.md)。
+
+| 模块 | 本批职责 |
+|---|---|
+| `shared/terrain-generation` | 严格合同、确定性场/轮廓和岩岛/海岸生成、关系hash、人工编辑生命周期、完整成本、扩展身份、差异与区域技术向量；不依赖DOM |
+| `platform/browser/terrain-generation` | 短生命周期Worker执行同一纯核心，严格输入/输出信封、取消/超时/替换与迟到结果拒绝；没有服务器生成任务或模型调用 |
+| `application/workspace/terrain`及主工作区 | 捕获基线、主机确定性重放、完整资源/许可验证、独立候选、原件保全和保存成功后切换 |
+| `editor/main/TerrainGenerationPanel` | 题材/种子、单候选摘要/检查/成本、取消/导出/采用；不直接修改工程或授予资源凭证 |
+| 共享投影与原生Canvas2D | 先过滤受众/支撑/图层，再按确定顺序绘制；物化边缘只绘保存的多边形/笔触，不重新随机计算 |
+
+Worker结果必须同时匹配 `requestId`、当前工作区 `sceneId`、`checkpoint`、`operationEpoch`、`inputHash` 与 `baseHash`，结果另有规范化hash。当前工作区身份与独立候选工程身份分别绑定。任一新请求、取消、超时、协议错误或完成均结束对应Worker；即使消息合法，主机仍须拒绝过期基线并重放验证，不能因Worker返回成功就跳过资源字节/像素、许可、锁或预算。
+
+identity2把生成记录、区域实体、覆盖和物化表现的出生/拓扑记录并入原有身份总量；嵌套骨架、来源特征、区域控制点与笔触也有身份，存活与墓碑合计上限仍65536。普通命令和组合操作逐步观察拓扑，即使同批改回原JSON也不回退连续令牌。新旧身份池不得复用ID或令牌，历史合并保留当前拓扑证据。
+
+手工修改通过相同有限命令入口更新人工字段、暂停受影响规则并使检查失效；生成关系改动也计入256累计展开。数据加载只验证已存结果与hash，不后台执行规则；取消与失败不安装半个候选。此为T1冻结；后续T2有限联动见下节。
+
+浏览器Worker与Node已完成固定输入一致性检查，本批已有浏览器流程检查结果。它们验证合同与通路，不证明画面达到P3或性能目标。10×8km区域技术向量仅验证严格表示和预算；T4近侧视运行语义、T5区域创作UI、T6 AI写入仍未开放，最终冻结和检查结果集中在[55](55-terrain-generation-design.md)/[09](09-quality-plan.md)。
+
+### T2局部地形候选（2026-10-26）
+
+纯核心`shared/terrain-generation/edit.ts`读取当前严格v3实体，规范化笔画、有限变形共享曲线、检查支撑/人工/锁/冻结范围并累计逐笔实际成本。`edit-client.ts`/`edit-worker.ts`采用独立短生命周期协议，关联sceneId/checkpoint/epoch/输入hash/基线hash，取消与超时终止Worker；迟到结果不能取得新的采用权。主机仍独立重放，不把传输hash当作编辑授权。
+
+`application/workspace/terrain-edit.ts`同步本次表面几何到固定派生源，保留原源参数及持续覆盖，再完整物化。Workspace持有不可克隆候选凭证，保护/互斥/CAS后原子采用。UI和Canvas只产世界坐标草稿；取消不消费revision/undo。当前完整支撑验证会读取全Floor及全图依赖，预览如实列只读集合；这不是局部读取性能优化。更大自然地形与AI写入仍按后续阶段开放。
+
+### T3路线与配方扩展（2026-10-26）
+
+五新配方使用`terrain-scene-t3@1`，复用同一纯核心/Worker/主机重放/完整候选管线；T1身份保持。路线模块提供完整Path带区验证与确定性有界搜索，生成先路线后布景。compose保存真实Path/支撑、route约束及`terrain-route@1`或`terrain-route-ground@1`检查；完整加载对已知非unchecked回执重新运行物理验证，不运行生成器或搜索。局部编辑支持两代已知地形算法并重验原硬路线；不重选路线绕过范围授权，未知算法/硬端口仍保守拒绝。实际模块、限额及证据归55第19节。
+
+### T-S06、复杂拓扑与T4–T6模块（2026-10-27）
+
+`shared/terrain-generation/surroundings.ts`按冻结矩形计算外围候选，完整读取建筑、共享墙、开口、道路、连接、活动区、路线和布景依赖；`generation.version:3`作为新严格记录，generation1/2仍按各自解析语义保留。`topology.ts`保留布尔运算的所有组件与孔洞，`generation.version:4`记录请求、输入/输出、逐槽支撑重绑和算法版本；不兼容输入属性、范围、覆盖/绑定、锁或预算整笔拒绝。
+
+T4表现存在`appearance.version:2`固定素材闭包，不升级工程schema；世界轴占地、图像根锚、固定朝向与独立地影共同参与实际投影、命中和资源许可校验。T5 `regional.version:1`由`regional-workspace`及原生Canvas2D渲染器提供区域实体编辑，子图准备只物化明确支持的实体并保留来源快照。`terrain-authoring`与`services/ai/terrain-tools`复用同一生成/编辑/区域纯合同，服务端只形成隔离候选，本机仍执行完整重放和CAS采用。shared T5单测3/3通过；下钻真实UI、离线包及双4K复跑通过，适用冻结T7结果按55第20节登记。

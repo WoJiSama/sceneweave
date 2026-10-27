@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedIslandDocument, createRefinedIslandProject } from './refined-island.js'
 import { createVisualSampleDocument } from './visual-samples.js'
@@ -24,7 +25,7 @@ describe('independent Q1 editable island', () => {
     expect(scene.terrainAreas['q1-high'].groundElevationMm).toBe(2600)
     expect(scene.terrainConnections['q1-stairs']).toMatchObject({ kind: 'stairs', widthMm: 1500, blocksMovement: false,
       from: { surfaceRef: { id: 'q1-low' } }, to: { surfaceRef: { id: 'q1-high' } } })
-    for (const curve of Object.values(scene.visual!.boundaries)) {
+    for (const curve of Object.values(visualBase(scene)!.boundaries)) {
       if (curve.binding.kind !== 'terrain') throw new Error('Expected physical terrain binding')
       const samples = sampleVisualBoundary(curve), side = curve.binding.sides[0]
       expect(terrainBoundaryChain(scene.terrainAreas[side.areaId], side, true).map(value => value.positionMm)).toEqual(samples.points)
@@ -41,8 +42,8 @@ describe('independent Q1 editable island', () => {
     expect(scene.terrainAreas['q1-high'].surfaceStyle!.overlays.length).toBeGreaterThanOrEqual(2)
     expect(Object.values(scene.props).every(value => !value.editLocked && value.visibility === 'public')).toBe(true)
     for (const prefix of ['tree-', 'rock-', 'shrub-']) expect(new Set(Object.values(scene.props).map(value => value.definitionRef!.id).filter(id => id.includes(prefix))).size).toBe(prefix === 'shrub-' ? 2 : 3)
-    expect(scene.visual!.environment.ambientOpacity).toBeLessThan(.05)
-    expect(Object.values(scene.visual!.fogs).every(value => value.opacity < .05)).toBe(true)
+    expect(visualBase(scene)!.environment.ambientOpacity).toBeLessThan(.05)
+    expect(Object.values(visualBase(scene)!.fogs).every(value => value.opacity < .05)).toBe(true)
   })
   it('does not share mutable instance state and cancels before rasterization', async () => {
     const first = createRefinedIslandDocument(), second = createRefinedIslandDocument()

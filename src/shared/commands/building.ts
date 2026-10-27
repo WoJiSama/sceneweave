@@ -1,3 +1,5 @@
+import { detachChangedOutputs } from '../terrain-generation/integrity.js'
+import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { polygonsOverlap, roomPoints } from '../geometry/geometry.js'
@@ -309,7 +311,10 @@ export function previewBuildingCommands(scene: SceneDocument, commands: readonly
     for (const command of checked.data as BuildingCommand[]) {
       const before = cloneJson(next)
       mutate(next, command, affected, true)
-      cost += diffImpact(before, next, affected).commandCost
+      const physicalCost = diffImpact(before, next, affected).commandCost
+      detachChangedOutputs(before, next)
+      const expanded = terrainCommandCost(before, next)
+      cost += physicalCost + expanded.total - expanded.items.physicalAndVisual
     }
     Object.assign(impact, diffImpact(source.document, next, affected), { commandCost: cost })
     const locked = impact.affectedIds.filter(id => byId.get(id)?.editLocked || byId.has(id) && source.document.userLayers[source.document.entityLayers[id]]?.editLocked)

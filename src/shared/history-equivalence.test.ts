@@ -35,7 +35,8 @@ const native = (input: CompositionContentV6): CompositionContent => ({ document:
 const triad = (input: CompositionContent): CompositionContent => ({ document: input.document, historyIdentity: input.historyIdentity, appearance: input.appearance })
 function legacy(input: CompositionContent): CompositionContentV6 {
   const copy = cloneJson(triad(input)), { format: _format, ...document } = copy.document
-  return { document: { ...document, format: 'sceneweave', schemaVersion: 3 }, historyIdentity: { ...copy.historyIdentity, version: 3 }, appearance: copy.appearance }
+  if (copy.appearance.version !== 1) throw new Error('Legacy equivalence fixture only accepts appearance1.')
+  return { document: { ...document, format: 'sceneweave', schemaVersion: 3 }, historyIdentity: { ...copy.historyIdentity, version: 3 }, appearance: { ...copy.appearance, version: 1 } }
 }
 const compare = (actual: CompositionContent, expected: CompositionContentV6) => expect(legacy(actual)).toEqual({ document: expected.document, historyIdentity: expected.historyIdentity, appearance: expected.appearance })
 

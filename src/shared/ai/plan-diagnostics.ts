@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import type { ProjectData } from '../model/project.js'
 import type { BoundsMm, PointMm, Prop } from '../model/scene.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
@@ -182,8 +183,8 @@ export function inspectBriefEvidence(project: ProjectData, ids: ReadonlySet<stri
       supported = matches.some(value => value.propIds.length >= check.minimumProps && !value.missingDefinitions.length && value.materialMatches)
       evidenceIds = matches.flatMap(value => [value.roomId, ...value.propIds]); details = { requiredDefinitions: check.definitionIds, minimumProps: check.minimumProps, rooms: matches }
     } else {
-      const looks = Object.values(scene.visual?.edgeLooks ?? {}).filter(look => ids.has(look.id) && look.visibility === 'public' && look.enabled
-        && ids.has(look.boundaryId) && scene.visual!.boundaries[look.boundaryId]?.visibility === 'public')
+      const looks = Object.values(visualBase(scene)?.edgeLooks ?? {}).filter(look => ids.has(look.id) && look.visibility === 'public' && look.enabled
+        && ids.has(look.boundaryId) && visualBase(scene)!.boundaries[look.boundaryId]?.visibility === 'public')
       const kinds = [...new Set(looks.map(look => look.kind))]
       supported = check.kinds.every(kind => kinds.includes(kind)); evidenceIds = looks.filter(look => check.kinds.includes(look.kind)).map(value => value.id)
       details = { requiredKinds: check.kinds, presentKinds: kinds }

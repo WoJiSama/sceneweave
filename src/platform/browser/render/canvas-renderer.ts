@@ -1,6 +1,8 @@
+import { effectivePropShadow, nearSidePaintEnvelope, presentationBounds, presentationContact, presentationShadow, propPaintPolygon, propShadowDirection } from '../../../shared/appearance/presentation.js'
 import { drawVisualAtmosphere, drawVisualBoundaries, drawVisualContacts, drawVisualEntity } from './visual-renderer'
 import type { BoundsMm, MaterialPaint, PointMm, Prop, ShadowStyle, SurfaceStyle } from '../../../shared/model/scene.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
+import { drawRegionalProjection } from './regional-renderer.js'
 import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { PACKAGE_LIMITS } from '../../../shared/project/limits.js'
@@ -47,6 +49,8 @@ export interface RenderOptions {
 export interface EditorRenderOptions extends RenderOptions {
   viewBoundsMm?: BoundsMm
   screenScalePxPerMm?: number
+  /** GM-only transient ground inspection; never persisted or exported. */
+  groundView?: boolean
 }
 export const EDITOR_MAX_LONG_EDGE = 2048
 export const PNG_MAX_LONG_EDGE = 4096
@@ -258,16 +262,38 @@ function expandedBounds(points: PointMm[], padding: number): BoundsMm {
   return { x: bounds.x - padding, y: bounds.y - padding, width: bounds.width + padding * 2, height: bounds.height + padding * 2 }
 }
 function shadowColor(shadow: ShadowStyle): string { const color = shadow.color; return `rgba(${parseInt(color.slice(1, 3), 16)},${parseInt(color.slice(3, 5), 16)},${parseInt(color.slice(5, 7), 16)},${shadow.opacity})` }
+/** Near-side art casts a dedicated ground shape, never a flattened upright alpha. */
+function drawNearSideShadow(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, sx: number, sy: number): void {
+  const presentation = projection.propPresentations?.[prop.id], source = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
+  if (presentation?.mode !== 'nearSide' || !source) return
+  ctx.save()
+  const direction = propShadowDirection(prop, source, projection.visual?.environment.lightDirectionDeg)
+  const ring = presentationShadow(prop, presentation, direction, source.offsetMm)
+  if (ring.length && source?.opacity) {
+    ctx.globalAlpha = source.opacity * prop.appearance.opacity; ctx.fillStyle = source.color
+    ctx.filter = `blur(${source.blurMm * Math.max(sx, sy)}px)`; ctx.fill(polygonPath(ring)); ctx.filter = 'none'
+  }
+  // A root contact is a physical footprint, independent of the northward canopy.
+  const contact = projection.visual?.environment, contactPoints = presentationContact(prop, presentation)
+  if (contact?.contactShadowOpacity && contactPoints.length) {
+    ctx.globalAlpha = contact.contactShadowOpacity * prop.appearance.opacity; ctx.fillStyle = source?.color ?? '#263C30'
+    ctx.filter = `blur(${contact.contactShadowMm * Math.max(sx, sy)}px)`
+    ctx.fill(polygonPath(contactPoints)); ctx.filter = 'none'
+  }
+  ctx.restore()
+}
 function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, detail: EditorPropDetail = 'full', castShadow = true): void {
-  ctx.save(); ctx.translate(prop.positionMm.x, prop.positionMm.y); ctx.rotate(prop.rotationDeg * Math.PI / 180); ctx.globalAlpha = prop.appearance.opacity
-  const shadowSource = prop.shadowOverride ?? projection.theme?.shadowPresets[prop.shadowClass]
-  const shadow = shadowSource && projection.visual ? { ...shadowSource, directionDeg: projection.visual.environment.lightDirectionDeg } : shadowSource
-  if (castShadow && detail === 'full' && shadow && shadow.opacity > 0) {
+  const presentation = projection.propPresentations?.[prop.id]
+  if (presentation?.mode === 'nearSide' && castShadow && detail === 'full') drawNearSideShadow(ctx, prop, projection, scaleX, scaleY)
+  ctx.save(); ctx.translate(prop.positionMm.x, prop.positionMm.y); ctx.rotate((presentation?.mode === 'nearSide' ? 0 : prop.rotationDeg) * Math.PI / 180); ctx.globalAlpha = prop.appearance.opacity * (projection.groundView && presentation?.mode === 'nearSide' && prop.renderLayer === 'canopy' ? .16 : 1)
+  const shadowSource = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
+  const shadow = shadowSource ? { ...shadowSource, directionDeg: propShadowDirection(prop, shadowSource, projection.visual?.environment.lightDirectionDeg) } : null
+  if (presentation?.mode !== 'nearSide' && castShadow && detail === 'full' && shadow && shadow.opacity > 0) {
     const angle = shadow.directionDeg * Math.PI / 180
     // Canvas shadow offsets are device coordinates: rotation affects only the body alpha, never the light direction.
     ctx.shadowColor = shadowColor(shadow); ctx.shadowOffsetX = Math.cos(angle) * shadow.offsetMm * scaleX; ctx.shadowOffsetY = Math.sin(angle) * shadow.offsetMm * scaleY; ctx.shadowBlur = shadow.blurMm * Math.max(scaleX, scaleY)
   }
-  const v = prop.visualBoundsMm
+  const v = presentationBounds(prop, presentation)
   if (detail === 'outline') {
     ctx.strokeStyle = '#55614F'; ctx.fillStyle = '#A79878'; ctx.lineWidth = 1 / Math.max(scaleX, scaleY)
     ctx.globalAlpha = prop.appearance.opacity * .65; ctx.fillRect(v.x, v.y, v.width, v.height)
@@ -281,9 +307,16 @@ function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Pro
 }
 function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, detail: EditorPropDetail = 'full'): void {
   if (!projection.visual) { drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail); return }
-  const v = prop.visualBoundsMm, angle = prop.rotationDeg * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle), shadow = prop.shadowOverride ?? projection.theme?.shadowPresets[prop.shadowClass]
-  const points = [[v.x, v.y], [v.x + v.width, v.y], [v.x + v.width, v.y + v.height], [v.x, v.y + v.height]].map(([x, y]) => point(prop.positionMm.x + x * c - y * s, prop.positionMm.y + x * s + y * c))
-  const padding = detail === 'full' && shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : 0
+  const presentation = projection.propPresentations?.[prop.id], shadow = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
+  const paintShadow = detail === 'full' ? shadow : null
+  const contactBlur = presentation?.mode === 'nearSide' && paintShadow && projection.visual?.environment.contactShadowOpacity ? projection.visual.environment.contactShadowMm : null
+  const nearSideEnvelope = nearSidePaintEnvelope(prop, presentation, paintShadow, projection.visual?.environment.lightDirectionDeg, contactBlur)
+  if (nearSideEnvelope) {
+    drawVisualEntity(ctx, projection, prop.id, nearSideEnvelope, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
+    return
+  }
+  const points = propPaintPolygon(prop, presentation)
+  const padding = Math.max(detail === 'full' && shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : 0, contactBlur ?? 0)
   drawVisualEntity(ctx, projection, prop.id, expandedBounds(points, padding), (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
 }
 export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm'>): PointMm[] {
@@ -383,6 +416,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   const bounds = projection.bounds, sx = ctx.canvas.width / bounds.width, sy = ctx.canvas.height / bounds.height
   ctx.fillStyle = '#D8D5C5'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
   worldTransform(ctx, bounds, sx, sy)
+  if (projection.regional) drawRegionalProjection(ctx, projection, sx, sy, raster.byAssetId)
   for (const area of projection.terrain) drawVisualEntity(ctx, projection, area.id, expandedBounds(area.points, 0), (target, local) => fillSurface(target, polygonPath(area.points), area.style, local, raster, '#C3BEA8'), !!raster.readFrequently)
   drawTerrainEdges(ctx, projection, raster, sx, sy)
   drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently)
@@ -400,7 +434,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   if (projection.visual) {
     const contacts = wallGeometry(projection.walls).flatMap(wall => wall.polygons)
     drawVisualContacts(ctx, projection, contacts, !!raster.readFrequently, (target, local) => {
-      for (const prop of projection.props) if (prop.renderLayer !== 'ground' && prop.shadowClass !== 'none') drawPropBody(target, prop, local, raster, sx, sy, 'image', false)
+      for (const prop of projection.props) if (prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' && !projection.propPresentations?.[prop.id]) drawPropBody(target, prop, local, raster, sx, sy, 'image', false)
     })
   }
   drawWallBody(ctx, projection, raster, sx, sy)

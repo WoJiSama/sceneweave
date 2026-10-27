@@ -1,3 +1,5 @@
+import { identity2Fields } from '../terrain-generation/contracts.js'
+import { TERRAIN_IDENTITY_FIELDS, extendedIdentityDescriptors, advanceExtendedIdentities, advanceExtendedIdentityDescriptors } from '../terrain-generation/identities.js'
 import { z } from 'zod'
 import { inspectJsonInput, cloneJson } from '../validation/json.js'
 import { sha256Text } from '../geometry/scatter.js'
@@ -12,6 +14,8 @@ import type { HistoryIdentity, OutdoorIdentityKind, OutdoorIdentityToken } from 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留 ID')
 const outdoorToken = z.object({ kind: z.enum(['terrainArea', 'terrainPoint', 'terrainSegment', 'terrainEdge', 'terrainConnection', 'path', 'scatterGroup', 'scatterExclusion']), token: id, topologyToken: id, topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
 export const historyIdentitySchema = z.object({ version: z.literal(1), lineageId: id, rootSceneId: id, propTokens: z.record(id, id), prefabTokens: z.record(id, id), outdoorTokens: z.record(id, outdoorToken) }).strict()
+export const historyIdentity2Schema = historyIdentitySchema.extend({ version: z.literal(2), ...identity2Fields }).strict()
+export const nativeHistoryIdentitySchema = z.union([historyIdentitySchema, historyIdentity2Schema])
 // A converted v6 identity retains its exact topology hash; do not substitute
 // the new package's canonical serialization for this existing identity domain.
 const canonical = (value: unknown) => JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
@@ -41,18 +45,27 @@ const newToken = (descriptor: Descriptor, context: PreparationContext): OutdoorI
 export function validateHistoryIdentityShape(input: unknown): HistoryIdentity {
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(`室外历史身份无效：${issue.message}`)
-  const parsed = historyIdentitySchema.safeParse(input)
+  const parsed = nativeHistoryIdentitySchema.safeParse(input)
   if (!parsed.success) throw new Error(`室外历史身份字段无效：${parsed.error.issues.map(issue => issue.message).join('；')}`)
-  const identity = parsed.data, ids = [...Object.keys(identity.propTokens), ...Object.keys(identity.prefabTokens), ...Object.keys(identity.outdoorTokens)]
+  const identity = parsed.data as HistoryIdentity, ids = [...Object.keys(identity.propTokens), ...Object.keys(identity.prefabTokens), ...Object.keys(identity.outdoorTokens)]
   const births = [...Object.values(identity.propTokens), ...Object.values(identity.prefabTokens), ...Object.values(identity.outdoorTokens).map(value => value.token)]
-  const topologies = Object.values(identity.outdoorTokens).map(value => value.topologyToken)
-  if (ids.length > COMPOSITION_LIMITS.identities || new Set(ids).size !== ids.length) throw new Error('物件、组合及室外出生身份/墓碑合计超过65536或ID重复。')
+  const extended = TERRAIN_IDENTITY_FIELDS.flatMap(field => Object.entries(identity[field] ?? {}))
+  ids.push(...extended.map(([id]) => id)); births.push(...extended.map(([,value]) => value.token))
+  const topologies = [...Object.values(identity.outdoorTokens).map(value => value.topologyToken), ...extended.map(([,value]) => value.topologyToken)]
+  if (ids.length > COMPOSITION_LIMITS.identities || new Set(ids).size !== ids.length) throw new Error('物件、组合、室外及新地形出生身份/墓碑合计超过65536或ID重复。')
   if (new Set([...births, ...topologies]).size !== births.length + topologies.length) throw new Error('出生及拓扑令牌必须全局唯一。')
   return identity
 }
 export function validateHistoryIdentity(input: unknown, document: SceneDocument): HistoryIdentity {
   const identity = validateHistoryIdentityShape(input), checked = validateSceneSnapshot(document)
   if (!checked.ok) throw new Error(`历史身份对应场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
+  if ((document.schemaVersion === 3) !== (identity.version === 2)) throw new Error('新地形场景必须匹配identity2，旧版本不得携带identity2。')
+  const descriptors3 = extendedIdentityDescriptors(checked.document)
+  for (const [id, descriptor] of Object.entries(descriptors3)) {
+    const pool = identity[descriptor.field]
+    const record = pool && Object.hasOwn(pool, id) ? pool[id] : undefined
+    if (!record || record.kind !== descriptor.kind || record.topologyHash !== descriptor.topologyHash) throw new Error(`新地形缺少出生及拓扑证据：${id}。`)
+  }
   const occupiedBirths = geometryIdentityIds(checked.document)
   for (const layerId of Object.keys(checked.document.userLayers)) occupiedBirths.add(layerId)
   for (const [collection, field] of [['props', 'propTokens'], ['prefabInstances', 'prefabTokens']] as const) {
@@ -67,22 +80,29 @@ export function validateHistoryIdentity(input: unknown, document: SceneDocument)
   const descriptors = outdoorIdentityDescriptors(checked.document), occupied = geometryIdentityIds(checked.document)
   for (const layerId of Object.keys(checked.document.userLayers)) occupied.add(layerId)
   for (const [id, descriptor] of Object.entries(descriptors)) {
-    const record = identity.outdoorTokens[id]
+    const record = Object.hasOwn(identity.outdoorTokens, id) ? identity.outdoorTokens[id] : undefined
     if (!record || record.kind !== descriptor.kind || record.topologyHash !== descriptor.topologyHash) throw new Error(`室外对象缺少有效出生/拓扑身份：${id}。`)
     occupied.delete(id)
   }
   for (const id of Object.keys(identity.outdoorTokens)) if (occupied.has(id)) throw new Error(`已分配室外ID与其他身份冲突：${id}。`)
+  const newIds = new Set(Object.keys(descriptors3)), newOccupied = geometryIdentityIds(checked.document)
+  for (const layerId of Object.keys(checked.document.userLayers)) newOccupied.add(layerId)
+  for (const [id] of TERRAIN_IDENTITY_FIELDS.flatMap(field => Object.entries(identity[field] ?? {}))) {
+    if (!newIds.has(id) && newOccupied.has(id)) throw new Error(`已分配地形ID与其他身份冲突：${id}。`)
+  }
   return identity
 }
 export function createHistoryIdentity(inputDocument: SceneDocument, context: PreparationContext): HistoryIdentity {
   const checked = validateSceneSnapshot(inputDocument)
   if (!checked.ok) throw new Error(`历史身份对应场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   const document = checked.document
-  return validateHistoryIdentity({ version: 1, lineageId: context.ids.nextId(), rootSceneId: document.sceneId,
+  const identity: HistoryIdentity = { version: 1, lineageId: context.ids.nextId(), rootSceneId: document.sceneId,
     propTokens: Object.fromEntries(Object.keys(document.props).map(id => [id, context.ids.nextId()])),
     prefabTokens: Object.fromEntries(Object.keys(document.prefabInstances).map(id => [id, context.ids.nextId()])),
     outdoorTokens: Object.fromEntries(Object.entries(outdoorIdentityDescriptors(document)).map(([id, descriptor]) => [id, newToken(descriptor, context)])),
-  }, document)
+  }
+  advanceExtendedIdentities(identity, null, document, context, true)
+  return validateHistoryIdentity(identity, document)
 }
 export interface AdvanceHistoryIdentityOptions { allowResurrection?: boolean }
 export interface HistoryIdentityTrace {
@@ -97,24 +117,32 @@ export interface HistoryIdentityTrace {
 export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocument: SceneDocument, context: PreparationContext, options: AdvanceHistoryIdentityOptions = {}): HistoryIdentityTrace {
   const identity = validateHistoryIdentity(input, previousDocument)
   const result = cloneJson(identity)
+  const sceneId = previousDocument.sceneId
+  let previousExtended = extendedIdentityDescriptors(previousDocument)
   let previousProps = new Set(Object.keys(previousDocument.props)), previousPrefabs = new Set(Object.keys(previousDocument.prefabInstances)), previousOutdoor = outdoorIdentityDescriptors(previousDocument)
   const observe = (next: Readonly<SceneDocument>) => {
-    if (previousDocument.sceneId !== next.sceneId) throw new Error('身份只能推进同一场景的修订。')
+    if (sceneId !== next.sceneId) throw new Error('身份只能推进同一场景的修订。')
     const nextProps = new Set(Object.keys(next.props)), nextPrefabs = new Set(Object.keys(next.prefabInstances)), nextOutdoor = outdoorIdentityDescriptors(next)
     for (const [present, previous, field] of [[nextProps, previousProps, 'propTokens'], [nextPrefabs, previousPrefabs, 'prefabTokens']] as const) for (const id of present) {
       if (Object.hasOwn(result[field], id)) { if (!previous.has(id) && !options.allowResurrection) throw new Error(`普通编辑不能复用已分配的物件/组合 ID：${id}。`) }
-      else { if (Object.hasOwn(result.outdoorTokens, id) || Object.hasOwn(result[field === 'propTokens' ? 'prefabTokens' : 'propTokens'], id)) throw new Error(`新出生ID与已分配身份冲突：${id}。`); result[field][id] = context.ids.nextId() }
+      else { if (Object.hasOwn(result.outdoorTokens, id) || Object.hasOwn(result[field === 'propTokens' ? 'prefabTokens' : 'propTokens'], id)
+        || TERRAIN_IDENTITY_FIELDS.some(key => Object.hasOwn(result[key] ?? {}, id))) throw new Error(`新出生ID与已分配身份冲突：${id}。`); result[field][id] = context.ids.nextId() }
     }
     for (const [id, descriptor] of Object.entries(nextOutdoor)) {
-      const record = result.outdoorTokens[id]
+      const record = Object.hasOwn(result.outdoorTokens, id) ? result.outdoorTokens[id] : undefined
+      const wasPresent = Object.hasOwn(previousOutdoor, id)
       if (record) {
-        if (record.kind !== descriptor.kind || !previousOutdoor[id] && !options.allowResurrection) throw new Error(`普通编辑不能复用已分配的室外 ID：${id}。`)
-        if (!previousOutdoor[id] || record.topologyHash !== descriptor.topologyHash) result.outdoorTokens[id] = { ...record, kind: descriptor.kind, topologyHash: descriptor.topologyHash, topologyToken: context.ids.nextId() }
+        if (record.kind !== descriptor.kind || !wasPresent && !options.allowResurrection) throw new Error(`普通编辑不能复用已分配的室外 ID：${id}。`)
+        if (!wasPresent || record.topologyHash !== descriptor.topologyHash) result.outdoorTokens[id] = { ...record, kind: descriptor.kind, topologyHash: descriptor.topologyHash, topologyToken: context.ids.nextId() }
       } else {
-        if (Object.hasOwn(result.propTokens, id) || Object.hasOwn(result.prefabTokens, id)) throw new Error(`新室外ID与已分配身份冲突：${id}。`)
+        if (Object.hasOwn(result.propTokens, id) || Object.hasOwn(result.prefabTokens, id)
+          || TERRAIN_IDENTITY_FIELDS.some(key => Object.hasOwn(result[key] ?? {}, id))) throw new Error(`新室外ID与已分配身份冲突：${id}。`)
         result.outdoorTokens[id] = newToken(descriptor, context)
       }
     }
+    const nextExtended = extendedIdentityDescriptors(next)
+    if (next.schemaVersion === 3) advanceExtendedIdentityDescriptors(result, previousExtended, nextExtended, context, options.allowResurrection)
+    previousExtended = nextExtended
     previousProps = nextProps; previousPrefabs = nextPrefabs; previousOutdoor = nextOutdoor
   }
   return { observe, finish: next => { observe(next); return validateHistoryIdentity(result, next) } }
@@ -127,10 +155,20 @@ export function mergeIdentityRecords(currentInput: unknown, others: readonly unk
   const current = validateHistoryIdentityShape(currentInput)
   for (const historicInput of others) {
     const historic = validateHistoryIdentityShape(historicInput)
+    if(current.version !== historic.version) throw new Error('不同历史身份版本不能合并。')
     if (current.lineageId !== historic.lineageId || current.rootSceneId !== historic.rootSceneId) throw new Error('历史不是同一lineage/root，不能恢复。')
+    for (const field of TERRAIN_IDENTITY_FIELDS) if (historic[field]) {
+      current[field] ??= {}
+      for (const [id, record] of Object.entries(historic[field]!)) {
+        const prior = Object.hasOwn(current[field]!, id) ? current[field]![id] : undefined
+        if (prior && (prior.kind !== record.kind || prior.token !== record.token
+          || prior.topologyToken === record.topologyToken && prior.topologyHash !== record.topologyHash)) throw new Error(`历史新地形身份冲突：${id}。`)
+        if (!prior) current[field]![id] = record
+      }
+    }
     for (const field of ['propTokens', 'prefabTokens'] as const) for (const [id, token] of Object.entries(historic[field])) { if (Object.hasOwn(current[field], id) && current[field][id] !== token) throw new Error(`历史身份token冲突：${id}。`); current[field][id] = token }
     for (const [id, record] of Object.entries(historic.outdoorTokens)) {
-      const prior = current.outdoorTokens[id]
+      const prior = Object.hasOwn(current.outdoorTokens, id) ? current.outdoorTokens[id] : undefined
       if (prior && (prior.kind !== record.kind || prior.token !== record.token)) throw new Error(`历史室外出生身份冲突：${id}。`)
       if (!prior) current.outdoorTokens[id] = record
     }

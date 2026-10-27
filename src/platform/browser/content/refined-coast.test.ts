@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedCoastDocument, createRefinedCoastProject, REFINED_COAST_NAME } from './refined-coast.js'
 import { createVisualSampleDocument } from './visual-samples.js'
@@ -20,7 +21,7 @@ describe('independent Q2 editable coast', () => {
     expect(scene.presetSnapshot.presetId).toBe('sceneweave-refined-coast')
   })
   it('shares the exact nonstraight shoreline between both physical areas, with editable graded surfaces and unblocked activity sand', () => {
-    const scene = createRefinedCoastDocument(), curve = scene.visual!.boundaries['q2-coast-shoreline']
+    const scene = createRefinedCoastDocument(), curve = visualBase(scene)!.boundaries['q2-coast-shoreline']
     expect(curve.segments).toHaveLength(7)
     if (curve.binding.kind !== 'terrain') throw new Error('Expected a shared physical coast')
     const samples = sampleVisualBoundary(curve)
@@ -37,7 +38,7 @@ describe('independent Q2 editable coast', () => {
     expect(Object.values(scene.props).filter(value => value.blocksMovement).every(value => value.positionMm.x < 6500 || value.positionMm.x > 16500 || value.positionMm.y < 10000)).toBe(true)
     expect(new Set(Object.values(scene.props).filter(value => value.definitionRef!.id.includes('reef-')).map(value => value.definitionRef!.id)).size).toBe(3)
     expect(Object.values(scene.props).every(value => value.supportRef?.kind === 'terrainArea' && !value.editLocked && value.visibility === 'public')).toBe(true)
-    expect(scene.visual!.environment.ambientOpacity).toBeLessThan(.05)
+    expect(visualBase(scene)!.environment.ambientOpacity).toBeLessThan(.05)
   })
   it('cancels before image work and gives every composition independent mutable objects', async () => {
     const first = createRefinedCoastDocument(), second = createRefinedCoastDocument()

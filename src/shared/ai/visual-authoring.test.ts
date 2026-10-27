@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
 import { authoringProjectHash, applyAuthoringStep, replayAuthoring, publicAuthoringContext } from './authoring.js'
@@ -40,7 +41,7 @@ describe('visual authoring capabilities and atomic replay', () => {
     expect(canonicalJson(built)).toBe(before)
     const edited = applyAuthoringStep(input, built.state, [proposal.candidateOperation], 'rounded-hill')
     expect(edited.state.operationCost - built.state.operationCost).toBeLessThan(90)
-    expect(edited.project.document.visual!.boundaries['hill-rim'].segments).toEqual(proposal.candidateOperation.segments)
+    expect(visualBase(edited.project.document)!.boundaries['hill-rim'].segments).toEqual(proposal.candidateOperation.segments)
     expect(edited.project.document.terrainAreas.hill.boundaryMm[0].id).toBe(built.project.document.terrainAreas.hill.boundaryMm[0].id)
     expect(replayAuthoring(input, edited.state.steps)).toEqual(edited)
     expect(() => proposeAuthoringTerrainBoundary(built.project, scope, new Set(), { areaId: 'hill', boundaryId: 'not-authorised' })).toThrow(/授权/)
@@ -51,8 +52,8 @@ describe('visual authoring capabilities and atomic replay', () => {
     const input = start(), before = canonicalJson(input.project), initial = replayAuthoring(input, [])
     const result = applyAuthoringStep(input, initial.state, [boundary, edge, light], 'coast-step')
     expect(result.project.schemaVersion).toBe(2)
-    expect(result.project.document.visual?.edgeLooks.foam.boundaryId).toBe('coast')
-    expect(result.project.document.visual?.lights.lamp.radiusMm).toBe(1000)
+    expect(visualBase(result.project.document)?.edgeLooks.foam.boundaryId).toBe('coast')
+    expect(visualBase(result.project.document)?.lights.lamp.radiusMm).toBe(1000)
     expect(result.project.document.props).toEqual(input.project.document.props)
     expect(result.project.document.revision).toBe(input.project.document.revision)
     expect(canonicalJson(input.project)).toBe(before)
@@ -75,9 +76,9 @@ describe('visual authoring capabilities and atomic replay', () => {
     expect(second.candidateOperation.segments.every(segment => segment.id.length <= 256 && !existing.has(segment.id))).toBe(true)
     expect(second.candidateOperation.segments[0].id).not.toBe(firstId)
     const finished = applyAuthoringStep(input, rounded.state, [second.candidateOperation], 'second-curve')
-    const ids = Object.values(finished.project.document.visual!.boundaries).flatMap(value => value.segments.map(segment => segment.id))
+    const ids = Object.values(visualBase(finished.project.document)!.boundaries).flatMap(value => value.segments.map(segment => segment.id))
     expect(new Set(ids).size).toBe(ids.length)
-    expect(Object.keys(finished.project.document.visual!.boundaries)).toHaveLength(2)
+    expect(Object.keys(visualBase(finished.project.document)!.boundaries)).toHaveLength(2)
     expect(replayAuthoring(input, finished.state.steps)).toEqual(finished)
     expect(() => proposeAuthoringTerrainBoundary(finished.project, scope, new Set(finished.state.changedIds), { areaId: 'first-land', boundaryId })).toThrow(/未占用/)
   })
@@ -92,7 +93,7 @@ describe('visual authoring capabilities and atomic replay', () => {
     expect(replayAuthoring(input, [])).toEqual(initial)
     const one = applyAuthoringStep(input, initial.state, [boundary], 'boundary')
     expect(one.state.operationCost).toBeGreaterThan(1)
-    expect(one.project.document.visual!.boundaries.coast).toBeDefined()
+    expect(visualBase(one.project.document)!.boundaries.coast).toBeDefined()
   })
   it('separately gates global environment and rejects persistent layer propagation', () => {
     const input = start(); input.scope.visual!.allowGlobalEnvironment = false
@@ -136,7 +137,7 @@ describe('visual authoring capabilities and atomic replay', () => {
     const added = applyAuthoringStep(input, initial.state, [boundary], 'add')
     const other = { ...boundary, segments: boundary.kind === 'visualBoundary' ? boundary.segments.map(segment => ({ ...segment, id: 'replacement-control-identity' })) : [] } as AuthoringOperation
     const changedBack = applyAuthoringStep(input, added.state, [other, boundary], 'change-back')
-    expect(changedBack.project.document.visual!.boundaries.coast).toEqual(added.project.document.visual!.boundaries.coast)
+    expect(visualBase(changedBack.project.document)!.boundaries.coast).toEqual(visualBase(added.project.document)!.boundaries.coast)
     expect(changedBack.visualInvalidatedIds).toContain('coast')
     const recreated = applyAuthoringStep(input, added.state, [{ kind: 'visualRemove', effectKind: 'boundary', id: 'coast', detach: true }, boundary], 'recreate')
     expect(recreated.visualInvalidatedIds).toContain('coast')

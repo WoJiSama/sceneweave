@@ -1,3 +1,4 @@
+import { scenePresentation } from '../../shared/appearance/presentation.js'
 import { roundMm as roundMmV2 } from '../../shared/commands/base.js'
 import { orderedPropsV2 } from './projection'
 import type { SceneCommand as SceneCommandV2 } from '../../shared/commands/commands.js'
@@ -12,6 +13,7 @@ export function selectionActionReasonV2(scene: SceneDocumentV2, ids: readonly st
   if (targets.length !== ids.length) return '选择已失效，请重新选择。'
   for (const id of targets) {
     const prop = scene.props[id], prefab = scene.prefabInstances[id]
+    if (action === 'rotate' && prop && scenePresentation(scene, id)?.mode === 'nearSide') return '近侧视物件保持世界直立朝向，请移动或选择真实固定变体。'
     if (action === 'lock' || action === 'unlock') {
       if (!prop && !prefab && !scene.scatterGroups[id] && !scene.terrainAreas[id] && !scene.terrainConnections[id]) return '此选择包含尚不支持批量锁定的结构类型。'
       if (prop && prop.editLocked !== (action === 'lock') && [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)].some(parent => parent.editLocked && Object.values(parent.members).some(member => member.propId === id))) return '物件受组合或散布锁定，请选择其容器调整编辑锁。'

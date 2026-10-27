@@ -1,3 +1,4 @@
+import { visualBase } from '../visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { compositionCandidateFixture } from '../../../tests/helpers/composition-candidates-fixture.js'
 import { canonicalJson } from '../validation/json.js'
@@ -61,13 +62,13 @@ describe('finite composition candidates reuse ordinary scene operations', () => 
       ] } }
     const shore: AuthoringOperation = { kind: 'visualEdge', id: 'coast-foam', boundaryId: boundary.id, edgeKind: 'shore', side: 'right', widthMm: 500,
       color: '#FFFFFF', accentColor: '#DDD7B0', opacity: .8, intensity: 1, seed: 'coast-foam', repeatMm: 900, enabled: true }
-    const final = applyAuthoringStep(start, built.state, [boundary, shore], 'shore'), curve = final.project.document.visual!.boundaries[boundary.id]
+    const final = applyAuthoringStep(start, built.state, [boundary, shore], 'shore'), curve = visualBase(final.project.document)!.boundaries[boundary.id]
     const sampled = sampleVisualBoundary(curve).points
     for (const side of curve.binding.kind === 'terrain' ? curve.binding.sides : []) {
       const chain = terrainBoundaryChain(final.project.document.terrainAreas[side.areaId], side, curve.closed).map(value => value.positionMm)
       expect(side.reverse ? chain.slice().reverse() : chain).toEqual(sampled)
     }
-    expect(final.project.document.visual!.edgeLooks['coast-foam'].widthMm).toBe(500)
+    expect(visualBase(final.project.document)!.edgeLooks['coast-foam'].widthMm).toBe(500)
     expect(final.state.operationCost).toBeLessThan(256)
     expect(replayAuthoring(start, final.state.steps)).toEqual(final)
   })
@@ -77,7 +78,7 @@ describe('finite composition candidates reuse ordinary scene operations', () => 
     const applied = applyAuthoringStep(start, initial.state, proposal.candidateOperations, 'alternate')
     expect(applied.project.schemaVersion).toBe(2)
     expect(applied.project.document.visual!.version).toBe(1)
-    expect(Object.values(applied.project.document.visual!.boundaries)).toHaveLength(0)
+    expect(Object.values(visualBase(applied.project.document)!.boundaries)).toHaveLength(0)
     expect(applied.state.operationCost).toBeGreaterThan(proposal.candidateOperations.length)
   })
   it('maps texture and light parameters to real operations, preserving aspect ratio and refusing ungranted targets', () => {
@@ -87,7 +88,7 @@ describe('finite composition candidates reuse ordinary scene operations', () => 
     const result = proposeAuthoringComposition(built.project, start, new Set(built.state.changedIds), { kind: 'style', surfaceIds: ['land-low'], includeEnvironment: true })
     const next = applyAuthoringStep(start, built.state, result.candidateOperations, 'style')
     expect(next.project.document.terrainAreas['land-low'].surfaceStyle!.base.tileSizeMm).toEqual({ width: 3200, height: 1600 })
-    expect(next.project.document.visual!.environment.lightDirectionDeg).toBe(65)
+    expect(visualBase(next.project.document)!.environment.lightDirectionDeg).toBe(65)
     expect(JSON.stringify(result.details)).toContain('lineWeightMm_requires_matching_fixed_art')
     expect(() => proposeAuthoringComposition(built.project, start, new Set(), { kind: 'style', surfaceIds: ['land-low'] })).toThrow(/授权/)
     expect(() => proposeAuthoringComposition(start.project, start, new Set(), { kind: 'furnishing', idPrefix: 'denied', supportRef: { kind: 'floor', id: start.scope.scene!.floorId }, definitionIds: ['PRIVATE_DEFINITION'], positionMm: { x: 4000, y: 4000 } })).toThrow(/授权/)

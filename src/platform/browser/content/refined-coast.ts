@@ -1,3 +1,4 @@
+import { visualBase } from '../../../shared/visual/base.js'
 import type { PointMm, Prop, SceneDocument, SurfaceOverlay, SurfaceStyle, TerrainArea } from '../../../shared/model/scene.js'
 import type { CubicSegment, VisualBoundary } from '../../../shared/visual/types.js'
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
@@ -83,13 +84,13 @@ export function createRefinedCoastDocument(options: { sceneId?: string; now?: st
     { areaId: sand.id, startPointId: sand.boundaryMm[0].id, endPointId: sand.boundaryMm[samples.length - 1].id, reverse: false },
     { areaId: water.id, startPointId: water.boundaryMm[2].id, endPointId: water.boundaryMm.at(-1)!.id, reverse: true },
   ] }
-  scene.visual!.boundaries[coast.id] = coast
+  visualBase(scene)!.boundaries[coast.id] = coast
   // These are explicit editable patches, created with this composition. They are not a persistent coast-following rule.
   overlay(scene, water, 'q2-coast-shallow-belt', 'shallows', [...samples.map(p => point(p.x, p.y - 2500)), ...[...samples].reverse().map(p => ({ ...p }))], 950, 1)
   overlay(scene, sand, 'q2-coast-wet-belt', 'wet-sand', [...samples.map(p => ({ ...p })), ...[...samples].reverse().map(p => point(p.x, p.y + 1650))], 450, .9)
   overlay(scene, sand, 'q2-coast-dune-west', 'wet-sand', [[200, 14700], [2100, 13600], [4700, 14200], [6100, 15800], [5800, 17800], [200, 17800]].map(([x, y]) => point(x, y)), 700, .26)
   overlay(scene, sand, 'q2-coast-dune-east', 'wet-sand', [[17000, 15400], [18700, 14200], [21400, 14700], [23800, 16300], [23800, 17800], [17600, 17800]].map(([x, y]) => point(x, y)), 600, .22)
-  scene.visual!.edgeLooks['q2-coast-tide'] = { ...entity('q2-coast-tide'), boundaryId: coast.id, kind: 'shore', side: 'right', widthMm: 540, color: '#97B4A4', accentColor: '#E5E4CB', opacity: .64, intensity: .7, seed: 'q2-coast-tide-1', repeatMm: 290, enabled: true }
+  visualBase(scene)!.edgeLooks['q2-coast-tide'] = { ...entity('q2-coast-tide'), boundaryId: coast.id, kind: 'shore', side: 'right', widthMm: 540, color: '#97B4A4', accentColor: '#E5E4CB', opacity: .64, intensity: .7, seed: 'q2-coast-tide-1', repeatMm: 290, enabled: true }
 
   // Western split-ridge group, central page-rock group and eastern tide-pool group differ in actual drawings and arrangements.
   for (const [key, x, y, rotation, support, scale] of [
@@ -115,8 +116,8 @@ export function createRefinedCoastDocument(options: { sceneId?: string; now?: st
   for (const [i, [x, y]] of [[4020, 13600], [4600, 13860], [5620, 12970], [3490, 12930], [20540, 13600], [19070, 13040], [20900, 12930], [17900, 11600], [3240, 8610], [4650, 9960], [16800, 11300], [18120, 11190]].entries()) {
     place(scene, ['shell-fan', 'shell-spiral', 'starfish'][i % 3], x, y, i * 67 % 360, sand.id, i % 3 ? 1 : .8)
   }
-  scene.visual!.environment = { ambientColor: '#E7E6CC', ambientOpacity: .02, exposure: 1.015, lightDirectionDeg: 50, contactShadowMm: 48, contactShadowOpacity: .18 }
-  scene.visual!.filters['q2-coast-paper'] = { ...entity('q2-coast-paper', EFFECTS), target: { kind: 'scene' }, preset: 'warm', exposure: 1, saturation: .98, contrast: 1.025, vignette: .02, grain: .01, seed: 'q2-coast-paper-1', enabled: true }
+  visualBase(scene)!.environment = { ambientColor: '#E7E6CC', ambientOpacity: .02, exposure: 1.015, lightDirectionDeg: 50, contactShadowMm: 48, contactShadowOpacity: .18 }
+  visualBase(scene)!.filters['q2-coast-paper'] = { ...entity('q2-coast-paper', EFFECTS), target: { kind: 'scene' }, preset: 'warm', exposure: 1, saturation: .98, contrast: 1.025, vignette: .02, grain: .01, seed: 'q2-coast-paper-1', enabled: true }
   const checked = validateSceneDocument(scene)
   if (!checked.ok) throw new Error(`精修海岸无效：${checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('；')}`)
   return checked.document

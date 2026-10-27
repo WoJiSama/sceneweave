@@ -47,7 +47,20 @@ export function assertFixedProjectCompatible(left: ProjectData, right: ProjectDa
     for (const [id, value] of Object.entries(a)) if (Object.hasOwn(b, id) && canonicalJson(value) !== canonicalJson(b[id])) throw new Error(`固定来源或定义冲突：${id}。`)
   }
   for (const key of ['sources', 'variants', 'prefabAppearanceTemplates'] as const) compare(left.appearance[key], right.appearance[key])
+  // A presentation belongs to the immutable source snapshot, not to an editable instance.
+  compare(left.appearance.presentations ?? {}, right.appearance.presentations ?? {})
+  if (left.appearance.version === 2 && right.appearance.version === 2) for (const sourceId of Object.keys(left.appearance.sources)) {
+    if (Object.hasOwn(right.appearance.sources, sourceId)
+      && Object.hasOwn(left.appearance.presentations ?? {}, sourceId) !== Object.hasOwn(right.appearance.presentations ?? {}, sourceId)) throw new Error(`固定来源的表现记录不可添加或移除：${sourceId}。`)
+  }
   for (const key of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) compare(left.document[key], right.document[key])
+  compare(left.document.generation?.recipes ?? {}, right.document.generation?.recipes ?? {})
+  compare(left.document.regional?.symbolDefinitions ?? {}, right.document.regional?.symbolDefinitions ?? {})
+  const leftProfile = left.document.regional?.profile, rightProfile = right.document.regional?.profile
+  // Explicit profile edits select a fresh fixed style version. Merely reopening,
+  // importing or restoring history must not redefine the same id/version pair.
+  if (leftProfile && rightProfile && leftProfile.id === rightProfile.id && leftProfile.version === rightProfile.version
+    && canonicalJson(leftProfile) !== canonicalJson(rightProfile)) throw new Error(`固定制图样式版本冲突：${leftProfile.id}@${leftProfile.version}。`)
   compare(left.authoringSources, right.authoringSources)
 }
 

@@ -9,6 +9,7 @@ import { TaskEngine } from './engine.js'
 import { TaskFault, TaskStore } from './store.js'
 import { AUTHORING_LIMITS, DraftAppliedSchema, DraftClaimSchema, DraftValidationSchema } from '../../src/shared/ai/authoring-protocol.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
+import { RegionSceneCandidateQuerySchema } from '../../src/shared/ai/region-candidate-protocol.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
@@ -99,6 +100,15 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   })
   app.get('/v1/tasks/:id', context => context.json(store.read(context.req.param('id'), context.get('owner')).snapshot))
   app.get('/v1/tasks/:id/draft', context => context.json(engine.draft(context.get('owner'), context.req.param('id'))))
+  app.get('/v1/tasks/:id/draft/region-scene-candidate', context => {
+    const allowed = new Set(['candidateId', 'candidateHash', 'atContentHash', 'draftRevision', 'scopeHash'])
+    const query = context.req.query()
+    if (Object.keys(query).some(key => !allowed.has(key)) || [...allowed].some(key => (context.req.queries(key)?.length ?? 0) !== 1)
+      || !/^(0|[1-9]\d*)$/.test(query.draftRevision ?? '') || !Number.isSafeInteger(Number(query.draftRevision))) throw new TaskFault('invalid_request', 400)
+    const parsed = RegionSceneCandidateQuerySchema.safeParse({ ...query, draftRevision: Number(query.draftRevision) })
+    if (!parsed.success) throw new TaskFault('invalid_request', 400)
+    return context.json(engine.regionSceneCandidate(context.get('owner'), context.req.param('id'), parsed.data))
+  })
   app.post('/v1/tasks/:id/draft/validate', async context => {
     const parsed = DraftValidationSchema.safeParse(await boundedJson(context.req.raw))
     if (!parsed.success) throw new TaskFault('invalid_request', 400)

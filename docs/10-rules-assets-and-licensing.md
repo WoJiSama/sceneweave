@@ -39,7 +39,7 @@ TownGeneratorOS 为 GPL-3.0；civ-atlas 为 AGPL-3.0-only；所核验 Nortantis 
 
 M1 目标为有材质、体积层次和丰富组件的手绘二维俯视地图，室内和室外共享一套可组合的基础视觉规范。主题可以调整色调，但线条、俯视角、物理比例、细节密度和阴影方向应协调；五种 M0 程序符号不作为最终美术标准。具体视觉与制作要求见[视觉与素材体系](14-visual-and-asset-system.md)。
 
-[首批素材制作清单](15-m1a-asset-production-list.md)区分待制作、候选和入库。B2室内候选保留原创SVG、15张PNG、逐项真实hash/尺寸/语义和MIT原文，见[来源记录](../assets/sceneweave-handdrawn/README.md)。作者为Sceneweave contributors，Codex辅助编写原创SVG与处理程序；未使用图像生成服务或外部参考图像组件，工程内按原创来源与可嵌入MIT绑定保存。P2技术/首轮样板证据不等于完整主题P3或商用品牌审核；B3室外另有6材质、7物件的13份原创SVG/PNG及独立MIT/manifest，见[来源](../assets/sceneweave-handdrawn-outdoor/README.md)和[19](19-m1b-b3-validation.md)；同为P2，混合追加仍按15管理。
+[首批素材制作清单](15-m1a-asset-production-list.md)区分待制作、候选和入库。B2室内候选保留原创SVG、15张PNG、逐项真实hash/尺寸/语义和MIT原文，见[来源记录](../assets/sceneweave-handdrawn/README.md)。作者为Sceneweave contributors，Codex辅助编写原创SVG与处理程序；未使用图像生成服务或外部参考图像组件，工程内按原创来源与可嵌入MIT绑定保存。P2技术/首轮样板证据不等于完整主题P3或商用品牌审核；B3室外另有6材质、7物件的13份原创SVG/PNG及独立MIT/manifest，见[来源](../assets/sceneweave-handdrawn-outdoor/README.md)和[19](archive/19-m1b-b3-validation.md)；同为P2，混合追加仍按15管理。
 
 基础内容按VIS-01/02与SCN-04准备，优先原创或明确允许再分发的CC0素材；不以数量代替样板质量，也不建设素材商店。桥面等后续素材遵循单一支撑面限制，不能因有桥贴图就宣称支持桥下通行。
 

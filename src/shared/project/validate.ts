@@ -1,8 +1,8 @@
 import { z } from 'zod'
-import { sceneDocumentSchema } from '../validation/scene.js'
-import { historyIdentitySchema } from '../history/identity.js'
-import { appearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, validateCompositionContent } from '../validation/content.js'
-import { inspectDependencies } from '../geometry/dependencies.js'
+import { nativeSceneSchema } from '../validation/scene.js'
+import { nativeHistoryIdentitySchema } from '../history/identity.js'
+import { nativeAppearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, validateCompositionContent } from '../validation/content.js'
+import { inspectDependencies } from '../commands/dependencies.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { canonicalJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput } from '../validation/json.js'
 import type { ProjectData } from '../model/project.js'
@@ -20,22 +20,25 @@ export const assetRecordSchema = z.object({ sha256: hash, mimeType: z.enum(['ima
   sizeBytes: positive.max(PROJECT_DATA_LIMITS.imageBytes), pixelWidth: positive.max(PROJECT_DATA_LIMITS.imageSide), pixelHeight: positive.max(PROJECT_DATA_LIMITS.imageSide) }).strict()
 export const licenseBindingSchema = z.object({ subjectKind: z.enum(['asset', 'material', 'propDefinition', 'prefabDefinition', 'styleTheme']),
   subjectId: id, licenseRef: id, licensePath: z.string().regex(/^licenses\/[a-f0-9]{64}\.txt$/), embedding: z.literal('allowed') }).strict()
+export const nativeLicenseBindingSchema = licenseBindingSchema.extend({subjectKind:z.enum(['asset','material','propDefinition','prefabDefinition','styleTheme','regionalSymbolDefinition'])}).strict()
 const svgSchema = z.object({ kind: z.literal('svg'), sourceSha256: hash, normalizedSha256: hash, sourceSizeBytes: positive.max(MiB),
   normalizedSizeBytes: positive.max(MiB), rasterSha256: hash, processorId: z.literal('sceneweave-static-svg'), processorVersion: z.literal(1) }).strict()
-export const projectDataSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2)]),
-  document: sceneDocumentSchema, historyIdentity: historyIdentitySchema, appearance: appearanceGraphSchema,
+export const projectDataSchema: z.ZodType<ProjectData> = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  document: nativeSceneSchema, historyIdentity: nativeHistoryIdentitySchema, appearance: nativeAppearanceGraphSchema,
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
-  licenseBindings: z.array(licenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
+  licenseBindings: z.array(nativeLicenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
 }).strict().superRefine((project, ctx) => {
+  if((project.schemaVersion===3)!==(project.historyIdentity.version===2)||(project.schemaVersion===3)!==(project.appearance.version===2))ctx.addIssue({code:'custom',message:'完整工程、历史身份和外观图版本须匹配。'})
+  if(project.schemaVersion!==3&&project.licenseBindings.some(row=>row.subjectKind==='regionalSymbolDefinition'))ctx.addIssue({code:'custom',message:'旧完整版本不接受区域图符许可主体。'})
   if (project.schemaVersion !== project.document.schemaVersion) ctx.addIssue({ code: 'custom', path: ['schemaVersion'], message: '完整工程与场景契约版本必须一致。' })
 })
 // Keep the exported complete schema unchanged. Runtime validation delegates the
 // three domain branches to their strict validators, avoiding recursive parsing
 // of the scene and identity in both the envelope and the domain boundary.
-const projectEnvelopeSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2)]),
+const projectEnvelopeSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   document: z.unknown(), historyIdentity: z.unknown(), appearance: z.unknown(),
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
-  licenseBindings: z.array(licenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
+  licenseBindings: z.array(nativeLicenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
 }).strict()
 
 /** Only for strict-parser-owned JSON. Key order cannot change its byte length. */
@@ -71,6 +74,7 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
     : content
   const project: ProjectData = { ...parsed.data, ...publicContent }
   if (project.schemaVersion !== project.document.schemaVersion) throw new Error('完整工程字段无效：schemaVersion: 完整工程与场景契约版本必须一致。')
+  if (project.schemaVersion !== 3 && project.licenseBindings.some(binding => binding.subjectKind === 'regionalSymbolDefinition')) throw new Error('旧完整版本不接受区域图符许可主体。')
   const dependencies = inspectDependencies(project.document)
   if (dependencies.errors.length) throw new Error(dependencies.errors.map(item => item.message).join('；'))
   const hashes = new Set<string>()
@@ -101,7 +105,7 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
   const subjects = new Map(dependencies.subjects.map(item => [subjectKey(item), item]))
   const bound = new Set<string>(), licenses = new Set<string>(), references = new Map<string, string>()
   const collections = { asset: project.document.assets, material: project.document.materials, propDefinition: project.document.propDefinitions,
-    prefabDefinition: project.document.prefabDefinitions, styleTheme: project.document.styleThemes }
+    prefabDefinition: project.document.prefabDefinitions, styleTheme: project.document.styleThemes, regionalSymbolDefinition:project.document.regional?.symbolDefinitions??{} }
   for (const binding of project.licenseBindings) {
     const key = subjectKey(binding), subject = subjects.get(key), definition = collections[binding.subjectKind][binding.subjectId]
     if (!subject || bound.has(key) || subject.licenseRef !== binding.licenseRef || !definition?.origin.canEmbed) throw new Error('许可绑定悬空、重复、不匹配或禁止嵌入。')

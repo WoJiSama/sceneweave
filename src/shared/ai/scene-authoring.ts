@@ -13,6 +13,7 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { validateProjectData } from '../project/validate.js'
 import { canonicalJson, captureJson, cloneJson } from '../validation/json.js'
 import { SceneAuthoringOperationSchema, SceneAuthoringScopeSchema, type SceneAuthoringOperation, type SceneAuthoringScope } from './authoring-protocol.js'
+import { terrainExtendedEntity, assertTerrainExtendedEntity } from './terrain-context.js'
 
 const sorted = (values: Iterable<string>): string[] => [...new Set(values)].sort()
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -123,10 +124,13 @@ export function validateSceneScope(project: ProjectData, input: SceneAuthoringSc
   if (!inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('创作范围超出世界。')
   unmasked(scene, scope.floorId, [rectangle(scope.boundsMm)])
   for (const id of scope.entityIds) {
+    if (terrainExtendedEntity(scene, id)) { assertTerrainExtendedEntity(project, scope, id); continue }
     const value = entity(scene, id)
     if (!value || value.floorId !== scope.floorId || !isPublic(scene, id) || effectiveEditLocked(scene, id)) deny(`既有实体须为同Floor的公开、未锁定对象：${id}。`)
     assertGeometry(scene, scope, id)
   }
+  for (const id of scope.generationLayerIds ?? []) if (!scene.userLayers[id] || scene.userLayers[id].floorId !== floor.id || scene.userLayers[id].editLocked) deny('地形生成图层未授权或锁定。')
+  for (const id of scope.regionalDefinitionIds ?? []) if (!scene.regional?.symbolDefinitions[id]?.origin.canEmbed) deny('区域图符固定定义未授权。')
   scope.definitionIds.forEach(id => definition(project, id))
   for (const id of scope.prefabDefinitionIds) {
     const value = own(scene.prefabDefinitions, id)
@@ -187,7 +191,8 @@ export function assertPublicSceneEntity(project: ProjectData, scope: Pick<SceneA
 }
 export function sceneReadIds(project: ProjectData, scope: SceneAuthoringScope): string[] {
   const read = new Set([scope.floorId, scope.layerId])
-  scope.entityIds.forEach(id => collectEntity(project, id, read))
+  scope.entityIds.forEach(id => { const extended = terrainExtendedEntity(project.document, id); if (extended) { read.add(id); read.add(extended.row.layerId) } else collectEntity(project, id, read) })
+  for (const id of [...(scope.generationLayerIds ?? []), ...(scope.regionalDefinitionIds ?? [])]) read.add(id)
   scope.definitionIds.forEach(id => collectSubject(project, 'propDefinition', id, read))
   scope.prefabDefinitionIds.forEach(id => collectSubject(project, 'prefabDefinition', id, read))
   scope.materialIds.forEach(id => collectSubject(project, 'material', id, read))
@@ -439,6 +444,8 @@ export function publicSceneContext(project: ProjectData, scope: SceneAuthoringSc
   const document = resolveAppearance({ document: project.document, appearance: project.appearance, historyIdentity: project.historyIdentity }).document, ids = sorted([...scope.entityIds, ...allowedIds]), generated = new Set([...allowedIds].filter(id => !scope.entityIds.includes(id)))
   const entities: unknown[] = []
   for (const id of ids) {
+    const extended = terrainExtendedEntity(document, id)
+    if (extended) { try { assertTerrainExtendedEntity(project, scope, id); entities.push({ entityKind: extended.kind, ...cloneJson(extended.row) }) } catch { /* No private values or counts are projected. */ } continue }
     const value = entity(document, id)
     if (!value || value.floorId !== scope.floorId || !isPublic(document, id) && !(generated.has(id) && document.notes[id]?.visibility === 'gm')) continue
     // The outer draft can also contain prop edits authorized by a different, narrower capability.

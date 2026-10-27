@@ -1,4 +1,6 @@
 import { applySceneOperation, validateSceneScope, sceneReadIds, publicSceneContext } from './scene-authoring.js'
+import { isTerrainAuthoringOperation } from './terrain-protocol.js'
+import { applyTerrainAuthoringOperation } from './terrain-authoring.js'
 import { ARTWORK_SKILL, artworkTargetIds, assertArtworkProp, checkArtworkOperation } from './artwork.js'
 import { isVisualAuthoringOperation } from './visual-protocol.js'
 import { visualTopology } from '../history/visual-continuity.js'
@@ -13,6 +15,7 @@ import type { ProjectData } from '../model/project.js'
 import type { BoundsMm, PointMm, Prop, SceneDocument, SurfaceRef } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { validateProjectData } from '../project/validate.js'
+import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { sha256Text } from '../validation/hash.js'
 import { canonicalJson, captureJson, cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { AUTHORING_LIMITS, AuthoringStartSchema, AuthoringStateSchema, AuthoringStepSchema,
@@ -160,6 +163,7 @@ export function validateAuthoringStart(input: AuthoringStart): AuthoringStart {
   if (encodeUtf8(canonicalJson(owned)).length > AUTHORING_LIMITS.metadataBytes) deny('任务完整元数据超过4MiB。')
   const start = AuthoringStartSchema.parse(owned)
   start.project = validateProjectData(start.project)
+  if(start.project.schemaVersion===3 && !start.scope.scene)deny('T6完整地形工程的AI写入须明确scene授权范围和操作，不能沿用旧物件任务。')
   if (authoringProjectHash(start.project) !== start.baseContentHash) deny('主工程基线hash不匹配。')
   if (!start.scope.targetIds.length && !start.scope.placement && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确目标或新增范围。')
   if (!start.scope.operations.length && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确允许的操作。')
@@ -226,6 +230,19 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[]): Re
     stepIds.add(step.stepId)
     const context = contextFor(start, step.index)
     for (const [operationIndex, operation] of step.operations.entries()) {
+      if (isTerrainAuthoringOperation(operation)) {
+        if (!start.scope.scene) deny('地形场景创作未授权。')
+        let result: ReturnType<typeof applyTerrainAuthoringOperation>
+        try { result = applyTerrainAuthoringOperation(project, start.scope.scene, operation, context, sceneAllowed) }
+        catch (error) { throw new AuthoringOperationError(operationIndex, error) }
+        project = result.project
+        project.document.revision = start.project.document.revision; project.document.updatedAt = start.project.document.updatedAt
+        result.readIds.forEach(id => read.add(id)); result.writeIds.forEach(id => touched.add(id))
+        result.createdIds.forEach(id => { sceneAllowed.add(id); created.add(id) })
+        operationCost += result.cost
+        if (operationCost > AUTHORING_LIMITS.operations) deny('任务累计展开超过256条操作。')
+        continue
+      }
       if (isVisualAuthoringOperation(operation)) {
         if (!start.scope.visual) deny('视觉创作未授权。')
         let result: ReturnType<typeof applyVisualAuthoringOperation>
@@ -304,6 +321,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[]): Re
       else deny('未知操作。')
       const content = resolveAppearance(applyCompositionCommands({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance }, [command], context))
       content.document.revision = start.project.document.revision; content.document.updatedAt = start.project.document.updatedAt
+      if (project.document.schemaVersion === 3) detachChangedOutputs(project.document, content.document)
       project = validateProjectData({ ...project, ...content })
       if (operation.kind !== 'delete') {
         const prop = assertIndependentPublic(project, id, read), floor = project.document.floors[prop.floorId]

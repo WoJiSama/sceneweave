@@ -143,7 +143,7 @@ function assemble(row: CapturedRow, rows: CapturedRow[], repository: LegacyRepos
   for (const item of project.licenseBindings) {
     exact(item, ['subjectKind', 'subjectId', 'licenseRef', 'licensePath', 'embedding'])
     const key = canonicalJson([item.subjectKind, item.subjectId]), expected = subjects.get(key)
-    if (!expected || bound.has(key) || item.licenseRef !== expected.licenseRef || item.embedding !== 'allowed' || !/^licenses\/[a-f0-9]{64}\.txt$/.test(item.licensePath)
+    if (item.subjectKind === 'regionalSymbolDefinition' || !expected || bound.has(key) || item.licenseRef !== expected.licenseRef || item.embedding !== 'allowed' || !/^licenses\/[a-f0-9]{64}\.txt$/.test(item.licensePath)
       || !collections[item.subjectKind]?.[item.subjectId]?.origin.canEmbed) throw new Error('旧许可主体绑定无效。')
     const textHash = item.licensePath.slice(9, -4)
     if (!licenses[textHash] || licenseRefs.has(item.licenseRef) && licenseRefs.get(item.licenseRef) !== textHash) throw new Error('旧许可引用或正文不一致。')

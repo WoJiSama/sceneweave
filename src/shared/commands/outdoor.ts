@@ -1,3 +1,5 @@
+import { detachChangedOutputs } from '../terrain-generation/integrity.js'
+import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
@@ -456,7 +458,12 @@ export function previewOutdoorCommands(input: SceneDocument, commands: readonly 
   try {
     for (const command of parsed.data) {
       const before = cloneJson(next)
-      try { cost += applyOutdoorCommand(next, command, context).commandCost }
+      try {
+        const physicalCost = applyOutdoorCommand(next, command, context).commandCost
+        detachChangedOutputs(before, next)
+        const expanded = terrainCommandCost(before, next)
+        cost += physicalCost + expanded.total - expanded.items.physicalAndVisual
+      }
       catch (error) { cost += diffImpact(before, next, rootsFor(command)).commandCost; throw error }
     }
     if (cost > COMMAND_LIMIT) throw new Error('展开后的整体室外事务超过256条操作预算，不能拆批绕过。')

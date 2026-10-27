@@ -1,3 +1,4 @@
+import { visualBase } from '../../src/shared/visual/base.js'
 import type { EditableProject } from '../../src/application/workspace/project'
 import { fromBundle, toBundle } from '../../src/application/workspace/project'
 import { Workspace } from '../../src/application/workspace/workspace'
@@ -64,7 +65,7 @@ export async function finishVisualRoundTrip(stage: Awaited<ReturnType<typeof sta
 async function secretPair() {
   const original = await createVisualSampleProject('interior'), source = toBundle(original), variants = []
   for (const variant of ['a', 'b'] as const) {
-    const document = structuredClone(source.project.document), alternate = variant === 'b', visual = document.visual!
+    const document = structuredClone(source.project.document), alternate = variant === 'b', visual = visualBase(document)!
     const floorId = Object.keys(document.floors)[0], layerId = Object.keys(document.userLayers)[0]
     const privateProp = Object.values(document.props).find(prop => prop.roomId === 'inn-bedroom')!
     privateProp.visibility = 'gm'; privateProp.blocksSight = true
@@ -99,7 +100,8 @@ export async function verifyVisualPrivacy() {
 }
 
 export function unchangedVisualScope(document: SceneDocument) {
-  const { visual, revision: _revision, updatedAt: _updatedAt, terrainAreas: _areas, ...rest } = document
+  const { visual: _visual, revision: _revision, updatedAt: _updatedAt, terrainAreas: _areas, ...rest } = document
+  const visual = visualBase(document)
   return { physicalAndMetadata: rest, bank: visual?.boundaries['beach-bank'], environment: visual?.environment,
     lights: visual?.lights, fogs: visual?.fogs, filters: visual?.filters,
     effectsOtherThanCoast: Object.values(visual?.edgeLooks ?? {}).filter(edge => edge.boundaryId !== 'beach-coast'),

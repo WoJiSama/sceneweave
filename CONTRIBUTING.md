@@ -4,15 +4,15 @@
 
 织境 · Sceneweave 本地版本号仍为 `0.2.0-m1-d2`，当前产品主路径为完整v1/v2、原生Workspace/Canvas/Workbench及sceneweave-projects、sceneweave-library；新空白使用完整v2，已有新标识完整v1可保存独立视觉升级副本。按用户2026-10-25决定，旧整页工作台、首页旧版本发现和旧格式保全/转换入口已删除；工程导入接收完整v1/v2当前包与所选历史包。现有新库schema、历史与确切来源原件保全语义保持，旧领域/IO模块按真实依赖保留，不构成旧版产品支持。视觉开发与当前验证见[53](docs/53-visual-authoring.md)，旧入口裁剪批次另按05/09保留历史，不能沿用既有结果。
 
-M2-0f当时的混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/52-m20f-native-workspace-validation.md)；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5服务器容器及受信任IP HTTPS已部署，Pages公开地址已配置，必要线上创作/采用/保存导出旅程已通过，见05第15节；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09。2026-10-25用户进一步要求完成M2实际使用验收与修复，并恢复此前后置的性能验收；此前M2正式四组×三轮的100ms未通过结果保留历史；此前视觉完整v1第三冻结两组500普通领域提交p95为74.2/93.8ms，该指标通过，连续帧/保存恢复与完整性能覆盖缺项仍开放，不代替当前完整v2测量。完整M1、现行范围QA-AI-16与完整性能分别判断，细节见[34](docs/34-performance-followup.md#第三次冻结正式结果)。
+M2-0f当时的混合编辑/有限恢复、备份、普通样板双受众4K逐RGBA和旧库UI保全转换子项归[52](docs/archive/52-m20f-native-workspace-validation.md)；a至e历史归48至51。M2-1本地后端/流式文本及只读工具续答已完成（05），M2-2隔离草稿/保护采用已扩展至M2-3场景工具及M2-4受限SVG/渐进同化，M2-5服务器容器及受信任IP HTTPS已部署，Pages公开地址已配置，必要线上创作/采用/保存导出旅程已通过，见05第15节；用户已要求本轮回归和commit/push（排除todo.md），现行结果集中05/09。2026-10-25用户进一步要求完成M2实际使用验收与修复，并恢复此前后置的性能验收；此前M2正式四组×三轮的100ms未通过结果保留历史；此前视觉完整v1第三冻结两组500普通领域提交p95为74.2/93.8ms，该指标通过，连续帧/保存恢复与完整性能覆盖缺项仍开放，不代替当前完整v2测量。完整M1、现行范围QA-AI-16与完整性能分别判断，细节见[34](docs/34-performance-followup.md#第三次冻结正式结果)。
 
-室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/28-m1c-c2-validation.md)，C3组件与参数外观见[29](docs/29-m1c-c3-validation.md)，C4室外工具与有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合验证和现版性能结论归[32](docs/32-m1c-c5-validation.md)。完整M1、主题P3、SCN-04与全交互性能仍按各自门槛判断；新模型同步格式、迁移和验收。
+室内/室外路线按M1-A/B/C/D推进。B1完整素材工程证据见[17](docs/archive/17-m1b-b1-validation.md)；B2新增VIS-01、原创室内素材、有限原子编辑和共用预览/PNG，证据见[18](docs/archive/18-m1b-b2-validation.md)。[视觉规范](docs/14-visual-and-asset-system.md)、[素材清单](docs/15-m1a-asset-production-list.md)与[交接](docs/archive/16-m1a-handoff.md)给出主定义。B3室外样板、散布与有限通行证据见[19](docs/archive/19-m1b-b3-validation.md)；B4完整性诊断、三组48格受众配对和双样板存档/失败矩阵见[20](docs/archive/20-m1b-b4-validation.md)。B5真实负载/资源观测、预算与限制见[21](docs/archive/21-m1b-b5-validation.md)，C0性能与视口基础见[22](docs/archive/22-m1c-c0-validation.md)。C1a空白创作的实现范围和本批检查见[23](docs/archive/23-m1c-c1a-validation.md)，C1b适用检查见[24](docs/archive/24-m1c-c1b-validation.md)，选择性能及C1c图层实现验证见[25](docs/archive/25-selection-performance.md)/[26](docs/archive/26-m1c-c1c-validation.md)，C1d命名快照/首批独立物件局部恢复与完整历史工程见[27](docs/archive/27-m1c-c1d-validation.md)，C2建筑工具及会话内结构恢复见[28](docs/archive/28-m1c-c2-validation.md)，C3组件与参数外观见[29](docs/archive/29-m1c-c3-validation.md)，C4室外工具与有限恢复见[31](docs/archive/31-m1c-c4-validation.md)，C5联合验证和现版性能结论归[32](docs/archive/32-m1c-c5-validation.md)。完整M1、主题P3、SCN-04与全交互性能仍按各自门槛判断；新模型同步格式、迁移和验收。
 
 当前默认首页为`/#home`，完整创作入口为`/#workspace`，包含工程、建筑、素材库、室外、视觉及图层/对象/历史；其他hash统一回首页，离开工作区仍检查未保存内容。普通空白工程保留23个物件、11种材质和3种组合预装策略；原创视觉空白另提供24素材闭包，画布/坐标放置使用显式支撑和暂态预览。主路径由editor/main、editor/native-canvas、application/workspace及新platform适配构成，共用shared，不经旧core/io/render视图往返；实际资源/派生像素、许可、锁、256预算、单调revision和CAS保持。当前/所选历史包导入整体安装为新owner/r0，旧格式和迁移set明确拒绝，失败或取消不替换当前工程。建筑恢复仍要求本会话witness，持久身份限明确支持的物件/组合/室外范围，现行契约见04/06，历史边界见28/29/31和52。
 
-C5联合验收批次冻结349份应用源码，最终单元82文件979/979通过（68.85秒），正常构建通过（2.75秒）；最终全量Chrome168/168通过，0失败/重试/跳过（12.8分钟）；最终正常生产UI通过（46.791秒）；study/island×500/2000各三轮正式性能矩阵未完成，已执行批次未形成可合并的完整p95结果。优化后study-500单次诊断普通领域提交1110.4ms，优化前诊断2174.2ms，均不是正式分布且仍超100ms；性能门未通过，本批不能宣布C5或全交互性能通过，实际证据与待验项见[32](docs/32-m1c-c5-validation.md)。
+C5联合验收批次冻结349份应用源码，最终单元82文件979/979通过（68.85秒），正常构建通过（2.75秒）；最终全量Chrome168/168通过，0失败/重试/跳过（12.8分钟）；最终正常生产UI通过（46.791秒）；study/island×500/2000各三轮正式性能矩阵未完成，已执行批次未形成可合并的完整p95结果。优化后study-500单次诊断普通领域提交1110.4ms，优化前诊断2174.2ms，均不是正式分布且仍超100ms；性能门未通过，本批不能宣布C5或全交互性能通过，实际证据与待验项见[32](docs/archive/32-m1c-c5-validation.md)。
 
-其后资源复用批次通过992项单元、20项适用Chrome及正常构建/生产UI，独立诊断归[33](docs/33-c5-resource-reuse-validation.md)。2026-10-23用户曾要求将余下性能优化暂缓；2026-10-25已恢复本轮验收，按当前新完整v1主路径重新采集并完成四组×三轮；结果见[34](docs/34-performance-followup.md)，功能正确性回归与性能指标分开判断。该M2冻结当时性能门未通过；后续视觉第三冻结结果独立见34，不作容量承诺。
+其后资源复用批次通过992项单元、20项适用Chrome及正常构建/生产UI，独立诊断归[33](docs/archive/33-c5-resource-reuse-validation.md)。2026-10-23用户曾要求将余下性能优化暂缓；2026-10-25已恢复本轮验收，按当前新完整v1主路径重新采集并完成四组×三轮；结果见[34](docs/34-performance-followup.md)，功能正确性回归与性能指标分开判断。该M2冻结当时性能门未通过；后续视觉第三冻结结果独立见34，不作容量承诺。
 
 ## 开发环境与命令
 
@@ -33,7 +33,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-共享内核可单独运行`npm run check:shared`：AST依赖边界、无DOM/无Node类型编译、真实Node原生ESM命令/身份/投影及当前/历史ZIP往返，临时发射目录自动清理。保留的兼容模块API测试用于领域/存储依赖及既有来源记录，不能据此宣称产品支持旧版导入或转换；M2-0b至f当批命令与数字分别见[48](docs/48-m20b-shared-core-validation.md)至[52](docs/52-m20f-native-workspace-validation.md)。
+共享内核可单独运行`npm run check:shared`：AST依赖边界、无DOM/无Node类型编译、真实Node原生ESM命令/身份/投影及当前/历史ZIP往返，临时发射目录自动清理。保留的兼容模块API测试用于领域/存储依赖及既有来源记录，不能据此宣称产品支持旧版导入或转换；M2-0b至f当批命令与数字分别见[48](docs/archive/48-m20b-shared-core-validation.md)至[52](docs/archive/52-m20f-native-workspace-validation.md)。
 
 原生定向入口位于`src/application/workspace`、`src/editor/main`、`src/editor/native-canvas`、`src/platform/browser/render`及新主库的历史包/原件测试。真实浏览器可定向运行`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m20f-ui.spec.ts tests/m20f-render.spec.ts tests/m20f-entry.spec.ts --reporter=line`，检查混合主会话/目录、实际GM/player 4K逐RGBA对照及完整v1所选历史包的独立导入；旧转换UI旅程不再执行。每次修改按实际范围验证，不将52的旧批次当作当前结果。
 
@@ -43,7 +43,7 @@ Vitest 运行 `src/**/*.test.ts` 中的领域、存储、工程文件及渲染�
 SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 ```
 
-测试使用独立 profile/浏览器上下文。M0历史在系统Chrome上通过13个浏览器测试，另有95个单元测试（8文件）、构建与生产依赖审计通过，见[M0验证报告](docs/13-m0-validation.md)。B1历史环境和未测范围见[17](docs/17-m1b-b1-validation.md)，C1a/C1b历史批次见[23](docs/23-m1c-c1a-validation.md)/[24](docs/24-m1c-c1b-validation.md)。这些数字及退休UI脚本只描述历史版本，不要求当前恢复旧工作台。构建、单元和浏览器证据分别记录，当前运行结果集中05/09。
+测试使用独立 profile/浏览器上下文。M0历史在系统Chrome上通过13个浏览器测试，另有95个单元测试（8文件）、构建与生产依赖审计通过，见[M0验证报告](docs/archive/13-m0-validation.md)。B1历史环境和未测范围见[17](docs/archive/17-m1b-b1-validation.md)，C1a/C1b历史批次见[23](docs/archive/23-m1c-c1a-validation.md)/[24](docs/archive/24-m1c-c1b-validation.md)。这些数字及退休UI脚本只描述历史版本，不要求当前恢复旧工作台。构建、单元和浏览器证据分别记录，当前运行结果集中05/09。
 
 生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。[GitHub Pages 工作流](.github/workflows/deploy.yml)在推送 main 或手动触发时，读取 `.nvmrc` 安装 Node，执行 `npm ci` 和 `npm run build` 后部署静态站点至[在线预览](https://wojisama.github.io/sceneweave/)。该工作流只负责构建和部署，不代替上述单元/浏览器验证；成功结果以 GitHub Actions 运行记录为准。它不包含 AI 网关、工程云同步或正式发行版流程。
 
@@ -250,7 +250,7 @@ node tools/performance/run-native-m2.mjs --output "$PWD/work/visual-v2-formal" -
 
 ## 历史性能与旧工作台记录
 
-B5/C0的专用构建、旧`assets/layers`工作台选择测量及C1c至C2浏览器命令属于退休前的历史方法。旧UI脚本不再作为当前站点的运行入口，不能用旧结果替代完整v1的性能或回归证据；旧页面相关用例按[tests/README](tests/README.md)退休。B5完整负载、设备/资源口径和失败限制见[21](docs/21-m1b-b5-validation.md)，C0见[22](docs/22-m1c-c0-validation.md)，选择及native v3对照见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)，历史/建筑工具见[27](docs/27-m1c-c1d-validation.md)/[28](docs/28-m1c-c2-validation.md)。原始B5 manifest与四个包仍在`tests/fixtures/performance-b5`，本次不删除或改写它们。
+B5/C0的专用构建、旧`assets/layers`工作台选择测量及C1c至C2浏览器命令属于退休前的历史方法。旧UI脚本不再作为当前站点的运行入口，不能用旧结果替代完整v1的性能或回归证据；旧页面相关用例按[tests/README](tests/README.md)退休。B5完整负载、设备/资源口径和失败限制见[21](docs/archive/21-m1b-b5-validation.md)，C0见[22](docs/archive/22-m1c-c0-validation.md)，选择及native v3对照见[25](docs/archive/25-selection-performance.md)/[26](docs/archive/26-m1c-c1c-validation.md)，历史/建筑工具见[27](docs/archive/27-m1c-c1d-validation.md)/[28](docs/archive/28-m1c-c2-validation.md)。原始B5 manifest与四个包仍在`tests/fixtures/performance-b5`，本次不删除或改写它们。
 
 当前完整v1性能使用上节独立运行器，正式测量仍须冻结源码、构建与运行器并串行执行；macOS进程树RSS和目标JS堆是采样观测，均非完整浏览器/GPU物理峰值。低次数、少轮次、带CPU profile的诊断不能混入正式分布，双rAF仅是显示调度代理。实际结果和未通过门槛继续归[34](docs/34-performance-followup.md)，本次入口删除不重认定旧结果。
 
@@ -272,10 +272,10 @@ B5/C0的专用构建、旧`assets/layers`工作台选择测量及C1c至C2浏览�
 - 用具体备团场景说明需求与卡点，注明规则体系、地图尺度和输出去向。
 - 复核 M0 的共享结构、异常恢复、保密输出和可复现负载，补充真实证据。
 - 按 M1-A/B/C/D 完善视觉规范、双样板、手工绘图、真实素材与组件，先用样板测量再扩展工具。
-- M2按[45](docs/45-ai-authoring-and-unified-v1-plan.md)先统一完整v1/共享核心，再接自有任务后端、流式技能/工具草稿、场景创作及SVG/渐进同化；首版无生图API，最终采用保持保护点/CAS/锁/256预算。
+- M2按[45](docs/archive/45-ai-authoring-and-unified-v1-plan.md)先统一完整v1/共享核心，再接自有任务后端、流式技能/工具草稿、场景创作及SVG/渐进同化；首版无生图API，最终采用保持保护点/CAS/锁/256预算。
 - 修正文档矛盾与含糊定义，附上来源或可复核的最小例子。
 
-文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/18-m1b-b2-validation.md)/[19](docs/19-m1b-b3-validation.md)，B5技术观测见[21](docs/21-m1b-b5-validation.md)，C1a创作闭环见[23](docs/23-m1c-c1a-validation.md)，C1b有限选择/批改/菜单见[24](docs/24-m1c-c1b-validation.md)，选择性能、C1c与C1d见[25](docs/25-selection-performance.md)/[26](docs/26-m1c-c1c-validation.md)/[27](docs/27-m1c-c1d-validation.md)，C2建筑与有限恢复见[28](docs/28-m1c-c2-validation.md)，C3组件/参数及适用恢复见[29](docs/29-m1c-c3-validation.md)，C4室外/有限恢复见[31](docs/31-m1c-c4-validation.md)，C5联合功能与最终生产通过、性能未达和正式矩阵未完成结论见[32](docs/32-m1c-c5-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。各批另建验证记录，保留13/17–23与各自原始证据。
+文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/archive/18-m1b-b2-validation.md)/[19](docs/archive/19-m1b-b3-validation.md)，B5技术观测见[21](docs/archive/21-m1b-b5-validation.md)，C1a创作闭环见[23](docs/archive/23-m1c-c1a-validation.md)，C1b有限选择/批改/菜单见[24](docs/archive/24-m1c-c1b-validation.md)，选择性能、C1c与C1d见[25](docs/archive/25-selection-performance.md)/[26](docs/archive/26-m1c-c1c-validation.md)/[27](docs/archive/27-m1c-c1d-validation.md)，C2建筑与有限恢复见[28](docs/archive/28-m1c-c2-validation.md)，C3组件/参数及适用恢复见[29](docs/archive/29-m1c-c3-validation.md)，C4室外/有限恢复见[31](docs/archive/31-m1c-c4-validation.md)，C5联合功能与最终生产通过、性能未达和正式矩阵未完成结论见[32](docs/archive/32-m1c-c5-validation.md)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。各批另建验证记录，保留13/17–23与各自原始证据。
 
 ## 内容与许可
 
@@ -285,22 +285,22 @@ B5/C0的专用构建、旧`assets/layers`工作台选择测量及C1c至C2浏览�
 
 ## M1与U1/U2历史开发记录
 
-C3/C4/C5旧组件、室外工作台及其迁移、原件链、CAS和双受众验证均为历史批次；当前产品不提供`/#composition`、`/#outdoor`或逐级升级入口。各批完整格式与实际证据仍见[29](docs/29-m1c-c3-validation.md)、[31](docs/31-m1c-c4-validation.md)、[32](docs/32-m1c-c5-validation.md)，不重写为完整v1当前结果。仍使用的源链、固定定义、许可、锁和单调事务语义由当前04/06承接。
+C3/C4/C5旧组件、室外工作台及其迁移、原件链、CAS和双受众验证均为历史批次；当前产品不提供`/#composition`、`/#outdoor`或逐级升级入口。各批完整格式与实际证据仍见[29](docs/archive/29-m1c-c3-validation.md)、[31](docs/archive/31-m1c-c4-validation.md)、[32](docs/archive/32-m1c-c5-validation.md)，不重写为完整v1当前结果。仍使用的源链、固定定义、许可、锁和单调事务语义由当前04/06承接。
 
-M1-D海岸哨所首批历史见[35](docs/35-m1d-outpost-validation.md)，当前从首页样板详情进入原生完整v1工作区。`tools/build-outpost-art.mjs`只重建新增原创包，源SVG、manifest与许可位于`assets/sceneweave-handdrawn-outpost/`，静态PNG位于对应`public/assets/`；既有固定包不原位改义。当前内容简单流程由`tests/content-m1d-simple.spec.ts`覆盖，历史旧UI脚本已退休。
+M1-D海岸哨所首批历史见[35](docs/archive/35-m1d-outpost-validation.md)，当前从首页样板详情进入原生完整v1工作区。`tools/build-outpost-art.mjs`只重建新增原创包，源SVG、manifest与许可位于`assets/sceneweave-handdrawn-outpost/`，静态PNG位于对应`public/assets/`；既有固定包不原位改义。当前内容简单流程由`tests/content-m1d-simple.spec.ts`覆盖，历史旧UI脚本已退休。
 
-U1a当时保留旧几何原型及多代工作台深链接的安排已经结束；当前只提供`/#home`和`/#workspace`，未知hash经过未保存守卫后回首页。U1a/U1b当批实际结果和简单检查边界分别保留于[38](docs/38-u1a-workspace-validation.md)/[39](docs/39-u1b-layout-validation.md)。当前工作区/布局旅程为`tests/u1a-workspace.spec.ts`和`tests/u1b-layout.spec.ts`，保留的`tools/u1a-production-smoke.mjs`仅检查当前首页与原生工作区的正常生产行为，不是正式性能矩阵。
+U1a当时保留旧几何原型及多代工作台深链接的安排已经结束；当前只提供`/#home`和`/#workspace`，未知hash经过未保存守卫后回首页。U1a/U1b当批实际结果和简单检查边界分别保留于[38](docs/archive/38-u1a-workspace-validation.md)/[39](docs/archive/39-u1b-layout-validation.md)。当前工作区/布局旅程为`tests/u1a-workspace.spec.ts`和`tests/u1b-layout.spec.ts`，保留的`tools/u1a-production-smoke.mjs`仅检查当前首页与原生工作区的正常生产行为，不是正式性能矩阵。
 
-U2个人目录的历史合同及两项初次简单检查见[40](docs/40-u2a-catalog-contract.md)/[41](docs/41-u2b-catalog-validation.md)。当前产品使用sceneweave-library和完整v1中性载体；`tests/u2-catalog.spec.ts`、`tests/u2-catalog-regression.spec.ts`及原生工作区用例仍在默认浏览器回归中，旧目录转换只保留底层模块测试，不作为产品使用流程。
+U2个人目录的历史合同及两项初次简单检查见[40](docs/archive/40-u2a-catalog-contract.md)/[41](docs/archive/41-u2b-catalog-validation.md)。当前产品使用sceneweave-library和完整v1中性载体；`tests/u2-catalog.spec.ts`、`tests/u2-catalog-regression.spec.ts`及原生工作区用例仍在默认浏览器回归中，旧目录转换只保留底层模块测试，不作为产品使用流程。
 
 2026-10-23用户曾要求开发切片只做必要定向检查；后续已明确要求M2收尾和当前版本全量回归，本轮按上节执行。普通后续切片仍根据实际改动选择相关检查，不自动扩成长时间性能专项或大规模原始证据归档。已运行的结果、失败和未复验的修正分别记录，不以局部结果宣布完整验收或性能通过。
 
 ## 0.2.0-m1-d2全量自动化回归
 
-用户2026-10-23明确启动本次全量；实际批次、失败与修正、覆盖和人工/性能边界见[44](docs/44-full-regression-validation.md)。1123全量单元通过，203项Chrome完整首轮200通过/3旧测试合同失败，相关三个文件14/14复验通过；产品源码未改变，未混写为一轮203项全绿。新U2真实私密库/派生/空库离线4K及两页CAS用例在`tests/u2-catalog-regression.spec.ts`，随完整`npm run test:e2e`运行。正常生产U1工具按右下“对象”导航，并等待实际缩放完成后记录Home继续基线。窄屏首页以单DOM与实际分段滚动核对；一次fullPage重复拼接及等待后最终正常图均保留，详44，P3、人工矩阵与正式性能仍单独验收。
+用户2026-10-23明确启动本次全量；实际批次、失败与修正、覆盖和人工/性能边界见[44](docs/archive/44-full-regression-validation.md)。1123全量单元通过，203项Chrome完整首轮200通过/3旧测试合同失败，相关三个文件14/14复验通过；产品源码未改变，未混写为一轮203项全绿。新U2真实私密库/派生/空库离线4K及两页CAS用例在`tests/u2-catalog-regression.spec.ts`，随完整`npm run test:e2e`运行。正常生产U1工具按右下“对象”导航，并等待实际缩放完成后记录Home继续基线。窄屏首页以单DOM与实际分段滚动核对；一次fullPage重复拼接及等待后最终正常图均保留，详44，P3、人工矩阵与正式性能仍单独验收。
 
 ## 证据归档与资料体量
 
-现状和候选见[46](docs/46-validation-retention-audit.md)。普通Git保留测试/必要夹具、简短结论、失败及修正、环境/命令/源码指纹、紧凑结果与关键附件。新批次沿用`tools/testing/compact-reporter.mjs`，避免base64附件内嵌大JSON和重复源码/dist全量快照；未保留附件如实标记。
+现状和候选见[46](docs/archive/46-validation-retention-audit.md)。普通Git保留测试/必要夹具、简短结论、失败及修正、环境/命令/源码指纹、紧凑结果与关键附件。新批次沿用`tools/testing/compact-reporter.mjs`，避免base64附件内嵌大JSON和重复源码/dist全量快照；未保留附件如实标记。
 
 2026-10-23用户随后明确要求清理work/与docs/evidence/，现已删除两个目录。B5 manifest与四个原始包按原字节保存在tests/fixtures/performance-b5，以上复现命令已更新；其余原始附件未另建大包备份，报告已标注可用性。新运行使用被忽略的`test-results/`或独立系统临时目录，不重建work/与docs/evidence/，按需清理，不默认提交大附件。删除当前文件不缩减Git历史，本轮不重写历史；测试随统一v1迁移与去重，不按行数删除行为保障。

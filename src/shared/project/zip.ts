@@ -6,6 +6,12 @@ import { captureBytes, crc32, decodeUtf8 } from './binary.js'
 
 interface ZipEntry { name: string; flags: number; method: number; crc: number; compressed: number; expanded: number; offset: number; dataStart: number }
 export interface BoundedZip { entries: ReadonlyMap<string, Readonly<ZipEntry>>; read(name: string): Promise<Uint8Array> }
+/** Application-owned container policy. Never derive these functions from archive JSON. */
+export interface BoundedZipPolicy {
+  pathBudget(name: string): number
+  requiredPaths: readonly string[]
+  documentPath(name: string): boolean
+}
 export function zipPathBudget(name: string): number {
   if (name === 'manifest.json' || name === 'history.json') return PACKAGE_LIMITS.manifestBytes
   if (name === 'sources.json' || /^snapshots\/(?:[0-5][0-9]|6[0-3])\.sources\.json$/.test(name)) return PACKAGE_LIMITS.sourcesBytes
@@ -18,6 +24,14 @@ export function zipPathBudget(name: string): number {
 
 /** Captures the caller bytes synchronously, then validates every directory/local record. */
 export function inspectZip(input: Uint8Array, signal?: CancellationSignal): BoundedZip {
+  return inspectBoundedZip(input, { pathBudget: zipPathBudget,
+    requiredPaths: ['manifest.json', 'scene.json', 'identity.json', 'appearance.json', 'sources.json'],
+    documentPath: name => name === 'scene.json' || name === 'identity.json' || name === 'appearance.json' || name.startsWith('snapshots/'),
+  }, signal)
+}
+
+/** Same central/local/CRC/expansion protections for separately versioned native containers. */
+export function inspectBoundedZip(input: Uint8Array, policy: BoundedZipPolicy, signal?: CancellationSignal): BoundedZip {
   checkCancelled(signal)
   const file = captureBytes(input, PACKAGE_LIMITS.compressedBytes)
   if (file.length < 22 || file.length > PACKAGE_LIMITS.compressedBytes) failPackage('压缩工程须为有效ZIP，且不得超过100 MiB。')
@@ -58,17 +72,17 @@ export function inspectZip(input: Uint8Array, signal?: CancellationSignal): Boun
     let name: string
     try { name = decodeUtf8(central.subarray(cursor + 46, cursor + 46 + nameSize)) } catch { return failPackage('ZIP路径必须为有效UTF-8。') }
     if (entries.has(name)) failPackage('ZIP包含重复路径。')
-    const budget = zipPathBudget(name)
+    const budget = policy.pathBudget(name)
     extra(central.subarray(cursor + 46 + nameSize, cursor + 46 + nameSize + extraSize))
     const entry: ZipEntry = { name, flags: view.getUint16(cursor + 8, true), method: view.getUint16(cursor + 10, true), crc: view.getUint32(cursor + 16, true), compressed: view.getUint32(cursor + 20, true), expanded: view.getUint32(cursor + 24, true), offset: view.getUint32(cursor + 42, true), dataStart: 0 }
     if (entry.flags & ~0x080e || ![0, 8].includes(entry.method) || entry.method === 0 && entry.flags & 6) failPackage('不支持ZIP加密、压缩方法或标志。')
     if (!entry.expanded || entry.expanded > budget || entry.compressed > PACKAGE_LIMITS.compressedBytes) failPackage('ZIP条目超过展开预算。')
     if ((totalExpanded += entry.expanded) > PACKAGE_LIMITS.expandedBytes) failPackage('ZIP总展开量超过300 MiB。')
-    if ((name === 'scene.json' || name === 'identity.json' || name === 'appearance.json' || name.startsWith('snapshots/')) && (documentBytes += entry.expanded) > PACKAGE_LIMITS.archiveDocumentBytes) failPackage('历史文档与身份累计超过128 MiB。')
+    if (policy.documentPath(name) && (documentBytes += entry.expanded) > PACKAGE_LIMITS.archiveDocumentBytes) failPackage('历史文档与身份累计超过128 MiB。')
     entries.set(name, entry)
     cursor += 46 + nameSize + extraSize
   }
-  if (cursor !== central.length || !entries.has('manifest.json') || !entries.has('scene.json') || !entries.has('identity.json') || !entries.has('appearance.json') || !entries.has('sources.json')) failPackage('ZIP目录未完整声明必要条目。')
+  if (cursor !== central.length || policy.requiredPaths.some(path => !entries.has(path))) failPackage('ZIP目录未完整声明必要条目。')
   cursor = 0
   for (const entry of [...entries.values()].sort((a, b) => a.offset - b.offset)) {
     if (entry.offset !== cursor || cursor + 30 > centralStart) failPackage('ZIP本地条目重叠或包含额外数据。')

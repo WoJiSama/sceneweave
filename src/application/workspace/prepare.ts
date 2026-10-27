@@ -1,3 +1,5 @@
+import { detachChangedOutputs } from '../../shared/terrain-generation/integrity.js'
+import { assertTerrainBudget } from '../../shared/terrain-generation/cost.js'
 import { applyCompositionDraftCommands } from '../../shared/appearance/commands.js'
 import { listRequiredVariants, resolveAppearance, syncAppearanceGraph } from '../../shared/appearance/graph.js'
 import { certifyCompositionContent, validateCompositionDraft } from '../../shared/validation/content.js'
@@ -42,7 +44,7 @@ const collections = { asset: 'assets', material: 'materials', propDefinition: 'p
 const validation = (options: PrepareOptions): CompleteValidationOptions => ({ ...options.validation, signal: options.signal ?? options.validation.signal })
 
 function inheritMissingBindings(project: EditableProject): void {
-  for (const [kind, collection] of Object.entries(collections) as [LicenseSubjectKind, typeof collections[LicenseSubjectKind]][]) {
+  for (const [kind, collection] of Object.entries(collections) as [LicenseSubjectKind, typeof collections[keyof typeof collections]][]) {
     for (const subject of Object.values(project.document[collection])) {
       if (project.licenseBindings.some(binding => binding.subjectKind === kind && binding.subjectId === subject.id)) continue
       const matches = project.licenseBindings.filter(binding => binding.licenseRef === subject.licenseRef && binding.embedding === 'allowed')
@@ -72,7 +74,7 @@ export async function materializeProject(input: EditableProject, options: Prepar
   // unresolved adjustments or new resource branches continue to materialize.
   if (baseline) {
     const derived = tryDeriveEditableProject(captured, baseline, checked)
-    if (derived) return derived
+    if (derived) { if (baseline.document.schemaVersion === 3) assertTerrainBudget(baseline.document, derived.document); return derived }
   }
   const project = captureEditableDraft(captured)
   const inputResources = captured.resources
@@ -100,7 +102,10 @@ export async function materializeProject(input: EditableProject, options: Prepar
     project.appearance.variants[variant.id] = structuredClone(variant)
     draftBudgets(project)
   }
-  Object.assign(project, certifyCompositionContent(resolveAppearance(contentOf(project))))
+  const resolved=resolveAppearance(contentOf(project))
+  if(project.document.schemaVersion===3) detachChangedOutputs(project.document,resolved.document)
+  Object.assign(project, certifyCompositionContent(resolved))
+  if(baseline && project.document.schemaVersion===3) assertTerrainBudget(baseline.document,project.document)
   inheritMissingBindings(project)
   project.resources = Object.freeze({ read: async (hash: string) => added.get(hash)?.slice() ?? originalResources.read(hash) })
   // A composition-only edit on an already certified project cannot change the

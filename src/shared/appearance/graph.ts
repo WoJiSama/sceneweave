@@ -1,3 +1,5 @@
+import type { FixedPresentation } from '../terrain-generation/contracts.js'
+import { definitionPresentation, presentationSourceId, propPresentation, topDownPresentation } from './presentation.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
@@ -17,10 +19,14 @@ const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.
 export function propAppearanceSnapshot(prop: PropAppearanceSnapshot): PropAppearanceSnapshot {
   return cloneJson({ definitionRef: prop.definitionRef, appearance: prop.appearance, visualBoundsMm: prop.visualBoundsMm, shadowClass: prop.shadowClass, shadowOverride: prop.shadowOverride })
 }
-export function addPropAppearanceSource(graph: AppearanceGraph, snapshot: PropAppearanceSnapshot, parentSourceId: string | null = null): string {
-  const body = { kind: 'prop' as const, parentSourceId, snapshot: propAppearanceSnapshot(snapshot) }, id = `composition-source-${sha256Text(canonicalJson(body))}`
+export function addPropAppearanceSource(graph: AppearanceGraph, snapshot: PropAppearanceSnapshot, parentSourceId: string | null = null, fixedPresentation?: FixedPresentation): string {
+  const presentation = fixedPresentation ?? (parentSourceId ? graph.presentations?.[parentSourceId] : definitionPresentation(graph, snapshot.definitionRef)) ?? topDownPresentation()
+  if (presentation.mode === 'nearSide' && graph.version !== 2) throw new Error('近侧视素材需要完整v3工程，不能丢失表现降级。')
+  const body = { kind: 'prop' as const, parentSourceId, snapshot: propAppearanceSnapshot(snapshot) }, id = presentation.mode === 'nearSide' ? presentationSourceId(body.snapshot, parentSourceId, presentation) : `composition-source-${sha256Text(canonicalJson(body))}`
   if (own(graph.sources, id) && !equalCompositionValue(graph.sources[id], { id, ...body })) throw new Error('固定外观源 ID 内容冲突。')
-  graph.sources[id] = { id, ...body }; return id
+  graph.sources[id] = { id, ...body }
+  if(graph.version===2) { graph.presentations??={}; graph.presentations[id]??=cloneJson(presentation) }
+  return id
 }
 export function addSurfaceAppearanceSource(graph: AppearanceGraph, snapshot: SurfaceStyle, parentSourceId: string | null = null): string {
   const body = { kind: 'surface' as const, parentSourceId, snapshot: cloneJson(snapshot) }, id = `composition-source-${sha256Text(canonicalJson(body))}`
@@ -84,7 +90,7 @@ export function createAppearanceGraph(input: SceneDocument): AppearanceGraph {
   const checked = validateSceneSnapshot(input)
   if (!checked.ok) throw new Error(`外观源场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   const document = checked.document
-  const graph: AppearanceGraph = { version: 1, sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }
+  const graph: AppearanceGraph = { version: document.schemaVersion === 3 ? 2 : 1, ...(document.schemaVersion === 3 ? { presentations: {} } : {}), sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }
   for (const prop of Object.values(document.props)) graph.propSources[prop.id] = addPropAppearanceSource(graph, prop)
   for (const entity of enumerateLayerEntities(document)) {
     const style = surfaceStyle(document, entity.id)

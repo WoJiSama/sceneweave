@@ -26,6 +26,7 @@ export interface WorkspaceTransient extends Record<WorkspaceFormDraft, boolean> 
   restore: boolean
   structureRestore: boolean
   structure: boolean
+  terrainPreview?: boolean
   aiPreview?: boolean
 }
 
@@ -36,6 +37,7 @@ export function workspaceTransitionReason(state: WorkspaceTransient, completing?
   if (state.busy) return '当前操作仍在处理或保存，请等待完成后再继续。'
   if (state.newScene) return '新建场景尚未结束。请创建场景或取消新建后再继续。'
   if (state.candidate) return '待打开工程尚未确认。请保存并打开副本，或取消打开后再继续。'
+  if (state.terrainPreview) return '地形候选尚未结束。请先采用或取消地形预览后再继续。'
   if (state.aiPreview) return '正在预览AI草稿。可切回主工程继续手工编辑，或在AI面板审阅并采用草稿。'
   if (state.structure || state.restore || state.structureRestore) return '当前候选尚未结束。请先采用或明确取消候选；可以继续浏览侧栏与素材详情。'
   if (state.placement && !allowed.has('placement')) return '物件放置尚未结束。请继续放置或取消放置后再开始其他操作。'
