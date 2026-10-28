@@ -25,4 +25,4 @@ node tools/build-outpost-art.mjs
 
 加 `--preview` 可另在忽略目录 `work/m1d-outpost-art-review.png` 生成候选总览和2×2、3×3土砾拼接图，预览标签不写入素材。2026-10-23首次技术检查使用Node v24.14.1、Chrome 156.0.8078.47：6项PNG/SVG hash与PNG CRC、尺寸、RGBA、alpha范围/透明RGB和两份MIT复制均已逐项核对；土砾完全不透明，物件最小透明留白如上。人工已查看总览与2×2/3×3拼接，未见明显矩形接缝；混合场景中的尺度、编辑往返、玩家秘密与正式美术仍按后续场景验证记录。
 
-源目录保存SVG、manifest、许可和本说明；静态分发目录 `public/assets/sceneweave-handdrawn-outpost/` 保存6张PNG及相同manifest/许可。工程应携带实际字节、固定定义、完整实例和许可绑定，重开不依赖目录网络。详细制作规格见[15制作清单](../../docs/15-m1a-asset-production-list.md)，风格、光照和范围分离见[14视觉规范](../../docs/14-visual-and-asset-system.md)。
+源目录保存SVG、manifest、许可和本说明；静态分发目录 `public/assets/sceneweave-handdrawn-outpost/` 保存6张PNG及相同manifest/许可。工程应携带实际字节、固定定义、完整实例和许可绑定，重开不依赖目录网络。详细制作规格见[15制作清单](../../docs/14-visual-and-assets.md#doc-15)，风格、光照和范围分离见[14视觉规范](../../docs/14-visual-and-assets.md#doc-14)。
