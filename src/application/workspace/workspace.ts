@@ -1,6 +1,8 @@
+import { prepareTerrainComposition, prepareCompositionUpgrade } from './terrain-composition.js'
 import { projectContentHash } from '../../shared/project/validate.js'
 import { prepareTerrainProject, prepareTerrainUpgrade, type TerrainPreview } from './terrain.js'
 import { prepareTerrainEditProject, type TerrainEditPreview } from './terrain-edit.js'
+import { prepareTerrainLocalRefreshProject, type TerrainLocalPreview } from './terrain-local.js'
 import { prepareRegionalCreate, prepareRegionalEdit, prepareRegionalDrillDown, prepareRegionalDrillDownFromResult, type RegionalCandidate } from './regional.js'
 import type { RegionalDrillDownResult } from '../../shared/terrain-generation/regional-authoring.js'
 import { regionalSceneCandidate } from '../../shared/ai/terrain-authoring.js'
@@ -16,6 +18,7 @@ import { checkCancelled } from '../../shared/ports/resources.js'
 import type { SceneDocument, SurfaceRef } from '../../shared/model/scene.js'
 import type { LicenseBinding, SnapshotSummary } from '../../shared/model/project.js'
 import { certifyCompositionContent, reviseCompositionContent } from '../../shared/validation/content.js'
+import { validateCompositionIdentityContracts } from '../../shared/terrain-generation/composition-integrity.js'
 import { surfaceStyle } from '../../shared/appearance/graph.js'
 import { inspectDependencies } from '../../shared/geometry/dependencies.js'
 import { reviseSceneSnapshot } from '../../shared/validation/snapshots.js'
@@ -23,6 +26,7 @@ import { projectScene } from '../../shared/projection/projection.js'
 import { advanceHistoryIdentity, mergeIdentityRecords, mergeHistoryIdentities } from '../../shared/history/identity.js'
 import { buildRestorePlan, generationRestoreChanges, type RestorePlan, type RestoreRequest } from '../../shared/history/restore.js'
 import { terrainCommandCost } from '../../shared/terrain-generation/cost.js'
+import { pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
 import { StructureContinuitySession } from '../../shared/history/structure-continuity.js'
 import { VisualContinuitySession, visualTopology } from '../../shared/history/visual-continuity.js'
 import { buildStructureRestorePlan, inspectStructureRestoreScope, type StructureRestorePlan, type StructureRestoreRequest, type StructureRestoreScope } from '../../shared/history/structure-restore.js'
@@ -259,6 +263,7 @@ export class Workspace {
   private readonly listeners = new Set<() => void>()
   private readonly terrainPreviews = new WeakMap<TerrainPreview, PreviewStatus>()
   private readonly terrainEditPreviews = new WeakMap<TerrainEditPreview, PreviewStatus>()
+  private readonly terrainLocalPreviews = new WeakMap<TerrainLocalPreview, PreviewStatus>()
   private readonly regionalPreviews = new WeakMap<RegionalPreview, { status: PreviewStatus; base: EditableProject; sourceBase?: EditableProject; sourceResult?: RegionalDrillDownResult; sceneBase?: EditableProject }>()
   private readonly compositionPreviews = new WeakMap<CompositionPreview, PreviewStatus>()
   private readonly previews = new WeakMap<RestorePreview, PreviewStatus>()
@@ -467,6 +472,15 @@ export class Workspace {
     const preview=freeze({...prepared,checkpoint,currentSceneId:current?.document.sceneId??null,currentRevision:current?.document.revision??null})
     this.terrainPreviews.set(preview,'active');return preview
   }
+  async previewTerrainComposition(base:EditableProject,input:unknown,plan?:import('../../shared/terrain-generation/composition-field.js').TerrainCompositionPlan):Promise<TerrainPreview>{
+    this.assertWritable();const checkpoint=this.checkpoint(),current=this.state.project
+    const prepared=await prepareTerrainComposition(base,input,{runtime:this.options.runtime,validation:this.validation(),plan})
+    this.assertWritable();this.assertCheckpoint(checkpoint)
+    if(prepared.project.document.sceneId===current?.document.sceneId)throw new Error('地貌组合必须具有独立身份。')
+    this.validateCandidate(prepared.project.document);projectScene(prepared.project.document,'player')
+    const preview=freeze({...prepared,checkpoint,currentSceneId:current?.document.sceneId??null,currentRevision:current?.document.revision??null})
+    this.terrainPreviews.set(preview,'active');return preview
+  }
   cancelTerrainGeneration(preview:TerrainPreview) { if(this.terrainPreviews.has(preview))this.terrainPreviews.set(preview,'cancelled') }
   async adoptTerrainGeneration(preview:TerrainPreview) {
     this.assertWritable()
@@ -553,6 +567,65 @@ export class Workspace {
       if (!committed) this.terrainEditPreviews.set(preview, 'cancelled')
       throw error
     } finally { if (!committed && this.atomicLock === token) this.atomicLock = null }
+  }
+  /** v4 local transition/scenery candidate with the same protection/CAS path as terrain edits. */
+  async previewTerrainLocalRefresh(input: import('../../shared/terrain-generation/local.js').TerrainLocalRefreshRequest, options: { result?: import('../../shared/terrain-generation/local.js').TerrainLocalRefreshResult; signal?: ResourceOptions['signal'] } = {}): Promise<TerrainLocalPreview> {
+    this.assertWritable()
+    const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    if (current.document.schemaVersion !== 4) throw new Error('局部联动预览需要完整v4工程。')
+    const prepared = await prepareTerrainLocalRefreshProject(current, input, { runtime: this.options.runtime, validation: this.validation(), result: options.result, signal })
+    this.assertCheckpoint(checkpoint); checkCancelled(signal)
+    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision, baseContentHash: projectContentHash(toBundle(current).project) })
+    this.terrainLocalPreviews.set(preview, 'active')
+    return preview
+  }
+  cancelTerrainLocalRefresh(preview: TerrainLocalPreview) {
+    const status = this.terrainLocalPreviews.get(preview)
+    if (status === 'active' || status === 'applying') this.terrainLocalPreviews.set(preview, 'cancelled')
+  }
+  private assertTerrainLocal(preview: TerrainLocalPreview) {
+    if (!['active', 'applying'].includes(this.terrainLocalPreviews.get(preview) ?? '')) throw new Error('局部联动候选已取消、已采用或不属于本会话。')
+    this.assertCheckpoint(preview.checkpoint)
+    const current = this.requireProject()
+    if (current.document.sceneId !== preview.currentSceneId || current.document.revision !== preview.currentRevision
+      || projectContentHash(toBundle(current).project) !== preview.baseContentHash) throw new Error('局部联动基线、锁或资源已改变，请重新预览。')
+  }
+  async adoptTerrainLocalRefresh(preview: TerrainLocalPreview, options: ResourceOptions = {}) {
+    this.assertWritable()
+    if (this.terrainLocalPreviews.get(preview) !== 'active') throw new Error('局部联动候选不可重复采用。')
+    this.assertTerrainLocal(preview)
+    const token = {}, signal = this.atomicSignal(options.signal)
+    this.atomicLock = token; this.terrainLocalPreviews.set(preview, 'applying')
+    let committed = false
+    const assertActive = () => { checkCancelled(signal); this.assertTerrainLocal(preview) }
+    try {
+      const replayed = await prepareTerrainLocalRefreshProject(this.requireProject(), preview.input, { runtime: this.options.runtime, validation: this.validation(), result: preview.result, signal })
+      assertActive()
+      const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
+      assertActive()
+      if (canonical(project.document) !== canonical(replayed.document) || canonical(project.appearance) !== canonical(replayed.project.appearance)
+        || canonical(project.historyIdentity) !== canonical(replayed.project.historyIdentity)) throw new Error('局部联动重放与已审阅完整候选不同，请重新预览。')
+      if (equalOwnedContent(this.requireProject(), project)) throw new Error('本次局部联动没有实际变化，无需采用。')
+      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      reviseSceneSnapshot(project.document, preview.currentRevision + 1, this.options.runtime.clock.now())
+      await this.flush(); assertActive()
+      const current = this.requireProject(), usage = await this.repository.usage(preview.currentSceneId)
+      assertActive()
+      const protection = await this.createSnapshot(current, '局部地形联动前保护', { kind: 'protection', expectedRevision: preview.currentRevision, expectedMetadataVersion: usage.metadataVersion, signal })
+      assertActive()
+      this.structureContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
+      this.visualContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
+      const guard = { expectedMetadataVersion: usage.metadataVersion + 1, protection: { id: protection.id, contentHash: protection.contentHash } }
+      await this.repository.checkProtection(preview.currentSceneId, preview.currentRevision, protection.contentHash, guard, { signal }); assertActive()
+      if (this.persistedRevision !== preview.currentRevision) throw new Error('持久修订已变化，未采用局部地形联动。')
+      this.commit(project, 'edit', token, guard)
+      committed = true; this.terrainLocalPreviews.set(preview, 'applied')
+      const save = this.flush().finally(() => { if (this.atomicLock === token) this.atomicLock = null })
+      void save.catch(() => {})
+      return { protection, revision: this.requireProject().document.revision, save }
+    } catch (error) { if (!committed) this.terrainLocalPreviews.set(preview, 'cancelled'); throw error }
+    finally { if (!committed && this.atomicLock === token) this.atomicLock = null }
   }
   async previewRegionalCreate(base: EditableProject, input: Parameters<typeof prepareRegionalCreate>[1], options: ResourceOptions = {}): Promise<RegionalPreview> {
     this.assertWritable()
@@ -666,14 +739,18 @@ export class Workspace {
     } catch (error) { if (!committed) witness.status = 'cancelled'; throw error }
     finally { if (!committed && this.atomicLock === token) this.atomicLock = null }
   }
-  async enableTerrainCopy() {
+  async enableCompositionCopy() {
+    if(this.requireProject().schemaVersion!==3)throw new Error('组合升级需要完整v3工程。')
+    return this.enableTerrainCopy(true)
+  }
+  async enableTerrainCopy(composition = false) {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = this.checkpoint()
-    if (current.schemaVersion === 3) return
+    if (current.schemaVersion >= 4 || current.schemaVersion===3 && !composition) return
     const token = {}; this.atomicLock = token
     try {
       await this.flush(); this.assertCheckpoint(checkpoint)
-      const candidate = await prepareTerrainUpgrade(current, { runtime: this.options.runtime, validation: this.validation() })
+      const candidate = await (current.schemaVersion===3?prepareCompositionUpgrade:prepareTerrainUpgrade)(current, { runtime: this.options.runtime, validation: this.validation() })
       this.assertCheckpoint(checkpoint)
       this.validateCandidate(candidate.document); projectScene(candidate.document, 'player')
       if (!this.repository.preserveNativeUpgrade || !this.repository.load) throw new Error('当前工程仓库不支持地形升级原件保全。')
@@ -830,10 +907,40 @@ export class Workspace {
   removePrefabMember(id: string) { return this.execute([{ type: 'deleteProp', id }]) }
   private restoreHistory(candidate: EditableProject, history: 'undo' | 'redo') {
     const current = this.requireProject(), checkpoint = this.checkpoint()
-    const historyIdentity = advanceHistoryIdentity(current.historyIdentity, current.document, candidate.document, this.options.runtime, { allowResurrection: true })
-    this.validateCandidate(candidate.document)
+    // History entries are validator-owned and deeply frozen. Reconciliation may
+    // pause a composition or invalidate its receipt, so own a detached draft
+    // before lifecycle code writes the restored branch.
+    const draft = captureEditableDraft(candidate)
+    // Keep the exact frozen resource/license closure as the derivation
+    // baseline; only document, identity and appearance are detached for the
+    // lifecycle reconciliation below.
+    Object.assign(draft, {
+      assets: candidate.assets,
+      licenses: candidate.licenses,
+      licenseBindings: candidate.licenseBindings,
+      authoringSources: candidate.authoringSources,
+      resources: candidate.resources,
+    })
+    // Restoring an older v4 scene can legitimately allocate fresh topology
+    // tokens. Keep continuity monotonic by pausing any active composition
+    // whose frozen output receipt no longer matches the restored identity.
+    if (current.document.schemaVersion === 4 && draft.document.schemaVersion === 4) {
+      pauseChangedCompositions(current.document, draft.document)
+    }
+    const historyIdentity = advanceHistoryIdentity(current.historyIdentity, current.document, draft.document, this.options.runtime, { allowResurrection: true })
+    if (current.document.schemaVersion === 4 && draft.document.schemaVersion === 4) {
+      const receiptIssues = validateCompositionIdentityContracts(draft.document, historyIdentity)
+      if (receiptIssues.length && draft.document.generation?.version === 5) {
+        draft.document = captureJson({ ...draft.document, generation: { ...draft.document.generation,
+          compositions: Object.fromEntries(Object.entries(draft.document.generation.compositions).map(([id, row]) => [id,
+            receiptIssues.some(issue => issue.entityId === id) ? { ...row, state: 'paused' as const } : row])) } })
+      }
+    }
+    this.validateCandidate(draft.document)
     this.assertCheckpoint(checkpoint)
-    this.commit({ ...candidate, historyIdentity }, history, undefined, undefined, candidate)
+    // Keep candidate as the derivation baseline so its exact immutable resource
+    // certificate remains authoritative while the draft carries reconciliation.
+    this.commit({ ...draft, historyIdentity }, history, undefined, undefined, candidate)
   }
   undo() { this.assertWritable(); const previous = this.past.at(-1); if (previous) this.restoreHistory(previous, 'undo') }
   redo() { this.assertWritable(); const next = this.future.at(-1); if (next) this.restoreHistory(next, 'redo') }

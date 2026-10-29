@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 import type { PointMm } from '../src/shared/model/scene.js'
+import { visualBase } from '../src/shared/visual/base.js'
 
 type Dev = { workspace: Workspace }
 async function rendered(page: Page) {
@@ -21,11 +22,13 @@ async function generateIsland(page: Page) {
 async function contentState(page: Page) {
   return page.evaluate(async () => {
     const projectPath = '/src/application/workspace/project.ts', validationPath = '/src/shared/project/validate.ts'
+    const contractsPath = '/src/shared/terrain-generation/composition-contracts.ts'
     const { toBundle } = await import(projectPath) as typeof import('../src/application/workspace/project')
     const { projectContentHash } = await import(validationPath) as typeof import('../src/shared/project/validate')
+    const { getLegacyGeneration } = await import(contractsPath) as typeof import('../src/shared/terrain-generation/composition-contracts')
     const workspace = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace, project = workspace.getState().project!
     return { hash: projectContentHash(toBundle(project).project), revision: project.document.revision, sceneId: project.document.sceneId,
-      generationVersion: project.document.generation!.version, generation: project.document.generation, props: project.document.props,
+      generationVersion: project.document.generation!.version, generation: getLegacyGeneration(project.document), props: project.document.props,
       document: project.document, resources: { assets: project.assets, licenses: project.licenses,
         licenseBindings: project.licenseBindings, authoringSources: project.authoringSources }, canUndo: workspace.getState().canUndo }
   })
@@ -42,9 +45,8 @@ async function saved(page: Page) {
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 90_000 }); await rendered(page)
 }
 async function contourPoint(page: Page) {
-  const state = await contentState(page), visual = state.document.visual
-  if (!visual) throw new Error('Expected a generated visual scene')
-  const base = visual.version === 2 ? visual.base : visual
+  const state = await contentState(page), base = visualBase(state.document)
+  if (!base) throw new Error('Expected a generated visual scene')
   return base.boundaries['terrain-coast-curve'].segments[0].control1
 }
 async function strokeSetup(page: Page, mode: '添陆' | '挖水' | '铺草' | '清出空地', radius: number, target = 'terrain-low') {

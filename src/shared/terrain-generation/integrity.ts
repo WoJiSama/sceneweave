@@ -3,16 +3,15 @@ import type { VisualSystem } from '../visual/types.js'
 import { canonicalJson, cloneJson, encodeUtf8 } from '../validation/json.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { TERRAIN_CONTRACT_LIMITS, type GenerationSystem1, type GenerationSystem3, type GenerationSystem4, type GenerationRule, type GenerationReference,
-  type GenerationFieldGroup, type RegionalModel1, type VisualSystem2 } from './contracts.js'
+  type GenerationFieldGroup } from './contracts.js'
+import { getLegacyGeneration, legacyTerrainView, type LegacyTerrainScene } from './composition-contracts.js'
 import { normalizeTerrainStroke, terrainStrokePolygon } from './stroke.js'
 import { surroundingsEntityHash, surroundingsOutputHash } from './surroundings.js'
 import { polygonBoolean } from '../geometry/polygon-boolean.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 
-export type TerrainContractDocument = Omit<SceneDocument, 'schemaVersion' | 'visual' | 'generation' | 'regional' | 'mapMode'> & {
-  schemaVersion: 3; mapMode: 'scene' | 'regional'; generation: GenerationSystem1; regional: RegionalModel1 | null; visual: VisualSystem2<VisualSystem>
-}
-const terrain = (value: SceneDocument): TerrainContractDocument => value as unknown as TerrainContractDocument
+export type TerrainContractDocument = LegacyTerrainScene
+const terrain = (value: SceneDocument): TerrainContractDocument => legacyTerrainView(value)
 const hashValue = (value: unknown) => sha256Text(canonicalJson(value))
 const equal = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
@@ -300,10 +299,15 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
 /** Ordinary manual edits preserve results and explicitly stop affected generation; never rebuild geometry. */
 export type GenerationAppearanceChange = Omit<GenerationReference, 'fieldGroup'> & { fieldGroup: 'appearance' | 'surface' | 'source' }
 export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: SceneDocument, appearanceChanges: readonly GenerationAppearanceChange[] = []): number {
-  const before = terrain(beforeInput), next = terrain(nextInput)
-  if (before.schemaVersion !== 3 || next.schemaVersion !== 3) return 0
-  const originalGeneration = next.generation
-  next.generation = cloneJson(originalGeneration)
+  if (![3, 4].includes(beforeInput.schemaVersion) || ![3, 4].includes(nextInput.schemaVersion)) return 0
+  const before = terrain(beforeInput), originalGeneration = getLegacyGeneration(nextInput)!
+  // Write the owned legacy partition into the real candidate, never save the compatibility view.
+  const replaceGeneration = (generation: GenerationSystem1) => {
+    if (nextInput.generation?.version === 5) nextInput.generation.legacy = generation
+    else nextInput.generation = generation
+  }
+  replaceGeneration(cloneJson(originalGeneration))
+  const next = terrain(nextInput)
   let cost = 0, changed = false
   if(next.generation.version>=3&&canonicalJson(beforeInput)!==canonicalJson(nextInput))for(const row of Object.values((next.generation as GenerationSystem3|GenerationSystem4).surroundings))if(row.state==='current'){row.state='historical';cost++;changed=true}
   if(next.generation.version===4&&canonicalJson(beforeInput)!==canonicalJson(nextInput))for(const row of Object.values(next.generation.topology))if(row.state==='current'){row.state='historical';cost++;changed=true}
@@ -352,6 +356,6 @@ export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: Scen
   }
   for (const check of Object.values(next.generation.checks)) if (check.state !== 'unchecked'
     && (changed || check.inputHash !== constraintInputHash(nextInput, check.constraintId))) { check.state = 'unchecked'; cost++ }
-  if (!cost) next.generation = originalGeneration
+  if (!cost) replaceGeneration(originalGeneration)
   return cost
 }

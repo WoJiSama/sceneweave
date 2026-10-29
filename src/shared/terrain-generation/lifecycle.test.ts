@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { applyCompositionCommands, applyCompositionDraftCommands } from '../appearance/commands.js'
 import { addPropAppearanceSource, createCompositionContent, resolveAppearance } from '../appearance/graph.js'
@@ -21,9 +22,9 @@ let sequence = 0
 const runtime = () => ({ ids: { nextId: () => `terrain-lifecycle-${++sequence}` }, clock: { now: () => stamp } })
 const ref: GenerationReference = { kind: 'prop', entityId: 'item', parentId: null, fieldGroup: 'geometry' }
 function refresh(document: SceneDocument) {
-  const rule = document.generation!.rules.rule
+  const rule = getLegacyGeneration(document)!.rules.rule
   rule.inputHash = generationInputHash(document, rule); rule.managedOutputHash = managedOutputHash(document, rule)
-  document.generation!.checks.check.inputHash = constraintInputHash(document, 'clear')
+  getLegacyGeneration(document)!.checks.check.inputHash = constraintInputHash(document, 'clear')
 }
 function content(): CompositionContent {
   const bounds = { x: 0, y: 0, width: 24000, height: 18000 }
@@ -37,7 +38,7 @@ function content(): CompositionContent {
   }
   document.props.item = { id: 'item', floorId: 'floor', editLocked: false, definitionRef: null, appearance: { kind: 'symbol', symbol: 'table', tint: null, opacity: 1 }, visualBoundsMm: { x: -100, y: -100, width: 200, height: 200 },
     positionMm: { x: 4000, y: 4000 }, rotationDeg: 0, footprintMm: { width: 200, height: 200 }, footprintOffsetMm: { x: 0, y: 0 }, blocksMovement: false, blocksSight: false, visibility: 'public', supportRef: { kind: 'floor', id: 'floor' }, renderLayer: 'object', renderOrder: 0, shadowClass: 'none', shadowOverride: null }
-  const generation = document.generation!
+  const generation = getLegacyGeneration(document)!
   generation.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'test-terrain', algorithmVersion: 1, mapMode: 'scene', seed: 'fixture',
     parameters: { terrainKind: 'island', seaElevationMm: 0, landElevationMm: 800, plateauElevationMm: 2600, roughness: 0, densityFactor: 0, baySide: 'north' }, materials: [], props: [], precision: { sampleSpacingMm: 1000, toleranceMm: 50, noiseCellMm: 2000 } }
   generation.rules.rule = { id: 'rule', floorId: 'floor', layerId: 'rules', visibility: 'public', editLocked: false, kind: 'terrain', recipeRef: { id: 'recipe', version: 1 }, inputs: [], outputs: [ref], parameters: { widthMm: 200, minWidthMm: 200, maxWidthMm: 200, roughness: 0, densityFactor: 0 }, state: 'active', inputHash: '0'.repeat(64), managedOutputHash: '0'.repeat(64) }
@@ -53,9 +54,9 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
   it('protects graph-only appearance before resolving and leaves geometry managed', () => {
     const source = content(), before = canonicalJson(source), draft = applyCompositionDraftCommands(source, [opacity(.4)], runtime())
     expect(draft.document.props.item.appearance.opacity).toBe(1)
-    expect(draft.document.generation!.ownership.owner).toMatchObject({ state: 'manual', managedFields: ['geometry', 'properties'], manualFields: ['appearance'] })
-    expect(draft.document.generation!.rules.rule.state).toBe('paused')
-    expect(draft.document.generation!.checks.check.state).toBe('unchecked')
+    expect(getLegacyGeneration(draft.document)!.ownership.owner).toMatchObject({ state: 'manual', managedFields: ['geometry', 'properties'], manualFields: ['appearance'] })
+    expect(getLegacyGeneration(draft.document)!.rules.rule.state).toBe('paused')
+    expect(getLegacyGeneration(draft.document)!.checks.check.state).toBe('unchecked')
     expect(() => validateCompositionDraft(draft)).not.toThrow()
     const resolved = resolveAppearance(draft)
     expect(resolved.document.props.item.appearance.opacity).toBe(.4)
@@ -71,14 +72,14 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     expect(draft.document.generation).toEqual(source.document.generation)
     const hinted = cloneJson(source.document)
     detachChangedOutputs(source.document, hinted, [{ ...ref, fieldGroup: 'appearance' }])
-    expect(hinted.generation!.ownership.owner.managedFields).toContain('geometry')
-    expect(hinted.generation!.ownership.owner.manualFields).toEqual(['appearance'])
+    expect(getLegacyGeneration(hinted)!.ownership.owner.managedFields).toContain('geometry')
+    expect(getLegacyGeneration(hinted)!.ownership.owner.manualFields).toEqual(['appearance'])
   })
 
   it('rejects implicit edits of a locked rule or its separately locked layer', () => {
     for (const kind of ['rule', 'layer'] as const) {
       const source = content()
-      if (kind === 'rule') source.document.generation!.rules.rule.editLocked = true
+      if (kind === 'rule') getLegacyGeneration(source.document)!.rules.rule.editLocked = true
       else source.document.userLayers.rules.editLocked = true
       const before = canonicalJson(source)
       expect(() => applyCompositionCommands(source, [opacity(.4)], runtime())).toThrow(/规则|图层/)
@@ -91,8 +92,8 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     const source = content()
     source.document.props.input = { ...cloneJson(source.document.props.item), id: 'input', positionMm: { x: 6500, y: 4500 } }
     source.document.entityLayers.input = 'objects'
-    source.document.generation!.rules.rule.inputs = [{ ...ref, entityId: 'input' }]
-    source.document.generation!.rules.rule.editLocked = true
+    getLegacyGeneration(source.document)!.rules.rule.inputs = [{ ...ref, entityId: 'input' }]
+    getLegacyGeneration(source.document)!.rules.rule.editLocked = true
     refresh(source.document)
     const input = createCompositionContent(source.document, runtime()), before = canonicalJson(input)
     expect(() => applyCompositionCommands(input, [{ type: 'updateProp', id: 'input', changes: { rotationDeg: 35 } }], runtime())).toThrow(/规则|图层/)
@@ -104,11 +105,11 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     replacement.visualBoundsMm.width = 260
     const sourceId = addPropAppearanceSource(source.appearance, replacement)
     const pending = applyCompositionCommands(source, [{ type: 'setAppearanceSource', ids: ['item'], sourceId }], runtime())
-    expect(pending.document.generation!.ownership.owner.manualFields).toEqual(['appearance'])
-    expect(pending.document.generation!.ownership.owner.managedFields).toContain('geometry')
+    expect(getLegacyGeneration(pending.document)!.ownership.owner.manualFields).toEqual(['appearance'])
+    expect(getLegacyGeneration(pending.document)!.ownership.owner.managedFields).toContain('geometry')
     const resolved = resolveAppearance(pending)
     detachChangedOutputs(pending.document, resolved.document)
-    expect(resolved.document.generation!.ownership.owner.manualFields).toEqual(['appearance', 'geometry'])
+    expect(getLegacyGeneration(resolved.document)!.ownership.owner.manualFields).toEqual(['appearance', 'geometry'])
     expect(() => validateCompositionContent(resolved)).not.toThrow()
   })
 
@@ -125,7 +126,7 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     historic.appearance.propSources.item = addPropAppearanceSource(historic.appearance, historic.document.props.item)
     refresh(historic.document)
     const before = canonicalJson(current), plan = buildRestorePlan(current, historic, { ids: ['item'], mode: 'appearance' })
-    expect(plan.document.generation!.ownership.owner.manualFields).toEqual(['appearance'])
+    expect(getLegacyGeneration(plan.document)!.ownership.owner.manualFields).toEqual(['appearance'])
     expect(plan.document.props.item.positionMm).toEqual(current.document.props.item.positionMm)
     expect(plan.changes.filter(change => change.kind === 'generation').map(change => change.id)).toEqual(expect.arrayContaining(['owner', 'rule', 'check']))
     expect(plan.commandCost).toBeGreaterThanOrEqual(terrainCommandCost(current.document, plan.document).total)
@@ -135,11 +136,11 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
 
   it('restores an explicitly recreated deleted result as manual without reactivating generation', () => {
     const historic = content(), current = applyCompositionCommands(historic, [{ type: 'deleteProp', id: 'item' }], runtime())
-    expect(current.document.generation!.ownership.owner.state).toBe('deleted')
+    expect(getLegacyGeneration(current.document)!.ownership.owner.state).toBe('deleted')
     const plan = buildRestorePlan(current, historic, { ids: ['item'], mode: 'entity' })
-    expect(plan.document.generation!.ownership.owner.state).toBe('manual')
-    expect(plan.document.generation!.ownership.owner.managedFields).toEqual([])
-    expect(plan.document.generation!.rules.rule.state).toBe('paused')
+    expect(getLegacyGeneration(plan.document)!.ownership.owner.state).toBe('manual')
+    expect(getLegacyGeneration(plan.document)!.ownership.owner.managedFields).toEqual([])
+    expect(getLegacyGeneration(plan.document)!.rules.rule.state).toBe('paused')
     expect(validateSceneDocument(plan.document).ok).toBe(true)
   })
 
@@ -150,14 +151,14 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     refresh(source)
     const checked = validateSceneSnapshot(source)
     if (!checked.ok) throw new Error(checked.errors.map(issue => issue.message).join('；'))
-    const before = canonicalJson(checked.document), hash = checked.document.generation!.rules.rule.managedOutputHash
+    const before = canonicalJson(checked.document), hash = getLegacyGeneration(checked.document)!.rules.rule.managedOutputHash
     const view = selectionScene(checked.document, { [option]: true })
     expect(isCertifiedSceneSnapshot(checked.document)).toBe(true)
     expect(isCertifiedSceneSnapshot(view)).toBe(false)
     expect(hitTestAll(view, { x: 4000, y: 4000 }, 0)).toContain('item')
     if (option === 'effectiveLocks') expect(selectInBounds(view, view.exportBoundsMm, 'contain').ids).not.toContain('item')
     else expect(selectInBounds(view, view.exportBoundsMm, 'contain').ids).toContain('item')
-    expect(view.generation!.rules.rule.managedOutputHash).toBe(hash)
+    expect(getLegacyGeneration(view)!.rules.rule.managedOutputHash).toBe(hash)
     expect(validateSceneDocument(view).ok).toBe(false)
     expect(canonicalJson(checked.document)).toBe(before)
   })
@@ -170,12 +171,12 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     expect(preview.reason).toBeNull()
     expect(preview.commandCost).toBe(terrainCommandCost(source.document, next.document).total)
     expect(preview.commandCost).toBeGreaterThan(1)
-    expect(next.document.generation!.ownership.owner.manualFields).toContain('geometry')
+    expect(getLegacyGeneration(next.document)!.ownership.owner.manualFields).toContain('geometry')
     expect(canonicalJson(source)).toBe(before)
   })
 
   it('previews a real shore-point edit with all generation metadata in the same bounded delta', () => {
-    const source = content(), document = source.document, generation = document.generation!
+    const source = content(), document = source.document, generation = getLegacyGeneration(document)!
     document.terrainAreas.shore = { id: 'shore', floorId: 'floor', editLocked: false, visibility: 'public', boundaryMm: [{ x: 9000, y: 2000 }, { x: 14000, y: 2000 }, { x: 14000, y: 7000 }, { x: 9000, y: 7000 }].map((positionMm, index) => ({ id: `shore-p${index}`, segmentId: `shore-s${index}`, positionMm })),
       groundElevationMm: 0, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
     document.entityLayers.shore = 'objects'
@@ -188,7 +189,7 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     const preview = previewOutdoorCommands(input.document, commands, runtime()), next = applyCompositionCommands(input, commands, runtime())
     expect(preview.reason).toBeNull()
     expect(preview.commandCost).toBe(terrainCommandCost(input.document, next.document).total)
-    expect(next.document.generation!.ownership.shoreOwner.manualFields).toContain('geometry')
+    expect(getLegacyGeneration(next.document)!.ownership.shoreOwner.manualFields).toContain('geometry')
     expect(preview.commandCost).toBeGreaterThan(2)
     expect(canonicalJson(input)).toBe(before)
   })

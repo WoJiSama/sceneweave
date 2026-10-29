@@ -57,6 +57,21 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m21-ai-conversation.
 
 ai:test覆盖共享草稿/后端/provider/客户端；本机原子采用另运行`npx vitest run src/application/workspace/atomic.test.ts src/application/workspace/workspace.test.ts src/platform/browser/storage/repository.test.ts --maxWorkers=1`。Chrome使用真实HTTP/SSE/SQLite和受控模型替身，普通测试不调用真实模型。`npm run build`和typecheck也检查服务类型；ai:build另输出被忽略的dist-ai。确需验证真实渠道时，在编译后明确运行`node --env-file=.env.ai tools/testing/ai-provider-probe.mjs`；默认三次请求测文字和工具续答，`--interrupt-and-error`另测首段后中止及坏凭据，可能产生模型费用且无自动重试。探针不输出密钥/正文；用`--out`保存到新系统临时路径，不归档大报告。
 
+### 受控AI runner与T8定向复现
+
+新runner先运行`npm run ai:build`，再从`tools/testing/create-ai-task-runner.mjs`导入`createControlledTaskRunner(config,{cooldownMs:10000,lastCompletedAt})`；`config`和`lastCompletedAt`可省略。构造只连接私有store、provider和engine，不创建/恢复任务或发送请求；完成后调用`close()`。同一实例串行执行响应后冷却；若另起实例继续受控运行，由调用方传入确切的最近完成时间，不能假定跨进程自动共享。观察型fetch可以记录传输统计，不能再次sleep/retry。调度/计数/硬门见[05](docs/05-ai-and-generation.md#1915-按剩余时间收尾与锚点参数诊断)。已收费旧runner/unknown保持原证据，不自动恢复。
+
+T8容量和样片脚本不调用模型，启动独立Vite端口5186并阻断外部HTTP；输出仅写被忽略的work目录。使用新输出目录保留旧失败，命令串行执行：
+
+```sh
+SCENEWEAVE_EVIDENCE_DIR=work/t8-capacity-review node tools/testing/terrain-t8-review.mjs capacity
+SCENEWEAVE_EVIDENCE_DIR=work/t8-sample-review node tools/testing/terrain-t8-review.mjs samples
+npm test -- --maxWorkers=1 --testTimeout=30000 src/shared/terrain-generation/t8-fixtures.test.ts src/shared/terrain-generation/contracts.test.ts src/platform/browser/terrain-generation/client.test.ts src/application/workspace/terrain.test.ts
+npx playwright test tests/terrain-generation.spec.ts --grep T8 --project=chromium
+```
+
+容量脚本每输入仅一次开发观察，同页缓存复用；CDP只采主页面JS heap，不包含Worker/GPU/进程，也不是正式峰值或p95。样片为当前完整v3明确坐标参考，保存/包往返和实际双受众PNG均验证；不表示T9通用算法或完整v4读写器完成。当前结果及限制见[地形台账](docs/archive/terrain-validation.md#t8-20261028)。
+
 ## M3前视觉AI开发与可选截图
 
 本地开发版增加严格v2视觉工程、连续曲线/边沿、材质铺贴、局部光雾、有限滤镜与AI制作清单。既有完整v1在工作区先明确保存独立v2副本，再冻结Floor/图层/矩形/对象/素材/允许操作；AI不暗中升级。制作计划与结构诊断不代表模型已看到画面或完成审美验收。完整合同、真实模型失败/修正和本机保护采用结果见[05第19节](docs/05-ai-and-generation.md#19-m3前视觉创作的ai合同与本地真实验证)，产品范围见[视觉与素材合同](docs/14-visual-and-assets.md#doc-53)。Q2–Q5已有历史发布记录，2026-10-28任务级思考程度与基础修复仍为本地未发布改动；具体批次边界见[视觉历史台账](docs/archive/visual-quality-validation.md)。
@@ -146,7 +161,7 @@ Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为
 
 ## 当前主路径回归
 
-2026-10-28当前开发节奏为：基础修复与必要定向验证 → T8–T12开发 → T13冻结与技术回归 → M2-E统一验收 → M3。T8/T9开始实施，开发中运行与改动有关的必要定向检查和少量中性样图复核；完整Q4真实AI/局部修改、视觉回读、用户P3与正式性能集中到M2-E，不自动付费扩跑完整模型矩阵。T13的同冻结技术回归结果可直接作为M2-E证据，后续修复改变源码、素材或模型时按影响复验，未受影响结果无需重复整套。验收任务可按需求覆盖映射合并，但不得省略室内、局部、私密、保存/导出及独立任务数要求，也不拼历史数字。范围与最终入口见[55](docs/55-terrain-generation-design.md#terrain-acceptance)、[54](docs/54-reference-quality-plan.md)与[09](docs/09-quality-plan.md)。
+2026-10-28当前开发节奏为：基础修复与必要定向验证 → T8–T12开发 → T13冻结与技术回归 → M2-E统一验收 → M3。基础修复与T8开发基线已完成，T9待实施；开发中运行与改动有关的必要定向检查和少量中性样图复核；完整Q4真实AI/局部修改、视觉回读、用户P3与正式性能集中到M2-E，不自动付费扩跑完整模型矩阵。T13的同冻结技术回归结果可直接作为M2-E证据，后续修复改变源码、素材或模型时按影响复验，未受影响结果无需重复整套。验收任务可按需求覆盖映射合并，但不得省略室内、局部、私密、保存/导出及独立任务数要求，也不拼历史数字。范围与最终入口见[55](docs/55-terrain-generation-design.md#terrain-acceptance)、[54](docs/54-reference-quality-plan.md)与[09](docs/09-quality-plan.md)。
 
 旧整页工作台及旧转换UI已删除，默认Playwright套件执行当前完整v1/M2旅程和仍保留的底层API用例；退休UI文件及原因见[tests/README](tests/README.md)。旧203项Chrome结果和此前首页交付39项结果都保留为历史，不能直接证明当前改动通过。以下用于M2-E全量回归或用户另行明确要求的完整回归；日常切片仅运行受影响检查，命令依次串行执行：
 

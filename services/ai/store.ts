@@ -2,8 +2,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { chmodSync, lstatSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { AI_LIMITS, TaskEventSchema, TaskSnapshotSchema, isTerminalTask, utf8Size } from '../../src/shared/ai/protocol.js'
-import type { AiError, CreateTaskRequest, TaskEvent, TaskSnapshot } from '../../src/shared/ai/protocol.js'
+import { AI_LIMITS, ReasoningEffortSchema, TaskEventSchema, TaskSnapshotSchema, isTerminalTask, utf8Size } from '../../src/shared/ai/protocol.js'
+import type { AiError, CreateTaskRequest, ReasoningEffort, TaskEvent, TaskSnapshot } from '../../src/shared/ai/protocol.js'
 import type { ProviderMessage } from './provider-types.js'
 import { PrivateArtifacts, physicalBytes } from './artifacts.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
@@ -108,7 +108,8 @@ export class TaskStore {
   private checkScene(owner: string, sceneId: string | undefined, except?: string) {
     if (sceneId && this.db.prepare("SELECT 1 FROM tasks WHERE owner=? AND scene_id=? AND id<>? AND status IN ('running','paused','waiting_browser','ready','applying') LIMIT 1").get(owner, sceneId, except ?? '')) throw new TaskFault('scene_task_active')
   }
-  create(owner: string, request: CreateTaskRequest, maxConcurrent: number): { task: StoredTask; created: boolean } {
+  create(owner: string, request: CreateTaskRequest, maxConcurrent: number, defaultReasoningEffort: ReasoningEffort | null = null): { task: StoredTask; created: boolean } {
+    if (!ReasoningEffortSchema.optional().safeParse(request.reasoningEffort).success || !ReasoningEffortSchema.nullable().safeParse(defaultReasoningEffort).success) throw new TaskFault('invalid_request', 400)
     this.sweep()
     const serialized = JSON.stringify(request), fingerprint = createHash('sha256').update(serialized).digest('hex')
     const prior = this.db.prepare('SELECT data FROM tasks WHERE owner=? AND request_id=?').get(owner, request.clientRequestId) as { data: string } | undefined
@@ -118,7 +119,7 @@ export class TaskStore {
     this.checkScene(owner, request.context?.sceneId)
     const now = this.now(), id = randomUUID()
     const task: StoredTask = { owner, fingerprint, messages: [{ role: 'system', content: system }, { role: 'user', content: request.prompt }], calls: {}, runtimeMs: 0, runStartedAt: now, outputBytes: 0, toolAttempts: 0, completedRequests: 0, pendingText: '',
-      snapshot: { schemaVersion: 1, id, clientRequestId: request.clientRequestId, context: request.context, status: 'running', generation: 1, lastSequence: 0,
+      snapshot: { schemaVersion: 1, id, clientRequestId: request.clientRequestId, context: request.context, reasoningEffort: request.reasoningEffort ?? defaultReasoningEffort, status: 'running', generation: 1, lastSequence: 0,
         text: '', tools: [], usage: { inputTokens: null, outputTokens: null, requests: 0, unknown: true }, error: null, createdAt: now, updatedAt: now, expiresAt: now + AI_LIMITS.retentionDays * 86400000 } }
     if (request.authoring) {
       try {

@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { z } from 'zod'
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
@@ -159,7 +160,7 @@ const outputRefs = (scene: SceneDocument): GenerationReference[] => {
 }
 const refreshRegionalOutputs = (scene: SceneDocument, before: SceneDocument, birthToken: string) => {
   detachChangedOutputs(before, scene)
-  const generation = scene.generation!, rule = Object.values(generation.rules).find(rule => rule.kind === 'regional')
+  const generation = getLegacyGeneration(scene)!, rule = Object.values(generation.rules).find(rule => rule.kind === 'regional')
   if (!rule) return
   const existing = new Set(Object.values(generation.ownership).map(owner => canonicalJson(owner.target)))
   for (const ref of outputRefs(scene)) {
@@ -298,7 +299,7 @@ const publicFeatureSnapshot = (parent: SceneDocument, selection: BoundsMm, inclu
       positionMm: { x: symbol.positionMm.x - selection.x, y: symbol.positionMm.y - selection.y }, visualBoundsMm: cloneJson(symbol.visualBoundsMm), orientation: symbol.orientation,
       renderOrder: symbol.renderOrder, managementKey: symbol.managementKey, sourceRef: cloneJson(symbol.sourceRef) },
   })
-  for (const constraint of Object.values(parent.generation?.constraints ?? {})) if (constraint.kind === 'port' && (includePrivate || constraint.visibility === 'public') && within(constraint.positionMm, selection)) inherited.push({
+  for (const constraint of Object.values(getLegacyGeneration(parent)?.constraints ?? {})) if (constraint.kind === 'port' && (includePrivate || constraint.visibility === 'public') && within(constraint.positionMm, selection)) inherited.push({
     id: `${constraint.id}-source`, kind: 'port', sourceEntityId: constraint.id, visibility: constraint.visibility,
     pointsMm: [{ x: constraint.positionMm.x - selection.x, y: constraint.positionMm.y - selection.y }], terrainKind: 'port', widthMm: constraint.widthMm,
     elevationMm: null, precisionMm: regional.profile.simplificationErrorMm, estimated: false, directionDeg: constraint.directionDeg,
@@ -349,7 +350,7 @@ export function prepareRegionalDrillDown(base: SceneDocument, rawInput: unknown)
   scene.generation = createEmptyGeneration()
   const sourceContentHash = sha256Text(canonicalJson(base)), publicInputHash = sha256Text(canonicalJson({ selection, inherited: publicPayload }))
   const link: SourceRegionLink = { version: 2, id: `source-region-${request.operationId}`, sourceSceneId: base.sceneId, sourceRevision: base.revision, sourceContentHash, selectionMm: cloneJson(selection), translationMm: { x: selection.x === 0 ? 0 : -selection.x, y: selection.y === 0 ? 0 : -selection.y }, publicInputHash, inherited, recipeRefs: [] }
-  scene.generation.sourceLinks[link.id] = link
+  getLegacyGeneration(scene)!.sourceLinks[link.id] = link
   const result = validateSceneDocument(scene); if (!result.ok) throw new Error(`区域下钻候选无效：${result.errors.map(error => `${error.code}:${error.message}`).join('；')}`)
   const cost = assertTerrainBudget(base, result.document)
   return { request, document: result.document, sourceLink: link, cost, hash: sha256Text(canonicalJson({ request, document: result.document, cost })) }

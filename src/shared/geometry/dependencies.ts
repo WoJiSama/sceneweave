@@ -80,7 +80,7 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
     if (new Set(definition.members.map(item => item.key)).size !== definition.members.length) error('DUPLICATE_TEMPLATE_KEY', '组合模板的子项 key 必须唯一。', definition.id)
     for (const member of definition.members) checkAppearance(member.propTemplate.appearance, member.propTemplate.definitionRef, definition.id)
   }
-  if(scene.schemaVersion===3 && scene.regional) for(const definition of Object.values(scene.regional.symbolDefinitions)) { adopted('regionalSymbolDefinition',definition); useAsset(definition.assetId,definition.id) }
+  if(scene.schemaVersion>=3 && scene.regional) for(const definition of Object.values(scene.regional.symbolDefinitions)) { adopted('regionalSymbolDefinition',definition); useAsset(definition.assetId,definition.id) }
   for (const theme of Object.values(scene.styleThemes)) {
     adopted('styleTheme', theme)
     for (const ref of theme.materialSuggestions) checkVersion(ref, scene.materials, theme.id)

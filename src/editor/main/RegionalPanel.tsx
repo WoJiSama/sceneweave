@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Map, MapPin, Route, Trees } from 'lucide-react'
 import type { PointMm, SceneDocument } from '../../shared/model/scene.js'
@@ -49,7 +50,7 @@ export default function RegionalPanel({ document, busy, error, candidate, source
   const [selectionMm, setSelection] = useState({ x: 0, y: 0, width: 500_000, height: 500_000 }), [localError, setLocalError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false), [dirty, setDirty] = useState(false), [submittedKey, setSubmittedKey] = useState<string | null>(null)
   const operation = useRef(newId()), sceneId = document?.sceneId, regional = document?.mapMode === 'regional' ? document.regional : null
-  const source = Object.values(document?.generation?.sourceLinks ?? {})[0]
+  const source = Object.values(getLegacyGeneration(document ?? {})?.sourceLinks ?? {})[0]
   const key = JSON.stringify({ preset, seed, widthKm, heightKm, draft, selectionMm })
   const matches = !!candidate && key === submittedKey
   useEffect(() => { setDraft(null); setSelected(''); setDirty(false); setSubmittedKey(null); setConfirmed(false); operation.current = newId(); if (document) setSelection({ x: document.exportBoundsMm.x, y: document.exportBoundsMm.y, width: Math.min(500_000, document.exportBoundsMm.width), height: Math.min(500_000, document.exportBoundsMm.height) }) }, [sceneId])

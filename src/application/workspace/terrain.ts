@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import type { EditableProject } from './project.js'
 import { captureEditableDraft, validateEditableProject } from './project.js'
 import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
@@ -12,10 +13,11 @@ import { composeTerrainDocument, emptyTerrainDocument } from '../../shared/terra
 import type { terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 import { assertTerrainBudget } from '../../shared/terrain-generation/cost.js'
 import { emptyVisualSystem } from '../../shared/visual/types.js'
-export interface TerrainPreview {
-  project:EditableProject; input:TerrainGenerationResult['input']; result:TerrainGenerationResult
+export interface TerrainPreviewBase {
+  project:EditableProject; input:TerrainGenerationResult['input']
   cost:ReturnType<typeof terrainCommandCost>; checkpoint:number; currentSceneId:string|null; currentRevision:number|null
 }
+export type TerrainPreview=TerrainPreviewBase & ({result:TerrainGenerationResult;composition?:undefined}|{result:{plan:import('../../shared/terrain-generation/composition-field.js').TerrainCompositionPlan;route?:undefined};composition:import('../../shared/terrain-generation/composition-presets.js').CompositionPresetInput})
 export async function prepareTerrainProject(base:EditableProject,input:unknown,options:{runtime:PreparationContext;validation:CompleteValidationOptions;result?:TerrainGenerationResult}) {
   const owned=await validateEditableProject(captureEditableDraft(base),options.validation), request=terrainGenerationInputSchema.parse(captureJson(input))
   const result=generateTerrainDocument(owned.document,request)
@@ -31,7 +33,8 @@ export async function prepareTerrainProject(base:EditableProject,input:unknown,o
   // Appearance resolution is part of this initial generation, not a later
   // manual edit. Rebind the newly born ownership to the actual adopted paints.
   candidate.document.generation=captureJson(document.generation!)
-  for(const rule of Object.values(candidate.document.generation.rules)){
+  if(candidate.document.generation.version===5)throw new Error('旧生成路径不接受generation5。')
+  for(const rule of Object.values(getLegacyGeneration(candidate.document)!.rules)){
     rule.inputHash=generationInputHash(candidate.document,rule)
     rule.managedOutputHash=managedOutputHash(candidate.document,rule)
   }

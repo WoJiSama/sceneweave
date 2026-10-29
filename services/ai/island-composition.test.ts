@@ -38,10 +38,10 @@ describe('read-only terrain proposal shape measurements at the AI service bounda
     const expected = proposeAuthoringTerrainBoundary(replayed.project, authoring.start.scope.visual!, new Set(authoring.state.changedIds), query)
     const proposal = run('sceneweave_propose_boundary', query, 'proposal')
     expect(proposal.success).toBe(true)
-    expect(Buffer.byteLength(proposal.output)).toBeLessThan(8192)
+    expect(Buffer.byteLength(JSON.stringify(proposal))).toBeLessThanOrEqual(8192)
     const receipt = JSON.parse(proposal.output)
     expect(receipt.candidateOperation).toEqual(expected.candidateOperation)
-    expect(receipt).toMatchObject({ previewValid: true, atDraftRevision: authoring.state.draftRevision, atContentHash: authoring.state.contentHash,
+    expect(receipt).toMatchObject({ editHint: expect.stringContaining('{"operations":[candidateOperation]}'), previewValid: true, atDraftRevision: authoring.state.draftRevision, atContentHash: authoring.state.contentHash,
       shapeReview: { sourceAnchorCount: 8, anchorsPreserved: true, appearance: 'unconfirmed', sourceCorners: { concave: expect.any(Number) } } })
     expect(receipt.shapeReview.sourceCorners.concave).toBeGreaterThan(0)
     expect(canonicalJson(task)).toBe(before)
@@ -51,6 +51,26 @@ describe('read-only terrain proposal shape measurements at the AI service bounda
     expect(receipt.remainingOperationsAfterEdit).toBe(256 - fullPreview.state.operationCost)
     expect(run('sceneweave_edit_scene', { operations: [receipt.candidateOperation] }, 'adopt').success).toBe(true)
     expect(authoring.state.operationCost).toBe(fullPreview.state.operationCost)
+  })
+
+  it('rejects wrapper and null-field mistakes atomically with a safe exact-shape hint, then accepts the unchanged candidate', () => {
+    const { task, run } = fixture(), proposal = run('sceneweave_propose_boundary', { areaId: 'real-land', boundaryId: 'real-coast' })
+    expect(proposal.success).toBe(true)
+    const { candidateOperation } = JSON.parse(proposal.output), before = canonicalJson(task)
+    for (const operation of [
+      { kind: 'visualBoundary', candidateOperation },
+      { kind: 'visualBoundary', boundary: { ...candidateOperation, id: 'PRIVATE_WRAPPER_VALUE' } },
+      { ...candidateOperation, binding: null },
+    ]) {
+      const rejected = run('sceneweave_edit_scene', { operations: [operation] })
+      expect(rejected.success).toBe(false)
+      expect(JSON.parse(rejected.output)).toMatchObject({ error: { code: 'invalid_arguments', hint: expect.stringContaining('{"operations":[candidateOperation]}') } })
+      expect(rejected.output).not.toContain('PRIVATE_')
+      expect(canonicalJson(task)).toBe(before)
+    }
+    const accepted = run('sceneweave_edit_scene', { operations: [candidateOperation] })
+    expect(accepted.success).toBe(true)
+    expect(task.authoring!.state.draftRevision).toBe(2)
   })
 
   it('refuses ungranted and private targets without returning shape measurements or identifying them', () => {

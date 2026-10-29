@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import type { ProjectData } from '../model/project.js'
 import { LAYER_ENTITY_COLLECTIONS, type SceneDocument } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -10,6 +11,7 @@ import { visualBase } from '../visual/base.js'
 import { generateTerrainDocument } from '../terrain-generation/generate.js'
 import { composeTerrainDocument } from '../terrain-generation/compose.js'
 import { prepareTerrainEdit } from '../terrain-generation/edit.js'
+import { prepareTerrainLocalRefresh } from '../terrain-generation/local.js'
 import { prepareRegionalAuthoring, prepareRegionalEdit, prepareRegionalDrillDown, regionalAuthorizedSubsetHash } from '../terrain-generation/regional-authoring.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { regionalEntityVisibility } from '../terrain-generation/integrity.js'
@@ -27,6 +29,7 @@ const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJ
 function entities(scene: SceneDocument): Map<string, { id: string; floorId?: string; layerId?: string; visibility?: string; editLocked?: boolean }> {
   const visual = visualBase(scene)
   const collections = [...LAYER_ENTITY_COLLECTIONS.map(key => scene[key]), ...Object.values({ boundaries: visual?.boundaries, edgeLooks: visual?.edgeLooks, lights: visual?.lights, fogs: visual?.fogs, filters: visual?.filters,
+    transitions: scene.visual?.version === 3 ? scene.visual.transitions : undefined,
     materializedEdges: scene.visual?.version === 2 ? scene.visual.materializedEdges : undefined, areas: scene.regional?.areas, lines: scene.regional?.lines, landmarks: scene.regional?.landmarks, symbols: scene.regional?.symbols })]
   return new Map(collections.flatMap(rows => Object.values(rows ?? {})).map(row => [row.id, row]))
 }
@@ -41,10 +44,10 @@ function assertGrant(project: ProjectData, scope: SceneAuthoringScope, allowed: 
       else assertPublicSceneEntity(project, scope, id)
     } catch { restricted() }
   }
-  for (const collection of [project.document.generation?.rules, project.document.generation?.constraints, project.document.generation?.intents, project.document.generation?.exclusions]) {
+  for (const collection of [getLegacyGeneration(project.document)?.rules, getLegacyGeneration(project.document)?.constraints, getLegacyGeneration(project.document)?.intents, getLegacyGeneration(project.document)?.exclusions]) {
     for (const row of Object.values(collection ?? {})) if (row.visibility !== 'public' || 'editLocked' in row && row.editLocked) restricted()
   }
-  if (Object.values(project.document.generation?.sourceLinks ?? {}).some(link => link.inherited.some(row => row.visibility !== 'public'))) restricted()
+  if (Object.values(getLegacyGeneration(project.document)?.sourceLinks ?? {}).some(link => link.inherited.some(row => row.visibility !== 'public'))) restricted()
 }
 function assertOutputs(before: ProjectData, document: SceneDocument, scope: SceneAuthoringScope, allowed: ReadonlySet<string>) {
   const original = entities(before.document), layerIds = new Set([scope.layerId, ...(scope.generationLayerIds ?? [])])
@@ -78,7 +81,8 @@ function finish(project: ProjectData, document: SceneDocument, context: Preparat
 }
 export function applyTerrainAuthoringOperation(project: ProjectData, scope: SceneAuthoringScope, raw: TerrainAuthoringOperation, context: PreparationContext, allowed: ReadonlySet<string>) {
   const operation = TerrainAuthoringOperationSchema.parse(raw), before = project.document
-  if (project.schemaVersion !== 3 || before.schemaVersion !== 3 || !scope.operations.includes(operation.kind)) restricted()
+  const local = operation.kind === 'terrainLocal'
+  if ((local ? project.schemaVersion !== 4 || before.schemaVersion !== 4 : project.schemaVersion !== 3 || before.schemaVersion !== 3) || !scope.operations.includes(operation.kind)) restricted()
   assertGrant(project, scope, allowed)
   let document: SceneDocument, cost: number
   if (operation.kind === 'terrainGenerate') {
@@ -93,6 +97,10 @@ export function applyTerrainAuthoringOperation(project: ProjectData, scope: Scen
     if (request.sceneId !== before.sceneId || request.floorId !== scope.floorId || !boundsContains(scope.boundsMm, request.scopeMm)) restricted()
     if (request.kind === 'brush' && request.materialRef && !scope.materialIds.includes(request.materialRef.id)) restricted()
     const result = prepareTerrainEdit(before, request); document = result.document; cost = result.cost.total
+  } else if (operation.kind === 'terrainLocal') {
+    const request = operation.request
+    if (request.sceneId !== before.sceneId || !boundsContains(scope.boundsMm, request.scopeMm)) restricted()
+    const result = prepareTerrainLocalRefresh(before, request); document = result.document; cost = result.cost.total
   } else if (operation.kind === 'regionalGenerate') {
     const request = operation.request
     if (request.sceneId !== before.sceneId || entities(before).size || request.operations?.length || request.selectionMm || !boundsContains(scope.boundsMm, before.exportBoundsMm)
@@ -147,7 +155,7 @@ export function regionalSceneCandidate(project: ProjectData, scope: SceneAuthori
   // unselected fixed definitions must not influence the candidate hash.
   regional.symbolDefinitions = Object.fromEntries(Object.entries(regional.symbolDefinitions).filter(([id]) => selectedDefinitionIds.has(id)))
   // Rebuild only the public generation snapshot. Full source hashes remain private.
-  const generation = scene.generation!
+  const generation = getLegacyGeneration(scene)!
   generation.rules = {}; generation.ownership = {}; generation.checks = {}; generation.intents = {}; generation.exclusions = {}; generation.sourceLinks = {}
   // Only ports referenced by selected, authorized lines are part of their
   // dependency closure. Other public constraints are not implicitly granted.
@@ -164,7 +172,7 @@ export function regionalSceneCandidate(project: ProjectData, scope: SceneAuthori
   // was copied, without hashing unrelated parent document or catalog data.
   const link = result.sourceLink
   link.sourceContentHash = regionalAuthorizedSubsetHash(scene, link)
-  result.document.generation!.sourceLinks[link.id].sourceContentHash = link.sourceContentHash
+  getLegacyGeneration(result.document)!.sourceLinks[link.id].sourceContentHash = link.sourceContentHash
   result.hash = sha256Text(canonicalJson({ request: result.request, document: result.document, cost: result.cost }))
   return result
 }

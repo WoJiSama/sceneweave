@@ -17,7 +17,7 @@ export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'his
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'asset' | 'license' | 'source'
 export interface ManifestEntry { path: string; role: PackageRole; sha256: string; sizeBytes: number; mimeType: string }
 export interface ProjectManifest {
-  format: 'sceneweave-complete-project'; schemaVersion: 1 | 2 | 3; application: 'Sceneweave'; applicationVersion: string
+  format: 'sceneweave-complete-project'; schemaVersion: 1 | 2 | 3 | 4; application: 'Sceneweave'; applicationVersion: string
   packageMode: 'complete' | 'history'; sceneId: string; revision: number; entries: ManifestEntry[]
   assetRecords: Record<string, AssetRecord>; licenseBindings: LicenseBinding[]
 }
@@ -82,7 +82,7 @@ function roleFor(path: string, mimeType: string, hash: string, mode: ProjectMani
 }
 function readManifest(input: unknown): ProjectManifest {
   if (!hasExactKeys(input, ['format', 'schemaVersion', 'application', 'applicationVersion', 'packageMode', 'sceneId', 'revision', 'entries', 'assetRecords', 'licenseBindings'])
-    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 || input.application !== 'Sceneweave'
+    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== 4 || input.application !== 'Sceneweave'
     || input.packageMode !== 'complete' && input.packageMode !== 'history'
     || !nonempty(input.applicationVersion, 100) || !nonempty(input.sceneId) || !Number.isSafeInteger(input.revision) || Number(input.revision) < 0
     || !Array.isArray(input.entries) || input.entries.length < 4 || input.entries.length >= PACKAGE_LIMITS.entries) return failPackage('manifest格式、版本、字段或身份无效。')

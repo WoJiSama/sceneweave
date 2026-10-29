@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   AI_LIMITS, CreateTaskSchema, isTerminalTask, utf8Size,
-  type ConnectionInfo, type CreateTaskRequest, type TaskContext, type TaskSnapshot, type TaskStatus,
+  type ConnectionInfo, type CreateTaskRequest, type ReasoningEffort, type TaskContext, type TaskSnapshot, type TaskStatus,
 } from '../../shared/ai/protocol'
 import { AiClient, AiClientError, describeTaskError, safeAiError } from '../../platform/browser/ai/client'
 import AiAuthoringPane, { type AiAuthoringHost } from './AiAuthoringPane'
@@ -15,6 +15,7 @@ const labels: Record<TaskStatus, string> = { running: '正在回复', paused: '�
 const defaultUrl = () => import.meta.env.VITE_SCENEWEAVE_AI_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:8787' : '')
 const sceneOf = (context: TaskContext) => context?.sceneId ?? null
 const cancelled = (error: unknown) => error instanceof Error && error.name === 'AbortError'
+const effortLabel = (effort: ReasoningEffort | null) => effort === null ? '模型默认（未指定等级）' : ({ low: '低 · low', high: '高 · high', max: '最高 · max' })[effort]
 
 /** Conversation stays outside project/history storage. Hidden resource tabs keep this component mounted. */
 export default function AiConversationPanel({ context, disabled: externalDisabled = false, authoring }: AiConversationPanelProps) {
@@ -29,6 +30,9 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   const [startedTools, setStartedTools] = useState<{ callId: string; name: string }[]>([])
   const [deleteConfirmation, setDeleteConfirmation] = useState(false), [resumeConfirmed, setResumeConfirmed] = useState(false)
   const [resumeVision, setResumeVision] = useState(false)
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | ''>('')
+  const reasoningHintId = useId(), supportsReasoning = connection?.capabilities.taskReasoningEffort === true
+  const selectedReasoningEffort = supportsReasoning && reasoningEffort ? reasoningEffort : undefined
   const contextRef = useRef(context), sceneRef = useRef(sceneOf(context)), clientRef = useRef<AiClient | null>(null), taskRef = useRef<TaskSnapshot | null>(null)
   const operation = useRef(0), request = useRef<AbortController | null>(null), stream = useRef<AbortController | null>(null), mounted = useRef(true)
   contextRef.current = context; sceneRef.current = sceneOf(context)
@@ -106,7 +110,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   const send = async (retry?: CreateTaskRequest) => {
     if (!client || busy || disabled || !retry && pending || task && ['running', 'paused', 'waiting_browser', 'ready', 'applying'].includes(task.status)) return
     let payload: CreateTaskRequest
-    try { payload = retry ?? CreateTaskSchema.parse({ schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: contextRef.current }) }
+    try { payload = retry ?? CreateTaskSchema.parse({ schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: contextRef.current, ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}) }) }
     catch { setError('请输入本次对话文字，UTF-8 大小最多 16KiB。'); return }
     if (sceneOf(payload.context) !== sceneRef.current) return
     const active = client, action = begin(); stopReading(); setPending(payload)
@@ -166,12 +170,20 @@ export default function AiConversationPanel({ context, disabled: externalDisable
     </details>
     <p className="ai-disclosure">普通对话发送范围：自有后端接收本次文字及工程 ID、修订号；模型只接收对话文字和只读连接工具结果，工程 ID 与修订号仅用于后端绑定。普通对话不上传地图、素材或快照；场景草稿需另行明确授权元数据。服务器保留任务 7 日，可主动删除。</p>
     <p className="ai-context">{context ? `当前工程 ${context.sceneId} · 修订 ${context.revision}` : '未打开工程，仅发送文字。'}{connection ? ` · 文字模型 ${connection.model}${connection.visionModel ? ` · 视觉模型 ${connection.visionModel}` : ''}` : ''}</p>
+    <div className="ai-reasoning">
+      <label>新任务思考程度<select aria-label="AI 思考程度" aria-describedby={reasoningHintId} value={reasoningEffort} disabled={!supportsReasoning || busy || disabled} onChange={event => setReasoningEffort(event.target.value as ReasoningEffort | '')}>
+        <option value="">跟随服务设置{supportsReasoning ? ` · ${effortLabel(connection.reasoningEffort ?? null)}` : ''}</option>
+        <option value="low">低 · low</option><option value="high">高 · high</option><option value="max">最高 · max</option>
+      </select></label>
+      <p id={reasoningHintId}>请选择模型支持的思考程度。此设置适用于新建的对话和场景草稿；已有任务、继续和同一请求重试保持原设置。较高程度可能增加等待和用量，不保证质量或完成时间。{!supportsReasoning && (connected ? '当前后端尚不支持页面选择，请更新后端后重连。' : '连接后可选择。')}</p>
+    </div>
     {notice && <p role="status">{notice}</p>}{error && <p className="ai-error" role="alert">{error}</p>}
     <div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void list()}>查询最近任务</button>{(busy || streamState === 'connected' || streamState === 'reconnecting') && <button type="button" onClick={stopLocal}>停止本地读取</button>}{task && <button type="button" disabled={!connected || busy || disabled} onClick={() => void refresh(task.id)}>{streamState === 'disconnected' ? '重新连接' : '刷新任务'}</button>}</div>
     {tasks.length > 0 && <ul className="ai-recent" aria-label="当前工程 AI 最近任务">{tasks.map(value => <li key={value.id}><span>{new Date(value.createdAt).toLocaleString()} · {labels[value.status]}</span><button type="button" disabled={busy || disabled || !connected} aria-label={`查看任务 ${value.id}`} onClick={() => void refresh(value.id)}>查看任务</button></li>)}</ul>}
     {task && <article className="ai-task" aria-label="AI 当前任务">
       <div className="ai-task-heading"><strong>{labels[task.status]}</strong><span>{streamState === 'reconnecting' ? '连接中断，正在重连' : streamState === 'connected' ? '实时连接中' : streamState === 'disconnected' ? '连接已断开' : '检查点已保留'}</span></div>
       <small>任务 {task.id} · 发起修订 {task.context?.revision ?? '无'} · 代次 {task.generation}</small>
+      <small aria-label="当前任务思考程度">本任务思考程度：{task.reasoningEffort === undefined ? '未记录（已有任务）' : effortLabel(task.reasoningEffort)}</small>
       {task.context && context && task.context.revision !== context.revision && <p>工程已有新修订；此任务仍使用发起时的上下文。旧草稿不能覆盖新修改，需基于当前工程重新创建任务。</p>}
       <pre className="ai-response" aria-label="AI 回复文字">{task.text || '等待模型回复…'}</pre>
       {(task.tools.length > 0 || startedTools.length > 0) && <div className="ai-tools" aria-label={task.authoring ? 'AI 工具进度' : 'AI 只读工具进度'}>{startedTools.map(value => <p key={value.callId}>工具 {value.name}：执行中</p>)}{task.tools.map(value => <div key={value.callId}><strong>工具 {value.name}：{value.success ? '完成' : '失败'}</strong><pre>{value.output}</pre></div>)}</div>}
@@ -183,7 +195,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       {!deleteConfirmation ? <button type="button" className="ai-delete" disabled={!connected || busy || disabled || task.status === 'applying'} onClick={() => setDeleteConfirmation(true)}>删除服务器任务</button> : <div className="ai-delete-confirm"><p>删除会终止此任务，并删除服务器保存的对话与检查点。此操作不能恢复。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void remove()}>确认删除服务器任务</button><button type="button" disabled={busy} onClick={() => setDeleteConfirmation(false)}>保留任务</button></div></div>}
     </article>}
     {pending ? <div className="ai-pending"><p>本次创建请求尚未确认。重试使用同一个请求 ID，不会主动创建另一个任务。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void send(pending)}>重试本次发送</button><button type="button" disabled={busy} onClick={() => { setPending(null); setNotice('已停止本地重试。服务器可能已创建任务，请先查询最近任务；不会自动取消服务器任务。') }}>停止本地重试</button></div></div> : <form className="ai-compose" onSubmit={event => { event.preventDefault(); void send() }}><label>本次对话<textarea aria-label="AI 对话输入" value={prompt} maxLength={AI_LIMITS.promptBytes} disabled={busy || disabled} placeholder="描述你的想法，或请求检查连接…" onChange={event => setPrompt(event.target.value)} /></label><small>{promptBytes}/{AI_LIMITS.promptBytes} 字节</small>{activeTask && <p>当前任务尚未结束。暂停后可补充并明确继续，或取消后再发送新任务。</p>}<button type="submit" disabled={!connected || busy || disabled || !!activeTask || !prompt.trim() || promptBytes > AI_LIMITS.promptBytes}>发送新任务</button></form>}
-    <AiAuthoringPane visionEnabled={connection?.capabilities.vision === 'enabled'} client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
+    <AiAuthoringPane reasoningEffort={selectedReasoningEffort} visionEnabled={connection?.capabilities.vision === 'enabled'} client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
     <p className="ai-footnote">草稿支持明确授权的物件、建筑、室外、组合、散布、主持人文字，以及 SVG 制作和素材风格同化。隐藏面板保留对话；断开连接或切换工程只停止本地读取，取消服务器任务请使用“取消任务”。</p>
   </section>
 }

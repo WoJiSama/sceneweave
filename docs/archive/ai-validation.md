@@ -281,3 +281,21 @@ Q3回执原子性/私密计数修复后的该冻结为1631/1631单元、230/230 
 ## 贡献说明中的历史模型与回归摘要
 
 组合候选工具向provider同时提供根`type:object`、分支属性并集、必填`kind`和`additionalProperties:false`，原严格`oneOf`分支及运行时校验保持。该兼容适配后的GLM v4确实返回有效候选并生成部分可编辑内容；旧v3的两次实际参数`{}`仍保留为失败，尚无证据证明根schema是其唯一原因。v4随后HTTP429/errorcode1305（官方定义为模型过载）/unknown、其余八任务未执行，完整创作与视觉验收仍开放。最新串行AI277/277、最终真实HTTP浏览器专项10/10、86共享边界及正常前后端构建通过；完整Chrome142/142运行期间后端有变更，各批冻结边界分别保留，详[54第13.4节](visual-quality-validation.md#doc-54-134-bigmodel分模型独立验收组)及第14节。正常生产11步独立复跑通过（262.092秒），首轮画布默认5秒等待超时与仅脚本延长为90秒的修正保留。严格v2正式性能正在独占运行，结果另见34，不用旧完整v1结果代替。
+
+<a id="foundation-20261028"></a>
+## 2026-10-28 基础修复与必要验证
+
+本批按用户要求先完成模型连接、任务思考程度和超时调度，再进入T8；不执行完整Q4、最终视觉、P3或正式性能，也未部署。当前页面与服务的任务级`low/high/max`在创建事务中冻结，幂等、暂停续答和重启继续使用该任务设置。工具目录按冻结范围裁剪，边界配方保留短路径；它们与本批调度一并接受受影响检查。
+
+`TaskEngine`现在先等待调度名额，再读取剩余时间、选择工具、构造payload并增加请求计数。等待仍消耗原任务300秒执行预算，但尚未发送时不计付费尝试；排队超时为`not_sent`，已发送而结果不明仍为`unknown`，没有自动重试。创作收尾窗口为`min(30000ms, executionMs/10) + cooldownMs`，当前300秒/10秒冷却对应40秒；16请求、64工具、256实际展开等硬门保持。`createControlledTaskRunner`接通真实store/provider/engine与共享串行冷却，默认响应结束后10秒，支持取消和释放；导入/构造本身不创建或恢复任务、不发送请求。跨实例继续运行须由调用方传入确切`lastCompletedAt`，不声称跨进程自动协调；fetch替身不能再隐藏sleep/retry。实现与复现入口见[贡献说明](../../CONTRIBUTING.md#受控ai-runner与t8定向复现)，合同见[05](../05-ai-and-generation.md#1915-按剩余时间收尾与锚点参数诊断)。
+
+| 本批检查 | 实际结果与边界 |
+|---|---|
+| AI受影响单元 | `task-runner/request-scheduler/authoring/app/reasoning-task/config/chat-provider`共7文件169/169，39.57秒，exit 0；使用`vitest.ai.config.ts`和30000ms用例超时 |
+| 最终受控时钟复验 | 仅将HTTP fixture时钟完全受控后，`task-runner/request-scheduler`2文件10/10，3.12秒，exit 0；不与上一批累加为179项 |
+| 真实浏览器/服务 | `m21-ai-conversation`和`m22-ai-authoring`同次8/8，约1.2分钟；真实HTTP/CORS/SSE、SQLite、页面思考设置、暂停续答/保护采用，使用受控provider，0真实模型请求 |
+| 类型、构建、共享边界 | `npm run build`与`npm run ai:build`通过；T8新增测试收尾后的`npm run typecheck`通过；`npm run check:shared`通过108模块及原生ESM往返。保留既有Zod注释/大chunk提示；构建不是性能结论 |
+
+首轮浏览器6通过/2失败：暂停用例对创建响应调用`response.json()`时CDP正文不可取回。测试改为核对真实POST的`clientRequestId`、HTTP 201及同一服务权威store中的确切任务snapshot，保留产品HTTP/UI路径；上述8/8为修正后的独立完整复跑，不拼接首轮数字。最终日志在本机`/tmp/sceneweave-foundation-browser-final.log`，首轮及最终浏览器产物分别保留在被忽略的`work/foundation-t8/`目录。前后端构建日志为`/tmp/sceneweave-foundation-t8-build.log`，最终类型检查为`/tmp/sceneweave-foundation-t8-typecheck-final.log`；AI两批结果由工具退出回执记录，没有为补磁盘日志重跑。
+
+本批没有新增付费模型请求。同日早先low短文字连接7.239秒、HTTP200/stop、29输入/7输出tokens属于[此前连接探针](visual-quality-validation.md#doc-54-1313-页面思考程度与超时时间线)，只证明当次连接，不证明新调度真实付费创作通过。旧已收费runner、unknown及未执行任务保持各自记录，不自动恢复或重发。后续T8证据见[地形台账](terrain-validation.md#t8-20261028)；完整AI/视觉与交付验收仍从[55统一入口](../55-terrain-generation-design.md#terrain-acceptance)进入M2-E。

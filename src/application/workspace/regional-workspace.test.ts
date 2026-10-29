@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import { Workspace } from './workspace.js'
 import { fromBundle, toBundle, type EditableProject } from './project.js'
 import { fixture, NOW, pixelPng, runtime, validation } from './test-fixtures.js'
@@ -100,7 +101,7 @@ describe('T5 protected regional workspace and independent child', () => {
     const adopted = await workspace.adoptRegional(preview); await adopted.save
     expect(snapshot).toHaveBeenCalledTimes(1); expect(guard).toHaveBeenCalledTimes(1)
     expect(workspace.getDocument()!.revision).toBe(revision + 1); expect(workspace.getDocument()!.sceneId).toBe(before.sceneId)
-    expect(Object.values(workspace.getDocument()!.generation!.ownership).some(row => row.state === 'manual' && row.manualFields.includes('properties'))).toBe(true)
+    expect(Object.values(getLegacyGeneration(workspace.getDocument()!)!.ownership).some(row => row.state === 'manual' && row.manualFields.includes('properties'))).toBe(true)
     const protection = await repo.loadSnapshot(before.sceneId, adopted.protection!.id)
     expect(protection!.bundle.project.document).toEqual(before)
     workspace.undo(); expect(workspace.getDocument()!.revision).toBe(revision + 2); expect(workspace.getDocument()!.regional).toEqual(before.regional)
@@ -127,7 +128,7 @@ describe('T5 protected regional workspace and independent child', () => {
     expect(preview.document.mapMode).toBe('scene'); expect(preview.document.regional).toBeNull()
     expect(Object.keys(preview.document.terrainAreas).length).toBeGreaterThan(1)
     expect(Object.keys(preview.document.paths).length).toBeGreaterThan(0)
-    const source = Object.values(preview.document.generation!.sourceLinks)[0]
+    const source = Object.values(getLegacyGeneration(preview.document)!.sourceLinks)[0]
     expect('version' in source && source.version).toBe(2)
     expect(source.translationMm).toEqual({ x: -100000, y: -100000 }); expect(source.inherited.every(row => row.visibility === 'public')).toBe(true)
     expect(source.inherited.some(row => row.kind === 'symbol' && 'symbol' in row && row.symbol.definition.id === row.symbol.definitionRef.id)).toBe(true)
@@ -235,7 +236,7 @@ describe('T5 protected regional workspace and independent child', () => {
     expect(Object.values(child.document.regions).filter(region => region.kind === 'manualMask')).toHaveLength(3)
     for (const id of ['regional-private-road', 'regional-private-landmark', 'regional-private-symbol']) {
       expect(child.materialization!.entries.find(entry => entry.sourceFeatureId === `${id}-source`)?.status).toBe('materialized')
-      expect(Object.values(child.document.generation!.sourceLinks).some(link => link.inherited.some(feature => feature.sourceEntityId === id))).toBe(true)
+      expect(Object.values(getLegacyGeneration(child.document)!.sourceLinks).some(link => link.inherited.some(feature => feature.sourceEntityId === id))).toBe(true)
     }
     const player = projectScene(child.document, 'player'), gm = projectScene(child.document, 'gm')
     expect(gm.paths.some(path => path.id.includes('regional-private-road'))).toBe(true)
@@ -323,14 +324,14 @@ describe('T5 protected regional workspace and independent child', () => {
     const child = await workspace.previewRegionalDrillDown(await palette(false), { selectionMm: { x: 100000, y: 430000, width: 20000, height: 40000 }, includePrivate: false })
     const roadEntry = child.materialization?.entries.find(entry => entry.sourceFeatureId.startsWith('regional-wide-road-source-'))
     expect(roadEntry?.status).toBe('partial')
-    expect(Object.values(child.document.generation?.constraints ?? {}).some(constraint => constraint.kind === 'port')).toBe(true)
+    expect(Object.values(getLegacyGeneration(child.document)?.constraints ?? {}).some(constraint => constraint.kind === 'port')).toBe(true)
     expect(Object.keys(child.document.paths).some(id => id.includes('regional-wide-road'))).toBe(false)
   }, 30000)
 
   it('reports a standalone inherited port as fully materialized', async () => {
     const { workspace } = await installed(), current = workspace.getState().project!, bundle = toBundle(current), project = cloneJson(bundle.project), floorId = Object.keys(project.document.floors)[0]
     const beforeDocument = cloneJson(project.document)
-    project.document.generation!.constraints['regional-standalone-port'] = {
+    getLegacyGeneration(project.document)!.constraints['regional-standalone-port'] = {
       id: 'regional-standalone-port', floorId, visibility: 'public', strength: 'soft', kind: 'port',
       positionMm: { x: 250000, y: 250000 }, directionDeg: 90, widthMm: 20000,
     }
@@ -339,7 +340,7 @@ describe('T5 protected regional workspace and independent child', () => {
     const child = await workspace.previewRegionalDrillDown(await palette(false), { selectionMm: { x: 0, y: 0, width: 500000, height: 500000 }, includePrivate: false })
     const entry = child.materialization?.entries.find(row => row.sourceFeatureId === 'regional-standalone-port-source')
     expect(entry?.status).toBe('materialized')
-    expect(Object.values(child.document.generation?.constraints ?? {}).some(row => row.kind === 'port' && row.positionMm.x === 250000)).toBe(true)
+    expect(Object.values(getLegacyGeneration(child.document)?.constraints ?? {}).some(row => row.kind === 'port' && row.positionMm.x === 250000)).toBe(true)
   }, 30000)
 
   it('keeps a materialized road centerline inside the endpoint safety inset', async () => {

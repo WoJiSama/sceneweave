@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { isProviderModel, type ChatProviderConfig } from './provider-types.js'
+import { isProviderModel, isProviderReasoningEffort, type ChatProviderConfig } from './provider-types.js'
 import { AI_LIMITS } from '../../src/shared/ai/protocol.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
 
@@ -52,6 +52,8 @@ export function loadAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
   if (!['unverified', 'disabled', 'enabled'].includes(vision)) invalid('PROVIDER_VISION')
   const preserveReasoning = read('PROVIDER_PRESERVE_REASONING') ?? 'disabled'
   if (preserveReasoning !== 'enabled' && preserveReasoning !== 'disabled') invalid('PROVIDER_PRESERVE_REASONING')
+  const reasoningEffort = read('PROVIDER_REASONING_EFFORT')
+  if (reasoningEffort !== undefined && !isProviderReasoningEffort(reasoningEffort)) invalid('PROVIDER_REASONING_EFFORT')
   const outputBudget = read('AUTHORING_OUTPUT_TOKENS')
   const authoringOutputTokens = outputBudget === undefined ? AI_LIMITS.maxOutputTokensPerRequest : Number(outputBudget)
   if ((outputBudget !== undefined && !/^[0-9]+$/.test(outputBudget)) || !Number.isInteger(authoringOutputTokens) || authoringOutputTokens < 1 || authoringOutputTokens > AUTHORING_LIMITS.maxOutputTokensPerRequest) invalid('AUTHORING_OUTPUT_TOKENS')
@@ -60,5 +62,6 @@ export function loadAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
   if (url!.username || url!.password || url!.search || url!.hash ||
     !(url!.protocol === 'https:' || url!.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url!.hostname))) invalid('PROVIDER_BASE_URL')
   return { host, port, dataDir: resolve(read('DATA_DIR') ?? 'local-data/ai'), allowedOrigins, accessTokens,
-    provider: { baseUrl: base.replace(/\/$/, ''), apiKey, model, ...(visionModel !== undefined ? { visionModel } : {}), vision: vision as 'unverified' | 'disabled' | 'enabled', preserveReasoning }, maxConcurrent: 4, authoringOutputTokens }
+    provider: { baseUrl: base.replace(/\/$/, ''), apiKey, model, ...(visionModel !== undefined ? { visionModel } : {}), vision: vision as 'unverified' | 'disabled' | 'enabled', preserveReasoning,
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) }, maxConcurrent: 4, authoringOutputTokens }
 }

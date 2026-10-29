@@ -92,6 +92,7 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
     const empty = emptyTerrainDocument(base.document)
     expect(preview.cost).toEqual(terrainCommandCost(empty, preview.project.document))
     expect(preview.cost.total).toBeLessThanOrEqual(256)
+    if (!('cost' in preview.result)) throw new Error('Expected legacy terrain generation result')
     expect(preview.cost.total).toBe(preview.result.cost.total)
     expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
     expect(saving).not.toHaveBeenCalled(); expect(await repo.list()).toEqual(list)

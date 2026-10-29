@@ -12,8 +12,8 @@ import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { RegionSceneCandidateQuerySchema } from '../../src/shared/ai/region-candidate-protocol.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
-  return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
-    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified' }, retentionDays: AI_LIMITS.retentionDays,
+  return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified', taskReasoningEffort: true }, retentionDays: AI_LIMITS.retentionDays,
     limits: { modelRequests: AI_LIMITS.modelRequests, toolCalls: AI_LIMITS.toolCalls, executionMs: AI_LIMITS.executionMs, promptBytes: AI_LIMITS.promptBytes, outputBytes: AI_LIMITS.outputBytes } })
 }
 export function authenticate(config: AiConfig, authorization: string | undefined): string | undefined {

@@ -1,5 +1,6 @@
 import { associateScenePresentations, validatePresentations } from '../appearance/presentation.js'
 import { presentationRecordSchema } from '../terrain-generation/contracts.js'
+import { validateCompositionIdentityContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
 import { cloneJson, inspectJsonInput } from './json.js'
 import { sceneSchema } from './scene.js'
@@ -114,6 +115,8 @@ export function reviseCompositionContent(input: unknown, revision: number, updat
   const current = certifyCompositionContent(input)
   const document = reviseSceneSnapshot(current.document, revision, updatedAt)
   const historyIdentity = identityInput === undefined ? current.historyIdentity : validateHistoryIdentity(identityInput, document)
+  const issues = validateCompositionIdentityContracts(document, historyIdentity)
+  if (issues.length) throw new Error(issues.map(issue => issue.message).join('；'))
   return registerContent({ document, historyIdentity, appearance: current.appearance })
 }
 
@@ -183,7 +186,7 @@ export function validateAppearanceGraph(input: unknown, document: SceneDocument)
   if (issue) throw new Error(`外观图无效：${issue.message}`)
   const parsed = nativeAppearanceGraphSchema.safeParse(input)
   if (!parsed.success) throw new Error(`外观图无效：${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
-  if ((document.schemaVersion === 3) !== (parsed.data.version === 2)) throw new Error('场景版本与appearance版本不匹配。')
+  if ((document.schemaVersion >= 3) !== (parsed.data.version === 2)) throw new Error('场景版本与appearance版本不匹配。')
   validatePresentations(parsed.data, document)
   checkGraph(parsed.data, document); return parsed.data
 }
@@ -199,6 +202,8 @@ function readCompositionDraft(input: unknown, certifyScene: boolean): Compositio
   // Identity validation may reuse only this exact privately certified scene.
   // Public drafts still receive detached mutable data, never the witness.
   const historyIdentity = validateHistoryIdentity(parsed.data.historyIdentity, checked.document)
+  const compositionIssues = validateCompositionIdentityContracts(checked.document, historyIdentity)
+  if (compositionIssues.length) throw new Error(`地貌组合回执无效：${compositionIssues.map(issue => issue.message).join('；')}`)
   const appearance = validateAppearanceGraph(parsed.data.appearance, checked.document)
   return { document: certifyScene ? checked.document : cloneJson(checked.document), historyIdentity, appearance }
 }

@@ -9,6 +9,8 @@ import { canonicalJson } from '../../src/shared/validation/json.js'
 import type { ProviderToolCall } from './provider-types.js'
 import type { StoredTask, StoredTerrainCandidate } from './store.js'
 
+const TerrainRegionOperationSchema = z.discriminatedUnion('kind', [TerrainAuthoringOperationSchema.options[1], TerrainAuthoringOperationSchema.options[2]])
+
 /** Prepares detached output and a deferred installation; caller checks the final wrapper first. */
 export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, args: unknown): { output: unknown; install?: () => void } {
   const authoring = task.authoring!, scope = authoring.start.scope.scene
@@ -18,16 +20,16 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
     const replayed = replayAuthoring(authoring.start, authoring.state.steps), scene = replayed.project.document
     const context = (publicAuthoringContext(authoring.start, authoring.state) as { scene?: { entities?: { id: string; entityKind?: string }[] } }).scene
     return { output: { mapMode: scene.mapMode ?? 'scene', completeVersion: replayed.project.schemaVersion,
-      allowedOperations: scope.operations.filter(kind => ['terrainGenerate', 'terrainEdit', 'regionalGenerate', 'regionalEdit'].includes(kind)),
+      allowedOperations: scope.operations.filter(kind => ['terrainGenerate', 'terrainEdit', 'terrainLocal', 'regionalGenerate', 'regionalEdit'].includes(kind)),
       boundsMm: scope.boundsMm, floorId: scope.floorId, layerIds: [...new Set([scope.layerId, ...(scope.generationLayerIds ?? [])])],
       publicTargets: context?.entities?.map(({ id, entityKind }) => ({ id, entityKind })).slice(0, 16) ?? [],
       readMore: 'Use bounded scene pages for actual authorized entities. Candidate preparation enforces the complete dependency closure.',
-      prerequisites: ['Complete v3 project prepared locally', 'Explicit scene operation, Floor, bounds, layers and fixed palette', 'Public complete dependency closure; restricted inputs produce a fixed rejection'],
+      prerequisites: ['Complete v3/v4 project prepared locally', 'Explicit scene operation, Floor, bounds, layers and fixed palette', 'Public complete dependency closure; restricted inputs produce a fixed rejection'],
       remainingOperations: AUTHORING_LIMITS.operations - authoring.state.operationCost, appearance: 'unconfirmed', reachability: 'not_proven',
       disposition: 'task completion is not local adoption, save, publication or P3 acceptance' } }
   }
   if (call.name === 'sceneweave_terrain_candidates' || call.name === 'sceneweave_terrain_regenerate_region') {
-    const operations = call.name === 'sceneweave_terrain_candidates' ? TerrainCandidatesArgumentsSchema.parse(args).operations : [TerrainAuthoringOperationSchema.options[1].parse(args)]
+    const operations = call.name === 'sceneweave_terrain_candidates' ? TerrainCandidatesArgumentsSchema.parse(args).operations : [TerrainRegionOperationSchema.parse(args)]
     const candidates: StoredTerrainCandidate[] = []
     for (const [index, operation] of operations.entries()) {
       // A fixed private replay step makes deterministic births independent of

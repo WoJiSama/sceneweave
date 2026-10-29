@@ -218,7 +218,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
         <button className="secondary asset-wide" disabled={disabled} onClick={() => downloadOriginal(source)}><Download size={14}/>下载迁移原件 v{source.sourceSchemaVersion} · r{source.sourceRevision}</button>
       </article>)}
     </section>}
-    {project.schemaVersion === 3 && <section className="history-originals" aria-label="升级原件归档">
+    {project.schemaVersion >= 3 && <section className="history-originals" aria-label="升级原件归档">
       <h3>升级原件 <small>{upgradeOriginals.length} 份</small></h3>
       <p className="asset-muted">独立保留升级前的工程、完整历史与资源。原件归档与当前工程包分别下载；导入只保全原件。</p>
       {upgradeOriginals.map(source => <article className="composition-diff-item" key={source.capsuleId}>

@@ -4,7 +4,7 @@ import { TERRAIN_FIXED_SEEDS, type TerrainGenerationInput } from '../../shared/t
 import './terrain-generation.css'
 
 export type TerrainGenerationKind = 'island' | 'coast' | 'river' | 'lake' | 'forest' | 'hill' | 'mixed'
-export type TerrainGenerationRequest = { seed: string; kind: TerrainGenerationKind; route?: TerrainGenerationInput['route'] }
+export type TerrainGenerationRequest = Pick<TerrainGenerationInput, 'seed' | 'kind' | 'widthMm' | 'heightMm' | 'route'>
 export const TERRAIN_GENERATION_REVIEW_SEEDS = TERRAIN_FIXED_SEEDS
 const KIND_OPTIONS: readonly { value: TerrainGenerationKind; label: string; detail: string }[] = [
   { value: 'island', label: '岩岛', detail: '海湾 · 高台 · 登高通路' },
@@ -15,6 +15,13 @@ const KIND_OPTIONS: readonly { value: TerrainGenerationKind; label: string; deta
   { value: 'hill', label: '丘陵', detail: '缓坡 · 高差 · 坡顶活动区' },
   { value: 'mixed', label: '混合', detail: '河谷 · 林地 · 高差连接' },
 ]
+const SIZE_OPTIONS = [
+  { value: '24000x18000', widthMm: 24000, heightMm: 18000 },
+  { value: '36000x20000', widthMm: 36000, heightMm: 20000 },
+  { value: '36000x36000', widthMm: 36000, heightMm: 36000 },
+  { value: '48000x36000', widthMm: 48000, heightMm: 36000 },
+  { value: '120000x90000', widthMm: 120000, heightMm: 90000 },
+] as const
 
 export interface TerrainGenerationCandidateSummary extends TerrainGenerationRequest {
   id: string
@@ -60,6 +67,9 @@ export default function TerrainGenerationPanel({
   const headingId = useId(), seedHintId = useId(), settingsHintId = useId()
   const [kind, setKind] = useState<TerrainGenerationRequest['kind']>('island')
   const [seed, setSeed] = useState<string>(TERRAIN_GENERATION_REVIEW_SEEDS[0])
+  const [size, setSize] = useState<string>(SIZE_OPTIONS[0].value)
+  const [customWidthMm, setCustomWidthMm] = useState(24000)
+  const [customHeightMm, setCustomHeightMm] = useState(18000)
   const [routeEnabled, setRouteEnabled] = useState(false)
   const [route, setRoute] = useState<NonNullable<TerrainGenerationInput['route']>>({ from: { x: 3000, y: 13500 }, to: { x: 21000, y: 13500 }, widthMm: 1000, crossing: 'ford' })
   const [pending, setPending] = useState<'generate' | 'adopt' | 'export' | null>(null)
@@ -73,13 +83,20 @@ export default function TerrainGenerationPanel({
   const occupied = busy || pending !== null
   const cleanSeed = seed.trim()
   const validSeed = cleanSeed.length > 0 && cleanSeed.length <= 128
+  const selectedSize = SIZE_OPTIONS.find(option => option.value === size)
+  const widthMm = size === 'custom' ? customWidthMm : selectedSize?.widthMm ?? 0
+  const heightMm = size === 'custom' ? customHeightMm : selectedSize?.heightMm ?? 0
+  const validSize = Number.isSafeInteger(widthMm) && widthMm >= 24000 && widthMm <= 120000
+    && Number.isSafeInteger(heightMm) && heightMm >= 18000 && heightMm <= 90000
+    && widthMm / heightMm >= 1 && widthMm / heightMm <= 1.8
   const supportsRoute = kind !== 'island' && kind !== 'coast'
   const activeRoute = supportsRoute && routeEnabled ? route : undefined
   const validRoute = !activeRoute || [route.from.x, route.from.y, route.to.x, route.to.y, route.widthMm].every(Number.isSafeInteger)
-    && route.widthMm >= 400 && route.widthMm <= 3000 && [route.from.x, route.to.x].every(value => value >= 0 && value <= 24000)
-    && [route.from.y, route.to.y].every(value => value >= 0 && value <= 18000) && (route.from.x !== route.to.x || route.from.y !== route.to.y)
+    && route.widthMm >= 400 && route.widthMm <= 3000 && [route.from.x, route.to.x].every(value => value >= 0 && value <= widthMm)
+    && [route.from.y, route.to.y].every(value => value >= 0 && value <= heightMm) && (route.from.x !== route.to.x || route.from.y !== route.to.y)
   const selectedIndex = TERRAIN_GENERATION_REVIEW_SEEDS.findIndex(value => value === cleanSeed)
-  const candidateMatches = candidate !== null && candidate.seed === cleanSeed && candidate.kind === kind && JSON.stringify(candidate.route) === JSON.stringify(activeRoute)
+  const candidateMatches = candidate !== null && candidate.seed === cleanSeed && candidate.kind === kind
+    && candidate.widthMm === widthMm && candidate.heightMm === heightMm && JSON.stringify(candidate.route) === JSON.stringify(activeRoute)
   const requestedLimit = candidate?.cost.limit ?? 256
   const costLimit = Number.isSafeInteger(requestedLimit) && requestedLimit >= 0 ? Math.min(requestedLimit, 256) : 0
   const candidateAllowed = candidate !== null && candidate.canAdopt !== false
@@ -103,9 +120,9 @@ export default function TerrainGenerationPanel({
     }
   }
   const generate = (nextSeed = cleanSeed) => {
-    if (!nextSeed.trim() || nextSeed.trim().length > 128 || !validRoute) return
+    if (!nextSeed.trim() || nextSeed.trim().length > 128 || !validSize || !validRoute) return
     setSeed(nextSeed.trim())
-    void run('generate', () => onGenerate({ seed: nextSeed.trim(), kind, ...(activeRoute ? { route: structuredClone(activeRoute) } : {}) }))
+    void run('generate', () => onGenerate({ seed: nextSeed.trim(), kind, widthMm, heightMm, ...(activeRoute ? { route: structuredClone(activeRoute) } : {}) }))
   }
   const cancel = () => {
     if (pending === 'adopt' || pending === 'export') return
@@ -120,7 +137,7 @@ export default function TerrainGenerationPanel({
       <h2 id={headingId}>生成自然地形</h2>
     </div>
     <p className="terrain-generation-intro">从岸线、河湖、森林或丘陵开始，保留高差与活动空地，生成后继续编辑。</p>
-    <form aria-label="地形生成设置" aria-busy={occupied} onSubmit={event => { event.preventDefault(); if (validSeed) generate() }}>
+    <form aria-label="地形生成设置" aria-busy={occupied} onSubmit={event => { event.preventDefault(); if (validSeed && validSize) generate() }}>
       <fieldset disabled={disabled || occupied}>
         <legend>地形类型</legend>
         <div className="terrain-generation-kinds" role="group" aria-label="地形类型">
@@ -130,11 +147,28 @@ export default function TerrainGenerationPanel({
             <span>{option.label}<small>{option.detail}</small></span>
           </button>)}
         </div>
+        <label className="terrain-generation-size">画布尺寸
+          <select aria-label="地形画布尺寸" value={size} onChange={event => {
+            if (event.target.value === 'custom' && size !== 'custom') { setCustomWidthMm(widthMm); setCustomHeightMm(heightMm) }
+            setSize(event.target.value); setLocalError(null)
+          }}>
+            {SIZE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.widthMm / 1000} × {option.heightMm / 1000} 米</option>)}
+            <option value="custom">自定义尺寸</option>
+          </select>
+        </label>
+        {size === 'custom' && <div className="terrain-generation-custom-size" role="group" aria-label="自定义地形尺寸">
+          <label>宽度（米）<input type="number" step="0.001" min="24" max="120" aria-label="地形宽度（米）" value={customWidthMm / 1000}
+            onChange={event => { setCustomWidthMm(Math.round(Number(event.target.value) * 1000)); setLocalError(null) }}/></label>
+          <label>高度（米）<input type="number" step="0.001" min="18" max="90" aria-label="地形高度（米）" value={customHeightMm / 1000}
+            onChange={event => { setCustomHeightMm(Math.round(Number(event.target.value) * 1000)); setLocalError(null) }}/></label>
+        </div>}
+        <small className="terrain-generation-hint">宽24–120米、高18–90米，宽高比1–1.8。大画布沿用同一采样与编辑量预算，细节不会随尺寸等比例增加；预览和保存可能需要更久。</small>
+        {!validSize && <p className="terrain-generation-notice" role="alert">请填写允许范围内的画布尺寸，宽高比须为1–1.8（宽度不少于高度）。</p>}
         {supportsRoute && <div className="terrain-generation-route">
           <label className="terrain-route-toggle"><input type="checkbox" aria-label="生成指定路线" checked={routeEnabled} onChange={event => setRouteEnabled(event.target.checked)}/>生成指定路线</label>
           {routeEnabled && <>
             <small>输入整数毫米坐标。先寻找可行路线，再检查道路转角和完整净宽；找不到时保留当前工程。</small>
-            {(['from', 'to'] as const).map(endpoint => <div className="terrain-route-point" key={endpoint}><span>{endpoint === 'from' ? '起点' : '终点'}</span>{(['x', 'y'] as const).map(axis => <label key={axis}>{axis.toUpperCase()}<input type="number" step="100" min="0" max={axis === 'x' ? 24000 : 18000} aria-label={`路线${endpoint === 'from' ? '起点' : '终点'}${axis.toUpperCase()}`} value={route[endpoint][axis]} onChange={event => setRoute(value => ({ ...value, [endpoint]: { ...value[endpoint], [axis]: Number(event.target.value) } }))}/></label>)}</div>)}
+            {(['from', 'to'] as const).map(endpoint => <div className="terrain-route-point" key={endpoint}><span>{endpoint === 'from' ? '起点' : '终点'}</span>{(['x', 'y'] as const).map(axis => <label key={axis}>{axis.toUpperCase()}<input type="number" step="100" min="0" max={axis === 'x' ? widthMm : heightMm} aria-label={`路线${endpoint === 'from' ? '起点' : '终点'}${axis.toUpperCase()}`} value={route[endpoint][axis]} onChange={event => setRoute(value => ({ ...value, [endpoint]: { ...value[endpoint], [axis]: Number(event.target.value) } }))}/></label>)}</div>)}
             <label>通行净宽（毫米）<input type="number" step="100" min="400" max="3000" aria-label="路线净宽" value={route.widthMm} onChange={event => setRoute(value => ({ ...value, widthMm: Number(event.target.value) }))}/></label>
             <label>渡水方式<select aria-label="路线渡水方式" value={route.crossing} onChange={event => setRoute(value => ({ ...value, crossing: event.target.value as typeof route.crossing }))}><option value="ground">只走地面</option><option value="ford">允许真实浅滩</option><option value="bridge">需要桥梁（当前未支持）</option></select></label>
             {!validRoute && <p className="terrain-generation-notice">请填写范围内的不同整数端点和400–3000毫米净宽。</p>}
@@ -145,7 +179,7 @@ export default function TerrainGenerationPanel({
             onChange={event => { setSeed(event.target.value); setLocalError(null) }}/>
         </label>
         <small id={seedHintId} className="terrain-generation-hint">相同素材和设置下，使用同一种子可重现构图。</small>
-        <button className="primary terrain-generation-submit" type="submit" disabled={!validSeed || !validRoute} aria-label="生成地形预览">
+        <button className="primary terrain-generation-submit" type="submit" disabled={!validSeed || !validSize || !validRoute} aria-label="生成地形预览">
           <RefreshCw size={14} aria-hidden="true"/>生成预览
         </button>
       </fieldset>
@@ -156,10 +190,10 @@ export default function TerrainGenerationPanel({
       <p>逐份生成并查看构图，可导出当前方案后继续比较。</p>
       <div className="terrain-generation-seeds" role="group" aria-label="五份固定地形方案">
         {TERRAIN_GENERATION_REVIEW_SEEDS.map((value, index) => <button key={value} type="button" aria-label={`生成第 ${index + 1} 份固定地形方案`}
-          aria-pressed={cleanSeed === value} disabled={disabled || occupied} onClick={() => generate(value)}>{index + 1}</button>)}
+          aria-pressed={cleanSeed === value} disabled={disabled || occupied || !validSize || !validRoute} onClick={() => generate(value)}>{index + 1}</button>)}
       </div>
       {selectedIndex >= 0 && selectedIndex < TERRAIN_GENERATION_REVIEW_SEEDS.length - 1 && <button className="secondary terrain-generation-next" type="button"
-        disabled={disabled || occupied} aria-label={`生成下一份固定地形方案 ${selectedIndex + 2}`} onClick={() => generate(TERRAIN_GENERATION_REVIEW_SEEDS[selectedIndex + 1])}>
+        disabled={disabled || occupied || !validSize || !validRoute} aria-label={`生成下一份固定地形方案 ${selectedIndex + 2}`} onClick={() => generate(TERRAIN_GENERATION_REVIEW_SEEDS[selectedIndex + 1])}>
         查看下一份<ChevronRight size={14} aria-hidden="true"/>
       </button>}
     </details>

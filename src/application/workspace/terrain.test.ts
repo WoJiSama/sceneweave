@@ -18,13 +18,15 @@ function deferred() {
   const promise = new Promise<void>(done => { resolve = done })
   return { promise, resolve }
 }
-async function setup() {
+async function setup(sourceVersion: 2 | 3 = 2) {
   const repo=new ProjectRepository({name:`terrain-workspace-${crypto.randomUUID()}`,runtime,validation});repos.push(repo)
   const workspace=new Workspace(repo,{runtime,validation});sessions.push(workspace)
   const source=await fromBundle(fixture({image:true}),validation)
   await workspace.adoptNew(source);await workspace.enableVisualCopy()
+  if(sourceVersion===3)await workspace.enableTerrainCopy()
   return {repo,workspace}
 }
+const upgradeCopy=(workspace:Workspace,sourceVersion:2|3)=>sourceVersion===3?workspace.enableCompositionCopy():workspace.enableTerrainCopy()
 afterEach(async()=>{
   for(const workspace of sessions.splice(0))await workspace.close().catch(()=>{})
   vi.restoreAllMocks()
@@ -46,14 +48,16 @@ describe('terrain complete3 boundaries and independent upgrade',()=>{
     Object.assign(legacy.document,{generation:document.generation})
     expect(()=>validateProjectData(legacy)).toThrow()
   })
-  it('upgrades an independent current copy after full source preservation and real cold read',async()=>{
-    const {repo,workspace}=await setup(),source=workspace.getState().project!,sourceId=source.document.sceneId
+  it.each([2,3] as const)('upgrades an independent strict v%s copy after full source preservation and real cold read',async(sourceVersion)=>{
+    const {repo,workspace}=await setup(sourceVersion),source=workspace.getState().project!,sourceId=source.document.sceneId
     await workspace.execute([{type:'updateProp',id:'item',changes:{rotationDeg:17}}]);await workspace.flush()
     const snapshot=await workspace.createNamedSnapshot('before terrain')
     const originalHash=projectContentHash(toBundle(workspace.getState().project!).project)
-    await workspace.enableTerrainCopy()
+    const saving=vi.spyOn(repo,'save'),loading=vi.spyOn(repo,'load')
+    await upgradeCopy(workspace,sourceVersion)
+    expect(saving).toHaveBeenCalledTimes(1);expect(loading).toHaveBeenCalledTimes(1)
     const target=workspace.getState().project!
-    expect(target.schemaVersion).toBe(3);expect(target.document.sceneId).not.toBe(sourceId)
+    expect(target.schemaVersion).toBe(sourceVersion+1);expect(target.document.sceneId).not.toBe(sourceId)
     expect(target.historyIdentity.lineageId).not.toBe(source.historyIdentity.lineageId)
     expect(target.document.props.item.rotationDeg).toBe(17)
     expect(projectContentHash((await repo.load(sourceId))!.project)).toBe(originalHash)
@@ -61,15 +65,16 @@ describe('terrain complete3 boundaries and independent upgrade',()=>{
     expect((await repo.load(target.document.sceneId))!.project).toEqual(toBundle(target).project)
     const active=workspace.getState().project;await workspace.enableTerrainCopy();expect(workspace.getState().project).toBe(active)
   })
-  it('does not switch current project if target save fails after preservation',async()=>{
-    const {repo,workspace}=await setup(),before=workspace.getState().project!
-    vi.spyOn(repo,'save').mockRejectedValueOnce(new Error('target quota'))
-    await expect(workspace.enableTerrainCopy()).rejects.toThrow(/quota/)
-    expect(workspace.getState().project).toBe(before)
-    expect((await repo.load(before.document.sceneId))!.project.schemaVersion).toBe(2)
+  it.each([2,3] as const)('does not switch strict v%s current project if target save fails after preservation',async(sourceVersion)=>{
+    const {repo,workspace}=await setup(sourceVersion),before=workspace.getState().project!,checkpoint=workspace.checkpoint()
+    const saving=vi.spyOn(repo,'save').mockRejectedValueOnce(new Error('target quota')),loading=vi.spyOn(repo,'load')
+    await expect(upgradeCopy(workspace,sourceVersion)).rejects.toThrow(/quota/)
+    expect(saving).toHaveBeenCalledTimes(1);expect(loading).not.toHaveBeenCalled()
+    expect(workspace.getState().project).toBe(before);expect(workspace.checkpoint()).toBe(checkpoint)
+    expect((await repo.load(before.document.sceneId))!.project.schemaVersion).toBe(sourceVersion)
   })
-  it.each(['preserve', 'save'] as const)('rejects manual edits and close while the upgrade %s awaits',async(stage)=>{
-    const {repo,workspace}=await setup(),before=workspace.getState().project!,checkpoint=workspace.checkpoint()
+  it.each([[2,'preserve'],[2,'save'],[3,'preserve'],[3,'save']] as const)('rejects manual edits and close while strict v%s upgrade %s awaits',async(sourceVersion,stage)=>{
+    const {repo,workspace}=await setup(sourceVersion),before=workspace.getState().project!,checkpoint=workspace.checkpoint()
     const entered=deferred(),release=deferred()
     if(stage==='preserve') {
       const preserving=repo.preserveNativeUpgrade.bind(repo)
@@ -82,7 +87,7 @@ describe('terrain complete3 boundaries and independent upgrade',()=>{
         await saving(bundle,expected,options);entered.resolve();await release.promise
       })
     }
-    const upgrading=workspace.enableTerrainCopy()
+    const upgrading=upgradeCopy(workspace,sourceVersion)
     await entered.promise
     try {
       await expect(workspace.updateProp('item',{rotationDeg:31})).rejects.toThrow(/请稍后重试/)
@@ -92,13 +97,13 @@ describe('terrain complete3 boundaries and independent upgrade',()=>{
       expect(workspace.checkpoint()).toBe(checkpoint)
       expect(workspace.getDocument()!.props.item.rotationDeg).toBe(0)
     } finally {release.resolve();await upgrading}
-    expect(workspace.getState().project!.schemaVersion).toBe(3)
+    expect(workspace.getState().project!.schemaVersion).toBe(sourceVersion+1)
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(0)
     await workspace.updateProp('item',{rotationDeg:37});await workspace.flush()
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(37)
   })
-  it('rejects a valid cold-read target whose complete content changed before installation',async()=>{
-    const {repo,workspace}=await setup(),before=workspace.getState().project!,checkpoint=workspace.checkpoint(),loading=repo.load.bind(repo)
+  it.each([2,3] as const)('rejects a valid strict v%s upgraded cold-read target whose complete content changed before installation',async(sourceVersion)=>{
+    const {repo,workspace}=await setup(sourceVersion),before=workspace.getState().project!,checkpoint=workspace.checkpoint(),loading=repo.load.bind(repo)
     let targetId=''
     vi.spyOn(repo,'load').mockImplementationOnce(async(sceneId,options)=>{
       targetId=sceneId
@@ -109,23 +114,23 @@ describe('terrain complete3 boundaries and independent upgrade',()=>{
       expect(projectContentHash(changed)).not.toBe(projectContentHash(cold.project))
       return {project:changed,resources:cold.resources}
     })
-    await expect(workspace.enableTerrainCopy()).rejects.toThrow(/冷读前已改变/)
+    await expect(upgradeCopy(workspace,sourceVersion)).rejects.toThrow(/冷读前已改变/)
     expect(workspace.getState().project).toBe(before);expect(workspace.checkpoint()).toBe(checkpoint)
-    expect((await loading(before.document.sceneId))!.project.schemaVersion).toBe(2)
+    expect((await loading(before.document.sceneId))!.project.schemaVersion).toBe(sourceVersion)
     // The target was actually saved; rejecting installation does not claim to roll back that independent result.
-    expect((await loading(targetId))!.project.schemaVersion).toBe(3)
+    expect((await loading(targetId))!.project.schemaVersion).toBe(sourceVersion+1)
     await workspace.updateProp('item',{rotationDeg:43});await workspace.flush()
     expect(workspace.getState().project!.document.sceneId).toBe(before.document.sceneId)
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(43)
   })
-  it('keeps the source open on a null cold read while retaining an already-saved independent target',async()=>{
-    const {repo,workspace}=await setup(),before=workspace.getState().project!,checkpoint=workspace.checkpoint(),loading=repo.load.bind(repo)
+  it.each([2,3] as const)('keeps strict v%s source open on a null cold read while retaining an already-saved independent target',async(sourceVersion)=>{
+    const {repo,workspace}=await setup(sourceVersion),before=workspace.getState().project!,checkpoint=workspace.checkpoint(),loading=repo.load.bind(repo)
     let targetId=''
     vi.spyOn(repo,'load').mockImplementationOnce(async sceneId=>{targetId=sceneId;return null})
-    await expect(workspace.enableTerrainCopy()).rejects.toThrow(/冷读失败/)
+    await expect(upgradeCopy(workspace,sourceVersion)).rejects.toThrow(/冷读失败/)
     expect(workspace.getState().project).toBe(before);expect(workspace.checkpoint()).toBe(checkpoint)
-    expect((await loading(before.document.sceneId))!.project.schemaVersion).toBe(2)
-    expect((await loading(targetId))!.project.schemaVersion).toBe(3)
+    expect((await loading(before.document.sceneId))!.project.schemaVersion).toBe(sourceVersion)
+    expect((await loading(targetId))!.project.schemaVersion).toBe(sourceVersion+1)
     expect((await repo.exportNativeUpgradeCapsule(targetId)).capsule.sourceSceneId).toBe(before.document.sceneId)
     await workspace.updateProp('item',{rotationDeg:47});await workspace.flush()
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(47)

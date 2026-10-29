@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
@@ -29,7 +30,7 @@ describe('T3 explicit route materialization', () => {
     expect(complete.cost.total).toBe(result.cost.total)
     expect(complete.cost.total).toBeLessThanOrEqual(256)
     expect(validateSceneDocument(complete.document).ok).toBe(true)
-    expect(complete.document.generation!.checks['terrain-route-check'].state).toBe('passed')
+    expect(getLegacyGeneration(complete.document)!.checks['terrain-route-check'].state).toBe('passed')
     if (kind === 'river' || kind === 'mixed') {
       expect(checked.supportRefs).toContainEqual({ kind: 'terrainArea', id: 'terrain-shallow' })
       expect(checked.connectionIds).toEqual(expect.arrayContaining(['terrain-shallow-left', 'terrain-shallow-right']))
@@ -63,7 +64,7 @@ describe('T3 explicit route materialization', () => {
     expect(result.document.paths['terrain-route'].supportRefs.some(ref => ref.id === 'terrain-shallow')).toBe(false)
     expect(checkTerrainRoute(result.document, { floorId: 'visual-floor', pointsMm: result.route!.pointsMm, widthMm: 1000 }).ok).toBe(true)
     const complete=composeTerrainDocument(blank(),result,'ground-birth')
-    expect(complete.document.generation!.checks['terrain-route-check'].algorithmId).toBe('terrain-route-ground')
+    expect(getLegacyGeneration(complete.document)!.checks['terrain-route-check'].algorithmId).toBe('terrain-route-ground')
     expect(validateSceneDocument(JSON.parse(canonicalJson(complete.document))).ok).toBe(true)
   }, 30000)
 
@@ -71,9 +72,9 @@ describe('T3 explicit route materialization', () => {
     const base=blank(),result=generateTerrainDocument(base,request('hill')),scene=composeTerrainDocument(base,result,'forgery-birth').document
     const prop=Object.values(scene.props)[0]
     prop.positionMm={x:18000,y:13500};prop.supportRef={kind:'terrainArea',id:'terrain-low'};prop.blocksMovement=true
-    const rule=scene.generation!.rules['terrain-rule'];rule.managedOutputHash=managedOutputHash(scene,rule)
-    for(const row of Object.values(scene.generation!.checks))row.inputHash=constraintInputHash(scene,row.constraintId)
-    const check=scene.generation!.checks['terrain-route-check']
+    const rule=getLegacyGeneration(scene)!.rules['terrain-rule'];rule.managedOutputHash=managedOutputHash(scene,rule)
+    for(const row of Object.values(getLegacyGeneration(scene)!.checks))row.inputHash=constraintInputHash(scene,row.constraintId)
+    const check=getLegacyGeneration(scene)!.checks['terrain-route-check']
     expect(checkTerrainRoute(scene,{floorId:'visual-floor',pointsMm:scene.paths['terrain-route'].centerlineMm,widthMm:1000}).ok).toBe(false)
     const loaded=validateSceneDocument(JSON.parse(canonicalJson(scene)))
     expect(loaded.ok).toBe(false)

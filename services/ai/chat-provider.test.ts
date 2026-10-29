@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { createChatProvider } from './chat-provider.js'
 import { PROVIDER_REASONING_BYTES, ProviderFailure, type ChatProviderConfig, type ProviderInput } from './provider-types.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
+import { createPublicVisionInput } from '../../src/shared/ai/vision.js'
+import { svgFixturePng } from '../../tests/helpers/m24-svg-fixtures.js'
 
 const config = { baseUrl: 'https://example.test/v1/', apiKey: 'test-key-keep-private', model: 'test-grok' }
 const tool = { name: 'connection_info', description: 'Read connection capability.', parameters: { type: 'object', properties: {}, additionalProperties: false } }
@@ -35,6 +37,105 @@ describe('chat-completions provider adapter', () => {
     expect(url).toBe('https://example.test/v1/chat/completions')
     expect(options).toMatchObject({ method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${config.apiKey}` } })
     expect(JSON.parse(options!.body as string)).toMatchObject({ model: config.model, stream: true, stream_options: { include_usage: true }, max_tokens: 128, tool_choice: 'auto', tools: [{ type: 'function', function: tool }] })
+    expect(JSON.parse(options!.body as string)).not.toHaveProperty('thinking')
+    expect(JSON.parse(options!.body as string)).not.toHaveProperty('reasoning_effort')
+  })
+  it.each(['low', 'high', 'max'] as const)('sends only the explicitly configured %s reasoning effort with thinking enabled and the unchanged output cap', async reasoningEffort => {
+    const fetcher = fakeFetch(streamingResponse(wire(event({ reasoning_content: 'PRIVATE_REASONING' }), event({ content: '公开结果' }, 'stop'), '[DONE]'))), onText = vi.fn()
+    const result = await createChatProvider({ ...config, model: 'glm-5.3', reasoningEffort }, fetcher).complete(input({ maxOutputTokens: 8192, onText }))
+    const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string)
+    expect(body).toMatchObject({ model: 'glm-5.3', thinking: { type: 'enabled' }, reasoning_effort: reasoningEffort, max_tokens: 8192 })
+    expect(body.thinking).toEqual({ type: 'enabled' })
+    expect(result).not.toHaveProperty('reasoningContent')
+    expect(onText).toHaveBeenCalledExactlyOnceWith('公开结果')
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+  it.each([undefined, 'low'] as const)('keeps visual-model selection and explicit reasoning effort independent (%s)', async reasoningEffort => {
+    const image = createPublicVisionInput(svgFixturePng(), { sceneId: 'public-scene', revision: 1, boundsMm: { x: 0, y: 0, width: 1000, height: 1000 } })
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => streamingResponse(wire(event({ content: 'public review' }, 'stop'), '[DONE]')))
+    const provider = createChatProvider({ ...config, model: 'glm-5.3', visionModel: 'glm-5.3-flash', vision: 'enabled', reasoningEffort }, fetcher)
+    const messages: ProviderInput['messages'] = [{ role: 'user', content: 'Review the public screenshot', images: [image] }]
+    await provider.complete(input({ messages, maxOutputTokens: 8192 }))
+    await provider.complete(input({ messages: [...messages, { role: 'assistant', content: 'public review' }, { role: 'user', content: 'Continue the review' }], maxOutputTokens: 8192 }))
+    for (const [, options] of fetcher.mock.calls) {
+      const body = JSON.parse(options!.body as string)
+      expect(body).toMatchObject({ model: 'glm-5.3-flash', max_tokens: 8192 })
+      expect(body.messages[0].content[1].image_url.url).toBe(`data:image/png;base64,${image.pngBase64}`)
+      if (reasoningEffort === undefined) {
+        expect(body).not.toHaveProperty('thinking'); expect(body).not.toHaveProperty('reasoning_effort')
+      } else expect(body).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: reasoningEffort })
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+  it('rejects invalid reasoning effort configuration before sending and never echoes configuration secrets', () => {
+    const fetcher = vi.fn<typeof fetch>()
+    for (const reasoningEffort of ['', ' low', 'low ', 'LOW', 'medium', 'xhigh', 'none', 'minimal', 'disabled', 'PRIVATE_INVALID_EFFORT', 1, true, null, {}, ['low']]) {
+      let error: unknown
+      try { createChatProvider({ ...config, reasoningEffort } as unknown as ChatProviderConfig, fetcher) } catch (caught) { error = caught }
+      expect(error).toBeInstanceOf(ProviderFailure)
+      expect(error).toMatchObject({ code: 'provider_config', requestState: 'not_sent', message: '模型服务配置无效。' })
+      expect(String(error)).not.toContain(config.apiKey)
+      expect(String(error)).not.toContain('PRIVATE_INVALID_EFFORT')
+    }
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it.each(['low', 'high', 'max'] as const)('lets task-level %s override the captured server level without changing the output cap', async reasoningEffort => {
+    const fetcher = fakeFetch(streamingResponse(wire(event({ content: 'public result' }, 'stop'), '[DONE]')))
+    const provider = createChatProvider({ ...config, reasoningEffort: reasoningEffort === 'max' ? 'low' : 'max' }, fetcher)
+    await provider.complete(input({ reasoningEffort, maxOutputTokens: 8192 }))
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: reasoningEffort, max_tokens: 8192 })
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+  it('keeps explicit null independent of a configured server level and leaves model thinking at its own default', async () => {
+    const fetcher = fakeFetch(streamingResponse(wire(event({ content: 'public result' }, 'stop'), '[DONE]')))
+    await createChatProvider({ ...config, reasoningEffort: 'max' }, fetcher).complete(input({ reasoningEffort: null }))
+    const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string)
+    expect(body).not.toHaveProperty('thinking'); expect(body).not.toHaveProperty('reasoning_effort')
+    expect(body).toMatchObject({ model: config.model, max_tokens: 128 })
+  })
+  it('isolates concurrent task levels and legacy server fallback without mutating inputs or active configuration', async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => { await gate; return streamingResponse(wire(event({ content: 'public result' }, 'stop'), '[DONE]')) })
+    const mutable: ChatProviderConfig = { ...config, reasoningEffort: 'high' }
+    const provider = createChatProvider(mutable, fetcher)
+    const requests = [input({ reasoningEffort: 'low' }), input({ reasoningEffort: null }), input()]
+    const before = requests.map(value => JSON.stringify(value))
+    requests.forEach(Object.freeze)
+    const pending = requests.map(value => provider.complete(value))
+    mutable.reasoningEffort = 'max'
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    release(); await Promise.all(pending)
+    const bodies = fetcher.mock.calls.map(([, options]) => JSON.parse(options!.body as string))
+    expect(bodies[0]).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: 'low' })
+    expect(bodies[1]).not.toHaveProperty('thinking'); expect(bodies[1]).not.toHaveProperty('reasoning_effort')
+    expect(bodies[2]).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: 'high' })
+    expect(requests.map(value => JSON.stringify(value))).toEqual(before)
+  })
+  it('rejects invalid task reasoning levels before fetch without echoing the submitted value or credentials', async () => {
+    const fetcher = vi.fn<typeof fetch>(), provider = createChatProvider({ ...config, reasoningEffort: 'low' }, fetcher)
+    for (const reasoningEffort of ['', ' low', 'low ', 'LOW', 'medium', 'xhigh', 'none', 'minimal', 'disabled', 'PRIVATE_INVALID_TASK_EFFORT', 1, true, {}, ['low']]) {
+      let error: unknown
+      try { await provider.complete(input({ reasoningEffort } as unknown as Partial<ProviderInput>)) } catch (caught) { error = caught }
+      expect(error).toBeInstanceOf(ProviderFailure)
+      expect(error).toMatchObject({ code: 'provider_config', requestState: 'not_sent', message: '模型服务配置无效。' })
+      expect(String(error)).not.toContain(config.apiKey)
+      expect(String(error)).not.toContain('PRIVATE_INVALID_TASK_EFFORT')
+    }
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('keeps task effort overrides separate from visual routing and private reasoning continuation', async () => {
+    const image = createPublicVisionInput(svgFixturePng(), { sceneId: 'public-scene', revision: 1, boundsMm: { x: 0, y: 0, width: 1000, height: 1000 } })
+    const onText = vi.fn(), fetcher = fakeFetch(streamingResponse(wire(event({ reasoning_content: 'NEW_PRIVATE_REASONING' }), event({ content: 'public review' }, 'stop'), '[DONE]')))
+    const provider = createChatProvider({ ...config, model: 'glm-5.3', visionModel: 'glm-5.3-flash', vision: 'enabled', preserveReasoning: 'enabled', reasoningEffort: 'max' }, fetcher)
+    const result = await provider.complete(input({ reasoningEffort: 'low', onText, messages: [
+      { role: 'user', content: 'Review', images: [image] }, { role: 'assistant', content: 'previous review', reasoningContent: 'SAVED_PRIVATE_REASONING' }, { role: 'user', content: 'Continue' },
+    ] }))
+    const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string)
+    expect(body).toMatchObject({ model: 'glm-5.3-flash', thinking: { type: 'enabled' }, reasoning_effort: 'low' })
+    expect(body.messages[1]).toMatchObject({ reasoning_content: 'SAVED_PRIVATE_REASONING' })
+    expect(result.reasoningContent).toBe('NEW_PRIVATE_REASONING')
+    expect(onText).toHaveBeenCalledExactlyOnceWith('public review')
   })
   it('assembles multiple arbitrarily fragmented tool IDs, names and JSON; preserves the continuation messages exactly', async () => {
     const first = fakeFetch(streamingResponse(wire(
@@ -62,17 +163,18 @@ describe('chat-completions provider adapter', () => {
     expect(result).not.toHaveProperty('reasoningContent')
   })
   it('preserves opaque reasoning exactly across a real protocol tool-result continuation without visible callbacks', async () => {
-    const firstText = 'private\n\t计划🌋\u0000{"tool":"not executable"}', onText = vi.fn(), mutable: ChatProviderConfig = { ...config, preserveReasoning: 'enabled' }
+    const firstText = 'private\n\t计划🌋\u0000{"tool":"not executable"}', onText = vi.fn(), mutable: ChatProviderConfig = { ...config, model: 'glm-5.3', preserveReasoning: 'enabled', reasoningEffort: 'low' }
     const events = wire(event({ reasoning_content: firstText.slice(0, 12) }), event({ reasoning_content: firstText.slice(12) }),
       event({ tool_calls: [{ index: 0, id: 'call_a', function: { name: tool.name, arguments: '{}' } }] }), event({}, 'tool_calls'), '[DONE]')
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(streamingResponse(events, 1)).mockResolvedValueOnce(streamingResponse(wire(event({ content: '公开答复' }, 'stop'), '[DONE]')))
     const provider = createChatProvider(mutable, fetcher)
-    mutable.preserveReasoning = 'disabled'
+    mutable.preserveReasoning = 'disabled'; mutable.reasoningEffort = 'max'
     const first = await provider.complete(input({ onText }))
     expect(first.reasoningContent).toBe(firstText); expect(first.text).toBe(''); expect(onText).not.toHaveBeenCalled()
     const messages: ProviderInput['messages'] = [...input().messages, { role: 'assistant', content: null, reasoningContent: first.reasoningContent, toolCalls: first.toolCalls }, { role: 'tool', content: '{"success":true}', toolCallId: 'call_a' }]
     const second = await provider.complete(input({ messages, onText }))
     const body = JSON.parse(fetcher.mock.calls[1]![1]!.body as string)
+    for (const [, options] of fetcher.mock.calls) expect(JSON.parse(options!.body as string)).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: 'low', max_tokens: 128 })
     expect(body.messages).toEqual([
       { role: 'user', content: '你好' },
       { role: 'assistant', content: null, reasoning_content: firstText, tool_calls: [{ id: 'call_a', type: 'function', function: { name: tool.name, arguments: '{}' } }] },

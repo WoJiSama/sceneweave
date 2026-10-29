@@ -2,6 +2,7 @@ import { visualBase } from './base.js'
 import type { Issue, PointMm, SceneDocument, Editable } from '../model/scene.js'
 import { sampleVisualBoundary, assertSimpleVisualPolyline, terrainBoundaryChain } from './geometry.js'
 import { VISUAL_LIMITS, type VisualBoundary, type VisualEntity } from './types.js'
+import { getLegacyVisual, legacyTerrainView } from '../terrain-generation/composition-contracts.js'
 
 export const VISUAL_ENTITY_COLLECTIONS = ['boundaries', 'edgeLooks', 'lights', 'fogs', 'filters'] as const
 export const VISUAL_FILTER_TARGET_COLLECTIONS = ['rooms', 'terrainAreas', 'walls', 'paths', 'props', 'regions', 'terrainConnections', 'prefabInstances', 'scatterGroups'] as const
@@ -17,7 +18,7 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
   if (scene.schemaVersion === 1) { if (scene.visual !== undefined) add('VISUAL_VERSION', '原生v1不能携带visual字段；请显式升级。'); return errors }
   const visual = visualBase(scene)
   if (!visual || !scene.visual) { add('VISUAL_VERSION', '视觉工程必须携带完整视觉系统。'); return errors }
-  if (scene.schemaVersion === 2 && scene.visual.version !== 1 || scene.schemaVersion === 3 && scene.visual.version !== 2) {
+  if (scene.schemaVersion === 2 && scene.visual.version !== 1 || scene.schemaVersion === 3 && scene.visual.version !== 2 || scene.schemaVersion === 4 && scene.visual.version !== 3) {
     add('VISUAL_VERSION', '视觉系统版本与场景版本不一致，不能降级读取。'); return errors
   }
   const ids = new Set<string>([scene.sceneId])
@@ -26,9 +27,9 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
     if (!Array.isArray(value)) { const record = value as Record<string, unknown>; if (typeof record.id === 'string') ids.add(record.id); if (typeof record.segmentId === 'string') ids.add(record.segmentId) }
     for (const item of Object.values(value)) visit(item)
   }
-  const { visual: _visual, ...rest } = scene; visit(rest)
-  // The visual2 wrapper is retained; its records share the global identity space.
-  if (scene.visual.version === 2) visit(scene.visual.materializedEdges)
+  const { visual: _visual, ...rest } = legacyTerrainView(scene); visit(rest)
+  // visual3 keeps visual2/materializedEdges inside its base; those records share the global identity space.
+  visit(getLegacyVisual(scene)?.materializedEdges ?? {})
   for (const collection of VISUAL_ENTITY_COLLECTIONS) for (const [key, item] of Object.entries(visual[collection])) {
     if (key !== item.id || ids.has(item.id)) add('VISUAL_ID', '视觉实体ID须等于记录键且全局唯一。', item.id)
     ids.add(item.id)

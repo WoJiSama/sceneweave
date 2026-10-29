@@ -2,6 +2,7 @@ import type { SceneDocument } from '../model/scene.js'
 import type { HistoryIdentity } from '../model/history.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import type { ExtendedIdentityToken, GenerationSystem3, GenerationSystem4 } from './contracts.js'
+import { legacyTerrainView } from './composition-contracts.js'
 import { canonicalJson } from '../validation/json.js'
 import { sha256Text } from '../geometry/scatter.js'
 export const TERRAIN_IDENTITY_FIELDS = ['generationTokens', 'regionalTokens', 'presentationTokens'] as const
@@ -14,14 +15,14 @@ export type ExtendedIdentityDescriptors = Record<string, ExtendedIdentityDescrip
 const unordered = (values: readonly unknown[]) => values.map(value => canonicalJson(value)).sort()
 
 /** Capture relationship hashes now; coordinate/style edits alone retain continuity. */
-export function extendedIdentityDescriptors(scene: Readonly<SceneDocument>): ExtendedIdentityDescriptors {
+export function extendedIdentityDescriptors(input: Readonly<SceneDocument>): ExtendedIdentityDescriptors {
   const result: ExtendedIdentityDescriptors = {}
   const add = (id: string, field: ExtendedIdentityDescriptor['field'], kind: ExtendedIdentityToken['kind'], topology: unknown) => {
     if (Object.hasOwn(result, id)) throw new Error(`新地形身份重复：${id}。`)
     result[id] = { field, kind, topologyHash: sha256Text(canonicalJson([kind, topology])) }
   }
-  if (scene.schemaVersion !== 3) return result
-  const generation = scene.generation!
+  if (input.schemaVersion !== 3 && input.schemaVersion !== 4) return result
+  const scene = legacyTerrainView(input), generation = scene.generation
   if(generation.version!==1)for(const row of Object.values(generation.strokes))add(row.id,'generationTokens','generationStroke',[row.operationId,row.floorId,row.brush,row.targetAreaId,row.pointsMm.length])
   if(generation.version>=3)for(const row of Object.values((generation as GenerationSystem3|GenerationSystem4).surroundings))add(row.id,'generationTokens','surroundingsOperation',[row.operationId,row.floorId,row.algorithmId,row.algorithmVersion,row.boundaryIds,row.preserved.map(item=>[item.collection,item.entityId])])
   if(generation.version===4)for(const row of Object.values(generation.topology))add(row.id,'generationTokens','topologyOperation',[row.request.operationId,row.floorId,row.request.operation,row.request.areaIds,row.outputAreaIds])
@@ -72,10 +73,10 @@ export function extendedIdentityDescriptors(scene: Readonly<SceneDocument>): Ext
 /** Only this captured descriptor transition grants continuity; IDs alone do not. */
 export function advanceExtendedIdentityDescriptors(identity: HistoryIdentity, before: ExtendedIdentityDescriptors, after: ExtendedIdentityDescriptors,
   context: PreparationContext, allowResurrection = false): void {
-  identity.version = 2
+  if (identity.version !== 3) identity.version = 2
   for (const field of TERRAIN_IDENTITY_FIELDS) identity[field] ??= {}
   for (const [id, descriptor] of Object.entries(after)) {
-    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id)
+    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id) || Object.hasOwn(identity.terrainTokens ?? {}, id)
       || TERRAIN_IDENTITY_FIELDS.some(field => field !== descriptor.field && Object.hasOwn(identity[field]!, id))) {
       throw new Error(`新地形出生身份与已分配身份冲突：${id}。`)
     }
@@ -91,6 +92,7 @@ export function advanceExtendedIdentityDescriptors(identity: HistoryIdentity, be
 
 export function advanceExtendedIdentities(identity: HistoryIdentity, previous: SceneDocument | null, next: SceneDocument,
   context: PreparationContext, allowResurrection = false): void {
-  if (next.schemaVersion !== 3) return
+  if (next.schemaVersion !== 3 && next.schemaVersion !== 4) return
+  if (next.schemaVersion === 4) { identity.version = 3; identity.terrainTokens ??= {} }
   advanceExtendedIdentityDescriptors(identity, previous ? extendedIdentityDescriptors(previous) : {}, extendedIdentityDescriptors(next), context, allowResurrection)
 }

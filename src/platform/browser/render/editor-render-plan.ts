@@ -49,6 +49,7 @@ export function editorPaintBounds(projection: Projection, plan: EditorRenderPlan
     padding = Math.max(padding, environment.contactShadowMm * 4)
     for (const look of projection.visual.edgeLooks) padding = Math.max(padding, look.widthMm * 2)
     for (const edge of projection.visual.materializedEdges ?? []) for (const stroke of edge.strokes) padding = Math.max(padding, stroke.widthMm / 2)
+    for (const transition of projection.visual.transitions ?? []) for (const stroke of transition.strokes) padding = Math.max(padding, stroke.widthMm / 2)
     // Light polygons use the full audience-owned occluder closure. Radial
     // gradients/fog noise use fixed world coordinates and need no light buffer.
   }

@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { generateTerrainDocument, TERRAIN_FIXED_SEEDS } from './generate.js'
@@ -80,7 +81,7 @@ describe('bounded terrain editing T2 pure core',()=>{
   expect(canonicalJson(scene)).toBe(before)
  })
  it('adds a local fixed material overlay without changing physical support or trees',()=>{
-  const scene=base(),area=scene.terrainAreas['terrain-high'],constraint=Object.values(scene.generation!.constraints).find(row=>row.kind==='activityArea')!
+  const scene=base(),area=scene.terrainAreas['terrain-high'],constraint=Object.values(getLegacyGeneration(scene)!.constraints).find(row=>row.kind==='activityArea')!
   if(constraint.kind!=='activityArea')throw new Error('fixture')
   const point={x:Math.round(constraint.boundaryMm.reduce((s,p)=>s+p.x,0)/4),y:Math.round(constraint.boundaryMm.reduce((s,p)=>s+p.y,0)/4)}
   const request=brush(scene,'paintGrass',point,300)
@@ -100,13 +101,13 @@ describe('bounded terrain editing T2 pure core',()=>{
   clear.operationId='test-clear-managed'
   const deleted=prepareTerrainEdit(moved,clear)
   expect(deleted.document.props[managedId]).toBeUndefined()
-  const owner=Object.values(deleted.document.generation!.ownership).find(owner=>owner.target.entityId===managedId)!
-  expect(owner.state).toBe('deleted');expect(Object.values(deleted.document.generation!.exclusions).some(row=>row.candidateKey===owner.outputKey&&row.boundaryMm.length===4)).toBe(true)
+  const owner=Object.values(getLegacyGeneration(deleted.document)!.ownership).find(owner=>owner.target.entityId===managedId)!
+  expect(owner.state).toBe('deleted');expect(Object.values(getLegacyGeneration(deleted.document)!.exclusions).some(row=>row.candidateKey===owner.outputKey&&row.boundaryMm.length===4)).toBe(true)
  })
  it('rejects out of scope changes, rule locks, manual shoreline auto changes and budgets atomically',()=>{
   const scene=base(),before=canonicalJson(scene),curve=visualBase(scene)!.boundaries['terrain-coast-curve'],point=curve.segments[0].control1,request=brush(scene,'addLand',point,700)
   request.scopeMm={x:0,y:0,width:100,height:100};expect(()=>prepareTerrainEdit(scene,request)).toThrow(/范围/)
-  const locked=cloneJson(scene);locked.generation!.rules['terrain-rule'].editLocked=true
+  const locked=cloneJson(scene);getLegacyGeneration(locked)!.rules['terrain-rule'].editLocked=true
   expect(()=>prepareTerrainEdit(locked,brush(locked,'clearArea'))).toThrow(/锁/)
   const manual=cloneJson(scene);manual.terrainAreas['terrain-low'].surfaceStyle!.base.tint='#ff0000';detachChangedOutputs(scene,manual)
   expect(canonicalJson(scene)).toBe(before)
@@ -120,29 +121,29 @@ describe('bounded terrain editing T2 pure core',()=>{
   const boundary=cloneJson(visualBase(manual)!.boundaries['terrain-coast-curve']);boundary.segments[0].control1.x+=50
   const result=prepareTerrainEdit(manual,{kind:'contour',sceneId:manual.sceneId,operationId:'manual-then-coast',floorId:'visual-floor',scopeMm:manual.exportBoundsMm,linkMode:'scenery',boundary})
   expect(result.document.props).toEqual(manual.props)
-  expect(result.document.generation!.exclusions).toEqual(manual.generation!.exclusions)
+  expect(getLegacyGeneration(result.document)!.exclusions).toEqual(getLegacyGeneration(manual)!.exclusions)
   expect(result.document.terrainAreas['terrain-high']).toEqual(manual.terrainAreas['terrain-high'])
  })
  it('rechecks a hard route after geometry edits and refreshes only the supported route checker',()=>{
   const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve']
-  const activity=scene.generation!.constraints['terrain-activity-constraint']
+  const activity=getLegacyGeneration(scene)!.constraints['terrain-activity-constraint']
   if(activity.kind!=='activityArea')throw new Error('fixture')
   const center=activity.boundaryMm.reduce((sum,p)=>({x:sum.x+p.x/4,y:sum.y+p.y/4}),{x:0,y:0})
   const id='required-route'
-  scene.generation!.constraints[id]={id,floorId:'visual-floor',visibility:'public',strength:'hard',kind:'route',pointsMm:[{x:center.x-500,y:center.y},{x:center.x+500,y:center.y}],minWidthMm:500}
+  getLegacyGeneration(scene)!.constraints[id]={id,floorId:'visual-floor',visibility:'public',strength:'hard',kind:'route',pointsMm:[{x:center.x-500,y:center.y},{x:center.x+500,y:center.y}],minWidthMm:500}
   for(const algorithmId of ['terrain-route','future-route']){
    const checkId=`${algorithmId}-check`
-   scene.generation!.checks[checkId]={id:checkId,constraintId:id,state:'passed',algorithmId,algorithmVersion:1,inputHash:constraintInputHash(scene,id),issues:[]}
+   getLegacyGeneration(scene)!.checks[checkId]={id:checkId,constraintId:id,state:'passed',algorithmId,algorithmVersion:1,inputHash:constraintInputHash(scene,id),issues:[]}
   }
   const result=prepareTerrainEdit(scene,brush(scene,'addLand',curve.segments[0].control1,700))
-  const known=result.document.generation!.checks['terrain-route-check'],unknown=result.document.generation!.checks['future-route-check']
+  const known=getLegacyGeneration(result.document)!.checks['terrain-route-check'],unknown=getLegacyGeneration(result.document)!.checks['future-route-check']
   expect(known.state).toBe('passed');expect(known.inputHash).toBe(constraintInputHash(result.document,id));expect(known.issues).toEqual([])
-  expect(known.inputHash).not.toBe(scene.generation!.checks['terrain-route-check'].inputHash)
+  expect(known.inputHash).not.toBe(getLegacyGeneration(scene)!.checks['terrain-route-check'].inputHash)
   expect(unknown.state).toBe('unchecked');expect(validateSceneDocument(result.document).ok).toBe(true)
  })
  it('atomically refuses a hard route whose real full width is not walkable',()=>{
   const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve']
-  scene.generation!.constraints['required-route']={id:'required-route',floorId:'visual-floor',visibility:'public',strength:'hard',kind:'route',pointsMm:[{x:1000,y:1000},{x:2000,y:1000}],minWidthMm:1000}
+  getLegacyGeneration(scene)!.constraints['required-route']={id:'required-route',floorId:'visual-floor',visibility:'public',strength:'hard',kind:'route',pointsMm:[{x:1000,y:1000},{x:2000,y:1000}],minWidthMm:1000}
   const request=brush(scene,'addLand',curve.segments[0].control1,700),before=canonicalJson(scene)
   expect(()=>prepareTerrainEdit(scene,request)).toThrow(/路线的完整净宽/)
   expect(canonicalJson(scene)).toBe(before)
@@ -163,20 +164,20 @@ describe('bounded terrain editing T2 pure core',()=>{
   }
   expect(points).toBeDefined()
   if(!points)throw new Error('fixture')
-  scene.generation!.constraints['supported-route']={id:'supported-route',floorId:'visual-floor',visibility:'public',strength:'hard',kind:'route',pointsMm:points,minWidthMm:10}
+  getLegacyGeneration(scene)!.constraints['supported-route']={id:'supported-route',floorId:'visual-floor',visibility:'public',strength:'hard',kind:'route',pointsMm:points,minWidthMm:10}
   const before=canonicalJson(scene)
   expect(()=>prepareTerrainEdit(scene,request)).toThrow(/路线的完整净宽/)
   expect(canonicalJson(scene)).toBe(before)
  })
  it('keeps unimplemented hard port checks as an atomic rejection after physical changes',()=>{
   const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve']
-  scene.generation!.constraints['required-port']={id:'required-port',floorId:'visual-floor',visibility:'public',strength:'hard',kind:'port',positionMm:{x:1000,y:1000},directionDeg:0,widthMm:1000}
+  getLegacyGeneration(scene)!.constraints['required-port']={id:'required-port',floorId:'visual-floor',visibility:'public',strength:'hard',kind:'port',positionMm:{x:1000,y:1000},directionDeg:0,widthMm:1000}
   const request=brush(scene,'addLand',curve.segments[0].control1,700),before=canonicalJson(scene)
   expect(()=>prepareTerrainEdit(scene,request)).toThrow(/端口约束需要完整重验/)
   expect(canonicalJson(scene)).toBe(before)
  })
  it.each([['future-terrain',1],['terrain-scene',2],['terrain-scene-t3',2]] as const)('rejects unsupported dependent algorithm %s@%s without refreshing its hashes',(algorithmId,algorithmVersion)=>{
-  const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve'],recipe=scene.generation!.recipes['terrain-recipe'],rule=scene.generation!.rules['terrain-rule']
+  const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve'],recipe=getLegacyGeneration(scene)!.recipes['terrain-recipe'],rule=getLegacyGeneration(scene)!.rules['terrain-rule']
   recipe.algorithmId=algorithmId;recipe.algorithmVersion=algorithmVersion;rule.inputHash=generationInputHash(scene,rule)
   const before=canonicalJson(scene)
   expect(()=>prepareTerrainEdit(scene,brush(scene,'addLand',curve.segments[0].control1,700))).toThrow(/相关规则须独立重算/)
@@ -189,8 +190,8 @@ describe('bounded terrain editing T2 pure core',()=>{
   const boundary=cloneJson(curve);boundary.segments[0].control1.x+=50
   const request:TerrainEditRequest={kind:'contour',sceneId:scene.sceneId,operationId:'edge-coast',floorId:'visual-floor',scopeMm:scene.exportBoundsMm,linkMode:'transitions',boundary}
   expect(()=>prepareTerrainEdit(scene,request)).toThrow(/人工/)
-  const ref={kind:'materializedEdge' as const,entityId:'local-edge',parentId:null,fieldGroup:'geometry' as const},rule=scene.generation!.rules['terrain-rule']
-  rule.outputs.push(ref);scene.generation!.ownership['local-edge-owner']={id:'local-edge-owner',outputKey:'test/local-edge',ruleId:rule.id,target:ref,managedFields:['geometry','source'],manualFields:[],state:'managed',birthToken:'edge-birth'}
+  const ref={kind:'materializedEdge' as const,entityId:'local-edge',parentId:null,fieldGroup:'geometry' as const},rule=getLegacyGeneration(scene)!.rules['terrain-rule']
+  rule.outputs.push(ref);getLegacyGeneration(scene)!.ownership['local-edge-owner']={id:'local-edge-owner',outputKey:'test/local-edge',ruleId:rule.id,target:ref,managedFields:['geometry','source'],manualFields:[],state:'managed',birthToken:'edge-birth'}
   rule.managedOutputHash=managedOutputHash(scene,rule)
   const result=prepareTerrainEdit(scene,request)
   if(result.document.visual?.version!==2)throw new Error('fixture')
@@ -213,12 +214,12 @@ describe('bounded terrain editing T2 pure core',()=>{
     if(found)break
   }
   expect(found).toBe(true)
-  for(const check of Object.values(scene.generation!.checks))check.state='unchecked'
-  const rule=scene.generation!.rules['terrain-rule'];rule.managedOutputHash=managedOutputHash(scene,rule)
+  for(const check of Object.values(getLegacyGeneration(scene)!.checks))check.state='unchecked'
+  const rule=getLegacyGeneration(scene)!.rules['terrain-rule'];rule.managedOutputHash=managedOutputHash(scene,rule)
   const result=prepareTerrainEdit(scene,request)
   expect(result.document.props[prop.id].positionMm).not.toEqual(prop.positionMm)
   expect(supportedPolygon(result.document,propFootprint(result.document.props[prop.id]),prop.supportRef,prop.floorId)).toBe(true)
-  const locked=cloneJson(scene);locked.props[prop.id].editLocked=true;locked.generation!.rules[rule.id].managedOutputHash=managedOutputHash(locked,locked.generation!.rules[rule.id])
+  const locked=cloneJson(scene);locked.props[prop.id].editLocked=true;getLegacyGeneration(locked)!.rules[rule.id].managedOutputHash=managedOutputHash(locked,getLegacyGeneration(locked)!.rules[rule.id])
   expect(()=>prepareTerrainEdit(locked,request)).toThrow(/锁/)
   const manual=cloneJson(scene);manual.props[prop.id].rotationDeg+=1;detachChangedOutputs(scene,manual)
   expect(()=>prepareTerrainEdit(manual,request)).toThrow(/人工/)

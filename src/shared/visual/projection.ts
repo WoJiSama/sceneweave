@@ -1,13 +1,15 @@
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
 import { propFootprint } from '../geometry/geometry.js'
 import { cloneJson } from '../validation/json.js'
-import type { Audience, ProjectedVisualBoundary, ProjectedVisualFilter, ProjectedVisualSystem, Projection } from '../projection/types.js'
+import type { Audience, ProjectedVisualBoundary, ProjectedVisualFilter, ProjectedVisualSystem, ProjectedVisualTransition, Projection } from '../projection/types.js'
 import { sampleVisualBoundary } from './geometry.js'
 import type { VisualSystem } from './types.js'
+import { getLegacyVisual } from '../terrain-generation/composition-contracts.js'
 
 const copy = <T>(value: T): T => cloneJson(value)
 const bounds = (points: PointMm[]): BoundsMm => ({ x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)), width: Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)), height: Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y)) })
 const segmentKey = (a: PointMm, b: PointMm) => [a, b].map(p => `${p.x},${p.y}`).sort().join('|')
+const orderById = (a: string, b: string) => a.localeCompare(b)
 function propVisualRing(prop: SceneDocument['props'][string]): PointMm[] {
   const v = prop.visualBoundsMm, angle = prop.rotationDeg * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle)
   return [[v.x, v.y], [v.x + v.width, v.y], [v.x + v.width, v.y + v.height], [v.x, v.y + v.height]].map(([x, y]) => ({ x: prop.positionMm.x + x * cos - y * sin, y: prop.positionMm.y + x * sin + y * cos }))
@@ -27,16 +29,26 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     boundaries.push({ id: boundary.id, points: copy(sampled.points), samples: copy(sampled.samples), lengthMm: sampled.lengthMm, closed: sampled.closed, terrainAreaIds: binding.kind === 'terrain' ? binding.sides.map(side => side.areaId) : [] })
   }
   const boundaryIds = new Set(boundaries.map(b => b.id)), edgeLooks = Object.values(visual.edgeLooks).filter(look => shown(look) && boundaryIds.has(look.boundaryId)).sort((a, b) => a.id.localeCompare(b.id)).map(copy)
+  const transitions: ProjectedVisualTransition[] = scene.visual?.version === 3
+    ? Object.values(scene.visual.transitions).filter(transition => shown(transition) && boundaryIds.has(transition.boundaryId))
+      .sort((a, b) => orderById(a.id, b.id)).map(transition => ({
+        id: transition.id, floorId: transition.floorId, layerId: transition.layerId, boundaryId: transition.boundaryId,
+        kind: transition.kind, side: transition.side, widthMm: transition.widthMm, enabled: transition.enabled,
+        polygons: transition.polygons.map(polygon => ({ pointsMm: copy(polygon.pointsMm), fillColor: polygon.fillColor, opacity: polygon.opacity })),
+        strokes: transition.strokes.map(stroke => ({ pointsMm: copy(stroke.pointsMm), widthMm: stroke.widthMm, color: stroke.color, opacity: stroke.opacity })),
+      }))
+    : []
   // Filter both the edge and its source before sorting or suppressing physical
   // outlines. Private/hidden decorations must not change the public picture.
-  const materialized = scene.visual?.version === 2
-    ? Object.values(scene.visual.materializedEdges).filter(edge => shown(edge) && boundaryIds.has(edge.boundaryId)) : []
+  const legacyVisual = getLegacyVisual(scene)
+  const materialized = legacyVisual
+    ? Object.values(legacyVisual.materializedEdges).filter(edge => shown(edge) && boundaryIds.has(edge.boundaryId)) : []
   if (materialized.some(edge => edge.materialRef !== null)) throw new Error('当前物化边缘预览仅支持明确颜色几何；材质边缘尚未支持。')
   const order = (a: { id: string; layerId: string }, b: { id: string; layerId: string }) =>
     (scene.userLayers[a.layerId]?.order ?? 0) - (scene.userLayers[b.layerId]?.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   const materializedEdges = materialized.sort(order).map(edge => ({ id: edge.id, kind: edge.kind, polygons: copy(edge.polygons),
     strokes: copy(edge.strokes), fillColor: edge.fillColor, opacity: edge.opacity }))
-  const edgePaintOrder = scene.visual?.version === 2 ? [
+  const edgePaintOrder = legacyVisual ? [
     ...edgeLooks.map(edge => ({ ...edge, representation: 'edgeLook' as const })),
     ...materialized.map(edge => ({ ...edge, representation: 'materializedEdge' as const })),
   ].sort(order).map(edge => ({ kind: edge.representation, id: edge.id })) : undefined
@@ -91,8 +103,8 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     const targetBoundsMm = rings ? bounds(rings.flat()) : copy(scene.exportBoundsMm)
     filters.push({ ...copy(parameters), ...(sourceEntityIds ? { sourceEntityIds } : {}), ...(target.kind === 'region' ? { regionFeatherMm: Math.min(1200, Math.min(targetBoundsMm.width, targetBoundsMm.height) * .16) } : {}), targetRings: rings, targetBoundsMm })
   }
-  return { environment: copy(visual.environment), boundsMm: copy(scene.exportBoundsMm), boundaries, edgeLooks,
-    ...(scene.visual?.version === 2 ? { materializedEdges, edgePaintOrder } : {}),
+  return { environment: copy(visual.environment), boundsMm: copy(scene.exportBoundsMm), boundaries, transitions, edgeLooks,
+    ...(legacyVisual ? { materializedEdges, edgePaintOrder } : {}),
     lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !projection.masks.some(mask => { const b = bounds(mask); return light.positionMm.x >= b.x && light.positionMm.y >= b.y && light.positionMm.x <= b.x + b.width && light.positionMm.y <= b.y + b.height }))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
     fogs: Object.values(visual.fogs).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).map(copy), filters,
     occluderRings: [...projectedWallFootprints(projection), ...projectedPropFootprints(projection)],

@@ -1,4 +1,5 @@
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
+import { pauseChangedCompositions } from '../terrain-generation/composition-lifecycle.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
 import { applyVisualCommand, isVisualCommand, visualCommandSchemas, type VisualCommand } from '../visual/commands.js'
@@ -45,7 +46,7 @@ export interface ApplyCommandsOptions {
   /** Internal synchronous observer: inspect immediately; never mutate or retain the draft. */
   onOutdoorDraft?: (draft: Readonly<SceneDocument>, command: Readonly<OutdoorCommand | VisualCommand>) => void
   /** Includes base/building edits and runs after generation records are reconciled. */
-  onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>) => void
+  onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => void
 }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -199,7 +200,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     let cost = 0
     for (const command of commands) {
       if (command.type !== 'setEditLock') throw new Error('编辑锁须单独提交。')
-      const beforeTerrain = next.schemaVersion === 3 ? cloneJson(next) : null
+      const beforeTerrain = next.schemaVersion >= 3 ? cloneJson(next) : null
       const entity = own(next[collections[command.kind]] as Record<string, { id: string; editLocked: boolean }>, command.id)
       if (!entity) throw new Error('编辑锁目标不存在或类型不符。')
       assertLayerUnlocked(next, next.entityLayers[command.id])
@@ -212,11 +213,13 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       }
       if (beforeTerrain) {
         detachChangedOutputs(beforeTerrain, next)
+        pauseChangedCompositions(beforeTerrain, next)
         // Reconcile and charge every transition, including changes later undone
         // in this same batch. A repeated lock request still consumes one step.
-        cost += Math.max(1, terrainCommandCost(beforeTerrain, next).total)
+        const commandCost = Math.max(1, terrainCommandCost(beforeTerrain, next).total)
+        cost += commandCost
         if (cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
-        options?.onSceneDraft?.(next, command)
+        options?.onSceneDraft?.(next, command, commandCost)
       }
     }
     return next
@@ -224,7 +227,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
   let next = cloneJson(scene), cost = 0
   const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
-    const beforeTerrain=next.schemaVersion===3?cloneJson(next):null
+    const beforeTerrain=next.schemaVersion>=3?cloneJson(next):null
     let commandCost: number
     if (isVisualCommand(command)) {
       commandCost = applyVisualCommand(next, command, context).commandCost
@@ -243,26 +246,30 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       next = applyNativeContent(next, [command], context, options)
       commandCost = nativeCommandCost(before, next)
     }
+    let chargedCost = commandCost
     if (beforeTerrain) {
       detachChangedOutputs(beforeTerrain, next)
+      pauseChangedCompositions(beforeTerrain, next)
       const expanded = terrainCommandCost(beforeTerrain, next)
       // Charge no-ops together with every real per-command expansion. Comparing
       // only the final net delta loses earlier edits and repeated requests.
-      consume(Math.max(1, commandCost, expanded.items.physicalAndVisual) + expanded.total - expanded.items.physicalAndVisual)
+      chargedCost = Math.max(1, commandCost, expanded.items.physicalAndVisual) + expanded.total - expanded.items.physicalAndVisual
+      consume(chargedCost)
     } else {
       consume(commandCost)
     }
-    options?.onSceneDraft?.(next, command)
+    options?.onSceneDraft?.(next, command, chargedCost)
   }
   return next
 }
-function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand[]): SceneDocument {
+function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand[], options?: ApplyCommandsOptions): SceneDocument {
   const next = cloneJson(scene)
   let cost = 0
   const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
-  const consumeCommand = (amount: number) => consume(scene.schemaVersion === 3 ? Math.max(1, amount) : amount)
+  const consumeCommand = (amount: number) => consume(scene.schemaVersion >= 3 ? Math.max(1, amount) : amount)
   for (const command of commands) {
-    const beforeTerrain=next.schemaVersion===3?cloneJson(next):null
+    const beforeCost = cost
+    const beforeTerrain=next.schemaVersion>=3?cloneJson(next):null
     switch (command.type) {
       case 'createLayer': {
         consumeCommand(1)
@@ -310,7 +317,8 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
       case 'setLayerLock': consumeCommand(1); requiredLayer(next, command.id).editLocked = command.locked; break
       default: throw new Error('图层组织批次不能混入内容或实体锁命令。')
     }
-    if(beforeTerrain) { detachChangedOutputs(beforeTerrain,next); const all=terrainCommandCost(beforeTerrain,next); consume(all.total-all.items.physicalAndVisual) }
+    if(beforeTerrain) { detachChangedOutputs(beforeTerrain,next); pauseChangedCompositions(beforeTerrain,next); const all=terrainCommandCost(beforeTerrain,next); consume(all.total-all.items.physicalAndVisual) }
+    options?.onSceneDraft?.(next, command, cost - beforeCost)
   }
   return next
 }
@@ -320,10 +328,11 @@ function candidate(scene: SceneDocument, commands: readonly SceneCommand[], cont
     for (const command of commands) {
       if (command.type !== 'setSceneDisplay') throw new Error('显示设置须独立提交。')
       applySceneDisplayCommand(next, command)
+      options?.onSceneDraft?.(next, command, 1)
     }
     return next
   }
-  return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock') ? applyContent(scene, commands, context, options) : applyOrganization(scene, commands)
+  return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock') ? applyContent(scene, commands, context, options) : applyOrganization(scene, commands, options)
 }
 /** Detached mutable candidate; all-or-nothing native scene validation. Revision is committed by Workspace. */
 export function applyCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {

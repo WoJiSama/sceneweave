@@ -55,7 +55,7 @@ export interface NativeUpgradeSummary {
   capsuleId: string
   sourceSceneId: string
   sourceTitle: string
-  sourceSchemaVersion: 1 | 2
+  sourceSchemaVersion: 1 | 2 | 3
   sourceRevision: number
   sourceContentHash: string
   targetSceneId: string
@@ -208,6 +208,22 @@ function assertFamily(family: NativeUpgradeFamily, context: NativeUpgradeContext
   for (let i = 1; i < projects.length; i++) for (let j = 0; j < i; j++) assertFixedProjectCompatible(projects[j], projects[i])
   if (encodeUtf8(familyJson(family)).length > MAX_DOCUMENT_BYTES) throw new Error('源家族完整文档超过128MiB保全预算。')
 }
+/** v4 adds wrappers and an empty identity pool; an upgrade must not silently edit native content. */
+function assertCompositionUpgradeCopy(source: ProjectData, target: ProjectData): void {
+  if (source.schemaVersion !== 3 || target.schemaVersion !== 4) return
+  if (source.historyIdentity.version !== 2 || target.historyIdentity.version !== 3
+    || target.historyIdentity.rootSceneId !== target.document.sceneId) throw new Error('完整v4副本须使用独立根身份及identity3，不得重分配旧身份。')
+  for (const field of ['propTokens', 'prefabTokens', 'outdoorTokens', 'generationTokens', 'regionalTokens', 'presentationTokens'] as const) {
+    if (canonicalJson(source.historyIdentity[field]) !== canonicalJson(target.historyIdentity[field])) throw new Error('完整v4副本须逐字段保留原身份池的出生、拓扑及墓碑。')
+  }
+  if (canonicalJson(target.historyIdentity.terrainTokens) !== '{}') throw new Error('完整v4副本不得在迁移时创建新地形身份。')
+  const expectedDocument = { ...source.document, schemaVersion: 4, sceneId: target.document.sceneId, revision: 0,
+    title: target.document.title, createdAt: target.document.createdAt, updatedAt: target.document.updatedAt,
+    generation: { version: 5, legacy: source.document.generation, features: {}, compositions: {}, requirements: {}, checks: {}, thresholds: {}, dependencies: {} },
+    visual: { version: 3, base: source.document.visual, transitions: {} } }
+  if (canonicalJson(expectedDocument) !== canonicalJson(target.document)
+    || canonicalJson(source.appearance) !== canonicalJson(target.appearance)) throw new Error('完整v4格式副本须完整保留原场景、生成、视觉及外观，仅增加空的新版本分区。')
+}
 function captureCapsule(input: unknown, context: NativeUpgradeContext): StoredNativeUpgradeCapsule {
   exact(input, CAPSULE_FIELDS)
   const result = { ...Object.fromEntries(CAPSULE_FIELDS.filter(key => key !== 'family').map(key => [key, captureJson(input[key])])),
@@ -222,10 +238,11 @@ function captureCapsule(input: unknown, context: NativeUpgradeContext): StoredNa
   assertFamily(result.family, context)
   if (result.family.current.sceneId !== result.sourceSceneId || result.family.current.contentHash !== result.sourceContentHash) throw new Error('原件保全来源与完整家族不一致。')
   const sourceVersion = result.family.current.project.schemaVersion, targetVersion = result.targetInitialProject.schemaVersion
-  if (!(sourceVersion === 1 && targetVersion === 2 || sourceVersion === 2 && targetVersion === 3)
+  if (!(sourceVersion === 1 && targetVersion === 2 || sourceVersion === 2 && targetVersion === 3 || sourceVersion === 3 && targetVersion === 4)
     || result.targetInitialProject.document.sceneId !== result.targetSceneId || result.targetInitialProject.document.revision !== 0
     || result.targetInitialProject.historyIdentity.lineageId === result.family.current.project.historyIdentity.lineageId
     || projectContentHash(result.targetInitialProject) !== result.targetInitialContentHash) throw new Error('原件保全须绑定相邻完整版本源及独立lineage、revision0的初始目标。')
+  assertCompositionUpgradeCopy(result.family.current.project, result.targetInitialProject)
   for (const field of ['assets', 'licenses', 'licenseBindings', 'authoringSources'] as const) {
     if (canonicalJson(result.targetInitialProject[field]) !== canonicalJson(result.family.current.project[field])) throw new Error('格式副本升级须完整保留实际资源、许可和SVG来源闭包。')
   }
@@ -397,10 +414,12 @@ async function assertInstalledLineage(context: NativeUpgradeContext, capsule: St
 /** Preserves originals and cold-reads them; the caller separately saves and cold-reads the new target. */
 export async function preserveNativeUpgrade(context: NativeUpgradeContext, sourceInput: ProjectBundle, targetInput: ProjectBundle, options: ResourceOptions = {}): Promise<void> {
   const source = captureProjectBundleInput(sourceInput), target = captureProjectBundleInput(targetInput), createdAt = context.now()
-  if (source.project.schemaVersion !== 2 || target.project.schemaVersion !== 3 || source.project.document.sceneId === target.project.document.sceneId
-    || source.project.historyIdentity.lineageId === target.project.historyIdentity.lineageId || target.project.document.revision !== 0 || !validTime(createdAt)) throw new Error('升级须从完整v2创建独立身份、独立lineage且revision0的完整v3副本。')
+  if (!(source.project.schemaVersion === 2 && target.project.schemaVersion === 3 || source.project.schemaVersion === 3 && target.project.schemaVersion === 4)
+    || source.project.document.sceneId === target.project.document.sceneId || source.project.historyIdentity.lineageId === target.project.historyIdentity.lineageId
+    || target.project.document.revision !== 0 || !validTime(createdAt)) throw new Error('升级须从完整v2→v3或v3→v4创建独立身份、独立lineage且revision0的副本。')
   await validateProjectBundle(source, { ...context.validation, signal: options.signal ?? context.validation.signal })
   await validateProjectBundle(target, { ...context.validation, signal: options.signal ?? context.validation.signal })
+  assertCompositionUpgradeCopy(source.project, target.project)
   checkCancelled(options.signal); await context.open()
   const sourceSceneId = source.project.document.sceneId, targetSceneId = target.project.document.sceneId, sourceContentHash = projectContentHash(source.project), targetInitialContentHash = projectContentHash(target.project)
   const captured = await context.database.transaction('r', PROJECT_TABLES, async () => {
@@ -473,7 +492,7 @@ export async function listNativeUpgradeSummaries(context: NativeUpgradeContext, 
       || !validTime(input.createdAt) || !hash(input.sourceContentHash) || !hash(input.contentHash)
       || current.status !== 'ready' || current.sceneId !== input.sourceSceneId || current.contentHash !== input.sourceContentHash
       || sceneId !== input.sourceSceneId || revision !== current.revision || !Number.isSafeInteger(revision) || Number(revision) < 0
-      || version !== 1 && version !== 2 || typeof title !== 'string' || !title.length) throw new Error('原件保全摘要身份或版本损坏。')
+      || version !== 1 && version !== 2 && version !== 3 || typeof title !== 'string' || !title.length) throw new Error('原件保全摘要身份或版本损坏。')
     const automatic = array(family.automatic, 20, value => { field(value, 'revision'); return null })
     let namedCount = 0, protectionCount = 0
     array(family.snapshots, 64, value => {

@@ -1,6 +1,6 @@
 # AI 流式对话、工具创作与渐进同化
 
-当前文字模型为 `glm-5.3`，视觉模型为 `glm-5.3-flash`；完整Q4未通过、视觉仍为 `unverified`。任务级思考程度已接入，超时调度仍需覆盖runner节流；协议与守卫见本文，真实请求、失败和旧冻结结果统一见[AI历史台账](archive/ai-validation.md)。
+当前文字模型为 `glm-5.3`，视觉模型为 `glm-5.3-flash`；完整Q4未通过、视觉仍为 `unverified`。任务级思考程度与包含runner节流的超时调度已本地实施并完成必要定向检查；协议与守卫见本文，真实请求、失败和旧冻结结果统一见[AI历史台账](archive/ai-validation.md)。
 
 **2026-10-28验收节奏：** 当前先处理模型连接、思考程度和超时调度，仅做必要的小规模验证；T8–T12开发各阶段做相关测试与少量样图检查。T13代码/素材冻结与技术回归后，完整Q4创作/局部修改、视觉回读和地形AI任务统一进入M2-E，按需求覆盖合并执行；修复后复验受影响范围，共用算法或素材变化时重跑相关任务组。阶段顺序见[07](07-roadmap.md)，统一验收入口见[55第21节](55-terrain-generation-design.md#terrain-acceptance)。
 
@@ -367,7 +367,11 @@ v3传输诊断确认两次组合参数都是实际2字节`{}`，均正常`finish
 
 ### 19.15 按剩余时间收尾与锚点参数诊断
 
-authoring每轮开始时，除最后一个允许请求外，还在剩余执行时间不超过`min(30000ms, executionMs/10)`时进入最后纯文字轮。当前300秒预算因此最多留出30秒：不再发送工具，要求如实说明已完成、未检查/未满足的需求和部分草稿；不延长硬timer、不增加请求、不自动采用。文字正常完成仍须按原合同校验后进入`waiting_browser`或`completed`，本机资源、保护点、claim/CAS和采用保持独立。供应商忽略禁工具要求时整批不执行，保留完整响应的用量，按时间或请求触发分别记录`execution_limit`或`request_limit / finished`；硬超时仍为unknown，不自动续发。普通对话不使用这条authoring调度。
+authoring每轮在可取消的请求排队/冷却结束后，重新读取任务及剩余时间，再选择工具目录、构造payload和增加请求计数。除最后一个允许请求外，剩余时间不超过`min(30000ms, executionMs/10) + requestScheduler.cooldownMs`时进入最后纯文字轮；当前300秒任务和10秒冷却对应40秒收尾窗口。此窗口包含下一次等待的预留，不保证供应商在硬门内返回；硬timer、16请求/64工具/256展开及输出预算保持，不自动重试或采用。
+
+受控runner使用`createControlledTaskRunner`，默认同一实例按响应结束到下次请求等待10000ms，允许0–60000ms；构造/导入不创建、恢复或发送任务。冷却计入原执行时钟，等待期间不增加请求计数，等待超时记`not_sent`，已发且未完成的请求仍记`unknown`；暂停/取消会中止排队。fetch只负责传输，不能再隐藏sleep或重试。生产服务未配置scheduler时不增加冷却，普通对话不使用authoring文字收尾规则。
+
+最终文字轮不发送工具，要求如实说明已完成、未检查/未满足需求及部分草稿。正常完成仍须按原合同校验后进入`waiting_browser`或`completed`，本机资源、保护点、claim/CAS与采用保持独立。供应商忽略禁工具要求时整批不执行，保留完整响应用量，按触发原因记录`execution_limit`或`request_limit / finished`。必要测试、首轮问题及未发新付费请求的边界见[基础修复记录](archive/ai-validation.md#foundation-20261028)。
 
 `read_scene`的`anchors`参数须恰有一个terrain ID；缺失、空或多ID在读取前返回`invalid_arguments`与固定提示，建议分开调用或用`scene`读取多对象摘要，不再误诊为几何错误。有效单对象分页、授权和私密过滤保持。该修复不恢复13.11的unknown任务，也不将其结构检查改算为完整通过；最终代码验证见[54](archive/visual-quality-validation.md#doc-54-1312-时间收尾与最终代码验证)。
 

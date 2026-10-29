@@ -142,7 +142,7 @@ export function projectEditorScene(scene: SceneDocument, options: EditorProjecti
 }
 
 function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLayerIds?: ReadonlySet<string>): Projection {
-  const regional = scene.schemaVersion===3 && scene.mapMode==='regional' && scene.regional ? {
+  const regional = scene.schemaVersion>=3 && scene.mapMode==='regional' && scene.regional ? {
     areas: Object.values(scene.regional.areas).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'area', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: clone(row.boundaryMm), kind: row.kind, style: clone(row.style), relativeElevationMm: row.relativeElevationMm })),
     lines: Object.values(scene.regional.lines).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'line', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: row.pointsMm.map(point => clone(point.positionMm)), kind: row.kind, displayWidthMm: row.displayWidthMm, actualWidthMm: row.actualWidthMm, style: clone(row.style) })),
     landmarks: Object.values(scene.regional.landmarks).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'landmark', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, positionMm: clone(row.positionMm), purpose: row.purpose, name: row.name, description: row.description, assetId: scene.regional!.symbolDefinitions[row.definitionRef.id].assetId, visualBoundsMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].visualBoundsMm), rootAnchorMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].rootAnchorMm) })),

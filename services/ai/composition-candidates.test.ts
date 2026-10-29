@@ -26,6 +26,11 @@ describe('composition tool full native preview and privacy boundary', () => {
       properties: { kind: { type: 'string', enum: ['layout', 'furnishing', 'style'] } } })
     expect(schema.oneOf).toEqual(original.oneOf)
     const properties = schema.properties as Record<string, unknown>
+    expect(properties.materialIds).toMatchObject({ properties: {
+      base: { description: expect.stringContaining('interior: unused; does not assign wall materials') },
+      primary: { description: expect.stringContaining('kitchen floor fallback when secondary is absent') },
+      secondary: { description: expect.stringContaining('interior: kitchen floor override only') },
+    } })
     expect(Object.keys(properties).sort()).toEqual([...new Set(branches.flatMap(branch => Object.keys(branch.properties!)))].sort())
     for (const branch of branches) {
       expect(branch.type).toBe('object')
@@ -58,7 +63,7 @@ describe('composition tool full native preview and privacy boundary', () => {
   it.each(['beach', 'island', 'interior'] as const)('returns exact replayable %s operations and real costs without installing a step', recipe => {
     const { task, run } = fixture(), before = canonicalJson(task), result = run('sceneweave_propose_composition', { kind: 'layout', recipe, idPrefix: recipe, materialIds: { base: 'tile', primary: 'tile', secondary: 'tile' } }, 'preview')
     expect(result.success).toBe(true)
-    expect(Buffer.byteLength(result.output)).toBeLessThan(8192)
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(8192)
     const receipt = JSON.parse(result.output), authoring = task.authoring!
     expect(receipt.previewValid).toBe(true)
     expect(receipt.appearance).toBe('unconfirmed')
@@ -71,6 +76,33 @@ describe('composition tool full native preview and privacy boundary', () => {
     expect(run('sceneweave_edit_scene', { operations: receipt.candidateOperations }, 'adopt').success).toBe(true)
     expect(authoring.state.contentHash).toBe(full.state.contentHash)
     expect(authoring.state.operationCost).toBe(receipt.actualOperationCost)
+  })
+  it.each(['override', 'fallback', 'unfinished'] as const)('explains interior material roles and previews the actual %s floors without assigning walls', mode => {
+    const { task, run } = fixture(), authoring = task.authoring!, start = authoring.start
+    const material = start.project.document.materials.tile, binding = start.project.licenseBindings.find(value => value.subjectKind === 'material' && value.subjectId === 'tile')!
+    const materialIds = ['base-tile', 'floor-tile', 'kitchen-tile']
+    for (const id of materialIds) {
+      start.project.document.materials[id] = { ...material, id, catalogId: `test.composition.${id}`, name: id }
+      start.project.licenseBindings.push({ ...binding, subjectId: id })
+    }
+    start.scope.scene!.materialIds.push(...materialIds); start.scope.visual!.materialIds.push(...materialIds)
+    start.baseContentHash = authoringProjectHash(start.project); authoring.state = replayAuthoring(start, []).state
+    const before = canonicalJson(task)
+    const result = run('sceneweave_propose_composition', { kind: 'layout', recipe: 'interior', idPrefix: 'roles', materialIds: {
+      base: 'base-tile', ...(mode !== 'unfinished' ? { primary: 'floor-tile' } : {}), ...(mode === 'override' ? { secondary: 'kitchen-tile' } : {}),
+    } })
+    expect(result.success).toBe(true)
+    expect(Buffer.byteLength(result.output)).toBeLessThan(8192)
+    const receipt = JSON.parse(result.output)
+    expect(receipt.details.materialRoles).toMatchObject({ base: 'unused',
+      primary: expect.stringContaining('kitchen fallback'), secondary: 'kitchen floor override only', walls: expect.stringContaining('explicit wall material operation') })
+    expect(canonicalJson(task)).toBe(before)
+    const { project } = applyAuthoringStep(start, authoring.state, receipt.candidateOperations, 'adopt-roles')
+    for (const role of ['common', 'kitchen', 'guest', 'study', 'storage']) {
+      const expected = mode === 'unfinished' ? null : role === 'kitchen' && mode === 'override' ? 'kitchen-tile' : 'floor-tile'
+      expect(project.document.rooms[`roles-${role}`].floorStyle?.base.materialRef.id ?? null).toBe(expected)
+    }
+    expect(Object.values(project.document.walls).every(wall => wall.topStyle === null)).toBe(true)
   })
   it('previews furnishing, includes actual partial results and never mutates existing/manual members', () => {
     const { task, run } = fixture(), authoring = task.authoring!

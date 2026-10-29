@@ -1,5 +1,7 @@
 import { createVisual2Schema, generationSchema, regionalSchema } from '../terrain-generation/contracts.js'
 import { validateTerrainContracts } from '../terrain-generation/integrity.js'
+import { createVisual3Schema, generation5Schema, legacyTerrainView } from '../terrain-generation/composition-contracts.js'
+import { validateCompositionContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
 import { visualSystemSchema } from '../visual/schema.js'
 import { validateVisualSystem } from '../visual/diagnostics.js'
@@ -89,7 +91,13 @@ export const sceneDocument3Schema = z.object({ ...sceneDocumentSchema.shape,
   if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
   if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体。' })
 })
-export const nativeSceneSchema = z.union([sceneDocumentSchema, sceneDocument3Schema])
+export const sceneDocument4Schema = z.object({ ...sceneDocument3Schema.shape,
+  schemaVersion: z.literal(4), generation: generation5Schema, visual: createVisual3Schema(createVisual2Schema(visualSystemSchema)),
+}).strict().superRefine((value, ctx) => {
+  if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
+  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体。' })
+})
+export const nativeSceneSchema = z.union([sceneDocumentSchema, sceneDocument3Schema, sceneDocument4Schema])
 
 export type ValidationResult = { ok: true; document: SceneDocument; warnings: Issue[] } | { ok: false; errors: Issue[] }
 export function validateSceneDocument(input: unknown): ValidationResult {
@@ -100,8 +108,9 @@ export function validateSceneDocument(input: unknown): ValidationResult {
   const parsed = nativeSceneSchema.safeParse(input)
   if (!parsed.success) return { ok: false, errors: parsed.error.issues.map(issue => ({ code: 'SCHEMA', message: `${issue.path.join('.') || 'document'}: ${issue.message}` })) }
   const document = parsed.data as SceneDocument
-  const dependencies = inspectDependencies(document), geometry = validateGeometry(geometryDocumentForValidation(document))
-  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document)]
+  const legacyView = document.schemaVersion === 4 ? legacyTerrainView(document) : document
+  const dependencies = inspectDependencies(legacyView), geometry = validateGeometry(geometryDocumentForValidation(legacyView))
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(legacyView), ...validateTerrainContracts(legacyView), ...validateCompositionContracts(document)]
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }
 export const sceneSchema = sceneDocumentSchema
