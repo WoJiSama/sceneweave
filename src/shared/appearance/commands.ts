@@ -214,11 +214,19 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   const consume = (value: number) => { cost += value; if (initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
+    // Position/rotation and member overrides cannot change fixed sources,
+    // mappings, presentations or adjustments. Only this owned, fully checked
+    // input may carry the unchanged graph through to final draft validation.
+    const unchangedAppearance = ownedDraft && sceneCommands.every(command => command.type === 'updateProp')
     const fixedUprightPropIds = new Set(Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'))
     let accounting = source
     const observer = { fixedUprightPropIds, onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
       if (source.document.schemaVersion === 4) {
-        const next = syncAppearanceGraph({ document: draft as SceneDocument, historyIdentity: identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }, accounting.document, [command])
+        // The observer's draft is reused by later commands; retain an owned
+        // scene snapshot for the next per-command cost comparison.
+        const snapshot = { document: draft as SceneDocument, historyIdentity: identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }
+        const next = unchangedAppearance ? { ...snapshot, document: cloneJson(snapshot.document) }
+          : syncAppearanceGraph(snapshot, accounting.document, [command])
         const estimated = terrainCommandCost(accounting.document, draft as SceneDocument)
         const actual = terrainCommandCost(accounting.document, next.document, { before: accounting, after: next })
         const physicalCost = commandCost - (estimated.total - estimated.items.physicalAndVisual)
@@ -232,17 +240,19 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     content.document = ownedDraft
       ? applySnapshotCommands(source.document, sceneCommands, context, { ...observer, preserveNoopIdentity: false })
       : applyCommands(source.document, sceneCommands, context, observer)
-    const previousEntities = new Map(enumerateLayerEntities(source.document).map(entity => [entity.id, entity]))
-    const currentEntities = new Map(enumerateLayerEntities(content.document).map(entity => [entity.id, entity]))
-    const equalEntity = ownedDraft ? equalOwnedEntity : equalCompositionValue
-    const changed = new Set([...previousEntities.keys(), ...currentEntities.keys()].filter(id => !equalEntity(previousEntities.get(id), currentEntities.get(id))))
-    // Relationship-only operations still touch their members even when their JSON is otherwise unchanged.
-    for (const command of sceneCommands) if (command.type === 'unpackPrefab') {
-      changed.add(command.id)
-      for (const member of Object.values(source.document.prefabInstances[command.id]?.members ?? {})) if (member.propId !== null) changed.add(member.propId)
+    if (source.document.schemaVersion < 3) {
+      const previousEntities = new Map(enumerateLayerEntities(source.document).map(entity => [entity.id, entity]))
+      const currentEntities = new Map(enumerateLayerEntities(content.document).map(entity => [entity.id, entity]))
+      const equalEntity = ownedDraft ? equalOwnedEntity : equalCompositionValue
+      const changed = new Set([...previousEntities.keys(), ...currentEntities.keys()].filter(id => !equalEntity(previousEntities.get(id), currentEntities.get(id))))
+      // Relationship-only operations still touch their members even when their JSON is otherwise unchanged.
+      for (const command of sceneCommands) if (command.type === 'unpackPrefab') {
+        changed.add(command.id)
+        for (const member of Object.values(source.document.prefabInstances[command.id]?.members ?? {})) if (member.propId !== null) changed.add(member.propId)
+      }
+      consume(Math.max(commands.length, changed.size))
     }
-    if (source.document.schemaVersion < 3) consume(Math.max(commands.length, changed.size))
-    content = source.document.schemaVersion === 4 ? accounting : ownedDraft
+    content = source.document.schemaVersion === 4 ? accounting : unchangedAppearance ? content : ownedDraft
       ? syncAppearanceGraphSnapshot(content, source.document, sceneCommands)
       : syncAppearanceGraph(content, source.document, sceneCommands)
   } else {
