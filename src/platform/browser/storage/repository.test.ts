@@ -12,8 +12,8 @@ import { CONVERTER_VERSION } from '../../../shared/migration/types.js'
 import { exportMigrationSet, importMigrationSet } from '../../../shared/migration/set.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
-import * as projectValidation from '../../../shared/project/validate.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
+import * as binaryHash from '../../../shared/project/binary.js'
 import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES } from './database.js'
 import { ConversionConflictError, HistoryMetadataConflictError, ProjectConflictError, ProjectRepository, PROJECT_STORAGE_LIMITS } from './repository.js'
@@ -126,7 +126,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await repo.createSnapshot(input, '相同内容保护', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 1 })
     const stored = (await repo.database.snapshots.get([owner, named.id]))!
     await repo.database.importedSnapshots.add({ ...stored, id: 'usage-imported', kind: 'imported-auto' })
-    const checking = vi.spyOn(projectValidation, 'projectContentHash')
+    const checking = vi.spyOn(binaryHash, 'sha256Bytes')
     expect(await repo.usage(owner)).toEqual({ documentBytes: encodeUtf8(canonicalJson(input.project)).length * 5,
       resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 1 })
     expect(checking).toHaveBeenCalledTimes(1)
@@ -138,7 +138,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
     const hash = Object.keys(input.project.assets)[0], resource = (await repo.database.resources.get(hash))!
-    const checking = vi.spyOn(projectValidation, 'projectContentHash'), decoded = decodedTransactions.length
+    const checking = vi.spyOn(binaryHash, 'sha256Bytes'), decoded = decodedTransactions.length
     const scanning = vi.spyOn(repo as unknown as { usageInTransaction(owner: string): Promise<unknown> }, 'usageInTransaction')
     expect(await repo.historyMetadataVersion(owner)).toBe(0)
     expect(checking).not.toHaveBeenCalled(); expect(scanning).not.toHaveBeenCalled()
@@ -178,11 +178,11 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
   it('shares strict actual-content checks only within one snapshot/save or protection transaction', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
-    const checking = vi.spyOn(projectValidation, 'projectContentHash')
+    const checking = vi.spyOn(binaryHash, 'sha256Bytes')
     const protection = await repo.createSnapshot(input, '一次事务共享', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 0 })
-    // One complete input hash outside the write transaction, then one actual
-    // current-content check shared by assertSaved and every identical scan row.
-    expect(checking).toHaveBeenCalledTimes(2)
+    // One actual current-content hash is shared by assertSaved and every
+    // identical scan row; the separate input hash uses the public API.
+    expect(checking).toHaveBeenCalledTimes(1)
     const guard = { expectedMetadataVersion: 1, protection: { id: protection.id, contentHash: protection.contentHash } }
     checking.mockClear()
     await repo.checkProtection(owner, 0, protection.contentHash, guard)
@@ -193,11 +193,43 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await repo.save(revision(input, 1), 0, { guard })
     // New input plus old/current content and new persisted content, with all
     // protection/current/automatic duplicates charged their actual byte size.
-    expect(checking).toHaveBeenCalledTimes(3)
+    expect(checking).toHaveBeenCalledTimes(2)
     checking.mockClear()
     expect((await repo.usage(owner)).documentBytes).toBe(encodeUtf8(canonicalJson(input.project)).length * 2
       + encodeUtf8(canonicalJson(revision(input, 1).project)).length * 2)
     expect(checking).toHaveBeenCalledTimes(2)
+  })
+  it('reuses current content checks only within a selected history row transaction', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const named = await repo.createSnapshot(input, 'selected history', { expectedRevision: 0, expectedMetadataVersion: 0 })
+    const checking = vi.spyOn(binaryHash, 'sha256Bytes')
+
+    await repo.loadSnapshot(owner, named.id)
+    expect(checking).toHaveBeenCalledTimes(1)
+    checking.mockClear()
+    await repo.loadSnapshot(owner, named.id)
+    expect(checking).toHaveBeenCalledTimes(1)
+    checking.mockClear()
+
+    await repo.loadAutomaticSnapshot(owner, 0)
+    expect(checking).toHaveBeenCalledTimes(1)
+    checking.mockClear()
+
+    const stored = (await repo.database.snapshots.get([owner, named.id]))!
+    const corrupted = cloneJson(stored)
+    corrupted.project.document.title = 'changed under the old hash'
+    await repo.database.snapshots.put(corrupted)
+    await expect(repo.loadSnapshot(owner, named.id)).rejects.toThrow(/hash/)
+    expect(checking).toHaveBeenCalledTimes(2)
+    await repo.database.snapshots.put(stored)
+
+    checking.mockClear()
+    await repo.renameSnapshot(owner, named.id, 'renamed history', named.contentHash, 1)
+    expect(checking).toHaveBeenCalledTimes(1)
+    checking.mockClear()
+    await repo.deleteSnapshot(owner, named.id, named.contentHash, 2)
+    expect(checking).toHaveBeenCalledTimes(1)
   })
   it('rejects same-hash history content changed after a cached transaction check and rolls the write back', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
