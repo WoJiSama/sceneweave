@@ -6,6 +6,7 @@ import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { applyCommandDraft, type BaseSceneCommand } from './base.js'
 import { polygonDistance, propFootprint, roomPoints, supportSurfaceAt, terrainPoints } from '../geometry/geometry.js'
 import { buildScatterRegeneration } from '../geometry/scatter.js'
+import { SCATTER_ALGORITHM_VERSIONS } from '../geometry/scatter-algorithm.js'
 import { sceneSchema } from '../validation/scene.js'
 import type { Editable, MaterialPaint, PointMm, SurfaceStyle, TerrainArea, TerrainEdge, VersionRef } from '../model/scene.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
@@ -42,7 +43,7 @@ export const outdoorCommandSchemas = [
   z.object({ type: z.literal('createRegion'), ...base, boundaryMm: z.array(point).min(3).max(512), kind: z.enum(['terrain', 'hazard']), visibility: visibility.optional(), blocksMovement: z.boolean().optional(), movementCostMultiplier: z.number().finite().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal('updateRegion'), id, changes: regionFields.partial().strict() }).strict(),
   z.object({ type: z.literal('createScatter'), ...base, ...scatterFields.omit({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).shape,
-    ...scatterFields.pick({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).partial().shape }).strict(),
+    ...scatterFields.pick({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).partial().shape, algorithmVersion: z.enum(SCATTER_ALGORITHM_VERSIONS).optional() }).strict(),
   z.object({ type: z.literal('configureScatter'), id, changes: scatterFields.partial().strict() }).strict(),
   z.object({ type: z.literal('upsertScatterExclusion'), groupId: id, exclusion: z.object({ id, boundaryMm: z.array(point).min(3).max(512), reason: z.enum(['manual', 'entrance']) }).strict() }).strict(),
   z.object({ type: z.literal('removeScatterExclusion'), groupId: id, exclusionId: id }).strict(),
@@ -367,7 +368,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
     }
     case 'createScatter': {
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
-      scene.scatterGroups[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, domain: cloneJson(command.domain), palette: cloneJson(command.palette), seed: command.seed, algorithmVersion: 'scatter-cell-v1',
+      scene.scatterGroups[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, domain: cloneJson(command.domain), palette: cloneJson(command.palette), seed: command.seed, algorithmVersion: command.algorithmVersion ?? 'scatter-cell-v1',
         visibility: command.visibility ?? 'public', gridOriginMm: cloneJson(command.gridOriginMm ?? { x: 0, y: 0 }), cellSizeMm: command.cellSizeMm, densityFactor: command.densityFactor ?? .25, minDistanceMm: command.minDistanceMm ?? 1, rotationRangeDeg: cloneJson(command.rotationRangeDeg ?? { min: 0, max: 359 }), members: {}, exclusions: [] }
       scene.entityLayers[command.id] = layer; break
     }

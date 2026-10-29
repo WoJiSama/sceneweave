@@ -213,6 +213,121 @@ describe('native complete-v1 workspace and repository boundary', () => {
     await expect(workspace.applyRestore(preview)).rejects.toThrow(/不可重复采用/)
   })
 
+  it('hands verified snapshots into the workspace once while repository reads and writes still decode', async () => {
+    const { workspace, repo } = await setup({ image: true })
+    const decode = vi.spyOn(validation.images, 'decode'), usage = vi.spyOn(repo, 'usage')
+    const named = await workspace.createNamedSnapshot('owned image snapshot')
+    expect(decode).toHaveBeenCalledTimes(1)
+    expect(usage).not.toHaveBeenCalled()
+    decode.mockClear()
+    const loaded = await workspace.loadNamedSnapshot(named.id)
+    expect(decode).toHaveBeenCalledTimes(1)
+    expect(getVerifiedEditableProject(loaded!.project)).toBe(loaded!.project)
+  })
+
+  it('retains unchanged image proofs through transform restore without skipping persistent validation', async () => {
+    const { workspace, repo } = await setup({ image: true })
+    const named = await workspace.createNamedSnapshot('image original')
+    await workspace.updateProp('item', { rotationDeg: 50 }); await workspace.flush()
+    const current = workspace.getState().project!, decode = vi.spyOn(validation.images, 'decode'), usage = vi.spyOn(repo, 'usage')
+    const preview = await workspace.prepareRestore(named.id, { ids: ['item'], mode: 'transform' })
+    expect(decode).toHaveBeenCalledTimes(1)
+    expect(preview.project.resources).toBe(current.resources)
+    expect(preview.project.assets).toEqual(current.assets)
+    expect(preview.project.licenseBindings).toEqual(current.licenseBindings)
+    decode.mockClear()
+    const protection = await workspace.applyRestore(preview)
+    // Re-read source before/after protection, verify the protection write, and
+    // re-read its source inside the repository. All four retain real decoding.
+    expect(decode).toHaveBeenCalledTimes(4)
+    expect(usage).not.toHaveBeenCalled()
+    expect(protection.kind).toBe('protection')
+    expect(workspace.getDocument()!.props.item.rotationDeg).toBe(0)
+    expect(workspace.getState().project!.resources).toBe(current.resources)
+    await workspace.flush()
+    expect(decode).toHaveBeenCalledTimes(5)
+    expect((await repo.load(current.document.sceneId))!.project.document.props.item.rotationDeg).toBe(0)
+    expect(decode).toHaveBeenCalledTimes(6)
+  })
+
+  it('preserves the current order of an unchanged licensed closure during transform restore', async () => {
+    const input = fixture({ image: true })
+    input.project.licenseBindings.reverse()
+    const project = await fromBundle(input, validation), repo = repository(), workspace = new Workspace(repo, { runtime, validation })
+    sessions.push(workspace); await workspace.adoptNew(project)
+    const named = await workspace.createNamedSnapshot('reordered bindings')
+    await workspace.updateProp('item', { rotationDeg: 20 }); await workspace.flush()
+    const before = workspace.getState().project!, decode = vi.spyOn(validation.images, 'decode')
+    const preview = await workspace.prepareRestore(named.id, { ids: ['item'], mode: 'transform' })
+    expect(decode).toHaveBeenCalledTimes(1)
+    expect(preview.project.resources).toBe(before.resources)
+    expect(preview.project.licenseBindings).toEqual(before.licenseBindings)
+  })
+
+  it('fully validates a repository wrapper with replaced bytes instead of inheriting snapshot proof', async () => {
+    const { workspace, repo } = await setup({ image: true })
+    const named = await workspace.createNamedSnapshot('image snapshot')
+    await workspace.updateProp('item', { rotationDeg: 25 }); await workspace.flush()
+    const before = workspace.getState().project, load = repo.loadSnapshot.bind(repo)
+    vi.spyOn(repo, 'loadSnapshot').mockImplementation(async (...args) => {
+      const snapshot = await load(...args)
+      if (!snapshot) return null
+      return { ...snapshot, bundle: Object.freeze({ project: cloneJson(snapshot.bundle.project),
+        resources: Object.freeze({ read: async () => new Uint8Array([1, 2, 3]) }) }) }
+    })
+    await expect(workspace.prepareRestore(named.id, { ids: ['item'], mode: 'transform' })).rejects.toThrow(/字节/)
+    expect(workspace.getState().project).toBe(before)
+    expect((await repo.usage(before!.document.sceneId)).protectionCount).toBe(0)
+  })
+
+  it('checks cancellation when a repository returns an already verified snapshot', async () => {
+    const repo = repository(), signal = { aborted: false }, project = await fromBundle(fixture({ image: true }), validation)
+    const workspace = new Workspace(repo, { runtime, validation: { ...validation, signal } }); sessions.push(workspace)
+    await workspace.adoptNew(project)
+    const named = await workspace.createNamedSnapshot('cancellable image snapshot')
+    await workspace.updateProp('item', { rotationDeg: 30 }); await workspace.flush()
+    const before = workspace.getState().project, load = repo.loadSnapshot.bind(repo)
+    vi.spyOn(repo, 'loadSnapshot').mockImplementation(async (...args) => {
+      const snapshot = await load(...args); signal.aborted = true; return snapshot
+    })
+    await expect(workspace.prepareRestore(named.id, { ids: ['item'], mode: 'transform' })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(workspace.getState().project).toBe(before)
+    signal.aborted = false
+  })
+
+  it('keeps the full usage fallback for repository ports without the metadata-only query', async () => {
+    const { workspace, repo } = await setup()
+    Object.defineProperty(repo, 'historyMetadataVersion', { value: undefined })
+    const usage = vi.spyOn(repo, 'usage')
+    const named = await workspace.createNamedSnapshot('legacy repository port')
+    expect(usage).toHaveBeenCalledTimes(1)
+    expect(named.kind).toBe('named')
+  })
+
+  it('fully materializes historical image resources absent from the current branch', async () => {
+    const historical = fixture({ image: true }), current = fixture()
+    current.project.document.sceneId = historical.project.document.sceneId
+    current.project.document.revision = 1
+    current.project.historyIdentity = cloneJson(historical.project.historyIdentity)
+    const summary = { id: 'historical-image', ownerSceneId: current.project.document.sceneId,
+      lineageId: historical.project.historyIdentity.lineageId, sourceRevision: historical.project.document.revision,
+      name: 'historical image source', kind: 'named' as const, createdAt: historical.project.document.updatedAt,
+      contentHash: projectContentHash(historical.project) }
+    const repo = repository(), workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
+    const imported = await workspace.adoptArchive({ current, snapshots: [{ ...summary, bundle: historical }] })
+    const snapshot = imported.snapshots.find(row => row.name === summary.name)!
+    const before = workspace.getState().project!, decode = vi.spyOn(validation.images, 'decode')
+    expect(Object.keys(before.assets)).toHaveLength(0)
+    const preview = await workspace.prepareRestore(snapshot.id, { ids: ['item'], mode: 'appearance' })
+    expect(decode.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(preview.project.resources).not.toBe(before.resources)
+    expect(preview.project.document.props.item.appearance.kind).toBe('image')
+    const hash = Object.keys(historical.project.assets)[0]
+    expect(await preview.project.resources.read(hash)).toEqual(await historical.resources.read(hash))
+    await workspace.applyRestore(preview); await workspace.flush()
+    expect((await repo.load(before.document.sceneId))!.project.document.props.item.appearance.kind).toBe('image')
+  })
+
   it('retains the branch on source deletion or protection failure without adopting restoration', async () => {
     const { workspace, repo, owner } = await setup()
     const named = await workspace.createNamedSnapshot('initial'); await workspace.updateProp('item', { rotationDeg: 25 }); await workspace.flush()

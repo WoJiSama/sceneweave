@@ -18,6 +18,7 @@ import { sha256Text } from '../../src/shared/validation/hash.js'
 import type { ToolResult } from '../../src/shared/ai/protocol.js'
 import type { StoredTask } from './store.js'
 import { prepareTerrainTool } from './terrain-tools.js'
+import { selectNewTerrainGenerationVersion } from './terrain-generation-version.js'
 import type { ProviderToolCall, ProviderToolDefinition } from './provider-types.js'
 
 const identifier = { type: 'string', minLength: 1, maxLength: 256 }
@@ -230,7 +231,8 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       output = pageOutput()
     } else if (call.name === 'sceneweave_edit_props' || call.name === 'sceneweave_edit_scene') {
       const parsed = (call.name === 'sceneweave_edit_props' ? z.object({ operations: z.array(propOperations).min(1).max(16) }).strict() : editArguments).parse(args)
-      const prepared = prepareAuthoringEdit(task, call, parsed.operations, artifacts)
+      const operations = call.name === 'sceneweave_edit_scene' ? parsed.operations.map(selectNewTerrainGenerationVersion) : parsed.operations
+      const prepared = prepareAuthoringEdit(task, call, operations, artifacts)
       output = prepared.output; install = prepared.install
     } else if (call.name === 'sceneweave_apply_boundary_candidates') {
       const parsed = boundaryCandidatesArguments.parse(args), authoring = task.authoring!, scope = authoring.start.scope.visual

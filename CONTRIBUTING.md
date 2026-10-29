@@ -4,7 +4,7 @@
 
 ## 开发环境与命令
 
-建议使用.nvmrc的Node.js24.14.1；B2/B3/B4使用该版本/npm11.11.0，B1历史覆盖24与26，依赖由package-lock.json锁定。package.json允许Node.js>=22.12.0且<27；其他允许版本不等于已验证。
+建议使用`.nvmrc`指定的Node.js24.14.1，依赖由`package-lock.json`锁定。`package.json`允许Node.js>=22.12.0且<27；允许安装不等于已完成该版本的运行验证。
 
 ```sh
 npm ci
@@ -31,13 +31,13 @@ Vitest 运行 `src/**/*.test.ts` 中的领域、存储、工程文件及渲染�
 SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 ```
 
-测试使用独立 profile/浏览器上下文。M0历史在系统Chrome上通过13个浏览器测试，另有95个单元测试（8文件）、构建与生产依赖审计通过，见[M0验证报告](docs/archive/m0-m1-validation.md#doc-13)。B1历史环境和未测范围见[17](docs/archive/m0-m1-validation.md#doc-17)，C1a/C1b历史批次见[23](docs/archive/m0-m1-validation.md#doc-23)/[24](docs/archive/m0-m1-validation.md#doc-24)。这些数字及退休UI脚本只描述历史版本，不要求当前恢复旧工作台。构建、单元和浏览器证据分别记录于对应[历史台账](docs/archive/README.md)，当前验收口径归09。
+测试使用独立profile/浏览器上下文；当前范围见[测试导航](tests/README.md)，实际结果归对应[历史台账](docs/archive/README.md)，验收要求归[质量计划](docs/09-quality-plan.md#acceptance)。退休UI脚本和旧批次数字不能作为当前通过证明。
 
 生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。[GitHub Pages 工作流](.github/workflows/deploy.yml)在推送 main 或手动触发时，读取 `.nvmrc` 安装 Node，执行 `npm ci` 和 `npm run build` 后部署静态站点至[在线预览](https://wojisama.github.io/sceneweave/)。该工作流只负责构建和部署，不代替上述单元/浏览器验证；成功结果以 GitHub Actions 运行记录为准。它不包含 AI 网关、工程云同步或正式发行版流程。
 
 ## M2-1本地任务服务
 
-使用`.nvmrc`的Node24.14.1。本地Node/Hono服务、只读对话工具及M2-2独立物件草稿已经实现，协议、预算/保留期和实际结果集中[05第11节](docs/05-ai-and-generation.md#11-m2-1连接与任务协议2026-10-24实施合同)。`node:sqlite`在本批Node仍有experimental提示；未声明其他Node版本通过。服务单实例独占一个数据目录，主工程/个人素材仍在浏览器。
+使用`.nvmrc`指定的Node版本。Node/Hono服务提供流式对话和隔离草稿，协议、工具、预算与保留期归[AI合同](docs/05-ai-and-generation.md)。`node:sqlite`在该Node版本仍有experimental提示。服务单实例独占一个数据目录，主工程与个人素材仍在浏览器。
 
 首次配置且`.env.ai`不存在时，将`.env.example`复制为`.env.ai`并设为0600，在文件里填写`SCENEWEAVE_AI_PROVIDER_BASE_URL`、`PROVIDER_API_KEY`、`PROVIDER_MODEL`及独立随机`SCENEWEAVE_AI_ACCESS_TOKEN`（所有变量均带`SCENEWEAVE_AI_`前缀）。可选`SCENEWEAVE_AI_PROVIDER_VISION_MODEL`固定视觉模型，未填时沿用文字模型；完整请求历史含图片时选择视觉模型，带图历史的后续答仍走该模型。连接信息会显示实际配置，前端不能修改provider模型。后端默认127.0.0.1:8787、数据根local-data/ai；允许Origin必须精确到协议/主机/端口，不含Pages路径。保留现有配置，不盲目覆盖；真实配置被Git忽略，provider key不能使用VITE_前缀。
 
@@ -46,18 +46,19 @@ npm run ai:build
 npm run ai:start
 ```
 
-另一个终端运行`npm run dev`。在统一工作区“AI对话”填写后端地址和`.env.ai`中的应用访问凭据，点击连接；页面不填写provider key。应用凭据仅本次页面内存，刷新后重新输入；模型/地址由服务器固定。生产前端可通过`VITE_SCENEWEAVE_AI_URL`设置公开后端origin；M2-5已部署[公网HTTPS后端](https://124.223.95.142)，[Pages前端](https://wojisama.github.io/sceneweave/)已预填该地址，必要线上创作/采用/保存导出旅程已通过，详05第15节。使用127.0.0.1与localhost时需分别配置准确Origin。
+另一个终端运行`npm run dev`。在统一工作区“AI对话”填写后端地址和`.env.ai`中的应用访问凭据，点击连接；页面不填写provider key。应用凭据仅本次页面内存，刷新后重新输入；模型/地址由服务器固定。生产前端通过`VITE_SCENEWEAVE_AI_URL`设置公开后端origin；已记录的[公网HTTPS后端](https://124.223.95.142)及[Pages前端](https://wojisama.github.io/sceneweave/)部署结果见[AI历史台账](docs/archive/ai-validation.md)，使用前按本页部署步骤核对实际版本与健康状态。使用127.0.0.1与localhost时需分别配置准确Origin。
 
 ```sh
 npm run ai:test
 SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m21-ai-conversation.spec.ts tests/m22-ai-authoring.spec.ts --reporter=line
 ```
 
-草稿操作前先在产品内明确授权对象、允许操作、固定素材与支撑范围，并同意两层元数据发送范围。任务不会直接改主工程；等待本机实际资源校验、审阅差异后，才保护当前并一次采用。重新绑定/查询只读取任务，明确继续才再次调用模型。完整合同与结果见[05第12节](docs/05-ai-and-generation.md#12-m2-2-技能与独立物件草稿2026-10-24实施合同)。
+草稿操作前先在产品内明确授权对象、允许操作、固定素材与支撑范围，并同意两层元数据发送范围。任务不会直接改主工程；等待本机实际资源校验、审阅差异后，才保护当前并一次采用。重新绑定/查询只读取任务，明确继续才再次调用模型。授权/采用合同见[AI合同](docs/05-ai-and-generation.md#12-m2-2-技能与独立物件草稿2026-10-24实施合同)，真实结果另见[AI历史台账](docs/archive/ai-validation.md)。
 
 ai:test覆盖共享草稿/后端/provider/客户端；本机原子采用另运行`npx vitest run src/application/workspace/atomic.test.ts src/application/workspace/workspace.test.ts src/platform/browser/storage/repository.test.ts --maxWorkers=1`。Chrome使用真实HTTP/SSE/SQLite和受控模型替身，普通测试不调用真实模型。`npm run build`和typecheck也检查服务类型；ai:build另输出被忽略的dist-ai。确需验证真实渠道时，在编译后明确运行`node --env-file=.env.ai tools/testing/ai-provider-probe.mjs`；默认三次请求测文字和工具续答，`--interrupt-and-error`另测首段后中止及坏凭据，可能产生模型费用且无自动重试。探针不输出密钥/正文；用`--out`保存到新系统临时路径，不归档大报告。
 
-### 受控AI runner与T8定向复现
+<a id="受控ai-runner与t8定向复现"></a>
+### 受控AI runner与地形样片复现
 
 新runner先运行`npm run ai:build`，再从`tools/testing/create-ai-task-runner.mjs`导入`createControlledTaskRunner(config,{cooldownMs:10000,lastCompletedAt})`；`config`和`lastCompletedAt`可省略。构造只连接私有store、provider和engine，不创建/恢复任务或发送请求；完成后调用`close()`。同一实例串行执行响应后冷却；若另起实例继续受控运行，由调用方传入确切的最近完成时间，不能假定跨进程自动共享。观察型fetch可以记录传输统计，不能再次sleep/retry。调度/计数/硬门见[05](docs/05-ai-and-generation.md#1915-按剩余时间收尾与锚点参数诊断)。已收费旧runner/unknown保持原证据，不自动恢复。
 
@@ -70,25 +71,35 @@ npm test -- --maxWorkers=1 --testTimeout=30000 src/shared/terrain-generation/t8-
 npx playwright test tests/terrain-generation.spec.ts --grep T8 --project=chromium
 ```
 
-容量脚本每输入仅一次开发观察，同页缓存复用；CDP只采主页面JS heap，不包含Worker/GPU/进程，也不是正式峰值或p95。样片为当前完整v3明确坐标参考，保存/包往返和实际双受众PNG均验证；不表示T9通用算法或完整v4读写器完成。当前结果及限制见[地形台账](docs/archive/terrain-validation.md#t8-20261028)。
+容量脚本每输入仅一次开发观察，同页缓存复用；CDP只采主页面JS heap，不包含Worker/GPU/进程，也不是正式峰值或p95。样片使用当批完整v3明确坐标参考，保存/包往返和实际双受众PNG检查不代表组合算法或完整v4的验收。原结果及限制见[地形台账](docs/archive/terrain-validation.md#t8-20261028)。
 
-## M3前视觉AI开发与可选截图
+<a id="m3前视觉ai开发与可选截图"></a>
+<a id="program-base-map"></a>
+### 无模型程序底图
 
-本地开发版增加严格v2视觉工程、连续曲线/边沿、材质铺贴、局部光雾、有限滤镜与AI制作清单。既有完整v1在工作区先明确保存独立v2副本，再冻结Floor/图层/矩形/对象/素材/允许操作；AI不暗中升级。制作计划与结构诊断不代表模型已看到画面或完成审美验收。完整合同、真实模型失败/修正和本机保护采用结果见[05第19节](docs/05-ai-and-generation.md#19-m3前视觉创作的ai合同与本地真实验证)，产品范围见[视觉与素材合同](docs/14-visual-and-assets.md#doc-53)。Q2–Q5已有历史发布记录，2026-10-28任务级思考程度与基础修复仍为本地未发布改动；具体批次边界见[视觉历史台账](docs/archive/visual-quality-validation.md)。
+工程面板的“程序底图生成方式”默认本机Worker，可离线使用。选择服务端时填写已配置自有服务的origin与应用访问凭据，再从原自然地形/地貌组合入口生成；当前页面不持久保存凭据。新接口为`POST /v1/terrain/basemap`，沿用上面的鉴权、精确Origin与存储可用性守卫，直接调用共享确定性核心，不创建AI任务或调用provider。当前服务配置仍要求原有provider配置；本接口不等于支持无provider配置启动。
+
+独立空白元数据请求最多4MiB、完整JSON响应最多8MiB，实际字节/UTF-8/长度均检查；并发为`min(maxConcurrent,2)`，读取正文前占名额，正文总等待30秒，失败/取消均释放。同步领域计算受内部几何/256预算约束，不能宣称中途可被事件循环即时抢占。旧任务接口的32KiB及authoring/vision独立预算不变。客户端不自动重发或切换计算位置；旧后端404须更新代码并重新构建/发布后端，本地实现通过不代表线上已经更新。
+
+协议与领域结果指纹见[04](docs/04-scene-document.md#program-base-map-protocol)，真实资源物化和最终采用仍在本机。本次流程的初始/剩余成本仅为会话回执，AI接续尚未启用；不能把新任务从0计费当作底图预算承接。定向命令为`npx vitest run src/shared/terrain-generation/base-map.test.ts src/platform/browser/terrain-generation/base-map-client.test.ts src/application/workspace/base-map.test.ts --no-file-parallelism --maxWorkers=1`、`npx vitest run --config vitest.ai.config.ts services/ai/base-map.test.ts services/ai/app.test.ts --no-file-parallelism --maxWorkers=1`与`npx playwright test tests/base-map.spec.ts`，后者启动自己的真实本地HTTP服务并断言模型请求为0；不使用维护者凭据或真实付费渠道。
+
+## 视觉AI开发与可选截图
+
+本地开发版增加严格v2视觉工程、连续曲线/边沿、材质铺贴、局部光雾、有限滤镜与AI制作清单。既有完整v1在工作区先明确保存独立v2副本，再冻结Floor/图层/矩形/对象/素材/允许操作；AI不暗中升级。制作计划与结构诊断不代表模型已看到画面或完成审美验收。视觉/截图/工具合同归[AI合同](docs/05-ai-and-generation.md#18-视觉制作回读与provider适配)，产品视觉范围归[视觉与素材规范](docs/14-visual-and-assets.md)。真实模型失败、修正和保护采用结果见[AI历史台账](docs/archive/ai-validation.md)与[视觉历史台账](docs/archive/visual-quality-validation.md)，不从旧发布记录推定当前部署。
 
 可选制作证据检查支持明确活动区净空、分离物件组数量、双高程足宽台阶/坡道、房间用途与真实家具/材质、已启用边沿种类。检查矩形和固定素材必须位于冻结授权内，独立分组矩形不得重叠；仅以授权公开子集及本任务创建内容判定，不把房名或claimed当成完成。实际旋转图像的占幅/重叠另行诊断，不能只用较小碰撞占地安排树冠。大量采样点的地形读回超过8KiB回执预算时，明确返回`geometryOmitted`，随后以`sceneweave_read_scene`的`anchors`和单个地形ID、offset/limit分页取得真实point/segment；连续边沿直接引用真实boundaryId，不能沿用重采样前的旧segmentId。
 
 `sceneweave_probe_placement`是无写入的有限诊断：固定definition/support、候选毫米坐标、旋转、最小净距与是否避让完整图像，返回实际地面支撑、整块占地是否受支撑、授权障碍、实测净距及最多5个确定性建议。支撑包围盒各轴固定17等分，检查16×16内部点、最多256个样点，只读取冻结公开子集；没有建议不等于穷尽证明。候选必须再次通过原本完整几何、锁/依赖/预算及本机采用，不自动放置、不扩大范围。开发验收中的确定性局部修复与真实模型生成报告分开保留，尤其不能因本机恢复/采用成功把request_limit或计费unknown写成自动创作通过。
 
-在现有服务器环境文件中可显式设置`SCENEWEAVE_AI_PROVIDER_VISION=unverified|disabled|enabled`，默认unverified。保持unverified时可使用全部文字工具/结构诊断，截图复选框禁用。只有确认该固定渠道/实际视觉模型支持Chat Completions内联PNG后，维护者才设置enabled并重启服务；不要因模型名称或一次HTTP成功自动启用。旧`grok-4.6`渠道high随机12/12、实际地图5/5、三图有限修改及其后额度预扣失败均保留历史。用户最新指定BigModel文字`glm-5.3`、视觉`glm-5.3-flash`，新组保持unverified：文字/工具最小检查通过，flash8192预算随机12/12、实际地图4/5，不能借旧渠道实证启用。每消息一图/每任务四图及披露/范围绑定保持，未知请求不自动重发；详细实测与线上是否更新分别记05第19.10节及54。
+在现有服务器环境文件中可显式设置`SCENEWEAVE_AI_PROVIDER_VISION=unverified|disabled|enabled`，默认unverified。保持unverified时可使用全部文字工具/结构诊断，截图复选框禁用。只有确认该固定渠道/实际视觉模型支持Chat Completions内联PNG后，维护者才设置enabled并重启服务；不要因模型名称或一次HTTP成功自动启用。文字/视觉模型与渠道能力以服务器连接信息及[AI合同](docs/05-ai-and-generation.md)为准。各渠道成功、失败和未确认请求保留在[视觉历史台账](docs/archive/visual-quality-validation.md)，不能借另一渠道的实证启用。每消息一图/每任务四图及披露/范围绑定保持，未知请求不自动重发；渠道实测及部署版本分别见[视觉历史台账](docs/archive/visual-quality-validation.md)与[AI历史台账](docs/archive/ai-validation.md)。
 
 创作任务可在私有服务器配置中设置`SCENEWEAVE_AI_AUTHORING_OUTPUT_TOKENS`，默认1024、允许整数1–8192；普通对话仍1024。连接信息展示创作预算，工具参数/完整回执8KiB、65536可见输出字节、16请求/64工具/300秒及256累计展开等原保护不变。高输出创作请求可能有较多推理流事件：普通≤1024预算保留1MiB/2048事件的SSE解码门，较高预算使用4MiB/16384事件；32KiB单行和64KiB单事件保持。配置值不保证完整创作或渠道费用；模型/共享实现/预算改变后重新冻结独立任务组，保留旧失败与unknown。
 
-GLM-5.3/FLASH的强制思考及交错工具续答按[供应商说明](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode)处理。私有配置可显式设置`SCENEWEAVE_AI_PROVIDER_PRESERVE_REASONING=enabled|disabled`，默认disabled，当前BigModel本机配置显式enabled。启用时仅在服务端私有消息中保留每回复最多64KiB的不透明`reasoning_content`，供provider续答，计入原每任务16MiB、全库256MiB及七日生命周期；不解释或执行该字段，不进入文字回调、snapshot/SSE、工具回执或工程/导出。关闭后不再保存或发给provider；既有任务在下次请求时移除本任务历史中的该字段，不批量改写全部旧任务。不要在诊断中打印该字段，配置变更需重启并独立验收。
+GLM-5.3/FLASH的强制思考及交错工具续答按[供应商说明](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode)处理。私有配置可显式设置`SCENEWEAVE_AI_PROVIDER_PRESERVE_REASONING=enabled|disabled`，默认disabled；是否启用由维护者按固定渠道的续答需求明确配置。启用时仅在服务端私有消息中保留每回复最多64KiB的不透明`reasoning_content`，供provider续答，计入原每任务16MiB、全库256MiB及七日生命周期；不解释或执行该字段，不进入文字回调、snapshot/SSE、工具回执或工程/导出。关闭后不再保存或发给provider；既有任务在下次请求时移除本任务历史中的该字段，不批量改写全部旧任务。不要在诊断中打印该字段，配置变更需重启并独立验收。
 
 对已确认支持的渠道，可显式设置`SCENEWEAVE_AI_PROVIDER_REASONING_EFFORT=low|high|max`；不填时不发送thinking/effort，显式值发送`thinking:{type:'enabled'}`与`reasoning_effort`。[GLM-5.3官方文档](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3)说明默认max并建议enabled+low；当前GLM文字/Flash支持该选项。它不关闭思考、不代替私有续答、不改变任务预算，也不保证正文余量、固定延迟或费用。变更后重启并新冻结验证，不恢复旧unknown任务。
 
-AI面板连接后可为新任务选择跟随服务/low/high/max，并提示选择模型支持的思考程度；该设置同时用于普通对话和场景草稿。服务默认在创建事务中冻结，已有任务/暂停续答/同请求重试不受页面后来选择影响；更改服务器默认只影响新任务。任务实际设置单独回显，未显式指定为模型默认，不表示关闭思考。后端需提供`capabilities.taskReasoningEffort:true`；页面和后端必须同时更新才能启用该选择，当前本地改动未自动发布。协议见[05第19.16节](docs/05-ai-and-generation.md#1916-页面选择与任务固定思考程度)，本轮真实low短请求和385项代码/8项浏览器证据见[54第13.13节](docs/archive/visual-quality-validation.md#doc-54-1313-页面思考程度与超时时间线)。
+AI面板连接后可为新任务选择跟随服务/low/high/max，并提示选择模型支持的思考程度；该设置同时用于普通对话和场景草稿。服务默认在创建事务中冻结，已有任务/暂停续答/同请求重试不受页面后来选择影响；更改服务器默认只影响新任务。任务实际设置单独回显，未显式指定为模型默认，不表示关闭思考。后端需提供`capabilities.taskReasoningEffort:true`；页面和后端必须同时更新才能启用该选择，发布状态须独立核对。协议见[任务思考程度合同](docs/05-ai-and-generation.md#1916-页面选择与任务固定思考程度)，历史探针、检查和超时时间线见[视觉台账](docs/archive/visual-quality-validation.md#doc-54-1313-页面思考程度与超时时间线)。
 
 组合候选向provider提供根`type:object`、分支属性并集、必填`kind`和`additionalProperties:false`，保持严格`oneOf`分支及运行时校验。模型失败、代码检查和已完成但未通过的严格v2性能矩阵见[历史台账](docs/archive/ai-validation.md#contributing-provider-results)及[性能参考](docs/reference/performance.md)；它们不代表当前冻结验收。
 
@@ -99,9 +110,9 @@ npm run ai:build
 node --env-file=.env.ai dist-ai/services/ai/vision-probe.js --run-vision-probe
 ```
 
-截图须在新任务或明确继续时分别勾选同意。浏览器重新生成真实玩家投影并裁剪授权矩形，长边先768px，字节超限时降到512/384px；每张最多512KiB，任务累计最多4张。后端还验证真实PNG/CRC/hash/有限解压、sceneId/revision和当前草稿stamp；请求体上限6MiB，普通文字与元数据预算保持。图片只在私有任务消息中按七日/任务删除规则保留，不进snapshot/SSE；后续模型请求会重复携带带图历史，不能把一次上传当作仅计一次图片费用。`deploy/Caddyfile`和IP覆盖文件没有额外请求体限制；若外层另有反向代理，须核对6MiB创建/继续请求可达及SSE禁缓冲，不能只提高前端上限。现有线上版本尚未据本批本地检查更新或验证图片流程。
+截图须在新任务或明确继续时分别勾选同意。浏览器重新生成真实玩家投影并裁剪授权矩形，长边先768px，字节超限时降到512/384px；每张最多512KiB，任务累计最多4张。后端还验证真实PNG/CRC/hash/有限解压、sceneId/revision和当前草稿stamp；请求体上限6MiB，普通文字与元数据预算保持。图片只在私有任务消息中按七日/任务删除规则保留，不进snapshot/SSE；后续模型请求会重复携带带图历史，不能把一次上传当作仅计一次图片费用。`deploy/Caddyfile`和IP覆盖文件没有额外请求体限制；若外层另有反向代理，须核对6MiB创建/继续请求可达及SSE禁缓冲，不能只提高前端上限。本地检查不能替代目标线上版本的图片流程复测。
 
-本批无费用的定向入口：
+不调用付费模型的定向入口：
 
 ```sh
 npm run ai:test
@@ -155,15 +166,13 @@ IP 方案使用`deploy/Caddyfile.ip`：显式指定 Let's Encrypt ACME issuer �
 
 `deploy/ai.env.example`中的`SCENEWEAVE_AI_ALLOWED_ORIGINS`必须写 Pages 的精确Origin，例如`https://wojisama.github.io`，不带`/sceneweave/`路径；若另有自定义域名，按逗号加入完整Origin。应用访问令牌和模型供应商密钥只放在服务器的`.env.ai.production`，不能提交仓库，也不能以`VITE_`前缀或GitHub Pages变量发布。数据卷和 Caddy 证书卷应纳入服务器备份；只允许一个 AI 容器实例独占数据卷，更新时用`docker compose ... up -d --build`，服务重启后会按协议将未决任务置为暂停并保留可查询进度。IP 部署的更新、检查、重启和停止命令始终同时传入`-f deploy/compose.yaml -f deploy/compose.ip.yaml`；遗漏覆盖文件可能重新占用 80 端口或换回域名证书配置。不要用`down -v`删除任务及证书卷，恢复数据卷前先停止唯一 AI 实例。
 
-Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。**HTTPS Pages 无法调用公网 HTTP 后端**，浏览器会阻止这类混合内容；CORS 配置不能解除该限制。容器内的 HTTP 转发不影响浏览器对公网 HTTPS 的要求。证书签发并实际验证后，将仓库变量设为`https://ai.example.com`或`https://实际公网IP`，再手动运行或推送触发 Pages 工作流。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。检查命令中的示例域名/IP也应替换成实际部署地址。当前仓库变量已设为`VITE_SCENEWEAVE_AI_URL=https://124.223.95.142`，[Pages工作流40113648232](https://github.com/WoJiSama/sceneweave/actions/runs/40113648232)成功，前端地址为[https://wojisama.github.io/sceneweave/](https://wojisama.github.io/sceneweave/)。
+Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。**HTTPS Pages 无法调用公网 HTTP 后端**，浏览器会阻止这类混合内容；CORS 配置不能解除该限制。容器内的 HTTP 转发不影响浏览器对公网 HTTPS 的要求。证书签发并实际验证后，将仓库变量设为`https://ai.example.com`或`https://实际公网IP`，再手动运行或推送触发 Pages 工作流。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。检查命令中的示例域名/IP也应替换成实际部署地址。实际Pages地址和后端Origin配置须在交付时核对；旧工作流、地址与证书记录见[AI历史台账](docs/archive/ai-validation.md)。
 
-2026-10-25实际部署：服务器 Docker 镜像构建、非 root/只读容器内部健康通过；初次公网 TCP 443 超时后，云侧已放行，当前[HTTPS健康端点](https://124.223.95.142/healthz)返回200。受信任证书由 Let's Encrypt YE2 签发，SAN 为`IP Address:124.223.95.142`，本次有效期为`2026-10-24T15:54:28Z`至`2026-10-31T07:54:27Z`（以UTC记录，非固定续期时间）。Node默认信任验证/TLS1.3、缺凭据401、错误Origin403和Pages精确Origin的GET/POST/DELETE预检204已通过；经SSH的单次真实模型流/断线回读/幂等1请求、重启检查点/取消/备份还原及合成7日清理结果见[05第15节](docs/05-ai-and-generation.md)。公网HTTPS及静态Pages地址现已可用，实际Pages中的真实模型场景/SVG→草稿校验→保护一次采用→本机保存→完整包/4K PNG/重开必要旅程通过；9请求、44展开、43条完整包hash正确，0页面错误。公网SSE断流续读、任务归属隔离及重启保全/合成取消也通过；完整私密/两批扩围和自由创作质量仍单独验收。
+历史部署、证书签发、失败和线上旅程见[AI历史台账](docs/archive/ai-validation.md)。证书有效期、健康状态和部署版本必须在实际交付时重新核对，不将历史200响应当作持续可用证明。
 
 ## 当前主路径回归
 
-2026-10-28当前开发节奏为：基础修复与必要定向验证 → T8–T12开发 → T13冻结与技术回归 → M2-E统一验收 → M3。基础修复与T8开发基线已完成，T9待实施；开发中运行与改动有关的必要定向检查和少量中性样图复核；完整Q4真实AI/局部修改、视觉回读、用户P3与正式性能集中到M2-E，不自动付费扩跑完整模型矩阵。T13的同冻结技术回归结果可直接作为M2-E证据，后续修复改变源码、素材或模型时按影响复验，未受影响结果无需重复整套。验收任务可按需求覆盖映射合并，但不得省略室内、局部、私密、保存/导出及独立任务数要求，也不拼历史数字。范围与最终入口见[55](docs/55-terrain-generation-design.md#terrain-acceptance)、[54](docs/54-reference-quality-plan.md)与[09](docs/09-quality-plan.md)。
-
-旧整页工作台及旧转换UI已删除，默认Playwright套件执行当前完整v1/M2旅程和仍保留的底层API用例；退休UI文件及原因见[tests/README](tests/README.md)。旧203项Chrome结果和此前首页交付39项结果都保留为历史，不能直接证明当前改动通过。以下用于M2-E全量回归或用户另行明确要求的完整回归；日常切片仅运行受影响检查，命令依次串行执行：
+开发任务只按[路线图](docs/07-roadmap.md#development)维护，全部验收从[质量计划](docs/09-quality-plan.md#acceptance)执行。开发整改期间运行受影响的定向检查；完整回归在验收阶段或用户另行要求时执行。旧整页工作台及旧转换UI已退役，默认Playwright套件覆盖当前原生工作区、AI旅程及仍保留的底层API；范围见[测试导航](tests/README.md)。以下命令依次串行执行：
 
 ```sh
 npm test -- --maxWorkers=1
@@ -175,7 +184,7 @@ npm run build
 SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test --workers=1 --reporter=line
 ```
 
-本轮同化与失败草稿恢复使用默认Playwright配置和确定性provider，经过真实HTTP/SSE、SQLite、IndexedDB与Canvas，不调用付费模型。单件→固定组合→两个新基线明确范围，以及请求上限后的有效草稿备份/重绑/审阅/保护采用分别由下列专项复现：
+同化与失败草稿恢复专项使用默认Playwright配置和确定性provider，经过真实HTTP/SSE、SQLite、IndexedDB与Canvas，不调用付费模型。单件→固定组合→两个新基线明确范围，以及请求上限后的有效草稿备份/重绑/审阅/保护采用分别由下列专项复现：
 
 ```sh
 SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m2-assimilation-acceptance.spec.ts tests/m2-failed-draft-recovery.spec.ts --workers=1 --reporter=line
@@ -190,11 +199,13 @@ npx playwright test --config=tests/m2-joint-playwright.config.ts --workers=1
 
 默认配置与专用配置均可启动或复用`127.0.0.1:5173`开发服务；使用已启动的同版开发服务时可设置`SCENEWEAVE_TEST_BASE_URL`。这些专项包含开发模块入口，不能直接把生产`dist`地址当作等价入口。冻结源码后再运行，分别保留失败与复验结果；命令说明不代表已经执行，测试不得与正式性能测量并行。
 
-首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山新增独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧lava v1源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。必要线上AI旅程见05第15节；本轮实际使用与失败修复的适用结果见[05第17节](docs/05-ai-and-generation.md#17-2026-10-25-m2实际使用验收与修复)及09：确定性单件/组合/两批范围、三引擎四个完整v1秘密配对的实际4K、保存失败/CAS/迁移/离线与390px，以及Chromium隔离origin真实配额和原生200%等子项已有通过证据。Firefox/WebKit的Chromium专属配额override和原生缩放两项为不适用跳过；未覆盖秘密/输入矩阵、默认设备容量/真实磁盘满、Firefox/WebKit配额、其他浏览器原生200%、完整无引导SCN、真实模型风格与用户P3仍分别验收。修复提交`887aad9`已由[Pages工作流40142916372](https://github.com/WoJiSama/sceneweave/actions/runs/40142916372)发布并完成公网复测；正式性能方法、实际结果和剩余边界集中于[34](docs/reference/performance.md#doc-34)，不预填本轮通过结论。
+首页图片刷新使用`node tools/build-home-showcase.mjs`，从真实完整样板原生渲染六图并记录源/PNG/像素hash。火山独立热裂版本使用`node tools/build-themed-art.mjs --lava-hot`及`node tools/build-volcano-variant.mjs`；旧固定源/图/manifest保留，已存在固定ID不同字节时拒绝覆盖。
 
-## 当前原生样板加载诊断
+开发模块入口与正常生产UI分别记录。Firefox/WebKit的适用范围、受控配额、真实磁盘满、原生缩放、秘密/输入矩阵和无引导SCN等不能由一个专项外推；实际历史结果见[AI台账](docs/archive/ai-validation.md)，当前检查要求归[质量计划](docs/09-quality-plan.md)。
 
-2026-10-24按用户授权修复的范围及前后结果集中在[34](docs/reference/performance.md#doc-34-2026-10-24原生完整v1样板加载修复)，不新增逐批验收报告。必要定向入口为`npx vitest run src/application/workspace src/platform/browser/content src/platform/browser/storage src/editor/main/*.test.ts src/platform/browser/render --maxWorkers=1`及`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/sample-loading.spec.ts tests/m20f-ui.spec.ts tests/m20f-entry.spec.ts tests/m20f-render.spec.ts --reporter=line`；本批结果分两批Chrome运行，不等同完整回归。
+## 原生样板加载诊断
+
+原生样板加载的历史修复与前后结果见[性能参考](docs/reference/performance.md#doc-34-2026-10-24原生完整v1样板加载修复)。必要定向入口为`npx vitest run src/application/workspace src/platform/browser/content src/platform/browser/storage src/editor/main/*.test.ts src/platform/browser/render --maxWorkers=1`及`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/sample-loading.spec.ts tests/m20f-ui.spec.ts tests/m20f-entry.spec.ts tests/m20f-render.spec.ts --reporter=line`；此处只定义复现方法，不表示已执行完整回归。
 
 诊断使用正常`npm run build`，先在一个终端执行`npm run preview -- --port 5174`，再在另一终端逐条运行下列命令；期间不并行测试、构建或其他浏览器负载。输出使用新的系统临时目录：
 
@@ -204,11 +215,11 @@ node tools/testing/sample-load-diagnostic.mjs --runs 2 --out "$sample_load_dir/l
 node tools/testing/sample-load-diagnostic.mjs --runs 1 --samples study --delay-ms 80 --out "$sample_load_dir/delay.json"
 ```
 
-工具默认真实`http://127.0.0.1:5174/sceneweave/`页面，系统Chrome独立上下文，不启用应用调试API；每个上下文首次/回首页再次打开各一次。记录点击至确认、采用至保存/画布就绪代理、PNG读取调用、位图创建及长任务，等待本次后台活动稳定再计数。`--delay-ms`仅模拟每次PNG请求的延迟，路由会禁用HTTP缓存，不能当作GitHub Pages实测；低次数结果不产生正式p95/通过结论。没有长期位图缓存或Worker，本批不替代下述历史矩阵，也不重建work/evidence。
+工具默认真实`http://127.0.0.1:5174/sceneweave/`页面，系统Chrome独立上下文，不启用应用调试API；每个上下文首次/回首页再次打开各一次。记录点击至确认、采用至保存/画布就绪代理、PNG读取调用、位图创建及长任务，等待本次后台活动稳定再计数。`--delay-ms`仅模拟每次PNG请求的延迟，路由会禁用HTTP缓存，不能当作GitHub Pages实测；低次数结果不产生正式p95/通过结论。该诊断不引入长期位图缓存，也不测量地形Worker或完整正式矩阵。
 
 ## M2 原生完整v1正常生产性能复现
 
-本轮使用`tools/performance/run-native-m2.mjs`，从正常`npm run build`产物的`/sceneweave/#home`进入同一原生完整v1工作区，不使用B5专用构建、旧v6入口或产品开发API。先完成受测功能修改与正确性验证，再冻结源码、构建和运行器；下列命令依次执行，采样期间不运行其他浏览器、单元/浏览器测试、构建或性能任务。系统须已安装Chrome；当前进程树RSS采样仅适配macOS。运行器使用独立回环HTTP服务和新Chrome进程/profile，拦截站外网络，不调用模型；macOS防空闲休眠仅在命令存活期间生效。
+新标识完整v1负载使用`tools/performance/run-native-m2.mjs`，从正常`npm run build`产物的`/sceneweave/#home`进入同一原生完整v1工作区，不使用B5专用构建、旧v6入口或产品开发API。先完成受测功能修改与正确性验证，再冻结源码、构建和运行器；下列命令依次执行，采样期间不运行其他浏览器、单元/浏览器测试、构建或性能任务。系统须已安装Chrome；当前进程树RSS采样仅适配macOS。运行器使用独立回环HTTP服务和新Chrome进程/profile，拦截站外网络，不调用模型；macOS防空闲休眠仅在命令存活期间生效。
 
 先以新的空临时目录验证运行器并诊断热点；此命令仅是低次数诊断，不产生正式通过结论：
 
@@ -234,7 +245,7 @@ node tools/performance/run-native-m2.mjs --output "$native_m2_formal_dir" --fixt
 
 精确领域区间从可信提交输入（普通物件编辑为Enter）开始，到Workspace完成领域校验、身份与撤销状态、在通知React前记录的会话时间结束；对应`data-transaction-revision`必须等于提交后revision。DOM revision、Canvas计数/就绪、保存完成和双rAF显示调度代理各自报告，不能用保存或双rAF替代领域提交。时戳只在会话/DOM，不进入工程、历史或导出。500物件普通领域p95目标100ms，连续输入帧间隔目标约33ms，2000物件作为压力观察；运行器完成不代表达标。
 
-`manifest.json`及每轮结果记录Node、操作系统、CPU/逻辑核数、内存、Chrome版本、1512×982/DPR1视口和实际命令参数，并记录源码、构建输入、dist与运行器SHA256及采样前后未变核对。每轮原始输入/事务/LongTask、独立资源记录和CPU诊断文件保留，成功完成后自动写`summary.json`。RSS目标间隔100ms、目标页JS堆200ms，报告真实间隔、阶段、边界样本及采样错误；RSS可能重复共享页，JS堆不含完整浏览器/GPU，二者均非物理峰值。双rAF不是GPU或屏幕呈现完成；HTTP缓存关闭但不清系统缓存，不宣称50×50显示网格、自由拖拽或完整QA-PERF-04通过。输出目录必须为空且独立于原夹具，失败、取消与慢样本保留，修正后另开目录重跑。方法说明不是运行结果，本轮实际结果、失败修正、证据路径和剩余边界以[34后续记录](docs/reference/performance.md#doc-34)为准。
+`manifest.json`及每轮结果记录Node、操作系统、CPU/逻辑核数、内存、Chrome版本、1512×982/DPR1视口和实际命令参数，并记录源码、构建输入、dist与运行器SHA256及采样前后未变核对。每轮原始输入/事务/LongTask、独立资源记录和CPU诊断文件保留，成功完成后自动写`summary.json`。RSS目标间隔100ms、目标页JS堆200ms，报告真实间隔、阶段、边界样本及采样错误；RSS可能重复共享页，JS堆不含完整浏览器/GPU，二者均非物理峰值。双rAF不是GPU或屏幕呈现完成；HTTP缓存关闭但不清系统缓存，不宣称50×50显示网格、自由拖拽或完整QA-PERF-04通过。输出目录必须为空且独立于原夹具，失败、取消与慢样本保留，修正后另开目录重跑。方法说明不是运行结果，各冻结的实际结果、失败修正、证据路径和剩余边界以[34后续记录](docs/reference/performance.md#doc-34)为准。
 
 ## Q5 完整v2视觉负载性能复现
 
@@ -255,13 +266,29 @@ node tools/performance/run-native-m2.mjs --output "$PWD/work/visual-v2-formal" -
 
 默认四组×三轮，每轮159观察、共1908；沿用上节普通编辑/选择/图层/外观/保护恢复/菜单/平移缩放/冷导入重开/双4K及资源采样，另含真实曲线手柄30次rAF指针移动、普通预览/完整影响范围确认/采用及普通UI撤销。岛屿500/2000的完整只读支撑依赖为507/2007，必须披露，实际展开写入仅10；旅舍装饰曲线依赖/展开均2。只读依赖数量不充当写入预算，也不能因此省略依赖检查。
 
-完整矩阵分类为`formal-visual-v2-production-ui-observation`；缩样或`--diagnostic`/`--diagnostic-profile`另列诊断，不混入正式分布。普通500物件intent→domain commit逐轮及合并p95仍以100ms为子指标，连续输入/曲线调度、保存/恢复、渲染和4K独立报告。相同冻结、时钟中断检测、实际采样间隔和RSS/JS堆边界沿用上节；运行完成不等于达到性能门，也不替代P3、完整QA-PERF-01/04或九份真实AI新作。当前实际结果与剩余瓶颈只写[34](docs/reference/performance.md#doc-34)，不覆盖旧完整v1或B5历史。
+完整矩阵分类为`formal-visual-v2-production-ui-observation`；缩样或`--diagnostic`/`--diagnostic-profile`另列诊断，不混入正式分布。普通500物件intent→domain commit逐轮及合并p95仍以100ms为子指标，连续输入/曲线调度、保存/恢复、渲染和4K独立报告。相同冻结、时钟中断检测、实际采样间隔和RSS/JS堆边界沿用上节；运行完成不等于达到性能门，也不替代P3、完整QA-PERF-01/04或九份真实AI新作。各冻结实际结果与剩余瓶颈只写[性能参考](docs/reference/performance.md#doc-34)，不覆盖旧完整v1或B5历史。
+
+<a id="development-stage-diagnostics"></a>
+## 开发期分段诊断
+
+复用上节准备器生成的完整v2真实负载。下列命令依次运行，期间不并行其他浏览器、构建、测试或模型任务，输出均用新的空目录；低次数只用于定位，不产生正式p95或容量通过结论：
+
+```sh
+npm run build
+node tools/performance/run-native-m2.mjs --output "$PWD/work/perf-baseline" --visual-v2-fixtures "$PWD/work/visual-v2-fixtures" --runs 1 --selections 1 --edits 2 --layers 2 --appearances 1 --restores 1 --menus 1 --gestures 1 --diagnostic
+node tools/performance/diagnostic-stages.mjs --out-dir "$PWD/work/perf-stage-dist"
+node tools/performance/run-native-m2.mjs --output "$PWD/work/perf-stages" --visual-v2-fixtures "$PWD/work/visual-v2-fixtures" --dist "$PWD/work/perf-stage-dist" --runs 1 --selections 1 --edits 2 --layers 2 --appearances 1 --restores 1 --menus 1 --gestures 1 --diagnostic-stages --diagnostic-profile
+```
+
+计时工具只在内存转换选定函数，生成独立的优化构建和source map，不修改应用源码或正常dist；记录完整校验、资源读/解码/SVG光栅、派生命中、候选、快照/恢复、历史扫描、hash及绘制跨度，并接收已有RenderMetrics。manifest绑定转换边界及原文件hash；缺少计时构建却传计时标志，或将计时构建作为正常/正式测量，均在启动浏览器前拒绝。工具观察器只在该显式诊断模式允许，不放开产品调试API。
+
+每次操作的`diagnosticStages`保留已完成和未结束跨度、命中/失败及绘制分段；不得直接相加嵌套或并发耗时。额外timer、await、metrics和CPU profile会影响时延，只能与正常基线分别解读；失败或取消记录保留，新目录重跑。已有profile边界、可信输入、事务时标、资源采样与时钟断裂检查继续执行。数据及源码定位结论归[性能参考](docs/reference/performance.md#budget-performance-diagnosis)，不另建逐批报告。
 
 ## 历史性能与旧工作台记录
 
 B5/C0的专用构建、旧`assets/layers`工作台选择测量及C1c至C2浏览器命令属于退休前的历史方法。旧UI脚本不再作为当前站点的运行入口，不能用旧结果替代完整v1的性能或回归证据；旧页面相关用例按[tests/README](tests/README.md)退休。B5完整负载、设备/资源口径和失败限制见[21](docs/archive/m0-m1-validation.md#doc-21)，C0见[22](docs/archive/m0-m1-validation.md#doc-22)，选择及native v3对照见[25](docs/archive/m0-m1-validation.md#doc-25)/[26](docs/archive/m0-m1-validation.md#doc-26)，历史/建筑工具见[27](docs/archive/m0-m1-validation.md#doc-27)/[28](docs/archive/m0-m1-validation.md#doc-28)。原始B5 manifest与四个包仍在`tests/fixtures/performance-b5`，本次不删除或改写它们。
 
-当前完整v1性能使用上节独立运行器，正式测量仍须冻结源码、构建与运行器并串行执行；macOS进程树RSS和目标JS堆是采样观测，均非完整浏览器/GPU物理峰值。低次数、少轮次、带CPU profile的诊断不能混入正式分布，双rAF仅是显示调度代理。实际结果和未通过门槛继续归[34](docs/reference/performance.md#doc-34)，本次入口删除不重认定旧结果。
+新标识完整v1性能使用上节独立运行器，正式测量仍须冻结源码、构建与运行器并串行执行；macOS进程树RSS和目标JS堆是采样观测，均非完整浏览器/GPU物理峰值。低次数、少轮次、带CPU profile的诊断不能混入正式分布，双rAF仅是显示调度代理。实际结果和未通过门槛继续归[34](docs/reference/performance.md#doc-34)，本次入口删除不重认定旧结果。
 
 ## 修改流程
 
@@ -278,13 +305,9 @@ B5/C0的专用构建、旧`assets/layers`工作台选择测量及C1c至C2浏览�
 
 ## 当前适合的贡献
 
-- 用具体备团场景说明需求与卡点，注明规则体系、地图尺度和输出去向。
-- 复核 M0 的共享结构、异常恢复、保密输出和可复现负载，补充真实证据。
-- 按 M1-A/B/C/D 完善视觉规范、双样板、手工绘图、真实素材与组件，先用样板测量再扩展工具。
-- M2按[45](docs/archive/m2-project-validation.md#doc-45)先统一完整v1/共享核心，再接自有任务后端、流式技能/工具草稿、场景创作及SVG/渐进同化；首版无生图API，最终采用保持保护点/CAS/锁/256预算。
-- 修正文档矛盾与含糊定义，附上来源或可复核的最小例子。
+按[开发整改任务](docs/07-roadmap.md#development)修复问题、完善生成与编辑闭环；用具体备团场景说明需求与卡点，注明规则体系、地图尺度和输出去向。文档矛盾直接修正所属主定义，附来源或可复核的最小例子；当前状态与排期不再追加到其他主题。
 
-文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。VIS-01/02首轮结果见[18](docs/archive/m0-m1-validation.md#doc-18)/[19](docs/archive/m0-m1-validation.md#doc-19)，B5技术观测见[21](docs/archive/m0-m1-validation.md#doc-21)，C1a创作闭环见[23](docs/archive/m0-m1-validation.md#doc-23)，C1b有限选择/批改/菜单见[24](docs/archive/m0-m1-validation.md#doc-24)，选择性能、C1c与C1d见[25](docs/archive/m0-m1-validation.md#doc-25)/[26](docs/archive/m0-m1-validation.md#doc-26)/[27](docs/archive/m0-m1-validation.md#doc-27)，C2建筑与有限恢复见[28](docs/archive/m0-m1-validation.md#doc-28)，C3组件/参数及适用恢复见[29](docs/archive/m0-m1-validation.md#doc-29)，C4室外/有限恢复见[31](docs/archive/m0-m1-validation.md#doc-31)，C5联合功能与最终生产通过、性能未达和正式矩阵未完成结论见[32](docs/archive/m0-m1-validation.md#doc-32)；其他浏览器、真实配额耗尽、完整主题P3、完整SCN-01/02/03/04与全交互性能尚未验证。不能由程序符号、单样板或有限支持操作推定完整通过。新结果补入对应主题历史台账，不新增逐批编号报告；旧结论和附件可用性分别保留。
+文档以中文为主，实体/字段名使用约定英文。新默认值要说明是产品偏好还是官方规则，并保留版本与来源。实际检查的结果、首轮失败与复验归对应[历史台账](docs/archive/README.md)；不新增逐批编号报告，也不由单个样板或有限支持操作推定完整验收通过。
 
 ## 内容与许可
 
@@ -296,4 +319,4 @@ B5/C0的专用构建、旧`assets/layers`工作台选择测量及C1c至C2浏览�
 
 现状和候选见[46](docs/archive/m2-project-validation.md#doc-46)。普通Git保留测试/必要夹具、简短结论、失败及修正、环境/命令/源码指纹、紧凑结果与关键附件。新批次沿用`tools/testing/compact-reporter.mjs`，避免base64附件内嵌大JSON和重复源码/dist全量快照；未保留附件如实标记。
 
-2026-10-23用户随后明确要求清理work/与docs/evidence/，现已删除两个目录。B5 manifest与四个原始包按原字节保存在tests/fixtures/performance-b5，以上复现命令已更新；其余原始附件未另建大包备份，报告已标注可用性。新运行使用被忽略的`test-results/`或独立系统临时目录，不重建work/与docs/evidence/，按需清理，不默认提交大附件。删除当前文件不缩减Git历史，本轮不重写历史；测试随统一v1迁移与去重，不按行数删除行为保障。
+B5 manifest与四个原始包按原字节保存在`tests/fixtures/performance-b5`；早期清理及附件可用性见历史台账。新运行使用被忽略的`work/`、`test-results/`或独立系统临时目录，按需清理，不默认提交大附件。用户工程、资源与旧数据不因文档整理而删除；测试去重须保留实际行为保障。

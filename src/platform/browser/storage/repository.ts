@@ -35,8 +35,34 @@ function name(input: unknown): string {
   if (typeof input !== 'string' || !input.trim() || Array.from(input.trim()).length > 80) throw new Error('快照名称须为1–80个字符。')
   return input.trim()
 }
+interface CheckedContent { hash: string; byteLength: number }
+type ContentChecks = Map<string, CheckedContent>
+// Only a selected live transaction owns this table. Fresh IDB clones must
+// match the entire inspected canonical JSON, never only an ID or claimed hash.
+const transactionContentChecks = new WeakMap<object, ContentChecks>()
+function checkedContent(project: ProjectData, contents: ContentChecks): CheckedContent {
+  const json = canonicalJson(project)
+  let checked = contents.get(json)
+  if (!checked) {
+    checked = { hash: projectContentHash(project), byteLength: encodeUtf8(json).length }
+    contents.set(json, checked)
+  }
+  return checked
+}
+function contentHashInTransaction(project: ProjectData): string {
+  const transaction = Dexie.currentTransaction, contents = transaction && transactionContentChecks.get(transaction)
+  return contents ? checkedContent(project, contents).hash : projectContentHash(project)
+}
+async function withTransactionContentChecks<T>(run: () => Promise<T>): Promise<T> {
+  const transaction = Dexie.currentTransaction
+  if (!transaction) throw new Error('完整内容检查须绑定当前存档事务。')
+  if (transactionContentChecks.has(transaction)) return run()
+  transactionContentChecks.set(transaction, new Map())
+  try { return await run() }
+  finally { transactionContentChecks.delete(transaction) }
+}
 function assertContent(project: ProjectData, hash: string): void {
-  if (!hashValue(hash) || projectContentHash(project) !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
+  if (!hashValue(hash) || contentHashInTransaction(project) !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
 }
 function assertCurrent(record: StoredProject, content: typeof assertContent = assertContent): void {
   exact(record, ['sceneId', 'revision', 'savedAt', 'contentHash', 'status', 'conversionJobId', 'project'])
@@ -266,12 +292,15 @@ export class ProjectRepository {
   async importNativeUpgradeFile(bytes: Uint8Array, options: ResourceOptions = {}): Promise<void> {
     await this.importNativeUpgradeCapsule(await decodeNativeUpgradeFile(bytes, options), options)
   }
-  private async atomic<T>(options: ResourceOptions, run: () => Promise<T>): Promise<T> {
+  private async atomic<T>(options: ResourceOptions, run: () => Promise<T>, shareContentChecks = false): Promise<T> {
     checkCancelled(options.signal); await this.open(); checkCancelled(options.signal)
     return this.database.transaction('rw', PROJECT_TABLES, async () => {
-      checkCancelled(options.signal)
-      const result = await run()
-      checkCancelled(options.signal); return result
+      const execute = async () => {
+        checkCancelled(options.signal)
+        const result = await run()
+        checkCancelled(options.signal); return result
+      }
+      return shareContentChecks ? withTransactionContentChecks(execute) : execute()
     })
   }
   private async assembled(project: ProjectData, owner: string, kind: BindingKind, recordId: string, shared?: ResourceAssembly): Promise<ProjectBundle> {
@@ -370,18 +399,14 @@ export class ProjectRepository {
     ])
     if (projects.some(row => row.sceneId === ownerSceneId)) assertMetadata(metadata, ownerSceneId)
     let documentBytes = 0, resourceBytes = 0, legacyBytes = 0
-    // IDB rows are fresh mutable clones. Only this scan's actual complete JSON
-    // content can share a successful check; declared hashes or record IDs cannot.
-    const contents = new Map<string, { hash: string; byteLength: number }>()
+    // Every row still counts toward storage, including content already checked
+    // by another guard in this same transaction. No proof crosses transactions.
+    const transaction = Dexie.currentTransaction
+    const contents = transaction && transactionContentChecks.get(transaction) || new Map<string, CheckedContent>()
     const countContent: typeof assertContent = (project, hash) => {
       if (!hashValue(hash)) throw new Error('存档完整内容hash损坏；原记录保持。')
-      const json = canonicalJson(project)
-      let checked = contents.get(json)
-      if (!checked) {
-        assertContent(project, hash)
-        checked = { hash, byteLength: encodeUtf8(json).length }
-        contents.set(json, checked)
-      } else if (checked.hash !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
+      const checked = checkedContent(project, contents)
+      if (checked.hash !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
       // Identical current/history copies still each consume document storage.
       documentBytes += checked.byteLength
     }
@@ -413,6 +438,22 @@ export class ProjectRepository {
   async usage(ownerSceneId: string): Promise<StorageUsage> {
     id(ownerSceneId); await this.open()
     return this.database.transaction('r', PROJECT_TABLES, () => this.usageInTransaction(ownerSceneId))
+  }
+  /** Metadata for a later CAS only; this is not complete project/library validation. */
+  async historyMetadataVersion(ownerSceneId: string, options: ResourceOptions = {}): Promise<number> {
+    id(ownerSceneId); checkCancelled(options.signal); await this.open()
+    return this.database.transaction('r', this.database.projects, this.database.historyMetadata, async () => {
+      checkCancelled(options.signal)
+      const current = await this.database.projects.get(ownerSceneId)
+      if (!current) throw new ProjectConflictError(null)
+      assertCurrent(current, (_project, hash) => {
+        if (!hashValue(hash)) throw new Error('存档完整内容hash无效。')
+      })
+      if (current.status !== 'ready') throw new ProjectConflictError(current.revision)
+      const metadata = await this.database.historyMetadata.get(ownerSceneId); assertMetadata(metadata, ownerSceneId)
+      checkCancelled(options.signal)
+      return metadata.metadataVersion
+    })
   }
   private async addCurrent(bundle: ProjectBundle, hash: string, savedAt: string, status: StoredProject['status'], conversionJobId: string | null, add: boolean): Promise<void> {
     const project = bundle.project, ownerSceneId = project.document.sceneId, revision = project.document.revision
@@ -463,14 +504,14 @@ export class ProjectRepository {
       await this.putResources([bundle], options)
       await this.addCurrent(bundle, hash, savedAt, 'ready', previous?.conversionJobId ?? null, !previous)
       await this.assertBudgets(owner)
-    })
+    }, true)
   }
   /** A pre-commit read; save() must still repeat this guard in its final write transaction. */
   async checkProtection(owner: string, expectedRevision: number, expectedContentHash: string, guard: ProjectSaveGuard, options: ResourceOptions = {}): Promise<void> {
     id(owner); checkCancelled(options.signal); await this.open()
     const captured = captureJson(guard) as unknown as ProjectSaveGuard
     if (!integer(expectedRevision) || !hashValue(expectedContentHash) || !integer(captured.expectedMetadataVersion)) throw new Error('保护检查基线无效。')
-    return this.database.transaction('r', PROJECT_TABLES, async () => {
+    return this.database.transaction('r', PROJECT_TABLES, () => withTransactionContentChecks(async () => {
       checkCancelled(options.signal)
       const current = await this.database.projects.get(owner)
       if (!current || current.status !== 'ready' || current.revision !== expectedRevision || current.contentHash !== expectedContentHash) throw new ProjectConflictError(current?.revision ?? null)
@@ -482,7 +523,7 @@ export class ProjectRepository {
       assertSnapshot(protection)
       assertBinding(await this.database.resourceBindings.get([owner, 'protection', protection.id]), protection.project, owner, 'protection', protection.id)
       checkCancelled(options.signal)
-    })
+    }))
   }
   /** Install an explicitly selected native archive as one fresh complete project, atomically with every history binding. */
   async importArchive(input: HistoryArchive, options: ResourceOptions = {}): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
@@ -586,7 +627,7 @@ export class ProjectRepository {
     if (!row || row.status !== 'ready' || row.revision !== expectedRevision || project.document.revision !== expectedRevision) throw new ProjectConflictError(row?.revision ?? null)
     assertCurrent(row)
     assertBinding(await this.database.resourceBindings.get([row.sceneId, 'current', 'current']), row.project, row.sceneId, 'current', 'current')
-    if (row.contentHash !== projectContentHash(project)) throw new Error('当前完整工程与持久修订不一致；请先保存。')
+    if (row.contentHash !== contentHashInTransaction(project)) throw new Error('当前完整工程与持久修订不一致；请先保存。')
     return row
   }
   async createSnapshot(input: ProjectBundle, snapshotName: string, options: CreateSnapshotOptions): Promise<SnapshotBundle> {
@@ -618,7 +659,7 @@ export class ProjectRepository {
       await this.database.resourceBindings.add(binding(bundle.project, owner, kind, snapshotId))
       await this.database.historyMetadata.put({ ...metadata, metadataVersion: metadata.metadataVersion + 1 })
       await this.assertBudgets(owner)
-    })
+    }, true)
     return snapshot
   }
   async renameSnapshot(owner: string, snapshotId: string, snapshotName: string, expectedHash: string, expectedMetadataVersion: number): Promise<void> {

@@ -10,6 +10,7 @@ import { TaskFault, TaskStore } from './store.js'
 import { AUTHORING_LIMITS, DraftAppliedSchema, DraftClaimSchema, DraftValidationSchema } from '../../src/shared/ai/authoring-protocol.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { RegionSceneCandidateQuerySchema } from '../../src/shared/ai/region-candidate-protocol.js'
+import { createBaseMapService } from './base-map.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
@@ -54,6 +55,7 @@ export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider
 export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir)
   const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
+  const baseMaps = createBaseMapService({ maxConcurrent: Math.min(config.maxConcurrent, 2) })
   const app = new Hono<{ Variables: { owner: string } }>()
   const streams = new Map<string, number>()
   let streamCount = 0
@@ -85,6 +87,7 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   })
   app.get('/healthz', context => context.json({ ok: true }))
   app.get('/v1/capabilities', context => context.json(engine.connectionInfo))
+  app.post('/v1/terrain/basemap', async context => context.body(await baseMaps.generate(context.req.raw), 200, { 'Content-Type': 'application/json; charset=utf-8' }))
   app.post('/v1/tasks', async context => {
     const body = await boundedJson(context.req.raw, VISION_LIMITS.requestBytes)
     const parsed = CreateTaskSchema.safeParse(body)

@@ -2,6 +2,7 @@ import { cloneJson } from '../validation/json.js'
 import { corridor, pathPolygon, polygonDistance, polygonInside, propFootprint, supportedPolygon, terrainPoints } from './geometry.js'
 import { createPublicVisibility, publicTerrainView } from './visibility.js'
 import type { GroundSurfaceRef, PointMm, Prop, ScatterGroup, SceneDocument, SurfaceRef } from '../model/scene.js'
+import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
 
 import { sha256Text } from '../validation/hash.js'
 export { sha256Text } from '../validation/hash.js'
@@ -26,6 +27,24 @@ export function sampleScatterCellV1(group: ScatterGroup, column: number, row: nu
     rotationDeg: (Math.round(rotation * 1000) / 1000) % 360,
     paletteKey: selected.key, definitionRef: cloneJson(selected.propDefinitionRef),
   }
+}
+
+/**
+ * Recipe-independent scatter-cell-v2 density: a smooth value field on a fixed
+ * four-cell lattice. Its namespaced stream never consumes/reorders v1 cell
+ * streams. A 0.2–1 multiplier only thins the requested density, including at
+ * negative grid coordinates; no cell becomes denser than the v1 threshold.
+ */
+export function sampleScatterCellV2(group: ScatterGroup, column: number, row: number) {
+  const cell = sampleScatterCellV1(group, column, row)
+  if (!Number.isFinite(group.densityFactor) || group.densityFactor < 0 || group.densityFactor > 1) throw new Error('散布密度必须位于 [0,1]。')
+  const x = (column + .5) / 4, y = (row + .5) / 4, left = Math.floor(x), top = Math.floor(y)
+  const smooth = (value: number) => value * value * (3 - 2 * value)
+  const u = smooth(x - left), v = smooth(y - top)
+  const corner = (x: number, y: number) => Number.parseInt(sha256Text(JSON.stringify(['scatter-cell-v2-clusters', group.seed, x, y])).slice(0, 13), 16) / 0x10000000000000
+  const a = corner(left, top), b = corner(left + 1, top), c = corner(left, top + 1), d = corner(left + 1, top + 1)
+  const noise = (a + (b - a) * u) * (1 - v) + (c + (d - c) * u) * v
+  return { ...cell, densityThreshold: group.densityFactor * (.2 + .8 * noise) }
 }
 
 function scatterDomain(scene: SceneDocument, group: ScatterGroup): { polygon: PointMm[]; refs: SurfaceRef[] } {
@@ -71,7 +90,7 @@ export interface ScatterRegenerationOptions {
 export function buildScatterRegeneration(scene: SceneDocument, groupId: string, densityFactor?: number, options: ScatterRegenerationOptions = {}): ScatterRegeneration {
   const source = scene.scatterGroups[groupId]
   if (!source) throw new Error(`散布组不存在：${groupId}。`)
-  if (source.algorithmVersion !== 'scatter-cell-v1') throw new Error(`散布算法 ${source.algorithmVersion} 不可重新生成；仍可手工编辑已保存实例。`)
+  if (!isSupportedScatterAlgorithm(source.algorithmVersion)) throw new Error(`散布算法 ${source.algorithmVersion} 不可重新生成；仍可手工编辑已保存实例。`)
   if (densityFactor !== undefined && (!Number.isFinite(densityFactor) || densityFactor < 0 || densityFactor > 1)) throw new Error('散布密度必须位于 [0,1]。')
   const visibility = createPublicVisibility(scene), publicGroup = visibility.scatterGroup(source.id)
   const supportScene = publicGroup ? publicTerrainView(scene, visibility) : scene
@@ -91,8 +110,8 @@ export function buildScatterRegeneration(scene: SceneDocument, groupId: string, 
   const ids = allIds(scene), props: Prop[] = []
   let liveCount = Object.values(group.members).filter(member => member.propId !== null).length
   for (let row = minimumRow; row <= maximumRow; row++) for (let column = minimumColumn; column <= maximumColumn; column++) {
-    const cell = sampleScatterCellV1(group, column, row)
-    if (group.members[cell.candidateKey] || cell.density >= group.densityFactor) continue
+    const cell = group.algorithmVersion === 'scatter-cell-v2' ? sampleScatterCellV2(group, column, row) : { ...sampleScatterCellV1(group, column, row), densityThreshold: group.densityFactor }
+    if (group.members[cell.candidateKey] || cell.density >= cell.densityThreshold) continue
     const definition = scene.propDefinitions[cell.definitionRef.id]
     if (!definition || definition.version !== cell.definitionRef.version) throw new Error('散布需要已采用的固定版本物件定义。')
     const previousId = previous[cell.candidateKey]?.propId

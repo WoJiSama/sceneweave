@@ -13,6 +13,7 @@ import { pointsBounds } from './geometry'
 import type { Audience, ProjectedConnection, ProjectedOpening, ProjectedTerrainEdge, ProjectedWall, Projection } from '../../../shared/projection/types.js'
 import { createEditorRenderPlan, editorPaintBounds } from './editor-render-plan'
 import type { EditorPropDetail } from './editor-render-plan'
+import { boundaryConnections, clipConnectionOpenings, connectionFrame, drawConnectionCheeks } from './connection-geometry'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -345,15 +346,13 @@ export function terrainShadow(edge: ProjectedTerrainEdge, projection: Pick<Proje
   const dx = Math.cos(direction * Math.PI / 180) * offset, dy = Math.sin(direction * Math.PI / 180) * offset
   return offset ? [edge.start, edge.end, point(edge.end.x + dx, edge.end.y + dy), point(edge.start.x + dx, edge.start.y + dy)] : []
 }
-function clipConnections(ctx: CanvasRenderingContext2D, projection: Projection): void {
-  for (const c of projection.connections) excludeRing(ctx, connectionPolygon(c), projection.bounds)
-}
 function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, sx: number, sy: number): void {
   const suppressed = new Set(projection.visual?.suppressedTerrainEdgeIds ?? [])
   for (const edge of projection.edges) {
     if (suppressed.has(edge.id)) continue
     const path = linePath(edge.start, edge.end), face = terrainFace(edge, projection), shadow = terrainShadow(edge, projection), cliff = projection.theme?.terrainCliff
-    ctx.save(); clipConnections(ctx, projection)
+    const connections = boundaryConnections(projection.connections, [edge.start, edge.end], false, [edge.sourceAreaId, edge.neighborAreaId].filter((id): id is string => id !== null))
+    ctx.save(); clipConnectionOpenings(ctx, projection.bounds, connections)
     if (face.length || shadow.length) {
       const highId = edge.elevationMm > edge.neighborElevationMm ? edge.sourceAreaId : edge.neighborAreaId
       const high = projection.terrain.find(a => a.id === highId)
@@ -364,6 +363,7 @@ function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection,
       if (face.length) {
         fillSurface(ctx, polygonPath(face), edge.surfaceStyle, projection, raster, '#525E55')
         ctx.save(); ctx.strokeStyle = '#39443E'; ctx.globalAlpha = .28; ctx.lineWidth = 18; ctx.stroke(linePath(face[3], face[2])); ctx.restore()
+        if (connections.length) { ctx.save(); ctx.clip(polygonPath(face)); drawConnectionCheeks(ctx, connections, '#39443E', 48, .6); ctx.restore() }
       }
       ctx.restore()
     }
@@ -393,24 +393,49 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
     ctx.restore()
   }, !!raster.readFrequently)
 }
-function drawConnections(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
-  for (const c of projection.connections) drawVisualEntity(ctx, projection, c.id, expandedBounds(connectionPolygon(c), 85), (ctx, projection) => {
-    const polygon = connectionPolygon(c), path = polygonPath(polygon), length = Math.hypot(c.end.x - c.start.x, c.end.y - c.start.y)
-    if (!(length > 0)) throw new Error('连接长度必须大于零。')
-    ctx.save(); fillSurface(ctx, path, c.style, projection, raster, '#919180'); ctx.clip(path)
-    const gradient = ctx.createLinearGradient(c.start.x, c.start.y, c.end.x, c.end.y)
-    gradient.addColorStop(0, c.toElevationMm > c.fromElevationMm ? '#24313A44' : '#F2EAD420'); gradient.addColorStop(1, c.toElevationMm > c.fromElevationMm ? '#F2EAD420' : '#24313A44')
-    ctx.fillStyle = gradient; ctx.fill(path)
-    const dx = (c.end.x - c.start.x) / length, dy = (c.end.y - c.start.y) / length, nx = -dy * c.widthMm / 2, ny = dx * c.widthMm / 2
-    ctx.strokeStyle = '#39443E'; ctx.lineWidth = 25; ctx.lineCap = 'butt'; ctx.globalAlpha = .8
+function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
+  const frame = connectionFrame(c), half = c.widthMm / 2, polygon = [frame.at(0, half), frame.at(0, -half), frame.at(frame.length, -half), frame.at(frame.length, half)], path = polygonPath(polygon)
+  // A bounded local surface lets the two landings blend into their real support
+  // without fading/narrowing the physical corridor or changing its saved style.
+  const transform = ctx.getTransform(), sx = Math.abs(transform.a), sy = Math.abs(transform.d), bounds = expandedBounds(polygon, 2)
+  const left = Math.max(0, Math.floor((bounds.x - projection.bounds.x) * sx)), top = Math.max(0, Math.floor((bounds.y - projection.bounds.y) * sy))
+  const right = Math.min(ctx.canvas.width, Math.ceil((bounds.x + bounds.width - projection.bounds.x) * sx)), bottom = Math.min(ctx.canvas.height, Math.ceil((bounds.y + bounds.height - projection.bounds.y) * sy))
+  if (right <= left || bottom <= top) return
+  if ((right - left) * (bottom - top) > 16777216) throw new Error('连接局部绘制超过16M像素预算。')
+  const surface = canvas(right - left, bottom - top)
+  try {
+    const target = context(surface, raster.readFrequently)
+    const local = { ...projection, bounds: { x: projection.bounds.x + left / sx, y: projection.bounds.y + top / sy, width: surface.width / sx, height: surface.height / sy } }
+    worldTransform(target, local.bounds, sx, sy); fillSurface(target, path, c.style, local, raster, '#919180'); target.save(); target.clip(path)
+    const light = target.createLinearGradient(frame.low.x, frame.low.y, frame.high.x, frame.high.y)
+    light.addColorStop(0, '#24313A38'); light.addColorStop(1, '#F2EAD420'); target.fillStyle = light; target.fill(path)
+    target.lineCap = 'butt'
     if (c.kind === 'stairs') {
-      const count = Math.max(2, Math.min(40, Math.ceil(Math.abs(c.toElevationMm - c.fromElevationMm) / 180)))
-      for (let i = 1; i < count; i++) { const x = c.start.x + dx * length * i / count, y = c.start.y + dy * length * i / count; ctx.stroke(linePath(point(x - nx, y - ny), point(x + nx, y + ny))) }
-    } else { ctx.setLineDash([110, 85]); ctx.stroke(linePath(c.start, c.end)); ctx.setLineDash([]) }
-    ctx.globalAlpha = 1
-    if (c.blocksMovement) { const mid = point((c.start.x + c.end.x) / 2, (c.start.y + c.end.y) / 2); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 85; ctx.stroke(linePath(point(mid.x - nx, mid.y - ny), point(mid.x + nx, mid.y + ny))) }
-    ctx.restore(); ctx.save(); ctx.strokeStyle = '#39443E'; ctx.lineWidth = 24; ctx.stroke(linePath(polygon[0], polygon[3])); ctx.stroke(linePath(polygon[1], polygon[2])); ctx.restore()
-  }, !!raster.readFrequently)
+      const count = Math.max(2, Math.min(40, Math.ceil(Math.abs(c.toElevationMm - c.fromElevationMm) / 180))), depth = frame.length / count
+      for (let i = 1; i < count; i++) {
+        const distance = depth * i, shadeDepth = Math.min(65, depth * .24), a = frame.at(distance - shadeDepth), b = frame.at(distance + 18)
+        const shade = target.createLinearGradient(a.x, a.y, b.x, b.y); shade.addColorStop(0, '#26312800'); shade.addColorStop(.75, '#26312860'); shade.addColorStop(1, '#26312800')
+        target.fillStyle = shade; target.globalAlpha = 1; target.fill(polygonPath([frame.at(distance - shadeDepth, -half), frame.at(distance - shadeDepth, half), frame.at(distance + 18, half), frame.at(distance + 18, -half)]))
+        target.strokeStyle = '#39443E'; target.lineWidth = 18; target.globalAlpha = .62; target.stroke(linePath(frame.at(distance, -half), frame.at(distance, half)))
+        target.strokeStyle = '#F2E3BC'; target.lineWidth = 14; target.globalAlpha = .48; target.stroke(linePath(frame.at(distance + 27, -half), frame.at(distance + 27, half)))
+      }
+    } else { target.strokeStyle = '#39443E'; target.lineWidth = 25; target.globalAlpha = .65; target.setLineDash([110, 85]); target.stroke(linePath(frame.low, frame.high)); target.setLineDash([]) }
+    // Contact darkening stays on the two true sides, leaving the entire clear
+    // width readable. No outside rectangular drop shadow is introduced.
+    target.strokeStyle = '#27382F'; target.lineWidth = 80; target.globalAlpha = .13
+    for (const [a, b] of frame.sides) target.stroke(linePath(a, b))
+    target.strokeStyle = '#39443E'; target.lineWidth = 20; target.globalAlpha = .45
+    for (const [a, b] of frame.sides) target.stroke(linePath(a, b))
+    target.restore()
+    const landing = Math.min(.18, 320 / frame.length), mask = target.createLinearGradient(frame.low.x, frame.low.y, frame.high.x, frame.high.y)
+    mask.addColorStop(0, '#FFFFFF00'); mask.addColorStop(landing, '#FFFFFFFF'); mask.addColorStop(1 - landing, '#FFFFFFFF'); mask.addColorStop(1, '#FFFFFF00')
+    target.globalCompositeOperation = 'destination-in'; target.fillStyle = mask; target.fill(path)
+    ctx.save(); ctx.resetTransform(); ctx.drawImage(surface, left, top); ctx.restore()
+  } finally { disposeCanvas(surface) }
+  if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 85; ctx.stroke(linePath(frame.at(frame.length / 2, -half), frame.at(frame.length / 2, half))); ctx.restore() }
+}
+function drawConnections(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
+  for (const c of projection.connections) drawVisualEntity(ctx, projection, c.id, expandedBounds(connectionPolygon(c), 85), (target, local) => drawConnectionBody(target, local, raster, c), !!raster.readFrequently)
 }
 function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, signal?: AbortSignal, propDetails?: ReadonlyMap<string, EditorPropDetail>) {
   const bounds = projection.bounds, sx = ctx.canvas.width / bounds.width, sy = ctx.canvas.height / bounds.height

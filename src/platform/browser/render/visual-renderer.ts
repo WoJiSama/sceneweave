@@ -6,6 +6,8 @@ import type { VisualSegment } from './visual-geometry'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { terrainTransitionStrokePolygon } from '../../../shared/visual/transition.js'
+import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
+import type { ProjectedConnection } from '../../../shared/projection/types.js'
 
 const TAU = Math.PI * 2
 const minMaxBounds = (points: PointMm[], padding = 0): BoundsMm => { const x = Math.min(...points.map(p => p.x)) - padding, y = Math.min(...points.map(p => p.y)) - padding; return { x, y, width: Math.max(...points.map(p => p.x)) + padding - x, height: Math.max(...points.map(p => p.y)) + padding - y } }
@@ -57,12 +59,8 @@ function excludeHighGround(ctx: CanvasRenderingContext2D, projection: Projection
     const path = new Path2D(); path.rect(projection.bounds.x - 100000, projection.bounds.y - 100000, projection.bounds.width + 200000, projection.bounds.height + 200000); addRing(path, high.points); ctx.clip(path, 'evenodd')
   }
 }
-function clipConnections(ctx: CanvasRenderingContext2D, projection: Projection): void {
-  for (const c of projection.connections) {
-    const dx = c.end.x - c.start.x, dy = c.end.y - c.start.y, length = Math.hypot(dx, dy), nx = -dy / length * c.widthMm / 2, ny = dx / length * c.widthMm / 2
-    const path = new Path2D(); path.rect(projection.bounds.x - 100000, projection.bounds.y - 100000, projection.bounds.width + 200000, projection.bounds.height + 200000)
-    addRing(path, [{ x: c.start.x + nx, y: c.start.y + ny }, { x: c.end.x + nx, y: c.end.y + ny }, { x: c.end.x - nx, y: c.end.y - ny }, { x: c.start.x - nx, y: c.start.y - ny }]); ctx.clip(path, 'evenodd')
-  }
+function connectionsFor(projection: Projection, boundary: ProjectedVisualBoundary): ProjectedConnection[] {
+  return boundaryConnections(projection.connections, boundary.points, boundary.closed, boundary.terrainAreaIds)
 }
 const sides = (look: VisualEdgeLook) => look.side === 'both' ? [-1, 1] : [look.side === 'left' ? 1 : -1]
 
@@ -97,7 +95,7 @@ function edgeDetails(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBou
 }
 
 /** One joined face with variable ledges and broken strata, rather than repeated cliff stickers. */
-function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number): void {
+function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number, connections: ProjectedConnection[]): void {
   const count = Math.max(4, Math.ceil(boundary.lengthMm / (look.repeatMm * 2.5))), rgb = colorRgb(look.color), angle = directionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }
   const phase = visualRandom(look.seed, 0, 18) * TAU
   for (const sign of sides(look)) {
@@ -108,7 +106,8 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
       return { inside, outside, source, width }
     })
     // A single base polygon closes all joints before local stone facets shade it.
-    ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity; ctx.fill(ringsPath([[...boundary.points, ...samples.slice(0, boundary.closed ? -1 : undefined).map(p => p.outside).reverse()]]), 'evenodd')
+    const face = ringsPath([[...boundary.points, ...samples.slice(0, boundary.closed ? -1 : undefined).map(p => p.outside).reverse()]])
+    ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity; ctx.fill(face, 'evenodd')
     for (let i = 0; i < count; i++) {
       const a = samples[i], b = samples[i + 1], normal = a.source.normal, facing = (normal.x * light.x + normal.y * light.y) * sign, shade = 1 - Math.max(0, facing) * .28 + Math.max(0, -facing) * .11 + (visualRandom(look.seed, i, 19) - .5) * .15
       const color = rgb.map(channel => Math.max(0, Math.min(255, Math.round(channel * shade))))
@@ -126,6 +125,7 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
     }
     ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .42; ctx.lineWidth = Math.max(12, look.widthMm * .035); ctx.stroke(linePath(boundary.points, boundary.closed))
     ctx.strokeStyle = '#32463B'; ctx.globalAlpha = look.opacity * .4; ctx.lineWidth = Math.max(10, look.widthMm * .03); ctx.stroke(linePath(samples.map(p => p.outside), boundary.closed))
+    if (connections.length) { ctx.save(); ctx.clip(face, 'evenodd'); drawConnectionCheeks(ctx, connections, '#32463B', Math.max(24, look.widthMm * .10), look.opacity * .65); ctx.restore() }
   }
 }
 
@@ -145,7 +145,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       for (const look of cliffs) {
         const boundary = byId.get(look.boundaryId)
         if (!boundary) continue
-        buffer.ctx.save(); buffer.ctx.fillStyle = `rgb(${Math.round(255 * (1 - look.opacity * .23))},${Math.round(255 * (1 - look.opacity * .21))},${Math.round(255 * (1 - look.opacity * .21))})`; excludeHighGround(buffer.ctx, projection, boundary); clipConnections(buffer.ctx, projection)
+        buffer.ctx.save(); buffer.ctx.fillStyle = `rgb(${Math.round(255 * (1 - look.opacity * .23))},${Math.round(255 * (1 - look.opacity * .21))},${Math.round(255 * (1 - look.opacity * .21))})`; excludeHighGround(buffer.ctx, projection, boundary); clipConnectionOpenings(buffer.ctx, projection.bounds, connectionsFor(projection, boundary))
         const shift = look.widthMm * .85, dx = Math.cos(direction) * shift, dy = Math.sin(direction) * shift
         // A neutral-white darken mask takes the maximum shadow at joins, then multiplies once.
         for (let i = 0; i < boundary.points.length - (boundary.closed ? 0 : 1); i++) {
@@ -158,7 +158,10 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     } finally { release(buffer.surface) }
   }
   for (const transition of visual.transitions ?? []) {
-    checkCancelled(signal); drawTerrainTransition(ctx, transition)
+    checkCancelled(signal)
+    const boundary = byId.get(transition.boundaryId)
+    ctx.save(); if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
+    drawTerrainTransition(ctx, transition); ctx.restore()
   }
   const looksById = new Map(visual.edgeLooks.map(look => [look.id, look]))
   const materializedById = new Map((visual.materializedEdges ?? []).map(edge => [edge.id, edge]))
@@ -170,16 +173,21 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     checkCancelled(signal)
     if (entry.kind === 'materializedEdge') {
       const edge = materializedById.get(entry.id)
-      if (edge) drawMaterializedEdge(ctx, edge)
+      if (edge) {
+        const boundary = edge.boundaryId ? byId.get(edge.boundaryId) : undefined
+        ctx.save(); if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
+        drawMaterializedEdge(ctx, edge); ctx.restore()
+      }
       continue
     }
     const look = looksById.get(entry.id)
     if (!look) continue
     const boundary = byId.get(look.boundaryId)
     if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, look.widthMm * 2), projection.bounds)) continue
-    ctx.save(); clipConnections(ctx, projection)
+    const connections = connectionsFor(projection, boundary)
+    ctx.save(); clipConnectionOpenings(ctx, projection.bounds, connections)
     if (look.kind === 'cliff') excludeHighGround(ctx, projection, boundary)
-    if (look.kind === 'cliff') { drawCliffFace(ctx, boundary, look, visual.environment.lightDirectionDeg); ctx.restore(); continue }
+    if (look.kind === 'cliff') { drawCliffFace(ctx, boundary, look, visual.environment.lightDirectionDeg, connections); ctx.restore(); continue }
     for (const sign of sides(look)) {
       if (look.kind === 'shore') {
         band(ctx, boundary, -sign * look.widthMm * .5, 0, look.color, look.opacity * .22, look.widthMm * .1)

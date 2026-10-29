@@ -176,7 +176,7 @@ describe('bounded terrain editing T2 pure core',()=>{
   expect(()=>prepareTerrainEdit(scene,request)).toThrow(/端口约束需要完整重验/)
   expect(canonicalJson(scene)).toBe(before)
  })
- it.each([['future-terrain',1],['terrain-scene',2],['terrain-scene-t3',2]] as const)('rejects unsupported dependent algorithm %s@%s without refreshing its hashes',(algorithmId,algorithmVersion)=>{
+ it.each([['future-terrain',1],['terrain-scene',999],['terrain-scene-t3',2]] as const)('rejects unsupported dependent algorithm %s@%s without refreshing its hashes',(algorithmId,algorithmVersion)=>{
   const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve'],recipe=getLegacyGeneration(scene)!.recipes['terrain-recipe'],rule=getLegacyGeneration(scene)!.rules['terrain-rule']
   recipe.algorithmId=algorithmId;recipe.algorithmVersion=algorithmVersion;rule.inputHash=generationInputHash(scene,rule)
   const before=canonicalJson(scene)

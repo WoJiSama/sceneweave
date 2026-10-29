@@ -46,7 +46,7 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
   if (materialized.some(edge => edge.materialRef !== null)) throw new Error('当前物化边缘预览仅支持明确颜色几何；材质边缘尚未支持。')
   const order = (a: { id: string; layerId: string }, b: { id: string; layerId: string }) =>
     (scene.userLayers[a.layerId]?.order ?? 0) - (scene.userLayers[b.layerId]?.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  const materializedEdges = materialized.sort(order).map(edge => ({ id: edge.id, kind: edge.kind, polygons: copy(edge.polygons),
+  const materializedEdges = materialized.sort(order).map(edge => ({ id: edge.id, boundaryId: edge.boundaryId, kind: edge.kind, polygons: copy(edge.polygons),
     strokes: copy(edge.strokes), fillColor: edge.fillColor, opacity: edge.opacity }))
   const edgePaintOrder = legacyVisual ? [
     ...edgeLooks.map(edge => ({ ...edge, representation: 'edgeLook' as const })),

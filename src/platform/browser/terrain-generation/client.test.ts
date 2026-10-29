@@ -47,6 +47,23 @@ const assertReleased = (worker: MockTerrainWorker) => {
 afterEach(() => { for (const client of clients.splice(0)) client.dispose(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('bounded native terrain Worker protocol', () => {
+  it('binds the explicit shoreline version across Worker execution and rejects a rehashed downgrade', async () => {
+    const source = request({ input: { ...input, algorithmVersion: 2 } })
+    const { client, workers } = setup(), pending = client.generate(source), worker = workers[0]
+    const response = executeTerrainGenerationRequest(worker.posted[0])
+    expect(response.type).toBe('result')
+    worker.emit(response)
+    expect((await pending).input.algorithmVersion).toBe(2)
+    assertReleased(worker)
+    const second = client.generate({ ...source, requestId: 'version-downgrade' }), other = workers[1]
+    const tampered = executeTerrainGenerationRequest(other.posted[0])
+    if (tampered.type !== 'result') throw new Error('Expected valid version 2 result')
+    tampered.result.input.algorithmVersion = 1
+    other.emit(rehash(tampered))
+    await expect(second).rejects.toMatchObject({ code: 'protocol' })
+    assertReleased(other)
+  })
+
   it('round trips a real deterministic candidate without confusing current and candidate scene identities', async () => {
     const { client, workers } = setup(), source = request(), before = canonicalJson(source)
     const pending = client.generate(source), worker = workers[0], envelope = worker.posted[0]

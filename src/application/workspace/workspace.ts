@@ -1,4 +1,6 @@
 import { prepareTerrainComposition, prepareCompositionUpgrade } from './terrain-composition.js'
+import { prepareBaseMapProject } from './base-map.js'
+import type { BaseMapRequest } from '../../shared/terrain-generation/base-map.js'
 import { projectContentHash } from '../../shared/project/validate.js'
 import { prepareTerrainProject, prepareTerrainUpgrade, type TerrainPreview } from './terrain.js'
 import { prepareTerrainEditProject, type TerrainEditPreview } from './terrain-edit.js'
@@ -10,6 +12,7 @@ import { RegionSceneCandidateResultSchema } from '../../shared/ai/region-candida
 import type { TerrainEditResult } from '../../shared/terrain-generation/edit.js'
 import type { TerrainGenerationResult } from '../../shared/terrain-generation/generate.js'
 import { visualBase } from '../../shared/visual/base.js'
+import { planTerrainDressing, type TerrainDressingReport } from '../../shared/visual/terrain-dressing.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
 import { emptyVisualSystem } from '../../shared/visual/types.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
@@ -17,6 +20,7 @@ import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
 import type { SceneDocument, SurfaceRef } from '../../shared/model/scene.js'
 import type { LicenseBinding, SnapshotSummary } from '../../shared/model/project.js'
+import { getVerifiedProjectBundle } from '../../shared/project/resources.js'
 import { certifyCompositionContent, reviseCompositionContent } from '../../shared/validation/content.js'
 import { validateCompositionIdentityContracts } from '../../shared/terrain-generation/composition-integrity.js'
 import { surfaceStyle } from '../../shared/appearance/graph.js'
@@ -41,9 +45,9 @@ import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStar
   type AtomicAuthorization, type AtomicCandidate, type AtomicCandidateRecord, type AtomicAdoptionResult, type AtomicCandidateStatus } from './atomic.js'
 import { materializeAuthoringArtwork } from './artwork.js'
 import { materializeProject, prepareCompositionCommands } from './prepare.js'
-import { captureEditableDraft, fromBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
+import { captureEditableDraft, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
 
-export type WorkspaceRepository = Pick<ProjectRepository, 'save' | 'loadSnapshot' | 'createSnapshot' | 'usage' | 'importArchive' | 'checkProtection'> & Partial<Pick<ProjectRepository, 'load' | 'preserveNativeUpgrade'>>
+export type WorkspaceRepository = Pick<ProjectRepository, 'save' | 'loadSnapshot' | 'createSnapshot' | 'usage' | 'importArchive' | 'checkProtection'> & Partial<Pick<ProjectRepository, 'load' | 'preserveNativeUpgrade' | 'historyMetadataVersion'>>
 export interface WorkspaceOptions { validation: CompleteValidationOptions; runtime: PreparationContext; validateCandidate?: (document: SceneDocument) => void }
 export interface EditableSnapshot extends SnapshotSummary { project: EditableProject }
 type SaveStatus = 'empty' | 'saved' | 'unsaved' | 'saving' | 'error' | 'conflict'
@@ -64,6 +68,11 @@ export interface CompositionPreview {
   checkpoint: number
   currentSceneId: string
   currentRevision: number
+}
+export interface TerrainDressingPreview {
+  preview: CompositionPreview
+  report: TerrainDressingReport
+  cost: { total: number; limit: 256 }
 }
 export interface RestorePreview {
   snapshot: SnapshotSummary
@@ -127,13 +136,23 @@ function equalOwnedContent(left: CompositionContent, right: CompositionContent):
 const anchorTopology = (anchor: SceneDocument['notes'][string]['anchor'] | undefined) => anchor?.type === 'point' ? { type: 'point' } : anchor
 const bindingKey = (binding: Pick<LicenseBinding, 'subjectKind' | 'subjectId'>) => JSON.stringify([binding.subjectKind, binding.subjectId])
 const catalogCollections = ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const
-const fixedAppearanceCollections = ['sources', 'variants', 'prefabAppearanceTemplates'] as const
+const fixedAppearanceCollections = ['sources', 'variants', 'prefabAppearanceTemplates', 'presentations'] as const
 const contentOf = (project: EditableProject): CompositionContent => ({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance })
 const withoutKeys = (value: object, keys: readonly string[]) => Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)))
 function assertAppendOnly(label: string, current: Record<string, unknown>, candidate: Record<string, unknown>) {
   for (const [id, value] of Object.entries(current)) {
     if (!Object.hasOwn(candidate, id) || canonical(value) !== canonical(candidate[id])) throw new Error(`素材入库不能删除或修改既有${label}：${id}。`)
   }
+}
+function catalogAdditionCost(current: EditableProject, candidate: EditableProject): number {
+  const added = (before: Record<string, unknown>, after: Record<string, unknown>) => Object.keys(after).filter(id => !Object.hasOwn(before, id)).length
+  let records = 0
+  for (const key of catalogCollections) records += added(current.document[key], candidate.document[key])
+  for (const key of fixedAppearanceCollections) records += added(current.appearance[key] ?? {}, candidate.appearance[key] ?? {})
+  for (const key of ['assets', 'authoringSources', 'licenses'] as const) records += added(current[key], candidate[key])
+  const existingBindings = new Set(current.licenseBindings.map(bindingKey))
+  records += candidate.licenseBindings.filter(binding => !existingBindings.has(bindingKey(binding))).length
+  return Math.max(records, terrainCommandCost(current.document, candidate.document, { before: current, after: candidate }).total)
 }
 function invalidatedStructureIds(document: SceneDocument, commands: readonly CompositionCommand[]): string[] {
   return commands.flatMap(command => {
@@ -221,7 +240,25 @@ function restorationProject(current: EditableProject, historic: EditableProject,
     if (!license) throw new Error(`恢复所需许可文本缺失：${subject.subjectId}。`)
     licenses[hash] = license
   }
-  return { ...current, document: plan.document, historyIdentity: plan.historyIdentity, appearance: plan.appearance, assets, licenses, authoringSources, licenseBindings: [...bindings.values()], resources: Object.freeze({ read: (hash: string) => Object.hasOwn(current.assets, hash) || Object.values(current.authoringSources).some(source => source.sourceSha256 === hash || source.normalizedSha256 === hash) ? current.resources.read(hash) : historic.resources.read(hash) }) }
+  const licenseBindings = [...bindings.values()]
+  // Only the workspace's exact owned project can retain its byte certificate.
+  // Selection above still resolves every real asset/source/license dependency;
+  // changed closures use the merged reader and full materialization as before.
+  const sameClosure = getVerifiedEditableProject(current)
+    && canonical(assets) === canonical(current.assets)
+    && canonical(licenses) === canonical(current.licenses)
+    && canonical(authoringSources) === canonical(current.authoringSources)
+    // Binding order is not a resource change. Compare every unique subject and
+    // all of its fields, then preserve the current order instead of rewriting it.
+    && licenseBindings.length === current.licenseBindings.length
+    && current.licenseBindings.every(binding => {
+      const selected = bindings.get(bindingKey(binding))
+      return selected !== undefined && canonical(selected) === canonical(binding)
+    })
+  return { ...current, document: plan.document, historyIdentity: plan.historyIdentity, appearance: plan.appearance,
+    ...(sameClosure ? { assets: current.assets, licenses: current.licenses, authoringSources: current.authoringSources,
+      licenseBindings: current.licenseBindings, resources: current.resources }
+      : { assets, licenses, authoringSources, licenseBindings, resources: Object.freeze({ read: (hash: string) => Object.hasOwn(current.assets, hash) || Object.values(current.authoringSources).some(source => source.sourceSha256 === hash || source.normalizedSha256 === hash) ? current.resources.read(hash) : historic.resources.read(hash) }) }) }
 }
 
 /** Diff rows describe the actual materialized result, including today's layer in source mode. */
@@ -461,6 +498,20 @@ export class Workspace {
     this.install(candidate)
   }
   /** A generated map is previewed independently; current edits are saved before switching. */
+  async previewBaseMapGeneration(base: EditableProject, request: BaseMapRequest, response: unknown, options: { signal?: ResourceOptions['signal']; source?: 'worker' | 'server' } = {}): Promise<TerrainPreview> {
+    this.assertWritable()
+    const capturedRequest = captureJson(request), capturedResponse = captureJson(response)
+    const checkpoint = this.checkpoint(), current = this.state.project, signal = this.atomicSignal(options.signal)
+    if (capturedRequest.checkpoint !== checkpoint || capturedRequest.workspaceSceneId !== (current?.document.sceneId ?? 'empty-workspace')) throw new Error('程序底图请求已过期，请基于当前工程重新生成。')
+    checkCancelled(signal)
+    const prepared = await prepareBaseMapProject(base, capturedRequest, capturedResponse, { runtime: this.options.runtime, validation: { ...this.validation(), signal }, source: options.source })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('程序底图必须具有独立的新工程身份。')
+    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null }) as TerrainPreview
+    this.terrainPreviews.set(preview, 'active')
+    return preview
+  }
   async previewTerrainGeneration(base: EditableProject, input: unknown, result?: TerrainGenerationResult): Promise<TerrainPreview> {
     this.assertWritable()
     const checkpoint=this.checkpoint(), current=this.state.project
@@ -819,7 +870,7 @@ export class Workspace {
       throw new Error('素材入库不能修改当前外观源映射或实例、图层调整。')
     }
     for (const collection of catalogCollections) assertAppendOnly('固定素材', current.document[collection], candidate.document[collection])
-    for (const collection of fixedAppearanceCollections) assertAppendOnly('固定外观记录', current.appearance[collection], candidate.appearance[collection])
+    for (const collection of fixedAppearanceCollections) assertAppendOnly('固定外观记录', current.appearance[collection] ?? {}, candidate.appearance[collection] ?? {})
     assertAppendOnly('资源记录', current.assets, candidate.assets)
     assertAppendOnly('许可文本', current.licenses, candidate.licenses)
     assertAppendOnly('许可绑定', Object.fromEntries(current.licenseBindings.map(binding => [bindingKey(binding), binding])),
@@ -830,6 +881,29 @@ export class Workspace {
     const candidate = captureEditableDraft(input)
     this.assertCatalogImport(candidate, checkpoint)
     return this.registerPrepared(candidate, description, checkpoint)
+  }
+  /** Append fixed sources and execute the finite dressing recipe in one ordinary preview/undo unit. */
+  async previewTerrainDressing(catalogInput: EditableProject, input: unknown, options: { checkpoint?: number; signal?: ResourceOptions['signal'] } = {}): Promise<TerrainDressingPreview> {
+    this.assertWritable()
+    const current = this.requireProject(), checkpoint = options.checkpoint ?? this.checkpoint(), signal = this.atomicSignal(options.signal)
+    this.assertCheckpoint(checkpoint); checkCancelled(signal)
+    const capturedInput = captureJson(input), capturedCatalog = captureEditableDraft(catalogInput)
+    const catalog = await validateEditableProject(capturedCatalog, { ...this.validation(), signal })
+    checkCancelled(signal); this.assertCatalogImport(catalog, checkpoint)
+    const sourceCost = catalogAdditionCost(current, catalog)
+    if (sourceCost > 256) throw new Error('地形布景固定源新增记录超过256条操作预算。')
+    const planned = planTerrainDressing({ document: catalog.document, appearance: catalog.appearance }, capturedInput)
+    const commands = captureCommands(planned.commands)
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    let total = sourceCost
+    const candidate = await prepareCompositionCommands(catalog, commands, { ...this.preparation(), signal,
+      initialOperationCost: sourceCost, onOperationCost: cost => { total = cost } })
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const preview = await this.registerPrepared(candidate, '地形层次与布景', checkpoint, commands)
+    if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
+    this.structuralInvalidations.set(preview.project, invalidatedStructureIds(current.document, commands))
+    this.visualInvalidations.set(preview.project, invalidatedVisualIds(current.document, commands))
+    return freeze({ preview, report: captureJson(planned.report), cost: { total, limit: 256 as const } })
   }
   /** Only the command preparation path may register candidates that change scene semantics. */
   private async registerPrepared(input: EditableProject, description: string, checkpoint: number, commands: readonly CompositionCommand[] = []): Promise<CompositionPreview> {
@@ -949,12 +1023,12 @@ export class Workspace {
     const snapshot = await this.repository.loadSnapshot(ownerSceneId, snapshotId)
     if (!snapshot) return null
     const { bundle, ...summary } = snapshot
-    return { ...summary, project: await fromBundle(bundle, this.validation()) }
+    return { ...summary, project: getVerifiedProjectBundle(bundle) ? fromVerifiedBundle(bundle, this.validation()) : await fromBundle(bundle, this.validation()) }
   }
   private async createSnapshot(project: EditableProject, name: string, options: CreateSnapshotOptions): Promise<EditableSnapshot> {
     const snapshot = await this.repository.createSnapshot(toBundle(project), name, options)
     const { bundle, ...summary } = snapshot
-    return { ...summary, project: await fromBundle(bundle, this.validation()) }
+    return { ...summary, project: getVerifiedProjectBundle(bundle) ? fromVerifiedBundle(bundle, this.validation()) : await fromBundle(bundle, this.validation()) }
   }
 
   /** Explicitly freezes one local authority; JSON returned by a task can never create it. */
@@ -1083,10 +1157,12 @@ export class Workspace {
     const checkpoint = this.checkpoint(), project = this.requireProject()
     await this.flush()
     this.assertCheckpoint(checkpoint)
-    const usage = await this.repository.usage(project.document.sceneId)
+    const metadataVersion = this.repository.historyMetadataVersion
+      ? await this.repository.historyMetadataVersion(project.document.sceneId)
+      : (await this.repository.usage(project.document.sceneId)).metadataVersion
     this.assertCheckpoint(checkpoint)
     const snapshot = await this.createSnapshot(project, name, {
-      kind: 'named', expectedRevision: project.document.revision, expectedMetadataVersion: usage.metadataVersion,
+      kind: 'named', expectedRevision: project.document.revision, expectedMetadataVersion: metadataVersion,
     })
     this.assertCheckpoint(checkpoint)
     this.structureContinuity.recordSnapshot(snapshot.id, snapshot.contentHash, project.document)
@@ -1111,7 +1187,8 @@ export class Workspace {
     this.assertCheckpoint(checkpoint)
     const materialized = await materializeProject(restorationProject(current, snapshot.project, plan), this.preparation(current))
     this.assertCheckpoint(checkpoint)
-    const project = await validateEditableProject(materialized, this.validation())
+    checkCancelled(this.validation().signal)
+    const project = getVerifiedEditableProject(materialized) ?? await validateEditableProject(materialized, this.validation())
     this.transferInvalidations(materialized, project)
     this.assertCheckpoint(checkpoint)
     this.validateCandidate(project.document)
@@ -1150,19 +1227,22 @@ export class Workspace {
       this.assertRestore(preview)
       const materialized = await materializeProject(restorationProject(current, source.project, plan), this.preparation(current))
       this.assertRestore(preview)
-      const candidate = await validateEditableProject(materialized, this.validation())
+      checkCancelled(this.validation().signal)
+      const candidate = getVerifiedEditableProject(materialized) ?? await validateEditableProject(materialized, this.validation())
       this.transferInvalidations(materialized, candidate)
       this.assertRestore(preview)
       this.validateCandidate(candidate.document)
       projectScene(candidate.document, 'player')
       // Check revision capacity before persisting a protection snapshot.
       reviseSceneSnapshot(candidate.document, current.document.revision + 1, this.options.runtime.clock.now())
-      const usage = await this.repository.usage(preview.currentSceneId)
+      const metadataVersion = this.repository.historyMetadataVersion
+        ? await this.repository.historyMetadataVersion(preview.currentSceneId)
+        : (await this.repository.usage(preview.currentSceneId)).metadataVersion
       this.assertRestore(preview)
       let protectionName = '恢复前 · '
       for (const character of source.name) { if ((protectionName + character).length > 80) break; protectionName += character }
       const protection = await this.createSnapshot(current, protectionName, {
-        kind: 'protection', expectedRevision: current.document.revision, expectedMetadataVersion: usage.metadataVersion,
+        kind: 'protection', expectedRevision: current.document.revision, expectedMetadataVersion: metadataVersion,
         sourceSnapshot: { id: source.id, contentHash: preview.sourceContentHash },
       })
       this.assertRestore(preview)

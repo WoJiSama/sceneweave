@@ -12,14 +12,17 @@ import { sampleVisualBoundary, signedVisualArea } from '../visual/geometry.js'
 import type { CubicSegment, VisualBoundary, VisualEdgeLook } from '../visual/types.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { distanceToTerrainSegment, extractTerrainContours, simplifyTerrainContour, terrainHash32, terrainRandomUnit, terrainValueNoise } from './field.js'
+import { sandCoastSegmentsV2, shorelineFieldV2 } from './shoreline-v2.js'
 
 export const TERRAIN_GENERATOR_VERSION = 'terrain-scene-v1' as const
 export const TERRAIN_FIXED_SEEDS = Object.freeze(['terrain-v1-0', 'terrain-v1-1', 'terrain-v1-2', 'terrain-v1-3', 'terrain-v1-4'])
 const routeInputSchema = z.object({ from: point, to: point, widthMm: z.number().int().min(400).max(3000), crossing: z.enum(['ground', 'ford', 'bridge']) }).strict()
 const routeResultSchema = z.object({ pointsMm: z.array(point).min(2).max(32), widthMm: z.number().int().min(400).max(3000), expandedNodes: z.number().int().nonnegative().max(4096) }).strict()
 export const terrainGenerationInputSchema = z.object({ sceneId: id, seed: z.string().min(1).max(128), kind: z.enum(['island', 'coast', 'river', 'lake', 'forest', 'hill', 'mixed']),
+  algorithmVersion: z.union([z.literal(1), z.literal(2)]).optional(),
   widthMm: z.number().int().min(24000).max(120000).default(24000), heightMm: z.number().int().min(18000).max(90000).default(18000), route: routeInputSchema.optional(),
 }).strict().refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '首批地形范围宽高比须为1–1.8。')
+  .refine(value => value.algorithmVersion !== 2 || value.kind === 'island' || value.kind === 'coast', '岸线算法2仅支持岩岛和海岸。')
 export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema>
 export interface TerrainManagedTarget { kind: 'terrainArea' | 'terrainConnection' | 'path' | 'prop' | 'visualBoundary' | 'visualEdgeLook'; id: string }
 export interface TerrainGenerationResult {
@@ -135,7 +138,8 @@ function addTerrain(scene: SceneDocument, value: string, points: PointMm[], inpu
 function cubicBoundary(value: string, points: PointMm[], closed: boolean, input: TerrainGenerationInput): VisualBoundary {
   const scale = Math.max(input.widthMm / 24000, input.heightMm / 18000)
   const segmentCount = closed ? points.length : points.length - 1
-  const segments: CubicSegment[] = Array.from({ length: segmentCount }, (_, index) => {
+  const segments: CubicSegment[] = input.algorithmVersion === 2 && input.kind === 'coast' && !closed
+    ? sandCoastSegmentsV2(value, points) : Array.from({ length: segmentCount }, (_, index) => {
     const start = points[index], end = points[(index + 1) % points.length], before = points[index ? index - 1 : closed ? points.length - 1 : 0], after = points[index + 2 < points.length ? index + 2 : closed ? (index + 2) % points.length : points.length - 1]
     const boundedControl = (anchor: PointMm, dx: number, dy: number) => {
       const length = Math.hypot(dx, dy), factor = Math.min(1, 1000 * scale / Math.max(1, length))
@@ -420,7 +424,8 @@ export function generateTerrainDocument(base: SceneDocument, rawInput: unknown):
     }
     return Math.round((field + terrainValueNoise(seed, 'plateau/low', x / (width * .18), y / (height * .18)) * .08) * 1000000) / 1000000
   }
-  const lowContours = extractTerrainContours(grid, input.kind === 'island' ? islandField : coastField), highContours = extractTerrainContours(grid, plateauField)
+  const lowField = input.algorithmVersion === 2 ? shorelineFieldV2(input, variant, bay, recipe) : input.kind === 'island' ? islandField : coastField
+  const lowContours = extractTerrainContours(grid, lowField), highContours = extractTerrainContours(grid, plateauField)
   if (lowContours.length !== 1 || lowContours[0].closed !== (input.kind === 'island') || highContours.length !== 1 || !highContours[0].closed) throw new Error('首批生成出现额外分量/孔洞或意外开放边界；未静默删除。')
   const failures: string[] = []
   for (const error of [140, 220, 340, 500]) {

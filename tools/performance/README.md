@@ -1,6 +1,8 @@
-# B5 真实素材负载复现
+# 历史 B5/C0 负载复现方法
 
-该工具测量 VIS-01 书房与露台、VIS-02 双层岩岛的 500/2000 物件副本。它通过独立生产入口复用实际 `AssetCanvas`、`WorkspaceV2`、样板候选守卫、资源校验、IndexedDB 仓库及 PNG 管线。普通 `npm run build` 不暴露 `window.__sceneweavePerformance`。
+本页只维护B5/C0旧格式负载和保留运行器的复现方法；当前验收入口见[质量计划](../../docs/09-quality-plan.md#acceptance)，正常原生主路径及严格v2视觉负载的命令见[贡献说明](../../CONTRIBUTING.md)。旧工作台已经退役，以下结果不能替代当前产品验证。
+
+B5工具测量 VIS-01 书房与露台、VIS-02 双层岩岛的 500/2000 物件副本。它通过独立生产入口复用实际 `AssetCanvas`、`WorkspaceV2`、样板候选守卫、资源校验、IndexedDB 仓库及 PNG 管线。普通 `npm run build` 不暴露 `window.__sceneweavePerformance`。
 
 这里定义复现方法，不预先宣布最终性能或容量通过。实际版本、设备、原始数据、失败记录及退出判断以 [B5 验证报告](../../docs/archive/m0-m1-validation.md#doc-21) 为准。普通负载保留原创真实材质、透明物件、覆盖层和阴影；高密度摆放允许视觉重叠，不是可玩布局或美术验收。
 
@@ -73,13 +75,13 @@ node tools/performance/summarize-b5.mjs performance-results/b5-final
 
 额外 PNG 解码、4K 审计 canvas、`getImageData`、哈希和下载统一放在 `tooling-pixel-audit-and-download`，防止把审计自身的大数组当作产品导出成本。先等待失败后编辑/撤销的最终画布，避免工具审计解码与未完成预览交叠。跨轮 RGBA hash 相同只说明该固定负载输出确定；秘密内容的 GM/player 配对、玩家不泄漏及完整工坊流程须引用单独的真实浏览器回归证据。
 
-## baseline、已撤回候选与最终构建
+## B5历史baseline、撤回候选与当批最终构建
 
-历史正式 baseline 的 12 轮观测到 native decoder 在途峰值 **2**，与候选预算 1 不符。当前代码使用 `io/v2/resources.ts` 的共享单槽，覆盖同一页面模块实例中的验证、规范化和 renderer；这是并发预算修复；本次最终冻结构建的正式12轮实测峰值均为 **1**，记录见21及final原始observations。该槽覆盖同一页面模块实例，不是跨标签页/Worker/整个机器的信号量。
+历史正式 baseline 的 12 轮观测到 native decoder 在途峰值 **2**，与候选预算 1 不符。当前代码使用 `io/v2/resources.ts` 的共享单槽，覆盖同一页面模块实例中的验证、规范化和 renderer；这是并发预算修复；B5当批最终冻结构建的正式12轮实测峰值均为 **1**，记录见21及final原始observations。该槽覆盖同一页面模块实例，不是跨标签页/Worker/整个机器的信号量。
 
 历史 `candidate-reuse` 同时包含单槽修复和同尺寸 paint canvas 重用，key 变化时恢复单位变换并全幅清空。其正式 12 轮已完成并保留原始数据；四组产品 RSS 采样峰值均高于 baseline，室外 2000 的绘制提交与显示调度近似值也出现退化，因此该重用方案已经撤回。浏览器可能进行源快照、延迟提交或写时复制，不能仅按 JS canvas 数量宣布底层资源下降，也不能只凭 RSS 证明具体分配机制。
 
-最终源码保留共享 decoder 单槽及临时资源所有权修复：相同 key 继续使用已有 paint，key 变化时先释放旧画布、分配新画布，并在获取 context/创建 pattern 前登记所有权；不再进行同尺寸重用及其 reset/clear。本次最终冻结构建已独立跑完12轮，不能沿用已撤回候选的通过结论；复现或后续修改仍须按实际受测构建另行记录。`candidate-reuse` 与最终构建可用于比较重用策略；baseline 与最终构建之间还包含 decoder 预算及所有权修复，耗时和资源差异须按这三个实际构建分别报告。数值、逐轮波动、RGBA/夹具一致性及最终判断统一见验证报告。
+最终源码保留共享 decoder 单槽及临时资源所有权修复：相同 key 继续使用已有 paint，key 变化时先释放旧画布、分配新画布，并在获取 context/创建 pattern 前登记所有权；不再进行同尺寸重用及其 reset/clear。B5当批最终冻结构建已独立跑完12轮，不能沿用已撤回候选的通过结论；复现或后续修改仍须按实际受测构建另行记录。`candidate-reuse` 与最终构建可用于比较重用策略；baseline 与最终构建之间还包含 decoder 预算及所有权修复，耗时和资源差异须按这三个实际构建分别报告。数值、逐轮波动、RGBA/夹具一致性及最终判断统一见验证报告。
 
 ## 诊断、失败与输出
 
@@ -95,7 +97,7 @@ npm run perf:b5 -- --output performance-results/b5-smoke --runs 1 --edits 2 --se
 
 C0方法与结果由[22](../../docs/archive/m0-m1-validation.md#doc-22)独立记录，21及其原始证据保留。`run-b5.mjs --fixtures /absolute/archive` 会逐字节复制已完成归档的完整包，检查包SHA/长度、内部场景SHA/身份/数量/范围与资源摘要，同时保存原summary指纹。每次冷打开仍经过完整产品读取器，不以工具的摘要检查代替资源校验。
 
-当前专用入口使用生产视口CSS和双层画布，长边1200栅格不变；主画布用aria标签定位。原`startMs`、`commitMs`和`displayProxyMs`保留命令准备完成后的起点，新增`intentStartMs`在读取当前工程和构造命令之前。`prepMs`、`intentToCommitMs`、`intentToCanvasCopyMs`、`intentToDisplayProxyMs`逐次保留，汇总器仅在新字段完整时输出新增统计。专用入口的意图是工具调用起点，不冒充真实用户事件。
+保留的B5专用入口使用生产视口CSS和双层画布，长边1200栅格不变；主画布用aria标签定位。原`startMs`、`commitMs`和`displayProxyMs`保留命令准备完成后的起点，新增`intentStartMs`在读取当前工程和构造命令之前。`prepMs`、`intentToCommitMs`、`intentToCanvasCopyMs`、`intentToDisplayProxyMs`逐次保留，汇总器仅在新字段完整时输出新增统计。专用入口的意图是工具调用起点，不冒充真实用户事件。
 
 正常生产工作台测量使用以下独立运行器，无需Vite服务或产品测量API：
 

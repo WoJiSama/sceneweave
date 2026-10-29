@@ -8,10 +8,10 @@
 |---|---|
 | [M0/M1 历史验证台账](m0-m1-validation.md) | 原13、16–33、35；几何、素材、手工编辑与旧性能 |
 | [工作区、素材库与内容历史台账](workspace-content-validation.md) | 原36–44；统一工作区、目录、内容与旧全量回归 |
-| [M2工程与交付历史台账](m2-project-validation.md) | 原45–52及旧07/09；完整工程、迁移、回归与交付 |
+| [M2工程与交付历史台账](m2-project-validation.md) | 原45–52及旧07/09；完整工程、迁移、回归与交付；旧会话工作笔记和参考/运行说明原文 |
 | [AI真实调用、回归与交付历史](ai-validation.md) | 原05的真实调用、失败、浏览器与交付结果 |
-| [Q0–Q5视觉制作与验收历史](visual-quality-validation.md) | 原54第9–15节；Q0–Q5制作、真实模型、失败与发布 |
-| [T0–T7地形技术验收历史](terrain-validation.md) | 原55的T0–T7测试、失败、复验与停止记录 |
+| [Q0–Q5视觉制作与验收历史](visual-quality-validation.md) | 原53/54的制作、真实模型、失败与发布；视觉方法已并入14 |
+| [地形开发与技术历史](terrain-validation.md) | 原55的T0–T13开发/冻结、测试、失败、复验与停止记录 |
 
 ## 旧编号位置
 
@@ -56,3 +56,10 @@
 | 52 | [52-m20f-native-workspace-validation](m2-project-validation.md#doc-52) |
 
 原02/03→[交互与架构](../reference/editor-and-architecture.md)，08→[场景](../reference/acceptance-scenarios.md)，11/12→[决策与研究](../reference/decisions-and-research.md)，14/15/53→[视觉与素材](../14-visual-and-assets.md)，34→[性能](../reference/performance.md)。
+
+## 本轮归并后的查找方式
+
+- 原54视觉质量方法 → [14成图方法](../14-visual-and-assets.md#visual-quality)，独立AI样本 → [09](../09-quality-plan.md#ai-visual-acceptance)。
+- 原55 → [地形参考](../reference/terrain-generation.md)；开发任务 → [07](../07-roadmap.md#development)，全部验收 → [09](../09-quality-plan.md#acceptance)，旧17–20实施原文 → [地形历史](terrain-validation.md#terrain-implementation-notes)。
+- 原根目录task_plan/findings/progress → [旧执行计划](m2-project-validation.md#legacy-task-plan)、[旧问题笔记](m2-project-validation.md#legacy-findings)、[旧实施进展](m2-project-validation.md#legacy-progress)，只供追溯，不继续追加为并行计划。
+- 参考/运行说明的历史原文 → [M2补录](m2-project-validation.md#retired-reference-notes)；素材目录的旧交接 → [内容台账](workspace-content-validation.md#visual-production-handoffs)。
