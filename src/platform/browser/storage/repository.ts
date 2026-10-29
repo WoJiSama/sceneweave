@@ -6,7 +6,7 @@ import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
 import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
 import { captureProjectBundleInput, createMemoryResources, validateProjectBundle, validateProjectBundles } from '../../../shared/project/resources.js'
-import { projectContentHash } from '../../../shared/project/validate.js'
+import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
 import { parseBoundedJson } from '../../../shared/project/json.js'
@@ -44,7 +44,9 @@ function checkedContent(project: ProjectData, contents: ContentChecks): CheckedC
   const json = canonicalJson(project)
   let checked = contents.get(json)
   if (!checked) {
-    checked = { hash: projectContentHash(project), byteLength: encodeUtf8(json).length }
+    validateProjectData(project)
+    const bytes = encodeUtf8(json)
+    checked = { hash: sha256Bytes(bytes), byteLength: bytes.length }
     contents.set(json, checked)
   }
   return checked
@@ -359,7 +361,7 @@ export class ProjectRepository {
   async loadAutomaticSnapshot(ownerSceneId: string, revision: number, options: ResourceOptions = {}): Promise<ProjectBundle | null> {
     id(ownerSceneId); if (!integer(revision)) throw new Error('自动历史revision无效。')
     await this.open()
-    const bundle = await this.database.transaction('r', PROJECT_TABLES, async () => {
+    const bundle = await this.database.transaction('r', PROJECT_TABLES, () => withTransactionContentChecks(async () => {
       const current = await this.database.projects.get(ownerSceneId)
       if (!current || current.status !== 'ready') return null
       assertCurrent(current)
@@ -367,7 +369,7 @@ export class ProjectRepository {
       if (!row) return null
       assertAutomatic(row)
       return this.assembled(row.project, ownerSceneId, 'automatic', String(revision))
-    })
+    }))
     return bundle ? validateProjectBundle(bundle, this.validation(options)) : null
   }
   private async putResources(bundles: readonly ProjectBundle[], options: ResourceOptions): Promise<void> {
@@ -417,10 +419,11 @@ export class ProjectRepository {
     for (const row of resources) resourceBytes += bytesOf(row).length
     for (const row of licenses) {
       exact(row, ['sha256', 'text'])
-      if (!hashValue(row.sha256) || typeof row.text !== 'string' || sha256Bytes(encodeUtf8(row.text)) !== row.sha256) throw new Error('库中许可正文hash损坏。')
-      const bytes = encodeUtf8(row.text).length
-      if (!bytes || bytes > 256 * 1024) throw new Error('库中许可正文超过保护预算。')
-      resourceBytes += bytes
+      if (!hashValue(row.sha256) || typeof row.text !== 'string') throw new Error('库中许可正文hash损坏。')
+      const bytes = encodeUtf8(row.text)
+      if (sha256Bytes(bytes) !== row.sha256) throw new Error('库中许可正文hash损坏。')
+      if (!bytes.length || bytes.length > 256 * 1024) throw new Error('库中许可正文超过保护预算。')
+      resourceBytes += bytes.length
     }
     for (const row of originals) legacyBytes += bytesOf(row, PROJECT_STORAGE_LIMITS.legacyBytes).length
     const upgradeContext = this.nativeUpgradeContext()
@@ -603,7 +606,7 @@ export class ProjectRepository {
   }
   async loadSnapshot(ownerSceneId: string, snapshotId: string, options: ResourceOptions = {}): Promise<SnapshotBundle | null> {
     id(ownerSceneId); id(snapshotId); await this.open()
-    const captured = await this.database.transaction('r', PROJECT_TABLES, async () => {
+    const captured = await this.database.transaction('r', PROJECT_TABLES, () => withTransactionContentChecks(async () => {
       const current = await this.database.projects.get(ownerSceneId)
       if (!current || current.status !== 'ready') return null
       assertCurrent(current)
@@ -613,7 +616,7 @@ export class ProjectRepository {
       if (!row) return null
       assertSnapshot(row, !!imported)
       return { ...summaryOf(row), bundle: await this.assembled(row.project, ownerSceneId, row.kind, snapshotId) }
-    })
+    }))
     if (!captured) return null
     return { ...captured, bundle: await validateProjectBundle(captured.bundle, this.validation(options)) }
   }
@@ -675,7 +678,7 @@ export class ProjectRepository {
       const metadata = await this.metadataCAS(owner, expectedMetadataVersion)
       await this.database.snapshots.put({ ...row, name: normalized })
       await this.database.historyMetadata.put({ ...metadata, metadataVersion: metadata.metadataVersion + 1 })
-    })
+    }, true)
   }
   async deleteSnapshot(owner: string, snapshotId: string, expectedHash: string, expectedMetadataVersion: number): Promise<void> {
     id(owner); id(snapshotId)
@@ -691,7 +694,7 @@ export class ProjectRepository {
       await this.database.snapshots.delete([owner, snapshotId])
       await this.database.resourceBindings.delete([owner, row.kind, snapshotId])
       await this.database.historyMetadata.put({ ...metadata, metadataVersion: metadata.metadataVersion + 1 })
-    })
+    }, true)
   }
   async getJob(jobId: string): Promise<ConversionJob | null> {
     id(jobId); await this.open()

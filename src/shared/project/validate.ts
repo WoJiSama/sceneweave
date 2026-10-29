@@ -4,6 +4,7 @@ import { nativeHistoryIdentitySchema } from '../history/identity.js'
 import { nativeAppearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, validateCompositionContent } from '../validation/content.js'
 import { inspectDependencies } from '../commands/dependencies.js'
 import { sha256Text } from '../geometry/scatter.js'
+import { sha256Bytes } from '../validation/hash.js'
 import { canonicalJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput } from '../validation/json.js'
 import type { ProjectData } from '../model/project.js'
 import { STATIC_SVG_LIMITS } from '../ai/svg.js'
@@ -119,7 +120,7 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
   if (bound.size !== subjects.size || Object.keys(project.licenses).some(key => !licenses.has(key))) throw new Error('许可必须恰好覆盖完整主体闭包。')
   for (const [hash, record] of Object.entries(project.licenses)) {
     const bytes = encodeUtf8(record.text)
-    if (record.sha256 !== hash || sha256Text(record.text) !== hash || bytes.length > PROJECT_DATA_LIMITS.licenseBytes
+    if (record.sha256 !== hash || sha256Bytes(bytes) !== hash || bytes.length > PROJECT_DATA_LIMITS.licenseBytes
       || /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(record.text)
       || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(record.text)
       || /(?:\/(?:Users|home|private|var)\/|[A-Za-z]:\\(?:Users|Documents and Settings)\\)/.test(record.text)

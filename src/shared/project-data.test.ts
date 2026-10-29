@@ -93,6 +93,7 @@ describe('native complete-v1 pure metadata contract', () => {
     const input = fixture(), reordered = Object.fromEntries(Object.entries(input).reverse())
     expect(projectContentHash(reordered)).toBe(projectContentHash(input))
     expect(projectContentHash(input)).toBe(digest(canonicalJson(input)))
+    expect(canonicalJson(validateProjectData(input))).toBe(canonicalJson(input))
     input.document.title += ' changed'; expect(projectContentHash(input)).not.toBe(projectContentHash(fixture()))
     expect(canonicalJson({ Z: 1, a: 2, A: 3, '中': 4 })).toBe('{"A":3,"Z":1,"a":2,"中":4}')
   })
