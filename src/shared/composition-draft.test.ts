@@ -4,7 +4,7 @@ import { createCompositionContentV6 } from '../core/v6/graph.js'
 import { compositionFixtureV6, imageFixtureV6 } from '../core/v6/test-fixtures.js'
 import type { CompositionContentV6 } from '../core/v6/types.js'
 import { applyCompositionCommands, applyCompositionDraftCommands } from './appearance/commands.js'
-import { resolveAppearance, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './appearance/graph.js'
+import { createCompositionContent, resolveAppearance, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './appearance/graph.js'
 import { applySnapshotCommands } from './commands/commands.js'
 import { assertOutdoorContinuity } from './history/identity.js'
 import type { CompositionCommand, CompositionContent } from './model/appearance.js'
@@ -13,6 +13,9 @@ import type { PreparationContext } from './ports/runtime.js'
 import { certifyCompositionContent, certifyCompositionDraft, getCertifiedCompositionContent, getCertifiedCompositionDraft, validateCompositionContent, validateCompositionDraft } from './validation/content.js'
 import { cloneJson } from './validation/json.js'
 import { isCertifiedSceneSnapshot } from './validation/snapshots.js'
+import { emptyTerrainDocument } from './terrain-generation/compose.js'
+import { emptyCompositionDocument } from './terrain-generation/composition-materialize.js'
+import { emptyVisualSystem } from './visual/types.js'
 
 const context = (): PreparationContext => {
   let allocated = 0
@@ -25,7 +28,47 @@ const native = (input: CompositionContentV6): CompositionContent => ({
 const sourceContent = () => certifyCompositionContent(native(compositionFixtureV6()))
 const change: CompositionCommand[] = [{ type: 'updateProp', id: 'item', changes: { rotationDeg: 35 } }]
 
+function versionedSource(version: 1 | 2 | 3 | 4): CompositionContent {
+  const source = native(compositionFixtureV6())
+  let document: SceneDocument
+  if (version === 1) document = source.document
+  else {
+    source.document.schemaVersion = 2
+    source.document.visual = emptyVisualSystem()
+    document = version === 2 ? source.document : emptyTerrainDocument(source.document)
+    if (version === 4) document = emptyCompositionDocument(document)
+  }
+  return certifyCompositionContent(createCompositionContent(document, context()))
+}
+
 describe('internal immutable composition draft ownership', () => {
+  it.each([1, 2, 3, 4] as const)('keeps pure prop edits equivalent in strict scene version %i', version => {
+    const source = versionedSource(version), original = cloneJson(source)
+    const commands: CompositionCommand[] = [
+      { type: 'updateProp', id: 'item', changes: { rotationDeg: 35 } },
+      { type: 'updateProp', id: 'other', changes: { positionMm: { x: source.document.props.other.positionMm.x + 100, y: source.document.props.other.positionMm.y } } },
+    ]
+    const internal = applyCompositionDraftCommands(source, commands, context())
+    const publicResult = applyCompositionCommands(source, commands, context())
+    expect(internal).toEqual(publicResult)
+    expect(internal.appearance).toEqual(source.appearance)
+    expect(internal.document.props.item.rotationDeg).toBe(35)
+    expect(internal.document.props.other.positionMm.x).toBe(source.document.props.other.positionMm.x + 100)
+    expect(source).toEqual(original)
+  })
+
+  it('runs graph synchronization for mixed entity edits that create mappings', () => {
+    const source = sourceContent()
+    const commands: CompositionCommand[] = [
+      { type: 'updateProp', id: 'item', changes: { rotationDeg: 35 } },
+      { type: 'copyProp', id: 'item', newId: 'copied-item', offsetMm: { x: 100, y: 0 } },
+    ]
+    const internal = applyCompositionDraftCommands(source, commands, context())
+    const publicResult = applyCompositionCommands(source, commands, context())
+    expect(internal).toEqual(publicResult)
+    expect(internal.appearance.propSources['copied-item']).toBe(internal.appearance.propSources.item)
+  })
+
   it('preserves the actual parsed scene through graph sync and complete certification', () => {
     const source = sourceContent(), next = applyCompositionDraftCommands(source, change, context())
     expect(getCertifiedCompositionDraft(next)).toBe(next)
