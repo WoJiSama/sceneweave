@@ -10,6 +10,7 @@ import type { PointMm, Prop, SceneDocument, SurfaceRef } from '../model/scene.js
 import type { PreparationContext } from '../ports/runtime.js'
 import { createHistoryIdentityTrace } from '../history/identity.js'
 import { detachChangedAppearance } from '../terrain-generation/appearance-lifecycle.js'
+import { pauseChangedCompositionAppearance } from '../terrain-generation/composition-lifecycle.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { addPropAppearanceSource, effectiveAdjustments, equalCompositionValue, freezeEffectivePropAppearance, inspectAppearanceScope, propAppearanceSnapshot, supportedAppearanceKinds, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './graph.js'
 import { appearanceAdjustmentSchema, certifyCompositionContent, certifyCompositionDraft, compositionIdSchema, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
@@ -207,7 +208,20 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
     const fixedUprightPropIds = new Set(Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'))
-    const observer = { fixedUprightPropIds, onSceneDraft: (draft: Readonly<SceneDocument>) => identityTrace.observe(draft) }
+    let accounting = source
+    const observer = { fixedUprightPropIds, onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
+      if (source.document.schemaVersion === 4) {
+        const next = syncAppearanceGraph({ document: draft as SceneDocument, historyIdentity: identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }, accounting.document, [command])
+        const estimated = terrainCommandCost(accounting.document, draft as SceneDocument)
+        const actual = terrainCommandCost(accounting.document, next.document, { before: accounting, after: next })
+        const physicalCost = commandCost - (estimated.total - estimated.items.physicalAndVisual)
+        consume(Math.max(1, physicalCost, actual.items.physicalAndVisual) + actual.total - actual.items.physicalAndVisual)
+        accounting = next
+      } else {
+        if (source.document.schemaVersion >= 3) consume(commandCost)
+        identityTrace.observe(draft)
+      }
+    } }
     content.document = ownedDraft
       ? applySnapshotCommands(source.document, sceneCommands, context, { ...observer, preserveNoopIdentity: false })
       : applyCommands(source.document, sceneCommands, context, observer)
@@ -220,8 +234,8 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       changed.add(command.id)
       for (const member of Object.values(source.document.prefabInstances[command.id]?.members ?? {})) if (member.propId !== null) changed.add(member.propId)
     }
-    consume(Math.max(commands.length, changed.size))
-    content = ownedDraft
+    if (source.document.schemaVersion < 3) consume(Math.max(commands.length, changed.size))
+    content = source.document.schemaVersion === 4 ? accounting : ownedDraft
       ? syncAppearanceGraphSnapshot(content, source.document, sceneCommands)
       : syncAppearanceGraph(content, source.document, sceneCommands)
   } else {
@@ -229,7 +243,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     const anyAppearance = commands.some(command => ['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource'].includes(command.type))
     if (anyAppearance && !appearanceOnly) throw new Error('新外观派生须先完成资源准备，再保存/放置固定组合。')
     for (const command of commands) {
-      const beforeTerrain = content.document.schemaVersion === 3 ? cloneJson(content) : null
+      const beforeTerrain = content.document.schemaVersion >= 3 ? cloneJson(content) : null, beforeCost = cost
       switch (command.type) {
         case 'setAppearanceAdjustment': case 'toggleAppearanceAdjustment': case 'removeAppearanceAdjustment': {
           const graph = content.appearance, record = command.scope.kind === 'layer' ? graph.layerAdjustments : graph.instanceAdjustments
@@ -297,22 +311,34 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       }
       if (beforeTerrain) {
         detachChangedAppearance(beforeTerrain, content)
-        const expanded = terrainCommandCost(beforeTerrain.document, content.document)
+        pauseChangedCompositionAppearance(beforeTerrain, content)
+        if (content.document.schemaVersion === 4) content.historyIdentity = identityTrace.finish(content.document)
+        const expanded = terrainCommandCost(beforeTerrain.document, content.document, { before: beforeTerrain, after: content })
+        consume(Math.max(1, cost - beforeCost, expanded.items.physicalAndVisual) - (cost - beforeCost))
         generationCost += expanded.total - expanded.items.physicalAndVisual
         if (cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
       }
-      identityTrace.observe(content.document)
+      if (content.document.schemaVersion !== 4) identityTrace.observe(content.document)
     }
+    const beforeSync = content
     content = syncAppearanceGraph(content)
+    if (content.document.schemaVersion === 4) {
+      generationCost += terrainCommandCost(beforeSync.document, content.document, { before: beforeSync, after: content }).total
+      if (cost + generationCost > 256) throw new Error('固定源保全与组合事务累计展开超过256条操作预算。')
+    }
   }
-  if (content.document.schemaVersion === 3) {
+  if (content.document.schemaVersion >= 3) {
     // Snapshot-command results can already be privately frozen. Detachment
     // owns a detached generation branch rather than mutating that witness.
+    const beforeFinal = content
     content = { ...content, document: cloneJson(content.document) }
     detachChangedAppearance(source, content)
-    const expanded = terrainCommandCost(source.document, content.document)
-    generationCost = Math.max(generationCost, expanded.total - expanded.items.physicalAndVisual)
-    if (Math.max(cost, expanded.items.physicalAndVisual) + generationCost > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
+    pauseChangedCompositionAppearance(source, content)
+    content.historyIdentity = identityTrace.finish(content.document)
+    const finalDelta = terrainCommandCost(beforeFinal.document, content.document, { before: beforeFinal, after: content })
+    generationCost += finalDelta.total - finalDelta.items.physicalAndVisual
+    const expanded = terrainCommandCost(source.document, content.document, { before: source, after: content })
+    if (Math.max(cost + generationCost, expanded.total) > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
   }
   content.historyIdentity = identityTrace.finish(content.document)
   return ownedDraft ? certifyCompositionDraft(content) : validateCompositionDraft(content)

@@ -10,7 +10,9 @@ export const utf8Size = (text: string) => { let bytes = 0; for (const char of te
 const id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/)
 const prompt = z.string().trim().min(1).max(16_384).refine(value => utf8Size(value) <= AI_LIMITS.promptBytes, '请求文字超过16KiB。')
 export const TaskContextSchema = z.object({ sceneId: id, revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), audience: z.literal('public') }).strict().nullable()
-export const CreateTaskSchema = z.object({ schemaVersion: z.literal(1), clientRequestId: z.string().uuid(), prompt, context: TaskContextSchema, authoring: AuthoringStartSchema.optional(), vision: VisionInputSchema.optional() }).strict()
+export const ReasoningEffortSchema = z.enum(['low', 'high', 'max'])
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
+export const CreateTaskSchema = z.object({ schemaVersion: z.literal(1), clientRequestId: z.string().uuid(), prompt, context: TaskContextSchema, reasoningEffort: ReasoningEffortSchema.optional(), authoring: AuthoringStartSchema.optional(), vision: VisionInputSchema.optional() }).strict()
 export type CreateTaskRequest = z.infer<typeof CreateTaskSchema>
 export type TaskContext = z.infer<typeof TaskContextSchema>
 export const TaskStatusSchema = z.enum(['running', 'paused', 'completed', 'cancelled', 'failed', 'expired', 'waiting_browser', 'ready', 'applying', 'applied'])
@@ -33,7 +35,7 @@ export const TaskEventSchema = z.discriminatedUnion('type', [
   z.object({ ...envelope, type: z.literal('draft_updated'), data: AuthoringSummarySchema }).strict(),
 ])
 export type TaskEvent = z.infer<typeof TaskEventSchema>
-export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, clientRequestId: z.string().uuid(), context: TaskContextSchema,
+export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, clientRequestId: z.string().uuid(), context: TaskContextSchema, reasoningEffort: ReasoningEffortSchema.nullable().optional(),
   status: TaskStatusSchema, generation: z.number().int().positive(), lastSequence: z.number().int().min(0),
   text: z.string().refine(value => utf8Size(value) <= AI_LIMITS.outputBytes), tools: z.array(ToolResultSchema).max(AUTHORING_LIMITS.toolCalls),
   usage: TaskUsageSchema, error: AiErrorSchema.nullable(), createdAt: z.number().int().min(0), updatedAt: z.number().int().min(0), expiresAt: z.number().int().min(0), authoring: AuthoringSummarySchema.optional() }).strict().superRefine((value, ctx) => {
@@ -42,7 +44,7 @@ export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, cl
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>
 export const ControlTaskSchema = z.object({ schemaVersion: z.literal(1), expectedGeneration: z.number().int().positive(), action: z.enum(['pause', 'cancel', 'resume']), prompt: prompt.optional(), vision: VisionInputSchema.optional() }).strict()
 export type ControlTaskRequest = z.infer<typeof ControlTaskSchema>
-export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), visionModel: z.string().min(1).max(128).optional(), authoringOutputTokens: z.number().int().min(1).max(AUTHORING_LIMITS.maxOutputTokensPerRequest).optional(), protocol: z.literal('chat-completions'),
-  capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']) }).strict(),
+export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), visionModel: z.string().min(1).max(128).optional(), reasoningEffort: ReasoningEffortSchema.nullable().optional(), authoringOutputTokens: z.number().int().min(1).max(AUTHORING_LIMITS.maxOutputTokensPerRequest).optional(), protocol: z.literal('chat-completions'),
+  capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']), taskReasoningEffort: z.literal(true).optional() }).strict(),
   retentionDays: z.literal(7), limits: z.object({ modelRequests: z.literal(4), toolCalls: z.literal(8), executionMs: z.literal(120000), promptBytes: z.literal(16384), outputBytes: z.literal(65536) }).strict() }).strict()
 export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>

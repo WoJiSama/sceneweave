@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import type { EditableProject } from './project.js'
 import { captureEditableDraft, validateEditableProject } from './project.js'
 import { materializeProject } from './prepare.js'
@@ -360,7 +361,7 @@ async function materializeInherited(result: RegionalDrillDownResult, base: Scene
     await checkpoint()
     if ('directionDeg' in feature) {
       const positionMm = feature.pointsMm[0], id = `child-port-${feature.id}`
-      document.generation!.constraints[id] = { id, floorId, visibility: feature.visibility, strength: 'soft', kind: 'port', positionMm: { ...positionMm }, directionDeg: feature.directionDeg, widthMm: feature.widthMm }
+      getLegacyGeneration(document)!.constraints[id] = { id, floorId, visibility: feature.visibility, strength: 'soft', kind: 'port', positionMm: { ...positionMm }, directionDeg: feature.directionDeg, widthMm: feature.widthMm }
       // A standalone source port is fully represented by this persisted soft
       // constraint. It is not an incomplete fragment of another feature.
       materializedSourceIds.add(feature.id); notePart(candidateParts, feature.id); notePart(materializedParts, feature.id)
@@ -374,7 +375,7 @@ async function materializeInherited(result: RegionalDrillDownResult, base: Scene
       checkCancelled(signal)
       if (positionMm.x !== 0 && positionMm.y !== 0 && positionMm.x !== document.exportBoundsMm.width && positionMm.y !== document.exportBoundsMm.height) continue
       const id = `child-port-${feature.id}-${index}`
-      document.generation!.constraints[id] = { id, floorId, visibility: feature.visibility, strength: 'soft', kind: 'port', positionMm: { ...positionMm }, directionDeg, widthMm: width }
+      getLegacyGeneration(document)!.constraints[id] = { id, floorId, visibility: feature.visibility, strength: 'soft', kind: 'port', positionMm: { ...positionMm }, directionDeg, widthMm: width }
       auxiliarySourceIds.add(feature.id)
     }
     if (feature.terrainKind === 'road') {
@@ -505,7 +506,7 @@ async function finishRegionalDrillDown(source: EditableProject, sourceResult: Re
   checkCancelled(validation.signal)
   const sceneCheck = validateSceneDocument(document)
   if (!sceneCheck.ok) throw new Error(`下钻实体未通过完整几何：${sceneCheck.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('；')}`)
-  const empty = captureJson(document); empty.terrainAreas = {}; empty.paths = {}; empty.entityLayers = {}; empty.generation = { ...captureJson(document.generation!), sourceLinks: {}, constraints: {} }
+  const empty = captureJson(document); empty.terrainAreas = {}; empty.paths = {}; empty.entityLayers = {}; empty.generation = { ...captureJson(getLegacyGeneration(document)!), sourceLinks: {}, constraints: {} }
   const cost = assertTerrainBudget(empty, document)
   const result: RegionalDrillDownResult = { ...sourceResult, document, cost, hash: sha256Text(canonicalJson({ request: sourceResult.request, document, cost })) }
   const closure = materialized.closure
@@ -538,7 +539,7 @@ export async function prepareRegionalDrillDownFromResult(parent: EditableProject
   const source = await validateEditableProject(captureEditableDraft(parent), validation)
   const sceneBase = await validateEditableProject(captureEditableDraft(sceneBaseInput), validation)
   const result = RegionSceneCandidateResultSchema.parse(captureJson(rawResult))
-  const linked = result.document.generation?.sourceLinks[result.sourceLink.id]
+  const linked = getLegacyGeneration(result.document)?.sourceLinks[result.sourceLink.id]
   if (result.request.sourceSceneId !== source.document.sceneId || result.sourceLink.sourceSceneId !== source.document.sceneId
     || result.sourceLink.sourceRevision !== source.document.revision || !linked || canonicalJson(linked) !== canonicalJson(result.sourceLink)
     || result.hash !== sha256Text(canonicalJson({ request: result.request, document: result.document, cost: result.cost }))
@@ -548,7 +549,7 @@ export async function prepareRegionalDrillDownFromResult(parent: EditableProject
 
 /** Caller must supply the actual parent; missing sources never count as a successful comparison. */
 export async function compareRegionalSource(child: EditableProject, parent: EditableProject | null, options: RegionalOptions): Promise<string> {
-  const source = Object.values(child.document.generation?.sourceLinks ?? {})[0]
+  const source = Object.values(getLegacyGeneration(child.document)?.sourceLinks ?? {})[0]
   if (!source) throw new Error('当前工程没有区域来源。')
   if (!parent) return '本机未找到父区域地图；当前子图资源完整，可独立编辑与导出。'
   const owned = await validateEditableProject(captureEditableDraft(parent), { ...options.validation, signal: options.signal ?? options.validation.signal })

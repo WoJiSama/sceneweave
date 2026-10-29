@@ -7,6 +7,37 @@ import type { SceneDocument } from '../src/shared/model/scene.js'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 
 type Dev={workspace:Workspace}
+test('T8 largest and custom canvases preserve exact Node and Worker results',async({page},info)=>{
+  test.setTimeout(180000)
+  await page.goto('/')
+  const vectors=await page.evaluate(async()=>{
+    const refinedBlankPath='/src/platform/browser/content/refined-blank.ts'
+    const terrainClientPath='/src/platform/browser/terrain-generation/client.ts'
+    const canonicalJsonPath='/src/shared/validation/json.ts'
+    const sha256TextPath='/src/shared/validation/hash.ts'
+    const {createRefinedBlankDocument}=await import(/* @vite-ignore */ refinedBlankPath)
+    const {createTerrainGenerationClient}=await import(/* @vite-ignore */ terrainClientPath)
+    const {canonicalJson}=await import(/* @vite-ignore */ canonicalJsonPath)
+    const {sha256Text}=await import(/* @vite-ignore */ sha256TextPath)
+    const vectors=[]
+    for(const kind of ['island','coast','river','lake','forest','hill','mixed'] as const){
+      const input={sceneId:`t8-max-parity-${kind}`,kind,seed:'terrain-v1-0',widthMm:120000,heightMm:90000}
+      const base=createRefinedBlankDocument(kind==='coast'?'coast':'island',{sceneId:input.sceneId,title:'T8最大尺寸确定性',widthMm:input.widthMm,heightMm:input.heightMm,preset:'narrative',now:'2026-10-28T00:00:00.000Z'})
+      const client=createTerrainGenerationClient()
+      try{const result=await client.generate({sceneId:input.sceneId,checkpoint:0,operationEpoch:1,base,input});vectors.push({base,input,hash:sha256Text(canonicalJson(result))})}
+      finally{client.dispose()}
+    }
+    const input={sceneId:'t8-custom-parity',kind:'coast' as const,seed:'terrain-v1-0',widthMm:37123,heightMm:23456}
+    const base=createRefinedBlankDocument('coast',{sceneId:input.sceneId,title:'T8毫米尺寸确定性',widthMm:input.widthMm,heightMm:input.heightMm,preset:'narrative',now:'2026-10-28T00:00:00.000Z'})
+    const client=createTerrainGenerationClient()
+    try{const result=await client.generate({sceneId:input.sceneId,checkpoint:0,operationEpoch:1,base,input});vectors.push({base,input,hash:sha256Text(canonicalJson(result))})}
+    finally{client.dispose()}
+    return vectors
+  })
+  for(const vector of vectors)expect(sha256Text(canonicalJson(generateTerrainDocument(vector.base as SceneDocument,vector.input)))).toBe(vector.hash)
+  await info.attach('t8-node-worker-parity.json',{body:JSON.stringify(vectors.map(({input,hash})=>({input,hash}))),contentType:'application/json'})
+})
+
 test('T0 v2 copy keeps source pixels and complete originals downloadable and importable',async({page},info)=>{
   test.setTimeout(180000)
   await page.goto('/#workspace')
@@ -117,15 +148,17 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
   await page.getByRole('button',{name:'采用当前地形方案',exact:true}).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存',{timeout:60000})
   const persisted=await page.evaluate(async()=>{
-    const runtimePath='/src/platform/browser/runtime.ts'
+    const runtimePath='/src/platform/browser/runtime.ts',contractsPath='/src/shared/terrain-generation/composition-contracts.ts'
     const {projectRepository}=await import(runtimePath) as typeof import('../src/platform/browser/runtime')
+    const {getLegacyGeneration}=await import(contractsPath) as typeof import('../src/shared/terrain-generation/composition-contracts')
     const workspace=(Reflect.get(window,'__sceneweaveOutdoorDev') as Dev).workspace
     await workspace.flush()
     const project=workspace.getState().project
     if(!project)throw new Error('T3采用后缺少当前工程。')
     const cold=await projectRepository.load(project.document.sceneId)
     if(!cold)throw new Error('T3采用后冷读工程失败。')
-    return {sceneId:project.document.sceneId,revision:cold.project.document.revision,terrainAreas:Object.keys(cold.project.document.terrainAreas),connections:Object.keys(cold.project.document.terrainConnections),generation:!!cold.project.document.generation,route:cold.project.document.paths['terrain-route'],routeCheck:cold.project.document.generation!.checks['terrain-route-check'],variants:Object.values(cold.project.appearance.variants),assets:Object.keys(cold.project.assets),rules:Object.values(cold.project.document.generation!.rules),ownership:Object.values(cold.project.document.generation!.ownership)}
+    const generation=getLegacyGeneration(cold.project.document)!
+    return {sceneId:project.document.sceneId,revision:cold.project.document.revision,terrainAreas:Object.keys(cold.project.document.terrainAreas),connections:Object.keys(cold.project.document.terrainConnections),generation:!!cold.project.document.generation,route:cold.project.document.paths['terrain-route'],routeCheck:generation.checks['terrain-route-check'],variants:Object.values(cold.project.appearance.variants),assets:Object.keys(cold.project.assets),rules:Object.values(generation.rules),ownership:Object.values(generation.ownership)}
   })
   expect(persisted.revision).toBeGreaterThanOrEqual(0)
   expect(persisted.route.widthMm).toBe(1000)
@@ -138,6 +171,45 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
   expect(persisted.terrainAreas).toEqual(expect.arrayContaining(['terrain-water-north','terrain-water-south','terrain-shallow','terrain-forest']))
   expect(persisted.connections).toEqual(expect.arrayContaining(['terrain-stairs','terrain-shallow-left','terrain-shallow-right']))
   expect(errors).toEqual([])
+})
+
+test('T8 exposes a bounded non-default canvas size and carries it into the candidate',async({page})=>{
+  test.setTimeout(180000)
+  await page.goto('/#workspace')
+  await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await page.getByRole('button',{name:'选择森林地形',exact:true}).click()
+  const generate=page.getByRole('button',{name:'生成地形预览',exact:true})
+  const size=page.getByLabel('地形画布尺寸',{exact:true})
+  await expect(size.locator('option')).toHaveCount(6)
+  await size.selectOption('36000x20000')
+  await size.selectOption('custom')
+  await page.getByLabel('地形宽度（米）',{exact:true}).fill('36')
+  await page.getByLabel('地形高度（米）',{exact:true}).fill('20')
+  await page.getByLabel('生成指定路线',{exact:true}).check()
+  await expect(page.getByLabel('路线终点X',{exact:true})).toHaveAttribute('max','36000')
+  await expect(page.getByLabel('路线终点Y',{exact:true})).toHaveAttribute('max','20000')
+  await page.getByLabel('生成指定路线',{exact:true}).uncheck()
+  await expect(generate).toBeEnabled()
+  await generate.click()
+  await expect(page.getByRole('article',{name:'当前地形候选'})).toBeVisible({timeout:60000})
+  await expect(page.getByRole('article',{name:'当前地形候选'})).toContainText('36 × 20 米')
+  await page.getByLabel('地形宽度（米）',{exact:true}).fill('48')
+  await expect(generate).toBeDisabled()
+  await expect(page.getByRole('alert')).toContainText('宽高比')
+  await expect(page.getByRole('button',{name:'采用当前地形方案',exact:true})).toBeDisabled()
+  await page.getByLabel('地形宽度（米）',{exact:true}).fill('36')
+  await page.getByRole('button',{name:'采用当前地形方案',exact:true}).click()
+  await expect(page.locator('.asset-save')).toHaveText('本地已保存',{timeout:60000})
+  const bounds=await page.evaluate(async()=>{
+    const runtimePath='/src/platform/browser/runtime.ts'
+    const {projectRepository}=await import(runtimePath) as typeof import('../src/platform/browser/runtime')
+    const workspace=(Reflect.get(window,'__sceneweaveOutdoorDev') as Dev).workspace
+    await workspace.flush()
+    const current=workspace.getDocument()!
+    const persisted=await projectRepository.load(current.sceneId)
+    return {current:current.exportBoundsMm,persisted:persisted?.project.document.exportBoundsMm}
+  })
+  expect(bounds).toEqual({current:{x:0,y:0,width:36000,height:20000},persisted:{x:0,y:0,width:36000,height:20000}})
 })
 
 test('T1 retains all five untouched island and coast packages, neutral whole views and identical closeup regions',async({page},info)=>{
@@ -201,6 +273,8 @@ test('T1 manual preview cancellation, independent adoption, tree and coast edits
     const {exportProject,importProject}=await import(filePath) as typeof import('../src/shared/project/file')
     const {exportPng}=await import(renderPath) as typeof import('../src/platform/browser/render/renderer')
     const {visualBase}=await import(basePath) as typeof import('../src/shared/visual/base')
+    const contractsPath='/src/shared/terrain-generation/composition-contracts.ts'
+    const {getLegacyGeneration}=await import(contractsPath) as typeof import('../src/shared/terrain-generation/composition-contracts')
     const {cloneJson}=await import(jsonPath) as typeof import('../src/shared/validation/json')
     const {projectContentHash}=await import(validatePath) as typeof import('../src/shared/project/validate')
     const original=workspace.getState().project!,tree=Object.values(original.document.props).find(p=>p.definitionRef?.id.includes('tree-'))!
@@ -216,8 +290,9 @@ test('T1 manual preview cancellation, independent adoption, tree and coast edits
     const encode=(bytes:Uint8Array)=>{let value='';for(let i=0;i<bytes.length;i+=32768)value+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(value)}
     const pngs=[]
     for(const audience of ['gm','player'] as const){const blob=await exportPng(imported,{audience,longEdgePx:4096});pngs.push({audience,png:encode(new Uint8Array(await blob.arrayBuffer()))})}
+    const generation=getLegacyGeneration(imported.project.document)!
     return {schemaVersion:imported.project.schemaVersion,changedHash,contentHash:projectContentHash(imported.project),tree:imported.project.document.props[tree.id],originalTree:tree,
-      ownership:imported.project.document.generation!.ownership,rules:imported.project.document.generation!.rules,checks:imported.project.document.generation!.checks,revision:imported.project.document.revision,
+      ownership:generation.ownership,rules:generation.rules,checks:generation.checks,revision:imported.project.document.revision,
       package:encode(bytes),pngs}
   })
   expect(result.schemaVersion).toBe(3);expect(result.tree.positionMm.x).toBe(result.originalTree.positionMm.x+50)

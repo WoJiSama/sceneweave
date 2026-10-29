@@ -47,6 +47,18 @@ export interface ProjectedVisualBoundary {
   /** Public, projected supports only; no hidden relationship metadata is retained. */
   terrainAreaIds: string[]
 }
+export interface ProjectedVisualTransition {
+  id: string
+  floorId: string
+  layerId: string
+  boundaryId: string
+  kind: import('../terrain-generation/composition-contracts.js').TerrainTransition['kind']
+  side: import('../terrain-generation/composition-contracts.js').TerrainTransition['side']
+  polygons: { pointsMm: PointMm[]; fillColor: string; opacity: number }[]
+  strokes: { pointsMm: PointMm[]; widthMm: number; color: string; opacity: number }[]
+  widthMm: number
+  enabled: boolean
+}
 export interface ProjectedVisualFilter extends Omit<VisualFilter, 'target' | 'floorId' | 'layerId' | 'visibility' | 'editLocked'> {
   /** null means the entire scene. Other targets are frozen to visible geometry now. */
   targetRings: PointMm[][] | null
@@ -64,6 +76,8 @@ export interface ProjectedVisualSystem {
   /** Stable export bounds, independent of temporary editor crop. */
   boundsMm: BoundsMm
   boundaries: ProjectedVisualBoundary[]
+  /** Audience-filtered strict visual3 terrain transitions. */
+  transitions?: ProjectedVisualTransition[]
   edgeLooks: import('../visual/types.js').VisualEdgeLook[]
   lights: import('../visual/types.js').VisualLight[]
   fogs: import('../visual/types.js').VisualFog[]

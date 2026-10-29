@@ -33,7 +33,7 @@ export interface SvgAuthoringSource {
 export interface ProjectData {
   format: 'sceneweave-complete-project'
   /** v2 carries a strict scene-v2 visual system; v1 remains read without added fields. */
-  schemaVersion: 1 | 2 | 3
+  schemaVersion: 1 | 2 | 3 | 4
   document: SceneDocument
   historyIdentity: HistoryIdentity
   appearance: AppearanceGraph

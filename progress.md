@@ -1,3 +1,56 @@
+# 2026-10-28 T9
+
+# 2026-10-29 T10
+
+- T10 严格过渡开发已完成：`src/shared/visual/transition.ts` 物化整数毫米过渡，校验两侧地形/道路来源、材质与高程、墙体/开口/物件遮罩、公开与GM私密边界，保存距离场来源及输入/输出hash；stroke 使用共享方端帽/miterLimit 2/bevel 几何。
+- 接入 visual3 projection、原生 Canvas 绘制、编辑绘制 padding、过渡命令/锁/依赖/预算、composition integrity 和 `TerrainTransitionPanel`；`restoreHistory` 同批修复冻结历史 candidate 的可写草稿路径。
+- 新鲜定向验证：T10 相关 13 个文件 134 项通过；transition 6/6、视觉目录 30/30、全仓 TypeScript 检查通过。验证覆盖 GM/player、Floor/layer 漂移、公开私密道路、边界错误、命中、遮罩、局部 halo、Canvas 绘制和 v4 历史采用；未执行完整 Q4、用户P3、全量回归或正式性能。
+- T10 结果移交 T11；本批未提交、未推送，既有脏改动与独立 `todo.md` 保留。
+
+# 2026-10-29 T11
+
+- 新增 `src/shared/visual/scenery.ts`：沿用严格 scatter-cell-v1 条件域，审计固定物件定义/图片资源/世界图像范围/物理占地/同Floor支撑，准备 detached candidate，并在采用前复核来源hash、revision、候选hash和 manual/deleted/detached/locked 成员快照；排序固定为 ground/object/canopy、renderOrder、y、ID。
+- 新增 `src/shared/visual/scenery.test.ts` 3 项，覆盖固定源和公开GM拒绝、确定性候选、候选不修改输入、人工成员保留、基线/保护成员/候选篡改拒绝、稳定渲染顺序。近侧视/素材相关定向 6 个文件 54 项通过；共享无DOM 117 模块通过，正常生产 `npm run build` 通过。
+- 开发期样图/资源链：`tests/terrain-presentation.spec.ts` Chromium 2/2，通过真实保存冷读、固定资源闭包和 GM/player PNG；这不是完整素材目录、视觉回读或用户P3签收。
+- T11 结果移交 T12；完整Q4、全量回归和正式性能仍留在 T13 后 M2-E。本批未提交、未推送，既有无关改动与独立 `todo.md` 保留。
+
+# 2026-10-29 T12 → T13
+
+- T12 局部联动闭环完成：依赖报告现覆盖 transition 来源/clip/reach、同 Floor 结构遮罩、地形材质/许可、固定布景定义/资源、domain source 和 generation5 依赖，并生成 `sourceInputHashes`；输入变化会使候选失效。
+- 局部散布只物化 dependency halo 内成员；halo 外成员、手工/删除/退出/锁定记录作为保护快照保留。散布层锁和物件锁均阻断刷新，新的 managed 出生 ID 由确定性分配器避开当前文档及历史身份占用。
+- AI `sceneweave_terrain_regenerate_region` 与候选工具已支持显式 `terrainLocal` 分支，目录只在对应 scene grant 存在时公开；工作台新增严格 v4 局部联动预览/采用/取消入口，采用沿用保护点、CAS、单调 revision、撤销和保存失败保全。
+- 新鲜定向验证：局部核心、工作区、AI、scenery 21/21；`npm run check:shared` 118 模块通过；类型检查通过。完整 Q4、最终视觉、P3、全量回归和正式性能仍留在 M2-E。
+- 已进入 T13：冻结代码/素材/算法并生成唯一 manifest/hash，随后只做与 T8–T13 变更对应的技术回归和关键生产冒烟；冻结后再移交 M2-E。
+
+# 2026-10-29 T13 冻结、技术回归与 M2-E 移交
+
+- 冻结 manifest 已生成并在正常构建后复算：`work/terrain-t13-freeze/manifest.json`，覆盖源码 181、测试 143、工具 14、源素材 71、构建素材 73、生产构建 85，共 572 个输入条目；唯一 `freezeSha256` 为 `2469417905a1fb5fc2c8eb600df8eb3fdf3c8ebc0d743fdf6e0e846bfae7ea6c`。指纹绑定每个冻结文件的路径、字节数与 SHA-256，manifest另记录生成时的 Git revision；`progress.md`、`task_plan.md`、`findings.md`、`todo.md`、`work/**` 和 `docs/**` 不参与运行时冻结指纹。
+- 新鲜技术回归：冻结相关 29 个 Vitest 文件、292 项通过；`npm run typecheck` 通过；`npm run check:shared` 通过（118 个无DOM共享模块）；`npm run build` 通过。构建仅保留既有 Zod 注释清理与大 chunk 提示。
+- 新鲜正常生产冒烟：`work/terrain-t13-production-smoke-final/result.json`，17/17 通过（约 35.9s）；取消保全、候选导出/采用、完整包保存/冷读字节一致、编译 Worker 路径与 hash、GM/player 4K PNG 均通过；页面、控制台、HTTP、资源请求和外网阻断错误均为 0。
+- T13 技术出口完成，移交 M2-E。完整 Q4 创作与局部修改、最终视觉回读、用户 P3、全量单元/AI/跨浏览器回归、UVTT 真实导入和正式性能仍未执行，不能由本批技术结果代签；后续修复须按影响范围复验，共用算法/素材/模型变化时重跑受影响任务组。
+
+- 用户授权继续T9，已读入口与T8新合同并冻结起点hash。沿用planning-with-files；算法/严格格式分工，主代理负责物化/候选/UI和最终一致性。
+- 首个agent跟进消息误为无效编码，已立即撤销并用明确只读任务替换，未据其执行改动；一次计划patch漏结束行未执行，现补正。
+
+# 2026-10-28 基础修复与T8
+
+- 最终基础AI7文件169/169，受控时钟收尾2文件10/10独立复验；T8四文件40/40及最终浏览器2/2（13.3秒）通过，108共享边界、前后端build和最终typecheck通过。初次测试动态导入类型错误修复后浏览器再跑通过，不新增模型请求。
+- 三类明确坐标样片6完整v3包/12张2048×1536 PNG、实际资源/包往返/保存冷读一致；18产物hash已清点。树石偏稀、纹理重复、崖带生硬留给T9–T11，P3/完整Q4未关闭。
+- 04/06冻结完整4有限结构与全scope副本/冷读/失败保全设计，未启用v4解析或迁移。路线/55和两个既有主题台账已同步，本轮停在T8。
+- 最终文档检查37份Markdown、1178本地链接/743锚点缺失0，git diff --check通过；30份起点脏文件只发生预期的engine/provider-types和定向测试变化，todo原SHA-256保持，18份包/PNG与清点hash一致。容量/样片/当前生成核心和尺寸面板hash一致，两次runner hash分开保留。
+
+- T8容量56/56通过。样片首轮脚本将同sceneId的neutral/effect revision0存同库，严格CAS正确拒绝第二次保存；改为两个独立样片库，不放宽保存守卫。尝试清理失败目录的命令被执行策略拒绝，命令整体未执行；保留失败目录，另建samples-final复跑。
+
+- 修正测试响应正文读取后，基础真实HTTP/SQLite/SSE与页面完整8/8同次通过（1.2分钟，0付费请求）；首轮6/8保留。不重新请求旧unknown。正在串行前后端类型/构建，之后进入T8实际样片和容量。
+
+- 基础浏览器首轮6通过/2失败；失败为暂停用例创建响应response.json的CDP正文不可取回，现按真实创建UI请求clientRequestId在同一服务权威store取snapshot，仍核对201及确切任务，不绕开产品HTTP/UI。待复验。
+
+- 按用户最新授权接续：先基础修复与定向验证，再T8。已冻结起点脏文件hash，保留全部既有改动与独立todo.md。
+- T8参考夹具已完成纯核心6/6检查：群岛三独立陆块、河谷阻挡水面、丘台真实坡道；首轮固定key/共边夹具失败已修，不放宽校验。浏览器工程/样图及容量尚未运行。
+- 基础调度先等待再冻结payload；代理已取得最小时间线24项通过，正在补实际runner接入及受影响检查。
+- 读取命令曾假设tsconfig.app.json/project/types.ts存在，已改按实际tsconfig.json/model/project.ts读取；无文件改动。
+- 分工：scheduler代理负责engine/provider调度及相关定向测试；contract代理仅负责04/06下一严格版本合同；主代理负责连接/页面复核、T8样片/容量/尺寸与最终一致性。
+
 # 2026-10-28 文档精简进展
 
 - 盘点完成：18份主题文档、37份旧报告；最终保留10份主文档、4份参考及6份历史台账（另有导航索引）。
@@ -932,3 +985,11 @@ Default polygon import/shared pure dependency allowlist fixed; complete typechec
 - 04/14/参考场景的固定表格与输入完整保留；09 的原97个QA编号全部保留，新增编号未覆盖旧编号。
 - 四处易误读的旧状态已明确标为历史准备合同或历史验收输入；当前实现和验收顺序分别以04/05/07/55为准。
 - 本轮未运行产品测试、构建、模型请求、部署或发布；`todo.md`哈希保持不变。
+
+## 2026-10-29 T9通用地貌组合开发完成
+
+- [complete] 完成严格完整v4/v5组合、稳定特征场、冻结阈值、真实分量/面积/通道要求、海面/浅滩/岸带/低地/台地物化、依赖与身份回执；森林覆盖保留高地和湖水真实支撑，通道检查实际墙/物件/区域/连接障碍，未知旧检查器不再凭旧回执通过。
+- [complete] 接入 Worker 主线程重放、取消/超时/迟到结果丢弃、采用/取消、资源校验、冷读与失败保全、v4 生命周期暂停、恢复新拓扑身份后的回执保护和完整预算计费。
+- [complete] 组合契约/字段/生命周期/要求/成本/客户端/事务定向验证、旧地形/迁移回归、类型、共享边界、生产构建和文档链接审计通过。
+- [complete] Chromium 串行 12/12（4类预设×3种子）通过，成本231–252/256；四类代表包导入/冷读哈希一致并导出GM/player 1024px PNG，证据在忽略目录 `work/terrain-t9-run3/`。
+- [pending] T10–T13、冻结后M2-E完整AI/视觉/P3/全量回归/正式性能仍未执行；本批不commit/push/deploy。

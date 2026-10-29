@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import type { ProjectData } from '../../shared/model/project.js'
 import { createEmptyGeneration, createEmptyIdentity2Fields, createEmptyRegional, type GenerationReference } from '../../shared/terrain-generation/contracts.js'
 import { terrainRecordChanges } from '../../shared/terrain-generation/review.js'
@@ -21,7 +22,7 @@ function reviewProject(): ProjectData {
   return project
 }
 function withGeneration(): ProjectData {
-  const project = reviewProject(), document = project.document, generation = document.generation!
+  const project = reviewProject(), document = project.document, generation = getLegacyGeneration(document)!
   const floorId = Object.keys(document.floors)[0], layerId = Object.keys(document.userLayers)[0]
   const common = { floorId, layerId, visibility: 'public' as const, editLocked: false }
   generation.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'terrain-scene', algorithmVersion: 1,
@@ -60,7 +61,7 @@ function withRegional(): ProjectData {
 
 describe('persisted terrain change review', () => {
   it('shows automatic management changes, invalidated checks and source updates without touched entity IDs', () => {
-    const before = withGeneration(), after = cloneJson(before), generation = after.document.generation!
+    const before = withGeneration(), after = cloneJson(before), generation = getLegacyGeneration(after.document)!
     generation.rules.rule.state = 'paused'
     generation.ownership.owner.managedFields = []; generation.ownership.owner.manualFields = ['geometry']; generation.ownership.owner.state = 'manual'
     generation.checks.check.state = 'unchecked'
@@ -79,7 +80,7 @@ describe('persisted terrain change review', () => {
   })
 
   it('includes recipe, intent and constraint additions and removals while omitting unchanged rows', () => {
-    const before = withGeneration(), after = cloneJson(before), generation = after.document.generation!
+    const before = withGeneration(), after = cloneJson(before), generation = getLegacyGeneration(after.document)!
     generation.recipes['new-recipe'] = { ...cloneJson(generation.recipes.recipe), id: 'new-recipe', seed: 'new-seed' }
     generation.intents.intent.preserveIds = ['land']
     delete generation.constraints.activity
@@ -87,7 +88,7 @@ describe('persisted terrain change review', () => {
     expect(changes.map(change => `${change.collection}/${change.id}`)).toEqual(['generation.recipes/new-recipe', 'generation.intents/intent', 'generation.constraints/activity'])
     expect(changes[0].before).toBeNull(); expect(changes[0].after).toEqual(generation.recipes['new-recipe'])
     expect(changes[1].fields).toEqual(['preserveIds'])
-    expect(changes[2].before).toEqual(before.document.generation!.constraints.activity); expect(changes[2].after).toBeNull()
+    expect(changes[2].before).toEqual(getLegacyGeneration(before.document)!.constraints.activity); expect(changes[2].after).toBeNull()
   })
 
   it('reviews regional geometry, symbol definitions and profile changes with precise addition/deletion states', () => {
@@ -133,7 +134,7 @@ describe('persisted terrain change review', () => {
   })
 
   it('does not confuse object insertion order with persisted terrain changes', () => {
-    const before = withGeneration(), after = cloneJson(before), generation = after.document.generation!
+    const before = withGeneration(), after = cloneJson(before), generation = getLegacyGeneration(after.document)!
     generation.rules.rule = Object.fromEntries(Object.entries(generation.rules.rule).reverse()) as typeof generation.rules.rule
     generation.rules.rule.parameters = Object.fromEntries(Object.entries(generation.rules.rule.parameters).reverse()) as typeof generation.rules.rule.parameters
     generation.sourceLinks.source.selectionMm = Object.fromEntries(Object.entries(generation.sourceLinks.source.selectionMm).reverse()) as typeof generation.sourceLinks.source.selectionMm

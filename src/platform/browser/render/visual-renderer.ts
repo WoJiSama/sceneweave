@@ -5,6 +5,7 @@ import { bandRings, intersectsVisualBounds, lightVisibilityPolygon, offsetPolyli
 import type { VisualSegment } from './visual-geometry'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
+import { terrainTransitionStrokePolygon } from '../../../shared/visual/transition.js'
 
 const TAU = Math.PI * 2
 const minMaxBounds = (points: PointMm[], padding = 0): BoundsMm => { const x = Math.min(...points.map(p => p.x)) - padding, y = Math.min(...points.map(p => p.y)) - padding; return { x, y, width: Math.max(...points.map(p => p.x)) + padding - x, height: Math.max(...points.map(p => p.y)) + padding - y } }
@@ -155,6 +156,9 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       }
       copyBuffer(ctx, buffer, 1, 'multiply')
     } finally { release(buffer.surface) }
+  }
+  for (const transition of visual.transitions ?? []) {
+    checkCancelled(signal); drawTerrainTransition(ctx, transition)
   }
   const looksById = new Map(visual.edgeLooks.map(look => [look.id, look]))
   const materializedById = new Map((visual.materializedEdges ?? []).map(edge => [edge.id, edge]))
@@ -340,6 +344,22 @@ export function drawVisualEntity(ctx: CanvasRenderingContext2D, projection: Proj
 }
 
 type ProjectedMaterializedEdge = NonNullable<NonNullable<Projection['visual']>['materializedEdges']>[number]
+type ProjectedTransition = NonNullable<NonNullable<Projection['visual']>['transitions']>[number]
+/** The native pass consumes the saved discrete geometry, never a second field. */
+export function drawTerrainTransition(ctx: CanvasRenderingContext2D, transition: ProjectedTransition): void {
+  if (!transition.enabled) return
+  ctx.save()
+  for (const polygon of transition.polygons) {
+    ctx.fillStyle = polygon.fillColor; ctx.globalAlpha = polygon.opacity
+    ctx.fill(ringsPath([polygon.pointsMm]))
+  }
+  for (const stroke of transition.strokes) {
+    ctx.fillStyle = stroke.color; ctx.globalAlpha = stroke.opacity
+    const ring = terrainTransitionStrokePolygon(stroke.pointsMm, stroke.widthMm)
+    if (ring.length) ctx.fill(ringsPath([ring]))
+  }
+  ctx.restore()
+}
 /** Native visual2 geometry; the shared surface pass owns its audience-filtered order. */
 function drawMaterializedEdge(ctx: CanvasRenderingContext2D, edge: ProjectedMaterializedEdge): void {
   ctx.save(); ctx.globalAlpha = edge.opacity; ctx.fillStyle = edge.fillColor

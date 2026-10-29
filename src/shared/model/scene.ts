@@ -1,4 +1,5 @@
 import type { GenerationSystem1, RegionalModel1, VisualSystem2 } from '../terrain-generation/contracts.js'
+import type { GenerationSystem5, VisualSystem3 } from '../terrain-generation/composition-contracts.js'
 import type { VisualSystem } from '../visual/types.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson } from '../validation/json.js'
@@ -124,7 +125,7 @@ export interface PathCheck {
 }
 /** Complete, independent persisted model. No legacy view is used by the native path. */
 export interface SceneDocument {
-  format: 'sceneweave-scene'; schemaVersion: 1 | 2 | 3; sceneId: Id; revision: number
+  format: 'sceneweave-scene'; schemaVersion: 1 | 2 | 3 | 4; sceneId: Id; revision: number
   title: string; createdAt: string; updatedAt: string
   units: { world: 'mm'; display: 'm' | 'ft'; gridSizeMm: number; snapMm: number; gridVisible: boolean }
   exportBoundsMm: BoundsMm
@@ -147,9 +148,9 @@ export interface SceneDocument {
   }
   /** New fields are required only by the strict scene-v3 parser. */
   mapMode?: 'scene' | 'regional'
-  generation?: GenerationSystem1
+  generation?: GenerationSystem1 | GenerationSystem5
   regional?: RegionalModel1 | null
-  visual?: VisualSystem | VisualSystem2<VisualSystem>
+  visual?: VisualSystem | VisualSystem2<VisualSystem> | VisualSystem3
   generationMetadata?: { generatorVersion: string; seed: string; summary?: string; adoptedAt: string }
 }
 export interface Issue { code: string; message: string; entityId?: Id }

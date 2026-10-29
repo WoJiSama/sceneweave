@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import type { PointMm, SceneDocument, TerrainArea } from '../model/scene.js'
 import { polygonBoolean } from '../geometry/polygon-boolean.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
@@ -32,7 +33,7 @@ export function terrainTopologyDependencies(scene: SceneDocument, areaIds: reado
   return rows.sort((a,b) => referenceKey(a).localeCompare(referenceKey(b)))
 }
 function assertWritable(scene: SceneDocument, entityId: string): void {
-  const row = scene.terrainAreas[entityId] ?? scene.props[entityId] ?? scene.rooms[entityId] ?? scene.paths[entityId] ?? scene.terrainConnections[entityId] ?? scene.notes[entityId] ?? scene.prefabInstances[entityId] ?? scene.scatterGroups[entityId] ?? scene.generation?.rules[entityId]
+  const row = scene.terrainAreas[entityId] ?? scene.props[entityId] ?? scene.rooms[entityId] ?? scene.paths[entityId] ?? scene.terrainConnections[entityId] ?? scene.notes[entityId] ?? scene.prefabInstances[entityId] ?? scene.scatterGroups[entityId] ?? getLegacyGeneration(scene)?.rules[entityId]
   const layerId = row && 'layerId' in row && typeof row.layerId === 'string' ? row.layerId : scene.entityLayers[entityId]
   if (!row || row.editLocked || scene.userLayers[layerId]?.editLocked) throw new Error(`拓扑影响对象或图层已锁定：${entityId}。`)
   if (scene.props[entityId]) for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) if (Object.values(group.members).some(member => member.propId === entityId)) {
@@ -78,7 +79,7 @@ export function applyTerrainTopology(scene: SceneDocument, rawRequest: TerrainTo
     if (!terrainPoints(area).every(contains)) throw new Error('拓扑替换的完整旧地形超出冻结范围。')
     if (area.visibility !== templateInput.visibility || area.groundElevationMm !== templateInput.groundElevationMm || area.blocksMovement !== templateInput.blocksMovement || area.blocksSight !== templateInput.blocksSight || area.movementCostMultiplier !== templateInput.movementCostMultiplier || area.coveragePriority !== templateInput.coveragePriority || !same(area.surfaceStyle, templateInput.surfaceStyle)) throw new Error('合并地形须有相同高程、物理属性、私密性、优先级和表面；请先明确对齐。')
     if (area.surfaceStyle?.overlays.length) throw new Error('拓扑输入有局部表面覆盖，请先明确处理覆盖范围。')
-    for (const owner of Object.values(scene.generation.ownership)) if (owner.target.entityId === area.id) assertWritable(scene, owner.ruleId)
+    for (const owner of Object.values(getLegacyGeneration(scene)!.ownership)) if (owner.target.entityId === area.id) assertWritable(scene, owner.ruleId)
   }
   if (Object.values(scene.terrainEdges).some(edge => request.areaIds.includes(edge.source.areaId) || request.areaIds.includes(edge.neighborAreaId ?? ''))) throw new Error('拓扑输入仍有边缘依赖，请先显式处理边缘。')
   if (scene.visual?.version === 2 && Object.values(scene.visual.base.boundaries).some(boundary => boundary.binding.kind === 'terrain' && boundary.binding.sides.some(side => request.areaIds.includes(side.areaId)))) throw new Error('拓扑输入仍有视觉曲线依赖，请先显式处理视觉绑定。')
@@ -103,7 +104,7 @@ export function applyTerrainTopology(scene: SceneDocument, rawRequest: TerrainTo
   }
   requireOutputRefs(scene, request, nextIds.length)
   rebind(scene, request, nextIds)
-  for (const owner of Object.values(scene.generation!.ownership)) if (owner.target.kind === 'terrainArea' && request.areaIds.includes(owner.target.entityId)) {
+  for (const owner of Object.values(getLegacyGeneration(scene)!.ownership)) if (owner.target.kind === 'terrainArea' && request.areaIds.includes(owner.target.entityId)) {
     owner.state = 'deleted'; owner.managedFields = []
   }
   for (const id of request.areaIds) { delete scene.terrainAreas[id]; delete scene.entityLayers[id] }

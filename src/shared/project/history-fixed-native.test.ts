@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import type { ProjectData } from '../model/project.js'
@@ -61,14 +62,14 @@ describe('fixed native-v3 definitions retain exact historical meaning', () => {
   })
   it('keeps generation recipes immutable while ordinary intent records remain editable', () => {
     const source = fixture()
-    source.document.generation!.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'terrain-scene', algorithmVersion: 1,
+    getLegacyGeneration(source.document)!.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'terrain-scene', algorithmVersion: 1,
       mapMode: 'scene', seed: 'fixed-seed', parameters: { terrainKind: 'island', seaElevationMm: 0, landElevationMm: 800,
         plateauElevationMm: 2000, roughness: .2, densityFactor: .2, baySide: 'south' }, materials: [], props: [],
       precision: { sampleSpacingMm: 1000, toleranceMm: 20, noiseCellMm: 4000 } }
-    const changed = cloneJson(source); changed.document.generation!.recipes.recipe.seed = 'different-seed'
+    const changed = cloneJson(source); getLegacyGeneration(changed.document)!.recipes.recipe.seed = 'different-seed'
     expect(() => assertFixedProjectCompatible(source, changed)).toThrow(/固定来源/)
-    changed.document.generation!.recipes.recipe = cloneJson(source.document.generation!.recipes.recipe)
-    changed.document.generation!.intents.intent = { id: 'intent', floorId: 'blank-floor', visibility: 'public', boundsMm: cloneJson(source.document.exportBoundsMm), skeleton: [], constraintIds: [], preserveIds: [] }
+    getLegacyGeneration(changed.document)!.recipes.recipe = cloneJson(getLegacyGeneration(source.document)!.recipes.recipe)
+    getLegacyGeneration(changed.document)!.intents.intent = { id: 'intent', floorId: 'blank-floor', visibility: 'public', boundsMm: cloneJson(source.document.exportBoundsMm), skeleton: [], constraintIds: [], preserveIds: [] }
     expect(() => assertFixedProjectCompatible(source, changed)).not.toThrow()
   })
 })

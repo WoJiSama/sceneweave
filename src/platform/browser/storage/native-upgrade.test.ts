@@ -6,6 +6,7 @@ import { layerSceneV3 } from '../../../core/v3/test-fixtures.js'
 import { imageProject } from '../../../io/v3/test-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import { createHistoryIdentity } from '../../../shared/history/identity.js'
+import { normalizeStaticSvg } from '../../../shared/ai/svg.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
@@ -29,6 +30,9 @@ const validation: CompleteValidationOptions = { images: {
   async decode(_bytes, record) { decodeTransactions.push(Dexie.currentTransaction); return { width: record.pixelWidth, height: record.pixelHeight,
     rgba: new Uint8ClampedArray(record.pixelWidth * record.pixelHeight * 4) } },
   async transform(image) { return image }, async encodePng() { throw new Error('Storage must not encode') },
+} }
+const svgValidation: CompleteValidationOptions = { ...validation, svg: {
+  async rasterize(_source, dimensions) { return { ...dimensions, rgba: new Uint8ClampedArray(dimensions.width * dimensions.height * 4) } },
 } }
 function repository(name = `terrain-storage-${crypto.randomUUID()}`, options = validation): ProjectRepository {
   names.add(name)
@@ -56,6 +60,35 @@ function target(source: ProjectBundle): ProjectBundle {
   project.appearance = { ...project.appearance, version: 2, presentations: Object.fromEntries(Object.values(project.appearance.sources)
     .filter(source => source.kind === 'prop').map(source => [source.id, { mode: 'topDown' as const, rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround' as const, groundShadowMm: null }])) }
   return { project, resources: source.resources }
+}
+function compositionTarget(source: ProjectBundle): ProjectBundle {
+  const project = cloneJson(source.project), document = project.document
+  if (project.schemaVersion !== 3 || !document.generation || document.generation.version === 5 || document.visual?.version !== 2) throw new Error('Test requires a complete-v3 source')
+  project.schemaVersion = 4; document.schemaVersion = 4
+  document.sceneId = `composition-target-${++sequence}`; document.revision = 0
+  document.generation = { version: 5, legacy: document.generation, features: {}, compositions: {}, requirements: {}, checks: {}, thresholds: {}, dependencies: {} }
+  document.visual = { version: 3, base: document.visual, transitions: {} }
+  project.historyIdentity = { ...project.historyIdentity, version: 3, lineageId: runtime.ids.nextId(), rootSceneId: document.sceneId, terrainTokens: {} }
+  return { project, resources: source.resources }
+}
+function identityTombstones(source: ProjectBundle): ProjectBundle {
+  const project = cloneJson(source.project), identity = project.historyIdentity
+  identity.propTokens['deleted-prop'] = runtime.ids.nextId(); identity.prefabTokens['deleted-prefab'] = runtime.ids.nextId()
+  identity.outdoorTokens['deleted-area'] = { kind: 'terrainArea', token: runtime.ids.nextId(), topologyToken: runtime.ids.nextId(), topologyHash: 'a'.repeat(64) }
+  const token = (kind: 'generationRule' | 'regionalPoint' | 'materializedStroke') => ({ kind, token: runtime.ids.nextId(), topologyToken: runtime.ids.nextId(), topologyHash: 'b'.repeat(64) })
+  identity.generationTokens!['deleted-rule'] = token('generationRule')
+  identity.regionalTokens!['deleted-point'] = token('regionalPoint')
+  identity.presentationTokens!['deleted-stroke'] = token('materializedStroke')
+  return { project, resources: source.resources }
+}
+async function svgImageFixture(): Promise<ProjectBundle> {
+  const bundle = await imageFixture(), normalized = normalizeStaticSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect x="0" y="0" width="1" height="1" fill="#ffffff"/></svg>')
+  const resources = new Map(await Promise.all(Object.keys(bundle.project.assets).map(async hash => [hash, await bundle.resources.read(hash)] as const)))
+  resources.set(normalized.sourceSha256, encodeUtf8(normalized.sourceSvg)); resources.set(normalized.normalizedSha256, encodeUtf8(normalized.normalizedSource))
+  bundle.project.authoringSources['test-image'] = { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256,
+    sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: bundle.project.document.assets['test-image'].sha256,
+    processorId: 'sceneweave-static-svg', processorVersion: 1 }
+  return { project: bundle.project, resources: createMemoryResources(resources) }
 }
 function revision(source: ProjectBundle, value: number): ProjectBundle {
   const project = cloneJson(source.project); project.document.revision = value; project.document.title = `Source revision ${value}`
@@ -181,6 +214,48 @@ describe('explicit native database schema2 and complete original-family preserva
     await repo.save(upgraded, null)
     expect((await repo.load(upgraded.project.document.sceneId))!.project).toEqual(upgraded.project)
   })
+  it('preserves the strict v3 family, every identity pool and exact SVG/PNG/license bytes through v4 and its v2 ancestor', async () => {
+    const repo = repository(undefined, svgValidation), older = await svgImageFixture(), initial = target(older)
+    await repo.save(older, null); await repo.preserveNativeUpgrade(older, initial)
+    const prior = (await repo.exportNativeUpgradeCapsule(initial.project.document.sceneId)).capsule
+    const { source, owner, originalHash } = await seedAllScopes(repo, identityTombstones(initial)), upgraded = compositionTarget(source)
+    const before = await sourceRows(repo)
+    await repo.preserveNativeUpgrade(source, upgraded)
+    expect(await sourceRows(repo)).toEqual(before); expect(await repo.load(upgraded.project.document.sceneId)).toBeNull()
+    const cold = repository(repo.database.name, svgValidation), transfer = await cold.exportNativeUpgradeCapsule(upgraded.project.document.sceneId)
+    expect(transfer.capsule.family.current.project).toEqual(source.project)
+    expect(transfer.capsule.family.automatic.map(row => row.revision)).toEqual([0, 1])
+    expect(transfer.capsule.family.snapshots.map(row => row.kind).sort()).toEqual(['named', 'protection'])
+    expect(transfer.capsule.family.importedSnapshots.map(row => row.id)).toEqual(['all-imported'])
+    expect(transfer.capsule.family.bindings).toHaveLength(6)
+    expect(transfer.capsule.family.metadata.metadataVersion).toBe(2)
+    expect(transfer.capsule.family.conversionJobs.map(row => row.jobId)).toEqual(['original-conversion-journal'])
+    expect(transfer.legacyBlobs.map(row => row.sha256)).toEqual([originalHash])
+    expect(transfer.capsule.parentCapsuleIds).toEqual([prior.capsuleId]); expect(transfer.ancestors).toEqual([prior])
+    expect(upgraded.project.document.revision).toBe(0)
+    expect(upgraded.project.historyIdentity.lineageId).not.toBe(source.project.historyIdentity.lineageId)
+    expect(upgraded.project.historyIdentity.rootSceneId).toBe(upgraded.project.document.sceneId)
+    for (const field of ['propTokens', 'prefabTokens', 'outdoorTokens', 'generationTokens', 'regionalTokens', 'presentationTokens'] as const) {
+      expect(Object.keys(source.project.historyIdentity[field]!)).not.toHaveLength(0)
+      expect(upgraded.project.historyIdentity[field]).toEqual(source.project.historyIdentity[field])
+    }
+    expect(upgraded.project.historyIdentity.terrainTokens).toEqual({})
+    for (const row of transfer.resources) expect(row.bytes).toEqual(await older.resources.read(row.sha256))
+    expect(transfer.licenses).toEqual(Object.values(older.project.licenses))
+    expect((await cold.listNativeUpgradeSummaries(upgraded.project.document.sceneId))[0]).toMatchObject({ sourceSchemaVersion: 3,
+      sourceSceneId: owner, sourceRevision: 1, automaticCount: 2, namedCount: 1, protectionCount: 1, importedCount: 1, parentCapsuleCount: 1 })
+    const imported = repository(undefined, svgValidation)
+    await imported.importNativeUpgradeFile(await cold.exportNativeUpgradeFile(upgraded.project.document.sceneId))
+    expect(await imported.list()).toEqual([])
+    expect(await repository(imported.database.name, svgValidation).exportNativeUpgradeCapsule(upgraded.project.document.sceneId)).toEqual(transfer)
+    expect((await imported.exportNativeUpgradeCapsule(owner)).capsule).toEqual(prior)
+    await repo.preserveNativeUpgrade(source, upgraded)
+    expect(await repo.database.nativeUpgradeCapsules.count()).toBe(2)
+    await repo.save(upgraded, null)
+    expect((await repository(repo.database.name, svgValidation).load(upgraded.project.document.sceneId))!.project).toEqual(upgraded.project)
+    expect((await repo.load(owner))!.project).toEqual(source.project)
+    expect(decodeTransactions.every(value => !value)).toBe(true)
+  })
   it('exports/imports exact all-scope original families without installing source or target projects', async () => {
     const sourceRepo = repository(), { source, owner } = await seedAllScopes(sourceRepo, await imageFixture()), upgraded = target(source)
     await sourceRepo.preserveNativeUpgrade(source, upgraded)
@@ -299,8 +374,8 @@ describe('explicit native database schema2 and complete original-family preserva
     expect((await fresh.exportNativeUpgradeCapsule(source.project.document.sceneId)).capsule).toEqual(prior)
     expect(await fresh.list()).toEqual([])
   })
-  it('preserves all 105 current/history records beyond the selective archive batch of 85', async () => {
-    const repo = repository(), source = revision(fixture(), 19), owner = source.project.document.sceneId
+  it.each([2, 3] as const)('preserves all 105 complete-v%s current/history records beyond the selective archive batch of 85', async version => {
+    const repo = repository(), source = revision(version === 2 ? fixture() : target(fixture()), 19), owner = source.project.document.sceneId
     await repo.save(source, null)
     const baseBinding = (await repo.database.resourceBindings.get([owner, 'current', 'current']))!
     for (let i = 0; i < 19; i++) {
@@ -314,7 +389,7 @@ describe('explicit native database schema2 and complete original-family preserva
       await (kind === 'imported-auto' ? repo.database.importedSnapshots : repo.database.snapshots).add(row)
       await repo.database.resourceBindings.add({ ...baseBinding, kind, recordId: id })
     }
-    const upgraded = target(source); await repo.preserveNativeUpgrade(source, upgraded)
+    const upgraded = version === 2 ? target(source) : compositionTarget(source); await repo.preserveNativeUpgrade(source, upgraded)
     const { family } = (await repo.exportNativeUpgradeCapsule(upgraded.project.document.sceneId)).capsule
     expect(1 + family.automatic.length + family.snapshots.length + family.importedSnapshots.length).toBe(105)
     expect(family.bindings).toHaveLength(105)
@@ -361,6 +436,65 @@ describe('explicit native database schema2 and complete original-family preserva
     await expect(validating.preserveNativeUpgrade(source, upgraded)).rejects.toThrow(/已变化/)
     expect(await repo.database.nativeUpgradeCapsules.count()).toBe(0)
     expect(await repo.load(upgraded.project.document.sceneId)).toBeNull()
+  })
+  it.each(['propTokens', 'prefabTokens', 'outdoorTokens', 'generationTokens', 'regionalTokens', 'presentationTokens'] as const)('rejects a v4 copy that reallocates the existing %s pool', async field => {
+    const repo = repository(), source = identityTombstones(target(fixture())), upgraded = compositionTarget(source)
+    await repo.save(source, null)
+    if (field === 'propTokens' || field === 'prefabTokens') {
+      const pool = upgraded.project.historyIdentity[field], id = Object.keys(pool)[0]
+      pool[id] = runtime.ids.nextId()
+    } else {
+      const pool = upgraded.project.historyIdentity[field]!, id = Object.keys(pool)[0]
+      pool[id].token = runtime.ids.nextId()
+    }
+    const before = await sourceRows(repo)
+    await expect(repo.preserveNativeUpgrade(source, upgraded)).rejects.toThrow(/逐字段保留原身份池/)
+    expect(await sourceRows(repo)).toEqual(before); expect(await repo.database.nativeUpgradeCapsules.count()).toBe(0)
+  })
+  it('rejects v4 copies that silently edit native content or populate newly introduced identity records', async () => {
+    const repo = repository(), source = target(fixture()), upgraded = compositionTarget(source)
+    await repo.save(source, null)
+    const edited = { project: cloneJson(upgraded.project), resources: upgraded.resources }
+    edited.project.document.props.item.positionMm.x += 10
+    await expect(repo.preserveNativeUpgrade(source, edited)).rejects.toThrow(/完整保留原场景/)
+    const invented = { project: cloneJson(upgraded.project), resources: upgraded.resources }
+    invented.project.historyIdentity.terrainTokens = { 'invented-feature': { kind: 'terrainFeature', token: runtime.ids.nextId(), topologyToken: runtime.ids.nextId(), topologyHash: 'c'.repeat(64) } }
+    await expect(repo.preserveNativeUpgrade(source, invented)).rejects.toThrow(/不得在迁移时创建新地形身份/)
+    expect(await repo.database.nativeUpgradeCapsules.count()).toBe(0)
+    expect((await repo.load(source.project.document.sceneId))!.project).toEqual(source.project)
+  })
+  it.each(['metadata', 'current'] as const)('compares the entire v3 family after concurrent %s changes before publishing v4 originals', async kind => {
+    const repo = repository(), { source, owner } = await seedAllScopes(repo, target(await imageFixture())), upgraded = compositionTarget(source)
+    let decodes = 0
+    const validating = repository(repo.database.name, { images: { ...validation.images, async decode(bytes, record, options) {
+      if (++decodes === 3) {
+        if (kind === 'metadata') await repo.renameSnapshot(owner, 'all-named', 'concurrent metadata', projectContentHash(source.project), 2)
+        else await repo.save(revision(source, 2), 1)
+      }
+      return validation.images.decode(bytes, record, options)
+    } } })
+    await expect(validating.preserveNativeUpgrade(source, upgraded)).rejects.toThrow(/已变化/)
+    expect(await repo.database.nativeUpgradeCapsules.count()).toBe(0); expect(await repo.load(upgraded.project.document.sceneId)).toBeNull()
+    expect((await repo.load(owner))!.project.document.revision).toBe(kind === 'current' ? 2 : 1)
+  })
+  it('keeps the v3 family unchanged when cancelled during verification or when the published archive cold read fails', async () => {
+    const repo = repository(), { source } = await seedAllScopes(repo, target(await imageFixture())), upgraded = compositionTarget(source)
+    const before = await sourceRows(repo), signal = { aborted: false }
+    let decodes = 0
+    const cancelling = repository(repo.database.name, { images: { ...validation.images, async decode(bytes, record, options) {
+      if (++decodes === 3) signal.aborted = true
+      return validation.images.decode(bytes, record, options)
+    } } })
+    await expect(cancelling.preserveNativeUpgrade(source, upgraded, { signal })).rejects.toThrow(/取消/)
+    expect(await repo.database.nativeUpgradeCapsules.count()).toBe(0); expect(await sourceRows(repo)).toEqual(before)
+    const failingColdRead = repository(repo.database.name, { images: { ...validation.images, async decode(bytes, record, options) {
+      if (await repo.database.nativeUpgradeCapsules.count()) throw new Error('cold image verification failed')
+      return validation.images.decode(bytes, record, options)
+    } } })
+    await expect(failingColdRead.preserveNativeUpgrade(source, upgraded)).rejects.toThrow(/cold image verification failed/)
+    expect(await repo.database.nativeUpgradeCapsules.count()).toBe(1)
+    expect(await sourceRows(repo)).toEqual(before); expect(await repo.load(upgraded.project.document.sceneId)).toBeNull()
+    expect((await repo.exportNativeUpgradeCapsule(upgraded.project.document.sceneId)).capsule.family.current.project).toEqual(source.project)
   })
   it('requires a saved source, complete-v3 fresh target identity, independent lineage and revision0', async () => {
     const repo = repository(), source = fixture(), upgraded = target(source)

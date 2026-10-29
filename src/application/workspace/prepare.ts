@@ -1,4 +1,6 @@
 import { detachChangedOutputs } from '../../shared/terrain-generation/integrity.js'
+import { pauseChangedCompositionAppearance, pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
+import { detachChangedAppearance } from '../../shared/terrain-generation/appearance-lifecycle.js'
 import { assertTerrainBudget } from '../../shared/terrain-generation/cost.js'
 import { applyCompositionDraftCommands } from '../../shared/appearance/commands.js'
 import { listRequiredVariants, resolveAppearance, syncAppearanceGraph } from '../../shared/appearance/graph.js'
@@ -68,13 +70,22 @@ export async function materializeProject(input: EditableProject, options: Prepar
   const checked = validation(options)
   checkCancelled(checked.signal)
   const baseline = getVerifiedEditableProject(options.baseline ?? input)
-  const captured = captureEditableInput(input)
+  let captured = captureEditableInput(input)
+  if (baseline?.document.schemaVersion === 4 && captured.document.schemaVersion === 4) {
+    // Reconcile manual drafts before strict active-receipt validation. Own the
+    // JSON branches first; neither caller data nor the baseline is repairable.
+    const owned = captureJson({ document: captured.document, appearance: captured.appearance })
+    const draft = { ...owned, historyIdentity: captured.historyIdentity }
+    const changed = detachChangedAppearance(contentOf(baseline), draft)
+      + pauseChangedCompositionAppearance(contentOf(baseline), draft)
+    if (changed) captured = { ...captured, document: draft.document }
+  }
   // Ordinary geometry edits already carry a resolved composition. The strict
   // derivation validates that fact and the exact unchanged resource closure;
   // unresolved adjustments or new resource branches continue to materialize.
   if (baseline) {
     const derived = tryDeriveEditableProject(captured, baseline, checked)
-    if (derived) { if (baseline.document.schemaVersion === 3) assertTerrainBudget(baseline.document, derived.document); return derived }
+    if (derived) { if (baseline.document.schemaVersion >= 3) assertTerrainBudget(baseline.document, derived.document, { before: baseline, after: derived }); return derived }
   }
   const project = captureEditableDraft(captured)
   const inputResources = captured.resources
@@ -103,9 +114,13 @@ export async function materializeProject(input: EditableProject, options: Prepar
     draftBudgets(project)
   }
   const resolved=resolveAppearance(contentOf(project))
-  if(project.document.schemaVersion===3) detachChangedOutputs(project.document,resolved.document)
+  if(project.document.schemaVersion>=3) {
+    detachChangedOutputs(project.document,resolved.document)
+    pauseChangedCompositions(project.document,resolved.document)
+    pauseChangedCompositionAppearance(contentOf(project),resolved)
+  }
   Object.assign(project, certifyCompositionContent(resolved))
-  if(baseline && project.document.schemaVersion===3) assertTerrainBudget(baseline.document,project.document)
+  if(baseline && project.document.schemaVersion>=3) assertTerrainBudget(baseline.document,project.document,{before:baseline,after:project})
   inheritMissingBindings(project)
   project.resources = Object.freeze({ read: async (hash: string) => added.get(hash)?.slice() ?? originalResources.read(hash) })
   // A composition-only edit on an already certified project cannot change the

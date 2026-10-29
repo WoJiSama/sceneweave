@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
@@ -17,7 +18,7 @@ function scene(version: 1 | 2 | 3 = 3): SceneDocument {
   return version === 3 ? emptyTerrainDocument(source) : source
 }
 function managedScene(): SceneDocument {
-  const source = scene(), generation = source.generation!, floorId = source.props.item.floorId, layerId = source.entityLayers.item
+  const source = scene(), generation = getLegacyGeneration(source)!, floorId = source.props.item.floorId, layerId = source.entityLayers.item
   generation.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'budget-test', algorithmVersion: 1, mapMode: 'scene', seed: 'budget',
     parameters: { terrainKind: 'island', seaElevationMm: 0, landElevationMm: 800, plateauElevationMm: 2600, roughness: 0, densityFactor: 0, baySide: 'north' },
     materials: [], props: [], precision: { sampleSpacingMm: 1000, toleranceMm: 50, noiseCellMm: 2000 } }
@@ -66,7 +67,7 @@ describe('native-v3 cumulative actual command budget', () => {
     const actual = terrainCommandCost(source, locked).total
     // Physical prop + owner record + rule record + its output reference.
     expect(actual).toBe(4)
-    expect(locked.generation!.ownership.owner).toMatchObject({ state: 'manual', manualFields: ['properties'] })
+    expect(getLegacyGeneration(locked)!.ownership.owner).toMatchObject({ state: 'manual', manualFields: ['properties'] })
     const accepted = Array.from({ length: 256 - actual }, () => lock(false))
     expect(applyCommands(source, [...accepted, lock(true)], runtime()).props.item.editLocked).toBe(true)
     expect(() => applyCommands(source, [...accepted, lock(false), lock(true)], runtime())).toThrow(/256/)
@@ -77,7 +78,7 @@ describe('native-v3 cumulative actual command budget', () => {
     const source = managedScene(), accepted = Array.from({ length: 251 }, () => lock(false)), observed: boolean[] = []
     const next = applyCommands(source, [...accepted, lock(true), lock(false)], runtime(), { onSceneDraft: draft => { observed.push(draft.props.item.editLocked) } })
     expect(next.props.item.editLocked).toBe(false)
-    expect(next.generation!.ownership.owner.state).toBe('manual')
+    expect(getLegacyGeneration(next)!.ownership.owner.state).toBe('manual')
     expect(observed).toHaveLength(253); expect(observed.slice(-2)).toEqual([true, false])
     expect(() => applyCommands(source, [...accepted, lock(false), lock(true), lock(false)], runtime())).toThrow(/256/)
   })

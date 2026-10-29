@@ -2,12 +2,14 @@ import { z } from 'zod'
 import { terrainGenerationInputSchema } from '../terrain-generation/generate.js'
 import { terrainEditRequestSchema } from '../terrain-generation/edit.js'
 import { regionalAuthoringRequestSchema, regionalEditRequestSchema, regionalDrillDownRequestSchema } from '../terrain-generation/regional-authoring.js'
+import { terrainLocalRefreshRequestSchema } from '../terrain-generation/local.js'
 
-export const TERRAIN_AUTHORING_KINDS = ['terrainGenerate', 'terrainEdit', 'regionalGenerate', 'regionalEdit'] as const
+export const TERRAIN_AUTHORING_KINDS = ['terrainGenerate', 'terrainEdit', 'terrainLocal', 'regionalGenerate', 'regionalEdit'] as const
 /** These recipes carry complete strict inputs, never server-supplied replacement documents. */
 export const TerrainAuthoringOperationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('terrainGenerate'), request: terrainGenerationInputSchema }).strict(),
   z.object({ kind: z.literal('terrainEdit'), request: terrainEditRequestSchema }).strict(),
+  z.object({ kind: z.literal('terrainLocal'), request: terrainLocalRefreshRequestSchema }).strict(),
   z.object({ kind: z.literal('regionalGenerate'), request: regionalAuthoringRequestSchema }).strict(),
   z.object({ kind: z.literal('regionalEdit'), request: regionalEditRequestSchema }).strict(),
 ])

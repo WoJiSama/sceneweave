@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { visualBase } from '../visual/base.js'
 import { z } from 'zod'
 import { inspectJsonInput, cloneJson } from '../validation/json.js'
@@ -53,11 +54,11 @@ export function generationRestoreChanges(beforeDocument: SceneDocument, afterDoc
   if (beforeDocument.schemaVersion !== 3 || afterDocument.schemaVersion !== 3) return []
   const changes: RestoreChange[] = []
   for (const collection of ['ownership', 'rules', 'checks', 'exclusions'] as const) {
-    const before = beforeDocument.generation![collection], after = afterDocument.generation![collection]
+    const before = getLegacyGeneration(beforeDocument)![collection], after = getLegacyGeneration(afterDocument)![collection]
     for (const id of new Set([...Object.keys(before), ...Object.keys(after)])) {
       const previous = before[id], next = after[id]
       if (equal(previous, next)) continue
-      const layerId = next && 'layerId' in next ? next.layerId : afterDocument.generation!.rules[
+      const layerId = next && 'layerId' in next ? next.layerId : getLegacyGeneration(afterDocument)!.rules[
         next && 'ruleId' in next ? next.ruleId : previous && 'ruleId' in previous ? previous.ruleId : ''
       ]?.layerId ?? ''
       changes.push({ id, kind: 'generation', name: `生成${collection} · ${id}`, action: previous ? next ? 'update' : 'delete' : 'recreate',

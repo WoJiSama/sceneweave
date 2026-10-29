@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
@@ -23,7 +24,7 @@ describe('T0 independent 10x8km regional budget witness', () => {
     expect(cost.items['regional.areas']).toBe(Object.values(document.regional!.areas).reduce((sum, area) => sum + 1 + area.boundaryMm.length * 2, 0))
     expect(cost.items['regional.lines']).toBe(Object.values(document.regional!.lines).reduce((sum, line) => sum + 1 + line.pointsMm.length * 2 - 1, 0))
     expect(cost.items['generation.ownership']).toBe(6)
-    expect(Object.values(document.generation!.rules)[0].state).toBe('paused')
+    expect(Object.values(getLegacyGeneration(document)!.rules)[0].state).toBe('paused')
     expect(document.regional!.lines['regional-vector-road'].actualWidthMm).toBeNull()
   })
   it('keeps exact metadata/resources and is deterministic after a strict JSON cold read', () => {

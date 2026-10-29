@@ -10,7 +10,7 @@ import { exportProject } from '../../shared/project/file'
 import { validation } from '../../platform/browser/runtime'
 import { AiClient, safeAiError } from '../../platform/browser/ai/client'
 import { AUTHORING_LIMITS, type AuthoringScope, type DraftClaim } from '../../shared/ai/authoring-protocol'
-import { AI_LIMITS, isTerminalTask, utf8Size, type CreateTaskRequest, type TaskSnapshot } from '../../shared/ai/protocol'
+import { AI_LIMITS, isTerminalTask, utf8Size, type CreateTaskRequest, type ReasoningEffort, type TaskSnapshot } from '../../shared/ai/protocol'
 import { AuthoringBriefSchema, type AuthoringBrief, type AuthoringEvidenceCheck } from '../../shared/ai/plan'
 import { renderPublicVision } from '../../platform/browser/ai/public-vision'
 import { createRefinedBlankProject } from '../../platform/browser/content/refined-blank'
@@ -31,7 +31,7 @@ export interface AiAuthoringHost {
   onAdopted: () => void
   onCritical: (busy: boolean) => void
 }
-interface Props { client: AiClient | null; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; visionEnabled?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
+interface Props { client: AiClient | null; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; reasoningEffort?: ReasoningEffort; visionEnabled?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
 const message = (error: unknown) => error instanceof Error && error.name !== 'AiClientError' ? error.message : safeAiError(error)
 const stamp = (candidate: AtomicCandidate) => ({ expectedGeneration: candidate.generation, draftRevision: candidate.draftRevision, contentHash: candidate.contentHash })
 const stop = (task: TaskSnapshot | null) => !task || isTerminalTask(task.status)
@@ -47,7 +47,7 @@ const requirementLabel = { pending: '待完成', claimed: 'AI 已标记，待人
 
 
 /** Server metadata is untrusted: replay against the exact local grant and owned image bytes. */
-export default function AiAuthoringPane({ client, task, host, disabled, visionEnabled = false, onTask }: Props) {
+export default function AiAuthoringPane({ client, task, host, disabled, reasoningEffort, visionEnabled = false, onTask }: Props) {
   const [extended, setExtended] = useState(initialExtendedScope)
   const [recipe, setRecipe] = useState<AuthoringBrief['recipe']>('custom'), [requirements, setRequirements] = useState('')
   const [checks, setChecks] = useState<AuthoringEvidenceCheck[]>([])
@@ -143,7 +143,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, visionEn
         const brief = items.length ? AuthoringBriefSchema.parse({ recipe, requirements: items, ...(checks.length ? { checks } : {}), ...(useStyle ? { style: { palette: palette.split(',').map(value => value.trim()), lineWeightMm: lineWeight, textureScaleMm: textureScale, detailDensity: density, lightDirectionDeg: lightDirection } } : {}) }) : undefined
         if ((useStyle || checks.length) && !items.length) throw new Error('使用风格参数或可核对目标时，请填写至少一项制作要求。')
         const grant = await local.workspace.authorizeAtomic(scope, brief); grants.current.clear(); grants.current.set(grant.start.seed, grant)
-        payload = { schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: { sceneId: grant.currentSceneId, revision: grant.currentRevision, audience: 'public' }, authoring: grant.start }
+        payload = { schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: { sceneId: grant.currentSceneId, revision: grant.currentRevision, audience: 'public' }, authoring: grant.start, ...(reasoningEffort ? { reasoningEffort } : {}) }
         if (sendVision) {
           if (!visionEnabled) throw new Error('当前渠道尚未启用图片输入，可继续使用结构诊断。')
           if (!scope.visual && !scope.scene && !scope.artwork && !scope.placement) throw new Error('发送截图前，请在视觉、场景、素材或放置工具中明确授权矩形范围。')

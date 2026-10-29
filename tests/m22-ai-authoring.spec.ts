@@ -18,6 +18,7 @@ import type { TaskSnapshot } from '../src/shared/ai/protocol'
 // deterministic and in-process; this never loads .env.ai or makes paid calls.
 let backendUrl: string, token: string, directory: string, store: TaskStore, engine: TaskEngine
 let server: ReturnType<typeof serve>, modelRequests = 0
+const reasoningInputs: (string | null | undefined)[] = []
 const tool = (id: string, name: string, input: unknown): ProviderToolCall => ({ id, name, arguments: JSON.stringify(input) })
 const completion = (calls: ProviderToolCall[] = [], text = ''): ProviderCompletion => ({ text, toolCalls: calls,
   finishReason: calls.length ? 'tool_calls' : 'stop', usage: { inputTokens: 12, outputTokens: 9 }, requestId: 'm22-browser-fake-model' })
@@ -32,7 +33,7 @@ test.beforeAll(async () => {
     SCENEWEAVE_AI_ACCESS_TOKEN: token, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1',
     SCENEWEAVE_AI_PROVIDER_API_KEY: 'not-a-real-key-no-network-provider', SCENEWEAVE_AI_PROVIDER_MODEL: 'deterministic-authoring-test' })
   const provider: ProviderAdapter = { async complete(input) {
-    modelRequests++
+    modelRequests++; reasoningInputs.push(input.reasoningEffort)
     if (!result(input, 'read-summary')) return completion([
       tool('read-summary', 'sceneweave_read_scene', { section: 'summary' }),
       tool('find-lamp', 'sceneweave_find_assets', { query: '铜色桌灯', limit: 5 }),
@@ -135,9 +136,15 @@ test('M2-2 authorized tools make an isolated draft, then protected one-transacti
   const errors: string[] = [], creates: unknown[] = []; page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => { if (request.url() === backendUrl + '/v1/tasks' && request.method() === 'POST') creates.push(request.postDataJSON()) })
   await createBlank(page, 'M2-2 真实浏览器草稿采用')
-  const before = await state(page), initial = modelRequests, panel = await connect(page), authoring = await createDraft(page, panel)
+  const before = await state(page), initial = modelRequests, panel = await connect(page)
+  await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('max')
+  const authoring = await createDraft(page, panel)
   expect(await state(page)).toEqual(before); expect(await snapshots(page)).toEqual([])
   expect(modelRequests - initial).toBe(5); expect(creates).toHaveLength(1)
+  expect(creates[0]).toMatchObject({ reasoningEffort: 'max' })
+  expect(reasoningInputs.slice(initial)).toEqual(Array(5).fill('max'))
+  await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('high')
+  await expect(panel.getByLabel('当前任务思考程度', { exact: true })).toContainText('最高 · max')
   const posted = creates[0] as { authoring: { scope: { placement: { definitionIds: string[] } }; project: { assets: unknown } } }
   expect(posted.authoring.scope.placement.definitionIds).toHaveLength(1)
   expect(JSON.stringify(creates[0])).not.toContain('"resources"')
@@ -201,9 +208,17 @@ test('M2-2 explicit pause and supplementary resume preserve earlier draft steps 
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await createBlank(page, 'M2-2 暂停续批')
   const before = await state(page), initial = modelRequests, panel = await connect(page)
-  const creation = page.waitForResponse(response => response.url() === backendUrl + '/v1/tasks' && response.request().method() === 'POST')
+  const creation = page.waitForResponse(response => response.url() === backendUrl + '/v1/tasks' && response.request().method() === 'POST').then(response => {
+    expect(response.status()).toBe(201)
+    const requestId = (response.request().postDataJSON() as { clientRequestId: string }).clientRequestId
+    // Inspect the authoritative task created by this exact UI request. Chromium
+    // may discard this response body while the subsequent SSE stream is open.
+    const created = store.list('maintainer').find(task => task.clientRequestId === requestId)
+    expect(created).toBeDefined()
+    return created!
+  })
   const authoring = await beginDraft(page, panel, '暂停续批测试：先放一盏铜色桌灯，等待我追加要求。')
-  const created = await (await creation).json() as TaskSnapshot
+  const created = await creation
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('已有一笔有效放置草稿')
   await expect(authoring).toContainText('实际操作 1/256')
   await expect(authoring.getByLabel('AI 草稿差异', { exact: true }).locator(':scope > li')).toHaveCount(1)
@@ -284,9 +299,17 @@ test('M2-2 a paused nonempty draft can finish for review and adopt without anoth
   })
   await createBlank(page, 'M2-2 暂停草稿直接审阅')
   const before = await state(page), initial = modelRequests, panel = await connect(page)
-  const creation = page.waitForResponse(response => response.url() === backendUrl + '/v1/tasks' && response.request().method() === 'POST')
+  const creation = page.waitForResponse(response => response.url() === backendUrl + '/v1/tasks' && response.request().method() === 'POST').then(response => {
+    expect(response.status()).toBe(201)
+    const requestId = (response.request().postDataJSON() as { clientRequestId: string }).clientRequestId
+    // Inspect the authoritative task created by this exact UI request. Chromium
+    // may discard this response body while the subsequent SSE stream is open.
+    const created = store.list('maintainer').find(task => task.clientRequestId === requestId)
+    expect(created).toBeDefined()
+    return created!
+  })
   const authoring = await beginDraft(page, panel, '暂停续批测试：先放一盏铜色桌灯，我可能直接结束并采用当前草稿。')
-  const created = await (await creation).json() as TaskSnapshot
+  const created = await creation
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('已有一笔有效放置草稿')
   await expect(authoring).toContainText('实际操作 1/256')
   await expect(authoring.getByLabel('AI 草稿差异', { exact: true }).locator(':scope > li')).toHaveCount(1)

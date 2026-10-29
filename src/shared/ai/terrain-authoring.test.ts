@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { terrainAuthoringFixture } from '../../../tests/helpers/terrain-authoring-fixture.js'
 import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from './authoring.js'
@@ -11,6 +12,8 @@ import { composeTerrainDocument } from '../terrain-generation/compose.js'
 import type { TerrainAuthoringOperation } from './terrain-protocol.js'
 import { constraintInputHash, managedOutputHash } from '../terrain-generation/integrity.js'
 import { regionalAuthorizedSubsetHash } from '../terrain-generation/regional-authoring.js'
+import { emptyCompositionDocument } from '../terrain-generation/composition-materialize.js'
+import { createCompositionContent } from '../appearance/graph.js'
 
 function regionalCandidateFixture() {
   const start = terrainAuthoringFixture(false, true), initial = replayAuthoring(start, []).state
@@ -36,6 +39,29 @@ function regionalCandidateFixture() {
 function edit(start = terrainAuthoringFixture(true)): TerrainAuthoringOperation {
   return { kind: 'terrainEdit', request: terrainEditRequestSchema.parse({ kind: 'brush', sceneId: start.project.document.sceneId, operationId: 'ai-explicit-clear', floorId: 'visual-floor', scopeMm: start.scope.scene!.boundsMm, linkMode: 'scenery', mode: 'clearArea', targetAreaId: 'terrain-low', materialRef: null, elevationMm: null, strokes: [{ pointsMm: [{ x: 2000, y: 2000 }], radiusMm: 300 }] }) }
 }
+
+/** A strict v4 fixture for the local transition/scenery AI path. */
+function local(start = terrainAuthoringFixture(true)) {
+  const document = emptyCompositionDocument(start.project.document)
+  const layerId = 'visual-layer-ground'
+  const area = Object.values(document.terrainAreas).find(value => !value.blocksMovement) ?? Object.values(document.terrainAreas)[0]
+  const definition = Object.values(document.propDefinitions)[0]
+  if (!area || !definition) throw new Error('local fixture requires a terrain area and fixed definition')
+  const groupId = 'ai-local-scatter'
+  document.scatterGroups[groupId] = { id: groupId, floorId: area.floorId, editLocked: false, visibility: 'public', domain: { kind: 'area', areaId: area.id },
+    palette: [{ key: 'primary', propDefinitionRef: { id: definition.id, version: definition.version }, weight: 1 }], seed: 'ai-local-seed', algorithmVersion: 'scatter-cell-v1',
+    gridOriginMm: { x: document.exportBoundsMm.x, y: document.exportBoundsMm.y }, cellSizeMm: 6000, densityFactor: .35, minDistanceMm: 500, rotationRangeDeg: { min: 0, max: 0 }, members: {}, exclusions: [] }
+  document.entityLayers[groupId] = layerId
+  const runtime = { ids: { nextId: (() => { let n = 0; return () => `ai-local-${++n}` })() }, clock: { now: () => document.updatedAt } }
+  const content = createCompositionContent(document, runtime)
+  const project = validateProjectData({ ...start.project, schemaVersion: 4, ...content })
+  const scope = cloneJson(start.scope)
+  if (!scope.scene) throw new Error('local fixture requires scene scope')
+  scope.scene.operations = [...new Set([...scope.scene.operations, 'terrainLocal' as const])] as typeof scope.scene.operations
+  scope.scene.entityIds = [...new Set([...scope.scene.entityIds, groupId])]
+  scope.scene.definitionIds = [...new Set([...scope.scene.definitionIds, definition.id])]
+  return { ...start, project, baseContentHash: authoringProjectHash(project), scope }
+}
 describe('same-core terrain authoring finite replay', () => {
   it('rejects a selected regional symbol when its fixed definition is not separately authorized', () => {
     const fixture = regionalCandidateFixture()
@@ -48,7 +74,7 @@ describe('same-core terrain authoring finite replay', () => {
 
   it('keeps an authorized regional definition but strips unselected source relations and constraints', () => {
     const fixture = regionalCandidateFixture(), portId = 'ungranted-regional-port'
-    fixture.project.document.generation!.constraints[portId] = { id: portId, floorId: 'visual-floor', visibility: 'public', strength: 'soft', kind: 'port', positionMm: { x: 300_000, y: 300_000 }, directionDeg: 0, widthMm: 10_000 }
+    getLegacyGeneration(fixture.project.document)!.constraints[portId] = { id: portId, floorId: 'visual-floor', visibility: 'public', strength: 'soft', kind: 'port', positionMm: { x: 300_000, y: 300_000 }, directionDeg: 0, widthMm: 10_000 }
     const result = regionalSceneCandidate(fixture.project, fixture.scope, new Set([fixture.symbol.id]), {
       kind: 'regionalDrillDown', sourceSceneId: fixture.project.document.sceneId, sceneId: 'regional-child-allowed', operationId: 'regional-child-allowed',
       selectionMm: { x: 0, y: 0, width: 500_000, height: 500_000 }, includePrivate: false,
@@ -122,6 +148,28 @@ describe('same-core terrain authoring finite replay', () => {
     expect(result.state.operationCost).toBe(expected.cost.total)
     expect(replayAuthoring(start, result.state.steps).project).toEqual(result.project)
   })
+  it('authorizes a strict v4 local refresh, replays the same project and keeps the base immutable', () => {
+    const start = local(), before = canonicalJson(start.project), initial = replayAuthoring(start, [])
+    const operation: TerrainAuthoringOperation = { kind: 'terrainLocal', request: { sceneId: start.project.document.sceneId, scopeMm: start.project.document.exportBoundsMm } }
+    const result = applyAuthoringStep(start, initial.state, [operation], 'local-refresh')
+    expect(result.project.schemaVersion).toBe(4)
+    expect(result.project.document.generation?.version).toBe(5)
+    expect(result.project.document.visual?.version).toBe(3)
+    expect(result.state.operationCost).toBeGreaterThan(0)
+    expect(replayAuthoring(start, result.state.steps)).toEqual(result)
+    expect(canonicalJson(start.project)).toBe(before)
+  })
+  it('rejects local refresh when the v4 grant or complete public closure is missing', () => {
+    const start = local(), operation: TerrainAuthoringOperation = { kind: 'terrainLocal', request: { sceneId: start.project.document.sceneId, scopeMm: start.project.document.exportBoundsMm } }
+    const noGrant = cloneJson(start)
+    noGrant.scope.scene!.operations = noGrant.scope.scene!.operations.filter(kind => kind !== 'terrainLocal')
+    noGrant.baseContentHash = authoringProjectHash(noGrant.project)
+    expect(() => applyAuthoringStep(noGrant, replayAuthoring(noGrant, []).state, [operation], 'denied')).toThrow(/未授权/)
+    const privateSource = cloneJson(start), definitionId = privateSource.project.document.scatterGroups['ai-local-scatter'].palette[0].propDefinitionRef.id
+    privateSource.scope.scene!.definitionIds = privateSource.scope.scene!.definitionIds.filter(id => id !== definitionId)
+    privateSource.baseContentHash = authoringProjectHash(privateSource.project)
+    expect(() => applyAuthoringStep(privateSource, replayAuthoring(privateSource, []).state, [operation], 'private')).toThrow(/地形候选存在未授权依赖/)
+  })
   it('requires explicit kind, bounds, fixed palette and all generation layers', () => {
     for (const remove of ['kind', 'layers', 'materials'] as const) {
       const start = terrainAuthoringFixture()
@@ -141,7 +189,7 @@ describe('same-core terrain authoring finite replay', () => {
       const start = terrainAuthoringFixture(true), id = Object.keys(start.project.document.props)[0]
       start.scope.scene!.entityIds = start.scope.scene!.entityIds.filter(value => value !== id)
       if (privateValue) { start.project.document.props[id].visibility = 'gm'; start.project.document.props[id].positionMm.x += 1 }
-      for (const rule of Object.values(start.project.document.generation!.rules)) rule.managedOutputHash = managedOutputHash(start.project.document, rule)
+      for (const rule of Object.values(getLegacyGeneration(start.project.document)!.rules)) rule.managedOutputHash = managedOutputHash(start.project.document, rule)
       for (const check of Object.values(start.project.document.generation!.checks)) check.inputHash = constraintInputHash(start.project.document, check.constraintId)
       start.baseContentHash = authoringProjectHash(start.project)
       try { applyAuthoringStep(start, replayAuthoring(start, []).state, [edit(start)], 'private') } catch (error) { messages.push((error as Error).message) }

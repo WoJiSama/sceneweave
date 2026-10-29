@@ -16,6 +16,7 @@ test('T4 real near-side sources retain the old terrain/roots, save complete byte
     const contentPath = '/src/platform/browser/content/near-side.ts', oldPath = '/src/platform/browser/content/refined-island.ts', runtimePath = '/src/platform/browser/runtime.ts'
     const projectPath = '/src/application/workspace/project.ts', renderPath = '/src/platform/browser/render/renderer.ts', filePath = '/src/shared/project/file.ts'
     const jsonPath = '/src/shared/validation/json.ts', hashPath = '/src/shared/validation/hash.ts', appearancePath = '/src/shared/appearance/presentation.ts'
+    const basePath = '/src/shared/visual/base.ts'
     const { createNearSideIslandProject } = await import(contentPath) as typeof import('../src/platform/browser/content/near-side')
     const { createRefinedIslandProject } = await import(oldPath) as typeof import('../src/platform/browser/content/refined-island')
     const { projectRepository, validation } = await import(runtimePath) as typeof import('../src/platform/browser/runtime')
@@ -25,9 +26,10 @@ test('T4 real near-side sources retain the old terrain/roots, save complete byte
     const { canonicalJson } = await import(jsonPath) as typeof import('../src/shared/validation/json')
     const { effectivePropShadow, propPresentation } = await import(appearancePath) as typeof import('../src/shared/appearance/presentation')
     const { sha256Bytes } = await import(hashPath) as typeof import('../src/shared/validation/hash')
+    const { visualBase } = await import(basePath) as typeof import('../src/shared/visual/base')
     const encode = (bytes: Uint8Array) => { let value = ''; for (let i = 0; i < bytes.length; i += 32768) value += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(value) }
     const neutral = async (source: import('../src/application/workspace/project').EditableProject) => {
-      const value = captureEditableDraft(source), visual = value.document.visual!, base = visual.version === 1 ? visual : visual.base
+      const value = captureEditableDraft(source), base = visualBase(value.document)!
       base.environment.ambientOpacity = 0; base.environment.exposure = 1
       for (const fog of Object.values(base.fogs)) fog.enabled = false
       for (const filter of Object.values(base.filters)) filter.enabled = false

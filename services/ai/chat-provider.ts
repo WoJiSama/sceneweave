@@ -1,6 +1,6 @@
 import { AI_LIMITS, utf8Size } from '../../src/shared/ai/protocol.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
-import { isProviderModel, PROVIDER_REASONING_BYTES, ProviderFailure, type ChatProviderConfig, type ProviderAdapter, type ProviderCompletion, type ProviderInput, type ProviderToolCall, type ProviderTokenUsage } from './provider-types.js'
+import { isProviderModel, isProviderReasoningEffort, PROVIDER_REASONING_BYTES, ProviderFailure, type ChatProviderConfig, type ProviderAdapter, type ProviderCompletion, type ProviderInput, type ProviderToolCall, type ProviderTokenUsage } from './provider-types.js'
 import { providerAbort, readSseData } from './sse.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { validateVisionPng } from './vision-input.js'
@@ -17,13 +17,18 @@ function endpoint(config: ChatProviderConfig): string {
   if (url.username || url.password || url.href.includes('?') || url.href.includes('#') || !(url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
     || !config.apiKey || config.apiKey.length > 4096 || /[\x00-\x20\x7f]/.test(config.apiKey)
     || !isProviderModel(config.model) || (config.visionModel !== undefined && !isProviderModel(config.visionModel))
-    || (config.preserveReasoning !== undefined && config.preserveReasoning !== 'enabled' && config.preserveReasoning !== 'disabled')) throw failure('provider_config', 'not_sent')
+    || (config.preserveReasoning !== undefined && config.preserveReasoning !== 'enabled' && config.preserveReasoning !== 'disabled')
+    || (config.reasoningEffort !== undefined && !isProviderReasoningEffort(config.reasoningEffort))) throw failure('provider_config', 'not_sent')
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/chat/completions`
   return url.toString()
 }
 
-function requestBody(input: ProviderInput, config: Pick<ChatProviderConfig, 'model' | 'visionModel' | 'vision' | 'preserveReasoning'>) {
+function requestBody(input: ProviderInput, config: Pick<ChatProviderConfig, 'model' | 'visionModel' | 'vision' | 'preserveReasoning' | 'reasoningEffort'>) {
   if (!Number.isInteger(input.maxOutputTokens) || input.maxOutputTokens < 1 || input.maxOutputTokens > AUTHORING_LIMITS.maxOutputTokensPerRequest) throw failure('provider_limit', 'not_sent')
+  // Undefined retains legacy config fallback; null freezes a task's provider default.
+  const requestedEffort = input.reasoningEffort
+  if (requestedEffort !== undefined && requestedEffort !== null && !isProviderReasoningEffort(requestedEffort)) throw failure('provider_config', 'not_sent')
+  const reasoningEffort = requestedEffort === undefined ? config.reasoningEffort : requestedEffort
   let imageCount = 0
   const tools = input.tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } }))
   const messages = input.messages.map(message => {
@@ -51,6 +56,7 @@ function requestBody(input: ProviderInput, config: Pick<ChatProviderConfig, 'mod
     // Images retained in earlier turns still require the visual model.
     model: imageCount ? config.visionModel ?? config.model : config.model,
     messages, stream: true, stream_options: { include_usage: true }, max_tokens: input.maxOutputTokens,
+    ...(reasoningEffort != null ? { thinking: { type: 'enabled' }, reasoning_effort: reasoningEffort } : {}),
     ...(tools.length ? { tools, tool_choice: 'auto' } : {}),
   }
 }
@@ -81,8 +87,8 @@ async function emitText(text: string, input: ProviderInput) {
 
 export function createChatProvider(config: ChatProviderConfig, fetchImpl: typeof fetch = fetch): ProviderAdapter {
   // Capture configuration once; callers cannot mutate the active provider.
-  const { baseUrl, model, visionModel, apiKey, vision, preserveReasoning } = config
-  const captured = Object.freeze({ baseUrl, model, visionModel, apiKey, vision, preserveReasoning })
+  const { baseUrl, model, visionModel, apiKey, vision, preserveReasoning, reasoningEffort } = config
+  const captured = Object.freeze({ baseUrl, model, visionModel, apiKey, vision, preserveReasoning, reasoningEffort })
   const url = endpoint(captured)
   return { async complete(input): Promise<ProviderCompletion> {
     if (input.signal.aborted) throw providerAbort()

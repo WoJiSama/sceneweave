@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { canonicalJson } from '../validation/json.js'
@@ -15,7 +16,7 @@ describe('T5 regional selection drill-down', () => {
     expect(canonicalJson(parent)).toBe(before)
     expect(result.sourceLink.sourceSceneId).toBe(parent.sceneId)
     expect(result.sourceLink.translationMm).toEqual({ x: 0, y: 0 })
-    expect(result.document.mapMode).toBe('scene'); expect(result.document.regional).toBeNull(); expect(result.document.generation?.sourceLinks[result.sourceLink.id]).toEqual(result.sourceLink)
+    expect(result.document.mapMode).toBe('scene'); expect(result.document.regional).toBeNull(); expect(getLegacyGeneration(result.document)?.sourceLinks[result.sourceLink.id]).toEqual(result.sourceLink)
     expect(validateSceneDocument(result.document).ok).toBe(true)
   })
 

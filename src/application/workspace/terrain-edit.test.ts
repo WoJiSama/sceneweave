@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import { Workspace } from './workspace.js'
 import { fromBundle, toBundle } from './project.js'
 import { NOW, pixelPng, runtime, validation } from './test-fixtures.js'
@@ -88,7 +89,7 @@ describe('T2 protected local terrain transaction', () => {
       adjustment: { id: 'surface-brightness', kind: 'brightness', value: .8, enabled: true } }])
     await workspace.flush()
     const current = workspace.getState().project!, oldSourceId = current.appearance.surfaceSources['terrain-high']
-    const constraint = Object.values(current.document.generation!.constraints).find(row => row.kind === 'activityArea')!
+    const constraint = Object.values(getLegacyGeneration(current.document)!.constraints).find(row => row.kind === 'activityArea')!
     if (constraint.kind !== 'activityArea') throw new Error('Expected activity area')
     const center = { x: Math.round(constraint.boundaryMm.reduce((sum, p) => sum + p.x, 0) / constraint.boundaryMm.length),
       y: Math.round(constraint.boundaryMm.reduce((sum, p) => sum + p.y, 0) / constraint.boundaryMm.length) }

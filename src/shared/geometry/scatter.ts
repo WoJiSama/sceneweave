@@ -84,7 +84,7 @@ export function buildScatterRegeneration(scene: SceneDocument, groupId: string, 
   const columns = maximumColumn - minimumColumn + 1, rows = maximumRow - minimumRow + 1
   if (![minimumColumn, maximumColumn, minimumRow, maximumRow, columns * rows].every(Number.isSafeInteger) || columns * rows > 250000) throw new Error('单次散布候选网格不得超过 250000 格；请缩小域或增大格距。')
   const removed = new Set<string>(), previous = source.members
-  for (const [key, member] of Object.entries(group.members)) if (member.state === 'managed' && member.propId !== null && !scene.props[member.propId]?.editLocked && (!publicGroup || visibility.prop(scene.props[member.propId]))) {
+  for (const [key, member] of Object.entries(group.members)) if (member.state === 'managed' && member.propId !== null && !scene.props[member.propId]?.editLocked && !scene.userLayers[scene.entityLayers[member.propId]]?.editLocked && (!publicGroup || visibility.prop(scene.props[member.propId]))) {
     removed.add(member.propId); delete group.members[key]
   }
   const obstacles = Object.values(scene.props).filter(prop => prop.floorId === group.floorId && !removed.has(prop.id) && (!publicGroup || visibility.prop(prop))).map(propFootprint)

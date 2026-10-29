@@ -291,7 +291,7 @@ export async function adoptLibraryEntries(input: ProjectBundle, entriesInput: Pr
     for (const definition of Object.values(existingDefinitions)) if (definition.catalogId === identity.catalogId && definition.version === identity.fixedVersion
       && sha256Text(canonicalJson(definition.origin)) === identity.namespace
       && describeItem(project, { kind: identity.kind, definitionId: definition.id }).identity.contentHash !== identity.contentHash) throw new Error('相同逻辑素材身份对应不同固定内容。')
-    if (incoming.schemaVersion === 3 && project.schemaVersion !== 3) throw new Error('近侧视素材需要先保存独立完整v3升级副本，不能丢失表现降级。')
+    if (incoming.schemaVersion === 3 && (project.schemaVersion < 3 || project.appearance.version < 2)) throw new Error('近侧视素材需要先保存独立完整v3升级副本，不能丢失表现字段。')
     assertFixedProjectCompatible(project, incoming)
     for (const key of fixedCollections) copyFixed(project.document[key], incoming.document[key], key !== 'assets')
     for (const key of appearanceCollections) copyFixed(project.appearance[key], incoming.appearance[key])

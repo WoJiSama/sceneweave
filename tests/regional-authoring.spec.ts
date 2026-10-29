@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
+import { getLegacyGeneration } from '../src/shared/terrain-generation/composition-contracts.js'
 
 type Dev = { workspace: Workspace }
 
@@ -82,7 +83,7 @@ test('regional authoring UI previews all recipes, protects an edit, drills down,
   await expect(page.locator('.regional-source [role="status"]')).toContainText('一致', { timeout: 120_000 })
   const child = await state(page)
   expect(child.document.sceneId).not.toBe(parentSceneId)
-  expect(Object.keys(child.document.generation?.sourceLinks ?? {})).toHaveLength(1)
+  expect(Object.keys(getLegacyGeneration(child.document)?.sourceLinks ?? {})).toHaveLength(1)
   expect(child.cold?.document.sceneId).toBe(child.document.sceneId)
   expect(child.coldHash).toBe(child.hash)
 
@@ -153,9 +154,9 @@ test('regional authoring UI previews all recipes, protects an edit, drills down,
     const imported = await state(coldPage)
     expect(imported.document.sceneId).not.toBe(child.document.sceneId)
     expect(imported.coldHash).toBe(imported.hash)
-    expect(imported.document.generation?.sourceLinks).toEqual(child.document.generation?.sourceLinks)
+    expect(getLegacyGeneration(imported.document)?.sourceLinks).toEqual(getLegacyGeneration(child.document)?.sourceLinks)
     expect(imported.document.regional).toEqual(child.document.regional)
   } finally { await coldContext.close() }
-  await info.attach('regional-authoring-facts.json', { body: JSON.stringify({ recipes: recipeNames, parentSceneId, childSceneId: child.document.sceneId, childRevision: child.document.revision, sourceLinks: Object.keys(child.document.generation?.sourceLinks ?? {}).length, coldHash: child.coldHash, packageBytes: offlineStage.bytes.length, offline: { requestsAfterOffline, gm: offlineStage.gm, player: offlineStage.player } }), contentType: 'application/json' })
+  await info.attach('regional-authoring-facts.json', { body: JSON.stringify({ recipes: recipeNames, parentSceneId, childSceneId: child.document.sceneId, childRevision: child.document.revision, sourceLinks: Object.keys(getLegacyGeneration(child.document)?.sourceLinks ?? {}).length, coldHash: child.coldHash, packageBytes: offlineStage.bytes.length, offline: { requestsAfterOffline, gm: offlineStage.gm, player: offlineStage.player } }), contentType: 'application/json' })
   expect(errors).toEqual([])
 })

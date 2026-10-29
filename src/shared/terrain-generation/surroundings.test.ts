@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { applyBuildingCommand, type BuildingCommand } from '../commands/building.js'
@@ -33,7 +34,7 @@ function makeFixture() {
   const complete = composeTerrainDocument(base, { ...result, document: draft }, 't-s06-fixture').document
   applyBuildingCommand(complete, { type: 'addOpening', id: 'outpost-door', wallId: shared.id, offsetReferenceVertexId: shared.startVertexId, offsetMm: 100, widthMm: 1000, kind: 'door', state: 'open', locked: false })
   applyOutdoorCommand(complete, path, context)
-  if (complete.generation) for (const check of Object.values(complete.generation.checks)) check.state = 'unchecked'
+  if (complete.generation) for (const check of Object.values(getLegacyGeneration(complete)!.checks)) check.state = 'unchecked'
   const validation = validateSceneDocument(complete)
   if (!validation.ok) throw new Error(validation.errors.map(issue => `${issue.entityId ?? ''}:${issue.message}`).join('; '))
   return complete
@@ -70,8 +71,8 @@ describe('T-S06 existing-building surroundings regeneration', () => {
     const manualPosition = { ...scene.props[manualId].positionMm, x: scene.props[manualId].positionMm.x + 10 }
     let manual = applyCommands(scene, [{ type: 'updateProp', id: manualId, changes: { positionMm: manualPosition } }, { type: 'deleteProp', id: deletedId }], context)
     manual = applyCommands(manual, [{ type: 'setEditLock', kind: 'prop', id: lockedId, locked: true }], context)
-    const pausedOwner = Object.values(manual.generation!.ownership).find(row => row.target.entityId === pausedId)!
-    expect(manual.generation!.rules[pausedOwner.ruleId].state).toBe('paused')
+    const pausedOwner = Object.values(getLegacyGeneration(manual)!.ownership).find(row => row.target.entityId === pausedId)!
+    expect(getLegacyGeneration(manual)!.rules[pausedOwner.ruleId].state).toBe('paused')
     expect(canRegenerateProp(manual, manual.props[manualId])).toBe(false)
     expect(canRegenerateProp(manual, manual.props[lockedId])).toBe(false)
     expect(canRegenerateProp(manual, manual.props[pausedId])).toBe(false)

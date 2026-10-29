@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { AI_LIMITS, utf8Size } from '../../src/shared/ai/protocol.js'
 import type { AiError, ConnectionInfo, ControlTaskRequest, CreateTaskRequest, TaskSnapshot, ToolResult } from '../../src/shared/ai/protocol.js'
-import type { ProviderAdapter, ProviderToolCall, ProviderToolDefinition } from './provider-types.js'
+import type { ProviderAdapter, ProviderRequestScheduler, ProviderToolCall, ProviderToolDefinition } from './provider-types.js'
 import { PROVIDER_REASONING_BYTES, ProviderFailure } from './provider-types.js'
 import { TaskFault, TaskStore, safeTaskError } from './store.js'
 import type { EventInput, StoredTask } from './store.js'
@@ -9,7 +9,7 @@ import { AUTHORING_LIMITS, AuthoringDraftSchema } from '../../src/shared/ai/auth
 import type { AuthoringDraft, DraftClaim, DraftLease, DraftStamp } from '../../src/shared/ai/authoring-protocol.js'
 import { validateAuthoringStart, checkAuthoringDraft } from '../../src/shared/ai/authoring.js'
 import { StaticSvgArtifacts } from './svg-artifacts.js'
-import { authoringTools, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
+import { getAuthoringTools, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
 import { validateTaskVision } from './vision-input.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
@@ -23,7 +23,7 @@ const validId = /^[A-Za-z0-9_.:-]{1,128}$/
 const aborted = () => new DOMException('Execution interrupted', 'AbortError')
 const REGION_CANDIDATE_MAX_BYTES = 8 * 1024 * 1024
 
-export interface TaskEngineOptions { now?: () => number; maxConcurrent?: number; authoringOutputTokens?: number; preserveReasoning?: 'enabled' | 'disabled' }
+export interface TaskEngineOptions { now?: () => number; maxConcurrent?: number; authoringOutputTokens?: number; preserveReasoning?: 'enabled' | 'disabled'; requestScheduler?: ProviderRequestScheduler }
 
 export class TaskEngine {
   private active = new Map<string, { generation: number; abort: AbortController; timer: ReturnType<typeof setTimeout> }>()
@@ -31,6 +31,7 @@ export class TaskEngine {
   private readonly maxConcurrent: number
   private readonly authoringOutputTokens: number
   private readonly preserveReasoning: 'enabled' | 'disabled'
+  private readonly requestScheduler?: ProviderRequestScheduler
   private readonly unsubscribeDeleted: () => void
   private unavailable = false
   private unavailableListeners = new Set<() => void>()
@@ -40,6 +41,8 @@ export class TaskEngine {
     this.authoringOutputTokens = options.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest
     if (!Number.isInteger(this.authoringOutputTokens) || this.authoringOutputTokens < 1 || this.authoringOutputTokens > AUTHORING_LIMITS.maxOutputTokensPerRequest) throw new Error('Invalid server configuration: AUTHORING_OUTPUT_TOKENS')
     this.preserveReasoning = options.preserveReasoning === undefined ? 'disabled' : options.preserveReasoning
+    this.requestScheduler = options.requestScheduler
+    if (this.requestScheduler && (!Number.isSafeInteger(this.requestScheduler.cooldownMs) || this.requestScheduler.cooldownMs < 0 || this.requestScheduler.cooldownMs > 60_000)) throw new Error('Invalid provider cooldown')
     if (this.preserveReasoning !== 'enabled' && this.preserveReasoning !== 'disabled') throw new Error('Invalid server configuration: PROVIDER_PRESERVE_REASONING')
     this.connectionInfo = Object.freeze({ ...connectionInfo, authoringOutputTokens: this.authoringOutputTokens })
     this.unsubscribeDeleted = store.onDelete(id => {
@@ -59,7 +62,7 @@ export class TaskEngine {
       try { validateAuthoringStart(request.authoring) } catch { throw new TaskFault('invalid_authoring', 400) }
       if (!request.context || request.context.sceneId !== request.authoring.project.document.sceneId || request.context.revision !== request.authoring.project.document.revision) throw new TaskFault('authoring_context_mismatch', 400)
     }
-    const { task, created } = this.store.create(owner, request, this.maxConcurrent)
+    const { task, created } = this.store.create(owner, request, this.maxConcurrent, this.connectionInfo.reasoningEffort ?? null)
     if (created) this.start(task)
     return task.snapshot
   }
@@ -97,7 +100,7 @@ export class TaskEngine {
     if (!result) throw aborted()
     return result
   }
-  private fail(id: string, generation: number, code: string, requestState: AiError['requestState'] = 'unknown') {
+  private fail(id: string, generation: number, code: string, requestState?: AiError['requestState']) {
     try {
       const task = this.store.read(id)
       if (task.snapshot.generation !== generation || task.snapshot.status !== 'running') return
@@ -105,7 +108,7 @@ export class TaskEngine {
         this.store.stopClock(current)
         current.snapshot.status = 'failed'
         current.snapshot.usage.unknown = current.snapshot.usage.unknown || current.completedRequests < current.snapshot.usage.requests
-        current.snapshot.error = safeTaskError(code, requestState)
+        current.snapshot.error = safeTaskError(code, requestState ?? (current.completedRequests < current.snapshot.usage.requests ? 'unknown' : 'not_sent'))
         return [{ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } }]
       })
     } catch (error) {
@@ -116,84 +119,95 @@ export class TaskEngine {
   private async run(id: string, generation: number, signal: AbortSignal) {
     try {
       while (!signal.aborted) {
-        const task = this.current(id, generation)
-        if (task.snapshot.usage.requests >= this.store.limits(task).modelRequests) throw new TaskFault('request_limit')
-        const textOnlyFinalRound = !!task.authoring && task.snapshot.usage.requests + 1 === this.store.limits(task).modelRequests
-        const requestTask = this.change(id, generation, current => {
-          current.snapshot.usage.requests++; current.snapshot.usage.unknown = true; current.pendingText = ''
-          if (this.preserveReasoning === 'disabled') for (const message of current.messages) delete message.reasoningContent
-          if (textOnlyFinalRound) current.messages.push({ role: 'system', content: 'This is the final request in this task budget. No tools are available. End with a concise, honest account of the validated draft and unmet requirements. Do not invent successful checks, visual review or adoption. A valid partial draft is available for browser review; finishing this response does not mean every requested scene requirement passed.' })
-          return []
-        })
-        const messages = this.preserveReasoning === 'enabled' ? requestTask.messages : requestTask.messages.map(({ reasoningContent: _privateReasoning, ...message }) => message)
-        let streamed = ''
-        const completion = await this.provider.complete({ messages, tools: textOnlyFinalRound ? [] : task.authoring ? authoringTools : [tool], maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
-          onText: text => {
-            if (signal.aborted) throw aborted()
-            if (!text) return
-            // The public event schema has an 8192-character bound; do not execute or interpret streamed text.
-            for (let offset = 0; offset < text.length; offset += 8192) {
-              const part = text.slice(offset, offset + 8192)
-              this.change(id, generation, current => {
-                if (current.snapshot.lastSequence >= AI_LIMITS.events - 4) throw new TaskFault('event_limit')
-                const bytes = utf8Size(part)
-                if (current.outputBytes + bytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
-                current.outputBytes += bytes; current.snapshot.text += part; current.pendingText += part
-                return [{ type: 'text_delta', data: { text: part } }]
-              })
-              streamed += part
+        // Waiting belongs to the existing execution clock, but is not a paid
+        // attempt. Select tools and record the attempt only after the slot opens.
+        let releaseRequest: (() => void) | undefined
+        if (this.requestScheduler) releaseRequest = await this.requestScheduler.acquire(signal)
+        try {
+          const task = this.current(id, generation)
+          const limits = this.store.limits(task)
+          if (task.snapshot.usage.requests >= limits.modelRequests) throw new TaskFault('request_limit')
+          const finalRoundReason = !task.authoring ? undefined
+            : task.snapshot.usage.requests + 1 === limits.modelRequests ? 'request_limit'
+            : this.store.remaining(task) <= Math.min(30_000, limits.executionMs / 10) + (this.requestScheduler?.cooldownMs ?? 0) ? 'execution_limit' : undefined
+          const textOnlyFinalRound = finalRoundReason !== undefined
+          const requestTask = this.change(id, generation, current => {
+            current.snapshot.usage.requests++; current.snapshot.usage.unknown = true; current.pendingText = ''
+            if (this.preserveReasoning === 'disabled') for (const message of current.messages) delete message.reasoningContent
+            if (textOnlyFinalRound) current.messages.push({ role: 'system', content: `${finalRoundReason === 'execution_limit'
+              ? 'This is the final request before the task execution time limit.' : 'This is the final request in this task request budget.'} No tools are available. End with a concise, honest account of the validated draft and unmet requirements. Report only checks already completed; explicitly label incomplete or unverified requirements and any partial draft. Do not invent successful checks, visual review or adoption. Any generated draft still requires browser resource checks, host review and protected adoption; no main project has been changed or adopted. Finishing this response does not mean every requested scene requirement passed.` })
+            return []
+          })
+          const messages = this.preserveReasoning === 'enabled' ? requestTask.messages : requestTask.messages.map(({ reasoningContent: _privateReasoning, ...message }) => message)
+          let streamed = ''
+          const completion = await this.provider.complete({ messages, reasoningEffort: requestTask.snapshot.reasoningEffort, tools: textOnlyFinalRound ? [] : task.authoring ? getAuthoringTools(task.authoring.start.scope) : [tool], maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
+            onText: text => {
+              if (signal.aborted) throw aborted()
+              if (!text) return
+              // The public event schema has an 8192-character bound; do not execute or interpret streamed text.
+              for (let offset = 0; offset < text.length; offset += 8192) {
+                const part = text.slice(offset, offset + 8192)
+                this.change(id, generation, current => {
+                  if (current.snapshot.lastSequence >= AI_LIMITS.events - 4) throw new TaskFault('event_limit')
+                  const bytes = utf8Size(part)
+                  if (current.outputBytes + bytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
+                  current.outputBytes += bytes; current.snapshot.text += part; current.pendingText += part
+                  return [{ type: 'text_delta', data: { text: part } }]
+                })
+                streamed += part
+              }
+            } }).finally(() => { releaseRequest?.(); releaseRequest = undefined })
+          if (signal.aborted) throw aborted()
+          this.current(id, generation)
+          const reasoningContent = this.preserveReasoning === 'enabled' ? completion.reasoningContent : undefined
+          if (reasoningContent !== undefined) {
+            if (typeof reasoningContent !== 'string') throw new ProviderFailure('provider_protocol', '模型服务返回了不完整或不支持的响应。')
+            if (utf8Size(reasoningContent) > PROVIDER_REASONING_BYTES) throw new ProviderFailure('provider_limit', '模型服务响应超过允许的大小。')
+          }
+          if (completion.text !== streamed) throw new ProviderFailure('provider_protocol', 'Inconsistent streamed completion')
+          if (completion.toolCalls.length ? completion.finishReason !== 'tool_calls' : completion.finishReason !== 'stop') throw new ProviderFailure('provider_protocol', 'Invalid completion end')
+          if (new Set(completion.toolCalls.map(call => call.id)).size !== completion.toolCalls.length) throw new ProviderFailure('provider_protocol', 'Duplicate call identity')
+          // Only pure read tools exist in M2-1. Commit the whole assistant/tool round and receipts together.
+          // A restart can therefore observe either the previous complete conversation or this complete round.
+          this.change(id, generation, current => {
+            const input = completion.usage.inputTokens, output = completion.usage.outputTokens
+            current.completedRequests++
+            const priorKnown = current.completedRequests === current.snapshot.usage.requests && (current.snapshot.usage.requests === 1 || current.snapshot.usage.inputTokens !== null && current.snapshot.usage.outputTokens !== null)
+            current.snapshot.usage.inputTokens = priorKnown && input !== null ? (current.snapshot.usage.inputTokens ?? 0) + input : null
+            current.snapshot.usage.outputTokens = priorKnown && output !== null ? (current.snapshot.usage.outputTokens ?? 0) + output : null
+            current.snapshot.usage.unknown = current.snapshot.usage.inputTokens === null || current.snapshot.usage.outputTokens === null
+            current.pendingText = ''
+            current.messages.push({ role: 'assistant', content: completion.text || null, ...(completion.toolCalls.length ? { toolCalls: completion.toolCalls } : {}), ...(reasoningContent !== undefined ? { reasoningContent } : {}) })
+            const events: EventInput[] = [{ type: 'usage', data: current.snapshot.usage }]
+            // A provider ignoring the last-round tool boundary cannot mutate the
+            // draft. Keep its completed usage receipt, then fail without retry.
+            if (textOnlyFinalRound && completion.toolCalls.length) {
+              this.store.stopClock(current)
+              current.snapshot.status = 'failed'; current.snapshot.error = safeTaskError(finalRoundReason!, 'finished')
+              events.push({ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } })
+              return events
             }
-          } })
-        if (signal.aborted) throw aborted()
-        this.current(id, generation)
-        const reasoningContent = this.preserveReasoning === 'enabled' ? completion.reasoningContent : undefined
-        if (reasoningContent !== undefined) {
-          if (typeof reasoningContent !== 'string') throw new ProviderFailure('provider_protocol', '模型服务返回了不完整或不支持的响应。')
-          if (utf8Size(reasoningContent) > PROVIDER_REASONING_BYTES) throw new ProviderFailure('provider_limit', '模型服务响应超过允许的大小。')
-        }
-        if (completion.text !== streamed) throw new ProviderFailure('provider_protocol', 'Inconsistent streamed completion')
-        if (completion.toolCalls.length ? completion.finishReason !== 'tool_calls' : completion.finishReason !== 'stop') throw new ProviderFailure('provider_protocol', 'Invalid completion end')
-        if (new Set(completion.toolCalls.map(call => call.id)).size !== completion.toolCalls.length) throw new ProviderFailure('provider_protocol', 'Duplicate call identity')
-        // Only pure read tools exist in M2-1. Commit the whole assistant/tool round and receipts together.
-        // A restart can therefore observe either the previous complete conversation or this complete round.
-        this.change(id, generation, current => {
-          const input = completion.usage.inputTokens, output = completion.usage.outputTokens
-          current.completedRequests++
-          const priorKnown = current.completedRequests === current.snapshot.usage.requests && (current.snapshot.usage.requests === 1 || current.snapshot.usage.inputTokens !== null && current.snapshot.usage.outputTokens !== null)
-          current.snapshot.usage.inputTokens = priorKnown && input !== null ? (current.snapshot.usage.inputTokens ?? 0) + input : null
-          current.snapshot.usage.outputTokens = priorKnown && output !== null ? (current.snapshot.usage.outputTokens ?? 0) + output : null
-          current.snapshot.usage.unknown = current.snapshot.usage.inputTokens === null || current.snapshot.usage.outputTokens === null
-          current.pendingText = ''
-          current.messages.push({ role: 'assistant', content: completion.text || null, ...(completion.toolCalls.length ? { toolCalls: completion.toolCalls } : {}), ...(reasoningContent !== undefined ? { reasoningContent } : {}) })
-          const events: EventInput[] = [{ type: 'usage', data: current.snapshot.usage }]
-          // A provider ignoring the last-round tool boundary cannot mutate the
-          // draft. Keep its completed usage receipt, then fail without retry.
-          if (textOnlyFinalRound && completion.toolCalls.length) {
-            this.store.stopClock(current)
-            current.snapshot.status = 'failed'; current.snapshot.error = safeTaskError('request_limit', 'finished')
-            events.push({ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } })
+            for (const call of completion.toolCalls) events.push(...this.executeTool(current, call))
+            if (!completion.toolCalls.length) {
+              this.store.stopClock(current)
+              if (current.authoring && current.authoring.state.contentHash !== current.authoring.start.baseContentHash) {
+                checkAuthoringDraft(current.authoring.start, current.authoring.state)
+                current.snapshot.status = 'waiting_browser'
+              } else current.snapshot.status = 'completed'
+              events.push({ type: 'status', data: { status: current.snapshot.status, reason: current.snapshot.status === 'waiting_browser' ? '草稿已生成，等待本机资源检查。' : null } })
+            }
+            if (current.snapshot.lastSequence + events.length > AI_LIMITS.events - (completion.toolCalls.length ? 2 : 0)) throw new TaskFault('event_limit')
             return events
-          }
-          for (const call of completion.toolCalls) events.push(...this.executeTool(current, call))
-          if (!completion.toolCalls.length) {
-            this.store.stopClock(current)
-            if (current.authoring && current.authoring.state.contentHash !== current.authoring.start.baseContentHash) {
-              checkAuthoringDraft(current.authoring.start, current.authoring.state)
-              current.snapshot.status = 'waiting_browser'
-            } else current.snapshot.status = 'completed'
-            events.push({ type: 'status', data: { status: current.snapshot.status, reason: current.snapshot.status === 'waiting_browser' ? '草稿已生成，等待本机资源检查。' : null } })
-          }
-          if (current.snapshot.lastSequence + events.length > AI_LIMITS.events - (completion.toolCalls.length ? 2 : 0)) throw new TaskFault('event_limit')
-          return events
-        })
-        if (textOnlyFinalRound && completion.toolCalls.length) return
-        if (!completion.toolCalls.length) return
+          })
+          if (textOnlyFinalRound && completion.toolCalls.length) return
+          if (!completion.toolCalls.length) return
+        } finally { releaseRequest?.() }
       }
     } catch (error) {
       if (signal.aborted || error instanceof Error && error.name === 'AbortError') return
       const code = error instanceof TaskFault ? error.code : error instanceof ProviderFailure && /^[a-z_]{1,64}$/.test(error.code) ? error.code : 'provider_error'
       this.fail(id, generation, code, error instanceof ProviderFailure ? error.requestState
-        : error instanceof TaskFault && error.code === 'request_limit' ? 'finished' : 'unknown')
+        : error instanceof TaskFault && error.code === 'request_limit' ? 'finished' : undefined)
       this.active.get(id)?.abort.abort()
     }
   }

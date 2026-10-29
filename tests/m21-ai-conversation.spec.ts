@@ -15,6 +15,7 @@ import type { ProviderAdapter, ProviderCompletion } from '../services/ai/provide
 // The live paid-channel check is a separate explicit tool, never part of browser regression.
 let backendUrl: string, token: string, directory: string, store: TaskStore, engine: TaskEngine
 let server: ReturnType<typeof serve>, modelRequests = 0
+const reasoningInputs: (string | null | undefined)[] = []
 const complete = (text: string, withTool = false): ProviderCompletion => ({ text,
   toolCalls: withTool ? [{ id: 'connection-call', name: 'sceneweave_connection_info', arguments: '{"topic":"connection"}' }] : [],
   finishReason: withTool ? 'tool_calls' : 'stop', usage: { inputTokens: 11, outputTokens: 7 }, requestId: 'browser-check' })
@@ -26,7 +27,7 @@ test.beforeAll(async () => {
     SCENEWEAVE_AI_ACCESS_TOKEN: token, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1',
     SCENEWEAVE_AI_PROVIDER_API_KEY: 'server-only-not-a-live-key', SCENEWEAVE_AI_PROVIDER_MODEL: 'deterministic-test-model' })
   const provider: ProviderAdapter = { async complete(input) {
-    modelRequests++
+    modelRequests++; reasoningInputs.push(input.reasoningEffort)
     const lastUser = input.messages.filter(message => message.role === 'user').at(-1)?.content ?? ''
     if (lastUser.includes('暂停测试')) {
       await input.onText('已收到暂停测试，正在等待。')
@@ -81,11 +82,13 @@ test('M2-1 real HTTP text/tool continuation is plain text, preserves the project
   await panel.getByRole('button', { name: '发送新任务', exact: true }).click()
   const task = panel.getByRole('article', { name: 'AI 当前任务', exact: true })
   await expect(task.locator('.ai-task-heading > strong')).toHaveText('已完成')
+  await expect(panel.getByLabel('当前任务思考程度', { exact: true })).toContainText('模型默认（未指定等级）')
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('当前只读，不修改场景。<img')
   await expect(panel.getByLabel('AI 只读工具进度', { exact: true })).toContainText('sceneweave_connection_info：完成')
   expect(await panel.locator('.ai-response img').count()).toBe(0)
   expect(await page.evaluate(() => (window as unknown as { aiUnsafe?: boolean }).aiUnsafe)).toBeUndefined()
   expect(modelRequests - initial).toBe(2); expect(await project(page)).toEqual(before)
+  expect(reasoningInputs.slice(initial)).toEqual([null, null])
   expect(requests).toHaveLength(1)
   expect(Object.keys(requests[0] as object).sort()).toEqual(['clientRequestId', 'context', 'prompt', 'schemaVersion'])
   const input = requests[0] as { context: { sceneId: string; revision: number; audience: string } }
@@ -107,6 +110,8 @@ test('M2-1 real HTTP text/tool continuation is plain text, preserves the project
 
 test('M2-1 disconnect only rereads checkpoints, pause/resume is explicit and cancel rejects late model completion', async ({ page }) => {
   await createBlank(page, 'M2-1 中断代次'); const before = await project(page), panel = await connect(page), initial = modelRequests
+  await expect(panel.getByText(/请选择模型支持的思考程度/)).toBeVisible()
+  await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('low')
   await panel.getByLabel('AI 对话输入', { exact: true }).fill('暂停测试')
   await panel.getByRole('button', { name: '发送新任务', exact: true }).click()
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('正在等待')
@@ -116,14 +121,45 @@ test('M2-1 disconnect only rereads checkpoints, pause/resume is explicit and can
   await panel.getByRole('button', { name: '暂停回复', exact: true }).click()
   const status = panel.locator('.ai-task-heading > strong'); await expect(status).toHaveText('已暂停')
   expect(await project(page)).toEqual(before)
+  await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('max')
+  await expect(panel.getByLabel('当前任务思考程度', { exact: true })).toContainText('低 · low')
   await panel.getByLabel('AI 继续补充要求', { exact: true }).fill('请完成连接检查。')
   await panel.getByRole('checkbox', { name: /^我确认继续会发起新的模型请求/ }).check(); await panel.getByRole('button', { name: '确认继续任务', exact: true }).click()
   await expect(status).toHaveText('已完成'); expect(modelRequests - initial).toBe(3)
+  expect(reasoningInputs.slice(initial)).toEqual(['low', 'low', 'low'])
+  await expect(panel.getByLabel('当前任务思考程度', { exact: true })).toContainText('低 · low')
   await panel.getByLabel('AI 对话输入', { exact: true }).fill('暂停测试：取消时检查迟到回复')
   await panel.getByRole('button', { name: '发送新任务', exact: true }).click()
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('正在等待')
   await panel.getByRole('button', { name: '取消任务', exact: true }).click(); await expect(status).toHaveText('已取消')
   await panel.getByRole('button', { name: '刷新任务', exact: true }).click(); await expect(status).toHaveText('已取消')
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).not.toContainText('迟到结果')
+  expect(await project(page)).toEqual(before)
+})
+
+
+test('M2-1 reasoning selection preserves an unconfirmed request on explicit retry', async ({ page }) => {
+  await createBlank(page, '思考程度重试'); const before = await project(page), panel = await connect(page), initial = modelRequests
+  const bodies: unknown[] = []
+  let first = true
+  await page.route(backendUrl + '/v1/tasks', async route => {
+    if (route.request().method() !== 'POST') { await route.continue(); return }
+    bodies.push(route.request().postDataJSON())
+    if (first) { first = false; await route.abort('failed'); return }
+    await route.continue()
+  })
+  await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('low')
+  await panel.getByLabel('AI 对话输入', { exact: true }).fill('检查本次设置')
+  await panel.getByRole('button', { name: '发送新任务', exact: true }).click()
+  await expect(panel.getByRole('button', { name: '重试本次发送', exact: true })).toBeEnabled()
+  await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('high')
+  await panel.getByRole('button', { name: '重试本次发送', exact: true }).click()
+  await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已完成')
+  expect(bodies).toHaveLength(2); expect(bodies[0]).toEqual(bodies[1])
+  expect(bodies[1]).toMatchObject({ reasoningEffort: 'low' })
+  expect(reasoningInputs.slice(initial)).toEqual(['low', 'low'])
+  await expect(panel.getByLabel('当前任务思考程度', { exact: true })).toContainText('低 · low')
+  await expect(panel.getByLabel('AI 思考程度', { exact: true })).toHaveValue('high')
+  await panel.locator('.ai-reasoning').screenshot({ path: 'work/q4-reasoning-ui-20261028/reasoning-control.png' })
   expect(await project(page)).toEqual(before)
 })

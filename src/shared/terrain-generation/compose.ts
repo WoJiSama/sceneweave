@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
 import { emptyVisualSystem } from '../visual/types.js'
@@ -15,7 +16,7 @@ export function emptyTerrainDocument(input:SceneDocument):SceneDocument {
   return document
 }
 export function composeTerrainDocument(base:SceneDocument,result:TerrainGenerationResult,birthToken:string) {
-  const document=emptyTerrainDocument(result.document), system=document.generation!, floorId=Object.keys(document.floors)[0],layerId='visual-layer-ground'
+  const document=emptyTerrainDocument(result.document), system=getLegacyGeneration(document)!, floorId=Object.keys(document.floors)[0],layerId='visual-layer-ground'
   const recipeId='terrain-recipe',intentId='terrain-intent',ruleId='terrain-rule',constraintId='terrain-activity-constraint'
   const fields=(kind:string):GenerationReference['fieldGroup'] => kind==='prop'?'appearance':kind==='visualEdgeLook'?'appearance':'geometry'
   const mapKind=(kind:string):GenerationReference['kind']=>kind==='visualEdgeLook'?'visualEdgeLook' as GenerationReference['kind']:kind as GenerationReference['kind']

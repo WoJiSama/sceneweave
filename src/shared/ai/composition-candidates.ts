@@ -19,7 +19,11 @@ const common = { reserveOperations: z.number().int().min(0).max(128).optional() 
 export const CompositionCandidateSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('layout'), recipe: z.enum(['beach', 'island', 'interior']), idPrefix: prefix,
     variant: z.number().int().min(0).max(1).optional(),
-    materialIds: z.object({ base: id.optional(), primary: id.optional(), secondary: id.optional() }).strict().optional(), ...common }).strict(),
+    materialIds: z.object({
+      base: id.optional().describe('beach/island: water terrain. interior: unused; does not assign wall materials.'),
+      primary: id.optional().describe('beach: sand. island: low shelf. interior: non-kitchen room floors, and kitchen floor fallback when secondary is absent.'),
+      secondary: id.optional().describe('island: high land. interior: kitchen floor override only. beach: unused.'),
+    }).strict().optional(), ...common }).strict(),
   z.object({ kind: z.literal('furnishing'), idPrefix: prefix, supportRef: z.object({ kind: z.enum(['floor', 'room', 'terrainArea']), id }).strict(),
     definitionIds: z.array(id).min(1).max(6).refine(values => new Set(values).size === values.length), positionMm: point,
     count: z.number().int().min(1).max(8).optional(), rotationDeg: z.number().finite().min(0).lt(360).optional(),
@@ -40,7 +44,7 @@ function layout(start: AuthoringStart, query: Extract<CompositionCandidate, { ki
   const name = (value: string) => `${query.idPrefix}-${value}`, material = query.materialIds ?? {}, operations: AuthoringOperation[] = []
   const terrain = (key: string, points: PointMm[], elevation: number, priority: number, materialId?: string, blocksMovement = false) => operations.push({ kind: 'terrain', id: name(key), boundaryMm: points, groundElevationMm: elevation,
     coveragePriority: priority, blocksMovement, ...(materialId ? { materialId } : {}) })
-  let details: unknown
+  let details: Record<string, unknown>
   if (query.recipe === 'beach') {
     const offset = query.variant ? .045 : 0
     // Keep the shared editable curve inside the grant, with room for a normal
@@ -53,7 +57,7 @@ function layout(start: AuthoringStart, query: Extract<CompositionCandidate, { ki
     terrain('sand', [outerTop, p(1, 0), p(1, 1), outerBottom, ...coast.slice().reverse()], 0, 1, material.primary)
     const proposedActivityBoundsMm = { x: p(.62, .32).x, y: p(.62, .32).y, width: Math.round(b.width * .29), height: Math.round(b.height * .42) }
     const explicitActivity = start.brief?.checks?.filter(check => check.kind === 'clearArea').map(check => check.boundsMm) ?? []
-    details = { activityAreas: explicitActivity.length ? explicitActivity : [proposedActivityBoundsMm],
+    details = { materialRoles: { base: 'water terrain', primary: 'sand terrain', secondary: 'unused' }, activityAreas: explicitActivity.length ? explicitActivity : [proposedActivityBoundsMm],
       reefGroupCentresMm: [p(.53 + offset, .17), p(.55 + offset, .51), p(.52 + offset, .83)],
       sharedCoastAnchorsMm: coast, waterId: name('water'), sandId: name('sand'),
       boundaryNextStep: 'Read the real point IDs after editing; use these inset shared anchors for one open shared terrain curve with shore-band clearance. Explicit straight physical segments continue from its endpoints to the map frame. This proposal does not create a persistent material-to-coast binding.' }
@@ -66,7 +70,7 @@ function layout(start: AuthoringStart, query: Extract<CompositionCandidate, { ki
     if (scope.operations.includes('connection')) operations.push({ kind: 'connection', id: name('stairs'), connectionKind: 'stairs',
       from: { surfaceRef: { kind: 'terrainArea', id: name('low') }, positionMm: p(reflect(.28), .53) },
       to: { surfaceRef: { kind: 'terrainArea', id: name('high') }, positionMm: p(reflect(.45), .53) }, widthMm: Math.min(1500, Math.max(1000, Math.floor(b.height * .075))) })
-    details = { lowId: name('low'), highId: name('high'), bayAnchorMm: p(reflect(.45), .29), headlandAnchorMm: p(reflect(.87), .49),
+    details = { materialRoles: { base: 'water terrain', primary: 'low shelf', secondary: 'high land' }, lowId: name('low'), highId: name('high'), bayAnchorMm: p(reflect(.45), .29), headlandAnchorMm: p(reflect(.87), .49),
       broadActivityCentreMm: p(reflect(.56), .51), stairsId: scope.operations.includes('connection') ? name('stairs') : null,
       missingGrant: scope.operations.includes('connection') ? null : 'A real stairs/ramp connection is not granted. This is an incomplete height layout.',
       boundaryNextStep: 'After an explicit edit, propose one closed boundary for each existing land ring and measure the full cost, concavity and stair support before editing.' }
@@ -77,7 +81,7 @@ function layout(start: AuthoringStart, query: Extract<CompositionCandidate, { ki
     ] as const
     for (const [key, purpose, left, top, right, bottom] of rooms) operations.push({ kind: 'room', id: name(key), boundaryMm: [p(left, top), p(right, top), p(right, bottom), p(left, bottom)],
       purpose, thicknessMm: 180, supportRef: { kind: 'floor', id: scope.floorId }, ...(key === 'kitchen' && material.secondary ? { materialId: material.secondary } : material.primary ? { materialId: material.primary } : {}) })
-    details = { rooms: rooms.map(([key, purpose]) => ({ id: name(key), purpose })),
+    details = { materialRoles: { base: 'unused', primary: 'non-kitchen floors; kitchen fallback when secondary is absent', secondary: 'kitchen floor override only', walls: 'not assigned; use an explicit wall material operation' }, rooms: rooms.map(([key, purpose]) => ({ id: name(key), purpose })),
       furnishingNextStep: 'Use actual granted stove/counter/storage for the kitchen, table/chairs for dining, bed/storage for the guest room, desk/shelves for study. Probe each room after its real doors exist. Purpose words alone are not evidence.',
       connectionNextStep: scope.operations.includes('opening') && scope.operations.includes('entrance') ? 'The service will append a finite door tree and explicit entrance from these newly generated actual wall IDs.' : 'Opening/entrance permission is absent; rooms remain a legal incomplete draft.' }
   }

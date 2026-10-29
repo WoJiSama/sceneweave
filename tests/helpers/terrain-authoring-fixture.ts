@@ -7,6 +7,7 @@ import { validateProjectData } from '../../src/shared/project/validate.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
 import { authoringProjectHash } from '../../src/shared/ai/authoring.js'
 import type { AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
+import { visualBase } from '../../src/shared/visual/base.js'
 
 /** Metadata/replay fixture only: it deliberately provides no resource-byte or image evidence. */
 export function terrainAuthoringFixture(generated = false, regionalSize = false): AuthoringStart {
@@ -19,7 +20,7 @@ export function terrainAuthoringFixture(generated = false, regionalSize = false)
   const assets = Object.fromEntries(dependencies.assetIds.map(id => { const asset = document.assets[id]; return [asset.sha256, { sha256: asset.sha256, mimeType: asset.mimeType, pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight, sizeBytes: 1 }] }))
   const project = validateProjectData({ ...content, format: 'sceneweave-complete-project', schemaVersion: 3, assets, licenses: { [licenseHash]: { sha256: licenseHash, text: licenseText } },
     licenseBindings: dependencies.subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })), authoringSources: {} })
-  const visual = document.visual?.version === 2 ? document.visual.base : document.visual ?? { boundaries: {}, edgeLooks: {} }
+  const visual = visualBase(document) ?? { boundaries: {}, edgeLooks: {} }
   return { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: '9d979366-7500-4bbe-96ef-5ea9a654b132', preparedAt: blank.createdAt,
     disclosure: 'complete-metadata/public-model', skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null, scene: {
       floorId: 'visual-floor', layerId: 'visual-layer-ground', generationLayerIds: Object.keys(document.userLayers), boundsMm: document.exportBoundsMm,

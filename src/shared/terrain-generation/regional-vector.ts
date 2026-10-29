@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -27,7 +28,7 @@ export function createRegionalFeasibilityVector(base: SceneDocument): { empty: S
   empty.exportBoundsMm = { x: 0, y: 0, width: WIDTH_MM, height: HEIGHT_MM }
   empty.floors[FLOOR].boundsMm = { ...empty.exportBoundsMm }
   empty.mapMode = 'regional'; empty.regional = createEmptyRegional()
-  const document = cloneJson(empty), regional = document.regional!, generation = document.generation!
+  const document = cloneJson(empty), regional = document.regional!, generation = getLegacyGeneration(document)!
   const style = (fill: string, stroke = '#5D6B56', strokeWidthMm = 10000) => ({ fill, stroke, strokeWidthMm, opacity: 1 })
   regional.areas['regional-vector-land'] = { ...common, id: 'regional-vector-land', kind: 'land', boundaryMm: rectangle(0, 0, WIDTH_MM, HEIGHT_MM), style: style('#B8BE86'), relativeElevationMm: 0 }
   regional.areas['regional-vector-water'] = { ...common, id: 'regional-vector-water', kind: 'water', boundaryMm: [p(0, 0), p(WIDTH_MM, 0), p(WIDTH_MM, 1900000), p(7000000, 2200000), p(4500000, 1700000), p(2200000, 2100000), p(0, 1800000)], style: style('#86B2B7'), relativeElevationMm: 0 }

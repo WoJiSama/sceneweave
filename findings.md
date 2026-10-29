@@ -1,3 +1,19 @@
+# 2026-10-28 T9核对
+
+- 当前严格持久链只接受完整v1/v2/v3，generation1–4和visual2；T8合同规定新特征/组合必须完整4+scene4+generation5+visual3+identity3+appearance2，不能仅增加旧recipe字段。
+- 现有场提取保留多分量但统一翻正闭环，新增组合必须独立识别孔洞/范围闭合并实际验证分量和水道，不能用特征数或颜色代替。
+- 原始1022份非忽略文件hash冻结于work/terrain-t9/start-files.json；保留原脏文件与todo。
+
+# 2026-10-28 基础与T8核对
+
+- 容量首批实际数据：48×36网格=1813节点，单场Float64值14,504字节；T3显式几何未使用格网，不能把skeleton网格元数据报成实际分配。
+- 五预置中36×36海岸实际成本达到256，不能承诺更多细节；最终56/56固定种子向量通过，24×24海岸也触顶，不承诺任意输入。
+- 容量用真实Worker、实际资源准备和1024px完整预览分别计时；CDP只观测主页面JS堆，不含Worker/GPU/进程且无强制GC，不称峰值或正式性能。
+
+- 现有未提交基础代码已接页面任务级low/high/max、固定创建快照、重启/续答与幂等；最近一次真实low短连接有历史成功证据，不自动重发。
+- 已修复的缺口：节流已纳入TaskEngine调度，等待后才冻结payload/计数；保持300秒硬上限，当前含冷却的收尾窗口为40秒。
+- T8自定义尺寸已补容量表和三个统一样片，6包/12图及实际冷读通过；新v4仅冻结合同，T9尚未实施。
+
 # 本次文档结构决定
 
 - 视觉14/15/53合并为单一主文档；交互/架构、固定场景、决策/研究与性能各收一份参考。
@@ -613,3 +629,12 @@ T2现有prepareTerrainEdit支持既有岸线推拉和草/清除，没有外围�
 - 04/05/06/07/09/10/54/55 是当前合同与验收主入口；02/03/08/11/12/14/15/34/53 的独有内容不能丢失，应先移入 docs/archive。
 - 最终结构为10份主文档（含合并14/15/53的视觉与素材）、4份低频参考和6份历史台账，另保留导航索引。旧02/03/08/11/12和34归reference，历史批次归archive。
 - 终检发现AGENTS仍有旧独立编号及已清理原始evidence的表述，需要更新为当前主题入口；验收顺序统一沿用T13冻结后进入M2-E。
+# T10 顺序实施记录（2026-10-29）
+
+- 严格合同来源：`src/shared/terrain-generation/composition-contracts.ts` 的 `TerrainTransition`/`visual3TransitionSchema`；T9 校验目前仍拒绝非空 transitions，需由 T10 的真实校验替换。
+- 投影来源：`src/shared/visual/projection.ts` 已完成边界与 materialized edge 的受众过滤，但没有 transitions；`Projection.visual` 需要新增受众过滤的 polygons/strokes。
+- 渲染入口：`src/platform/browser/render/canvas-renderer.ts` 在 terrain edges 后调用 `drawVisualBoundaries`；T10 过渡应在同一地面视觉层、墙体和物件前绘制，并共用持久几何。
+- 历史恢复风险：`Workspace.restoreHistory` 不能直接修改冻结历史 candidate；已交给独立代理修复并补 v4 undo/redo 回归，根代理在 T10 阶段验证。
+- 受众边界：GM/玩家必须先过滤来源与绑定地形，再派生/绘制效果；GM 私密来源不能通过过渡改变玩家图像或 mask。
+
+\n

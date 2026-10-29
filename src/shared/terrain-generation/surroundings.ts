@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from './composition-contracts.js'
 import { z } from 'zod'
 import type { BoundsMm, PointMm, Prop, SceneDocument } from '../model/scene.js'
 import type { SurroundingsOperation } from './contracts.js'
@@ -32,9 +33,9 @@ const pointRingDistance = (p: PointMm, ring: PointMm[]) => {
 }
 
 export function canRegenerateProp(scene: SceneDocument, prop: Prop): boolean {
-  const owner = Object.values(scene.generation!.ownership).find(row => row.target.kind === 'prop' && row.target.entityId === prop.id)
+  const owner = Object.values(getLegacyGeneration(scene)!.ownership).find(row => row.target.kind === 'prop' && row.target.entityId === prop.id)
   if (!owner || owner.state !== 'managed' || owner.manualFields.length || !owner.managedFields.includes('geometry') || !owner.managedFields.includes('source') || prop.editLocked || scene.userLayers[scene.entityLayers[prop.id]]?.editLocked) return false
-  const rule = scene.generation!.rules[owner.ruleId]
+  const rule = getLegacyGeneration(scene)!.rules[owner.ruleId]
   if (!rule || rule.state !== 'active' || rule.editLocked || scene.userLayers[rule.layerId]?.editLocked) return false
   if (Object.values(scene.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === prop.id)) return false
   if ([...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)].some(group => Object.values(group.members).some(member => member.propId === prop.id))) return false
@@ -56,7 +57,7 @@ export function surroundingsProtectedPolygons(scene: SceneDocument, floorId: str
   for (const door of Object.values(scene.openings).filter(row => row.floorId === floorId && row.kind === 'door')) {
     const [a,b]=openingEndpoints(scene,door);result.push(corridor(a,b,2400,true))
   }
-  for (const row of Object.values(scene.generation!.constraints)) if(row.floorId===floorId) {
+  for (const row of Object.values(getLegacyGeneration(scene)!.constraints)) if(row.floorId===floorId) {
     if(row.kind==='activityArea') result.push(row.boundaryMm)
     if(row.kind==='route') for(let i=1;i<row.pointsMm.length;i++)result.push(corridor(row.pointsMm[i-1],row.pointsMm[i],row.minWidthMm+600,true))
   }
@@ -97,11 +98,11 @@ export function surroundingsCurves(scene: SceneDocument, request: SurroundingsRe
 export function regenerateSurroundingsScenery(scene: SceneDocument, before: SceneDocument, request: SurroundingsRequest): void {
   if(!request.regenerateScenery)return
   const protectedPolygons=surroundingsProtectedPolygons(scene,request.floorId)
-  const exclusions=Object.values(scene.generation!.exclusions).filter(row=>row.floorId===request.floorId).map(row=>row.boundaryMm)
+  const exclusions=Object.values(getLegacyGeneration(scene)!.exclusions).filter(row=>row.floorId===request.floorId).map(row=>row.boundaryMm)
   for(const prop of Object.values(scene.props).sort((a,b)=>a.id.localeCompare(b.id))){
     if(prop.floorId!==request.floorId||!canRegenerateProp(before,prop)||!propVisualPolygon(prop).every(p=>contains(p,request.scopeMm))||!propFootprint(prop).every(p=>contains(p,request.scopeMm)))continue
-    const owner=Object.values(before.generation!.ownership).find(row=>row.target.entityId===prop.id)!
-    const rule=before.generation!.rules[owner.ruleId]
+    const owner=Object.values(getLegacyGeneration(before)!.ownership).find(row=>row.target.entityId===prop.id)!
+    const rule=getLegacyGeneration(before)!.rules[owner.ruleId]
     if(rule.editLocked||before.userLayers[rule.layerId]?.editLocked)throw new Error(`外围自动布景规则已锁定：${rule.id}。`)
     const original=cloneJson(prop.positionMm)
     for(let index=0;index<48;index++){

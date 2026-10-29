@@ -14,7 +14,7 @@ import { canonicalJson, cloneJson } from '../../src/shared/validation/json.js'
 import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import * as authoringCore from '../../src/shared/ai/authoring.js'
 import { AUTHORING_LIMITS, type AuthoringDraft, type AuthoringStart, type DraftClaim } from '../../src/shared/ai/authoring-protocol.js'
-import { AI_LIMITS, utf8Size, type TaskSnapshot } from '../../src/shared/ai/protocol.js'
+import { AI_LIMITS, ToolResultSchema, utf8Size, type TaskSnapshot } from '../../src/shared/ai/protocol.js'
 import { createAiApp, connectionInfo } from './app.js'
 import { loadAiConfig } from './config.js'
 import { TaskFault, TaskStore } from './store.js'
@@ -24,6 +24,7 @@ import { emptyVisualSystem } from '../../src/shared/visual/types.js'
 import { PROVIDER_REASONING_BYTES, type ProviderAdapter, type ProviderCompletion, type ProviderInput, type ProviderToolCall } from './provider-types.js'
 import { terrainAuthoringFixture } from '../../tests/helpers/terrain-authoring-fixture.js'
 import { RegionSceneCandidateToolOutputSchema } from '../../src/shared/ai/region-candidate-protocol.js'
+import { createProviderCooldown } from './request-scheduler.js'
 
 const stamp = '2026-10-24T00:00:00.000Z', token = 'a'.repeat(40), tokenB = 'b'.repeat(40)
 const cleanups: (() => void)[] = []
@@ -105,6 +106,25 @@ async function ready(subject: ReturnType<typeof setup>) {
 }
 
 describe('isolated AI prop authoring backend', () => {
+  it('sends only the frozen granted operation branches on each real engine tool round', async () => {
+    const inputs: ProviderInput[] = [], subject = setup({ complete: async input => {
+      inputs.push(input)
+      return inputs.length === 1 ? done([edit()]) : done()
+    } })
+    const created = await (await subject.create()).json() as TaskSnapshot
+    await wait(subject.store, created.id)
+    expect(inputs).toHaveLength(2)
+    for (const input of inputs) {
+      expect(input.tools.some(tool => tool.name.startsWith('sceneweave_terrain_') || tool.name === 'sceneweave_region_scene_candidate')).toBe(false)
+      expect(input.tools.some(tool => tool.name === 'sceneweave_propose_boundary' || tool.name === 'sceneweave_apply_boundary_candidates')).toBe(false)
+      for (const name of ['sceneweave_edit_scene', 'sceneweave_edit_props']) {
+        const parameters = input.tools.find(tool => tool.name === name)!.parameters as { properties: { operations: { items: { oneOf: { properties: { kind: { const: string } } }[] } } } }
+        expect(parameters.properties.operations.items.oneOf.map(branch => branch.properties.kind.const)).toEqual(['place', 'transform', 'opacity'])
+      }
+    }
+    expect(subject.store.read(created.id).authoring!.state.steps).toHaveLength(1)
+    expect(subject.store.read(created.id).snapshot.tools[0].success).toBe(true)
+  })
   it('serves a complete regional scene candidate only for its exact task, draft and scope stamp', async () => {
     const source = terrainAuthoringFixture(false, true)
     const generated = applyAuthoringStep(source, replayAuthoring(source, []).state, [{ kind: 'regionalGenerate', request: {
@@ -393,7 +413,10 @@ describe('isolated AI prop authoring backend', () => {
     expect(refused.success).toBe(false); expect(refused.output).not.toContain('SECRET_GM_PROP')
   })
   it('records claims only against the immutable brief and reports unverified prose, missing furniture and finite budget', async () => {
-    const source = start(); source.brief = { recipe: 'interior', requirements: ['Warm, furnished room'], requiredDefinitionIds: ['definition'] }
+    const source = start(); source.brief = { recipe: 'interior', requirements: ['Warm, furnished room'], requiredDefinitionIds: ['definition'], checks: [
+      { kind: 'propCount', id: 'first-evidence-check', definitionIds: ['definition'], minimum: 1 },
+      { kind: 'propCount', id: 'second-evidence-check', definitionIds: ['definition'], minimum: 2 },
+    ] }
     let round = 0
     const subject = setup({ complete: async () => ++round === 1 ? done([edit()]) : done() })
     const snapshot = await (await subject.create(source)).json() as TaskSnapshot
@@ -405,12 +428,19 @@ describe('isolated AI prop authoring backend', () => {
     expect(task.snapshot.authoring?.plan).toEqual(plan)
     const materialEvidence = { ...plan, requirements: [{ ...plan.requirements[0], evidenceIds: ['target', 'definition'] }] }
     expect(executeAuthoringTool(task, call('plan-definition', 'sceneweave_plan_draft', materialEvidence), materialEvidence).success).toBe(true)
-    const before = cloneJson(task.authoring!.plan)
-    for (const requirements of [[{ index: 1, state: 'claimed', evidenceIds: ['target'] }], [{ index: 0, state: 'claimed', evidenceIds: ['SECRET_GM_PROP'] }], [{ index: 0, state: 'claimed', evidenceIds: [] }]]) {
+    const before = canonicalJson(task)
+    for (const [requirements, code, hint] of [
+      [[{ index: 1, state: 'claimed', evidenceIds: ['target'] }], 'invalid_arguments', 'valid indices are 0 through 0'],
+      [[{ index: 0, state: 'claimed', evidenceIds: ['SECRET_GM_PROP'] }], 'outside_scope', undefined],
+      [[{ index: 0, state: 'claimed', evidenceIds: [] }], 'invalid_arguments', 'claimed entries need authorised evidenceIds'],
+      [[{ index: 0, state: 'pending', evidenceIds: [] }, { index: 0, state: 'claimed', evidenceIds: ['target'] }], 'invalid_arguments', 'each index at most once'],
+      [[{ index: 16, state: 'pending', evidenceIds: [] }], 'invalid_arguments', 'brief.checks/evidenceChecks'],
+    ] as const) {
       const args = { phase: 'review', requirements }
       const result = executeAuthoringTool(task, call('invalid-plan', 'sceneweave_plan_draft', args), args)
       expect(result.success).toBe(false); expect(result.output).not.toContain('SECRET_GM_PROP')
-      expect(task.authoring!.plan).toEqual(before)
+      expect(JSON.parse(result.output)).toMatchObject({ error: { code, ...(hint ? { hint: expect.stringContaining(hint) } : {}) } })
+      expect(canonicalJson(task)).toBe(before)
     }
     const diagnosed = executeAuthoringTool(task, call('diagnose', 'sceneweave_diagnose_draft', {}), {})
     expect(diagnosed.success).toBe(true)
@@ -418,6 +448,16 @@ describe('isolated AI prop authoring backend', () => {
     expect(diagnosed.output).not.toContain('PRIVATE_GM_PROJECT_TITLE')
     const bad = cloneJson(source); bad.brief!.requiredDefinitionIds = ['ungranted']
     expect((await subject.create(bad)).status).toBe(400)
+  })
+  it('refuses requirement registration without a frozen brief without changing the task or echoing submitted prose', async () => {
+    const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) })
+    const snapshot = await (await subject.create()).json() as TaskSnapshot, task = subject.store.read(snapshot.id), before = canonicalJson(task)
+    const args = { phase: 'layout', requirements: [{ index: 0, state: 'pending', evidenceIds: [], note: 'PRIVATE_SUBMITTED_PROSE' }] }
+    const result = executeAuthoringTool(task, call('no-brief', 'sceneweave_plan_draft', args), args)
+    expect(result.success).toBe(false)
+    expect(JSON.parse(result.output)).toMatchObject({ error: { code: 'invalid_arguments', hint: expect.stringContaining('brief.requirements') } })
+    expect(result.output).not.toContain('PRIVATE_SUBMITTED_PROSE')
+    expect(canonicalJson(task)).toBe(before)
   })
   it('requires full valid metadata, exact base/context and disclosure before any provider call', async () => {
     const complete = vi.fn(async () => done()), subject = setup({ complete })
@@ -480,6 +520,68 @@ describe('isolated AI prop authoring backend', () => {
     const invalid = run({ query: '', limit: 1, offset: -1 })
     expect(invalid.success).toBe(false)
     expect(JSON.parse(invalid.output)).toMatchObject({ error: { code: 'invalid_arguments', issues: [{ path: 'offset' }] } })
+  })
+  it('fits complete escaped asset receipts with final-round budget guidance and returns every granted entry exactly once', async () => {
+    const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) }), source = start()
+    source.brief = { recipe: 'custom', requirements: ['Browse the public palette'] }
+    const definition = source.project.document.propDefinitions.definition, binding = source.project.licenseBindings[0]
+    for (let index = 0; index < 12; index++) {
+      const id = `palette-${String(index).padStart(2, '0')}`
+      source.project.document.propDefinitions[id] = { ...cloneJson(definition), id, catalogId: `test.palette.${index}`, name: '"\\苔'.repeat(100), tags: ['"\\中文', 'public'] }
+      source.project.licenseBindings.push({ ...binding, subjectId: id })
+      source.scope.placement!.definitionIds.push(id)
+    }
+    const hidden = { ...cloneJson(definition), id: 'UNGRANTED_ASSET', catalogId: 'test.ungranted', name: 'PRIVATE_PALETTE_ENTRY' }
+    source.project.document.propDefinitions[hidden.id] = hidden
+    source.project.licenseBindings.push({ ...binding, subjectId: hidden.id })
+    source.baseContentHash = authoringProjectHash(source.project)
+    const response = await subject.create(source)
+    expect(response.status).toBe(201)
+    const snapshot = await response.json() as TaskSnapshot, task = subject.store.read(snapshot.id)
+    task.snapshot.usage.requests = 14
+    const before = canonicalJson(task), toolCall = call('escaped-palette-'.repeat(8), 'sceneweave_find_assets', {})
+    // This is a legal page under the old raw-output cutoff, but nested receipt
+    // escaping alone exceeds 8KiB even before budget guidance is included.
+    let oldPage = authoringCore.authoringAssetPage(source, '', 20)
+    while (utf8Size(JSON.stringify(oldPage)) > 7800 && oldPage.assets.length > 1) oldPage = { ...oldPage, assets: oldPage.assets.slice(0, -1), nextOffset: oldPage.assets.length - 1 }
+    expect(utf8Size(JSON.stringify(oldPage))).toBeLessThanOrEqual(7800)
+    expect(utf8Size(JSON.stringify({ callId: toolCall.id, name: toolCall.name, success: true, output: JSON.stringify(oldPage) }))).toBeGreaterThan(8192)
+    const seen: string[] = []
+    let offset: number | null = 0, pages = 0
+    while (offset !== null && pages++ < 20) {
+      const args = { query: '', limit: 20, offset }
+      const receipt = executeAuthoringTool(task, { ...toolCall, arguments: JSON.stringify(args) }, args, undefined,
+        { modelRequests: 16, toolCalls: 64, maxOutputTokens: 8192, executionRemainingMs: 234567 })
+      expect(receipt.success).toBe(true)
+      expect(ToolResultSchema.parse(receipt)).toEqual(receipt)
+      expect(utf8Size(JSON.stringify(receipt))).toBeLessThanOrEqual(8192)
+      const page = JSON.parse(receipt.output)
+      expect(page).toMatchObject({ total: 13, remainingModelRequests: 2, remainingToolCalls: 63, maxOutputTokens: 8192, remainingExecutionMs: 234567, finishGuidance: expect.any(String) })
+      expect(page.assets.length).toBeGreaterThan(0)
+      seen.push(...page.assets.map((asset: { id: string }) => asset.id))
+      expect(page.nextOffset).toBe(seen.length < 13 ? offset + page.assets.length : null)
+      expect(receipt.output).not.toContain('PRIVATE_'); expect(receipt.output).not.toContain('UNGRANTED_ASSET')
+      offset = page.nextOffset
+    }
+    expect(offset).toBeNull()
+    expect(pages).toBeGreaterThan(1)
+    expect(seen).toEqual([...source.scope.placement!.definitionIds].sort())
+    expect(canonicalJson(task)).toBe(before)
+  })
+  it('refuses a single indivisible oversized palette entry without truncating it or changing the task', async () => {
+    const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) }), source = start()
+    source.brief = { recipe: 'custom', requirements: ['Browse'] }
+    source.project.document.propDefinitions.definition.name = '"\\中文'.repeat(1500)
+    source.baseContentHash = authoringProjectHash(source.project)
+    const response = await subject.create(source)
+    expect(response.status).toBe(201)
+    const snapshot = await response.json() as TaskSnapshot, task = subject.store.read(snapshot.id), before = canonicalJson(task)
+    const args = { query: '', limit: 20 }, result = executeAuthoringTool(task, call('one-huge-entry', 'sceneweave_find_assets', args), args)
+    expect(result.success).toBe(false)
+    expect(ToolResultSchema.parse(result)).toEqual(result)
+    expect(JSON.parse(result.output)).toMatchObject({ error: { code: 'tool_output_limit' } })
+    expect(utf8Size(JSON.stringify(result))).toBeLessThanOrEqual(8192)
+    expect(canonicalJson(task)).toBe(before)
   })
   it('identifies the failing scene recipe with a fixed boundary hint and keeps the whole step atomic', async () => {
     const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) }), authoring = start()
@@ -729,6 +831,196 @@ describe('isolated AI prop authoring backend', () => {
     expect(replayAuthoring(task.authoring!.start, task.authoring!.state.steps).project.document.props.target.appearance.opacity).toBe(.5)
     expect(task.messages.filter(message => message.role === 'tool')).toHaveLength(1)
     expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'draft_updated')).toHaveLength(1)
+  })
+  it.each([
+    { executionMs: 300000, remainingMs: 30000, final: true },
+    { executionMs: 300000, remainingMs: 29999, final: true },
+    { executionMs: 300000, remainingMs: 30001, final: false },
+    { executionMs: 100000, remainingMs: 10000, final: true },
+    { executionMs: 100000, remainingMs: 10001, final: false },
+    { executionMs: 600000, remainingMs: 30000, final: true },
+    { executionMs: 600000, remainingMs: 30001, final: false },
+  ])('reserves an authoring text-only finish with $remainingMs ms left in a $executionMs ms budget (final=$final)', async ({ executionMs, remainingMs, final }) => {
+    const now = { value: 1000 }, inputs: ProviderInput[] = [], finalText = '只完成了目标调整；其余需求及视觉仍未检验，部分草稿尚未采用。'
+    const source = start(); source.brief = { recipe: 'interior', requirements: ['An entire furnished interior with verified visual quality'] }
+    const baseline = canonicalJson(source.project)
+    const subject = setup({ complete: async input => {
+      inputs.push(input)
+      if (inputs.length === 1) {
+        now.value += executionMs - remainingMs
+        return done([edit()])
+      }
+      await input.onText(finalText)
+      return { ...done(), text: finalText }
+    } }, now, { executionMs })
+    const snapshot = await (await subject.create(source)).json() as TaskSnapshot
+    const waiting = await wait(subject.store, snapshot.id), task = subject.store.read(snapshot.id)
+    expect(inputs).toHaveLength(2)
+    expect(inputs[0].tools.length).toBeGreaterThan(0)
+    expect(inputs[1].tools.length === 0).toBe(final)
+    const timeMessage = inputs[1].messages.find(message => message.role === 'system' && message.content?.includes('final request before the task execution time limit'))
+    expect(!!timeMessage).toBe(final)
+    if (final) {
+      expect(timeMessage!.content).toContain('unmet requirements')
+      expect(timeMessage!.content).toContain('incomplete or unverified requirements')
+      expect(timeMessage!.content).toContain('no main project has been changed or adopted')
+    }
+    expect(waiting).toMatchObject({ status: 'waiting_browser', text: finalText, error: null,
+      usage: { requests: 2, inputTokens: 20, outputTokens: 16, unknown: false }, authoring: { draftRevision: 1, claim: null } })
+    expect(task.authoring!.claim).toBeUndefined()
+    expect(task.authoring!.state.steps).toHaveLength(1)
+    expect(canonicalJson(task.authoring!.start.project)).toBe(baseline)
+    expect(canonicalJson(source.project)).toBe(baseline)
+    expect(subject.store.remaining(task)).toBe(remainingMs)
+    const stamp = { expectedGeneration: waiting.generation, draftRevision: waiting.authoring!.draftRevision, contentHash: waiting.authoring!.contentHash }
+    expect((await subject.request(`/v1/tasks/${snapshot.id}/draft/claim`, 'POST', { ...stamp, claimId: randomUUID() })).status).toBe(409)
+    expect(subject.store.read(snapshot.id).snapshot.status).toBe('waiting_browser')
+  })
+  it.each([{ modelRequests: 16, code: 'execution_limit' }, { modelRequests: 2, code: 'request_limit' }])('refuses every time-final tool atomically and keeps completed usage with $code', async ({ modelRequests, code }) => {
+    const now = { value: 1000 }, inputs: ProviderInput[] = []
+    const subject = setup({ complete: async input => {
+      inputs.push(input)
+      if (inputs.length === 1) {
+        now.value += 270000
+        return done([edit()])
+      }
+      return done([
+        call('forbidden-time-edit-one', 'sceneweave_edit_props', { operations: [{ kind: 'opacity', id: 'target', value: .1 }] }),
+        call('forbidden-time-edit-two', 'sceneweave_edit_props', { operations: [{ kind: 'transform', id: 'target', positionMm: { x: 4500, y: 4500 } }] }),
+      ])
+    } }, now, { modelRequests })
+    const snapshot = await (await subject.create()).json() as TaskSnapshot
+    const failed = await wait(subject.store, snapshot.id, 'failed'), task = subject.store.read(snapshot.id)
+    expect(inputs).toHaveLength(2); expect(inputs[1].tools).toEqual([])
+    expect(failed.error).toMatchObject({ code, requestState: 'finished', retryable: false })
+    expect(failed.usage).toMatchObject({ requests: 2, inputTokens: 20, outputTokens: 16, unknown: false })
+    expect(task.completedRequests).toBe(2)
+    expect(task.toolAttempts).toBe(1)
+    expect(failed.tools).toHaveLength(1)
+    expect(task.authoring!.state.steps).toHaveLength(1)
+    expect(task.authoring!.state.operationCost).toBe(1)
+    expect(task.authoring!.claim).toBeUndefined()
+    expect(Object.keys(task.calls)).toEqual(['edit'])
+    expect(replayAuthoring(task.authoring!.start, task.authoring!.state.steps).project.document.props.target).toMatchObject({ positionMm: { x: 4000, y: 4000 }, appearance: { opacity: .5 } })
+    expect(task.messages.filter(message => message.role === 'tool')).toHaveLength(1)
+    expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'draft_updated')).toHaveLength(1)
+  })
+  it('keeps the original hard deadline for a stalled time-final provider and preserves unknown usage after a late reply', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let subject: ReturnType<typeof setup> | undefined
+    try {
+      const now = { value: 1000 }, inputs: ProviderInput[] = []
+      let finalEntered!: () => void, finishLate!: (value: ProviderCompletion) => void
+      const entered = new Promise<void>(resolve => { finalEntered = resolve })
+      subject = setup({ complete: async input => {
+        inputs.push(input)
+        if (inputs.length === 1) {
+          now.value += 270000
+          return done([edit()])
+        }
+        // Deliberately ignore abort here: even an upstream late response must
+        // not earn another time budget or install a finished usage receipt.
+        return new Promise<ProviderCompletion>(resolve => { finishLate = resolve; finalEntered() })
+      } }, now)
+      const snapshot = await (await subject.create()).json() as TaskSnapshot
+      await entered
+      expect(inputs).toHaveLength(2); expect(inputs[1].tools).toEqual([])
+      now.value = 300999
+      await vi.advanceTimersByTimeAsync(299999)
+      expect(subject.store.read(snapshot.id).snapshot.status).toBe('running')
+      expect(subject.store.remaining(subject.store.read(snapshot.id))).toBe(1)
+      expect(inputs[1].signal.aborted).toBe(false)
+      now.value = 301000
+      await vi.advanceTimersByTimeAsync(1)
+      const failed = subject.store.read(snapshot.id)
+      expect(failed.snapshot).toMatchObject({ status: 'failed', error: { code: 'execution_limit', requestState: 'unknown', retryable: false },
+        usage: { requests: 2, unknown: true } })
+      expect(inputs[1].signal.aborted).toBe(true)
+      expect(failed.completedRequests).toBe(1)
+      expect(failed.runtimeMs).toBe(300000)
+      expect(failed.runStartedAt).toBeNull()
+      expect(subject.store.remaining(failed)).toBe(0)
+      expect(failed.authoring!.state.steps).toHaveLength(1)
+      expect(failed.snapshot.tools).toHaveLength(1)
+      const beforeLate = canonicalJson(failed)
+      finishLate(done())
+      await vi.advanceTimersByTimeAsync(0)
+      expect(inputs).toHaveLength(2)
+      expect(canonicalJson(subject.store.read(snapshot.id))).toBe(beforeLate)
+    } finally {
+      subject?.shutdown()
+      vi.useRealTimers()
+    }
+  })
+  it.each([252000, 282000])('accounts for a 10-second runner cooldown before selecting the final round after %i ms', async elapsedBeforeCooldown => {
+    const now = { value: 1000 }, inputs: ProviderInput[] = [], observedRequests: number[] = []
+    let subject!: ReturnType<typeof setup>, acquisitions = 0
+    subject = setup({ complete: async input => {
+      inputs.push(input)
+      if (inputs.length === 1) { now.value += elapsedBeforeCooldown; return done([edit()]) }
+      return done()
+    } }, now, undefined, { requestScheduler: { cooldownMs: 10000, acquire: async signal => {
+      signal.throwIfAborted()
+      if (++acquisitions > 1) {
+        const task = subject.store.list('alice')[0]
+        observedRequests.push(task.usage.requests)
+        now.value += 10000
+      }
+      return () => {}
+    } } })
+    const snapshot = await (await subject.create()).json() as TaskSnapshot
+    const waiting = await wait(subject.store, snapshot.id)
+    expect(inputs).toHaveLength(2)
+    expect(inputs[0].tools.length).toBeGreaterThan(0)
+    expect(inputs[1].tools).toEqual([])
+    expect(inputs[1].messages.at(-1)?.content).toContain('final request before the task execution time limit')
+    expect(observedRequests).toEqual([1])
+    expect(waiting.usage).toMatchObject({ requests: 2, unknown: false })
+    expect(subject.store.read(snapshot.id).runtimeMs).toBe(elapsedBeforeCooldown + 10000)
+    expect(subject.store.read(snapshot.id).authoring!.state.steps).toHaveLength(1)
+  })
+  it('counts a hard deadline during cooldown without starting another model request or inventing unknown billing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    vi.setSystemTime(1000)
+    let subject: ReturnType<typeof setup> | undefined
+    try {
+      const complete = vi.fn(async () => done())
+      const scheduler = createProviderCooldown(10000, { lastCompletedAt: Date.now() })
+      subject = setup({ complete }, { value: 1000 }, { executionMs: 1000 }, { requestScheduler: scheduler })
+      const snapshot = await (await subject.create()).json() as TaskSnapshot
+      expect(subject.store.read(snapshot.id).snapshot.usage.requests).toBe(0)
+      subject.now.value += 1000
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(complete).not.toHaveBeenCalled()
+      expect(subject.store.read(snapshot.id).snapshot).toMatchObject({ status: 'failed',
+        error: { code: 'execution_limit', requestState: 'not_sent', retryable: false }, usage: { requests: 0 } })
+      expect(subject.store.read(snapshot.id).completedRequests).toBe(0)
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(complete).not.toHaveBeenCalled()
+    } finally { subject?.shutdown(); vi.useRealTimers() }
+  })
+  it('leaves ordinary conversation tools available inside the same relative time reserve', async () => {
+    const now = { value: 1000 }, inputs: ProviderInput[] = []
+    const subject = setup({ complete: async input => {
+      inputs.push(input)
+      if (inputs.length === 1) {
+        now.value += AI_LIMITS.executionMs - 5000
+        return done([call('connection-near-deadline', 'sceneweave_connection_info', { topic: 'connection' })])
+      }
+      return done()
+    } }, now)
+    const snapshot = await (await subject.request('/v1/tasks', 'POST', { schemaVersion: 1, clientRequestId: randomUUID(), prompt: 'Read the connection.', context: null })).json() as TaskSnapshot
+    const completed = await wait(subject.store, snapshot.id, 'completed'), task = subject.store.read(snapshot.id)
+    expect(inputs).toHaveLength(2)
+    for (const input of inputs) {
+      expect(input.tools.map(value => value.name)).toEqual(['sceneweave_connection_info'])
+      expect(input.maxOutputTokens).toBe(AI_LIMITS.maxOutputTokensPerRequest)
+      expect(input.messages.filter(message => message.role === 'system')).toHaveLength(1)
+    }
+    expect(completed).toMatchObject({ status: 'completed', error: null, usage: { requests: 2, unknown: false } })
+    expect(completed.tools).toHaveLength(1)
+    expect(task.authoring).toBeUndefined()
+    expect(subject.store.remaining(task)).toBe(5000)
   })
   it('rolls back the complete draft round if a later invalid provider call prevents its checkpoint', async () => {
     const subject = setup({ complete: async () => done([edit(), call('invalid id', 'sceneweave_check_draft', {})]) })

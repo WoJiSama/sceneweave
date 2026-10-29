@@ -90,7 +90,7 @@ export function createAppearanceGraph(input: SceneDocument): AppearanceGraph {
   const checked = validateSceneSnapshot(input)
   if (!checked.ok) throw new Error(`外观源场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   const document = checked.document
-  const graph: AppearanceGraph = { version: document.schemaVersion === 3 ? 2 : 1, ...(document.schemaVersion === 3 ? { presentations: {} } : {}), sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }
+  const graph: AppearanceGraph = { version: document.schemaVersion >= 3 ? 2 : 1, ...(document.schemaVersion >= 3 ? { presentations: {} } : {}), sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }
   for (const prop of Object.values(document.props)) graph.propSources[prop.id] = addPropAppearanceSource(graph, prop)
   for (const entity of enumerateLayerEntities(document)) {
     const style = surfaceStyle(document, entity.id)

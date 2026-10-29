@@ -12,8 +12,11 @@ import { VISUAL_ENTITY_COLLECTIONS, visualBindingEntityIds } from './diagnostics
 import { sampleVisualBoundary, terrainBoundaryChain } from './geometry.js'
 import { emptyVisualSystem, type VisualBoundary, type VisualEntity, type VisualSystem } from './types.js'
 import { visualBoundarySchema, visualEdgeLookSchema, visualEnvironmentSchema, visualFilterSchema, visualFogSchema, visualLightSchema } from './schema.js'
+import { getLegacyVisual, visual3TransitionSchema, type TerrainTransition } from '../terrain-generation/composition-contracts.js'
 
 export const visualCommandSchemas = [
+  z.object({ type: z.literal('upsertTerrainTransition'), transition: visual3TransitionSchema }).strict(),
+  z.object({ type: z.literal('removeTerrainTransition'), id }).strict(),
   z.object({ type: z.literal('upsertVisualBoundary'), boundary: visualBoundarySchema }).strict(),
   z.object({ type: z.literal('removeVisualBoundary'), id, detach: z.boolean() }).strict(),
   z.object({ type: z.literal('upsertVisualEdgeLook'), edgeLook: visualEdgeLookSchema }).strict(),
@@ -54,6 +57,8 @@ function assertVisualWritable(scene: SceneDocument, incoming: VisualEntity, prev
 export function visualCommandRootIds(scene: SceneDocument, command: VisualCommand): string[] {
   const visual = visualBase(scene)
   switch (command.type) {
+    case 'upsertTerrainTransition': return [command.transition.id, command.transition.boundaryId]
+    case 'removeTerrainTransition': return [command.id]
     case 'upsertVisualBoundary': return [command.boundary.id, ...visualBindingEntityIds(command.boundary), ...(visual?.boundaries[command.boundary.id] ? visualBindingEntityIds(visual.boundaries[command.boundary.id]) : [])]
     case 'removeVisualBoundary': return [command.id, ...(visual?.boundaries[command.id] ? visualBindingEntityIds(visual.boundaries[command.id]) : [])]
     case 'upsertVisualEdgeLook': return [command.edgeLook.id, command.edgeLook.boundaryId]
@@ -67,7 +72,8 @@ export function visualCommandRootIds(scene: SceneDocument, command: VisualComman
 }
 function checkPhysicalLocks(scene: SceneDocument, ids: readonly string[]): void {
   const base = visualBase(scene)
-  const materialized = scene.visual?.version === 2 ? scene.visual.materializedEdges : {}
+  const materialized = getLegacyVisual(scene)?.materializedEdges ?? {}
+  const transitions = scene.visual?.version === 3 ? scene.visual.transitions : {}
   const entities = physicalEntities(scene), locked = [...new Set(ids)].filter(id => {
     const entity = entities.get(id)
     if (entity && (entity.editLocked || scene.userLayers[scene.entityLayers[id]]?.editLocked)) return true
@@ -77,6 +83,8 @@ function checkPhysicalLocks(scene: SceneDocument, ids: readonly string[]): void 
     }
     const edge = own(materialized, id)
     if (edge && (edge.editLocked || scene.userLayers[edge.layerId]?.editLocked)) return true
+    const transition = own(transitions, id)
+    if (transition && (transition.editLocked || scene.userLayers[transition.layerId]?.editLocked)) return true
     return false
   })
   if (locked.length) throw new Error(`视觉事务涉及锁定对象、图层或依赖：${locked.join('、')}。`)
@@ -206,8 +214,13 @@ function spatialTargets(scene: SceneDocument, entity: VisualSystem['lights'][str
 }
 function effectDependencies(scene: SceneDocument, command: VisualCommand): string[] {
   const visual = visualBase(scene)
-  const materialized = scene.visual?.version === 2 ? scene.visual.materializedEdges : {}
+  const materialized = getLegacyVisual(scene)?.materializedEdges ?? {}
+  const transitions = scene.visual?.version === 3 ? scene.visual.transitions : {}
   const roots = visualCommandRootIds(scene, command), result = new Set<string>(roots)
+  if (command.type === 'upsertTerrainTransition' || command.type === 'removeTerrainTransition') {
+    const transition = command.type === 'upsertTerrainTransition' ? command.transition : transitions[command.id]
+    if (transition) { result.add(transition.boundaryId); result.add(transition.id) }
+  }
   if (command.type === 'upsertVisualBoundary' || command.type === 'removeVisualBoundary') for (const id of outdoorDependencies(scene, roots)) result.add(id)
   if (command.type === 'setVisualSurface') for (const id of relatedVisualLocks(scene, [command.id])) result.add(id)
   for (const root of roots) {
@@ -239,6 +252,24 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
   const visual = visualBase(scene)
   if (!visual) throw new Error('视觉指令需要完整视觉系统。')
   switch (command.type) {
+    case 'upsertTerrainTransition': {
+      if (scene.schemaVersion !== 4 || scene.visual?.version !== 3) throw new Error('地形过渡需要严格scene4/visual3。')
+      const previous = scene.visual.transitions[command.transition.id]
+      if (previous) {
+        if (previous.editLocked || previous.floorId !== command.transition.floorId || previous.boundaryId !== command.transition.boundaryId) throw new Error('过渡已锁定或不能更换来源边界。')
+      } else if (geometryIdentityIds(scene).has(command.transition.id) || Object.hasOwn(scene.visual.transitions, command.transition.id)) throw new Error('过渡身份ID已被其他记录占用。')
+      assertVisualWritable(scene, command.transition, previous)
+      scene.visual.transitions[command.transition.id] = cloneJson(command.transition)
+      break
+    }
+    case 'removeTerrainTransition': {
+      if (scene.schemaVersion !== 4 || scene.visual?.version !== 3) throw new Error('地形过渡需要严格scene4/visual3。')
+      const previous = scene.visual.transitions[command.id]
+      if (!previous) throw new Error('待移除的过渡不存在。')
+      assertVisualWritable(scene, previous, previous)
+      delete scene.visual.transitions[command.id]
+      break
+    }
     case 'upsertVisualBoundary': applyBoundary(scene, command.boundary, context); break
     case 'removeVisualBoundary': {
       const boundary = own(visual.boundaries, command.id)
@@ -246,7 +277,7 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
       assertVisualWritable(scene, boundary, boundary)
       if (boundary.binding.kind !== 'decoration' && !command.detach) throw new Error('物理曲线须明确detach=true，保留当前几何后解除控制。')
       if (Object.values(visual.edgeLooks).some(edge => edge.boundaryId === boundary.id)) throw new Error('边界仍有边缘外观，请先显式移除外观。')
-      if (scene.visual?.version === 2 && Object.values(scene.visual.materializedEdges).some(edge => edge.boundaryId === boundary.id)) {
+      if (Object.values(getLegacyVisual(scene)?.materializedEdges ?? {}).some(edge => edge.boundaryId === boundary.id)) {
         throw new Error('边界仍有物化边缘，请先通过明确候选处理依赖；不能只移除来源曲线。')
       }
       delete visual.boundaries[command.id]; break
@@ -272,14 +303,19 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
     }
   }
 }
-function diffRecord(before: Record<string, unknown>, after: Record<string, unknown>): number {
-  return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(id => !equal(before[id], after[id])).length
+function diffRecord(before: Record<string, unknown>, after: Record<string, unknown>, extra: (value: unknown) => number = () => 0): number {
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(id => !equal(before[id], after[id])).reduce((sum, id) => sum + 1 + Math.max(extra(before[id]), extra(after[id])), 0)
 }
 /** Count real control records, sampled points/segments, entities and path samples; no hidden batching. */
 export function visualCommandCost(before: SceneDocument, after: SceneDocument): number {
   let cost = inspectOutdoorChanges(before, after, []).commandCost
   if (before.schemaVersion !== after.schemaVersion) cost++
   for (const collection of VISUAL_ENTITY_COLLECTIONS) cost += diffRecord(visualBase(before)?.[collection] ?? {}, visualBase(after)?.[collection] ?? {})
+  const transitions = (scene: SceneDocument) => scene.visual?.version === 3 ? scene.visual.transitions : {}
+  cost += diffRecord(transitions(before), transitions(after), value => {
+    const row = value as TerrainTransition | undefined
+    return row ? row.polygons.reduce((sum, polygon) => sum + polygon.pointsMm.length, 0) + row.strokes.reduce((sum, stroke) => sum + stroke.pointsMm.length, 0) : 0
+  })
   for (const id of new Set([...Object.keys(visualBase(before)?.boundaries ?? {}), ...Object.keys(visualBase(after)?.boundaries ?? {})])) {
     const segments = (scene: SceneDocument) => Object.fromEntries((visualBase(scene)?.boundaries[id]?.segments ?? []).map(segment => [segment.id, segment]))
     cost += diffRecord(segments(before), segments(after))
@@ -302,7 +338,8 @@ export function inspectVisualChanges(before: Readonly<SceneDocument>, after: Rea
   const physical = inspectOutdoorChanges(before, after, roots)
   const visualIds = (document: Readonly<SceneDocument>) => new Map<string, { id: string; layerId: string }>([
     ...VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(visualBase(document)?.[collection] ?? {})),
-    ...Object.values(document.visual?.version === 2 ? document.visual.materializedEdges : {}),
+    ...Object.values(getLegacyVisual(document)?.materializedEdges ?? {}),
+    ...(document.visual?.version === 3 ? Object.values(document.visual.transitions) : []),
   ].map(entity => [entity.id, entity]))
   const a = visualIds(before), b = visualIds(after)
   const dependencies = [...new Set(commands.flatMap(command => [...effectDependencies(before, command), ...effectDependencies(after, command)]))]
