@@ -1,4 +1,5 @@
 import type { BoundsMm, GroundSurfaceRef, Issue, Opening, Path, PointMm, Prop, Room, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea, Wall } from '../model/scene.js'
+import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -439,7 +440,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   }
   for (const region of Object.values(scene.regions)) { polygon(region.boundaryMm, region.id, false); withinFloor(region.boundaryMm, region.floorId, region.id); if (region.kind === 'manualMask' && (region.blocksMovement || region.movementCostMultiplier !== 1)) error('MASK_MOVEMENT', '人工遮罩不能改变物理阻挡/代价。', region.id) }
   for (const group of Object.values(scene.scatterGroups)) {
-    if (group.algorithmVersion !== 'scatter-cell-v1') warnings.push({ code: 'UNSUPPORTED_SCATTER_ALGORITHM', message: '可编辑已采用结果；当前算法版本不可重新生成。', entityId: group.id })
+    if (!isSupportedScatterAlgorithm(group.algorithmVersion)) warnings.push({ code: 'UNSUPPORTED_SCATTER_ALGORITHM', message: '可编辑已采用结果；当前算法版本不可重新生成。', entityId: group.id })
     for (const exclusion of group.exclusions) polygon(exclusion.boundaryMm, exclusion.id, false)
     const domain = group.domain.kind === 'area' ? own(scene.terrainAreas, group.domain.areaId) : undefined
     const edge = group.domain.kind === 'edgeBand' ? own(scene.terrainEdges, group.domain.edgeId) : undefined

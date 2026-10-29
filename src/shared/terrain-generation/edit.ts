@@ -112,7 +112,8 @@ export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneD
     assertWritable(before,rule.id)
     const recipe=getLegacyGeneration(scene)!.recipes[rule.recipeRef.id]
     // Refreshing a hash is not an implementation of an arbitrary dependent algorithm.
-    const supportedTerrainAlgorithm = (recipe.algorithmId === 'terrain-scene' || recipe.algorithmId === 'terrain-scene-t3') && recipe.algorithmVersion === 1
+    const supportedTerrainAlgorithm = recipe.algorithmId === 'terrain-scene' && [1, 2].includes(recipe.algorithmVersion)
+      || recipe.algorithmId === 'terrain-scene-t3' && recipe.algorithmVersion === 1
     if(inputHash!==rule.inputHash||rule.kind!=='terrain'||!supportedTerrainAlgorithm)fail(`相关规则须独立重算，当前局部编辑不支持：${rule.id}。`)
     rule.managedOutputHash=outputHash
   }

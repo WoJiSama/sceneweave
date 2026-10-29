@@ -104,9 +104,9 @@ describe('visual projection audience and editor isolation', () => {
 })
 
 describe('native visual2 materialized edge projection', () => {
-  it('projects complete drawable geometry with no generation/source metadata and owns its disposable copies', () => {
+  it('projects complete drawable geometry and its visible boundary ID without generation hashes, owning its disposable copies', () => {
     const { scene, edge } = materializedFixture(), original = canonicalJson(scene), projected = projectScene(scene, 'player')
-    expect(projected.visual?.materializedEdges).toEqual([{ id: edge.id, kind: edge.kind, polygons: edge.polygons, strokes: edge.strokes, fillColor: edge.fillColor, opacity: edge.opacity }])
+    expect(projected.visual?.materializedEdges).toEqual([{ id: edge.id, boundaryId: edge.boundaryId, kind: edge.kind, polygons: edge.polygons, strokes: edge.strokes, fillColor: edge.fillColor, opacity: edge.opacity }])
     expect(projected.visual?.edgePaintOrder).toEqual([{ kind: 'materializedEdge', id: edge.id }])
     expect(projected.visual?.materializedEdges?.[0]).not.toHaveProperty('inputHash')
     expect(projected.visual?.materializedEdges?.[0]).not.toHaveProperty('layerId')

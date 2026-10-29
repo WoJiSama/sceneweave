@@ -184,18 +184,25 @@ function resetMember(content: CompositionContent, command: Extract<CompositionCo
 export function applyCompositionCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext): CompositionContent {
   return applyCompositionCommandsInternal(input, inputCommands, context, false)
 }
-/** Internal immutable draft only; complete resolving/materialization is still mandatory. */
-export function applyCompositionDraftCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext): CompositionContent {
-  return applyCompositionCommandsInternal(input, inputCommands, context, true)
+export interface CompositionOperationAccounting {
+  /** Internal same-transaction fixed-source additions; never persisted in the document. */
+  initialOperationCost?: number
+  onOperationCost?: (cost: number) => void
 }
-function applyCompositionCommandsInternal(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, ownedDraft: boolean): CompositionContent {
+/** Internal immutable draft only; complete resolving/materialization is still mandatory. */
+export function applyCompositionDraftCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, accounting?: CompositionOperationAccounting): CompositionContent {
+  return applyCompositionCommandsInternal(input, inputCommands, context, true, accounting)
+}
+function applyCompositionCommandsInternal(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, ownedDraft: boolean, accounting?: CompositionOperationAccounting): CompositionContent {
+  const initialCost = accounting?.initialOperationCost === undefined ? 0 : accounting.initialOperationCost
+  if (!Number.isSafeInteger(initialCost) || initialCost < 0 || initialCost > 256) throw new Error('初始事务预算须为0–256安全整数。')
   const source = ownedDraft ? certifyCompositionContent(input) : validateCompositionContent(input), issue = inspectJsonInput(inputCommands)
   if (issue) throw new Error(`组合指令无效：${issue.message}`)
   const parsed = schemas.safeParse(inputCommands)
   if (!parsed.success) throw new Error(`组合指令无效，单事务最多256条：${parsed.error.issues.map(issue => issue.message).join('；')}`)
   const commands = parsed.data as CompositionCommand[]
   for (const command of commands) if (['createTerrainArea', 'createTerrainEdge', 'createTerrainConnection', 'createPath', 'createScatter', 'createRegion'].includes(command.type) && 'id' in command) assertFresh(source, command.id)
-  if (!commands.length) return source
+  if (!commands.length) { accounting?.onOperationCost?.(initialCost); return source }
   const isComposition = commands.map(command => c3Types.has(command.type))
   if (isComposition.some(Boolean) && isComposition.some(value => !value)) throw new Error('外观/组件操作与普通场景操作须分别预览采用，不能混批绕过锁或资源准备。')
   // Ordinary commands own their new scene below; do not clone a scene that is
@@ -204,7 +211,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     ? { document: source.document, historyIdentity: source.historyIdentity, appearance: source.appearance }
     : cloneJson(source), cost = 0, generationCost = 0
   const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context)
-  const consume = (value: number) => { cost += value; if (cost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (value: number) => { cost += value; if (initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
     const fixedUprightPropIds = new Set(Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'))
@@ -316,7 +323,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         const expanded = terrainCommandCost(beforeTerrain.document, content.document, { before: beforeTerrain, after: content })
         consume(Math.max(1, cost - beforeCost, expanded.items.physicalAndVisual) - (cost - beforeCost))
         generationCost += expanded.total - expanded.items.physicalAndVisual
-        if (cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
+        if (initialCost + cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
       }
       if (content.document.schemaVersion !== 4) identityTrace.observe(content.document)
     }
@@ -324,9 +331,10 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     content = syncAppearanceGraph(content)
     if (content.document.schemaVersion === 4) {
       generationCost += terrainCommandCost(beforeSync.document, content.document, { before: beforeSync, after: content }).total
-      if (cost + generationCost > 256) throw new Error('固定源保全与组合事务累计展开超过256条操作预算。')
+      if (initialCost + cost + generationCost > 256) throw new Error('固定源保全与组合事务累计展开超过256条操作预算。')
     }
   }
+  let operationCost = cost + generationCost
   if (content.document.schemaVersion >= 3) {
     // Snapshot-command results can already be privately frozen. Detachment
     // owns a detached generation branch rather than mutating that witness.
@@ -338,8 +346,11 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     const finalDelta = terrainCommandCost(beforeFinal.document, content.document, { before: beforeFinal, after: content })
     generationCost += finalDelta.total - finalDelta.items.physicalAndVisual
     const expanded = terrainCommandCost(source.document, content.document, { before: source, after: content })
-    if (Math.max(cost + generationCost, expanded.total) > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
+    operationCost = Math.max(cost + generationCost, expanded.total)
+    if (initialCost + operationCost > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
   }
   content.historyIdentity = identityTrace.finish(content.document)
-  return ownedDraft ? certifyCompositionDraft(content) : validateCompositionDraft(content)
+  const result = ownedDraft ? certifyCompositionDraft(content) : validateCompositionDraft(content)
+  accounting?.onOperationCost?.(initialCost + operationCost)
+  return result
 }

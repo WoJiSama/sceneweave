@@ -13,6 +13,7 @@ import { copyVisualV2Fixtures } from './visual-v2-fixtures.mjs'
 import { closeMeasuredBrowser } from './close-browser.mjs'
 import { startResourceSampling } from './resources.mjs'
 import { installNativeM2Observer } from './native-m2-observer.mjs'
+import { installDiagnosticStageObserver } from './diagnostic-stages.mjs'
 import { summarizeNativeM2 } from './summarize-native-m2.mjs'
 import { startNativeFixtureTooling, beginNativeFixturePreparation, completeNativeFixturePreparation } from './prepare-native-m2-fixture.mjs'
 
@@ -21,13 +22,15 @@ if (args.includes('--help')) {
   console.log('node tools/performance/run-native-m2.mjs --output ABS (--fixtures ABS | --visual-v2-fixtures ABS) [--dist ABS] [--cases study-500,study-2000,island-500,island-2000] [--runs 3] [--selections 30] [--edits 10] [--layers 10] [--appearances 5] [--restores 3] [--menus 10] [--gestures 3] [--wait-timeout-ms 120000] [--case-timeout-ms 3600000] [--channel chrome] [--diagnostic] [--diagnostic-profile]')
   console.log('Measured operations use only the normal production UI. Fixture preparation uses an isolated tooling server/browser with strict reader, disk-reread preservation set and fixed-journal conversion, closed before measurement. Empty independent output directory required. Run serially without other browser/test/build work. Reduced samples/matrix are diagnostic. --diagnostic-profile always excludes the run from formal evidence and records the first ordinary-edit and first restore-protect-adopt-save in each case/run at a 1000us CDP sampling interval. Continuous gestures contain 30 rAF-paced pointer moves or 20 rAF-paced wheel inputs. No GPU/presentation or full QA pass is inferred.')
   console.log('--visual-v2-fixtures imports exact independent complete-v2 Q1/Q2 packages, preserves SVG/PNG/license bytes and never uses the legacy B5 converter. It adds 30-move real curve-handle drag, explicit preview/confirmed adoption and ordinary UI undo per gesture. Native-v1 remains the default --fixtures path; result classes stay separate.')
+  console.log('--diagnostic-stages requires --dist from diagnostic-stages.mjs. It records inclusive function spans/counts in the same production UI, always diagnostic; nested/overlapping spans must not be summed. Normal dist rejects this flag, and instrumented dist cannot enter formal measurement.')
   process.exit(0)
 }
 const argument = (name, fallback) => { const i = args.indexOf(name); return i < 0 ? fallback : args[i + 1] }
 const output = argument('--output', null), fixtureDirectory = argument('--fixtures', null), dist = path.resolve(argument('--dist', path.join(root, 'dist')))
 const visualFixtureDirectory = argument('--visual-v2-fixtures', null), visualV2 = visualFixtureDirectory !== null, expectedSchemaVersion = visualV2 ? 2 : 1
 const channel = argument('--channel', 'chrome'), requestedCases = argument('--cases', 'study-500,study-2000,island-500,island-2000').split(',')
-const diagnosticProfile = args.includes('--diagnostic-profile'), diagnostic = args.includes('--diagnostic') || diagnosticProfile
+const diagnosticStages = args.includes('--diagnostic-stages')
+const diagnosticProfile = args.includes('--diagnostic-profile'), diagnostic = args.includes('--diagnostic') || diagnosticProfile || diagnosticStages
 const waitTimeoutMs = Number(argument('--wait-timeout-ms', '120000'))
 const caseTimeoutMs = Number(argument('--case-timeout-ms', '3600000'))
 const counts = Object.fromEntries(Object.entries({ runs: 3, selections: 30, edits: 10, layers: 10, appearances: 5, restores: 3, menus: 10, gestures: 3 }).map(([key, value]) => [key, Number(argument(`--${key}`, String(value)))]))
@@ -52,12 +55,17 @@ async function fingerprints(directory, relative = '') {
 }
 const html = await fs.readFile(path.join(dist, 'index.html'), 'utf8')
 check(!html.includes('/@vite/client'), 'Expected a normal production build')
+let stageInstrumentation = null
+try { stageInstrumentation = JSON.parse(await fs.readFile(path.join(dist, 'diagnostic-stages.json'), 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+check(diagnosticStages === !!stageInstrumentation, 'Instrumented dist requires --diagnostic-stages; that flag requires a separate diagnostic build')
+if (diagnosticStages) check(stageInstrumentation.format === 'sceneweave-diagnostic-stages' && stageInstrumentation.version === 1, 'Unknown stage instrumentation')
+if (diagnosticStages) for (const entry of stageInstrumentation.sourceFiles) check(hash(await fs.readFile(path.join(root, entry.name))) === entry.sha256, `Diagnostic build source changed: ${entry.name}`)
 const servedBase = /<script[^>]+src="([^"]+\/assets\/)/.exec(html)?.[1]?.replace(/assets\/$/, '') ?? '/'
 const allowIncidentalFavicon404 = !/<link\b[^>]*\brel\s*=\s*["'][^"']*\bicon\b/i.test(html)
-const runnerFiles = ['run-native-m2.mjs', 'prepare-native-m2-fixture.mjs', 'native-m2-observer.mjs', 'summarize-native-m2.mjs', 'summarize-c5.mjs', 'resources.mjs', 'archived-fixtures.mjs', 'close-browser.mjs', ...(visualV2 ? ['visual-v2-fixtures.mjs', 'visual-v2-fixtures-browser.ts'] : [])]
+const runnerFiles = ['run-native-m2.mjs', 'diagnostic-stages.mjs', 'prepare-native-m2-fixture.mjs', 'native-m2-observer.mjs', 'summarize-native-m2.mjs', 'summarize-c5.mjs', 'resources.mjs', 'archived-fixtures.mjs', 'close-browser.mjs', ...(visualV2 ? ['visual-v2-fixtures.mjs', 'visual-v2-fixtures-browser.ts'] : [])]
 const manifest = {
   format: 'sceneweave-native-m2-performance', version: 1, startedAt: new Date().toISOString(), status: 'running',
-  measurementClass: visualV2 ? diagnosticProfile ? 'diagnostic-visual-v2-cpu-profile' : formal ? 'formal-visual-v2-production-ui-observation' : 'diagnostic-visual-v2-production-ui'
+  measurementClass: diagnosticStages ? 'diagnostic-instrumented-stage-observation' : visualV2 ? diagnosticProfile ? 'diagnostic-visual-v2-cpu-profile' : formal ? 'formal-visual-v2-production-ui-observation' : 'diagnostic-visual-v2-production-ui'
     : diagnosticProfile ? 'diagnostic-native-m2-cpu-profile' : formal ? 'formal-native-m2-production-ui-observation' : 'diagnostic-native-m2-production-ui',
   sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceDirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }),
@@ -66,13 +74,13 @@ const manifest = {
   source: await fingerprints(path.join(root, 'src')),
   sourceInputs: await Promise.all(['package.json', 'package-lock.json', 'vite.config.ts', 'tsconfig.json'].map(async name => { const bytes = await fs.readFile(path.join(root, name)); return { path: name, sizeBytes: bytes.length, sha256: hash(bytes) } })),
   build: await fingerprints(dist),
-  config: { ...counts, requestedCases, channel, diagnostic, diagnosticProfile, waitTimeoutMs, caseTimeoutMs, fixtureMode: visualV2 ? 'exact-native-visual-v2' : 'archived-b5-conversion', expectedSchemaVersion, route: '#home', viewport: { width: 1512, height: 982 }, dpr: 1,
+  config: { ...counts, requestedCases, channel, diagnostic, diagnosticProfile, diagnosticStages, stageInstrumentation, waitTimeoutMs, caseTimeoutMs, fixtureMode: visualV2 ? 'exact-native-visual-v2' : 'archived-b5-conversion', expectedSchemaVersion, route: '#home', viewport: { width: 1512, height: 982 }, dpr: 1,
     processState: 'Fresh dedicated headless Chrome process and profile per case/run; HTTP cache disabled, OS caches not purged. macOS caffeinate prevents idle sleep only.',
     fixturePreparation: visualV2 ? 'Exact independent complete-v2 Q1/Q2 fixture packages are copied, byte-hashed and disk-reread. Every ZIP entry and scene2/visual1 identity/count/source/marker is checked. Full actual SVG/PNG pixels, licenses and native scene validation occur in each normal product cold import. No legacy/B5 conversion, no tooling browser during measurement. Original refined benchmarks are preserved in the fixture archive. Two small user layers are added through UI; only the independent image marker is moved to M2 Focus, keeping measured transactions within 256.'
       : 'Exact original B5 strict-v2 packages are captured by the strict reader in a separate tooling-only Vite/Chrome process per case. Every preservation file is written to disk and reread before the fixed-journal converter performs its full resource validation and cold-read publication. The resulting native complete-v1 package is exported, saved and hashed. No retired legacy UI is used. The tooling server is closed before measured runs. Each measured case/run uses only the normal frozen production build in a fresh independent Chrome process and imports that exact native package. Two small user layers are added through UI; only the marker is moved to M2 Focus, keeping measured transactions within 256.',
     ...(visualV2 ? { curveInputs: { movesPerDrag: 30, trialsPerRun: counts.gestures, method: 'Trusted SVG control-handle pointerdown, 30 rAF-paced pointermoves, pointerup; the draft stays outside persistence. Ordinary visible preview and full-scope confirmation/adoption are measured separately. Ordinary visible UI undo resets the original curve and bound coordinates after every adoption; it never rewrites topology with an opposite command. Interior uses explicit decorative yard border; island uses the bound real q1-coast.' } } : {}),
     localReopen: 'Reload the normal home page without clearing localStorage or IndexedDB, then click the one available native recent-project Open button. The timed interval starts at this trusted click; reload and the read-only repository comparison are setup.',
-    intent: 'Trusted capture of the committing click, Enter keydown, file change, selection pointerup, contextmenu or first continuous input. The tool observes DOM/events; it never wraps product functions, Canvas, React or storage.',
+    intent: diagnosticStages ? 'Trusted DOM/event capture plus explicitly instrumented function-body spans in a separate diagnostic build. Timer/await overhead is retained; this is never formal measurement.' : 'Trusted capture of the committing click, Enter keydown, file change, selection pointerup, contextmenu or first continuous input. The tool observes DOM/events; it never wraps product functions, Canvas, React or storage.',
     domainCommit: 'Exact page performance.now captured by Native Workspace after all domain validation, identity/freeze/undo updates and before publish. DOM data-transaction-revision must match the new data-revision. Import/open/name are separate operations and do not claim a domain edit commit.',
     completion: 'DOM revision, Canvas base render counter with map aria-busy=false, local-save status and double-rAF are separate observations. A retained preview raster can be reused on adoption. Double-rAF is a scheduling proxy, never GPU or physical display completion.',
     continuousInputs: { panPointerMoves: 30, wheelInputs: 20, pacing: 'One requestAnimationFrame awaited before every Playwright input; input timestamps, gaps, trusted event counts, view state and frame intervals retained. Wheel is continuous positive deltaY=12. Fit reset is outside each measured gesture.' },
@@ -142,11 +150,16 @@ async function measure(kind, ordinal, options, action) {
   if (interruption) throw interruption
   if (lastPrintedKind !== kind) { console.log(`Native M2 ${label}: ${kind} #${ordinal + 1}`); lastPrintedKind = kind }
   result.pendingAction = { kind, ordinal, armedAt: new Date().toISOString() }
+  if (diagnosticStages) await page.evaluate(({ kind, ordinal }) => Reflect.get(globalThis, '__sceneweaveDiagnosticStages').start(kind, ordinal), { kind, ordinal })
   await page.evaluate(options => Reflect.get(window, '__sceneweaveNativeM2Probe').arm(options), { kind, ordinal, ...options })
   await action()
   if (options.externalEnd) await page.evaluate(() => Reflect.get(window, '__sceneweaveNativeM2Probe').endInputs())
   await page.waitForFunction(() => Reflect.get(window, '__sceneweaveNativeM2Probe').read()?.complete, null, { timeout: waitTimeoutMs })
   const sample = await page.evaluate(() => Reflect.get(window, '__sceneweaveNativeM2Probe').read())
+  if (diagnosticStages) {
+    sample.diagnosticStages = await page.evaluate(() => Reflect.get(globalThis, '__sceneweaveDiagnosticStages').finish())
+    check(sample.diagnosticStages.dropped === 0, `${kind}: diagnostic stage capacity exceeded`)
+  }
   check(sample.intent?.trusted, `${kind}: missing trusted intent event`)
   check(sample.events.every(event => event.trusted), `${kind}: untrusted input in measured scope`)
   sample.intentToHandlerBubbleMs = sample.handlerBubbleMs === undefined ? null : sample.handlerBubbleMs - sample.intent.captureMs
@@ -500,6 +513,7 @@ async function runCase(item, run) {
   browserServer = await chromium.launchServer({ channel, headless: true }); browser = await chromium.connect(browserServer.wsEndpoint())
   const context = await browser.newContext({ viewport: manifest.config.viewport, deviceScaleFactor: 1, acceptDownloads: true })
   await context.addInitScript(installNativeM2Observer)
+  if (diagnosticStages) await context.addInitScript(installDiagnosticStageObserver)
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort('blockedbyclient'))
   page = await context.newPage(); page.setDefaultTimeout(waitTimeoutMs)
   const ownedResult = result
@@ -518,7 +532,8 @@ async function runCase(item, run) {
   sampler.setPhase('cold-page-navigation')
   const navigationStart = performance.now(); await page.goto(pageUrl); await page.getByTestId('workspace-home').waitFor({ state: 'visible' })
   result.coldPageNavigationMs = performance.now() - navigationStart
-  check(await page.evaluate(() => Object.getOwnPropertyNames(window).filter(name => name.startsWith('__sceneweave') && name !== '__sceneweaveNativeM2Probe').length === 0), 'Normal build exposed a product dev/performance API')
+  check(await page.evaluate(allowed => Object.getOwnPropertyNames(window).filter(name => name.startsWith('__sceneweave') && !allowed.includes(name)).length === 0,
+    ['__sceneweaveNativeM2Probe', ...(diagnosticStages ? ['__sceneweaveDiagnosticStages'] : [])]), 'Build exposed an unexpected product dev/performance API')
   sampler.setPhase('cold-native-import-save-raster')
   await measure('cold-native-import-save-raster', 0, { start: { event: 'change', selector: 'input[data-testid="native-project-file"]' }, requireSaved: true,
     until: { absent: '[role="dialog"][aria-label="检查完整工程"]' } }, () => page.getByTestId('native-project-file').setInputFiles(path.join(output, item.nativeArtifact.path)))

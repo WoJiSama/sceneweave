@@ -2,8 +2,8 @@ import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
 import type { SceneDocument, PointMm, SurfaceStyle } from '../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../model/scene.js'
 import { captureJson } from '../validation/json.js'
-import { segmentCuts } from '../geometry/geometry.js'
-import { signedVisualArea } from '../visual/geometry.js'
+import { polygonInside, segmentCuts } from '../geometry/geometry.js'
+import { assertSimpleVisualPolyline, signedVisualArea } from '../visual/geometry.js'
 import { createEmptyGeneration5, type TerrainRequirement, type TerrainComposition, type TerrainDependency } from './composition-contracts.js'
 import { planTerrainComposition, extractCompositionFieldLevel, recomputeCompositionThreshold, type TerrainCompositionInput, type TerrainCompositionPlan } from './composition-field.js'
 import { emptyTerrainDocument } from './compose.js'
@@ -17,8 +17,9 @@ export function emptyCompositionDocument(input:SceneDocument):SceneDocument {
 }
 const ring=(points:PointMm[]):MultiPolygon=>[[points.map(p=>[p.x,p.y])]]
 /** Full physical output. Holes use higher-priority real water; no implicit filled lake. */
-export function materializeTerrainComposition(base:SceneDocument,input:TerrainCompositionInput,requirements:TerrainRequirement[],title:string,profile:'plain'|'tidal'='plain'):{document:SceneDocument;plan:TerrainCompositionPlan} {
+export function materializeTerrainComposition(base:SceneDocument,input:TerrainCompositionInput,requirements:TerrainRequirement[],title:string,profile:'plain'|'tidal'|'tidal-v2'='plain',recipeVersion:1|2=1):{document:SceneDocument;plan:TerrainCompositionPlan} {
  if(base.schemaVersion!==2||LAYER_ENTITY_COLLECTIONS.some(key=>Object.keys(base[key]).length))throw new Error('新组合必须从独立同源完整空白开始。')
+ if(profile==='tidal-v2'&&(recipeVersion!==2||input.baseElevationMm!==800))throw new Error('浅湾配方2须显式保存版本2与800毫米基底。')
  const plan=planTerrainComposition(input),document=emptyCompositionDocument(base)
  const levels=[...new Set(input.members.filter(m=>m.field==='elevation'&&m.operation!=='subtract').map(m=>input.features[m.featureId].elevationMm))]
  levels.sort((a,b)=>a-b)
@@ -47,6 +48,20 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
   for(const [i,poly] of shallow.entries()){
    if(poly.holes.length)throw new Error('浅滩分带含孔洞，须减少复杂交叠。')
    add(`t9-shallow-${i}`,poly.outer,priority++,200,'water');document.terrainAreas[`t9-shallow-${i}`].blocksMovement=false
+  }
+ }
+ if(profile==='tidal-v2'){
+  const sources=input.members.filter(member=>member.field==='land'&&member.operation==='add').map(member=>input.features[member.featureId]).filter(feature=>feature.kind==='landmass'&&feature.shape.kind==='ellipse')
+  if(sources.length!==1||sources[0].shape.kind!=='ellipse')throw new Error('浅湾配方2需要唯一椭圆陆块骨架。')
+  const center=sources[0].shape.centerMm,world=[{x:b.x,y:b.y},{x:b.x+b.width,y:b.y},{x:b.x+b.width,y:b.y+b.height},{x:b.x,y:b.y+b.height}]
+  for(const [i,poly] of plan.fields.land.polygons.entries()){
+   if(poly.holes.length)throw new Error('浅湾配方2的浅滩包络不支持孔洞。')
+   // Recipe 2 freezes a homothetic 1.08 envelope of the actual land ring.
+   // It is real 200 mm terrain; containment must hold before materialization.
+   const shallow=poly.outer.map(point=>({x:Math.round(center.x+(point.x-center.x)*1.08),y:Math.round(center.y+(point.y-center.y)*1.08)}))
+   assertSimpleVisualPolyline(shallow,true)
+   if(!polygonInside(poly.outer,shallow)||!polygonInside(shallow,world))throw new Error('浅湾配方2的浅滩包络未完整包含陆地或超出世界范围。')
+   add(`t9-shallow-${i}`,shallow,priority++,200,'water');document.terrainAreas[`t9-shallow-${i}`].blocksMovement=false
   }
  }
  const polygons=plan.fields.land.polygons.slice().sort((a,c)=>Math.abs(signedVisualArea(c.outer))-Math.abs(signedVisualArea(a.outer)))
@@ -135,10 +150,10 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
   area.boundaryMm=positions.map((positionMm,i)=>({id:`${area.id}-p${i}`,segmentId:`${area.id}-s${i}`,positionMm}))
  }
  const recipeId='t9-recipe'
- system.legacy.recipes[recipeId]={id:recipeId,recipeVersion:1,algorithmId:'terrain-compose',algorithmVersion:1,mapMode:'scene',seed:input.seed,parameters:{terrainKind:profile==='tidal'?'coast':'mixed',seaElevationMm:0,landElevationMm:input.baseElevationMm,plateauElevationMm:elevatedLevel,roughness:.12,densityFactor:0,baySide:'west'},materials:([['water','water'],['land','rock'],['high','grass']] as const).map(([role,kind])=>({role:kind,ref:{id:material(role).id,version:material(role).version}})),props:[],precision:captureJson(input.precision)}
+ system.legacy.recipes[recipeId]={id:recipeId,recipeVersion,algorithmId:'terrain-compose',algorithmVersion:1,mapMode:'scene',seed:input.seed,parameters:{terrainKind:profile==='tidal'||profile==='tidal-v2'?'coast':'mixed',seaElevationMm:0,landElevationMm:input.baseElevationMm,plateauElevationMm:elevatedLevel,roughness:.12,densityFactor:0,baySide:'west'},materials:([['water','water'],['land','rock'],['high','grass']] as const).map(([role,kind])=>({role:kind,ref:{id:material(role).id,version:material(role).version}})),props:[],precision:captureJson(input.precision)}
  system.features=captureJson(input.features)
  const outputRefs=Object.keys(document.terrainAreas).flatMap(entityId=>(['geometry','properties','surface'] as const).map(fieldGroup=>({kind:'terrainArea' as const,entityId,parentId:null,fieldGroup})))
- const composition:TerrainComposition={id:compositionId,floorId,layerId,visibility:'public',editLocked:false,recipeRef:{id:recipeId,version:1},seed:input.seed,boundsMm:captureJson(b),algorithmId:'terrain-compose',algorithmVersion:1,precision:captureJson(input.precision),baseElevationMm:input.baseElevationMm,members:captureJson(input.members),thresholdIds:[],requirementIds:requirements.map(r=>r.id),outputRefs,state:'active',inputHash:'0'.repeat(64),outputHash:'0'.repeat(64)}
+ const composition:TerrainComposition={id:compositionId,floorId,layerId,visibility:'public',editLocked:false,recipeRef:{id:recipeId,version:recipeVersion},seed:input.seed,boundsMm:captureJson(b),algorithmId:'terrain-compose',algorithmVersion:1,precision:captureJson(input.precision),baseElevationMm:input.baseElevationMm,members:captureJson(input.members),thresholdIds:[],requirementIds:requirements.map(r=>r.id),outputRefs,state:'active',inputHash:'0'.repeat(64),outputHash:'0'.repeat(64)}
  system.compositions[compositionId]=composition
  for(const [field,threshold] of Object.entries(plan.thresholds)){
   const id=`t9-threshold-${field}`,row={id,compositionId,...captureJson(threshold),inputHash:'0'.repeat(64)}

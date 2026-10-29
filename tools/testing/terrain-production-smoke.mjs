@@ -184,7 +184,7 @@ function inspectProject(downloaded, kind) {
   assert(manifest.entries.some(entry => entry.role === 'license'), 'Complete package must carry license text.')
   assert.equal(scene.generation.version, 1)
   const recipes = Object.values(scene.generation.recipes)
-  assert.equal(recipes.length, 1); assert.equal(recipes[0].algorithmId, ['island', 'coast'].includes(kind) ? 'terrain-scene' : 'terrain-scene-t3'); assert.equal(recipes[0].algorithmVersion, 1)
+  assert.equal(recipes.length, 1); assert.equal(recipes[0].algorithmId, ['island', 'coast'].includes(kind) ? 'terrain-scene' : 'terrain-scene-t3'); assert.equal(recipes[0].algorithmVersion, ['island', 'coast'].includes(kind) ? 2 : 1)
   assert.equal(recipes[0].seed, seed); assert.equal(recipes[0].parameters.terrainKind, kind)
   assert(Object.keys(scene.generation.rules).length > 0 && Object.values(scene.generation.rules).every(rule => rule.state === 'active'))
   assert(Object.keys(scene.generation.ownership).length > 0 && Object.values(scene.generation.ownership).every(row => row.state === 'managed'))

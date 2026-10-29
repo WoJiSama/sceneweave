@@ -1,7 +1,7 @@
 import { detachChangedOutputs } from '../../shared/terrain-generation/integrity.js'
 import { pauseChangedCompositionAppearance, pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
 import { detachChangedAppearance } from '../../shared/terrain-generation/appearance-lifecycle.js'
-import { assertTerrainBudget } from '../../shared/terrain-generation/cost.js'
+import { assertTerrainBudget, terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 import { applyCompositionDraftCommands } from '../../shared/appearance/commands.js'
 import { listRequiredVariants, resolveAppearance, syncAppearanceGraph } from '../../shared/appearance/graph.js'
 import { certifyCompositionContent, validateCompositionDraft } from '../../shared/validation/content.js'
@@ -25,6 +25,9 @@ export interface PrepareOptions {
   signal?: CancellationSignal
   /** Exact workspace-owned baseline for composition-only derivation reuse. */
   baseline?: EditableProject
+  /** Internal accounting for fixed sources added in this same transaction. */
+  initialOperationCost?: number
+  onOperationCost?: (cost: number) => void
 }
 export interface AssetImportRequest {
   file: Blob
@@ -152,8 +155,20 @@ export async function prepareCompositionCommands(input: EditableProject, command
   // returned. External or cloned wrappers take the public validation path.
   const project = getVerifiedEditableProject(input) ?? await validateEditableProject(input, checked)
   checkCancelled(checked.signal)
-  const draft = applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime)
-  return materializeProject({ ...project, ...draft, schemaVersion: draft.document.schemaVersion }, { ...options, baseline: project })
+  const accounting = options.initialOperationCost !== undefined || options.onOperationCost !== undefined
+  const initialCost = options.initialOperationCost === undefined ? 0 : options.initialOperationCost
+  let operationCost = initialCost
+  const draft = applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime,
+    accounting ? { initialOperationCost: initialCost, onOperationCost: cost => { operationCost = cost } } : undefined)
+  const prepared = await materializeProject({ ...project, ...draft, schemaVersion: draft.document.schemaVersion }, { ...options, baseline: project })
+  if (accounting) {
+    checkCancelled(checked.signal)
+    const materializedCost = terrainCommandCost(project.document, prepared.document, { before: project, after: prepared }).total
+    const total = initialCost + Math.max(operationCost - initialCost, materializedCost)
+    if (total > 256) throw new Error('固定源与完整命令累计展开超过256条操作预算。')
+    options.onOperationCost?.(total)
+  }
+  return prepared
 }
 
 function captureImportRequest(input: AssetImportRequest): AssetImportRequest {

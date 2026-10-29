@@ -5,7 +5,10 @@ export type Audience = 'gm' | 'player'
 export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number }
 export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
 export interface ProjectedPath { id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle }
-export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null }
+export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null
+  /** Disposable endpoint support IDs, included only after this audience's dependency filtering. */
+  surfaceIds?: [string, string]
+}
 export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean; /** Editor-only symbol suppression preserves the physical wall hole. */ paintSymbol?: boolean }
 export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; style: SurfaceStyle | null; openings: ProjectedOpening[] }
 export interface ProjectedNote { id: string; positionMm: PointMm; text: string; kind: Note['kind']; visibility: 'gm' | 'public' }
@@ -69,7 +72,10 @@ export interface ProjectedVisualFilter extends Omit<VisualFilter, 'target' | 'fl
   regionFeatherMm?: number
 }
 export interface ProjectedVisualSystem {
-  materializedEdges?: Pick<import('../terrain-generation/contracts.js').MaterializedEdge,'id'|'kind'|'polygons'|'strokes'|'fillColor'|'opacity'>[]
+  materializedEdges?: (Pick<import('../terrain-generation/contracts.js').MaterializedEdge,'id'|'kind'|'polygons'|'strokes'|'fillColor'|'opacity'> & {
+    /** Source boundary is already visible to this audience; absent on older disposable projections. */
+    boundaryId?: string
+  })[]
   /** Audience-filtered IDs only; visual2 shares one surface-detail band across both edge representations. */
   edgePaintOrder?: { kind: 'edgeLook' | 'materializedEdge'; id: string }[]
   environment: import('../visual/types.js').VisualEnvironment

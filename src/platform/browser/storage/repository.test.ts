@@ -134,6 +134,89 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await repo.usage(owner)
     expect(checking).toHaveBeenCalledTimes(1)
   })
+  it('reads only the current history metadata version without certifying project content or scanning resources', async () => {
+    const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const hash = Object.keys(input.project.assets)[0], resource = (await repo.database.resources.get(hash))!
+    const checking = vi.spyOn(projectValidation, 'projectContentHash'), decoded = decodedTransactions.length
+    const scanning = vi.spyOn(repo as unknown as { usageInTransaction(owner: string): Promise<unknown> }, 'usageInTransaction')
+    expect(await repo.historyMetadataVersion(owner)).toBe(0)
+    expect(checking).not.toHaveBeenCalled(); expect(scanning).not.toHaveBeenCalled()
+    expect(decodedTransactions).toHaveLength(decoded)
+    // This query makes no claim about resource validity. The final write still
+    // inspects the complete database and must reject these damaged stored bytes.
+    await repo.database.resources.put({ ...resource, bytes: new Uint8Array([1, 2, 3]) })
+    expect(await repo.historyMetadataVersion(owner)).toBe(0)
+    await expect(repo.save(revision(input, 1), 0)).rejects.toThrow(/资源字节hash/)
+    expect((await repo.database.projects.get(owner))!.revision).toBe(0)
+  })
+  it('checks metadata/current envelopes and preserves final metadata CAS after the lightweight query', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await expect(repo.historyMetadataVersion(owner)).rejects.toBeInstanceOf(ProjectConflictError)
+    await repo.save(input, null)
+    const current = (await repo.database.projects.get(owner))!, metadata = (await repo.database.historyMetadata.get(owner))!
+    const unknown = { ...current, unexpected: true }
+    await repo.database.projects.put(unknown)
+    await expect(repo.historyMetadataVersion(owner)).rejects.toThrow(/字段/)
+    await repo.database.projects.put({ ...current, contentHash: 'invalid' })
+    await expect(repo.historyMetadataVersion(owner)).rejects.toThrow(/hash/)
+    await repo.database.projects.put({ ...current, status: 'preparing', conversionJobId: 'retained-job' })
+    await expect(repo.historyMetadataVersion(owner)).rejects.toBeInstanceOf(ProjectConflictError)
+    await repo.database.projects.put(current)
+    await repo.database.historyMetadata.delete(owner)
+    await expect(repo.historyMetadataVersion(owner)).rejects.toThrow(/存档|元数据/)
+    await repo.database.historyMetadata.put({ ...metadata, metadataVersion: -1 })
+    await expect(repo.historyMetadataVersion(owner)).rejects.toThrow(/元数据/)
+    await repo.database.historyMetadata.put(metadata)
+    const version = await repo.historyMetadataVersion(owner), other = repository(repo.database.name)
+    await other.createSnapshot(input, '另一连接先写入', { expectedRevision: 0, expectedMetadataVersion: version })
+    await expect(repo.createSnapshot(input, '过期只读版本', { expectedRevision: 0, expectedMetadataVersion: version })).rejects.toBeInstanceOf(HistoryMetadataConflictError)
+    expect(await repo.historyMetadataVersion(owner)).toBe(version + 1)
+    const controller = new AbortController(); controller.abort()
+    await expect(repo.historyMetadataVersion(owner, { signal: controller.signal })).rejects.toThrow(/取消/)
+  })
+  it('shares strict actual-content checks only within one snapshot/save or protection transaction', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const checking = vi.spyOn(projectValidation, 'projectContentHash')
+    const protection = await repo.createSnapshot(input, '一次事务共享', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 0 })
+    // One complete input hash outside the write transaction, then one actual
+    // current-content check shared by assertSaved and every identical scan row.
+    expect(checking).toHaveBeenCalledTimes(2)
+    const guard = { expectedMetadataVersion: 1, protection: { id: protection.id, contentHash: protection.contentHash } }
+    checking.mockClear()
+    await repo.checkProtection(owner, 0, protection.contentHash, guard)
+    expect(checking).toHaveBeenCalledTimes(1)
+    await repo.checkProtection(owner, 0, protection.contentHash, guard)
+    expect(checking).toHaveBeenCalledTimes(2)
+    checking.mockClear()
+    await repo.save(revision(input, 1), 0, { guard })
+    // New input plus old/current content and new persisted content, with all
+    // protection/current/automatic duplicates charged their actual byte size.
+    expect(checking).toHaveBeenCalledTimes(3)
+    checking.mockClear()
+    expect((await repo.usage(owner)).documentBytes).toBe(encodeUtf8(canonicalJson(input.project)).length * 2
+      + encodeUtf8(canonicalJson(revision(input, 1).project)).length * 2)
+    expect(checking).toHaveBeenCalledTimes(2)
+  })
+  it('rejects same-hash history content changed after a cached transaction check and rolls the write back', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const automatic = (await repo.database.automaticSnapshots.get([owner, 0]))!
+    const original = repo as unknown as { putResources: (...args: unknown[]) => Promise<void> }
+    const putting = original.putResources
+    const injection = vi.spyOn(original, 'putResources').mockImplementationOnce(async (...args) => {
+      await putting.apply(repo, args)
+      const changed = cloneJson(automatic); changed.project.document.title = 'changed after current content checked'
+      await repo.database.automaticSnapshots.put(changed)
+    })
+    await expect(repo.save(revision(input, 1), 0)).rejects.toThrow(/hash/)
+    injection.mockRestore()
+    expect((await repo.database.projects.get(owner))!.revision).toBe(0)
+    expect(await repo.database.automaticSnapshots.get([owner, 0])).toEqual(automatic)
+    await repo.save(revision(input, 1), 0)
+    expect((await repo.load(owner))!.project.document.revision).toBe(1)
+  })
   it('checks every stored envelope and claimed hash even when identical content was already checked in the scan', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)

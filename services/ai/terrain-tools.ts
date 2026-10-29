@@ -8,6 +8,7 @@ import { sha256Text } from '../../src/shared/validation/hash.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
 import type { ProviderToolCall } from './provider-types.js'
 import type { StoredTask, StoredTerrainCandidate } from './store.js'
+import { selectNewTerrainGenerationVersion } from './terrain-generation-version.js'
 
 const TerrainRegionOperationSchema = z.discriminatedUnion('kind', [TerrainAuthoringOperationSchema.options[1], TerrainAuthoringOperationSchema.options[2]])
 
@@ -29,7 +30,8 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
       disposition: 'task completion is not local adoption, save, publication or P3 acceptance' } }
   }
   if (call.name === 'sceneweave_terrain_candidates' || call.name === 'sceneweave_terrain_regenerate_region') {
-    const operations = call.name === 'sceneweave_terrain_candidates' ? TerrainCandidatesArgumentsSchema.parse(args).operations : [TerrainRegionOperationSchema.parse(args)]
+    const operations = (call.name === 'sceneweave_terrain_candidates' ? TerrainCandidatesArgumentsSchema.parse(args).operations : [TerrainRegionOperationSchema.parse(args)])
+      .map(selectNewTerrainGenerationVersion)
     const candidates: StoredTerrainCandidate[] = []
     for (const [index, operation] of operations.entries()) {
       // A fixed private replay step makes deterministic births independent of
