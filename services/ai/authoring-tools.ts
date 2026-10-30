@@ -4,7 +4,7 @@ import { AuthoringOperationSchema } from '../../src/shared/ai/authoring-protocol
 import { AuthoringOperationError, applyAuthoringStep, checkAuthoringDraft, authoringAssetPage, publicAuthoringContext, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import { AuthoringPlanStateSchema, diagnoseAuthoringProject, planForBrief } from '../../src/shared/ai/plan.js'
 import { PlacementProbeSchema, probeAuthoringPlacement } from '../../src/shared/ai/placement-diagnostics.js'
-import { TerrainBoundaryProposalSchema } from '../../src/shared/ai/visual-protocol.js'
+import { TerrainBoundaryProposalSchema, VisualAuthoringKindSchema } from '../../src/shared/ai/visual-protocol.js'
 import { proposeAuthoringTerrainBoundary, VisualBoundaryConnectionError } from '../../src/shared/ai/visual-authoring.js'
 import { inspectIslandBoundaryProposal } from '../../src/shared/ai/island-composition.js'
 import { CompositionCandidateSchema, connectCompositionRooms, proposeAuthoringComposition } from '../../src/shared/ai/composition-candidates.js'
@@ -20,6 +20,7 @@ import type { StoredTask } from './store.js'
 import { prepareTerrainTool } from './terrain-tools.js'
 import { selectNewTerrainGenerationVersion } from './terrain-generation-version.js'
 import type { ProviderToolCall, ProviderToolDefinition } from './provider-types.js'
+import { authoringSummary, remainingAuthoringOperations } from '../../src/shared/ai/authoring.js'
 
 const identifier = { type: 'string', minLength: 1, maxLength: 256 }
 const operation = z.toJSONSchema(AuthoringOperationSchema, { io: 'input' })
@@ -62,12 +63,25 @@ export const authoringTools: ProviderToolDefinition[] = [
   { name: 'sceneweave_propose_composition', description: 'Read-only finite layout, furnishing or brief-style candidate. Layout uses only granted new-room/terrain operations and an explicit ID prefix: beach shared coast/activity/reef zones, asymmetric island tiers/stairs, or five connected use-specific interior rooms. Use real granted materialIds: beach base=water/primary=sand (secondary unused); island base=water/primary=low shelf/secondary=high plateau; interior primary=ordinary room floors/secondary=kitchen floor (fallback primary), base unused. Wall material needs a separate explicit wall operation. Missing material/fallback leaves the surface unfinished. Furnishing uses the existing placement probe to alternate 1–6 granted definitions within one explicit support, preserving clear activity areas, doors and stairs. Style maps frozen brief tile scale, palette and light direction only to explicitly granted targets; unsupported bitmap line weight is reported. The service replays the whole exact candidate ledger and returns actual expanded cost and reserve without editing anything. Call sceneweave_edit_scene with {"operations":candidateOperations} unchanged after review, without a candidateOperations wrapper around each element; coordinates are integers and the baseline must remain current. Never infer art approval or general pathfinding from a valid candidate.', parameters: compositionParameters },
 ]
 /** Model-facing catalogue only. Runtime schemas and authorization remain complete. */
-export function getAuthoringTools(scope: AuthoringScope): ProviderToolDefinition[] {
+export function getAuthoringTools(scope: AuthoringScope, schemaVersion: 1 | 2 = 1): ProviderToolDefinition[] {
   const allowed = new Set<string>([...scope.operations, ...(scope.scene?.operations ?? []), ...(scope.visual?.operations ?? []), ...(scope.artwork?.operations ?? [])])
+  if (schemaVersion === 2) for (const kind of [...VisualAuthoringKindSchema.options, 'svg', 'style']) allowed.delete(kind)
   const terrain = new Set<string>((scope.scene?.operations ?? []).filter(kind => (TERRAIN_AUTHORING_KINDS as readonly string[]).includes(kind)))
   // Return independent schema objects: pruning one task must never narrow the
   // full catalogue or a later task. Entity counts and brief prose add no grants.
-  return structuredClone(authoringTools).filter(tool => {
+  const catalogue = structuredClone(authoringTools)
+  if (schemaVersion === 2) for (const tool of catalogue) tool.description = tool.description
+    .replace(/256 cumulative expansion|(?:actual )?cumulative 256 expansion|256 cumulative operations/g,
+      'the fixed per-operation complexity guard and separate 256-target AI cumulative budget')
+  return catalogue.filter(tool => {
+    if (schemaVersion === 2 && tool.name === 'sceneweave_propose_composition') {
+      tool.description = 'Read-only finite layout or furnishing candidate within the frozen scene grant. Uses only granted fixed materials/definitions, real geometry and supports. Returns exact candidateOperations for a later explicit sceneweave_edit_scene call; it does not install, adopt, save or judge visual quality. The complete v3/v4 continuation does not support legacy visual/style recipes.'
+      const parameters = tool.parameters as { oneOf: { properties: Record<string, unknown> & { kind: { const: string } } }[]; properties: Record<string, unknown> & { kind: { enum: string[] } } }
+      parameters.oneOf = parameters.oneOf.filter(branch => branch.properties.kind.const !== 'style')
+      parameters.properties.kind.enum = parameters.properties.kind.enum.filter(kind => kind !== 'style')
+      const fields = new Set(parameters.oneOf.flatMap(branch => Object.keys(branch.properties)))
+      for (const key of Object.keys(parameters.properties)) if (!fields.has(key)) delete parameters.properties[key]
+    }
     if (tool.name === 'sceneweave_terrain_regenerate_region') return terrain.has('terrainEdit') || terrain.has('terrainLocal')
     if (tool.name === 'sceneweave_region_scene_candidate') return terrain.has('regionalEdit')
     if (tool.name.startsWith('sceneweave_terrain_')) {
@@ -132,8 +146,7 @@ export function initialAuthoringContext(task: StoredTask): unknown {
 }
 export function updateAuthoringSummary(task: StoredTask): AuthoringSummary {
   const authoring = task.authoring!
-  const summary: AuthoringSummary = { draftRevision: authoring.state.draftRevision, contentHash: authoring.state.contentHash,
-    operationCost: authoring.state.operationCost, changedIds: [...authoring.state.changedIds], skill: authoring.start.skill, claim: authoring.claim?.lease ?? null, ...(authoring.plan ? { plan: authoring.plan } : {}) }
+  const summary: AuthoringSummary = authoringSummary(authoring.start, authoring.state, authoring.claim?.lease ?? null, authoring.plan)
   task.snapshot.authoring = summary
   return summary
 }
@@ -154,7 +167,7 @@ function prepareAuthoringEdit(task: StoredTask, call: ProviderToolCall, operatio
   const affectedIds = [...new Set([...operations.flatMap(item => 'id' in item ? [item.id] : 'ids' in item ? item.ids : []),
     ...result.state.changedIds.filter(id => !previousIds.has(id))])].sort()
   const output = { draftRevision: result.state.draftRevision, contentHash: result.state.contentHash, operationCost: result.state.operationCost,
-    affectedIds, changedCount: result.state.changedIds.length, remainingOperations: AUTHORING_LIMITS.operations - result.state.operationCost }
+    affectedIds, changedCount: result.state.changedIds.length, remainingOperations: remainingAuthoringOperations(authoring.start, result.state) }
   if (utf8Size(JSON.stringify(output)) > (authoring.start.brief ? 8000 : 8192)) throw new Error('output_limit')
   // The caller installs only after checking the final, fully wrapped receipt.
   return { output, install: () => {
@@ -162,9 +175,9 @@ function prepareAuthoringEdit(task: StoredTask, call: ProviderToolCall, operatio
     authoring.state = result.state
   } }
 }
-export type AuthoringToolBudget = { modelRequests: number; toolCalls: number; executionRemainingMs?: number; maxOutputTokens?: number }
+export type AuthoringToolBudget = { modelRequests: number; toolCalls: number; executionRemainingMs?: number; maxOutputTokens?: number; attemptReserved?: boolean }
 export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, args: unknown, artifacts?: StaticSvgArtifacts, budget: AuthoringToolBudget = AUTHORING_LIMITS): ToolResult {
-  const remaining = () => ({ modelRequests: Math.max(0, budget.modelRequests - task.snapshot.usage.requests), toolCalls: Math.max(0, budget.toolCalls - task.toolAttempts - 1),
+  const remaining = () => ({ modelRequests: Math.max(0, budget.modelRequests - task.snapshot.usage.requests), toolCalls: Math.max(0, budget.toolCalls - task.toolAttempts - (budget.attemptReserved ? 0 : 1)),
     ...(budget.executionRemainingMs !== undefined ? { executionMs: Math.max(0, budget.executionRemainingMs) } : {}) })
   const withBudget = (value: unknown) => task.authoring!.start.brief && value && typeof value === 'object' ? { ...value,
     remainingModelRequests: remaining().modelRequests, remainingToolCalls: remaining().toolCalls,
@@ -257,7 +270,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       if (parsed.requirements.some(value => value.index >= brief.requirements.length)) throw new PlanArgumentsError('要求索引越界，请使用冻结创作要求的零基索引。',
         `${planIndexHint} This brief has ${brief.requirements.length} requirements; valid indices are 0 through ${brief.requirements.length - 1}.`)
       if (parsed.requirements.some(value => value.state === 'claimed' && !value.evidenceIds.length)) throw new PlanArgumentsError('已完成声明缺少证据，请引用授权对象或保持pending。')
-      output = { phase: parsed.phase, requirements: parsed.requirements, status: 'claims_require_independent_review', remainingOperations: AUTHORING_LIMITS.operations - authoring.state.operationCost }
+      output = { phase: parsed.phase, requirements: parsed.requirements, status: 'claims_require_independent_review', remainingOperations: remainingAuthoringOperations(authoring.start, authoring.state) }
       if (utf8Size(JSON.stringify(output)) > 8000) throw new Error('output_limit')
       install = () => { authoring.plan = parsed; updateAuthoringSummary(task) }
     } else if (call.name === 'sceneweave_probe_placement') {
@@ -274,7 +287,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       // checks as an explicit edit, without installing or spending a step.
       const preview = applyAuthoringStep(authoring.start, authoring.state, [proposed.candidateOperation], call.id)
       const actualOperationCost = preview.state.operationCost - authoring.state.operationCost
-      const remainingOperationsAfterEdit = AUTHORING_LIMITS.operations - preview.state.operationCost, reserveOperations = parsed.reserveOperations ?? 24
+      const remainingOperationsAfterEdit = remainingAuthoringOperations(authoring.start, preview.state), reserveOperations = parsed.reserveOperations ?? 24
       output = { ...proposed, candidateRecipe: { proposal: parsed, candidateHash: boundaryCandidateHash(proposed.candidateOperation) }, editHint: boundaryEditHint,
         shapeReview: inspectIslandBoundaryProposal(replayed.project, scope, ids, proposed.candidateOperation), atDraftRevision: authoring.state.draftRevision, atContentHash: authoring.state.contentHash,
         previewValid: true, actualOperationCost, remainingOperationsAfterEdit, reserveOperations, fitsReservedBudget: remainingOperationsAfterEdit >= reserveOperations,
@@ -290,7 +303,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
         operations = connectCompositionRooms(layout.project, authoring.start, parsed, operations)
       }
       const preview = operations.length ? applyAuthoringStep(authoring.start, authoring.state, operations, call.id) : replayed
-      const remainingOperationsAfterEdit = AUTHORING_LIMITS.operations - preview.state.operationCost, reserveOperations = parsed.reserveOperations ?? 24
+      const remainingOperationsAfterEdit = remainingAuthoringOperations(authoring.start, preview.state), reserveOperations = parsed.reserveOperations ?? 24
       output = { ...proposal, candidateOperations: operations, editHint: compositionEditHint, previewValid: true, atDraftRevision: authoring.state.draftRevision, atContentHash: authoring.state.contentHash,
         actualOperationCost: preview.state.operationCost - authoring.state.operationCost, remainingOperationsAfterEdit, reserveOperations,
         fitsReservedBudget: remainingOperationsAfterEdit >= reserveOperations,
@@ -305,12 +318,12 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoring.state.changedIds])
       output = { ...boundedDiagnosis(diagnoseAuthoringProject(replayed.project, ids, authoring.start.brief)), plan: authoring.plan ? { phase: authoring.plan.phase,
         requirements: authoring.plan.requirements.map(({ index, state }) => ({ index, state })), evidenceRead: 'The persisted plan summary and the immutable brief retain the full claims; this receipt reports their status only.' } : null,
-        remaining: { operations: AUTHORING_LIMITS.operations - authoring.state.operationCost, ...remaining() }, visionImages: task.messages.reduce((sum, message) => sum + (message.images?.length ?? 0), 0) }
+        remaining: { operations: remainingAuthoringOperations(authoring.start, authoring.state), ...remaining() }, visionImages: task.messages.reduce((sum, message) => sum + (message.images?.length ?? 0), 0) }
     } else if (call.name === 'sceneweave_check_draft') {
       emptyArguments.parse(args)
       const checked = checkAuthoringDraft(task.authoring!.start, task.authoring!.state)
       output = { valid: true, operationCost: checked.operationCost, changedCount: checked.changedIds.length,
-        remainingOperations: AUTHORING_LIMITS.operations - checked.operationCost, requirementClaims: task.authoring!.plan?.requirements.map(({ index, state }) => ({ index, state })) ?? [],
+        remainingOperations: remainingAuthoringOperations(task.authoring!.start, task.authoring!.state), requirementClaims: task.authoring!.plan?.requirements.map(({ index, state }) => ({ index, state })) ?? [],
         ...(task.authoring!.plan ? { claimsRead: 'Full evidence remains in the persisted plan; claims are not independent requirement verification.' } : {}), appearanceReview: 'unconfirmed' }
     } else { output = failure('unsupported_tool'); success = false }
     output = withBudget(output)
@@ -328,7 +341,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       : error instanceof PlanArgumentsError ? ['invalid_arguments', error.message]
       : error instanceof z.ZodError ? ['invalid_arguments', '参数不符合有限工具合同，请检查kind、必填字段与整数毫米。']
       : /锁/.test(text) ? ['locked_dependency', '对象、图层或真实依赖已锁定，此步骤未采用。']
-      : /256|预算|上限/.test(text) ? ['operation_budget', '步骤的真实展开超过任务剩余预算；请缩小改动。']
+      : /256|512|预算|上限|语义累计|计算复杂度/.test(text) ? ['operation_budget', '步骤的真实展开超过任务剩余预算；请缩小改动。']
       : /范围|授权|公开|私密|遮罩/.test(text) ? ['outside_scope', '对象、支撑、依赖或实际外轮廓不在冻结公开范围；请缩小操作或重新授权任务。']
       : /SVG|脚本|外部|规范化/.test(text) ? ['invalid_svg', 'SVG不符合受限静态子集，请去掉脚本、URL、CSS及未支持元素并修正几何。']
       : ['invalid_geometry', '步骤未采用；请检查几何、支撑、附着距离与依赖后修正。']
@@ -352,7 +365,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
     output = { error: { code: category[0], message: category[1], ...(error instanceof AuthoringOperationError ? { operationIndex: error.operationIndex } : {}), ...(hint ? { hint } : {}), ...(issues ? { issues } : {}), ...(connectionError ? { domainIssues: connectionError.issues } : {}) } }; success = false
   }
   if (!success && task.authoring!.start.brief && output && typeof output === 'object') output = { ...output,
-    remainingOperations: AUTHORING_LIMITS.operations - task.authoring!.state.operationCost,
+    remainingOperations: remainingAuthoringOperations(task.authoring!.start, task.authoring!.state),
     remainingModelRequests: remaining().modelRequests, remainingToolCalls: remaining().toolCalls,
     ...(budget.maxOutputTokens !== undefined ? { maxOutputTokens: budget.maxOutputTokens } : {}),
     ...(budget.executionRemainingMs !== undefined ? { remainingExecutionMs: remaining().executionMs } : {}) }

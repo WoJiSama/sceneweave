@@ -6,15 +6,31 @@ import {
   type ConnectionInfo, type ControlTaskRequest, type CreateTaskRequest, type TaskEvent, type TaskSnapshot,
 } from '../../../shared/ai/protocol'
 
-import { AUTHORING_LIMITS, AuthoringDraftSchema, DraftValidationSchema, DraftClaimSchema, DraftLeaseSchema, DraftAppliedSchema, type DraftClaim, type DraftStamp } from '../../../shared/ai/authoring-protocol'
+import { AUTHORING_LIMITS, CONTINUATION_POLICY, AuthoringDraftSchema, DraftValidationSchema, DraftClaimSchema, DraftLeaseSchema, DraftAppliedSchema, type DraftClaim, type DraftStamp, type BudgetIdentity } from '../../../shared/ai/authoring-protocol'
 import { RegionSceneCandidateQuerySchema, RegionSceneCandidateResponseSchema, type RegionSceneCandidateQuery } from '../../../shared/ai/region-candidate-protocol'
+import { canonicalJson } from '../../../shared/validation/json'
+import { sha256Text } from '../../../shared/validation/hash'
 
 const MAX_JSON_BYTES = 1024 * 1024
+export function supportsContinuation(info: ConnectionInfo, kind: 'authoring' | 'baseMap'): boolean {
+  return (kind === 'authoring' ? info.capabilities.sceneDraft && info.capabilities.authoringVersions?.includes(2) : info.capabilities.baseMapVersions?.includes(2)) === true
+    && info.capabilities.budgetPolicyHashes?.includes(CONTINUATION_POLICY.policyHash) === true
+}
+/** A v2 response cannot silently drop or replace any part of the budget identity. */
+export function continuationIdentity(value: unknown): (BudgetIdentity & { schemaVersion: 2 }) | null {
+  return value && typeof value === 'object' && 'schemaVersion' in value && value.schemaVersion === 2 ? value as BudgetIdentity & { schemaVersion: 2 } : null
+}
+export function sameBudgetIdentity(expected: unknown, actual: unknown): boolean {
+  const before = continuationIdentity(expected), after = continuationIdentity(actual)
+  return before ? !!after && before.policyHash === after.policyHash && before.sourceHash === after.sourceHash
+    && before.ledgerHeadHash === after.ledgerHeadHash && before.budgetStateHash === after.budgetStateHash : !after
+}
 const stopped = (value: TaskSnapshot) => isTerminalTask(value.status) || value.status === 'paused'
 const listSchema = z.object({ schemaVersion: z.literal(1), tasks: z.array(TaskSnapshotSchema).max(20) }).strict()
 const faultSchema = z.object({ schemaVersion: z.literal(1), error: AiErrorSchema }).strict()
 const safeErrors: Record<string, string> = {
   snapshot_required: '事件检查点已变化，正在重新读取完整任务。',
+  task_list_limit: '最近任务的完整记录总量超过读取上限。请使用任务 ID 只读查询单个任务。',
   generation_conflict: '任务状态已变化，请刷新后再操作。',
   service_restarted: '服务已重启，上一模型请求结果未知；继续可能产生新的费用。',
   provider_configuration: '后端模型配置不可用，请检查服务器配置。',
@@ -81,6 +97,18 @@ export function reduceTaskEvent(snapshot: TaskSnapshot, event: TaskEvent): TaskS
   if (event.type === 'tool_result') next.tools = [...next.tools.filter(tool => tool.callId !== event.data.callId), event.data]
   if (event.type === 'draft_updated') next.authoring = event.data
   if (event.type === 'usage') next.usage = event.data
+  if (event.type === 'authoring_checkpoint') {
+    const previous = snapshot.authoring, execution = snapshot.executionCheckpoint, after = event.data.authoring
+    if (!previous || !('schemaVersion' in previous) || previous.schemaVersion !== 2 || !execution
+      || event.data.executionCheckpoint.flowId !== execution.flowId
+      || after.policyHash !== execution.policyHash || after.sourceHash !== execution.sourceHash) throw new AiClientError('protocol', '实时接续检查点与原底图来源不匹配。')
+    if (after.draftRevision < previous.draftRevision || after.budget.generationCost !== previous.budget.generationCost
+      || after.budget.aiCost < previous.budget.aiCost || after.budget.complexityCost < previous.budget.complexityCost
+      || execution.uncertain === true && event.data.executionCheckpoint.uncertain !== true
+      || after.draftRevision === previous.draftRevision && (after.ledgerHeadHash !== previous.ledgerHeadHash || after.budgetStateHash !== previous.budgetStateHash)
+      || (['activeRuntimeMs', 'initializationMs', 'modelRequests', 'completedRequests', 'toolAttempts', 'outputBytes'] as const).some(field => event.data.executionCheckpoint[field] < execution[field])) throw new AiClientError('protocol', '实时接续检查点的累计记录倒退或账本身份已改变。')
+    next.authoring = event.data.authoring; next.usage = event.data.usage; next.executionCheckpoint = event.data.executionCheckpoint
+  }
   if (event.type === 'error') next.error = event.data
   if (event.type === 'status') next.status = event.data.status
   return parseSchema(TaskSnapshotSchema, next)
@@ -114,17 +142,27 @@ export class AiClient {
     try { return parseSchema(schema, parseJson(await boundedText(response, signal, max))) }
     catch (error) { aborted(signal); if (method === 'POST') throw new AiClientError('protocol', '服务器已接收请求，但响应尚未确认。请保留同一请求 ID 重试或刷新任务。', 'unknown'); throw error }
   }
-  capabilities(signal?: AbortSignal): Promise<ConnectionInfo> { return this.#json('capabilities', ConnectionInfoSchema, 'GET', undefined, signal) }
+  capabilities(signal?: AbortSignal): Promise<ConnectionInfo> { return this.#json('capabilities?authoringVersion=2', ConnectionInfoSchema, 'GET', undefined, signal) }
   async create(request: CreateTaskRequest, signal?: AbortSignal): Promise<TaskSnapshot> {
     const input = parseSchema(CreateTaskSchema, request)
-    if (utf8Size(JSON.stringify(input)) > (input.vision ? VISION_LIMITS.requestBytes : input.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')
-    const value = await this.#json('tasks', TaskSnapshotSchema, 'POST', input, signal)
+    const authoring = input.authoring, continuation = authoring?.schemaVersion === 2
+    if (utf8Size(JSON.stringify(input)) > (continuation ? CONTINUATION_POLICY.requestBytes : input.vision ? VISION_LIMITS.requestBytes : input.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')
+    if (continuation && !supportsContinuation(await this.capabilities(signal), 'authoring')) throw new AiClientError('unsupported_continuation', '后端尚未支持本次程序底图接续策略，请升级后端；底图仍可独立采用。')
+    const value = await this.#json('tasks', TaskSnapshotSchema, 'POST', input, signal, continuation ? AI_LIMITS.taskBytes : MAX_JSON_BYTES)
     if (value.clientRequestId !== input.clientRequestId || value.context?.sceneId !== input.context?.sceneId || value.context?.revision !== input.context?.revision) throw new AiClientError('protocol', '创建响应与本次请求不匹配，请保留同一请求 ID 重试。', 'unknown')
+    const identity = continuationIdentity(value.authoring)
+    if (continuation && (!identity || identity.policyHash !== authoring.policy.policyHash || identity.sourceHash !== sha256Text(canonicalJson(authoring.source)))) throw new AiClientError('protocol', '服务器未确认程序底图接续版本与来源，请保留同一请求并刷新任务。', 'unknown')
     return value
   }
-  async snapshot(taskId: string, signal?: AbortSignal): Promise<TaskSnapshot> {
-    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}`, TaskSnapshotSchema, 'GET', undefined, signal)
-    if (value.id !== taskId) throw new AiClientError('protocol', '完整任务身份不匹配，已停止连接。')
+  async snapshot(taskId: string, signal?: AbortSignal, version: 1 | 2 = 1): Promise<TaskSnapshot> {
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}`, TaskSnapshotSchema, 'GET', undefined, signal, version === 2 ? AI_LIMITS.taskBytes : MAX_JSON_BYTES)
+    if (value.id !== taskId || !!continuationIdentity(value.authoring) !== (version === 2)) throw new AiClientError('protocol', '完整任务身份或接续版本不匹配，已停止连接。')
+    return value
+  }
+  /** Explicit ID lookup can discover either strict version within one task's fixed byte cap. */
+  async lookupSnapshot(taskId: string, signal?: AbortSignal): Promise<TaskSnapshot> {
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}`, TaskSnapshotSchema, 'GET', undefined, signal, AI_LIMITS.taskBytes)
+    if (value.id !== taskId) throw new AiClientError('protocol', '完整任务身份不匹配，已停止显示。')
     return value
   }
   async list(sceneId: string | null, signal?: AbortSignal): Promise<TaskSnapshot[]> {
@@ -132,16 +170,16 @@ export class AiClient {
     if (sceneId !== null && result.tasks.some(value => value.context?.sceneId !== sceneId)) throw new AiClientError('protocol', '任务列表包含其他工程，已停止显示。')
     return result.tasks
   }
-  async control(taskId: string, request: ControlTaskRequest, signal?: AbortSignal): Promise<TaskSnapshot> {
+  async control(taskId: string, request: ControlTaskRequest, signal?: AbortSignal, version: 1 | 2 = 1): Promise<TaskSnapshot> {
     const input = parseSchema(ControlTaskSchema, request)
     if (utf8Size(JSON.stringify(input)) > (input.vision ? VISION_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')
-    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/control`, TaskSnapshotSchema, 'POST', input, signal)
-    if (value.id !== taskId || value.generation < request.expectedGeneration) throw new AiClientError('protocol', '控制响应与任务不匹配，请刷新完整任务。', 'unknown')
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/control`, TaskSnapshotSchema, 'POST', input, signal, version === 2 ? AI_LIMITS.taskBytes : MAX_JSON_BYTES)
+    if (value.id !== taskId || value.generation < request.expectedGeneration || !!continuationIdentity(value.authoring) !== (version === 2)) throw new AiClientError('protocol', '控制响应与任务或接续版本不匹配，请刷新完整任务。', 'unknown')
     return value
   }
-  async draft(taskId: string, signal?: AbortSignal) {
-    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft`, AuthoringDraftSchema, 'GET', undefined, signal, 8 * 1024 * 1024)
-    if (value.taskId !== taskId) throw new AiClientError('protocol', '草稿身份不匹配，已停止显示。')
+  async draft(taskId: string, signal?: AbortSignal, version: 1 | 2 = 1) {
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft`, AuthoringDraftSchema, 'GET', undefined, signal, version === 2 ? CONTINUATION_POLICY.requestBytes : 8 * 1024 * 1024)
+    if (value.taskId !== taskId || value.schemaVersion !== version) throw new AiClientError('protocol', '草稿身份或接续版本不匹配，已停止显示。')
     return value
   }
   async regionSceneCandidate(taskId: string, query: RegionSceneCandidateQuery, signal?: AbortSignal) {
@@ -155,23 +193,23 @@ export class AiClient {
     return value
   }
   async validateDraft(taskId: string, stamp: DraftStamp & { valid: boolean }, signal?: AbortSignal) {
-    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/validate`, TaskSnapshotSchema, 'POST', parseSchema(DraftValidationSchema, stamp), signal)
-    if (value.id !== taskId) throw new AiClientError('protocol', '草稿校验响应身份不匹配。', 'unknown')
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/validate`, TaskSnapshotSchema, 'POST', parseSchema(DraftValidationSchema, stamp), signal, continuationIdentity(stamp) ? AI_LIMITS.taskBytes : MAX_JSON_BYTES)
+    if (value.id !== taskId || continuationIdentity(stamp) && (!value.authoring || !sameBudgetIdentity(stamp, value.authoring))) throw new AiClientError('protocol', '草稿校验响应身份不匹配。', 'unknown')
     return value
   }
   async claimDraft(taskId: string, claim: DraftClaim, signal?: AbortSignal) {
     const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/claim`, DraftLeaseSchema, 'POST', parseSchema(DraftClaimSchema, claim), signal)
-    if (value.taskId !== taskId || value.claimId !== claim.claimId || value.generation !== claim.expectedGeneration || value.draftRevision !== claim.draftRevision || value.contentHash !== claim.contentHash || value.expiresAt <= value.serverNow) throw new AiClientError('protocol', '采用租约身份不匹配。', 'unknown')
+    if (value.taskId !== taskId || value.claimId !== claim.claimId || value.generation !== claim.expectedGeneration || value.draftRevision !== claim.draftRevision || value.contentHash !== claim.contentHash || value.expiresAt <= value.serverNow || !sameBudgetIdentity(claim, value)) throw new AiClientError('protocol', '采用租约身份不匹配。', 'unknown')
     return value
   }
   async appliedDraft(taskId: string, receipt: DraftClaim & { sceneId: string; revision: number }, signal?: AbortSignal) {
-    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/applied`, TaskSnapshotSchema, 'POST', parseSchema(DraftAppliedSchema, receipt), signal)
-    if (value.id !== taskId) throw new AiClientError('protocol', '采用回执身份不匹配。', 'unknown')
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/applied`, TaskSnapshotSchema, 'POST', parseSchema(DraftAppliedSchema, receipt), signal, continuationIdentity(receipt) ? AI_LIMITS.taskBytes : MAX_JSON_BYTES)
+    if (value.id !== taskId || continuationIdentity(receipt) && (!value.authoring || !sameBudgetIdentity(receipt, value.authoring))) throw new AiClientError('protocol', '采用回执身份不匹配。', 'unknown')
     return value
   }
   async releaseDraft(taskId: string, claim: DraftClaim, signal?: AbortSignal) {
-    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/release`, TaskSnapshotSchema, 'POST', parseSchema(DraftClaimSchema, claim), signal)
-    if (value.id !== taskId) throw new AiClientError('protocol', '释放租约响应身份不匹配。', 'unknown')
+    const value = await this.#json(`tasks/${encodeURIComponent(taskId)}/draft/release`, TaskSnapshotSchema, 'POST', parseSchema(DraftClaimSchema, claim), signal, continuationIdentity(claim) ? AI_LIMITS.taskBytes : MAX_JSON_BYTES)
+    if (value.id !== taskId || continuationIdentity(claim) && (!value.authoring || !sameBudgetIdentity(claim, value.authoring))) throw new AiClientError('protocol', '释放租约响应身份不匹配。', 'unknown')
     return value
   }
   async delete(taskId: string, signal?: AbortSignal): Promise<void> { const response = await this.#request(`tasks/${encodeURIComponent(taskId)}`, 'DELETE', undefined, signal); if (response.status !== 204) { await response.body?.cancel(); throw new AiClientError('protocol', '服务器未确认删除，请刷新任务状态。') } }
@@ -187,6 +225,7 @@ export class AiClient {
         if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream') || !response.body) { await response.body?.cancel(); throw new AiClientError('protocol', '后端未返回有效的实时事件流。') }
         callbacks.onConnection?.('connected')
         const reader = response.body.getReader(), decoder = new TextDecoder('utf-8', { fatal: true })
+        const eventBytes = continuationIdentity(current.authoring) ? AI_LIMITS.taskBytes : AI_LIMITS.outputBytes * 2
         let buffer = '', data: string[] = [], eventName = '', eventId = ''
         const cancel = () => { void reader.cancel().catch(() => undefined) }
         signal?.addEventListener('abort', cancel, { once: true })
@@ -214,9 +253,9 @@ export class AiClient {
               if (field === 'data') data.push(value)
               else if (field === 'event') eventName = value
               else if (field === 'id') eventId = value
-              if (utf8Size(data.join('\n')) > AI_LIMITS.outputBytes * 2) throw new AiClientError('protocol', '实时事件超过允许大小。')
+              if (utf8Size(data.join('\n')) > eventBytes) throw new AiClientError('protocol', '实时事件超过允许大小。')
             }
-            if (utf8Size(buffer) + utf8Size(data.join('\n')) > AI_LIMITS.outputBytes * 2) throw new AiClientError('protocol', '实时事件超过允许大小。')
+            if (utf8Size(buffer) + utf8Size(data.join('\n')) > eventBytes) throw new AiClientError('protocol', '实时事件超过允许大小。')
           }
         } finally { signal?.removeEventListener('abort', cancel); await reader.cancel().catch(() => undefined); reader.releaseLock() }
         if (stopped(current)) return
@@ -227,7 +266,7 @@ export class AiClient {
         if (reconnects >= 3) { callbacks.onConnection?.('disconnected'); throw new AiClientError('disconnected', '实时连接已中断，自动重连已停止。可点击重新连接读取服务器已有进度。') }
         reconnects += 1; callbacks.onConnection?.('reconnecting')
         // A full checkpoint handles event gaps, stale generations and unknown HTTP 409 cursors.
-        current = await this.snapshot(current.id, signal); callbacks.onSnapshot(current)
+        current = await this.snapshot(current.id, signal, continuationIdentity(current.authoring) ? 2 : 1); callbacks.onSnapshot(current)
         if (stopped(current)) return
       }
     }

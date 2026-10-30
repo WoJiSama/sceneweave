@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { applyAuthoringStep, publicAuthoringContext, replayAuthoring } from '../../src/shared/ai/authoring.js'
-import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
 import { TerrainAuthoringOperationSchema, TerrainCandidatesArgumentsSchema, TerrainApplyArgumentsSchema, RegionSceneCandidateArgumentsSchema } from '../../src/shared/ai/terrain-protocol.js'
 import { regionalSceneCandidate, TerrainAuthoringRestrictedError } from '../../src/shared/ai/terrain-authoring.js'
 import { utf8Size } from '../../src/shared/ai/protocol.js'
@@ -9,6 +8,7 @@ import { canonicalJson } from '../../src/shared/validation/json.js'
 import type { ProviderToolCall } from './provider-types.js'
 import type { StoredTask, StoredTerrainCandidate } from './store.js'
 import { selectNewTerrainGenerationVersion } from './terrain-generation-version.js'
+import { remainingAuthoringOperations } from '../../src/shared/ai/authoring.js'
 
 const TerrainRegionOperationSchema = z.discriminatedUnion('kind', [TerrainAuthoringOperationSchema.options[1], TerrainAuthoringOperationSchema.options[2]])
 
@@ -26,7 +26,7 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
       publicTargets: context?.entities?.map(({ id, entityKind }) => ({ id, entityKind })).slice(0, 16) ?? [],
       readMore: 'Use bounded scene pages for actual authorized entities. Candidate preparation enforces the complete dependency closure.',
       prerequisites: ['Complete v3/v4 project prepared locally', 'Explicit scene operation, Floor, bounds, layers and fixed palette', 'Public complete dependency closure; restricted inputs produce a fixed rejection'],
-      remainingOperations: AUTHORING_LIMITS.operations - authoring.state.operationCost, appearance: 'unconfirmed', reachability: 'not_proven',
+      remainingOperations: remainingAuthoringOperations(authoring.start, authoring.state), appearance: 'unconfirmed', reachability: 'not_proven',
       disposition: 'task completion is not local adoption, save, publication or P3 acceptance' } }
   }
   if (call.name === 'sceneweave_terrain_candidates' || call.name === 'sceneweave_terrain_regenerate_region') {
@@ -45,7 +45,7 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
     }
     if (utf8Size(JSON.stringify(candidates)) > 196608) throw new Error('操作预算上限')
     return { output: { candidates: candidates.map(candidate => ({ candidateId: candidate.id, candidateHash: candidate.hash, kind: candidate.operation.kind, atContentHash: candidate.atContentHash, atDraftRevision: candidate.atDraftRevision,
-      actualOperationCost: candidate.operationCost, remainingOperationsAfterEdit: AUTHORING_LIMITS.operations - authoring.state.operationCost - candidate.operationCost })),
+      actualOperationCost: candidate.operationCost, remainingOperationsAfterEdit: remainingAuthoringOperations(authoring.start, authoring.state) - candidate.operationCost })),
       appearance: 'unconfirmed', disposition: 'private bounded replay recipes; no draft step adopted; apply one exact candidate on this baseline' },
       install: () => { authoring.terrainCandidates = candidates } }
   }
@@ -57,7 +57,7 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
     if (result.state.contentHash !== candidate.contentHash || result.state.operationCost - authoring.state.operationCost !== candidate.operationCost
       || sha256Text(canonicalJson({ operation: candidate.operation, atContentHash: candidate.atContentHash, contentHash: result.state.contentHash })) !== candidate.hash) throw new TerrainAuthoringRestrictedError()
     return { output: { draftRevision: result.state.draftRevision, contentHash: result.state.contentHash, operationCost: result.state.operationCost,
-      changedCount: result.state.changedIds.length, remainingOperations: AUTHORING_LIMITS.operations - result.state.operationCost, disposition: 'isolated draft only; local replay, review, protected adoption and save remain required' },
+      changedCount: result.state.changedIds.length, remainingOperations: remainingAuthoringOperations(authoring.start, result.state), disposition: 'isolated draft only; local replay, review, protected adoption and save remain required' },
       install: () => { authoring.state = result.state; authoring.terrainCandidates = [] } }
   }
   if (call.name === 'sceneweave_region_scene_candidate') {

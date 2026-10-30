@@ -1,8 +1,9 @@
 import {
   BASE_MAP_LIMITS, prepareBaseMapRequest, parseBaseMapResponse, type BaseMapRequest, type BaseMapResponse,
 } from '../../../shared/terrain-generation/base-map.js'
+import { parseBaseMapRequestV2, parseBaseMapResponseV2, type BaseMapRequestV2, type BaseMapResponseV2 } from '../../../shared/terrain-generation/base-map-v2.js'
 import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
-import { normalizeAiBaseUrl } from '../ai/client.js'
+import { AiClient, normalizeAiBaseUrl, supportsContinuation } from '../ai/client.js'
 
 const MAX_RESPONSE_BYTES = BASE_MAP_LIMITS.resultBytes + 4096
 
@@ -20,12 +21,14 @@ export interface BaseMapGenerationClientOptions {
 }
 export interface BaseMapGenerationRunOptions {
   signal?: AbortSignal
-  isCurrent?: (request: BaseMapRequest) => boolean
+  isCurrent?: (request: BaseMapRequest | BaseMapRequestV2) => boolean
+  onExecution?: (execution: BaseMapGenerationExecution) => void
   /** Used only for this explicit request; never persisted or used as a fallback. */
   server?: { baseUrl: string; token: string }
 }
+export interface BaseMapGenerationExecution { startedAt: string; activeRuntimeMs: number; generationCalls: number }
 export interface BaseMapGenerationClient {
-  generate: (request: BaseMapRequest, options?: BaseMapGenerationRunOptions) => Promise<BaseMapResponse>
+  generate: (request: BaseMapRequest | BaseMapRequestV2, options?: BaseMapGenerationRunOptions) => Promise<BaseMapResponse | BaseMapResponseV2>
   cancel: () => void
   dispose: () => void
 }
@@ -46,11 +49,11 @@ const serverError = (status: number) => new BaseMapGenerationClientError('genera
           : status >= 500 ? '程序底图服务暂时不可用，请检查后端状态；未自动重发。'
             : '后端未接受程序底图请求，请检查输入和连接配置。')
 
-function captureRequest(raw: BaseMapRequest): BaseMapRequest {
+function captureRequest(raw: BaseMapRequest | BaseMapRequestV2): BaseMapRequest | BaseMapRequestV2 {
   const captured = captureJson(raw)
   const text = canonicalJson(captured)
   if (encodeUtf8(text).byteLength > BASE_MAP_LIMITS.requestBytes) throw new Error('request limit')
-  const request = prepareBaseMapRequest({ requestId: captured.requestId, workspaceSceneId: captured.workspaceSceneId,
+  const request = captured.version === 2 ? parseBaseMapRequestV2(captured) : prepareBaseMapRequest({ requestId: captured.requestId, workspaceSceneId: captured.workspaceSceneId,
     checkpoint: captured.checkpoint, operationEpoch: captured.operationEpoch, base: captured.base, generation: captured.generation })
   // Rebuilding only verifies an already prepared envelope: it must not silently
   // repair an old hash, change an algorithm selector, or ignore extra fields.
@@ -92,12 +95,13 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
   const createWorker = options.createWorker ?? (() => new Worker(new URL('./base-map-worker.ts', import.meta.url), { type: 'module', name: 'sceneweave-base-map' }))
   const fetcher = options.fetcher ?? fetch
   let disposed = false, active: { cancel: () => void } | null = null
+  const executions = new Map<string, BaseMapGenerationExecution>()
   const cancel = () => active?.cancel()
   const generate: BaseMapGenerationClient['generate'] = async (raw, runOptions = {}) => {
     cancel()
     if (disposed) throw new BaseMapGenerationClientError('disposed', '程序底图生成面板已关闭。')
     if (runOptions.signal?.aborted) throw abortError()
-    let request: BaseMapRequest
+    let request: BaseMapRequest | BaseMapRequestV2
     try { request = captureRequest(raw) }
     catch { throw new BaseMapGenerationClientError('invalid_input', '程序底图请求或基线无效，请重新准备预览。') }
     const current = () => {
@@ -113,10 +117,14 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
         server = { baseUrl: normalizeAiBaseUrl(baseUrl), token: token.trim() }
       } catch { throw new BaseMapGenerationClientError('configuration', '请填写有效的后端地址和应用凭据。') }
     }
-    return new Promise<BaseMapResponse>((resolve, reject) => {
+    const flow = request.version === 2 ? request.flowId : request.requestId
+    const startedAt = new Date().toISOString(), startedAtMs = performance.now()
+    const execution = executions.get(flow) ?? { startedAt, activeRuntimeMs: 0, generationCalls: 0 }
+    executions.set(flow, execution)
+    return new Promise<BaseMapResponse | BaseMapResponseV2>((resolve, reject) => {
       let settled = false, worker: BaseMapWorker | undefined, timer: ReturnType<typeof setTimeout> | undefined
       const controller = new AbortController(), job = { cancel: () => finish(abortError()) }
-      function finish(failure?: Error, response?: BaseMapResponse): void {
+      function finish(failure?: Error, response?: BaseMapResponse | BaseMapResponseV2): void {
         if (settled) return
         settled = true
         if (active === job) active = null
@@ -127,6 +135,8 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
           worker.onmessage = null; worker.onerror = null; worker.onmessageerror = null
           try { worker.terminate() } catch { /* Already terminated; settlement must still complete. */ }
         }
+        execution.activeRuntimeMs += Math.max(1, Math.ceil(performance.now() - startedAtMs))
+        try { runOptions.onExecution?.(Object.freeze({ ...execution })) } catch { /* Observation cannot change transport settlement. */ }
         if (failure) reject(failure)
         else if (response) resolve(response)
         else reject(protocolError())
@@ -138,7 +148,7 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
           const captured = captureJson(rawResponse)
           if (encodeUtf8(canonicalJson(captured)).byteLength > MAX_RESPONSE_BYTES) throw protocolError()
           if (captured && typeof captured === 'object' && 'type' in captured && captured.type === 'error') { finish(generationError()); return }
-          const response = freezeJson(parseBaseMapResponse(request, captured))
+          const response = freezeJson(request.version === 2 ? parseBaseMapResponseV2(request, captured) : parseBaseMapResponse(request, captured))
           if (!current()) throw staleError()
           finish(undefined, response)
         } catch (error) { finish(error instanceof BaseMapGenerationClientError ? error : protocolError()) }
@@ -152,6 +162,13 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
         void (async () => {
           let response: Response
           try {
+            if (request.version === 2) {
+              const info = await new AiClient(connection.baseUrl, connection.token, fetcher).capabilities(controller.signal)
+              if (settled || active !== job) return
+              if (!current()) { finish(staleError()); return }
+              if (!supportsContinuation(info, 'baseMap')) { finish(new BaseMapGenerationClientError('unavailable', '后端尚未支持可接 AI 的程序底图策略，请升级后端；未降级或重发。')); return }
+            }
+            execution.generationCalls++
             response = await fetcher.call(globalThis, `${connection.baseUrl}/v1/terrain/basemap`, {
               method: 'POST', headers: { Authorization: `Bearer ${connection.token}`, 'Content-Type': 'application/json' },
               body: canonicalJson(request), signal: controller.signal, credentials: 'omit', cache: 'no-store', redirect: 'error',
@@ -172,7 +189,7 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
         worker.onmessage = event => accept(event.data)
         worker.onerror = event => { event.preventDefault(); finish(generationError()) }
         worker.onmessageerror = () => finish(protocolError())
-        try { worker.postMessage(request) } catch { finish(protocolError()) }
+        try { execution.generationCalls++; worker.postMessage(request) } catch { finish(protocolError()) }
       }
     })
   }

@@ -155,6 +155,7 @@ describe('short boundary candidate adoption through the ordinary strict ledger',
     expect(changedIds).toHaveLength(32)
     // Geometry/hash/ledger equivalence is checked above. This isolates the
     // shared installation gate with a legitimate finite changed-ID receipt.
+    if (next.state.schemaVersion !== 1) throw new Error('Expected legacy receipt fixture')
     const apply = vi.spyOn(authoringCore, 'applyAuthoringStep').mockReturnValue({ ...next, state: { ...next.state, changedIds } })
     try {
       const result = executeAuthoringTool(task, { id: 'large-boundary-receipt', name: 'sceneweave_apply_boundary_candidates', arguments: JSON.stringify(args) }, args, undefined,

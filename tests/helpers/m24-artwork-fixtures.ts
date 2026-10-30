@@ -1,5 +1,5 @@
 import { unzlibSync, zlibSync } from 'fflate'
-import type { AuthoringDraft, AuthoringOperation, AuthoringScope, AuthoringStart } from '../../src/shared/ai/authoring-protocol'
+import type { AuthoringDraft, AuthoringOperation, AuthoringScope, AuthoringStart } from '../../src/shared/ai/authoring-protocol-v1'
 import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring'
 import { verifyNormalizedStaticSvg } from '../../src/shared/ai/svg'
 import type { ProjectBundle } from '../../src/shared/model/project'

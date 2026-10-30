@@ -63,6 +63,28 @@ function furnishingTask(basic: AuthoringScope['operations'] = ['transform', 'opa
 }
 
 describe('model tool catalog narrowed by the immutable capability grant', () => {
+  it('describes the classified AI allowance without changing v1 tool contracts or widening grants', () => {
+    const grant = scope({ scene: scene(['terrainEdit']) })
+    const legacy = getAuthoringTools(grant), classified = getAuthoringTools(grant, 2)
+    expect(names(classified)).toEqual(names(legacy))
+    for (const current of classified.filter(item => item.name !== 'sceneweave_propose_composition')) expect(current.parameters).toEqual(tool(legacy, current.name).parameters)
+    expect(tool(legacy, 'sceneweave_terrain_apply_candidate').description).toContain('256 cumulative expansion')
+    expect(tool(classified, 'sceneweave_terrain_apply_candidate').description).toContain('separate 256-target AI cumulative budget')
+    expect(tool(getAuthoringTools(grant), 'sceneweave_terrain_apply_candidate').description).toBe(tool(legacy, 'sceneweave_terrain_apply_candidate').description)
+  })
+  it('omits v2 visual and deferred-artwork branches that the complete v3/v4 continuation cannot execute', () => {
+    const grant = scope({ operations: ['opacity'], scene: scene(['terrainUpdate']), visual: visual(['visualBoundary', 'visualEnvironment']),
+      artwork: { mode: 'single', targetIds: ['target'], operations: ['svg', 'style'] } })
+    const legacy = getAuthoringTools(grant), classified = getAuthoringTools(grant, 2)
+    expect(kinds(classified, 'sceneweave_edit_scene')).toEqual(['opacity', 'terrainUpdate'])
+    expect(names(classified)).not.toContain('sceneweave_apply_boundary_candidates')
+    expect(names(classified)).not.toContain('sceneweave_propose_boundary')
+    const composition = tool(classified, 'sceneweave_propose_composition').parameters as Schema
+    expect(composition.properties!.kind.enum).toEqual(['layout', 'furnishing'])
+    expect(composition.oneOf!.every(branch => branch.properties!.kind.const !== 'style')).toBe(true)
+    expect(kinds(legacy, 'sceneweave_edit_scene')).toContain('visualBoundary')
+    expect(kinds(legacy, 'sceneweave_edit_scene')).toContain('svg')
+  })
   it('advertises the exact union of all four operation grants without weakening any retained branch', () => {
     const grant = scope({ operations: ['transform', 'opacity'], scene: scene(['terrain', 'furnish']),
       visual: visual(['visualBoundary', 'visualFog']), artwork: { mode: 'range', targetIds: [], includeNewProps: true, operations: ['svg', 'style'] } })

@@ -11,6 +11,7 @@ import { TaskEngine } from './engine.js'
 import { TaskFault, TaskStore } from './store.js'
 import { ProviderFailure } from './provider-types.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
+import { CONTINUATION_POLICY } from '../../src/shared/ai/budget-policy.js'
 import type { ProviderAdapter, ProviderCompletion, ProviderInput, ProviderToolCall } from './provider-types.js'
 
 const tokenA = 'a'.repeat(40), tokenB = 'b'.repeat(40), origin = 'https://editor.example.test'
@@ -46,6 +47,30 @@ describe('private AI task HTTP service', () => {
     expect(valid.status).toBe(204); expect(valid.headers.get('Access-Control-Allow-Origin')).toBe(origin)
     expect((await app.request('/v1/tasks', { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST' } })).status).toBe(403)
     expect((await app.request('/v1/tasks', { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-custom' } })).status).toBe(403)
+  })
+  it('preserves the strict cached-client capability response and advertises v2 only after explicit negotiation', async () => {
+    const { engine, request } = setup()
+    const legacySchema = ConnectionInfoSchema.extend({ capabilities: ConnectionInfoSchema.shape.capabilities.omit({
+      authoringVersions: true, baseMapVersions: true, budgetPolicyHashes: true }).strict() }).strict()
+    const bare = await (await request('/v1/capabilities')).json()
+    expect(legacySchema.parse(bare)).toEqual(bare)
+    expect(bare.capabilities).not.toHaveProperty('authoringVersions')
+    expect(bare.capabilities).not.toHaveProperty('baseMapVersions')
+    expect(bare.capabilities).not.toHaveProperty('budgetPolicyHashes')
+    const negotiated = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=2')).json())
+    expect(negotiated.capabilities).toMatchObject({ authoringVersions: [1, 2], baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] })
+    expect(negotiated).toEqual(engine.connectionInfo)
+    expect(legacySchema.safeParse(negotiated).success).toBe(false)
+    for (const query of ['authoringVersion=1', 'authoringVersion=3', 'authoringVersion=']) {
+      const response = await request(`/v1/capabilities?${query}`)
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: { code: 'unsupported_authoring_version' } })
+    }
+    for (const query of ['unknown=2', 'authoringVersion=2&authoringVersion=2', 'authoringVersion=2&unknown=1']) {
+      const response = await request(`/v1/capabilities?${query}`)
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: { code: 'invalid_request' } })
+    }
   })
   it('rejects unknown request fields, scene contents, GM contexts and excessive actual bytes before model requests', async () => {
     const complete = vi.fn(() => new Promise<ProviderCompletion>(() => {}))

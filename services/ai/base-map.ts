@@ -1,11 +1,16 @@
 import type { ReadableStreamReadResult } from 'node:stream/web'
 import { BASE_MAP_LIMITS, executeBaseMapRequest, type BaseMapResponse } from '../../src/shared/terrain-generation/base-map.js'
-import { TaskFault } from './store.js'
+import { executeBaseMapRequestV2, parseBaseMapRequestV2, type BaseMapRequestV2, type BaseMapResponseV2 } from '../../src/shared/terrain-generation/base-map-v2.js'
+import { TaskFault, type BaseMapExecutionToken } from './store.js'
 
 interface BaseMapServiceOptions {
   maxConcurrent: number
   bodyTimeoutMs?: number
-  execute?: (raw: unknown) => BaseMapResponse
+  execute?: (raw: unknown) => BaseMapResponse | BaseMapResponseV2
+  execution?: {
+    begin(owner: string, request: BaseMapRequestV2): BaseMapExecutionToken
+    finish(token: BaseMapExecutionToken, elapsedMs: number, resultHash?: string): void
+  }
 }
 
 const cancelled = () => new TaskFault('request_cancelled', 409)
@@ -55,30 +60,41 @@ async function readBaseMapJson(request: Request, timeoutMs: number): Promise<unk
   }
 }
 
-/** Stateless CPU work: no TaskStore writes, model requests, detached retries or adoption. */
+/** v1 remains stateless. v2 binds actual generation work to its frozen flow. */
 export function createBaseMapService(options: BaseMapServiceOptions) {
-  const { maxConcurrent, execute = executeBaseMapRequest, bodyTimeoutMs = 30_000 } = options
+  const { maxConcurrent, execute = (raw: unknown) => raw && typeof raw === 'object' && 'version' in raw && raw.version === 2
+    ? executeBaseMapRequestV2(raw) : executeBaseMapRequest(raw), bodyTimeoutMs = 30_000 } = options
   if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 4
     || !Number.isSafeInteger(bodyTimeoutMs) || bodyTimeoutMs < 1 || bodyTimeoutMs > 60_000) throw new Error('Invalid base-map service limits')
   let active = 0
   return {
-    async generate(request: Request): Promise<string> {
+    async generate(request: Request, owner?: string): Promise<string> {
       if (request.signal.aborted) throw cancelled()
       // Reserve before awaiting any bytes, including stalled request bodies.
       if (active >= maxConcurrent) throw new TaskFault('request_limit', 429)
       active++
+      const started = performance.now()
+      let token: BaseMapExecutionToken | undefined, result: BaseMapResponse | BaseMapResponseV2 | undefined
       try {
         const raw = await readBaseMapJson(request, bodyTimeoutMs)
         if (request.signal.aborted) throw cancelled()
-        let result: BaseMapResponse
-        try { result = execute(raw) } catch { throw new TaskFault('invalid_request', 400) }
+        if (raw && typeof raw === 'object' && 'version' in raw && raw.version === 2) {
+          let prepared: BaseMapRequestV2
+          try { prepared = parseBaseMapRequestV2(raw) } catch { throw new TaskFault('invalid_request', 400) }
+          if (!owner || !options.execution) throw new TaskFault('execution_checkpoint_missing')
+          token = options.execution.begin(owner, prepared)
+        }
+        try { result = execute(raw) } catch (error) { if (error instanceof TaskFault) throw error; throw new TaskFault('invalid_request', 400) }
         // Synchronous execution has internal hard budgets; it is not preemptible.
         if (request.signal.aborted) throw cancelled()
         let body: string
         try { body = JSON.stringify(result) } catch { throw new TaskFault('invalid_result', 503) }
         if (Buffer.byteLength(body, 'utf8') > BASE_MAP_LIMITS.resultBytes) throw new TaskFault('result_limit', 413)
         return body
-      } finally { active-- }
+      } finally {
+        active--
+        if (token) options.execution!.finish(token, performance.now() - started, result?.resultHash)
+      }
     },
   }
 }

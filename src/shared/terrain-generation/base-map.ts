@@ -64,7 +64,9 @@ const costSchema = z.object({ items: z.record(id, integer.max(BASE_MAP_LIMITS.op
   total: integer.max(BASE_MAP_LIMITS.operations), limit: z.literal(256), finalAdoptionCostChecked: z.literal(false) }).strict()
 function terrainMapOrder(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
-  const value = raw as Record<string, unknown>
+  // Schema preprocessing must not mutate a frozen source/response owned by
+  // another validated envelope. The normalized result still has identical JSON.
+  const value = captureJson(raw) as Record<string, unknown>
   if (!value.document || typeof value.document !== 'object' || Array.isArray(value.document) || !Array.isArray(value.managedTargets)) return raw
   const document = value.document as Record<string, unknown>, visual = document.visual as Record<string, unknown> | undefined
   // The legacy result validator checks its managed-target array against map
@@ -263,6 +265,9 @@ export function executeBaseMapRequest(raw: unknown): BaseMapResponse {
     generation: request.generation, result, domainCost: cost, resultHash: resultHash(request.generation, result, cost) })
 }
 const protocolValues = () => ({ protocol: 'sceneweave-base-map' as const, version: 1 as const })
+
+/** Version-specific schemas remain strict; newer envelopes dispatch explicitly. */
+export { requestSchema as BaseMapRequestV1Schema, responseSchema as BaseMapResponseV1Schema }
 
 /** Structural verification is not deterministic replay or final adoption proof. */
 export function parseBaseMapResponse(requestInput: BaseMapRequest, raw: unknown): BaseMapResponse {

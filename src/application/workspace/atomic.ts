@@ -9,6 +9,7 @@ import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics.js'
 import { canonicalJson, captureJson } from '../../shared/validation/json.js'
 import type { EditableProject } from './project.js'
 import type { EditableSnapshot } from './workspace.js'
+import type { BudgetIdentity, BudgetState } from '../../shared/ai/continuation-protocol.js'
 
 export interface AtomicAuthorization {
   start: AuthoringStart
@@ -20,6 +21,9 @@ export interface AtomicAuthorization {
 }
 export interface AtomicChange { id: string; collection?: string; before: unknown; after: unknown; fields: string[] }
 export interface AtomicCandidate {
+  schemaVersion?: 1 | 2
+  budgetIdentity?: BudgetIdentity
+  budget?: BudgetState
   project: EditableProject
   document: EditableProject['document']
   changes: readonly AtomicChange[]
@@ -36,7 +40,7 @@ export interface AtomicCandidate {
   currentSceneId: string
   currentRevision: number
 }
-export interface AtomicAdoptionResult { protection: EditableSnapshot; revision: number; save: Promise<void> }
+export interface AtomicAdoptionResult { protection?: EditableSnapshot; revision: number; save: Promise<void> }
 export type AtomicCandidateStatus = 'active' | 'applying' | 'cancelled' | 'applied'
 export interface AtomicCandidateRecord { authorization: AtomicAuthorization; draft: AuthoringDraft; status: AtomicCandidateStatus }
 
@@ -51,9 +55,9 @@ export function pureProject(project: EditableProject): ProjectData {
   const { resources: _resources, ...data } = project
   return data
 }
-export function captureAtomicStart(input: AuthoringStart): AuthoringStart {
+export function captureAtomicStart<T extends AuthoringStart>(input: T): T {
   const captured = captureJson(input) as unknown as AuthoringStart
-  return freezeAtomic(validateAuthoringStart(captured))
+  return freezeAtomic(validateAuthoringStart(captured)) as T
 }
 export function captureAtomicDraft(input: AuthoringDraft, authorization: AtomicAuthorization, options: { allowEmpty?: boolean } = {}) {
   const draft = freezeAtomic(AuthoringDraftSchema.parse(captureJson(input)))
@@ -62,7 +66,9 @@ export function captureAtomicDraft(input: AuthoringDraft, authorization: AtomicA
   const replayed = replayAuthoring(authorization.start, draft.state.steps)
   // Canonical hashes compare every state field; task JSON has no trusted valid flag.
   if (canonicalJson(replayed.state) !== canonicalJson(draft.state)) throw new Error('任务步骤、实际范围、成本或内容校验值与本机重放不一致。')
-  if ((!draft.state.draftRevision || !draft.state.operationCost) && !options.allowEmpty || draft.state.operationCost > AUTHORING_LIMITS.operations) throw new Error('任务草稿为空或超过256条实际操作预算。')
+  const limit = draft.start.schemaVersion === 2 ? draft.start.policy.generationTargets + draft.start.policy.aiTargets : AUTHORING_LIMITS.operations
+  const empty = draft.start.schemaVersion === 2 ? draft.state.operationCost === 0 : !draft.state.draftRevision || !draft.state.operationCost
+  if (empty && !options.allowEmpty || draft.state.operationCost > limit) throw new Error('任务草稿为空或超过固定实际操作预算。')
   return { draft, project: replayed.project, state: replayed.state, visualInvalidatedIds: replayed.visualInvalidatedIds }
 }
 export function atomicChanges(before: ProjectData, after: ProjectData, touched: readonly string[], invalidatedVisualIds: readonly string[] = []): AtomicChange[] {
@@ -125,6 +131,10 @@ export function assertAtomicLease(input: DraftLease, candidate: AtomicCandidate,
   const duration = lease.expiresAt - lease.serverNow, elapsed = now - requestedAt
   if (lease.taskId !== candidate.taskId || lease.generation !== candidate.generation || lease.draftRevision !== candidate.draftRevision
     || lease.contentHash !== candidate.contentHash) throw new Error('任务授权租约与待采用草稿不一致。')
+  if (candidate.schemaVersion === 2) {
+    if (lease.schemaVersion !== 2 || !candidate.budgetIdentity || Object.entries(candidate.budgetIdentity).some(([key, value]) =>
+      Reflect.get(lease, key) !== value)) throw new Error('任务采用租约的策略、来源或累计预算身份不同。')
+  } else if (lease.schemaVersion !== 1) throw new Error('任务采用租约版本不同。')
   if (duration <= 0 || duration > AUTHORING_LIMITS.claimMs || elapsed < 0 || elapsed >= duration) throw new Error('任务采用租约已过期，请重新确认。')
   return lease
 }

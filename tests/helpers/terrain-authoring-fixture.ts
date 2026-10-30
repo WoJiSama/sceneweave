@@ -6,7 +6,7 @@ import { generateTerrainDocument } from '../../src/shared/terrain-generation/gen
 import { validateProjectData } from '../../src/shared/project/validate.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
 import { authoringProjectHash } from '../../src/shared/ai/authoring.js'
-import type { AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
+import type { AuthoringStart } from '../../src/shared/ai/authoring-protocol-v1.js'
 import { visualBase } from '../../src/shared/visual/base.js'
 
 /** Metadata/replay fixture only: it deliberately provides no resource-byte or image evidence. */
