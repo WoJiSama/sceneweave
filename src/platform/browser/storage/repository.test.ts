@@ -134,6 +134,25 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await repo.usage(owner)
     expect(checking).toHaveBeenCalledTimes(1)
   })
+  it('rejects corrupt later cursor rows instead of returning partial history summaries', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const first = await repo.createSnapshot(input, 'first', { id: 'a-first', expectedRevision: 0, expectedMetadataVersion: 0 })
+    const last = await repo.createSnapshot(input, 'last', { id: 'z-last', expectedRevision: 0, expectedMetadataVersion: 1 })
+    const stored = (await repo.database.snapshots.get([owner, last.id]))!
+    const damaged = cloneJson(stored); damaged.project.document.title = 'changed under the original hash'
+    await repo.database.snapshots.put(damaged)
+    await expect(repo.listSnapshots(owner)).rejects.toThrow(/hash/)
+    await repo.database.snapshots.put(stored)
+    expect((await repo.listSnapshots(owner)).map(row => row.id).sort()).toEqual([first.id, last.id])
+    await repo.save(revision(input, 1), 0)
+    const automatic = (await repo.database.automaticSnapshots.get([owner, 1]))!
+    await repo.database.automaticSnapshots.put({ ...automatic, contentHash: 'f'.repeat(64) })
+    await expect(repo.listAutomaticSnapshots(owner)).rejects.toThrow(/hash/)
+    await expect(repo.save(revision(input, 2), 1)).rejects.toThrow(/hash/)
+    expect((await repo.database.projects.get(owner))!.revision).toBe(1)
+    expect(await repo.database.automaticSnapshots.get([owner, 2])).toBeUndefined()
+  })
   it('reads only the current history metadata version without certifying project content or scanning resources', async () => {
     const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
     await repo.save(input, null)

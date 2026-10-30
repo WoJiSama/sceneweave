@@ -4,6 +4,10 @@ import { executeBaseMapRequest, prepareBaseMapRequest, type BaseMapRequest, type
 import { canonicalJson, cloneJson } from '../../../shared/validation/json.js'
 import { createBaseMapGenerationClient, type BaseMapGenerationClient, type BaseMapGenerationClientOptions, type BaseMapWorker } from './base-map-client.js'
 import { executeBaseMapWorkerRequest } from './base-map-worker.js'
+import { prepareBaseMapRequestV2, executeBaseMapRequestV2, type BaseMapRequestV2, type BaseMapResponseV2 } from '../../../shared/terrain-generation/base-map-v2.js'
+import { CONTINUATION_POLICY } from '../../../shared/ai/budget-policy.js'
+import type { ConnectionInfo } from '../../../shared/ai/protocol.js'
+import type { BaseMapGenerationExecution } from './base-map-client.js'
 
 let terrainRequest: BaseMapRequest, terrainResponse: BaseMapResponse, compositionRequest: BaseMapRequest, compositionResponse: BaseMapResponse
 beforeAll(() => {
@@ -220,5 +224,64 @@ describe('program base-map transport uses one explicit offline or server path', 
     await expect(pending).rejects.not.toThrow('private worker trace'); expect(preventDefault).toHaveBeenCalled(); released(workers[0])
     const next = client.generate(terrainRequest); workers[1].onmessageerror!({} as MessageEvent<unknown>)
     await expect(next).rejects.toMatchObject({ code: 'protocol' }); released(workers[1])
+  })
+})
+
+describe('versioned continuation base-map transport', () => {
+  let request: BaseMapRequestV2, response: BaseMapResponseV2
+  const capabilities = (changes: Partial<ConnectionInfo['capabilities']> = {}): ConnectionInfo => ({ schemaVersion: 1, model: 'test-model', protocol: 'chat-completions',
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: 'disabled', authoringVersions: [1, 2], baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash], ...changes },
+    retentionDays: 7, limits: { modelRequests: 4, toolCalls: 8, executionMs: 120000, promptBytes: 16384, outputBytes: 65536 } })
+  beforeAll(() => {
+    const { requestId, workspaceSceneId, checkpoint, operationEpoch, base, generation } = terrainRequest
+    request = prepareBaseMapRequestV2({ requestId, workspaceSceneId, checkpoint, operationEpoch, base, generation, flowId: 'transport-flow', policy: CONTINUATION_POLICY })
+    response = executeBaseMapRequestV2(request)
+  }, 30000)
+
+  it('dispatches the original v2 envelope to the Worker and records actual per-flow attempts', async () => {
+    const records: BaseMapGenerationExecution[] = [], { client, workers, fetcher } = setup()
+    const pending = client.generate(request, { onExecution: value => records.push(value) })
+    expect(workers[0].posted[0]).toEqual(request)
+    workers[0].emit(executeBaseMapWorkerRequest(workers[0].posted[0]))
+    await expect(pending).resolves.toEqual(response)
+    expect(records[0]).toMatchObject({ generationCalls: 1 })
+    expect(records[0].activeRuntimeMs).toBeGreaterThan(0)
+    const again = client.generate(request, { onExecution: value => records.push(value) })
+    workers[1].emit(response); await again
+    expect(records[1].startedAt).toBe(records[0].startedAt)
+    expect(records[1].generationCalls).toBe(2)
+    expect(records[1].activeRuntimeMs).toBeGreaterThan(records[0].activeRuntimeMs)
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('negotiates exact v2 policy before posting to the server', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(jsonResponse(String(url).endsWith('/capabilities?authoringVersion=2') ? capabilities() : response)))
+    const { client, createWorker } = setup({ fetcher })
+    await expect(client.generate(request, { server })).resolves.toEqual(response)
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=2', 'https://ai.example.test/v1/terrain/basemap'])
+    expect(fetcher.mock.calls[0][1]?.method).toBe('GET')
+    expect(fetcher.mock.calls[1][1]?.body).toBe(canonicalJson(request))
+    expect(createWorker).not.toHaveBeenCalled()
+  })
+  it.each([{ baseMapVersions: [1] as [1] }, { budgetPolicyHashes: ['f'.repeat(64)] },
+    { authoringVersions: undefined, baseMapVersions: undefined, budgetPolicyHashes: undefined }])('refuses incompatible servers, including old servers ignoring the opt-in query, before sending candidate metadata', async changes => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities(changes))), { client, createWorker } = setup({ fetcher })
+    await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(createWorker).not.toHaveBeenCalled()
+    expect(String(fetcher.mock.calls[0][0])).toBe('https://ai.example.test/v1/capabilities?authoringVersion=2')
+  })
+  it('rejects v1 downgrade, foreign flow and changed policy instead of repairing responses', async () => {
+    for (const invalid of [terrainResponse, { ...response, flowId: 'other-flow' }, { ...response, policyHash: 'f'.repeat(64) }]) {
+      const { client, workers } = setup(), pending = client.generate(request)
+      workers[0].emit(invalid)
+      await expect(pending).rejects.toMatchObject({ code: 'protocol' }); released(workers[0])
+    }
+  })
+  it('retains cancelled execution in the same flow and does not start another attempt itself', async () => {
+    const records: BaseMapGenerationExecution[] = [], { client, workers, createWorker } = setup()
+    const pending = client.generate(request, { onExecution: value => records.push(value) }), failed = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    client.cancel(); await failed
+    expect(createWorker).toHaveBeenCalledTimes(1); expect(records[0].generationCalls).toBe(1)
+    const retried = client.generate(request, { onExecution: value => records.push(value) }); workers[1].emit(response); await retried
+    expect(records[1].generationCalls).toBe(2)
   })
 })

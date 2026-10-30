@@ -13,7 +13,7 @@ export const diagnosticTargets = {
   'src/shared/project/validate.ts': ['readProjectData', 'projectContentHash'],
   'src/shared/project/resources.ts': ['validateProjectBundles', 'tryDerivedProjectBundle', 'read', 'verifyBytes'],
   'src/shared/history/restore.ts': ['buildRestorePlan'],
-  'src/platform/browser/storage/repository.ts': ['load', 'assembled', 'save', 'usageInTransaction', 'loadSnapshot', 'createSnapshot', 'checkProtection', 'assertSaved', 'putResources'],
+  'src/platform/browser/storage/repository.ts': ['load', 'assembled', 'save', 'usageInTransaction', 'listSnapshots', 'listAutomaticSnapshots', 'loadSnapshot', 'createSnapshot', 'checkProtection', 'assertSaved', 'putResources', 'checkedContent'],
   'src/platform/browser/images/adapter.ts': ['decode', 'transform', 'withDecodedRaster'],
   'src/platform/browser/ai/svg-raster.ts': ['rasterizeNormalizedSvg'],
   'src/platform/browser/render/renderer.ts': ['renderInternal'],

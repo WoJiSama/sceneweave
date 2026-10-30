@@ -24,6 +24,7 @@
 | 视觉编辑 | `visual-authoring`、`visual-ai-authoring`、`visual-renderer`、`refined-island`、`refined-samples` | 原创空白、真实样板、曲线控制柄、授权/范围、滤镜/透明阴影、秘密与离线双受众4K |
 | 地形生成与组合 | `terrain-generation`、`terrain-composition`；`src/shared/terrain-generation/*.test.ts` | 旧配方与v4组合路径分别固定输入，Node/Worker规范化一致，真实成本、保存/冷读/候选取消及过期拒绝 |
 | 无模型程序底图 | `base-map`；shared/browser/application与`services/ai/base-map.test.ts` | 同输入Worker/HTTP完整结果一致，严格关联/版本/素材/hash，真实图片/保存/包冷读，服务端模型与新增任务数为0；初始成本/余量只属本次会话 |
+| 底图AI接续 | `base-map-continuation`；shared `continuation`、workspace `base-map/clock`与service `continuation/execution-checkpoint` | 显式@2/v2与G/A分类、四hash/来源重放/执行累计；真实Worker/HTTP/SSE/SQLite、保护原工程后一次采用新工程、撤销/重做/冷读/包与双受众PNG，取消保留独立底图；确定性provider不等于真实模型验收 |
 | 局部地形编辑 | `terrain-editing`、`terrain-surroundings`、`terrain-topology` | 笔刷/曲线、人工移动删除锁定保护、外围冻结范围、布尔完整结果、逐槽支撑重绑、保护/CAS及单次撤销 |
 | 地形层次与布景 | `terrain-dressing`；同名规划/应用/目录单元及`scatter-v2` | 实际来源与布景同候选计数，预览取消不写主工程、完整影响确认、冷读与单次撤销；旧算法向量、人工状态、当前活动净空和固定来源保全 |
 | 近侧视与区域 | `terrain-presentation`、`regional-authoring` | 根锚/占地/固定源、地影与秘密遮罩；区域来源、条件物化、独立下钻、离线包及双受众4K |

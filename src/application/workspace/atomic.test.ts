@@ -3,7 +3,8 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { applyAuthoringStep, replayAuthoring } from '../../shared/ai/authoring.js'
-import type { AuthoringDraft, AuthoringOperation, AuthoringScope, AuthoringStep, DraftLease } from '../../shared/ai/authoring-protocol.js'
+import type { AuthoringOperation, AuthoringScope, AuthoringStep, DraftLease } from '../../shared/ai/authoring-protocol.js'
+import type { AuthoringDraft } from '../../shared/ai/authoring-protocol-v1.js'
 import { cloneJson } from '../../shared/validation/json.js'
 import { assertAtomicLease, atomicChanges, type AtomicCandidate } from './atomic.js'
 import { fromBundle, toBundle } from './project.js'
@@ -25,7 +26,7 @@ async function setup() {
       : replayAuthoring(authorization.start, []).state })
   return { repo, workspace, scope, authorization, draft }
 }
-function lease(candidate: AtomicCandidate, changes: Partial<DraftLease> = {}): DraftLease {
+function lease(candidate: AtomicCandidate, changes: Partial<import('../../shared/ai/authoring-protocol-v1.js').DraftLease> = {}): DraftLease {
   return { schemaVersion: 1, taskId: candidate.taskId, generation: candidate.generation, draftRevision: candidate.draftRevision, contentHash: candidate.contentHash,
     claimId: crypto.randomUUID(), serverNow: 1000, expiresAt: 31_000, ...changes }
 }
@@ -61,7 +62,7 @@ describe('task-scoped local authority and atomic adoption', () => {
     expect(result.revision).toBe(1); expect(workspace.getDocument()!.props[id]).toMatchObject({ positionMm: { x: 8000, y: 7000 }, appearance: { opacity: 0.4 } })
     await result.save
     expect((await repo.usage(before.document.sceneId)).protectionCount).toBe(1)
-    expect(result.protection.project.document).toEqual(before.document)
+    expect(result.protection!.project.document).toEqual(before.document)
     workspace.undo(); expect(workspace.getDocument()!.revision).toBe(2); expect(workspace.getDocument()!.props[id]).toBeUndefined(); expect(workspace.getState().canUndo).toBe(false)
     workspace.redo(); expect(workspace.getDocument()!.revision).toBe(3); expect(workspace.getDocument()!.props[id].appearance.opacity).toBe(0.4)
     await workspace.flush()
@@ -183,7 +184,7 @@ describe('task-scoped local authority and atomic adoption', () => {
     vi.spyOn(repo, 'save').mockRejectedValueOnce(new Error('storage unavailable'))
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => lease(candidate) })
     await expect(result.save).rejects.toThrow(/storage/)
-    await repo.deleteSnapshot(owner, result.protection.id, result.protection.contentHash, (await repo.usage(owner)).metadataVersion)
+    await repo.deleteSnapshot(owner, result.protection!.id, result.protection!.contentHash, (await repo.usage(owner)).metadataVersion)
     await workspace.updateProp('other', { rotationDeg: 45 })
     await expect(workspace.retrySave()).rejects.toThrow(/历史元数据/)
     expect((await repo.load(owner))!.project.document.revision).toBe(0)

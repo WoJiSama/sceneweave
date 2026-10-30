@@ -81,7 +81,17 @@ npx playwright test tests/terrain-generation.spec.ts --grep T8 --project=chromiu
 
 独立空白元数据请求最多4MiB、完整JSON响应最多8MiB，实际字节/UTF-8/长度均检查；并发为`min(maxConcurrent,2)`，读取正文前占名额，正文总等待30秒，失败/取消均释放。同步领域计算受内部几何/256预算约束，不能宣称中途可被事件循环即时抢占。旧任务接口的32KiB及authoring/vision独立预算不变。客户端不自动重发或切换计算位置；旧后端404须更新代码并重新构建/发布后端，本地实现通过不代表线上已经更新。
 
-协议与领域结果指纹见[04](docs/04-scene-document.md#program-base-map-protocol)，真实资源物化和最终采用仍在本机。本次流程的初始/剩余成本仅为会话回执，AI接续尚未启用；不能把新任务从0计费当作底图预算承接。定向命令为`npx vitest run src/shared/terrain-generation/base-map.test.ts src/platform/browser/terrain-generation/base-map-client.test.ts src/application/workspace/base-map.test.ts --no-file-parallelism --maxWorkers=1`、`npx vitest run --config vitest.ai.config.ts services/ai/base-map.test.ts services/ai/app.test.ts --no-file-parallelism --maxWorkers=1`与`npx playwright test tests/base-map.spec.ts`，后者启动自己的真实本地HTTP服务并断言模型请求为0；不使用维护者凭据或真实付费渠道。
+协议与领域结果指纹见[04](docs/04-scene-document.md#program-base-map-protocol)，真实资源物化和最终采用仍在本机。默认新生成@2可在确切物化后选择“继续用AI修改底图”；服务先协商版本及policyHash，旧@1保持原256会话回执且不能补造接续来源。G/A分账、完整来源/账本、执行消耗和当前拒绝边界归[05](docs/05-ai-and-generation.md#budget-continuation-contract)，线上旧后端须更新后才能使用新能力，本轮本地实现不代表已部署。
+
+必要定向检查串行运行：
+
+```sh
+npx vitest run src/shared/ai/continuation.test.ts src/shared/terrain-generation/base-map.test.ts src/platform/browser/terrain-generation/base-map-client.test.ts src/application/workspace/base-map.test.ts src/application/workspace/base-map-clock.test.ts --maxWorkers=1 --testTimeout=30000
+npx vitest run --config vitest.ai.config.ts services/ai/continuation.test.ts services/ai/execution-checkpoint.test.ts services/ai/base-map.test.ts services/ai/app.test.ts services/ai/authoring-tool-catalog.test.ts --maxWorkers=1 --testTimeout=30000
+SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/base-map.spec.ts tests/base-map-continuation.spec.ts --reporter=line
+```
+
+浏览器用例启动隔离Hono/SQLite/SSE服务并使用确定性provider，不读`.env.ai`或发送付费请求；底图生成本身模型/新增任务数为0，接续用例检查真实Worker、资源像素、保护CAS、一次采用/撤销、冷读和完整包/双受众PNG。真实模型质量与正式验收另行冻结执行。
 
 ## 视觉AI开发与可选截图
 
@@ -283,6 +293,14 @@ node tools/performance/run-native-m2.mjs --output "$PWD/work/perf-stages" --visu
 计时工具只在内存转换选定函数，生成独立的优化构建和source map，不修改应用源码或正常dist；记录完整校验、资源读/解码/SVG光栅、派生命中、候选、快照/恢复、历史扫描、hash及绘制跨度，并接收已有RenderMetrics。manifest绑定转换边界及原文件hash；缺少计时构建却传计时标志，或将计时构建作为正常/正式测量，均在启动浏览器前拒绝。工具观察器只在该显式诊断模式允许，不放开产品调试API。
 
 每次操作的`diagnosticStages`保留已完成和未结束跨度、命中/失败及绘制分段；不得直接相加嵌套或并发耗时。额外timer、await、metrics和CPU profile会影响时延，只能与正常基线分别解读；失败或取消记录保留，新目录重跑。已有profile边界、可信输入、事务时标、资源采样与时钟断裂检查继续执行。数据及源码定位结论归[性能参考](docs/reference/performance.md#budget-performance-diagnosis)，不另建逐批报告。
+
+分级容量模块诊断使用同一完整v2夹具，独立进程串行导入真实资源，再做公开校验、冷/热point与bounds命中、双受众投影和剔除/LOD计划：
+
+```sh
+node tools/performance/interaction-capacity.mjs --output "$PWD/work/interaction-capacity-new"
+```
+
+默认原500/2000与合成4000/10000/16000，可用`--cases study-2000,island-2000 --candidates 9900`缩小补样。合成实例复用原固定源、原位叠加且非阻挡；不测UI绘制、保存/历史/撤销或PNG，不据此放宽领域预算。真实守卫拒绝作为诊断结果保留，非脚本失败；工具/源码/夹具指纹变化或未结束进程不能报完整。当前结果与边界归[性能参考](docs/reference/performance.md#interaction-capacity-20261030)。
 
 ## 历史性能与旧工作台记录
 

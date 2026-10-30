@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { remainingAuthoringOperations } from '../../src/shared/ai/authoring.js'
 import type { AuthoringOperation, AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
 import { AUTHORING_LIMITS, AuthoringOperationSchema } from '../../src/shared/ai/authoring-protocol.js'
 import { applyAuthoringStep, authoringProjectHash, replayAuthoring, validateAuthoringStart } from '../../src/shared/ai/authoring.js'
@@ -194,7 +195,7 @@ export function proposeVisualReview(task: StoredTask, args: unknown, callId: str
     atContentHash: authoring.state.contentHash,
     candidateDraftRevision: preview.state.draftRevision,
     candidateContentHash: preview.state.contentHash,
-    remainingOperationsAfterPreview: AUTHORING_LIMITS.operations - preview.state.operationCost,
+    remainingOperationsAfterPreview: remainingAuthoringOperations(authoring.start, preview.state),
     observation: 'unverified',
     appearance: 'unconfirmed',
     disposition: 'read-only; no draft, task, artifact, source or project was changed; adopt only through a later ordinary edit after human review',

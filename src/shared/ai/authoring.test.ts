@@ -12,7 +12,7 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { validateProjectData } from '../project/validate.js'
 import { sha256Text } from '../validation/hash.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
-import type { AuthoringOperation, AuthoringStart, AuthoringStep } from './authoring-protocol.js'
+import type { AuthoringOperation, AuthoringStart, AuthoringStep } from './authoring-protocol-v1.js'
 import { applyAuthoringStep, authoringProjectHash, checkAuthoringDraft, findAuthoringAssets, authoringAssetPage, publicAuthoringContext, replayAuthoring, validateAuthoringStart } from './authoring.js'
 
 const stamp = '2026-10-24T00:00:00.000Z'

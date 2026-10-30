@@ -20,6 +20,7 @@ import { TaskStore } from './store.js'
 import { loadAiConfig } from './config.js'
 import { connectionInfo } from './app.js'
 import type { ChatProviderConfig, ProviderAdapter, ProviderInput } from './provider-types.js'
+import { continuationFixture } from '../../tests/helpers/continuation-fixture.js'
 
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
@@ -93,6 +94,13 @@ function engine(provider: ProviderAdapter, vision: 'enabled' | 'unverified' | 'd
 }
 
 describe('explicit, bounded public vision input', () => {
+  it('keeps the generated-image binding separate from the original preservation context in v2', () => {
+    const source = continuationFixture(), image = screenshot(source), preservation = source.source.preservation
+    const context = { sceneId: preservation.sceneId!, revision: preservation.revision!, audience: 'public' as const }
+    expect(validateTaskVision(image, context, source)).toEqual(image)
+    expect(() => validateTaskVision(image, contextFor(source), source)).toThrow(/保护基线/)
+    expect(() => validateTaskVision({ ...image, sceneId: preservation.sceneId! }, context, source)).toThrow(/工程基线/)
+  })
   it('binds a genuine decoded PNG to its exact hash, dimensions and canonical base64', () => {
     const image = screenshot()
     expect(validateVisionPng(image)).toEqual(image)

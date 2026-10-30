@@ -138,7 +138,7 @@ describe('deferred SVG/style artwork materialization using actual PNG fixtures',
     await result.save
     const artwork = workspace.getState().project!, named = await workspace.createNamedSnapshot('SVG adopted')
     const source = Object.values(artwork.authoringSources)[0]
-    expect(result.protection.project.authoringSources).toEqual({})
+    expect(result.protection!.project.authoringSources).toEqual({})
     await workspace.updateProp('other', { rotationDeg: 25 }); await workspace.flush()
     await workspace.execute([{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'later-opacity', kind: 'opacity', value: .2, enabled: true } }])
     await workspace.flush(); await workspace.close()

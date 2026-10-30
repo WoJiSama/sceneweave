@@ -17,6 +17,7 @@ export default function BaseMapGenerationSettings({ value, disabled, onChange }:
       <option value="worker">本机生成 · 可离线使用</option>
       <option value="server">服务端生成 · 不调用模型</option>
     </select></label>
+    <p>生成后可直接采用底图，也可连接支持接续的 AI，在明确授权范围内继续修改。失败或取消 AI 仍保留合法底图。</p>
     {value.mode === 'server' && <>
       <label>后端地址<input aria-label="程序底图后端地址" type="url" placeholder="https://your-server.example" value={value.baseUrl} disabled={disabled}
         autoComplete="off" onChange={event => onChange({ ...value, baseUrl: event.target.value })}/></label>

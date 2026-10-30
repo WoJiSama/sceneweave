@@ -170,9 +170,14 @@ test('native history refresh waits for its tab and preserves a form across inact
   expect(await reads()).toBe(before)
   await navigation.getByRole('tab', { name: '历史', exact: true }).click()
   await expect.poll(reads).toBeGreaterThan(before)
+  await expect(page.locator('.history-usage')).toBeVisible()
   await expect(page.getByLabel('命名快照名称', { exact: true })).toHaveValue('保留中的历史表单')
+  const beforeSnapshot = await reads()
   await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
   await expect(page.getByRole('button', { name: '查看快照 保留中的历史表单', exact: true })).toBeVisible()
+  expect(await reads()).toBe(beforeSnapshot + 1)
+  await page.getByRole('button', { name: '刷新历史', exact: true }).click(); await settled(page)
+  expect(await reads()).toBe(beforeSnapshot + 2)
 })
 
 test('M2-0f mixed native room, terrain, appearance and protected partial history restore', async ({ page }, info) => {

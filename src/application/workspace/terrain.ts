@@ -15,7 +15,7 @@ import { assertTerrainBudget } from '../../shared/terrain-generation/cost.js'
 import { emptyVisualSystem } from '../../shared/visual/types.js'
 import type { BaseMapRequest } from '../../shared/terrain-generation/base-map.js'
 export interface BaseMapGenerationReceipt {
-  version: 1; source: 'worker' | 'server'; requestId: string; workspaceSceneId: string
+  version: 1 | 2; source: 'worker' | 'server'; requestId: string; workspaceSceneId: string
   checkpoint: number; operationEpoch: number; inputHash: string; baseHash: string; paletteHash: string
   algorithm: BaseMapRequest['algorithm']; generation: BaseMapRequest['generation']; resultHash: string; projectHash: string
   initialOperationCost: number; operationLimit: 256; remainingOperationCost: number
@@ -25,6 +25,9 @@ export interface TerrainPreviewBase {
   cost:ReturnType<typeof terrainCommandCost>; checkpoint:number; currentSceneId:string|null; currentRevision:number|null
   /** Session-only flow accounting. Never a field in the persisted complete project. */
   baseMap?: BaseMapGenerationReceipt
+  /** Full task provenance stays in this session, outside saved project data. */
+  continuationSource?: import('../../shared/ai/continuation-protocol.js').BaseMapSource
+  continuationError?: string
 }
 export type TerrainPreview=TerrainPreviewBase & ({result:TerrainGenerationResult;composition?:undefined}|{result:{plan:import('../../shared/terrain-generation/composition-field.js').TerrainCompositionPlan;route?:undefined};composition:import('../../shared/terrain-generation/composition-presets.js').CompositionPresetInput})
 export async function prepareTerrainProject(base:EditableProject,input:unknown,options:{runtime:PreparationContext;validation:CompleteValidationOptions;result?:TerrainGenerationResult}) {

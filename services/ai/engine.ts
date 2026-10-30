@@ -5,9 +5,9 @@ import type { ProviderAdapter, ProviderRequestScheduler, ProviderToolCall, Provi
 import { PROVIDER_REASONING_BYTES, ProviderFailure } from './provider-types.js'
 import { TaskFault, TaskStore, safeTaskError } from './store.js'
 import type { EventInput, StoredTask } from './store.js'
-import { AUTHORING_LIMITS, AuthoringDraftSchema } from '../../src/shared/ai/authoring-protocol.js'
+import { AUTHORING_LIMITS, AuthoringDraftSchema, DraftLeaseSchema } from '../../src/shared/ai/authoring-protocol.js'
 import type { AuthoringDraft, DraftClaim, DraftLease, DraftStamp } from '../../src/shared/ai/authoring-protocol.js'
-import { validateAuthoringStart, checkAuthoringDraft } from '../../src/shared/ai/authoring.js'
+import { validateAuthoringStart, checkAuthoringDraft, authoringBudgetIdentity, authoringDraftStamp } from '../../src/shared/ai/authoring.js'
 import { StaticSvgArtifacts } from './svg-artifacts.js'
 import { getAuthoringTools, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
 import { validateTaskVision } from './vision-input.js'
@@ -16,6 +16,7 @@ import { canonicalJson } from '../../src/shared/validation/json.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
 import { RegionSceneCandidateResponseSchema } from '../../src/shared/ai/region-candidate-protocol.js'
 import type { RegionSceneCandidateQuery } from '../../src/shared/ai/region-candidate-protocol.js'
+import { CONTINUATION_POLICY } from '../../src/shared/ai/budget-policy.js'
 
 const connectionArguments = z.object({ topic: z.literal('connection') }).strict()
 const tool: ProviderToolDefinition = { name: 'sceneweave_connection_info', description: 'Read this Sceneweave connection and its actual supported capabilities. This does not read or change any scene.', parameters: { type: 'object', properties: { topic: { type: 'string', enum: ['connection'] } }, required: ['topic'], additionalProperties: false } }
@@ -52,15 +53,23 @@ export class TaskEngine {
   }
   create(owner: string, request: CreateTaskRequest): TaskSnapshot {
     this.assertStorageAvailable()
-    if (utf8Size(JSON.stringify(request)) > (request.vision ? VISION_LIMITS.requestBytes : request.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new TaskFault('request_limit', 413)
+    if (utf8Size(JSON.stringify(request)) > (request.authoring?.schemaVersion === 2 ? CONTINUATION_POLICY.requestBytes : request.vision ? VISION_LIMITS.requestBytes : request.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new TaskFault('request_limit', 413)
     if (request.vision) {
       if (this.connectionInfo.capabilities.vision !== 'enabled') throw new TaskFault('vision_disabled', 400)
       try { validateTaskVision(request.vision, request.context, request.authoring) } catch { throw new TaskFault('invalid_vision', 400) }
     }
     if (request.authoring) {
       if (utf8Size(JSON.stringify(request.authoring.project)) > AUTHORING_LIMITS.metadataBytes) throw new TaskFault('metadata_limit', 413)
-      try { validateAuthoringStart(request.authoring) } catch { throw new TaskFault('invalid_authoring', 400) }
-      if (!request.context || request.context.sceneId !== request.authoring.project.document.sceneId || request.context.revision !== request.authoring.project.document.revision) throw new TaskFault('authoring_context_mismatch', 400)
+      if (request.authoring.schemaVersion === 2) {
+        if (!this.connectionInfo.capabilities.authoringVersions?.includes(2)
+          || !this.connectionInfo.capabilities.budgetPolicyHashes?.includes(request.authoring.policy.policyHash)) throw new TaskFault('unsupported_authoring_version', 400)
+        const preservation = request.authoring.source.preservation
+        if (preservation.sceneId === null ? request.context !== null : !request.context || request.context.sceneId !== preservation.sceneId || request.context.revision !== preservation.revision) throw new TaskFault('authoring_context_mismatch', 400)
+        // TaskStore performs the authoritative, timed source replay once, before checkpoint creation.
+      } else {
+        try { validateAuthoringStart(request.authoring) } catch { throw new TaskFault('invalid_authoring', 400) }
+        if (!request.context || request.context.sceneId !== request.authoring.project.document.sceneId || request.context.revision !== request.authoring.project.document.revision) throw new TaskFault('authoring_context_mismatch', 400)
+      }
     }
     const { task, created } = this.store.create(owner, request, this.maxConcurrent, this.connectionInfo.reasoningEffort ?? null)
     if (created) this.start(task)
@@ -96,9 +105,33 @@ export class TaskEngine {
   }
   private change(id: string, generation: number, mutate: Parameters<TaskStore['change']>[2]) {
     this.current(id, generation)
-    const result = this.store.change(id, generation, mutate)
-    if (!result) throw aborted()
-    return result
+    let discarded: StoredTask | undefined
+    try {
+      const result = this.store.change(id, generation, current => {
+        try { return mutate(current) }
+        catch (error) { if (current.authoring?.start.schemaVersion === 2) discarded = current; throw error }
+      })
+      if (!result) throw aborted()
+      return result
+    } catch (error) {
+      if (discarded) {
+        // A failed provider round publishes no partial draft/messages/receipts.
+        // Actual executed work and a completed provider's usage are not refunded.
+        const consumed = discarded
+        try {
+          this.store.change(id, generation, current => {
+            current.toolAttempts = Math.max(current.toolAttempts, consumed.toolAttempts)
+            current.outputBytes = Math.max(current.outputBytes, consumed.outputBytes)
+            if (consumed.completedRequests > current.completedRequests) {
+              current.completedRequests = consumed.completedRequests
+              current.snapshot.usage = { ...consumed.snapshot.usage }
+            }
+            return []
+          })
+        } catch { this.markUnavailable(); throw new TaskFault('storage_unavailable', 503) }
+      }
+      throw error
+    }
   }
   private fail(id: string, generation: number, code: string, requestState?: AiError['requestState']) {
     try {
@@ -108,7 +141,8 @@ export class TaskEngine {
         this.store.stopClock(current)
         current.snapshot.status = 'failed'
         current.snapshot.usage.unknown = current.snapshot.usage.unknown || current.completedRequests < current.snapshot.usage.requests
-        current.snapshot.error = safeTaskError(code, requestState ?? (current.completedRequests < current.snapshot.usage.requests ? 'unknown' : 'not_sent'))
+        current.snapshot.error = safeTaskError(code, requestState ?? (current.completedRequests < current.snapshot.usage.requests ? 'unknown'
+          : current.authoring?.start.schemaVersion === 2 && current.snapshot.usage.requests > 0 ? 'finished' : 'not_sent'))
         return [{ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } }]
       })
     } catch (error) {
@@ -140,7 +174,7 @@ export class TaskEngine {
           })
           const messages = this.preserveReasoning === 'enabled' ? requestTask.messages : requestTask.messages.map(({ reasoningContent: _privateReasoning, ...message }) => message)
           let streamed = ''
-          const completion = await this.provider.complete({ messages, reasoningEffort: requestTask.snapshot.reasoningEffort, tools: textOnlyFinalRound ? [] : task.authoring ? getAuthoringTools(task.authoring.start.scope) : [tool], maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
+          const completion = await this.provider.complete({ messages, reasoningEffort: requestTask.snapshot.reasoningEffort, tools: textOnlyFinalRound ? [] : task.authoring ? getAuthoringTools(task.authoring.start.scope, task.authoring.start.schemaVersion) : [tool], maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
             onText: text => {
               if (signal.aborted) throw aborted()
               if (!text) return
@@ -148,10 +182,17 @@ export class TaskEngine {
               for (let offset = 0; offset < text.length; offset += 8192) {
                 const part = text.slice(offset, offset + 8192)
                 this.change(id, generation, current => {
-                  if (current.snapshot.lastSequence >= AI_LIMITS.events - 4) throw new TaskFault('event_limit')
                   const bytes = utf8Size(part)
-                  if (current.outputBytes + bytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
-                  current.outputBytes += bytes; current.snapshot.text += part; current.pendingText += part
+                  if (current.authoring?.start.schemaVersion === 2) {
+                    current.outputBytes += bytes
+                    if (current.snapshot.lastSequence >= AI_LIMITS.events - 4) throw new TaskFault('event_limit')
+                    if (current.outputBytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
+                  } else {
+                    if (current.snapshot.lastSequence >= AI_LIMITS.events - 4) throw new TaskFault('event_limit')
+                    if (current.outputBytes + bytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
+                    current.outputBytes += bytes
+                  }
+                  current.snapshot.text += part; current.pendingText += part
                   return [{ type: 'text_delta', data: { text: part } }]
                 })
                 streamed += part
@@ -217,8 +258,14 @@ export class TaskEngine {
     const cached = Object.hasOwn(task.calls, call.id) ? task.calls[call.id] : undefined
     if (cached && cached.signature !== signature) throw new ProviderFailure('provider_protocol', 'Tool identity was reused')
     if (task.toolAttempts >= this.store.limits(task).toolCalls) throw new TaskFault('tool_limit')
+    const reserved = task.authoring?.start.schemaVersion === 2
+    if (reserved) task.toolAttempts++
     if (cached) {
-      task.toolAttempts++; task.messages.push({ role: 'tool', toolCallId: call.id, content: cached.output })
+      if (reserved) {
+        task.outputBytes += utf8Size(call.arguments) + utf8Size(cached.output)
+        if (task.outputBytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
+      } else task.toolAttempts++
+      task.messages.push({ role: 'tool', toolCallId: call.id, content: cached.output })
       return []
     }
     let result: ToolResult
@@ -227,15 +274,21 @@ export class TaskEngine {
     const draftBefore = task.authoring?.state.draftRevision
     if (task.authoring) result = executeAuthoringTool(task, call, args, new StaticSvgArtifacts(this.store.artifacts), {
       modelRequests: this.store.limits(task).modelRequests, toolCalls: this.store.limits(task).toolCalls, executionRemainingMs: this.store.remaining(task),
-      maxOutputTokens: this.authoringOutputTokens,
+      maxOutputTokens: this.authoringOutputTokens, attemptReserved: reserved,
     })
     else if (call.name !== tool.name) result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'unsupported_tool', message: '本任务未开放此工具。' } }) }
     else if (!connectionArguments.safeParse(args).success) result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'invalid_arguments', message: '工具参数不符合严格协议。' } }) }
     else result = { callId: call.id, name: call.name, success: true, output: JSON.stringify(this.connectionInfo) }
-      if (task.snapshot.lastSequence >= AI_LIMITS.events - 5) throw new TaskFault('event_limit')
+      if (!reserved && task.snapshot.lastSequence >= AI_LIMITS.events - 5) throw new TaskFault('event_limit')
       const bytes = utf8Size(call.arguments) + utf8Size(result.output)
-      if (task.outputBytes + bytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
-      task.outputBytes += bytes; task.toolAttempts++
+      if (reserved) {
+        task.outputBytes += bytes
+        if (task.snapshot.lastSequence >= AI_LIMITS.events - 5) throw new TaskFault('event_limit')
+        if (task.outputBytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
+      } else {
+        if (task.outputBytes + bytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
+        task.outputBytes += bytes; task.toolAttempts++
+      }
       Object.defineProperty(task.calls, call.id, { value: { signature, output: result.output, success: result.success }, enumerable: true, writable: true, configurable: true })
       task.snapshot.tools.push(result)
       task.messages.push({ role: 'tool', toolCallId: call.id, content: result.output })
@@ -291,7 +344,7 @@ export class TaskEngine {
     this.assertStorageAvailable()
     const task = this.store.read(id, owner)
     if (!task.authoring) throw new TaskFault('draft_not_found', 404)
-    return AuthoringDraftSchema.parse({ schemaVersion: 1, taskId: id, generation: task.snapshot.generation, start: task.authoring.start, state: task.authoring.state })
+    return AuthoringDraftSchema.parse({ schemaVersion: task.authoring.start.schemaVersion, taskId: id, generation: task.snapshot.generation, start: task.authoring.start, state: task.authoring.state })
   }
   regionSceneCandidate(owner: string, id: string, query: RegionSceneCandidateQuery) {
     this.assertStorageAvailable()
@@ -314,7 +367,9 @@ export class TaskEngine {
     const task = this.store.read(id, owner)
     if (!task.authoring) throw new TaskFault('draft_not_found', 404)
     if (task.snapshot.generation !== stamp.expectedGeneration) throw new TaskFault('generation_conflict')
-    if (task.authoring.state.draftRevision !== stamp.draftRevision || task.authoring.state.contentHash !== stamp.contentHash) throw new TaskFault('draft_conflict')
+    const expected = authoringDraftStamp(task.authoring.state, task.snapshot.generation)
+    if (Object.entries(expected).some(([key, value]) => (stamp as unknown as Record<string, unknown>)[key] !== value)) throw new TaskFault('draft_conflict')
+    if (task.authoring.state.schemaVersion === 1 && 'schemaVersion' in stamp) throw new TaskFault('draft_conflict')
     return task
   }
   validateDraft(owner: string, id: string, request: DraftStamp & { valid: boolean }): TaskSnapshot {
@@ -334,8 +389,9 @@ export class TaskEngine {
       throw new TaskFault('lease_expired')
     }
     if (task.snapshot.status !== 'ready') throw new TaskFault('invalid_task_state')
-    const now = this.now(), lease: DraftLease = { schemaVersion: 1, taskId: id, generation: request.expectedGeneration,
-      draftRevision: request.draftRevision, contentHash: request.contentHash, claimId: request.claimId, serverNow: now, expiresAt: now + AUTHORING_LIMITS.claimMs }
+    const now = this.now(), lease = DraftLeaseSchema.parse({ schemaVersion: task.authoring!.state.schemaVersion, taskId: id, generation: request.expectedGeneration,
+      draftRevision: request.draftRevision, contentHash: request.contentHash, claimId: request.claimId, serverNow: now, expiresAt: now + AUTHORING_LIMITS.claimMs,
+      ...authoringBudgetIdentity(task.authoring!.state) })
     this.store.change(id, request.expectedGeneration, current => {
       current.authoring!.claim = { lease }; current.snapshot.status = 'applying'; updateAuthoringSummary(current)
       return [{ type: 'status', data: { status: 'applying', reason: '本机正在采用已审阅草稿。' } }]

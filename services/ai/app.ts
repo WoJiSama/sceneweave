@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
-import { AI_LIMITS, ConnectionInfoSchema, ControlTaskSchema, CreateTaskSchema } from '../../src/shared/ai/protocol.js'
+import { AI_LIMITS, ConnectionInfoSchema, ControlTaskSchema, CreateTaskSchema, utf8Size } from '../../src/shared/ai/protocol.js'
 import type { AiError, ConnectionInfo } from '../../src/shared/ai/protocol.js'
 import type { AiConfig } from './config.js'
 import type { ProviderAdapter } from './provider-types.js'
@@ -11,10 +11,12 @@ import { AUTHORING_LIMITS, DraftAppliedSchema, DraftClaimSchema, DraftValidation
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { RegionSceneCandidateQuerySchema } from '../../src/shared/ai/region-candidate-protocol.js'
 import { createBaseMapService } from './base-map.js'
+import { CONTINUATION_POLICY } from '../../src/shared/ai/budget-policy.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
-    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified', taskReasoningEffort: true }, retentionDays: AI_LIMITS.retentionDays,
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified', taskReasoningEffort: true,
+      authoringVersions: [1, 2], baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] }, retentionDays: AI_LIMITS.retentionDays,
     limits: { modelRequests: AI_LIMITS.modelRequests, toolCalls: AI_LIMITS.toolCalls, executionMs: AI_LIMITS.executionMs, promptBytes: AI_LIMITS.promptBytes, outputBytes: AI_LIMITS.outputBytes } })
 }
 export function authenticate(config: AiConfig, authorization: string | undefined): string | undefined {
@@ -55,7 +57,9 @@ export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider
 export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir)
   const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
-  const baseMaps = createBaseMapService({ maxConcurrent: Math.min(config.maxConcurrent, 2) })
+  const baseMaps = createBaseMapService({ maxConcurrent: Math.min(config.maxConcurrent, 2), execution: {
+    begin: (owner, request) => store.beginBaseMap(owner, request), finish: (token, elapsedMs, resultHash) => store.finishBaseMap(token, elapsedMs, resultHash),
+  } })
   const app = new Hono<{ Variables: { owner: string } }>()
   const streams = new Map<string, number>()
   let streamCount = 0
@@ -86,10 +90,20 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     return next()
   })
   app.get('/healthz', context => context.json({ ok: true }))
-  app.get('/v1/capabilities', context => context.json(engine.connectionInfo))
-  app.post('/v1/terrain/basemap', async context => context.body(await baseMaps.generate(context.req.raw), 200, { 'Content-Type': 'application/json; charset=utf-8' }))
+  app.get('/v1/capabilities', context => {
+    if (Object.keys(context.req.query()).some(key => key !== 'authoringVersion')
+      || (context.req.queries('authoringVersion')?.length ?? 0) > 1) throw new TaskFault('invalid_request', 400)
+    const version = context.req.query('authoringVersion')
+    if (version !== undefined && version !== '2') throw new TaskFault('unsupported_authoring_version', 400)
+    if (version === '2') return context.json(engine.connectionInfo)
+    // Existing cached clients parse this response strictly. New capabilities
+    // require explicit negotiation; the engine itself retains the full grant.
+    const { authoringVersions: _authoring, baseMapVersions: _baseMap, budgetPolicyHashes: _policies, ...capabilities } = engine.connectionInfo.capabilities
+    return context.json({ ...engine.connectionInfo, capabilities })
+  })
+  app.post('/v1/terrain/basemap', async context => context.body(await baseMaps.generate(context.req.raw, context.get('owner')), 200, { 'Content-Type': 'application/json; charset=utf-8' }))
   app.post('/v1/tasks', async context => {
-    const body = await boundedJson(context.req.raw, VISION_LIMITS.requestBytes)
+    const body = await boundedJson(context.req.raw, Math.max(VISION_LIMITS.requestBytes, CONTINUATION_POLICY.requestBytes))
     const parsed = CreateTaskSchema.safeParse(body)
     if (!parsed.success) throw new TaskFault('invalid_request', 400)
     const snapshot = engine.create(context.get('owner'), parsed.data)
@@ -99,7 +113,15 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     if (Object.keys(context.req.query()).some(key => key !== 'sceneId') || (context.req.queries('sceneId')?.length ?? 0) > 1) throw new TaskFault('invalid_request', 400)
     const sceneId = context.req.query('sceneId')
     if (sceneId !== undefined && !/^[A-Za-z0-9_.:-]{1,128}$/.test(sceneId)) throw new TaskFault('invalid_request', 400)
-    return context.json({ schemaVersion: 1, tasks: store.list(context.get('owner'), sceneId) })
+    const rows: string[] = []
+    let bytes = utf8Size('{"schemaVersion":1,"tasks":[]}')
+    for (const task of store.list(context.get('owner'), sceneId)) {
+      const row = JSON.stringify(task)
+      bytes += utf8Size(row) + (rows.length ? 1 : 0)
+      if (bytes > AI_LIMITS.taskBytes) throw new TaskFault('task_list_limit', 413)
+      rows.push(row)
+    }
+    return context.body(`{"schemaVersion":1,"tasks":[${rows.join(',')}]}`, 200, { 'Content-Type': 'application/json; charset=utf-8' })
   })
   app.get('/v1/tasks/:id', context => context.json(store.read(context.req.param('id'), context.get('owner')).snapshot))
   app.get('/v1/tasks/:id/draft', context => context.json(engine.draft(context.get('owner'), context.req.param('id'))))

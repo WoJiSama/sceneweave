@@ -29,8 +29,11 @@ export function validateVisionPng(input: unknown): VisionInput {
 /** The browser owns the public projection. The server enforces its declared binding and grant. */
 export function validateTaskVision(input: VisionInput, context: TaskContext, start?: AuthoringStart, state?: AuthoringState): VisionInput {
   const value = validateVisionPng(input)
-  if (!context || !start || context.sceneId !== value.sceneId || context.revision !== value.revision
-    || start.project.document.sceneId !== value.sceneId || start.project.document.revision !== value.revision) throw new Error('截图工程基线不匹配。')
+  if (!start || start.project.document.sceneId !== value.sceneId || start.project.document.revision !== value.revision) throw new Error('截图工程基线不匹配。')
+  if (start.schemaVersion === 2) {
+    const preservation = start.source.preservation
+    if (preservation.sceneId === null ? context !== null : !context || context.sceneId !== preservation.sceneId || context.revision !== preservation.revision) throw new Error('截图原工程保护基线不匹配。')
+  } else if (!context || context.sceneId !== value.sceneId || context.revision !== value.revision) throw new Error('截图工程基线不匹配。')
   if (state ? !value.draft || value.draft.draftRevision !== state.draftRevision || value.draft.contentHash !== state.contentHash
     : value.draft !== undefined && (value.draft.draftRevision !== 0 || value.draft.contentHash !== start.baseContentHash)) throw new Error('截图草稿基线不匹配。')
   const b = value.boundsMm, scopes = [start.scope.scene?.boundsMm, start.scope.placement?.boundsMm, start.scope.artwork?.boundsMm, start.scope.visual?.boundsMm].filter(scope => scope !== undefined)

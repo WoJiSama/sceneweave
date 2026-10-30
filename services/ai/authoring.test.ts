@@ -743,8 +743,11 @@ describe('isolated AI prop authoring backend', () => {
     const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) })
     const snapshot = await (await subject.create()).json() as TaskSnapshot, task = subject.store.read(snapshot.id)
     const changedIds = Array.from({ length: 128 }, (_, index) => `ai-${index.toString().padStart(64, '0')}`)
-    task.authoring!.state = { ...task.authoring!.state, changedIds: changedIds.slice(0, 112), operationCost: 112, draftRevision: 7 }
-    const resultState = { ...task.authoring!.state, changedIds, operationCost: 128, draftRevision: 8 }
+    const original = task.authoring!.state
+    if (original.schemaVersion !== 1) throw new Error('Expected legacy receipt fixture')
+    const previousState = { ...original, changedIds: changedIds.slice(0, 112), operationCost: 112, draftRevision: 7 }
+    task.authoring!.state = previousState
+    const resultState = { ...previousState, changedIds, operationCost: 128, draftRevision: 8 }
     const apply = vi.spyOn(authoringCore, 'applyAuthoringStep').mockReturnValue({ project: task.authoring!.start.project, state: resultState, visualInvalidatedIds: [] })
     const check = vi.spyOn(authoringCore, 'checkAuthoringDraft').mockReturnValue({ valid: true, operationCost: 128, changedIds,
       readIds: ['PRIVATE_ROOT_ID', ...Array.from({ length: 4095 }, (_, index) => `dependency-${index}`)], writeIds: changedIds })

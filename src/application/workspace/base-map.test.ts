@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Workspace } from './workspace.js'
 import { fromBundle, toBundle, type EditableProject } from './project.js'
 import { prepareBaseMapProject } from './base-map.js'
@@ -16,6 +16,9 @@ import { projectContentHash } from '../../shared/project/validate.js'
 import { canonicalJson, captureJson, encodeUtf8 } from '../../shared/validation/json.js'
 import { sha256Text } from '../../shared/validation/hash.js'
 import { prepareBaseMapRequest, executeBaseMapRequest, type BaseMapRequest, type BaseMapResponse } from '../../shared/terrain-generation/base-map.js'
+import { prepareBaseMapRequestV2, executeBaseMapRequestV2 } from '../../shared/terrain-generation/base-map-v2.js'
+import { CONTINUATION_POLICY, DraftLeaseSchema, type AuthoringScope, type AuthoringDraft } from '../../shared/ai/authoring-protocol.js'
+import { applyAuthoringStep, authoringDraftStamp, replayAuthoring } from '../../shared/ai/authoring.js'
 
 const repos: ProjectRepository[] = [], sessions: Workspace[] = []
 afterEach(async()=>{for(const session of sessions.splice(0))await session.close().catch(()=>{});for(const repo of repos.splice(0)){const name=repo.database.name;repo.close();await Dexie.delete(name)}})
@@ -35,6 +38,90 @@ function request(base:EditableProject,kind:'island'|'coast'|'archipelago'|'tidal
 function rehash(response:BaseMapResponse){response.resultHash=sha256Text(canonicalJson({generation:response.generation,result:response.result,domainCost:response.domainCost}));return response}
 
 describe('verified program base-map preparation',()=>{
+  async function continuation(kind: 'island' | 'archipelago' = 'island', empty = false) {
+    const repo = new ProjectRepository({ name: `base-map-continuation-${crypto.randomUUID()}`, runtime, validation }); repos.push(repo)
+    const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
+    if (!empty) await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
+    const current = workspace.getState().project, base = await blank('island', kind === 'archipelago')
+    const v1 = request(base, kind, { workspaceSceneId: current?.document.sceneId ?? 'empty-workspace', checkpoint: workspace.checkpoint() })
+    const input = prepareBaseMapRequestV2({ requestId: v1.requestId, workspaceSceneId: v1.workspaceSceneId, checkpoint: v1.checkpoint,
+      operationEpoch: v1.operationEpoch, base: v1.base, generation: v1.generation, flowId: crypto.randomUUID(), policy: CONTINUATION_POLICY })
+    const preview = await workspace.previewBaseMapGeneration(base, input, executeBaseMapRequestV2(input), { source: 'worker',
+      generationExecution: { startedAt: NOW, activeRuntimeMs: 1, generationCalls: 1 } })
+    const document = preview.project.document
+    const target = Object.keys(document.props)[0]
+    const scope: AuthoringScope = { targetIds: target ? [target] : [], operations: target ? ['opacity'] : [], placement: null, scene: {
+      floorId: Object.keys(document.floors)[0], layerId: 'visual-layer-ground', boundsMm: document.exportBoundsMm,
+      entityIds: [...Object.keys(document.terrainAreas), ...Object.keys(document.terrainConnections), ...Object.keys(document.props)],
+      definitionIds: Object.keys(document.propDefinitions), prefabDefinitionIds: [], materialIds: Object.keys(document.materials), operations: ['terrainUpdate'], generationLayerIds: Object.keys(document.userLayers),
+    } }
+    const authorization = await workspace.authorizeBaseMapAtomic(preview, scope)
+    const initial = replayAuthoring(authorization.start, []).state
+    const state = target ? applyAuthoringStep(authorization.start, initial, [{ kind: 'opacity', id: target, value: .7 }], 'change-one').state : initial
+    const draft = { schemaVersion: 2, taskId: 'continuation-task', generation: 1, start: authorization.start, state } as AuthoringDraft
+    const candidate = await workspace.prepareAtomicCandidate(authorization, draft)
+    const claim = () => {
+      const { expectedGeneration: _generation, ...stamp } = authoringDraftStamp(state, 1)
+      return Promise.resolve(DraftLeaseSchema.parse({ ...stamp, schemaVersion: 2 as const, taskId: candidate.taskId,
+        generation: 1, claimId: crypto.randomUUID(), serverNow: 1000, expiresAt: 31000 }))
+    }
+    return { repo, workspace, current, base, preview, authorization, draft, candidate, state, claim }
+  }
+
+  it.each(['island', 'archipelago'] as const)('continues %s with full source, one protected publication, cold read and monotonic undo', async kind => {
+    const item = await continuation(kind), before = projectContentHash(toBundle(item.current!).project)
+    expect(item.state.schemaVersion).toBe(2)
+    if (item.state.schemaVersion !== 2) throw new Error('version')
+    expect(item.state.budget.generationCost).toBeGreaterThan(0)
+    expect(item.state.budget.aiCost).toBe(Object.keys(item.preview.project.document.props).length ? 1 : 0)
+    const adopted = await item.workspace.adoptAtomicCandidate(item.candidate, { claim: item.claim })
+    await adopted.save
+    expect(adopted.revision).toBe(1)
+    expect(projectContentHash((await item.repo.load(item.current!.document.sceneId))!.project)).toBe(before)
+    expect(adopted.protection!.project.document.sceneId).toBe(item.current!.document.sceneId)
+    const complete = await importProject(await exportProject(toBundle(item.workspace.getState().project!), validation), validation)
+    expect(Object.hasOwn(complete.project, 'continuationSource')).toBe(false)
+    item.workspace.undo(); await item.workspace.flush()
+    expect(item.workspace.getDocument()!.revision).toBe(2)
+    expect(Object.keys(item.workspace.getDocument()!.props)).toHaveLength(0)
+    expect(Object.keys(item.workspace.getDocument()!.terrainAreas)).toHaveLength(0)
+    expect(item.workspace.getState().canUndo).toBe(false)
+    item.workspace.redo(); await item.workspace.flush()
+    expect(item.workspace.getDocument()!.revision).toBe(3)
+    expect(Object.keys(item.workspace.getDocument()!.terrainAreas).length).toBeGreaterThan(0)
+    await expect(item.workspace.adoptAtomicCandidate(item.candidate, { claim: item.claim })).rejects.toThrow()
+  })
+
+  it('rejects source cancellation, mismatched budget lease and a cross-tab source move before publication', async () => {
+    const first = await continuation()
+    await expect(first.workspace.adoptAtomicCandidate(first.candidate, { claim: async () => ({ ...await first.claim(), policyHash: 'b'.repeat(64) }) })).rejects.toThrow(/预算|策略/)
+    expect(first.workspace.getState().project).toBe(first.current)
+    const second = await continuation()
+    second.workspace.cancelTerrainGeneration(second.preview)
+    await expect(second.workspace.prepareAtomicCandidate(second.authorization, second.draft)).rejects.toThrow(/底图|取消/)
+    const third = await continuation()
+    await expect(third.workspace.adoptAtomicCandidate(third.candidate, { claim: async () => {
+      const changed = captureJson(toBundle(third.current!).project); changed.document.revision++
+      await third.repo.save({ project: changed, resources: third.current!.resources }, third.current!.document.revision)
+      return third.claim()
+    } })).rejects.toThrow()
+    expect(third.workspace.getState().project).toBe(third.current)
+    expect(await third.repo.load(third.base.document.sceneId)).toBeNull()
+  })
+
+  it('keeps the current map when new-result saving fails and supports an initially empty workspace', async () => {
+    const first = await continuation()
+    const save = vi.spyOn(first.repo, 'save').mockRejectedValueOnce(new Error('storage full'))
+    await expect(first.workspace.adoptAtomicCandidate(first.candidate, { claim: first.claim })).rejects.toThrow(/storage full/)
+    expect(first.workspace.getState().project).toBe(first.current)
+    save.mockRestore()
+    const second = await continuation('island', true)
+    const adopted = await second.workspace.adoptAtomicCandidate(second.candidate, { claim: second.claim })
+    expect(adopted.protection).toBeUndefined()
+    expect(second.workspace.getDocument()!.revision).toBe(1)
+    second.workspace.undo(); await second.workspace.flush()
+    expect(Object.keys(second.workspace.getDocument()!.terrainAreas)).toHaveLength(0)
+  })
   it.each(['island','coast','archipelago','tidalCoast'] as const)('replays %s with actual resources and binds a complete-project receipt',async kind=>{
     const composition=kind==='archipelago'||kind==='tidalCoast',base=await blank(kind==='coast'?'coast':'island',composition),input=request(base,kind),response=executeBaseMapRequest(input)
     const before=canonicalJson({base:toBundle(base).project,input,response}),prepared=await prepareBaseMapProject(base,input,response,{runtime,validation,source:'server'})

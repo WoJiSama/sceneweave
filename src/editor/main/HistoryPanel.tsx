@@ -23,6 +23,7 @@ type Props = {
   workspace: Workspace
   session: SelectionSession
   disabled: boolean
+  refreshBlocked: boolean
   refreshKey: number
   onAction: (run: () => Promise<void>, source?: string) => Promise<void>
   onPreview: (preview: RestorePreview) => void
@@ -41,7 +42,7 @@ function propLabel(scene: SceneDocument, prop: Prop): string {
   return prop.definitionRef ? scene.propDefinitions[prop.definitionRef.id]?.name ?? prop.id : prop.id
 }
 
-export default function HistoryPanel({ active, project, repository, workspace, session, disabled, refreshKey, onAction, onPreview, onStructurePreview, onBackup }: Props) {
+export default function HistoryPanel({ active, project, repository, workspace, session, disabled, refreshBlocked, refreshKey, onAction, onPreview, onStructurePreview, onBackup }: Props) {
   const sceneId = project.document.sceneId, canvasIds = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [summaries, setSummaries] = useState<SnapshotSummary[]>([]), [usage, setUsage] = useState<Usage | null>(null)
   const [legacySources, setLegacySources] = useState<LegacySource[]>([])
@@ -55,23 +56,31 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const [error, setError] = useState<string | null>(null)
   const [scopeType, setScopeType] = useState<'props' | 'structure'>('props')
   const request = useRef(0), viewport = useRef<HTMLDivElement>(null), pendingFocus = useRef<string | null>(null), focusFrame = useRef<number | null>(null)
+  const completedRefresh = useRef<string | null>(null)
+  const refreshStamp = `${sceneId}:${project.document.revision}:${refreshKey}`
   const refresh = async () => {
     const ticket = ++request.current, [items, nextUsage, originals, upgrades] = await Promise.all([repository.listNamedSnapshots(sceneId), repository.usage(sceneId), repository.listLegacySources(sceneId), repository.listNativeUpgradeSummaries(sceneId)])
     if (ticket !== request.current) return
+    completedRefresh.current = refreshStamp
     setSummaries(items); setUsage(nextUsage); setLegacySources(originals); setUpgradeOriginals(upgrades)
     setSnapshot(current => current && items.some(item => item.id === current.id) ? current : null)
     setBackupIds(current => new Set([...current].filter(id => items.some(item => item.id === id))))
   }
   useEffect(() => {
+    completedRefresh.current = null
     setSummaries([]); setUsage(null); setLegacySources([]); setUpgradeOriginals([]); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setActiveId(null); pendingFocus.current = null
     return () => { request.current++ }
   }, [sceneId])
   useEffect(() => {
-    if (!active) return
+    if (!active) { completedRefresh.current = null; return }
+    // Revision and protection notifications can arrive before the save finishes.
+    // Read the persisted history once after that write, rather than competing
+    // with validation/rendering and immediately repeating the same full scan.
+    if (refreshBlocked || completedRefresh.current === refreshStamp) return
     let cancelled = false
     void refresh().catch(failure => { if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure)) })
     return () => { cancelled = true; request.current++ }
-  }, [active, sceneId, project.document.revision, refreshKey])
+  }, [active, sceneId, project.document.revision, refreshKey, refreshBlocked])
   const historicalMembers = useMemo(() => snapshot ? memberIds(snapshot.project.document) : new Set<string>(), [snapshot])
   const currentMembers = useMemo(() => memberIds(project.document), [project.document])
   const rows = useMemo(() => {

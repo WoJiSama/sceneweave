@@ -139,6 +139,7 @@ describe('composition tool full native preview and privacy boundary', () => {
     expect(changedIds).toHaveLength(32)
     // The pure validator has separate full-ledger tests. This isolates the
     // receipt/install boundary using a legal-size set of changed identifiers.
+    if (state.schemaVersion !== 1) throw new Error('Expected legacy receipt fixture')
     const apply = vi.spyOn(authoringCore, 'applyAuthoringStep').mockReturnValue({ project: authoring.start.project,
       state: { ...state, draftRevision: 1, operationCost: 32, changedIds }, visualInvalidatedIds: [] })
     try {
