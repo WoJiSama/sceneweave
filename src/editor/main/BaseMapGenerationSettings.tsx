@@ -2,6 +2,9 @@ export interface BaseMapGenerationSettingsValue {
   mode: 'worker' | 'server'
   baseUrl: string
   token: string
+  quality?: 'standard' | 'detailed'
+  surfacePalette?: 'shore' | 'classic' | 'surface-rules'
+  budgetMode?: 'auto' | 'small' | 'standard' | 'expanded'
 }
 
 /** Connection values stay in Workbench memory and never enter a project. */
@@ -17,7 +20,24 @@ export default function BaseMapGenerationSettings({ value, disabled, onChange }:
       <option value="worker">本机生成 · 可离线使用</option>
       <option value="server">服务端生成 · 不调用模型</option>
     </select></label>
-    <p>生成后可直接采用底图，也可连接支持接续的 AI，在明确授权范围内继续修改。失败或取消 AI 仍保留合法底图。</p>
+    <label>地表配方<select aria-label="程序底图地表外观" value={value.surfacePalette ?? 'shore'} disabled={disabled}
+      onChange={event => onChange({ ...value, surfacePalette: event.target.value as 'shore' | 'classic' | 'surface-rules' })}>
+      <option value="shore">岸岩层次 · 暖岩、草缘与浅水</option><option value="classic">经典外观</option>
+      <option value="surface-rules">可编辑覆盖与区域布景</option>
+    </select></label>
+    <label>画面细节<select aria-label="程序底图画面细节" value={value.quality ?? 'standard'} disabled={disabled}
+      onChange={event => onChange({ ...value, quality: event.target.value as 'standard' | 'detailed' })}>
+      <option value="standard">标准细节</option><option value="detailed">精细细节</option>
+    </select></label>
+    <label>编辑容量<select aria-label="程序底图预算选择" value={value.budgetMode ?? 'auto'} disabled={disabled}
+      onChange={event => onChange({ ...value, budgetMode: event.target.value as 'auto' | 'small' | 'standard' | 'expanded' })}>
+      <option value="auto">自动 · 按地图和本机检测选择</option><option value="small">较小容量 · 节省资源</option>
+      <option value="standard">标准容量</option><option value="expanded">扩展容量</option>
+    </select></label>
+    {(value.surfacePalette ?? 'shore') !== 'classic' && <p>{value.surfacePalette === 'surface-rules' ? '规则地表会保存连续材质覆盖与区域植物簇；生成前校验素材、许可和预算。' : '岸岩层次会保存完整岸带覆盖。'}自动模式至少使用标准容量。</p>}
+    <p>{value.surfacePalette === 'surface-rules'
+      ? '本次容量在开始前确定，画面细节不会在生成中自动降低。此配方保存连续地表和区域植被规则；当前 AI 接续尚不支持这一工程格式，生成后可直接采用并继续手工编辑。'
+      : '本次容量在开始前确定，画面细节不会在生成中自动降低。生成后可直接采用底图，也可连接支持接续的 AI，在明确授权范围内继续修改。失败或取消 AI 仍保留合法底图。'}</p>
     {value.mode === 'server' && <>
       <label>后端地址<input aria-label="程序底图后端地址" type="url" placeholder="https://your-server.example" value={value.baseUrl} disabled={disabled}
         autoComplete="off" onChange={event => onChange({ ...value, baseUrl: event.target.value })}/></label>

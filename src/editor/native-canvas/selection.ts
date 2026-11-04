@@ -1,12 +1,13 @@
 import { propPaintPolygon, scenePresentation } from '../../shared/appearance/presentation.js'
 import { isEntityEditLocked as isEntityEditLockedV2 } from '../../shared/commands/base.js'
 import { isCertifiedSceneSnapshot as isCertifiedSceneSnapshotV2 } from '../../shared/validation/snapshots.js'
-import { corridor, openingEndpoints as openingEndpointsV2, pathPolygon as pathPolygonV2, pointInPolygon as pointInPolygonV2, polygonDistance, roomPoints as roomPointsV2, terrainPoints as terrainPointsV2 } from '../../shared/geometry/geometry.js'
+import { connectionFootprint, corridor, openingEndpoints as openingEndpointsV2, pathPolygon as pathPolygonV2, pointInPolygon as pointInPolygonV2, polygonDistance, roomPoints as roomPointsV2, terrainPoints as terrainPointsV2 } from '../../shared/geometry/geometry.js'
 import type { BoundsMm, Editable, PointMm, Prop as PropV2, SceneDocument as SceneDocumentV2 } from '../../shared/model/scene.js'
 import { orderedPropsV2, wallOrderV2 } from './projection'
 import type { ProjectedWallV2 } from './projection'
 import { wallGeometryV2 } from '../../platform/browser/render/renderer'
 import type { SelectionSummaryV2 } from './selection-summary'
+import { decorationPaintGeometry, decorationPaintPolygon } from '../../shared/decorations/presentation.js'
 
 export interface SelectionOptionsV2 {
   memberMode?: boolean
@@ -40,6 +41,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
   for (const collection of [scene.props, scene.vertices, scene.walls, scene.openings, scene.rooms, scene.terrainAreas, scene.terrainEdges, scene.terrainConnections, scene.paths, scene.regions, scene.notes, scene.prefabInstances, scene.scatterGroups]) {
     for (const entity of Object.values(collection)) entities.set(entity.id, entity)
   }
+  for (const record of [scene.decorations ?? {}, scene.decorationClusters ?? {}]) for (const entity of Object.values(record)) entities.set(entity.id, entity)
   const terrainPoints = new Map<string, PointMm>(), parents = new Map<string, string[]>(), prefabParents = new Map<string, string>()
   for (const area of Object.values(scene.terrainAreas)) for (const point of area.boundaryMm) {
     entities.set(point.id, { id: point.id, floorId: area.floorId }); terrainPoints.set(point.id, point.positionMm)
@@ -48,6 +50,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     parents.set(member.propId, [...(parents.get(member.propId) ?? []), group.id])
     if (own(scene.prefabInstances, group.id)) prefabParents.set(member.propId, group.id)
   }
+  for (const group of Object.values(scene.decorationClusters ?? {})) for (const member of Object.values(group.members)) if (member.entityId !== null && member.state !== 'detached') parents.set(member.entityId, [...(parents.get(member.entityId) ?? []), group.id])
   const unit = (id: string, memberMode = false): string | null => entities.has(id) ? !memberMode && prefabParents.has(id) ? prefabParents.get(id)! : id : null
   const normalize = (ids: readonly string[], memberMode = false): string[] => {
     const units = [...new Set(ids.flatMap(id => unit(id, memberMode) ?? []))], present = new Set(units)
@@ -58,7 +61,9 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     if (!hiddenIds) return false
     if (hiddenIds.has(id) || (parents.get(id) ?? []).some(parent => hiddenIds.has(parent))) return true
     const group = own(scene.prefabInstances, id) ?? own(scene.scatterGroups, id)
-    return !!group && Object.values(group.members).some(member => member.propId !== null && hiddenIds.has(member.propId))
+    if (group && Object.values(group.members).some(member => member.propId !== null && hiddenIds.has(member.propId))) return true
+    const cluster = scene.decorationClusters?.[id]
+    return !!cluster && Object.values(cluster.members).some(member => member.entityId !== null && member.state !== 'detached' && hiddenIds.has(member.entityId))
   }
   // GM rendering and picking must agree on both draw order and which wall owns
   // a shared join. Keep each wall's opening order identical to GM projection.
@@ -81,6 +86,8 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
   const computeGeometry = (id: string): PointMm[][] => {
     const prop = own(scene.props, id)
     if (prop) return [propPaintPolygon(prop, scenePresentation(scene, prop.id))]
+    const decoration = scene.decorations?.[id]
+    if (decoration) return [decorationPaintPolygon(decorationPaintGeometry(scene, decoration))]
     const vertex = own(scene.vertices, id), terrainPoint = terrainPoints.get(id)
     if (vertex) return [[{ x: vertex.xMm, y: vertex.yMm }]]
     if (terrainPoint) return [[{ ...terrainPoint }]]
@@ -101,12 +108,14 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
       return i < 0 ? [] : [[{ ...boundary[i].positionMm }, { ...boundary[(i + 1) % boundary.length].positionMm }]]
     }
     const connection = own(scene.terrainConnections, id)
-    if (connection) return [corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm)]
+    if (connection) return [connectionFootprint(connection)]
     const path = own(scene.paths, id), region = own(scene.regions, id)
     if (path) return [pathPolygonV2(path)]
     if (region) return [clonePoints(region.boundaryMm)]
     const prefab = own(scene.prefabInstances, id)
     if (prefab) return Object.values(prefab.members).flatMap(member => member.propId === null ? [] : geometry(member.propId))
+    const cluster = scene.decorationClusters?.[id]
+    if (cluster) return Object.values(cluster.members).flatMap(member => member.entityId === null || member.state === 'detached' ? [] : geometry(member.entityId))
     const scatter = own(scene.scatterGroups, id)
     if (scatter) {
       if (scatter.domain.kind === 'area') return geometry(scatter.domain.areaId)
@@ -126,14 +135,19 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
   // Selectable content follows the actual system paint bands. Path picking uses
   // the same square-cap/miter/bevel band as strict validation and rendering.
   const props = orderedPropsV2(Object.values(scene.props))
+  const decorations = Object.values(scene.decorations ?? {}).map(value => decorationPaintGeometry(scene, value))
+  const spriteBand = { ground: 0, object: 1, canopy: 2 }
+  const sprites = [...props, ...decorations].sort((a, b) => spriteBand[a.renderLayer] - spriteBand[b.renderLayer]
+    || (scene.userLayers[scene.entityLayers[a.id]]?.order ?? 0) - (scene.userLayers[scene.entityLayers[b.id]]?.order ?? 0)
+    || a.renderOrder - b.renderOrder || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id))
   const paths = Object.values(scene.paths).sort((a, b) => b.renderOrder - a.renderOrder || b.id.localeCompare(a.id)).map(path => path.id)
   const connections = Object.keys(scene.terrainConnections).sort((a, b) => a.localeCompare(b)).reverse()
   const surfaces = paths.length ? [...connections, ...paths, ...Object.keys(scene.rooms).reverse()] : [...Object.keys(scene.rooms).reverse(), ...connections]
   const topFirst = [
-    ...props.filter(prop => prop.renderLayer !== 'ground').reverse().map(prop => prop.id),
+    ...(decorations.length ? sprites : props).filter(prop => prop.renderLayer !== 'ground').reverse().map(prop => prop.id),
     ...Object.keys(scene.vertices).reverse(), ...[...terrainPoints.keys()].reverse(),
     ...projectedWalls.flatMap(wall => wall.openings.map(opening => opening.id)).reverse(), ...projectedWalls.map(wall => wall.id).reverse(),
-    ...props.filter(prop => prop.renderLayer === 'ground').reverse().map(prop => prop.id),
+    ...(decorations.length ? sprites : props).filter(prop => prop.renderLayer === 'ground').reverse().map(prop => prop.id),
     ...surfaces,
     ...Object.keys(scene.terrainEdges).reverse(),
     ...Object.values(scene.terrainAreas).sort((a, b) => b.coveragePriority - a.coveragePriority || b.id.localeCompare(a.id)).map(area => area.id),
@@ -238,7 +252,7 @@ export function readSelectionSummaryV2(scene: SceneDocumentV2, ids: readonly str
   const typeCounts: Record<string, number> = {}
   let effectiveLockedCount = 0, x = Infinity, y = Infinity, right = -Infinity, bottom = -Infinity
   for (const id of normalized) {
-    const kind = kinds.find(([collection]) => Object.hasOwn(scene[collection], id))?.[1] ?? 'terrainPoint'
+    const kind = scene.decorations?.[id] ? 'decoration' : scene.decorationClusters?.[id] ? 'decorationCluster' : kinds.find(([collection]) => Object.hasOwn(scene[collection], id))?.[1] ?? 'terrainPoint'
     typeCounts[kind] = (typeCounts[kind] ?? 0) + 1
     if (index.locked(id)) effectiveLockedCount++
     const b = index.boundsFor(id)
@@ -262,7 +276,7 @@ export function hitTestAllV2(scene: SceneDocumentV2, point: PointMm, toleranceMm
     if (seen.has(unit) || index.hidden(unit, options.hiddenIds)) continue
     // Props are picked by their visual rectangle only; handle/line tolerance must
     // not turn shadows, padding or the gaps between prefab members into targets.
-    const tolerance = own(scene.props, id) ? 0 : toleranceMm
+    const tolerance = own(scene.props, id) || scene.decorations?.[id] ? 0 : toleranceMm
     if (index.geometry(id).some(shape => containsPoint(shape, point, tolerance))) { seen.add(unit); result.push(unit) }
   }
   return result

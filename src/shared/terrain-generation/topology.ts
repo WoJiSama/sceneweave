@@ -1,3 +1,4 @@
+import type { ExecutionBudget } from '../budget/task-budget.js'
 import { getLegacyGeneration } from './composition-contracts.js'
 import type { PointMm, SceneDocument, TerrainArea } from '../model/scene.js'
 import { polygonBoolean } from '../geometry/polygon-boolean.js'
@@ -65,7 +66,7 @@ function rebind(scene: SceneDocument, request: TerrainTopologyRequest, outputIds
   }
 }
 /** Apply a complete integer-mm boolean result. Holes become explicit higher-priority surface areas. */
-export function applyTerrainTopology(scene: SceneDocument, rawRequest: TerrainTopologyRequest): { outputAreaIds: string[]; componentCount: number; holeCount: number; inputHash: string; outputHash: string } {
+export function applyTerrainTopology(scene: SceneDocument, rawRequest: TerrainTopologyRequest, meter?: ExecutionBudget): { outputAreaIds: string[]; componentCount: number; holeCount: number; inputHash: string; outputHash: string } {
   const request = terrainTopologyRequestSchema.parse(rawRequest)
   if (scene.schemaVersion !== 3 || !scene.generation) throw new Error('复杂拓扑需要完整v3场景。')
   if (request.floorId !== scene.terrainAreas[request.templateAreaId]?.floorId) throw new Error('拓扑模板地形与Floor不符。')
@@ -85,7 +86,7 @@ export function applyTerrainTopology(scene: SceneDocument, rawRequest: TerrainTo
   if (scene.visual?.version === 2 && Object.values(scene.visual.base.boundaries).some(boundary => boundary.binding.kind === 'terrain' && boundary.binding.sides.some(side => request.areaIds.includes(side.areaId)))) throw new Error('拓扑输入仍有视觉曲线依赖，请先显式处理视觉绑定。')
   requireOutputRefs(scene, request, 128)
   const inputHash = hash({ request, areas: areas.map(area => ({ id: area.id, value: area })) })
-  const result = polygonBoolean({ operation: request.operation, subject: areas.map(terrainPoints), clip: request.clip })
+  const result = polygonBoolean({ operation: request.operation, subject: areas.map(terrainPoints), clip: request.clip }, meter)
   if (!result.polygons.length) throw new Error('拓扑结果为空，不能用空地形替换当前工程。')
   if (result.polygons.some(polygon => ![...polygon.outer, ...polygon.holes.flat()].every(contains))) throw new Error('拓扑新地形超出冻结范围。')
   const template = scene.terrainAreas[request.templateAreaId], nextIds: string[] = [], used = new Set<string>()

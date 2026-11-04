@@ -4,7 +4,9 @@ import { decodeUtf8 } from './binary.js'
 export interface JsonBudget { values: number }
 
 /** Reject aliases such as title / \u0074itle before JSON.parse discards one. */
-export function parseBoundedJson(bytes: Uint8Array, budget: JsonBudget = { values: 0 }): unknown {
+export function parseBoundedJson(bytes: Uint8Array, budget: JsonBudget = { values: 0 }, limits: { values?: number; depth?: number } = {}): unknown {
+  const maximumValues = limits.values ?? PACKAGE_LIMITS.jsonValues, maximumDepth = limits.depth ?? PACKAGE_LIMITS.jsonDepth
+  if (!Number.isSafeInteger(maximumValues) || maximumValues < 1 || !Number.isSafeInteger(maximumDepth) || maximumDepth < 1) failPackage('JSON保护限制无效。')
   let source: string
   try { source = decodeUtf8(bytes) } catch { return failPackage('JSON 必须为有效 UTF-8。') }
   let cursor = 0
@@ -23,7 +25,7 @@ export function parseBoundedJson(bytes: Uint8Array, budget: JsonBudget = { value
     return failPackage('JSON 字符串未闭合。')
   }
   const value = (depth: number): void => {
-    if (depth > PACKAGE_LIMITS.jsonDepth || ++budget.values > PACKAGE_LIMITS.jsonValues) failPackage('JSON 深度或累计节点数量超过保护值。')
+    if (depth > maximumDepth || ++budget.values > maximumValues) failPackage('JSON 深度或累计节点数量超过保护值。')
     whitespace()
     const character = source[cursor]
     if (character === '{') {

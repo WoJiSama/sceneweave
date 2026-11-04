@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { continuationFixture } from '../../tests/helpers/continuation-fixture.js'
-import { cloneJson } from '../../src/shared/validation/json.js'
+import { continuationFixture as continuationFixtureV2 } from '../../tests/helpers/continuation-fixture.js'
+import { continuationFixtureV3 } from '../../tests/helpers/continuation-v3-fixture.js'
+import { emptyBudgetUsage } from '../../src/shared/budget/task-budget.js'
+import { canonicalJson, cloneJson } from '../../src/shared/validation/json.js'
 import { authoringDraftStamp, authoringSummary, replayAuthoring } from '../../src/shared/ai/authoring.js'
-import { AuthoringDraftSchema, type AuthoringStartV2 } from '../../src/shared/ai/authoring-protocol.js'
-import { CONTINUATION_POLICY } from '../../src/shared/ai/budget-policy.js'
+import { AuthoringDraftSchema, type AuthoringStartV2, type AuthoringStartV3 } from '../../src/shared/ai/authoring-protocol.js'
 import { TaskSnapshotSchema, type CreateTaskRequest } from '../../src/shared/ai/protocol.js'
 import { connectionInfo, createAiApp } from './app.js'
 import { loadAiConfig } from './config.js'
@@ -15,6 +16,7 @@ import { TaskEngine } from './engine.js'
 import { TaskStore } from './store.js'
 import type { ProviderAdapter, ProviderCompletion, ProviderInput } from './provider-types.js'
 import { reduceTaskEvent } from '../../src/platform/browser/ai/client.js'
+import { executeAuthoringTool } from './authoring-tools.js'
 import { recordAuthoringExecution } from './execution-checkpoint.js'
 
 const cleanups: (() => void)[] = [], token = 'a'.repeat(40), origin = 'https://editor.example.test'
@@ -22,7 +24,7 @@ afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() 
 const completion = (calls: ProviderCompletion['toolCalls'] = []): ProviderCompletion => ({ text: '', toolCalls: calls,
   finishReason: calls.length ? 'tool_calls' : 'stop', usage: { inputTokens: 10, outputTokens: 8 }, requestId: 'continuation-test' })
 
-function setup(source: AuthoringStartV2, enabled = true, streamFirst = false, twoEdits = false) {
+function setup(source: AuthoringStartV2 | AuthoringStartV3, enabled = true, streamFirst = false, twoEdits = false) {
   const directory = mkdtempSync(join(tmpdir(), 'sceneweave-classified-'))
   const config = loadAiConfig({ SCENEWEAVE_AI_DATA_DIR: directory, SCENEWEAVE_AI_ALLOWED_ORIGINS: origin,
     SCENEWEAVE_AI_ACCESS_TOKEN: token, SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1',
@@ -40,9 +42,14 @@ function setup(source: AuthoringStartV2, enabled = true, streamFirst = false, tw
   }) }
   let store = new TaskStore(directory), engine = new TaskEngine(store, provider, info)
   let app = createAiApp(config, { store, engine }), closed = false
-  const request = (path: string, method = 'GET', body?: unknown) => app.request(path, { method,
+  const request = (path: string, method = 'GET', body?: unknown) => {
+    const value = body as { authoring?: { schemaVersion: number }; version?: number } | undefined
+    const route = path === '/v1/tasks' && method === 'POST' && value?.authoring?.schemaVersion === 3 ? `${path}?authoringVersion=3`
+      : path === '/v1/terrain/basemap' && value?.version === 3 ? `${path}?baseMapVersion=3` : path
+    return app.request(route, { method,
     headers: { Authorization: `Bearer ${token}`, Origin: origin, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+  }
   const createBody = (): CreateTaskRequest => ({ schemaVersion: 1, clientRequestId: randomUUID(), prompt: '调整已授权底图物件。',
     context: { sceneId: source.source.preservation.sceneId!, revision: source.source.preservation.revision!, audience: 'public' }, authoring: source })
   const restart = () => { engine.close(); store.close(); store = new TaskStore(directory); engine = new TaskEngine(store, provider, info); app = createAiApp(config, { store, engine }) }
@@ -54,7 +61,8 @@ async function waiting(subject: ReturnType<typeof setup>, id: string) {
   return TaskSnapshotSchema.parse(await (await subject.request(`/v1/tasks/${id}`)).json())
 }
 
-describe('classified generated-map continuation service', () => {
+describe.each([2, 3] as const)('classified generated-map continuation service v%s', version => {
+  const continuationFixture = () => version === 2 ? continuationFixtureV2() : continuationFixtureV3()
   it('retains executed tool attempts and completed provider usage after a later tool limit without publishing a partial draft', async () => {
     const source = continuationFixture(), subject = setup(source, true, false, true), defaults = subject.store.limits.bind(subject.store)
     // Initialization consumes one execution attempt, leaving one of these two
@@ -82,11 +90,35 @@ describe('classified generated-map continuation service', () => {
   it('marks unexpected running-flow restart uncertain and cannot resume from an unproven execution remainder', async () => {
     const source = continuationFixture(), subject = setup(source)
     const created = subject.store.create(subject.owner, subject.createBody(), 1).task
+    let workBeforeRestart = created.snapshot.executionCheckpoint?.schemaVersion === 3 ? created.snapshot.executionCheckpoint.workUsage : undefined
+    if (version === 3) {
+      const priorState = canonicalJson(created.authoring!.state), initialWork = { ...workBeforeRestart! }
+      subject.store.change(created.snapshot.id, created.snapshot.generation, current => {
+        expect(executeAuthoringTool(current, { id: 'readonly-replay', name: 'sceneweave_read_scene', arguments: '{"section":"summary"}' }, { section: 'summary' }).success).toBe(true)
+        return []
+      })
+      const read = subject.store.read(created.snapshot.id)
+      expect(canonicalJson(read.authoring!.state)).toBe(priorState)
+      if (read.snapshot.executionCheckpoint?.schemaVersion !== 3) throw new Error('Expected work checkpoint')
+      expect(read.snapshot.executionCheckpoint.workUsage.fieldEvaluations).toBeGreaterThan(initialWork.fieldEvaluations)
+      const afterRead = { ...read.snapshot.executionCheckpoint.workUsage }
+      expect(() => subject.store.change(created.snapshot.id, created.snapshot.generation, current => {
+        executeAuthoringTool(current, { id: 'failed-round-read', name: 'sceneweave_read_scene', arguments: '{"section":"summary"}' }, { section: 'summary' })
+        throw new Error('reject round after actual replay')
+      })).toThrow('reject round')
+      const failed = subject.store.read(created.snapshot.id)
+      expect(canonicalJson(failed.authoring!.state)).toBe(priorState)
+      if (failed.snapshot.executionCheckpoint?.schemaVersion !== 3) throw new Error('Expected preserved work checkpoint')
+      expect(failed.snapshot.executionCheckpoint.workUsage.fieldEvaluations).toBeGreaterThan(afterRead.fieldEvaluations)
+      workBeforeRestart = failed.snapshot.executionCheckpoint.workUsage
+      expect(subject.store.events(created.snapshot.id, created.snapshot.lastSequence).some(event => event.type === 'authoring_checkpoint')).toBe(true)
+    }
     subject.restart()
     const saved = TaskSnapshotSchema.parse(await (await subject.request(`/v1/tasks/${created.snapshot.id}`)).json())
     expect(saved.status).toBe('paused')
     expect(saved.error?.code).toBe('execution_unknown')
     expect(saved.executionCheckpoint?.uncertain).toBe(true)
+    if (saved.executionCheckpoint?.schemaVersion === 3) expect(saved.executionCheckpoint.workUsage).toEqual(workBeforeRestart)
     expect(saved.authoring).toMatchObject({ budget: { aiCost: 0 } })
     const resume = await subject.request(`/v1/tasks/${saved.id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: saved.generation, action: 'resume' })
     expect(resume.status).toBe(409)
@@ -95,12 +127,12 @@ describe('classified generated-map continuation service', () => {
   }, 60_000)
   it('rejects an oversized recent-task aggregate explicitly while preserving a valid per-ID response', async () => {
     const source = continuationFixture(), subject = setup(source), state = replayAuthoring(source, []).state
-    if (state.schemaVersion !== 2) throw new Error('Expected classified fixture')
+    if (state.schemaVersion !== version) throw new Error('Expected classified fixture')
     // Wire-boundary fixture only: these summaries do not prove a corresponding
     // large scene was generated, rendered, persisted or replayed in this test.
     const changedIds = Array.from({ length: 8192 }, (_, i) => `${i}-` + '地'.repeat(250))
     const snapshots = Array.from({ length: 3 }, () => {
-      const id = randomUUID(), executionCheckpoint = recordAuthoringExecution({ schemaVersion: 2, flowId: source.source.flowId,
+      const id = randomUUID(), executionCheckpoint = recordAuthoringExecution({ ...(version === 3 ? { schemaVersion: 3 as const, workUsage: emptyBudgetUsage() } : { schemaVersion: 2 as const }), flowId: source.source.flowId,
         taskId: id, generation: 1, policyHash: state.policyHash, sourceHash: state.sourceHash, ledgerHeadHash: state.ledgerHeadHash,
         budgetStateHash: state.budgetStateHash, activeRuntimeMs: 1, initializationMs: 1, modelRequests: 0, completedRequests: 0, toolAttempts: 1, outputBytes: 0 })
       return TaskSnapshotSchema.parse({ schemaVersion: 1, id, clientRequestId: randomUUID(), context: subject.createBody().context,
@@ -139,7 +171,7 @@ describe('classified generated-map continuation service', () => {
     expect(() => reduceTaskEvent(projected, { ...first, sequence: projected.lastSequence + 1,
       data: { ...first.data, usage: { ...first.data.usage, requests: 999 } } })).toThrow()
   }, 60_000)
-  it('negotiates v2 explicitly and binds the preservation context rather than the generated scene', async () => {
+  it('negotiates classified versions explicitly and binds the preservation context rather than the generated scene', async () => {
     const source = continuationFixture(), old = setup(source, false), input = old.createBody()
     expect((await old.request('/v1/tasks', 'POST', input)).status).toBe(400)
     expect(old.provider.complete).not.toHaveBeenCalled()
@@ -164,7 +196,7 @@ describe('classified generated-map continuation service', () => {
     expect(created.status).toBe(201)
     const id = (await created.json()).id, snapshot = await waiting(subject, id)
     const draft = AuthoringDraftSchema.parse(await (await subject.request(`/v1/tasks/${id}/draft`)).json())
-    if (draft.state.schemaVersion !== 2 || !snapshot.authoring || !('schemaVersion' in snapshot.authoring) || snapshot.authoring.schemaVersion !== 2) throw new Error('Expected classified draft')
+    if (draft.state.schemaVersion !== version || !snapshot.authoring || !('schemaVersion' in snapshot.authoring) || snapshot.authoring.schemaVersion !== version) throw new Error('Expected classified draft')
     expect(draft.state.budget.generationCost).toBeGreaterThan(0)
     expect(draft.state.budget.aiCost).toBe(1)
     expect(snapshot.executionCheckpoint!.toolAttempts).toBeGreaterThanOrEqual(4)
@@ -175,7 +207,7 @@ describe('classified generated-map continuation service', () => {
     expect((await subject.request(`/v1/tasks/${id}/draft/validate`, 'POST', { ...stamp, valid: true })).status).toBe(200)
     expect((await subject.request(`/v1/tasks/${id}/draft/claim`, 'POST', { ...bad, claimId: randomUUID() })).status).toBe(409)
     const claimId = randomUUID(), lease = await (await subject.request(`/v1/tasks/${id}/draft/claim`, 'POST', { ...stamp, claimId })).json()
-    expect(lease).toMatchObject({ schemaVersion: 2, policyHash: draft.state.policyHash, sourceHash: draft.state.sourceHash,
+    expect(lease).toMatchObject({ schemaVersion: version, policyHash: draft.state.policyHash, sourceHash: draft.state.sourceHash,
       ledgerHeadHash: draft.state.ledgerHeadHash, budgetStateHash: draft.state.budgetStateHash })
     expect((await subject.request('/v1/tasks', 'POST', input)).status).toBe(201)
     expect((await subject.request('/v1/tasks', 'POST', subject.createBody())).status).toBe(409)
@@ -194,7 +226,7 @@ describe('classified generated-map continuation service', () => {
   it('keeps failed initialization work and rejects changed frozen generation input', async () => {
     const source = cloneJson(continuationFixture()), subject = setup(source)
     const bad = subject.createBody()
-    if (bad.authoring?.schemaVersion !== 2) throw new Error('Expected classified request')
+    if (bad.authoring?.schemaVersion !== version) throw new Error('Expected classified request')
     bad.authoring.source.identityAllocation[0] += '-forged'
     expect((await subject.request('/v1/tasks', 'POST', bad)).status).toBe(400)
     const original = continuationFixture(), input = subject.createBody(); input.authoring = original

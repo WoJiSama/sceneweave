@@ -1,6 +1,6 @@
 import { effectivePropShadow, nearSidePaintEnvelope, presentationBounds, presentationContact, presentationShadow, propPaintPolygon, propShadowDirection } from '../../../shared/appearance/presentation.js'
 import { drawVisualAtmosphere, drawVisualBoundaries, drawVisualContacts, drawVisualEntity } from './visual-renderer'
-import type { BoundsMm, MaterialPaint, PointMm, Prop, ShadowStyle, SurfaceStyle } from '../../../shared/model/scene.js'
+import type { BoundsMm, MaterialPaint, PointMm, Prop, ShadowStyle, SurfaceOverlay, SurfaceStyle } from '../../../shared/model/scene.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { drawRegionalProjection } from './regional-renderer.js'
 import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
@@ -10,10 +10,16 @@ import { withRenderDecoderSlot } from './image-decoder'
 import type { AssetRecord, ResourceBytePort } from '../../../shared/model/project.js'
 import type { AssetRef } from '../../../shared/model/scene.js'
 import { pointsBounds } from './geometry'
-import type { Audience, ProjectedConnection, ProjectedOpening, ProjectedTerrainEdge, ProjectedWall, Projection } from '../../../shared/projection/types.js'
+import type { Audience, ProjectedConnection, ProjectedDecoration, ProjectedOpening, ProjectedSurface, ProjectedTerrainEdge, ProjectedWall, Projection } from '../../../shared/projection/types.js'
+import { decorationPaintBounds } from '../../../shared/decorations/presentation.js'
 import { createEditorRenderPlan, editorPaintBounds } from './editor-render-plan'
 import type { EditorPropDetail } from './editor-render-plan'
 import { boundaryConnections, clipConnectionOpenings, connectionFrame, drawConnectionCheeks } from './connection-geometry'
+import { polylineBand, connectionBand } from '../../../shared/geometry/geometry.js'
+import { connectionArcFrame } from '../../../shared/geometry/connection-route.js'
+import { connectionLandingBlend, connectionLandingDepthMm } from '../../../shared/geometry/connection-landings.js'
+import { naturalRockTreads } from './cliff-relief.js'
+import { paintConnectionLandingMask } from './connection-landing-mask.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -174,24 +180,40 @@ function paintImage(ctx: CanvasRenderingContext2D, paint: MaterialPaint, project
   }
   return raster.paintCache.image
 }
-function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: SurfaceStyle | null, projection: Projection, raster: RasterSet, fallback: string): void {
+/** The same even-odd world-space mask is used for every disconnected patch and hole. */
+export function drawSurfaceRuleMask(ctx: CanvasRenderingContext2D, bounds: BoundsMm, widthPx: number, heightPx: number,
+  regions: NonNullable<ProjectedSurface['materialPatches']>[number]['regionsMm'], blendWidthMm: number): void {
+  const path = new Path2D()
+  for (const region of regions) { addRing(path, region.outerMm); for (const hole of region.holesMm) addRing(path, hole) }
+  const sx = widthPx / bounds.width, sy = heightPx / bounds.height
+  worldTransform(ctx, bounds, sx, sy); ctx.fillStyle = '#fff'
+  if (blendWidthMm) ctx.filter = `blur(${blendWidthMm * .5 * Math.max(sx, sy)}px)`
+  ctx.fill(path, 'evenodd'); ctx.filter = 'none'
+}
+function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: SurfaceStyle | null, projection: Projection, raster: RasterSet, fallback: string, materialPatches: ProjectedSurface['materialPatches'] = []): void {
   ctx.save(); ctx.clip(path); ctx.fillStyle = fallback
   const b = projection.bounds; ctx.fillRect(b.x, b.y, b.width, b.height)
   if (style) {
     ctx.save(); ctx.resetTransform(); ctx.globalAlpha = style.base.opacity; ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0); ctx.restore()
-    for (const overlay of [...style.overlays].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) {
+  }
+    for (const overlay of [...(style?.overlays ?? [])].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) drawOverlay(overlay)
+    for (const overlay of materialPatches) drawOverlay(overlay)
+    function drawOverlay(overlay: SurfaceOverlay | NonNullable<ProjectedSurface['materialPatches']>[number]): void {
       const layer = canvas(ctx.canvas.width, ctx.canvas.height), mask = canvas(ctx.canvas.width, ctx.canvas.height)
       try {
         const layerCtx = context(layer, raster.readFrequently), maskCtx = context(mask, raster.readFrequently), sx = mask.width / b.width, sy = mask.height / b.height
         worldTransform(maskCtx, b, sx, sy); maskCtx.fillStyle = '#fff'
         // A deterministic world-size feather; the owner clip remains authoritative.
-        if (overlay.blendWidthMm) maskCtx.filter = `blur(${overlay.blendWidthMm * .5 * Math.max(sx, sy)}px)`
-        maskCtx.fill(polygonPath(overlay.boundaryMm)); maskCtx.filter = 'none'
+        if ('regionsMm' in overlay) {
+          drawSurfaceRuleMask(maskCtx, b, mask.width, mask.height, overlay.regionsMm, overlay.blendWidthMm)
+        } else {
+          if (overlay.blendWidthMm) maskCtx.filter = `blur(${overlay.blendWidthMm * .5 * Math.max(sx, sy)}px)`
+          maskCtx.fill(polygonPath(overlay.boundaryMm)); maskCtx.filter = 'none'
+        }
         layerCtx.drawImage(paintImage(ctx, overlay.paint, projection, raster), 0, 0); layerCtx.globalCompositeOperation = 'destination-in'; layerCtx.drawImage(mask, 0, 0)
         ctx.save(); ctx.resetTransform(); ctx.globalAlpha = overlay.paint.opacity; ctx.drawImage(layer, 0, 0); ctx.restore()
       } finally { disposeCanvas(layer); disposeCanvas(mask) }
     }
-  }
   ctx.restore()
 }
 
@@ -320,8 +342,19 @@ function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Project
   const padding = Math.max(detail === 'full' && shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : 0, contactBlur ?? 0)
   drawVisualEntity(ctx, projection, prop.id, expandedBounds(points, padding), (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
 }
-export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm'>): PointMm[] {
-  return wallBand(connection.start, connection.end, connection.widthMm)
+function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoration, projection: Projection, raster: RasterSet): void {
+  const bitmap = raster.byAssetId.get(value.assetId)
+  if (!bitmap) throw new Error('轻量装饰所需位图没有完成解码。')
+  drawVisualEntity(ctx, projection, value.id, decorationPaintBounds(value), target => {
+    target.save()
+    try {
+      target.translate(value.positionMm.x, value.positionMm.y); target.rotate(value.rotationDeg * Math.PI / 180); target.globalAlpha = value.opacity
+      const bounds = value.visualBoundsMm; target.drawImage(bitmap, bounds.x, bounds.y, bounds.width, bounds.height)
+    } finally { target.restore() }
+  }, !!raster.readFrequently)
+}
+export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm' | 'route'>): PointMm[] {
+  return connection.route ? connectionBand(connection.route.centerlineMm, connection.widthMm) : wallBand(connection.start, connection.end, connection.widthMm)
 }
 function linePath(a: PointMm, b: PointMm): Path2D { const path = new Path2D(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); return path }
 function excludeRing(ctx: CanvasRenderingContext2D, ring: PointMm[], bounds: BoundsMm): void {
@@ -346,6 +379,44 @@ export function terrainShadow(edge: ProjectedTerrainEdge, projection: Pick<Proje
   const dx = Math.cos(direction * Math.PI / 180) * offset, dy = Math.sin(direction * Math.PI / 180) * offset
   return offset ? [edge.start, edge.end, point(edge.end.x + dx, edge.end.y + dy), point(edge.start.x + dx, edge.start.y + dy)] : []
 }
+function cliffFacePaint(ctx: CanvasRenderingContext2D, face: PointMm[], edge: ProjectedTerrainEdge,
+  projection: Projection, raster: RasterSet): void {
+  const path = polygonPath(face)
+  fillSurface(ctx, path, edge.surfaceStyle, projection, raster, '#777D72')
+  if (face.length !== 4) return
+  const [topStart, topEnd, footEnd, footStart] = face
+  const midpoint = (a: PointMm, b: PointMm): PointMm => point((a.x + b.x) / 2, (a.y + b.y) / 2)
+  const top = midpoint(topStart, topEnd), foot = midpoint(footStart, footEnd)
+  const gradient = ctx.createLinearGradient(top.x, top.y, foot.x, foot.y)
+  gradient.addColorStop(0, 'rgba(220,204,166,0.2)')
+  gradient.addColorStop(.22, 'rgba(115,126,109,0.04)')
+  gradient.addColorStop(.53, 'rgba(49,62,53,0.13)')
+  gradient.addColorStop(.78, 'rgba(191,177,143,0.1)')
+  gradient.addColorStop(1, 'rgba(44,56,49,0.2)')
+  ctx.save(); ctx.clip(path); ctx.fillStyle = gradient; ctx.fill(path)
+  const phase = ((Math.abs(edge.start.x * 31 + edge.start.y * 17 + edge.end.x * 13 + edge.end.y * 7) % 4096) / 4096) * Math.PI * 2
+  const depthLine = (fraction: number, row: number) => {
+    const line = new Path2D(), length = Math.hypot(topEnd.x - topStart.x, topEnd.y - topStart.y)
+    const stations = Math.max(4, Math.min(24, Math.ceil(length / 500)))
+    for (let index = 0; index <= stations; index++) {
+      const along = index / stations
+      const wobble = index === 0 || index === stations ? 0 : Math.sin(along * Math.PI * 6 + phase + row * 1.7) * .035
+      const amount = Math.max(.08, Math.min(.92, fraction + wobble))
+      const upper = point(topStart.x + (topEnd.x - topStart.x) * along, topStart.y + (topEnd.y - topStart.y) * along)
+      const lower = point(footStart.x + (footEnd.x - footStart.x) * along, footStart.y + (footEnd.y - footStart.y) * along)
+      const sample = point(upper.x + (lower.x - upper.x) * amount, upper.y + (lower.y - upper.y) * amount)
+      if (index) line.lineTo(sample.x, sample.y); else line.moveTo(sample.x, sample.y)
+    }
+    return line
+  }
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([230, 170]); ctx.lineDashOffset = -phase * 60
+  ctx.strokeStyle = '#D4C39B'; ctx.globalAlpha = .38; ctx.lineWidth = 34; ctx.stroke(depthLine(.32, 0))
+  ctx.strokeStyle = '#35443B'; ctx.globalAlpha = .3; ctx.lineWidth = 55; ctx.stroke(depthLine(.69, 1))
+  ctx.setLineDash([])
+  ctx.restore()
+  ctx.save(); ctx.strokeStyle = '#D9C8A0'; ctx.globalAlpha = .34; ctx.lineWidth = 22; ctx.lineCap = 'round'; ctx.stroke(linePath(topStart, topEnd))
+  ctx.strokeStyle = '#39443E'; ctx.globalAlpha = .28; ctx.lineWidth = 18; ctx.stroke(linePath(footStart, footEnd)); ctx.restore()
+}
 function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, sx: number, sy: number): void {
   const suppressed = new Set(projection.visual?.suppressedTerrainEdgeIds ?? [])
   for (const edge of projection.edges) {
@@ -361,8 +432,7 @@ function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection,
         ctx.save(); ctx.filter = `blur(${cliff.blurMm * Math.max(sx, sy)}px)`; ctx.globalAlpha = cliff.opacity; ctx.fillStyle = cliff.color; ctx.fill(polygonPath(shadow)); ctx.restore()
       }
       if (face.length) {
-        fillSurface(ctx, polygonPath(face), edge.surfaceStyle, projection, raster, '#525E55')
-        ctx.save(); ctx.strokeStyle = '#39443E'; ctx.globalAlpha = .28; ctx.lineWidth = 18; ctx.stroke(linePath(face[3], face[2])); ctx.restore()
+        cliffFacePaint(ctx, face, edge, projection, raster)
         if (connections.length) { ctx.save(); ctx.clip(polygonPath(face)); drawConnectionCheeks(ctx, connections, '#39443E', 48, .6); ctx.restore() }
       }
       ctx.restore()
@@ -393,7 +463,155 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
     ctx.restore()
   }, !!raster.readFrequently)
 }
+/** A routed connection paints the same complete physical band used by support,
+ * travel, masks and hit tests. Tread phase follows cumulative world arc length. */
+function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
+  const route = c.route!, polygon = connectionPolygon(c), path = polygonPath(polygon)
+  const points = c.toElevationMm > c.fromElevationMm ? route.centerlineMm : [...route.centerlineMm].reverse(), frame = connectionArcFrame(points), half = c.widthMm / 2
+  const transform = ctx.getTransform(), sx = Math.abs(transform.a), sy = Math.abs(transform.d), bounds = expandedBounds(polygon, 2)
+  const left = Math.max(0, Math.floor((bounds.x - projection.bounds.x) * sx)), top = Math.max(0, Math.floor((bounds.y - projection.bounds.y) * sy))
+  const right = Math.min(ctx.canvas.width, Math.ceil((bounds.x + bounds.width - projection.bounds.x) * sx)), bottom = Math.min(ctx.canvas.height, Math.ceil((bounds.y + bounds.height - projection.bounds.y) * sy))
+  if (right <= left || bottom <= top) return
+  if ((right - left) * (bottom - top) > 16777216) throw new Error('连接局部绘制超过16M像素预算。')
+  const surface = canvas(right - left, bottom - top)
+  let mask: HTMLCanvasElement | undefined
+  try {
+    mask = canvas(right - left, bottom - top)
+    const target = context(surface, raster.readFrequently), maskContext = context(mask, raster.readFrequently)
+    const local = { ...projection, bounds: { x: projection.bounds.x + left / sx, y: projection.bounds.y + top / sy, width: surface.width / sx, height: surface.height / sy } }
+    worldTransform(target, local.bounds, sx, sy)
+    const palette = route.stairStyle === 'wood' ? { base: '#AB9165', dark: '#65523E', light: '#E1C693' }
+      : route.stairStyle === 'naturalRock' ? { base: '#B6B094', dark: '#606D5E', light: '#E4D4A9' }
+        : { base: '#AAA98E', dark: '#59665D', light: '#E4D9B5' }
+    fillSurface(target, path, c.style, local, raster, palette.base); target.save(); target.clip(path); target.lineCap = 'butt'
+    if (c.kind === 'stairs') {
+      const count = Math.max(1, Math.ceil(frame.length / route.treadDepthMm)), depth = frame.length / count
+      if (count > 512) throw new Error('连接踏面超过512级预算。')
+      for (let i = 1; i < count; i++) {
+        if (route.stairStyle === 'naturalRock') continue
+        const distance = depth * i, shadeDepth = Math.min(70, depth * .24)
+        const a = frame.at(distance - shadeDepth), b = frame.at(distance + 20), shade = target.createLinearGradient(a.x, a.y, b.x, b.y)
+        shade.addColorStop(0, '#26312800'); shade.addColorStop(.75, '#26312860'); shade.addColorStop(1, '#26312800')
+        target.fillStyle = shade; target.globalAlpha = 1
+        target.fill(polygonPath([frame.at(distance - shadeDepth, -half), frame.at(distance - shadeDepth, half), frame.at(distance + 20, half), frame.at(distance + 20, -half)]))
+        target.strokeStyle = palette.dark; target.lineWidth = route.stairStyle === 'wood' ? 24 : 18; target.globalAlpha = .72
+        target.stroke(linePath(frame.at(distance, -half), frame.at(distance, half)))
+        target.strokeStyle = palette.light; target.lineWidth = 14; target.globalAlpha = .56; target.stroke(linePath(frame.at(distance + 28, -half), frame.at(distance + 28, half)))
+        if (route.stairStyle === 'wood') {
+          target.strokeStyle = palette.dark; target.lineWidth = 10; target.globalAlpha = .42
+          for (const side of [-1, 1]) target.stroke(linePath(frame.at(distance - depth * .36, half * .82 * side), frame.at(distance - depth * .16, half * .82 * side)))
+        } else if (route.stairStyle === 'stone' && i % 2) {
+          target.strokeStyle = palette.dark; target.lineWidth = 12; target.globalAlpha = .32
+          target.stroke(linePath(frame.at(distance - depth + 28, 0), frame.at(distance - 12, 0)))
+        }
+      }
+      if (route.stairStyle === 'naturalRock') {
+        const seed = `${c.id}/${route.centerlineMm.map(p => `${p.x},${p.y}`).join(';')}`
+        const treads = naturalRockTreads(frame, c.widthMm, seed, count)
+        for (let i = 0; i < treads.length; i++) {
+          const tread = treads[i], factor = tread.shade
+          const tint = (color: string, scale: number) => {
+            const channels = [1, 3, 5].map(index => Math.max(0, Math.min(255, Math.round(parseInt(color.slice(index, index + 2), 16) * scale))))
+            return `rgb(${channels.join(',')})`
+          }
+          const treadPath = polygonPath(tread.polygon), lowerPath = polygonPath(tread.lowerEdge)
+          target.fillStyle = tint(palette.base, factor); target.globalAlpha = .94; target.fill(treadPath)
+          target.fillStyle = tint(palette.dark, .88); target.globalAlpha = .68; target.fill(lowerPath)
+          target.strokeStyle = tint(palette.dark, .9); target.lineWidth = 24; target.globalAlpha = .72; target.lineJoin = 'round'; target.stroke(treadPath)
+          target.strokeStyle = tint(palette.light, .86 + factor * .12); target.lineWidth = 18; target.globalAlpha = .68
+          target.stroke(linePath(tread.polygon[2], tread.polygon[3]))
+          if (i % 2 === 0) {
+            const centerLeft = frame.at(tread.fraction * frame.length, -half * .32), centerRight = frame.at(tread.fraction * frame.length, half * .32)
+            target.strokeStyle = tint(palette.light, 1.06); target.lineWidth = 10; target.globalAlpha = .3; target.stroke(linePath(centerLeft, centerRight))
+          }
+        }
+      }
+    } else {
+      const line = new Path2D(); points.forEach((p, i) => i ? line.lineTo(p.x, p.y) : line.moveTo(p.x, p.y))
+      target.strokeStyle = palette.dark; target.lineWidth = 25; target.globalAlpha = .65; target.setLineDash([110, 85]); target.stroke(line); target.setLineDash([])
+    }
+    target.strokeStyle = palette.dark; target.lineWidth = 24; target.globalAlpha = .48; target.stroke(path); target.restore()
+    // Fade only the two actual arc-length landing intervals. A global chord
+    // gradient would erase unrelated legs of a curved/switchback route.
+    maskContext.fillStyle = '#FFFFFF'; maskContext.fillRect(0, 0, mask.width, mask.height); worldTransform(maskContext, local.bounds, sx, sy)
+    const landing = connectionLandingDepthMm(c.widthMm, frame.length)
+    for (let i = 1; i < points.length; i++) {
+      const aDistance = frame.distances[i - 1], bDistance = frame.distances[i]
+      for (const [start, end, reverse] of [[0, landing, false], [frame.length - landing, frame.length, true]] as const) {
+        const from = Math.max(start, aDistance), to = Math.min(end, bDistance)
+        if (to <= from) continue
+        const a = frame.at(from), b = frame.at(to), gradient = maskContext.createLinearGradient(a.x, a.y, b.x, b.y)
+        const alpha = (d: number) => reverse ? (d - start) / landing : (end - d) / landing
+        gradient.addColorStop(0, `rgba(255,255,255,${alpha(from)})`); gradient.addColorStop(1, `rgba(255,255,255,${alpha(to)})`)
+        maskContext.globalCompositeOperation = 'destination-out'; maskContext.fillStyle = gradient
+        maskContext.fill(polygonPath(polylineBand([a, b], c.widthMm + 2)))
+      }
+    }
+    target.save(); target.resetTransform(); target.globalCompositeOperation = 'destination-in'; target.drawImage(mask, 0, 0); target.restore()
+    drawConnectionLandingBlends(target, maskContext, local, raster, c, path)
+    ctx.save(); ctx.resetTransform(); ctx.drawImage(surface, left, top); ctx.restore()
+  } finally { disposeCanvas(surface); if (mask) disposeCanvas(mask) }
+  if (c.blocksMovement) { ctx.save(); ctx.clip(path); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 85; ctx.stroke(linePath(frame.at(frame.length / 2, -half), frame.at(frame.length / 2, half))); ctx.restore() }
+}
+/** Blend the first/last route stations with their audience-visible terrain styles. */
+function drawConnectionLandingBlends(target: CanvasRenderingContext2D, layer: CanvasRenderingContext2D, projection: Projection, raster: RasterSet,
+  connection: ProjectedConnection, path: Path2D): void {
+  if (!connection.surfaceIds?.length) return
+  const bounds = projection.bounds
+  for (const end of ['start', 'end'] as const) {
+    const blend = connectionLandingBlend(connection, end), support = blend && [...projection.terrain, ...projection.rooms].find(area => area.id === blend.surfaceId)
+    if (!blend || !support?.style) continue
+    layer.save(); layer.resetTransform(); layer.clearRect(0, 0, layer.canvas.width, layer.canvas.height); layer.restore()
+    layer.globalCompositeOperation = 'source-over'; layer.globalAlpha = 1; layer.filter = 'none'
+    worldTransform(layer, bounds, layer.canvas.width / bounds.width, layer.canvas.height / bounds.height)
+    const landingPath = polygonPath(blend.polygonMm)
+    layer.save(); layer.clip(path)
+    fillSurface(layer, landingPath, support.style, projection, raster, '#C3BEA8', support.materialPatches)
+    layer.restore()
+    if (connection.kind === 'stairs' && connection.route?.stairStyle === 'naturalRock') {
+      maskNaturalRockLanding(layer, connection, end, blend.depthMm, bounds, path, !!raster.readFrequently)
+    } else if (connection.route) {
+      maskRoutedLanding(layer, connection, end, blend.depthMm, bounds, path, !!raster.readFrequently)
+    } else {
+      layer.save(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; layer.filter = 'none'
+      const gradient = layer.createLinearGradient(blend.fromMm.x, blend.fromMm.y, blend.toMm.x, blend.toMm.y)
+      gradient.addColorStop(0, '#FFFFFF'); gradient.addColorStop(1, '#FFFFFF00')
+      layer.fillStyle = gradient; layer.fill(landingPath); layer.restore()
+    }
+    target.save(); target.resetTransform(); target.globalCompositeOperation = 'source-over'; target.drawImage(layer.canvas, 0, 0); target.restore()
+  }
+}
+/** Apply a routed landing fade one saved station segment at a time. A single
+ * endpoint-to-endpoint gradient would cross a bend and fade the wrong pixels. */
+function maskRoutedLanding(layer: CanvasRenderingContext2D, connection: ProjectedConnection, end: 'start' | 'end', depthMm: number,
+  bounds: BoundsMm, path: Path2D, readFrequently: boolean): void {
+  const mask = canvas(layer.canvas.width, layer.canvas.height)
+  try {
+    const ctx = context(mask, readFrequently)
+    paintConnectionLandingMask(ctx, bounds, connection, end, depthMm)
+    worldTransform(ctx, bounds, mask.width / bounds.width, mask.height / bounds.height)
+    ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = '#FFFFFF'; ctx.fill(path)
+    layer.save(); layer.resetTransform(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; layer.filter = 'none'
+    layer.drawImage(mask, 0, 0); layer.restore()
+  } finally { disposeCanvas(mask) }
+}
+/** Reuse the endpoint ground between rock treads with a broken, wider edge fade.
+ * Each mask strip follows its own saved-route interval, so a later switchback
+ * cannot inherit an endpoint's chord gradient. The physical corridor clips it. */
+function maskNaturalRockLanding(layer: CanvasRenderingContext2D, connection: ProjectedConnection, end: 'start' | 'end', depthMm: number,
+  bounds: BoundsMm, path: Path2D, readFrequently: boolean): void {
+  const mask = canvas(layer.canvas.width, layer.canvas.height)
+  try {
+    const ctx = context(mask, readFrequently)
+    paintConnectionLandingMask(ctx, bounds, connection, end, depthMm, true)
+    worldTransform(ctx, bounds, mask.width / bounds.width, mask.height / bounds.height)
+    ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = '#FFFFFF'; ctx.fill(path)
+    layer.save(); layer.resetTransform(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; layer.filter = 'none'
+    layer.drawImage(mask, 0, 0); layer.restore()
+  } finally { disposeCanvas(mask) }
+}
 function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
+  if (c.route) return drawRoutedConnectionBody(ctx, projection, raster, c)
   const frame = connectionFrame(c), half = c.widthMm / 2, polygon = [frame.at(0, half), frame.at(0, -half), frame.at(frame.length, -half), frame.at(frame.length, half)], path = polygonPath(polygon)
   // A bounded local surface lets the two landings blend into their real support
   // without fading/narrowing the physical corridor or changing its saved style.
@@ -403,8 +621,11 @@ function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projectio
   if (right <= left || bottom <= top) return
   if ((right - left) * (bottom - top) > 16777216) throw new Error('连接局部绘制超过16M像素预算。')
   const surface = canvas(right - left, bottom - top)
+  let landingLayer: HTMLCanvasElement | undefined
   try {
     const target = context(surface, raster.readFrequently)
+    landingLayer = canvas(surface.width, surface.height)
+    const landingContext = context(landingLayer, raster.readFrequently)
     const local = { ...projection, bounds: { x: projection.bounds.x + left / sx, y: projection.bounds.y + top / sy, width: surface.width / sx, height: surface.height / sy } }
     worldTransform(target, local.bounds, sx, sy); fillSurface(target, path, c.style, local, raster, '#919180'); target.save(); target.clip(path)
     const light = target.createLinearGradient(frame.low.x, frame.low.y, frame.high.x, frame.high.y)
@@ -427,22 +648,40 @@ function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projectio
     target.strokeStyle = '#39443E'; target.lineWidth = 20; target.globalAlpha = .45
     for (const [a, b] of frame.sides) target.stroke(linePath(a, b))
     target.restore()
-    const landing = Math.min(.18, 320 / frame.length), mask = target.createLinearGradient(frame.low.x, frame.low.y, frame.high.x, frame.high.y)
+    const landing = connectionLandingDepthMm(c.widthMm, frame.length) / frame.length, mask = target.createLinearGradient(frame.low.x, frame.low.y, frame.high.x, frame.high.y)
     mask.addColorStop(0, '#FFFFFF00'); mask.addColorStop(landing, '#FFFFFFFF'); mask.addColorStop(1 - landing, '#FFFFFFFF'); mask.addColorStop(1, '#FFFFFF00')
     target.globalCompositeOperation = 'destination-in'; target.fillStyle = mask; target.fill(path)
+    drawConnectionLandingBlends(target, landingContext, local, raster, c, path)
     ctx.save(); ctx.resetTransform(); ctx.drawImage(surface, left, top); ctx.restore()
-  } finally { disposeCanvas(surface) }
+  } finally { disposeCanvas(surface); if (landingLayer) disposeCanvas(landingLayer) }
   if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 85; ctx.stroke(linePath(frame.at(frame.length / 2, -half), frame.at(frame.length / 2, half))); ctx.restore() }
 }
 function drawConnections(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
   for (const c of projection.connections) drawVisualEntity(ctx, projection, c.id, expandedBounds(connectionPolygon(c), 85), (target, local) => drawConnectionBody(target, local, raster, c), !!raster.readFrequently)
 }
-function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, signal?: AbortSignal, propDetails?: ReadonlyMap<string, EditorPropDetail>) {
+function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, signal?: AbortSignal, propDetails?: ReadonlyMap<string, EditorPropDetail>, clipBoundsMm?: BoundsMm) {
   const bounds = projection.bounds, sx = ctx.canvas.width / bounds.width, sy = ctx.canvas.height / bounds.height
+  const sprites: ({ kind: 'prop'; value: Prop } | { kind: 'decoration'; value: ProjectedDecoration })[] = [
+    ...projection.props.map(value => ({ kind: 'prop' as const, value })), ...(projection.decorations ?? []).map(value => ({ kind: 'decoration' as const, value })),
+  ]
+  if (projection.spritePaintOrder) {
+    const rank = new Map(projection.spritePaintOrder.map((id, index) => [id, index]))
+    sprites.sort((a, b) => (rank.get(a.value.id) ?? 0) - (rank.get(b.value.id) ?? 0))
+  }
+  const drawSprites = (ground: boolean) => {
+    for (const sprite of sprites) if ((sprite.value.renderLayer === 'ground') === ground) {
+      checkCancelled(signal)
+      if (sprite.kind === 'prop') drawProp(ctx, sprite.value, projection, raster, sx, sy, propDetails?.get(sprite.value.id))
+      else drawDecoration(ctx, sprite.value, projection, raster)
+    }
+  }
   ctx.fillStyle = '#D8D5C5'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
   worldTransform(ctx, bounds, sx, sy)
+  // VTT padding aligns the image with the world grid. It must never reveal
+  // content beyond the original fixed export rectangle.
+  if (clipBoundsMm) { ctx.save(); ctx.beginPath(); ctx.rect(clipBoundsMm.x, clipBoundsMm.y, clipBoundsMm.width, clipBoundsMm.height); ctx.clip() }
   if (projection.regional) drawRegionalProjection(ctx, projection, sx, sy, raster.byAssetId)
-  for (const area of projection.terrain) drawVisualEntity(ctx, projection, area.id, expandedBounds(area.points, 0), (target, local) => fillSurface(target, polygonPath(area.points), area.style, local, raster, '#C3BEA8'), !!raster.readFrequently)
+  for (const area of projection.terrain) drawVisualEntity(ctx, projection, area.id, expandedBounds(area.points, 0), (target, local) => fillSurface(target, polygonPath(area.points), area.style, local, raster, '#C3BEA8', area.materialPatches), !!raster.readFrequently)
   drawTerrainEdges(ctx, projection, raster, sx, sy)
   drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently)
   // Keep historical scenes without paths on their old paint order. The
@@ -454,7 +693,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   // A road color never conceals the explicit crossing's stair/ramp marks.
   if (pathsOverRooms) drawConnections(ctx, projection, raster)
   // Projection owns the canonical layer/order/id sorting; keep its order through the wall split.
-  for (const prop of projection.props) if (prop.renderLayer === 'ground') drawProp(ctx, prop, projection, raster, sx, sy, propDetails?.get(prop.id))
+  drawSprites(true)
   checkCancelled(signal)
   if (projection.visual) {
     const contacts = wallGeometry(projection.walls).flatMap(wall => wall.polygons)
@@ -469,7 +708,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
     symbols.sort((a, b) => (rank.get(a.opening.id) ?? 0) - (rank.get(b.opening.id) ?? 0))
   }
   for (const { wall, opening } of symbols) if (opening.paintSymbol !== false) drawOpening(ctx, opening, wall, projection)
-  for (const prop of projection.props) if (prop.renderLayer !== 'ground') drawProp(ctx, prop, projection, raster, sx, sy, propDetails?.get(prop.id))
+  drawSprites(false)
   if (projection.visual) drawVisualAtmosphere(ctx, projection, wallGeometry(projection.walls.filter(wall => wall.blocksLight !== false)).flatMap(wall => wall.polygons), signal, !!raster.readFrequently)
   for (const region of projection.regions) drawVisualEntity(ctx, projection, region.id, expandedBounds(region.points, 20), ctx => {
     ctx.save(); ctx.strokeStyle = region.kind === 'hazard' ? '#9A674A' : '#71865A'; ctx.lineWidth = 18; ctx.setLineDash([85, 65]); ctx.stroke(polygonPath(region.points)); ctx.restore()
@@ -490,6 +729,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   checkCancelled(signal)
   // Fixed opaque masks are the last operation, covering labels, grid, image alpha and every derived shadow.
   if (projection.audience === 'player') { ctx.save(); ctx.fillStyle = '#D8D5C5'; for (const mask of projection.masks) { const b = pointsBounds(mask); ctx.fillRect(b.x, b.y, b.width, b.height) } ctx.restore() }
+  if (clipBoundsMm) ctx.restore()
   ctx.resetTransform()
 }
 
@@ -497,7 +737,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
  * Canvas/resource backend. Receives disposable physical projection and resource
  * records only. Strict version-specific entrypoints own document validation.
  */
-export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm): Promise<HTMLCanvasElement> {
+export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm): Promise<HTMLCanvasElement> {
   options = { ...options }
   const started = options.onMetrics ? validationStarted ?? performance.now() : 0
   const metrics: RenderMetrics | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience } : undefined
@@ -538,7 +778,7 @@ export async function renderRasterProjection(sources: RasterSources, projection:
       if (metrics) metrics.drawSubmissionMs = performance.now() - drawStarted
     } else {
       const drawStarted = metrics ? performance.now() : 0
-      drawProjection(ctx, drawingProjection, raster, options.signal, propDetails)
+      drawProjection(ctx, drawingProjection, raster, options.signal, propDetails, clipBoundsMm)
       if (metrics) metrics.drawSubmissionMs = performance.now() - drawStarted
     }
     checkCancelled(options.signal); completed = true; return output

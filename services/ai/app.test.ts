@@ -4,14 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { AI_LIMITS, ConnectionInfoSchema, TaskEventSchema, TaskSnapshotSchema } from '../../src/shared/ai/protocol.js'
-import type { TaskSnapshot } from '../../src/shared/ai/protocol.js'
+import type { CreateTaskRequest, TaskSnapshot } from '../../src/shared/ai/protocol.js'
 import { connectionInfo, createAiApp } from './app.js'
 import { loadAiConfig } from './config.js'
 import { TaskEngine } from './engine.js'
 import { TaskFault, TaskStore } from './store.js'
 import { ProviderFailure } from './provider-types.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
-import { CONTINUATION_POLICY } from '../../src/shared/ai/budget-policy.js'
+import { CONTINUATION_POLICY, BUDGET_POLICY_HASHES, createContinuationPolicyV2 } from '../../src/shared/ai/budget-policy.js'
+import { TASK_BUDGET_PROFILES } from '../../src/shared/budget/task-budget.js'
 import type { ProviderAdapter, ProviderCompletion, ProviderInput, ProviderToolCall } from './provider-types.js'
 
 const tokenA = 'a'.repeat(40), tokenB = 'b'.repeat(40), origin = 'https://editor.example.test'
@@ -48,29 +49,65 @@ describe('private AI task HTTP service', () => {
     expect((await app.request('/v1/tasks', { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST' } })).status).toBe(403)
     expect((await app.request('/v1/tasks', { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-custom' } })).status).toBe(403)
   })
-  it('preserves the strict cached-client capability response and advertises v2 only after explicit negotiation', async () => {
+  it('preserves the strict cached-client capability response and advertises each classified registry only after explicit negotiation', async () => {
     const { engine, request } = setup()
     const legacySchema = ConnectionInfoSchema.extend({ capabilities: ConnectionInfoSchema.shape.capabilities.omit({
-      authoringVersions: true, baseMapVersions: true, budgetPolicyHashes: true }).strict() }).strict()
+      authoringVersions: true, baseMapVersions: true, budgetPolicyHashes: true, budgetProfileHashes: true, surfaceRecipeVersions: true, baseMapSelectors: true, currentAuthoring: true, completeProjectVersions: true, visualReviewVersions: true }).strict() }).strict()
     const bare = await (await request('/v1/capabilities')).json()
     expect(legacySchema.parse(bare)).toEqual(bare)
     expect(bare.capabilities).not.toHaveProperty('authoringVersions')
     expect(bare.capabilities).not.toHaveProperty('baseMapVersions')
     expect(bare.capabilities).not.toHaveProperty('budgetPolicyHashes')
+    expect(bare.capabilities).not.toHaveProperty('budgetProfileHashes')
+    expect(bare.capabilities).not.toHaveProperty('surfaceRecipeVersions')
+    expect(bare.capabilities).not.toHaveProperty('baseMapSelectors')
     const negotiated = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=2')).json())
     expect(negotiated.capabilities).toMatchObject({ authoringVersions: [1, 2], baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] })
-    expect(negotiated).toEqual(engine.connectionInfo)
+    expect(negotiated.capabilities).not.toHaveProperty('budgetProfileHashes')
+    const current = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=3')).json())
+    const { surfaceRecipeVersions: _surfaces, baseMapSelectors: _selectors, currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, ...rest } = engine.connectionInfo.capabilities
+    const prior = { ...rest, authoringVersions: rest.authoringVersions?.filter(version => version !== 4) }
+    expect(current).toEqual({ ...engine.connectionInfo, capabilities: prior })
+    expect(current.capabilities).not.toHaveProperty('surfaceRecipeVersions')
+    const surface = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=3&surfaceVersion=1')).json())
+    expect(surface).toEqual({ ...engine.connectionInfo, capabilities: { ...prior, surfaceRecipeVersions: [1] } })
+    expect(surface.capabilities.surfaceRecipeVersions).toEqual([1])
+    for (const selector of ['terrain-scene-v6', 'terrain-compose-v6']) {
+      const selected = ConnectionInfoSchema.parse(await (await request(`/v1/capabilities?baseMapSelector=${selector}`)).json())
+      expect(selected.capabilities.baseMapSelectors).toEqual([selector])
+      expect(selected.capabilities.baseMapVersions).toContain(3)
+      expect(selected.capabilities).not.toHaveProperty('surfaceRecipeVersions')
+      expect(selected.capabilities).not.toHaveProperty('completeProjectVersions')
+    }
+    expect(ConnectionInfoSchema.extend({ capabilities: ConnectionInfoSchema.shape.capabilities.omit({ surfaceRecipeVersions: true }).strict() }).safeParse(current).success).toBe(true)
+    expect(ConnectionInfoSchema.extend({ capabilities: ConnectionInfoSchema.shape.capabilities.omit({ surfaceRecipeVersions: true }).strict() }).safeParse(surface).success).toBe(false)
+    expect(current.capabilities).toMatchObject({ authoringVersions: [1, 2, 3], baseMapVersions: [1, 2, 3], budgetPolicyHashes: BUDGET_POLICY_HASHES,
+      budgetProfileHashes: Object.values(TASK_BUDGET_PROFILES).map(profile => profile.profileHash) })
     expect(legacySchema.safeParse(negotiated).success).toBe(false)
-    for (const query of ['authoringVersion=1', 'authoringVersion=3', 'authoringVersion=']) {
+    for (const query of ['authoringVersion=1', 'authoringVersion=5', 'authoringVersion=']) {
       const response = await request(`/v1/capabilities?${query}`)
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ error: { code: 'unsupported_authoring_version' } })
     }
-    for (const query of ['unknown=2', 'authoringVersion=2&authoringVersion=2', 'authoringVersion=2&unknown=1']) {
+    for (const query of ['surfaceVersion=1', 'authoringVersion=2&surfaceVersion=1', 'authoringVersion=3&surfaceVersion=2', 'authoringVersion=3&surfaceVersion=']) {
+      const response = await request(`/v1/capabilities?${query}`)
+      expect(response.status).toBe(400); expect(await response.json()).toMatchObject({ error: { code: 'unsupported_surface_version' } })
+    }
+    const badSelector = await request('/v1/capabilities?baseMapSelector=bad')
+    expect(badSelector.status).toBe(400); expect(await badSelector.json()).toMatchObject({ error: { code: 'unsupported_base_map_selector' } })
+    for (const query of ['surfaceVersion=1&surfaceVersion=1&authoringVersion=3', 'authoringVersion=3&surfaceVersion=1&extra=1', 'baseMapSelector=terrain-scene-v6&authoringVersion=3', 'unknown=2', 'authoringVersion=2&authoringVersion=2', 'authoringVersion=2&unknown=1']) {
       const response = await request(`/v1/capabilities?${query}`)
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ error: { code: 'invalid_request' } })
     }
+  })
+  it('does not admit a v8 project through the older classified authoring envelope', () => {
+    const { engine, store } = setup()
+    const request = { ...taskRequest(), authoring: { schemaVersion: 3, policy: createContinuationPolicyV2(TASK_BUDGET_PROFILES.small), project: { schemaVersion: 8 } } } as unknown as CreateTaskRequest
+    let failure: unknown
+    try { engine.create('alice', request) } catch (error) { failure = error }
+    expect(failure).toMatchObject({ code: 'unsupported_authoring_version' })
+    expect(store.count()).toBe(0)
   })
   it('rejects unknown request fields, scene contents, GM contexts and excessive actual bytes before model requests', async () => {
     const complete = vi.fn(() => new Promise<ProviderCompletion>(() => {}))

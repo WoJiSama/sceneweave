@@ -1,3 +1,12 @@
+import { authoringCreatedIds } from './authoring-grant.js'
+import { PublicScreenshotRefV4Schema, CurrentDraftStampV4Schema, type PublicScreenshotRefV4 } from '../../src/shared/ai/authoring-closeout.js'
+import { AuthoringOperationV4Schema } from '../../src/shared/ai/authoring-protocol-v4.js'
+import { authoringDraftStamp } from '../../src/shared/ai/authoring.js'
+import { propPaintPolygon, scenePresentation } from '../../src/shared/appearance/presentation.js'
+import { decorationPaintGeometry, decorationPaintPolygon } from '../../src/shared/decorations/presentation.js'
+import { connectionFootprint, pathPolygon, roomPoints, terrainPoints } from '../../src/shared/geometry/geometry.js'
+import { sha256Text } from '../../src/shared/validation/hash.js'
+import { canonicalJson } from '../../src/shared/validation/json.js'
 import { z } from 'zod'
 import { remainingAuthoringOperations } from '../../src/shared/ai/authoring.js'
 import type { AuthoringOperation, AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
@@ -80,6 +89,8 @@ function visualEntityPublic(scene: SceneDocument, idValue: string, floorId: stri
 }
 function sceneEntityPublic(scene: SceneDocument, idValue: string): boolean {
   const view = createPublicVisibility(scene)
+  if (scene.decorations?.[idValue]) return view.decoration(scene.decorations[idValue]) && !effectiveEditLocked(scene, idValue)
+  if (scene.decorationClusters?.[idValue]) return view.decorationCluster(idValue) && !effectiveEditLocked(scene, idValue)
   if (scene.props[idValue]) return view.prop(scene.props[idValue]) && !effectiveEditLocked(scene, idValue)
   if (scene.rooms[idValue]) return view.room(idValue) && !effectiveEditLocked(scene, idValue)
   if (scene.terrainAreas[idValue]) return view.terrainArea(idValue) && !effectiveEditLocked(scene, idValue)
@@ -178,7 +189,7 @@ export function proposeVisualReview(task: StoredTask, args: unknown, callId: str
   if (screenshotDraft.draftRevision !== authoring.state.draftRevision || screenshotDraft.contentHash !== authoring.state.contentHash) reject('stale_screenshot')
   let replayed: ReturnType<typeof replayAuthoring>
   try { replayed = replayAuthoring(start, authoring.state.steps) } catch { reject('stale_screenshot') }
-  const grant = authoringGrant(start, authoring.state.changedIds), targetIds = validateIssueTargets(parsed, grant, start, replayed.project)
+  const grant = authoringGrant(start, authoringCreatedIds(authoring)), targetIds = validateIssueTargets(parsed, grant, start, replayed.project)
   validateCandidateOperations(start, replayed.project, parsed, targetIds, grant)
   let preview: ReturnType<typeof applyAuthoringStep>
   try {
@@ -203,4 +214,104 @@ export function proposeVisualReview(task: StoredTask, args: unknown, callId: str
   }
   if (utf8Size(JSON.stringify(output)) > 7800) reject('review_output_limit')
   return output
+}
+
+const reviewV4Arguments = z.object({ screenshotRef: PublicScreenshotRefV4Schema,
+  issues: z.array(VisualReviewIssueSchema).min(1).max(16), candidateOperations: z.array(AuthoringOperationV4Schema).min(1).max(16) }).strict()
+const correctionV4Arguments = reviewV4Arguments.extend({ expected: CurrentDraftStampV4Schema, candidateHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
+export const visualReviewV4Tools: ProviderToolDefinition[] = [
+  { name: 'sceneweave_visual_review', description: 'Read-only review of the latest explicitly authorised public PNG using its server-owned compact screenshotRef, never PNG bytes in arguments. Describe concrete observations and uncertainty; target granted public entities or a bounded region. Prepare at most 16 supported corrections against the exact draft. Returns candidateHash/expected for a later explicit apply. This does not prove aesthetics, fulfil requirements, adopt or save.', parameters: z.toJSONSchema(reviewV4Arguments, { io: 'input' }) },
+  { name: 'sceneweave_apply_visual_correction', description: 'Explicitly apply a previously proposed finite correction to the isolated authoring4 draft. Copy screenshotRef, issues, candidateOperations, expected and candidateHash unchanged from the read-only review. The current draft, budget identity and latest authorised PNG must all still match. Full native scope/dependency/lock/resource and cumulative budgets apply; no main project adoption.', parameters: z.toJSONSchema(correctionV4Arguments, { io: 'input' }) },
+]
+
+/** Derived only from the latest immutable, explicitly supplied task image. The
+ * reference is deliberately small enough for a normal provider tool argument. */
+export function publicScreenshotReference(task: StoredTask): PublicScreenshotRefV4 | null {
+  const authoring = task.authoring
+  if (authoring?.start.schemaVersion !== 4 || authoring.state.schemaVersion !== 4) return null
+  const image = task.messages.flatMap(message => message.images ?? []).at(-1)
+  if (!image) return null
+  const bound = image.draft ?? { draftRevision: 0, contentHash: authoring.start.baseContentHash }
+  if (bound.draftRevision !== authoring.state.draftRevision || bound.contentHash !== authoring.state.contentHash) return null
+  return PublicScreenshotRefV4Schema.parse({ taskId: task.snapshot.id, generation: task.snapshot.generation,
+    sha256: image.sha256, sceneId: image.sceneId, revision: image.revision, width: image.width, height: image.height, boundsMm: image.boundsMm,
+    draft: authoringDraftStamp(authoring.state, task.snapshot.generation) })
+}
+
+function targetInsideScreenshot(scene: SceneDocument, idValue: string, crop: BoundsMm): boolean {
+  const entity = scene.props[idValue] ?? scene.decorations?.[idValue] ?? scene.terrainAreas[idValue] ?? scene.paths[idValue]
+    ?? scene.rooms[idValue] ?? scene.terrainConnections[idValue]
+  // Unknown visual records require a whole-scene screenshot; never infer an
+  // image extent from a single anchor or metadata count.
+  if (!entity) return contains(crop, scene.exportBoundsMm)
+  let polygon: PointMm[]
+  if (scene.props[idValue]) polygon = propPaintPolygon(scene.props[idValue], scenePresentation(scene, idValue))
+  else if (scene.decorations?.[idValue]) polygon = decorationPaintPolygon(decorationPaintGeometry(scene, scene.decorations[idValue]))
+  else if (scene.terrainAreas[idValue]) polygon = terrainPoints(scene.terrainAreas[idValue])
+  else if (scene.paths[idValue]) polygon = pathPolygon(scene.paths[idValue])
+  else if (scene.rooms[idValue]) polygon = roomPoints(scene, scene.rooms[idValue])
+  else polygon = connectionFootprint(scene.terrainConnections[idValue])
+  return polygon.every(point => point.x >= crop.x && point.y >= crop.y && point.x <= crop.x + crop.width && point.y <= crop.y + crop.height)
+}
+
+export function prepareVisualReviewV4(task: StoredTask, args: unknown, callId: string, apply: boolean): { output: object; install?: () => void } {
+  const authoring = task.authoring
+  if (authoring?.start.schemaVersion !== 4 || authoring.state.schemaVersion !== 4) reject('unsupported_operation')
+  let parsed: z.infer<typeof reviewV4Arguments>, expected: z.infer<typeof CurrentDraftStampV4Schema> | undefined, suppliedHash: string | undefined
+  try {
+    if (apply) { const value = correctionV4Arguments.parse(captureJson(args)); parsed = value; expected = value.expected; suppliedHash = value.candidateHash }
+    else parsed = reviewV4Arguments.parse(captureJson(args))
+  } catch { reject('invalid_arguments') }
+  const reference = publicScreenshotReference(task)
+  if (!reference || canonicalJson(parsed.screenshotRef) !== canonicalJson(reference)
+    || expected && canonicalJson(expected) !== canonicalJson(reference.draft)) reject('stale_screenshot')
+  const screenshot = task.messages.flatMap(message => message.images ?? []).at(-1)!
+  try { validateTaskVision(screenshot, task.snapshot.context, authoring.start, screenshot.draft ? authoring.state : undefined) } catch { reject('stale_screenshot') }
+  const replayed = replayAuthoring(authoring.start, authoring.state.steps)
+  const grant = authoringGrant(authoring.start, authoringCreatedIds(authoring))
+  const issueArgs = { screenshot, issues: parsed.issues, candidateOperations: parsed.candidateOperations }
+  const targetIds = validateIssueTargets(issueArgs, grant, authoring.start, replayed.project)
+  const floorId = authoring.start.scope.scene?.floorId ?? authoring.start.scope.placement?.floorId ?? authoring.start.scope.visual?.floorId
+  for (const idValue of targetIds) {
+    const scene = replayed.project.document
+    const entity = scene.props[idValue] ?? scene.decorations?.[idValue] ?? scene.terrainAreas[idValue] ?? scene.paths[idValue]
+      ?? scene.rooms[idValue] ?? scene.terrainConnections[idValue] ?? scene.regions[idValue]
+    if (entity && entity.floorId !== floorId || !targetInsideScreenshot(scene, idValue, screenshot.boundsMm)) reject('outside_scope')
+  }
+  const allowed = new Set<string>([...authoring.start.scope.operations, ...(authoring.start.scope.scene?.operations ?? []), ...(authoring.start.scope.visual?.operations ?? [])])
+  const existingCorrections = new Set(['transform', 'opacity', 'delete', 'terrainUpdate', 'pathUpdate', 'connectionRouteUpdate', 'decorationUpdate', 'decorationDelete', 'visualSurface', 'visualRemove'])
+  for (const operation of parsed.candidateOperations) {
+    if (!allowed.has(operation.kind)) reject('unsupported_operation')
+    if (operation.kind === 'visualFilter') {
+      if (operation.target.kind !== 'entities' || !operation.target.ids.every(idValue => targetIds.has(idValue))) reject('outside_scope')
+      operation.target.ids.forEach(idValue => publicGranted(authoring.start, replayed.project, idValue, grant))
+      if (entityInCollection(replayed.project.document, operation.id)) publicGranted(authoring.start, replayed.project, operation.id, grant)
+    } else {
+      if (!existingCorrections.has(operation.kind)) reject('unsupported_operation')
+      if (!('id' in operation) || !targetIds.has(operation.id)) reject('outside_scope')
+      publicGranted(authoring.start, replayed.project, operation.id, grant)
+    }
+  }
+  const candidateHash = sha256Text(canonicalJson({ screenshotRef: reference, issues: parsed.issues, candidateOperations: parsed.candidateOperations }))
+  if (apply && (candidateHash !== suppliedHash || !task.snapshot.tools.some(tool => {
+    if (tool.name !== 'sceneweave_visual_review' || !tool.success) return false
+    try { const receipt = JSON.parse(tool.output) as { candidateHash?: string; screenshotBinding?: unknown }; return receipt.candidateHash === candidateHash && canonicalJson(receipt.screenshotBinding) === canonicalJson(reference) } catch { return false }
+  }))) reject('stale_screenshot')
+  let preview: ReturnType<typeof applyAuthoringStep>
+  try { preview = applyAuthoringStep(authoring.start, authoring.state, parsed.candidateOperations, `visual-fix-${candidateHash.slice(0, 32)}`) }
+  catch { reject('preview_invalid') }
+  const output = { issues: cloneJson(parsed.issues), issuesReviewed: parsed.issues.length, targetsReviewed: [...targetIds].sort(),
+    omissions: (authoring.start.brief?.requirements ?? []).map((_, requirementIndex) => ({ requirementIndex,
+      status: authoring.plan?.requirements.find(item => item.index === requirementIndex)?.state === 'unsupported' ? 'unsupported' : 'unreviewed',
+      reason: '文字要求仍须独立确认，图像观察和模型声明不构成签收。' })),
+    candidateOperations: cloneJson(parsed.candidateOperations), candidateHash, expected: reference.draft,
+    previewValid: true, actualOperationCost: preview.state.operationCost - authoring.state.operationCost,
+    atDraftRevision: authoring.state.draftRevision, atContentHash: authoring.state.contentHash,
+    candidateDraftRevision: preview.state.draftRevision, candidateContentHash: preview.state.contentHash,
+    remainingOperationsAfterPreview: remainingAuthoringOperations(authoring.start, preview.state), screenshotBinding: reference,
+    observation: 'unverified', appearance: 'unconfirmed', applied: apply,
+    disposition: apply ? 'isolated draft only; local resource checks, protection and explicit adoption still required'
+      : 'read-only candidate; explicit apply with this exact image, candidateHash and expected draft is required' }
+  if (utf8Size(JSON.stringify(output)) > 7400) reject('review_output_limit')
+  return { output, ...(apply ? { install: () => { authoring.state = preview.state; delete authoring.closeout } } : {}) }
 }

@@ -1,11 +1,19 @@
 import type { VisualFilter } from '../visual/types.js'
-import type { BoundsMm, EdgeStyle, MaterialRef, Note, PointMm, Prop, StyleTheme, SurfaceStyle, TerrainEdge } from '../model/scene.js'
+import type { BoundsMm, EdgeStyle, MaterialPaint, MaterialRef, Note, PointMm, Prop, StyleTheme, SurfaceStyle, TerrainEdge } from '../model/scene.js'
 
 export type Audience = 'gm' | 'player'
-export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number }
+/** Audience-owned paint only; rule identity, ownership and recipes never leave the domain. */
+export interface ProjectedMaterialPatch {
+  regionsMm: { outerMm: PointMm[]; holesMm: PointMm[][] }[]
+  paint: MaterialPaint
+  blendWidthMm: number
+}
+export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number; materialPatches?: ProjectedMaterialPatch[] }
 export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
 export interface ProjectedPath { id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle }
 export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null
+  /** Only this audience's complete physical route and finite paint parameters. */
+  route?: Pick<import('../geometry/connection-route.js').ConnectionRoute, 'centerlineMm' | 'stairStyle' | 'treadDepthMm'>
   /** Disposable endpoint support IDs, included only after this audience's dependency filtering. */
   surfaceIds?: [string, string]
 }
@@ -13,6 +21,11 @@ export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; wi
 export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; style: SurfaceStyle | null; openings: ProjectedOpening[] }
 export interface ProjectedNote { id: string; positionMm: PointMm; text: string; kind: Note['kind']; visibility: 'gm' | 'public' }
 export interface ProjectedRegion { id: string; points: PointMm[]; kind: 'terrain' | 'hazard' }
+/** Disposable fixed-image paint values; no source, cluster, support or manual-state metadata. */
+export interface ProjectedDecoration {
+  id: string; positionMm: PointMm; rotationDeg: number; visualBoundsMm: BoundsMm
+  assetId: string; opacity: number; renderLayer: Prop['renderLayer']; renderOrder: number
+}
 export interface ProjectedRegionalArea { id: string; points: PointMm[]; kind: 'land' | 'water' | 'forest' | 'hill'; style: { fill: string; stroke: string; strokeWidthMm: number; opacity: number }; relativeElevationMm: number | null }
 export interface ProjectedRegionalLine { id: string; points: PointMm[]; kind: 'river' | 'ridge' | 'road'; displayWidthMm: number; actualWidthMm: number | null; style: { fill: string; stroke: string; strokeWidthMm: number; opacity: number } }
 export interface ProjectedRegionalLandmark { id: string; positionMm: PointMm; purpose: string; name: string; description: string; assetId: string; visualBoundsMm: BoundsMm; rootAnchorMm: PointMm }
@@ -23,6 +36,10 @@ export interface Projection {
   rooms: ProjectedSurface[]; terrain: ProjectedSurface[]; walls: ProjectedWall[]
   /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
   props: Prop[]
+  /** Strict complete6+; compact sprites remain distinct from physical Props. */
+  decorations?: ProjectedDecoration[]
+  /** One audience-filtered order shared by visible physical and compact sprites. */
+  spritePaintOrder?: string[]
   /** Only visible near-side instances; no fixed-source or private metadata. */
   propPresentations?: Record<string, import('../appearance/presentation.js').PaintPresentation>
   /** GM editor session only; ignored by formal exports. */

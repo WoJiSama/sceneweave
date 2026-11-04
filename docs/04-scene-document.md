@@ -8,8 +8,12 @@
 | v2 | scene2 | visual1 | identity1 | appearance1 | 共享曲线、边带和有限静态效果 |
 | v3 | scene3 | visual2 | identity2 | appearance2 | generation1–4、regional1、物化边与固定近侧视源 |
 | v4 | scene4 | visual3 | identity3 | appearance2 | generation5组合、显式过渡与局部联动 |
+| v5 | scene5 | visual3 | identity3 | appearance2 | 保留v4完整模型，显式曲线/回折连接与适用曲线组件编辑 |
+| v6 | scene6 | visual3 | identity4 | appearance2 | 保留v5完整模型，固定源轻量装饰与可编辑簇状布景 |
+| v7 | scene7 | visual3 | identity4 | appearance2 | 保留v6完整模型，可选树冠区域规则领域字段 |
+| v8 | scene8 | visual3 | identity5 | appearance2 | 保留v7有效场景；统一保存连续地表字段规则与区域植被成员 |
 
-按问题查阅：[当前工程](#当前完整工程与版本分派)、[地形/区域v3](#完整v3地形与区域合同)、[地貌组合v4](#terrain-t8-contract)、[计量与标识](#计量和标识)、[实体字段](#材质地形与组件字段语义旧m1-v2来源)、[选择与历史](#选择图层外观与历史)、[事务](#commandbatch撤销与锁)、[个人目录](#会话与个人目录)。
+按问题查阅：[当前工程](#当前完整工程与版本分派)、[地形/区域v3](#完整v3地形与区域合同)、[地貌组合v4](#terrain-t8-contract)、[曲线连接v5](#curved-connections-v5)、[轻量布景v6](#decoration-clusters-v6)、[树冠区域v7](#canopy-regions-v7)、[连续地表规则v8](#surface-rules-v8)、[计量与标识](#计量和标识)、[实体字段](#材质地形与组件字段语义旧m1-v2来源)、[选择与历史](#选择图层外观与历史)、[事务](#commandbatch撤销与锁)、[个人目录](#会话与个人目录)。
 
 各行是固定组合；工程schemaVersion必须等于场景schemaVersion。generation5以legacy保留严格generation1–4。数据库版本、目录身份算法与旧M1容器版本均是其他维度，不与此表互换。
 
@@ -18,15 +22,15 @@
 <a id="完整v1v2现行合同2026-10-25"></a>
 ## 当前完整工程与版本分派
 
-主工程与个人库分别为`sceneweave-projects`和`sceneweave-library`；当前打开、保存与导入只接收新标识完整v1–v4及明确所选历史。旧格式转换保留为底层兼容合同，不自动处理用户旧数据。AI授权与草稿合同见[05](05-ai-and-generation.md)，存储与副本升级见[06](06-storage-and-export.md)。
+主工程与个人库分别为`sceneweave-projects`和`sceneweave-library`；当前打开、保存与导入只接收新标识完整v1–v8及明确所选历史。旧格式转换保留为底层兼容合同，不自动处理用户旧数据。AI授权与草稿合同见[05](05-ai-and-generation.md)，存储与副本升级见[06](06-storage-and-export.md)。
 
 ### A. 格式识别与完整模型
 
 | 对象 | 固定标识与版本 | 必需字段/约束 |
 |---|---|---|
-| `ProjectData`，纯JSON | `format:'sceneweave-complete-project', schemaVersion:1\|2\|3\|4` | 精确字段为format/schemaVersion/document/historyIdentity/appearance/assets/licenses/licenseBindings/authoringSources，无其他顶层键 |
-| `SceneDocument` | `format:'sceneweave-scene', schemaVersion:1\|2\|3\|4` | 下列完整场景字段，不继承旧SceneDocumentV2/V3，也不靠旧领域视图保存 |
-| `HistoryIdentity` | `version:1\|2\|3` | 各版本精确组合见上表；identity1的lineageId/rootSceneId/propTokens/prefabTokens/outdoorTokens完整承接旧identity3语义 |
+| `ProjectData`，纯JSON | `format:'sceneweave-complete-project', schemaVersion:1\|2\|3\|4\|5\|6\|7\|8` | 精确字段为format/schemaVersion/document/historyIdentity/appearance/assets/licenses/licenseBindings/authoringSources，无其他顶层键 |
+| `SceneDocument` | `format:'sceneweave-scene', schemaVersion:1\|2\|3\|4\|5\|6\|7\|8` | 下列完整场景字段，不继承旧SceneDocumentV2/V3，也不靠旧领域视图保存 |
+| `HistoryIdentity` | `version:1\|2\|3\|4\|5` | 各版本精确组合见上表；identity1的lineageId/rootSceneId/propTokens/prefabTokens/outdoorTokens完整承接旧identity3语义 |
 | `AppearanceGraph` | `version:1\|2` | sources/propSources/surfaceSources/instanceAdjustments/layerAdjustments/variants/prefabAppearanceTemplates；appearance2增加固定表现，不能向appearance1偷加字段 |
 | `ProjectBundle`，运行时交付 | `project:ProjectData`＋资源字节端口 | 每个已引用图片/SVG字节按hash可读、独立捕获；纯JSON通过不表示完整校验通过 |
 
@@ -68,7 +72,7 @@ c实现采用前一种方式：独立深冻结ProjectData和私有不可变字�
 
 物件/组合token、室外kind/token/topologyToken/topologyHash及全部墓碑保持；拓扑中途改变又改回仍换连续性token，轮廓循环换首点规则保持。新当前sceneId在转换journal只分配一次，revision从0开始；v6 lineageId/rootSceneId及已有token原值保留。rootSceneId标识历史根，不强制等于新副本sceneId。
 
-新快照摘要精确字段：`id/ownerSceneId/lineageId/sourceRevision/name/kind/createdAt/contentHash`，kind为`named/protection/imported-auto`。ownerSceneId是当前归属；快照内SceneDocument保留原sceneId/revision与时间，仅转换其格式字段。普通保存的自动快照仍用所属sceneId/revision，不伪装命名快照。转换的v6自动历史为只读imported-auto，最多20份，与原生最近20次自动历史分开保留，不占32+32命名/保护限额。
+新快照摘要精确字段：`id/ownerSceneId/lineageId/sourceRevision/name/kind/createdAt/contentHash`，kind为`named/protection/imported-auto`。ownerSceneId是当前归属；快照内SceneDocument保留原sceneId/revision与时间，仅转换其格式字段。普通保存的自动历史仍记录所属sceneId/revision，不伪装命名快照；最近20条仅为自动摘要的展示范围，底层保留的不可变版本、祖先及分支不因此删除。转换的v6自动历史为只读imported-auto，最多20份，与原生自动历史分开保留，不占32+32命名/保护限额。
 
 旧自动行没有用户命名，imported-auto的name固定生成`自动保存 · r<源revision>`，createdAt由原savedAt转为ISO时间；这是生成标签，不冒充原始命名。原savedAt字段值及旧行在保全set中保留。
 
@@ -78,6 +82,13 @@ c实现采用前一种方式：独立深冻结ProjectData和私有不可变字�
 
 d已按上述身份合同转换v6家族与v6所选历史文件。新仓库最终准备和提交要求全部预留v6历史到齐，逐源键核对named/protection/automatic类别与自动revision，不能仅检查候选ID属于预留集合。v1–v5仍只转换当前，全部旧历史由set/原文件保全。共享资源批次上限85是当前＋64命名/保护＋20只读来源自动，普通便携history上限仍64。
 
+<a id="local-history-versions"></a>
+#### 本地不可变版本与恢复
+
+浏览器存储以不可变版本ID、完整内容hash和父版本关系记录已成功保存的工程；版本内的历史revision不会随当前采用而改写。当前工程revision仍单调增加，包括撤销、重做及完整历史版本采用。回退后继续编辑形成新分支，原后续版本继续保留；命名/保护点引用已持久化的确切版本。保存可合并尚未落盘的中间编辑，因此不是每个内存revision都有独立保存版本。
+
+完整版本导航先保全当前，再核对所选自有自动版本及来源hash，一次采用历史完整内容并生成更大的当前revision；出生、墓碑及拓扑连续性按现行恢复规则合并，不能直接安装旧身份来绕过连续性。现有局部恢复仍只采用明确ID、属性组和允许的依赖范围，保留范围外修改及既有锁/连续性约束。会话撤销/重做与持久版本导航分别保留各自语义。完整基线、双向增量、检查点、预算及CAS均属于[06的浏览器存储合同](06-storage-and-export.md#incremental-history-target)，不向严格完整工程v1–v5添加本地版本图字段。
+
 ### C. SVG源、规范化与真实光栅（M2-4已接通）
 
 `authoringSources`以有效光栅assetId为键，每条精确为`kind:'svg'/sourceSha256/normalizedSha256/sourceSizeBytes/normalizedSizeBytes/rasterSha256/processorId/processorVersion`；processorId固定`sceneweave-static-svg`、processorVersion初始1。两源hash分别绑定原始可编辑源与规范化静态源，rasterSha256必须等于该asset的实际PNG；逻辑尺寸、锚点和占地继续由定义/实例字段表达，不能从SVG推断。
@@ -86,9 +97,22 @@ d已按上述身份合同转换v6家族与v6所选历史文件。新仓库最终
 
 M2-0所有转换输出`authoringSources:{}`；当时在真实SVG处理可用前拒绝非空，这是该历史切片边界。M2-4现已严格接收非空记录：重新读取并独立捕获源字节，核对UTF-8/长度/hash，重做原始与规范化源解析并核对确定性规范化结果，检查PNG尺寸/viewBox比例，经受信SVG端口实际栅格化后逐RGBA核对保存的PNG。缺SVG能力或任一步失败均不签发完整资源证明，不允许半验入库、保存、导出或渲染。
 
-静态语法只接受svg/g/defs、有限线性/径向渐变及stop、path/rect/circle/ellipse/line/polyline/polygon和明确属性；拒绝活动XML/DOCTYPE/实体、脚本/事件、外部引用、image/text/字体/CSS、foreignObject、动画与滤镜。原始/规范化各1MiB、4096节点/32层/16384属性、256路径/16384路径命令/32768点、坐标和viewBox边8192；栅格上限边4096/1600万像素/20MiB，AI工具另限制长边16–1024像素。浏览器通过隔离Blob图片解码与Canvas生成PNG，不把源插入应用DOM；释放位图/URL，失败和取消不采用。
+静态语法只接受svg/g/defs、有限线性/径向渐变及stop、path/rect/circle/ellipse/line/polyline/polygon和明确属性；拒绝XML声明/处理指令、注释、BOM、DOCTYPE/实体、脚本/事件、外部引用、image/text/字体/CSS、foreignObject、动画与滤镜。原始/规范化各1MiB、4096节点/32层/16384属性、256路径/16384路径命令/32768点、坐标和viewBox边8192；栅格上限边4096/1600万像素/20MiB，AI工具另限制长边16–1024像素。浏览器通过隔离Blob图片解码与Canvas生成PNG，不把源插入应用DOM；释放位图/URL，失败和取消不采用。
 
 同化授权冻结为单件、一个公开组合的存活成员或明确目标ID和边界的局部范围，不由模型自行扫描扩圈。SVG制作/修改产生新固定资源、定义和来源版本，原件及祖先源、确切许可、逻辑尺寸、锚点、占地、支撑、通行、秘密和组合/散布人工记录保持；tint/brightness/opacity逐目标物化，范围外和当前层规则不暗改。空白制作须先有明确授权的新物件/场景放置，不能用整张SVG替代语义场景。
+
+<a id="asset-batch-import"></a>
+#### 外部素材批量候选与现有字段映射
+
+文件、多选文件夹及素材ZIP共用选定项候选准备路径；单张PNG/JPEG/WebP继续经过原有真实解码、方向/色彩规范化及元数据移除，单张入口使用同一条单项批次路径。受限外部SVG沿用上节静态语法、真实光栅和来源闭包，不新增另一种SVG信任级别。此入口只新增当前工程中的固定图片、物件定义或材质及其必要来源/许可，不能改变场景实例或既有固定内容，也不自动推广到个人库。批次选择、文件路径、校准表单和结果索引均为会话暂态；批量入口沿用已有严格字段，不增加batch或rootAnchor持久字段，也不因批量入库改变schema版本；完整v5仅按[曲线连接合同](#curved-connections-v5)增加可选route语义。
+
+每项明确填写图像逻辑宽高；物件另填独立的物理占地、阻挡属性及可选根锚。根锚为从图像左上角量起的整数毫米`{x,y}`，满足`0≤x≤widthMm、0≤y≤heightMm`，映射为既有`defaultVisualBoundsMm:{x:-x,y:-y,width:widthMm,height:heightMm}`；缺省取`floor(widthMm/2)、floor(heightMm/2)`，保持原单图中心锚行为。根锚只改变图像相对放置原点的位置，不根据图像轮廓推断占地，不改变占地偏移、支撑、通行或视线语义。材质沿用图像及铺装毫米尺寸，不接受物件根锚。
+
+每个选定项均须有完整许可正文、真实署名/来源与明确允许嵌入声明。许可引用按确切正文hash隔离并逐主体绑定，同名MIT等许可名不能替代正文或混用不同许可。实际规范化PNG按真实输出字节hash复用资源；相同图片配不同名称、尺寸、根锚、占地、阻挡、标签或许可仍产生独立固定定义。仅同批完全相同的捕获元数据、实际图片及SVG来源元数据可报告同一定义重复；不同SVG原文即使生成相同PNG，仍各自保全真实源闭包。名称冲突不授权覆盖既有定义。
+
+只有明确选中的项进入完整素材语义/字节/像素校验与候选；来源收集的路径、归档结构及CRC安全检查按[06](06-storage-and-export.md#asset-batch-import)覆盖全部输入。首个异步边界前独立捕获全部选定项、嵌套数据及原生Blob字节句柄，拒绝数据对象中的访问器、隐藏/Symbol字段、自定义原型，以及稀疏或带额外字段的批次数组。选定任一项失败或取消均不返回可用半批工程；成功预览仍不写工程、历史或仓库，采用时再核对基线、完整依赖/资源，一次递增revision并形成一次撤销单位。采用后撤销整批目录变化，不能逐项留下半批来源。
+
+所选1–64项仍受普通素材目录事务的**256实际新增记录/展开预算**约束。成本取新增固定记录数与实际展开成本的较大者：记录覆盖场景五类固定目录、固定sources/variants/prefabAppearanceTemplates/presentations、工程图片/authoringSources/许可及新增逐主体许可绑定；准备末尾与公共工作区预览入口共用同一公式并分别拒绝超限。64是选择上限，不能保证64个不同定义均可采用；此入口不取得[动态底图策略](#capacity-budget-evolution)的512/1024/2048档位，不自动拆批绕限。累计源、输出字节、真实处理像素及完整工程上限继续独立检查，数值和保存失败边界见[06批量入库合同](06-storage-and-export.md#asset-batch-import)；本次实现与定向证据归[素材工作区台账](archive/workspace-content-validation.md#asset-batch-20261031)，不据此提前签收验收或发布。
 
 ### D. 目录身份映射
 
@@ -106,10 +130,12 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 
 生成候选还须绑定输入/算法/固定素材指纹、冻结请求ID/时间、操作代次、新身份分配表、完整delta及hash、真实读写集合、字段级影响、资源变化、约束和实际成本。新请求即使同seed同形，也分配新出生身份；不能重用已删token。新建工程同样预演完整成本；可明确减少未锁定的软细节并列差异，不能降低硬要求、净宽或物理/显示一致性，不在后台拆成多次采用。同一操作依赖的地形、支撑、规则、人工记录与图像锚点必须一起提交。
 
-普通手工与创作v1的跨领域步骤先在独立副本按支持顺序执行，保留真实中间身份推进，最终完整验证、根据同一批全部实际影响计算256展开预算。程序底图接续v2的分类语义量及最终边界按F节固定策略执行。不得将多轮命令绕过最终上限，也不能直接取消现有混批拒绝。对远端草稿须本地校验/重放其受支持步骤后产生自己的候选，不直接采信完整模型JSON或自报成本。
+普通手工与创作v1的跨领域步骤先在独立副本按支持顺序执行，保留真实中间身份推进，最终完整验证、根据同一批全部实际影响计算256展开预算。程序底图接续v2/v3的分类语义量、多维保护及最终边界按F节对应版本策略执行。不得将多轮命令绕过最终上限，也不能直接取消现有混批拒绝。对远端草稿须本地校验/重放其受支持步骤后产生自己的候选，不直接采信完整模型JSON或自报成本。
 
 <a id="program-base-map-protocol"></a>
-程序底图使用独立传输协议`sceneweave-base-map@1|@2`，不扩充持久工程格式。以下为@1兼容合同；@2在严格请求中加入flowId与完整冻结policy，结果hash另覆盖generationBudget的语义目标/成本及复杂度，完整来源与分类接续见[F节](#capacity-budget-evolution)和[05](05-ai-and-generation.md#budget-continuation-contract)。严格请求区分当前`workspaceSceneId/checkpoint/operationEpoch`与独立空白`base.sceneId`；只接受无实体/注记/锁/历史标记的SceneDocument2/visual1。`generation`明确为普通terrain输入或composition配方，省略旧算法/配方版本仍保持1含义。`inputHash`覆盖完整规范generation，`baseHash`覆盖完整空白，`paletteHash`覆盖固定assets/materials/propDefinitions/prefabDefinitions/styleThemes及activeStyleThemeRef；响应`resultHash`覆盖`{generation,result,domainCost}`。普通结果保留完整TerrainGenerationResult，组合保留完整领域文档和严格plan；服务端与Worker使用同一纯执行器。协议请求/结果分别限4/8MiB，不能用摘要代替实际领域结果。
+程序底图使用独立传输协议`sceneweave-base-map@1|@2|@3`，不扩充持久工程格式。以下为@1兼容合同；@2在严格请求中加入flowId与完整冻结policy，结果hash另覆盖generationBudget的语义目标/成本及复杂度，完整来源与分类接续见[F节](#capacity-budget-evolution)和[05](05-ai-and-generation.md#budget-continuation-contract)。严格请求区分当前`workspaceSceneId/checkpoint/operationEpoch`与独立空白`base.sceneId`；只接受无实体/注记/锁/历史标记的SceneDocument2/visual1。`generation`明确为普通terrain输入或composition配方，省略旧算法/配方版本仍保持1含义。`inputHash`覆盖完整规范generation，`baseHash`覆盖完整空白，`paletteHash`覆盖固定assets/materials/propDefinitions/prefabDefinitions/styleThemes及activeStyleThemeRef；响应`resultHash`覆盖`{generation,result,domainCost}`。普通结果保留完整TerrainGenerationResult，组合保留完整领域文档和严格plan；服务端与Worker使用同一纯执行器。协议请求/结果分别限4/8MiB，不能用摘要代替实际领域结果。@3明确使用算法4/配方4、完整注册profile及profileHash；inputHash绑定generation和profileHash，结果hash覆盖独立usage及语义成本，领域cost不再表示旧混合展开量；具体限额与兼容归F节。
+
+@3也明确分派算法6/配方6，不改变更早选择器、缺省含义或重放结果。显式服务端运行算法6时，客户端须先分别请求`GET /v1/capabilities?baseMapSelector=terrain-scene-v6`或`...baseMapSelector=terrain-compose-v6`，并核对返回的单一`baseMapSelectors`、`baseMapVersions:[...]`及请求所用注册profile hash，再发送原样的@3请求。此选择器只声明确定性底图生成端支持相应配方，不授予AI修改严格v8工程的能力；AI完整工程版本仍限3–7。旧服务拒绝查询或未返回确切选择器时，不发送底图候选，也不切换到本机Worker。算法/配方5原有`surfaceRecipeVersions:[1]`协商只用于其旧地表含义，保持独立。
 
 `domainCost`包含完整领域展开，组合使用真实临时计数图的identity/appearance元数据，但仍标`finalAdoptionCostChecked:false`；不返回或安装这些计数身份。浏览器须重放完整结果、物化并校验真实资源，再核对实际成本。通过后，独立候选的会话回执绑定真实完整`projectHash`与`initialOperationCost/operationLimit=256/remainingOperationCost`；采用继续用当前会话凭证，网络JSON不能直接成为可采用凭证。回执不是工程永久容量或后续AI账本，也不进入严格文档、历史或导出；跨冷读继续同一生成/AI流程须后续显式可重放合同，不从当前实体数或seed猜测初始成本。
 
@@ -129,7 +155,7 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 | 工程与资源容量 | 区分完整领域对象与轻量装饰实例，保存完整实际结果及适用人工记录；文档、身份/墓碑、历史、图片/源字节、解压及像素预算共同核对。数据结构改变采用新严格版本和完整副本迁移，保全旧工程与来源链。 |
 | AI执行与全流程 | 程序底图生成和后续AI修改分别限额，保留覆盖两者的完整累计账本及全流程计算、资源、时间上限。分类额度不授权重置历史成本，也不能绕过最终一次采用的完整影响校验；具体接续合同归[05](05-ai-and-generation.md#2-前后端职责与网络)。 |
 
-程序底图接AI采用固定`sceneweave-generated-authoring`策略1/计数1：生成G≤256语义目标、AI累计A≤256、最终从新空白到完整结果≤512；这不是普通手工事务或通用工程容量扩容。1024/2048及更大规模仍未选择。成本含义变化须显式固定策略版本，并同步任务/传输/重放合同；旧任务按原策略重放或明确拒绝不支持的接续，不能用新计价重新解释旧hash与账本。只有持久结构改变才升级工程格式，不为纯运行时计价变化机械迁移全部工程。新策略仅由底图@2与创作载荷v2协商启用，旧入口保持原有限额。
+旧底图@2/创作v2保留`sceneweave-generated-authoring`策略1/计数1（G256/A256/最终512及原复杂度保护）；新底图@3/创作v3使用策略2/计数2，按范围、画面细节和本机设备探针，在开始前选择small/standard/expanded注册档位，也可显式选择。注册档位分别提供512/1024/2048生成目标与相同的AI累计目标，最终采用上限为1024/2048/4096，仍受完整几何和资源约束。这不开放通用手工事务扩容，也不等于产品容量验收通过。成本含义变化须显式固定策略版本，并同步任务/传输/重放合同；旧任务按原策略重放或明确拒绝不支持的接续，不能用新计价重新解释旧hash与账本。只有持久结构改变才升级工程格式，不为纯运行时计价变化机械迁移全部工程。旧策略1由底图@2/创作v2、策略2由底图@3/创作v3协商，旧入口保持原有限额。新增创作v4须独立协商 `sceneweave-current-authoring@1`：真实source3保留策略2注册档位；当前工程source4不伪造生成来源，G=0/A256且整任务实际展开/最终采用仍≤256，工作维度另按新能力保护。新4账本首项明确baseline或generation，四hash贯穿；不改变旧1–3的计价或内容hash。完整合同归[05](05-ai-and-generation.md#current-authoring-contract)。
 
 #### 语义目标与一次操作
 
@@ -154,7 +180,7 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 
 几何输入/输出点段、实际依赖遍历/求交/候选次数、记录数量/字节、图片/源字节、解码/绘制像素分别有上限，不把不同单位相加冒充“成本总分”。可重放的结构规模与执行端实际工作量分别记录；场景/历史保留量取实际完整闭包，重复使用同一不可变资产不重复算保留字节，但每次真实解码和执行仍计资源/时间。保存、冷读、导入、导出继续按完整工程容量校验。
 
-#### 当前受限接续策略
+#### 旧策略1兼容边界
 
 | 维度 | 固定保护 |
 |---|---|
@@ -164,9 +190,34 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 | 来源/请求 | 来源16MiB、接续请求24MiB；完整工程、JSON、资源与像素另取原有更严保护 |
 | 执行 | 同流程16次模型请求、64次工具尝试、300000ms主动执行；失败、取消、重放计算不退款 |
 
-首版接续只使用现有受支持领域操作与固定资源闭包，不支持延后SVG/样式素材制作；需要新增派生位图的底图不能接续，合法底图仍可独立采用。计价层有限entities滤镜按明确目标及真实有效变化展开，载体记录不重复加1；scene/region/layer滤镜拒绝。当前底图完整v3/v4尚不支持visual创作授权，首版接续明确拒绝此授权，不能据计价帮助函数广告视觉能力。旧v1滤镜语义不改。
+首版接续只使用现有受支持领域操作与固定资源闭包，不支持延后SVG/样式素材制作；需要新增派生位图的底图不能接续，合法底图仍可独立采用。计价层有限entities滤镜按明确目标及真实有效变化展开，载体记录不重复加1；scene/region/layer滤镜拒绝。旧创作v2/v3的完整v3/v4底图不支持visual创作授权，旧接续明确拒绝此授权，不能据计价帮助函数广告视觉能力。旧v1滤镜语义不改。
 
 策略的`evidence=roadmap-capacity-diagnostic-20261030`对应[容量模块诊断](reference/performance.md#interaction-capacity-20261030)、[账本与真实接续检查](archive/ai-validation.md#base-map-continuation-20261030)的组合依据。4000物件模块观察不证明512目标一次事务性能；512/513纯元数据边界和真实资源接续样例分别记录，不能拼成已测G256+A256的512对象完整旅程。总实体10000、ProjectData 600000 JSON值、scene/identity/appearance各自20MiB及65536身份记录仍共同约束，不能把保护值当作容量承诺。
+
+#### 当前策略2与动态选择
+
+`TaskBudgetProfile`固定profileId、profileVersion=1、countingVersion=2、各维限额与profileHash；仅接受注册表中完整相等的档位。自动选择先按任务类型、画布面积和standard/detailed细节确定需求，再受设备档位限制；浏览器使用逻辑处理器、可用时的设备内存提示和一次有界整数计算探针，结果仅作为本页本地选择依据，不上传原始硬件数据、不代表可用RAM或正式性能分数。显式档位直接选择对应注册值。选定后进入输入hash、来源、策略hash、账本与采用身份，同一任务不得动态加额、降精度或切换算法。
+
+| 独立维度（单候选保护） | small | standard | expanded |
+|---|---:|---:|---:|
+| 语义编辑目标 | 512 | 1024 | 2048 |
+| 几何点 / 几何段（各自） | 4096 | 8192 | 16384 |
+| 曲线控制段 | 128 | 256 | 256 |
+| 实际网格节点 | 24576 | 49152 | 65536 |
+| 场求值 | 196608 | 393216 | 786432 |
+| 求交边对 | 2000000 | 4000000 | 8000000 |
+| 依赖引用 | 4096 | 8192 | 16384 |
+| 元数据记录 | 8192 | 16384 | 32768 |
+| 元数据规范字节 | 2MiB | 4MiB | 8MiB |
+| 唯一资源保留字节 | 64MiB | 128MiB | 256MiB |
+| 唯一资源准入像素 | 16000000 | 32000000 | 64000000 |
+| 候选尝试 | 4 | 4 | 4 |
+
+各维独立拒绝，不再将点、记录和实体相加后卡256。几何包括区域地图、轮廓采样、控制点、覆盖和派生边；元数据包括生成、身份和外观记录及完整引用。domain中assetBytes=0表示未测量，必须在实际ProjectData物化后重新检查真实声明、字节/hash/解码/许可；decodePixels表示不可变资源闭包的准入像素，不冒充实际解码次数。算法内部求交可按每次输入边笛卡尔积作保守计量界，显式布尔编辑另记录实际边对比较，均不是第三方库指令数。
+
+成功逻辑步骤保留独立usage向量；几何/元数据/资源按当前完整候选或保留峰值准入，执行工作跨操作累加。AI累计语义上限为所选档位，最终采用上限为两倍；网格/场/求交/依赖/尝试累计工作门为单候选门的64倍，保留量门不乘64。真实执行另在执行检查点累计失败、只读预演和重放中已发生的工作，不向成功编辑账本伪造步骤；主动时间由执行钟计量。16次模型请求、64次工具、300000ms主动执行保持，扩展容量不增加付费调用额度。
+
+新底图传输24MiB请求/32MiB结果，来源32MiB、AI请求48MiB；单任务持久记录/快照16MiB、全库256MiB及完整工程/资源原保护继续共同约束，较大请求门不承诺每份请求都能持久化。整个工程JSON不再误用旧4MiB“metadata”门，辅助元数据由上述独立维度检查。新预算不向严格工程文档增加字段，保存、冷读、包与历史仍使用当前完整版本；档位和账本只属于会话/AI任务。新4工程重开后继续手工局部编辑时，以当前范围为新任务选档并冻结于候选，采用按同档重放；不靠seed重生成。其他手工操作保留既有边界。
 
 #### 策略固定与兼容
 
@@ -185,9 +236,20 @@ GenerationSystem1严格保存固定recipes、intents/skeleton、rules、ownershi
 
 岸线整改采用显式算法/配方版本，不改变上述文件字段：`terrain-scene@2`只用于新岩岛/海岸候选，缺省或显式1的旧请求继续执行原算法；recipe、rule引用及活动检查一致记录2。组合场求值仍固定`terrain-compose@1`，新群岛/浅湾使用配方2保存完整特征、精度及阈值来源；配方1输入与物化含义保持。新浅湾基底为800mm，不重复叠加同材质同物理的800mm低地；200mm浅滩为实际陆地轮廓围绕唯一陆块骨架中心的1.08倍整数毫米包络，拒绝孔洞、退化、自交、不完整包含或越界，1800mm台地仍为独立真实表面。完整结果持久化，不能由显示缩放代替。冷读不重生成，实际点/段、来源副本、身份与外观继续计入256。实现/自检状态见路线图及地形台账。
 
+新岸岩外观使用显式`terrain-scene@5`/`terrain-scene-t3@5`与组合配方5：以4的确切物理构图为基线，仅保存新的固定材质、SurfaceStyle覆盖、既有边带参数与环境配置。严格核对边界/高程/覆盖优先级、楼梯/道路支撑与宽度、阻挡及物件位置未改，旧1–4算法与素材输出保持。新5普通规则列完整overlay材质闭包及真实视觉所有权；组合继续由native composition唯一写者持有完整outputRefs/dependency writes并重算hash。仅新5结果诊断cost增加environmentChanges以平衡原有环境计量，不重释旧4成本。
+
+新源采用独立shore-v1材质/asset/catalog ID和版本1，`MIT-Sceneweave-Shore-Surfaces-1`引用对应完整许可；旧Q1/Q2的原文/hash/绑定不替换。浅水/湿岩/湿沙与草岩交界采用已有世界毫米覆盖和羽化；新5配方自身每表面最多128新增overlay、每条最多512点，超过profile或原生边界明确拒绝。新5自动选档因完整岸带几何至少使用standard，受约束设备检测不足时在任务开始前明确说明；显式small仍是原注册限额，复杂新5候选可超限拒绝，不中途扩档。新5手工局部任务同样初选至少standard。新5材质与深浅水角色来自确切定义/生成角色，主题名不决定语义；外观不授予水面通行。没有增加持久字段或替换旧renderer/transition算法，因此当前完整v3/v4容器与迁移合同保持。
+
+经典外观任务使用`terrain-scene@4`/`terrain-scene-t3@4`及组合配方4，绑定注册profile与画面细节，覆盖既有七种普通地貌和四种组合。普通新4提高场采样和轮廓精度，按局部边长限制曲线切线，楼梯沿真实相邻采样累计固定物理宽度；组合新4细化采样，浅滩从真实低场阈值与陆地并集构造，不依赖旧同心缩放假设。完整geometry/support校验保持，已有严格visual每边界32段等限制继续生效。旧版本输出与hash保持原义。
+
+本分支岩岛构图扩展使用显式`terrain-scene@3`，仅用于新岩岛；海岸仍选2，其他地貌仍选原算法。算法3采用带侧向回入凹湾、双肩与错位狭颈的非径向主陆块，另保存两份独立真实礁石TerrainArea；高台、活动区和1500mm净宽楼梯完整检查。礁石、轮廓、管理记录和实际资源仍计入256，不将程序线条变成无预算的隐藏实体。主岸/高台采用版本3自身固定的采样参数，物理边界与显示共用采样；简化与失败回退不改旧1/2输出。
+
+新群岛采用显式配方3，继续使用`terrain-compose@1`已有椭圆/通道特征和冻结阈值算法；用不对称陆块及弯曲水道组织主岛和次级陆块，水道硬要求绑定该配方的真实中心线，净宽仍为1800mm×scale，陆地分量仍为明确2/3、最小面积仍为世界面积1.7%。精度、特征、水道坐标、阈值完整来源和recipeRef=3一起保存；其他组合不接受配方3。旧配方1/2来源、阈值和结果不重释。新增算法/配方选择贯穿Worker/服务、本机重放和候选hash，未知版本拒绝；缺省旧请求保持缺省，不在重放时补3。此扩展不增加现有完整工程的持久字段，不改变v1–v4合法版本组合；保存实际完整结果，冷读不重生成。
+
+
 identity2保留原prop/prefab/outdoor含义，并为生成记录、骨架、来源特征、区域实体/控制点、覆盖层、物化边/笔触记录出生与拓扑令牌。逐命令捕获拓扑，同批改回及撤销不回退连续性；跨池墓碑、错误kind合并与层ID占用拒绝。新增身份与墓碑共同受65536保护。appearance2为每个固定Prop源保存显式presentation；旧俯视源显式保持topDown/rotateWithGround；新固定近侧视源使用nearSide/fixedUpright、独立根锚及地面影，沿appearance2严格解析。
 
-`terrainCommandCost`累计物理实体、真实地形点/段、曲线段、覆盖、生成记录/引用、来源几何、区域几何和物化边；场景命令逐步累计，v3重复/no-op至少1，终态改回不能抵消先前成本。普通手工及旧创作入口统一上限256、安装前检查；程序底图接续v2另按F节分类策略，领域单操作复杂度保护仍保留。规范生成分区合计4MiB；规则256、关系记录8192、物化边128/累计8192点与笔触控制量、区域实体2048/图符4096。完整20MiB文档及资源/许可/像素预算保持。这些是拒绝上限，不是已测容量。
+`terrainCommandCost`累计物理实体、真实地形点/段、曲线段、覆盖、生成记录/引用、来源几何、区域几何和物化边；场景命令逐步累计，v3重复/no-op至少1，终态改回不能抵消先前成本。普通手工及旧创作入口统一上限256、安装前检查；程序底图接续v2按F节策略1，新底图@3/创作v3的显式profile路径按策略2独立维度；无profile的领域入口保持旧保护。规范生成分区合计4MiB；规则256、关系记录8192、物化边128/累计8192点与笔触控制量、区域实体2048/图符4096。完整20MiB文档及资源/许可/像素预算保持。这些是拒绝上限，不是已测容量。
 
 独立副本升级、原件归档和完整包见[06的T0/T1小节](06-storage-and-export.md#2026-10-26-t0t1完整v3与升级原件归档)，算法、实际样本和验证结果统一归[55第17节](archive/terrain-validation.md#17-t0t1实施与实际验证)。
 
@@ -276,7 +338,7 @@ T4新固定源在appearance2中保留`nearSide/fixedUpright/fixedRotationDeg:0/w
 <a id="t8后续地形严格版本与容量合同2026-10-28待实施"></a>
 ## 完整v4地貌组合与过渡合同
 
-完整v4读写、副本迁移、离散常色过渡、条件布景及有限局部联动已有实现，仍按本节固定结构解析。当前产品按完整v1/v2/v3及首批完整v4、generation1–5、visual2/3、identity2/3和appearance2各自的严格合同分派；未支持的新增语义继续拒绝。开发任务见[07](07-roadmap.md)，实际结果见[地形历史台账](archive/terrain-validation.md#t10-t13-20261029)。
+完整v4读写、副本迁移、离散常色过渡、条件布景及有限局部联动已有实现，仍按本节固定结构解析。本节只定义完整v4、generation5、visual3、identity3和appearance2的固定组合；完整v5由[下一节](#curved-connections-v5)独立定义，未支持的新增语义继续拒绝。开发任务见[07](07-roadmap.md)，实际结果见[地形历史台账](archive/terrain-validation.md#t10-t13-20261029)。
 
 以下是完整v4的严格结构；字段均必填，只有显式`null`才允许空值，没有任意扩展对象。`ID`为1–256字符且不是`__proto__`；整数为有限安全整数，`Hash`为64位小写SHA256，`P={x,y}`使用整数毫米，`Rect={x,y,width,height}`的宽高为正。所有新坐标/范围位于本场景exportBoundsMm内，引用同Floor，字典键等于记录id，ID/引用列表不得重复；新记录ID与现有实体、定义、图层和墓碑全局不冲突。`Common={id,floorId,layerId,visibility,editLocked}`沿用现有合法层、受众和锁。旧完整v1–v3组合仍按原读者接受；**首批完整v4只有一组合法组合**：
 
@@ -316,6 +378,82 @@ T4新固定源在appearance2中保留`nearSide/fixedUpright/fixedRotationDeg:0/w
 三类中性样片固定为群岛海岸、森林河谷和草岩丘陵。每个尺寸/种子向量必须同时给出世界尺寸、采样间距/节点数、轮廓误差、实体/点/段/曲线/路径数量、边缘与覆盖、生成规则/关系、身份和实际成本分项；另记录规范JSON/资源字节、图片数/像素、生成/预览/完整校验/冷读耗时、内存观测方法及失败原因。Node与浏览器使用同一冻结输入比较规范结果hash；尚无浏览器或峰值内存结果时标记未测，不能以Node结果外推。实际样片和可公开尺寸以55中的新鲜容量证据为准，保护值不构成容量承诺。
 
 单笔仍按`terrainCommandCost`计入全部实际展开：新增/修改/删除实体、控制点/边段、路径、覆盖、物化边、生成记录及引用、来源几何、身份/人工/删除记录和格式转换均不得遗漏。v4成本在安装前按以下规则计算：每个新改字典项/身份至少1、每个成员/Ref/阈值源特征/读快照至少1，其内点/段/闭环按既有几何分项再展开；ellipse按一个中心点和四个基轴端点计成本，halo/grid/sourceInput及版本转换各至少1，快照中重复保存的几何继续计费，不按引用去重免单。累计上限256，重复/no-op至少1，改回终态不退还成本，也不拆批绕过。单笔放不下的特征、快照或离散色带整笔拒绝，不能因为分项上限较大便默认可采用。生成分区规范JSON仍限4MiB，规则/关系/边缘及65536身份与墓碑等现有上限保持；包、资源、许可和迁移保全归[06的T8合同](06-storage-and-export.md#terrain-t8-storage)。
+
+<a id="curved-connections-v5"></a>
+## 完整v5曲线连接与适用组件合同
+
+完整v5沿用`sceneweave-complete-project/schemaVersion=5`与`sceneweave-scene/schemaVersion=5`，完整承接v4的generation5、visual3、identity3、appearance2及所有固定源、物理实体、层、受众、历史与资源字段。本次新增持久语义仅为`TerrainConnection.route`可选字段，不新增组件实体或任意扩展JSON。Scene1–4的严格连接对象不接收route，Scene5也不接收持久`route:null`；**不出现route键即原两端点直线连接**，保留其平端矩形、原默认踏面和旧固定画面。4→5完整副本不为旧连接补route键，原模型、规则来源/结果快照与资源保持原值；升级与保存边界归[06](06-storage-and-export.md#curved-connections-v5)。
+
+| `route`精确字段 | 合同与保护值 |
+|---|---|
+| `version/kind` | `version=1`，kind仅`polyline/cubic`；与外层connection.kind的`stairs/ramp`分别定义。直行与之字回折均可用polyline，曲线使用cubic |
+| `segments` | 1–16个有序`{id,start,control1,control2,end}`；稳定段ID全局不冲突，四点均为整数毫米。相邻段端点连续；polyline要求control1精确等于start、control2精确等于end，不靠接近共线猜测类型 |
+| `sampleSpacingMm/toleranceMm` | 分别为4–20000mm、1–1000mm整数；确定性采样规则与既有VisualBoundary共用，不依赖视口/导出分辨率/当前机器 |
+| `centerlineMm` | 2–256个完整实际整数毫米点，须与本route源控制段及采样参数的结果逐点、同序相等；首尾精确等于外层from/to.positionMm。源与实际中心线一起保存，缺项、不同采样或按端点重建均拒绝 |
+| `stairStyle/treadDepthMm` | 样式仅`stone/wood/naturalRock`，踏深为50–2000mm整数；按全线实际累计弧长派生的踏面不超过512级，不在每段重新开始相位。它们是明确表现/业务参数，不从纹理或图片猜测物理高差 |
+
+16段、256采样点与512踏面是单对象保护值，不保证达到所有上限的对象可通过一次编辑预算。平端、miterLimit2及超限bevel的实际足宽带由完整centerlineMm与世界widthMm共同求得；命中、选择外框、通行/有限路线、崖口、布景净空、视觉影响范围和秘密遮罩使用同一几何。旧无route分支继续使用原矩形，不以道路的方端延长量改写连接。踏面按同一弧长位置的切线/法线派生，图像改变不改实际净宽、Floor或支撑。
+
+连接仍须具有同Floor的两个不同有效支撑、真实高差及完整可支撑净宽带；整条中心线恰好跨越一次声明的地面邻接，不侵入第三有效支撑面。自交、零长段/原地反向折返、过窄回折、越界、墙/门/家具真实占地和锁冲突均不能以画面成功掩盖；足宽且不自交的U形回折可用。崖口由中心线真实穿过来源边界的位置及完整带区裁切，端点弦线不能替代真实路线。玩家投影先过滤连接、两端支撑、附着门和相关私密来源，再派生踏面、阴影及遮罩；隐藏连接不能从弯线外扩或崖口效果泄露。
+
+手工创建/更新通过同一有限领域命令与候选事务，Scene5可显式提供route；旧无route请求保留原义。清除路线的命令可用null表示删除该键，采用后的严格文档只保留缺键，不存null。预览列实际写集和只读依赖，采用前重新检查基线、完整几何、固定来源、递归注记、实体/层锁及资源；一次采用、单调revision和一次撤销，失败不部分修改。普通手工事务仍按**256实际展开**计量：变化的控制段及四控制点、完整采样点/边段、删除、真实依赖、身份及生成/外观元数据均计入；源控制和物理样本不是同一个免费字段。底图512/1024/2048任务档位不扩大本次手工预算，超限明确拒绝，不自动降采样、缩窄或拆批绕过。
+
+identity3七类池及65536出生/墓碑上限保持。无route连接继续原`[floorId,from.surfaceRef,to.surfaceRef,openingId]`拓扑hash；Scene5有route时，额外纳入route类型和有序segment.id。纯控制点/端点坐标、采样参数、样式和踏深调整不重生；添加/移除route、改类型或段ID/顺序改变父连接的topologyToken，同批改回或撤销也不回退连续性。新段ID不得与已有实体、其他曲线或墓碑冲突，不以同ID复用代替出生证明。generation管理的geometry/properties投影及严格依赖快照包含实际完整route，改变受管字段须如实停止/暂停对应生成，不能重写冻结输入来追认旧回执。
+
+局部恢复沿既有同出生/同拓扑、真实历史与当前锁/依赖规则：`outdoorGeometry`同时恢复from/to/width、路线源控制及完整采样，但保留当前route的stairStyle/treadDepthMm；`outdoorProperties`恢复完整route及明确业务字段。范围外编辑、当前层/锁/支撑与资源不变；跨路线拓扑变更不授予局部恢复资格。完整撤销重做及版本导航保存全部route，并按当前身份规则推进令牌，不只恢复端点。
+
+岸/崖/草沿、道路边带及围栏等明确适用组件复用已有`VisualBoundary + EdgeLook`：段控制点、绑定、世界宽度/重复间距与实际派生结果持久化，弯曲/局部拉伸通过有限命令生成完整候选。仅装饰绑定不暗增碰撞；terrain/path绑定同步实际轮廓/中心线并列完整依赖。固定图片/定义不原地变义，不承诺任意Prop/Prefab位图无损扭曲或新的可安装曲线模板。Scene5中受影响的物化边/过渡在同一候选重建并检查锁、来源hash及预算；不能留下原控制源配旧派生结果。
+
+Scene5当前走手工编辑与完整工程IO；共享AI start/scene授权明确拒绝5，现有AI1–4及旧生成器继续各自固定版本，不能从通用ProjectData可读推断旧工具已支持新路线。后续协议和能力适配按[07](07-roadmap.md#branch-plan)实施。开发定向证据归[地形台账](archive/terrain-validation.md#curved-connections-20261031)，正式输入/通过条件只从[09](09-quality-plan.md#branch-feature-acceptance)运行；本节不代表统一验收、P3或发布通过。
+
+<a id="decoration-clusters-v6"></a>
+## 完整v6轻量装饰与簇状布景合同
+
+新完整v6/Scene6保留v5的实际曲线连接、generation5、visual3、appearance2及全部已有字段，使用严格identity4。仅Scene6必需新增`decorations`和`decorationClusters`两份字典；旧1–5拒绝这些键，不能通过旧props、Note或扩展JSON隐藏新语义。新对象按真实层映射存入`entityLayers`，层序与Floor、高程分别处理。两个集合不是新的物理支撑或碰撞集合，区域地图模式不允许放入轻量装饰或簇。
+
+| 对象 | 精确持久字段与边界 |
+|---|---|
+| Decoration | `id/floorId/editLocked/visibility/definitionRef/supportRef/positionMm/rotationDeg/scalePpm/renderOrder`。固定来源为精确`{id,version}`；坐标用整数毫米，比例为500000–1500000整数ppm。图像、世界图像范围、根锚、透明度及绘制带从既有固定定义/FixedPresentation派生；轻量角色不生成主题投影、接触影或点光遮挡，不重复保存整份Prop；来源定义必须不阻移动/视线，图片与许可闭包完整。轻量实例没有占地阻挡、支撑其他对象或门墙附着职责 |
+| DecorationCluster | `id/floorId/editLocked/visibility/supportRef/boundsMm/seed/algorithmVersion/palette/maxInstances/spacingMm/clusterRadiusMm/clearanceMm/members`。算法固定`cluster-v1`，palette每项精确`{key,definitionRef,kind,weight}`，kind为`prop/decoration`。实际完整物件保存在props，实际轻量实例保存在decorations，不以seed替代结果 |
+| cluster.members | SHA256候选key映射到`{kind,entityId,state}`，state仅`managed/manual/deleted/detached`。存活项引用同种真实对象；deleted明确保留空引用和删除槽，不能再次布景时自动复活；manual保留人工变换/锁/受众，detached保留退出自动控制的槽及仍存活对象引用；独立对象后来删除时清空引用，退出槽继续抑制重生。一个实际对象不能被多个簇同时管理 |
+
+palette最多12项且key及`kind+definitionRef`各自唯一；每簇最多64个候选/人工/删除槽，maxInstances为1–64。spacing、clusterRadius与clearance使用正整数毫米，明确区分簇内间距、簇的世界范围及活动区/道路/连接净空。当前保护值为64簇、4096轻量实例，另与完整工程JSON、实际资源、身份和普通事务预算共同约束；这些不是已实测满载容量。树木和较大岩石继续使用完整Prop，保留其真实占地、阻挡、支撑及固定表现，不用轻量装饰偷减碰撞职责。任何职责升级都须显式生成完整物件并走相同几何/资源/锁校验，不能只开一个隐含标记。
+
+轻量实例可逐件选择、移动、旋转、缩放、改受众、删除及锁定，变更形成当前工程的新事务并可撤销。簇生成先固定明确支撑、实际范围、固定palette和参数，以版本化确定性簇状分布保留疏密及活动留白；候选列出所有实际Prop/Decoration及成员记录，明确采用后一次生效。再次布景保留人工移动、删除、退出、锁和范围外编辑，不能重开、缩放、渲染或导出时重新撒点。轻量装饰只声明落在所选真实支撑上；它不扩大可通行区域，也不把图像alpha推断成碰撞范围。
+
+普通编辑仍受256实际展开预算，新增固定源、簇、所有实际完整/轻量实例、成员/删除记录、身份、依赖及派生变化共同计量；不得只按一个簇收费或拆批绕过。界面先明确预览/采用缺少的固定素材，再预览/采用布景；已有素材直接复用，两者是独立的资源与场景操作，不自动拆分一笔布景。应用API也可将固定源物化与场景实例合成一个候选，此时来源和实例共用256，实际超限整笔拒绝。采用前仍完整核对真实图片/源/许可、基线、实体及跨层锁、支撑和净空。底图512/1024/2048运行时档位不自动扩大该手工事务。
+
+identity4完整承接identity3七类池和墓碑，新增严格`decorationTokens`，每条精确`{kind,token,topologyToken,topologyHash}`，kind为`decoration/decorationCluster`。所有池合计仍65536，ID、出生token及拓扑token全局唯一；删后重建不能复用ID，撤销不回退连续性。Decoration拓扑绑定Floor、固定definitionRef及明确supportRef，纯坐标/比例/旋转不重生；簇拓扑绑定Floor、支撑、固定算法及有序palette key/职责/定义。成员/人工状态随完整文档保存，完整历史导航及撤销重做包含全部字段和新池；本轮不额外授予轻量实体的有限属性组局部恢复或Note锚定。
+
+v5→v6按[06](06-storage-and-export.md#decoration-clusters-v6)创建独立完整副本，新两集合及身份池为空，旧路线、旧池/墓碑、源/祖先、全部实际资源和旧历史保持。新v6的旧AI入口仍拒绝，后续工具授权按[05](05-ai-and-generation.md)和[07](07-roadmap.md#branch-plan)适配；文件可读不等于旧AI能编辑新模型。正式验收输入和通过条件只从[09](09-quality-plan.md#branch-feature-acceptance)执行，开发自检不替代视觉/P3或容量验收。
+
+<a id="canopy-regions-v7"></a>
+## 完整v7树冠区域规则领域合同
+
+完整v7保留完整v6/Scene6/identity4/appearance2的精确模型，只在严格v7的`decorationClusters`项上允许可选`canopyRule`；严格v6解析继续拒绝该字段。v6普通装饰与簇命令仍可在v6及更高版本使用，树冠区域创建/更新只允许完整v7。v6→v7采用独立副本，不原地补字段。
+
+`canopyRule`完整保存整数毫米`regionsMm`、固定`channel:'trees'`、同一地形面/受众内单调`paintOrder`、`mode:'plant'|'erase'`及树冠覆盖整数ppm。规则簇必须明确支撑于同Floor地形面，区域完整位于该面内，palette只有一个完整Prop图片素材。`plant`按区域的树冠覆盖比例估算植株数，最高64棵；实例按普通完整Prop保存并计入成员、identity4令牌、普通事务预算和玩家过滤。真实占地、层/实体锁、地形支撑、活动区/连接净空仍逐实例检查，密度目标不能替代合法候选校验。
+
+较新的同树木通道、同地形面、同受众规则覆盖其重叠区域；GM规则不得改变公开规则的植株位置或数量。删除较新的整条规则会重算并显露较早规则。完整v7的严格语义保持不变；后续统一区域覆盖使用完整v8合同，v7字段只在v7读取及显式副本转换中解释。树冠规则尚无AI配方；AI的簇操作会完整检查v7成员、支撑、锁和授权依赖。
+
+本合同的命令/成员/identity4/双受众领域自检不替代区域编辑UI、保存撤销完整旅程、视觉/P3或正式验收；验收输入从[09](09-quality-plan.md#branch-feature-acceptance)执行，开发进度归[07](07-roadmap.md#current-step)。
+
+<a id="surface-rules-v8"></a>
+## 完整v8连续地表与区域植被规则合同
+
+完整v8保留v7的有效场景字段及外观/资源语义，新增必需`surfaceRules`字典并使用严格identity5；完整v8的DecorationCluster不再保存v7专有`canopyRule`，旧v1–v7解析、保存和历史重放继续按各自字段集合执行。v7树冠规则只在明确的v7→v8完整副本中转换。`appearance`保持version2，不由区域规则隐式创建或改写固定源。
+
+每条规则属于一个且仅一个地形面、受众和字段。共同字段为`id/floorId/editLocked/visibility/supportRef/field/paintOrder/regionsMm`；`supportRef`必须明确引用同Floor的`terrainArea`。`field`为`material/trees/shrubs/grass`：材质规则另存确切版本的terrain材质绘制参数及`blendWidthMm`；植被规则另存`clusterId/coveragePpm`，种子、固定palette、成员出生/人工状态和实际物件/装饰结果由该DecorationCluster完整保存。区域用整数毫米外环和孔洞环表示，可含多个不相连分量。规则ID、支撑、图层、材质/植被定义及完整资源/许可闭包均须有效。
+
+规则解析先过滤受众及编辑隐藏层，再在相同支撑面、字段和受众内按`paintOrder`求值；较新区域覆盖重叠部分，其余字段独立叠加。GM层在生成公开结果前已排除，不能改变玩家规则、植被数量/位置、材质、阴影或PNG元数据。材质规则经同一解析器作为投影期临时patch交给编辑器和PNG渲染，不写回`TerrainArea.surfaceStyle`、场景文档、历史或存档；`blendWidthMm`只控制外观羽化。世界对齐使用同一毫米原点/尺度，使共享表面上的纹理相位可连续。
+
+植被覆盖目标按固定图像实际默认范围与所选区域面积估算件数，单规则候选不超过64个实际成员；目标不是接受保证。候选仍逐项验证真实Prop占地/支撑、重叠、活动区、道路、楼梯净空、受众、实体/层/支撑/规则锁、注记与路径依赖及完整展开预算。增减覆盖只调整仍由规则管理的成员；人工移动/属性、锁定成员、手工删除、退出记录和有效私密性须保留。对0覆盖率是有效抑制覆盖，不等同擦除。
+
+画笔默认只裁切到起笔选择的真实地形面；明确开启相连面扩展后，按共享边界或真实地形连接扩展为同一原子候选中的多个逐面命令。它不建造地形、不改高程、物理支撑、通行或Floor。局部擦除只从当前规则栈最上层可见区域扣除命中部分；再解析后自然显露仍有效的旧规则或基础材质。孔洞保留为孔洞，不转换成填实多边形。修改到锁定规则或依赖、成员重排超出256操作预算以及任一完整几何/资源校验失败时，整笔拒绝且工程不变。
+
+identity5完整承接identity4的所有身份池及墓碑，另以`surfaceRuleTokens`记录每条规则出生和拓扑token；规则/簇/实际成员仍计入合计65536保护上限。规则区域/覆盖字段编辑保留规则出生身份，支撑、字段或所属簇拓扑变化推进拓扑身份；删除后不得复用ID或令牌，撤销不能回退连续性。
+
+当前v8包含手工画笔、局部擦除、字段独立覆盖、植被数量预览、一次事务采用/撤销及编辑器/PNG材质投影。显式岩岛生成后候选已复用这些规则，但通用自动底图尚未接入；通用楼梯/坡道端部融合和目标岩岛的视觉结果仍待收口。v8规则未获AI写入能力；现行AI能力协商仍显式只接受完整3–7。相关开发证据及限制见[07](07-roadmap.md#current-step)，统一验收条件见[09](09-quality-plan.md#branch-feature-acceptance)。
 
 以下领域字段与有限命令保留当前格式承接的语义；涉及旧M0/M1格式、仓库或版本时仅用于兼容维护。实际检查和失败分别见[历史索引](archive/README.md)，当前验收按[09](09-quality-plan.md)执行。
 
@@ -366,6 +504,15 @@ C5将相同原则用于v6完整内容：证书只绑定本模块严格解析后�
 位置/旋转复用 `updateProp`，删除复用 `deleteProp`。删除检查物件与组合/散布容器的编辑锁、锚定注记引用；组合成员保留key并置propId=null，散布成员保留deleted状态及世界排除区，普通独立物件则移除实例。目录定义及资源继续作为工程编辑根保留。保存、重开、完整包、PNG和撤销重做沿用现有v2路径；C1a没有增加用户图层、命名历史或局部恢复能力，实际验证见23。
 
 C1a待放置图片的临时预览同样逐次检查引用/记录、实际字节、CRC/hash、尺寸与单图预算，经过共享原生解码槽。预览未就绪不能采用，失败退出待放置并保留当前工程；取消、换素材或离开时释放本次位图，不建立长期缓存。相关验证见[23](archive/m0-m1-validation.md#doc-23)。
+
+<a id="subgrid-fill-copy"></a>
+### 子格吸附与有限填充复制
+
+子格为会话暂态，可关闭或按原格细分1、2、4、8份，选择格线交点或格心；以原格的有理数锚点一次量化到整数毫米，不累加取整误差，不改`units`或持久字段。细分间距小于1毫米时禁用对应选项；格距变小使当前细分失效时提示并关闭子格。当前用于单件放置与填充柄定位，数值间距仍按用户明确输入的整数毫米处理。
+
+每次填充明确选择一个独立Prop或一个PrefabInstance；数量只计新增副本，首个副本的位移决定后续间距和方向。组合按当前存活成员复制，保留人工覆盖、删除槽、支撑、有效私密性和外观，副本及存活成员分配新身份；散布/布景簇成员须先明确脱离其管理关系。预览列实际锚点、源/支撑依赖、层、旋转占地重叠和实际展开成本；支撑链与层/实体锁、视觉范围及完整资源仍校验。默认拒绝新增占地正面积重叠，可显式允许重叠；不把组合内部已有重叠重复算作新增冲突。一次候选只接受1–256份且累计真实事务成本最多256，组合成员/身份等实际费用可能先触发拒绝，不截断或拆批。
+
+拖动中及尚未采用候选均不写工程；取消、Escape、地图外松开不产生编辑。采用重新核对基线及完整候选，整批只形成一次编辑和一个撤销单元；revision继续单调增加。开发自检及失败修复见[工作区台账](archive/workspace-content-validation.md#fill-copy-subgrid-20261102)，正式条件归[09](09-quality-plan.md#branch-feature-acceptance)。
 
 <a id="c2-建筑命令与现有字段已实现适用验证见28"></a>
 ## 建筑命令与依赖闭包
@@ -627,6 +774,8 @@ scatter-cell-v1使用固定世界网格，以“seed命名空间＋带符号列�
 | 改TerrainEdge或Connection | 验证源边段/两端引用、走廊净宽与阻挡；不得只改贴图位置 |
 | 改/删组合或散布成员 | 同步members、覆盖或删除记录、实体注记和引用；禁止留下半组或悬空ID |
 | 更换定义/材质/主题 | 先验证完整资产和许可依赖闭包，再按明确外观/物理操作更新引用；定义快照原地不改 |
+
+建筑编辑在当前完整工程版本内执行，不增加持久字段。正交绘制只生成整数毫米房间边界；直接拖墙边在一个候选中移动该墙两端并保留共享顶点关系。删除房间保留邻室仍使用的共享墙；只有用户明确选择时才一并移除不再属于任何房间的墙。删除仍被房间、门窗或引用对象使用的墙必须先在同一批次显式处理关联，最终几何验证不通过则拒绝。整栋变换以选中房间/墙为种子，扩展共享顶点相连的建筑结构，精确平移或按90度旋转；支撑对象、组合/簇成员、路径、连接与递归注记逐项纳入影响，无法保持实际支撑或附着关系时整批拒绝。拓扑修复只开放明示的精确操作（合并冗余共线墙段；对同批编辑形成的精确端点接点拆分墙段），不尝试修复导入或当前已无效工程，也不推断斜交、重叠、开口归属或材质分配。每种操作仍经过完整锁、依赖、预算及最终场景校验，并由一次候选采用/撤销落地。
 
 影响集合先计算、预览并校验，所有需要改变的锁定实体使整批失败；纯渲染缓存可以失效重算，实体/锚点/引用/实际轮廓不能在事务外修复。只读取锁定表面的缓存不算修改该实体，但更新其依赖关系或使其几何含义变化算修改。手工删除依赖默认拒绝并列出引用者；用户选择的级联删除/重绑必须显式列在同一批次，不能静默删除建筑、连接或人工物件。定义/资产移除也执行反向引用检查。所有成功批次只增一次revision，过期候选拒绝，撤销恢复完整实体、覆盖、抑制记录和引用。
 

@@ -973,3 +973,75 @@ T0/T1本批未追加一套近侧视树或区域图符生产包。岩岛生成复
 #### T3配方素材复用（2026-10-26）
 
 河谷/内湖/森林/丘陵/混合沿用岬湾苔岛13个固定源/素材闭包，没有新增原创素材族或近侧视树。浅滩/道路的颜色仅为工程内独立固定派生位图；每份完整包携带实际派生PNG、父源和许可，按真实hash/像素校验，不作为新增原创素材数量重复入账。使用24×18m、4–8树石/活动区/坡道的有限配方，P3、T4/T5素材生产及正式台账验收仍独立，详55第19节。
+
+<a id="asset-batch-20261031"></a>
+### 素材形状变体与批量摄取（2026-10-31 开发自检）
+
+范围为[07分支计划](../07-roadmap.md#branch-plan)第3项；模型与事务合同归[04](../04-scene-document.md#asset-batch-import)、来源/ZIP/保存边界归[06](../06-storage-and-export.md#asset-batch-import)，十二份原创源的确切键、许可、尺寸、占地与根锚归[14固定变体台账](../14-visual-and-assets.md#terrain-variants-v1)。这是开发整改的必要自检，未运行全量Q4、真实模型、正式性能或用户P3，没有提交、推送或部署。
+
+实现复用现有严格工程字段和受限SVG链，不增加容器版本。多文件、文件夹和素材ZIP先收集路径/CRC/来源字节，再只为明确选中项准备完整固定资源候选；普通目录256新增记录/展开预算在准备和公共工作区预览入口分别执行。实际规范PNG去重与完整定义去重分开；不同SVG原文、许可、尺寸和根锚不合并身份。新素材通过独立“地形变体”范围供明确采用，旧固定源和算法1–5不改义，自动簇状布景仍为第5项工作。
+
+#### 定向单元与浏览器检查
+
+`work/asset-batch-20261031/unit-final.log`：7文件99项通过，实际入口为browser `assets/batch-source`、shared `project-file`、application `asset-batch/prepare/workspace-catalog-budget/workspace`及browser `terrain-variant-catalog`。覆盖ZIP默认严格合同、空目录/单文件归档、路径/CRC/展开保护、同步独立捕获/取消、坏SVG/坏图/许可/去重、根锚字段、单图回归与一次事务。新增公共入口用例直接构造并完整验证258条新增记录，绕过批量准备函数，仍被`previewPrepared`拒绝；当前对象/checkpoint/冷存档/撤销保持，先前合法候选继续可用。单元素材端口不等于真实画面证据。
+
+真实Chromium从正常Vite开发入口运行`asset-batch.spec.ts`、`terrain-variants.spec.ts`和既有`u2-catalog.spec.ts`，未调用模型。最终同次5项全部通过，结果和JSON/PNG/完整包归`work/asset-batch-20261031/browser-verified.log`与`browser-verified/`；本轮覆盖以下事实：
+
+| 入口 | 实际输入与检查 |
+|---|---|
+| 批量素材UI | 含显式目录、PNG/JPEG/WebP、重复PNG、合法SVG、外链image非法SVG及LICENSE sidecar的真实ZIP。六项预览整批拒绝且主工程hash保持；明确取消非法项后五项规范PNG实际解码。取消预览保留列表并撤销缩略图URL，重新预览后一次采用，revision只增加1、不创建场景实例；独立SVG许可和1200×900mm图像/1000×1000mm占地/左上角根锚(350,800)保持。 |
+| 来源与保存 | 人工加入PNG的`tEXt`不进入规范PNG，采用图片只含IHDR/sRGB/IDAT/IEND；原始SVG字节逐字保全。完整工程包回读和仓库冷读与当前完整内容hash一致，五件素材库载体/备份回读保持；一次撤销移除全部新增定义，一次重做恢复。真实文件夹只收图片、跳过LICENSE；路径穿越ZIP拒绝，空错误批次可在本表单清空；外链请求数为0。 |
+| 十二个原创形状 | 三树/三岩/两灌丛/两草缘/两碎石，各实际PNG透明像素与有效像素分别大于10%和5%，十二个alpha hash均不同。真实原始SVG、PNG/许可与八个固定近侧视presentation经过工程采用/冷读/完整包保持；十二件备份在独立空IndexedDB素材库安装并逐条冷读完整载体。 |
+| 版本与原子性 | 旧完整工程选中十二件时因近侧视根锚整组拒绝，选择保持；明确只选四件俯视地表素材可以一次采用/撤销。完整v3工程十二件一次采用、一次撤销/重做，不静默过滤八件近侧视素材。 |
+| 实际渲染 | 十二件经共用领域命令放到24×18m地面，再走真实原生Canvas渲染1600×1200。八件近侧视非零旋转逐件明确拒绝；合法零旋转时保持固定根锚和直立。四件俯视地表0°/45°各实际像素不同，八件近侧视对应区域像素差为0。 |
+| 原有素材流程 | 原单图导入、固定缩略图、独立个人整理、备份/删除/空库恢复、断网跨工程采用、放置/两步撤销，以及390px窄屏草稿/离开守卫两项既有UI用例均复验。 |
+
+图库为`work/asset-batch-20261031/terrain-variants-gallery.png`；实际放置和地表旋转分别为同目录`terrain-variants-placed.png`/`terrain-variants-rotated.png`，根锚十字是图库标记，不是工程图片的一部分。已查看真实图库与放置图；它们用于尺寸/轮廓/根锚自检，不是岩岛最终构图或P3签收。批量预览截图`batch-review.png`来自窄侧栏的元素裁切，只作运行附件，不作为全表单排版/全部项目同时可见的证据。
+
+#### 失败、修复与边界
+
+首轮合法SVG夹具误含现有严格语法禁止的注释，预览被正确拒绝；修夹具而未放宽解析器。后续测试因采用成功重置折叠表单、以及空库summary误读成`identity`而非`item.identity`失败，分别改为实际重新展开和读取正确结构。实际放置补测最初给近侧视条目45°，被既有零旋转合同拒绝；修为逐件确认八次拒绝，并只旋转四件俯视条目。`browser-final/`、`browser-complete/`和相应日志保留后两类失败，最终结果只引用新的同次复验，不把失败组与补跑拼作原组全过。
+
+只读审查发现首次读取失败/取消或只有sidecar时空列表无法在表单清空草稿；修为准备结束后可清空，并一并重置许可、校准和草稿状态。参数修改、来源变化与取消均中止旧准备并使原候选失效，原始SVG不直接进入应用DOM。采用后保存CAS失败仍遵循现有完整内存事务/旧持久分支保全合同，不宣称磁盘与内存跨层回滚；真实配额耗尽、多标签竞争、完整安全矩阵及所有正式验收仍留[09](../09-quality-plan.md#branch-feature-acceptance)。
+
+正常生产构建（含前后端TypeScript）、最终`typecheck-final.log`与共享无DOM/Node边界检查均通过，构建和共享结果分别归`build.log`和`shared.log`；共享检查142个源码模块。正常构建仍有既有大chunk及依赖注释警告，未据此宣称性能改善。实现与测试20文件的实际输入hash、分支/HEAD及保留的独立todo hash归`source-fingerprint.json`；现有脏工作区与无关编辑保留，不冒充已提交版本。
+
+正常dist另通过纯UI烟测（`production.log`、`production/result.json`，Chromium 141.0.7390.37）：八个步骤全部完成。独立临时浏览器从`/sceneweave/`新建→逐卡实际解码十二件变体→真实多文件PNG/SVG预览→一次采用保存/检索→整批撤销/重做→下载完整工程→通过已保存版本按钮冷重载再检索，全部用实际UI，无DEV源码导入、应用hook或存储注入。实际下载包的44个manifest条目长度/hash、确切许可主体绑定、原始/规范化SVG及规范PNG均由Node独立字节检查核对；包SHA-256为`9adf1a612abed07d5f5cae576d538c5cd7f4cc0df8f6c150dc9569c66e2386b0`，包与截图保留在`production/`。页面/控制台/HTTP错误和外部请求均为0；这是开发纯UI烟测，不等于正式验收或性能数据。
+
+<a id="fill-copy-subgrid-20261102"></a>
+### 子格吸附与填充柄复制（2026-11-02 开发自检）
+
+范围为[07分支计划](../07-roadmap.md#branch-plan)第7项；确认的产品行为归[01](../01-product.md#branch-feature-scope)，定向验收矩阵继续归[09](../09-quality-plan.md#branch-feature-acceptance)。子格细分与格线/格心锚点为编辑会话状态，不修改工程格式或原始网格。拖拽或数值入口均检查实际新增数量、坐标、依赖与层/实体锁、物理支撑、旋转占地及重叠，并在同一候选内完整计量；独立物件和组合分别使用现有受限复制命令，成员人工字段、定义引用和新身份保留。超出实际事务预算时整笔拒绝，未采用候选不写工程，采用后一次撤销完整填充。
+
+最终定向证据保留于`work/fill-copy-20261102/`：`unit-verified.log`中`src/application/workspace/fill-copy.test.ts`和`src/editor/native-canvas/subgrid.test.ts`共12项通过；`browser-complete.log`中正常Chromium开发工作台的`tests/fill-copy.spec.ts`两项通过；截图为`browser-complete/`下的`prefab-fill-preview.png`。浏览器覆盖格心子格放置、拖拽取消/地图外松开、Escape、数值位置、候选未变、独立物件单次采用/撤销以及双成员组合拖拽预览、位置/预算展示、单次采用/撤销/重做，另检查格距改成1毫米后1/8选项禁用、旧子格关闭。最终`typecheck-final.log`是最后代码编辑后的完整前后端类型检查结果；`git-diff-check.log`为最后文档与代码状态检查。
+
+首次填充柄点击测试发现底图绘制层截获了SVG句柄的命中；将填充预览置于底图上方，并以真实`elementFromPoint`断言目标为句柄，最终浏览器两项均通过。首次撤销断言把合法更新后的`updatedAt`当成工程内容回退缺陷；修正断言后只归一化该时钟元数据，revision及其余完整文档仍逐字段比较。以上是开发必要自检，不含跨浏览器/全量回归、正式容量/性能、岩岛参考图视觉/P3、真实模型、真实VTT导入或整体验收；验收仍待[09](../09-quality-plan.md#branch-feature-acceptance)统一执行。
+
+最终边界复查发现合法的1毫米格距仍可选1/8子格，后续定位会被纯算法的重复锚点保护拒绝。`browser-small-grid-red.log`保留该UI缺口；修为禁用小于1毫米的细分，格距变化时明确提示并关闭不再合法的会话子格。`browser-verified.log`复验复用了热更新后的Vite，界面工程正常但测试的无查询源码导入读到另一空会话实例；重启本轮服务，冻结代码后重新加载。`browser-clean.log`中原生option已带disabled属性，通用`toBeDisabled`断言仍报enabled，改为直接核对原生`option.disabled`属性。最终`browser-complete.log`同次两项均通过，不将此前单项结果拼成整组通过；本轮开发服务`http://127.0.0.1:5173/`实际HTTP 200。未提交、推送或部署；原脏工作区和独立`todo.md`保持。
+
+<a id="building-edit-20261102"></a>
+### 建筑编辑补齐（2026-11-02 开发自检）
+
+范围为[07分支计划](../07-roadmap.md#branch-plan)第8项，行为和影响约束归[04](../04-scene-document.md)、[产品范围](../01-product.md#branch-feature-scope)及[交互参考](../reference/editor-and-architecture.md#doc-02-42-调整与删除)，正式验收矩阵仍只由[09](../09-quality-plan.md#branch-feature-acceptance)维护。五类能力均已实现：正交绘制、直接拖墙边、受依赖约束的房间/墙删除、整栋90度倍数平移/旋转，以及两种明确的精确拓扑修复（合并共线冗余接点、同批移动后拆分精确T接点）。候选显示几何、实体、用户图层、跨层曲线/边带及派生过渡的实际影响；共享墙和门窗使用稳定端点/整数距离，支撑、递归注记、实体/图层锁、完整事务预算和拓扑连续性均在采用前复核。固定表面对齐材质及局部覆盖通过不可变源派生跟随建筑变换；旧v1/v3与新版本的多次命令逐步保持实际拓扑范围，不覆盖旧源、有效材料/参数调整或未移动表面。
+
+最终开发证据保留于`work/building-edit-20261102/`：`unit-final.log`中9个定向测试文件共83项通过，覆盖建筑领域事务、正交/拖边算法、工作区历史失效、固定材质源和派生调整、presentation、历史等价、草稿证明及准备链；`browser-final.log`中Chromium `tests/building-edit.spec.ts` 5项通过，覆盖真实工作台UI草图/预览/采用/撤销，含一个由DEV工作区构造后再经UI操作的跨层曲线/边带候选。`typecheck-final.log`前后端类型检查通过；`shared-final.log`共享158个源码模块的无DOM/Node边界、原生ESM与资源/存档烟测通过；`build-final.log`记录正常生产构建。几何单测含极大安全整数坐标：门窗末端恰在T接点且`offsetMm + widthMm`超过JavaScript安全整数精度时，精确拆分仍保留原墙基准和开口计量。`git-diff-check.log`覆盖最后文档与代码差异。
+
+本项自检没有运行全量回归、跨浏览器矩阵、完整故障/迁移矩阵、正式容量/性能、真实模型、岩岛视觉/P3或目标VTT真实导入，不是正式验收；完整建筑适用矩阵继续留在09，用户P3由用户签收。未提交、推送或部署；原有脏工作区与独立`todo.md`保持。
+
+
+<a id="uvtt-export-20261102"></a>
+### 有限UVTT导出（2026-11-02 开发自检）
+
+范围为[07](../07-roadmap.md#branch-plan)第9项的有限目标适配，当前合同归[06](../06-storage-and-export.md#universal-vttm4)，实际软件验收只从[09](../09-quality-plan.md#uvtt-import-acceptance)执行。工作区主持人入口预检图片/格距、墙门灯数量、全部降级和阻止原因，审阅后下载含UVTT、真实PNG、映射报告和说明的ZIP；完整工程格式、revision和撤销栈不变。当前源码档为Foundry14/Importer6.1.1，首个待验证组合选择Foundry14.369/Importer6.1.1，不代表真实目标导入已通过。
+
+共享纯模型按整数主格扩边、稳定参考端点切开门窗、原范围裁切、物件旋转物理占地及显式公开点光生成结构；底图临时去掉格线、注记、门符号和点光。未揭示秘密门成为连续墙，共线墙拆分归一化不留下秘密位置端点；私密结构/遮罩、跨边开口、多Floor、超过81格及无法满足0.05px坐标误差时阻止结构包。导入器的portal.closed仅区分门窗，实际开关/锁、秘密可操作性、单独阻挡、地形通行、窗口阈值和灯光遮挡均按合同明确降级；单位与灯半径须按报告在目标端校正。
+
+本次证据集中于被忽略的 `work/uvtt-20261102/`：
+
+- `unit-final.log`：共享适配器19项通过，含严格场景1–6、外观图/源文档只读、负/非零原点、英尺、整格与小图边界、反向/斜墙开口、公开/秘密墙等价、旋转物理阻挡、启用/受众点光、私密/多层/极大坐标拒绝及无内部ID/秘密文字。
+- `browser-regression-final.log`：Chromium 8项通过，其中 `tests/uvtt.spec.ts` 5项、既有 `c4-renderer.spec.ts` 3项。实际UI创建房间/门/秘密门/点光并下载ZIP；核对嵌入PNG字节和实际尺寸/PPG；普通门state改变并移除灯的反事实只读副本保持UVTT底图逐字节相同。固定遮罩及GM房间通过UI阻止结构包并下载真实玩家PNG，实际覆盖像素一致；非零范围扩边留空、原范围内成像和墙端点裁切均核对。坏资源及取消保持内容hash/revision/撤销/检查点；反事实、私密和错误用例使用DEV只读/工作区夹具，其范围不冒充纯UI。
+- `typecheck-final.log`、`shared-final.log`、`build-final.log`：前后端类型、共享159模块无DOM/Node边界和正常生产构建通过。正常构建保留既有大chunk警告，不据此宣称性能通过。
+- `production-smoke.log`、`production/result.json`：正常dist由独立预览服务与Chromium141.0.7390.37完成纯UI新建→建房→预检→下载；无源码导入、应用hook或存储注入。实际包四文件、2520×1680PNG及4条墙段一致，页面错误和外部请求为0；产物、截图和复现脚本保留于 `production/` 与 `production-smoke.mjs`。
+- `source-audit.md`、`sources.json`、固定提交源码/官方资料、`source-fingerprint.json`及文档链接/差异检查记录用于复核来源与本轮文件。官方版本信息仅证明稳定版/兼容声明，不证明使用人数或本项目互操作。
+
+本次没有执行真实Foundry导入、目标门操作/保存重开/玩家角色视角、全量回归、跨浏览器、完整故障/迁移、正式容量/性能、真实模型或视觉/P3。有限导出与开发自检不能关闭这些验收。目标岩岛仍需生成器接入新素材并核对实际成图；未提交、推送或部署，既有脏工作区与独立 `todo.md` 保持。

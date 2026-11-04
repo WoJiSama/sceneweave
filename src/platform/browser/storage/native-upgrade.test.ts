@@ -4,8 +4,8 @@ import { unzipSync, zipSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
 import { layerSceneV3 } from '../../../core/v3/test-fixtures.js'
 import { imageProject } from '../../../io/v3/test-fixtures.js'
-import { createCompositionContent } from '../../../shared/appearance/graph.js'
-import { createHistoryIdentity } from '../../../shared/history/identity.js'
+import { addPropAppearanceSource, createCompositionContent } from '../../../shared/appearance/graph.js'
+import { advanceHistoryIdentity, createHistoryIdentity } from '../../../shared/history/identity.js'
 import { normalizeStaticSvg } from '../../../shared/ai/svg.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
@@ -17,10 +17,13 @@ import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { emptyTerrainDocument } from '../../../shared/terrain-generation/compose.js'
 import { CONVERTER_VERSION, TARGET_FORMAT, type ConversionJob } from '../../../shared/migration/types.js'
-import { ProjectDatabase, PROJECT_STORES_V1 } from './database.js'
+import { ProjectDatabase, PROJECT_STORES_V1, PROJECT_TABLES } from './database.js'
+import { IncrementalHistory, readHistoryGraphVersion } from './incremental-history.js'
 import { ProjectRepository } from './repository.js'
 import type { NativeUpgradeTransfer, NativeUpgradeFamily, StoredNativeUpgradeCapsule } from './native-upgrade.js'
 import { decodeNativeUpgradeFile } from './native-upgrade-file.js'
+import { fromBundle, toBundle, type EditableProject } from '../../../application/workspace/project.js'
+import { prepareSurfaceRulesUpgrade } from '../../../application/workspace/surface-rules-upgrade.js'
 
 const NOW = '2026-10-26T00:00:00.000Z'
 let sequence = 0
@@ -71,6 +74,48 @@ function compositionTarget(source: ProjectBundle): ProjectBundle {
   project.historyIdentity = { ...project.historyIdentity, version: 3, lineageId: runtime.ids.nextId(), rootSceneId: document.sceneId, terrainTokens: {} }
   return { project, resources: source.resources }
 }
+async function surfaceRuleSource7(): Promise<EditableProject> {
+  const older = await imageFixture(), v4 = compositionTarget(target(older)), v5 = { project: cloneJson(v4.project), resources: v4.resources }
+  v5.project.schemaVersion = 5; v5.project.document.schemaVersion = 5
+  const v6 = { project: cloneJson(v5.project), resources: v5.resources }
+  v6.project.schemaVersion = 6; v6.project.document.schemaVersion = 6
+  v6.project.document.decorations = {}; v6.project.document.decorationClusters = {}
+  v6.project.historyIdentity = { ...v6.project.historyIdentity, version: 4, decorationTokens: {} }
+  const source = { project: cloneJson(v6.project), resources: v6.resources }, document = source.project.document, floorId = Object.keys(document.floors)[0]
+  const layerId = Object.values(document.userLayers).find(layer => layer.floorId === floorId)!.id
+  const image = document.assets['test-image'], licenseBinding = source.project.licenseBindings.find(row => row.subjectKind === 'asset' && row.subjectId === image.id)!
+  document.propDefinitions.definition = { id: 'definition', catalogId: 'test.canopy-tree', version: 1, licenseRef: image.licenseRef, origin: cloneJson(image.origin),
+    name: 'Original test tree', tags: ['tree'], defaultAppearance: { kind: 'image', assetId: image.id, tint: null, opacity: 1 },
+    defaultVisualBoundsMm: { x: -250, y: -250, width: 500, height: 500 }, defaultFootprintMm: { width: 300, height: 300 },
+    defaultFootprintOffsetMm: { x: 0, y: 0 }, defaultBlocksMovement: false, defaultBlocksSight: false, defaultRenderLayer: 'canopy', defaultShadowClass: 'vegetation' }
+  source.project.licenseBindings.push({ ...licenseBinding, subjectKind: 'propDefinition', subjectId: 'definition' })
+  document.props.item = { id: 'item', floorId, editLocked: false, definitionRef: { id: 'definition', version: 1 },
+    appearance: { kind: 'image', assetId: image.id, tint: null, opacity: 1 }, visualBoundsMm: { x: -250, y: -250, width: 500, height: 500 },
+    positionMm: { x: 16500, y: 13000 }, rotationDeg: 0, footprintMm: { width: 300, height: 300 }, footprintOffsetMm: { x: 0, y: 0 },
+    blocksMovement: false, blocksSight: false, visibility: 'public', supportRef: { kind: 'floor', id: floorId }, renderLayer: 'canopy',
+    renderOrder: 0, shadowClass: 'vegetation', shadowOverride: null }
+  document.entityLayers.item = layerId
+  const prop = document.props.item
+  source.project.appearance.propSources.item = addPropAppearanceSource(source.project.appearance, { definitionRef: prop.definitionRef,
+    appearance: prop.appearance, visualBoundsMm: prop.visualBoundsMm, shadowClass: prop.shadowClass, shadowOverride: prop.shadowOverride })
+  source.project.schemaVersion = 7; document.schemaVersion = 7
+  document.terrainAreas['tree-support'] = { id: 'tree-support', floorId, editLocked: false, visibility: 'public',
+    boundaryMm: [{ x: 15000, y: 12000 }, { x: 18000, y: 12000 }, { x: 18000, y: 14000 }, { x: 15000, y: 14000 }]
+      .map((positionMm, index) => ({ id: `native-tree-point-${index}`, segmentId: `native-tree-segment-${index}`, positionMm })),
+    groundElevationMm: 0, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
+  document.entityLayers['tree-support'] = layerId
+  document.props.item.supportRef = { kind: 'terrainArea', id: 'tree-support' }
+  document.decorationClusters!['tree-cluster'] = { id: 'tree-cluster', floorId, editLocked: true, visibility: 'public',
+    supportRef: { kind: 'terrainArea', id: 'tree-support' }, boundsMm: { x: 15000, y: 12000, width: 3000, height: 2000 },
+    seed: 'native-tree-seed', algorithmVersion: 'cluster-v1', palette: [{ key: 'tree', definitionRef: { id: 'definition', version: 1 }, kind: 'prop', weight: 1 }],
+    maxInstances: 4, spacingMm: 200, clusterRadiusMm: 1000, clearanceMm: 100,
+    members: { ['a'.repeat(64)]: { kind: 'prop', entityId: 'item', state: 'manual' } },
+    canopyRule: { regionsMm: [[{ x: 15500, y: 12200 }, { x: 17500, y: 12200 }, { x: 17500, y: 13800 }, { x: 15500, y: 13800 }]],
+      channel: 'trees', paintOrder: 3, mode: 'plant', canopyCoveragePpm: 250_000 } }
+  document.entityLayers['tree-cluster'] = layerId
+  source.project.historyIdentity = advanceHistoryIdentity(v6.project.historyIdentity, v6.project.document, document, runtime)
+  return fromBundle(source, validation)
+}
 function identityTombstones(source: ProjectBundle): ProjectBundle {
   const project = cloneJson(source.project), identity = project.historyIdentity
   identity.propTokens['deleted-prop'] = runtime.ids.nextId(); identity.prefabTokens['deleted-prefab'] = runtime.ids.nextId()
@@ -100,8 +145,10 @@ async function seedAllScopes(repo: ProjectRepository, initial = fixture()) {
   await repo.save(source, 0)
   const named = await repo.createSnapshot(source, 'Native named', { id: 'all-named', expectedRevision: 1, expectedMetadataVersion: 0 })
   await repo.createSnapshot(source, 'Native protection', { id: 'all-protection', kind: 'protection', expectedRevision: 1, expectedMetadataVersion: 1 })
-  const stored = (await repo.database.snapshots.get([owner, named.id]))!
-  await repo.database.importedSnapshots.add({ ...stored, id: 'all-imported', kind: 'imported-auto' })
+  const { bundle: _bundle, ...namedSummary } = named
+  await repo.database.transaction('rw', PROJECT_TABLES, async () => {
+    await new IncrementalHistory(repo.database).pin({ ...namedSummary, id: 'all-imported', kind: 'imported-auto' }, source.project)
+  })
   const binding = (await repo.database.resourceBindings.get([owner, 'named', named.id]))!
   await repo.database.resourceBindings.add({ ...binding, kind: 'imported-auto', recordId: 'all-imported' })
   const bytes = encodeUtf8('exact prior legacy original'), sourceHash = sha256Bytes(bytes)
@@ -168,6 +215,35 @@ afterEach(async () => {
 })
 
 describe('explicit native database schema2 and complete original-family preservation', () => {
+  it('preserves every immutable branch through v2 capsule/file export and a separate cold library', async () => {
+    const repo = repository(), initial = fixture(), owner = initial.project.document.sceneId
+    await repo.save(initial, null)
+    const firstId = (await repo.listHistoryVersions(owner)).activeVersionId!
+    const originalFuture = revision(initial, 1); await repo.save(originalFuture, 0)
+    const branch = revision(initial, 2); await repo.save(branch, 1, { historyParentId: firstId, historyParentHash: projectContentHash(initial.project) })
+    const targetProject = target(branch)
+    await repo.preserveNativeUpgrade(branch, targetProject)
+    const exported = await repo.exportNativeUpgradeCapsule(targetProject.project.document.sceneId)
+    expect(exported.version).toBe(2); expect(exported.capsule.version).toBe(2)
+    if (exported.capsule.version !== 2) throw new Error('test requires explicit v2 preservation')
+    const graph = exported.capsule.historyGraph
+    expect(graph.versions.filter(row => row.parentId === firstId)).toHaveLength(2)
+    const future = graph.versions.find(row => row.revision === 1)!
+    expect(readHistoryGraphVersion(graph, future.id)).toEqual(originalFuture.project)
+    const bytes = await repo.exportNativeUpgradeFile(targetProject.project.document.sceneId), files = unpackZip(bytes)
+    expect(JSON.parse(decodeUtf8(files['manifest.json'])).version).toBe(2)
+    expect(Object.keys(files).some(path => path.startsWith('history-deltas/'))).toBe(true)
+    const fresh = repository(); await fresh.importNativeUpgradeFile(bytes)
+    const cold = await repository(fresh.database.name).exportNativeUpgradeCapsule(targetProject.project.document.sceneId)
+    expect(cold).toEqual(exported)
+    if (cold.capsule.version !== 2) throw new Error('cold preserved graph missing')
+    expect(readHistoryGraphVersion(cold.capsule.historyGraph, future.id)).toEqual(originalFuture.project)
+    const corrupt: NativeUpgradeTransfer = { ...exported, capsule: { ...exported.capsule,
+      historyGraph: { ...graph, versions: graph.versions.filter(row => row.id !== firstId) } } }
+    const rejected = repository()
+    await expect(rejected.importNativeUpgradeCapsule(corrupt)).rejects.toThrow(/父版本缺失|版本缺失/)
+    await rejected.open(); expect(await rejected.database.nativeUpgradeCapsules.count()).toBe(0)
+  })
   it('incrementally adds the capsule store while retaining all exact native schema1 records', async () => {
     const seed = repository(); await seedAllScopes(seed, await imageFixture())
     const before = await sourceRows(seed), name = `native-schema1-${crypto.randomUUID()}`; names.add(name)
@@ -175,7 +251,7 @@ describe('explicit native database schema2 and complete original-family preserva
     for (const [table, rows] of Object.entries(before)) if (rows.length) await old.table(table).bulkAdd(rows)
     expect(old.backendDB().version).toBe(10); old.close()
     const upgraded = repository(name); await upgraded.open()
-    expect(upgraded.database.verno).toBe(2); expect(upgraded.database.backendDB().version).toBe(20)
+    expect(upgraded.database.verno).toBe(3); expect(upgraded.database.backendDB().version).toBe(30)
     expect(await sourceRows(upgraded)).toEqual(before)
     expect(await upgraded.database.nativeUpgradeCapsules.count()).toBe(0)
   })
@@ -214,6 +290,8 @@ describe('explicit native database schema2 and complete original-family preserva
     await repo.save(upgraded, null)
     expect((await repo.load(upgraded.project.document.sceneId))!.project).toEqual(upgraded.project)
   })
+  // Two full original-family preservation passes with real SVG/PNG bytes measured
+  // 5.5s serial on this suite's reference device; the 5s default cannot host them.
   it('preserves the strict v3 family, every identity pool and exact SVG/PNG/license bytes through v4 and its v2 ancestor', async () => {
     const repo = repository(undefined, svgValidation), older = await svgImageFixture(), initial = target(older)
     await repo.save(older, null); await repo.preserveNativeUpgrade(older, initial)
@@ -255,7 +333,7 @@ describe('explicit native database schema2 and complete original-family preserva
     expect((await repository(repo.database.name, svgValidation).load(upgraded.project.document.sceneId))!.project).toEqual(upgraded.project)
     expect((await repo.load(owner))!.project).toEqual(source.project)
     expect(decodeTransactions.every(value => !value)).toBe(true)
-  })
+  }, 20_000)
   it('exports/imports exact all-scope original families without installing source or target projects', async () => {
     const sourceRepo = repository(), { source, owner } = await seedAllScopes(sourceRepo, await imageFixture()), upgraded = target(source)
     await sourceRepo.preserveNativeUpgrade(source, upgraded)
@@ -282,6 +360,46 @@ describe('explicit native database schema2 and complete original-family preserva
     await repo.database.resources.clear()
     expect(await repo.listNativeUpgradeSummaries(upgraded.project.document.sceneId)).toEqual([summary])
     await expect(repo.exportNativeUpgradeFile(upgraded.project.document.sceneId)).rejects.toThrow(/缺失/)
+  })
+  it('cold-reads v6 source summaries after preserving and saving an independent v7 copy', async () => {
+    const repo = repository(), source = compositionTarget(target(await imageFixture()))
+    source.project.schemaVersion = 6; source.project.document.schemaVersion = 6
+    source.project.document.decorations = {}; source.project.document.decorationClusters = {}
+    source.project.historyIdentity = { ...source.project.historyIdentity, version: 4, decorationTokens: {} }
+    const upgraded: ProjectBundle = { project: cloneJson(source.project), resources: source.resources }
+    upgraded.project.schemaVersion = 7; upgraded.project.document.schemaVersion = 7
+    upgraded.project.document.sceneId = `canopy-target-${++sequence}`
+    upgraded.project.historyIdentity = { ...upgraded.project.historyIdentity, lineageId: runtime.ids.nextId(), rootSceneId: upgraded.project.document.sceneId }
+    await repo.save(source, null)
+    await repo.preserveNativeUpgrade(source, upgraded)
+    await repo.save(upgraded, null)
+    repo.close()
+    const cold = repository(repo.database.name), beforeDecodes = decodeTransactions.length
+    expect(await cold.listNativeUpgradeSummaries(upgraded.project.document.sceneId)).toEqual([{
+      capsuleId: expect.any(String), sourceSceneId: source.project.document.sceneId, sourceTitle: source.project.document.title,
+      sourceSchemaVersion: 6, sourceRevision: 0, sourceContentHash: projectContentHash(source.project),
+      targetSceneId: upgraded.project.document.sceneId, createdAt: NOW, automaticCount: 1, namedCount: 0, protectionCount: 0,
+      importedCount: 0, legacyOriginalCount: 0, parentCapsuleCount: 0,
+    }])
+    expect(decodeTransactions.length).toBe(beforeDecodes)
+    expect((await cold.load(source.project.document.sceneId))!.project).toEqual(source.project)
+    expect((await cold.load(upgraded.project.document.sceneId))!.project).toEqual(upgraded.project)
+  })
+  it('preserves v7 canopy sources through v8 summary cold-read and a portable original-family file', async () => {
+    const repo = repository(), source = await surfaceRuleSource7(), sourceId = source.document.sceneId, sourceHash = projectContentHash(toBundle(source).project)
+    await repo.save(toBundle(source), null)
+    const target = await prepareSurfaceRulesUpgrade(source, { runtime, validation })
+    await repo.preserveNativeUpgrade(toBundle(source), toBundle(target)); await repo.save(toBundle(target), null)
+    const summary = (await repo.listNativeUpgradeSummaries(target.document.sceneId))[0]
+    expect(summary).toMatchObject({ sourceSchemaVersion: 7, sourceSceneId: sourceId, sourceContentHash: sourceHash })
+    const transfer = await repo.exportNativeUpgradeCapsule(target.document.sceneId), bytes = await repo.exportNativeUpgradeFile(target.document.sceneId)
+    expect(transfer.capsule.family.current.project.schemaVersion).toBe(7)
+    expect(transfer.capsule.targetInitialProject.schemaVersion).toBe(8)
+    const imported = repository(); await imported.importNativeUpgradeFile(bytes)
+    const cold = await repository(imported.database.name)
+    expect((await cold.exportNativeUpgradeCapsule(target.document.sceneId)).capsule).toEqual(transfer.capsule)
+    expect(await cold.listNativeUpgradeSummaries(target.document.sceneId)).toEqual([summary])
+    expect(await cold.load(sourceId)).toBeNull(); expect(await cold.load(target.document.sceneId)).toBeNull()
   })
   it('roundtrips actual ZIP originals with resources, license text and exact legacy bytes through a fresh cold library', async () => {
     const sourceRepo = repository(), { source, owner, originalHash } = await seedAllScopes(sourceRepo, await imageFixture()), upgraded = target(source)
@@ -360,8 +478,9 @@ describe('explicit native database schema2 and complete original-family preserva
     older.project.schemaVersion = 1; older.project.document.schemaVersion = 1; delete older.project.document.visual
     await repo.save(older, null); await repo.save(source, null)
     const owner = older.project.document.sceneId
-    const prior = capsule({ current: (await repo.database.projects.get(owner))!, automatic: await repo.database.automaticSnapshots.where('ownerSceneId').equals(owner).toArray(),
-      snapshots: [], importedSnapshots: [], bindings: await repo.database.resourceBindings.where('ownerSceneId').equals(owner).toArray(),
+    const current = (await repo.database.projects.get(owner))!, currentBinding = (await repo.database.resourceBindings.get([owner, 'current', 'current']))!
+    const prior = capsule({ current, automatic: [{ ownerSceneId: owner, revision: current.revision, savedAt: current.savedAt, contentHash: current.contentHash, project: current.project }],
+      snapshots: [], importedSnapshots: [], bindings: [currentBinding, { ...currentBinding, kind: 'automatic', recordId: String(current.revision) }],
       metadata: (await repo.database.historyMetadata.get(owner))!, legacySources: [], conversionJobs: [] }, source)
     await repo.importNativeUpgradeCapsule({ format: 'sceneweave-native-upgrade-transfer', version: 1, capsule: prior, ancestors: [], resources: [], legacyBlobs: [], licenses: [] })
     const upgraded = target(source); await repo.preserveNativeUpgrade(source, upgraded)
@@ -374,10 +493,17 @@ describe('explicit native database schema2 and complete original-family preserva
     expect((await fresh.exportNativeUpgradeCapsule(source.project.document.sceneId)).capsule).toEqual(prior)
     expect(await fresh.list()).toEqual([])
   })
+  // Each variant cold-reads, exports, reimports and cold-rereads 105 complete
+  // projects; measured 5.2s (v2) / 6.7s (v3) serial, so the 5s default cannot host them.
   it.each([2, 3] as const)('preserves all 105 complete-v%s current/history records beyond the selective archive batch of 85', async version => {
     const repo = repository(), source = revision(version === 2 ? fixture() : target(fixture()), 19), owner = source.project.document.sceneId
     await repo.save(source, null)
     const baseBinding = (await repo.database.resourceBindings.get([owner, 'current', 'current']))!
+    // Seed the exact legacy schema2 row contract before exercising its complete
+    // copy migration. These original rows remain unchanged after activation.
+    await repo.database.historyHeads.delete(owner); await repo.database.historyVersions.where('ownerSceneId').equals(owner).delete()
+    await repo.database.automaticSnapshots.add({ ownerSceneId: owner, revision: 19, savedAt: NOW, contentHash: projectContentHash(source.project), project: source.project })
+    await repo.database.resourceBindings.add({ ...baseBinding, kind: 'automatic', recordId: '19' })
     for (let i = 0; i < 19; i++) {
       const automatic = revision(source, i)
       await repo.database.automaticSnapshots.add({ ownerSceneId: owner, revision: i, savedAt: NOW, contentHash: projectContentHash(automatic.project), project: automatic.project })
@@ -395,7 +521,7 @@ describe('explicit native database schema2 and complete original-family preserva
     expect(family.bindings).toHaveLength(105)
     const fresh = repository(); await fresh.importNativeUpgradeFile(await repo.exportNativeUpgradeFile(upgraded.project.document.sceneId))
     expect((await fresh.exportNativeUpgradeCapsule(upgraded.project.document.sceneId)).capsule.family).toEqual(family)
-  })
+  }, 20_000)
   it('rejects incomplete, altered or unknown transfer records before installing any capsule', async () => {
     const repo = repository(), { source } = await seedAllScopes(repo, await imageFixture()), upgraded = target(source)
     await repo.preserveNativeUpgrade(source, upgraded)

@@ -1,6 +1,6 @@
 import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
 import type { BoundsMm, Issue, PointMm, SceneDocument, TerrainArea, TerrainConnection, Visibility } from '../model/scene.js'
-import { corridor, openingEndpoints, pointInPolygon, polygonsOverlap, propFootprint, supportSurfaceAt, terrainPoints } from '../geometry/geometry.js'
+import { connectionFootprint, corridor, openingEndpoints, pointInPolygon, polygonsOverlap, propFootprint, supportSurfaceAt, terrainPoints } from '../geometry/geometry.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { visual3TransitionSchema, type TerrainTransition, type TerrainTransitionPolygon, type TerrainTransitionStroke } from '../terrain-generation/composition-contracts.js'
@@ -102,7 +102,7 @@ const classifyMaterial = (scene: SceneDocument, area: TerrainArea): SurfaceKind 
 }
 
 const sceneVisual3 = (scene: SceneDocument) => {
-  if (scene.schemaVersion !== 4 || scene.visual?.version !== 3) throw new Error('T10过渡必须在严格scene4/visual3工程中生成。')
+  if (![4, 5, 6, 7, 8].includes(scene.schemaVersion) || scene.visual?.version !== 3) throw new Error('地形过渡必须在严格scene4–8/visual3工程中生成。')
   return scene.visual
 }
 const visualBoundary = (scene: SceneDocument, id: string): VisualBoundary => {
@@ -200,7 +200,7 @@ export function terrainTransitionStrokePolygon(points: readonly PointMm[], width
   return area(result) < 0 ? result.reverse() : result
 }
 
-const connectionPolygon = (scene: SceneDocument, connection: TerrainConnection): Polygon => corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm + 2, true).map(qPoint)
+const connectionPolygon = (scene: SceneDocument, connection: TerrainConnection): Polygon => (connection.route ? connectionFootprint({ ...connection, widthMm: connection.widthMm + 2 }) : corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm + 2, true)).map(qPoint)
 function wallPolygon(scene: SceneDocument, wall: SceneDocument['walls'][string]): Polygon | undefined {
   const a = own(scene.vertices, wall.startVertexId), b = own(scene.vertices, wall.endVertexId); if (!a || !b) return undefined
   return corridor({ x: a.xMm, y: a.yMm }, { x: b.xMm, y: b.yMm }, wall.thicknessMm, true).map(qPoint)
@@ -212,17 +212,21 @@ function relevantConnection(scene: SceneDocument, boundary: VisualBoundary, conn
   return pointInPolygon(connection.from.positionMm, terrainPoints(from)) && pointInPolygon(connection.to.positionMm, terrainPoints(to))
 }
 
-function collectMasks(scene: SceneDocument, boundary: VisualBoundary, sources: { left: SourceSide; right: SourceSide }, influence: Polygon): { masks: Mask[]; sourceIds: string[] } {
-  const sourceIds = new Set([sources.left.sourceId, sources.right.sourceId]), masks: Mask[] = [], sourceRecords: string[] = []
+function collectMasks(scene: SceneDocument, boundary: VisualBoundary, sources: { left: SourceSide; right: SourceSide }, influence: Polygon): { masks: Mask[]; sourceIds: string[]; entityIds: string[] } {
+  const sourceIds = new Set([sources.left.sourceId, sources.right.sourceId]), masks: Mask[] = [], sourceRecords: string[] = [], entityIds = new Set<string>()
   for (const connection of Object.values(scene.terrainConnections).sort((a, b) => a.id.localeCompare(b.id))) {
     if (!relevantConnection(scene, boundary, connection, sourceIds) || connection.blocksMovement) continue
     const polygon = connectionPolygon(scene, connection); if (!polygon.length || !polygonsOverlap(polygon, influence)) continue
     if (connection.visibility === 'gm' && boundary.visibility === 'public') throw new Error(`公开过渡依赖GM连接：${connection.id}`)
+    entityIds.add(connection.id)
     masks.push({ id: connection.id, visibility: connection.visibility, polygon, kind: 'opening' }); sourceRecords.push(`opening:${connection.id}:${hash(connection)}`)
   }
   for (const wall of Object.values(scene.walls).sort((a, b) => a.id.localeCompare(b.id))) {
     if (wall.floorId !== boundary.floorId || (!wall.blocksMovement && !wall.blocksSight)) continue
     const polygon = wallPolygon(scene, wall); if (!polygon || !polygonsOverlap(polygon, influence)) continue
+    // The wall remains a real read/hash dependency even if its actual openings
+    // remove every solid piece and therefore leave no mask polygon.
+    entityIds.add(wall.id)
     const openings = Object.values(scene.openings).filter(opening => opening.wallId === wall.id && (opening.state === 'open' || opening.kind === 'window') && (!opening.secret || opening.revealed)).sort((a, b) => a.id.localeCompare(b.id))
     let pieces: MultiPolygon = [[polygon.map(p => [p.x, p.y] as [number, number])]]
     for (const opening of openings) {
@@ -240,15 +244,30 @@ function collectMasks(scene: SceneDocument, boundary: VisualBoundary, sources: {
     if (prop.floorId !== boundary.floorId || (!prop.blocksMovement && !prop.blocksSight)) continue
     const polygon = propFootprint(prop).map(qPoint); if (!polygon.length || !polygonsOverlap(polygon, influence)) continue
     if (prop.visibility === 'gm' && boundary.visibility === 'public') throw new Error(`公开过渡依赖GM物件：${prop.id}`)
+    entityIds.add(prop.id)
     masks.push({ id: prop.id, visibility: prop.visibility, polygon, kind: 'obstacle' }); sourceRecords.push(`prop:${prop.id}:${hash(prop)}`)
   }
   for (const region of Object.values(scene.regions).sort((a, b) => a.id.localeCompare(b.id))) {
     if (region.floorId !== boundary.floorId || !region.blocksMovement) continue
     const polygon = region.boundaryMm.map(qPoint); if (!polygon.length || !polygonsOverlap(polygon, influence)) continue
     if (region.visibility === 'gm' && boundary.visibility === 'public') throw new Error(`公开过渡依赖GM区域：${region.id}`)
+    entityIds.add(region.id)
     masks.push({ id: region.id, visibility: region.visibility, polygon, kind: 'obstacle' }); sourceRecords.push(`region:${region.id}:${hash(region)}`)
   }
-  return { masks, sourceIds: sourceRecords.sort() }
+  return { masks, sourceIds: sourceRecords.sort(), entityIds: [...entityIds].sort() }
+}
+
+/** The exact current physical/visual read closure used by materialization.
+ * In particular, a single bound side can resolve an unbound neighbouring area,
+ * and a wall with no surviving solid mask still participates in the source.
+ * Callers expand each returned entity's attached dependencies/locks as usual. */
+export function terrainTransitionDependencyIds(scene: SceneDocument, row: TerrainTransition): string[] {
+  const boundary = visualBoundary(scene, row.boundaryId), sampled = sampleVisualBoundary(boundary), sources = resolveSources(scene, boundary, sampled)
+  const influence = boundsPolygon(expandBounds(row.distanceSource.clipMm, row.widthMm)).map(qPoint)
+  const collected = collectMasks(scene, boundary, sources, influence), ids = new Set([boundary.id, ...collected.entityIds])
+  for (const side of [sources.left, sources.right]) if (side.area) ids.add(side.area.id)
+  if (boundary.binding.kind === 'path') ids.add(boundary.binding.pathId)
+  return [...ids].sort()
 }
 
 function ensureRange(request: TerrainTransitionRequest, boundary: VisualBoundary, sampled: SampledBoundary, floorBounds: BoundsMm): { widthMm: number; reachMm: number; spacing: number } {

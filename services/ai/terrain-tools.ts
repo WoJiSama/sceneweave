@@ -1,3 +1,4 @@
+import { authoringCreatedIds } from './authoring-grant.js'
 import { z } from 'zod'
 import { applyAuthoringStep, publicAuthoringContext, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import { TerrainAuthoringOperationSchema, TerrainCandidatesArgumentsSchema, TerrainApplyArgumentsSchema, RegionSceneCandidateArgumentsSchema } from '../../src/shared/ai/terrain-protocol.js'
@@ -61,7 +62,7 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
       install: () => { authoring.state = result.state; authoring.terrainCandidates = [] } }
   }
   if (call.name === 'sceneweave_region_scene_candidate') {
-    const parsed = RegionSceneCandidateArgumentsSchema.parse(args), replayed = replayAuthoring(authoring.start, authoring.state.steps), allowed = new Set([...scope.entityIds, ...authoring.state.changedIds])
+    const parsed = RegionSceneCandidateArgumentsSchema.parse(args), replayed = replayAuthoring(authoring.start, authoring.state.steps), allowed = new Set([...scope.entityIds, ...authoringCreatedIds(authoring)])
     const result = regionalSceneCandidate(replayed.project, scope, allowed, parsed.request)
     if (utf8Size(JSON.stringify(result)) > 524288) throw new Error('操作预算上限')
     const candidateHash = result.hash, candidateId = `regional-scene-${candidateHash}`

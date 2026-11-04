@@ -7,7 +7,7 @@ import type { SceneDocument } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { createEmptyGeneration, createEmptyRegional } from '../terrain-generation/contracts.js'
-import { assertFixedProjectCompatible } from './history.js'
+import { assertFixedProjectCompatible, assertFixedProjectFamilyCompatible, hasAddedFixedProjectDefinitions } from './history.js'
 
 let sequence = 0
 function fixture(): ProjectData {
@@ -18,6 +18,46 @@ function fixture(): ProjectData {
 }
 
 describe('fixed native-v3 definitions retain exact historical meaning', () => {
+  it('compares old family meanings even when current removed the shared fixed identity', () => {
+    const first = fixture(), current = cloneJson(first), conflicting = cloneJson(first)
+    const id = Object.keys(first.appearance.sources)[0]
+    delete current.appearance.sources[id]; delete current.appearance.presentations![id]
+    const source = conflicting.appearance.sources[id]
+    if (source.kind !== 'prop') throw new Error('test needs prop source')
+    source.snapshot.appearance.opacity = .5
+    expect(() => assertFixedProjectCompatible(current, first)).not.toThrow()
+    expect(() => assertFixedProjectCompatible(current, conflicting)).not.toThrow()
+    expect(() => assertFixedProjectFamilyCompatible([current, first, conflicting])).toThrow(/固定来源/)
+    expect(() => assertFixedProjectFamilyCompatible([conflicting, current, first])).toThrow(/固定来源/)
+  })
+  it('detects new fixed identities across every supported namespace without flagging an ordinary move', () => {
+    const previous = fixture(), moved = cloneJson(previous)
+    moved.document.props.item.positionMm.x += 100
+    expect(hasAddedFixedProjectDefinitions(previous, moved)).toBe(false)
+    for (const key of ['sources', 'variants', 'prefabAppearanceTemplates', 'presentations'] as const) {
+      const candidate = cloneJson(previous)
+      ;(candidate.appearance[key] as Record<string, unknown>)['new-id'] = { id: 'new-id' }
+      expect(hasAddedFixedProjectDefinitions(previous, candidate), key).toBe(true)
+    }
+    for (const key of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) {
+      const candidate = cloneJson(previous)
+      ;(candidate.document[key] as Record<string, unknown>)['new-id'] = { id: 'new-id' }
+      expect(hasAddedFixedProjectDefinitions(previous, candidate), key).toBe(true)
+    }
+    const recipe = cloneJson(previous)
+    ;(getLegacyGeneration(recipe.document)!.recipes as Record<string, unknown>)['new-recipe'] = { id: 'new-recipe' }
+    expect(hasAddedFixedProjectDefinitions(previous, recipe)).toBe(true)
+    const regional = cloneJson(previous); regional.document.regional = createEmptyRegional()
+    expect(hasAddedFixedProjectDefinitions(previous, regional)).toBe(true)
+    const nextProfile = cloneJson(regional); nextProfile.document.regional!.profile.version++
+    expect(hasAddedFixedProjectDefinitions(regional, nextProfile)).toBe(true)
+    const nextSymbol = cloneJson(regional)
+    ;(nextSymbol.document.regional!.symbolDefinitions as Record<string, unknown>)['new-symbol'] = { id: 'new-symbol' }
+    expect(hasAddedFixedProjectDefinitions(regional, nextSymbol)).toBe(true)
+    const authoring = cloneJson(previous)
+    ;(authoring.authoringSources as Record<string, unknown>)['new-source'] = { id: 'new-source' }
+    expect(hasAddedFixedProjectDefinitions(previous, authoring)).toBe(true)
+  })
   it('rejects changed presentation metadata under the same fixed appearance source', () => {
     const source = fixture(), sourceId = Object.keys(source.appearance.sources)[0]
     source.appearance.presentations![sourceId] = { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null }

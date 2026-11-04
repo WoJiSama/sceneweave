@@ -14,7 +14,7 @@ const blank = (widthMm = 24000, heightMm = 18000) => createRefinedBlankDocument(
 const input = () => ({ requestId: 'base-map-request', workspaceSceneId: 'open-workspace', checkpoint: 7,
   operationEpoch: 3, base: blank(), generation: { kind: 'terrain' as const,
     input: { sceneId: 'base-map-scene', kind: 'island' as const, seed: TERRAIN_FIXED_SEEDS[0] } } })
-const compositionInput = (recipeVersion?: 1 | 2) => ({ ...input(), base: blank(48000, 36000),
+const compositionInput = (recipeVersion?: 1 | 2 | 3) => ({ ...input(), base: blank(48000, 36000),
   generation: { kind: 'composition' as const, input: { sceneId: 'base-map-scene', seed: 'composition-fixed',
     preset: 'archipelago' as const, widthMm: 48000, heightMm: 36000,
     ...(recipeVersion === undefined ? {} : { recipeVersion }) } } })
@@ -41,7 +41,7 @@ describe('pure program base-map wire protocol', () => {
     expect(prepareBaseMapRequest(reverse).inputHash).toBe(request.inputHash)
   })
 
-  it.each([1, 2] as const)('keeps explicit terrain algorithm %i and exact old/new domain output', version => {
+  it.each([1, 2, 3] as const)('keeps explicit terrain algorithm %i and exact old/new domain output', version => {
     const raw = input(); Object.assign(raw.generation.input, { algorithmVersion: version })
     const request = prepareBaseMapRequest(raw), response = executeBaseMapRequest(request)
     expect(request.algorithm).toEqual({ id: 'terrain-scene', version, recipeVersion: version })
@@ -64,7 +64,7 @@ describe('pure program base-map wire protocol', () => {
     expect(() => prepareBaseMapRequest(forest)).toThrow()
   })
 
-  it.each([undefined, 2] as const)('keeps composition recipe %s and complete raw materialization with actual metadata cost', version => {
+  it.each([undefined, 2, 3] as const)('keeps composition recipe %s and complete raw materialization with actual metadata cost', version => {
     const request = prepareBaseMapRequest(compositionInput(version)), response = executeBaseMapRequest(request)
     expect(request.algorithm).toEqual({ id: 'terrain-compose', version: 1, recipeVersion: version ?? 1 })
     if (request.generation.kind !== 'composition' || response.result.kind !== 'composition') throw new Error('test shape')

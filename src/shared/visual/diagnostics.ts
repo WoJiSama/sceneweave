@@ -112,7 +112,7 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
       const target = VISUAL_FILTER_TARGET_COLLECTIONS.flatMap(collection => {
         const value = own(scene[collection] as Record<string, Editable>, id)
         return value && !(collection === 'regions' && scene.regions[id].kind === 'manualMask') ? [value] : []
-      })[0]
+      })[0] ?? scene.decorations?.[id] ?? scene.decorationClusters?.[id]
       if (!target || target.floorId !== filter.floorId) add('VISUAL_FILTER', '滤镜实体目标不存在、跨Floor或类型尚未支持。', filter.id)
     }
   }

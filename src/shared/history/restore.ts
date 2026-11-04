@@ -109,6 +109,7 @@ function owner(scene: SceneDocument, propId: string): { group: PrefabInstance; k
   return undefined
 }
 function assertSupportedDependencies(scene: SceneDocument, entityId: string, label: string) {
+  if (Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.entityId === entityId && member.state !== 'deleted' && member.state !== 'detached'))) throw new Error(`${label}对象 ${entityId} 属于簇状布景；此有限恢复不隐式展开簇的人工记录，请使用明确独立历史或完整版本恢复。`)
   if (Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === entityId))) throw new Error(`${label}对象 ${entityId} 属于散布；本次恢复不隐式展开散布和排除记录。`)
   if (Object.values(scene.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === entityId)) throw new Error(`${label}对象 ${entityId} 有锚点注记依赖，不能在此恢复。`)
   if (scene.constraints.pathChecks.some(check => [check.from, check.to].some(anchor => anchor.type === 'entity' && anchor.entityId === entityId))) throw new Error(`${label}对象 ${entityId} 有路径检查依赖，不能在此恢复。`)
@@ -381,10 +382,20 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     const present = current.document[collection][targetId], historical = historic.document[collection][targetId]
     if (present.floorId !== historical.floorId) throw new Error('室外对象Floor变化，不能恢复。')
     const keys: string[] = collection === 'terrainAreas' ? ['boundaryMm', 'groundElevationMm'] : collection === 'terrainConnections' ? ['from', 'to', 'widthMm'] : collection === 'paths' ? ['centerlineMm', 'widthMm'] : []
+    if (collection === 'terrainConnections' && current.document.schemaVersion >= 5 && ('route' in present || 'route' in historical)) keys.push('route')
     if (request.mode === 'outdoorProperties') keys.push(...(collection === 'terrainAreas' ? ['visibility', 'coveragePriority', 'blocksMovement', 'blocksSight', 'movementCostMultiplier'] : collection === 'terrainEdges' ? ['visibility', 'kind', 'shoreline', 'blocksMovement', 'blocksSight', 'styleOverride'] : collection === 'terrainConnections' ? ['visibility', 'kind', 'blocksMovement', 'movementCostMultiplier'] : ['visibility', 'movementCostMultiplier', 'renderOrder']))
     if (!keys.length) throw new Error('来源边缘的位置由来源地形段决定；请恢复来源地形，或明确选择边缘业务属性。')
     const before = present as unknown as Record<string, unknown>, source = historical as unknown as Record<string, unknown>, after = candidate.document[collection][targetId] as unknown as Record<string, unknown>
-    for (const key of keys) after[key] = copy(source[key])
+    for (const key of keys) {
+      if (key === 'route') {
+        const historicalRoute = current.document.terrainConnections[targetId] && historic.document.terrainConnections[targetId]?.route
+        const currentRoute = current.document.terrainConnections[targetId]?.route
+        if (historicalRoute) after.route = request.mode === 'outdoorGeometry' && currentRoute
+          ? { ...copy(historicalRoute), stairStyle: currentRoute.stairStyle, treadDepthMm: currentRoute.treadDepthMm }
+          : copy(historicalRoute)
+        else delete after.route
+      } else after[key] = copy(source[key])
+    }
     addChange({ id: targetId, kind: 'outdoor', name: targetId, action: 'update', layerId: current.document.entityLayers[targetId], beforeLayerId: current.document.entityLayers[targetId], fields: keys,
       before: Object.fromEntries(keys.map(key => [key, copy(before[key])])), after: Object.fromEntries(keys.map(key => [key, copy(after[key])])) })
   }

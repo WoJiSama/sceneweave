@@ -44,25 +44,57 @@ function captureArchive(input: HistoryArchive): HistoryArchive {
 }
 /** One fixed source/version has exactly one meaning throughout selected history. */
 export function assertFixedProjectCompatible(left: ProjectData, right: ProjectData): void {
-  const compare = (a: Record<string, unknown>, b: Record<string, unknown>) => {
-    for (const [id, value] of Object.entries(a)) if (Object.hasOwn(b, id) && canonicalJson(value) !== canonicalJson(b[id])) throw new Error(`固定来源或定义冲突：${id}。`)
+  assertFixedProjectFamilyCompatible([left, right])
+}
+type FixedDefinition = { namespace: string; id: string; value: unknown; message?: string }
+function* fixedProjectDefinitions(project: ProjectData): Generator<FixedDefinition> {
+  function* records(namespace: string, rows: Record<string, unknown>): Generator<FixedDefinition> {
+    for (const [id, value] of Object.entries(rows)) yield { namespace, id, value }
   }
-  for (const key of ['sources', 'variants', 'prefabAppearanceTemplates'] as const) compare(left.appearance[key], right.appearance[key])
-  // A presentation belongs to the immutable source snapshot, not to an editable instance.
-  compare(left.appearance.presentations ?? {}, right.appearance.presentations ?? {})
-  if (left.appearance.version === 2 && right.appearance.version === 2) for (const sourceId of Object.keys(left.appearance.sources)) {
-    if (Object.hasOwn(right.appearance.sources, sourceId)
-      && Object.hasOwn(left.appearance.presentations ?? {}, sourceId) !== Object.hasOwn(right.appearance.presentations ?? {}, sourceId)) throw new Error(`固定来源的表现记录不可添加或移除：${sourceId}。`)
+  for (const key of ['sources', 'variants', 'prefabAppearanceTemplates'] as const) yield* records(`appearance.${key}`, project.appearance[key])
+  yield* records('appearance.presentations', project.appearance.presentations ?? {})
+  // Older envelopes do not assert whether a v2 presentation is present.
+  if (project.appearance.version === 2) for (const id of Object.keys(project.appearance.sources)) yield {
+    namespace: 'appearance.presentationPresence', id, value: Object.hasOwn(project.appearance.presentations ?? {}, id),
+    message: `固定来源的表现记录不可添加或移除：${id}。`,
   }
-  for (const key of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) compare(left.document[key], right.document[key])
-  compare(getLegacyGeneration(left.document)?.recipes ?? {}, getLegacyGeneration(right.document)?.recipes ?? {})
-  compare(left.document.regional?.symbolDefinitions ?? {}, right.document.regional?.symbolDefinitions ?? {})
-  const leftProfile = left.document.regional?.profile, rightProfile = right.document.regional?.profile
-  // Explicit profile edits select a fresh fixed style version. Merely reopening,
-  // importing or restoring history must not redefine the same id/version pair.
-  if (leftProfile && rightProfile && leftProfile.id === rightProfile.id && leftProfile.version === rightProfile.version
-    && canonicalJson(leftProfile) !== canonicalJson(rightProfile)) throw new Error(`固定制图样式版本冲突：${leftProfile.id}@${leftProfile.version}。`)
-  compare(left.authoringSources, right.authoringSources)
+  for (const key of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) yield* records(`document.${key}`, project.document[key])
+  yield* records('generation.recipes', getLegacyGeneration(project.document)?.recipes ?? {})
+  yield* records('regional.symbolDefinitions', project.document.regional?.symbolDefinitions ?? {})
+  const profile = project.document.regional?.profile
+  if (profile) yield { namespace: 'regional.profile', id: JSON.stringify([profile.id, profile.version]), value: profile,
+    message: `固定制图样式版本冲突：${profile.id}@${profile.version}。` }
+  yield* records('authoringSources', project.authoringSources)
+}
+/** A newly visible identity may have existed on a retained branch before it was removed. */
+export function hasAddedFixedProjectDefinitions(previous: ProjectData, candidate: ProjectData): boolean {
+  const identities = new Map<string, Set<string>>()
+  for (const { namespace, id } of fixedProjectDefinitions(previous)) {
+    let ids = identities.get(namespace)
+    if (!ids) { ids = new Set(); identities.set(namespace, ids) }
+    ids.add(id)
+  }
+  for (const { namespace, id } of fixedProjectDefinitions(candidate)) if (!identities.get(namespace)?.has(id)) return true
+  return false
+}
+/** Keeps only fixed meanings, never a synthetic project or complete historical state. */
+export function createFixedProjectFamilyCheck(): (project: ProjectData) => void {
+  const meanings = new Map<string, Map<string, string>>()
+  const observe = (namespace: string, id: string, value: unknown, message = `固定来源或定义冲突：${id}。`) => {
+    let rows = meanings.get(namespace)
+    if (!rows) { rows = new Map(); meanings.set(namespace, rows) }
+    const meaning = canonicalJson(value), previous = rows.get(id)
+    if (previous !== undefined && previous !== meaning) throw new Error(message)
+    rows.set(id, meaning)
+  }
+  return project => {
+    for (const { namespace, id, value, message } of fixedProjectDefinitions(project)) observe(namespace, id, value, message)
+  }
+}
+/** Linear in the fixed definitions across every retained branch, even when current content removed an old ID. */
+export function assertFixedProjectFamilyCompatible(projects: Iterable<ProjectData>): void {
+  const include = createFixedProjectFamilyCheck()
+  for (const project of projects) include(project)
 }
 
 export async function validateHistoryArchive(input: HistoryArchive, options: CompleteValidationOptions): Promise<HistoryArchive> {
@@ -82,12 +114,11 @@ export async function validateHistoryArchive(input: HistoryArchive, options: Com
   validateHistoryIdentity(identity, archive.current.project.document)
   archive.current = { project: { ...archive.current.project, historyIdentity: identity }, resources: archive.current.resources }
   const projects = [archive.current.project, ...archive.snapshots.map(snapshot => snapshot.bundle.project)]
+  assertFixedProjectFamilyCompatible(projects)
   const imageRecords = new Map<string, AssetRecord>(), licenses = new Map<string, string>(), sources = new Map<string, number>()
   for (let i = 0; i < projects.length; i++) {
     const project = projects[i]
     for (const value of [project.document, project.historyIdentity, project.appearance, project.authoringSources]) bytes += encodeUtf8(canonicalJson(value)).length
-    if (i) assertFixedProjectCompatible(archive.current.project, project)
-    for (let j = 1; j < i; j++) assertFixedProjectCompatible(projects[j], project)
     for (const [hash, record] of Object.entries(project.assets)) {
       const existing = imageRecords.get(hash)
       if (existing && canonicalJson(existing) !== canonicalJson(record)) throw new Error('同hash图片元数据冲突。')

@@ -157,7 +157,17 @@ describe('native complete-v1 scene rules and legacy equivalence', () => {
   it('preserves complete GM and player projections for representative indoor and elevated outdoor scenes', () => {
     for (const legacy of [layers(createStudyDocument()), layers(createIslandDocument())]) {
       const source = native(legacy), before = structuredClone(source)
-      for (const audience of ['gm', 'player'] as const) expect(projectScene(source, audience)).toEqual(projectSceneV3(legacy, audience))
+      for (const audience of ['gm', 'player'] as const) {
+        const historical = projectSceneV3(legacy, audience)
+        // Native cliff openings already carry explicit support IDs. Preserve
+        // every legacy field and assert this native metadata, rather than
+        // requiring the frozen legacy DTO to acquire a new render field.
+        const connections = historical.connections.map(connection => ({ ...connection, surfaceIds: [
+          source.terrainConnections[connection.id].from.surfaceRef.id,
+          source.terrainConnections[connection.id].to.surfaceRef.id,
+        ] }))
+        expect(projectScene(source, audience)).toEqual({ ...historical, connections })
+      }
       expect(source).toEqual(before)
     }
   })

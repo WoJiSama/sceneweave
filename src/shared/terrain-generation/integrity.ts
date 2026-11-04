@@ -58,7 +58,12 @@ export function resolveGenerationEntity(input: SceneDocument, ref: GenerationRef
 }
 export function resolveGenerationTarget(input: SceneDocument, ref: GenerationReference): Record<string, unknown> | null {
   const target = resolveGenerationEntity(input, ref)
-  return target && Object.fromEntries(fields[ref.fieldGroup].filter(key => Object.hasOwn(target, key)).map(key => [key, target[key]]))
+  if (!target) return null
+  const selected = Object.fromEntries(fields[ref.fieldGroup].filter(key => Object.hasOwn(target, key)).map(key => [key, target[key]]))
+  // Only the new strict scene permits route. Missing keys keep every old rule
+  // input/output hash unchanged, including through the legacy metadata view.
+  if (ref.kind === 'terrainConnection' && (ref.fieldGroup === 'geometry' || ref.fieldGroup === 'properties') && Object.hasOwn(target, 'route')) selected.route = target.route
+  return selected
 }
 export function generationInputHash(input: SceneDocument, rule: GenerationRule): string {
   const doc = terrain(input)
@@ -299,7 +304,7 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
 /** Ordinary manual edits preserve results and explicitly stop affected generation; never rebuild geometry. */
 export type GenerationAppearanceChange = Omit<GenerationReference, 'fieldGroup'> & { fieldGroup: 'appearance' | 'surface' | 'source' }
 export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: SceneDocument, appearanceChanges: readonly GenerationAppearanceChange[] = []): number {
-  if (![3, 4].includes(beforeInput.schemaVersion) || ![3, 4].includes(nextInput.schemaVersion)) return 0
+  if (![3, 4, 5, 6, 7, 8].includes(beforeInput.schemaVersion) || ![3, 4, 5, 6, 7, 8].includes(nextInput.schemaVersion)) return 0
   const before = terrain(beforeInput), originalGeneration = getLegacyGeneration(nextInput)!
   // Write the owned legacy partition into the real candidate, never save the compatibility view.
   const replaceGeneration = (generation: GenerationSystem1) => {

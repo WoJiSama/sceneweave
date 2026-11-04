@@ -2,8 +2,10 @@ import {
   BASE_MAP_LIMITS, prepareBaseMapRequest, parseBaseMapResponse, type BaseMapRequest, type BaseMapResponse,
 } from '../../../shared/terrain-generation/base-map.js'
 import { parseBaseMapRequestV2, parseBaseMapResponseV2, type BaseMapRequestV2, type BaseMapResponseV2 } from '../../../shared/terrain-generation/base-map-v2.js'
+import { BASE_MAP_V3_LIMITS, parseBaseMapRequestV3, parseBaseMapResponseV3, type BaseMapRequestV3, type BaseMapResponseV3 } from '../../../shared/terrain-generation/base-map-v3.js'
 import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
-import { AiClient, normalizeAiBaseUrl, supportsContinuation } from '../ai/client.js'
+import { requiredBaseMapSelector, requiredSurfaceRecipeVersion } from '../../../shared/ai/protocol.js'
+import { AiClient, normalizeAiBaseUrl, supportsBaseMapSelector, supportsContinuation } from '../ai/client.js'
 
 const MAX_RESPONSE_BYTES = BASE_MAP_LIMITS.resultBytes + 4096
 
@@ -21,14 +23,14 @@ export interface BaseMapGenerationClientOptions {
 }
 export interface BaseMapGenerationRunOptions {
   signal?: AbortSignal
-  isCurrent?: (request: BaseMapRequest | BaseMapRequestV2) => boolean
+  isCurrent?: (request: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3) => boolean
   onExecution?: (execution: BaseMapGenerationExecution) => void
   /** Used only for this explicit request; never persisted or used as a fallback. */
   server?: { baseUrl: string; token: string }
 }
 export interface BaseMapGenerationExecution { startedAt: string; activeRuntimeMs: number; generationCalls: number }
 export interface BaseMapGenerationClient {
-  generate: (request: BaseMapRequest | BaseMapRequestV2, options?: BaseMapGenerationRunOptions) => Promise<BaseMapResponse | BaseMapResponseV2>
+  generate: (request: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3, options?: BaseMapGenerationRunOptions) => Promise<BaseMapResponse | BaseMapResponseV2 | BaseMapResponseV3>
   cancel: () => void
   dispose: () => void
 }
@@ -49,11 +51,11 @@ const serverError = (status: number) => new BaseMapGenerationClientError('genera
           : status >= 500 ? '程序底图服务暂时不可用，请检查后端状态；未自动重发。'
             : '后端未接受程序底图请求，请检查输入和连接配置。')
 
-function captureRequest(raw: BaseMapRequest | BaseMapRequestV2): BaseMapRequest | BaseMapRequestV2 {
+function captureRequest(raw: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3): BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3 {
   const captured = captureJson(raw)
   const text = canonicalJson(captured)
-  if (encodeUtf8(text).byteLength > BASE_MAP_LIMITS.requestBytes) throw new Error('request limit')
-  const request = captured.version === 2 ? parseBaseMapRequestV2(captured) : prepareBaseMapRequest({ requestId: captured.requestId, workspaceSceneId: captured.workspaceSceneId,
+  if (encodeUtf8(text).byteLength > (captured.version === 3 ? BASE_MAP_V3_LIMITS.requestBytes : BASE_MAP_LIMITS.requestBytes)) throw new Error('request limit')
+  const request = captured.version === 3 ? parseBaseMapRequestV3(captured) : captured.version === 2 ? parseBaseMapRequestV2(captured) : prepareBaseMapRequest({ requestId: captured.requestId, workspaceSceneId: captured.workspaceSceneId,
     checkpoint: captured.checkpoint, operationEpoch: captured.operationEpoch, base: captured.base, generation: captured.generation })
   // Rebuilding only verifies an already prepared envelope: it must not silently
   // repair an old hash, change an algorithm selector, or ignore extra fields.
@@ -62,7 +64,7 @@ function captureRequest(raw: BaseMapRequest | BaseMapRequestV2): BaseMapRequest 
 }
 
 /** Count received bytes, including UTF-8 and whitespace, rather than trusting a header or decoded string length. */
-async function boundedResponseText(response: Response, signal: AbortSignal): Promise<string> {
+async function boundedResponseText(response: Response, signal: AbortSignal, maximumBytes = MAX_RESPONSE_BYTES): Promise<string> {
   const reader = response.body?.getReader()
   if (!reader) throw protocolError()
   const chunks: Uint8Array[] = []; let size = 0
@@ -75,7 +77,7 @@ async function boundedResponseText(response: Response, signal: AbortSignal): Pro
       if (signal.aborted) throw abortError()
       if (part.done) break
       size += part.value.byteLength
-      if (size > MAX_RESPONSE_BYTES) throw protocolError()
+      if (size > maximumBytes) throw protocolError()
       chunks.push(part.value)
     }
     const bytes = new Uint8Array(size); let offset = 0
@@ -101,7 +103,7 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
     cancel()
     if (disposed) throw new BaseMapGenerationClientError('disposed', '程序底图生成面板已关闭。')
     if (runOptions.signal?.aborted) throw abortError()
-    let request: BaseMapRequest | BaseMapRequestV2
+    let request: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3
     try { request = captureRequest(raw) }
     catch { throw new BaseMapGenerationClientError('invalid_input', '程序底图请求或基线无效，请重新准备预览。') }
     const current = () => {
@@ -117,14 +119,15 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
         server = { baseUrl: normalizeAiBaseUrl(baseUrl), token: token.trim() }
       } catch { throw new BaseMapGenerationClientError('configuration', '请填写有效的后端地址和应用凭据。') }
     }
-    const flow = request.version === 2 ? request.flowId : request.requestId
+    const flow = request.version === 2 || request.version === 3 ? request.flowId : request.requestId
+    const maximumResponseBytes = request.version === 3 ? BASE_MAP_V3_LIMITS.resultBytes + 4096 : MAX_RESPONSE_BYTES
     const startedAt = new Date().toISOString(), startedAtMs = performance.now()
     const execution = executions.get(flow) ?? { startedAt, activeRuntimeMs: 0, generationCalls: 0 }
     executions.set(flow, execution)
-    return new Promise<BaseMapResponse | BaseMapResponseV2>((resolve, reject) => {
+    return new Promise<BaseMapResponse | BaseMapResponseV2 | BaseMapResponseV3>((resolve, reject) => {
       let settled = false, worker: BaseMapWorker | undefined, timer: ReturnType<typeof setTimeout> | undefined
       const controller = new AbortController(), job = { cancel: () => finish(abortError()) }
-      function finish(failure?: Error, response?: BaseMapResponse | BaseMapResponseV2): void {
+      function finish(failure?: Error, response?: BaseMapResponse | BaseMapResponseV2 | BaseMapResponseV3): void {
         if (settled) return
         settled = true
         if (active === job) active = null
@@ -146,9 +149,9 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
         if (!current()) { finish(staleError()); return }
         try {
           const captured = captureJson(rawResponse)
-          if (encodeUtf8(canonicalJson(captured)).byteLength > MAX_RESPONSE_BYTES) throw protocolError()
+          if (encodeUtf8(canonicalJson(captured)).byteLength > maximumResponseBytes) throw protocolError()
           if (captured && typeof captured === 'object' && 'type' in captured && captured.type === 'error') { finish(generationError()); return }
-          const response = freezeJson(request.version === 2 ? parseBaseMapResponseV2(request, captured) : parseBaseMapResponse(request, captured))
+          const response = freezeJson(request.version === 3 ? parseBaseMapResponseV3(request, captured) : request.version === 2 ? parseBaseMapResponseV2(request, captured) : parseBaseMapResponse(request, captured))
           if (!current()) throw staleError()
           finish(undefined, response)
         } catch (error) { finish(error instanceof BaseMapGenerationClientError ? error : protocolError()) }
@@ -162,14 +165,21 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
         void (async () => {
           let response: Response
           try {
-            if (request.version === 2) {
-              const info = await new AiClient(connection.baseUrl, connection.token, fetcher).capabilities(controller.signal)
+            if (request.version === 2 || request.version === 3) {
+              const selector = request.version === 3 ? requiredBaseMapSelector(request.generation) : undefined
+              const surfaceVersion = requiredSurfaceRecipeVersion(request.generation)
+              const client = new AiClient(connection.baseUrl, connection.token, fetcher)
+              const info = selector ? await client.baseMapCapabilities(controller.signal, selector)
+                : await client.capabilities(controller.signal, request.version, surfaceVersion)
               if (settled || active !== job) return
               if (!current()) { finish(staleError()); return }
-              if (!supportsContinuation(info, 'baseMap')) { finish(new BaseMapGenerationClientError('unavailable', '后端尚未支持可接 AI 的程序底图策略，请升级后端；未降级或重发。')); return }
+              const supported = selector
+                ? supportsBaseMapSelector(info, selector, request.version === 3 ? request.profileHash : '')
+                : supportsContinuation(info, 'baseMap', request.version === 3 ? { policyHash: request.profileHash } : request.policy, request.version, surfaceVersion)
+              if (!supported) { finish(new BaseMapGenerationClientError('unavailable', '后端尚未支持可接 AI 的程序底图策略，请升级后端；未降级或重发。')); return }
             }
             execution.generationCalls++
-            response = await fetcher.call(globalThis, `${connection.baseUrl}/v1/terrain/basemap`, {
+            response = await fetcher.call(globalThis, `${connection.baseUrl}/v1/terrain/basemap${request.version === 3 ? '?baseMapVersion=3' : ''}`, {
               method: 'POST', headers: { Authorization: `Bearer ${connection.token}`, 'Content-Type': 'application/json' },
               body: canonicalJson(request), signal: controller.signal, credentials: 'omit', cache: 'no-store', redirect: 'error',
             })
@@ -180,7 +190,7 @@ export function createBaseMapGenerationClient(options: BaseMapGenerationClientOp
           if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('Content-Type')?.trim() ?? '')) {
             await response.body?.cancel().catch(() => undefined); finish(protocolError()); return
           }
-          try { accept(JSON.parse(await boundedResponseText(response, controller.signal))) }
+          try { accept(JSON.parse(await boundedResponseText(response, controller.signal, maximumResponseBytes))) }
           catch { if (!settled) finish(protocolError()) }
         })().catch(() => { if (!settled) finish(protocolError()) })
       } else {

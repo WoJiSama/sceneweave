@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import ConnectionRouteFields, { newConnectionRouteDraft, readConnectionRoute } from './ConnectionRouteFields'
+import type { VisualBoundaryEditor } from './VisualPanel'
 import { Mountain, PencilRuler, Sprout, Route } from 'lucide-react'
 import type { OutdoorCommand } from '../../shared/commands/outdoor'
 import type { PointMm, SceneDocument, SurfaceRef, VersionRef } from '../../shared/model/scene'
@@ -31,11 +33,12 @@ export function MaterialSelect({ scene, value, onChange, label = '地形材质' 
 }
 const fresh = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
 
-export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, onSketch, onPreview, onSelect }: { scene: SceneDocument; layerId: string; disabled: boolean; sketch: OutdoorSketch | null; onSketch: (sketch: OutdoorSketch | null) => void; onPreview: (commands: OutdoorCommand[], description: string) => void; onSelect: (id: string) => void }) {
+export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, onSketch, onPreview, onSelect, onBoundaryEditor }: { scene: SceneDocument; layerId: string; disabled: boolean; sketch: OutdoorSketch | null; onSketch: (sketch: OutdoorSketch | null) => void; onPreview: (commands: OutdoorCommand[], description: string) => void; onSelect: (id: string) => void; onBoundaryEditor?: (editor: VisualBoundaryEditor | null) => void }) {
   const [tool, setTool] = useState<OutdoorSketch['purpose'] | 'scatter'>('terrain'), [error, setError] = useState<string | null>(null)
   const [points, setPoints] = useState('2000, 2000\n12000, 2000\n12000, 10000\n2000, 10000')
   const [material, setMaterial] = useState(Object.values(scene.materials).find(item => item.applicableSurfaces.includes('terrain'))?.id ?? ''), [elevation, setElevation] = useState('0'), [priority, setPriority] = useState('0')
   const [visibility, setVisibility] = useState<'public' | 'gm'>('public'), [blocking, setBlocking] = useState(false), [regionKind, setRegionKind] = useState<'terrain' | 'hazard'>('terrain')
+  const [connectionRoute, setConnectionRoute] = useState(newConnectionRouteDraft)
   const floorId = scene.userLayers[layerId]?.floorId ?? Object.keys(scene.floors)[0]
   const [width, setWidth] = useState('2000'), [support, setSupport] = useState(`floor:${floorId}`), [toSupport, setToSupport] = useState(''), [connectionKind, setConnectionKind] = useState<'stairs' | 'ramp'>('stairs'), [openingId, setOpeningId] = useState('')
   const domains = [...Object.values(scene.terrainAreas).map(area => ({ value: `area:${area.id}`, name: `地形 · ${area.id}` })), ...Object.values(scene.paths).map(path => ({ value: `path:${path.id}`, name: `道路 · ${path.id}` })), ...Object.values(scene.terrainEdges).map(edge => ({ value: `edgeBand:${edge.id}`, name: `边缘带 · ${edge.id}` }))]
@@ -51,9 +54,8 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
       else if (tool === 'region') command = { type: 'createRegion', id: fresh('region'), ...common, boundaryMm: outdoorPoints(points), kind: regionKind, blocksMovement: blocking, movementCostMultiplier: 1 }
       else if (tool === 'path') command = { type: 'createPath', id: fresh('path'), ...common, centerlineMm: outdoorPoints(points, 2), widthMm: Number(width), supportRefs: [parseSurface(support)], materialRef: materialRef() }
       else if (tool === 'connection') {
-        const ends = outdoorPoints(points, 2)
-        if (ends.length !== 2) throw new Error('连接需要恰好两个端点。')
-        command = { type: 'createTerrainConnection', id: fresh('connection'), ...common, kind: connectionKind, from: { surfaceRef: parseSurface(support), positionMm: ends[0] }, to: { surfaceRef: parseSurface(toSupport), positionMm: ends[1] }, widthMm: Number(width), openingId: openingId || null }
+        const { points: ends, route } = readConnectionRoute(points, connectionRoute)
+        command = { type: 'createTerrainConnection', id: fresh('connection'), ...common, kind: connectionKind, from: { surfaceRef: parseSurface(support), positionMm: ends[0] }, to: { surfaceRef: parseSurface(toSupport), positionMm: ends.at(-1)! }, widthMm: Number(width), openingId: openingId || null, ...(route ? { route } : {}) }
       } else {
         const index = domain.indexOf(':'), kind = domain.slice(0, index), id = domain.slice(index + 1), item = scene.propDefinitions[definition]
         if (!item || !id) throw new Error('请明确选择散布域和固定物件素材。')
@@ -66,8 +68,9 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
   return <section className="outdoor-panel" aria-label="室外制作工具">
     <div className="asset-section-heading"><Mountain size={17}/><h2>室外制作</h2></div><p className="asset-muted">画出地形与通路，预览真实影响，再一次采用。</p>
     <fieldset disabled={disabled}>
+      {tool === 'connection' && <ConnectionRouteFields enabled={scene.schemaVersion >= 5} text={points} draft={connectionRoute} onChange={setConnectionRoute} floorId={floorId} layerId={layerId} visibility={visibility} onBoundaryEditor={onBoundaryEditor}/>}
       <label>制作工具<select aria-label="室外制作工具" value={tool} onChange={event => { setTool(event.target.value as typeof tool); setError(null); onSketch(null) }}><option value="terrain">地形与高程</option><option value="region">用途 / 危险区域</option><option value="connection">台阶 / 坡道</option><option value="path">道路</option><option value="scatter">可控散布</option></select></label>
-      {tool !== 'scatter' && <><button className="secondary asset-wide" onClick={() => onSketch(sketch?.purpose === tool ? null : { kind: tool === 'path' || tool === 'connection' ? 'polyline' : 'polygon', purpose: tool, points: [], cursor: null })}><PencilRuler size={14}/>{sketch?.purpose === tool ? '结束画布取点' : '在画布逐点绘制'}</button><label>{tool === 'path' ? '道路中心线' : tool === 'connection' ? '连接两端坐标' : '区域轮廓'} · mm<textarea aria-label="室外坐标" rows={6} value={points} onChange={event => { setPoints(event.target.value); onSketch(null) }}/></label><small>每行 x, y；画布按当前网格吸附。Escape 退出取点。</small></>}
+      {tool !== 'scatter' && <><button className="secondary asset-wide" onClick={() => onSketch(sketch?.purpose === tool ? null : { kind: tool === 'path' || tool === 'connection' ? 'polyline' : 'polygon', purpose: tool, points: [], cursor: null })}><PencilRuler size={14}/>{sketch?.purpose === tool ? '结束画布取点' : '在画布逐点绘制'}</button><label>{tool === 'path' ? '道路中心线' : tool === 'connection' ? '连接路线节点' : '区域轮廓'} · mm<textarea aria-label="室外坐标" rows={6} value={points} onChange={event => { setPoints(event.target.value); onSketch(null) }}/></label><small>每行 x, y；画布按当前网格吸附。Escape 退出取点。</small></>}
       {tool === 'terrain' && <><MaterialSelect scene={scene} value={material} onChange={setMaterial}/><div className="composition-fields"><label>地面高程 mm<input aria-label="地形高程毫米" type="number" step="1" value={elevation} onChange={event => setElevation(event.target.value)}/></label><label>覆盖优先级<input aria-label="地形覆盖优先级" type="number" step="1" value={priority} onChange={event => setPriority(event.target.value)}/></label></div><small>覆盖优先级与高程分别生效。同优先级区域不重叠。</small></>}
       {tool === 'region' && <label>区域用途<select aria-label="区域用途" value={regionKind} onChange={event => setRegionKind(event.target.value as typeof regionKind)}><option value="terrain">用途区域</option><option value="hazard">危险区域</option></select></label>}
       {(tool === 'path' || tool === 'connection') && <><SurfaceSelect scene={scene} value={support} onChange={setSupport} label={tool === 'connection' ? '连接起点表面' : '道路支撑表面'}/>{tool === 'path' ? <MaterialSelect scene={scene} value={material} onChange={setMaterial} label="道路材质"/> : <><SurfaceSelect scene={scene} value={toSupport} onChange={setToSupport} label="连接终点表面"/><label>连接类型<select aria-label="高差连接类型" value={connectionKind} onChange={event => setConnectionKind(event.target.value as typeof connectionKind)}><option value="stairs">台阶</option><option value="ramp">坡道</option></select></label><label>房间端附着开口<select aria-label="连接附着开口" value={openingId} onChange={event => setOpeningId(event.target.value)}><option value="">无房间开口</option>{Object.values(scene.openings).map(opening => <option key={opening.id} value={opening.id}>{opening.id}</option>)}</select></label></>}<label>净宽 mm<input aria-label="室外通路宽度毫米" type="number" min="1" step="1" value={width} onChange={event => setWidth(event.target.value)}/></label><small>道路材质与图片不改变支撑、高差或通行。</small></>}

@@ -1,3 +1,6 @@
+import { assertTaskBudget, captureExecutionBudget, measureTaskBudget, type BudgetUsage, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { selectTerrainEditBudget } from './terrain-task-budget.js'
+import { terrainSemanticCost } from '../../shared/terrain-generation/task-admission.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
@@ -21,6 +24,9 @@ export interface TerrainLocalPreview {
   currentSceneId: string
   currentRevision: number
   baseContentHash: string
+  budgetProfile?: TaskBudgetProfile
+  profileHash?: string
+  usage?: BudgetUsage
 }
 
 const allIds = (value: unknown, ids = new Set<string>()): Set<string> => {
@@ -43,6 +49,7 @@ export interface TerrainLocalPrepareOptions {
   validation: CompleteValidationOptions
   signal?: ResourceOptions['signal']
   result?: TerrainLocalRefreshResult
+  budget?: TaskBudgetProfile
 }
 
 export async function prepareTerrainLocalRefreshProject(base: EditableProject, input: TerrainLocalRefreshRequest, options: TerrainLocalPrepareOptions): Promise<{
@@ -51,19 +58,24 @@ export async function prepareTerrainLocalRefreshProject(base: EditableProject, i
   result: TerrainLocalRefreshResult
   input: TerrainLocalRefreshRequest
   cost: ReturnType<typeof terrainCommandCost>
+  budgetProfile?: TaskBudgetProfile
+  profileHash?: string
+  usage?: BudgetUsage
 }> {
   const validation = { ...options.validation, signal: options.signal ?? options.validation.signal }
   checkCancelled(validation.signal)
   const owned = getVerifiedEditableProject(base) ?? await validateEditableProject(base, validation)
   if (owned.document.schemaVersion !== 4) throw new Error('局部地形联动需要完整v4工程。')
-  const result = prepareTerrainLocalRefresh(owned.document, captureJson(input))
+  const budgetProfile = selectTerrainEditBudget(owned.document, options.budget), meter = budgetProfile ? captureExecutionBudget(budgetProfile) : undefined
+  const result = prepareTerrainLocalRefresh(owned.document, captureJson(input), { budget: budgetProfile, meter })
   if (options.result && canonicalJson(result) !== canonicalJson(captureJson(options.result))) throw new Error('局部联动结果与确定性重放不符。')
   checkCancelled(validation.signal)
   const identity = advanceHistoryIdentity(owned.historyIdentity, owned.document, result.document, deterministicRuntime(owned.document, result.request, options.runtime))
   const content = syncAppearanceGraph({ document: result.document, historyIdentity: identity, appearance: owned.appearance }, owned.document)
-  const project = await materializeProject({ ...owned, ...content, schemaVersion: 4 }, { runtime: deterministicRuntime(owned.document, result.request, options.runtime), validation, signal: validation.signal, baseline: owned })
+  const project = await materializeProject({ ...owned, ...content, schemaVersion: 4 }, { runtime: deterministicRuntime(owned.document, result.request, options.runtime), validation, signal: validation.signal, baseline: owned, budget: budgetProfile })
   checkCancelled(validation.signal)
-  const cost = terrainCommandCost(owned.document, project.document, { before: owned, after: project })
-  if (cost.total > 256) throw new Error(`局部联动实际展开${cost.total}，超过256；请缩小范围。`)
-  return { project, document: project.document, result, input: result.request, cost }
+  const cost = budgetProfile ? terrainSemanticCost(owned.document, project.document, budgetProfile) : terrainCommandCost(owned.document, project.document, { before: owned, after: project })
+  if (!budgetProfile && cost.total > 256) throw new Error(`局部联动实际展开${cost.total}，超过256；请缩小范围。`)
+  const usage = budgetProfile ? assertTaskBudget(budgetProfile, measureTaskBudget(owned.document, project.document, { before: owned, after: project }, meter?.snapshot())) : undefined
+  return { project, document: project.document, result, input: result.request, cost, ...(budgetProfile ? { budgetProfile, profileHash: budgetProfile.profileHash, usage } : {}) }
 }

@@ -13,7 +13,7 @@ const sameTarget = (a: TerrainCompositionReference, b: TerrainCompositionReferen
  * The return value counts changed metadata rows, not the expanded command cost.
  * Callers still charge terrainCommandCost for every individual command. */
 export function pauseChangedCompositions(before: Readonly<SceneDocument>, next: SceneDocument, appearanceChanges: readonly TerrainCompositionReference[] = []): number {
-  if (before.schemaVersion !== 4 || next.schemaVersion !== 4 || before.generation?.version !== 5 || next.generation?.version !== 5 || before.sceneId !== next.sceneId) return 0
+  if ((before.schemaVersion < 4) || (next.schemaVersion < 4) || before.generation?.version !== 5 || next.generation?.version !== 5 || before.sceneId !== next.sceneId) return 0
   const previous = before.generation, current = next.generation
   const pause = new Set<string>(), invalidate = new Set<string>(), owners = new Set<string>()
   for (const row of Object.values(current.compositions)) {
@@ -62,7 +62,7 @@ export function pauseChangedCompositions(before: Readonly<SceneDocument>, next: 
 /** Graph edits happen before bitmap materialization; compare their real
  * effective target values now, then compare resolved document fields later. */
 export function pauseChangedCompositionAppearance(before: CompositionContent, next: CompositionContent): number {
-  if (before.document.schemaVersion !== 4 || next.document.generation?.version !== 5) return 0
+  if ((before.document.schemaVersion < 4) || next.document.generation?.version !== 5) return 0
   const changes: TerrainCompositionReference[] = []
   const references = Object.values(next.document.generation.compositions).flatMap(row => row.outputRefs)
     .concat(Object.values(next.document.generation.dependencies).flatMap(dependency => dependency.reads

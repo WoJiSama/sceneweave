@@ -46,7 +46,7 @@ describe('native complete-v1 pure metadata contract', () => {
   })
   it('distinguishes old format/version and rejects unknown task/credential fields', () => {
     const input = fixture()
-    for (const changed of [{ ...input, format: 'sceneweave-project' }, { ...input, schemaVersion: 6 }, { ...input, task: {} }, { ...input, apiKey: 'example' }, { ...input, historyIdentity: { ...input.historyIdentity, version: 3 } }]) expect(() => validateProjectData(changed)).toThrow()
+    for (const changed of [{ ...input, format: 'sceneweave-project' }, { ...input, schemaVersion: 7 }, { ...input, task: {} }, { ...input, apiKey: 'example' }, { ...input, historyIdentity: { ...input.historyIdentity, version: 3 } }]) expect(() => validateProjectData(changed)).toThrow()
   })
   it('keeps exact resource and subject/license metadata closure without claiming image decoding', () => {
     const input = fixture(true), parsed = validateProjectData(input)

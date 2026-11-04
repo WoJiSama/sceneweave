@@ -1,3 +1,5 @@
+import { captureTerrainTaskBudget, terrainSemanticCost, terrainTaskUsage, type TerrainTaskBudgetOptions } from './task-admission.js'
+import type { BudgetUsage } from '../budget/task-budget.js'
 import type { BoundsMm, PointMm, SceneDocument, ScatterGroup } from '../model/scene.js'
 import { z } from 'zod'
 import { canonicalJson, cloneJson } from '../validation/json.js'
@@ -49,6 +51,7 @@ export interface TerrainLocalRefreshResult {
   changedIds: string[]
   cost: ReturnType<typeof terrainCommandCost>
   outputHash: string
+  budget?: { countingVersion: 2; profileHash: string; usage: BudgetUsage }
 }
 
 const positive = (value: number): boolean => Number.isSafeInteger(value) && value > 0
@@ -220,8 +223,10 @@ export function inspectTerrainLocalDependencies(scene: SceneDocument, request: T
  * is never mutated; manual/deleted/detached/locked members are preserved by
  * the existing scatter candidate contract.
  */
-export function prepareTerrainLocalRefresh(scene: SceneDocument, request: TerrainLocalRefreshRequest): TerrainLocalRefreshResult {
+export function prepareTerrainLocalRefresh(scene: SceneDocument, request: TerrainLocalRefreshRequest, options?: TerrainTaskBudgetOptions): TerrainLocalRefreshResult {
+  const budget = captureTerrainTaskBudget(options)
   const dependencies = inspectTerrainLocalDependencies(scene, request), next = cloneJson(scene), sceneryCandidates: Record<string, SceneryRegenerationCandidate> = {}, changedIds = new Set<string>()
+  options?.meter?.charge({ dependencyRefs: dependencies.readIds.length, candidateAttempts: 1 })
   for (const groupId of dependencies.sceneryGroupIds) {
     const beforeGroup = next.scatterGroups[groupId]
     const candidate = prepareSceneryRegeneration(next, groupId, { preserveManagedAppearance: true, allocatePropId: sceneryAllocator(next, groupId) })
@@ -261,8 +266,9 @@ export function prepareTerrainLocalRefresh(scene: SceneDocument, request: Terrai
   next.visual.transitions = refreshed.transitions
   refreshed.changedIds.forEach(id => changedIds.add(id))
   pauseChangedCompositions(scene, next)
-  const cost = terrainCommandCost(scene, next)
-  if (cost.total > 256) throw new Error(`局部联动实际展开${cost.total}，超过256；请缩小范围。`)
-  const outputHash = hash({ document: next, changedIds: [...changedIds].sort(), dependencies })
-  return { request: { ...cloneJson(request), haloMm: dependencies.haloMm }, document: next, dependencies, sceneryCandidates, changedIds: [...changedIds].sort(), cost, outputHash }
+  const cost = budget ? terrainSemanticCost(scene, next, budget) : terrainCommandCost(scene, next)
+  if (!budget && cost.total > 256) throw new Error(`局部联动实际展开${cost.total}，超过256；请缩小范围。`)
+  const admission = budget ? { countingVersion: 2 as const, profileHash: budget.profileHash, usage: terrainTaskUsage(scene, next, { ...options, budget }) } : undefined
+  const outputHash = hash({ document: next, changedIds: [...changedIds].sort(), dependencies, ...(admission ? { budget: admission } : {}) })
+  return { request: { ...cloneJson(request), haloMm: dependencies.haloMm }, document: next, dependencies, sceneryCandidates, changedIds: [...changedIds].sort(), cost, outputHash, ...(admission ? { budget: admission } : {}) }
 }

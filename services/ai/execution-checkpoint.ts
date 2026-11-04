@@ -1,3 +1,4 @@
+import { BUDGET_DIMENSIONS } from '../../src/shared/budget/task-budget.js'
 import { z } from 'zod'
 import { canonicalJson } from '../../src/shared/validation/json.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
@@ -14,8 +15,9 @@ export function recordAuthoringExecution(input: ExecutionCheckpointInput, previo
   if (previous) {
     const old = AuthoringExecutionCheckpointSchema.parse(previous), { checkpointHash: _hash, ...oldBody } = old
     if (sha256Text(canonicalJson(oldBody)) !== old.checkpointHash) throw new Error('Invalid execution checkpoint')
-    if (next.flowId !== old.flowId || next.taskId !== old.taskId || next.policyHash !== old.policyHash || next.sourceHash !== old.sourceHash
+    if (next.schemaVersion !== old.schemaVersion || next.flowId !== old.flowId || next.taskId !== old.taskId || next.policyHash !== old.policyHash || next.sourceHash !== old.sourceHash
       || next.generation < old.generation || next.initializationMs !== old.initializationMs) throw new Error('Execution checkpoint identity changed')
+    if ((old.schemaVersion === 3 || old.schemaVersion === 4) && (next.schemaVersion === 3 || next.schemaVersion === 4) && BUDGET_DIMENSIONS.some(key => next.workUsage[key] < old.workUsage[key])) throw new Error('Execution work cannot be reset')
     if (old.uncertain === true && !next.uncertain) throw new Error('Unknown execution consumption cannot be cleared')
     for (const key of ['activeRuntimeMs', 'modelRequests', 'completedRequests', 'toolAttempts', 'outputBytes'] as const) {
       if (next[key] < old[key]) throw new Error('Execution consumption cannot be reset')

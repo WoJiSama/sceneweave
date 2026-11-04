@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, Paintbrush, RefreshCw, X } from 'lucide-react'
 import type { BoundsMm, PointMm, SceneDocument } from '../../shared/model/scene'
-import type { TerrainEditRequest, TerrainEditResult } from '../../shared/terrain-generation/edit'
+import type { TerrainEditRequest, TerrainEditResult, ProfiledTerrainEditResult } from '../../shared/terrain-generation/edit'
 import { terrainTopologyDependencies } from '../../shared/terrain-generation/topology'
 import type { TerrainTopologyRequest } from '../../shared/terrain-generation/contracts'
 import { terrainPoints } from '../../shared/geometry/geometry'
@@ -27,7 +27,7 @@ const areaLabel = (scene: SceneDocument, id: string) => { const area = scene.ter
 const mm = (value: number) => `${(value / 1000).toFixed(2).replace(/\.?0+$/, '')} 米`
 
 export default function TerrainEditingPanel({ scene, busy, adopting = false, disabled, error, candidate, onPreview, onAdopt, onCancel, onCanvasSession, onDraftChange }: {
-  scene: SceneDocument; busy: boolean; adopting?: boolean; disabled: boolean; error: string | null; candidate: TerrainEditResult | null
+  scene: SceneDocument; busy: boolean; adopting?: boolean; disabled: boolean; error: string | null; candidate: TerrainEditResult | ProfiledTerrainEditResult | null
   onPreview: (request: TerrainEditRequest) => Promise<void>; onAdopt: () => Promise<void>; onCancel: () => void
   onCanvasSession: (value: TerrainEditCanvasSession | null) => void; onDraftChange: (dirty: boolean) => void
 }) {

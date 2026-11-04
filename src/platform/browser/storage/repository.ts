@@ -1,11 +1,12 @@
-import Dexie, { type Table } from 'dexie'
+import Dexie, { type Table, type Transaction } from 'dexie'
 import type { ProjectBundle, ProjectData, ResourceBytePort, SnapshotSummary } from '../../../shared/model/project.js'
 import type { PreparationContext } from '../../../shared/ports/runtime.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../../shared/ports/resources.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
 import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
-import { captureProjectBundleInput, createMemoryResources, validateProjectBundle, validateProjectBundles } from '../../../shared/project/resources.js'
+import { captureProjectBundleInput, createMemoryResources, validateProjectBundle, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
+import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
 import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
@@ -17,7 +18,10 @@ import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT
   type StoredBinding, type StoredBytes, type StoredHistoryMetadata, type StoredProject, type StoredSnapshot } from './database.js'
 import { preserveNativeUpgrade, exportNativeUpgradeCapsule, importNativeUpgradeCapsule, listNativeUpgradeSummaries, nativeUpgradeCapsuleDocumentBytes,
   type NativeUpgradeContext, type NativeUpgradeTransfer, type NativeUpgradeSummary } from './native-upgrade.js'
+import { StorageAccounting, type StorageTotals } from './storage-accounting.js'
+import { IncrementalHistory, migrationManifest, historyVersionBytes, historyHeadBytes, historyPinBytes, type HistoryReadSession, type HistoryVersionSummary } from './incremental-history.js'
 import { encodeNativeUpgradeFile, decodeNativeUpgradeFile } from './native-upgrade-file.js'
+import { collectUnusedResources, type UnusedResourceCollection } from './history-maintenance.js'
 
 export const PROJECT_STORAGE_LIMITS = Object.freeze({ resourceBytes: 256 * 1024 * 1024, documentBytes: 128 * 1024 * 1024,
   legacyBytes: 128 * 1024 * 1024, automatic: 20, named: 32, protection: 32, imported: 20 } as const)
@@ -43,6 +47,16 @@ const createContentChecks = (): ContentChecks => ({ entries: new Map(), retained
 // Only a selected live transaction owns this table. Fresh IDB clones must
 // match the entire inspected canonical JSON, never only an ID or claimed hash.
 const transactionContentChecks = new WeakMap<object, ContentChecks>()
+function rememberCheckedContent(contents: ContentChecks, json: string, checked: CheckedContent): void {
+  if (contents.entries.has(json) || json.length > CONTENT_CHECK_CHARACTER_LIMIT) return
+  while (contents.retainedCharacters + json.length > CONTENT_CHECK_CHARACTER_LIMIT) {
+    const oldest = contents.entries.keys().next().value!
+    contents.entries.delete(oldest)
+    contents.retainedCharacters -= oldest.length
+  }
+  contents.entries.set(json, checked)
+  contents.retainedCharacters += json.length
+}
 function checkedContent(project: ProjectData, contents: ContentChecks): CheckedContent {
   const json = canonicalJson(project)
   let checked = contents.entries.get(json)
@@ -50,17 +64,17 @@ function checkedContent(project: ProjectData, contents: ContentChecks): CheckedC
     validateProjectData(project)
     const bytes = encodeUtf8(json)
     checked = { hash: sha256Bytes(bytes), byteLength: bytes.length }
-    if (json.length <= CONTENT_CHECK_CHARACTER_LIMIT) {
-      while (contents.retainedCharacters + json.length > CONTENT_CHECK_CHARACTER_LIMIT) {
-        const oldest = contents.entries.keys().next().value!
-        contents.entries.delete(oldest)
-        contents.retainedCharacters -= oldest.length
-      }
-      contents.entries.set(json, checked)
-      contents.retainedCharacters += json.length
-    }
+    rememberCheckedContent(contents, json, checked)
   }
   return checked
+}
+/** Called only with this history reader's complete, strictly reconstructed result. */
+function rememberReconstructedContent(project: ProjectData, hash: string): void {
+  const transaction = Dexie.currentTransaction, contents = transaction && transactionContentChecks.get(transaction)
+  if (!contents) return
+  const json = canonicalJson(project)
+  if (json.length > CONTENT_CHECK_CHARACTER_LIMIT) return
+  rememberCheckedContent(contents, json, { hash, byteLength: encodeUtf8(json).length })
 }
 function contentHashInTransaction(project: ProjectData): string {
   const transaction = Dexie.currentTransaction, contents = transaction && transactionContentChecks.get(transaction)
@@ -142,12 +156,32 @@ export class HistoryMetadataConflictError extends Error {
 export interface ProjectSummary { sceneId: string; title: string; revision: number; savedAt: string; conversionJobId: string | null }
 export interface AutomaticSummary { ownerSceneId: string; revision: number; savedAt: string; contentHash: string }
 export interface StorageUsage { resourceBytes: number; documentBytes: number; legacyBytes: number; metadataVersion: number; namedCount: number; protectionCount: number; importedCount: number }
+export interface HistoryOverview {
+  snapshots: SnapshotSummary[]
+  usage: StorageUsage
+  legacySources: LegacySource[]
+  upgradeOriginals: NativeUpgradeSummary[]
+  history: { activeVersionId: string | null; versions: HistoryVersionSummary[] }
+}
+/** One restoration operation; close in finally. Public snapshot reads stay full-validation reads. */
+export interface SnapshotReadSession {
+  load(ownerSceneId: string, snapshotId: string, options?: ResourceOptions): Promise<SnapshotBundle | null>
+  close(): void
+}
+interface SnapshotReadState {
+  closed: boolean
+  busy: boolean
+  writes: Set<Transaction>
+  history: HistoryReadSession
+  cached: { json: string; bundle: VerifiedProjectBundle; pixels: readonly unknown[] } | null
+}
 export interface CreateSnapshotOptions extends ResourceOptions {
   id?: string
   kind?: 'named' | 'protection'
   expectedRevision: number
   expectedMetadataVersion: number
   sourceSnapshot?: { id: string; contentHash: string }
+  readSession?: SnapshotReadSession
 }
 /** Checked in the very same write transaction as the new current revision. */
 export interface ProjectSaveGuard {
@@ -160,7 +194,7 @@ export interface SourcePreservationGuard {
   contentHash: string
   guard: ProjectSaveGuard
 }
-export interface SaveProjectOptions extends ResourceOptions { guard?: ProjectSaveGuard; preservation?: SourcePreservationGuard }
+export interface SaveProjectOptions extends ResourceOptions { guard?: ProjectSaveGuard; preservation?: SourcePreservationGuard; historyParentId?: string; historyParentHash?: string }
 export interface ProjectRepositoryOptions {
   name?: string
   validation: CompleteValidationOptions
@@ -173,11 +207,12 @@ export interface ReserveConversionJob {
   snapshotKeys: string[]
   sourceContentHashes: Record<string, string>
 }
-export interface ConversionRead { job: ConversionJob; family: ConvertedFamily; contentHash: string; metadataVersion: number }
+export interface ConversionRead { job: ConversionJob; family: ConvertedFamily; contentHash: string; metadataVersion: number; historyFingerprint: string }
 interface ResourceAssembly {
   bytes: Map<string, Uint8Array>
   byteLength: number
   resources: ResourceBytePort
+  maximumCount?: number
 }
 export class ConversionConflictError extends Error {
   constructor() { super('转换journal版本、状态或目标已变化；保留已有映射和成果。'); this.name = 'ConversionConflictError' }
@@ -277,10 +312,18 @@ export class ProjectRepository {
   readonly database: ProjectDatabase
   private opening: Promise<void> | null = null
   private invalidated = false
+  private readonly accounting: StorageAccounting
+  private readonly history: IncrementalHistory
+  private readonly historyMigrations = new Map<string, Promise<void>>()
+  private readonly snapshotReads = new WeakMap<SnapshotReadSession, SnapshotReadState>()
+  private readonly activeSnapshotReads = new Set<SnapshotReadState>()
   constructor(private readonly options: ProjectRepositoryOptions) {
     this.database = new ProjectDatabase(options.name ?? PROJECT_DATABASE_NAME)
+    this.history = new IncrementalHistory(this.database, contentHashInTransaction, rememberReconstructedContent)
+    this.accounting = new StorageAccounting(this.database, () => this.scanTotals(), (table, row) => this.rowCost(table, row))
     this.database.on('versionchange', () => { this.invalidated = true; this.database.close(); return false })
     this.database.on('blocked', () => { this.invalidated = true; this.database.close() })
+    this.database.on('close', () => { for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state) })
   }
   async open(): Promise<void> {
     if (this.invalidated) throw new Error('工程数据库结构已变化，请更新应用后重新打开。')
@@ -293,7 +336,172 @@ export class ProjectRepository {
     })().finally(() => { this.opening = null })
     return this.opening
   }
-  close(): void { this.database.close() }
+  private async legacyHistoryRows(owner: string) {
+    const current = await this.database.projects.get(owner)
+    if (!current || current.status !== 'ready') return null
+    assertCurrent(current)
+    const metadata = await this.database.historyMetadata.get(owner); assertMetadata(metadata, owner)
+    const automatic = await this.database.automaticSnapshots.where('ownerSceneId').equals(owner).toArray()
+    const snapshots = await this.database.snapshots.where('ownerSceneId').equals(owner).toArray()
+    const imported = await this.database.importedSnapshots.where('ownerSceneId').equals(owner).toArray()
+    automatic.forEach(row => assertAutomatic(row)); snapshots.forEach(row => assertSnapshot(row)); imported.forEach(row => assertSnapshot(row, true))
+    assertBinding(await this.database.resourceBindings.get([owner, 'current', 'current']), current.project, owner, 'current', 'current')
+    for (const row of automatic) assertBinding(await this.database.resourceBindings.get([owner, 'automatic', String(row.revision)]), row.project, owner, 'automatic', String(row.revision))
+    for (const row of [...snapshots, ...imported]) assertBinding(await this.database.resourceBindings.get([owner, row.kind, row.id]), row.project, owner, row.kind, row.id)
+    return { current, automatic, snapshots, imported, metadataVersion: metadata.metadataVersion }
+  }
+  private async historyCopyFingerprint(owner: string): Promise<string> {
+    const head = await this.database.historyHeads.get(owner)
+    const versions = await this.database.historyVersions.where('ownerSceneId').equals(owner).toArray()
+    const pins = await this.database.historyPins.where('ownerSceneId').equals(owner).toArray()
+    // Re-prove each body against its declared record hash at the final CAS.
+    // A cold resource check must not authorize a different/corrupt old root.
+    if (head) historyHeadBytes(head)
+    versions.forEach(row => { historyVersionBytes(row) })
+    pins.forEach(row => { historyPinBytes(row) })
+    const sort = (rows: { id: string; recordHash: string }[]) => rows.map(row => ({ id: row.id, recordHash: row.recordHash })).sort((a, b) => a.id.localeCompare(b.id))
+    return sha256Bytes(encodeUtf8(canonicalJson({ head: head?.recordHash ?? null, versions: sort(versions), pins: sort(pins) })))
+  }
+  /** Source rows remain intact. A separate cold read verifies every copied project and real resource before publication. */
+  private async ensureHistory(owner: string, options: ResourceOptions = {}): Promise<void> {
+    id(owner); checkCancelled(options.signal); await this.open()
+    const existing = this.historyMigrations.get(owner)
+    if (existing) return existing
+    const pending = (async () => {
+      const source = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+        const head = await this.history.head(owner)
+        if (head?.status === 'ready') return null
+        const rows = await this.legacyHistoryRows(owner)
+        if (!rows) return null
+        const bundles = [await this.assembled(rows.current.project, owner, 'current', 'current')]
+        for (const row of rows.automatic) bundles.push(await this.assembled(row.project, owner, 'automatic', String(row.revision)))
+        for (const row of [...rows.snapshots, ...rows.imported]) bundles.push(await this.assembled(row.project, owner, row.kind, row.id))
+        return { rows, bundles }
+      })))
+      if (!source) return
+      for (let offset = 0; offset < source.bundles.length; offset += 85) await validateProjectBundles(source.bundles.slice(offset, offset + 85), this.validation(options))
+      const { current, automatic, snapshots, imported, metadataVersion } = source.rows
+      const manifest = migrationManifest(current, automatic, snapshots, imported, metadataVersion)
+      await this.atomic(options, async () => {
+        const head = await this.history.head(owner)
+        if (head?.status === 'ready') return
+        const latest = await this.legacyHistoryRows(owner)
+        if (!latest || migrationManifest(latest.current, latest.automatic, latest.snapshots, latest.imported, latest.metadataVersion) !== manifest) throw new HistoryMetadataConflictError()
+        if (!head) await this.history.initialize(current, automatic, snapshots, imported, metadataVersion)
+        else if (head.migration?.sourceManifestHash !== manifest) throw new HistoryMetadataConflictError()
+        await this.assertBudgets(owner)
+      }, true)
+      const cold = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+        const head = await this.history.head(owner)
+        if (!head || head.migration?.sourceManifestHash !== manifest) throw new HistoryMetadataConflictError()
+        await this.history.audit(owner)
+        const versions = await this.history.versions(owner), pins = await this.history.pins(owner)
+        const expectedHashes = new Set([current.contentHash, ...automatic.map(row => row.contentHash), ...snapshots.map(row => row.contentHash), ...imported.map(row => row.contentHash)])
+        if (versions.length !== expectedHashes.size || versions.some(row => row.parentId !== null || row.id !== `root:${row.contentHash}` || !expectedHashes.has(row.contentHash))
+          || head.activeVersionId !== `root:${current.contentHash}` || pins.length !== snapshots.length + imported.length) throw new HistoryMetadataConflictError()
+        for (const source of [...snapshots, ...imported]) {
+          const pin = pins.find(row => row.id === source.id)
+          if (!pin || pin.versionId !== `root:${source.contentHash}` || canonicalJson(summaryOf(pin)) !== canonicalJson(summaryOf(source))) throw new HistoryMetadataConflictError()
+        }
+        const bundles: ProjectBundle[] = []
+        for (const summary of await this.history.versions(owner)) {
+          const version = await this.history.readVersion(owner, summary.id)
+          if (!version) throw new Error('增量历史迁移副本缺失。')
+          bundles.push(await this.assembledUnbound(version.project))
+        }
+        return { bundles, fingerprint: await this.historyCopyFingerprint(owner) }
+      })))
+      for (let offset = 0; offset < cold.bundles.length; offset += 85) await validateProjectBundles(cold.bundles.slice(offset, offset + 85), this.validation(options))
+      await this.atomic(options, async () => {
+        const head = await this.history.head(owner)
+        if (head?.status === 'ready') return
+        const latest = await this.legacyHistoryRows(owner)
+        if (!latest || migrationManifest(latest.current, latest.automatic, latest.snapshots, latest.imported, latest.metadataVersion) !== manifest
+          || head?.migration?.sourceManifestHash !== manifest || await this.historyCopyFingerprint(owner) !== cold.fingerprint) throw new HistoryMetadataConflictError()
+        await this.history.activate(owner, current.contentHash, current.revision, metadataVersion)
+      }, true)
+    })().finally(() => { this.historyMigrations.delete(owner) })
+    this.historyMigrations.set(owner, pending)
+    return pending
+  }
+  private async snapshotRecord(owner: string, snapshotId: string, current?: StoredProject, readSession?: SnapshotReadSession): Promise<StoredSnapshot | null> {
+    const head = await this.history.head(owner)
+    if (head?.status === 'ready') return this.history.readPin(owner, snapshotId, current, readSession && this.snapshotReadState(readSession).history)
+    return await this.database.snapshots.get([owner, snapshotId]) ?? await this.database.importedSnapshots.get([owner, snapshotId]) ?? null
+  }
+  async listHistoryVersions(owner: string): Promise<{ activeVersionId: string | null; versions: HistoryVersionSummary[] }> {
+    await this.ensureHistory(owner)
+    return this.database.transaction('r', PROJECT_TABLES, async () => {
+      const current = await this.database.projects.get(owner)
+      if (!current || current.status !== 'ready') return { activeVersionId: null, versions: [] }
+      assertCurrent(current)
+      const head = await this.history.head(owner)
+      if (!head || head.status !== 'ready' || head.savedRevision !== current.revision || head.contentHash !== current.contentHash) throw new Error('当前保存与历史活动版本不一致。')
+      return { activeVersionId: head.activeVersionId, versions: await this.history.versions(owner) }
+    })
+  }
+  /** One shared read transaction for the history panel overview. Every list keeps
+   * its own row, binding and byte validation; only the repeated full content
+   * check of the same current row shares this transaction's exact-content table.
+   * Zone-sensitive reads run before any nested native async resumption can drop
+   * the transaction scope; pin references are cross-checked against the already
+   * strictly validated version rows of this same transaction. */
+  async historyOverview(ownerSceneId: string): Promise<HistoryOverview> {
+    id(ownerSceneId); await this.ensureHistory(ownerSceneId)
+    const upgradeOriginals = await listNativeUpgradeSummaries(this.nativeUpgradeContext(), ownerSceneId)
+    const overview = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+      const current = await this.database.projects.get(ownerSceneId)
+      if (!current || current.status !== 'ready') throw new Error('原件所属工程不存在或尚未完成转换。')
+      assertCurrent(current)
+      const head = await this.history.head(ownerSceneId)
+      if (!head || head.status !== 'ready' || head.savedRevision !== current.revision || head.contentHash !== current.contentHash) throw new Error('当前保存与历史活动版本不一致。')
+      const versions = await this.history.versions(ownerSceneId)
+      const usage = await this.usageInTransaction(ownerSceneId)
+      const sources = await this.database.legacySources.where('ownerSceneId').equals(ownerSceneId).toArray()
+      if (sources.length > 64) throw new Error('旧原件来源节点超过保护值。')
+      const blobs = new Map<string, Uint8Array>()
+      let total = 0
+      for (const hash of new Set(sources.map(source => source.sourceHash))) {
+        const stored = await this.database.legacyBlobs.get(hash)
+        if (!stored) throw new Error('迁移原件字节缺失；不会导出不完整原件。')
+        const bytes = bytesOf(stored, PROJECT_STORAGE_LIMITS.legacyBytes)
+        total += bytes.length
+        if (total > PROJECT_STORAGE_LIMITS.legacyBytes) throw new Error('迁移原件累计字节超过保护值。')
+        blobs.set(hash, bytes)
+      }
+      assertLegacyNodes(sources, [...blobs].map(([sha256, bytes]) => ({ sha256, bytes })), ownerSceneId)
+      const versionById = new Map(versions.map(version => [version.id, version]))
+      const pins: SnapshotSummary[] = []
+      for (const row of await this.database.historyPins.where('ownerSceneId').equals(ownerSceneId).toArray()) {
+        historyPinBytes(row)
+        const version = versionById.get(row.versionId)
+        if (!version || version.contentHash !== row.contentHash || version.revision !== row.sourceRevision) throw new Error('增量历史快照引用断链。')
+        pins.push(summaryOf(row))
+      }
+      return {
+        snapshots: pins.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)),
+        usage,
+        legacySources: sources.sort((a, b) => b.sourceSchemaVersion - a.sourceSchemaVersion || a.nodeId.localeCompare(b.nodeId)),
+        history: { activeVersionId: head.activeVersionId, versions },
+      }
+    })))
+    return { ...overview, upgradeOriginals }
+  }
+  async loadHistoryVersion(owner: string, versionId: string, options: ResourceOptions = {}): Promise<ProjectBundle | null> {
+    id(versionId); await this.ensureHistory(owner, options)
+    const bundle = await this.database.transaction('r', PROJECT_TABLES, async () => {
+      const current = await this.database.projects.get(owner), head = await this.history.head(owner)
+      if (!current || current.status !== 'ready' || head?.status !== 'ready') return null
+      assertCurrent(current)
+      const value = await this.history.readVersion(owner, versionId)
+      return value ? this.assembledUnbound(value.project) : null
+    })
+    return bundle ? validateProjectBundle(bundle, this.validation(options)) : null
+  }
+  close(): void {
+    for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state)
+    this.accounting.invalidate(); this.database.close()
+  }
   private validation(options: ResourceOptions = {}): CompleteValidationOptions { return { images: this.options.validation.images, svg: this.options.validation.svg, signal: options.signal ?? this.options.validation.signal } }
   private nativeUpgradeContext(options: ResourceOptions = {}): NativeUpgradeContext {
     return { database: this.database, open: () => this.open(), validation: this.validation(options), now: () => this.options.runtime.clock.now(),
@@ -302,6 +510,7 @@ export class ProjectRepository {
   }
   /** Preserve every source history/original before a caller saves its independent complete-v3 target. */
   async preserveNativeUpgrade(source: ProjectBundle, target: ProjectBundle, options: ResourceOptions = {}): Promise<void> {
+    await this.ensureHistory(source.project.document.sceneId, options)
     await preserveNativeUpgrade(this.nativeUpgradeContext(options), source, target, options)
   }
   async exportNativeUpgradeCapsule(targetSceneId: string, options: ResourceOptions = {}): Promise<NativeUpgradeTransfer> {
@@ -328,22 +537,31 @@ export class ProjectRepository {
         const result = await run()
         checkCancelled(options.signal); return result
       }
-      return shareContentChecks ? withTransactionContentChecks(execute) : execute()
+      // All mutations share one bounded exact-content table and a measured budget receipt.
+      void shareContentChecks
+      return withTransactionContentChecks(() => this.accounting.run(execute))
     })
   }
-  private async assembled(project: ProjectData, owner: string, kind: BindingKind, recordId: string, shared?: ResourceAssembly): Promise<ProjectBundle> {
+  private async assembled(project: ProjectData, owner: string, kind: BindingKind, recordId: string, shared?: ResourceAssembly, expectedBytes?: ReadonlyMap<string, Uint8Array>): Promise<ProjectBundle> {
     assertBinding(await this.database.resourceBindings.get([owner, kind, recordId]), project, owner, kind, recordId)
+    return this.assembledUnbound(project, shared, expectedBytes)
+  }
+  private async assembledUnbound(project: ProjectData, shared?: ResourceAssembly, expectedBytes?: ReadonlyMap<string, Uint8Array>): Promise<ProjectBundle> {
     const pairs: [string, Uint8Array][] = []
     for (const [hash, size] of projectResourceRecords(project)) {
       let bytes = shared?.bytes.get(hash)
       if (!bytes) {
-        if (shared && (shared.bytes.size >= 768 || shared.byteLength + size > PROJECT_STORAGE_LIMITS.resourceBytes)) throw new Error('转换冷读联合图片/SVG源超过数量或字节保护预算。')
+        if (shared && (shared.bytes.size >= (shared.maximumCount ?? 768) || shared.byteLength + size > PROJECT_STORAGE_LIMITS.resourceBytes)) throw new Error('联合图片/SVG源超过数量或字节保护预算。')
         const row = await this.database.resources.get(hash)
         if (!row || row.sha256 !== hash) throw new Error('工程实际资源字节缺失。')
         bytes = bytesOf(row, size)
         if (shared) { shared.bytes.set(hash, bytes); shared.byteLength += bytes.length }
       }
       if (bytes.length !== size) throw new Error('工程实际资源长度不符。')
+      if (expectedBytes) {
+        const original = expectedBytes.get(hash)
+        if (!original || bytes.length !== original.length || !bytes.every((byte, index) => byte === original[index])) throw new Error('已验证资源闭包与实际持久字节不符。')
+      }
       if (!shared) pairs.push([hash, bytes])
     }
     for (const [hash, license] of Object.entries(project.licenses)) {
@@ -373,32 +591,14 @@ export class ProjectRepository {
     return bundle ? validateProjectBundle(bundle, this.validation(options)) : null
   }
   async listAutomaticSnapshots(ownerSceneId: string): Promise<AutomaticSummary[]> {
-    id(ownerSceneId); await this.open()
-    return this.database.transaction('r', PROJECT_TABLES, async () => {
-      const current = await this.database.projects.get(ownerSceneId)
-      if (!current || current.status !== 'ready') return []
-      assertCurrent(current)
-      const summaries: AutomaticSummary[] = []
-      await scanRows(this.database.automaticSnapshots.where('ownerSceneId').equals(ownerSceneId), row => {
-        assertAutomatic(row)
-        summaries.push({ ownerSceneId, revision: row.revision, savedAt: row.savedAt, contentHash: row.contentHash })
-      })
-      return summaries.sort((a, b) => b.revision - a.revision)
-    })
+    const history = await this.listHistoryVersions(ownerSceneId)
+    return history.versions.filter(row => row.automatic).slice(0, 20).map(row => ({ ownerSceneId, revision: row.revision, savedAt: row.savedAt, contentHash: row.contentHash }))
   }
   async loadAutomaticSnapshot(ownerSceneId: string, revision: number, options: ResourceOptions = {}): Promise<ProjectBundle | null> {
-    id(ownerSceneId); if (!integer(revision)) throw new Error('自动历史revision无效。')
-    await this.open()
-    const bundle = await this.database.transaction('r', PROJECT_TABLES, () => withTransactionContentChecks(async () => {
-      const current = await this.database.projects.get(ownerSceneId)
-      if (!current || current.status !== 'ready') return null
-      assertCurrent(current)
-      const row = await this.database.automaticSnapshots.get([ownerSceneId, revision])
-      if (!row) return null
-      assertAutomatic(row)
-      return this.assembled(row.project, ownerSceneId, 'automatic', String(revision))
-    }))
-    return bundle ? validateProjectBundle(bundle, this.validation(options)) : null
+    if (!integer(revision)) throw new Error('自动历史revision无效。')
+    const history = await this.listHistoryVersions(ownerSceneId), rows = history.versions.filter(row => row.automatic && row.revision === revision)
+    if (rows.length > 1) throw new Error('自动历史修订存在重复版本。')
+    return rows[0] ? this.loadHistoryVersion(ownerSceneId, rows[0].id, options) : null
   }
   private async putResources(bundles: readonly ProjectBundle[], options: ResourceOptions): Promise<void> {
     // Bundles have owned immutable byte ports; DB transactions never perform native image decoding.
@@ -421,51 +621,57 @@ export class ProjectRepository {
       }
     }
   }
-  private async usageInTransaction(ownerSceneId: string): Promise<StorageUsage> {
-    const metadata = await this.database.historyMetadata.get(ownerSceneId)
-    let namedCount = 0, protectionCount = 0, importedCount = 0
-    let documentBytes = 0, resourceBytes = 0, legacyBytes = 0
-    // Every row still counts toward storage, including content already checked
-    // by another guard in this same transaction. No proof crosses transactions.
-    const transaction = Dexie.currentTransaction
-    const contents = transaction && transactionContentChecks.get(transaction) || createContentChecks()
-    const countContent: typeof assertContent = (project, hash) => {
-      if (!hashValue(hash)) throw new Error('存档完整内容hash损坏；原记录保持。')
-      const checked = checkedContent(project, contents)
+  private rowCost(table: string, value: unknown): { kind: keyof StorageTotals; bytes: number } | null {
+    let size = 0
+    const content: typeof assertContent = (project, hash) => {
+      const checked = checkedContent(project, Dexie.currentTransaction && transactionContentChecks.get(Dexie.currentTransaction) || createContentChecks())
       if (checked.hash !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
-      // Identical current/history copies still each consume document storage.
-      documentBytes += checked.byteLength
+      size += checked.byteLength
     }
-    await scanRows(this.database.projects, row => {
-      if (row.sceneId === ownerSceneId) assertMetadata(metadata, ownerSceneId)
-      assertCurrent(row, countContent)
-    })
-    await scanRows(this.database.automaticSnapshots, row => { assertAutomatic(row, countContent) })
-    await scanRows(this.database.snapshots, row => {
-      assertSnapshot(row, false, countContent)
-      if (row.ownerSceneId === ownerSceneId) {
-        if (row.kind === 'named') namedCount++
-        else if (row.kind === 'protection') protectionCount++
-      }
-    })
-    await scanRows(this.database.importedSnapshots, row => {
-      assertSnapshot(row, true, countContent)
-      if (row.ownerSceneId === ownerSceneId) importedCount++
-    })
-    await scanRows(this.database.resources, row => { resourceBytes += bytesOf(row).length })
-    await scanRows(this.database.licenseTexts, row => {
-      exact(row, ['sha256', 'text'])
-      if (!hashValue(row.sha256) || typeof row.text !== 'string') throw new Error('库中许可正文hash损坏。')
-      const bytes = encodeUtf8(row.text)
-      if (sha256Bytes(bytes) !== row.sha256) throw new Error('库中许可正文hash损坏。')
-      if (!bytes.length || bytes.length > 256 * 1024) throw new Error('库中许可正文超过保护预算。')
-      resourceBytes += bytes.length
-    })
-    await scanRows(this.database.legacyBlobs, row => { legacyBytes += bytesOf(row, PROJECT_STORAGE_LIMITS.legacyBytes).length })
-    const upgradeContext = this.nativeUpgradeContext()
-    await scanRows(this.database.nativeUpgradeCapsules, row => { documentBytes += nativeUpgradeCapsuleDocumentBytes(row, upgradeContext) })
-    return { resourceBytes, documentBytes, legacyBytes, metadataVersion: metadata?.metadataVersion ?? 0,
-      namedCount, protectionCount, importedCount }
+    if (table === 'projects') assertCurrent(value as StoredProject, content)
+    else if (table === 'automaticSnapshots') assertAutomatic(value as StoredAutomatic, content)
+    else if (table === 'snapshots' || table === 'importedSnapshots') assertSnapshot(value as StoredSnapshot, table === 'importedSnapshots', content)
+    else if (table === 'nativeUpgradeCapsules') size = nativeUpgradeCapsuleDocumentBytes(value as Parameters<typeof nativeUpgradeCapsuleDocumentBytes>[0], this.nativeUpgradeContext())
+    else if (table === 'historyVersions') size = this.history.versionBytes(value)
+    else if (table === 'historyHeads') size = historyHeadBytes(value)
+    else if (table === 'historyPins') size = historyPinBytes(value)
+    else if (table === 'resources' || table === 'legacyBlobs') return { kind: table === 'resources' ? 'resourceBytes' : 'legacyBytes',
+      bytes: bytesOf(value as StoredBytes, table === 'resources' ? 20 * 1024 * 1024 : PROJECT_STORAGE_LIMITS.legacyBytes).length }
+    else if (table === 'licenseTexts') {
+      exact(value, ['sha256', 'text'])
+      if (!hashValue(value.sha256) || typeof value.text !== 'string') throw new Error('库中许可正文hash损坏。')
+      const bytes = encodeUtf8(value.text)
+      if (!bytes.length || bytes.length > 256 * 1024 || sha256Bytes(bytes) !== value.sha256) throw new Error('库中许可正文hash或预算损坏。')
+      return { kind: 'resourceBytes', bytes: bytes.length }
+    } else return null
+    return { kind: 'documentBytes', bytes: size }
+  }
+  private async scanTotals(): Promise<StorageTotals> {
+    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
+    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyVersions', 'historyHeads', 'historyPins']) {
+      await scanRows(this.database.table(table), row => { const cost = this.rowCost(table, row); if (cost) totals[cost.kind] += cost.bytes })
+    }
+    // Cold/opened connections prove the whole graph once; a session receipt is
+    // retained only while all subsequent writes are transactionally measured.
+    const heads = await this.database.historyHeads.toArray(), owners = new Set(heads.map(row => row.ownerSceneId))
+    for (const head of heads) {
+      await this.history.audit(head.ownerSceneId)
+      const current = await this.database.projects.get(head.ownerSceneId)
+      if (!current || current.revision !== head.savedRevision || current.contentHash !== head.contentHash) throw new Error('历史活动版本与完整当前工程不一致。')
+    }
+    await scanRows(this.database.historyVersions, row => { if (!owners.has(row.ownerSceneId)) throw new Error('增量历史缺少所属活动分支。') })
+    await scanRows(this.database.historyPins, row => { if (!owners.has(row.ownerSceneId)) throw new Error('增量历史快照缺少所属分支。') })
+    return totals
+  }
+  private async usageInTransaction(ownerSceneId: string): Promise<StorageUsage> {
+    const totals = await this.accounting.totals(), metadata = await this.database.historyMetadata.get(ownerSceneId)
+    if (await this.database.projects.get(ownerSceneId)) assertMetadata(metadata, ownerSceneId)
+    const head = await this.history.head(ownerSceneId)
+    const pins = head?.status === 'ready' ? await this.history.pins(ownerSceneId) : null
+    const rows = pins ?? await this.database.snapshots.where('ownerSceneId').equals(ownerSceneId).toArray()
+    return { ...totals, metadataVersion: metadata?.metadataVersion ?? 0,
+      namedCount: rows.filter(row => row.kind === 'named').length, protectionCount: rows.filter(row => row.kind === 'protection').length,
+      importedCount: pins ? pins.filter(row => row.kind === 'imported-auto').length : await this.database.importedSnapshots.where('ownerSceneId').equals(ownerSceneId).count() }
   }
   private async assertBudgets(ownerSceneId: string): Promise<void> {
     const usage = await this.usageInTransaction(ownerSceneId)
@@ -474,7 +680,7 @@ export class ProjectRepository {
   }
   async usage(ownerSceneId: string): Promise<StorageUsage> {
     id(ownerSceneId); await this.open()
-    return this.database.transaction('r', PROJECT_TABLES, () => this.usageInTransaction(ownerSceneId))
+    return this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(this.usageInTransaction(ownerSceneId)))
   }
   /** Metadata for a later CAS only; this is not complete project/library validation. */
   async historyMetadataVersion(ownerSceneId: string, options: ResourceOptions = {}): Promise<number> {
@@ -492,22 +698,33 @@ export class ProjectRepository {
       return metadata.metadataVersion
     })
   }
-  private async addCurrent(bundle: ProjectBundle, hash: string, savedAt: string, status: StoredProject['status'], conversionJobId: string | null, add: boolean): Promise<void> {
-    const project = bundle.project, ownerSceneId = project.document.sceneId, revision = project.document.revision
-    const row: StoredProject = { sceneId: ownerSceneId, revision, savedAt, contentHash: hash, status, conversionJobId, project }
-    if (add) await this.database.projects.add(row)
-    else await this.database.projects.put(row)
-    await this.database.resourceBindings.put(binding(project, ownerSceneId, 'current', 'current'))
-    await this.database.automaticSnapshots.add({ ownerSceneId, revision, savedAt, contentHash: hash, project })
-    await this.database.resourceBindings.add(binding(project, ownerSceneId, 'automatic', String(revision)))
-    const older = (await this.database.automaticSnapshots.where('ownerSceneId').equals(ownerSceneId).primaryKeys()).sort((a, b) => b[1] - a[1]).slice(20)
-    if (older.length) {
-      await this.database.automaticSnapshots.bulkDelete(older)
-      await this.database.resourceBindings.bulkDelete(older.map(([owner, value]) => [owner, 'automatic', String(value)]))
+  private async addCurrent(bundle: ProjectBundle, hash: string, savedAt: string, conversionJobId: string | null, previous: StoredProject | null, parentId?: string): Promise<void> {
+    const project = bundle.project, owner = project.document.sceneId
+    const row: StoredProject = { sceneId: owner, revision: project.document.revision, savedAt, contentHash: hash, status: 'ready', conversionJobId, project }
+    if (previous) await this.database.projects.put(row)
+    else await this.database.projects.add(row)
+    await this.database.resourceBindings.put(binding(project, owner, 'current', 'current'))
+    await this.history.append(row, previous, this.options.runtime.ids.nextId(), parentId)
+  }
+  private async installFamily(bundle: ProjectBundle, hash: string, savedAt: string, status: StoredProject['status'], conversionJobId: string | null, snapshots: readonly SnapshotBundle[]): Promise<void> {
+    const owner = bundle.project.document.sceneId
+    const current: StoredProject = { sceneId: owner, revision: bundle.project.document.revision, savedAt, contentHash: hash, status, conversionJobId, project: bundle.project }
+    await this.database.projects.add(current)
+    await this.database.resourceBindings.add(binding(bundle.project, owner, 'current', 'current'))
+    const named: StoredSnapshot[] = [], imported: StoredSnapshot[] = []
+    for (const row of snapshots) {
+      const stored = { ...summaryOf(row), project: row.bundle.project }
+      ;(row.kind === 'imported-auto' ? imported : named).push(stored)
+      await this.database.resourceBindings.add(binding(row.bundle.project, owner, row.kind, row.id))
     }
+    await this.history.initialize(current, [], named, imported, 0)
+    await this.history.activate(owner, hash, current.revision, 0)
   }
   async save(input: ProjectBundle, expectedRevision: number | null, options: SaveProjectOptions = {}): Promise<void> {
     if (expectedRevision !== null && !integer(expectedRevision)) throw new Error('保存基线须为非负revision或无记录。')
+    const historyParentId = options.historyParentId, historyParentHash = options.historyParentHash
+    if ((historyParentId === undefined) !== (historyParentHash === undefined)) throw new Error('完整历史分支须同时绑定版本与内容hash。')
+    if (historyParentId !== undefined) { id(historyParentId); if (!hashValue(historyParentHash) || expectedRevision === null) throw new Error('完整历史分支来源无效。') }
     const guard = options.guard ? captureJson(options.guard) as unknown as ProjectSaveGuard : undefined
     if (guard) {
       exact(guard, ['expectedMetadataVersion', 'protection']); exact(guard.protection, ['id', 'contentHash'])
@@ -523,7 +740,14 @@ export class ProjectRepository {
     }
     const captured = captureProjectBundleInput(input), savedAt = this.options.runtime.clock.now(); time(savedAt)
     const bundle = await validateProjectBundle(captured, this.validation(options)), project = bundle.project, hash = projectContentHash(project), owner = project.document.sceneId
+    await this.ensureHistory(owner, options)
+    if (preservation) await this.ensureHistory(preservation.sceneId, options)
     await this.atomic(options, async () => {
+      if (historyParentId !== undefined) {
+        const parent = await this.history.readVersion(owner, historyParentId)
+        if (!parent || parent.version.contentHash !== historyParentHash || parent.project.document.sceneId !== owner || parent.project.schemaVersion !== project.schemaVersion
+          || parent.project.historyIdentity.lineageId !== project.historyIdentity.lineageId) throw new HistoryMetadataConflictError()
+      }
       if (preservation) {
         if (preservation.sceneId === owner) throw new Error('独立工程不能覆盖原工程身份。')
         await this.assertProtectionInTransaction(preservation.sceneId, preservation.revision, preservation.contentHash, preservation.guard)
@@ -533,7 +757,7 @@ export class ProjectRepository {
       if ((previous?.revision ?? null) !== expectedRevision || previous && (previous.status !== 'ready' || project.document.revision <= previous.revision)) throw new ProjectConflictError(previous?.revision ?? null)
       if (guard) {
         await this.metadataCAS(owner, guard.expectedMetadataVersion)
-        const protection = await this.database.snapshots.get([owner, guard.protection.id])
+        const protection = await this.snapshotRecord(owner, guard.protection.id, previous)
         if (!protection || protection.kind !== 'protection' || protection.contentHash !== guard.protection.contentHash || protection.sourceRevision !== expectedRevision) throw new HistoryMetadataConflictError()
         assertSnapshot(protection)
         assertBinding(await this.database.resourceBindings.get([owner, 'protection', protection.id]), protection.project, owner, 'protection', protection.id)
@@ -550,7 +774,7 @@ export class ProjectRepository {
         await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
       }
       await this.putResources([bundle], options)
-      await this.addCurrent(bundle, hash, savedAt, 'ready', previous?.conversionJobId ?? null, !previous)
+      await this.addCurrent(bundle, hash, savedAt, previous?.conversionJobId ?? null, previous ?? null, historyParentId)
       await this.assertBudgets(owner)
     }, true)
   }
@@ -559,7 +783,7 @@ export class ProjectRepository {
     if (!current || current.status !== 'ready' || current.revision !== expectedRevision || current.contentHash !== expectedContentHash) throw new ProjectConflictError(current?.revision ?? null)
     assertCurrent(current)
     const metadata = await this.database.historyMetadata.get(owner); assertMetadata(metadata, owner)
-    const protection = await this.database.snapshots.get([owner, guard.protection.id])
+    const protection = await this.snapshotRecord(owner, guard.protection.id, current)
     if (metadata.metadataVersion !== guard.expectedMetadataVersion || !protection || protection.kind !== 'protection'
       || protection.contentHash !== guard.protection.contentHash || protection.contentHash !== current.contentHash || protection.sourceRevision !== expectedRevision) throw new HistoryMetadataConflictError()
     assertSnapshot(protection)
@@ -567,14 +791,14 @@ export class ProjectRepository {
   }
   /** A pre-commit read; save() must still repeat this guard in its final write transaction. */
   async checkProtection(owner: string, expectedRevision: number, expectedContentHash: string, guard: ProjectSaveGuard, options: ResourceOptions = {}): Promise<void> {
-    id(owner); checkCancelled(options.signal); await this.open()
+    id(owner); checkCancelled(options.signal); await this.ensureHistory(owner, options)
     const captured = captureJson(guard) as unknown as ProjectSaveGuard
     if (!integer(expectedRevision) || !hashValue(expectedContentHash) || !integer(captured.expectedMetadataVersion)) throw new Error('保护检查基线无效。')
-    return this.database.transaction('r', PROJECT_TABLES, () => withTransactionContentChecks(async () => {
+    return this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
       checkCancelled(options.signal)
       await this.assertProtectionInTransaction(owner, expectedRevision, expectedContentHash, captured)
       checkCancelled(options.signal)
-    }))
+    })))
   }
   /** Install an explicitly selected native archive as one fresh complete project, atomically with every history binding. */
   async importArchive(input: HistoryArchive, options: ResourceOptions = {}): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
@@ -601,11 +825,7 @@ export class ProjectRepository {
         || await this.database.legacySources.where('ownerSceneId').equals(owner).count()) throw new Error('导入的新工程身份已占用，未覆盖任何成果。')
       await this.putResources([project, ...snapshots.map(snapshot => snapshot.bundle)], options)
       await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
-      await this.addCurrent(project, projectContentHash(project.project), savedAt, 'ready', null, true)
-      for (const snapshot of snapshots) {
-        await this.database.snapshots.add({ ...summaryOf(snapshot), project: snapshot.bundle.project })
-        await this.database.resourceBindings.add(binding(snapshot.bundle.project, owner, snapshot.kind, snapshot.id))
-      }
+      await this.installFamily(project, projectContentHash(project.project), savedAt, 'ready', null, snapshots)
       await this.assertBudgets(owner)
     })
     return { project, snapshots: snapshots.map(summaryOf) }
@@ -642,36 +862,117 @@ export class ProjectRepository {
     return { source, bytes: blobs.get(source.sourceHash)!.slice() }
   }
   async listSnapshots(ownerSceneId: string): Promise<SnapshotSummary[]> {
-    id(ownerSceneId); await this.open()
+    await this.ensureHistory(ownerSceneId)
     return this.database.transaction('r', PROJECT_TABLES, async () => {
       const current = await this.database.projects.get(ownerSceneId)
       if (!current || current.status !== 'ready') return []
       assertCurrent(current)
-      const summaries: SnapshotSummary[] = []
-      await scanRows(this.database.snapshots.where('ownerSceneId').equals(ownerSceneId), row => {
-        assertSnapshot(row); summaries.push(summaryOf(row))
-      })
-      await scanRows(this.database.importedSnapshots.where('ownerSceneId').equals(ownerSceneId), row => {
-        assertSnapshot(row, true); summaries.push(summaryOf(row))
-      })
-      return summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+      return (await this.history.pins(ownerSceneId)).map(summaryOf).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
     })
   }
-  async loadSnapshot(ownerSceneId: string, snapshotId: string, options: ResourceOptions = {}): Promise<SnapshotBundle | null> {
-    id(ownerSceneId); id(snapshotId); await this.open()
-    const captured = await this.database.transaction('r', PROJECT_TABLES, () => withTransactionContentChecks(async () => {
+  private async captureSnapshot(ownerSceneId: string, snapshotId: string, options: ResourceOptions, readSession?: SnapshotReadSession): Promise<SnapshotBundle | null> {
+    id(snapshotId); await this.ensureHistory(ownerSceneId, options)
+    const captured = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
       const current = await this.database.projects.get(ownerSceneId)
       if (!current || current.status !== 'ready') return null
       assertCurrent(current)
-      const named = await this.database.snapshots.get([ownerSceneId, snapshotId]), imported = await this.database.importedSnapshots.get([ownerSceneId, snapshotId])
-      if (named && imported) throw new Error('历史快照ID在不同类别重复。')
-      const row = named ?? imported
+      const row = await this.snapshotRecord(ownerSceneId, snapshotId, current, readSession)
       if (!row) return null
-      assertSnapshot(row, !!imported)
+      assertSnapshot(row, row.kind === 'imported-auto')
       return { ...summaryOf(row), bundle: await this.assembled(row.project, ownerSceneId, row.kind, snapshotId) }
-    }))
-    if (!captured) return null
-    return { ...captured, bundle: await validateProjectBundle(captured.bundle, this.validation(options)) }
+    })))
+    return captured
+  }
+  async loadSnapshot(ownerSceneId: string, snapshotId: string, options: ResourceOptions = {}): Promise<SnapshotBundle | null> {
+    const captured = await this.captureSnapshot(ownerSceneId, snapshotId, options)
+    return captured ? { ...captured, bundle: await validateProjectBundle(captured.bundle, this.validation(options)) } : null
+  }
+  private closeSnapshotRead(state: SnapshotReadState): void {
+    state.closed = true; state.cached = null; state.history.close(); this.activeSnapshotReads.delete(state)
+    for (const transaction of state.writes) {
+      try { if (transaction.active) transaction.abort() } catch { /* the transaction already completed */ }
+    }
+    state.writes.clear()
+  }
+  private snapshotReadState(session: SnapshotReadSession): SnapshotReadState {
+    const state = this.snapshotReads.get(session)
+    if (!state || state.closed || this.invalidated) throw new Error('历史读取会话无效、已关闭或不属于当前仓库。')
+    return state
+  }
+  /** Only trusted platform objects and their own data methods identify pixel validation. */
+  private snapshotPixelKey(): readonly unknown[] | null {
+    const { images, svg } = this.options.validation
+    if (!images || typeof images !== 'object') return null
+    const fields = Object.getOwnPropertyDescriptors(images), methods = ['decode', 'transform', 'encodePng'].map(key => fields[key])
+    if (methods.some(method => !method || !('value' in method) || typeof method.value !== 'function')) return null
+    const rasterize = svg && Object.getOwnPropertyDescriptor(svg, 'rasterize')
+    if (svg && (!rasterize || !('value' in rasterize) || typeof rasterize.value !== 'function')) return null
+    return [images, ...methods.map(method => method.value), svg, rasterize?.value]
+  }
+  beginSnapshotRead(): SnapshotReadSession {
+    if (this.invalidated) throw new Error('工程数据库连接已失效。')
+    const state: SnapshotReadState = { closed: false, busy: false, cached: null, writes: new Set(), history: this.history.beginRead() }
+    const session: SnapshotReadSession = Object.freeze({
+      load: (owner: string, snapshotId: string, options: ResourceOptions = {}) => this.loadSnapshotInSession(session, owner, snapshotId, options),
+      close: () => this.closeSnapshotRead(state),
+    })
+    this.snapshotReads.set(session, state); this.activeSnapshotReads.add(state)
+    return session
+  }
+  private async loadSnapshotInSession(session: SnapshotReadSession, owner: string, snapshotId: string, options: ResourceOptions): Promise<SnapshotBundle | null> {
+    const state = this.snapshotReadState(session), signal = this.validation(options).signal
+    if (state.busy) { this.closeSnapshotRead(state); throw new Error('历史读取会话不能并发使用。') }
+    state.busy = true
+    const assertActive = () => { this.snapshotReadState(session); checkCancelled(signal) }
+    const samePixels = (left: readonly unknown[] | null, right: readonly unknown[] | null) => left !== null && right !== null
+      && left.length === right.length && left.every((value, index) => value === right[index])
+    try {
+      assertActive()
+      // Each read freshly proves the real DB rows, complete graph, bindings,
+      // resource bytes/hashes/sizes and license bodies before considering reuse.
+      const captured = await this.captureSnapshot(owner, snapshotId, options, session)
+      assertActive()
+      if (!captured) { state.cached = null; return null }
+      const json = canonicalJson(captured.bundle.project), pixels = this.snapshotPixelKey(), cached = state.cached
+      let bundle: VerifiedProjectBundle | null = null
+      if (cached && json === cached.json && samePixels(pixels, cached.pixels)) {
+        let sameBytes = true
+        for (const [hash] of projectResourceRecords(captured.bundle.project)) {
+          const actual = await captured.bundle.resources.read(hash), original = await cached.bundle.resources.read(hash)
+          assertActive()
+          const record = captured.bundle.project.assets[hash]
+          if (record) {
+            const header = inspectImageBytes(actual)
+            if (header.mimeType !== record.mimeType || header.width !== record.pixelWidth || header.height !== record.pixelHeight) throw new Error('实际图片格式/尺寸与元数据不匹配。')
+          }
+          if (actual.length !== original.length || !actual.every((byte, index) => byte === original[index])) { sameBytes = false; break }
+        }
+        if (sameBytes && samePixels(pixels, this.snapshotPixelKey())) bundle = cached.bundle
+      }
+      let proofPixels = pixels
+      if (!bundle) {
+        proofPixels = this.snapshotPixelKey()
+        bundle = await validateProjectBundle(captured.bundle, this.validation(options))
+      }
+      assertActive()
+      // No RGBA/Bitmap is retained. Only a successful immutable metadata/byte
+      // closure may survive until the next read in this explicitly scoped operation.
+      state.cached = proofPixels && samePixels(proofPixels, this.snapshotPixelKey()) ? { json, bundle, pixels: proofPixels } : null
+      return { ...captured, bundle }
+    } catch (error) {
+      this.closeSnapshotRead(state); throw error
+    } finally { state.busy = false }
+  }
+  private async captureResourceBytes(bundles: readonly ProjectBundle[], signal?: ResourceOptions['signal']): Promise<ReadonlyMap<string, Uint8Array>> {
+    const bytes = new Map<string, Uint8Array>()
+    for (const bundle of bundles) for (const [hash] of projectResourceRecords(bundle.project)) {
+      checkCancelled(signal)
+      const actual = await bundle.resources.read(hash), previous = bytes.get(hash)
+      checkCancelled(signal)
+      if (previous && (actual.length !== previous.length || !actual.every((byte, index) => byte === previous[index]))) throw new Error('相同资源hash对应不同实际字节。')
+      if (!previous) bytes.set(hash, actual)
+    }
+    return bytes
   }
   private async metadataCAS(owner: string, expected: number): Promise<StoredHistoryMetadata> {
     const row = await this.database.historyMetadata.get(owner); assertMetadata(row, owner)
@@ -687,6 +988,14 @@ export class ProjectRepository {
     return row
   }
   async createSnapshot(input: ProjectBundle, snapshotName: string, options: CreateSnapshotOptions): Promise<SnapshotBundle> {
+    const session = options.readSession, state = session === undefined ? undefined : this.snapshotReadState(session)
+    const signal = this.validation(options).signal, thisRepository = this
+    const scopedOptions = { ...options, ...(state ? { readSession: session } : {}),
+      signal: state ? { get aborted() { return !!signal?.aborted || state.closed || thisRepository.invalidated } } : signal }
+    try { return await this.createSnapshotChecked(input, snapshotName, scopedOptions) }
+    catch (error) { if (state) this.closeSnapshotRead(state); throw error }
+  }
+  private async createSnapshotChecked(input: ProjectBundle, snapshotName: string, options: CreateSnapshotOptions): Promise<SnapshotBundle> {
     const captured = captureProjectBundleInput(input), normalized = name(snapshotName), kind = options.kind ?? 'named'
     const expected = options.expectedRevision, metadataVersion = options.expectedMetadataVersion
     if (!integer(expected) || !integer(metadataVersion) || !['named', 'protection'].includes(kind)) throw new Error('历史快照基线或类型无效。')
@@ -694,24 +1003,46 @@ export class ProjectRepository {
     if (source) { exact(source, ['id', 'contentHash']); id(source.id); if (!hashValue(source.contentHash)) throw new Error('来源快照hash无效。') }
     const snapshotId = options.id ?? this.options.runtime.ids.nextId(), createdAt = this.options.runtime.clock.now(); id(snapshotId); time(createdAt)
     const bundle = await validateProjectBundle(captured, this.validation(options)), owner = bundle.project.document.sceneId
+    await this.ensureHistory(owner, options)
+    let sourceBundle: ProjectBundle | undefined
     if (source) {
-      const loaded = await this.loadSnapshot(owner, source.id, options)
+      const loaded = options.readSession
+        ? await this.loadSnapshotInSession(options.readSession, owner, source.id, options)
+        : await this.loadSnapshot(owner, source.id, options)
       if (!loaded || loaded.contentHash !== source.contentHash) throw new HistoryMetadataConflictError()
+      sourceBundle = loaded.bundle
       mergeIdentityRecords(bundle.project.historyIdentity, [loaded.bundle.project.historyIdentity])
     }
+    const expectedBytes = await this.captureResourceBytes(sourceBundle ? [bundle, sourceBundle] : [bundle], options.signal)
+    const sourceJson = sourceBundle && canonicalJson(sourceBundle.project)
+    const transactionBytes = new Map<string, Uint8Array>()
+    const transactionResources: ResourceAssembly = { bytes: transactionBytes, byteLength: 0, maximumCount: expectedBytes.size,
+      resources: Object.freeze({ async read(hash: string) {
+        const bytes = transactionBytes.get(hash)
+        if (!bytes) throw new Error('资源不在本次事务已核闭包内。')
+        return bytes.slice()
+      } }) }
     const snapshot: SnapshotBundle = { id: snapshotId, ownerSceneId: owner, kind, name: normalized, createdAt,
       lineageId: bundle.project.historyIdentity.lineageId, sourceRevision: bundle.project.document.revision, contentHash: projectContentHash(bundle.project), bundle }
     await this.atomic(options, async () => {
+      if (options.readSession) {
+        const state = this.snapshotReadState(options.readSession), transaction = Dexie.currentTransaction!
+        state.writes.add(transaction)
+        const release = () => { state.writes.delete(transaction) }
+        transaction.on('complete', release); transaction.on('abort', release)
+      }
       await this.assertSaved(bundle, expected)
       const metadata = await this.metadataCAS(owner, metadataVersion)
+      await this.assembled(bundle.project, owner, 'current', 'current', transactionResources, expectedBytes)
       if (source) {
-        const row = await this.database.snapshots.get([owner, source.id]) ?? await this.database.importedSnapshots.get([owner, source.id])
+        const row = await this.snapshotRecord(owner, source.id, undefined, options.readSession)
         if (!row || row.contentHash !== source.contentHash) throw new HistoryMetadataConflictError()
         assertSnapshot(row, row.kind === 'imported-auto')
+        if (canonicalJson(row.project) !== sourceJson) throw new HistoryMetadataConflictError()
+        await this.assembled(row.project, owner, row.kind, row.id, transactionResources, expectedBytes)
       }
-      if (await this.database.snapshots.get([owner, snapshotId]) || await this.database.importedSnapshots.get([owner, snapshotId])) throw new Error('快照ID已被占用。')
-      await this.putResources([bundle], options)
-      await this.database.snapshots.add({ ...summaryOf(snapshot), project: bundle.project })
+      if (await this.snapshotRecord(owner, snapshotId) || await this.database.snapshots.get([owner, snapshotId]) || await this.database.importedSnapshots.get([owner, snapshotId])) throw new Error('快照ID已被占用。')
+      await this.history.pin(summaryOf(snapshot), bundle.project)
       await this.database.resourceBindings.add(binding(bundle.project, owner, kind, snapshotId))
       await this.database.historyMetadata.put({ ...metadata, metadataVersion: metadata.metadataVersion + 1 })
       await this.assertBudgets(owner)
@@ -721,32 +1052,49 @@ export class ProjectRepository {
   async renameSnapshot(owner: string, snapshotId: string, snapshotName: string, expectedHash: string, expectedMetadataVersion: number): Promise<void> {
     id(owner); id(snapshotId); const normalized = name(snapshotName)
     if (!hashValue(expectedHash)) throw new Error('快照hash无效。')
+    await this.ensureHistory(owner)
     await this.atomic({}, async () => {
       const current = await this.database.projects.get(owner)
       if (!current || current.status !== 'ready') throw new HistoryMetadataConflictError()
       assertCurrent(current)
-      const row = await this.database.snapshots.get([owner, snapshotId])
+      const row = await this.snapshotRecord(owner, snapshotId, current)
       if (!row || row.contentHash !== expectedHash || row.kind !== 'named') throw new HistoryMetadataConflictError()
       assertSnapshot(row)
       const metadata = await this.metadataCAS(owner, expectedMetadataVersion)
-      await this.database.snapshots.put({ ...row, name: normalized })
+      await this.history.renamePin(owner, snapshotId, normalized)
       await this.database.historyMetadata.put({ ...metadata, metadataVersion: metadata.metadataVersion + 1 })
+      await this.assertBudgets(owner)
     }, true)
   }
   async deleteSnapshot(owner: string, snapshotId: string, expectedHash: string, expectedMetadataVersion: number): Promise<void> {
     id(owner); id(snapshotId)
     if (!hashValue(expectedHash)) throw new Error('快照hash无效。')
+    await this.ensureHistory(owner)
     await this.atomic({}, async () => {
       const current = await this.database.projects.get(owner)
       if (!current || current.status !== 'ready') throw new HistoryMetadataConflictError()
       assertCurrent(current)
-      const row = await this.database.snapshots.get([owner, snapshotId])
-      if (!row || row.contentHash !== expectedHash) throw new HistoryMetadataConflictError()
+      const row = await this.snapshotRecord(owner, snapshotId, current)
+      if (!row || row.contentHash !== expectedHash || row.kind === 'imported-auto') throw new HistoryMetadataConflictError()
       assertSnapshot(row)
       const metadata = await this.metadataCAS(owner, expectedMetadataVersion)
-      await this.database.snapshots.delete([owner, snapshotId])
+      await this.history.deletePin(owner, snapshotId)
       await this.database.resourceBindings.delete([owner, row.kind, snapshotId])
       await this.database.historyMetadata.put({ ...metadata, metadataVersion: metadata.metadataVersion + 1 })
+    }, true)
+  }
+  /** Explicit maintenance retains every version, branch and original. Only unreferenced bytes are reclaimed. */
+  async maintainHistory(owner: string, options: ResourceOptions = {}): Promise<UnusedResourceCollection> {
+    id(owner); checkCancelled(options.signal); await this.open()
+    // Maintenance always starts with a fresh full-library audit, even when this
+    // connection has a valid session receipt for ordinary saves.
+    this.accounting.invalidate()
+    return this.atomic(options, async () => {
+      const context = this.nativeUpgradeContext(options)
+      const result = await collectUnusedResources(this.database, { ...context,
+        assertCapsule: row => { nativeUpgradeCapsuleDocumentBytes(row, context) } }, options)
+      await this.assertBudgets(owner)
+      return result
     }, true)
   }
   async getJob(jobId: string): Promise<ConversionJob | null> {
@@ -934,11 +1282,7 @@ export class ProjectRepository {
       const all = [family.current, ...family.snapshots.map(row => row.bundle), ...family.importedSnapshots.map(row => row.bundle)]
       await this.putResources(all, options)
       await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
-      await this.addCurrent(family.current, hashes.current, savedAt, 'preparing', jobId, true)
-      for (const row of [...family.snapshots, ...family.importedSnapshots]) {
-        await (row.kind === 'imported-auto' ? this.database.importedSnapshots : this.database.snapshots).add({ ...summaryOf(row), project: row.bundle.project })
-        await this.database.resourceBindings.add(binding(row.bundle.project, owner, row.kind, row.id))
-      }
+      await this.installFamily(family.current, hashes.current, savedAt, 'preparing', jobId, [...family.snapshots, ...family.importedSnapshots])
       for (const blob of family.legacyBlobs) {
         const existing = await this.database.legacyBlobs.get(blob.sha256)
         if (existing) {
@@ -978,16 +1322,32 @@ export class ProjectRepository {
         return value.slice()
       } }) }
       if (job.stage !== 'verified') {
-        const automatic = await this.database.automaticSnapshots.where('ownerSceneId').equals(row.sceneId).toArray()
-        if (automatic.length !== 1) throw new Error('转换首份自动历史缺失或重复。')
-        assertAutomatic(automatic[0])
-        if (automatic[0].revision !== 0 || automatic[0].contentHash !== row.contentHash || canonicalJson(automatic[0].project) !== canonicalJson(row.project)) throw new Error('转换首份自动历史与当前内容不符。')
-        await this.assembled(automatic[0].project, row.sceneId, 'automatic', '0', shared)
+        const head = await this.history.head(row.sceneId)
+        if (head?.status === 'ready') {
+          const automatic = await this.history.readVersion(row.sceneId, head.activeVersionId)
+          if (!automatic || head.savedRevision !== 0 || head.contentHash !== row.contentHash || automatic.version.contentHash !== row.contentHash
+            || canonicalJson(automatic.project) !== canonicalJson(row.project)) throw new Error('转换首份自动历史与当前内容不符。')
+          await this.assembledUnbound(automatic.project, shared)
+        } else {
+          const automatic = await this.database.automaticSnapshots.where('ownerSceneId').equals(row.sceneId).toArray()
+          if (automatic.length !== 1) throw new Error('转换首份自动历史缺失或重复。')
+          assertAutomatic(automatic[0])
+          if (automatic[0].revision !== 0 || automatic[0].contentHash !== row.contentHash || canonicalJson(automatic[0].project) !== canonicalJson(row.project)) throw new Error('转换首份自动历史与当前内容不符。')
+          await this.assembled(automatic[0].project, row.sceneId, 'automatic', '0', shared)
+        }
       }
       const family: ConvertedFamily = { current: await this.assembled(row.project, row.sceneId, 'current', 'current', shared), snapshots: [], importedSnapshots: [],
         legacySources: await this.database.legacySources.where('ownerSceneId').equals(row.sceneId).toArray(), legacyBlobs: [], sourceContentHashes: job.sourceContentHashes }
-      const named = await this.database.snapshots.where('ownerSceneId').equals(row.sceneId).toArray(), imported = await this.database.importedSnapshots.where('ownerSceneId').equals(row.sceneId).toArray()
-      for (const snapshot of [...named, ...imported]) {
+      const head = await this.history.head(row.sceneId)
+      const historical: StoredSnapshot[] = []
+      if (head?.status === 'ready') {
+        for (const pin of await this.history.pins(row.sceneId)) {
+          const snapshot = await this.history.readPin(row.sceneId, pin.id, row)
+          if (!snapshot) throw new Error('转换当前历史引用缺失。')
+          historical.push(snapshot)
+        }
+      } else historical.push(...await this.database.snapshots.where('ownerSceneId').equals(row.sceneId).toArray(), ...await this.database.importedSnapshots.where('ownerSceneId').equals(row.sceneId).toArray())
+      for (const snapshot of historical) {
         assertSnapshot(snapshot, snapshot.kind === 'imported-auto')
         const full = { ...summaryOf(snapshot), bundle: await this.assembled(snapshot.project, row.sceneId, snapshot.kind, snapshot.id, shared) }
         ;(snapshot.kind === 'imported-auto' ? family.importedSnapshots : family.snapshots).push(full)
@@ -997,7 +1357,8 @@ export class ProjectRepository {
         if (!blob) throw new Error('转换旧原件字节缺失。')
         family.legacyBlobs.push({ sha256: hash, bytes: bytesOf(blob, PROJECT_STORAGE_LIMITS.legacyBytes) })
       }
-      return { job, family, contentHash: row.contentHash, metadataVersion: metadata.metadataVersion }
+      return { job, family, contentHash: row.contentHash, metadataVersion: metadata.metadataVersion,
+        historyFingerprint: await this.historyCopyFingerprint(row.sceneId) }
     })
     if (captured.job.stage === 'verified') {
       // Once opened, user edits are authoritative. Validate their full current/history content without imposing r0.
@@ -1029,7 +1390,8 @@ export class ProjectRepository {
       assertCurrent(row)
       const metadata = await this.database.historyMetadata.get(row.sceneId); assertMetadata(metadata, row.sceneId)
       if (row.status !== 'preparing' || row.conversionJobId !== jobId || row.revision !== 0 || row.contentHash !== cold.contentHash
-        || row.contentHash !== job.contentHash || metadata.metadataVersion !== cold.metadataVersion || metadata.metadataVersion !== job.metadataVersion) throw new ConversionConflictError()
+        || row.contentHash !== job.contentHash || metadata.metadataVersion !== cold.metadataVersion || metadata.metadataVersion !== job.metadataVersion
+        || await this.historyCopyFingerprint(row.sceneId) !== cold.historyFingerprint) throw new ConversionConflictError()
       await this.database.projects.put({ ...row, status: 'ready' })
       await this.database.conversionJobs.put(this.nextJob(job, 'verified'))
     })

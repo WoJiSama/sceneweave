@@ -21,6 +21,11 @@
 .asset-viewport-toolbar{flex-wrap:wrap;min-height:38px;height:auto}
 .asset-viewport-toolbar label{display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap}
 .asset-viewport-toolbar input{accent-color:#2c7a65;width:13px;height:13px}
+.asset-viewport-toolbar .asset-subgrid-control select{height:26px;padding:2px 5px;border:1px solid #d2dcc9;border-radius:4px;background:#fbfcf8;color:#405e4b;font:inherit}
+.fill-copy-summary{background:#edf4df;border-bottom:1px solid #c4d6a8}
+.asset-structure-preview:has(+.fill-copy-summary)>button{display:none}
+.fill-copy-overlay{position:absolute;inset:0;z-index:1}
+.fill-copy-overlay text{font-family:inherit;font-weight:700;pointer-events:none}
 .asset-marquee{position:absolute;pointer-events:none;border:1px solid #2c7a65;background:#2c7a6526;z-index:4}
 .asset-selection-notice{font-size:11px;color:#655d50;padding:4px 10px;flex-shrink:0;min-height:20px}
 .asset-context-menu{position:fixed;z-index:120;width:290px;max-height:70vh;overflow:auto;padding:10px;background:#fffdf7;border:1px solid #d6cebd;box-shadow:0 12px 36px #302a2633;border-radius:9px;color:#423d34}
@@ -39,3 +44,9 @@
 .asset-map-wrap .asset-viewport-image .asset-detail-preview{pointer-events:none;box-shadow:none}
 .asset-inspector>details{font-size:11px;color:#7d8c73;margin:16px 0}.asset-inspector>details>summary{cursor:pointer}
 .asset-preparation-progress{width:100%;height:12px;accent-color:#56764a}
+
+.uvtt-export-dialog { max-height: 88vh; overflow-y: auto; width: min(760px, 94vw); }
+.uvtt-export-dialog ul { padding-left: 1.4rem; line-height: 1.6; }
+.uvtt-export-dialog label { display: flex; align-items: flex-start; gap: .6rem; margin: 1rem 0; }
+.uvtt-export-dialog label input { width: auto; margin-top: .25rem; }
+.uvtt-export-dialog .modal-actions { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: flex-end; }

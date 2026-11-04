@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type { LicenseBinding, LicenseTextRecord, ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
 import type { ConversionJob, LegacySource } from '../../../shared/migration/types.js'
 import type { StoredNativeUpgradeCapsule } from './native-upgrade.js'
+import type { HistoryHead, HistoryPin, HistoryVersion } from './incremental-history.js'
 
 export const PROJECT_DATABASE_NAME = 'sceneweave-projects'
 export const PROJECT_STORES_V1 = {
@@ -15,7 +16,12 @@ export const PROJECT_STORES_V1 = {
   legacyBlobs: 'sha256', legacySources: '[ownerSceneId+nodeId], ownerSceneId',
   conversionJobs: 'jobId, &jobKey, targetSceneId, stage',
 } as const
-export const PROJECT_STORES = { ...PROJECT_STORES_V1, nativeUpgradeCapsules: 'capsuleId, sourceSceneId, targetSceneId, createdAt' } as const
+export const PROJECT_STORES_V2 = { ...PROJECT_STORES_V1, nativeUpgradeCapsules: 'capsuleId, sourceSceneId, targetSceneId, createdAt' } as const
+export const PROJECT_STORES = { ...PROJECT_STORES_V2,
+  historyVersions: '[ownerSceneId+id], ownerSceneId, [ownerSceneId+revision], [ownerSceneId+parentId]',
+  historyHeads: 'ownerSceneId', historyPins: '[ownerSceneId+id], ownerSceneId',
+  storageState: 'key',
+} as const
 export const PROJECT_TABLES = Object.keys(PROJECT_STORES) as (keyof typeof PROJECT_STORES)[]
 
 export interface StoredProject {
@@ -47,6 +53,7 @@ export interface StoredBinding {
 }
 export interface StoredBytes { sha256: string; bytes: Uint8Array }
 export interface StoredHistoryMetadata { ownerSceneId: string; metadataVersion: number }
+export interface StorageState { key: 'epoch'; epoch: number }
 
 const nativeShape = Object.fromEntries(Object.entries(PROJECT_STORES).map(([name, expression]) => {
   const [key, ...indexes] = expression.split(',').map(value => value.trim())
@@ -69,7 +76,7 @@ function assertNativeShape(db: IDBDatabase, names: readonly string[], transactio
   }
 }
 
-/** Inspect old native stores before Dexie can add/remove indexes or stores during a v1→v2 upgrade. */
+/** Inspect the exact source schema before Dexie may add stores during an explicit upgrade. */
 function guardedFactory(factory: IDBFactory) {
   let failure: Error | undefined
   const guarded: IDBFactory = {
@@ -79,8 +86,8 @@ function guardedFactory(factory: IDBFactory) {
       request.addEventListener('upgradeneeded', event => {
         if (event.oldVersion === 0) return
         try {
-          if (event.oldVersion !== 10) throw new Error('不支持升级既有工程数据库结构；原数据库保持原状。')
-          assertNativeShape(request.result, Object.keys(PROJECT_STORES_V1), request.transaction!)
+          if (event.oldVersion !== 10 && event.oldVersion !== 20) throw new Error('不支持升级既有工程数据库结构；原数据库保持原状。')
+          assertNativeShape(request.result, Object.keys(event.oldVersion === 10 ? PROJECT_STORES_V1 : PROJECT_STORES_V2), request.transaction!)
         } catch (error) {
           failure = error instanceof Error ? error : new Error('工程数据库升级前结构校验失败。')
           request.transaction!.abort()
@@ -110,8 +117,8 @@ export function inspectProjectDatabase(name: string): Promise<void> {
       const db = request.result
       try {
         if (settled) return
-        if (db.version !== 10 && db.version !== 20) throw new Error('不支持的新工程数据库结构版本；数据库保持原状。')
-        const names = db.version === 10 ? Object.keys(PROJECT_STORES_V1) : [...PROJECT_TABLES]
+        if (db.version !== 10 && db.version !== 20 && db.version !== 30) throw new Error('不支持的新工程数据库结构版本；数据库保持原状。')
+        const names = db.version === 10 ? Object.keys(PROJECT_STORES_V1) : db.version === 20 ? Object.keys(PROJECT_STORES_V2) : [...PROJECT_TABLES]
         // Check store names before constructing a transaction against them;
         // foreign stores otherwise produce a browser NotFoundError first.
         if (!same([...db.objectStoreNames].sort(), [...names].sort())) throw new Error('不支持的新工程数据库结构版本；数据库保持原状。')
@@ -137,6 +144,10 @@ export class ProjectDatabase extends Dexie {
   legacySources!: Table<LegacySource, [string, string]>
   conversionJobs!: Table<ConversionJob, string>
   nativeUpgradeCapsules!: Table<StoredNativeUpgradeCapsule, string>
+  historyVersions!: Table<HistoryVersion, [string, string]>
+  historyHeads!: Table<HistoryHead, string>
+  historyPins!: Table<HistoryPin, [string, string]>
+  storageState!: Table<StorageState, string>
 
   constructor(name = PROJECT_DATABASE_NAME) {
     if (['sceneweave-m0', 'sceneweave-m1', 'sceneweave-m1-layers', 'sceneweave-m1-history', 'sceneweave-m1-composition', 'sceneweave-m1-outdoor', 'sceneweave-catalog', 'sceneweave-catalog-v1', 'sceneweave-library'].includes(name)) throw new Error('新主工程库不能使用旧工程或个人素材库的名称。')
@@ -150,9 +161,14 @@ export class ProjectDatabase extends Dexie {
       // does not execute this existing-database content upgrade callback.
       throw new Error('不支持升级既有工程数据库结构；原数据库保持原状。')
     })
-    this.version(2).stores(PROJECT_STORES).upgrade(transaction => {
+    this.version(2).stores(PROJECT_STORES_V2).upgrade(transaction => {
       // Inspect the actual upgrade transaction too: preflight and open are separate operations.
       // A foreign v1 database appearing between them must roll back the new store and every change.
+      assertNativeShape(transaction.idbtrans.db, Object.keys(PROJECT_STORES_V2), transaction.idbtrans)
+    })
+    this.version(3).stores(PROJECT_STORES).upgrade(transaction => {
+      // Data remains untouched: the repository stages complete copies and
+      // verifies cold reads before activating an incremental-history head.
       assertNativeShape(transaction.idbtrans.db, PROJECT_TABLES, transaction.idbtrans)
     })
   }

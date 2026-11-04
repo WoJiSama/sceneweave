@@ -1,3 +1,5 @@
+import { currentAuthoringPaint } from './current-authoring-paint.js'
+import type { CurrentAuthoringCapability } from './current-authoring-capability.js'
 import { visualBase } from '../visual/base.js'
 import type { ProjectData } from '../model/project.js'
 import type { BoundsMm, PointMm, Prop } from '../model/scene.js'
@@ -12,7 +14,8 @@ const polygonArea = (points: PointMm[]) => Math.abs(points.reduce((sum, p, index
   const next = points[(index + 1) % points.length]; return sum + p.x * next.y - next.x * p.y
 }, 0)) / 2
 /** The persisted rotated visual rectangle, not the smaller collision footprint. */
-export function authoringPropVisualPolygon(prop: Prop): PointMm[] {
+export function authoringPropVisualPolygon(prop: Prop, paintProject?: ProjectData): PointMm[] {
+  if (paintProject) return currentAuthoringPaint(paintProject, prop.id)!.polygonMm
   const angle = prop.rotationDeg * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle)
   return rectangle(prop.visualBoundsMm).map(p => ({ x: prop.positionMm.x + p.x * c - p.y * s, y: prop.positionMm.y + p.x * s + p.y * c }))
 }
@@ -32,7 +35,7 @@ function intersectionArea(subject: PointMm[], clip: PointMm[]): number {
   return polygonArea(output)
 }
 const rounded = (value: number) => Math.round(value * 1000) / 1000
-export function inspectVisualComposition(project: ProjectData, props: Prop[], allowedIds?: ReadonlySet<string>) {
+export function inspectVisualComposition(project: ProjectData, props: Prop[], allowedIds?: ReadonlySet<string>, capability?: CurrentAuthoringCapability) {
   const scene = project.document
   const major = props.filter(prop => prop.blocksMovement || prop.renderLayer === 'canopy')
   const metrics = major.map(prop => {
@@ -47,7 +50,7 @@ export function inspectVisualComposition(project: ProjectData, props: Prop[], al
   for (let index = 0; index < major.length; index++) for (const other of major.slice(index + 1)) {
     const prop = major[index]
     if (prop.floorId !== other.floorId) continue
-    const area = intersectionArea(authoringPropVisualPolygon(prop), authoringPropVisualPolygon(other))
+    const area = intersectionArea(authoringPropVisualPolygon(prop, capability ? project : undefined), authoringPropVisualPolygon(other, capability ? project : undefined))
     const ratio = area / Math.min(prop.visualBoundsMm.width * prop.visualBoundsMm.height, other.visualBoundsMm.width * other.visualBoundsMm.height)
     if (ratio > .35) excessivePairs.push({ ids: [prop.id, other.id], overlapOfSmallerImage: rounded(ratio) })
   }
@@ -59,7 +62,7 @@ export function inspectVisualComposition(project: ProjectData, props: Prop[], al
 }
 
 /** Finite review hints from only the explicitly granted public subset. No image or art approval is inferred. */
-export function inspectCompositionRepairs(project: ProjectData, ids: ReadonlySet<string>, brief?: AuthoringBrief) {
+export function inspectCompositionRepairs(project: ProjectData, ids: ReadonlySet<string>, brief?: AuthoringBrief, capability?: CurrentAuthoringCapability) {
   const scene = project.document, view = createPublicVisibility(scene)
   const props = Object.values(scene.props).filter(prop => ids.has(prop.id) && view.prop(prop)), major = props.filter(prop => prop.blocksMovement || prop.renderLayer === 'canopy')
   const rooms = Object.values(scene.rooms).filter(room => ids.has(room.id) && view.room(room.id))
@@ -88,7 +91,7 @@ export function inspectCompositionRepairs(project: ProjectData, ids: ReadonlySet
         if (!pointInPolygon(point, surface.polygon)) continue
         if (surface.kind === 'terrainArea' && supportSurfaceAt(publicScene, point, surface.floorId)?.id !== surface.id) continue
         supportedSamples++
-        if (major.some(prop => prop.floorId === surface.floorId && pointInPolygon(point, authoringPropVisualPolygon(prop)))) coveredSamples++
+        if (major.some(prop => prop.floorId === surface.floorId && pointInPolygon(point, authoringPropVisualPolygon(prop, capability ? project : undefined)))) coveredSamples++
       }
       return { surfaceId: surface.id, supportedSamples, exposedSampleFraction: supportedSamples ? rounded(1 - coveredSamples / supportedSamples) : null }
     })
@@ -127,7 +130,7 @@ export function inspectCompositionRepairs(project: ProjectData, ids: ReadonlySet
 }
 
 /** Evidence is computed from the explicit public subset, never from model claims or ungranted IDs. */
-export function inspectBriefEvidence(project: ProjectData, ids: ReadonlySet<string>, checks: readonly AuthoringEvidenceCheck[]) {
+export function inspectBriefEvidence(project: ProjectData, ids: ReadonlySet<string>, checks: readonly AuthoringEvidenceCheck[], capability?: CurrentAuthoringCapability) {
   const scene = project.document, view = createPublicVisibility(scene)
   const props = Object.values(scene.props).filter(prop => ids.has(prop.id) && view.prop(prop))
   const rooms = Object.values(scene.rooms).filter(room => ids.has(room.id) && view.room(room.id))
@@ -138,7 +141,7 @@ export function inspectBriefEvidence(project: ProjectData, ids: ReadonlySet<stri
       const polygon = rectangle(check.boundsMm)
       const visibleScene = { ...scene, terrainAreas: Object.fromEntries(terrain.map(value => [value.id, value])) }
       const blockers = props.filter(prop => prop.floorId === check.floorId && (check.avoidVisual || prop.blocksMovement)
-        && polygonsOverlap(polygon, check.avoidVisual ? authoringPropVisualPolygon(prop) : propFootprint(prop))).map(value => value.id)
+        && polygonsOverlap(polygon, check.avoidVisual ? authoringPropVisualPolygon(prop, capability ? project : undefined) : propFootprint(prop))).map(value => value.id)
       for (const wall of Object.values(scene.walls).filter(wall => ids.has(wall.id) && wall.floorId === check.floorId && wall.blocksMovement)) {
         const a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId]
         if (polygonsOverlap(polygon, corridor({ x: a.xMm, y: a.yMm }, { x: b.xMm, y: b.yMm }, wall.thicknessMm))) blockers.push(wall.id)
@@ -162,7 +165,7 @@ export function inspectBriefEvidence(project: ProjectData, ids: ReadonlySet<stri
       evidenceIds = blockers; details = { boundsMm: check.boundsMm, minimumWidthMm: check.minimumWidthMm, authorizedBlockers: blockers, walkableInAuthorizedTerrain: walkable, avoidVisual: check.avoidVisual }
     } else if (check.kind === 'propCount') {
       const matching = props.filter(prop => prop.definitionRef && check.definitionIds.includes(prop.definitionRef.id))
-      const groups = (check.groups ?? []).map(group => ({ minimum: group.minimum, ids: matching.filter(prop => polygonInside(authoringPropVisualPolygon(prop), rectangle(group.boundsMm))).map(prop => prop.id) }))
+      const groups = (check.groups ?? []).map(group => ({ minimum: group.minimum, ids: matching.filter(prop => polygonInside(authoringPropVisualPolygon(prop, capability ? project : undefined), rectangle(group.boundsMm))).map(prop => prop.id) }))
       supported = matching.length >= check.minimum && groups.every(group => group.ids.length >= group.minimum)
       evidenceIds = matching.map(value => value.id); details = { minimum: check.minimum, count: matching.length, groups }
     } else if (check.kind === 'elevationConnection') {

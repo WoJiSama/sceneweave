@@ -21,7 +21,7 @@ export function extendedIdentityDescriptors(input: Readonly<SceneDocument>): Ext
     if (Object.hasOwn(result, id)) throw new Error(`新地形身份重复：${id}。`)
     result[id] = { field, kind, topologyHash: sha256Text(canonicalJson([kind, topology])) }
   }
-  if (input.schemaVersion !== 3 && input.schemaVersion !== 4) return result
+  if (input.schemaVersion < 3) return result
   const scene = legacyTerrainView(input), generation = scene.generation
   if(generation.version!==1)for(const row of Object.values(generation.strokes))add(row.id,'generationTokens','generationStroke',[row.operationId,row.floorId,row.brush,row.targetAreaId,row.pointsMm.length])
   if(generation.version>=3)for(const row of Object.values((generation as GenerationSystem3|GenerationSystem4).surroundings))add(row.id,'generationTokens','surroundingsOperation',[row.operationId,row.floorId,row.algorithmId,row.algorithmVersion,row.boundaryIds,row.preserved.map(item=>[item.collection,item.entityId])])
@@ -73,10 +73,10 @@ export function extendedIdentityDescriptors(input: Readonly<SceneDocument>): Ext
 /** Only this captured descriptor transition grants continuity; IDs alone do not. */
 export function advanceExtendedIdentityDescriptors(identity: HistoryIdentity, before: ExtendedIdentityDescriptors, after: ExtendedIdentityDescriptors,
   context: PreparationContext, allowResurrection = false): void {
-  if (identity.version !== 3) identity.version = 2
+  if (identity.version < 3) identity.version = 2
   for (const field of TERRAIN_IDENTITY_FIELDS) identity[field] ??= {}
   for (const [id, descriptor] of Object.entries(after)) {
-    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id) || Object.hasOwn(identity.terrainTokens ?? {}, id)
+    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id) || Object.hasOwn(identity.terrainTokens ?? {}, id) || Object.hasOwn(identity.decorationTokens ?? {}, id) || Object.hasOwn(identity.surfaceRuleTokens ?? {}, id)
       || TERRAIN_IDENTITY_FIELDS.some(field => field !== descriptor.field && Object.hasOwn(identity[field]!, id))) {
       throw new Error(`新地形出生身份与已分配身份冲突：${id}。`)
     }
@@ -92,7 +92,7 @@ export function advanceExtendedIdentityDescriptors(identity: HistoryIdentity, be
 
 export function advanceExtendedIdentities(identity: HistoryIdentity, previous: SceneDocument | null, next: SceneDocument,
   context: PreparationContext, allowResurrection = false): void {
-  if (next.schemaVersion !== 3 && next.schemaVersion !== 4) return
-  if (next.schemaVersion === 4) { identity.version = 3; identity.terrainTokens ??= {} }
+  if (next.schemaVersion < 3) return
+  if (next.schemaVersion >= 4) { if (identity.version < 3) identity.version = 3; identity.terrainTokens ??= {} }
   advanceExtendedIdentityDescriptors(identity, previous ? extendedIdentityDescriptors(previous) : {}, extendedIdentityDescriptors(next), context, allowResurrection)
 }

@@ -1,3 +1,4 @@
+import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
@@ -13,6 +14,8 @@ import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { orderedLayers } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, type SceneDocument } from '../model/scene.js'
+import { connectionRouteSchema } from '../geometry/connection-route.js'
+import { inspectScene5TransitionChanges, refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留ID')
 const integer = z.number().finite().refine(Number.isSafeInteger, '必须是整数毫米')
@@ -23,7 +26,7 @@ const visibility = z.enum(['public', 'gm'])
 const base = { id, floorId: id, layerId: id.optional() }
 const areaFields = sceneSchema.shape.terrainAreas.valueType.omit({ id: true, floorId: true, editLocked: true })
 const edgeFields = sceneSchema.shape.terrainEdges.valueType.omit({ id: true, floorId: true, editLocked: true })
-const connectionFields = sceneSchema.shape.terrainConnections.valueType.omit({ id: true, floorId: true, editLocked: true })
+const connectionFields = sceneSchema.shape.terrainConnections.valueType.omit({ id: true, floorId: true, editLocked: true }).extend({ route: connectionRouteSchema.optional() })
 const pathFields = sceneSchema.shape.paths.valueType.omit({ id: true, floorId: true, editLocked: true })
 const scatterFields = sceneSchema.shape.scatterGroups.valueType.omit({ id: true, floorId: true, editLocked: true, members: true, exclusions: true, algorithmVersion: true })
 const regionFields = sceneSchema.shape.regions.valueType.omit({ id: true, floorId: true, editLocked: true }).extend({ kind: z.enum(['terrain', 'hazard']) })
@@ -36,7 +39,7 @@ export const outdoorCommandSchemas = [
   z.object({ type: z.literal('updateTerrainEdge'), id, changes: edgeFields.partial().strict() }).strict(),
   z.object({ type: z.literal('createTerrainConnection'), ...base, ...connectionFields.omit({ visibility: true, openingId: true, blocksMovement: true, movementCostMultiplier: true, surfaceStyle: true }).shape,
     ...connectionFields.pick({ visibility: true, openingId: true, blocksMovement: true, movementCostMultiplier: true, surfaceStyle: true }).partial().shape }).strict(),
-  z.object({ type: z.literal('updateTerrainConnection'), id, changes: connectionFields.partial().strict() }).strict(),
+  z.object({ type: z.literal('updateTerrainConnection'), id, changes: connectionFields.partial().extend({ route: connectionRouteSchema.nullable().optional() }).strict() }).strict(),
   z.object({ type: z.literal('createPath'), ...base, ...pathFields.omit({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).shape,
     ...pathFields.pick({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).partial().shape, materialRef: version.optional() }).strict(),
   z.object({ type: z.literal('updatePath'), id, changes: pathFields.partial().strict() }).strict(),
@@ -215,6 +218,16 @@ function diffImpact(before: SceneDocument, after: SceneDocument, roots: readonly
   const createdIds = [...right.keys()].filter(id => !left.has(id)), removedIds = [...left.keys()].filter(id => !right.has(id))
   const changedIds = [...left.keys()].filter(id => right.has(id) && (!equal(left.get(id), right.get(id)) || before.entityLayers[id] !== after.entityLayers[id]))
   let commandCost = createdIds.length + changedIds.length + removedIds.length
+  // The saved source controls and complete physical sample are separate work.
+  // A curved connection must not become a one-field way around the edit budget.
+  for (const id of new Set([...Object.keys(before.terrainConnections), ...Object.keys(after.terrainConnections)])) {
+    const a = before.terrainConnections[id]?.route, b = after.terrainConnections[id]?.route
+    if (equal(a, b)) continue
+    const controls = (route: typeof a) => Object.fromEntries((route?.segments ?? []).map(segment => [segment.id, segment]))
+    const samples = (route: typeof a) => Object.fromEntries((route?.centerlineMm ?? []).map((point, index) => [index, point]))
+    const edges = (route: typeof a) => Object.fromEntries((route?.centerlineMm ?? []).slice(1).map((point, index) => [index, [route!.centerlineMm[index], point]]))
+    commandCost += recordsCost(controls(a), controls(b)) * 5 + recordsCost(samples(a), samples(b)) + recordsCost(edges(a), edges(b))
+  }
   for (const areaId of new Set([...Object.keys(before.terrainAreas), ...Object.keys(after.terrainAreas)])) {
     const a = before.terrainAreas[areaId], b = after.terrainAreas[areaId]
     const points = (area?: TerrainArea) => Object.fromEntries((area?.boundaryMm ?? []).map(p => [p.id, p.positionMm]))
@@ -227,8 +240,11 @@ function diffImpact(before: SceneDocument, after: SceneDocument, roots: readonly
     commandCost += recordsCost(Object.fromEntries((a?.exclusions ?? []).map(value => [value.id, value])), Object.fromEntries((b?.exclusions ?? []).map(value => [value.id, value])))
   }
   const affectedIds = [...new Set([...outdoorDependencies(before, roots), ...outdoorDependencies(after, roots), ...createdIds, ...changedIds, ...removedIds])].sort()
-  return { rootIds: [...new Set(roots)].sort(), affectedIds, createdIds: createdIds.sort(), changedIds: changedIds.sort(), removedIds: removedIds.sort(),
-    layerIds: [...new Set(affectedIds.flatMap(id => [before.entityLayers[id], after.entityLayers[id]]).filter((id): id is string => !!id))].sort(), commandCost, reason: null }
+  const derived = inspectScene5TransitionChanges(before, after)
+  for (const id of [...outdoorDependencies(before, derived.affectedIds), ...outdoorDependencies(after, derived.affectedIds)]) if (!affectedIds.includes(id)) affectedIds.push(id)
+  for (const id of derived.changedIds) if (!changedIds.includes(id)) changedIds.push(id)
+  return { rootIds: [...new Set(roots)].sort(), affectedIds: affectedIds.sort(), createdIds: createdIds.sort(), changedIds: changedIds.sort(), removedIds: removedIds.sort(),
+    layerIds: [...new Set([...derived.layerIds, ...affectedIds.flatMap(id => [before.entityLayers[id], after.entityLayers[id]]).filter((id): id is string => !!id)])].sort(), commandCost, reason: null }
 }
 /** Scope of the exact prepared bytes; never regenerate random candidate births to inspect them. */
 export function inspectOutdoorChanges(before: SceneDocument, after: SceneDocument, roots: readonly string[]): OutdoorImpact {
@@ -342,12 +358,21 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
     }
     case 'updateTerrainEdge': Object.assign(required(scene.terrainEdges, command.id, '来源边缘'), cloneJson(command.changes)); break
     case 'createTerrainConnection': {
+      if (command.route && scene.schemaVersion < 5) throw new Error('曲线连接需要完整v5；请先保存独立曲线连接副本。')
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
       scene.terrainConnections[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, kind: command.kind, from: cloneJson(command.from), to: cloneJson(command.to), widthMm: command.widthMm,
-        visibility: command.visibility ?? 'public', openingId: command.openingId ?? null, blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1, surfaceStyle: command.surfaceStyle ?? null }
+        visibility: command.visibility ?? 'public', openingId: command.openingId ?? null, blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1, surfaceStyle: command.surfaceStyle ?? null,
+        ...(command.route ? { route: cloneJson(command.route) } : {}) }
       scene.entityLayers[command.id] = layer; break
     }
-    case 'updateTerrainConnection': Object.assign(required(scene.terrainConnections, command.id, '高差连接'), cloneJson(command.changes)); break
+    case 'updateTerrainConnection': {
+      if (Object.hasOwn(command.changes, 'route') && scene.schemaVersion < 5) throw new Error('曲线连接需要完整v5；请先保存独立曲线连接副本。')
+      const connection = required(scene.terrainConnections, command.id, '高差连接'), { route, ...changes } = command.changes
+      Object.assign(connection, cloneJson(changes))
+      if (route === null) delete connection.route
+      else if (route !== undefined) connection.route = cloneJson(route)
+      break
+    }
     case 'createPath': {
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
       if (command.materialRef && command.surfaceStyle !== undefined) throw new Error('请明确选择固定材质或完整表面样式，不能同时提供两者。')
@@ -431,10 +456,13 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
 }
 
 /** Detached draft mutation; the native command entry validates the complete batch once. */
-export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext): OutdoorImpact {
+export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext, budget?: TaskBudgetProfile): OutdoorImpact {
+  if (budget) parseTaskBudgetProfile(budget)
   const before = cloneJson(scene), roots = rootsFor(command)
   mutate(scene, command, context)
+  const derived = refreshScene5TransitionsAfterPhysicalEdit(before, scene)
   const impact = diffImpact(before, scene, roots)
+  impact.commandCost += derived.commandCost
   if (!impact.commandCost) return impact
   // Locked retained/manual scatter members are read-only obstacles, not edits.
   const memberCommand = command.type === 'detachScatterMember' || command.type === 'deleteProp' || command.type === 'updateProp' || command.type === 'replacePropAppearance'
@@ -444,12 +472,14 @@ export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorComman
     : memberCommand ? anchoredNoteIds(before, [...roots, ...memberParents, ...impact.changedIds, ...impact.removedIds])
     : impact.affectedIds
   assertUnlocked(before, lockIds)
-  if (impact.commandCost > COMMAND_LIMIT) throw new Error('展开后的室外事务超过256条操作预算，不能拆批绕过。')
+  assertUnlocked(before, [...outdoorDependencies(before, derived.affectedIds), ...outdoorDependencies(scene, derived.affectedIds)])
+  if (!budget && impact.commandCost > COMMAND_LIMIT) throw new Error('展开后的室外事务超过256条操作预算，不能拆批绕过。')
+  if (budget) assertTaskBudget(budget, measureTaskBudget(before, scene))
   return impact
 }
 
 /** Preview includes geometry-dependent and cross-layer scope, even for unchanged JSON. */
-export function previewOutdoorCommands(input: SceneDocument, commands: readonly OutdoorCommand[], context: PreparationContext): OutdoorImpact {
+export function previewOutdoorCommands(input: SceneDocument, commands: readonly OutdoorCommand[], context: PreparationContext, budget?: TaskBudgetProfile): OutdoorImpact {
   const impact = emptyImpact(), validated = validateSceneDocument(input)
   if (!validated.ok) { impact.reason = `当前场景无效：${validated.errors.map(issue => issue.message).join('；')}`; return impact }
   const issue = inspectJsonInput(commands), parsed = issue ? null : z.array(outdoorCommandSchema).max(COMMAND_LIMIT).safeParse(commands)
@@ -460,14 +490,15 @@ export function previewOutdoorCommands(input: SceneDocument, commands: readonly 
     for (const command of parsed.data) {
       const before = cloneJson(next)
       try {
-        const physicalCost = applyOutdoorCommand(next, command, context).commandCost
+        const physicalCost = applyOutdoorCommand(next, command, context, budget).commandCost
         detachChangedOutputs(before, next)
         const expanded = terrainCommandCost(before, next)
         cost += physicalCost + expanded.total - expanded.items.physicalAndVisual
       }
       catch (error) { cost += diffImpact(before, next, rootsFor(command)).commandCost; throw error }
     }
-    if (cost > COMMAND_LIMIT) throw new Error('展开后的整体室外事务超过256条操作预算，不能拆批绕过。')
+    if (!budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体室外事务超过256条操作预算，不能拆批绕过。')
+    if (budget) assertTaskBudget(budget, measureTaskBudget(validated.document, next))
     const result = validateSceneDocument(next)
     if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   } catch (error) { impact.reason = error instanceof Error ? error.message : String(error) }

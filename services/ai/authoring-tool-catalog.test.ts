@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { compositionCandidateFixture } from '../../tests/helpers/composition-candidates-fixture.js'
 import { terrainAuthoringFixture } from '../../tests/helpers/terrain-authoring-fixture.js'
-import { AuthoringScopeSchema, type AuthoringScope, type AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
+import { AuthoringStartSchema, AuthoringScopeSchema, type AuthoringScope, type AuthoringStart } from '../../src/shared/ai/authoring-protocol-v1.js'
 import { CompositionCandidateSchema } from '../../src/shared/ai/composition-candidates.js'
 import { replayAuthoring } from '../../src/shared/ai/authoring.js'
 import type { TerrainAuthoringOperation } from '../../src/shared/ai/terrain-protocol.js'
@@ -59,7 +59,7 @@ function taskFor(start: AuthoringStart) {
 function furnishingTask(basic: AuthoringScope['operations'] = ['transform', 'opacity']) {
   const start = compositionCandidateFixture()
   start.scope.operations = basic; start.scope.scene!.operations = ['furnish']; start.scope.visual = null
-  return taskFor(start)
+  return taskFor(AuthoringStartSchema.parse(start))
 }
 
 describe('model tool catalog narrowed by the immutable capability grant', () => {

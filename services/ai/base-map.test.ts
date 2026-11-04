@@ -11,6 +11,8 @@ import { BASE_MAP_LIMITS, executeBaseMapRequest, prepareBaseMapRequest, type Bas
 import { createRefinedBlankDocument } from '../../src/platform/browser/content/refined-blank.js'
 import { TERRAIN_FIXED_SEEDS } from '../../src/shared/terrain-generation/generate.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
+import { BASE_MAP_V3_LIMITS, prepareBaseMapRequestV3, executeBaseMapRequestV3 } from '../../src/shared/terrain-generation/base-map-v3.js'
+import { TASK_BUDGET_PROFILES, captureExecutionBudget } from '../../src/shared/budget/task-budget.js'
 import { AI_LIMITS } from '../../src/shared/ai/protocol.js'
 
 const accessToken = 'a'.repeat(40), origin = 'https://editor.example.test', path = '/v1/terrain/basemap'
@@ -165,5 +167,49 @@ describe('base-map request resource boundaries', () => {
     await expect(service.generate(new Request(request(), { signal: abort.signal }))).rejects.toMatchObject({ code: 'request_cancelled', status: 409 })
     await expect(service.generate(request())).resolves.toBe('{}')
     expect(execute).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('profile-bound v3 base-map HTTP service', () => {
+  const prepared = () => {
+    const base = createRefinedBlankDocument('island', { sceneId: 'v3-http-map', title: '动态预算底图', now: '2026-10-30T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
+    return prepareBaseMapRequestV3({ requestId: 'v3-http-request', workspaceSceneId: 'current-workspace', checkpoint: 4, operationEpoch: 7, base,
+      flowId: 'v3-http-flow', profile: TASK_BUDGET_PROFILES.small, generation: { kind: 'terrain', input: {
+        sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 4, budgetProfileId: 'small', quality: 'standard', widthMm: 24000, heightMm: 18000,
+      } } })
+  }
+  it('replays the registered profile exactly and records generation work with no provider request or AI task', async () => {
+    const { app, headers, store, complete } = setup(), input = prepared(), expected = executeBaseMapRequestV3(input)
+    const body = JSON.stringify(input), padded = body + ' '.repeat(BASE_MAP_LIMITS.requestBytes + 1 - Buffer.byteLength(body))
+    const result = await app.request(`${path}?baseMapVersion=3`, { method: 'POST', headers, body: padded })
+    expect(result.status).toBe(200); expect(canonicalJson(await result.json())).toBe(canonicalJson(expected))
+    const legacy = await app.request(path, { method: 'POST', headers, body: padded })
+    expect(legacy.status).toBe(413)
+    expect(complete).not.toHaveBeenCalled(); expect(store.count()).toBe(0)
+  }, 20000)
+  it('strictly binds the opt-in version, profile and input hash before recording work', async () => {
+    const { app, headers, complete } = setup(), input = prepared()
+    for (const body of [fixture(), { ...input, profileHash: TASK_BUDGET_PROFILES.standard.profileHash },
+      { ...input, profile: { ...input.profile, semanticTargets: 8192 } }, { ...input, inputHash: 'f'.repeat(64) }]) {
+      expect((await app.request(`${path}?baseMapVersion=3`, { method: 'POST', headers, body: JSON.stringify(body) })).status).toBe(400)
+    }
+    for (const query of ['baseMapVersion=2', 'baseMapVersion=4', 'baseMapVersion=3&baseMapVersion=3', 'baseMapVersion=3&extra=1']) {
+      expect((await app.request(`${path}?${query}`, { method: 'POST', headers, body: JSON.stringify(input) })).status).toBe(400)
+    }
+    expect(complete).not.toHaveBeenCalled()
+  })
+  it('retains exhausted real meter charges across failed generation attempts instead of resetting a flow', () => {
+    const { store } = setup(), input = prepared(), token = store.beginBaseMap('work-quota-owner', input)
+    expect(() => store.measureBaseMapWork(token, () => {
+      for (let attempt = 0; attempt < 65; attempt++) captureExecutionBudget(input.profile).charge({ fieldEvaluations: input.profile.limits.fieldEvaluations })
+    })).toThrowError(expect.objectContaining({ code: 'execution_work_limit' }))
+    store.finishBaseMap(token, 1)
+    expect(() => store.beginBaseMap('work-quota-owner', input)).toThrowError(expect.objectContaining({ code: 'execution_work_limit' }))
+  })
+  it('rejects a declared body above the new cap before waiting for any bytes', async () => {
+    const service = createBaseMapService({ maxConcurrent: 1 }), cancel = vi.fn()
+    const request = new Request(`http://localhost${path}?baseMapVersion=3`, { method: 'POST', headers: {
+      'Content-Type': 'application/json', 'Content-Length': String(BASE_MAP_V3_LIMITS.requestBytes + 1) }, body: new ReadableStream<Uint8Array>({ cancel }), duplex: 'half' } as RequestInit & { duplex: 'half' })
+    await expect(service.generate(request, 'alice')).rejects.toMatchObject({ code: 'request_limit', status: 413 })
   })
 })

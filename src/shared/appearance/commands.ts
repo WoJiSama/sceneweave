@@ -1,9 +1,11 @@
-import { propPresentation } from './presentation.js'
+import { reconcileDecorationMembers } from '../decorations/commands.js'
+import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
+import { definitionPresentation, propPresentation } from './presentation.js'
 import { z } from 'zod'
 import { inspectJsonInput, cloneJson } from '../validation/json.js'
 import { roundMm } from '../commands/base.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
-import { applyCommands, applySnapshotCommands, sceneCommandSchema, type SceneCommand } from '../commands/commands.js'
+import { applyCommands, applySnapshotCommands, sceneCommandSchema, refreshNativeDerivedTransitions, type SceneCommand } from '../commands/commands.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
 import type { PointMm, Prop, SceneDocument, SurfaceRef } from '../model/scene.js'
@@ -181,21 +183,26 @@ function resetMember(content: CompositionContent, command: Extract<CompositionCo
 }
 
 /** Pure draft only. IO must materialize required bytes, resolve and fully validate before adoption. */
-export function applyCompositionCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext): CompositionContent {
-  return applyCompositionCommandsInternal(input, inputCommands, context, false)
+export function applyCompositionCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, accounting?: CompositionOperationAccounting): CompositionContent {
+  return applyCompositionCommandsInternal(input, inputCommands, context, false, accounting)
 }
 export interface CompositionOperationAccounting {
+  budget?: TaskBudgetProfile
   /** Internal same-transaction fixed-source additions; never persisted in the document. */
   initialOperationCost?: number
   onOperationCost?: (cost: number) => void
+  /** Internal synchronous observer; do not retain or mutate the reused draft. */
+  onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => void
 }
 /** Internal immutable draft only; complete resolving/materialization is still mandatory. */
 export function applyCompositionDraftCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, accounting?: CompositionOperationAccounting): CompositionContent {
   return applyCompositionCommandsInternal(input, inputCommands, context, true, accounting)
 }
 function applyCompositionCommandsInternal(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, ownedDraft: boolean, accounting?: CompositionOperationAccounting): CompositionContent {
+  const budget = accounting?.budget ? parseTaskBudgetProfile(accounting.budget) : undefined
+  const onSceneDraft = accounting?.onSceneDraft
   const initialCost = accounting?.initialOperationCost === undefined ? 0 : accounting.initialOperationCost
-  if (!Number.isSafeInteger(initialCost) || initialCost < 0 || initialCost > 256) throw new Error('初始事务预算须为0–256安全整数。')
+  if (!Number.isSafeInteger(initialCost) || initialCost < 0 || (!budget && initialCost > 256)) throw new Error('初始事务预算须为0–256安全整数。')
   const source = ownedDraft ? certifyCompositionContent(input) : validateCompositionContent(input), issue = inspectJsonInput(inputCommands)
   if (issue) throw new Error(`组合指令无效：${issue.message}`)
   const parsed = schemas.safeParse(inputCommands)
@@ -211,17 +218,22 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     ? { document: source.document, historyIdentity: source.historyIdentity, appearance: source.appearance }
     : cloneJson(source), cost = 0, generationCost = 0
   const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context)
-  const consume = (value: number) => { cost += value; if (initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (value: number) => { cost += value; if (!budget && initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
     // Position/rotation and member overrides cannot change fixed sources,
     // mappings, presentations or adjustments. Only this owned, fully checked
     // input may carry the unchanged graph through to final draft validation.
     const unchangedAppearance = ownedDraft && sceneCommands.every(command => command.type === 'updateProp')
-    const fixedUprightPropIds = new Set(Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'))
+    const syncBuildingPerCommand = source.document.schemaVersion < 4 && sceneCommands.some(command => command.type === 'transformBuilding')
+    const fixedUprightPropIds = new Set([
+      ...Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'),
+      ...Object.values(source.document.decorations ?? {}).filter(row => definitionPresentation(source.appearance, row.definitionRef)?.mode === 'nearSide').map(row => row.id),
+    ])
     let accounting = source
-    const observer = { fixedUprightPropIds, onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
-      if (source.document.schemaVersion === 4) {
+    const observer = { budget, fixedUprightPropIds, appearance: source.appearance, onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
+      onSceneDraft?.(draft, command, commandCost)
+      if (source.document.schemaVersion >= 4) {
         // The observer's draft is reused by later commands; retain an owned
         // scene snapshot for the next per-command cost comparison.
         const snapshot = { document: draft as SceneDocument, historyIdentity: identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }
@@ -235,6 +247,10 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       } else {
         if (source.document.schemaVersion >= 3) consume(commandCost)
         identityTrace.observe(draft)
+        // A preceding edit can join buildings and a later edit can separate
+        // them. Preserve each transform's actual scope without changing the
+        // legacy budget or requiring intermediate structural validity.
+        if (syncBuildingPerCommand) accounting = syncAppearanceGraph({ document: draft as SceneDocument, historyIdentity: accounting.historyIdentity, appearance: accounting.appearance }, accounting.document, [command])
       }
     } }
     content.document = ownedDraft
@@ -252,7 +268,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       }
       consume(Math.max(commands.length, changed.size))
     }
-    content = source.document.schemaVersion === 4 ? accounting : unchangedAppearance ? content : ownedDraft
+    content = source.document.schemaVersion >= 4 ? accounting : syncBuildingPerCommand ? { ...content, appearance: accounting.appearance } : unchangedAppearance ? content : ownedDraft
       ? syncAppearanceGraphSnapshot(content, source.document, sceneCommands)
       : syncAppearanceGraph(content, source.document, sceneCommands)
   } else {
@@ -267,14 +283,14 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
           let kinds: AdjustmentKind[]
           if (command.type === 'setAppearanceAdjustment') kinds = [command.adjustment.kind]
           else {
-            const keys = command.scope.kind === 'layer' ? [command.scope.layerId] : inspectAppearanceScope(content, command.scope).targetIds
+            const keys = command.scope.kind === 'layer' ? [command.scope.layerId] : inspectAppearanceScope(content, command.scope, undefined, budget).targetIds
             kinds = [...new Set(keys.map(key => {
               const existing = (record[key] ?? []).find(item => item.id === command.adjustmentId)
               if (!existing) throw new Error(`调整记录不存在：${key}/${command.adjustmentId}。`)
               return existing.kind
             }))]
           }
-          const plan = inspectAppearanceScope(content, command.scope, kinds); consume(plan.commandCost)
+          const plan = inspectAppearanceScope(content, command.scope, kinds, budget); consume(plan.commandCost)
           const keys = command.scope.kind === 'layer' ? [command.scope.layerId] : plan.targetIds
           for (const key of keys) {
             const list = record[key] ?? [], adjustmentId = command.type === 'setAppearanceAdjustment' ? command.adjustment.id : command.adjustmentId, existing = list.find(item => item.id === adjustmentId)
@@ -293,7 +309,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
           break
         }
         case 'setAppearanceSource': {
-          const sourceNode = required(content.appearance.sources, command.sourceId, '固定外观源'), plan = inspectAppearanceScope(content, { kind: 'targets', ids: command.ids })
+          const sourceNode = required(content.appearance.sources, command.sourceId, '固定外观源'), plan = inspectAppearanceScope(content, { kind: 'targets', ids: command.ids }, undefined, budget)
           consume(plan.commandCost)
           for (const id of plan.targetIds) {
             if (sourceNode.kind === 'prop' && own(content.document.props, id)) content.appearance.propSources[id] = sourceNode.id
@@ -320,28 +336,30 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
           if (command.memberIds.length !== live.length || live.some(id => !command.memberIds.includes(id))) throw new Error('删除组合须明确确认全部当前活成员，不能隐式展开。')
           assertUnlocked(document, [group.id, ...live]); consume(live.length + 1)
           if (Object.values(document.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === group.id) || document.constraints.pathChecks.some(check => [check.from, check.to].some(anchor => anchor.type === 'entity' && anchor.entityId === group.id))) throw new Error('组合仍有注记/路径依赖，不能删除。')
-          content.document = live.length ? applyCommands(document, live.map(id => ({ type: 'deleteProp', id })), context) : document
+          content.document = live.length ? applyCommands(document, live.map(id => ({ type: 'deleteProp', id })), context, { budget }) : document
           delete content.document.prefabInstances[group.id]; delete content.document.entityLayers[group.id]
           break
         }
         default: throw new Error('不支持的组合操作。')
       }
       if (beforeTerrain) {
+        reconcileDecorationMembers(beforeTerrain.document, content.document)
+        consume(refreshNativeDerivedTransitions(beforeTerrain.document, content.document))
         detachChangedAppearance(beforeTerrain, content)
         pauseChangedCompositionAppearance(beforeTerrain, content)
-        if (content.document.schemaVersion === 4) content.historyIdentity = identityTrace.finish(content.document)
+        if (content.document.schemaVersion >= 4) content.historyIdentity = identityTrace.finish(content.document)
         const expanded = terrainCommandCost(beforeTerrain.document, content.document, { before: beforeTerrain, after: content })
         consume(Math.max(1, cost - beforeCost, expanded.items.physicalAndVisual) - (cost - beforeCost))
         generationCost += expanded.total - expanded.items.physicalAndVisual
-        if (initialCost + cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
+        if (!budget && initialCost + cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
       }
-      if (content.document.schemaVersion !== 4) identityTrace.observe(content.document)
+      if (content.document.schemaVersion < 4) identityTrace.observe(content.document)
     }
     const beforeSync = content
     content = syncAppearanceGraph(content)
-    if (content.document.schemaVersion === 4) {
+    if (content.document.schemaVersion >= 4) {
       generationCost += terrainCommandCost(beforeSync.document, content.document, { before: beforeSync, after: content }).total
-      if (initialCost + cost + generationCost > 256) throw new Error('固定源保全与组合事务累计展开超过256条操作预算。')
+      if (!budget && initialCost + cost + generationCost > 256) throw new Error('固定源保全与组合事务累计展开超过256条操作预算。')
     }
   }
   let operationCost = cost + generationCost
@@ -350,6 +368,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     // owns a detached generation branch rather than mutating that witness.
     const beforeFinal = content
     content = { ...content, document: cloneJson(content.document) }
+    consume(refreshNativeDerivedTransitions(beforeFinal.document, content.document))
     detachChangedAppearance(source, content)
     pauseChangedCompositionAppearance(source, content)
     content.historyIdentity = identityTrace.finish(content.document)
@@ -357,10 +376,11 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     generationCost += finalDelta.total - finalDelta.items.physicalAndVisual
     const expanded = terrainCommandCost(source.document, content.document, { before: source, after: content })
     operationCost = Math.max(cost + generationCost, expanded.total)
-    if (initialCost + operationCost > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
+    if (!budget && initialCost + operationCost > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
   }
   content.historyIdentity = identityTrace.finish(content.document)
   const result = ownedDraft ? certifyCompositionDraft(content) : validateCompositionDraft(content)
+  if (budget) assertTaskBudget(budget, measureTaskBudget(source.document, result.document, { before: source, after: result }))
   accounting?.onOperationCost?.(initialCost + operationCost)
   return result
 }

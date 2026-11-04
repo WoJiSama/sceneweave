@@ -81,7 +81,7 @@ npx playwright test tests/terrain-generation.spec.ts --grep T8 --project=chromiu
 
 独立空白元数据请求最多4MiB、完整JSON响应最多8MiB，实际字节/UTF-8/长度均检查；并发为`min(maxConcurrent,2)`，读取正文前占名额，正文总等待30秒，失败/取消均释放。同步领域计算受内部几何/256预算约束，不能宣称中途可被事件循环即时抢占。旧任务接口的32KiB及authoring/vision独立预算不变。客户端不自动重发或切换计算位置；旧后端404须更新代码并重新构建/发布后端，本地实现通过不代表线上已经更新。
 
-协议与领域结果指纹见[04](docs/04-scene-document.md#program-base-map-protocol)，真实资源物化和最终采用仍在本机。默认新生成@2可在确切物化后选择“继续用AI修改底图”；服务先协商版本及policyHash，旧@1保持原256会话回执且不能补造接续来源。G/A分账、完整来源/账本、执行消耗和当前拒绝边界归[05](docs/05-ai-and-generation.md#budget-continuation-contract)，线上旧后端须更新后才能使用新能力，本轮本地实现不代表已部署。
+协议与领域结果指纹见[04](docs/04-scene-document.md#program-base-map-protocol)，真实资源物化和最终采用仍在本机。当前新生成@3可在确切物化后选择“继续用AI修改底图”，注册profile与策略2在开始前固定；新前后端再明确协商创作4，旧2/3任务各自保留重放。服务先匹配版本及policy/profileHash，旧@1保持原256会话回执且不能补造接续来源。G/A分账、完整来源/账本、执行消耗和当前拒绝边界归[05](docs/05-ai-and-generation.md#budget-continuation-contract)，线上旧后端须更新后才能使用新能力，本轮本地实现不代表已部署。
 
 必要定向检查串行运行：
 
@@ -92,6 +92,18 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/base-map.spec.ts tes
 ```
 
 浏览器用例启动隔离Hono/SQLite/SSE服务并使用确定性provider，不读`.env.ai`或发送付费请求；底图生成本身模型/新增任务数为0，接续用例检查真实Worker、资源像素、保护CAS、一次采用/撤销、冷读和完整包/双受众PNG。真实模型质量与正式验收另行冻结执行。
+
+### 当前完整3–6的创作4检查
+
+[创作4](docs/05-ai-and-generation.md#current-authoring-contract)先显式协商 `current-authoring@1`、完整版本及预算身份，再使用固定资源、阶段原子操作、预算收尾和实际公开PNG复核；旧1–3不会取得新操作。当前工程source4与真实生成source3的保护/采用路径分别验证。下面都是本地确定性provider，未读取私有环境文件、未调用真实付费模型：
+
+```sh
+npx vitest run src/shared/ai/current-authoring.test.ts src/application/workspace/current-authoring.test.ts src/platform/browser/ai/client.test.ts src/platform/browser/ai/public-vision.test.ts src/editor/main/ai-draft-reviewability.test.ts --maxWorkers=1 --testTimeout=30000
+npx vitest run --config vitest.ai.config.ts services/ai/current-authoring-v4.test.ts services/ai/app.test.ts services/ai/execution-checkpoint.test.ts services/ai/visual-review.test.ts services/ai/authoring-tool-catalog.test.ts --maxWorkers=1 --testTimeout=30000
+npx playwright test tests/ai-current-closeout.spec.ts tests/base-map-continuation.spec.ts --workers=1 --reporter=line
+```
+
+`ai-current-closeout`的工程升级、草稿/截图授权、暂停/继续、修正、完整包、保护采用、撤销/重做与冷读均通过可见UI操作，不依赖开发模块或数据库注入。可对正常 `npm run build` 产物启用本地preview，再将 `SCENEWEAVE_TEST_BASE_URL` 指向带 `/sceneweave/` 前缀的站点单独运行该用例。其他底图接续用例仍包含开发态的独立资源核对入口，不能据它们声称正常生产UI已运行；每次结果按实际命令与构建分别记录。
 
 ## 视觉AI开发与可选截图
 

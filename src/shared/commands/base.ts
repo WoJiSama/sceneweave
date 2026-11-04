@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decorationClusterRecords, decorationRecords } from '../decorations/geometry.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { polygonsOverlap, propFootprint, terrainPoints } from '../geometry/geometry.js'
@@ -95,6 +96,11 @@ function lockDependants(scene: SceneDocument, entities: Editable[], includeAncho
   for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) {
     if (Object.values(group.members).some(member => member.propId !== null && affected.has(member.propId))) affected.set(group.id, group)
   }
+  for (const group of Object.values(decorationClusterRecords(scene))) {
+    if (Object.values(group.members).some(member => member.entityId !== null && member.state !== 'detached' && member.state !== 'deleted' && affected.has(member.entityId))) affected.set(group.id, group)
+    const rule = Object.values(scene.surfaceRules ?? {}).find(row => row.field !== 'material' && row.clusterId === group.id)
+    if (rule && (affected.has(group.id) || affected.has(rule.id))) affected.set(rule.id, rule)
+  }
   return [...affected.values()]
 }
 /** Locks cover geometry meaning and anchored dependants, even when their own fields are unchanged. */
@@ -118,6 +124,7 @@ function architecturalDependants(scene: SceneDocument, primary: Wall[]): Editabl
   return [
     ...[...primaryEndpoints].flatMap(id => own(scene.vertices, id) ?? []), ...walls, ...rooms, ...openings,
     ...Object.values(scene.props).filter(prop => prop.supportRef.kind === 'room' && roomIds.has(prop.supportRef.id) || prop.roomId !== undefined && roomIds.has(prop.roomId)),
+    ...[...Object.values(decorationRecords(scene)), ...Object.values(decorationClusterRecords(scene))].filter(row => row.supportRef.kind === 'room' && roomIds.has(row.supportRef.id)),
     ...Object.values(scene.paths).filter(path => path.supportRefs.some(ref => ref.kind === 'room' && roomIds.has(ref.id))),
     ...Object.values(scene.terrainConnections).filter(connection => [connection.from, connection.to].some(end => end.surfaceRef.kind === 'room' && roomIds.has(end.surfaceRef.id)) || connection.openingId !== null && openingIds.has(connection.openingId)),
   ]
@@ -132,6 +139,8 @@ function terrainDependants(scene: SceneDocument, areaId: string): Editable[] {
     scene.terrainAreas[areaId], ...rooms, ...edges, ...paths, ...walls,
     ...Object.values(scene.openings).filter(opening => wallIds.has(opening.wallId)),
     ...Object.values(scene.props).filter(prop => isSupport(prop.supportRef)),
+    ...[...Object.values(decorationRecords(scene)), ...Object.values(decorationClusterRecords(scene))].filter(row => isSupport(row.supportRef)),
+    ...Object.values(scene.surfaceRules ?? {}).filter(rule => rule.supportRef.id === areaId),
     ...Object.values(scene.terrainConnections).filter(connection => isSupport(connection.from.surfaceRef) || isSupport(connection.to.surfaceRef)),
     ...Object.values(scene.scatterGroups).filter(group => group.domain.kind === 'area' && group.domain.areaId === areaId || group.domain.kind === 'path' && pathIds.has(group.domain.pathId) || group.domain.kind === 'edgeBand' && edgeIds.has(group.domain.edgeId)),
   ]
@@ -143,7 +152,19 @@ export function isEntityEditLocked(scene: SceneDocument, entityId: string): bool
   const prop = own(scene.props, entityId), vertex = own(scene.vertices, entityId), wall = own(scene.walls, entityId)
   const prefab = own(scene.prefabInstances, entityId), scatter = own(scene.scatterGroups, entityId)
   const area = own(scene.terrainAreas, entityId) ?? Object.values(scene.terrainAreas).find(item => item.boundaryMm.some(point => point.id === entityId))
-  if (prop) affected = [prop]
+  const decoration = decorationRecords(scene)[entityId], cluster = decorationClusterRecords(scene)[entityId]
+  const surfaceRule = scene.surfaceRules?.[entityId]
+  if (surfaceRule) {
+    const cluster = surfaceRule.field === 'material' ? undefined : scene.decorationClusters?.[surfaceRule.clusterId]
+    const support = scene.terrainAreas[surfaceRule.supportRef.id]
+    affected = [surfaceRule, ...(support ? [support] : []), ...(cluster ? [cluster, ...Object.values(cluster.members).flatMap(member => member.entityId === null || member.state === 'detached' || member.state === 'deleted' ? [] : (member.kind === 'prop' ? scene.props[member.entityId] : decorationRecords(scene)[member.entityId]) ?? [])] : [])]
+  } else if (decoration) {
+    const support = decoration.supportRef.kind === 'room' ? scene.rooms[decoration.supportRef.id] : decoration.supportRef.kind === 'terrainArea' ? scene.terrainAreas[decoration.supportRef.id] : null
+    affected = [decoration, ...(support ? [support] : [])]
+  } else if (cluster) {
+    const owner = Object.values(scene.surfaceRules ?? {}).find(rule => rule.field !== 'material' && rule.clusterId === cluster.id)
+    affected = [cluster, ...(owner ? [owner] : []), ...Object.values(cluster.members).flatMap(member => member.entityId === null || member.state === 'detached' || member.state === 'deleted' ? [] : (member.kind === 'prop' ? scene.props[member.entityId] : decorationRecords(scene)[member.entityId]) ?? [])]
+  } else if (prop) affected = [prop]
   else if (prefab || scatter) {
     const group = (prefab ?? scatter)!
     affected = [group, ...Object.values(group.members).flatMap(member => member.propId === null ? [] : own(scene.props, member.propId) ?? [])]
@@ -226,7 +247,8 @@ function buildAddedProp(scene: SceneDocument, command: Extract<BaseSceneCommand,
 function copyProp(scene: SceneDocument, command: Extract<BaseSceneCommand, { type: 'copyProp' }>): Prop {
   const source = requireEntity(scene.props, command.id, '源物件')
   if (hasId(scene, command.newId)) throw new Error('副本必须使用工程中未占用的独立 ID。')
-  if (memberRecord(scene, source.id)) throw new Error('此复制入口只支持独立物件；组合或散布成员须先明确拆开或脱离。')
+  const clustered = Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.kind === 'prop' && member.entityId === source.id && member.state !== 'detached' && member.state !== 'deleted'))
+  if (memberRecord(scene, source.id) || clustered) throw new Error('此复制入口只支持独立物件；组合、散布或布景簇成员须先明确拆开或脱离。')
   assertUnlocked(scene, [source], true)
   assertPlacementSupportUnlocked(scene, source.floorId, source.supportRef)
   if (source.roomId !== undefined && (source.supportRef.kind !== 'room' || source.supportRef.id !== source.roomId)) assertPlacementSupportUnlocked(scene, source.floorId, { kind: 'room', id: source.roomId })

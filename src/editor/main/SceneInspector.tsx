@@ -26,9 +26,30 @@ type Props = {
   /** Report local appearance edits so workspace transitions preserve the draft. */
   onAppearanceDraftChange?: (dirty: boolean) => void
   appearanceResetKey?: number
+  onFillCopy?: (sourceId: string, count: number, allowOverlap: boolean) => void
+  onFillCopyNumeric?: (sourceId: string, count: number, allowOverlap: boolean, stepMm: { x: number; y: number }) => void
+  fillCopyBusy?: boolean
 }
 
-export default function SceneInspector({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey }: Props) {
+function FillCopyControls({ sourceId, busy, onFill, onNumeric }: { sourceId: string; busy: boolean; onFill: NonNullable<Props['onFillCopy']>; onNumeric?: Props['onFillCopyNumeric'] }) {
+  const [count, setCount] = useState(5), [allowOverlap, setAllowOverlap] = useState(false)
+  const [stepMm, setStepMm] = useState({ x: 1000, y: 0 })
+  const validCount = Number.isSafeInteger(count) && count >= 1 && count <= 256
+  return <fieldset data-fill-copy-settings disabled={busy}>
+    <h3>填充复制</h3>
+    <label className="asset-number"><span>新增副本</span><div><input aria-label="填充副本数量" type="number" min={1} max={256} step={1} value={count} onChange={event => setCount(Number(event.target.value))}/><small>件</small></div></label>
+    <label className="building-check"><input type="checkbox" aria-label="允许填充重叠" checked={allowOverlap} onChange={event => setAllowOverlap(event.target.checked)}/>允许占地重叠</label>
+    <button className="secondary asset-wide" disabled={!validCount} onClick={() => onFill(sourceId, count, allowOverlap)}>拖拽填充柄</button>
+    {onNumeric && <details><summary>用数值设置间距</summary>
+      <NumberInput label="填充间距 X" value={stepMm.x} step={1} onCommit={x => setStepMm(value => ({ ...value, x }))}/>
+      <NumberInput label="填充间距 Y" value={stepMm.y} step={1} onCommit={y => setStepMm(value => ({ ...value, y }))}/>
+      <button className="secondary asset-wide" disabled={!validCount || !Number.isSafeInteger(stepMm.x) || !Number.isSafeInteger(stepMm.y)} onClick={() => onNumeric(sourceId, count, allowOverlap, stepMm)}>预览数值填充</button>
+    </details>}
+    <p className="asset-muted">数量不含原件；拖动首个副本确定每份间距和方向。保留当前字段与支撑，超限整笔拒绝。</p>
+  </fieldset>
+}
+
+export default function SceneInspector({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {
   const [appearanceChoice, setAppearanceChoice] = useState<{ propId: string; definitionId: string } | null>(null)
   const appearanceDraftCallback = useRef(onAppearanceDraftChange)
   appearanceDraftCallback.current = onAppearanceDraftChange
@@ -44,6 +65,7 @@ export default function SceneInspector({ project, selected, busy, workspace, onS
   const surface = room ?? area, surfaceKind = room ? 'room' : 'terrainArea'
   const owner = prop && Object.values(scene.prefabInstances).find(group => Object.values(group.members).some(member => member.propId === selected))
   const scatterOwner = prop && Object.values(scene.scatterGroups).find(group => Object.values(group.members).some(member => member.propId === selected))
+  const clusteredProp = prop && Object.values(scene.decorationClusters ?? {}).some(cluster => Object.values(cluster.members).some(member => member.kind === 'prop' && member.entityId === selected && member.state !== 'detached' && member.state !== 'deleted'))
   const editProp = (commands: SceneCommand[], description: string, selectionAfterCommit?: string | null) => {
     if (onPropCommand) onPropCommand(commands, description, selectionAfterCommit)
     else onCommit(() => {
@@ -82,11 +104,12 @@ export default function SceneInspector({ project, selected, busy, workspace, onS
           {swap && <p className="asset-muted" role="status">{swap.message}{swap.visualDiffers && ` 按当前 ${prop.rotationDeg}° 旋转，新源外包范围为 ${swap.sourceRotatedSizeMm.width} × ${swap.sourceRotatedSizeMm.height} mm，保留的映射范围为 ${swap.currentRotatedSizeMm.width} × ${swap.currentRotatedSizeMm.height} mm。`}{swap.footprintDiffers && ' 新素材默认占地与当前实例不同，本次仍保留当前实例占地。'}</p>}
           {onAppearanceDraftChange && <button className="secondary asset-wide" disabled={!chosen || chosen.id === prop.definitionRef?.id} onClick={() => { if (chosen) onPreview([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: chosen.id, version: chosen.version } }], scatterOwner ? '预览替换散布成员外观，保留占地' : '预览替换物件外观，保留占地') }}>预览外观替换</button>}</>}
       </fieldset>
+      {onFillCopy && !owner && !scatterOwner && !clusteredProp && <FillCopyControls key={`prop-fill-${selected}`} sourceId={selected} busy={busy || fillCopyBusy || effectivelyLocked} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}
       {!scatterOwner && <button className="secondary asset-wide" disabled={busy || effectivelyLocked} onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除物件', null)}>删除物件</button>}
       {scatterOwner && <><button className="asset-group-link asset-wide" disabled={busy || scatterOwner.editLocked} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prop', id: selected, locked: !prop.editLocked }]))}><LockKeyhole size={14}/>{prop.editLocked ? '解除物件固定' : '固定此物件'}</button><fieldset disabled={busy || prop.editLocked || scatterOwner.editLocked}><button className="secondary asset-wide" onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除散布成员并保留排除区', scatterOwner.id)}>删除并保留排除区</button><button className="secondary asset-wide" onClick={() => editProp([{ type: 'detachScatterMember', groupId: scatterOwner.id, propId: selected }], '退出散布并保留物件', null)}>退出散布，保留物件</button></fieldset><p className="asset-muted">手工修改后会保留实际位置。删除与退出记录可撤销，重新散布不会生成副本。</p></>}
       <dl className="asset-facts"><dt>物理占地</dt><dd>{prop.footprintMm.width} × {prop.footprintMm.height} mm</dd><dt>图像范围</dt><dd>{prop.visualBoundsMm.width} × {prop.visualBoundsMm.height} mm</dd><dt>阻挡移动</dt><dd>{prop.blocksMovement ? '是' : '否'}</dd><dt>可见范围</dt><dd>{createPublicVisibility(scene).prop(prop) ? '公开' : '仅主持人'}</dd></dl>{clear}</>
   }
-  if (group) return <><div className="asset-section-heading"><Layers3 size={16}/><h2>组合属性</h2></div><h3>{groupName(project, selected)}</h3><p className="asset-muted">成员以实际位置保存。整体变换遵守每一件成员的编辑锁。</p><fieldset disabled={busy || effectiveEditLocked(scene, selected)}>
+  if (group) return <><div className="asset-section-heading"><Layers3 size={16}/><h2>组合属性</h2></div><h3>{groupName(project, selected)}</h3><p className="asset-muted">成员以实际位置保存。整体变换遵守每一件成员的编辑锁。</p>{onFillCopy && <FillCopyControls key={`prefab-fill-${selected}`} sourceId={selected} busy={busy || fillCopyBusy || effectiveEditLocked(scene, selected)} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}<fieldset disabled={busy || effectiveEditLocked(scene, selected)}>
     <NumberInput label="组合 X" value={group.anchorMm.x} onCommit={x => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, anchorMm: { ...group.anchorMm, x } }]))}/>
     <NumberInput label="组合 Y" value={group.anchorMm.y} onCommit={y => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, anchorMm: { ...group.anchorMm, y } }]))}/>
     <NumberInput label="组合旋转" value={group.rotationDeg} unit="°" onCommit={rotationDeg => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, rotationDeg }]))}/>

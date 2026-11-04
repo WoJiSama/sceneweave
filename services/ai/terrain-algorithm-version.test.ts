@@ -47,7 +47,7 @@ function fixture(kind: 'island' | 'coast' = 'island') {
   const run = (name: string, args: unknown) => executeAuthoringTool(task, { id: randomUUID(), name, arguments: JSON.stringify(args) }, args)
   return { task, run }
 }
-function generate(start: AuthoringStart, kind: 'island' | 'coast' | 'river' | 'lake' | 'forest' | 'hill' | 'mixed', version?: 1 | 2): Extract<TerrainAuthoringOperation, { kind: 'terrainGenerate' }> {
+function generate(start: AuthoringStart, kind: 'island' | 'coast' | 'river' | 'lake' | 'forest' | 'hill' | 'mixed', version?: 1 | 2 | 3): Extract<TerrainAuthoringOperation, { kind: 'terrainGenerate' }> {
   return { kind: 'terrainGenerate', request: { sceneId: start.project.document.sceneId, kind, seed: 'terrain-v1-0', widthMm: 24000, heightMm: 18000,
     ...(version === undefined ? {} : { algorithmVersion: version }) } }
 }
@@ -63,23 +63,23 @@ function applyArguments(candidate: StoredTerrainCandidate) {
 }
 
 describe('new terrain tool requests select a version before candidate identity while old replay stays exact', () => {
-  it('records version 2 in a fresh default island candidate before hashing without mutating its raw request or draft', () => {
+  it('records version 3 in a fresh default island candidate before hashing without mutating its raw request or draft', () => {
     const { task, run } = fixture(), authoring = task.authoring!, operation = generate(authoring.start, 'island')
     const rawBefore = canonicalJson(operation), stateBefore = canonicalJson(authoring.state), baseBefore = canonicalJson(authoring.start)
     const result = run('sceneweave_terrain_candidates', { operations: [operation] })
     expect(result.success, result.output).toBe(true)
     const candidate = authoring.terrainCandidates![0]
-    expect(candidate.operation).toMatchObject({ kind: 'terrainGenerate', request: { algorithmVersion: 2 } })
+    expect(candidate.operation).toMatchObject({ kind: 'terrainGenerate', request: { algorithmVersion: 3 } })
     expect(candidate.hash).toBe(sha256Text(canonicalJson({ operation: candidate.operation,
       atContentHash: candidate.atContentHash, contentHash: candidate.contentHash })))
     expect(canonicalJson(operation)).toBe(rawBefore)
     expect(canonicalJson(authoring.state)).toBe(stateBefore)
     expect(canonicalJson(authoring.start)).toBe(baseBefore)
     expect(run('sceneweave_terrain_apply_candidate', applyArguments(candidate)).success).toBe(true)
-    expect(authoring.state.steps[0].operations[0]).toMatchObject({ kind: 'terrainGenerate', request: { algorithmVersion: 2 } })
+    expect(authoring.state.steps[0].operations[0]).toMatchObject({ kind: 'terrainGenerate', request: { algorithmVersion: 3 } })
     const replayed = replayAuthoring(authoring.start, authoring.state.steps)
     expect(replayed.state).toEqual(authoring.state)
-    expect(getLegacyGeneration(replayed.project.document)!.recipes['terrain-recipe'].algorithmVersion).toBe(2)
+    expect(getLegacyGeneration(replayed.project.document)!.recipes['terrain-recipe'].algorithmVersion).toBe(3)
   })
 
   it.each([undefined, 1] as const)('selects a fresh coast version %s before identity and preserves the existing atomic authorization rejection', version => {
@@ -97,7 +97,7 @@ describe('new terrain tool requests select a version before candidate identity w
     expect(canonicalJson(operation)).toBe(rawBefore)
   })
 
-  it.each([1, 2] as const)('keeps an explicitly selected version %s when preparing a new candidate', version => {
+  it.each([1, 2, 3] as const)('keeps an explicitly selected version %s when preparing a new candidate', version => {
     const { task, run } = fixture(), operation = generate(task.authoring!.start, 'island', version), before = canonicalJson(operation)
     const result = run('sceneweave_terrain_candidates', { operations: [operation] })
     expect(result.success, result.output).toBe(true)
@@ -107,11 +107,11 @@ describe('new terrain tool requests select a version before candidate identity w
   it('uses the same new-request default for the direct scene editing tool before recording its ledger', () => {
     const { task, run } = fixture(), authoring = task.authoring!, operation = generate(authoring.start, 'island'), before = canonicalJson(operation)
     expect(run('sceneweave_edit_scene', { operations: [operation] }).success).toBe(true)
-    expect(authoring.state.steps[0].operations[0]).toMatchObject({ kind: 'terrainGenerate', request: { algorithmVersion: 2 } })
+    expect(authoring.state.steps[0].operations[0]).toMatchObject({ kind: 'terrainGenerate', request: { algorithmVersion: 3 } })
     expect(canonicalJson(operation)).toBe(before)
     const replayed = replayAuthoring(authoring.start, authoring.state.steps)
     expect(replayed.state).toEqual(authoring.state)
-    expect(getLegacyGeneration(replayed.project.document)!.recipes['terrain-recipe'].algorithmVersion).toBe(2)
+    expect(getLegacyGeneration(replayed.project.document)!.recipes['terrain-recipe'].algorithmVersion).toBe(3)
   })
 
   it('applies an existing legacy candidate with its original absent version and exact content hash', () => {

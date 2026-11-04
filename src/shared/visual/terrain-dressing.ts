@@ -4,7 +4,7 @@ import type { PointMm, TerrainArea } from '../model/scene.js'
 import type { VisualBoundary, VisualEdgeLook } from './types.js'
 import { visualBase } from './base.js'
 import { sampleVisualBoundary, signedVisualArea } from './geometry.js'
-import { corridor, pathPolygon, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
+import { connectionFootprint, corridor, pathPolygon, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { definitionPresentation, presentationBounds, propPresentation } from '../appearance/presentation.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
@@ -78,7 +78,7 @@ export function planTerrainDressing(content:Pick<CompositionContent,'document'|'
   const sorted=[...land].sort((a,b)=>Math.abs(signedVisualArea(terrainPoints(b)))-Math.abs(signedVisualArea(terrainPoints(a))))
   const selected=sorted.slice(0,3) // Separate supports retain separate persistent groups.
   const reserved:PointMm[][]=[]
-  for(const c of Object.values(scene.terrainConnections))if(c.floorId===floor.id&&c.visibility==='public'&&visibility.surface(c.from.surfaceRef)&&visibility.surface(c.to.surfaceRef)&&(!c.openingId||!scene.openings[c.openingId]?.secret||scene.openings[c.openingId]?.revealed))reserved.push(corridor(c.from.positionMm,c.to.positionMm,c.widthMm))
+  for(const c of Object.values(scene.terrainConnections))if(c.floorId===floor.id&&c.visibility==='public'&&visibility.surface(c.from.surfaceRef)&&visibility.surface(c.to.surfaceRef)&&(!c.openingId||!scene.openings[c.openingId]?.secret||scene.openings[c.openingId]?.revealed))reserved.push(connectionFootprint(c))
   for(const path of Object.values(scene.paths))if(path.floorId===floor.id&&visibility.path(path.id))reserved.push(pathPolygon(path))
   for(const room of Object.values(scene.rooms))if(room.floorId===floor.id&&visibility.room(room.id))reserved.push(room.boundaryVertexIds.map(id=>({x:scene.vertices[id].xMm,y:scene.vertices[id].yMm})))
   for(const constraint of Object.values(getLegacyGeneration(scene)?.constraints??{}))if(constraint.floorId===floor.id&&constraint.visibility==='public'&&constraint.kind==='activityArea'){

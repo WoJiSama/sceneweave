@@ -120,8 +120,8 @@ export function getLegacyVisual(scene: Pick<SceneDocument, 'visual'>): VisualSys
 }
 /** Read-only compatibility view for old algorithms, never a save/export value. */
 export function legacyTerrainView(scene: Readonly<SceneDocument>): LegacyTerrainScene {
-  if (scene.schemaVersion === 4) {
-    if (scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('完整v4缺少严格generation5/visual3。')
+  if (scene.schemaVersion >= 4) {
+    if (scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('完整v4/v5缺少严格generation5/visual3。')
     return { ...scene, schemaVersion: 3, generation: scene.generation.legacy, visual: scene.visual.base, mapMode: scene.mapMode!, regional: scene.regional ?? null }
   }
   return scene as LegacyTerrainScene

@@ -1,3 +1,5 @@
+import { captureTerrainTaskBudget, terrainSemanticCost, terrainTaskUsage, type TerrainTaskBudgetOptions } from './task-admission.js'
+import { parseTaskBudgetProfile, type TaskBudgetProfile, type BudgetUsage } from '../budget/task-budget.js'
 import { getLegacyGeneration, legacyTerrainView } from './composition-contracts.js'
 import { z } from 'zod'
 import { surroundingsRequestSchema, surroundingsCurves, captureSurroundingsPreservation, surroundingsEntityHash, surroundingsOutputHash, regenerateSurroundingsScenery, type SurroundingsRequest } from './surroundings.js'
@@ -105,15 +107,17 @@ function entityChanges(before: SceneDocument, after: SceneDocument) {
   return { writeIds: [...new Set([...a.keys(), ...b.keys()])].filter(id => !same(a.get(id) ?? null, b.get(id) ?? null)).sort(), removedIds: [...a.keys()].filter(id => !b.has(id)) }
 }
 /** Supported rules are refreshed on explicit adoption only. Imports never call this function. */
-export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneDocument): void {
+export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneDocument, budget?: TaskBudgetProfile): void {
+  if (budget) parseTaskBudgetProfile(budget)
   for (const rule of Object.values(getLegacyGeneration(scene)!.rules)) {
     const inputHash=generationInputHash(scene,rule),outputHash=managedOutputHash(scene,rule)
     if(inputHash===rule.inputHash&&outputHash===rule.managedOutputHash)continue
     assertWritable(before,rule.id)
     const recipe=getLegacyGeneration(scene)!.recipes[rule.recipeRef.id]
     // Refreshing a hash is not an implementation of an arbitrary dependent algorithm.
-    const supportedTerrainAlgorithm = recipe.algorithmId === 'terrain-scene' && [1, 2].includes(recipe.algorithmVersion)
+    const supportedTerrainAlgorithm = recipe.algorithmId === 'terrain-scene' && [1, 2, 3].includes(recipe.algorithmVersion)
       || recipe.algorithmId === 'terrain-scene-t3' && recipe.algorithmVersion === 1
+      || !!budget && ['terrain-scene','terrain-scene-t3'].includes(recipe.algorithmId) && [4,5].includes(recipe.algorithmVersion) && recipe.recipeVersion === recipe.algorithmVersion
     if(inputHash!==rule.inputHash||rule.kind!=='terrain'||!supportedTerrainAlgorithm)fail(`相关规则须独立重算，当前局部编辑不支持：${rule.id}。`)
     rule.managedOutputHash=outputHash
   }
@@ -306,9 +310,11 @@ function applyBrush(scene:SceneDocument,request:Extract<TerrainEditRequest,{kind
   const system=scene.generation as GenerationSystem2,strokeId=generatedId(request.operationId,`stroke-${index}`)
   system.strokes[strokeId]={id:strokeId,operationId:request.operationId,strokeIndex:index,floorId:request.floorId,visibility:area.visibility,brush:request.mode,targetAreaId:request.targetAreaId,pointsMm:cloneJson(stroke.pointsMm),radiusMm:stroke.radiusMm,scopeMm:cloneJson(request.scopeMm),linkMode:request.linkMode,materialRef:cloneJson(request.materialRef),elevationMm:request.elevationMm,algorithmId:'terrain-edit',algorithmVersion:1}
 }
-function applySurroundings(scene:SceneDocument,request:SurroundingsRequest,nextId:()=>string):void {
+function applySurroundings(scene:SceneDocument,request:SurroundingsRequest,nextId:()=>string,options?:TerrainTaskBudgetOptions):void {
   const before=cloneJson(scene),preserved=captureSurroundingsPreservation(before,request)
-  if(preserved.length>256)fail('外围保全内容超过256项；请缩小独立工程，不隐式省略依赖。')
+  const budget = captureTerrainTaskBudget(options)
+  if(preserved.length>(budget?.limits.dependencyRefs ?? 256))fail(budget?'外围保全内容超过冻结的依赖预算；请缩小独立工程，不隐式省略依赖。':'外围保全内容超过256项；请缩小独立工程，不隐式省略依赖。')
+  options?.meter?.charge({dependencyRefs:preserved.length})
   const curves=surroundingsCurves(before,request)
   for(const boundary of curves)if(!same(boundary,visualBase(scene)!.boundaries[boundary.id]))applyContour(scene,request,boundary,nextId)
   regenerateSurroundingsScenery(scene,before,request)
@@ -321,9 +327,9 @@ function applySurroundings(scene:SceneDocument,request:SurroundingsRequest,nextI
   const row={id,operationId:request.operationId,floorId:request.floorId,visibility:'gm' as const,algorithmId:'terrain-surroundings' as const,algorithmVersion:1 as const,seed:request.seed,scopeMm:cloneJson(request.scopeMm),maxDisplacementMm:request.maxDisplacementMm,boundaryIds:cloneJson(request.boundaryIds),regenerateScenery:request.regenerateScenery,preserved,state:'current' as const,inputHash:hash({request,preserved}),outputHash:''}
   row.outputHash=surroundingsOutputHash(scene,row);generation.surroundings[id]=row
 }
-function applyTopology(scene: SceneDocument, request: TerrainTopologyRequest): void {
+function applyTopology(scene: SceneDocument, request: TerrainTopologyRequest, options?: TerrainTaskBudgetOptions): void {
   const before = cloneJson(scene)
-  const result = applyTerrainTopology(scene, request)
+  const result = applyTerrainTopology(scene, request, options?.meter)
   const base = getLegacyGeneration(scene)!
   const generation: GenerationSystem4 = base.version === 4 ? base : base.version === 3 ? { ...base, version: 4, topology: {} } : { ...base, version: 4, strokes: base.version === 1 ? {} : base.strokes, surroundings: {}, topology: {} }
   scene.generation = generation
@@ -333,40 +339,54 @@ function applyTopology(scene: SceneDocument, request: TerrainTopologyRequest): v
   generation.topology[id] = { id, floorId: request.floorId, visibility: 'gm', algorithmId: 'terrain-boolean', algorithmVersion: 1, request: cloneJson(request), inputs: request.areaIds.map(entityId => ({ entityId, contentHash: hash(before.terrainAreas[entityId]), boundaryMm: terrainPoints(before.terrainAreas[entityId]) })), outputAreaIds: result.outputAreaIds, componentCount: result.componentCount, holeCount: result.holeCount, state: 'current', inputHash: result.inputHash, outputHash: result.outputHash }
 }
 /** Current materialized geometry is authoritative. Never regenerates from the original seed. */
-export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest):TerrainEditResult{
+export type ProfiledTerrainEditResult = Omit<TerrainEditResult,'cost'|'steps'> & {
+  cost: ReturnType<typeof terrainSemanticCost>; steps: {index:number;cost:ReturnType<typeof terrainSemanticCost>}[];
+  budget: { countingVersion:2; profileHash:string; usage:BudgetUsage }
+}
+export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest):TerrainEditResult
+export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest,options:TerrainTaskBudgetOptions):TerrainEditResult|ProfiledTerrainEditResult
+export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest,options?:TerrainTaskBudgetOptions):TerrainEditResult|ProfiledTerrainEditResult{
+  const budget=captureTerrainTaskBudget(options)
+
   const jsonIssue=inspectJsonInput(input);if(jsonIssue)fail(jsonIssue.message)
   const request=terrainEditRequestSchema.parse(input),valid=validateSceneDocument(base)
   if(!valid.ok)fail(`地形编辑基线无效：${valid.errors.map(error=>error.message).join('；')}`)
   if(base.schemaVersion!==3||base.mapMode!=='scene'||base.visual?.version!==2||!base.generation)fail('地形编辑需要完整v3场景地图。')
   if(request.sceneId!==base.sceneId||!base.floors[request.floorId])fail('地形编辑绑定的工程或Floor已变化。')
   if(![request.scopeMm.x,request.scopeMm.y,request.scopeMm.x+request.scopeMm.width,request.scopeMm.y+request.scopeMm.height].every(Number.isSafeInteger))fail('冻结范围不是安全整数。')
+  options?.meter?.charge({candidateAttempts:1})
   const existingIds=allEntityIds(base)
   if([...existingIds].some(id=>id.startsWith(`terrain-edit-${hash(request.operationId).slice(0,20)}-`)))fail('本次操作派生身份已存在，请重新开始操作。')
   // The v3-only guard above precedes this compatibility typing; a native-v4
   // view is never installed or saved by the legacy editing entry point.
-  const scene=cloneJson(legacyTerrainView(base)),nextId=makeIds(base,request.operationId),steps:TerrainEditResult['steps']=[],items:Record<string,number>={}
+  const scene=cloneJson(legacyTerrainView(base)),nextId=makeIds(base,request.operationId),steps:{index:number;cost:ReturnType<typeof terrainCommandCost>}[]=[],items:Record<string,number>={}
   if(scene.generation!.version===1)scene.generation={...scene.generation!,version:2,strokes:{}}
   if(Object.values(scene.generation!.strokes).some(stroke=>stroke.operationId===request.operationId))fail('本次笔画身份已经采用，请重新开始操作。')
   const run=(index:number,apply:()=>void)=>{
     const before=index===0?base:cloneJson(scene)
     if(scene.generation!.version>=3)for(const row of Object.values((scene.generation as GenerationSystem3|GenerationSystem4).surroundings))row.state='historical'
-    apply();preserveHardActivityAreas(before,scene);finalizeTerrainEditDocument(scene,before)
-    const cost=terrainCommandCost(before,scene)
+    apply();preserveHardActivityAreas(before,scene);finalizeTerrainEditDocument(scene,before,budget)
+    const cost=budget?terrainSemanticCost(before,scene,budget):terrainCommandCost(before,scene)
     if(!cost.total){cost.items.noOp=1;cost.total=1}
-    steps.push({index,cost:{...cost,limit:256}})
+    steps.push({index,cost:{...cost,limit:budget?.semanticTargets??256}})
     for(const [key,value]of Object.entries(cost.items))items[key]=(items[key]??0)+value
     const total=Object.values(items).reduce((a,b)=>a+b,0)
-    if(total>256)fail(`本次逐笔累计展开${total}，超过256；请缩短笔画或减少细节。`)
+    if(total>(budget?.semanticTargets??256))fail(`本次逐笔累计展开${total}，超过256；请缩短笔画或减少细节。`)
+    if(budget)terrainTaskUsage(base,scene,{...options,budget})
     const check=validateSceneDocument(scene);if(!check.ok)fail(`地形候选冲突：${check.errors.map(error=>`${error.code} ${error.message}`).join('；')}`)
   }
   if(request.kind==='contour')run(0,()=>applyContour(scene,request,request.boundary,nextId))
-  else if(request.kind==='surroundings')run(0,()=>applySurroundings(scene,request,nextId))
-  else if(request.kind==='topology')run(0,()=>applyTopology(scene,request))
+  else if(request.kind==='surroundings')run(0,()=>applySurroundings(scene,request,nextId,options))
+  else if(request.kind==='topology')run(0,()=>applyTopology(scene,request,options))
   else request.strokes.forEach((stroke,index)=>run(index,()=>applyBrush(scene,request,stroke,index,nextId)))
   const changes=entityChanges(base,scene),preservedIds=['vertices','rooms','walls','openings','paths','terrainConnections','props','notes','prefabInstances','scatterGroups'].flatMap(key=>Object.values(base[key as 'props']).filter(row=>same(row,scene[key as 'props'][row.id]??null)).map(row=>row.id)).sort()
   const readIds=[...new Set([...allEntityIds(base),...changes.writeIds,...Object.values(base.terrainConnections).map(connection=>connection.id),...Object.values(base.props).map(prop=>prop.id),...Object.values(getLegacyGeneration(base)!.rules).map(rule=>rule.id)])].sort()
   const floorBounds=Object.values(base.floors).map(floor=>floor.boundsMm),left=Math.min(...floorBounds.map(bounds=>bounds.x)),top=Math.min(...floorBounds.map(bounds=>bounds.y)),right=Math.max(...floorBounds.map(bounds=>bounds.x+bounds.width)),bottom=Math.max(...floorBounds.map(bounds=>bounds.y+bounds.height))
   const impact={writeIds:changes.writeIds,preservedIds,readIds,conflicts:[],writeBoundsMm:cloneJson(request.scopeMm),readBoundsMm:expand({x:left,y:top,width:right-left,height:bottom-top},Math.max(2000,...Object.values(visualBase(base)!.edgeLooks).map(look=>look.widthMm),...Object.values(base.props).map(prop=>Math.max(Math.abs(prop.visualBoundsMm.x),Math.abs(prop.visualBoundsMm.y),Math.abs(prop.visualBoundsMm.x+prop.visualBoundsMm.width),Math.abs(prop.visualBoundsMm.y+prop.visualBoundsMm.height))+(prop.shadowOverride?.offsetMm??0)+(prop.shadowOverride?.blurMm??0)),...(request.kind==='brush'?request.strokes.map(stroke=>stroke.radiusMm):[0])))}
-  const cost={items,total:Object.values(items).reduce((a,b)=>a+b,0),limit:256 as const}
-  return {request,document:scene,cost,impact,steps,hash:hash({request,document:scene,cost,impact,steps})}
+  const cost={items,total:Object.values(items).reduce((a,b)=>a+b,0),limit:budget?.semanticTargets??256}
+  if(budget){
+    const admission={countingVersion:2 as const,profileHash:budget.profileHash,usage:terrainTaskUsage(base,scene,{...options,budget})}
+    return {request,document:scene,cost:{...cost,limit:budget.semanticTargets},impact,steps:steps.map(step=>({...step,cost:{...step.cost,limit:budget.semanticTargets}})),budget:admission,hash:hash({request,document:scene,cost,impact,steps,budget:admission})}
+  }
+  return {request,document:scene,cost:{...cost,limit:256},impact,steps:steps as TerrainEditResult['steps'],hash:hash({request,document:scene,cost,impact,steps})}
 }

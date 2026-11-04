@@ -1,3 +1,4 @@
+import type { CurrentAuthoringCapability } from './current-authoring-capability.js'
 import { visualBase } from '../visual/base.js'
 import { z } from 'zod'
 import type { ProjectData } from '../model/project.js'
@@ -75,7 +76,7 @@ export const planForBrief = (brief?: AuthoringBrief) => ({ recipe: brief?.recipe
   ] })
 
 /** Inspect only the public, explicitly granted entity IDs. User prose is never reported as verified. */
-export function diagnoseAuthoringProject(project: ProjectData, ids: ReadonlySet<string>, brief?: AuthoringBrief) {
+export function diagnoseAuthoringProject(project: ProjectData, ids: ReadonlySet<string>, brief?: AuthoringBrief, capability?: CurrentAuthoringCapability) {
   const scene = project.document, visible = createPublicVisibility(scene)
   const rooms = Object.values(scene.rooms).filter(room => ids.has(room.id) && visible.room(room.id))
   const terrain = Object.values(scene.terrainAreas).filter(area => ids.has(area.id) && visible.terrainArea(area.id))
@@ -107,14 +108,14 @@ export function diagnoseAuthoringProject(project: ProjectData, ids: ReadonlySet<
   if (obstructedDoors.size) issues.push({ code: 'authorized_door_approach_blocked_500mm', ids: [...obstructedDoors].sort(), severity: 'warning' })
   const visual = visualBase(scene)
   const count = (values: Record<string, { id: string; visibility: string }> | undefined) => Object.values(values ?? {}).filter(value => ids.has(value.id) && value.visibility === 'public').length
-  const composition = inspectVisualComposition(project, props, ids)
+  const composition = inspectVisualComposition(project, props, ids, capability)
   if (composition.excessivePairs.length) issues.push({ code: 'authorized_major_image_overlap', ids: [...new Set(composition.excessivePairs.flatMap(pair => pair.ids))].sort(), severity: 'warning' })
   if (composition.oversizedIds.length) issues.push({ code: 'authorized_image_dominates_surface', ids: composition.oversizedIds, severity: 'warning' })
-  const evidence = inspectBriefEvidence(project, ids, brief?.checks ?? [])
+  const evidence = inspectBriefEvidence(project, ids, brief?.checks ?? [], capability)
   for (const check of evidence.filter(value => value.status !== 'supported')) issues.push({ code: `brief_${check.kind}_missing`, ids: check.evidenceIds, severity: 'missing' })
   return { counts: { rooms: rooms.length, terrain: terrain.length, walls: walls.length, doors: openings.filter(value => value.kind === 'door').length,
     props: props.length, paths: paths.length, boundaries: count(visual?.boundaries), edgeLooks: count(visual?.edgeLooks), lights: count(visual?.lights), fogs: count(visual?.fogs), filters: count(visual?.filters) },
-    issues, composition, repairs: inspectCompositionRepairs(project, ids, brief), evidence, requirements: (brief?.requirements ?? []).map((description, index) => ({ requirement: index + 1, description, status: 'needs_human_review' as const })),
+    issues, composition, repairs: inspectCompositionRepairs(project, ids, brief, capability), evidence, requirements: (brief?.requirements ?? []).map((description, index) => ({ requirement: index + 1, description, status: 'needs_human_review' as const })),
     visualInput: 'No screenshot is implied by this structural report.', physicalValidation: 'Finite geometry/locks/dependencies only; not a global pathfinding proof.',
     completion: issues.some(issue => issue.severity === 'missing') ? 'incomplete' : 'structure_checked_appearance_unconfirmed' }
 }
