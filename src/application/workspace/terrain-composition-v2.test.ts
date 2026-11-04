@@ -51,7 +51,7 @@ describe('explicit shoreline composition recipe 2',()=>{
  })
  it('rejects unsupported version 2 presets and unknown recipe versions',()=>{
   for(const preset of ['forestValley','grassRidge'])expect(()=>compositionPreset({...request('archipelago'),preset})).toThrow('组合配方2仅支持')
-  expect(()=>compositionPreset({...request('archipelago'),recipeVersion:3})).toThrow()
+  expect(()=>compositionPreset({...request('archipelago'),recipeVersion:4})).toThrow()
  })
  const cases=presets.flatMap(preset=>seeds.flatMap(seed=>([[24000,18000],[48000,36000],[120000,90000]] as const).flatMap(([w,h])=>(preset==='archipelago'?[2,3]:[3]).map(islandCount=>({preset,seed,w,h,islandCount})))))
  it.each(cases)('keeps $preset $islandCount / $seed / $w × $h within the unchanged full metadata budget',({preset,seed,w,h,islandCount})=>{

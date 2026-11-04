@@ -1,3 +1,11 @@
+import { currentAuthoringPaint } from './current-authoring-paint.js'
+import { connectionFootprint } from '../geometry/geometry.js'
+import { decorationFootprint, decorationRecords, decorationClusterRecords } from '../decorations/geometry.js'
+import { decorationMemberOwner } from '../decorations/validation.js'
+import { CurrentSceneAuthoringScopeSchema, type CurrentSceneAuthoringScope } from './authoring-protocol-v4.js'
+import { assertCurrentAuthoringCapability, currentAuthoringOperationSupported, type CurrentAuthoringCapability } from './current-authoring-capability.js'
+import { ProfiledSceneAuthoringScopeSchema } from './authoring-profile.js'
+import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { resolveAppearance } from '../appearance/graph.js'
 import { buildingDependants, isBuildingCommand, previewBuildingCommands } from '../commands/building.js'
@@ -19,8 +27,9 @@ const sorted = (values: Iterable<string>): string[] => [...new Set(values)].sort
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
 function deny(message: string): never { throw new Error(`AI场景草稿范围无效：${message}`) }
 const same = (a: unknown, b: unknown): boolean => a === undefined || b === undefined ? a === b : canonicalJson(a) === canonicalJson(b)
-const allEntities = (scene: SceneDocument): Map<string, Editable> => new Map(LAYER_ENTITY_COLLECTIONS.flatMap(key => Object.values(scene[key]) as Editable[]).map(value => [value.id, value]))
-const entity = (scene: SceneDocument, id: string): Editable | undefined => LAYER_ENTITY_COLLECTIONS.map(key => own<Editable>(scene[key], id)).find(Boolean)
+const allEntities = (scene: SceneDocument): Map<string, Editable> => new Map([...LAYER_ENTITY_COLLECTIONS.flatMap(key => Object.values(scene[key]) as Editable[]), ...Object.values(decorationRecords(scene)), ...Object.values(decorationClusterRecords(scene))].map(value => [value.id, value]))
+const entity = (scene: SceneDocument, id: string): Editable | undefined => LAYER_ENTITY_COLLECTIONS.map(key => own<Editable>(scene[key], id)).find(Boolean) ?? decorationRecords(scene)[id] ?? decorationClusterRecords(scene)[id]
+type SceneScope = SceneAuthoringScope | CurrentSceneAuthoringScope
 function rectangle(bounds: BoundsMm): PointMm[] {
   if (![bounds.x + bounds.width, bounds.y + bounds.height].every(Number.isSafeInteger)) deny('授权矩形边界超过安全整数。')
   return [{ x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.width, y: bounds.y }, { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, { x: bounds.x, y: bounds.y + bounds.height }]
@@ -54,7 +63,7 @@ function wallShapes(scene: SceneDocument, id: string): PointMm[][] {
   const target = names.get(id)!
   return wallMovementPolygons(projected).filter(shape => shape.entityId.split('、').includes(target)).map(shape => shape.polygon)
 }
-function shapes(scene: SceneDocument, id: string, visited = new Set<string>()): PointMm[][] {
+function shapes(scene: SceneDocument, id: string, visited = new Set<string>(), paintProject?: ProjectData): PointMm[][] {
   if (visited.has(id)) return []
   visited.add(id)
   const value = entity(scene, id)
@@ -63,16 +72,19 @@ function shapes(scene: SceneDocument, id: string, visited = new Set<string>()): 
   if (scene.walls[id]) return wallShapes(scene, id)
   if (scene.vertices[id]) return [[{ x: scene.vertices[id].xMm, y: scene.vertices[id].yMm }]]
   if (scene.openings[id]) return [corridor(...openingEndpoints(scene, scene.openings[id]), scene.walls[scene.openings[id].wallId].thicknessMm)]
-  if (scene.props[id]) return [visualPoints(scene.props[id]), propFootprint(scene.props[id])]
+  if (scene.props[id]) return [paintProject ? currentAuthoringPaint(paintProject, id)!.polygonMm : visualPoints(scene.props[id]), propFootprint(scene.props[id])]
   if (scene.terrainAreas[id]) return [terrainPoints(scene.terrainAreas[id])]
   if (scene.terrainEdges[id]) return [edgeShape(scene, id)]
-  if (scene.terrainConnections[id]) { const c = scene.terrainConnections[id]; return [corridor(c.from.positionMm, c.to.positionMm, c.widthMm)] }
+  if (scene.terrainConnections[id]) { const c = scene.terrainConnections[id]; return [c.route ? connectionFootprint(c) : corridor(c.from.positionMm, c.to.positionMm, c.widthMm)] }
+  if (decorationRecords(scene)[id]) return [...(paintProject ? [currentAuthoringPaint(paintProject, id)!.polygonMm] : []), decorationFootprint(scene, decorationRecords(scene)[id])]
+  const cluster = decorationClusterRecords(scene)[id]
+  if (cluster) return [rectangle(cluster.boundsMm), ...Object.values(cluster.members).flatMap(member => member.entityId && member.state !== 'detached' && member.state !== 'deleted' ? shapes(scene, member.entityId, visited, paintProject) : [])]
   if (scene.paths[id]) return [pathPolygon(scene.paths[id])]
   if (scene.regions[id]) return [scene.regions[id].boundaryMm]
-  if (scene.notes[id]) { const anchor = scene.notes[id].anchor; return anchor.type === 'point' ? [[anchor.positionMm]] : shapes(scene, anchor.entityId, visited) }
+  if (scene.notes[id]) { const anchor = scene.notes[id].anchor; return anchor.type === 'point' ? [[anchor.positionMm]] : shapes(scene, anchor.entityId, visited, paintProject) }
   const group = scene.prefabInstances[id] ?? scene.scatterGroups[id]
   if (group) {
-    const points = Object.values(group.members).flatMap(member => member.propId === null ? [] : shapes(scene, member.propId, visited))
+    const points = Object.values(group.members).flatMap(member => member.propId === null ? [] : shapes(scene, member.propId, visited, paintProject))
     if (scene.prefabInstances[id]) points.push([scene.prefabInstances[id].anchorMm])
     else {
       const domain = scene.scatterGroups[id].domain
@@ -93,6 +105,8 @@ function isPublic(scene: SceneDocument, id: string, visited = new Set<string>())
   const view = createPublicVisibility(scene)
   if (scene.rooms[id]) return view.room(id)
   if (scene.props[id]) return view.prop(scene.props[id])
+  if (decorationRecords(scene)[id]) return view.decoration(decorationRecords(scene)[id])
+  if (decorationClusterRecords(scene)[id]) return view.decorationCluster(id)
   if (scene.terrainAreas[id]) return view.terrainArea(id)
   if (scene.paths[id]) return view.path(id)
   if (scene.terrainEdges[id]) return view.terrainEdge(id)
@@ -106,8 +120,8 @@ function isPublic(scene: SceneDocument, id: string, visited = new Set<string>())
   const group = scene.prefabInstances[id] ?? scene.scatterGroups[id]
   return !!group && (scene.scatterGroups[id] ? view.scatterGroup(id) : group.visibility === 'public') && Object.values(group.members).every(member => member.propId === null || !!scene.props[member.propId] && view.prop(scene.props[member.propId]))
 }
-function assertGeometry(scene: SceneDocument, scope: SceneAuthoringScope, id: string): void {
-  const polygons = shapes(scene, id)
+function assertGeometry(scene: SceneDocument, scope: SceneScope, id: string, paintProject?: ProjectData): void {
+  const polygons = shapes(scene, id, new Set(), paintProject)
   if (!polygons.length || polygons.some(polygon => !inside(scope.boundsMm, polygon))) deny(`实体或真实物理/图像边界超出明确授权范围：${id}。`)
   unmasked(scene, scope.floorId, polygons)
 }
@@ -117,8 +131,11 @@ function definition(project: ProjectData, id: string): void {
 }
 
 /** Validate a fixed, explicit grant. Dependencies never silently enlarge this grant. */
-export function validateSceneScope(project: ProjectData, input: SceneAuthoringScope): void {
-  const scope = SceneAuthoringScopeSchema.parse(captureJson(input)), scene = project.document
+export function validateSceneScope(project: ProjectData, input: SceneScope, budget?: TaskBudgetProfile, capability?: CurrentAuthoringCapability): void {
+  const current = assertCurrentAuthoringCapability(project, capability)
+  if (!current && project.schemaVersion >= 5) deny('当前AI场景操作尚不支持完整v5/v6/v7曲线连接或装饰工程。')
+  const scope = (current ? CurrentSceneAuthoringScopeSchema : budget ? ProfiledSceneAuthoringScopeSchema : SceneAuthoringScopeSchema).parse(captureJson(input)), scene = project.document
+  if (current && scope.operations.some(kind => !currentAuthoringOperationSupported(project.schemaVersion, kind))) deny('场景操作不支持当前完整工程版本。')
   const floor = own(scene.floors, scope.floorId), layer = own(scene.userLayers, scope.layerId)
   if (!floor || !layer || layer.floorId !== floor.id || layer.editLocked) deny('创作Floor或用户图层无效/锁定。')
   if (!inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('创作范围超出世界。')
@@ -127,7 +144,7 @@ export function validateSceneScope(project: ProjectData, input: SceneAuthoringSc
     if (terrainExtendedEntity(scene, id)) { assertTerrainExtendedEntity(project, scope, id); continue }
     const value = entity(scene, id)
     if (!value || value.floorId !== scope.floorId || !isPublic(scene, id) || effectiveEditLocked(scene, id)) deny(`既有实体须为同Floor的公开、未锁定对象：${id}。`)
-    assertGeometry(scene, scope, id)
+    assertGeometry(scene, scope, id, current ? project : undefined)
   }
   for (const id of scope.generationLayerIds ?? []) if (!scene.userLayers[id] || scene.userLayers[id].floorId !== floor.id || scene.userLayers[id].editLocked) deny('地形生成图层未授权或锁定。')
   for (const id of scope.regionalDefinitionIds ?? []) if (!scene.regional?.symbolDefinitions[id]?.origin.canEmbed) deny('区域图符固定定义未授权。')
@@ -176,6 +193,10 @@ function collectEntity(project: ProjectData, id: string, read: Set<string>): voi
     }
     for (const adjustment of [...(project.appearance.instanceAdjustments[id] ?? []), ...(project.appearance.layerAdjustments[scene.entityLayers[id]] ?? [])]) read.add(adjustment.id)
   }
+  const decoration = decorationRecords(scene)[id]
+  if (decoration) collectSubject(project, 'propDefinition', decoration.definitionRef.id, read)
+  const cluster = decorationClusterRecords(scene)[id]
+  if (cluster) cluster.palette.forEach(row => collectSubject(project, 'propDefinition', row.definitionRef.id, read))
   const style = scene.rooms[id]?.floorStyle ?? scene.walls[id]?.topStyle ?? scene.terrainAreas[id]?.surfaceStyle ?? scene.terrainEdges[id]?.surfaceStyle ?? scene.terrainConnections[id]?.surfaceStyle ?? scene.paths[id]?.surfaceStyle
   if (style) for (const paint of [style.base, ...style.overlays.map(value => value.paint)]) collectSubject(project, 'material', paint.materialRef.id, read)
   if (scene.prefabInstances[id]) collectSubject(project, 'prefabDefinition', scene.prefabInstances[id].definitionRef.id, read)
@@ -183,13 +204,13 @@ function collectEntity(project: ProjectData, id: string, read: Set<string>): voi
   if (scene.terrainAreas[id]) for (const point of scene.terrainAreas[id].boundaryMm) { read.add(point.id); read.add(point.segmentId) }
 }
 /** Visual tools share exactly the public geometry/lock/resource boundary of scene tools. */
-export function assertPublicSceneEntity(project: ProjectData, scope: Pick<SceneAuthoringScope, 'floorId' | 'boundsMm'>, id: string): string[] {
+export function assertPublicSceneEntity(project: ProjectData, scope: Pick<SceneAuthoringScope, 'floorId' | 'boundsMm'>, id: string, capability?: CurrentAuthoringCapability): string[] {
   const scene = project.document, value = entity(scene, id), read = new Set<string>()
   if (!value || value.floorId !== scope.floorId || !isPublic(scene, id) || effectiveEditLocked(scene, id)) deny('视觉目标须为明确公开、同Floor且未锁定的实体。')
-  assertGeometry(scene, scope as SceneAuthoringScope, id); collectEntity(project, id, read)
+  assertGeometry(scene, scope as SceneAuthoringScope, id, capability ? project : undefined); collectEntity(project, id, read)
   return sorted(read)
 }
-export function sceneReadIds(project: ProjectData, scope: SceneAuthoringScope): string[] {
+export function sceneReadIds(project: ProjectData, scope: SceneScope): string[] {
   const read = new Set([scope.floorId, scope.layerId])
   scope.entityIds.forEach(id => { const extended = terrainExtendedEntity(project.document, id); if (extended) { read.add(id); read.add(extended.row.layerId) } else collectEntity(project, id, read) })
   for (const id of [...(scope.generationLayerIds ?? []), ...(scope.regionalDefinitionIds ?? [])]) read.add(id)
@@ -204,7 +225,7 @@ function materialStyle(scene: SceneDocument, id: string): SurfaceStyle {
   const value = scene.materials[id]
   return { base: { materialRef: { id, version: value.version }, tileSizeMm: cloneJson(value.defaultTileSizeMm), rotationDeg: 0, alignment: 'world', originMm: { x: 0, y: 0 }, tint: null, opacity: 1 }, overlays: [] }
 }
-function commandsFor(project: ProjectData, scope: SceneAuthoringScope, operation: SceneAuthoringOperation, context: PreparationContext, allowed: ReadonlySet<string>): CompositionCommand[] {
+function commandsFor(project: ProjectData, scope: SceneScope, operation: SceneAuthoringOperation, context: PreparationContext, allowed: ReadonlySet<string>): CompositionCommand[] {
   const scene = project.document
   const required = (id: string) => { if (!allowed.has(id) || !entity(scene, id)) deny(`实体/支撑/锚点未明确授权：${id}。`) }
   const fresh = (id: string) => {
@@ -340,6 +361,12 @@ function referencedIds(scene: SceneDocument, root: string, result = new Set<stri
   if (result.has(root)) return result
   result.add(root)
   const add = (id: string) => { if (entity(scene, id)) referencedIds(scene, id, result) }
+  const decoration = decorationRecords(scene)[root]
+  if (decoration) add(decoration.supportRef.id)
+  const cluster = decorationClusterRecords(scene)[root]
+  if (cluster) { add(cluster.supportRef.id); Object.values(cluster.members).forEach(member => { if (member.entityId && member.state !== 'detached' && member.state !== 'deleted') add(member.entityId) }) }
+  const owner = decorationMemberOwner(scene, root)
+  if (owner) add(owner.cluster.id)
   const prop = scene.props[root]
   if (prop) { add(prop.supportRef.id); if (prop.roomId) add(prop.roomId) }
   if (scene.rooms[root]) { const room = scene.rooms[root]; add(room.supportRef.id); room.boundaryVertexIds.forEach(add); wallIdsForRoom(scene, root).forEach(add) }
@@ -357,22 +384,24 @@ function referencedIds(scene: SceneDocument, root: string, result = new Set<stri
   return result
 }
 /** Native diagnostics may name a hidden collision or locked dependant. Never disclose its identity. */
-function diagnostic(scene: SceneDocument, scope: SceneAuthoringScope, allowed: ReadonlySet<string>, message: string): string {
+function diagnostic(scene: SceneDocument, scope: SceneScope, allowed: ReadonlySet<string>, message: string): string {
   const disclosed = new Set([...allowed, scope.floorId, scope.layerId, ...scope.definitionIds, ...scope.prefabDefinitionIds, ...scope.materialIds])
   for (const id of allowed) if (scene.entityLayers[id]) disclosed.add(scene.entityLayers[id])
   const undisclosed = [...allEntities(scene).keys(), ...Object.keys(scene.userLayers), ...Object.keys(scene.floors), ...Object.keys(scene.propDefinitions), ...Object.keys(scene.prefabDefinitions), ...Object.keys(scene.materials)].filter(id => !disclosed.has(id))
   return undisclosed.some(id => message.includes(id)) ? '候选涉及未授权的既有内容或依赖；请缩小或重新明确授权范围。' : message
 }
 /** Replays one finite operation; the outer ledger enforces the returned cumulative expanded cost. */
-export function applySceneOperation(project: ProjectData, inputScope: SceneAuthoringScope, inputOperation: SceneAuthoringOperation, context: PreparationContext, allowedEntityIds: ReadonlySet<string>): { project: ProjectData; readIds: string[]; writeIds: string[]; cost: number; createdIds: string[] } {
-  const scope = SceneAuthoringScopeSchema.parse(captureJson(inputScope)), operation = SceneAuthoringOperationSchema.parse(captureJson(inputOperation))
+export function applySceneOperation(project: ProjectData, inputScope: SceneScope, inputOperation: SceneAuthoringOperation, context: PreparationContext, allowedEntityIds: ReadonlySet<string>, budget?: TaskBudgetProfile, capability?: CurrentAuthoringCapability): { project: ProjectData; readIds: string[]; writeIds: string[]; cost: number; createdIds: string[] } {
+  const current = assertCurrentAuthoringCapability(project, capability)
+  if (!current && project.schemaVersion >= 5) deny('当前AI场景操作尚不支持完整v5/v6/v7曲线连接或装饰工程。')
+  const scope = (current ? CurrentSceneAuthoringScopeSchema : budget ? ProfiledSceneAuthoringScopeSchema : SceneAuthoringScopeSchema).parse(captureJson(inputScope)), operation = SceneAuthoringOperationSchema.parse(captureJson(inputOperation))
   if (!scope.operations.includes(operation.kind)) deny('场景操作未获明确授权。')
   const allowed = new Set([...scope.entityIds, ...allowedEntityIds]), scene = project.document, read = new Set([scope.floorId, scope.layerId])
   const guarded = <T>(prepare: () => T): T => { try { return prepare() } catch (error) { if (!(error instanceof Error)) deny('候选未通过完整校验。'); deny(diagnostic(scene, scope, allowed, error.message)) } }
   const commands = commandsFor(project, scope, operation, context, allowed), affected = new Set<string>()
   let previewCost = 0, prepared: CompositionContent | undefined
   if (commands.every(isBuildingCommand)) {
-    const preview = previewBuildingCommands(scene, commands)
+    const preview = previewBuildingCommands(scene, commands, budget)
     if (preview.reason) deny(diagnostic(scene, scope, allowed, preview.reason))
     preview.affectedIds.forEach(id => affected.add(id)); previewCost = preview.commandCost
   } else if (commands.every(isOutdoorCommand)) {
@@ -381,12 +410,12 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneAutho
     let outdoorContent: CompositionContent = { document: project.document, appearance: project.appearance, historyIdentity: project.historyIdentity }
     for (const command of commands) {
       const tape: string[] = [], previewContext: PreparationContext = { clock: context.clock, ids: { nextId: () => { const id = context.ids.nextId(); tape.push(id); return id } } }
-      const preview = previewOutdoorCommands(outdoorContent.document, [command], previewContext)
+      const preview = previewOutdoorCommands(outdoorContent.document, [command], previewContext, budget)
       if (preview.reason) deny(diagnostic(scene, scope, allowed, preview.reason))
       let position = 0
       const replayContext: PreparationContext = { clock: context.clock, ids: { nextId: () => position < tape.length ? tape[position++] : context.ids.nextId() } }
       const current: CompositionContent = outdoorContent
-      const applied: CompositionContent = guarded(() => applyCompositionCommands(current, [command], replayContext))
+      const applied: CompositionContent = guarded(() => applyCompositionCommands(current, [command], replayContext, { budget }))
       outdoorContent = applied
       preview.affectedIds.forEach(id => affected.add(id)); previewCost += preview.commandCost
     }
@@ -403,7 +432,7 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneAutho
     outdoorDependencies(scene, [operation.anchor.entityId]).forEach(id => affected.add(id))
   }
   if (operation.kind === 'gmNoteUpdate') outdoorDependencies(scene, [operation.id]).forEach(id => affected.add(id))
-  const content = prepared ?? guarded(() => applyCompositionCommands({ document: project.document, appearance: project.appearance, historyIdentity: project.historyIdentity }, commands, context))
+  const content = prepared ?? guarded(() => applyCompositionCommands({ document: project.document, appearance: project.appearance, historyIdentity: project.historyIdentity }, commands, context, { budget }))
   const next = guarded(() => validateProjectData({ ...project, ...content, document: { ...content.document, revision: scene.revision, updatedAt: scene.updatedAt } }))
   const before = allEntities(scene), after = allEntities(next.document)
   const writeIds = sorted([...new Set([...before.keys(), ...after.keys()])].filter(id => !same(before.get(id), after.get(id)) || scene.entityLayers[id] !== next.document.entityLayers[id]))
@@ -416,7 +445,7 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneAutho
   }
   // Scatter reads real nearby public obstacles in addition to domain/support references.
   if (operation.kind === 'scatter' || operation.kind === 'scatterRegenerate') {
-    const groupId = operation.id, domainPolygons = shapes(next.document, groupId), minimumDistance = next.document.scatterGroups[groupId].minDistanceMm, view = createPublicVisibility(scene)
+    const groupId = operation.id, domainPolygons = shapes(next.document, groupId, new Set(), current ? next : undefined), minimumDistance = next.document.scatterGroups[groupId].minDistanceMm, view = createPublicVisibility(scene)
     for (const prop of Object.values(scene.props)) if (prop.floorId === scope.floorId && view.prop(prop) && domainPolygons.some(polygon => polygonDistance(propFootprint(prop), polygon) <= minimumDistance + 1e-7)) affected.add(prop.id)
   }
   for (const id of [...affected]) { referencedIds(scene, id).forEach(value => affected.add(value)); referencedIds(next.document, id).forEach(value => affected.add(value)) }
@@ -425,22 +454,25 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneAutho
     if (existing) {
       if (!allowed.has(id)) deny('真实依赖未明确授权；请缩小或重新明确授权范围。')
       if (existing.floorId !== scope.floorId || effectiveEditLocked(scene, id) || !isPublic(scene, id) && !(scene.notes[id]?.visibility === 'gm' && !scope.entityIds.includes(id))) deny('真实依赖跨Floor、私密或锁定。')
-      assertGeometry(scene, scope, id); collectEntity(project, id, read)
+      assertGeometry(scene, scope, id, current ? project : undefined); collectEntity(project, id, read)
     }
     if (current) {
       if (current.floorId !== scope.floorId) deny('场景候选跨越授权Floor。')
-      assertGeometry(next.document, scope, id); collectEntity(next, id, read)
+      assertGeometry(next.document, scope, id, current ? next : undefined); collectEntity(next, id, read)
       if (!existing && next.document.entityLayers[id] !== scope.layerId) deny('新增实体越过授权用户图层。')
     }
   }
   if (!same(scene.constraints, next.document.constraints)) { read.add('constraints'); writeIds.push('constraints') }
   const cost = Math.max(1, commands.length, previewCost, expansionCost(scene, next.document))
-  if (cost > 256) deny('本次真实展开超过256条累计预算。')
+  if (budget) assertTaskBudget(budget, measureTaskBudget(project.document, content.document, { before: project, after: content }))
+  if (!budget && cost > 256) deny('本次真实展开超过256条累计预算。')
   return { project: next, readIds: sorted(read), writeIds: sorted(writeIds), cost, createdIds }
 }
 
 /** Model projection contains only the fixed public grant and this task's generated entities. */
-export function publicSceneContext(project: ProjectData, scope: SceneAuthoringScope, allowedIds: ReadonlySet<string>): unknown {
+export function publicSceneContext(project: ProjectData, scope: SceneScope, allowedIds: ReadonlySet<string>, capability?: CurrentAuthoringCapability): unknown {
+  const current = assertCurrentAuthoringCapability(project, capability)
+  if (!current && project.schemaVersion >= 5) deny('当前AI场景上下文尚不支持完整v5/v6/v7曲线连接或装饰工程。')
   const document = resolveAppearance({ document: project.document, appearance: project.appearance, historyIdentity: project.historyIdentity }).document, ids = sorted([...scope.entityIds, ...allowedIds]), generated = new Set([...allowedIds].filter(id => !scope.entityIds.includes(id)))
   const entities: unknown[] = []
   for (const id of ids) {
@@ -450,9 +482,9 @@ export function publicSceneContext(project: ProjectData, scope: SceneAuthoringSc
     if (!value || value.floorId !== scope.floorId || !isPublic(document, id) && !(generated.has(id) && document.notes[id]?.visibility === 'gm')) continue
     // The outer draft can also contain prop edits authorized by a different, narrower capability.
     // Those edits are projected by their own context and cannot enlarge this geographic grant.
-    if (shapes(document, id).some(polygon => !inside(scope.boundsMm, polygon))) continue
-    assertGeometry(document, scope, id)
-    const kind = Object.entries(collectionFor).find(([, collection]) => Object.hasOwn(document[collection], id))![0]
+    if (shapes(document, id, new Set(), current ? project : undefined).some(polygon => !inside(scope.boundsMm, polygon))) continue
+    assertGeometry(document, scope, id, current ? project : undefined)
+    const kind = Object.entries(collectionFor).find(([, collection]) => Object.hasOwn(document[collection] ?? {}, id))![0]
     entities.push({ entityKind: kind, ...cloneJson(value) })
   }
   return { floor: { id: scope.floorId, boundsMm: cloneJson(document.floors[scope.floorId].boundsMm) }, layer: { id: scope.layerId }, boundsMm: cloneJson(scope.boundsMm), entities,
@@ -460,3 +492,6 @@ export function publicSceneContext(project: ProjectData, scope: SceneAuthoringSc
     prefabDefinitions: scope.prefabDefinitionIds.map(id => cloneJson(document.prefabDefinitions[id])),
     materials: scope.materialIds.map(id => cloneJson(document.materials[id])) }
 }
+
+/** Explicit dependency closure used only by the current-version operation adapter. */
+export const currentSceneDependencyIds = (scene: SceneDocument, ids: readonly string[]): string[] => sorted(ids.flatMap(id => [...referencedIds(scene, id)]))

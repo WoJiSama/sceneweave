@@ -237,17 +237,17 @@ describe('native complete-v1 workspace and repository boundary', () => {
     expect(preview.project.licenseBindings).toEqual(current.licenseBindings)
     decode.mockClear()
     const protection = await workspace.applyRestore(preview)
-    // Re-read source before/after protection, verify the protection write, and
-    // re-read its source inside the repository. All four retain real decoding.
-    expect(decode).toHaveBeenCalledTimes(4)
+    // The operation rechecks stored source bytes around protection; its private
+    // pixel proof is reused, while current snapshots still receive full validation.
+    expect(decode).toHaveBeenCalledTimes(2)
     expect(usage).not.toHaveBeenCalled()
     expect(protection.kind).toBe('protection')
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(0)
     expect(workspace.getState().project!.resources).toBe(current.resources)
     await workspace.flush()
-    expect(decode).toHaveBeenCalledTimes(5)
+    expect(decode).toHaveBeenCalledTimes(3)
     expect((await repo.load(current.document.sceneId))!.project.document.props.item.rotationDeg).toBe(0)
-    expect(decode).toHaveBeenCalledTimes(6)
+    expect(decode).toHaveBeenCalledTimes(4)
   })
 
   it('preserves the current order of an unchanged licensed closure during transform restore', async () => {

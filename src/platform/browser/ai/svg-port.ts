@@ -7,6 +7,7 @@ import { rasterizeNormalizedSvg } from './svg-raster.js'
 export function createBrowserSvgPort(): SvgProcessingPort {
   const images = createBrowserImagePort()
   return {
+    validationConcurrency: 2,
     async rasterize(source, dimensions, options = {}) {
       checkCancelled(options.signal)
       const output = await rasterizeNormalizedSvg(source, { longEdgePx: Math.max(dimensions.width, dimensions.height), signal: options.signal })

@@ -38,6 +38,7 @@ export function editorPaintBounds(projection: Projection, plan: EditorRenderPlan
   for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(effectivePropShadow(entry.prop, projection.propPresentations?.[entry.prop.id], theme?.shadowPresets[entry.prop.shadowClass])))
   const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style), ...projection.paths.map(path => path.style)]
   for (const style of styles) for (const overlay of style?.overlays ?? []) padding = Math.max(padding, overlay.blendWidthMm * 2)
+  for (const area of projection.terrain) for (const patch of area.materialPatches ?? []) padding = Math.max(padding, patch.blendWidthMm * 2)
   for (const path of projection.paths) padding = Math.max(padding, pathDecorationPadding(path.edgeStyle))
   for (const edge of projection.edges) padding = Math.max(padding, edge.style.bandWidthMm * 2, edge.style.strokeWidthMm * 2)
   if (projection.edges.some(edge => edge.shoreline || edge.kind === 'shore')) {

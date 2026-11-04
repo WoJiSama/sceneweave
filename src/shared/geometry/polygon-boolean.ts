@@ -1,3 +1,4 @@
+import type { ExecutionBudget } from '../budget/task-budget.js'
 // polygon-clipping publishes its ESM implementation as a default operation
 // object; keep the type import separate because its declaration file exposes
 // the operations as named exports.
@@ -12,6 +13,11 @@ export interface PolygonBooleanRequest {
   /** Every ring is an independent filled polygon. Rings are never implicit holes. */
   subject: PointMm[][]
   clip: PointMm[][]
+}
+export interface PolygonBooleanWithHolesRequest {
+  operation: PolygonBooleanOperation
+  subject: PolygonWithHoles[]
+  clip: PolygonWithHoles[]
 }
 export interface PolygonWithHoles {
   outer: PointMm[]
@@ -29,7 +35,14 @@ export const POLYGON_BOOLEAN_LIMITS = Object.freeze({
   minCoordinateMm: -1_000_000_000,
   maxCoordinateMm: 1_000_000_000,
 })
+/** Larger aggregate envelope for structured rules; legacy independent rings stay unchanged. */
+export const POLYGON_BOOLEAN_WITH_HOLES_LIMITS = Object.freeze({
+  maxRings: 256,
+  maxPoints: 16_384,
+  maxOutputPoints: 16_384,
+})
 
+type PairMeter = Pick<ExecutionBudget, 'charge'>
 const EPS = 1e-8
 type FloatPoint = [number, number]
 type FloatRing = FloatPoint[]
@@ -58,7 +71,7 @@ const intersects = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean => 
   return abC !== abD && cdA !== cdB
 }
 
-function validateInputRing(raw: unknown, ringIndex: number): PointMm[] {
+function validateInputRing(raw: unknown, ringIndex: number, meter?: PairMeter): PointMm[] {
   if (!Array.isArray(raw) || raw.length < 3 || raw.length > POLYGON_BOOLEAN_LIMITS.maxPoints) fail(`第${ringIndex + 1}个环顶点数必须为3..${POLYGON_BOOLEAN_LIMITS.maxPoints}。`)
   const points = raw as unknown[]
   const ring: PointMm[] = points.map((rawPoint: unknown, pointIndex: number) => {
@@ -84,12 +97,13 @@ function validateInputRing(raw: unknown, ringIndex: number): PointMm[] {
   const edges = ring.map((point, i) => [point, ring[(i + 1) % ring.length]] as const)
   for (let i = 0; i < edges.length; i++) for (let j = i + 1; j < edges.length; j++) {
     if (j === i + 1 || (i === 0 && j === edges.length - 1)) continue
+    meter?.charge({ intersectionPairs: 1 })
     if (intersects(edges[i][0], edges[i][1], edges[j][0], edges[j][1])) fail(`第${ringIndex + 1}个环存在自相交或自接触。`)
   }
   return ring
 }
 
-function validateRequest(raw: unknown): PolygonBooleanRequest {
+function validateRequest(raw: unknown, meter?: PairMeter): PolygonBooleanRequest {
   const owned = captureJson(raw) as unknown
   if (owned === null || typeof owned !== 'object' || Array.isArray(owned)) fail('请求必须是普通对象。')
   const request = owned as Record<string, unknown>
@@ -104,9 +118,71 @@ function validateRequest(raw: unknown): PolygonBooleanRequest {
   const parse = (rings: unknown[]): PointMm[][] => rings.map((ring, index) => {
     pointCount += Array.isArray(ring) ? ring.length : 0
     if (pointCount > POLYGON_BOOLEAN_LIMITS.maxPoints) fail(`输入顶点总数不能超过${POLYGON_BOOLEAN_LIMITS.maxPoints}。`)
-    return validateInputRing(ring, index)
+    return validateInputRing(ring, index, meter)
   })
   return { operation: request.operation as PolygonBooleanOperation, subject: parse(subject), clip: parse(clip) }
+}
+
+function inFilledPolygon(point: PointMm, polygon: PolygonWithHoles): boolean {
+  return pointInRing(point, polygon.outer, true) && !polygon.holes.some(hole => pointInRing(point, hole, true))
+}
+
+/** Checks disjoint filled components while allowing an island inside another component's hole. */
+function validatePolygonSet(polygons: PolygonWithHoles[], meter?: PairMeter): void {
+  for (let polygonIndex = 0; polygonIndex < polygons.length; polygonIndex++) {
+    const polygon = polygons[polygonIndex]
+    for (let holeIndex = 0; holeIndex < polygon.holes.length; holeIndex++) {
+      const hole = polygon.holes[holeIndex]
+      if (!pointInRing(hole[0], polygon.outer, false) || ringsTouch(polygon.outer, hole, meter)) fail(`分量${polygonIndex + 1}孔洞${holeIndex + 1}必须严格位于外环内。`)
+      for (let previous = 0; previous < holeIndex; previous++) {
+        const other = polygon.holes[previous]
+        if (ringsTouch(other, hole, meter) || pointInRing(hole[0], other, true) || pointInRing(other[0], hole, true)) fail(`分量${polygonIndex + 1}孔洞不能相交、相接或嵌套。`)
+      }
+    }
+  }
+  for (let i = 0; i < polygons.length; i++) for (let j = i + 1; j < polygons.length; j++) {
+    const a = polygons[i], b = polygons[j]
+    const aRings = [a.outer, ...a.holes], bRings = [b.outer, ...b.holes]
+    if (aRings.some(left => bRings.some(right => ringsTouch(left, right, meter)))) fail('不同分量的边界不能相交或相接。')
+    if (inFilledPolygon(a.outer[0], b) || inFilledPolygon(b.outer[0], a)) fail('不同分量的实心部分不能重叠。')
+  }
+}
+
+function validateStructuredRequest(raw: unknown, meter?: PairMeter): PolygonBooleanWithHolesRequest {
+  const owned = captureJson(raw) as unknown
+  if (owned === null || typeof owned !== 'object' || Array.isArray(owned)) fail('带孔请求必须是普通对象。')
+  const request = owned as Record<string, unknown>
+  if (ownKeys(request).length !== 3 || !Object.hasOwn(request, 'operation') || !Object.hasOwn(request, 'subject') || !Object.hasOwn(request, 'clip')) fail('带孔请求只能含operation、subject、clip。')
+  if (request.operation !== 'union' && request.operation !== 'difference' && request.operation !== 'intersection') fail('不支持的布尔操作。')
+  if (!Array.isArray(request.subject) || !Array.isArray(request.clip)) fail('带孔请求的subject和clip必须是多边形数组。')
+  const subjectRaw = request.subject as unknown[], clipRaw = request.clip as unknown[]
+  let inputRingCount = 0, inputPointCount = 0
+  for (const values of [subjectRaw, clipRaw]) for (let polygonIndex = 0; polygonIndex < values.length; polygonIndex++) {
+    const rawPolygon = values[polygonIndex]
+    if (rawPolygon === null || typeof rawPolygon !== 'object' || Array.isArray(rawPolygon)) fail(`第${polygonIndex + 1}个带孔分量必须是普通对象。`)
+    const polygon = rawPolygon as Record<string, unknown>
+    if (ownKeys(polygon).length !== 2 || !Object.hasOwn(polygon, 'outer') || !Object.hasOwn(polygon, 'holes')) fail(`第${polygonIndex + 1}个带孔分量只能含outer、holes。`)
+    if (!Array.isArray(polygon.holes)) fail(`第${polygonIndex + 1}个分量的holes必须是数组。`)
+    inputRingCount += 1 + (polygon.holes as unknown[]).length
+    if (inputRingCount > POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxRings) fail(`输入环数不能超过${POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxRings}。`)
+    for (const ring of [polygon.outer, ...(polygon.holes as unknown[])]) inputPointCount += Array.isArray(ring) ? ring.length : 0
+    if (inputPointCount > POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxPoints) fail(`输入顶点总数不能超过${POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxPoints}。`)
+  }
+  let pointCount = 0, ringIndex = 0
+  const parse = (values: unknown[]): PolygonWithHoles[] => values.map(rawPolygon => {
+    const polygon = rawPolygon as Record<string, unknown>
+    const rawRings = [polygon.outer, ...(polygon.holes as unknown[])]
+    const rings = rawRings.map(rawRing => {
+      pointCount += Array.isArray(rawRing) ? rawRing.length : 0
+      if (pointCount > POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxPoints) fail(`输入顶点总数不能超过${POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxPoints}。`)
+      return validateInputRing(rawRing, ringIndex++, meter)
+    })
+    const [outer, ...holes] = rings
+    return { outer, holes }
+  })
+  const subject = parse(subjectRaw), clip = parse(clipRaw)
+  validatePolygonSet(subject, meter); validatePolygonSet(clip, meter)
+  return { operation: request.operation as PolygonBooleanOperation, subject, clip }
 }
 
 // Translate before summing. Boolean output may sit near ±1e9mm, where the
@@ -126,10 +202,11 @@ const floatIntersects = (a: FloatPoint, b: FloatPoint, c: FloatPoint, d: FloatPo
   if (Math.abs(abC) <= EPS && floatOnSegment(a, b, c) || Math.abs(abD) <= EPS && floatOnSegment(a, b, d) || Math.abs(cdA) <= EPS && floatOnSegment(c, d, a) || Math.abs(cdB) <= EPS && floatOnSegment(c, d, b)) return true
   return (abC < -EPS) !== (abD < -EPS) && (cdA < -EPS) !== (cdB < -EPS)
 }
-const floatSimple = (ring: FloatRing): boolean => {
+const floatSimple = (ring: FloatRing, meter?: PairMeter): boolean => {
   if (ring.length < 3 || Math.abs(floatArea2(ring)) <= EPS) return false
   for (let i = 0; i < ring.length; i++) for (let j = i + 1; j < ring.length; j++) {
     if (j === i + 1 || (i === 0 && j === ring.length - 1)) continue
+    meter?.charge({ intersectionPairs: 1 })
     if (floatIntersects(ring[i], ring[(i + 1) % ring.length], ring[j], ring[(j + 1) % ring.length])) return false
   }
   return true
@@ -146,10 +223,13 @@ const pointInRing = (point: PointMm, ring: PointMm[], includeBoundary: boolean):
   }
   return inside
 }
-const ringsTouch = (a: PointMm[], b: PointMm[]): boolean => {
+const ringsTouch = (a: PointMm[], b: PointMm[], meter?: PairMeter): boolean => {
   for (let i = 0; i < a.length; i++) {
     const a1 = a[i], a2 = a[(i + 1) % a.length]
-    for (let j = 0; j < b.length; j++) if (intersects(a1, a2, b[j], b[(j + 1) % b.length])) return true
+    for (let j = 0; j < b.length; j++) {
+      meter?.charge({ intersectionPairs: 1 })
+      if (intersects(a1, a2, b[j], b[(j + 1) % b.length])) return true
+    }
   }
   return false
 }
@@ -165,11 +245,11 @@ const compareRing = (a: PointMm[], b: PointMm[]): number => {
   return pa.x - pb.x || pa.y - pb.y || a.length - b.length || (signedArea2(a) < signedArea2(b) ? -1 : signedArea2(a) > signedArea2(b) ? 1 : 0)
 }
 
-function quantizeRing(rawRing: FloatRing, index: string): PointMm[] {
+function quantizeRing(rawRing: FloatRing, index: string, meter?: PairMeter): PointMm[] {
   let ring = rawRing.slice()
   if (ring.length > 1 && floatSame(ring[0], ring[ring.length - 1])) ring = ring.slice(0, -1)
   if (!ring.every(point => Number.isFinite(point[0]) && Number.isFinite(point[1]))) fail(`${index}含非有限交点。`)
-  if (!floatSimple(ring)) fail(`${index}的浮点结果不是简单环。`)
+  if (!floatSimple(ring, meter)) fail(`${index}的浮点结果不是简单环。`)
   const perimeter = ring.reduce((sum, point, i) => {
     const next = ring[(i + 1) % ring.length]
     return sum + Math.hypot(next[0] - point[0], next[1] - point[1])
@@ -184,23 +264,23 @@ function quantizeRing(rawRing: FloatRing, index: string): PointMm[] {
   // coordinate-wise bound for doubled shoelace area is sqrt(2)*perimeter;
   // 1.5 is a conservative decimal bound plus a small vertex-count guard.
   if (Math.abs(rawArea - Number(quantizedArea)) > 1.5 * perimeter + 4) fail(`${index}毫米量化误差会改变面积拓扑。`)
-  try { return validateInputRing(quantized, 0) } catch { return fail(`${index}毫米量化后环退化或自相交。`) }
+  try { return validateInputRing(quantized, 0, meter) } catch (error) { if (error instanceof Error && error.message.startsWith('任务预算超限')) throw error; return fail(`${index}毫米量化后环退化或自相交。`) }
 }
 
-function validateOutput(raw: MultiPolygon): PolygonBooleanResult {
+function validateOutput(raw: MultiPolygon, meter?: PairMeter): PolygonBooleanResult {
   let vertexCount = 0
   const polygons: PolygonWithHoles[] = raw.map((polygon, polygonIndex) => {
     if (!Array.isArray(polygon) || polygon.length === 0) fail(`结果分量${polygonIndex + 1}为空。`)
-    const outer = quantizeRing(polygon[0], `结果分量${polygonIndex + 1}外环`)
-    const holes = polygon.slice(1).map((ring, holeIndex) => quantizeRing(ring, `结果分量${polygonIndex + 1}孔洞${holeIndex + 1}`))
+    const outer = quantizeRing(polygon[0], `结果分量${polygonIndex + 1}外环`, meter)
+    const holes = polygon.slice(1).map((ring, holeIndex) => quantizeRing(ring, `结果分量${polygonIndex + 1}孔洞${holeIndex + 1}`, meter))
     const normalizedOuter = canonicalRing(outer, true)
     const normalizedHoles = holes.map(hole => canonicalRing(hole, false)).sort(compareRing)
     for (const hole of normalizedHoles) {
       if (!pointInRing(hole[0], normalizedOuter, false)) fail(`结果分量${polygonIndex + 1}孔洞不在外环内。`)
-      if (ringsTouch(normalizedOuter, hole)) fail(`结果分量${polygonIndex + 1}孔洞触碰外环。`)
+      if (ringsTouch(normalizedOuter, hole, meter)) fail(`结果分量${polygonIndex + 1}孔洞触碰外环。`)
     }
     for (let i = 0; i < normalizedHoles.length; i++) for (let j = i + 1; j < normalizedHoles.length; j++) {
-      if (ringsTouch(normalizedHoles[i], normalizedHoles[j]) || pointInRing(normalizedHoles[i][0], normalizedHoles[j], true) || pointInRing(normalizedHoles[j][0], normalizedHoles[i], true)) fail(`结果分量${polygonIndex + 1}孔洞互相重叠。`)
+      if (ringsTouch(normalizedHoles[i], normalizedHoles[j], meter) || pointInRing(normalizedHoles[i][0], normalizedHoles[j], true) || pointInRing(normalizedHoles[j][0], normalizedHoles[i], true)) fail(`结果分量${polygonIndex + 1}孔洞互相重叠。`)
     }
     vertexCount += normalizedOuter.length + normalizedHoles.reduce((sum, hole) => sum + hole.length, 0)
     return { outer: normalizedOuter, holes: normalizedHoles }
@@ -208,20 +288,60 @@ function validateOutput(raw: MultiPolygon): PolygonBooleanResult {
   if (vertexCount > POLYGON_BOOLEAN_LIMITS.maxOutputPoints) fail(`结果顶点数超过${POLYGON_BOOLEAN_LIMITS.maxOutputPoints}。`)
   for (let i = 0; i < polygons.length; i++) for (let j = i + 1; j < polygons.length; j++) {
     const a = polygons[i].outer, b = polygons[j].outer
-    if (ringsTouch(a, b) || pointInRing(a[0], b, true) || pointInRing(b[0], a, true)) fail('结果分量相交或相接，无法证明为完整分离分量。')
+    if (ringsTouch(a, b, meter) || pointInRing(a[0], b, true) || pointInRing(b[0], a, true)) fail('结果分量相交或相接，无法证明为完整分离分量。')
   }
   polygons.sort((a, b) => compareRing(a.outer, b.outer))
   return { polygons, vertexCount }
 }
 
 const asMultiPolygon = (rings: PointMm[][]): MultiPolygon => rings.map(ring => [ring.map(point => [point.x, point.y] as FloatPoint)])
+const asStructuredMultiPolygon = (polygons: PolygonWithHoles[]): MultiPolygon => polygons.map(polygon => [
+  polygon.outer.map(point => [point.x, point.y] as FloatPoint),
+  ...polygon.holes.map(hole => hole.map(point => [point.x, point.y] as FloatPoint)),
+])
 
-export function polygonBoolean(raw: unknown): PolygonBooleanResult {
-  const request = validateRequest(raw)
+export function polygonBoolean(raw: unknown, executionMeter?: ExecutionBudget): PolygonBooleanResult {
+  // Count actual comparisons, charging bounded blocks to avoid revalidating a
+  // registered budget on every edge comparison. A failing operation flushes
+  // its already executed work as well.
+  let pendingPairs = 0
+  const flush = () => { if (pendingPairs) { const amount = pendingPairs; pendingPairs = 0; executionMeter?.charge({ intersectionPairs: amount }) } }
+  const meter: PairMeter | undefined = executionMeter ? { charge(delta) { pendingPairs += delta.intersectionPairs ?? 0; if (pendingPairs >= 256) flush() } } : undefined
+  try {
+  const request = validateRequest(raw, meter)
   const subject = asMultiPolygon(request.subject), clip = asMultiPolygon(request.clip)
   let result: MultiPolygon
   if (request.operation === 'union') result = subject.length && clip.length ? polygonClipping.union(subject, clip) : subject.length ? polygonClipping.union(subject) : polygonClipping.union(clip)
   else if (request.operation === 'intersection') result = subject.length && clip.length ? polygonClipping.intersection(subject, clip) : []
   else result = subject.length ? (clip.length ? polygonClipping.difference(subject, clip) : polygonClipping.difference(subject)) : []
-  return validateOutput(result)
+  return validateOutput(result, meter)
+  } finally { flush() }
+}
+
+/** Structured counterpart that preserves holes as holes in both operands. */
+export function polygonBooleanWithHoles(raw: unknown, executionMeter?: ExecutionBudget): PolygonBooleanResult {
+  let pendingPairs = 0
+  const flush = () => { if (pendingPairs) { const amount = pendingPairs; pendingPairs = 0; executionMeter?.charge({ intersectionPairs: amount }) } }
+  const meter: PairMeter | undefined = executionMeter ? { charge(delta) { pendingPairs += delta.intersectionPairs ?? 0; if (pendingPairs >= 256) flush() } } : undefined
+  try {
+    const request = validateStructuredRequest(raw, meter), subject = asStructuredMultiPolygon(request.subject), clip = asStructuredMultiPolygon(request.clip)
+    let result: MultiPolygon
+    if (request.operation === 'union') result = subject.length && clip.length ? polygonClipping.union(subject, clip) : subject.length ? polygonClipping.union(subject) : polygonClipping.union(clip)
+    else if (request.operation === 'intersection') result = subject.length && clip.length ? polygonClipping.intersection(subject, clip) : []
+    else result = subject.length ? (clip.length ? polygonClipping.difference(subject, clip) : polygonClipping.difference(subject)) : []
+    const polygons: PolygonWithHoles[] = []
+    let vertexCount = 0
+    result.forEach((polygon, polygonIndex) => {
+      if (!Array.isArray(polygon) || polygon.length === 0) fail(`结果分量${polygonIndex + 1}为空。`)
+      const outer = canonicalRing(quantizeRing(polygon[0], `结果分量${polygonIndex + 1}外环`, meter), true)
+      const holes = polygon.slice(1).map((ring, holeIndex) => canonicalRing(quantizeRing(ring, `结果分量${polygonIndex + 1}孔洞${holeIndex + 1}`, meter), false)).sort(compareRing)
+      const item = { outer, holes }
+      vertexCount += outer.length + holes.reduce((sum, hole) => sum + hole.length, 0)
+      polygons.push(item)
+    })
+    if (vertexCount > POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxOutputPoints) fail(`结果顶点数超过${POLYGON_BOOLEAN_WITH_HOLES_LIMITS.maxOutputPoints}。`)
+    validatePolygonSet(polygons, meter)
+    polygons.sort((a, b) => compareRing(a.outer, b.outer))
+    return { polygons, vertexCount }
+  } finally { flush() }
 }

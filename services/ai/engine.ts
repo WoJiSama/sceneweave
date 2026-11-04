@@ -1,11 +1,16 @@
+import { AUTHORING_V4_LIMITS } from '../../src/shared/ai/authoring-closeout.js'
+import type { AuthoringCloseoutV4 } from '../../src/shared/ai/authoring-closeout.js'
+import { buildAuthoringCloseout } from './authoring-finish.js'
+import { publicScreenshotReference } from './visual-review.js'
+import { remainingAuthoringOperations } from '../../src/shared/ai/authoring.js'
 import { z } from 'zod'
-import { AI_LIMITS, utf8Size } from '../../src/shared/ai/protocol.js'
+import { AI_LIMITS, utf8Size, requiredSurfaceRecipeVersion } from '../../src/shared/ai/protocol.js'
 import type { AiError, ConnectionInfo, ControlTaskRequest, CreateTaskRequest, TaskSnapshot, ToolResult } from '../../src/shared/ai/protocol.js'
 import type { ProviderAdapter, ProviderRequestScheduler, ProviderToolCall, ProviderToolDefinition } from './provider-types.js'
 import { PROVIDER_REASONING_BYTES, ProviderFailure } from './provider-types.js'
 import { TaskFault, TaskStore, safeTaskError } from './store.js'
 import type { EventInput, StoredTask } from './store.js'
-import { AUTHORING_LIMITS, AuthoringDraftSchema, DraftLeaseSchema } from '../../src/shared/ai/authoring-protocol.js'
+import { AUTHORING_LIMITS, AuthoringDraftSchema, DraftLeaseSchema, isClassifiedAuthoring } from '../../src/shared/ai/authoring-protocol.js'
 import type { AuthoringDraft, DraftClaim, DraftLease, DraftStamp } from '../../src/shared/ai/authoring-protocol.js'
 import { validateAuthoringStart, checkAuthoringDraft, authoringBudgetIdentity, authoringDraftStamp } from '../../src/shared/ai/authoring.js'
 import { StaticSvgArtifacts } from './svg-artifacts.js'
@@ -16,7 +21,6 @@ import { canonicalJson } from '../../src/shared/validation/json.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
 import { RegionSceneCandidateResponseSchema } from '../../src/shared/ai/region-candidate-protocol.js'
 import type { RegionSceneCandidateQuery } from '../../src/shared/ai/region-candidate-protocol.js'
-import { CONTINUATION_POLICY } from '../../src/shared/ai/budget-policy.js'
 
 const connectionArguments = z.object({ topic: z.literal('connection') }).strict()
 const tool: ProviderToolDefinition = { name: 'sceneweave_connection_info', description: 'Read this Sceneweave connection and its actual supported capabilities. This does not read or change any scene.', parameters: { type: 'object', properties: { topic: { type: 'string', enum: ['connection'] } }, required: ['topic'], additionalProperties: false } }
@@ -53,16 +57,21 @@ export class TaskEngine {
   }
   create(owner: string, request: CreateTaskRequest): TaskSnapshot {
     this.assertStorageAvailable()
-    if (utf8Size(JSON.stringify(request)) > (request.authoring?.schemaVersion === 2 ? CONTINUATION_POLICY.requestBytes : request.vision ? VISION_LIMITS.requestBytes : request.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new TaskFault('request_limit', 413)
+    if (utf8Size(JSON.stringify(request)) > (isClassifiedAuthoring(request.authoring) ? request.authoring.policy.requestBytes : request.vision ? VISION_LIMITS.requestBytes : request.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new TaskFault('request_limit', 413)
     if (request.vision) {
       if (this.connectionInfo.capabilities.vision !== 'enabled') throw new TaskFault('vision_disabled', 400)
       try { validateTaskVision(request.vision, request.context, request.authoring) } catch { throw new TaskFault('invalid_vision', 400) }
     }
     if (request.authoring) {
-      if (utf8Size(JSON.stringify(request.authoring.project)) > AUTHORING_LIMITS.metadataBytes) throw new TaskFault('metadata_limit', 413)
-      if (request.authoring.schemaVersion === 2) {
-        if (!this.connectionInfo.capabilities.authoringVersions?.includes(2)
+      if (request.authoring.schemaVersion !== 3 && request.authoring.schemaVersion !== 4 && utf8Size(JSON.stringify(request.authoring.project)) > AUTHORING_LIMITS.metadataBytes) throw new TaskFault('metadata_limit', 413)
+      if (isClassifiedAuthoring(request.authoring)) {
+        if (request.authoring.project.schemaVersion === 8) throw new TaskFault('unsupported_authoring_version', 400)
+        if (!this.connectionInfo.capabilities.authoringVersions?.includes(request.authoring.schemaVersion)
           || !this.connectionInfo.capabilities.budgetPolicyHashes?.includes(request.authoring.policy.policyHash)) throw new TaskFault('unsupported_authoring_version', 400)
+        if (request.authoring.schemaVersion === 4 && (this.connectionInfo.capabilities.currentAuthoring !== request.authoring.capability
+          || !this.connectionInfo.capabilities.completeProjectVersions?.includes(request.authoring.project.schemaVersion as 3 | 4 | 5 | 6 | 7))) throw new TaskFault('unsupported_authoring_version', 400)
+        const surfaceVersion = request.authoring.source.version === 4 ? undefined : requiredSurfaceRecipeVersion(request.authoring.source.request.generation)
+        if (surfaceVersion !== undefined && !this.connectionInfo.capabilities.surfaceRecipeVersions?.includes(surfaceVersion)) throw new TaskFault('unsupported_surface_version', 400)
         const preservation = request.authoring.source.preservation
         if (preservation.sceneId === null ? request.context !== null : !request.context || request.context.sceneId !== preservation.sceneId || request.context.revision !== preservation.revision) throw new TaskFault('authoring_context_mismatch', 400)
         // TaskStore performs the authoritative, timed source replay once, before checkpoint creation.
@@ -87,15 +96,17 @@ export class TaskEngine {
     const task = this.store.read(id)
     if (task.snapshot.generation !== generation || task.snapshot.status !== 'running') throw aborted()
     if (!this.store.remaining(task)) throw new TaskFault('execution_limit')
+    this.store.assertExecutionWorkBudget(task)
     return task
   }
   private start(task: StoredTask) {
     const { id, generation } = task.snapshot
     const abort = new AbortController()
     const timer = setTimeout(() => {
-      this.fail(id, generation, 'execution_limit')
+      if (task.authoring?.start.schemaVersion === 4) this.closeout(id, generation, 'time')
+      else this.fail(id, generation, 'execution_limit')
       abort.abort()
-    }, this.store.remaining(task))
+    }, Math.max(1, this.store.remaining(task) - (task.authoring?.start.schemaVersion === 4 ? AUTHORING_V4_LIMITS.closeoutReserveMs : 0)))
     timer.unref?.()
     this.active.set(id, { generation, abort, timer })
     queueMicrotask(() => { void this.run(id, generation, abort.signal).finally(() => {
@@ -109,7 +120,7 @@ export class TaskEngine {
     try {
       const result = this.store.change(id, generation, current => {
         try { return mutate(current) }
-        catch (error) { if (current.authoring?.start.schemaVersion === 2) discarded = current; throw error }
+        catch (error) { if (isClassifiedAuthoring(current.authoring?.start)) discarded = current; throw error }
       })
       if (!result) throw aborted()
       return result
@@ -142,12 +153,36 @@ export class TaskEngine {
         current.snapshot.status = 'failed'
         current.snapshot.usage.unknown = current.snapshot.usage.unknown || current.completedRequests < current.snapshot.usage.requests
         current.snapshot.error = safeTaskError(code, requestState ?? (current.completedRequests < current.snapshot.usage.requests ? 'unknown'
-          : current.authoring?.start.schemaVersion === 2 && current.snapshot.usage.requests > 0 ? 'finished' : 'not_sent'))
+          : isClassifiedAuthoring(current.authoring?.start) && current.snapshot.usage.requests > 0 ? 'finished' : 'not_sent'))
         return [{ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } }]
       })
     } catch (error) {
       if (error instanceof TaskFault && error.code === 'not_found') return
       this.markUnavailable() /* Inaccessible storage is explicitly 503 until a controlled restart. */
+    }
+  }
+  private closeout(id: string, generation: number, reason: AuthoringCloseoutV4['reason']) {
+    try {
+      const task = this.store.read(id)
+      if (task.snapshot.generation !== generation || task.snapshot.status !== 'running' || task.authoring?.start.schemaVersion !== 4) return
+      const remaining = this.store.remaining(task), limits = this.store.limits(task)
+      this.store.change(id, generation, current => {
+        const closeout = buildAuthoringCloseout(current, reason, remaining, limits)
+        this.store.stopClock(current)
+        current.authoring!.closeout = closeout
+        current.snapshot.usage.unknown ||= closeout.requestOutcome === 'unknown'
+        if (closeout.requestOutcome === 'unknown') current.authoring!.executionUncertain = true
+        current.snapshot.status = closeout.reviewable ? 'waiting_browser' : reason === 'completed' ? 'completed' : 'failed'
+        current.snapshot.error = closeout.requestOutcome === 'unknown' || !closeout.reviewable && reason !== 'completed'
+          ? safeTaskError(reason === 'time' ? 'execution_limit' : reason === 'work_budget' ? 'execution_work_limit' : `${reason}_limit`, closeout.requestOutcome) : null
+        const summary = updateAuthoringSummary(current)
+        return [{ type: 'draft_updated', data: summary }, ...(current.snapshot.error ? [{ type: 'error' as const, data: current.snapshot.error }] : []),
+          { type: 'status', data: { status: current.snapshot.status, reason: closeout.reviewable
+            ? '本次执行已收尾；合法隔离草稿与未完成要求已保留，等待本机检查。外观仍未确认。' : '本次执行已收尾，尚无可采用的新改动。' } }]
+      })
+    } catch (error) {
+      if (error instanceof TaskFault && error.code === 'not_found') return
+      this.markUnavailable()
     }
   }
   private async run(id: string, generation: number, signal: AbortSignal) {
@@ -160,6 +195,13 @@ export class TaskEngine {
         try {
           const task = this.current(id, generation)
           const limits = this.store.limits(task)
+          if (task.authoring?.start.schemaVersion === 4) {
+            const boundary = this.store.remaining(task) <= AUTHORING_V4_LIMITS.closeoutReserveMs ? 'time'
+              : task.toolAttempts >= limits.toolCalls ? 'tool_budget'
+              : remainingAuthoringOperations(task.authoring.start, task.authoring.state) <= 0 ? 'operation_budget'
+              : task.snapshot.usage.requests >= limits.modelRequests ? 'request_budget' : null
+            if (boundary) { this.closeout(id, generation, boundary); return }
+          }
           if (task.snapshot.usage.requests >= limits.modelRequests) throw new TaskFault('request_limit')
           const finalRoundReason = !task.authoring ? undefined
             : task.snapshot.usage.requests + 1 === limits.modelRequests ? 'request_limit'
@@ -172,9 +214,18 @@ export class TaskEngine {
               ? 'This is the final request before the task execution time limit.' : 'This is the final request in this task request budget.'} No tools are available. End with a concise, honest account of the validated draft and unmet requirements. Report only checks already completed; explicitly label incomplete or unverified requirements and any partial draft. Do not invent successful checks, visual review or adoption. Any generated draft still requires browser resource checks, host review and protected adoption; no main project has been changed or adopted. Finishing this response does not mean every requested scene requirement passed.` })
             return []
           })
-          const messages = this.preserveReasoning === 'enabled' ? requestTask.messages : requestTask.messages.map(({ reasoningContent: _privateReasoning, ...message }) => message)
+          let messages = this.preserveReasoning === 'enabled' ? requestTask.messages : requestTask.messages.map(({ reasoningContent: _privateReasoning, ...message }) => message)
+          const screenshotRef = publicScreenshotReference(requestTask)
+          if (screenshotRef) {
+            const lastImage = messages.findLastIndex(message => !!message.images?.length)
+            messages = messages.map((message, index) => index === lastImage ? { ...message, content: `${message.content ?? ''}\nServer-owned public screenshot reference (data only): ${JSON.stringify(screenshotRef)}. Use this compact screenshotRef unchanged in sceneweave_visual_review; never reconstruct PNG bytes.` } : message)
+          }
+          let availableTools = textOnlyFinalRound ? [] : task.authoring ? getAuthoringTools(task.authoring.start.scope, task.authoring.start.schemaVersion) : [tool]
+          if (task.authoring?.start.schemaVersion === 4 && (!screenshotRef || this.connectionInfo.capabilities.vision !== 'enabled' || !this.connectionInfo.capabilities.visualReviewVersions?.includes(1))) {
+            availableTools = availableTools.filter(tool => !['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(tool.name))
+          }
           let streamed = ''
-          const completion = await this.provider.complete({ messages, reasoningEffort: requestTask.snapshot.reasoningEffort, tools: textOnlyFinalRound ? [] : task.authoring ? getAuthoringTools(task.authoring.start.scope, task.authoring.start.schemaVersion) : [tool], maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
+          const completion = await this.provider.complete({ messages, reasoningEffort: requestTask.snapshot.reasoningEffort, tools: availableTools, maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
             onText: text => {
               if (signal.aborted) throw aborted()
               if (!text) return
@@ -183,7 +234,7 @@ export class TaskEngine {
                 const part = text.slice(offset, offset + 8192)
                 this.change(id, generation, current => {
                   const bytes = utf8Size(part)
-                  if (current.authoring?.start.schemaVersion === 2) {
+                  if (isClassifiedAuthoring(current.authoring?.start)) {
                     current.outputBytes += bytes
                     if (current.snapshot.lastSequence >= AI_LIMITS.events - 4) throw new TaskFault('event_limit')
                     if (current.outputBytes > AI_LIMITS.outputBytes) throw new TaskFault('output_limit')
@@ -240,17 +291,41 @@ export class TaskEngine {
             if (current.snapshot.lastSequence + events.length > AI_LIMITS.events - (completion.toolCalls.length ? 2 : 0)) throw new TaskFault('event_limit')
             return events
           })
-          if (textOnlyFinalRound && completion.toolCalls.length) return
-          if (!completion.toolCalls.length) return
+          if (textOnlyFinalRound && completion.toolCalls.length) {
+            // A provider ignoring the tool boundary is never retried. Its valid
+            // preceding draft remains available with a structured boundary report.
+            if (task.authoring?.start.schemaVersion === 4) this.finishStoppedDraft(id, generation, finalRoundReason === 'execution_limit' ? 'time' : 'request_budget')
+            return
+          }
+          if (!completion.toolCalls.length) {
+            if (task.authoring?.start.schemaVersion === 4) this.finishStoppedDraft(id, generation, textOnlyFinalRound ? finalRoundReason === 'execution_limit' ? 'time' : 'request_budget' : 'completed')
+            return
+          }
         } finally { releaseRequest?.() }
       }
     } catch (error) {
       if (signal.aborted || error instanceof Error && error.name === 'AbortError') return
+      const currentTask = this.store.read(id)
+      if (currentTask.authoring?.start.schemaVersion === 4 && error instanceof TaskFault && ['execution_limit', 'request_limit', 'tool_limit', 'execution_work_limit'].includes(error.code)) {
+        this.closeout(id, generation, error.code === 'tool_limit' ? 'tool_budget' : error.code === 'request_limit' ? 'request_budget' : error.code === 'execution_work_limit' ? 'work_budget' : 'time')
+        this.active.get(id)?.abort.abort(); return
+      }
       const code = error instanceof TaskFault ? error.code : error instanceof ProviderFailure && /^[a-z_]{1,64}$/.test(error.code) ? error.code : 'provider_error'
       this.fail(id, generation, code, error instanceof ProviderFailure ? error.requestState
         : error instanceof TaskFault && error.code === 'request_limit' ? 'finished' : undefined)
       this.active.get(id)?.abort.abort()
     }
+  }
+  private finishStoppedDraft(id: string, generation: number, reason: AuthoringCloseoutV4['reason']) {
+    this.store.change(id, generation, current => {
+      if (current.authoring?.start.schemaVersion !== 4) return []
+      const closeout = buildAuthoringCloseout(current, reason, this.store.remaining(current), this.store.limits(current))
+      current.authoring.closeout = closeout
+      if (closeout.reviewable) current.snapshot.status = 'waiting_browser'
+      updateAuthoringSummary(current)
+      return [{ type: 'draft_updated', data: current.snapshot.authoring! }, { type: 'status', data: { status: current.snapshot.status,
+        reason: closeout.reviewable ? '合法隔离草稿已保留；请检查列出的缺项与实际画面后在本机校验。' : '任务没有生成可采用的新改动。' } }]
+    })
   }
   private executeTool(task: StoredTask, call: ProviderToolCall): EventInput[] {
     if (!validId.test(call.id) || !validId.test(call.name) || utf8Size(call.arguments) > AI_LIMITS.promptBytes) throw new ProviderFailure('provider_protocol', 'Invalid tool call')
@@ -258,7 +333,7 @@ export class TaskEngine {
     const cached = Object.hasOwn(task.calls, call.id) ? task.calls[call.id] : undefined
     if (cached && cached.signature !== signature) throw new ProviderFailure('provider_protocol', 'Tool identity was reused')
     if (task.toolAttempts >= this.store.limits(task).toolCalls) throw new TaskFault('tool_limit')
-    const reserved = task.authoring?.start.schemaVersion === 2
+    const reserved = isClassifiedAuthoring(task.authoring?.start)
     if (reserved) task.toolAttempts++
     if (cached) {
       if (reserved) {
@@ -272,7 +347,9 @@ export class TaskEngine {
     let args: unknown
     try { args = JSON.parse(call.arguments) } catch { args = undefined }
     const draftBefore = task.authoring?.state.draftRevision
-    if (task.authoring) result = executeAuthoringTool(task, call, args, new StaticSvgArtifacts(this.store.artifacts), {
+    if (['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(call.name)
+      && (this.connectionInfo.capabilities.vision !== 'enabled' || !this.connectionInfo.capabilities.visualReviewVersions?.includes(1))) result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'vision_disabled', message: '本任务尚未启用真实公开图片复核。' } }) }
+    else if (task.authoring) result = executeAuthoringTool(task, call, args, new StaticSvgArtifacts(this.store.artifacts), {
       modelRequests: this.store.limits(task).modelRequests, toolCalls: this.store.limits(task).toolCalls, executionRemainingMs: this.store.remaining(task),
       maxOutputTokens: this.authoringOutputTokens, attemptReserved: reserved,
     })
@@ -318,6 +395,7 @@ export class TaskEngine {
       current.snapshot.status = request.action === 'resume' ? 'running' : request.action === 'pause' ? 'paused' : 'cancelled'
       if (request.action === 'resume') {
         current.runStartedAt = this.now(); current.snapshot.error = null
+        if (current.authoring?.start.schemaVersion === 4) delete current.authoring.closeout
         current.messages.push({ role: 'user', content: request.prompt ?? '明确继续上一任务；不要假定中断请求已经完成。', ...(request.vision ? { images: [request.vision] } : {}) })
       } else if (status === 'running') {
         current.snapshot.usage.unknown = true
@@ -325,6 +403,10 @@ export class TaskEngine {
         if (current.pendingText) { current.messages.push({ role: 'assistant', content: current.pendingText }); current.pendingText = '' }
         // A partial assistant response is visible in the checkpoint, never replayed as an uncompleted tool call.
         current.messages.push({ role: 'system', content: 'The preceding generation was interrupted. Its request outcome is unknown. Continue only after an explicit user resume; do not assume any incomplete tool call was executed.' })
+      }
+      if (current.authoring?.start.schemaVersion === 4) {
+        if (request.action === 'cancel') current.authoring.closeout = buildAuthoringCloseout(current, 'cancelled', this.store.remaining(current), this.store.limits(current))
+        updateAuthoringSummary(current)
       }
       return [{ type: 'status', data: { status: current.snapshot.status, reason: request.action === 'resume' ? null : '执行已中止；已保留当前进度。' } }]
     })!
@@ -374,9 +456,18 @@ export class TaskEngine {
   }
   validateDraft(owner: string, id: string, request: DraftStamp & { valid: boolean }): TaskSnapshot {
     const task = this.stamped(owner, id, request)
-    if (!['waiting_browser', 'paused', 'failed'].includes(task.snapshot.status) || !task.authoring!.state.draftRevision || task.authoring!.claim) throw new TaskFault('invalid_task_state')
+    const authoring = task.authoring!
+    const current = authoring.start.schemaVersion === 4
+    const hasDraft = current ? buildAuthoringCloseout(task, 'completed', this.store.remaining(task), this.store.limits(task)).reviewable : authoring.state.draftRevision > 0
+    if (!(current ? ['waiting_browser', 'paused', 'failed', 'cancelled'] : ['waiting_browser', 'paused', 'failed']).includes(task.snapshot.status) || !hasDraft || authoring.claim) throw new TaskFault('invalid_task_state')
     return this.store.change(id, request.expectedGeneration, current => {
-      if (request.valid) { checkAuthoringDraft(current.authoring!.start, current.authoring!.state); current.snapshot.status = 'ready'; current.snapshot.error = null }
+      if (request.valid) {
+        // authoring4 installs only complete native-validated states. After a hard
+        // execution boundary the exact-stamped browser cold validation receipt
+        // can prepare adoption without spending or refunding AI execution work.
+        if (current.authoring!.start.schemaVersion !== 4) checkAuthoringDraft(current.authoring!.start, current.authoring!.state)
+        current.snapshot.status = 'ready'; current.snapshot.error = null
+      }
       else { current.snapshot.status = 'paused'; current.snapshot.error = safeTaskError('browser_validation_failed', 'finished') }
       return [{ type: 'status', data: { status: current.snapshot.status, reason: request.valid ? '草稿已完成本机检查，等待审阅采用。' : '本机资源检查失败，已保留草稿。' } }]
     })!.snapshot

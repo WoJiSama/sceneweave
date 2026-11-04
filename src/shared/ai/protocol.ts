@@ -1,5 +1,6 @@
+import { BudgetUsageSchema, BUDGET_DIMENSIONS } from '../budget/task-budget.js'
 import { z } from 'zod'
-import { AUTHORING_LIMITS, AuthoringStartSchema, AuthoringSummarySchema, AuthoringSummaryV2Schema } from './authoring-protocol.js'
+import { AUTHORING_LIMITS, AuthoringStartSchema, AuthoringSummarySchema, AuthoringSummaryV2Schema, AuthoringSummaryV3Schema, AuthoringSummaryV4Schema, isClassifiedVersion } from './authoring-protocol.js'
 import { VisionInputSchema } from './vision.js'
 import { canonicalJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
@@ -28,22 +29,26 @@ export const ToolResultSchema = z.object({ callId: id, name: id, success: z.bool
 export type ToolResult = z.infer<typeof ToolResultSchema>
 const executionCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const executionHash = z.string().regex(/^[a-f0-9]{64}$/)
-export const TaskExecutionCheckpointBodySchema = z.object({ schemaVersion: z.literal(2),
+export const TaskExecutionCheckpointV2BodySchema = z.object({ schemaVersion: z.literal(2),
   flowId: z.string().min(1).max(256), taskId: id, generation: executionCount.positive(),
   policyHash: executionHash, sourceHash: executionHash, ledgerHeadHash: executionHash, budgetStateHash: executionHash,
   activeRuntimeMs: executionCount, initializationMs: executionCount,
   modelRequests: executionCount, completedRequests: executionCount, toolAttempts: executionCount, outputBytes: executionCount,
   uncertain: z.boolean().optional(),
 }).strict()
-export const TaskExecutionCheckpointSchema = TaskExecutionCheckpointBodySchema.extend({ checkpointHash: executionHash }).strict().superRefine((value, ctx) => {
+export const TaskExecutionCheckpointV3BodySchema = TaskExecutionCheckpointV2BodySchema.extend({ schemaVersion: z.literal(3), workUsage: BudgetUsageSchema }).strict()
+export const TaskExecutionCheckpointV4BodySchema = TaskExecutionCheckpointV3BodySchema.extend({ schemaVersion: z.literal(4) }).strict()
+export const TaskExecutionCheckpointBodySchema = z.union([TaskExecutionCheckpointV2BodySchema, TaskExecutionCheckpointV3BodySchema, TaskExecutionCheckpointV4BodySchema])
+export const TaskExecutionCheckpointSchema = z.union([TaskExecutionCheckpointV2BodySchema.extend({ checkpointHash: executionHash }).strict(), TaskExecutionCheckpointV3BodySchema.extend({ checkpointHash: executionHash }).strict(), TaskExecutionCheckpointV4BodySchema.extend({ checkpointHash: executionHash }).strict()]).superRefine((value, ctx) => {
   const { checkpointHash, ...body } = value
+  if ((value.schemaVersion === 3 || value.schemaVersion === 4) && BUDGET_DIMENSIONS.some(key => !['gridNodes','fieldEvaluations','intersectionPairs','dependencyRefs','candidateAttempts'].includes(key) && value.workUsage[key] !== 0)) ctx.addIssue({ code: 'custom', message: 'Execution work contains retained admission or unmeasured time dimensions.' })
   if (sha256Text(canonicalJson(body)) !== checkpointHash || value.completedRequests > value.modelRequests || value.activeRuntimeMs < value.initializationMs) ctx.addIssue({ code: 'custom', message: 'Execution checkpoint is inconsistent.' })
 })
 export type TaskExecutionCheckpoint = z.infer<typeof TaskExecutionCheckpointSchema>
-export const AuthoringTaskCheckpointSchema = z.object({ authoring: AuthoringSummaryV2Schema, usage: TaskUsageSchema,
+export const AuthoringTaskCheckpointSchema = z.object({ authoring: z.union([AuthoringSummaryV2Schema, AuthoringSummaryV3Schema, AuthoringSummaryV4Schema]), usage: TaskUsageSchema,
   executionCheckpoint: TaskExecutionCheckpointSchema }).strict().superRefine((value, ctx) => {
     const execution = value.executionCheckpoint, authoring = value.authoring
-    if (execution.policyHash !== authoring.policyHash || execution.sourceHash !== authoring.sourceHash
+    if (execution.schemaVersion !== authoring.schemaVersion || execution.policyHash !== authoring.policyHash || execution.sourceHash !== authoring.sourceHash
       || execution.ledgerHeadHash !== authoring.ledgerHeadHash || execution.budgetStateHash !== authoring.budgetStateHash
       || execution.modelRequests !== value.usage.requests) ctx.addIssue({ code: 'custom', message: 'Atomic authoring checkpoint is inconsistent.' })
   })
@@ -67,9 +72,9 @@ export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, cl
   text: z.string().refine(value => utf8Size(value) <= AI_LIMITS.outputBytes), tools: z.array(ToolResultSchema).max(AUTHORING_LIMITS.toolCalls),
   usage: TaskUsageSchema, error: AiErrorSchema.nullable(), createdAt: z.number().int().min(0), updatedAt: z.number().int().min(0), expiresAt: z.number().int().min(0), authoring: AuthoringSummarySchema.optional(), executionCheckpoint: TaskExecutionCheckpointSchema.optional() }).strict().superRefine((value, ctx) => {
     if (!value.authoring && value.tools.length > AI_LIMITS.toolCalls) ctx.addIssue({ code: 'custom', path: ['tools'], message: 'Conversation tool budget exceeded.' })
-    const classified = value.authoring && 'schemaVersion' in value.authoring && value.authoring.schemaVersion === 2 ? value.authoring : undefined
+    const classified = value.authoring && 'schemaVersion' in value.authoring && isClassifiedVersion(value.authoring.schemaVersion) ? value.authoring : undefined
     const execution = value.executionCheckpoint
-    if (classified ? !execution || execution.taskId !== value.id || execution.generation !== value.generation
+    if (classified ? !execution || execution.schemaVersion !== classified.schemaVersion || execution.taskId !== value.id || execution.generation !== value.generation
       || execution.policyHash !== classified.policyHash || execution.sourceHash !== classified.sourceHash
       || execution.ledgerHeadHash !== classified.ledgerHeadHash || execution.budgetStateHash !== classified.budgetStateHash
       || execution.modelRequests !== value.usage.requests : execution !== undefined) ctx.addIssue({ code: 'custom', path: ['executionCheckpoint'], message: 'Classified task execution binding is missing or inconsistent.' })
@@ -79,9 +84,33 @@ export const ControlTaskSchema = z.object({ schemaVersion: z.literal(1), expecte
 export type ControlTaskRequest = z.infer<typeof ControlTaskSchema>
 export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), visionModel: z.string().min(1).max(128).optional(), reasoningEffort: ReasoningEffortSchema.nullable().optional(), authoringOutputTokens: z.number().int().min(1).max(AUTHORING_LIMITS.maxOutputTokensPerRequest).optional(), protocol: z.literal('chat-completions'),
   capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']), taskReasoningEffort: z.literal(true).optional(),
-    authoringVersions: z.array(z.union([z.literal(1), z.literal(2)])).min(1).max(2).refine(values => new Set(values).size === values.length).optional(),
-    baseMapVersions: z.array(z.union([z.literal(1), z.literal(2)])).min(1).max(2).refine(values => new Set(values).size === values.length).optional(),
+    surfaceRecipeVersions: z.array(z.literal(1)).min(1).max(1).optional(),
+    baseMapSelectors: z.array(z.enum(['terrain-scene-v6', 'terrain-compose-v6'])).min(1).max(2).refine(values => new Set(values).size === values.length).optional(),
+    authoringVersions: z.array(z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])).min(1).max(4).refine(values => new Set(values).size === values.length).optional(),
+    currentAuthoring: z.literal('sceneweave-current-authoring@1').optional(),
+    completeProjectVersions: z.array(z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)])).min(1).max(5).refine(values => new Set(values).size === values.length).optional(),
+    visualReviewVersions: z.array(z.literal(1)).min(1).max(1).optional(),
+    baseMapVersions: z.array(z.union([z.literal(1), z.literal(2), z.literal(3)])).min(1).max(3).refine(values => new Set(values).size === values.length).optional(),
+    budgetProfileHashes: z.array(executionHash).max(8).refine(values => new Set(values).size === values.length).optional(),
     budgetPolicyHashes: z.array(executionHash).max(8).refine(values => new Set(values).size === values.length).optional(),
   }).strict(),
   retentionDays: z.literal(7), limits: z.object({ modelRequests: z.literal(4), toolCalls: z.literal(8), executionMs: z.literal(120000), promptBytes: z.literal(16384), outputBytes: z.literal(65536) }).strict() }).strict()
 export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>
+
+/** New surface semantics require an explicit capability even though the outer
+ * deterministic base-map and authoring envelopes retain version 3. */
+export function requiredSurfaceRecipeVersion(generation: unknown): 1 | undefined {
+  if (!generation || typeof generation !== 'object' || !('kind' in generation) || !('input' in generation)) return undefined
+  const input = generation.input
+  if (!input || typeof input !== 'object') return undefined
+  return generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 5
+    || generation.kind === 'composition' && 'recipeVersion' in input && input.recipeVersion === 5 ? 1 : undefined
+}
+/** Exact v6 generators have a separate base-map capability, not an AI surface grant. */
+export function requiredBaseMapSelector(generation: unknown): 'terrain-scene-v6' | 'terrain-compose-v6' | undefined {
+  if (!generation || typeof generation !== 'object' || !('kind' in generation) || !('input' in generation)) return undefined
+  const input = generation.input
+  if (!input || typeof input !== 'object') return undefined
+  return generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 6 ? 'terrain-scene-v6'
+    : generation.kind === 'composition' && 'recipeVersion' in input && input.recipeVersion === 6 ? 'terrain-compose-v6' : undefined
+}

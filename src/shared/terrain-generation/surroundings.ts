@@ -4,7 +4,7 @@ import type { BoundsMm, PointMm, Prop, SceneDocument } from '../model/scene.js'
 import type { SurroundingsOperation } from './contracts.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { sha256Text } from '../geometry/scatter.js'
-import { corridor, openingEndpoints, pathPolygon, pointInPolygon, polygonDistance, propFootprint, roomPoints, supportedPolygon } from '../geometry/geometry.js'
+import { connectionFootprint, corridor, openingEndpoints, pathPolygon, pointInPolygon, polygonDistance, propFootprint, roomPoints, supportedPolygon } from '../geometry/geometry.js'
 import { visualBase } from '../visual/base.js'
 import { sampleVisualBoundary } from '../visual/geometry.js'
 import { terrainRandomUnit } from './field.js'
@@ -53,7 +53,7 @@ export function surroundingsProtectedPolygons(scene: SceneDocument, floorId: str
     result.push(corridor({x:a.xMm,y:a.yMm},{x:b.xMm,y:b.yMm},wall.thicknessMm*2,true))
   }
   for (const path of Object.values(scene.paths).filter(row => row.floorId === floorId)) result.push(pathPolygon(path))
-  for (const row of Object.values(scene.terrainConnections).filter(row => row.floorId === floorId)) result.push(corridor(row.from.positionMm,row.to.positionMm,row.widthMm+600,true))
+  for (const row of Object.values(scene.terrainConnections).filter(row => row.floorId === floorId)) result.push((row.route?connectionFootprint({...row,widthMm:row.widthMm+600}):corridor(row.from.positionMm,row.to.positionMm,row.widthMm+600,true)))
   for (const door of Object.values(scene.openings).filter(row => row.floorId === floorId && row.kind === 'door')) {
     const [a,b]=openingEndpoints(scene,door);result.push(corridor(a,b,2400,true))
   }

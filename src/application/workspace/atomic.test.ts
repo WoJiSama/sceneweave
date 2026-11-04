@@ -3,7 +3,7 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { applyAuthoringStep, replayAuthoring } from '../../shared/ai/authoring.js'
-import type { AuthoringOperation, AuthoringScope, AuthoringStep, DraftLease } from '../../shared/ai/authoring-protocol.js'
+import type { AuthoringOperation, AuthoringScope, AuthoringStep, DraftLease } from '../../shared/ai/authoring-protocol-v1.js'
 import type { AuthoringDraft } from '../../shared/ai/authoring-protocol-v1.js'
 import { cloneJson } from '../../shared/validation/json.js'
 import { assertAtomicLease, atomicChanges, type AtomicCandidate } from './atomic.js'
@@ -148,7 +148,7 @@ describe('task-scoped local authority and atomic adoption', () => {
     const claim = async () => {
       if (failure === 'cancelled') signal.aborted = true
       if (failure === 'metadata') await repo.database.historyMetadata.update(owner, { metadataVersion: 9 })
-      if (failure === 'protection') await repo.database.snapshots.where('ownerSceneId').equals(owner).delete()
+      if (failure === 'protection') await repo.database.historyPins.where('ownerSceneId').equals(owner).delete()
       if (failure === 'persistent revision') {
         const other = new Workspace(repo, { runtime, validation }); sessions.push(other)
         await other.openPersisted(await fromBundle((await repo.load(owner))!, validation)); await other.updateProp('other', { rotationDeg: 80 }); await other.flush()
@@ -195,7 +195,7 @@ describe('task-scoped local authority and atomic adoption', () => {
     const { workspace, repo, authorization, draft } = await setup(), owner = workspace.getDocument()!.sceneId
     const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move)), realSave = repo.save.bind(repo)
     vi.spyOn(repo, 'save').mockImplementationOnce(async (...args) => {
-      await repo.database.snapshots.where('ownerSceneId').equals(owner).delete()
+      await repo.database.historyPins.where('ownerSceneId').equals(owner).delete()
       return realSave(...args)
     })
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => lease(candidate) })

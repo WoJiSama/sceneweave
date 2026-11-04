@@ -1,5 +1,7 @@
 import type { BoundsMm, GroundSurfaceRef, Issue, Opening, Path, PointMm, Prop, Room, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea, Wall } from '../model/scene.js'
+import { connectionCenterline, connectionRouteSchema, type ConnectionRouteGeometry } from './connection-route.js'
 import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
+import { visualBase } from '../visual/base.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -149,12 +151,17 @@ export function corridor(a: PointMm, b: PointMm, width: number, squareCaps = fal
 }
 /** Square caps, miter joins capped at twice half-width, then bevel. No stored second contour. */
 export function pathPolygon(path: Path): PointMm[] {
-  const p = path.centerlineMm, r = path.widthMm / 2
+  return polylineBand(path.centerlineMm, path.widthMm, true)
+}
+/** One continuous miter2/bevel band; caps are explicit so legacy paths and
+ * legacy straight connections retain their distinct historical contracts. */
+export function polylineBand(p: readonly PointMm[], widthMm: number, squareCaps = false): PointMm[] {
+  const r = widthMm / 2, extension = squareCaps ? r : 0
   if (p.length < 2 || p.some((point, i) => i > 0 && same(point, p[i - 1]))) return []
   const directions = p.slice(1).map((point, i) => { const length = Math.hypot(point.x - p[i].x, point.y - p[i].y); return { x: (point.x - p[i].x) / length, y: (point.y - p[i].y) / length } })
   const side = (sign: number): PointMm[] => {
     const first = directions[0], last = directions.at(-1)!
-    const result: PointMm[] = [{ x: p[0].x - first.x * r - first.y * r * sign, y: p[0].y - first.y * r + first.x * r * sign }]
+    const result: PointMm[] = [{ x: p[0].x - first.x * extension - first.y * r * sign, y: p[0].y - first.y * extension + first.x * r * sign }]
     for (let i = 1; i < p.length - 1; i++) {
       const before = directions[i - 1], after = directions[i]
       const a = { x: p[i].x - before.y * r * sign, y: p[i].y + before.x * r * sign }, b = { x: p[i].x - after.y * r * sign, y: p[i].y + after.x * r * sign }
@@ -165,13 +172,65 @@ export function pathPolygon(path: Path): PointMm[] {
       if (Math.hypot(intersection.x - p[i].x, intersection.y - p[i].y) <= 2 * r + EPS) result.push(intersection)
       else result.push(a, b)
     }
-    result.push({ x: p.at(-1)!.x + last.x * r - last.y * r * sign, y: p.at(-1)!.y + last.y * r + last.x * r * sign })
+    result.push({ x: p.at(-1)!.x + last.x * extension - last.y * r * sign, y: p.at(-1)!.y + last.y * extension + last.x * r * sign })
     return result
   }
   const left = side(-1), right = side(1)
   if (!left.length || !right.length) return []
   const polygon = [...left, ...right.reverse()]
   return area(polygon) < 0 ? polygon.reverse() : polygon
+}
+/** All physical/render/selection consumers share the exact saved-route band. */
+export function connectionBand(points: readonly PointMm[], widthMm: number): PointMm[] {
+  // Tessellation adds collinear points near polyline corners. They must not
+  // introduce short offset edges that backtrack across the true miter join.
+  // Only redundant points on the exact same forward segment are removed;
+  // the saved centreline and all non-collinear geometry remain authoritative.
+  const reduced: PointMm[] = []
+  for (const point of points) {
+    while (reduced.length >= 2) {
+      const a = reduced.at(-2)!, b = reduced.at(-1)!
+      if (cross(a, b, point) !== 0 || (b.x - a.x) * (point.x - b.x) + (b.y - a.y) * (point.y - b.y) <= 0) break
+      reduced.pop()
+    }
+    reduced.push(point)
+  }
+  return polylineBand(reduced, widthMm)
+}
+export function connectionFootprint(connection: ConnectionRouteGeometry): PointMm[] {
+  return connection.route ? connectionBand(connectionCenterline(connection), connection.widthMm) : corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm)
+}
+/** Current born IDs only. References and dependency/history snapshots are not
+ * traversed: their repeated IDs are evidence, not additional live entities. */
+function connectionRouteReservedIds(scene: SceneDocument): Set<string> {
+  const ids = new Set<string>([scene.sceneId])
+  for (const key of ['floors', 'vertices', 'rooms', 'walls', 'openings', 'props', 'regions', 'notes', 'assets', 'propDefinitions', 'materials', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'prefabDefinitions', 'prefabInstances', 'scatterGroups', 'styleThemes', 'userLayers'] as const) for (const id of Object.keys(scene[key])) ids.add(id)
+  for (const record of [scene.decorations ?? {}, scene.decorationClusters ?? {}]) for (const id of Object.keys(record)) ids.add(id)
+  for (const row of Object.values(scene.terrainAreas)) for (const point of row.boundaryMm) { ids.add(point.id); ids.add(point.segmentId) }
+  for (const check of scene.constraints.pathChecks) ids.add(check.id)
+  for (const row of [...Object.values(scene.rooms), ...Object.values(scene.walls), ...Object.values(scene.terrainAreas), ...Object.values(scene.terrainEdges), ...Object.values(scene.terrainConnections), ...Object.values(scene.paths)]) {
+    const style = 'floorStyle' in row ? row.floorStyle : 'topStyle' in row ? row.topStyle : row.surfaceStyle
+    for (const overlay of style?.overlays ?? []) ids.add(overlay.id)
+  }
+  const visual = visualBase(scene)
+  if (visual) {
+    for (const key of ['boundaries', 'edgeLooks', 'lights', 'fogs', 'filters'] as const) for (const id of Object.keys(visual[key])) ids.add(id)
+    for (const row of Object.values(visual.boundaries)) for (const segment of row.segments) ids.add(segment.id)
+  }
+  const visual2 = scene.visual?.version === 3 ? scene.visual.base : scene.visual?.version === 2 ? scene.visual : undefined
+  for (const row of Object.values(visual2?.materializedEdges ?? {})) { ids.add(row.id); for (const stroke of row.strokes) ids.add(stroke.id) }
+  if (scene.visual?.version === 3) for (const row of Object.values(scene.visual.transitions)) { ids.add(row.id); for (const item of [...row.polygons, ...row.strokes]) ids.add(item.id) }
+  if (scene.regional) {
+    for (const key of ['areas', 'lines', 'landmarks', 'symbols', 'symbolDefinitions'] as const) for (const id of Object.keys(scene.regional[key])) ids.add(id)
+    for (const line of Object.values(scene.regional.lines)) for (const point of line.pointsMm) ids.add(point.id)
+  }
+  const generations = scene.generation?.version === 5 ? [scene.generation, scene.generation.legacy] : scene.generation ? [scene.generation] : []
+  for (const generation of generations) for (const [key, collection] of Object.entries(generation)) {
+    if (key === 'legacy' || key === 'version' || !collection || typeof collection !== 'object' || Array.isArray(collection)) continue
+    for (const [id, record] of Object.entries(collection)) if (record && typeof record === 'object' && 'id' in record && record.id === id) ids.add(id)
+  }
+  for (const group of Object.values(scene.scatterGroups)) for (const exclusion of group.exclusions) ids.add(exclusion.id)
+  return ids
 }
 function distanceToSegment(p: PointMm, a: PointMm, b: PointMm): number {
   const dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy
@@ -387,18 +446,33 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!supportedPolygon(scene, physical, prop.supportRef, prop.floorId)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
   }
   const connectionPolygons = new Map<string, PointMm[]>()
+  const connectionRouteIds = Object.values(scene.terrainConnections).some(connection => connection.route) ? connectionRouteReservedIds(scene) : new Set<string>()
   for (const connection of Object.values(scene.terrainConnections)) {
     styleGeometry(connection.surfaceStyle)
-    const { from, to } = connection, band = corridor(from.positionMm, to.positionMm, connection.widthMm)
+    const { from, to } = connection
+    if (connection.route) {
+      const checked = connectionRouteSchema.safeParse(connection.route)
+      if (!checked.success) { error('CONNECTION_ROUTE', checked.error.issues.map(issue => issue.message).join('；'), connection.id); continue }
+      for (const segment of connection.route.segments) {
+        if (connectionRouteIds.has(segment.id)) error('CONNECTION_ROUTE_ID', '连接路线段ID须在全部当前实体、图层、物理/视觉控制源中全局唯一。', segment.id)
+        connectionRouteIds.add(segment.id)
+      }
+      if (!same(connection.route.centerlineMm[0], from.positionMm) || !same(connection.route.centerlineMm.at(-1)!, to.positionMm)) { error('CONNECTION_ROUTE_ENDPOINT', '连接实际中心线首尾须精确等于两端支撑坐标。', connection.id); continue }
+    }
+    const centerline = connectionCenterline(connection), band = connectionFootprint(connection)
     connectionPolygons.set(connection.id, band)
+    if (connection.route && !polygon(band, connection.id)) { error('CONNECTION_WIDTH', '连接完整净宽转角自交、过窄或折返，请放宽回折间距。', connection.id); continue }
     if (!band.length || refEqual(from.surfaceRef, to.surfaceRef) || elevation(scene, from.surfaceRef) === undefined || elevation(scene, from.surfaceRef) === elevation(scene, to.surfaceRef)) error('CONNECTION_HEIGHT', '连接须具有不同有效支撑面、不同高度与非零长度。', connection.id)
     if (!pointOnSurface(scene, from.positionMm, from.surfaceRef, connection.floorId) || !pointOnSurface(scene, to.positionMm, to.surfaceRef, connection.floorId)) error('CONNECTION_ENDPOINT', '连接两端须落在各自的有效支撑面内。', connection.id)
     const refs = [from.surfaceRef, to.surfaceRef]
-    if (!coveredEverywhere(band, [...terrainBoundaries, ...validRooms.map(item => item.points)], p => refs.some(ref => pointOnSurface(scene, p, ref, connection.floorId)))) error('CONNECTION_CORRIDOR', '连接矩形净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
-    const cuts = segmentCuts(from.positionMm, to.positionMm, terrainBoundaries.flatMap(edges)), transitions: string[] = []
-    for (let i = 1; i < cuts.length; i++) {
-      const p = at(from.positionMm, to.positionMm, (cuts[i - 1] + cuts[i]) / 2), support = supportSurfaceAt(scene, p, connection.floorId), key = support ? `${support.kind}\0${support.id}` : 'outside'
-      if (transitions.at(-1) !== key) transitions.push(key)
+    if (!coveredEverywhere(band, [...terrainBoundaries, ...validRooms.map(item => item.points)], p => refs.some(ref => pointOnSurface(scene, p, ref, connection.floorId)))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
+    const transitions: string[] = []
+    for (let segment = 1; segment < centerline.length; segment++) {
+      const a = centerline[segment - 1], b = centerline[segment], cuts = segmentCuts(a, b, terrainBoundaries.flatMap(edges))
+      for (let i = 1; i < cuts.length; i++) {
+        const p = at(a, b, (cuts[i - 1] + cuts[i]) / 2), support = supportSurfaceAt(scene, p, connection.floorId), key = support ? `${support.kind}\0${support.id}` : 'outside'
+        if (transitions.at(-1) !== key) transitions.push(key)
+      }
     }
     if (transitions.length !== 2) error('CONNECTION_TRANSITIONS', '连接必须恰好跨越一条有效地面邻接边。', connection.id)
     const roomEnds = refs.filter(ref => ref.kind === 'room')

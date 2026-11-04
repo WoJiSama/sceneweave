@@ -1,3 +1,4 @@
+import { definitionPresentation, propPresentation, propPaintPolygon, presentationBounds } from '../appearance/presentation.js'
 import { z } from 'zod'
 import type { ProjectData } from '../model/project.js'
 import type { BoundsMm, PointMm, Prop } from '../model/scene.js'
@@ -31,6 +32,9 @@ export function probeAuthoringPlacement(project: ProjectData, start: AuthoringSt
   const floorId = ref.kind === 'floor' ? ref.id : ref.kind === 'room' ? scene.rooms[ref.id]?.floorId : scene.terrainAreas[ref.id]?.floorId
   const grants = [start.scope.scene, start.scope.visual, start.scope.placement].filter(value => value && value.floorId === floorId && value.definitionIds.includes(query.definitionId))
   if (!floorId || !grants.length || !scene.propDefinitions[query.definitionId] || ref.kind !== 'floor' && (!ids.has(ref.id) || !view.surface(ref))) throw new Error('Placement probe requires an explicitly granted public definition, floor and support')
+  const current = start.schemaVersion === 4, fixedPresentation = current ? definitionPresentation(project.appearance, { id: query.definitionId, version: scene.propDefinitions[query.definitionId].version }) : undefined
+  if (fixedPresentation?.mode === 'nearSide' && (query.rotationDeg ?? 0) !== 0) throw new Error('Near-side placement requires its fixed upright orientation')
+  const paint = (prop: Prop) => current ? propPaintPolygon(prop, propPresentation(project.appearance, prop.id) ?? fixedPresentation) : authoringPropVisualPolygon(prop)
   const definition = scene.propDefinitions[query.definitionId], grantPolygons = grants.map(grant => rectangle(grant!.boundsMm))
   if (query.keepClearBoundsMm?.some(bounds => !grantPolygons.some(grant => polygonInside(rectangle(bounds), grant)))) throw new Error('Placement clear areas require explicit granted bounds')
   const terrain = Object.values(scene.terrainAreas).filter(area => ids.has(area.id) && area.floorId === floorId && view.terrainArea(area.id))
@@ -39,7 +43,7 @@ export function probeAuthoringPlacement(project: ProjectData, start: AuthoringSt
   const supportPolygon = ref.kind === 'floor' ? rectangle(scene.floors[floorId].boundsMm) : ref.kind === 'room' ? roomPoints(scene, scene.rooms[ref.id]) : terrainPoints(scene.terrainAreas[ref.id])
   const clearance = query.minimumClearanceMm ?? 100, avoidVisual = query.avoidVisual ?? true
   const blockers: { id: string; polygon: PointMm[] }[] = Object.values(scene.props).filter(prop => ids.has(prop.id) && prop.floorId === floorId && view.prop(prop) && (avoidVisual || prop.blocksMovement))
-    .map(prop => ({ id: prop.id, polygon: avoidVisual ? authoringPropVisualPolygon(prop) : propFootprint(prop) }))
+    .map(prop => ({ id: prop.id, polygon: avoidVisual ? (current ? propPaintPolygon(prop, propPresentation(project.appearance, prop.id)) : authoringPropVisualPolygon(prop)) : propFootprint(prop) }))
   const reservedAreas = (query.keepClearBoundsMm ?? []).map(rectangle)
   for (const wall of Object.values(scene.walls).filter(wall => ids.has(wall.id) && wall.floorId === floorId && wall.blocksMovement)) {
     const a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId]
@@ -55,15 +59,15 @@ export function probeAuthoringPlacement(project: ProjectData, start: AuthoringSt
   const examine = (positionMm: PointMm) => {
     const prop: Prop = { id: 'placement-probe', floorId, positionMm, rotationDeg: query.rotationDeg ?? 0, visualBoundsMm: definition.defaultVisualBoundsMm,
       footprintMm: definition.defaultFootprintMm, footprintOffsetMm: definition.defaultFootprintOffsetMm } as Prop
-    const physical = propFootprint(prop), visual = authoringPropVisualPolygon(prop), tested = avoidVisual ? visual : physical
+    const physical = propFootprint(prop), visual = paint(prop), tested = avoidVisual ? visual : physical
     const insideGrant = grantPolygons.some(polygon => polygonInside(physical, polygon) && polygonInside(visual, polygon))
     // A decorative image is still constrained by the selected support. Checking
     // only its collision footprint lets a canopy hang over a higher terrain or
     // a curved island edge, which is exactly the failure this probe is meant to
     // prevent.
     const physicalFit = supportedPolygon(visibleScene, physical, ref, floorId), visualFit = supportedPolygon(visibleScene, visual, ref, floorId)
-    const fit = physicalFit && visualFit
-    let available = fit ? boundaryDistance(tested, supportPolygon) : 0
+    const fit = physicalFit && (current || visualFit)
+    let available = fit ? boundaryDistance(current ? physical : tested, supportPolygon) : 0
     for (const area of higherTerrain) if (area.id !== ref.id) available = Math.min(available, polygonDistance(tested, terrainPoints(area)))
     const blocked = blockers.filter(blocker => polygonsOverlap(tested, blocker.polygon) || polygonDistance(tested, blocker.polygon) < clearance)
     for (const blocker of blockers) available = Math.min(available, polygonDistance(tested, blocker.polygon))
@@ -99,7 +103,7 @@ export function probeAuthoringPlacement(project: ProjectData, start: AuthoringSt
   for (const point of boundedPool) { evaluated++; const candidate = examine(point)
     const prop: Prop = { id: 'placement-candidate', floorId, positionMm: point, rotationDeg: query.rotationDeg ?? 0, visualBoundsMm: definition.defaultVisualBoundsMm,
       footprintMm: definition.defaultFootprintMm, footprintOffsetMm: definition.defaultFootprintOffsetMm } as Prop
-    const candidateShape = avoidVisual ? authoringPropVisualPolygon(prop) : propFootprint(prop)
+    const candidateShape = avoidVisual ? paint(prop) : propFootprint(prop)
     const separated = candidateVisuals.every(previous => !polygonsOverlap(previous, candidateShape) && boundaryDistance(previous, candidateShape) >= clearance)
     if (candidate.feasible && separated) { candidates.push(candidate); candidateVisuals.push(candidateShape) }
     if (candidates.length >= (query.limit ?? 5)) break
@@ -107,5 +111,6 @@ export function probeAuthoringPlacement(project: ProjectData, start: AuthoringSt
   return { definitionId: query.definitionId, supportRef: ref, rotationDeg: query.rotationDeg ?? 0, minimumClearanceMm: clearance, avoidVisual,
     tested, candidates, search: { method: 'fixed 17x17 grid plus deterministic boundary-inset points; at most 256 samples', samples: evaluated, complete: false },
     basis: 'explicit authorized public subset only; suggestions do not modify the draft or bypass complete adoption geometry/locks/dependencies',
-    physicalFootprintMm: definition.defaultFootprintMm, visualBoundsMm: definition.defaultVisualBoundsMm }
+    physicalFootprintMm: definition.defaultFootprintMm, visualBoundsMm: current ? presentationBounds({ visualBoundsMm: definition.defaultVisualBoundsMm }, fixedPresentation) : definition.defaultVisualBoundsMm,
+    ...(current ? { fixedPresentation: fixedPresentation ?? null, paintGeometry: 'exact root-anchored paint; physical support is checked only with the physical footprint' } : {}) }
 }

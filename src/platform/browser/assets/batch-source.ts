@@ -1,0 +1,184 @@
+import { STATIC_SVG_LIMITS } from '../../../shared/ai/svg.js'
+import { inspectBoundedZip, type BoundedZip } from '../../../shared/project/zip.js'
+import { decodeUtf8 } from '../../../shared/project/binary.js'
+import { sha256Text } from '../../../shared/validation/hash.js'
+import { encodeUtf8 } from '../../../shared/validation/json.js'
+import { checkCancelled, type CancellationSignal } from '../../../shared/ports/resources.js'
+
+const MiB = 1024 * 1024
+/** Admission guards for a source selection, not measured library capacity. */
+export const ASSET_BATCH_LIMITS = Object.freeze({
+  assets: 64, inputFiles: 512, fileBytes: 20 * MiB, sourceTotalBytes: 64 * MiB,
+  zipCompressedBytes: 64 * MiB, zipExpandedBytes: 128 * MiB, zipEntries: 512,
+  svgBytes: STATIC_SVG_LIMITS.sourceBytes, pathBytes: 128,
+})
+export type AssetFileSource = 'files' | 'folder' | 'zip'
+export interface CollectedAssetFile {
+  readonly key: string
+  readonly path: string
+  /** Owned immutable bytes. Its MIME is a routing hint, never a validation proof. */
+  readonly file: Blob
+  readonly format: 'raster' | 'svg'
+}
+export interface SkippedAssetFile { readonly path: string; readonly reason: string }
+export interface AssetFileCollection {
+  readonly source: AssetFileSource
+  readonly entries: readonly CollectedAssetFile[]
+  readonly skipped: readonly SkippedAssetFile[]
+  /** Sum of the admitted material source bytes; sidecars are not materials. */
+  readonly totalBytes: number
+  readonly inputBytes: number
+  /** All ZIP entries, including verified sidecars, or all directly selected files. */
+  readonly expandedBytes: number
+}
+export interface CollectAssetFilesOptions { source?: AssetFileSource; signal?: CancellationSignal }
+interface CapturedFile { path: string; file: Blob; size: number }
+
+const fileSize = Object.getOwnPropertyDescriptor(Blob.prototype, 'size')!.get!
+const fileType = Object.getOwnPropertyDescriptor(Blob.prototype, 'type')!.get!
+const mimeByExtension: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', svg: 'image/svg+xml',
+}
+const extension = (path: string) => /\.([^.\/]+)$/.exec(path)?.[1].toLowerCase() ?? ''
+const formatOf = (path: string): CollectedAssetFile['format'] | undefined => extension(path) === 'svg' ? 'svg'
+  : ['png', 'jpg', 'jpeg', 'webp'].includes(extension(path)) ? 'raster' : undefined
+const fold = (value: string) => value.toLowerCase().normalize('NFC')
+const fail = (message: string): never => { throw new Error(`素材批量来源无效：${message}`) }
+const zipFailure = (error: unknown): never => {
+  if (error instanceof Error && (error.name === 'AbortError' || error.message.startsWith('素材批量来源无效：'))) throw error
+  return fail(`ZIP校验失败：${error instanceof Error ? error.message.replace(/^完整v1工程无效：/, '') : '归档无法完整读取。'}`)
+}
+
+/** The same portable name policy applies to native paths and every ZIP record. */
+function pathRegistry() {
+  const explicit = new Set<string>(), nodes = new Map<string, { spelling: string; kind: 'file' | 'directory' | 'implicit' }>()
+  return (path: string, directories: boolean): boolean => {
+    if (typeof path !== 'string' || !path || encodeUtf8(path).length > ASSET_BATCH_LIMITS.pathBytes || path !== decodeUtf8(encodeUtf8(path)) || path !== path.normalize('NFC')
+      || /[\\\x00-\x1f\x7f<>:"|?*]/.test(path) || path.startsWith('/')) fail('路径必须是规范、相对且不含控制字符的UTF-8名称（最多128字节）。')
+    const directory = path.endsWith('/')
+    if (directory && !directories) fail('直接选择的素材不能是目录记录。')
+    const parts = (directory ? path.slice(0, -1) : path).split('/')
+    if (parts.some(part => !part || part === '.' || part === '..' || part.trim() !== part || part.endsWith('.')
+      || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))) fail('路径包含空段、上级目录或不可携带的名称。')
+    const canonical = fold(parts.join('/'))
+    if (explicit.has(canonical)) fail('同一批中存在重复或大小写不明确的完整路径。')
+    explicit.add(canonical)
+    for (let i = 1; i <= parts.length; i++) {
+      const spelling = parts.slice(0, i).join('/'), key = fold(spelling), prior = nodes.get(key)
+      const kind = i < parts.length ? 'implicit' : directory ? 'directory' : 'file'
+      if (prior && (prior.spelling !== spelling || prior.kind === 'file' || kind === 'file')) fail('路径的大小写或文件/目录关系存在冲突。')
+      if (!prior || kind === 'directory') nodes.set(key, { spelling, kind })
+    }
+    return directory
+  }
+}
+
+/** Never calls a caller-owned name, type, size, slice or arrayBuffer accessor. */
+function captureFile(input: unknown, index: number, source?: AssetFileSource): CapturedFile {
+  if (!(input instanceof Blob)) fail('请选择实际File或Blob；不接受文件描述对象。')
+  let size: number, type: string, file: Blob
+  try {
+    size = fileSize.call(input); type = fileType.call(input)
+    file = Blob.prototype.slice.call(input, 0, size, type)
+  } catch { return fail('不能独立捕获文件的原生字节。') }
+  let name: string | undefined, relative = ''
+  if (typeof File !== 'undefined') {
+    const getter = Object.getOwnPropertyDescriptor(File.prototype, 'name')?.get
+    try { if (getter) name = getter.call(input) as string } catch { /* A plain Blob has no native File name. */ }
+    const own = Object.getOwnPropertyDescriptor(input, 'webkitRelativePath')
+    if (own) {
+      if (!('value' in own) || typeof own.value !== 'string') fail('相对路径不能含访问器。')
+      relative = own.value
+    } else {
+      const getter = Object.getOwnPropertyDescriptor(File.prototype, 'webkitRelativePath')?.get
+      try { if (getter) relative = getter.call(input) as string } catch { /* Plain Blob. */ }
+    }
+  }
+  if (!name) {
+    const suffix = source === 'zip' ? 'zip' : Object.entries(mimeByExtension).find(([, mime]) => mime === type)?.[0]
+    if (!suffix) fail('无原生文件名的Blob必须声明受支持的图片或SVG类型。')
+    name = `asset-${index + 1}.${suffix}`
+  }
+  return { path: relative || name, file: Object.freeze(file), size }
+}
+
+function captureFiles(input: readonly Blob[], source?: AssetFileSource): CapturedFile[] {
+  if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype) fail('文件列表须为独立数组；请先复制原生FileList。')
+  const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(input)
+  const length = descriptors.length?.value
+  if (!Number.isSafeInteger(length) || length < 1 || length > ASSET_BATCH_LIMITS.inputFiles) fail('一次须选择1–512个文件。')
+  if (Reflect.ownKeys(input).some(key => key !== 'length' && (typeof key !== 'string' || !/^(?:0|[1-9][0-9]*)$/.test(key) || Number(key) >= length))) fail('文件数组包含未知字段。')
+  const result: CapturedFile[] = []
+  for (let i = 0; i < length; i++) {
+    const descriptor = descriptors[String(i)]
+    if (!descriptor?.enumerable || !('value' in descriptor)) fail('文件数组不能稀疏或包含访问器。')
+    result.push(captureFile(descriptor.value, i, source))
+  }
+  return result
+}
+
+function freezeCollection(source: AssetFileSource, entries: CollectedAssetFile[], skipped: SkippedAssetFile[], inputBytes: number, expandedBytes: number): AssetFileCollection {
+  return Object.freeze({ source, entries: Object.freeze(entries.map(row => Object.freeze(row))), skipped: Object.freeze(skipped.map(row => Object.freeze(row))),
+    totalBytes: entries.reduce((sum, row) => sum + fileSize.call(row.file), 0), inputBytes, expandedBytes })
+}
+
+function captureOptions(options: CollectAssetFilesOptions): CollectAssetFilesOptions {
+  if (!options || typeof options !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(options))) fail('来源选项必须是普通数据对象。')
+  const fields = Object.getOwnPropertyDescriptors(options)
+  for (const key of Reflect.ownKeys(options)) if (typeof key !== 'string' || !['source', 'signal'].includes(key)
+    || !fields[key]?.enumerable || !('value' in fields[key])) fail('来源选项包含未知字段或访问器。')
+  return { source: fields.source?.value, signal: fields.signal?.value }
+}
+
+/** Input collection only. Rendering, SVG parsing, licences and atomic adoption
+ * stay at the complete-project preparation boundary. No file is installed. */
+export async function collectAssetFiles(input: readonly Blob[], options: CollectAssetFilesOptions = {}): Promise<AssetFileCollection> {
+  const ownedOptions = captureOptions(options), source = ownedOptions.source ?? 'files', signal = ownedOptions.signal
+  if (!['files', 'folder', 'zip'].includes(source)) fail('未知文件来源模式。')
+  checkCancelled(signal)
+  // Own all native bytes and metadata before the first asynchronous read.
+  const captured = captureFiles(input, source), entries: CollectedAssetFile[] = [], skipped: SkippedAssetFile[] = [], register = pathRegistry()
+  const inputBytes = captured.reduce((sum, row) => sum + row.size, 0)
+  if (inputBytes > ASSET_BATCH_LIMITS.sourceTotalBytes) fail('原始文件累计超过64MiB。')
+  const add = (path: string, file: Blob) => {
+    const format = formatOf(path)
+    if (!format) { skipped.push({ path, reason: extension(path) === 'zip' ? '不展开嵌套归档。' : '不是受支持的PNG、JPEG、WebP或静态SVG素材。' }); return }
+    if (entries.length >= ASSET_BATCH_LIMITS.assets) fail('一次最多预览64项素材。')
+    const size = fileSize.call(file), maximum = format === 'svg' ? ASSET_BATCH_LIMITS.svgBytes : ASSET_BATCH_LIMITS.fileBytes
+    if (!size || size > maximum) fail(`${path}为空或超过${format === 'svg' ? '1' : '20'}MiB单项来源预算。`)
+    const owned = Blob.prototype.slice.call(file, 0, size, mimeByExtension[extension(path)])
+    entries.push({ key: `asset-file-${sha256Text(path)}`, path, file: Object.freeze(owned), format })
+  }
+  if (source !== 'zip') {
+    for (const row of captured) { checkCancelled(signal); register(row.path, false); add(row.path, row.file) }
+    return freezeCollection(source, entries, skipped, inputBytes, inputBytes)
+  }
+  if (captured.length !== 1 || !inputBytes || inputBytes > ASSET_BATCH_LIMITS.zipCompressedBytes) fail('ZIP模式须选择一份不超过64MiB的实际归档。')
+  const zipBytes = new Uint8Array(await Blob.prototype.arrayBuffer.call(captured[0].file))
+  checkCancelled(signal)
+  let pathCount = 0
+  let archive: BoundedZip
+  try {
+    archive = inspectBoundedZip(zipBytes, { minEntries: 1, allowEmptyDirectories: true, requiredPaths: [], documentPath: () => false,
+      pathBudget: path => {
+        if (++pathCount > ASSET_BATCH_LIMITS.zipEntries) fail('ZIP超过512条目录记录。')
+        return register(path, true) ? 0 : extension(path) === 'svg' ? ASSET_BATCH_LIMITS.svgBytes : ASSET_BATCH_LIMITS.fileBytes
+      } }, signal)
+  } catch (error) { return zipFailure(error) }
+  const expandedBytes = [...archive.entries.values()].reduce((sum, row) => sum + row.expanded, 0)
+  if (expandedBytes > ASSET_BATCH_LIMITS.zipExpandedBytes) fail('ZIP累计展开量超过128MiB。')
+  let materialBytes = 0, materialCount = 0
+  for (const row of archive.entries.values()) if (!row.name.endsWith('/') && formatOf(row.name)) {
+    materialCount++; materialBytes += row.expanded
+  }
+  if (materialCount > ASSET_BATCH_LIMITS.assets || materialBytes > ASSET_BATCH_LIMITS.sourceTotalBytes) fail('ZIP素材超过64项或原始素材累计64MiB。')
+  // Read every record exactly once, including ignored sidecars and zero-byte
+  // directories. A skipped README cannot hide bad compressed data or CRCs.
+  for (const row of archive.entries.values()) {
+    checkCancelled(signal)
+    let bytes: Uint8Array
+    try { bytes = await archive.read(row.name) } catch (error) { return zipFailure(error) }
+    if (!row.name.endsWith('/')) add(row.name, new Blob([bytes.buffer as ArrayBuffer]))
+  }
+  return freezeCollection(source, entries, skipped, inputBytes, expandedBytes)
+}

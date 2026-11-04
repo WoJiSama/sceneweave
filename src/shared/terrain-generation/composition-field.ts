@@ -1,3 +1,4 @@
+import type { ExecutionBudget } from '../budget/task-budget.js'
 import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
 import { z } from 'zod'
 import type { PointMm, BoundsMm } from '../model/scene.js'
@@ -157,9 +158,12 @@ export function evaluateCompositionField(rawInput: unknown, field: TerrainCompos
   return evaluator(input, field)(point)
 }
 interface Samples { values: Int32Array; withinBounds: number[] }
-function sample(input: TerrainCompositionSourceInput, field: TerrainCompositionField, grid: TerrainCompositionGrid): Samples {
+function sample(input: TerrainCompositionSourceInput, field: TerrainCompositionField, grid: TerrainCompositionGrid,meter?:ExecutionBudget): Samples {
+  meter?.charge({gridNodes:grid.columns*grid.rows})
   const values = new Int32Array(grid.columns * grid.rows), withinBounds: number[] = [], at = evaluator(input, field)
+  const contributions=input.members.filter(member=>member.field===field).length
   for (let y = 0; y < grid.rows; y++) for (let x = 0; x < grid.columns; x++) {
+    meter?.charge({fieldEvaluations:contributions})
     const point = { x: grid.originMm.x + x * grid.spacingMm, y: grid.originMm.y + y * grid.spacingMm }, value = at(point)
     values[y * grid.columns + x] = value
     if (inBounds(point, input.boundsMm)) withinBounds.push(value)
@@ -182,14 +186,14 @@ function thresholdFor(values: number[], targetCoveragePpm: number): number {
   return bestValue
 }
 /** Cold readers recompute valueQ from its complete frozen source; a matching hash alone is insufficient. */
-export function recomputeCompositionThreshold(rawSourceInput: unknown, field: TerrainThresholdField, targetCoveragePpm: number, rawGrid: TerrainCompositionGrid): number {
+export function recomputeCompositionThreshold(rawSourceInput: unknown, field: TerrainThresholdField, targetCoveragePpm: number, rawGrid: TerrainCompositionGrid,meter?:ExecutionBudget): number {
   if (field !== 'land' && field !== 'elevation') return reject('FIELD', '只有land/elevation支持覆盖阈值。')
   const source = parse(terrainCompositionSourceSchema, rawSourceInput), grid = parse(gridSchema, rawGrid)
   const target = parse(int.min(0).max(Q), targetCoveragePpm)
   checkSource(source)
   if (canonicalJson(grid) !== canonicalJson(gridFor(source))) reject('THRESHOLD_GRID', '阈值格网必须与来源精度/范围精确一致。')
   if (!source.members.some(member => member.field === field)) reject('EMPTY_THRESHOLD_FIELD', '阈值来源缺少对应场成员。')
-  return thresholdFor(sample(source, field, grid).withinBounds, target)
+  return thresholdFor(sample(source, field, grid,meter).withinBounds, target)
 }
 
 type FloatPoint = [number, number]
@@ -343,13 +347,13 @@ function normalizePolygons(raw: MultiPolygon, toleranceMm: number): PolygonWithH
 }
 
 /** Pure preview. No document writes, entity identity allocation, adoption-cost exemption or hidden retry. */
-export function planTerrainComposition(rawInput: unknown): TerrainCompositionPlan {
+export function planTerrainComposition(rawInput: unknown,meter?:ExecutionBudget): TerrainCompositionPlan {
   const input = parse(inputSchema, rawInput), source = sourceOf(input)
   checkSource(source)
   const grid = gridFor(source), thresholds: TerrainCompositionPlan['thresholds'] = {}, result = {} as TerrainCompositionPlan['fields']
   for (const field of fields) {
     const active = source.members.some(member => member.field === field), target = field === 'land' ? input.landCoveragePpm : field === 'elevation' ? input.elevationCoveragePpm : null
-    const samples = active ? sample(source, field, grid) : { values: new Int32Array(0), withinBounds: [] }, frozen = field !== 'vegetation' ? input.frozenThresholds?.[field] : undefined
+    const samples = active ? sample(source, field, grid,meter) : { values: new Int32Array(0), withinBounds: [] }, frozen = field !== 'vegetation' ? input.frozenThresholds?.[field] : undefined
     let thresholdQ = 0
     if (frozen) {
       if (!active || frozen.field !== field || frozen.targetCoveragePpm !== target) reject('FROZEN_THRESHOLD', '冻结阈值与目标场/覆盖率不一致。')
@@ -377,9 +381,9 @@ export function planTerrainComposition(rawInput: unknown): TerrainCompositionPla
 }
 
 /** A fixed derived physical band. Its complete polygon is persisted by the materializer. */
-export function extractCompositionFieldLevel(rawSource:unknown,field:TerrainCompositionField,valueQ:number):PolygonWithHoles[]{
+export function extractCompositionFieldLevel(rawSource:unknown,field:TerrainCompositionField,valueQ:number,meter?:ExecutionBudget):PolygonWithHoles[]{
  const source=parse(terrainCompositionSourceSchema,rawSource);checkSource(source)
  if(!fields.includes(field)||!Number.isSafeInteger(valueQ)||valueQ< -Q||valueQ>Q)reject('FIELD_LEVEL','固定分带阈值无效。')
- const grid=gridFor(source),samples=sample(source,field,grid)
+ const grid=gridFor(source),samples=sample(source,field,grid,meter)
  return freezeJson(extractPolygons(source,grid,samples.values,valueQ))
 }

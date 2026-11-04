@@ -1,7 +1,7 @@
 import { inspectDependencies as inspectDomainDependencies, type DependencyIssue, type LicenseSubject } from '../geometry/dependencies.js'
 import type { Editable } from '../model/scene.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
-import { LAYER_ENTITY_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
+import { LAYER_ENTITY_COLLECTIONS, SURFACE_RULE_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
 
 export type { DependencyIssue }
 export type { LicenseSubject }
@@ -13,6 +13,8 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
   const error = (code: string, message: string, entityId?: string) => errors.push({ code, message, ...(entityId ? { entityId } : {}) })
   const entities = new Map<string, Editable>()
   for (const collection of LAYER_ENTITY_COLLECTIONS) for (const entity of Object.values(scene[collection])) entities.set(entity.id, entity)
+  for (const record of [scene.decorations ?? {}, scene.decorationClusters ?? {}]) for (const entity of Object.values(record)) entities.set(entity.id, entity)
+  for (const collection of SURFACE_RULE_COLLECTIONS) for (const entity of Object.values(scene[collection] ?? {})) entities.set(entity.id, entity)
   const layers = Object.values(scene.userLayers), geometryIds = geometryIdentityIds(scene)
   if (layers.length > USER_LAYER_LIMIT) error('LAYER_BUDGET', '用户图层总数不得超过 128。')
   for (const [key, layer] of Object.entries(scene.userLayers)) {
@@ -37,6 +39,7 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
       error('GROUP_LAYER_MISMATCH', '组合或散布容器与全部现存成员必须同层。', group.id)
     }
   }
+  for (const group of Object.values(scene.decorationClusters ?? {})) for (const member of Object.values(group.members)) if (member.entityId !== null && member.state !== 'detached' && scene.entityLayers[member.entityId] !== scene.entityLayers[group.id]) error('GROUP_LAYER_MISMATCH', '装饰簇与现存成员必须同层。', group.id)
   return { errors, assetIds: common.assetIds, subjects: common.subjects }
 }
 

@@ -5,6 +5,7 @@ import { bandRings, intersectsVisualBounds, lightVisibilityPolygon, offsetPolyli
 import type { VisualSegment } from './visual-geometry'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
+import { cliffRelief } from './cliff-relief.js'
 import { terrainTransitionStrokePolygon } from '../../../shared/visual/transition.js'
 import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
@@ -96,35 +97,52 @@ function edgeDetails(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBou
 
 /** One joined face with variable ledges and broken strata, rather than repeated cliff stickers. */
 function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number, connections: ProjectedConnection[]): void {
-  const count = Math.max(4, Math.ceil(boundary.lengthMm / (look.repeatMm * 2.5))), rgb = colorRgb(look.color), angle = directionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }
-  const phase = visualRandom(look.seed, 0, 18) * TAU
+  const angle = directionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }, reliefRgb = colorRgb(look.color)
+  const shade = (normal: PointMm, variation: number) => {
+    const facing = normal.x * light.x + normal.y * light.y
+    const factor = Math.max(.66, Math.min(1.12, .91 + Math.max(0, facing) * .16 - Math.max(0, -facing) * .13 + variation))
+    return `rgb(${reliefRgb.map(channel => Math.round(Math.max(0, Math.min(255, channel * factor)))).join(',')})`
+  }
   for (const sign of sides(look)) {
-    const samples = Array.from({ length: count + 1 }, (_, i) => {
-      const d = boundary.lengthMm * i / count, source = visualSampleAtDistance(boundary, d), wave = d / boundary.lengthMm * TAU
-      const width = look.widthMm * (.88 + .17 * Math.sin(wave * 3 + phase) + .1 * Math.cos(wave * 7 + phase * 1.7))
-      const inside = { ...source.positionMm }, outside = { x: inside.x + source.normal.x * sign * width, y: inside.y + source.normal.y * sign * width }
-      return { inside, outside, source, width }
-    })
-    // A single base polygon closes all joints before local stone facets shade it.
-    const face = ringsPath([[...boundary.points, ...samples.slice(0, boundary.closed ? -1 : undefined).map(p => p.outside).reverse()]])
+    const relief = cliffRelief(boundary, look, sign)
+    const face = ringsPath([relief.face])
     ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity; ctx.fill(face, 'evenodd')
-    for (let i = 0; i < count; i++) {
-      const a = samples[i], b = samples[i + 1], normal = a.source.normal, facing = (normal.x * light.x + normal.y * light.y) * sign, shade = 1 - Math.max(0, facing) * .28 + Math.max(0, -facing) * .11 + (visualRandom(look.seed, i, 19) - .5) * .15
-      const color = rgb.map(channel => Math.max(0, Math.min(255, Math.round(channel * shade))))
-      ctx.fillStyle = `rgb(${color.join(',')})`; ctx.globalAlpha = look.opacity; ctx.fill(ringsPath([[a.inside, b.inside, b.outside, a.outside]]))
-      const split = .18 + visualRandom(look.seed, i, 20) * .58, pointAt = (sample: typeof a, fraction: number) => ({ x: sample.inside.x + (sample.outside.x - sample.inside.x) * fraction, y: sample.inside.y + (sample.outside.y - sample.inside.y) * fraction })
-      const near = pointAt(a, .04), middle = pointAt(a, split), far = pointAt(a, .97), width = look.repeatMm * (.09 + visualRandom(look.seed, i, 21) * .12)
-      ctx.strokeStyle = '#283B35'; ctx.globalAlpha = look.opacity * (.23 + Math.max(0, facing) * .22); ctx.lineWidth = Math.max(10, look.widthMm * .034); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-      ctx.beginPath(); ctx.moveTo(near.x, near.y); ctx.lineTo(middle.x + a.source.tangent.x * width, middle.y + a.source.tangent.y * width); ctx.lineTo(far.x - a.source.tangent.x * width * .35, far.y - a.source.tangent.y * width * .35); ctx.stroke()
-      if (i % 3 !== 1) {
-        const s = pointAt(a, split), e = pointAt(b, Math.max(.1, Math.min(.9, split + (visualRandom(look.seed, i, 22) - .5) * .28)))
-        ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .24; ctx.lineWidth = Math.max(8, look.widthMm * .027); ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo((s.x + e.x) / 2 + a.source.normal.x * width * .25, (s.y + e.y) / 2 + a.source.normal.y * width * .25); ctx.lineTo(e.x, e.y); ctx.stroke()
+    for (let row = 0; row < relief.strata.length; row++) {
+      const stratum = relief.strata[row]
+      for (let i = 0; i + 1 < stratum.upper.length; i++) {
+        const polygon = [stratum.upper[i], stratum.upper[i + 1], stratum.lower[i + 1], stratum.lower[i]]
+        const sample = visualSampleAtDistance(boundary, boundary.lengthMm * (i + .5) / (stratum.upper.length - 1))
+        ctx.fillStyle = shade({ x: sample.normal.x * sign, y: sample.normal.y * sign }, (stratum.shade - 1) * .34 + (row % 2 ? -.025 : .025))
+        ctx.globalAlpha = look.opacity * (row === 0 ? .56 : .78)
+        ctx.fill(ringsPath([polygon]))
       }
-      // A small secondary facet prevents every fissure from spanning the full face.
-      if (visualRandom(look.seed, i, 23) > .58) { const mid = pointAt(b, .6); ctx.fillStyle = '#263D34'; ctx.globalAlpha = look.opacity * .13; ctx.fill(ringsPath([[a.outside, b.outside, mid]])) }
+      const line = linePath(stratum.lower, boundary.closed)
+      ctx.strokeStyle = row === relief.strata.length - 1 ? look.accentColor : '#34463E'
+      ctx.globalAlpha = look.opacity * (row === relief.strata.length - 1 ? .34 : .21 + row * .025)
+      ctx.lineWidth = Math.max(9, look.widthMm * (row === relief.strata.length - 1 ? .028 : .018))
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(line)
     }
-    ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .42; ctx.lineWidth = Math.max(12, look.widthMm * .035); ctx.stroke(linePath(boundary.points, boundary.closed))
-    ctx.strokeStyle = '#32463B'; ctx.globalAlpha = look.opacity * .4; ctx.lineWidth = Math.max(10, look.widthMm * .03); ctx.stroke(linePath(samples.map(p => p.outside), boundary.closed))
+    for (const facet of relief.facets) {
+      ctx.fillStyle = shade({ x: facet.normal.x * sign, y: facet.normal.y * sign }, (facet.shade - 1) * .4)
+      ctx.globalAlpha = look.opacity * .28; ctx.fill(ringsPath([facet.polygon]))
+    }
+    for (let index = 0; index < relief.erosion.length; index++) {
+      const mark = relief.erosion[index]
+      ctx.fillStyle = index % 2 ? '#33483F' : look.accentColor; ctx.globalAlpha = look.opacity * mark.shade
+      ctx.fill(ringsPath([mark.polygon]))
+    }
+    for (let index = 0; index < relief.fractures.length; index++) {
+      const fracture = relief.fractures[index]
+      ctx.strokeStyle = '#293A34'; ctx.globalAlpha = look.opacity * (.18 + visualRandom(look.seed, index, 91) * .14)
+      ctx.lineWidth = Math.max(10, look.widthMm * .016); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+      ctx.stroke(linePath(fracture))
+      if (index % 3 === 0) {
+        ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .16; ctx.lineWidth = Math.max(7, look.widthMm * .009)
+        ctx.stroke(linePath(fracture.map(point => ({ x: point.x - 13, y: point.y - 9 }))))
+      }
+    }
+    ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .46; ctx.lineWidth = Math.max(12, look.widthMm * .035); ctx.stroke(linePath(boundary.points, boundary.closed))
+    ctx.strokeStyle = '#32463B'; ctx.globalAlpha = look.opacity * .4; ctx.lineWidth = Math.max(10, look.widthMm * .03); ctx.stroke(linePath(relief.outer, boundary.closed))
     if (connections.length) { ctx.save(); ctx.clip(face, 'evenodd'); drawConnectionCheeks(ctx, connections, '#32463B', Math.max(24, look.widthMm * .10), look.opacity * .65); ctx.restore() }
   }
 }

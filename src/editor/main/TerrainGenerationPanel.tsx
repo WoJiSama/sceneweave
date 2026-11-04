@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Check, ChevronRight, Download, Mountain, RefreshCw, Waves, X } from 'lucide-react'
 import { TERRAIN_FIXED_SEEDS, type TerrainGenerationInput } from '../../shared/terrain-generation/generate'
 import './terrain-generation.css'
+import { TaskBudgetProfileSchema, type TaskBudgetProfile } from '../../shared/budget/task-budget'
 
 export type TerrainGenerationKind = 'island' | 'coast' | 'river' | 'lake' | 'forest' | 'hill' | 'mixed'
 export type TerrainGenerationRequest = Pick<TerrainGenerationInput, 'seed' | 'kind' | 'widthMm' | 'heightMm' | 'route'>
@@ -31,6 +32,7 @@ export interface TerrainGenerationCandidateSummary extends TerrainGenerationRequ
   terrainCount: number
   propCount: number
   connectionCount: number
+  budgetProfile?: TaskBudgetProfile
   cost: { total: number; limit?: number; items?: readonly { label: string; value: number }[] }
   checks?: readonly { label: string; status: 'passed' | 'failed' | 'unchecked'; detail?: string }[]
   canAdopt?: boolean
@@ -97,8 +99,10 @@ export default function TerrainGenerationPanel({
   const selectedIndex = TERRAIN_GENERATION_REVIEW_SEEDS.findIndex(value => value === cleanSeed)
   const candidateMatches = candidate !== null && candidate.seed === cleanSeed && candidate.kind === kind
     && candidate.widthMm === widthMm && candidate.heightMm === heightMm && JSON.stringify(candidate.route) === JSON.stringify(activeRoute)
+  const registered = TaskBudgetProfileSchema.safeParse(candidate?.budgetProfile)
   const requestedLimit = candidate?.cost.limit ?? 256
-  const costLimit = Number.isSafeInteger(requestedLimit) && requestedLimit >= 0 ? Math.min(requestedLimit, 256) : 0
+  const costLimit = registered.success && requestedLimit === registered.data.semanticTargets ? requestedLimit
+    : Number.isSafeInteger(requestedLimit) && requestedLimit >= 0 ? Math.min(requestedLimit, 256) : 0
   const candidateAllowed = candidate !== null && candidate.canAdopt !== false
     && Number.isSafeInteger(candidate.cost.total) && candidate.cost.total >= 0 && candidate.cost.total <= costLimit
     && !candidate.checks?.some(check => check.status !== 'passed')
@@ -162,7 +166,7 @@ export default function TerrainGenerationPanel({
           <label>高度（米）<input type="number" step="0.001" min="18" max="90" aria-label="地形高度（米）" value={customHeightMm / 1000}
             onChange={event => { setCustomHeightMm(Math.round(Number(event.target.value) * 1000)); setLocalError(null) }}/></label>
         </div>}
-        <small className="terrain-generation-hint">宽24–120米、高18–90米，宽高比1–1.8。大画布沿用同一采样与编辑量预算，细节不会随尺寸等比例增加；预览和保存可能需要更久。</small>
+        <small className="terrain-generation-hint">宽24–120米、高18–90米，宽高比1–1.8。预算会结合范围、细节和本机探针在开始前选定，也可在程序生成设置中选择档位；预览后保持该档位。</small>
         {!validSize && <p className="terrain-generation-notice" role="alert">请填写允许范围内的画布尺寸，宽高比须为1–1.8（宽度不少于高度）。</p>}
         {supportsRoute && <div className="terrain-generation-route">
           <label className="terrain-route-toggle"><input type="checkbox" aria-label="生成指定路线" checked={routeEnabled} onChange={event => setRouteEnabled(event.target.checked)}/>生成指定路线</label>
@@ -218,7 +222,7 @@ export default function TerrainGenerationPanel({
         <li key={`${check.label}-${index}`} data-status={check.status}><span>{check.label}</span><strong>{checkLabels[check.status]}</strong>{check.detail && <small>{check.detail}</small>}</li>,
       )}</ul>}
       <details className="terrain-generation-cost"><summary>制作明细</summary>
-        <dl><div><dt>本次编辑量</dt><dd>{candidate.cost.total} / {costLimit}</dd></div>{candidate.cost.items?.map((item, index) =>
+        <dl><div><dt>{registered.success ? '编辑目标' : '本次编辑量'}</dt><dd>{candidate.cost.total} / {costLimit}</dd></div>{candidate.cost.items?.map((item, index) =>
           <div key={`${item.label}-${index}`}><dt>{costLabels[item.label] ?? '其他内容'}</dt><dd>{item.value}</dd></div>,
         )}</dl>
       </details>

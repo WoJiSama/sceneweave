@@ -27,7 +27,7 @@ const generationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('composition'), input: compositionPresetSchema }).strict(),
 ])
 const algorithmSchema = z.object({ id: z.enum(['terrain-scene', 'terrain-scene-t3', 'terrain-compose']),
-  version: z.union([z.literal(1), z.literal(2)]), recipeVersion: z.union([z.literal(1), z.literal(2)]) }).strict()
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]), recipeVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]) }).strict()
 const context = { requestId: id, workspaceSceneId: id, checkpoint: integer, operationEpoch: integer }
 const stamp = { ...context, inputHash: hash, baseHash: hash, paletteHash: hash, algorithm: algorithmSchema }
 const preparationSchema = z.object({ ...context, base: sceneDocumentSchema, generation: generationSchema }).strict()
@@ -112,12 +112,12 @@ function palette(document: SceneDocument): unknown {
 function algorithmFor(generation: BaseMapRequest['generation']): BaseMapRequest['algorithm'] {
   if (generation.kind === 'composition') {
     const preset = compositionPreset(generation.input)
-    return { id: 'terrain-compose', version: 1, recipeVersion: preset.request.recipeVersion ?? 1 }
+    return { id: 'terrain-compose', version: 1, recipeVersion: (preset.request.recipeVersion ?? 1) as 1 | 2 | 3 }
   }
   const version = generation.input.algorithmVersion ?? 1
   return { id: generation.input.kind === 'island' || generation.input.kind === 'coast' ? 'terrain-scene' : 'terrain-scene-t3', version, recipeVersion: version }
 }
-function assertBlank(base: SceneDocument, generation: BaseMapRequest['generation']): void {
+function assertBlank(base: SceneDocument, generation: {input:{sceneId:string;widthMm:number;heightMm:number}}): void {
   const checked = validateSceneSnapshot(base)
   if (!checked.ok) throw new Error('程序底图基线不是有效完整场景。')
   const input = generation.input, bounds = { x: 0, y: 0, width: input.widthMm, height: input.heightMm }
@@ -282,3 +282,6 @@ export function parseBaseMapResponse(requestInput: BaseMapRequest, raw: unknown)
   if (!equal(response.domainCost, domainCost(request, response.result))) throw new Error('程序底图领域成本回执与实际完整展开不同。')
   return freezeJson(response)
 }
+
+/** Strict shared components for independently versioned future envelopes. */
+export { assertBlank as assertBaseMapBlank, palette as baseMapPalette, compositionPlanSchema, terrainMapOrder }

@@ -8,6 +8,7 @@ import { captureBytes, decodeUtf8, sha256Bytes } from './binary.js'
 import { inspectImageBytes } from './image-bytes.js'
 import { PACKAGE_LIMITS } from './limits.js'
 import { projectResourceHashes, projectSourceRecords } from './source-resources.js'
+import { WeightedTaskQueue } from './task-queue.js'
 
 const captured = new WeakMap<object, WeakMap<object, VerifiedProjectBundle>>()
 declare const verifiedBundle: unique symbol
@@ -15,6 +16,35 @@ declare const verifiedBundle: unique symbol
 export type VerifiedProjectBundle = ProjectBundle & { readonly [verifiedBundle]: true }
 const projectFields = ['format', 'schemaVersion', 'document', 'historyIdentity', 'appearance', 'assets', 'licenses', 'licenseBindings', 'authoringSources'] as const
 const proofBranches = ['assets', 'licenses', 'licenseBindings', 'authoringSources'] as const
+// Shared across simultaneous save/render validations. Weights conservatively
+// account for intermediate RGBA arrays; an oversized check runs on its own.
+const pixelQueue = new WeightedTaskQueue(2, 32_000_000)
+interface PixelTask { weight: number; run(options: ResourceOptions): Promise<void> }
+
+async function validatePixels(tasks: Iterable<PixelTask>, concurrent: boolean, signal?: ResourceOptions['signal']): Promise<void> {
+  if (!concurrent) { for (const task of tasks) await task.run({ signal }); return }
+  let failed = false, failure: unknown
+  const scoped = { get aborted() { return failed || !!signal?.aborted } }
+  const pending = tasks[Symbol.iterator]()
+  // Pull at most two checks from the captured metadata. Large history batches
+  // must not allocate one pending promise/closure for every retained image.
+  const work = async () => {
+    try {
+      while (!failed) {
+        checkCancelled(scoped)
+        const next = pending.next()
+        if (next.done) return
+        const task = next.value
+        await pixelQueue.run(task.weight, scoped, () => task.run({ signal: scoped }))
+      }
+    } catch (error) { if (!failed) { failed = true; failure = error } }
+  }
+  // Drain admitted work before failure escapes. No late callback can issue a
+  // certificate, and queued work is skipped after cancellation or failure.
+  await Promise.all([work(), work()])
+  checkCancelled(signal)
+  if (failed) throw failure
+}
 
 function dataFields(input: unknown, keys: readonly string[]): Record<string, PropertyDescriptor> {
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('完整工程包装必须是普通数据对象。')
@@ -78,13 +108,18 @@ function imageMethods(input: ImageProcessingPort): ImageProcessingPort {
   if (!input || typeof input !== 'object') throw new ImageCapabilityError()
   const fields = Object.getOwnPropertyDescriptors(input)
   for (const key of ['decode', 'transform', 'encodePng']) if (!fields[key] || !('value' in fields[key]) || typeof fields[key].value !== 'function') throw new ImageCapabilityError()
-  return { decode: fields.decode.value!.bind(input), transform: fields.transform.value!.bind(input), encodePng: fields.encodePng.value!.bind(input) }
+  const concurrency = fields.validationConcurrency
+  if (concurrency && (!('value' in concurrency) || concurrency.value !== 1 && concurrency.value !== 2)) throw new ImageCapabilityError()
+  return { decode: fields.decode.value!.bind(input), transform: fields.transform.value!.bind(input), encodePng: fields.encodePng.value!.bind(input),
+    validationConcurrency: concurrency?.value ?? 1 }
 }
 function svgMethods(input: SvgProcessingPort | undefined): SvgProcessingPort {
   if (!input || typeof input !== 'object') throw new SvgCapabilityError()
   const method = Object.getOwnPropertyDescriptor(input, 'rasterize')
   if (!method || !('value' in method) || typeof method.value !== 'function') throw new SvgCapabilityError()
-  return { rasterize: method.value.bind(input) }
+  const concurrency = Object.getOwnPropertyDescriptor(input, 'validationConcurrency')
+  if (concurrency && (!('value' in concurrency) || concurrency.value !== 1 && concurrency.value !== 2)) throw new SvgCapabilityError()
+  return { rasterize: method.value.bind(input), validationConcurrency: concurrency?.value ?? 1 }
 }
 function checkedRaster(image: RasterImage, record: Pick<AssetRecord, 'pixelWidth' | 'pixelHeight'>): RasterImage {
   if (!image || image.width !== record.pixelWidth || image.height !== record.pixelHeight || !(image.rgba instanceof Uint8ClampedArray)
@@ -152,43 +187,54 @@ export async function validateProjectBundles(inputs: readonly ProjectBundle[], o
       }
     }
   }
-  for (const bundle of bundles) {
-    for (const [hash, record] of Object.entries(bundle.project.assets)) {
-      checkCancelled(signal)
-      checkedRaster(await images.decode(bytesByHash.get(hash)!.slice(), record, { signal }), record)
-      checkCancelled(signal)
-    }
-    for (const [assetId, source] of Object.entries(bundle.project.authoringSources)) {
-      checkCancelled(signal)
-      const original = decodeUtf8(bytesByHash.get(source.sourceSha256)!), normalizedSource = decodeUtf8(bytesByHash.get(source.normalizedSha256)!)
-      const normalized = normalizeStaticSvg(original), reparsed = normalizeStaticSvg(normalizedSource)
-      if (normalized.sourceSha256 !== source.sourceSha256 || normalized.sourceSizeBytes !== source.sourceSizeBytes
-        || normalized.normalizedSha256 !== source.normalizedSha256 || normalized.normalizedSizeBytes !== source.normalizedSizeBytes
-        || normalized.normalizedSource !== normalizedSource || reparsed.normalizedSource !== normalizedSource) throw new Error('SVG源、规范化源与来源记录不一致。')
-      const asset = bundle.project.document.assets[assetId], record = bundle.project.assets[asset.sha256]
-      const scale = Math.max(record.pixelWidth, record.pixelHeight) / Math.max(normalized.viewBox.width, normalized.viewBox.height)
-      if (Math.max(1, Math.round(normalized.viewBox.width * scale)) !== record.pixelWidth
-        || Math.max(1, Math.round(normalized.viewBox.height * scale)) !== record.pixelHeight) throw new Error('SVG PNG尺寸必须保持规范化viewBox比例。')
-      const expected = checkedRaster(await svg!.rasterize(normalized, { width: record.pixelWidth, height: record.pixelHeight }, { signal }), record)
-      checkCancelled(signal)
-      const actual = checkedRaster(await images.decode(bytesByHash.get(record.sha256)!.slice(), record, { signal }), record)
-      checkCancelled(signal)
-      if (expected.rgba.some((channel, i) => channel !== actual.rgba[i])) throw new Error(`SVG实际栅格像素与PNG不一致：${assetId}。`)
-    }
-    for (const variant of Object.values(bundle.project.appearance.variants)) {
-      const sourceAsset = bundle.project.document.assets[variant.sourceAssetId], outputAsset = bundle.project.document.assets[variant.outputAssetId]
-      const source = sourceAsset && bundle.project.assets[sourceAsset.sha256], output = outputAsset && bundle.project.assets[outputAsset.sha256]
-      if (!source || !output || output.mimeType !== 'image/png' || source.pixelWidth !== output.pixelWidth || source.pixelHeight !== output.pixelHeight) throw new Error('固定派生源/输出缺失，或PNG尺寸不匹配。')
-      if (sourceAsset.licenseRef !== outputAsset.licenseRef || sourceAsset.origin.kind !== outputAsset.origin.kind || sourceAsset.origin.attribution !== outputAsset.origin.attribution || sourceAsset.origin.canEmbed !== outputAsset.origin.canEmbed) throw new Error('固定派生不得改变源许可或来源。')
-      const original = checkedRaster(await images.decode(bytesByHash.get(source.sha256)!.slice(), source, { signal }), source)
-      checkCancelled(signal)
-      const expected = checkedRaster(await images.transform(original, variant, { signal }), source)
-      checkCancelled(signal)
-      const actual = checkedRaster(await images.decode(bytesByHash.get(output.sha256)!.slice(), output, { signal }), output)
-      checkCancelled(signal)
-      if (expected.rgba.some((channel, i) => channel !== actual.rgba[i])) throw new Error(`固定派生真实像素与源/参数不一致：${variant.id}。`)
+  function* pixelChecks(): Generator<PixelTask> {
+    for (const bundle of bundles) {
+      for (const [hash, record] of Object.entries(bundle.project.assets)) {
+        yield { weight: record.pixelWidth * record.pixelHeight * 2, async run({ signal }) {
+          checkCancelled(signal)
+          checkedRaster(await images.decode(bytesByHash.get(hash)!.slice(), record, { signal }), record)
+          checkCancelled(signal)
+        } }
+      }
+      for (const [assetId, source] of Object.entries(bundle.project.authoringSources)) {
+        const record = bundle.project.assets[bundle.project.document.assets[assetId].sha256]
+        yield { weight: record.pixelWidth * record.pixelHeight * 4, async run({ signal }) {
+          checkCancelled(signal)
+          const original = decodeUtf8(bytesByHash.get(source.sourceSha256)!), normalizedSource = decodeUtf8(bytesByHash.get(source.normalizedSha256)!)
+          const normalized = normalizeStaticSvg(original), reparsed = normalizeStaticSvg(normalizedSource)
+          if (normalized.sourceSha256 !== source.sourceSha256 || normalized.sourceSizeBytes !== source.sourceSizeBytes
+            || normalized.normalizedSha256 !== source.normalizedSha256 || normalized.normalizedSizeBytes !== source.normalizedSizeBytes
+            || normalized.normalizedSource !== normalizedSource || reparsed.normalizedSource !== normalizedSource) throw new Error('SVG源、规范化源与来源记录不一致。')
+          const asset = bundle.project.document.assets[assetId], record = bundle.project.assets[asset.sha256]
+          const scale = Math.max(record.pixelWidth, record.pixelHeight) / Math.max(normalized.viewBox.width, normalized.viewBox.height)
+          if (Math.max(1, Math.round(normalized.viewBox.width * scale)) !== record.pixelWidth
+            || Math.max(1, Math.round(normalized.viewBox.height * scale)) !== record.pixelHeight) throw new Error('SVG PNG尺寸必须保持规范化viewBox比例。')
+          const expected = checkedRaster(await svg!.rasterize(normalized, { width: record.pixelWidth, height: record.pixelHeight }, { signal }), record)
+          checkCancelled(signal)
+          const actual = checkedRaster(await images.decode(bytesByHash.get(record.sha256)!.slice(), record, { signal }), record)
+          checkCancelled(signal)
+          if (expected.rgba.some((channel, i) => channel !== actual.rgba[i])) throw new Error(`SVG实际栅格像素与PNG不一致：${assetId}。`)
+        } }
+      }
+      for (const variant of Object.values(bundle.project.appearance.variants)) {
+        const record = bundle.project.assets[bundle.project.document.assets[variant.sourceAssetId].sha256]
+        yield { weight: record.pixelWidth * record.pixelHeight * 8, async run({ signal }) {
+          const sourceAsset = bundle.project.document.assets[variant.sourceAssetId], outputAsset = bundle.project.document.assets[variant.outputAssetId]
+          const source = sourceAsset && bundle.project.assets[sourceAsset.sha256], output = outputAsset && bundle.project.assets[outputAsset.sha256]
+          if (!source || !output || output.mimeType !== 'image/png' || source.pixelWidth !== output.pixelWidth || source.pixelHeight !== output.pixelHeight) throw new Error('固定派生源/输出缺失，或PNG尺寸不匹配。')
+          if (sourceAsset.licenseRef !== outputAsset.licenseRef || sourceAsset.origin.kind !== outputAsset.origin.kind || sourceAsset.origin.attribution !== outputAsset.origin.attribution || sourceAsset.origin.canEmbed !== outputAsset.origin.canEmbed) throw new Error('固定派生不得改变源许可或来源。')
+          const original = checkedRaster(await images.decode(bytesByHash.get(source.sha256)!.slice(), source, { signal }), source)
+          checkCancelled(signal)
+          const expected = checkedRaster(await images.transform(original, variant, { signal }), source)
+          checkCancelled(signal)
+          const actual = checkedRaster(await images.decode(bytesByHash.get(output.sha256)!.slice(), output, { signal }), output)
+          checkCancelled(signal)
+          if (expected.rgba.some((channel, i) => channel !== actual.rgba[i])) throw new Error(`固定派生真实像素与源/参数不一致：${variant.id}。`)
+        } }
+      }
     }
   }
+  await validatePixels(pixelChecks(), images.validationConcurrency === 2 && (!svg || svg.validationConcurrency === 2), signal)
   checkCancelled(signal)
   return bundles.map(bundle => registerVerifiedBundle(bundle.project, scopedResourcePort(bytesByHash, new Set(projectResourceHashes(bundle.project)))))
 }

@@ -17,6 +17,7 @@ import * as binaryHash from '../../../shared/project/binary.js'
 import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES } from './database.js'
 import { ConversionConflictError, HistoryMetadataConflictError, ProjectConflictError, ProjectRepository, PROJECT_STORAGE_LIMITS } from './repository.js'
+import { historyHeadBytes, historyPinBytes, historyVersionBytes } from './incremental-history.js'
 
 const NOW = '2026-10-24T00:00:00.000Z'
 const repositories: ProjectRepository[] = [], names = new Set<string>()
@@ -78,11 +79,11 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 project repository and two-phase conversion', () => {
-  it('creates only on explicit use, owns exact twelve stores/schema2 and refuses old names or unknown schemas', async () => {
+  it('creates only on explicit use, owns the exact schema3 stores and refuses old names or unknown schemas', async () => {
     const repo = repository(), before = (await indexedDB.databases()).map(db => db.name)
     expect(before).not.toContain(repo.database.name)
     await repo.open()
-    expect(repo.database.verno).toBe(2); expect(repo.database.backendDB().version).toBe(20)
+    expect(repo.database.verno).toBe(3); expect(repo.database.backendDB().version).toBe(30)
     expect(repo.database.tables.map(table => table.name).sort()).toEqual([...PROJECT_TABLES].sort())
     expect(repo.database.table('conversionJobs').schema.indexes.find(index => index.name === 'jobKey')?.unique).toBe(true)
     for (const name of ['sceneweave-m0', 'sceneweave-m1-outdoor', 'sceneweave-catalog-v1', 'sceneweave-library']) expect(() => repository(name)).toThrow(/不能/)
@@ -119,39 +120,64 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     expect(decodedTransactions.length).toBeGreaterThanOrEqual(3); expect(decodedTransactions.every(value => !value)).toBe(true)
     expect(await reopener.usage(before.document.sceneId)).toMatchObject({ namedCount: 0, protectionCount: 0, importedCount: 0 })
   })
-  it('counts every identical stored copy while validating its actual complete content once per usage scan', async () => {
+  it('stores named/protection pins without complete copies and accounts only actual records on warm writes', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
+    const before = await repo.usage(owner), baseline = (await repo.database.historyVersions.toArray())[0]
+    const scanning = vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals')
     const named = await repo.createSnapshot(input, '相同内容命名', { expectedRevision: 0, expectedMetadataVersion: 0 })
-    await repo.createSnapshot(input, '相同内容保护', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 1 })
-    const stored = (await repo.database.snapshots.get([owner, named.id]))!
-    await repo.database.importedSnapshots.add({ ...stored, id: 'usage-imported', kind: 'imported-auto' })
-    const checking = vi.spyOn(binaryHash, 'sha256Bytes')
-    expect(await repo.usage(owner)).toEqual({ documentBytes: encodeUtf8(canonicalJson(input.project)).length * 5,
-      resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 1 })
-    expect(checking).toHaveBeenCalledTimes(1)
-    checking.mockClear()
-    await repo.usage(owner)
-    expect(checking).toHaveBeenCalledTimes(1)
+    const protection = await repo.createSnapshot(input, '相同内容保护', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 1 })
+    const pins = await repo.database.historyPins.toArray(), head = (await repo.database.historyHeads.get(owner))!
+    expect(pins.map(row => row.id).sort()).toEqual([named.id, protection.id].sort())
+    expect(pins.every(row => row.versionId === baseline.id && !Object.hasOwn(row, 'project'))).toBe(true)
+    expect(await repo.database.historyVersions.count()).toBe(1)
+    expect(await repo.database.snapshots.count()).toBe(0)
+    expect(await repo.database.automaticSnapshots.count()).toBe(0)
+    const usage = await repo.usage(owner)
+    expect(usage).toEqual({ documentBytes: encodeUtf8(canonicalJson(input.project)).length + historyVersionBytes(baseline)
+      + historyHeadBytes(head) + pins.reduce((sum, pin) => sum + historyPinBytes(pin), 0),
+      resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 0 })
+    expect(usage.documentBytes - before.documentBytes).toBe(pins.reduce((sum, pin) => sum + historyPinBytes(pin), 0))
+    expect(scanning).not.toHaveBeenCalled()
+    const cold = repository(repo.database.name), coldScan = vi.spyOn(cold as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals')
+    expect(await cold.usage(owner)).toEqual(usage)
+    expect(coldScan).toHaveBeenCalledTimes(1)
+    expect(await cold.usage(owner)).toEqual(usage)
+    expect(coldScan).toHaveBeenCalledTimes(1)
   })
-  it('rejects corrupt later cursor rows instead of returning partial history summaries', async () => {
+  it('rolls back longer snapshot names when their actual pin bytes exceed the library budget', async () => {
+    const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const snapshot = await repo.createSnapshot(input, 'x', { expectedRevision: 0, expectedMetadataVersion: 0 })
+    const before = { pin: await repo.database.historyPins.get([owner, snapshot.id]), metadata: await repo.database.historyMetadata.get(owner),
+      epoch: await repo.database.storageState.get('epoch') }
+    // Model a nearly full library without allocating 128MiB of test data.
+    const totals = await repo.usage(owner)
+    vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals').mockResolvedValue({ ...totals,
+      documentBytes: PROJECT_STORAGE_LIMITS.documentBytes - 1 })
+    ;(repo as unknown as { accounting: { invalidate(): void } }).accounting.invalidate()
+    await expect(repo.renameSnapshot(owner, snapshot.id, 'longer snapshot name', snapshot.contentHash, 1)).rejects.toThrow(/累计预算/)
+    expect(await repo.database.historyPins.get([owner, snapshot.id])).toEqual(before.pin)
+    expect(await repo.database.historyMetadata.get(owner)).toEqual(before.metadata)
+    expect(await repo.database.storageState.get('epoch')).toEqual(before.epoch)
+  })
+  it('rejects corrupt later pin/version rows instead of returning partial history summaries', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
     const first = await repo.createSnapshot(input, 'first', { id: 'a-first', expectedRevision: 0, expectedMetadataVersion: 0 })
     const last = await repo.createSnapshot(input, 'last', { id: 'z-last', expectedRevision: 0, expectedMetadataVersion: 1 })
-    const stored = (await repo.database.snapshots.get([owner, last.id]))!
-    const damaged = cloneJson(stored); damaged.project.document.title = 'changed under the original hash'
-    await repo.database.snapshots.put(damaged)
+    const stored = (await repo.database.historyPins.get([owner, last.id]))!
+    await repo.database.historyPins.put({ ...stored, name: 'changed under the original record hash' })
     await expect(repo.listSnapshots(owner)).rejects.toThrow(/hash/)
-    await repo.database.snapshots.put(stored)
+    await repo.database.historyPins.put(stored)
     expect((await repo.listSnapshots(owner)).map(row => row.id).sort()).toEqual([first.id, last.id])
     await repo.save(revision(input, 1), 0)
-    const automatic = (await repo.database.automaticSnapshots.get([owner, 1]))!
-    await repo.database.automaticSnapshots.put({ ...automatic, contentHash: 'f'.repeat(64) })
+    const automatic = (await repo.database.historyVersions.where('[ownerSceneId+revision]').equals([owner, 1]).first())!
+    await repo.database.historyVersions.put({ ...automatic, contentHash: 'f'.repeat(64) })
     await expect(repo.listAutomaticSnapshots(owner)).rejects.toThrow(/hash/)
     await expect(repo.save(revision(input, 2), 1)).rejects.toThrow(/hash/)
     expect((await repo.database.projects.get(owner))!.revision).toBe(1)
-    expect(await repo.database.automaticSnapshots.get([owner, 2])).toBeUndefined()
+    expect(await repo.database.historyVersions.where('[ownerSceneId+revision]').equals([owner, 2]).count()).toBe(0)
   })
   it('reads only the current history metadata version without certifying project content or scanning resources', async () => {
     const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
@@ -194,108 +220,99 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     const controller = new AbortController(); controller.abort()
     await expect(repo.historyMetadataVersion(owner, { signal: controller.signal })).rejects.toThrow(/取消/)
   })
-  it('shares strict actual-content checks only within one snapshot/save or protection transaction', async () => {
+  it('pins protected content and applies the guarded save without rescanning all retained history', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
-    const checking = vi.spyOn(binaryHash, 'sha256Bytes')
+    const scanning = vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals')
     const protection = await repo.createSnapshot(input, '一次事务共享', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 0 })
-    // One actual current-content hash is shared by assertSaved and every
-    // identical scan row; the separate input hash uses the public API.
-    expect(checking).toHaveBeenCalledTimes(1)
     const guard = { expectedMetadataVersion: 1, protection: { id: protection.id, contentHash: protection.contentHash } }
-    checking.mockClear()
     await repo.checkProtection(owner, 0, protection.contentHash, guard)
-    expect(checking).toHaveBeenCalledTimes(1)
     await repo.checkProtection(owner, 0, protection.contentHash, guard)
-    expect(checking).toHaveBeenCalledTimes(2)
-    checking.mockClear()
     await repo.save(revision(input, 1), 0, { guard })
-    // New input plus old/current content and new persisted content, with all
-    // protection/current/automatic duplicates charged their actual byte size.
-    expect(checking).toHaveBeenCalledTimes(2)
-    checking.mockClear()
-    expect((await repo.usage(owner)).documentBytes).toBe(encodeUtf8(canonicalJson(input.project)).length * 2
-      + encodeUtf8(canonicalJson(revision(input, 1).project)).length * 2)
-    expect(checking).toHaveBeenCalledTimes(2)
+    expect(scanning).not.toHaveBeenCalled()
+    const versions = await repo.database.historyVersions.toArray(), pin = (await repo.database.historyPins.get([owner, protection.id]))!
+    expect(versions).toHaveLength(2)
+    expect(versions.find(row => row.revision === 0)!.checkpoint).toEqual(input.project)
+    const saved = versions.find(row => row.revision === 1)!
+    expect(saved.checkpoint).toBeNull(); expect(saved.delta).not.toBeNull()
+    expect(pin.versionId).toBe(versions.find(row => row.revision === 0)!.id)
+    expect((await repo.loadSnapshot(owner, protection.id))!.bundle.project).toEqual(input.project)
+    expect((await repo.load(owner))!.project).toEqual(revision(input, 1).project)
+    const usage = await repo.usage(owner), head = (await repo.database.historyHeads.get(owner))!
+    expect(usage.documentBytes).toBe(encodeUtf8(canonicalJson(revision(input, 1).project)).length
+      + versions.reduce((sum, row) => sum + historyVersionBytes(row), 0) + historyPinBytes(pin) + historyHeadBytes(head))
   })
-  it('reuses current content checks only within a selected history row transaction', async () => {
+  it('rechecks selected immutable history and keeps rename/delete separate from version contents', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
     const named = await repo.createSnapshot(input, 'selected history', { expectedRevision: 0, expectedMetadataVersion: 0 })
-    const checking = vi.spyOn(binaryHash, 'sha256Bytes')
-
-    await repo.loadSnapshot(owner, named.id)
-    expect(checking).toHaveBeenCalledTimes(1)
-    checking.mockClear()
-    await repo.loadSnapshot(owner, named.id)
-    expect(checking).toHaveBeenCalledTimes(1)
-    checking.mockClear()
-
-    await repo.loadAutomaticSnapshot(owner, 0)
-    expect(checking).toHaveBeenCalledTimes(1)
-    checking.mockClear()
-
-    const stored = (await repo.database.snapshots.get([owner, named.id]))!
+    expect((await repo.loadSnapshot(owner, named.id))!.bundle.project).toEqual(input.project)
+    expect((await repo.loadSnapshot(owner, named.id))!.bundle.project).toEqual(input.project)
+    expect((await repo.loadAutomaticSnapshot(owner, 0))!.project).toEqual(input.project)
+    const pin = (await repo.database.historyPins.get([owner, named.id]))!, stored = (await repo.database.historyVersions.get([owner, pin.versionId]))!
     const corrupted = cloneJson(stored)
-    corrupted.project.document.title = 'changed under the old hash'
-    await repo.database.snapshots.put(corrupted)
+    corrupted.checkpoint!.document.title = 'changed under the old hash'
+    await repo.database.historyVersions.put(corrupted)
     await expect(repo.loadSnapshot(owner, named.id)).rejects.toThrow(/hash/)
-    expect(checking).toHaveBeenCalledTimes(2)
-    await repo.database.snapshots.put(stored)
-
-    checking.mockClear()
+    await repo.database.historyVersions.put(stored)
     await repo.renameSnapshot(owner, named.id, 'renamed history', named.contentHash, 1)
-    expect(checking).toHaveBeenCalledTimes(1)
-    checking.mockClear()
+    expect((await repo.loadSnapshot(owner, named.id))!.name).toBe('renamed history')
+    expect(await repo.database.historyVersions.get([owner, stored.id])).toEqual(stored)
     await repo.deleteSnapshot(owner, named.id, named.contentHash, 2)
-    expect(checking).toHaveBeenCalledTimes(1)
+    expect(await repo.loadSnapshot(owner, named.id)).toBeNull()
+    expect((await repo.loadAutomaticSnapshot(owner, 0))!.project).toEqual(input.project)
   })
-  it('rejects same-hash history content changed after a cached transaction check and rolls the write back', async () => {
+  it('rejects same-hash history mutation after a cached check and rolls the whole transaction back', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
-    const automatic = (await repo.database.automaticSnapshots.get([owner, 0]))!
+    const automatic = (await repo.database.historyVersions.toArray())[0]
     const original = repo as unknown as { putResources: (...args: unknown[]) => Promise<void> }
     const putting = original.putResources
     const injection = vi.spyOn(original, 'putResources').mockImplementationOnce(async (...args) => {
       await putting.apply(repo, args)
-      const changed = cloneJson(automatic); changed.project.document.title = 'changed after current content checked'
-      await repo.database.automaticSnapshots.put(changed)
+      const changed = cloneJson(automatic); changed.checkpoint!.document.title = 'changed after current content checked'
+      // Accounting hooks validate this changed record in the same transaction,
+      // before a previously valid receipt could conceal it.
+      await repo.database.historyVersions.put(changed)
     })
     await expect(repo.save(revision(input, 1), 0)).rejects.toThrow(/hash/)
     injection.mockRestore()
     expect((await repo.database.projects.get(owner))!.revision).toBe(0)
-    expect(await repo.database.automaticSnapshots.get([owner, 0])).toEqual(automatic)
+    expect(await repo.database.historyVersions.get([owner, automatic.id])).toEqual(automatic)
+    expect(await repo.database.historyVersions.count()).toBe(1)
     await repo.save(revision(input, 1), 0)
     expect((await repo.load(owner))!.project.document.revision).toBe(1)
   })
-  it('checks every stored envelope and claimed hash even when identical content was already checked in the scan', async () => {
+  it('checks every version envelope and record hash after external writes invalidate a receipt', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
-    const automatic = (await repo.database.automaticSnapshots.get([owner, 0]))!
-    await repo.database.automaticSnapshots.put({ ...automatic, contentHash: 'f'.repeat(64) })
+    const automatic = (await repo.database.historyVersions.toArray())[0], before = await repo.usage(owner)
+    await repo.database.historyVersions.put({ ...automatic, contentHash: 'f'.repeat(64) })
     await expect(repo.usage(owner)).rejects.toThrow(/hash/)
-    await repo.database.automaticSnapshots.put({ ...automatic, savedAt: 'invalid-time' })
-    await expect(repo.usage(owner)).rejects.toThrow(/时间/)
-    const unknown = { ...automatic, unexpected: 'cannot be ignored' }
-    await repo.database.automaticSnapshots.put(unknown)
-    await expect(repo.usage(owner)).rejects.toThrow(/字段/)
-    await repo.database.automaticSnapshots.put(automatic)
-    expect((await repo.usage(owner)).documentBytes).toBe(encodeUtf8(canonicalJson(input.project)).length * 2)
+    await repo.database.historyVersions.put({ ...automatic, savedAt: 'invalid-time' })
+    await expect(repo.usage(owner)).rejects.toThrow(/身份|时间/)
+    const extraField = { ...automatic, unexpected: 'cannot be ignored' }
+    await repo.database.historyVersions.put(extraField)
+    await expect(repo.usage(owner)).rejects.toThrow(/字段|未知/)
+    await repo.database.historyVersions.put(automatic)
+    expect(await repo.usage(owner)).toEqual(before)
   })
-  it('rejects changed full content under a reused hash and schema-invalid content under an honest raw hash', async () => {
+  it('rejects modified checkpoints under reused hashes and schema-invalid content under honest raw hashes', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
-    const automatic = (await repo.database.automaticSnapshots.get([owner, 0]))!
-    const changed = cloneJson(automatic); changed.project.document.title = 'same declared hash, different actual content'
-    await repo.database.automaticSnapshots.put(changed)
+    const automatic = (await repo.database.historyVersions.toArray())[0], before = await repo.usage(owner)
+    const changed = cloneJson(automatic); changed.checkpoint!.document.title = 'same declared hash, different actual content'
+    await repo.database.historyVersions.put(changed)
     await expect(repo.usage(owner)).rejects.toThrow(/hash/)
     const invalid = cloneJson(automatic)
-    Object.assign(invalid.project.authoringSources, { orphan: { kind: 'svg' } })
-    invalid.contentHash = sha256Bytes(encodeUtf8(canonicalJson(invalid.project)))
-    await repo.database.automaticSnapshots.put(invalid)
+    Object.assign(invalid.checkpoint!.authoringSources, { orphan: { kind: 'svg' } })
+    invalid.contentHash = sha256Bytes(encodeUtf8(canonicalJson(invalid.checkpoint)))
+    const { recordHash: _recordHash, ...payload } = invalid
+    invalid.recordHash = sha256Bytes(encodeUtf8(canonicalJson(payload)))
+    await repo.database.historyVersions.put(invalid)
     await expect(repo.usage(owner)).rejects.toThrow(/字段无效/)
-    await repo.database.automaticSnapshots.put(automatic)
-    expect((await repo.usage(owner)).documentBytes).toBe(encodeUtf8(canonicalJson(input.project)).length * 2)
+    await repo.database.historyVersions.put(automatic)
+    expect(await repo.usage(owner)).toEqual(before)
   })
   it('rereads historical content, resources, licenses and originals changed by another connection after a successful scan', async () => {
     const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
@@ -305,19 +322,32 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await repo.database.legacyBlobs.put({ sha256: originalHash, bytes: original })
     await repo.usage(owner)
     const other = repository(repo.database.name); await other.open()
-    const stored = (await other.database.snapshots.get([owner, named.id]))!, changed = cloneJson(stored)
-    changed.project.document.title = 'external history tampering'
-    await other.database.snapshots.put(changed)
+    const pin = (await other.database.historyPins.get([owner, named.id]))!
+    const stored = (await other.database.historyVersions.get([owner, pin.versionId]))!, changed = cloneJson(stored)
+    changed.checkpoint!.document.title = 'external history tampering'
+    await other.database.historyVersions.put(changed)
     await expect(repo.usage(owner)).rejects.toThrow(/hash/)
-    await other.database.snapshots.put(stored)
+    await other.database.historyVersions.put(stored)
+    await repo.usage(owner)
+    await other.database.historyPins.put({ ...pin, versionId: 'nonexistent-version' })
+    await expect(repo.usage(owner)).rejects.toThrow(/hash|断链/)
+    await other.database.historyPins.put(pin)
+    await repo.usage(owner)
+    const head = (await other.database.historyHeads.get(owner))!
+    await other.database.historyHeads.put({ ...head, activeVersionId: 'nonexistent-active-version' })
+    await expect(repo.usage(owner)).rejects.toThrow(/hash|活动版本/)
+    await other.database.historyHeads.put(head)
+    await repo.usage(owner)
     const resource = (await other.database.resources.toArray())[0]
     await other.database.resources.put({ ...resource, bytes: new Uint8Array([1, 2, 3]) })
     await expect(repo.usage(owner)).rejects.toThrow(/资源字节hash/)
     await other.database.resources.put(resource)
+    await repo.usage(owner)
     const license = (await other.database.licenseTexts.toArray())[0]
     await other.database.licenseTexts.put({ ...license, text: 'external changed license text' })
     await expect(repo.usage(owner)).rejects.toThrow(/许可正文hash/)
     await other.database.licenseTexts.put(license)
+    await repo.usage(owner)
     await other.database.legacyBlobs.put({ sha256: originalHash, bytes: new Uint8Array([9]) })
     await expect(repo.usage(owner)).rejects.toThrow(/资源字节hash/)
     await other.database.legacyBlobs.put({ sha256: originalHash, bytes: original })
@@ -332,16 +362,19 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await expect(first.save(current, current.project.document.revision)).rejects.toBeInstanceOf(ProjectConflictError)
     expect((await first.list())[0].revision).toBe(current.project.document.revision)
   })
-  it('rolls automatic history to20 while fixed snapshots and their immutable contents survive', async () => {
+  it('lists the latest20 automatic versions while retaining older versions and fixed pins', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId; await repo.save(input, null)
     const named = await repo.createSnapshot(input, '命名', { expectedRevision: 0, expectedMetadataVersion: 0 })
     const protection = await repo.createSnapshot(input, '保护', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 1 })
     for (let value = 1; value <= 21; value++) await repo.save(revision(input, value), value - 1)
     expect((await repo.listAutomaticSnapshots(owner)).map(row => row.revision)).toEqual(Array.from({ length: 20 }, (_, index) => 21 - index))
-    expect(await repo.loadAutomaticSnapshot(owner, 0)).toBeNull()
+    expect((await repo.loadAutomaticSnapshot(owner, 0))!.project).toEqual(input.project)
     expect((await repo.loadSnapshot(owner, named.id))!.bundle.project).toEqual(input.project)
     expect((await repo.loadSnapshot(owner, protection.id))!.contentHash).toBe(protection.contentHash)
-    expect(await repo.database.resourceBindings.count()).toBe(23)
+    expect(await repo.database.historyVersions.count()).toBe(22)
+    expect(await repo.database.historyPins.count()).toBe(2)
+    expect(await repo.database.resourceBindings.count()).toBe(3)
+    expect(await repo.database.automaticSnapshots.count()).toBe(0)
   }, 20_000)
   it('checks current complete content, metadata and true source hash before protected capture', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId; await repo.save(input, null)
@@ -374,6 +407,15 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     const controller = new AbortController(); controller.abort()
     await expect(repo.save(input, null, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
     expect(await repo.load(owner)).toBeNull()
+  })
+  it('aborts foreign transactions when their shared epoch cannot advance', async () => {
+    const repo = repository(), input = fixture(); await repo.save(input, null)
+    const owner = input.project.document.sceneId, before = (await repo.database.projects.get(owner))!
+    await repo.database.storageState.put({ key: 'epoch', epoch: Number.MAX_SAFE_INTEGER })
+    await expect(repo.database.transaction('rw', PROJECT_TABLES, async () => {
+      await repo.database.projects.put({ ...before, savedAt: '2026-10-30T00:00:00.000Z' })
+    })).rejects.toThrow()
+    expect(await repo.database.projects.get(owner)).toEqual(before)
   })
   it('rejects external accessors before calling them and blocks changed fixed source meaning', async () => {
     const repo = repository(), input = fixture(); let calls = 0
@@ -484,6 +526,30 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await repo.database.resources.put({ sha256: hash, bytes: new Uint8Array([1, 2, 3]) })
     await expect(repo.publishConversion(job.jobId, job.jobVersion)).rejects.toThrow(/hash/)
     expect(await repo.list()).toEqual([]); expect((await repo.getJob(job.jobId))!.stage).toBe('committed')
+  })
+  it('binds conversion publication to every cold-read version body and collection', async () => {
+    const repo = repository(), input = await imageFixture()
+    let { job, converted } = await prepared(repo, input)
+    job = await repo.prepareConversion(job.jobId, job.jobVersion, converted)
+    job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
+    const read = repo.readConversion.bind(repo)
+    vi.spyOn(repo, 'readConversion').mockImplementationOnce(async (...args) => {
+      const cold = await read(...args)
+      const root = (await repo.database.historyVersions.toArray())[0], changed = cloneJson(root)
+      changed.checkpoint!.document.title = 'changed after conversion cold read'
+      await new Promise<void>((resolve, reject) => {
+        const transaction = repo.database.backendDB().transaction('historyVersions', 'readwrite')
+        transaction.objectStore('historyVersions').put(changed)
+        transaction.oncomplete = () => resolve()
+        transaction.onabort = () => reject(transaction.error)
+        transaction.onerror = () => reject(transaction.error)
+      })
+      return cold
+    })
+    await expect(repo.publishConversion(job.jobId, job.jobVersion)).rejects.toThrow(/hash/)
+    expect(await repo.list()).toEqual([])
+    expect((await repo.getJob(job.jobId))!.stage).toBe('committed')
+    expect((await repo.database.projects.get(job.targetSceneId))!.status).toBe('preparing')
   })
   it('preflights target cumulative budgets and leaves the reservation/backup intact on rejection', async () => {
     const repo = repository(), input = await imageFixture(), { job, converted } = await prepared(repo, input)

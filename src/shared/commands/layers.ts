@@ -2,13 +2,13 @@ import { isEntityEditLocked } from './base.js'
 import type { Editable } from '../model/scene.js'
 import { geometryDocumentForValidation } from './domain.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
-import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, type SceneDocument, type UserLayer } from '../model/scene.js'
+import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS, type SceneDocument, type UserLayer } from '../model/scene.js'
 
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
 
 /** Top-level members only; embedded terrain control points inherit their area. */
 export function enumerateLayerEntities(scene: SceneDocument): Editable[] {
-  return LAYER_ENTITY_COLLECTIONS.flatMap(collection => Object.values(scene[collection]))
+  return [...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS].flatMap(collection => Object.values(scene[collection] ?? {}))
 }
 export function layerIdForEntity(scene: SceneDocument, entityId: string): string | null {
   const direct = own(scene.entityLayers, entityId)
@@ -36,9 +36,15 @@ export function effectiveEditLocked(scene: SceneDocument, entityId: string): boo
 /** The only membership expansion: whole live containers, never unrelated support furniture. */
 export function layerMoveClosure(scene: SceneDocument, ids: readonly string[]): string[] {
   const known = new Map(enumerateLayerEntities(scene).map(entity => [entity.id, entity]))
-  const groups = [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]
+  const groups = [
+    ...[...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)].map(group => ({ id: group.id, members: Object.values(group.members).flatMap(member => member.propId === null ? [] : [member.propId]) })),
+    ...Object.values(scene.decorationClusters ?? {}).map(group => ({ id: group.id, members: [
+      ...Object.values(group.members).flatMap(member => member.entityId === null || member.state === 'detached' || member.state === 'deleted' ? [] : [member.entityId]),
+      ...Object.values(scene.surfaceRules ?? {}).filter(rule => rule.field !== 'material' && rule.clusterId === group.id).map(rule => rule.id),
+    ] })),
+  ]
   const ownerByProp = new Map<string, string>()
-  for (const group of groups) for (const member of Object.values(group.members)) if (member.propId !== null) ownerByProp.set(member.propId, group.id)
+  for (const group of groups) for (const id of group.members) ownerByProp.set(id, group.id)
   const groupById = new Map(groups.map(group => [group.id, group]))
   const result = new Set<string>()
   for (const inputId of ids) {
@@ -47,7 +53,7 @@ export function layerMoveClosure(scene: SceneDocument, ids: readonly string[]): 
     if (!known.has(id)) throw new Error(`移层实体不存在：${inputId}。`)
     const ownerId = ownerByProp.get(id) ?? id, group = groupById.get(ownerId)
     result.add(ownerId)
-    if (group) for (const member of Object.values(group.members)) if (member.propId !== null) result.add(member.propId)
+    if (group) for (const memberId of group.members) result.add(memberId)
   }
   return [...result]
 }

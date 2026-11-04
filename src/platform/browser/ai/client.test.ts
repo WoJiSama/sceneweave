@@ -1,11 +1,16 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { AiClient, AiClientError, normalizeAiBaseUrl, reduceTaskEvent, safeAiError, supportsContinuation } from './client'
+import { AiClient, AiClientError, normalizeAiBaseUrl, reduceTaskEvent, safeAiError, supportsContinuation, supportsCurrentAuthoring, sameBudgetIdentity, sameTaskDraftCheckpoint } from './client'
 import type { ConnectionInfo, CreateTaskRequest, TaskEvent, TaskSnapshot } from '../../../shared/ai/protocol'
-import { AI_LIMITS } from '../../../shared/ai/protocol'
+import { AI_LIMITS, requiredSurfaceRecipeVersion } from '../../../shared/ai/protocol'
 import native from '../content/scenes-data.json'
+import { createShoreBlankDocument } from '../content/shore-blank'
+import { prepareBaseMapRequestV3 } from '../../../shared/terrain-generation/base-map-v3'
+import { emptyBudgetUsage, TASK_BUDGET_PROFILES } from '../../../shared/budget/task-budget'
+import { createContinuationPolicyV2 } from '../../../shared/ai/budget-policy'
 import { AUTHORING_LIMITS, type AuthoringDraft, type AuthoringSummary, type AuthoringStart, type DraftClaim, type DraftLease } from '../../../shared/ai/authoring-protocol-v1'
 import { CONTINUATION_POLICY, type AuthoringStartV2 } from '../../../shared/ai/authoring-protocol'
 import { authoringProjectHash, replayAuthoring, authoringDraftStamp, authoringSummary } from '../../../shared/ai/authoring'
+import { continuationFixtureV3 } from '../../../../tests/helpers/continuation-v3-fixture'
 import { continuationFixture } from '../../../../tests/helpers/continuation-fixture'
 import { canonicalJson, cloneJson } from '../../../shared/validation/json'
 import { sha256Text } from '../../../shared/validation/hash'
@@ -32,6 +37,56 @@ const grantRequest = (): CreateTaskRequest & { authoring: AuthoringStart } => {
 const claim: DraftClaim = { expectedGeneration: 3, draftRevision: 2, contentHash: 'b'.repeat(64), claimId: '28fb9c06-53bd-45cb-be79-e00ece80356d' }
 const lease = (overrides: Partial<DraftLease> = {}): DraftLease => ({ schemaVersion: 1, taskId: 'task-test', generation: claim.expectedGeneration,
   draftRevision: claim.draftRevision, contentHash: claim.contentHash, claimId: claim.claimId, serverNow: 1000, expiresAt: 1000 + AUTHORING_LIMITS.claimMs, ...overrides })
+
+describe('current authoring capability and screenshot checkpoint', () => {
+  const capabilities = (): ConnectionInfo => ({ schemaVersion: 1, model: 'test-model', protocol: 'chat-completions',
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: 'enabled', authoringVersions: [1, 2, 3, 4],
+      currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [3, 4, 5, 6, 7], visualReviewVersions: [1],
+      budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] }, retentionDays: 7,
+    limits: { modelRequests: 4, toolCalls: 8, executionMs: 120000, promptBytes: 16384, outputBytes: 65536 } })
+  it('requires the exact current contract, complete version and policy before admitting metadata', () => {
+    for (const version of [3, 4, 5, 6, 7]) expect(supportsCurrentAuthoring(capabilities(), version)).toBe(true)
+    expect(supportsCurrentAuthoring(capabilities(), 2)).toBe(false)
+    expect(supportsCurrentAuthoring(capabilities(), 8)).toBe(false)
+    const changes: Partial<ConnectionInfo['capabilities']>[] = [
+      { currentAuthoring: undefined }, { authoringVersions: [1, 2, 3] }, { completeProjectVersions: [3, 4] },
+      { budgetPolicyHashes: [] }, { sceneDraft: false },
+    ]
+    for (const change of changes) expect(supportsCurrentAuthoring({ ...capabilities(), capabilities: { ...capabilities().capabilities, ...change } }, 6)).toBe(false)
+    const policy = createContinuationPolicyV2(TASK_BUDGET_PROFILES.small)
+    const info = capabilities(); info.capabilities.budgetPolicyHashes!.push(policy.policyHash)
+    expect(supportsCurrentAuthoring(info, 6, policy, policy.profile.profileHash, 1)).toBe(false)
+    info.capabilities.budgetProfileHashes = [policy.profile.profileHash]; info.capabilities.surfaceRecipeVersions = [1]
+    expect(supportsCurrentAuthoring(info, 6, policy, policy.profile.profileHash, 1)).toBe(true)
+  })
+
+  it('rejects changed task, generation, draft and every budget hash after asynchronous pixel preparation', () => {
+    const authoring = { ...summary(), schemaVersion: 4 as const, policyHash: CONTINUATION_POLICY.policyHash, sourceHash: 'b'.repeat(64),
+      ledgerHeadHash: 'c'.repeat(64), budgetStateHash: 'd'.repeat(64), budget: { generationCost: 0, aiCost: 1, finalAdoptionCost: 1, usage: emptyBudgetUsage() } }
+    const before = snapshot({ authoring, status: 'paused' })
+    expect(sameTaskDraftCheckpoint(before, structuredClone(before))).toBe(true)
+    const cases: Array<(value: TaskSnapshot) => void> = [
+      value => { value.id = 'another-task' }, value => { value.generation++ }, value => { value.status = 'ready' },
+      value => { value.context!.revision++ }, value => { value.authoring!.draftRevision++ },
+      value => { value.authoring!.contentHash = 'e'.repeat(64) }, value => { value.authoring!.operationCost++ },
+      ...(['policyHash', 'sourceHash', 'ledgerHeadHash', 'budgetStateHash'] as const).map(key => (value: TaskSnapshot) => {
+        if (value.authoring && 'policyHash' in value.authoring) value.authoring[key] = 'f'.repeat(64)
+      }),
+    ]
+    for (const mutate of cases) { const after = structuredClone(before); mutate(after); expect(sameTaskDraftCheckpoint(before, after)).toBe(false) }
+    expect(sameTaskDraftCheckpoint(before, null)).toBe(false)
+  })
+
+  it('runs the local checkpoint after capability discovery and sends no POST on rejection', async () => {
+    const authoring = continuationFixture(), preservation = authoring.source.preservation
+    const input: CreateTaskRequest = { ...request, context: preservation.sceneId === null ? null : { sceneId: preservation.sceneId, revision: preservation.revision!, audience: 'public' }, authoring }
+    const fetcher = mockFetch(() => json(capabilities())), client = new AiClient('https://ai.example.com', 'token', fetcher)
+    const guard = vi.fn(() => { throw new Error('The local checkpoint changed') })
+    await expect(client.create(input, undefined, guard)).rejects.toThrow(/checkpoint changed/)
+    expect(guard).toHaveBeenCalledOnce(); expect(fetcher).toHaveBeenCalledOnce()
+    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][1]?.method).toBe('GET')
+  })
+})
 
  describe('native AI transport', () => {
   it('normalizes origin only and refuses insecure remote hosts, paths and embedded credentials', () => {
@@ -353,7 +408,7 @@ describe('generated-map continuation transport identity', () => {
       ['draft revision', value => { value.authoring!.draftRevision-- }],
       ['generation cost', value => { if (value.authoring && 'budget' in value.authoring) value.authoring.budget.generationCost++ }],
       ['AI cost', value => { if (value.authoring && 'budget' in value.authoring) value.authoring.budget.aiCost-- }],
-      ['complexity cost', value => { if (value.authoring && 'budget' in value.authoring) value.authoring.budget.complexityCost-- }],
+      ['complexity cost', value => { if (value.authoring && 'budget' in value.authoring && 'complexityCost' in value.authoring.budget) value.authoring.budget.complexityCost-- }],
       ['same-revision ledger', value => { if (value.authoring && 'ledgerHeadHash' in value.authoring) value.authoring.ledgerHeadHash = 'd'.repeat(64) }],
       ['same-revision budget', value => { if (value.authoring && 'budgetStateHash' in value.authoring) value.authoring.budgetStateHash = 'e'.repeat(64) }],
       ...(['activeRuntimeMs', 'initializationMs', 'completedRequests', 'toolAttempts', 'outputBytes'] as const).map(field => [field, (value: TaskSnapshot) => { value.executionCheckpoint![field]-- }] as [string, (value: TaskSnapshot) => void]),
@@ -400,5 +455,136 @@ describe('generated-map continuation transport identity', () => {
     await expect(client.follow(snapshot(), { onSnapshot: () => undefined })).rejects.toMatchObject({ code: 'protocol' })
     const wrong = new AiClient('https://ai.example.com', 'token', mockFetch(() => json(classifiedSnapshot({ id: 'other-task', authoring: currentSummary() }))))
     await expect(wrong.lookupSnapshot('task-test')).rejects.toMatchObject({ code: 'protocol' })
+  })
+})
+
+describe('strict v3 classified task transport', () => {
+  let start: ReturnType<typeof continuationFixtureV3>, replayed: ReturnType<typeof replayAuthoring>
+  beforeAll(() => { start = continuationFixtureV3(); replayed = replayAuthoring(start, []) }, 30000)
+  const policy = createContinuationPolicyV2(TASK_BUDGET_PROFILES.small)
+  const capabilities = (): ConnectionInfo => ({ schemaVersion: 1, model: 'test-model', protocol: 'chat-completions',
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: 'disabled', authoringVersions: [1, 2, 3], baseMapVersions: [1, 2, 3],
+      budgetPolicyHashes: [policy.policyHash], budgetProfileHashes: [policy.profile.profileHash] },
+    retentionDays: 7, limits: { modelRequests: 4, toolCalls: 8, executionMs: 120000, promptBytes: 16384, outputBytes: 65536 } })
+  const current = (changes: Partial<TaskSnapshot> = {}): TaskSnapshot => {
+    const authoring = { ...summary(), schemaVersion: 3 as const, policyHash: policy.policyHash, sourceHash: 'b'.repeat(64), ledgerHeadHash: 'c'.repeat(64), budgetStateHash: 'd'.repeat(64),
+      budget: { generationCost: 1, aiCost: 0, finalAdoptionCost: 1, usage: { ...emptyBudgetUsage(), semanticTargets: 1, geometryPoints: 4 } } }
+    const value = snapshot({ authoring, ...changes })
+    const identity = value.authoring
+    if (!identity || !('schemaVersion' in identity) || identity.schemaVersion !== 3) throw new Error('Expected v3 summary')
+    const body = { schemaVersion: 3 as const, workUsage: emptyBudgetUsage(), flowId: 'v3-flow', taskId: value.id, generation: value.generation, policyHash: identity.policyHash, sourceHash: identity.sourceHash,
+      ledgerHeadHash: identity.ledgerHeadHash, budgetStateHash: identity.budgetStateHash, activeRuntimeMs: 1, initializationMs: 1,
+      modelRequests: value.usage.requests, completedRequests: 0, toolAttempts: 0, outputBytes: 0 }
+    return { ...value, executionCheckpoint: { ...body, checkpointHash: sha256Text(canonicalJson(body)) } }
+  }
+  it('requires an explicit surface capability only for the new terrain/composition selectors', async () => {
+    expect(requiredSurfaceRecipeVersion({ kind: 'terrain', input: { algorithmVersion: 5 } })).toBe(1)
+    expect(requiredSurfaceRecipeVersion({ kind: 'composition', input: { recipeVersion: 5 } })).toBe(1)
+    expect(requiredSurfaceRecipeVersion({ kind: 'terrain', input: { algorithmVersion: 4 } })).toBeUndefined()
+    expect(requiredSurfaceRecipeVersion({ kind: 'composition', input: { recipeVersion: 4 } })).toBeUndefined()
+    const prior = capabilities(), fetcher = mockFetch(() => json({ ...prior, capabilities: { ...prior.capabilities, surfaceRecipeVersions: [1] } }))
+    await new AiClient('https://ai.example.com', 'token', fetcher).capabilities(undefined, 3, 1)
+    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3&surfaceVersion=1')
+    expect(supportsContinuation(prior, 'authoring', policy, 3, 1)).toBe(false)
+    expect(supportsContinuation({ ...prior, capabilities: { ...prior.capabilities, surfaceRecipeVersions: [1] } }, 'authoring', policy, 3, 1)).toBe(true)
+  })
+  it('uses explicit v3 capabilities and distinguishes profile hashes from policy hashes', async () => {
+    const fetcher = mockFetch(() => json(capabilities())), client = new AiClient('https://ai.example.com', 'token', fetcher)
+    await client.capabilities(undefined, 3)
+    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3')
+    expect(supportsContinuation(capabilities(), 'authoring', policy, 3)).toBe(true)
+    expect(supportsContinuation(capabilities(), 'baseMap', { policyHash: policy.profile.profileHash }, 3)).toBe(true)
+    expect(supportsContinuation(capabilities(), 'baseMap', policy, 3)).toBe(false)
+    expect(supportsContinuation(capabilities(), 'authoring', { policyHash: policy.profile.profileHash }, 3)).toBe(false)
+    expect(sameBudgetIdentity(current().authoring, { ...current().authoring, schemaVersion: 2 })).toBe(false)
+  })
+  it('does not send new surface semantics to a v3 server that ignores the surface opt-in', async () => {
+    // Transport-shape fixture only: this deliberately does not claim that the
+    // old physical result is a valid new surface generation or adoptable source.
+    const surface = cloneJson(start), prior = surface.source.request
+    const base = createShoreBlankDocument('island', { sceneId: prior.base.sceneId, title: '新岸面能力检查', now: '2026-10-30T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
+    const sourceRequest = prepareBaseMapRequestV3({ requestId: prior.requestId, workspaceSceneId: prior.workspaceSceneId, checkpoint: prior.checkpoint,
+      operationEpoch: prior.operationEpoch, flowId: prior.flowId, profile: prior.profile, base, generation: { kind: 'terrain', input: {
+        sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 5, budgetProfileId: 'small', quality: 'standard', widthMm: 24000, heightMm: 18000 } } })
+    // Capability rejection precedes semantic replay. Keep the existing detached
+    // result; running a new generation here would test an unrelated work budget.
+    surface.source.request = sourceRequest
+    const input: CreateTaskRequest = { ...request, authoring: surface, context: { sceneId: 'original-main', revision: 7, audience: 'public' } }
+    const fetcher = mockFetch(() => json(capabilities()))
+    await expect(new AiClient('https://ai.example.com', 'token', fetcher).create(input)).rejects.toMatchObject({ code: 'unsupported_continuation', requestState: 'not_sent' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3&surfaceVersion=1')
+    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe('GET')
+  })
+  it('negotiates and sends the exact v3 source once, and rejects a downgraded create response as unknown', async () => {
+    const input: CreateTaskRequest = { ...request, context: { sceneId: 'original-main', revision: 7, audience: 'public' }, authoring: start }
+    const authoring = authoringSummary(start, replayed.state, null), calls: { url: string; body: unknown }[] = []
+    const client = new AiClient('https://ai.example.com', 'token', mockFetch((url, init) => {
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
+      return json(url.includes('/capabilities?') ? capabilities() : current({ authoring, context: input.context }))
+    }))
+    await expect(client.create(input)).resolves.toMatchObject({ authoring })
+    expect(calls.map(call => call.url)).toEqual(['https://ai.example.com/v1/capabilities?authoringVersion=3', 'https://ai.example.com/v1/tasks?authoringVersion=3'])
+    expect(calls[1].body).toEqual(input)
+    const old = mockFetch(url => json(url.includes('/capabilities?') ? capabilities() : snapshot({ context: input.context, authoring: summary() })))
+    await expect(new AiClient('https://ai.example.com', 'token', old).create(input)).rejects.toMatchObject({ code: 'protocol', requestState: 'unknown' })
+    expect(old).toHaveBeenCalledTimes(2)
+  })
+  it('fetches the full v3 draft only under the exact expected protocol', async () => {
+    const draft = { schemaVersion: 3, taskId: 'task-test', generation: 3, start, state: replayed.state }
+    const client = new AiClient('https://ai.example.com', 'token', mockFetch(() => json(draft)))
+    await expect(client.draft('task-test', undefined, 3)).resolves.toEqual(draft)
+    await expect(client.draft('task-test', undefined, 2)).rejects.toMatchObject({ code: 'protocol' })
+    await expect(client.draft('task-test')).rejects.toMatchObject({ code: 'protocol' })
+  })
+  it('requires exact v3 snapshots and controls instead of interpreting schema 3 as a legacy task', async () => {
+    const value = current(), client = new AiClient('https://ai.example.com', 'token', mockFetch(() => json(value)))
+    await expect(client.snapshot(value.id, undefined, 3)).resolves.toEqual(value)
+    await expect(client.snapshot(value.id)).rejects.toMatchObject({ code: 'protocol' })
+    await expect(client.snapshot(value.id, undefined, 2)).rejects.toMatchObject({ code: 'protocol' })
+    await expect(client.control(value.id, { schemaVersion: 1, expectedGeneration: 1, action: 'pause' }, undefined, 3)).resolves.toEqual(value)
+  })
+  it('keeps the exact v3 expectation on read-only reconnection without creating or resuming work', async () => {
+    const before = current(), paused = current({ status: 'paused' }), calls: { url: string; method: string | undefined }[] = []
+    const client = new AiClient('https://ai.example.com', 'token', mockFetch((url, init) => {
+      calls.push({ url, method: init?.method }); return url.includes('/events?') ? sse([]) : json(paused)
+    }))
+    const observed: TaskSnapshot[] = []
+    await client.follow(before, { onSnapshot: value => observed.push(value) })
+    expect(observed).toEqual([paused]); expect(calls).toHaveLength(2); expect(calls.every(call => call.method === 'GET')).toBe(true)
+  })
+  it('advances independent execution work without changing the successful ledger and refuses a self-consistent refund', () => {
+    const checkpoint = (fieldEvaluations: number) => {
+      const value = current(), execution = value.executionCheckpoint
+      if (execution?.schemaVersion !== 3) throw new Error('Expected v3 execution checkpoint')
+      const { checkpointHash: _hash, ...body } = execution
+      body.workUsage.fieldEvaluations = fieldEvaluations
+      value.executionCheckpoint = { ...body, checkpointHash: sha256Text(canonicalJson(body)) }
+      return value
+    }
+    const eventFor = (value: TaskSnapshot): TaskEvent => {
+      if (!value.authoring || !('schemaVersion' in value.authoring) || value.authoring.schemaVersion !== 3 || !value.executionCheckpoint) throw new Error('Expected v3 checkpoint')
+      return { schemaVersion: 1, taskId: value.id, generation: value.generation, sequence: 1, type: 'authoring_checkpoint', data: {
+        authoring: value.authoring, usage: value.usage, executionCheckpoint: value.executionCheckpoint } }
+    }
+    const before = checkpoint(20), after = checkpoint(40)
+    expect(reduceTaskEvent(before, eventFor(after)).executionCheckpoint).toEqual(after.executionCheckpoint)
+    expect(after.authoring).toEqual(before.authoring)
+    expect(() => reduceTaskEvent(before, eventFor(checkpoint(19)))).toThrow(AiClientError)
+  })
+  it('atomically publishes v3 usage while refusing a rollback in any retained dimension', () => {
+    const before = current(), authoring = before.authoring
+    if (!authoring || !('schemaVersion' in authoring) || authoring.schemaVersion !== 3) throw new Error('Expected v3 summary')
+    const after = current({ authoring: { ...authoring, draftRevision: 2, ledgerHeadHash: 'e'.repeat(64), budgetStateHash: 'f'.repeat(64),
+      budget: { ...authoring.budget, aiCost: 1, usage: { ...authoring.budget.usage, semanticTargets: 2, geometryPoints: 8 } } } })
+    const eventFor = (value: TaskSnapshot): TaskEvent => {
+      if (!value.authoring || !('schemaVersion' in value.authoring) || value.authoring.schemaVersion !== 3 || !value.executionCheckpoint) throw new Error('Expected classified checkpoint')
+      return { schemaVersion: 1, taskId: value.id, generation: value.generation, sequence: 1, type: 'authoring_checkpoint', data: {
+        authoring: value.authoring, usage: value.usage, executionCheckpoint: value.executionCheckpoint } }
+    }
+    expect(reduceTaskEvent(before, eventFor(after)).authoring).toEqual(after.authoring)
+    const rollback = current({ authoring: { ...authoring, draftRevision: 2, ledgerHeadHash: 'e'.repeat(64), budgetStateHash: 'f'.repeat(64),
+      budget: { ...authoring.budget, usage: { ...authoring.budget.usage, geometryPoints: 3 } } } })
+    expect(() => reduceTaskEvent(before, eventFor(rollback))).toThrow(AiClientError)
   })
 })

@@ -1,7 +1,7 @@
 import { visualBase } from '../../shared/visual/base.js'
 import { terrainRecordChanges } from '../../shared/terrain-generation/review.js'
 import { useEffect, useMemo, useState } from 'react'
-import { LAYER_ENTITY_COLLECTIONS } from '../../shared/model/scene'
+import { DECORATION_COLLECTIONS, LAYER_ENTITY_COLLECTIONS } from '../../shared/model/scene'
 import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics'
 import { inspectAppearanceScope } from '../../shared/appearance/graph'
 import type { CompositionCommand } from '../../shared/model/appearance'
@@ -21,6 +21,7 @@ const terrainCollectionNames: Record<string, string> = {
   'regional.areas': '区域地貌', 'regional.lines': '区域河流与路线', 'regional.landmarks': '区域地标',
   'regional.symbols': '地图图符', 'regional.symbolDefinitions': '固定图符定义', 'regional.profile': '区域地图样式',
   'visual.materializedEdges': '地形边缘细节',
+  'visual3.transitions': '派生地形过渡',
 }
 const terrainFieldNames: Record<string, string> = { state: '管理状态', managedFields: '自动管理字段', manualFields: '手工保留字段',
   parameters: '规则参数', inputHash: '输入校验', managedOutputHash: '输出校验', issues: '检查结果', boundaryMm: '范围轮廓',
@@ -30,7 +31,7 @@ const terrainFieldNames: Record<string, string> = { state: '管理状态', manag
 export default function CompositionChangesPanel({ current, candidate, commands }: { current: EditableProject; candidate: EditableProject; commands: readonly CompositionCommand[] }) {
   const changes = useMemo(() => {
     const currentVisual = visualBase(current.document), candidateVisual = visualBase(candidate.document)
-    const records = [...LAYER_ENTITY_COLLECTIONS.map(collection => ({ collection: String(collection), before: current.document[collection], after: candidate.document[collection] })),
+    const records = [...[...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS].map(collection => ({ collection: String(collection), before: current.document[collection] ?? {}, after: candidate.document[collection] ?? {} })),
       ...VISUAL_ENTITY_COLLECTIONS.map(collection => ({ collection: `visual.${collection}`, before: currentVisual?.[collection] ?? {}, after: candidateVisual?.[collection] ?? {} })),
       { collection: 'visual.environment', before: currentVisual ? { 'visual-environment': currentVisual.environment } : {}, after: candidateVisual ? { 'visual-environment': candidateVisual.environment } : {} }]
     return records.flatMap(({ collection, before: a, after: b }) => [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap(id => {

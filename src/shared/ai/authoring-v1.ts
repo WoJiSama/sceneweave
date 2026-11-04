@@ -1,5 +1,13 @@
+import { currentAuthoringPaint } from './current-authoring-paint.js'
+import { terrainCommandCost } from '../terrain-generation/cost.js'
+import { inspectDecorationChanges } from '../decorations/commands.js'
+import { CurrentAuthoringScopeSchema, AuthoringStepV4Schema, type CurrentSceneAuthoringScope, type CurrentExtraOperation } from './authoring-protocol-v4.js'
+import { CURRENT_AUTHORING_CAPABILITY, assertCurrentAuthoringCapability, type CurrentAuthoringCapability } from './current-authoring-capability.js'
+import { applyCurrentAuthoringOperation, isCurrentExtraOperation } from './current-authoring-operations.js'
+import { ProfiledLegacyStartSchema } from './authoring-profile.js'
+import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
 import { z } from 'zod'
-import { applySceneOperation, validateSceneScope, sceneReadIds, publicSceneContext } from './scene-authoring.js'
+import { applySceneOperation, validateSceneScope, sceneReadIds, publicSceneContext, currentSceneDependencyIds, assertPublicSceneEntity } from './scene-authoring.js'
 import { isTerrainAuthoringOperation } from './terrain-protocol.js'
 import { applyTerrainAuthoringOperation } from './terrain-authoring.js'
 import { ARTWORK_SKILL, artworkTargetIds, assertArtworkProp, checkArtworkOperation } from './artwork.js'
@@ -100,7 +108,7 @@ function assertSupport(document: SceneDocument, floorId: string, ref: SurfaceRef
     assertSupport(document, floorId, room.supportRef, read)
   } else for (const point of document.terrainAreas[ref.id].boundaryMm) { read?.add(point.id); read?.add(point.segmentId) }
 }
-function assertIndependentPublic(project: ProjectData, id: string, read?: Set<string>): Prop {
+function assertIndependentPublic(project: ProjectData, id: string, read?: Set<string>, capability?: CurrentAuthoringCapability): Prop {
   const document = project.document, prop = document.props[id]
   if (!has(document.props, id) || !prop || !createPublicVisibility(document).prop(prop)) deny('目标须为现存的公开独立物件。')
   if ([...Object.values(document.prefabInstances), ...Object.values(document.scatterGroups)].some(group => Object.values(group.members).some(member => member.propId === id))) deny('首批不接受组合或散布成员。')
@@ -110,7 +118,7 @@ function assertIndependentPublic(project: ProjectData, id: string, read?: Set<st
   if (!layer || effectiveEditLocked(document, id)) deny('目标或图层已锁定。')
   assertSupport(document, prop.floorId, prop.supportRef, read)
   if (prop.roomId) assertSupport(document, prop.floorId, { kind: 'room', id: prop.roomId }, read)
-  assertUnmasked(document, visualPoints(prop)); assertUnmasked(document, propFootprint(prop))
+  assertUnmasked(document, capability ? currentAuthoringPaint(project, id)!.polygonMm : visualPoints(prop)); assertUnmasked(document, propFootprint(prop))
   read?.add(id); read?.add(layer.id); read?.add(prop.floorId)
   return prop
 }
@@ -159,17 +167,19 @@ function collectProp(project: ProjectData, prop: Prop, read: Set<string>): void 
   for (const adjustment of [...(project.appearance.layerAdjustments[project.document.entityLayers[prop.id]] ?? []), ...(project.appearance.instanceAdjustments[prop.id] ?? [])]) read.add(adjustment.id)
 }
 
-function validateStart(input: AuthoringStart, generatedContinuation = false): AuthoringStart {
+function validateStart(input: AuthoringStart, generatedContinuation = false, budget?: TaskBudgetProfile, capability?: CurrentAuthoringCapability): AuthoringStart {
   const owned = captureJson(input)
-  if (encodeUtf8(canonicalJson(owned)).length > AUTHORING_LIMITS.metadataBytes) deny('任务完整元数据超过4MiB。')
-  const start = AuthoringStartSchema.parse(owned)
+  if (encodeUtf8(canonicalJson(owned)).length > (budget ? 48 * 1024 * 1024 : AUTHORING_LIMITS.metadataBytes)) deny(budget ? '任务完整输入超过48MiB。' : '任务完整元数据超过4MiB。')
+  const start = (capability ? AuthoringStartSchema.extend({ scope: CurrentAuthoringScopeSchema }).strict() : budget ? ProfiledLegacyStartSchema : AuthoringStartSchema).parse(owned) as AuthoringStart
+  const current = assertCurrentAuthoringCapability(start.project, capability)
   start.project = validateProjectData(start.project)
+  if (!current && start.project.schemaVersion >= 5) throw new Error('当前AI创作协议尚不支持完整v5/v6/v7曲线连接或装饰工程；请继续手工编辑。')
   if(start.project.schemaVersion===3 && !start.scope.scene && !generatedContinuation)deny('T6完整地形工程的AI写入须明确scene授权范围和操作，不能沿用旧物件任务。')
   if (authoringProjectHash(start.project) !== start.baseContentHash) deny('主工程基线hash不匹配。')
   if (!start.scope.targetIds.length && !start.scope.placement && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确目标或新增范围。')
   if (!start.scope.operations.length && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确允许的操作。')
-  if (start.scope.scene) validateSceneScope(start.project, start.scope.scene)
-  if (start.scope.visual) validateVisualAuthoringScope(start.project, start.scope.visual)
+  if (start.scope.scene) validateSceneScope(start.project, start.scope.scene, budget, capability)
+  if (start.scope.visual) validateVisualAuthoringScope(start.project, start.scope.visual, capability)
   if (start.scope.artwork) artworkTargetIds(start.project, start.scope)
   const permittedDefinitions = new Set([...(start.scope.placement?.definitionIds ?? []), ...(start.scope.scene?.definitionIds ?? []), ...(start.scope.visual?.definitionIds ?? [])])
   if (start.brief?.requiredDefinitionIds?.some(id => !permittedDefinitions.has(id))) deny('制作清单的固定素材不在明确授权范围。')
@@ -183,7 +193,7 @@ function validateStart(input: AuthoringStart, generatedContinuation = false): Au
     if (check.kind === 'propCount' && bounds.some((a, index) => bounds.slice(index + 1).some(b =>
       Math.max(a.x, b.x) < Math.min(a.x + a.width, b.x + b.width) && Math.max(a.y, b.y) < Math.min(a.y + a.height, b.y + b.height)))) deny('独立物件分组检查的矩形不可重叠。')
   }
-  for (const id of start.scope.targetIds) assertIndependentPublic(start.project, id)
+  for (const id of start.scope.targetIds) assertIndependentPublic(start.project, id, undefined, capability)
   const placement = start.scope.placement, document = start.project.document
   if (start.scope.operations.includes('place') && !placement) deny('新增操作须明确授权放置范围。')
   if (placement) {
@@ -203,51 +213,97 @@ export function validateAuthoringStart(input: AuthoringStart): AuthoringStart { 
 /** Internal v2 dispatcher only: a source-verified generated project may grant
  * only existing public props. All prop, dependency and lock checks still run. */
 export function validateAuthoringStartExpanded(input: AuthoringStart): AuthoringStart { return validateStart(input, true) }
+export function validateAuthoringStartProfiled(input: AuthoringStart, profile: TaskBudgetProfile): AuthoringStart { return validateStart(input, true, parseTaskBudgetProfile(profile)) }
 
 function contextFor(start: AuthoringStart, stepIndex: number): PreparationContext {
   let counter = 0
   return { ids: { nextId: () => `ai-${sha256Text(canonicalJson([start.seed, stepIndex, ++counter]))}` }, clock: { now: () => start.preparedAt } }
 }
-function initialReads(start: AuthoringStart): Set<string> {
+function initialReads(start: AuthoringStart, capability?: CurrentAuthoringCapability): Set<string> {
   const read = new Set<string>(), project = start.project
   // Masks are consulted for disclosure safety, without becoming write targets.
   for (const mask of Object.values(project.document.regions)) if (mask.kind === 'manualMask') { read.add(mask.id); read.add(project.document.entityLayers[mask.id]) }
-  for (const id of start.scope.targetIds) collectProp(project, assertIndependentPublic(project, id, read), read)
+  for (const id of start.scope.targetIds) collectProp(project, assertIndependentPublic(project, id, read, capability), read)
   if (start.scope.placement) {
     const p = start.scope.placement; read.add(p.floorId); read.add(p.layerId)
     assertSupport(project.document, p.floorId, p.supportRef, read)
     p.definitionIds.forEach(id => collectDefinition(project, id, read))
   }
   if (start.scope.scene) for (const id of sceneReadIds(project, start.scope.scene)) read.add(id)
-  if (start.scope.visual) for (const id of visualAuthoringReadIds(project, start.scope.visual)) read.add(id)
+  if (start.scope.visual) for (const id of visualAuthoringReadIds(project, start.scope.visual, capability)) read.add(id)
   for (const id of artworkTargetIds(project, start.scope)) for (const dependency of assertArtworkProp(project, id)) read.add(dependency)
   return read
 }
 export interface ReplayedAuthoring { project: ProjectData; state: AuthoringState; visualInvalidatedIds: string[] }
-export interface AuthoringOperationTrace { stepIndex: number; operationIndex: number; operation: AuthoringOperation; before: ProjectData; after: ProjectData; complexityCost: number }
-function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], expanded = false, inspect?: (trace: AuthoringOperationTrace) => void): ReplayedAuthoring & { traces: AuthoringOperationTrace[] } {
-  const maximum = expanded ? 131072 : AUTHORING_LIMITS.operations, traces: AuthoringOperationTrace[] = []
-  const record = (stepIndex: number, operationIndex: number, operation: AuthoringOperation, before: ProjectData, beforeCost: number) => {
+export interface AuthoringOperationTrace { stepIndex: number; operationIndex: number; operation: AuthoringOperation; before: ProjectData; after: ProjectData; complexityCost: number; usage?: Partial<import('../budget/task-budget.js').BudgetUsage> }
+function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], expanded = false, inspect?: (trace: AuthoringOperationTrace) => void, budget?: TaskBudgetProfile, capability?: CurrentAuthoringCapability): ReplayedAuthoring & { traces: AuthoringOperationTrace[] } {
+  const maximum = budget ? Number.MAX_SAFE_INTEGER : expanded ? 131072 : AUTHORING_LIMITS.operations, traces: AuthoringOperationTrace[] = []
+  const record = (stepIndex: number, operationIndex: number, operation: AuthoringOperation, before: ProjectData, beforeCost: number, usage?: Partial<import('../budget/task-budget.js').BudgetUsage>) => {
     if (!expanded) return
+    if (capability) {
+      // Use the same full physical/appearance/identity/generation accounting as manual adoption.
+      // Domain preview costs can be more conservative; never add them twice.
+      const actual = terrainCommandCost(before.document, project.document, { before, after: project }).total
+      operationCost = beforeCost + Math.max(1, operationCost - beforeCost, actual)
+      if (project.document.schemaVersion >= 6) {
+        const impact = inspectDecorationChanges(before.document, project.document)
+        const changesDressing = impact.changedIds.some(id => before.document.decorations?.[id] || project.document.decorations?.[id]
+          || before.document.decorationClusters?.[id] || project.document.decorationClusters?.[id])
+        if (changesDressing) {
+          const scope = start.scope.scene
+          if (!scope) deny('布景人工记录的真实依赖须明确场景授权。')
+          const ids = new Set([...impact.affectedIds, ...impact.changedIds,
+            ...currentSceneDependencyIds(before.document, impact.affectedIds), ...currentSceneDependencyIds(project.document, impact.affectedIds)])
+          for (const id of ids) {
+            const exists = (document: SceneDocument) => ['props', 'decorations', 'decorationClusters', 'terrainAreas', 'rooms', 'vertices', 'walls', 'openings', 'paths', 'terrainConnections', 'terrainEdges', 'regions', 'notes', 'prefabInstances', 'scatterGroups']
+              .some(key => Object.hasOwn((document as unknown as Record<string, Record<string, unknown>>)[key] ?? {}, id))
+            if (exists(before.document)) {
+              if (!sceneAllowed.has(id)) deny('布景人工记录存在未授权依赖，此步骤未采用。')
+              try { assertPublicSceneEntity(before, scope, id, capability).forEach(key => read.add(key)) }
+              catch { deny('布景人工记录存在私密、锁定或范围外依赖，此步骤未采用。') }
+            }
+            if (exists(project.document)) {
+              try { assertPublicSceneEntity(project, scope, id, capability).forEach(key => read.add(key)) }
+              catch { deny('布景人工记录存在私密、锁定或范围外依赖，此步骤未采用。') }
+            }
+          }
+          impact.changedIds.forEach(id => touched.add(id))
+        }
+      }
+    }
     const complexityCost = operationCost - beforeCost
-    if (complexityCost > 256) deny('本次领域计算展开超过256复杂度保护。')
-    inspect?.({ stepIndex, operationIndex, operation, before, after: project, complexityCost })
+    if (budget) assertTaskBudget(budget, measureTaskBudget(before.document, project.document, { before, after: project }))
+    if (!budget && complexityCost > 256) deny('本次领域计算展开超过256复杂度保护。')
+    inspect?.({ stepIndex, operationIndex, operation, before, after: project, complexityCost, ...(usage ? { usage } : {}) })
   }
   let project = cloneJson(start.project), operationCost = 0
-  const read = initialReads(start), touched = new Set<string>(), allowed = new Set(start.scope.targetIds), created = new Set<string>(), sceneAllowed = new Set(start.scope.scene?.entityIds ?? []), stepIds = new Set<string>(), opacityIds = new Map<string, string>()
+  const read = initialReads(start, capability), touched = new Set<string>(), allowed = new Set(start.scope.targetIds), created = new Set<string>(), sceneAllowed = new Set(start.scope.scene?.entityIds ?? []), stepIds = new Set<string>(), opacityIds = new Map<string, string>()
   const artwork: ArtworkOperation[] = [], newPropBounds = new Map<string, BoundsMm>(), visualInvalidated = new Set<string>()
   if (!Array.isArray(steps) || steps.length > AUTHORING_LIMITS.steps) deny('任务步骤须为数组且最多256。')
   for (let i = 0; i < steps.length; i++) {
-    const step = AuthoringStepSchema.parse(steps[i])
+    const step = (capability ? AuthoringStepV4Schema : AuthoringStepSchema).parse(steps[i]) as AuthoringStep
     if (step.index !== i + 1 || stepIds.has(step.stepId)) deny('步骤必须连续且stepId唯一。')
     stepIds.add(step.stepId)
     const context = contextFor(start, step.index)
     for (const [operationIndex, operation] of step.operations.entries()) {
       const beforeOperation = project, beforeCost = operationCost
+      if (capability && isCurrentExtraOperation(operation)) {
+        if (!start.scope.scene) deny('当前场景创作未授权。')
+        let result: ReturnType<typeof applyCurrentAuthoringOperation>
+        try { result = applyCurrentAuthoringOperation(project, start.scope.scene as CurrentSceneAuthoringScope, operation as CurrentExtraOperation, context, sceneAllowed, budget) }
+        catch (error) { throw new AuthoringOperationError(operationIndex, error) }
+        project = result.project
+        result.readIds.forEach(id => read.add(id)); result.writeIds.forEach(id => touched.add(id))
+        result.createdIds.forEach(id => { sceneAllowed.add(id); created.add(id) })
+        operationCost += result.cost
+        if (operationCost > maximum) deny('任务累计真实展开超过预算。')
+        record(step.index, operationIndex, operation, beforeOperation, beforeCost)
+        continue
+      }
       if (isTerrainAuthoringOperation(operation)) {
         if (!start.scope.scene) deny('地形场景创作未授权。')
         let result: ReturnType<typeof applyTerrainAuthoringOperation>
-        try { result = applyTerrainAuthoringOperation(project, start.scope.scene, operation, context, sceneAllowed) }
+        try { result = applyTerrainAuthoringOperation(project, start.scope.scene, operation, context, sceneAllowed, budget) }
         catch (error) { throw new AuthoringOperationError(operationIndex, error) }
         project = result.project
         project.document.revision = start.project.document.revision; project.document.updatedAt = start.project.document.updatedAt
@@ -255,13 +311,13 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         result.createdIds.forEach(id => { sceneAllowed.add(id); created.add(id) })
         operationCost += result.cost
         if (operationCost > maximum) deny('任务累计展开超过256条操作。')
-        record(step.index, operationIndex, operation, beforeOperation, beforeCost)
+        record(step.index, operationIndex, operation, beforeOperation, beforeCost, result.usage)
         continue
       }
       if (isVisualAuthoringOperation(operation)) {
         if (!start.scope.visual) deny('视觉创作未授权。')
         let result: ReturnType<typeof applyVisualAuthoringOperation>
-        try { result = applyVisualAuthoringOperation(project, start.scope.visual, operation, context, created) }
+        try { result = applyVisualAuthoringOperation(project, start.scope.visual, operation, context, created, capability) }
         catch (error) { throw new AuthoringOperationError(operationIndex, error) }
         const beforeTopology = visualTopology(project.document), afterTopology = visualTopology(result.project.document)
         for (const [id, previous] of beforeTopology) if (afterTopology.get(id) !== previous) visualInvalidated.add(id)
@@ -286,7 +342,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
       if (!['place', 'transform', 'opacity', 'delete'].includes(operation.kind)) {
         if (!start.scope.scene) deny('场景创作未授权。')
         const result = (() => {
-          try { return applySceneOperation(project, start.scope.scene!, operation as SceneAuthoringOperation, context, sceneAllowed) }
+          try { return applySceneOperation(project, start.scope.scene!, operation as SceneAuthoringOperation, context, sceneAllowed, budget, capability) }
           catch (error) { throw new AuthoringOperationError(operationIndex, error) }
         })()
         project = result.project
@@ -317,7 +373,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
       } else if (operation.kind === 'transform' || operation.kind === 'delete' || operation.kind === 'opacity') {
         id = operation.id
         if (!allowed.has(id)) deny('物件不在冻结目标或本任务新增范围。')
-        collectProp(project, assertIndependentPublic(project, id, read), read)
+        collectProp(project, assertIndependentPublic(project, id, read, capability), read)
         if (operation.kind === 'transform') command = { type: 'updateProp', id, changes: { ...(operation.positionMm ? { positionMm: operation.positionMm } : {}), ...(operation.rotationDeg !== undefined ? { rotationDeg: operation.rotationDeg } : {}) } }
         else if (operation.kind === 'delete') {
           if (artwork.some(item => item.kind === 'svg' ? item.id === id : item.ids.includes(id))) deny('已制作素材的目标不能在同一草稿删除。')
@@ -337,17 +393,20 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         }
       }
       else deny('未知操作。')
-      const content = resolveAppearance(applyCompositionCommands({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance }, [command], context))
+      const content = resolveAppearance(applyCompositionCommands({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance }, [command], context, { budget }))
       content.document.revision = start.project.document.revision; content.document.updatedAt = start.project.document.updatedAt
-      if (project.document.schemaVersion === 3) detachChangedOutputs(project.document, content.document)
+      if (project.document.schemaVersion === 3 || capability && project.document.schemaVersion >= 4) detachChangedOutputs(project.document, content.document)
       project = validateProjectData({ ...project, ...content })
       if (operation.kind !== 'delete') {
-        const prop = assertIndependentPublic(project, id, read), floor = project.document.floors[prop.floorId]
-        if (!contains(floor.boundsMm, visualPoints(prop)) || !contains(floor.boundsMm, propFootprint(prop))) deny('物件实际旋转图像/占地超出世界。')
+        const prop = assertIndependentPublic(project, id, read, capability), floor = project.document.floors[prop.floorId]
+        if (!capability && !contains(floor.boundsMm, visualPoints(prop)) || !contains(floor.boundsMm, propFootprint(prop))) deny('物件实际旋转图像/占地超出世界。')
         if (operation.kind === 'place' || !start.scope.targetIds.includes(id)) {
           const bounds = operation.kind === 'place' ? start.scope.placement?.boundsMm : newPropBounds.get(id)
           if (!bounds) deny('本任务新增物件缺少确切授权范围。')
-          if (!contains(bounds, visualPoints(prop)) || !contains(bounds, propFootprint(prop))) deny('物件实际旋转图像/占地超出新增授权范围。')
+          if (!contains(bounds, capability ? currentAuthoringPaint(project, id)!.polygonMm : visualPoints(prop)) || !contains(bounds, propFootprint(prop))) deny('物件实际旋转图像/占地超出新增授权范围。')
+        }
+        if (capability) for (const grant of [start.scope.scene, start.scope.visual]) if (grant?.entityIds.includes(id)) {
+          if (!contains(grant.boundsMm, currentAuthoringPaint(project, id)!.polygonMm)) deny('物件实际根锚画面超出明确授权范围。')
         }
         collectProp(project, prop, read)
       }
@@ -369,9 +428,10 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
   const state: AuthoringState = { schemaVersion: 1, draftRevision: steps.length, contentHash: artwork.length ? sha256Text(canonicalJson({ project: authoringProjectHash(project), artwork })) : authoringProjectHash(project), operationCost,
     changedIds: sorted(touched), readIds: sorted(read), writeIds: sorted(touched), steps: cloneJson([...steps]) }
   const expandedIds = (maximum: number) => z.array(z.string().min(1).max(256)).max(maximum)
-  const schema = expanded ? AuthoringStateSchema.extend({ operationCost: z.number().int().min(0).max(131072),
+  const schema = expanded ? AuthoringStateSchema.extend({ operationCost: z.number().int().min(0).max(budget ? Number.MAX_SAFE_INTEGER : 131072),
     changedIds: expandedIds(8192), readIds: expandedIds(16384), writeIds: expandedIds(8192) }) : AuthoringStateSchema
-  return { project, state: schema.parse(state), visualInvalidatedIds: sorted(visualInvalidated), traces }
+  const parsed = (capability ? schema.extend({ steps: z.array(AuthoringStepV4Schema).max(256) }) : schema).parse(state) as AuthoringState
+  return { project, state: parsed, visualInvalidatedIds: sorted(visualInvalidated), traces }
 }
 
 /** Replays only supported ledger entries; no remote project or self-reported cost is trusted. */
@@ -383,6 +443,10 @@ export function replayAuthoring(input: AuthoringStart, steps: readonly Authoring
  * the new deterministic ledger accounts semantic targets separately from expansion. */
 export function replayAuthoringExpanded(input: AuthoringStart, steps: readonly AuthoringStep[], inspect?: (trace: AuthoringOperationTrace) => void) {
   return replayOwned(validateAuthoringStartExpanded(input), captureJson(steps), true, inspect)
+}
+/** Internal counting-2 replay; domain/lock/dependency checks remain complete. */
+export function replayAuthoringProfiled(input: AuthoringStart, steps: readonly AuthoringStep[], profile: TaskBudgetProfile, inspect?: (trace: AuthoringOperationTrace) => void) {
+  return replayOwned(validateAuthoringStartProfiled(input, profile), captureJson(steps), true, inspect, parseTaskBudgetProfile(profile))
 }
 function verifiedState(start: AuthoringStart, state: AuthoringState): ReplayedAuthoring {
   const parsed = AuthoringStateSchema.parse(captureJson(state)), replayed = replayOwned(start, parsed.steps)
@@ -411,6 +475,9 @@ export function authoringAssetPage(input: AuthoringStart, query: string, limit: 
 export function authoringAssetPageExpanded(input: AuthoringStart, query: string, limit: number, offset = 0) {
   return assetPage(validateAuthoringStartExpanded(input), query, limit, offset)
 }
+export function authoringAssetPageProfiled(input: AuthoringStart, profile: TaskBudgetProfile, query: string, limit: number, offset = 0) {
+  return assetPage(validateAuthoringStartProfiled(input, profile), query, limit, offset)
+}
 function assetPage(start: AuthoringStart, query: string, limit: number, offset: number) {
   if (typeof query !== 'string' || query.length > 256 || !Number.isSafeInteger(limit) || limit < 1 || limit > 32 || !Number.isSafeInteger(offset) || offset < 0 || offset > 1024) deny('素材搜索参数无效。')
   const text = query.trim().toLocaleLowerCase('en-US')
@@ -429,7 +496,7 @@ export function publicAuthoringContext(input: AuthoringStart, state: AuthoringSt
   const start = validateAuthoringStart(input), replayed = verifiedState(start, state)
   return publicAuthoringContextForReplay(start, replayed)
 }
-export function publicAuthoringContextForReplay(start: AuthoringStart, replayed: ReplayedAuthoring): unknown {
+export function publicAuthoringContextForReplay(start: AuthoringStart, replayed: ReplayedAuthoring, capability?: CurrentAuthoringCapability): unknown {
   const project = replayed.project, document = project.document
   const targetIds = sorted([...start.scope.targetIds, ...artworkTargetIds(start.project, start.scope), ...replayed.state.changedIds]).filter(id => has(document.props, id) && createPublicVisibility(document).prop(document.props[id]))
   const placement = start.scope.placement
@@ -442,8 +509,8 @@ export function publicAuthoringContextForReplay(start: AuthoringStart, replayed:
     draftRevision: replayed.state.draftRevision, contentHash: replayed.state.contentHash, operationCost: replayed.state.operationCost,
     remainingOperations: AUTHORING_LIMITS.operations - replayed.state.operationCost, allowedOperations: [...start.scope.operations, ...(start.scope.scene?.operations ?? []), ...(start.scope.artwork?.operations ?? []), ...(start.scope.visual?.operations ?? [])],
     visual: start.scope.visual ? publicVisualAuthoringContext(project, start.scope.visual, new Set(replayed.state.changedIds)) : null,
-    scene: start.scope.scene ? publicSceneContext(project, start.scope.scene, new Set([...start.scope.scene.entityIds, ...replayed.state.changedIds]))
-      : start.scope.visual ? publicVisualPhysicalContext(project, start.scope.visual, new Set(replayed.state.changedIds)) : null,
+    scene: start.scope.scene ? publicSceneContext(project, start.scope.scene, new Set([...start.scope.scene.entityIds, ...replayed.state.changedIds]), capability)
+      : start.scope.visual ? publicVisualPhysicalContext(project, start.scope.visual, new Set(replayed.state.changedIds), capability) : null,
     artwork: start.scope.artwork ? { mode: start.scope.artwork.mode, targetIds: artworkTargetIds(start.project, start.scope), boundsMm: start.scope.artwork.boundsMm ?? null, includeNewProps: start.scope.artwork.includeNewProps ?? false } : null,
     targets: targetIds.map(id => { const prop = document.props[id]; assertArtworkProp(project, id)
       return { id, pendingSvg: replayed.state.steps.some(step => step.operations.some(operation => operation.kind === 'svg' && operation.id === id)), floorId: prop.floorId, layerId: document.entityLayers[id], definitionRef: cloneJson(prop.definitionRef), positionMm: cloneJson(prop.positionMm),
@@ -455,4 +522,15 @@ export function publicAuthoringContextForReplay(start: AuthoringStart, replayed:
 export function checkAuthoringDraft(input: AuthoringStart, state: AuthoringState): { valid: true; operationCost: number; changedIds: string[]; readIds: string[]; writeIds: string[] } {
   const checked = verifiedState(validateAuthoringStart(input), state).state
   return { valid: true, operationCost: checked.operationCost, changedIds: [...checked.changedIds], readIds: [...checked.readIds], writeIds: [...checked.writeIds] }
+}
+
+/** Internal authoring4 adapter: the public legacy parsers above remain closed. */
+export function validateCurrentAuthoringEngine(input: AuthoringStart, profile?: TaskBudgetProfile): AuthoringStart {
+  return validateStart(input, true, profile, CURRENT_AUTHORING_CAPABILITY)
+}
+export function replayCurrentAuthoringEngine(input: AuthoringStart, steps: readonly AuthoringStep[], profile?: TaskBudgetProfile, inspect?: (trace: AuthoringOperationTrace) => void) {
+  return replayOwned(validateCurrentAuthoringEngine(input, profile), captureJson(steps), true, inspect, profile, CURRENT_AUTHORING_CAPABILITY)
+}
+export function currentAuthoringAssetPage(input: AuthoringStart, profile: TaskBudgetProfile | undefined, query: string, limit: number, offset: number) {
+  return assetPage(validateCurrentAuthoringEngine(input, profile), query, limit, offset)
 }

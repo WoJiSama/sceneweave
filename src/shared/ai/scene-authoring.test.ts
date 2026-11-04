@@ -49,7 +49,7 @@ function materialFixture(): ProjectData {
 }
 function scope(entityIds: string[] = []): SceneAuthoringScope {
   return { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm: { x: 500, y: 500, width: 18000, height: 18000 }, entityIds,
-    definitionIds: ['tree'], prefabDefinitionIds: ['camp'], materialIds: [], operations: [...SceneAuthoringOperationKindSchema.options] }
+    definitionIds: ['tree'], prefabDefinitionIds: ['camp'], materialIds: [], operations: SceneAuthoringOperationKindSchema.options.filter(kind => !['terrainGenerate','terrainEdit','terrainLocal','regionalGenerate','regionalEdit'].includes(kind)) }
 }
 function flow(initial = fixture(), grant = scope()) {
   let project = initial, cost = 0

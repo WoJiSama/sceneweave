@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { connectionRouteSchema } from '../geometry/connection-route.js'
 import type { BoundsMm, Issue, PointMm, Prop, SceneDocument } from '../model/scene.js'
 import type { HistoryIdentity } from '../model/history.js'
 import { canonicalJson, encodeUtf8 } from '../validation/json.js'
@@ -32,7 +33,7 @@ const fields = {
   source: ['source', 'neighborAreaId', 'binding', 'boundaryId', 'inputHash', 'materialRef', 'definitionRef', 'sourceRef', 'supportRef', 'supportRefs', 'roomId', 'algorithmVersion', 'gridOriginMm', 'cellSizeMm', 'densityFactor', 'minDistanceMm', 'rotationRangeDeg'],
 } as const
 const nativeCollection = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', prefabInstance: 'prefabInstances' } as const
-const v5 = (scene: SceneDocument): GenerationSystem5 => { if (scene.schemaVersion !== 4 || scene.generation?.version !== 5) throw new Error('组合合同需要严格scene4/generation5。'); return scene.generation }
+const v5 = (scene: SceneDocument): GenerationSystem5 => { if ((scene.schemaVersion < 4) || scene.generation?.version !== 5) throw new Error('组合合同需要严格scene4–6与generation5。'); return scene.generation }
 const inBounds = (point: PointMm, bounds: BoundsMm) => point.x >= bounds.x && point.y >= bounds.y && point.x <= bounds.x + bounds.width && point.y <= bounds.y + bounds.height
 const contains = (outer: BoundsMm, inner: BoundsMm) => inBounds(inner, outer) && inBounds({ x: inner.x + inner.width, y: inner.y + inner.height }, outer)
 
@@ -44,11 +45,16 @@ export function resolveCompositionEntity(scene: SceneDocument, ref: TerrainCompo
   return resolveGenerationEntity(legacyTerrainView(scene), ref as GenerationReference)
 }
 export function resolveCompositionTarget(scene: SceneDocument, ref: TerrainCompositionReference): Record<string, unknown> | null {
-  return building.has(ref.kind) ? resolveCompositionEntity(scene, ref) : resolveGenerationTarget(legacyTerrainView(scene), ref as GenerationReference)
+  const value = building.has(ref.kind) ? resolveCompositionEntity(scene, ref) : resolveGenerationTarget(legacyTerrainView(scene), ref as GenerationReference)
+  if (scene.schemaVersion >= 5 && ref.kind === 'terrainConnection' && value && (ref.fieldGroup === 'geometry' || ref.fieldGroup === 'properties')) {
+    const route = scene.terrainConnections[ref.entityId]?.route
+    if (route) return { ...value, route }
+  }
+  return value
 }
 
 /** Strict native snapshot projection. Baselines are validated without substituting adopted output. */
-function snapshotSchema(ref: TerrainCompositionReference): z.ZodType {
+function snapshotSchema(scene: SceneDocument, ref: TerrainCompositionReference): z.ZodType {
   const shape = sceneDocumentSchema.shape
   if (building.has(ref.kind)) return shape[nativeCollection[ref.kind as keyof typeof nativeCollection]].valueType
   const schema = ({ terrainArea: shape.terrainAreas.valueType, terrainEdge: shape.terrainEdges.valueType, terrainConnection: shape.terrainConnections.valueType,
@@ -62,7 +68,10 @@ function snapshotSchema(ref: TerrainCompositionReference): z.ZodType {
   } as Record<string, z.ZodObject>)[ref.kind]
   if (!schema) throw new Error('不支持的原生快照类型。')
   const targetShape:Record<string,z.ZodType> = { ...schema.shape, ...('floorId' in schema.shape ? { layerId: z.string().min(1).max(256).nullable() } : {}) }
-  const selected = Object.fromEntries(fields[ref.fieldGroup].filter(key => Object.hasOwn(targetShape, key)).map(key => [key, targetShape[key]]))
+  const keys: readonly string[] = scene.schemaVersion >= 5 && ref.kind === 'terrainConnection' && (ref.fieldGroup === 'geometry' || ref.fieldGroup === 'properties')
+    ? [...fields[ref.fieldGroup], 'route'] : fields[ref.fieldGroup]
+  if (scene.schemaVersion >= 5 && ref.kind === 'terrainConnection') targetShape.route = connectionRouteSchema.optional()
+  const selected = Object.fromEntries(keys.filter(key => Object.hasOwn(targetShape, key)).map(key => [key, targetShape[key]]))
   if (!Object.keys(selected).length) throw new Error('该实体不支持空字段组快照。')
   return z.object(selected).strict()
 }
@@ -157,7 +166,7 @@ export function validateTerrainTransitions(scene: Readonly<SceneDocument>): Issu
 
 export interface TerrainIdentityDescriptor { kind: TerrainIdentityToken['kind']; topologyHash: string }
 export function terrainIdentityDescriptors(scene: Readonly<SceneDocument>): Record<string, TerrainIdentityDescriptor> {
-  if (scene.schemaVersion !== 4 || scene.generation?.version !== 5) return {}
+  if ((scene.schemaVersion < 4) || scene.generation?.version !== 5) return {}
   const generation = scene.generation, result: Record<string, TerrainIdentityDescriptor> = {}
   const add = (id: string, kind: TerrainIdentityToken['kind'], floorId: string | null, parentIds: unknown[], orderedChildIds: unknown[], geometryStructure: unknown) => {
     if (Object.hasOwn(result,id)) throw new Error(`组合身份重复：${id}。`)
@@ -179,9 +188,9 @@ export function terrainIdentityDescriptors(scene: Readonly<SceneDocument>): Reco
 
 /** Called after strict shape parsing. It never repairs hashes, geometry or saved receipts. */
 export function validateCompositionContracts(scene: SceneDocument): Issue[] {
-  if (scene.schemaVersion !== 4) return []
+  if (scene.schemaVersion < 4) return []
   const generation = v5(scene), issues: Issue[] = [], fail = (code: string, message: string, entityId?: string) => issues.push({ code, message, ...(entityId ? {entityId} : {}) })
-  if(scene.visual?.version!==3)return [{code:'COMPOSITION_VERSION',message:'scene4必须使用visual3。'}]
+  if(scene.visual?.version!==3)return [{code:'COMPOSITION_VERSION',message:'scene4/5必须使用visual3。'}]
   issues.push(...validateTerrainTransitions(scene))
   const collections = ['features','compositions','requirements','checks','thresholds','dependencies'] as const
   if(scene.mapMode==='regional'&&collections.some(key=>Object.keys(generation[key]).length))fail('COMPOSITION_REGIONAL','区域模式不接受物理地貌组合记录。')
@@ -258,7 +267,7 @@ export function validateCompositionContracts(scene: SceneDocument): Issue[] {
       checkRef(read.target,owner,false,read.role)
       const written=row.writes.some(ref=>same(ref,read.target))
       if(read.role==='preserve'&&written||read.role==='baseline'&&!written)fail('COMPOSITION_READ_ROLE','preserve不能写入；baseline必须是写目标。',row.id)
-      try{const parsed=snapshotSchema(read.target).safeParse(read.snapshot);if(!parsed.success||!same(parsed.data,read.snapshot))fail('COMPOSITION_READ_SNAPSHOT','依赖快照必须是完整严格原生字段组。',row.id)}catch(error){fail('COMPOSITION_READ_SNAPSHOT',error instanceof Error?error.message:String(error),row.id)}
+      try{const parsed=snapshotSchema(scene,read.target).safeParse(read.snapshot);if(!parsed.success||!same(parsed.data,read.snapshot))fail('COMPOSITION_READ_SNAPSHOT','依赖快照必须是完整严格原生字段组。',row.id)}catch(error){fail('COMPOSITION_READ_SNAPSHOT',error instanceof Error?error.message:String(error),row.id)}
       if(hash(read.snapshot)!==read.contentHash)fail('COMPOSITION_READ_HASH','依赖快照hash不符。',row.id)
       for(const message of snapshotResourceIssues(scene,read.snapshot))fail('COMPOSITION_READ_RESOURCE',message,row.id)
       const target=resolveCompositionEntity(scene,read.target)
@@ -301,6 +310,6 @@ export function validateCompositionContracts(scene: SceneDocument): Issue[] {
 }
 /** Token-dependent output receipts are checked only after the complete identity has been parsed. */
 export function validateCompositionIdentityContracts(scene: SceneDocument, identity: HistoryIdentity): Issue[] {
-  if(scene.schemaVersion!==4||scene.generation?.version!==5)return []
+  if((scene.schemaVersion<4)||scene.generation?.version!==5)return []
   return Object.values(scene.generation.compositions).filter(row=>row.state==='active'&&row.outputHash!==compositionOutputHash(scene,row,identity)).map(row=>({code:'COMPOSITION_OUTPUT_HASH',message:'组合实际输出、人工状态或身份token与冻结回执不符。',entityId:row.id}))
 }

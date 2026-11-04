@@ -52,10 +52,29 @@ describe('versioned shoreline generation', () => {
     expect(sha256Text(canonicalJson(result))).toBe(hash)
   })
 
+  // Captured from the pre-v3 source via a read-only Vite transform.
+  it.each([
+    { kind: 'island', seed: 'terrain-v1-0', hash: 'e512bddb79c0c97f53c97a21993a561d1be750916d568f79c17bfe1629779ede' },
+    { kind: 'island', seed: 'terrain-v1-1', hash: '71592d62068436460cbb019de79b7a4bb98fcc0703266cdaacc5735e83eaf5a6' },
+    { kind: 'island', seed: 'terrain-v1-2', hash: '38c9cc28f898a46355b7263237217b25bc0b4dc014b1eed9aaa60a7581692f38' },
+    { kind: 'island', seed: 'terrain-v1-3', hash: 'b2cb9cd2ef80feb86e7409b423a715db82294984d3953f0d3b9402998ac38c0e' },
+    { kind: 'island', seed: 'terrain-v1-4', hash: 'f341a8f509ea5d4a2d93c92506284da0733c855aa9e97e7b22dcb2b8b92fd212' },
+    { kind: 'coast', seed: 'terrain-v1-0', hash: '09cc07c6088982fbaae1059e5c427d6c683da9b3ecd53ba5ac06331e7f28b3aa' },
+    { kind: 'coast', seed: 'terrain-v1-1', hash: 'f0c157c0f676ce63542b2b662d1044d0c5ee808071f6b5b76fe0fd5d7c9f7c76' },
+    { kind: 'coast', seed: 'terrain-v1-2', hash: 'db32c2b61230e8b8bb593016deb7ee3b2760e11c27274905fde48ca3c20f496c' },
+    { kind: 'coast', seed: 'terrain-v1-3', hash: '3168dee415e7593ffcf218bb5b7ebc51d193941d8e44e9c60c47a48b1f7269bd' },
+    { kind: 'coast', seed: 'terrain-v1-4', hash: '24e3fb1dac9e282f25a863c5298b22e11e73e12eaf1740fcc8ac4dceb0c09873' },
+  ])('retains the frozen v2 $kind/$seed complete result', ({ kind, seed, hash }) => {
+    const type = kind as 'island' | 'coast', sceneId = `frozen-v2-${kind}-${seed}`
+    const base = createRefinedBlankDocument(type, { sceneId, title: '冻结算法2', now: '2026-10-30T00:00:00.000Z', widthMm: 48000, heightMm: 36000, preset: 'narrative' })
+    const result = generateTerrainDocument(base, { sceneId, kind, seed, widthMm: 48000, heightMm: 36000, algorithmVersion: 2 })
+    expect(sha256Text(canonicalJson(result))).toBe(hash)
+  })
+
   it('keeps omitted versions absent from old request hashes and rejects unsupported selectors', () => {
     const input = { sceneId: 'selector', kind: 'island', seed: 'terrain-v1-0' }
     expect(terrainGenerationInputSchema.parse(input)).not.toHaveProperty('algorithmVersion')
-    expect(terrainGenerationInputSchema.safeParse({ ...input, algorithmVersion: 3 }).success).toBe(false)
+    expect(terrainGenerationInputSchema.safeParse({ ...input, algorithmVersion: 99 }).success).toBe(false)
     expect(terrainGenerationInputSchema.safeParse({ ...input, kind: 'forest', algorithmVersion: 2 }).success).toBe(false)
   })
 

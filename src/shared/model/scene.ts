@@ -1,3 +1,4 @@
+import type { ConnectionRoute } from '../geometry/connection-route.js'
 import type { GenerationSystem1, RegionalModel1, VisualSystem2 } from '../terrain-generation/contracts.js'
 import type { GenerationSystem5, VisualSystem3 } from '../terrain-generation/composition-contracts.js'
 import type { VisualSystem } from '../visual/types.js'
@@ -83,6 +84,8 @@ export interface TerrainConnection extends Editable {
   visibility: Visibility; kind: 'stairs' | 'ramp'
   from: { surfaceRef: SurfaceRef; positionMm: PointMm }; to: { surfaceRef: SurfaceRef; positionMm: PointMm }
   widthMm: number; openingId: Id | null; blocksMovement: boolean; movementCostMultiplier: number; surfaceStyle: SurfaceStyle | null
+  /** Present only in strict Scene5+; absent preserves the original straight connection. */
+  route?: ConnectionRoute
 }
 export interface Path extends Editable {
   visibility: Visibility; centerlineMm: PointMm[]; widthMm: number; supportRefs: SurfaceRef[]
@@ -105,6 +108,31 @@ export interface ScatterGroup extends Editable {
   members: Record<string, { propId: Id | null; state: 'managed' | 'manual' | 'deleted' | 'detached'; overrideFields: PropOverrideField[] }>
   exclusions: { id: Id; boundaryMm: PointMm[]; reason: 'manual' | 'delete' | 'entrance'; sourceCandidateKey: string | null }[]
 }
+/** Compact decoration has no collision, sight-blocking or supporting role. */
+export interface Decoration extends Editable {
+  visibility: Visibility; definitionRef: VersionRef; supportRef: SurfaceRef
+  positionMm: PointMm; rotationDeg: number; scalePpm: number; renderOrder: number
+}
+export interface DecorationCluster extends Editable {
+  visibility: Visibility; supportRef: SurfaceRef; boundsMm: BoundsMm
+  seed: string; algorithmVersion: 'cluster-v1'
+  palette: { key: string; definitionRef: VersionRef; kind: 'prop' | 'decoration'; weight: number }[]
+  maxInstances: number; spacingMm: number; clusterRadiusMm: number; clearanceMm: number
+  members: Record<string, { kind: 'prop' | 'decoration'; entityId: Id | null; state: 'managed' | 'manual' | 'deleted' | 'detached' }>
+  /** Strict v7 tree-canopy rule; absent on older and ordinary decoration clusters. */
+  canopyRule?: { regionsMm: PointMm[][]; channel: 'trees'; paintOrder: number; mode: 'plant' | 'erase'; canopyCoveragePpm: number }
+}
+/** Strict v8 rules retain the actual painted geometry, including erased holes. */
+export interface SurfaceRuleRegion { outerMm: PointMm[]; holesMm: PointMm[][] }
+export type SurfaceRuleField = 'material' | 'trees' | 'shrubs' | 'grass'
+export interface SurfaceRuleBase extends Editable {
+  visibility: Visibility; supportRef: { kind: 'terrainArea'; id: Id }
+  field: SurfaceRuleField; paintOrder: number; regionsMm: SurfaceRuleRegion[]
+}
+export type SurfaceRule = SurfaceRuleBase & (
+  | { field: 'material'; paint: MaterialPaint; blendWidthMm: number }
+  | { field: 'trees' | 'shrubs' | 'grass'; clusterId: Id; coveragePpm: number }
+)
 export interface StyleTheme extends DefinitionIdentity {
   name: string; materialSuggestions: VersionRef[]; propSuggestions: VersionRef[]; prefabSuggestions: VersionRef[]
   outline: { widthMm: number; color: string }
@@ -113,8 +141,9 @@ export interface StyleTheme extends DefinitionIdentity {
   shadowPresets: Record<'none' | 'furniture' | 'vegetation' | 'wall', ShadowStyle>
   terrainCliff: { directionDeg: number; offsetFactor: number; maxOffsetMm: number; blurMm: number; opacity: number; color: string }
 }
-export type EntityKind = 'vertex' | 'room' | 'wall' | 'opening' | 'prop' | 'region' | 'note' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path' | 'prefabInstance' | 'scatterGroup'
-export type Anchor = { type: 'entity'; entityKind: EntityKind; entityId: Id } | { type: 'point'; positionMm: PointMm }
+export type EntityKind = 'vertex' | 'room' | 'wall' | 'opening' | 'prop' | 'region' | 'note' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path' | 'prefabInstance' | 'scatterGroup' | 'decoration' | 'decorationCluster' | 'surfaceRule'
+export type AnchoredEntityKind = Exclude<EntityKind, 'decoration' | 'decorationCluster' | 'surfaceRule'>
+export type Anchor = { type: 'entity'; entityKind: AnchoredEntityKind; entityId: Id } | { type: 'point'; positionMm: PointMm }
 export interface Note extends Editable { anchor: Anchor; kind: 'note' | 'clue' | 'label'; title?: string; text: string; visibility: Visibility; discovered?: boolean }
 
 /** User organization is separate from system render bands, Floor and elevation. */
@@ -125,7 +154,7 @@ export interface PathCheck {
 }
 /** Complete, independent persisted model. No legacy view is used by the native path. */
 export interface SceneDocument {
-  format: 'sceneweave-scene'; schemaVersion: 1 | 2 | 3 | 4; sceneId: Id; revision: number
+  format: 'sceneweave-scene'; schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; sceneId: Id; revision: number
   title: string; createdAt: string; updatedAt: string
   units: { world: 'mm'; display: 'm' | 'ft'; gridSizeMm: number; snapMm: number; gridVisible: boolean }
   exportBoundsMm: BoundsMm
@@ -152,6 +181,21 @@ export interface SceneDocument {
   regional?: RegionalModel1 | null
   visual?: VisualSystem | VisualSystem2<VisualSystem> | VisualSystem3
   generationMetadata?: { generatorVersion: string; seed: string; summary?: string; adoptedAt: string }
+  /** Required only by strict Scene6; old strict versions reject these keys. */
+  decorations?: Record<Id, Decoration>
+  decorationClusters?: Record<Id, DecorationCluster>
+  /** Required only by strict Scene8; older strict versions reject this key. */
+  surfaceRules?: Record<Id, SurfaceRule>
+}
+export type SceneDocument8 = Omit<SceneDocument, 'schemaVersion' | 'mapMode' | 'generation' | 'regional' | 'visual' | 'decorations' | 'decorationClusters' | 'surfaceRules'> & {
+  schemaVersion: 8
+  mapMode: 'scene' | 'regional'
+  generation: GenerationSystem5
+  regional: RegionalModel1 | null
+  visual: VisualSystem3
+  decorations: Record<Id, Decoration>
+  decorationClusters: Record<Id, DecorationCluster>
+  surfaceRules: Record<Id, SurfaceRule>
 }
 export interface Issue { code: string; message: string; entityId?: Id }
 export const USER_LAYER_LIMIT = 128
@@ -161,10 +205,14 @@ export const LAYER_ENTITY_COLLECTIONS = [
   'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'prefabInstances', 'scatterGroups',
 ] as const
 export type LayerEntityCollection = typeof LAYER_ENTITY_COLLECTIONS[number]
+export const DECORATION_COLLECTIONS = ['decorations', 'decorationClusters'] as const
+export const SURFACE_RULE_COLLECTIONS = ['surfaceRules'] as const
 export const collectionFor = {
   vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', prop: 'props', region: 'regions', note: 'notes',
   terrainArea: 'terrainAreas', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections', path: 'paths',
   prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups',
+  decoration: 'decorations', decorationCluster: 'decorationClusters',
+  surfaceRule: 'surfaceRules',
 } as const
 export const newId = (context: PreparationContext): Id => context.ids.nextId()
 export const cloneScene = (scene: SceneDocument): SceneDocument => cloneJson(scene)

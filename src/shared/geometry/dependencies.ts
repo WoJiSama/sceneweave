@@ -23,6 +23,14 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
     register(value.id, key)
     if ('floorId' in value && !own(scene.floors, value.floorId)) error('MISSING_FLOOR', '实体所在 Floor 不存在。', value.id)
   }
+  for (const collection of [scene.decorations ?? {}, scene.decorationClusters ?? {}]) for (const [key, value] of Object.entries(collection)) {
+    register(value.id, key)
+    if (!own(scene.floors, value.floorId)) error('MISSING_FLOOR', '轻量装饰/簇所在Floor不存在。', value.id)
+  }
+  for (const [key, value] of Object.entries(scene.surfaceRules ?? {})) {
+    register(value.id, key)
+    if (!own(scene.floors, value.floorId)) error('MISSING_FLOOR', '地表规则所在Floor不存在。', value.id)
+  }
   const definitions = ['materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const
   const definitionCount = definitions.reduce((sum, key) => sum + Object.keys(scene[key]).length, 0)
   if (definitionCount > 4096) error('DEFINITION_BUDGET', '定义快照总数不得超过 4096。')
@@ -103,11 +111,17 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
       if (prop.supportRef.kind === 'room' && prop.supportRef.id !== prop.roomId) error('ROOM_SUPPORT_MISMATCH', 'room 支撑与 roomId 必须指向相同 Room。', prop.id)
     }
   }
+  for (const value of Object.values(scene.decorations ?? {})) {
+    const definition = checkVersion(value.definitionRef, scene.propDefinitions, value.id)
+    if (definition) checkAppearance(definition.defaultAppearance, value.definitionRef, value.id)
+    surface(value.supportRef, value)
+  }
   const managedBy = new Map<string, string>()
-  const member = (propId: string, owner: Editable) => {
+  const member = (propId: string, owner: Editable, claimOwnership = true) => {
     const prop = own(scene.props, propId)
     if (!prop) error('MISSING_MEMBER', '采用后的成员 Prop 不存在。', owner.id)
     else if (prop.floorId !== owner.floorId) error('CROSS_FLOOR_REFERENCE', '组与成员必须同 Floor。', owner.id)
+    if (!claimOwnership) return
     if (managedBy.has(propId)) error('DUPLICATE_MANAGEMENT', 'Prop 只能属于一个组合或散布组。', propId)
     managedBy.set(propId, owner.id)
   }
@@ -146,6 +160,22 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
       if (exclusion.reason === 'delete' && (exclusion.sourceCandidateKey === null || own(group.members, exclusion.sourceCandidateKey)?.state !== 'deleted')) error('INVALID_DELETE_EXCLUSION', '删除排除区必须对应 deleted 成员的稳定 candidateKey。', group.id)
     }
     if (active > 5000 || suppressed + group.exclusions.length > 10000) error('SCATTER_BUDGET', '散布组超过 5000 活成员或 10000 抑制/排除记录。', group.id)
+  }
+  for (const group of Object.values(scene.decorationClusters ?? {})) {
+    surface(group.supportRef, group)
+    for (const item of group.palette) checkVersion(item.definitionRef, scene.propDefinitions, group.id)
+    for (const value of Object.values(group.members)) if (value.entityId !== null) {
+      if (value.kind === 'prop') member(value.entityId, group, value.state !== 'detached')
+      else {
+        const decoration = scene.decorations?.[value.entityId]
+        if (!decoration) error('MISSING_MEMBER', '轻量装饰簇成员不存在。', group.id)
+        else if (decoration.floorId !== group.floorId) error('CROSS_FLOOR_REFERENCE', '簇与轻量成员必须同Floor。', group.id)
+        if (value.state !== 'detached') {
+          if (managedBy.has(value.entityId)) error('DUPLICATE_MANAGEMENT', '轻量成员只能属于一个簇。', value.entityId)
+          managedBy.set(value.entityId, group.id)
+        }
+      }
+    }
   }
   for (const [id, asset] of Object.entries(scene.assets)) {
     if (!assetIds.has(id)) error('UNUSED_ASSET', '未被已采用场景或定义引用的资源不能进入正式工程。', id)

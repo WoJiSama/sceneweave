@@ -5,7 +5,7 @@ import { ARTWORK_SVG, artworkDraft, artworkValidation } from '../../../tests/hel
 import { ProjectRepository } from '../../platform/browser/storage/repository'
 import { replayAuthoring } from '../../shared/ai/authoring'
 import { normalizeStaticSvg } from '../../shared/ai/svg'
-import type { AuthoringOperation } from '../../shared/ai/authoring-protocol'
+import type { AuthoringOperation } from '../../shared/ai/authoring-protocol-v1'
 import { createCompositionContent, effectiveAdjustments } from '../../shared/appearance/graph'
 import { exportHistoryArchive, exportProject, importHistoryArchive, importProject } from '../../shared/project/file'
 import { decodeUtf8, sha256Bytes } from '../../shared/project/binary'

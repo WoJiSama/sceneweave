@@ -8,6 +8,7 @@ import { wallGeometryV3 } from '../../platform/browser/render/renderer'
 import { effectiveEditLockedV2, hitTestAllV2, selectInBoundsV2, selectionGeometryV2 } from './selection'
 import type { SelectionOptionsV2 } from './selection'
 import { summarizeSelectionV2 } from './selection-summary'
+import { copyScenePresentations } from '../../shared/appearance/presentation.js'
 
 const EPS = 1e-6
 const cloneShapes = (shapes: PointMm[][]): PointMm[][] => shapes.map(shape => shape.map(point => ({ ...point })))
@@ -24,6 +25,10 @@ export function hiddenDependentsV3(scene: SceneDocumentV3, hidden: ReadonlySet<s
     if (ids.has(connection.from.surfaceRef.id) || ids.has(connection.to.surfaceRef.id) || opening && (ids.has(opening.id) || ids.has(opening.wallId))) ids.add(connection.id)
   }
   for (const path of Object.values(scene.paths)) if (path.supportRefs.some(ref => ids.has(ref.id))) ids.add(path.id)
+  const supportHidden = (ref: { kind: string; id: string }) => ids.has(ref.id) || ref.kind === 'room' && scene.rooms[ref.id]?.supportRef.kind === 'terrainArea' && ids.has(scene.rooms[ref.id].supportRef.id)
+  for (const group of Object.values(scene.decorationClusters ?? {})) if (supportHidden(group.supportRef)) ids.add(group.id)
+  for (const value of Object.values(scene.decorations ?? {})) if (supportHidden(value.supportRef)) ids.add(value.id)
+  for (const group of Object.values(scene.decorationClusters ?? {})) if (ids.has(group.id)) for (const member of Object.values(group.members)) if (member.entityId && member.state !== 'detached') ids.add(member.entityId)
   let changed = true
   while (changed) {
     changed = false
@@ -56,11 +61,18 @@ function sourceFor(scene: SceneDocumentV3): SelectionSourceV3 {
   if (cached) return cached
   const checked = validateSceneSnapshotV3(scene)
   if (!checked.ok) throw new Error(`场景选择数据无效：${checked.errors[0]?.message ?? '结构不合法。'}`)
-  const source = checked.document, domain = toGeometryDocumentV2(source, { effectiveLocks: true, layerOrder: true })
+  const source = checked.document
+  copyScenePresentations(scene, source)
+  const domain = toGeometryDocumentV2(source, { effectiveLocks: true, layerOrder: true })
   const layerOrder = new Map(Object.entries(source.entityLayers).map(([id, layer]) => [id, source.userLayers[layer].order]))
   const bands = new Map<string, number>()
   const propBand = (id: string): number => source.props[id].renderLayer === 'canopy' ? 12 : source.props[id].renderLayer === 'object' ? 11 : 7
   for (const prop of Object.values(source.props)) bands.set(prop.id, propBand(prop.id))
+  for (const value of Object.values(source.decorations ?? {})) {
+    const layer = source.propDefinitions[value.definitionRef.id].defaultRenderLayer
+    bands.set(value.id, layer === 'canopy' ? 12 : layer === 'object' ? 11 : 7)
+  }
+  for (const group of Object.values(source.decorationClusters ?? {})) bands.set(group.id, Math.max(7, ...Object.values(group.members).flatMap(member => member.entityId && member.state !== 'detached' ? bands.get(member.entityId) ?? [] : [])))
   for (const group of [...Object.values(source.prefabInstances), ...Object.values(source.scatterGroups)]) {
     let band = 7
     for (const member of Object.values(group.members)) if (member.propId !== null) band = Math.max(band, propBand(member.propId))

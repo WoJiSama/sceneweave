@@ -13,9 +13,12 @@ import {
   type CatalogOrganizationV1, type CatalogSnapshotV1, type PreparedCatalogEntryV1,
 } from './catalog'
 import AssetImportForm, { type AssetImportFields } from './AssetImportForm'
+import AssetBatchImportForm, { type AssetBatchReview } from './AssetBatchImportForm'
+import type { AssetImportRequest } from '../../application/workspace/asset-batch'
+import { definitionPresentation } from '../../shared/appearance/presentation'
 import './catalog-library.css'
 
-type Scope = 'builtin' | 'mine' | 'project'
+type Scope = 'builtin' | 'variants' | 'mine' | 'project'
 type Draft = { keys: string[]; revision: number; tags: string; colors: CatalogColorV1[]; favorite: boolean }
 type Review = { records: CatalogBackupRecordV1[]; keys: string[]; organizationKeys: string[]; organizations: Record<string, CatalogOrganizationV1>; revision: number; strategy: 'keep-local' | 'replace-selected' }
 const KIND_LABELS: Record<CatalogKindV1, string> = { prop: '物件', material: '材质', prefab: '组合' }
@@ -36,10 +39,18 @@ export interface CatalogLibraryProps {
   builtinLoading?: boolean
   builtinError?: string
   onBuiltinDemand?: () => void
+  variantsProject?: EditableProject
+  variantsLoading?: boolean
+  variantsError?: string
+  onVariantsDemand?: () => void
   onPlace: (id: string) => void
   onMaterial: (id: string) => void
   onPrefab: (id: string) => void
   onImport: (input: AssetImportFields) => void
+  onImportBatch?: (requests: AssetImportRequest[], signal: AbortSignal) => Promise<AssetBatchReview>
+  onAssetBatchDraftChange?: (dirty: boolean) => void
+  onInvalidateAssetBatch?: () => void
+  assetBatchPreviewActive?: boolean
   onAdopt: (entries: PreparedCatalogEntryV1[], signal?: AbortSignal) => Promise<void>
   onPendingChange?: (pending: boolean) => void
   onDraftChange?: (dirty: boolean) => void
@@ -49,7 +60,8 @@ export interface CatalogLibraryProps {
 export default function CatalogLibrary({
   project, disabled, importDisabled = disabled, importResetKey = 0, organizationResetKey = 0,
   builtinProject, builtinLoading = false, builtinError, onBuiltinDemand,
-  onPlace, onMaterial, onPrefab, onImport, onAdopt, onPendingChange, onDraftChange,
+  variantsProject, variantsLoading = false, variantsError, onVariantsDemand,
+  onPlace, onMaterial, onPrefab, onImport, onImportBatch, onAssetBatchDraftChange, onInvalidateAssetBatch, assetBatchPreviewActive = false, onAdopt, onPendingChange, onDraftChange,
 }: CatalogLibraryProps) {
   const repository = useRef<CatalogRepositoryV1 | null>(null), mounted = useRef(false), controller = useRef<AbortController | null>(null)
   const pendingCallback = useRef(onPendingChange), draftCallback = useRef(onDraftChange)
@@ -69,11 +81,12 @@ export default function CatalogLibrary({
   }), [])
   const currentItems = useMemo(() => describeCatalogItems(project), [project])
   const builtinItems = useMemo(() => builtinProject ? describeCatalogItems(builtinProject) : [], [builtinProject])
+  const variantItems = useMemo(() => variantsProject ? describeCatalogItems(variantsProject) : [], [variantsProject])
   const mineItems = useMemo(() => snapshot.entries.map(entry => entry.item), [snapshot.entries])
-  const allItems = useMemo(() => new Map([...mineItems, ...builtinItems, ...currentItems].map(item => [item.identity.key, item])), [mineItems, builtinItems, currentItems])
+  const allItems = useMemo(() => new Map([...mineItems, ...builtinItems, ...variantItems, ...currentItems].map(item => [item.identity.key, item])), [mineItems, builtinItems, variantItems, currentItems])
   const currentKeys = useMemo(() => new Set(currentItems.map(item => item.identity.key)), [currentItems])
   const installed = useMemo(() => new Map(snapshot.entries.map(entry => [entry.item.identity.key, entry])), [snapshot.entries])
-  const sourceItems = scope === 'project' ? currentItems : scope === 'builtin' ? builtinItems : mineItems
+  const sourceItems = scope === 'project' ? currentItems : scope === 'builtin' ? builtinItems : scope === 'variants' ? variantItems : mineItems
   const found = useMemo(() => filterCatalogItems(sourceItems, snapshot.organizations, filter), [sourceItems, snapshot.organizations, filter])
   const detail = detailKey ? allItems.get(detailKey) : undefined
   const detailCuration = detail ? catalogCurationFor(detail) : undefined
@@ -109,7 +122,7 @@ export default function CatalogLibrary({
     finally { if (controller.current === abort) controller.current = null; if (mounted.current) setBusy(false); pendingCallback.current?.(false) }
   }, [])
 
-  const sourceProject = useCallback((item: CatalogItemV1) => currentKeys.has(item.identity.key) ? project : builtinItems.some(value => value.identity.key === item.identity.key) ? builtinProject : undefined, [currentKeys, project, builtinItems, builtinProject])
+  const sourceProject = useCallback((item: CatalogItemV1) => currentKeys.has(item.identity.key) ? project : builtinItems.some(value => value.identity.key === item.identity.key) ? builtinProject : variantItems.some(value => value.identity.key === item.identity.key) ? variantsProject : undefined, [currentKeys, project, builtinItems, builtinProject, variantItems, variantsProject])
   const loadProject = useCallback(async (item: CatalogItemV1): Promise<EditableProject> => {
     const source = sourceProject(item); if (source) return source
     const key = item.identity.key
@@ -146,6 +159,12 @@ export default function CatalogLibrary({
     setSnapshot(next); setStatus(`已完整安装${entries.length}项，可从“我的素材”离线采用。`)
   })
   const adoptSelected = () => run('检查完整闭包并准备工程候选…', async (repo, signal) => {
+    if (project.schemaVersion < 3) for (const item of selectedItems) {
+      const provider = await loadProject(item)
+      if (signal.aborted) throw new DOMException('取消', 'AbortError')
+      const definition = item.selector.kind === 'prop' ? provider.document.propDefinitions[item.selector.definitionId] : undefined
+      if (definition && definitionPresentation(provider.appearance, { id: definition.id, version: definition.version })?.mode === 'nearSide') throw new Error('选中的物件包含近侧视根锚，当前工程尚不支持。请先打开地形工程，或明确只选择草缘与碎石；本次选择保持。')
+    }
     const entries = await prepareSelected(repo, selectedItems, signal)
     await onAdopt(entries, signal)
     if (mounted.current) setStatus('工程采用候选已准备，请在候选面板确认。确认后可从“本工程”放置。')
@@ -211,10 +230,13 @@ export default function CatalogLibrary({
 
   return <section className="composition-library catalog-library" aria-label="组件素材库" aria-busy={busy}>
     <div className="asset-section-heading"><Layers3 size={16}/><h2>素材库</h2><span>{sourceItems.length}</span></div>
-    <div className="catalog-scopes" role="group" aria-label="素材范围">{(['builtin', 'mine', 'project'] as const).map(value => <button key={value} aria-pressed={scope === value} onClick={() => { setScope(value); if (value === 'builtin') onBuiltinDemand?.() }}>{{ builtin: '内置素材', mine: '我的素材', project: '本工程' }[value]}</button>)}</div>
-    <p className="asset-muted catalog-explanation">{scope === 'builtin' ? '内置目录可供查看；完整安装成功后才会进入“我的素材”。' : scope === 'mine' ? '本机完整安装的素材，可离线采用。移除不会删除工程内的内容。' : '工程已保存的固定素材。浏览不会自动保存到“我的素材”。'}</p><p className="asset-muted catalog-explanation">保存固定素材不截取当前实例或图层覆盖；组合保留固定模板成员和私密性。</p>
+    <div className="catalog-scopes" role="group" aria-label="素材范围">{(['builtin', 'variants', 'mine', 'project'] as const).map(value => <button key={value} aria-pressed={scope === value} onClick={() => { setScope(value); if (value === 'builtin') onBuiltinDemand?.(); if (value === 'variants') onVariantsDemand?.() }}>{{ builtin: '内置素材', variants: '地形变体', mine: '我的素材', project: '本工程' }[value]}</button>)}</div>
+    <p className="asset-muted catalog-explanation">{scope === 'builtin' ? '内置目录可供查看；完整安装成功后才会进入“我的素材”。' : scope === 'variants' ? '独立原创树岩、灌丛、草缘与碎石。明确选中后可保存到个人库或准备工程采用候选，已有物件保持。' : scope === 'mine' ? '本机完整安装的素材，可离线采用。移除不会删除工程内的内容。' : '工程已保存的固定素材。浏览不会自动保存到“我的素材”。'}</p><p className="asset-muted catalog-explanation">保存固定素材不截取当前实例或图层覆盖；组合保留固定模板成员和私密性。</p>
     {scope === 'builtin' && builtinLoading && <p role="status">正在读取内置素材的实际资源…</p>}
     {scope === 'builtin' && builtinError && <div><p role="alert" className="asset-form-error">内置素材缺失或读取失败：{builtinError}</p><button className="secondary" disabled={builtinLoading} onClick={onBuiltinDemand}>重试内置素材</button></div>}
+    {scope === 'variants' && variantsLoading && <p role="status">正在读取地形变体的实际资源…</p>}
+    {scope === 'variants' && variantsError && <div><p role="alert" className="asset-form-error">地形变体缺失或读取失败：{variantsError}</p><button className="secondary" disabled={variantsLoading} onClick={onVariantsDemand}>重试地形变体</button></div>}
+    {scope === 'variants' && project.schemaVersion < 3 && <p className="asset-muted catalog-explanation">草缘与碎石可用于当前工程；树、岩和灌丛的近侧视根锚需要地形工程。请明确选择所需素材。</p>}
     <label className="composition-search"><Search size={14}/><input type="search" aria-label="搜索组件素材" placeholder="名称、标签、来源或 ID" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
     <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部</button>{(['prop', 'material', 'prefab'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
     <details className="catalog-filters"><summary>标签、颜色与收藏筛选</summary>
@@ -261,6 +283,7 @@ export default function CatalogLibrary({
     <div className="catalog-status-actions"><button disabled={busy} onClick={refresh}><RefreshCw size={12}/>{draft || review ? '刷新基线（保留草稿）' : '刷新素材库'}</button>{busy && <button onClick={() => controller.current?.abort()}>取消当前操作</button>}</div>
     {status && <p className="catalog-operation-status" role="status">{status}</p>}{error && <p className="asset-form-error" role="alert">{error}</p>}
     <AssetImportForm key={importResetKey} disabled={importDisabled || busy} onImport={onImport}/>
+    {onImportBatch && <AssetBatchImportForm key={`${project.document.sceneId}-${importResetKey}-batch`} disabled={importDisabled || busy} onPreview={onImportBatch} candidateActive={assetBatchPreviewActive} onDraftChange={onAssetBatchDraftChange} onInvalidate={onInvalidateAssetBatch}/>}
   </section>
 }
 

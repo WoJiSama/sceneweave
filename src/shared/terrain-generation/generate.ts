@@ -2,7 +2,7 @@ import { visualBase } from '../visual/base.js'
 import { z } from 'zod'
 import type { PointMm, Prop, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea } from '../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../model/scene.js'
-import { cloneJson, canonicalJson, inspectJsonInput } from '../validation/json.js'
+import { cloneJson, canonicalJson, inspectJsonInput, captureJson } from '../validation/json.js'
 import { id, point, surfaceRef } from '../validation/primitives.js'
 import { sceneDocumentSchema, validateSceneDocument } from '../validation/scene.js'
 import { corridor, pointOnSurface, polygonDistance, polygonInside, polygonsOverlap, propFootprint, pathPolygon, supportedPolygon, terrainPoints, validateGeometry } from '../geometry/geometry.js'
@@ -13,17 +13,25 @@ import type { CubicSegment, VisualBoundary, VisualEdgeLook } from '../visual/typ
 import { emptyVisualSystem } from '../visual/types.js'
 import { distanceToTerrainSegment, extractTerrainContours, simplifyTerrainContour, terrainHash32, terrainRandomUnit, terrainValueNoise } from './field.js'
 import { sandCoastSegmentsV2, shorelineFieldV2 } from './shoreline-v2.js'
+import { islandSkeletonV3 } from './shoreline-v3.js'
 
+import { BudgetUsageSchema, TaskBudgetProfileSchema, taskBudgetProfile, measureTaskBudget, assertTaskBudget, captureExecutionBudget, type ExecutionBudget, type BudgetUsage } from '../budget/task-budget.js'
 export const TERRAIN_GENERATOR_VERSION = 'terrain-scene-v1' as const
 export const TERRAIN_FIXED_SEEDS = Object.freeze(['terrain-v1-0', 'terrain-v1-1', 'terrain-v1-2', 'terrain-v1-3', 'terrain-v1-4'])
 const routeInputSchema = z.object({ from: point, to: point, widthMm: z.number().int().min(400).max(3000), crossing: z.enum(['ground', 'ford', 'bridge']) }).strict()
 const routeResultSchema = z.object({ pointsMm: z.array(point).min(2).max(32), widthMm: z.number().int().min(400).max(3000), expandedNodes: z.number().int().nonnegative().max(4096) }).strict()
 export const terrainGenerationInputSchema = z.object({ sceneId: id, seed: z.string().min(1).max(128), kind: z.enum(['island', 'coast', 'river', 'lake', 'forest', 'hill', 'mixed']),
-  algorithmVersion: z.union([z.literal(1), z.literal(2)]).optional(),
+  algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   widthMm: z.number().int().min(24000).max(120000).default(24000), heightMm: z.number().int().min(18000).max(90000).default(18000), route: routeInputSchema.optional(),
 }).strict().refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '首批地形范围宽高比须为1–1.8。')
   .refine(value => value.algorithmVersion !== 2 || value.kind === 'island' || value.kind === 'coast', '岸线算法2仅支持岩岛和海岸。')
-export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema>
+  .refine(value => value.algorithmVersion !== 3 || value.kind === 'island', '岸线算法3仅支持岩岛。')
+export const terrainGenerationInputV4Schema = z.object({ ...terrainGenerationInputSchema.shape, algorithmVersion: z.literal(4),
+  budgetProfileId: TaskBudgetProfileSchema.shape.profileId, quality: z.enum(['standard','detailed']) }).strict()
+  .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '首批地形范围宽高比须为1–1.8。')
+export type TerrainGenerationInputV4 = z.infer<typeof terrainGenerationInputV4Schema>
+export type TerrainGenerationInputV5 = Omit<TerrainGenerationInputV4,'algorithmVersion'> & {algorithmVersion:5}
+export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5
 export interface TerrainManagedTarget { kind: 'terrainArea' | 'terrainConnection' | 'path' | 'prop' | 'visualBoundary' | 'visualEdgeLook'; id: string }
 export interface TerrainGenerationResult {
   document: SceneDocument
@@ -31,6 +39,7 @@ export interface TerrainGenerationResult {
   skeleton: { variant: number; name: string; bayDirection: PointMm; plateauCenterMm: PointMm; gridColumns: number; gridRows: number; simplificationErrorMm: number; fitErrorMm: number }
   activity: { id: string; boundaryMm: PointMm[]; supportRef: SurfaceRef }
   route?: z.infer<typeof routeResultSchema>
+  executionUsage?: BudgetUsage
   managedTargets: TerrainManagedTarget[]
   cost: { physicalEntities: number; terrainPoints: number; terrainSegments: number; pathPoints: number; visualEntities: number; curveSegments: number; overlays: number; legacyTotal: number; recommendedGenerationRecords: number; total: number }
 }
@@ -45,7 +54,8 @@ export const terrainGenerationResultSchema = z.object({
   managedTargets: z.array(z.object({ kind: z.enum(['terrainArea', 'terrainConnection', 'path', 'prop', 'visualBoundary', 'visualEdgeLook']), id }).strict()).max(256),
   cost: z.object({ physicalEntities: safeCount, terrainPoints: safeCount, terrainSegments: safeCount, pathPoints: safeCount, visualEntities: safeCount, curveSegments: safeCount, overlays: safeCount,
     legacyTotal: safeCount, recommendedGenerationRecords: safeCount, total: safeCount.refine(value => value <= 256) }).strict(),
-}).strict().superRefine((result, context) => {
+}).strict().superRefine(validateTerrainGenerationResult)
+function validateTerrainGenerationResult(result: TerrainGenerationResult, context: z.RefinementCtx): void {
   if (result.document.schemaVersion !== 2 || result.document.visual?.version !== 1) return
   const cost = result.cost
   if (cost.legacyTotal !== cost.physicalEntities + cost.terrainPoints + cost.terrainSegments + cost.pathPoints + cost.visualEntities + cost.curveSegments + cost.overlays
@@ -84,11 +94,18 @@ export const terrainGenerationResultSchema = z.object({
     || cost.overlays !== Object.values(document.terrainAreas).reduce((sum, area) => sum + (area.surfaceStyle?.overlays.length ?? 0), 0)) {
     context.addIssue({ code: 'custom', path: ['cost'], message: '生成管理闭包或成本与实际完整文档不同。' })
   }
-})
+}
 const FLOOR = 'visual-floor', GROUND = 'visual-layer-ground', PROPS = 'visual-layer-props', DETAILS = 'visual-layer-details'
 // Exact record shape installed by composeTerrainDocument: fixed recipe, one
 // intent with two skeleton nodes, rule plus output refs, ownership rows, one
 // activity constraint including closed point/segment geometry, and its check.
+export const terrainGenerationResultV4Schema = z.object({ ...terrainGenerationResultSchema.shape,
+  input: terrainGenerationInputV4Schema,
+  skeleton: terrainGenerationResultSchema.shape.skeleton.extend({gridColumns:z.number().int().min(2).max(256),gridRows:z.number().int().min(2).max(256)}).strict(),
+  managedTargets: terrainGenerationResultSchema.shape.managedTargets.max(2048),
+  cost: terrainGenerationResultSchema.shape.cost.extend({total:safeCount}).strict(),
+  executionUsage: z.lazy(() => BudgetUsageSchema),
+}).strict().superRefine(validateTerrainGenerationResult)
 const generationRecordCost = (targets: number, activityPoints: number, routePoints = 0) => 1 + (1 + 2) + (1 + targets) + targets + (1 + activityPoints * 2) + 1 + (routePoints ? 2 * routePoints + 1 : 0)
 const p = (x: number, y: number): PointMm => ({ x: Math.round(x), y: Math.round(y) })
 const entity = (value: string, layerId = GROUND) => ({ id: value, floorId: FLOOR, layerId, visibility: 'public' as const, editLocked: false })
@@ -142,7 +159,13 @@ function cubicBoundary(value: string, points: PointMm[], closed: boolean, input:
     ? sandCoastSegmentsV2(value, points) : Array.from({ length: segmentCount }, (_, index) => {
     const start = points[index], end = points[(index + 1) % points.length], before = points[index ? index - 1 : closed ? points.length - 1 : 0], after = points[index + 2 < points.length ? index + 2 : closed ? (index + 2) % points.length : points.length - 1]
     const boundedControl = (anchor: PointMm, dx: number, dy: number) => {
-      const length = Math.hypot(dx, dy), factor = Math.min(1, 1000 * scale / Math.max(1, length))
+      // Version 4 keeps the chosen sampling precision. Bound tangents by the
+      // adjacent source edges so a short contour edge cannot acquire a loop
+      // that the legacy coarse sampler happened to miss.
+      const localLimit = input.algorithmVersion === 4 ? Math.min(
+        Math.hypot(end.x-start.x,end.y-start.y),Math.hypot(start.x-before.x,start.y-before.y)||Infinity,
+        Math.hypot(after.x-end.x,after.y-end.y)||Infinity) * .2 : 1000 * scale
+      const length = Math.hypot(dx, dy), factor = Math.min(1, localLimit / Math.max(1, length))
       return p(anchor.x + dx * factor, anchor.y + dy * factor)
     }
     return { id: `${value}-c${index}`, start: { ...start }, control1: boundedControl(start, (end.x - before.x) / 6, (end.y - before.y) / 6),
@@ -174,15 +197,35 @@ function assertBlank(base: SceneDocument, input: TerrainGenerationInput): SceneD
   return cloneJson(scene)
 }
 
-function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity']): void {
+/** One full geometric validation expands every pair in its current physical
+ * edge closure. Repeated searches/validations each charge this work again. */
+function chargeGeometryCheck(scene:SceneDocument,meter?:ExecutionBudget):void {
+  if(!meter)return
+  const edges=Object.values(scene.terrainAreas).reduce((sum,row)=>sum+row.boundaryMm.length,0)
+    +Object.values(scene.paths).reduce((sum,row)=>sum+row.centerlineMm.length*2+2,0)
+    +Object.keys(scene.props).length*4+Object.keys(scene.terrainConnections).length*4
+    +Object.values(scene.regions).reduce((sum,row)=>sum+row.boundaryMm.length,0)
+  meter.charge({intersectionPairs:edges*edges})
+}
+function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget): void {
   const ring = terrainPoints(high), scale = Math.min(input.widthMm / 24000, input.heightMm / 18000)
   let lastErrors = ''
-  const candidates: { index: number; length: number; a: PointMm; b: PointMm }[] = ring.map((a, index) => ({ index, a, b: ring[(index + 1) % ring.length], length: Math.hypot(ring[(index + 1) % ring.length].x - a.x, ring[(index + 1) % ring.length].y - a.y) }))
+  const candidates: { index: number; length: number; a: PointMm; b: PointMm }[] = ring.map((a, index) => {
+    let end = index + 1
+    // The physical stairs width is independent of tessellation density. A
+    // fixed v4 search window spans adjacent samples before checking the full
+    // corridor, rather than requiring one sampled edge to be 1m long.
+    if (input.algorithmVersion === 4) while (end - index < Math.floor(ring.length / 3)
+      && Math.hypot(ring[end % ring.length].x-a.x,ring[end % ring.length].y-a.y) < 1800 * Math.min(scale,1.5)) end++
+    const b = ring[end % ring.length]
+    return {index,a,b,length:Math.hypot(b.x-a.x,b.y-a.y)}
+  })
     .sort((a, b) => b.length - a.length || a.index - b.index)
   for (const candidate of candidates) {
     if (candidate.length < 1000) continue
     const dx = candidate.b.x - candidate.a.x, dy = candidate.b.y - candidate.a.y, nx = -dy / candidate.length, ny = dx / candidate.length
-    for (const fraction of [.5, .35, .65]) for (const offset of [1250, 1650, 2100]) {
+    const offsets = (input.algorithmVersion === 3 || input.algorithmVersion === 4) ? [850, 1050, 1250, 1650, 2100] : [1250, 1650, 2100]
+    for (const fraction of [.5, .35, .65]) for (const offset of offsets) {
       const center = { x: candidate.a.x + dx * fraction, y: candidate.a.y + dy * fraction }, distance = offset * Math.min(scale, 1.5)
       const from = p(center.x - nx * distance, center.y - ny * distance), to = p(center.x + nx * distance, center.y + ny * distance)
       if (!pointOnSurface(scene, from, { kind: 'terrainArea', id: low.id }, FLOOR) || !pointOnSurface(scene, to, { kind: 'terrainArea', id: high.id }, FLOOR)) continue
@@ -191,6 +234,7 @@ function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, i
       scene.terrainConnections[value] = { id: value, floorId: FLOOR, editLocked: false, visibility: 'public', kind: 'stairs', from: { surfaceRef: { kind: 'terrainArea', id: low.id }, positionMm: from },
         to: { surfaceRef: { kind: 'terrainArea', id: high.id }, positionMm: to }, widthMm: 1500, openingId: null, blocksMovement: false, movementCostMultiplier: 1, surfaceStyle: paint(scene, materialKey(input.kind, 'low')) }
       scene.entityLayers[value] = GROUND
+      chargeGeometryCheck(scene,meter)
       const geometry = validateGeometry(scene)
       if (!geometry.errors.length) return
       lastErrors = geometry.errors.map(issue => issue.code).join(',')
@@ -207,7 +251,7 @@ function activityArea(scene: SceneDocument, center: PointMm, input: TerrainGener
   if (!supportedPolygon(scene, boundaryMm, supportRef, FLOOR)) throw new Error('明确活动区不在高台有效支撑内。')
   return { id: 'terrain-activity', boundaryMm, supportRef }
 }
-function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity']): void {
+function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget): void {
   const island = ['tree-north-asym', 'tree-windbent', 'tree-split-crown', 'rock-north-ridge', 'rock-layered-shelf', 'rock-tidepool']
   const coast = ['grass-wind', 'grass-fan', 'reef-split', 'reef-shelf', 'reef-pool']
   const palette = input.kind === 'coast' ? 'coast' : 'island'
@@ -225,7 +269,7 @@ function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activit
   candidates.sort((a, b) => a.order - b.order || (a.key < b.key ? -1 : 1))
   for (const candidate of candidates) {
     const count = Object.keys(scene.props).length
-    if (count >= 8) break
+    if (count >= (input.algorithmVersion === 3 ? 4 : 8)) break
     const key = keys[count % keys.length], definition = scene.propDefinitions[`refined-prop-${palette}-${key}`]
     if (!definition) throw new Error(`生成缺少固定物件：${input.kind}/${key}。`)
     const supports = ['terrain-high', 'terrain-forest', 'terrain-low'].filter(id => !!scene.terrainAreas[id])
@@ -245,6 +289,7 @@ function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activit
     if (!supportedPolygon(scene, footprint, prop.supportRef, FLOOR) || polygonDistance(footprint, activity.boundaryMm) < 300 || (protectedConnections.some(band => polygonDistance(footprint, band) < 200) || protectedRoutes.some(band => polygonDistance(footprint, band) < 300))
       || tree && polygonsOverlap(visualBounds, activity.boundaryMm) || Object.values(scene.props).some(other => polygonDistance(footprint, propFootprint(other)) < 650)) continue
     scene.props[value] = prop; scene.entityLayers[value] = prop.renderLayer === 'ground' ? DETAILS : PROPS
+    chargeGeometryCheck(scene,meter)
     if (validateGeometry(scene).errors.length) { delete scene.props[value]; delete scene.entityLayers[value] }
   }
   if (Object.keys(scene.props).length < 4) throw new Error('在保护活动区与台阶后没有足够合法树石位置。')
@@ -259,7 +304,8 @@ function ellipseRing(center: PointMm, radiusX: number, radiusY: number, steps = 
 
 function addT3Boundary(scene: SceneDocument, id: string, area: TerrainArea, input: TerrainGenerationInput, look: VisualEdgeLook['kind'] = 'grass'): void {
   const ring = terrainPoints(area)
-  const curve: VisualBoundary = { ...entity(id), closed: true, sampleSpacingMm: 20000, toleranceMm: 90,
+  const scale=Math.min(input.widthMm/24000,input.heightMm/18000)
+  const curve: VisualBoundary = { ...entity(id), closed: true, sampleSpacingMm: input.algorithmVersion===4?Math.min(20000,Math.round((input.quality==='detailed'?700:1200)*scale)):20000, toleranceMm: input.algorithmVersion===4?Math.min(1000,Math.round((input.quality==='detailed'?45:80)*scale)):90,
     segments: ring.map((start, index) => { const end = ring[(index + 1) % ring.length]; return { id: `${id}-c${index}`, start: { ...start }, control1: { ...start }, control2: { ...end }, end: { ...end } } }), binding: { kind: 'decoration' } }
   area.boundaryMm = sampleVisualBoundary(curve).points.map((positionMm, index) => ({ id: `${area.id}-p${index}`, segmentId: `${area.id}-s${index}`, positionMm }))
   curve.binding = { kind: 'terrain', sides: [{ areaId: area.id, startPointId: area.boundaryMm[0].id, endPointId: area.boundaryMm[0].id, reverse: false }] }
@@ -307,7 +353,8 @@ function addT3River(scene: SceneDocument, input: TerrainGenerationInput, width: 
 }
 
 function finalizeT3Result(scene: SceneDocument, blank: SceneDocument, input: TerrainGenerationInput, variant: number, bay: PointMm,
-  plateauCenterMm: PointMm, activity: TerrainGenerationResult['activity'], route?: TerrainGenerationResult['route']): TerrainGenerationResult {
+  plateauCenterMm: PointMm, activity: TerrainGenerationResult['activity'], route?: TerrainGenerationResult['route'],meter?:ExecutionBudget): TerrainGenerationResult {
+  chargeGeometryCheck(scene,meter)
   const checked = validateSceneDocument(scene)
   if (!checked.ok) throw new Error(checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}`).join('；'))
   const document = checked.document, managedTargets: TerrainManagedTarget[] = [
@@ -321,7 +368,7 @@ function finalizeT3Result(scene: SceneDocument, blank: SceneDocument, input: Ter
   const curveSegments = Object.values(visualBase(document)!.boundaries).reduce((sum, boundary) => sum + boundary.segments.length, 0)
   const overlays = Object.values(document.terrainAreas).reduce((sum, area) => sum + (area.surfaceStyle?.overlays.length ?? 0), 0)
   const recommendedGenerationRecords = generationRecordCost(managedTargets.length, activity.boundaryMm.length, route?.pointsMm.length ?? 0), total = legacyTotal + recommendedGenerationRecords
-  if (total > 256) throw new Error(`完整生成实际成本${total}超过256（旧实体/采样/控制${legacyTotal}，规则/管理/活动${recommendedGenerationRecords}）。`)
+  if (input.algorithmVersion !== 4 && total > 256) throw new Error(`完整生成实际成本${total}超过256（旧实体/采样/控制${legacyTotal}，规则/管理/活动${recommendedGenerationRecords}）。`)
   const boundaries = Object.values(visualBase(document)!.boundaries)
   const names = { island: '岩岛', coast: '海岸', river: '林间渡河', lake: '静水内湖', forest: '林缘空地', hill: '缓坡丘陵', mixed: '河谷混合地貌' } as const
   return { document, input, skeleton: { variant, name: names[input.kind], bayDirection: bay,
@@ -329,7 +376,7 @@ function finalizeT3Result(scene: SceneDocument, blank: SceneDocument, input: Ter
     cost: { physicalEntities, terrainPoints: terrainPointsCount, terrainSegments: terrainPointsCount, pathPoints: Object.values(document.paths).reduce((sum, path) => sum + path.centerlineMm.length, 0), visualEntities, curveSegments, overlays, legacyTotal, recommendedGenerationRecords, total } }
 }
 
-function addT3Ramp(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput): void {
+function addT3Ramp(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput,meter?:ExecutionBudget): void {
   const ring = terrainPoints(high), left = Math.min(...ring.map(point => point.x)), right = Math.max(...ring.map(point => point.x)),
     top = Math.min(...ring.map(point => point.y)), bottom = Math.max(...ring.map(point => point.y)), y = Math.round((top + bottom) / 2)
   const from = p(left - 1200, y), to = p(left + 1200, y), id = 'terrain-stairs'
@@ -337,16 +384,19 @@ function addT3Ramp(scene: SceneDocument, low: TerrainArea, high: TerrainArea, in
     from: { surfaceRef: { kind: 'terrainArea', id: low.id }, positionMm: from }, to: { surfaceRef: { kind: 'terrainArea', id: high.id }, positionMm: to },
     widthMm: 1500, openingId: null, blocksMovement: false, movementCostMultiplier: 1, surfaceStyle: paint(scene, materialKey(input.kind, 'low')) }
   scene.entityLayers[id] = GROUND
+  chargeGeometryCheck(scene,meter)
   const errors = validateGeometry(scene).errors
   if (errors.length) { delete scene.terrainConnections[id]; delete scene.entityLayers[id]; throw new Error(`T3高差连接未通过完整几何检查：${errors.map(issue => `${issue.entityId ?? ''}:${issue.code}`).join(',')}`) }
   if (right <= left) throw new Error('T3高地区域必须有正宽度。')
 }
 
-function addT3Route(scene: SceneDocument, input: TerrainGenerationInput): TerrainGenerationResult['route'] {
+function addT3Route(scene: SceneDocument, input: TerrainGenerationInput,meter?:ExecutionBudget): TerrainGenerationResult['route'] {
   if (!input.route) return undefined
   const request = input.route, searchScene = cloneJson(scene)
   if (request.crossing === 'ground' && searchScene.terrainAreas['terrain-shallow']) searchScene.terrainAreas['terrain-shallow'].blocksMovement = true
+  chargeGeometryCheck(scene,meter)
   const found = searchTerrainRoute(searchScene, { floorId: FLOOR, ...request, gridMm: 1500, maxNodes: 2048, maxSegments: 31 })
+  meter?.charge({gridNodes:found.expandedNodes})
   if (!found.ok) throw new Error(`指定路线未通过有限搜索：${found.issues.map(issue => issue.message).join('；')}`)
   const checked = checkTerrainRoute(scene, { floorId: FLOOR, pointsMm: found.points, widthMm: request.widthMm })
   if (!checked.ok) throw new Error(`指定路线完整转角净宽未通过：${checked.issues.map(issue => issue.message).join('；')}`)
@@ -358,7 +408,7 @@ function addT3Route(scene: SceneDocument, input: TerrainGenerationInput): Terrai
   return { pointsMm: found.points.map(point => ({ ...point })), widthMm: request.widthMm, expandedNodes: found.expandedNodes }
 }
 
-function generateT3TerrainDocument(blank: SceneDocument, input: TerrainGenerationInput, variant: number, bay: PointMm): TerrainGenerationResult {
+function generateT3TerrainDocument(blank: SceneDocument, input: TerrainGenerationInput, variant: number, bay: PointMm,meter?:ExecutionBudget): TerrainGenerationResult {
   const { widthMm: width, heightMm: height, seed } = input, scene = cloneJson(blank), bounds = t3Rectangle(0, 0, width, height)
   const low = addTerrain(scene, 'terrain-low', bounds, input, 'low')
   const highCenter = input.kind === 'lake' ? p(width * .76, height * .72) : input.kind === 'river' || input.kind === 'mixed' ? p(width * .8, height * (.28 + (variant % 2) * .025))
@@ -382,27 +432,43 @@ function generateT3TerrainDocument(blank: SceneDocument, input: TerrainGeneratio
     addT3Boundary(scene, 'terrain-forest-curve', forest, input, 'grass')
   }
   const activity = activityArea(scene, highCenter, input)
-  addT3Ramp(scene, low, high, input)
-  const route = addT3Route(scene, input)
-  placeProps(scene, input, activity)
+  addT3Ramp(scene, low, high, input,meter)
+  const route = addT3Route(scene, input,meter)
+  placeProps(scene, input, activity,meter)
   const fixedIndex = TERRAIN_FIXED_SEEDS.indexOf(seed), direction = variants[fixedIndex >= 0 ? fixedIndex : variant].bay
-  return finalizeT3Result(scene, blank, input, variant, direction, highCenter, activity, route)
+  return finalizeT3Result(scene, blank, input, variant, direction, highCenter, activity, route,meter)
 }
 
 /** Pure complete-result generator. No clock, DOM, bitmap, network or shared mutable PRNG is read. */
 export function generateTerrainDocument(base: SceneDocument, rawInput: unknown): TerrainGenerationResult {
-  const input = parseInput(rawInput), blank = assertBlank(base, input)
+  return generateTerrainCore(base, parseInput(rawInput))
+}
+export function generateTerrainDocumentV4(base: SceneDocument, rawInput: unknown): TerrainGenerationResult {
+  const input=terrainGenerationInputV4Schema.parse(captureJson(rawInput))
+  return generateTerrainCore(base,input)
+}
+function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput):TerrainGenerationResult {
+  const blank = assertBlank(base, input)
+  const budget = input.algorithmVersion === 4 ? taskBudgetProfile(input.budgetProfileId) : undefined
+  const meter = budget ? captureExecutionBudget(budget) : undefined
   if (input.route?.crossing === 'bridge') throw new Error('当前不支持生成桥梁或跨层桥洞；请选择已有地面或真实浅滩，不会以道路图片替代桥梁支撑。')
   if (input.route && ['island', 'coast'].includes(input.kind)) throw new Error('指定路线当前仅适用于河谷、内湖、森林、丘陵或混合配方。')
   const fixedIndex = TERRAIN_FIXED_SEEDS.indexOf(input.seed), variant = fixedIndex >= 0 ? fixedIndex : terrainHash32(`${input.seed}/skeleton`) % variants.length
   const recipe = variants[variant], bayLength = Math.hypot(recipe.bay.x, recipe.bay.y), bay = { x: recipe.bay.x / bayLength, y: recipe.bay.y / bayLength }
-  if (['river', 'lake', 'forest', 'hill', 'mixed'].includes(input.kind)) return generateT3TerrainDocument(blank, input, variant, bay)
+  if (['river', 'lake', 'forest', 'hill', 'mixed'].includes(input.kind)) {
+    meter?.charge({candidateAttempts:1})
+    const result=generateT3TerrainDocument(blank,input,variant,bay,meter)
+    if(budget)assertTaskBudget(budget,measureTaskBudget(blank,result.document,undefined,meter!.snapshot()))
+    return meter?{...result,executionUsage:meter.snapshot()}:result
+  }
   const { widthMm: width, heightMm: height, seed } = input, scale = Math.min(width / 24000, height / 18000), centre = p(width * .5, height * .5)
   const highland = highlandSkeletons[variant]
-  const plateauCenter = input.kind === 'island' ? p(width * highland.island[0], height * highland.island[1])
-    : p(width * (.28 + variant * .105), height * .76)
-  const ridge = highland.knots.map(([x, y, radius]) => ({ x: plateauCenter.x + width * x, y: plateauCenter.y + height * y, radius: radius * scale }))
-  const columns = 48, rows = 36, grid = { widthMm: width, heightMm: height, columns, rows }
+  const islandV3 = input.kind==='island' && (input.algorithmVersion === 3 || input.algorithmVersion === 4) ? islandSkeletonV3(input, variant) : undefined
+  const plateauCenter = islandV3?.plateauCenter ?? (input.kind === 'island' ? p(width * highland.island[0], height * highland.island[1])
+    : p(width * (.28 + variant * .105), height * .76))
+  const ridge = islandV3?.ridge ?? highland.knots.map(([x, y, radius]) => ({ x: plateauCenter.x + width * x, y: plateauCenter.y + height * y, radius: radius * scale }))
+  const qualityColumns=input.algorithmVersion===4?(input.quality==='detailed'?{small:80,standard:112,expanded:160}:{small:64,standard:80,expanded:96})[input.budgetProfileId]:48
+  const columns = qualityColumns, rows = input.algorithmVersion===4?Math.max(2,Math.round(columns*height/width)):36, grid = { widthMm: width, heightMm: height, columns, rows }
   const islandField = (x: number, y: number) => {
     const dx = (x - centre.x) / (width * recipe.rx), dy = (y - centre.y) / (height * recipe.ry), along = dx * bay.x + dy * bay.y, across = dx * bay.y - dy * bay.x
     const bayDistance = ((along - .74) / .34) ** 2 + (across / .28) ** 2, bayCut = .92 / (1 + bayDistance * bayDistance)
@@ -424,15 +490,30 @@ export function generateTerrainDocument(base: SceneDocument, rawInput: unknown):
     }
     return Math.round((field + terrainValueNoise(seed, 'plateau/low', x / (width * .18), y / (height * .18)) * .08) * 1000000) / 1000000
   }
-  const lowField = input.algorithmVersion === 2 ? shorelineFieldV2(input, variant, bay, recipe) : input.kind === 'island' ? islandField : coastField
-  const lowContours = extractTerrainContours(grid, lowField), highContours = extractTerrainContours(grid, plateauField)
+  const lowField = islandV3?.field ?? ((input.algorithmVersion === 2 || input.algorithmVersion === 4) ? shorelineFieldV2(input, variant, bay, recipe) : input.kind === 'island' ? islandField : coastField)
+  const metered=(field:(x:number,y:number)=>number)=>(x:number,y:number)=>{meter?.charge({fieldEvaluations:1});return field(x,y)}
+  meter?.charge({gridNodes:(columns+1)*(rows+1)*2})
+  const lowContours = extractTerrainContours(grid, metered(lowField)), highContours = extractTerrainContours(grid, metered(plateauField))
   if (lowContours.length !== 1 || lowContours[0].closed !== (input.kind === 'island') || highContours.length !== 1 || !highContours[0].closed) throw new Error('首批生成出现额外分量/孔洞或意外开放边界；未静默删除。')
   const failures: string[] = []
-  for (const error of [140, 220, 340, 500]) {
+  for (const error of input.algorithmVersion===4 ? [input.quality==='detailed'?80:140] : [140, 220, 340, 500]) {
+    meter?.charge({candidateAttempts:1})
     try {
       const scene = cloneJson(blank), lowPoints = simplifyTerrainContour(lowContours[0], error * scale), highPoints = simplifyTerrainContour(highContours[0], error * scale)
-      if (lowPoints.length > 24 || highPoints.length > 20) throw new Error('轮廓复杂度超过首批有限控制段预算。')
+      if (lowPoints.length > (input.algorithmVersion===4?32:24) || highPoints.length > (input.algorithmVersion===4?32:20)) throw new Error(`轮廓复杂度超过有限控制段预算（${lowPoints.length}/${highPoints.length}）。`)
       const lowCurve = cubicBoundary('terrain-coast-curve', lowPoints, input.kind === 'island', input), highCurve = cubicBoundary('terrain-high-curve', highPoints, true, input)
+      if (islandV3 && input.algorithmVersion !== 4) {
+        // Preserve the broad corners under the same physical/display sampling.
+        // The explicit v3 candidate reserves real budget for two reef entities.
+        lowCurve.sampleSpacingMm = Math.min(20000, Math.round(3000 * scale))
+        highCurve.sampleSpacingMm = Math.min(20000, Math.round(2200 * scale))
+        lowCurve.toleranceMm = highCurve.toleranceMm = Math.min(1000, Math.round(180 * scale))
+      }
+      if(input.algorithmVersion===4){
+        const spacing=(input.quality==='detailed'?700:1200)*scale,tolerance=(input.quality==='detailed'?45:80)*scale
+        lowCurve.sampleSpacingMm=highCurve.sampleSpacingMm=Math.min(20000,Math.round(spacing))
+        lowCurve.toleranceMm=highCurve.toleranceMm=Math.min(1000,Math.round(tolerance))
+      }
       const samples = sampleVisualBoundary(lowCurve).points
       let low: TerrainArea
       if (input.kind === 'island') {
@@ -447,12 +528,17 @@ export function generateTerrainDocument(base: SceneDocument, rawInput: unknown):
       }
       const high = addBoundArea(scene, highCurve, input, 'high')
       if (!polygonInside(terrainPoints(high), terrainPoints(low))) throw new Error('高台完整轮廓不完全位于陆地内。')
+      if (islandV3) for (const [index, points] of islandV3.reefs.entries()) {
+        if (polygonsOverlap(points, terrainPoints(low))) throw new Error('离岸礁石与主陆块重叠。')
+        addTerrain(scene, `terrain-reef-${index}`, points, input, 'low')
+      }
       const activity = activityArea(scene, plateauCenter, input)
-      findStairs(scene, low, high, input, activity)
+      findStairs(scene, low, high, input, activity,meter)
       addLook(scene, lowCurve.id, 'shore', input); if (input.kind === 'island') addLook(scene, lowCurve.id, 'cliff', input)
       addLook(scene, highCurve.id, 'cliff', input)
       if (input.kind === 'island') addLook(scene, highCurve.id, 'grass', input, 'left')
-      placeProps(scene, input, activity)
+      placeProps(scene, input, activity,meter)
+      chargeGeometryCheck(scene,meter)
       const checked = validateSceneDocument(scene)
       if (!checked.ok) throw new Error(checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}`).join('；'))
       const document = checked.document, managedTargets: TerrainManagedTarget[] = [
@@ -464,12 +550,13 @@ export function generateTerrainDocument(base: SceneDocument, rawInput: unknown):
       const physicalEntities = LAYER_ENTITY_COLLECTIONS.reduce((sum, key) => sum + Object.keys(document[key]).length, 0), visualEntities = (['boundaries', 'edgeLooks', 'lights', 'fogs', 'filters'] as const).reduce((sum, key) => sum + Object.keys(visualBase(document)![key]).length, 0)
       const curveSegments = Object.values(visualBase(document)!.boundaries).reduce((sum, boundary) => sum + boundary.segments.length, 0), overlays = Object.values(document.terrainAreas).reduce((sum, area) => sum + (area.surfaceStyle?.overlays.length ?? 0), 0)
       const recommendedGenerationRecords = generationRecordCost(managedTargets.length, activity.boundaryMm.length), total = legacyTotal + recommendedGenerationRecords
-      if (total > 256) throw new Error(`完整生成实际成本${total}超过256（旧实体/采样/控制${legacyTotal}，规则/管理/活动${recommendedGenerationRecords}）。`)
-      return { document, input, skeleton: { variant, name: recipe.name, bayDirection: bay, plateauCenterMm: plateauCenter, gridColumns: columns, gridRows: rows, simplificationErrorMm: error * scale, fitErrorMm: maximumFitDisplacement(lowCurve, highCurve) }, activity, managedTargets,
+      if (input.algorithmVersion !== 4 && total > 256) throw new Error(`完整生成实际成本${total}超过256（旧实体/采样/控制${legacyTotal}，规则/管理/活动${recommendedGenerationRecords}）。`)
+      if(budget)assertTaskBudget(budget,measureTaskBudget(blank,document,undefined,meter!.snapshot()))
+      return { document, input, ...(meter?{executionUsage:meter.snapshot()}:{}), skeleton: { variant, name: islandV3?.name ?? recipe.name, bayDirection: islandV3?.bayDirection ?? bay, plateauCenterMm: plateauCenter, gridColumns: columns, gridRows: rows, simplificationErrorMm: error * scale, fitErrorMm: maximumFitDisplacement(lowCurve, highCurve) }, activity, managedTargets,
         cost: { physicalEntities, terrainPoints: terrainPointsCount, terrainSegments: terrainPointsCount, pathPoints: Object.values(document.paths).reduce((sum, path) => sum + path.centerlineMm.length, 0), visualEntities, curveSegments, overlays, legacyTotal, recommendedGenerationRecords, total } }
     } catch (error) { failures.push(error instanceof Error ? error.message : '未知几何失败。') }
   }
-  throw new Error(`四轮有界地形准备均未满足硬要求：${failures.join(' | ')}`)
+  throw new Error(`${input.algorithmVersion===4?'固定质量档位地形准备未满足硬要求':'四轮有界地形准备均未满足硬要求'}：${failures.join(' | ')}`)
 }
 
 /** Convex-hull bound on cubic distance from its source chord, including mm quantization. */

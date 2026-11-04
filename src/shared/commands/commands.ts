@@ -1,22 +1,27 @@
+import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { pauseChangedCompositions } from '../terrain-generation/composition-lifecycle.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
+import { applyDecorationCommand, decorationCommandSchemas, isDecorationCommand, reconcileDecorationMembers, assertDecorationMemberUnlocked, type DecorationCommand } from '../decorations/commands.js'
+import { applySurfaceRuleCommand, isSurfaceRuleCommand, surfaceRuleCommandSchemas, type SurfaceRuleCommand } from '../surface-rules/commands.js'
 import { applyVisualCommand, isVisualCommand, visualCommandSchemas, type VisualCommand } from '../visual/commands.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { applyCommandDraft, createBasePlacedProp, isEntityEditLocked, type BasePlacePropOptions, type BaseSceneCommand } from './base.js'
 import type { PointMm } from '../model/scene.js'
+import type { AppearanceGraph } from '../model/appearance.js'
 import { canvasBoundsCommandSchema, applyCanvasBoundsCommand, type CanvasBoundsCommand } from './canvas-bounds.js'
 import { sceneDisplayCommandSchema, applySceneDisplayCommand, type SceneDisplayCommand } from './scene-display.js'
 import { annotationCommandSchemas, applyAnnotationCommand, isAnnotationCommand, type AnnotationCommand } from './annotations.js'
 import { applyBuildingCommand, buildingCommandSchemas, isBuildingCommand, type BuildingCommand } from './building.js'
-import { applyOutdoorCommand, isOutdoorCommand, outdoorCommandSchemas, type OutdoorCommand } from './outdoor.js'
+import { applyOutdoorCommand, isOutdoorCommand, outdoorCommandSchemas, outdoorDependencies, type OutdoorCommand } from './outdoor.js'
+import { refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { entitiesInLayer, enumerateLayerEntities, orderedLayers, previewLayerMove, previewLayerRemoval } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
-import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
+import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
 
 export type SceneCommand =
   | Exclude<BaseSceneCommand, { type: 'addProp' | 'setEditLock' }>
@@ -27,7 +32,9 @@ export type SceneCommand =
   | SceneDisplayCommand
   | OutdoorCommand
   | VisualCommand
-  | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path'; id: string; locked: boolean }
+  | DecorationCommand
+  | SurfaceRuleCommand
+  | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path' | 'decoration' | 'decorationCluster' | 'surfaceRule'; id: string; locked: boolean }
   | { type: 'createLayer'; id: string; floorId: string; name: string }
   | { type: 'renameLayer'; id: string; name: string }
   | { type: 'setLayerLock'; id: string; locked: boolean }
@@ -41,6 +48,10 @@ export interface ApplySnapshotCommandsOptions extends ApplyCommandsOptions {
 }
 
 export interface ApplyCommandsOptions {
+  /** Fixed paint inputs from the fully validated composition; never a document certificate. */
+  appearance?: AppearanceGraph
+  /** Registered task envelope; omitted for all legacy/manual transactions. */
+  budget?: TaskBudgetProfile
   /** Internal complete-composition semantics for explicit group rotations. */
   fixedUprightPropIds?: ReadonlySet<string>
   /** Internal synchronous observer: inspect immediately; never mutate or retain the draft. */
@@ -65,6 +76,8 @@ export const sceneCommandSchema = z.discriminatedUnion('type', [
   ...annotationCommandSchemas,
   ...outdoorCommandSchemas,
   ...visualCommandSchemas,
+  ...decorationCommandSchemas,
+  ...surfaceRuleCommandSchemas,
   canvasBoundsCommandSchema,
   sceneDisplayCommandSchema,
   z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
@@ -83,7 +96,7 @@ export const sceneCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('copyProp'), id, newId: id, offsetMm: point }).strict(),
   z.object({ type: z.literal('deleteProp'), id }).strict(),
   z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
-  z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainEdge', 'terrainConnection', 'path']), id, locked: z.boolean() }).strict(),
+  z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainEdge', 'terrainConnection', 'path', 'decoration', 'decorationCluster', 'surfaceRule']), id, locked: z.boolean() }).strict(),
   z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
@@ -108,6 +121,17 @@ const category = (command: SceneCommand) => command.type === 'setSceneDisplay' ?
 const needsOutdoorExpansion = (scene: SceneDocument, command: SceneCommand): command is OutdoorCommand => isOutdoorCommand(command)
   && ((command.type !== 'deleteProp' && command.type !== 'updateProp' && command.type !== 'replacePropAppearance') || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === command.id)))
 
+/** Internal detached-candidate hook, shared with complete prefab/appearance edits. */
+export function refreshNativeDerivedTransitions(before: SceneDocument, after: SceneDocument): number {
+  const impact = refreshScene5TransitionsAfterPhysicalEdit(before, after)
+  if (!impact.changedIds.length) return 0
+  const byId = new Map(enumerateLayerEntities(before).map(entity => [entity.id, entity]))
+  const dependencies = new Set([...outdoorDependencies(before, impact.affectedIds), ...outdoorDependencies(after, impact.affectedIds)])
+  const locked = [...dependencies].filter(id => byId.get(id)?.editLocked || byId.has(id) && before.userLayers[before.entityLayers[id]]?.editLocked)
+  if (locked.length) throw new Error(`物理修改影响锁定的派生支撑或遮挡依赖：${locked.join('、')}。`)
+  return impact.commandCost
+}
+
 function checkedCommands(commands: readonly SceneCommand[]): SceneCommand[] {
   if (!Array.isArray(commands) || commands.length > COMMAND_LIMIT) throw new Error('编辑指令必须是数组，单次事务最多 256 个操作。')
   const issue = inspectJsonInput(commands)
@@ -130,7 +154,7 @@ function assertLayerUnlocked(scene: SceneDocument, id: string) {
 }
 function restoreActualLocks(next: SceneDocument, source: SceneDocument, explicit: ReadonlyMap<string, boolean>) {
   const actual = new Map(enumerateLayerEntities(source).map(entity => [entity.id, entity.editLocked]))
-  for (const collection of LAYER_ENTITY_COLLECTIONS) for (const entity of Object.values(next[collection])) {
+  for (const collection of [...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS]) for (const entity of Object.values(next[collection] ?? {})) {
     if (explicit.has(entity.id)) entity.editLocked = explicit.get(entity.id)!
     else if (actual.has(entity.id)) entity.editLocked = actual.get(entity.id)!
   }
@@ -176,8 +200,8 @@ function changedRecords(before: Record<string, unknown>, after: Record<string, u
 /** Complete persisted expansion for base content edits, including member overrides. */
 function nativeCommandCost(before: SceneDocument, after: SceneDocument): number {
   let cost = 0
-  for (const collection of LAYER_ENTITY_COLLECTIONS) {
-    const a = before[collection], b = after[collection]
+  for (const collection of [...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS]) {
+    const a = before[collection] ?? {}, b = after[collection] ?? {}
     for (const id of new Set([...Object.keys(a), ...Object.keys(b)])) {
       if (!equal(a[id], b[id]) || before.entityLayers[id] !== after.entityLayers[id]) cost++
     }
@@ -196,15 +220,16 @@ function nativeCommandCost(before: SceneDocument, after: SceneDocument): number 
 function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
   // Entity locks are an independent transaction category; content cannot unlock itself.
   if (commands[0]?.type === 'setEditLock') {
-    const next = cloneJson(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections', path: 'paths' } as const
+    const next = cloneJson(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections', path: 'paths', decoration: 'decorations', decorationCluster: 'decorationClusters', surfaceRule: 'surfaceRules' } as const
     let cost = 0
     for (const command of commands) {
       if (command.type !== 'setEditLock') throw new Error('编辑锁须单独提交。')
       const beforeTerrain = next.schemaVersion >= 3 ? cloneJson(next) : null
-      const entity = own(next[collections[command.kind]] as Record<string, { id: string; editLocked: boolean }>, command.id)
+      const entity = own((next[collections[command.kind]] ?? {}) as Record<string, { id: string; editLocked: boolean }>, command.id)
       if (!entity) throw new Error('编辑锁目标不存在或类型不符。')
       assertLayerUnlocked(next, next.entityLayers[command.id])
       if (entity.editLocked !== command.locked) {
+        assertDecorationMemberUnlocked(next, command.id)
         if (command.kind === 'prop') {
           const parents = [...Object.values(next.prefabInstances), ...Object.values(next.scatterGroups)].filter(group => Object.values(group.members).some(member => member.propId === command.id))
           if (parents.some(group => group.editLocked || next.userLayers[next.entityLayers[group.id]].editLocked)) throw new Error('物件所属组合、散布或其图层已锁定，不能修改成员编辑锁。')
@@ -212,30 +237,37 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
         entity.editLocked = command.locked
       }
       if (beforeTerrain) {
+        reconcileDecorationMembers(beforeTerrain, next)
+        refreshNativeDerivedTransitions(beforeTerrain, next)
         detachChangedOutputs(beforeTerrain, next)
         pauseChangedCompositions(beforeTerrain, next)
         // Reconcile and charge every transition, including changes later undone
         // in this same batch. A repeated lock request still consumes one step.
         const commandCost = Math.max(1, terrainCommandCost(beforeTerrain, next).total)
         cost += commandCost
-        if (cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
+        if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
         options?.onSceneDraft?.(next, command, commandCost)
       }
     }
     return next
   }
   let next = cloneJson(scene), cost = 0
-  const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
     const beforeTerrain=next.schemaVersion>=3?cloneJson(next):null
     let commandCost: number
-    if (isVisualCommand(command)) {
+    const derivedHandled = isVisualCommand(command) || needsOutdoorExpansion(next, command) || isBuildingCommand(command)
+    if (isSurfaceRuleCommand(command)) {
+      commandCost = applySurfaceRuleCommand(next, command, context, options?.appearance).commandCost
+    } else if (isDecorationCommand(command)) {
+      commandCost = applyDecorationCommand(next, command, context, options?.appearance).commandCost
+    } else if (isVisualCommand(command)) {
       commandCost = applyVisualCommand(next, command, context).commandCost
       options?.onOutdoorDraft?.(next, command)
     } else if (needsOutdoorExpansion(next, command)) {
-      commandCost = applyOutdoorCommand(next, command, context).commandCost
+      commandCost = applyOutdoorCommand(next, command, context, options?.budget).commandCost
       options?.onOutdoorDraft?.(next, command)
-    } else if (isBuildingCommand(command)) commandCost = applyBuildingCommand(next, command).commandCost
+    } else if (isBuildingCommand(command)) commandCost = applyBuildingCommand(next, command, options?.fixedUprightPropIds).commandCost
     else if (isAnnotationCommand(command)) {
       const before = cloneJson(next)
       applyAnnotationCommand(next, command)
@@ -248,6 +280,8 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     }
     let chargedCost = commandCost
     if (beforeTerrain) {
+      if (!isDecorationCommand(command) && !isSurfaceRuleCommand(command)) reconcileDecorationMembers(beforeTerrain, next)
+      if (!derivedHandled) commandCost += refreshNativeDerivedTransitions(beforeTerrain, next)
       detachChangedOutputs(beforeTerrain, next)
       pauseChangedCompositions(beforeTerrain, next)
       const expanded = terrainCommandCost(beforeTerrain, next)
@@ -265,7 +299,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
 function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand[], options?: ApplyCommandsOptions): SceneDocument {
   const next = cloneJson(scene)
   let cost = 0
-  const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
+  const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
   const consumeCommand = (amount: number) => consume(scene.schemaVersion >= 3 ? Math.max(1, amount) : amount)
   for (const command of commands) {
     const beforeCost = cost
@@ -338,14 +372,17 @@ function candidate(scene: SceneDocument, commands: readonly SceneCommand[], cont
 export function applyCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
   // Only the validator's independently owned immutable scene can reuse its
   // input proof. Caller-owned or cloned scenes still take the complete path.
+  if (options?.budget) parseTaskBudgetProfile(options.budget)
   const source = validateSceneSnapshot(scene)
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
   const next = candidate(source.document, checkedCommands(commands), context, options), result = validateSceneDocument(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
+  if (options?.budget) assertTaskBudget(options.budget, measureTaskBudget(source.document, next))
   return next
 }
 /** Certified immutable editor path; no-op batches preserve identity and consume no history. */
 export function applySnapshotCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options: ApplySnapshotCommandsOptions = {}): SceneDocument {
+  if (options?.budget) parseTaskBudgetProfile(options.budget)
   const source = validateSceneSnapshot(scene)
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
   const checked = checkedCommands(commands)
@@ -354,6 +391,7 @@ export function applySnapshotCommands(scene: SceneDocument, commands: readonly S
   if (options.preserveNoopIdentity !== false && equal(next, source.document)) return source.document
   const result = validateSceneSnapshot(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
+  if (options.budget) assertTaskBudget(options.budget, measureTaskBudget(source.document, result.document))
   return result.document
 }
 

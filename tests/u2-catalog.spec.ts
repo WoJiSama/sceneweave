@@ -30,7 +30,7 @@ test('U2 simple real-image library backup and offline cross-project preview/adop
   test.setTimeout(120_000)
   await page.goto('/#home'); await createBlank(page, 'U2 素材来源工程')
   const lib = library(page); await readyLibrary(page)
-  await lib.locator('.composition-import > summary').click()
+  await lib.locator('.composition-import:not(.asset-batch-import) > summary').click()
   await lib.getByLabel('素材图片', { exact: true }).setInputFiles('public/assets/sceneweave-handdrawn/lamp-table.png')
   const name = 'U2 独立灯具'
   await lib.getByLabel('素材名称', { exact: true }).fill(name)

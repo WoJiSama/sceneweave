@@ -30,7 +30,7 @@ export function validateVisionPng(input: unknown): VisionInput {
 export function validateTaskVision(input: VisionInput, context: TaskContext, start?: AuthoringStart, state?: AuthoringState): VisionInput {
   const value = validateVisionPng(input)
   if (!start || start.project.document.sceneId !== value.sceneId || start.project.document.revision !== value.revision) throw new Error('截图工程基线不匹配。')
-  if (start.schemaVersion === 2) {
+  if (start.schemaVersion === 2 || start.schemaVersion === 3 || start.schemaVersion === 4) {
     const preservation = start.source.preservation
     if (preservation.sceneId === null ? context !== null : !context || context.sceneId !== preservation.sceneId || context.revision !== preservation.revision) throw new Error('截图原工程保护基线不匹配。')
   } else if (!context || context.sceneId !== value.sceneId || context.revision !== value.revision) throw new Error('截图工程基线不匹配。')
