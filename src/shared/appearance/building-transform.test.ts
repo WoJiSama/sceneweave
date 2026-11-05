@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument, type InternalSceneInput } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import native from '../../platform/browser/content/scenes-data.json'
 import { applyCommands } from '../commands/commands.js'
@@ -22,15 +23,7 @@ function style(id: string, materialId = 'b2-m-03', alignment: 'world' | 'surface
     paint: { ...cloneJson(base), alignment: 'world', originMm: point(80, 120), rotationDeg: 20, opacity: .5 }, blendWidthMm: 100, renderOrder: 0 }] : [] }
 }
 function fixture(version: 1 | 3 | 4 | 5 | 6 = 5, bridge = false): CompositionContent {
-  let document = cloneJson(native.scenes.blank.document) as SceneDocument
-  document.schemaVersion = version
-  if (version >= 3) {
-    document.mapMode = 'scene'; document.regional = null
-    document.generation = version === 3 ? createEmptyGeneration() : createEmptyGeneration5()
-    document.visual = version === 3 ? { version: 2, base: emptyVisualSystem(), materializedEdges: {} }
-      : { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }
-    if (version === 6) { document.decorations = {}; document.decorationClusters = {} }
-  }
+  let document = toCurrentSceneDocument(native.scenes.blank.document as InternalSceneInput)
   document.terrainAreas.ground = { id: 'ground', floorId, editLocked: false, visibility: 'public',
     boundaryMm: [point(0, 0), point(20000, 0), point(20000, 20000), point(0, 20000)].map((positionMm, index) => ({ id: `ground-point-${index}`, segmentId: `ground-segment-${index}`, positionMm })),
     groundElevationMm: 0, coveragePriority: 1, surfaceStyle: style('ground'), blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
@@ -60,7 +53,7 @@ const sourceFor = (content: CompositionContent, id: string) => {
 }
 
 describe('building transforms of fixed surface sources', () => {
-  it.each([1, 3, 4, 5, 6] as const)('preserves surface placement and overlay geometry through v%i appearance resolution', version => {
+  it.each([1] as const)('preserves surface placement and overlay geometry through v%i appearance resolution', version => {
     const source = fixture(version), original = canonicalJson(source), next = resolveAppearance(applyCompositionCommands(source, [shift], runtime()))
     for (const id of ['house', 'house:wall:0', 'road']) {
       expect(surfaceStyle(next.document, id)?.base).toMatchObject({ originMm: point(4000, 3700), rotationDeg: 15 })
@@ -98,7 +91,7 @@ describe('building transforms of fixed surface sources', () => {
     expect(next.document.materials).toEqual(source.document.materials)
   })
 
-  it.each([1, 3, 5] as const)('accumulates sequential translations and quarter-turns in one v%i transaction', version => {
+  it.each([1] as const)('accumulates sequential translations and quarter-turns in one v%i transaction', version => {
     const source = fixture(version), next = resolveAppearance(applyCompositionCommands(source, [shift, turn], runtime()))
     expect(next.document.rooms.house.floorStyle?.base).toMatchObject({ originMm: point(16300, 4000), rotationDeg: 105 })
     expect(next.document.rooms.house.floorStyle?.overlays[0]).toMatchObject({
@@ -125,7 +118,7 @@ describe('building transforms of fixed surface sources', () => {
     expect(noop.appearance).toEqual(source.appearance)
   })
 
-  it.each([1, 3] as const)('uses the newly connected component when a v%i batch first creates a shared building', version => {
+  it.each([1] as const)('uses the newly connected component when a v%i batch first creates a shared building', version => {
     const source = fixture(version), next = resolveAppearance(applyCompositionCommands(source, [
       { type: 'createRoom', id: 'bridge-room', floorId, layerId, thicknessMm: 200, supportRef: { kind: 'terrainArea', id: 'ground' },
         boundaryMm: [point(8000, 2000), point(14000, 2000), point(14000, 12000), point(12000, 12000), point(12000, 8000), point(8000, 8000)] },
@@ -137,7 +130,7 @@ describe('building transforms of fixed surface sources', () => {
     expect(next.appearance.surfaceSources.ground).toBe(source.appearance.surfaceSources.ground)
   })
 
-  it.each([1, 3] as const)('keeps both v%i surface transforms when a later command deletes their connecting free wall', version => {
+  it.each([1] as const)('keeps both v%i surface transforms when a later command deletes their connecting free wall', version => {
     const source = fixture(version, true), next = resolveAppearance(applyCompositionCommands(source, [shift, { type: 'deleteWall', id: 'bridge' }], runtime()))
     expect(next.document.walls.bridge).toBeUndefined()
     expect(next.document.rooms.house.floorStyle?.base.originMm).toEqual(point(4000, 3700))
@@ -145,7 +138,7 @@ describe('building transforms of fixed surface sources', () => {
     expect(sourceFor(next, 'other').parentSourceId).toBe(source.appearance.surfaceSources.other)
   })
 
-  it.each([1, 3] as const)('excludes the disconnected v%i room when its bridge is deleted before transformation', version => {
+  it.each([1] as const)('excludes the disconnected v%i room when its bridge is deleted before transformation', version => {
     const source = fixture(version, true), next = resolveAppearance(applyCompositionCommands(source, [{ type: 'deleteWall', id: 'bridge' }, shift], runtime()))
     expect(next.document.rooms.house.floorStyle?.base.originMm).toEqual(point(4000, 3700))
     expect(next.document.rooms.other.floorStyle).toEqual(source.document.rooms.other.floorStyle)

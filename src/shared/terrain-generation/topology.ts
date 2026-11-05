@@ -68,7 +68,7 @@ function rebind(scene: SceneDocument, request: TerrainTopologyRequest, outputIds
 /** Apply a complete integer-mm boolean result. Holes become explicit higher-priority surface areas. */
 export function applyTerrainTopology(scene: SceneDocument, rawRequest: TerrainTopologyRequest, meter?: ExecutionBudget): { outputAreaIds: string[]; componentCount: number; holeCount: number; inputHash: string; outputHash: string } {
   const request = terrainTopologyRequestSchema.parse(rawRequest)
-  if (scene.schemaVersion !== 3 || !scene.generation) throw new Error('复杂拓扑需要完整v3场景。')
+  if (!scene.generation) throw new Error('复杂拓扑需要完整场景。')
   if (request.floorId !== scene.terrainAreas[request.templateAreaId]?.floorId) throw new Error('拓扑模板地形与Floor不符。')
   const areas = request.areaIds.map(id => scene.terrainAreas[id])
   if (areas.some(area => !area || area.floorId !== request.floorId)) throw new Error('拓扑输入地形缺失或跨Floor。')
@@ -83,7 +83,7 @@ export function applyTerrainTopology(scene: SceneDocument, rawRequest: TerrainTo
     for (const owner of Object.values(getLegacyGeneration(scene)!.ownership)) if (owner.target.entityId === area.id) assertWritable(scene, owner.ruleId)
   }
   if (Object.values(scene.terrainEdges).some(edge => request.areaIds.includes(edge.source.areaId) || request.areaIds.includes(edge.neighborAreaId ?? ''))) throw new Error('拓扑输入仍有边缘依赖，请先显式处理边缘。')
-  if (scene.visual?.version === 2 && Object.values(scene.visual.base.boundaries).some(boundary => boundary.binding.kind === 'terrain' && boundary.binding.sides.some(side => request.areaIds.includes(side.areaId)))) throw new Error('拓扑输入仍有视觉曲线依赖，请先显式处理视觉绑定。')
+  if (scene.visual?.version === 3 && Object.values(scene.visual.base.base.boundaries).some(boundary => boundary.binding.kind === 'terrain' && boundary.binding.sides.some(side => request.areaIds.includes(side.areaId)))) throw new Error('拓扑输入仍有视觉曲线依赖，请先显式处理视觉绑定。')
   requireOutputRefs(scene, request, 128)
   const inputHash = hash({ request, areas: areas.map(area => ({ id: area.id, value: area })) })
   const result = polygonBoolean({ operation: request.operation, subject: areas.map(terrainPoints), clip: request.clip }, meter)

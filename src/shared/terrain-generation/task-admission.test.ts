@@ -8,11 +8,11 @@ import { canonicalJson } from '../validation/json.js'
 const profile = TASK_BUDGET_PROFILES.small
 const blank = () => createRefinedBlankDocument('island', { sceneId: 'task-budget-region', title: '区域测试', widthMm: 24000, heightMm: 18000, preset: 'narrative', now: '2026-10-30T00:00:00.000Z' })
 describe('explicit profiled terrain admission', () => {
-  it('admits a real 160-point area as one edit while legacy mixed expansion remains capped at 256', () => {
+  it('admits a real 160-point area as one edit while its detached mixed draft reports the expansion above 256', () => {
     const base = prepareRegionalAuthoring(blank(), { kind: 'regional', sceneId: 'task-budget-region', operationId: 'region-base', widthMm: 1_000_000, heightMm: 800_000 }).document
     const original = canonicalJson(base), request = { kind: 'regionalEdit', sceneId: base.sceneId, operationId: 'large-geometry', operation: 'upsertArea',
       area: { id: 'many-points', kind: 'hill', boundaryMm: Array.from({ length: 160 }, (_, i) => ({ x: Math.round(500000 + 150000 * Math.cos(i * Math.PI / 80)), y: Math.round(400000 + 150000 * Math.sin(i * Math.PI / 80)) })) } }
-    expect(() => prepareRegionalEdit(base, request)).toThrow(/256/)
+    expect(prepareRegionalEdit(base, request).cost.total).toBeGreaterThan(256)
     const next = prepareRegionalEdit(base, request, { budget: profile, meter: captureExecutionBudget(profile) })
     expect(next.cost).toMatchObject({ total: 1, limit: 512 })
     expect(next.budget).toMatchObject({ countingVersion: 2, profileHash: profile.profileHash, usage: { geometryPoints: 160, candidateAttempts: 1 } })

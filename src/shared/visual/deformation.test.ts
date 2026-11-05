@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import type { PointMm, SceneDocument } from '../model/scene.js'
 import type { VisualBoundary } from './types.js'
@@ -30,14 +31,14 @@ function fixture(): SceneDocument {
   const sand = area('sand', [point(2000, 4000), point(4000, 4000), point(6000, 4000), point(6000, 8000), point(2000, 8000)], 'sand-material', 100)
   const water = area('water', [point(2000, 0), point(6000, 0), point(6000, 4000), point(4000, 4000), point(2000, 4000)], 'water-material', 0)
   const boundary = curve(); boundary.binding = { kind: 'terrain', sides: [{ areaId: 'sand', startPointId: 'sand-p0', endPointId: 'sand-p2', reverse: false }, { areaId: 'water', startPointId: 'water-p2', endPointId: 'water-p4', reverse: true }] }
-  return { format: 'sceneweave-scene', schemaVersion: 5, sceneId: 'deformation-fixture', revision: 0, title: 'deformation', createdAt: '2026-10-31T00:00:00.000Z', updatedAt: '2026-10-31T00:00:00.000Z',
+  return toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'deformation-fixture', revision: 0, title: 'deformation', createdAt: '2026-10-31T00:00:00.000Z', updatedAt: '2026-10-31T00:00:00.000Z',
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {},
     assets: { asset: { id: 'asset', sha256: '0'.repeat(64), mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1, logicalSizeMm: { width: 1000, height: 1000 }, licenseRef: 'lic', origin } },
     propDefinitions: {}, materials: { 'sand-material': material('sand-material', 'sand'), 'water-material': material('water-material', 'water') }, terrainAreas: { sand, water }, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false }, derived: { id: 'derived', floorId: 'floor', name: 'Derived', order: 1, editLocked: false } }, entityLayers: { sand: 'layer', water: 'layer' },
     presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'geometry fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] },
-    mapMode: 'scene', regional: null, generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: { ...emptyVisualSystem(), boundaries: { curve: boundary } }, materializedEdges: {} }, transitions: {} } }
+    mapMode: 'scene', regional: null, generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: { ...emptyVisualSystem(), boundaries: { curve: boundary } }, materializedEdges: {} }, transitions: {} } })
 }
 
 describe('bounded component control-point deformation', () => {

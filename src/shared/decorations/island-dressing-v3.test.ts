@@ -20,7 +20,6 @@ import { polygonBooleanWithHoles } from '../geometry/polygon-boolean.js'
 import { buildIslandDressingCommandsV2 } from './island-dressing.js'
 import { hasIslandSurfaceDressingV1, buildIslandSurfaceDressingCommandsV1, ISLAND_SURFACE_DRESSING_PRESET_V1 } from './island-dressing-v3.js'
 import { projectScene } from '../projection/projection.js'
-import { prepareSurfaceRulesUpgrade } from '../../application/workspace/surface-rules-upgrade.js'
 import { inspectDependencies } from '../geometry/dependencies.js'
 import { pixelPng, validation } from '../../application/workspace/test-fixtures.js'
 import { createMemoryResources } from '../project/resources.js'
@@ -35,7 +34,7 @@ beforeAll(() => {
   const generated = generateTerrainDocumentV5(base, { sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', widthMm: 24000, heightMm: 18000,
     algorithmVersion: 5, budgetProfileId: 'standard', quality: 'standard' })
   const composed = { ...emptyCompositionDocument(composeTerrainDocument(base, generated, 'island-v3-birth', TASK_BUDGET_PROFILES.standard).document),
-    schemaVersion: 6, decorations: {}, decorationClusters: {} }
+    schemaVersion: 1, decorations: {}, decorationClusters: {} }
   const catalog = createTerrainVariantCatalogDocument()
   Object.assign(composed.assets, catalog.assets); Object.assign(composed.propDefinitions, catalog.propDefinitions)
   appearance = { version: 2, presentations: {}, sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }
@@ -44,7 +43,7 @@ beforeAll(() => {
     addPropAppearanceSource(appearance, { definitionRef: { id: definition.id, version: definition.version }, appearance: cloneJson(definition.defaultAppearance),
       visualBoundsMm: cloneJson(definition.defaultVisualBoundsMm), shadowClass: definition.defaultShadowClass, shadowOverride: null }, null, spec.presentation)
   }
-  scene = { ...cloneJson(composed), schemaVersion: 8, surfaceRules: {} }
+  scene = { ...cloneJson(composed), schemaVersion: 1, surfaceRules: {} }
   const checkedV8 = validateSceneDocument(scene)
   if (!checkedV8.ok) throw new Error(checkedV8.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('; '))
   scene = checkedV8.document
@@ -54,8 +53,7 @@ const rectangle = (x: number, y: number, width: number, height: number) => [{ x,
 
 async function migratedIslandWithBlockedTreeRemainder() {
   const v7Base = cloneJson(scene)
-  v7Base.schemaVersion = 7
-  delete v7Base.surfaceRules
+  v7Base.surfaceRules = {}
   const crown = v7Base.terrainAreas['terrain-high']
   const points = terrainPoints(crown), minX = Math.min(...points.map(point => point.x)), maxX = Math.max(...points.map(point => point.x))
   const minY = Math.min(...points.map(point => point.y)), maxY = Math.max(...points.map(point => point.y)), splitX = Math.floor((minX + maxX) / 2)
@@ -67,10 +65,10 @@ async function migratedIslandWithBlockedTreeRemainder() {
   const legacyTree = { ...cloneJson(v7Base.propDefinitions[treeSpec.definitionId]), id: 'v7-small-tree-definition', catalogId: 'test.v7-small-tree',
     name: 'V7 small tree fixture', defaultVisualBoundsMm: { x: -400, y: -500, width: 800, height: 1000 } }
   v7Base.propDefinitions[legacyTree.id] = legacyTree
-  const canopy = { type: 'createCanopyRegion' as const, id: 'v7-island-managed-trees', floorId: crown.floorId, layerId: v7Base.entityLayers[crown.id],
-    visibility: 'public' as const, supportRef: { kind: 'terrainArea' as const, id: crown.id }, regionsMm: canopyRegions,
-    definitionRef: { id: legacyTree.id, version: 1 }, seed: 'v7-island-managed-tree-seed', mode: 'plant' as const,
-    canopyCoveragePpm: 1_000_000, spacingMm: 900, clusterRadiusMm: 2200, clearanceMm: 400 }
+  const canopy = { type: 'paintSurfaceVegetation' as const, id: 'v7-island-tree-rule', clusterId: 'v7-island-managed-trees', field:'trees' as const, floorId: crown.floorId, layerId: v7Base.entityLayers[crown.id],
+    visibility: 'public' as const, supportRef: { kind: 'terrainArea' as const, id: crown.id }, regionsMm: canopyRegions.map(outerMm=>({outerMm,holesMm:[]})),
+    palette:[{key:'tree',definitionRef:{id:legacyTree.id,version:1},kind:'prop' as const,weight:1}],seed:'v7-island-managed-tree-seed',
+    coveragePpm: 1_000_000, spacingMm:900, clusterRadiusMm:2200,clearanceMm:400 }
   const v7WithCanopy = applyCommands(v7Base, [canopy], context('v7-canopy'), { appearance })
   const oldCluster = cloneJson(v7WithCanopy.decorationClusters!['v7-island-managed-trees'])
   const oldManagedProps = Object.values(oldCluster.members).filter(member => member.kind === 'prop' && member.entityId && member.state === 'managed').map(member => member.entityId!)
@@ -85,23 +83,7 @@ async function migratedIslandWithBlockedTreeRemainder() {
       splitX + 1000 - v7WithV2.floors[crown.floorId].boundsMm.x,
       v7WithV2.floors[crown.floorId].boundsMm.height), clearanceMm: 400 }
 
-  const bitmap = pixelPng([120, 160, 90, 255]), hash = sha256Bytes(bitmap)
-  for (const asset of Object.values(v7WithV2.assets)) { asset.sha256 = hash; asset.pixelWidth = 1; asset.pixelHeight = 1 }
-  const composition = createCompositionContent(v7WithV2, context('v7-project-content'))
-  for (const spec of TERRAIN_VARIANT_SPECS) {
-    const definition = composition.document.propDefinitions[spec.definitionId]
-    addPropAppearanceSource(composition.appearance, { definitionRef: { id: definition.id, version: definition.version }, appearance: cloneJson(definition.defaultAppearance),
-      visualBoundsMm: cloneJson(definition.defaultVisualBoundsMm), shadowClass: definition.defaultShadowClass, shadowOverride: null }, null, spec.presentation)
-  }
-  const subjects = inspectDependencies(composition.document).subjects, licenseText = 'Sceneweave migration regression fixture'
-  const licenseHash = sha256Bytes(encodeUtf8(licenseText))
-  const source = { format: 'sceneweave-complete-project' as const, schemaVersion: 7 as const, ...composition,
-    assets: { [hash]: { sha256: hash, mimeType: 'image/png' as const, sizeBytes: bitmap.length, pixelWidth: 1, pixelHeight: 1 } },
-    licenses: { [licenseHash]: { sha256: licenseHash, text: licenseText } },
-    licenseBindings: subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const })), authoringSources: {},
-    resources: createMemoryResources(new Map([[hash, bitmap]])) }
-  const migrated = await prepareSurfaceRulesUpgrade(source, { runtime: context('v7-to-v8-migration'), validation })
-  return { migrated: migrated.document, oldCluster, oldManagedProps }
+  return { migrated: v7WithV2, oldCluster, oldManagedProps }
 }
 
 describe('island-surface-dressing@1 v8 rule-backed post-generation preset', () => {
@@ -131,7 +113,7 @@ describe('island-surface-dressing@1 v8 rule-backed post-generation preset', () =
       return
     }
     expect(canonicalJson(scene)).toBe(canonicalJson(before))
-    expect(after.schemaVersion).toBe(8)
+    expect(after.schemaVersion).toBe(1)
     expect(after.terrainAreas).toEqual(scene.terrainAreas)
     expect(after.paths).toEqual(scene.paths)
     expect(after.constraints).toEqual(scene.constraints)
@@ -205,7 +187,7 @@ describe('island-surface-dressing@1 v8 rule-backed post-generation preset', () =
     for (const member of Object.values(beforeCluster.members)) if (member.entityId) expect(after.props[member.entityId]).toEqual(withTreeRule.props[member.entityId])
   }, 60000)
 
-  it('preserves migrated v7 managed trees when the uncovered v8 tree region generates no candidates', async () => {
+  it('preserves existing managed trees when an uncovered region generates no candidates', async () => {
     const { migrated, oldCluster, oldManagedProps } = await migratedIslandWithBlockedTreeRemainder()
     const migratedRule = Object.values(migrated.surfaceRules ?? {}).find(rule => rule.field === 'trees')!
     if (migratedRule.field === 'material') throw new Error('岩岛回归夹具缺少迁移后的树木规则。')

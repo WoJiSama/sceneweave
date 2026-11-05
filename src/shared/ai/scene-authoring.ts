@@ -133,9 +133,9 @@ function definition(project: ProjectData, id: string): void {
 /** Validate a fixed, explicit grant. Dependencies never silently enlarge this grant. */
 export function validateSceneScope(project: ProjectData, input: SceneScope, budget?: TaskBudgetProfile, capability?: CurrentAuthoringCapability): void {
   const current = assertCurrentAuthoringCapability(project, capability)
-  if (!current && project.schemaVersion >= 5) deny('当前AI场景操作尚不支持完整v5/v6/v7曲线连接或装饰工程。')
+  if (!current) deny('完整工程的AI场景编辑须使用当前明确能力协议。')
   const scope = (current ? CurrentSceneAuthoringScopeSchema : budget ? ProfiledSceneAuthoringScopeSchema : SceneAuthoringScopeSchema).parse(captureJson(input)), scene = project.document
-  if (current && scope.operations.some(kind => !currentAuthoringOperationSupported(project.schemaVersion, kind))) deny('场景操作不支持当前完整工程版本。')
+  if (current && scope.operations.some(kind => !currentAuthoringOperationSupported(project, kind))) deny('场景操作不支持当前工程的实际能力。')
   const floor = own(scene.floors, scope.floorId), layer = own(scene.userLayers, scope.layerId)
   if (!floor || !layer || layer.floorId !== floor.id || layer.editLocked) deny('创作Floor或用户图层无效/锁定。')
   if (!inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('创作范围超出世界。')
@@ -393,7 +393,7 @@ function diagnostic(scene: SceneDocument, scope: SceneScope, allowed: ReadonlySe
 /** Replays one finite operation; the outer ledger enforces the returned cumulative expanded cost. */
 export function applySceneOperation(project: ProjectData, inputScope: SceneScope, inputOperation: SceneAuthoringOperation, context: PreparationContext, allowedEntityIds: ReadonlySet<string>, budget?: TaskBudgetProfile, capability?: CurrentAuthoringCapability): { project: ProjectData; readIds: string[]; writeIds: string[]; cost: number; createdIds: string[] } {
   const current = assertCurrentAuthoringCapability(project, capability)
-  if (!current && project.schemaVersion >= 5) deny('当前AI场景操作尚不支持完整v5/v6/v7曲线连接或装饰工程。')
+  if (!current) deny('完整工程的AI场景编辑须使用当前明确能力协议。')
   const scope = (current ? CurrentSceneAuthoringScopeSchema : budget ? ProfiledSceneAuthoringScopeSchema : SceneAuthoringScopeSchema).parse(captureJson(inputScope)), operation = SceneAuthoringOperationSchema.parse(captureJson(inputOperation))
   if (!scope.operations.includes(operation.kind)) deny('场景操作未获明确授权。')
   const allowed = new Set([...scope.entityIds, ...allowedEntityIds]), scene = project.document, read = new Set([scope.floorId, scope.layerId])
@@ -472,7 +472,7 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneScope
 /** Model projection contains only the fixed public grant and this task's generated entities. */
 export function publicSceneContext(project: ProjectData, scope: SceneScope, allowedIds: ReadonlySet<string>, capability?: CurrentAuthoringCapability): unknown {
   const current = assertCurrentAuthoringCapability(project, capability)
-  if (!current && project.schemaVersion >= 5) deny('当前AI场景上下文尚不支持完整v5/v6/v7曲线连接或装饰工程。')
+  if (!current) deny('完整工程的AI场景上下文须使用当前明确能力协议。')
   const document = resolveAppearance({ document: project.document, appearance: project.appearance, historyIdentity: project.historyIdentity }).document, ids = sorted([...scope.entityIds, ...allowedIds]), generated = new Set([...allowedIds].filter(id => !scope.entityIds.includes(id)))
   const entities: unknown[] = []
   for (const id of ids) {

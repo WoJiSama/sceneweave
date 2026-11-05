@@ -19,7 +19,6 @@ const empty = (): DerivedTransitionImpact => ({ changedIds: [], affectedIds: [],
 /** Read-only inspection of actual before/after rows. It neither refreshes
  * geometry nor allocates IDs and is safe for repeated preview/scope readers. */
 export function inspectScene5TransitionChanges(before: Readonly<SceneDocument>, after: Readonly<SceneDocument>): DerivedTransitionImpact {
-  if (before.schemaVersion < 5 && after.schemaVersion < 5) return empty()
   const left = before.visual?.version === 3 ? before.visual.transitions : {}, right = after.visual?.version === 3 ? after.visual.transitions : {}
   const changedIds: string[] = [], affected = new Set<string>(), layers = new Set<string>()
   let commandCost = 0
@@ -46,8 +45,7 @@ export function inspectScene5TransitionChanges(before: Readonly<SceneDocument>, 
  * detached candidate. Never publish a new source hash with old geometry.
  * Old strict scene2–4 retain their previous command behavior. */
 export function refreshScene5TransitionsAfterPhysicalEdit(before: Readonly<SceneDocument>, after: SceneDocument, floorIds?: readonly string[]): DerivedTransitionImpact {
-  if (after.schemaVersion < 5) return empty()
-  if (after.visual?.version !== 3) throw new Error('完整v5派生过渡必须使用visual3。')
+  if (after.visual?.version !== 3) throw new Error('完整工程派生过渡必须使用visual3。')
   const floors = floorIds ? new Set(floorIds) : undefined, base = visualBase(after)!, previous = before.visual?.version === 3 ? before.visual.transitions : {}
   const pending: TerrainTransition[] = []
   for (const row of Object.values(after.visual.transitions).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {

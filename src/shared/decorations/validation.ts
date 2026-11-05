@@ -7,7 +7,6 @@ import { decorationAsProp, decorationClusterRecords, decorationFootprint, decora
 const sameRef = (a: SurfaceRef, b: SurfaceRef) => a.kind === b.kind && a.id === b.id
 /** Strict shapes are checked by the scene parser before these semantic checks. */
 export function validateDecorations(scene: SceneDocument): Issue[] {
-  if (scene.schemaVersion < 6) return []
   const errors: Issue[] = [], occupied = new Map<string, string>(), visibility = createPublicVisibility(scene)
   const canopyOrders = new Set<string>()
   const fail = (code: string, message: string, entityId?: string) => errors.push({ code, message, ...(entityId ? { entityId } : {}) })
@@ -41,7 +40,7 @@ export function validateDecorations(scene: SceneDocument): Issue[] {
     if (cluster.canopyRule) {
       const rule = cluster.canopyRule, area = cluster.supportRef.kind === 'terrainArea' ? scene.terrainAreas[cluster.supportRef.id] : undefined
       const orderKey = `${cluster.supportRef.kind}/${cluster.supportRef.id}/${rule.channel}/${rule.paintOrder}`
-      if (scene.schemaVersion !== 7 || !area || area.floorId !== cluster.floorId) fail('CANOPY_RULE_SUPPORT', '树木区域规则只支持严格v7及同Floor地形面。', cluster.id)
+      if (!area || area.floorId !== cluster.floorId) fail('CANOPY_RULE_SUPPORT', '树木区域规则只支持当前完整工程及同Floor地形面。', cluster.id)
       if (canopyOrders.has(orderKey)) fail('CANOPY_RULE_ORDER', '同一地形面的树木规则绘制顺序必须唯一。', cluster.id)
       canopyOrders.add(orderKey)
       try {

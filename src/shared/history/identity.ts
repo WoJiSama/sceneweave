@@ -22,7 +22,7 @@ export const decorationIdentityTokenSchema = z.object({ kind: z.enum(['decoratio
 export const historyIdentity4Schema = historyIdentity3Schema.extend({ version: z.literal(4), decorationTokens: z.record(id, decorationIdentityTokenSchema) }).strict()
 export const surfaceRuleIdentityTokenSchema = z.object({ kind: z.literal('surfaceRule'), token: id, topologyToken: id, topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
 export const historyIdentity5Schema = historyIdentity4Schema.extend({ version: z.literal(5), surfaceRuleTokens: z.record(id, surfaceRuleIdentityTokenSchema) }).strict()
-export const nativeHistoryIdentitySchema = z.union([historyIdentitySchema, historyIdentity2Schema, historyIdentity3Schema, historyIdentity4Schema, historyIdentity5Schema])
+export const nativeHistoryIdentitySchema = historyIdentity5Schema
 const ALL_EXTENDED_IDENTITY_FIELDS = [...TERRAIN_IDENTITY_FIELDS, 'terrainTokens', 'decorationTokens', 'surfaceRuleTokens'] as const
 // A converted v6 identity retains its exact topology hash; do not substitute
 // the new package's canonical serialization for this existing identity domain.
@@ -46,7 +46,7 @@ export function outdoorIdentityDescriptors(document: Readonly<SceneDocument>): R
     // Migration without a route keeps the exact old hash. Route geometry and
     // presentation edits retain birth; changing source kind or ordered segment
     // identities permanently changes continuity, even if undone in this batch.
-    if (document.schemaVersion >= 5 && connection.route) topology.push(['connection-route', connection.route.kind, connection.route.segments.map(segment => segment.id)])
+    if (connection.route) topology.push(['connection-route', connection.route.kind, connection.route.segments.map(segment => segment.id)])
     add(connection.id, 'terrainConnection', topology)
   }
   for (const path of Object.values(document.paths)) add(path.id, 'path', [path.floorId, path.supportRefs])
@@ -60,7 +60,6 @@ const newToken = (descriptor: Descriptor, context: PreparationContext): OutdoorI
 interface DecorationDescriptor { kind: DecorationIdentityToken['kind']; topologyHash: string }
 export function decorationIdentityDescriptors(document: Readonly<SceneDocument>): Record<string, DecorationDescriptor> {
   const result: Record<string, DecorationDescriptor> = {}
-  if (document.schemaVersion < 6) return result
   const add = (id: string, kind: DecorationDescriptor['kind'], topology: unknown) => {
     if (Object.hasOwn(result, id)) throw new Error(`轻量装饰身份重复：${id}。`)
     result[id] = { kind, topologyHash: sha256Text(canonical([kind, topology])) }
@@ -73,7 +72,6 @@ export function decorationIdentityDescriptors(document: Readonly<SceneDocument>)
 interface SurfaceRuleDescriptor { kind: SurfaceRuleIdentityToken['kind']; topologyHash: string }
 /** Brush geometry, drawing order and values are edits within one rule's continuity. */
 export function surfaceRuleIdentityDescriptors(document: Readonly<SceneDocument>): Record<string, SurfaceRuleDescriptor> {
-  if (document.schemaVersion < 8) return {}
   return Object.fromEntries(Object.values(document.surfaceRules ?? {}).map(rule => [rule.id, { kind: 'surfaceRule',
     topologyHash: sha256Text(canonical(['surfaceRule', rule.floorId, rule.supportRef, rule.field, rule.field === 'material' ? null : rule.clusterId])),
   }]))
@@ -95,7 +93,7 @@ export function validateHistoryIdentityShape(input: unknown): HistoryIdentity {
 export function validateHistoryIdentity(input: unknown, document: SceneDocument): HistoryIdentity {
   const identity = validateHistoryIdentityShape(input), checked = validateSceneSnapshot(document)
   if (!checked.ok) throw new Error(`历史身份对应场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
-  if (identity.version !== (document.schemaVersion >= 8 ? 5 : document.schemaVersion >= 6 ? 4 : document.schemaVersion >= 4 ? 3 : document.schemaVersion === 3 ? 2 : 1)) throw new Error('场景与历史身份版本必须严格匹配。')
+  if (identity.version !== 5) throw new Error('场景与历史身份版本必须严格匹配。')
   const descriptors3 = extendedIdentityDescriptors(checked.document)
   for (const [id, descriptor] of Object.entries(descriptors3)) {
     const pool = identity[descriptor.field]
@@ -153,9 +151,9 @@ export function createHistoryIdentity(inputDocument: SceneDocument, context: Pre
     outdoorTokens: Object.fromEntries(Object.entries(outdoorIdentityDescriptors(document)).map(([id, descriptor]) => [id, newToken(descriptor, context)])),
   }
   advanceExtendedIdentities(identity, null, document, context, true)
-  if (document.schemaVersion >= 4) advanceTerrainIdentities(identity, {}, terrainIdentityDescriptors(document), context, true)
-  if (document.schemaVersion >= 6) advanceDecorationIdentities(identity, {}, decorationIdentityDescriptors(document), context, true)
-  if (document.schemaVersion >= 8) advanceSurfaceRuleIdentities(identity, {}, surfaceRuleIdentityDescriptors(document), context, true)
+  advanceTerrainIdentities(identity, {}, terrainIdentityDescriptors(document), context, true)
+  advanceDecorationIdentities(identity, {}, decorationIdentityDescriptors(document), context, true)
+  advanceSurfaceRuleIdentities(identity, {}, surfaceRuleIdentityDescriptors(document), context, true)
   return validateHistoryIdentity(identity, document)
 }
 function advanceTerrainIdentities(identity: HistoryIdentity, before: Record<string, TerrainIdentityDescriptor>, after: Record<string, TerrainIdentityDescriptor>, context: PreparationContext, allowResurrection = false): void {
@@ -235,13 +233,13 @@ export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocum
       }
     }
     const nextExtended = extendedIdentityDescriptors(next)
-    if (next.schemaVersion >= 3) advanceExtendedIdentityDescriptors(result, previousExtended, nextExtended, context, options.allowResurrection)
+    advanceExtendedIdentityDescriptors(result, previousExtended, nextExtended, context, options.allowResurrection)
     const nextTerrain = terrainIdentityDescriptors(next)
-    if (next.schemaVersion >= 4) advanceTerrainIdentities(result, previousTerrain, nextTerrain, context, options.allowResurrection)
+    advanceTerrainIdentities(result, previousTerrain, nextTerrain, context, options.allowResurrection)
     const nextDecorations = decorationIdentityDescriptors(next)
-    if (next.schemaVersion >= 6) advanceDecorationIdentities(result, previousDecorations, nextDecorations, context, options.allowResurrection)
+    advanceDecorationIdentities(result, previousDecorations, nextDecorations, context, options.allowResurrection)
     const nextSurfaceRules = surfaceRuleIdentityDescriptors(next)
-    if (next.schemaVersion >= 8) advanceSurfaceRuleIdentities(result, previousSurfaceRules, nextSurfaceRules, context, options.allowResurrection)
+    advanceSurfaceRuleIdentities(result, previousSurfaceRules, nextSurfaceRules, context, options.allowResurrection)
     previousSurfaceRules = nextSurfaceRules
     previousDecorations = nextDecorations
     previousTerrain = nextTerrain

@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import type { CompositionContent } from '../model/appearance.js'
@@ -7,14 +8,14 @@ import { emptyVisualSystem } from '../visual/types.js'
 import { createEmptyGeneration5, type GenerationSystem5, type TerrainDependency } from './composition-contracts.js'
 import { assertTerrainBudget, compositionRecordExpansion, terrainCommandCost, type TerrainCostMetadata } from './cost.js'
 
-type Scene4=SceneDocument&{schemaVersion:4;generation:GenerationSystem5}
+type Scene4 = SceneDocument
 const p=(x:number,y:number)=>({x,y})
 function scene():Scene4 {
-  return {...cloneJson(layerSceneV3()),format:'sceneweave-scene',schemaVersion:4,mapMode:'scene',regional:null,
-    generation:createEmptyGeneration5(),visual:{version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}}
+  return toCurrentSceneDocument({...cloneJson(layerSceneV3()),format:'sceneweave-scene',schemaVersion: 1,mapMode:'scene',regional:null,
+    generation:createEmptyGeneration5(),visual:{version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}})
 }
 function content():Pick<CompositionContent,'historyIdentity'|'appearance'> {
-  return {historyIdentity:{version:3,lineageId:'cost-lineage',rootSceneId:'layer-copy',propTokens:{item:'item-token'},prefabTokens:{},outdoorTokens:{},generationTokens:{},regionalTokens:{},presentationTokens:{},terrainTokens:{}},
+  return {historyIdentity:{version:5,lineageId:'cost-lineage',rootSceneId:'layer-copy',propTokens:{item:'item-token'},prefabTokens:{},outdoorTokens:{},generationTokens:{},regionalTokens:{},presentationTokens:{},terrainTokens:{},decorationTokens:{},surfaceRuleTokens:{}},
     appearance:{version:2,sources:{},propSources:{},surfaceSources:{},instanceAdjustments:{},layerAdjustments:{},variants:{},prefabAppearanceTemplates:{},presentations:{}}}
 }
 function metadata():TerrainCostMetadata { const before=content();return {before,after:cloneJson(before)} }
@@ -51,7 +52,7 @@ describe('complete-v4 expanded terrain transaction cost',()=>{
     expect(compositionRecordExpansion(threshold)).toBe(15)
     expect(compositionRecordExpansion([threshold,threshold])).toBe(32)
   })
-  it('uses actual seven-pool identity deltas including tombstones and changed-back topology tokens',()=>{
+  it('uses every current identity pool delta including tombstones and changed-back topology tokens',()=>{
     const before=scene(),after=cloneJson(before),state=metadata()
     state.after.historyIdentity.propTokens.tombstone='removed-prop-birth'
     state.after.historyIdentity.prefabTokens.tombstonePrefab='removed-prefab-birth'
@@ -60,8 +61,10 @@ describe('complete-v4 expanded terrain transaction cost',()=>{
     state.after.historyIdentity.regionalTokens!['old-regional']={kind:'regionalArea',token:'regional-birth',topologyToken:'regional-topology',topologyHash:'b'.repeat(64)}
     state.after.historyIdentity.presentationTokens!['old-presentation']={kind:'materializedEdge',token:'presentation-birth',topologyToken:'presentation-topology',topologyHash:'b'.repeat(64)}
     state.after.historyIdentity.terrainTokens!['old-feature']=token('terrainFeature','feature')
+    state.after.historyIdentity.decorationTokens!['removed-decoration']={kind:'decoration',token:'decoration-birth',topologyToken:'decoration-topology',topologyHash:'b'.repeat(64)}
+    state.after.historyIdentity.surfaceRuleTokens!['removed-rule']={kind:'surfaceRule',token:'surface-rule-birth',topologyToken:'surface-rule-topology',topologyHash:'b'.repeat(64)}
     const cost=terrainCommandCost(before,after,state)
-    expect(cost.total).toBe(7)
+    expect(cost.total).toBe(9)
     expect(Object.keys(cost.items).some(key=>key.includes('.estimate.'))).toBe(false)
     expect(cost.items['composition.identity.actual.prefabTokens']).toBe(1)
     const traced=metadata();traced.before.historyIdentity.terrainTokens!['feature']=token('terrainFeature','kept')
@@ -88,19 +91,19 @@ describe('complete-v4 expanded terrain transaction cost',()=>{
     expect(cost.items['composition.resources.materials']).toBeGreaterThan(0)
     expect(cost.items['composition.resources.assets']).toBeGreaterThan(0)
   })
-  it('requires complete metadata for the v4 adoption gate and charges every version conversion',()=>{
+  it('requires complete metadata for the v4 adoption gate and charges independent metadata format changes',()=>{
     const after=scene(),before=cloneJson(after) as SceneDocument
-    before.schemaVersion=3;before.generation=createEmptyGeneration5().legacy;before.visual={version:2,base:emptyVisualSystem(),materializedEdges:{}}
+    before.schemaVersion = 1;before.generation=createEmptyGeneration5();before.visual={version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}
     const state=metadata();state.before.historyIdentity.version=2;delete state.before.historyIdentity.terrainTokens;state.before.appearance.version=1;delete state.before.appearance.presentations
     expect(()=>assertTerrainBudget(before,after)).toThrow(/真实历史身份与外观来源/)
     const cost=assertTerrainBudget(before,after,state)
-    expect(cost.items.physicalAndVisual).toBe(1)
-    expect(cost.items['composition.projectVersion']).toBe(1)
-    expect(cost.items['composition.version']).toBe(1)
-    expect(cost.items['composition.visualVersion']).toBe(1)
+    expect(cost.items.physicalAndVisual).toBe(0)
+    expect(cost.items['composition.projectVersion']).toBeUndefined()
+    expect(cost.items['composition.version']).toBeUndefined()
+    expect(cost.items['composition.visualVersion']).toBeUndefined()
     expect(cost.items['composition.identity.version']).toBe(1)
     expect(cost.items['composition.appearance.version']).toBe(1)
-    expect(cost.total).toBe(6)
+    expect(cost.total).toBe(2)
   })
   it('accepts exactly 256 actual expanded records and refuses the next retained birth without dropping snapshot geometry',()=>{
     const before=scene(),after=cloneJson(before),state=metadata()

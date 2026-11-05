@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import native from '../../platform/browser/content/scenes-data.json'
 import { createCompositionContent } from '../appearance/graph.js'
@@ -12,12 +13,13 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { validateProjectData } from '../project/validate.js'
 import { sha256Text } from '../validation/hash.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
-import type { AuthoringOperation, AuthoringStart, AuthoringStep } from './authoring-protocol-v1.js'
+import type { AuthoringOperationV4 as AuthoringOperation, AuthoringStartV4 as AuthoringStart, AuthoringStepV4 as AuthoringStep } from './authoring-protocol-v4.js'
+import { createCurrentAuthoringStartV4 } from './current-authoring.js'
 import { applyAuthoringStep, authoringProjectHash, checkAuthoringDraft, findAuthoringAssets, authoringAssetPage, publicAuthoringContext, replayAuthoring, validateAuthoringStart } from './authoring.js'
 
 const stamp = '2026-10-24T00:00:00.000Z'
 function fixture(): ProjectData {
-  const document = cloneJson(native.scenes.blank.document) as unknown as SceneDocument
+  const document = toCurrentSceneDocument(cloneJson(native.scenes.blank.document) as unknown as SceneDocument)
   document.title = 'GM private engineering title'
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.prefabDefinitions = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   document.propDefinitions.definition = { id: 'definition', catalogId: 'test.authoring', version: 1, licenseRef: 'MIT', origin: { kind: 'original', attribution: 'Sceneweave test symbols', canEmbed: true },
@@ -33,10 +35,11 @@ function fixture(): ProjectData {
     licenseBindings: [{ subjectKind: 'propDefinition', subjectId: 'definition', licenseRef: 'MIT', licensePath: `licenses/${hash}.txt`, embedding: 'allowed' }], authoringSources: {} })
 }
 function start(project = fixture()): AuthoringStart {
-  return { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: 'fcb3353d-8c8f-4890-b002-a9f5a464a769', preparedAt: stamp,
-    skill: { id: 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model',
-    scope: { targetIds: ['target'], operations: ['place', 'transform', 'opacity'], placement: { floorId: 'blank-floor', layerId: 'layer-default-0',
-      supportRef: { kind: 'floor', id: 'blank-floor' }, boundsMm: { x: 1000, y: 1000, width: 8000, height: 8000 }, definitionIds: ['definition'] } } }
+  return cloneJson(createCurrentAuthoringStartV4({ project, seed: 'fcb3353d-8c8f-4890-b002-a9f5a464a769', preparedAt: stamp,
+    flowId: 'prop-authoring-test', preservation: { sceneId: project.document.sceneId, revision: project.document.revision, contentHash: authoringProjectHash(project), checkpoint: 0 },
+    skill: { id: 'sceneweave-prop-authoring', version: 1 },
+    scope: { targetIds: project.document.props.target ? ['target'] : [], operations: ['place', 'transform', 'opacity'], placement: { floorId: 'blank-floor', layerId: 'layer-default-0',
+      supportRef: { kind: 'floor', id: 'blank-floor' }, boundsMm: { x: 1000, y: 1000, width: 8000, height: 8000 }, definitionIds: ['definition'] } } }))
 }
 const place: AuthoringOperation = { kind: 'place', definitionId: 'definition', positionMm: { x: 6000, y: 6000 }, rotationDeg: 30 }
 function modify(project: ProjectData, commands: CompositionCommand[]): ProjectData {
@@ -55,30 +58,28 @@ describe('shared public prop authoring ledger', () => {
     expect(checked.project.document.title).toBe('GM private engineering title')
     expect(Object.isFrozen(checked.project.appearance)).toBe(true)
     expect(authoringProjectHash(checked.project)).toBe(sha256Text(canonicalJson(checked.project)))
-    expect(() => validateAuthoringStart({ ...checked, baseContentHash: 'a'.repeat(64) })).toThrow(/hash/)
+    expect(() => validateAuthoringStart({ ...checked, baseContentHash: 'a'.repeat(64) })).toThrow(/基线/)
     expect(() => validateAuthoringStart({ ...checked, extra: true } as AuthoringStart)).toThrow()
-    const oversized = cloneJson(checked); oversized.project.document.title = 'x'.repeat(4 * 1024 * 1024)
-    expect(() => validateAuthoringStart(oversized)).toThrow(/4MiB/)
+    const oversized = cloneJson(checked); oversized.project.document.title = 'x'.repeat(49 * 1024 * 1024)
+    expect(() => validateAuthoringStart(oversized)).toThrow(/48MiB/)
     let reads = 0
     const getter = start(); Object.defineProperty(getter.project, 'assets', { enumerable: true, get() { reads++; throw new Error('must not call') } })
     expect(() => validateAuthoringStart(getter)).toThrow(); expect(reads).toBe(0)
   })
-  it('requires explicit scene scope for complete3 and accepts the T6 scene grant', () => {
-    const project=fixture(),context={ids:{nextId:()=>crypto.randomUUID()},clock:{now:()=>stamp}}
-    const visual={...project.document,schemaVersion:2 as const,visual:emptyVisualSystem()}
-    const document=emptyTerrainDocument(visual),content=createCompositionContent(document,context)
-    const terrain=validateProjectData({...project,schemaVersion:3,...content})
-    expect(()=>validateAuthoringStart(start(terrain))).toThrow(/T6/)
-    const floorId = Object.keys(terrain.document.floors)[0], layerId = Object.keys(terrain.document.userLayers).find(id => terrain.document.userLayers[id].floorId === floorId)!
-    const explicit = start(terrain)
-    explicit.scope = { targetIds: [], operations: [], placement: null, scene: { floorId, layerId, boundsMm: terrain.document.exportBoundsMm,
+  it('uses explicit scene operations without inferring a grant from the full project', () => {
+    const project=fixture(), input=start(project)
+    expect(validateAuthoringStart(input).scope.scene).toBeUndefined()
+    expect(() => applyAuthoringStep(input, replayAuthoring(input, []).state, [{ kind: 'terrain', id: 'ungranted', groundElevationMm: 0, boundaryMm: [{x:1000,y:1000},{x:4000,y:1000},{x:4000,y:4000},{x:1000,y:4000}] }], 'ungranted')).toThrow(/未授权/)
+    const floorId = Object.keys(project.document.floors)[0], layerId = Object.keys(project.document.userLayers).find(id => project.document.userLayers[id].floorId === floorId)!
+    input.skill = { id: 'sceneweave-scene-authoring', version: 1 }
+    input.scope = { targetIds: [], operations: [], placement: null, scene: { floorId, layerId, boundsMm: project.document.exportBoundsMm,
       entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], generationLayerIds: [layerId], regionalDefinitionIds: [], operations: ['terrainGenerate'] } }
-    expect(validateAuthoringStart(explicit).scope.scene).toMatchObject({ floorId, layerId, generationLayerIds: [layerId], operations: ['terrainGenerate'] })
+    expect(validateAuthoringStart(input).scope.scene).toMatchObject({ floorId, layerId, generationLayerIds: [layerId], operations: ['terrainGenerate'] })
   })
   it('replays deterministic generated IDs, birth tokens and mixed supported operations without changing main revision', () => {
     const input = start(), initial = replayAuthoring(input, [])
     const first = applyAuthoringStep(input, initial.state, [place, { kind: 'opacity', id: 'target', value: .3 }, { kind: 'transform', id: 'target', rotationDeg: 45 }], 'step-one')
-    expect(first.state.operationCost).toBe(3)
+    expect(first.state.operationCost).toBe(7)
     const id = first.state.changedIds.find(id => id !== 'target')!
     expect(first.project.document.props[id].visibility).toBe('public')
     expect(first.project.historyIdentity.propTokens[id]).toMatch(/^ai-/)
@@ -87,7 +88,7 @@ describe('shared public prop authoring ledger', () => {
     expect(first.project.document.revision).toBe(input.project.document.revision)
     expect(first.project.document.updatedAt).toBe(input.project.document.updatedAt)
     expect(replayAuthoring(cloneJson(input), cloneJson(first.state.steps))).toEqual(first)
-    expect(checkAuthoringDraft(input, first.state)).toEqual({ valid: true, operationCost: 3, changedIds: first.state.changedIds, readIds: first.state.readIds, writeIds: first.state.writeIds })
+    expect(checkAuthoringDraft(input, first.state)).toMatchObject({ valid: true, operationCost: 7, changedIds: first.state.changedIds, readIds: first.state.readIds, writeIds: first.state.writeIds })
     const second = applyAuthoringStep(input, first.state, [{ kind: 'transform', id, positionMm: { x: 6500, y: 6000 } }], 'step-two')
     expect(second.project.document.props[id].positionMm.x).toBe(6500)
     expect(input.project.document.props.target.appearance.opacity).toBe(1)
@@ -235,7 +236,7 @@ describe('shared public prop authoring ledger', () => {
     expect(edited.project.document.props.table.appearance.opacity).toBe(.4)
     expect(edited.project.document.props.table.supportRef).toEqual({ kind: 'room', id: 'house' })
     expect(edited.project.document.props.table.footprintMm).toEqual(project.document.propDefinitions.definition.defaultFootprintMm)
-    expect(edited.state.operationCost).toBe(13)
+    expect(edited.state.operationCost).toBe(19)
     expect(replayAuthoring(input, edited.state.steps)).toEqual(edited)
     expect(() => applyAuthoringStep(input, edited.state, [{ kind: 'transform', id: 'yard-table', positionMm: { x: 9200, y: 8000 } }], 'outside-scene')).toThrow(/新增授权范围/)
     expect(() => applyAuthoringStep(input, edited.state, [{ kind: 'place', definitionId: 'definition', positionMm: { x: 8000, y: 8000 } }], 'no-placement')).toThrow(/未获授权/)

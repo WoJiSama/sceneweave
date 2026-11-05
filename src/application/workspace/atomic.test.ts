@@ -3,8 +3,8 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { applyAuthoringStep, replayAuthoring } from '../../shared/ai/authoring.js'
-import type { AuthoringOperation, AuthoringScope, AuthoringStep, DraftLease } from '../../shared/ai/authoring-protocol-v1.js'
-import type { AuthoringDraft } from '../../shared/ai/authoring-protocol-v1.js'
+import type { AuthoringOperation, AuthoringStep, DraftLease } from '../../shared/ai/authoring-protocol.js'
+import { CurrentAuthoringScopeSchema, type CurrentAuthoringScope, type AuthoringDraftV4 } from '../../shared/ai/authoring-protocol-v4.js'
 import { cloneJson } from '../../shared/validation/json.js'
 import { assertAtomicLease, atomicChanges, type AtomicCandidate } from './atomic.js'
 import { fromBundle, toBundle } from './project.js'
@@ -18,16 +18,16 @@ async function setup() {
   const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
   await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
   const document = workspace.getDocument()!, floor = Object.values(document.floors)[0]
-  const scope: AuthoringScope = { targetIds: ['item'], operations: ['place', 'opacity', 'transform', 'delete'],
+  const scope: CurrentAuthoringScope = { targetIds: ['item'], operations: ['place', 'opacity', 'transform', 'delete'],
     placement: { floorId: floor.id, layerId: document.entityLayers.item, supportRef: { kind: 'floor', id: floor.id }, boundsMm: floor.boundsMm, definitionIds: ['definition'] } }
-  const authorization = await workspace.authorizeAtomic(scope)
-  const draft = (operations: AuthoringOperation[]): AuthoringDraft => ({ schemaVersion: 1, taskId: 'atomic-task', generation: 1, start: authorization.start,
+  const authorization = await workspace.authorizeCurrentAtomic(scope)
+  const draft = (operations: AuthoringOperation[]): AuthoringDraftV4 => ({ schemaVersion: 4, taskId: 'atomic-task', generation: 1, start: authorization.start,
     state: operations.length ? applyAuthoringStep(authorization.start, replayAuthoring(authorization.start, []).state, operations, 'step-1').state
       : replayAuthoring(authorization.start, []).state })
   return { repo, workspace, scope, authorization, draft }
 }
-function lease(candidate: AtomicCandidate, changes: Partial<import('../../shared/ai/authoring-protocol-v1.js').DraftLease> = {}): DraftLease {
-  return { schemaVersion: 1, taskId: candidate.taskId, generation: candidate.generation, draftRevision: candidate.draftRevision, contentHash: candidate.contentHash,
+function lease(candidate: AtomicCandidate, changes: Partial<import('../../shared/ai/authoring-protocol-v4.js').DraftLeaseV4> = {}): DraftLease {
+  return { schemaVersion: 4, ...candidate.budgetIdentity!, taskId: candidate.taskId, generation: candidate.generation, draftRevision: candidate.draftRevision, contentHash: candidate.contentHash,
     claimId: crypto.randomUUID(), serverNow: 1000, expiresAt: 31_000, ...changes }
 }
 const move: AuthoringOperation[] = [{ kind: 'transform', id: 'item', rotationDeg: 30 }]
@@ -56,7 +56,8 @@ describe('task-scoped local authority and atomic adoption', () => {
     remote.state = applyAuthoringStep(remote.start, remote.state, [{ kind: 'opacity', id, value: 0.4 }], 'step-2').state
     remote.state = applyAuthoringStep(remote.start, remote.state, [{ kind: 'transform', id, positionMm: { x: 8000, y: 7000 } }], 'step-3').state
     const candidate = await workspace.prepareAtomicCandidate(authorization, remote)
-    expect(candidate.operationCost).toBe(3); expect(candidate.changes.map(row => row.id)).toEqual([id])
+    expect(candidate.operationCost).toBe(7); // Includes full identity, appearance and actual command expansion.
+    expect(candidate.changes.map(row => row.id)).toEqual([id])
     expect(workspace.getState().project).toBe(before)
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => lease(candidate) })
     expect(result.revision).toBe(1); expect(workspace.getDocument()!.props[id]).toMatchObject({ positionMm: { x: 8000, y: 7000 }, appearance: { opacity: 0.4 } })
@@ -101,7 +102,7 @@ describe('task-scoped local authority and atomic adoption', () => {
     const { workspace, authorization } = await setup()
     const steps: AuthoringStep[] = Array.from({ length: 16 }, (_, index) => ({ index: index + 1, stepId: `step-${index + 1}`,
       operations: Array.from({ length: 16 }, () => ({ kind: 'transform' as const, id: 'item', rotationDeg: 30 })) }))
-    const remote: AuthoringDraft = { schemaVersion: 1, taskId: 'budget-task', generation: 1, start: authorization.start, state: replayAuthoring(authorization.start, steps).state }
+    const remote: AuthoringDraftV4 = { schemaVersion: 4, taskId: 'budget-task', generation: 1, start: authorization.start, state: replayAuthoring(authorization.start, steps).state }
     expect((await workspace.prepareAtomicCandidate(authorization, remote)).operationCost).toBe(256)
     remote.state.steps.push({ index: 17, stepId: 'overflow', operations: move }); remote.state.draftRevision = 17
     await expect(workspace.prepareAtomicCandidate(authorization, remote)).rejects.toThrow(/256/)
@@ -116,7 +117,7 @@ describe('task-scoped local authority and atomic adoption', () => {
     const claim = vi.fn(async () => lease(candidate))
     await expect(workspace.adoptAtomicCandidate(candidate, { claim })).rejects.toThrow(/已有修改/); expect(claim).not.toHaveBeenCalled()
     await expect(workspace.reattachAtomic(remote.start)).rejects.toThrow(/基线/)
-    const fresh = await workspace.authorizeAtomic(authorization.scope), freshRemote = { ...remote, start: fresh.start, state: replayAuthoring(fresh.start, remote.state.steps).state }
+    const fresh = await workspace.authorizeCurrentAtomic(CurrentAuthoringScopeSchema.parse(authorization.scope)), freshRemote = { ...remote, start: fresh.start, state: replayAuthoring(fresh.start, remote.state.steps).state }
     const freshCandidate = await workspace.prepareAtomicCandidate(fresh, freshRemote)
     await workspace.openPersisted(workspace.getState().project!)
     await expect(workspace.adoptAtomicCandidate(freshCandidate, { claim: async () => lease(freshCandidate) })).rejects.toThrow(/已有修改/)
@@ -128,7 +129,7 @@ describe('task-scoped local authority and atomic adoption', () => {
     expect(rebound).not.toBe(authorization)
     expect((await workspace.prepareAtomicCandidate(rebound, remote)).contentHash).toBe(remote.state.contentHash)
     await workspace.execute([{ type: 'setEditLock', kind: 'prop', id: 'item', locked: true }])
-    await expect(workspace.authorizeAtomic(authorization.scope)).rejects.toThrow(/锁/)
+    await expect(workspace.authorizeCurrentAtomic(CurrentAuthoringScopeSchema.parse(authorization.scope))).rejects.toThrow(/锁/)
     const stillViewable = await workspace.prepareAtomicCandidate(authorization, remote)
     await expect(workspace.adoptAtomicCandidate(stillViewable, { claim: async () => lease(stillViewable) })).rejects.toThrow(/已有修改/)
   })

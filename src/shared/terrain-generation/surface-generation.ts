@@ -29,7 +29,7 @@ export const terrainGenerationResultV5Schema = z.object({ ...terrainGenerationRe
     // Reuse the complete geometry/route/cost contract under its frozen v4
     // physical selector. The v5 envelope itself remains independently strict.
     const physical=cloneJson(result.document)
-    if(physical.visual?.version===1)physical.visual.environment=emptyVisualSystem().environment
+    visualBase(physical)!.environment=emptyVisualSystem().environment
     const {environmentChanges:_environment,...cost}=resultCost(physical,result,result.managedTargets)
     const checked=terrainGenerationResultV4Schema.safeParse({...result,input:{...result.input,algorithmVersion:4},document:physical,cost})
     if(!checked.success)for(const issue of checked.error.issues)context.addIssue({code:'custom',path:issue.path,message:issue.message})
@@ -79,7 +79,7 @@ function sortedManagedTargets(document:SceneDocument):TerrainManagedTarget[] {
 function resultCost(document:SceneDocument,result:TerrainGenerationResult,managedTargets:TerrainManagedTarget[]):TerrainGenerationResult['cost']&{environmentChanges:0|1} {
   const blank=cloneJson(document)
   for(const key of LAYER_ENTITY_COLLECTIONS)Object.assign(blank,{[key]:{}})
-  blank.entityLayers={};blank.visual=emptyVisualSystem()
+  blank.entityLayers={};blank.visual={version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}
   const visual=visualBase(document)!,terrainPoints=Object.values(document.terrainAreas).reduce((sum,row)=>sum+row.boundaryMm.length,0)
   const legacyTotal=visualCommandCost(blank,document)
   const recommendedGenerationRecords=1+(1+2)+(1+managedTargets.length)+managedTargets.length+(1+result.activity.boundaryMm.length*2)+1+(result.route?result.route.pointsMm.length*2+1:0)
@@ -142,7 +142,7 @@ export function materializeTerrainCompositionV5(base:SceneDocument,input:Terrain
   if(recipeVersion!==5||!budget)throw new Error('岸面组合5需要显式版本5与注册预算。')
   const physical=materializeTerrainComposition(base,input,requirements,title,profile,4,budget),meter=captureExecutionBudget(budget)
   const document=checkedSurfaceDocument(physical.document,input.seed,meter),system=document.generation
-  if(document.schemaVersion!==4||system?.version!==5)throw new Error('岸面组合5需要严格scene4/generation5。')
+  if(system?.version!==5)throw new Error('岸面组合5需要严格generation5。')
   const visual=visualBase(document)!,materials=actualRecipeMaterials(document)
   for(const composition of Object.values(system.compositions)){
     const recipe=system.legacy.recipes[composition.recipeRef.id]

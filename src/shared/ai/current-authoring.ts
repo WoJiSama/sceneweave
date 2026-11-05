@@ -1,3 +1,5 @@
+import { propAppearanceSnapshot } from '../appearance/graph.js'
+import type { PropAppearanceSnapshot } from '../model/appearance.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { definitionPresentation, presentationBounds } from '../appearance/presentation.js'
 import { currentPublicPaintRow } from './current-authoring-paint.js'
@@ -12,7 +14,7 @@ import type { AuthoringStartV3 } from './continuation-protocol-v3.js'
 import { CONTINUATION_POLICY, CONTINUATION_RETAINED_DIMENSIONS, createContinuationPolicyV2, accumulateContinuationUsage } from './budget-policy.js'
 import { replayBaseMapSourceV3, continuationOperationBudgetV3 } from './continuation-v3.js'
 import { authoringProjectHash, validateCurrentAuthoringEngine, replayCurrentAuthoringEngine, currentAuthoringAssetPage, publicAuthoringContextForReplay } from './authoring-v1.js'
-import { CURRENT_AUTHORING_CAPABILITY, currentAuthoringResourceClosureHash } from './current-authoring-capability.js'
+import { CURRENT_AUTHORING_CAPABILITY, assertCurrentAuthoringCapability, currentAuthoringResourceClosureHash } from './current-authoring-capability.js'
 import { AuthoringStartV4Schema, AuthoringStateV4Schema, AuthoringStepV4Schema, LedgerEntryV4Schema, type LedgerEntryV4, isGeneratedAuthoringV4,
   type AuthoringStartV4, type AuthoringStateV4, type AuthoringStepV4, type AuthoringOperationV4, type CurrentAuthoringScope, type CurrentBaselineSourceV4 } from './authoring-protocol-v4.js'
 
@@ -45,7 +47,8 @@ function checkedStart(input: AuthoringStartV4) {
   if (encodeUtf8(canonicalJson(owned)).length > 48 * 1024 * 1024) deny('完整输入超过48MiB。')
   const start = AuthoringStartV4Schema.parse(owned)
   start.project = validateProjectData(start.project)
-  if (start.project.schemaVersion < 3 || start.project.schemaVersion > 7 || start.scope.artwork) deny('此能力仅支持完整3–7和起始固定资源。')
+  assertCurrentAuthoringCapability(start.project, start.capability)
+  if (start.scope.artwork) deny('此能力仅使用起始固定资源，未开放素材创建。')
   if (authoringProjectHash(start.project) !== start.baseContentHash) deny('确切当前基线不同。')
   let generationTargets: string[] = [], generationIds: string[] = [], usage: BudgetUsage
   if (isGeneratedAuthoringV4(start)) {
@@ -86,13 +89,18 @@ function append(ledger: LedgerEntryV4[], fields: Omit<LedgerEntryV4, 'sequence' 
 export function replayAuthoringV4(input: AuthoringStartV4, inputSteps: readonly AuthoringStepV4[]) {
   const checked = checkedStart(input), { start } = checked, steps = captureJson(inputSteps).map(step => AuthoringStepV4Schema.parse(step))
   const sourceHash = digest(start.source), policyHash = start.policy.policyHash, root = digest({ capability: start.capability, sourceHash, policyHash })
-  const ledger: LedgerEntryV4[] = []; let aiCost = 0, actualCost = 0, usage = checked.usage
+  const ledger: LedgerEntryV4[] = [], generatedSnapshots: PropAppearanceSnapshot[] = []; let aiCost = 0, actualCost = 0, usage = checked.usage
   append(ledger, { operationId: `${start.source.version === 3 ? 'generation' : 'baseline'}-${sourceHash}`, category: start.source.version === 3 ? 'generation' : 'baseline',
     operationHash: sourceHash, beforeHash: start.source.version === 3 ? authoringProjectHash(start.source.blank) : start.baseContentHash,
     afterHash: start.baseContentHash, targets: checked.generationTargets, semanticCost: checked.generationTargets.length, usage }, root)
   const replayed = replayCurrentAuthoringEngine(legacyAuthoringStartV4(start), steps as LegacyStep[],
     start.policy.policyVersion === 2 ? start.policy.profile : undefined, trace => {
       const operation = trace.operation as AuthoringOperationV4
+      // Only the completed, same-core deterministic generator may establish
+      // scaled instance snapshots. Arbitrary prop edits never enter this list.
+      if (operation.kind === 'terrainGenerate') for (const prop of Object.values(trace.after.document.props)) {
+        if (!trace.before.document.props[prop.id]) generatedSnapshots.push(propAppearanceSnapshot(prop))
+      }
       const measured = continuationOperationBudgetV3(operation as LegacyOperation, trace.before, trace.after)
       actualCost += Math.max(1, trace.complexityCost)
       const cost = start.policy.policyVersion === 1 ? Math.max(1, trace.complexityCost) : measured.semanticCost
@@ -112,7 +120,7 @@ export function replayAuthoringV4(input: AuthoringStartV4, inputSteps: readonly 
   const finalLimit = start.policy.policyVersion === 1 ? 256 : start.policy.finalAdoptionTargets
   if (finalTargets.length > finalLimit) deny(`最终采用超过${finalLimit}目标。`)
   // Commands may add new fixed appearance snapshots from permitted scene fields, but cannot add resource bytes or definitions.
-  assertCurrentAuthoringResourceEvolution(start, replayed.project)
+  assertCurrentAuthoringResourceEvolution(start, replayed.project, generatedSnapshots)
   const budget = { generationCost: checked.generationTargets.length, aiCost, finalAdoptionCost: finalTargets.length, usage }
   const ledgerHeadHash = ledger.at(-1)!.entryHash, budgetStateHash = digest({ capability: start.capability, policyHash, sourceHash, ledgerHeadHash, budget })
   const state = AuthoringStateV4Schema.parse({ ...replayed.state, schemaVersion: 4, operationCost: budget.generationCost + aiCost,

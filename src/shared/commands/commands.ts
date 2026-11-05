@@ -224,7 +224,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     let cost = 0
     for (const command of commands) {
       if (command.type !== 'setEditLock') throw new Error('编辑锁须单独提交。')
-      const beforeTerrain = next.schemaVersion >= 3 ? cloneJson(next) : null
+      const beforeTerrain = cloneJson(next)
       const entity = own((next[collections[command.kind]] ?? {}) as Record<string, { id: string; editLocked: boolean }>, command.id)
       if (!entity) throw new Error('编辑锁目标不存在或类型不符。')
       assertLayerUnlocked(next, next.entityLayers[command.id])
@@ -254,7 +254,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
   let next = cloneJson(scene), cost = 0
   const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
-    const beforeTerrain=next.schemaVersion>=3?cloneJson(next):null
+    const beforeTerrain=cloneJson(next)
     let commandCost: number
     const derivedHandled = isVisualCommand(command) || needsOutdoorExpansion(next, command) || isBuildingCommand(command)
     if (isSurfaceRuleCommand(command)) {
@@ -300,10 +300,10 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
   const next = cloneJson(scene)
   let cost = 0
   const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
-  const consumeCommand = (amount: number) => consume(scene.schemaVersion >= 3 ? Math.max(1, amount) : amount)
+  const consumeCommand = (amount: number) => consume(Math.max(1, amount))
   for (const command of commands) {
     const beforeCost = cost
-    const beforeTerrain=next.schemaVersion>=3?cloneJson(next):null
+    const beforeTerrain=cloneJson(next)
     switch (command.type) {
       case 'createLayer': {
         consumeCommand(1)

@@ -66,7 +66,7 @@ export async function prepareTerrainEditProject(base: EditableProject, input: un
   const validation = { ...options.validation, signal: options.signal ?? options.validation.signal }
   checkCancelled(validation.signal)
   const owned = getVerifiedEditableProject(base) ?? await validateEditableProject(base, validation)
-  if (owned.schemaVersion !== 3) throw new Error('局部地形编辑需要完整v3工程。')
+  if (owned.document.mapMode !== 'scene') throw new Error('局部地形编辑需要场景工程。')
   const budgetProfile = selectTerrainEditBudget(owned.document, options.budget), meter = budgetProfile ? captureExecutionBudget(budgetProfile) : undefined
   const request = terrainEditRequestSchema.parse(captureJson(input))
   const result = budgetProfile ? prepareTerrainEdit(owned.document, request, { budget: budgetProfile, meter }) : prepareTerrainEdit(owned.document, request)

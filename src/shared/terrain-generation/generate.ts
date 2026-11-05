@@ -45,7 +45,7 @@ export interface TerrainGenerationResult {
 }
 const safeCount = z.number().int().nonnegative().refine(Number.isSafeInteger)
 export const terrainGenerationResultSchema = z.object({
-  document: sceneDocumentSchema.refine(value => value.schemaVersion === 2 && value.visual?.version === 1, '生成结果须为显式SceneDocument2/visual1。'),
+  document: sceneDocumentSchema,
   input: terrainGenerationInputSchema,
   skeleton: z.object({ variant: z.number().int().min(0).max(4), name: z.string().min(1).max(80), bayDirection: z.object({ x: z.number().finite().min(-1).max(1), y: z.number().finite().min(-1).max(1) }).strict(),
     plateauCenterMm: point, gridColumns: z.literal(48), gridRows: z.literal(36), simplificationErrorMm: z.number().finite().positive().max(5000), fitErrorMm: safeCount }).strict(),
@@ -56,7 +56,6 @@ export const terrainGenerationResultSchema = z.object({
     legacyTotal: safeCount, recommendedGenerationRecords: safeCount, total: safeCount.refine(value => value <= 256) }).strict(),
 }).strict().superRefine(validateTerrainGenerationResult)
 function validateTerrainGenerationResult(result: TerrainGenerationResult, context: z.RefinementCtx): void {
-  if (result.document.schemaVersion !== 2 || result.document.visual?.version !== 1) return
   const cost = result.cost
   if (cost.legacyTotal !== cost.physicalEntities + cost.terrainPoints + cost.terrainSegments + cost.pathPoints + cost.visualEntities + cost.curveSegments + cost.overlays
     || cost.total !== cost.legacyTotal + cost.recommendedGenerationRecords || cost.recommendedGenerationRecords !== generationRecordCost(result.managedTargets.length, result.activity.boundaryMm.length, result.route?.pointsMm.length ?? 0)) {
@@ -85,7 +84,7 @@ function validateTerrainGenerationResult(result: TerrainGenerationResult, contex
   ]
   const blank = cloneJson(document)
   for (const key of LAYER_ENTITY_COLLECTIONS) Object.assign(blank, { [key]: {} })
-  blank.entityLayers = {}; blank.visual = emptyVisualSystem()
+  blank.entityLayers = {}; blank.visual = {version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}
   const points = Object.values(document.terrainAreas).reduce((sum, area) => sum + area.boundaryMm.length, 0), curveSegments = Object.values(visualBase(document)!.boundaries).reduce((sum, boundary) => sum + boundary.segments.length, 0)
   if (JSON.stringify(expectedTargets) !== JSON.stringify(result.managedTargets) || cost.legacyTotal !== visualCommandCost(blank, document)
     || cost.terrainPoints !== points || cost.terrainSegments !== points || cost.pathPoints !== Object.values(document.paths).reduce((sum, path) => sum + path.centerlineMm.length, 0) || cost.curveSegments !== curveSegments
@@ -188,12 +187,12 @@ function assertBlank(base: SceneDocument, input: TerrainGenerationInput): SceneD
   const checked = validateSceneDocument(base)
   if (!checked.ok) throw new Error('地形生成基线不是有效完整场景。')
   const scene = checked.document
-  if (scene.sceneId !== input.sceneId || scene.schemaVersion !== 2 || scene.visual?.version !== 1) throw new Error('地形生成须绑定确切sceneId及显式SceneDocument2/visual1空白视图。')
+  if (scene.sceneId !== input.sceneId || scene.visual?.version !== 3 || scene.generation?.version !== 5) throw new Error('地形生成须绑定确切sceneId及当前完整空白视图。')
   if (LAYER_ENTITY_COLLECTIONS.some(key => Object.keys(scene[key]).length) || Object.keys(scene.entityLayers).length
     || Object.keys(scene.floors).length !== 1 || scene.floors[FLOOR]?.boundsMm.x !== 0 || scene.floors[FLOOR]?.boundsMm.y !== 0
     || scene.floors[FLOOR]?.boundsMm.width !== input.widthMm || scene.floors[FLOOR]?.boundsMm.height !== input.heightMm) throw new Error('首批地形生成仅接受相同世界范围的独立空白工程。')
   for (const layerId of [GROUND, PROPS, DETAILS]) if (!scene.userLayers[layerId] || scene.userLayers[layerId].floorId !== FLOOR || scene.userLayers[layerId].editLocked) throw new Error('地形生成所需图层缺失或已锁定。')
-  if (JSON.stringify(scene.visual) !== JSON.stringify(emptyVisualSystem())) throw new Error('首批地形生成不能覆盖已有视觉效果。')
+  if (JSON.stringify(visualBase(scene)) !== JSON.stringify(emptyVisualSystem()) || Object.keys(scene.visual.transitions).length || Object.keys(scene.visual.base.materializedEdges).length || Object.keys(scene.surfaceRules).length || Object.keys(scene.decorations).length || Object.keys(scene.decorationClusters).length || Object.values(scene.generation).some(value => value && typeof value === 'object' && Object.keys(value).length && value !== scene.generation.legacy) || Object.entries(scene.generation.legacy).some(([key,value])=>key!=='version' && Object.keys(value).length)) throw new Error('首批地形生成不能覆盖已有视觉效果。')
   return cloneJson(scene)
 }
 

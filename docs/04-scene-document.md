@@ -1,8 +1,48 @@
 # 场景文档与编辑契约
 
-本文是严格字段、坐标、实体语义与原子编辑的主定义。先按下表识别当前完整工程，再查对应版本与领域约束；旧格式字段只保留兼容解释及被当前格式承接的实体语义，旧工作台没有产品入口。执行任务见[路线图](07-roadmap.md)，验证结果只在[历史台账](archive/README.md)追溯。
+本文是严格字段、坐标、实体语义与原子编辑的主定义。开发期目标由下节单一v1合同定义；下表及各旧版本领域段落记录迁入合同与能力来源，不再要求未来开发维护多套工程格式。执行任务见[路线图](07-roadmap.md)，验证结果只在[历史台账](archive/README.md)追溯。
 
-| 新标识完整工程 | 严格场景 | 视觉 | 历史身份 | 外观 | 主要能力 |
+<a id="development-single-v1"></a>
+## 开发期唯一完整工程 v1（当前实现合同与剩余收口）
+
+依据[产品决策](01-product.md#development-single-project-format)，正常新建、打开、保存、导入/导出、历史、候选、编辑和渲染只维护一个完整工程合同：`ProjectData.schemaVersion = SceneDocument.schemaVersion = manifest.schemaVersion = 1`。最终验收前新增/调整字段直接修改同一套严格schema、模型、命令、资源与投影合同；不再为功能递增工程版本，也不长期兼容旧开发工程文件。未知/缺失字段、旧结构和伪装成1的旧包仍严格拒绝，不能宽松读入后丢字段保存。
+
+**目标v1完整字段取自现有v8，而非恢复早期v1功能。** 保留完整建筑/室外/图层/规则/人工记录及工程顶层资源字段；`mapMode/generation/regional/visual/decorations/decorationClusters/surfaceRules`为完整合同必需字段，空集合明确保存，场景/区域互斥仍完整校验。曲线连接route保持真实控制源和采样几何，直行连接可无route；区域图不携带物理实体。v7专属`canopyRule`只由一次性迁入转成统一`surfaceRules`，不在目标簇中并列保留。
+
+首轮收束工程版本轴，内部只保留**一个当前组合**：全量`identity5 / appearance2 / visual3 / generation5`和适用的`regional1`语义。这些内部结构数字不再驱动多工程版本分派；以后开发修改其唯一当前schema即可，无须另增兼容分支。全部出生/拓扑token、墓碑、人工覆盖、固定表现/来源、受众及依赖语义保留，不因schemaVersion变成1走回旧身份或旧计价路径。
+
+算法/配方自身版本、固定定义/素材版本、AI任务/传输协议、预算策略/profile、增量历史记录结构及数据库schema不是工程版本。特别是算法/配方6确定性领域重放继续保持；新v1工程序列化会改变工程hash，须重新计算，不声称与旧格式工程hash相等。新工程请求仍分配真实新身份，同一次重放绑定原身份分配表。
+
+目标新v1与早期旧v1外层同名时，正常读者只认**当前完整严格字段结构**；不能仅凭数字1判断兼容。旧格式解析只归[独立迁入工具](06-storage-and-export.md#development-single-v1-import)。本节优先于下方要求并行保留工程v1–v8、相邻副本升级或新增功能必须升工程版本的旧约定；完整领域校验、资源、CAS、撤销及秘密约束不变。当前模型、严格I/O和工厂已收束；剩余回归与通用生成器实现状态见[07](07-roadmap.md#general-map-generation-priority)。下表仅用于解释旧数据和领域能力来源，不能作为日常格式分派。
+
+<a id="generation-staging"></a>
+### 通用生成的临时候选与持久责任
+
+D1的请求/步骤依赖、13类临时空间产物、只读候选快照及阶段hash回执仅存在于会话，不加入工程、历史或导出字段。算子物化到私有完整SceneDocument，后续阶段读取实际墙门、支撑和占地；主工程身份/revision/Floor不变。`prepared`不是可采用凭据，仍须沿完整ProjectData的身份、资源/许可/像素、范围/锁、预算、保护/CAS及一次撤销路径准备与采用。具体接口及旧自然协议桥见[生成设计](reference/general-map-generation.md#d1-stage-contract)。
+
+当前D2/D3室内沿现有`generation.legacy`严格联合保存`domain:interior / algorithmId:interior-layout / algorithmVersion:2 / recipeVersion:2`，包含规范化完整房间/关系需求、范围/墙厚/走廊、固定floor/wall材质及初次布置`arrangement`。后者精确保存门/入口/家具开关、建议门宽/通路净宽与显式角色→固定定义palette；配方props必须与该palette逐项一致。不增加工程版本或开发工程兼容分支。既有自然配方分支的结构和字段不变。building规则使用现有rules/ownership，引用可含room/wall/vertex/opening；结构→连接→内容三个阶段依次产room/wall/vertex、真实opening、真实prop，每阶段只补本阶段归属并重算完整规则hash。稳定需求ID是配方局部键，不占用场景实体ID；实际房间/墙/顶点/门/家具有独立稳定输出键及受管理geometry/properties/surface/source组。
+
+生成建筑的真实出生与拓扑记录复用当前`historyIdentity.generationTokens`，kind增加generatedRoom/generatedWall/generatedVertex/generatedOpening，只为building归属目标建立，不给普通手工建筑补造生成身份。出生/墓碑仍计入同一65536总上限，不增工程或身份版本、不另开身份池。手工用途、顶点坐标、共享墙及真实端点几何变化进入脱管判断；删除保留墓碑，每条原生命令后的拓扑推进及撤销/重做不回退旧拓扑令牌。稳定输出键和临时回执都不替代身份凭据。家具继续使用现有propTokens，门使用generatedOpening，归属记录仍在同一building规则；没有第二套身份池。初次布置仅为建议，不写`Room.accessExpectation=required`、入口必达列表、pathChecks或持久必需家具数；门关闭/删除、家具搬动/删除沿原生命令脱管/墓碑及撤销语义，冷读不补回。D4/D5沿此责任扩展；没有真实凭据时拒绝需要该证明的结构重生成，不扩大现有历史恢复权限。
+
+D4森林沿同一`generation.legacy`保存严格`domain:forest / algorithmId:forest-layout / algorithmVersion:1 / recipeVersion:1`。参数包含明确林区/空地/入口/折线路线、选定或新建地面、三通道覆盖/间距和固定palette；recipe.materials/props必须与输入中的ground/path和tree/shrub/grass引用完整一致。局部需求ID不占场景实体ID。forest规则按真实产出分别绑定geometry/properties及适用的surface/appearance/source/membership，完整树Prop、轻量Decoration、DecorationCluster和SurfaceRule使用现有身份池与人工状态；引用联合增加后三种实体，并只为新种类补其真实字段投影，旧自然引用hash保持。
+
+森林空地activityArea与入口port均为soft首次保留；实际生成仍复核完整占地/绘制范围、真实支撑与道路净宽，缺少合法连接的路线拒绝。手工删改走原生脱管/删除/墓碑，不在打开/保存时补回。完整坐标、成员槽位、固定资源和软保留记录保存在工程，临时预览报告与空间事实不成为另一份权威地图。已有同通道规则不被隐式重撒；同seed已有森林配方的追加拒绝，受限局部更新见下述D6合同。
+
+D5火山同样直接保存于唯一完整v1的`generation.legacy`，严格`domain:volcano / algorithmId:volcano-layout / algorithmVersion:1 / recipeVersion:1`。参数含山体/低火口/平台真实闭环与高程、外部入口、两处高差连接、两条指定路线及有限折点、可选火口内流道控制线/宽度、显式区域策略和ground/mountain/crater/platform/flow/route六种固定材质绑定；recipe.materials必须与参数完整一致，props为空。山体高于基底、火口低于山体，高程可低于基底；覆盖优先级不表示高程。流道完整带区规范到1mm，实际保存为火口内同高程TerrainArea；危险/阻挡/移动代价各存Region，不从熔岩纹理推断，也不以Path冒充跨高差流道。
+
+volcano规则按实际TerrainArea/TerrainEdge/TerrainConnection/Path/Region逐项建立有限归属，共享精确配方；引用联合新增region，原有引用字段投影与自然算法hash不变。地形/连接仍使用现有室外出生/拓扑身份，Region使用生成归属的出生与manual/deleted记录，不据此扩大结构恢复权限。活动区、入口及路线均为soft首次建议；实际首次生成需检查当前支撑/完整净宽/两端接入和显式阻挡。手工改危险、换材质或删除Region沿原生脱管/删除与撤销语义保存，打开不再生成；建筑拓扑重写与跨领域结构重生成尚不支持。
+
+D6不增加工程字段或版本。四类局部操作复用已保存配方、现有rules/ownership、SurfaceRule/DecorationCluster与真实身份；只认领本次明确授权且之前仍受管的字段，既有manual/deleted/detached与墓碑不清零。原配方保留首次输入，当前密度、材质及坐标由实际规则/实体保存；新家具、林区成员分配独立出生身份和有限归属，稳定输出键不授权复活旧ID。火口坐标调整保留现有点/段及拓扑；改变拓扑或删除重建后即使撤销回原几何，原生历史推进的新拓扑令牌仍使该几何归属保持人工，不能恢复旧生成控制。相关Region仅在其几何仍受管时随动，不改变人工策略；不支持建筑分合/新删房间等拓扑重写。操作范围和拒绝边界见[设计11.6](reference/general-map-generation.md#d-regeneration)，保存事务见[06](06-storage-and-export.md#local-generation-storage)。
+
+<a id="domain-generation-protocol"></a>
+### 领域生成的会话传输边界
+
+D7使用独立`protocolVersion:1`请求，精确包含requestId、workspaceId/checkpoint/epoch、domain、完整候选基底SceneDocument、规范输入、注册profile和requestHash；不传图片字节、当前工程或历史。严格分派只支持`interior-layout@2 / forest-layout@1 / volcano-layout@1`新工程。响应绑定同一请求/上下文，包含完整领域结果、强类型空间产物/阶段回执和报告；逐项验证场景、产物与阶段hash。实际计时单独计量，不进入确定性resultHash。8MiB请求、16MiB结果和600000个JSON值均为保护上限，不是容量承诺。
+
+这些信封、临时事实、诊断、端点凭据与执行端选择不增加持久字段。唯一完整v1继续保存实际实体、精确配方/归属、人工状态、身份、外观和资源。摘要只能证明候选自洽；即使远端重算全部摘要，采用仍须本机会话私有凭据、完整重放与资源校验，不能直接另存网络场景。旧自然底图协议与算法6重放原路保留。
+
+
+| 迁入前的旧完整工程 | 旧严格场景 | 视觉来源 | 历史身份来源 | 外观来源 | 被当前完整v1承接的能力 |
 |---|---|---|---|---|---|
 | v1 | scene1 | 无visual字段 | identity1 | appearance1 | 完整建筑、室外实体、图层与有限恢复 |
 | v2 | scene2 | visual1 | identity1 | appearance1 | 共享曲线、边带和有限静态效果 |
@@ -15,28 +55,28 @@
 
 按问题查阅：[当前工程](#当前完整工程与版本分派)、[地形/区域v3](#完整v3地形与区域合同)、[地貌组合v4](#terrain-t8-contract)、[曲线连接v5](#curved-connections-v5)、[轻量布景v6](#decoration-clusters-v6)、[树冠区域v7](#canopy-regions-v7)、[连续地表规则v8](#surface-rules-v8)、[计量与标识](#计量和标识)、[实体字段](#材质地形与组件字段语义旧m1-v2来源)、[选择与历史](#选择图层外观与历史)、[事务](#commandbatch撤销与锁)、[个人目录](#会话与个人目录)。
 
-各行是固定组合；工程schemaVersion必须等于场景schemaVersion。generation5以legacy保留严格generation1–4。数据库版本、目录身份算法与旧M1容器版本均是其他维度，不与此表互换。
+上表各行是旧数据的固定组合，独立迁入器验证旧工程schemaVersion等于其场景schemaVersion。当前完整v1使用上方唯一组合。generation5以legacy保留严格generation1–4。数据库版本、目录身份算法与旧M1容器版本均是其他维度，不与此表互换。
 
 <a id="完整v1现行合同2026-10-24"></a>
 
 <a id="完整v1v2现行合同2026-10-25"></a>
 ## 当前完整工程与版本分派
 
-主工程与个人库分别为`sceneweave-projects`和`sceneweave-library`；当前打开、保存与导入只接收新标识完整v1–v8及明确所选历史。旧格式转换保留为底层兼容合同，不自动处理用户旧数据。AI授权与草稿合同见[05](05-ai-and-generation.md)，存储与副本升级见[06](06-storage-and-export.md)。
+默认主工程与个人库分别为`sceneweave-projects-dev-v1`和`sceneweave-library-dev-v1`；独立迁入成功后原子选择同一来源指纹的成对目标库。当前打开、保存与导入只接收当前完整v1及明确所选历史，旧格式仅由独立本机迁入处理。AI授权与草稿合同见[05](05-ai-and-generation.md)，存储与副本升级见[06](06-storage-and-export.md)。
 
 ### A. 格式识别与完整模型
 
 | 对象 | 固定标识与版本 | 必需字段/约束 |
 |---|---|---|
-| `ProjectData`，纯JSON | `format:'sceneweave-complete-project', schemaVersion:1\|2\|3\|4\|5\|6\|7\|8` | 精确字段为format/schemaVersion/document/historyIdentity/appearance/assets/licenses/licenseBindings/authoringSources，无其他顶层键 |
-| `SceneDocument` | `format:'sceneweave-scene', schemaVersion:1\|2\|3\|4\|5\|6\|7\|8` | 下列完整场景字段，不继承旧SceneDocumentV2/V3，也不靠旧领域视图保存 |
-| `HistoryIdentity` | `version:1\|2\|3\|4\|5` | 各版本精确组合见上表；identity1的lineageId/rootSceneId/propTokens/prefabTokens/outdoorTokens完整承接旧identity3语义 |
-| `AppearanceGraph` | `version:1\|2` | sources/propSources/surfaceSources/instanceAdjustments/layerAdjustments/variants/prefabAppearanceTemplates；appearance2增加固定表现，不能向appearance1偷加字段 |
+| `ProjectData`，纯JSON | `format:'sceneweave-complete-project', schemaVersion:1` | 精确字段为format/schemaVersion/document/historyIdentity/appearance/assets/licenses/licenseBindings/authoringSources，无其他顶层键 |
+| `SceneDocument` | `format:'sceneweave-scene', schemaVersion:1` | 下列完整场景字段，不继承旧SceneDocumentV2/V3，也不靠旧领域视图保存 |
+| `HistoryIdentity` | `version:5` | 完整保留各出生/拓扑池、墓碑、lineageId/rootSceneId和规则身份 |
+| `AppearanceGraph` | `version:2` | sources/propSources/surfaceSources/instanceAdjustments/layerAdjustments/variants/prefabAppearanceTemplates及固定presentations |
 | `ProjectBundle`，运行时交付 | `project:ProjectData`＋资源字节端口 | 每个已引用图片/SVG字节按hash可读、独立捕获；纯JSON通过不表示完整校验通过 |
 
 旧M0的`sceneweave/schemaVersion:1`和`sceneweave-project/containerVersion:1`只交给legacy读者。分发先识别format，再检查其版本及精确字段；新标识不能交给旧读者试读，也不把未知版本降级。数据库schema版本和目录身份算法都不是工程文件版本。
 
-完整场景必需字段集合：`format/schemaVersion/sceneId/revision/title/createdAt/updatedAt/units/exportBoundsMm/floors/vertices/rooms/walls/openings/props/regions/notes/assets/presetSnapshot/constraints/propDefinitions/materials/terrainAreas/terrainEdges/terrainConnections/paths/prefabDefinitions/prefabInstances/scatterGroups/styleThemes/activeStyleThemeRef/userLayers/entityLayers`；可选`generationMetadata`沿用已有有限来源摘要。各实体、固定定义、物理/受众、层和散布人工字段完整承接现行v3语义；不得以“统一”删掉未直接显示的字段。
+完整场景必需字段集合另含`mapMode/generation/regional/visual/decorations/decorationClusters/surfaceRules`，共同字段为：`format/schemaVersion/sceneId/revision/title/createdAt/updatedAt/units/exportBoundsMm/floors/vertices/rooms/walls/openings/props/regions/notes/assets/presetSnapshot/constraints/propDefinitions/materials/terrainAreas/terrainEdges/terrainConnections/paths/prefabDefinitions/prefabInstances/scatterGroups/styleThemes/activeStyleThemeRef/userLayers/entityLayers`；可选`generationMetadata`沿用已有有限来源摘要。各实体、固定定义、物理/受众、层和散布人工字段完整承接现行v3语义；不得以“统一”删掉未直接显示的字段。
 
 `assets`以SHA256为键，每条精确为`sha256/mimeType/sizeBytes/pixelWidth/pixelHeight`，不含Blob；mime限PNG/JPEG/WebP。`licenses`以hash为键，精确为`sha256/text`；`licenseBindings`沿用subjectKind/subjectId/licenseRef/licensePath/embedding，逐主体及完整嵌入权校验。实际字节放资源端口，受控读入后校验CRC/hash/编码/尺寸/真实像素和预算；不能用描述代替字节。
 
@@ -46,9 +86,9 @@ c实现采用前一种方式：独立深冻结ProjectData和私有不可变字�
 
 新内容hash为规范JSON的SHA256，覆盖完整ProjectData（含源元数据、许可正文/绑定），不含资源端口、运行时认证、转换journal或本地旧原件。规范JSON递归按键的确定性UTF-16顺序排列、数组顺序保留、UTF-8无BOM、拒绝非有限数和非法JSON数据；不使用localeCompare。旧hash单独作为sourceContentHash保存，转换后必须重算，不能继续声称旧hash覆盖新结构。
 
-### A2. 完整v2视觉系统
+### A2. 视觉系统语义（旧v2能力来源，当前v1完整承接）
 
-新空白使用完整v2，ProjectData.schemaVersion须等于SceneDocument.schemaVersion。场景1严格拒绝visual，场景2必须有严格 `visual:{version:1,boundaries,edgeLooks,lights,fogs,filters,environment}`，其余完整字段不丢失。当前命名空间的完整v1仍可读；从视觉面板启用时先保存原工程，再创建新sceneId/r0、独立完整校验和保存的v2副本，成功后切换。原v1及历史不覆盖。该版本号与旧M1 `sceneweave/schemaVersion:2` 不同。
+以下相邻升级过程仅为旧数据来源说明，日常入口已退役。当前新建直接创建完整v1，并在visual3.base.base保留严格 `visual:{version:1,boundaries,edgeLooks,lights,fogs,filters,environment}`，其余完整字段不丢失。当前命名空间的完整v1仍可读；从视觉面板启用时先保存原工程，再创建新sceneId/r0、独立完整校验和保存的v2副本，成功后切换。原v1及历史不覆盖。该版本号与旧M1 `sceneweave/schemaVersion:2` 不同。
 
 场景2的房间、注记和用途区在各自合法绘制带内先按用户图层，再按稳定ID排序；字典键的插入顺序不是持久层序。规范JSON重排键后仍产生相同投影和画面。场景1保持原有局部顺序规则。
 
@@ -135,7 +175,7 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 <a id="program-base-map-protocol"></a>
 程序底图使用独立传输协议`sceneweave-base-map@1|@2|@3`，不扩充持久工程格式。以下为@1兼容合同；@2在严格请求中加入flowId与完整冻结policy，结果hash另覆盖generationBudget的语义目标/成本及复杂度，完整来源与分类接续见[F节](#capacity-budget-evolution)和[05](05-ai-and-generation.md#budget-continuation-contract)。严格请求区分当前`workspaceSceneId/checkpoint/operationEpoch`与独立空白`base.sceneId`；只接受无实体/注记/锁/历史标记的SceneDocument2/visual1。`generation`明确为普通terrain输入或composition配方，省略旧算法/配方版本仍保持1含义。`inputHash`覆盖完整规范generation，`baseHash`覆盖完整空白，`paletteHash`覆盖固定assets/materials/propDefinitions/prefabDefinitions/styleThemes及activeStyleThemeRef；响应`resultHash`覆盖`{generation,result,domainCost}`。普通结果保留完整TerrainGenerationResult，组合保留完整领域文档和严格plan；服务端与Worker使用同一纯执行器。协议请求/结果分别限4/8MiB，不能用摘要代替实际领域结果。@3明确使用算法4/配方4、完整注册profile及profileHash；inputHash绑定generation和profileHash，结果hash覆盖独立usage及语义成本，领域cost不再表示旧混合展开量；具体限额与兼容归F节。
 
-@3也明确分派算法6/配方6，不改变更早选择器、缺省含义或重放结果。显式服务端运行算法6时，客户端须先分别请求`GET /v1/capabilities?baseMapSelector=terrain-scene-v6`或`...baseMapSelector=terrain-compose-v6`，并核对返回的单一`baseMapSelectors`、`baseMapVersions:[...]`及请求所用注册profile hash，再发送原样的@3请求。此选择器只声明确定性底图生成端支持相应配方，不授予AI修改严格v8工程的能力；AI完整工程版本仍限3–7。旧服务拒绝查询或未返回确切选择器时，不发送底图候选，也不切换到本机Worker。算法/配方5原有`surfaceRecipeVersions:[1]`协商只用于其旧地表含义，保持独立。
+@3明确分派算法/配方6与7，不改变更早选择器、缺省含义或重放结果。算法6/配方6继续使用`terrain-scene-v6` / `terrain-compose-v6`；算法7/配方7分别使用`GET /v1/capabilities?baseMapSelector=terrain-scene-v7` / `terrain-compose-v7`精确协商，核对返回的单一`baseMapSelectors`、底图协议版本和本次注册profile hash后才发送原样@3请求。旧服务缺少确切选择器时，显式服务端生成在POST前失败，不静默改走Worker。v7只把规则驱动的材质/植被和目标岩岛视觉派生放入新结果；固定seed及出生令牌可确定性重放，候选仍需浏览器完整重放、资源/许可/像素校验及最终成本复核。v6输出及历史保持原义，不按新规则重解释；v7不升级工程schema，也不授予AI修改严格v8工程的能力，AI完整工程版本仍限3–7。算法/配方5原有`surfaceRecipeVersions:[1]`协商只用于其旧地表含义，保持独立。
 
 `domainCost`包含完整领域展开，组合使用真实临时计数图的identity/appearance元数据，但仍标`finalAdoptionCostChecked:false`；不返回或安装这些计数身份。浏览器须重放完整结果、物化并校验真实资源，再核对实际成本。通过后，独立候选的会话回执绑定真实完整`projectHash`与`initialOperationCost/operationLimit=256/remainingOperationCost`；采用继续用当前会话凭证，网络JSON不能直接成为可采用凭证。回执不是工程永久容量或后续AI账本，也不进入严格文档、历史或导出；跨冷读继续同一生成/AI流程须后续显式可重放合同，不从当前实体数或seed猜测初始成本。
 

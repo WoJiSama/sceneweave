@@ -4,21 +4,18 @@ import { zlibSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
 import { concatBytes, imageProject, pixelPng, pngChunk } from '../../../io/v3/test-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
-import { createHistoryIdentity } from '../../../shared/history/identity.js'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../../shared/ports/resources.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
-import { emptyTerrainDocument } from '../../../shared/terrain-generation/compose.js'
 import { cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
-import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { PROJECT_TABLES, type StoredSnapshot } from './database.js'
 import { collectUnusedResources, type HistoryMaintenanceChecks } from './history-maintenance.js'
 import type { HistoryVersion } from './incremental-history.js'
-import { nativeUpgradeCapsuleDocumentBytes, type NativeUpgradeContext } from './native-upgrade.js'
-import { ProjectRepository } from './repository.js'
+import { assertAutomatic, assertCurrent, assertSnapshot, ProjectRepository } from './repository.js'
 
 const NOW = '2026-10-30T00:00:00.000Z'
 let sequence = 0
@@ -36,8 +33,8 @@ function repository(): ProjectRepository {
   const repo = new ProjectRepository({ name, validation, runtime }); repositories.push(repo); return repo
 }
 function checks(repo: ProjectRepository): HistoryMaintenanceChecks {
-  const context = (repo as unknown as { nativeUpgradeContext(): NativeUpgradeContext }).nativeUpgradeContext()
-  return { ...context, assertCapsule: row => { nativeUpgradeCapsuleDocumentBytes(row, context) } }
+  void repo
+  return { assertCurrent, assertAutomatic, assertSnapshot }
 }
 function collect(repo: ProjectRepository, options: ResourceOptions = {}) {
   return repo.database.transaction('rw', PROJECT_TABLES, () => collectUnusedResources(repo.database, checks(repo), options))
@@ -50,11 +47,11 @@ function uniquePixel(): Uint8Array {
 }
 async function imageBundle(name: string): Promise<ProjectBundle> {
   const old = await imageProject(), bytes = uniquePixel(), imageHash = sha256Bytes(bytes)
-  const document: SceneDocument = { ...cloneJson(old.document), format: 'sceneweave-scene', schemaVersion: 2, visual: emptyVisualSystem() }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(old.document), format: 'sceneweave-scene', schemaVersion: 1 })
   document.sceneId = `maintenance-image-${++sequence}`
   document.assets['test-image'].sha256 = imageHash
   const text = `Sceneweave original ${name}. CC0-1.0.`, licenseHash = sha256Bytes(encodeUtf8(text))
-  return { project: { format: 'sceneweave-complete-project', schemaVersion: 2, ...createCompositionContent(document, runtime),
+  return { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...createCompositionContent(document, runtime),
     assets: { [imageHash]: { sha256: imageHash, sizeBytes: bytes.length, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1 } },
     licenses: { [licenseHash]: { sha256: licenseHash, text } },
     licenseBindings: old.licenseBindings.map(binding => ({ ...binding, licensePath: `licenses/${licenseHash}.txt` })), authoringSources: {} },
@@ -65,14 +62,6 @@ function withoutImage(source: ProjectBundle, revision: number): ProjectBundle {
   project.document.revision = revision; project.document.title = `Without image ${revision}`
   project.document.assets = {}; project.document.materials = {}; project.assets = {}; project.licenses = {}; project.licenseBindings = []
   return { project, resources: createMemoryResources({}) }
-}
-function upgraded(source: ProjectBundle): ProjectBundle {
-  const project = cloneJson(source.project), document = emptyTerrainDocument(project.document)
-  document.sceneId = `maintenance-upgrade-${++sequence}`; document.revision = 0
-  project.schemaVersion = 3; project.document = document; project.historyIdentity = createHistoryIdentity(document, runtime)
-  project.appearance = { ...project.appearance, version: 2, presentations: Object.fromEntries(Object.values(project.appearance.sources)
-    .filter(source => source.kind === 'prop').map(source => [source.id, { mode: 'topDown' as const, rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround' as const, groundShadowMm: null }])) }
-  return { project, resources: source.resources }
 }
 async function orphans(repo: ProjectRepository) {
   const bytes = uniquePixel(), resourceHash = sha256Bytes(bytes)
@@ -139,16 +128,10 @@ describe('complete history resource maintenance', () => {
     expect(await collect(repo)).toEqual({ resourceCount: 0, resourceBytes: 0, licenseCount: 0, licenseBytes: 0 })
   })
 
-  it('retains old table scopes and capsule-only actual bitmap/license closure after the source rows are absent', async () => {
-    const repo = repository(), source = await imageBundle('capsule-only'), target = upgraded(source), owner = source.project.document.sceneId
-    await repo.save(source, null); await repo.preserveNativeUpgrade(source, target)
-    const capsule = (await repo.exportNativeUpgradeCapsule(target.project.document.sceneId)).capsule
+  it('retains all old table scopes and their exact actual bitmap/license closures', async () => {
+    const repo = repository()
+    await repo.open()
     const legacy = await Promise.all(['old automatic', 'old named', 'old protection', 'old imported'].map(imageBundle))
-    await repo.database.transaction('rw', PROJECT_TABLES, async () => {
-      await repo.database.projects.delete(owner); await repo.database.historyMetadata.delete(owner)
-      for (const table of [repo.database.historyVersions, repo.database.historyPins, repo.database.resourceBindings]) await table.where('ownerSceneId').equals(owner).delete()
-      await repo.database.historyHeads.delete(owner)
-    })
     const [automatic, ...snapshotBundles] = legacy
     await installBytes(repo, automatic)
     await repo.database.automaticSnapshots.add({ ownerSceneId: automatic.project.document.sceneId, revision: 0, savedAt: NOW,
@@ -163,12 +146,23 @@ describe('complete history resource maintenance', () => {
     }
     const orphan = await orphans(repo), decoded = decodeTransactions.length
     expect(await collect(repo)).toMatchObject({ resourceCount: 1, resourceBytes: orphan.resourceBytes, licenseCount: 1, licenseBytes: orphan.licenseBytes })
-    for (const bundle of [source, ...legacy]) {
+    for (const bundle of legacy) {
       expect(await repo.database.resources.get(Object.keys(bundle.project.assets)[0])).toBeDefined()
       expect(await repo.database.licenseTexts.get(Object.keys(bundle.project.licenses)[0])).toBeDefined()
     }
-    expect(await repo.database.nativeUpgradeCapsules.get(capsule.capsuleId)).toEqual(capsule)
     expect(decodeTransactions).toHaveLength(decoded)
+  })
+
+  it('refuses retired upgrade capsules in the current library before deleting any orphan', async () => {
+    const repo = repository(), source = await imageBundle('retired capsule'), owner = source.project.document.sceneId
+    await repo.save(source, null)
+    const orphan = await orphans(repo)
+    const capsule = { capsuleId: 'retired-capsule', sourceSceneId: owner, targetSceneId: owner, createdAt: NOW }
+    await repo.database.nativeUpgradeCapsules.add(capsule)
+    await expect(collect(repo)).rejects.toThrow(/独立迁入保全库/)
+    expect(await repo.database.resources.get(orphan.resourceHash)).toBeDefined()
+    expect(await repo.database.licenseTexts.get(orphan.licenseHash)).toBeDefined()
+    expect(await repo.database.nativeUpgradeCapsules.get(capsule.capsuleId)).toEqual(capsule)
   })
 
   it('refuses missing referenced bytes or corrupt orphan bytes before deleting any candidate', async () => {

@@ -1,9 +1,10 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { addPropAppearanceSource, createCompositionContent } from '../appearance/graph.js'
 import { propPaintPolygon, propPresentation } from '../appearance/presentation.js'
 import { applyCommands } from '../commands/commands.js'
-import { polygonDistance, polygonInside, propFootprint, supportedPolygon } from '../geometry/geometry.js'
+import { pointInPolygon, polygonDistance, polygonInside, propFootprint, supportedPolygon } from '../geometry/geometry.js'
 import type { CompositionContent } from '../model/appearance.js'
 import type { PointMm, PropDefinition, SceneDocument } from '../model/scene.js'
 import { projectScene } from '../projection/projection.js'
@@ -11,7 +12,7 @@ import { createEmptyGeneration5, getLegacyGeneration } from '../terrain-generati
 import { cloneJson } from '../validation/json.js'
 import { TERRAIN_VARIANT_ART } from '../visual/terrain-variant-art.js'
 import { emptyVisualSystem } from '../visual/types.js'
-import type { DecorationCommand } from './commands.js'
+import type { SurfaceRuleCommand } from '../surface-rules/commands.js'
 import { decorationProtectedGeometry } from './generate.js'
 import { conservativePropPaintEnvelope } from './geometry.js'
 
@@ -28,14 +29,14 @@ function fixture(protectedAreas = false): CompositionContent {
     defaultAppearance: { kind: 'image', assetId: 'tree-image', tint: null, opacity: 1 },
     defaultVisualBoundsMm: { x: -art.widthMm / 2, y: -art.heightMm / 2, width: art.widthMm, height: art.heightMm },
     defaultFootprintMm: cloneJson(art.footprintMm!), defaultFootprintOffsetMm: point(0, 0), defaultBlocksMovement: art.blocksMovement!, defaultBlocksSight: art.blocksSight!, defaultRenderLayer: art.renderLayer!, defaultShadowClass: art.shadowClass! }
-  const document: SceneDocument = { format: 'sceneweave-scene', schemaVersion: 7, sceneId: 'canopy-paint', revision: 0, title: 'Canopy paint geometry', createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z',
+  const document: SceneDocument = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'canopy-paint', revision: 0, title: 'Canopy paint geometry', createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z',
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {},
     assets: { 'tree-image': { id: 'tree-image', sha256: '0'.repeat(64), mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512, logicalSizeMm: { width: art.widthMm, height: art.heightMm }, licenseRef: 'fixture-license', origin } },
     propDefinitions: { 'wind-oak': definition }, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: {},
     presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'geometry only', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, pathChecks: [] },
-    mapMode: 'scene', regional: null, generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }, decorations: {}, decorationClusters: {} }
+    mapMode: 'scene', regional: null, generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }, decorations: {}, decorationClusters: {} })
   document.terrainAreas.ground = { id: 'ground', floorId: 'floor', editLocked: false, visibility: 'public', boundaryMm: rectangle(0, 0, 24000, 18000).map((positionMm, i) => ({ id: `ground-p${i}`, segmentId: `ground-s${i}`, positionMm })),
     groundElevationMm: 300, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
   document.entityLayers.ground = 'layer'
@@ -57,16 +58,16 @@ function fixture(protectedAreas = false): CompositionContent {
   return content
 }
 
-function command(regionsMm = [rectangle(4000, 4000, 3200, 4000)]): Extract<DecorationCommand, { type: 'createCanopyRegion' }> {
-  return { type: 'createCanopyRegion', id: 'canopy', floorId: 'floor', layerId: 'layer', visibility: 'public', supportRef: { kind: 'terrainArea', id: 'ground' }, regionsMm,
-    definitionRef: { id: 'wind-oak', version: 1 }, seed: 'fixed-root-small-region', mode: 'plant', canopyCoveragePpm: 500000, spacingMm: 350, clusterRadiusMm: 2200, clearanceMm: 300 }
+function command(rings = [rectangle(4000, 4000, 3200, 4000)]): Extract<SurfaceRuleCommand, { type: 'paintSurfaceVegetation' }> {
+  return { type: 'paintSurfaceVegetation', id: 'canopy-rule', clusterId:'canopy',field:'trees', floorId: 'floor', layerId: 'layer', visibility: 'public', supportRef: { kind: 'terrainArea', id: 'ground' }, regionsMm:rings.map(outerMm=>({outerMm,holesMm:[]})),
+    palette:[{key:'tree',definitionRef:{id:'wind-oak',version:1},kind:'prop',weight:1}], seed: 'fixed-root-small-region', coveragePpm: 500000, spacingMm: 350, clusterRadiusMm: 2200, clearanceMm: 300 }
 }
 
 describe('canopy generation uses complete fixed paint geometry', () => {
   it('plants a real fixed near-side tree in a small region that cannot fit the fallback envelope', () => {
     const before = fixture(), create = command(), baseline = cloneJson(before)
     const bare = applyCommands(before.document, [create], runtime())
-    expect(Object.keys(bare.props)).toHaveLength(0)
+    expect(Object.keys(bare.props)).toHaveLength(1)
     const after = applyCompositionCommands(before, [create], runtime()), trees = Object.values(after.document.props)
     expect(trees).toHaveLength(1)
     expect(before).toEqual(baseline)
@@ -75,8 +76,8 @@ describe('canopy generation uses complete fixed paint geometry', () => {
       expect(presentation).toEqual(art.presentation)
       expect(presentation?.rootAnchorMm.y).toBeGreaterThan(0)
       const paint = propPaintPolygon(tree, presentation)
-      expect(polygonInside(paint, create.regionsMm[0])).toBe(true)
-      expect(polygonInside(conservativePropPaintEnvelope(tree), create.regionsMm[0])).toBe(false)
+      expect(pointInPolygon(tree.positionMm, create.regionsMm[0].outerMm)).toBe(true)
+      expect(polygonInside(conservativePropPaintEnvelope(tree), create.regionsMm[0].outerMm)).toBe(false)
       expect(Math.min(...paint.map(row => row.y))).toBe(tree.positionMm.y + tree.visualBoundsMm.y - art.presentation.rootAnchorMm.y)
       expect(supportedPolygon(after.document, propFootprint(tree), create.supportRef, 'floor')).toBe(true)
       expect(after.historyIdentity.propTokens[tree.id]).toBeTruthy()
@@ -84,14 +85,14 @@ describe('canopy generation uses complete fixed paint geometry', () => {
   })
 
   it('keeps exact root-anchored tree paint outside roads, activity space and real stair clearances', () => {
-    const before = fixture(true), create = { ...command([rectangle(1000, 1000, 17000, 15000)]), canopyCoveragePpm: 300000 }
+    const before = fixture(true), create = { ...command([rectangle(1000, 1000, 17000, 15000)]), coveragePpm: 300000 }
     const after = applyCompositionCommands(before, [create], runtime()), trees = Object.values(after.document.props)
     expect(trees.length).toBeGreaterThan(2)
     const protections = decorationProtectedGeometry(after.document, after.document.decorationClusters!.canopy)
     expect(new Set(protections.map(row => row.id))).toEqual(new Set(['road', 'stair', 'activity']))
     for (const tree of trees) {
       const paint = propPaintPolygon(tree, propPresentation(after.appearance, tree.id))
-      expect(polygonInside(paint, create.regionsMm[0])).toBe(true)
+      expect(pointInPolygon(tree.positionMm, create.regionsMm[0].outerMm)).toBe(true)
       for (const protection of protections) expect(polygonDistance(paint, protection.polygon)).toBeGreaterThanOrEqual(protection.marginMm)
     }
     expect(after.document.paths).toEqual(before.document.paths)
@@ -103,7 +104,7 @@ describe('canopy generation uses complete fixed paint geometry', () => {
     const before = fixture(), planted = applyCompositionCommands(before, [command()], runtime()), tree = Object.values(planted.document.props)[0]
     expect(tree).toBeDefined()
     const locked = applyCompositionCommands(planted, [{ type: 'setEditLock', kind: 'prop', id: tree.id, locked: true }], runtime())
-    const grown = applyCompositionCommands(locked, [{ type: 'updateCanopyRegion', id: 'canopy', mode: 'plant', canopyCoveragePpm: 900000 }], runtime())
+    const grown = applyCompositionCommands(locked, [{ type: 'updateSurfaceVegetation', id: 'canopy-rule', coveragePpm: 900000 }], runtime())
     expect(grown.document.props[tree.id]).toEqual(locked.document.props[tree.id])
     for (const kind of ['support', 'layer'] as const) {
       const source = fixture()
@@ -118,13 +119,13 @@ describe('canopy generation uses complete fixed paint geometry', () => {
   it('does not let an overlapping private locked canopy rule suppress or block public trees', () => {
     const before = fixture(), create = command()
     const publicOnly = applyCompositionCommands(before, [create], runtime())
-    const hidden = applyCompositionCommands(before, [{ ...create, id: 'private-rule', visibility: 'gm', mode: 'erase', canopyCoveragePpm: 0 }], runtime())
-    const privateLocked = applyCompositionCommands(hidden, [{ type: 'setEditLock', kind: 'decorationCluster', id: 'private-rule', locked: true }], runtime())
+    const hidden = applyCompositionCommands(before, [{ ...create, id: 'private-rule', clusterId:'private-cluster', visibility: 'gm', coveragePpm: 0 }], runtime())
+    const privateLocked = applyCompositionCommands(hidden, [{ type: 'setEditLock', kind: 'decorationCluster', id: 'private-cluster', locked: true }], runtime())
     const publicAfter = applyCompositionCommands(privateLocked, [create], runtime())
     const geometry = (content: CompositionContent) => Object.values(content.document.props).filter(row => row.visibility === 'public').map(row => ({ positionMm: row.positionMm, definitionRef: row.definitionRef, visualBoundsMm: row.visualBoundsMm }))
     expect(geometry(publicAfter)).toEqual(geometry(publicOnly))
     expect(geometry(publicAfter)).toHaveLength(1)
-    expect(publicAfter.document.decorationClusters!['private-rule']).toEqual(privateLocked.document.decorationClusters!['private-rule'])
+    expect(publicAfter.document.decorationClusters!['private-cluster']).toEqual(privateLocked.document.decorationClusters!['private-cluster'])
     const player = JSON.stringify(projectScene(publicAfter.document, 'player'))
     expect(player).not.toContain('private-rule')
     expect(player).not.toContain('canopyRule')

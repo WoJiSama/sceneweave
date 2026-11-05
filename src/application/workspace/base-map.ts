@@ -48,7 +48,7 @@ export async function prepareBaseMapProject(
   let prepared
   if (request.generation.kind === 'terrain' && response.result.kind === 'terrain') {
     prepared = await prepareTerrainProject(base, request.generation.input, { ...options, runtime, ...(request.version === 3 ? { budget: request.profile } : {}),
-      ...(request.version === 3 && request.generation.input.algorithmVersion === 6 ? { birthToken: `base-map3-${request.inputHash}` } : {}), result: response.result.terrain })
+      ...(request.version === 3 && request.generation.input.algorithmVersion >= 6 ? { birthToken: `base-map3-${request.inputHash}` } : {}), result: response.result.terrain })
   } else if (request.generation.kind === 'composition' && response.result.kind === 'composition') {
     prepared = await prepareTerrainComposition(base, request.generation.input, { ...options, runtime, ...(request.version === 3 ? { budget: request.profile } : {}), plan: response.result.plan, domainDocument: response.result.document })
   } else throw new Error('底图生成类型与请求不符。')

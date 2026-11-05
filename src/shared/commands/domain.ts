@@ -28,7 +28,14 @@ export function geometryIdentityIds(scene: SceneDocument): Set<string> {
       if (typeof record.id === 'string') ids.add(record.id)
       if (typeof record.segmentId === 'string') ids.add(record.segmentId)
     }
-    for (const child of Object.values(value)) visit(child)
+    // Interior room IDs inside normalized parameters name local requirements,
+    // not scene entities. In particular they cannot reserve a deleted entity's
+    // ID and falsely turn its genuine identity tombstone into a collision.
+    const record = value as Record<string, unknown>
+    for (const [key, child] of Object.entries(record)) {
+      if (key === 'parameters' && (record.domain === 'interior' && record.algorithmId === 'interior-layout' || record.domain === 'forest' && record.algorithmId === 'forest-layout' || record.domain === 'volcano' && record.algorithmId === 'volcano-layout')) continue
+      visit(child)
+    }
   }
   const { userLayers: _layers, entityLayers: _members, ...domain } = scene
   visit(domain)

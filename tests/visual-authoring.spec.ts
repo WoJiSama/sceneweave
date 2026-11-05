@@ -54,7 +54,7 @@ test('original visual blank entry preserves the current scene on cancel and save
   await expect(dialog).toHaveCount(0, { timeout: 45_000 }); await settled(page)
   const created = await current(page)
   expect(created.sceneId).not.toBe(original.sceneId)
-  expect(created.schemaVersion).toBe(2); expect(created.document.schemaVersion).toBe(2)
+  expect(created.schemaVersion).toBe(1); expect(created.document.schemaVersion).toBe(1)
   expect(created.title).toBe('原创素材视觉空白'); expect(created.revision).toBe(0)
   expect(created.document.exportBoundsMm).toEqual({ x: 0, y: 0, width: 24000, height: 18000 })
   expect(Object.keys(created.document.assets)).toHaveLength(24)
@@ -73,7 +73,7 @@ test('original visual blank entry preserves the current scene on cancel and save
     return { closure: await inspectVisualResourceClosure(cold), current: cold.document, prior: prior.project.document, empty: emptyVisualSystem(), projects: await projectRepository.list() }
   }, { originalId: original.sceneId, createdId: created.sceneId })
   expect(saved.current).toEqual(created.document); expect(saved.prior).toEqual(original.document)
-  expect(created.document.visual).toEqual(saved.empty); expect(saved.projects).toHaveLength(2)
+  expect(created.document.visual).toEqual({ version: 3, base: { version: 2, base: saved.empty, materializedEdges: {} }, transitions: {} }); expect(saved.projects).toHaveLength(2)
   expect(Object.keys(saved.closure.sources)).toHaveLength(24); expect(Object.keys(saved.closure.assets)).toHaveLength(24)
   for (const [hash, actual] of Object.entries(saved.closure.hashes)) expect(actual).toBe(hash)
   for (const source of Object.values(saved.closure.sources)) expect(saved.closure.assets[source.rasterSha256]).toBeDefined()
@@ -92,7 +92,7 @@ for (const sample of [
   test.setTimeout(180_000)
   await openSample(page, sample.name)
   const original = await current(page)
-  expect(original.schemaVersion).toBe(2); expect(original.document.schemaVersion).toBe(2)
+  expect(original.schemaVersion).toBe(1); expect(original.document.schemaVersion).toBe(1)
   expect(original.title).toBe(sample.title); expect(original.document.visual).toBeDefined()
   await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
   const reopened = await current(page)
@@ -128,7 +128,7 @@ for (const sample of [
   expect(after.hashes).toEqual(before.hashes); expect(after.sources).toBe(before.sources); expect(after.licenses).toBe(before.licenses)
   expect(after.authoringSources).toBe(before.authoringSources); expect(after.assets).toBe(before.assets)
   expect(after.authoringSources).toBeGreaterThanOrEqual(19); expect(after.assets).toBeGreaterThanOrEqual(19)
-  expect(after.schemaVersion).toBe(2); expect(after.sceneSchemaVersion).toBe(2)
+  expect(after.schemaVersion).toBe(1); expect(after.sceneSchemaVersion).toBe(1)
   for (const audience of ['gm', 'player'] as const) {
     expect([after[audience].width, after[audience].height]).toEqual(sample.ratio)
     expect(after[audience].rgbaHash).toBe(before[audience].rgbaHash)
@@ -249,7 +249,7 @@ test('visual history restores an existing light with protection and once undo, k
   const omitSelectedLight = (scene: typeof restored.document) => {
     const { revision: _revision, updatedAt: _updatedAt, visual, ...rest } = scene
     const { [id]: _light, ...lights } = visualBase(scene)!.lights
-    return { ...rest, visual: visual?.version === 2 ? { ...visual, base: { ...visual.base, lights } } : { ...visual, lights } }
+    return { ...rest, visual: { ...visual, base: { ...visual.base, base: { ...visual.base.base, lights } } } }
   }
   expect(omitSelectedLight(restored.document)).toEqual(omitSelectedLight(beforeRestore.document))
   const snapshots = await page.evaluate(async sceneId => {

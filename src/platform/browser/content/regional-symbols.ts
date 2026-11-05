@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { fromBundle } from '../../../application/workspace/project.js'
 import type { AssetRecord, ProjectData, SvgAuthoringSource } from '../../../shared/model/project.js'
@@ -27,11 +28,11 @@ export const REGIONAL_SYMBOL_IDS = Object.fromEntries(REGIONAL_SYMBOL_ART.map(ar
 export async function createRegionalBlankProject(options: { sceneId?: string; title?: string; now?: string } = {}, signal?: AbortSignal): Promise<EditableProject> {
   signal?.throwIfAborted()
   const now = options.now ?? runtime.clock.now(), bounds = { x: 0, y: 0, width: 10_000_000, height: 8_000_000 }
-  const document: SceneDocument = { format: 'sceneweave-scene', schemaVersion: 3, sceneId: options.sceneId ?? runtime.ids.nextId(), revision: 0, title: options.title ?? '区域地图', createdAt: now, updatedAt: now,
+  const document: SceneDocument = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: options.sceneId ?? runtime.ids.nextId(), revision: 0, title: options.title ?? '区域地图', createdAt: now, updatedAt: now,
     units: { world: 'mm', display: 'm', gridSizeMm: 100_000, snapMm: 1000, gridVisible: false }, exportBoundsMm: bounds, floors: { 'regional-floor': { id: 'regional-floor', name: '区域地貌', boundsMm: { ...bounds } } },
     vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { 'regional-layer': { id: 'regional-layer', floorId: 'regional-floor', name: '区域地貌与图符', order: 0, editLocked: false } }, entityLayers: {}, presetSnapshot: { presetId: 'regional-cartographic-v1', presetVersion: 1, distanceMode: 'abstract', source: 'Sceneweave original regional cartography', gridSizeMm: 100_000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] },
-    mapMode: 'regional', generation: createEmptyGeneration(), regional: createEmptyRegional(), visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} } }
+    mapMode: 'regional', generation: createEmptyGeneration(), regional: createEmptyRegional(), visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} } })
   const resources = new Map<string, Uint8Array>(), assets: Record<string, AssetRecord> = {}, authoringSources: Record<string, SvgAuthoringSource> = {}
   for (const art of REGIONAL_SYMBOL_ART) {
     signal?.throwIfAborted()
@@ -44,6 +45,6 @@ export async function createRegionalBlankProject(options: { sceneId?: string; ti
     resources.set(raster.sha256, raster.pngBytes); resources.set(normalized.sourceSha256, encodeUtf8(normalized.sourceSvg)); resources.set(normalized.normalizedSha256, encodeUtf8(normalized.normalizedSource))
   }
   const content = createCompositionContent(document, runtime), licenseHash = sha256Bytes(encodeUtf8(REGIONAL_SYMBOL_LICENSE))
-  const project: ProjectData = { format: 'sceneweave-complete-project', schemaVersion: 3, ...content, assets, licenses: { [licenseHash]: { sha256: licenseHash, text: REGIONAL_SYMBOL_LICENSE } }, licenseBindings: inspectDependencies(document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })), authoringSources }
+  const project: ProjectData = { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets, licenses: { [licenseHash]: { sha256: licenseHash, text: REGIONAL_SYMBOL_LICENSE } }, licenseBindings: inspectDependencies(document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })), authoringSources }
   return fromBundle({ project, resources: createMemoryResources(resources) }, { ...validation, signal })
 }

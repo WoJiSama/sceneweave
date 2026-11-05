@@ -14,8 +14,11 @@ import { toBundle } from '../../../application/workspace/project.js'
 import { NEAR_SIDE_ART } from './near-side-art.js'
 import { REFINED_ISLAND_ART } from '../../../shared/visual/island-art.js'
 import { TERRAIN_VARIANT_ART, TERRAIN_VARIANT_LICENSE, TERRAIN_VARIANT_LICENSE_REF } from '../../../shared/visual/terrain-variant-art.js'
+import { TERRAIN_VARIANT_V2_ART, TERRAIN_VARIANT_V2_LICENSE, TERRAIN_VARIANT_V2_LICENSE_REF } from '../../../shared/visual/terrain-variant-v2-art.js'
 import { createTerrainVariantCatalogDocument, createTerrainVariantCatalogProject, terrainVariantAssetId, terrainVariantDefinitionId,
   TERRAIN_VARIANT_DEFINITION_IDS, TERRAIN_VARIANT_PRESENTATIONS, TERRAIN_VARIANT_SPECS } from './terrain-variant-catalog.js'
+import { createTerrainVariantV2CatalogDocument, createTerrainVariantV2CatalogProject, terrainVariantV2AssetId, terrainVariantV2DefinitionId,
+  TERRAIN_VARIANT_V2_SPECS } from './terrain-variant-v2-catalog.js'
 
 const fixturePixels = vi.hoisted(() => ({
   raster(hash: string, width: number, height: number) {
@@ -79,6 +82,24 @@ describe('independent original terrain variant catalogue v1', () => {
     expect(TERRAIN_VARIANT_LICENSE).toContain('MIT License')
   })
 
+  it('keeps the compact V2 tree in an independent one-item catalogue and licence closure', async () => {
+    const document = createTerrainVariantV2CatalogDocument(), art = TERRAIN_VARIANT_V2_ART[0]
+    expect(TERRAIN_VARIANT_V2_ART).toHaveLength(1)
+    expect(TERRAIN_VARIANT_V2_SPECS).toHaveLength(1)
+    expect(terrainVariantV2DefinitionId('tree-highland-copse')).toBe('terrain-variants-v2-prop-tree-highland-copse')
+    expect(terrainVariantV2AssetId('tree-highland-copse')).toBe('terrain-variants-v2-art-tree-highland-copse')
+    expect(art.widthMm).toBe(1300); expect(art.heightMm).toBe(1450); expect(art.footprintMm).toEqual({ width: 320, height: 320 })
+    expect(art.presentation).toMatchObject({ mode: 'nearSide', orientation: 'fixedUpright', fixedRotationDeg: 0, rootAnchorMm: { x: 0 } })
+    expect(document.propDefinitions[terrainVariantV2DefinitionId(art.key)]).toMatchObject({
+      catalogId: 'prop.sceneweave.terrain-variants-v2.tree-highland-copse', licenseRef: TERRAIN_VARIANT_V2_LICENSE_REF,
+    })
+    expect(document.assets[terrainVariantV2AssetId(art.key)]).toMatchObject({ licenseRef: TERRAIN_VARIANT_V2_LICENSE_REF, logicalSizeMm: { width: 1300, height: 1450 } })
+    expect(TERRAIN_VARIANT_V2_LICENSE).toContain('version 2')
+    const project = await createTerrainVariantV2CatalogProject()
+    expect(Object.keys(project.document.assets)).toEqual([terrainVariantV2AssetId(art.key)])
+    expect(Object.values(project.licenses).map(value => value.text)).toEqual([TERRAIN_VARIANT_V2_LICENSE])
+  }, 60000)
+
   it('keeps roots, footprints and rendering semantics explicit without baked long shadows', () => {
     for (const art of TERRAIN_VARIANT_ART) {
       const presentation = TERRAIN_VARIANT_PRESENTATIONS[terrainVariantDefinitionId(art.key)]
@@ -101,7 +122,7 @@ describe('independent original terrain variant catalogue v1', () => {
 
   it('preserves all exact source, licence and presentation closures through catalogue capsules and complete offline round trip', async () => {
     const provider = await createTerrainVariantCatalogProject(), bundle = toBundle(provider)
-    expect(bundle.project.schemaVersion).toBe(3)
+    expect(bundle.project.schemaVersion).toBe(1)
     expect(Object.keys(provider.document.assets)).toHaveLength(12)
     expect(Object.keys(provider.authoringSources)).toHaveLength(12)
     expect(Object.values(provider.licenses).map(value=>value.text)).toEqual([TERRAIN_VARIANT_LICENSE])

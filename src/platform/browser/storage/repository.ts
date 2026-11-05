@@ -16,11 +16,9 @@ import { assertBackupReceipt } from '../../../shared/migration/set.js'
 import { CONVERTER_VERSION, TARGET_FORMAT, type ConversionJob, type ConversionStage, type ConvertedFamily, type LegacySource } from '../../../shared/migration/types.js'
 import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES, type BindingKind, type StoredAutomatic,
   type StoredBinding, type StoredBytes, type StoredHistoryMetadata, type StoredProject, type StoredSnapshot } from './database.js'
-import { preserveNativeUpgrade, exportNativeUpgradeCapsule, importNativeUpgradeCapsule, listNativeUpgradeSummaries, nativeUpgradeCapsuleDocumentBytes,
-  type NativeUpgradeContext, type NativeUpgradeTransfer, type NativeUpgradeSummary } from './native-upgrade.js'
+
 import { StorageAccounting, type StorageTotals } from './storage-accounting.js'
 import { IncrementalHistory, migrationManifest, historyVersionBytes, historyHeadBytes, historyPinBytes, type HistoryReadSession, type HistoryVersionSummary } from './incremental-history.js'
-import { encodeNativeUpgradeFile, decodeNativeUpgradeFile } from './native-upgrade-file.js'
 import { collectUnusedResources, type UnusedResourceCollection } from './history-maintenance.js'
 
 export const PROJECT_STORAGE_LIMITS = Object.freeze({ resourceBytes: 256 * 1024 * 1024, documentBytes: 128 * 1024 * 1024,
@@ -91,7 +89,7 @@ async function withTransactionContentChecks<T>(run: () => Promise<T>): Promise<T
 function assertContent(project: ProjectData, hash: string): void {
   if (!hashValue(hash) || contentHashInTransaction(project) !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
 }
-function assertCurrent(record: StoredProject, content: typeof assertContent = assertContent): void {
+export function assertCurrent(record: StoredProject, content: typeof assertContent = assertContent): void {
   exact(record, ['sceneId', 'revision', 'savedAt', 'contentHash', 'status', 'conversionJobId', 'project'])
   id(record.sceneId); time(record.savedAt)
   if (!integer(record.revision) || record.sceneId !== record.project?.document.sceneId || record.revision !== record.project.document.revision
@@ -99,7 +97,7 @@ function assertCurrent(record: StoredProject, content: typeof assertContent = as
     || record.status === 'preparing' && record.conversionJobId === null) throw new Error('当前工程身份、版本或发布状态损坏。')
   content(record.project, record.contentHash)
 }
-function assertAutomatic(record: StoredAutomatic, content: typeof assertContent = assertContent): void {
+export function assertAutomatic(record: StoredAutomatic, content: typeof assertContent = assertContent): void {
   exact(record, ['ownerSceneId', 'revision', 'savedAt', 'contentHash', 'project'])
   id(record.ownerSceneId); time(record.savedAt)
   if (!integer(record.revision) || record.project?.document.sceneId !== record.ownerSceneId || record.project.document.revision !== record.revision) throw new Error('自动快照身份损坏。')
@@ -109,7 +107,7 @@ function summaryOf(record: SnapshotSummary): SnapshotSummary {
   return { id: record.id, ownerSceneId: record.ownerSceneId, lineageId: record.lineageId, sourceRevision: record.sourceRevision,
     name: record.name, kind: record.kind, createdAt: record.createdAt, contentHash: record.contentHash }
 }
-function assertSnapshot(record: StoredSnapshot, imported = false, content: typeof assertContent = assertContent): void {
+export function assertSnapshot(record: StoredSnapshot, imported = false, content: typeof assertContent = assertContent): void {
   exact(record, ['id', 'ownerSceneId', 'lineageId', 'sourceRevision', 'name', 'kind', 'createdAt', 'contentHash', 'project'])
   validateSnapshotSummary(summaryOf(record))
   if ((record.kind === 'imported-auto') !== imported || record.sourceRevision !== record.project?.document.revision
@@ -160,7 +158,6 @@ export interface HistoryOverview {
   snapshots: SnapshotSummary[]
   usage: StorageUsage
   legacySources: LegacySource[]
-  upgradeOriginals: NativeUpgradeSummary[]
   history: { activeVersionId: string | null; versions: HistoryVersionSummary[] }
 }
 /** One restoration operation; close in finally. Public snapshot reads stay full-validation reads. */
@@ -448,7 +445,6 @@ export class ProjectRepository {
    * strictly validated version rows of this same transaction. */
   async historyOverview(ownerSceneId: string): Promise<HistoryOverview> {
     id(ownerSceneId); await this.ensureHistory(ownerSceneId)
-    const upgradeOriginals = await listNativeUpgradeSummaries(this.nativeUpgradeContext(), ownerSceneId)
     const overview = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
       const current = await this.database.projects.get(ownerSceneId)
       if (!current || current.status !== 'ready') throw new Error('原件所属工程不存在或尚未完成转换。')
@@ -485,7 +481,7 @@ export class ProjectRepository {
         history: { activeVersionId: head.activeVersionId, versions },
       }
     })))
-    return { ...overview, upgradeOriginals }
+    return overview
   }
   async loadHistoryVersion(owner: string, versionId: string, options: ResourceOptions = {}): Promise<ProjectBundle | null> {
     id(versionId); await this.ensureHistory(owner, options)
@@ -503,32 +499,6 @@ export class ProjectRepository {
     this.accounting.invalidate(); this.database.close()
   }
   private validation(options: ResourceOptions = {}): CompleteValidationOptions { return { images: this.options.validation.images, svg: this.options.validation.svg, signal: options.signal ?? this.options.validation.signal } }
-  private nativeUpgradeContext(options: ResourceOptions = {}): NativeUpgradeContext {
-    return { database: this.database, open: () => this.open(), validation: this.validation(options), now: () => this.options.runtime.clock.now(),
-      assertCurrent, assertAutomatic, assertSnapshot, assertMetadata, assertBinding, assertJob, assertLegacyNodes,
-      assertBudgets: owner => this.assertBudgets(owner) }
-  }
-  /** Preserve every source history/original before a caller saves its independent complete-v3 target. */
-  async preserveNativeUpgrade(source: ProjectBundle, target: ProjectBundle, options: ResourceOptions = {}): Promise<void> {
-    await this.ensureHistory(source.project.document.sceneId, options)
-    await preserveNativeUpgrade(this.nativeUpgradeContext(options), source, target, options)
-  }
-  async exportNativeUpgradeCapsule(targetSceneId: string, options: ResourceOptions = {}): Promise<NativeUpgradeTransfer> {
-    return exportNativeUpgradeCapsule(this.nativeUpgradeContext(options), targetSceneId, options)
-  }
-  async importNativeUpgradeCapsule(transfer: NativeUpgradeTransfer, options: ResourceOptions = {}): Promise<void> {
-    await importNativeUpgradeCapsule(this.nativeUpgradeContext(options), transfer, options)
-  }
-  async listNativeUpgradeSummaries(targetSceneId: string, options: ResourceOptions = {}): Promise<NativeUpgradeSummary[]> {
-    return listNativeUpgradeSummaries(this.nativeUpgradeContext(options), targetSceneId, options)
-  }
-  async exportNativeUpgradeFile(targetSceneId: string, options: ResourceOptions = {}): Promise<Uint8Array> {
-    return encodeNativeUpgradeFile(await this.exportNativeUpgradeCapsule(targetSceneId, options), options)
-  }
-  /** Archives originals only. It never opens, installs or replaces a current project. */
-  async importNativeUpgradeFile(bytes: Uint8Array, options: ResourceOptions = {}): Promise<void> {
-    await this.importNativeUpgradeCapsule(await decodeNativeUpgradeFile(bytes, options), options)
-  }
   private async atomic<T>(options: ResourceOptions, run: () => Promise<T>, shareContentChecks = false): Promise<T> {
     checkCancelled(options.signal); await this.open(); checkCancelled(options.signal)
     return this.database.transaction('rw', PROJECT_TABLES, async () => {
@@ -631,7 +601,7 @@ export class ProjectRepository {
     if (table === 'projects') assertCurrent(value as StoredProject, content)
     else if (table === 'automaticSnapshots') assertAutomatic(value as StoredAutomatic, content)
     else if (table === 'snapshots' || table === 'importedSnapshots') assertSnapshot(value as StoredSnapshot, table === 'importedSnapshots', content)
-    else if (table === 'nativeUpgradeCapsules') size = nativeUpgradeCapsuleDocumentBytes(value as Parameters<typeof nativeUpgradeCapsuleDocumentBytes>[0], this.nativeUpgradeContext())
+    else if (table === 'nativeUpgradeCapsules') throw new Error('旧升级原件仅归独立迁入保全库，不能写入当前工程库。')
     else if (table === 'historyVersions') size = this.history.versionBytes(value)
     else if (table === 'historyHeads') size = historyHeadBytes(value)
     else if (table === 'historyPins') size = historyPinBytes(value)
@@ -1090,9 +1060,7 @@ export class ProjectRepository {
     // connection has a valid session receipt for ordinary saves.
     this.accounting.invalidate()
     return this.atomic(options, async () => {
-      const context = this.nativeUpgradeContext(options)
-      const result = await collectUnusedResources(this.database, { ...context,
-        assertCapsule: row => { nativeUpgradeCapsuleDocumentBytes(row, context) } }, options)
+      const result = await collectUnusedResources(this.database, { assertCurrent, assertAutomatic, assertSnapshot }, options)
       await this.assertBudgets(owner)
       return result
     }, true)

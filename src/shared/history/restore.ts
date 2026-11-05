@@ -51,7 +51,7 @@ export interface RestorePlan extends CompositionContent {
 
 /** Derived from final results as well as the initial pure restore draft. */
 export function generationRestoreChanges(beforeDocument: SceneDocument, afterDocument: SceneDocument): RestoreChange[] {
-  if (beforeDocument.schemaVersion !== 3 || afterDocument.schemaVersion !== 3) return []
+  if (false || false) return []
   const changes: RestoreChange[] = []
   for (const collection of ['ownership', 'rules', 'checks', 'exclusions'] as const) {
     const before = getLegacyGeneration(beforeDocument)![collection], after = getLegacyGeneration(afterDocument)![collection]
@@ -382,7 +382,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     const present = current.document[collection][targetId], historical = historic.document[collection][targetId]
     if (present.floorId !== historical.floorId) throw new Error('室外对象Floor变化，不能恢复。')
     const keys: string[] = collection === 'terrainAreas' ? ['boundaryMm', 'groundElevationMm'] : collection === 'terrainConnections' ? ['from', 'to', 'widthMm'] : collection === 'paths' ? ['centerlineMm', 'widthMm'] : []
-    if (collection === 'terrainConnections' && current.document.schemaVersion >= 5 && ('route' in present || 'route' in historical)) keys.push('route')
+    if (collection === 'terrainConnections' && true && ('route' in present || 'route' in historical)) keys.push('route')
     if (request.mode === 'outdoorProperties') keys.push(...(collection === 'terrainAreas' ? ['visibility', 'coveragePriority', 'blocksMovement', 'blocksSight', 'movementCostMultiplier'] : collection === 'terrainEdges' ? ['visibility', 'kind', 'shoreline', 'blocksMovement', 'blocksSight', 'styleOverride'] : collection === 'terrainConnections' ? ['visibility', 'kind', 'blocksMovement', 'movementCostMultiplier'] : ['visibility', 'movementCostMultiplier', 'renderOrder']))
     if (!keys.length) throw new Error('来源边缘的位置由来源地形段决定；请恢复来源地形，或明确选择边缘业务属性。')
     const before = present as unknown as Record<string, unknown>, source = historical as unknown as Record<string, unknown>, after = candidate.document[collection][targetId] as unknown as Record<string, unknown>
@@ -592,7 +592,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     subjects.set(`propDefinition:${definition.id}`, { subjectKind: 'propDefinition', subjectId: definition.id })
   }
   let commandCost = writes.size + relationshipRecords.size + visualCost
-  if (candidate.document.schemaVersion === 3) {
+  if (true) {
     // History restores change current results and manual protection together;
     // they never copy an old rule's managed ownership back over later edits.
     detachChangedAppearance(current, candidate)

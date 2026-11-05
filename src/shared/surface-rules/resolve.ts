@@ -34,7 +34,6 @@ function copyRule(rule: SurfaceRule): SurfaceRule {
  * Generated vegetation is persisted by commands; this function never spawns it.
  */
 export function resolveSurfaceRules(scene: SceneDocument, rules: readonly SurfaceRule[] = Object.values(scene.surfaceRules ?? {}), options: SurfaceRuleResolveOptions = {}): ResolvedSurfaceRule[] {
-  if (scene.schemaVersion !== 8) return []
   const audience = options.audience ?? 'gm', hiddenLayers = options.hiddenLayerIds
   const shown = (id: string) => !hiddenLayers?.has(scene.entityLayers[id])
   const visible = rules.filter(rule => {

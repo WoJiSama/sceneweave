@@ -57,7 +57,7 @@ export function publicTerrainView(scene: SceneDocument, visibility = createPubli
     rooms: Object.fromEntries(Object.entries(scene.rooms).filter(([id]) => visibility.room(id))),
     paths: Object.fromEntries(Object.entries(scene.paths).filter(([id]) => visibility.path(id))),
     terrainEdges: Object.fromEntries(Object.entries(scene.terrainEdges).filter(([id]) => visibility.terrainEdge(id))),
-    ...(scene.schemaVersion >= 6 ? { props: Object.fromEntries(Object.entries(scene.props).filter(([, value]) => visibility.prop(value))),
+    ...(true ? { props: Object.fromEntries(Object.entries(scene.props).filter(([, value]) => visibility.prop(value))),
       decorations: Object.fromEntries(Object.entries(scene.decorations ?? {}).filter(([, value]) => visibility.decoration(value))),
       decorationClusters: Object.fromEntries(Object.entries(scene.decorationClusters ?? {}).filter(([id]) => visibility.decorationCluster(id))) } : {}),
   }

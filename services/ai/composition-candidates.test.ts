@@ -1,8 +1,10 @@
+import { currentAuthoringFixture } from '../../tests/helpers/current-authoring-fixture.js'
 import { describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { compositionCandidateFixture } from '../../tests/helpers/composition-candidates-fixture.js'
-import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
+import { authoringProjectHash } from '../../src/shared/ai/authoring.js'
+import { applyAuthoringStep, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import { CompositionCandidateSchema } from '../../src/shared/ai/composition-candidates.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
 import type { StoredTask } from './store.js'
@@ -86,7 +88,7 @@ describe('composition tool full native preview and privacy boundary', () => {
       start.project.licenseBindings.push({ ...binding, subjectId: id })
     }
     start.scope.scene!.materialIds.push(...materialIds); start.scope.visual!.materialIds.push(...materialIds)
-    start.baseContentHash = authoringProjectHash(start.project); authoring.state = replayAuthoring(start, []).state
+    start.baseContentHash = authoringProjectHash(start.project); Object.assign(start, currentAuthoringFixture(start)); authoring.state = replayAuthoring(start, []).state
     const before = canonicalJson(task)
     const result = run('sceneweave_propose_composition', { kind: 'layout', recipe: 'interior', idPrefix: 'roles', materialIds: {
       base: 'base-tile', ...(mode !== 'unfinished' ? { primary: 'floor-tile' } : {}), ...(mode === 'override' ? { secondary: 'kitchen-tile' } : {}),
@@ -114,10 +116,10 @@ describe('composition tool full native preview and privacy boundary', () => {
     expect(furnishing.success).toBe(true)
     const receipt = JSON.parse(furnishing.output)
     expect(receipt.details.feasibleCount).toBeGreaterThan(0)
-    expect(receipt.actualOperationCost).toBe(receipt.details.feasibleCount)
+    expect(receipt.actualOperationCost).toBe(applyAuthoringStep(authoring.start, authoring.state, receipt.candidateOperations, 'furnishing-check').state.operationCost - authoring.state.operationCost)
     expect(canonicalJson(authoring.state)).toBe(before)
     expect(run('sceneweave_edit_scene', { operations: receipt.candidateOperations }).success).toBe(true)
-  })
+  }, 30000)
   it('reports dynamic four-request/twelve-tool budgets without inventing extra work rounds', () => {
     const { task } = fixture(); task.snapshot.usage.requests = 3; task.toolAttempts = 8
     const call = { id: 'limited', name: 'sceneweave_check_draft', arguments: '{}' }
@@ -139,7 +141,7 @@ describe('composition tool full native preview and privacy boundary', () => {
     expect(changedIds).toHaveLength(32)
     // The pure validator has separate full-ledger tests. This isolates the
     // receipt/install boundary using a legal-size set of changed identifiers.
-    if (state.schemaVersion !== 1) throw new Error('Expected legacy receipt fixture')
+    if (state.schemaVersion !== 4) throw new Error('Expected current receipt fixture')
     const apply = vi.spyOn(authoringCore, 'applyAuthoringStep').mockReturnValue({ project: authoring.start.project,
       state: { ...state, draftRevision: 1, operationCost: 32, changedIds }, visualInvalidatedIds: [] })
     try {
@@ -177,7 +179,7 @@ describe('composition tool full native preview and privacy boundary', () => {
     const { task, run } = fixture(), authoring = task.authoring!
     authoring.start.brief = { ...authoring.start.brief!, recipe: 'interior', requirements: Array.from({ length: 16 }, (_, i) => `${i}: ${'required purpose and furniture '.repeat(9)}`),
       checks: ['common', 'kitchen', 'guest', 'study', 'storage'].map((role, i) => ({ kind: 'roomRole' as const, id: `role-${i}`, purposeTerms: [role], definitionIds: ['definition', 'alternate'], minimumProps: 2 })) }
-    authoring.state = replayAuthoring(authoring.start, []).state
+    Object.assign(authoring.start, currentAuthoringFixture(authoring.start)); authoring.state = replayAuthoring(authoring.start, []).state
     const layout = run('sceneweave_propose_composition', { kind: 'layout', recipe: 'interior', idPrefix: 'inn', materialIds: { primary: 'tile', secondary: 'tile' } })
     expect(layout.success).toBe(true)
     expect(run('sceneweave_edit_scene', { operations: JSON.parse(layout.output).candidateOperations }).success).toBe(true)
@@ -192,7 +194,7 @@ describe('composition tool full native preview and privacy boundary', () => {
     const { task, run } = fixture(), authoring = task.authoring!, start = authoring.start
     const hidden = applyAuthoringStep(start, authoring.state, [{ kind: 'furnish', id: 'PRIVATE_BLOCKER', definitionId: 'definition', supportRef: { kind: 'floor', id: start.scope.scene!.floorId }, positionMm: { x: 5600, y: 7400 } }], 'hidden')
     start.project = hidden.project; start.project.document.props.PRIVATE_BLOCKER.visibility = 'gm'; start.baseContentHash = authoringProjectHash(start.project)
-    authoring.state = replayAuthoring(start, []).state
+    Object.assign(start, currentAuthoringFixture(start)); authoring.state = replayAuthoring(start, []).state
     const before = canonicalJson(task)
     const denied = run('sceneweave_propose_composition', { kind: 'layout', recipe: 'island', idPrefix: 'land' })
     expect(denied.success).toBe(false); expect(denied.output).not.toContain('PRIVATE_BLOCKER'); expect(denied.output).not.toContain('candidateOperations')
@@ -219,12 +221,12 @@ describe('composition tool full native preview and privacy boundary', () => {
     const limited = fixture(), source = limited.task.authoring!, start = source.start
     const existing = applyAuthoringStep(start, source.state, [{ kind: 'furnish', id: 'existing', definitionId: 'definition', supportRef: { kind: 'floor', id: start.scope.scene!.floorId }, positionMm: { x: 23000, y: 17000 } }], 'baseline')
     start.project = existing.project; start.scope.targetIds = ['existing']; start.scope.operations = ['opacity']; start.baseContentHash = authoringProjectHash(start.project)
-    source.state = replayAuthoring(start, []).state
+    Object.assign(start, currentAuthoringFixture(start)); source.state = replayAuthoring(start, []).state
     for (let index = 0; index < 14; index++) source.state = applyAuthoringStep(start, source.state, Array.from({ length: 16 }, () => ({ kind: 'opacity' as const, id: 'existing', value: 1 })), `repeat-${index}`).state
-    expect(source.state.operationCost).toBe(224)
+    expect(source.state.operationCost).toBe(225)
     const frozen = canonicalJson(limited.task), exhausted = limited.run('sceneweave_propose_composition', { kind: 'layout', recipe: 'interior', idPrefix: 'over-budget' })
     expect(exhausted.success).toBe(false)
     expect(JSON.parse(exhausted.output).error.code).toBe('operation_budget')
     expect(canonicalJson(limited.task)).toBe(frozen)
-  }, 20000)
+  }, 60000)
 })

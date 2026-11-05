@@ -19,7 +19,7 @@ const floorId = 'terrain-variants-v1-floor', layerId = 'terrain-variants-v1-laye
 function fixture() {
   // Synchronous metadata only. Actual PNG/resource/Canvas evidence is separate.
   const scene = emptyCompositionDocument(createTerrainVariantCatalogDocument())
-  scene.schemaVersion = 6; scene.decorations = {}; scene.decorationClusters = {}
+  scene.schemaVersion = 1; scene.decorations = {}; scene.decorationClusters = {}
   for (const [id, key, x] of [['grass', 'grass-sedge-fan', 6000], ['shrub', 'shrub-heath-mound', 10000]] as const) {
     scene.decorations[id] = { id, floorId, editLocked: false, visibility: 'public', definitionRef: { id: terrainVariantDefinitionId(key), version: 1 },
       supportRef: { kind: 'floor', id: floorId }, positionMm: { x, y: 7000 }, rotationDeg: 0, scalePpm: 750000, renderOrder: 0 }
@@ -158,7 +158,7 @@ describe('compact decoration audience paint and exact selection', () => {
     scene.decorations!.grass.definitionRef.version--
     scene.decorations!.grass.supportRef.id = 'missing-floor'
     expect(inspectDependencies(scene).errors.some(value => value.code === 'MISSING_SUPPORT')).toBe(true)
-    const old = emptyCompositionDocument(createTerrainVariantCatalogDocument()); old.schemaVersion = 5
+    const old = emptyCompositionDocument(createTerrainVariantCatalogDocument()); old.schemaVersion = 1
     expect(projectScene(old, 'gm')).not.toHaveProperty('decorations'); expect(projectScene(old, 'gm')).not.toHaveProperty('spritePaintOrder')
   })
 })

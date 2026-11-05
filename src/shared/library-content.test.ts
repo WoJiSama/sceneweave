@@ -1,3 +1,5 @@
+import { topDownPresentation } from './appearance/presentation.js'
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { unzipSync, unzlibSync, zlibSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 import { describeCatalogItems } from '../catalog/content'
@@ -35,8 +37,8 @@ async function unified(input: CompleteProjectV6): Promise<ProjectBundle> {
   const bytes = new Map<string, Uint8Array>()
   for (const [hash, asset] of Object.entries(input.assets)) bytes.set(hash, new Uint8Array(await asset.blob.arrayBuffer()))
   return { project: { format: 'sceneweave-complete-project', schemaVersion: 1,
-    document: { ...structuredClone(input.document), format: 'sceneweave-scene', schemaVersion: 1 },
-    historyIdentity: { ...structuredClone(input.historyIdentity), version: 1 }, appearance: structuredClone(input.appearance), authoringSources: {},
+    document: toCurrentSceneDocument({ ...structuredClone(input.document), format: 'sceneweave-scene' }),
+    historyIdentity: { ...structuredClone(input.historyIdentity), version: 5, generationTokens: {}, regionalTokens: {}, presentationTokens: {}, terrainTokens: {}, decorationTokens: {}, surfaceRuleTokens: {} }, appearance: { ...structuredClone(input.appearance), version: 2, presentations: Object.fromEntries(Object.values(input.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) }, authoringSources: {},
     assets: Object.fromEntries(Object.entries(input.assets).map(([hash, { blob: _blob, ...record }]) => [hash, record])),
     licenses: structuredClone(input.licenses), licenseBindings: structuredClone(input.licenseBindings),
   }, resources: createMemoryResources(bytes) }
@@ -74,7 +76,7 @@ describe('M2-0e complete-v1 neutral library capsules', () => {
         expect(entry.item).toEqual(item)
         expect(loaded.project).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, authoringSources: {},
           document: { format: 'sceneweave-scene', schemaVersion: 1, title: '素材目录载体', revision: 0, props: {}, rooms: {}, notes: {} },
-          historyIdentity: { version: 1, propTokens: {}, prefabTokens: {}, outdoorTokens: {} } })
+          historyIdentity: { version: 5, propTokens: {}, prefabTokens: {}, outdoorTokens: {} } })
         expect(loaded.project.appearance.propSources).toEqual({}); expect(loaded.project.appearance.layerAdjustments).toEqual({})
         expect(new TextDecoder().decode(unzipSync(entry.capsule)['scene.json'])).not.toContain('场景秘密')
         expect(await validateLibraryEntry(entry, validation)).toEqual(entry)

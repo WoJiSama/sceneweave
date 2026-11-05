@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createShoreBlankDocument } from '../../platform/browser/content/shore-blank.js'
 import { createTerrainVariantCatalogDocument } from '../../platform/browser/content/terrain-variant-catalog.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
-import { validateSceneDocument, sceneDocument8Schema } from '../validation/scene.js'
+import { validateSceneDocument, sceneDocumentSchema } from '../validation/scene.js'
 import { taskBudgetProfile } from '../budget/task-budget.js'
 import { getLegacyGeneration } from './composition-contracts.js'
 import { generateTerrainDocumentV5, terrainGenerationInputV5Schema } from './surface-generation.js'
@@ -33,8 +33,8 @@ describe('automatic terrain surface rules6', () => {
     expect(canonicalJson(result)).toBe(canonicalJson(replay))
     expect(canonicalJson(source)).toBe(before)
     expect(canonicalJson(generateTerrainDocumentV5(source, oldInput))).toBe(oldBytes)
-    expect(result.document.schemaVersion).toBe(8)
-    expect(sceneDocument8Schema.safeParse(result.document).success).toBe(true)
+    expect(result.document.schemaVersion).toBe(1)
+    expect(sceneDocumentSchema.safeParse(result.document).success).toBe(true)
     expect(validateSceneDocument(result.document).ok).toBe(true)
     expect(Object.values(result.document.surfaceRules!).some(rule => rule.field === 'trees')).toBe(true)
     expect(Object.values(result.document.surfaceRules!).some(rule => rule.field === 'shrubs')).toBe(true)
@@ -73,7 +73,7 @@ describe('automatic terrain surface rules6', () => {
     expect(compositionPresetV6Schema.safeParse({ ...request, recipeVersion: 5 }).success).toBe(false)
     expect(preset.requirements.length).toBeGreaterThan(0)
     const result = materializeTerrainCompositionV6(source, preset.input, preset.requirements, preset.name, 'plain', 6, taskBudgetProfile('standard'))
-    expect(result.document.schemaVersion).toBe(8)
+    expect(result.document.schemaVersion).toBe(1)
     expect(validateSceneDocument(result.document).ok).toBe(true)
     expect(result.document.generation?.version).toBe(5)
     expect(Object.values(result.document.surfaceRules!).some(rule => rule.field === 'grass')).toBe(true)

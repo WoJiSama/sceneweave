@@ -20,7 +20,7 @@ const context = () => { let id = 0; return { ids: { nextId: () => `island-cliff-
 beforeAll(() => {
   const base = createShoreBlankDocument('island', { sceneId: 'cliff-detail-island', title: '固定岩岛', now: '2026-11-02T00:00:00Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
   const generated = generateTerrainDocumentV5(base, { sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', widthMm: 24000, heightMm: 18000, algorithmVersion: 5, budgetProfileId: 'standard', quality: 'standard' })
-  scene = { ...emptyCompositionDocument(composeTerrainDocument(base, generated, 'birth', TASK_BUDGET_PROFILES.standard).document), schemaVersion: 6, decorations: {}, decorationClusters: {} }
+  scene = { ...emptyCompositionDocument(composeTerrainDocument(base, generated, 'birth', TASK_BUDGET_PROFILES.standard).document), schemaVersion: 1, decorations: {}, decorationClusters: {} }
 }, 60000)
 
 describe('island-only persisted cliff detail', () => {

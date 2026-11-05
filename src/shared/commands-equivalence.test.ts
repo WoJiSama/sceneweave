@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { applyCommandsV3, createPlacedPropV3, type SceneCommandV3 } from '../core/v3/commands.js'
 import { openingEndpointsV2 } from '../core/v2/geometry.js'
@@ -20,7 +21,7 @@ const context = (): PreparationContext => {
 }
 
 /** Test-only fixture adaptation; production conversion is a later M2-0 slice. */
-const native = (legacy: SceneDocumentV3): SceneDocument => ({ ...structuredClone(legacy), format: 'sceneweave-scene', schemaVersion: 1 })
+const native = (legacy: SceneDocumentV3): SceneDocument => toCurrentSceneDocument({ ...structuredClone(legacy), format: 'sceneweave-scene' })
 const apply = (scene: SceneDocument, ...commands: SceneCommand[]) => applyCommands(scene, commands, context())
 const legacyApply = (scene: SceneDocumentV3, ...commands: SceneCommandV3[]) => applyCommandsV3(scene, commands)
 const rectangle = (x = 1000, y = 1000, width = 6000, height = 6000): PointMm[] => [
@@ -49,7 +50,7 @@ function fullPrefab(): SceneDocument {
   delete old.entityLayers.right
   old.prefabDefinitions.definition.members = []
   old.prefabInstances.group.members = {}
-  for (let index = 0; index < 128; index++) {
+  for (let index = 0; index < 127; index++) {
     const key = `member-${index}`, propId = `prefab-prop-${index}`
     old.prefabDefinitions.definition.members.push({ key, propTemplate: structuredClone(template) })
     old.prefabInstances.group.members[key] = { propId, overrideFields: ['positionMm'] }
@@ -204,9 +205,9 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
     expect(validateSceneDocument(source).ok).toBe(true)
     const moved = { x: group.anchorMm.x + 1000, y: group.anchorMm.y }
     const one = apply(source, { type: 'transformPrefab', id: group.id, anchorMm: moved })
-    expect(Object.values(one.prefabInstances.group.members).filter(member => member.propId !== null)).toHaveLength(128)
+    expect(Object.values(one.prefabInstances.group.members).filter(member => member.propId !== null)).toHaveLength(127)
     expect(one.props['prefab-prop-0'].positionMm.x).toBe(source.props['prefab-prop-0'].positionMm.x + 1000)
-    // Each step writes 128 props plus their parent. Two raw commands exceed 256.
+    // Each step expands the 127 props and parent through current accounting. Two raw commands exceed 256.
     expect(() => apply(source,
       { type: 'transformPrefab', id: group.id, anchorMm: moved },
       { type: 'transformPrefab', id: group.id, anchorMm: group.anchorMm },

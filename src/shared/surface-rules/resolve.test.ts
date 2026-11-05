@@ -10,7 +10,7 @@ const region = (x: number, y: number, width: number, height: number): SurfaceRul
 function fixture(): SceneDocument {
   const scene = createRefinedBlankDocument('island', { sceneId: 'surface-rule-resolve', title: 'Surface rule resolver', widthMm: 24000, heightMm: 18000,
     preset: 'narrative', now: '2026-11-02T00:00:00.000Z' })
-  scene.schemaVersion = 8
+  scene.schemaVersion = 1
   const floorId = Object.keys(scene.floors)[0], layerId = Object.keys(scene.userLayers)[0]
   const area: TerrainArea = { id: 'support', floorId, editLocked: false, visibility: 'public',
     boundaryMm: rect(0, 0, 100, 100).map((positionMm, index) => ({ id: `support-p${index}`, segmentId: `support-s${index}`, positionMm })),

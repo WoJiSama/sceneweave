@@ -25,7 +25,7 @@ let scene: SceneDocument, appearance: AppearanceGraph
 beforeAll(() => {
   const base = createShoreBlankDocument('island', { sceneId: 'island-v2-unit', title: '固定岩岛', now: '2026-11-02T00:00:00Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
   const result = generateTerrainDocumentV5(base, { sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', widthMm: 24000, heightMm: 18000, algorithmVersion: 5, budgetProfileId: 'standard', quality: 'standard' })
-  scene = { ...emptyCompositionDocument(composeTerrainDocument(base, result, 'birth', TASK_BUDGET_PROFILES.standard).document), schemaVersion: 6, decorations: {}, decorationClusters: {} }
+  scene = { ...emptyCompositionDocument(composeTerrainDocument(base, result, 'birth', TASK_BUDGET_PROFILES.standard).document), schemaVersion: 1, decorations: {}, decorationClusters: {} }
   const catalog = createTerrainVariantCatalogDocument()
   Object.assign(scene.assets, catalog.assets); Object.assign(scene.propDefinitions, catalog.propDefinitions)
   appearance = { version: 2, presentations: {}, sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }

@@ -262,7 +262,7 @@ T13 在最终正常生产构建后生成并复算 `work/terrain-t13-freeze/manif
 
 ### 17.2 算法与真实成本
 
-主要源码为[shared/terrain-generation](../../src/shared/terrain-generation/generate.ts)、[候选与副本](../../src/application/workspace/terrain.ts)、[Worker客户端](../../src/platform/browser/terrain-generation/client.ts)、[生成面板](../../src/editor/main/TerrainGenerationPanel.tsx)、[升级原件](../../src/platform/browser/storage/native-upgrade.ts)和[安全归档](../../src/platform/browser/storage/native-upgrade-file.ts)。
+主要源码为[shared/terrain-generation](../../src/shared/terrain-generation/generate.ts)、[候选与副本](../../src/application/workspace/terrain.ts)、[Worker客户端](../../src/platform/browser/terrain-generation/client.ts)、[生成面板](../../src/editor/main/TerrainGenerationPanel.tsx)、当时的升级原件`src/platform/browser/storage/native-upgrade.ts`和安全归档`native-upgrade-file.ts`（两模块已于2026-11-05归一时退役，当前独立迁入见[06](../06-storage-and-export.md#development-single-v1-import)）。
 
 `terrain-scene-v1`先选海湾方向及偏置脊线骨架，再用固定48×36场、格点value noise、明确鞍点策略的marching squares和有界RDP/三次曲线生成物理地形。最多尝试140/220/340/500mm乘尺寸比例的四档简化；岸线/高台采样间隔1800/1600mm，容差90mm。共享曲线与物理采样结果一并保存，固定seed不是唯一存档。活动空地、高台与实际1500mm台阶在完整几何上核对；水/低地/高台高程为0/800/2600mm。这不等同T3完整路线搜索或所有地图处处可通行。
 
@@ -818,3 +818,12 @@ HTTP入口继续使用原Bearer/Origin/no-store/存储守卫，不创建任务�
 - 新鲜Chromium/Playwright定向集成测试`tests/terrain-v6-closure.spec.ts`通过1/1（15.3秒）。可复核的proof及PNG留在Git忽略目录`work/round-20261104/closure-output/`，不作为发布素材。
 
 本轮查看的中性生成图仍显示高台树/灌木稀少、崖带厚重连续、草岩边界偏硬、楼梯读作直线踏板。程序生成正确性、完整包hash和双受众像素一致都不表示目标成图达标。继续整改应先改善高台规则在真实净空下的成员结果并修正同图崖缘/楼梯视觉，再按[09统一验收](../09-quality-plan.md#branch-feature-acceptance)冻结全景与近景；本记录不宣告视觉/P3、完整Q4、性能、真实AI、Foundry导入或发布通过。
+
+<a id="terrain-v7-closure-20261104"></a>
+## 2026-11-04 算法/配方7高台植物与岩岛视觉后处理（开发自检）
+
+在同一24×18m、standard预算岩岛输入上新增独立普通地形算法/配方7及独立紧凑树素材；算法6及更早重放保持原义。算法7沿用物理生成基础，为地表/植物规则生成实际成员，并另运行限定于算法7岩岛的视觉后处理。此后处理当前以岩岛类型和部分边界ID命名作判定，属于需要纳入通用生成器架构审查的领域耦合；不能作为通用视觉规则范式。
+
+现存定向Playwright用例`tests/base-map.spec.ts`中的“terrain algorithm7 finds supported highland plants and closes the same island without changing physical corridors”在本轮通过1/1，覆盖Worker/服务端结果一致、完整候选重放、旧算法6与算法7物理区域/连接足迹对比、高台树/灌木实际成员及支撑/净空、采用后冷读/完整包往返和GM/player像素一致。该用例的PNG附件未由本次运行保存，因此不在此记录图片hash、数量等未能从新鲜附件复核的细节；既有测试断言和证明范围可从源码与测试结果索引复核。
+
+该记录只确认特定固定输入的开发自检，不表示一般室内、森林或火山生成能力，也不表示参考岩岛视觉达标、用户P3签收或正式验收通过。当前生成器重构优先级见[路线图A–E](../07-roadmap.md#general-map-generation-priority)；通用架构边界见[设计参考](../reference/general-map-generation.md)。

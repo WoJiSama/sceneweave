@@ -24,7 +24,7 @@ const deny = (): never => { throw new Error('当前场景候选涉及未授权�
 export function applyCurrentAuthoringOperation(project: ProjectData, scope: CurrentSceneAuthoringScope, raw: CurrentExtraOperation,
   context: PreparationContext, allowedIds: ReadonlySet<string>, budget?: TaskBudgetProfile) {
   const operation = CurrentExtraOperationSchema.parse(captureJson(raw))
-  if (!scope.operations.includes(operation.kind) || !currentAuthoringOperationSupported(project.schemaVersion, operation.kind)) deny()
+  if (!scope.operations.includes(operation.kind) || !currentAuthoringOperationSupported(project, operation.kind)) deny()
   const before = project.document, allowed = new Set([...scope.entityIds, ...allowedIds]), old = entities(before)
   let command: CompositionCommand
   switch (operation.kind) {

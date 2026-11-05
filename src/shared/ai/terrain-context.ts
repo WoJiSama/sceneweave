@@ -7,7 +7,7 @@ import { regionalEntityVisibility } from '../terrain-generation/integrity.js'
 
 export function terrainExtendedEntity(scene: SceneDocument, id: string) {
   const visual = visualBase(scene)
-  for (const [kind, rows] of Object.entries({ visualBoundary: visual?.boundaries, visualEdgeLook: visual?.edgeLooks, materializedEdge: scene.visual?.version === 2 ? scene.visual.materializedEdges : undefined,
+  for (const [kind, rows] of Object.entries({ visualBoundary: visual?.boundaries, visualEdgeLook: visual?.edgeLooks, materializedEdge: scene.visual?.version === 3 ? scene.visual.base.materializedEdges : undefined,
     regionalArea: scene.regional?.areas, regionalLine: scene.regional?.lines, regionalLandmark: scene.regional?.landmarks, regionalSymbol: scene.regional?.symbols })) {
     const row = rows && Object.hasOwn(rows, id) ? rows[id] : undefined
     if (row) return { kind, row: row as Editable & { layerId: string; visibility: string } }
@@ -29,7 +29,7 @@ export function assertTerrainExtendedEntity(project: ProjectData, scope: Pick<Sc
   else {
     const visual = visualBase(scene), edge = visual?.edgeLooks[id], boundary = visual?.boundaries[id] ?? (edge && visual?.boundaries[edge.boundaryId])
     if (boundary) { points = sampleVisualBoundary(boundary).points; padding = edge?.widthMm ?? 0 }
-    else if (scene.visual?.version === 2 && scene.visual.materializedEdges[id]) {
+    else if (scene.visual?.version === 3 && scene.visual.base.materializedEdges[id]) {
       // Materialized strips are admitted through their complete scene-level grant.
       points = [{ x: scene.exportBoundsMm.x, y: scene.exportBoundsMm.y }, { x: scene.exportBoundsMm.x + scene.exportBoundsMm.width, y: scene.exportBoundsMm.y + scene.exportBoundsMm.height }]
     }

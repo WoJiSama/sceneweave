@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
 import { createHouse } from '../../src/core/seed'
 import { migrateSceneV1 } from '../../src/core/v2/migration'
 import { migrateSceneV2 } from '../../src/core/v3/migration'
@@ -26,7 +27,7 @@ export async function nativePrivacyPair(name: PrivacyCaseB4 | 'M2-SECRET-DOOR') 
     const pair = await createPrivacyPairB4(name)
     const variants = []
     for (const input of [pair.a, pair.b]) {
-      const document: SceneDocument = { ...migrateSceneV2(input.document, { sceneId: `joint-${name}` }), format: 'sceneweave-scene', schemaVersion: 1 }
+      const document: SceneDocument = toCurrentSceneDocument({ ...migrateSceneV2(input.document, { sceneId: `joint-${name}` }), format: 'sceneweave-scene', schemaVersion: 1 })
       const bytes = new Map<string, Uint8Array>()
       const remap = new Map<string, string>()
       const assets = Object.fromEntries(await Promise.all(Object.entries(input.assets).map(async ([hash, { blob, ...record }]) => {
@@ -42,7 +43,7 @@ export async function nativePrivacyPair(name: PrivacyCaseB4 | 'M2-SECRET-DOOR') 
   }
   const variants: ProjectBundle[] = []
   for (const variant of ['a', 'b']) {
-    const document: SceneDocument = { ...migrateSceneV2(migrateSceneV1(createHouse('joint-secret-source')), { sceneId: 'joint-secret-target' }), format: 'sceneweave-scene', schemaVersion: 1 }
+    const document: SceneDocument = toCurrentSceneDocument({ ...migrateSceneV2(migrateSceneV1(createHouse('joint-secret-source')), { sceneId: 'joint-secret-target' }), format: 'sceneweave-scene', schemaVersion: 1 })
     const other = variant === 'b'
     document.regions['g-a1'].boundaryMm = [{ x: -500, y: -500 }, { x: 18500, y: -500 }, { x: 18500, y: 4500 }, { x: -500, y: 4500 }]
     if (other) {

@@ -5,6 +5,7 @@ import { layerSceneV3 } from '../../../core/v3/test-fixtures'
 import { imageProject } from '../../../io/v3/test-fixtures'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import type { ConversionJob, ConvertedFamily } from '../../../shared/migration/types.js'
@@ -34,13 +35,13 @@ function repository(name = `m20d-project-${crypto.randomUUID()}`): ProjectReposi
   repositories.push(repository); return repository
 }
 function fixture(): ProjectBundle {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
   document.sceneId = 'old-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const content = createCompositionContent(document, { ids: { nextId: () => `stable-token-${++sequence}` }, clock: { now: () => NOW } })
   return { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }, resources: createMemoryResources({}) }
 }
 async function imageFixture(): Promise<ProjectBundle> {
-  const old = await imageProject(), document: SceneDocument = { ...old.document, format: 'sceneweave-scene', schemaVersion: 1 }
+  const old = await imageProject(), document: SceneDocument = toCurrentSceneDocument({ ...old.document, format: 'sceneweave-scene', schemaVersion: 1 })
   const content = createCompositionContent(document, { ids: { nextId: () => `image-token-${++sequence}` }, clock: { now: () => NOW } })
   const pairs = await Promise.all(Object.entries(old.assets).map(async ([hash, asset]) => [hash, new Uint8Array(await asset.blob.arrayBuffer())] as const))
   return { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
@@ -91,7 +92,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     foreign.version(2).stores({ external: 'id' }); await foreign.open(); foreign.close()
     await expect(repository(foreignName).open()).rejects.toThrow(/结构/)
     const verify = new Dexie(foreignName); await verify.open(); expect(verify.verno).toBe(2); expect(verify.tables.map(table => table.name)).toEqual(['external']); verify.close()
-    expect(PROJECT_DATABASE_NAME).toBe('sceneweave-projects')
+    expect(PROJECT_DATABASE_NAME).toBe('sceneweave-projects-dev-v1')
   })
   it('rolls back an unknown lower-version database that appears after the native preflight', async () => {
     const foreignName = `m20d-late-foreign-${crypto.randomUUID()}`; names.add(foreignName)

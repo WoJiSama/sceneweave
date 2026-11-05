@@ -18,7 +18,7 @@ function route(kind: 'polyline' | 'cubic' = 'cubic', points = [p(6000, 10000), p
 }
 function fixture(): SceneDocument {
   const base = createRefinedBlankDocument('island', { sceneId: 'curved-connection', title: 'Curved connection geometry', widthMm: 24000, heightMm: 18000, preset: 'narrative', now: '2026-10-31T00:00:00.000Z' })
-  const scene = emptyCompositionDocument(base); scene.schemaVersion = 5
+  const scene = emptyCompositionDocument(base); scene.schemaVersion = 1
   scene.terrainAreas.high = { id: 'high', floorId: 'visual-floor', editLocked: false, visibility: 'public',
     boundaryMm: [p(10000, 0), p(24000, 0), p(24000, 18000), p(10000, 18000)].map((positionMm, i) => ({ id: `high-p${i}`, segmentId: `high-s${i}`, positionMm })),
     groundElevationMm: 1800, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }

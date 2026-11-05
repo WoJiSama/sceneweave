@@ -2,6 +2,8 @@
 
 本页只维护地形的当前支持边界、双尺度模型、生成算法和局部联动设计。当前工作见[路线图](../07-roadmap.md#development)，全部验收见[质量计划](../09-quality-plan.md#acceptance)；旧T编号只用于追溯。
 
+开发期工程版本策略已改为[唯一完整v1](../04-scene-document.md#development-single-v1)，本页scene3–8等编号是尚未改造代码的能力来源，不要求后续增加工程版本或长期兼容旧文件。算法/配方1–7的独立含义与6确定性领域重放保留，普通工程格式与算法DTO分离；实际收束及独立一次性本机迁入按[07](../07-roadmap.md#general-map-generation-priority)的C实施。能力、净空、资源及人工保护限制不因改号放宽。
+
 <a id="terrain-capabilities"></a>
 ## 当前支持与拒绝边界
 

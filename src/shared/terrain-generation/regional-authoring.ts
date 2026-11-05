@@ -1,12 +1,11 @@
 import { captureTerrainTaskBudget, terrainSemanticCost, terrainTaskUsage, type TerrainTaskBudgetOptions } from './task-admission.js'
 import type { BudgetUsage, ExecutionBudget } from '../budget/task-budget.js'
-import { getLegacyGeneration } from './composition-contracts.js'
+import { getLegacyGeneration, createEmptyGeneration5 } from './composition-contracts.js'
 import { z } from 'zod'
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
-import { emptyTerrainDocument } from './compose.js'
-import { assertTerrainBudget, terrainCommandCost } from './cost.js'
+import { terrainCommandCost } from './cost.js'
 import { createEmptyGeneration, createEmptyRegional, type RegionalModel1, type GenerationReference, type SourceRegionFeature, type SourceRegionLink } from './contracts.js'
 import { generationInputHash, managedOutputHash, regionalEntityVisibility, detachChangedOutputs } from './integrity.js'
 import { polygonBoolean } from '../geometry/polygon-boolean.js'
@@ -100,9 +99,8 @@ const ensureRegionalBase = (base: SceneDocument): SceneDocument => {
   for (const key of ['vertices', 'rooms', 'walls', 'openings', 'props', 'regions', 'notes', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'prefabInstances', 'scatterGroups'] as const) {
     if (Object.keys(base[key]).length) throw new Error('区域地图不得携带人物场景实体。')
   }
-  if (base.schemaVersion === 2 && base.visual?.version === 1) return emptyTerrainDocument(base)
-  if (base.schemaVersion === 3 && base.mapMode === 'regional' && base.visual?.version === 2 && base.regional) return cloneJson(base)
-  throw new Error('区域地图须从完整v2空白或既有完整v3区域工程开始。')
+  if (base.generation?.version === 5 && base.visual?.version === 3 && (base.mapMode === 'scene' || base.regional)) return cloneJson(base)
+  throw new Error('区域地图须从完整空白或既有区域工程开始。')
 }
 const resolveFloorLayer = (scene: SceneDocument, floorId?: string, layerId?: string) => {
   const resolvedFloor = floorId ?? Object.keys(scene.floors)[0]
@@ -177,7 +175,7 @@ const refreshRegionalOutputs = (scene: SceneDocument, before: SceneDocument, bir
   rule.inputHash = generationInputHash(scene, rule); rule.managedOutputHash = managedOutputHash(scene, rule)
 }
 const installGeneration = (scene: SceneDocument, request: RegionalAuthoringRequest, floorId: string, layerId: string) => {
-  const generation = scene.generation = createEmptyGeneration(), recipeId = `regional-recipe-${request.operationId}`, intentId = `regional-intent-${request.operationId}`, ruleId = `regional-rule-${request.operationId}`
+  const generation = scene.generation.legacy = createEmptyGeneration(), recipeId = `regional-recipe-${request.operationId}`, intentId = `regional-intent-${request.operationId}`, ruleId = `regional-rule-${request.operationId}`
   generation.recipes[recipeId] = { id: recipeId, recipeVersion: 1, algorithmId: 'regional-authoring-v1', algorithmVersion: 1, mapMode: 'regional', seed: request.seed,
     parameters: { terrainKind: 'mixed', seaElevationMm: 0, landElevationMm: 0, plateauElevationMm: 0, roughness: .15, densityFactor: .25, baySide: 'north' }, materials: [], props: [], precision: { sampleSpacingMm: 100_000, toleranceMm: 10_000, noiseCellMm: 100_000 } }
   generation.intents[intentId] = { id: intentId, floorId, visibility: 'public', boundsMm: cloneJson(scene.exportBoundsMm), skeleton: [], constraintIds: [], preserveIds: [] }
@@ -186,7 +184,7 @@ const installGeneration = (scene: SceneDocument, request: RegionalAuthoringReque
   generation.rules[ruleId].inputHash = generationInputHash(scene, generation.rules[ruleId]); generation.rules[ruleId].managedOutputHash = managedOutputHash(scene, generation.rules[ruleId])
 }
 
-/** Creates a complete, standalone regional document from an empty v2 or regional v3 base. */
+/** Creates a complete, standalone regional document from a current empty or regional base. */
 export function createRegionalDocument(base: SceneDocument, rawInput: unknown, options?: TerrainTaskBudgetOptions): RegionalAuthoringResult {
   const budget=captureTerrainTaskBudget(options)
   options?.meter?.charge({candidateAttempts:1})
@@ -197,7 +195,7 @@ export function createRegionalDocument(base: SceneDocument, rawInput: unknown, o
   scene.sceneId = request.sceneId; scene.title = request.title ?? scene.title; scene.mapMode = 'regional'; scene.regional = createEmptyRegional(); scene.regional.symbolDefinitions = definitions; scene.exportBoundsMm = { x: 0, y: 0, width, height }
   scene.floors[floorId].boundsMm = cloneJson(scene.exportBoundsMm); addGeneratedFeatures(scene, request, floorId, layerId); addRequestedFeatures(scene, request, floorId, layerId); installGeneration(scene, request, floorId, layerId)
   const checked = validateSceneDocument(scene); if (!checked.ok) throw new Error(`区域候选无效：${checked.errors.map(error => `${error.code}:${error.message}`).join('；')}`)
-  const empty = cloneJson(scene); empty.regional = createEmptyRegional(); empty.generation = createEmptyGeneration(); const cost = budget ? terrainSemanticCost(empty, checked.document, budget) : assertTerrainBudget(empty, checked.document)
+  const empty = cloneJson(scene); empty.regional = createEmptyRegional(); empty.generation = createEmptyGeneration5(); const cost = budget ? terrainSemanticCost(empty, checked.document, budget) : terrainCommandCost(empty, checked.document)
   const admission=budget?{countingVersion:2 as const,profileHash:budget.profileHash,usage:terrainTaskUsage(empty,checked.document,{...options,budget})}:undefined
   return { request, document: checked.document, cost, ...(admission?{budget:admission}:{}), hash: sha256Text(canonicalJson({ request, document: checked.document, cost, ...(admission?{budget:admission}:{}) })) }
 }
@@ -210,7 +208,7 @@ export function prepareRegionalEdit(base: SceneDocument, rawInput: unknown, opti
   const budget=captureTerrainTaskBudget(options)
   options?.meter?.charge({candidateAttempts:1})
   const request = regionalEdit.parse(rawInput), checked = validateSceneDocument(base)
-  if (!checked.ok || base.schemaVersion !== 3 || base.mapMode !== 'regional' || !base.regional) throw new Error('区域编辑需要完整v3区域地图。')
+  if (!checked.ok || base.mapMode !== 'regional' || !base.regional) throw new Error('区域编辑需要完整区域地图。')
   if (request.sceneId !== base.sceneId) throw new Error('区域编辑工程身份已变化。')
   const scene = cloneJson(base), regional = scene.regional!, before = cloneJson(base)
   const inputRow = request.area ?? request.line ?? request.landmark ?? request.symbol
@@ -243,7 +241,7 @@ export function prepareRegionalEdit(base: SceneDocument, rawInput: unknown, opti
   }
   refreshRegionalOutputs(scene, before, `${request.operationId}-birth`)
   const result = validateSceneDocument(scene); if (!result.ok) throw new Error(`区域编辑候选无效：${result.errors.map(error => error.message).join('；')}`)
-  const cost = budget ? terrainSemanticCost(before, result.document, budget) : assertTerrainBudget(before, result.document)
+  const cost = budget ? terrainSemanticCost(before, result.document, budget) : terrainCommandCost(before, result.document)
   const admission=budget?{countingVersion:2 as const,profileHash:budget.profileHash,usage:terrainTaskUsage(before,result.document,{...options,budget})}:undefined
   return { request, document: result.document, cost, ...(admission?{budget:admission}:{}), hash: sha256Text(canonicalJson({ request, document: result.document, cost, ...(admission?{budget:admission}:{}) })) }
 }
@@ -345,7 +343,7 @@ export function prepareRegionalDrillDown(base: SceneDocument, rawInput: unknown,
   const budget=captureTerrainTaskBudget(options)
   options?.meter?.charge({candidateAttempts:1})
   const request = regionalDrillDownRequestSchema.parse(rawInput), checked = validateSceneDocument(base)
-  if (!checked.ok || base.schemaVersion !== 3 || base.mapMode !== 'regional' || !base.regional) throw new Error('区域下钻需要完整v3区域地图。')
+  if (!checked.ok || base.mapMode !== 'regional' || !base.regional) throw new Error('区域下钻需要完整区域地图。')
   if (request.sourceSceneId !== base.sceneId) throw new Error('来源区域工程身份已变化。')
   const selection = request.selectionMm, sourceBounds = base.exportBoundsMm
   if (selection.width > 500_000 || selection.height > 500_000 || !within({ x: selection.x, y: selection.y }, sourceBounds) || !within({ x: selection.x + selection.width, y: selection.y + selection.height }, sourceBounds)) throw new Error('区域下钻选区必须是范围内不超过500m的轴对齐矩形。')
@@ -357,12 +355,12 @@ export function prepareRegionalDrillDown(base: SceneDocument, rawInput: unknown,
   const retainedAssets = new Set(inspectDependencies(scene).assetIds)
   for (const id of Object.keys(scene.assets)) if (!retainedAssets.has(id)) delete scene.assets[id]
   for (const floor of Object.values(scene.floors)) floor.boundsMm = cloneJson(scene.exportBoundsMm)
-  scene.generation = createEmptyGeneration()
+  scene.generation = createEmptyGeneration5()
   const sourceContentHash = sha256Text(canonicalJson(base)), publicInputHash = sha256Text(canonicalJson({ selection, inherited: publicPayload }))
   const link: SourceRegionLink = { version: 2, id: `source-region-${request.operationId}`, sourceSceneId: base.sceneId, sourceRevision: base.revision, sourceContentHash, selectionMm: cloneJson(selection), translationMm: { x: selection.x === 0 ? 0 : -selection.x, y: selection.y === 0 ? 0 : -selection.y }, publicInputHash, inherited, recipeRefs: [] }
   getLegacyGeneration(scene)!.sourceLinks[link.id] = link
   const result = validateSceneDocument(scene); if (!result.ok) throw new Error(`区域下钻候选无效：${result.errors.map(error => `${error.code}:${error.message}`).join('；')}`)
-  const cost = budget ? terrainSemanticCost(base, result.document, budget) : assertTerrainBudget(base, result.document)
+  const cost = budget ? terrainSemanticCost(base, result.document, budget) : terrainCommandCost(base, result.document)
   const admission=budget?{countingVersion:2 as const,profileHash:budget.profileHash,usage:terrainTaskUsage(base,result.document,{...options,budget})}:undefined
   return { request, document: result.document, sourceLink: link, cost, ...(admission?{budget:admission}:{}), hash: sha256Text(canonicalJson({ request, document: result.document, cost, ...(admission?{budget:admission}:{}) })) }
 }

@@ -25,11 +25,11 @@ afterEach(async () => {
   for (const session of sessions.splice(0)) await session.close().catch(() => {})
   for (const repo of repositories.splice(0)) { const name = repo.database.name; repo.close(); await Dexie.delete(name) }
 })
-async function setup(version: 4 | 5 = 5) {
+async function setup() {
   const bundle = fixture(), scene = cloneJson(bundle.project.document), floorId = 'blank-floor', layerId = scene.entityLayers.item
   for (const key of ['vertices', 'rooms', 'walls', 'openings', 'props', 'regions', 'notes', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'prefabInstances', 'scatterGroups'] as const) scene[key] = {}
   scene.entityLayers = {}; scene.constraints.entranceOpeningIds = []; scene.constraints.pathChecks = []
-  scene.schemaVersion = version; scene.mapMode = 'scene'; scene.regional = null
+  scene.schemaVersion = 1; scene.mapMode = 'scene'; scene.regional = null
   scene.exportBoundsMm = { x: 0, y: 0, width: 60000, height: 20000 }; scene.floors[floorId].boundsMm = { ...scene.exportBoundsMm }
   scene.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }
   scene.generation = createEmptyGeneration5()
@@ -37,7 +37,7 @@ async function setup(version: 4 | 5 = 5) {
     boundaryMm: [{ x: 30000, y: 1000 }, { x: 59000, y: 1000 }, { x: 59000, y: 19000 }, { x: 30000, y: 19000 }].map((positionMm, i) => ({ id: `high-p${i}`, segmentId: `high-s${i}`, positionMm })),
     groundElevationMm: 1200, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
   scene.entityLayers.high = layerId
-  const content = createCompositionContent(scene, runtime), project = await fromBundle({ ...bundle, project: { ...bundle.project, schemaVersion: version, ...content } }, validation)
+  const content = createCompositionContent(scene, runtime), project = await fromBundle({ ...bundle, project: { ...bundle.project, schemaVersion: 1, ...content } }, validation)
   const repo = new ProjectRepository({ name: `curved-edits-${crypto.randomUUID()}`, runtime, validation }); repositories.push(repo)
   const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace); await workspace.adoptNew(project)
   return { workspace, repo, floorId, layerId }
@@ -71,10 +71,7 @@ describe('curved connection editing authority', () => {
     workspace.undo(); await workspace.flush(); expect(workspace.getDocument()!.terrainConnections).toEqual({})
     workspace.redo(); await workspace.flush(); expect(workspace.getDocument()!.terrainConnections.curved.route).toEqual(adopted.document.terrainConnections.curved.route)
   })
-  it('rejects old-format routes and current dependency locks, retaining current and cold content', async () => {
-    const old = await setup(4), before = old.workspace.getState().project!
-    await expect(old.workspace.preview([create(old.floorId, old.layerId)])).rejects.toThrow(/完整v5/)
-    expect(old.workspace.getState().project).toBe(before)
+  it('rejects current dependency locks, retaining current and cold content', async () => {
     const { workspace, repo, floorId, layerId } = await setup()
     await workspace.execute([{ type: 'setEditLock', kind: 'terrainArea', id: 'high', locked: true }]); await workspace.flush()
     const locked = workspace.getState().project!
@@ -96,10 +93,10 @@ describe('curved connection editing authority', () => {
   it('does not send new-format geometry through unsupported AI start, operation or context APIs', async () => {
     const { workspace, floorId, layerId } = await setup(), project = toBundle(workspace.getState().project!).project
     const scope = { floorId, layerId, boundsMm: project.document.exportBoundsMm, entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], generationLayerIds: [layerId], regionalDefinitionIds: [], operations: ['terrainGenerate'] }
-    expect(() => validateSceneScope(project, scope as never)).toThrow(/完整v5/)
-    expect(() => applySceneOperation(project, scope as never, {} as never, runtime, new Set())).toThrow(/完整v5/)
-    expect(() => publicSceneContext(project, scope as never, new Set())).toThrow(/完整v5/)
+    expect(() => validateSceneScope(project, scope as never)).toThrow(/当前明确能力协议/)
+    expect(() => applySceneOperation(project, scope as never, {} as never, runtime, new Set())).toThrow(/当前明确能力协议/)
+    expect(() => publicSceneContext(project, scope as never, new Set())).toThrow(/当前明确能力协议/)
     expect(() => validateAuthoringStart({ schemaVersion: 1, project, baseContentHash: projectContentHash(project), seed: 'fcb3353d-8c8f-4890-b002-a9f5a464a769', preparedAt: '2026-10-31T00:00:00.000Z',
-      skill: { id: 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model', scope: { targetIds: [], operations: [], placement: null, scene: scope } } as never)).toThrow(/完整v5/)
+      skill: { id: 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model', scope: { targetIds: [], operations: [], placement: null, scene: scope } } as never)).toThrow(/当前明确能力协议/)
   })
 })

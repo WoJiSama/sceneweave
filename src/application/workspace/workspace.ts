@@ -1,13 +1,15 @@
-import { prepareConnectionUpgrade } from './connection-upgrade.js'
-import { prepareDecorationUpgrade } from './decoration-upgrade.js'
-import { prepareCanopyUpgrade } from './canopy-upgrade.js'
-import { prepareSurfaceRulesUpgrade } from './surface-rules-upgrade.js'
 import { isDecorationCommand } from '../../shared/decorations/commands.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
-import type { TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { parseTaskBudgetProfile, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
 import { ProfiledAuthoringScopeSchema } from '../../shared/ai/authoring-profile.js'
-import { prepareTerrainComposition, prepareCompositionUpgrade } from './terrain-composition.js'
+import { prepareTerrainComposition } from './terrain-composition.js'
 import { prepareBaseMapProject, type BaseMapPreparationOptions } from './base-map.js'
+import { prepareInteriorProject, type InteriorCandidate } from './interior.js'
+import { prepareForestProject, type ForestCandidate } from './forest.js'
+import { prepareVolcanoProject, type VolcanoCandidate } from './volcano.js'
+import type { DomainGenerationExecutor } from './generation.js'
+import type { DomainGenerationKind } from '../../shared/generation/execution.js'
+import type { LocalGenerationRequest } from '../../shared/generation/local.js'
 import { BaseMapExecutionClock } from './base-map-clock.js'
 import type { BaseMapRequest } from '../../shared/terrain-generation/base-map.js'
 import type { BaseMapRequestV2 } from '../../shared/terrain-generation/base-map-v2.js'
@@ -19,13 +21,14 @@ import { CurrentAuthoringScopeV4Schema, type AuthoringStartV4, type CurrentAutho
 import type { BaseMapSource } from '../../shared/ai/continuation-protocol.js'
 import { CONTINUATION_POLICY, createContinuationPolicyV2 } from '../../shared/ai/budget-policy.js'
 import { authoringBudgetIdentity } from '../../shared/ai/authoring.js'
-import { emptyTerrainDocument } from '../../shared/terrain-generation/compose.js'
 import { emptyCompositionDocument } from '../../shared/terrain-generation/composition-materialize.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
 import { projectContentHash } from '../../shared/project/validate.js'
-import { prepareTerrainProject, prepareTerrainUpgrade, type TerrainPreview } from './terrain.js'
+import { prepareTerrainProject, type TerrainPreview } from './terrain.js'
 import { prepareTerrainEditProject, type TerrainEditPreview } from './terrain-edit.js'
 import { prepareTerrainLocalRefreshProject, type TerrainLocalPreview } from './terrain-local.js'
+import { prepareLocalGenerationProject, protectLocalGenerationContinuity, type LocalGenerationPreview } from './generation-local.js'
+export type { LocalGenerationPreview } from './generation-local.js'
 import { prepareRegionalCreate, prepareRegionalEdit, prepareRegionalDrillDown, prepareRegionalDrillDownFromResult, type RegionalCandidate } from './regional.js'
 import type { RegionalDrillDownResult } from '../../shared/terrain-generation/regional-authoring.js'
 import { regionalSceneCandidate } from '../../shared/ai/terrain-authoring.js'
@@ -35,7 +38,6 @@ import type { TerrainGenerationResult } from '../../shared/terrain-generation/ge
 import { visualBase } from '../../shared/visual/base.js'
 import { planTerrainDressing, type TerrainDressingReport } from '../../shared/visual/terrain-dressing.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
-import { emptyVisualSystem } from '../../shared/visual/types.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
 import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
@@ -76,7 +78,7 @@ function isGeneratedAtomicStart(start: AuthoringStart): start is GeneratedAtomic
   return isClassifiedAuthoring(start) && start.source.version !== 4
 }
 
-export type WorkspaceRepository = Pick<ProjectRepository, 'save' | 'loadSnapshot' | 'createSnapshot' | 'usage' | 'importArchive' | 'checkProtection'> & Partial<Pick<ProjectRepository, 'load' | 'preserveNativeUpgrade' | 'historyMetadataVersion' | 'listHistoryVersions' | 'loadHistoryVersion' | 'beginSnapshotRead'>>
+export type WorkspaceRepository = Pick<ProjectRepository, 'save' | 'loadSnapshot' | 'createSnapshot' | 'usage' | 'importArchive' | 'checkProtection'> & Partial<Pick<ProjectRepository, 'load' | 'historyMetadataVersion' | 'listHistoryVersions' | 'loadHistoryVersion' | 'beginSnapshotRead'>>
 export interface WorkspaceOptions { validation: CompleteValidationOptions; runtime: PreparationContext; validateCandidate?: (document: SceneDocument) => void }
 export interface EditableSnapshot extends SnapshotSummary { project: EditableProject }
 type SaveStatus = 'empty' | 'saved' | 'unsaved' | 'saving' | 'error' | 'conflict'
@@ -126,6 +128,30 @@ export interface RegionalPreview extends RegionalCandidate {
   currentRevision: number | null
   baseContentHash: string | null
 }
+export interface InteriorPreview extends InteriorCandidate {
+  checkpoint: number
+  currentSceneId: string | null
+  currentRevision: number | null
+  baseContentHash: string | null
+}
+export interface ForestPreview extends ForestCandidate {
+  checkpoint: number
+  currentSceneId: string | null
+  currentRevision: number | null
+  baseContentHash: string | null
+}
+export interface VolcanoPreview extends VolcanoCandidate {
+  checkpoint: number
+  currentSceneId: string | null
+  currentRevision: number | null
+  baseContentHash: string | null
+}
+export interface DomainPreviewMap { interior: InteriorPreview; forest: ForestPreview; volcano: VolcanoPreview }
+export interface GenerationPreviewOptions extends ResourceOptions { execute?: DomainGenerationExecutor; epoch?: number }
+type NewGenerationRequest<K extends DomainGenerationKind = DomainGenerationKind> = { kind: 'new-project'; domain: K; base: EditableProject; input: unknown; profile: TaskBudgetProfile }
+type CurrentGenerationRequest = { kind: 'current-project'; input: LocalGenerationRequest; profile?: TaskBudgetProfile }
+type GenerationSelection = { [K in DomainGenerationKind]: { kind: 'new-project'; domain: K; preview: DomainPreviewMap[K] } }[DomainGenerationKind]
+  | { kind: 'current-project'; preview: LocalGenerationPreview }
 export interface StructureRestoreInspection {
   snapshot: SnapshotSummary
   scope: StructureRestoreScope
@@ -306,7 +332,7 @@ function materializedRestorePlan(current: EditableProject, plan: RestorePlan, pr
     return { ...change, after }
   }).filter(change => canonical(change.before) !== canonical(change.after) || change.beforeLayerId !== change.layerId)
   let commandCost = plan.commandCost
-  if (current.document.schemaVersion === 3 && project.document.schemaVersion === 3) {
+  {
     changes.push(...generationRestoreChanges(current.document, project.document))
     const draftCost = terrainCommandCost(current.document, plan.document), finalCost = terrainCommandCost(current.document, project.document)
     const baseCost = plan.commandCost - (draftCost.total - draftCost.items.physicalAndVisual)
@@ -323,8 +349,12 @@ export class Workspace {
   private state: WorkspaceState = { project: null, status: 'empty', error: null, canUndo: false, canRedo: false, lastTransaction: null }
   private readonly listeners = new Set<() => void>()
   private readonly terrainPreviews = new WeakMap<TerrainPreview, PreviewStatus>()
+  private readonly interiorPreviews = new WeakMap<InteriorPreview, { status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
+  private readonly forestPreviews = new WeakMap<ForestPreview, { status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
+  private readonly volcanoPreviews = new WeakMap<VolcanoPreview, { status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
   private readonly terrainEditPreviews = new WeakMap<TerrainEditPreview, PreviewStatus>()
   private readonly terrainLocalPreviews = new WeakMap<TerrainLocalPreview, PreviewStatus>()
+  private readonly localGenerationPreviews = new WeakMap<LocalGenerationPreview, PreviewStatus>()
   private readonly regionalPreviews = new WeakMap<RegionalPreview, { status: PreviewStatus; base: EditableProject; sourceBase?: EditableProject; sourceResult?: RegionalDrillDownResult; sceneBase?: EditableProject }>()
   private readonly compositionPreviews = new WeakMap<CompositionPreview, PreviewStatus>()
   private readonly previews = new WeakMap<RestorePreview, PreviewStatus>()
@@ -508,24 +538,231 @@ export class Workspace {
       if (this.pending && !this.blocked) this.timer = setTimeout(() => { this.timer = null; void this.startSave().catch(() => {}) }, 120)
     }
   }
-  /** Upgrade a saved current-v1 branch by publishing a separately validated copy. */
-  async enableVisualCopy() {
+  /** Common public lifecycle. The target is explicit; domain adapters own
+   * generation and the existing private witnesses still own adoption. */
+  previewGeneration<K extends DomainGenerationKind>(request: NewGenerationRequest<K>, options?: GenerationPreviewOptions): Promise<DomainPreviewMap[K]>
+  previewGeneration(request: CurrentGenerationRequest, options?: ResourceOptions): Promise<LocalGenerationPreview>
+  previewGeneration(request: NewGenerationRequest | CurrentGenerationRequest, options: GenerationPreviewOptions = {}): Promise<DomainPreviewMap[DomainGenerationKind] | LocalGenerationPreview> {
+    if (request.kind === 'current-project') return this.previewLocalGeneration(request.input, { budget: request.profile, signal: options.signal })
+    const prepare = {
+      interior: () => this.previewInteriorGeneration(request.base, request.input, request.profile, options),
+      forest: () => this.previewForestGeneration(request.base, request.input, request.profile, options),
+      volcano: () => this.previewVolcanoGeneration(request.base, request.input, request.profile, options),
+    }
+    if (!Object.hasOwn(prepare, request.domain)) throw new Error('此生成领域尚未支持。')
+    return prepare[request.domain]()
+  }
+  cancelGeneration(selection: GenerationSelection) {
+    if (selection.kind === 'current-project') return this.cancelLocalGeneration(selection.preview)
+    switch (selection.domain) {
+      case 'interior': return this.cancelInteriorGeneration(selection.preview)
+      case 'forest': return this.cancelForestGeneration(selection.preview)
+      case 'volcano': return this.cancelVolcanoGeneration(selection.preview)
+    }
+  }
+  adoptGeneration(selection: { kind: 'current-project'; preview: LocalGenerationPreview }, options?: ResourceOptions): ReturnType<Workspace['adoptLocalGeneration']>
+  adoptGeneration(selection: Exclude<GenerationSelection, { kind: 'current-project' }>, options?: ResourceOptions): Promise<void>
+  adoptGeneration(selection: GenerationSelection, options: ResourceOptions = {}) {
+    if (selection.kind === 'current-project') return this.adoptLocalGeneration(selection.preview, options)
+    switch (selection.domain) {
+      case 'interior': return this.adoptInteriorGeneration(selection.preview, options)
+      case 'forest': return this.adoptForestGeneration(selection.preview, options)
+      case 'volcano': return this.adoptVolcanoGeneration(selection.preview, options)
+    }
+  }
+  /** A first-domain candidate stays independent until complete validation,
+   * deterministic replay, save and an independently validated cold read. */
+  async previewInteriorGeneration(base: EditableProject, input: unknown, profile: TaskBudgetProfile, options: GenerationPreviewOptions = {}): Promise<InteriorPreview> {
     this.assertWritable()
-    const current = this.requireProject()
-    if (current.schemaVersion >= 2) return
-    const checkpoint = this.checkpoint()
-    await this.flush()
-    this.assertCheckpoint(checkpoint)
-    const draft = forkProject(current, this.options.runtime)
-    draft.schemaVersion = 2
-    draft.document.schemaVersion = 2
-    draft.document.visual = emptyVisualSystem()
-    draft.document.title = `${current.document.title} · 视觉副本`
-    const candidate = await validateEditableProject(draft, this.validation())
-    this.assertCheckpoint(checkpoint)
-    await this.repository.save(toBundle(candidate), null)
-    this.assertCheckpoint(checkpoint)
-    this.install(candidate)
+    const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const ownedInput = captureJson(input), capturedProfile = parseTaskBudgetProfile(profile)
+    const owned = await validateEditableProject(base, { ...this.validation(), signal })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const preparedAt = this.options.runtime.clock.now(), identityAllocation: string[] = []
+    const runtime = { clock: { now: () => preparedAt }, ids: { nextId: () => { const id = this.options.runtime.ids.nextId(); identityAllocation.push(id); return id } } }
+    const prepared = await prepareInteriorProject(owned, ownedInput, { runtime, validation: this.validation(), signal, profile: capturedProfile, execute: options.execute,
+      context: { workspaceId: this.state.project?.document.sceneId ?? 'empty-workspace', checkpoint, epoch: options.epoch ?? 0 } })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const current = this.state.project
+    if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('室内布局必须具有独立的新工程身份。')
+    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null,
+      baseContentHash: current ? projectContentHash(toBundle(current).project) : null })
+    this.interiorPreviews.set(preview, { status: 'active', base: owned, preparedAt, identityAllocation })
+    return preview
+  }
+  cancelInteriorGeneration(preview: InteriorPreview) {
+    const witness = this.interiorPreviews.get(preview)
+    if (witness && (witness.status === 'active' || witness.status === 'applying')) witness.status = 'cancelled'
+  }
+  async adoptInteriorGeneration(preview: InteriorPreview, options: ResourceOptions = {}) {
+    this.assertWritable()
+    const witness = this.interiorPreviews.get(preview)
+    if (!witness || witness.status !== 'active') throw new Error('室内候选已取消、已采用或不属于本会话。')
+    const token = {}, outerSignal = this.atomicSignal(options.signal)
+    const signal = { get aborted() { return outerSignal.aborted || witness.status === 'cancelled' } }
+    const assertActive = () => {
+      checkCancelled(signal); this.assertCheckpoint(preview.checkpoint)
+      const current = this.state.project
+      if (witness.status !== 'applying' || (current?.document.sceneId ?? null) !== preview.currentSceneId || (current?.document.revision ?? null) !== preview.currentRevision
+        || (current ? projectContentHash(toBundle(current).project) : null) !== preview.baseContentHash) throw new Error('室内候选基线已变化，请重新预览。')
+    }
+    witness.status = 'applying'; this.atomicLock = token
+    try {
+      assertActive()
+      let allocationIndex = 0
+      const runtime = { clock: { now: () => witness.preparedAt }, ids: { nextId: () => {
+        const id = witness.identityAllocation[allocationIndex++]
+        if (!id) throw new Error('室内候选身份分配与确定性重放不同。')
+        return id
+      } } }
+      const replay = await prepareInteriorProject(witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
+      assertActive()
+      if (allocationIndex !== witness.identityAllocation.length) throw new Error('室内候选身份分配次数与确定性重放不同。')
+      const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
+      assertActive()
+      if (projectContentHash(toBundle(project).project) !== projectContentHash(toBundle(replay.project).project)
+        || preview.resultHash !== replay.resultHash || canonical(preview.layout) !== canonical(replay.layout) || canonical(preview.report) !== canonical(replay.report) || canonical(preview.cost) !== canonical(replay.cost)) throw new Error('室内候选与完整重放不符。')
+      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      if (project.document.sceneId === this.state.project?.document.sceneId) throw new Error('室内布局身份不能覆盖当前工程。')
+      await this.flush(); assertActive()
+      await this.repository.save(toBundle(project), null, { signal }); assertActive()
+      if (!this.repository.load) throw new Error('当前仓库不支持室内新工程冷读。')
+      const cold = await this.repository.load(project.document.sceneId, { signal })
+      if (!cold) throw new Error('室内新工程冷读失败，当前工程保持。')
+      const installed = await fromBundle(cold, { ...this.validation(), signal }); assertActive()
+      if (projectContentHash(toBundle(installed).project) !== projectContentHash(toBundle(project).project)) throw new Error('室内新工程在冷读前已变化，请从工程目录重新打开。')
+      this.atomicLock = null; this.install(installed); witness.status = 'applied'
+    } catch (error) { witness.status = 'cancelled'; throw error }
+    finally { if (this.atomicLock === token) this.atomicLock = null }
+  }
+  async previewForestGeneration(base: EditableProject, input: unknown, profile: TaskBudgetProfile, options: GenerationPreviewOptions = {}): Promise<ForestPreview> {
+    this.assertWritable()
+    const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const ownedInput = captureJson(input), capturedProfile = parseTaskBudgetProfile(profile)
+    const owned = await validateEditableProject(base, { ...this.validation(), signal })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const preparedAt = this.options.runtime.clock.now(), identityAllocation: string[] = []
+    const runtime = { clock: { now: () => preparedAt }, ids: { nextId: () => { const id = this.options.runtime.ids.nextId(); identityAllocation.push(id); return id } } }
+    const prepared = await prepareForestProject(owned, ownedInput, { runtime, validation: this.validation(), signal, profile: capturedProfile, execute: options.execute,
+      context: { workspaceId: this.state.project?.document.sceneId ?? 'empty-workspace', checkpoint, epoch: options.epoch ?? 0 } })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const current = this.state.project
+    if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('森林与营地必须具有独立的新工程身份。')
+    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null,
+      baseContentHash: current ? projectContentHash(toBundle(current).project) : null })
+    this.forestPreviews.set(preview, { status: 'active', base: owned, preparedAt, identityAllocation })
+    return preview
+  }
+  cancelForestGeneration(preview: ForestPreview) {
+    const witness = this.forestPreviews.get(preview)
+    if (witness && (witness.status === 'active' || witness.status === 'applying')) witness.status = 'cancelled'
+  }
+  async adoptForestGeneration(preview: ForestPreview, options: ResourceOptions = {}) {
+    this.assertWritable()
+    const witness = this.forestPreviews.get(preview)
+    if (!witness || witness.status !== 'active') throw new Error('森林候选已取消、已采用或不属于本会话。')
+    const token = {}, outerSignal = this.atomicSignal(options.signal)
+    const signal = { get aborted() { return outerSignal.aborted || witness.status === 'cancelled' } }
+    const assertActive = () => {
+      checkCancelled(signal); this.assertCheckpoint(preview.checkpoint)
+      const current = this.state.project
+      if (witness.status !== 'applying' || (current?.document.sceneId ?? null) !== preview.currentSceneId || (current?.document.revision ?? null) !== preview.currentRevision
+        || (current ? projectContentHash(toBundle(current).project) : null) !== preview.baseContentHash) throw new Error('森林候选基线已变化，请重新预览。')
+    }
+    witness.status = 'applying'; this.atomicLock = token
+    try {
+      assertActive()
+      let allocationIndex = 0
+      const runtime = { clock: { now: () => witness.preparedAt }, ids: { nextId: () => {
+        const id = witness.identityAllocation[allocationIndex++]
+        if (!id) throw new Error('森林候选身份分配与确定性重放不同。')
+        return id
+      } } }
+      const replay = await prepareForestProject(witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
+      assertActive()
+      if (allocationIndex !== witness.identityAllocation.length) throw new Error('森林候选身份分配次数与确定性重放不同。')
+      const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
+      assertActive()
+      if (projectContentHash(toBundle(project).project) !== projectContentHash(toBundle(replay.project).project)
+        || preview.resultHash !== replay.resultHash || canonical(preview.report) !== canonical(replay.report) || canonical(preview.cost) !== canonical(replay.cost)) throw new Error('森林候选与完整重放不符。')
+      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      if (project.document.sceneId === this.state.project?.document.sceneId) throw new Error('森林与营地身份不能覆盖当前工程。')
+      await this.flush(); assertActive()
+      await this.repository.save(toBundle(project), null, { signal }); assertActive()
+      if (!this.repository.load) throw new Error('当前仓库不支持森林新工程冷读。')
+      const cold = await this.repository.load(project.document.sceneId, { signal })
+      if (!cold) throw new Error('森林新工程冷读失败，当前工程保持。')
+      const installed = await fromBundle(cold, { ...this.validation(), signal }); assertActive()
+      if (projectContentHash(toBundle(installed).project) !== projectContentHash(toBundle(project).project)) throw new Error('森林新工程在冷读前已变化，请从工程目录重新打开。')
+      this.atomicLock = null; this.install(installed); witness.status = 'applied'
+    } catch (error) { witness.status = 'cancelled'; throw error }
+    finally { if (this.atomicLock === token) this.atomicLock = null }
+  }
+  async previewVolcanoGeneration(base: EditableProject, input: unknown, profile: TaskBudgetProfile, options: GenerationPreviewOptions = {}): Promise<VolcanoPreview> {
+    this.assertWritable()
+    const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const ownedInput = captureJson(input), capturedProfile = parseTaskBudgetProfile(profile)
+    const owned = await validateEditableProject(base, { ...this.validation(), signal })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const preparedAt = this.options.runtime.clock.now(), identityAllocation: string[] = []
+    const runtime = { clock: { now: () => preparedAt }, ids: { nextId: () => { const id = this.options.runtime.ids.nextId(); identityAllocation.push(id); return id } } }
+    const prepared = await prepareVolcanoProject(owned, ownedInput, { runtime, validation: this.validation(), signal, profile: capturedProfile, execute: options.execute,
+      context: { workspaceId: this.state.project?.document.sceneId ?? 'empty-workspace', checkpoint, epoch: options.epoch ?? 0 } })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const current = this.state.project
+    if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('火山必须具有独立的新工程身份。')
+    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null,
+      baseContentHash: current ? projectContentHash(toBundle(current).project) : null })
+    this.volcanoPreviews.set(preview, { status: 'active', base: owned, preparedAt, identityAllocation })
+    return preview
+  }
+  cancelVolcanoGeneration(preview: VolcanoPreview) {
+    const witness = this.volcanoPreviews.get(preview)
+    if (witness && (witness.status === 'active' || witness.status === 'applying')) witness.status = 'cancelled'
+  }
+  async adoptVolcanoGeneration(preview: VolcanoPreview, options: ResourceOptions = {}) {
+    this.assertWritable()
+    const witness = this.volcanoPreviews.get(preview)
+    if (!witness || witness.status !== 'active') throw new Error('火山候选已取消、已采用或不属于本会话。')
+    const token = {}, outerSignal = this.atomicSignal(options.signal)
+    const signal = { get aborted() { return outerSignal.aborted || witness.status === 'cancelled' } }
+    const assertActive = () => {
+      checkCancelled(signal); this.assertCheckpoint(preview.checkpoint)
+      const current = this.state.project
+      if (witness.status !== 'applying' || (current?.document.sceneId ?? null) !== preview.currentSceneId || (current?.document.revision ?? null) !== preview.currentRevision
+        || (current ? projectContentHash(toBundle(current).project) : null) !== preview.baseContentHash) throw new Error('火山候选基线已变化，请重新预览。')
+    }
+    witness.status = 'applying'; this.atomicLock = token
+    try {
+      assertActive()
+      let allocationIndex = 0
+      const runtime = { clock: { now: () => witness.preparedAt }, ids: { nextId: () => {
+        const id = witness.identityAllocation[allocationIndex++]
+        if (!id) throw new Error('火山候选身份分配与确定性重放不同。')
+        return id
+      } } }
+      const replay = await prepareVolcanoProject(witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
+      assertActive()
+      if (allocationIndex !== witness.identityAllocation.length) throw new Error('火山候选身份分配次数与确定性重放不同。')
+      const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
+      assertActive()
+      if (projectContentHash(toBundle(project).project) !== projectContentHash(toBundle(replay.project).project)
+        || preview.resultHash !== replay.resultHash || canonical(preview.report) !== canonical(replay.report) || canonical(preview.cost) !== canonical(replay.cost)) throw new Error('火山候选与完整重放不符。')
+      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      if (project.document.sceneId === this.state.project?.document.sceneId) throw new Error('火山身份不能覆盖当前工程。')
+      await this.flush(); assertActive()
+      await this.repository.save(toBundle(project), null, { signal }); assertActive()
+      if (!this.repository.load) throw new Error('当前仓库不支持火山新工程冷读。')
+      const cold = await this.repository.load(project.document.sceneId, { signal })
+      if (!cold) throw new Error('火山新工程冷读失败，当前工程保持。')
+      const installed = await fromBundle(cold, { ...this.validation(), signal }); assertActive()
+      if (projectContentHash(toBundle(installed).project) !== projectContentHash(toBundle(project).project)) throw new Error('火山新工程在冷读前已变化，请从工程目录重新打开。')
+      this.atomicLock = null; this.install(installed); witness.status = 'applied'
+    } catch (error) { witness.status = 'cancelled'; throw error }
+    finally { if (this.atomicLock === token) this.atomicLock = null }
   }
   /** A generated map is previewed independently; current edits are saved before switching. */
   async previewBaseMapGeneration(base: EditableProject, request: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3, response: unknown, options: { signal?: ResourceOptions['signal']; source?: 'worker' | 'server'; generationExecution?: BaseMapPreparationOptions['generationExecution'] } = {}): Promise<TerrainPreview> {
@@ -665,7 +902,7 @@ export class Workspace {
   async previewTerrainLocalRefresh(input: import('../../shared/terrain-generation/local.js').TerrainLocalRefreshRequest, options: { result?: import('../../shared/terrain-generation/local.js').TerrainLocalRefreshResult; budget?: TaskBudgetProfile; signal?: ResourceOptions['signal'] } = {}): Promise<TerrainLocalPreview> {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
-    if (current.document.schemaVersion !== 4) throw new Error('局部联动预览需要完整v4工程。')
+    if (current.document.mapMode !== 'scene') throw new Error('局部联动预览需要场景工程。')
     const prepared = await prepareTerrainLocalRefreshProject(current, input, { runtime: this.options.runtime, validation: this.validation(), result: options.result, budget: options.budget, signal })
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
     this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
@@ -719,6 +956,65 @@ export class Workspace {
       void save.catch(() => {})
       return { protection, revision: this.requireProject().document.revision, save }
     } catch (error) { if (!committed) this.terrainLocalPreviews.set(preview, 'cancelled'); throw error }
+    finally { if (!committed && this.atomicLock === token) this.atomicLock = null }
+  }
+  async previewLocalGeneration(input: import('../../shared/generation/local.js').LocalGenerationRequest, options: { budget?: TaskBudgetProfile; signal?: ResourceOptions['signal'] } = {}): Promise<LocalGenerationPreview> {
+    this.assertWritable()
+    const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const prepared = await prepareLocalGenerationProject(current, input, { runtime: this.options.runtime, validation: this.validation(), budget: options.budget, signal })
+    this.assertCheckpoint(checkpoint); checkCancelled(signal)
+    this.validateCandidate(prepared.document); projectScene(prepared.document, 'player')
+    const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision,
+      baseContentHash: projectContentHash(toBundle(current).project) })
+    this.localGenerationPreviews.set(preview, 'active')
+    return preview
+  }
+  cancelLocalGeneration(preview: LocalGenerationPreview) {
+    if (['active', 'applying'].includes(this.localGenerationPreviews.get(preview) ?? '')) this.localGenerationPreviews.set(preview, 'cancelled')
+  }
+  private assertLocalGeneration(preview: LocalGenerationPreview) {
+    if (!['active', 'applying'].includes(this.localGenerationPreviews.get(preview) ?? '')) throw new Error('局部生成候选已取消、已采用或不属于本会话。')
+    this.assertCheckpoint(preview.checkpoint)
+    const current = this.requireProject()
+    if (current.document.sceneId !== preview.currentSceneId || current.document.revision !== preview.currentRevision
+      || projectContentHash(toBundle(current).project) !== preview.baseContentHash) throw new Error('局部生成基线、锁或资源已改变，请重新预览。')
+  }
+  async adoptLocalGeneration(preview: LocalGenerationPreview, options: ResourceOptions = {}) {
+    this.assertWritable()
+    if (this.localGenerationPreviews.get(preview) !== 'active') throw new Error('局部生成候选已取消、已采用或不属于本会话。')
+    this.assertLocalGeneration(preview)
+    const token = {}, outerSignal = this.atomicSignal(options.signal), statuses = this.localGenerationPreviews
+    const signal = { get aborted() { return outerSignal.aborted || statuses.get(preview) !== 'applying' } }
+    this.atomicLock = token; statuses.set(preview, 'applying')
+    let committed = false
+    const assertActive = () => { checkCancelled(signal); this.assertLocalGeneration(preview) }
+    try {
+      const replayed = await prepareLocalGenerationProject(this.requireProject(), preview.input, { runtime: this.options.runtime, validation: this.validation(), budget: preview.budgetProfile, signal })
+      assertActive()
+      if (projectContentHash(toBundle(replayed.project).project) !== projectContentHash(toBundle(preview.project).project)
+        || canonical({ result: replayed.result, changes: replayed.changes, readIds: replayed.readIds, writeIds: replayed.writeIds, cost: replayed.cost, profileHash: replayed.profileHash, usage: replayed.usage })
+          !== canonical({ result: preview.result, changes: preview.changes, readIds: preview.readIds, writeIds: preview.writeIds, cost: preview.cost, profileHash: preview.profileHash, usage: preview.usage })) throw new Error('局部生成的完整候选、依赖或预算与确定性重放不符，请重新预览。')
+      const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
+      assertActive()
+      if (equalOwnedContent(this.requireProject(), project)) throw new Error('本次局部生成没有实际变化，无需采用。')
+      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      reviseSceneSnapshot(project.document, preview.currentRevision + 1, this.options.runtime.clock.now())
+      await this.flush(); assertActive()
+      const current = this.requireProject(), usage = await this.repository.usage(preview.currentSceneId)
+      assertActive()
+      const protection = await this.createSnapshot(current, '局部生成前保护', { kind: 'protection', expectedRevision: preview.currentRevision, expectedMetadataVersion: usage.metadataVersion, signal })
+      assertActive()
+      this.structureContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
+      this.visualContinuity.recordSnapshot(protection.id, protection.contentHash, current.document)
+      const guard = { expectedMetadataVersion: usage.metadataVersion + 1, protection: { id: protection.id, contentHash: protection.contentHash } }
+      await this.repository.checkProtection(preview.currentSceneId, preview.currentRevision, protection.contentHash, guard, { signal }); assertActive()
+      if (this.persistedRevision !== preview.currentRevision) throw new Error('持久修订已变化，未采用局部生成。')
+      this.commit(project, 'edit', token, guard)
+      committed = true; statuses.set(preview, 'applied')
+      const save = this.flush().finally(() => { if (this.atomicLock === token) this.atomicLock = null })
+      void save.catch(() => {})
+      return { protection, revision: this.requireProject().document.revision, save }
+    } catch (error) { if (!committed) statuses.set(preview, 'cancelled'); throw error }
     finally { if (!committed && this.atomicLock === token) this.atomicLock = null }
   }
   async previewRegionalCreate(base: EditableProject, input: Parameters<typeof prepareRegionalCreate>[1], options: ResourceOptions = {}): Promise<RegionalPreview> {
@@ -833,125 +1129,6 @@ export class Workspace {
     } catch (error) { if (!committed) witness.status = 'cancelled'; throw error }
     finally { if (!committed && this.atomicLock === token) this.atomicLock = null }
   }
-  async enableCompositionCopy() {
-    if(this.requireProject().schemaVersion!==3)throw new Error('组合升级需要完整v3工程。')
-    return this.enableTerrainCopy(true)
-  }
-  async enableTerrainCopy(composition = false) {
-    this.assertWritable()
-    const current = this.requireProject(), checkpoint = this.checkpoint()
-    if (current.schemaVersion >= 4 || current.schemaVersion===3 && !composition) return
-    const token = {}; this.atomicLock = token
-    try {
-      await this.flush(); this.assertCheckpoint(checkpoint)
-      const candidate = await (current.schemaVersion===3?prepareCompositionUpgrade:prepareTerrainUpgrade)(current, { runtime: this.options.runtime, validation: this.validation() })
-      this.assertCheckpoint(checkpoint)
-      this.validateCandidate(candidate.document); projectScene(candidate.document, 'player')
-      if (!this.repository.preserveNativeUpgrade || !this.repository.load) throw new Error('当前工程仓库不支持地形升级原件保全。')
-      await this.repository.preserveNativeUpgrade(toBundle(current), toBundle(candidate))
-      this.assertCheckpoint(checkpoint)
-      await this.repository.save(toBundle(candidate), null)
-      this.assertCheckpoint(checkpoint)
-      const cold = await this.repository.load(candidate.document.sceneId)
-      if (!cold) throw new Error('地形副本冷读失败，当前工程保持。')
-      const checked = await fromBundle(cold, this.validation())
-      this.assertCheckpoint(checkpoint)
-      if (projectContentHash(toBundle(checked).project) !== projectContentHash(toBundle(candidate).project)) throw new Error('地形副本在冷读前已改变，请从工程目录重新打开。')
-      this.atomicLock = null; this.install(checked)
-    } finally { if (this.atomicLock === token) this.atomicLock = null }
-  }
-  async enableConnectionCopy() {
-    this.assertWritable()
-    const current = this.requireProject(), checkpoint = this.checkpoint()
-    if (current.schemaVersion !== 4) throw new Error('曲线连接升级需要先保存完整v4地貌组合副本。')
-    const token = {}; this.atomicLock = token
-    try {
-      await this.flush(); this.assertCheckpoint(checkpoint)
-      const candidate = await prepareConnectionUpgrade(current, { runtime: this.options.runtime, validation: this.validation() })
-      this.assertCheckpoint(checkpoint)
-      this.validateCandidate(candidate.document); projectScene(candidate.document, 'player')
-      if (!this.repository.preserveNativeUpgrade || !this.repository.load) throw new Error('当前工程仓库不支持曲线连接升级的完整原件保全。')
-      await this.repository.preserveNativeUpgrade(toBundle(current), toBundle(candidate))
-      this.assertCheckpoint(checkpoint)
-      await this.repository.save(toBundle(candidate), null)
-      this.assertCheckpoint(checkpoint)
-      const cold = await this.repository.load(candidate.document.sceneId)
-      if (!cold) throw new Error('曲线连接副本冷读失败，当前工程保持。')
-      const checked = await fromBundle(cold, this.validation())
-      this.assertCheckpoint(checkpoint)
-      if (projectContentHash(toBundle(checked).project) !== projectContentHash(toBundle(candidate).project)) throw new Error('曲线连接副本在冷读前已改变，请从工程目录重新打开。')
-      this.atomicLock = null; this.install(checked)
-    } finally { if (this.atomicLock === token) this.atomicLock = null }
-  }
-  async enableDecorationCopy() {
-    this.assertWritable()
-    const current = this.requireProject(), checkpoint = this.checkpoint()
-    if (current.schemaVersion !== 5) throw new Error('轻量布景升级需要先保存完整v5曲线连接副本。')
-    const token = {}; this.atomicLock = token
-    try {
-      await this.flush(); this.assertCheckpoint(checkpoint)
-      const candidate = await prepareDecorationUpgrade(current, { runtime: this.options.runtime, validation: this.validation() })
-      this.assertCheckpoint(checkpoint)
-      this.validateCandidate(candidate.document); projectScene(candidate.document, 'player')
-      if (!this.repository.preserveNativeUpgrade || !this.repository.load) throw new Error('当前工程仓库不支持轻量布景升级的完整原件保全。')
-      await this.repository.preserveNativeUpgrade(toBundle(current), toBundle(candidate))
-      this.assertCheckpoint(checkpoint)
-      await this.repository.save(toBundle(candidate), null)
-      this.assertCheckpoint(checkpoint)
-      const cold = await this.repository.load(candidate.document.sceneId)
-      if (!cold) throw new Error('轻量布景副本冷读失败，当前工程保持。')
-      const checked = await fromBundle(cold, this.validation())
-      this.assertCheckpoint(checkpoint)
-      if (projectContentHash(toBundle(checked).project) !== projectContentHash(toBundle(candidate).project)) throw new Error('轻量布景副本在冷读前已改变，请从工程目录重新打开。')
-      this.atomicLock = null; this.install(checked)
-    } finally { if (this.atomicLock === token) this.atomicLock = null }
-  }
-  async enableCanopyCopy() {
-    this.assertWritable()
-    const current = this.requireProject(), checkpoint = this.checkpoint()
-    if (current.schemaVersion !== 6) throw new Error('树冠区域规则升级需要先保存完整v6布景副本。')
-    const token = {}; this.atomicLock = token
-    try {
-      await this.flush(); this.assertCheckpoint(checkpoint)
-      const candidate = await prepareCanopyUpgrade(current, { runtime: this.options.runtime, validation: this.validation() })
-      this.assertCheckpoint(checkpoint)
-      this.validateCandidate(candidate.document); projectScene(candidate.document, 'player')
-      if (!this.repository.preserveNativeUpgrade || !this.repository.load) throw new Error('当前工程仓库不支持树冠规则升级的完整原件保全。')
-      await this.repository.preserveNativeUpgrade(toBundle(current), toBundle(candidate))
-      this.assertCheckpoint(checkpoint)
-      await this.repository.save(toBundle(candidate), null)
-      this.assertCheckpoint(checkpoint)
-      const cold = await this.repository.load(candidate.document.sceneId)
-      if (!cold) throw new Error('树冠规则副本冷读失败，当前工程保持。')
-      const checked = await fromBundle(cold, this.validation())
-      this.assertCheckpoint(checkpoint)
-      if (projectContentHash(toBundle(checked).project) !== projectContentHash(toBundle(candidate).project)) throw new Error('树冠规则副本在冷读前已改变，请从工程目录重新打开。')
-      this.atomicLock = null; this.install(checked)
-    } finally { if (this.atomicLock === token) this.atomicLock = null }
-  }
-  async enableSurfaceRulesCopy() {
-    this.assertWritable()
-    const current = this.requireProject(), checkpoint = this.checkpoint()
-    if (current.schemaVersion !== 7) throw new Error('连续地表规则升级需要先保存完整v7树冠规则副本。')
-    const token = {}; this.atomicLock = token
-    try {
-      await this.flush(); this.assertCheckpoint(checkpoint)
-      const candidate = await prepareSurfaceRulesUpgrade(current, { runtime: this.options.runtime, validation: this.validation() })
-      this.assertCheckpoint(checkpoint)
-      this.validateCandidate(candidate.document); projectScene(candidate.document, 'player')
-      if (!this.repository.preserveNativeUpgrade || !this.repository.load) throw new Error('当前工程仓库不支持地表规则升级的完整原件保全。')
-      await this.repository.preserveNativeUpgrade(toBundle(current), toBundle(candidate))
-      this.assertCheckpoint(checkpoint)
-      await this.repository.save(toBundle(candidate), null)
-      this.assertCheckpoint(checkpoint)
-      const cold = await this.repository.load(candidate.document.sceneId)
-      if (!cold) throw new Error('连续地表规则副本冷读失败，当前工程保持。')
-      const checked = await fromBundle(cold, this.validation())
-      this.assertCheckpoint(checkpoint)
-      if (projectContentHash(toBundle(checked).project) !== projectContentHash(toBundle(candidate).project)) throw new Error('连续地表规则副本在冷读前已改变，请从工程目录重新打开。')
-      this.atomicLock = null; this.install(checked)
-    } finally { if (this.atomicLock === token) this.atomicLock = null }
-  }
   /** Complete public validation returns a new wrapper; retain transaction-only witnesses explicitly. */
   private transferInvalidations(source: EditableProject, target: EditableProject) {
     const structural = this.structuralInvalidations.get(source), visual = this.visualInvalidations.get(source)
@@ -1048,7 +1225,7 @@ export class Workspace {
   /** Fixed source closure and every actual cluster/member edit share one bounded candidate. */
   async previewDecorationCommands(catalogInput: EditableProject, input: readonly CompositionCommand[], options: { checkpoint?: number; signal?: ResourceOptions['signal'] } = {}): Promise<CompositionPreview> {
     const current = this.requireProject()
-    if (current.schemaVersion < 6 || !input.length || !input.every(isDecorationCommand)) throw new Error('轻量布景候选只接受完整v6或更新工程的明确布景命令。')
+    if (!input.length || !input.every(isDecorationCommand)) throw new Error('轻量布景候选只接受当前工程的明确布景命令。')
     return this.previewCatalogCommands(catalogInput, input, options)
   }
   /** Fixed sources and mixed physical/decoration edits share one complete candidate and adoption. */
@@ -1057,7 +1234,7 @@ export class Workspace {
     const current = this.requireProject(), checkpoint = options.checkpoint ?? this.checkpoint(), signal = this.atomicSignal(options.signal)
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
     const commands = captureCommands(input), capturedCatalog = captureEditableDraft(catalogInput)
-    if (current.schemaVersion < 6 || !commands.length) throw new Error('固定素材候选只接受完整v6或更新工程的明确工程命令。')
+    if (!commands.length) throw new Error('固定素材候选只接受当前工程的明确工程命令。')
     const catalog = await validateEditableProject(capturedCatalog, { ...this.validation(), signal })
     checkCancelled(signal); this.assertCatalogImport(catalog, checkpoint)
     const sourceCost = catalogAdditionCost(current, catalog)
@@ -1179,16 +1356,15 @@ export class Workspace {
       authoringSources: candidate.authoringSources,
       resources: candidate.resources,
     })
-    // Restoring an older v4 scene can legitimately allocate fresh topology
+    // Restoring an older scene can legitimately allocate fresh topology
     // tokens. Keep continuity monotonic by pausing any active composition
     // whose frozen output receipt no longer matches the restored identity.
-    if (current.document.schemaVersion >= 4 && draft.document.schemaVersion >= 4) {
-      pauseChangedCompositions(current.document, draft.document)
-    }
+    pauseChangedCompositions(current.document, draft.document)
     const historyIdentity = advanceHistoryIdentity(current.historyIdentity, current.document, draft.document, this.options.runtime, { allowResurrection: true })
-    if (current.document.schemaVersion >= 4 && draft.document.schemaVersion >= 4) {
+    protectLocalGenerationContinuity(draft.document, candidate.historyIdentity, historyIdentity)
+    {
       const receiptIssues = validateCompositionIdentityContracts(draft.document, historyIdentity)
-      if (receiptIssues.length && draft.document.generation?.version === 5) {
+      if (receiptIssues.length) {
         draft.document = captureJson({ ...draft.document, generation: { ...draft.document.generation,
           compositions: Object.fromEntries(Object.entries(draft.document.generation.compositions).map(([id, row]) => [id,
             receiptIssues.some(issue => issue.entityId === id) ? { ...row, state: 'paused' as const } : row])) } })
@@ -1432,7 +1608,7 @@ export class Workspace {
   }
 
   private async baseMapUndoBaseline(source: BaseMapSource | BaseMapSourceV3, final: EditableProject, signal: NonNullable<ResourceOptions['signal']>) {
-    const document = final.schemaVersion === 4 ? emptyCompositionDocument(source.blank.document) : emptyTerrainDocument(source.blank.document)
+    const document = emptyCompositionDocument(source.blank.document)
     // Keep fixed definitions/resources introduced by the accepted result. Undo
     // removes its editable objects; it does not rewrite fixed source meanings.
     for (const key of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) Object.assign(document, { [key]: captureJson(final.document[key]) })

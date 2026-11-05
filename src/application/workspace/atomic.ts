@@ -83,7 +83,7 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
     }
     for (const collection of VISUAL_ENTITY_COLLECTIONS) {
       const entity = visualBase(project.document)?.[collection][id]
-      if (entity) return { collection: `${project.document.visual?.version === 2 ? 'visual.base' : 'visual'}.${collection}`, value: entity }
+      if (entity) return { collection: `visual.base.base.${collection}`, value: entity }
     }
     // SVG authoring and licensing records are persisted alongside, but outside,
     // the scene entity collections. They still need to be visible in review.
@@ -114,7 +114,7 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
     id: 'scene-constraints', collection: 'constraints', before: before.document.constraints, after: after.document.constraints, fields: ['constraints'],
   })
   if (JSON.stringify(visualBase(before.document)?.environment) !== JSON.stringify(visualBase(after.document)?.environment)) changes.push({
-    id: 'visual-environment', collection: after.document.visual?.version === 2 ? 'visual.base.environment' : 'visual.environment', before: visualBase(before.document)?.environment ?? null,
+    id: 'visual-environment', collection: 'visual.base.base.environment', before: visualBase(before.document)?.environment ?? null,
     after: visualBase(after.document)?.environment ?? null, fields: ['environment'],
   })
   changes.push(...terrainRecordChanges(before.document, after.document))

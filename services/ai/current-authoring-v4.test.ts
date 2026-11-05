@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -130,7 +131,7 @@ describe('authoring4 service budget finish and persisted proof', () => {
       expect(value.capabilities.currentAuthoring).toBeUndefined(); expect(value.capabilities.authoringVersions ?? []).not.toContain(4)
     }
     expect(await (await subject.request('/v1/capabilities?authoringVersion=4')).json()).toMatchObject({ capabilities: {
-      currentAuthoring: 'sceneweave-current-authoring@1', authoringVersions: [1, 2, 3, 4], completeProjectVersions: [3, 4, 5, 6, 7], visualReviewVersions: [1] } })
+      currentAuthoring: 'sceneweave-current-authoring@1', authoringVersions: [4], completeProjectVersions: [1], visualReviewVersions: [1] } })
     const start = source()
     expect((await subject.request('/v1/tasks', 'POST', { schemaVersion: 1, clientRequestId: randomUUID(), prompt: 'test', context: {
       sceneId: start.project.document.sceneId, revision: start.project.document.revision, audience: 'public' }, authoring: start })).status).toBe(400)
@@ -158,10 +159,10 @@ describe('authoring4 service budget finish and persisted proof', () => {
   })
   it('uses the real cumulative ordinary limit across four stages of at most 64 recipes without resetting it', async () => {
     const raw = cloneJson(svgProjectFixture().bundle.project)
-    raw.document.schemaVersion = 2; raw.document.visual = emptyVisualSystem()
+    raw.document = toCurrentSceneDocument(raw.document)
     let sequence = 0
     const content = createCompositionContent(emptyTerrainDocument(raw.document), { ids: { nextId: () => `small-${++sequence}` }, clock: { now: () => '2026-10-31T00:00:00.000Z' } })
-    const project = validateProjectData({ ...raw, ...content, schemaVersion: 3 }), hash = authoringProjectHash(project)
+    const project = validateProjectData({ ...raw, ...content, schemaVersion: 1 }), hash = authoringProjectHash(project)
     const floorId = Object.keys(project.document.floors)[0]
     const start = createCurrentAuthoringStartV4({ project, scope: { targetIds: ['item'], operations: ['opacity'], placement: { floorId, layerId: project.document.entityLayers.item, supportRef: { kind: 'floor', id: floorId }, boundsMm: project.document.exportBoundsMm, definitionIds: ['definition'] } },
       seed: randomUUID(), flowId: randomUUID(), preparedAt: '2026-10-31T00:00:00.000Z', preservation: { sceneId: project.document.sceneId, revision: project.document.revision, contentHash: hash, checkpoint: 1 } }), id = 'item'

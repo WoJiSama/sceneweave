@@ -73,7 +73,7 @@ function visualReferences(project: ProjectData, id: string): string[] {
 export function validateVisualAuthoringScope(project: ProjectData, input: VisualAuthoringScope, capability?: CurrentAuthoringCapability): VisualAuthoringScope {
   const scope = VisualAuthoringScopeSchema.parse(captureJson(input)), scene = project.document
   const current = assertCurrentAuthoringCapability(project, capability)
-  if ((!current && (project.schemaVersion !== 2 || scene.schemaVersion !== 2)) || !scene.visual) deny('视觉创作须先明确保存v2独立副本。')
+  if (!current || scene.visual?.version !== 3) deny('完整工程的视觉创作须使用当前明确能力协议。')
   const floor = scene.floors[scope.floorId], layer = scene.userLayers[scope.layerId]
   if (!floor || !layer || layer.floorId !== floor.id || layer.editLocked || !inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('视觉Floor、图层或范围无效/锁定。')
   for (const id of scope.entityIds) {
@@ -160,7 +160,7 @@ function boundaryConnectionIssues(project: ProjectData, candidate: SceneDocument
     terrainAreas: Object.fromEntries(Object.entries(scene.terrainAreas).filter(([id]) => areas.has(id))),
     terrainConnections: Object.fromEntries(Object.entries(scene.terrainConnections).filter(([id]) => connections.has(id))),
     rooms: {}, walls: {}, openings: {}, vertices: {}, props: {}, paths: {}, terrainEdges: {}, regions: {}, notes: {}, prefabInstances: {}, scatterGroups: {},
-    ...(scene.schemaVersion >= 6 ? { decorations: {}, decorationClusters: {} } : {}),
+    decorations: {}, decorationClusters: {}, surfaceRules: {},
   })
   const key = (issue: { code: string; entityId?: string }) => JSON.stringify([issue.code, issue.entityId])
   const previous = new Set(validateGeometry(publicGeometry(before)).errors.map(key))

@@ -192,7 +192,7 @@ function straightBoundary(scene: SceneDocument, visual: VisualSystem, area: Terr
   }
 }
 function preserveRepresentation(scene: SceneDocument, boundaryId: string, kind: VisualEdgeLook['kind']): boolean {
-  const legacy = scene.visual?.version === 3 ? scene.visual.base : scene.visual?.version === 2 ? scene.visual : undefined
+  const legacy = scene.visual?.version === 3 ? scene.visual.base : undefined
   return !!legacy && Object.values(legacy.materializedEdges).some(row => row.boundaryId === boundaryId && row.kind === kind)
     || scene.visual?.version === 3 && Object.values(scene.visual.transitions).some(row => row.enabled && row.boundaryId === boundaryId && row.kind === (kind === 'grass' ? 'grassRock' : kind))
 }

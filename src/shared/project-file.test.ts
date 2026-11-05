@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { createHash } from 'node:crypto'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
@@ -22,7 +23,7 @@ const options: CompleteValidationOptions = { images: {
   async encodePng() { throw new Error('symbol-only test must not encode') },
 } }
 function fixture(): ProjectBundle {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
   document.sceneId = 'unified-owner'; document.title = '织境 · ZIP'; document.props.item.visibility = 'gm'
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   let sequence = 0

@@ -10,15 +10,12 @@ export class WorkspaceRepository {
   listNamedSnapshots(sceneId: string) { return projectRepository.listSnapshots(sceneId) }
   async historyOverview(sceneId: string) {
     const value = await projectRepository.historyOverview(sceneId)
-    return { snapshots: value.snapshots, legacySources: value.legacySources, upgradeOriginals: value.upgradeOriginals, history: value.history,
+    return { snapshots: value.snapshots, legacySources: value.legacySources, history: value.history,
       usage: { ...value.usage, originalBytes: value.usage.legacyBytes, limits: HISTORY_LIMITS } }
   }
   listHistoryVersions(sceneId: string) { return projectRepository.listHistoryVersions(sceneId) }
   listLegacySources(sceneId: string) { return projectRepository.listLegacySources(sceneId) }
   loadLegacyOriginal(sceneId: string, nodeId: string) { return projectRepository.loadLegacyOriginal(sceneId, nodeId) }
-  listNativeUpgradeSummaries(sceneId: string) { return projectRepository.listNativeUpgradeSummaries(sceneId) }
-  exportNativeUpgradeFile(sceneId: string) { return projectRepository.exportNativeUpgradeFile(sceneId) }
-  importNativeUpgradeFile(bytes: Uint8Array) { return projectRepository.importNativeUpgradeFile(bytes) }
   async loadNamedSnapshot(id: string, ownerSceneId: string) {
     const value = await projectRepository.loadSnapshot(ownerSceneId, id)
     if (!value) return null

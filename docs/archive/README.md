@@ -7,7 +7,7 @@
 | 台账 | 追溯范围 |
 |---|---|
 | [M0/M1 历史验证台账](m0-m1-validation.md) | 原13、16–33、35；几何、素材、手工编辑与旧性能 |
-| [工作区、素材库与内容历史台账](workspace-content-validation.md) | 原36–44；统一工作区、目录、内容与旧全量回归；本分支子格填充、建筑编辑和有限UVTT导出开发记录 |
+| [工作区、素材库与内容历史台账](workspace-content-validation.md) | 原36–44；统一工作区、目录、内容与旧全量回归；本分支子格填充、建筑编辑、有限UVTT导出及[唯一v1/通用生成薄层](workspace-content-validation.md#single-v1-generation-20261105)、[D1阶段候选](workspace-content-validation.md#d1-generation-stages-20261105)、[D2室内布局](workspace-content-validation.md#d2-interior-20261105)、[D3初次门路/家具建议](workspace-content-validation.md#d3-interior-suggestions-20261105)、[D4森林空地/路线/植被](workspace-content-validation.md#d4-forest-20261105)、[D5火山结构/独立危险策略](workspace-content-validation.md#d5-volcano-20261105)、[D6受限局部重生成](workspace-content-validation.md#d6-local-generation-20261105)、[D7公共入口/Worker/HTTP](workspace-content-validation.md#d7-generation-execution-20261105)开发记录 |
 | [M2工程与交付历史台账](m2-project-validation.md) | 原45–52及旧07/09；完整工程、迁移、回归与交付；旧会话工作笔记和参考/运行说明原文 |
 | [AI真实调用、回归与交付历史](ai-validation.md) | 原05的真实调用、失败、浏览器与交付结果 |
 | [Q0–Q5视觉制作与验收历史](visual-quality-validation.md) | 原53/54的制作、真实模型、失败与发布；视觉方法已并入14 |

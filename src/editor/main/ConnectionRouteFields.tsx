@@ -100,7 +100,7 @@ export default function ConnectionRouteFields({ enabled, text, draft, retained, 
   }, [preview])
   const patch = (value: Partial<ConnectionRouteDraft>) => { setError(''); onChange({ ...draft, ...value }) }
   return <div className="connection-route-fields">
-    {!enabled ? <p className="asset-muted">曲线、回折和三种踏面需要完整v5。先在工程面板保存独立地形副本至v4，再保存独立曲线连接副本；原工程与历史保留。</p> : <>
+    {!enabled ? <p className="asset-muted">区域地图不提供战术连接编辑，请在场景地图中创建和调整连接路线。</p> : <>
       <label>连接路线<select aria-label="连接路线形态" value={draft.mode} onChange={event => patch({ mode: event.target.value as ConnectionRouteDraft['mode'], handles: false })}><option value="classic">经典直连接</option><option value="polyline">直行／折线／之字回折</option><option value="cubic">曲线控制点</option></select></label>
       {draft.mode !== 'classic' && <><p className="asset-muted">路线首末点分别使用明确的两端支撑。回折须保留足宽转角，完整带区与高差会在候选中校验。</p>
         {draft.mode === 'cubic' && <><button type="button" className="secondary asset-wide" onClick={() => { try { patch({ controls: routeControlText(smoothConnectionControls(connectionPoints(text)).map((segment, index, all) => ({ ...segment, id: sourceId(index, retained, 'cubic', all.length) }))) }) } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) } }}>从路线节点生成曲线控制点</button>

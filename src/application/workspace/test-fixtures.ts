@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import { unzlibSync, zlibSync } from 'fflate'
 import { layerSceneV3 } from '../../core/v3/test-fixtures'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
@@ -39,7 +40,7 @@ export const validation: CompleteValidationOptions = { images: {
 } }
 
 export function fixture(options: { image?: boolean; building?: boolean } = {}): ProjectBundle {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
   document.sceneId = runtime.ids.nextId(); document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   document.props.other = { ...cloneJson(document.props.item), id: 'other', positionMm: { x: 9000, y: 9000 } }
   const layer = document.entityLayers.item

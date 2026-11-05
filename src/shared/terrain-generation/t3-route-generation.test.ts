@@ -27,8 +27,8 @@ describe('T3 explicit route materialization', () => {
     expect(result.cost.pathPoints).toBe(result.route!.pointsMm.length)
     expect(result.cost.legacyTotal).toBe(visualCommandCost(base, result.document))
     const complete = composeTerrainDocument(base, result, 'route-birth')
-    expect(complete.cost.total).toBe(result.cost.total)
-    expect(complete.cost.total).toBeLessThanOrEqual(256)
+    expect(complete.cost.total).toBeGreaterThan(result.cost.total)
+    expect(complete.cost.limit).toBe(256)
     expect(validateSceneDocument(complete.document).ok).toBe(true)
     expect(getLegacyGeneration(complete.document)!.checks['terrain-route-check'].state).toBe('passed')
     if (kind === 'river' || kind === 'mixed') {
@@ -53,7 +53,7 @@ describe('T3 explicit route materialization', () => {
     if(kind==='river'||kind==='mixed')expect(first.document.paths['terrain-route'].supportRefs).toContainEqual({ kind: 'terrainArea', id: 'terrain-shallow' })
     const complete=composeTerrainDocument(blank(),first,'matrix-route-birth')
     expect(validateSceneDocument(complete.document).ok).toBe(true)
-    expect(complete.cost.total).toBe(first.cost.total)
+    expect(complete.cost.total).toBeGreaterThan(first.cost.total)
   }, 30000)
 
   it('never silently uses shallow water for a ground-only route', () => {

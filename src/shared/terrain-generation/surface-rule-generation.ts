@@ -3,7 +3,7 @@ import type { SceneDocument } from '../model/scene.js'
 import { BUDGET_DIMENSIONS, BudgetUsageSchema, assertTaskBudget, captureExecutionBudget, emptyBudgetUsage,
   measureTaskBudget, taskBudgetProfile, taskSemanticTargets, type BudgetUsage, type TaskBudgetProfile } from '../budget/task-budget.js'
 import { captureJson, cloneJson, canonicalJson } from '../validation/json.js'
-import { sceneDocument8Schema, validateSceneDocument } from '../validation/scene.js'
+import { sceneDocumentSchema, validateSceneDocument } from '../validation/scene.js'
 import { addAutomaticSurfaceRules6, AUTOMATIC_SURFACE_RECIPE6 } from '../surface-rules/automatic.js'
 import { terrainVariantDefinitionId } from '../visual/terrain-variant-specs.js'
 import { terrainGenerationInputV5Schema, terrainGenerationResultV5Schema, generateTerrainDocumentV5,
@@ -21,9 +21,9 @@ export const terrainGenerationInputV6Schema = z.object({ ...terrainGenerationInp
 export type TerrainGenerationInputV6 = z.infer<typeof terrainGenerationInputV6Schema>
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const costSchema = z.object({ items: z.record(z.string(), z.literal(1)), total: count, limit: z.union([z.literal(512), z.literal(1024), z.literal(2048)]) }).strict()
-/** Unlike earlier raw terrain results this is already native scene8, complete
+/** Unlike earlier raw terrain results this is already the complete current scene, complete
  * with constraints and persistent rule/member ownership. Never compose again. */
-export const terrainGenerationResultV6Schema = z.object({ document: sceneDocument8Schema, input: terrainGenerationInputV6Schema,
+export const terrainGenerationResultV6Schema = z.object({ document: sceneDocumentSchema, input: terrainGenerationInputV6Schema,
   skeleton: terrainGenerationResultV5Schema.shape.skeleton, activity: terrainGenerationResultV5Schema.shape.activity,
   route: terrainGenerationResultV5Schema.shape.route, executionUsage: BudgetUsageSchema, cost: costSchema, usage: BudgetUsageSchema,
 }).strict().superRefine((result, context) => {
@@ -52,6 +52,7 @@ function sumUsage(first: BudgetUsage | undefined, second: BudgetUsage): BudgetUs
 function refreshGeneration6(document: SceneDocument, meter: ReturnType<typeof captureExecutionBudget>): void {
   const legacy = getLegacyGeneration(document)!
   for (const recipe of Object.values(legacy.recipes)) {
+    if ('domain' in recipe) continue
     recipe.recipeVersion = 6
     if (recipe.algorithmId === 'terrain-scene' || recipe.algorithmId === 'terrain-scene-t3') recipe.algorithmVersion = 6
     const materials = new Set(recipe.materials.map(row => row.ref.id))

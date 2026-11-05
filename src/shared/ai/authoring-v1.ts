@@ -2,7 +2,7 @@ import { currentAuthoringPaint } from './current-authoring-paint.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { inspectDecorationChanges } from '../decorations/commands.js'
 import { CurrentAuthoringScopeSchema, AuthoringStepV4Schema, type CurrentSceneAuthoringScope, type CurrentExtraOperation } from './authoring-protocol-v4.js'
-import { CURRENT_AUTHORING_CAPABILITY, assertCurrentAuthoringCapability, type CurrentAuthoringCapability } from './current-authoring-capability.js'
+import { CURRENT_AUTHORING_CAPABILITY, assertCurrentAuthoringCapability, assertUnsupportedRuleContentUnchanged, type CurrentAuthoringCapability } from './current-authoring-capability.js'
 import { applyCurrentAuthoringOperation, isCurrentExtraOperation } from './current-authoring-operations.js'
 import { ProfiledLegacyStartSchema } from './authoring-profile.js'
 import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
@@ -173,8 +173,8 @@ function validateStart(input: AuthoringStart, generatedContinuation = false, bud
   const start = (capability ? AuthoringStartSchema.extend({ scope: CurrentAuthoringScopeSchema }).strict() : budget ? ProfiledLegacyStartSchema : AuthoringStartSchema).parse(owned) as AuthoringStart
   const current = assertCurrentAuthoringCapability(start.project, capability)
   start.project = validateProjectData(start.project)
-  if (!current && start.project.schemaVersion >= 5) throw new Error('当前AI创作协议尚不支持完整v5/v6/v7曲线连接或装饰工程；请继续手工编辑。')
-  if(start.project.schemaVersion===3 && !start.scope.scene && !generatedContinuation)deny('T6完整地形工程的AI写入须明确scene授权范围和操作，不能沿用旧物件任务。')
+  if (!current && !generatedContinuation) deny('完整工程的AI编辑须使用当前明确能力协议。')
+  if (!current && !start.scope.scene && !generatedContinuation) deny('完整地形工程的AI写入须明确场景授权范围和操作。')
   if (authoringProjectHash(start.project) !== start.baseContentHash) deny('主工程基线hash不匹配。')
   if (!start.scope.targetIds.length && !start.scope.placement && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确目标或新增范围。')
   if (!start.scope.operations.length && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确允许的操作。')
@@ -210,10 +210,22 @@ function validateStart(input: AuthoringStart, generatedContinuation = false, bud
   return freezeJson(start)
 }
 export function validateAuthoringStart(input: AuthoringStart): AuthoringStart { return validateStart(input) }
+/** Internal retained artwork artifact replay only. This is never dispatched by
+ * the public task entrance and does not grant current authoring4 resource writes.
+ * Preserve the original strict parser, 4MiB input and cumulative 256 semantics. */
+export function replayRetainedArtwork(input: AuthoringStart, steps: readonly AuthoringStep[]): ReplayedAuthoring {
+  const start = validateStart(input, true)
+  if (!start.scope.artwork || start.scope.scene || start.scope.visual || start.scope.placement
+    || start.scope.operations.some(kind => !['transform', 'opacity', 'delete'].includes(kind))) deny('保全素材回放只支持明确原素材范围及有限物件调整。')
+  const owned = captureJson(steps)
+  if (owned.some(step => step.operations.some(operation => !['svg', 'style', 'transform', 'opacity', 'delete'].includes(operation.kind)))) deny('保全素材回放不支持新增或场景操作。')
+  const { traces: _traces, ...result } = replayOwned(start, owned)
+  return result
+}
 /** Internal v2 dispatcher only: a source-verified generated project may grant
  * only existing public props. All prop, dependency and lock checks still run. */
-export function validateAuthoringStartExpanded(input: AuthoringStart): AuthoringStart { return validateStart(input, true) }
-export function validateAuthoringStartProfiled(input: AuthoringStart, profile: TaskBudgetProfile): AuthoringStart { return validateStart(input, true, parseTaskBudgetProfile(profile)) }
+export function validateAuthoringStartExpanded(input: AuthoringStart): AuthoringStart { return validateStart(input, true, undefined, CURRENT_AUTHORING_CAPABILITY) }
+export function validateAuthoringStartProfiled(input: AuthoringStart, profile: TaskBudgetProfile): AuthoringStart { return validateStart(input, true, parseTaskBudgetProfile(profile), CURRENT_AUTHORING_CAPABILITY) }
 
 function contextFor(start: AuthoringStart, stepIndex: number): PreparationContext {
   let counter = 0
@@ -241,11 +253,12 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
   const record = (stepIndex: number, operationIndex: number, operation: AuthoringOperation, before: ProjectData, beforeCost: number, usage?: Partial<import('../budget/task-budget.js').BudgetUsage>) => {
     if (!expanded) return
     if (capability) {
+      assertUnsupportedRuleContentUnchanged(before, project)
       // Use the same full physical/appearance/identity/generation accounting as manual adoption.
       // Domain preview costs can be more conservative; never add them twice.
       const actual = terrainCommandCost(before.document, project.document, { before, after: project }).total
       operationCost = beforeCost + Math.max(1, operationCost - beforeCost, actual)
-      if (project.document.schemaVersion >= 6) {
+      if (project.document.decorations && project.document.decorationClusters) {
         const impact = inspectDecorationChanges(before.document, project.document)
         const changesDressing = impact.changedIds.some(id => before.document.decorations?.[id] || project.document.decorations?.[id]
           || before.document.decorationClusters?.[id] || project.document.decorationClusters?.[id])
@@ -395,7 +408,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
       else deny('未知操作。')
       const content = resolveAppearance(applyCompositionCommands({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance }, [command], context, { budget }))
       content.document.revision = start.project.document.revision; content.document.updatedAt = start.project.document.updatedAt
-      if (project.document.schemaVersion === 3 || capability && project.document.schemaVersion >= 4) detachChangedOutputs(project.document, content.document)
+      if (project.document.generation) detachChangedOutputs(project.document, content.document)
       project = validateProjectData({ ...project, ...content })
       if (operation.kind !== 'delete') {
         const prop = assertIndependentPublic(project, id, read, capability), floor = project.document.floors[prop.floorId]
@@ -442,11 +455,11 @@ export function replayAuthoring(input: AuthoringStart, steps: readonly Authoring
 /** Internal v2 dispatcher only. Every operation retains its original finite domain checks;
  * the new deterministic ledger accounts semantic targets separately from expansion. */
 export function replayAuthoringExpanded(input: AuthoringStart, steps: readonly AuthoringStep[], inspect?: (trace: AuthoringOperationTrace) => void) {
-  return replayOwned(validateAuthoringStartExpanded(input), captureJson(steps), true, inspect)
+  return replayOwned(validateAuthoringStartExpanded(input), captureJson(steps), true, inspect, undefined, CURRENT_AUTHORING_CAPABILITY)
 }
 /** Internal counting-2 replay; domain/lock/dependency checks remain complete. */
 export function replayAuthoringProfiled(input: AuthoringStart, steps: readonly AuthoringStep[], profile: TaskBudgetProfile, inspect?: (trace: AuthoringOperationTrace) => void) {
-  return replayOwned(validateAuthoringStartProfiled(input, profile), captureJson(steps), true, inspect, parseTaskBudgetProfile(profile))
+  return replayOwned(validateAuthoringStartProfiled(input, profile), captureJson(steps), true, inspect, parseTaskBudgetProfile(profile), CURRENT_AUTHORING_CAPABILITY)
 }
 function verifiedState(start: AuthoringStart, state: AuthoringState): ReplayedAuthoring {
   const parsed = AuthoringStateSchema.parse(captureJson(state)), replayed = replayOwned(start, parsed.steps)

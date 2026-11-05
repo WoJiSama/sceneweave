@@ -1,3 +1,4 @@
+import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace'
 
@@ -195,8 +196,8 @@ test('building review includes a room-supported path curve and its unchanged edg
   expect(await current(page)).toEqual(before)
   await adopt(page)
   const after = await current(page)
-  expect(after.visual?.version === 1 && after.visual.boundaries['review-curve'].segments[0].start).toEqual({ x: 4000, y: 4000 })
-  expect(after.visual?.version === 1 && after.visual.edgeLooks['review-look']).toEqual(before.visual?.version === 1 && before.visual.edgeLooks['review-look'])
+  expect(visualBase(after)!.boundaries['review-curve'].segments[0].start).toEqual({ x: 4000, y: 4000 })
+  expect(visualBase(after)!.edgeLooks['review-look']).toEqual(visualBase(before)!.edgeLooks['review-look'])
   await undo(page); expect(contents(await current(page))).toEqual(contents(before))
 })
 

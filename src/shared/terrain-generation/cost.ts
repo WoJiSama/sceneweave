@@ -25,14 +25,13 @@ export interface TerrainCostMetadata {
   before: Pick<CompositionContent, 'historyIdentity' | 'appearance'>
   after: Pick<CompositionContent, 'historyIdentity' | 'appearance'>
 }
-const IDENTITY_POOLS = ['propTokens','prefabTokens','outdoorTokens','generationTokens','regionalTokens','presentationTokens','terrainTokens','decorationTokens'] as const
+const IDENTITY_POOLS = ['propTokens','prefabTokens','outdoorTokens','generationTokens','regionalTokens','presentationTokens','terrainTokens','decorationTokens','surfaceRuleTokens'] as const
 const APPEARANCE_RECORDS = ['sources','propSources','surfaceSources','instanceAdjustments','layerAdjustments','variants','prefabAppearanceTemplates','presentations'] as const
 const FIXED_SOURCE_COLLECTIONS = ['assets','materials','propDefinitions','prefabDefinitions','styleThemes'] as const
 /** Decoration entities and slots are physical edit work. Keeping them in
  * physicalAndVisual lets command observers take the maximum physical expansion
  * and add identity/source metadata once, exactly as for existing Props. */
 function decorationRecordCost(before: SceneDocument, after: SceneDocument): number {
-  if (before.schemaVersion < 6 && after.schemaVersion < 6) return 0
   let cost = recordDiff(before.decorations ?? {}, after.decorations ?? {}, () => 1)
   for (const id of new Set([...Object.keys(before.decorationClusters ?? {}), ...Object.keys(after.decorationClusters ?? {})])) {
     const a = before.decorationClusters?.[id], b = after.decorationClusters?.[id]
@@ -59,11 +58,11 @@ export function terrainCommandCost(before:SceneDocument,after:SceneDocument,meta
   if(beforeLegacy.visual?.version===2 || afterLegacy.visual?.version===2) items.materializedEdges=recordDiff(beforeLegacy.visual?.version===2?beforeLegacy.visual.materializedEdges:{},afterLegacy.visual?.version===2?afterLegacy.visual.materializedEdges:{},geometry)
   for(const key of ['areas','lines','landmarks','symbols','symbolDefinitions'] as const) items[`regional.${key}`]=recordDiff(beforeLegacy.regional?.[key]??{},afterLegacy.regional?.[key]??{},geometry)
   if(canonicalJson(beforeLegacy.regional?.profile??null)!==canonicalJson(afterLegacy.regional?.profile??null))items.regionalProfile=1
-  if(originalBefore.schemaVersion>=4||originalAfter.schemaVersion>=4){
+  if(originalBefore.generation?.version===5||originalAfter.generation?.version===5){
     const a=originalBefore.generation?.version===5?originalBefore.generation:undefined,b=originalAfter.generation?.version===5?originalAfter.generation:undefined
     for(const key of ['features','compositions','requirements','checks','thresholds','dependencies'] as const)items[`composition.${key}`]=recordDiff(a?.[key]??{},b?.[key]??{},compositionRecordExpansion)
     if(metadata){
-      for(const key of IDENTITY_POOLS)if(key!=='decorationTokens'||originalBefore.schemaVersion>=6||originalAfter.schemaVersion>=6)items[`composition.identity.actual.${key}`]=recordDiff(metadata.before.historyIdentity[key]??{},metadata.after.historyIdentity[key]??{})
+      for(const key of IDENTITY_POOLS)items[`composition.identity.actual.${key}`]=recordDiff(metadata.before.historyIdentity[key]??{},metadata.after.historyIdentity[key]??{})
       for(const key of APPEARANCE_RECORDS)items[`composition.appearance.${key}`]=recordDiff(metadata.before.appearance[key]??{},metadata.after.appearance[key]??{},compositionRecordExpansion)
       for(const key of FIXED_SOURCE_COLLECTIONS)items[`composition.resources.${key}`]=recordDiff(originalBefore[key]??{},originalAfter[key]??{},compositionRecordExpansion)
       if(metadata.before.historyIdentity.version!==metadata.after.historyIdentity.version)items['composition.identity.version']=1
@@ -76,7 +75,7 @@ export function terrainCommandCost(before:SceneDocument,after:SceneDocument,meta
       items['composition.identity.estimate.terrain']=recordDiff(terrainIdentityDescriptors(originalBefore),terrainIdentityDescriptors(originalAfter))
       items['composition.identity.estimate.props']=recordDiff(originalBefore.props,originalAfter.props)
       items['composition.identity.estimate.prefabs']=recordDiff(originalBefore.prefabInstances,originalAfter.prefabInstances)
-      if(originalBefore.schemaVersion>=6||originalAfter.schemaVersion>=6)items['composition.identity.estimate.decorations']=recordDiff(originalBefore.decorations??{},originalAfter.decorations??{})+recordDiff(originalBefore.decorationClusters??{},originalAfter.decorationClusters??{})
+      items['composition.identity.estimate.decorations']=recordDiff(originalBefore.decorations??{},originalAfter.decorations??{})+recordDiff(originalBefore.decorationClusters??{},originalAfter.decorationClusters??{})
     }
     if(originalBefore.generation?.version!==originalAfter.generation?.version)items['composition.version']=1
     if(originalBefore.visual?.version!==originalAfter.visual?.version)items['composition.visualVersion']=1
@@ -86,7 +85,7 @@ export function terrainCommandCost(before:SceneDocument,after:SceneDocument,meta
   return {items,total,limit:256}
 }
 export function assertTerrainBudget(before:SceneDocument,after:SceneDocument,metadata?:TerrainCostMetadata) {
-  if((before.schemaVersion>=4||after.schemaVersion>=4)&&!metadata)throw new Error('完整v4–v6采用预算缺少真实历史身份与外观来源；仅SceneDocument草稿估算不能用于安装。')
+  if((before.generation?.version===5||after.generation?.version===5)&&!metadata)throw new Error('完整工程采用预算缺少真实历史身份与外观来源；仅SceneDocument草稿估算不能用于安装。')
   const cost=terrainCommandCost(before,after,metadata)
   if(cost.total>256)throw new Error(`地形候选实际展开${cost.total}，超过256；请减少细节或缩小范围。`)
   return cost

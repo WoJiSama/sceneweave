@@ -145,7 +145,7 @@ export function projectEditorScene(scene: SceneDocument, options: EditorProjecti
 }
 
 function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLayerIds?: ReadonlySet<string>): Projection {
-  const regional = scene.schemaVersion>=3 && scene.mapMode==='regional' && scene.regional ? {
+  const regional = scene.mapMode==='regional' && scene.regional ? {
     areas: Object.values(scene.regional.areas).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'area', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: clone(row.boundaryMm), kind: row.kind, style: clone(row.style), relativeElevationMm: row.relativeElevationMm })),
     lines: Object.values(scene.regional.lines).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'line', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: row.pointsMm.map(point => clone(point.positionMm)), kind: row.kind, displayWidthMm: row.displayWidthMm, actualWidthMm: row.actualWidthMm, style: clone(row.style) })),
     landmarks: Object.values(scene.regional.landmarks).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'landmark', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, positionMm: clone(row.positionMm), purpose: row.purpose, name: row.name, description: row.description, assetId: scene.regional!.symbolDefinitions[row.definitionRef.id].assetId, visualBoundsMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].visualBoundsMm), rootAnchorMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].rootAnchorMm) })),
@@ -156,9 +156,8 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   const compareLayer = (a: { id: string }, b: { id: string }) => layerOrder(a.id) - layerOrder(b.id)
   // v2 dictionaries have no paint order: canonical file serialization reorders
   // their keys. Use stable IDs within each user layer, retaining v1 behavior.
-  const localOrder = (items: { id: string }[]) => new Map((scene.schemaVersion >= 2
-    ? [...items].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-    : items).map((item, index) => [item.id, index]))
+  const localOrder = (items: { id: string }[]) => new Map([...items].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    .map((item, index) => [item.id, index]))
   const roomOrder = localOrder(Object.values(scene.rooms)), noteOrder = localOrder(Object.values(scene.notes)), regionOrder = localOrder(Object.values(scene.regions))
   if (audience !== 'gm' && audience !== 'player') throw new Error('必须明确选择主持人或玩家输出。')
   if (Object.keys(scene.floors).length !== 1) throw new Error('素材场景渲染仅支持单楼层。')
@@ -204,7 +203,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   const visibleTerrain = audienceTerrain.filter(a => entityShown(a.id))
   const rooms = visibleRooms.map(r => ({ id: r.id, points: simplify(roomPoints(scene, r)), style: clone(r.floorStyle), elevationMm: r.groundElevationMm, priority: 0 })).sort((a, b) => compareLayer(a, b) || roomOrder.get(a.id)! - roomOrder.get(b.id)! || a.id.localeCompare(b.id))
   const terrain: ProjectedSurface[] = visibleTerrain.map(a => ({ id: a.id, points: simplify(terrainPoints(a)), style: clone(a.surfaceStyle), elevationMm: a.groundElevationMm, priority: a.coveragePriority })).sort((a, b) => a.priority - b.priority || compareLayer(a, b) || a.id.localeCompare(b.id))
-  if (scene.schemaVersion === 8) {
+  {
     const byId = new Map(terrain.map(area => [area.id, area]))
     for (const { rule, regionsMm } of resolveSurfaceRules(scene, undefined, { audience, hiddenLayerIds })) {
       if (rule.field !== 'material') continue
@@ -266,7 +265,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
       const [a, b] = openingEndpoints(scene, o)
       return { id: o.id, start: { ...a }, end: { ...b }, widthMm: o.widthMm, kind: o.kind, state: o.state, secret: audience === 'gm' && o.secret, ...(!entityShown(o.id) ? { paintSymbol: false } : {}) }
     })
-    walls.push({ id: wall.id, sourceIds: [wall.id], ...(scene.schemaVersion >= 2 ? { blocksLight: wall.blocksSight } : {}), start, end, thicknessMm: wall.thicknessMm, style: clone(wall.topStyle), openings })
+    walls.push({ id: wall.id, sourceIds: [wall.id], blocksLight: wall.blocksSight, start, end, thicknessMm: wall.thicknessMm, style: clone(wall.topStyle), openings })
   }
   const regionVisible = (id: string) => scene.regions[id]?.kind !== 'manualMask' && scene.regions[id]?.visibility === 'public'
   const visibleWallVertices = new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId]))
@@ -360,6 +359,6 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
     result.spritePaintOrder = [...props, ...decorations].sort((a, b) => propLayer[a.renderLayer] - propLayer[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder
       || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id)).map(value => value.id)
   }
-  if (scene.schemaVersion >= 2 && scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds)
+  if (scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds)
   return result
 }

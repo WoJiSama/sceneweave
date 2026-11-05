@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { probeAuthoringPlacement } from './placement-diagnostics.js'
 import { advanceHistoryIdentity } from '../history/identity.js'
 import { propPresentation } from '../appearance/presentation.js'
@@ -24,20 +25,16 @@ import { AuthoringStartV4Schema, type AuthoringStartV4, type AuthoringOperationV
 import { AuthoringStartSchema as LegacyStartSchema } from './authoring-protocol-v1.js'
 
 /** Metadata replay evidence only; real bytes/pixels remain checked by workspace adoption. */
-function current(version: 3 | 4 | 5 | 6 | 7 = 6): AuthoringStartV4 {
+function current(): AuthoringStartV4 {
   const original = cloneJson(svgProjectFixture().bundle.project), old = original.document
-  old.schemaVersion = 2; old.visual = emptyVisualSystem()
+  Object.assign(old, toCurrentSceneDocument(old))
   const document = emptyTerrainDocument(old)
-  if (version >= 4) {
-    document.schemaVersion = version; document.generation = createEmptyGeneration5()
-    document.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }
-    if (version >= 6) { document.decorations = {}; document.decorationClusters = {} }
-  }
+  Object.assign(document, toCurrentSceneDocument(document))
   let id = 0
   const content = createCompositionContent(document, { ids: { nextId: () => `current-fixture-${++id}` }, clock: { now: () => document.createdAt } })
-  const project = validateProjectData({ ...original, ...content, schemaVersion: version })
+  const project = validateProjectData({ ...original, ...content, schemaVersion: 1 })
   const floorId = Object.keys(document.floors)[0], layerId = document.entityLayers.item, boundsMm = document.floors[floorId].boundsMm
-  return cloneJson(createCurrentAuthoringStartV4({ project, seed: '70859a22-1bd4-45e3-9a82-96dc5da14af3', preparedAt: document.createdAt, flowId: `current-${version}`,
+  return cloneJson(createCurrentAuthoringStartV4({ project, seed: '70859a22-1bd4-45e3-9a82-96dc5da14af3', preparedAt: document.createdAt, flowId: 'current-v1',
     preservation: { sceneId: document.sceneId, revision: document.revision, contentHash: authoringProjectHash(project), checkpoint: 0 },
     scope: { targetIds: ['item'], operations: ['transform', 'opacity'], placement: null,
       scene: { floorId, layerId, boundsMm, entityIds: ['item'], definitionIds: ['definition'], prefabDefinitionIds: [], materialIds: [], operations: ['furnish'] },
@@ -47,8 +44,8 @@ function current(version: 3 | 4 | 5 | 6 | 7 = 6): AuthoringStartV4 {
 /** Production fixed catalogue metadata; real bitmap decoding is separately proven by browser/Workspace. */
 function productionCatalogue() {
   const original = cloneJson(builtinCatalog.project) as unknown as import('../model/project.js').ProjectData, document = original.document
-  document.schemaVersion = 6; document.mapMode = 'scene'; document.regional = null; document.generation = createEmptyGeneration5()
-  document.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }; document.decorations = {}; document.decorationClusters = {}
+  document.schemaVersion = 1; document.mapMode = 'scene'; document.regional = null; document.generation = createEmptyGeneration5()
+  document.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }; document.decorations = {}; document.decorationClusters = {}; document.surfaceRules = {}
   const lamp = document.propDefinitions['b2-p-10'], lampAsset = lamp.defaultAppearance.kind === 'image' ? document.assets[lamp.defaultAppearance.assetId] : undefined
   if (!lampAsset) throw Error('production lamp')
   document.propDefinitions = { [lamp.id]: lamp }; document.assets = { [lampAsset.id]: lampAsset }; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null; document.prefabDefinitions = {}
@@ -68,7 +65,7 @@ function productionCatalogue() {
   const definition = document.propDefinitions[definitionId]
   addPropAppearanceSource(content.appearance, { definitionRef: { id: definitionId, version: definition.version }, appearance: definition.defaultAppearance,
     visualBoundsMm: definition.defaultVisualBoundsMm, shadowClass: definition.defaultShadowClass, shadowOverride: null }, null, art.presentation)
-  const project = validateProjectData({ ...original, ...content, assets, licenses, licenseBindings, schemaVersion: 6 })
+  const project = validateProjectData({ ...original, ...content, assets, licenses, licenseBindings, schemaVersion: 1 })
   const floorId = Object.keys(document.floors)[0], layerId = Object.keys(document.userLayers)[0]
   const start = createCurrentAuthoringStartV4({ project, flowId: 'production-catalogue', seed: '70859a22-1bd4-45e3-9a82-96dc5da14af3', preparedAt: document.createdAt,
     preservation: { sceneId: document.sceneId, revision: document.revision, contentHash: authoringProjectHash(project), checkpoint: 0 },
@@ -85,12 +82,12 @@ const cluster = (): AuthoringOperationV4 => ({ kind: 'decorationCluster', id: 'd
   maxInstances: 4, spacingMm: 500, clusterRadiusMm: 4000, clearanceMm: 500 })
 
 describe('explicit current authoring4 capability and atomic replay', () => {
-  it.each([3, 4, 5, 6, 7] as const)('supports explicit visual capability on complete%s without changing the legacy route', version => {
-    const start = current(version), initial = replayAuthoring(start, []), before = canonicalJson(start.project)
+  it('supports full visual capability on the single complete v1 and refuses legacy task writes', () => {
+    const start = current(), initial = replayAuthoring(start, []), before = canonicalJson(start.project)
     expect(initial.state.ledger[0]).toMatchObject({ category: 'baseline', targets: [], semanticCost: 0 })
     expect(initial.state.budget.generationCost).toBe(0)
     const next = applyAuthoringStep(start, initial.state, [boundary, light], 'visual')
-    expect(next.project.schemaVersion).toBe(version)
+    expect(next.project.schemaVersion).toBe(1)
     expect(visualBase(next.project.document)?.boundaries.curve).toBeTruthy()
     expect(replayAuthoring(start, next.state.steps)).toEqual(next)
     expect(canonicalJson(start.project)).toBe(before)
@@ -98,8 +95,7 @@ describe('explicit current authoring4 capability and atomic replay', () => {
     expect(authoringSummary(start, next.state, null)).toMatchObject({ schemaVersion: 4, budget: next.state.budget })
     expect(authoringDraftStamp(next.state, 1)).toMatchObject({ schemaVersion: 4, sourceHash: next.state.sourceHash })
     const legacy = { ...start, schemaVersion: 1 }; delete (legacy as Record<string, unknown>).source; delete (legacy as Record<string, unknown>).policy; delete (legacy as Record<string, unknown>).capability
-    if (version >= 5) expect(() => replayAuthoring(legacy as never, [])).toThrow(/v5\/v6\/v7/)
-    else expect(() => replayAuthoring(legacy as never, [])).toThrow(/v2独立副本/)
+    expect(() => replayAuthoring(legacy as never, [])).toThrow(/当前明确能力协议/)
   })
   it('retains real generated source3 and independent registered budgets under explicit new4', () => {
     const old = continuationFixtureV3(), next = createGeneratedAuthoringStartV4(old), initial = replayAuthoring(next, [])
@@ -181,8 +177,8 @@ describe('explicit current authoring4 capability and atomic replay', () => {
     expect((publicAuthoringContext(start, regenerated.state) as { scene: { entities: { entityKind: string }[] } }).scene.entities.some(row => row.entityKind === 'decoration')).toBe(true)
     expect(() => applyAuthoringStep(start, initial.state, [{ ...create, palette: [{ ...create.palette[0], definitionRef: { id: 'definition', version: 2 } }] }], 'bad-palette')).toThrow()
   })
-  it.each([6, 7] as const)('accounts the full Prop cluster manual record once and rejects an ungranted group dependency on complete%s', version => {
-    const initialStart = current(version), create = cluster()
+  it('accounts the full Prop cluster manual record once and rejects an ungranted group dependency on complete1', () => {
+    const initialStart = current(), create = cluster()
     initialStart.scope.scene!.operations = ['decorationCluster']
     if (create.kind !== 'decorationCluster') throw Error('cluster')
     create.supportRef.id = initialStart.scope.scene!.floorId; create.palette[0].kind = 'prop'; create.maxInstances = 1
@@ -255,8 +251,8 @@ describe('explicit current authoring4 capability and atomic replay', () => {
     expect(maskY).toBeLessThan(positionMm.y + sourceBounds.y)
     expect(() => wrap(masked, targetScope)).toThrow(/玩家遮罩/)
   })
-  it('uses full curved connection bands for scope and never admits unsupported terrain operations on complete6', () => {
-    const start = current(5), scope = start.scope.scene!, document = start.project.document
+  it('uses full curved connection bands for scope and admits terrain tools by actual capability on complete1', () => {
+    const start = current(), scope = start.scope.scene!, document = start.project.document
     document.exportBoundsMm = { x: 0, y: 0, width: 24000, height: 18000 }; document.floors[scope.floorId].boundsMm = { ...document.exportBoundsMm }
     document.terrainAreas.high = { id: 'high', floorId: scope.floorId, visibility: 'public', editLocked: false,
       boundaryMm: [{ x: 14000, y: 1000 }, { x: 23000, y: 1000 }, { x: 23000, y: 17000 }, { x: 14000, y: 17000 }].map((positionMm, i) => ({ id: `hp${i}`, segmentId: `hs${i}`, positionMm })),
@@ -273,7 +269,7 @@ describe('explicit current authoring4 capability and atomic replay', () => {
     const operation: AuthoringOperationV4 = { kind: 'connectionRoute', id: 'stairs', connectionKind: 'stairs', from: { surfaceRef: { kind: 'floor', id: scope.floorId }, positionMm: points[0] }, to: { surfaceRef: { kind: 'terrainArea', id: 'high' }, positionMm: points.at(-1)! }, widthMm: 1200, route }
     const next = applyAuthoringStep(input, replayAuthoring(input, []).state, [operation], 'curved')
     expect(next.project.document.terrainConnections.stairs.route).toEqual(route)
-    const unsupported = current(6); unsupported.scope.scene!.operations = ['terrainEdit']
-    expect(() => replayAuthoring(unsupported, [])).toThrow(/不支持当前/)
+    const supported = current(); supported.scope.scene!.operations = ['terrainEdit']
+    expect(() => replayAuthoring(supported, [])).not.toThrow()
   })
 })

@@ -5,10 +5,11 @@ export type { ContentLoadProgress } from './load-resources.js'
 import { runtime, validation } from '../runtime.js'
 import type { ProjectData } from '../../../shared/model/project.js'
 import { createHistoryIdentity } from '../../../shared/history/identity.js'
+import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { captureJson, freezeJson } from '../../../shared/validation/json.js'
 import { fromBundle, type EditableProject } from '../../../application/workspace/project.js'
-import { emptyVisualSystem } from '../../../shared/visual/types.js'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 
 export type SampleKind = 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano'
 export const BLANK_PRESETS = [
@@ -41,6 +42,9 @@ export async function createSampleProject(sample: SampleKind, signal?: AbortSign
   if (!['study', 'island', 'outpost', 'calibration', 'graveyard', 'volcano'].includes(sample)) throw new Error('未知样板。')
   const project = captureJson(fixed.scenes[sample]) as unknown as ProjectData, now = runtime.clock.now()
   Object.assign(project.document, { sceneId: runtime.ids.nextId(), revision: 0, createdAt: now, updatedAt: now })
+  project.schemaVersion = 1
+  project.document = toCurrentSceneDocument(project.document)
+  project.appearance = { ...project.appearance, version: 2, presentations: Object.fromEntries(Object.values(project.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, { mode: 'topDown' as const, rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround' as const, groundShadowMm: null }])) }
   project.historyIdentity = createHistoryIdentity(project.document, runtime)
   return complete(project, signal, onProgress)
 }
@@ -54,9 +58,43 @@ export async function createBlankProject(input: BlankOptions, signal?: AbortSign
   floor.boundsMm = { ...bounds }
   project.document.units = { world: 'mm', display: preset.display, gridSizeMm: preset.gridSizeMm, snapMm: preset.snapMm, gridVisible: options.gridVisible ?? preset.gridVisible }
   project.document.presetSnapshot = { presetId: preset.id, presetVersion: 1, distanceMode: preset.distanceMode, source: `Sceneweave 通用${preset.name}偏好；非官方规则`, gridSizeMm: preset.gridSizeMm }
-  project.schemaVersion = 2
-  project.document.schemaVersion = 2
-  project.document.visual = emptyVisualSystem()
+  project.schemaVersion = 1
+  project.document = toCurrentSceneDocument(project.document)
+  project.appearance = { ...project.appearance, version: 2, presentations: Object.fromEntries(Object.values(project.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, { mode: 'topDown' as const, rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround' as const, groundShadowMm: null }])) }
   project.historyIdentity = createHistoryIdentity(project.document, runtime)
+  return complete(project, signal, onProgress)
+}
+
+/** An empty current project carrying only the exact existing volcanic palette.
+ * Sample geometry, generated records, props and sample appearance never enter it. */
+export async function createVolcanoBlankProject(input: BlankOptions, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
+  const options = optionsSchema.parse(captureJson(input)), preset = BLANK_PRESETS.find(value => value.id === options.preset)!
+  signal?.throwIfAborted()
+  const project = captureJson(fixed.scenes.blank) as unknown as ProjectData
+  const palette = fixed.scenes.volcano as unknown as ProjectData, now = options.now ?? runtime.clock.now()
+  const document = toCurrentSceneDocument(project.document)
+  const bounds = { x: 0, y: 0, width: options.widthMm, height: options.heightMm }
+  Object.assign(document, { sceneId: options.sceneId ?? runtime.ids.nextId(), revision: 0, title: options.title, createdAt: now, updatedAt: now, exportBoundsMm: { ...bounds } })
+  Object.values(document.floors)[0].boundsMm = { ...bounds }
+  document.units = { world: 'mm', display: preset.display, gridSizeMm: preset.gridSizeMm, snapMm: preset.snapMm, gridVisible: options.gridVisible ?? preset.gridVisible }
+  document.presetSnapshot = { presetId: preset.id, presetVersion: 1, distanceMode: preset.distanceMode, source: `Sceneweave 通用${preset.name}偏好；固定火山素材空白基底；非官方规则`, gridSizeMm: preset.gridSizeMm }
+  document.assets = {}; document.materials = {}; document.propDefinitions = {}; document.prefabDefinitions = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
+  project.assets = {}; project.licenses = {}; project.licenseBindings = []; project.authoringSources = {}
+  const subjects = new Set<string>()
+  for (const id of ['content-m-basalt', 'content-m-volcanic-ash', 'content-m-lava', 'content-m-lava-hot']) {
+    const material = palette.document.materials[id]
+    if (!material || material.version !== 1 || !material.textureAssetId) throw new Error('固定火山材质缺失或版本不同。')
+    const asset = palette.document.assets[material.textureAssetId], record = asset && palette.assets[asset.sha256]
+    if (!asset || !record) throw new Error('固定火山素材闭包缺失。')
+    document.materials[id] = captureJson(material); document.assets[asset.id] = captureJson(asset)
+    project.assets[asset.sha256] = captureJson(record)
+    subjects.add(`material:${id}`); subjects.add(`asset:${asset.id}`)
+  }
+  for (const binding of palette.licenseBindings) if (subjects.has(`${binding.subjectKind}:${binding.subjectId}`)) {
+    const hash = binding.licensePath.slice('licenses/'.length, -'.txt'.length), license = palette.licenses[hash]
+    if (!license) throw new Error('固定火山许可文本缺失。')
+    project.licenseBindings.push(captureJson(binding)); project.licenses[hash] = captureJson(license)
+  }
+  Object.assign(project, createCompositionContent(document, runtime), { schemaVersion: 1 })
   return complete(project, signal, onProgress)
 }

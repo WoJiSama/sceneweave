@@ -23,7 +23,7 @@ describe('source3 complete distinct resource replay', () => {
     if (ordering === 'reversed') document.materials = Object.fromEntries(Object.entries(document.materials).reverse())
     if (ordering === 'canonical') document.materials = Object.fromEntries(Object.entries(document.materials).sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0))
     const content = createCompositionContent(document, runtime), text = 'Original unique PNG fixture', licenseHash = sha256Bytes(encodeUtf8(text))
-    const base = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 2, ...content, assets: records,
+    const base = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: records,
       licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: inspectDependencies(document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const })), authoringSources: {} }, resources: createMemoryResources(resources) }, validation)
     const profile = TASK_BUDGET_PROFILES.small, request = prepareBaseMapRequestV3({ requestId: 'distinct-png-replay', workspaceSceneId: 'empty-workspace', checkpoint: 0, operationEpoch: 0,
       flowId: 'distinct-png-flow', profile, base: base.document, generation: { kind: 'terrain', input: { sceneId: base.document.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 4, budgetProfileId: 'small', quality: 'standard' } } })

@@ -1,3 +1,4 @@
+import { getLegacyGeneration } from '../src/shared/terrain-generation/composition-contracts.js'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 
@@ -24,7 +25,7 @@ async function installRectangleFixture(page: Page) {
     const visual = visualBase(next.document)!
     delete visual.boundaries['terrain-coast-curve']
     for (const id of Object.keys(visual.edgeLooks)) if (visual.edgeLooks[id].boundaryId === 'terrain-coast-curve') delete visual.edgeLooks[id]
-    if (next.document.visual?.version === 2) for (const id of Object.keys(next.document.visual.materializedEdges)) if (next.document.visual.materializedEdges[id].boundaryId === 'terrain-coast-curve') delete next.document.visual.materializedEdges[id]
+    for (const id of Object.keys(next.document.visual.base.materializedEdges)) if (next.document.visual.base.materializedEdges[id].boundaryId === 'terrain-coast-curve') delete next.document.visual.base.materializedEdges[id]
     for (const [id, edge] of Object.entries(next.document.terrainEdges)) if (edge.source.areaId === low.id || edge.neighborAreaId === low.id) delete next.document.terrainEdges[id]
     detachChangedOutputs(source.document, next.document)
     const fixture = await validateEditableProject({ ...next, ...createCompositionContent(next.document, runtime) }, validation)
@@ -82,11 +83,12 @@ test('complex topology UI rejects frozen escape, requires explicit rebindings, a
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toHaveCount(0, { timeout: 90_000 })
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 })
   const adopted = await readState(page)
-  expect(adopted.document.generation?.version).toBe(4)
-  const current = adopted.document.generation?.version === 4 ? Object.values(adopted.document.generation.topology).find(row => row.state === 'current') : undefined
+  expect(adopted.document.generation.version).toBe(5)
+  const legacy = getLegacyGeneration(adopted.document)
+  const current = legacy?.version === 4 ? Object.values(legacy.topology).find(row => row.state === 'current') : undefined
   expect(current).toBeDefined(); expect(current?.request.operation).toBe('difference')
   expect(current?.outputAreaIds.length).toBeGreaterThanOrEqual(2)
-  expect(adopted.cold?.document.generation?.version).toBe(4)
+  expect(adopted.cold?.document.generation?.version).toBe(5)
   expect(adopted.cold?.document.terrainAreas).toEqual(adopted.document.terrainAreas)
   expect(adopted.snapshots.filter(row => row.kind === 'protection')).toHaveLength(before.snapshots.filter(row => row.kind === 'protection').length + 1)
   await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()

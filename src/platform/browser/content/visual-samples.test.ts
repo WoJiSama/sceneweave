@@ -25,7 +25,7 @@ describe('original editable visual sample scenes', () => {
   })
   for (const kind of ['beach', 'island', 'interior'] as VisualSampleKind[]) it(`keeps ${kind} strict, independent and fully editable`, () => {
     const scene = createVisualSampleDocument(kind), original = structuredClone(scene)
-    expect(scene.schemaVersion).toBe(2)
+    expect(scene.schemaVersion).toBe(1)
     expect(Object.keys(scene.props).length).toBeGreaterThan(15)
     expect(Object.keys(scene.assets)).toHaveLength(24)
     expect(Object.keys(scene.userLayers)).toHaveLength(4)
@@ -33,10 +33,10 @@ describe('original editable visual sample scenes', () => {
     expect(Object.values(scene.materials).every(material => material.origin.kind === 'original')).toBe(true)
     const content = createCompositionContent(scene, { ids: { nextId: () => crypto.randomUUID() }, clock: { now: () => scene.createdAt } })
     const hash = sha256Bytes(encodeUtf8(VISUAL_SAMPLE_LICENSE))
-    const checked = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 2, ...content,
+    const checked = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
       assets: { ['0'.repeat(64)]: { sha256: '0'.repeat(64), mimeType: 'image/png', sizeBytes: 100, pixelWidth: 512, pixelHeight: 512 } },
       licenses: { [hash]: { sha256: hash, text: VISUAL_SAMPLE_LICENSE } }, licenseBindings: inspectDependencies(scene).subjects.map(subject => ({ ...subject, licensePath: `licenses/${hash}.txt`, embedding: 'allowed' })), authoringSources: {} })
-    expect(checked.document.schemaVersion).toBe(2)
+    expect(checked.document.schemaVersion).toBe(1)
     expect(scene).toEqual(original)
     scene.props[Object.keys(scene.props)[0]].positionMm.x += 1
     expect(createVisualSampleDocument(kind)).toEqual(original)
@@ -66,7 +66,7 @@ describe('original editable visual sample scenes', () => {
     const scene = createVisualBlankDocument({ title: '  AI视觉空白  ', widthMm: 24000, heightMm: 18000, preset: 'tactical', sceneId: 'visual-blank-test', now: '2026-10-25T00:00:00.000Z' })
     expect(scene.title).toBe('AI视觉空白'); expect(scene.sceneId).toBe('visual-blank-test')
     expect(scene.units).toMatchObject({ gridSizeMm: 1524, snapMm: 254, display: 'ft', gridVisible: true })
-    expect(scene.visual).toEqual(emptyVisualSystem())
+    expect(scene.visual).toEqual({version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}})
     for (const collection of ['props', 'rooms', 'walls', 'openings', 'terrainAreas', 'terrainConnections', 'paths', 'notes', 'scatterGroups', 'prefabInstances'] as const) expect(scene[collection]).toEqual({})
     expect(Object.keys(scene.assets)).toHaveLength(24)
     expect(Object.keys(scene.materials)).toHaveLength(7)

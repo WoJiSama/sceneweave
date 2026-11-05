@@ -20,10 +20,10 @@ const context = () => ({ ids: { nextId: () => `surface-command-${++sequence}` },
 
 function fixture(): SceneDocument8 {
   const source = createTerrainVariantCatalogDocument()
-  source.schemaVersion = 3; source.mapMode = 'scene'; source.regional = null; source.generation = createEmptyGeneration()
-  source.visual = { version: 2, base: emptyVisualSystem(), materializedEdges: {} }
+  source.schemaVersion = 1; source.mapMode = 'scene'; source.regional = null; source.generation = createEmptyGeneration5()
+  source.visual = { version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{} }
   const scene = emptyCompositionDocument(source)
-  scene.schemaVersion = 8
+  scene.schemaVersion = 1
   scene.generation = createEmptyGeneration5()
   scene.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }
   scene.mapMode = 'scene'; scene.regional = null

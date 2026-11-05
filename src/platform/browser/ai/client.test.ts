@@ -1,3 +1,7 @@
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene'
+import { createCompositionContent } from '../../../shared/appearance/graph'
+import { replayCurrentAuthoringEngine } from '../../../shared/ai/authoring-v1'
+import { createGeneratedAuthoringStartV4 } from '../../../shared/ai/current-authoring'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { AiClient, AiClientError, normalizeAiBaseUrl, reduceTaskEvent, safeAiError, supportsContinuation, supportsCurrentAuthoring, sameBudgetIdentity, sameTaskDraftCheckpoint } from './client'
 import type { ConnectionInfo, CreateTaskRequest, TaskEvent, TaskSnapshot } from '../../../shared/ai/protocol'
@@ -28,6 +32,8 @@ const summary = (overrides: Partial<AuthoringSummary> = {}): AuthoringSummary =>
   changedIds: ['prop-draft'], skill: { id: 'sceneweave-prop-authoring', version: 1 }, claim: null, ...overrides })
 const grantRequest = (): CreateTaskRequest & { authoring: AuthoringStart } => {
   const project = cloneJson(native.scenes.blank) as unknown as ProjectData
+  let sequence = 0
+  Object.assign(project, createCompositionContent(toCurrentSceneDocument(project.document), { ids: { nextId: () => `client-fixture-${++sequence}` }, clock: { now: () => project.document.createdAt } }))
   return { ...request, context: { sceneId: project.document.sceneId, revision: project.document.revision, audience: 'public' }, authoring: {
     schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: '0a85cddc-07b4-4a36-b839-f8aff0481203', preparedAt: '2026-10-24T00:00:00.000Z',
     skill: { id: 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model', scope: { targetIds: [], operations: ['place'],
@@ -41,23 +47,23 @@ const lease = (overrides: Partial<DraftLease> = {}): DraftLease => ({ schemaVers
 describe('current authoring capability and screenshot checkpoint', () => {
   const capabilities = (): ConnectionInfo => ({ schemaVersion: 1, model: 'test-model', protocol: 'chat-completions',
     capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: 'enabled', authoringVersions: [1, 2, 3, 4],
-      currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [3, 4, 5, 6, 7], visualReviewVersions: [1],
+      currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [1], visualReviewVersions: [1],
       budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] }, retentionDays: 7,
     limits: { modelRequests: 4, toolCalls: 8, executionMs: 120000, promptBytes: 16384, outputBytes: 65536 } })
   it('requires the exact current contract, complete version and policy before admitting metadata', () => {
-    for (const version of [3, 4, 5, 6, 7]) expect(supportsCurrentAuthoring(capabilities(), version)).toBe(true)
+    expect(supportsCurrentAuthoring(capabilities(), 1)).toBe(true)
     expect(supportsCurrentAuthoring(capabilities(), 2)).toBe(false)
     expect(supportsCurrentAuthoring(capabilities(), 8)).toBe(false)
     const changes: Partial<ConnectionInfo['capabilities']>[] = [
-      { currentAuthoring: undefined }, { authoringVersions: [1, 2, 3] }, { completeProjectVersions: [3, 4] },
+      { currentAuthoring: undefined }, { authoringVersions: [1, 2, 3] }, { completeProjectVersions: [] },
       { budgetPolicyHashes: [] }, { sceneDraft: false },
     ]
-    for (const change of changes) expect(supportsCurrentAuthoring({ ...capabilities(), capabilities: { ...capabilities().capabilities, ...change } }, 6)).toBe(false)
+    for (const change of changes) expect(supportsCurrentAuthoring({ ...capabilities(), capabilities: { ...capabilities().capabilities, ...change } }, 1)).toBe(false)
     const policy = createContinuationPolicyV2(TASK_BUDGET_PROFILES.small)
     const info = capabilities(); info.capabilities.budgetPolicyHashes!.push(policy.policyHash)
-    expect(supportsCurrentAuthoring(info, 6, policy, policy.profile.profileHash, 1)).toBe(false)
+    expect(supportsCurrentAuthoring(info, 1, policy, policy.profile.profileHash, 1)).toBe(false)
     info.capabilities.budgetProfileHashes = [policy.profile.profileHash]; info.capabilities.surfaceRecipeVersions = [1]
-    expect(supportsCurrentAuthoring(info, 6, policy, policy.profile.profileHash, 1)).toBe(true)
+    expect(supportsCurrentAuthoring(info, 1, policy, policy.profile.profileHash, 1)).toBe(true)
   })
 
   it('rejects changed task, generation, draft and every budget hash after asynchronous pixel preparation', () => {
@@ -78,14 +84,33 @@ describe('current authoring capability and screenshot checkpoint', () => {
   })
 
   it('runs the local checkpoint after capability discovery and sends no POST on rejection', async () => {
-    const authoring = continuationFixture(), preservation = authoring.source.preservation
+    const source = continuationFixtureV3(), authoring = createGeneratedAuthoringStartV4(source), preservation = authoring.source.preservation
     const input: CreateTaskRequest = { ...request, context: preservation.sceneId === null ? null : { sceneId: preservation.sceneId, revision: preservation.revision!, audience: 'public' }, authoring }
-    const fetcher = mockFetch(() => json(capabilities())), client = new AiClient('https://ai.example.com', 'token', fetcher)
+    const info = capabilities(); info.capabilities.budgetPolicyHashes!.push(authoring.policy.policyHash); info.capabilities.budgetProfileHashes = [source.policy.profile.profileHash]
+    const fetcher = mockFetch(() => json(info)), client = new AiClient('https://ai.example.com', 'token', fetcher)
     const guard = vi.fn(() => { throw new Error('The local checkpoint changed') })
     await expect(client.create(input, undefined, guard)).rejects.toThrow(/checkpoint changed/)
     expect(guard).toHaveBeenCalledOnce(); expect(fetcher).toHaveBeenCalledOnce()
     expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][1]?.method).toBe('GET')
   })
+  it('sends only authoring4 with the exact current project and fresh source identity', async () => {
+    const source = continuationFixtureV3(), authoring = createGeneratedAuthoringStartV4(source), state = replayAuthoring(authoring, []).state
+    const input: CreateTaskRequest = { ...request, context: { sceneId: 'original-main', revision: 7, audience: 'public' }, authoring }
+    const info = capabilities(); info.capabilities.budgetPolicyHashes!.push(authoring.policy.policyHash); info.capabilities.budgetProfileHashes = [source.policy.profile.profileHash]
+    const receipt = authoringSummary(authoring, state, null)
+    if (!('schemaVersion' in receipt) || receipt.schemaVersion !== 4) throw new Error('Expected current authoring protocol')
+    const body = { schemaVersion: 4 as const, flowId: authoring.source.flowId, taskId: 'task-test', generation: 1,
+      policyHash: receipt.policyHash, sourceHash: receipt.sourceHash, ledgerHeadHash: receipt.ledgerHeadHash, budgetStateHash: receipt.budgetStateHash,
+      workUsage: emptyBudgetUsage(), activeRuntimeMs: 1, initializationMs: 1, modelRequests: 0, completedRequests: 0, toolAttempts: 0, outputBytes: 0 }
+    const response = snapshot({ context: input.context, authoring: receipt, executionCheckpoint: { ...body, checkpointHash: sha256Text(canonicalJson(body)) } })
+    const calls: { url: string; body: unknown }[] = []
+    const fetcher = mockFetch((url, init) => { calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null }); return json(url.includes('/capabilities?') ? info : response) })
+    await expect(new AiClient('https://ai.example.com', 'token', fetcher).create(input)).resolves.toEqual(response)
+    expect(calls.map(call => call.url)).toEqual(['https://ai.example.com/v1/capabilities?authoringVersion=4', 'https://ai.example.com/v1/tasks?authoringVersion=4'])
+    expect(calls[1].body).toEqual(input)
+    expect(receipt.sourceHash).toBe(sha256Text(canonicalJson(authoring.source)))
+  })
+
 })
 
  describe('native AI transport', () => {
@@ -172,28 +197,19 @@ describe('current authoring capability and screenshot checkpoint', () => {
 })
 
 describe('AI authoring transport and dynamic task budgets', () => {
-  it('sends an explicit complete-metadata authoring grant above the conversation-only request budget', async () => {
-    const input = grantRequest(), body = JSON.stringify(input), seen: RequestInit[] = []
-    expect(new TextEncoder().encode(body).length).toBeGreaterThan(32_768)
-    const fetcher = mockFetch((_url, init) => { seen.push(init!); return json(snapshot({ context: input.context, authoring: summary() })) })
-    const client = new AiClient('https://ai.example.com', 'application-only-token', fetcher)
-    await expect(client.create(input)).resolves.toMatchObject({ authoring: summary() })
-    expect(JSON.parse(String(seen[0].body))).toEqual(input)
-    expect(String(seen[0].body)).not.toContain('application-only-token')
-    expect(seen[0].signal).toBeInstanceOf(AbortSignal)
-    expect(seen[0]).toMatchObject({ credentials: 'omit', redirect: 'error', cache: 'no-store' })
-  })
-  it('rejects oversized authoring transport before fetch and enforces the same UTF-8 prompt limit', async () => {
+  it('rejects a legacy task write before fetch instead of treating project1 as the old contract', async () => {
     const input = grantRequest(), fetcher = mockFetch(() => json(snapshot())), client = new AiClient('https://ai.example.com', 'token', fetcher)
-    Object.values(input.authoring!.project.document.propDefinitions)[0].origin.attribution = 'x'.repeat(AUTHORING_LIMITS.requestBytes)
-    // The server separately validates its stricter 4MiB complete metadata cap.
-    await expect(client.create(input)).rejects.toMatchObject({ code: 'request_limit', requestState: 'not_sent' })
-    const promptOverflow = grantRequest(); promptOverflow.prompt = '界'.repeat(6000)
-    await expect(client.create(promptOverflow)).rejects.toMatchObject({ code: 'protocol' })
+    await expect(client.create(input)).rejects.toMatchObject({ code: 'unsupported_continuation', requestState: 'not_sent' })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('keeps the same UTF-8 prompt validation before any network request', async () => {
+    const input = grantRequest(), fetcher = mockFetch(() => json(snapshot())), client = new AiClient('https://ai.example.com', 'token', fetcher)
+    input.prompt = '界'.repeat(6000)
+    await expect(client.create(input)).rejects.toMatchObject({ code: 'protocol', requestState: 'not_sent' })
     expect(fetcher).not.toHaveBeenCalled()
   })
   it('carries exact draft stamps and claim/receipt identity through all authoring endpoints', async () => {
-    const input = grantRequest(), state = replayAuthoring(input.authoring!, []).state
+    const input = grantRequest(), state = replayCurrentAuthoringEngine(input.authoring!, []).state
     const draft: AuthoringDraft = { schemaVersion: 1, taskId: 'task-test', generation: 3, start: input.authoring!, state }
     const calls: { url: string; method: string; body: unknown }[] = []
     const fetcher = mockFetch((url, init) => {
@@ -233,7 +249,7 @@ describe('AI authoring transport and dynamic task budgets', () => {
     await expect(client.validateDraft('task-test', { ...stamp, valid: true })).rejects.toMatchObject({ code: 'protocol', requestState: 'unknown' })
     await expect(client.appliedDraft('task-test', { ...claim, sceneId: 'scene-test', revision: 8 })).rejects.toMatchObject({ code: 'protocol', requestState: 'unknown' })
     await expect(client.releaseDraft('task-test', claim)).rejects.toMatchObject({ code: 'protocol', requestState: 'unknown' })
-    const input = grantRequest(), draft: AuthoringDraft = { schemaVersion: 1, taskId: 'other-task', generation: 1, start: input.authoring!, state: replayAuthoring(input.authoring!, []).state }
+    const input = grantRequest(), draft: AuthoringDraft = { schemaVersion: 1, taskId: 'other-task', generation: 1, start: input.authoring!, state: replayCurrentAuthoringEngine(input.authoring!, []).state }
     const wrongDraft = new AiClient('https://ai.example.com', 'token', mockFetch(() => json(draft)))
     await expect(wrongDraft.draft('task-test')).rejects.toMatchObject({ code: 'protocol' })
   })
@@ -264,7 +280,7 @@ describe('AI authoring transport and dynamic task budgets', () => {
     const input = grantRequest()
     Object.values(input.authoring!.project.document.propDefinitions)[0].origin.attribution = 'x'.repeat(1_100_000)
     input.authoring!.baseContentHash = authoringProjectHash(input.authoring!.project)
-    const draft: AuthoringDraft = { schemaVersion: 1, taskId: 'task-test', generation: 1, start: input.authoring!, state: replayAuthoring(input.authoring!, []).state }
+    const draft: AuthoringDraft = { schemaVersion: 1, taskId: 'task-test', generation: 1, start: input.authoring!, state: replayCurrentAuthoringEngine(input.authoring!, []).state }
     const client = new AiClient('https://ai.example.com', 'token', mockFetch(() => json(draft)))
     await expect(client.draft('task-test')).resolves.toMatchObject({ taskId: 'task-test', start: { baseContentHash: input.authoring!.baseContentHash } })
     let didCancel = false
@@ -303,7 +319,7 @@ describe('generated-map continuation transport identity', () => {
     capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: 'disabled', authoringVersions: [1, 2], baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash], ...changes },
     retentionDays: 7, limits: { modelRequests: 4, toolCalls: 8, executionMs: 120000, promptBytes: 16384, outputBytes: 65536 } })
   beforeAll(() => {
-    start = continuationFixture(); initial = replayAuthoring(start, [])
+    start = continuationFixture('composition'); initial = replayAuthoring(start, [])
     input = { ...request, context: { sceneId: 'original-main', revision: 7, audience: 'public' }, authoring: start }
   }, 30000)
   const currentSummary = () => {
@@ -333,30 +349,20 @@ describe('generated-map continuation transport identity', () => {
     { authoringVersions: undefined, baseMapVersions: undefined, budgetPolicyHashes: undefined }])('does not POST v2 metadata to an incompatible policy/version, including an old server ignoring the opt-in query', async changes => {
     const fetcher = mockFetch(() => json(capabilities(changes))), client = new AiClient('https://ai.example.com', 'token', fetcher)
     await expect(client.create(input)).rejects.toMatchObject({ code: 'unsupported_continuation', requestState: 'not_sent' })
-    expect(fetcher).toHaveBeenCalledTimes(1)
-    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe('GET')
-    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=2')
+    expect(fetcher).not.toHaveBeenCalled()
     expect(supportsContinuation(capabilities(changes), 'authoring')).toBe(false)
   })
-  it('negotiates before sending and preserves the exact source and original workspace context', async () => {
-    const calls: { url: string; body: unknown }[] = []
-    const fetcher = mockFetch((url, init) => { calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null }); return json(url.endsWith('/capabilities?authoringVersion=2') ? capabilities() : classifiedSnapshot({ context: input.context, authoring: currentSummary() })) })
-    const client = new AiClient('https://ai.example.com', 'token', fetcher)
-    await expect(client.create(input)).resolves.toMatchObject({ authoring: currentSummary() })
-    expect(calls.map(call => call.url)).toEqual(['https://ai.example.com/v1/capabilities?authoringVersion=2', 'https://ai.example.com/v1/tasks'])
-    expect(calls[1].body).toEqual(input)
-  })
-  it('refuses a successful HTTP response that downgrades the v2 task', async () => {
-    const fetcher = mockFetch(url => json(url.endsWith('/capabilities?authoringVersion=2') ? capabilities() : snapshot({ context: input.context, authoring: summary() })))
-    await expect(new AiClient('https://ai.example.com', 'token', fetcher).create(input)).rejects.toMatchObject({ code: 'protocol', requestState: 'unknown' })
-    expect(fetcher).toHaveBeenCalledTimes(2)
+  it('does not restart an old source2 task as a new task through a newer client', async () => {
+    const fetcher = mockFetch(() => json(capabilities()))
+    await expect(new AiClient('https://ai.example.com', 'token', fetcher).create(input)).rejects.toMatchObject({ code: 'unsupported_continuation', requestState: 'not_sent' })
+    expect(fetcher).not.toHaveBeenCalled()
   })
   it('fetches a v2 draft only with an explicit v2 expectation and refuses downgrade', async () => {
     const draft = { schemaVersion: 2, taskId: 'task-test', generation: 3, start, state: initial.state }
     const client = new AiClient('https://ai.example.com', 'token', mockFetch(() => json(draft)))
     await expect(client.draft('task-test', undefined, 2)).resolves.toEqual(draft)
     await expect(client.draft('task-test')).rejects.toMatchObject({ code: 'protocol' })
-    const old = grantRequest(), downgraded = new AiClient('https://ai.example.com', 'token', mockFetch(() => json({ schemaVersion: 1, taskId: 'task-test', generation: 3, start: old.authoring, state: replayAuthoring(old.authoring, []).state })))
+    const old = grantRequest(), downgraded = new AiClient('https://ai.example.com', 'token', mockFetch(() => json({ schemaVersion: 1, taskId: 'task-test', generation: 3, start: old.authoring, state: replayCurrentAuthoringEngine(old.authoring, []).state })))
     await expect(downgraded.draft('task-test', undefined, 2)).rejects.toMatchObject({ code: 'protocol' })
   })
   it('carries all four hashes through validation, claim, applied and release', async () => {
@@ -512,23 +518,13 @@ describe('strict v3 classified task transport', () => {
     const input: CreateTaskRequest = { ...request, authoring: surface, context: { sceneId: 'original-main', revision: 7, audience: 'public' } }
     const fetcher = mockFetch(() => json(capabilities()))
     await expect(new AiClient('https://ai.example.com', 'token', fetcher).create(input)).rejects.toMatchObject({ code: 'unsupported_continuation', requestState: 'not_sent' })
-    expect(fetcher).toHaveBeenCalledTimes(1)
-    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3&surfaceVersion=1')
-    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][1].method).toBe('GET')
+    expect(fetcher).not.toHaveBeenCalled()
   })
-  it('negotiates and sends the exact v3 source once, and rejects a downgraded create response as unknown', async () => {
+  it('keeps source3 as a replay boundary and rejects direct protocol3 task creation', async () => {
     const input: CreateTaskRequest = { ...request, context: { sceneId: 'original-main', revision: 7, audience: 'public' }, authoring: start }
-    const authoring = authoringSummary(start, replayed.state, null), calls: { url: string; body: unknown }[] = []
-    const client = new AiClient('https://ai.example.com', 'token', mockFetch((url, init) => {
-      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
-      return json(url.includes('/capabilities?') ? capabilities() : current({ authoring, context: input.context }))
-    }))
-    await expect(client.create(input)).resolves.toMatchObject({ authoring })
-    expect(calls.map(call => call.url)).toEqual(['https://ai.example.com/v1/capabilities?authoringVersion=3', 'https://ai.example.com/v1/tasks?authoringVersion=3'])
-    expect(calls[1].body).toEqual(input)
-    const old = mockFetch(url => json(url.includes('/capabilities?') ? capabilities() : snapshot({ context: input.context, authoring: summary() })))
-    await expect(new AiClient('https://ai.example.com', 'token', old).create(input)).rejects.toMatchObject({ code: 'protocol', requestState: 'unknown' })
-    expect(old).toHaveBeenCalledTimes(2)
+    const fetcher = mockFetch(() => json(capabilities()))
+    await expect(new AiClient('https://ai.example.com', 'token', fetcher).create(input)).rejects.toMatchObject({ code: 'unsupported_continuation', requestState: 'not_sent' })
+    expect(fetcher).not.toHaveBeenCalled()
   })
   it('fetches the full v3 draft only under the exact expected protocol', async () => {
     const draft = { schemaVersion: 3, taskId: 'task-test', generation: 3, start, state: replayed.state }

@@ -15,19 +15,19 @@ import { compositionPreset } from '../../shared/terrain-generation/composition-p
 
 const repositories: ProjectRepository[] = [], workspaces: Workspace[] = []
 type V4Project = EditableProject & {
-  schemaVersion: 4
+  schemaVersion: 1
   document: EditableProject['document'] & {
-    schemaVersion: 4
+    schemaVersion: 1
     generation: Extract<NonNullable<EditableProject['document']['generation']>, { version: 5 }>
   }
   historyIdentity: EditableProject['historyIdentity'] & {
-    version: 3
+    version: 5
     terrainTokens: NonNullable<EditableProject['historyIdentity']['terrainTokens']>
   }
 }
 function asV4(project: EditableProject): V4Project {
-  if (project.schemaVersion !== 4 || project.document.schemaVersion !== 4 || project.document.generation?.version !== 5
-    || project.historyIdentity.version !== 3 || !project.historyIdentity.terrainTokens) throw new Error('expected complete v4 project')
+  if (project.schemaVersion !== 1 || project.document.schemaVersion !== 1 || project.document.generation?.version !== 5
+    || project.historyIdentity.version !== 5 || !project.historyIdentity.terrainTokens) throw new Error('expected complete v4 project')
   return project as V4Project
 }
 
@@ -44,7 +44,7 @@ async function blank(): Promise<EditableProject> {
   const text = 'Sceneweave v4 history fixture license', licenseHash = sha256Bytes(new TextEncoder().encode(text))
   const bundle: ProjectBundle = {
     project: {
-      format: 'sceneweave-complete-project', schemaVersion: 2, ...content,
+      format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
       assets: { [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } },
       licenses: { [licenseHash]: { sha256: licenseHash, text } },
       licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({

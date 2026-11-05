@@ -31,7 +31,6 @@ type Props = {
   onBackup: (snapshotIds: string[] | undefined, sceneId: string) => void
 }
 type Usage = Awaited<ReturnType<WorkspaceRepository['usage']>>
-type UpgradeSummary = Awaited<ReturnType<WorkspaceRepository['listNativeUpgradeSummaries']>>[number]
 type VersionHistory = Awaited<ReturnType<WorkspaceRepository['listHistoryVersions']>>
 const modes: { id: RestoreMode; label: string }[] = [{ id: 'appearance', label: '历史有效外观（保留当前层）' }, { id: 'source', label: '历史源与参数（跟随当前层）' }, { id: 'transform', label: '位置角度' }, { id: 'entity', label: '完整独立物件' }, { id: 'relationship', label: '整组关系与成员' }, { id: 'layer', label: '持续图层规则' }, { id: 'outdoorGeometry', label: '地形与通路几何（保留当前拓扑）' }, { id: 'outdoorProperties', label: '室外几何与业务属性' }, { id: 'scatterMembers', label: '显式历史散布成员与抑制记录' }, { id: 'visual', label: '本会话视觉参数与环境（保留绑定拓扑）' }]
 const dateLabel = (stamp: string) => new Date(stamp).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -47,9 +46,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const sceneId = project.document.sceneId, canvasIds = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [summaries, setSummaries] = useState<SnapshotSummary[]>([]), [usage, setUsage] = useState<Usage | null>(null)
   const [legacySources, setLegacySources] = useState<LegacySource[]>([])
-  const [upgradeOriginals, setUpgradeOriginals] = useState<UpgradeSummary[]>([])
   const [versionHistory, setVersionHistory] = useState<VersionHistory | null>(null), [versionId, setVersionId] = useState('')
-  const originalsFile = useRef<HTMLInputElement>(null)
   const [name, setName] = useState(''), [creating, setCreating] = useState(false), [snapshot, setSnapshot] = useState<EditableSnapshot | null>(null)
   const [rename, setRename] = useState<{ snapshot: SnapshotSummary; name: string } | null>(null), [deleting, setDeleting] = useState<SnapshotSummary | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set()), [mode, setMode] = useState<RestoreMode>('appearance')
@@ -64,7 +61,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
     const ticket = ++request.current, overview = await repository.historyOverview(sceneId)
     if (ticket !== request.current) return
     completedRefresh.current = refreshStamp
-    setSummaries(overview.snapshots); setUsage(overview.usage); setLegacySources(overview.legacySources); setUpgradeOriginals(overview.upgradeOriginals)
+    setSummaries(overview.snapshots); setUsage(overview.usage); setLegacySources(overview.legacySources)
     setVersionHistory(overview.history)
     setVersionId(current => overview.history.versions.some(version => version.id === current && version.automatic) ? current : overview.history.activeVersionId ?? '')
     setSnapshot(current => current && overview.snapshots.some(item => item.id === current.id) ? current : null)
@@ -72,7 +69,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   }
   useEffect(() => {
     completedRefresh.current = null
-    setSummaries([]); setUsage(null); setLegacySources([]); setUpgradeOriginals([]); setVersionHistory(null); setVersionId(''); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setActiveId(null); pendingFocus.current = null
+    setSummaries([]); setUsage(null); setLegacySources([]); setVersionHistory(null); setVersionId(''); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setActiveId(null); pendingFocus.current = null
     return () => { request.current++ }
   }, [sceneId])
   useEffect(() => {
@@ -250,32 +247,6 @@ export default function HistoryPanel({ active, project, repository, workspace, s
         </dl></details>
         <button className="secondary asset-wide" disabled={disabled} onClick={() => downloadOriginal(source)}><Download size={14}/>下载迁移原件 v{source.sourceSchemaVersion} · r{source.sourceRevision}</button>
       </article>)}
-    </section>}
-    {project.schemaVersion >= 3 && <section className="history-originals" aria-label="升级原件归档">
-      <h3>升级原件 <small>{upgradeOriginals.length} 份</small></h3>
-      <p className="asset-muted">独立保留升级前的工程、完整历史与资源。原件归档与当前工程包分别下载；导入只保全原件。</p>
-      {upgradeOriginals.map(source => <article className="composition-diff-item" key={source.capsuleId}>
-        <strong>{source.sourceTitle} · 完整 v{source.sourceSchemaVersion} · r{source.sourceRevision}</strong>
-        <p className="asset-muted">自动 {source.automaticCount} · 命名 {source.namedCount} · 保护 {source.protectionCount} · 导入历史 {source.importedCount}</p>
-        <details><summary>来源摘要</summary><dl className="asset-facts"><dt>来源工程</dt><dd>{source.sourceSceneId}</dd><dt>内容摘要</dt><dd className="catalog-hash">{source.sourceContentHash}</dd><dt>保留时间</dt><dd>{dateLabel(source.createdAt)}</dd><dt>直接前序归档</dt><dd>{source.parentCapsuleCount}</dd></dl></details>
-      </article>)}
-      <button className="secondary asset-wide" disabled={disabled || !upgradeOriginals.length} onClick={() => void onAction(async () => {
-        const checkpoint = workspace.checkpoint(), content = await repository.exportNativeUpgradeFile(sceneId)
-        workspace.assertCheckpoint(checkpoint)
-        const url = URL.createObjectURL(new Blob([content.slice().buffer], { type: 'application/zip' })), anchor = document.createElement('a')
-        try { anchor.href = url; anchor.download = `${sceneId}.sceneweave-originals.zip`; anchor.click() }
-        finally { window.setTimeout(() => URL.revokeObjectURL(url), 30_000) }
-      }, '下载升级原件')}><Download size={14}/>下载完整升级原件归档</button>
-      <input ref={originalsFile} type="file" accept=".zip" aria-label="选择升级原件归档" hidden disabled={disabled} onChange={event => {
-        const file = event.target.files?.[0]; event.target.value = ''
-        if (!file) return
-        void onAction(async () => {
-          if (file.size > 100 * 1024 * 1024) throw new Error('原件归档超过100MiB保护上限。')
-          await repository.importNativeUpgradeFile(new Uint8Array(await file.arrayBuffer()))
-          await refresh()
-        }, '保全升级原件归档')
-      }}/>
-      <button className="secondary asset-wide" disabled={disabled} onClick={() => originalsFile.current?.click()}>导入升级原件归档</button>
     </section>}
     {usage && <dl className="history-usage"><dt>资源</dt><dd>{bytes(usage.resourceBytes)} / {bytes(usage.limits.storedResourceBytes)}</dd><dt>场景与历史</dt><dd>{bytes(usage.documentBytes)} / {bytes(usage.limits.storedDocumentBytes)}</dd><dt>迁移原件</dt><dd>{bytes(usage.originalBytes)} / {bytes(usage.limits.storedOriginalBytes)}</dd></dl>}
     <div className="history-backup"><label><input type="checkbox" aria-label="备份携带所选快照" checked={includeHistory} disabled={disabled} onChange={event => setIncludeHistory(event.target.checked)}/>携带所选命名与保护快照</label>

@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { visualBase } from './visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
@@ -8,7 +9,6 @@ import { certifyProjectData, PROJECT_DATA_LIMITS, projectContentHash, projectDat
 import { canonicalJson, cloneJson, encodeUtf8, inspectJsonInput } from './validation/json.js'
 import { certifyCompositionContent, getCertifiedCompositionContent, validateCompositionDraft } from './validation/content.js'
 import { isCertifiedSceneSnapshot } from './validation/snapshots.js'
-import { emptyVisualSystem } from './visual/types.js'
 import type { SceneDocument } from './model/scene.js'
 import type { ProjectData } from './model/project.js'
 import type { PreparationContext } from './ports/runtime.js'
@@ -17,7 +17,7 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 function fixture(image = false): ProjectData {
   let next = 0
   const context: PreparationContext = { ids: { nextId: () => `project-token-${++next}` }, clock: { now: () => '2026-10-24T00:00:00.000Z' } }
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   if (image) {
     const prop = document.props.item, sha256 = digest('metadata fixture; intentionally not decoded pixels')
@@ -153,13 +153,12 @@ describe('native complete-v1 pure metadata contract', () => {
     expect(getCertifiedCompositionContent(unissuedFrozen)).toBeUndefined()
     expect(certifyCompositionContent(unissuedFrozen)).not.toBe(unissuedFrozen)
   })
-  it('keeps visual v2 domain and identity validation behind the shallower envelopes', () => {
+  it('keeps full current visual domain and identity validation behind the shallow envelope', () => {
     const input = fixture()
-    input.schemaVersion = 2; input.document.schemaVersion = 2; input.document.visual = emptyVisualSystem()
     expect(projectDataSchema.safeParse(input).success).toBe(true)
     expect(certifyProjectData(input).document.visual).toEqual(input.document.visual)
-    const badVersion = cloneJson(input); badVersion.schemaVersion = 1
-    expect(() => certifyProjectData(badVersion)).toThrow(/版本/)
+    const badVersion = { ...cloneJson(input), schemaVersion: 2 }
+    expect(() => certifyProjectData(badVersion)).toThrow(/schemaVersion/)
     const badLight = cloneJson(input)
     visualBase(badLight.document)!.lights.missing = { id: 'missing', floorId: Object.keys(input.document.floors)[0], layerId: 'absent-layer', visibility: 'public', editLocked: false,
       positionMm: { x: 1000, y: 1000 }, radiusMm: 1000, color: '#ffeedd', intensity: .5, wallOcclusion: true, enabled: true }

@@ -12,14 +12,13 @@ import { compositionInputHash, dependencyInputHash, thresholdInputHash, terrainR
 import { evaluateTerrainRequirement } from './composition-requirements.js'
 
 export function emptyCompositionDocument(input:SceneDocument):SceneDocument {
- const legacy=input.schemaVersion===2?emptyTerrainDocument(input):captureJson(input)
- if(legacy.schemaVersion!==3||legacy.visual?.version!==2||!legacy.generation||legacy.generation.version===5)throw new Error('组合升级需要完整v3工程。')
- return {...legacy,schemaVersion:4,generation:createEmptyGeneration5(legacy.generation),visual:{version:3,base:legacy.visual,transitions:{}}}
+ if(input.generation?.version!==5 || input.visual?.version!==3)throw new Error('组合生成需要完整生成和视觉基线。')
+ return captureJson(input)
 }
 const ring=(points:PointMm[]):MultiPolygon=>[[points.map(p=>[p.x,p.y])]]
 /** Full physical output. Holes use higher-priority real water; no implicit filled lake. */
 export function materializeTerrainComposition(base:SceneDocument,input:TerrainCompositionInput,requirements:TerrainRequirement[],title:string,profile:'plain'|'tidal'|'tidal-v2'='plain',recipeVersion:1|2|3|4=1,budget?:TaskBudgetProfile):{document:SceneDocument;plan:TerrainCompositionPlan;executionUsage?:BudgetUsage} {
- if(base.schemaVersion!==2||LAYER_ENTITY_COLLECTIONS.some(key=>Object.keys(base[key]).length))throw new Error('新组合必须从独立同源完整空白开始。')
+ if(LAYER_ENTITY_COLLECTIONS.some(key=>Object.keys(base[key]).length))throw new Error('新组合必须从独立同源完整空白开始。')
  if(recipeVersion===4&&!budget)throw new Error('组合配方4必须绑定显式注册预算。')
  if(profile==='tidal-v2'&&((recipeVersion!==2&&recipeVersion!==4)||input.baseElevationMm!==800))throw new Error('浅湾配方2须显式保存版本2与800毫米基底。')
  const meter=budget?captureExecutionBudget(budget):undefined

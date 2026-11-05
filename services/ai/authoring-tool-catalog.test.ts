@@ -1,9 +1,10 @@
+import { currentAuthoringFixture } from '../../tests/helpers/current-authoring-fixture.js'
 import { describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { compositionCandidateFixture } from '../../tests/helpers/composition-candidates-fixture.js'
 import { terrainAuthoringFixture } from '../../tests/helpers/terrain-authoring-fixture.js'
-import { AuthoringStartSchema, AuthoringScopeSchema, type AuthoringScope, type AuthoringStart } from '../../src/shared/ai/authoring-protocol-v1.js'
+import { AuthoringScopeSchema, type AuthoringScope } from '../../src/shared/ai/authoring-protocol-v1.js'
 import { CompositionCandidateSchema } from '../../src/shared/ai/composition-candidates.js'
 import { replayAuthoring } from '../../src/shared/ai/authoring.js'
 import type { TerrainAuthoringOperation } from '../../src/shared/ai/terrain-protocol.js'
@@ -47,7 +48,7 @@ const terrainTools = ['sceneweave_terrain_plan', 'sceneweave_terrain_candidates'
   'sceneweave_terrain_regenerate_region', 'sceneweave_terrain_diagnose', 'sceneweave_region_scene_candidate']
 const terrainCommonTools = ['sceneweave_terrain_plan', 'sceneweave_terrain_candidates', 'sceneweave_terrain_apply_candidate', 'sceneweave_terrain_diagnose']
 
-function taskFor(start: AuthoringStart) {
+function taskFor(start: import('../../src/shared/ai/authoring-protocol.js').AuthoringStart) {
   const task: StoredTask = { owner: 'test', fingerprint: 'test', messages: [], calls: {}, runtimeMs: 0, runStartedAt: null,
     outputBytes: 0, toolAttempts: 0, completedRequests: 0, pendingText: '', authoring: { start, state: replayAuthoring(start, []).state },
     snapshot: { schemaVersion: 1, id: randomUUID(), clientRequestId: randomUUID(), context: { sceneId: start.project.document.sceneId,
@@ -59,7 +60,7 @@ function taskFor(start: AuthoringStart) {
 function furnishingTask(basic: AuthoringScope['operations'] = ['transform', 'opacity']) {
   const start = compositionCandidateFixture()
   start.scope.operations = basic; start.scope.scene!.operations = ['furnish']; start.scope.visual = null
-  return taskFor(AuthoringStartSchema.parse(start))
+  return taskFor(currentAuthoringFixture(start))
 }
 
 describe('model tool catalog narrowed by the immutable capability grant', () => {

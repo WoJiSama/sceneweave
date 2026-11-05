@@ -87,7 +87,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
     controller.current?.abort(); regionalController.current?.abort(); regionalController.current = null; serial.current++; grants.current.clear(); setBusy(false); setRegionalBusy(false); setPending(null); setReceipt(previous => previous?.client === client ? previous : null); setTargets([]); setDefinitions([]); setConsent(false); setSendVision(false); setChecks([]); setExtended(initialExtendedScope()); preview(null); host?.onRegionalPreview(null)
   }, [host?.project.document.sceneId, host?.sessionKey, host?.baseMapPreview, client])
   const source = host?.baseMapPreview?.continuationSource
-  const needsCurrentAuthoring = !!host && host.project.schemaVersion >= 3
+  const needsCurrentAuthoring = !!host
   const sourcePolicy = source?.version === 3 ? createContinuationPolicyV2(source.request.profile) : CONTINUATION_POLICY
   const policy = task?.authoring && 'policyHash' in task.authoring ? getBudgetPolicyByHash(task.authoring.policyHash) ?? CONTINUATION_POLICY : sourcePolicy
   const currentBaselineTask = continuationIdentity(task?.authoring)?.schemaVersion === 4
@@ -258,7 +258,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
     } catch (failure) { setError(message(failure)) } finally { setBusy(false) }
   }
   const scene = host?.project.document, available = scene ? Object.values(scene.propDefinitions).filter(definition => !definition.tags.includes('sceneweave:retained-appearance')) : []
-  const unsupportedSurfaceBaseMap = !!host?.baseMapPreview && host.project.schemaVersion >= 8
+  const unsupportedSurfaceBaseMap = !!host?.baseMapPreview && Object.keys(host.project.document.surfaceRules).length > 0
   const whole = scene ? Object.values(scene.props).filter(prop => prop.visibility === 'public' && !Object.values(scene.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === prop.id)) && !Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === prop.id))).map(prop => prop.id) : []
   const toggleDefinition = (id: string) => setDefinitions(values => values.includes(id) ? values.filter(value => value !== id) : [...values, id])
   return <section className="ai-authoring" aria-label="AI 场景草稿">

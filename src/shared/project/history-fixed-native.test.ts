@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
@@ -5,16 +6,14 @@ import { createCompositionContent } from '../appearance/graph.js'
 import type { ProjectData } from '../model/project.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
-import { emptyVisualSystem } from '../visual/types.js'
-import { createEmptyGeneration, createEmptyRegional } from '../terrain-generation/contracts.js'
+import { createEmptyRegional } from '../terrain-generation/contracts.js'
 import { assertFixedProjectCompatible, assertFixedProjectFamilyCompatible, hasAddedFixedProjectDefinitions } from './history.js'
 
 let sequence = 0
 function fixture(): ProjectData {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 3, mapMode: 'scene',
-    generation: createEmptyGeneration(), regional: null, visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} } }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
   const content = createCompositionContent(document, { ids: { nextId: () => `history-fixed-${++sequence}` }, clock: { now: () => '2026-10-26T00:00:00.000Z' } })
-  return { format: 'sceneweave-complete-project', schemaVersion: 3, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }
+  return { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }
 }
 
 describe('fixed native-v3 definitions retain exact historical meaning', () => {

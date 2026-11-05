@@ -17,6 +17,8 @@ import { cloneJson, encodeUtf8 } from '../../shared/validation/json.js'
 import { emptyTerrainDocument } from '../../shared/terrain-generation/compose.js'
 import { assertTerrainBudget, terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 import { TERRAIN_FIXED_SEEDS } from '../../shared/terrain-generation/generate.js'
+import { TASK_BUDGET_PROFILES, taskSemanticTargets } from '../../shared/budget/task-budget.js'
+import { prepareBaseMapRequestV3, executeBaseMapRequestV3 } from '../../shared/terrain-generation/base-map-v3.js'
 
 const repos: ProjectRepository[] = [], sessions: Workspace[] = []
 function deferred() {
@@ -39,7 +41,7 @@ async function refinedBase(): Promise<EditableProject> {
   const text = 'Sceneweave original deterministic terrain transaction fixture', licenseHash = sha256Bytes(encodeUtf8(text))
   const bundle: ProjectBundle = {
     project: {
-      format: 'sceneweave-complete-project', schemaVersion: 2, ...content,
+      format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
       assets: { [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } },
       licenses: { [licenseHash]: { sha256: licenseHash, text } },
       licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({
@@ -61,8 +63,15 @@ async function setup() {
 
 async function candidate(workspace: Workspace) {
   const base = await refinedBase()
-  const preview = await workspace.previewTerrainGeneration(base, {
-    sceneId: base.document.sceneId, kind: 'island', seed: TERRAIN_FIXED_SEEDS[0],
+  const profile = TASK_BUDGET_PROFILES.small
+  const request = prepareBaseMapRequestV3({ requestId: crypto.randomUUID(), flowId: crypto.randomUUID(),
+    workspaceSceneId: workspace.getDocument()?.sceneId ?? 'empty-workspace', checkpoint: workspace.checkpoint(),
+    operationEpoch: 1, base: base.document, profile, generation: { kind: 'terrain', input: {
+      sceneId: base.document.sceneId, kind: 'island', seed: TERRAIN_FIXED_SEEDS[0], algorithmVersion: 4,
+      budgetProfileId: profile.profileId, quality: 'standard',
+    } } })
+  const preview = await workspace.previewBaseMapGeneration(base, request, executeBaseMapRequestV3(request), {
+    source: 'worker', generationExecution: { startedAt: NOW, activeRuntimeMs: 1, generationCalls: 1 },
   })
   return { base, preview }
 }
@@ -74,26 +83,29 @@ afterEach(async () => {
 })
 
 describe('T1 terrain candidate ownership and atomic independent adoption', () => {
-  it('previews a fully validated complete3 without installing, saving or changing the current checkpoint', async () => {
+  it('previews a fully validated current v1 without installing, saving or changing the current checkpoint', async () => {
     const { repo, workspace } = await setup(), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
     const currentHash = projectContentHash(toBundle(current).project), list = await repo.list(), saving = vi.spyOn(repo, 'save')
     const { base, preview } = await candidate(workspace)
     expect(Object.keys(base.assets)).toHaveLength(1)
     expect(Object.values(base.assets)[0]).toMatchObject({ pixelWidth: 1, pixelHeight: 1 })
     expect(Object.keys(base.authoringSources)).toHaveLength(0)
-    expect(preview.project.schemaVersion).toBe(3)
-    expect(preview.project.document).toMatchObject({ schemaVersion: 3, mapMode: 'scene', regional: null })
-    expect(preview.project.document.visual).toMatchObject({ version: 2, base: { version: 1 }, materializedEdges: {} })
-    expect(preview.project.historyIdentity.version).toBe(2); expect(preview.project.appearance.version).toBe(2)
+    expect(preview.project.schemaVersion).toBe(1)
+    expect(preview.project.document).toMatchObject({ schemaVersion: 1, mapMode: 'scene', regional: null })
+    expect(preview.project.document.visual).toMatchObject({ version: 3, base: { version: 2, base: { version: 1 }, materializedEdges: {} }, transitions: {} })
+    expect(preview.project.historyIdentity.version).toBe(5); expect(preview.project.appearance.version).toBe(2)
     expect(preview.currentSceneId).toBe(current.document.sceneId); expect(preview.currentRevision).toBe(current.document.revision)
     expect(preview.checkpoint).toBe(checkpoint)
     expect(preview.project.document.sceneId).toBe(base.document.sceneId)
     expect(preview.project.document.sceneId).not.toBe(current.document.sceneId)
     const empty = emptyTerrainDocument(base.document)
-    expect(preview.cost).toEqual(terrainCommandCost(empty, preview.project.document))
-    expect(preview.cost.total).toBeLessThanOrEqual(256)
-    if (!('cost' in preview.result)) throw new Error('Expected legacy terrain generation result')
-    expect(preview.cost.total).toBe(preview.result.cost.total)
+    const targets = taskSemanticTargets(empty, preview.project.document)
+    expect(preview.cost).toEqual({ items: Object.fromEntries(targets.map(target => [target, 1])), total: targets.length, limit: TASK_BUDGET_PROFILES.small.semanticTargets })
+    expect(preview.baseMap?.budgetProfile).toEqual(TASK_BUDGET_PROFILES.small)
+    expect(preview.baseMap?.budgetUsage?.assetBytes).toBeGreaterThan(0)
+    expect(preview.cost.total).toBeLessThanOrEqual(TASK_BUDGET_PROFILES.small.semanticTargets)
+    expect(preview.cost.total).toBe(preview.baseMap?.initialOperationCost)
+    expect(preview.baseMap?.budgetUsage?.semanticTargets).toBe(preview.cost.total)
     expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
     expect(saving).not.toHaveBeenCalled(); expect(await repo.list()).toEqual(list)
     expect(projectContentHash((await repo.load(current.document.sceneId))!.project)).toBe(currentHash)
@@ -110,7 +122,7 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
     expect(workspace.checkpoint()).toBe(checkpoint); expect(await repo.load(preview.project.document.sceneId)).toBeNull()
   })
 
-  it('rejects a copied wrapper and adopts the authentic candidate exactly once after real complete3 cold read', async () => {
+  it('rejects a copied wrapper and adopts the authentic candidate exactly once after real current-v1 cold read', async () => {
     const { repo, workspace } = await setup(), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
     const sourceHash = projectContentHash(toBundle(current).project), { preview } = await candidate(workspace)
     const saving = vi.spyOn(repo, 'save'), loading = repo.load.bind(repo), coldRead = vi.spyOn(repo, 'load')
@@ -126,7 +138,7 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
     const installed = workspace.getState().project!, cold = await loading(installed.document.sceneId)
     expect(installed).not.toBe(preview.project)
     expect(workspace.checkpoint()).toBe(checkpoint + 1)
-    expect(installed.schemaVersion).toBe(3); expect(cold!.project.schemaVersion).toBe(3)
+    expect(installed.schemaVersion).toBe(1); expect(cold!.project.schemaVersion).toBe(1)
     expect(projectContentHash(toBundle(installed).project)).toBe(projectContentHash(toBundle(preview.project).project))
     const validatedCold = await fromBundle(cold!, validation)
     expect(validatedCold.document.generation).toEqual(preview.project.document.generation)
@@ -191,7 +203,7 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
     expect(workspace.checkpoint()).toBe(checkpoint)
     expect(projectContentHash((await loading(current.document.sceneId))!.project)).toBe(currentHash)
     const independentlySaved = await loading(preview.project.document.sceneId)
-    expect(independentlySaved!.project.schemaVersion).toBe(3)
+    expect(independentlySaved!.project.schemaVersion).toBe(1)
     expect(projectContentHash(independentlySaved!.project)).toBe(projectContentHash(toBundle(preview.project).project))
     await expect(workspace.adoptTerrainGeneration(preview)).rejects.toThrow(/取消/)
     await workspace.updateProp('item', { rotationDeg: 47 }); await workspace.flush()
@@ -213,7 +225,7 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
       workspace.cancelTerrainGeneration(preview)
     } finally { release.resolve(); await rejected }
     expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
-    expect((await repo.load(preview.project.document.sceneId))!.project.schemaVersion).toBe(3)
+    expect((await repo.load(preview.project.document.sceneId))!.project.schemaVersion).toBe(1)
     await workspace.updateProp('item', { rotationDeg: 59 }); await workspace.flush()
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(59)
   })
@@ -233,24 +245,44 @@ function addSymbol(document: SceneDocument, index: number) {
   document.entityLayers[id] = 'visual-layer-props'
 }
 
-describe('T0 reachable complete3 budget boundary', () => {
-  it('fully validates 256 actual new props and rejects a valid 257th result before any installation', async () => {
+describe('current-v1 legacy budget boundary includes real identity and fixed sources', () => {
+  it('fully validates exactly 256 expanded records and rejects a valid 257th before installation', async () => {
     const base = await refinedBase(), empty = emptyTerrainDocument(base.document), atLimit = cloneJson(empty)
-    for (let index = 0; index < 256; index++) addSymbol(atLimit, index)
     const complete = (document: SceneDocument): ProjectBundle => ({
-      project: { ...toBundle(base).project, schemaVersion: 3, ...createCompositionContent(document, runtime) }, resources: base.resources,
+      project: { ...toBundle(base).project, schemaVersion: 1, ...createCompositionContent(document, runtime) }, resources: base.resources,
     })
-    const accepted = await fromBundle(complete(atLimit), validation), cost = assertTerrainBudget(empty, accepted.document)
-    expect(Object.keys(accepted.document.props)).toHaveLength(256)
-    expect(cost).toMatchObject({ total: 256, limit: 256, items: { physicalAndVisual: 256 } })
-    expect(Object.values(cost.items).filter(value => value !== 0)).toEqual([256])
-    const overLimit = cloneJson(accepted.document); addSymbol(overLimit, 256)
-    // Strict complete validation proves the refusal is the atomic budget, not malformed scene data.
-    const rejected = await fromBundle(complete(overLimit), validation)
-    expect(Object.keys(rejected.document.props)).toHaveLength(257)
-    expect(terrainCommandCost(empty, rejected.document).total).toBe(257)
-    expect(() => assertTerrainBudget(empty, rejected.document)).toThrow(/257.*256/)
+    const baseline = await fromBundle(complete(empty), validation)
+    // 83 physical Props, their actual births and source bindings, a shared
+    // immutable source/presentation, new lineage, and one note total 256.
+    for (let index = 0; index < 83; index++) addSymbol(atLimit, index)
+    const addNote = (document: SceneDocument, id: string) => {
+      document.notes[id] = { id, floorId: Object.keys(document.floors)[0], editLocked: false,
+        kind: 'note', anchor: { type: 'point', positionMm: { x: 500, y: 500 } }, text: id, visibility: 'public' }
+      document.entityLayers[id] = 'visual-layer-props'
+    }
+    addNote(atLimit, 'budget-note-1')
+    const accepted = await fromBundle(complete(atLimit), validation), metadata = { before: baseline, after: accepted }
+    const cost = assertTerrainBudget(empty, accepted.document, metadata)
+    expect(Object.keys(accepted.document.props)).toHaveLength(83)
+    expect(cost).toMatchObject({ total: 256, limit: 256, items: { physicalAndVisual: 84,
+      'composition.identity.actual.propTokens': 83, 'composition.appearance.propSources': 83,
+      'composition.appearance.sources': 3, 'composition.appearance.presentations': 2, 'composition.identity.lineage': 1 } })
+    expect(() => assertTerrainBudget(empty, accepted.document)).toThrow(/缺少真实历史身份/)
+    const overLimit = cloneJson(accepted.document); addNote(overLimit, 'budget-note-2')
+    // Strict complete validation proves refusal is the atomic budget, not malformed scene data.
+    const rejected = await fromBundle(complete(overLimit), validation), rejectedMetadata = { before: baseline, after: rejected }
+    expect(terrainCommandCost(empty, rejected.document, rejectedMetadata).total).toBe(257)
+    expect(() => assertTerrainBudget(empty, rejected.document, rejectedMetadata)).toThrow(/257.*256/)
     expect(Object.keys(empty.props)).toHaveLength(0)
-    expect(Object.keys(accepted.document.props)).toHaveLength(256)
+    expect(Object.keys(accepted.document.notes)).toHaveLength(1)
+  })
+
+  it.each([1, 2, 3] as const)('refuses algorithm%s installation above 256 without changing current or persistent data', async algorithmVersion => {
+    const { repo, workspace } = await setup(), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
+    const base = await refinedBase(), list = await repo.list(), saving = vi.spyOn(repo, 'save')
+    await expect(workspace.previewTerrainGeneration(base, { sceneId: base.document.sceneId, kind: 'island', seed: TERRAIN_FIXED_SEEDS[0], algorithmVersion })).rejects.toThrow(/超过256/)
+    expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
+    expect(saving).not.toHaveBeenCalled(); expect(await repo.list()).toEqual(list)
+    expect(await repo.load(base.document.sceneId)).toBeNull()
   })
 })

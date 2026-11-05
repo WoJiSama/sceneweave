@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import { openingEndpoints } from '../geometry/geometry.js'
@@ -6,14 +7,13 @@ import { validateSceneDocument } from '../validation/scene.js'
 import { applyCommands, type SceneCommand } from './commands.js'
 import { applyBuildingCommand, buildingDependants, inspectBuildingChanges, previewBuildingCommands } from './building.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
-import { emptyVisualSystem } from '../visual/types.js'
 import { sampleVisualBoundary } from '../visual/geometry.js'
 
 const floorId = 'blank-floor', layerId = 'layer-default-0'
 let sequence = 0
 const runtime = () => ({ ids: { nextId: () => `building-test-${++sequence}` }, clock: { now: () => '2026-11-02T00:00:00.000Z' } })
 function native(scene: ReturnType<typeof layerSceneV3>): SceneDocument {
-  return { ...cloneJson(scene), format: 'sceneweave-scene', schemaVersion: 1 }
+  return toCurrentSceneDocument({ ...cloneJson(scene), format: 'sceneweave-scene' })
 }
 function fixture(): SceneDocument {
   const scene = native(layerSceneV3())
@@ -51,15 +51,14 @@ function wallAt(scene: SceneDocument, a: PointMm, b: PointMm): Wall {
 describe('native building edits', () => {
   it('reports a transformed room path, its visual source and unchanged edge look on their real layers', () => {
     const source = adjacentRooms()
-    source.schemaVersion = 2; source.visual = emptyVisualSystem()
     source.userLayers.visualLayer = { id: 'visualLayer', floorId, name: '曲线与边带', order: 1, editLocked: false }
     const start = { x: 3000, y: 4000 }, end = { x: 6000, y: 4000 }
-    source.visual.boundaries.curve = { id: 'curve', floorId, layerId: 'visualLayer', editLocked: false, visibility: 'public',
+    source.visual.base.base.boundaries.curve = { id: 'curve', floorId, layerId: 'visualLayer', editLocked: false, visibility: 'public',
       closed: false, sampleSpacingMm: 1000, toleranceMm: 100, binding: { kind: 'path', pathId: 'road' },
       segments: [{ id: 'curve-segment', start, control1: start, control2: end, end }] }
-    source.visual.edgeLooks.look = { id: 'look', floorId, layerId: 'visualLayer', editLocked: false, visibility: 'public',
+    source.visual.base.base.edgeLooks.look = { id: 'look', floorId, layerId: 'visualLayer', editLocked: false, visibility: 'public',
       boundaryId: 'curve', kind: 'path', side: 'both', widthMm: 100, color: '#112233', accentColor: '#445566', opacity: 1, intensity: 1, seed: 'fixed', repeatMm: 500, enabled: true }
-    source.paths.road = { id: 'road', floorId, editLocked: false, visibility: 'public', centerlineMm: sampleVisualBoundary(source.visual.boundaries.curve).points,
+    source.paths.road = { id: 'road', floorId, editLocked: false, visibility: 'public', centerlineMm: sampleVisualBoundary(source.visual.base.base.boundaries.curve).points,
       widthMm: 200, supportRefs: [{ kind: 'room', id: 'a' }], surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 }
     source.entityLayers.road = layerId
     expect(validateSceneDocument(source).ok).toBe(true)
@@ -69,7 +68,7 @@ describe('native building edits', () => {
     expect(impact.affectedIds).toEqual(expect.arrayContaining(['a', 'b', 'road', 'curve', 'look']))
     expect(impact.changedIds).toContain('curve'); expect(impact.changedIds).not.toContain('look')
     expect(impact.layerIds).toEqual(expect.arrayContaining([layerId, 'visualLayer']))
-    expect(next.visual?.version === 1 && next.visual.edgeLooks.look).toEqual(source.visual.edgeLooks.look)
+    expect(next.visual.base.base.edgeLooks.look).toEqual(source.visual.base.base.edgeLooks.look)
   })
 
   it('transforms a shared building with the attached opening and room-supported objects in one exact quarter-turn', () => {

@@ -33,7 +33,7 @@ function hasManualIslandRoute(scene: SceneDocument): boolean {
   const islandAreaIds = new Set(Object.values(generation?.rules ?? {}).flatMap(rule => {
     const recipe = generation!.recipes[rule.recipeRef.id]
     return rule.kind === 'terrain' && recipe?.algorithmId === 'terrain-scene' && recipe.algorithmVersion === 5
-      && recipe.recipeVersion === 5 && rule.recipeRef.version === 5 && recipe.parameters.terrainKind === 'island'
+      && recipe.recipeVersion === 5 && rule.recipeRef.version === 5 && !('domain' in recipe) && recipe.parameters.terrainKind === 'island'
       ? rule.outputs.filter(ref => ref.kind === 'terrainArea' && ref.parentId === null).map(ref => ref.entityId) : []
   }))
   return Object.values(scene.terrainConnections).some(connection => connection.kind === 'stairs' && connection.route
@@ -154,19 +154,19 @@ function selectSeedWithMembers(preview: SceneDocument, fixed: PreparedPlant, clu
   return best.seed
 }
 
-/** V8-only island dressing that retains v2 physical and route outputs but stores crown ground and plants as editable surface rules. */
+/** Current island surface dressing that retains v2 physical and route outputs but stores crown ground and plants as editable surface rules. */
 export function buildIslandSurfaceDressingCommandsV1(scene: SceneDocument, options: { nextId: () => string; appearance: AppearanceGraph }): {
   version: typeof ISLAND_SURFACE_DRESSING_PRESET_V1
   sourceHash: string
   commands: SceneCommand[]
   report: string
 } {
-  if (scene.schemaVersion !== 8 || scene.mapMode !== 'scene') throw new Error('岩岛连续地表布景需要完整v8场景。')
+  if (scene.mapMode !== 'scene') throw new Error('岩岛连续地表布景需要完整场景。')
   if (hasIslandSurfaceDressingV1(scene)) throw new Error('此岩岛已应用连续地表布景配方；请编辑现有区域规则，不能重复追加。')
 
   // V2 owns the real island source, natural-rock route, edge treatment and lower cluster.
-  // Its strict eligibility ends at v7, so only the disposable read view is downgraded.
-  const v2View: SceneDocument = { ...cloneJson(scene), schemaVersion: 7 }
+  // Its current strict input is used, so only the disposable read view is downgraded.
+  const v2View: SceneDocument = cloneJson(scene)
   const priorV2Routes = hasV2Route(scene)
   if (priorV2Routes.length > 1) throw new Error('岩岛包含多个既有v2生成路线，无法确定布景连接。')
   if (!priorV2Routes.length && hasManualIslandRoute(scene)) throw new Error('岩岛楼梯已有人工路线，请保留并单独编辑，不能由自动布景覆盖。')
@@ -188,7 +188,7 @@ export function buildIslandSurfaceDressingCommandsV1(scene: SceneDocument, optio
     const sourceRules = Object.values(generation?.rules ?? {}).filter(rule => {
       const recipe = generation!.recipes[rule.recipeRef.id]
       return rule.kind === 'terrain' && recipe?.algorithmId === 'terrain-scene' && recipe.algorithmVersion === 5
-        && recipe.recipeVersion === 5 && rule.recipeRef.version === 5 && recipe.parameters.terrainKind === 'island'
+        && recipe.recipeVersion === 5 && rule.recipeRef.version === 5 && !('domain' in recipe) && recipe.parameters.terrainKind === 'island'
     })
     if (sourceRules.length === 1 && sourceRules[0].state === 'paused') sourceRules[0].state = 'active'
   }

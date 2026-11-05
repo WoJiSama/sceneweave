@@ -105,7 +105,7 @@ export function createIslandCliffDetailEdge(boundary: VisualBoundary, look: Visu
 
 /** One explicit, bounded candidate for the highest public island crown. */
 export function buildIslandCliffDetailCommands(scene: SceneDocument, options: { nextId: () => string }): { commands: SceneCommand[]; report: string } {
-  if (scene.schemaVersion < 6 || scene.visual?.version !== 3) throw new Error('岩岛崖面细化需要完整v6或更新场景。')
+  if (scene.visual?.version !== 3) throw new Error('岩岛崖面细化需要完整视觉场景。')
   const visual = visualBase(scene), legacy = getLegacyVisual(scene), crown = Object.values(scene.terrainAreas)
     .filter(area => area.floorId === Object.values(scene.floors)[0]?.id).sort((a, b) => b.groundElevationMm - a.groundElevationMm)[0]
   if (!visual || !legacy || !crown) throw new Error('岩岛缺少完整视觉系统或高台支撑。')

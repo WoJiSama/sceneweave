@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { volcanoParametersSchema } from '../generation/domains/volcano/contracts.js'
+import { interiorLayoutParametersSchema, interiorFurnitureRoleSchema } from '../generation/domains/interior/contracts.js'
+import { forestParametersSchema, forestPaletteRoleSchema } from '../generation/domains/forest/contracts.js'
 
 /** Strict persisted terrain contracts. Algorithms, platform IO and scene validation are separate. */
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留 ID')
@@ -24,12 +27,13 @@ export const TERRAIN_CONTRACT_LIMITS = Object.freeze({ rules: 256, records: 8192
   edgeRecords: 128, edgePoints: 8192, identityRecords: 65536, normalizedBytes: 4 * 1024 * 1024 })
 export const generationFieldGroupSchema = z.enum(['geometry', 'properties', 'surface', 'appearance', 'membership', 'exclusions', 'presentation', 'source'])
 export const generationReferenceSchema = z.object({ kind: z.enum(['terrainArea', 'terrainPoint', 'terrainSegment', 'terrainEdge', 'terrainConnection', 'path',
-  'prop', 'scatterGroup', 'scatterMember', 'surfaceOverlay', 'visualBoundary', 'visualEdgeLook', 'materializedEdge', 'regionalArea', 'regionalLine', 'regionalLandmark', 'regionalSymbol']),
+  'prop', 'scatterGroup', 'scatterMember', 'surfaceOverlay', 'visualBoundary', 'visualEdgeLook', 'materializedEdge', 'regionalArea', 'regionalLine', 'regionalLandmark', 'regionalSymbol',
+  'room', 'wall', 'vertex', 'opening', 'region', 'surfaceRule', 'decorationCluster', 'decoration']),
   entityId: id, parentId: id.nullable(), fieldGroup: generationFieldGroupSchema }).strict()
 const referenceList = z.array(generationReferenceSchema).max(8192).refine(unique, '引用不能重复')
 export const generationParametersSchema = z.object({ widthMm: nonnegative, minWidthMm: nonnegative, maxWidthMm: nonnegative,
   roughness: unit, densityFactor: unit }).strict().refine(value => value.minWidthMm <= value.maxWidthMm, '宽度范围无效')
-export const generationRecipeSchema = z.object({ id, recipeVersion: positive, algorithmId: id, algorithmVersion: positive,
+export const naturalGenerationRecipeSchema = z.object({ id, recipeVersion: positive, algorithmId: id, algorithmVersion: positive,
   mapMode: z.enum(['scene', 'regional']), seed: z.string().min(1).max(128),
   parameters: z.object({ terrainKind: z.enum(['island', 'coast', 'river', 'lake', 'forest', 'hill', 'mixed']),
     seaElevationMm: int, landElevationMm: int, plateauElevationMm: int, roughness: unit, densityFactor: unit,
@@ -38,12 +42,33 @@ export const generationRecipeSchema = z.object({ id, recipeVersion: positive, al
   props: z.array(z.object({ role: z.enum(['tree', 'rock', 'shrub', 'debris']), ref: versionRef }).strict()).max(64).refine(unique),
   precision: z.object({ sampleSpacingMm: positive, toleranceMm: positive, noiseCellMm: positive }).strict(),
 }).strict()
+/** Independent domain source; old natural records retain their exact shape. */
+export const interiorGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+  domain: z.literal('interior'), recipeVersion: z.literal(2), algorithmId: z.literal('interior-layout'), algorithmVersion: z.literal(2), mapMode: z.literal('scene'),
+  parameters: interiorLayoutParametersSchema,
+  materials: z.array(z.object({ role: z.enum(['floor', 'wall']), ref: versionRef }).strict()).max(2).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
+  props: z.array(z.object({ role: interiorFurnitureRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
+}).strict()
+export const forestGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+  domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
+  parameters: forestParametersSchema,
+  materials: z.array(z.object({ role: z.enum(['ground', 'path']), ref: versionRef }).strict()).max(17).refine(unique),
+  props: z.array(z.object({ role: forestPaletteRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
+}).strict()
+export const volcanoGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+  domain: z.literal('volcano'), recipeVersion: z.literal(1), algorithmId: z.literal('volcano-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
+  parameters: volcanoParametersSchema,
+  materials: z.array(z.object({ role: z.enum(['ground', 'mountain', 'crater', 'platform', 'flow', 'route']), ref: versionRef }).strict()).length(6).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
+  props: z.array(z.never()).max(0),
+}).strict()
+export const generationRecipeSchema = z.union([naturalGenerationRecipeSchema, interiorGenerationRecipeSchema, forestGenerationRecipeSchema, volcanoGenerationRecipeSchema])
+export type NaturalGenerationRecipe = z.infer<typeof naturalGenerationRecipeSchema>
 export const generationIntentSchema = z.object({ id, floorId: id, visibility, boundsMm: bounds,
   skeleton: z.array(z.object({ id, kind: z.enum(['landmass', 'plateau', 'bay', 'channel', 'ridge', 'forest']),
     positionMm: point, radiusMm: positive, directionDeg: z.number().finite().min(0).lt(360) }).strict()).max(128),
   constraintIds: z.array(id).max(256).refine(unique), preserveIds: z.array(id).max(256).refine(unique),
 }).strict()
-export const generationRuleSchema = z.object({ ...common, kind: z.enum(['terrain', 'transition', 'edge', 'scatter', 'route', 'regional']),
+export const generationRuleSchema = z.object({ ...common, kind: z.enum(['terrain', 'transition', 'edge', 'scatter', 'route', 'regional', 'building', 'forest', 'volcano']),
   recipeRef: versionRef, inputs: referenceList, outputs: referenceList, parameters: generationParametersSchema,
   state: z.enum(['active', 'paused', 'detached']), inputHash: hash, managedOutputHash: hash,
 }).strict()
@@ -235,7 +260,8 @@ export type MaterializedEdge = z.infer<typeof materializedEdgeSchema>
 export interface VisualSystem2<TBase> { version: 2; base: TBase; materializedEdges: Record<string, MaterializedEdge> }
 
 export const GENERATION_IDENTITY_KINDS = ['generationRecipe', 'generationIntent', 'generationSkeleton', 'generationRule', 'outputOwnership',
-  'generationExclusion', 'generationStroke', 'surroundingsOperation', 'topologyOperation', 'terrainConstraint', 'constraintCheck', 'sourceRegionLink', 'sourceRegionFeature'] as const
+  'generationExclusion', 'generationStroke', 'surroundingsOperation', 'topologyOperation', 'terrainConstraint', 'constraintCheck', 'sourceRegionLink', 'sourceRegionFeature',
+  'generatedRoom', 'generatedWall', 'generatedVertex', 'generatedOpening'] as const
 export const REGIONAL_IDENTITY_KINDS = ['regionalArea', 'regionalLine', 'regionalPoint', 'regionalLandmark', 'regionalSymbol'] as const
 export const PRESENTATION_IDENTITY_KINDS = ['surfaceOverlay', 'materializedEdge', 'materializedStroke'] as const
 export const extendedIdentityTokenSchema = z.object({ kind: z.enum([...GENERATION_IDENTITY_KINDS, ...REGIONAL_IDENTITY_KINDS, ...PRESENTATION_IDENTITY_KINDS]),

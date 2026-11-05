@@ -102,7 +102,7 @@ const classifyMaterial = (scene: SceneDocument, area: TerrainArea): SurfaceKind 
 }
 
 const sceneVisual3 = (scene: SceneDocument) => {
-  if (![4, 5, 6, 7, 8].includes(scene.schemaVersion) || scene.visual?.version !== 3) throw new Error('地形过渡必须在严格scene4–8/visual3工程中生成。')
+  if (scene.visual?.version !== 3) throw new Error('地形过渡必须在严格visual3工程中生成。')
   return scene.visual
 }
 const visualBoundary = (scene: SceneDocument, id: string): VisualBoundary => {

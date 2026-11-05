@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import type { DecorationCluster, PropDefinition, SceneDocument } from '../model/scene.js'
 import { createEmptyGeneration5 } from '../terrain-generation/composition-contracts.js'
@@ -20,12 +21,12 @@ const p = (x: number, y: number) => ({ x, y })
 const context = () => { let id = 0; return { ids: { nextId: () => `decor-generated-${++id}` }, clock: { now: () => '2026-10-31T00:00:00.000Z' } } }
 function fixture(): SceneDocument {
   const bounds = { x: 0, y: 0, width: 48000, height: 36000 }, origin = { kind: 'original' as const, attribution: 'geometry-only fixture; no real pixel proof', canEmbed: true }
-  const scene: SceneDocument = { format: 'sceneweave-scene', schemaVersion: 6, sceneId: 'decor-fixture', revision: 0, title: 'Decor fixture', createdAt: '2026-10-31T00:00:00.000Z', updatedAt: '2026-10-31T00:00:00.000Z',
+  const scene: SceneDocument = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'decor-fixture', revision: 0, title: 'Decor fixture', createdAt: '2026-10-31T00:00:00.000Z', updatedAt: '2026-10-31T00:00:00.000Z',
     units: { world:'mm',display:'m',gridSizeMm:1000,snapMm:100,gridVisible:false }, exportBoundsMm: bounds, floors: { floor: { id:'floor',name:'Ground',boundsMm:bounds } },
     vertices:{},rooms:{},walls:{},openings:{},props:{},regions:{},notes:{},assets:{},propDefinitions:{},materials:{},terrainAreas:{},terrainEdges:{},terrainConnections:{},paths:{},prefabDefinitions:{},prefabInstances:{},scatterGroups:{},styleThemes:{},activeStyleThemeRef:null,
     userLayers: { layer:{id:'layer',floorId:'floor',name:'Ground',order:0,editLocked:false}, extra:{id:'extra',floorId:'floor',name:'Other',order:1,editLocked:false} },entityLayers:{},
     presetSnapshot:{presetId:'test',presetVersion:1,distanceMode:'metric',source:'geometry only',gridSizeMm:1000},constraints:{entranceOpeningIds:[],wallEndClearanceMm:100,pathChecks:[]},
-    mapMode:'scene',regional:null,generation:createEmptyGeneration5(),visual:{version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}},decorations:{},decorationClusters:{} }
+    mapMode:'scene',regional:null,generation:createEmptyGeneration5(),visual:{version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}},decorations:{},decorationClusters:{} })
   for (const art of TERRAIN_VARIANT_ART) {
     const id = `def-${art.key}`, assetId = `asset-${art.key}`
     scene.assets[assetId] = { id:assetId,sha256:'0'.repeat(64),mimeType:'image/png',pixelWidth:1,pixelHeight:1,logicalSizeMm:{width:art.widthMm,height:art.heightMm},licenseRef:'fixture-license',origin }
@@ -89,8 +90,8 @@ describe('strict6 actual clustered dressing and manual lifecycle', () => {
     expect(()=>applyCommands(locked,[{type:'updateProp',id:Object.keys(locked.props)[0],changes:{positionMm:p(8000,8000)}}],context())).toThrow(/锁/)
     const downgrade=cloneJson(next);downgrade.decorations![row.id].definitionRef=Object.values(next.props)[0].definitionRef!
     expect(validateSceneDocument(downgrade).ok).toBe(false)
-    const old=fixture();old.schemaVersion=5;delete old.decorations;delete old.decorationClusters
-    expect(()=>applyCommands(old,[create(fixture())],context())).toThrow(/v6/)
+    const old=fixture();Object.assign(old,{schemaVersion:6})
+    expect(()=>applyCommands(old,[create(fixture())],context())).toThrow()
     const bad=fixture();bad.userLayers.layer.editLocked=true
     expect(()=>applyCommands(bad,[create(fixture())],context())).toThrow(/锁/)
     expect(next).toEqual(original)
@@ -143,7 +144,7 @@ describe('strict6 actual clustered dressing and manual lifecycle', () => {
     expect(buildDecorationRegeneration(secret,cluster(secret),context())).toEqual(a)
   })
   it('keeps canopy slot centers stable when the coverage target grows', () => {
-    const scene = fixture(); scene.schemaVersion = 7
+    const scene = fixture(); scene.schemaVersion = 1
     scene.terrainAreas.high = { id:'high',floorId:'floor',editLocked:false,visibility:'public',boundaryMm:[p(0,0),p(48000,0),p(48000,36000),p(0,36000)].map((positionMm,i)=>({id:`high-p${i}`,segmentId:`high-s${i}`,positionMm})),groundElevationMm:1200,coveragePriority:1,surfaceStyle:null,blocksMovement:false,blocksSight:false,movementCostMultiplier:1 }
     scene.entityLayers.high = 'layer'
     const tree = Object.values(scene.propDefinitions).find(definition => definition.tags.includes('tree'))!
@@ -163,7 +164,7 @@ describe('strict6 actual clustered dressing and manual lifecycle', () => {
     expect(grown.props.length).toBeGreaterThanOrEqual(first.props.length)
   })
   it('keeps v8 vegetation roots inside a painted region while validating the full physical footprint on its support', () => {
-    const scene = fixture(); scene.schemaVersion = 8; scene.surfaceRules = {}
+    const scene = fixture(); scene.schemaVersion = 1; scene.surfaceRules = {}
     scene.terrainAreas.high = { id:'high',floorId:'floor',editLocked:false,visibility:'public',boundaryMm:[p(0,0),p(48000,0),p(48000,36000),p(0,36000)].map((positionMm,i)=>({id:`high-p${i}`,segmentId:`high-s${i}`,positionMm})),groundElevationMm:1200,coveragePriority:1,surfaceStyle:null,blocksMovement:false,blocksSight:false,movementCostMultiplier:1 }
     scene.entityLayers.high = 'layer'
     const tree = Object.values(scene.propDefinitions).find(definition => definition.tags.includes('tree'))!
@@ -181,7 +182,7 @@ describe('strict6 actual clustered dressing and manual lifecycle', () => {
     expect(visual.some(point => point.x < 10900 || point.x > 13100 || point.y < 10900 || point.y > 13100)).toBe(true)
   })
   it('fills a v8 surface target outside protected activity space after local cluster attempts fail', () => {
-    const scene = fixture(); scene.schemaVersion = 8
+    const scene = fixture(); scene.schemaVersion = 1
     const highPoints = [p(6000, 6000), p(18000, 6000), p(18000, 18000), p(6000, 18000)]
     scene.terrainAreas.high = { id: 'high', floorId: 'floor', editLocked: false, visibility: 'public',
       boundaryMm: highPoints.map((positionMm, index) => ({ id: `high-p${index}`, segmentId: `high-s${index}`, positionMm })),

@@ -3,7 +3,7 @@ export interface BaseMapGenerationSettingsValue {
   baseUrl: string
   token: string
   quality?: 'standard' | 'detailed'
-  surfacePalette?: 'shore' | 'classic' | 'surface-rules'
+  surfacePalette?: 'shore' | 'classic' | 'surface-rules' | 'highland-v7'
   budgetMode?: 'auto' | 'small' | 'standard' | 'expanded'
 }
 
@@ -21,9 +21,10 @@ export default function BaseMapGenerationSettings({ value, disabled, onChange }:
       <option value="server">服务端生成 · 不调用模型</option>
     </select></label>
     <label>地表配方<select aria-label="程序底图地表外观" value={value.surfacePalette ?? 'shore'} disabled={disabled}
-      onChange={event => onChange({ ...value, surfacePalette: event.target.value as 'shore' | 'classic' | 'surface-rules' })}>
+      onChange={event => onChange({ ...value, surfacePalette: event.target.value as 'shore' | 'classic' | 'surface-rules' | 'highland-v7' })}>
       <option value="shore">岸岩层次 · 暖岩、草缘与浅水</option><option value="classic">经典外观</option>
       <option value="surface-rules">可编辑覆盖与区域布景</option>
+      <option value="highland-v7">高台植被与岩阶过渡 v7</option>
     </select></label>
     <label>画面细节<select aria-label="程序底图画面细节" value={value.quality ?? 'standard'} disabled={disabled}
       onChange={event => onChange({ ...value, quality: event.target.value as 'standard' | 'detailed' })}>
@@ -34,9 +35,11 @@ export default function BaseMapGenerationSettings({ value, disabled, onChange }:
       <option value="auto">自动 · 按地图和本机检测选择</option><option value="small">较小容量 · 节省资源</option>
       <option value="standard">标准容量</option><option value="expanded">扩展容量</option>
     </select></label>
-    {(value.surfacePalette ?? 'shore') !== 'classic' && <p>{value.surfacePalette === 'surface-rules' ? '规则地表会保存连续材质覆盖与区域植物簇；生成前校验素材、许可和预算。' : '岸岩层次会保存完整岸带覆盖。'}自动模式至少使用标准容量。</p>}
+    {(value.surfacePalette ?? 'shore') !== 'classic' && <p>{value.surfacePalette === 'surface-rules' ? '规则地表会保存连续材质覆盖与区域植物簇；生成前校验素材、许可和预算。' : value.surfacePalette === 'highland-v7' ? '高台树冠规则、受约束候选搜索与岩阶/崖缘视觉采用独立配方版本；v6 固定结果保持可重放。' : '岸岩层次会保存完整岸带覆盖。'}自动模式至少使用标准容量。</p>}
     <p>{value.surfacePalette === 'surface-rules'
-      ? '本次容量在开始前确定，画面细节不会在生成中自动降低。此配方保存连续地表和区域植被规则；当前 AI 接续尚不支持这一工程格式，生成后可直接采用并继续手工编辑。'
+      ? '本次容量在开始前确定，画面细节不会在生成中自动降低。此配方保存连续地表和区域植被规则；当前 AI 接续尚不支持这些规则，生成后可直接采用并继续手工编辑。'
+      : value.surfacePalette === 'highland-v7'
+        ? '本次容量在开始前确定，画面细节不会在生成中自动降低。高台与连接表现使用独立配方；此候选含区域植被规则，当前可直接采用并继续手工编辑，AI 接续尚未开放。'
       : '本次容量在开始前确定，画面细节不会在生成中自动降低。生成后可直接采用底图，也可连接支持接续的 AI，在明确授权范围内继续修改。失败或取消 AI 仍保留合法底图。'}</p>
     {value.mode === 'server' && <>
       <label>后端地址<input aria-label="程序底图后端地址" type="url" placeholder="https://your-server.example" value={value.baseUrl} disabled={disabled}

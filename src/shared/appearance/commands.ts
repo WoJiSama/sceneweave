@@ -225,7 +225,6 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     // mappings, presentations or adjustments. Only this owned, fully checked
     // input may carry the unchanged graph through to final draft validation.
     const unchangedAppearance = ownedDraft && sceneCommands.every(command => command.type === 'updateProp')
-    const syncBuildingPerCommand = source.document.schemaVersion < 4 && sceneCommands.some(command => command.type === 'transformBuilding')
     const fixedUprightPropIds = new Set([
       ...Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'),
       ...Object.values(source.document.decorations ?? {}).filter(row => definitionPresentation(source.appearance, row.definitionRef)?.mode === 'nearSide').map(row => row.id),
@@ -233,7 +232,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     let accounting = source
     const observer = { budget, fixedUprightPropIds, appearance: source.appearance, onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
       onSceneDraft?.(draft, command, commandCost)
-      if (source.document.schemaVersion >= 4) {
+
         // The observer's draft is reused by later commands; retain an owned
         // scene snapshot for the next per-command cost comparison.
         const snapshot = { document: draft as SceneDocument, historyIdentity: identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }
@@ -244,39 +243,17 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         const physicalCost = commandCost - (estimated.total - estimated.items.physicalAndVisual)
         consume(Math.max(1, physicalCost, actual.items.physicalAndVisual) + actual.total - actual.items.physicalAndVisual)
         accounting = next
-      } else {
-        if (source.document.schemaVersion >= 3) consume(commandCost)
-        identityTrace.observe(draft)
-        // A preceding edit can join buildings and a later edit can separate
-        // them. Preserve each transform's actual scope without changing the
-        // legacy budget or requiring intermediate structural validity.
-        if (syncBuildingPerCommand) accounting = syncAppearanceGraph({ document: draft as SceneDocument, historyIdentity: accounting.historyIdentity, appearance: accounting.appearance }, accounting.document, [command])
-      }
     } }
     content.document = ownedDraft
       ? applySnapshotCommands(source.document, sceneCommands, context, { ...observer, preserveNoopIdentity: false })
       : applyCommands(source.document, sceneCommands, context, observer)
-    if (source.document.schemaVersion < 3) {
-      const previousEntities = new Map(enumerateLayerEntities(source.document).map(entity => [entity.id, entity]))
-      const currentEntities = new Map(enumerateLayerEntities(content.document).map(entity => [entity.id, entity]))
-      const equalEntity = ownedDraft ? equalOwnedEntity : equalCompositionValue
-      const changed = new Set([...previousEntities.keys(), ...currentEntities.keys()].filter(id => !equalEntity(previousEntities.get(id), currentEntities.get(id))))
-      // Relationship-only operations still touch their members even when their JSON is otherwise unchanged.
-      for (const command of sceneCommands) if (command.type === 'unpackPrefab') {
-        changed.add(command.id)
-        for (const member of Object.values(source.document.prefabInstances[command.id]?.members ?? {})) if (member.propId !== null) changed.add(member.propId)
-      }
-      consume(Math.max(commands.length, changed.size))
-    }
-    content = source.document.schemaVersion >= 4 ? accounting : syncBuildingPerCommand ? { ...content, appearance: accounting.appearance } : unchangedAppearance ? content : ownedDraft
-      ? syncAppearanceGraphSnapshot(content, source.document, sceneCommands)
-      : syncAppearanceGraph(content, source.document, sceneCommands)
+    content = accounting
   } else {
     const appearanceOnly = commands.every(command => ['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource'].includes(command.type))
     const anyAppearance = commands.some(command => ['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource'].includes(command.type))
     if (anyAppearance && !appearanceOnly) throw new Error('新外观派生须先完成资源准备，再保存/放置固定组合。')
     for (const command of commands) {
-      const beforeTerrain = content.document.schemaVersion >= 3 ? cloneJson(content) : null, beforeCost = cost
+      const beforeTerrain = cloneJson(content), beforeCost = cost
       switch (command.type) {
         case 'setAppearanceAdjustment': case 'toggleAppearanceAdjustment': case 'removeAppearanceAdjustment': {
           const graph = content.appearance, record = command.scope.kind === 'layer' ? graph.layerAdjustments : graph.instanceAdjustments
@@ -347,23 +324,23 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         consume(refreshNativeDerivedTransitions(beforeTerrain.document, content.document))
         detachChangedAppearance(beforeTerrain, content)
         pauseChangedCompositionAppearance(beforeTerrain, content)
-        if (content.document.schemaVersion >= 4) content.historyIdentity = identityTrace.finish(content.document)
+        content.historyIdentity = identityTrace.finish(content.document)
         const expanded = terrainCommandCost(beforeTerrain.document, content.document, { before: beforeTerrain, after: content })
         consume(Math.max(1, cost - beforeCost, expanded.items.physicalAndVisual) - (cost - beforeCost))
         generationCost += expanded.total - expanded.items.physicalAndVisual
         if (!budget && initialCost + cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
       }
-      if (content.document.schemaVersion < 4) identityTrace.observe(content.document)
+      if (false) identityTrace.observe(content.document)
     }
     const beforeSync = content
     content = syncAppearanceGraph(content)
-    if (content.document.schemaVersion >= 4) {
+    {
       generationCost += terrainCommandCost(beforeSync.document, content.document, { before: beforeSync, after: content }).total
       if (!budget && initialCost + cost + generationCost > 256) throw new Error('固定源保全与组合事务累计展开超过256条操作预算。')
     }
   }
   let operationCost = cost + generationCost
-  if (content.document.schemaVersion >= 3) {
+  {
     // Snapshot-command results can already be privately frozen. Detachment
     // owns a detached generation branch rather than mutating that witness.
     const beforeFinal = content

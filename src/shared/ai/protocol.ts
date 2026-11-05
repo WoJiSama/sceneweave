@@ -85,10 +85,10 @@ export type ControlTaskRequest = z.infer<typeof ControlTaskSchema>
 export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), visionModel: z.string().min(1).max(128).optional(), reasoningEffort: ReasoningEffortSchema.nullable().optional(), authoringOutputTokens: z.number().int().min(1).max(AUTHORING_LIMITS.maxOutputTokensPerRequest).optional(), protocol: z.literal('chat-completions'),
   capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']), taskReasoningEffort: z.literal(true).optional(),
     surfaceRecipeVersions: z.array(z.literal(1)).min(1).max(1).optional(),
-    baseMapSelectors: z.array(z.enum(['terrain-scene-v6', 'terrain-compose-v6'])).min(1).max(2).refine(values => new Set(values).size === values.length).optional(),
+    baseMapSelectors: z.array(z.enum(['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7'])).min(1).max(4).refine(values => new Set(values).size === values.length).optional(),
     authoringVersions: z.array(z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])).min(1).max(4).refine(values => new Set(values).size === values.length).optional(),
     currentAuthoring: z.literal('sceneweave-current-authoring@1').optional(),
-    completeProjectVersions: z.array(z.union([z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7)])).min(1).max(5).refine(values => new Set(values).size === values.length).optional(),
+    completeProjectVersions: z.array(z.literal(1)).min(1).max(1).refine(values => new Set(values).size === values.length).optional(),
     visualReviewVersions: z.array(z.literal(1)).min(1).max(1).optional(),
     baseMapVersions: z.array(z.union([z.literal(1), z.literal(2), z.literal(3)])).min(1).max(3).refine(values => new Set(values).size === values.length).optional(),
     budgetProfileHashes: z.array(executionHash).max(8).refine(values => new Set(values).size === values.length).optional(),
@@ -107,10 +107,12 @@ export function requiredSurfaceRecipeVersion(generation: unknown): 1 | undefined
     || generation.kind === 'composition' && 'recipeVersion' in input && input.recipeVersion === 5 ? 1 : undefined
 }
 /** Exact v6 generators have a separate base-map capability, not an AI surface grant. */
-export function requiredBaseMapSelector(generation: unknown): 'terrain-scene-v6' | 'terrain-compose-v6' | undefined {
+export function requiredBaseMapSelector(generation: unknown): 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | undefined {
   if (!generation || typeof generation !== 'object' || !('kind' in generation) || !('input' in generation)) return undefined
   const input = generation.input
   if (!input || typeof input !== 'object') return undefined
   return generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 6 ? 'terrain-scene-v6'
-    : generation.kind === 'composition' && 'recipeVersion' in input && input.recipeVersion === 6 ? 'terrain-compose-v6' : undefined
+    : generation.kind === 'composition' && 'recipeVersion' in input && input.recipeVersion === 6 ? 'terrain-compose-v6'
+      : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 7 ? 'terrain-scene-v7'
+        : generation.kind === 'composition' && 'recipeVersion' in input && input.recipeVersion === 7 ? 'terrain-compose-v7' : undefined
 }

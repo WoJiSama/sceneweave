@@ -17,6 +17,7 @@ import { projectScene } from '../../shared/projection/projection.js'
 import { cloneJson, encodeUtf8, canonicalJson } from '../../shared/validation/json.js'
 import { emptyTerrainDocument } from '../../shared/terrain-generation/compose.js'
 import { createEmptyRegional } from '../../shared/terrain-generation/contracts.js'
+import { terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 import { exportProject, importProject } from '../../shared/project/file.js'
 import { compareRegionalSource, prepareRegionalDrillDown } from './regional.js'
 import { advanceHistoryIdentity } from '../../shared/history/identity.js'
@@ -37,7 +38,7 @@ async function palette(regional: boolean): Promise<EditableProject> {
     }
   }
   const content = createCompositionContent(document, runtime), text = 'T5 actual PNG transaction fixture', licenseHash = sha256Bytes(encodeUtf8(text))
-  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: regional ? 3 : 2, ...content,
+  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
     assets: { [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } },
     licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: inspectDependencies(document).subjects.map(subject => ({ ...subject, licensePath: 'licenses/' + licenseHash + '.txt', embedding: 'allowed' as const })), authoringSources: {} }, resources: createMemoryResources(new Map([[hash, bytes]])) }, validation)
 }
@@ -65,9 +66,11 @@ afterEach(async () => {
 describe('T5 protected regional workspace and independent child', () => {
   it.each(['riverlands', 'lakewood', 'highlands'] as const)('previews %s without writes, adopts a complete independent package once', async preset => {
     const { repo, workspace } = await setup(), current = workspace.getState().project!, checkpoint = workspace.checkpoint(), hash = projectContentHash(toBundle(current).project)
-    const save = vi.spyOn(repo, 'save'), preview = await workspace.previewRegionalCreate(await palette(true), { preset, seed: 't5-three-inputs', widthMm: 1_000_000, heightMm: 800_000 })
+    const base = await palette(true), save = vi.spyOn(repo, 'save'), preview = await workspace.previewRegionalCreate(base, { preset, seed: 't5-three-inputs', widthMm: 1_000_000, heightMm: 800_000 })
     expect(save).not.toHaveBeenCalled(); expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
     expect(preview.project.document.mapMode).toBe('regional'); expect(preview.cost.total).toBeLessThanOrEqual(256)
+    expect(preview.cost).toEqual(terrainCommandCost(base.document, preview.document, { before: base, after: preview.project }))
+    expect(preview.cost.items['composition.identity.actual.regionalTokens']).toBeGreaterThan(0)
     expect(Object.keys(preview.project.document.regional!.symbols)).toHaveLength(2); expect(Object.keys(preview.project.document.regional!.landmarks)).toHaveLength(1)
     await expect(workspace.adoptRegional({ ...preview })).rejects.toThrow(/本会话/)
     await workspace.adoptRegional(preview)
@@ -97,6 +100,7 @@ describe('T5 protected regional workspace and independent child', () => {
   it('protects a same-scene edit with CAS and one monotonic undo/redo, retaining manual provenance', async () => {
     const { repo, workspace } = await installed(), current = workspace.getState().project!, before = cloneJson(current.document), revision = before.revision
     const preview = await workspace.previewRegionalEdit(edit(workspace)), snapshot = vi.spyOn(repo, 'createSnapshot'), guard = vi.spyOn(repo, 'checkProtection')
+    expect(preview.cost).toEqual(terrainCommandCost(before, preview.document, { before: current, after: preview.project }))
     expect(workspace.getState().project).toBe(current)
     const adopted = await workspace.adoptRegional(preview); await adopted.save
     expect(snapshot).toHaveBeenCalledTimes(1); expect(guard).toHaveBeenCalledTimes(1)
@@ -122,7 +126,9 @@ describe('T5 protected regional workspace and independent child', () => {
 
   it('creates a 1:1 public child with full resources and source evidence, independent of later parent deletion', async () => {
     const { repo, workspace } = await installed(), parent = workspace.getState().project!, before = canonicalJson(parent.document)
-    const preview = await workspace.previewRegionalDrillDown(await palette(false), { selectionMm: { x: 100000, y: 100000, width: 500000, height: 500000 }, includePrivate: false })
+    const base = await palette(false), preview = await workspace.previewRegionalDrillDown(base, { selectionMm: { x: 100000, y: 100000, width: 500000, height: 500000 }, includePrivate: false })
+    expect(preview.cost).toEqual(terrainCommandCost(base.document, preview.document, { before: base, after: preview.project }))
+    expect(preview.cost.items['composition.resources.propDefinitions']).toBeGreaterThan(0)
     expect(canonicalJson(parent.document)).toBe(before)
     expect(preview.document.exportBoundsMm).toEqual({ x: 0, y: 0, width: 500000, height: 500000 })
     expect(preview.document.mapMode).toBe('scene'); expect(preview.document.regional).toBeNull()

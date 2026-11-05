@@ -9,33 +9,54 @@ import { normalizeTerrainStroke, terrainStrokePolygon } from './stroke.js'
 import { surroundingsEntityHash, surroundingsOutputHash } from './surroundings.js'
 import { polygonBoolean } from '../geometry/polygon-boolean.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
+import { openingEndpoints, roomPoints } from '../geometry/geometry.js'
 
 export type TerrainContractDocument = LegacyTerrainScene
-const terrain = (value: SceneDocument): TerrainContractDocument => legacyTerrainView(value)
+const terrain = (value: SceneDocument | LegacyTerrainScene): TerrainContractDocument => legacyTerrainView(value)
 const hashValue = (value: unknown) => sha256Text(canonicalJson(value))
 const equal = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 const entityKey = (ref: GenerationReference) => canonicalJson([ref.kind, ref.parentId, ref.entityId])
 const sameEntity = (a: GenerationReference, b: GenerationReference) => entityKey(a) === entityKey(b)
 const fields: Record<GenerationFieldGroup, readonly string[]> = {
-  geometry: ['boundaryMm', 'centerlineMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'widthMm', 'from', 'to', 'segments', 'closed', 'pointsMm', 'polygons', 'strokes', 'visualBoundsMm', 'groundElevationMm', 'side', 'sampleSpacingMm', 'toleranceMm'],
-  properties: ['floorId', 'layerId', 'visibility', 'editLocked', 'blocksMovement', 'blocksSight', 'movementCostMultiplier', 'kind', 'coveragePriority', 'name', 'description', 'purpose', 'relativeElevationMm', 'flow', 'displayWidthMm', 'actualWidthMm', 'shoreline', 'enabled', 'openingId'],
+  geometry: ['boundaryMm', 'centerlineMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'widthMm', 'from', 'to', 'segments', 'closed', 'pointsMm', 'polygons', 'strokes', 'visualBoundsMm', 'groundElevationMm', 'side', 'sampleSpacingMm', 'toleranceMm',
+    'xMm', 'yMm', 'boundaryVertexIds', 'startVertexId', 'endVertexId', 'startMm', 'endMm', 'thicknessMm', 'offsetReferenceVertexId', 'offsetMm'],
+  properties: ['floorId', 'layerId', 'visibility', 'editLocked', 'blocksMovement', 'blocksSight', 'movementCostMultiplier', 'kind', 'coveragePriority', 'name', 'description', 'purpose', 'relativeElevationMm', 'flow', 'displayWidthMm', 'actualWidthMm', 'shoreline', 'enabled', 'openingId',
+    'accessExpectation', 'state', 'locked', 'secret', 'revealed'],
   surface: ['surfaceStyle', 'floorStyle', 'topStyle', 'style', 'paint', 'blendWidthMm', 'materialRef', 'fillColor', 'opacity'],
   appearance: ['appearance', 'definitionRef', 'visualBoundsMm', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'color', 'accentColor', 'opacity', 'intensity', 'seed', 'repeatMm', 'enabled', 'fillColor'],
   membership: ['members', 'domain', 'palette', 'portIds', 'connectedLineIds', 'areaId', 'managementKey'],
   exclusions: ['exclusions'], presentation: ['rootAnchorMm', 'orientation', 'groundShadowMm', 'fixedRotationDeg', 'footprintAxes'],
-  source: ['source', 'neighborAreaId', 'binding', 'boundaryId', 'inputHash', 'materialRef', 'definitionRef', 'sourceRef', 'supportRef', 'supportRefs', 'roomId', 'algorithmVersion', 'gridOriginMm', 'cellSizeMm', 'densityFactor', 'minDistanceMm', 'rotationRangeDeg'],
+  source: ['source', 'neighborAreaId', 'binding', 'boundaryId', 'inputHash', 'materialRef', 'definitionRef', 'sourceRef', 'supportRef', 'supportRefs', 'roomId', 'algorithmVersion', 'gridOriginMm', 'cellSizeMm', 'densityFactor', 'minDistanceMm', 'rotationRangeDeg', 'wallId'],
+}
+// New references add their own real fields without changing the hash projection
+// of any existing natural/building reference or its deterministic replay.
+const additionalFields: Partial<Record<GenerationReference['kind'], Partial<Record<GenerationFieldGroup, readonly string[]>>>> = {
+  surfaceRule: { geometry: ['regionsMm'], properties: ['field', 'paintOrder', 'coveragePpm'], source: ['clusterId'] },
+  decorationCluster: { geometry: ['boundsMm', 'canopyRule'], properties: ['maxInstances', 'spacingMm', 'clusterRadiusMm', 'clearanceMm'], source: ['seed'] },
+  decoration: { geometry: ['scalePpm'] },
 }
 
 /** Resolve the persisted target only. No generator invocation, resource IO or caller field accessors. */
-export function resolveGenerationEntity(input: SceneDocument, ref: GenerationReference): Record<string, unknown> | null {
+export function resolveGenerationEntity(input: SceneDocument | LegacyTerrainScene, ref: GenerationReference): Record<string, unknown> | null {
   const doc = terrain(input), collections = { terrainArea: doc.terrainAreas, terrainEdge: doc.terrainEdges, terrainConnection: doc.terrainConnections,
-    path: doc.paths, prop: doc.props, scatterGroup: doc.scatterGroups, visualBoundary: doc.visual.base.boundaries, visualEdgeLook: doc.visual.base.edgeLooks,
+    region: doc.regions, path: doc.paths, prop: doc.props, scatterGroup: doc.scatterGroups, visualBoundary: doc.visual.base.boundaries, visualEdgeLook: doc.visual.base.edgeLooks,
     materializedEdge: doc.visual.materializedEdges, regionalArea: doc.regional?.areas, regionalLine: doc.regional?.lines,
-    regionalLandmark: doc.regional?.landmarks, regionalSymbol: doc.regional?.symbols }
+    regionalLandmark: doc.regional?.landmarks, regionalSymbol: doc.regional?.symbols, room: doc.rooms, wall: doc.walls, vertex: doc.vertices, opening: doc.openings,
+    surfaceRule: doc.surfaceRules, decorationCluster: doc.decorationClusters, decoration: doc.decorations }
   if (ref.kind in collections) {
     const value = collections[ref.kind as keyof typeof collections]?.[ref.entityId]
-    return value ? { ...value, layerId: 'layerId' in value ? value.layerId : doc.entityLayers[ref.entityId] ?? null } : null
+    if (!value) return null
+    const resolved: Record<string, unknown> = { ...value, layerId: 'layerId' in value ? value.layerId : doc.entityLayers[ref.entityId] ?? null }
+    // Building geometry is indirect. Moving a shared vertex changes every
+    // affected room/wall/opening even while their own JSON IDs stay unchanged.
+    if (ref.kind === 'room') resolved.boundaryMm = roomPoints(doc, doc.rooms[ref.entityId])
+    else if (ref.kind === 'wall') {
+      const wall = doc.walls[ref.entityId], start = doc.vertices[wall.startVertexId], end = doc.vertices[wall.endVertexId]
+      resolved.startMm = start ? { x: start.xMm, y: start.yMm } : null
+      resolved.endMm = end ? { x: end.xMm, y: end.yMm } : null
+    } else if (ref.kind === 'opening') [resolved.startMm, resolved.endMm] = openingEndpoints(doc, doc.openings[ref.entityId])
+    return resolved
   }
   if (ref.kind === 'terrainPoint' || ref.kind === 'terrainSegment') {
     const area = ref.parentId ? doc.terrainAreas[ref.parentId] : undefined
@@ -56,10 +77,11 @@ export function resolveGenerationEntity(input: SceneDocument, ref: GenerationRef
   }
   return null
 }
-export function resolveGenerationTarget(input: SceneDocument, ref: GenerationReference): Record<string, unknown> | null {
+export function resolveGenerationTarget(input: SceneDocument | LegacyTerrainScene, ref: GenerationReference): Record<string, unknown> | null {
   const target = resolveGenerationEntity(input, ref)
   if (!target) return null
-  const selected = Object.fromEntries(fields[ref.fieldGroup].filter(key => Object.hasOwn(target, key)).map(key => [key, target[key]]))
+  const keys = [...fields[ref.fieldGroup], ...(additionalFields[ref.kind]?.[ref.fieldGroup] ?? [])]
+  const selected = Object.fromEntries(keys.filter(key => Object.hasOwn(target, key)).map(key => [key, target[key]]))
   // Only the new strict scene permits route. Missing keys keep every old rule
   // input/output hash unchanged, including through the legacy metadata view.
   if (ref.kind === 'terrainConnection' && (ref.fieldGroup === 'geometry' || ref.fieldGroup === 'properties') && Object.hasOwn(target, 'route')) selected.route = target.route
@@ -213,8 +235,41 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
     if (recipe.mapMode !== doc.mapMode) fail('TERRAIN_RECIPE_MODE', '配方与地图模式不符。', recipe.id)
     for (const row of recipe.materials) if (doc.materials[row.ref.id]?.version !== row.ref.version) fail('TERRAIN_MATERIAL', '生成材质固定版本缺失。', recipe.id)
     for (const row of recipe.props) if (doc.propDefinitions[row.ref.id]?.version !== row.ref.version) fail('TERRAIN_DEFINITION', '生成物件固定版本缺失。', recipe.id)
+    if ('domain' in recipe && recipe.domain === 'interior') {
+      if (!doc.floors[recipe.parameters.floorId] || !doc.userLayers[recipe.parameters.layerId] || doc.userLayers[recipe.parameters.layerId].floorId !== recipe.parameters.floorId) fail('BUILDING_RECIPE_SCOPE', '室内配方的Floor/图层缺失或跨Floor。', recipe.id)
+      if (!equal(recipe.parameters.arrangement.palette, recipe.props)) fail('BUILDING_RECIPE_PALETTE', '室内配方的固定家具与初次布置参数不一致。', recipe.id)
+      for (const role of ['floor', 'wall'] as const) {
+        const expected = recipe.parameters.materials[role], bound = recipe.materials.find(row => row.role === role)?.ref ?? null
+        if (!equal(expected, bound)) fail('BUILDING_RECIPE_MATERIAL', '室内配方的固定材质与规范参数不一致。', recipe.id)
+        if (expected && !doc.materials[expected.id]?.applicableSurfaces.includes(role === 'floor' ? 'room' : 'wall')) fail('BUILDING_RECIPE_MATERIAL', '室内配方固定材质不适用于目标表面。', recipe.id)
+      }
+    }
+    if ('domain' in recipe && recipe.domain === 'forest') {
+      const p = recipe.parameters
+      if (!doc.floors[p.floorId] || doc.userLayers[p.layerId]?.floorId !== p.floorId) fail('FOREST_RECIPE_SCOPE', '森林配方的Floor/图层缺失或跨Floor。', recipe.id)
+      const canonicalSet = (rows: unknown[]) => [...new Set(rows.map(row => canonicalJson(row)))].sort()
+      const props = p.zones.flatMap(zone => zone.vegetation.flatMap(row => row.palette.map(item => ({ role: row.role, ref: item.definitionRef }))))
+      const materials = [
+        ...(p.ground.kind === 'new' && p.ground.materialRef ? [{ role: 'ground', ref: p.ground.materialRef }] : []),
+        ...p.routes.flatMap(row => row.materialRef ? [{ role: 'path', ref: row.materialRef }] : []),
+      ]
+      if (!equal(canonicalSet(props), canonicalSet(recipe.props)) || !equal(canonicalSet(materials), canonicalSet(recipe.materials))) fail('FOREST_RECIPE_BINDINGS', '森林规范参数与确切固定素材绑定不同。', recipe.id)
+      for (const row of recipe.materials) if (!doc.materials[row.ref.id]?.applicableSurfaces.includes(row.role === 'ground' ? 'terrain' : 'path')) fail('FOREST_RECIPE_MATERIAL', '森林材质不适用于对应表面。', recipe.id)
+    }
+  }
+  for (const recipe of Object.values(doc.generation.recipes)) if ('domain' in recipe && recipe.domain === 'volcano') {
+    const p = recipe.parameters
+    if (!doc.floors[p.floorId] || doc.userLayers[p.layerId]?.floorId !== p.floorId) fail('VOLCANO_RECIPE_SCOPE', '火山配方Floor/图层缺失或跨Floor。', recipe.id)
+    for (const role of ['ground', 'mountain', 'crater', 'platform', 'flow', 'route'] as const) {
+      const bound = recipe.materials.find(row => row.role === role)?.ref
+      if (!equal(bound, p.materials[role]) || !doc.materials[p.materials[role].id]?.applicableSurfaces.includes(role === 'route' ? 'path' : 'terrain')) fail('VOLCANO_RECIPE_BINDING', '火山固定材质与参数或适用表面不一致。', recipe.id)
+    }
   }
   for (const rule of Object.values(doc.generation.rules)) {
+    const recipe = doc.generation.recipes[rule.recipeRef.id]
+    if ((rule.kind === 'building') !== !!(recipe && 'domain' in recipe && recipe.domain === 'interior')) fail('BUILDING_RULE_RECIPE', '室内规则须引用对应领域的严格配方。', rule.id)
+    if ((rule.kind === 'forest') !== !!(recipe && 'domain' in recipe && recipe.domain === 'forest')) fail('FOREST_RULE_RECIPE', '森林规则须引用对应领域的严格配方。', rule.id)
+    if ((rule.kind === 'volcano') !== !!(recipe && 'domain' in recipe && recipe.domain === 'volcano')) fail('VOLCANO_RULE_RECIPE', '火山规则须引用对应领域严格配方。', rule.id)
     for (const ref of rule.inputs) checkRef(ref, rule.floorId, rule.id, rule.state === 'detached')
     for (const ref of rule.outputs) {
       const owners = Object.values(doc.generation.ownership).filter(row => row.ruleId === rule.id && sameEntity(row.target, ref)
@@ -304,12 +359,10 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
 /** Ordinary manual edits preserve results and explicitly stop affected generation; never rebuild geometry. */
 export type GenerationAppearanceChange = Omit<GenerationReference, 'fieldGroup'> & { fieldGroup: 'appearance' | 'surface' | 'source' }
 export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: SceneDocument, appearanceChanges: readonly GenerationAppearanceChange[] = []): number {
-  if (![3, 4, 5, 6, 7, 8].includes(beforeInput.schemaVersion) || ![3, 4, 5, 6, 7, 8].includes(nextInput.schemaVersion)) return 0
   const before = terrain(beforeInput), originalGeneration = getLegacyGeneration(nextInput)!
   // Write the owned legacy partition into the real candidate, never save the compatibility view.
   const replaceGeneration = (generation: GenerationSystem1) => {
-    if (nextInput.generation?.version === 5) nextInput.generation.legacy = generation
-    else nextInput.generation = generation
+    nextInput.generation.legacy = generation
   }
   replaceGeneration(cloneJson(originalGeneration))
   const next = terrain(nextInput)

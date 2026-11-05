@@ -7,7 +7,6 @@ import { resolveSurfaceRules } from './resolve.js'
 
 /** Shape validation runs first. Geometry and ownership are persisted invariants. */
 export function validateSurfaceRules(scene: SceneDocument): Issue[] {
-  if (scene.schemaVersion < 8) return []
   const errors: Issue[] = [], orders = new Set<string>(), owners = new Map<string, string>(), visible = createPublicVisibility(scene)
   let points = 0
   const fail = (code: string, message: string, entityId: string) => errors.push({ code, message, entityId })

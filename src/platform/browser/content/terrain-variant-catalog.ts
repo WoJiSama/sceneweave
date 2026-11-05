@@ -1,6 +1,6 @@
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { captureEditableDraft, validateEditableProject } from '../../../application/workspace/project.js'
-import { prepareTerrainUpgrade } from '../../../application/workspace/terrain.js'
 import { addPropAppearanceSource } from '../../../shared/appearance/graph.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import { cloneJson } from '../../../shared/validation/json.js'
@@ -19,7 +19,7 @@ const origin = { kind: 'original' as const, attribution: 'Sceneweave 地形物�
 export function createTerrainVariantCatalogDocument(options: { sceneId?: string; now?: string } = {}): SceneDocument {
   const now = options.now ?? '2026-10-31T00:00:00.000Z', floorId = 'terrain-variants-v1-floor', layerId = 'terrain-variants-v1-layer'
   const bounds = { x: 0, y: 0, width: 24000, height: 18000 }
-  const scene: SceneDocument = { format: 'sceneweave-scene', schemaVersion: 2, sceneId: options.sceneId ?? 'terrain-variants-v1-catalog', revision: 0,
+  const scene: SceneDocument = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: options.sceneId ?? 'terrain-variants-v1-catalog', revision: 0,
     title: '地形物件变体 · 原创固定目录', createdAt: now, updatedAt: now,
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: { ...bounds },
     floors: { [floorId]: { id: floorId, name: '目录空白地面', boundsMm: { ...bounds } } },
@@ -27,7 +27,7 @@ export function createTerrainVariantCatalogDocument(options: { sceneId?: string;
     vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {},
     prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, assets: {}, propDefinitions: {}, materials: {}, styleThemes: {}, activeStyleThemeRef: null,
     presetSnapshot: { presetId: 'sceneweave-terrain-variants', presetVersion: 1, distanceMode: 'metric', source: origin.attribution, gridSizeMm: 1000 },
-    constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, minDoorWidthMm: 900, pathChecks: [] }, visual: emptyVisualSystem() }
+    constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, minDoorWidthMm: 900, pathChecks: [] }, visual: emptyVisualSystem() })
   for (const art of TERRAIN_VARIANT_ART) {
     const assetId = terrainVariantAssetId(art.key), id = terrainVariantDefinitionId(art.key)
     scene.assets[assetId] = { id: assetId, sha256: '0'.repeat(64), mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512,
@@ -49,7 +49,7 @@ export async function createTerrainVariantCatalogProject(signal?: AbortSignal): 
   signal?.throwIfAborted()
   const document = createTerrainVariantCatalogDocument({ sceneId: runtime.ids.nextId(), now: runtime.clock.now() })
   const materialized = await materializeVisualArt(document, TERRAIN_VARIANT_ART, TERRAIN_VARIANT_LICENSE, terrainVariantAssetId, signal)
-  const upgraded = await prepareTerrainUpgrade(materialized, { runtime, validation: { ...validation, signal } })
+  const upgraded = materialized
   const project = captureEditableDraft(upgraded)
   project.document.title = '地形物件变体 · 原创固定目录'
   for (const art of TERRAIN_VARIANT_ART) {

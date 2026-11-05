@@ -15,12 +15,21 @@ import { canonicalJson, captureJson, encodeUtf8 } from '../../shared/validation/
 import { fromBundle, toBundle } from './project.js'
 import { NOW, pixelPng, runtime, validation } from './test-fixtures.js'
 import { prepareTerrainComposition } from './terrain-composition.js'
+import type { SceneDocument } from '../../shared/model/scene.js'
 
 const seeds=['terrain-compose-0','terrain-compose-1','terrain-compose-2'] as const
 const presets=['archipelago','tidalCoast'] as const
 const blank=(widthMm=48000,heightMm=36000)=>createRefinedBlankDocument('island',{title:'frozen composition',sceneId:'frozen-composition',now:'2026-10-29T00:00:00.000Z',widthMm,heightMm,preset:'narrative'})
 const request=(preset:typeof presets[number],seed:string='terrain-compose-0',widthMm=48000,heightMm=36000,islandCount=3)=>({sceneId:'frozen-composition',seed,preset,widthMm,heightMm,islandCount,recipeVersion:2 as const})
 const hash=(value:unknown)=>sha256Bytes(encodeUtf8(canonicalJson(value)))
+/** The frozen recipe1 evidence used its development scene4 container. Only
+ * project-format additions are projected out; all generated domain fields,
+ * fixed resources, identities, hashes and array order are compared verbatim. */
+function recipe1FrozenContainer(document: SceneDocument) {
+ const { decorations, decorationClusters, surfaceRules, ...frozen } = document
+ if ([decorations, decorationClusters, surfaceRules].some(rows => Object.keys(rows ?? {}).length)) throw new Error('Recipe1 must not acquire new decoration or surface-rule output')
+ return { ...frozen, schemaVersion: 4 }
+}
 function freeze<T>(value:T):T {if(value&&typeof value==='object'){for(const item of Object.values(value))freeze(item);Object.freeze(value)}return value}
 function concave(points:{x:number;y:number}[]){
  const turns=points.map((a,i)=>{const b=points[(i+1)%points.length],c=points[(i+2)%points.length];return Math.sign((b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x))})
@@ -37,7 +46,7 @@ async function resourceBlank(){
  const document=captureJson(blank()),bytes=pixelPng([74,108,61,255]),assetHash=sha256Bytes(bytes)
  for(const asset of Object.values(document.assets))Object.assign(asset,{sha256:assetHash,mimeType:'image/png',pixelWidth:1,pixelHeight:1})
  const content=createCompositionContent(document,runtime),text='Sceneweave original composition V2 fixture',licenseHash=sha256Bytes(encodeUtf8(text))
- return fromBundle({project:{format:'sceneweave-complete-project',schemaVersion:2,...content,assets:{[assetHash]:{sha256:assetHash,mimeType:'image/png',sizeBytes:bytes.length,pixelWidth:1,pixelHeight:1}},licenses:{[licenseHash]:{sha256:licenseHash,text}},licenseBindings:inspectDependencies(content.document).subjects.map(subject=>({...subject,licensePath:`licenses/${licenseHash}.txt`,embedding:'allowed' as const})),authoringSources:{}},resources:createMemoryResources(new Map([[assetHash,bytes]]))},validation)
+ return fromBundle({project:{format:'sceneweave-complete-project',schemaVersion:1,...content,assets:{[assetHash]:{sha256:assetHash,mimeType:'image/png',sizeBytes:bytes.length,pixelWidth:1,pixelHeight:1}},licenses:{[licenseHash]:{sha256:licenseHash,text}},licenseBindings:inspectDependencies(content.document).subjects.map(subject=>({...subject,licensePath:`licenses/${licenseHash}.txt`,embedding:'allowed' as const})),authoringSources:{}},resources:createMemoryResources(new Map([[assetHash,bytes]]))},validation)
 }
 
 describe('explicit shoreline composition recipe 2',()=>{
@@ -46,7 +55,8 @@ describe('explicit shoreline composition recipe 2',()=>{
    const spec=compositionPreset({sceneId:'frozen-composition',seed:'terrain-compose-0',preset:row.preset,widthMm:48000,heightMm:36000,islandCount:3,...(recipeVersion?{recipeVersion}:{})})
    if(recipeVersion===undefined)expect(Object.hasOwn(spec.request,'recipeVersion')).toBe(false)
    const raw=materializeTerrainComposition(blank(),spec.input,spec.requirements,spec.name,row.preset==='tidalCoast'?'tidal':'plain')
-   expect(hash(spec.input)).toBe(row.input);expect(hash(raw.document)).toBe(row.document);expect(hash(raw.plan)).toBe(row.plan)
+   expect(raw.document.schemaVersion).toBe(1)
+   expect(hash(spec.input)).toBe(row.input);expect(hash(recipe1FrozenContainer(raw.document))).toBe(row.document);expect(hash(raw.plan)).toBe(row.plan)
   }
  })
  it('rejects unsupported version 2 presets and unknown recipe versions',()=>{

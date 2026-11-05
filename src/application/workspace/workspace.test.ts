@@ -90,7 +90,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
       else await workspace.adoptPreview(await workspace.preview(commands))
     }
     const before = workspace.getState().project!, save = vi.spyOn(repo, 'save'), point = before.document.props.item.positionMm
-    expect(Object.hasOwn(before.document, 'visual')).toBe(false)
+    expect(before.document.visual).toMatchObject({version:3,base:{version:2,base:{version:1}},transitions:{}})
     await apply([{ type: 'updateProp', id: 'item', changes: { rotationDeg: -0, positionMm: { y: point.y, x: point.x } } }])
     await workspace.flush()
     expect(workspace.getState()).toMatchObject({ project: before, status: 'saved', canUndo: false, canRedo: false, lastTransaction: null })
@@ -392,7 +392,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
 
   it('transfers visual recreation invalidation to the publicly revalidated preview wrapper', async () => {
     const { workspace } = await setup({ image: true })
-    await workspace.enableVisualCopy()
+
     const document = workspace.getDocument()!, light = { id: 'preview-light', floorId: Object.keys(document.floors)[0], layerId: document.entityLayers.item,
       visibility: 'public' as const, editLocked: false, positionMm: { x: 3000, y: 3000 }, radiusMm: 1500, color: '#FFD080', intensity: .4, wallOcclusion: true, enabled: true }
     await workspace.execute([{ type: 'upsertVisualLight', light }])

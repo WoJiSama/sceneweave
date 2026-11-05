@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import type { SceneDocument } from '../model/scene.js'
 import { emptyVisualSystem, type VisualBoundary } from '../visual/types.js'
@@ -15,10 +16,10 @@ function fixture(): SceneDocument {
     segments: [{ id: 'segment-0', start: { x: 2000, y: 4000 }, control1: { x: 2000, y: 4000 }, control2: { x: 4000, y: 4000 }, end: { x: 4000, y: 4000 } }, { id: 'segment-1', start: { x: 4000, y: 4000 }, control1: { x: 4000, y: 4000 }, control2: { x: 6000, y: 4000 }, end: { x: 6000, y: 4000 } }], sampleSpacingMm: 2000, toleranceMm: 100,
     binding: { kind: 'terrain', sides: [{ areaId: 'sand', startPointId: 'sand-p0', endPointId: 'sand-p2', reverse: false }, { areaId: 'water', startPointId: 'water-p2', endPointId: 'water-p4', reverse: true }] }
   }
-  const scene: SceneDocument = { format: 'sceneweave-scene', schemaVersion: 4, sceneId: 'local-fixture', revision: 2, title: 'local', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
+  const scene: SceneDocument = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'local-fixture', revision: 2, title: 'local', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: { sand: material('sand', ['sand']), water: material('water', ['water']) }, terrainAreas: { sand: area('sand', [{ x: 2000, y: 4000 }, { x: 4000, y: 4000 }, { x: 6000, y: 4000 }, { x: 6000, y: 8000 }, { x: 2000, y: 8000 }], 'sand', 100), water: area('water', [{ x: 2000, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 4000 }, { x: 4000, y: 4000 }, { x: 2000, y: 4000 }], 'water', 0) }, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null, userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: {}, presetSnapshot: { presetId: 'fixture', presetVersion: 1, distanceMode: 'metric', source: 'fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] }, mapMode: 'scene', regional: null,
     generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: { ...emptyVisualSystem(), boundaries: { coast: boundary } }, materializedEdges: {} }, transitions: {} }
-  }
+  })
   const row = materializeTerrainTransition(scene, { id: 'shore', boundaryId: 'coast', kind: 'shore', side: 'both', widthMm: 400, clipMm: { x: 1000, y: 1000, width: 6000, height: 6000 } })
   ;(scene.visual as VisualSystem3).transitions[row.id] = row
   return scene

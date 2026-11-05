@@ -12,6 +12,198 @@
 - [43-content-m1d-validation](#doc-43)
 - [44-full-regression-validation](#doc-44)
 
+
+<a id="d7-generation-execution-20261105"></a>
+## D7统一入口与领域执行端开发自检（2026-11-05）
+
+范围对应[07的D7](../07-roadmap.md#d-domain-implementation)，精确协议、权限与存储归[04](../04-scene-document.md#domain-generation-protocol)、[05](../05-ai-and-generation.md#domain-generation-authority)和[06](../06-storage-and-export.md#domain-generation-storage)，模块交接归[设计11.7](../reference/general-map-generation.md#d-delivery)。仅开发必要自检，没有执行E、提交、推送、部署或读取真实用户库。
+
+共享领域注册表/严格请求与结果绑定interior@2、forest@1、volcano@1、规范输入、完整候选基底、profile与请求/工作区/基线/代次；计时与确定性hash分开。Worker和认证HTTP直接运行相同函数，公共主机准备完整资源/许可/像素、身份与固定表现；UI默认Worker，服务端显式协商并选择，无回退/自动重发。公共新建/当前目标进入各自原私有凭据、采用前本机重放、新建保存冷读或保护/CAS/一次撤销链。D6只声明direct，aiTools为空；旧AI能力响应、自然底图及算法6领域重放保持。
+
+| 必要自检 | 本轮证据与范围 |
+|---|---|
+| 共享协议 | `work/d7-protocol-tests.log`：9/9；三个领域与原runner的文档/报告/产物/阶段/resultHash一致，规范化、严格字段/版本/输入/profile/hash/上下文、getter不读取、字节/取消与能力表；计时变化不改语义hash。 |
+| Worker/client | 实际工具完成记录session5587/chunk bf747d：13/13；三领域同源Worker、上下文/篡改拒绝、取消/超时/替换/dispose清理、显式server能力协商、流式限额/中止/无重试。该组未持久化独立日志文件，不捏造附件。 |
+| 程序化服务与旧入口 | 工具完成记录session99251：`generation.test.ts`13/13，三个领域全响应（固定执行时钟）一致、认证/Origin/精确能力、严格协议、实际UTF8/声明与流字节、预占并发/abort/期限/结果限额及slot释放。session58354：旧认证/严格cached-client能力/原base-map入口定向3/3；该两组无独立日志附件。使用Hono Request/Response真实路由和受控provider，不冒充已部署HTTP或真实模型。 |
+| 应用完整链 | `work/d7/application-tests.log`：5文件17/17；三个领域完整资源、预览/保存/冷读和失败保全，公共executor预览后仅本机重放采用，自洽重算hash的假结果在save前拒绝，迟到结果保留新修改；D6保护/CAS/一次撤销与原v6重放仍过。 |
+| 类型/正常构建与共享边界 | `work/d7/build.log`：前端/AI TypeScript及正常Vite构建通过，包含真实新增Worker产物；既有依赖注解与大chunk警告保留。`work/d7/shared.log`：201个共享模块无DOM编译及Node ESM/既有命令/身份/投影/无图片工程和历史包/保全集烟测通过；不作性能或真实图片验收结论。 |
+| 隔离生产Chromium | `work/d7/browser.log`：正常dist独立preview，`tests/local-generation.spec.ts`1/1。纯UI新建→默认Worker火山候选（实际Worker事件）→独立保存→火口改参失效→保护采用→一次撤销/重做→首页冷开保留实际轮廓；pageerrors0、generation/tasks HTTP请求0。没有DEV导入、应用hook或存储注入，未使用用户库；只覆盖本机主流程，不宣称浏览器远端模式或跨浏览器已验收。 |
+
+首轮`work/d7/typecheck.log`暴露服务测试替身的泛型返回约束与公共局部采用返回类型丢失；服务注入seam改为其实际消费的精确联合，公共采用增加目标重载，未使用any放宽协议。服务13/13复验及最终正常构建通过。静态复核同时固定了主机跨await前的context捕获；应用定向覆盖真实采用重放和迟到保全。
+
+已查看`work/d7/browser/local-generation-local-cra-97f86-ndoes-redoes-and-cold-opens-chromium/local-crater-cold-open.png`，仅作生成/冷读结构证据，不签收视觉。源码指纹与文档链接结果分别归`work/d7/source-fingerprint.json`和`work/d7/doc-links.json`；临时preview已停止，既有脏工作区及本轮起点的独立todo保持。跨种子/完整故障/浏览器/混合、真实AI、视觉/P3、性能与VTT仍从[09](../09-quality-plan.md#d-domain-acceptance)统一验收，下一实施点只在07维护。
+
+<a id="d6-local-generation-20261105"></a>
+## D6归属与受限局部重生成开发自检（2026-11-05）
+
+范围对应[07的D6](../07-roadmap.md#d-domain-implementation)，四类操作与有限边界归[设计11.6](../reference/general-map-generation.md#d-regeneration)，持久归属及候选事务分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#local-generation-storage)。本轮只有开发必要自检，未读取真实用户库或调用模型，没有提交、推送或部署，D7/E未提前实施。
+
+**实现**：共享`runLocalGeneration`直接从当前完整v1计算选定房间家具、林区单通道密度/成员、火山底材及火口同拓扑轮廓，不重新生成整图。复用当前规则/ownership、真实身份与原生命令，授权字段只从此前仍受管字段认领；旧manual/deleted/detached不清零。家具保留存活ID及位置之外字段，未出生建议分配fresh ID和稳定槽位键；林区槽位保留移动/删除/锁/退出/附注成员。火山材质保持物理/Region策略，已有人工外观覆盖拒绝；火口保留点/段与连接端点/支撑引用，同轮廓受管Region只随动几何，支撑/流道/完整路线冲突拒绝。原配方保存首次输入，当前规则/实体保存实际局部结果，旧自然投影及v6领域hash不改。
+
+应用接口`previewLocalGeneration / cancelLocalGeneration / adoptLocalGeneration`准备完整身份/固定源/资源/许可/像素，私有凭据绑定真实当前工程并精确重放；展示完整持久写集与只读依赖，按完整before/after计普通256。保护/CAS后一次提交、撤销/重做与保存沿现有链；取消、旧基线、伪造候选和保护失败不提交，最终保存失败保留当前未保存结果与可用撤销。工程面板接入参数失效、取消/Escape、互斥、候选画布及保存消息。
+
+| 必要自检 | 本轮证据与范围 |
+|---|---|
+| 定向集成 | `work/d6-targeted-final.log`：7文件22/22。家具4例验证同ID位置变化/范围外保留、人工移动删除锁和外观保护、fresh身份/稳定槽位/完整成本、闭门删门不恢复；森林2例验证成员保全/单通道修改、规则手改及取消拒绝并检查完整成本；火山3例验证同拓扑/真实连接道路/身份、材质与人工策略独立、结构依赖/锁/手改/拓扑拒绝；应用5例覆盖完整重放/字节解码、保护采用/撤销重做/冷读及改变拓扑后撤销仍拒绝几何重生成、旧基线/伪造/取消/CAS、最终保存失败保全，以及expanded档下真实外观元数据超256拒绝。原室内布局4例、默认建议与等价hooks3例及原v6重放1例一并通过。 |
+| 共享边界 | `work/d6-check-shared-first.log`：200个源码模块无DOM编译、Node原生ESM及既有命令/身份/投影/无图片包烟测通过；不代替真实图片适配器验收。 |
+| 正常构建 | `work/d6-build-final.log`：前端/AI TypeScript及正常Vite生产构建通过；保留既有依赖注解与大chunk警告，不作性能结论。 |
+| 生产Chromium纯UI | `work/d6-browser-final.log`：正常dist独立preview，`tests/local-generation.spec.ts`1/1。新建→火山完整保存→火口右扩0.5m预览→改参使旧候选失效→重预览→保护采用→一次撤销/重做→首页冷开读取真实轮廓；页面错误0，无DEV源码导入、应用hook或存储注入。 |
+
+**首次失败与修复**：共享森林夹具曾将编辑锁与内容混在同事务，火山锁夹具曾用不存在的命令，均改用合法独立原生锁事务；家具symbol夹具不支持tint，改用受支持opacity后验证人工外观保护。首轮构建只发现测试只读候选类型，克隆后显式按实际可变基底类型传递，正常构建复验通过。新增预算反例最初误以为64点轮廓会超过256，真实成本76并正常允许；改用80个真实表面覆盖的完整固定源反例，不改计价实现。该新夹具先后被真实生成hash、覆盖出生身份和源一致性校验拒绝，最终在首次保存前按完整工厂规范构造，再验证超256确切拒绝；失败日志`work/d6-domain-first.log`、`work/d6-interior-first.log`、`work/d6-build-first.log`、`work/d6-targeted-first.log`与`work/d6-application-second/third/fourth.log`保留，末次应用复验`work/d6-application-fifth.log`5/5。
+
+已查看`work/d6-browser-final/local-generation-local-cra-97f86-ndoes-redoes-and-cold-opens-chromium/local-crater-cold-open.png`，仅作结构/保存开发证据，不签收火山视觉。完整故障/跨种子/跨浏览器、混合场景、统一Worker/服务端与AI能力、正式性能、视觉/P3及VTT仍归[09](../09-quality-plan.md#d-domain-acceptance)。源码指纹归`work/d6-source-fingerprint.json`，文档链接核对归`work/d6-doc-links.json`（17份文档947个本地链接/锚点，无错误），`git diff --check`通过；既有脏工作区与独立`todo.md`保持，下一执行点只在07维护。
+
+<a id="d5-volcano-20261105"></a>
+## D5火山结构与独立危险策略开发自检（2026-11-05）
+
+范围对应[07的D5](../07-roadmap.md#d-domain-implementation)，实现与有限输入归[设计11.5](../reference/general-map-generation.md#d-volcano)，持久数据与候选保存归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#volcano-generation-storage)。本轮仅开发必要自检，隔离夹具与浏览器不读取真实用户库，没有提交、推送或部署；D6/D7未提前实施。
+
+**实现**：独立`volcano-layout@1`通过结构→连接两个共同编排阶段，参数直接物化真实山体、低火口、同高程平台及火口内流道，真实cliff来源段、stairs/ramp和两条全宽Path；完整净宽/转角、两端接入、实际支撑与显式阻挡均检查。流道的有限控制线带区规范到整数毫米，必须严格留在火口同高程表面；跨高差流道明确拒绝。危险、阻挡及移动代价分别写Region，四种既有固定火山材质只决定外观，不复制样板几何或新增素材。逐实际产出记录有限规则与人工/删除归属，地形使用现有出生/拓扑身份；完整工程仍唯一v1，旧自然投影及算法6保留。
+
+工程面板参数化火口尺寸/位置/高程、路线宽度和连接类型、火口内流道宽度/冷热材质，以及独立火口/流道策略。候选完整资源与许可校验、私有见证、按真实身份序列重放、先保存原工程、独立新工程保存及冷读后切换全部沿原有链。软入口/活动区/路线记录不强迫用户后续保留；危险人工编辑/删除正常保存，不在冷开补回。新增火山入口事实在发布前复核完整宽度的当前支撑，手改后已失效的端口被省略，合法草稿仍可保存。
+
+| 必要自检 | 本轮证据与范围 |
+|---|---|
+| 定向集成 | `work/d5-targeted-verified.log`：4文件9/9。共享火山4例覆盖确定性/源不变、低于基底的真实火口/足宽连接/平台、真实火口与流道参数变化、材质单变物理保持、显式阻挡/第三支撑/取消/高程矛盾拒绝、人工区域编辑删除及失效端口省略；workspace2例覆盖私有预览、完整重放/独立保存冷读/完整包、危险策略撤销重做及取消/旧基线/保存/冷读失败保护；工厂2例仅核对固定元数据闭包/取消（mock明确，不充当真实字节/像素证据）；原v6严格领域投影固定hash1例保持。 |
+| 共享边界 | `work/d5-check-shared-verified.log`：195个模块无DOM编译、Node原生ESM及既有场景/身份/投影/无图片包烟测通过；不代表真实图片适配器验收。 |
+| 正常构建 | `work/d5-build-verified.log`：最终前端与AI服务TypeScript、正常Vite生产构建通过；保留既有依赖注解及大chunk警告，不作性能结论。 |
+| 生产Chromium纯UI | `work/d5-browser-verified.log`：正常dist、独立Vite preview，`tests/volcano-generation.spec.ts`1/1（用例6.8秒，总8.1秒）。新建原工程→默认火山预览→改火口高度比例/流道宽与冷热材质使旧候选失效→重新预览→完整保存独立工程→首页冷载确认原工程保留→打开新工程读取实际0.5m火口及两处stairs，页面错误0。没有DEV源码导入、应用hook或存储注入。 |
+
+**修复与限制**：复查发现软入口在手改支撑后可能仍发布过时事实，现已增加当前完整宽度支撑过滤，并在共享用例中真实删除道路/收缩地面验证合法草稿不再发入口事实；未顺带重写旧森林分支。关闭流道后不再校验停用流道的宽度/代价。新增共享测试首次正常构建出现固定JSON字面类型及只读候选传给可变几何接口的类型错误，已改用严格元数据解析和只读字段读取；失败日志保留`work/d5-build-types-failed.log`。没有以测试通过扩大任意多边形路由或视觉质量承诺。
+
+正式多种子/形态多样性、跨领域及Worker/服务端、完整故障/跨浏览器/性能、真实模型、视觉/P3与VTT真实导入仍归[09](../09-quality-plan.md#d-domain-acceptance)。必要自检不关闭正式验收。实际预览/冷开截图归`work/d5-browser-verified/volcano-generation-volcano-3bde0-d-saves-a-cold-open-project-chromium/`，已查看冷开截图，仅作结构/保存开发证据。源码及文档指纹归`work/d5-source-fingerprint.json`；链接/锚点核对归`work/d5-doc-links.json`，既有脏工作区与独立`todo.md`保持。
+
+<a id="d4-forest-20261105"></a>
+## D4森林空地、路线与真实植被开发自检（2026-11-05）
+
+范围对应[07的D4](../07-roadmap.md#d-domain-implementation)，算法/API/有限支持归[设计11.4](../reference/general-map-generation.md#d-forest)，完整归属与保存分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#forest-generation-storage)。本轮只做开发必要自检，没有使用真实用户库或模型，没有提交、推送或部署；正式验收未开始。
+
+**实现**：独立`forest-layout@1`消费严格林区/空地/入口/显式折点路线与固定三通道palette，复用D1阶段私有物化和既有几何/植被系统。地面→路线→内容三个算子依次发布真实支撑/计划区、入口/完整道路带、实际植被；空地/入口为soft首次保留。Path不是通行图片，指定全宽路线被阻挡或缺合法高差连接时拒绝。SurfaceRule/DecorationCluster保存完整树Prop、轻量草灌Decoration及真实槽位，完整足迹与支撑、精确固定根锚绘制和原生图像边界检查均保留；目标超过保护上限拒绝，有限空间落不满列实际缺项。没有从材质标签猜种植区，没有使用会清空旧成员的自动岩岛流程。
+
+共享API支持新平地或显式已有合法地形，重叠同支撑同通道、覆盖旧规则或重复配方明确拒绝。首个UI提供32×24m默认图、1–4处矩形空地、四侧入口/路线宽度及树灌草覆盖目标；正常候选资源/许可/像素、固定表现/身份、私有重放、原当前工程保全、独立保存与冷读后切换均沿现有链。完整工程仍唯一v1，旧自然算法入口及hash投影不变；局部更新/统一执行端接线分别留D6/D7，不提前扩大AI能力。
+
+每个实际输出独立有限forest规则，共享精确持久配方。移动/删除只改变受影响的规则/成员归属，普通256上限保持；较密共享夹具的普通单树移动成本17、独立删除成本27，同事务移动＋删除也通过。手工移动槽为manual，删除槽为deleted且entityId=null，后续原生植被重生成助手不复活这些槽；已有passed约束回执在新增内容后转unchecked，原基底仍保留passed及原约束。
+
+| 必要自检 | 本轮证据与范围 |
+|---|---|
+| 定向集成 | `work/d4-targeted-verified.log`：5文件22/22，覆盖森林5例、workspace完整候选2例、持久integrity7例、原自然适配2例与共用space6例。包含两种空地/入口真实变化、完整道路/占地/支撑、已有地面/阻挡/缺高差连接、默认UI真实请求、普通成员移动删除/有限密度/取消及源不变；workspace含预览不写入、私有凭据/旧基线、完整重放/独立保存冷读/完整包、删除撤销重做及保存/冷读失败保全。 |
+| 共享边界 | `work/d4-check-shared-verified.log`：193个模块无DOM编译、Node原生ESM、既有场景命令/身份/投影及无图片包/存储烟测通过；不代表真实图片适配器验收。 |
+| 正常构建 | `work/d4-build-verified.log`：最终生产代码的前端与AI服务TypeScript、正常Vite构建通过；保留既有依赖注解/大chunk警告，不作性能结论。 |
+| 生产Chromium纯UI | `work/d4-browser-verified.log`：正常dist由Vite preview提供，`tests/forest-generation.spec.ts`1/1（56.3秒）。隔离临时浏览器新建原工程→森林候选→修改空地与入口使旧候选失效→重建→完整保存独立工程→页面冷开→对象面板删除真实树→保存/再次冷开按完整ID确认未复活，页面错误为0。没有DEV源码导入、存储注入或用户库读取。 |
+
+截图保留在`work/d4-browser-verified/forest-generation-forest-s-045ba--keep-a-deleted-tree-absent-chromium/`的`forest-preview.png`、`forest-cold-open.png`和`forest-deleted-cold-open.png`。预览截图记录默认候选1条道路、树目标30/实际28、灌木7/7、草簇1/1；这是该输入与本轮快照的实际结果，不是通用覆盖或视觉签收。源码/文档指纹在`work/d4-source-fingerprint.json`，仅为未提交工作区快照。
+
+**失败与修复**：初轮类型检查发现supportRef未先收窄和新引用未覆盖的refKey，已修复；后续构建新增测试的只读候选传给可变旧视图接口，改用独立clone后通过。`d4-targeted-initial.log`的路线支撑输入漏绑、`d4-targeted-second.log`的端口缺少真实已存事实均被编排器拒绝，现已补齐并通过最终集成。`d4-forest-third.log`的高台夹具共边未分段改为合法内嵌高台，仍保留真实高差拒绝；同轮移动/删除超过256的生产根因为单rule引用整林，改为逐输出规则，未提上限或拆批。首轮浏览器`d4-browser-final.log`失败发生在候选阶段：完整路线合法，但两棵树的原生图像越过Floor下边，触发路线核内的场景几何校验；补充森林候选图像边界过滤并如实列缺项，默认参数回归及最终生产浏览器通过。早期通过日志与这些失败均保留，不拼成另一轮完整结果。
+
+本轮未执行全量单元/AI、跨种子/跨浏览器/完整故障矩阵、正式容量/性能、真实模型、混合场景、视觉/P3或目标VTT导入；统一从[09](../09-quality-plan.md#d-domain-acceptance)验收。26份文档1665个本地链接/锚点与`git diff --check`通过。既有脏工作区及独立`todo.md`保留，后者SHA-256仍为`c8952e9305b9e9d0b9f172589f947929bfacf8da8f11264904726aecf55dd9d8`。下一执行点只在07维护。
+
+<a id="d3-interior-suggestions-20261105"></a>
+## D3初次门路与用途家具建议开发自检（2026-11-05）
+
+范围对应[07的D3](../07-roadmap.md#d-domain-implementation)，算法及有限支持边界归[设计11.3](../reference/general-map-generation.md#d-interior)，完整数据与保存合同分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#interior-generation-storage)。按用户本轮补充，门、入口、通路和用途家具只作为初次生成建议：依据用途、净面积、实际墙段/支撑/占地尽量安排，放不下或缺建议角色素材则说明原因，合法布局仍可采用；之后用户移动、关闭或删除不自动补回，不落永久必达/必需家具约束。
+
+**实现**：室内算法/配方2复用D1的结构→连接→内容三阶段，工程仍为唯一完整v1。真实共墙/外墙经原生`addOpening`建立附墙门；指定房间中心/门锚点只尝试三类有限路线，用完整带区、转角、真实墙厚/门状态及旋转家具检查净宽，并约束在实际相邻房间及明确入口短预留带内。路线为只读建议证据，不创建可见室内Path，不写`constraints.pathChecks/entranceOpeningIds`或房间必达状态。clear只证明指定端点和当前几何，不承诺任意全局寻路；例如外墙紧贴Floor边界时，外部引道缺支撑会如实列缺项。
+
+家具按用途与净面积选择有限角色和数量，使用显式授权的固定定义/版本、原物理尺寸及真实房间支撑；检查墙、其他家具间距、门口保留区，并复核每条原已通过的全宽路线。当前仅0°候选，最多6件/房间、64件/整图；小于4平方米或走廊不建议家具。缺角色/放不下不冒充已布置；显式错误资源、非法几何、取消和预算失败仍拒绝完整候选。房间、墙门和家具的完整实体、参数/固定palette、实际归属/出生及人工/删除记录保存；重放比较含建议报告的完整resultHash，冷读不重新生成。
+
+工程面板提供自动房间门/对外入口/用途家具三个开关、建议门宽/净宽，以及实际门/家具数、净空通过比例和缺项说明。固定家具来自现有原创室内素材，资源/许可准备、当前工程保护、新工程独立保存与冷读全验继续复用原链路；没有扩大AI权限或提前接入D7的Worker/服务端室内分派。
+
+| 必要自检 | 本轮新证据与范围 |
+|---|---|
+| 定向集成 | `work/d3-targeted-initial.log`：6文件21/21，覆盖室内确定性三阶段、真实门与家具、building归属、workspace完整资源/候选重放/独立保存冷读/完整包，以及原自然算法适配。workspace用例实际删除一件家具和一扇门，撤销/重做后保存冷读确认都不恢复，原当前工程保全；另含取消、旧基线和保存/冷读失败。 |
+| 持久配方完整性 | `work/d3-integrity.log`：1文件7/7。严格室内角色联合与参数palette/recipe.props一致性校验通过；自然角色测试先收窄到自然配方，不混用室内角色。 |
+| 门路反例收口 | `work/d3-connectivity-final.log`：1文件3/3，实际共享门/外门与全宽路线通过；关闭门、旋转家具封路、开口引用错配及绕出建筑伪造路线均不能报告clear。禁止两房间直连、净宽不足、取消和实际工作量计量有直接断言；未新增持续约束。 |
+| 家具建议 | `work/d3-furnishing-second.log`：1文件3/3，大小/用途影响建议、固定实际占地与支撑、缺角色/超大素材给缺项、门口与既有clear路线保全、确定性及可自由删除。此项与前述集成分别保留，不相加为另一全量结果。 |
+| 共享无DOM | `work/d3-check-shared.log`：191个源码模块无DOM编译、Node原生ESM及既有命令/身份/投影/存档烟测通过；没有真实图片适配器。 |
+| 正常构建 | `work/d3-build-second.log`：`npm run build`通过前端/AI服务TypeScript与正常Vite构建。另一次只读复核`d3-build-verified.log`也通过；保留既有依赖注解/大chunk警告，不作性能结论。 |
+| Chromium真实UI | `work/d3-browser-final.log`：`tests/interior-generation.spec.ts`1/1，隔离临时浏览器中正常UI生成三房间、实际门和家具→参数改变使旧候选失效→保存独立工程→冷开→对象面板删除一件真实家具→再次冷开按完整ID确认未恢复，页面错误为0。没有DEV源码导入或存储注入，也未触碰真实用户IndexedDB。 |
+
+截图保留于`work/d3-browser-final/interior-generation-interi-bb851-niture-without-restoring-it-chromium/`：`interior-preview.png`、`interior-cold-open.png`及`interior-deleted-cold-open.png`，用于结构/操作追溯，不代表视觉质量或P3签收。
+
+**首轮失败与修复**：`d3-build-initial.log`发现严格配方角色联合更新后自然测试未先收窄类型，已修正并通过7项及正常构建；`d3-connectivity-initial.log`暴露外部短引道允许区遗漏方端帽边界，修复后最终3项通过；`d3-furnishing-initial.log`是夹具对不同固定定义复用同一catalogId，已改为独立真实身份，未放宽固定源校验；`d3-browser-initial.log`在完整重放/冷读尚未完成时用默认8秒等待候选消失，截图显示实际保存成功。浏览器改为先等待真实“室内布局已完整保存”成功消息（30秒诊断时限），再检查候选关闭和冷开，未改生产预算或保存流程。失败记录保留，不拼成全量验收通过。
+
+本轮只做直接相关开发自检，没有执行全量单元/AI、跨种子/跨浏览器与完整故障矩阵、正式容量/性能、真实模型、混合场景、视觉/P3或目标VTT导入；统一留[09](../09-quality-plan.md#d-domain-acceptance)。26份文档1651个本地链接/锚点与`git diff --check`通过。未提交、推送或部署，既有脏工作区及独立`todo.md`保留（SHA-256仍为`c8952e9305b9e9d0b9f172589f947929bfacf8da8f11264904726aecf55dd9d8`）。下一执行点只在07维护。
+
+<a id="d2-interior-20261105"></a>
+## D2室内需求与有限布局开发自检（2026-11-05）
+
+范围对应[07的D2](../07-roadmap.md#d-domain-implementation)，实际接口及有限搜索边界归[设计11.3](../reference/general-map-generation.md#d-interior)，持久归属归[04](../04-scene-document.md#generation-staging)，保存归[06](../06-storage-and-export.md#interior-generation-storage)。本轮只做必要开发自检，未读取真实用户库、调用模型、提交、推送或部署；不是正式验收或视觉/P3签收。
+
+**实现**：严格可变房间需求/净面积/净边长、共墙/分离关系、可选横/纵走廊，经确定性有限矩形切分与有界回溯，原生`createRoom`生成实际房间、顶点及唯一共享墙。实际环形状、精确面积、墙厚边界与走廊净宽独立复核。结果保存规范参数、固定材质、building规则/ownership与真实generationTokens；人工用途/间接几何修改脱管，删除保留墓碑，逐命令拓扑变化及撤销/重做不回退旧令牌。当前无门/路线/家具，必开门、必达、必需家具请求拒绝；有限搜索未找到不证明需求不可行。没有新增工程版本或平行身份池，原自然分支保持。
+
+工程面板提供真实表单与Canvas候选。预览先完整资源准备，不写主工程/仓库；修改参数立即取消旧候选。采用按本会话时间/ID序列完整重放并核对，先保存当前工程，再保存独立新工程并冷读全验，成功才切换。取消、旧基线、伪造凭据、保存/冷读失败保留当前工程；后段失败时独立新记录可保留，不声称跨内存与持久化回滚。
+
+| 必要自检 | 新证据与范围 |
+|---|---|
+| 定向集成 | `work/d2-targeted-integrated.log`：6文件40/40，覆盖共享室内4例、workspace完整资源/采用4例、building归属及contracts/identities、natural-adapter旧算法6完整响应一致。不同数量、面积、真实走廊、失败分类、出生/人工/删除/拓扑和完整包保存冷读均在此范围；不外推为全部旧算法/多种子验收。 |
+| 实际矩形反例与类型收口 | `work/d2-final-domain.log`：2文件9/9，补同包围盒但被切掉一角的实际房间拒绝，复验生成与building归属；与前项分别保留，不相加为另一整套结果。 |
+| 共享边界 | `work/d2-check-shared.log`：189个源码模块通过无DOM编译、Node原生ESM与既有命令/身份/投影、资源/存档烟测；无真实图片适配器的边界保持。 |
+| 正常生产构建 | `work/d2-build-final.log`：最后代码编辑后`npm run build`通过前端/AI服务TypeScript与Vite，保留既有依赖注解/大chunk警告，不据此声明性能通过。 |
+| Chromium真实UI | `work/d2-browser-verified.log`：`tests/interior-generation.spec.ts`1/1。纯UI新建当前工程→3个房间/共墙关系→真实画布→改用途使旧候选失效→重建→保存新工程→页面刷新→从最近工程冷开，页面错误为0；尺寸栏按当前候选12×8m核对。使用隔离临时浏览器，不含DEV导入或存储注入。 |
+
+最终截图为`work/d2-browser-verified/interior-generation-room-r-bf4e3-old-open-a-complete-project-chromium/interior-preview.png`及`interior-cold-open.png`。截图用于结构/操作自检，不把普通填色布局作为成图质量或P3通过。
+
+**首轮失败与修复**：域测试首次误从graph导入命令API，修正为真实commands入口；类型检查发现测试owned clone的readonly类型和ValidationResult联合未收窄，修正夹具类型/断言。首轮浏览器未先切到工程页，第二轮误用不存在的消息class；按实际tab及role=alert修正用例，未改应用迎合定位器。静态复核发现bbox不足以证明真实房间矩形，补正交边/精确环面积与反例；目视发现候选画布尺寸栏仍显示原工程范围，改为当前预览文档，并补UI断言。采用失败后清除失效候选并保留表单/错误；离开守卫使用通用地图候选文案。失败日志保留在`d2-interior-initial.log`、`d2-typecheck-initial.log`、`d2-typecheck-second.log`、`d2-browser-initial.log`、`d2-browser-second.log`；中间成功浏览器轮次为`d2-browser-complete.log`，最后尺寸修复后只引用新的verified结果。
+
+完整单元/AI、跨种子/跨浏览器与完整故障矩阵、Worker/服务端室内分派、真实模型、正式容量/性能、混合场景、门路/家具、视觉/P3和VTT仍留[09](../09-quality-plan.md#d-domain-acceptance)及后续开发范围；原脏工作区和独立`todo.md`保留（SHA-256仍为`c8952e9305b9e9d0b9f172589f947929bfacf8da8f11264904726aecf55dd9d8`）；文档本地目标/新增锚点与`git diff --check`通过。主文件指纹为`work/d2-source-fingerprint.json`，这是未提交工作区快照，不冒充提交冻结。下一执行点只在07维护。
+
+<a id="d1-generation-stages-20261105"></a>
+## D1共用接口与阶段候选开发自检（2026-11-05）
+
+本项对应[07的D1](../07-roadmap.md#d-domain-implementation)，接口及限制归[生成设计](../reference/general-map-generation.md#d1-stage-contract)，持久责任归[04](../04-scene-document.md#generation-staging)。执行范围仅D1：共用编排能在私有完整文档上逐步物化，后项读取真实前项事实；没有实现D2室内布局、增加工程持久字段、读取用户数据库或执行提交/推送/部署。正式验收仍从09统一执行。
+
+**实现与边界**：步骤依赖及输入绑定具体stepId、精确算子版本、产物基数/ID/Floor/坐标框架；完整候选逐阶段独立捕获/冻结、校验场景和实际预算，提取新的事实并形成文档/输入/输出hash回执。前序事实失效、越阶段写域、硬约束、失败或取消均拒绝整套结果，source保持不变。墙门事实及实际全厚度/miter/bevel转角参与边界检查；未显式发布的物化事实也检查。当前不提供增量缓存或自动重算调度，改变上游参数以新请求重新执行。候选仍为prepared，完整工程身份/资源/许可/像素、授权/锁及保护/CAS/撤销检查不省略。
+
+自然适配保留原协议一次完整算法调用，仅结构阶段通过显式静态重放桥物化，后阶段读取真实候选；没有将旧算法内部拆成四套新求解器，也未给普通注册开放跨阶段写域。旧算法6的同输入完整响应、seed和resultHash与直接入口及Worker函数逐字段一致；不外推为算法1–7、多种子或真实跨端完整验收。
+
+| 必要自检 | 本轮新证据 |
+|---|---|
+| 直接影响的生成模块 | `work/d1-final-targeted.log`：4文件41/41；串行`--maxWorkers=1 --testTimeout=30000`。覆盖原生建房/真实墙绑定/门物化/下游查询、重复算子实例的精确选择、版本/基数/Floor/框架/ID拒绝、旧事实失效、参数影响hash、失败/取消保全、越阶段隐藏实体拒绝、墙/开口边界，以及自然算法6响应与Worker函数一致。30秒为开发诊断时限，不是性能或默认5秒通过声明 |
+| 共享无DOM | `work/d1-shared-final.log`：`npm run check:shared`通过186个源码模块；Node ESM、命令/身份/投影、无图片ZIP/历史及个人库烟测通过，没有真实图片适配器 |
+| 类型与正常构建 | `work/d1-typecheck-final.log`记录`npx tsc -b --pretty false`成功；`work/d1-build-final.log`记录`npm run build`成功，含前后端TypeScript与Vite。既有依赖注释/大chunk警告保持，不据此宣称性能通过 |
+
+**发现与修复**：首轮3文件24通过/1失败（`work/d1-initial-tests.log`）是旧缺输入断言只接受“强类型输入”，新精确绑定更早给出“输入产物基数不符”；仅修正断言，未放宽校验。阶段链首次定向2文件28/28、加入预算后4文件35/35分别保留在`d1-stage-tests.log`、`d1-generation-final.log`。静态复核发现完整物化回调可绕过阶段输出所有权，以及墙/开口边界遗漏；已补独立文档写域检查、真实几何和未发布事实检查，并以反例与合法边界配对通过。最终4文件41项为同一次完整定向结果，不拼接此前通过数。
+
+本轮未运行完整单元/AI、浏览器/多种子矩阵、真实模型、视觉/P3、正式性能或目标VTT验收。已有其他脏工作区编辑和独立`todo.md`保留。下一执行点只由[07](../07-roadmap.md#current-step)维护。
+
+<a id="single-v1-generation-20261105"></a>
+## 唯一完整v1、独立迁入与通用生成薄层开发自检（2026-11-05）
+
+本记录属于开发整改，用户目标为通用地图生成器和唯一当前完整v1；不是正式验收、真实模型、容量/性能或发布结论。未读取或迁入用户真实IndexedDB，未提交、推送或部署。工作区已有其他未提交地形/素材改动继续保留，独立`todo.md`未改。
+
+**实现范围**：当前工程/场景/manifest统一为1，固定内部组合identity5/appearance2/visual3/generation5，保留原v8完整能力；正常入口不接受旧开发文件。新建/样板/内置胶囊和编辑/资源/历史/渲染/AI实际能力使用方同步；公开新AI任务仅协议4，旧协议仅来源校验后的内部重放，不延续旧租约。普通256与注册多维预算分别计量，不减身份/外观记录来压成本。算法6领域固定hash及原seed保持，新工程hash重算。
+
+一次性迁入只读旧工程/个人库，重建全历史分支、delta、head/pin与完整资源许可，保留个人素材精确key/组织和原始表行。完整原件冷读留在`sceneweave-development-originals-<源指纹>`；私有目标按指纹隔离，冷读全部记录并复核源后同步发布成对选择指针。重复执行不覆盖已采用成果；锁约束迁入工具，不宣称与旧页面写入构成跨数据库事务。原件库仍缺便携整库下载入口；源库保持原样。
+
+通用层为`shared/generation`会话内强类型产物/约束、精确版本注册、依赖/seed、多维实际计量与取消。空间从严格完整场景提取支撑、旋转占地、真实门/墙厚、足宽连接与二维预留区；它不承担通用三维净空或跨层寻路。自然适配器精确调用原算法，实际底图Worker使用该适配器，但只回传原协议完整结果，后续仍走物化/资源/身份/权限/保护/CAS/一次采用。静态算子为可信代码，不是任意插件沙箱；D的室内/洞穴/混合领域未由本记录证明。
+
+**失败与修复**：
+
+- 首轮默认单元：257文件通过、22文件失败，2825通过/131失败；旧当前版本断言/直接构造、退役升级引用及完整身份/外观计费缺口分别修复。首轮日志`work/single-v1/all-tests.log`保留。
+- 第二轮默认单元：279文件通过、3文件失败，2990通过/6失败。4个底图接续用例触发默认5秒上限，另两个为旧协议只读投影与实际成本断言。底图同输入独立60秒诊断17/17通过，涉及接续/取消/保存的真实单例约4.9/15.4/10.3秒，四例单独声明60秒；未改生产预算。AI只读投影必须先证明旧来源，成本按完整元数据计量。日志`all-tests-round2.log`与`base-map-duration-proof.log`保留。
+- 旧v7合法画区可超采样框：先红后绿，迁入仅扩为原框与全部原画区包围盒并集，不裁切、不生成成员。旧非法擦除coverage在归一前按旧领域规则拒绝，防止被静默归零。真实managed/manual/deleted/detached、锁、墓碑与拓扑损坏已有回归。
+- 冷读仅枚举现存目标可能漏掉整个删除scope，增加已安装记录覆盖复核；verified但未发布的目标还需目标指纹与最终源复核。源变化、缺记录、取消和指针配额失败均不切换。
+- AI回执内层长度不足以限制最终JSON包装，改为真实封装8KiB边界分页/裁剪；不增上限。旧服务测试迁移到当前4，并保留旧内部来源/账本冷重启拒重发证据。
+- 首次生产脚本错误假定刷新自动恢复会话，后续显式回首页打开最近工程。首轮和两次修正日志保留；应用当时没有页面/网络错误。
+- 后续混跑/长停顿产生超时与worker启动失败；这些日志保留为失败，不拼成通过。最终改为防空闲休眠、单进程串行复核；这是开发诊断，不是正式性能测量。
+- 独立AI完整集538通过/2失败：累计预算重型用例超过其显式20秒测试时限，按实测声明60秒；HTTP runner测试未扣除已计入的真实初始化时间，改为读取初始剩余额度后推进假时钟，保留30,050ms及冷却跨界断言。两文件定向复验19通过/1失败，原两项已通过，新增失败为布景用例默认5秒超时；该例独跑30秒诊断通过，再声明独立30秒并用默认配置定向复验1/1通过。生产预算和行为断言未放宽；没有重新运行完整AI集。
+
+**已完成的必要证据**：
+
+| 检查 | 结果与边界 |
+|---|---|
+| 迁入与旧v7转换 | 2文件26/26，通过全部分叉、pin、真实bytes端口、个人胶囊/组织及坏源/取消/源变化/发布失败。`work/single-v1/workspace-v7-import-regressions.log`；使用fake-indexeddb，不代表用户库验收。 |
+| 通用编排/空间/自然适配 | 3文件25/25；Worker相关4文件90/90；算法6完整响应一致。固定输入结果不外推为任意领域生成。 |
+| 共享无DOM | `npm run check:shared`通过185模块与Node ESM/命令/投影/当前及所选历史ZIP/个人库备份烟测；没有真实图片适配器。 |
+| 实际Chromium迁入 | `tests/development-import.spec.ts`2/2：隔离v8三节点分叉/命名pin/真实PNG与Canvas像素，首页迁入发布重载冷开、源只读及真实跨tab锁等待取消。`work/development-import-browser-20261105/migration-run.txt`。 |
+| 实际Worker/HTTP | `tests/base-map.spec.ts`registered profile例1/1，small/standard/expanded岛与expanded群岛结果、资源/冷包/预算核对；受控HTTP不调用付费模型。`work/development-import-browser-20261105/registered-profile-run.txt`。 |
+| 正常构建 | `npm run build`通过完整前后端类型检查与Vite；末尾UI文案及测试时限调整后补跑同一构建也通过。既有zod注解/大chunk警告保留。日志`work/single-v1/build-final-round1.log`、`build-minimal-closure.log`。 |
+| 正常dist纯UI | 新建、结构候选确认、单次采用/撤销重做、完整包hash/长度、显式冷重开一致，无DEV/performance钩子及页面/网络错误。`work/single-v1/production-smoke-final/result.json`；只写隔离浏览器数据。 |
+| 最终完整单元集 | 282文件、2999项全部通过；`caffeinate -i npm test -- --maxWorkers=1 --testTimeout=30000 --reporter=dot`。全局30秒是本轮明确开发诊断预算，四个重型底图用例有独立60秒；不作默认5秒或性能通过声明。完整日志`work/single-v1/all-tests-final-awake.log`。 |
+| 独立AI服务完整集及定向收口 | 完整执行40文件、538通过/2失败，日志`work/single-v1/ai-tests-final-awake.log`；修复后两文件定向19通过/1超时，日志`ai-two-failures-regression.log`。剩余布景例诊断及显式时限复验各1/1，日志`ai-furnishing-targeted.log`、`ai-furnishing-explicit-timeout.log`。这是完整执行加定向修复证据，不宣称修复后完整540项全绿；完整复跑留09。 |
+
+按2026-11-05用户确认的[开发期最小自检策略](../07-roadmap.md#development-self-check-policy)，本轮只收口已发现问题，不继续扩跑。`decoration-island`浏览器用例已移除退役升级模块引用并改为当前完整v1夹具，本轮未执行该专项；完整单元/AI复跑、完整故障与跨浏览器矩阵、真实模型/用户P3、正式性能和目标VTT导入均留开发完成后由[09](../09-quality-plan.md#acceptance)统一执行。后续范围和当前活动项只看[07](../07-roadmap.md#general-map-generation-priority)。
+
 <a id="doc-36"></a>
 
 <a id="doc-36-首页统一工作区与素材组织讨论稿"></a>

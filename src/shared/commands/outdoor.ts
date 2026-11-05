@@ -358,7 +358,6 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
     }
     case 'updateTerrainEdge': Object.assign(required(scene.terrainEdges, command.id, '来源边缘'), cloneJson(command.changes)); break
     case 'createTerrainConnection': {
-      if (command.route && scene.schemaVersion < 5) throw new Error('曲线连接需要完整v5；请先保存独立曲线连接副本。')
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
       scene.terrainConnections[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, kind: command.kind, from: cloneJson(command.from), to: cloneJson(command.to), widthMm: command.widthMm,
         visibility: command.visibility ?? 'public', openingId: command.openingId ?? null, blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1, surfaceStyle: command.surfaceStyle ?? null,
@@ -366,7 +365,6 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       scene.entityLayers[command.id] = layer; break
     }
     case 'updateTerrainConnection': {
-      if (Object.hasOwn(command.changes, 'route') && scene.schemaVersion < 5) throw new Error('曲线连接需要完整v5；请先保存独立曲线连接副本。')
       const connection = required(scene.terrainConnections, command.id, '高差连接'), { route, ...changes } = command.changes
       Object.assign(connection, cloneJson(changes))
       if (route === null) delete connection.route

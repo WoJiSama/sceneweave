@@ -15,6 +15,8 @@ import { projectContentHash } from '../../shared/project/validate.js'
 import { cloneJson, encodeUtf8 } from '../../shared/validation/json.js'
 import { exportProject, importProject } from '../../shared/project/file.js'
 import { prepareTerrainEdit } from '../../shared/terrain-generation/edit.js'
+import { TASK_BUDGET_PROFILES, captureExecutionBudget } from '../../shared/budget/task-budget.js'
+import { prepareBaseMapRequestV3, executeBaseMapRequestV3 } from '../../shared/terrain-generation/base-map-v3.js'
 
 const repos: ProjectRepository[] = [], sessions: Workspace[] = []
 async function setup() {
@@ -22,12 +24,21 @@ async function setup() {
   const bytes = pixelPng([74, 108, 61, 255]), hash = sha256Bytes(bytes)
   for (const asset of Object.values(document.assets)) Object.assign(asset, { sha256: hash, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1 })
   const text = 'T2 real PNG closure', licenseHash = sha256Bytes(encodeUtf8(text)), content = createCompositionContent(document, runtime)
-  const base = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 2, ...content,
+  const base = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
     assets: { [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } },
     licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: inspectDependencies(document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const })), authoringSources: {} }, resources: createMemoryResources(new Map([[hash, bytes]])) }, validation)
   const repo = new ProjectRepository({ name: `terrain-edit-${crypto.randomUUID()}`, runtime, validation }); repos.push(repo)
   const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
-  const candidate = await workspace.previewTerrainGeneration(base, { sceneId: document.sceneId, kind: 'island', seed: 'terrain-v1-0' })
+  const profile = TASK_BUDGET_PROFILES.small, request = prepareBaseMapRequestV3({
+    requestId: crypto.randomUUID(), flowId: crypto.randomUUID(), workspaceSceneId: 'empty-workspace', checkpoint: workspace.checkpoint(),
+    operationEpoch: 1, base: base.document, profile, generation: { kind: 'terrain', input: {
+      sceneId: document.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 4,
+      budgetProfileId: profile.profileId, quality: 'standard',
+    } },
+  })
+  const candidate = await workspace.previewBaseMapGeneration(base, request, executeBaseMapRequestV3(request), {
+    source: 'worker', generationExecution: { startedAt: NOW, activeRuntimeMs: 1, generationCalls: 1 },
+  })
   await workspace.adoptTerrainGeneration(candidate)
   return { workspace, repo }
 }
@@ -62,7 +73,7 @@ describe('T2 protected local terrain transaction', () => {
     expect(workspace.getDocument()!.revision).toBe(revision + 1)
     expect(workspace.getDocument()!.props).toEqual(before.document.props)
     expect(workspace.getDocument()!.terrainAreas).toEqual(before.document.terrainAreas)
-    expect(workspace.getDocument()!.generation!.version).toBe(2)
+    expect(workspace.getDocument()!.generation.legacy.version).toBe(2)
     expect(workspace.getState().canUndo).toBe(true)
     const cold = (await repo.load(current.document.sceneId))!, archive = await exportProject(cold, validation), imported = await importProject(archive, validation)
     expect(projectContentHash(imported.project)).toBe(projectContentHash(toBundle(workspace.getState().project!).project))
@@ -74,7 +85,7 @@ describe('T2 protected local terrain transaction', () => {
     await expect(workspace.adoptTerrainEdit(preview)).rejects.toThrow(/采用/)
   }, 30000)
   it('rejects a tampered worker result and honors abort before any protection or current mutation', async () => {
-    const { workspace, repo } = await setup(), current = workspace.getState().project!, input = request(workspace), result = prepareTerrainEdit(current.document, input)
+    const { workspace, repo } = await setup(), current = workspace.getState().project!, input = request(workspace), result = prepareTerrainEdit(current.document, input, { budget: TASK_BUDGET_PROFILES.small, meter: captureExecutionBudget(TASK_BUDGET_PROFILES.small) })
     const changed = cloneJson(result); changed.document.title += ' forged'
     await expect(workspace.previewTerrainEdit(input, { result: changed })).rejects.toThrow(/重放不符/)
     const abort = new AbortController(); abort.abort()
@@ -131,7 +142,7 @@ describe('T2 protected local terrain transaction', () => {
     vi.spyOn(repo, 'save').mockRejectedValueOnce(new Error('T2 quota'))
     const applied = await workspace.adoptTerrainEdit(second)
     await expect(applied.save).rejects.toThrow(/quota/)
-    expect(workspace.getState().project!.document.generation!.version).toBe(2); expect(workspace.getState().status).toBe('error'); expect(workspace.getState().canUndo).toBe(true)
+    expect(workspace.getState().project!.document.generation.legacy.version).toBe(2); expect(workspace.getState().status).toBe('error'); expect(workspace.getState().canUndo).toBe(true)
     expect((await repo.load(current.document.sceneId))!.project.document.generation).toEqual(current.document.generation)
     workspace.undo(); expect(workspace.getDocument()!.generation).toEqual(current.document.generation)
     await workspace.retry()
