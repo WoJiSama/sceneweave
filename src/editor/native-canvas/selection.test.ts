@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { groupLayerSceneV3, layerSceneV3 } from '../../core/v3/test-fixtures'
 import type { SceneDocument } from '../../shared/model/scene.js'
@@ -7,7 +8,7 @@ import { hitTestAll, normalizeSelection, selectInBounds, selectionGeometry } fro
 import { summarizeSelection } from './selection-summary'
 import { selectionActionReason, selectionCommands } from './selection-actions'
 
-const native = (scene = layerSceneV3()): SceneDocument => ({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
+const native = (scene = layerSceneV3()): SceneDocument => toCurrentSceneDocument({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
 
 describe('native complete-v1 member and batch selection', () => {
   it('hits actual member outlines and never a gap, collapses group/member duplicates and preserves explicit member mode', () => {

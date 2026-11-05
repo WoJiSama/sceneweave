@@ -7,6 +7,7 @@ import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js
 import { captureEditableDraft, fromBundle, toBundle, validateEditableProject, type EditableProject } from './project.js'
 import { fixture, runtime, validation } from './test-fixtures.js'
 import { Workspace } from './workspace.js'
+import { topDownPresentation } from '../../shared/appearance/presentation.js'
 
 const repositories: ProjectRepository[] = []
 const workspaces: Workspace[] = []
@@ -35,6 +36,7 @@ function appendFixedDefinitions(base: EditableProject, count: number): EditableP
       definitionRef: { id, version: definition.version }, appearance: structuredClone(definition.defaultAppearance),
       visualBoundsMm: structuredClone(definition.defaultVisualBoundsMm), shadowClass: definition.defaultShadowClass, shadowOverride: null,
     } }
+    candidate.appearance.presentations![sourceId] = topDownPresentation()
     candidate.licenseBindings.push({ ...license, subjectId: id })
   }
   return candidate

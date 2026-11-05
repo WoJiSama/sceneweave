@@ -1,21 +1,18 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
-import { emptyVisualSystem } from '../visual/types.js'
-import { emptyTerrainDocument } from '../terrain-generation/compose.js'
 import { generationInputHash, managedOutputHash } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { applyCommands, applySnapshotCommands, type SceneCommand } from './commands.js'
 
 let token = 0
 const runtime = () => ({ ids: { nextId: () => `budget-token-${++token}` }, clock: { now: () => '2026-10-26T00:00:00.000Z' } })
-function scene(version: 1 | 2 | 3 = 3): SceneDocument {
-  const source: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 2, visual: emptyVisualSystem() }
-  if (version === 1) { source.schemaVersion = 1; delete source.visual }
-  return version === 3 ? emptyTerrainDocument(source) : source
+function scene(): SceneDocument {
+  return toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
 }
 function managedScene(): SceneDocument {
   const source = scene(), generation = getLegacyGeneration(source)!, floorId = source.props.item.floorId, layerId = source.entityLayers.item
@@ -41,11 +38,11 @@ function area(source: SceneDocument): SceneCommand {
       y: Math.round(13000 + 2000 * Math.sin(index * Math.PI / 10)) })) }
 }
 
-describe('native-v3 cumulative actual command budget', () => {
+describe('current complete-v1 cumulative actual command budget', () => {
   it('adds preceding no-ops to a real terrain point/segment expansion at exactly 256 and rejects 257 atomically', () => {
     const source = scene(), create = area(source), standalone = applyCommands(source, [create], runtime())
     const actual = terrainCommandCost(source, standalone).total
-    expect(actual).toBe(41)
+    expect(actual).toBe(82)
     const accepted = Array.from({ length: 256 - actual }, () => noop(source))
     expect(applyCommands(source, [...accepted, create], runtime()).terrainAreas['cost-area']).toBeDefined()
     const before = canonicalJson(source)
@@ -55,7 +52,7 @@ describe('native-v3 cumulative actual command budget', () => {
 
   it('keeps earlier real edits charged when later commands return to the original document', () => {
     const source = scene(), create = area(source)
-    // Create/remove each expands 41 records. The final document has no area.
+    // Create/remove each expands 41 records in each domain accounting axis. The final document has no area.
     const remove: SceneCommand = { type: 'deleteOutdoorEntity', kind: 'terrainArea', id: 'cost-area' }
     const leading = Array.from({ length: 175 }, () => noop(source))
     expect(() => applyCommands(source, [...leading, create, remove], runtime())).toThrow(/256/)
@@ -65,8 +62,8 @@ describe('native-v3 cumulative actual command budget', () => {
   it('charges manual generation reconciliation in addition to preceding lock no-ops', () => {
     const source = managedScene(), locked = applyCommands(source, [lock(true)], runtime())
     const actual = terrainCommandCost(source, locked).total
-    // Physical prop + owner record + rule record + its output reference.
-    expect(actual).toBe(4)
+    // Physical prop + owner record + rule record + its output reference, plus current-domain prop accounting.
+    expect(actual).toBe(5)
     expect(getLegacyGeneration(locked)!.ownership.owner).toMatchObject({ state: 'manual', manualFields: ['properties'] })
     const accepted = Array.from({ length: 256 - actual }, () => lock(false))
     expect(applyCommands(source, [...accepted, lock(true)], runtime()).props.item.editLocked).toBe(true)
@@ -75,11 +72,11 @@ describe('native-v3 cumulative actual command budget', () => {
   })
 
   it('charges lock/unlock transitions individually even when the final physical lock matches the baseline', () => {
-    const source = managedScene(), accepted = Array.from({ length: 251 }, () => lock(false)), observed: boolean[] = []
+    const source = managedScene(), accepted = Array.from({ length: 249 }, () => lock(false)), observed: boolean[] = []
     const next = applyCommands(source, [...accepted, lock(true), lock(false)], runtime(), { onSceneDraft: draft => { observed.push(draft.props.item.editLocked) } })
     expect(next.props.item.editLocked).toBe(false)
     expect(getLegacyGeneration(next)!.ownership.owner.state).toBe('manual')
-    expect(observed).toHaveLength(253); expect(observed.slice(-2)).toEqual([true, false])
+    expect(observed).toHaveLength(251); expect(observed.slice(-2)).toEqual([true, false])
     expect(() => applyCommands(source, [...accepted, lock(false), lock(true), lock(false)], runtime())).toThrow(/256/)
   })
 
@@ -91,10 +88,4 @@ describe('native-v3 cumulative actual command budget', () => {
     expect(applyCommands(source, Array.from({ length: 256 }, () => lock(false)), runtime())).toEqual(source)
   })
 
-  it.each([1, 2] as const)('retains prior native-v%s no-op expansion semantics', version => {
-    const source = scene(version), create = area(source)
-    // Legacy branches historically charge these update no-ops zero; only v3
-    // adds their request cost to the independently expanded terrain command.
-    expect(applyCommands(source, [...Array.from({ length: 250 }, () => noop(source)), create], runtime()).terrainAreas['cost-area']).toBeDefined()
-  })
 })

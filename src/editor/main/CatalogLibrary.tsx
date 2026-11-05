@@ -159,12 +159,7 @@ export default function CatalogLibrary({
     setSnapshot(next); setStatus(`已完整安装${entries.length}项，可从“我的素材”离线采用。`)
   })
   const adoptSelected = () => run('检查完整闭包并准备工程候选…', async (repo, signal) => {
-    if (project.schemaVersion < 3) for (const item of selectedItems) {
-      const provider = await loadProject(item)
-      if (signal.aborted) throw new DOMException('取消', 'AbortError')
-      const definition = item.selector.kind === 'prop' ? provider.document.propDefinitions[item.selector.definitionId] : undefined
-      if (definition && definitionPresentation(provider.appearance, { id: definition.id, version: definition.version })?.mode === 'nearSide') throw new Error('选中的物件包含近侧视根锚，当前工程尚不支持。请先打开地形工程，或明确只选择草缘与碎石；本次选择保持。')
-    }
+
     const entries = await prepareSelected(repo, selectedItems, signal)
     await onAdopt(entries, signal)
     if (mounted.current) setStatus('工程采用候选已准备，请在候选面板确认。确认后可从“本工程”放置。')
@@ -236,7 +231,6 @@ export default function CatalogLibrary({
     {scope === 'builtin' && builtinError && <div><p role="alert" className="asset-form-error">内置素材缺失或读取失败：{builtinError}</p><button className="secondary" disabled={builtinLoading} onClick={onBuiltinDemand}>重试内置素材</button></div>}
     {scope === 'variants' && variantsLoading && <p role="status">正在读取地形变体的实际资源…</p>}
     {scope === 'variants' && variantsError && <div><p role="alert" className="asset-form-error">地形变体缺失或读取失败：{variantsError}</p><button className="secondary" disabled={variantsLoading} onClick={onVariantsDemand}>重试地形变体</button></div>}
-    {scope === 'variants' && project.schemaVersion < 3 && <p className="asset-muted catalog-explanation">草缘与碎石可用于当前工程；树、岩和灌丛的近侧视根锚需要地形工程。请明确选择所需素材。</p>}
     <label className="composition-search"><Search size={14}/><input type="search" aria-label="搜索组件素材" placeholder="名称、标签、来源或 ID" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
     <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部</button>{(['prop', 'material', 'prefab'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
     <details className="catalog-filters"><summary>标签、颜色与收藏筛选</summary>

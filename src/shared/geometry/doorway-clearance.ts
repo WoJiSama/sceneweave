@@ -30,13 +30,13 @@ function band(start: PointMm, end: PointMm, thicknessMm: number): PointMm[] {
 }
 
 /** Real blocking bands with structural door apertures removed; windows remain solid. */
-function wallShapes(scene: SceneDocument, current = false): WallShape[] {
-  return Object.values(scene.walls).filter(wall => wall.blocksMovement).map(wall => {
+function wallShapes(scene: SceneDocument, current = false, fullEnvelope = false): WallShape[] {
+  return Object.values(scene.walls).filter(wall => fullEnvelope || wall.blocksMovement).map(wall => {
     const a = own(scene.vertices, wall.startVertexId), b = own(scene.vertices, wall.endVertexId)
     if (!a || !b) throw new Error(`门前检查缺少墙端点：${wall.id}。`)
     const start = { x: a.xMm, y: a.yMm }, end = { x: b.xMm, y: b.yMm }, length = Math.hypot(end.x - start.x, end.y - start.y)
     if (!length) throw new Error(`门前检查遇到零长墙：${wall.id}。`)
-    const gaps = Object.values(scene.openings).filter(opening => opening.wallId === wall.id && opening.kind === 'door' && (!current || opening.state === 'open' && !opening.locked)).map(opening => {
+    const gaps = (fullEnvelope ? [] : Object.values(scene.openings)).filter(opening => opening.wallId === wall.id && opening.kind === 'door' && (!current || opening.state === 'open' && !opening.locked)).map(opening => {
       const offset = opening.offsetReferenceVertexId === wall.startVertexId ? opening.offsetMm : length - opening.offsetMm - opening.widthMm
       return [offset, offset + opening.widthMm]
     }).sort(([a], [b]) => a - b)
@@ -76,6 +76,24 @@ function wallJoins(shapes: WallShape[]): { wallIds: string[]; floorId: string; p
 export function wallMovementPolygons(scene: SceneDocument, current = false): { floorId: string; entityId: string; polygon: PointMm[] }[] {
   const shapes = wallShapes(scene, current)
   return [...shapes.flatMap(shape => shape.polygons.map(polygon => ({ floorId: shape.wall.floorId, entityId: shape.wall.id, polygon }))), ...wallJoins(shapes).map(join => ({ floorId: join.floorId, entityId: join.wallIds.join('、'), polygon: join.polygon }))]
+}
+
+/** Complete physical extents, including both owners' miter/bevel joins. Unlike
+ * movement polygons these retain nonblocking walls and every door aperture. */
+export function wallEnvelopePolygons(scene: SceneDocument): { floorId: string; entityId: string; polygon: PointMm[] }[] {
+  const shapes = wallShapes(scene, false, true)
+  return [...shapes.flatMap(shape => shape.polygons.map(polygon => ({ floorId: shape.wall.floorId, entityId: shape.wall.id, polygon }))),
+    ...wallJoins(shapes).flatMap(join => join.wallIds.map(entityId => ({ floorId: join.floorId, entityId, polygon: join.polygon })))]
+}
+
+/** An opening occupies the whole parent wall thickness, regardless of state. */
+export function openingEnvelopePolygon(scene: SceneDocument, openingId: string): PointMm[] {
+  const opening = own(scene.openings, openingId)
+  if (!opening) return []
+  const wall = own(scene.walls, opening.wallId)
+  if (!wall) throw new Error(`开口几何缺少附着墙：${openingId}。`)
+  const [start, end] = openingEndpoints(scene, opening)
+  return band(start, end, wall.thicknessMm)
 }
 
 /**

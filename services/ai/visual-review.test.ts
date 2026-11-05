@@ -1,18 +1,18 @@
+import { currentAuthoringFixture } from '../../tests/helpers/current-authoring-fixture.js'
 import { describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { svgFixturePng, svgProjectFixture } from '../../tests/helpers/m24-svg-fixtures.js'
-import { authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
+import { replayAuthoring } from '../../src/shared/ai/authoring.js'
 import { createPublicVisionInput } from '../../src/shared/ai/vision.js'
 import { canonicalJson, cloneJson } from '../../src/shared/validation/json.js'
-import type { AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
 import type { StoredTask } from './store.js'
 import { proposeVisualReview, visualReviewTool } from './visual-review.js'
 
 function fixture() {
   const project = cloneJson(svgProjectFixture().bundle.project), scene = project.document, floorId = Object.keys(scene.floors)[0]
-  const start: AuthoringStart = { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: randomUUID(), preparedAt: '2026-10-27T00:00:00.000Z',
-    skill: { id: 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model',
-    scope: { targetIds: ['item'], operations: ['opacity', 'transform'], placement: { floorId, layerId: scene.entityLayers.item, supportRef: { kind: 'floor', id: floorId }, boundsMm: scene.floors[floorId].boundsMm, definitionIds: ['definition'] } } }
+  const start = currentAuthoringFixture({ project, seed: randomUUID(), preparedAt: '2026-10-27T00:00:00.000Z',
+    skill: { id: 'sceneweave-prop-authoring', version: 1 },
+    scope: { targetIds: ['item'], operations: ['opacity', 'transform'], placement: { floorId, layerId: scene.entityLayers.item, supportRef: { kind: 'floor', id: floorId }, boundsMm: scene.floors[floorId].boundsMm, definitionIds: ['definition'] } } })
   const state = replayAuthoring(start, []).state
   const image = createPublicVisionInput(svgFixturePng(), { sceneId: scene.sceneId, revision: scene.revision, boundsMm: { x: 1000, y: 1000, width: 1000, height: 1000 } })
   const task: StoredTask = { owner: 'test', fingerprint: 'test', messages: [{ role: 'user', content: 'public screenshot', images: [image] }], calls: {}, runtimeMs: 0, runStartedAt: null, outputBytes: 0, toolAttempts: 0, completedRequests: 0, pendingText: '',
@@ -27,7 +27,7 @@ describe('read-only visual review candidate', () => {
   it('publishes a strict tool and returns a valid detached preview without changing task state', () => {
     expect(visualReviewTool.name).toBe('sceneweave_visual_review')
     const { task, image } = fixture(), before = canonicalJson(task), output = proposeVisualReview(task, args(image), 'review-1') as Record<string, unknown>
-    expect(output).toMatchObject({ previewValid: true, actualOperationCost: 1, atDraftRevision: 0, atContentHash: task.authoring!.state.contentHash, observation: 'unverified', appearance: 'unconfirmed' })
+    expect(output).toMatchObject({ previewValid: true, actualOperationCost: 3, atDraftRevision: 0, atContentHash: task.authoring!.state.contentHash, observation: 'unverified', appearance: 'unconfirmed' })
     expect(output.screenshotBinding).toMatchObject({ sha256: image.sha256, draftRevision: 0, contentHash: task.authoring!.start.baseContentHash })
     expect(canonicalJson(task)).toBe(before)
   })

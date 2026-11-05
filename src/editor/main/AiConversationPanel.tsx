@@ -40,7 +40,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   const operation = useRef(0), request = useRef<AbortController | null>(null), stream = useRef<AbortController | null>(null), mounted = useRef(true)
   contextRef.current = context; sceneRef.current = sceneOf(context)
   const continuationSource = authoring?.baseMapPreview?.continuationSource
-  const needsCurrentAuthoring = !!authoring && authoring.project.schemaVersion >= 3
+  const needsCurrentAuthoring = !!authoring
   const continuationVersion = needsCurrentAuthoring ? 4 : continuationSource?.version === 3 ? 3 : 2
   const continuationPolicy = continuationSource?.version === 3 ? createContinuationPolicyV2(continuationSource.request.profile) : CONTINUATION_POLICY
   const surfaceVersion = requiredSurfaceRecipeVersion(continuationSource?.request.generation)

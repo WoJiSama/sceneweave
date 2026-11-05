@@ -112,16 +112,16 @@ export function createEmptyGeneration5(legacy?: z.infer<typeof generationSchema>
 }
 
 export type LegacyTerrainScene = Omit<SceneDocument, 'schemaVersion' | 'generation' | 'visual' | 'mapMode' | 'regional'> & { schemaVersion: 3; mapMode: 'scene' | 'regional'; generation: GenerationSystem1; visual: VisualSystem2<VisualSystem>; regional: RegionalModel1 | null }
-export function getLegacyGeneration(scene: Pick<SceneDocument, 'generation'>): GenerationSystem1 | undefined {
+export function getLegacyGeneration(scene: { generation?: GenerationSystem1 | GenerationSystem5 }): GenerationSystem1 | undefined {
   return scene.generation?.version === 5 ? scene.generation.legacy : scene.generation
 }
-export function getLegacyVisual(scene: Pick<SceneDocument, 'visual'>): VisualSystem2<VisualSystem> | undefined {
+export function getLegacyVisual(scene: { visual?: VisualSystem | VisualSystem2<VisualSystem> | VisualSystem3 }): VisualSystem2<VisualSystem> | undefined {
   return scene.visual?.version === 3 ? scene.visual.base : scene.visual?.version === 2 ? scene.visual : undefined
 }
 /** Read-only compatibility view for old algorithms, never a save/export value. */
-export function legacyTerrainView(scene: Readonly<SceneDocument>): LegacyTerrainScene {
-  if (scene.schemaVersion >= 4) {
-    if (scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('完整v4/v5缺少严格generation5/visual3。')
+export function legacyTerrainView(scene: Readonly<SceneDocument> | Readonly<LegacyTerrainScene>): LegacyTerrainScene {
+  if (scene.generation?.version === 5) {
+    if (scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('完整工程缺少严格generation5/visual3。')
     return { ...scene, schemaVersion: 3, generation: scene.generation.legacy, visual: scene.visual.base, mapMode: scene.mapMode!, regional: scene.regional ?? null }
   }
   return scene as LegacyTerrainScene

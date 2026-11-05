@@ -16,12 +16,15 @@ describe('controlled runner actual local HTTP transport', () => {
     const directory = mkdtempSync(join(tmpdir(), 'sceneweave-runner-http-'))
     cleanups.push(() => rmSync(directory, { recursive: true, force: true }))
     const bodies: Record<string, unknown>[] = [], times: number[] = []
-    let clock = 1000
+    let clock = 1000, initialRemaining = 0
     const server = createServer(async (request, response) => {
       let body = ''; for await (const chunk of request) body += String(chunk)
       bodies.push(JSON.parse(body)); times.push(performance.now())
       const first = bodies.length === 1
-      if (first) clock += 269950
+      // Initialization is charged before the run starts. Leave the same real
+      // 30,050ms budget on either a fast or slow machine, then cross the final
+      // payload cutoff during the explicit 100ms cooldown below.
+      if (first) clock += initialRemaining - 30050
       const delta = first ? { tool_calls: [{ index: 0, id: 'check-before-cooldown', type: 'function', function: { name: 'sceneweave_check_draft', arguments: '{}' } }] } : {}
       response.writeHead(200, { 'Content-Type': 'text/event-stream' })
       response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: first ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 4, completion_tokens: 3 } })}\n\ndata: [DONE]\n\n`)
@@ -37,6 +40,8 @@ describe('controlled runner actual local HTTP transport', () => {
     expect(bodies).toHaveLength(0); expect(runner.store.count()).toBe(0)
     const source = terrainAuthoringFixture(), snapshot = runner.engine.create('local-owner', { schemaVersion: 1, clientRequestId: randomUUID(),
       prompt: 'Run one check and finish honestly.', context: { sceneId: source.project.document.sceneId, revision: source.project.document.revision, audience: 'public' }, authoring: source })
+    initialRemaining = runner.store.remaining(runner.store.read(snapshot.id))
+    expect(initialRemaining).toBeGreaterThan(30050)
     await vi.waitFor(() => expect(runner.store.read(snapshot.id).completedRequests).toBe(1), { timeout: 3000, interval: 5 })
     expect(runner.store.read(snapshot.id).snapshot.usage.requests).toBe(1)
     expect(runner.store.remaining(runner.store.read(snapshot.id))).toBe(30050)

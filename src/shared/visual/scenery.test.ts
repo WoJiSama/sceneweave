@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import type { PropDefinition, SceneDocument } from '../model/scene.js'
 import { applySceneryCandidate, inspectScenerySources, orderSceneryProps, prepareSceneryRegeneration } from './scenery.js'
@@ -13,12 +14,12 @@ function fixture(): SceneDocument {
   const prop = { id: 'manual-tree', floorId: 'floor', editLocked: false, definitionRef: { id: 'tree-a', version: 1 }, appearance: definition('tree-a').defaultAppearance,
     visualBoundsMm: definition('tree-a').defaultVisualBoundsMm, positionMm: { x: 5000, y: 5000 }, rotationDeg: 0, footprintMm: { width: 600, height: 600 }, footprintOffsetMm: { x: 0, y: 0 }, blocksMovement: false, blocksSight: false, visibility: 'public' as const, supportRef: { kind: 'terrainArea' as const, id: 'meadow' }, renderLayer: 'canopy' as const, renderOrder: 3, shadowClass: 'vegetation' as const, shadowOverride: null }
   const area = { id: 'meadow', floorId: 'floor', editLocked: false, visibility: 'public' as const, boundaryMm: [{ id: 'meadow-p0', segmentId: 'meadow-s0', positionMm: { x: 1000, y: 1000 } }, { id: 'meadow-p1', segmentId: 'meadow-s1', positionMm: { x: 11000, y: 1000 } }, { id: 'meadow-p2', segmentId: 'meadow-s2', positionMm: { x: 11000, y: 8000 } }, { id: 'meadow-p3', segmentId: 'meadow-s3', positionMm: { x: 1000, y: 8000 } }], groundElevationMm: 0, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
-  return { format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'scenery-fixture', revision: 4, title: 'scenery', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
+  return toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'scenery-fixture', revision: 4, title: 'scenery', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: { 'manual-tree': prop }, regions: {}, notes: {}, assets: {}, propDefinitions: { 'tree-a': definition('tree-a'), 'tree-b': definition('tree-b', 'object') }, materials: {}, terrainAreas: { meadow: area }, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {
       trees: { id: 'trees', floorId: 'floor', editLocked: false, visibility: 'public', domain: { kind: 'area', areaId: 'meadow' }, palette: [{ key: 'a', propDefinitionRef: { id: 'tree-a', version: 1 }, weight: 3 }, { key: 'b', propDefinitionRef: { id: 'tree-b', version: 1 }, weight: 1 }], seed: 'trees-1', algorithmVersion: 'scatter-cell-v1', gridOriginMm: { x: 1000, y: 1000 }, cellSizeMm: 2000, densityFactor: .35, minDistanceMm: 800, rotationRangeDeg: { min: 0, max: 20 }, members: { manual: { propId: 'manual-tree', state: 'manual', overrideFields: [] } }, exclusions: [],
       },
     }, styleThemes: {}, activeStyleThemeRef: null, userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: { 'manual-tree': 'layer', trees: 'layer' }, presetSnapshot: { presetId: 'fixture', presetVersion: 1, distanceMode: 'metric', source: 'fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] },
-  }
+  })
 }
 
 describe('T11 conditional scenery', () => {

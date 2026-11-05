@@ -2,16 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Decoration, DecorationCluster, SceneDocument, SurfaceRef } from '../../shared/model/scene'
 import type { SceneCommand } from '../../shared/commands/commands'
 import type { DecorationCommand } from '../../shared/decorations/commands'
-import { estimateCanopyRegionInstances } from '../../shared/decorations/generate'
 import { estimateSurfaceRegionInstances } from '../../shared/decorations/generate'
 import { terrainPoints } from '../../shared/geometry/geometry'
 import { TERRAIN_VARIANT_SPECS } from '../../platform/browser/content/terrain-variant-catalog'
 import type { CanvasTerrainBrush } from '../native-canvas/AssetCanvas'
-import { canopyRegionsFromStroke, connectedTerrainAreaIds, surfaceRegionsFromStroke } from './canopy-brush'
+import { connectedTerrainAreaIds, surfaceRegionsFromStroke } from './canopy-brush'
 
 type CreateCommand = Extract<DecorationCommand, { type: 'createDecorationCluster' }>
-type CreateCanopyCommand = Extract<DecorationCommand, { type: 'createCanopyRegion' }>
-type Props = { scene: SceneDocument; layerId: string; disabled: boolean; onCreate: (command: CreateCommand) => void; onCreateCanopy: (command: CreateCanopyCommand) => void; onCanvasBrushChange: (brush: CanvasTerrainBrush | null) => void; onDraftChange: (dirty: boolean) => void; onUpgradeCanopy: () => void; onUpgradeSurfaceRules: () => void; onPrepareSources: (definitionIds: string[]) => void; onPreview: (commands: SceneCommand[], label: string) => void; onSelect: (id: string) => void }
+type Props = { scene: SceneDocument; layerId: string; disabled: boolean; onCreate: (command: CreateCommand) => void; onCanvasBrushChange: (brush: CanvasTerrainBrush | null) => void; onDraftChange: (dirty: boolean) => void; onPrepareSources: (definitionIds: string[]) => void; onPreview: (commands: SceneCommand[], label: string) => void; onSelect: (id: string) => void }
 const parseSupport = (value: string): SurfaceRef => { const [kind, id] = value.split(':'); return { kind: kind as SurfaceRef['kind'], id } }
 const supportOptions = (scene: SceneDocument, floorId: string) => [
   ...Object.values(scene.floors).filter(row => row.id === floorId).map(row => ({ value: `floor:${row.id}`, label: row.name })),
@@ -19,19 +17,13 @@ const supportOptions = (scene: SceneDocument, floorId: string) => [
   ...Object.values(scene.rooms).filter(row => row.floorId === floorId).map(row => ({ value: `room:${row.id}`, label: `房间 · ${row.id}` })),
 ]
 
-export default function DecorationPanel({ scene, layerId, disabled, onCreate, onCreateCanopy, onCanvasBrushChange, onDraftChange, onUpgradeCanopy, onUpgradeSurfaceRules, onPrepareSources, onPreview, onSelect }: Props) {
+export default function DecorationPanel({ scene, layerId, disabled, onCreate, onCanvasBrushChange, onDraftChange, onPrepareSources, onPreview, onSelect }: Props) {
   const floorId = scene.userLayers[layerId]?.floorId ?? Object.keys(scene.floors)[0], bounds = scene.floors[floorId].boundsMm
   const [support, setSupport] = useState(`floor:${floorId}`), [region, setRegion] = useState(`${bounds.x}, ${bounds.y}, ${bounds.width}, ${bounds.height}`)
   const [seed, setSeed] = useState('clustered-dressing-0'), [count, setCount] = useState('16'), [spacing, setSpacing] = useState('650'), [radius, setRadius] = useState('2400'), [clearance, setClearance] = useState('600')
   const [palette, setPalette] = useState('mixed'), [visibility, setVisibility] = useState<'public' | 'gm'>('public'), [error, setError] = useState<string>()
-  const treeSpecs = TERRAIN_VARIANT_SPECS.filter(row => row.role === 'tree')
-  const missingTrees = treeSpecs.filter(row => !scene.propDefinitions[row.definitionId])
   const treeDefinitions = Object.values(scene.propDefinitions).filter(row => row.defaultAppearance.kind === 'image' && (row.tags.some(tag => /tree|树/i.test(tag)) || /tree|树/i.test(row.name)))
   const canopyAreas = Object.values(scene.terrainAreas).filter(row => row.floorId === floorId)
-  const [canopyAreaId, setCanopyAreaId] = useState(() => canopyAreas[0]?.id ?? '')
-  const [canopyDefinitionId, setCanopyDefinitionId] = useState(() => treeDefinitions[0]?.id ?? '')
-  const [canopyCoveragePpm, setCanopyCoveragePpm] = useState(180_000), [canopyRadiusMm, setCanopyRadiusMm] = useState(700)
-  const [canopySeed, setCanopySeed] = useState('tree-canopy-0'), [canopyPainting, setCanopyPainting] = useState(false)
   const [surfaceAreaId, setSurfaceAreaId] = useState(() => canopyAreas[0]?.id ?? '')
   const [surfaceField, setSurfaceField] = useState<'material' | 'trees' | 'shrubs' | 'grass'>('trees')
   const [surfaceMode, setSurfaceMode] = useState<'paint' | 'erase'>('paint'), [surfacePainting, setSurfacePainting] = useState(false)
@@ -40,36 +32,10 @@ export default function DecorationPanel({ scene, layerId, disabled, onCreate, on
   const [surfaceCoveragePpm, setSurfaceCoveragePpm] = useState(180_000), [surfaceRadiusMm, setSurfaceRadiusMm] = useState(700)
   const [surfaceSeed, setSurfaceSeed] = useState('surface-plants-0'), [surfaceClearanceMm, setSurfaceClearanceMm] = useState(300), [surfaceBlendWidthMm, setSurfaceBlendWidthMm] = useState(180)
   const [extendConnected, setExtendConnected] = useState(false)
-  const callbacks = useRef({ onCreateCanopy, onDraftChange, onCanvasBrushChange })
-  callbacks.current = { onCreateCanopy, onDraftChange, onCanvasBrushChange }
   const surfaceCallbacks = useRef({ onPreview, onDraftChange, onCanvasBrushChange })
   surfaceCallbacks.current = { onPreview, onDraftChange, onCanvasBrushChange }
   const specs = TERRAIN_VARIANT_SPECS.filter(row => palette === 'mixed' || palette === 'light' && !row.blocksMovement && !row.blocksSight || palette === 'vegetation' && !['rock', 'scree'].some(role => row.role.includes(role)) || palette === 'rocks' && ['rock', 'scree'].some(role => row.role.includes(role)))
   const missing = specs.filter(row => !scene.propDefinitions[row.definitionId])
-  const canopyArea = scene.terrainAreas[canopyAreaId], canopyDefinition = treeDefinitions.find(row => row.id === canopyDefinitionId)
-  const canopyBrush = useMemo<CanvasTerrainBrush | null>(() => {
-    if (!canopyPainting || !canopyArea || !canopyDefinition || disabled) return null
-    const supportPoints = terrainPoints(canopyArea), xs = supportPoints.map(point => point.x), ys = supportPoints.map(point => point.y)
-    return {
-      radiusMm: canopyRadiusMm, strokes: [], scope: { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) },
-      label: '树冠覆盖区域 · 仅限所选地形面 · 抬笔预览 · Escape 取消',
-      onStroke: stroke => {
-        try {
-          if (!canopySeed.trim() || canopySeed.length > 128) throw new Error('布景种子长度须为1–128个字符。')
-          const regionsMm = canopyRegionsFromStroke(stroke, canopyRadiusMm, supportPoints)
-          const definitionRef = { id: canopyDefinition.id, version: canopyDefinition.version }
-          const expected = estimateCanopyRegionInstances(scene, definitionRef, regionsMm, canopyCoveragePpm)
-          callbacks.current.onCreateCanopy({ type: 'createCanopyRegion', id: crypto.randomUUID(), floorId, layerId, visibility, supportRef: { kind: 'terrainArea', id: canopyArea.id }, regionsMm,
-            definitionRef, seed: canopySeed, mode: 'plant', canopyCoveragePpm, spacingMm: Number(spacing), clusterRadiusMm: Number(radius), clearanceMm: Number(clearance) })
-          setCanopyPainting(false)
-          callbacks.current.onDraftChange(false)
-          setError(`本区域预计 ${expected} 棵；实际数量会再检查占地、净空与其他依赖。`)
-        } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
-      },
-      onCancel: () => { setCanopyPainting(false); callbacks.current.onDraftChange(false); callbacks.current.onCanvasBrushChange(null) },
-      onError: setError,
-    }
-  }, [canopyPainting, canopyArea, canopyDefinition, canopyRadiusMm, canopyCoveragePpm, canopySeed, floorId, layerId, visibility, spacing, radius, clearance, scene, disabled])
   const surfaceArea = scene.terrainAreas[surfaceAreaId]
   const surfaceRole = surfaceField === 'trees' ? 'tree' : surfaceField === 'shrubs' ? 'shrub' : surfaceField === 'grass' ? 'grass' : null
   const surfaceSpecs = surfaceRole ? TERRAIN_VARIANT_SPECS.filter(row => row.role === surfaceRole) : []
@@ -81,7 +47,7 @@ export default function DecorationPanel({ scene, layerId, disabled, onCreate, on
     ? treeDefinitions.filter(row => row.id === surfaceTreeId).map(row => ({ key: `tree-${row.id}`, definitionRef: { id: row.id, version: row.version }, kind: 'prop' as const, weight: 1 }))
     : surfaceDefinitions.map(row => ({ key: row.id, definitionRef: { id: row.id, version: row.version }, kind: 'decoration' as const, weight: 1 }))
   const surfaceBrush = useMemo<CanvasTerrainBrush | null>(() => {
-    if (scene.schemaVersion !== 8 || !surfacePainting || !surfaceArea || disabled) return null
+    if (!surfacePainting || !surfaceArea || disabled) return null
     if (surfaceMode === 'paint' && surfaceField === 'material' && !scene.materials[surfaceMaterialId]) return null
     if (surfaceMode === 'paint' && surfaceField !== 'material' && (surfaceMissing.length || !surfacePalette.length)) return null
     const targetAreas = (extendConnected ? connectedTerrainAreaIds(scene, surfaceArea.id) : [surfaceArea.id]).map(id => scene.terrainAreas[id]).filter(Boolean)
@@ -124,9 +90,9 @@ export default function DecorationPanel({ scene, layerId, disabled, onCreate, on
       onError: setError,
     }
   }, [scene, surfacePainting, surfaceArea, disabled, surfaceMode, surfaceField, surfaceMaterialId, surfaceMissing, surfacePalette, surfaceSeed, surfaceCoveragePpm, surfaceRadiusMm, surfaceClearanceMm, surfaceBlendWidthMm, floorId, layerId, visibility, extendConnected])
-  const activeBrush = surfaceBrush ?? canopyBrush
+  const activeBrush = surfaceBrush
   useEffect(() => { onCanvasBrushChange(activeBrush); return () => onCanvasBrushChange(null) }, [activeBrush, onCanvasBrushChange])
-  useEffect(() => () => callbacks.current.onDraftChange(false), [])
+  useEffect(() => () => surfaceCallbacks.current.onDraftChange(false), [])
   const submit = () => {
     try {
       const values = region.split(/[,，\s]+/).filter(Boolean).map(Number)
@@ -139,28 +105,9 @@ export default function DecorationPanel({ scene, layerId, disabled, onCreate, on
   }
   return <section className="asset-section" aria-label="簇状布景">
     <h2>簇状布景</h2><p className="asset-muted">树岩保留碰撞，小型装饰可逐件编辑。预览会检查支撑、活动区、道路及楼梯净空，并保留人工修改。</p>
-    {scene.schemaVersion === 6 && <button type="button" className="secondary asset-wide" disabled={disabled} onClick={onUpgradeCanopy}>保存树冠规则副本 · v7</button>}
-    {scene.schemaVersion === 7 && <button type="button" className="secondary asset-wide" disabled={disabled} onClick={onUpgradeSurfaceRules}>保存连续地表规则副本 · v8</button>}
-    {scene.schemaVersion === 7 && <details className="decoration-canopy-rules">
-      <summary>树冠区域规则</summary>
-      {missingTrees.length > 0 && <><p className="asset-muted">先加入固定树木素材，才能绘制树冠覆盖区域。</p><button className="secondary asset-wide" disabled={disabled} onClick={() => onPrepareSources(missingTrees.map(row => row.definitionId))}>预览树木素材 · {missingTrees.length} 项</button></>}
-      {treeDefinitions.length > 0 && <fieldset disabled={disabled}>
-        <label>支撑地形面<select aria-label="树冠区域支撑地形面" disabled={canopyPainting} value={canopyAreaId} onChange={event => setCanopyAreaId(event.target.value)}>{canopyAreas.map(area => { const layer = scene.userLayers[scene.entityLayers[area.id]]; return <option key={area.id} value={area.id} disabled={area.editLocked || layer?.editLocked}>{area.id} · 高程 {area.groundElevationMm / 1000} 米{area.editLocked || layer?.editLocked ? ' · 已锁定' : ''}</option> })}</select></label>
-        <label>树木素材<select aria-label="树冠区域树木素材" disabled={canopyPainting} value={canopyDefinitionId} onChange={event => setCanopyDefinitionId(event.target.value)}>{treeDefinitions.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-        <label>树冠覆盖目标 <output>{(canopyCoveragePpm / 10_000).toFixed(0)}%</output><input aria-label="树冠覆盖目标百分比" disabled={canopyPainting} type="range" min="0" max={600_000} step={10_000} value={canopyCoveragePpm} onChange={event => setCanopyCoveragePpm(Number(event.target.value))}/></label>
-        <label>画笔半径 mm<input aria-label="树冠区域画笔半径" disabled={canopyPainting} type="number" min="100" max="10000" step="100" value={canopyRadiusMm} onChange={event => setCanopyRadiusMm(Number(event.target.value))}/></label>
-        <label>布景种子<input aria-label="树冠规则种子" disabled={canopyPainting} maxLength={128} value={canopySeed} onChange={event => setCanopySeed(event.target.value)}/></label>
-        <button type="button" className={canopyPainting ? 'secondary asset-wide' : 'primary asset-wide'} aria-pressed={canopyPainting} disabled={!canopyArea || canopyAreas.length === 0 || !canopyDefinition || disabled} onClick={() => {
-          const next = !canopyPainting; setCanopyPainting(next); setError(undefined); onDraftChange(next)
-          if (!next) onCanvasBrushChange(null)
-        }}>{canopyPainting ? '结束树冠绘制' : '绘制树冠覆盖区域'}</button>
-        <p className="asset-muted">树冠覆盖目标用于估算；笔迹只作用于明确选择的地形面。抬笔后生成完整物件候选，支撑、锁、碰撞和活动区检查后一次采用。</p>
-      </fieldset>}
-    </details>}
-    {canopyPainting && <button type="button" className="secondary asset-wide" onClick={() => { setCanopyPainting(false); onDraftChange(false); onCanvasBrushChange(null) }}>取消树冠绘制</button>}
-    {scene.schemaVersion === 8 && <details className="decoration-canopy-rules" open>
+    {<details className="decoration-canopy-rules" open>
       <summary>连续地表与区域植被</summary>
-      <fieldset disabled={disabled || canopyPainting || surfacePainting}>
+      <fieldset disabled={disabled || surfacePainting}>
         <label>支撑地形面<select aria-label="地表规则支撑地形面" value={surfaceAreaId} onChange={event => setSurfaceAreaId(event.target.value)}>{canopyAreas.map(area => { const layer = scene.userLayers[scene.entityLayers[area.id]]; return <option key={area.id} value={area.id} disabled={area.editLocked || layer?.editLocked}>{area.id} · 高程 {area.groundElevationMm / 1000} 米{area.editLocked || layer?.editLocked ? ' · 已锁定' : ''}</option> })}</select></label>
         <div className="asset-library-tabs" role="group" aria-label="地表规则通道">{(['material', 'trees', 'shrubs', 'grass'] as const).map(value => <button key={value} type="button" aria-pressed={surfaceField === value} onClick={() => setSurfaceField(value)}>{{ material: '材质', trees: '树木', shrubs: '灌木', grass: '草簇' }[value]}</button>)}</div>
         <div className="asset-library-tabs" role="group" aria-label="地表绘制模式"><button type="button" aria-pressed={surfaceMode === 'paint'} onClick={() => setSurfaceMode('paint')}>涂绘</button><button type="button" aria-pressed={surfaceMode === 'erase'} onClick={() => setSurfaceMode('erase')}>局部擦除</button></div>
@@ -191,7 +138,7 @@ export default function DecorationPanel({ scene, layerId, disabled, onCreate, on
         <button type="button" disabled={disabled || rule.editLocked} onClick={() => onPreview([{ type: 'deleteSurfaceRule', id: rule.id }], '移除地表规则并显露下层设置')}>移除</button>
       </div>)}</div>
     </details>}
-    <fieldset disabled={disabled || canopyPainting}>
+    <fieldset disabled={disabled || surfacePainting}>
       <label>支撑表面<select aria-label="布景支撑表面" value={support} onChange={e => setSupport(e.target.value)}>{supportOptions(scene, floorId).map(row => <option key={row.value} value={row.value}>{row.label}</option>)}</select></label>
       <label>世界范围 · x, y, 宽, 高 mm<input aria-label="布景世界范围" value={region} onChange={e => setRegion(e.target.value)}/></label>
       <label>固定素材组合<select aria-label="布景素材组合" value={palette} onChange={e => setPalette(e.target.value)}><option value="mixed">树岩、灌丛、草缘与碎石</option><option value="vegetation">植被簇</option><option value="rocks">岩石与碎石</option><option value="light">仅轻量装饰</option></select></label>
@@ -214,21 +161,9 @@ export function DecorationInspector({ scene, id, disabled, onPreview, onSelect }
   const decoration: Decoration | undefined = scene.decorations?.[id], cluster: DecorationCluster | undefined = scene.decorationClusters?.[id], row = decoration ?? cluster
   const [x, setX] = useState(String(decoration?.positionMm.x ?? 0)), [y, setY] = useState(String(decoration?.positionMm.y ?? 0)), [scale, setScale] = useState(String((decoration?.scalePpm ?? 1_000_000) / 1_000_000)), [rotation, setRotation] = useState(String(decoration?.rotationDeg ?? 0))
   const [visibility, setVisibility] = useState<'public' | 'gm'>(row?.visibility ?? 'public')
-  const canopyRule = cluster?.canopyRule
-  const [canopyCoveragePpm, setCanopyCoveragePpm] = useState(canopyRule?.canopyCoveragePpm ?? 0)
   if (!row) return null
-  let canopyEstimate: number | null = null
-  let canopyEstimateError: string | null = null
-  if (canopyRule && cluster) try { canopyEstimate = estimateCanopyRegionInstances(scene, cluster.palette[0].definitionRef, canopyRule.regionsMm, canopyCoveragePpm) }
-  catch (failure) { canopyEstimateError = failure instanceof Error ? failure.message : String(failure) }
-  const activeTreeCount = cluster ? Object.values(cluster.members).filter(member => member.entityId && member.state !== 'deleted' && member.state !== 'detached').length : 0
   const owner = Object.values(scene.decorationClusters ?? {}).find(group => Object.values(group.members).some(member => member.entityId === id && member.state !== 'detached'))
-  return <section aria-label="轻量装饰属性"><h2>{decoration ? '轻量装饰' : canopyRule ? '树冠区域规则' : '布景簇'}</h2><p className="asset-muted">{id}</p>
-    {canopyRule && cluster && <fieldset disabled={disabled || row.editLocked}>
-      <label>树冠覆盖目标 <output>{(canopyCoveragePpm / 10_000).toFixed(0)}%</output><input aria-label="树冠规则覆盖目标百分比" type="range" min="0" max={600_000} step={10_000} value={canopyCoveragePpm} onChange={event => setCanopyCoveragePpm(Number(event.target.value))}/></label>
-      <p className="asset-muted">预计 {canopyEstimate === null ? canopyEstimateError : `${canopyEstimate} 棵`} · 当前区域 {activeTreeCount} 棵。估算按固定素材图像范围计算；实际候选还会检查支撑、锁、净空和重叠。</p>
-      <button className="primary asset-wide" disabled={canopyEstimate === null || canopyCoveragePpm === canopyRule.canopyCoveragePpm || canopyRule.mode === 'erase'} onClick={() => onPreview([{ type: 'updateCanopyRegion', id, mode: 'plant', canopyCoveragePpm }], '调整树冠覆盖并保全已编辑成员')}>预览树冠覆盖调整</button>
-    </fieldset>}
+  return <section aria-label="轻量装饰属性"><h2>{decoration ? '轻量装饰' : '布景簇'}</h2><p className="asset-muted">{id}</p>
     {decoration && <><p>{scene.propDefinitions[decoration.definitionRef.id]?.name}</p><fieldset disabled={disabled || row.editLocked}>
       <label>X mm<input aria-label="装饰位置X" value={x} onChange={e => setX(e.target.value)}/></label><label>Y mm<input aria-label="装饰位置Y" value={y} onChange={e => setY(e.target.value)}/></label>
       <label>尺寸倍数<input aria-label="装饰尺寸倍数" value={scale} onChange={e => setScale(e.target.value)}/></label><label>朝向 °<input aria-label="装饰朝向" value={rotation} onChange={e => setRotation(e.target.value)}/></label>
@@ -238,6 +173,6 @@ export function DecorationInspector({ scene, id, disabled, onPreview, onSelect }
       {owner && <button className="secondary asset-wide" onClick={() => onPreview([{ type: 'detachDecorationMember', clusterId: owner.id, entityId: id }], '保留当前装饰并退出自动布景')}>退出自动布景</button>}
     </fieldset></>}
     <button className="secondary asset-wide" disabled={disabled} onClick={() => onPreview([{ type: 'setEditLock', kind: decoration ? 'decoration' : 'decorationCluster', id, locked: !row.editLocked }], row.editLocked ? '解锁布景对象' : '锁定布景对象')}>{row.editLocked ? '解锁布景对象' : '锁定布景对象'}</button>
-    {cluster && <><p>人工记录随工程保存；重新布景不会复活删除项。</p><button className="primary asset-wide" disabled={disabled || row.editLocked} onClick={() => onPreview([{ type: 'regenerateDecorationCluster', id }], '重新布景并保全人工记录')}>预览重新布景</button><button className="secondary asset-wide" disabled={disabled || row.editLocked} onClick={() => onPreview([{ type: 'deleteDecorationCluster', id }], canopyRule ? '预览移除树冠规则并显露仍有效的下层规则' : '删除布景簇及仍受管理的成员')}>{canopyRule ? '移除本层树冠规则' : '预览删除布景簇'}</button><ul>{Object.entries(cluster.members).map(([key, member]) => <li key={key}>{member.entityId ? <button title={member.entityId} onClick={() => onSelect(member.entityId!)}>{scene.props[member.entityId] ? '完整物件' : '轻量装饰'} · {member.entityId}</button> : '已删除'} · {({ managed: '自动', manual: '人工保留', deleted: '删除保留', detached: '已退出' })[member.state]}</li>)}</ul></>}
+    {cluster && <><p>人工记录随工程保存；重新布景不会复活删除项。</p><button className="primary asset-wide" disabled={disabled || row.editLocked} onClick={() => onPreview([{ type: 'regenerateDecorationCluster', id }], '重新布景并保全人工记录')}>预览重新布景</button><button className="secondary asset-wide" disabled={disabled || row.editLocked} onClick={() => onPreview([{ type: 'deleteDecorationCluster', id }], '删除布景簇及仍受管理的成员')}>预览删除布景簇</button><ul>{Object.entries(cluster.members).map(([key, member]) => <li key={key}>{member.entityId ? <button title={member.entityId} onClick={() => onSelect(member.entityId!)}>{scene.props[member.entityId] ? '完整物件' : '轻量装饰'} · {member.entityId}</button> : '已删除'} · {({ managed: '自动', manual: '人工保留', deleted: '删除保留', detached: '已退出' })[member.state]}</li>)}</ul></>}
   </section>
 }

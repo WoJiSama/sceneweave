@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { visualBase } from '../../../shared/visual/base.js'
 import type { PointMm, Prop, SceneDocument, SurfaceStyle, TerrainArea } from '../../../shared/model/scene.js'
 import { emptyVisualSystem, type CubicSegment, type VisualBoundary, type VisualEdgeLook } from '../../../shared/visual/types.js'
@@ -52,11 +53,11 @@ function bindWhole(scene: SceneDocument, boundary: VisualBoundary, id: string, k
 }
 function baseScene(kind: VisualSampleKind, sceneId: string, now: string): SceneDocument {
   const bounds = kind === 'interior' ? { x: 0, y: 0, width: 20000, height: 15000 } : { x: 0, y: 0, width: 24000, height: 18000 }
-  const scene: SceneDocument = { format: 'sceneweave-scene', schemaVersion: 2, sceneId, revision: 0, title: VISUAL_SAMPLE_NAMES[kind], createdAt: now, updatedAt: now,
+  const scene: SceneDocument = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId, revision: 0, title: VISUAL_SAMPLE_NAMES[kind], createdAt: now, updatedAt: now,
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
     floors: { [FLOOR]: { id: FLOOR, name: '原创视觉场景', boundsMm: { ...bounds } } }, vertices: {}, walls: {}, openings: {}, rooms: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: Object.fromEntries([[GROUND, '地形与结构'], [DETAILS, '边缘与细节'], [PROPS, '家具与植被'], [EFFECTS, '光照与气氛']].map(([id, name], order) => [id, { id, floorId: FLOOR, name, order, editLocked: false }])), entityLayers: {},
-    presetSnapshot: { presetId: `sceneweave-visual-${kind}`, presetVersion: 1, distanceMode: 'metric', source: 'Sceneweave原创视觉创作样例；共享曲线、完整可编辑成员及本地确定性效果；非参考图复制', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, minDoorWidthMm: 900, pathChecks: [] }, visual: emptyVisualSystem() }
+    presetSnapshot: { presetId: `sceneweave-visual-${kind}`, presetVersion: 1, distanceMode: 'metric', source: 'Sceneweave原创视觉创作样例；共享曲线、完整可编辑成员及本地确定性效果；非参考图复制', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, minDoorWidthMm: 900, pathChecks: [] }, visual: emptyVisualSystem() })
   for (const art of VISUAL_SAMPLE_ART) {
     const id = assetId(art.key)
     scene.assets[id] = { id, sha256: hexZero, mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512, logicalSizeMm: { width: art.widthMm, height: art.heightMm }, licenseRef: 'MIT', origin: { ...origin } }
@@ -181,7 +182,7 @@ export function createVisualBlankDocument(input: BlankOptions): SceneDocument {
   scene.title = options.title; scene.exportBoundsMm = { ...bounds }; scene.floors[FLOOR].boundsMm = { ...bounds }
   scene.units = { world: 'mm', display: preset.display, gridSizeMm: preset.gridSizeMm, snapMm: preset.snapMm, gridVisible: options.gridVisible ?? preset.gridVisible }
   scene.presetSnapshot = { presetId: `visual-${preset.id}`, presetVersion: 1, distanceMode: preset.distanceMode, source: `Sceneweave 通用${preset.name}偏好与24项原创视觉素材；非官方规则`, gridSizeMm: preset.gridSizeMm }
-  scene.visual = emptyVisualSystem()
+  scene.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }
   const checked = validateSceneDocument(scene)
   if (!checked.ok) throw new Error(`视觉空白工程无效：${checked.errors.map(issue => issue.message).join('；')}`)
   return checked.document

@@ -119,7 +119,7 @@ export function decorationProtectedGeometry(scene: SceneDocument, cluster: Pick<
 }
 
 export interface DecorationGeneration { cluster: DecorationCluster; props: Prop[]; decorations: Decoration[]; removePropIds: string[]; removeDecorationIds: string[] }
-/** v8 resolved rule geometry is disposable; only its rule owns painted regions. */
+/** current resolved rule geometry is disposable; only its rule owns painted regions. */
 export interface SurfaceGenerationRegion { polygons: PolygonWithHoles[]; coveragePpm: number }
 export function estimateSurfaceRegionInstances(scene: SceneDocument, palette: DecorationCluster['palette'], region: SurfaceGenerationRegion): number {
   let weightedArea = 0n, weight = 0n
@@ -136,7 +136,6 @@ export function estimateSurfaceRegionInstances(scene: SceneDocument, palette: De
 }
 /** Deterministic bounded proposal; all output coordinates and manual slots persist. */
 export function buildDecorationRegeneration(scene: SceneDocument, source: DecorationCluster, context: PreparationContext, appearance?: AppearanceGraph, surfaceRegion?: SurfaceGenerationRegion, executionMeter?: ExecutionBudget): DecorationGeneration {
-  if (scene.schemaVersion < 6) throw new Error('簇状布景需要完整v6或更新工程。')
   const group = cloneJson(source), visibility = createPublicVisibility(scene), publicOnly = group.visibility === 'public'
   if (publicOnly && !visibility.surface(group.supportRef)) throw new Error('公共簇状布景不能使用私密支撑。')
   const supportScene = publicOnly ? publicTerrainView(scene, visibility) : scene
@@ -145,7 +144,7 @@ export function buildDecorationRegeneration(scene: SceneDocument, source: Decora
   const canopyRule = group.canopyRule, regional = !!canopyRule || !!surfaceRegion
   const canopyRegion = surfaceRegion?.polygons ?? (canopyRule ? canopyEffectiveRegion(scene, group, executionMeter) : [])
   const selectedBounds = surfaceRegion ? boundsOfRegion(canopyRegion) : null
-  if (canopyRule && (scene.schemaVersion < 7 || !supportArea || canopyRule.regionsMm.some(region => !meteredPolygonInside(region, terrainPoints(supportArea), executionMeter)))) throw new Error('树木区域必须在严格v7工程中完整位于明确地形面内。')
+  if (canopyRule && (!supportArea || canopyRule.regionsMm.some(region => !meteredPolygonInside(region, terrainPoints(supportArea), executionMeter)))) throw new Error('树木区域必须在当前完整工程中完整位于明确地形面内。')
   const definitionForRule = canopyRule ? group.palette[0] && scene.propDefinitions[group.palette[0].definitionRef.id] : undefined
   const targetCount = surfaceRegion ? estimateSurfaceRegionInstances(scene, group.palette, surfaceRegion) : canopyRule?.mode === 'erase' ? 0 : canopyRule && definitionForRule
     ? Number(canopyAreaMm2(canopyRegion) * BigInt(canopyRule.canopyCoveragePpm)

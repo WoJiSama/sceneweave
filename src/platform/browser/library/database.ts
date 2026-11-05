@@ -1,8 +1,10 @@
+import { currentDatabaseNames } from '../storage/current-databases.js'
 import Dexie, { type Table } from 'dexie'
 import type { CatalogOrganization, PreparedLibraryEntry } from '../../../shared/library/types.js'
 import type { LibraryConversionJob } from './repository.js'
 
-export const LIBRARY_DATABASE_NAME = 'sceneweave-library'
+export const LEGACY_DEVELOPMENT_LIBRARY_DATABASE = 'sceneweave-library'
+export const LIBRARY_DATABASE_NAME = currentDatabaseNames().library
 export const LIBRARY_STORES = {
   entries: 'key,&logicalKey', organizations: 'key', metadata: 'id',
   conversionJobs: 'jobId,&jobKey', conversionStaging: '[jobId+kind+key]',

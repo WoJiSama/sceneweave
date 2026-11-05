@@ -40,7 +40,7 @@ export const appearanceGraphSchema = z.object({
   }).strict()),
 }).strict()
 export const appearanceGraph2Schema = appearanceGraphSchema.extend({ version: z.literal(2), presentations: presentationRecordSchema }).strict()
-export const nativeAppearanceGraphSchema = z.union([appearanceGraphSchema, appearanceGraph2Schema])
+export const nativeAppearanceGraphSchema = appearanceGraph2Schema
 // The wrapper owns no domain fields. Each strict domain parser below captures
 // its branch exactly once instead of parsing the same scene through this
 // wrapper, scene validation and the identity check again.
@@ -186,7 +186,7 @@ export function validateAppearanceGraph(input: unknown, document: SceneDocument)
   if (issue) throw new Error(`外观图无效：${issue.message}`)
   const parsed = nativeAppearanceGraphSchema.safeParse(input)
   if (!parsed.success) throw new Error(`外观图无效：${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
-  if ((document.schemaVersion >= 3) !== (parsed.data.version === 2)) throw new Error('场景版本与appearance版本不匹配。')
+  if (parsed.data.version !== 2) throw new Error('场景版本与appearance版本不匹配。')
   validatePresentations(parsed.data, document)
   checkGraph(parsed.data, document); return parsed.data
 }

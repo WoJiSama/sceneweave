@@ -2,9 +2,11 @@
 
 本页只维护测试入口、覆盖范围和运行方法；开发任务归[路线图](../docs/07-roadmap.md#development)，全部验收归[质量计划](../docs/09-quality-plan.md#acceptance)，实际通过、失败、跳过和冻结指纹归[历史台账](../docs/archive/README.md)。发现/加载的用例数不等于执行结果，历史测试数字不在本页滚动维护。
 
-当前产品只保留首页`#home`与统一工作区`#workspace`，新标识完整工程按严格v1–v6分派；旧整页工作台、旧格式导入和旧库发现不作为产品入口。未知hash回首页，活动草稿经过离开守卫；实际支持及拒绝范围归04/06。
+当前产品只保留首页`#home`与统一工作区`#workspace`，正常工程只读写当前完整v1；旧整页工作台和旧文件导入不作为产品入口。首页另有独立的一次性本机迁入工具，使用只读源与隔离目标。未知hash回首页，活动草稿经过离开守卫；实际支持及拒绝范围归04/06。
 
 ## 运行规则
+
+开发期按[最小自检策略](../docs/07-roadmap.md#development-self-check-policy)只运行本次直接相关检查；下列全量/专项命令是可选入口，不是每步必跑清单。完整验收在后续开发完成后按09统一执行。
 
 - 普通Vitest、AI和Playwright测试使用受控输入/provider，不调用真实付费模型。真实模型验收必须另行明确发起，未知计费请求不自动重发。
 - 完整浏览器回归前冻结源码并启动同版Vite。运行中修改Workbench可能使带时间戳导入和测试无查询导入得到不同会话，不能把该环境失败解释为数据丢失，也不能用定向通过拼成全套通过。
@@ -19,24 +21,31 @@
 
 | 范围 | 主要入口 | 关注边界 |
 |---|---|---|
+| 单一完整工程与独立迁入 | `development-import`；shared `migration/development-project`、browser `storage/development-import`；`tools/testing/current-project-production-smoke.mjs` | 旧1–8只由独立迁入解析；全部分支/pin/原件/个人素材精确key保全、目标冷读和独占发布；浏览器用隔离夹具与真实Canvas/IDB/locks，生产脚本只通过UI创建/编辑/下载/冷重开，不读取用户旧库 |
+| 通用生成编排与空间 | shared `generation/orchestrator/stages/space/natural-adapter`；`base-map`浏览器registered profile例 | 强类型临时产物、精确步骤输入/版本/基数/Floor、阶段私有文档/写域/失效事实拒绝、实际预算/取消；真实支撑/旋转占地/全厚墙门边界和有限同Floor二维预留区检查；自然适配Worker/HTTP完整结果一致，该组不证明室内/洞穴/混合生成能力 |
+| 领域公共执行链 | shared `generation/execution`；browser `generation/client`；service `generation`；application `workspace/interior/forest/volcano/generation-local`；生产`local-generation` | 三领域exact shared结果/产物/阶段/报告、规范化与请求/基线/代次/严格hash/profile；Worker/显式HTTP能力协商、真实字节/超时/取消/清理/无重试；公共新建与当前目标，主机资源全验、假候选采用重放拒绝、保存冷读与保护/CAS/一次撤销。浏览器隔离上下文验证真实Worker，未使用用户库或模型；正式矩阵仍留09。 |
+| 参数化室内布局 | `interior-generation`；shared `generation/domains/interior/interior/connectivity/furnishing`、`terrain-generation/building-ownership/integrity`，application `workspace/interior` | 可变数量/面积/邻接与实际走廊净宽、严格矩形形状/共享墙、确定性与失败分类；真实门/全宽路线、关闭门/家具堵路与禁门关系反例、面积/用途自适应家具/缺项；真实归属/出生/人工/删除/拓扑，完整资源、预览不写入、同会话重放、独立保存/冷读和失败保护；浏览器纯UI改参失效→保存冷开→删除家具→再冷开不补回，未使用用户库或模型 |
+| 森林空地与真实植被 | `forest-generation`；shared `generation/domains/forest/forest`、application `workspace/forest`及`terrain-generation/integrity` | 显式林区/空地/入口/折线路线、真实支撑/全宽/完整足迹与绘制保留、固定三通道、目标/实际缺项；现有支撑/阻挡/高差失败、逐产出归属与普通单件预算、人工移动/删除及原成员保全；完整资源、候选重放/独立保存冷读/包及失败保护；隔离浏览器纯UI改参→保存冷开→删树→再冷开不复活 |
+| 火山结构与危险表现 | `volcano-generation`；shared `generation/domains/volcano/volcano`、application `workspace/volcano`及content `volcano-blank` | 实际低火口/平台、足宽连接/路线、火口/流道改参、显式阻挡/第三支撑拒绝、材质与物理独立、人工危险修改删除/归属；完整资源候选、重放/独立保存冷读/完整包及失败保护；隔离生产浏览器纯UI改参失效→保存→原工程保留→冷开 |
+| 受限局部生成 | `local-generation`；shared `generation/local-interior/local-forest/local-volcano`、application `workspace/generation-local` | 当前真实几何、受管字段/槽位、fresh出生与人工移动/删除/退出/锁/外观保护；火口同拓扑与依赖冲突拒绝；完整写集/只读依赖、完整元数据普通256、私有重放/保护/CAS/取消/旧基线、一次撤销/重做和保存失败保全；隔离生产UI轮廓预览→改参失效→采用→撤销重做→冷开。完整正式矩阵留09。 |
 | 子格吸附与填充复制 | `fill-copy`；application `fill-copy`、native-canvas `subgrid` | 会话锚点与整数毫米、独立物件/组合真实成员、支撑/锁/旋转占地/重叠/实际预算、地图外松开与取消不写工程、一次采用/撤销/重做；DEV状态读取不代替正式验收 |
 | 建筑编辑补齐 | `building-edit`；shared commands `building-edit`、appearance `building-transform`、application `building-edit-history`、native-canvas `building-edit` | 正交闭合/拖边取消、共墙和门窗位置、合法删除/四向整栋变换/精确拓扑修复；完整实体/装饰/视觉及跨层影响、固定表面源与调整、锁/预算拒绝、拓扑凭据失效及一次采用/撤销；浏览器受控夹具与实际UI分别标明 |
-| 有限VTT导出 | `uvtt`；shared `export/uvtt` | 严格1–6与外观图只读、负/非零原点和整格扩边、极大坐标拒绝、门窗/秘密/锁降级、旋转物理阻挡与点光；真实ZIP/PNG尺寸及字节、无双烘焙、原范围裁切、GM/遮罩阻止、玩家PNG回退及坏资源/取消保全；源码profile不代表Foundry真实导入 |
+| 有限VTT导出 | `uvtt`；shared `export/uvtt` | 当前完整v1与外观图只读、负/非零原点和整格扩边、极大坐标拒绝、门窗/秘密/锁降级、旋转物理阻挡与点光；真实ZIP/PNG尺寸及字节、无双烘焙、原范围裁切、GM/遮罩阻止、玩家PNG回退及坏资源/取消保全；源码profile不代表Foundry真实导入 |
 | 当前主会话与工程IO | `m20f-ui/render/entry`、`u1a-workspace`、`u2-catalog-regression`、`sample-loading` | 安全新建/切换、完整包、混合编辑、资源取消与跨标签CAS；兼容API测试与产品入口分别报告 |
 | 增量历史与完整导航 | `incremental-history`；shared `project/delta`、storage `incremental-history/repository/history-migration/history-maintenance/history-overview`、workspace `workspace-persistent-history` | 真实UI上一个版本/后续分支、先保存保护再以新revision采用、冷重开、所选便携完整历史及双受众4K实际像素；双向差异/检查点、坏图/CAS/副本迁移、预算receipt失效、全引用资源维护及概览合并读取与五路单独调用一致 |
 | 资源有界并发 | `resource-parallelism`；shared `project/task-queue`、`project-resources/project-svg` | 实际PNG/SVG解码重叠、全局两项及像素权重约束、串行回退、失败/取消后收尾和容量释放；实际像素/资源不变，正常生产恢复及双受众输出另核 |
 | AI与保护采用 | `m21-ai-conversation`、`m22-ai-authoring`、`m2-assimilation-acceptance`、`m2-failed-draft-recovery` | 真实HTTP/SSE/SQLite与受控provider，单件→组合→明确范围，失败草稿恢复及保护一次采用 |
-| 当前创作4阶段与图片 | `ai-current-closeout`；shared/application `current-authoring`、service `current-authoring-v4`、browser `client/public-vision`与`ai-draft-reviewability` | 当前完整3–6/真实source3严格协商、固定资源与旧1–3保持；阶段原子/预算收尾/图片确切身份/有限修正；纯UI的完整6正常生产包与保护采用链，确定性provider不作审美签收 |
+| 当前创作4阶段与图片 | `ai-current-closeout`；shared/application `current-authoring`、service `current-authoring-v4`、browser `client/public-vision`与`ai-draft-reviewability` | 当前完整1/协议4/真实source3严格协商、固定资源；旧协议只用于经过来源核对的内部重放；阶段原子/预算收尾/图片确切身份/有限修正；纯UI的当前完整工程正常生产包与保护采用链，确定性provider不作审美签收 |
 | 视觉编辑 | `visual-authoring`、`visual-ai-authoring`、`visual-renderer`、`refined-island`、`refined-samples` | 原创空白、真实样板、曲线控制柄、授权/范围、滤镜/透明阴影、秘密与离线双受众4K |
 | 地形生成与组合 | `terrain-generation`、`terrain-composition`；`src/shared/terrain-generation/*.test.ts` | 旧配方与v4组合路径分别固定输入，Node/Worker规范化一致，真实成本、保存/冷读/候选取消及过期拒绝 |
 | 无模型程序底图 | `base-map`；shared/browser/application与`services/ai/base-map.test.ts` | 同输入Worker/HTTP完整结果一致，严格关联/版本/素材/hash，真实图片/保存/包冷读，服务端模型与新增任务数为0；初始成本/余量只属本次会话 |
-| 底图AI接续 | `base-map-continuation`；shared `continuation`、workspace `base-map/clock`与service `continuation/execution-checkpoint` | 旧@2/v2兼容与新source3/创作4显式协商；G/A分类、四hash/来源重放/执行累计；真实Worker/HTTP/SSE/SQLite、保护原工程后一次采用新工程、撤销/重做/冷读/包与双受众PNG，取消保留独立底图；确定性provider不等于真实模型验收 |
+| 底图AI接续 | `base-map-continuation`；shared `continuation`、workspace `base-map/clock`与service `continuation/execution-checkpoint` | source3/创作4显式协商；旧@2/v2只作内部重放，不创建当前公开任务；G/A分类、四hash/来源重放/执行累计；真实Worker/HTTP/SSE/SQLite、保护原工程后一次采用新工程、撤销/重做/冷读/包与双受众PNG，取消保留独立底图；确定性provider不等于真实模型验收 |
 | 局部地形编辑 | `terrain-editing`、`terrain-surroundings`、`terrain-topology` | 笔刷/曲线、人工移动删除锁定保护、外围冻结范围、布尔完整结果、逐槽支撑重绑、保护/CAS及单次撤销 |
 | 地形层次与布景 | `terrain-dressing`；同名规划/应用/目录单元及`scatter-v2` | 实际来源与布景同候选计数，预览取消不写主工程、完整影响确认、冷读与单次撤销；旧算法向量、人工状态、当前活动净空和固定来源保全 |
 | 近侧视与区域 | `terrain-presentation`、`regional-authoring` | 根锚/占地/固定源、地影与秘密遮罩；区域来源、条件物化、独立下钻、离线包及双受众4K |
-| 素材批量导入与形状变体 | `asset-batch`、`terrain-variants`、`u2-catalog`；application `asset-batch/workspace-catalog-budget`、browser `assets/batch-source/content/terrain-variant-catalog` | 多文件/文件夹/ZIP、所选项原子采用与撤销、严格SVG/原始源/PNG/许可、图像与占地/根锚分开、公共256来源预算、旧工程近侧视整组拒绝、空库备份、实际透明轮廓与近侧视/俯视旋转；真实dist纯UI烟测与DEV读取分别报告 |
-| 曲线连接与程序组件变形 | `curved-connections`、`stair-cliff`；application `connection-upgrade/curved-connections`、shared `geometry/connection-route/visual/deformation` | 严格5与旧版本拒收、4→5全源族/版本图副本、真实双支撑/足宽/单次高差、世界弧长三风格、控制柄/单段拉伸、真实派生刷新及锁/预算、完整包/冷读/撤销恢复、私密成对像素及旧崖口不变；生产dist纯UI单独记录 |
-| 轻量实例与簇状布景 | `decoration-clusters`、`decoration-island`、`island-dressing`；application `decoration-upgrade`、shared `decorations/generate/presentation` | 严格6/identity4及5→6全图/原件保全、固定完整树岩与轻量职责、真实道路/曲线楼梯/活动区净空、逐件移动删除/锁/退出/层独立、实际费用不重复计量及生成回执失效；`island-dressing`覆盖算法5岩岛经完整副本升级、十二固定源采用、两簇同候选、撤销重做、完整包/冷读/双受众4K及当前工程AI候选；开发自检不作容量/P3/真实模型承诺 |
+| 素材批量导入与形状变体 | `asset-batch`、`terrain-variants`、`u2-catalog`；application `asset-batch/workspace-catalog-budget`、browser `assets/batch-source/content/terrain-variant-catalog` | 多文件/文件夹/ZIP、所选项原子采用与撤销、严格SVG/原始源/PNG/许可、图像与占地/根锚分开、公共256来源预算、当前完整表现字段、空库备份、实际透明轮廓与近侧视/俯视旋转；真实dist纯UI烟测与DEV读取分别报告 |
+| 曲线连接与程序组件变形 | `curved-connections`、`stair-cliff`；application `curved-connections`、shared `geometry/connection-route/visual/deformation` | 当前完整v1及完整来源/版本图保全、真实双支撑/足宽/单次高差、世界弧长三风格、控制柄/单段拉伸、真实派生刷新及锁/预算、完整包/冷读/撤销恢复、私密成对像素及旧崖口不变；生产dist纯UI单独记录 |
+| 轻量实例与簇状布景 | `decoration-clusters`、`decoration-island`、`island-dressing`；application `terrain-dressing`、shared `decorations/generate/presentation` | 当前完整v1/identity5及全图/原件保全、固定完整树岩与轻量职责、真实道路/曲线楼梯/活动区净空、逐件移动删除/锁/退出/层独立、实际费用不重复计量及生成回执失效；`island-dressing`覆盖算法5岩岛当前完整候选、十二固定源采用、两簇同候选、撤销重做、完整包/冷读/双受众4K及当前工程AI候选；开发自检不作容量/P3/真实模型承诺 |
 
 上表名称省略`.spec.ts`。地形路线单元另覆盖`t3-matrix`、`t3-route-generation`和`src/shared/geometry/terrain-travel.test.ts`：全转角带、障碍/连接、有限搜索、真实指定路线与伪造回执拒绝。有限搜索或某组样板通过不证明任意输入都可生成。
 
@@ -56,6 +65,15 @@ npx playwright test --config=tests/m2-joint-playwright.config.ts --workers=1
 专用配置分别固定其Chromium/Firefox/WebKit项目，系统Chrome环境变量不改变专用配置已指定的项目。新增成图与局部修改流程核查适用跨引擎范围；旧M2全部流程不能由视觉专项外推。同一引擎往返做实际像素比较，跨引擎不要求抗锯齿逐像素相同。
 
 ## 正常生产检查
+
+当前完整v1的最小端到端自检：
+
+```sh
+npm run build
+node tools/testing/current-project-production-smoke.mjs
+```
+
+下列历史专项脚本包含旧格式或旧预算断言，迁移为当前合同前不能作为当前格式的执行入口；运行记录仍保留原冻结。
 
 ```sh
 npm run build

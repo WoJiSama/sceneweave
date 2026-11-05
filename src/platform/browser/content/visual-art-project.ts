@@ -59,7 +59,7 @@ export async function materializeVisualArtBatches(scene: SceneDocument, batches:
     if (!licensePath) throw new Error(`原创素材缺少确切批次许可：${subject.subjectId}`)
     return { ...subject, licensePath, embedding: 'allowed' as const }
   })
-  const project: ProjectData = { format: 'sceneweave-complete-project', schemaVersion: 2, ...content, assets,
+  const project: ProjectData = { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets,
     licenses, licenseBindings, authoringSources }
   const resources = createMemoryResources(bytes)
   // A surface tint is a real fixed derivative, including its pixels and source chain.

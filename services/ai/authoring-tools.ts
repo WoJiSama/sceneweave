@@ -243,7 +243,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
         let limit = parsed.limit ?? 16
         const page = () => ({ entityId: target.id, entityKind: 'terrainArea', boundaryMm: target.boundaryMm!.slice(offset, offset + limit), total: target.boundaryMm!.length,
           nextOffset: offset + limit < target.boundaryMm!.length ? offset + limit : null, actualPersistedAnchors: true })
-        while (utf8Size(JSON.stringify(page())) > 7800 && limit > 1) limit--
+        while ((utf8Size(JSON.stringify(page())) > 7800 || receiptSize(withBudget(page())) > 8192) && limit > 1) limit--
         output = page()
       }
       else if (parsed.section === 'scene' || parsed.section === 'visual') {
@@ -256,13 +256,14 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
         let selected = entities.filter(item => requested.includes(item.id))
         const result = () => ({ ...summary, ...palette, entities: selected, total: entities.length,
           nextOffset: parsed.ids ? null : offset + selected.length < entities.length ? offset + selected.length : null })
-        if (utf8Size(JSON.stringify(result())) > 7800 && parsed.section === 'scene') selected = selected.map(item => {
+        const oversized = () => utf8Size(JSON.stringify(result())) > 7800 || receiptSize(withBudget(result())) > 8192
+        if (oversized() && parsed.section === 'scene') selected = selected.map(item => {
           const value = item as { id: string; entityKind?: string; boundaryMm?: unknown[] }
           if (value.entityKind !== 'terrainArea' || !value.boundaryMm || value.boundaryMm.length <= 16) return item
           const { boundaryMm, ...rest } = value
           return { ...rest, id: value.id, geometryOmitted: true, boundaryPointCount: boundaryMm.length, geometryRead: 'Use section anchors with this terrain ID and offset/limit for bounded persisted point/segment pages.' }
         })
-        while (utf8Size(JSON.stringify(result())) > 7800 && selected.length > 1 && !parsed.ids) selected = selected.slice(0, -1)
+        while (oversized() && selected.length > 1 && !parsed.ids) selected = selected.slice(0, -1)
         output = result()
       } else {
         const offset = parsed.offset ?? 0, limit = parsed.limit ?? 16
@@ -376,7 +377,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
     const text = error instanceof Error ? error.message.replace(/^AI(?:场景)?草稿范围无效：/, '') : ''
     const connectionError = error instanceof VisualBoundaryConnectionError ? error
       : error instanceof AuthoringOperationError && error.cause instanceof VisualBoundaryConnectionError ? error.cause : undefined
-    const category = error instanceof VisualReviewError ? [error.code, error.message] : restrictedTerrain ? ['restricted_dependency', '地形候选存在未授权依赖，此步骤未采用。'] : connectionError ? ['invalid_geometry', '曲线候选改变了已授权连接的有效支撑，此步骤未采用。']
+    const category = text === 'output_limit' ? ['tool_output_limit', '工具回执超过8KiB；此步骤未采用。'] : error instanceof VisualReviewError ? [error.code, error.message] : restrictedTerrain ? ['restricted_dependency', '地形候选存在未授权依赖，此步骤未采用。'] : connectionError ? ['invalid_geometry', '曲线候选改变了已授权连接的有效支撑，此步骤未采用。']
       : error instanceof BoundaryCandidateError ? [error.code, error.message]
       : error instanceof PlanArgumentsError ? ['invalid_arguments', error.message]
       : error instanceof z.ZodError ? ['invalid_arguments', '参数不符合有限工具合同，请检查kind、必填字段与整数毫米。']

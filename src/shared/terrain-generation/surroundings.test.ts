@@ -56,9 +56,9 @@ describe('T-S06 existing-building surroundings regeneration', () => {
   it('preserves rooms, shared wall, door and yard path with exact hashes and cold validation', () => {
     const scene = makeFixture(), before = canonicalJson(scene), result = prepareTerrainEdit(scene, request(scene)), next = result.document
     for (const collection of ['rooms', 'walls', 'openings', 'paths'] as const) for (const row of Object.values(scene[collection])) expect(surroundingsEntityHash(next, collection, row.id)).toBe(surroundingsEntityHash(scene, collection, row.id))
-    expect(next.generation?.version).toBe(3)
-    if (next.generation?.version !== 3) throw new Error('fixture surroundings missing')
-    const current = Object.values(next.generation!.surroundings).find(row => row.state === 'current')!
+    expect(next.generation.legacy.version).toBe(3)
+    if (next.generation.legacy.version !== 3) throw new Error('fixture surroundings missing')
+    const current = Object.values(next.generation.legacy.surroundings).find(row => row.state === 'current')!
     expect(current.preserved.some(row => row.collection === 'rooms' && row.entityId === 'outpost-west')).toBe(true)
     expect(current.outputHash).toBe(surroundingsOutputHash(next, current))
     expect(validateSceneDocument(JSON.parse(canonicalJson(next))).ok).toBe(true)

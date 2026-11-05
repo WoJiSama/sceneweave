@@ -1,6 +1,6 @@
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { describe, expect, it } from 'vitest'
-import { terrainAuthoringFixture } from '../../../tests/helpers/terrain-authoring-fixture.js'
+import { terrainAuthoringFixture, reauthorizeTerrainFixture } from '../../../tests/helpers/terrain-authoring-fixture.js'
 import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from './authoring.js'
 import { regionalSceneCandidate } from './terrain-authoring.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
@@ -54,13 +54,13 @@ function local(start = terrainAuthoringFixture(true)) {
   document.entityLayers[groupId] = layerId
   const runtime = { ids: { nextId: (() => { let n = 0; return () => `ai-local-${++n}` })() }, clock: { now: () => document.updatedAt } }
   const content = createCompositionContent(document, runtime)
-  const project = validateProjectData({ ...start.project, schemaVersion: 4, ...content })
+  const project = validateProjectData({ ...start.project, schemaVersion: 1, ...content })
   const scope = cloneJson(start.scope)
   if (!scope.scene) throw new Error('local fixture requires scene scope')
   scope.scene.operations = [...new Set([...scope.scene.operations, 'terrainLocal' as const])] as typeof scope.scene.operations
   scope.scene.entityIds = [...new Set([...scope.scene.entityIds, groupId])]
   scope.scene.definitionIds = [...new Set([...scope.scene.definitionIds, definition.id])]
-  return { ...start, project, baseContentHash: authoringProjectHash(project), scope }
+  return reauthorizeTerrainFixture({ ...start, project, baseContentHash: authoringProjectHash(project), scope })
 }
 describe('same-core terrain authoring finite replay', () => {
   it('rejects a selected regional symbol when its fixed definition is not separately authorized', () => {
@@ -129,12 +129,15 @@ describe('same-core terrain authoring finite replay', () => {
     expect(regionalAuthorizedSubsetHash(fixture.project.document, result.sourceLink)).not.toBe(result.sourceLink.sourceContentHash)
   })
 
-  it('replays a real generated complete3 candidate with actual full expansion and no baseline mutation', () => {
-    const start = terrainAuthoringFixture(), before = canonicalJson(start), operation: TerrainAuthoringOperation = { kind: 'terrainGenerate', request: { sceneId: start.project.document.sceneId, kind: 'island', seed: 'terrain-v1-0', widthMm: 24000, heightMm: 18000 } }
+  it('replays a real generated full1 candidate with actual full expansion and no baseline mutation', () => {
+    const start = terrainAuthoringFixture(), before = canonicalJson(start), operation: TerrainAuthoringOperation = { kind: 'terrainGenerate', request: { sceneId: start.project.document.sceneId, kind: 'forest', seed: 'small-0', widthMm: 24000, heightMm: 18000 } }
     const initial = replayAuthoring(start, []).state, result = applyAuthoringStep(start, initial, [operation], 'generate')
-    expect(result.project.schemaVersion).toBe(3)
+    expect(result.project.schemaVersion).toBe(1)
     expect(Object.keys(result.project.document.terrainAreas).length).toBeGreaterThan(1)
-    expect(result.state.operationCost).toBe(terrainCommandCost(start.project.document, result.project.document).total)
+    // Current full1 replay counts the complete identity/appearance closure,
+    // which requires the project metadata side of the terrain cost ledger.
+    expect(result.state.operationCost).toBe(terrainCommandCost(start.project.document, result.project.document,
+      { before: start.project, after: result.project }).total)
     expect(result.state.operationCost).toBeLessThanOrEqual(256)
     expect(replayAuthoring(start, result.state.steps).state).toEqual(result.state)
     expect(validateProjectData(JSON.parse(JSON.stringify(result.project)))).toEqual(result.project)
@@ -152,7 +155,7 @@ describe('same-core terrain authoring finite replay', () => {
     const start = local(), before = canonicalJson(start.project), initial = replayAuthoring(start, [])
     const operation: TerrainAuthoringOperation = { kind: 'terrainLocal', request: { sceneId: start.project.document.sceneId, scopeMm: start.project.document.exportBoundsMm } }
     const result = applyAuthoringStep(start, initial.state, [operation], 'local-refresh')
-    expect(result.project.schemaVersion).toBe(4)
+    expect(result.project.schemaVersion).toBe(1)
     expect(result.project.document.generation?.version).toBe(5)
     expect(result.project.document.visual?.version).toBe(3)
     expect(result.state.operationCost).toBeGreaterThan(0)
@@ -190,9 +193,9 @@ describe('same-core terrain authoring finite replay', () => {
       start.scope.scene!.entityIds = start.scope.scene!.entityIds.filter(value => value !== id)
       if (privateValue) { start.project.document.props[id].visibility = 'gm'; start.project.document.props[id].positionMm.x += 1 }
       for (const rule of Object.values(getLegacyGeneration(start.project.document)!.rules)) rule.managedOutputHash = managedOutputHash(start.project.document, rule)
-      for (const check of Object.values(start.project.document.generation!.checks)) check.inputHash = constraintInputHash(start.project.document, check.constraintId)
-      start.baseContentHash = authoringProjectHash(start.project)
-      try { applyAuthoringStep(start, replayAuthoring(start, []).state, [edit(start)], 'private') } catch (error) { messages.push((error as Error).message) }
+      for (const check of Object.values(getLegacyGeneration(start.project.document)!.checks)) check.inputHash = constraintInputHash(start.project.document, check.constraintId)
+      const authorized = reauthorizeTerrainFixture(start)
+      try { applyAuthoringStep(authorized, replayAuthoring(authorized, []).state, [edit(authorized)], 'private') } catch (error) { messages.push((error as Error).message) }
     }
     expect(messages).toEqual(['地形候选存在未授权依赖，此步骤未采用。', '地形候选存在未授权依赖，此步骤未采用。'])
   })

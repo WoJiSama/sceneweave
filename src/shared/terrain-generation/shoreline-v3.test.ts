@@ -42,10 +42,9 @@ describe('non-radial island skeleton v3', () => {
     expect(pointInPolygon(point(.34, .51), low)).toBe(true)
     for (const id of ['terrain-reef-0', 'terrain-reef-1']) expect(result.managedTargets).toContainEqual({ kind: 'terrainArea', id })
     const composed = composeTerrainDocument(base, result, 'island-v3-birth')
-    expect(composed.cost.total).toBe(result.cost.total)
+    expect(composed.cost.total).toBeGreaterThan(result.cost.total)
     expect(validateSceneDocument(JSON.parse(canonicalJson(composed.document))).ok).toBe(true)
-    const generation = composed.document.generation!
-    if (generation.version === 5) throw new Error('Expected ordinary terrain generation')
+    const generation = composed.document.generation.legacy
     expect(generation.recipes['terrain-recipe']).toMatchObject({ algorithmVersion: 3, recipeVersion: 3 })
     expect(canonicalJson(generateTerrainDocument(base, request))).toBe(canonicalJson(result))
     expect(canonicalJson(base)).toBe(before)

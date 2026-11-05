@@ -98,7 +98,7 @@ function prepareRequest(raw: TerrainEditRunRequest): TerrainEditWorkerRequest {
   const request = requestArgumentsSchema.parse(captureJson(raw))
   const input = terrainEditRequestSchema.parse(request.input)
   const checked = validateSceneSnapshot(request.base)
-  if (!checked.ok || checked.document.schemaVersion !== 3 || checked.document.sceneId !== request.sceneId || input.sceneId !== request.sceneId) throw new TerrainEditClientError('invalid_input', '地形修改需要有效的视觉场景基础。')
+  if (!checked.ok || checked.document.schemaVersion !== 1 || checked.document.sceneId !== request.sceneId || input.sceneId !== request.sceneId) throw new TerrainEditClientError('invalid_input', '地形修改需要有效的视觉场景基础。')
   const inputHash = sha256Text(canonicalJson(input))
   if (request.inputHash !== undefined && request.inputHash !== inputHash) throw new TerrainEditClientError('invalid_input', '地形修改设置已改变，请重新准备预览。')
   const base = checked.document
@@ -174,7 +174,7 @@ export function createTerrainEditClient(options: TerrainEditClientOptions = {}):
           if (canonicalJson(result) !== resultText || sha256Text(canonicalJson(result.request)) !== context.inputHash
             || result.hash !== sha256Text(canonicalJson({ request: result.request, document: result.document,
               cost: result.cost, impact: result.impact, steps: result.steps }))
-            || result.document.sceneId !== request.input.sceneId || result.document.schemaVersion !== 3
+            || result.document.sceneId !== request.input.sceneId || result.document.schemaVersion !== 1
             || !Number.isSafeInteger(result.cost.total) || result.cost.total < 0 || result.cost.total > 256) {
             throw new TerrainEditClientError('protocol', '地形预览的设置、成本或场景身份不一致。')
           }

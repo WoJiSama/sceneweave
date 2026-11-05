@@ -1,10 +1,11 @@
+import { currentDatabaseNames } from './current-databases.js'
 import Dexie, { type Table } from 'dexie'
 import type { LicenseBinding, LicenseTextRecord, ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
 import type { ConversionJob, LegacySource } from '../../../shared/migration/types.js'
-import type { StoredNativeUpgradeCapsule } from './native-upgrade.js'
 import type { HistoryHead, HistoryPin, HistoryVersion } from './incremental-history.js'
 
-export const PROJECT_DATABASE_NAME = 'sceneweave-projects'
+export const LEGACY_DEVELOPMENT_PROJECT_DATABASE = 'sceneweave-projects'
+export const PROJECT_DATABASE_NAME = currentDatabaseNames().projects
 export const PROJECT_STORES_V1 = {
   projects: 'sceneId, savedAt, status, conversionJobId',
   automaticSnapshots: '[ownerSceneId+revision], ownerSceneId',
@@ -143,7 +144,7 @@ export class ProjectDatabase extends Dexie {
   legacyBlobs!: Table<StoredBytes, string>
   legacySources!: Table<LegacySource, [string, string]>
   conversionJobs!: Table<ConversionJob, string>
-  nativeUpgradeCapsules!: Table<StoredNativeUpgradeCapsule, string>
+  nativeUpgradeCapsules!: Table<Record<string, unknown>, string>
   historyVersions!: Table<HistoryVersion, [string, string]>
   historyHeads!: Table<HistoryHead, string>
   historyPins!: Table<HistoryPin, [string, string]>

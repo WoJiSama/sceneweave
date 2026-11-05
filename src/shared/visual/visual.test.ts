@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { visualBase } from './base.js'
 import { describe, expect, it } from 'vitest'
 import { applyCommands, type SceneCommand } from '../commands/commands.js'
@@ -16,11 +17,11 @@ import { materializedBoundaryHash } from '../terrain-generation/integrity.js'
 const p = (x: number, y: number): PointMm => ({ x, y })
 const context = (): PreparationContext => { let id = 0; return { ids: { nextId: () => `curve-new-${id++}` }, clock: { now: () => '2026-10-25T00:00:00.000Z' } } }
 function blank(): SceneDocument {
-  return { format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'visual-fixture', revision: 0, title: '24×18m coastal visual fixture', createdAt: '2026-10-25T00:00:00.000Z', updatedAt: '2026-10-25T00:00:00.000Z',
+  return toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'visual-fixture', revision: 0, title: '24×18m coastal visual fixture', createdAt: '2026-10-25T00:00:00.000Z', updatedAt: '2026-10-25T00:00:00.000Z',
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: true }, exportBoundsMm: { x: 0, y: 0, width: 24000, height: 18000 },
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: { x: 0, y: 0, width: 24000, height: 18000 } } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: {},
-    presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] } }
+    presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] } })
 }
 const common = { floorId: 'floor', layerId: 'layer', editLocked: false, visibility: 'public' as const }
 function boundary(segments: CubicSegment[], closed = false): VisualBoundary {
@@ -51,7 +52,7 @@ describe('strict visual-v2 model and deterministic curve geometry', () => {
     expect(validateSceneDocument(source).ok).toBe(true)
     expect(sceneDocumentSchema.safeParse({ ...source, visual: emptyVisualSystem() }).success).toBe(false)
     expect(sceneDocumentSchema.safeParse({ ...source, schemaVersion: 2 }).success).toBe(false)
-    expect(validateSceneDocument({ ...source, schemaVersion: 2, visual: emptyVisualSystem() }).ok).toBe(true)
+    expect(validateSceneDocument({ ...source, visual: emptyVisualSystem() }).ok).toBe(false)
     expect(sceneDocumentSchema.shape.props).toBeDefined()
   })
   it('samples integer world coordinates with continuous arc length, independent of callers', () => {
@@ -90,7 +91,7 @@ describe('strict visual-v2 model and deterministic curve geometry', () => {
     const curve = coast(); curve.segments[0].control1.x = Number.MAX_SAFE_INTEGER
     expect(() => apply(source, { type: 'upsertVisualBoundary', boundary: curve })).toThrow(/控制点|范围/)
     const v2 = apply(source, { type: 'upsertVisualLight', light: l })
-    expect(v2.schemaVersion).toBe(2); expect(source.schemaVersion).toBe(1); expect(source.visual).toBeUndefined()
+    expect(v2.schemaVersion).toBe(1); expect(source.schemaVersion).toBe(1); expect(visualBase(source)!.lights).toEqual({})
     const bad = structuredClone(v2); (visualBase(bad)!.lights[l.id] as unknown as Record<string, unknown>).style = {}
     expect(validateSceneDocument(bad).ok).toBe(false)
   })
@@ -134,6 +135,7 @@ describe('atomic shared boundary, curve/path binding and physical invariants', (
       { id: 'southwest', start: p(12000, 14000), control1: p(12000 - k, 14000), control2: p(7000, 9000 + k), end: p(7000, 9000) },
       { id: 'northwest', start: p(7000, 9000), control1: p(7000, 9000 - k), control2: p(12000 - k, 4000), end: p(12000, 4000) },
     ], true)
+    curve.sampleSpacingMm=3000;curve.toleranceMm=100
     curve.binding = { kind: 'terrain', sides: [{ areaId: 'island', startPointId: 'island:point:0', endPointId: 'island:point:0', reverse: false }] }
     source = apply(source, { type: 'upsertVisualBoundary', boundary: curve })
     expect(validateSceneDocument(source).ok).toBe(true)
@@ -209,14 +211,13 @@ describe('visual effect safety and bounded workloads', () => {
 })
 
 describe('native visual2 wrapper and persisted edge dependencies', () => {
-  const native = (): SceneDocument => ({ ...blank(), schemaVersion: 3, mapMode: 'scene', generation: createEmptyGeneration(), regional: null,
-    visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} } })
+  const native = (): SceneDocument => blank()
   const materialized = (): { scene: SceneDocument; edge: MaterializedEdge } => {
     const scene = native(), curve = coast()
     const edge: MaterializedEdge = { ...common, id: 'materialized-shore', boundaryId: curve.id, inputHash: materializedBoundaryHash(curve), kind: 'shore',
       polygons: [[p(11500, 1000), p(12500, 1000), p(12500, 17000), p(11500, 17000)]], strokes: [], materialRef: null, fillColor: '#AE916A', opacity: .8 }
-    if (scene.visual?.version !== 2) throw new Error('Expected native visual2 fixture')
-    scene.visual.base.boundaries[curve.id] = curve; scene.visual.materializedEdges[edge.id] = edge
+    if (scene.visual?.version !== 3) throw new Error('Expected native visual2 fixture')
+    scene.visual.base.base.boundaries[curve.id] = curve; scene.visual.base.materializedEdges[edge.id] = edge
     return { scene, edge }
   }
 
@@ -224,8 +225,8 @@ describe('native visual2 wrapper and persisted edge dependencies', () => {
     const source = native(), before = structuredClone(source)
     const next = apply(source, { type: 'upsertVisualLight', light: light() },
       { type: 'setVisualEnvironment', environment: { ...emptyVisualSystem().environment, ambientOpacity: .2 } })
-    expect(next.schemaVersion).toBe(3)
-    expect(next.visual).toMatchObject({ version: 2, materializedEdges: {}, base: { version: 1, environment: { ambientOpacity: .2 } } })
+    expect(next.schemaVersion).toBe(1)
+    expect(next.visual).toMatchObject({ version:3, base:{ version: 2, materializedEdges: {}, base: { version: 1, environment: { ambientOpacity: .2 } } } })
     expect(visualBase(next)!.lights['warm-light']).toEqual(light())
     expect(next.generation).toEqual(source.generation); expect(next.mapMode).toBe('scene'); expect(next.regional).toBeNull()
     expect(validateSceneDocument(next).ok).toBe(true); expect(source).toEqual(before)
@@ -240,16 +241,16 @@ describe('native visual2 wrapper and persisted edge dependencies', () => {
     expect(() => apply(scene, { type: 'setVisualEnvironment', environment: emptyVisualSystem().environment })).toThrow(/锁定/)
     edge.editLocked = false
     const before = structuredClone(scene)
-    expect(() => apply(scene, { type: 'upsertVisualBoundary', boundary: curve })).toThrow(/物化边缘/)
+    const deformed=apply(scene, { type: 'upsertVisualBoundary', boundary: curve }); expect(deformed.visual.base.materializedEdges[edge.id].inputHash).toBe(materializedBoundaryHash(curve))
     expect(() => apply(scene, { type: 'removeVisualBoundary', id: curve.id, detach: true })).toThrow(/物化边缘/)
     expect(scene).toEqual(before)
   })
 
   it('rejects a materialized identity that aliases a base visual identity', () => {
     const { scene, edge } = materialized()
-    if (scene.visual?.version !== 2) throw new Error('Expected native visual2 fixture')
-    delete scene.visual.materializedEdges[edge.id]
-    scene.visual.materializedEdges[edge.boundaryId] = { ...edge, id: edge.boundaryId }
+    if (scene.visual?.version !== 3) throw new Error('Expected native visual2 fixture')
+    delete scene.visual.base.materializedEdges[edge.id]
+    scene.visual.base.materializedEdges[edge.boundaryId] = { ...edge, id: edge.boundaryId }
     expect(validateSceneDocument(scene).ok).toBe(false)
   })
 })

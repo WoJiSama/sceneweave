@@ -99,15 +99,15 @@ describe('registered task budget admission', () => {
 
   it('refuses valid visual geometry expansion well below the semantic target limit', () => {
     const before = blank(), after = structuredClone(before)
-    if(after.visual?.version!==1)throw new Error('Expected visual1 fixture')
+    if(after.visual?.version!==3)throw new Error('Expected current visual fixture')
     const ring=Array.from({length:128},(_,index)=>({x:Math.round(12000+Math.cos(index*Math.PI/64)*4000),y:Math.round(9000+Math.sin(index*Math.PI/64)*4000)}))
     for(let index=0;index<16;index++){
-      after.visual.fogs[`fog-${index}`]={id:`fog-${index}`,floorId:'visual-floor',layerId:'visual-layer-details',visibility:'public',
+      after.visual.base.base.fogs[`fog-${index}`]={id:`fog-${index}`,floorId:'visual-floor',layerId:'visual-layer-details',visibility:'public',
       editLocked:false,boundaryMm:structuredClone(ring),color:'#FFFFFF',opacity:.5,directionDeg:0,scaleMm:1000,seed:`fog-${index}`,enabled:true}
-      after.visual.filters[`filter-${index}`]={id:`filter-${index}`,floorId:'visual-floor',layerId:'visual-layer-details',visibility:'public',editLocked:false,
+      after.visual.base.base.filters[`filter-${index}`]={id:`filter-${index}`,floorId:'visual-floor',layerId:'visual-layer-details',visibility:'public',editLocked:false,
         target:{kind:'region',boundaryMm:structuredClone(ring)},preset:'neutral',exposure:1,saturation:1,contrast:1,vignette:0,grain:0,seed:`filter-${index}`,enabled:true}
     }
-    after.visual.lights.one={id:'one',floorId:'visual-floor',layerId:'visual-layer-details',visibility:'public',editLocked:false,
+    after.visual.base.base.lights.one={id:'one',floorId:'visual-floor',layerId:'visual-layer-details',visibility:'public',editLocked:false,
       positionMm:{x:12000,y:9000},radiusMm:1000,color:'#FFFFFF',intensity:1,wallOcclusion:false,enabled:true}
     expect(validateSceneDocument(after).ok).toBe(true)
     const usage=measureTaskBudget(before,after)

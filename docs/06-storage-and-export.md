@@ -1,6 +1,22 @@
 # 本地存储、工程文件与地图导出
 
-本文定义保存成功、完整工程/历史包、资源与原件闭包、CAS及玩家输出。当前产品只使用新标识完整v1–v8；先查当前合同与地形增量，再按需查共用保存/输出规则和旧格式兼容。开发排期只在[07](07-roadmap.md)维护，验收执行只在[09](09-quality-plan.md)维护。
+本文定义保存成功、完整工程/历史包、资源与原件闭包、CAS及玩家输出。开发期目标已改为唯一完整v1，下方旧版本副本合同是迁入与能力来源的记录；当前实现和必要自检状态见07。开发排期只在[07](07-roadmap.md)维护，验收执行只在[09](09-quality-plan.md)维护。
+
+<a id="development-single-v1-import"></a>
+## 开发期唯一v1与一次性本机迁入（当前实现与剩余收口）
+
+正常工程入口只按[04唯一完整v1](04-scene-document.md#development-single-v1)读写当前完整内容和明确选择的历史，不维护各开发版本文件兼容。开发期间功能继续在同一schema迭代，不再为启用视觉、地形、曲线、装饰或规则创建工程升级副本。`.sceneweave`、完整/所选历史包、真实资源/许可/像素、CAS、原子采用、冷读及双受众输出继续保留。
+
+用户选择保留独立一次性IndexedDB迁入工具。目标是保全本机成果并转换为单一当前合同，不是恢复退役工作台、自动接受任意旧文件或无限期维护旧格式。采用以下边界：
+
+1. **源只读、目标隔离。** 旧主库、个人库、原始包、历史/原件及资源保持只读；目标使用隔离的开发存储命名空间，避免早期旧v1与目标完整v1同号混存。数据库结构版本沿其实际表结构演进，不随工程编号重置；默认新库为`sceneweave-projects-dev-v1` / `sceneweave-library-dev-v1`；迁入目标以完整源指纹为同后缀，原库仍为`sceneweave-projects` / `sceneweave-library`。普通打开/保存不会悄悄触发迁入或清库。
+2. **完整内容转换。** 读取各旧格式真实完整内容，补齐当前必需集合并转换v7树冠规则；先按旧领域语义校验树冠和成员。若旧簇bounds不能覆盖已画区域，只扩大为原bounds与全部原区域边界的并集，不裁切/重采样区域，不重建成员。保留实际几何/物件/装饰、人工移动/删除/退出/锁、源/固定定义/许可、身份/墓碑及受众；不能重新运行seed来代替旧结果，不能凭相同ID伪造历史连续性；无证身份按现行身份规则明确建立并标出边界。非法旧擦除覆盖明确拒绝，不在转换中静默归零修复。
+3. **全历史图保全。** 遍历源的当前工程、全部版本/分支、检查点、命名/保护引用和来源原件，重建真实完整节点后逐项转换；重算目标内容hash、parentHash、recordHash、双向增量、head/pin引用。保存源→目标可追溯映射和原图备份；不只修改projects当前行或套用旧delta。真实旧包/hash留作来源事实，不将其改写为目标hash。
+4. **个人素材闭包。** 素材胶囊也转成当前完整合同；保持固定目录种类/ID/版本/精确key、组织标签/收藏/颜色和资源许可闭包。不能因工程合并而删个人素材、混同版本或改义固定来源。
+5. **发布与失败。** 使用绑定完整源指纹的幂等迁入记录，私有准备目标；全量资源/许可/像素验证，冷读全部目标分支并核对映射，最终再次核源后原子发布ready。失败、取消、源变化、配额/CAS冲突保持源库和当前会话；成功后才切换。重复运行不得覆盖或复制已经确认的目标，不自动删除源库。
+6. **旧任务单独处理。** 工程hash变化会使旧AI来源/租约失效，不改头数字伪造原`sourceHash/ledgerHeadHash/budgetStateHash`。旧任务保全/结束与新v1任务创建分别处理，未知计费不重发、不清零。算法重放适配器可内部保留旧DTO，正常工程读者无须接受旧工程schema。
+
+迁入完成后日常路径只读写唯一v1；旧解析和相邻升级实现只能留在迁入/必要算法适配边界，不在编辑器维护八套能力升级入口。本节替代下方开发期继续并行格式及相邻升级的要求，保全、许可、CAS与失败不损坏当前工程的要求继续适用。原`native-upgrade`日常相邻升级器及界面已移除；旧capsule、journal和暂存字节独立保存在`sceneweave-development-originals-<源指纹>`，不混入当前库。迁入首页先只读检查范围，再显式执行；旧页面必须停止编辑，发布锁约束迁入工具，源库与目标选择不构成跨数据库事务，发布前以完整源指纹复核阻止已观测的并发变更。已有编辑会话须先保存关闭。完整迁入还需浏览器独占锁，ready journal冷读完成后才同步写入成对选择指针，失败重试不会覆盖已采用目标。
 
 按问题查阅：[当前完整工程](#当前完整工程主仓库与资源闭包)、[地形升级原件](#完整v3地形副本与升级原件归档)、[v4副本与预算](#terrain-t8-storage)、[曲线连接v5](#curved-connections-v5)、[轻量布景v6](#decoration-clusters-v6)、[树冠规则v7副本](#canopy-regions-v7-copy)、[连续地表v8副本](#surface-rules-v8-copy)、[自动保存](#自动保存协议)、[依赖闭包](#可继续编辑的依赖闭包)、[玩家投影](#玩家投影)、[PNG](#png-导出)、[UVTT](#universal-vttm4)、[旧库保全](#旧库转换保全仅兼容维护)。
 
@@ -9,15 +25,55 @@
 <a id="完整v1v2现行存储合同2026-10-25"></a>
 ## 当前完整工程、主仓库与资源闭包
 
-**新标识完整v1–v8、sceneweave-projects及sceneweave-library是当前产品主路径。** 工程导入只接受受支持版本的`complete/history`包；旧整页工作台、旧库发现、旧工程/个人库文件转换及保全集合选择入口保持退役。旧格式、迁移set及其他不支持的输入明确拒绝，失败/取消不替换当前工程。未知hash按一般导航回首页，仍经过未保存守卫。
+**当前完整v1与隔离的开发库命名空间是当前产品主路径。** 工程导入只接受受支持版本的`complete/history`包；旧整页工作台、旧库发现、旧工程/个人库文件转换及保全集合选择入口保持退役。旧格式、迁移set及其他不支持的输入明确拒绝，失败/取消不替换当前工程。未知hash按一般导航回首页，仍经过未保存守卫。
 
 入口裁剪不修改新库schema，不清理现有工程、快照、源文件或确切来源原件，不将完整工程降级成视图。前述当前工程/个人库及地形增量是主路径合同；末尾C/D/E保全转换及旧目录条款只用于历史兼容解释，不再是当前产品工作流。仍被领域、工具或测试依赖的旧模块可保留，不能据此宣称当前产品支持旧版本。
 
 实现、真实请求与部署结果见[工程历史台账](archive/m2-project-validation.md)和[AI历史台账](archive/ai-validation.md)，性能方法与历史未达门槛见[性能参考](reference/performance.md)。本页不重复维护逐批通过数字或线上可用状态。
 
+<a id="interior-generation-storage"></a>
+### 室内布局候选与完整保存
+
+D2/D3室内需求及实际建筑/门/家具归属按[04](04-scene-document.md#generation-staging)随完整v1保存：规范参数、算法/配方版本、固定材质/许可、实际房间/共享墙/顶点/门/家具、初次布置参数/授权palette、人工状态和真实生成身份一并保留，重开直接读取完整结果，不靠seed重建。旧自然配方重放保持原路。
+
+`previewInteriorGeneration`先捕获输入/profile与空白基底，完整验证资源，再经共享结构→连接→内容三个算子生成并准备身份/外观/真实像素；预览不写主工程或仓库。采用只接受本会话私有凭据，绑定checkpoint、原工程身份/revision/hash、确定时间和完整ID分配序列，重新执行并比对布局、完整初次建议报告、结果hash、成本和完整工程hash，继续检查资源与玩家投影。先flush当前工程，再以expectedRevision=null保存独立新工程；冷读、完整资源校验和内容hash比对全部成功后才切换。失败/取消保留当前工程；新工程已经成功写入但后续取消/冷读失败时，可保留独立记录，不宣称跨内存与持久化回滚。参数变化、取消或基线改变使旧候选失效，不提供未经证明的建筑局部重生成。
+
+初次门路/家具建议报告包含实际门/家具、指定端点净宽结果和未完成说明，属于候选会话数据，不作为持久必达凭据。保存保留全部实际结果及初次输入来源，手工关闭/删除门或删除家具后可正常保存、完整包往返和冷读；规则转人工/删除记录，不在打开/保存时重跑或补回。默认UI只绑定原创室内空白素材组中的确切固定定义，完整许可/原始图片仍走正常资源验证；未提供某家具角色是建议缺项，显式引用不存在/错误版本是资源错误并拒绝候选。
+
+<a id="forest-generation-storage"></a>
+### 森林与营地候选与完整保存
+
+D4的`previewForestGeneration / cancelForestGeneration / adoptForestGeneration`沿用上述完整候选生命周期，绑定真实checkpoint/原工程身份/revision/hash、确定时间和完整ID序列；采用前重新执行精确森林配方，比对规范输入、完整实际数量/缺项报告、结果hash、成本与完整工程hash。真实资源/许可/像素、固定根锚与历史身份全验，预览不写仓库；先保存当前工程，再保存独立新工程、冷读全验成功才切换。参数变化、取消、旧基线、保存/冷读失败均保留当前工程，后段失败可能留下已保存的独立新记录。
+
+完整v1保存实际地面/道路/树木/轻量装饰、SurfaceRule/DecorationCluster槽位、规范forest配方及逐产出归属、软空地/入口记录与真实人工/删除状态，见[04](04-scene-document.md#generation-staging)。目标与实际数量说明是会话报告；打开只读取完整结果，不重跑生成器。删树/移动或删除成员的普通事务及撤销/重做保持，完整包和冷读不得补回。表单当前新建独立平地森林；已有地形的共享接口不自动成为现行编辑器局部重生成入口，后者见下述D6合同，统一执行端分派见[本页合同](#domain-generation-storage)。
+
+<a id="volcano-generation-storage"></a>
+### 火山候选与完整保存
+
+D5的`previewVolcanoGeneration / cancelVolcanoGeneration / adoptVolcanoGeneration`复用完整候选的私有见证、checkpoint/sceneId/revision/hash、固定时间与完整身份分配序列。预览不写仓库；采用先精确重放并比较报告、结果hash、成本和完整工程hash，再保存当前、保存独立新工程并全量冷读校验，成功才切换。取消、参数变化、旧基线、资源/许可/像素、保存及冷读失败保留当前成果，后段失败可能留下已保存的独立新记录。
+
+`createVolcanoBlankProject`只从既有固定资源复制玄武岩、火山灰、冷壳及热裂熔岩四种材质和确切字节/许可闭包，不复制volcano样板几何。完整v1保存实际山体/火口/平台/流道、边缘、连接、道路、Region策略、精确配方及逐输出归属。后续手工修改危险/代价或删除区域、换外观及撤销/重做按原生事务保存，冷开与完整包不补回。新建入口保存独立火山，已有工程局部修改见下述D6合同；统一多执行端分派见[本页合同](#domain-generation-storage)，未扩大AI权限。
+
+<a id="local-generation-storage"></a>
+### 受限局部生成的预览、保护与采用
+
+`previewLocalGeneration / cancelLocalGeneration / adoptLocalGeneration`在当前完整v1上处理房间家具、林区通道密度、火山表面材质及火口同拓扑轮廓，见[`workspace/generation-local`](../src/application/workspace/generation-local.ts)。预览捕获严格请求、当前checkpoint/工程身份/revision/hash、固定时间和ID序列；共享算法直接读取当前完整几何与人工状态，准备完整身份/外观/资源/许可/像素候选。实际写集包括持久实体及归属/身份/外观变化，只读依赖单独列出。普通256按真实完整变更展开核算，不因选profile豁免。
+
+采用只接受本会话私有凭据，重新完整准备并比对精确结果与成本，检查当前基线和取消；先保存当前，再在源revision和元数据CAS下写保护快照，重新核对后以一个原子事务提交，支持一次撤销/重做。没有新建工程或整图替换；旧基线、伪造/取消候选、保护失败和采用前CAS冲突均保留当前成果。若提交后最终保存失败，保留当前未保存结果和可用撤销并明确报错，不声称已持久保存或磁盘回滚。冷开只读已保存的实际结果和人工状态，不再跑配方，不重建已删家具/成员/Region；完整工程与所选历史按原资源闭包保存。
+
+
+<a id="domain-generation-storage"></a>
+### 统一生成入口与执行端
+
+公共`Workspace.previewGeneration / cancelGeneration / adoptGeneration`以明确的`new-project`或`current-project`目标分派。三领域新工程共用[`prepareDomainProject`](../src/application/workspace/generation.ts)：先独立捕获规范请求和完整基底，取得本机/Worker/显式HTTP领域结果后，在主机严格核对信封/场景/产物/阶段链/注册预算，再建立真实身份与固定表现，完整验证资源字节、像素、许可闭包和实际预算。旧领域方法仅作为适配入口，共用私有见证及前述保存生命周期。
+
+Worker/HTTP结果只供预览，不能提供采用授权；采用时必须在本机重新运行共享领域函数、固定准备时间和确切身份分配序列，比对完整projectHash、领域hash、报告和成本。新建仍先保存当前，再以空expectedRevision独立保存、冷读全验并比对后切换。`current-project`四类局部操作继续在主线程复用前述保护/CAS与一次撤销路径，能力表不声明其Worker/HTTP支持。取消/旧基线或伪造结果在保存前拒绝；后段失败保留当前工程及可能已保存的独立新记录。
+
+8MiB请求/16MiB结果、客户端默认30秒且最多60秒、服务端总60秒及默认最多2个并发槽位属于传输保护；同步算法协作检查时钟与取消，超时返回结果一律丢弃，不宣称强制抢占服务线程。没有额外工程版本、远程存储、AI写权限或断线重发。固定源/资源闭包和新旧自然重放合同不变。
+
 ### A. 工程容器及严格分发
 
-扩展名仍为`.sceneweave`。新manifest精确字段：`format:'sceneweave-complete-project'/schemaVersion:1|2|3|4|5|6/application:'Sceneweave'/applicationVersion/packageMode/sceneId/revision/entries/assetRecords/licenseBindings`，packageMode仅`complete/history`。entries每条精确为`path/role/sha256/sizeBytes/mimeType`，不把旧containerVersion数字拿来识别新格式。
+扩展名仍为`.sceneweave`。新manifest精确字段：`format:'sceneweave-complete-project'/schemaVersion:1/application:'Sceneweave'/applicationVersion/packageMode/sceneId/revision/entries/assetRecords/licenseBindings`，packageMode仅`complete/history`。entries每条精确为`path/role/sha256/sizeBytes/mimeType`，不把旧containerVersion数字拿来识别新格式。
 
 必需JSON为`scene.json/identity.json/appearance.json/sources.json`，分别对应04的新场景、完整身份、完整外观、authoringSources；M2-0初期sources为`{}`，M2-4已接收严格非空来源。manifest的assetRecords给出以hash为键的实际图片五字段描述，license正文由对应UTF-8文件提供；读者重建纯ProjectData，再与独立捕获字节组成ProjectBundle完整校验。
 
@@ -66,7 +122,7 @@ SVG原始UTF-8按真实输入字节无损保全，经受限静态解析生成确
 
 ### B. 一个主工程仓库与独立个人库
 
-新主工程库名固定`sceneweave-projects`，个人库名固定`sceneweave-library`，个人库为Dexie schema1（native IDB10），主工程库为schema3（native IDB30，保留schema1/2表并增加增量历史及事务记账）；当前主路径不扫描、创建、写入或升级旧库。新库未知版本/外来schema拒绝。下表保留既有新库结构，包含历史兼容任务与来源原件字段；本次入口裁剪不删除表或改写其记录。
+当前默认新主工程库为`sceneweave-projects-dev-v1`，个人库为`sceneweave-library-dev-v1`；迁入目标使用同源指纹后缀。个人库为Dexie schema1（native IDB10），主工程库为schema3（native IDB30，保留schema1/2表并增加增量历史及事务记账）；当前主路径不扫描、创建、写入或升级旧库。新库未知版本/外来schema拒绝。下表保留既有新库结构，包含历史兼容任务与来源原件字段；本次入口裁剪不删除表或改写其记录。
 
 | 新主工程表 | 主键 | 职责 |
 |---|---|---|
@@ -79,7 +135,7 @@ SVG原始UTF-8按真实输入字节无损保全，经受限静态解析生成确
 | historyMetadata | ownerSceneId | 单调metadataVersion，与命名/保护/来源快照CAS同事务比较 |
 | legacyBlobs / legacySources | sha256 / [ownerSceneId,nodeId] | 旧原件实际字节与来源节点；节点保留原sourceSchemaVersion/sceneId/revision/hash/migratorVersion/migratedAt/前序关系，不再递归嵌成第七代信封 |
 | conversionJobs | jobId，jobKey唯一 | 固定源指纹、转换器/目标format、目标ID与快照映射、备份receipt、状态及单调jobVersion；不是可编辑业务字段 |
-| nativeUpgradeCapsules | capsuleId | 完整v2→v3及v3→v4副本的全scope原件、来源和源族指纹；源/目标身份及保全冷读绑定见下文地形副本合同 |
+| nativeUpgradeCapsules | capsuleId | 表结构为旧源识别保留；当前库必须为空，旧数据完整留在独立迁入保全库 |
 | historyVersions | [ownerSceneId,id] | 不可变完整基线/检查点或双向增量，绑定父版本、完整内容hash及recordHash；保留全部分支 |
 | historyHeads | ownerSceneId | 当前活动versionId、savedRevision/contentHash、staged/ready状态及副本迁移源摘要 |
 | historyPins | [ownerSceneId,id] | 严格命名/保护/来源快照摘要与versionId，不再重复保存完整ProjectData |
@@ -87,7 +143,7 @@ SVG原始UTF-8按真实输入字节无损保全，经受限静态解析生成确
 
 ownerSceneId/相关kind/id、savedAt/status、jobKey按实际查询设索引，唯一约束在写入器前落实为上述键及jobKey；不允许旁路表重复存一份可独立编辑场景。新主保存不依赖旧仓库。legacyBlobs只保留已有确切原件/输入文件；从IDB重新序列化的全家族保全包在独立set中，不冒充先前磁盘原文件，也不自动额外复制整包进原件表。
 
-累计保护值按**整个新工程库**计算：resources/许可256MiB，文档128MiB，legacy原件128MiB；文档范围包含当前工程、保全的旧完整历史、版本检查点/增量及其信封、pin/head和升级capsule，不另开隐藏额度。SVG源计入资源。新建、保存、当前/历史包导入均预检累计预算，超限整体拒绝并保留已有成果。65,536出生/墓碑、65,536外观源、源深16、每目标64调整、4096变体和单采用256展开保持。历史转换分卷不扩大主库/工程容量。
+累计保护值按**整个新工程库**计算：resources/许可256MiB，文档128MiB，legacy原件128MiB；文档范围包含当前工程、保全的完整历史、版本检查点/增量及其信封、pin/head；旧升级capsule独立保全，不另开隐藏额度。SVG源计入资源。新建、保存、当前/历史包导入均预检累计预算，超限整体拒绝并保留已有成果。65,536出生/墓碑、65,536外观源、源深16、每目标64调整、4096变体和单采用256展开保持。历史转换分卷不扩大主库/工程容量。
 
 ### F. 个人库、载体与新备份
 
@@ -136,7 +192,7 @@ H/I之后的旧格式段保留各批实现语义和历史证据，不提供当�
 <a id="incremental-history-target"></a>
 ### 增量历史与保护点合同（已实现，必要自检完成）
 
-本地历史采用**完整基线＋双向增量＋定期完整检查点**。每次成功保存记录前一已保存版本到当前版本的实际变化，未变化内容不重复写入；每个保留版本仍须能确定性重建完整工程。本次变更仅演进浏览器存储，不向严格完整工程v1–v5偷加本地版本图字段；实现和必要自检进展归[07](07-roadmap.md#incremental-history-plan)，验收归[09](09-quality-plan.md#incremental-history-acceptance)。
+本地历史采用**完整基线＋双向增量＋定期完整检查点**。每次成功保存记录前一已保存版本到当前版本的实际变化，未变化内容不重复写入；每个保留版本仍须能确定性重建完整工程。本次变更仅演进浏览器存储，不把本地版本图字段写入当前完整工程；实现和必要自检进展归[07](07-roadmap.md#incremental-history-plan)，验收归[09](09-quality-plan.md#incremental-history-acceptance)。
 
 - **双向实际差异**：属性修改记录修改前/后值，新增记录新对象，删除记录删除前对象；覆盖实际改变的场景、身份、外观、来源及资源/许可引用和必要依赖，不只保存选区、命令或seed。正向应用与反向撤销都从确切版本及内容hash校对，不重新运行AI或生成算法。
 - **历史版本与当前修订分离**：保留父版本、分支及前后内容身份；回退后继续编辑形成新分支，原后续分支不得因此静默丢弃。历史浏览/重建与采用到当前工程区分，采用、撤销和重做仍为原子事务，当前revision单调增加；出生、墓碑及拓扑连续性不得因回退而伪造，现有局部恢复继续保留范围外修改与依赖/锁约束。
@@ -277,7 +333,7 @@ T1新生成地图采用同样是先保全当前、独立目标保存、完整冷
 
 从已保存完整v7显式启用连续地表规则时，先flush并绑定checkpoint，在隔离候选创建新sceneId、新lineageId/rootSceneId、revision0的完整v8副本。完整复制原文档、资源/许可/appearance及identity4全部池和墓碑；每条v7树冠规则转换为具有新出生身份的v8 trees规则，旧cluster上的canopyRule移除但其树木定义、真实Prop、稳定成员ID/坐标、人工状态、锁、受众和图层均不重建、不重撒。没有树冠规则的v7工程获得空`surfaceRules`字典。源工程及其全部历史家族通过native-upgrade保全，目标冷读/完整内容hash和原件家族可移植验证后才切换。取消、冲突、校验、保存或冷读失败不替换源工程。
 
-当前迁移定向结果为native-upgrade 30项与v7→v8完整副本2项通过，`npm run typecheck`通过；区域命令5项、resolver/schema/projection/mask相关41项通过。以上仅为开发自检，不代表所有规则编辑旅程或正式验收通过。区域笔刷、局部擦除、规则冷读/撤销的正式UI验收及自动生成共享仍按[07](07-roadmap.md#current-step)与[09](09-quality-plan.md#branch-feature-acceptance)执行。
+旧副本迁移的历史定向结果为native-upgrade 30项与v7→v8完整副本2项通过，`npm run typecheck`通过；区域命令5项、resolver/schema/projection/mask相关41项通过。以上仅为开发自检，不代表所有规则编辑旅程或正式验收通过。区域笔刷、局部擦除、规则冷读/撤销的正式UI验收及自动生成共享仍按[07](07-roadmap.md#current-step)与[09](09-quality-plan.md#branch-feature-acceptance)执行。
 
 <a id="current-authoring-storage"></a>
 ### 创作v4草稿、实际图片与采用保全
@@ -291,7 +347,7 @@ AI协议4不新增工程或数据库版本，工程仍严格按完整1–7分派
 <a id="历史格式与早期实现记录"></a>
 ## 共用保存、输出与旧格式兼容
 
-以下保留M0/M1及U1/U2各批的格式、仓库、交互与验证记录，其中“当前”“本轮”“已实现”均指对应批次。旧格式升级、旧库发现和逐代工作台不再提供产品入口；当前完整v1–v6的保存、导入、历史与资源语义以前述当前合同及地形增量为准。
+以下保留M0/M1及U1/U2各批的格式、仓库、交互与验证记录，其中“当前”“本轮”“已实现”均指对应批次。旧格式升级、旧库发现和逐代工作台不再提供产品入口；当前完整v1的保存、导入、历史与资源语义以前述当前合同为准。
 
 旧库发现与当时工作台实施结果见[38](archive/workspace-content-validation.md#doc-38)、[39](archive/workspace-content-validation.md#doc-39)；它们不构成当前入口或当前冻结的通过证据。
 

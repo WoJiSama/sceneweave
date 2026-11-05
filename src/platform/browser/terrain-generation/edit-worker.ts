@@ -33,7 +33,7 @@ export function executeTerrainEditRequest(raw: unknown): TerrainEditWorkerRespon
       throw new Error('地形修改设置或基础场景校验不一致。')
     }
     const checked = validateSceneSnapshot(request.base)
-    if (!checked.ok || checked.document.schemaVersion !== 3 || checked.document.sceneId !== request.sceneId || input.sceneId !== request.sceneId) throw new Error('地形修改需要有效的视觉场景基础。')
+    if (!checked.ok || checked.document.schemaVersion !== 1 || checked.document.sceneId !== request.sceneId || input.sceneId !== request.sceneId) throw new Error('地形修改需要有效的视觉场景基础。')
     if (canonicalJson(input) !== canonicalJson(request.input) || canonicalJson(checked.document) !== canonicalJson(request.base)) {
       throw new Error('地形修改输入必须为完整的规范内容。')
     }
@@ -43,7 +43,7 @@ export function executeTerrainEditRequest(raw: unknown): TerrainEditWorkerRespon
     if (canonicalJson(result.request) !== canonicalJson(input) || result.document.sceneId !== input.sceneId
       || result.hash !== sha256Text(canonicalJson({ request: result.request, document: result.document,
         cost: result.cost, impact: result.impact, steps: result.steps }))
-      || result.document.schemaVersion !== 3 || !Number.isSafeInteger(result.cost.total) || result.cost.total < 0 || result.cost.total > 256) {
+      || result.document.schemaVersion !== 1 || !Number.isSafeInteger(result.cost.total) || result.cost.total < 0 || result.cost.total > 256) {
       throw new Error('地形预览没有满足设置、身份或编辑量要求。')
     }
     const validResult = validateSceneSnapshot(result.document)

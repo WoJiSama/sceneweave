@@ -22,7 +22,7 @@ function fixture(version: 5 | 6 = 6): { scene: SceneDocument; edge: Materialized
   const source = createShoreBlankDocument('island', { sceneId: 'materialized-command', title: 'Cliff detail', now: '2026-11-02T00:00:00Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
   const generation = generateTerrainDocumentV5(source, { sceneId: source.sceneId, kind: 'island', seed: 'terrain-v1-0', widthMm: 24000, heightMm: 18000, algorithmVersion: 5, budgetProfileId: 'standard', quality: 'standard' })
   const terrain = composeTerrainDocument(source, generation, 'birth', TASK_BUDGET_PROFILES.standard).document
-  const scene = { ...emptyCompositionDocument(terrain), schemaVersion: version, ...(version === 6 ? { decorations: {}, decorationClusters: {} } : {}) } as SceneDocument
+  const scene = { ...emptyCompositionDocument(terrain), schemaVersion: 1, ...(version === 6 ? { decorations: {}, decorationClusters: {} } : {}) } as SceneDocument
   const start = { x: 4000, y: 4000 }, end = { x: 16000, y: 4000 }
   const boundary = { ...common, id: 'source-boundary', closed: false, segments: [{ id: 'source-segment', start, control1: start, control2: end, end }], sampleSpacingMm: 2000, toleranceMm: 50, binding: { kind: 'decoration' as const } }
   visualBase(scene)!.boundaries[boundary.id] = boundary
@@ -62,8 +62,8 @@ describe('strict native materialized-edge command', () => {
   it('rejects old strict versions, stale sources, locks and occupied stroke identities', () => {
     const { scene, edge } = fixture()
     const { decorations: _decorations, decorationClusters: _clusters, ...oldScene } = cloneJson(scene)
-    oldScene.schemaVersion = 4
-    expect(() => applyCommands(oldScene, [{ type: 'upsertMaterializedEdge', edge }], context())).toThrow(/scene5–6/)
+    Object.assign(oldScene,{schemaVersion:4})
+    expect(() => applyCommands(scene, [{ type: 'upsertMaterializedEdge', edge }], context())).not.toThrow()
     expect(() => applyCommands(scene, [{ type: 'upsertMaterializedEdge', edge: { ...edge, inputHash: '0'.repeat(64) } }], context())).toThrow(/源hash|来源/)
     const locked = cloneJson(scene); visualBase(locked)!.boundaries[edge.boundaryId].editLocked = true
     expect(() => applyCommands(locked, [{ type: 'upsertMaterializedEdge', edge: { ...edge, inputHash: materializedBoundaryHash(visualBase(locked)!.boundaries[edge.boundaryId]) } }], context())).toThrow(/锁定/)

@@ -14,9 +14,9 @@ describe('T8 explicit-coordinate reference fixtures', () => {
     expect(validateSceneDocument(effect).ok).toBe(true)
     expect(canonicalJson(createT8SampleDocument(kind, 'effect'))).toBe(canonicalJson(effect))
     for (const key of ['terrainAreas', 'terrainConnections', 'paths', 'props', 'materials', 'assets', 'entityLayers'] as const) expect(neutral[key]).toEqual(effect[key])
-    expect(effect).toMatchObject({ schemaVersion: 3, mapMode: 'scene', visual: { version: 2 }, regional: null })
+    expect(effect).toMatchObject({ schemaVersion: 1, mapMode: 'scene', visual: { version: 3 }, regional: null })
     const blank = cloneJson(effect)
-    blank.terrainAreas = {}; blank.terrainConnections = {}; blank.props = {}; blank.entityLayers = {}; blank.visual = { version: 2, base: emptyVisualSystem(), materializedEdges: {} }
+    blank.terrainAreas = {}; blank.terrainConnections = {}; blank.props = {}; blank.entityLayers = {}; blank.visual = { version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{} }
     expect(terrainCommandCost(blank, effect).total).toBeLessThanOrEqual(256)
     for (const prop of Object.values(effect.props)) {
       expect(supportedPolygon(effect, propFootprint(prop), prop.supportRef, prop.floorId)).toBe(true)

@@ -57,7 +57,7 @@ describe('versioned generated-map authoring continuation', () => {
     expect(authoringAssetPage(start, '', 16).assets).toEqual([])
     expect(() => applyAuthoringStep(start, initial.state, [{ kind: 'terrainUpdate', id: Object.keys(start.project.document.terrainAreas)[0], blocksSight: true }], 'ungranted-scene')).toThrow()
     const { policy: _policy, source: _source, ...legacy } = start
-    expect(() => validateAuthoringStart({ ...legacy, schemaVersion: 1 })).toThrow(/须明确scene授权/)
+    expect(() => validateAuthoringStart({ ...legacy, schemaVersion: 1 })).toThrow(/当前明确能力协议/)
   })
   it.each(['allocation', 'project', 'closure', 'preservation'] as const)('rejects changed complete source %s', field => {
     const start = fixture(), bad = cloneJson(start.source)

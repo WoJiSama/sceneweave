@@ -13,6 +13,7 @@ import type { AuthoringPlanState } from './plan.js'
 import type { AuthoringStart as LegacyStart, AuthoringState as LegacyState, DraftStamp as LegacyDraftStamp, AuthoringStep as LegacyStep, AuthoringOperation as LegacyOperation } from './authoring-protocol-v1.js'
 import type { AuthoringStartV2, AuthoringStateV2, BudgetIdentity, DraftStampV2 } from './continuation-protocol.js'
 import { canonicalJson, captureJson } from '../validation/json.js'
+import { CURRENT_AUTHORING_CAPABILITY } from './current-authoring-capability.js'
 import { validateAuthoringStartV2, replayAuthoringV2, applyAuthoringStepV2, checkAuthoringStateV2, legacyAuthoringStart } from './continuation.js'
 export { AUTHORING_SKILL, SCENE_AUTHORING_SKILL, AuthoringOperationError, authoringProjectHash } from './authoring-v1.js'
 export type ReplayedAuthoring = ReturnType<typeof replayAuthoring>
@@ -63,8 +64,8 @@ export function authoringSkill(input: AuthoringStart) {
   if (input.schemaVersion === 4) return { ...skill, instructions: skill.instructions
     .replace('the whole draft has a 256-operation limit', input.policy.policyVersion === 2 ? `the draft has ${input.policy.aiTargets} AI semantic targets under its frozen registered profile` : 'the whole draft has a 256-operation limit')
     .replace('existing geometry, lock, dependency and 256-command rules', input.policy.policyVersion === 2 ? 'registered independent geometry/work/resource budgets and complete lock/dependency rules' : 'existing geometry, lock, dependency and 256-command rules')
-    .replace('an explicitly saved scene-v2 copy', 'the explicit current-authoring@1 capability for the exact complete version')
-    + ` Authoring4 has AI allowance ${input.policy.aiTargets}; final adoption is ${input.policy.policyVersion === 1 ? 256 : input.policy.finalAdoptionTargets}. Authoring4 only uses the frozen starting resource closure. SVG and resource creation are unsupported. Exact version capabilities apply: terrainGenerate/terrainEdit/regionalGenerate/regionalEdit complete3 only; terrainLocal complete4 only; connectionRoute/connectionRouteUpdate complete5–7; decorationCluster/decorationRegenerate/decorationUpdate/decorationDelete/decorationDetach/decorationClusterDelete complete6–7. Canopy region rules have no AI recipe. Curves use full sampled route and actual width; cluster palettes use exact definitionRef versions and persist all real members/manual/deleted records. Ordinary current-baseline tasks keep 256 actual expanded commands for the whole task; only verified source3 tasks use their declared registered profile. Stages contain at most64 recipes in internal16-recipe steps and install atomically. Read the current draft and exact stamp before staging. Preserve one final request and explain pending requirements honestly. A PNG can be reviewed only when explicitly supplied and bound to the current stamp; no image means needs_human_review. Final appearance confirmation belongs to the user.` }
+    .replace('an explicitly saved scene-v2 copy', 'the explicit current-authoring@1 capability for the current full1 model')
+    + ` Authoring4 has AI allowance ${input.policy.aiTargets}; final adoption is ${input.policy.policyVersion === 1 ? 256 : input.policy.finalAdoptionTargets}. Authoring4 only uses the frozen starting resource closure. SVG and resource creation are unsupported. The sole full1 capability uses generation5, visual3, identity5 and appearance2. Explicit grants determine terrainGenerate/terrainEdit/terrainLocal/regionalGenerate/regionalEdit, connectionRoute/connectionRouteUpdate and decorationCluster/decorationRegenerate/decorationUpdate/decorationDelete/decorationDetach/decorationClusterDelete access. Canopy/surface rules and their indirect support/member closure edits have no AI recipe. Curves use full sampled route and actual width; cluster palettes use exact definitionRef versions and persist all real members/manual/deleted records. Ordinary current-baseline tasks keep 256 actual expanded commands for the whole task; only verified source3 tasks use their declared registered profile. Stages contain at most64 recipes in internal16-recipe steps and install atomically. Read the current draft and exact stamp before staging. Preserve one final request and explain pending requirements honestly. A PNG can be reviewed only when explicitly supplied and bound to the current stamp; no image means needs_human_review. Final appearance confirmation belongs to the user.` }
   if (input.schemaVersion === 3) return { ...skill, instructions: skill.instructions
     .replace('the whole draft has a 256-operation limit', `the AI draft has ${input.policy.aiTargets} semantic targets`)
     .replace('existing geometry, lock, dependency and 256-command rules', 'registered independent geometry/work/resource budgets and complete lock/dependency rules')
@@ -89,7 +90,10 @@ export function publicAuthoringContext(input: AuthoringStart, state: AuthoringSt
   const replayed = input.schemaVersion === 3 && state.schemaVersion === 3 ? checkAuthoringStateV3(input, state)
     : checkAuthoringStateV2(input as AuthoringStartV2, state as AuthoringStateV2)
   const base = input.schemaVersion === 3 ? legacyAuthoringStartV3(input) : legacyAuthoringStart(input as AuthoringStartV2)
-  const context = legacy.publicAuthoringContextForReplay(base, { ...replayed, state: { ...replayed.state, schemaVersion: 1 } }) as Record<string, unknown>
+  // The source2/3 replay above has independently proved its exact full1
+  // baseline. Supply that capability only to its retained read projection;
+  // this does not authorize a new old-protocol task or widen its frozen scope.
+  const context = legacy.publicAuthoringContextForReplay(base, { ...replayed, state: { ...replayed.state, schemaVersion: 1 } }, CURRENT_AUTHORING_CAPABILITY) as Record<string, unknown>
   return { ...context, operationCost: replayed.state.operationCost, remainingOperations: input.policy.aiTargets - replayed.state.budget.aiCost,
     ...authoringBudgetIdentity(replayed.state), budget: replayed.state.budget, ...(input.schemaVersion === 3 ? { policy: input.policy } : {}) }
 

@@ -47,25 +47,27 @@ try {
   await writeFile(join(temporary, 'package.json'), '{"type":"module"}\n')
   await symlink(join(root, 'node_modules'), join(temporary, 'node_modules'), 'dir')
   const entry = pathToFileURL(join(temporary, 'index.js')).href
+  const currentScene = pathToFileURL(join(temporary, 'model/current-scene.js')).href
   const smoke = `
     import assert from 'node:assert/strict';
     for (const name of ['window','document','ImageBitmap','OffscreenCanvas','createImageBitmap']) Object.defineProperty(globalThis,name,{value:undefined});
     const shared = await import(${JSON.stringify(entry)});
+    const {toCurrentSceneDocument}=await import(${JSON.stringify(currentScene)});
     let counter=0;
     const context={ids:{nextId:()=> 'node-'+(++counter)},clock:{now:()=> '2026-10-24T00:00:00.000Z'}};
     const bounds={x:0,y:0,width:20000,height:20000};
-    const document={format:'sceneweave-scene',schemaVersion:1,sceneId:'node-scene',revision:0,title:'Node共享核心',createdAt:context.clock.now(),updatedAt:context.clock.now(),
+    const document=toCurrentSceneDocument({format:'sceneweave-scene',schemaVersion:1,sceneId:'node-scene',revision:0,title:'Node共享核心',createdAt:context.clock.now(),updatedAt:context.clock.now(),
       units:{world:'mm',display:'m',gridSizeMm:1000,snapMm:100,gridVisible:false},exportBoundsMm:bounds,
       floors:{floor:{id:'floor',name:'Floor',boundsMm:bounds}},vertices:{},rooms:{},walls:{},openings:{},props:{},regions:{},notes:{},assets:{},
       propDefinitions:{},materials:{},terrainAreas:{},terrainEdges:{},terrainConnections:{},paths:{},prefabDefinitions:{},prefabInstances:{},scatterGroups:{},styleThemes:{},activeStyleThemeRef:null,
       userLayers:{layer:{id:'layer',floorId:'floor',name:'默认',order:0,editLocked:false}},entityLayers:{},
-      presetSnapshot:{presetId:'node',presetVersion:1,distanceMode:'metric',source:'Sceneweave smoke',gridSizeMm:1000},constraints:{entranceOpeningIds:[],wallEndClearanceMm:0,pathChecks:[]}};
+      presetSnapshot:{presetId:'node',presetVersion:1,distanceMode:'metric',source:'Sceneweave smoke',gridSizeMm:1000},constraints:{entranceOpeningIds:[],wallEndClearanceMm:0,pathChecks:[]}});
     assert.equal(shared.validateSceneDocument(document).ok,true);
     const content=shared.createCompositionContent(document,context);
     const candidate=shared.applyCompositionCommands(content,[{type:'setSceneDisplay',display:'ft',distanceMode:'grid',gridSizeMm:1524,snapMm:254,gridVisible:true}],context);
     assert.equal(candidate.document.units.display,'ft');assert.equal(content.document.units.display,'m');
     const project={format:'sceneweave-complete-project',schemaVersion:1,...candidate,assets:{},licenses:{},licenseBindings:[],authoringSources:{}};
-    assert.equal(shared.validateProjectData(project).historyIdentity.version,1);
+    assert.equal(shared.validateProjectData(project).historyIdentity.version,5);
     assert.match(shared.projectContentHash(project),/^[a-f0-9]{64}$/);
     assert.equal(shared.projectScene(candidate.document,'player').audience,'player');
     const unavailable=async()=>{throw new Error('Node smoke has no image decoder');};

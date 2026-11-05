@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
@@ -11,7 +12,7 @@ import { projectContentHash, validateProjectData } from './validate.js'
 
 let sequence = 0
 function fixture(): ProjectData {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const content = createCompositionContent(document, { ids: { nextId: () => `delta-test-${++sequence}` }, clock: { now: () => '2026-10-29T00:00:00.000Z' } })
   return validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 1, ...content,

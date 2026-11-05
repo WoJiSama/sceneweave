@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { layerSceneV3 } from '../../../core/v3/test-fixtures'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import type { ConversionJob, ConvertedFamily } from '../../../shared/migration/types.js'
@@ -29,7 +30,7 @@ function repository(name = `history-overview-${crypto.randomUUID()}`): ProjectRe
   repositories.push(repo); return repo
 }
 function fixture(): ProjectBundle {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
   document.sceneId = 'old-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const content = createCompositionContent(document, { ids: { nextId: () => `stable-token-${++sequence}` }, clock: { now: () => NOW } })
   return { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }, resources: createMemoryResources({}) }
@@ -56,8 +57,8 @@ async function convertedFamily(repo: ProjectRepository, source: ProjectBundle, s
   converted.current.project.document.sceneId = job.targetSceneId
   return { job, converted }
 }
-const fiveSeparateReads = (repo: ProjectRepository, owner: string) => Promise.all([
-  repo.listSnapshots(owner), repo.usage(owner), repo.listLegacySources(owner), repo.listNativeUpgradeSummaries(owner), repo.listHistoryVersions(owner),
+const fourSeparateReads = (repo: ProjectRepository, owner: string) => Promise.all([
+  repo.listSnapshots(owner), repo.usage(owner), repo.listLegacySources(owner), repo.listHistoryVersions(owner),
 ])
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -67,7 +68,7 @@ afterEach(async () => {
 })
 
 describe('merged history panel overview read', () => {
-  it('returns exactly the five separate panel reads for a saved, snapshotted and branched project while reading the current row once', async () => {
+  it('returns exactly the four separate panel reads for a saved, snapshotted and branched project while reading the current row once', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
     const created = await repo.createSnapshot(input, '命名一', { expectedRevision: 0, expectedMetadataVersion: 0 })
@@ -78,11 +79,10 @@ describe('merged history panel overview read', () => {
     // once more inside the usage assertion; the separate panel reads used four.
     expect(projectReads).toHaveBeenCalledTimes(2)
     projectReads.mockRestore()
-    const [snapshots, usage, legacySources, upgradeOriginals, history] = await fiveSeparateReads(repo, owner)
+    const [snapshots, usage, legacySources, history] = await fourSeparateReads(repo, owner)
     expect(overview.snapshots).toEqual(snapshots)
     expect(overview.usage).toEqual(usage)
     expect(overview.legacySources).toEqual(legacySources)
-    expect(overview.upgradeOriginals).toEqual(upgradeOriginals)
     expect(overview.history).toEqual(history)
     expect(overview.snapshots.map(row => row.id)).toEqual([created.id])
     expect(overview.history.versions.map(row => row.revision)).toEqual([1, 0])
@@ -109,11 +109,10 @@ describe('merged history panel overview read', () => {
     await cold.readConversion(committed.jobId)
     await cold.publishConversion(committed.jobId, committed.jobVersion)
     const overview = await cold.historyOverview(job.targetSceneId)
-    const [snapshots, usage, legacySources, upgradeOriginals, history] = await fiveSeparateReads(cold, job.targetSceneId)
+    const [snapshots, usage, legacySources, history] = await fourSeparateReads(cold, job.targetSceneId)
     expect(overview.snapshots).toEqual(snapshots)
     expect(overview.usage).toEqual(usage)
     expect(overview.legacySources).toEqual(legacySources)
-    expect(overview.upgradeOriginals).toEqual(upgradeOriginals)
     expect(overview.history).toEqual(history)
     expect(overview.legacySources.map(row => row.nodeId)).toEqual(['original-node'])
     expect(overview.usage).toMatchObject({ namedCount: 1, importedCount: 1 })

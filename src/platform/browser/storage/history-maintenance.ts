@@ -8,11 +8,11 @@ import { projectContentHash, validateProjectData } from '../../../shared/project
 import { encodeUtf8 } from '../../../shared/validation/json.js'
 import { PROJECT_TABLES, type ProjectDatabase, type StoredBytes } from './database.js'
 import { captureHistoryGraph, historyGraphProjects } from './incremental-history.js'
-import type { NativeUpgradeContext, StoredNativeUpgradeCapsule } from './native-upgrade.js'
 
-export type HistoryMaintenanceChecks = Pick<NativeUpgradeContext, 'assertCurrent' | 'assertAutomatic' | 'assertSnapshot'> & {
-  /** Full capsule capture/hash/graph/reference validation, without native image decoding. */
-  assertCapsule(row: StoredNativeUpgradeCapsule): void
+export interface HistoryMaintenanceChecks {
+  assertCurrent(row: import('./database.js').StoredProject): void
+  assertAutomatic(row: import('./database.js').StoredAutomatic): void
+  assertSnapshot(row: import('./database.js').StoredSnapshot, imported: boolean): void
 }
 export interface UnusedResourceCollection {
   resourceCount: number
@@ -48,29 +48,6 @@ function scanRows<T>(table: Pick<Table<T>, 'each'>, inspect: (row: T) => void): 
     try { inspect(row) } catch (error) { failed = true; failure = error }
   }).then(() => { if (failed) throw failure })
 }
-function assertCapsuleAncestors(rows: StoredNativeUpgradeCapsule[]): void {
-  const byId = new Map(rows.map(row => [row.capsuleId, row]))
-  for (const root of rows) {
-    const path = new Set<string>(), ancestors = new Set<string>(), visitedDepth = new Map<string, number>()
-    const visit = (row: StoredNativeUpgradeCapsule, depth: number) => {
-      if (depth > 16 || path.has(row.capsuleId)) throw new Error('历史维护原件保全来源链循环或超限。')
-      if ((visitedDepth.get(row.capsuleId) ?? 0) >= depth) return
-      visitedDepth.set(row.capsuleId, depth)
-      path.add(row.capsuleId)
-      for (const id of row.parentCapsuleIds) {
-        const parent = byId.get(id)
-        if (!parent || parent.targetSceneId !== row.sourceSceneId || parent.sourceSceneId === row.targetSceneId
-          || parent.targetInitialProject.historyIdentity.lineageId !== row.family.current.project.historyIdentity.lineageId) throw new Error('历史维护原件保全祖先缺失或归属损坏。')
-        ancestors.add(id)
-        if (ancestors.size > 64) throw new Error('历史维护原件保全祖先数量超限。')
-        visit(parent, depth + 1)
-      }
-      path.delete(row.capsuleId)
-    }
-    visit(root, 1)
-  }
-}
-
 /**
  * The caller owns the full-library audit, accounting receipt and epoch CAS in
  * the same transaction. This routine never prunes versions, pins or originals.
@@ -121,15 +98,7 @@ export async function collectUnusedResources(database: ProjectDatabase, checks: 
   await scanRows(database.historyVersions, row => { if (!owners.has(row.ownerSceneId)) throw new Error('历史维护增量历史缺少活动分支。') })
   await scanRows(database.historyPins, row => { if (!owners.has(row.ownerSceneId)) throw new Error('历史维护增量快照缺少活动分支。') })
 
-  const capsules = await database.nativeUpgradeCapsules.toArray()
-  for (const capsule of capsules) {
-    checkCancelled(options.signal); checks.assertCapsule(capsule)
-    addProject(capsule.family.current.project, capsule.family.current.contentHash)
-    for (const row of [...capsule.family.automatic, ...capsule.family.snapshots, ...capsule.family.importedSnapshots]) addProject(row.project, row.contentHash)
-    if (capsule.version === 2) for (const project of historyGraphProjects(capsule.historyGraph)) addProject(project)
-    addProject(capsule.targetInitialProject, capsule.targetInitialContentHash)
-  }
-  assertCapsuleAncestors(capsules)
+  if (await database.nativeUpgradeCapsules.count()) throw new Error('旧升级原件只应保存在独立迁入保全库。')
 
   const unusedResources: string[] = [], unusedLicenses: string[] = []
   const result: UnusedResourceCollection = { resourceCount: 0, resourceBytes: 0, licenseCount: 0, licenseBytes: 0 }

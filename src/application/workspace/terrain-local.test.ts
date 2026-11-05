@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -54,7 +55,7 @@ function localScene(): SceneDocument {
     visualBoundsMm: tree.defaultVisualBoundsMm, positionMm: { x: 5000, y: 5000 }, rotationDeg: 0, footprintMm: tree.defaultFootprintMm,
     footprintOffsetMm: tree.defaultFootprintOffsetMm, blocksMovement: false, blocksSight: false, visibility: 'public' as const,
     supportRef: { kind: 'terrainArea' as const, id: 'sand' }, renderLayer: 'canopy' as const, renderOrder: 3, shadowClass: 'vegetation' as const, shadowOverride: null }
-  const scene: SceneDocument = {
+  const scene: SceneDocument = toCurrentSceneDocument({
     format: 'sceneweave-scene', schemaVersion: 4, sceneId: `local-${crypto.randomUUID()}`, revision: 2, title: 'T12 local', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: { [prop.id]: prop }, regions: {}, notes: {}, assets: {
@@ -69,7 +70,7 @@ function localScene(): SceneDocument {
     }, styleThemes: {}, activeStyleThemeRef: null, userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: { [prop.id]: 'layer', trees: 'layer' },
     presetSnapshot: { presetId: 'fixture', presetVersion: 1, distanceMode: 'metric', source: 'fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] },
     mapMode: 'scene', regional: null, generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: { ...emptyVisualSystem(), boundaries: { coast: boundary } }, materializedEdges: {} }, transitions: {} },
-  }
+  })
   scene.entityLayers.sand = 'layer'; scene.entityLayers.water = 'layer'
   const row = materializeTerrainTransition(scene, { id: 'shore', boundaryId: boundary.id, kind: 'shore', side: 'both', widthMm: 400, clipMm: { x: 1000, y: 1000, width: 6000, height: 6000 } })
   ;(scene.visual as VisualSystem3).transitions[row.id] = row
@@ -81,7 +82,7 @@ async function fixture(): Promise<EditableProject> {
   if (!checked.ok) throw new Error(JSON.stringify(checked.errors))
   const content = createCompositionContent(document, runtime), assetHash = Object.keys(document.assets)[0], bytes = pixelPng([74, 108, 61, 255]), licenseHash = document.assets[assetHash].licenseRef
   const licenseBindings = inspectDependencies(document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const }))
-  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 4, ...content, assets: { [assetHash]: { sha256: assetHash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } }, licenses: { [licenseHash]: { sha256: licenseHash, text: 'T12 local fixture license' } }, licenseBindings, authoringSources: {} }, resources: createMemoryResources(new Map([[assetHash, bytes]])) }, validation)
+  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: { [assetHash]: { sha256: assetHash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } }, licenses: { [licenseHash]: { sha256: licenseHash, text: 'T12 local fixture license' } }, licenseBindings, authoringSources: {} }, resources: createMemoryResources(new Map([[assetHash, bytes]])) }, validation)
 }
 
 function request(project: EditableProject): TerrainLocalRefreshRequest {

@@ -11,7 +11,7 @@ describe('T0 independent 10x8km regional budget witness', () => {
   it('retains a full strict regional result with actual per-point/per-record budget below256', () => {
     const base = blank(), before = canonicalJson(base), vector = createRegionalFeasibilityVector(base), { document, empty, cost } = vector
     expect(canonicalJson(base)).toBe(before)
-    expect(document.schemaVersion).toBe(3); expect(document.mapMode).toBe('regional')
+    expect(document.schemaVersion).toBe(1); expect(document.mapMode).toBe('regional')
     expect(document.exportBoundsMm).toEqual({ x: 0, y: 0, width: 10000000, height: 8000000 })
     expect(validateSceneDocument(document).ok).toBe(true)
     expect(Object.keys(document.regional!.areas)).toHaveLength(3)

@@ -1,3 +1,4 @@
+import { currentAuthoringFixture } from '../../tests/helpers/current-authoring-fixture.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ import { createPublicVisionInput, verifyVisionInput, visionBase64, VISION_LIMITS
 import { sha256Bytes } from '../../src/shared/validation/hash.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
 import { cloneJson } from '../../src/shared/validation/json.js'
-import { authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
+import { replayAuthoring } from '../../src/shared/ai/authoring.js'
 import type { AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
 import { validateTaskVision, validateVisionPng } from './vision-input.js'
 import { createChatProvider } from './chat-provider.js'
@@ -26,10 +27,10 @@ const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
 function start(): AuthoringStart {
   const project = cloneJson(svgProjectFixture().bundle.project), scene = project.document, floorId = Object.keys(scene.floors)[0]
-  return { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: randomUUID(), preparedAt: '2026-10-25T00:00:00.000Z',
-    skill: { id: 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model',
+  return currentAuthoringFixture({ project, seed: randomUUID(), preparedAt: '2026-10-25T00:00:00.000Z',
+    skill: { id: 'sceneweave-prop-authoring', version: 1 },
     scope: { targetIds: ['item'], operations: ['opacity'], placement: { floorId, layerId: scene.entityLayers.item, supportRef: { kind: 'floor', id: floorId },
-      boundsMm: scene.floors[floorId].boundsMm, definitionIds: ['definition'] } } }
+      boundsMm: scene.floors[floorId].boundsMm, definitionIds: ['definition'] } } })
 }
 function screenshot(source = start()) {
   const document = source.project.document

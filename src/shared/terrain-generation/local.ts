@@ -116,7 +116,7 @@ function requiredHalo(scene: SceneDocument, transitionIds: readonly string[], sc
 }
 
 function checkRequest(scene: SceneDocument, request: TerrainLocalRefreshRequest): { readBoundsMm: BoundsMm; transitionIds: string[]; sceneryGroupIds: string[]; haloMm: number } {
-  if (scene.schemaVersion !== 4 || scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('局部联动需要严格scene4/generation5/visual3工程。')
+  if (scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('局部联动需要严格generation5/visual3工程。')
   if (request.sceneId !== scene.sceneId) throw new Error('局部联动候选绑定的工程身份已变化。')
   if (![request.scopeMm.x, request.scopeMm.y, request.scopeMm.width, request.scopeMm.height].every(Number.isSafeInteger) || !positive(request.scopeMm.width) || !positive(request.scopeMm.height)) throw new Error('局部联动范围必须是正整数矩形。')
   const explicitHalo = request.haloMm

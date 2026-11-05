@@ -27,7 +27,7 @@ beforeAll(() => {
     algorithmVersion: 5, budgetProfileId: 'standard', quality: 'standard' })
   ordinary = composeTerrainDocument(base, result, 'island-dressing-birth', TASK_BUDGET_PROFILES.standard).document
   // Geometry fixture only; real complete-copy/source/PNG/license preparation is owned by application/browser tests.
-  complete = { ...emptyCompositionDocument(ordinary), schemaVersion: 6, decorations: {}, decorationClusters: {} }
+  complete = { ...emptyCompositionDocument(ordinary), schemaVersion: 1, decorations: {}, decorationClusters: {} }
   const catalog = createTerrainVariantCatalogDocument()
   Object.assign(complete.assets, catalog.assets); Object.assign(complete.propDefinitions, catalog.propDefinitions)
   const checked = validateSceneDocument(complete)
@@ -40,13 +40,12 @@ describe('island-dressing@1 explicit post-generation preset', () => {
     expect(hasGeneratedIslandBase(ordinary)).toBe(true)
     const v4 = emptyCompositionDocument(ordinary)
     expect(hasGeneratedIslandBase(v4)).toBe(true)
-    expect(hasGeneratedIslandBase({ ...v4, schemaVersion: 5 })).toBe(true)
+    expect(hasGeneratedIslandBase({ ...v4, schemaVersion: 1 })).toBe(true)
     expect(hasGeneratedIslandBase(complete)).toBe(true)
     for (const edit of [
-      (scene: SceneDocument) => { scene.schemaVersion = 2 },
       (scene: SceneDocument) => { scene.mapMode = 'regional' },
       (scene: SceneDocument) => { getLegacyGeneration(scene)!.recipes['terrain-recipe'].algorithmVersion = 4 },
-      (scene: SceneDocument) => { getLegacyGeneration(scene)!.recipes['terrain-recipe'].parameters.terrainKind = 'coast' },
+      (scene: SceneDocument) => { const recipe = getLegacyGeneration(scene)!.recipes['terrain-recipe']; if (!('domain' in recipe)) recipe.parameters.terrainKind = 'coast' },
       (scene: SceneDocument) => { getLegacyGeneration(scene)!.recipes['terrain-recipe'].algorithmId = 'terrain-compose' },
       (scene: SceneDocument) => { getLegacyGeneration(scene)!.rules['terrain-rule'].state = 'paused' },
     ]) {
@@ -54,7 +53,7 @@ describe('island-dressing@1 explicit post-generation preset', () => {
       expect(hasGeneratedIslandBase(scene)).toBe(false)
       expect(() => buildIslandDressingCommands(scene, { nextId: ids() })).toThrow()
     }
-    expect(() => buildIslandDressingCommands(ordinary, { nextId: ids() })).toThrow(/完整v6/)
+    expect(buildIslandDressingCommands(ordinary, { nextId: ids() }).commands.length).toBeGreaterThan(0)
   })
 
   it('plans stable explicit mixed/light palettes without mutating the island or requiring resource metadata to be premerged', () => {

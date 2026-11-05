@@ -6,6 +6,7 @@ import { detachChangedAppearance } from '../../shared/terrain-generation/appeara
 import { assertTerrainBudget, terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 import { applyCompositionDraftCommands } from '../../shared/appearance/commands.js'
 import { listRequiredVariants, resolveAppearance, syncAppearanceGraph } from '../../shared/appearance/graph.js'
+import { topDownPresentation } from '../../shared/appearance/presentation.js'
 import { certifyCompositionContent, validateCompositionDraft } from '../../shared/validation/content.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
 import type { SceneDocument } from '../../shared/model/scene.js'
@@ -92,7 +93,7 @@ export async function materializeProject(input: EditableProject, options: Prepar
   checkCancelled(checked.signal)
   const baseline = getVerifiedEditableProject(options.baseline ?? input)
   let captured = captureEditableInput(input)
-  if (baseline && baseline.document.schemaVersion >= 4 && captured.document.schemaVersion >= 4) {
+  if (baseline) {
     // Reconcile manual drafts before strict active-receipt validation. Own the
     // JSON branches first; neither caller data nor the baseline is repairable.
     const owned = captureJson({ document: captured.document, appearance: captured.appearance })
@@ -106,7 +107,7 @@ export async function materializeProject(input: EditableProject, options: Prepar
   // unresolved adjustments or new resource branches continue to materialize.
   if (baseline) {
     const derived = tryDeriveEditableProject(captured, baseline, checked)
-    if (derived) { if (baseline.document.schemaVersion >= 3) assertPreparationBudget(baseline, derived, options); return derived }
+    if (derived) { assertPreparationBudget(baseline, derived, options); return derived }
   }
   const project = captureEditableDraft(captured)
   const inputResources = captured.resources
@@ -135,13 +136,11 @@ export async function materializeProject(input: EditableProject, options: Prepar
     draftBudgets(project)
   }
   const resolved=resolveAppearance(contentOf(project))
-  if(project.document.schemaVersion>=3) {
-    detachChangedOutputs(project.document,resolved.document)
-    pauseChangedCompositions(project.document,resolved.document)
-    pauseChangedCompositionAppearance(contentOf(project),resolved)
-  }
+  detachChangedOutputs(project.document,resolved.document)
+  pauseChangedCompositions(project.document,resolved.document)
+  pauseChangedCompositionAppearance(contentOf(project),resolved)
   Object.assign(project, certifyCompositionContent(resolved))
-  if(baseline && project.document.schemaVersion>=3) assertPreparationBudget(baseline,project,options)
+  if(baseline) assertPreparationBudget(baseline,project,options)
   inheritMissingBindings(project)
   project.resources = Object.freeze({ read: async (hash: string) => added.get(hash)?.slice() ?? originalResources.read(hash) })
   // A composition-only edit on an already certified project cannot change the
@@ -386,6 +385,7 @@ export async function prepareAssetBatchImport(input: EditableProject, requests: 
         project.licenseBindings.push(binding('propDefinition', definitionId))
         project.appearance.sources[sourceId] = { id: sourceId, kind: 'prop', parentSourceId: null, snapshot: {
           definitionRef: { id: definitionId, version: 1 }, appearance: structuredClone(definition.defaultAppearance), visualBoundsMm: structuredClone(definition.defaultVisualBoundsMm), shadowClass: definition.defaultShadowClass, shadowOverride: null } }
+        project.appearance.presentations![sourceId] = topDownPresentation()
       } else {
         project.document.materials[definitionId] = { ...base, textureAssetId: assetId, defaultTileSizeMm: { width: request.widthMm, height: request.heightMm }, applicableSurfaces: ['room', 'wall', 'terrain', 'path'] }
         project.licenseBindings.push(binding('material', definitionId))

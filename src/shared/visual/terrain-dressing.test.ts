@@ -59,7 +59,7 @@ describe('explicit terrain dressing command plan',()=>{
     expect(canonicalJson(source.document.scatterGroups[create.id])).toBe(groupBefore)
   })
   it('does not rewrite locked looks or locked dressing groups',()=>{
-    const source=fixture();for(const look of Object.values((source.document.visual as {base:{edgeLooks:Record<string,{editLocked:boolean}>}}).base.edgeLooks))look.editLocked=true
+    const source=fixture();for(const look of Object.values(source.document.visual.base.base.edgeLooks))look.editLocked=true
     const plan=planTerrainDressing(source,{sceneId:source.document.sceneId,floorId:'visual-floor',seed:'dressing-0'})
     expect(plan.commands.some(command=>command.type==='upsertVisualEdgeLook')).toBe(false)
     expect(plan.report.preservedIds.length).toBeGreaterThan(0)

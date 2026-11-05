@@ -632,3 +632,12 @@ export class IncrementalHistory {
     } finally { cache.clear() }
   }
 }
+
+/** Wire-only capture for the isolated one-time importer. It confers no project validity. */
+export function captureHistoryVersionEnvelope(input: unknown, owner: string): HistoryVersion {
+  const { row } = checkVersionRecord(input, owner)
+  return { ...row, checkpoint: row.checkpoint === null ? null : cloneJson(row.checkpoint), delta: row.delta === null ? null : validateProjectDelta(row.delta) }
+}
+export function captureHistoryHeadEnvelope(input: unknown, owner: string): HistoryHead { assertHead(input, owner); return captureJson(input) }
+export function captureHistoryPinEnvelope(input: unknown, owner: string): HistoryPin { assertPin(input, owner); return captureJson(input) }
+export const sealHistoryRecord = seal

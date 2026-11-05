@@ -1,3 +1,6 @@
+import { currentAuthoringFixture } from '../../tests/helpers/current-authoring-fixture.js'
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
+import { createCurrentAuthoringStartV4 } from '../../src/shared/ai/current-authoring.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +14,7 @@ import type { SceneDocument } from '../../src/shared/model/scene.js'
 import { validateProjectData } from '../../src/shared/project/validate.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
 import { canonicalJson, cloneJson } from '../../src/shared/validation/json.js'
-import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
+import { applyAuthoringStep, authoringProjectHash, authoringDraftStamp, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import * as authoringCore from '../../src/shared/ai/authoring.js'
 import { AUTHORING_LIMITS, type AuthoringDraft, type AuthoringStart, type DraftClaim } from '../../src/shared/ai/authoring-protocol.js'
 import { AI_LIMITS, ToolResultSchema, utf8Size, type TaskSnapshot } from '../../src/shared/ai/protocol.js'
@@ -20,7 +23,6 @@ import { loadAiConfig } from './config.js'
 import { TaskFault, TaskStore } from './store.js'
 import { TaskEngine, type TaskEngineOptions } from './engine.js'
 import { executeAuthoringTool } from './authoring-tools.js'
-import { emptyVisualSystem } from '../../src/shared/visual/types.js'
 import { PROVIDER_REASONING_BYTES, type ProviderAdapter, type ProviderCompletion, type ProviderInput, type ProviderToolCall } from './provider-types.js'
 import { terrainAuthoringFixture } from '../../tests/helpers/terrain-authoring-fixture.js'
 import { RegionSceneCandidateToolOutputSchema } from '../../src/shared/ai/region-candidate-protocol.js'
@@ -28,9 +30,9 @@ import { createProviderCooldown } from './request-scheduler.js'
 
 const stamp = '2026-10-24T00:00:00.000Z', token = 'a'.repeat(40), tokenB = 'b'.repeat(40)
 const cleanups: (() => void)[] = []
-afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
-function start(): AuthoringStart {
-  const document = cloneJson(native.scenes.blank.document) as unknown as SceneDocument
+afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); vi.restoreAllMocks() })
+function start(): import('../../src/shared/ai/authoring-protocol-v4.js').AuthoringStartV4 {
+  const document = toCurrentSceneDocument(cloneJson(native.scenes.blank.document) as unknown as SceneDocument)
   document.title = 'PRIVATE_GM_PROJECT_TITLE'
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.prefabDefinitions = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   document.propDefinitions.definition = { id: 'definition', catalogId: 'test.authoring', version: 1, licenseRef: 'MIT', origin: { kind: 'original', attribution: 'Sceneweave test symbols', canEmbed: true },
@@ -45,14 +47,16 @@ function start(): AuthoringStart {
   const text = 'PRIVATE_LICENSE_TEXT_MUST_NOT_ENTER_MODEL', hash = sha256Text(text)
   const project: ProjectData = validateProjectData({ ...content, format: 'sceneweave-complete-project', schemaVersion: 1, assets: {}, licenses: { [hash]: { sha256: hash, text } },
     licenseBindings: [{ subjectKind: 'propDefinition', subjectId: 'definition', licenseRef: 'MIT', licensePath: `licenses/${hash}.txt`, embedding: 'allowed' }], authoringSources: {} })
-  return { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: randomUUID(), preparedAt: stamp,
-    skill: { id: 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model',
-    scope: { targetIds: ['target'], operations: ['place', 'transform', 'opacity'], placement: { floorId: 'blank-floor', layerId: 'layer-default-0', supportRef: { kind: 'floor', id: 'blank-floor' },
-      boundsMm: { x: 1000, y: 1000, width: 8000, height: 8000 }, definitionIds: ['definition'] } } }
+  const floorId = Object.keys(project.document.floors)[0], layerId = Object.keys(project.document.userLayers)[0]
+  return cloneJson(createCurrentAuthoringStartV4({ project, seed: randomUUID(), preparedAt: stamp, flowId: randomUUID(),
+    preservation: { sceneId: project.document.sceneId, revision: project.document.revision, contentHash: authoringProjectHash(project), checkpoint: 0 },
+    skill: { id: 'sceneweave-prop-authoring', version: 1 },
+    scope: { targetIds: ['target'], operations: ['place', 'transform', 'opacity'], placement: { floorId, layerId, supportRef: { kind: 'floor', id: floorId },
+      boundsMm: { x: 1000, y: 1000, width: 8000, height: 8000 }, definitionIds: ['definition'] } } }))
 }
 function connectionSource(hidden: 'none' | 'ungranted' | 'private' = 'none'): AuthoringStart {
   const source = start(), boundsMm = { x: 5000, y: 500, width: 14000, height: 10000 }
-  source.project.schemaVersion = 2; source.project.document.schemaVersion = 2; source.project.document.visual = emptyVisualSystem()
+  source.project.document = toCurrentSceneDocument(source.project.document)
   let sequence = 0
   const context = { ids: { nextId: () => `connection-fixture-${++sequence}` }, clock: { now: () => stamp } }
   Object.assign(source.project, applyCompositionCommands({ document: source.project.document, historyIdentity: source.project.historyIdentity, appearance: source.project.appearance }, [
@@ -68,8 +72,8 @@ function connectionSource(hidden: 'none' | 'ungranted' | 'private' = 'none'): Au
   const entityIds = ['low-land', 'high-land', ...(hidden === 'none' ? ['land-stairs'] : [])]
   source.scope.scene = { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm, entityIds, definitionIds: [], prefabDefinitionIds: [], materialIds: [], operations: ['terrain', 'connection'] }
   source.scope.visual = { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm, entityIds, definitionIds: [], materialIds: [], operations: ['visualBoundary'] }
-  source.baseContentHash = authoringProjectHash(source.project)
-  return source
+  source.baseContentHash = authoringProjectHash(source.project); Object.assign(source, currentAuthoringFixture(source))
+  return currentAuthoringFixture(source)
 }
 const done = (calls: ProviderToolCall[] = []): ProviderCompletion => ({ text: '', toolCalls: calls, finishReason: calls.length ? 'tool_calls' : 'stop', usage: { inputTokens: 10, outputTokens: 8 }, requestId: 'test' })
 const call = (id: string, name: string, args: unknown): ProviderToolCall => ({ id, name, arguments: JSON.stringify(args) })
@@ -79,6 +83,7 @@ function setup(provider: ProviderAdapter, now = { value: 1000 }, limits?: Partia
   const config = loadAiConfig({ SCENEWEAVE_AI_DATA_DIR: directory, SCENEWEAVE_AI_ALLOWED_ORIGINS: 'https://editor.example.test', SCENEWEAVE_AI_ACCESS_TOKENS: JSON.stringify({ alice: token, bob: tokenB }),
     SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'private', SCENEWEAVE_AI_PROVIDER_MODEL: 'test' })
   const options: TaskEngineOptions = { now: () => now.value, ...engineOptions }
+  vi.spyOn(performance, 'now').mockImplementation(() => now.value)
   const store = new TaskStore(directory, { now: () => now.value }), engine = new TaskEngine(store, provider, connectionInfo(config), options)
   if (limits) {
     const defaults = store.limits.bind(store)
@@ -89,7 +94,7 @@ function setup(provider: ProviderAdapter, now = { value: 1000 }, limits?: Partia
   const shutdown = () => { if (!closed) { closed = true; engine.close(); store.close() } }
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }), shutdown)
   const request = (path: string, method = 'GET', body?: unknown, other = false) => app.request(path, { method, headers: { Authorization: `Bearer ${other ? tokenB : token}`, Origin: 'https://editor.example.test', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
-  const create = (authoring = start(), overrides: Record<string, unknown> = {}) => request('/v1/tasks', 'POST', { schemaVersion: 1, clientRequestId: randomUUID(), prompt: 'Please adjust this explicit draft only.', context: { sceneId: authoring.project.document.sceneId, revision: authoring.project.document.revision, audience: 'public' }, authoring, ...overrides })
+  const create = (authoring: AuthoringStart = start(), overrides: Record<string, unknown> = {}) => request('/v1/tasks?authoringVersion=4', 'POST', { schemaVersion: 1, clientRequestId: randomUUID(), prompt: 'Please adjust this explicit draft only.', context: { sceneId: authoring.project.document.sceneId, revision: authoring.project.document.revision, audience: 'public' }, authoring, ...overrides })
   return { store, engine, request, create, now, directory, shutdown, config, options }
 }
 async function wait(store: TaskStore, id: string, status = 'waiting_browser') {
@@ -100,7 +105,7 @@ function editProvider() { let calls = 0; return { complete: async () => ++calls 
 async function ready(subject: ReturnType<typeof setup>) {
   const snapshot = await (await subject.create()).json() as TaskSnapshot
   const waiting = await wait(subject.store, snapshot.id)
-  const stamp = { expectedGeneration: waiting.generation, draftRevision: waiting.authoring!.draftRevision, contentHash: waiting.authoring!.contentHash }
+  const stamp = authoringDraftStamp(subject.store.read(snapshot.id).authoring!.state, waiting.generation)
   expect((await subject.request(`/v1/tasks/${snapshot.id}/draft/validate`, 'POST', { ...stamp, valid: true })).status).toBe(200)
   return { id: snapshot.id, stamp }
 }
@@ -118,8 +123,10 @@ describe('isolated AI prop authoring backend', () => {
       expect(input.tools.some(tool => tool.name.startsWith('sceneweave_terrain_') || tool.name === 'sceneweave_region_scene_candidate')).toBe(false)
       expect(input.tools.some(tool => tool.name === 'sceneweave_propose_boundary' || tool.name === 'sceneweave_apply_boundary_candidates')).toBe(false)
       for (const name of ['sceneweave_edit_scene', 'sceneweave_edit_props']) {
-        const parameters = input.tools.find(tool => tool.name === name)!.parameters as { properties: { operations: { items: { oneOf: { properties: { kind: { const: string } } }[] } } } }
-        expect(parameters.properties.operations.items.oneOf.map(branch => branch.properties.kind.const)).toEqual(['place', 'transform', 'opacity'])
+        type Branch = { properties: { kind: { const: string } } }
+        const parameters = input.tools.find(tool => tool.name === name)!.parameters as { properties: { operations: { items: { oneOf?: Branch[]; anyOf?: { oneOf: Branch[] }[] } } } }
+        const items = parameters.properties.operations.items
+        expect((items.oneOf ?? items.anyOf!.flatMap(group => group.oneOf)).map(branch => branch.properties.kind.const)).toEqual(['place', 'transform', 'opacity'])
       }
     }
     expect(subject.store.read(created.id).authoring!.state.steps).toHaveLength(1)
@@ -135,7 +142,7 @@ describe('isolated AI prop authoring backend', () => {
     source.scope.scene!.boundsMm = source.project.document.exportBoundsMm
     source.scope.scene!.entityIds = [...Object.keys(source.project.document.regional!.areas), ...Object.keys(source.project.document.regional!.lines)]
     source.scope.scene!.operations = ['regionalEdit']
-    source.scope.scene!.regionalDefinitionIds = []
+    source.scope.scene!.regionalDefinitionIds = []; Object.assign(source, currentAuthoringFixture(source))
     const request = { kind: 'regionalDrillDown', sourceSceneId: source.project.document.sceneId, sceneId: 'region-fetch-child', operationId: 'region-fetch-child',
       selectionMm: { x: 0, y: 0, width: 500_000, height: 400_000 }, includePrivate: false }
     const subject = setup({ complete: async input => input.tools.some(item => item.name === 'sceneweave_region_scene_candidate')
@@ -179,11 +186,10 @@ describe('isolated AI prop authoring backend', () => {
       task.authoring!.state.draftRevision += 1
       return []
     })
-    const changedAuthoring = subject.store.read(created.id).authoring!
-    const reboundQuery = new URLSearchParams(query)
-    reboundQuery.set('scopeHash', sha256Text(canonicalJson(changedAuthoring.start.scope!.scene)))
-    reboundQuery.set('draftRevision', String(changedAuthoring.state.draftRevision))
-    expect((await subject.request(`${base}?${reboundQuery}`)).status).toBe(409)
+    // Altering an immutable current4 grant/checkpoint invalidates persistence;
+    // no rebound query may legitimize that corruption.
+    expect(() => subject.store.read(created.id)).toThrow('invalid_authoring_checkpoint')
+    expect((await subject.request(`${base}?${query}`)).status).toBe(503)
   })
   it('keeps ordinary conversation at 1024 tokens while capturing a server-selected 4096-token authoring budget for every round', async () => {
     const inputs: ProviderInput[] = []
@@ -215,7 +221,7 @@ describe('isolated AI prop authoring backend', () => {
     source.config.authoringOutputTokens = 8192
     source.config.provider.preserveReasoning = 'disabled'
     const authoring = start(), headers = { Authorization: `Bearer ${token}`, Origin: 'https://editor.example.test', 'Content-Type': 'application/json' }
-    const created = await (await app.request('/v1/tasks', { method: 'POST', headers, body: JSON.stringify({ schemaVersion: 1, clientRequestId: randomUUID(), prompt: 'Review the authorized draft.', context: { sceneId: authoring.project.document.sceneId, revision: authoring.project.document.revision, audience: 'public' }, authoring }) })).json() as TaskSnapshot
+    const created = await (await app.request('/v1/tasks?authoringVersion=4', { method: 'POST', headers, body: JSON.stringify({ schemaVersion: 1, clientRequestId: randomUUID(), prompt: 'Review the authorized draft.', context: { sceneId: authoring.project.document.sceneId, revision: authoring.project.document.revision, audience: 'public' }, authoring }) })).json() as TaskSnapshot
     await wait(source.store, created.id, 'completed')
     expect(inputs).toHaveLength(1); expect(inputs[0].maxOutputTokens).toBe(4096)
     expect((await (await app.request('/v1/capabilities', { headers })).json()).authoringOutputTokens).toBe(4096)
@@ -357,8 +363,8 @@ describe('isolated AI prop authoring backend', () => {
   })
   it('previews a real authorised terrain curve through the full ledger without installing or spending the proposed step', async () => {
     const source = start(), boundsMm = { x: 11000, y: 1000, width: 8000, height: 8000 }
-    source.project.schemaVersion = 2; source.project.document.schemaVersion = 2; source.project.document.visual = emptyVisualSystem()
-    source.baseContentHash = authoringProjectHash(source.project)
+    source.project.document = toCurrentSceneDocument(source.project.document)
+    source.baseContentHash = authoringProjectHash(source.project); Object.assign(source, currentAuthoringFixture(source))
     source.scope.scene = { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm,
       entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], operations: ['terrain'] }
     source.scope.visual = { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm,
@@ -393,21 +399,21 @@ describe('isolated AI prop authoring backend', () => {
     const snapshot = await (await subject.create(source)).json() as TaskSnapshot
     await wait(subject.store, snapshot.id)
     const task = subject.store.read(snapshot.id)
-    const boundaryMm = Array.from({ length: 80 }, (_, index) => ({ x: Math.round(15000 + 2500 * Math.cos(index * Math.PI / 40)), y: Math.round(5000 + 2500 * Math.sin(index * Math.PI / 40)) }))
+    const boundaryMm = Array.from({ length: 56 }, (_, index) => ({ x: Math.round(15000 + 2500 * Math.cos(index * Math.PI / 28)), y: Math.round(5000 + 2500 * Math.sin(index * Math.PI / 28)) }))
     const args = { operations: [{ kind: 'terrain', id: 'detailed-public-terrain', boundaryMm, groundElevationMm: 0 }] }
     expect(executeAuthoringTool(task, call('terrain', 'sceneweave_edit_scene', args), args).success).toBe(true)
     const read = { section: 'scene', ids: ['detailed-public-terrain'] }
     const summary = executeAuthoringTool(task, call('large-terrain', 'sceneweave_read_scene', read), read)
-    expect(summary.success).toBe(true)
+    expect(summary.success, summary.output).toBe(true)
     expect(Buffer.byteLength(summary.output)).toBeLessThan(8192)
-    expect(JSON.parse(summary.output).entities[0]).toMatchObject({ id: 'detailed-public-terrain', geometryOmitted: true, boundaryPointCount: 80 })
+    expect(JSON.parse(summary.output).entities[0]).toMatchObject({ id: 'detailed-public-terrain', geometryOmitted: true, boundaryPointCount: 56 })
     expect(JSON.parse(summary.output).entities[0].boundaryMm).toBeUndefined()
     const anchors = { section: 'anchors', ids: ['detailed-public-terrain'], offset: 16, limit: 16 }
     const page = executeAuthoringTool(task, call('anchor-page', 'sceneweave_read_scene', anchors), anchors)
     expect(page.success).toBe(true)
     expect(Buffer.byteLength(page.output)).toBeLessThan(8192)
     const persisted = replayAuthoring(task.authoring!.start, task.authoring!.state.steps).project.document.terrainAreas['detailed-public-terrain'].boundaryMm
-    expect(JSON.parse(page.output)).toMatchObject({ actualPersistedAnchors: true, total: 80, nextOffset: 32, boundaryMm: persisted.slice(16, 32) })
+    expect(JSON.parse(page.output)).toMatchObject({ actualPersistedAnchors: true, total: 56, nextOffset: 32, boundaryMm: persisted.slice(16, 32) })
     const forbidden = { section: 'anchors', ids: ['SECRET_GM_PROP'] }
     const refused = executeAuthoringTool(task, call('forbidden-anchors', 'sceneweave_read_scene', forbidden), forbidden)
     expect(refused.success).toBe(false); expect(refused.output).not.toContain('SECRET_GM_PROP')
@@ -444,10 +450,11 @@ describe('isolated AI prop authoring backend', () => {
     }
     const diagnosed = executeAuthoringTool(task, call('diagnose', 'sceneweave_diagnose_draft', {}), {})
     expect(diagnosed.success).toBe(true)
-    expect(JSON.parse(diagnosed.output)).toMatchObject({ requirements: [{ status: 'needs_human_review' }], remaining: { operations: 255 }, visionImages: 0 })
+    expect(JSON.parse(diagnosed.output)).toMatchObject({ requirements: [{ status: 'needs_human_review' }], remaining: { operations: 253 }, visionImages: 0 })
     expect(diagnosed.output).not.toContain('PRIVATE_GM_PROJECT_TITLE')
     const bad = cloneJson(source); bad.brief!.requiredDefinitionIds = ['ungranted']
-    expect((await subject.create(bad)).status).toBe(400)
+    const independent = setup(editProvider())
+    expect((await independent.create(bad)).status).toBe(400)
   })
   it('refuses requirement registration without a frozen brief without changing the task or echoing submitted prose', async () => {
     const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) })
@@ -480,7 +487,7 @@ describe('isolated AI prop authoring backend', () => {
     const provider = { complete: async (input: ProviderInput) => complete.mock.calls.length < 2 ? complete(input) : done() }
     const subject = setup(provider), snapshot = await (await subject.create()).json() as TaskSnapshot
     const waiting = await wait(subject.store, snapshot.id)
-    expect(waiting.authoring).toMatchObject({ draftRevision: 1, operationCost: 1, changedIds: ['target'] })
+    expect(waiting.authoring).toMatchObject({ draftRevision: 1, operationCost: 3, changedIds: ['target'] })
     expect(waiting.tools.map(tool => tool.success)).toEqual([true, true, false, true, true])
     for (const forbidden of ['PRIVATE_GM_PROJECT_TITLE', 'PRIVATE_LICENSE_TEXT', 'SECRET_GM_PROP', 'historyIdentity', 'licenseBindings']) expect(observed[0]).not.toContain(forbidden)
     // The provider itself supplied a private guessed ID; the server feedback never echoes it.
@@ -489,7 +496,7 @@ describe('isolated AI prop authoring backend', () => {
     expect(replayAuthoring(draft.start, draft.state.steps).project.document.props.target.appearance.opacity).toBe(.5)
     expect(stored.authoring!.start.project.document.props.target.appearance.opacity).toBe(1)
     const events = subject.store.events(snapshot.id, 0)
-    expect(events.filter(event => event.type === 'draft_updated')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'authoring_checkpoint' && event.data.authoring?.draftRevision === 1).length).toBeGreaterThan(0)
     expect(events.map(event => event.sequence)).toEqual(events.map((_, i) => i + 1))
     expect((await subject.request(`/v1/tasks/${snapshot.id}/draft`, 'GET', undefined, true)).status).toBe(404)
   })
@@ -501,7 +508,7 @@ describe('isolated AI prop authoring backend', () => {
     other.id = 'unauthorised-lamp'; other.catalogId = 'test.authoring.other'; other.name = 'PRIVATE_PALETTE_LAMP'
     authoring.project.document.propDefinitions[other.id] = other
     authoring.project.licenseBindings.push({ ...authoring.project.licenseBindings[0], subjectId: other.id })
-    authoring.baseContentHash = authoringProjectHash(authoring.project)
+    authoring.baseContentHash = authoringProjectHash(authoring.project); Object.assign(authoring, currentAuthoringFixture(authoring))
     const response = await subject.create(authoring)
     expect(response.status).toBe(201)
     const created = await response.json() as TaskSnapshot, task = subject.store.read(created.id)
@@ -534,7 +541,7 @@ describe('isolated AI prop authoring backend', () => {
     const hidden = { ...cloneJson(definition), id: 'UNGRANTED_ASSET', catalogId: 'test.ungranted', name: 'PRIVATE_PALETTE_ENTRY' }
     source.project.document.propDefinitions[hidden.id] = hidden
     source.project.licenseBindings.push({ ...binding, subjectId: hidden.id })
-    source.baseContentHash = authoringProjectHash(source.project)
+    source.baseContentHash = authoringProjectHash(source.project); Object.assign(source, currentAuthoringFixture(source))
     const response = await subject.create(source)
     expect(response.status).toBe(201)
     const snapshot = await response.json() as TaskSnapshot, task = subject.store.read(snapshot.id)
@@ -572,7 +579,7 @@ describe('isolated AI prop authoring backend', () => {
     const subject = setup({ complete: () => new Promise<ProviderCompletion>(() => {}) }), source = start()
     source.brief = { recipe: 'custom', requirements: ['Browse'] }
     source.project.document.propDefinitions.definition.name = '"\\中文'.repeat(1500)
-    source.baseContentHash = authoringProjectHash(source.project)
+    source.baseContentHash = authoringProjectHash(source.project); Object.assign(source, currentAuthoringFixture(source))
     const response = await subject.create(source)
     expect(response.status).toBe(201)
     const snapshot = await response.json() as TaskSnapshot, task = subject.store.read(snapshot.id), before = canonicalJson(task)
@@ -603,12 +610,12 @@ describe('isolated AI prop authoring backend', () => {
     operations[1].positionMm.x -= 500
     const repaired = executeAuthoringTool(task, call('repaired-boundary', 'sceneweave_edit_scene', { operations }), { operations })
     expect(repaired.success).toBe(true)
-    expect(task.authoring!.state).toMatchObject({ draftRevision: 1, operationCost: 2 })
+    expect(task.authoring!.state).toMatchObject({ draftRevision: 1, operationCost: 6 })
     expect(task.authoring!.state.steps[0].operations).toHaveLength(2)
   })
   it('requires matching browser validation before claim; claims and applied receipts are idempotent', async () => {
     const subject = setup(editProvider()), snapshot = await (await subject.create()).json() as TaskSnapshot
-    const waiting = await wait(subject.store, snapshot.id), base = { expectedGeneration: 1, draftRevision: 1, contentHash: waiting.authoring!.contentHash }
+    const waiting = await wait(subject.store, snapshot.id), base = authoringDraftStamp(subject.store.read(snapshot.id).authoring!.state, waiting.generation)
     const claim: DraftClaim = { ...base, claimId: randomUUID() }, path = `/v1/tasks/${snapshot.id}/draft`
     expect((await subject.request(`${path}/claim`, 'POST', claim)).status).toBe(409)
     expect((await subject.request(`${path}/validate`, 'POST', { ...base, expectedGeneration: 2, valid: true })).status).toBe(409)
@@ -687,7 +694,7 @@ describe('isolated AI prop authoring backend', () => {
   })
   it('keeps a rejected browser draft paused and retains its ledger and private metadata', async () => {
     const subject = setup(editProvider()), created = await (await subject.create()).json() as TaskSnapshot
-    const waiting = await wait(subject.store, created.id), stamp = { expectedGeneration: 1, draftRevision: 1, contentHash: waiting.authoring!.contentHash }
+    const waiting = await wait(subject.store, created.id), stamp = authoringDraftStamp(subject.store.read(created.id).authoring!.state, waiting.generation)
     const rejected = await (await subject.request(`/v1/tasks/${created.id}/draft/validate`, 'POST', { ...stamp, valid: false })).json() as TaskSnapshot
     expect(rejected).toMatchObject({ status: 'paused', error: { code: 'browser_validation_failed' } })
     expect(subject.store.read(created.id).authoring!.state.steps).toHaveLength(1)
@@ -703,7 +710,7 @@ describe('isolated AI prop authoring backend', () => {
     const subject = setup({ complete }), snapshot = await (await subject.create()).json() as TaskSnapshot
     await vi.waitFor(() => { expect(complete).toHaveBeenCalledTimes(2); expect(subject.store.read(snapshot.id).authoring!.state.draftRevision).toBe(1) })
     const paused = subject.engine.control('alice', snapshot.id, { schemaVersion: 1, expectedGeneration: 1, action: 'pause' })
-    const before = subject.store.read(snapshot.id), stamp = { expectedGeneration: paused.generation, draftRevision: before.authoring!.state.draftRevision, contentHash: before.authoring!.state.contentHash }
+    const before = subject.store.read(snapshot.id), stamp = authoringDraftStamp(before.authoring!.state, paused.generation)
     const ready = await (await subject.request(`/v1/tasks/${snapshot.id}/draft/validate`, 'POST', { ...stamp, valid: true })).json() as TaskSnapshot
     expect(ready).toMatchObject({ status: 'ready', generation: paused.generation, error: null })
     expect(complete).toHaveBeenCalledTimes(2)
@@ -716,10 +723,9 @@ describe('isolated AI prop authoring backend', () => {
     let round = 0
     const complete = vi.fn(async () => ++round === 1 ? done([edit()]) : done([call(`check-${round}`, 'sceneweave_check_draft', {})]))
     const subject = setup({ complete }), created = await (await subject.create()).json() as TaskSnapshot
-    const failed = await wait(subject.store, created.id, 'failed')
-    expect(failed.error?.code).toBe('request_limit')
-    expect(failed.error?.requestState).toBe('finished')
-    const before = subject.store.read(created.id), stamp = { expectedGeneration: failed.generation, draftRevision: before.authoring!.state.draftRevision, contentHash: before.authoring!.state.contentHash }
+    const failed = await wait(subject.store, created.id)
+    expect(failed.authoring).toMatchObject({ closeout: { reason: 'request_budget', reviewable: true, requestOutcome: 'finished' } })
+    const before = subject.store.read(created.id), stamp = authoringDraftStamp(before.authoring!.state, failed.generation)
     const response = await subject.request(`/v1/tasks/${created.id}/draft/validate`, 'POST', { ...stamp, valid: true })
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ status: 'ready', error: null })
@@ -735,7 +741,7 @@ describe('isolated AI prop authoring backend', () => {
     expect(failed.error?.code).toBe('provider_protocol')
     expect(failed.tools).toHaveLength(1)
     expect(subject.store.read(snapshot.id).authoring!.state.steps).toHaveLength(1)
-    expect(subject.store.read(snapshot.id).authoring!.state.operationCost).toBe(1)
+    expect(subject.store.read(snapshot.id).authoring!.state.operationCost).toBe(3)
   })
   it('bounds large verified-step receipts to this step and sends only dependency counts to the model', async () => {
     // This boundary check supplies the result of the separately tested pure validator.
@@ -744,10 +750,10 @@ describe('isolated AI prop authoring backend', () => {
     const snapshot = await (await subject.create()).json() as TaskSnapshot, task = subject.store.read(snapshot.id)
     const changedIds = Array.from({ length: 128 }, (_, index) => `ai-${index.toString().padStart(64, '0')}`)
     const original = task.authoring!.state
-    if (original.schemaVersion !== 1) throw new Error('Expected legacy receipt fixture')
-    const previousState = { ...original, changedIds: changedIds.slice(0, 112), operationCost: 112, draftRevision: 7 }
+    if (original.schemaVersion !== 4) throw new Error('Expected current receipt fixture')
+    const previousState = { ...original, changedIds: changedIds.slice(0, 112), operationCost: 112, draftRevision: 7, budget: { ...original.budget, aiCost: 112 } }
     task.authoring!.state = previousState
-    const resultState = { ...previousState, changedIds, operationCost: 128, draftRevision: 8 }
+    const resultState = { ...previousState, changedIds, operationCost: 128, draftRevision: 8, budget: { ...original.budget, aiCost: 128 } }
     const apply = vi.spyOn(authoringCore, 'applyAuthoringStep').mockReturnValue({ project: task.authoring!.start.project, state: resultState, visualInvalidatedIds: [] })
     const check = vi.spyOn(authoringCore, 'checkAuthoringDraft').mockReturnValue({ valid: true, operationCost: 128, changedIds,
       readIds: ['PRIVATE_ROOT_ID', ...Array.from({ length: 4095 }, (_, index) => `dependency-${index}`)], writeIds: changedIds })
@@ -773,7 +779,7 @@ describe('isolated AI prop authoring backend', () => {
     masked.project.document.regions['PRIVATE_MASK'] = { id: 'PRIVATE_MASK', floorId: 'blank-floor', editLocked: false, visibility: 'gm', kind: 'manualMask',
       boundaryMm: [{ x: 14000, y: 14000 }, { x: 15000, y: 14000 }, { x: 15000, y: 15000 }, { x: 14000, y: 15000 }], blocksMovement: false, movementCostMultiplier: 1 }
     masked.project.document.entityLayers.PRIVATE_MASK = 'layer-default-0'
-    masked.project = validateProjectData(masked.project); masked.baseContentHash = authoringProjectHash(masked.project)
+    masked.project = validateProjectData(masked.project); masked.baseContentHash = authoringProjectHash(masked.project); Object.assign(masked, currentAuthoringFixture(masked))
     task.authoring = { start: masked, state: replayAuthoring(masked, []).state }
     const after = executeAuthoringTool(task, call('after-mask', 'sceneweave_check_draft', {}), {})
     expect(after.success).toBe(true); expect(checked.success).toBe(true)
@@ -786,7 +792,7 @@ describe('isolated AI prop authoring backend', () => {
     const subject = setup({ complete: async () => { rounds++; return done(Array.from({ length: 8 }, (_, index) => call(`round-${rounds}-${index}`, 'sceneweave_check_draft', {}))) } })
     const snapshot = await (await subject.create()).json() as TaskSnapshot
     const failed = await wait(subject.store, snapshot.id, 'failed')
-    expect(failed.error?.code).toBe('tool_limit'); expect(failed.tools).toHaveLength(64); expect(rounds).toBe(9)
+    expect(failed.error?.code).toBe('tool_budget_limit'); expect(failed.tools).toHaveLength(64); expect(rounds).toBe(8)
     expect(subject.store.read(snapshot.id).messages.filter(message => message.role === 'tool')).toHaveLength(64)
   })
   it('does not spend execution time waiting for the browser and enforces authoring round/tool budgets independently of M2-1', async () => {
@@ -826,14 +832,14 @@ describe('isolated AI prop authoring backend', () => {
       return done([inputs.length === 1 ? edit() : call('forbidden-final-edit', 'sceneweave_edit_props', { operations: [{ kind: 'opacity', id: 'target', value: .1 }] })])
     } }, { value: 1000 }, { modelRequests: 2 })
     const snapshot = await (await subject.create()).json() as TaskSnapshot
-    const failed = await wait(subject.store, snapshot.id, 'failed'), task = subject.store.read(snapshot.id)
+    const failed = await wait(subject.store, snapshot.id), task = subject.store.read(snapshot.id)
     expect(inputs).toHaveLength(2); expect(inputs[1].tools).toEqual([])
-    expect(failed.error).toMatchObject({ code: 'request_limit', requestState: 'finished' })
+    expect(failed.authoring).toMatchObject({ closeout: { reason: 'request_budget', reviewable: true, requestOutcome: 'finished' } })
     expect(failed.usage).toMatchObject({ requests: 2, inputTokens: 20, outputTokens: 16, unknown: false })
     expect(failed.tools).toHaveLength(1); expect(task.authoring!.state.steps).toHaveLength(1)
     expect(replayAuthoring(task.authoring!.start, task.authoring!.state.steps).project.document.props.target.appearance.opacity).toBe(.5)
     expect(task.messages.filter(message => message.role === 'tool')).toHaveLength(1)
-    expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'draft_updated')).toHaveLength(1)
+    expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'authoring_checkpoint' && event.data.authoring?.draftRevision === 1).length).toBeGreaterThan(0)
   })
   it.each([
     { executionMs: 300000, remainingMs: 30000, final: true },
@@ -875,7 +881,7 @@ describe('isolated AI prop authoring backend', () => {
     expect(canonicalJson(task.authoring!.start.project)).toBe(baseline)
     expect(canonicalJson(source.project)).toBe(baseline)
     expect(subject.store.remaining(task)).toBe(remainingMs)
-    const stamp = { expectedGeneration: waiting.generation, draftRevision: waiting.authoring!.draftRevision, contentHash: waiting.authoring!.contentHash }
+    const stamp = authoringDraftStamp(subject.store.read(snapshot.id).authoring!.state, waiting.generation)
     expect((await subject.request(`/v1/tasks/${snapshot.id}/draft/claim`, 'POST', { ...stamp, claimId: randomUUID() })).status).toBe(409)
     expect(subject.store.read(snapshot.id).snapshot.status).toBe('waiting_browser')
   })
@@ -893,20 +899,20 @@ describe('isolated AI prop authoring backend', () => {
       ])
     } }, now, { modelRequests })
     const snapshot = await (await subject.create()).json() as TaskSnapshot
-    const failed = await wait(subject.store, snapshot.id, 'failed'), task = subject.store.read(snapshot.id)
+    const failed = await wait(subject.store, snapshot.id), task = subject.store.read(snapshot.id)
     expect(inputs).toHaveLength(2); expect(inputs[1].tools).toEqual([])
-    expect(failed.error).toMatchObject({ code, requestState: 'finished', retryable: false })
+    expect(failed.authoring).toMatchObject({ closeout: { reason: code === 'execution_limit' ? 'time' : 'request_budget', reviewable: true, requestOutcome: 'finished' } })
     expect(failed.usage).toMatchObject({ requests: 2, inputTokens: 20, outputTokens: 16, unknown: false })
     expect(task.completedRequests).toBe(2)
     expect(task.toolAttempts).toBe(1)
     expect(failed.tools).toHaveLength(1)
     expect(task.authoring!.state.steps).toHaveLength(1)
-    expect(task.authoring!.state.operationCost).toBe(1)
+    expect(task.authoring!.state.operationCost).toBe(3)
     expect(task.authoring!.claim).toBeUndefined()
     expect(Object.keys(task.calls)).toEqual(['edit'])
     expect(replayAuthoring(task.authoring!.start, task.authoring!.state.steps).project.document.props.target).toMatchObject({ positionMm: { x: 4000, y: 4000 }, appearance: { opacity: .5 } })
     expect(task.messages.filter(message => message.role === 'tool')).toHaveLength(1)
-    expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'draft_updated')).toHaveLength(1)
+    expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'authoring_checkpoint' && event.data.authoring?.draftRevision === 1).length).toBeGreaterThan(0)
   })
   it('keeps the original hard deadline for a stalled time-final provider and preserves unknown usage after a late reply', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
@@ -928,21 +934,21 @@ describe('isolated AI prop authoring backend', () => {
       const snapshot = await (await subject.create()).json() as TaskSnapshot
       await entered
       expect(inputs).toHaveLength(2); expect(inputs[1].tools).toEqual([])
-      now.value = 300999
-      await vi.advanceTimersByTimeAsync(299999)
+      now.value = 298999
+      await vi.advanceTimersByTimeAsync(297999)
       expect(subject.store.read(snapshot.id).snapshot.status).toBe('running')
-      expect(subject.store.remaining(subject.store.read(snapshot.id))).toBe(1)
+      expect(subject.store.remaining(subject.store.read(snapshot.id))).toBe(2001)
       expect(inputs[1].signal.aborted).toBe(false)
-      now.value = 301000
+      now.value = 299000
       await vi.advanceTimersByTimeAsync(1)
       const failed = subject.store.read(snapshot.id)
-      expect(failed.snapshot).toMatchObject({ status: 'failed', error: { code: 'execution_limit', requestState: 'unknown', retryable: false },
+      expect(failed.snapshot).toMatchObject({ status: 'waiting_browser', error: { code: 'execution_limit', requestState: 'unknown', retryable: false },
         usage: { requests: 2, unknown: true } })
       expect(inputs[1].signal.aborted).toBe(true)
       expect(failed.completedRequests).toBe(1)
-      expect(failed.runtimeMs).toBe(300000)
+      expect(failed.runtimeMs).toBe(298000)
       expect(failed.runStartedAt).toBeNull()
-      expect(subject.store.remaining(failed)).toBe(0)
+      expect(subject.store.remaining(failed)).toBe(2000)
       expect(failed.authoring!.state.steps).toHaveLength(1)
       expect(failed.snapshot.tools).toHaveLength(1)
       const beforeLate = canonicalJson(failed)

@@ -24,7 +24,7 @@ describe('bounded terrain editing T2 pure core',()=>{
  })
  it('persists a strict explicit generation2 stroke, charges conversion and survives cold validation',()=>{
   const scene=base(),before=canonicalJson(scene),request=brush(scene,'clearArea'),result=prepareTerrainEdit(scene,request)
-  expect(result.document.generation!.version).toBe(2);expect(result.cost.items['generation.version']).toBe(1)
+  expect(result.document.generation.legacy.version).toBe(2);expect(result.cost.items['generation.version']).toBe(1)
   expect(result.cost.items['generation.strokes']).toBeGreaterThan(1)
   expect(generationV1Schema.safeParse({...scene.generation,strokes:{}}).success).toBe(false)
   expect(validateSceneDocument(JSON.parse(canonicalJson(result.document))).ok).toBe(true)
@@ -33,12 +33,12 @@ describe('bounded terrain editing T2 pure core',()=>{
  })
  it('rejects tampered persisted brush scope, identity and normalization, and omits generation metadata from player output',()=>{
   const result=prepareTerrainEdit(base(),brush(base(),'clearArea'))
-  if(result.document.generation?.version!==2)throw new Error('fixture')
-  const id=Object.keys(result.document.generation.strokes)[0]
+  if(result.document.generation.legacy.version!==2)throw new Error('fixture')
+  const id=Object.keys(result.document.generation.legacy.strokes)[0]
   for(const change of ['scope','index','points'] as const){
     const tampered=cloneJson(result.document)
-    if(tampered.generation?.version!==2)throw new Error('fixture')
-    const stroke=tampered.generation.strokes[id]
+    if(tampered.generation.legacy.version!==2)throw new Error('fixture')
+    const stroke=tampered.generation.legacy.strokes[id]
     if(change==='scope')stroke.scopeMm={x:0,y:0,width:100,height:100}
     else if(change==='index')stroke.strokeIndex=1
     else stroke.pointsMm.push(cloneJson(stroke.pointsMm[0]))
@@ -185,8 +185,8 @@ describe('bounded terrain editing T2 pure core',()=>{
  })
  it('updates an authorized materialized edge source hash and preserves manual or locked edges by rejecting',()=>{
   const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve'],points=sampleVisualBoundary(curve).points.slice(0,3)
-  if(scene.visual?.version!==2)throw new Error('fixture')
-  scene.visual.materializedEdges['local-edge']={id:'local-edge',floorId:'visual-floor',layerId:'visual-layer-ground',visibility:'public',editLocked:false,boundaryId:curve.id,inputHash:materializedBoundaryHash(curve),kind:'path',polygons:[],strokes:[{id:'local-edge-stroke',pointsMm:cloneJson(points),widthMm:50,color:'#AABBCC',opacity:1}],materialRef:null,fillColor:'#AABBCC',opacity:1}
+  if(scene.visual?.version!==3)throw new Error('fixture')
+  scene.visual.base.materializedEdges['local-edge']={id:'local-edge',floorId:'visual-floor',layerId:'visual-layer-ground',visibility:'public',editLocked:false,boundaryId:curve.id,inputHash:materializedBoundaryHash(curve),kind:'path',polygons:[],strokes:[{id:'local-edge-stroke',pointsMm:cloneJson(points),widthMm:50,color:'#AABBCC',opacity:1}],materialRef:null,fillColor:'#AABBCC',opacity:1}
   const boundary=cloneJson(curve);boundary.segments[0].control1.x+=50
   const request:TerrainEditRequest={kind:'contour',sceneId:scene.sceneId,operationId:'edge-coast',floorId:'visual-floor',scopeMm:scene.exportBoundsMm,linkMode:'transitions',boundary}
   expect(()=>prepareTerrainEdit(scene,request)).toThrow(/人工/)
@@ -194,10 +194,10 @@ describe('bounded terrain editing T2 pure core',()=>{
   rule.outputs.push(ref);getLegacyGeneration(scene)!.ownership['local-edge-owner']={id:'local-edge-owner',outputKey:'test/local-edge',ruleId:rule.id,target:ref,managedFields:['geometry','source'],manualFields:[],state:'managed',birthToken:'edge-birth'}
   rule.managedOutputHash=managedOutputHash(scene,rule)
   const result=prepareTerrainEdit(scene,request)
-  if(result.document.visual?.version!==2)throw new Error('fixture')
-  expect(result.document.visual.materializedEdges['local-edge'].inputHash).toBe(materializedBoundaryHash(boundary))
-  expect(result.document.visual.materializedEdges['local-edge'].strokes).not.toEqual(scene.visual.materializedEdges['local-edge'].strokes)
-  scene.visual.materializedEdges['local-edge'].editLocked=true;rule.managedOutputHash=managedOutputHash(scene,rule)
+  if(result.document.visual?.version!==3)throw new Error('fixture')
+  expect(result.document.visual.base.materializedEdges['local-edge'].inputHash).toBe(materializedBoundaryHash(boundary))
+  expect(result.document.visual.base.materializedEdges['local-edge'].strokes).not.toEqual(scene.visual.base.materializedEdges['local-edge'].strokes)
+  scene.visual.base.materializedEdges['local-edge'].editLocked=true;rule.managedOutputHash=managedOutputHash(scene,rule)
   expect(()=>prepareTerrainEdit(scene,request)).toThrow(/锁/)
  })
  it('relocates only a managed prop losing support and refuses manual or locked support loss',()=>{

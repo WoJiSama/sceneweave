@@ -32,7 +32,7 @@ export function executeTerrainGenerationRequest(raw: unknown): TerrainWorkerResp
       throw new Error('地形生成设置或基础场景校验不一致。')
     }
     const checked = validateSceneSnapshot(request.base)
-    if (!checked.ok || checked.document.schemaVersion !== 2) throw new Error('地形生成需要有效的视觉场景基础。')
+    if (!checked.ok || checked.document.schemaVersion !== 1) throw new Error('地形生成需要有效的视觉场景基础。')
     if (canonicalJson(input) !== canonicalJson(request.input) || canonicalJson(checked.document) !== canonicalJson(request.base)) {
       throw new Error('地形生成输入必须为完整的规范内容。')
     }
@@ -40,7 +40,7 @@ export function executeTerrainGenerationRequest(raw: unknown): TerrainWorkerResp
     const generated = generateTerrainDocument(checked.document, input)
     const result = terrainGenerationResultSchema.parse(captureJson(generated))
     if (canonicalJson(result.input) !== canonicalJson(input) || result.document.sceneId !== input.sceneId
-      || result.document.schemaVersion !== 2 || !Number.isSafeInteger(result.cost.total) || result.cost.total < 0 || result.cost.total > 256) {
+      || result.document.schemaVersion !== 1 || !Number.isSafeInteger(result.cost.total) || result.cost.total < 0 || result.cost.total > 256) {
       throw new Error('地形预览没有满足设置、身份或编辑量要求。')
     }
     const resultText = boundedCanonical(result, 8 * 1024 * 1024)

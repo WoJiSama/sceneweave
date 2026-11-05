@@ -8,7 +8,7 @@ import { terrainRecordChanges } from './review.js'
 // Typed snapshots isolate review semantics; these are not adoption receipts.
 function compositionReviewScene(): SceneDocument {
   const legacy = createT8SampleDocument('archipelago-coast')
-  return { ...legacy, schemaVersion: 4, generation: createEmptyGeneration5(getLegacyGeneration(legacy)),
+  return { ...legacy, schemaVersion: 1, generation: createEmptyGeneration5(getLegacyGeneration(legacy)),
     visual: { version: 3, base: getLegacyVisual(legacy)!, transitions: {} } }
 }
 

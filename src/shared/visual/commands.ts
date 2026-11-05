@@ -153,9 +153,8 @@ function applyBoundary(scene: SceneDocument, boundary: VisualBoundary, context: 
     path.centerlineMm = cloneJson(points)
   }
   visual.boundaries[boundary.id] = cloneJson(boundary)
-  // New curve-component editing is explicit scene5 behavior. Old strict scenes
-  // retain their frozen command behavior and never silently acquire this path.
-  if (scene.schemaVersion >= 5 && previous && !equal(previous, boundary)) {
+  // Current curve-component editing explicitly deforms the persisted dependent edge.
+  if (previous && !equal(previous, boundary)) {
     const materialized = getLegacyVisual(scene)?.materializedEdges
     if (materialized) for (const edge of Object.values(materialized).filter(edge => edge.boundaryId === boundary.id)) {
       assertVisualWritable(scene, edge, edge)
@@ -263,17 +262,11 @@ function effectDependencies(scene: SceneDocument, command: VisualCommand): strin
   return [...result].sort()
 }
 function mutate(scene: SceneDocument, command: VisualCommand, context: PreparationContext): void {
-  if (scene.schemaVersion === 1) {
-    const initial = emptyVisualSystem()
-    const theme = scene.activeStyleThemeRef && scene.styleThemes[scene.activeStyleThemeRef.id]
-    if (theme) initial.environment.lightDirectionDeg = theme.terrainCliff.directionDeg ?? theme.shadowPresets.wall.directionDeg
-    scene.schemaVersion = 2; scene.visual = initial
-  }
   const visual = visualBase(scene)
   if (!visual) throw new Error('视觉指令需要完整视觉系统。')
   switch (command.type) {
     case 'upsertMaterializedEdge': {
-      if (scene.schemaVersion < 5 || scene.visual?.version !== 3) throw new Error('物化边缘需要严格scene5–6及visual3。')
+      if (scene.visual?.version !== 3) throw new Error('物化边缘需要严格visual3。')
       const legacy = getLegacyVisual(scene)
       if (!legacy) throw new Error('物化边缘需要完整visual2基底。')
       const edge = command.edge, previous = own(legacy.materializedEdges, edge.id), boundary = own(visual.boundaries, edge.boundaryId)
@@ -301,7 +294,7 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
       break
     }
     case 'upsertTerrainTransition': {
-      if (scene.schemaVersion < 4 || scene.visual?.version !== 3) throw new Error('地形过渡需要严格scene4–8及visual3。')
+      if (scene.visual?.version !== 3) throw new Error('地形过渡需要严格visual3。')
       const previous = scene.visual.transitions[command.transition.id]
       if (previous) {
         if (previous.editLocked || previous.floorId !== command.transition.floorId || previous.boundaryId !== command.transition.boundaryId) throw new Error('过渡已锁定或不能更换来源边界。')
@@ -311,7 +304,7 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
       break
     }
     case 'removeTerrainTransition': {
-      if (scene.schemaVersion < 4 || scene.visual?.version !== 3) throw new Error('地形过渡需要严格scene4–8及visual3。')
+      if (scene.visual?.version !== 3) throw new Error('地形过渡需要严格visual3。')
       const previous = scene.visual.transitions[command.id]
       if (!previous) throw new Error('待移除的过渡不存在。')
       assertVisualWritable(scene, previous, previous)
@@ -367,7 +360,7 @@ export function visualCommandCost(before: SceneDocument, after: SceneDocument): 
     const row = value as TerrainTransition | undefined
     return row ? row.polygons.reduce((sum, polygon) => sum + polygon.pointsMm.length, 0) + row.strokes.reduce((sum, stroke) => sum + stroke.pointsMm.length, 0) : 0
   })
-  if (before.schemaVersion >= 5 || after.schemaVersion >= 5) cost += diffRecord(getLegacyVisual(before)?.materializedEdges ?? {}, getLegacyVisual(after)?.materializedEdges ?? {}, value => {
+  if (before.visual?.version === 3 || after.visual?.version === 3) cost += diffRecord(getLegacyVisual(before)?.materializedEdges ?? {}, getLegacyVisual(after)?.materializedEdges ?? {}, value => {
     const row = value as { polygons: PointMm[][]; strokes: { pointsMm: PointMm[] }[] } | undefined
     return row ? row.polygons.reduce((sum, ring) => sum + ring.length, 0) + row.strokes.reduce((sum, stroke) => sum + stroke.pointsMm.length, 0) : 0
   })

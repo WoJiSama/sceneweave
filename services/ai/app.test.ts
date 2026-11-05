@@ -62,17 +62,17 @@ describe('private AI task HTTP service', () => {
     expect(bare.capabilities).not.toHaveProperty('surfaceRecipeVersions')
     expect(bare.capabilities).not.toHaveProperty('baseMapSelectors')
     const negotiated = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=2')).json())
-    expect(negotiated.capabilities).toMatchObject({ authoringVersions: [1, 2], baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] })
+    expect(negotiated.capabilities).toMatchObject({ baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] })
     expect(negotiated.capabilities).not.toHaveProperty('budgetProfileHashes')
     const current = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=3')).json())
     const { surfaceRecipeVersions: _surfaces, baseMapSelectors: _selectors, currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, ...rest } = engine.connectionInfo.capabilities
-    const prior = { ...rest, authoringVersions: rest.authoringVersions?.filter(version => version !== 4) }
+    const prior = { ...rest }; delete prior.authoringVersions
     expect(current).toEqual({ ...engine.connectionInfo, capabilities: prior })
     expect(current.capabilities).not.toHaveProperty('surfaceRecipeVersions')
     const surface = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=3&surfaceVersion=1')).json())
     expect(surface).toEqual({ ...engine.connectionInfo, capabilities: { ...prior, surfaceRecipeVersions: [1] } })
     expect(surface.capabilities.surfaceRecipeVersions).toEqual([1])
-    for (const selector of ['terrain-scene-v6', 'terrain-compose-v6']) {
+    for (const selector of ['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7']) {
       const selected = ConnectionInfoSchema.parse(await (await request(`/v1/capabilities?baseMapSelector=${selector}`)).json())
       expect(selected.capabilities.baseMapSelectors).toEqual([selector])
       expect(selected.capabilities.baseMapVersions).toContain(3)
@@ -81,7 +81,7 @@ describe('private AI task HTTP service', () => {
     }
     expect(ConnectionInfoSchema.extend({ capabilities: ConnectionInfoSchema.shape.capabilities.omit({ surfaceRecipeVersions: true }).strict() }).safeParse(current).success).toBe(true)
     expect(ConnectionInfoSchema.extend({ capabilities: ConnectionInfoSchema.shape.capabilities.omit({ surfaceRecipeVersions: true }).strict() }).safeParse(surface).success).toBe(false)
-    expect(current.capabilities).toMatchObject({ authoringVersions: [1, 2, 3], baseMapVersions: [1, 2, 3], budgetPolicyHashes: BUDGET_POLICY_HASHES,
+    expect(current.capabilities).toMatchObject({ baseMapVersions: [1, 2, 3], budgetPolicyHashes: BUDGET_POLICY_HASHES,
       budgetProfileHashes: Object.values(TASK_BUDGET_PROFILES).map(profile => profile.profileHash) })
     expect(legacySchema.safeParse(negotiated).success).toBe(false)
     for (const query of ['authoringVersion=1', 'authoringVersion=5', 'authoringVersion=']) {
@@ -95,7 +95,7 @@ describe('private AI task HTTP service', () => {
     }
     const badSelector = await request('/v1/capabilities?baseMapSelector=bad')
     expect(badSelector.status).toBe(400); expect(await badSelector.json()).toMatchObject({ error: { code: 'unsupported_base_map_selector' } })
-    for (const query of ['surfaceVersion=1&surfaceVersion=1&authoringVersion=3', 'authoringVersion=3&surfaceVersion=1&extra=1', 'baseMapSelector=terrain-scene-v6&authoringVersion=3', 'unknown=2', 'authoringVersion=2&authoringVersion=2', 'authoringVersion=2&unknown=1']) {
+    for (const query of ['surfaceVersion=1&surfaceVersion=1&authoringVersion=3', 'authoringVersion=3&surfaceVersion=1&extra=1', 'baseMapSelector=terrain-scene-v6&authoringVersion=3', 'baseMapSelector=terrain-scene-v7&authoringVersion=3', 'unknown=2', 'authoringVersion=2&authoringVersion=2', 'authoringVersion=2&unknown=1']) {
       const response = await request(`/v1/capabilities?${query}`)
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ error: { code: 'invalid_request' } })

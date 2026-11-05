@@ -10,6 +10,8 @@ import { createShoreBlankDocument, createShoreBlankProject } from './shore-blank
 import { materializeVisualArt, materializeVisualArtBatches } from './visual-art-project.js'
 import { validateProjectData } from '../../../shared/project/validate.js'
 import { terrainVariantAssetId, terrainVariantDefinitionId } from '../../../shared/visual/terrain-variant-specs.js'
+import { TERRAIN_VARIANT_V2_LICENSE_REF } from '../../../shared/visual/terrain-variant-v2-art.js'
+import { terrainVariantV2AssetId, terrainVariantV2DefinitionId } from '../../../shared/visual/terrain-variant-v2-specs.js'
 
 // These mocks only exercise source/metadata propagation and exact licence
 // ownership. PNG raster, decoding and pixels are verified in the real browser.
@@ -92,6 +94,20 @@ describe('independent shore surface palette', () => {
       expect(asset).toMatchObject({ id: assetId, mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512 })
       expect(await project.resources.read(asset.sha256)).toBeInstanceOf(Uint8Array)
     }
+  })
+
+  it('adds the independent V2 tree only when its explicit option is enabled', async () => {
+    const old = createShoreBlankDocument('island', options)
+    const withV2 = createShoreBlankDocument('island', options, false, true)
+    expect(Object.keys(old.propDefinitions).some(id => id.startsWith('terrain-variants-v2-'))).toBe(false)
+    expect(Object.keys(withV2.propDefinitions).filter(id => id.startsWith('terrain-variants-v2-'))).toEqual([terrainVariantV2DefinitionId('tree-highland-copse')])
+    expect(withV2.assets[terrainVariantV2AssetId('tree-highland-copse')]).toMatchObject({ licenseRef: TERRAIN_VARIANT_V2_LICENSE_REF })
+    const project = await createShoreBlankProject('island', options, undefined, false, true)
+    expect(project.document.propDefinitions[terrainVariantV2DefinitionId('tree-highland-copse')]).toMatchObject({
+      defaultAppearance: { kind: 'image', assetId: terrainVariantV2AssetId('tree-highland-copse') },
+    })
+    expect(Object.keys(project.document.propDefinitions).filter(id => id.startsWith('terrain-variants-v1-'))).toHaveLength(0)
+    expect(Object.values(project.licenses).some(value => value.text.includes('version 2'))).toBe(true)
   })
 
   it('retains the old one-batch licence mapping and rejects duplicate fixed batch identities', async () => {

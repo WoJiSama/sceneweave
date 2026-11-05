@@ -28,7 +28,7 @@ export function supportsCurrentAuthoring(info: ConnectionInfo, completeVersion: 
     && (profileHash === undefined || info.capabilities.budgetProfileHashes?.includes(profileHash) === true)
     && (surfaceVersion === undefined || info.capabilities.surfaceRecipeVersions?.includes(surfaceVersion) === true)
 }
-export function supportsBaseMapSelector(info: ConnectionInfo, selector: 'terrain-scene-v6' | 'terrain-compose-v6', profileHash: string): boolean {
+export function supportsBaseMapSelector(info: ConnectionInfo, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7', profileHash: string): boolean {
   return info.capabilities.baseMapVersions?.includes(3) === true
     && info.capabilities.budgetProfileHashes?.includes(profileHash) === true
     && info.capabilities.baseMapSelectors?.includes(selector) === true
@@ -179,15 +179,15 @@ export class AiClient {
     try { return parseSchema(schema, parseJson(await boundedText(response, signal, max))) }
     catch (error) { aborted(signal); if (method === 'POST') throw new AiClientError('protocol', '服务器已接收请求，但响应尚未确认。请保留同一请求 ID 重试或刷新任务。', 'unknown'); throw error }
   }
-  capabilities(signal?: AbortSignal, version: 2 | 3 | 4 = 2, surfaceVersion?: 1): Promise<ConnectionInfo> { return this.#json(`capabilities?authoringVersion=${version}${surfaceVersion === undefined ? '' : `&surfaceVersion=${surfaceVersion}`}`, ConnectionInfoSchema, 'GET', undefined, signal) }
-  baseMapCapabilities(signal: AbortSignal | undefined, selector: 'terrain-scene-v6' | 'terrain-compose-v6'): Promise<ConnectionInfo> {
+  capabilities(signal?: AbortSignal, version: 2 | 3 | 4 = 4, surfaceVersion?: 1): Promise<ConnectionInfo> { return this.#json(`capabilities?authoringVersion=${version}${surfaceVersion === undefined ? '' : `&surfaceVersion=${surfaceVersion}`}`, ConnectionInfoSchema, 'GET', undefined, signal) }
+  baseMapCapabilities(signal: AbortSignal | undefined, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7'): Promise<ConnectionInfo> {
     return this.#json(`capabilities?baseMapSelector=${selector}`, ConnectionInfoSchema, 'GET', undefined, signal)
   }
   async create(request: CreateTaskRequest, signal?: AbortSignal, beforeSend?: () => void): Promise<TaskSnapshot> {
     const input = parseSchema(CreateTaskSchema, request)
     const authoring = input.authoring, continuation = isClassifiedAuthoring(authoring)
+    if (authoring && ![4].includes(authoring.schemaVersion)) throw new AiClientError('unsupported_continuation', '当前完整工程须使用创作4协议，请重新建立明确授权任务。')
     if (utf8Size(JSON.stringify(input)) > (continuation ? authoring.policy.requestBytes : input.vision ? VISION_LIMITS.requestBytes : input.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')
-    if (continuation && authoring.project.schemaVersion === 8) throw new AiClientError('unsupported_continuation', '严格v8地表规则尚未开放AI编辑；底图仍可独立校验和采用。')
     const surfaceVersion = continuation && authoring.source.version !== 4 ? requiredSurfaceRecipeVersion(authoring.source.request.generation) : undefined
     if (continuation) {
       const info = await this.capabilities(signal, authoring.schemaVersion, surfaceVersion)

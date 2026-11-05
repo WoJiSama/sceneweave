@@ -1,6 +1,5 @@
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { captureEditableDraft, validateEditableProject } from '../../../application/workspace/project.js'
-import { prepareTerrainUpgrade } from '../../../application/workspace/terrain.js'
 import { addPropAppearanceSource } from '../../../shared/appearance/graph.js'
 import type { PropAppearanceSnapshot } from '../../../shared/model/appearance.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
@@ -60,7 +59,7 @@ async function finish(source: SceneDocument, replaceInstances: boolean, signal?:
   // Materialize both independent batches together, then bind each subject to
   // its exact own licence below. This produces real native SVG/PNG records.
   const materialized = await materializeVisualArt(source, [...REFINED_ISLAND_ART, ...NEAR_SIDE_ART], REFINED_ISLAND_LICENSE, key => key.startsWith('near-') ? nearSideAssetId(key) : oldAssetId(key), signal)
-  const upgraded = await prepareTerrainUpgrade(materialized, { runtime, validation: { ...validation, signal } })
+  const upgraded = materialized
   const project = captureEditableDraft(upgraded), byKey = new Map(NEAR_SIDE_ART.map(art => [art.key, art]))
   project.document.title = replaceInstances ? NEAR_SIDE_ISLAND_NAME : '近侧视原创素材空白'
   for (const art of NEAR_SIDE_ART) addPropAppearanceSource(project.appearance, fixedSnapshot(project.document, art), null, art.presentation)

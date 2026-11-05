@@ -7,6 +7,7 @@ import { validateProjectData } from '../project/validate.js'
 import { composeTerrainDocument } from '../terrain-generation/compose.js'
 import { parseBaseMapRequestV3, parseBaseMapResponseV3 } from '../terrain-generation/base-map-v3.js'
 import { bindTerrainVariantPresentations } from '../visual/terrain-variant-presentations.js'
+import { bindTerrainVariantV2Presentations } from '../visual/terrain-variant-presentations.js'
 import { compositionOutputHash } from '../terrain-generation/composition-integrity.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { constraintInputHash, generationInputHash, managedOutputHash } from '../terrain-generation/integrity.js'
@@ -85,11 +86,12 @@ export function replayBaseMapSourceV3(input: BaseMapSourceV3) {
   } }, clock: { now: () => source.preparedAt } }
   let content: CompositionContent
   if (response.result.kind === 'terrain' && request.generation.kind === 'terrain') {
-    if (response.result.terrain.input.algorithmVersion === 6) {
+    if (response.result.terrain.input.algorithmVersion >= 6) {
       const labels = { island: '岩岛', coast: '海岸', river: '河谷', lake: '内湖', forest: '森林', hill: '丘陵', mixed: '混合地貌' }
       const document = cloneJson(response.result.terrain.document)
       document.title = `${labels[request.generation.input.kind]} · ${response.result.terrain.skeleton.name}`
       content = bindTerrainVariantPresentations(createCompositionContent(document, runtime))
+      if (response.result.terrain.input.algorithmVersion === 7) content = bindTerrainVariantV2Presentations(content)
     } else {
       const prepared = composeTerrainDocument(blank.document, response.result.terrain as Parameters<typeof composeTerrainDocument>[1], runtime.ids.nextId(), request.profile)
       const labels = { island: '岩岛', coast: '海岸', river: '河谷', lake: '内湖', forest: '森林', hill: '丘陵', mixed: '混合地貌' }
@@ -99,7 +101,9 @@ export function replayBaseMapSourceV3(input: BaseMapSourceV3) {
   } else if (response.result.kind === 'composition') {
     content = request.generation.kind==='composition'&&request.generation.input.recipeVersion===6
       ? bindTerrainVariantPresentations(createCompositionContent(response.result.document, runtime))
-      : createCompositionContent(response.result.document, runtime)
+      : request.generation.kind==='composition'&&request.generation.input.recipeVersion===7
+        ? bindTerrainVariantV2Presentations(bindTerrainVariantPresentations(createCompositionContent(response.result.document, runtime)))
+        : createCompositionContent(response.result.document, runtime)
     const generation = content.document.generation
     if (generation?.version !== 5) return deny('组合来源版本不同。')
     for (const row of Object.values(generation.compositions)) row.outputHash = compositionOutputHash(content.document, row, content.historyIdentity)
@@ -111,7 +115,7 @@ export function replayBaseMapSourceV3(input: BaseMapSourceV3) {
     for (const rule of Object.values(getLegacyGeneration(content.document)?.rules ?? {})) {
       rule.inputHash = generationInputHash(content.document, rule); rule.managedOutputHash = managedOutputHash(content.document, rule)
     }
-    for (const check of Object.values(content.document.generation?.checks ?? {})) check.inputHash = constraintInputHash(content.document, check.constraintId)
+    for (const check of Object.values(getLegacyGeneration(content.document)?.checks ?? {})) check.inputHash = constraintInputHash(content.document, check.constraintId)
   }
   const metadata = { ...cloneJson(blank), ...content, schemaVersion: content.document.schemaVersion }
   inheritBindings(metadata)

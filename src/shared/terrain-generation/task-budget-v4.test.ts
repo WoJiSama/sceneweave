@@ -22,7 +22,7 @@ describe('explicit generation 4 and independent budget dimensions', () => {
     expect(result.cost.total).toBeGreaterThan(256)
     expect(Object.keys(result.document.props)).toHaveLength(8)
     expect(result.skeleton.gridColumns).toBe(64)
-    expect(result.document.visual?.version === 1 && result.document.visual.boundaries['terrain-coast-curve'].sampleSpacingMm).toBe(1200)
+    expect(result.document.visual?.version === 3 && result.document.visual.base.base.boundaries['terrain-coast-curve'].sampleSpacingMm).toBe(1200)
     expect(validateSceneDocument(composed.document).ok).toBe(true)
     expect(composed.cost.total).toBe(taskSemanticTargets(base, composed.document).length)
     expect(composed.cost.limit).toBe(512)
@@ -43,7 +43,7 @@ describe('explicit generation 4 and independent budget dimensions', () => {
     const request = { ...input(), budgetProfileId: 'expanded', quality: 'detailed' }, base = blank()
     const result = generateTerrainDocumentV4(base, request)
     expect(result.skeleton.gridColumns).toBe(160)
-    expect(result.document.visual?.version === 1 && result.document.visual.boundaries['terrain-coast-curve'].sampleSpacingMm).toBe(700)
+    expect(result.document.visual?.version === 3 && result.document.visual.base.base.boundaries['terrain-coast-curve'].sampleSpacingMm).toBe(700)
     expect(terrainGenerationInputSchema.safeParse(request).success).toBe(false)
     expect(compositionPresetSchema.safeParse({ sceneId: base.sceneId, seed: 'same', widthMm: 24000, heightMm: 18000,
       preset: 'archipelago', recipeVersion: 4, budgetProfileId: 'small', quality: 'standard' }).success).toBe(false)

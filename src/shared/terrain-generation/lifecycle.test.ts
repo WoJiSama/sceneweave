@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { getLegacyGeneration } from './composition-contracts.js'
 import { describe, expect, it } from 'vitest'
 import { applyCompositionCommands, applyCompositionDraftCommands } from '../appearance/commands.js'
@@ -28,14 +29,14 @@ function refresh(document: SceneDocument) {
 }
 function content(): CompositionContent {
   const bounds = { x: 0, y: 0, width: 24000, height: 18000 }
-  const document: SceneDocument = {
-    format: 'sceneweave-scene', schemaVersion: 3, sceneId: 'terrain-lifecycle', revision: 0, title: 'Terrain lifecycle fixture', createdAt: stamp, updatedAt: stamp,
+  const document: SceneDocument = toCurrentSceneDocument({
+    format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'terrain-lifecycle', revision: 0, title: 'Terrain lifecycle fixture', createdAt: stamp, updatedAt: stamp,
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: true }, exportBoundsMm: bounds,
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { objects: { id: 'objects', floorId: 'floor', name: 'Objects', order: 0, editLocked: false }, rules: { id: 'rules', floorId: 'floor', name: 'Rules', order: 1, editLocked: false } }, entityLayers: { item: 'objects' },
     presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] },
     mapMode: 'scene', generation: createEmptyGeneration(), regional: null, visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} },
-  }
+  })
   document.props.item = { id: 'item', floorId: 'floor', editLocked: false, definitionRef: null, appearance: { kind: 'symbol', symbol: 'table', tint: null, opacity: 1 }, visualBoundsMm: { x: -100, y: -100, width: 200, height: 200 },
     positionMm: { x: 4000, y: 4000 }, rotationDeg: 0, footprintMm: { width: 200, height: 200 }, footprintOffsetMm: { x: 0, y: 0 }, blocksMovement: false, blocksSight: false, visibility: 'public', supportRef: { kind: 'floor', id: 'floor' }, renderLayer: 'object', renderOrder: 0, shadowClass: 'none', shadowOverride: null }
   const generation = getLegacyGeneration(document)!

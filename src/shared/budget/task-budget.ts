@@ -220,8 +220,7 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
     for (const id of new Set([...Object.keys(av?.[collection]??{}),...Object.keys(bv?.[collection]??{})])) {
       addChanged(av?.[collection][id],bv?.[collection][id]);retainedSegments+=geometry(bv?.[collection][id]).geometrySegments
     }
-  const materialized=(document:SceneDocument)=>document.visual?.version===3?document.visual.base.materializedEdges
-    :document.visual?.version===2?document.visual.materializedEdges:{}
+  const materialized=(document:SceneDocument)=>document.visual.base.materializedEdges
   const am=materialized(before),bm=materialized(after)
   for(const id of new Set([...Object.keys(am),...Object.keys(bm)])){
     addChanged(am[id],bm[id]);retainedSegments+=geometry(bm[id]).geometrySegments

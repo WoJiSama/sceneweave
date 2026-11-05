@@ -19,56 +19,56 @@ describe('versioned shoreline generation', () => {
   {
     "kind": "island",
     "seed": "terrain-v1-0",
-    "hash": "05cf5c0d02789e4057ae09745bcedbf0f873d6031a76ceb4729545098095c917"
+    "hash": "2931c0f27dea2ef8d81bfd1ec6c51597287964fc5f5b82bad612e6d8146a5849"
   },
   {
     "kind": "island",
     "seed": "terrain-v1-1",
-    "hash": "3cba4011dcfa49469bdf92d380a6d8abcab8c856a32704a4a6a0d68124f9029d"
+    "hash": "1b9f55ce4cc5dc2c33ed1fba85dadaac45530354c4095da0bc8b043ec3137d77"
   },
   {
     "kind": "island",
     "seed": "terrain-v1-2",
-    "hash": "892fe36e88fac199de129ab0855a4661534160f8a8382bb1530604eb2da6e32d"
+    "hash": "70f5db6647a312543aa90ef655ba3fe3d4c7ce761033030519c070a109eb17df"
   },
   {
     "kind": "coast",
     "seed": "terrain-v1-0",
-    "hash": "94bdb9a797af8368a4afdef711b2c07885446e7b2bf263ef4ee077a662293c2a"
+    "hash": "ec3e8a3afcf03ec6d9de851512a59b852c8c2d2e13d8581e652de02bcbc97785"
   },
   {
     "kind": "coast",
     "seed": "terrain-v1-1",
-    "hash": "0952ea3294b8a3d600f5d671e25abc18535ba4f09346e61dfb18522b997a2b33"
+    "hash": "05986cd53e84eb85a1fb2646895a3a43c35eea39784b0d85274e189c0b71efac"
   },
   {
     "kind": "coast",
     "seed": "terrain-v1-2",
-    "hash": "779fca01b318264de093045438f4b205b705a4bbf7ef0af1d40b66f6bd71128a"
+    "hash": "697f671d51878bfb8a8053054f60820874ffd77bcd4a591eb2a41ad9e2c99bc9"
   }
-])('retains the frozen v1 $kind/$seed result', ({kind,seed,hash}) => {
+])('retains frozen algorithm1 domain output for $kind/$seed', ({kind,seed,hash}) => {
     const type = kind as 'island' | 'coast', sceneId = `diagnosis-legacy-${kind}-${seed}`
     const result = generateTerrainDocument(blank(type, sceneId), { sceneId, kind, seed, widthMm: 48000, heightMm: 36000 })
-    expect(sha256Text(canonicalJson(result))).toBe(hash)
+    expect(sha256Text(canonicalJson(({ ...result, document: { ...Object.fromEntries(['terrainAreas','terrainEdges','terrainConnections','paths','props','entityLayers'].map(key => [key, result.document[key as keyof typeof result.document]])), visual: visualBase(result.document) } })))).toBe(hash)
   })
 
-  // Captured from the pre-v3 source via a read-only Vite transform.
+  // Domain hashes captured from committed pre-collapse source. Project envelopes evolve independently.
   it.each([
-    { kind: 'island', seed: 'terrain-v1-0', hash: 'e512bddb79c0c97f53c97a21993a561d1be750916d568f79c17bfe1629779ede' },
-    { kind: 'island', seed: 'terrain-v1-1', hash: '71592d62068436460cbb019de79b7a4bb98fcc0703266cdaacc5735e83eaf5a6' },
-    { kind: 'island', seed: 'terrain-v1-2', hash: '38c9cc28f898a46355b7263237217b25bc0b4dc014b1eed9aaa60a7581692f38' },
-    { kind: 'island', seed: 'terrain-v1-3', hash: 'b2cb9cd2ef80feb86e7409b423a715db82294984d3953f0d3b9402998ac38c0e' },
-    { kind: 'island', seed: 'terrain-v1-4', hash: 'f341a8f509ea5d4a2d93c92506284da0733c855aa9e97e7b22dcb2b8b92fd212' },
-    { kind: 'coast', seed: 'terrain-v1-0', hash: '09cc07c6088982fbaae1059e5c427d6c683da9b3ecd53ba5ac06331e7f28b3aa' },
-    { kind: 'coast', seed: 'terrain-v1-1', hash: 'f0c157c0f676ce63542b2b662d1044d0c5ee808071f6b5b76fe0fd5d7c9f7c76' },
-    { kind: 'coast', seed: 'terrain-v1-2', hash: 'db32c2b61230e8b8bb593016deb7ee3b2760e11c27274905fde48ca3c20f496c' },
-    { kind: 'coast', seed: 'terrain-v1-3', hash: '3168dee415e7593ffcf218bb5b7ebc51d193941d8e44e9c60c47a48b1f7269bd' },
-    { kind: 'coast', seed: 'terrain-v1-4', hash: '24e3fb1dac9e282f25a863c5298b22e11e73e12eaf1740fcc8ac4dceb0c09873' },
-  ])('retains the frozen v2 $kind/$seed complete result', ({ kind, seed, hash }) => {
+    { kind: 'island', seed: 'terrain-v1-0', hash: 'f43e2c75eefc18849fccb475977b9c81b560a64768a4f9cffdd751a5dd6421ae' },
+    { kind: 'island', seed: 'terrain-v1-1', hash: 'cd07d75086889f57850e3883eea04bc525e541f1f882a72b61c22b490309e189' },
+    { kind: 'island', seed: 'terrain-v1-2', hash: '0ddf52114673ea819950cd4e0db61de3501335376c055aa39323b4f6263bee95' },
+    { kind: 'island', seed: 'terrain-v1-3', hash: '6e32000d54c6027345ff74db1e4246d129289550e1e01e25c1c6aff382d85ca3' },
+    { kind: 'island', seed: 'terrain-v1-4', hash: '1fbb5250c42f218e27d7510fa27e0be32fd9f3f7b8b874f21406cff2ade10a64' },
+    { kind: 'coast', seed: 'terrain-v1-0', hash: '789efe734d12c2036379126811e6b5282cde1998a472fcda47fda0f1ac1bb9ba' },
+    { kind: 'coast', seed: 'terrain-v1-1', hash: '44dcb69fb03924934cb887f474bf13a1a22a65ae58e222ebe564e98d78960b04' },
+    { kind: 'coast', seed: 'terrain-v1-2', hash: '9aa389b5fddb5c6919c55f31f6d280a07bfdbe67e9e3399877f3d89e5364b77a' },
+    { kind: 'coast', seed: 'terrain-v1-3', hash: '95d373126b1d183402d30fb485300e4826f07d8aca4f6d875f2d5cb0a05d3e3c' },
+    { kind: 'coast', seed: 'terrain-v1-4', hash: '794594a10c5e08deb3390fff993b4fce97707dddf5a6551d881188ae90ff7ecd' },
+  ])('retains frozen algorithm2 domain output for $kind/$seed', ({ kind, seed, hash }) => {
     const type = kind as 'island' | 'coast', sceneId = `frozen-v2-${kind}-${seed}`
     const base = createRefinedBlankDocument(type, { sceneId, title: '冻结算法2', now: '2026-10-30T00:00:00.000Z', widthMm: 48000, heightMm: 36000, preset: 'narrative' })
     const result = generateTerrainDocument(base, { sceneId, kind, seed, widthMm: 48000, heightMm: 36000, algorithmVersion: 2 })
-    expect(sha256Text(canonicalJson(result))).toBe(hash)
+    expect(sha256Text(canonicalJson(({ ...result, document: { ...Object.fromEntries(['terrainAreas','terrainEdges','terrainConnections','paths','props','entityLayers'].map(key => [key, result.document[key as keyof typeof result.document]])), visual: visualBase(result.document) } })))).toBe(hash)
   })
 
   it('keeps omitted versions absent from old request hashes and rejects unsupported selectors', () => {
@@ -118,9 +118,9 @@ describe('versioned shoreline generation', () => {
         expect(pointInPolygon(position(.65, -.65), low)).toBe(true)
       }
       const composed = composeTerrainDocument(base, result, 'shoreline-birth')
-      expect(composed.cost.total).toBe(result.cost.total)
-      expect(composed.document.generation!.version).toBe(1)
-      const g = composed.document.generation!
+      expect(composed.cost.total).toBeGreaterThan(result.cost.total)
+      expect(composed.document.generation.legacy.version).toBe(1)
+      const g = composed.document.generation.legacy
       if (g.version !== 1) throw new Error('Expected generation1')
       expect(g.recipes['terrain-recipe']).toMatchObject({ recipeVersion: 2, algorithmId: 'terrain-scene', algorithmVersion: 2 })
       expect(g.rules['terrain-rule'].recipeRef.version).toBe(2)
@@ -137,7 +137,7 @@ describe('versioned shoreline generation', () => {
     const scene = composeTerrainDocument(base, generated, 'shoreline-edit-birth').document, before = canonicalJson(scene)
     const edited = prepareTerrainEdit(scene, { kind: 'brush', sceneId: scene.sceneId, operationId: 'shoreline-clear', floorId: 'visual-floor', scopeMm: scene.exportBoundsMm, linkMode: 'scenery', mode: 'clearArea', targetAreaId: 'terrain-low', materialRef: null, elevationMm: null, strokes: [{ pointsMm: [{ x: 1000, y: 1000 }], radiusMm: 300 }] })
     expect(validateSceneDocument(edited.document).ok).toBe(true)
-    expect(edited.document.generation!.version).toBe(2)
+    expect(edited.document.generation.legacy.version).toBe(2)
     expect(canonicalJson(scene)).toBe(before)
   })
 })

@@ -1,3 +1,4 @@
+import { composeTerrainDocument } from './compose.js'
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
@@ -48,7 +49,8 @@ describe('pure program base-map wire protocol', () => {
     expect(response.result.kind).toBe('terrain')
     if (response.result.kind !== 'terrain' || request.generation.kind !== 'terrain') throw new Error('test shape')
     expect(response.result.terrain).toEqual(generateTerrainDocument(request.base, request.generation.input))
-    expect(response.domainCost.total).toBeLessThanOrEqual(256)
+    expect(response.domainCost.total).toBe(composeTerrainDocument(request.base,response.result.terrain,`base-map-birth-${request.inputHash}`).cost.total)
+    expect(response.domainCost.total).toBeGreaterThan(256)
     expect(response.domainCost.total).toBe(Object.values(response.domainCost.items).reduce((sum, cost) => sum + cost, 0))
     expect(response.domainCost).toMatchObject({ limit: 256, finalAdoptionCostChecked: false })
     expect(parseBaseMapResponse(request, JSON.parse(canonicalJson(response)))).toEqual(response)

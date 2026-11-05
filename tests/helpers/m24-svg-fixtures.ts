@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene'
 import { zlibSync } from 'fflate'
 import { layerSceneV3 } from '../../src/core/v3/test-fixtures'
 import { createCompositionContent } from '../../src/shared/appearance/graph'
@@ -30,7 +31,7 @@ export function svgFixturePng(rgba = SVG_FIXTURE_RGBA): Uint8Array {
 export function svgProjectFixture(sourceSvg = SVG_FIXTURE_SOURCE, rgba = SVG_FIXTURE_RGBA) {
   const normalized = normalizeStaticSvg(sourceSvg), rasterBytes = svgFixturePng(rgba), rasterSha256 = sha256Bytes(rasterBytes)
   const bytes = new Map<string, Uint8Array>([[rasterSha256, rasterBytes], [normalized.sourceSha256, encodeUtf8(sourceSvg)], [normalized.normalizedSha256, encodeUtf8(normalized.normalizedSource)]])
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
   document.sceneId = 'svg-resource-owner'; document.title = 'SVG source preservation fixture'
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const prop = document.props.item, origin = { kind: 'original' as const, attribution: 'Sceneweave SVG test fixture', canEmbed: true }

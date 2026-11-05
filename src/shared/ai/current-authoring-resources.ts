@@ -10,7 +10,7 @@ const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJ
 function deny(): never { throw new Error('当前工程AI创作无效：任务改变了固定源、表现参数或派生素材。') }
 /** Fixed resources stay immutable. Native placement may bind a new source to
  * an already granted definition/template and its exact fixed presentation. */
-export function assertCurrentAuthoringResourceEvolution(start: AuthoringStartV4, after: ProjectData): void {
+export function assertCurrentAuthoringResourceEvolution(start: AuthoringStartV4, after: ProjectData, generatedSnapshots: readonly PropAppearanceSnapshot[] = []): void {
   const before = start.project, original = before.appearance, next = after.appearance
   for (const key of ['assets', 'licenses', 'licenseBindings', 'authoringSources'] as const) if (!same(before[key], after[key])) deny()
   for (const key of ['assets', 'propDefinitions', 'prefabDefinitions', 'materials', 'styleThemes'] as const) if (!same(before.document[key], after.document[key])) deny()
@@ -18,7 +18,7 @@ export function assertCurrentAuthoringResourceEvolution(start: AuthoringStartV4,
   for (const [id, value] of Object.entries(original.sources)) if (!same(value, next.sources[id])) deny()
   for (const [id, value] of Object.entries(original.presentations ?? {})) if (!same(value, next.presentations?.[id])) deny()
 
-  const snapshots: PropAppearanceSnapshot[] = [], allowedSources = new Set<string>()
+  const snapshots: PropAppearanceSnapshot[] = [...generatedSnapshots], allowedSources = new Set<string>()
   const definitionIds = new Set([...(start.scope.placement?.definitionIds ?? []), ...(start.scope.scene?.definitionIds ?? []), ...(start.scope.visual?.definitionIds ?? [])])
   for (const id of definitionIds) {
     const definition = before.document.propDefinitions[id]

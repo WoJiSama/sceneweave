@@ -99,10 +99,10 @@ describe('fixed near-side prop presentations', () => {
 
   it('requires player masks to cover the blurred root contact shadow envelope', async () => {
     const source = content(), prop = source.document.props['near-tree'], presentation = propPresentation(source.appearance, prop.id)
-    if (!presentation || presentation.mode !== 'nearSide' || source.document.visual?.version !== 2) throw new Error('near-side fixture missing')
+    if (!presentation || presentation.mode !== 'nearSide' || source.document.visual?.version !== 3) throw new Error('near-side fixture missing')
     prop.visibility = 'gm'
-    source.document.visual.base.environment.contactShadowMm = 1000
-    source.document.visual.base.environment.contactShadowOpacity = .4
+    source.document.visual.base.base.environment.contactShadowMm = 1000
+    source.document.visual.base.base.environment.contactShadowOpacity = .4
     const shadow = effectivePropShadow(prop, presentation), base = nearSidePaintEnvelope(prop, presentation, shadow, 135)
     const complete = nearSidePaintEnvelope(prop, presentation, shadow, 135, 1000)
     if (!base || !complete) throw new Error('near-side paint envelope missing')

@@ -1,7 +1,6 @@
 import type { ConnectionRoute } from '../geometry/connection-route.js'
-import type { GenerationSystem1, RegionalModel1, VisualSystem2 } from '../terrain-generation/contracts.js'
+import type { RegionalModel1 } from '../terrain-generation/contracts.js'
 import type { GenerationSystem5, VisualSystem3 } from '../terrain-generation/composition-contracts.js'
-import type { VisualSystem } from '../visual/types.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson } from '../validation/json.js'
 
@@ -154,7 +153,7 @@ export interface PathCheck {
 }
 /** Complete, independent persisted model. No legacy view is used by the native path. */
 export interface SceneDocument {
-  format: 'sceneweave-scene'; schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; sceneId: Id; revision: number
+  format: 'sceneweave-scene'; schemaVersion: 1; sceneId: Id; revision: number
   title: string; createdAt: string; updatedAt: string
   units: { world: 'mm'; display: 'm' | 'ft'; gridSizeMm: number; snapMm: number; gridVisible: boolean }
   exportBoundsMm: BoundsMm
@@ -175,28 +174,20 @@ export interface SceneDocument {
     entranceOpeningIds: Id[]; wallEndClearanceMm: number; minDoorWidthMm?: number
     minPathWidthMm?: number; pathChecks: PathCheck[]
   }
-  /** New fields are required only by the strict scene-v3 parser. */
-  mapMode?: 'scene' | 'regional'
-  generation?: GenerationSystem1 | GenerationSystem5
-  regional?: RegionalModel1 | null
-  visual?: VisualSystem | VisualSystem2<VisualSystem> | VisualSystem3
-  generationMetadata?: { generatorVersion: string; seed: string; summary?: string; adoptedAt: string }
-  /** Required only by strict Scene6; old strict versions reject these keys. */
-  decorations?: Record<Id, Decoration>
-  decorationClusters?: Record<Id, DecorationCluster>
-  /** Required only by strict Scene8; older strict versions reject this key. */
-  surfaceRules?: Record<Id, SurfaceRule>
-}
-export type SceneDocument8 = Omit<SceneDocument, 'schemaVersion' | 'mapMode' | 'generation' | 'regional' | 'visual' | 'decorations' | 'decorationClusters' | 'surfaceRules'> & {
-  schemaVersion: 8
+  /** Every current project carries the complete scene capability set. */
   mapMode: 'scene' | 'regional'
   generation: GenerationSystem5
   regional: RegionalModel1 | null
   visual: VisualSystem3
+  generationMetadata?: { generatorVersion: string; seed: string; summary?: string; adoptedAt: string }
+  /** Actual decoration instances and ownership are persisted, never regenerated on open. */
   decorations: Record<Id, Decoration>
   decorationClusters: Record<Id, DecorationCluster>
+  /** Continuous material and vegetation rules share one persisted collection. */
   surfaceRules: Record<Id, SurfaceRule>
 }
+/** Transitional symbol for current callers; there is only one persisted shape. */
+export type SceneDocument8 = SceneDocument
 export interface Issue { code: string; message: string; entityId?: Id }
 export const USER_LAYER_LIMIT = 128
 export const COMMAND_LIMIT = 256

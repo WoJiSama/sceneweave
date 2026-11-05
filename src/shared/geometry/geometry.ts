@@ -217,7 +217,7 @@ function connectionRouteReservedIds(scene: SceneDocument): Set<string> {
     for (const key of ['boundaries', 'edgeLooks', 'lights', 'fogs', 'filters'] as const) for (const id of Object.keys(visual[key])) ids.add(id)
     for (const row of Object.values(visual.boundaries)) for (const segment of row.segments) ids.add(segment.id)
   }
-  const visual2 = scene.visual?.version === 3 ? scene.visual.base : scene.visual?.version === 2 ? scene.visual : undefined
+  const visual2 = scene.visual.base
   for (const row of Object.values(visual2?.materializedEdges ?? {})) { ids.add(row.id); for (const stroke of row.strokes) ids.add(stroke.id) }
   if (scene.visual?.version === 3) for (const row of Object.values(scene.visual.transitions)) { ids.add(row.id); for (const item of [...row.polygons, ...row.strokes]) ids.add(item.id) }
   if (scene.regional) {

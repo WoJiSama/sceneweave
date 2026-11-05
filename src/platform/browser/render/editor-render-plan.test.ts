@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { Prop } from '../../../shared/model/scene.js'
 import { createBlankDocumentV2 } from '../../../editor/v2/blank-project'
 import { migrateSceneV2 } from '../../../core/v3/migration'
@@ -14,7 +15,7 @@ function projection() {
     blocksMovement: false, blocksSight: false, visibility: 'public', supportRef: { kind: 'floor', id: 'blank-floor' }, renderLayer: 'object', renderOrder: 0,
     shadowClass: 'none', shadowOverride: null }
   scene.props.item = prop
-  return projectScene({ ...migrateSceneV2(scene, { sceneId: `${scene.sceneId}-native`, now: scene.updatedAt }), format: 'sceneweave-scene', schemaVersion: 1 }, 'gm')
+  return projectScene(toCurrentSceneDocument({ ...migrateSceneV2(scene, { sceneId: `${scene.sceneId}-native`, now: scene.updatedAt }), format: 'sceneweave-scene', schemaVersion: 1 }), 'gm')
 }
 
 describe('editor-only prop rendering plan', () => {

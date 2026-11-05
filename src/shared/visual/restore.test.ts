@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { visualBase } from './base.js'
 import { describe, expect, it } from 'vitest'
 import type { SceneDocument, PointMm } from '../model/scene.js'
@@ -16,11 +17,11 @@ const context = () => ({ ids: { nextId: () => `visual-restore-${++sequence}` }, 
 const p = (x: number, y: number): PointMm => ({ x, y })
 const common = { floorId: 'floor', layerId: 'layer', visibility: 'public' as const, editLocked: false }
 function blank(): SceneDocument {
-  return { format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'visual-restore', revision: 0, title: 'Visual restore fixture', createdAt: stamp, updatedAt: stamp,
+  return toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'visual-restore', revision: 0, title: 'Visual restore fixture', createdAt: stamp, updatedAt: stamp,
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: true }, exportBoundsMm: { x: 0, y: 0, width: 24000, height: 18000 },
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: { x: 0, y: 0, width: 24000, height: 18000 } } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false }, effects: { id: 'effects', floorId: 'floor', name: 'Effects', order: 1, editLocked: false } }, entityLayers: {},
-    presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] } }
+    presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] } })
 }
 const light = (): VisualLight => ({ ...common, id: 'light', positionMm: p(3000, 3000), radiusMm: 1000, color: '#FFD080', intensity: .3, wallOcclusion: true, enabled: true })
 const curve = (): VisualBoundary => ({ ...common, id: 'curve', closed: false, sampleSpacingMm: 1500, toleranceMm: 30, binding: { kind: 'decoration' }, segments: [{ id: 'cubic', start: p(12000, 1000), control1: p(11000, 6000), control2: p(13000, 12000), end: p(12000, 17000) }] })
@@ -113,14 +114,14 @@ describe('finite visual restore and exact prepared impact', () => {
     const current = applyCompositionCommands(historic, [command], context()), before = structuredClone(historic), after = structuredClone(current), allocated = sequence
     const impact = inspectVisualChanges(historic.document, current.document, [command])
     expect(impact.affectedIds).toContain('near'); expect(impact.layerIds).toEqual(['effects', 'layer'])
-    expect(impact.createdIds).toEqual(['light']); expect(impact.commandCost).toBe(3)
+    expect(impact.createdIds).toEqual(['light']); expect(impact.commandCost).toBe(1)
     expect(historic).toEqual(before); expect(current).toEqual(after); expect(sequence).toBe(allocated)
     const locked = structuredClone(current); locked.document.terrainAreas.near.editLocked = true
     expect(() => buildRestorePlan(locked, current, { ids: ['light'], mode: 'visual' }, capture(current, locked).evidence)).toThrow(/锁定/)
   })
 
   it('enforces one cumulative 256-record restore budget across all selected curves', () => {
-    const historicScene = blank(); historicScene.schemaVersion = 2; historicScene.visual = emptyVisualSystem()
+    const historicScene = blank(); historicScene.schemaVersion = 1; historicScene.visual = {version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}
     for (let index = 0; index < 64; index++) {
       const y = 1000 + index * 200
       visualBase(historicScene)!.boundaries[`curve-${index}`] = { ...common, id: `curve-${index}`, closed: false, binding: { kind: 'decoration' }, sampleSpacingMm: 1500, toleranceMm: 30,

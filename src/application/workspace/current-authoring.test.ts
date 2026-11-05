@@ -16,16 +16,11 @@ afterEach(async () => {
   for (const workspace of sessions.splice(0)) await workspace.close().catch(() => {})
   for (const repo of repos.splice(0)) { const name = repo.database.name; repo.close(); await Dexie.delete(name) }
 })
-async function setup(version: 3 | 4 | 5 | 6 | 7) {
+async function setup() {
   const repo = new ProjectRepository({ name: `current-authoring-${crypto.randomUUID()}`, runtime, validation })
   repos.push(repo)
   const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
   await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
-  await workspace.enableVisualCopy(); await workspace.enableTerrainCopy()
-  if (version >= 4) await workspace.enableCompositionCopy()
-  if (version >= 5) await workspace.enableConnectionCopy()
-  if (version >= 6) await workspace.enableDecorationCopy()
-  if (version >= 7) await workspace.enableCanopyCopy()
   const authorization = await workspace.authorizeCurrentAtomic({ targetIds: ['item'], operations: ['transform', 'opacity'], placement: null })
   const draft: AuthoringDraft = { schemaVersion: 4, taskId: 'current-authoring-task', generation: 1, start: authorization.start,
     state: applyAuthoringStep(authorization.start, replayAuthoring(authorization.start, []).state,
@@ -39,14 +34,14 @@ function lease(candidate: AtomicCandidate): DraftLease {
 }
 
 describe('current authoring4 workspace publication boundary', () => {
-  it.each([3, 4, 5, 6, 7] as const)('edits complete%s in place with full resources, protection, one undo and cold persistence', async version => {
-    const { repo, workspace, authorization, draft } = await setup(version), original = workspace.getState().project!
+  it('edits the current complete project in place with full resources, protection, one undo and cold persistence', async () => {
+    const { repo, workspace, authorization, draft } = await setup(), original = workspace.getState().project!
     expect(authorization.start.source).toMatchObject({ version: 4, kind: 'current-baseline', preservation: { sceneId: original.document.sceneId } })
     const candidate = await workspace.prepareAtomicCandidate(authorization, draft)
     expect(workspace.getState().project).toBe(original)
     expect(candidate.operationCost).toBe(1); expect(candidate.budgetIdentity).toBeDefined()
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => lease(candidate) }); await result.save
-    expect(workspace.getDocument()).toMatchObject({ schemaVersion: version, sceneId: original.document.sceneId, revision: 1 })
+    expect(workspace.getDocument()).toMatchObject({ schemaVersion: 1, sceneId: original.document.sceneId, revision: 1 })
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(30)
     expect(result.protection!.project.document).toEqual(original.document)
     const cold = (await repo.load(original.document.sceneId))!
@@ -59,7 +54,7 @@ describe('current authoring4 workspace publication boundary', () => {
   }, 30000)
 
   it('reattaches the exact current source while rejecting tampered budgets and stale local edits before claiming', async () => {
-    const { repo, workspace, authorization, draft } = await setup(6)
+    const { repo, workspace, authorization, draft } = await setup()
     const rebound = await workspace.reattachAtomic(draft.start)
     expect(rebound.start).toEqual(authorization.start)
     const wrong = cloneJson(draft); if (wrong.state.schemaVersion !== 4) throw new Error('Expected authoring4')
@@ -75,7 +70,7 @@ describe('current authoring4 workspace publication boundary', () => {
   }, 30000)
 
   it('rejects a changed lease identity after protecting the current map and preserves both map and undo', async () => {
-    const { repo, workspace, authorization, draft } = await setup(6), before = workspace.getState().project!
+    const { repo, workspace, authorization, draft } = await setup(), before = workspace.getState().project!
     const candidate = await workspace.prepareAtomicCandidate(authorization, draft)
     await expect(workspace.adoptAtomicCandidate(candidate, { claim: async () => ({ ...lease(candidate), sourceHash: '0'.repeat(64) }) })).rejects.toThrow(/预算身份/)
     expect(workspace.getState().project).toBe(before)

@@ -15,10 +15,9 @@ const target: GenerationReference = { kind: 'terrainArea', entityId: 'land', par
 // These typed snapshots isolate review semantics; they are not validation receipts.
 function reviewProject(): ProjectData {
   const project = fixture().project, document = project.document
-  project.schemaVersion = 3
-  project.historyIdentity = { ...project.historyIdentity, version: 2, ...createEmptyIdentity2Fields() }
-  document.schemaVersion = 3; document.mapMode = 'scene'; document.generation = createEmptyGeneration(); document.regional = null
-  document.visual = { version: 2, base: emptyVisualSystem(), materializedEdges: {} }
+  project.schemaVersion = 1
+  document.schemaVersion = 1; document.mapMode = 'scene'; document.generation.legacy = createEmptyGeneration(); document.regional = null
+  document.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} }
   return project
 }
 function withGeneration(): ProjectData {
@@ -118,12 +117,12 @@ describe('persisted terrain change review', () => {
   })
 
   it('shows a materialized edge once even when touched and invalidated IDs both include it', () => {
-    const before = reviewProject(), visual = before.document.visual!
+    const before = reviewProject(), visual = before.document.visual.base
     if (visual.version !== 2) throw new Error('fixture requires visual2')
     visual.materializedEdges.shore = { id: 'shore', floorId: Object.keys(before.document.floors)[0], layerId: Object.keys(before.document.userLayers)[0],
       visibility: 'public', editLocked: false, boundaryId: 'boundary', inputHash: hash, kind: 'shore', polygons: [cloneJson(polygon)],
       strokes: [], materialRef: null, fillColor: '#DDCCAA', opacity: 1 }
-    const after = cloneJson(before), next = after.document.visual!
+    const after = cloneJson(before), next = after.document.visual.base
     if (next.version !== 2) throw new Error('fixture requires visual2')
     next.materializedEdges.shore.opacity = .6
     const changes = atomicChanges(before, after, ['shore', 'shore'], ['shore'])

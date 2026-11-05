@@ -33,7 +33,7 @@ export function selectionScene(scene: SceneDocument, options: { effectiveLocks?:
   // Locks and order below are inspector state. In terrain versions their persisted counterparts
   // are hashed by generation ownership; never certify this temporary projection
   // as a complete document or rewrite its generation metadata to match the UI.
-  if (checked.document.schemaVersion >= 3) {
+  if (checked.document.generation.version === 5) {
     copyScenePresentations(scene, view)
     const result = freezeJson(view)
     if (certified) { const entry = cached ?? new Map(); entry.set(key, result); views.set(scene, entry) }

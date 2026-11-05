@@ -1,3 +1,5 @@
+import { compositionOutputHash } from '../../src/shared/terrain-generation/composition-integrity.js'
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene'
 import { createRefinedBlankDocument } from '../../src/platform/browser/content/refined-blank.js'
 import { createCompositionContent, resolveAppearance } from '../../src/shared/appearance/graph.js'
 import { inspectDependencies } from '../../src/shared/commands/dependencies.js'
@@ -14,25 +16,33 @@ import type { AuthoringStartV2, BaseMapSource } from '../../src/shared/ai/contin
 
 const now = '2026-10-30T00:00:00.000Z'
 /** Metadata/replay fixture. No actual resource-byte or pixel evidence. */
-export function continuationFixture(): AuthoringStartV2 {
-  const document = createRefinedBlankDocument('island', { sceneId: 'continuation-map', title: '底图', widthMm: 24000, heightMm: 18000, preset: 'narrative', now })
+export function continuationFixture(mode: 'terrain' | 'composition' = 'terrain'): AuthoringStartV2 {
+  const document = toCurrentSceneDocument(createRefinedBlankDocument('island', { sceneId: 'continuation-map', title: '底图', widthMm: 24000, heightMm: 18000, preset: 'narrative', now }))
   let blankId = 0
   const empty = createCompositionContent(document, { ids: { nextId: () => `blank-${++blankId}` }, clock: { now: () => now } })
   const text = 'MIT metadata fixture only', licenseHash = sha256Text(text), dependencies = inspectDependencies(empty.document)
-  const blank = validateProjectData({ ...empty, format: 'sceneweave-complete-project', schemaVersion: 2,
+  const blank = validateProjectData({ ...empty, format: 'sceneweave-complete-project', schemaVersion: 1,
     assets: Object.fromEntries(dependencies.assetIds.map(id => { const row = document.assets[id]; return [row.sha256, { sha256: row.sha256, mimeType: row.mimeType, sizeBytes: 1, pixelWidth: row.pixelWidth, pixelHeight: row.pixelHeight }] })),
     licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: dependencies.subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })), authoringSources: {} })
+  // Use a replayable forest for semantic edits (8 props, real terrain);
+  // the read-only transport path uses a small deterministic composition.
+  // Both retain the old protocol's unchanged 256 complexity gate.
+  const generation = mode === 'composition'
+    ? { kind: 'composition' as const, input: { sceneId: document.sceneId, preset: 'archipelago', seed: 'source2-small', widthMm: 24000, heightMm: 18000, islandCount: 2, recipeVersion: 1 } }
+    : { kind: 'terrain' as const, input: { sceneId: document.sceneId, kind: 'forest', seed: 'small-0' } }
   const request = prepareBaseMapRequestV2({ requestId: 'continuation-request', workspaceSceneId: 'original-main', checkpoint: 8, operationEpoch: 3,
-    flowId: 'continuation-flow', policy: CONTINUATION_POLICY, base: document, generation: { kind: 'terrain', input: { sceneId: document.sceneId, kind: 'island', seed: 'terrain-v1-0' } } })
+    flowId: 'continuation-flow', policy: CONTINUATION_POLICY, base: document, generation })
   const response = executeBaseMapRequestV2(request)
-  if (response.result.kind !== 'terrain') throw new Error('fixture shape')
   const identityAllocation: string[] = [], runtime = { ids: { nextId: () => { const id = `source-${identityAllocation.length}`; identityAllocation.push(id); return id } }, clock: { now: () => now } }
-  const generated = composeTerrainDocument(document, response.result.terrain, runtime.ids.nextId())
-  generated.document.title = `岩岛 · ${response.result.terrain.skeleton.name}`
-  const content = resolveAppearance(createCompositionContent(generated.document, runtime))
+  const generated = response.result.kind === 'terrain'
+    ? composeTerrainDocument(document, response.result.terrain, runtime.ids.nextId()).document : response.result.document
+  if (response.result.kind === 'terrain') generated.title = `森林 · ${response.result.terrain.skeleton.name}`
+  let content = createCompositionContent(generated, runtime)
+  for (const row of Object.values(content.document.generation.compositions)) row.outputHash = compositionOutputHash(content.document, row, content.historyIdentity)
+  content = resolveAppearance(content)
   for (const rule of Object.values(getLegacyGeneration(content.document)!.rules)) { rule.inputHash = generationInputHash(content.document, rule); rule.managedOutputHash = managedOutputHash(content.document, rule) }
-  for (const check of Object.values(content.document.generation!.checks)) check.inputHash = constraintInputHash(content.document, check.constraintId)
-  const project = validateProjectData({ ...blank, ...content, schemaVersion: 3 })
+  for (const check of Object.values(getLegacyGeneration(content.document)!.checks)) check.inputHash = constraintInputHash(content.document, check.constraintId)
+  const project = validateProjectData({ ...blank, ...content, schemaVersion: 1 })
   const source: BaseMapSource = { version: 2, flowId: request.flowId, blank,
     preservation: { sceneId: 'original-main', revision: 7, contentHash: 'a'.repeat(64), checkpoint: 8 }, request, response, preparedAt: now,
     identityAllocation, project, projectHash: authoringProjectHash(project), resourceClosureHash: baseMapResourceClosureHash(project),

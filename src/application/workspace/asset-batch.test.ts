@@ -15,6 +15,7 @@ import { exportProject, importProject } from '../../shared/project/file.js'
 import { projectContentHash } from '../../shared/project/validate.js'
 import { Workspace } from './workspace.js'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
+import { topDownPresentation } from '../../shared/appearance/presentation.js'
 
 // This replaces the browser-only PNG Canvas normalization step with exact
 // fixture PNG bytes. All complete-project/byte/CRC/decode/SVG-pixel validation
@@ -56,6 +57,8 @@ describe('selected batch import is one complete resource candidate', () => {
     const definition=result.project.document.propDefinitions[result.items[0].definitionId]
     expect(definition.defaultVisualBoundsMm).toEqual({x:-600,y:-1700,width:1200,height:1800})
     expect(definition.defaultFootprintMm).toEqual({width:300,height:200});expect(definition.defaultBlocksSight).toBe(true)
+    const fixed = Object.values(result.project.appearance.sources).find(source => source.kind === 'prop' && source.snapshot.definitionRef?.id === definition.id)!
+    expect(result.project.appearance.presentations?.[fixed.id]).toEqual(topDownPresentation())
     expect(Object.isFrozen(result.items)).toBe(true)
     expect(canonicalJson(toBundle(base).project)).toBe(before)
     expect(result.project.document.props).toEqual(base.document.props);expect(result.project.document.revision).toBe(base.document.revision)
@@ -162,6 +165,7 @@ describe('selected batch import is one complete resource candidate', () => {
     const adopted=workspace.getState().project!,cold=(await repo.load(adopted.document.sceneId))!
     expect(cold.project.document.revision).toBe(before.document.revision+1)
     expect(result.addedDefinitionIds.every(id=>!!cold.project.document.propDefinitions[id])).toBe(true)
+    for (const source of Object.values(cold.project.appearance.sources)) if (source.kind === 'prop') expect(cold.project.appearance.presentations?.[source.id]).toBeDefined()
     expect(cold.project.authoringSources[result.items[1].assetId]).toBeDefined()
     workspace.undo();await workspace.flush();expect(workspace.getState().project!.document.propDefinitions).toEqual(before.document.propDefinitions)
     workspace.redo();await workspace.flush();expect(result.addedDefinitionIds.every(id=>!!workspace.getState().project!.document.propDefinitions[id])).toBe(true)

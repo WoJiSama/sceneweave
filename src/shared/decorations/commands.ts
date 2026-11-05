@@ -50,7 +50,6 @@ function supportUnlocked(scene: Readonly<SceneDocument>, row: { supportRef: { ki
 }
 /** Mark manual changes even when they enter through ordinary Prop/appearance commands. */
 export function reconcileDecorationMembers(before: SceneDocument, after: SceneDocument): number {
-  if (after.schemaVersion < 6) return 0
   let changes = 0
   for (const oldCluster of Object.values(decorationClusterRecords(before))) {
     const cluster = decorationClusterRecords(after)[oldCluster.id]
@@ -118,7 +117,6 @@ export function inspectDecorationChanges(before: SceneDocument, after: SceneDocu
 }
 
 export function applyDecorationCommand(scene: SceneDocument, command: DecorationCommand, context: PreparationContext, appearance?: AppearanceGraph): DecorationImpact {
-  if (scene.schemaVersion < 6) throw new Error('轻量装饰与簇状布景需要显式完整v6或更新副本。')
   const before = cloneJson(scene), decorations = scene.decorations!, clusters = scene.decorationClusters!
   const requireDecoration = (id: string) => { const row = decorations[id]; if (!row) throw new Error(`轻量装饰不存在：${id}。`); unlocked(before, row); assertDecorationMemberUnlocked(before, id); supportUnlocked(before, row); return row }
   const requireCluster = (id: string) => { const row = clusters[id]; if (!row) throw new Error(`簇状布景不存在：${id}。`); unlocked(before, row); supportUnlocked(before, row); return row }
@@ -153,24 +151,7 @@ export function applyDecorationCommand(scene: SceneDocument, command: Decoration
       break
     }
     case 'createCanopyRegion': {
-      if (scene.schemaVersion !== 7) throw new Error('树木区域规则需要显式完整v7副本。')
-      if (geometryIdentityIds(scene).has(command.id) || scene.userLayers[command.id]) throw new Error('新树木区域须使用未分配的独立ID。')
-      const layer = scene.userLayers[command.layerId], area = scene.terrainAreas[command.supportRef.id]
-      if (!layer || layer.floorId !== command.floorId || layer.editLocked) throw new Error('树木区域须选择同Floor未锁定的用户图层。')
-      if (!area || area.floorId !== command.floorId || area.editLocked || scene.userLayers[scene.entityLayers[area.id]]?.editLocked) throw new Error('树木区域须依赖同Floor未锁定地形面。')
-      if (command.regionsMm.some(region => !polygonInside(region, terrainPoints(area)))) throw new Error('树木区域必须完整位于选定地形面内。')
-      const definition = scene.propDefinitions[command.definitionRef.id]
-      if (!definition || definition.version !== command.definitionRef.version || definition.defaultAppearance.kind !== 'image' || !definition.tags.some(tag => /tree|树/i.test(tag)) && !/tree|树/i.test(definition.name)) throw new Error('树木区域须引用工程内固定树木素材。')
-      if (command.mode === 'erase' && command.canopyCoveragePpm !== 0) throw new Error('擦除树木规则的覆盖目标必须为0。')
-      const paintOrder = Math.max(0, ...Object.values(clusters).filter(cluster => cluster.canopyRule?.channel === 'trees' && cluster.supportRef.kind === 'terrainArea' && cluster.supportRef.id === area.id).map(cluster => cluster.canopyRule!.paintOrder)) + 1
-      const cluster: DecorationCluster = { id: command.id, floorId: command.floorId, editLocked: false, visibility: command.visibility,
-        supportRef: cloneJson(command.supportRef), boundsMm: regionBounds(command.regionsMm), seed: command.seed, algorithmVersion: 'cluster-v1',
-        palette: [{ key: 'tree', definitionRef: cloneJson(command.definitionRef), kind: 'prop', weight: 1 }], maxInstances: 64,
-        spacingMm: command.spacingMm, clusterRadiusMm: command.clusterRadiusMm, clearanceMm: command.clearanceMm, members: {},
-        canopyRule: { regionsMm: cloneJson(command.regionsMm), channel: 'trees', paintOrder, mode: command.mode, canopyCoveragePpm: command.canopyCoveragePpm } }
-      supportUnlocked(before, cluster); clusters[cluster.id] = cluster; scene.entityLayers[cluster.id] = command.layerId
-      reflowCanopyRules(area.id, command.visibility)
-      break
+      throw new Error('旧树冠字段只允许一次性迁入；请使用统一地表规则。')
     }
     case 'updateCanopyRegion': {
       const cluster = requireCluster(command.id)

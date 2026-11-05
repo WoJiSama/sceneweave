@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { SceneAuthoringScopeSchema } from './authoring-protocol.js'
 import { regionalDrillDownRequestSchema } from '../terrain-generation/regional-authoring.js'
 import { sourceRegionLinkSchema } from '../terrain-generation/contracts.js'
-import { sceneDocument3Schema } from '../validation/scene.js'
+import { nativeSceneSchema } from '../validation/scene.js'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
 const bounds = z.object({ x: z.number().int().safe(), y: z.number().int().safe(), width: z.number().int().positive().safe(), height: z.number().int().positive().safe() }).strict()
@@ -19,7 +19,7 @@ export const RegionSceneCandidateToolOutputSchema = z.object({ candidateId: z.st
   actualOperationCost: z.number().int().nonnegative().max(256), publicInputHash: hash, appearance: z.literal('unconfirmed'),
   disposition: z.literal('independent private candidate only; local create/switch, resource validation, protected preservation and save are still required') }).strict()
 
-export const RegionSceneCandidateResultSchema = z.object({ request: regionalDrillDownRequestSchema, document: sceneDocument3Schema,
+export const RegionSceneCandidateResultSchema = z.object({ request: regionalDrillDownRequestSchema, document: nativeSceneSchema,
   sourceLink: sourceRegionLinkSchema, cost, hash }).strict()
 export const RegionSceneCandidateResponseSchema = z.object({ schemaVersion: z.literal(1), taskId: z.string().min(1).max(128), generation: z.number().int().positive(),
   candidateId: z.string().min(1).max(128), candidateHash: hash, atContentHash: hash, draftRevision: z.number().int().nonnegative(), scopeHash: hash,

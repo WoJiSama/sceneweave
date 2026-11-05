@@ -31,7 +31,7 @@ async function blank(palette:'island'|'coast'='island',composition=false):Promis
   const bytes=pixelPng([74,108,61,255]),hash=sha256Bytes(bytes)
   for(const asset of Object.values(document.assets))Object.assign(asset,{sha256:hash,mimeType:'image/png',pixelWidth:1,pixelHeight:1})
   const content=createCompositionContent(document,runtime),text='Sceneweave original program base-map test',licenseHash=sha256Bytes(encodeUtf8(text))
-  return fromBundle({project:{format:'sceneweave-complete-project',schemaVersion:2,...content,assets:{[hash]:{sha256:hash,mimeType:'image/png',sizeBytes:bytes.length,pixelWidth:1,pixelHeight:1}},licenses:{[licenseHash]:{sha256:licenseHash,text}},licenseBindings:inspectDependencies(content.document).subjects.map(subject=>({...subject,licensePath:`licenses/${licenseHash}.txt`,embedding:'allowed' as const})),authoringSources:{}},resources:createMemoryResources(new Map([[hash,bytes]]))},validation)
+  return fromBundle({project:{format:'sceneweave-complete-project',schemaVersion:1,...content,assets:{[hash]:{sha256:hash,mimeType:'image/png',sizeBytes:bytes.length,pixelWidth:1,pixelHeight:1}},licenses:{[licenseHash]:{sha256:licenseHash,text}},licenseBindings:inspectDependencies(content.document).subjects.map(subject=>({...subject,licensePath:`licenses/${licenseHash}.txt`,embedding:'allowed' as const})),authoringSources:{}},resources:createMemoryResources(new Map([[hash,bytes]]))},validation)
 }
 async function recipe6Blank(): Promise<EditableProject> {
   const document = createShoreBlankDocument('island', { sceneId: runtime.ids.nextId(), title: '算法6底图重放', now: NOW,
@@ -39,7 +39,7 @@ async function recipe6Blank(): Promise<EditableProject> {
   const bytes = pixelPng([74, 108, 61, 255]), hash = sha256Bytes(bytes)
   for (const asset of Object.values(document.assets)) Object.assign(asset, { sha256: hash, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1 })
   const content = createCompositionContent(document, runtime), text = 'Sceneweave algorithm6 replay fixture', licenseHash = sha256Bytes(encodeUtf8(text))
-  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 2, ...content,
+  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
     assets: { [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } },
     licenses: { [licenseHash]: { sha256: licenseHash, text } },
     licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const })),
@@ -113,9 +113,9 @@ describe('verified program base-map preparation',()=>{
   }, 60000)
 
   it.each(['island', 'archipelago'] as const)('continues %s with full source, one protected publication, cold read and monotonic undo', async kind => {
-    const item = await continuation(kind), before = projectContentHash(toBundle(item.current!).project)
-    expect(item.state.schemaVersion).toBe(2)
-    if (item.state.schemaVersion !== 2) throw new Error('version')
+    const item = await continuation(kind, false, 'standard'), before = projectContentHash(toBundle(item.current!).project)
+    expect(item.state.schemaVersion).toBe(3)
+    if (item.state.schemaVersion !== 3) throw new Error('version')
     expect(item.state.budget.generationCost).toBeGreaterThan(0)
     expect(item.state.budget.aiCost).toBe(Object.keys(item.preview.project.document.props).length ? 1 : 0)
     const adopted = await item.workspace.adoptAtomicCandidate(item.candidate, { claim: item.claim })
@@ -134,16 +134,16 @@ describe('verified program base-map preparation',()=>{
     expect(item.workspace.getDocument()!.revision).toBe(3)
     expect(Object.keys(item.workspace.getDocument()!.terrainAreas).length).toBeGreaterThan(0)
     await expect(item.workspace.adoptAtomicCandidate(item.candidate, { claim: item.claim })).rejects.toThrow()
-  })
+  }, 60000)
 
   it('rejects source cancellation, mismatched budget lease and a cross-tab source move before publication', async () => {
-    const first = await continuation()
+    const first = await continuation('island', false, 'small')
     await expect(first.workspace.adoptAtomicCandidate(first.candidate, { claim: async () => ({ ...await first.claim(), policyHash: 'b'.repeat(64) }) })).rejects.toThrow(/预算|策略/)
     expect(first.workspace.getState().project).toBe(first.current)
-    const second = await continuation()
+    const second = await continuation('island', false, 'small')
     second.workspace.cancelTerrainGeneration(second.preview)
     await expect(second.workspace.prepareAtomicCandidate(second.authorization, second.draft)).rejects.toThrow(/底图|取消/)
-    const third = await continuation()
+    const third = await continuation('island', false, 'small')
     await expect(third.workspace.adoptAtomicCandidate(third.candidate, { claim: async () => {
       const changed = captureJson(toBundle(third.current!).project); changed.document.revision++
       await third.repo.save({ project: changed, resources: third.current!.resources }, third.current!.document.revision)
@@ -151,33 +151,41 @@ describe('verified program base-map preparation',()=>{
     } })).rejects.toThrow()
     expect(third.workspace.getState().project).toBe(third.current)
     expect(await third.repo.load(third.base.document.sceneId)).toBeNull()
-  })
+  }, 60000)
 
   it('keeps the current map when new-result saving fails and supports an initially empty workspace', async () => {
-    const first = await continuation()
+    const first = await continuation('island', false, 'small')
     const save = vi.spyOn(first.repo, 'save').mockRejectedValueOnce(new Error('storage full'))
     await expect(first.workspace.adoptAtomicCandidate(first.candidate, { claim: first.claim })).rejects.toThrow(/storage full/)
     expect(first.workspace.getState().project).toBe(first.current)
     save.mockRestore()
-    const second = await continuation('island', true)
+    const second = await continuation('island', true, 'small')
     const adopted = await second.workspace.adoptAtomicCandidate(second.candidate, { claim: second.claim })
     expect(adopted.protection).toBeUndefined()
     expect(second.workspace.getDocument()!.revision).toBe(1)
     second.workspace.undo(); await second.workspace.flush()
     expect(Object.keys(second.workspace.getDocument()!.terrainAreas)).toHaveLength(0)
-  })
-  it.each(['island','coast','archipelago','tidalCoast'] as const)('replays %s with actual resources and binds a complete-project receipt',async kind=>{
-    const composition=kind==='archipelago'||kind==='tidalCoast',base=await blank(kind==='coast'?'coast':'island',composition),input=request(base,kind),response=executeBaseMapRequest(input)
+  }, 60000)
+  it.each(['archipelago','tidalCoast'] as const)('replays legacy recipe2 %s with actual resources and binds a complete-project receipt',async kind=>{
+    const composition=true,base=await blank('island',composition),input=request(base,kind),response=executeBaseMapRequest(input)
     const before=canonicalJson({base:toBundle(base).project,input,response}),prepared=await prepareBaseMapProject(base,input,response,{runtime,validation,source:'server'})
     expect(prepared.cost.total).toBe(response.domainCost.total)
     expect(prepared.baseMap.initialOperationCost).toBe(prepared.cost.total)
     expect(prepared.baseMap.remainingOperationCost+prepared.baseMap.initialOperationCost).toBe(256)
     expect(prepared.baseMap.projectHash).toBe(projectContentHash(toBundle(prepared.project).project))
-    expect(prepared.project.schemaVersion).toBe(composition?4:3)
+    expect(prepared.project.schemaVersion).toBe(1)
     const cold=await importProject(await exportProject(toBundle(prepared.project),validation),validation)
     expect(projectContentHash(cold.project)).toBe(prepared.baseMap.projectHash)
     expect(canonicalJson({base:toBundle(base).project,input,response})).toBe(before)
     expect(Object.hasOwn(cold.project,'baseMap')).toBe(false)
+  })
+  it.each(['island','coast'] as const)('retains legacy %s domain replay while refusing over-budget current-v1 adoption', async kind => {
+    const base = await blank(kind === 'coast' ? 'coast' : 'island'), input = request(base, kind), response = executeBaseMapRequest(input)
+    const before = projectContentHash(toBundle(base).project)
+    expect(response.result.kind).toBe('terrain')
+    expect(executeBaseMapRequest(input)).toEqual(response)
+    await expect(prepareBaseMapProject(base, input, response, { runtime, validation })).rejects.toThrow(/超过256/)
+    expect(projectContentHash(toBundle(base).project)).toBe(before)
   })
   it('replays algorithm6 base-map terrain with the same deterministic birth token as the producer', async () => {
     const base = await recipe6Blank()

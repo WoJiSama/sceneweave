@@ -1,13 +1,15 @@
+import { currentAuthoringFixture } from '../../tests/helpers/current-authoring-fixture.js'
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
 import { describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { svgProjectFixture } from '../../tests/helpers/m24-svg-fixtures.js'
-import type { AuthoringOperation, AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
+import type { AuthoringOperation } from '../../src/shared/ai/authoring-protocol.js'
 import type { TerrainBoundaryProposal } from '../../src/shared/ai/visual-protocol.js'
-import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring.js'
+import { authoringProjectHash } from '../../src/shared/ai/authoring.js'
+import { applyAuthoringStep, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import { ToolResultSchema } from '../../src/shared/ai/protocol.js'
 import { canonicalJson, cloneJson } from '../../src/shared/validation/json.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
-import { emptyVisualSystem } from '../../src/shared/visual/types.js'
 import type { StoredTask } from './store.js'
 import { executeAuthoringTool } from './authoring-tools.js'
 import * as authoringCore from '../../src/shared/ai/authoring.js'
@@ -18,13 +20,13 @@ type ApplyCandidates = { atDraftRevision: number; atContentHash: string; candida
 
 function fixture() {
   const project = cloneJson(svgProjectFixture().bundle.project), scene = project.document
-  project.schemaVersion = 2; scene.schemaVersion = 2; scene.visual = emptyVisualSystem(); scene.title = 'PRIVATE_PROJECT_TITLE'
+  Object.assign(scene, toCurrentSceneDocument(scene)); scene.title = 'PRIVATE_PROJECT_TITLE'
   const floorId = Object.keys(scene.floors)[0], layerId = scene.entityLayers.item, boundsMm = scene.floors[floorId].boundsMm
-  const start: AuthoringStart = { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: randomUUID(), preparedAt: '2026-10-28T00:00:00.000Z',
-    disclosure: 'complete-metadata/public-model', skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
+  const start = currentAuthoringFixture({ project, seed: randomUUID(), preparedAt: '2026-10-28T00:00:00.000Z',
+    skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
       scene: { floorId, layerId, boundsMm, entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], operations: ['terrain'] },
       visual: { floorId, layerId, boundsMm, entityIds: [], definitionIds: [], materialIds: [], operations: ['visualBoundary'] } },
-    brief: { recipe: 'island', requirements: ['Two editable terrain coasts'] } }
+    brief: { recipe: 'island', requirements: ['Two editable terrain coasts'] } })
   const task: StoredTask = { owner: 'test', fingerprint: 'test', messages: [], calls: {}, runtimeMs: 0, runStartedAt: null, outputBytes: 0, toolAttempts: 0, completedRequests: 0, pendingText: '',
     authoring: { start, state: replayAuthoring(start, []).state }, snapshot: { schemaVersion: 1, id: randomUUID(), clientRequestId: randomUUID(), context: { sceneId: scene.sceneId, revision: scene.revision, audience: 'public' },
       status: 'running', generation: 1, lastSequence: 0, text: '', tools: [], usage: { requests: 0, inputTokens: null, outputTokens: null, unknown: true }, error: null, createdAt: 1, updatedAt: 1, expiresAt: 1000 } }
@@ -109,7 +111,7 @@ describe('short boundary candidate adoption through the ordinary strict ledger',
       anchor: { type: 'entity', entityKind: 'terrainArea', entityId: 'other-land' }, kind: 'clue', title: 'PRIVATE_NOTE_TITLE', text: 'PRIVATE_NOTE_TEXT', visibility, discovered: false }
     scene.entityLayers[noteId] = start.scope.scene!.layerId
     start.scope.scene!.entityIds = ['real-land', 'other-land']; start.scope.visual!.entityIds = ['real-land', 'other-land']
-    start.baseContentHash = authoringProjectHash(start.project); authoring.state = replayAuthoring(start, []).state
+    start.baseContentHash = authoringProjectHash(start.project); Object.assign(start, currentAuthoringFixture(start)); authoring.state = replayAuthoring(start, []).state
     args.atDraftRevision = authoring.state.draftRevision; args.atContentHash = authoring.state.contentHash
     const before = canonicalJson(task)
     const first = run('sceneweave_propose_boundary', args.candidates[0].proposal)
@@ -135,7 +137,7 @@ describe('short boundary candidate adoption through the ordinary strict ledger',
     start.baseContentHash = authoringProjectHash(start.project)
     // The effective lock propagates through the attachment before a new task
     // can be prepared. Such a grant is never a valid tool-execution fixture.
-    expect(() => replayAuthoring(start, [])).toThrow(/未锁定/)
+    expect(() => currentAuthoringFixture(start)).toThrow(/未锁定/)
     expect(canonicalJson(task)).toBe(before)
   })
 
@@ -155,7 +157,7 @@ describe('short boundary candidate adoption through the ordinary strict ledger',
     expect(changedIds).toHaveLength(32)
     // Geometry/hash/ledger equivalence is checked above. This isolates the
     // shared installation gate with a legitimate finite changed-ID receipt.
-    if (next.state.schemaVersion !== 1) throw new Error('Expected legacy receipt fixture')
+    if (next.state.schemaVersion !== 4) throw new Error('Expected current receipt fixture')
     const apply = vi.spyOn(authoringCore, 'applyAuthoringStep').mockReturnValue({ ...next, state: { ...next.state, changedIds } })
     try {
       const result = executeAuthoringTool(task, { id: 'large-boundary-receipt', name: 'sceneweave_apply_boundary_candidates', arguments: JSON.stringify(args) }, args, undefined,

@@ -1,4 +1,5 @@
-import { createEmptyGeneration, createEmptyIdentity2Fields } from '../terrain-generation/contracts.js'
+import { createEmptyIdentity2Fields } from '../terrain-generation/contracts.js'
+import { createEmptyGeneration5 } from '../terrain-generation/composition-contracts.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { z } from 'zod'
 import type { Appearance, DefinitionIdentity, PropTemplate, SceneDocument } from '../model/scene.js'
@@ -38,9 +39,12 @@ function neutralProject(): ProjectData {
     terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     presetSnapshot: { presetId: 'catalog-v1', presetVersion: 1, distanceMode: 'metric', source: 'Sceneweave 素材目录', gridSizeMm: 1000 },
     constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, minDoorWidthMm: 900, pathChecks: [] },
+    mapMode: 'scene', regional: null, generation: createEmptyGeneration5(),
+    visual: { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} },
+    decorations: {}, decorationClusters: {}, surfaceRules: {},
   }
-  return { format: 'sceneweave-complete-project', schemaVersion: 1, authoringSources: {}, document, historyIdentity: { version: 1, lineageId: 'sceneweave-catalog-lineage-v1', rootSceneId: sceneId, propTokens: {}, prefabTokens: {}, outdoorTokens: {} },
-    appearance: { version: 1, sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }, assets: {}, licenses: {}, licenseBindings: [] }
+  return { format: 'sceneweave-complete-project', schemaVersion: 1, authoringSources: {}, document, historyIdentity: { version: 5, ...createEmptyIdentity2Fields(), terrainTokens: {}, decorationTokens: {}, surfaceRuleTokens: {}, lineageId: 'sceneweave-catalog-lineage-v1', rootSceneId: sceneId, propTokens: {}, prefabTokens: {}, outdoorTokens: {} },
+    appearance: { version: 2, presentations: {}, sources: {}, propSources: {}, surfaceSources: {}, instanceAdjustments: {}, layerAdjustments: {}, variants: {}, prefabAppearanceTemplates: {} }, assets: {}, licenses: {}, licenseBindings: [] }
 }
 
 function definitionFor(project: ProjectData, selector: CatalogSelector): DefinitionIdentity & { name: string; tags: string[] } {
@@ -60,12 +64,7 @@ function fixedAssetRoots(document: SceneDocument): Set<string> {
 function extractClosure(source: ProjectData, selectorInput: CatalogSelector): ProjectData {
   const selector = selectorSchema.parse(selectorInput), result = neutralProject(), document = result.document, graph = result.appearance
   const activatePresentations = () => {
-    if (result.schemaVersion === 3) return
-    result.schemaVersion = 3; document.schemaVersion = 3; document.mapMode = 'scene'; document.generation = createEmptyGeneration(); document.regional = null
-    document.visual = { version: 2, base: emptyVisualSystem(), materializedEdges: {} }
-    result.historyIdentity = { ...result.historyIdentity, version: 2, ...createEmptyIdentity2Fields() }
-    graph.version = 2; graph.presentations = {}
-    for (const sourceId of Object.keys(graph.sources)) if (graph.sources[sourceId].kind === 'prop') graph.presentations[sourceId] = cloneJson(source.appearance.presentations?.[sourceId] ?? { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null })
+    for (const sourceId of Object.keys(graph.sources)) if (graph.sources[sourceId].kind === 'prop') graph.presentations![sourceId] = cloneJson(source.appearance.presentations?.[sourceId] ?? { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null })
   }
   const addAsset = (id: string): void => {
     if (Object.hasOwn(document.assets, id)) return
@@ -162,7 +161,7 @@ function fixedHash(project: ProjectData): string {
   const base = { definitions: Object.fromEntries(fixedCollections.map(key => [key, project.document[key]])),
     appearance: Object.fromEntries(appearanceCollections.map(key => [key, project.appearance[key]])), assets: resourceMetadata(project),
     licenseHashes: sorted(Object.keys(project.licenses)), licenseBindings: project.licenseBindings }
-  if (project.schemaVersion === 3) return sha256Text(canonicalJson({ domain: 'sceneweave-fixed-presentation-library', version: 1, base, presentations: project.appearance.presentations, authoringSources: project.authoringSources }))
+  if (Object.values(project.appearance.presentations ?? {}).some(value => value.mode === 'nearSide')) return sha256Text(canonicalJson({ domain: 'sceneweave-fixed-presentation-library', version: 1, base, presentations: project.appearance.presentations, authoringSources: project.authoringSources }))
   return sha256Text(canonicalJson(Object.keys(project.authoringSources).length
     ? { domain: 'sceneweave-svg-fixed', version: 1, base, authoringSources: project.authoringSources } : base))
 }
@@ -180,7 +179,7 @@ function prefabBounds(members: readonly { propTemplate: PropTemplate }[]): { wid
 }
 function describeItem(project: ProjectData, selector: CatalogSelector): CatalogItem {
   const capsule = extractClosure(project, selector), definition = definitionFor(capsule, selector), namespace = sha256Text(canonicalJson(definition.origin)), contentHash = fixedHash(capsule)
-  const algorithm = capsule.schemaVersion === 3 ? 3 : Object.keys(capsule.authoringSources).length ? 2 : 1
+  const algorithm = Object.values(capsule.appearance.presentations ?? {}).some(value => value.mode === 'nearSide') ? 3 : Object.keys(capsule.authoringSources).length ? 2 : 1
   const logicalKey = JSON.stringify([algorithm, namespace, selector.kind, definition.catalogId, definition.version]), key = JSON.stringify([algorithm, namespace, selector.kind, definition.catalogId, definition.version, contentHash])
   const dimension = selector.kind === 'prop' ? own(capsule.document.propDefinitions, selector.definitionId).defaultVisualBoundsMm : selector.kind === 'material' ? own(capsule.document.materials, selector.definitionId).defaultTileSizeMm : prefabBounds(own(capsule.document.prefabDefinitions, selector.definitionId).members)
   const thumbnailAssetIds = selector.kind === 'prop' ? (() => { const image = capsule.document.propDefinitions[selector.definitionId].defaultAppearance; return image.kind === 'image' ? [image.assetId] : [] })()
@@ -291,7 +290,6 @@ export async function adoptLibraryEntries(input: ProjectBundle, entriesInput: Pr
     for (const definition of Object.values(existingDefinitions)) if (definition.catalogId === identity.catalogId && definition.version === identity.fixedVersion
       && sha256Text(canonicalJson(definition.origin)) === identity.namespace
       && describeItem(project, { kind: identity.kind, definitionId: definition.id }).identity.contentHash !== identity.contentHash) throw new Error('相同逻辑素材身份对应不同固定内容。')
-    if (incoming.schemaVersion === 3 && (project.schemaVersion < 3 || project.appearance.version < 2)) throw new Error('近侧视素材需要先保存独立完整v3升级副本，不能丢失表现字段。')
     assertFixedProjectCompatible(project, incoming)
     for (const key of fixedCollections) copyFixed(project.document[key], incoming.document[key], key !== 'assets')
     for (const key of appearanceCollections) copyFixed(project.appearance[key], incoming.appearance[key])

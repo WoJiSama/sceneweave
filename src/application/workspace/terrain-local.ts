@@ -65,14 +65,14 @@ export async function prepareTerrainLocalRefreshProject(base: EditableProject, i
   const validation = { ...options.validation, signal: options.signal ?? options.validation.signal }
   checkCancelled(validation.signal)
   const owned = getVerifiedEditableProject(base) ?? await validateEditableProject(base, validation)
-  if (owned.document.schemaVersion !== 4) throw new Error('局部地形联动需要完整v4工程。')
+  if (owned.document.mapMode !== 'scene') throw new Error('局部地形联动需要场景工程。')
   const budgetProfile = selectTerrainEditBudget(owned.document, options.budget), meter = budgetProfile ? captureExecutionBudget(budgetProfile) : undefined
   const result = prepareTerrainLocalRefresh(owned.document, captureJson(input), { budget: budgetProfile, meter })
   if (options.result && canonicalJson(result) !== canonicalJson(captureJson(options.result))) throw new Error('局部联动结果与确定性重放不符。')
   checkCancelled(validation.signal)
   const identity = advanceHistoryIdentity(owned.historyIdentity, owned.document, result.document, deterministicRuntime(owned.document, result.request, options.runtime))
   const content = syncAppearanceGraph({ document: result.document, historyIdentity: identity, appearance: owned.appearance }, owned.document)
-  const project = await materializeProject({ ...owned, ...content, schemaVersion: 4 }, { runtime: deterministicRuntime(owned.document, result.request, options.runtime), validation, signal: validation.signal, baseline: owned, budget: budgetProfile })
+  const project = await materializeProject({ ...owned, ...content, schemaVersion: 1 }, { runtime: deterministicRuntime(owned.document, result.request, options.runtime), validation, signal: validation.signal, baseline: owned, budget: budgetProfile })
   checkCancelled(validation.signal)
   const cost = budgetProfile ? terrainSemanticCost(owned.document, project.document, budgetProfile) : terrainCommandCost(owned.document, project.document, { before: owned, after: project })
   if (!budgetProfile && cost.total > 256) throw new Error(`局部联动实际展开${cost.total}，超过256；请缩小范围。`)

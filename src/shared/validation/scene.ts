@@ -1,9 +1,9 @@
 import { connectionRouteSchema } from '../geometry/connection-route.js'
-import { decorationSchema, decorationClusterSchema, decorationCluster7Schema, DECORATION_LIMITS } from '../decorations/contracts.js'
+import { decorationSchema, decorationClusterSchema, DECORATION_LIMITS } from '../decorations/contracts.js'
 import { validateDecorations } from '../decorations/validation.js'
 import { surfaceRuleSchema, SURFACE_RULE_LIMITS } from '../surface-rules/contracts.js'
 import { validateSurfaceRules } from '../surface-rules/validation.js'
-import { createVisual2Schema, generationSchema, regionalSchema } from '../terrain-generation/contracts.js'
+import { createVisual2Schema, regionalSchema } from '../terrain-generation/contracts.js'
 import { validateTerrainContracts } from '../terrain-generation/integrity.js'
 import { createVisual3Schema, generation5Schema, legacyTerrainView } from '../terrain-generation/composition-contracts.js'
 import { validateCompositionContracts } from '../terrain-generation/composition-integrity.js'
@@ -26,9 +26,8 @@ export const userLayerSchema = z.object({
   order: z.number().int().min(0).max(USER_LAYER_LIMIT - 1), editLocked: z.boolean(),
 }).strict()
 
-/** Every persisted field is native and strict, including all fixed definitions and layers. */
-export const sceneDocumentSchema = z.object({
-  format: z.literal('sceneweave-scene'), schemaVersion: z.union([z.literal(1), z.literal(2)]), sceneId: id, revision: nonnegative,
+const sceneShape = {
+  format: z.literal('sceneweave-scene'), schemaVersion: z.literal(1), sceneId: id, revision: nonnegative,
   title: z.string().min(1), createdAt: timestamp, updatedAt: timestamp,
   units: z.object({ world: z.literal('mm'), display: z.enum(['m', 'ft']), gridSizeMm: positive, snapMm: positive, gridVisible: z.boolean() }).strict(),
   exportBoundsMm: bounds,
@@ -57,7 +56,7 @@ export const sceneDocumentSchema = z.object({
   terrainEdges: record(z.object({ ...editable, visibility, source: z.object({ areaId: id, segmentId: id }).strict(), neighborAreaId: id.nullable(),
     kind: z.enum(['shore', 'cliff', 'materialTransition']), shoreline: z.boolean(), blocksMovement: z.boolean(), blocksSight: z.boolean(), surfaceStyle: style, styleOverride: edgeStyle.nullable() }).strict()),
   terrainConnections: record(z.object({ ...editable, visibility, kind: z.enum(['stairs', 'ramp']), from: z.object({ surfaceRef, positionMm: point }).strict(), to: z.object({ surfaceRef, positionMm: point }).strict(),
-    widthMm: positive, openingId: id.nullable(), blocksMovement: z.boolean(), movementCostMultiplier: movementCost, surfaceStyle: style }).strict()),
+    widthMm: positive, openingId: id.nullable(), blocksMovement: z.boolean(), movementCostMultiplier: movementCost, surfaceStyle: style, route: connectionRouteSchema.optional() }).strict()),
   paths: record(z.object({ ...editable, visibility, centerlineMm: z.array(point).min(2).max(256), widthMm: positive, supportRefs: z.array(surfaceRef).min(1).refine(unique, '支撑引用不能重复'),
     surfaceStyle: style, movementCostMultiplier: movementCost, renderOrder: rank }).strict()),
   prefabDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, members: z.array(z.object({ key: id, propTemplate: z.object(templateShape).strict() }).strict()).min(1).max(128) }).strict()),
@@ -82,58 +81,22 @@ export const sceneDocumentSchema = z.object({
   constraints: z.object({ entranceOpeningIds: ids, wallEndClearanceMm: nonnegative, minDoorWidthMm: positive.optional(), minPathWidthMm: positive.optional(),
     pathChecks: z.array(z.object({ id, from: anchor, to: anchor, clearanceMm: positive, mode: z.enum(['structural', 'current']), assumedOpenDoorIds: ids }).strict()) }).strict(),
 
-  userLayers: record(userLayerSchema), entityLayers: record(id), visual: visualSystemSchema.optional(),
-}).strict().superRefine((value, context) => {
-  if (value.schemaVersion === 1 && value.visual !== undefined) context.addIssue({ code: 'custom', path: ['visual'], message: '原生v1不得携带视觉字段；请显式升级。' })
-  if (value.schemaVersion === 2 && value.visual === undefined) context.addIssue({ code: 'custom', path: ['visual'], message: '原生v2须携带完整视觉系统。' })
-})
-
-/** New persisted contract; old strict object and its reusable shape stay unchanged. */
-export const sceneDocument3Schema = z.object({ ...sceneDocumentSchema.shape,
-  schemaVersion: z.literal(3), visual: createVisual2Schema(visualSystemSchema),
-  mapMode: z.enum(['scene', 'regional']), generation: generationSchema, regional: regionalSchema.nullable(),
-}).strict().superRefine((value, ctx) => {
-  if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
-  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体。' })
-})
-export const sceneDocument4Schema = z.object({ ...sceneDocument3Schema.shape,
-  schemaVersion: z.literal(4), generation: generation5Schema, visual: createVisual3Schema(createVisual2Schema(visualSystemSchema)),
-}).strict().superRefine((value, ctx) => {
-  if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
-  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体。' })
-})
-/** Curved connection sources are explicit new semantics; all previous strict branches remain unchanged. */
-export const sceneDocument5Schema = z.object({ ...sceneDocument4Schema.shape,
-  schemaVersion: z.literal(5),
-  terrainConnections: record(sceneDocumentSchema.shape.terrainConnections.valueType.extend({ route: connectionRouteSchema.optional() }).strict()),
-}).strict().superRefine((value, ctx) => {
-  if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
-  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体。' })
-})
-export const sceneDocument6Schema = z.object({ ...sceneDocument5Schema.shape,
-  schemaVersion: z.literal(6),
+  userLayers: record(userLayerSchema), entityLayers: record(id),
+  visual: createVisual3Schema(createVisual2Schema(visualSystemSchema)),
+  generation: generation5Schema, mapMode: z.enum(['scene', 'regional']), regional: regionalSchema.nullable(),
   decorations: record(decorationSchema).refine(rows => Object.keys(rows).length <= DECORATION_LIMITS.instances, '轻量装饰数量超过4096保护值。'),
   decorationClusters: record(decorationClusterSchema).refine(rows => Object.keys(rows).length <= DECORATION_LIMITS.clusters, '簇状布景数量超过64保护值。'),
-}).strict().superRefine((value, ctx) => {
-  if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
-  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体或轻量装饰。' })
-})
-export const sceneDocument7Schema = z.object({ ...sceneDocument6Schema.shape,
-  schemaVersion: z.literal(7),
-  decorationClusters: record(decorationCluster7Schema).refine(rows => Object.keys(rows).length <= DECORATION_LIMITS.clusters, '簇状布景数量超过64保护值。'),
-}).strict().superRefine((value, ctx) => {
-  if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
-  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体或轻量装饰。' })
-})
-/** A single rule collection owns v8 paint; v7 canopy metadata remains strict v7 only. */
-export const sceneDocument8Schema = z.object({ ...sceneDocument6Schema.shape,
-  schemaVersion: z.literal(8),
   surfaceRules: record(surfaceRuleSchema).refine(rows => Object.keys(rows).length <= SURFACE_RULE_LIMITS.rules, '地表规则数量超过128保护值。'),
+}
+
+/** The sole current persisted schema includes every supported capability. */
+export const sceneDocumentSchema = z.object({ ...sceneShape,
+  schemaVersion: z.literal(1),
 }).strict().superRefine((value, ctx) => {
   if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
   if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters','surfaceRules'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体、轻量装饰或地表规则。' })
 })
-export const nativeSceneSchema = z.union([sceneDocumentSchema, sceneDocument3Schema, sceneDocument4Schema, sceneDocument5Schema, sceneDocument6Schema, sceneDocument7Schema, sceneDocument8Schema])
+export const nativeSceneSchema = sceneDocumentSchema
 
 export type ValidationResult = { ok: true; document: SceneDocument; warnings: Issue[] } | { ok: false; errors: Issue[] }
 export function validateSceneDocument(input: unknown): ValidationResult {
@@ -144,9 +107,8 @@ export function validateSceneDocument(input: unknown): ValidationResult {
   const parsed = nativeSceneSchema.safeParse(input)
   if (!parsed.success) return { ok: false, errors: parsed.error.issues.map(issue => ({ code: 'SCHEMA', message: `${issue.path.join('.') || 'document'}: ${issue.message}` })) }
   const document = parsed.data as SceneDocument
-  const legacyView = document.schemaVersion >= 4 ? legacyTerrainView(document) : document
-  const dependencies = inspectDependencies(legacyView), geometry = validateGeometry(geometryDocumentForValidation(legacyView))
-  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(legacyView), ...validateTerrainContracts(legacyView), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document)]
+  const dependencies = inspectDependencies(document), geometry = validateGeometry(geometryDocumentForValidation(document))
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document)]
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }
 export const sceneSchema = sceneDocumentSchema

@@ -102,7 +102,7 @@ export function replayBaseMapSource(input: BaseMapSource) {
     for (const rule of Object.values(getLegacyGeneration(content.document)?.rules ?? {})) {
       rule.inputHash = generationInputHash(content.document, rule); rule.managedOutputHash = managedOutputHash(content.document, rule)
     }
-    for (const check of Object.values(content.document.generation?.checks ?? {})) check.inputHash = constraintInputHash(content.document, check.constraintId)
+    for (const check of Object.values(getLegacyGeneration(content.document)?.checks ?? {})) check.inputHash = constraintInputHash(content.document, check.constraintId)
   }
   const metadata = { ...cloneJson(blank), ...content, schemaVersion: content.document.schemaVersion }
   inheritBindings(metadata)

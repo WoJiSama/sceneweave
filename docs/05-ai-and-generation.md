@@ -4,9 +4,23 @@
 
 开发任务只维护在[路线图](07-roadmap.md#development)，统一验收只从[质量计划](09-quality-plan.md#acceptance)执行；本页不再维护并行排期。
 
-本分支第6项使用明确的创作协议4与 `sceneweave-current-authoring@1` 能力接通阶段原子操作、预算边界收尾和实际公开画面复核。旧创作协议1–3、原策略及来源重放保持；不能用通用ProjectData可读完整5/6推定旧协议可编辑。新增能力与精确版本矩阵见[当前创作合同](#current-authoring-contract)，开发自检与真实模型/视觉验收分别记录。原始参考图仍由本机风格卡承接，不自动上传模型。
+**当前工程与AI入口**：开发期只维护[一套完整工程v1](04-scene-document.md#development-single-v1)，保留identity5、appearance2、generation5、visual3及装饰、连续地表规则等全部严格领域字段。客户端、服务端、严格schema与本机重放按完整合同和明确操作能力判断，不以旧工程编号开启权限。新增AI编辑任务只公开创建协议4，明确能力为 `sceneweave-current-authoring@1`；协议1–3仅保留独立旧内部解析和已证真实来源重放，不可据此为当前工程新建编辑任务。
 
-完整3–7的新AI入口必须先协商，再冻结当前工程或真实程序底图来源、有限操作及起始资源闭包。当前工程编辑保护原工程后一次采用；程序底图接续仍独立发布完整新工程。严格v8当前不在能力协商矩阵中；即使工程可由通用严格IO读取，AI也不能编辑v8地表规则或推定获得其成员重排权限。v8支持必须等到明确有限操作、scope/预算、重放和玩家输出授权一并实现后另行登记。普通对话不取得场景写权限；旧协议仍拒绝未声明的曲线、轻量实例及簇状人工记录。数据与升级归[04](04-scene-document.md#curved-connections-v5)／[06](06-storage-and-export.md#curved-connections-v5)。
+创作协议、底图算法/配方重放、预算策略与工程容器分别演进。旧工程内容、source/policy/ledger hash、租约和任务检查点不能改号后复用；缺少确切来源或资源证明时保留成果并拒绝接续。迁入边界归[06](06-storage-and-export.md#development-single-v1-import)，原策略、独立算法6确定性重放及未知计费不自动重发保持。
+
+当前完整v1可包含树冠及连续地表规则，但创作4没有这些规则的写入命令、scope与完整授权覆盖，仍明确拒绝；获准操作若间接破坏规则、其支撑或管理成员也拒绝。普通对话不取得场景写权限。当前入口须先协商，再冻结确切工程或真实程序底图来源、有限操作和起始资源闭包。当前工程编辑保护原工程后一次采用；程序底图接续独立发布完整新工程。
+
+本分支第6项使用创作4接通阶段原子操作、预算收尾和实际公开画面复核。开发自检与真实模型/视觉验收分别记录，当前合同见[2.2](#current-authoring-contract)；下文保留的旧工程版本矩阵、协议1–3创建描述仅解释历史实现和已证来源，不是当前公开创建能力。原始参考图仍由本机风格卡承接，不自动上传模型。
+
+
+<a id="domain-generation-authority"></a>
+### 程序化领域生成与AI权限
+
+参数地图入口使用[独立会话协议](04-scene-document.md#domain-generation-protocol)，Worker和服务端直接执行同一共享领域函数，不调用模型、创建AI任务或改写旧底图执行账本。`GET /v1/generation/capabilities`精确声明三类新工程生成；`POST /v1/generation`使用现有应用Bearer认证和Origin允许列表。旧`/v1/capabilities`响应及创作4协商保持各自原合同。
+
+能力表中的`aiTools`为空；室内、森林和火山生成及D6四类局部重生成均未授权AI调用。局部操作只在`direct`能力表列出，Worker/server明确为空。后续若向模型开放，必须先实现工具协商、scope/规则与资源权限、可本机重放来源、累计预算及采用合同；当前有完整v1或有程序化HTTP入口均不授予这些权限。
+
+用户明确选择服务端后，发送新候选的完整空白场景元数据/固定定义、规范参数、profile及当前工程标识，不发送当前地图/历史/实际图片字节。客户端先核对精确能力再执行，地址/凭据仅在页面内存；取消、超时或未知结果不自动重发、不回退其他执行端。传输与临时报告不进入工程。最终资源与采用边界见[06](06-storage-and-export.md#domain-generation-storage)。
 
 <a id="1-第一版目标"></a>
 ## 1. 能力与非目标
@@ -70,7 +84,7 @@ v2/v3工具轮异常时，实际工具尝试和已完成provider用量仍落入�
 
 新岸岩算法5/配方5另以`GET /v1/capabilities?authoringVersion=3&surfaceVersion=1`显式协商`surfaceRecipeVersions:[1]`；旧裸/2/3能力响应不增加此字段。非法/重复组合拒绝。新5的程序生成POST和AI任务创建前必须确认surface 1，不支持时只读失败，不发送新候选元数据、不剥外观、不降级或自动重发。已有连接遇新5预览时只读更新能力，任务恢复以其自身来源的算法/配方决定所需能力，不能跟随另一个当前预览换义。
 
-算法6/配方6的底图@3另用`GET /v1/capabilities?baseMapSelector=terrain-scene-v6`或`terrain-compose-v6`显式协商相应`baseMapSelectors`及profile hash。旧服务缺少该能力时，显式服务端生成在POST前只读失败；不静默改走本机Worker。该底图选择器没有扩展AI创作能力：完整工程版本仍仅支持3–7，浏览器和服务端拒绝严格v8 AI任务；树冠/连续地表规则仍缺AI操作、scope、预算、完整重放和玩家输出授权。底图与authoring协议仍为3，策略2/计数2及16/64/300秒保持。
+算法6/配方6和算法7/配方7的底图@3分别使用`terrain-scene-v6` / `terrain-compose-v6`与`terrain-scene-v7` / `terrain-compose-v7`显式协商相应`baseMapSelectors`及profile hash。旧服务缺少匹配能力时，显式服务端生成在POST前只读失败；不静默改走本机Worker。新增v7仅授权确定性程序底图，不扩展AI创作能力：完整工程版本仍仅支持3–7，浏览器和服务端拒绝严格v8 AI任务；树冠/连续地表规则仍缺AI操作、scope、预算、完整重放和玩家输出授权。底图与authoring协议仍为3，策略2/计数2及16/64/300秒保持。
 
 新3客户端以`GET /v1/capabilities?authoringVersion=3`协商profile与policy两个独立hash注册表；BaseMap用`POST /v1/terrain/basemap?baseMapVersion=3`选择24MiB reader，AI创建用`POST /v1/tasks?authoringVersion=3`选择48MiB reader，并严格要求body版本一致。已有2连接遇到3候选时可追加只读能力查询，未匹配不发送新来源、不降级或重发。新3的来源/步骤usage、执行workUsage、四hash及采用凭证分别严格分派，账本不混入失败编辑；真实执行工作在检查点中跨失败/预演/重放累计。
 
@@ -85,22 +99,22 @@ v2以`authoring_checkpoint`事件一次更新创作摘要、usage与executionChe
 <a id="current-authoring-contract"></a>
 ### 2.2 当前完整工程创作v4：阶段、收尾与实际公开画面
 
-这是独立AI任务合同，不新增完整工程容器、数据库表或工程字段。外层HTTP仍为 `/v1`，创建前必须查询 `GET /v1/capabilities?authoringVersion=4`，同时匹配 `authoringVersions` 中的4、`currentAuthoring:'sceneweave-current-authoring@1'`、实际完整工程版本、冻结policyHash；真实source3另匹配profileHash和需要的surface能力。服务明确返回 `completeProjectVersions:[3,4,5,6,7]` 与 `visualReviewVersions:[1]`；裸/旧2/3响应不附带新能力。创建用 `POST /v1/tasks?authoringVersion=4` 严格要求body为4，读写不剥字段降级。未匹配时不发送新工程元数据，不自动改走旧协议。
+这是独立AI任务合同，不新增完整工程容器、数据库表或工程字段。外层HTTP仍为 `/v1`，创建前必须查询 `GET /v1/capabilities?authoringVersion=4`，同时匹配 `authoringVersions` 中的4、`currentAuthoring:'sceneweave-current-authoring@1'`、实际完整工程版本、冻结policyHash；真实source3另匹配profileHash和需要的surface能力。服务明确返回 `authoringVersions:[4]`、`completeProjectVersions:[1]` 与 `visualReviewVersions:[1]`；旧协议查询不广告当前创建能力，不能由它们取得full1写权限。创建用 `POST /v1/tasks?authoringVersion=4` 严格要求body为4，读写不剥字段降级。未匹配时不发送新工程元数据，不自动改走旧协议。
 
 | 输入与领域 | 创作4的明确能力与保留边界 |
 |---|---|
-| 当前完整3–7 | `source.version:4,kind:'current-baseline'` 保存确切完整project/hash、资源闭包hash、flowId与当前scene/revision/contentHash/checkpoint；没有虚构空白、生成请求或生成时间。账本首项为baseline，G=0。原工程保护/CAS、一次提交和撤销继续有效。 |
+| 当前完整v1 | `source.version:4,kind:'current-baseline'` 保存确切完整project/hash、资源闭包hash、flowId与当前scene/revision/contentHash/checkpoint；没有虚构空白、生成请求或生成时间。账本首项为baseline，G=0。原工程保护/CAS、一次提交和撤销继续有效。 |
 | 真实程序底图接续 | 仅完整验证的source3，保留原空白、请求/完整结果、身份分配、真实资源、G和注册profile；不能仅以seed或相同结果hash升级来源。新的协议4账本独立计算，旧3账本不改写。G中的既有底图实体只证明生成与采用影响，不能当作本次AI新建来扩大read/write授权；原实体仍须明确scope，AI真正新建的ID才可供后续步骤使用。独立新工程的保护/保存/冷读/切换合同仍按2.1执行。 |
-| 普通有限物件、建筑、室外、固定材质及视觉工具 | 完整3–7只开放已实现命令与明确scope；视觉领域以同源native命令执行。实体、支撑、图层与锁、公开性、依赖及资源都要验证；近侧视与轻量实例的授权矩形/遮罩、上下文和候选按真实根锚后的paint polygon，物理支撑/通行仍按原footprint。图片不授予结构修改或通行。 |
-| 算法地形/区域工具 | `terrainGenerate/terrainEdit/regionalGenerate/regionalEdit`仍仅完整3；`terrainLocal`仍仅完整4。完整5/6不继承这些算法工具的可用声明。 |
-| 曲线连接 | 仅完整5–7的 `connectionRoute/connectionRouteUpdate`，共享严格route与手工命令，源控制与完整整数采样均保留；范围与命中按实际曲线带区，不能按端点弦授权。 |
-| 簇状装饰 | 仅完整6/7的创建/再生/调整/删除/退出/删簇有限操作，复用手工命令及完整成员、出生、人工移动/删除/退出记录；palette逐项绑定已授权固定definitionRef版本，真实叶片/组/成员及依赖均计价。 |
-| 树冠区域与连续地表规则 | 当前没有AI树冠/连续地表规则配方。AI能力目前限完整3–7，因此严格v8不协商、不写入；其他获准场景操作若改变v6/v7簇成员，仍完整检查人工记录、受众、支撑、锁和授权依赖。 |
+| 普通有限物件、建筑、室外、固定材质及视觉工具 | 当前完整v1只开放已实现命令与明确scope；视觉领域以同源native命令执行。实体、支撑、图层与锁、公开性、依赖及资源都要验证；近侧视与轻量实例的授权矩形/遮罩、上下文和候选按真实根锚后的paint polygon，物理支撑/通行仍按原footprint。图片不授予结构修改或通行。 |
+| 算法地形/区域工具 | `terrainGenerate/terrainEdit/regionalGenerate/regionalEdit/terrainLocal`按完整v1中的真实地形、组合、区域能力与明确scope检查；算法/配方版本各自重放，不由工程编号推定可用。 |
+| 曲线连接 | 当前完整v1的 `connectionRoute/connectionRouteUpdate`，共享严格route与手工命令，源控制与完整整数采样均保留；范围与命中按实际曲线带区，不能按端点弦授权。 |
+| 簇状装饰 | 当前完整v1的创建/再生/调整/删除/退出/删簇有限操作，复用手工命令及完整成员、出生、人工移动/删除/退出记录；palette逐项绑定已授权固定definitionRef版本，真实叶片/组/成员及依赖均计价。 |
+| 树冠区域与连续地表规则 | 当前完整v1保留这些内容，但没有AI树冠/连续地表规则写入配方，未知规则命令和显式规则授权拒绝；其他获准操作若改变规则、依赖支撑或其管理成员，也拒绝间接破坏。获准簇操作仍完整检查人工记录、受众、支撑、锁和授权依赖。 |
 | 资源 | 只能引用起始工程内明确授权的固定定义、材质、固定presentation、源祖先、PNG/SVG原件和确切许可闭包。任务不新建SVG、延后派生位图、远程素材或未授权palette。原生放置可增加实例source/presentation绑定，但其快照与表现参数必须精确继承已授权的起始固定定义/模板/源祖先或标准topDown；旧source/presentation、变体、位图和许可不可删改。完整字节、实际像素和本机完整重放不省略。 |
 
 当前工程模式沿用策略1的A256，并由创作4另行严格限定**整个任务实际展开及最终采用最多256**，分步和阶段均不能绕过。工作维度以small各维限额为创作4普通模式的显式保护，语义为256，计算累计最多64倍，保留量取峰值，执行时间300秒；它不是新的注册底图档位。真实source3保持策略2和512/1024/2048档位以及各独立工作/几何/资源维度。模型16次、工具64次、主动执行300秒、完整任务16MiB、全库256MiB、七日生命周期保持，48MiB reader不构成存储容量承诺。模型只获得自身G/A/最终成本、剩余编辑额度、固定限额和opaque身份hash；完整retained/work资源计量留在用户snapshot/state/检查点，不把范围外私密记录的聚合计数或字节外发。
 
-普通算法5岩岛经[生成后布景](14-visual-and-assets.md#generated-island-dressing)升级完整v6并采用十二素材/实际簇后，必须以该完整当前结果创建`current-baseline`任务。固定根锚、来源/许可和实际成员进入同一基线闭包，明确授权后才能精修；原底图source3不能重建这些后追加表现或成员，不将它们回填为原生成结果，也不继承其G账本或注册档位。本机确定性有限操作只证明此衔接可准备合法候选，不表示已调用真实模型或完成画面复核。
+普通算法5岩岛经[生成后布景](14-visual-and-assets.md#generated-island-dressing)在当前完整v1采用十二素材/实际簇后，必须以该完整当前结果创建`current-baseline`任务。固定根锚、来源/许可和实际成员进入同一基线闭包，明确授权后才能精修；原底图source3不能重建这些后追加表现或成员，不将它们回填为原生成结果，也不继承其G账本或注册档位。本机确定性有限操作只证明此衔接可准备合法候选，不表示已调用真实模型或完成画面复核。
 
 `sceneweave_apply_stage`接收阶段、完整草稿expected及1–64条有限配方；内部每步最多16条，在同一分离草稿和累计账本逐步完整预演，最终工具回执也须不超过8KiB，成功才一次安装。后段失败、超预算、范围或锁冲突时整个阶段不安装；同一provider轮仍保留原有更强的整轮原子性。重复/no-op继续计价；失败/预演的实际工作、工具尝试及已完成provider用量不回退。当前草稿的read/context和每个新4编辑回执提供包括代次和四hash的expected，不能让模型猜测身份。
 

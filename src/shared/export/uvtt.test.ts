@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import type { Opening, PointMm, Prop, SceneDocument } from '../model/scene.js'
 import { createAppearanceGraph } from '../appearance/graph.js'
@@ -12,16 +13,12 @@ import { emptyVisualSystem, type VisualLight } from '../visual/types.js'
 import { buildUvttPlan, UVTT_LIMITS } from './uvtt.js'
 
 const p = (x: number, y: number): PointMm => ({ x, y })
-function fixture(version: SceneDocument['schemaVersion'] = 1): SceneDocument {
-  const scene: SceneDocument = { format: 'sceneweave-scene', schemaVersion: version, sceneId: 'uvtt-fixture', revision: 7, title: 'Private source title must not enter UVTT', createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z',
+function fixture(_internalFixture = 1): SceneDocument {
+  const scene = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'uvtt-fixture', revision: 7, title: 'Private source title must not enter UVTT', createdAt: '2026-11-02T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z',
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: true }, exportBoundsMm: { x: 0, y: 0, width: 12000, height: 10000 },
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: { x: -10000, y: -10000, width: 40000, height: 40000 } } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: {},
-    presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'geometry-only unit fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, pathChecks: [] } }
-  if (version >= 2) scene.visual = emptyVisualSystem()
-  if (version >= 3) { scene.mapMode = 'scene'; scene.regional = null; scene.generation = createEmptyGeneration(); scene.visual = { version: 2, base: emptyVisualSystem(), materializedEdges: {} } }
-  if (version >= 4) { scene.generation = createEmptyGeneration5(); scene.visual = { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} } }
-  if (version >= 6) { scene.decorations = {}; scene.decorationClusters = {} }
+    presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'geometry-only unit fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, pathChecks: [] } })
   return scene
 }
 function wall(scene: SceneDocument, a = p(1000, 2000), b = p(11000, 2000), id = 'wall') {
@@ -49,7 +46,7 @@ function light(scene: SceneDocument, id: string, changes: Partial<VisualLight> =
 const warnings = (scene: SceneDocument) => buildUvttPlan(scene).report.warnings.join('\n')
 
 describe('pure fixed-UBI UVTT layout and independent rendering plan', () => {
-  it.each([1, 2, 3, 4, 5, 6] as const)('reads strict scene %i without changing its persistent contract', version => {
+  it.each([1] as const)('reads strict scene %i without changing its persistent contract', version => {
     const scene = fixture(version), graph = createAppearanceGraph(scene), before = canonicalJson(scene), graphBefore = canonicalJson(graph)
     const result = buildUvttPlan(scene, graph)
     expect(result.report.blocked).toEqual([]); expect(result.geometry?.format).toBe(.2)

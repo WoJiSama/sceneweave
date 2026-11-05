@@ -58,7 +58,7 @@ describe('T3 fixed seed and size matrix', () => {
     if (kind === 'lake') expect(scene.terrainAreas['terrain-lake'].blocksMovement).toBe(true)
     if (kind === 'forest' || kind === 'mixed') expect(scene.terrainAreas['terrain-forest'].movementCostMultiplier).toBeGreaterThan(1)
     const complete = composeTerrainDocument(base, result, 't3-matrix-birth')
-    expect(complete.cost.total).toBe(result.cost.total)
+    expect(complete.cost.total).toBeGreaterThan(result.cost.total)
     expect(validateSceneDocument(JSON.parse(canonicalJson(complete.document))).ok).toBe(true)
     const center = result.activity.boundaryMm.reduce((sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4 }), { x: 0, y: 0 })
     const painted = prepareTerrainEdit(complete.document, { kind: 'brush', sceneId: scene.sceneId, operationId: `t3-paint-${kind}-${seed}-${widthMm}-${heightMm}`, floorId: 'visual-floor',

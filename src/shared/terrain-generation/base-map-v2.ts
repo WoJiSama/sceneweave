@@ -15,7 +15,7 @@ export type BaseMapRequestV2 = z.infer<typeof BaseMapRequestV2Schema>
 export const BaseMapResponseV2Schema = BaseMapResponseV1Schema.omit({ version: true, resultHash: true }).extend({
   version: z.literal(2), flowId: id, policyHash: hash, resultHash: hash,
   generationBudget: z.object({ semanticTargets: z.array(z.string().min(1).max(512)).max(256), semanticCost: z.number().int().min(0).max(256),
-    complexityCost: z.number().int().min(0).max(256) }).strict(),
+    complexityCost: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict(),
 }).strict()
 export type BaseMapResponseV2 = z.infer<typeof BaseMapResponseV2Schema>
 

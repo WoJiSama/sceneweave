@@ -23,6 +23,8 @@ import type { MigrationSourceV6 } from '../../io/v6/types'
 import { CONVERTER_VERSION, type ConvertedFamily, type LegacyBlob, type LegacySource } from '../../shared/migration/types.js'
 import type { ProjectBundle, ProjectData, AssetRecord, LicenseBinding, LicenseTextRecord } from '../../shared/model/project.js'
 import type { SceneDocument } from '../../shared/model/scene.js'
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
+import { topDownPresentation } from '../../shared/appearance/presentation.js'
 import type { AppearanceGraph } from '../../shared/model/appearance.js'
 import type { HistoryIdentity } from '../../shared/model/history.js'
 import type { SnapshotBundle } from '../../shared/project/history.js'
@@ -181,7 +183,7 @@ function nativeDocument(project: LegacyProject, repository: LegacyRepository, ta
     if (targetSceneId === null) Object.assign(document, { sceneId: project.document.sceneId, revision: project.document.revision })
     document.updatedAt = project.document.updatedAt
   } else document = cloneJson(project.document) as SceneDocumentV3
-  return { ...document, format: 'sceneweave-scene', schemaVersion: 1, ...(targetSceneId !== null ? { sceneId: targetSceneId, revision: 0 } : {}) }
+  return toCurrentSceneDocument({ ...document, format: 'sceneweave-scene', schemaVersion: 1, ...(targetSceneId !== null ? { sceneId: targetSceneId, revision: 0 } : {}) })
 }
 function nativeProject(project: LegacyProject, repository: LegacyRepository, targetSceneId: string | null, context: PreparationContext, bytes: Map<string, Uint8Array>): ProjectBundle {
   const document = nativeDocument(project, repository, targetSceneId)
@@ -192,9 +194,13 @@ function nativeProject(project: LegacyProject, repository: LegacyRepository, tar
     identity = { ...previous, version: 1, prefabTokens: repository === 'v5' ? previous.prefabTokens : Object.fromEntries(Object.keys(document.prefabInstances).map(key => [key, context.ids.nextId()])),
       outdoorTokens: Object.fromEntries(Object.entries(outdoorIdentityDescriptors(document)).map(([key, descriptor]) => [key, { ...descriptor, token: context.ids.nextId(), topologyToken: context.ids.nextId() }])) } as HistoryIdentity
   } else identity = createHistoryIdentity(document, context)
+  identity = { ...createHistoryIdentity(document, context), ...identity, version: 5 }
+  const appearance = cloneJson(project.appearance ?? createAppearanceGraph(document))
+  appearance.version = 2
+  appearance.presentations = Object.fromEntries(Object.values(appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()]))
   const assets = Object.fromEntries(Object.entries(project.assets).map(([key, { blob: _blob, ...record }]) => [key, record])) as Record<string, AssetRecord>
   const data: ProjectData = { format: 'sceneweave-complete-project', schemaVersion: 1, document, historyIdentity: identity,
-    appearance: cloneJson(project.appearance ?? createAppearanceGraph(document)), assets, licenses: cloneJson(project.licenses), licenseBindings: cloneJson(project.licenseBindings), authoringSources: {} }
+    appearance, assets, licenses: cloneJson(project.licenses), licenseBindings: cloneJson(project.licenseBindings), authoringSources: {} }
   return { project: validateProjectData(data), resources: createMemoryResources(bytes) }
 }
 

@@ -9,6 +9,7 @@ import { advanceHistoryIdentity } from '../history/identity.js'
 import { validateProjectData } from '../project/validate.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
+import { currentAuthoringOperationSupported, assertUnsupportedRuleContentUnchanged } from './current-authoring-capability.js'
 import { visualBase } from '../visual/base.js'
 import { generateTerrainDocument } from '../terrain-generation/generate.js'
 import { composeTerrainDocument } from '../terrain-generation/compose.js'
@@ -32,8 +33,14 @@ function entities(scene: SceneDocument): Map<string, { id: string; floorId?: str
   const visual = visualBase(scene)
   const collections = [...LAYER_ENTITY_COLLECTIONS.map(key => scene[key]), ...Object.values({ boundaries: visual?.boundaries, edgeLooks: visual?.edgeLooks, lights: visual?.lights, fogs: visual?.fogs, filters: visual?.filters,
     transitions: scene.visual?.version === 3 ? scene.visual.transitions : undefined,
-    materializedEdges: scene.visual?.version === 2 ? scene.visual.materializedEdges : undefined, areas: scene.regional?.areas, lines: scene.regional?.lines, landmarks: scene.regional?.landmarks, symbols: scene.regional?.symbols })]
+    materializedEdges: scene.visual?.version === 3 ? scene.visual.base.materializedEdges : undefined, areas: scene.regional?.areas, lines: scene.regional?.lines, landmarks: scene.regional?.landmarks, symbols: scene.regional?.symbols })]
   return new Map(collections.flatMap(rows => Object.values(rows ?? {})).map(row => [row.id, row]))
+}
+function hasGenerationContent(scene: SceneDocument): boolean {
+  const legacy = getLegacyGeneration(scene)
+  if (Object.entries(legacy ?? {}).some(([key, value]) => key !== 'version' && value && typeof value === 'object' && Object.keys(value).length)) return true
+  const generation = scene.generation
+  return generation?.version === 5 && ['features', 'compositions', 'requirements', 'checks', 'thresholds', 'dependencies'].some(key => Object.keys((generation as unknown as Record<string, object>)[key]).length > 0)
 }
 function assertGrant(project: ProjectData, scope: SceneAuthoringScope | CurrentSceneAuthoringScope, allowed: ReadonlySet<string>) {
   // Conservative first release: a complete public dependency closure is required.
@@ -83,16 +90,15 @@ function finish(project: ProjectData, document: SceneDocument, context: Preparat
 }
 export function applyTerrainAuthoringOperation(project: ProjectData, scope: SceneAuthoringScope | CurrentSceneAuthoringScope, raw: TerrainAuthoringOperation, context: PreparationContext, allowed: ReadonlySet<string>, budget?: TaskBudgetProfile) {
   const operation = TerrainAuthoringOperationSchema.parse(raw), before = project.document
-  const local = operation.kind === 'terrainLocal'
-  if ((local ? project.schemaVersion !== 4 || before.schemaVersion !== 4 : project.schemaVersion !== 3 || before.schemaVersion !== 3) || !scope.operations.includes(operation.kind)) restricted()
+  if (!currentAuthoringOperationSupported(project, operation.kind) || !scope.operations.includes(operation.kind)) restricted()
   assertGrant(project, scope, allowed)
   const meter = budget ? captureExecutionBudget(budget) : undefined, options = { budget, meter }
   let document: SceneDocument, cost: number
   if (operation.kind === 'terrainGenerate') {
     const request = operation.request
-    if (before.mapMode !== 'scene' || before.visual?.version !== 2 || entities(before).size || Object.values(before.generation ?? {}).some(value => typeof value === 'object' && value !== null && Object.keys(value).length)
+    if (before.mapMode !== 'scene' || before.visual?.version !== 3 || entities(before).size || hasGenerationContent(before)
       || !boundsContains(scope.boundsMm, before.exportBoundsMm) || request.sceneId !== before.sceneId) restricted()
-    const blank = cloneJson(before); blank.schemaVersion = 2; blank.visual = cloneJson(visualBase(before)!); delete blank.generation; delete blank.regional; delete blank.mapMode
+    const blank = cloneJson(before)
     const result = composeTerrainDocument(blank, generateTerrainDocument(blank, request), context.ids.nextId(), budget)
     document = result.document; cost = terrainCommandCost(before, document).total
   } else if (operation.kind === 'terrainEdit') {
@@ -109,7 +115,6 @@ export function applyTerrainAuthoringOperation(project: ProjectData, scope: Scen
     if (request.sceneId !== before.sceneId || entities(before).size || request.operations?.length || request.selectionMm || !boundsContains(scope.boundsMm, before.exportBoundsMm)
       || request.floorId && request.floorId !== scope.floorId || request.layerId && request.layerId !== scope.layerId) restricted()
     const blank = cloneJson(before)
-    if (blank.mapMode === 'scene' && blank.visual?.version === 2) { blank.schemaVersion = 2; blank.visual = cloneJson(blank.visual.base); delete blank.generation; delete blank.regional; delete blank.mapMode }
     const result = prepareRegionalAuthoring(blank, { ...request, floorId: scope.floorId, layerId: scope.layerId }, options); document = result.document; cost = terrainCommandCost(before, document).total
   } else {
     const request = operation.request
@@ -118,6 +123,7 @@ export function applyTerrainAuthoringOperation(project: ProjectData, scope: Scen
   }
   assertOutputs(project, document, scope, allowed)
   const next = finish(project, document, context)
+  assertUnsupportedRuleContentUnchanged(project, next)
   if (budget) assertTaskBudget(budget, measureTaskBudget(before, next.document, { before: project, after: next }))
   const previous = entities(before), current = entities(document)
   const writeIds = [...new Set([...previous.keys(), ...current.keys()])].filter(id => !same(previous.get(id), current.get(id))).sort()

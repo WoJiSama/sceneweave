@@ -21,7 +21,7 @@ export default function TerrainTransitionPanel({ scene, layerId, disabled, onPre
   const [side, setSide] = useState<TerrainTransition['side']>('both')
   const [widthMm, setWidthMm] = useState(600), [sampleSpacingMm, setSpacing] = useState(300)
   const [error, setError] = useState('')
-  if (!visual) return <p>请先在工程面板保存独立的完整 v4 地貌组合副本，再使用严格地形过渡。</p>
+  if (!visual) return <p>当前工程缺少地形过渡所需的完整视觉数据，请重新打开有效的当前完整工程。</p>
   const create = () => {
     try {
       const boundary = visual.base.base.boundaries[boundaryId]

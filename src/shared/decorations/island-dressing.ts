@@ -25,13 +25,13 @@ const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 
 /** Select real public outputs of one ordinary island5 recipe, never area names or unrelated terrain. */
 function islandSupports(scene: SceneDocument): IslandSupports {
-  if (scene.schemaVersion < 3 || scene.schemaVersion > 8 || scene.mapMode !== 'scene') throw new Error('请使用普通算法5生成的岩岛工程。')
+  if (scene.mapMode !== 'scene') throw new Error('请使用普通算法5生成的岩岛工程。')
   const generation = getLegacyGeneration(scene), visible = createPublicVisibility(scene)
   const rules = Object.values(generation?.rules ?? {}).filter(rule => {
     const recipe = generation!.recipes[rule.recipeRef.id]
     return rule.kind === 'terrain' && rule.state === 'active' && rule.visibility === 'public'
       && recipe?.algorithmId === 'terrain-scene' && recipe.algorithmVersion === 5 && recipe.recipeVersion === 5
-      && rule.recipeRef.version === 5 && recipe.mapMode === 'scene' && recipe.parameters.terrainKind === 'island'
+      && rule.recipeRef.version === 5 && recipe.mapMode === 'scene' && !('domain' in recipe) && recipe.parameters.terrainKind === 'island'
   })
   if (rules.length !== 1) throw new Error('布景配方需要唯一、活动且公开的普通算法5岩岛来源。')
   const rule = rules[0], recipe = generation!.recipes[rule.recipeRef.id]
@@ -73,7 +73,6 @@ function distanceToBoundary(point: PointMm, polygon: PointMm[]): number {
 export function buildIslandDressingCommandsV2(scene: SceneDocument, options: { nextId: () => string; appearance: AppearanceGraph }): {
   version: typeof ISLAND_DRESSING_PRESET_V2; commands: SceneCommand[]; report: string
 } {
-  if (scene.schemaVersion < 6) throw new Error('请先保全原工程并准备独立完整v6布景副本。')
   if (hasIslandDressingV2(scene)) throw new Error('此岩岛已应用成图细化配方；请继续编辑现有物件与楼梯，不能重复追加。')
   const supports = islandSupports(scene), crown = supports.crown, lower = supports.lower
   for (const support of [crown, lower]) {
@@ -184,7 +183,6 @@ export function buildIslandDressingCommandsV2(scene: SceneDocument, options: { n
 export function buildIslandDressingCommands(scene: SceneDocument, options: { nextId: () => string; layerId?: string }): {
   version: typeof ISLAND_DRESSING_PRESET; commands: CreateCluster[]; report: string
 } {
-  if (scene.schemaVersion < 6) throw new Error('请先保全原工程并准备独立完整v6布景副本。')
   const supports = islandSupports(scene)
   const recipes = [
     { role: 'crown', support: supports.crown, palette: palette(false), maxInstances: 14 },

@@ -10,7 +10,7 @@ import { SHORE_MATERIAL_IDS } from '../visual/shore-art.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 
 /** These defaults belong only to terrain recipe6. Saved rules remain ordinary
- * editable v8 rules; changing a future recipe must use another selector. */
+ * editable current rules; changing a future recipe must use another selector. */
 export const AUTOMATIC_SURFACE_RECIPE6 = Object.freeze([
   { field: 'trees' as const, key: 'tree-wind-oak', coveragePpm: 300_000, spacingMm: 650, radiusMm: 1700 },
   { field: 'shrubs' as const, key: 'shrub-heath-mound', coveragePpm: 75_000, spacingMm: 280, radiusMm: 1200 },
@@ -30,13 +30,13 @@ const isWaterMaterial = (scene: SceneDocument, id: string) => /water|sea|ocean|l
 /** New-candidate construction only. It never regenerates or overwrites an
  * adopted scene. All geometry, physical support and privacy stay in place. */
 export function addAutomaticSurfaceRules6(input: SceneDocument, seed: string, meter: ExecutionBudget): SceneDocument {
-  if (input.schemaVersion !== 4 || input.generation?.version !== 5 || input.visual?.version !== 3) throw new Error('自动地表配方6需要独立完整scene4候选。')
+  if (input.generation?.version !== 5 || input.visual?.version !== 3) throw new Error('自动地表配方6需要独立完整候选。')
   for (const spec of AUTOMATIC_SURFACE_RECIPE6) {
     const definition = input.propDefinitions[terrainVariantDefinitionId(spec.key)]
     if (!definition || definition.version !== 1 || definition.defaultAppearance.kind !== 'image') throw new Error(`自动地表配方6缺少已采用的确切固定素材：${spec.key}。`)
   }
   const scene = cloneJson(input)
-  scene.schemaVersion = 8; scene.decorations = {}; scene.decorationClusters = {}; scene.surfaceRules = {}
+  scene.decorations = {}; scene.decorationClusters = {}; scene.surfaceRules = {}
   const generation = getLegacyGeneration(scene)!, removed = new Set<string>()
   // Earlier recipes emitted isolated plants under terrain ownership. A new
   // recipe replaces only those fresh candidate plants with independent rule

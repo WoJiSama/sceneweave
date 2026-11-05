@@ -1,8 +1,10 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { visualBase } from '../visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
 import { authoringProjectHash, applyAuthoringStep, replayAuthoring, publicAuthoringContext } from './authoring.js'
-import type { AuthoringOperation, AuthoringStart } from './authoring-protocol.js'
+import type { AuthoringOperationV4 as AuthoringOperation, AuthoringStartV4 as AuthoringStart } from './authoring-protocol-v4.js'
+import { createCurrentAuthoringStartV4 } from './current-authoring.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { validateProjectData } from '../project/validate.js'
@@ -13,12 +15,17 @@ import { sha256Text } from '../validation/hash.js'
 
 function start(): AuthoringStart {
   const project = cloneJson(svgProjectFixture().bundle.project)
-  project.schemaVersion = 2; project.document.schemaVersion = 2; project.document.visual = emptyVisualSystem()
+  project.document = toCurrentSceneDocument(project.document)
   const floorId = Object.keys(project.document.floors)[0], layerId = project.document.entityLayers.item, boundsMm = project.document.floors[floorId].boundsMm
-  return { schemaVersion: 1, project: validateProjectData(project), baseContentHash: authoringProjectHash(project), seed: 'fcb3353d-8c8f-4890-b002-a9f5a464a769', preparedAt: '2026-10-25T00:00:00.000Z',
-    disclosure: 'complete-metadata/public-model', skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
+  return cloneJson(createCurrentAuthoringStartV4({ project: validateProjectData(project), flowId: 'visual-test', preservation: { sceneId: project.document.sceneId, revision: project.document.revision, contentHash: authoringProjectHash(project), checkpoint: 0 }, seed: 'fcb3353d-8c8f-4890-b002-a9f5a464a769', preparedAt: '2026-10-25T00:00:00.000Z',
+    skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
       visual: { floorId, layerId, boundsMm, entityIds: ['item'], definitionIds: [], materialIds: [], operations: ['visualBoundary', 'visualEdge', 'visualLight', 'visualFog', 'visualFilter', 'visualEnvironment', 'visualRemove'], allowGlobalEnvironment: true } },
-    brief: { recipe: 'beach', requirements: ['A continuous shore and a warm light'] } }
+    brief: { recipe: 'beach', requirements: ['A continuous shore and a warm light'] } }))
+}
+function reauthorize(input: AuthoringStart): AuthoringStart {
+  const project = input.project
+  return cloneJson(createCurrentAuthoringStartV4({ project, scope: input.scope, seed: input.seed, preparedAt: input.preparedAt, flowId: 'visual-test',
+    preservation: { sceneId: project.document.sceneId, revision: project.document.revision, contentHash: authoringProjectHash(project), checkpoint: 0 }, brief: input.brief, skill: input.skill }))
 }
 const boundary: AuthoringOperation = { kind: 'visualBoundary', id: 'coast', closed: false, segments: [{ id: 'coast-segment', start: { x: 3000, y: 3000 }, control1: { x: 5000, y: 3000 }, control2: { x: 5000, y: 5000 }, end: { x: 7000, y: 5000 } }], sampleSpacingMm: 1000, toleranceMm: 100, binding: { kind: 'decoration' } }
 const edge: AuthoringOperation = { kind: 'visualEdge', id: 'foam', boundaryId: 'coast', edgeKind: 'shore', side: 'left', widthMm: 200, color: '#FFFFFF', accentColor: '#E4DFB4', opacity: .8, intensity: 1, seed: 'shore-seed', repeatMm: 300, enabled: true }
@@ -51,7 +58,7 @@ describe('visual authoring capabilities and atomic replay', () => {
   it('replays a bounded shore and point light through native commands without changing physical objects or main revision', () => {
     const input = start(), before = canonicalJson(input.project), initial = replayAuthoring(input, [])
     const result = applyAuthoringStep(input, initial.state, [boundary, edge, light], 'coast-step')
-    expect(result.project.schemaVersion).toBe(2)
+    expect(result.project.schemaVersion).toBe(1)
     expect(visualBase(result.project.document)?.edgeLooks.foam.boundaryId).toBe('coast')
     expect(visualBase(result.project.document)?.lights.lamp.radiusMm).toBe(1000)
     expect(result.project.document.props).toEqual(input.project.document.props)
@@ -82,10 +89,9 @@ describe('visual authoring capabilities and atomic replay', () => {
     expect(replayAuthoring(input, finished.state.steps)).toEqual(finished)
     expect(() => proposeAuthoringTerrainBoundary(finished.project, scope, new Set(finished.state.changedIds), { areaId: 'first-land', boundaryId })).toThrow(/未占用/)
   })
-  it('refuses visual operations on scene-v1 before a user explicitly creates a v2 copy', () => {
-    const input = start(); delete input.project.document.visual; input.project.document.schemaVersion = 1; input.project.schemaVersion = 1
-    input.baseContentHash = authoringProjectHash(input.project)
-    expect(() => replayAuthoring(input, [])).toThrow(/v2独立副本/)
+  it('refuses incomplete visual shape without treating project1 as the old contract', () => {
+    const input = start(); Reflect.deleteProperty(input.project.document, 'visual')
+    expect(() => replayAuthoring(input, [])).toThrow()
   })
   it('rejects a late out-of-scope operation atomically and includes visual expansion in the 256 budget', () => {
     const input = start(), initial = replayAuthoring(input, [])
@@ -125,9 +131,9 @@ describe('visual authoring capabilities and atomic replay', () => {
     expect(members[0].positionMm).not.toEqual(members[1].positionMm)
     expect(members.every(prop => prop.positionMm.x === 3000 && prop.positionMm.y > 3000 && prop.positionMm.y < 6000)).toBe(true)
     expect(replayAuthoring(input, result.state.steps)).toEqual(result)
-    const blocked = start(); blocked.scope.visual!.definitionIds = ['definition']; blocked.scope.visual!.operations.push('furnishAlong')
+    let blocked = start(); blocked.scope.visual!.definitionIds = ['definition']; blocked.scope.visual!.operations.push('furnishAlong')
     blocked.project.document.propDefinitions.definition.defaultBlocksMovement = true
-    blocked.baseContentHash = authoringProjectHash(blocked.project)
+    blocked = reauthorize(blocked)
     const withCurve = applyAuthoringStep(blocked, replayAuthoring(blocked, []).state, [boundary], 'curve')
     expect(() => applyAuthoringStep(blocked, withCurve.state, [{ kind: 'furnishAlong', source: { kind: 'boundary', id: 'coast' }, definitionId: 'definition', supportRef: { kind: 'floor', id: grant.floorId }, count: 2, startDistanceMm: 0, spacingMm: 1, offsetMm: 0 }], 'overlap')).toThrow(/占地冲突/)
     expect(replayAuthoring(blocked, withCurve.state.steps)).toEqual(withCurve)
@@ -145,12 +151,12 @@ describe('visual authoring capabilities and atomic replay', () => {
     expect(replayAuthoring(input, recreated.state.steps).visualInvalidatedIds).toEqual(recreated.visualInvalidatedIds)
   })
   it('replays complete bounded surface paints and feathered overlays with fixed material versions and no physical changes', () => {
-    const input = start(), grant = input.scope.visual!, asset = input.project.document.assets.image
+    let input = start(); const grant = input.scope.visual!, asset = input.project.document.assets.image
     input.project.document.materials.material = { id: 'material', catalogId: 'test.visual-paint', version: 1, licenseRef: asset.licenseRef, origin: cloneJson(asset.origin), name: 'Licensed texture', tags: [], textureAssetId: 'image', defaultTileSizeMm: { width: 1000, height: 1000 }, applicableSurfaces: ['room'] }
     input.project.licenseBindings.push({ ...input.project.licenseBindings.find(binding => binding.subjectKind === 'asset')!, subjectKind: 'material', subjectId: 'material' })
     grant.materialIds = ['material']; grant.operations.push('visualSurface')
     input.scope.scene = { floorId: grant.floorId, layerId: grant.layerId, boundsMm: grant.boundsMm, entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: ['material'], operations: ['room'] }
-    input.baseContentHash = authoringProjectHash(input.project)
+    input = reauthorize(input)
     const room = applyAuthoringStep(input, replayAuthoring(input, []).state, [{ kind: 'room', id: 'room', thicknessMm: 200,
       boundaryMm: [{ x: 7000, y: 7000 }, { x: 11000, y: 7000 }, { x: 11000, y: 11000 }, { x: 7000, y: 11000 }] }], 'room')
     const paint = { materialRef: { id: 'material', version: 1 }, tileSizeMm: { width: 800, height: 1000 }, rotationDeg: 30, alignment: 'world' as const, originMm: { x: 100, y: 200 }, tint: null, opacity: 1 as const }

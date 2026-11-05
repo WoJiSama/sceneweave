@@ -25,7 +25,7 @@ export function continuationFixtureV3(profileId: TaskBudgetProfileId = 'small', 
   let blankId = 0
   const empty = createCompositionContent(document, { ids: { nextId: () => `blank-${++blankId}` }, clock: { now: () => now } })
   const text = 'MIT metadata fixture only', licenseHash = sha256Text(text), dependencies = inspectDependencies(empty.document)
-  const blank = validateProjectData({ ...empty, format: 'sceneweave-complete-project', schemaVersion: 2,
+  const blank = validateProjectData({ ...empty, format: 'sceneweave-complete-project', schemaVersion: 1,
     assets: Object.fromEntries(dependencies.assetIds.map(id => { const row = document.assets[id]; return [row.sha256, { sha256: row.sha256, mimeType: row.mimeType, sizeBytes: 1, pixelWidth: row.pixelWidth, pixelHeight: row.pixelHeight }] })),
     licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: dependencies.subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })), authoringSources: {} })
   const generation = mode === 'terrain' ? { kind: 'terrain' as const, input: { sceneId: document.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 4, budgetProfileId: profileId, quality: 'standard' } }
@@ -48,7 +48,7 @@ export function continuationFixtureV3(profileId: TaskBudgetProfileId = 'small', 
   content = resolveAppearance(content)
   if (content.document.generation?.version !== 5) {
     for (const rule of Object.values(getLegacyGeneration(content.document)!.rules)) { rule.inputHash = generationInputHash(content.document, rule); rule.managedOutputHash = managedOutputHash(content.document, rule) }
-    for (const check of Object.values(content.document.generation!.checks)) check.inputHash = constraintInputHash(content.document, check.constraintId)
+    for (const check of Object.values(getLegacyGeneration(content.document)!.checks)) check.inputHash = constraintInputHash(content.document, check.constraintId)
   }
   const project = validateProjectData({ ...blank, ...content, schemaVersion: content.document.schemaVersion })
   const source: BaseMapSourceV3 = { version: 3, flowId: request.flowId, blank,

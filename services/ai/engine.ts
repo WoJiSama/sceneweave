@@ -63,13 +63,13 @@ export class TaskEngine {
       try { validateTaskVision(request.vision, request.context, request.authoring) } catch { throw new TaskFault('invalid_vision', 400) }
     }
     if (request.authoring) {
+      if (![4].includes(request.authoring.schemaVersion)) throw new TaskFault('unsupported_authoring_version', 400)
       if (request.authoring.schemaVersion !== 3 && request.authoring.schemaVersion !== 4 && utf8Size(JSON.stringify(request.authoring.project)) > AUTHORING_LIMITS.metadataBytes) throw new TaskFault('metadata_limit', 413)
       if (isClassifiedAuthoring(request.authoring)) {
-        if (request.authoring.project.schemaVersion === 8) throw new TaskFault('unsupported_authoring_version', 400)
         if (!this.connectionInfo.capabilities.authoringVersions?.includes(request.authoring.schemaVersion)
           || !this.connectionInfo.capabilities.budgetPolicyHashes?.includes(request.authoring.policy.policyHash)) throw new TaskFault('unsupported_authoring_version', 400)
         if (request.authoring.schemaVersion === 4 && (this.connectionInfo.capabilities.currentAuthoring !== request.authoring.capability
-          || !this.connectionInfo.capabilities.completeProjectVersions?.includes(request.authoring.project.schemaVersion as 3 | 4 | 5 | 6 | 7))) throw new TaskFault('unsupported_authoring_version', 400)
+          || !this.connectionInfo.capabilities.completeProjectVersions?.includes(request.authoring.project.schemaVersion))) throw new TaskFault('unsupported_authoring_version', 400)
         const surfaceVersion = request.authoring.source.version === 4 ? undefined : requiredSurfaceRecipeVersion(request.authoring.source.request.generation)
         if (surfaceVersion !== undefined && !this.connectionInfo.capabilities.surfaceRecipeVersions?.includes(surfaceVersion)) throw new TaskFault('unsupported_surface_version', 400)
         const preservation = request.authoring.source.preservation

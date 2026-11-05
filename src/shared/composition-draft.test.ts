@@ -1,3 +1,5 @@
+import { topDownPresentation } from './appearance/presentation.js'
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { scatterLayerSceneV3, symbolPropV3 } from '../core/v3/test-fixtures.js'
 import { createCompositionContentV6 } from '../core/v6/graph.js'
@@ -13,37 +15,21 @@ import type { PreparationContext } from './ports/runtime.js'
 import { certifyCompositionContent, certifyCompositionDraft, getCertifiedCompositionContent, getCertifiedCompositionDraft, validateCompositionContent, validateCompositionDraft } from './validation/content.js'
 import { cloneJson } from './validation/json.js'
 import { isCertifiedSceneSnapshot } from './validation/snapshots.js'
-import { emptyTerrainDocument } from './terrain-generation/compose.js'
-import { emptyCompositionDocument } from './terrain-generation/composition-materialize.js'
-import { emptyVisualSystem } from './visual/types.js'
 
 const context = (): PreparationContext => {
   let allocated = 0
   return { ids: { nextId: () => `draft-proof-${++allocated}` }, clock: { now: () => '2026-10-25T00:00:00.000Z' } }
 }
 const native = (input: CompositionContentV6): CompositionContent => ({
-  document: { ...cloneJson(input.document), format: 'sceneweave-scene', schemaVersion: 1 },
-  historyIdentity: { ...cloneJson(input.historyIdentity), version: 1 }, appearance: cloneJson(input.appearance),
+  document: toCurrentSceneDocument({ ...cloneJson(input.document), format: 'sceneweave-scene' }),
+  historyIdentity: { ...cloneJson(input.historyIdentity), version: 5, generationTokens: {}, regionalTokens: {}, presentationTokens: {}, terrainTokens: {}, decorationTokens: {}, surfaceRuleTokens: {} }, appearance: { ...cloneJson(input.appearance), version: 2, presentations: Object.fromEntries(Object.values(input.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) },
 })
 const sourceContent = () => certifyCompositionContent(native(compositionFixtureV6()))
 const change: CompositionCommand[] = [{ type: 'updateProp', id: 'item', changes: { rotationDeg: 35 } }]
 
-function versionedSource(version: 1 | 2 | 3 | 4): CompositionContent {
-  const source = native(compositionFixtureV6())
-  let document: SceneDocument
-  if (version === 1) document = source.document
-  else {
-    source.document.schemaVersion = 2
-    source.document.visual = emptyVisualSystem()
-    document = version === 2 ? source.document : emptyTerrainDocument(source.document)
-    if (version === 4) document = emptyCompositionDocument(document)
-  }
-  return certifyCompositionContent(createCompositionContent(document, context()))
-}
-
 describe('internal immutable composition draft ownership', () => {
-  it.each([1, 2, 3, 4] as const)('keeps pure prop edits equivalent in strict scene version %i', version => {
-    const source = versionedSource(version), original = cloneJson(source)
+  it('keeps pure prop edits equivalent in the sole current full scene', () => {
+    const source = sourceContent(), original = cloneJson(source)
     const commands: CompositionCommand[] = [
       { type: 'updateProp', id: 'item', changes: { rotationDeg: 35 } },
       { type: 'updateProp', id: 'other', changes: { positionMm: { x: source.document.props.other.positionMm.x + 100, y: source.document.props.other.positionMm.y } } },

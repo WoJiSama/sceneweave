@@ -11,9 +11,9 @@ import { fixture, runtime, validation } from './test-fixtures.js'
 
 async function editable(): Promise<EditableProject> {
   const input = fixture({ image: true })
-  const document = emptyTerrainDocument({ ...input.project.document, schemaVersion: 2, visual: emptyVisualSystem() })
+  const document = emptyTerrainDocument(input.project.document)
   const content = createCompositionContent(document, runtime)
-  return fromBundle({ ...input, project: { ...input.project, schemaVersion: 3, ...content } }, validation)
+  return fromBundle({ ...input, project: { ...input.project, schemaVersion: 1, ...content } }, validation)
 }
 const request = (sourceId: string, values: Partial<FillCopyRequest> = {}): FillCopyRequest => ({ sourceId, count: 1,
   stepMm: { x: 1000, y: 0 }, allowOverlap: true, ...values })

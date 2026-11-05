@@ -79,7 +79,7 @@ export function clipSurfaceRuleRegions(scene: SceneDocument, areaId: string, inp
 
 /** One candidate edits rule geometry, exact generated members and protection records together. */
 export function applySurfaceRuleCommand(scene: SceneDocument, command: SurfaceRuleCommand, context: PreparationContext, appearance?: AppearanceGraph) {
-  if (scene.schemaVersion !== 8) throw new Error('连续地表区域规则需要显式完整v8副本。')
+  if (scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('连续地表区域规则需要完整生成和视觉模型。')
   const before = cloneJson(scene), rules = scene.surfaceRules!, clusters = scene.decorationClusters!
   const beforeResolved = new Map(resolveSurfaceRules(before).map(row => [row.rule.id, row.regionsMm]))
   const requireRule = (id: string) => { const rule = rules[id]; if (!rule) throw new Error(`地表规则不存在：${id}。`); unlocked(before, rule); return rule }

@@ -26,7 +26,7 @@ async function blank(version:4|5=4): Promise<EditableProject> {
   const bytes = pixelPng([74,108,61,255]), hash = sha256Bytes(bytes)
   for (const asset of Object.values(document.assets)) Object.assign(asset, { sha256: hash, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1 })
   const text = 'Original profiled local real PNG fixture', licenseHash = sha256Bytes(encodeUtf8(text)), content = createCompositionContent(document, runtime)
-  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 2, ...content,
+  return fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
     assets: { [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } },
     licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: inspectDependencies(document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const })), authoringSources: {} },
     resources: createMemoryResources(new Map([[hash, bytes]])) }, validation)
@@ -101,7 +101,7 @@ describe('persisted new4/new5 maps remain manually editable under a frozen local
         supportRef:{kind:'floor',id:floorId},renderLayer:definition.defaultRenderLayer,renderOrder:i,shadowClass:definition.defaultShadowClass,shadowOverride:null}
       document.entityLayers[id]='visual-layer-ground'
     }
-    const bundle=toBundle(source),content=createCompositionContent(document,runtime),project=await fromBundle({...bundle,project:{...bundle.project,...content,schemaVersion:4}},validation)
+    const bundle=toBundle(source),content=createCompositionContent(document,runtime),project=await fromBundle({...bundle,project:{...bundle.project,...content,schemaVersion:1}},validation)
     const command={type:'setAppearanceAdjustment' as const,scope:{kind:'targets' as const,ids:Object.keys(document.props)},adjustment:{id:'bulk-opacity',kind:'opacity' as const,value:.5,enabled:true}}
     await expect(prepareCompositionCommands(project,[command],{runtime,validation})).rejects.toThrow(/256/)
     const prepared=await prepareCompositionCommands(project,[command],{runtime,validation,budget:profile})

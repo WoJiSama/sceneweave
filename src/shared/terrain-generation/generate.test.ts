@@ -23,7 +23,7 @@ describe('pure bounded terrain generation T0/T1', () => {
     expect(canonicalJson(second)).toBe(canonicalJson(first))
     expect(validateSceneDocument(first.document).ok).toBe(true)
     expect(terrainGenerationResultSchema.safeParse(first).success).toBe(true)
-    expect(first.document.generation).toBeUndefined()
+    expect(first.document.generation).toMatchObject({version:5,legacy:{version:1}})
     const expectedAreas = { hill: 2, lake: 4, forest: 3, river: 5, mixed: 6 } as const
     expect(Object.keys(first.document.terrainAreas).length).toBe(expectedAreas[kind])
     expect(Object.keys(first.document.props).length).toBeGreaterThanOrEqual(4)
@@ -129,7 +129,7 @@ describe('pure bounded terrain generation T0/T1', () => {
     expect(() => generateTerrainDocument(base, { ...input, sceneId: 'wrong' })).toThrow()
     const locked = cloneJson(base); locked.userLayers['visual-layer-ground'].editLocked = true
     expect(() => generateTerrainDocument(locked, input)).toThrow(/图层/)
-    const v1 = cloneJson(base); v1.schemaVersion = 1; delete v1.visual
+    const v1 = cloneJson(base); v1.schemaVersion = 1; Object.assign(v1,{visual:undefined})
     expect(() => generateTerrainDocument(v1, input)).toThrow()
     const generated = generateTerrainDocument(base, input).document, before = canonicalJson(generated)
     expect(() => generateTerrainDocument(generated, input)).toThrow(/空白/)

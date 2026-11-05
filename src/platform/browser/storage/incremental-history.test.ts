@@ -5,6 +5,7 @@ import { layerSceneV3 } from '../../../core/v3/test-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import type { ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { applyProjectDelta } from '../../../shared/project/delta.js'
 import * as projectDelta from '../../../shared/project/delta.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
@@ -18,7 +19,7 @@ const NOW = '2026-10-30T00:00:00.000Z'
 const connections: Dexie[] = [], names = new Set<string>()
 let sequence = 0
 function project(): ProjectData {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
   document.sceneId = 'history-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const content = createCompositionContent(document, { ids: { nextId: () => `history-token-${++sequence}` }, clock: { now: () => NOW } })
   return { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }
@@ -32,6 +33,7 @@ function withFixedSource(input: ProjectData, opacity: number): ProjectData {
   if (original.kind !== 'prop') throw new Error('test requires a prop source')
   const source = cloneJson(original); source.id = 'retained-fixed-source'; source.snapshot.appearance.opacity = opacity
   data.appearance.sources[source.id] = source
+  data.appearance.presentations![source.id] = cloneJson(data.appearance.presentations![original.id])
   return data
 }
 function db(name = `incremental-${crypto.randomUUID()}`): ProjectDatabase {
@@ -201,7 +203,7 @@ describe('incremental local history graph', () => {
   it('rejects reintroduced fixed meanings from a retained branch and leaves ordinary saves on the adjacent path', async () => {
     const database = db(); await database.open()
     const original = row(withFixedSource(project(), .25)), removed = row(original.project, 1)
-    delete removed.project.appearance.sources['retained-fixed-source']; removed.contentHash = projectContentHash(removed.project)
+    delete removed.project.appearance.sources['retained-fixed-source']; delete removed.project.appearance.presentations!['retained-fixed-source']; removed.contentHash = projectContentHash(removed.project)
     await transaction(database, history => history.append(original, null, 'original'))
     await transaction(database, history => history.append(removed, original, 'removed'))
     const changed = row(withFixedSource(removed.project, .75), 2)
@@ -222,7 +224,7 @@ describe('incremental local history graph', () => {
     const first = await transaction(database, history => history.append(original, null, 'old-first'))
     let current = original
     for (let revision = 1; revision <= 22; revision++) {
-      const next = row(current.project, revision); delete next.project.appearance.sources['retained-fixed-source']; next.contentHash = projectContentHash(next.project)
+      const next = row(current.project, revision); delete next.project.appearance.sources['retained-fixed-source']; delete next.project.appearance.presentations!['retained-fixed-source']; next.contentHash = projectContentHash(next.project)
       await transaction(database, history => history.append(next, current, `v${revision}`)); current = next
     }
     const conflicting = row(withFixedSource(current.project, .75), 1)

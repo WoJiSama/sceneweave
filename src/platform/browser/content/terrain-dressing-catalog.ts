@@ -1,6 +1,6 @@
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { captureEditableDraft, validateEditableProject } from '../../../application/workspace/project.js'
-import { prepareTerrainUpgrade } from '../../../application/workspace/terrain.js'
 import { addPropAppearanceSource } from '../../../shared/appearance/graph.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import type { FixedPresentation } from '../../../shared/terrain-generation/contracts.js'
@@ -39,7 +39,7 @@ const origin = { kind: 'original' as const, attribution: 'Sceneweave 地形布�
 export function createTerrainDressingCatalogDocument(options: { sceneId?: string; now?: string } = {}): SceneDocument {
   const now = options.now ?? '2026-10-29T00:00:00.000Z', floorId = 'terrain-dressing-floor', layerId = 'terrain-dressing-layer'
   const bounds = { x: 0, y: 0, width: 24000, height: 18000 }
-  const scene: SceneDocument = { format: 'sceneweave-scene', schemaVersion: 2, sceneId: options.sceneId ?? 'terrain-dressing-catalog-v1', revision: 0,
+  const scene: SceneDocument = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: options.sceneId ?? 'terrain-dressing-catalog-v1', revision: 0,
     title: '地形布景 · 紧凑固定目录', createdAt: now, updatedAt: now,
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: { ...bounds },
     floors: { [floorId]: { id: floorId, name: '目录空白地面', boundsMm: { ...bounds } } },
@@ -47,7 +47,7 @@ export function createTerrainDressingCatalogDocument(options: { sceneId?: string
     vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {},
     prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, assets: {}, propDefinitions: {}, materials: {}, styleThemes: {}, activeStyleThemeRef: null,
     presetSnapshot: { presetId: 'sceneweave-terrain-dressing', presetVersion: 1, distanceMode: 'metric', source: origin.attribution, gridSizeMm: 1000 },
-    constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, minDoorWidthMm: 900, pathChecks: [] }, visual: emptyVisualSystem() }
+    constraints: { entranceOpeningIds: [], wallEndClearanceMm: 100, minDoorWidthMm: 900, pathChecks: [] }, visual: emptyVisualSystem() })
   for (const art of TERRAIN_DRESSING_ART) {
     const assetId = terrainDressingAssetId(art.key), id = terrainDressingDefinitionId(art.key)
     scene.assets[assetId] = { id: assetId, sha256: '0'.repeat(64), mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512,
@@ -68,7 +68,7 @@ export async function createTerrainDressingCatalogProject(signal?: AbortSignal):
   signal?.throwIfAborted()
   const document = createTerrainDressingCatalogDocument({ sceneId: runtime.ids.nextId(), now: runtime.clock.now() })
   const materialized = await materializeVisualArt(document, TERRAIN_DRESSING_ART, NEAR_SIDE_LICENSE, terrainDressingAssetId, signal)
-  const upgraded = await prepareTerrainUpgrade(materialized, { runtime, validation: { ...validation, signal } })
+  const upgraded = materialized
   const project = captureEditableDraft(upgraded)
   project.document.title = '地形布景 · 紧凑固定目录'
   for (const art of TERRAIN_DRESSING_ART) {

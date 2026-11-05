@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { ArrowRight, FileUp, FolderOpen, Layers3, Plus, RefreshCw, Search, ShieldCheck } from 'lucide-react'
 import { projectRepository } from '../../platform/browser/runtime'
 import type { ProjectSummary } from '../../platform/browser/storage/repository'
@@ -6,9 +7,10 @@ import type { WorkspaceRequest, WorkspaceSessionSummary } from './session'
 import SampleShowcase from './SampleShowcase'
 import '../workspace/home.css'
 
-export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false }: {
+export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, developmentTools }: {
   session: WorkspaceSessionSummary | null; onContinue: () => void; onRequest: (request: WorkspaceRequest) => void
   disabled?: boolean
+  developmentTools?: ReactNode
 }) {
   const [entries, setEntries] = useState<ProjectSummary[]>([]), [query, setQuery] = useState(''), [refresh, setRefresh] = useState(0)
   const [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null)
@@ -28,6 +30,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
         <div className="home-project-list">{filtered.map(entry => <article className="home-project-row" key={entry.sceneId} data-project-key={`native:${entry.sceneId}`}><span className="home-file-icon"><Layers3 size={21}/></span><div className="home-project-info"><h3>{entry.title}</h3><p>完整工程 · r{entry.revision} · {new Date(entry.savedAt).toLocaleString('zh-CN')}</p><small>{entry.sceneId}</small></div><button className="secondary" disabled={disabled} onClick={() => session?.sceneId === entry.sceneId ? onContinue() : onRequest({ type: 'open', sceneId: entry.sceneId })}>{session?.sceneId === entry.sceneId ? '继续编辑' : '打开'}<ArrowRight size={15}/></button></article>)}</div>
       </section>
       <SampleShowcase onRequest={onRequest} disabled={disabled}/>
+      {developmentTools}
       <footer className="home-footer"><p>工程保存在此浏览器。当前版本使用完整工程和统一工作区；不同浏览器、设备和站点地址拥有各自的存储。</p></footer>
     </main>
   </div>

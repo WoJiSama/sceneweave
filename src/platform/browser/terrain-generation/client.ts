@@ -97,7 +97,7 @@ function prepareRequest(raw: TerrainGenerationRunRequest): TerrainWorkerRequest 
   const request = requestArgumentsSchema.parse(captureJson(raw))
   const input = terrainGenerationInputSchema.parse(request.input)
   const checked = validateSceneSnapshot(request.base)
-  if (!checked.ok || checked.document.schemaVersion !== 2) throw new TerrainGenerationClientError('invalid_input', '地形生成需要有效的视觉场景基础。')
+  if (!checked.ok || checked.document.schemaVersion !== 1) throw new TerrainGenerationClientError('invalid_input', '地形生成需要有效的视觉场景基础。')
   const inputHash = sha256Text(canonicalJson(input))
   if (request.inputHash !== undefined && request.inputHash !== inputHash) throw new TerrainGenerationClientError('invalid_input', '地形生成设置已改变，请重新准备预览。')
   const base = checked.document
@@ -171,7 +171,7 @@ export function createTerrainGenerationClient(options: TerrainGenerationClientOp
           if (sha256Text(resultText) !== response.resultHash) throw new TerrainGenerationClientError('protocol', '地形预览内容校验不一致，请重新生成。')
           const result = terrainGenerationResultSchema.parse(response.result)
           if (canonicalJson(result) !== resultText || sha256Text(canonicalJson(result.input)) !== context.inputHash
-            || result.document.sceneId !== request.input.sceneId || result.document.schemaVersion !== 2
+            || result.document.sceneId !== request.input.sceneId || result.document.schemaVersion !== 1
             || !Number.isSafeInteger(result.cost.total) || result.cost.total < 0 || result.cost.total > 256) {
             throw new TerrainGenerationClientError('protocol', '地形预览的设置、成本或场景身份不一致。')
           }

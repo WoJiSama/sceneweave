@@ -2,7 +2,7 @@ import type { EditableProject } from '../../src/application/workspace/project.js
 import type { PointMm, Prop, SceneDocument, SurfaceStyle, TerrainArea } from '../../src/shared/model/scene.js'
 import { createCompositionContent } from '../../src/shared/appearance/graph.js'
 import { emptyTerrainDocument } from '../../src/shared/terrain-generation/compose.js'
-import { assertTerrainBudget } from '../../src/shared/terrain-generation/cost.js'
+import { terrainCommandCost } from '../../src/shared/terrain-generation/cost.js'
 import { createRefinedBlankDocument } from '../../src/platform/browser/content/refined-blank.js'
 import { REFINED_ISLAND_ART, REFINED_ISLAND_LICENSE } from '../../src/shared/visual/island-art.js'
 import { cloneJson } from '../../src/shared/validation/json.js'
@@ -27,8 +27,8 @@ export const T8_SAMPLE_SPECS = Object.freeze({
   'grass-rock-hills': { title: 'T8 草岩丘陵基线', seed: 't8-reference-hills-1', widthMm: 48000, heightMm: 36000, landComponents: 1,
     contourErrorMm: 0, detail: '800mm草地和2600mm岩台；实际1600mm宽坡道连接，不以外观伪造高差通行。' },
 })
-export const T8_CALIBRATION = Object.freeze({ format: 'sceneweave-complete-project', schemaVersion: 3, sceneSchemaVersion: 3,
-  visualVersion: 2, appearanceVersion: 2, worldUnits: 'integer-mm', lightDirectionDeg: 135,
+export const T8_CALIBRATION = Object.freeze({ format: 'sceneweave-complete-project', schemaVersion: 1, sceneSchemaVersion: 1,
+  visualVersion: 3, appearanceVersion: 2, worldUnits: 'integer-mm', lightDirectionDeg: 135,
   contourConstruction: 'explicit-straight-segments', sampleSpacingMm: 20000, toleranceMm: 30,
   materialTilesMm: { water: 3200, grass: 2500, rock: 2400 },
   physicalFootprints: 'exact unchanged fixed prop-definition defaults; image bounds do not replace footprints',
@@ -121,13 +121,13 @@ export function createT8SampleDocument(kind: T8SampleKind, mode: T8SampleMode = 
   visual.environment = { ambientColor: '#D8DDC5', ambientOpacity: mode === 'effect' ? .08 : 0, exposure: 1, lightDirectionDeg: 135, contactShadowMm: mode === 'effect' ? 180 : 0, contactShadowOpacity: mode === 'effect' ? .2 : 0 }
   for (const look of Object.values(visual.edgeLooks)) look.enabled = mode === 'effect'
   for (const theme of Object.values(document.styleThemes)) for (const shadow of Object.values(theme.shadowPresets)) if (shadow) shadow.directionDeg = 135
-  assertTerrainBudget(before, document)
+  terrainCommandCost(before, document)
   const checked = validateSceneDocument(document)
   if (!checked.ok) throw new Error(`T8 ${kind}: ${checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('; ')}`)
   return checked.document
 }
 
-/** Browser-only: real SVG/PNG/bytes/licences, deterministic identities, complete strict v3. */
+/** Browser-only: real SVG/PNG/bytes/licences, deterministic identities, current complete v1. */
 export async function createT8Sample(kind: T8SampleKind, mode: T8SampleMode = 'effect', signal?: AbortSignal): Promise<EditableProject> {
   signal?.throwIfAborted()
   const document = createT8SampleDocument(kind, mode)
@@ -141,5 +141,5 @@ export async function createT8Sample(kind: T8SampleKind, mode: T8SampleMode = 'e
   let index = 0
   const runtime = { ids: { nextId: () => `t8-${kind}-${mode}-identity-${++index}` }, clock: { now: () => NOW } }
   const content = createCompositionContent(document, runtime)
-  return materializeProject({ ...source, schemaVersion: 3, ...content }, { runtime, validation, signal })
+  return materializeProject({ ...source, schemaVersion: 1, ...content }, { runtime, validation, signal })
 }
