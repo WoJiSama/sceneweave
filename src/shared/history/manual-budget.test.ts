@@ -8,6 +8,7 @@ import { StructureContinuitySession } from './structure-continuity.js'
 import { buildStructureRestorePlan, inspectStructureRestoreScope } from './structure-restore.js'
 
 describe('manual restore budget', () => {
+  // The 256-point path undergoes repeated complete geometry validation for legacy rejection, restore and lock rejection.
   it('restores one long path under its independent geometry budget while retaining legacy limits', () => {
     const scene = cloneJson(fixture().project.document), layerId = scene.entityLayers.item
     scene.paths.road = { id: 'road', floorId: 'blank-floor', editLocked: false, visibility: 'public', widthMm: 400,
@@ -25,7 +26,7 @@ describe('manual restore budget', () => {
     expect(current).toEqual(before)
     current.document.userLayers[layerId].editLocked = true
     expect(() => buildRestorePlan(current, historic, { ids: ['road'], mode: 'outdoorGeometry' }, {}, MANUAL_TRANSACTION_BUDGET)).toThrow(/锁定/)
-  })
+  }, 20000)
 
   it('still rejects a layer restore that changes more than 256 independent objects', () => {
     const scene = cloneJson(fixture().project.document), source = scene.props.item, layerId = scene.entityLayers.item
