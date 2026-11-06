@@ -65,11 +65,13 @@ D5的`previewVolcanoGeneration / cancelVolcanoGeneration / adoptVolcanoGeneratio
 <a id="domain-generation-storage"></a>
 ### 统一生成入口与执行端
 
-公共`Workspace.previewGeneration / cancelGeneration / adoptGeneration`以明确的`new-project`或`current-project`目标分派。三领域新工程共用[`prepareDomainProject`](../src/application/workspace/generation.ts)：先独立捕获规范请求和完整基底，取得本机/Worker/显式HTTP领域结果后，在主机严格核对信封/场景/产物/阶段链/注册预算，再建立真实身份与固定表现，完整验证资源字节、像素、许可闭包和实际预算。旧领域方法仅作为适配入口，共用私有见证及前述保存生命周期。
+公共`Workspace.previewGeneration / cancelGeneration / adoptGeneration`以明确的`new-project`或`current-project`目标分派。室内、森林、火山和有限混合新工程共用[`prepareDomainProject`](../src/application/workspace/generation.ts)：先独立捕获规范请求和完整基底，取得本机/Worker/显式HTTP领域结果后，在主机严格核对信封/场景/产物/阶段链/注册预算，再建立真实身份与固定表现，完整验证资源字节、像素、许可闭包和实际预算。旧领域方法仅作为适配入口，共用私有见证及前述保存生命周期。
 
 Worker/HTTP结果只供预览，不能提供采用授权；采用时必须在本机重新运行共享领域函数、固定准备时间和确切身份分配序列，比对完整projectHash、领域hash、报告和成本。新建仍先保存当前，再以空expectedRevision独立保存、冷读全验并比对后切换。`current-project`四类局部操作继续在主线程复用前述保护/CAS与一次撤销路径，能力表不声明其Worker/HTTP支持。取消/旧基线或伪造结果在保存前拒绝；后段失败保留当前工程及可能已保存的独立新记录。
 
 8MiB请求/16MiB结果、客户端默认30秒且最多60秒、服务端总60秒及默认最多2个并发槽位属于传输保护；同步算法协作检查时钟与取消，超时返回结果一律丢弃，不宣称强制抢占服务线程。没有额外工程版本、远程存储、AI写权限或断线重发。固定源/资源闭包和新旧自然重放合同不变。
+
+有限混合通过`previewMixedGeneration / cancelMixedGeneration / adoptMixedGeneration`适配同一公共生命周期。`createMixedBlankProject`消费独立校验的室内与森林/火山空白目录；室内以独立`mixed-interior-v1`身份及目录建立固定副本，完整重绑图片/定义/组合/主题/SVG来源，许可引用绑定原始全文hash，保留原署名、来源快照ID、确切许可和图片/SVG字节，不改写旧固定定义。重复固定身份、许可绑定及同hash字节仍精确核对，合并后再次全验；不复制样板实体、实例源或历史。完整v1持久化实际建筑、地形、门、道路与成员，以及严格组合/子配方和各自归属。冷读和完整包不依赖组合重跑；D6只选择明确子配方，人工删除/关门/锁定不自动修复，局部采用仍返回须等待完成的`save`，成功后方可继续撤销/编辑。有限组合与支撑合同见[设计11.8](reference/general-map-generation.md#e-mixed-delivery)。
 
 ### A. 工程容器及严格分发
 
@@ -122,7 +124,7 @@ SVG原始UTF-8按真实输入字节无损保全，经受限静态解析生成确
 
 ### B. 一个主工程仓库与独立个人库
 
-当前默认新主工程库为`sceneweave-projects-dev-v1`，个人库为`sceneweave-library-dev-v1`；迁入目标使用同源指纹后缀。个人库为Dexie schema1（native IDB10），主工程库为schema3（native IDB30，保留schema1/2表并增加增量历史及事务记账）；当前主路径不扫描、创建、写入或升级旧库。新库未知版本/外来schema拒绝。下表保留既有新库结构，包含历史兼容任务与来源原件字段；本次入口裁剪不删除表或改写其记录。
+当前默认新主工程库为`sceneweave-projects-dev-v1`，个人库为`sceneweave-library-dev-v1`；迁入目标使用同源指纹后缀。个人库为Dexie schema1（native IDB10），主工程库为schema4（native IDB40，在schema3增量历史及事务记账基础上增加不可变内容块表）；当前主路径不扫描、创建、写入或升级旧格式工程库。现有当前工程库schema1/2/3只做加表升级，原记录保留；未知版本/外来schema拒绝。下表保留既有新库结构，包含历史兼容任务与来源原件字段；本次入口裁剪不删除表或改写其记录。
 
 | 新主工程表 | 主键 | 职责 |
 |---|---|---|
@@ -140,10 +142,11 @@ SVG原始UTF-8按真实输入字节无损保全，经受限静态解析生成确
 | historyHeads | ownerSceneId | 当前活动versionId、savedRevision/contentHash、staged/ready状态及副本迁移源摘要 |
 | historyPins | [ownerSceneId,id] | 严格命名/保护/来源快照摘要与versionId，不再重复保存完整ProjectData |
 | storageState | key，固定epoch | 受控写事务递增的失效代次；不是可信持久预算计数或内容认证 |
+| projectContentBlocks | sha256 | 当前工程及保留历史共享的不可变规范JSON字节；清单与块同事务发布，缺块或坏字节拒绝，暂不自动回收 |
 
 ownerSceneId/相关kind/id、savedAt/status、jobKey按实际查询设索引，唯一约束在写入器前落实为上述键及jobKey；不允许旁路表重复存一份可独立编辑场景。新主保存不依赖旧仓库。legacyBlobs只保留已有确切原件/输入文件；从IDB重新序列化的全家族保全包在独立set中，不冒充先前磁盘原文件，也不自动额外复制整包进原件表。
 
-累计保护值按**整个新工程库**计算：resources/许可256MiB，文档128MiB，legacy原件128MiB；文档范围包含当前工程、保全的完整历史、版本检查点/增量及其信封、pin/head；旧升级capsule独立保全，不另开隐藏额度。SVG源计入资源。新建、保存、当前/历史包导入均预检累计预算，超限整体拒绝并保留已有成果。65,536出生/墓碑、65,536外观源、源深16、每目标64调整、4096变体和单采用256展开保持。历史转换分卷不扩大主库/工程容量。
+累计保护值按**整个新工程库**计算：resources/许可256MiB，文档128MiB，legacy原件128MiB；文档范围包含当前工程、保全的完整历史、版本检查点/增量及其信封、pin/head，载荷按实际原生清单行及唯一内容块计量，升级保留的inline全文仍照实计算；旧升级capsule独立保全，不另开隐藏额度。SVG源计入资源。新建、保存、当前/历史包导入均预检累计预算，最终同事务按实际字节再核预算，超限整体拒绝并保留已有成果。65,536出生/墓碑、65,536外观源、源深16、每目标64调整、4096变体和单采用256展开保持。历史转换分卷不扩大主库/工程容量。
 
 ### F. 个人库、载体与新备份
 
@@ -179,7 +182,9 @@ e的旧目录scope.repository为实际sceneweave-catalog-v1，sourceSceneId为nu
 
 `historyMetadataVersion`只读取已发布当前记录外壳及历史元数据，供后续CAS使用，不证明工程内容或资源有效；不支持该查询的仓库端口仍回退完整usage。单次IndexedDB事务可按实际完整规范JSON复用已成功的内容检查，不能按声明hash、ID或冻结标记复用；每行外壳及声明hash仍检查、每份副本仍计字节，事务结束即清除。此缓存按FIFO限制合计4Mi字符，未命中仍完整校验并对实际规范JSON编码、hash及计量。
 
-schema1/2每次保存的全库预算扫描属于旧实现；schema3在冷连接或预算证明失效时，逐表逐行完整审核实际记录、字节和历史图，建立会话内预算receipt，后续受控写事务按确切旧/新行维护总量，详见下节。预算receipt与上段的单事务内容缓存分别约束预算和重复内容检查，均不代替公开读取、当前保存资源或导入/导出的完整验证。被查询或写入的任一坏行仍使操作整体拒绝/回滚。历史面板仅激活时读取，保存或保护/采用忙碌期间延后刷新，在最新revision/刷新标记稳定后合并一次；用户显式刷新和重新进入仍重新读取。旧优化诊断保留于[性能参考](reference/performance.md#restore-performance-optimization)，不作为本次增量历史的性能结论。
+T2普通保存优化将本次`validateProjectBundle`完整验证后的不可变结果规范化一次并计算真实hash/字节，在随后同一次写事务的上述有界内容表中登记。仅实际完整规范JSON逐字相等的行可复用，旧当前行、不同历史或变更内容仍完整核对；不接受调用方自报hash/认证。真实资源写入读取、字节/hash/许可校验、固定内容/身份保全、revision/历史元数据CAS及预算receipt不省略，无跨事务长期证明或数据库结构变化。负载与观察归[性能参考](reference/performance.md#t2-manual-capacity-20261105)，开发缩样不替代正式性能。
+
+schema1/2每次保存的全库预算扫描属于旧实现；schema3引入、当前schema4沿用的记账在冷连接或预算证明失效时，逐表逐行完整审核实际记录、字节和历史图，建立会话内预算receipt，后续受控写事务按确切旧/新行维护总量，详见下节。预算receipt与上段的单事务内容缓存分别约束预算和重复内容检查，均不代替公开读取、当前保存资源或导入/导出的完整验证。被查询或写入的任一坏行仍使操作整体拒绝/回滚。历史面板仅激活时读取，保存或保护/采用忙碌期间延后刷新，在最新revision/刷新标记稳定后合并一次；用户显式刷新和重新进入仍重新读取。旧优化诊断保留于[性能参考](reference/performance.md#restore-performance-optimization)，不作为本次增量历史的性能结论。
 
 schema1/2的自动历史原先保存完整工程快照。schema3保持当前工程完整，自动历史采用下节的版本图；旧完整历史表保留，图片/源/许可仍按真实hash共享。公开保存继续完整验证当前资源，不能把写入增量理解为省略资源或许可校验。
 
@@ -188,6 +193,25 @@ schema1/2的自动历史原先保存完整工程快照。schema3保持当前工�
 对新主库中已有的legacy来源节点，仍按本地owner核对节点/前序/来源hash与实际原字节后由GM明确下载；JSON原记录与旧ZIP分别以对应文件类型取回，不重序列化冒充原件。这不提供旧库发现或新转换能力。普通完整/历史包仍不默认携带本地旧原件；另存副本不删除原来源owner、旧库或先前保全文件，不宣称普通副本已经携带全部旧档案。
 
 H/I之后的旧格式段保留各批实现语义和历史证据，不提供当前旧工坊或格式支持；内容续批及重构前自动化结果见[43](archive/workspace-content-validation.md#doc-43)、[44](archive/workspace-content-validation.md#doc-44)。现行新标识完整工程的文件读写以上节及地形增量为准，52只保留f当批结果。M1-D首批混合素材/SCN-04、房间材质/整墙平移与单位显示的当时范围见[35](archive/m0-m1-validation.md#doc-35)；C4严格v6/identity3、有效v3及appearance1语义由完整v1承接。C5联合功能历史见[32](archive/m0-m1-validation.md#doc-32)，资源复用见[33](archive/m0-m1-validation.md#doc-33)。性能实际结果及未通过门槛见[34](reference/performance.md#doc-34)；人工P3/完整SCN、小团、持久建筑/任意拓扑恢复仍待。可信公网HTTPS与Pages必要旅程不代替未覆盖的私密/输入/质量、跨浏览器/配额或UVTT验收。
+
+<a id="aggregate-chunk-storage"></a>
+### 聚合体与不可变内容块保存（h有限实现）
+
+[通用设计3.8](reference/general-map-generation.md#aggregate-spatial-capacity)的存储目标是复用不可变完整基底/区块与实际修改，减少未变内容的重复写入。完整工程是实际内容和资源可独立恢复的闭包，可以由清单引用完整内容块及有界差异组成；未修改内容仍占基底空间，不采用“未修改即零存储”的假设，也不以seed重生成代替用户存档。此目标与下节已实现的增量历史衔接，不另建竞争的历史或所有权账本。
+
+已经完成b的局部坐标边界：含成员的scene以local字段保存在完整包、`projects`、automatic/named/imported snapshots和增量history checkpoint；完整API读取返回world视图。scene/project规范hash和增量差异基于同一local编码，历史JSON往返重新解码并全验。Dexie创建/整行替换先编码，读取钩子先物化；已有local payload只允许整行替换或非payload元数据更新，拒绝dotted payload修改。h在该表示下增加内容块存储，不改变坐标合同。
+
+d的[完整建筑组变换](04-scene-document.md#aggregate-building-transform)沿用同一边界：world候选含实际变换后的完整实体和根frame，落盘仍只保留唯一local表示，子组frame与不变局部几何保持其语义；完整外观源及世界参照的视觉控制仍按各自合同保存。采用/撤销/重做、保存冷读和完整包使用原身份、资源、单调revision及CAS链，不新增数据库/包版本，不以seed恢复建筑。根frame较少变化不代表当前保存仅写根，更不证明h的分区写入收益。
+
+当前工程库采用Dexie结构4（原生IndexedDB 40），只增加`projectContentBlocks`表，以SHA256为key存规范UTF-8 JSON实际字节；原表和原inline记录保留，升级不清库、不批量回写。新`projects`、automatic/named/imported snapshot和history checkpoint的载荷改为严格`sceneweave-project-content-blocks@1`清单。普通API仍只接收/返回完整工程，拒绝调用者提交清单；local坐标、完整工程版本1及原历史图/差异语义保持。这是存储内部编码，未新增并行工程格式。
+
+清单完整记录字段路径、实际块hash/长度和整份工程hash/长度；实体、身份及固定源等大记录表按稳定key散列分桶，实际未变块跨当前版本与保留历史共享。块划分独立于语义组及运行时空间格，当前不宣称空间JSON按需冷读。每行有界批量读取所需块，逐块检查实际字节、长度、规范JSON和完整重建hash，再经过原local解码及领域、身份、资源许可全验；无seed重建、无缺块空白回退，清单不是验证凭证。
+
+新块先在同一原生读写事务内写入，再发布当前行和历史head；最终CAS、取消、配额或后续校验失败连同新块全部回滚。不可变块仅在内容hash不变时复用；碰到已有坏字节拒绝保存。完整历史分支、保护/命名快照均引用其实际完整闭包，现阶段不自动回收未引用内容块，避免误删分支；这些保留字节仍计入存储保护。资源/许可与旧原件沿原仓库规则保存和回收。
+
+存储计量核对原生载荷清单及实际唯一内容块；冷连接或receipt失效时完整扫描，受控暖写在同事务按原生行前后净差及新块实际字节增量记账，不逐次重扫全部历史。高层钩子仍严格校验变更前后完整行；跨连接、失败与epoch保护沿用原机制，诊断写入量只在commit后累计。迁入预检仅以新增唯一块计算文档下界，最终同事务连同清单、历史图和全部实际保留内容严格核预算。当前重建、全量扫描/历史审计和导出仍可能处理整图，不从较少写入推断保存/冷读更快。完整备份继续物化全部实际内容与资源/许可，可在空库离线恢复，不要求携带本机内容块表。数据库旧版回退须先用当前读者导出，不能原地降版或删除源库；开发期不长期维护旧开发版本入口。
+
+运行时空间清单/驻留另按[04的有限派生合同](04-scene-document.md#aggregate-derived-loading)执行，驻留不等于保存或全量验证成功；a的只读`AggregateContract`继续只做来源/成员/端口/块引用诊断，不授予AI或持久化权限。实施和剩余项归[07](07-roadmap.md#t2-implementation)，完整故障/容量验收归[09](09-quality-plan.md#aggregate-capacity-acceptance)。
 
 <a id="incremental-history-target"></a>
 ### 增量历史与保护点合同（已实现，必要自检完成）
@@ -203,7 +227,7 @@ H/I之后的旧格式段保留各批实现语义和历史证据，不提供当�
 
 持久合同与事务边界：
 
-- **显式存储版本**：Dexie schema3/native IDB30新增 `historyVersions`、`historyHeads`、`historyPins` 和 `storageState`，原12表和原件不改义。打开及升级事务均检查真实表、主键和索引；仅精确schema1/2可升级，外来结构回滚。IndexedDB不使用SQL，实际升级由浏览器执行 `database.ts` 中的版本迁移，不操作用户现存数据库之外的服务库。
+- **显式存储版本**：Dexie schema3/native IDB30新增 `historyVersions`、`historyHeads`、`historyPins` 和 `storageState`，原12表和原件不改义。打开及升级事务均检查真实表、主键和索引；该版本仅精确schema1/2可升级，后续schema4按[内容块合同](#aggregate-chunk-storage)继续保留schema3；外来结构回滚。IndexedDB不使用SQL，实际升级由浏览器执行 `database.ts` 中的版本迁移，不操作用户现存数据库之外的服务库。
 - **不可变版本**：版本记录 `format:sceneweave-history-version/version:1`、owner/id、历史revision、时间、完整内容hash、parentId/parentHash、完整checkpoint或delta二选一，以及覆盖全部字段的recordHash。活动head单独保存已成功落盘的revision/hash/versionId；历史版本身份与新采用的单调revision分开。首次保存一份完整基线；以后按实际结果递归记录属性前后值，新增/删除保存完整对象，数组按原子结果记录。差异覆盖document、historyIdentity、appearance、素材/来源、许可和绑定，正反向均核确切完整基线与结果hash。
 - **检查点保护**：`chainLength=4`，从完整检查点起最多连续3份增量；下一步深度达到4、累计差异字节达到一份完整工程、单份差异不小于完整工程或超过差异保护时，保存完整检查点并保留父引用和原分支。完整ProjectData仍受600000 JSON值保护，20MiB分别保护scene/identity/appearance JSON，不是整份ProjectData统一20MiB；双向差异前后值合计上限1200000，不能把该独立预算当工程扩容。4是当前有界保护，不能称为正式性能已测最优值。每工程最多65536历史节点，整个库文档仍128MiB；达到上限明确拒绝，不默删分支。
 - **保护引用与导航**：命名/保护点仅保存严格摘要和versionId，须核当前真实完整工程、活动版本、metadata CAS及资源绑定。完整版本导航与局部恢复分开：先保存当前、建保护引用、重新核源id/hash，再一次采用并保存；原后续分支保留。采用时重新推进出生/墓碑/拓扑连续性并分配更大revision，不用旧身份直接覆盖当前，也不扩大原局部恢复范围。会话撤销/重做继续原语义。
@@ -242,7 +266,7 @@ M2-2建立的任务授权元数据、成功步骤账本和采用回执已支持M
 
 现有完整v2从「工程→保存独立地形副本」显式升级。会话互斥期间先保存原工程，再保全源族所有当前/自动/命名/保护/imported历史、元数据、资源绑定、旧迁移来源/日志和实际图片/SVG/许可/旧原件字节，验证并冷读保全记录后才另存新的v3工程。新sceneId/lineage、revision0；保存目标并冷读核对确切完整hash后切换。失败保留当前会话，已成功写入的独立目标或归档可能留下，不伪称所有存储已回滚。
 
-当时`sceneweave-projects`由Dexie schema1（IDB10）递增到schema2（IDB20），保留原11表并增加`nativeUpgradeCapsules`；当前schema3继续保留这些表，新增结构见[增量历史合同](#incremental-history-target)。打开前核对真实表/索引结构，未知或不完整结构拒绝，不先创建新库掩盖旧数据。源族保全由最终事务核对源族指纹与元数据CAS；不以源当前revision替代全部历史检查，也不把所有历史挤入普通64份便携历史包限额。
+当时`sceneweave-projects`由Dexie schema1（IDB10）递增到schema2（IDB20），保留原11表并增加`nativeUpgradeCapsules`；当前schema4继续保留这些表，增量历史来源见[版本图合同](#incremental-history-target)，新增内容块见[存储合同](#aggregate-chunk-storage)。打开前核对真实表/索引结构，未知或不完整结构拒绝，不先创建新库掩盖旧数据。源族保全由最终事务核对源族指纹与元数据CAS；不以源当前revision替代全部历史检查，也不把所有历史挤入普通64份便携历史包限额。
 
 「历史→升级原件」可下载`.sceneweave-originals.zip`，内容为完整来源归档、祖先链、独立完整工程JSON及实际资源/许可字节。原件归档与当前工程包分别下载。导入只归档原件，不打开、不替换当前工程；普通完整工程导入不接受此文件。ZIP按安全路径、重复条目、CRC/hash、压缩/展开、3000条及累计128MiB文档限制检查；内部源族、目标初始内容绑定、资源/许可/像素仍完整复验。每份工程独立JSON保护深度128/600000值，不能通过拆文件绕过累计上限。摘要列表只读元数据；下载和导入不省略完整检查。
 
@@ -424,7 +448,7 @@ M0 界面不提供任意遮罩绘制、素材缺失重关联、原场景覆盖�
 
 每个标签保留 expectedPersistedRevision，即自己最后确认读取/写入的持久化版本。写入必须在同一个 IndexedDB 事务里读取当前记录并比较：相等才写入完整新文档、必要资产和历史元数据，再更新 persistedRevision；不相等则整体终止。比较不能只靠 BroadcastChannel 通知或内存变量。未写过的场景使用显式“无记录”期望值。
 
-当前schema3同一保存事务还写入不可变版本、活动head、实际资源引用及预算差额；命名/保护点在当前版本已成功持久化后引用该版本，适用的metadata/保护CAS同事务核对。合并掉的未保存中间revision不另外制造历史节点。整体版本导航保留原后续分支，并按[增量历史合同](#incremental-history-target)以一次新编辑采用；保存重试不为历史节点额外增加当前revision。
+当前schema4同一保存事务继续写入不可变版本、活动head、实际资源引用及预算差额；命名/保护点在当前版本已成功持久化后引用该版本，适用的metadata/保护CAS同事务核对。合并掉的未保存中间revision不另外制造历史节点。整体版本导航保留原后续分支，并按[增量历史合同](#incremental-history-target)以一次新编辑采用；保存重试不为历史节点额外增加当前revision。
 
 revision 与 persistedRevision 可以相隔多个值，因为保存可能合并中间编辑。保存重试不增加 revision，用户新编辑才增加。只有事务完成才把对应版本标为已保存；如果写入完成时内存已有更新版本，仍显示待保存。
 

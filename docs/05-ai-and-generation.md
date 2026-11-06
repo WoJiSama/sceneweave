@@ -16,9 +16,9 @@
 <a id="domain-generation-authority"></a>
 ### 程序化领域生成与AI权限
 
-参数地图入口使用[独立会话协议](04-scene-document.md#domain-generation-protocol)，Worker和服务端直接执行同一共享领域函数，不调用模型、创建AI任务或改写旧底图执行账本。`GET /v1/generation/capabilities`精确声明三类新工程生成；`POST /v1/generation`使用现有应用Bearer认证和Origin允许列表。旧`/v1/capabilities`响应及创作4协商保持各自原合同。
+参数地图入口使用[独立会话协议](04-scene-document.md#domain-generation-protocol)，Worker和服务端直接执行同一共享领域函数，不调用模型、创建AI任务或改写旧底图执行账本。`GET /v1/generation/capabilities`精确声明室内、森林、火山与有限混合四类新工程生成；`POST /v1/generation`使用现有应用Bearer认证和Origin允许列表。旧`/v1/capabilities`响应及创作4协商保持各自原合同。
 
-能力表中的`aiTools`为空；室内、森林和火山生成及D6四类局部重生成均未授权AI调用。局部操作只在`direct`能力表列出，Worker/server明确为空。后续若向模型开放，必须先实现工具协商、scope/规则与资源权限、可本机重放来源、累计预算及采用合同；当前有完整v1或有程序化HTTP入口均不授予这些权限。
+能力表中的`aiTools`为空；室内、森林、火山与混合生成及D6四类局部重生成均未授权AI调用。混合算法只组合已支持领域，不按题材名称增加模型工具。局部操作只在`direct`能力表列出，Worker/server明确为空。后续若向模型开放，必须先实现工具协商、scope/规则与资源权限、可本机重放来源、累计预算及采用合同；当前有完整v1或有程序化HTTP入口均不授予这些权限。
 
 用户明确选择服务端后，发送新候选的完整空白场景元数据/固定定义、规范参数、profile及当前工程标识，不发送当前地图/历史/实际图片字节。客户端先核对精确能力再执行，地址/凭据仅在页面内存；取消、超时或未知结果不自动重发、不回退其他执行端。传输与临时报告不进入工程。最终资源与采用边界见[06](06-storage-and-export.md#domain-generation-storage)。
 

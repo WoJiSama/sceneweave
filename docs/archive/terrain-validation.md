@@ -827,3 +827,18 @@ HTTP入口继续使用原Bearer/Origin/no-store/存储守卫，不创建任务�
 现存定向Playwright用例`tests/base-map.spec.ts`中的“terrain algorithm7 finds supported highland plants and closes the same island without changing physical corridors”在本轮通过1/1，覆盖Worker/服务端结果一致、完整候选重放、旧算法6与算法7物理区域/连接足迹对比、高台树/灌木实际成员及支撑/净空、采用后冷读/完整包往返和GM/player像素一致。该用例的PNG附件未由本次运行保存，因此不在此记录图片hash、数量等未能从新鲜附件复核的细节；既有测试断言和证明范围可从源码与测试结果索引复核。
 
 该记录只确认特定固定输入的开发自检，不表示一般室内、森林或火山生成能力，也不表示参考岩岛视觉达标、用户P3签收或正式验收通过。当前生成器重构优先级见[路线图A–E](../07-roadmap.md#general-map-generation-priority)；通用架构边界见[设计参考](../reference/general-map-generation.md)。
+
+<a id="surface-connection-closure-20261105"></a>
+## 2026-11-05 共享崖缘、草岩与天然岩阶同图表现（开发自检）
+
+沿上节算法7的同一输入重新建立本轮改前基线：24×18m、seed `terrain-v6-closure-20261104`、standard档、普通岩岛算法/配方7。使用当前完整v1、相同固定素材闭包和确定性物化ID；未手动调整地形或成员。旧2026-11-04截图未作为本轮改前结果，也未把历史像素hash拼接为新结果。
+
+本次只改共享原生renderer：崖面保留完整源边界的有界可变宽度转角、闭合内外双环及裁面内断续岩层；草沿按全边界世界弧长产生不等宽分层和较短笔触，并保留全部真实折点；天然岩阶使用削角踏面和较轻踏缘，侧接触阴影取实际带边界并排除端帽。上下落地继续使用原弧长遮罩和各端真实支撑样式/覆盖；完整开口、支撑和净宽不改。没有新增工程字段、固定资源或算法/配方版本，没有通过岛图ID在renderer分支，也没有重算保存的派生过渡。
+
+- 独立Chrome/Playwright在本轮自有Vite端口5197执行忽略目录中的 `work/visual-closure-20261105/render.mjs before|after`。共用 `executeBaseMapRequestV3`→`prepareBaseMapProject`→完整资源验证→原生渲染链；并非本轮Worker/HTTP或生产UI旅程。无AI provider调用，未访问真实用户IndexedDB。
+- 改前后完整document逐值一致，物理指纹、生成响应resultHash与完整projectContentHash相同。projectContentHash为`afbc7dd45e50c9619b208655a56b1fa1bba831a9af30a61d58b48e6ba6df78e4`，resultHash为`ede23fb6bbfbb4264d36c86b5457c9b3ec25004b4de50ae673e1f1068c6ab3cd`。这保留实际成员、地形/高程、连接端点/路线/足宽及已有人工字段；不是仅比较seed或局部坐标。
+- 全景为2400×1800；改前GM RGBA SHA-256为`a8a88f69fe9423841a0b43256f75e6fce92c408776195489efc17415dd9d4a6d`，改后为`63b9550704f7878b5ac148104d4a6fd3a2ad2a66c697365504e3d6712abaa8a6`。改后player及完整包导出/导入后的GM像素hash均与改后GM相同。当前全公开样例的一致性不代表秘密矩阵已验收。
+- 同时保留改前/后中性图及世界范围`{x:15737,y:3399,width:4800,height:4200}`的1400×1225公开楼梯近景。已查看全景和近景，崖带较薄、长草笔触与楼梯闭框减弱；岛形仍有多边形感，踏面和整体素材品质是否达参考目标仍由正式视觉/P3签收。PNG、完整proof及复现脚本在忽略目录`work/visual-closure-20261105/`，不是发布素材。
+- 最终10文件共53项定向检查通过：9文件49项渲染/草沿/崖面/连接带/落地mask/投影/v7辅助，另`base-map-v3-surface-rule.test.ts`4项单独以`--maxWorkers=1 --testTimeout=30000`通过。一次默认5秒预算运行中该文件的v6/v7两条重放超时，其他51项通过；没有改测试配置，以显式30秒预算定向复验。正常`npm run build`通过。
+
+同图检查曾暴露粗采样闭合崖面在转角形成缺口，已改为保留源折点的有界偏移与独立闭合双环；只读复查进一步发现折线侧阴影用入段法线会斜穿，以及窄草沿/大repeat会跨角切入错误侧，均已修正并补针对性回归。共享renderer会改变旧工程显示像素，但不改旧v6/算法7保存结果及数据重放。该证据只关闭本轮实现与必要自检，完整回归、跨浏览器、通用领域样片、真实模型、性能、VTT导入和视觉/P3仍从[09](../09-quality-plan.md#branch-feature-acceptance)统一执行。
