@@ -11,12 +11,15 @@ import { AUTHORING_LIMITS, DraftAppliedSchema, DraftClaimSchema, DraftValidation
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { RegionSceneCandidateQuerySchema } from '../../src/shared/ai/region-candidate-protocol.js'
 import { createBaseMapService } from './base-map.js'
-import { CONTINUATION_POLICY } from '../../src/shared/ai/budget-policy.js'
+import { CONTINUATION_POLICY, CONTINUATION_POLICIES_V2, BUDGET_POLICY_HASHES } from '../../src/shared/ai/budget-policy.js'
+import { TASK_BUDGET_PROFILES } from '../../src/shared/budget/task-budget.js'
+import { domainGenerationCapabilities } from '../../src/shared/generation/execution.js'
+import { createDomainGenerationService, GenerationServiceFault } from './generation.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
     capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified', taskReasoningEffort: true,
-      authoringVersions: [1, 2], baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] }, retentionDays: AI_LIMITS.retentionDays,
+      surfaceRecipeVersions: [1], baseMapSelectors: ['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7'], currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [1], visualReviewVersions: [1], authoringVersions: [4], baseMapVersions: [1, 2, 3], budgetPolicyHashes: BUDGET_POLICY_HASHES, budgetProfileHashes: Object.values(TASK_BUDGET_PROFILES).map(profile => profile.profileHash) }, retentionDays: AI_LIMITS.retentionDays,
     limits: { modelRequests: AI_LIMITS.modelRequests, toolCalls: AI_LIMITS.toolCalls, executionMs: AI_LIMITS.executionMs, promptBytes: AI_LIMITS.promptBytes, outputBytes: AI_LIMITS.outputBytes } })
 }
 export function authenticate(config: AiConfig, authorization: string | undefined): string | undefined {
@@ -58,12 +61,19 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir)
   const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
   const baseMaps = createBaseMapService({ maxConcurrent: Math.min(config.maxConcurrent, 2), execution: {
-    begin: (owner, request) => store.beginBaseMap(owner, request), finish: (token, elapsedMs, resultHash) => store.finishBaseMap(token, elapsedMs, resultHash),
+    begin: (owner, request) => store.beginBaseMap(owner, request), measure: (token, run) => store.measureBaseMapWork(token, run), finish: (token, elapsedMs, resultHash) => store.finishBaseMap(token, elapsedMs, resultHash),
   } })
+  const domainGeneration = createDomainGenerationService({ maxConcurrent: Math.min(config.maxConcurrent, 2) })
   const app = new Hono<{ Variables: { owner: string } }>()
   const streams = new Map<string, number>()
   let streamCount = 0
-  app.onError((error, context) => error instanceof TaskFault ? context.json(errorPayload(error.code), error.status) : context.json(errorPayload('internal_error', 'unknown'), 503))
+  app.onError((error, context) => {
+    if (error instanceof GenerationServiceFault) {
+      const payload = errorPayload(error.code)
+      return context.json({ ...payload, error: { ...payload.error, message: error.safeMessage } }, error.status)
+    }
+    return error instanceof TaskFault ? context.json(errorPayload(error.code), error.status) : context.json(errorPayload('internal_error', 'unknown'), 503)
+  })
   app.use('*', async (context, next) => {
     context.header('Cache-Control', 'no-store')
     context.header('X-Content-Type-Options', 'nosniff')
@@ -91,21 +101,55 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   })
   app.get('/healthz', context => context.json({ ok: true }))
   app.get('/v1/capabilities', context => {
-    if (Object.keys(context.req.query()).some(key => key !== 'authoringVersion')
-      || (context.req.queries('authoringVersion')?.length ?? 0) > 1) throw new TaskFault('invalid_request', 400)
-    const version = context.req.query('authoringVersion')
-    if (version !== undefined && version !== '2') throw new TaskFault('unsupported_authoring_version', 400)
-    if (version === '2') return context.json(engine.connectionInfo)
+    if (Object.keys(context.req.query()).some(key => !['authoringVersion', 'surfaceVersion', 'baseMapSelector'].includes(key))
+      || ['authoringVersion', 'surfaceVersion', 'baseMapSelector'].some(key => (context.req.queries(key)?.length ?? 0) > 1)) throw new TaskFault('invalid_request', 400)
+    const requestedSelector = context.req.query('baseMapSelector')
+    if (requestedSelector !== undefined) {
+      if (Object.keys(context.req.query()).length !== 1) throw new TaskFault('invalid_request', 400)
+      if (!(['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7'] as const).includes(requestedSelector as 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7')) throw new TaskFault('unsupported_base_map_selector', 400)
+      if (!engine.connectionInfo.capabilities.baseMapSelectors?.includes(requestedSelector as 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7')) throw new TaskFault('unsupported_base_map_selector', 400)
+      const { currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, surfaceRecipeVersions: _surfaces, baseMapSelectors: _baseMapSelectors,
+        ...priorCapabilities } = engine.connectionInfo.capabilities
+      return context.json({ ...engine.connectionInfo, capabilities: {
+        ...priorCapabilities, authoringVersions: priorCapabilities.authoringVersions?.filter(value => value !== 4).length ? priorCapabilities.authoringVersions.filter(value => value !== 4) : undefined,
+        baseMapSelectors: [requestedSelector],
+      } })
+    }
+    const version = context.req.query('authoringVersion'), surfaceVersion = context.req.query('surfaceVersion')
+    if (version !== undefined && version !== '2' && version !== '3' && version !== '4') throw new TaskFault('unsupported_authoring_version', 400)
+    if (surfaceVersion !== undefined && (surfaceVersion !== '1' || version !== '3' && version !== '4')) throw new TaskFault('unsupported_surface_version', 400)
+    if (version === '4') {
+      const { baseMapSelectors: _baseMapSelectors, surfaceRecipeVersions: _surfaceVersions, ...currentCapabilities } = engine.connectionInfo.capabilities
+      return context.json({ ...engine.connectionInfo, capabilities: { ...currentCapabilities, ...(surfaceVersion === '1' ? { surfaceRecipeVersions: [1] } : {}) } })
+    }
+    const { currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, baseMapSelectors: _baseMapSelectors, ...oldCapabilities } = engine.connectionInfo.capabilities
+    const legacyCapabilities = { ...oldCapabilities, authoringVersions: oldCapabilities.authoringVersions?.filter(value => value !== 4).length ? oldCapabilities.authoringVersions.filter(value => value !== 4) : undefined }
+    if (version === '3' && surfaceVersion === '1') return context.json({ ...engine.connectionInfo, capabilities: { ...legacyCapabilities, surfaceRecipeVersions: [1] } })
+    const { surfaceRecipeVersions: _surfaces, ...priorCapabilities } = legacyCapabilities
+    if (version === '3') return context.json({ ...engine.connectionInfo, capabilities: priorCapabilities })
+    if (version === '2') {
+      const { budgetProfileHashes: _profiles, ...capabilities } = priorCapabilities
+      return context.json({ ...engine.connectionInfo, capabilities: { ...capabilities, authoringVersions: capabilities.authoringVersions?.filter(value => value !== 3), baseMapVersions: capabilities.baseMapVersions?.filter(value => value !== 3), budgetPolicyHashes: capabilities.budgetPolicyHashes?.filter(value => value === CONTINUATION_POLICY.policyHash) } })
+    }
     // Existing cached clients parse this response strictly. New capabilities
     // require explicit negotiation; the engine itself retains the full grant.
-    const { authoringVersions: _authoring, baseMapVersions: _baseMap, budgetPolicyHashes: _policies, ...capabilities } = engine.connectionInfo.capabilities
+    const { authoringVersions: _authoring, baseMapVersions: _baseMap, budgetPolicyHashes: _policies, budgetProfileHashes: _profiles, ...capabilities } = priorCapabilities
     return context.json({ ...engine.connectionInfo, capabilities })
   })
   app.post('/v1/terrain/basemap', async context => context.body(await baseMaps.generate(context.req.raw, context.get('owner')), 200, { 'Content-Type': 'application/json; charset=utf-8' }))
+  app.get('/v1/generation/capabilities', context => {
+    if ([...new URL(context.req.url).searchParams.keys()].length) throw new TaskFault('invalid_request', 400)
+    return context.json(domainGenerationCapabilities('server'))
+  })
+  app.post('/v1/generation', async context => context.body(await domainGeneration.generate(context.req.raw), 200, { 'Content-Type': 'application/json; charset=utf-8' }))
   app.post('/v1/tasks', async context => {
-    const body = await boundedJson(context.req.raw, Math.max(VISION_LIMITS.requestBytes, CONTINUATION_POLICY.requestBytes))
+    const version = context.req.query('authoringVersion')
+    if (Object.keys(context.req.query()).some(key => key !== 'authoringVersion') || (context.req.queries('authoringVersion')?.length ?? 0) > 1) throw new TaskFault('invalid_request', 400)
+    if (version !== undefined && version !== '3' && version !== '4') throw new TaskFault('unsupported_authoring_version', 400)
+    const limit = version === '3' || version === '4' ? Math.max(...CONTINUATION_POLICIES_V2.map(policy => policy.requestBytes)) : Math.max(VISION_LIMITS.requestBytes, CONTINUATION_POLICY.requestBytes)
+    const body = await boundedJson(context.req.raw, limit)
     const parsed = CreateTaskSchema.safeParse(body)
-    if (!parsed.success) throw new TaskFault('invalid_request', 400)
+    if (!parsed.success || version === '3' && parsed.data.authoring?.schemaVersion !== 3 || version === '4' && parsed.data.authoring?.schemaVersion !== 4 || version !== '4' && parsed.data.authoring?.schemaVersion === 4) throw new TaskFault('invalid_request', 400)
     const snapshot = engine.create(context.get('owner'), parsed.data)
     return context.json(snapshot, 201)
   })

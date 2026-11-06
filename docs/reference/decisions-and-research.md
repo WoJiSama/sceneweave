@@ -186,6 +186,8 @@
 - [PixiJS官方概览](https://pixijs.com/8.x/guides/getting-started/intro)：WebGL/可选WebGPU二维渲染定位，为性能或视觉需求变化后的备选。
 - [Foundry官方导入器页面](https://foundryvtt.com/packages/dd-import)、[固定提交README](https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/README.md)与[图片/墙门/光源读取](https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/ddimport.js#L292-L373)：支持把Universal VTT作为后续导出候选；不证明全平台无损互通。
 
+2026-11-02针对该固定提交补查：[manifest](https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/module.json)声明6.1.1与Foundry14；[墙段](https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/ddimport.js#L896-L964)、[门窗与点光](https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/ddimport.js#L1088-L1159)读取字段有限，尤其portal.closed用于门窗/阻光分类而非实际门状态，光半径乘规则系统默认距离，Scene仅设置grid.size。实现据此显式降级，真实目标未导入。源码只作为事实依据，不作为本仓库授权或复制实现。
+
 这些链接是研究证据，不是已选依赖清单。源码发布、实际性能、模型能力、兼容版本与资产授权需在各里程碑按真实集成结果验证。
 
 

@@ -3,16 +3,16 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ARTWORK_SVG, artworkDraft, artworkValidation } from '../../../tests/helpers/m24-artwork-fixtures'
 import { ProjectRepository } from '../../platform/browser/storage/repository'
-import { replayAuthoring } from '../../shared/ai/authoring'
 import { normalizeStaticSvg } from '../../shared/ai/svg'
-import type { AuthoringOperation } from '../../shared/ai/authoring-protocol'
+import type { AuthoringOperation } from '../../shared/ai/authoring-protocol-v1'
 import { createCompositionContent, effectiveAdjustments } from '../../shared/appearance/graph'
 import { exportHistoryArchive, exportProject, importHistoryArchive, importProject } from '../../shared/project/file'
 import { decodeUtf8, sha256Bytes } from '../../shared/project/binary'
 import { projectResourceHashes } from '../../shared/project/source-resources'
+import { reviseSceneSnapshot } from '../../shared/validation/snapshots'
 import { canonicalJson, cloneJson } from '../../shared/validation/json'
 import { materializeAuthoringArtwork } from './artwork'
-import { captureEditableDraft, fromBundle, toBundle, type EditableProject } from './project'
+import { fromBundle, toBundle, type EditableProject } from './project'
 import { prepareCompositionCommands } from './prepare'
 import { fixture, runtime } from './test-fixtures'
 import { Workspace } from './workspace'
@@ -123,25 +123,30 @@ describe('deferred SVG/style artwork materialization using actual PNG fixtures',
     expect(canonicalJson(toBundle(editable).project)).toBe(before)
   })
 
-  it('preserves SVG/PNG source closure through protected adoption, cold reopen, offline history and appearance recovery', async () => {
+  it('preserves SVG/PNG source closure through protected persistence, cold reopen, offline history and appearance recovery', async () => {
     const validation = artworkValidation(), name = `m24-artwork-history-${crypto.randomUUID()}`, repo = new ProjectRepository({ name, validation, runtime })
     repos.push(repo); names.add(name)
     const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
-    await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
+    await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation)); await workspace.flush()
     const before = workspace.getState().project!, owner = before.document.sceneId
-    const authorization = await workspace.authorizeAtomic({ targetIds: [], operations: [], placement: null, artwork: single })
-    const draft = artworkDraft(toBundle(before), [[svg()]], single); draft.start = authorization.start
-    draft.state = replayAuthoring(draft.start, draft.state.steps).state
-    const candidate = await workspace.prepareAtomicCandidate(authorization, draft)
-    const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => ({ schemaVersion: 1, taskId: candidate.taskId, generation: candidate.generation,
-      draftRevision: candidate.draftRevision, contentHash: candidate.contentHash, claimId: crypto.randomUUID(), serverNow: 1000, expiresAt: 31000 }) })
-    await result.save
-    const artwork = workspace.getState().project!, named = await workspace.createNamedSnapshot('SVG adopted')
+    // Legacy SVG recipe replay is an internal retained path; current public
+    // authoring4 deliberately has artwork:null and cannot create resources.
+    const draft = artworkDraft(toBundle(before), [[svg()]], single)
+    const materialized = await materializeAuthoringArtwork(await fromBundle(toBundle(before), validation), draft, validation)
+    const nextProject = { ...toBundle(materialized).project, document: reviseSceneSnapshot(materialized.document, before.document.revision + 1, runtime.clock.now()) }
+    const artwork = await fromBundle({ project: nextProject, resources: materialized.resources }, validation)
+    const usage = await repo.usage(owner), protection = await repo.createSnapshot(toBundle(before), 'SVG source baseline', { kind: 'protection',
+      expectedRevision: before.document.revision, expectedMetadataVersion: usage.metadataVersion })
+    await repo.save(toBundle(artwork), before.document.revision, { guard: { expectedMetadataVersion: usage.metadataVersion + 1,
+      protection: { id: protection.id, contentHash: protection.contentHash } } })
+    await workspace.close()
+    const named = await repo.createSnapshot(toBundle(artwork), 'SVG adopted', { kind: 'named', expectedRevision: artwork.document.revision,
+      expectedMetadataVersion: (await repo.usage(owner)).metadataVersion })
     const source = Object.values(artwork.authoringSources)[0]
-    expect(result.protection!.project.authoringSources).toEqual({})
-    await workspace.updateProp('other', { rotationDeg: 25 }); await workspace.flush()
-    await workspace.execute([{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'later-opacity', kind: 'opacity', value: .2, enabled: true } }])
-    await workspace.flush(); await workspace.close()
+    const editing = new Workspace(repo, { runtime, validation }); sessions.push(editing); await editing.openPersisted(artwork)
+    await editing.updateProp('other', { rotationDeg: 25 }); await editing.flush()
+    await editing.execute([{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'later-opacity', kind: 'opacity', value: .2, enabled: true } }])
+    await editing.flush(); await editing.close()
     const cold = (await repo.load(owner))!, reopened = new Workspace(repo, { runtime, validation }); sessions.push(reopened)
     await reopened.openPersisted(await fromBundle(cold, validation))
     const preview = await reopened.prepareRestore(named.id, { ids: ['item'], mode: 'appearance' })

@@ -1,7 +1,8 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { visualBase } from '../visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
-import type { AuthoringStart } from './authoring-protocol.js'
+import { createCurrentAuthoringStartV4 } from './current-authoring.js'
 import type { PointMm } from '../model/scene.js'
 import { authoringProjectHash, applyAuthoringStep, replayAuthoring } from './authoring.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
@@ -14,12 +15,12 @@ const asymmetricRing: PointMm[] = [{ x: 6000, y: 5000 }, { x: 11000, y: 4000 }, 
   { x: 15500, y: 11000 }, { x: 12000, y: 14500 }, { x: 6500, y: 13000 }, { x: 7500, y: 9000 }]
 function fixture(points = asymmetricRing) {
   const project = cloneJson(svgProjectFixture().bundle.project), scene = project.document
-  project.schemaVersion = 2; scene.schemaVersion = 2; scene.visual = emptyVisualSystem()
+  Object.assign(scene, toCurrentSceneDocument(scene))
   const floorId = Object.keys(scene.floors)[0], layerId = scene.entityLayers.item, boundsMm = scene.floors[floorId].boundsMm
-  const source: AuthoringStart = { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), preparedAt: '2026-10-25T00:00:00.000Z', seed: '70859a22-1bd4-45e3-9a82-96dc5da14af3',
-    disclosure: 'complete-metadata/public-model', skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
+  const source = cloneJson(createCurrentAuthoringStartV4({ project, flowId: 'island-review-test', preservation: { sceneId: scene.sceneId, revision: scene.revision, contentHash: authoringProjectHash(project), checkpoint: 0 }, preparedAt: '2026-10-25T00:00:00.000Z', seed: '70859a22-1bd4-45e3-9a82-96dc5da14af3',
+    skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
       scene: { floorId, layerId, boundsMm, entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], operations: ['terrain'] },
-      visual: { floorId, layerId, boundsMm, entityIds: [], definitionIds: [], materialIds: [], operations: ['visualBoundary'] } } }
+      visual: { floorId, layerId, boundsMm, entityIds: [], definitionIds: [], materialIds: [], operations: ['visualBoundary'] } } }))
   const built = applyAuthoringStep(source, replayAuthoring(source, []).state, [{ kind: 'terrain', id: 'real-land', boundaryMm: points, groundElevationMm: 800 }], 'land')
   const allowed = new Set(built.state.changedIds), scope = source.scope.visual!
   const proposal = proposeAuthoringTerrainBoundary(built.project, scope, allowed, { areaId: 'real-land', boundaryId: 'real-coast' })

@@ -1,3 +1,4 @@
+import { assertCurrentAuthoringCapability, type CurrentAuthoringCapability } from './current-authoring-capability.js'
 import { visualBase } from '../visual/base.js'
 import type { ProjectData } from '../model/project.js'
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
@@ -69,9 +70,10 @@ function visualReferences(project: ProjectData, id: string): string[] {
   return boundary?.binding.kind === 'terrain' ? boundary.binding.sides.map(side => side.areaId) : boundary?.binding.kind === 'path' ? [boundary.binding.pathId]
     : edge ? [edge.boundaryId] : filter?.target.kind === 'entities' ? filter.target.ids : []
 }
-export function validateVisualAuthoringScope(project: ProjectData, input: VisualAuthoringScope): VisualAuthoringScope {
+export function validateVisualAuthoringScope(project: ProjectData, input: VisualAuthoringScope, capability?: CurrentAuthoringCapability): VisualAuthoringScope {
   const scope = VisualAuthoringScopeSchema.parse(captureJson(input)), scene = project.document
-  if (project.schemaVersion !== 2 || scene.schemaVersion !== 2 || !scene.visual) deny('视觉创作须先明确保存v2独立副本。')
+  const current = assertCurrentAuthoringCapability(project, capability)
+  if (!current || scene.visual?.version !== 3) deny('完整工程的视觉创作须使用当前明确能力协议。')
   const floor = scene.floors[scope.floorId], layer = scene.userLayers[scope.layerId]
   if (!floor || !layer || layer.floorId !== floor.id || layer.editLocked || !inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('视觉Floor、图层或范围无效/锁定。')
   for (const id of scope.entityIds) {
@@ -82,7 +84,7 @@ export function validateVisualAuthoringScope(project: ProjectData, input: Visual
       if (target?.kind === 'layer') deny('AI不采用持续图层滤镜，请明确选择冻结实体。')
       if (target?.kind === 'scene' && !scope.allowGlobalEnvironment) deny('现存全图滤镜须单独授权全图。')
     }
-    else assertPublicSceneEntity(project, scope, id)
+    else assertPublicSceneEntity(project, scope, id, capability)
   }
   for (const id of scope.definitionIds) if (!scene.propDefinitions[id]?.origin.canEmbed || scene.propDefinitions[id].tags.includes('sceneweave:retained-appearance')) deny('视觉布景固定素材未获授权。')
   for (const id of scope.materialIds) if (!scene.materials[id]?.origin.canEmbed) deny('视觉固定材质未获授权。')
@@ -158,6 +160,7 @@ function boundaryConnectionIssues(project: ProjectData, candidate: SceneDocument
     terrainAreas: Object.fromEntries(Object.entries(scene.terrainAreas).filter(([id]) => areas.has(id))),
     terrainConnections: Object.fromEntries(Object.entries(scene.terrainConnections).filter(([id]) => connections.has(id))),
     rooms: {}, walls: {}, openings: {}, vertices: {}, props: {}, paths: {}, terrainEdges: {}, regions: {}, notes: {}, prefabInstances: {}, scatterGroups: {},
+    decorations: {}, decorationClusters: {}, surfaceRules: {},
   })
   const key = (issue: { code: string; entityId?: string }) => JSON.stringify([issue.code, issue.entityId])
   const previous = new Set(validateGeometry(publicGeometry(before)).errors.map(key))
@@ -181,9 +184,9 @@ function commandFor(project: ProjectData, scope: VisualAuthoringScope, operation
     default: return deny('未知视觉命令。')
   }
 }
-export function visualAuthoringReadIds(project: ProjectData, scope: VisualAuthoringScope): string[] {
+export function visualAuthoringReadIds(project: ProjectData, scope: VisualAuthoringScope, capability?: CurrentAuthoringCapability): string[] {
   const read = new Set(sceneReadIds(project, physicalScope(project, scope)))
-  for (const id of scope.entityIds) for (const key of visualEntity(project, id) ? assertVisual(project, scope, id) : assertPublicSceneEntity(project, scope, id)) read.add(key)
+  for (const id of scope.entityIds) for (const key of visualEntity(project, id) ? assertVisual(project, scope, id) : assertPublicSceneEntity(project, scope, id, capability)) read.add(key)
   return sorted(read)
 }
 type Result = { project: ProjectData; readIds: string[]; writeIds: string[]; createdIds: string[]; cost: number }
@@ -191,10 +194,10 @@ function physicalScope(project: ProjectData, scope: VisualAuthoringScope): Scene
   return { floorId: scope.floorId, layerId: scope.layerId, boundsMm: scope.boundsMm, entityIds: scope.entityIds.filter(id => !visualEntity(project, id)),
     definitionIds: scope.definitionIds, materialIds: scope.materialIds, prefabDefinitionIds: [], operations: ['furnish'] }
 }
-export function applyVisualAuthoringOperation(project: ProjectData, scope: VisualAuthoringScope, input: VisualAuthoringOperation, context: PreparationContext, created: ReadonlySet<string>): Result {
+export function applyVisualAuthoringOperation(project: ProjectData, scope: VisualAuthoringScope, input: VisualAuthoringOperation, context: PreparationContext, created: ReadonlySet<string>, capability?: CurrentAuthoringCapability): Result {
   const operation = VisualAuthoringOperationSchema.parse(captureJson(input)), allowed = new Set([...scope.entityIds, ...created])
   if (!scope.operations.includes(operation.kind)) deny('视觉操作未获授权。')
-  const required = (id: string) => { if (!allowed.has(id)) deny('视觉实体或真实依赖未明确授权。'); if (visualEntity(project, id)) assertVisual(project, scope, id); else assertPublicSceneEntity(project, scope, id) }
+  const required = (id: string) => { if (!allowed.has(id)) deny('视觉实体或真实依赖未明确授权。'); if (visualEntity(project, id)) assertVisual(project, scope, id); else assertPublicSceneEntity(project, scope, id, capability) }
   if (operation.kind === 'furnishAlong') {
     required(operation.source.id)
     if (!scope.definitionIds.includes(operation.definitionId)) deny('沿边布景素材未获授权。')
@@ -212,7 +215,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
       const sample = visualSampleAtDistance(sampled, operation.startDistanceMm + i * operation.spacingMm)
       const positionMm = { x: Math.round(sample.positionMm.x + sample.normal.x * operation.offsetMm), y: Math.round(sample.positionMm.y + sample.normal.y * operation.offsetMm) }
       const id = context.ids.nextId(), result = applySceneOperation(current, physicalScope(current, scope), { kind: 'furnish', id, definitionId: operation.definitionId, supportRef: operation.supportRef, positionMm,
-        rotationDeg: ((Math.atan2(sample.tangent.y, sample.tangent.x) * 180 / Math.PI + (operation.rotationOffsetDeg ?? 0)) % 360 + 360) % 360 }, context, new Set([...allowed, ...fresh]))
+        rotationDeg: ((Math.atan2(sample.tangent.y, sample.tangent.x) * 180 / Math.PI + (operation.rotationOffsetDeg ?? 0)) % 360 + 360) % 360 }, context, new Set([...allowed, ...fresh]), undefined, capability)
       const prop = result.project.document.props[id], footprint = propFootprint(prop)
       if (prop.blocksMovement) {
         for (const other of Object.values(current.document.props).filter(value => value.floorId === scope.floorId && value.blocksMovement)) {
@@ -240,7 +243,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
     const preview = cloneJson(project.document), impact = applyVisualCommand(preview, command, context)
     const content = applyCompositionCommands({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance }, [command], context)
     const next = validateProjectData({ ...project, ...content, schemaVersion: content.document.schemaVersion, document: { ...content.document, revision: project.document.revision, updatedAt: project.document.updatedAt } })
-    return { project: next, readIds: sorted([...impact.affectedIds, ...visualAuthoringReadIds(project, scope), ...visualAuthoringReadIds(next, scope)]), writeIds: impact.changedIds, createdIds: [], cost: Math.max(1, impact.commandCost) }
+    return { project: next, readIds: sorted([...impact.affectedIds, ...visualAuthoringReadIds(project, scope, capability), ...visualAuthoringReadIds(next, scope, capability)]), writeIds: impact.changedIds, createdIds: [], cost: Math.max(1, impact.commandCost) }
   }
   if (operation.kind === 'visualEnvironment' || operation.kind === 'visualFilter' && operation.target.kind === 'scene') {
     if (!scope.allowGlobalEnvironment) deny('全图环境或全图滤镜须单独明确授权。')
@@ -280,7 +283,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
     if (visualEntity(next, id)) {
       assertVisual(next, scope, id)
       if (!visualEntity(project, id) && visualEntity(next, id)!.layerId !== scope.layerId) deny('视觉新增对象越过授权图层。')
-    } else if (LAYER_ENTITY_COLLECTIONS.some(key => Object.hasOwn(next.document[key], id))) assertPublicSceneEntity(next, scope, id)
+    } else if (LAYER_ENTITY_COLLECTIONS.some(key => Object.hasOwn(next.document[key], id))) assertPublicSceneEntity(next, scope, id, capability)
   }
   if (operation.kind === 'visualEnvironment') { writeIds.push('visual.environment'); read.add('visual.environment') }
   return { project: next, readIds: sorted(read), writeIds: sorted(writeIds), createdIds: impact.createdIds, cost: Math.max(1, impact.commandCost) }
@@ -293,8 +296,8 @@ export function publicVisualAuthoringContext(project: ProjectData, scope: Visual
     entities, environment: scope.allowGlobalEnvironment ? visualBase(project.document)!.environment : null }
 }
 /** Physical read projection for visual-only tasks uses the same frozen public closure. */
-export function publicVisualPhysicalContext(project: ProjectData, scope: VisualAuthoringScope, created: ReadonlySet<string>) {
-  return publicSceneContext(project, physicalScope(project, scope), created)
+export function publicVisualPhysicalContext(project: ProjectData, scope: VisualAuthoringScope, created: ReadonlySet<string>, capability?: CurrentAuthoringCapability) {
+  return publicSceneContext(project, physicalScope(project, scope), created, capability)
 }
 export function assertFinalVisualAuthoringTargets(project: ProjectData, scope: VisualAuthoringScope, touched: ReadonlySet<string>): void {
   const allowed = new Set([...scope.entityIds, ...touched])

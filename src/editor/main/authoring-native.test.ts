@@ -46,7 +46,7 @@ describe('native main workspace ordinary staged authoring', () => {
   it('keeps SCN-04 building/outdoor/composition/privacy commands on native scene/identity/appearance', () => {
     const project = complete(blank(), 'scn-04'), scene = project.document
     expect(scene).toMatchObject({ format: 'sceneweave-scene', schemaVersion: 1 })
-    expect(project.historyIdentity.version).toBe(1)
+    expect(project.historyIdentity.version).toBe(5)
     expect(Object.keys(scene.rooms)).toHaveLength(2)
     expect(Object.keys(scene.walls)).toHaveLength(7)
     expect(Object.keys(scene.openings)).toHaveLength(2)

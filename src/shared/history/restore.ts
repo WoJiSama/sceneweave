@@ -8,6 +8,7 @@ import { effectiveEditLocked } from '../commands/layers.js'
 import { canonicalTerrainEdge, outdoorDependencies } from '../commands/outdoor.js'
 import { polygonDistance, propFootprint } from '../geometry/geometry.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
+import { reconcileAggregateMembers } from '../aggregates/state.js'
 import type { PrefabInstance, PropOverrideField, Prop, SceneDocument, SurfaceRef, SurfaceStyle } from '../model/scene.js'
 import { projectScene } from '../projection/projection.js'
 import { assertStructureContinuity, type StructureContinuity } from './structure-continuity.js'
@@ -22,6 +23,7 @@ import { assertVisualContinuity, type VisualContinuity, visualTopology } from '.
 import { outdoorIdentityDescriptors } from './identity.js'
 import { detachChangedAppearance } from '../terrain-generation/appearance-lifecycle.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
+import { assertCommandBudget, commandSelectionLimit, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 
 
 export type RestoreMode = 'appearance' | 'source' | 'transform' | 'entity' | 'relationship' | 'layer' | 'outdoorGeometry' | 'outdoorProperties' | 'scatterMembers' | 'visual'
@@ -51,7 +53,7 @@ export interface RestorePlan extends CompositionContent {
 
 /** Derived from final results as well as the initial pure restore draft. */
 export function generationRestoreChanges(beforeDocument: SceneDocument, afterDocument: SceneDocument): RestoreChange[] {
-  if (beforeDocument.schemaVersion !== 3 || afterDocument.schemaVersion !== 3) return []
+  if (false || false) return []
   const changes: RestoreChange[] = []
   for (const collection of ['ownership', 'rules', 'checks', 'exclusions'] as const) {
     const before = getLegacyGeneration(beforeDocument)![collection], after = getLegacyGeneration(afterDocument)![collection]
@@ -109,6 +111,7 @@ function owner(scene: SceneDocument, propId: string): { group: PrefabInstance; k
   return undefined
 }
 function assertSupportedDependencies(scene: SceneDocument, entityId: string, label: string) {
+  if (Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.entityId === entityId && member.state !== 'deleted' && member.state !== 'detached'))) throw new Error(`${label}对象 ${entityId} 属于簇状布景；此有限恢复不隐式展开簇的人工记录，请使用明确独立历史或完整版本恢复。`)
   if (Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === entityId))) throw new Error(`${label}对象 ${entityId} 属于散布；本次恢复不隐式展开散布和排除记录。`)
   if (Object.values(scene.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === entityId)) throw new Error(`${label}对象 ${entityId} 有锚点注记依赖，不能在此恢复。`)
   if (scene.constraints.pathChecks.some(check => [check.from, check.to].some(anchor => anchor.type === 'entity' && anchor.entityId === entityId))) throw new Error(`${label}对象 ${entityId} 有路径检查依赖，不能在此恢复。`)
@@ -192,11 +195,13 @@ function historicalClosure(candidate: CompositionContent, historic: CompositionC
 }
 
 /** Pure draft. IO materializes any new layer/source combinations before Workspace exposes it. */
-export function buildRestorePlan(currentInput: CompositionContent, historicInput: CompositionContent, requestInput: RestoreRequest, evidence: RestoreEvidence = {}): RestorePlan {
+export function buildRestorePlan(currentInput: CompositionContent, historicInput: CompositionContent, requestInput: RestoreRequest, evidence: RestoreEvidence = {}, budgetInput?: CommandBudgetProfile): RestorePlan {
+  const budget = budgetInput ? parseCommandBudgetProfile(budgetInput) : undefined
   const issue = inspectJsonInput(requestInput)
   if (issue) throw new Error(`恢复选择无效：${issue.message}`)
-  const parsed = requestSchema.safeParse(requestInput)
-  if (!parsed.success) throw new Error(`恢复选择无效：一次须明确选择 1 至 256 个对象及受支持的属性组。${parsed.error.issues.map(value => value.message).join('；')}`)
+  const limit = commandSelectionLimit(budget)
+  const parsed = requestSchema.extend({ ids: z.array(id).min(1).max(limit) }).safeParse(requestInput)
+  if (!parsed.success) throw new Error(`恢复选择无效：一次须明确选择 1 至 ${limit} 个对象及受支持的属性组。${parsed.error.issues.map(value => value.message).join('；')}`)
   const request: RestoreRequest = parsed.data
   if (new Set(request.ids).size !== request.ids.length) throw new Error('恢复对象 ID 不能重复。')
   const current = validateCompositionContent(currentInput), historic = validateCompositionContent(historicInput)
@@ -209,7 +214,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
   for (const layerId of Object.keys(current.document.userLayers)) occupied.add(layerId)
   const reserve = (entityId: string) => {
     affected.add(entityId); writes.add(entityId)
-    if (writes.size + relationshipRecords.size + visualCost > 256) throw new Error('恢复对象及组合关系展开超过单次 256 条预算，不能拆批绕过。')
+    if (!budget && writes.size + relationshipRecords.size + visualCost > 256) throw new Error('恢复对象及组合关系展开超过单次 256 条预算，不能拆批绕过。')
   }
   const addChange = (change: RestoreChange) => {
     if (!equal(change.before, change.after) || change.beforeLayerId !== change.layerId) changes.push(change)
@@ -353,11 +358,11 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     const impact = applyVisualCommand(candidate.document, command, {
       ids: { nextId: () => { throw new Error('曲线恢复需要新增采样拓扑；本阶段只支持相同拓扑的参数恢复。') } },
       clock: { now: () => current.document.updatedAt },
-    })
+    }, budget)
     const oldTopology = outdoorIdentityDescriptors(before), nextTopology = outdoorIdentityDescriptors(candidate.document)
     if (!equal(oldTopology, nextTopology)) throw new Error('曲线恢复改变物理采样拓扑；不能隐式重绑或重建。')
     visualCost += Math.max(1, impact.commandCost)
-    if (writes.size + relationshipRecords.size + visualCost > 256) throw new Error('视觉对象、控制段和物理采样展开超过单次256条恢复预算，不能拆批绕过。')
+    if (!budget && writes.size + relationshipRecords.size + visualCost > 256) throw new Error('视觉对象、控制段和物理采样展开超过单次256条恢复预算，不能拆批绕过。')
     impact.affectedIds.forEach(value => affected.add(value)); affected.add(targetId)
     const visual = (scene: SceneDocument) => targetId === scene.sceneId ? visualBase(scene)!.environment
       : VISUAL_ENTITY_COLLECTIONS.flatMap(key => Object.values(visualBase(scene)![key])).find(value => value.id === targetId)
@@ -381,10 +386,20 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     const present = current.document[collection][targetId], historical = historic.document[collection][targetId]
     if (present.floorId !== historical.floorId) throw new Error('室外对象Floor变化，不能恢复。')
     const keys: string[] = collection === 'terrainAreas' ? ['boundaryMm', 'groundElevationMm'] : collection === 'terrainConnections' ? ['from', 'to', 'widthMm'] : collection === 'paths' ? ['centerlineMm', 'widthMm'] : []
+    if (collection === 'terrainConnections' && true && ('route' in present || 'route' in historical)) keys.push('route')
     if (request.mode === 'outdoorProperties') keys.push(...(collection === 'terrainAreas' ? ['visibility', 'coveragePriority', 'blocksMovement', 'blocksSight', 'movementCostMultiplier'] : collection === 'terrainEdges' ? ['visibility', 'kind', 'shoreline', 'blocksMovement', 'blocksSight', 'styleOverride'] : collection === 'terrainConnections' ? ['visibility', 'kind', 'blocksMovement', 'movementCostMultiplier'] : ['visibility', 'movementCostMultiplier', 'renderOrder']))
     if (!keys.length) throw new Error('来源边缘的位置由来源地形段决定；请恢复来源地形，或明确选择边缘业务属性。')
     const before = present as unknown as Record<string, unknown>, source = historical as unknown as Record<string, unknown>, after = candidate.document[collection][targetId] as unknown as Record<string, unknown>
-    for (const key of keys) after[key] = copy(source[key])
+    for (const key of keys) {
+      if (key === 'route') {
+        const historicalRoute = current.document.terrainConnections[targetId] && historic.document.terrainConnections[targetId]?.route
+        const currentRoute = current.document.terrainConnections[targetId]?.route
+        if (historicalRoute) after.route = request.mode === 'outdoorGeometry' && currentRoute
+          ? { ...copy(historicalRoute), stairStyle: currentRoute.stairStyle, treadDepthMm: currentRoute.treadDepthMm }
+          : copy(historicalRoute)
+        else delete after.route
+      } else after[key] = copy(source[key])
+    }
     addChange({ id: targetId, kind: 'outdoor', name: targetId, action: 'update', layerId: current.document.entityLayers[targetId], beforeLayerId: current.document.entityLayers[targetId], fields: keys,
       before: Object.fromEntries(keys.map(key => [key, copy(before[key])])), after: Object.fromEntries(keys.map(key => [key, copy(after[key])])) })
   }
@@ -400,7 +415,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
       scope.add(propId); scope.add(historical.group.id); scope.add('member:' + historical.group.id + ':' + historical.key)
       for (const exclusion of current.document.scatterGroups[historical.group.id]?.exclusions ?? []) if (exclusion.reason === 'delete' && exclusion.sourceCandidateKey === historical.key) scope.add('exclusion:' + exclusion.id)
     }
-    if (scope.size > 256) throw new Error('散布成员、关系与排除记录展开超过256条预算。')
+    if (!budget && scope.size > 256) throw new Error('散布成员、关系与排除记录展开超过256条预算。')
   }
   const restoreScatterProp = (propId: string, explicit: boolean) => {
     const historicOwner = scatterOwner(historic.document, propId), historical = historic.document.props[propId], present = current.document.props[propId]
@@ -450,7 +465,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
         if (adjustments) candidate.appearance.instanceAdjustments[propId] = copy(adjustments); else delete candidate.appearance.instanceAdjustments[propId]
       } else { const frozen = freezeEffectivePropAppearance(candidate, propId, historical); Object.assign(candidate.document, frozen.document); Object.assign(candidate.appearance, frozen.appearance) }
     }
-    if (writes.size + relationshipRecords.size > 256) throw new Error('散布成员、关系与排除记录展开超过256条预算。')
+    if (!budget && writes.size + relationshipRecords.size > 256) throw new Error('散布成员、关系与排除记录展开超过256条预算。')
     addChange({ id: propId, kind: 'prop', name: propId, action: present ? 'update' : 'recreate', layerId: candidate.document.entityLayers[propId], beforeLayerId: present ? current.document.entityLayers[propId] : null,
       fields: explicit ? ['entity', 'appearance', 'selectedMembership'] : Object.keys(fields(historical, request.mode)),
       before: present ? { entity: copy(present), sourceId: current.appearance.propSources[propId], adjustments: copy(current.appearance.instanceAdjustments[propId] ?? []) } : null,
@@ -511,7 +526,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
       const kinds = [...new Set([...(current.appearance.layerAdjustments[rootId] ?? []), ...(historic.appearance.layerAdjustments[rootId] ?? [])].filter(value => value.enabled).map(value => value.kind))]
       const targets = new Set<string>()
       for (const kind of kinds) {
-        const scope = inspectAppearanceScope(current, { kind: 'layer', layerId: rootId }, [kind])
+        const scope = inspectAppearanceScope(current, { kind: 'layer', layerId: rootId }, [kind], budget)
         scope.targetIds.forEach(targetId => targets.add(targetId)); scope.inapplicableIds.forEach(targetId => inapplicable.add(targetId))
       }
       for (const targetId of targets) {
@@ -581,14 +596,19 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     subjects.set(`propDefinition:${definition.id}`, { subjectKind: 'propDefinition', subjectId: definition.id })
   }
   let commandCost = writes.size + relationshipRecords.size + visualCost
-  if (candidate.document.schemaVersion === 3) {
+  if (true) {
     // History restores change current results and manual protection together;
     // they never copy an old rule's managed ownership back over later edits.
     detachChangedAppearance(current, candidate)
     for (const change of generationRestoreChanges(current.document, candidate.document)) { affected.add(change.id); addChange(change) }
     const expanded = terrainCommandCost(current.document, candidate.document)
     commandCost = Math.max(commandCost, expanded.items.physicalAndVisual) + expanded.total - expanded.items.physicalAndVisual
-    if (commandCost > 256) throw new Error('历史恢复、真实几何与生成记录实际展开超过256条操作预算。')
+    if (!budget && commandCost > 256) throw new Error('历史恢复、真实几何与生成记录实际展开超过256条操作预算。')
+  }
+  reconcileAggregateMembers(current.document, candidate.document)
+  if (budget) {
+    const usage = measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, budget)
+    commandCost = assertCommandBudget(budget, { ...usage, dependencyRefs: Math.max(usage.dependencyRefs, affected.size) }).semanticTargets
   }
   const checked = validateSceneSnapshot(candidate.document)
   if (!checked.ok) throw new Error(`恢复候选场景无效：${checked.errors.map(value => value.message).join('；')}`)

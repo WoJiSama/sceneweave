@@ -1,15 +1,16 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
 import { cloneJson } from '../validation/json.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { diagnoseAuthoringProject, planForBrief, type AuthoringBrief } from './plan.js'
 import { authoringProjectHash, authoringAssetPage, replayAuthoring } from './authoring.js'
-import type { AuthoringStart } from './authoring-protocol.js'
+import { createCurrentAuthoringStartV4 } from './current-authoring.js'
 
 const box = { x: 2000, y: 2000, width: 6000, height: 6000 }
 function fixture() {
   const project = cloneJson(svgProjectFixture().bundle.project), scene = project.document
-  project.schemaVersion = 2; scene.schemaVersion = 2; scene.visual = emptyVisualSystem()
+  Object.assign(scene, toCurrentSceneDocument(scene))
   const prop = scene.props.item
   prop.blocksMovement = true; prop.positionMm = { x: 3000, y: 3000 }; prop.visualBoundsMm = { x: -2000, y: -2000, width: 4000, height: 4000 }; prop.footprintMm = { width: 100, height: 100 }
   return project
@@ -69,8 +70,8 @@ describe('immutable recipe evidence and actual image composition diagnostics', (
   })
   it('rejects evidence grants outside authorization and returns explicit rendered dimensions in the palette', () => {
     const project = cloneJson(svgProjectFixture().bundle.project), floorId = Object.keys(project.document.floors)[0], layerId = project.document.entityLayers.item
-    const start: AuthoringStart = { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: 'b9f1f3bd-f028-43b8-865c-b09b0ea4357d', preparedAt: '2026-10-25T00:00:00.000Z', disclosure: 'complete-metadata/public-model', skill: { id: 'sceneweave-scene-authoring', version: 1 },
-      scope: { targetIds: [], operations: [], placement: null, scene: { floorId, layerId, boundsMm: { x: 0, y: 0, width: 12000, height: 12000 }, entityIds: [], definitionIds: ['definition'], materialIds: [], prefabDefinitionIds: [], operations: ['furnish'] } } }
+    const start = cloneJson(createCurrentAuthoringStartV4({ project, flowId: 'plan-test', preservation: { sceneId: project.document.sceneId, revision: project.document.revision, contentHash: authoringProjectHash(project), checkpoint: 0 }, seed: 'b9f1f3bd-f028-43b8-865c-b09b0ea4357d', preparedAt: '2026-10-25T00:00:00.000Z', skill: { id: 'sceneweave-scene-authoring', version: 1 },
+      scope: { targetIds: [], operations: [], placement: null, scene: { floorId, layerId, boundsMm: { x: 0, y: 0, width: 12000, height: 12000 }, entityIds: [], definitionIds: ['definition'], materialIds: [], prefabDefinitionIds: [], operations: ['furnish'] } } }))
     expect(authoringAssetPage(start, '', 1).assets[0]).toMatchObject({ imageWidthMm: project.document.propDefinitions.definition.defaultVisualBoundsMm.width, visualBoundsMm: expect.any(Object), footprintMm: expect.any(Object) })
     start.brief = { recipe: 'beach', requirements: ['three reefs'], checks: [{ kind: 'propCount', id: 'bad', definitionIds: ['private-definition'], minimum: 3 }] }
     expect(() => replayAuthoring(start, [])).toThrow(/未获授权/)

@@ -1,8 +1,9 @@
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { selectionScene as toGeometryDocumentV2 } from './selection-scene'
 import { migrateSceneV2 as legacyLayers } from '../../core/v3/migration'
 import type { SceneDocumentV2 } from '../../core/v2/types'
-function migrateSceneV2(input: SceneDocumentV2, options: Parameters<typeof legacyLayers>[1]): SceneDocumentV3 { return { ...legacyLayers(input, options), format: 'sceneweave-scene', schemaVersion: 1 } }
+function migrateSceneV2(input: SceneDocumentV2, options: Parameters<typeof legacyLayers>[1]): SceneDocumentV3 { return toCurrentSceneDocument({ ...legacyLayers(input, options), format: 'sceneweave-scene', schemaVersion: 1 }) }
 import { validateSceneSnapshot as validateSceneSnapshotV3 } from '../../shared/validation/snapshots.js'
 import type { SceneDocument as SceneDocumentV3 } from '../../shared/model/scene.js'
 import { createBlankDocumentV2 } from '../v2/blank-project'

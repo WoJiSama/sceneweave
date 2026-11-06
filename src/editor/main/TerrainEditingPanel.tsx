@@ -11,6 +11,10 @@ import type { VisualBoundary } from '../../shared/visual/types'
 import type { CanvasTerrainBrush } from '../native-canvas/AssetCanvas'
 import type { CanvasWorldTool } from '../native-canvas/building-session'
 import { newId } from './runtime'
+import { NumberInput } from '../native-canvas/controls'
+import { formatDistanceMm } from '../native-canvas/building-session'
+import { formatLengthInput } from '../native-canvas/length-input'
+import { expandTerrainContourScope } from './terrain-contour-scope'
 import './terrain-editing.css'
 
 export interface TerrainEditCanvasSession {
@@ -23,11 +27,10 @@ export interface TerrainEditCanvasSession {
 const modes = { addLand: '添陆', digWater: '挖水', paintGrass: '铺草', clearArea: '清出空地' } as const
 const links = { contour: '只改轮廓', transitions: '轮廓及相关过渡', scenery: '同步过渡并调整失去支撑的自动布景' } as const
 const pointNames = { start: '起点', control1: '控制点一', control2: '控制点二', end: '终点' } as const
-const areaLabel = (scene: SceneDocument, id: string) => { const area = scene.terrainAreas[id]; if (!area) return id; const material = area.surfaceStyle?.base.materialRef; return `${material ? scene.materials[material.id]?.name ?? '地形' : '地形'} · 高程 ${area.groundElevationMm / 1000} 米` }
-const mm = (value: number) => `${(value / 1000).toFixed(2).replace(/\.?0+$/, '')} 米`
+const areaLabel = (scene: SceneDocument, id: string) => { const area = scene.terrainAreas[id]; if (!area) return id; const material = area.surfaceStyle?.base.materialRef; return `${material ? scene.materials[material.id]?.name ?? '地形' : '地形'} · 高程 ${formatDistanceMm(area.groundElevationMm, scene.units.display)}` }
 
 export default function TerrainEditingPanel({ scene, busy, adopting = false, disabled, error, candidate, onPreview, onAdopt, onCancel, onCanvasSession, onDraftChange }: {
-  scene: SceneDocument; busy: boolean; adopting?: boolean; disabled: boolean; error: string | null; candidate: TerrainEditResult | null
+  scene: SceneDocument; busy: boolean; adopting?: boolean; disabled: boolean; error: string | null; candidate: { request: TerrainEditResult['request']; cost: { total: number; limit: number }; impact: TerrainEditResult['impact'] } | null
   onPreview: (request: TerrainEditRequest) => Promise<void>; onAdopt: () => Promise<void>; onCancel: () => void
   onCanvasSession: (value: TerrainEditCanvasSession | null) => void; onDraftChange: (dirty: boolean) => void
 }) {
@@ -146,6 +149,8 @@ export default function TerrainEditingPanel({ scene, busy, adopting = false, dis
   useEffect(() => { callbacks.current.onCanvasSession(canvasSession) }, [canvasSession])
   const labels = (ids: readonly string[]) => ids.map(id => (scene.terrainAreas[id] ? areaLabel(scene, id) : undefined) ?? (scene.props[id]?.definitionRef ? scene.propDefinitions[scene.props[id].definitionRef!.id]?.name : undefined) ?? id)
   const number = (label: string, value: number, change: (next: number) => void, min?: number, max?: number) => <label>{label}<input aria-label={`地形编辑${label}`} type="number" value={value} min={min} max={max} step={1} onChange={event => { change(Number(event.target.value)); setConfirmed(false) }}/></label>
+  const length = (label: string, value: number, change: (next: number) => void) => <NumberInput label={label} ariaLabel={`地形编辑${label}`} value={value} displayUnit={scene.units.display} onCommit={next => { change(next); setConfirmed(false) }}/>
+  const distance = (value: number) => formatDistanceMm(value, scene.units.display)
   return <section className="terrain-editing-panel" aria-labelledby={heading}>
     <div className="asset-section-heading"><Paintbrush size={17}/><h2 id={heading}>局部地形编辑</h2></div>
     <p className="terrain-editing-intro">先画范围与笔画，查看岸线、过渡和树石的联动，再一次采用。手工与锁定内容保持。</p>
@@ -158,7 +163,9 @@ export default function TerrainEditingPanel({ scene, busy, adopting = false, dis
       <div hidden={tool === 'surroundings' || tool === 'topology'}>
       <div className="terrain-editing-modes" role="group" aria-label="地形笔刷">{Object.entries(modes).map(([value, name]) => <button key={value} type="button" aria-pressed={tool === 'brush' && mode === value} disabled={strokes.length > 0 && mode !== value || tool === 'contour'} onClick={() => { setMode(value as keyof typeof modes); setTool('brush') }}>{name}</button>)}</div>
       <label>作用地形<select aria-label="地形编辑作用地形" value={targetAreaId} disabled={strokes.length > 0 || tool === 'contour'} onChange={event => setTargetAreaId(event.target.value)}>{areas.map(area => <option key={area.id} value={area.id}>{areaLabel(scene, area.id)}</option>)}</select></label>
-      <div className="terrain-editing-pair">{number('笔刷半径 mm', radiusMm, setRadiusMm, 100, 10000)}<label>目标高程 mm<input aria-label="地形编辑目标高程 mm" type="number" value={elevationMm} readOnly disabled/></label></div>
+      <div className="terrain-editing-pair">{length('笔刷半径', radiusMm, setRadiusMm)}<label>目标高程 · {scene.units.display}<input aria-label="地形编辑目标高程" type="number" value={formatLengthInput(elevationMm, scene.units.display)} readOnly disabled/></label></div>
+      <p className="terrain-editing-hint">笔刷半径 {distance(100)}–{distance(10000)}；目标高程沿用作用地形。</p>
+      {(radiusMm < 100 || radiusMm > 10000) && <p role="alert" className="asset-form-error">笔刷半径须在 {distance(100)}–{distance(10000)} 之间，请调整后预览。</p>}
       <label>地面材质<select aria-label="地形编辑地面材质" disabled={mode !== 'paintGrass' || tool === 'contour'} value={mode === 'paintGrass' ? materialId : target?.surfaceStyle?.base.materialRef?.id ?? ''} onChange={event => setMaterialId(event.target.value)}><option value="">沿用当前地面</option>{materials.map(material => <option key={material.id} value={material.id}>{material.name}</option>)}</select></label>
       <p className="terrain-editing-hint">添陆和挖水只推拉现有岸线，沿用所选地形的材质与高程；暂不创建独立内湖，也不拆分或合并地块。铺草覆盖所选材质；清空保留地面与人工内容。</p>
       <details><summary>键盘落笔</summary><div className="terrain-editing-pair">{number('落笔 X mm', numericPoint.x, value => setNumericPoint(current => ({ ...current, x: value })))}{number('落笔 Y mm', numericPoint.y, value => setNumericPoint(current => ({ ...current, y: value })))}</div><button type="button" className="secondary asset-wide" disabled={tool !== 'brush' || !valid || !Number.isSafeInteger(numericPoint.x) || !Number.isSafeInteger(numericPoint.y)} onClick={() => appendStroke([{ ...numericPoint }])}>添加落笔并预览</button></details>
@@ -171,14 +178,24 @@ export default function TerrainEditingPanel({ scene, busy, adopting = false, dis
         setBoundary(next)
       }))}</div>)}</details>}
       </div>
-      <details className="terrain-editing-scope" open><summary>本次可写范围</summary><div className="terrain-editing-pair">{number('范围 X mm', scopeMm.x, value => setScopeMm(current => ({ ...current, x: value })))}{number('范围 Y mm', scopeMm.y, value => setScopeMm(current => ({ ...current, y: value })))}</div><div className="terrain-editing-pair">{number('范围宽 mm', scopeMm.width, value => setScopeMm(current => ({ ...current, width: value })), 1)}{number('范围高 mm', scopeMm.height, value => setScopeMm(current => ({ ...current, height: value })), 1)}</div><button type="button" className="secondary asset-wide" disabled={!!candidate} onClick={() => { setScopePoints([]); setScopeCursor(null) }}>在地图框定范围</button></details>
+      <div className="terrain-editing-scope"><p className="terrain-editing-hint" aria-label="本次可写范围摘要">可写范围 {distance(scopeMm.width)} × {distance(scopeMm.height)}；原点 X {distance(scopeMm.x)} / Y {distance(scopeMm.y)}。</p>
+        <button type="button" className="secondary asset-wide" disabled={!!candidate} onClick={() => { setScopePoints([]); setScopeCursor(null) }}>在地图框定范围</button>
+        {boundary && !candidate && <><button type="button" className="secondary asset-wide" onClick={() => {
+          try {
+            const expanded = expandTerrainContourScope(scopeMm, boundaries.find(value => value.id === boundary.id), boundary, Object.values(visualBase(scene)?.edgeLooks ?? {}))
+            setScopeMm(expanded); setScopePoints(null); setScopeCursor(null); setConfirmed(false); setLocalError(null)
+          } catch (failure) { setLocalError(failure instanceof Error ? failure.message : String(failure)) }
+        }}>按完整曲线扩大范围</button><p className="terrain-editing-hint">点击后覆盖修改前后整条曲线、控制点及启用边带，并保留当前范围；联动依赖仍以重新预览的完整校验为准。</p></>}
+        <details><summary>精确调整可写范围</summary><div className="terrain-editing-pair">{length('范围 X', scopeMm.x, value => setScopeMm(current => ({ ...current, x: value })))}{length('范围 Y', scopeMm.y, value => setScopeMm(current => ({ ...current, y: value })))}</div><div className="terrain-editing-pair">{length('范围宽', scopeMm.width, value => setScopeMm(current => ({ ...current, width: value })))}{length('范围高', scopeMm.height, value => setScopeMm(current => ({ ...current, height: value })))}</div></details>
+        {(scopeMm.width <= 0 || scopeMm.height <= 0) && <p role="alert" className="asset-form-error">可写范围的宽和高须大于零，请调整后预览。</p>}
+      </div>
       {tool !== 'surroundings' && tool !== 'topology' && <label>联动内容<select aria-label="地形编辑联动内容" value={linkMode} onChange={event => setLinkMode(event.target.value as TerrainEditRequest['linkMode'])}>{Object.entries(links).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
       <button type="button" className="primary asset-wide" aria-label="预览局部地形修改" disabled={!valid || (tool === 'surroundings' ? !surroundingsValid : tool === 'topology' ? !topologyValid : !strokes.length && !boundary)} onClick={() => void submit()}><RefreshCw size={14}/>重新预览本次修改</button>
     </fieldset>
     {tool && <p className="terrain-editing-hint" role="status">{tool === 'topology' ? '每个依赖槽需明确选择输出地形；确认完整影响后保护并一次采用。' : tool === 'brush' ? `当前 ${modes[mode]} · ${strokes.length} / 32 笔；抬笔后自动预览，可继续同类笔画。` : tool === 'surroundings' ? '周边重生成候选沿用当前工程，确认影响后保护并一次采用。' : '拖动地图上的曲线控制点，抬起后自动预览。'}</p>}
     {busy && <p className="terrain-generation-progress" role="status">正在计算联动并校验完整工程…</p>}
     {(localError || error) && <p role="alert" className="asset-form-error">{localError || error}</p>}
-    {candidate && <article className="terrain-editing-impact" aria-label="本次地形影响"><h3>本次影响</h3>{scene.generation?.version === 1 && <p>本次同时保存新版地形笔画记录；采用前保留完整保护点，一次撤销可回到原状态。</p>}<p>编辑量 {candidate.cost.total} / {candidate.cost.limit} · 范围 {mm(candidate.impact.writeBoundsMm.width)} × {mm(candidate.impact.writeBoundsMm.height)}</p>{([['实际写入', candidate.impact.writeIds], ['保留的内容', candidate.impact.preservedIds], ['只读依赖', candidate.impact.readIds]] as const).map(([label, ids]) => <details key={label}><summary>{label} · {ids.length}</summary>{ids.length ? <ul>{labels(ids).map((label, index) => <li key={`${ids[index]}-${index}`}>{label}</li>)}</ul> : <p>无</p>}</details>)}<div className="terrain-editing-conflicts"><strong>需要解决的冲突 · {candidate.impact.conflicts.length}</strong>{candidate.impact.conflicts.map((conflict, index) => <p key={index}>{conflict.message}</p>)}</div>{!candidateMatches && <p className="terrain-generation-notice">设置或笔画已改变，请重新预览后采用。</p>}<label className="terrain-editing-confirm"><input aria-label="确认本次地形影响范围" type="checkbox" checked={confirmed} disabled={!candidateMatches || busy || disabled || !!candidate.impact.conflicts.length} onChange={event => setConfirmed(event.target.checked)}/>已查看实际写入、保留内容与依赖，确认本次范围</label><button className="primary asset-wide" type="button" aria-label="保护并采用地形修改" disabled={!candidateMatches || !confirmed || busy || disabled || !!candidate.impact.conflicts.length} onClick={() => void onAdopt().catch(failure => setLocalError(failure instanceof Error ? failure.message : String(failure)))}><Check size={14}/>保护当前并一次采用</button></article>}
+    {candidate && <article className="terrain-editing-impact" aria-label="本次地形影响"><h3>本次影响</h3><p>编辑量 {candidate.cost.total} / {candidate.cost.limit} · 范围 {distance(candidate.impact.writeBoundsMm.width)} × {distance(candidate.impact.writeBoundsMm.height)}</p>{([['实际写入', candidate.impact.writeIds], ['保留的内容', candidate.impact.preservedIds], ['只读依赖', candidate.impact.readIds]] as const).map(([label, ids]) => <details key={label}><summary>{label} · {ids.length}</summary>{ids.length ? <ul>{labels(ids).map((label, index) => <li key={`${ids[index]}-${index}`}>{label}</li>)}</ul> : <p>无</p>}</details>)}<div className="terrain-editing-conflicts"><strong>需要解决的冲突 · {candidate.impact.conflicts.length}</strong>{candidate.impact.conflicts.map((conflict, index) => <p key={index}>{conflict.message}</p>)}</div>{!candidateMatches && <p className="terrain-generation-notice">设置或笔画已改变，请重新预览后采用。</p>}<label className="terrain-editing-confirm"><input aria-label="确认本次地形影响范围" type="checkbox" checked={confirmed} disabled={!candidateMatches || busy || disabled || !!candidate.impact.conflicts.length} onChange={event => setConfirmed(event.target.checked)}/>已查看实际写入、保留内容与依赖，确认本次范围</label><button className="primary asset-wide" type="button" aria-label="保护并采用地形修改" disabled={!candidateMatches || !confirmed || busy || disabled || !!candidate.impact.conflicts.length} onClick={() => void onAdopt().catch(failure => setLocalError(failure instanceof Error ? failure.message : String(failure)))}><Check size={14}/>保护当前并一次采用</button></article>}
     {(dirty || busy || candidate) && <button type="button" className="secondary asset-wide" aria-label="取消本次地形修改" disabled={adopting} onClick={cancel}><X size={14}/>{busy ? '取消计算与草稿' : '取消本次地形修改'}</button>}
   </section>
 }

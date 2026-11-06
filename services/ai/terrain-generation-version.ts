@@ -4,5 +4,5 @@ import type { AuthoringOperation } from '../../src/shared/ai/authoring-protocol.
 export function selectNewTerrainGenerationVersion<T extends AuthoringOperation>(operation: T): T {
   if (operation.kind !== 'terrainGenerate' || operation.request.algorithmVersion !== undefined
     || (operation.request.kind !== 'island' && operation.request.kind !== 'coast')) return operation
-  return { ...operation, request: { ...operation.request, algorithmVersion: 2 } }
+  return { ...operation, request: { ...operation.request, algorithmVersion: operation.request.kind === 'island' ? 3 : 2 } }
 }

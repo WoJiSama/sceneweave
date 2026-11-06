@@ -67,7 +67,7 @@ test('T4 real near-side sources retain the old terrain/roots, save complete byte
     Reflect.set(window, '__nearSideTestProject', after)
     return { facts, images, package: encode(bytes) }
   })
-  expect(result.facts).toMatchObject({ schemaVersion: 3, assetCount: 20, sourceCount: 19, licenses: 2, rootsSame: true, terrainSame: true, sourceBytesSame: true, packageSame: true, coldSame: true, nearSampleShadow: { directionDeg: 50, offsetMm: 150, blurMm: 48, opacity: .12, color: '#32493F' } })
+  expect(result.facts).toMatchObject({ schemaVersion: 1, assetCount: 20, sourceCount: 19, licenses: 2, rootsSame: true, terrainSame: true, sourceBytesSame: true, packageSame: true, coldSame: true, nearSampleShadow: { directionDeg: 50, offsetMm: 150, blurMm: 48, opacity: .12, color: '#32493F' } })
   expect(result.facts.nearIds).toHaveLength(20)
   expect(result.facts.nearRotations.every(rotation => rotation === 0)).toBe(true)
   expect(result.facts.afterGroundHash).toBe(result.facts.normalHash)
@@ -99,11 +99,9 @@ test('T4 personal-library backup retains root/source/PNG and private paired play
     const project = await createNearSideIslandProject(), selector = { kind: 'prop' as const, definitionId: nearSideDefinitionId('near-oak') }
     const entry = await prepareLibraryEntry(toBundle(project), selector, validation), backup = await exportLibraryBackup({ entries: [entry], organizations: {} }, validation)
     const recovered = await importLibraryBackup(backup, validation), capsule = await loadLibraryCapsule(recovered.entries[0], validation)
-    const blankPath = '/src/platform/browser/content/refined-blank.ts', terrainPath = '/src/application/workspace/terrain.ts'
+    const blankPath = '/src/platform/browser/content/refined-blank.ts'
     const { createRefinedBlankProject } = await import(blankPath) as typeof import('../src/platform/browser/content/refined-blank')
-    const { prepareTerrainUpgrade } = await import(terrainPath) as typeof import('../src/application/workspace/terrain')
-    const originalBlank = await createRefinedBlankProject('island', { title: 'T4 offline library placement', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
-    const blank = await prepareTerrainUpgrade(originalBlank, { runtime, validation })
+    const blank = await createRefinedBlankProject('island', { title: 'T4 offline library placement', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
     const targetInitiallyMissing = !blank.document.propDefinitions[selector.definitionId]
     const adopted = await adoptLibraryEntries(toBundle(blank), recovered.entries, validation), editable = await fromBundle(adopted.bundle, validation)
     const sourcePresentation = definitionPresentation(project.appearance, { id: selector.definitionId, version: 1 }), capsulePresentation = definitionPresentation(capsule.project.appearance, { id: selector.definitionId, version: 1 }), adoptedPresentation = definitionPresentation(editable.appearance, { id: selector.definitionId, version: 1 })
@@ -134,7 +132,7 @@ test('T4 personal-library backup retains root/source/PNG and private paired play
     const encode = (bytes: Uint8Array) => { let value = ''; for (let i = 0; i < bytes.length; i += 32768) value += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(value) }
     return { facts: { backupCount: recovered.entries.length, capsuleVersion: capsule.project.schemaVersion, presentationSame: canonicalJson(sourcePresentation) === canonicalJson(capsulePresentation) && canonicalJson(sourcePresentation) === canonicalJson(adoptedPresentation), capsuleSourceCount: Object.keys(capsule.project.authoringSources).length, privateDifference: difference, privateDimensions: [ca.width, ca.height], targetInitiallyMissing, placementPresentation: propPresentation(placed.appearance, 'library-tree'), placementShadow }, placement: placedCanvas.toDataURL('image/png').split(',')[1], backup: encode(backup), privateA: ca.toDataURL('image/png').split(',')[1], privateB: cb.toDataURL('image/png').split(',')[1] }
   })
-  expect(result.facts).toMatchObject({ backupCount: 1, capsuleVersion: 3, presentationSame: true, capsuleSourceCount: 1, privateDifference: 0, privateDimensions: [4096, 3072], targetInitiallyMissing: true, placementPresentation: { mode: 'nearSide', orientation: 'fixedUpright', footprintAxes: 'world' }, placementShadow: { directionDeg: 50, offsetMm: 150, blurMm: 48, opacity: .12, color: '#32493F' } })
+  expect(result.facts).toMatchObject({ backupCount: 1, capsuleVersion: 1, presentationSame: true, capsuleSourceCount: 1, privateDifference: 0, privateDimensions: [4096, 3072], targetInitiallyMissing: true, placementPresentation: { mode: 'nearSide', orientation: 'fixedUpright', footprintAxes: 'world' }, placementShadow: { directionDeg: 50, offsetMm: 150, blurMm: 48, opacity: .12, color: '#32493F' } })
   await save('library-placed.png', result.placement)
   await save('near-oak.sceneweave-library', result.backup); await save('private-a-player-4k.png', result.privateA); await save('private-b-player-4k.png', result.privateB)
   await writeFile(resolve(review, 'library-private-facts.json'), JSON.stringify(result.facts, null, 2))

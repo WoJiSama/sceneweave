@@ -125,7 +125,7 @@ test('request-limit failure keeps a valid local draft reviewable, downloadable a
   }, adopted.document.sceneId)
   expect(persistence.document).toEqual(adopted.document); expect(persistence.snapshots).toHaveLength(1)
   expect(persistence.snapshots[0].kind).toBe('protection'); expect(persistence.protectedDocument).toEqual(original.document)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   const undone = await state(page)
   expect(undone.document.notes).toEqual(original.document.notes)
   expect(undone.document.props).toEqual(original.document.props)

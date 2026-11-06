@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import type { SceneDocument } from '../model/scene.js'
 import type { CompositionContent } from '../model/appearance.js'
@@ -24,16 +25,16 @@ import { evaluateTerrainRequirement } from './composition-requirements.js'
 const stamp = '2026-10-29T00:00:00.000Z', blankHash = '0'.repeat(64)
 let sequence = 0
 const context = { ids: { nextId: () => `lifecycle-${++sequence}` }, clock: { now: () => stamp } }
-type Scene4 = SceneDocument & { schemaVersion: 4; generation: GenerationSystem5; visual: VisualSystem3 }
+type Scene4 = SceneDocument
 function fixture(options: { hard?: boolean; propOutput?: boolean; threshold?: boolean } = {}): CompositionContent & { document: Scene4 } {
   const bounds = { x: 0, y: 0, width: 12000, height: 12000 }
-  const scene: Scene4 = { format: 'sceneweave-scene', schemaVersion: 4, sceneId: 'lifecycle-scene', revision: 0, title: 'Composition lifecycle', createdAt: stamp, updatedAt: stamp,
+  const scene: Scene4 = toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'lifecycle-scene', revision: 0, title: 'Composition lifecycle', createdAt: stamp, updatedAt: stamp,
     units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false }, exportBoundsMm: bounds,
     floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } }, vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {},
     terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {}, prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: {},
     presetSnapshot: { presetId: 'fixture', presetVersion: 1, distanceMode: 'metric', source: 'Original test fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] },
-    mapMode: 'scene', regional: null, generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} } }
+    mapMode: 'scene', regional: null, generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} } })
   const generation = scene.generation, precision = { sampleSpacingMm: 2000, toleranceMm: 100, noiseCellMm: 2000 }
   generation.features.feature = { id: 'feature', floorId: 'floor', layerId: 'layer', visibility: 'public', editLocked: false, kind: 'landmass', shape: { kind: 'ellipse', centerMm: { x: 6000, y: 6000 }, radiusXMm: 4000, radiusYMm: 3000, rotationMilliDeg: 0 }, elevationMm: 500, roughnessPpm: 0, seedKey: 'stable-feature' }
   generation.legacy.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'terrain-compose', algorithmVersion: 1, mapMode: 'scene', seed: 'strict', parameters: { terrainKind: 'mixed', seaElevationMm: 0, landElevationMm: 500, plateauElevationMm: 1000, roughness: 0, densityFactor: 0, baySide: 'west' }, materials: [], props: [], precision }
@@ -179,7 +180,7 @@ describe('composition manual-edit lifecycle', () => {
   })
   it('materializes a raw v4 appearance draft only after pausing its stale active receipts', async () => {
     const content = fixture({ propOutput: true }), resources = createMemoryResources(new Map())
-    const baseline = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 4, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }, resources }, validation)
+    const baseline = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }, resources }, validation)
     const appearance = cloneJson(baseline.appearance)
     appearance.instanceAdjustments.item = [{ id: 'opacity', kind: 'opacity', enabled: true, value: .5 }]
     const next = await materializeProject({ ...baseline, appearance }, { validation, runtime: context, baseline })
@@ -190,7 +191,7 @@ describe('composition manual-edit lifecycle', () => {
   })
   it('enforces the full v4 materialization budget on the derivation path', async () => {
     const content = fixture(), resources = createMemoryResources(new Map())
-    const baseline = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 4, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }, resources }, validation)
+    const baseline = await fromBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }, resources }, validation)
     const document = cloneJson(baseline.document)
     for (let i = 0; i < 140; i++) {
       const id = `additional-${i}`

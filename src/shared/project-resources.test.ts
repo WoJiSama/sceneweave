@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { createHash } from 'node:crypto'
 import { zlibSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
@@ -39,7 +40,7 @@ function metadata(document: SceneDocument, pixels: ReadonlyMap<string, Uint8Arra
     licenseBindings: subjects.map(subject => ({ ...subject, licensePath: `licenses/${hash}.txt`, embedding: 'allowed' })), authoringSources: {} }
 }
 function fixture(pixel?: number[]): { bundle: ProjectBundle; bytes: Map<string, Uint8Array>; pixels: Map<string, Uint8ClampedArray> } {
-  const document: SceneDocument = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
   document.sceneId = 'resource-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const bytes = new Map<string, Uint8Array>(), pixels = new Map<string, Uint8ClampedArray>()
   if (pixel) {
@@ -83,6 +84,58 @@ function refreshSnapshotHash(archive: HistoryArchive): void {
 }
 
 describe('complete-v1 owned resources and selected-history boundary (Node image double)', () => {
+  it('overlaps two opted-in checks globally across simultaneous validations and keeps uncertified adapters serial', async () => {
+    const { bundle, pixels } = fixture(RED), double = nodeImages(pixels), finish = gate(), twoStarted = gate()
+    const decode = double.images.decode
+    let active = 0, peak = 0
+    double.images = { ...double.images, validationConcurrency: 2, async decode(...args) {
+      active++; peak = Math.max(peak, active)
+      if (active === 2) twoStarted.release()
+      try { await finish.promise; return await decode(...args) } finally { active-- }
+    } }
+    const options = { images: double.images }
+    const first = validateProjectBundles([bundle, bundle], options), second = validateProjectBundles([bundle, bundle], options)
+    await twoStarted.promise; expect(active).toBe(2)
+    finish.release(); expect(await first).toHaveLength(2); expect(await second).toHaveLength(2); expect(peak).toBe(2)
+    const serial = nodeImages(pixels), serialFinish = gate(), oneStarted = gate()
+    const serialDecode = serial.images.decode
+    let count = 0
+    serial.images.decode = async (...args) => { count++; oneStarted.release(); await serialFinish.promise; return serialDecode(...args) }
+    const pending = validateProjectBundles([bundle, bundle], serial.options)
+    await oneStarted.promise; expect(count).toBe(1)
+    serialFinish.release(); await pending; expect(count).toBe(2)
+  })
+  it.each(['failure', 'cancellation'] as const)('drains admitted checks and skips queued work after concurrent %s without returning a certificate', async mode => {
+    const { bundle, pixels } = fixture(RED), double = nodeImages(pixels), started = gate(), first = gate(), second = gate()
+    const decode = double.images.decode, signal = { aborted: false }
+    let calls = 0, settled = false
+    const images: ImageProcessingPort = { ...double.images, validationConcurrency: 2, async decode(...args) {
+      const ordinal = ++calls
+      if (ordinal === 2) started.release()
+      await (ordinal === 1 ? first.promise : second.promise)
+      if (mode === 'failure' && ordinal === 1) throw new Error('parallel decode failed')
+      return decode(...args)
+    } }
+    const pending = validateProjectBundles([bundle, bundle, bundle], { images, signal })
+    const outcome = pending.then(() => { settled = true; return 'unexpected success' }, error => { settled = true; return error })
+    await started.promise
+    if (mode === 'cancellation') signal.aborted = true
+    first.release()
+    for (let i = 0; i < 12; i++) await Promise.resolve()
+    expect(settled).toBe(false); expect(calls).toBe(2)
+    second.release()
+    const error = await outcome
+    expect(mode === 'failure' ? error.message : error.name).toBe(mode === 'failure' ? 'parallel decode failed' : 'AbortError')
+    expect(calls).toBe(2); expect(getVerifiedProjectBundle(bundle)).toBeUndefined()
+    expect(await validateProjectBundle(bundle, double.options)).toBeDefined()
+  })
+  it('captures the opt-in before IO and rejects an accessor capability without invoking it', async () => {
+    const { bundle, pixels } = fixture(RED), double = nodeImages(pixels)
+    let getters = 0
+    Object.defineProperty(double.images, 'validationConcurrency', { get() { getters++; return 2 } })
+    await expect(validateProjectBundle(bundle, double.options)).rejects.toMatchObject({ code: 'image-capability-unavailable' })
+    expect(getters).toBe(0); expect(double.decode).not.toHaveBeenCalled()
+  })
   it('supports a native family with 64 selected and 20 imported snapshots while rejecting a larger batch', async () => {
     const { bundle } = fixture(), double = nodeImages()
     expect(await validateProjectBundles(Array.from({ length: 85 }, () => bundle), double.options)).toHaveLength(85)

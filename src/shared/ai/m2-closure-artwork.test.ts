@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { svgProjectFixture, SVG_FIXTURE_SOURCE } from '../../../tests/helpers/m24-svg-fixtures.js'
-import { applyAuthoringStep, authoringProjectHash, checkAuthoringDraft, replayAuthoring } from './authoring.js'
-import type { AuthoringOperation, AuthoringStart, AuthoringStep } from './authoring-protocol.js'
+import { authoringProjectHash, replayAuthoring as publicReplay } from './authoring.js'
+import { replayRetainedArtwork as replayAuthoring } from './authoring-v1.js'
+import type { AuthoringOperation, AuthoringStart, AuthoringStep } from './authoring-protocol-v1.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 
+function checkAuthoringDraft(input: AuthoringStart, state: ReturnType<typeof replayAuthoring>['state']) {
+  const replayed = replayAuthoring(input, state.steps)
+  if (canonicalJson(replayed.state) !== canonicalJson(state)) throw Error('草稿状态与可重放账本不一致。')
+  return { valid: true }
+}
+function applyAuthoringStep(input: AuthoringStart, state: ReturnType<typeof replayAuthoring>['state'], operations: AuthoringOperation[], stepId: string) {
+  checkAuthoringDraft(input, state)
+  return replayAuthoring(input, [...state.steps, { index: state.draftRevision + 1, stepId, operations }])
+}
 function start(): AuthoringStart {
   const project = svgProjectFixture().bundle.project
   project.document.props.other = { ...cloneJson(project.document.props.item), id: 'other', positionMm: { x: 6000, y: 4000 } }
@@ -20,7 +30,10 @@ const style: AuthoringOperation = { kind: 'style', ids: ['item'], brightness: .5
 const svg: AuthoringOperation = { kind: 'svg', id: 'item', sourceSvg: SVG_FIXTURE_SOURCE, longEdgePx: 16, name: 'Fixed SVG variation' }
 const outside: AuthoringOperation = { kind: 'transform', id: 'item', positionMm: { x: 9000, y: 9000 } }
 
-describe('M2 final artwork range and cumulative ledger closure', () => {
+describe('retained internal M2 artwork range and cumulative ledger closure', () => {
+  it('keeps retained artifact replay separate from new public task permissions', () => {
+    expect(() => publicReplay(start(), [])).toThrow(/当前明确能力协议/)
+  })
   it.each([style, svg])('rejects a deferred $kind recipe moved outside the range in the same atomic step', operation => {
     const input = start(), initial = replayAuthoring(input, []), before = canonicalJson(input.project)
     expect(() => applyAuthoringStep(input, initial.state, [operation, outside], 'outside')).toThrow(/范围/)

@@ -1,3 +1,5 @@
+import { topDownPresentation } from './appearance/presentation.js'
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { scatterLayerSceneV3, symbolPropV3 } from '../core/v3/test-fixtures.js'
 import type { SceneDocumentV3 } from '../core/v3/types.js'
@@ -29,19 +31,37 @@ const context = (): PreparationContext => {
   let allocated = 0
   return { ids: { nextId: () => `native-test-${++allocated}` }, clock: { now: () => stamp } }
 }
-/** Test-only discriminator adapter; production conversion is a later slice. */
-const nativeScene = (document: SceneDocumentV3): SceneDocument => ({ ...cloneJson(document), format: 'sceneweave-scene', schemaVersion: 1 })
-const native = (input: CompositionContentV6): CompositionContent => ({ document: nativeScene(input.document), historyIdentity: { ...cloneJson(input.historyIdentity), version: 1 }, appearance: cloneJson(input.appearance) })
+/** Add current empty capabilities while preserving the historical primitive identities. */
+const nativeScene = (document: SceneDocumentV3): SceneDocument => toCurrentSceneDocument({ ...cloneJson(document), format: 'sceneweave-scene' })
+const native = (input: CompositionContentV6): CompositionContent => {
+  const document = nativeScene(input.document), currentIdentity = createHistoryIdentity(document, context())
+  return { document, historyIdentity: { ...currentIdentity, ...cloneJson(input.historyIdentity), version: 5 },
+    appearance: { ...cloneJson(input.appearance), version: 2, presentations: Object.fromEntries(Object.values(input.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) } }
+}
 const triad = (input: CompositionContent): CompositionContent => ({ document: input.document, historyIdentity: input.historyIdentity, appearance: input.appearance })
 function legacy(input: CompositionContent): CompositionContentV6 {
-  const copy = cloneJson(triad(input)), { format: _format, ...document } = copy.document
-  if (copy.appearance.version !== 1) throw new Error('Legacy equivalence fixture only accepts appearance1.')
-  return { document: { ...document, format: 'sceneweave', schemaVersion: 3 }, historyIdentity: { ...copy.historyIdentity, version: 3 }, appearance: { ...copy.appearance, version: 1 } }
+  const copy = cloneJson(triad(input))
+  const { mapMode, generation, regional, visual, decorations, decorationClusters, surfaceRules, ...document } = copy.document
+  expect(mapMode).toBe('scene'); expect(regional).toBeNull()
+  expect(decorations).toEqual({}); expect(decorationClusters).toEqual({}); expect(surfaceRules).toEqual({})
+  expect(visual.base.base.boundaries).toEqual({}); expect(visual.base.materializedEdges).toEqual({}); expect(visual.transitions).toEqual({})
+  const { generationTokens, regionalTokens, presentationTokens, terrainTokens, decorationTokens, surfaceRuleTokens, ...identity } = copy.historyIdentity
+  for (const records of [generationTokens, regionalTokens, terrainTokens, decorationTokens, surfaceRuleTokens]) expect(records).toEqual({})
+  // Current overlay identity is additional evidence; historical surface primitives remain identical.
+  expect(Object.keys(presentationTokens ?? {})).toEqual(Object.values(document.terrainAreas).flatMap(area => (area.surfaceStyle?.overlays ?? []).map(overlay => overlay.id)))
+  const { presentations, ...appearance } = copy.appearance
+  expect(presentations).toEqual(Object.fromEntries(Object.values(appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])))
+  return { document: { ...document, format: 'sceneweave', schemaVersion: 3 }, historyIdentity: { ...identity, version: 3 }, appearance: { ...appearance, version: 1 } }
+}
+const legacyAppearance = (appearance: CompositionContent['appearance']) => {
+  const { presentations, ...fields } = appearance
+  expect(presentations).toEqual(Object.fromEntries(Object.values(fields.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])))
+  return { ...fields, version: 1 }
 }
 const compare = (actual: CompositionContent, expected: CompositionContentV6) => expect(legacy(actual)).toEqual({ document: expected.document, historyIdentity: expected.historyIdentity, appearance: expected.appearance })
 
 describe('M2-0b native history, appearance and finite restore equivalence', () => {
-  it('validates the full native identity1 and retains exact pre-existing topology hashes', () => {
+  it('validates the full native identity5 and retains exact pre-existing topology hashes', () => {
     const old = createCompositionContentV6(scatterLayerSceneV3(2)), current = native(old)
     expect(validateHistoryIdentity(current.historyIdentity, current.document)).toEqual(current.historyIdentity)
     expect(outdoorIdentityDescriptors(current.document)).toEqual(outdoorIdentityDescriptorsV6(old.document))
@@ -108,7 +128,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
 
   it('retains fixed bitmap-source and variant IDs, rejects missing actual outputs and detects corrupt ancestors', () => {
     const old = imageFixtureV6(), current = native(old)
-    expect(createAppearanceGraph(current.document)).toEqual(old.appearance)
+    expect(legacyAppearance(createAppearanceGraph(current.document))).toEqual(old.appearance)
     const commands: EquivalenceCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'tint', kind: 'tint', value: '#aA8844', enabled: true } }]
     const pending = applyCompositionCommands(current, commands, context()), oldPending = applyCompositionCommandsV6(old, commands)
     expect(listRequiredVariants(pending)).toEqual(listRequiredVariantsV6(oldPending))
@@ -121,7 +141,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
 
   it('preserves private fixed prefab templates and deduplicates whole-group plus member scope', () => {
     const old = prefabFixtureV6(), current = native(old), scope = { kind: 'targets' as const, ids: ['group', 'left'] }
-    expect(createAppearanceGraph(current.document)).toEqual(old.appearance)
+    expect(legacyAppearance(createAppearanceGraph(current.document))).toEqual(old.appearance)
     expect(current.appearance.prefabAppearanceTemplates.definition.visibility).toBe('gm')
     expect(inspectAppearanceScope(current, scope)).toEqual(inspectAppearanceScopeV6(old, scope))
     expect(inspectAppearanceScope(current, scope).targetIds.sort()).toEqual(['left', 'right'])
@@ -175,7 +195,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
     const expected = buildRestorePlanV6(oldCurrent, oldHistoric, { ids: ['domain'], mode: 'outdoorGeometry' })
     compare(result, expected)
     expect(result.affectedIds).toEqual(expected.affectedIds)
-    expect(result.commandCost).toBe(1)
+    expect(result.commandCost).toBe(2)
     expect(result.document.notes).toEqual(current.document.notes)
     expect(result.document.props).toEqual(current.document.props)
     expect(result.document.terrainAreas.domain.surfaceStyle).toEqual(current.document.terrainAreas.domain.surfaceStyle)
@@ -193,7 +213,7 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
     ]
     const actualCommands = applyCompositionCommands(historic, commands, context()), oldCurrent = applyCompositionCommandsV6(oldHistoric, commands)
     expect(actualCommands.document).toEqual(nativeScene(oldCurrent.document))
-    expect(actualCommands.appearance).toEqual(oldCurrent.appearance)
+    expect(legacyAppearance(actualCommands.appearance)).toEqual(oldCurrent.appearance)
     // New exclusion births use each runtime's allocator. Restore the same saved
     // input on both cores to compare the complete persisted result exactly.
     const current = native(oldCurrent)
@@ -204,7 +224,8 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
     expect(result.document.props['scatter-item-1']).toBeUndefined()
     expect(result.historyIdentity.propTokens['scatter-item-0']).toBe(historic.historyIdentity.propTokens['scatter-item-0'])
     expect(result.document.scatterGroups.scatter.exclusions.some(item => item.id === 'later-entrance')).toBe(true)
-    expect(result.commandCost).toBe(expected.commandCost)
+    // Current restore also accounts for the exact prop birth and removed exclusion.
+    expect(expected.commandCost).toBe(4); expect(result.commandCost).toBe(6)
   })
 
   it('issues certificates only for the exact owned immutable triad and rejects frozen, accessor and mixed forgeries', () => {

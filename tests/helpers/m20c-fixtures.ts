@@ -1,3 +1,5 @@
+import { convertDevelopmentProject } from '../../src/shared/migration/development-project.js'
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
 import { createC3ProjectV5, c3ImageBlob } from '../c3-fixtures'
 import { createHistoryIdentityV6 } from '../../src/core/v6/identity'
 import { prepareCompositionCommandsV5 } from '../../src/io/v5/prepare'
@@ -70,12 +72,12 @@ async function nativeBundle(legacy: CompleteProjectV5): Promise<ProjectBundle> {
   for (const [hash, { blob, ...record }] of Object.entries(legacy.assets)) {
     assets[hash] = record; bytes[hash] = new Uint8Array(await blob.arrayBuffer())
   }
-  const project: ProjectData = {
+  const project: ProjectData = convertDevelopmentProject({
     format: 'sceneweave-complete-project', schemaVersion: 1,
     document: { ...structuredClone(legacy.document), format: 'sceneweave-scene', schemaVersion: 1 },
     historyIdentity: { ...createHistoryIdentityV6(legacy.document), version: 1 }, appearance: structuredClone(legacy.appearance),
     assets, licenses: structuredClone(legacy.licenses), licenseBindings: structuredClone(legacy.licenseBindings), authoringSources: {},
-  }
+  })
   return { project: validateProjectData(project), resources: createMemoryResources(bytes) }
 }
 

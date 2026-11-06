@@ -1,3 +1,5 @@
+import { topDownPresentation } from './appearance/presentation.js'
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it, vi } from 'vitest'
 import { outdoorProject } from '../io/v6/test-fixtures'
 import type { ProjectBundle } from './model/project.js'
@@ -22,7 +24,7 @@ const detachedKey = JSON.stringify([1, '0'.repeat(64), 'prop', 'not-installed', 
 async function entryFixture() {
   const old = await outdoorProject(1)
   const bundle: ProjectBundle = { project: { format: 'sceneweave-complete-project', schemaVersion: 1,
-    document: { ...old.document, format: 'sceneweave-scene', schemaVersion: 1 }, historyIdentity: { ...old.historyIdentity, version: 1 }, appearance: old.appearance,
+    document: toCurrentSceneDocument({ ...old.document, format: 'sceneweave-scene' }), historyIdentity: { ...old.historyIdentity, version: 5, generationTokens: {}, regionalTokens: {}, presentationTokens: {}, terrainTokens: {}, decorationTokens: {}, surfaceRuleTokens: {} }, appearance: { ...old.appearance, version: 2, presentations: Object.fromEntries(Object.values(old.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) },
     assets: {}, licenses: old.licenses, licenseBindings: old.licenseBindings, authoringSources: {},
   }, resources: createMemoryResources({}) }
   return prepareLibraryEntry(bundle, { kind: 'prop', definitionId: 'scatter-definition' }, validation)

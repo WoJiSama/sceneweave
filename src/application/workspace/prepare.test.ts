@@ -88,7 +88,7 @@ describe('native editable capture and bitmap preparation', () => {
     expect(child).not.toBe(parent); expect(second.appearance.sources[parent]).toEqual(parentSource)
     expect(second.appearance.sources[child]).toMatchObject({ kind: 'surface', parentSourceId: parent, snapshot: changed })
     expect(first.document.rooms.room.floorStyle).toEqual(style); expect(second.document.rooms.room.floorStyle).toEqual(changed)
-    expect(second.schemaVersion).toBe(2); expect(original.schemaVersion).toBe(1)
+    expect(second.schemaVersion).toBe(1); expect(original.schemaVersion).toBe(1)
     const { floorStyle: _beforeStyle, ...beforePhysical } = original.document.rooms.room
     const { floorStyle: _afterStyle, ...afterPhysical } = second.document.rooms.room
     expect(afterPhysical).toEqual(beforePhysical); expect(second.document.walls).toEqual(original.document.walls)

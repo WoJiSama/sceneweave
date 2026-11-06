@@ -1,3 +1,5 @@
+import { openGenerationTask } from './workspace-navigation-helpers'
+import { reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 import type { EditableProject } from '../src/application/workspace/project.js'
@@ -86,7 +88,7 @@ test('T9 UI cancels unchanged, adopts and cold-loads complete v4, and preserves 
       widthMm: 48000, heightMm: 36000, preset: 'narrative', now: '2026-10-29T00:00:00.000Z' })
     await workspace.adoptNew(source); await workspace.flush()
   })
-  await settled(page); await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await settled(page); await openGenerationTask(page, '组合地貌')
   const before = await state(page), panel = page.getByRole('region', { name: '通用地貌组合', exact: true })
   const candidate = page.getByRole('article', { name: '地貌组合候选', exact: true })
   await panel.getByLabel('地貌组合类型', { exact: true }).selectOption('archipelago')
@@ -107,7 +109,7 @@ test('T9 UI cancels unchanged, adopts and cold-loads complete v4, and preserves 
   expect(adopted.generationVersion).toBe(5); expect(adopted.hash).toBe(adopted.coldHash)
   expect(adopted.count).toBe(before.count + 1)
   expect(adopted.boundsMm).toEqual({ x: 0, y: 0, width: 48000, height: 36000 })
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click()
+  await reloadSaved(page)
   await expect.poll(async () => (await state(page)).checkpoint, { timeout: 120_000 }).toBeGreaterThan(adopted.checkpoint)
   await settled(page)
   const reloaded = await state(page)

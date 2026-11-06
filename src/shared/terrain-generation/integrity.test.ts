@@ -1,12 +1,14 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import type { SceneDocument } from '../model/scene.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { createEmptyGeneration, type GenerationRule } from './contracts.js'
+import { createEmptyGeneration5 } from './composition-contracts.js'
 import { constraintInputHash, detachChangedOutputs, generationInputHash, managedOutputHash, materializedBoundaryHash,
   resolveGenerationTarget, validateTerrainContracts, type TerrainContractDocument } from './integrity.js'
 
 const p = (x: number, y: number) => ({ x, y })
-const native = (doc: TerrainContractDocument) => doc as unknown as SceneDocument
+const native = (doc: TerrainContractDocument): SceneDocument => ({...doc,schemaVersion:1,generation:{version:5,legacy:doc.generation,features:{},compositions:{},requirements:{},checks:{},thresholds:{},dependencies:{}},visual:{version:3,base:doc.visual,transitions:{}},decorations:{},decorationClusters:{},surfaceRules:{}})
 function fixture(): TerrainContractDocument {
   const doc: TerrainContractDocument = { format: 'sceneweave-scene', schemaVersion: 3, sceneId: 'scene', revision: 0, title: 'Terrain fixture',
     createdAt: '2026-10-26T00:00:00.000Z', updatedAt: '2026-10-26T00:00:00.000Z', mapMode: 'scene',
@@ -17,7 +19,7 @@ function fixture(): TerrainContractDocument {
     userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: {},
     presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original', gridSizeMm: 1000 },
     constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] }, visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} },
-    generation: createEmptyGeneration(), regional: null }
+    generation: createEmptyGeneration(), regional: null, decorations:{},decorationClusters:{},surfaceRules:{} }
   doc.terrainAreas.land = { id: 'land', floorId: 'floor', visibility: 'public', editLocked: false,
     boundaryMm: [p(2000, 2000), p(22000, 2000), p(22000, 16000), p(2000, 16000)].map((positionMm, i) => ({ id: `point${i}`, segmentId: `segment${i}`, positionMm })),
     groundElevationMm: 300, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
@@ -51,23 +53,49 @@ describe('terrain persisted integrity', () => {
     before.generation.checks.check = { id: 'check', constraintId: 'activity', state: 'passed', algorithmId: 'clearance', algorithmVersion: 1,
       inputHash: constraintInputHash(native(before), 'activity'), issues: [] }
     const after = structuredClone(before); after.terrainAreas.land.boundaryMm[0].positionMm.x += 100
-    expect(detachChangedOutputs(native(before), native(after))).toBe(3)
-    expect(after.generation.ownership.owner).toMatchObject({ state: 'manual', managedFields: [], manualFields: ['geometry'] })
-    expect(after.generation.rules['land-rule'].state).toBe('paused'); expect(after.generation.checks.check.state).toBe('unchecked')
+    const current=native(after)
+    expect(detachChangedOutputs(native(before), current)).toBe(3)
+    expect(current.generation.legacy.ownership.owner).toMatchObject({ state: 'manual', managedFields: [], manualFields: ['geometry'] })
+    expect(current.generation.legacy.rules['land-rule'].state).toBe('paused'); expect(current.generation.legacy.checks.check.state).toBe('unchecked')
     expect(after.terrainAreas.land.boundaryMm[0].positionMm.x).toBe(2100)
-    expect(validateTerrainContracts(native(after))).toEqual([])
+    expect(validateTerrainContracts(current)).toEqual([])
+  })
+  it.each([7, 8] as const)('keeps legacy generation integrity active inside a strict scene%d envelope', schemaVersion => {
+    const original = fixture(), before = structuredClone(original) as unknown as SceneDocument
+    before.schemaVersion = 1
+    before.generation = createEmptyGeneration5(original.generation)
+    before.visual = { version: 3, base: original.visual, transitions: {} }
+    const check = { id: 'check', constraintId: 'activity', state: 'passed' as const, algorithmId: 'clearance', algorithmVersion: 1,
+      inputHash: constraintInputHash(before, 'activity'), issues: [] }
+    before.generation.legacy.constraints.activity = { id: 'activity', floorId: 'floor', visibility: 'public', strength: 'hard', kind: 'activityArea',
+      boundaryMm: [p(4000, 4000), p(6000, 4000), p(6000, 6000), p(4000, 6000)], clearanceMm: 500 }
+    check.inputHash = constraintInputHash(before, 'activity')
+    before.generation.legacy.checks.check = check
+    const after = structuredClone(before)
+    after.terrainAreas.land.boundaryMm[0].positionMm.x += 100
+    expect(detachChangedOutputs(before, after)).toBeGreaterThan(0)
+    const generation = after.generation
+    if (!generation || generation.version !== 5) throw new Error('Expected a strict generation5 envelope.')
+    expect(generation.legacy.ownership.owner).toMatchObject({ state: 'manual', managedFields: [], manualFields: ['geometry'] })
+    expect(generation.legacy.rules['land-rule'].state).toBe('paused')
+    expect(generation.legacy.checks.check.state).toBe('unchecked')
+    expect(after.terrainAreas.land.boundaryMm[0].positionMm.x).toBe(2100)
+    expect(validateTerrainContracts(after)).toEqual([])
   })
   it('keeps deleted ownership tombstones without recreating entities', () => {
     const before = fixture(), after = structuredClone(before)
     delete after.terrainAreas.land; delete after.entityLayers.land
-    expect(detachChangedOutputs(native(before), native(after))).toBe(2)
-    expect(after.generation.ownership.owner.state).toBe('deleted')
-    expect(validateTerrainContracts(native(after))).toEqual([])
+    const current=native(after)
+    expect(detachChangedOutputs(native(before), current)).toBe(2)
+    expect(current.generation.legacy.ownership.owner.state).toBe('deleted')
+    expect(validateTerrainContracts(current)).toEqual([])
   })
   it('rejects unresolved references, duplicate identity, missing fixed versions and invalid polygons', () => {
     const duplicate = fixture(); duplicate.generation.recipes.recipe.id = 'floor'
     expect(validateTerrainContracts(native(duplicate)).some(issue => issue.code === 'TERRAIN_ID_CONFLICT')).toBe(true)
-    const definition = fixture(); definition.generation.recipes.recipe.props.push({ role: 'tree', ref: { id: 'missing', version: 1 } })
+    const definition = fixture(), recipe = definition.generation.recipes.recipe
+    if ('domain' in recipe) throw new Error('Expected the natural fixture recipe')
+    recipe.props.push({ role: 'tree', ref: { id: 'missing', version: 1 } })
     expect(validateTerrainContracts(native(definition)).some(issue => issue.code === 'TERRAIN_DEFINITION')).toBe(true)
     const bad = fixture(); bad.generation.exclusions.exclusion = { id: 'exclusion', key: 'exclude', floorId: 'floor', visibility: 'public',
       boundaryMm: [p(0, 0), p(2000, 2000), p(0, 2000), p(2000, 0)], reason: 'manual', candidateKey: null, birthToken: null }

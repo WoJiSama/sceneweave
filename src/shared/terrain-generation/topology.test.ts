@@ -67,9 +67,9 @@ describe('complex terrain topology transactions', () => {
     rebindings.push({ entityId: 'terrain-stairs', previousAreaId: 'terrain-low', outputIndex: 0, kind: 'connectionFrom' })
     const result = prepareTerrainEdit(scene, topologyRequest(scene, rebindings))
     const next = result.document
-    expect(next.generation?.version).toBe(4)
-    if (next.generation?.version !== 4) throw new Error('topology generation missing')
-    const operation = Object.values(next.generation.topology).find(row => row.state === 'current')
+    expect(next.generation.legacy.version).toBe(4)
+    if (next.generation.legacy.version !== 4) throw new Error('topology generation missing')
+    const operation = Object.values(next.generation.legacy.topology).find(row => row.state === 'current')
     expect(operation?.holeCount).toBe(1)
     expect(operation?.componentCount).toBe(1)
     expect(operation?.outputAreaIds).toHaveLength(2)
@@ -81,7 +81,7 @@ describe('complex terrain topology transactions', () => {
     for (const prop of Object.values(next.props).filter(prop => prop.supportRef.kind === 'terrainArea')) {
       if (prop.id in scene.props && scene.props[prop.id].supportRef.kind === 'terrainArea' && scene.props[prop.id].supportRef.id === 'terrain-low') expect(prop.supportRef.id).toBe(operation!.outputAreaIds[0])
     }
-    const owner = Object.values(next.generation.ownership).find(row => row.target.kind === 'terrainArea' && row.target.entityId === 'terrain-low')
+    const owner = Object.values(next.generation.legacy.ownership).find(row => row.target.kind === 'terrainArea' && row.target.entityId === 'terrain-low')
     expect(owner?.state).toBe('deleted')
     expect(validateSceneDocument(next).ok).toBe(true)
   })
@@ -114,7 +114,7 @@ describe('complex terrain topology transactions', () => {
       blocksMovement: relation.requiresCliff, blocksSight: false, surfaceStyle: null, styleOverride: null,
     }
     scene.entityLayers['topology-edge'] = 'visual-layer-ground'
-    for (const check of Object.values(scene.generation!.checks)) {
+    for (const check of Object.values(scene.generation.legacy.checks)) {
       // Adding a valid declared edge changes the dependency witness; retain a
       // valid baseline so the topology refusal reaches its intended guard.
       check.inputHash = constraintInputHash(scene, check.constraintId)

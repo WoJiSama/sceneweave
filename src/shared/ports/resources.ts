@@ -8,12 +8,15 @@ export interface RasterImage { width: number; height: number; rgba: Uint8Clamped
 export interface BitmapParameters { tint: string | null; brightness: number }
 /** Trusted application adapter, never selected by task JSON or a validated flag. */
 export interface ImageProcessingPort {
+  /** Trusted adapter opt-in. Omitted adapters retain serial validation. */
+  readonly validationConcurrency?: 1 | 2
   decode(bytes: Uint8Array, record: AssetRecord, options?: ResourceOptions): Promise<RasterImage>
   transform(image: RasterImage, parameters: BitmapParameters, options?: ResourceOptions): Promise<RasterImage>
   encodePng(image: RasterImage, options?: ResourceOptions): Promise<Uint8Array>
 }
 /** Trusted platform rasterizer; project/task data cannot supply this capability. */
 export interface SvgProcessingPort {
+  readonly validationConcurrency?: 1 | 2
   rasterize(source: NormalizedStaticSvg, dimensions: { width: number; height: number }, options?: ResourceOptions): Promise<RasterImage>
 }
 export interface CompleteValidationOptions extends ResourceOptions { images: ImageProcessingPort; svg?: SvgProcessingPort }

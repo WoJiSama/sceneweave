@@ -27,6 +27,25 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 workspace and repository boundary', () => {
+  it('renames the complete project atomically with undo, redo, no-op and cold persistence', async () => {
+    const { workspace, repo, owner } = await setup()
+    const original = workspace.getDocument()!.title
+    await workspace.execute([{ type: 'renameScene', title: '  用户体验工程  ' }])
+    expect(workspace.getDocument()).toMatchObject({ title: '用户体验工程', revision: 1 })
+    const checkpoint = workspace.checkpoint()
+    await workspace.execute([{ type: 'renameScene', title: '用户体验工程' }])
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    await expect(workspace.execute([{ type: 'renameScene', title: '   ' }])).rejects.toThrow()
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    workspace.undo()
+    expect(workspace.getDocument()).toMatchObject({ title: original, revision: 2 })
+    workspace.redo()
+    expect(workspace.getDocument()).toMatchObject({ title: '用户体验工程', revision: 3 })
+    await workspace.flush()
+    expect((await repo.load(owner))!.project.document).toMatchObject({ title: '用户体验工程', revision: 3 })
+    expect((await repo.list()).find(entry => entry.sceneId === owner)?.title).toBe('用户体验工程')
+  })
+
   it('reuses an owned preparation for adoption and reopen while persistence still decodes its real bytes', async () => {
     const repo = repository(), project = await fromBundle(fixture({ image: true }), validation)
     const decode = vi.spyOn(validation.images, 'decode'), workspace = new Workspace(repo, { runtime, validation })
@@ -90,7 +109,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
       else await workspace.adoptPreview(await workspace.preview(commands))
     }
     const before = workspace.getState().project!, save = vi.spyOn(repo, 'save'), point = before.document.props.item.positionMm
-    expect(Object.hasOwn(before.document, 'visual')).toBe(false)
+    expect(before.document.visual).toMatchObject({version:3,base:{version:2,base:{version:1}},transitions:{}})
     await apply([{ type: 'updateProp', id: 'item', changes: { rotationDeg: -0, positionMm: { y: point.y, x: point.x } } }])
     await workspace.flush()
     expect(workspace.getState()).toMatchObject({ project: before, status: 'saved', canUndo: false, canRedo: false, lastTransaction: null })
@@ -186,7 +205,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
     await workspace.updateProp('other', { rotationDeg: 30 })
     await expect(workspace.adoptPreview(preview)).rejects.toThrow(/已有修改/)
     const latest = workspace.getState().project
-    await expect(workspace.execute(Array.from({ length: 257 }, () => ({ type: 'updateProp' as const, id: 'item', changes: { rotationDeg: 20 } })))).rejects.toThrow(/256/)
+    await expect(workspace.execute(Array.from({ length: 1025 }, () => ({ type: 'updateProp' as const, id: 'item', changes: { rotationDeg: 20 } })))).rejects.toThrow(/1024/)
     expect(workspace.getState().project).toBe(latest)
     let getters = 0
     const untrusted = { type: 'updateProp' as const, id: 'item', changes: { rotationDeg: 15 } }
@@ -237,17 +256,17 @@ describe('native complete-v1 workspace and repository boundary', () => {
     expect(preview.project.licenseBindings).toEqual(current.licenseBindings)
     decode.mockClear()
     const protection = await workspace.applyRestore(preview)
-    // Re-read source before/after protection, verify the protection write, and
-    // re-read its source inside the repository. All four retain real decoding.
-    expect(decode).toHaveBeenCalledTimes(4)
+    // The operation rechecks stored source bytes around protection; its private
+    // pixel proof is reused, while current snapshots still receive full validation.
+    expect(decode).toHaveBeenCalledTimes(2)
     expect(usage).not.toHaveBeenCalled()
     expect(protection.kind).toBe('protection')
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(0)
     expect(workspace.getState().project!.resources).toBe(current.resources)
     await workspace.flush()
-    expect(decode).toHaveBeenCalledTimes(5)
+    expect(decode).toHaveBeenCalledTimes(3)
     expect((await repo.load(current.document.sceneId))!.project.document.props.item.rotationDeg).toBe(0)
-    expect(decode).toHaveBeenCalledTimes(6)
+    expect(decode).toHaveBeenCalledTimes(4)
   })
 
   it('preserves the current order of an unchanged licensed closure during transform restore', async () => {
@@ -392,7 +411,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
 
   it('transfers visual recreation invalidation to the publicly revalidated preview wrapper', async () => {
     const { workspace } = await setup({ image: true })
-    await workspace.enableVisualCopy()
+
     const document = workspace.getDocument()!, light = { id: 'preview-light', floorId: Object.keys(document.floors)[0], layerId: document.entityLayers.item,
       visibility: 'public' as const, editLocked: false, positionMm: { x: 3000, y: 3000 }, radiusMm: 1500, color: '#FFD080', intensity: .4, wallOcclusion: true, enabled: true }
     await workspace.execute([{ type: 'upsertVisualLight', light }])

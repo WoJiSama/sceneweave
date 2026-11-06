@@ -1,3 +1,4 @@
+import { selectManualTransactionBudget } from '../../shared/budget/command-budget'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { PencilRuler } from 'lucide-react'
 import { STRUCTURE_COLLECTIONS, type StructureKind } from '../../shared/history/structure-continuity'
@@ -47,7 +48,8 @@ export default function StructureHistoryPanel({ project, snapshot, workspace, se
   const rowIds = useMemo(() => new Set(rows.map(row => row.id)), [rows])
   const invalidate = () => { setInspection(null); setDependenciesConfirmed(false); setLayersConfirmed(false) }
   useEffect(() => { invalidate() }, [project.document, snapshot.id, snapshot.contentHash, selected, mode])
-  const invalidCanvas = canvasIds.some(id => !rowIds.has(id)), overBudget = selected.size > 256
+  const budget = workspace.getManualBudget(selected.size)
+  const invalidCanvas = canvasIds.some(id => !rowIds.has(id)), overBudget = selected.size > budget.semanticTargets
   return <div className="history-scope structure-history-scope" aria-label="结构恢复范围">
     <h3>{snapshot.name}<small>r{snapshot.sourceRevision} · 建筑结构</small></h3>
     <p className="history-empty">仅可使用本次打开期间建立的快照。重开工程、导入，或删除重建、改变所选结构连接后，请重新建立快照。</p>
@@ -63,13 +65,13 @@ export default function StructureHistoryPanel({ project, snapshot, workspace, se
     })}/>
     <p className="history-picker-count" aria-live="polite">已选 {selected.size} 项建筑对象</p>
     {selected.size > 0 && <details className="history-selected-ids"><summary>完整结构请求 · {selected.size} 项</summary><textarea aria-label="结构恢复请求 ID" readOnly rows={4} value={[...selected].join('\n')}/></details>}
-    {overBudget && <p role="alert" className="history-limit">超过单次 256 项选择上限；依赖展开后的操作仍须满足 256 条预算。</p>}
+    {overBudget && <p role="alert" className="history-limit">超过单次 {budget.semanticTargets} 项选择上限；实际编辑对象最多{budget.semanticTargets}个，几何与依赖另行检查。</p>}
     <button className="secondary asset-wide" disabled={disabled || !selected.size || overBudget} onClick={() => void onAction(async () => {
       invalidate()
       setInspection(await workspace.inspectStructureRestore(snapshot.id, { ids: [...selected], mode }))
     }, '检查结构恢复依赖')}>检查完整结构依赖</button>
     {inspection && <div className="structure-restore-review" aria-label="结构恢复依赖确认">
-      <p className="building-scope">{inspection.scope.rootIds.length} 项请求 · {inspection.scope.writeIds.length} 项写入范围 · {inspection.scope.commandCost} 条操作 · {inspection.scope.impacts.length} 项完整影响</p>
+      <p className="building-scope">{inspection.scope.rootIds.length} 项请求 · {inspection.scope.writeIds.length} 项写入范围 · {inspection.scope.commandCost} 个独立编辑对象 · {inspection.scope.impacts.length} 项完整影响</p>
       <details className="history-selected-ids" open><summary>完整影响与字段</summary><textarea readOnly aria-label="结构恢复完整影响" rows={8} value={inspection.scope.impacts.map(impact => `${impact.role === 'root' ? '所选' : impact.role === 'geometry' ? '共享几何' : '依赖检查'} · ${kinds[impact.kind as StructureKind] ?? impact.kind} · ${impact.name} · ${impact.id}\n图层：${project.document.userLayers[impact.layerId]?.name ?? impact.layerId} · ${impact.fields.length ? impact.fields.map(fieldLabel).join('、') : '保留业务属性'}`).join('\n\n')}/></details>
       <label className="building-check"><input type="checkbox" aria-label="确认结构恢复全部依赖" checked={dependenciesConfirmed} disabled={disabled} onChange={event => setDependenciesConfirmed(event.target.checked)}/>已核对全部 {inspection.scope.dependencyIds.length} 项扩展依赖</label>
       {inspection.scope.requiredLayerIds.length > 0 && <><p className="building-scope">涉及其他图层或已移层：{inspection.scope.requiredLayerIds.map(id => project.document.userLayers[id]?.name ?? id).join(' · ')}</p><label className="building-check"><input type="checkbox" aria-label="确认结构恢复跨层影响" checked={layersConfirmed} disabled={disabled} onChange={event => setLayersConfirmed(event.target.checked)}/>确认上述图层的完整影响</label></>}
@@ -91,7 +93,7 @@ export function StructureRestoreChangesPanel({ preview, current }: { preview: St
   })
   return <section className="history-changes" aria-label="结构局部恢复差异">
     <div className="asset-section-heading"><PencilRuler size={16}/><h2>结构恢复差异</h2></div>
-    <dl className="asset-facts"><dt>历史快照</dt><dd>{preview.snapshot.name} · r{preview.snapshot.sourceRevision}</dd><dt>当前修订</dt><dd>r{preview.currentRevision}</dd><dt>属性范围</dt><dd>{preview.plan.request.mode === 'geometry' ? '位置与尺寸' : '位置、尺寸与业务属性'}</dd><dt>实际变化</dt><dd>{preview.plan.changes.length} 项</dd><dt>依赖检查</dt><dd>{preview.plan.dependencyIds.length} 项</dd></dl>
+    <dl className="asset-facts"><dt>历史快照</dt><dd>{preview.snapshot.name} · r{preview.snapshot.sourceRevision}</dd><dt>当前修订</dt><dd>r{preview.currentRevision}</dd><dt>属性范围</dt><dd>{preview.plan.request.mode === 'geometry' ? '位置与尺寸' : '位置、尺寸与业务属性'}</dd><dt>实际变化</dt><dd>{preview.plan.changes.length} 项</dd><dt>独立编辑对象</dt><dd>{preview.plan.commandCost} / {(preview.budgetProfile ?? selectManualTransactionBudget(current.document, preview.plan.request.ids.length)).semanticTargets}</dd><dt>依赖检查</dt><dd>{preview.plan.dependencyIds.length} 项</dd></dl>
     {privacy.length > 0 && <div className="history-privacy-review" role="alert"><strong>{privacy.length} 项恢复会改变玩家可见性或秘密揭示</strong><p>采用前请核对下方可见性、秘密和揭示字段。</p></div>}
     <p className="history-empty">保留当前图层、材质、支撑、高程、编辑锁，以及范围外的新编辑。采用前先保存当前保护快照。</p>
     {!preview.plan.changed && <p className="history-empty">所选属性与快照一致，无需恢复</p>}

@@ -1,6 +1,7 @@
 import { unzlibSync, zlibSync } from 'fflate'
 import type { AuthoringDraft, AuthoringOperation, AuthoringScope, AuthoringStart } from '../../src/shared/ai/authoring-protocol-v1'
-import { applyAuthoringStep, authoringProjectHash, replayAuthoring } from '../../src/shared/ai/authoring'
+import { authoringProjectHash } from '../../src/shared/ai/authoring'
+import { replayRetainedArtwork } from '../../src/shared/ai/authoring-v1'
 import { verifyNormalizedStaticSvg } from '../../src/shared/ai/svg'
 import type { ProjectBundle } from '../../src/shared/model/project'
 import type { CompleteValidationOptions, RasterImage } from '../../src/shared/ports/resources'
@@ -65,7 +66,6 @@ export function artworkDraft(bundle: ProjectBundle, operationGroups: AuthoringOp
   const start: AuthoringStart = { schemaVersion: 1, project: bundle.project, baseContentHash: authoringProjectHash(bundle.project),
     scope: { targetIds: [], placement: null, operations: [], artwork }, seed: '123e4567-e89b-42d3-a456-426614174000',
     preparedAt: '2026-10-24T12:00:00.000Z', skill: { id: 'sceneweave-artwork-authoring', version: 1 }, disclosure: 'complete-metadata/public-model' }
-  let state = replayAuthoring(start, []).state
-  for (let index = 0; index < operationGroups.length; index++) state = applyAuthoringStep(start, state, operationGroups[index], `art-step-${index + 1}`).state
+  const state = replayRetainedArtwork(start, operationGroups.map((operations, index) => ({ index: index + 1, stepId: `art-step-${index + 1}`, operations }))).state
   return { schemaVersion: 1, taskId: 'm24-artwork-fixture', generation: 1, start, state }
 }

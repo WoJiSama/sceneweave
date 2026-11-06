@@ -1,3 +1,4 @@
+import { reloadSaved } from './workspace-ux-helpers'
 import { test, expect, type Page, type Locator } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { randomBytes } from 'node:crypto'
@@ -98,7 +99,7 @@ async function createBlank(page: Page, title: string) {
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill(title)
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000'); await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18'); await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0); await settled(page)
 }
@@ -127,45 +128,55 @@ async function createDraft(page: Page, panel: Locator) {
   const authoring = await beginDraft(page, panel)
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('草稿可审阅采用', { timeout: 30_000 })
   await expect(authoring.getByLabel('AI 草稿差异', { exact: true }).locator(':scope > li')).toHaveCount(1)
-  await expect(authoring).toContainText('实际操作 3/256')
+  await expect(authoring).toContainText(/当前工程实际操作 \d+\/256/)
   return authoring
 }
 
 test('M2-2 authorized tools make an isolated draft, then protected one-transaction adoption survives undo/redo and native reopen', async ({ page }, info) => {
   test.setTimeout(90_000)
-  const errors: string[] = [], creates: unknown[] = []; page.on('pageerror', error => errors.push(error.message))
-  page.on('request', request => { if (request.url() === backendUrl + '/v1/tasks' && request.method() === 'POST') creates.push(request.postDataJSON()) })
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await createBlank(page, 'M2-2 真实浏览器草稿采用')
   const before = await state(page), initial = modelRequests, panel = await connect(page)
   await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('max')
+  const creation = page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return url.origin === backendUrl && url.pathname === '/v1/tasks' && response.request().method() === 'POST'
+  })
   const authoring = await createDraft(page, panel)
+  const created = await creation
+  expect(created.status()).toBe(201)
+  const posted = created.request().postDataJSON() as { authoring: { scope: { placement: { definitionIds: string[] } }; project: { assets: unknown } }; reasoningEffort: string }
   expect(await state(page)).toEqual(before); expect(await snapshots(page)).toEqual([])
-  expect(modelRequests - initial).toBe(5); expect(creates).toHaveLength(1)
-  expect(creates[0]).toMatchObject({ reasoningEffort: 'max' })
+  expect(modelRequests - initial).toBe(5)
+  expect(posted).toMatchObject({ reasoningEffort: 'max' })
   expect(reasoningInputs.slice(initial)).toEqual(Array(5).fill('max'))
   await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('high')
   await expect(panel.getByLabel('当前任务思考程度', { exact: true })).toContainText('最高 · max')
-  const posted = creates[0] as { authoring: { scope: { placement: { definitionIds: string[] } }; project: { assets: unknown } } }
   expect(posted.authoring.scope.placement.definitionIds).toHaveLength(1)
-  expect(JSON.stringify(creates[0])).not.toContain('"resources"')
+  expect(JSON.stringify(posted)).not.toContain('"resources"')
   await page.getByRole('button', { name: '查看AI草稿', exact: true }).click()
   await expect(page.locator('.ai-preview-banner')).toContainText('AI草稿预览 · 主工程未改变')
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
   expect(await state(page)).toEqual(before)
   await page.getByRole('button', { name: '查看主工程', exact: true }).click()
   await authoring.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
+  let releaseClaim!: () => void
+  const claimGate = new Promise<void>(resolve => { releaseClaim = resolve })
+  await page.route(backendUrl + '/v1/tasks/*/draft/claim', async route => { await claimGate; await route.continue() })
   await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  await expect(authoring.getByRole('status', { name: 'AI 草稿操作状态', exact: true })).toHaveText('正在保护当前工程并一次采用 AI 草稿…')
+  releaseClaim()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已采用', { timeout: 30_000 })
   await expect(authoring).toContainText('保护快照和保存已完成', { timeout: 30_000 }); await settled(page)
   const adopted = await state(page), [id] = Object.keys(adopted.document.props), protections = await snapshots(page)
   expect(adopted.document.revision).toBe(1); expect(Object.keys(adopted.document.props)).toHaveLength(1)
   expect(adopted.document.props[id]).toMatchObject({ positionMm: { x: 5000, y: 4000 }, rotationDeg: 30, appearance: { opacity: 0.6 } })
   expect(adopted.canUndo).toBe(true); expect(protections).toHaveLength(1); expect(protections[0]).toMatchObject({ kind: 'protection', sourceRevision: 0 })
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   const undone = await state(page); expect(undone.document.revision).toBe(2); expect(undone.document.props).toEqual({}); expect(undone.canUndo).toBe(false)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
   const redone = await state(page); expect(redone.document.revision).toBe(3); expect(redone.document.props[id]).toEqual(adopted.document.props[id])
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   const reopened = await state(page); expect(reopened.document).toEqual(redone.document); expect(reopened.canUndo).toBe(false)
   expect(await snapshots(page)).toEqual(protections); expect(modelRequests - initial).toBe(5)
   expect(await page.evaluate(secret => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }).includes(secret), token)).toBe(false)
@@ -208,7 +219,10 @@ test('M2-2 explicit pause and supplementary resume preserve earlier draft steps 
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await createBlank(page, 'M2-2 暂停续批')
   const before = await state(page), initial = modelRequests, panel = await connect(page)
-  const creation = page.waitForResponse(response => response.url() === backendUrl + '/v1/tasks' && response.request().method() === 'POST').then(response => {
+  const creation = page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return url.origin === backendUrl && url.pathname === '/v1/tasks' && response.request().method() === 'POST'
+  }).then(response => {
     expect(response.status()).toBe(201)
     const requestId = (response.request().postDataJSON() as { clientRequestId: string }).clientRequestId
     // Inspect the authoritative task created by this exact UI request. Chromium
@@ -220,7 +234,7 @@ test('M2-2 explicit pause and supplementary resume preserve earlier draft steps 
   const authoring = await beginDraft(page, panel, '暂停续批测试：先放一盏铜色桌灯，等待我追加要求。')
   const created = await creation
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('已有一笔有效放置草稿')
-  await expect(authoring).toContainText('实际操作 1/256')
+  await expect(authoring).toContainText(/当前工程实际操作 \d+\/256/)
   await expect(authoring.getByLabel('AI 草稿差异', { exact: true }).locator(':scope > li')).toHaveCount(1)
   const firstStep = structuredClone(store.read(created.id).authoring!.state.steps[0])
   expect(modelRequests - initial).toBe(3); expect(await state(page)).toEqual(before)
@@ -233,7 +247,7 @@ test('M2-2 explicit pause and supplementary resume preserve earlier draft steps 
   await panel.getByRole('checkbox', { name: /^我确认继续会发起新的模型请求/ }).check()
   await panel.getByRole('button', { name: '确认继续任务', exact: true }).click()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('草稿可审阅采用', { timeout: 30_000 })
-  await expect(authoring).toContainText('实际操作 3/256')
+  await expect(authoring).toContainText(/当前工程实际操作 \d+\/256/)
   const continued = store.read(created.id)
   expect(continued.snapshot.generation).toBe(3); expect(continued.authoring!.state.steps).toHaveLength(3)
   expect(continued.authoring!.state.steps[0]).toEqual(firstStep)
@@ -247,7 +261,7 @@ test('M2-2 explicit pause and supplementary resume preserve earlier draft steps 
   expect(adopted.document.revision).toBe(1); expect(Object.keys(adopted.document.props)).toHaveLength(1)
   expect(prop).toMatchObject({ positionMm: { x: 5000, y: 4000 }, rotationDeg: 30, appearance: { opacity: 0.6 } })
   expect(await snapshots(page)).toHaveLength(1)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   expect((await state(page)).document.props).toEqual({}); expect((await state(page)).canUndo).toBe(false)
   expect(modelRequests - initial).toBe(6); expect(errors).toEqual([])
 })
@@ -299,7 +313,10 @@ test('M2-2 a paused nonempty draft can finish for review and adopt without anoth
   })
   await createBlank(page, 'M2-2 暂停草稿直接审阅')
   const before = await state(page), initial = modelRequests, panel = await connect(page)
-  const creation = page.waitForResponse(response => response.url() === backendUrl + '/v1/tasks' && response.request().method() === 'POST').then(response => {
+  const creation = page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return url.origin === backendUrl && url.pathname === '/v1/tasks' && response.request().method() === 'POST'
+  }).then(response => {
     expect(response.status()).toBe(201)
     const requestId = (response.request().postDataJSON() as { clientRequestId: string }).clientRequestId
     // Inspect the authoritative task created by this exact UI request. Chromium
@@ -311,7 +328,7 @@ test('M2-2 a paused nonempty draft can finish for review and adopt without anoth
   const authoring = await beginDraft(page, panel, '暂停续批测试：先放一盏铜色桌灯，我可能直接结束并采用当前草稿。')
   const created = await creation
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('已有一笔有效放置草稿')
-  await expect(authoring).toContainText('实际操作 1/256')
+  await expect(authoring).toContainText(/当前工程实际操作 \d+\/256/)
   await expect(authoring.getByLabel('AI 草稿差异', { exact: true }).locator(':scope > li')).toHaveCount(1)
   const firstStep = structuredClone(store.read(created.id).authoring!.state.steps[0])
   expect(modelRequests - initial).toBe(3); expect(await state(page)).toEqual(before)
@@ -335,7 +352,7 @@ test('M2-2 a paused nonempty draft can finish for review and adopt without anoth
   expect(adopted.document.revision).toBe(1); expect(Object.keys(adopted.document.props)).toHaveLength(1)
   expect(prop).toMatchObject({ positionMm: { x: 4000, y: 4000 }, rotationDeg: 0, appearance: { opacity: 1 } })
   expect(await snapshots(page)).toHaveLength(1)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   expect((await state(page)).document.props).toEqual({}); expect((await state(page)).canUndo).toBe(false)
   expect(modelRequests - initial).toBe(3); expect(controls).toEqual(['pause']); expect(errors).toEqual([])
 })

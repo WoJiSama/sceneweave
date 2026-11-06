@@ -1,4 +1,6 @@
-import { getLegacyGeneration, legacyTerrainView } from './composition-contracts.js'
+import { captureTerrainTaskBudget, terrainSemanticCost, terrainTaskUsage, type TerrainTaskBudgetOptions } from './task-admission.js'
+import { parseTaskBudgetProfile, type TaskBudgetProfile, type BudgetUsage } from '../budget/task-budget.js'
+import { getLegacyGeneration, getLegacyVisual, legacyTerrainView } from './composition-contracts.js'
 import { z } from 'zod'
 import { surroundingsRequestSchema, surroundingsCurves, captureSurroundingsPreservation, surroundingsEntityHash, surroundingsOutputHash, regenerateSurroundingsScenery, type SurroundingsRequest } from './surroundings.js'
 import type { BoundsMm, PointMm, SceneDocument, SurfaceOverlay } from '../model/scene.js'
@@ -11,7 +13,7 @@ import { polygonDistance, propFootprint, supportedPolygon, terrainPoints } from 
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { cloneJson, canonicalJson, inspectJsonInput } from '../validation/json.js'
-import { sceneDocument3Schema, validateSceneDocument } from '../validation/scene.js'
+import { sceneDocumentSchema, validateSceneDocument } from '../validation/scene.js'
 import { terrainCommandCost } from './cost.js'
 import { constraintInputHash, generationInputHash, managedOutputHash, materializedBoundaryHash, resolveGenerationEntity, resolveGenerationTarget } from './integrity.js'
 import { terrainTopologyRequestSchema, type GenerationReference, type GenerationSystem2, type GenerationSystem3, type GenerationSystem4, type TerrainTopologyRequest } from './contracts.js'
@@ -37,7 +39,7 @@ const costSchema = z.object({ items: z.record(z.string(), z.number().int().nonne
 })
 const impactSchema = z.object({ writeIds: z.array(z.string()), preservedIds: z.array(z.string()), readIds: z.array(z.string()),
   conflicts: z.array(z.object({ code: z.string(), message: z.string(), entityId: z.string().nullable() }).strict()), writeBoundsMm: bounds, readBoundsMm: bounds }).strict()
-export const terrainEditResultSchema = z.object({ request: terrainEditRequestSchema, document: sceneDocument3Schema, cost: costSchema,
+export const terrainEditResultSchema = z.object({ request: terrainEditRequestSchema, document: sceneDocumentSchema, cost: costSchema,
   impact: impactSchema, steps: z.array(z.object({ index: z.number().int().nonnegative(), cost: costSchema }).strict()), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().superRefine((result,ctx)=>{
     const expected=result.request.kind==='brush'?result.request.strokes.length:1,cumulative:Record<string,number>={}
     if(result.steps.length!==expected||result.steps.some((step,index)=>step.index!==index))ctx.addIssue({code:'custom',path:['steps'],message:'逐步回执须与本次笔画数量、连续序号一致。'})
@@ -53,7 +55,7 @@ function assertWritable(scene: SceneDocument, entityId: string) {
   const visual = visualBase(scene), row = scene.terrainAreas[entityId] ?? scene.props[entityId] ?? scene.terrainConnections[entityId]
     ?? scene.scatterGroups[entityId] ?? scene.prefabInstances[entityId] ?? scene.notes[entityId]
     ?? visual?.boundaries[entityId] ?? visual?.edgeLooks[entityId] ?? getLegacyGeneration(scene)?.rules[entityId]
-    ?? (scene.visual?.version === 2 ? scene.visual.materializedEdges[entityId] : undefined)
+    ?? (getLegacyVisual(scene)?.materializedEdges[entityId])
   const layerId = row && 'layerId' in row && typeof row.layerId==='string' ? row.layerId : scene.entityLayers[entityId]
   if (row && ('editLocked' in row && row.editLocked || scene.userLayers[layerId]?.editLocked)) fail(`对象或图层已锁定，不能联动：${entityId}。`)
 }
@@ -90,30 +92,33 @@ function nearest(p: PointMm, points: readonly PointMm[]): { distance: number; po
   return best
 }
 function assertScope(points: readonly PointMm[], scope: BoundsMm) { if (points.some(p => !boundsContain(p, scope))) fail('实际写入超出冻结范围；请扩大范围后重新预览。') }
-function entityChanges(before: SceneDocument, after: SceneDocument) {
+export function terrainEditEntityChanges(before: SceneDocument, after: SceneDocument) {
   const records = (scene: SceneDocument) => {
     const generation = getLegacyGeneration(scene)!
     return new Map<string, unknown>([
     ...['terrainAreas','terrainEdges','terrainConnections','paths','props','scatterGroups','regions','notes'].flatMap(key => Object.values(scene[key as 'props'])),
     ...Object.values(visualBase(scene)!.boundaries), ...Object.values(visualBase(scene)!.edgeLooks),
-    ...Object.values(scene.visual?.version === 2 ? scene.visual.materializedEdges : {}),
+    ...Object.values(getLegacyVisual(scene)?.materializedEdges ?? {}),
     ...Object.values(generation.recipes),...Object.values(generation.intents),...Object.values(generation.rules),...Object.values(generation.ownership),...Object.values(generation.exclusions),...Object.values(generation.constraints),...Object.values(generation.checks),...Object.values(generation.sourceLinks),...Object.values(generation.version!==1?generation.strokes:{}),
     ...Object.values(generation.version===3||generation.version===4?generation.surroundings:{}),
     ...Object.values(generation.version===4?generation.topology:{}),
+    ...['features','compositions','requirements','checks','thresholds','dependencies'].flatMap(key => Object.values(scene.generation[key as 'compositions'])),
   ].map(row => [row.id, row])) }
   const a = records(before), b = records(after)
   return { writeIds: [...new Set([...a.keys(), ...b.keys()])].filter(id => !same(a.get(id) ?? null, b.get(id) ?? null)).sort(), removedIds: [...a.keys()].filter(id => !b.has(id)) }
 }
 /** Supported rules are refreshed on explicit adoption only. Imports never call this function. */
-export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneDocument): void {
+export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneDocument, budget?: TaskBudgetProfile): void {
+  if (budget) parseTaskBudgetProfile(budget)
   for (const rule of Object.values(getLegacyGeneration(scene)!.rules)) {
     const inputHash=generationInputHash(scene,rule),outputHash=managedOutputHash(scene,rule)
     if(inputHash===rule.inputHash&&outputHash===rule.managedOutputHash)continue
     assertWritable(before,rule.id)
     const recipe=getLegacyGeneration(scene)!.recipes[rule.recipeRef.id]
     // Refreshing a hash is not an implementation of an arbitrary dependent algorithm.
-    const supportedTerrainAlgorithm = recipe.algorithmId === 'terrain-scene' && [1, 2].includes(recipe.algorithmVersion)
+    const supportedTerrainAlgorithm = recipe.algorithmId === 'terrain-scene' && [1, 2, 3].includes(recipe.algorithmVersion)
       || recipe.algorithmId === 'terrain-scene-t3' && recipe.algorithmVersion === 1
+      || !!budget && ['terrain-scene','terrain-scene-t3'].includes(recipe.algorithmId) && [4,5].includes(recipe.algorithmVersion) && recipe.recipeVersion === recipe.algorithmVersion
     if(inputHash!==rule.inputHash||rule.kind!=='terrain'||!supportedTerrainAlgorithm)fail(`相关规则须独立重算，当前局部编辑不支持：${rule.id}。`)
     rule.managedOutputHash=outputHash
   }
@@ -162,11 +167,11 @@ function deformBoundary(scene: SceneDocument, request: Extract<TerrainEditReques
   return next
 }
 function syncMaterializedEdges(before: SceneDocument, next: SceneDocument, boundary: VisualBoundary, scope: BoundsMm): void {
-  if (next.visual?.version !== 2 || before.visual?.version !== 2) return
+  if (next.visual?.version !== 3 || before.visual?.version !== 3) return
   const previous = visualBase(before)!.boundaries[boundary.id]
   const parts=(curve:VisualBoundary)=>curve.segments.map(segment=>sampleVisualBoundary({...curve,closed:false,segments:[segment]}))
   const oldParts=parts(previous),newParts=parts(boundary)
-  for (const edge of Object.values(next.visual.materializedEdges).filter(row => row.boundaryId === boundary.id)) {
+  for (const edge of Object.values(next.visual.base.materializedEdges).filter(row => row.boundaryId === boundary.id)) {
     assertManaged(before, edge.id, 'geometry'); assertWritable(before, edge.id)
     const remap = (p: PointMm) => {
       let selected=0,oldAt=nearest(p,oldParts[0].points)
@@ -263,7 +268,7 @@ function applyContour(scene: SceneDocument, request: TerrainEditRequest, boundar
   assertLocalGeometry(before,scene,request.scopeMm)
   syncMaterializedEdges(before,scene,boundary,request.scopeMm)
   preserveSupport(before,scene,request,previous.binding.sides.map(side=>side.areaId))
-  if(request.linkMode==='contour')for(const edge of Object.values(scene.visual?.version===2?scene.visual.materializedEdges:{}))if(edge.boundaryId===boundary.id&&!same(before.visual?.version===2?before.visual.materializedEdges[edge.id]:null,edge))fail('只改轮廓不能隐式重写物化过渡，请选择相关过渡。')
+  if(request.linkMode==='contour')for(const edge of Object.values(getLegacyVisual(scene)?.materializedEdges ?? {}))if(edge.boundaryId===boundary.id&&!same(getLegacyVisual(before)?.materializedEdges[edge.id] ?? null,edge))fail('只改轮廓不能隐式重写物化过渡，请选择相关过渡。')
 }
 function deleteManagedProp(scene:SceneDocument,propId:string):void{
   const prop=scene.props[propId],owner=Object.values(getLegacyGeneration(scene)!.ownership).find(owner=>owner.target.kind==='prop'&&owner.target.entityId===propId)
@@ -303,70 +308,87 @@ function applyBrush(scene:SceneDocument,request:Extract<TerrainEditRequest,{kind
       if(owner?.state==='managed'&&!owner.manualFields.length&&!prop.editLocked&&!scene.userLayers[scene.entityLayers[prop.id]]?.editLocked){assertScope(footprint,request.scopeMm);deleteManagedProp(scene,prop.id)}
     }
   }
-  const system=scene.generation as GenerationSystem2,strokeId=generatedId(request.operationId,`stroke-${index}`)
+  const system=getLegacyGeneration(scene) as GenerationSystem2,strokeId=generatedId(request.operationId,`stroke-${index}`)
   system.strokes[strokeId]={id:strokeId,operationId:request.operationId,strokeIndex:index,floorId:request.floorId,visibility:area.visibility,brush:request.mode,targetAreaId:request.targetAreaId,pointsMm:cloneJson(stroke.pointsMm),radiusMm:stroke.radiusMm,scopeMm:cloneJson(request.scopeMm),linkMode:request.linkMode,materialRef:cloneJson(request.materialRef),elevationMm:request.elevationMm,algorithmId:'terrain-edit',algorithmVersion:1}
 }
-function applySurroundings(scene:SceneDocument,request:SurroundingsRequest,nextId:()=>string):void {
+function applySurroundings(scene:SceneDocument,request:SurroundingsRequest,nextId:()=>string,options?:TerrainTaskBudgetOptions):void {
   const before=cloneJson(scene),preserved=captureSurroundingsPreservation(before,request)
-  if(preserved.length>256)fail('外围保全内容超过256项；请缩小独立工程，不隐式省略依赖。')
+  const budget = captureTerrainTaskBudget(options)
+  if(preserved.length>(budget?.limits.dependencyRefs ?? 256))fail(budget?'外围保全内容超过冻结的依赖预算；请缩小独立工程，不隐式省略依赖。':'外围保全内容超过256项；请缩小独立工程，不隐式省略依赖。')
+  options?.meter?.charge({dependencyRefs:preserved.length})
   const curves=surroundingsCurves(before,request)
   for(const boundary of curves)if(!same(boundary,visualBase(scene)!.boundaries[boundary.id]))applyContour(scene,request,boundary,nextId)
   regenerateSurroundingsScenery(scene,before,request)
   for(const row of preserved)if(surroundingsEntityHash(scene,row.collection,row.entityId)!==row.contentHash)fail(`外围重生成必须保持既有建筑、院路和人工内容：${row.entityId}。`)
   if(same(scene.terrainAreas,before.terrainAreas)&&same(scene.props,before.props))fail('当前范围内没有可重生成的自动内容；请扩大范围或选择另一条轮廓。')
-  if(scene.generation!.version===2)scene.generation={...scene.generation!,version:3,surroundings:{}}
-  const generation=scene.generation as GenerationSystem3
+  const priorGeneration=getLegacyGeneration(scene)!
+  if(priorGeneration.version===2)scene.generation.legacy={...priorGeneration,version:3,surroundings:{}}
+  const generation=getLegacyGeneration(scene) as GenerationSystem3
   for(const row of Object.values(generation.surroundings))row.state='historical'
   const id=generatedId(request.operationId,'surroundings')
   const row={id,operationId:request.operationId,floorId:request.floorId,visibility:'gm' as const,algorithmId:'terrain-surroundings' as const,algorithmVersion:1 as const,seed:request.seed,scopeMm:cloneJson(request.scopeMm),maxDisplacementMm:request.maxDisplacementMm,boundaryIds:cloneJson(request.boundaryIds),regenerateScenery:request.regenerateScenery,preserved,state:'current' as const,inputHash:hash({request,preserved}),outputHash:''}
   row.outputHash=surroundingsOutputHash(scene,row);generation.surroundings[id]=row
 }
-function applyTopology(scene: SceneDocument, request: TerrainTopologyRequest): void {
+function applyTopology(scene: SceneDocument, request: TerrainTopologyRequest, options?: TerrainTaskBudgetOptions): void {
   const before = cloneJson(scene)
-  const result = applyTerrainTopology(scene, request)
+  const result = applyTerrainTopology(scene, request, options?.meter)
   const base = getLegacyGeneration(scene)!
   const generation: GenerationSystem4 = base.version === 4 ? base : base.version === 3 ? { ...base, version: 4, topology: {} } : { ...base, version: 4, strokes: base.version === 1 ? {} : base.strokes, surroundings: {}, topology: {} }
-  scene.generation = generation
+  scene.generation.legacy = generation
   for (const row of Object.values(generation.surroundings)) row.state = 'historical'
   for (const row of Object.values(generation.topology)) row.state = 'historical'
   const id = generatedId(request.operationId, 'topology')
   generation.topology[id] = { id, floorId: request.floorId, visibility: 'gm', algorithmId: 'terrain-boolean', algorithmVersion: 1, request: cloneJson(request), inputs: request.areaIds.map(entityId => ({ entityId, contentHash: hash(before.terrainAreas[entityId]), boundaryMm: terrainPoints(before.terrainAreas[entityId]) })), outputAreaIds: result.outputAreaIds, componentCount: result.componentCount, holeCount: result.holeCount, state: 'current', inputHash: result.inputHash, outputHash: result.outputHash }
 }
 /** Current materialized geometry is authoritative. Never regenerates from the original seed. */
-export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest):TerrainEditResult{
+export type ProfiledTerrainEditResult = Omit<TerrainEditResult,'cost'|'steps'> & {
+  cost: ReturnType<typeof terrainSemanticCost>; steps: {index:number;cost:ReturnType<typeof terrainSemanticCost>}[];
+  budget: { countingVersion:2; profileHash:string; usage:BudgetUsage }
+}
+export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest):TerrainEditResult
+export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest,options:TerrainTaskBudgetOptions):TerrainEditResult|ProfiledTerrainEditResult
+export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest,options?:TerrainTaskBudgetOptions):TerrainEditResult|ProfiledTerrainEditResult{
+  const budget=captureTerrainTaskBudget(options)
+
   const jsonIssue=inspectJsonInput(input);if(jsonIssue)fail(jsonIssue.message)
   const request=terrainEditRequestSchema.parse(input),valid=validateSceneDocument(base)
   if(!valid.ok)fail(`地形编辑基线无效：${valid.errors.map(error=>error.message).join('；')}`)
-  if(base.schemaVersion!==3||base.mapMode!=='scene'||base.visual?.version!==2||!base.generation)fail('地形编辑需要完整v3场景地图。')
+  if(base.mapMode!=='scene'||base.visual?.version!==3||base.generation?.version!==5)fail('地形编辑需要完整场景地图。')
   if(request.sceneId!==base.sceneId||!base.floors[request.floorId])fail('地形编辑绑定的工程或Floor已变化。')
   if(![request.scopeMm.x,request.scopeMm.y,request.scopeMm.x+request.scopeMm.width,request.scopeMm.y+request.scopeMm.height].every(Number.isSafeInteger))fail('冻结范围不是安全整数。')
+  options?.meter?.charge({candidateAttempts:1})
   const existingIds=allEntityIds(base)
   if([...existingIds].some(id=>id.startsWith(`terrain-edit-${hash(request.operationId).slice(0,20)}-`)))fail('本次操作派生身份已存在，请重新开始操作。')
   // The v3-only guard above precedes this compatibility typing; a native-v4
   // view is never installed or saved by the legacy editing entry point.
-  const scene=cloneJson(legacyTerrainView(base)),nextId=makeIds(base,request.operationId),steps:TerrainEditResult['steps']=[],items:Record<string,number>={}
-  if(scene.generation!.version===1)scene.generation={...scene.generation!,version:2,strokes:{}}
-  if(Object.values(scene.generation!.strokes).some(stroke=>stroke.operationId===request.operationId))fail('本次笔画身份已经采用，请重新开始操作。')
+  const scene=cloneJson(base),nextId=makeIds(base,request.operationId),steps:{index:number;cost:ReturnType<typeof terrainCommandCost>}[]=[],items:Record<string,number>={}
+  if(getLegacyGeneration(scene)!.version===1)scene.generation.legacy={...getLegacyGeneration(scene)!,version:2,strokes:{}}
+  if(Object.values((getLegacyGeneration(scene) as GenerationSystem2).strokes).some(stroke=>stroke.operationId===request.operationId))fail('本次笔画身份已经采用，请重新开始操作。')
   const run=(index:number,apply:()=>void)=>{
     const before=index===0?base:cloneJson(scene)
-    if(scene.generation!.version>=3)for(const row of Object.values((scene.generation as GenerationSystem3|GenerationSystem4).surroundings))row.state='historical'
-    apply();preserveHardActivityAreas(before,scene);finalizeTerrainEditDocument(scene,before)
-    const cost=terrainCommandCost(before,scene)
+    if(getLegacyGeneration(scene)!.version>=3)for(const row of Object.values((getLegacyGeneration(scene) as GenerationSystem3|GenerationSystem4).surroundings))row.state='historical'
+    apply();preserveHardActivityAreas(before,scene);finalizeTerrainEditDocument(scene,before,budget)
+    const cost=budget?terrainSemanticCost(before,scene,budget):terrainCommandCost(before,scene)
     if(!cost.total){cost.items.noOp=1;cost.total=1}
-    steps.push({index,cost:{...cost,limit:256}})
+    steps.push({index,cost:{...cost,limit:budget?.semanticTargets??256}})
     for(const [key,value]of Object.entries(cost.items))items[key]=(items[key]??0)+value
     const total=Object.values(items).reduce((a,b)=>a+b,0)
-    if(total>256)fail(`本次逐笔累计展开${total}，超过256；请缩短笔画或减少细节。`)
+    if(total>(budget?.semanticTargets??256))fail(`本次逐笔累计展开${total}，超过256；请缩短笔画或减少细节。`)
+    if(budget)terrainTaskUsage(base,scene,{...options,budget})
     const check=validateSceneDocument(scene);if(!check.ok)fail(`地形候选冲突：${check.errors.map(error=>`${error.code} ${error.message}`).join('；')}`)
   }
   if(request.kind==='contour')run(0,()=>applyContour(scene,request,request.boundary,nextId))
-  else if(request.kind==='surroundings')run(0,()=>applySurroundings(scene,request,nextId))
-  else if(request.kind==='topology')run(0,()=>applyTopology(scene,request))
+  else if(request.kind==='surroundings')run(0,()=>applySurroundings(scene,request,nextId,options))
+  else if(request.kind==='topology')run(0,()=>applyTopology(scene,request,options))
   else request.strokes.forEach((stroke,index)=>run(index,()=>applyBrush(scene,request,stroke,index,nextId)))
-  const changes=entityChanges(base,scene),preservedIds=['vertices','rooms','walls','openings','paths','terrainConnections','props','notes','prefabInstances','scatterGroups'].flatMap(key=>Object.values(base[key as 'props']).filter(row=>same(row,scene[key as 'props'][row.id]??null)).map(row=>row.id)).sort()
+  const changes=terrainEditEntityChanges(base,scene),preservedIds=['vertices','rooms','walls','openings','paths','terrainConnections','props','notes','prefabInstances','scatterGroups'].flatMap(key=>Object.values(base[key as 'props']).filter(row=>same(row,scene[key as 'props'][row.id]??null)).map(row=>row.id)).sort()
   const readIds=[...new Set([...allEntityIds(base),...changes.writeIds,...Object.values(base.terrainConnections).map(connection=>connection.id),...Object.values(base.props).map(prop=>prop.id),...Object.values(getLegacyGeneration(base)!.rules).map(rule=>rule.id)])].sort()
   const floorBounds=Object.values(base.floors).map(floor=>floor.boundsMm),left=Math.min(...floorBounds.map(bounds=>bounds.x)),top=Math.min(...floorBounds.map(bounds=>bounds.y)),right=Math.max(...floorBounds.map(bounds=>bounds.x+bounds.width)),bottom=Math.max(...floorBounds.map(bounds=>bounds.y+bounds.height))
   const impact={writeIds:changes.writeIds,preservedIds,readIds,conflicts:[],writeBoundsMm:cloneJson(request.scopeMm),readBoundsMm:expand({x:left,y:top,width:right-left,height:bottom-top},Math.max(2000,...Object.values(visualBase(base)!.edgeLooks).map(look=>look.widthMm),...Object.values(base.props).map(prop=>Math.max(Math.abs(prop.visualBoundsMm.x),Math.abs(prop.visualBoundsMm.y),Math.abs(prop.visualBoundsMm.x+prop.visualBoundsMm.width),Math.abs(prop.visualBoundsMm.y+prop.visualBoundsMm.height))+(prop.shadowOverride?.offsetMm??0)+(prop.shadowOverride?.blurMm??0)),...(request.kind==='brush'?request.strokes.map(stroke=>stroke.radiusMm):[0])))}
-  const cost={items,total:Object.values(items).reduce((a,b)=>a+b,0),limit:256 as const}
-  return {request,document:scene,cost,impact,steps,hash:hash({request,document:scene,cost,impact,steps})}
+  const cost={items,total:Object.values(items).reduce((a,b)=>a+b,0),limit:budget?.semanticTargets??256}
+  if(budget){
+    const admission={countingVersion:2 as const,profileHash:budget.profileHash,usage:terrainTaskUsage(base,scene,{...options,budget})}
+    return {request,document:scene,cost:{...cost,limit:budget.semanticTargets},impact,steps:steps.map(step=>({...step,cost:{...step.cost,limit:budget.semanticTargets}})),budget:admission,hash:hash({request,document:scene,cost,impact,steps,budget:admission})}
+  }
+  return {request,document:scene,cost:{...cost,limit:256},impact,steps:steps as TerrainEditResult['steps'],hash:hash({request,document:scene,cost,impact,steps})}
 }

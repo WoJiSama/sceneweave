@@ -1,10 +1,11 @@
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
-import { propFootprint } from '../geometry/geometry.js'
+import { propFootprint, connectionBand } from '../geometry/geometry.js'
 import { cloneJson } from '../validation/json.js'
 import type { Audience, ProjectedVisualBoundary, ProjectedVisualFilter, ProjectedVisualSystem, ProjectedVisualTransition, Projection } from '../projection/types.js'
 import { sampleVisualBoundary } from './geometry.js'
 import type { VisualSystem } from './types.js'
 import { getLegacyVisual } from '../terrain-generation/composition-contracts.js'
+import { decorationPaintPolygon } from '../decorations/presentation.js'
 
 const copy = <T>(value: T): T => cloneJson(value)
 const bounds = (points: PointMm[]): BoundsMm => ({ x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)), width: Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)), height: Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y)) })
@@ -63,6 +64,7 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
   for (const surface of [...projection.terrain, ...projection.rooms]) targetRings.set(surface.id, [copy(surface.points)])
   for (const path of projection.paths) targetRings.set(path.id, [copy(path.points)])
   for (const prop of projection.props) targetRings.set(prop.id, [propVisualRing(prop)])
+  for (const value of projection.decorations ?? []) targetRings.set(value.id, [decorationPaintPolygon(value)])
   for (const region of projection.regions) targetRings.set(region.id, [copy(region.points)])
   for (const wall of Object.values(scene.walls)) {
     if (visibleWallIds ? !visibleWallIds.has(wall.id) : !projection.walls.some(projected => projected.sourceIds.includes(wall.id))) continue
@@ -70,8 +72,11 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     targetRings.set(wall.id, [[{ x: a.xMm + nx, y: a.yMm + ny }, { x: b.xMm + nx, y: b.yMm + ny }, { x: b.xMm - nx, y: b.yMm - ny }, { x: a.xMm - nx, y: a.yMm - ny }]])
   }
   for (const connection of projection.connections) {
-    const dx = connection.end.x - connection.start.x, dy = connection.end.y - connection.start.y, l = Math.hypot(dx, dy), nx = -dy / l * connection.widthMm / 2, ny = dx / l * connection.widthMm / 2
-    targetRings.set(connection.id, [[{ x: connection.start.x + nx, y: connection.start.y + ny }, { x: connection.end.x + nx, y: connection.end.y + ny }, { x: connection.end.x - nx, y: connection.end.y - ny }, { x: connection.start.x - nx, y: connection.start.y - ny }]])
+    if (connection.route) targetRings.set(connection.id, [connectionBand(connection.route.centerlineMm, connection.widthMm)])
+    else {
+      const dx = connection.end.x - connection.start.x, dy = connection.end.y - connection.start.y, l = Math.hypot(dx, dy), nx = -dy / l * connection.widthMm / 2, ny = dx / l * connection.widthMm / 2
+      targetRings.set(connection.id, [[{ x: connection.start.x + nx, y: connection.start.y + ny }, { x: connection.end.x + nx, y: connection.end.y + ny }, { x: connection.end.x - nx, y: connection.end.y - ny }, { x: connection.start.x - nx, y: connection.start.y - ny }]])
+    }
   }
   for (const group of Object.values(scene.prefabInstances)) {
     const rings = Object.values(group.members).flatMap(member => member.propId ? targetRings.get(member.propId) ?? [] : [])
@@ -81,8 +86,13 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     const rings = Object.values(group.members).flatMap(member => member.state !== 'detached' && member.propId ? targetRings.get(member.propId) ?? [] : [])
     if ((audience === 'gm' || group.visibility === 'public') && rings.length) targetRings.set(group.id, rings)
   }
+  for (const group of Object.values(scene.decorationClusters ?? {})) {
+    const rings = Object.values(group.members).flatMap(member => member.state !== 'detached' && member.entityId ? targetRings.get(member.entityId) ?? [] : [])
+    if ((audience === 'gm' || group.visibility === 'public') && rings.length) targetRings.set(group.id, rings)
+  }
   const renderTargets = new Map([...targetRings.keys()].map(id => [id, [id]]))
   for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) renderTargets.set(group.id, Object.values(group.members).flatMap(member => member.propId && targetRings.has(member.propId) ? [member.propId] : []))
+  for (const group of Object.values(scene.decorationClusters ?? {})) renderTargets.set(group.id, Object.values(group.members).flatMap(member => member.entityId && member.state !== 'detached' && targetRings.has(member.entityId) ? [member.entityId] : []))
   for (const wall of Object.values(scene.walls)) if (targetRings.has(wall.id)) {
     const a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId]
     renderTargets.set(wall.id, projection.walls.filter(projected => {

@@ -2,7 +2,8 @@ import { visualBase } from '../../shared/visual/base.js'
 import { terrainRecordChanges } from '../../shared/terrain-generation/review.js'
 import type { AuthoringDraft, AuthoringScope, AuthoringStart, DraftLease } from '../../shared/ai/authoring-protocol.js'
 import { AuthoringDraftSchema, DraftLeaseSchema, AUTHORING_LIMITS } from '../../shared/ai/authoring-protocol.js'
-import { authoringProjectHash, replayAuthoring, validateAuthoringStart } from '../../shared/ai/authoring.js'
+import type { BudgetStateV3 } from '../../shared/ai/continuation-protocol-v3.js'
+import { isClassifiedVersion, isClassifiedAuthoring, authoringProjectHash, replayAuthoring, validateAuthoringStart } from '../../shared/ai/authoring.js'
 import type { ProjectData } from '../../shared/model/project.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../../shared/model/scene.js'
 import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics.js'
@@ -21,9 +22,9 @@ export interface AtomicAuthorization {
 }
 export interface AtomicChange { id: string; collection?: string; before: unknown; after: unknown; fields: string[] }
 export interface AtomicCandidate {
-  schemaVersion?: 1 | 2
+  schemaVersion?: 1 | 2 | 3 | 4
   budgetIdentity?: BudgetIdentity
-  budget?: BudgetState
+  budget?: BudgetState | BudgetStateV3
   project: EditableProject
   document: EditableProject['document']
   changes: readonly AtomicChange[]
@@ -66,8 +67,8 @@ export function captureAtomicDraft(input: AuthoringDraft, authorization: AtomicA
   const replayed = replayAuthoring(authorization.start, draft.state.steps)
   // Canonical hashes compare every state field; task JSON has no trusted valid flag.
   if (canonicalJson(replayed.state) !== canonicalJson(draft.state)) throw new Error('任务步骤、实际范围、成本或内容校验值与本机重放不一致。')
-  const limit = draft.start.schemaVersion === 2 ? draft.start.policy.generationTargets + draft.start.policy.aiTargets : AUTHORING_LIMITS.operations
-  const empty = draft.start.schemaVersion === 2 ? draft.state.operationCost === 0 : !draft.state.draftRevision || !draft.state.operationCost
+  const limit = isClassifiedAuthoring(draft.start) ? draft.start.policy.generationTargets + draft.start.policy.aiTargets : AUTHORING_LIMITS.operations
+  const empty = isClassifiedAuthoring(draft.start) ? draft.state.operationCost === 0 : !draft.state.draftRevision || !draft.state.operationCost
   if (empty && !options.allowEmpty || draft.state.operationCost > limit) throw new Error('任务草稿为空或超过固定实际操作预算。')
   return { draft, project: replayed.project, state: replayed.state, visualInvalidatedIds: replayed.visualInvalidatedIds }
 }
@@ -82,7 +83,7 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
     }
     for (const collection of VISUAL_ENTITY_COLLECTIONS) {
       const entity = visualBase(project.document)?.[collection][id]
-      if (entity) return { collection: `${project.document.visual?.version === 2 ? 'visual.base' : 'visual'}.${collection}`, value: entity }
+      if (entity) return { collection: `visual.base.base.${collection}`, value: entity }
     }
     // SVG authoring and licensing records are persisted alongside, but outside,
     // the scene entity collections. They still need to be visible in review.
@@ -113,7 +114,7 @@ export function atomicChanges(before: ProjectData, after: ProjectData, touched: 
     id: 'scene-constraints', collection: 'constraints', before: before.document.constraints, after: after.document.constraints, fields: ['constraints'],
   })
   if (JSON.stringify(visualBase(before.document)?.environment) !== JSON.stringify(visualBase(after.document)?.environment)) changes.push({
-    id: 'visual-environment', collection: after.document.visual?.version === 2 ? 'visual.base.environment' : 'visual.environment', before: visualBase(before.document)?.environment ?? null,
+    id: 'visual-environment', collection: 'visual.base.base.environment', before: visualBase(before.document)?.environment ?? null,
     after: visualBase(after.document)?.environment ?? null, fields: ['environment'],
   })
   changes.push(...terrainRecordChanges(before.document, after.document))
@@ -131,8 +132,8 @@ export function assertAtomicLease(input: DraftLease, candidate: AtomicCandidate,
   const duration = lease.expiresAt - lease.serverNow, elapsed = now - requestedAt
   if (lease.taskId !== candidate.taskId || lease.generation !== candidate.generation || lease.draftRevision !== candidate.draftRevision
     || lease.contentHash !== candidate.contentHash) throw new Error('任务授权租约与待采用草稿不一致。')
-  if (candidate.schemaVersion === 2) {
-    if (lease.schemaVersion !== 2 || !candidate.budgetIdentity || Object.entries(candidate.budgetIdentity).some(([key, value]) =>
+  if (isClassifiedVersion(candidate.schemaVersion)) {
+    if (lease.schemaVersion !== candidate.schemaVersion || !candidate.budgetIdentity || Object.entries(candidate.budgetIdentity).some(([key, value]) =>
       Reflect.get(lease, key) !== value)) throw new Error('任务采用租约的策略、来源或累计预算身份不同。')
   } else if (lease.schemaVersion !== 1) throw new Error('任务采用租约版本不同。')
   if (duration <= 0 || duration > AUTHORING_LIMITS.claimMs || elapsed < 0 || elapsed >= duration) throw new Error('任务采用租约已过期，请重新确认。')

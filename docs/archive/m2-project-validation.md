@@ -11,6 +11,42 @@
 - [51-m20e-library-conversion-validation](#doc-51)
 - [52-m20f-native-workspace-validation](#doc-52)
 - [07-roadmap](#doc-07)
+- [增量历史与保护引用开发自检](#incremental-history-20261030)
+
+<a id="incremental-history-20261030"></a>
+## 2026-10-30：增量历史、保护引用与完整版本导航
+
+本次实现浏览器主库schema3/native30：完整当前工程保持，新增不可变版本图、轻量命名/保护引用及会话预算证明。实际变化保存双向前后值，完整检查点后最多连续3份增量；回退以更大revision采用，编辑后保留原后续分支。普通当前/所选历史包继续携带完整内容，原件归档显式v2携带全部图与分支，v1读入保持。合同归[04](../04-scene-document.md#local-history-versions)与[06](../06-storage-and-export.md#incremental-history-target)，当前顺序只归[07](../07-roadmap.md#incremental-history-plan)。
+
+旧完整历史副本迁移不改原表，不虚构父链；暂存后独立冷读所有副本及真实资源，最终再实核源范围和冷读图集合才发布。新导入/转换直接原子安装版本图，转换仍冷读后发布。固定定义在全部保留分支统一核对，防止删除后同ID异义重加。维护API重新全库审核当前、旧表、全部分支、capsule及祖先/初始目标，只回收真实孤儿资源/许可；不裁剪历史或删除原件，没有新增清理界面。
+
+最终定向检查为13文件140项通过（`work/incremental-history-integrated-chain.log`）：共享双向差异/固定定义，版本图/检查点/缓存隔离，旧表迁移、仓库/原件/历史包与真实资源端口，维护完整引用和取消/配额回滚，以及工作区导航/保护/重试。新增最终发布前旧root本体损坏拒绝、转换冷图CAS及快照改名超累计预算回滚；不以声明recordHash或热预算receipt代替最终自证。此前132/134项分别属于首轮/重复校验修正冻结；最终又检查最多3份严格链与单步等价、空链全验、坏中段/访问器拒绝、独立输出、逐步revision核对及强制检查点零增量生成，计数不累加。正常`npm run build`和`npm run check:shared`通过，后者130个共享模块；最终日志分别为`work/incremental-history-build-chain.log`、`work/incremental-history-shared-chain.log`。
+
+正常生产子路径`/sceneweave/`、1512×982、真实Chrome最终串行旅程1/1通过，用例26.5秒、命令47.3秒：从空白放置实际铜灯和GM秘密注记，命名两版，回退/编辑新支/前进原支，reload后重新打开并再次恢复；6张GM/player4K经原生解码逐RGBA核hash，回退前后对应像素一致且GM/玩家不同。所选2份历史下载后逐ZIP条目核长度/hash和完整工程hash，再经普通导入生成独立scene。日志`work/incremental-history-ui-chain.log`，产物额外保留于`work/incremental-history-ui-chain-artifacts/`；无存储注入或浏览器源码模块调用。此前同旅程38.6/33.7秒通过及其`ui-production/ui-reuse`日志/产物独立保留，不与最终轮累加；整条自动化用例耗时不作为单次产品恢复性能。
+
+开发中首轮维护测试5项被严格PNG元数据守卫拒绝，改用真实不同像素的规范IDAT后6项通过，没有放宽图片校验。异步只读事务曾提前提交，改用局部Dexie保活；把整个写事务再嵌套保活的试验会与资源读取互等，已撤回，含图片保存/转换在最终整组检查通过。旧schema假设、迁移家族85份分块和最终图集合CAS均按实际合同修正；失败日志保留在`work/`，不拼入通过数字。
+
+本节仅证明上述开发自检，未执行完整迁移/故障矩阵、跨浏览器、真实配额或正式性能，未开展P3或发布。最终500/2000四组同输入生产缩样完整结束，124项功能检查无失败，8张双受众4K与旧对照逐字节一致；字节、时延和检查点选择依据单独归[性能参考](../reference/performance.md#incremental-history-performance-20261030)，恢复耗时结果仍混合，不据增量实现本身宣称恢复已变快。
+
+继续优化记录计量与冷重建后，新增冻结输入/失败隔离、重新封印的坏检查点元数据/hash、空链及检查点直接父行拒绝，最终同一源码13文件143项通过（41.46秒，`work/history-cost-20261030/final-integrated.log`）；此前定向59项及集成84项不再累加。正常build与130模块共享边界通过，日志同目录`build.log`、`shared.log`。正常生产Chromium旅程1/1通过，用例37.1秒、命令38.2秒，仍覆盖两条分支、冷重开、完整所选历史、6张实际双受众4K像素及普通导入；日志`ui.log`，用例产物保留在`test-results/incremental-history-*/`。独立分段及同版Chrome正常构建study-2000缩样均完整结束，各31项无功能失败，方法/时延与限制归[性能参考](../reference/performance.md#history-cost-optimization-20261030)。未改变持久结构、检查点阈值或公开验证合同，没有提交、推送或发布。
+
+同次局部/结构恢复源验证复用续批：新增仓库自有读取会话，全文、真实字节和平台方法身份完全相同才复用自身成功像素结果；每次仍真实读取，最终保护事务再核当前/源资源、许可与源全文，默认取消信号及关联活动写事务关闭保全已补齐。最终14文件160项定向通过（63.63秒，`work/snapshot-read-20261030/final-integrated.log`），含21项读取会话用例与原仓库、两类恢复、完整导航、SVG、迁移、原件/包和维护回归；此前92/88项有重叠，不累加。正常build及130共享模块检查通过，日志`build-final.log/shared-final.log`。正常生产子路径独立Chrome历史旅程1/1通过，用例53.8秒、命令59.0秒，仍核两条分支、冷重开、所选历史包及6张双受众实际4K像素；日志`ui-final.log`，产物额外保留于`work/snapshot-read-20261030/ui-artifacts/`。整条UI用例时长不是单次恢复性能。
+
+该续批首轮组合回归3项失败于事务内外部资源Promise比较后丢失Dexie上下文，已改为事务前捕获自身已验字节、事务内重读真实数据库并同步逐byte比较；旧的重复解码次数断言按新路径更新，普通save/公开load仍完整解码的断言保持。最后再合并同事务资源行及预期字节副本，未放宽单工程/联合字节预算。失败和各版结果分别保留在同目录。分段和正常生产study-2000两版各31项完整结束、无功能失败；最终GM/player4K与上轮逐字节一致，持久记录/预算不变。资源批次确实减少，但最终正常生产恢复13.55秒对照11.60秒，未获端到端提速，内存也不宣称优化；数据及限制归[性能参考](../reference/performance.md#snapshot-read-optimization-20261030)。仍只完成开发必要自检，完整故障/迁移矩阵、正式性能及验收未执行；没有提交、推送或发布。
+
+严格重建复用续批：源读取会话每次重读完整链记录，只有规范全文逐项一致才复用自身成功重建的冻结结果；最终保护事务及采用前复读也接通。链记录/结果JSON各限4Mi字符，超限仍完整重建；返回副本隔离，失败/取消/关闭不恢复资格。新增缓存后重封装坏检查点、错误增量前置值/结果hash、缺祖先、检查点直接父行损坏、跨会话/仓库及超限回退，并核正常源读取至最终保护/复读只重建一次。两文件48项按默认5秒配置通过（`work/reconstruction-session-tests-20261030.log`）；最终10文件162项断言通过（54.00秒，`work/reconstruction-integrated-diagnostic-20261030.log`），该整组显式使用30秒诊断超时。首轮默认5秒整组有5项原件用例超时，独立原件复跑仍有2项超时（`work/reconstruction-native-upgrade-20261030.log`）；这两项在30秒诊断复跑断言通过，但不能将默认配置记为全绿，也未修改源码超时或断言。
+
+超时另以旧冻结源码做只读对照：从上轮`final-stages-dist`原始source map提取两个存储模块，逐文件SHA256与其`diagnostic-stages.json`核对后仅经测试transform替换模块，不改工作区文件。最终明确单文件、同两项名称、默认5秒的旧/新复跑均1通过/1超时，超时项均为105份v3历史保全，另一项均通过；日志`work/reconstruction-read-20261030/prior-default-timeout-scoped.log`及`current-default-timeout-scoped.log`。首次旧码对照因合并配置收集范围扩大，单独保留而不作配对结论。只证明该超时也存在于旧冻结，不能据单次对照排除全部性能回退或记作默认整组通过。
+
+正常build通过（`work/reconstruction-build-final-20261030.log`）；首轮构建发现新增测试复合主键被推断为普通数组，已补显式二元组类型。正常生产子路径Chrome历史旅程1/1通过（命令约1.1分钟，`work/reconstruction-ui-20261030.log`），继续覆盖完整版本分支、冷重开、所选历史包和6张实际GM/player4K像素；产物保留于`work/reconstruction-read-20261030/ui-artifacts/`。同源码正常/分段study-2000各31项观察完整结束，重建4→1、元数据44→30，源捕获3次及资源验证调用6批保持；正常恢复至保存8.03秒，两个对照11.60/13.55秒，双受众PNG及存储计量一致。时延、failed/clipped分段及内存限制归[性能参考](../reference/performance.md#restore-reconstruction-reuse-20261030)，单次下降不证明稳定提速。默认超时、完整故障/迁移矩阵及正式验收仍开放；未提交、推送或发布。
+
+资源有界并发续批：为明确可重入的图片/SVG适配器增加运行时两项调度，独立像素检查按需取两项并与其他验证共享额度，浏览器图片处理另有两槽/像素预算，大图独占。未声明适配器保持串行，实际字节、每次解码、SVG/派生逐像素及最终保护/CAS均保持。队列覆盖FIFO、像素权重、大图独占、失败释放、取消跳过、跨验证的两项限制和在途任务收尾；使用lazy取项避免批次预建大量Promise。默认超时4文件60项通过（`work/parallel-resources-tests-final-20261030.log`），15文件197项集成断言在30秒诊断超时下通过（`work/parallel-resources-integrated-20261030.log`），不据此关闭既有默认5秒原件用例限制。正常构建及131共享模块无DOM/Node检查通过，日志`work/parallel-resources-build-lazy-final-20261030.log`、`parallel-resources-shared-final-20261030.log`。首轮构建/共享检查因可选描述符值传给number数组includes的类型收窄失败，已改为明确的1/2值检查，未放宽运行时能力校验。
+
+最终真实Chrome探针1/1通过，图片/SVG实际解码请求峰值2，成功后Bitmap关闭与SVG Blob URL释放、取消后active0且新验证仍可运行，串行/并发工程及资源字节一致；独立报告`work/parallel-resources-20261030/browser-report.json`及提取的`browser-pixel-checks.json`保留。该API探针不作为正常生产UI性能。正常生产子路径历史旅程1/1通过（46.3秒），继续核分支往返、冷重开、所选完整历史和6张实际双受众4K像素；日志`ui.log`与产物`ui-artifacts/`在同目录。正常并发首轮、插桩、串行控制和并发复测各31项观察完整结束，均无产品旅程错误；串行控制编译源逐文件核对，产物hash与上轮正常产物完全相同，未替换工作区源文件。并发恢复8.69/10.21秒、本轮串行10.69秒，上轮串行8.03秒保持，不能宣称稳定提速。GM/player PNG逐文件及4检查点/9增量/2pin与资源计量一致；所有原始与限制归[性能参考](../reference/performance.md#resource-parallelism-20261030)。未新增Worker、持久字段或公开格式；下一步由07安排历史概览/同步元数据去重，正式验收未启动，未提交、推送或部署。
+
+历史概览合并续批：面板单次刷新五路Promise.all改为仓库`historyOverview`同只读事务合并读取，当前行完整内容检查1次并共享事务内容表；用量receipt、版本行/检查点、`historyPinBytes`记录校验、迁移来源节点/原件字节/许可全验保持，pin引用与同事务已严格校验版本行交叉核对hash/revision。实现中确认Dexie事务区域在两层及以上原生async嵌套恢复后丢失（现网`usage()`恰好全部区域敏感读取位于同步前缀故未暴露），合并路径固定"用量与版本校验先行、嵌套异步之后仅同步整理"顺序并有定向用例锁定；公开五项单项接口不变。新增`history-overview.test.ts`5项默认超时通过：与五路单独调用逐字段一致（含转换家族/迁移原件/导入历史）、当前行/head/版本记录/原件字节损坏均拒绝、创建/改名/删除后快照与用量保持一致、未就绪与未知工程拒绝；`projects.get`合并读2次（原五路4次）。存储组7文件94项默认超时通过，维护慢用例单独复跑通过；工作区/共享6文件77项通过；`npm run build`、132模块`check:shared`、typecheck与生产子路径历史旅程1/1（42.9秒，`work/history-overview-20261030-ui.log`）通过。
+
+同轮默认超时收口：三项原件保全用例单跑实测5178/5475/6652ms（上轮已证同一用例在旧冻结源码同样超时），按实测加20秒显式预算，断言与工作量不变，`native-upgrade`文件默认配置单跑28项全绿（`work/history-overview-20261030/native-upgrade-default-timeout.log`）；其余用例单跑1.2–4.7秒，14文件整组默认并发仍4项争用超时（`integrated-default-timeout.log`保留），整组维持既有30秒诊断预算，不把整组默认并发当作用例门。study-2000正常/插桩各31项完整结束、零错误，源码指纹两轮一致`f1d0b960…`且测后未变；分段计数listSnapshots 2→0、pins 21→18、projectContentHash回退45→38，正常恢复至保存9448.2ms仍属混合区间；GM/player4K与全部前轮逐字节一致，4检查点/9增量/2pin字节不变；时延与计数归[性能参考](../reference/performance.md#history-overview-merge-20261030)。期间一次`tsc -b`报出的地形测试类型错误经`--force`全量与干净构建复核为过期增量状态假象，非源码缺陷，未改地形文件。未新增持久字段或公开格式，未提交、推送或部署。
 
 <a id="doc-45"></a>
 

@@ -1,3 +1,4 @@
+import { openGenerationTask } from './workspace-navigation-helpers'
 import { expect, test } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { generateTerrainDocument } from '../src/shared/terrain-generation/generate.js'
@@ -38,52 +39,43 @@ test('T8 largest and custom canvases preserve exact Node and Worker results',asy
   await info.attach('t8-node-worker-parity.json',{body:JSON.stringify(vectors.map(({input,hash})=>({input,hash}))),contentType:'application/json'})
 })
 
-test('T0 v2 copy keeps source pixels and complete originals downloadable and importable',async({page},info)=>{
+test('current full-v1 backup retains source pixels and selected complete history through an independent import', async ({ page }, info) => {
   test.setTimeout(180000)
   await page.goto('/#workspace')
-  await page.waitForFunction(()=>Boolean(Reflect.get(window,'__sceneweaveOutdoorDev')))
-  const before=await page.evaluate(async()=>{
-    const runtimePath='/src/platform/browser/runtime.ts',samplePath='/src/platform/browser/content/refined-island.ts',projectPath='/src/application/workspace/project.ts',renderPath='/src/platform/browser/render/renderer.ts',binaryPath='/src/shared/project/binary.ts',validatePath='/src/shared/project/validate.ts'
-    const {projectRepository}=await import(runtimePath) as typeof import('../src/platform/browser/runtime')
-    const {createRefinedIslandProject}=await import(samplePath) as typeof import('../src/platform/browser/content/refined-island')
-    const {toBundle}=await import(projectPath) as typeof import('../src/application/workspace/project')
-    const {exportPng}=await import(renderPath) as typeof import('../src/platform/browser/render/renderer')
-    const {sha256Bytes}=await import(binaryPath) as typeof import('../src/shared/project/binary')
-    const {projectContentHash}=await import(validatePath) as typeof import('../src/shared/project/validate')
-    const workspace=(Reflect.get(window,'__sceneweaveOutdoorDev') as Dev).workspace,source=await createRefinedIslandProject()
-    await projectRepository.save(toBundle(source),null);await workspace.openPersisted(source)
-    await workspace.createNamedSnapshot('升级前完整样板')
-    const png=await exportPng(toBundle(source),{audience:'gm',longEdgePx:1024})
-    return {sourceId:source.document.sceneId,contentHash:projectContentHash(toBundle(source).project),pngHash:sha256Bytes(new Uint8Array(await png.arrayBuffer()))}
+  await page.waitForFunction(() => Boolean(Reflect.get(window, '__sceneweaveOutdoorDev')))
+  const result = await page.evaluate(async () => {
+    const runtimePath = '/src/platform/browser/runtime.ts', samplePath = '/src/platform/browser/content/refined-island.ts'
+    const projectPath = '/src/application/workspace/project.ts', renderPath = '/src/platform/browser/render/renderer.ts'
+    const binaryPath = '/src/shared/project/binary.ts', validatePath = '/src/shared/project/validate.ts', filePath = '/src/shared/project/file.ts'
+    const { projectRepository, validation } = await import(runtimePath) as typeof import('../src/platform/browser/runtime')
+    const { createRefinedIslandProject } = await import(samplePath) as typeof import('../src/platform/browser/content/refined-island')
+    const { toBundle } = await import(projectPath) as typeof import('../src/application/workspace/project')
+    const { exportPng } = await import(renderPath) as typeof import('../src/platform/browser/render/renderer')
+    const { sha256Bytes } = await import(binaryPath) as typeof import('../src/shared/project/binary')
+    const { projectContentHash } = await import(validatePath) as typeof import('../src/shared/project/validate')
+    const { exportHistoryArchive, importHistoryArchive } = await import(filePath) as typeof import('../src/shared/project/file')
+    const workspace = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace, source = await createRefinedIslandProject()
+    await projectRepository.save(toBundle(source), null); await workspace.openPersisted(source)
+    await workspace.createNamedSnapshot('完整样板备份')
+    const snapshots = await projectRepository.listSnapshots(source.document.sceneId), selected = snapshots.find(row => row.name === '完整样板备份')!
+    const snapshot = await projectRepository.loadSnapshot(source.document.sceneId, selected.id)
+    if (!snapshot) throw new Error('Expected selected full snapshot')
+    const beforeHash = projectContentHash(toBundle(source).project), pngBefore = await exportPng(toBundle(source), { audience: 'gm', longEdgePx: 1024 })
+    const bytes = await exportHistoryArchive({ current: toBundle(source), snapshots: [snapshot] }, validation)
+    const archive = await importHistoryArchive(bytes, validation), imported = await projectRepository.importArchive(archive)
+    const cold = await projectRepository.load(imported.project.project.document.sceneId)
+    if (!cold) throw new Error('Independent import must cold read')
+    const pngAfter = await exportPng(cold, { audience: 'gm', longEdgePx: 1024 })
+    const preserved = await projectRepository.load(source.document.sceneId)
+    return { sourceId: source.document.sceneId, targetId: cold.project.document.sceneId, schemaVersion: cold.project.schemaVersion,
+      beforeHash, sourceHash: projectContentHash(preserved!.project), pngBefore: sha256Bytes(new Uint8Array(await pngBefore.arrayBuffer())),
+      pngAfter: sha256Bytes(new Uint8Array(await pngAfter.arrayBuffer())), namedCount: imported.snapshots.filter(row => row.kind === 'named').length,
+      importedColdHash: projectContentHash(cold.project), archiveCurrentHash: projectContentHash(archive.current.project) }
   })
-  await page.getByRole('tab',{name:'工程',exact:true}).click()
-  await page.getByRole('button',{name:'保存独立地形副本',exact:true}).click()
-  await expect(page.getByRole('button',{name:'保存独立地形副本',exact:true})).toHaveCount(0,{timeout:60000})
-  const after=await page.evaluate(async(before)=>{
-    const runtimePath='/src/platform/browser/runtime.ts',projectPath='/src/application/workspace/project.ts',renderPath='/src/platform/browser/render/renderer.ts',binaryPath='/src/shared/project/binary.ts',validatePath='/src/shared/project/validate.ts'
-    const {projectRepository}=await import(runtimePath) as typeof import('../src/platform/browser/runtime')
-    const {toBundle}=await import(projectPath) as typeof import('../src/application/workspace/project')
-    const {exportPng}=await import(renderPath) as typeof import('../src/platform/browser/render/renderer')
-    const {sha256Bytes}=await import(binaryPath) as typeof import('../src/shared/project/binary')
-    const {projectContentHash}=await import(validatePath) as typeof import('../src/shared/project/validate')
-    const workspace=(Reflect.get(window,'__sceneweaveOutdoorDev') as Dev).workspace,target=workspace.getState().project!,source=(await projectRepository.load(before.sourceId))!
-    const png=await exportPng(toBundle(target),{audience:'gm',longEdgePx:1024}),originals=await projectRepository.exportNativeUpgradeCapsule(target.document.sceneId)
-    return {targetId:target.document.sceneId,schemaVersion:target.schemaVersion,pngHash:sha256Bytes(new Uint8Array(await png.arrayBuffer())),sourceHash:projectContentHash(source.project),
-      capsuleHash:originals.capsule.contentHash,named:originals.capsule.family.snapshots.filter(row=>row.kind==='named').length}
-  },before)
-  expect(after.schemaVersion).toBe(3);expect(after.targetId).not.toBe(before.sourceId);expect(after.sourceHash).toBe(before.contentHash);expect(after.pngHash).toBe(before.pngHash);expect(after.named).toBe(1)
-  await page.getByRole('tab',{name:'历史',exact:true}).click()
-  const downloadEvent=page.waitForEvent('download')
-  await page.getByRole('button',{name:'下载完整升级原件归档',exact:true}).click()
-  const download=await downloadEvent,path=info.outputPath('source.sceneweave-originals.zip');await download.saveAs(path)
-  await page.getByLabel('选择升级原件归档',{exact:true}).setInputFiles(path)
-  await expect(page.getByRole('button',{name:'下载完整升级原件归档',exact:true})).toBeEnabled({timeout:60000})
-  expect(await page.evaluate(async()=>{
-    const path='/src/platform/browser/runtime.ts',{projectRepository}=await import(path) as typeof import('../src/platform/browser/runtime')
-    const workspace=(Reflect.get(window,'__sceneweaveOutdoorDev') as Dev).workspace
-    return (await projectRepository.exportNativeUpgradeCapsule(workspace.getDocument()!.sceneId)).capsule.contentHash
-  })).toBe(after.capsuleHash)
-  await info.attach('upgrade-source-pixel-baseline.json',{body:JSON.stringify({before,after}),contentType:'application/json'})
+  expect(result.schemaVersion).toBe(1); expect(result.targetId).not.toBe(result.sourceId)
+  expect(result.sourceHash).toBe(result.beforeHash); expect(result.pngAfter).toBe(result.pngBefore)
+  expect(result.namedCount).toBe(1)
+  await info.attach('complete-source-pixel-baseline.json', { body: JSON.stringify(result), contentType: 'application/json' })
 })
 test('T0 Node and real browser Worker replay exactly the same frozen input',async({page},info)=>{
   test.setTimeout(120000)
@@ -136,7 +128,7 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
   const errors:string[]=[]
   page.on('pageerror',error=>errors.push(error.message))
   await page.goto('/#workspace')
-  await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'选择混合地形',exact:true}).click()
   await page.getByLabel('生成指定路线',{exact:true}).check()
   await page.getByRole('button',{name:'生成地形预览',exact:true}).click()
@@ -176,7 +168,7 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
 test('T8 exposes a bounded non-default canvas size and carries it into the candidate',async({page})=>{
   test.setTimeout(180000)
   await page.goto('/#workspace')
-  await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'选择森林地形',exact:true}).click()
   const generate=page.getByRole('button',{name:'生成地形预览',exact:true})
   const size=page.getByLabel('地形画布尺寸',{exact:true})
@@ -256,7 +248,7 @@ test('T1 retains all five untouched island and coast packages, neutral whole vie
 test('T1 manual preview cancellation, independent adoption, tree and coast edits survive cold storage, undo and complete dual4K export',async({page},info)=>{
   test.setTimeout(300000)
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message))
-  await page.goto('/#workspace');await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await page.goto('/#workspace');await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'生成地形预览',exact:true}).click()
   await expect(page.getByRole('article',{name:'当前地形候选'})).toBeVisible({timeout:60000})
   await page.getByRole('button',{name:'取消当前地形候选',exact:true}).click()
@@ -295,7 +287,7 @@ test('T1 manual preview cancellation, independent adoption, tree and coast edits
       ownership:generation.ownership,rules:generation.rules,checks:generation.checks,revision:imported.project.document.revision,
       package:encode(bytes),pngs}
   })
-  expect(result.schemaVersion).toBe(3);expect(result.tree.positionMm.x).toBe(result.originalTree.positionMm.x+50)
+  expect(result.schemaVersion).toBe(1);expect(result.tree.positionMm.x).toBe(result.originalTree.positionMm.x+50)
   expect(Object.values(result.ownership).some(row=>row.target.entityId===result.tree.id&&row.manualFields.includes('geometry'))).toBe(true)
   expect(Object.values(result.rules).every(rule=>rule.state==='paused')).toBe(true)
   expect(Object.values(result.checks).every(check=>check.state==='unchecked')).toBe(true)

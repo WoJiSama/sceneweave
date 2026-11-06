@@ -21,7 +21,7 @@ describe('new empty scenes expose refined fixed palettes', () => {
     for (const key of ['assets', 'propDefinitions', 'materials', 'styleThemes', 'activeStyleThemeRef', 'prefabDefinitions'] as const) expect(blank[key]).toEqual(source[key])
     for (const key of ['vertices', 'walls', 'openings', 'rooms', 'props', 'regions', 'notes', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'prefabInstances', 'scatterGroups', 'entityLayers'] as const) expect(blank[key]).toEqual({})
     expect(blank.constraints.entranceOpeningIds).toEqual([])
-    expect(blank.visual).toEqual(emptyVisualSystem())
+    expect(blank.visual).toEqual({version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}})
     expect(Object.keys(blank.assets).every(id => id.startsWith(`refined-art-${palette}-`))).toBe(true)
     // A metadata check exercises the complete dependency closure including the
     // interior fixed prefab definitions and exact theme references. Pixel proof
@@ -29,7 +29,7 @@ describe('new empty scenes expose refined fixed palettes', () => {
     let counter = 0
     const content = createCompositionContent(blank, { ids: { nextId: () => `empty-${++counter}` }, clock: { now: () => options.now } })
     const hash = '0'.repeat(64), text = 'original fixture licence', licenseHash = sha256Bytes(encodeUtf8(text))
-    const project = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 2, ...content,
+    const project = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
       assets: { [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: 100, pixelWidth: 512, pixelHeight: 512 } },
       licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: inspectDependencies(blank).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })), authoringSources: {} })
     expect(Object.keys(project.document.props)).toHaveLength(0)

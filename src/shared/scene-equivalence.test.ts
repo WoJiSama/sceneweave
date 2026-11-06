@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { createStudyDocument } from '../editor/v2/study-sample'
 import { createIslandDocument } from '../editor/v2/island-sample'
@@ -22,11 +23,18 @@ import { projectScene, projectEditorScene } from './projection/projection'
 import { validateSceneDocument } from './validation/scene'
 import { isCertifiedSceneSnapshot, reviseSceneSnapshot, validateSceneSnapshot } from './validation/snapshots'
 
-/** A test-only discriminator adapter; this is deliberately not a production converter. */
+/** Full current fixtures keep the historical primitives and add empty current capabilities. */
 function native(legacy: SceneDocumentV3): SceneDocument {
-  return { ...structuredClone(legacy), format: 'sceneweave-scene', schemaVersion: 1 }
+  return toCurrentSceneDocument({ ...structuredClone(legacy), format: 'sceneweave-scene' })
 }
 const layers = (scene: Parameters<typeof migrateSceneV2>[0]) => migrateSceneV2(scene, { sceneId: 'shared-equivalence', now: STAMP_V3 })
+/** Compare unchanged render primitives while checking added current metadata separately. */
+function legacyProjection(value: ReturnType<typeof projectScene>) {
+  const { visual, ...fields } = value
+  expect(visual?.boundaries).toEqual([]); expect(visual?.lights).toEqual([]); expect(visual?.edgeLooks).toEqual([])
+  expect(visual?.fogs).toEqual([]); expect(visual?.filters).toEqual([]); expect(visual?.materializedEdges).toEqual([]); expect(visual?.transitions).toEqual([])
+  return { ...fields, walls: fields.walls.map(({ blocksLight: _blocksLight, ...wall }) => wall) }
+}
 function sceneErrors(input: unknown): string[] {
   const result = validateSceneDocument(input)
   expect(result.ok).toBe(false)
@@ -39,7 +47,7 @@ describe('native complete-v1 scene rules and legacy equivalence', () => {
       const source = native(legacy), old = validateSceneV3(legacy), checked = validateSceneDocument(source)
       expect(old.ok).toBe(true); expect(checked.ok).toBe(true)
       if (!old.ok || !checked.ok) throw new Error('Representative source fixture must remain valid')
-      expect(checked.document).toEqual({ ...old.document, format: 'sceneweave-scene', schemaVersion: 1 })
+      expect(checked.document).toEqual(native(old.document))
       expect(checked.warnings).toEqual(old.warnings)
       expect(inspectDependencies(checked.document)).toEqual(inspectDependenciesV3(legacy))
       expect(validateGeometry(checked.document)).toEqual(validateGeometryV2(geometryDocumentForValidationV3(legacy)))
@@ -157,7 +165,17 @@ describe('native complete-v1 scene rules and legacy equivalence', () => {
   it('preserves complete GM and player projections for representative indoor and elevated outdoor scenes', () => {
     for (const legacy of [layers(createStudyDocument()), layers(createIslandDocument())]) {
       const source = native(legacy), before = structuredClone(source)
-      for (const audience of ['gm', 'player'] as const) expect(projectScene(source, audience)).toEqual(projectSceneV3(legacy, audience))
+      for (const audience of ['gm', 'player'] as const) {
+        const historical = projectSceneV3(legacy, audience)
+        // Native cliff openings already carry explicit support IDs. Preserve
+        // every legacy field and assert this native metadata, rather than
+        // requiring the frozen legacy DTO to acquire a new render field.
+        const connections = historical.connections.map(connection => ({ ...connection, surfaceIds: [
+          source.terrainConnections[connection.id].from.surfaceRef.id,
+          source.terrainConnections[connection.id].to.surfaceRef.id,
+        ] }))
+        expect(legacyProjection(projectScene(source, audience))).toEqual({ ...historical, connections })
+      }
       expect(source).toEqual(before)
     }
   })
@@ -172,11 +190,11 @@ describe('native complete-v1 scene rules and legacy equivalence', () => {
       anchor: { type: 'entity', entityKind: 'prefabInstance', entityId: 'group' }, kind: 'label', text: 'PRIVATE-GROUP-NOTE', visibility: 'public' }
     legacy.entityLayers.secret = base
     const source = native(legacy), player = projectScene(source, 'player'), hiddenLayerIds = new Set([base])
-    expect(player).toEqual(projectSceneV3(legacy, 'player'))
+    expect(legacyProjection(player)).toEqual(projectSceneV3(legacy, 'player'))
     expect(player.props.map(prop => prop.id)).toEqual(['item'])
     expect(JSON.stringify(player)).not.toContain('PRIVATE-GROUP-NOTE')
     expect(projectScene(source, 'gm').props).toHaveLength(3)
-    expect(projectEditorScene(source, { hiddenLayerIds })).toEqual(projectEditorSceneV3(legacy, { hiddenLayerIds }))
+    expect(legacyProjection(projectEditorScene(source, { hiddenLayerIds }))).toEqual(projectEditorSceneV3(legacy, { hiddenLayerIds }))
     expect(projectEditorScene(source, { hiddenLayerIds }).props).toEqual([])
     expect(projectScene(source, 'player')).toEqual(player)
   })

@@ -1,5 +1,6 @@
 import { wallMovementPolygons } from './doorway-clearance.js'
-import { corridor, coveredEverywhere, pathPolygon, pointInPolygon, polygonsOverlap, propFootprint, segmentCuts, supportSurfaceAt, terrainPoints, validateGeometry } from './geometry.js'
+import { connectionFootprint, connectionBand, corridor, coveredEverywhere, pathPolygon, pointInPolygon, polygonsOverlap, propFootprint, segmentCuts, supportSurfaceAt, terrainPoints, validateGeometry } from './geometry.js'
+import { connectionCenterline, connectionArcFrame } from './connection-route.js'
 import type { Issue, Path, PointMm, SceneDocument, SurfaceRef, TerrainConnection } from '../model/scene.js'
 
 export interface TerrainTravelRequest { floorId: string; from: PointMm; to: PointMm; widthMm: number }
@@ -71,7 +72,7 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
     if (!issues.some(existing => existing.code === code && existing.entityId === entityId)) issues.push({ code, message, ...(entityId ? { entityId } : {}) })
   }
   const areas = Object.values(scene.terrainAreas).filter(area => area.floorId === floorId), boundaries = areas.map(terrainPoints)
-  const usable = Object.values(scene.terrainConnections).filter(connection => connection.floorId === floorId && connection.widthMm >= widthMm && connectionOpen(scene, connection)).map(connection => ({ connection, polygon: corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm) }))
+  const usable = Object.values(scene.terrainConnections).filter(connection => connection.floorId === floorId && connection.widthMm >= widthMm && connectionOpen(scene, connection)).map(connection => ({ connection, polygon: connectionFootprint(connection) }))
   if (!coveredEverywhere(band, boundaries, p => isWalkable(scene, p, floorId))) issue('TERRAIN_NOT_WALKABLE', '整条净宽带必须留在世界内的可步行有效支撑面；水面或阻挡地形不能普通穿越。')
   for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.blocksMovement && polygonsOverlap(band, propFootprint(prop))) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被物件的真实旋转占地阻挡。', prop.id)
   for (const region of Object.values(scene.regions)) if (region.floorId === floorId && region.blocksMovement && polygonsOverlap(band, region.boundaryMm)) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被阻挡区域侵入。', region.id)
@@ -113,14 +114,18 @@ export function assertTerrainConnectionClearances(scene: SceneDocument, fixtures
     const connection = scene.terrainConnections[fixture.connectionId]
     if (!connection) throw new Error(`声明 required 的地形连接不存在：${fixture.connectionId}。`)
     if (connection.widthMm < fixture.minWidthMm) throw new Error(`连接 ${connection.id} 净宽不足 ${fixture.minWidthMm} mm。`)
-    const a = connection.from.positionMm, b = connection.to.positionMm, length = Math.hypot(b.x - a.x, b.y - a.y)
-    if (!length) throw new Error(`连接 ${connection.id} 不能为零长。`)
-    const dx = (b.x - a.x) / length * fixture.approachDepthMm, dy = (b.y - a.y) / length * fixture.approachDepthMm
+    const points = connectionCenterline(connection), a = points[0], b = points.at(-1)!, frame = connectionArcFrame(points)
+    const first = frame.station(0).tangent, last = frame.station(frame.length).tangent
+    const dx = first.x * fixture.approachDepthMm, dy = first.y * fixture.approachDepthMm
     // The fixture uses integer endpoints. Refuse an unrepresentable extension rather
     // than silently quantizing a narrower/shorter promised approach corridor.
-    const from = { x: a.x - dx, y: a.y - dy }, to = { x: b.x + dx, y: b.y + dy }
-    if (![from.x, from.y, to.x, to.y].every(Number.isSafeInteger)) throw new Error(`连接 ${connection.id} 的有限接入区需要可精确表达的整数端点。`)
-    const check = checkTerrainTravel(scene, { floorId: connection.floorId, from, to, widthMm: connection.widthMm })
+    // New routes derive full-width tangent extensions directly, without any
+    // rounding or persistence of the possibly fractional paint/check geometry.
+    const from = { x: a.x - dx, y: a.y - dy }, to = { x: b.x + last.x * fixture.approachDepthMm, y: b.y + last.y * fixture.approachDepthMm }
+    if (!connection.route && ![from.x, from.y, to.x, to.y].every(Number.isSafeInteger)) throw new Error(`连接 ${connection.id} 的有限接入区需要可精确表达的整数端点。`)
+    if (![from.x, from.y, to.x, to.y].every(Number.isFinite)) throw new Error(`连接 ${connection.id} 的派生切线接入区无效。`)
+    const geometry = connection.route ? validateGeometry(scene) : undefined
+    const check = connection.route ? geometry!.errors.length ? { ok: false, issues: geometry!.errors } : checkTerrainBand(scene, connection.floorId, connectionBand([from, ...points, to], connection.widthMm), connection.widthMm) : checkTerrainTravel(scene, { floorId: connection.floorId, from, to, widthMm: connection.widthMm })
     if (!check.ok) throw new Error(`连接 ${connection.id} 的 ${connection.widthMm} mm 净宽及两端 ${fixture.approachDepthMm} mm 接入区未通过：${check.issues.map(item => item.message).join('；')}`)
   }
 }
@@ -173,7 +178,7 @@ function routeMetrics(scene: SceneDocument, floorId: string, points: readonly Po
   const regions = Object.values(scene.regions).filter(region => region.floorId === floorId && !region.blocksMovement)
   const paths = Object.values(scene.paths).filter(path => path.floorId === floorId).map(path => ({ path, polygon: pathPolygon(path) }))
   const connections = Object.values(scene.terrainConnections).filter(connection => connection.floorId === floorId && connection.widthMm >= widthMm && connectionOpen(scene, connection))
-    .map(connection => ({ connection, polygon: corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm) }))
+    .map(connection => ({ connection, polygon: connectionFootprint(connection) }))
   const boundaries = [...areas.map(terrainPoints), ...regions.map(region => region.boundaryMm), ...paths.map(item => item.polygon), ...connections.map(item => item.polygon)]
   const allEdges = boundaries.flatMap(edges), supports = new Map<string, SurfaceRef>(), connectionIds = new Set<string>()
   let lengthMm = 0, movementCostMm = 0
@@ -250,7 +255,7 @@ export function searchTerrainRoute(scene: SceneDocument, request: TerrainRouteSe
   const anchors = new Map<string, PointMm>([[routeKey(request.to), request.to]])
   const connections = Object.values(scene.terrainConnections).filter(connection => connection.floorId === request.floorId && connection.widthMm >= request.widthMm && connectionOpen(scene, connection))
     .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  for (const connection of connections) for (const point of [connection.from.positionMm, connection.to.positionMm]) anchors.set(routeKey(point), point)
+  for (const connection of connections) for (const point of connectionCenterline(connection)) anchors.set(routeKey(point), point)
   if (anchors.size > 129) return { ok: false, points: [], expandedNodes: 0, status: 'budget', issues: [{ code: 'TERRAIN_ROUTE_ANCHOR_LIMIT', message: '本次路线搜索的有效连接端点超过128个保护上限。' }] }
   const orderedAnchors = [...anchors.values()].sort((a, b) => a.y - b.y || a.x - b.x)
 

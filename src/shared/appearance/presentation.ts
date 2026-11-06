@@ -111,6 +111,7 @@ export function validatePresentations(graph: AppearanceGraph, document: SceneDoc
   for (const prop of Object.values(document.props)) if (propPresentation(graph, prop.id)?.mode === 'nearSide') {
     if (prop.rotationDeg !== 0 || prop.footprintOffsetMm.x !== 0 || prop.footprintOffsetMm.y !== 0) throw new Error('近侧视物件须保持零旋转和以树根为中心的世界轴占地。')
   }
+  for (const value of Object.values(document.decorations ?? {})) if (definitionPresentation(graph, value.definitionRef)?.mode === 'nearSide' && value.rotationDeg !== 0) throw new Error('近侧视轻量装饰须保持零旋转；根锚由固定源确定。')
 }
 export function visiblePresentations(content: Pick<CompositionContent, 'appearance'>, ids: readonly string[]): Record<string, FixedPresentation> {
   return Object.fromEntries(ids.flatMap(id => { const value = propPresentation(content.appearance, id); return value?.mode === 'nearSide' ? [[id, cloneJson(value)]] : [] }))
@@ -120,7 +121,12 @@ export function visiblePresentations(content: Pick<CompositionContent, 'appearan
 // These never certify a document or skip any source/resource validation.
 const sceneViews = new WeakMap<SceneDocument, Record<string, FixedPresentation>>()
 export function associateScenePresentations(scene: SceneDocument, graph: AppearanceGraph): void {
-  sceneViews.set(scene, visiblePresentations({ appearance: graph }, Object.keys(scene.props)))
+  const values = visiblePresentations({ appearance: graph }, Object.keys(scene.props))
+  for (const value of Object.values(scene.decorations ?? {})) {
+    const presentation = definitionPresentation(graph, value.definitionRef)
+    if (presentation) values[value.id] = cloneJson(presentation)
+  }
+  sceneViews.set(scene, values)
 }
 export function scenePresentation(scene: SceneDocument, id: string): FixedPresentation | undefined { return sceneViews.get(scene)?.[id] }
 export function copyScenePresentations(source: SceneDocument, target: SceneDocument): void {

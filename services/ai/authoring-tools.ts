@@ -1,6 +1,11 @@
+import { authoringCreatedIds } from './authoring-grant.js'
 import type { StaticSvgArtifacts } from './svg-artifacts.js'
 import { z } from 'zod'
-import { AuthoringOperationSchema } from '../../src/shared/ai/authoring-protocol.js'
+import { AuthoringOperationSchema } from '../../src/shared/ai/authoring-protocol-v1.js'
+import { AuthoringOperationV4Schema } from '../../src/shared/ai/authoring-protocol-v4.js'
+import { AUTHORING_V4_LIMITS, AuthoringStageV4Schema, CurrentDraftStampV4Schema } from '../../src/shared/ai/authoring-closeout.js'
+import { applyAuthoringStageV4, authoringDraftStamp } from '../../src/shared/ai/authoring.js'
+import { prepareVisualReviewV4, visualReviewV4Tools, VisualReviewError } from './visual-review.js'
 import { AuthoringOperationError, applyAuthoringStep, checkAuthoringDraft, authoringAssetPage, publicAuthoringContext, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import { AuthoringPlanStateSchema, diagnoseAuthoringProject, planForBrief } from '../../src/shared/ai/plan.js'
 import { PlacementProbeSchema, probeAuthoringPlacement } from '../../src/shared/ai/placement-diagnostics.js'
@@ -63,18 +68,23 @@ export const authoringTools: ProviderToolDefinition[] = [
   { name: 'sceneweave_propose_composition', description: 'Read-only finite layout, furnishing or brief-style candidate. Layout uses only granted new-room/terrain operations and an explicit ID prefix: beach shared coast/activity/reef zones, asymmetric island tiers/stairs, or five connected use-specific interior rooms. Use real granted materialIds: beach base=water/primary=sand (secondary unused); island base=water/primary=low shelf/secondary=high plateau; interior primary=ordinary room floors/secondary=kitchen floor (fallback primary), base unused. Wall material needs a separate explicit wall operation. Missing material/fallback leaves the surface unfinished. Furnishing uses the existing placement probe to alternate 1–6 granted definitions within one explicit support, preserving clear activity areas, doors and stairs. Style maps frozen brief tile scale, palette and light direction only to explicitly granted targets; unsupported bitmap line weight is reported. The service replays the whole exact candidate ledger and returns actual expanded cost and reserve without editing anything. Call sceneweave_edit_scene with {"operations":candidateOperations} unchanged after review, without a candidateOperations wrapper around each element; coordinates are integers and the baseline must remain current. Never infer art approval or general pathfinding from a valid candidate.', parameters: compositionParameters },
 ]
 /** Model-facing catalogue only. Runtime schemas and authorization remain complete. */
-export function getAuthoringTools(scope: AuthoringScope, schemaVersion: 1 | 2 = 1): ProviderToolDefinition[] {
+export function getAuthoringTools(scope: import('../../src/shared/ai/authoring-protocol.js').AuthoringStart['scope'], schemaVersion: 1 | 2 | 3 | 4 = 1): ProviderToolDefinition[] {
   const allowed = new Set<string>([...scope.operations, ...(scope.scene?.operations ?? []), ...(scope.visual?.operations ?? []), ...(scope.artwork?.operations ?? [])])
-  if (schemaVersion === 2) for (const kind of [...VisualAuthoringKindSchema.options, 'svg', 'style']) allowed.delete(kind)
+  if (schemaVersion === 2 || schemaVersion === 3) for (const kind of [...VisualAuthoringKindSchema.options, 'svg', 'style']) allowed.delete(kind)
   const terrain = new Set<string>((scope.scene?.operations ?? []).filter(kind => (TERRAIN_AUTHORING_KINDS as readonly string[]).includes(kind)))
   // Return independent schema objects: pruning one task must never narrow the
   // full catalogue or a later task. Entity counts and brief prose add no grants.
   const catalogue = structuredClone(authoringTools)
-  if (schemaVersion === 2) for (const tool of catalogue) tool.description = tool.description
+  if (schemaVersion === 4) {
+    catalogue.push({ name: 'sceneweave_apply_stage', description: 'Apply one named stage of 1–64 finite recipes to the isolated authoring4 draft, atomically. Copy the exact expected draft stamp from the current summary; all internal steps share the original cumulative semantic/work/resource budgets. A rejected stage installs no partial edit. No main project writes or adoption.', parameters: z.toJSONSchema(stageArguments, { io: 'input' }) }, ...structuredClone(visualReviewV4Tools))
+    const edit = catalogue.find(tool => tool.name === 'sceneweave_edit_scene')!
+    edit.parameters = z.toJSONSchema(currentEditArguments, { io: 'input' })
+  }
+  if (schemaVersion === 2 || schemaVersion === 3 || schemaVersion === 4) for (const tool of catalogue) tool.description = tool.description
     .replace(/256 cumulative expansion|(?:actual )?cumulative 256 expansion|256 cumulative operations/g,
-      'the fixed per-operation complexity guard and separate 256-target AI cumulative budget')
+      schemaVersion === 3 || schemaVersion === 4 ? 'the frozen multidimensional per-operation guards and task-specific semantic budget' : 'the fixed per-operation complexity guard and separate 256-target AI cumulative budget')
   return catalogue.filter(tool => {
-    if (schemaVersion === 2 && tool.name === 'sceneweave_propose_composition') {
+    if ((schemaVersion === 2 || schemaVersion === 3) && tool.name === 'sceneweave_propose_composition') {
       tool.description = 'Read-only finite layout or furnishing candidate within the frozen scene grant. Uses only granted fixed materials/definitions, real geometry and supports. Returns exact candidateOperations for a later explicit sceneweave_edit_scene call; it does not install, adopt, save or judge visual quality. The complete v3/v4 continuation does not support legacy visual/style recipes.'
       const parameters = tool.parameters as { oneOf: { properties: Record<string, unknown> & { kind: { const: string } } }[]; properties: Record<string, unknown> & { kind: { enum: string[] } } }
       parameters.oneOf = parameters.oneOf.filter(branch => branch.properties.kind.const !== 'style')
@@ -89,7 +99,13 @@ export function getAuthoringTools(scope: AuthoringScope, schemaVersion: 1 | 2 = 
       if (tool.name === 'sceneweave_terrain_candidates' || tool.name === 'sceneweave_terrain_regenerate_region') restrictOperationKinds(tool, terrain)
     }
     if (tool.name === 'sceneweave_propose_boundary' || tool.name === 'sceneweave_apply_boundary_candidates') return allowed.has('visualBoundary')
-    if (tool.name === 'sceneweave_edit_scene' || tool.name === 'sceneweave_edit_props') {
+    if (tool.name === 'sceneweave_visual_review' || tool.name === 'sceneweave_apply_visual_correction') {
+      const finite = new Set(['transform', 'opacity', 'delete', 'terrainUpdate', 'pathUpdate', 'connectionRouteUpdate', 'decorationUpdate', 'decorationDelete', 'visualSurface', 'visualRemove', 'visualFilter'])
+      const granted = new Set([...allowed].filter(kind => finite.has(kind)))
+      if (!granted.size) return false
+      restrictOperationKinds(tool, granted, 'candidateOperations')
+    }
+    if (tool.name === 'sceneweave_edit_scene' || tool.name === 'sceneweave_edit_props' || tool.name === 'sceneweave_apply_stage') {
       const kinds = tool.name === 'sceneweave_edit_props' ? new Set<string>(scope.operations) : allowed
       if (!kinds.size) return false
       restrictOperationKinds(tool, kinds)
@@ -97,11 +113,19 @@ export function getAuthoringTools(scope: AuthoringScope, schemaVersion: 1 | 2 = 
     return true
   })
 }
-function restrictOperationKinds(tool: ProviderToolDefinition, allowed: ReadonlySet<string>) {
+function restrictOperationKinds(tool: ProviderToolDefinition, allowed: ReadonlySet<string>, field = 'operations') {
   // These three internally constructed array schemas share the same strict
   // discriminated operation branches. Preserve each accepted branch unchanged.
   const parameters = tool.parameters as { properties: { operations: { items: { oneOf: { properties: { kind: { const: string } } }[] } } } }
-  const items = parameters.properties.operations.items
+  const items = (parameters.properties as unknown as Record<string, { items: { oneOf: { properties: { kind: { const: string } } }[] } }>)[field].items
+  // authoring4 is an explicit union of the unchanged legacy branches and new finite recipes.
+  if ('anyOf' in items) {
+    const union = items as unknown as { anyOf: { oneOf: { properties: { kind: { const: string } } }[] }[] }
+    for (const group of union.anyOf) group.oneOf = group.oneOf.filter(branch => allowed.has(branch.properties.kind.const))
+    union.anyOf = union.anyOf.filter(group => group.oneOf.length > 0)
+    if (!union.anyOf.length) throw new Error('Authoring tool catalogue has no granted operation branch')
+    return
+  }
   items.oneOf = items.oneOf.filter(branch => allowed.has(branch.properties.kind.const))
   if (!items.oneOf.length) throw new Error('Authoring tool catalogue has no granted operation branch')
 }
@@ -109,6 +133,8 @@ const readArguments = z.object({ section: z.enum(['summary', 'targets', 'scene',
   .refine(value => value.section !== 'anchors' || value.ids?.length === 1, { path: ['ids'], message: 'Anchor pages require exactly one terrain ID.' })
 const findArguments = z.object({ query: z.string().max(80), limit: z.number().int().min(1).max(20), offset: z.number().int().min(0).max(1024).optional() }).strict()
 const editArguments = z.object({ operations: z.array(AuthoringOperationSchema).min(1).max(16) }).strict()
+const currentEditArguments = z.object({ operations: z.array(AuthoringOperationV4Schema).min(1).max(16) }).strict()
+const stageArguments = z.object({ stage: AuthoringStageV4Schema, expected: CurrentDraftStampV4Schema, operations: z.array(AuthoringOperationV4Schema).min(1).max(AUTHORING_V4_LIMITS.stageOperations) }).strict()
 const emptyArguments = z.object({}).strict()
 function boundedDiagnosis(report: ReturnType<typeof diagnoseAuthoringProject>) {
   // Requirement prose is already frozen in the initial brief. Do not spend a
@@ -140,13 +166,13 @@ function publicContext(task: StoredTask): PublicContext {
 export function initialAuthoringContext(task: StoredTask): unknown {
   const context = publicContext(task), { targets, placement, scene, visual, ...summary } = context
   // Initial model messages deliberately omit full target/asset catalog and private ProjectData.
-  return { ...summary, plan: planForBrief(task.authoring!.start.brief), visual: visual ? { ...(visual as object), entities: undefined, readSection: 'visual' } : null,
+  return { ...summary, ...(task.authoring!.start.schemaVersion === 4 ? { expected: authoringDraftStamp(task.authoring!.state, task.snapshot.generation) } : {}), plan: planForBrief(task.authoring!.start.brief), visual: visual ? { ...(visual as object), entities: undefined, readSection: 'visual' } : null,
     scene: scene ? { floor: (scene as { floor?: unknown }).floor, layer: (scene as { layer?: unknown }).layer, boundsMm: (scene as { boundsMm?: unknown }).boundsMm, readSection: 'scene' } : null, targetCount: targets.length, targetIds: targets.slice(0, 16).map(item => item.id), hasMoreTargets: targets.length > 16,
     placement: placement ? { ...placement, assets: undefined, support: { kind: placement.support.kind, id: placement.support.id }, allowedAssetCount: placement.assets.length } : null }
 }
 export function updateAuthoringSummary(task: StoredTask): AuthoringSummary {
   const authoring = task.authoring!
-  const summary: AuthoringSummary = authoringSummary(authoring.start, authoring.state, authoring.claim?.lease ?? null, authoring.plan)
+  const summary: AuthoringSummary = authoringSummary(authoring.start, authoring.state, authoring.claim?.lease ?? null, authoring.plan, authoring.closeout)
   task.snapshot.authoring = summary
   return summary
 }
@@ -166,13 +192,14 @@ function prepareAuthoringEdit(task: StoredTask, call: ProviderToolCall, operatio
   const previousIds = new Set(authoring.state.changedIds)
   const affectedIds = [...new Set([...operations.flatMap(item => 'id' in item ? [item.id] : 'ids' in item ? item.ids : []),
     ...result.state.changedIds.filter(id => !previousIds.has(id))])].sort()
-  const output = { draftRevision: result.state.draftRevision, contentHash: result.state.contentHash, operationCost: result.state.operationCost,
+  const output = { ...(authoring.start.schemaVersion === 4 ? { expected: authoringDraftStamp(result.state, task.snapshot.generation) } : {}), draftRevision: result.state.draftRevision, contentHash: result.state.contentHash, operationCost: result.state.operationCost,
     affectedIds, changedCount: result.state.changedIds.length, remainingOperations: remainingAuthoringOperations(authoring.start, result.state) }
   if (utf8Size(JSON.stringify(output)) > (authoring.start.brief ? 8000 : 8192)) throw new Error('output_limit')
   // The caller installs only after checking the final, fully wrapped receipt.
   return { output, install: () => {
     for (const operation of operations) if (operation.kind === 'svg') artifacts?.store(task.snapshot.id, operation.sourceSvg)
     authoring.state = result.state
+    if (authoring.start.schemaVersion === 4) delete authoring.closeout
   } }
 }
 export type AuthoringToolBudget = { modelRequests: number; toolCalls: number; executionRemainingMs?: number; maxOutputTokens?: number; attemptReserved?: boolean }
@@ -189,7 +216,20 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
   const receiptSize = (value: unknown) => utf8Size(JSON.stringify({ callId: call.id, name: call.name, success: true, output: JSON.stringify(value) }))
   let output: unknown, success = true, install: (() => void) | undefined
   try {
-    if (call.name.startsWith('sceneweave_terrain_') || call.name === 'sceneweave_region_scene_candidate') {
+    if (call.name === 'sceneweave_apply_stage') {
+      const authoring = task.authoring!, parsed = stageArguments.parse(args)
+      if (authoring.start.schemaVersion !== 4 || authoring.state.schemaVersion !== 4) throw new Error('本任务未开放阶段工具。')
+      if (canonicalJson(parsed.expected) !== canonicalJson(authoringDraftStamp(authoring.state, task.snapshot.generation))) throw new BoundaryCandidateError('stale_candidate')
+      const next = applyAuthoringStageV4(authoring.start, authoring.state, parsed.operations, `stage-${sha256Text(call.id).slice(0, 32)}`)
+      output = { stage: parsed.stage, atomic: true, stepsApplied: next.state.draftRevision - authoring.state.draftRevision,
+        draftRevision: next.state.draftRevision, contentHash: next.state.contentHash, expected: authoringDraftStamp(next.state, task.snapshot.generation),
+        operationCost: next.state.operationCost, actualOperationCost: next.state.operationCost - authoring.state.operationCost,
+        changedCount: next.state.changedIds.length, remainingOperations: remainingAuthoringOperations(authoring.start, next.state) }
+      install = () => { authoring.state = next.state; delete authoring.closeout }
+    } else if (call.name === 'sceneweave_visual_review' || call.name === 'sceneweave_apply_visual_correction') {
+      const prepared = prepareVisualReviewV4(task, args, call.id, call.name === 'sceneweave_apply_visual_correction')
+      output = prepared.output; install = prepared.install
+    } else if (call.name.startsWith('sceneweave_terrain_') || call.name === 'sceneweave_region_scene_candidate') {
       const prepared = prepareTerrainTool(task, call, args)
       output = prepared.output; install = prepared.install
     } else if (call.name === 'sceneweave_read_scene') {
@@ -203,7 +243,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
         let limit = parsed.limit ?? 16
         const page = () => ({ entityId: target.id, entityKind: 'terrainArea', boundaryMm: target.boundaryMm!.slice(offset, offset + limit), total: target.boundaryMm!.length,
           nextOffset: offset + limit < target.boundaryMm!.length ? offset + limit : null, actualPersistedAnchors: true })
-        while (utf8Size(JSON.stringify(page())) > 7800 && limit > 1) limit--
+        while ((utf8Size(JSON.stringify(page())) > 7800 || receiptSize(withBudget(page())) > 8192) && limit > 1) limit--
         output = page()
       }
       else if (parsed.section === 'scene' || parsed.section === 'visual') {
@@ -216,13 +256,14 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
         let selected = entities.filter(item => requested.includes(item.id))
         const result = () => ({ ...summary, ...palette, entities: selected, total: entities.length,
           nextOffset: parsed.ids ? null : offset + selected.length < entities.length ? offset + selected.length : null })
-        if (utf8Size(JSON.stringify(result())) > 7800 && parsed.section === 'scene') selected = selected.map(item => {
+        const oversized = () => utf8Size(JSON.stringify(result())) > 7800 || receiptSize(withBudget(result())) > 8192
+        if (oversized() && parsed.section === 'scene') selected = selected.map(item => {
           const value = item as { id: string; entityKind?: string; boundaryMm?: unknown[] }
           if (value.entityKind !== 'terrainArea' || !value.boundaryMm || value.boundaryMm.length <= 16) return item
           const { boundaryMm, ...rest } = value
           return { ...rest, id: value.id, geometryOmitted: true, boundaryPointCount: boundaryMm.length, geometryRead: 'Use section anchors with this terrain ID and offset/limit for bounded persisted point/segment pages.' }
         })
-        while (utf8Size(JSON.stringify(result())) > 7800 && selected.length > 1 && !parsed.ids) selected = selected.slice(0, -1)
+        while (oversized() && selected.length > 1 && !parsed.ids) selected = selected.slice(0, -1)
         output = result()
       } else {
         const offset = parsed.offset ?? 0, limit = parsed.limit ?? 16
@@ -243,7 +284,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       }
       output = pageOutput()
     } else if (call.name === 'sceneweave_edit_props' || call.name === 'sceneweave_edit_scene') {
-      const parsed = (call.name === 'sceneweave_edit_props' ? z.object({ operations: z.array(propOperations).min(1).max(16) }).strict() : editArguments).parse(args)
+      const parsed = (call.name === 'sceneweave_edit_props' ? z.object({ operations: z.array(propOperations).min(1).max(16) }).strict() : task.authoring!.start.schemaVersion === 4 ? currentEditArguments : editArguments).parse(args)
       const operations = call.name === 'sceneweave_edit_scene' ? parsed.operations.map(selectNewTerrainGenerationVersion) : parsed.operations
       const prepared = prepareAuthoringEdit(task, call, operations, artifacts)
       output = prepared.output; install = prepared.install
@@ -251,7 +292,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       const parsed = boundaryCandidatesArguments.parse(args), authoring = task.authoring!, scope = authoring.start.scope.visual
       if (parsed.atDraftRevision !== authoring.state.draftRevision || parsed.atContentHash !== authoring.state.contentHash) throw new BoundaryCandidateError('stale_candidate')
       if (!scope) throw new Error('视觉曲线操作未授权。')
-      const replayed = replayAuthoring(authoring.start, authoring.state.steps), ids = new Set([...scope.entityIds, ...authoring.state.changedIds])
+      const replayed = replayAuthoring(authoring.start, authoring.state.steps), ids = new Set([...scope.entityIds, ...authoringCreatedIds(authoring)])
       const operations = parsed.candidates.map(candidate => {
         const proposed = proposeAuthoringTerrainBoundary(replayed.project, scope, ids, candidate.proposal)
         if (boundaryCandidateHash(proposed.candidateOperation) !== candidate.candidateHash) throw new BoundaryCandidateError('invalid_candidate')
@@ -262,7 +303,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
     } else if (call.name === 'sceneweave_plan_draft') {
       const parsed = AuthoringPlanStateSchema.parse(args), authoring = task.authoring!, brief = authoring.start.brief
       const { scene, visual, placement } = authoring.start.scope
-      const allowed = new Set([...authoring.start.scope.targetIds, ...(scene?.entityIds ?? []), ...(visual?.entityIds ?? []), ...authoring.state.changedIds,
+      const allowed = new Set([...authoring.start.scope.targetIds, ...(scene?.entityIds ?? []), ...(visual?.entityIds ?? []), ...authoringCreatedIds(authoring),
         ...(scene?.definitionIds ?? []), ...(scene?.prefabDefinitionIds ?? []), ...(scene?.materialIds ?? []), ...(visual?.definitionIds ?? []), ...(visual?.materialIds ?? []), ...(placement?.definitionIds ?? [])])
       if (parsed.requirements.some(value => value.evidenceIds.some(id => !allowed.has(id)))) throw new Error('计划证据包含未授权对象。')
       if (!brief) throw new PlanArgumentsError('任务没有冻结创作要求，不能登记要求声明。')
@@ -275,13 +316,13 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       install = () => { authoring.plan = parsed; updateAuthoringSummary(task) }
     } else if (call.name === 'sceneweave_probe_placement') {
       const parsed = PlacementProbeSchema.parse(args), authoring = task.authoring!, replayed = replayAuthoring(authoring.start, authoring.state.steps)
-      const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoring.state.changedIds])
+      const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoringCreatedIds(authoring)])
       output = probeAuthoringPlacement(replayed.project, authoring.start, ids, parsed)
     } else if (call.name === 'sceneweave_propose_boundary') {
       const parsed = TerrainBoundaryProposalSchema.parse(args), authoring = task.authoring!, scope = authoring.start.scope.visual
       if (!scope) throw new Error('视觉曲线操作未授权。')
       const replayed = replayAuthoring(authoring.start, authoring.state.steps)
-      const ids = new Set([...scope.entityIds, ...authoring.state.changedIds])
+      const ids = new Set([...scope.entityIds, ...authoringCreatedIds(authoring)])
       const proposed = proposeAuthoringTerrainBoundary(replayed.project, scope, ids, parsed)
       // Detached full-ledger replay provides the same scope/dependency/cost
       // checks as an explicit edit, without installing or spending a step.
@@ -295,7 +336,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
         warning: remainingOperationsAfterEdit < reserveOperations ? 'This valid edit leaves less than the requested furnishing/effect reserve; simplify the explicit curve before editing.' : null }
     } else if (call.name === 'sceneweave_propose_composition') {
       const parsed = CompositionCandidateSchema.parse(args), authoring = task.authoring!, replayed = replayAuthoring(authoring.start, authoring.state.steps)
-      const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoring.state.changedIds])
+      const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoringCreatedIds(authoring)])
       const proposal = proposeAuthoringComposition(replayed.project, authoring.start, ids, parsed)
       let operations = proposal.candidateOperations
       if (parsed.kind === 'layout' && parsed.recipe === 'interior') {
@@ -315,8 +356,8 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
     } else if (call.name === 'sceneweave_diagnose_draft') {
       emptyArguments.parse(args)
       const authoring = task.authoring!, replayed = replayAuthoring(authoring.start, authoring.state.steps)
-      const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoring.state.changedIds])
-      output = { ...boundedDiagnosis(diagnoseAuthoringProject(replayed.project, ids, authoring.start.brief)), plan: authoring.plan ? { phase: authoring.plan.phase,
+      const ids = new Set([...authoring.start.scope.targetIds, ...(authoring.start.scope.scene?.entityIds ?? []), ...(authoring.start.scope.visual?.entityIds ?? []), ...authoringCreatedIds(authoring)])
+      output = { ...boundedDiagnosis(diagnoseAuthoringProject(replayed.project, ids, authoring.start.brief, authoring.start.schemaVersion === 4 ? authoring.start.capability : undefined)), plan: authoring.plan ? { phase: authoring.plan.phase,
         requirements: authoring.plan.requirements.map(({ index, state }) => ({ index, state })), evidenceRead: 'The persisted plan summary and the immutable brief retain the full claims; this receipt reports their status only.' } : null,
         remaining: { operations: remainingAuthoringOperations(authoring.start, authoring.state), ...remaining() }, visionImages: task.messages.reduce((sum, message) => sum + (message.images?.length ?? 0), 0) }
     } else if (call.name === 'sceneweave_check_draft') {
@@ -336,7 +377,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
     const text = error instanceof Error ? error.message.replace(/^AI(?:场景)?草稿范围无效：/, '') : ''
     const connectionError = error instanceof VisualBoundaryConnectionError ? error
       : error instanceof AuthoringOperationError && error.cause instanceof VisualBoundaryConnectionError ? error.cause : undefined
-    const category = restrictedTerrain ? ['restricted_dependency', '地形候选存在未授权依赖，此步骤未采用。'] : connectionError ? ['invalid_geometry', '曲线候选改变了已授权连接的有效支撑，此步骤未采用。']
+    const category = text === 'output_limit' ? ['tool_output_limit', '工具回执超过8KiB；此步骤未采用。'] : error instanceof VisualReviewError ? [error.code, error.message] : restrictedTerrain ? ['restricted_dependency', '地形候选存在未授权依赖，此步骤未采用。'] : connectionError ? ['invalid_geometry', '曲线候选改变了已授权连接的有效支撑，此步骤未采用。']
       : error instanceof BoundaryCandidateError ? [error.code, error.message]
       : error instanceof PlanArgumentsError ? ['invalid_arguments', error.message]
       : error instanceof z.ZodError ? ['invalid_arguments', '参数不符合有限工具合同，请检查kind、必填字段与整数毫米。']

@@ -1,9 +1,13 @@
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
+import { createCompositionContent } from '../../shared/appearance/graph.js'
+import { runtime } from '../../application/workspace/test-fixtures.js'
 import { describe, expect, it } from 'vitest'
 import data from '../../platform/browser/content/scenes-data.json'
 import type { ProjectData } from '../../shared/model/project'
 import { extendedAuthoringScope, initialExtendedScope, sceneOperationLabels } from './AiScopeFields'
 
-const project = structuredClone(data.scenes.blank) as unknown as ProjectData
+const fixed = structuredClone(data.scenes.blank) as unknown as ProjectData
+const project: ProjectData = { ...fixed, schemaVersion: 1, ...createCompositionContent(toCurrentSceneDocument(fixed.document), runtime) }
 
 describe('AI terrain and regional authorization scope', () => {
   it('labels all four terrain and regional operations in Chinese', () => {
@@ -16,8 +20,8 @@ describe('AI terrain and regional authorization scope', () => {
   it('keeps explicit generation layers and regional definitions in the scene grant', () => {
     const value = { ...initialExtendedScope(), scene: true, generationLayerIds: ['layer-secondary'], regionalDefinitionIds: ['symbol-tree'] }
     const complete = structuredClone(project)
-    complete.schemaVersion = 3
-    complete.document.schemaVersion = 3
+    complete.schemaVersion = 1
+    complete.document.schemaVersion = 1
     const scope = extendedAuthoringScope(value, complete, 'floor-ground', 'layer-ground', [])
     expect(scope.scene).toMatchObject({
       generationLayerIds: ['layer-secondary'],
@@ -32,17 +36,12 @@ describe('AI terrain and regional authorization scope', () => {
     expect(scope.scene).not.toHaveProperty('regionalDefinitionIds')
   })
 
-  it('keeps T6 operations v3-only and visual grants v2-only', () => {
+  it('uses current capabilities and explicit visual grants without an engineering version gate', () => {
     const value = { ...initialExtendedScope(), scene: true, visual: true }
-    const legacy = extendedAuthoringScope(value, project, 'floor-ground', 'layer-ground', [])
-    expect(legacy.scene?.operations).not.toContain('terrainGenerate')
-    expect(legacy.visual).toBeUndefined()
-
-    const complete = structuredClone(project)
-    complete.schemaVersion = 3
-    complete.document.schemaVersion = 3
-    const v3 = extendedAuthoringScope(value, complete, 'floor-ground', 'layer-ground', [])
-    expect(v3.scene?.operations).toContain('terrainGenerate')
-    expect(v3.visual).toBeUndefined()
+    const scope = extendedAuthoringScope(value, project, 'floor-ground', 'layer-ground', [], true)
+    expect(scope.scene?.operations).toContain('terrainGenerate')
+    expect(scope.scene?.operations).toContain('connectionRoute')
+    expect(scope.visual).toMatchObject({ floorId: 'floor-ground', layerId: 'layer-ground' })
+    expect(scope).not.toHaveProperty('artwork')
   })
 })

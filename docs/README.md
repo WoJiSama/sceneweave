@@ -1,6 +1,10 @@
 # 文档导航
 
-日常先看[路线图](07-roadmap.md#development)确认任务，再读相关主定义。全部验收从[质量计划](09-quality-plan.md#acceptance)开始。正文负责现行合同，历史台账负责按日期/冻结保留的实现、测试、失败和发布证据；两者不混写。
+日常先看[路线图](07-roadmap.md#development)确认任务，再读相关主定义。当前分支的第一优先级与A–E执行序列集中在[同一份路线图](07-roadmap.md#general-map-generation-priority)，总体架构见[通用地图生成器设计](reference/general-map-generation.md)。全部验收从[质量计划](09-quality-plan.md#acceptance)开始。正文负责现行合同，历史台账负责按日期/冻结保留的实现、测试、失败和发布证据；两者不混写。
+
+开发期只维护[一套当前完整工程v1](04-scene-document.md#development-single-v1)，保留[独立一次性本机迁入](06-storage-and-export.md#development-single-v1-import)；旧版本表只作迁入和领域能力来源说明，当前归一实现的验证与剩余项见07。B的实际模块/版本映射见[设计第10节](reference/general-map-generation.md#capability-version-map)；D的源码研究、算法选择和领域边界见[第11节](reference/general-map-generation.md#d-domain-design)，实施状态按[07的D1–D7表](07-roadmap.md#d-domain-implementation)维护；E的有限混合与交付合同见[11.8](reference/general-map-generation.md#e-mixed-delivery)。
+
+当前容量主线为[层级组合、局部坐标与分区存储设计](reference/general-map-generation.md#aggregate-spatial-capacity)，实施集中在[07同一大步骤的a–j表](07-roadmap.md#t2-implementation)，数据/存储目标见04/06，完整验收见[09补充矩阵](09-quality-plan.md#aggregate-capacity-acceptance)。运行时合同和完整v1使用方见[04](04-scene-document.md#aggregate-coordinate-contract)及[设计映射](reference/general-map-generation.md#aggregate-consumer-map)；整体编辑、分区加载与新存储状态仍以07为准。
 
 ## 八份主文档
 
@@ -15,11 +19,12 @@
 | 规则、素材、参考项目和公开分发许可 | [10 许可](10-rules-assets-and-licensing.md) |
 | 画面风格、成图方法、固定素材及尺寸/占地/许可台账 | [14 视觉与素材](14-visual-and-assets.md) |
 
-## 五份按需参考
+## 六份按需参考
 
 | 场景 | 参考 |
 |---|---|
 | 查用户操作、候选生命周期、模块和平台边界 | [交互与架构](reference/editor-and-architecture.md) |
+| 查通用地图生成器的总体分层、领域接入和迁移边界 | [通用地图生成器设计](reference/general-map-generation.md) |
 | 查地形当前支持/拒绝边界、双尺度、算法和局部联动 | [地形生成](reference/terrain-generation.md#terrain-capabilities) |
 | 执行固定SCN/VIS场景，核对尺寸、输入和秘密 | [固定验收场景](reference/acceptance-scenarios.md) |
 | 追溯设计决定、外部来源和未实测问题 | [决策与研究依据](reference/decisions-and-research.md) |

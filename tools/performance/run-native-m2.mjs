@@ -243,7 +243,7 @@ async function storageAudit({ includeResources = true } = {}) {
         stores.push({ name, count: data.keys.length, sha256: await digest(new TextEncoder().encode(JSON.stringify(await normalize(data)))) })
       }
     } finally { db.close() }
-    return { database: entry.name, version: entry.version, allDatabases: databases.map(item => item.name).sort(), stores,
+    const snapshot = { database: entry.name, version: entry.version, allDatabases: databases.map(item => item.name).sort(), stores,
       scenes: (rows.projects ?? []).map(row => ({ sceneId: row.sceneId, revision: row.revision, contentHash: row.contentHash, format: row.project.format,
         documentSchemaVersion: row.project.document.schemaVersion, identityVersion: row.project.historyIdentity.version,
         propCount: Object.keys(row.project.document.props).length, title: row.project.document.title, grid: row.project.document.grid, worldBoundsMm: row.project.document.exportBoundsMm,
@@ -252,6 +252,74 @@ async function storageAudit({ includeResources = true } = {}) {
       automatic: (rows.automaticSnapshots ?? []).map(row => ({ revision: row.revision, contentHash: row.contentHash })),
       named: (rows.snapshots ?? []).filter(row => row.kind === 'named').map(row => ({ id: row.id, name: row.name, sourceRevision: row.sourceRevision, contentHash: row.contentHash })),
       protection: (rows.snapshots ?? []).filter(row => row.kind === 'protection').map(row => ({ id: row.id, sourceRevision: row.sourceRevision, contentHash: row.contentHash })), metadata: rows.historyMetadata ?? [] }
+    // Native schema1/2 audit output remains unchanged. Schema3 retains old full
+    // rows as migration originals; ready owners present the new graph instead.
+    if (entry.version !== 30) return snapshot
+    const heads = (rows.historyHeads ?? []).filter(row => row.status === 'ready'), readyOwners = new Set(heads.map(row => row.ownerSceneId))
+    const automatic = (rows.automaticSnapshots ?? []).filter(row => !readyOwners.has(row.ownerSceneId))
+    const pins = (rows.snapshots ?? []).filter(row => !readyOwners.has(row.ownerSceneId))
+    snapshot.retainedHistory = []
+    for (const head of heads) {
+      const current = (rows.projects ?? []).find(row => row.sceneId === head.ownerSceneId)
+      if (!current || current.status !== 'ready' || head.savedRevision !== current.revision || head.contentHash !== current.contentHash) throw new Error('Read-only storage audit: active history head differs from saved current project')
+      const versions = (rows.historyVersions ?? []).filter(row => row.ownerSceneId === head.ownerSceneId)
+        .sort((a, b) => b.revision - a.revision || a.id.localeCompare(b.id))
+      const byId = new Map(versions.map(row => [row.id, row]))
+      if (byId.size !== versions.length) throw new Error('Read-only storage audit: duplicate retained history version')
+      const active = byId.get(head.activeVersionId)
+      if (!active || !active.automatic || active.revision !== current.revision || active.contentHash !== current.contentHash) throw new Error('Read-only storage audit: active retained version differs from saved current project')
+      const parents = new Set()
+      for (const row of versions) {
+        if (typeof row.id !== 'string' || !row.id || !/^[a-f0-9]{64}$/.test(row.contentHash)
+          || (row.parentId === null) !== (row.parentHash === null)) throw new Error('Read-only storage audit: malformed retained version/parent/hash summary')
+        if (row.parentId === null) continue
+        const parent = byId.get(row.parentId)
+        if (!parent || parent.contentHash !== row.parentHash || parent.revision >= row.revision) throw new Error('Read-only storage audit: retained parent version/hash/revision mismatch')
+        parents.add(row.parentId)
+      }
+      const ownerPins = (rows.historyPins ?? []).filter(row => row.ownerSceneId === head.ownerSceneId)
+        .sort((a, b) => a.id.localeCompare(b.id))
+      for (const pin of ownerPins) {
+        const version = byId.get(pin.versionId)
+        if (!version || version.revision !== pin.sourceRevision || version.contentHash !== pin.contentHash) throw new Error('Read-only storage audit: retained snapshot pin does not match its version')
+      }
+      automatic.push(...versions.filter(row => row.automatic).slice(0, 20))
+      pins.push(...ownerPins)
+      snapshot.retainedHistory.push({ ownerSceneId: head.ownerSceneId, activeVersionId: head.activeVersionId,
+        activeRevision: head.savedRevision, activeContentHash: head.contentHash,
+        versionCount: versions.length, automaticVersionCount: versions.filter(row => row.automatic).length,
+        checkpointCount: versions.filter(row => row.checkpoint !== null).length, deltaCount: versions.filter(row => row.delta !== null).length,
+        pinCount: ownerPins.length, branchTipIds: versions.filter(row => !parents.has(row.id)).map(row => row.id).sort(),
+        versions: versions.map(row => ({ id: row.id, revision: row.revision, contentHash: row.contentHash, parentId: row.parentId,
+          parentHash: row.parentHash, checkpoint: row.checkpoint !== null, automatic: row.automatic, recordHash: row.recordHash })),
+        pins: ownerPins.map(row => ({ id: row.id, kind: row.kind, versionId: row.versionId, sourceRevision: row.sourceRevision,
+          contentHash: row.contentHash, recordHash: row.recordHash })) })
+    }
+    snapshot.automatic = automatic.map(row => ({ revision: row.revision, contentHash: row.contentHash }))
+    snapshot.named = pins.filter(row => row.kind === 'named').map(row => ({ id: row.id, name: row.name, sourceRevision: row.sourceRevision, contentHash: row.contentHash }))
+    snapshot.protection = pins.filter(row => row.kind === 'protection').map(row => ({ id: row.id, sourceRevision: row.sourceRevision, contentHash: row.contentHash }))
+    const jsonBytes = value => new TextEncoder().encode(JSON.stringify(value)).byteLength
+    const fullBytes = table => (rows[table] ?? []).reduce((sum, row) => sum + jsonBytes(row.project), 0)
+    const actualBytes = value => value instanceof Blob ? value.size : value instanceof ArrayBuffer || ArrayBuffer.isView(value) ? value.byteLength : (() => { throw new Error('Read-only storage audit: stored resource is not native binary data') })()
+    const binaryBytes = table => includeResources ? (rows[table] ?? []).reduce((sum, row) => sum + actualBytes(row.bytes), 0) : null
+    snapshot.storageBytes = {
+      method: 'Read-only IDB getAll data: JSON payloads and complete JSON rows measured as UTF-8; native binary values measured by actual byteLength/Blob size. Excludes IDB encoding, index and page overhead. This audit does not perform domain validation.',
+      includesResources: includeResources,
+      currentFull: fullBytes('projects'), legacyAutomaticFull: fullBytes('automaticSnapshots'),
+      legacySnapshotsFull: fullBytes('snapshots') + fullBytes('importedSnapshots'),
+      versionCheckpointBytes: (rows.historyVersions ?? []).reduce((sum, row) => sum + (row.checkpoint === null ? 0 : jsonBytes(row.checkpoint)), 0),
+      versionDeltaBytes: (rows.historyVersions ?? []).reduce((sum, row) => sum + (row.delta === null ? 0 : jsonBytes(row.delta)), 0),
+      pinBytes: (rows.historyPins ?? []).reduce((sum, row) => sum + jsonBytes(row), 0),
+      headBytes: (rows.historyHeads ?? []).reduce((sum, row) => sum + jsonBytes(row), 0),
+      resourcesBytes: binaryBytes('resources'),
+      licenseBytes: includeResources ? (rows.licenseTexts ?? []).reduce((sum, row) => sum + new TextEncoder().encode(row.text).byteLength, 0) : null,
+      legacyBytes: binaryBytes('legacyBlobs'),
+      jsonRowBytesByStore: Object.fromEntries(Object.entries(rows).filter(([name]) => !['resources', 'legacyBlobs'].includes(name))
+        .map(([name, values]) => [name, values.reduce((sum, row) => sum + jsonBytes(row), 0)])),
+      binaryRecordMetadataBytesByStore: Object.fromEntries(Object.entries(rows).filter(([name]) => ['resources', 'legacyBlobs'].includes(name))
+        .map(([name, values]) => [name, values.reduce((sum, row) => sum + jsonBytes(Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'bytes'))), 0)])),
+    }
+    return snapshot
   }, { includeResources, visualV2 })
 }
 function packageSnapshot(bytes) {
@@ -741,6 +809,12 @@ async function runCase(item, run) {
   check(finalStorage.automatic.length === Math.min(20, finalStorage.scenes[0].revision + 1), 'Automatic history retention count differs from committed revisions')
   check(finalStorage.automatic.some(row => row.revision === finalStorage.scenes[0].revision), 'Latest saved revision is missing from automatic history')
   result.correctness.automaticHistoryRetained = true
+  if (finalStorage.retainedHistory) {
+    const retained = finalStorage.retainedHistory.find(row => row.ownerSceneId === finalStorage.scenes[0].sceneId)
+    check(retained && retained.versionCount === retained.versions.length && retained.automaticVersionCount >= finalStorage.automatic.length,
+      'Incremental retained graph does not include the presented automatic history')
+    result.correctness.incrementalHistoryGraphRetained = true
+  }
   await writeJson(`${label}-final-storage.json`, finalStorage, true); result.auditArtifacts.push({ kind: 'final-storage', path: `${label}-final-storage.json` })
   result.networkAudit = reviewNetworkEvidence(result)
   check(!result.errors.length, 'Product emitted page errors')

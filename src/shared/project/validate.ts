@@ -11,6 +11,7 @@ import { STATIC_SVG_LIMITS } from '../ai/svg.js'
 import { PACKAGE_LIMITS } from './limits.js'
 import { projectSourceRecords } from './source-resources.js'
 import { legacyTerrainView } from '../terrain-generation/composition-contracts.js'
+import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
 
 const MiB = 1024 * 1024
 export const PROJECT_DATA_LIMITS = Object.freeze({ jsonBytes: 20 * MiB, imageBytes: 20 * MiB, imageSide: 8192, imagePixels: 32_000_000,
@@ -25,19 +26,18 @@ export const licenseBindingSchema = z.object({ subjectKind: z.enum(['asset', 'ma
 export const nativeLicenseBindingSchema = licenseBindingSchema.extend({subjectKind:z.enum(['asset','material','propDefinition','prefabDefinition','styleTheme','regionalSymbolDefinition'])}).strict()
 const svgSchema = z.object({ kind: z.literal('svg'), sourceSha256: hash, normalizedSha256: hash, sourceSizeBytes: positive.max(MiB),
   normalizedSizeBytes: positive.max(MiB), rasterSha256: hash, processorId: z.literal('sceneweave-static-svg'), processorVersion: z.literal(1) }).strict()
-export const projectDataSchema: z.ZodType<ProjectData> = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+export const projectDataSchema: z.ZodType<ProjectData> = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.literal(1),
   document: nativeSceneSchema, historyIdentity: nativeHistoryIdentitySchema, appearance: nativeAppearanceGraphSchema,
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
   licenseBindings: z.array(nativeLicenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
 }).strict().superRefine((project, ctx) => {
-  if(project.historyIdentity.version!==(project.schemaVersion===4?3:project.schemaVersion===3?2:1)||project.appearance.version!==(project.schemaVersion>=3?2:1))ctx.addIssue({code:'custom',message:'完整工程、历史身份和外观图版本须匹配。'})
-  if(project.schemaVersion<3&&project.licenseBindings.some(row=>row.subjectKind==='regionalSymbolDefinition'))ctx.addIssue({code:'custom',message:'旧完整版本不接受区域图符许可主体。'})
+  if(project.historyIdentity.version!==5||project.appearance.version!==2)ctx.addIssue({code:'custom',message:'完整工程、历史身份和外观图版本须匹配。'})
   if (project.schemaVersion !== project.document.schemaVersion) ctx.addIssue({ code: 'custom', path: ['schemaVersion'], message: '完整工程与场景契约版本必须一致。' })
 })
 // Keep the exported complete schema unchanged. Runtime validation delegates the
 // three domain branches to their strict validators, avoiding recursive parsing
 // of the scene and identity in both the envelope and the domain boundary.
-const projectEnvelopeSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+const projectEnvelopeSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.literal(1),
   document: z.unknown(), historyIdentity: z.unknown(), appearance: z.unknown(),
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
   licenseBindings: z.array(nativeLicenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
@@ -76,8 +76,7 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
     : content
   const project: ProjectData = { ...parsed.data, ...publicContent }
   if (project.schemaVersion !== project.document.schemaVersion) throw new Error('完整工程字段无效：schemaVersion: 完整工程与场景契约版本必须一致。')
-  if (project.schemaVersion < 3 && project.licenseBindings.some(binding => binding.subjectKind === 'regionalSymbolDefinition')) throw new Error('旧完整版本不接受区域图符许可主体。')
-  const dependencies = inspectDependencies(project.document.schemaVersion === 4 ? legacyTerrainView(project.document) : project.document)
+  const dependencies = inspectDependencies(project.document)
   if (dependencies.errors.length) throw new Error(dependencies.errors.map(item => item.message).join('；'))
   const hashes = new Set<string>()
   for (const id of dependencies.assetIds) {
@@ -148,4 +147,9 @@ export function certifyProjectData(input: unknown): ProjectData {
   return freezeJson(readProjectData(input, true))
 }
 
-export const projectContentHash = (input: unknown): string => sha256Text(canonicalJson(validateProjectData(input)))
+export const projectContentHash = (input: unknown): string => {
+  const issue = inspectJsonInput(input)
+  if (issue) throw new Error(issue.message)
+  const wire = input as ProjectData
+  return sha256Text(canonicalProjectCoordinates(validateProjectData(wire?.document?.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(wire) : wire)))
+}

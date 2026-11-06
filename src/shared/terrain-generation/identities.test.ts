@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { createCompositionContent } from '../appearance/graph.js'
@@ -19,11 +20,11 @@ const common = { floorId: 'floor', layerId: 'layer', visibility: 'public' as con
 const square = () => [p(4000, 4000), p(7000, 4000), p(7000, 7000), p(4000, 7000)]
 let sequence = 0
 const context = (): PreparationContext => ({ ids: { nextId: () => `identity-test-${++sequence}` }, clock: { now: () => stamp } })
-type TerrainScene = SceneDocument & { schemaVersion: 3; generation: GenerationSystem1; visual: VisualSystem2<VisualSystem> }
+type TerrainScene = SceneDocument
 
 function blank(): TerrainScene {
   const bounds = { x: 0, y: 0, width: 24000, height: 18000 }
-  return { format: 'sceneweave-scene', schemaVersion: 3, sceneId: 'identity-scene', revision: 0, title: 'Identity fixture',
+  return toCurrentSceneDocument({ format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'identity-scene', revision: 0, title: 'Identity fixture',
     createdAt: stamp, updatedAt: stamp, units: { world: 'mm', display: 'm', gridSizeMm: 1000, snapMm: 100, gridVisible: false },
     exportBoundsMm: bounds, floors: { floor: { id: 'floor', name: 'Ground', boundsMm: bounds } },
     vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: {}, materials: {},
@@ -31,7 +32,7 @@ function blank(): TerrainScene {
     styleThemes: {}, activeStyleThemeRef: null, userLayers: { layer: { id: 'layer', floorId: 'floor', name: 'Ground', order: 0, editLocked: false } }, entityLayers: {},
     presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 },
     constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] }, mapMode: 'scene', generation: createEmptyGeneration(),
-    regional: null, visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} } }
+    regional: null, visual: { version: 2, base: emptyVisualSystem(), materializedEdges: {} } })
 }
 function addLand(scene: TerrainScene) {
   scene.terrainAreas.land = { id: 'land', floorId: 'floor', visibility: 'public', editLocked: false,
@@ -41,13 +42,13 @@ function addLand(scene: TerrainScene) {
   scene.entityLayers.land = 'layer'
 }
 function refresh(scene: TerrainScene) {
-  for (const rule of Object.values(scene.generation.rules)) {
+  for (const rule of Object.values(scene.generation.legacy.rules)) {
     rule.inputHash = generationInputHash(scene, rule); rule.managedOutputHash = managedOutputHash(scene, rule)
   }
 }
 function generated(): TerrainScene {
   const scene = blank(); addLand(scene)
-  const g = scene.generation
+  const g = scene.generation.legacy
   g.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'island', algorithmVersion: 1, mapMode: 'scene', seed: 'identity',
     parameters: { terrainKind: 'island', seaElevationMm: 0, landElevationMm: 300, plateauElevationMm: 1800, roughness: .2, densityFactor: .2, baySide: 'south' },
     materials: [], props: [], precision: { sampleSpacingMm: 2000, toleranceMm: 50, noiseCellMm: 4000 } }
@@ -80,8 +81,8 @@ function presentation(): TerrainScene {
   const boundary = { ...common, id: 'boundary', closed: false,
     segments: [{ id: 'curve-segment', start: p(2000, 2000), control1: p(7000, 2000), control2: p(17000, 2000), end: p(22000, 2000) }],
     sampleSpacingMm: 2000, toleranceMm: 50, binding: { kind: 'decoration' as const } }
-  scene.visual.base.boundaries.boundary = boundary
-  scene.visual.materializedEdges.edge = { ...common, id: 'edge', boundaryId: 'boundary', inputHash: materializedBoundaryHash(boundary), kind: 'shore',
+  scene.visual.base.base.boundaries.boundary = boundary
+  scene.visual.base.materializedEdges.edge = { ...common, id: 'edge', boundaryId: 'boundary', inputHash: materializedBoundaryHash(boundary), kind: 'shore',
     polygons: [square()], strokes: [{ id: 'stroke', pointsMm: [p(3000, 3000), p(7000, 3000)], widthMm: 100, color: '#DDCCAA', opacity: 1 }],
     materialRef: null, fillColor: '#DDCCAA', opacity: 1 }
   return scene
@@ -104,7 +105,7 @@ const token = (kind: ExtendedIdentityToken['kind'], key: string): ExtendedIdenti
 describe('terrain identity2 births and topology continuity', () => {
   it('allocates every generated record, skeleton and inherited feature with its correct kind', () => {
     const scene = generated(), identity = createHistoryIdentity(scene, context())
-    expect(identity.version).toBe(2)
+    expect(identity.version).toBe(5)
     expect(Object.fromEntries(Object.entries(identity.generationTokens!).map(([id, value]) => [id, value.kind]))).toEqual({
       recipe: 'generationRecipe', intent: 'generationIntent', skeleton: 'generationSkeleton', rule: 'generationRule', owner: 'outputOwnership',
       exclusion: 'generationExclusion', port: 'terrainConstraint', check: 'constraintCheck', source: 'sourceRegionLink', 'source-feature': 'sourceRegionFeature' })
@@ -126,28 +127,30 @@ describe('terrain identity2 births and topology continuity', () => {
 
   it('retains continuity for coordinates, style, density and check status rather than mistaking them for topology', () => {
     const before = generated(), after = cloneJson(before), identity = createHistoryIdentity(before, context())
-    after.generation.intents.intent.skeleton[0].positionMm.x += 100
-    after.generation.recipes.recipe.parameters.densityFactor = .4
-    after.generation.rules.rule.parameters.widthMm += 50
-    after.generation.constraints.port = { ...after.generation.constraints.port, visibility: 'gm' }
+    after.generation.legacy.intents.intent.skeleton[0].positionMm.x += 100
+    const recipe = after.generation.legacy.recipes.recipe
+    if ('domain' in recipe) throw new Error('expected natural recipe')
+    recipe.parameters.densityFactor = .4
+    after.generation.legacy.rules.rule.parameters.widthMm += 50
+    after.generation.legacy.constraints.port = { ...after.generation.legacy.constraints.port, visibility: 'gm' }
     refresh(after)
     expect(advanceHistoryIdentity(identity, before, after, context()).generationTokens).toEqual(identity.generationTokens)
     const source = presentation(), moved = cloneJson(source), sourceIdentity = createHistoryIdentity(source, context())
     moved.terrainAreas.land.surfaceStyle!.overlays[0].boundaryMm[0].x += 100
-    moved.visual.materializedEdges.edge.strokes[0].widthMm = 200
-    moved.visual.materializedEdges.edge.fillColor = '#AABBCC'
+    moved.visual.base.materializedEdges.edge.strokes[0].widthMm = 200
+    moved.visual.base.materializedEdges.edge.fillColor = '#AABBCC'
     expect(advanceHistoryIdentity(sourceIdentity, source, moved, context()).presentationTokens).toEqual(sourceIdentity.presentationTokens)
   })
 
   it.each(['recipe', 'inputs', 'outputs'] as const)('rotates rule continuity when its %s relation changes', change => {
-    const before = generated(), after = cloneJson(before), identity = createHistoryIdentity(before, context()), rule = after.generation.rules.rule
+    const before = generated(), after = cloneJson(before), identity = createHistoryIdentity(before, context()), rule = after.generation.legacy.rules.rule
     if (change === 'recipe') {
-      after.generation.recipes.alternate = { ...cloneJson(after.generation.recipes.recipe), id: 'alternate' }
+      after.generation.legacy.recipes.alternate = { ...cloneJson(after.generation.legacy.recipes.recipe), id: 'alternate' }
       rule.recipeRef = { id: 'alternate', version: 1 }
     } else if (change === 'inputs') rule.inputs = [{ kind: 'terrainArea', entityId: 'land', parentId: null, fieldGroup: 'properties' }]
     else {
-      rule.outputs[0].fieldGroup = 'surface'; after.generation.ownership.owner.target.fieldGroup = 'surface'
-      after.generation.ownership.owner.managedFields = ['surface']
+      rule.outputs[0].fieldGroup = 'surface'; after.generation.legacy.ownership.owner.target.fieldGroup = 'surface'
+      after.generation.legacy.ownership.owner.managedFields = ['surface']
     }
     refresh(after)
     const next = advanceHistoryIdentity(identity, before, after, context()).generationTokens!.rule
@@ -157,11 +160,11 @@ describe('terrain identity2 births and topology continuity', () => {
   })
 
   it('captures descriptors before a caller mutates the same draft and does not restore a token after change-back', () => {
-    const scene = generated(), identity = createHistoryIdentity(scene, context()), original = cloneJson(scene.generation.rules.rule.inputs)
+    const scene = generated(), identity = createHistoryIdentity(scene, context()), original = cloneJson(scene.generation.legacy.rules.rule.inputs)
     const trace = createHistoryIdentityTrace(identity, scene, context())
-    scene.generation.rules.rule.inputs = [{ kind: 'terrainArea', entityId: 'land', parentId: null, fieldGroup: 'properties' }]
+    scene.generation.legacy.rules.rule.inputs = [{ kind: 'terrainArea', entityId: 'land', parentId: null, fieldGroup: 'properties' }]
     refresh(scene); trace.observe(scene)
-    scene.generation.rules.rule.inputs = original; refresh(scene)
+    scene.generation.legacy.rules.rule.inputs = original; refresh(scene)
     const next = trace.finish(scene).generationTokens!.rule
     expect(next.topologyHash).toBe(identity.generationTokens!.rule.topologyHash)
     expect(next.topologyToken).not.toBe(identity.generationTokens!.rule.topologyToken)
@@ -174,7 +177,7 @@ describe('terrain identity2 births and topology continuity', () => {
     const a = generated(), b = cloneJson(a)
     const inputs = [{ kind: 'terrainArea' as const, entityId: 'land', parentId: null, fieldGroup: 'properties' as const },
       { kind: 'terrainArea' as const, entityId: 'land', parentId: null, fieldGroup: 'appearance' as const }]
-    a.generation.rules.rule.inputs = inputs; b.generation.rules.rule.inputs = [...inputs].reverse()
+    a.generation.legacy.rules.rule.inputs = inputs; b.generation.legacy.rules.rule.inputs = [...inputs].reverse()
     expect(extendedIdentityDescriptors(a).rule).toEqual(extendedIdentityDescriptors(b).rule)
     const source = regional(), changed = cloneJson(source), identity = createHistoryIdentity(source, context())
     changed.regional.lines.line.pointsMm.reverse()
@@ -197,7 +200,7 @@ describe('terrain identity2 births and topology continuity', () => {
   it('rotates nested overlay and stroke topology on change-back through one trace', () => {
     const before = presentation(), changed = cloneJson(before), identity = createHistoryIdentity(before, context())
     changed.terrainAreas.land.surfaceStyle!.overlays[0].boundaryMm.splice(1, 0, p(5500, 4000))
-    changed.visual.materializedEdges.edge.strokes[0].pointsMm.splice(1, 0, p(5000, 3000))
+    changed.visual.base.materializedEdges.edge.strokes[0].pointsMm.splice(1, 0, p(5000, 3000))
     const trace = createHistoryIdentityTrace(identity, before, context()); trace.observe(changed)
     const next = trace.finish(before)
     for (const id of ['overlay', 'edge', 'stroke']) {
@@ -220,8 +223,8 @@ describe('terrain identity2 births and topology continuity', () => {
 
   it('rejects changing the kind of an allocated ID even with resurrection enabled', () => {
     const before = generated(), after = cloneJson(before), identity = createHistoryIdentity(before, context())
-    delete after.generation.exclusions.exclusion
-    after.generation.constraints.exclusion = { ...cloneJson(after.generation.constraints.port), id: 'exclusion' }
+    delete after.generation.legacy.exclusions.exclusion
+    after.generation.legacy.constraints.exclusion = { ...cloneJson(after.generation.legacy.constraints.port), id: 'exclusion' }
     expect(() => advanceHistoryIdentity(identity, before, after, context(), { allowResurrection: true })).toThrow(/不能复用/)
   })
 
@@ -274,7 +277,7 @@ describe('terrain identity2 births and topology continuity', () => {
 
   it('uses own-record lookup for prototype-like IDs', () => {
     const scene = blank()
-    scene.generation.constraints['constructor' as string] = { id: 'constructor', floorId: 'floor', visibility: 'public', strength: 'hard', kind: 'port', positionMm: p(0, 0), directionDeg: 0, widthMm: 1000 }
+    scene.generation.legacy.constraints['constructor' as string] = { id: 'constructor', floorId: 'floor', visibility: 'public', strength: 'hard', kind: 'port', positionMm: p(0, 0), directionDeg: 0, widthMm: 1000 }
     const identity: HistoryIdentity = createHistoryIdentity(scene, context())
     expect(Object.hasOwn(identity.generationTokens!, 'constructor')).toBe(true)
     expect(identity.generationTokens!['constructor' as string].kind).toBe('terrainConstraint')

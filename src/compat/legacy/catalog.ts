@@ -10,6 +10,9 @@ import { createMemoryResources } from '../../shared/project/resources.js'
 import { canonicalJson, captureJson, freezeJson } from '../../shared/validation/json.js'
 import { sha256Text } from '../../shared/validation/hash.js'
 import { prepareLibraryEntry } from '../../shared/library/content.js'
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
+import { createHistoryIdentity } from '../../shared/history/identity.js'
+import { topDownPresentation } from '../../shared/appearance/presentation.js'
 import { validateCatalogItem, validateCatalogKey } from '../../shared/library/metadata.js'
 import { validateCatalogOrganization } from '../../shared/library/organization.js'
 import { LIBRARY_LIMITS, type PreparedLibraryEntry, type CatalogOrganization } from '../../shared/library/types.js'
@@ -193,9 +196,14 @@ async function convertEntry(entry: PreparedCatalogEntryV1, validation: CompleteV
     const { blob, ...metadata } = record
     bytes.set(hash, new Uint8Array(await Blob.prototype.arrayBuffer.call(blob))); return [hash, metadata]
   })))
+  const document = toCurrentSceneDocument({ ...captureJson(old.document), format: 'sceneweave-scene', schemaVersion: 1 })
+  let serial = 0
+  const fresh = createHistoryIdentity(document, { ids: { nextId: () => `catalog-import-${sha256Text(canonicalJson([entry.item.identity.key, ++serial]))}` }, clock: { now: () => document.updatedAt } })
+  const appearance = captureJson(old.appearance)
   const project: ProjectData = { format: 'sceneweave-complete-project', schemaVersion: 1,
-    document: { ...captureJson(old.document), format: 'sceneweave-scene', schemaVersion: 1 },
-    historyIdentity: { ...captureJson(old.historyIdentity), version: 1 }, appearance: captureJson(old.appearance),
+    document,
+    historyIdentity: { ...fresh, ...captureJson(old.historyIdentity), version: 5 }, appearance: { ...appearance, version: 2,
+      presentations: Object.fromEntries(Object.values(appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) },
     assets, licenses: captureJson(old.licenses), licenseBindings: captureJson(old.licenseBindings), authoringSources: {} }
   const bundle: ProjectBundle = { project, resources: createMemoryResources(bytes) }, converted = await prepareLibraryEntry(bundle, entry.item.selector, validation)
   if (canonicalJson(converted.item) !== canonicalJson(entry.item)) throw new Error('个人素材转换改变了算法1精确身份或元数据；不允许猜测重绑。')

@@ -27,7 +27,7 @@ const generationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('composition'), input: compositionPresetSchema }).strict(),
 ])
 const algorithmSchema = z.object({ id: z.enum(['terrain-scene', 'terrain-scene-t3', 'terrain-compose']),
-  version: z.union([z.literal(1), z.literal(2)]), recipeVersion: z.union([z.literal(1), z.literal(2)]) }).strict()
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]), recipeVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]) }).strict()
 const context = { requestId: id, workspaceSceneId: id, checkpoint: integer, operationEpoch: integer }
 const stamp = { ...context, inputHash: hash, baseHash: hash, paletteHash: hash, algorithm: algorithmSchema }
 const preparationSchema = z.object({ ...context, base: sceneDocumentSchema, generation: generationSchema }).strict()
@@ -60,8 +60,8 @@ const compositionPlanSchema: z.ZodType<TerrainCompositionPlan> = z.object({
     polygons: integer.max(TERRAIN_COMPOSITION_LIMITS.polygons), rings: integer.max(TERRAIN_COMPOSITION_LIMITS.outputPoints / 3),
     points: integer.max(TERRAIN_COMPOSITION_LIMITS.outputPoints), finalAdoptionCostChecked: z.literal(false) }).strict(),
 }).strict()
-const costSchema = z.object({ items: z.record(id, integer.max(BASE_MAP_LIMITS.operations)),
-  total: integer.max(BASE_MAP_LIMITS.operations), limit: z.literal(256), finalAdoptionCostChecked: z.literal(false) }).strict()
+const costSchema = z.object({ items: z.record(id, integer.max(Number.MAX_SAFE_INTEGER)),
+  total: integer.max(Number.MAX_SAFE_INTEGER), limit: z.literal(256), finalAdoptionCostChecked: z.literal(false) }).strict()
 function terrainMapOrder(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
   // Schema preprocessing must not mutate a frozen source/response owned by
@@ -83,7 +83,8 @@ function terrainMapOrder(raw: unknown): unknown {
     }))
   }
   for (const [key, kind] of [['terrainAreas', 'terrainArea'], ['terrainConnections', 'terrainConnection'], ['paths', 'path'], ['props', 'prop']]) order(document, key, kind)
-  order(visual, 'boundaries', 'visualBoundary'); order(visual, 'edgeLooks', 'visualEdgeLook')
+  const leaves = visual?.version === 3 ? (visual.base as Record<string, unknown>)?.base as Record<string, unknown> : visual?.version === 2 ? visual.base as Record<string, unknown> : visual
+  order(leaves, 'boundaries', 'visualBoundary'); order(leaves, 'edgeLooks', 'visualEdgeLook')
   return value
 }
 const resultSchema = z.discriminatedUnion('kind', [
@@ -112,22 +113,22 @@ function palette(document: SceneDocument): unknown {
 function algorithmFor(generation: BaseMapRequest['generation']): BaseMapRequest['algorithm'] {
   if (generation.kind === 'composition') {
     const preset = compositionPreset(generation.input)
-    return { id: 'terrain-compose', version: 1, recipeVersion: preset.request.recipeVersion ?? 1 }
+    return { id: 'terrain-compose', version: 1, recipeVersion: (preset.request.recipeVersion ?? 1) as 1 | 2 | 3 }
   }
   const version = generation.input.algorithmVersion ?? 1
   return { id: generation.input.kind === 'island' || generation.input.kind === 'coast' ? 'terrain-scene' : 'terrain-scene-t3', version, recipeVersion: version }
 }
-function assertBlank(base: SceneDocument, generation: BaseMapRequest['generation']): void {
+function assertBlank(base: SceneDocument, generation: {input:{sceneId:string;widthMm:number;heightMm:number}}): void {
   const checked = validateSceneSnapshot(base)
   if (!checked.ok) throw new Error('程序底图基线不是有效完整场景。')
   const input = generation.input, bounds = { x: 0, y: 0, width: input.widthMm, height: input.heightMm }
-  if (base.schemaVersion !== 2 || base.visual?.version !== 1 || base.sceneId !== input.sceneId
+  if (base.visual?.version !== 3 || base.generation?.version !== 5 || base.sceneId !== input.sceneId
     || base.revision !== 0 || base.generationMetadata !== undefined
     || LAYER_ENTITY_COLLECTIONS.some(key => Object.keys(base[key]).length) || Object.keys(base.entityLayers).length
     || Object.keys(base.floors).length !== 1 || !base.floors['visual-floor'] || !equal(base.floors['visual-floor'].boundsMm, bounds)
-    || !equal(base.exportBoundsMm, bounds) || !equal(base.visual, emptyVisualSystem())
+    || !equal(base.exportBoundsMm, bounds) || !equal(base.visual.base.base, emptyVisualSystem()) || Object.keys(base.visual.base.materializedEdges).length > 0 || Object.keys(base.visual.transitions).length > 0 || Object.keys(base.surfaceRules).length > 0 || Object.keys(base.decorations).length > 0 || Object.keys(base.decorationClusters).length > 0
     || base.constraints.entranceOpeningIds.length || base.constraints.pathChecks.length
-    || Object.values(base.userLayers).some(layer => layer.editLocked)) throw new Error('程序底图只接受同范围、无实体、视觉、锁与历史记录的独立完整v2空白。')
+    || Object.values(base.userLayers).some(layer => layer.editLocked)) throw new Error('程序底图只接受同范围、无实体、视觉、锁与历史记录的独立完整空白。')
   for (const layerId of ['visual-layer-ground', 'visual-layer-props', 'visual-layer-details']) {
     if (base.userLayers[layerId]?.floorId !== 'visual-floor') throw new Error('程序底图所需固定图层缺失。')
   }
@@ -243,7 +244,7 @@ function assertResultContext(request: BaseMapRequest, result: BaseMapResponse['r
   if (result.kind === 'terrain') {
     if (!equal(result.terrain.input, request.generation.input)) throw new Error('地形结果不属于请求的规范化输入。')
   } else {
-    if (document.schemaVersion !== 4 || document.generation?.version !== 5 || document.visual?.version !== 3) throw new Error('组合结果必须保全完整领域版本。')
+    if (document.generation?.version !== 5 || document.visual?.version !== 3) throw new Error('组合结果必须保全完整领域版本。')
     if (LAYER_ENTITY_COLLECTIONS.some(key => key !== 'terrainAreas' && Object.keys(document[key]).length)) throw new Error('组合底图含配方范围外实体。')
     assertPlan(result.plan, request)
   }
@@ -282,3 +283,6 @@ export function parseBaseMapResponse(requestInput: BaseMapRequest, raw: unknown)
   if (!equal(response.domainCost, domainCost(request, response.result))) throw new Error('程序底图领域成本回执与实际完整展开不同。')
   return freezeJson(response)
 }
+
+/** Strict shared components for independently versioned future envelopes. */
+export { assertBlank as assertBaseMapBlank, palette as baseMapPalette, compositionPlanSchema, terrainMapOrder }

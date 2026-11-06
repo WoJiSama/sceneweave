@@ -329,3 +329,76 @@ Q3回执原子性/私密计数修复后的该冻结为1631/1631单元、230/230 
 首轮浏览器6通过/2失败：暂停用例对创建响应调用`response.json()`时CDP正文不可取回。测试改为核对真实POST的`clientRequestId`、HTTP 201及同一服务权威store中的确切任务snapshot，保留产品HTTP/UI路径；上述8/8为修正后的独立完整复跑，不拼接首轮数字。最终日志在本机`/tmp/sceneweave-foundation-browser-final.log`，首轮及最终浏览器产物分别保留在被忽略的`work/foundation-t8/`目录。前后端构建日志为`/tmp/sceneweave-foundation-t8-build.log`，最终类型检查为`/tmp/sceneweave-foundation-t8-typecheck-final.log`；AI两批结果由工具退出回执记录，没有为补磁盘日志重跑。
 
 本批没有新增付费模型请求。同日早先low短文字连接7.239秒、HTTP200/stop、29输入/7输出tokens属于[此前连接探针](visual-quality-validation.md#doc-54-1313-页面思考程度与超时时间线)，只证明当次连接，不证明新调度真实付费创作通过。旧已收费runner、unknown及未执行任务保持各自记录，不自动恢复或重发。后续T8证据见[地形台账](terrain-validation.md#t8-20261028)；完整AI/视觉与交付验收仍从[55统一入口](../09-quality-plan.md#acceptance)进入M2-E。
+
+
+<a id="dynamic-budget-20261030"></a>
+## 2026-10-30 注册档位与实际执行工作检查点（开发自检）
+
+新底图@3/创作v3使用策略2/计数2，保留旧v1/v2完整结构和hash；合同归[05](../05-ai-and-generation.md#budget-continuation-contract)与[04](../04-scene-document.md#capacity-budget-evolution)，真实底图和资源排序修复归[地形记录](terrain-validation.md#dynamic-budget-20261030)。这不是实际供应商模型验收或付费额度扩展。
+
+### 端到端实现和已运行自检
+
+注册profile与policy分别协商；新reader显式query3选择24/32MiB底图或48MiB创作门，旧裸/2协议原限制保持。source3完整重放实际工程/身份与真实资源闭包，domain零assetBytes不当作资源证明；scope与新profile原子命令通道支持扩展目标，完整依赖/锁/秘密/资源检查保持。成功账本按当前完整保留量峰值与逐操作实际目标计量；新checkpoint3的workUsage另保留真实执行消耗，旧checkpoint2不补字段。
+
+服务定向覆盖真实只读重放后场计数增加、抛错时工作检查点保全而草稿/账本不变、重启uncertain拒绝继续、失败生成超工作累计门后同flow不能重置，以及精确草稿/lease/四hash、取消迟到、防降级与SSE计数回退。浏览器客户端43项、BaseMap传输58项，服务BaseMap/continuation27项及能力/检查点34项曾分别通过；补workUsage后服务/检查点/客户端62项、超限flow1项和读/失败/重启筛选14项分别通过，不合并重叠数字。共享AI定向另覆盖257次语义操作、每一usage维度篡改、真实algorithm4 terrainEdit及recipe4 terrainLocal。
+
+真实Chromium完整UI三项通过（`work/dynamic-budget-20261030/browser-continuation-final.log`）：
+
+1. 原工程保持→Worker新3底图→按确切底图公开授权一个物件→HTTP/SSE草稿→审阅→创建原工程保护点→一次发布新工程r1→撤销空白r2→重做r3→冷重开→完整包再导入hash相同→GM/player真实PNG均4096×3072且非空多色。
+2. AI接续取消后，合法程序底图仍可独立采用；先连接2再出现3候选时只追加只读3能力发现。
+3. 明确旧v2元数据夹具按2只读取回，不新建或恢复模型请求；这份夹具不作为真实图片或采用证据。
+
+UI供应商使用进程内确定性fixture，共4轮mock请求，无外部付费模型调用。完整UI证据报告保存在`work/dynamic-budget-20261030/browser-ui-report/`，复跑日志`browser-ui-evidence.log`；三档真实底图PNG/完整包另见地形记录。首次UI测试收集因Node读取fixture间接JSON无import attribute而失败，修为在真实Vite页面加载旧fixture，保留`browser-continuation.log`；没有改动产品数据入口来绕过失败。
+
+### 保留边界
+
+16次模型请求、64工具、300秒主动执行不变；未知计费请求仍不重发。工作量耗尽后可只读取回/备份既有草稿，合法底图仍可采用；新增服务重放或新lease可能继续被计算门拒绝。删除正文同时删除完整AI向量，但独立owner/flow摘要保留至原七日到期，期间重建/重启不能清零。单任务16MiB持久保护与全库256MiB继续存在，48MiB请求门不是存储容量承诺。新预算不进入完整工程、历史或导出，也不开放v3/v4底图的完整visual授权。正式真实AI/容量/性能/视觉/P3仍待统一验收，未提交、推送或部署。
+
+
+<a id="current-authoring-20261031"></a>
+## 2026-10-31–11-01 创作4阶段、预算收尾与实际公开PNG接线（开发自检）
+
+本轮完成[07第6项](../07-roadmap.md#branch-plan)的本地开发与必要自检，不是统一Q4、真实模型质量、视觉/P3、正式性能或发布验收。[现行合同](../05-ai-and-generation.md#current-authoring-contract)使用明确创作4与 `sceneweave-current-authoring@1`；旧1–3的严格协议、解析、来源、计价与重放保持。对照旧分支的两份独有提交：`77d13e5`的阶段预演/合法草稿收尾思路按当前合同适配，`7f6620a`的独立性能改动未移植；没有cherry-pick或恢复旧根笔记/工作台。
+
+### 最终实现与边界
+
+当前完整3–6先协商再授权；曲线仅5/6、装饰/簇仅6，算法地形/区域仍按原3/4矩阵。source4是当前完整工程的真实基线，G=0、不伪造程序来源；source3保留原始完整生成、资源、注册档位与G/A账本。新4的生成ID不自动成为AI新生权限，只有明确scope与真正AI新建ID参与后续模型读取/证据/修正。当前工程实际展开/最终采用256，真实source3保持512/1024/2048档位及独立工作/几何/资源保护；16请求/64工具/300秒不变。
+
+阶段最多64配方、内部每步最多16条，在同一分离值和完整预算账本逐步预演，整个阶段及provider轮原子安装；真实手工展开作为成本下界，簇人工记录、身份、外观和生成关系不漏计、不重复相加。收尾保留严格closeout、缺项/未确认项和unknown；A=0合法底图可显式结束审阅/保护采用，当前空基线不可采用，不自动重发未知计费。
+
+原生放置的实例source/presentation绑定按已授权的固定定义/模板/源及固定表现参数检查；旧绑定、定义、位图、variant、许可不可改义。nearSide/compact的授权矩形、实际遮罩、context和probe共用原生paint polygon，支撑/通行仍按物理footprint。模型不收到范围外私密内容的聚合资源/记录计量，用户真实state/summary/执行检查点仍完整。
+
+用户分别同意首次与继续的真实公开PNG；浏览器同步捕获后重核checkpoint、任务/代次/草稿/四hash。服务持有实际字节，模型只引用紧凑screenshotRef；复核只读，显式有限修正再次核对原图、候选和基线。当前工程经原工程保护/CAS一次提交；source3经保护原工程、独立新scene同事务保存及完整冷读才切换。持久账本损坏不能靠客户端valid标志取得lease，预算后合法状态仍保留本机完整重放与真实资源冷验。
+
+### 已运行的最终必要检查
+
+本机Node/Chromium、真实Canvas/PNG/SVG资源、IndexedDB、Hono HTTP/SSE、SQLite；provider为进程内确定性替身，配置使用本地不可达的占位provider origin，没有读取`.env.ai`或调用真实付费渠道。以下基于同一组669份产品源码/资源/配置hash，测试夹具修正与早先失败单独保留；不把较早不同代码结果拼成最终验收。
+
+| 检查 | 结果与实际范围 |
+|---|---|
+| 正常构建 | `npm run build`通过，前端/AI类型与普通生产Vite产物均完成；正常bundle仍有大chunk警告，不据此宣称性能通过。日志`build-final.log`。 |
+| 共享/客户端/工作区定向 | 首次12文件161/163通过；两个失败来自旧保护点故障注入仍删`snapshots`。现行其余11文件143项通过，更新原子采用夹具删除真实`historyPins`后，该文件20/20单独复跑通过（3.80秒）。分别见`unit-shared-workspace-final.log`和`unit-atomic-final.log`，没有改CAS断言或生产保护逻辑。 |
+| 服务最终定向 | 8文件173/173通过，73.34秒；新4阶段/四hash/收尾/unknown/持久损坏/图片引用与候选、旧作者/continuation/vision、HTTP能力与catalog、执行检查点。日志`unit-services-final.log`。 |
+| 最终一致性 | `npm run typecheck`通过；158个共享模块无DOM编译/Node边界通过；25份Markdown的1495个本地链接0错误；`git diff --check`通过。669份产品源码/资源/配置hash全程未变，`todo.md` SHA-256保持原值，受检改动密钥模式匹配0。见`typecheck-final.log`、`shared-boundary-final.log`、`docs-links-final.log`及`integrity-final.json`。 |
+| 开发态实际浏览器 | `ai-current-closeout`与`base-map-continuation`同次4/4通过，0重试/跳过，约2.9分钟；见`browser-final.log`。原始导出在该次被用例解码并核对，list reporter没有另存完整报告，不声称保有所有该次PNG附件。 |
+| 正常生产纯UI | 正常dist通过本机preview `/sceneweave/`，单独`ai-current-closeout` 1/1通过（41.9秒用例/43.5秒命令）；不使用开发模块、全局hook或数据库注入。JSON报告、完整trace、真实完整包及独立提取的摘要保留，见`production-ui.log`、`production-report.json`和`production-ui/`。 |
+
+实际浏览器四项分别完成：
+
+1. **当前完整6**：UI新建2并逐次独立副本至6→明确固定素材与实际PNG授权→放置真实铜色桌灯→17配方原子阶段拆为16+1内部步骤→用户暂停→另行授权确切草稿PNG并明确继续→只读图像复核→显式有限修正→人工确认/保护/CAS一次采用→撤销r2/重做r3/冷读；主工程在采用前保持。全链7次本地mock请求，2张实际图片，旧图/新状态严格区别，外部页面请求0。
+2. **动态source3**：真实Worker算法5/standard档位生成→创作4保留真实G与profile→明确公开物件opacity和视觉点光两笔AI操作→本机完整重放与资源→保护原工程后独立采用新工程r1→撤销到空白r2/重做r3→冷读/完整包再导入hash一致→GM/player真实PNG均4096×3072、非空多色。4次mock请求，不据公开样本推定秘密成对或最终美术通过。
+3. **A=0取消保全**：同源底图只读后用户取消→保留G、A=0/revision0合法候选→显式重新绑定/结束审阅→保护原工程后独立采用r1，原工程hash保持且有保护点；总2次mock请求，审阅/claim/采用不重发模型。
+4. **旧2只读取回**：明确旧2夹具经2连接读取暂停状态，未创建/继续模型请求；该夹具只证明协议兼容，不代表实际图片或采用质量。
+
+正常生产再次独立走第1条，所有工程操作和状态观察通过DOM及实际UI下载。完整草稿包为513,361字节，SHA-256 `4c6b4649dfc5e8fca734fbddc0f87d23e45d6205e09b03054b6e89d5a430756f`，完整6/Scene6/identity4/appearance2；39项payload（34资源、1许可、4份工程JSON），72份许可绑定，实际灯具opacity0.55。每项实际长度/hash与manifest逐项核对；它是采用前revision0的完整草稿备份，UI采用/撤销/重做/冷读到r3另由该用例核实。两图分别绑定draft0/generation1和draft3/generation3、真实SHA不同；修正后不假称旧图确认了新画面。
+
+### 失败与修正保全
+
+- 预算测量返回冻结对象，新4首次授权直接改写计量抛错；改为独立值后，当前3–6的Workspace六项复跑通过。完整真实成本也不能用配方数量代替，17配方不等于17展开。
+- 首轮实际UI在放置前述生产目录素材时未到等待暂停状态；从trace提取同一真实POST，纯服务复现精确确认是“整张presentation必须全等”误拒原生新实例绑定。修复固定来源/参数检查，并补真实topDown/nearSide、旧绑定删除/改义、新binding/位图/variant篡改负例后，同输入放置→17阶段通过。首轮另有Vite热更新，未用该轮作为最终冻结证明；产物在`browser-first/`与`browser-first-create.json`。
+- 第二轮浏览器1通过/3失败：本地替身最终文字漏`onText`被正确按`provider_protocol`拒绝（合法draft4已保全）；新增点光后测试仍期待两笔ledger；新工程采用成功后测试仍等待旧任务标题。只修测试的流式契约/新增账本/工程切换期待，未放宽产品验证；最终独立4/4复跑保留，旧失败在`browser-second/`。
+- native构建中的union/旧fixture类型与新helper narrowing错误已修；旧SVG/原子fixture显式使用旧v1类型，不通过放宽旧协议解决。`build-first.log`/`build-second.log`保留失败，第三次中途构建与最终构建分别保留。
+- 客户端transport夹具原先真实执行算法5先触发small工作预算，尚未进入协商断言；按其既有“只测传输、不作可采用来源”口径改为只准备selector，预算/算法不改。旧兼容一项默认5秒超时按30秒执行上限单独复跑；原会话输出与本轮最终命令分开，不捏造未落盘附件。
+- 最终两个保护点故障注入用例已从旧表切换到现行pin，20项原子采用用例全部通过，生产保护逻辑未改。
+
+本机证据根目录为`work/ai-closeout-20261031/`，由Git忽略。正常生产完整包与摘要另在`production-artifacts/`；它们可在本机审阅，不是线上发布或正式参考岩岛成图。没有提交、推送或部署；真实模型/视觉/P3、完整Q4与正式性能继续从[09](../09-quality-plan.md#branch-feature-acceptance)统一执行，下一开发任务归07第7项。

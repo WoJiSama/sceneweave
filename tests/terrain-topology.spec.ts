@@ -1,3 +1,5 @@
+import { openTerrainTask } from './workspace-navigation-helpers'
+import { getLegacyGeneration } from '../src/shared/terrain-generation/composition-contracts.js'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 
@@ -24,7 +26,7 @@ async function installRectangleFixture(page: Page) {
     const visual = visualBase(next.document)!
     delete visual.boundaries['terrain-coast-curve']
     for (const id of Object.keys(visual.edgeLooks)) if (visual.edgeLooks[id].boundaryId === 'terrain-coast-curve') delete visual.edgeLooks[id]
-    if (next.document.visual?.version === 2) for (const id of Object.keys(next.document.visual.materializedEdges)) if (next.document.visual.materializedEdges[id].boundaryId === 'terrain-coast-curve') delete next.document.visual.materializedEdges[id]
+    for (const id of Object.keys(next.document.visual.base.materializedEdges)) if (next.document.visual.base.materializedEdges[id].boundaryId === 'terrain-coast-curve') delete next.document.visual.base.materializedEdges[id]
     for (const [id, edge] of Object.entries(next.document.terrainEdges)) if (edge.source.areaId === low.id || edge.neighborAreaId === low.id) delete next.document.terrainEdges[id]
     detachChangedOutputs(source.document, next.document)
     const fixture = await validateEditableProject({ ...next, ...createCompositionContent(next.document, runtime) }, validation)
@@ -53,7 +55,7 @@ test('complex topology UI rejects frozen escape, requires explicit rebindings, a
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await page.goto('/#workspace'); await page.waitForFunction(() => Boolean(Reflect.get(window, '__sceneweaveOutdoorDev')))
   const fixture = await installRectangleFixture(page), before = await readState(page)
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openTerrainTask(page, '修改地形')
   await page.getByRole('button', { name: '复杂地形拓扑', exact: false }).click()
   await page.getByLabel('复杂拓扑操作', { exact: true }).selectOption('difference')
   await page.getByLabel('拓扑 clip 多边形', { exact: true }).fill(fixture.clip.map(point => `${point.x},${point.y}`).join('\n'))
@@ -65,15 +67,21 @@ test('complex topology UI rejects frozen escape, requires explicit rebindings, a
   await expect(preview).toBeDisabled()
   for (let index = 0; index < count; index++) await rebindingSelects.nth(index).selectOption('0')
   await expect(preview).toBeEnabled()
-  const width = page.getByLabel('地形编辑范围宽 mm', { exact: true })
-  await width.fill('100')
+  await page.locator('.terrain-editing-scope summary').click()
+  const width = page.getByLabel('地形编辑范围宽', { exact: true })
+  await width.fill('0.1')
+  await width.press('Tab')
   await page.getByRole('button', { name: '预览局部地形修改', exact: true }).click()
   await expect(page.locator('[role="alert"]')).toContainText(/范围|冻结/, { timeout: 90_000 })
   expect((await readState(page)).hash).toBe(before.hash)
-  await page.getByLabel('地形编辑范围 X mm', { exact: true }).fill(String(fixture.bounds.x))
-  await page.getByLabel('地形编辑范围 Y mm', { exact: true }).fill(String(fixture.bounds.y))
-  await width.fill(String(fixture.bounds.width))
-  await page.getByLabel('地形编辑范围高 mm', { exact: true }).fill(String(fixture.bounds.height))
+  await page.getByLabel('地形编辑范围 X', { exact: true }).fill(String(fixture.bounds.x / 1000))
+  await page.getByLabel('地形编辑范围 X', { exact: true }).press('Tab')
+  await page.getByLabel('地形编辑范围 Y', { exact: true }).fill(String(fixture.bounds.y / 1000))
+  await page.getByLabel('地形编辑范围 Y', { exact: true }).press('Tab')
+  await width.fill(String(fixture.bounds.width / 1000))
+  await width.press('Tab')
+  await page.getByLabel('地形编辑范围高', { exact: true }).fill(String(fixture.bounds.height / 1000))
+  await page.getByLabel('地形编辑范围高', { exact: true }).press('Tab')
   await page.getByRole('button', { name: '预览局部地形修改', exact: true }).click()
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toBeVisible({ timeout: 90_000 })
   expect((await readState(page)).hash).toBe(before.hash)
@@ -82,14 +90,15 @@ test('complex topology UI rejects frozen escape, requires explicit rebindings, a
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toHaveCount(0, { timeout: 90_000 })
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 })
   const adopted = await readState(page)
-  expect(adopted.document.generation?.version).toBe(4)
-  const current = adopted.document.generation?.version === 4 ? Object.values(adopted.document.generation.topology).find(row => row.state === 'current') : undefined
+  expect(adopted.document.generation.version).toBe(5)
+  const legacy = getLegacyGeneration(adopted.document)
+  const current = legacy?.version === 4 ? Object.values(legacy.topology).find(row => row.state === 'current') : undefined
   expect(current).toBeDefined(); expect(current?.request.operation).toBe('difference')
   expect(current?.outputAreaIds.length).toBeGreaterThanOrEqual(2)
-  expect(adopted.cold?.document.generation?.version).toBe(4)
+  expect(adopted.cold?.document.generation?.version).toBe(5)
   expect(adopted.cold?.document.terrainAreas).toEqual(adopted.document.terrainAreas)
   expect(adopted.snapshots.filter(row => row.kind === 'protection')).toHaveLength(before.snapshots.filter(row => row.kind === 'protection').length + 1)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 })
   const undone = await readState(page)
   expect(undone.document.terrainAreas).toEqual(before.document.terrainAreas)

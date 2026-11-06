@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { createBlankDocumentV2 } from '../../../editor/v2/blank-project'
 import { migrateSceneV2 } from '../../../core/v3/migration'
 import type { SceneDocument } from '../../../shared/model/scene.js'
@@ -14,7 +15,7 @@ import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
 
 function fixture() {
   const old = createBlankDocumentV2({ title: 'visual projection', widthMm: 10000, heightMm: 8000, preset: 'investigation', sceneId: 'visual-projection', now: '2026-10-25T00:00:00.000Z' })
-  const scene: SceneDocument = { ...migrateSceneV2(old, { sceneId: 'visual-projection-native', now: old.updatedAt }), format: 'sceneweave-scene', schemaVersion: 1 }
+  const scene: SceneDocument = toCurrentSceneDocument({ ...migrateSceneV2(old, { sceneId: 'visual-projection-native', now: old.updatedAt }), format: 'sceneweave-scene', schemaVersion: 1 })
   const projection = projectScene(scene, 'player'), layerId = Object.keys(scene.userLayers)[0]
   const entity = { floorId: Object.keys(scene.floors)[0], layerId, visibility: 'public' as const, editLocked: false }
   const boundary: VisualBoundary = { ...entity, id: 'coast', closed: false, binding: { kind: 'decoration' }, sampleSpacingMm: 500, toleranceMm: 10,
@@ -28,7 +29,7 @@ function fixture() {
 function materializedFixture() {
   const original = fixture(), { scene, boundary, entity, projection } = original
   const visual = { version: 2 as const, base: emptyVisualSystem(), materializedEdges: {} as Record<string, MaterializedEdge> }
-  scene.schemaVersion = 3; scene.mapMode = 'scene'; scene.generation = createEmptyGeneration(); scene.regional = null; scene.visual = visual
+  scene.generation.legacy = createEmptyGeneration(); scene.visual = {version:3,base:visual,transitions:{}}
   visual.base.boundaries.coast = boundary
   scene.userLayers['edge-layer'] = { id: 'edge-layer', floorId: entity.floorId, name: 'Edge details', order: Object.keys(scene.userLayers).length, editLocked: false }
   const edge: MaterializedEdge = { ...entity, id: 'materialized-shore', layerId: 'edge-layer', boundaryId: boundary.id,
@@ -123,8 +124,7 @@ describe('native visual2 materialized edge projection', () => {
     expect(projectScene(scene, 'player').visual?.edgePaintOrder).toEqual([])
     expect(projectScene(scene, 'gm').visual?.materializedEdges).toHaveLength(1)
     const withoutPrivate = cloneJson(scene)
-    if (withoutPrivate.visual?.version !== 2) throw new Error('fixture requires visual2')
-    withoutPrivate.visual.materializedEdges = {}
+    withoutPrivate.visual.base.materializedEdges = {}
     expect(projectScene(scene, 'player')).toEqual(projectScene(withoutPrivate, 'player'))
     boundary.visibility = 'gm'; edge.inputHash = materializedBoundaryHash(boundary)
     const privateSource = projectScene(scene, 'player')

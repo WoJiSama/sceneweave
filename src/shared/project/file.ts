@@ -12,12 +12,13 @@ import { decodeUtf8, sha256Bytes } from './binary.js'
 import { parseBoundedJson } from './json.js'
 import { failPackage, hasExactKeys, isSha256, PACKAGE_LIMITS } from './limits.js'
 import { inspectZip, zipPathBudget } from './zip.js'
+import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
 
 export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'history'
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'asset' | 'license' | 'source'
 export interface ManifestEntry { path: string; role: PackageRole; sha256: string; sizeBytes: number; mimeType: string }
 export interface ProjectManifest {
-  format: 'sceneweave-complete-project'; schemaVersion: 1 | 2 | 3 | 4; application: 'Sceneweave'; applicationVersion: string
+  format: 'sceneweave-complete-project'; schemaVersion: 1; application: 'Sceneweave'; applicationVersion: string
   packageMode: 'complete' | 'history'; sceneId: string; revision: number; entries: ManifestEntry[]
   assetRecords: Record<string, AssetRecord>; licenseBindings: LicenseBinding[]
 }
@@ -80,9 +81,9 @@ function roleFor(path: string, mimeType: string, hash: string, mode: ProjectMani
   if (mimeType === 'image/svg+xml' && path === `sources/${hash}.svg`) return 'source'
   return failPackage('路径、角色、hash和MIME不匹配。')
 }
-function readManifest(input: unknown): ProjectManifest {
+export function readProjectManifest(input: unknown): ProjectManifest {
   if (!hasExactKeys(input, ['format', 'schemaVersion', 'application', 'applicationVersion', 'packageMode', 'sceneId', 'revision', 'entries', 'assetRecords', 'licenseBindings'])
-    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== 4 || input.application !== 'Sceneweave'
+    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 || input.application !== 'Sceneweave'
     || input.packageMode !== 'complete' && input.packageMode !== 'history'
     || !nonempty(input.applicationVersion, 100) || !nonempty(input.sceneId) || !Number.isSafeInteger(input.revision) || Number(input.revision) < 0
     || !Array.isArray(input.entries) || input.entries.length < 4 || input.entries.length >= PACKAGE_LIMITS.entries) return failPackage('manifest格式、版本、字段或身份无效。')
@@ -141,7 +142,7 @@ async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'],
   const addJson = (path: string, role: PackageRole, value: unknown) => add(path, role, encodeUtf8(canonicalJson(value)), 'application/json')
   const addParts = (bundle: ProjectBundle, paths: typeof rootPaths, historical: boolean) => {
     const project = bundle.project, prefix = historical ? 'snapshot-' : ''
-    addJson(paths.scenePath, `${prefix}scene` as PackageRole, project.document)
+    addJson(paths.scenePath, `${prefix}scene` as PackageRole, encodeSceneCoordinates(project.document))
     addJson(paths.identityPath, `${prefix}identity` as PackageRole, project.historyIdentity)
     addJson(paths.appearancePath, `${prefix}appearance` as PackageRole, project.appearance)
     addJson(paths.sourcesPath, `${prefix}sources` as PackageRole, project.authoringSources)
@@ -202,7 +203,7 @@ export async function exportHistoryArchive(archive: HistoryArchive, options: Com
 async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], options: CompleteValidationOptions): Promise<HistoryArchive> {
   // inspectZip makes the independent byte capture before this function's first await.
   const zip = inspectZip(input, options.signal), jsonBudget = { values: 0 }
-  const manifest = readManifest(parseBoundedJson(await zip.read('manifest.json'), jsonBudget))
+  const manifest = readProjectManifest(parseBoundedJson(await zip.read('manifest.json'), jsonBudget))
   if (manifest.packageMode !== mode) return failPackage(`请使用${mode === 'complete' ? '完整工程' : '历史归档'}入口，不能静默丢弃或补造历史。`)
   const declared = new Set(['manifest.json', ...manifest.entries.map(entry => entry.path)])
   if (declared.size !== zip.entries.size || [...declared].some(path => !zip.entries.has(path))) return failPackage('ZIP存在未声明或缺失路径。')
@@ -252,7 +253,7 @@ async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], o
       if (!Object.hasOwn(licenses, hash)) return failPackage('历史引用缺少许可正文。')
       selectedLicenses[hash] = licenses[hash]; usedLicenses.add(hash)
     }
-    const document = json(refs.scenePath) as ProjectData['document']
+    const document = decodeSceneCoordinates(json(refs.scenePath))
     const project = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: document?.schemaVersion, document,
       historyIdentity: json(refs.identityPath) as ProjectData['historyIdentity'], appearance: json(refs.appearancePath) as ProjectData['appearance'], authoringSources: json(refs.sourcesPath) as ProjectData['authoringSources'],
       assets, licenses: selectedLicenses, licenseBindings: refs.licenseBindings })

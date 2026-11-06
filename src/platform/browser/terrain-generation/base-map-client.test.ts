@@ -1,12 +1,15 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { createShoreBlankDocument } from '../content/shore-blank.js'
 import { createRefinedBlankDocument } from '../content/refined-blank.js'
 import { executeBaseMapRequest, prepareBaseMapRequest, type BaseMapRequest, type BaseMapResponse } from '../../../shared/terrain-generation/base-map.js'
 import { canonicalJson, cloneJson } from '../../../shared/validation/json.js'
 import { createBaseMapGenerationClient, type BaseMapGenerationClient, type BaseMapGenerationClientOptions, type BaseMapWorker } from './base-map-client.js'
 import { executeBaseMapWorkerRequest } from './base-map-worker.js'
 import { prepareBaseMapRequestV2, executeBaseMapRequestV2, type BaseMapRequestV2, type BaseMapResponseV2 } from '../../../shared/terrain-generation/base-map-v2.js'
-import { CONTINUATION_POLICY } from '../../../shared/ai/budget-policy.js'
+import { CONTINUATION_POLICY, BUDGET_POLICY_HASHES } from '../../../shared/ai/budget-policy.js'
 import type { ConnectionInfo } from '../../../shared/ai/protocol.js'
+import { prepareBaseMapRequestV3, executeBaseMapRequestV3, type BaseMapRequestV3, type BaseMapResponseV3 } from '../../../shared/terrain-generation/base-map-v3.js'
+import { TASK_BUDGET_PROFILES } from '../../../shared/budget/task-budget.js'
 import type { BaseMapGenerationExecution } from './base-map-client.js'
 
 let terrainRequest: BaseMapRequest, terrainResponse: BaseMapResponse, compositionRequest: BaseMapRequest, compositionResponse: BaseMapResponse
@@ -283,5 +286,130 @@ describe('versioned continuation base-map transport', () => {
     expect(createWorker).toHaveBeenCalledTimes(1); expect(records[0].generationCalls).toBe(1)
     const retried = client.generate(request, { onExecution: value => records.push(value) }); workers[1].emit(response); await retried
     expect(records[1].generationCalls).toBe(2)
+  })
+})
+
+describe('profile-bound v3 base-map transport', () => {
+  let request: BaseMapRequestV3, response: BaseMapResponseV3
+  const capabilities = (changes: Partial<ConnectionInfo['capabilities']> = {}): ConnectionInfo => ({ schemaVersion: 1, model: 'test-model', protocol: 'chat-completions',
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: 'disabled', authoringVersions: [1, 2, 3], baseMapVersions: [1, 2, 3],
+      budgetPolicyHashes: BUDGET_POLICY_HASHES, budgetProfileHashes: [TASK_BUDGET_PROFILES.small.profileHash], ...changes },
+    retentionDays: 7, limits: { modelRequests: 4, toolCalls: 8, executionMs: 120000, promptBytes: 16384, outputBytes: 65536 } })
+  beforeAll(() => {
+    const base = createRefinedBlankDocument('island', { title: '动态预算底图', sceneId: 'profile-map-candidate', now: '2026-10-30T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
+    request = prepareBaseMapRequestV3({ requestId: 'profile-map-request', workspaceSceneId: 'current-workspace', checkpoint: 4, operationEpoch: 7,
+      base, flowId: 'profile-map-flow', profile: TASK_BUDGET_PROFILES.small, generation: { kind: 'terrain', input: {
+        sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 4, budgetProfileId: 'small', quality: 'standard', widthMm: 24000, heightMm: 18000,
+      } } })
+    response = executeBaseMapRequestV3(request)
+  }, 30000)
+  const surfaceRequest = (kind: 'terrain' | 'composition') => {
+    const base = createShoreBlankDocument('island', { title: '新岸面传输', sceneId: 'surface-map-candidate', now: '2026-10-30T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
+    return prepareBaseMapRequestV3({ requestId: 'surface-map-request', workspaceSceneId: 'current-workspace', checkpoint: 4, operationEpoch: 7,
+      base, flowId: 'surface-map-flow', profile: TASK_BUDGET_PROFILES.small, generation: kind === 'terrain' ? { kind, input: {
+        sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 5, budgetProfileId: 'small', quality: 'standard', widthMm: 24000, heightMm: 18000,
+      } } : { kind, input: { sceneId: base.sceneId, preset: 'archipelago', seed: 'terrain-compose-0', recipeVersion: 5, budgetProfileId: 'small', quality: 'standard', widthMm: 24000, heightMm: 18000, islandCount: 3 } } })
+  }
+  const v6SelectorRequest = (kind: 'terrain' | 'composition') => {
+    const base = createShoreBlankDocument('island', { title: '自动地表6能力检查', sceneId: 'surface-map-v6-candidate', now: '2026-10-30T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
+    return prepareBaseMapRequestV3({ requestId: 'surface-map-v6-request', workspaceSceneId: 'current-workspace', checkpoint: 4, operationEpoch: 7,
+      base, flowId: 'surface-map-v6-flow', profile: TASK_BUDGET_PROFILES.standard, generation: kind === 'terrain' ? { kind, input: {
+        sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 6, budgetProfileId: 'standard', quality: 'standard', widthMm: 24000, heightMm: 18000,
+      } } : { kind, input: { sceneId: base.sceneId, preset: 'archipelago', seed: 'terrain-compose-0', recipeVersion: 6, budgetProfileId: 'standard', quality: 'standard', widthMm: 24000, heightMm: 18000, islandCount: 3 } } })
+  }
+  const v7SelectorRequest = (kind: 'terrain' | 'composition') => {
+    const base = createShoreBlankDocument('island', { title: '自动地表7能力检查', sceneId: 'surface-map-v7-candidate', now: '2026-11-04T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
+    return prepareBaseMapRequestV3({ requestId: 'surface-map-v7-request', workspaceSceneId: 'current-workspace', checkpoint: 4, operationEpoch: 7,
+      base, flowId: 'surface-map-v7-flow', profile: TASK_BUDGET_PROFILES.standard, generation: kind === 'terrain' ? { kind, input: {
+        sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 7, budgetProfileId: 'standard', quality: 'standard', widthMm: 24000, heightMm: 18000,
+      } } : { kind, input: { sceneId: base.sceneId, preset: 'archipelago', seed: 'terrain-compose-0', recipeVersion: 7, budgetProfileId: 'standard', quality: 'standard', widthMm: 24000, heightMm: 18000, islandCount: 3 } } })
+  }
+  it.each(['terrain', 'composition'] as const)('refuses new %s surface semantics before POST when a v3 server ignores the additional opt-in', async kind => {
+    const request = surfaceRequest(kind), fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities())), { client, createWorker } = setup({ fetcher })
+    await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(createWorker).not.toHaveBeenCalled()
+    expect(String(fetcher.mock.calls[0][0])).toBe('https://ai.example.test/v1/capabilities?authoringVersion=3&surfaceVersion=1')
+  })
+  it('sends one unchanged new-surface request only after explicit capability 1 and never retries a server failure', async () => {
+    const request = surfaceRequest('terrain'), fetcher = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(String(url).includes('/capabilities?')
+      ? jsonResponse(capabilities({ surfaceRecipeVersions: [1] })) : new Response('', { status: 503 })))
+    const { client, createWorker } = setup({ fetcher })
+    await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'generation_failed' })
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=3&surfaceVersion=1', 'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3'])
+    expect(fetcher.mock.calls[1][1]?.body).toBe(canonicalJson(request)); expect(createWorker).not.toHaveBeenCalled()
+  })
+  it.each(['terrain', 'composition'] as const)('requires an exact v6 %s selector before posting to the server', async kind => {
+    const request = v6SelectorRequest(kind), selector = kind === 'terrain' ? 'terrain-scene-v6' : 'terrain-compose-v6'
+    const old = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities())), oldClient = setup({ fetcher: old })
+    await expect(oldClient.client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })
+    expect(old.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?baseMapSelector=' + selector])
+    expect(oldClient.createWorker).not.toHaveBeenCalled()
+
+    const current = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(String(url).includes('/capabilities?')
+      ? jsonResponse(capabilities({ baseMapSelectors: [selector], budgetProfileHashes: [request.profileHash] })) : new Response('', { status: 503 })))
+    const currentClient = setup({ fetcher: current })
+    await expect(currentClient.client.generate(request, { server })).rejects.toMatchObject({ code: 'generation_failed' })
+    expect(current.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://ai.example.test/v1/capabilities?baseMapSelector=' + selector,
+      'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3',
+    ])
+    expect(current.mock.calls[1][1]?.body).toBe(canonicalJson(request))
+    expect(currentClient.createWorker).not.toHaveBeenCalled()
+  })
+  it.each(['terrain', 'composition'] as const)('requires an exact v7 %s selector before posting to the server', async kind => {
+    const request = v7SelectorRequest(kind), selector = kind === 'terrain' ? 'terrain-scene-v7' : 'terrain-compose-v7'
+    const old = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities())), oldClient = setup({ fetcher: old })
+    await expect(oldClient.client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })
+    expect(old.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?baseMapSelector=' + selector])
+    expect(oldClient.createWorker).not.toHaveBeenCalled()
+
+    const current = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(String(url).includes('/capabilities?')
+      ? jsonResponse(capabilities({ baseMapSelectors: [selector], budgetProfileHashes: [request.profileHash] })) : new Response('', { status: 503 })))
+    const currentClient = setup({ fetcher: current })
+    await expect(currentClient.client.generate(request, { server })).rejects.toMatchObject({ code: 'generation_failed' })
+    expect(current.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://ai.example.test/v1/capabilities?baseMapSelector=' + selector,
+      'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3',
+    ])
+    expect(current.mock.calls[1][1]?.body).toBe(canonicalJson(request))
+    expect(currentClient.createWorker).not.toHaveBeenCalled()
+  })
+  it('executes v3 in the Worker and preserves its multidimensional result without network', async () => {
+    const { client, workers, fetcher } = setup(), pending = client.generate(request)
+    expect(workers[0].posted[0]).toEqual(request)
+    workers[0].emit(executeBaseMapWorkerRequest(workers[0].posted[0]))
+    await expect(pending).resolves.toEqual(response)
+    expect(response.generationBudget.usage.geometryPoints).toBeGreaterThan(0)
+    expect(response.domainCost.finalAdoptionCostChecked).toBe(false)
+    expect(fetcher).not.toHaveBeenCalled(); released(workers[0])
+  })
+  it('negotiates the profile registry separately from AI policies and posts only one exact v3 body', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(jsonResponse(String(url).includes('/capabilities?') ? capabilities() : response)))
+    const { client, createWorker } = setup({ fetcher })
+    await expect(client.generate(request, { server })).resolves.toEqual(response)
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=3', 'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3'])
+    expect(fetcher.mock.calls[1][1]?.body).toBe(canonicalJson(request)); expect(createWorker).not.toHaveBeenCalled()
+  })
+  it.each([{ baseMapVersions: [1, 2] as [1, 2] }, { budgetProfileHashes: undefined },
+    { budgetProfileHashes: BUDGET_POLICY_HASHES }, { budgetProfileHashes: [TASK_BUDGET_PROFILES.standard.profileHash] }])('refuses unsupported v3 profiles before POST and never falls back', async changes => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities(changes))), { client, createWorker } = setup({ fetcher })
+    await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(createWorker).not.toHaveBeenCalled()
+  })
+  it('rejects legacy responses and a different registered profile without repairing the envelope', async () => {
+    for (const invalid of [terrainResponse, { ...response, version: 2 }, { ...response, profileHash: TASK_BUDGET_PROFILES.standard.profileHash }]) {
+      const { client, workers } = setup(), pending = client.generate(request)
+      workers[0].emit(invalid); await expect(pending).rejects.toMatchObject({ code: 'protocol' }); released(workers[0])
+    }
+  })
+  it('independently captures v3 inputs and discards a late result after cancellation', async () => {
+    const mutable = cloneJson(request), { client, workers, createWorker } = setup(), records: BaseMapGenerationExecution[] = []
+    const pending = client.generate(mutable, { onExecution: value => records.push(value) }), rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    const late = workers[0].onmessage!
+    mutable.generation.input.seed = 'changed-after-start'
+    expect(workers[0].posted[0]).toEqual(request)
+    client.cancel(); await rejected
+    late({ data: response } as MessageEvent<unknown>)
+    expect(records).toHaveLength(1); expect(records[0].generationCalls).toBe(1); expect(createWorker).toHaveBeenCalledTimes(1)
   })
 })

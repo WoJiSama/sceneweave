@@ -32,8 +32,8 @@ export interface SvgAuthoringSource {
 /** Persistable JSON only. Metadata validation does not certify resource bytes. */
 export interface ProjectData {
   format: 'sceneweave-complete-project'
-  /** v2 carries a strict scene-v2 visual system; v1 remains read without added fields. */
-  schemaVersion: 1 | 2 | 3 | 4
+  /** The only development project contract carries the complete current model. */
+  schemaVersion: 1
   document: SceneDocument
   historyIdentity: HistoryIdentity
   appearance: AppearanceGraph

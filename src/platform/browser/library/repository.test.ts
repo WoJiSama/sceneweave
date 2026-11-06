@@ -3,7 +3,7 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { outdoorProject } from '../../../io/v6/test-fixtures'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
-import type { SceneDocument } from '../../../shared/model/scene.js'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { prepareLibraryEntry } from '../../../shared/library/content.js'
@@ -30,7 +30,7 @@ function repository(name = `m20e-library-${crypto.randomUUID()}`) {
 const key = (value = 0, content = 'b') => JSON.stringify([1, 'a'.repeat(64), 'prop', `item-${value}`, 1, content.repeat(64)])
 const org: CatalogOrganization = { tags: ['  手工 素材  ', 'Ｂ'], colors: ['蓝', '红'], favorite: true }
 async function entry(index = 0): Promise<PreparedLibraryEntry> {
-  const legacy = await outdoorProject(1), document = { ...cloneJson(legacy.document), format: 'sceneweave-scene', schemaVersion: 1 } as SceneDocument
+  const legacy = await outdoorProject(1), document = toCurrentSceneDocument({ ...cloneJson(legacy.document), format: 'sceneweave-scene', schemaVersion: 1 })
   const definition = document.propDefinitions['scatter-definition']
   definition.catalogId = `storage-fixture-${index}`; definition.name = `Symbol ${index}`
   document.propDefinitions = { [definition.id]: definition }
@@ -68,7 +68,7 @@ describe('native complete-v1 library repository', () => {
   it('creates only on use, has the exact five schema1 stores and refuses old/future database meanings', async () => {
     const repo = repository()
     expect((await indexedDB.databases()).map(row => row.name)).not.toContain(repo.database.name)
-    expect(LIBRARY_DATABASE_NAME).toBe('sceneweave-library')
+    expect(LIBRARY_DATABASE_NAME).toBe('sceneweave-library-dev-v1')
     await repo.read()
     expect(repo.database.backendDB().version).toBe(10)
     expect(repo.database.tables.map(row => row.name).sort()).toEqual([...LIBRARY_TABLES].sort())

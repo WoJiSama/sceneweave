@@ -1,3 +1,5 @@
+import { openSamples } from './workspace-navigation-helpers'
+import { projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -25,7 +27,7 @@ async function current(page: Page) {
   })
 }
 async function openSample(page: Page, name: string) {
-  await page.goto('/#workspace'); await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await page.goto('/#workspace'); await openSamples(page)
   await page.getByRole('button', { name, exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '确认打开工程', exact: true })
   await expect(dialog).toBeVisible({ timeout: 45_000 }); await dialog.getByRole('button', { name: '保存并打开副本', exact: true }).click()
@@ -36,14 +38,14 @@ test('original visual blank entry preserves the current scene on cancel and save
   test.setTimeout(120_000)
   await openSample(page, '潮声浅湾 · 连续海岸')
   const original = await current(page)
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openSamples(page)
   const create = page.getByRole('button', { name: '新建视觉空白 · 原创素材', exact: true })
   await create.click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await expect(dialog.getByLabel('原创素材组', { exact: true })).toHaveValue('original')
   await expect(dialog.getByLabel('原创素材组', { exact: true })).toContainText('通用视觉 · 24项')
-  await expect(dialog.getByLabel('画布宽度', { exact: true })).toHaveValue('24000')
-  await expect(dialog.getByLabel('画布高度', { exact: true })).toHaveValue('18000')
+  await expect(dialog.getByLabel('画布宽度', { exact: true })).toHaveValue('24')
+  await expect(dialog.getByLabel('画布高度', { exact: true })).toHaveValue('18')
   await dialog.getByLabel('场景名称', { exact: true }).fill('取消不创建视觉空白')
   await dialog.getByRole('button', { name: '取消', exact: true }).click()
   await expect(dialog).toHaveCount(0)
@@ -54,7 +56,7 @@ test('original visual blank entry preserves the current scene on cancel and save
   await expect(dialog).toHaveCount(0, { timeout: 45_000 }); await settled(page)
   const created = await current(page)
   expect(created.sceneId).not.toBe(original.sceneId)
-  expect(created.schemaVersion).toBe(2); expect(created.document.schemaVersion).toBe(2)
+  expect(created.schemaVersion).toBe(1); expect(created.document.schemaVersion).toBe(1)
   expect(created.title).toBe('原创素材视觉空白'); expect(created.revision).toBe(0)
   expect(created.document.exportBoundsMm).toEqual({ x: 0, y: 0, width: 24000, height: 18000 })
   expect(Object.keys(created.document.assets)).toHaveLength(24)
@@ -73,13 +75,13 @@ test('original visual blank entry preserves the current scene on cancel and save
     return { closure: await inspectVisualResourceClosure(cold), current: cold.document, prior: prior.project.document, empty: emptyVisualSystem(), projects: await projectRepository.list() }
   }, { originalId: original.sceneId, createdId: created.sceneId })
   expect(saved.current).toEqual(created.document); expect(saved.prior).toEqual(original.document)
-  expect(created.document.visual).toEqual(saved.empty); expect(saved.projects).toHaveLength(2)
+  expect(created.document.visual).toEqual({ version: 3, base: { version: 2, base: saved.empty, materializedEdges: {} }, transitions: {} }); expect(saved.projects).toHaveLength(2)
   expect(Object.keys(saved.closure.sources)).toHaveLength(24); expect(Object.keys(saved.closure.assets)).toHaveLength(24)
   for (const [hash, actual] of Object.entries(saved.closure.hashes)) expect(actual).toBe(hash)
   for (const source of Object.values(saved.closure.sources)) expect(saved.closure.assets[source.rasterSha256]).toBeDefined()
   expect(saved.closure.licenseBindings.length).toBeGreaterThanOrEqual(48)
   expect(saved.closure.licenseBindings.every(binding => binding.embedding === 'allowed')).toBe(true)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   expect((await current(page)).contentHash).toBe(created.contentHash)
   await info.attach('visual-original-blank.json', { body: JSON.stringify({ originalId: original.sceneId, createdId: created.sceneId, contentHash: created.contentHash, closure: saved.closure }), contentType: 'application/json' })
 })
@@ -92,9 +94,9 @@ for (const sample of [
   test.setTimeout(180_000)
   await openSample(page, sample.name)
   const original = await current(page)
-  expect(original.schemaVersion).toBe(2); expect(original.document.schemaVersion).toBe(2)
+  expect(original.schemaVersion).toBe(1); expect(original.document.schemaVersion).toBe(1)
   expect(original.title).toBe(sample.title); expect(original.document.visual).toBeDefined()
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   const reopened = await current(page)
   expect(reopened.contentHash).toBe(original.contentHash); expect(reopened.document.visual).toEqual(original.document.visual)
   const before = await page.evaluate(async () => {
@@ -128,7 +130,7 @@ for (const sample of [
   expect(after.hashes).toEqual(before.hashes); expect(after.sources).toBe(before.sources); expect(after.licenses).toBe(before.licenses)
   expect(after.authoringSources).toBe(before.authoringSources); expect(after.assets).toBe(before.assets)
   expect(after.authoringSources).toBeGreaterThanOrEqual(19); expect(after.assets).toBeGreaterThanOrEqual(19)
-  expect(after.schemaVersion).toBe(2); expect(after.sceneSchemaVersion).toBe(2)
+  expect(after.schemaVersion).toBe(1); expect(after.sceneSchemaVersion).toBe(1)
   for (const audience of ['gm', 'player'] as const) {
     expect([after[audience].width, after[audience].height]).toEqual(sample.ratio)
     expect(after[audience].rgbaHash).toBe(before[audience].rgbaHash)
@@ -154,7 +156,7 @@ test('manual curve drag stays a draft, previews both bound sides, adopts once an
   test.setTimeout(120_000)
   await openSample(page, '潮声浅湾 · 连续海岸')
   const before = await current(page)
-  await page.getByRole('tab', { name: '视觉', exact: true }).click()
+  await page.getByRole('tab', { name: '外观', exact: true }).click()
   const panel = page.getByRole('region', { name: '视觉场景创作', exact: true })
   await panel.getByLabel('视觉已有曲线', { exact: true }).selectOption('beach-coast')
   const handle = page.getByTestId('curve-handle-0-control1')
@@ -183,14 +185,14 @@ test('manual curve drag stays a draft, previews both bound sides, adopts once an
     return { before: helper.unchangedVisualScope(a), after: helper.unchangedVisualScope(b) }
   }, { a: before.document, b: adopted.document })
   expect(unchanged.after).toEqual(unchanged.before)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   const undone = await current(page)
   expect(undone.revision).toBe(adopted.revision + 1)
   expect(undone.document.visual).toEqual(before.document.visual); expect(undone.document.terrainAreas).toEqual(before.document.terrainAreas)
-  await expect(page.getByRole('button', { name: '撤销素材编辑', exact: true })).toBeDisabled()
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await settled(page)
+  await expect(page.getByRole('button', { name: '撤销编辑', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
   const redone = await current(page); expect(redone.document.visual).toEqual(adopted.document.visual)
-  const download = page.waitForEvent('download'); await page.getByRole('button', { name: '完整工程', exact: true }).click()
+  const download = page.waitForEvent('download'); await (await projectBackupButton(page)).click()
   const file = await download, path = await file.path(); expect(path).not.toBeNull()
   const bytes = await readFile(path!)
   expect(bytes.subarray(0, 2).toString()).toBe('PK')
@@ -206,7 +208,7 @@ test('visual history restores an existing light with protection and once undo, k
   await page.getByRole('button', { name: '新建命名快照', exact: true }).click()
   await page.getByLabel('命名快照名称', { exact: true }).fill(name)
   await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
-  await page.getByRole('tab', { name: '视觉', exact: true }).click()
+  await page.getByRole('tab', { name: '外观', exact: true }).click()
   const panel = page.getByRole('region', { name: '视觉场景创作', exact: true })
   await panel.getByRole('button', { name: '灯光', exact: true }).click()
   await panel.getByRole('combobox', { name: /^灯光/ }).selectOption(id)
@@ -249,7 +251,7 @@ test('visual history restores an existing light with protection and once undo, k
   const omitSelectedLight = (scene: typeof restored.document) => {
     const { revision: _revision, updatedAt: _updatedAt, visual, ...rest } = scene
     const { [id]: _light, ...lights } = visualBase(scene)!.lights
-    return { ...rest, visual: visual?.version === 2 ? { ...visual, base: { ...visual.base, lights } } : { ...visual, lights } }
+    return { ...rest, visual: { ...visual, base: { ...visual.base, base: { ...visual.base.base, lights } } } }
   }
   expect(omitSelectedLight(restored.document)).toEqual(omitSelectedLight(beforeRestore.document))
   const snapshots = await page.evaluate(async sceneId => {
@@ -258,12 +260,12 @@ test('visual history restores an existing light with protection and once undo, k
     return projectRepository.listSnapshots(sceneId)
   }, restored.document.sceneId)
   expect(snapshots.filter(snapshot => snapshot.kind === 'protection')).toHaveLength(1)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   const undone = await current(page)
   expect(undone.revision).toBe(restored.revision + 1)
   expect(undone.document.visual).toEqual(beforeRestore.document.visual)
   expect(omitSelectedLight(undone.document)).toEqual(omitSelectedLight(beforeRestore.document))
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   const reopened = await current(page)
   await page.getByRole('tab', { name: '历史', exact: true }).click()
   await selectHistoricalLight()

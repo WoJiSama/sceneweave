@@ -4,7 +4,7 @@ import type { PointMm, TerrainArea } from '../model/scene.js'
 import type { VisualBoundary, VisualEdgeLook } from './types.js'
 import { visualBase } from './base.js'
 import { sampleVisualBoundary, signedVisualArea } from './geometry.js'
-import { corridor, pathPolygon, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
+import { connectionFootprint, corridor, pathPolygon, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { definitionPresentation, presentationBounds, propPresentation } from '../appearance/presentation.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
@@ -21,7 +21,7 @@ const extent = (points:PointMm[]) => ({left:Math.min(...points.map(p=>p.x)),top:
  * deletes existing props, or creates a fresh group to bypass authored slots. */
 export function planTerrainDressing(content:Pick<CompositionContent,'document'|'appearance'>,raw:unknown):{commands:CompositionCommand[];input:TerrainDressingInput;report:TerrainDressingReport} {
   const input=terrainDressingInputSchema.parse(raw),scene=content.document,floor=scene.floors[input.floorId],visual=visualBase(scene)
-  if(scene.sceneId!==input.sceneId||!floor||scene.schemaVersion<3||scene.mapMode!=='scene'||!visual||content.appearance.version!==2)throw new Error('地形层次与布景需要匹配的完整v3/v4场景和当前Floor。')
+  if(scene.sceneId!==input.sceneId||!floor||scene.mapMode!=='scene'||!visual||content.appearance.version!==2)throw new Error('地形层次与布景需要匹配的完整场景和当前Floor。')
   const definitions=Object.values(scene.propDefinitions).filter(def=>def.version===1&&def.catalogId.startsWith('prop.sceneweave.terrain-dressing.')).sort((a,b)=>a.catalogId.localeCompare(b.catalogId))
   if(definitions.length!==6)throw new Error('地形布景须先在同一候选采用六个固定树岩来源。')
   let paintLeft=0,paintRight=0,paintTop=0,paintBottom=0
@@ -66,7 +66,7 @@ export function planTerrainDressing(content:Pick<CompositionContent,'document'|'
       if(previous&&(previous.editLocked||scene.userLayers[previous.layerId]?.editLocked)){report.preservedIds.push(previous.id);continue}
       // Saved materialized representations own their purpose; never add a
       // duplicate legacy look beside them or reinterpret frozen transitions.
-      const legacy=scene.visual?.version===2?scene.visual:scene.visual?.version===3?scene.visual.base:null
+      const legacy=scene.visual?.version===3?scene.visual.base:null
       if(legacy?.version===2&&Object.values(legacy.materializedEdges).some(edge=>edge.boundaryId===boundary!.id&&edge.kind===kind)){report.notes.push(`${boundary.id}的${kind}已物化，保持原表示。`);continue}
       if(scene.visual?.version===3&&Object.values(scene.visual.transitions).some(edge=>edge.enabled&&edge.boundaryId===boundary!.id&&edge.kind===kind)){report.notes.push(`${boundary.id}的${kind}已有固定过渡，保持原表示。`);continue}
       const id=previous?.id??token(kind,boundary.id),look:VisualEdgeLook={...(previous??{id,floorId:floor.id,layerId:ground,visibility:'public',editLocked:false,boundaryId:boundary.id,side:'right',seed:seed(kind),enabled:true}),kind,
@@ -78,7 +78,7 @@ export function planTerrainDressing(content:Pick<CompositionContent,'document'|'
   const sorted=[...land].sort((a,b)=>Math.abs(signedVisualArea(terrainPoints(b)))-Math.abs(signedVisualArea(terrainPoints(a))))
   const selected=sorted.slice(0,3) // Separate supports retain separate persistent groups.
   const reserved:PointMm[][]=[]
-  for(const c of Object.values(scene.terrainConnections))if(c.floorId===floor.id&&c.visibility==='public'&&visibility.surface(c.from.surfaceRef)&&visibility.surface(c.to.surfaceRef)&&(!c.openingId||!scene.openings[c.openingId]?.secret||scene.openings[c.openingId]?.revealed))reserved.push(corridor(c.from.positionMm,c.to.positionMm,c.widthMm))
+  for(const c of Object.values(scene.terrainConnections))if(c.floorId===floor.id&&c.visibility==='public'&&visibility.surface(c.from.surfaceRef)&&visibility.surface(c.to.surfaceRef)&&(!c.openingId||!scene.openings[c.openingId]?.secret||scene.openings[c.openingId]?.revealed))reserved.push(connectionFootprint(c))
   for(const path of Object.values(scene.paths))if(path.floorId===floor.id&&visibility.path(path.id))reserved.push(pathPolygon(path))
   for(const room of Object.values(scene.rooms))if(room.floorId===floor.id&&visibility.room(room.id))reserved.push(room.boundaryVertexIds.map(id=>({x:scene.vertices[id].xMm,y:scene.vertices[id].yMm})))
   for(const constraint of Object.values(getLegacyGeneration(scene)?.constraints??{}))if(constraint.floorId===floor.id&&constraint.visibility==='public'&&constraint.kind==='activityArea'){

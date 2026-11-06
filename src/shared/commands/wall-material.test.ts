@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import native from '../../platform/browser/content/scenes-data.json'
 import { applyCompositionCommands } from '../appearance/commands.js'
@@ -11,7 +12,9 @@ import { canonicalJson, cloneJson } from '../validation/json.js'
 const runtime = (): PreparationContext => ({ ids: { nextId: () => crypto.randomUUID() }, clock: { now: () => '2026-10-25T12:00:00.000Z' } })
 const apply = (project: ProjectData, commands: CompositionCommand[]) => validateProjectData({ ...project, ...applyCompositionCommands({ document: project.document, appearance: project.appearance, historyIdentity: project.historyIdentity }, commands, runtime()) })
 function fixture(): ProjectData {
-  let project = validateProjectData(cloneJson(native.scenes.blank) as unknown as ProjectData)
+  const seed = cloneJson(native.scenes.blank)
+  const document = toCurrentSceneDocument(seed.document as Parameters<typeof toCurrentSceneDocument>[0])
+  let project = validateProjectData({ ...seed, schemaVersion: 1, ...createCompositionContent(document, runtime()) })
   const alternate = cloneJson(project.document.materials['b2-m-04'])
   alternate.id = 'alternate-wall'; alternate.catalogId = 'test.material.alternate-wall'; alternate.name = 'Alternate wall stone'
   project.document.materials[alternate.id] = alternate

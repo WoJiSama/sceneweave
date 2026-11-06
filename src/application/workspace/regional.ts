@@ -18,7 +18,7 @@ import { polygonBoolean } from '../../shared/geometry/polygon-boolean.js'
 import { coveredEverywhere, pathPolygon, pointInPolygon, pointOnSurface, propFootprint, polygonsOverlap, supportedPolygon, terrainPoints } from '../../shared/geometry/geometry.js'
 import { emptyTerrainDocument } from '../../shared/terrain-generation/compose.js'
 import { validateSceneDocument } from '../../shared/validation/scene.js'
-import { assertTerrainBudget, type terrainCommandCost } from '../../shared/terrain-generation/cost.js'
+import { assertTerrainBudget, terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 import { RegionSceneCandidateResultSchema } from '../../shared/ai/region-candidate-protocol.js'
 import { createRegionalDocument, prepareRegionalEdit as prepareEdit, prepareRegionalDrillDown as prepareDrillDown,
   regionalAuthorizedSubsetHash,
@@ -157,8 +157,9 @@ export async function prepareRegionalCreate(base: EditableProject, input: Region
   const request = 'kind' in input ? regionalCreateRequestSchema.parse(captureJson(input)) : createRequest(owned, captureJson(input), options.runtime)
   const result = createRegionalDocument(owned.document, request), document = captureJson(result.document)
   document.revision = 0
-  const project = await validateEditableProject({ ...owned, schemaVersion: 3, ...createCompositionContent(document, options.runtime) }, validation)
-  return { kind: 'create', project, document: project.document, input: result.request, result, resultHash: result.hash, cost: result.cost, label: document.title }
+  const project = await validateEditableProject({ ...owned, schemaVersion: 1, ...createCompositionContent(document, options.runtime) }, validation)
+  const cost = assertTerrainBudget(owned.document, project.document, { before: owned, after: project })
+  return { kind: 'create', project, document: project.document, input: result.request, result, resultHash: result.hash, cost, label: document.title }
 }
 
 /** Same-scene edits retain the existing immutable resources and advance persistent identity. */
@@ -169,7 +170,8 @@ export async function prepareRegionalEdit(base: EditableProject, input: Regional
   const content = syncAppearanceGraph({ document: result.document, historyIdentity: advanceHistoryIdentity(owned.historyIdentity, owned.document, result.document, options.runtime), appearance: captureJson(owned.appearance) })
   const project = await materializeProject({ ...owned, ...content }, { runtime: options.runtime, validation, signal: validation.signal, baseline: owned })
   if (canonicalJson(project.document) !== canonicalJson(result.document)) throw new Error('区域编辑物化改变了已审阅结果。')
-  return { kind: 'edit', project, document: project.document, input: result.request, result, resultHash: result.hash, cost: result.cost, label: '区域实体修改' }
+  const cost = terrainCommandCost(owned.document, project.document, { before: owned, after: project })
+  return { kind: 'edit', project, document: project.document, input: result.request, result, resultHash: result.hash, cost, label: '区域实体修改' }
 }
 
 async function materializeInherited(result: RegionalDrillDownResult, base: SceneDocument, source: EditableProject, signal: CancellationSignal | undefined,
@@ -177,7 +179,7 @@ async function materializeInherited(result: RegionalDrillDownResult, base: Scene
   checkCancelled(signal)
   const checkpoint = regionalCheckpoint(signal, yieldToEventLoop)
   await checkpoint(true)
-  const document = base.schemaVersion === 2 ? emptyTerrainDocument(base) : captureJson(base)
+  const document = captureJson(base)
   if (Object.values(document.rooms).length || Object.values(document.terrainAreas).length || Object.values(document.props).length || Object.values(document.paths).length) throw new Error('下钻材质基线必须是独立空白场景。')
   document.sceneId = result.document.sceneId; document.title = result.document.title; document.revision = 0
   document.exportBoundsMm = captureJson(result.document.exportBoundsMm); document.generation = captureJson(result.document.generation!)
@@ -506,15 +508,18 @@ async function finishRegionalDrillDown(source: EditableProject, sourceResult: Re
   checkCancelled(validation.signal)
   const sceneCheck = validateSceneDocument(document)
   if (!sceneCheck.ok) throw new Error(`下钻实体未通过完整几何：${sceneCheck.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('；')}`)
-  const empty = captureJson(document); empty.terrainAreas = {}; empty.paths = {}; empty.entityLayers = {}; empty.generation = { ...captureJson(getLegacyGeneration(document)!), sourceLinks: {}, constraints: {} }
-  const cost = assertTerrainBudget(empty, document)
+  // A current v1 drill-down is an installable complete project.  Its budget
+  // must account for the immutable history and appearance closures created
+  // below, rather than using the scene-only draft estimate.
+  const content = createCompositionContent(document, options.runtime)
+  const cost = assertTerrainBudget(sceneBase.document, document, { before: sceneBase, after: content })
   const result: RegionalDrillDownResult = { ...sourceResult, document, cost, hash: sha256Text(canonicalJson({ request: sourceResult.request, document, cost })) }
   const closure = materialized.closure
   const bindingKeys = new Set<string>(), licenseBindings = [...sceneBase.licenseBindings]
   for (const binding of licenseBindings) bindingKeys.add(`${binding.subjectKind}\0${binding.subjectId}`)
   for (const binding of closure.licenseBindings) if (!bindingKeys.has(`${binding.subjectKind}\0${binding.subjectId}`)) { licenseBindings.push(binding); bindingKeys.add(`${binding.subjectKind}\0${binding.subjectId}`) }
   const readResources = Object.freeze({ read: (hash: string) => materialized.closure.sourceHashes.has(hash) ? source.resources.read(hash) : sceneBase.resources.read(hash) })
-  const projectInput: EditableProject = { ...sceneBase, schemaVersion: 3, ...createCompositionContent(document, options.runtime),
+  const projectInput: EditableProject = { ...sceneBase, schemaVersion: 1, ...content,
     assets: { ...sceneBase.assets, ...closure.assets }, licenses: { ...sceneBase.licenses, ...closure.licenses }, licenseBindings,
     authoringSources: { ...sceneBase.authoringSources, ...closure.authoringSources }, resources: readResources }
   const project = await validateEditableProject(projectInput, validation)

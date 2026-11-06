@@ -1,11 +1,20 @@
 import { z } from 'zod'
+import { TaskBudgetProfileSchema, taskBudgetProfile } from '../budget/task-budget.js'
 import type { TerrainCompositionInput, TerrainCompositionFeature } from './composition-field.js'
 import type { TerrainRequirement } from './composition-contracts.js'
-export const compositionPresetSchema=z.object({sceneId:z.string().min(1).max(256),seed:z.string().min(1).max(128),preset:z.enum(['archipelago','forestValley','grassRidge','tidalCoast']),widthMm:z.number().int().min(24000).max(120000),heightMm:z.number().int().min(18000).max(90000),islandCount:z.number().int().min(2).max(3).default(3),recipeVersion:z.union([z.literal(1),z.literal(2)]).optional()}).strict().refine(v=>v.widthMm/v.heightMm>=1&&v.widthMm/v.heightMm<=1.8,'宽高比须为1–1.8。')
-export type CompositionPresetInput=z.infer<typeof compositionPresetSchema>
+export const compositionPresetSchema=z.object({sceneId:z.string().min(1).max(256),seed:z.string().min(1).max(128),preset:z.enum(['archipelago','forestValley','grassRidge','tidalCoast']),widthMm:z.number().int().min(24000).max(120000),heightMm:z.number().int().min(18000).max(90000),islandCount:z.number().int().min(2).max(3).default(3),recipeVersion:z.union([z.literal(1),z.literal(2),z.literal(3)]).optional()}).strict().refine(v=>v.widthMm/v.heightMm>=1&&v.widthMm/v.heightMm<=1.8,'宽高比须为1–1.8。')
+export const compositionPresetV4Schema=z.object({...compositionPresetSchema.shape,recipeVersion:z.literal(4),budgetProfileId:TaskBudgetProfileSchema.shape.profileId,quality:z.enum(['standard','detailed'])}).strict().refine(v=>v.widthMm/v.heightMm>=1&&v.widthMm/v.heightMm<=1.8,'宽高比须为1–1.8。')
+export type CompositionPresetInputV4=z.infer<typeof compositionPresetV4Schema>
+export type CompositionPresetInput=z.infer<typeof compositionPresetSchema>|CompositionPresetInputV4
 export function compositionPreset(raw:unknown):{request:CompositionPresetInput;input:TerrainCompositionInput;requirements:TerrainRequirement[];name:string}{
- const request=compositionPresetSchema.parse(raw),w=request.widthMm,h=request.heightMm,scale=Math.min(w/48000,h/36000),features:TerrainCompositionInput['features']={},members:TerrainCompositionInput['members']=[]
- if(request.recipeVersion===2&&request.preset!=='archipelago'&&request.preset!=='tidalCoast')throw new Error('组合配方2仅支持群岛海岸与浅湾台地。')
+ return compositionPresetCore(compositionPresetSchema.parse(raw))
+}
+export function compositionPresetV4(raw:unknown){return compositionPresetCore(compositionPresetV4Schema.parse(raw))}
+function compositionPresetCore(request:CompositionPresetInput):{request:CompositionPresetInput;input:TerrainCompositionInput;requirements:TerrainRequirement[];name:string}{
+ const version=request.recipeVersion===4?(request.preset==='archipelago'?3:request.preset==='tidalCoast'?2:1):request.recipeVersion
+ const w=request.widthMm,h=request.heightMm,scale=Math.min(w/48000,h/36000),features:TerrainCompositionInput['features']={},members:TerrainCompositionInput['members']=[]
+ if(version===2&&request.preset!=='archipelago'&&request.preset!=='tidalCoast')throw new Error('组合配方2仅支持群岛海岸与浅湾台地。')
+ if(version===3&&request.preset!=='archipelago')throw new Error('组合配方3仅支持群岛海岸。')
  const point=(x:number,y:number)=>({x:Math.round(w*x),y:Math.round(h*y)})
  const add=(id:string,kind:TerrainCompositionFeature['kind'],shape:TerrainCompositionFeature['shape'],field:'land'|'elevation'|'vegetation',operation:'add'|'subtract'|'max',elevationMm=600)=>{features[id]={id,kind,shape,floorId:'visual-floor',layerId:'visual-layer-ground',visibility:'public',editLocked:false,elevationMm,roughnessPpm:120000,seedKey:id} as TerrainCompositionFeature;members.push({featureId:id,field,operation,weightPpm:1000000})}
  const ellipse=(x:number,y:number,rx:number,ry:number)=>({kind:'ellipse' as const,centerMm:point(x,y),radiusXMm:Math.round(w*rx),radiusYMm:Math.round(h*ry),rotationMilliDeg:0})
@@ -13,7 +22,7 @@ export function compositionPreset(raw:unknown):{request:CompositionPresetInput;i
  const count=(surface:'land'|'water',expected:number,excludeBoundaryTouching:boolean)=>requirements.push({id:`t9-${surface}-count`,compositionId,kind:'componentCount',strength:'hard',surface,expected,excludeBoundaryTouching})
  let landCoveragePpm=300000,elevationCoveragePpm=25000,name=''
  if(request.preset==='tidalCoast'){
-  if(request.recipeVersion===2){
+  if(version===2){
    add('v2-tidal-land','landmass',ellipse(.5,.5,.36,.38),'land','add',800)
    add('v2-tidal-bay','riverValley',{kind:'corridor',pointsMm:[point(0,.58),point(.42,.55)],widthMm:Math.round(8000*scale)},'land','subtract',800)
    add('v2-tidal-ridge','ridge',{kind:'corridor',pointsMm:[point(.56,.38),point(.67,.46)],widthMm:Math.round(7000*scale)},'elevation','max',1800)
@@ -22,7 +31,14 @@ export function compositionPreset(raw:unknown):{request:CompositionPresetInput;i
   }
   landCoveragePpm=290000;elevationCoveragePpm=22000;count('land',1,true);name='浅湾台地'
  }else if(request.preset==='archipelago'){
-  if(request.recipeVersion===2){
+  if(version===3){
+   // A dominant western landmass and smaller eastern remnants come from the
+   // same bounded field. The bent channel makes an actual bay, rather than
+   // adding noise or silently changing the persisted @1 evaluator.
+   add('v3-mainland','landmass',ellipse(.40,.50,.48,.46),'land','add')
+   add('v3-main-channel','riverValley',{kind:'corridor',pointsMm:[point(.56,0),point(.39,.53),point(.56,1)],widthMm:Math.round(8000*scale)},'land','subtract')
+   if(request.islandCount===3)add('v3-east-channel','riverValley',{kind:'corridor',pointsMm:[point(.39,.54),point(1,.54)],widthMm:Math.round(5000*scale)},'land','subtract')
+  }else if(version===2){
    add('v2-mainland','landmass',ellipse(.5,.5,.46,.45),'land','add')
    add('v2-main-channel','riverValley',{kind:'corridor',pointsMm:[point(.5,0),point(.5,1)],widthMm:Math.round(8000*scale)},'land','subtract')
    if(request.islandCount===3)add('v2-branch-channel','riverValley',{kind:'corridor',pointsMm:[point(0,.52),point(.28,.43),point(.51,.50)],widthMm:Math.round(5000*scale)},'land','subtract')
@@ -32,7 +48,10 @@ export function compositionPreset(raw:unknown):{request:CompositionPresetInput;i
   }
   landCoveragePpm=request.islandCount===3?250000:220000;count('land',request.islandCount,true)
   requirements.push({id:'t9-island-area',compositionId,kind:'minimumComponentArea',strength:'hard',surface:'land',excludeBoundaryTouching:true,minAreaMm2:Math.round(w*h*.017)})
-  requirements.push({id:'t9-channel',compositionId,kind:'channelWidth',strength:'hard',pointsMm:[point(.5,.12),point(.5,.86)],minWidthMm:Math.round(1800*scale)})
+  const channelPoints=version===3
+   ? [point(.56-.17*.12/.53,.12),point(.39,.53),point(.39+.17*(.86-.53)/.47,.86)]
+   : [point(.5,.12),point(.5,.86)]
+  requirements.push({id:'t9-channel',compositionId,kind:'channelWidth',strength:'hard',pointsMm:channelPoints,minWidthMm:Math.round(1800*scale)})
   name='群岛海岸'
  }else{
   add('t9-mainland','landmass',ellipse(.5,.5,4,4),'land','add');landCoveragePpm=900000
@@ -46,8 +65,13 @@ export function compositionPreset(raw:unknown):{request:CompositionPresetInput;i
    elevationCoveragePpm=55000;count('water',1,true);name='草岩丘陵'
   }
  }
- const v2=request.recipeVersion===2,tidal=request.preset==='tidalCoast'
- const tolerance=v2&&request.preset==='archipelago'?800:v2&&tidal?2400:tidal?5000:2600
- const input:TerrainCompositionInput={seed:request.seed,boundsMm:{x:0,y:0,width:w,height:h},baseElevationMm:v2&&tidal?800:600,precision:{sampleSpacingMm:Math.max(1,Math.round(Math.max(w,h)/48)),toleranceMm:Math.max(1,Math.round(tolerance*scale)),noiseCellMm:Math.max(1,Math.round(5000*scale))},features,members,landCoveragePpm,elevationCoveragePpm}
+ const v2=version===2,v3=version===3,tidal=request.preset==='tidalCoast'
+ const tolerance=v3?650:v2&&request.preset==='archipelago'?800:v2&&tidal?2400:tidal?5000:2600
+ const input:TerrainCompositionInput={seed:request.seed,boundsMm:{x:0,y:0,width:w,height:h},baseElevationMm:v2&&tidal?800:600,precision:{sampleSpacingMm:Math.max(1,Math.round(Math.max(w,h)/(v3?96:48))),toleranceMm:Math.max(1,Math.round(tolerance*scale)),noiseCellMm:Math.max(1,Math.round(5000*scale))},features,members,landCoveragePpm,elevationCoveragePpm}
+ if(request.recipeVersion===4){
+  const profile=taskBudgetProfile(request.budgetProfileId),axis=request.quality==='detailed'?{small:80,standard:112,expanded:160}[profile.profileId]:{small:64,standard:80,expanded:96}[profile.profileId]
+  input.precision.sampleSpacingMm=Math.max(1,Math.round(Math.max(w,h)/axis))
+  input.precision.toleranceMm=Math.max(1,Math.round((request.quality==='detailed'?160:350)*scale))
+ }
  return {request,input,requirements,name}
 }

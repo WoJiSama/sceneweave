@@ -1,4 +1,5 @@
 import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
+import { captureExecutionBudget, assertTaskBudget, measureTaskBudget, type TaskBudgetProfile, type BudgetUsage } from '../budget/task-budget.js'
 import type { SceneDocument, PointMm, SurfaceStyle } from '../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../model/scene.js'
 import { captureJson } from '../validation/json.js'
@@ -11,16 +12,21 @@ import { compositionInputHash, dependencyInputHash, thresholdInputHash, terrainR
 import { evaluateTerrainRequirement } from './composition-requirements.js'
 
 export function emptyCompositionDocument(input:SceneDocument):SceneDocument {
- const legacy=input.schemaVersion===2?emptyTerrainDocument(input):captureJson(input)
- if(legacy.schemaVersion!==3||legacy.visual?.version!==2||!legacy.generation||legacy.generation.version===5)throw new Error('组合升级需要完整v3工程。')
- return {...legacy,schemaVersion:4,generation:createEmptyGeneration5(legacy.generation),visual:{version:3,base:legacy.visual,transitions:{}}}
+ if(input.generation?.version!==5 || input.visual?.version!==3)throw new Error('组合生成需要完整生成和视觉基线。')
+ return captureJson(input)
 }
 const ring=(points:PointMm[]):MultiPolygon=>[[points.map(p=>[p.x,p.y])]]
 /** Full physical output. Holes use higher-priority real water; no implicit filled lake. */
-export function materializeTerrainComposition(base:SceneDocument,input:TerrainCompositionInput,requirements:TerrainRequirement[],title:string,profile:'plain'|'tidal'|'tidal-v2'='plain',recipeVersion:1|2=1):{document:SceneDocument;plan:TerrainCompositionPlan} {
- if(base.schemaVersion!==2||LAYER_ENTITY_COLLECTIONS.some(key=>Object.keys(base[key]).length))throw new Error('新组合必须从独立同源完整空白开始。')
- if(profile==='tidal-v2'&&(recipeVersion!==2||input.baseElevationMm!==800))throw new Error('浅湾配方2须显式保存版本2与800毫米基底。')
- const plan=planTerrainComposition(input),document=emptyCompositionDocument(base)
+export function materializeTerrainComposition(base:SceneDocument,input:TerrainCompositionInput,requirements:TerrainRequirement[],title:string,profile:'plain'|'tidal'|'tidal-v2'='plain',recipeVersion:1|2|3|4=1,budget?:TaskBudgetProfile):{document:SceneDocument;plan:TerrainCompositionPlan;executionUsage?:BudgetUsage} {
+ if(LAYER_ENTITY_COLLECTIONS.some(key=>Object.keys(base[key]).length))throw new Error('新组合必须从独立同源完整空白开始。')
+ if(recipeVersion===4&&!budget)throw new Error('组合配方4必须绑定显式注册预算。')
+ if(profile==='tidal-v2'&&((recipeVersion!==2&&recipeVersion!==4)||input.baseElevationMm!==800))throw new Error('浅湾配方2须显式保存版本2与800毫米基底。')
+ const meter=budget?captureExecutionBudget(budget):undefined
+ meter?.charge({candidateAttempts:1})
+ const edgeCount=(polygons:MultiPolygon)=>polygons.reduce((sum,poly)=>sum+poly.reduce((n,ring)=>n+ring.length,0),0)
+ const intersection=(a:MultiPolygon,b:MultiPolygon)=>{meter?.charge({intersectionPairs:edgeCount(a)*edgeCount(b)});return polygonClipping.intersection(a,b)}
+ const difference=(a:MultiPolygon,b:MultiPolygon)=>{meter?.charge({intersectionPairs:edgeCount(a)*edgeCount(b)});return polygonClipping.difference(a,b)}
+ const plan=planTerrainComposition(input,meter),document=emptyCompositionDocument(base)
  const levels=[...new Set(input.members.filter(m=>m.field==='elevation'&&m.operation!=='subtract').map(m=>input.features[m.featureId].elevationMm))]
  levels.sort((a,b)=>a-b)
  if(levels.some(level=>level<=input.baseElevationMm))throw new Error('高地分带必须高于低地；负向高程需通过明确湖盆/河谷物化。')
@@ -44,13 +50,31 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
  let priority=10
  if(profile==='tidal'){
   const threshold=plan.thresholds.land!
-  const shallow=extractCompositionFieldLevel(threshold.sourceInput,'land',Math.max(-1000000,threshold.valueQ-70000))
+  const shallow=extractCompositionFieldLevel(threshold.sourceInput,'land',Math.max(-1000000,threshold.valueQ-70000),meter)
   for(const [i,poly] of shallow.entries()){
    if(poly.holes.length)throw new Error('浅滩分带含孔洞，须减少复杂交叠。')
    add(`t9-shallow-${i}`,poly.outer,priority++,200,'water');document.terrainAreas[`t9-shallow-${i}`].blocksMovement=false
   }
  }
- if(profile==='tidal-v2'){
+ if(profile==='tidal-v2'&&recipeVersion===4){
+  // The finer v4 coast may be concave. A homothety around the ellipse center
+  // does not guarantee containment of a concave ring, so v4 freezes a real
+  // lower field level and unions the exact land before materializing it.
+  const threshold=plan.thresholds.land!,lower=extractCompositionFieldLevel(threshold.sourceInput,'land',Math.max(-1000000,threshold.valueQ-70000),meter)
+  const land:MultiPolygon=plan.fields.land.polygons.map(poly=>[poly.outer,...poly.holes].map(points=>points.map(p=>[p.x,p.y])))
+  const shallow:MultiPolygon=lower.map(poly=>[poly.outer,...poly.holes].map(points=>points.map(p=>[p.x,p.y])))
+  meter?.charge({intersectionPairs:edgeCount(shallow)*edgeCount(land)})
+  const expanded=polygonClipping.union(shallow,land)
+  const clipped=intersection(expanded,ring([{x:b.x,y:b.y},{x:b.x+b.width,y:b.y},{x:b.x+b.width,y:b.y+b.height},{x:b.x,y:b.y+b.height}]))
+  for(const [i,poly] of clipped.entries()){
+   if(poly.length!==1)throw new Error('浅湾配方4的浅滩分带含孔洞。')
+   const points=poly[0].map(([x,y])=>({x:Math.round(x),y:Math.round(y)}))
+   if(points[0].x===points.at(-1)!.x&&points[0].y===points.at(-1)!.y)points.pop()
+   assertSimpleVisualPolyline(points,true)
+   add(`t9-shallow-${i}`,points,priority++,200,'water');document.terrainAreas[`t9-shallow-${i}`].blocksMovement=false
+  }
+ }
+ if(profile==='tidal-v2'&&recipeVersion!==4){
   const sources=input.members.filter(member=>member.field==='land'&&member.operation==='add').map(member=>input.features[member.featureId]).filter(feature=>feature.kind==='landmass'&&feature.shape.kind==='ellipse')
   if(sources.length!==1||sources[0].shape.kind!=='ellipse')throw new Error('浅湾配方2需要唯一椭圆陆块骨架。')
   const center=sources[0].shape.centerMm,world=[{x:b.x,y:b.y},{x:b.x+b.width,y:b.y},{x:b.x+b.width,y:b.y+b.height},{x:b.x,y:b.y+b.height}]
@@ -71,7 +95,7 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
  }
  if(profile==='tidal'){
   const threshold=plan.thresholds.land!
-  const lowland=extractCompositionFieldLevel(threshold.sourceInput,'land',Math.min(1000000,threshold.valueQ+80000))
+  const lowland=extractCompositionFieldLevel(threshold.sourceInput,'land',Math.min(1000000,threshold.valueQ+80000),meter)
   for(const [i,poly] of lowland.entries()){
    if(poly.holes.length)throw new Error('低地分带含孔洞，须减少复杂交叠。')
    add(`t9-lowland-${i}`,poly.outer,priority++,800,'land')
@@ -81,9 +105,9 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
  const bands:{field:'elevation'|'vegetation';role:'high'|'forest';elevation:number;polygons:typeof plan.fields.land.polygons}[]=[]
  for(const [index,elevation] of levels.entries()){
   const threshold=plan.thresholds.elevation!
-  const levelQ=index===0?threshold.valueQ:recomputeCompositionThreshold(threshold.sourceInput,'elevation',Math.round(threshold.targetCoveragePpm*(levels.length-index)/levels.length),threshold.grid)
+  const levelQ=index===0?threshold.valueQ:recomputeCompositionThreshold(threshold.sourceInput,'elevation',Math.round(threshold.targetCoveragePpm*(levels.length-index)/levels.length),threshold.grid,meter)
   const currentSource={algorithmId:'terrain-compose' as const,algorithmVersion:1 as const,seed:input.seed,precision:input.precision,boundsMm:input.boundsMm,baseElevationMm:input.baseElevationMm,members:input.members,features:input.features}
-  const levelPolygons=index===0?plan.fields.elevation.polygons:extractCompositionFieldLevel(currentSource,'elevation',levelQ)
+  const levelPolygons=index===0?plan.fields.elevation.polygons:extractCompositionFieldLevel(currentSource,'elevation',levelQ,meter)
   bands.push({field:'elevation',role:'high',elevation,polygons:levelPolygons})
  }
  bands.push({field:'vegetation',role:'forest',elevation:input.baseElevationMm,polygons:plan.fields.vegetation.polygons})
@@ -95,7 +119,7 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
  for(const [bandIndex,{field,role,elevation,polygons:source}] of bands.entries()){
   if(!source.length)continue
   const raw:MultiPolygon=source.map(poly=>[poly.outer,...poly.holes].map(points=>points.map(p=>[p.x,p.y])))
-  const clipped=landMulti.length?polygonClipping.intersection(raw,landMulti):[]
+  const clipped=landMulti.length?intersection(raw,landMulti):[]
   // Capture the exact underlying mosaic before adding this band. Restoring a
   // hole replays these real surfaces in their original priority order.
   const supports=Object.values(document.terrainAreas).map(area=>captureJson(area)).sort((a,c)=>a.coveragePriority-c.coveragePriority)
@@ -110,13 +134,13 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
      for(const support of supports.slice().reverse()){
       if(!remaining.length)break
       const supportRing=ring(support.boundaryMm.map(p=>p.positionMm))
-      for(const polygon of polygonClipping.intersection(remaining,supportRing))pieces.push({support,polygon})
-      remaining=polygonClipping.difference(remaining,supportRing)
+      for(const polygon of intersection(remaining,supportRing))pieces.push({support,polygon})
+      remaining=difference(remaining,supportRing)
      }
      if(remaining.length)throw new Error('孔洞缺少完整下层支撑。')
      // Prefer only visible pieces. A holed inherited piece falls back to an
      // exact ordered replay; those additional real pieces still cost budget.
-     const restore=pieces.some(piece=>piece.polygon.length!==1)?supports.flatMap(support=>polygonClipping.intersection([[hole]],ring(support.boundaryMm.map(p=>p.positionMm))).map(polygon=>({support,polygon}))):pieces
+     const restore=pieces.some(piece=>piece.polygon.length!==1)?supports.flatMap(support=>intersection([[hole]],ring(support.boundaryMm.map(p=>p.positionMm))).map(polygon=>({support,polygon}))):pieces
      for(const [pieceIndex,{support,polygon}] of restore.entries()){
       if(polygon.length!==1)throw new Error('继承支撑分片含孔洞，无法证明等价物化。')
       const restoreId=`${id}-hole-${holeIndex}-${pieceIndex}`
@@ -131,13 +155,15 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
    // exact physical elevation. Water is excluded by the complete land mask.
    for(const support of supports){
     if(support.surfaceStyle?.base.materialRef.id===material('water').id)continue
-    overlay(polygonClipping.intersection(clipped,ring(support.boundaryMm.map(p=>p.positionMm))),support.groundElevationMm)
+    overlay(intersection(clipped,ring(support.boundaryMm.map(p=>p.positionMm))),support.groundElevationMm)
    }
   }else overlay(clipped,elevation)
  }
  // Every real intersection and collinear endpoint is persisted in both rings.
  // This is creation of new geometry, not an implicit repair on load.
  const rings=Object.values(document.terrainAreas).map(a=>a.boundaryMm.map(p=>p.positionMm))
+ const ringEdges=rings.reduce((sum,row)=>sum+row.length,0)
+ meter?.charge({intersectionPairs:ringEdges*ringEdges})
  for(const area of Object.values(document.terrainAreas)){
   const source=area.boundaryMm.map(p=>p.positionMm),positions:PointMm[]=[]
   for(let i=0;i<source.length;i++){
@@ -163,10 +189,11 @@ export function materializeTerrainComposition(base:SceneDocument,input:TerrainCo
  const dependency:TerrainDependency={id:'t9-dependency',compositionId,featureIds:Object.keys(system.features).sort(),thresholdIds:[...composition.thresholdIds],reads:[],writes:captureJson(outputRefs),transitionIds:[],scopeMm:captureJson(b),haloMm:Math.max(input.precision.sampleSpacingMm,input.precision.noiseCellMm*4,input.precision.toleranceMm),algorithmId:'terrain-dependencies',algorithmVersion:1,inputHash:'0'.repeat(64)}
  system.dependencies[dependency.id]=dependency;dependency.inputHash=dependencyInputHash(document,dependency)
  for(const requirement of requirements){
-  const evaluation=evaluateTerrainRequirement(document,requirement)
+  const evaluation=evaluateTerrainRequirement(document,requirement,meter)
   if(evaluation.state!=='passed')throw new Error(evaluation.issues.map(i=>i.message).join('；'))
   const id=`${requirement.id}-check`;system.checks[id]={id,requirementId:requirement.id,algorithmId:'terrain-requirement',algorithmVersion:1,...evaluation,inputHash:terrainRequirementInputHash(document,requirement)}
  }
  composition.inputHash=compositionInputHash(document,composition)
- return {document,plan}
+ if(budget)assertTaskBudget(budget,measureTaskBudget(base,document,undefined,meter!.snapshot()))
+ return {document,plan,...(meter?{executionUsage:meter.snapshot()}: {})}
 }

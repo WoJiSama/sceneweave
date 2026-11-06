@@ -24,9 +24,9 @@ afterEach(async () => {
   vi.clearAllMocks(); vi.restoreAllMocks()
 })
 async function setup() {
-  const input = fixture({ image: true }), document = emptyTerrainDocument({ ...input.project.document, schemaVersion: 2, visual: emptyVisualSystem() })
+  const input = fixture({ image: true }), document = emptyTerrainDocument(input.project.document)
   const content = createCompositionContent(document, runtime)
-  const current = await fromBundle({ ...input, project: { ...input.project, schemaVersion: 3, ...content } }, validation)
+  const current = await fromBundle({ ...input, project: { ...input.project, schemaVersion: 1, ...content } }, validation)
   const name = `terrain-dressing-workspace-${crypto.randomUUID()}`, repo = new ProjectRepository({ name, runtime, validation })
   repos.push(repo); names.push(name)
   const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)

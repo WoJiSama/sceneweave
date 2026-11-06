@@ -1,24 +1,25 @@
+import { currentAuthoringFixture } from '../../tests/helpers/current-authoring-fixture.js'
+import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { svgProjectFixture } from '../../tests/helpers/m24-svg-fixtures.js'
-import type { AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
-import { authoringProjectHash, applyAuthoringStep, replayAuthoring } from '../../src/shared/ai/authoring.js'
+import { authoringProjectHash } from '../../src/shared/ai/authoring.js'
+import { applyAuthoringStep, replayAuthoring } from '../../src/shared/ai/authoring.js'
 import { canonicalJson, cloneJson } from '../../src/shared/validation/json.js'
-import { emptyVisualSystem } from '../../src/shared/visual/types.js'
 import { proposeAuthoringTerrainBoundary } from '../../src/shared/ai/visual-authoring.js'
 import type { StoredTask } from './store.js'
 import { executeAuthoringTool } from './authoring-tools.js'
 
 function fixture() {
   const project = cloneJson(svgProjectFixture().bundle.project), scene = project.document
-  project.schemaVersion = 2; scene.schemaVersion = 2; scene.visual = emptyVisualSystem()
+  Object.assign(scene, toCurrentSceneDocument(scene))
   scene.title = 'PRIVATE_PROJECT_TITLE'
   const floorId = Object.keys(scene.floors)[0], layerId = scene.entityLayers.item, boundsMm = scene.floors[floorId].boundsMm
-  const start: AuthoringStart = { schemaVersion: 1, project, baseContentHash: authoringProjectHash(project), seed: randomUUID(), preparedAt: '2026-10-25T00:00:00.000Z',
-    disclosure: 'complete-metadata/public-model', skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
+  const start = currentAuthoringFixture({ project, seed: randomUUID(), preparedAt: '2026-10-25T00:00:00.000Z',
+    skill: { id: 'sceneweave-scene-authoring', version: 1 }, scope: { targetIds: [], operations: [], placement: null,
       scene: { floorId, layerId, boundsMm, entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], operations: ['terrain'] },
       visual: { floorId, layerId, boundsMm, entityIds: [], definitionIds: [], materialIds: [], operations: ['visualBoundary'] } },
-    brief: { recipe: 'island', requirements: ['Asymmetric rocky coast with a readable cliff'] } }
+    brief: { recipe: 'island', requirements: ['Asymmetric rocky coast with a readable cliff'] } })
   const task: StoredTask = { owner: 'test', fingerprint: 'test', messages: [], calls: {}, runtimeMs: 0, runStartedAt: null, outputBytes: 0, toolAttempts: 0, completedRequests: 0, pendingText: '',
     authoring: { start, state: replayAuthoring(start, []).state }, snapshot: { schemaVersion: 1, id: randomUUID(), clientRequestId: randomUUID(), context: { sceneId: scene.sceneId, revision: scene.revision, audience: 'public' },
       status: 'running', generation: 1, lastSequence: 0, text: '', tools: [], usage: { requests: 0, inputTokens: null, outputTokens: null, unknown: true }, error: null, createdAt: 1, updatedAt: 1, expiresAt: 1000 } }
@@ -85,7 +86,7 @@ describe('read-only terrain proposal shape measurements at the AI service bounda
       authoring.start.baseContentHash = authoringProjectHash(authoring.start.project)
       // Cold replay proves this is a valid frozen baseline whose other coast
       // is outside the grant, rather than a forged project hash rejection.
-      authoring.state = replayAuthoring(authoring.start, []).state
+      Object.assign(authoring.start, currentAuthoringFixture(authoring.start)); authoring.state = replayAuthoring(authoring.start, []).state
       const baseline = canonicalJson(task), refused = run('sceneweave_propose_boundary', { areaId: hiddenId, boundaryId: 'new-curve' })
       expect(refused.success).toBe(false)
       const error = JSON.parse(refused.output).error

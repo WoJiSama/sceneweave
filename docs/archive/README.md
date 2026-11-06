@@ -7,11 +7,11 @@
 | 台账 | 追溯范围 |
 |---|---|
 | [M0/M1 历史验证台账](m0-m1-validation.md) | 原13、16–33、35；几何、素材、手工编辑与旧性能 |
-| [工作区、素材库与内容历史台账](workspace-content-validation.md) | 原36–44；统一工作区、目录、内容与旧全量回归 |
+| [工作区、素材库与内容历史台账](workspace-content-validation.md) | 原36–44；统一工作区、目录、内容与旧全量回归；本分支子格填充、建筑编辑、有限UVTT导出及[唯一v1/通用生成薄层](workspace-content-validation.md#single-v1-generation-20261105)、[D1阶段候选](workspace-content-validation.md#d1-generation-stages-20261105)、[D2室内布局](workspace-content-validation.md#d2-interior-20261105)、[D3初次门路/家具建议](workspace-content-validation.md#d3-interior-suggestions-20261105)、[D4森林空地/路线/植被](workspace-content-validation.md#d4-forest-20261105)、[D5火山结构/独立危险策略](workspace-content-validation.md#d5-volcano-20261105)、[D6受限局部重生成](workspace-content-validation.md#d6-local-generation-20261105)、[D7公共入口/Worker/HTTP](workspace-content-validation.md#d7-generation-execution-20261105)开发记录 |
 | [M2工程与交付历史台账](m2-project-validation.md) | 原45–52及旧07/09；完整工程、迁移、回归与交付；旧会话工作笔记和参考/运行说明原文 |
 | [AI真实调用、回归与交付历史](ai-validation.md) | 原05的真实调用、失败、浏览器与交付结果 |
 | [Q0–Q5视觉制作与验收历史](visual-quality-validation.md) | 原53/54的制作、真实模型、失败与发布；视觉方法已并入14 |
-| [地形开发与技术历史](terrain-validation.md) | 原55的T0–T13开发/冻结、测试、失败、复验与停止记录 |
+| [地形开发与技术历史](terrain-validation.md) | 原55的T0–T13开发/冻结；后续构图、动态预算、岸岩表面、[曲线连接/组件变形](terrain-validation.md#curved-connections-20261031)、[轻量装饰/簇状布景](terrain-validation.md#decoration-clusters-20261031)及[岩岛生成后自动布景](terrain-validation.md#island-dressing-20261102)的定向开发自检与失败/修复 |
 
 ## 旧编号位置
 
@@ -63,3 +63,5 @@
 - 原55 → [地形参考](../reference/terrain-generation.md)；开发任务 → [07](../07-roadmap.md#development)，全部验收 → [09](../09-quality-plan.md#acceptance)，旧17–20实施原文 → [地形历史](terrain-validation.md#terrain-implementation-notes)。
 - 原根目录task_plan/findings/progress → [旧执行计划](m2-project-validation.md#legacy-task-plan)、[旧问题笔记](m2-project-validation.md#legacy-findings)、[旧实施进展](m2-project-validation.md#legacy-progress)，只供追溯，不继续追加为并行计划。
 - 参考/运行说明的历史原文 → [M2补录](m2-project-validation.md#retired-reference-notes)；素材目录的旧交接 → [内容台账](workspace-content-validation.md#visual-production-handoffs)。
+
+- 本分支素材变体与批量导入的实现、失败/修复和定向资源/像素/UI证据 → [素材工作区台账](workspace-content-validation.md#asset-batch-20261031)；当前顺序仍只在[07](../07-roadmap.md#branch-plan)，正式验收仍只在[09](../09-quality-plan.md#branch-feature-acceptance)。

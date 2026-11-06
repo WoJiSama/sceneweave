@@ -1,33 +1,47 @@
+import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetMetadata, type CommandBudgetProfile } from '../budget/command-budget.js'
+import { aggregateRepresentationCommandSchemas, applyAggregateRepresentationCommand, isAggregateRepresentationCommand, type AggregateRepresentationCommand } from '../aggregates/commands.js'
+import { reconcileAggregateMembers } from '../aggregates/state.js'
+import { applyNaturalAggregateCommand, isNaturalAggregateCommand, naturalAggregateCommandSchema, type NaturalAggregateCommand } from '../aggregates/natural-transform.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { pauseChangedCompositions } from '../terrain-generation/composition-lifecycle.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
+import { applyDecorationCommand, decorationCommandSchemas, isDecorationCommand, reconcileDecorationMembers, assertDecorationMemberUnlocked, type DecorationCommand } from '../decorations/commands.js'
+import { applySurfaceRuleCommand, isSurfaceRuleCommand, surfaceRuleCommandSchemas, type SurfaceRuleCommand } from '../surface-rules/commands.js'
 import { applyVisualCommand, isVisualCommand, visualCommandSchemas, type VisualCommand } from '../visual/commands.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { applyCommandDraft, createBasePlacedProp, isEntityEditLocked, type BasePlacePropOptions, type BaseSceneCommand } from './base.js'
 import type { PointMm } from '../model/scene.js'
+import type { AppearanceGraph, CompositionContent } from '../model/appearance.js'
+import { certifyCompositionDraft } from '../validation/content.js'
 import { canvasBoundsCommandSchema, applyCanvasBoundsCommand, type CanvasBoundsCommand } from './canvas-bounds.js'
 import { sceneDisplayCommandSchema, applySceneDisplayCommand, type SceneDisplayCommand } from './scene-display.js'
 import { annotationCommandSchemas, applyAnnotationCommand, isAnnotationCommand, type AnnotationCommand } from './annotations.js'
-import { applyBuildingCommand, buildingCommandSchemas, isBuildingCommand, type BuildingCommand } from './building.js'
-import { applyOutdoorCommand, isOutdoorCommand, outdoorCommandSchemas, type OutdoorCommand } from './outdoor.js'
+import { applyBuildingCommand, buildingCommandSchemasForBudget, isBuildingCommand, type BuildingCommand } from './building.js'
+import { applyOutdoorCommand, isOutdoorCommand, outdoorCommandSchemas, outdoorDependencies, type OutdoorCommand } from './outdoor.js'
+import { refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { entitiesInLayer, enumerateLayerEntities, orderedLayers, previewLayerMove, previewLayerRemoval } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
-import { validateSceneSnapshot } from '../validation/snapshots.js'
-import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
+import { validateSceneDerivationSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
+import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
 
 export type SceneCommand =
   | Exclude<BaseSceneCommand, { type: 'addProp' | 'setEditLock' }>
   | (Extract<BaseSceneCommand, { type: 'addProp' }> & { layerId?: string })
   | BuildingCommand
+  | AggregateRepresentationCommand
+  | NaturalAggregateCommand
   | AnnotationCommand
   | CanvasBoundsCommand
   | SceneDisplayCommand
+  | { type: 'renameScene'; title: string }
   | OutdoorCommand
   | VisualCommand
-  | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path'; id: string; locked: boolean }
+  | DecorationCommand
+  | SurfaceRuleCommand
+  | { type: 'setEditLock'; kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region' | 'prop' | 'prefabInstance' | 'scatterGroup' | 'terrainArea' | 'terrainEdge' | 'terrainConnection' | 'path' | 'decoration' | 'decorationCluster' | 'surfaceRule'; id: string; locked: boolean }
   | { type: 'createLayer'; id: string; floorId: string; name: string }
   | { type: 'renameLayer'; id: string; name: string }
   | { type: 'setLayerLock'; id: string; locked: boolean }
@@ -41,8 +55,15 @@ export interface ApplySnapshotCommandsOptions extends ApplyCommandsOptions {
 }
 
 export interface ApplyCommandsOptions {
+  /** Fixed paint inputs from the fully validated composition; never a document certificate. */
+  appearance?: AppearanceGraph
+  /** Explicit transaction envelope; omission retains the legacy expanded budget. */
+  budget?: CommandBudgetProfile
   /** Internal complete-composition semantics for explicit group rotations. */
   fixedUprightPropIds?: ReadonlySet<string>
+  /** Complete accounting evidence after the owning composition synchronizes
+   * fixed sources. Both strict snapshots must match the actual scene delta. */
+  budgetContent?: { before: CompositionContent; after: () => CompositionContent }
   /** Internal synchronous observer: inspect immediately; never mutate or retain the draft. */
   onOutdoorDraft?: (draft: Readonly<SceneDocument>, command: Readonly<OutdoorCommand | VisualCommand>) => void
   /** Includes base/building edits and runs after generation records are reconciled. */
@@ -60,41 +81,57 @@ const name = z.string().transform(value => value.trim()).pipe(z.string().min(1).
 const uniqueIds = z.array(id).refine(values => new Set(values).size === values.length, 'ID 不能重复')
 
 /** Explicit native command contract; unknown fields cannot hide a second operation. */
-export const sceneCommandSchema = z.discriminatedUnion('type', [
-  ...buildingCommandSchemas,
-  ...annotationCommandSchemas,
-  ...outdoorCommandSchemas,
-  ...visualCommandSchemas,
-  canvasBoundsCommandSchema,
-  sceneDisplayCommandSchema,
-  z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
-  z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
-  z.object({ type: z.literal('reverseWall'), id }).strict(),
-  z.object({ type: z.literal('splitWall'), id, positionMm: point, newVertexId: id, newWallId: id }).strict(),
-  z.object({ type: z.literal('setSurfaceMaterial'), kind: z.enum(['room', 'terrainArea', 'wall']), id, materialRef: version }).strict(),
-  z.object({ type: z.literal('setSurfacePaint'), kind, id, changes: z.object({ rotationDeg: angle.optional(), originMm: point.optional(), tileSizeMm: size.optional() }).strict() }).strict(),
-  z.object({ type: z.literal('moveTerrainPoint'), areaId: id, pointId: id, positionMm: point }).strict(),
-  z.object({ type: z.literal('setTerrainElevation'), id, groundElevationMm: integer }).strict(),
-  z.object({ type: z.literal('setConnectionBlocked'), id, blocksMovement: z.boolean() }).strict(),
-  z.object({ type: z.literal('removeTerrainConnection'), id }).strict(),
-  z.object({ type: z.literal('setOverlayBoundary'), kind, id, overlayId: id, boundaryMm: z.array(point).min(3).max(512) }).strict(),
-  z.object({ type: z.literal('regenerateScatter'), id, densityFactor: z.number().finite().min(0).max(1).optional() }).strict(),
-  z.object({ type: z.literal('addProp'), id, floorId: id, definitionRef: version, positionMm: point, rotationDeg: angle.optional(), supportRef: surfaceRef.optional(), layerId: id.optional() }).strict(),
-  z.object({ type: z.literal('copyProp'), id, newId: id, offsetMm: point }).strict(),
-  z.object({ type: z.literal('deleteProp'), id }).strict(),
-  z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
-  z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainEdge', 'terrainConnection', 'path']), id, locked: z.boolean() }).strict(),
-  z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
-  z.object({ type: z.literal('unpackPrefab'), id }).strict(),
-  z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
-  z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
-  z.object({ type: z.literal('createLayer'), id, floorId: id, name }).strict(),
-  z.object({ type: z.literal('renameLayer'), id, name }).strict(),
-  z.object({ type: z.literal('setLayerLock'), id, locked: z.boolean() }).strict(),
-  z.object({ type: z.literal('reorderLayers'), floorId: id, ids: uniqueIds.max(USER_LAYER_LIMIT) }).strict(),
-  z.object({ type: z.literal('moveEntitiesToLayer'), ids: uniqueIds.min(1).max(COMMAND_LIMIT), layerId: id }).strict(),
-  z.object({ type: z.literal('removeLayer'), id, targetLayerId: id.optional() }).strict(),
+function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCommand> {
+  return z.discriminatedUnion('type', [
+    ...buildingCommandSchemasForBudget(budget),
+    ...aggregateRepresentationCommandSchemas,
+    naturalAggregateCommandSchema,
+    ...annotationCommandSchemas,
+    ...outdoorCommandSchemas,
+    ...visualCommandSchemas,
+    ...decorationCommandSchemas,
+    ...surfaceRuleCommandSchemas,
+    canvasBoundsCommandSchema,
+    sceneDisplayCommandSchema,
+    z.object({ type: z.literal('renameScene'), title: z.string().trim().min(1).max(120) }).strict(),
+    z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
+    z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
+    z.object({ type: z.literal('reverseWall'), id }).strict(),
+    z.object({ type: z.literal('splitWall'), id, positionMm: point, newVertexId: id, newWallId: id }).strict(),
+    z.object({ type: z.literal('setSurfaceMaterial'), kind: z.enum(['room', 'terrainArea', 'wall']), id, materialRef: version }).strict(),
+    z.object({ type: z.literal('setSurfacePaint'), kind, id, changes: z.object({ rotationDeg: angle.optional(), originMm: point.optional(), tileSizeMm: size.optional() }).strict() }).strict(),
+    z.object({ type: z.literal('moveTerrainPoint'), areaId: id, pointId: id, positionMm: point }).strict(),
+    z.object({ type: z.literal('setTerrainElevation'), id, groundElevationMm: integer }).strict(),
+    z.object({ type: z.literal('setConnectionBlocked'), id, blocksMovement: z.boolean() }).strict(),
+    z.object({ type: z.literal('removeTerrainConnection'), id }).strict(),
+    z.object({ type: z.literal('setOverlayBoundary'), kind, id, overlayId: id, boundaryMm: z.array(point).min(3).max(512) }).strict(),
+    z.object({ type: z.literal('regenerateScatter'), id, densityFactor: z.number().finite().min(0).max(1).optional() }).strict(),
+    z.object({ type: z.literal('addProp'), id, floorId: id, definitionRef: version, positionMm: point, rotationDeg: angle.optional(), supportRef: surfaceRef.optional(), layerId: id.optional() }).strict(),
+    z.object({ type: z.literal('copyProp'), id, newId: id, offsetMm: point }).strict(),
+    z.object({ type: z.literal('deleteProp'), id }).strict(),
+    z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
+    z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainEdge', 'terrainConnection', 'path', 'decoration', 'decorationCluster', 'surfaceRule']), id, locked: z.boolean() }).strict(),
+    z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
+    z.object({ type: z.literal('unpackPrefab'), id }).strict(),
+    z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
+    z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
+    z.object({ type: z.literal('createLayer'), id, floorId: id, name }).strict(),
+    z.object({ type: z.literal('renameLayer'), id, name }).strict(),
+    z.object({ type: z.literal('setLayerLock'), id, locked: z.boolean() }).strict(),
+    z.object({ type: z.literal('reorderLayers'), floorId: id, ids: uniqueIds.max(USER_LAYER_LIMIT) }).strict(),
+    z.object({ type: z.literal('moveEntitiesToLayer'), ids: uniqueIds.min(1).max(commandSelectionLimit(budget)), layerId: id }).strict(),
+    z.object({ type: z.literal('removeLayer'), id, targetLayerId: id.optional() }).strict(),
 ])
+}
+export const sceneCommandSchema = sceneSchemaForBudget()
+const manualCommandSchemas = new Map<number, z.ZodType<SceneCommand>>()
+export function sceneCommandSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCommand> {
+  const limit = commandSelectionLimit(budget)
+  if (limit === COMMAND_LIMIT) return sceneCommandSchema
+  let schema = manualCommandSchemas.get(limit)
+  if (!schema) { schema = sceneSchemaForBudget(budget); manualCommandSchemas.set(limit, schema) }
+  return schema
+}
 export const commandsSchema = z.array(sceneCommandSchema).max(COMMAND_LIMIT, '单次事务最多 256 个操作')
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
 const equal = (a: unknown, b: unknown): boolean => {
@@ -104,15 +141,27 @@ const equal = (a: unknown, b: unknown): boolean => {
   return ak.length === bk.length && ak.every(key => Object.hasOwn(b, key) && equal((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
 }
 const layerTypes = new Set(['createLayer', 'renameLayer', 'reorderLayers', 'moveEntitiesToLayer', 'removeLayer'])
-const category = (command: SceneCommand) => command.type === 'setSceneDisplay' ? 'display' : command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
+const category = (command: SceneCommand) => command.type === 'setSceneDisplay' || command.type === 'renameScene' ? 'display' : command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
 const needsOutdoorExpansion = (scene: SceneDocument, command: SceneCommand): command is OutdoorCommand => isOutdoorCommand(command)
   && ((command.type !== 'deleteProp' && command.type !== 'updateProp' && command.type !== 'replacePropAppearance') || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === command.id)))
 
-function checkedCommands(commands: readonly SceneCommand[]): SceneCommand[] {
-  if (!Array.isArray(commands) || commands.length > COMMAND_LIMIT) throw new Error('编辑指令必须是数组，单次事务最多 256 个操作。')
+/** Internal detached-candidate hook, shared with complete prefab/appearance edits. */
+export function refreshNativeDerivedTransitions(before: SceneDocument, after: SceneDocument): number {
+  const impact = refreshScene5TransitionsAfterPhysicalEdit(before, after)
+  if (!impact.changedIds.length) return 0
+  const byId = new Map(enumerateLayerEntities(before).map(entity => [entity.id, entity]))
+  const dependencies = new Set([...outdoorDependencies(before, impact.affectedIds), ...outdoorDependencies(after, impact.affectedIds)])
+  const locked = [...dependencies].filter(id => byId.get(id)?.editLocked || byId.has(id) && before.userLayers[before.entityLayers[id]]?.editLocked)
+  if (locked.length) throw new Error(`物理修改影响锁定的派生支撑或遮挡依赖：${locked.join('、')}。`)
+  return impact.commandCost
+}
+
+function checkedCommands(commands: readonly SceneCommand[], budget?: CommandBudgetProfile): SceneCommand[] {
+  const limit = commandSelectionLimit(budget)
+  if (!Array.isArray(commands) || commands.length > limit) throw new Error(`编辑指令必须是数组，单次事务最多 ${limit} 个操作。`)
   const issue = inspectJsonInput(commands)
   if (issue) throw new Error(`编辑指令无效：${issue.message}`)
-  const checked = commandsSchema.safeParse(commands)
+  const checked = (limit === COMMAND_LIMIT ? commandsSchema : z.array(sceneCommandSchemaForBudget(budget)).max(limit)).safeParse(commands)
   if (!checked.success) throw new Error(`编辑指令无效：${checked.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
   const parsed = checked.data as SceneCommand[]
   if (new Set(parsed.map(category)).size > 1) throw new Error('显示设置、图层组织、内容编辑、实体锁和图层锁须分别独立提交；不能同批解锁后编辑。')
@@ -130,7 +179,7 @@ function assertLayerUnlocked(scene: SceneDocument, id: string) {
 }
 function restoreActualLocks(next: SceneDocument, source: SceneDocument, explicit: ReadonlyMap<string, boolean>) {
   const actual = new Map(enumerateLayerEntities(source).map(entity => [entity.id, entity.editLocked]))
-  for (const collection of LAYER_ENTITY_COLLECTIONS) for (const entity of Object.values(next[collection])) {
+  for (const collection of [...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS]) for (const entity of Object.values(next[collection] ?? {})) {
     if (explicit.has(entity.id)) entity.editLocked = explicit.get(entity.id)!
     else if (actual.has(entity.id)) entity.editLocked = actual.get(entity.id)!
   }
@@ -176,8 +225,8 @@ function changedRecords(before: Record<string, unknown>, after: Record<string, u
 /** Complete persisted expansion for base content edits, including member overrides. */
 function nativeCommandCost(before: SceneDocument, after: SceneDocument): number {
   let cost = 0
-  for (const collection of LAYER_ENTITY_COLLECTIONS) {
-    const a = before[collection], b = after[collection]
+  for (const collection of [...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS]) {
+    const a = before[collection] ?? {}, b = after[collection] ?? {}
     for (const id of new Set([...Object.keys(a), ...Object.keys(b)])) {
       if (!equal(a[id], b[id]) || before.entityLayers[id] !== after.entityLayers[id]) cost++
     }
@@ -196,15 +245,16 @@ function nativeCommandCost(before: SceneDocument, after: SceneDocument): number 
 function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
   // Entity locks are an independent transaction category; content cannot unlock itself.
   if (commands[0]?.type === 'setEditLock') {
-    const next = cloneJson(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections', path: 'paths' } as const
+    const next = cloneJson(scene), collections = { vertex: 'vertices', room: 'rooms', wall: 'walls', opening: 'openings', note: 'notes', region: 'regions', prop: 'props', prefabInstance: 'prefabInstances', scatterGroup: 'scatterGroups', terrainArea: 'terrainAreas', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections', path: 'paths', decoration: 'decorations', decorationCluster: 'decorationClusters', surfaceRule: 'surfaceRules' } as const
     let cost = 0
     for (const command of commands) {
       if (command.type !== 'setEditLock') throw new Error('编辑锁须单独提交。')
-      const beforeTerrain = next.schemaVersion >= 3 ? cloneJson(next) : null
-      const entity = own(next[collections[command.kind]] as Record<string, { id: string; editLocked: boolean }>, command.id)
+      const beforeTerrain = cloneJson(next)
+      const entity = own((next[collections[command.kind]] ?? {}) as Record<string, { id: string; editLocked: boolean }>, command.id)
       if (!entity) throw new Error('编辑锁目标不存在或类型不符。')
       assertLayerUnlocked(next, next.entityLayers[command.id])
       if (entity.editLocked !== command.locked) {
+        assertDecorationMemberUnlocked(next, command.id)
         if (command.kind === 'prop') {
           const parents = [...Object.values(next.prefabInstances), ...Object.values(next.scatterGroups)].filter(group => Object.values(group.members).some(member => member.propId === command.id))
           if (parents.some(group => group.editLocked || next.userLayers[next.entityLayers[group.id]].editLocked)) throw new Error('物件所属组合、散布或其图层已锁定，不能修改成员编辑锁。')
@@ -212,30 +262,41 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
         entity.editLocked = command.locked
       }
       if (beforeTerrain) {
+        reconcileDecorationMembers(beforeTerrain, next)
+        refreshNativeDerivedTransitions(beforeTerrain, next)
         detachChangedOutputs(beforeTerrain, next)
         pauseChangedCompositions(beforeTerrain, next)
         // Reconcile and charge every transition, including changes later undone
         // in this same batch. A repeated lock request still consumes one step.
         const commandCost = Math.max(1, terrainCommandCost(beforeTerrain, next).total)
         cost += commandCost
-        if (cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
+        if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
         options?.onSceneDraft?.(next, command, commandCost)
       }
     }
     return next
   }
   let next = cloneJson(scene), cost = 0
-  const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
-    const beforeTerrain=next.schemaVersion>=3?cloneJson(next):null
+    const beforeTerrain=cloneJson(next)
     let commandCost: number
-    if (isVisualCommand(command)) {
-      commandCost = applyVisualCommand(next, command, context).commandCost
+    const derivedHandled = isVisualCommand(command) || needsOutdoorExpansion(next, command) || isBuildingCommand(command) || isNaturalAggregateCommand(command)
+    if (isAggregateRepresentationCommand(command)) {
+      commandCost = applyAggregateRepresentationCommand(next, command).commandCost
+    } else if (isNaturalAggregateCommand(command)) {
+      commandCost = applyNaturalAggregateCommand(next, command, { fixedUprightIds: options?.fixedUprightPropIds }).commandCost
+    } else if (isSurfaceRuleCommand(command)) {
+      commandCost = applySurfaceRuleCommand(next, command, context, options?.appearance, options?.budget).commandCost
+    } else if (isDecorationCommand(command)) {
+      commandCost = applyDecorationCommand(next, command, context, options?.appearance, options?.budget).commandCost
+    } else if (isVisualCommand(command)) {
+      commandCost = applyVisualCommand(next, command, context, options?.budget).commandCost
       options?.onOutdoorDraft?.(next, command)
     } else if (needsOutdoorExpansion(next, command)) {
-      commandCost = applyOutdoorCommand(next, command, context).commandCost
+      commandCost = applyOutdoorCommand(next, command, context, options?.budget).commandCost
       options?.onOutdoorDraft?.(next, command)
-    } else if (isBuildingCommand(command)) commandCost = applyBuildingCommand(next, command).commandCost
+    } else if (isBuildingCommand(command)) commandCost = applyBuildingCommand(next, command, options?.fixedUprightPropIds).commandCost
     else if (isAnnotationCommand(command)) {
       const before = cloneJson(next)
       applyAnnotationCommand(next, command)
@@ -248,8 +309,11 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     }
     let chargedCost = commandCost
     if (beforeTerrain) {
+      if (!isDecorationCommand(command) && !isSurfaceRuleCommand(command)) reconcileDecorationMembers(beforeTerrain, next)
+      if (!derivedHandled) commandCost += refreshNativeDerivedTransitions(beforeTerrain, next)
       detachChangedOutputs(beforeTerrain, next)
       pauseChangedCompositions(beforeTerrain, next)
+      reconcileAggregateMembers(beforeTerrain, next)
       const expanded = terrainCommandCost(beforeTerrain, next)
       // Charge no-ops together with every real per-command expansion. Comparing
       // only the final net delta loses earlier edits and repeated requests.
@@ -265,11 +329,11 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
 function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand[], options?: ApplyCommandsOptions): SceneDocument {
   const next = cloneJson(scene)
   let cost = 0
-  const consume = (amount: number) => { cost += amount; if (cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
-  const consumeCommand = (amount: number) => consume(scene.schemaVersion >= 3 ? Math.max(1, amount) : amount)
+  const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
+  const consumeCommand = (amount: number) => consume(Math.max(1, amount))
   for (const command of commands) {
     const beforeCost = cost
-    const beforeTerrain=next.schemaVersion>=3?cloneJson(next):null
+    const beforeTerrain=cloneJson(next)
     switch (command.type) {
       case 'createLayer': {
         consumeCommand(1)
@@ -298,14 +362,14 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
         break
       }
       case 'moveEntitiesToLayer': {
-        const preview = previewLayerMove(next, command.ids, command.layerId)
+        const preview = previewLayerMove(next, command.ids, command.layerId, options?.budget)
         if (preview.reason) throw new Error(preview.reason)
         consumeCommand(preview.commandCost)
         for (const change of preview.changes) next.entityLayers[change.id] = change.toLayerId
         break
       }
       case 'removeLayer': {
-        const preview = previewLayerRemoval(next, command.id, command.targetLayerId)
+        const preview = previewLayerRemoval(next, command.id, command.targetLayerId, options?.budget)
         if (preview.reason) throw new Error(preview.reason)
         consumeCommand(preview.commandCost)
         const floorId = next.userLayers[command.id].floorId
@@ -323,37 +387,50 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
   return next
 }
 function candidate(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
-  if (commands[0]?.type === 'setSceneDisplay') {
+  if (commands[0]?.type === 'setSceneDisplay' || commands[0]?.type === 'renameScene') {
     const next = cloneJson(scene)
     for (const command of commands) {
-      if (command.type !== 'setSceneDisplay') throw new Error('显示设置须独立提交。')
-      applySceneDisplayCommand(next, command)
+      if (command.type === 'renameScene') next.title = command.title
+      else if (command.type === 'setSceneDisplay') applySceneDisplayCommand(next, command)
+      else throw new Error('工程设置须独立提交。')
       options?.onSceneDraft?.(next, command, 1)
     }
     return next
   }
   return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock') ? applyContent(scene, commands, context, options) : applyOrganization(scene, commands, options)
 }
+/** A full strict accounting pair must describe the exact materialized delta. */
+function manualBudgetMetadata(before: SceneDocument, after: SceneDocument, options: ApplyCommandsOptions | undefined): CommandBudgetMetadata | undefined {
+  if (!isManualTransactionBudget(options?.budget) || !options.budgetContent) return undefined
+  const first = certifyCompositionDraft(options.budgetContent.before), second = certifyCompositionDraft(options.budgetContent.after())
+  if (!equal(first.document, before) || !equal(second.document, after)) throw new Error('普通事务的完整内容计量与实际场景变化不一致；事务未采用。')
+  return { before: first, after: second }
+}
 /** Detached mutable candidate; all-or-nothing native scene validation. Revision is committed by Workspace. */
 export function applyCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
   // Only the validator's independently owned immutable scene can reuse its
   // input proof. Caller-owned or cloned scenes still take the complete path.
+  if (options?.budget) parseCommandBudgetProfile(options.budget)
   const source = validateSceneSnapshot(scene)
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
-  const next = candidate(source.document, checkedCommands(commands), context, options), result = validateSceneDocument(next)
+  const next = candidate(source.document, checkedCommands(commands, options?.budget), context, options), result = validateSceneDocument(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
+  if (options?.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, next, manualBudgetMetadata(source.document, next, options), undefined, options.budget))
   return next
 }
 /** Certified immutable editor path; no-op batches preserve identity and consume no history. */
 export function applySnapshotCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options: ApplySnapshotCommandsOptions = {}): SceneDocument {
+  if (options?.budget) parseCommandBudgetProfile(options.budget)
   const source = validateSceneSnapshot(scene)
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
-  const checked = checkedCommands(commands)
+  const checked = checkedCommands(commands, options.budget)
   if (!checked.length) return source.document
   const next = candidate(source.document, checked, context, options)
   if (options.preserveNoopIdentity !== false && equal(next, source.document)) return source.document
-  const result = validateSceneSnapshot(next)
+  const result = checked.every(command => command.type === 'updateProp')
+    ? validateSceneDerivationSnapshot(next, source.document) : validateSceneSnapshot(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
+  if (options.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, result.document, manualBudgetMetadata(source.document, result.document, options), undefined, options.budget))
   return result.document
 }
 

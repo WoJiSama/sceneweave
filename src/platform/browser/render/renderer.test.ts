@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { zlibSync } from 'fflate'
 import { layerSceneV3 } from '../../../core/v3/test-fixtures'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
@@ -29,7 +30,7 @@ function pixelPng(width = 1, height = 1, metadata?: string): Uint8Array {
 }
 
 function fixture(): ProjectBundle {
-  const document: SceneDocument = { ...structuredClone(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 }
+  const document: SceneDocument = toCurrentSceneDocument({ ...structuredClone(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   document.units.gridVisible = false
   const bytes = pixelPng(), hash = sha256Bytes(bytes), origin = { kind: 'original' as const, attribution: 'Native renderer unit fixture', canEmbed: true }
@@ -123,6 +124,19 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
     expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
     expect(browser.canvases[0]).toMatchObject({ width: 0, height: 0 })
     expect(metrics).toHaveBeenCalledWith(expect.objectContaining({ audience: 'gm', width: 256, height: 256, decodedImages: 1, decodedPixels: 1 }))
+  })
+
+  it('keeps full validation but defers offscreen prop draw bitmaps until the viewport demands them', async () => {
+    const input = fixture(), browser = primitives(), metrics = vi.fn(), read = vi.fn(input.resources.read)
+    input.resources = { read }
+    await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, viewBoundsMm: { x: 14000, y: 14000, width: 1000, height: 1000 }, onMetrics: metrics })
+    expect(read).toHaveBeenCalled()
+    // One full bundle validation bitmap; no extra offscreen drawing bitmap.
+    expect(browser.decode).toHaveBeenCalledTimes(1)
+    expect(metrics).toHaveBeenLastCalledWith(expect.objectContaining({ decodedImages: 0, decodedPixels: 0 }))
+    await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, viewBoundsMm: { x: 3000, y: 3000, width: 2000, height: 2000 }, onMetrics: metrics })
+    expect(metrics).toHaveBeenLastCalledWith(expect.objectContaining({ decodedImages: 1, decodedPixels: 1 }))
+    expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
   })
 
   it('uses GM-only layer hiding while keeping formal and player output on their audience projection', async () => {

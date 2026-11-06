@@ -1,3 +1,4 @@
+import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { groupLayerSceneV3, layerSceneV3 } from '../../core/v3/test-fixtures'
 import type { SceneDocument } from '../../shared/model/scene.js'
@@ -6,8 +7,10 @@ import { selectionScene } from './selection-scene'
 import { hitTestAll, normalizeSelection, selectInBounds, selectionGeometry } from './selection'
 import { summarizeSelection } from './selection-summary'
 import { selectionActionReason, selectionCommands } from './selection-actions'
+import { manualTransactionBudget } from '../../shared/budget/command-budget'
+import { taskBudgetProfile } from '../../shared/budget/task-budget'
 
-const native = (scene = layerSceneV3()): SceneDocument => ({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
+const native = (scene = layerSceneV3()): SceneDocument => toCurrentSceneDocument({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
 
 describe('native complete-v1 member and batch selection', () => {
   it('hits actual member outlines and never a gap, collapses group/member duplicates and preserves explicit member mode', () => {
@@ -53,5 +56,26 @@ describe('native complete-v1 member and batch selection', () => {
     expect(selectionCommands(scene, ['left'], 'move', { dx: 25, dy: -50 })).toEqual([{ type: 'updateProp', id: 'left', changes: { positionMm: { x: 6025, y: 3950 } } }])
     expect(selectionActionReason(scene, Array.from({ length: 257 }, () => 'left'), 'move')).toMatch(/256/)
     expect(scene.prefabInstances.group).toEqual(original)
+  })
+
+  it('uses an explicit ordinary tier for a large selection while preserving default and task limits', () => {
+    const scene = native(), source = scene.props.item, layerId = scene.entityLayers.item
+    scene.props = {}; scene.entityLayers = {}
+    const ids = Array.from({ length: 300 }, (_, index) => `member-${index}`)
+    for (const [index, id] of ids.entries()) {
+      scene.props[id] = { ...structuredClone(source), id, positionMm: { x: 1000 + index * 10, y: 4000 } }
+      scene.entityLayers[id] = layerId
+    }
+    const budget = manualTransactionBudget('standard')
+    expect(selectionActionReason(scene, ids, 'move')).toMatch(/256/)
+    expect(selectionActionReason(scene, ids, 'move', taskBudgetProfile('expanded'))).toMatch(/256/)
+    expect(selectionActionReason(scene, ids, 'move', budget)).toBeNull()
+    expect(summarizeSelection(scene, ids, true).overCommandBudget).toBe(true)
+    expect(summarizeSelection(scene, ids, true, budget).overCommandBudget).toBe(false)
+    const commands = selectionCommands(scene, ids, 'move', { dx: 25 }, budget)
+    expect(commands).toHaveLength(300)
+    expect(commands[299]).toEqual({ type: 'updateProp', id: 'member-299', changes: { positionMm: { x: 4015, y: 4000 } } })
+    scene.props['member-299'].editLocked = true
+    expect(selectionActionReason(scene, ids, 'move', budget)).toMatch(/锁定/)
   })
 })

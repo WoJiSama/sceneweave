@@ -5,17 +5,13 @@ import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
 import { inspectImageBytes, normalizePngChunks, type ImageHeader } from '../../../shared/project/image-bytes.js'
 import { transformRgba } from '../../../shared/project/pixels.js'
 import { PACKAGE_LIMITS } from '../../../shared/project/limits.js'
+import { WeightedTaskQueue } from '../../../shared/project/task-queue.js'
 
-// Every native-v1 adapter instance shares this slot. No decoded bitmap or Canvas survives it.
-let imageQueue: Promise<void> = Promise.resolve()
-async function withImageSlot<T>(signal: CancellationSignal | undefined, action: () => Promise<T> | T): Promise<T> {
-  checkCancelled(signal)
-  const previous = imageQueue
-  let release!: () => void
-  imageQueue = new Promise<void>(resolve => { release = resolve })
-  await previous
-  try { checkCancelled(signal); return await action() }
-  finally { release() }
+// Every adapter instance shares two bounded slots; large images run alone.
+// No decoded bitmap or Canvas survives the admitted action.
+const imageQueue = new WeightedTaskQueue(2, 16_000_000)
+function withImageSlot<T>(pixels: number, signal: CancellationSignal | undefined, action: () => Promise<T> | T): Promise<T> {
+  return imageQueue.run(pixels, signal, action)
 }
 
 function validateDimensions(width: number, height: number): void {
@@ -54,7 +50,7 @@ function placeRaster(image: RasterImage) {
 
 async function withDecodedRaster<T>(bytes: Uint8Array, header: ImageHeader, signal: CancellationSignal | undefined,
   allowOrientedDimensions: boolean, action: (image: RasterImage) => Promise<T> | T): Promise<T> {
-  return withImageSlot(signal, async () => {
+  return withImageSlot(header.width * header.height, signal, async () => {
     let bitmap: ImageBitmap | undefined
     try {
       checkCancelled(signal)
@@ -100,6 +96,7 @@ async function encodeCanvasPng(canvas: HTMLCanvasElement, signal?: CancellationS
 /** Actual browser pixels, without a persistent bitmap/pixel cache or a trust flag. */
 export function createBrowserImagePort(): ImageProcessingPort {
   return {
+    validationConcurrency: 2,
     async decode(input, record, options = {}) {
       checkCancelled(options.signal)
       const bytes = captureBytes(input, PACKAGE_LIMITS.imageBytes), header = inspectImageBytes(bytes)
@@ -110,8 +107,8 @@ export function createBrowserImagePort(): ImageProcessingPort {
     async transform(input, parameters, options = {}) {
       checkCancelled(options.signal)
       const image = captureRaster(input)
-      const pixels = transformRgba(image.rgba, parameters.tint, parameters.brightness)
-      return withImageSlot(options.signal, () => {
+      return withImageSlot(image.width * image.height, options.signal, () => {
+        const pixels = transformRgba(image.rgba, parameters.tint, parameters.brightness)
         const { canvas, context } = placeRaster({ ...image, rgba: pixels })
         try {
           // Canvas alpha premultiplication/rounding is part of the established fixed variant contract.
@@ -124,7 +121,7 @@ export function createBrowserImagePort(): ImageProcessingPort {
     async encodePng(input, options = {}) {
       checkCancelled(options.signal)
       const image = captureRaster(input)
-      return withImageSlot(options.signal, async () => {
+      return withImageSlot(image.width * image.height, options.signal, async () => {
         const { canvas } = placeRaster(image)
         try { return await encodeCanvasPng(canvas, options.signal) }
         finally { canvas.width = 0; canvas.height = 0 }

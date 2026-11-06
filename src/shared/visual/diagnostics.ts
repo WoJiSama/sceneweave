@@ -15,12 +15,8 @@ export function visualBindingEntityIds(boundary: VisualBoundary): string[] {
 export function validateVisualSystem(scene: SceneDocument): Issue[] {
   const errors: Issue[] = []
   const add = (code: string, message: string, entityId?: string) => errors.push({ code, message, ...(entityId ? { entityId } : {}) })
-  if (scene.schemaVersion === 1) { if (scene.visual !== undefined) add('VISUAL_VERSION', '原生v1不能携带visual字段；请显式升级。'); return errors }
   const visual = visualBase(scene)
-  if (!visual || !scene.visual) { add('VISUAL_VERSION', '视觉工程必须携带完整视觉系统。'); return errors }
-  if (scene.schemaVersion === 2 && scene.visual.version !== 1 || scene.schemaVersion === 3 && scene.visual.version !== 2 || scene.schemaVersion === 4 && scene.visual.version !== 3) {
-    add('VISUAL_VERSION', '视觉系统版本与场景版本不一致，不能降级读取。'); return errors
-  }
+  if (!visual || scene.visual?.version !== 3) { add('VISUAL_VERSION', '完整工程必须携带完整visual3系统。'); return errors }
   const ids = new Set<string>([scene.sceneId])
   const visit = (value: unknown) => {
     if (!value || typeof value !== 'object') return
@@ -112,7 +108,7 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
       const target = VISUAL_FILTER_TARGET_COLLECTIONS.flatMap(collection => {
         const value = own(scene[collection] as Record<string, Editable>, id)
         return value && !(collection === 'regions' && scene.regions[id].kind === 'manualMask') ? [value] : []
-      })[0]
+      })[0] ?? scene.decorations?.[id] ?? scene.decorationClusters?.[id]
       if (!target || target.floorId !== filter.floorId) add('VISUAL_FILTER', '滤镜实体目标不存在、跨Floor或类型尚未支持。', filter.id)
     }
   }

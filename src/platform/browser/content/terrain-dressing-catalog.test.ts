@@ -107,7 +107,7 @@ describe('independent compact terrain dressing catalogue', () => {
 
   it('keeps complete3 fixed presentations, real byte/source closure and exact MIT text through directory preparation, adoption and cold import', async () => {
     const provider = await createTerrainDressingCatalogProject(), bundle = toBundle(provider), items = listCatalogItems(bundle)
-    expect(provider.schemaVersion).toBe(3); expect(provider.appearance.version).toBe(2)
+    expect(provider.schemaVersion).toBe(1); expect(provider.appearance.version).toBe(2)
     expect(provider.document.props).toEqual({}); expect(Object.keys(provider.assets)).toHaveLength(6)
     expect(Object.values(provider.licenses).map(license => license.text)).toEqual([NEAR_SIDE_LICENSE])
     expect(items).toHaveLength(6)
@@ -117,7 +117,7 @@ describe('independent compact terrain dressing catalogue', () => {
       expect(JSON.parse(item.identity.key)[0]).toBe(3)
       const entry = await prepareLibraryEntry(bundle, item.selector, validation), capsule = await loadLibraryCapsule(entry, validation)
       entries.push(entry)
-      expect(capsule.project.schemaVersion).toBe(3)
+      expect(capsule.project.schemaVersion).toBe(1)
       expect(Object.keys(capsule.project.document.propDefinitions)).toEqual([item.selector.definitionId])
       expect(Object.keys(capsule.project.document.assets)).toHaveLength(1)
       const definition = capsule.project.document.propDefinitions[item.selector.definitionId], presentation = definitionPresentation(capsule.project.appearance, { id: definition.id, version: definition.version })!

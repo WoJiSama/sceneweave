@@ -3,7 +3,7 @@ import type { SceneDocument } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { emptyTerrainDocument } from './compose.js'
-import { assertTerrainBudget, terrainCommandCost } from './cost.js'
+import { terrainCommandCost } from './cost.js'
 import { createEmptyRegional, type GenerationReference } from './contracts.js'
 import { generationInputHash, managedOutputHash } from './integrity.js'
 
@@ -19,7 +19,7 @@ const common = { floorId: FLOOR, layerId: LAYER, visibility: 'public' as const, 
  */
 export function createRegionalFeasibilityVector(base: SceneDocument): { empty: SceneDocument; document: SceneDocument; cost: ReturnType<typeof terrainCommandCost> } {
   const checkedBase = validateSceneDocument(base)
-  if (!checkedBase.ok || base.schemaVersion !== 2 || base.visual?.version !== 1) throw new Error('区域可达性向量须从完整有效v2空白创建。')
+  if (!checkedBase.ok || base.generation?.version !== 5 || base.visual?.version !== 3) throw new Error('区域可达性向量须从完整有效空白创建。')
   for (const key of ['vertices', 'rooms', 'walls', 'openings', 'props', 'regions', 'notes', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'prefabInstances', 'scatterGroups'] as const) {
     if (Object.keys(base[key]).length) throw new Error('区域可达性向量不能覆盖物理场景实体。')
   }
@@ -64,6 +64,6 @@ export function createRegionalFeasibilityVector(base: SceneDocument): { empty: S
   rule.inputHash = generationInputHash(document, rule); rule.managedOutputHash = managedOutputHash(document, rule)
   const checked = validateSceneDocument(document)
   if (!checked.ok) throw new Error(`区域可达性向量无效：${checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}:${issue.message}`).join('；')}`)
-  const cost = assertTerrainBudget(empty, checked.document)
+  const cost = terrainCommandCost(empty, checked.document)
   return { empty, document: checked.document, cost }
 }

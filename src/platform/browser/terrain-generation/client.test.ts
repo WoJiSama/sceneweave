@@ -47,13 +47,13 @@ const assertReleased = (worker: MockTerrainWorker) => {
 afterEach(() => { for (const client of clients.splice(0)) client.dispose(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('bounded native terrain Worker protocol', () => {
-  it('binds the explicit shoreline version across Worker execution and rejects a rehashed downgrade', async () => {
-    const source = request({ input: { ...input, algorithmVersion: 2 } })
+  it.each([2, 3] as const)('binds explicit shoreline version %s across Worker execution and rejects a rehashed downgrade', async version => {
+    const source = request({ input: { ...input, algorithmVersion: version } })
     const { client, workers } = setup(), pending = client.generate(source), worker = workers[0]
     const response = executeTerrainGenerationRequest(worker.posted[0])
     expect(response.type).toBe('result')
     worker.emit(response)
-    expect((await pending).input.algorithmVersion).toBe(2)
+    expect((await pending).input.algorithmVersion).toBe(version)
     assertReleased(worker)
     const second = client.generate({ ...source, requestId: 'version-downgrade' }), other = workers[1]
     const tampered = executeTerrainGenerationRequest(other.posted[0])

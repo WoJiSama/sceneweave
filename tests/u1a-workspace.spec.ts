@@ -1,3 +1,4 @@
+import { reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace'
 import type { WorkspaceRepository } from '../src/editor/main/repository'
@@ -83,7 +84,7 @@ test('U1a default Home creates one native complete-v1 blank project through real
   await home(page).getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('U1a 首页创建原生完整工程')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000'); await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18'); await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await expect(dialog).toHaveCount(0); await settled(page)
   const created = await current(page)
   expect(created.title).toBe('U1a 首页创建原生完整工程'); expect(created.revision).toBe(0)
@@ -133,10 +134,10 @@ test('U1a Home Continue retains the same session, selected object, viewport, sea
   expect((await current(page)).contentHash).toBe(before.contentHash)
   expect({ selected: await viewport.getAttribute('data-selected-ids'), zoom: await viewport.getAttribute('data-zoom'), x: await viewport.getAttribute('data-pan-x'), y: await viewport.getAttribute('data-pan-y') }).toEqual(visual)
   await expect(page.getByLabel('搜索场景物件', { exact: true })).toHaveValue('c3-left')
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   const undone = await current(page); expect(undone.sceneId).toBe(before.sceneId); expect(undone.revision).toBe(before.revision + 1); expect(undone.document.props['c3-left'].rotationDeg).toBe(0)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await settled(page)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   const reloaded = await current(page)
   expect(reloaded.sceneId).toBe(before.sceneId); expect(reloaded.document.props['c3-left'].rotationDeg).toBe(25); expect(reloaded.canUndo).toBe(false)
   const rows = await page.evaluate(async () => (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).repository.list())
@@ -150,7 +151,7 @@ test('U1a passive module browsing retains inputs and selection; active drawing a
   await goHome(page); await row(page, `native:${source.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
   await page.getByRole('tab', { name: '建筑', exact: true }).click()
   await page.getByLabel('房间名称', { exact: true }).fill('U1a 保留的房间输入')
-  await number(page, '房间起点 Y', 10000)
+  await number(page, '房间起点 Y', 10)
   await page.getByRole('tab', { name: '素材库', exact: true }).click(); await page.getByLabel('搜索组件素材', { exact: true }).fill('原创测试')
   await page.getByRole('tab', { name: '建筑', exact: true }).click(); await expect(page.getByLabel('房间名称', { exact: true })).toHaveValue('U1a 保留的房间输入')
   await expect(page.getByRole('group', { name: '地图视口', exact: true })).toHaveAttribute('data-selected-ids', '["c3-left"]')
@@ -158,7 +159,7 @@ test('U1a passive module browsing retains inputs and selection; active drawing a
   await expect(page.getByRole('button', { name: '取消建筑草稿', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click(); await expect(page.getByLabel('房间名称', { exact: true })).toHaveValue('新房间')
   expect((await current(page)).revision).toBe(source.revision)
-  await page.getByLabel('房间名称', { exact: true }).fill('U1a 保留的房间输入'); await number(page, '房间起点 Y', 10000)
+  await page.getByLabel('房间名称', { exact: true }).fill('U1a 保留的房间输入'); await number(page, '房间起点 Y', 10)
   await page.getByRole('button', { name: '在图上画房间', exact: true }).click()
   await page.getByRole('tab', { name: '素材库', exact: true }).click(); await expect(page.getByLabel('搜索组件素材', { exact: true })).toHaveValue('原创测试')
   await page.goBack(); await expect(page).toHaveURL(/#workspace$/); await expect(home(page)).not.toBeVisible()
@@ -225,7 +226,7 @@ test('U1a Home navigation retains C2 same-session witness but explicit persisted
   await settled(page); await goHome(page); await row(page, `native:${proof.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
   const continued = await page.evaluate(async proof => (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.inspectStructureRestore(proof.snapshotId, { ids: [proof.wallId], mode: 'geometry' }), proof)
   expect(continued.scope).toEqual(proof.scope)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   const reloadError = await page.evaluate(async proof => {
     try { await (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace.inspectStructureRestore(proof.snapshotId, { ids: [proof.wallId], mode: 'geometry' }); return null }
     catch (error) { return error instanceof Error ? error.message : String(error) }

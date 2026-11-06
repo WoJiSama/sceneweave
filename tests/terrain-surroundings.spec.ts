@@ -1,3 +1,4 @@
+import { openGenerationTask, openTerrainTask } from './workspace-navigation-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 
@@ -20,7 +21,7 @@ test('T-S06 UI previews, cancels, adopts and cold-validates surroundings regener
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('/#workspace')
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
   await expect(page.getByRole('button', { name: '采用当前地形方案', exact: true })).toBeEnabled({ timeout: 90_000 })
   await page.getByRole('button', { name: '采用当前地形方案', exact: true }).click()
@@ -40,6 +41,7 @@ test('T-S06 UI previews, cancels, adopts and cold-validates surroundings regener
     ])
     await workspace.flush()
   })
+  await openTerrainTask(page, '修改地形')
   const before = await readState(page)
   expect(Object.keys(before.document.rooms)).toHaveLength(2)
   expect(before.document.openings['existing-door'].state).toBe('open')
@@ -81,7 +83,7 @@ test('T-S06 UI previews, cancels, adopts and cold-validates surroundings regener
     expect(after.cold?.project.document[collection]).toEqual(before.document[collection])
   }
   expect(current.preserved.some((row: any) => row.collection === 'rooms' && row.entityId === 'existing-west')).toBe(true)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await expect.poll(async () => (await readState(page)).document.revision).toBe(after.document.revision + 1)
   const undone = await readState(page)
   expect(undone.document.terrainAreas).toEqual(before.document.terrainAreas)

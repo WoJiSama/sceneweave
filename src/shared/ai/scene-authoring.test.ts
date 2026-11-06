@@ -1,3 +1,5 @@
+import { toCurrentSceneDocument } from '../model/current-scene.js'
+import { CURRENT_AUTHORING_CAPABILITY } from './current-authoring-capability.js'
 import { describe, expect, it } from 'vitest'
 import native from '../../platform/browser/content/scenes-data.json'
 import { applyCompositionCommands } from '../appearance/commands.js'
@@ -11,15 +13,18 @@ import { validateProjectData } from '../project/validate.js'
 import { sha256Text } from '../validation/hash.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { SceneAuthoringOperationKindSchema, type SceneAuthoringOperation, type SceneAuthoringScope } from './authoring-protocol.js'
-import { applySceneOperation, publicSceneContext, sceneReadIds, validateSceneScope } from './scene-authoring.js'
+import { applySceneOperation as applySceneOperationEngine, publicSceneContext as publicSceneContextEngine, sceneReadIds, validateSceneScope as validateSceneScopeEngine } from './scene-authoring.js'
 
+const applySceneOperation = (...args: Parameters<typeof applySceneOperationEngine>) => applySceneOperationEngine(args[0], args[1], args[2], args[3], args[4], args[5], CURRENT_AUTHORING_CAPABILITY)
+const publicSceneContext = (...args: Parameters<typeof publicSceneContextEngine>) => publicSceneContextEngine(args[0], args[1], args[2], CURRENT_AUTHORING_CAPABILITY)
+const validateSceneScope = (...args: Parameters<typeof validateSceneScopeEngine>) => validateSceneScopeEngine(args[0], args[1], args[2], CURRENT_AUTHORING_CAPABILITY)
 const NOW = '2026-10-24T12:00:00.000Z'
 function runtime(prefix = 'test'): PreparationContext {
   let count = 0
   return { ids: { nextId: () => `${prefix}-${++count}` }, clock: { now: () => NOW } }
 }
 function fixture(): ProjectData {
-  const scene = cloneJson(native.scenes.blank.document) as unknown as SceneDocument
+  const scene = toCurrentSceneDocument(cloneJson(native.scenes.blank.document) as unknown as SceneDocument)
   scene.title = 'private project title'; scene.assets = {}; scene.materials = {}; scene.propDefinitions = {}; scene.prefabDefinitions = {}; scene.styleThemes = {}; scene.activeStyleThemeRef = null
   const origin = { kind: 'original' as const, attribution: 'Sceneweave tests', canEmbed: true }
   scene.propDefinitions.tree = { id: 'tree', catalogId: 'test.scene-authoring', version: 1, licenseRef: 'MIT', origin, name: 'symbol tree', tags: [],
@@ -49,7 +54,7 @@ function materialFixture(): ProjectData {
 }
 function scope(entityIds: string[] = []): SceneAuthoringScope {
   return { floorId: 'blank-floor', layerId: 'layer-default-0', boundsMm: { x: 500, y: 500, width: 18000, height: 18000 }, entityIds,
-    definitionIds: ['tree'], prefabDefinitionIds: ['camp'], materialIds: [], operations: [...SceneAuthoringOperationKindSchema.options] }
+    definitionIds: ['tree'], prefabDefinitionIds: ['camp'], materialIds: [], operations: SceneAuthoringOperationKindSchema.options.filter(kind => !['terrainGenerate','terrainEdit','terrainLocal','regionalGenerate','regionalEdit'].includes(kind)) }
 }
 function flow(initial = fixture(), grant = scope()) {
   let project = initial, cost = 0
@@ -136,7 +141,7 @@ describe('finite complete scene authoring', () => {
       const result = f.apply({ kind: 'scatter', id: 'trees', domain: { kind: 'area', areaId: 'forest' }, palette: [{ definitionId: 'tree', weight: 1 }], seed: 'forest-seed', cellSizeMm: 2000, minDistanceMm: 100, densityFactor: 1 })
       const props = Object.values(f.project.document.props)
       expect(props.length).toBeGreaterThan(0)
-      expect(result.cost).toBe(2 + props.length * 2)
+      expect(result.cost).toBe(3 + props.length * 3)
       expect(Object.values(f.project.document.scatterGroups.trees.members).every(member => !!member.propId && !!f.project.document.props[member.propId])).toBe(true)
       expect(props.every(prop => prop.definitionRef?.id === 'tree' && prop.supportRef.id === 'forest')).toBe(true)
       const tokens = cloneJson(f.project.historyIdentity.propTokens), noop = f.apply({ kind: 'scatterRegenerate', id: 'trees' })

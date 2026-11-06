@@ -11,6 +11,9 @@ export interface BoundedZipPolicy {
   pathBudget(name: string): number
   requiredPaths: readonly string[]
   documentPath(name: string): boolean
+  /** Explicit application-container opt-ins; complete project defaults stay strict. */
+  minEntries?: 1
+  allowEmptyDirectories?: true
 }
 export function zipPathBudget(name: string): number {
   if (name === 'manifest.json' || name === 'history.json') return PACKAGE_LIMITS.manifestBytes
@@ -51,7 +54,7 @@ export function inspectBoundedZip(input: Uint8Array, policy: BoundedZipPolicy, s
   if (u16(4) || u16(6) || u16(8) !== u16(10)) failPackage('不支持分卷ZIP。')
   if (u16(20)) failPackage('不接受附加ZIP注释。')
   const count = u16(10), centralSize = u32(12), centralStart = u32(16)
-  if (count < 2 || count > PACKAGE_LIMITS.entries) failPackage('ZIP条目数量超过保护值或缺少必要条目。')
+  if (count < (policy.minEntries ?? 2) || count > PACKAGE_LIMITS.entries) failPackage('ZIP条目数量超过保护值或缺少必要条目。')
   if (centralStart + centralSize !== tailStart + end || centralSize > count * (46 + 128 + 4096)) failPackage('ZIP中央目录越界、过大或含额外记录。')
   const central = slice(centralStart, centralSize), view = new DataView(central.buffer), entries = new Map<string, ZipEntry>()
   let cursor = 0, totalExpanded = 0, documentBytes = 0
@@ -76,7 +79,9 @@ export function inspectBoundedZip(input: Uint8Array, policy: BoundedZipPolicy, s
     extra(central.subarray(cursor + 46 + nameSize, cursor + 46 + nameSize + extraSize))
     const entry: ZipEntry = { name, flags: view.getUint16(cursor + 8, true), method: view.getUint16(cursor + 10, true), crc: view.getUint32(cursor + 16, true), compressed: view.getUint32(cursor + 20, true), expanded: view.getUint32(cursor + 24, true), offset: view.getUint32(cursor + 42, true), dataStart: 0 }
     if (entry.flags & ~0x080e || ![0, 8].includes(entry.method) || entry.method === 0 && entry.flags & 6) failPackage('不支持ZIP加密、压缩方法或标志。')
-    if (!entry.expanded || entry.expanded > budget || entry.compressed > PACKAGE_LIMITS.compressedBytes) failPackage('ZIP条目超过展开预算。')
+    const emptyDirectory = policy.allowEmptyDirectories === true && name.endsWith('/') && entry.expanded === 0
+    if (emptyDirectory && entry.method === 8 && entry.compressed === 0) failPackage('空目录的deflate流缺失。')
+    if ((!entry.expanded && !emptyDirectory) || entry.expanded > budget || entry.compressed > PACKAGE_LIMITS.compressedBytes) failPackage('ZIP条目超过展开预算。')
     if ((totalExpanded += entry.expanded) > PACKAGE_LIMITS.expandedBytes) failPackage('ZIP总展开量超过300 MiB。')
     if (policy.documentPath(name) && (documentBytes += entry.expanded) > PACKAGE_LIMITS.archiveDocumentBytes) failPackage('历史文档与身份累计超过128 MiB。')
     entries.set(name, entry)
