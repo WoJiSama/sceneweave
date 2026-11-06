@@ -44,6 +44,7 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
   const resourcePanel = useRef<HTMLElement>(null)
   const inspectorPanel = useRef<HTMLElement>(null)
   const navigationPanel = useRef<HTMLElement>(null)
+  const layoutSettings = useRef<HTMLDetailsElement>(null)
   const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const closeButtons = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const drag = useRef<{ pointerId: number; side: ResizeSide; x: number; width: number } | null>(null)
@@ -109,6 +110,12 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
     setDrawer(null)
     currentDrawer.current = null
     if (restoreFocus && active && closing) triggers.current[closing]?.focus()
+  }
+
+  const closeLayoutSettings = () => {
+    if (!layoutSettings.current) return
+    layoutSettings.current.open = false
+    layoutSettings.current.querySelector('summary')?.focus()
   }
 
   useEffect(() => {
@@ -225,8 +232,17 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
         ref={element => { triggers.current[panel] = element }} aria-expanded={visible(panel)} aria-controls={`${layoutId}-${panel}`}
         onClick={() => togglePanel(panel)}>{panelLabels[panel]}</button>)}
       <span className="workspace-layout-spacer"/>
-      <button type="button" onClick={() => { setPreferences(current => ({ ...current, resourcesCollapsed: false, inspectorCollapsed: false, navigationCollapsed: false })); closeDrawer(false) }}>展开全部面板</button>
-      <button type="button" onClick={() => { setPreferences({ ...DEFAULT_WORKSPACE_LAYOUT }); closeDrawer(false) }}>重置布局</button>
+      <details className="workspace-layout-settings" ref={layoutSettings} onKeyDown={event => {
+        if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !event.currentTarget.open) return
+        event.preventDefault(); event.stopPropagation()
+        closeLayoutSettings()
+      }}>
+        <summary>布局设置</summary>
+        <div aria-label="面板布局设置">
+          <button type="button" onClick={() => { setPreferences(current => ({ ...current, resourcesCollapsed: false, inspectorCollapsed: false, navigationCollapsed: false })); closeDrawer(false); closeLayoutSettings() }}>展开全部面板</button>
+          <button type="button" onClick={() => { setPreferences({ ...DEFAULT_WORKSPACE_LAYOUT }); closeDrawer(false); closeLayoutSettings() }}>重置布局</button>
+        </div>
+      </details>
       {!persistent && <span className="workspace-layout-storage" role="status">布局仅在本次会话生效</span>}
     </div>
     <div className="workspace-layout-body">

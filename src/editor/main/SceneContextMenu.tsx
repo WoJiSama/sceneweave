@@ -22,7 +22,7 @@ export default function SceneContextMenu({ project, menu, onClose, onAction, onS
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('blur', dismiss); window.removeEventListener('resize', dismiss) }
   }, [])
   const invoke = (run: () => void) => { onClose(true); run() }
-  return <div ref={ref} className="asset-context-menu" role="menu" aria-label="场景操作" style={{ left: menu.x, top: menu.y }} onKeyDown={event => {
+  return <div ref={ref} className="asset-context-menu workspace-context-menu" role="menu" aria-label="场景操作" style={{ left: menu.x, top: menu.y }} onKeyDown={event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(true); return }
     if (event.key === 'Tab') { event.preventDefault(); const items = [...ref.current!.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled),select:not(:disabled)')], index = items.indexOf(event.target as HTMLElement); items[(index + (event.shiftKey ? -1 : 1) + items.length) % items.length]?.focus(); return }
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) && (event.target as HTMLElement).getAttribute('role') === 'menuitem') {

@@ -18,6 +18,7 @@ export default function UvttExportDialog({ project, onClose }: { project: Editab
     const origin = document.activeElement as HTMLElement | null
     dialog.current?.focus()
     const key = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return
       if (event.key === 'Escape') { event.preventDefault(); if (controller.current) controller.current.abort(); else close.current() }
       if (event.key === 'Tab') {
         const elements = [...dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),a[href]') ?? []]
@@ -40,7 +41,7 @@ export default function UvttExportDialog({ project, onClose }: { project: Editab
     finally { controller.current = null; setWorking(false) }
   }
   const plan = result.plan
-  return <div className="modal-scrim"><div ref={dialog} className="modal uvtt-export-dialog" tabIndex={-1} role="dialog" aria-modal="true" aria-label="VTT 导出预检">
+  return <div className="modal-scrim workspace-modal-scrim"><div ref={dialog} className="modal workspace-modal uvtt-export-dialog" tabIndex={-1} role="dialog" aria-modal="true" aria-label="VTT 导出预检">
     <h2>VTT 导出预检</h2>
     <p>{UVTT_TARGET.software} · {UVTT_TARGET.importer}</p>
     <p className="asset-muted">{UVTT_TARGET.verification}。当前工程 r{project.document.revision} 的独立导出副本。</p>
@@ -55,9 +56,9 @@ export default function UvttExportDialog({ project, onClose }: { project: Editab
     </>}
     {message && <p role="status">{message}</p>}
     <div className="modal-actions">
-      <button onClick={onClose} disabled={working}>关闭</button>
-      {working && <button onClick={() => controller.current?.abort()}>取消导出</button>}
-      <button onClick={() => void run(true)} disabled={working}>下载玩家 PNG 回退</button>
+      <button className="secondary" onClick={onClose} disabled={working}>关闭</button>
+      {working && <button className="secondary" onClick={() => controller.current?.abort()}>取消导出</button>}
+      <button className="secondary" onClick={() => void run(true)} disabled={working}>下载玩家 PNG 回退</button>
       <button className="primary" disabled={working || !plan || !!plan.report.blocked.length || !acknowledged} onClick={() => void run(false)}>下载 VTT 导入包</button>
     </div>
   </div></div>

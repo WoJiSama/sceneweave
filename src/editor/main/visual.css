@@ -13,3 +13,63 @@
 .visual-controls { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 .visual-controls circle { pointer-events: all; cursor: grab; touch-action: none; }
 .visual-controls circle:active { cursor: grabbing; }
+
+.workspace-unified .visual-panel { padding: 16px; gap: 14px; }
+.workspace-unified .visual-panel h2 { margin: 0; font-size: 15px; }
+.workspace-unified .visual-panel p { margin: 0; font-size: 12px; line-height: 1.65; color: var(--workspace-muted, #657263); }
+.workspace-unified .visual-panel fieldset { margin: 0; gap: 13px; }
+.workspace-unified .visual-panel > fieldset > section { display: grid; gap: 12px; }
+.workspace-unified .visual-panel label { gap: 6px; font-size: 12px; }
+.workspace-unified .visual-panel button:not(.primary):not(.secondary) {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--workspace-border, #cbd6c3);
+  border-radius: 6px;
+  background: var(--workspace-control, #fcfdf8);
+  color: var(--workspace-ink, #344b3d);
+  white-space: normal;
+}
+.workspace-unified .visual-panel .visual-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid #dce4d5;
+  border-radius: 8px;
+  background: #f0f4e9;
+}
+.workspace-unified .visual-panel .visual-tabs button {
+  border-color: transparent;
+  padding: 6px;
+  background: transparent;
+}
+.workspace-unified .visual-panel .visual-tabs button[aria-pressed=true] {
+  background: #fcfdf8;
+  color: var(--workspace-accent, #315a43);
+  border-color: #b8cbae;
+  box-shadow: 0 1px 3px #304c3020;
+  font-weight: 600;
+}
+.workspace-unified .visual-panel button:not(.primary):not(.secondary):not([aria-pressed=true]):not(:disabled):hover {
+  background: var(--workspace-active, #e7efdf);
+  border-color: #a7bc9a;
+}
+.workspace-unified .visual-panel input[type=color] {
+  width: 100%;
+  height: 36px;
+  padding: 4px;
+  border: 1px solid var(--workspace-border, #cbd6c3);
+  border-radius: 6px;
+  background: var(--workspace-control, #fcfdf8);
+}
+.workspace-unified .visual-panel .visual-check { min-height: 26px; }
+.workspace-unified .visual-panel .visual-check input { width: auto; margin: 0; }
+.workspace-unified .visual-panel .visual-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.workspace-unified .visual-panel .visual-segment { padding: 12px 0; border-color: #dce4d5; }
+.workspace-unified .visual-panel details { min-width: 0; }
+.workspace-unified .visual-panel details > summary { cursor: pointer; color: #46613f; line-height: 1.65; }
+.workspace-unified .visual-panel .asset-form-error { color: #99482f; }
+.workspace-unified .visual-panel .workspace-empty-hint { color: var(--workspace-muted, #657263); }
+@media (max-width: 760px) {
+  .workspace-unified .visual-panel { padding: 14px; gap: 12px; }
+}

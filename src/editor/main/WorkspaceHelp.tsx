@@ -9,7 +9,7 @@ export default function WorkspaceHelp() {
     disclosure.current.querySelector('summary')?.focus()
   }
   return <details className="workspace-help" ref={disclosure} onKeyDown={event => {
-    if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
+    if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
       event.preventDefault(); event.stopPropagation(); close()
     }
   }}>

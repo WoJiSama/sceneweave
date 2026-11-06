@@ -6,6 +6,13 @@
 .workspace-layout-actions button{font-size:11px;min-height:29px;border:1px solid #dce4d5;border-radius:5px;padding:4px 9px;background:#f8faf4;color:#687e5b;cursor:pointer;white-space:nowrap}
 .workspace-layout-actions button[aria-expanded=true]{border-color:#b5c8a5;background:#eaf1e2;color:#476b37}
 .workspace-layout-spacer{flex:1}
+.workspace-layout-settings{position:relative;flex:none}
+.workspace-layout-settings>summary{list-style:none;cursor:pointer;font-size:11px;line-height:1.5;padding:5px 9px;border-radius:5px;color:#536d49;border:1px solid #d3ddcb}
+.workspace-layout-settings>summary::-webkit-details-marker{display:none}
+.workspace-layout-settings[open]>summary{background:#eaf1e2;border-color:#b5c8a5}
+.workspace-layout-settings>div{position:absolute;top:calc(100% + 6px);right:0;z-index:32;display:grid;gap:6px;min-width:170px;padding:9px;border:1px solid #cbd6c3;border-radius:7px;background:#fcfdf8;box-shadow:0 6px 24px #273f2920}
+.workspace-layout-settings>div button{text-align:left;justify-content:flex-start;min-height:32px}
+.workspace-layout-settings>summary:focus-visible{outline:2px solid #5d8548;outline-offset:2px}
 .workspace-layout-storage{font-size:10px;color:#926d3c}
 .workspace-layout-body{position:relative;display:grid;grid-template-columns:48px var(--workspace-resources-width) 8px minmax(0,1fr) 8px var(--workspace-details-width);min-height:0;min-width:0;flex:1;overflow:hidden}
 .workspace-tools{display:flex;flex-direction:column;align-items:center;gap:7px;min-height:0;padding:9px 4px;background:#f2f5eb;border-right:1px solid #d8e0d0;overflow:auto;z-index:1}
@@ -58,7 +65,7 @@
 .workspace-layout[data-narrow=true] .workspace-panel[data-open=true]{visibility:visible;pointer-events:auto}
 .workspace-layout[data-narrow=true] .workspace-panel .workspace-panel-header{padding:0 11px}
 .workspace-layout[data-narrow=true] .workspace-panel .workspace-panel-header h2{display:block}
-.workspace-layout[data-narrow=true] .workspace-layout-actions{gap:4px;padding:5px 8px;flex-wrap:wrap}
+.workspace-layout[data-narrow=true] .workspace-layout-actions{gap:4px;padding:4px 8px;flex-wrap:wrap;min-height:35px}
 .workspace-layout[data-narrow=true] .workspace-layout-actions button{padding:4px 7px;font-size:10px}
 .workspace-layout[data-narrow=true] .workspace-layout-spacer{min-width:0}
 .workspace-layout[data-narrow=true] .workspace-layout-storage{width:100%;text-align:right}
