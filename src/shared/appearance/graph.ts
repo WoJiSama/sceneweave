@@ -1,10 +1,12 @@
-import { assertTaskBudget, measureTaskBudget, type TaskBudgetProfile } from '../budget/task-budget.js'
+import { assertCommandBudget, isManualTransactionBudget, measureCommandBudget, type CommandBudgetProfile } from '../budget/command-budget.js'
 import type { FixedPresentation } from '../terrain-generation/contracts.js'
 import { definitionPresentation, presentationSourceId, propPresentation, topDownPresentation } from './presentation.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
-import { buildingTransformSurfaceIds } from '../commands/building.js'
+import { buildingTransformSurfaceIds, inspectAggregateBuilding } from '../commands/building.js'
+import { inspectAggregateDomain } from '../aggregates/domain-adapters.js'
+import { naturalTransformSurfaceIds } from '../aggregates/natural-transform.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
 import { captureJson, cloneJson } from '../validation/json.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -60,7 +62,7 @@ export function supportedAppearanceKinds(content: CompositionContent, id: string
   }
   return surfaceStyle(content.document, id) ? ['tint', 'brightness', 'opacity'] : []
 }
-export function inspectAppearanceScope(content: CompositionContent, scope: AppearanceScope, kinds: readonly AdjustmentKind[] = ['opacity'], budget?: TaskBudgetProfile): AppearanceScopePlan {
+export function inspectAppearanceScope(content: CompositionContent, scope: AppearanceScope, kinds: readonly AdjustmentKind[] = ['opacity'], budget?: CommandBudgetProfile): AppearanceScopePlan {
   const document = content.document
   if (scope.kind === 'layer' && !own(document.userLayers, scope.layerId)) throw new Error('外观图层不存在。')
   const requested = scope.kind === 'targets' ? scope.ids : enumerateLayerEntities(document).filter(entity => document.entityLayers[entity.id] === scope.layerId).map(entity => entity.id)
@@ -82,7 +84,9 @@ export function inspectAppearanceScope(content: CompositionContent, scope: Appea
   const affected = new Set(targetIds)
   for (const group of [...Object.values(document.prefabInstances), ...Object.values(document.scatterGroups)]) if (Object.values(group.members).some(member => member.propId !== null && affected.has(member.propId))) affected.add(group.id)
   const commandCost = Math.max(1, affected.size)
-  if (budget) assertTaskBudget(budget, measureTaskBudget(document, document, { before: content, after: content }, { semanticTargets: targetIds.length, dependencyRefs: affected.size }))
+  // Applicability is not a write set: instance overrides may mask most of a
+  // layer rule. Manual transactions charge the resolved content after mutation.
+  if (budget) assertCommandBudget(budget, measureCommandBudget(document, document, { before: content, after: content }, { semanticTargets: isManualTransactionBudget(budget) ? 0 : targetIds.length, dependencyRefs: affected.size }, budget))
   if (!budget && commandCost > COMPOSITION_LIMITS.commandCost) throw new Error(`外观范围展开为 ${commandCost} 个操作，超过单次256预算。`)
   if (scope.kind === 'layer' && document.userLayers[scope.layerId].editLocked) throw new Error(`用户图层已锁定：${scope.layerId}。`)
   for (const id of affected) if (effectiveEditLocked(document, id)) throw new Error(`外观目标或依赖已锁定：${id}。`)
@@ -166,7 +170,7 @@ export function syncAppearanceGraphSnapshot(input: CompositionContent, previousD
   return syncOwnedAppearanceGraph({ document: checked.document, ...owned }, previousDocument, commands)
 }
 /** Transform the fixed paint parameters, never the already resolved material/tint. */
-function transformedBuildingSurface(snapshot: SurfaceStyle, command: Extract<SceneCommand, { type: 'transformBuilding' }>): SurfaceStyle {
+function transformedBuildingSurface(snapshot: SurfaceStyle, command: Extract<SceneCommand, { type: 'transformBuilding' | 'transformAggregateBuilding' | 'transformAggregateNatural' }>): SurfaceStyle {
   const transform = (point: PointMm): PointMm => {
     const x = BigInt(point.x) - BigInt(command.pivotMm.x), y = BigInt(point.y) - BigInt(command.pivotMm.y)
     const rotated = command.quarterTurns === 0 ? { x, y } : command.quarterTurns === 1 ? { x: -y, y: x } : command.quarterTurns === 2 ? { x: -x, y: -y } : { x: y, y: -x }
@@ -194,10 +198,15 @@ function syncOwnedAppearanceGraph(content: CompositionContent, previousDocument?
         const snapshot = { ...source.snapshot, definitionRef: command.definitionRef, appearance: definition.defaultAppearance }
         if (!equalCompositionValue(source.snapshot, snapshot)) graph.propSources[command.id] = addPropAppearanceSource(graph, snapshot, sourceId)
       }
-    } else if (command.type === 'transformBuilding') {
+    } else if (command.type === 'transformBuilding' || command.type === 'transformAggregateBuilding' || command.type === 'transformAggregateNatural') {
       if (command.quarterTurns === 0 && command.offsetMm.x === 0 && command.offsetMm.y === 0) continue
-      const scopeDocument = previousDocument && (own(previousDocument.rooms, command.id) || own(previousDocument.walls, command.id)) ? previousDocument : document
-      for (const id of buildingTransformSurfaceIds(scopeDocument, command.id)) {
+      const scopeDocument = previousDocument && (command.type === 'transformAggregateBuilding' || command.type === 'transformAggregateNatural'
+        ? Object.hasOwn(previousDocument.aggregateCoordinates?.groups ?? {}, command.id)
+        : own(previousDocument.rooms, command.id) || own(previousDocument.walls, command.id)) ? previousDocument : document
+      const surfaceIds = command.type === 'transformAggregateNatural'
+        ? naturalTransformSurfaceIds(inspectAggregateDomain(scopeDocument, command.id, 'natural'))
+        : buildingTransformSurfaceIds(scopeDocument, command.type === 'transformAggregateBuilding' ? inspectAggregateBuilding(scopeDocument, command.id).seedId : command.id)
+      for (const id of surfaceIds) {
         const sourceId = graph.surfaceSources[id], source = graph.sources[sourceId]
         if (source?.kind !== 'surface' || !surfaceStyle(document, id)) continue
         const style = transformedBuildingSurface(source.snapshot, command)

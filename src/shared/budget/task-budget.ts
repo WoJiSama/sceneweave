@@ -247,6 +247,7 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
     }
   }
   const data={generation:after.generation??null,historyIdentity:metadata?.after.historyIdentity??null,appearance:metadata?.after.appearance??null,
+    ...(after.aggregateCoordinates ? { aggregateCoordinates: after.aggregateCoordinates } : {}),
     sources:{materials:after.materials,propDefinitions:after.propDefinitions,prefabDefinitions:after.prefabDefinitions,assets:after.assets,styleThemes:after.styleThemes,
       regionalSymbolDefinitions:after.regional?.symbolDefinitions??{}}}
   tree(data);usage.metadataBytes=encodeUtf8(canonicalJson(data)).length

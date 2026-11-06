@@ -6,6 +6,7 @@ import type { PointMm, Prop, SceneDocument, SurfaceRef } from '../../shared/mode
 import { prepareCompositionCommands, type PrepareOptions } from './prepare.js'
 import type { EditableProject } from './project.js'
 import { inspectJsonInput } from '../../shared/validation/json.js'
+import { commandSelectionLimit, parseCommandBudgetProfile, type CommandBudgetProfile } from '../../shared/budget/command-budget.js'
 
 export type FillCopyRequest = { sourceId: string; count: number; stepMm: PointMm; allowOverlap: boolean }
 export interface FillCopyReport {
@@ -26,7 +27,6 @@ export interface FillCopyReport {
 const safeInteger = z.number().finite().refine(Number.isSafeInteger, '必须是安全整数')
 const requestSchema = z.object({ sourceId: z.string().min(1).max(256), count: safeInteger.refine(value => value > 0, '数量必须大于零'),
   stepMm: z.object({ x: safeInteger, y: safeInteger }).strict(), allowOverlap: z.boolean() }).strict()
-const MAX_FILL_COUNT = 256
 const MAX_REPORTED_OVERLAPS = 4096
 
 function checkedRequest(input: FillCopyRequest): FillCopyRequest {
@@ -94,7 +94,8 @@ function saturatedCost(count: number, perCopy: number): number {
 }
 
 /** Read-only fill planning. Positions are the new anchors in copy order, starting at 1. */
-export function inspectFillCopy(scene: SceneDocument, input: FillCopyRequest): FillCopyReport {
+export function inspectFillCopy(scene: SceneDocument, input: FillCopyRequest, budgetInput?: CommandBudgetProfile): FillCopyReport {
+  const budget = budgetInput ? parseCommandBudgetProfile(budgetInput) : undefined
   const request = checkedRequest(input), issues: string[] = [], dependencies = new Set<string>(), layerIds = new Set<string>()
   let sourceKind: FillCopyReport['sourceKind'], anchorMm: PointMm, sourceProps: Prop[], groupId: string | undefined
   const source = Object.hasOwn(scene.props, request.sourceId) ? scene.props[request.sourceId] : undefined
@@ -131,12 +132,13 @@ export function inspectFillCopy(scene: SceneDocument, input: FillCopyRequest): F
   const report: FillCopyReport = { sourceId: request.sourceId, sourceKind, count: request.count, stepMm: { ...request.stepMm }, anchorMm,
     positions: [], sourcePropIds, dependencyIds: [...dependencies], layerIds: [...layerIds], overlaps: [], issues, minimumCost }
 
-  if (request.count > MAX_FILL_COUNT) {
-    issues.push(`一次填充最多检查${MAX_FILL_COUNT}份；本次请求${request.count}份已拒绝，不会截断数量。`)
+  const limit = commandSelectionLimit(budget)
+  if (request.count > limit) {
+    issues.push(`一次填充最多检查${limit}份；本次请求${request.count}份已拒绝，不会截断数量。`)
     return report
   }
-  if (minimumCost > 256) {
-    issues.push(`填充最低展开成本${minimumCost}超过256条事务预算，整笔拒绝。`)
+  if (minimumCost > limit) {
+    issues.push(`填充最低展开成本${minimumCost}超过${limit}条事务预算，整笔拒绝。`)
     return report
   }
   if (!request.allowOverlap && request.stepMm.x === 0 && request.stepMm.y === 0) issues.push('填充副本与源的位置完全相同；要明确采用重叠，请启用“允许重叠”。')
@@ -184,9 +186,9 @@ export function inspectFillCopy(scene: SceneDocument, input: FillCopyRequest): F
 
 /** Prepare all requested copies as one fully materialized, exactly budgeted candidate. */
 export async function prepareFillCopy(input: EditableProject, request: FillCopyRequest, options: PrepareOptions): Promise<{
-  project: EditableProject; commands: CompositionCommand[]; report: FillCopyReport; cost: { total: number; limit: 256 }
+  project: EditableProject; commands: CompositionCommand[]; report: FillCopyReport; cost: { total: number; limit: number }
 }> {
-  const report = inspectFillCopy(input.document, request)
+  const report = inspectFillCopy(input.document, request, options.budget)
   if (report.issues.length) throw new Error(report.issues.join('；'))
   const commands: CompositionCommand[] = []
   for (let index = 1; index <= report.count; index++) {
@@ -202,5 +204,5 @@ export async function prepareFillCopy(input: EditableProject, request: FillCopyR
   }
   let total = 0
   const project = await prepareCompositionCommands(input, commands, { ...options, baseline: input, onOperationCost: cost => { total = cost; options.onOperationCost?.(cost) } })
-  return { project, commands, report, cost: { total, limit: 256 } }
+  return { project, commands, report, cost: { total, limit: commandSelectionLimit(options.budget) } }
 }

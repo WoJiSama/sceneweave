@@ -63,10 +63,12 @@ describe('complete-v4 expanded terrain transaction cost',()=>{
     state.after.historyIdentity.terrainTokens!['old-feature']=token('terrainFeature','feature')
     state.after.historyIdentity.decorationTokens!['removed-decoration']={kind:'decoration',token:'decoration-birth',topologyToken:'decoration-topology',topologyHash:'b'.repeat(64)}
     state.after.historyIdentity.surfaceRuleTokens!['removed-rule']={kind:'surfaceRule',token:'surface-rule-birth',topologyToken:'surface-rule-topology',topologyHash:'b'.repeat(64)}
+    state.after.historyIdentity.aggregateTokens={'retired-group':'aggregate-birth'}
     const cost=terrainCommandCost(before,after,state)
-    expect(cost.total).toBe(9)
+    expect(cost.total).toBe(10)
     expect(Object.keys(cost.items).some(key=>key.includes('.estimate.'))).toBe(false)
     expect(cost.items['composition.identity.actual.prefabTokens']).toBe(1)
+    expect(cost.items['composition.identity.actual.aggregateTokens']).toBe(1)
     const traced=metadata();traced.before.historyIdentity.terrainTokens!['feature']=token('terrainFeature','kept')
     traced.after=cloneJson(traced.before);traced.after.historyIdentity.terrainTokens!.feature.topologyToken='changed-back-token'
     expect(terrainCommandCost(before,after,traced).total).toBe(1)
@@ -111,6 +113,9 @@ describe('complete-v4 expanded terrain transaction cost',()=>{
     const dependency:TerrainDependency={id:'dependency',compositionId:'composition',featureIds:[],thresholdIds:[],reads:[{target,role:'preserve',contentHash:'a'.repeat(64),snapshot}],writes:[],transitionIds:[],scopeMm:{x:0,y:0,width:10000,height:10000},haloMm:1000,algorithmId:'terrain-dependencies',algorithmVersion:1,inputHash:'b'.repeat(64)}
     after.generation.dependencies.dependency=dependency;state.after.historyIdentity.terrainTokens!.dependency=token('terrainDependency','dependency')
     expect(assertTerrainBudget(before,after,state).total).toBe(256)
+    const aggregateState=cloneJson(state);aggregateState.after.historyIdentity.aggregateTokens={'retired-group':'aggregate-tombstone'}
+    expect(terrainCommandCost(before,after,aggregateState).total).toBe(257)
+    expect(()=>assertTerrainBudget(before,after,aggregateState)).toThrow(/257.*256/)
     state.after.historyIdentity.propTokens.retainedDeletion='new-tombstone'
     expect(terrainCommandCost(before,after,state).total).toBe(257)
     expect(()=>assertTerrainBudget(before,after,state)).toThrow(/257.*256/)

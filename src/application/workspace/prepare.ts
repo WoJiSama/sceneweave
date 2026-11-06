@@ -1,5 +1,8 @@
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
-import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { inspectAggregateEdit } from './aggregate-boundary.js'
+import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
+import { emptyBudgetUsage, withExecutionWorkObserver, type BudgetUsage } from '../../shared/budget/task-budget.js'
+import { assertCommandBudget, measureCommandBudget, isManualTransactionBudget, type CommandBudgetProfile, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
 import { detachChangedOutputs } from '../../shared/terrain-generation/integrity.js'
 import { pauseChangedCompositionAppearance, pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
 import { detachChangedAppearance } from '../../shared/terrain-generation/appearance-lifecycle.js'
@@ -34,12 +37,15 @@ export interface PrepareOptions {
   /** Exact workspace-owned baseline for composition-only derivation reuse. */
   baseline?: EditableProject
   /** Explicit registered envelope for new task paths; absent keeps legacy256. */
-  budget?: TaskBudgetProfile
+  budget?: CommandBudgetProfile
+  onBudgetUsage?: (usage: CommandBudgetUsage) => void
   /** Internal accounting for fixed sources added in this same transaction. */
   initialOperationCost?: number
   onOperationCost?: (cost: number) => void
   /** Session-only IDs whose structure topology changed between commands. */
   onStructureInvalidations?: (ids: readonly string[]) => void
+  /** GM-only read-only baseline diagnostics; never permission to skip validation. */
+  onAggregateBoundaryImpact?: (impact: AggregateEditBoundaryImpact) => void
 }
 export interface AssetImportRequest {
   file: Blob
@@ -62,6 +68,23 @@ const contentOf = (project: EditableProject): CompositionContent => ({ document:
 const collections = { asset: 'assets', material: 'materials', propDefinition: 'propDefinitions', prefabDefinition: 'prefabDefinitions', styleTheme: 'styleThemes' } as const
 const validation = (options: PrepareOptions): CompleteValidationOptions => ({ ...options.validation, signal: options.signal ?? options.validation.signal })
 
+/** Merge already measured structure with synchronous execution observations.
+ * This is equivalent to re-measuring the whole candidate with executionUsage,
+ * without rescanning its unchanged scene/metadata/resource branches. */
+export function combineManualPreparationUsage(base: CommandBudgetUsage, work: CommandBudgetUsage, observed: BudgetUsage): CommandBudgetUsage {
+  const usage = { ...base }
+  for (const key of Object.keys(observed) as (keyof BudgetUsage)[]) {
+    usage[key] = key === 'intersectionPairs' ? Math.max(base[key], work[key]) + observed[key]
+      : ['gridNodes', 'fieldEvaluations', 'candidateAttempts', 'activeExecutionMs'].includes(key)
+        ? base[key] + work[key] + observed[key]
+        : Math.max(base[key], work[key] + observed[key])
+  }
+  for (const key of ['groupMembers', 'externalDependencies'] as const) {
+    if (base[key] !== undefined || work[key] !== undefined) usage[key] = Math.max(base[key] ?? 0, work[key] ?? 0)
+  }
+  return usage
+}
+
 function inheritMissingBindings(project: EditableProject): void {
   for (const [kind, collection] of Object.entries(collections) as [LicenseSubjectKind, typeof collections[keyof typeof collections]][]) {
     for (const subject of Object.values(project.document[collection])) {
@@ -83,7 +106,7 @@ function draftBudgets(project: EditableProject): void {
 }
 
 function assertPreparationBudget(before: EditableProject, after: EditableProject, options: PrepareOptions): void {
-  if (options.budget) assertTaskBudget(parseTaskBudgetProfile(options.budget), measureTaskBudget(before.document, after.document, { before, after }))
+  if (options.budget) assertCommandBudget(options.budget, measureCommandBudget(before.document, after.document, { before, after }, undefined, options.budget))
   else assertTerrainBudget(before.document, after.document, { before, after })
 }
 
@@ -175,6 +198,20 @@ export async function prepareCompositionCommands(input: EditableProject, command
   const accounting = options.initialOperationCost !== undefined || options.onOperationCost !== undefined
   const initialCost = options.initialOperationCost === undefined ? 0 : options.initialOperationCost
   let operationCost = initialCost
+  const manual = isManualTransactionBudget(options.budget), work: CommandBudgetUsage = emptyBudgetUsage(), observedWork = emptyBudgetUsage()
+  let previousContent: CompositionContent = contentOf(project)
+  const manualUsage = (after: CompositionContent & { assets?: EditableProject['assets'] }) => {
+    const metadata = { before: project, after }, base = measureCommandBudget(project.document, after.document, metadata, undefined, options.budget)
+    return combineManualPreparationUsage(base, work, observedWork)
+  }
+  const observeContent = manual ? (draft: Readonly<CompositionContent>) => {
+    const delta = measureCommandBudget(previousContent.document, draft.document, { before: previousContent, after: draft }, undefined, options.budget)
+    for (const key of ['geometryPoints', 'geometrySegments', 'curveSegments', 'intersectionPairs'] as const) work[key] += delta[key]
+    for (const key of ['groupMembers', 'externalDependencies'] as const) work[key] = Math.max(work[key] ?? 0, delta[key] ?? 0)
+    const usage = manualUsage({ ...draft, assets: project.assets })
+    assertCommandBudget(options.budget!, usage)
+    previousContent = captureJson(draft)
+  } : undefined
   const tracesStructure = capturedCommands.some(command => command.type === 'deleteRoom' || command.type === 'deleteWall' || command.type === 'repairBuildingTopology')
   let previousStructure = tracesStructure ? structureTopology(project.document) : undefined
   const invalidatedStructures = new Set<string>()
@@ -186,10 +223,24 @@ export async function prepareCompositionCommands(input: EditableProject, command
     previousStructure = next
     options.onStructureInvalidations?.([...invalidatedStructures])
   } : undefined
-  const draft = applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime,
+  const applyDraft = () => applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime,
     accounting || options.budget || onSceneDraft ? { initialOperationCost: initialCost, budget: options.budget,
-      onOperationCost: cost => { operationCost = cost }, ...(onSceneDraft ? { onSceneDraft } : {}) } : undefined)
+      onOperationCost: cost => { operationCost = cost }, ...(observeContent ? { onContentDraft: observeContent } : {}), ...(onSceneDraft ? { onSceneDraft } : {}) } : undefined)
+  const draft = manual ? withExecutionWorkObserver(delta => {
+    for (const [key, amount] of Object.entries(delta) as [keyof BudgetUsage, number][]) observedWork[key] += amount
+    assertCommandBudget(options.budget!, observedWork)
+  }, applyDraft) : applyDraft()
   const prepared = await materializeProject({ ...project, ...draft, schemaVersion: draft.document.schemaVersion }, { ...options, baseline: project })
+  if (options.onAggregateBoundaryImpact) {
+    const impact = inspectAggregateEdit(project, prepared.document, capturedCommands)
+    if (impact) options.onAggregateBoundaryImpact(impact)
+  }
+  if (manual) {
+    const usage = assertCommandBudget(options.budget!, manualUsage(prepared))
+    options.onBudgetUsage?.(usage)
+    options.onOperationCost?.(usage.semanticTargets)
+    return prepared
+  }
   if (accounting) {
     checkCancelled(checked.signal)
     const materializedCost = terrainCommandCost(project.document, prepared.document, { before: project, after: prepared }).total

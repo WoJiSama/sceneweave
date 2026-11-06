@@ -21,7 +21,9 @@ export const historyIdentity3Schema = historyIdentity2Schema.extend({ version: z
 export const decorationIdentityTokenSchema = z.object({ kind: z.enum(['decoration', 'decorationCluster']), token: id, topologyToken: id, topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
 export const historyIdentity4Schema = historyIdentity3Schema.extend({ version: z.literal(4), decorationTokens: z.record(id, decorationIdentityTokenSchema) }).strict()
 export const surfaceRuleIdentityTokenSchema = z.object({ kind: z.literal('surfaceRule'), token: id, topologyToken: id, topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
-export const historyIdentity5Schema = historyIdentity4Schema.extend({ version: z.literal(5), surfaceRuleTokens: z.record(id, surfaceRuleIdentityTokenSchema) }).strict()
+export const historyIdentity5Schema = historyIdentity4Schema.extend({ version: z.literal(5), surfaceRuleTokens: z.record(id, surfaceRuleIdentityTokenSchema),
+  aggregateTokens: z.record(id, id).optional(),
+}).strict()
 export const nativeHistoryIdentitySchema = historyIdentity5Schema
 const ALL_EXTENDED_IDENTITY_FIELDS = [...TERRAIN_IDENTITY_FIELDS, 'terrainTokens', 'decorationTokens', 'surfaceRuleTokens'] as const
 // A converted v6 identity retains its exact topology hash; do not substitute
@@ -81,12 +83,12 @@ export function validateHistoryIdentityShape(input: unknown): HistoryIdentity {
   if (issue) throw new Error(`室外历史身份无效：${issue.message}`)
   const parsed = nativeHistoryIdentitySchema.safeParse(input)
   if (!parsed.success) throw new Error(`室外历史身份字段无效：${parsed.error.issues.map(issue => issue.message).join('；')}`)
-  const identity = parsed.data as HistoryIdentity, ids = [...Object.keys(identity.propTokens), ...Object.keys(identity.prefabTokens), ...Object.keys(identity.outdoorTokens)]
-  const births = [...Object.values(identity.propTokens), ...Object.values(identity.prefabTokens), ...Object.values(identity.outdoorTokens).map(value => value.token)]
+  const identity = parsed.data as HistoryIdentity, ids = [...Object.keys(identity.propTokens), ...Object.keys(identity.prefabTokens), ...Object.keys(identity.outdoorTokens), ...Object.keys(identity.aggregateTokens ?? {})]
+  const births = [...Object.values(identity.propTokens), ...Object.values(identity.prefabTokens), ...Object.values(identity.outdoorTokens).map(value => value.token), ...Object.values(identity.aggregateTokens ?? {})]
   const extended = ALL_EXTENDED_IDENTITY_FIELDS.flatMap(field => Object.entries(identity[field] ?? {}))
   ids.push(...extended.map(([id]) => id)); births.push(...extended.map(([,value]) => value.token))
   const topologies = [...Object.values(identity.outdoorTokens).map(value => value.topologyToken), ...extended.map(([,value]) => value.topologyToken)]
-  if (ids.length > COMPOSITION_LIMITS.identities || new Set(ids).size !== ids.length) throw new Error('物件、组合、室外及新地形出生身份/墓碑合计超过65536或ID重复。')
+  if (ids.length > COMPOSITION_LIMITS.identities || new Set(ids).size !== ids.length) throw new Error('物件、组合、聚合容器、室外及新地形出生身份/墓碑合计超过65536或ID重复。')
   if (new Set([...births, ...topologies]).size !== births.length + topologies.length) throw new Error('出生及拓扑令牌必须全局唯一。')
   return identity
 }
@@ -126,6 +128,15 @@ export function validateHistoryIdentity(input: unknown, document: SceneDocument)
   for (const allocatedId of [...Object.keys(identity.propTokens), ...Object.keys(identity.prefabTokens)]) {
     if (occupiedBirths.has(allocatedId)) throw new Error(`已分配历史 ID 与其他场景身份冲突：${allocatedId}。`)
   }
+  const aggregateOccupied = geometryIdentityIds(checked.document)
+  for (const layerId of Object.keys(checked.document.userLayers)) aggregateOccupied.add(layerId)
+  for (const groupId of Object.keys(checked.document.aggregateCoordinates?.groups ?? {})) {
+    if (!Object.hasOwn(identity.aggregateTokens ?? {}, groupId)) throw new Error(`当前聚合容器缺少出生身份：${groupId}。`)
+    aggregateOccupied.delete(groupId)
+  }
+  for (const allocatedId of Object.keys(identity.aggregateTokens ?? {})) {
+    if (aggregateOccupied.has(allocatedId)) throw new Error(`已分配聚合容器ID与其他场景身份冲突：${allocatedId}。`)
+  }
   const descriptors = outdoorIdentityDescriptors(checked.document), occupied = geometryIdentityIds(checked.document)
   for (const layerId of Object.keys(checked.document.userLayers)) occupied.add(layerId)
   for (const [id, descriptor] of Object.entries(descriptors)) {
@@ -150,6 +161,8 @@ export function createHistoryIdentity(inputDocument: SceneDocument, context: Pre
     prefabTokens: Object.fromEntries(Object.keys(document.prefabInstances).map(id => [id, context.ids.nextId()])),
     outdoorTokens: Object.fromEntries(Object.entries(outdoorIdentityDescriptors(document)).map(([id, descriptor]) => [id, newToken(descriptor, context)])),
   }
+  const aggregateIds = Object.keys(document.aggregateCoordinates?.groups ?? {})
+  if (aggregateIds.length) identity.aggregateTokens = Object.fromEntries(aggregateIds.map(id => [id, context.ids.nextId()]))
   advanceExtendedIdentities(identity, null, document, context, true)
   advanceTerrainIdentities(identity, {}, terrainIdentityDescriptors(document), context, true)
   advanceDecorationIdentities(identity, {}, decorationIdentityDescriptors(document), context, true)
@@ -160,7 +173,7 @@ function advanceTerrainIdentities(identity: HistoryIdentity, before: Record<stri
   if (identity.version < 3) identity.version = 3
   identity.terrainTokens ??= {}
   for (const [id, descriptor] of Object.entries(after)) {
-    if (Object.hasOwn(identity.propTokens,id) || Object.hasOwn(identity.prefabTokens,id) || Object.hasOwn(identity.outdoorTokens,id) || Object.hasOwn(identity.decorationTokens??{},id) || Object.hasOwn(identity.surfaceRuleTokens??{},id) || TERRAIN_IDENTITY_FIELDS.some(field=>Object.hasOwn(identity[field]??{},id))) throw new Error(`组合出生ID与已分配身份冲突：${id}。`)
+    if (Object.hasOwn(identity.propTokens,id) || Object.hasOwn(identity.prefabTokens,id) || Object.hasOwn(identity.outdoorTokens,id) || Object.hasOwn(identity.aggregateTokens??{},id) || Object.hasOwn(identity.decorationTokens??{},id) || Object.hasOwn(identity.surfaceRuleTokens??{},id) || TERRAIN_IDENTITY_FIELDS.some(field=>Object.hasOwn(identity[field]??{},id))) throw new Error(`组合出生ID与已分配身份冲突：${id}。`)
     const record=identity.terrainTokens[id], previous=before[id]
     if(record){
       if(record.kind!==descriptor.kind || previous&&previous.kind!==descriptor.kind || !previous&&!allowResurrection)throw new Error(`组合出生身份不能复用：${id}。`)
@@ -172,7 +185,7 @@ function advanceDecorationIdentities(identity: HistoryIdentity, before: Record<s
   if (identity.version < 4) identity.version = 4
   identity.decorationTokens ??= {}
   for (const [id, descriptor] of Object.entries(after)) {
-    if (Object.hasOwn(identity.propTokens,id) || Object.hasOwn(identity.prefabTokens,id) || Object.hasOwn(identity.outdoorTokens,id)
+    if (Object.hasOwn(identity.propTokens,id) || Object.hasOwn(identity.prefabTokens,id) || Object.hasOwn(identity.outdoorTokens,id) || Object.hasOwn(identity.aggregateTokens??{},id)
       || [...TERRAIN_IDENTITY_FIELDS, 'terrainTokens' as const, 'surfaceRuleTokens' as const].some(field => Object.hasOwn(identity[field] ?? {},id))) throw new Error(`轻量装饰出生ID与已分配身份冲突：${id}。`)
     const record = identity.decorationTokens[id], previous = before[id]
     if (record) {
@@ -184,7 +197,7 @@ function advanceDecorationIdentities(identity: HistoryIdentity, before: Record<s
 function advanceSurfaceRuleIdentities(identity: HistoryIdentity, before: Record<string, SurfaceRuleDescriptor>, after: Record<string, SurfaceRuleDescriptor>, context: PreparationContext, allowResurrection = false): void {
   identity.version = 5; identity.surfaceRuleTokens ??= {}
   for (const [id, descriptor] of Object.entries(after)) {
-    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id)
+    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id) || Object.hasOwn(identity.aggregateTokens ?? {}, id)
       || [...TERRAIN_IDENTITY_FIELDS, 'terrainTokens' as const, 'decorationTokens' as const].some(field => Object.hasOwn(identity[field] ?? {}, id))) throw new Error(`地表规则出生ID与已分配身份冲突：${id}。`)
     const record = identity.surfaceRuleTokens[id], previous = before[id]
     if (record) {
@@ -212,13 +225,25 @@ export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocum
   let previousDecorations = decorationIdentityDescriptors(previousDocument)
   let previousSurfaceRules = surfaceRuleIdentityDescriptors(previousDocument)
   let previousProps = new Set(Object.keys(previousDocument.props)), previousPrefabs = new Set(Object.keys(previousDocument.prefabInstances)), previousOutdoor = outdoorIdentityDescriptors(previousDocument)
+  let previousAggregates = new Set(Object.keys(previousDocument.aggregateCoordinates?.groups ?? {}))
   const observe = (next: Readonly<SceneDocument>) => {
     if (sceneId !== next.sceneId) throw new Error('身份只能推进同一场景的修订。')
     const nextProps = new Set(Object.keys(next.props)), nextPrefabs = new Set(Object.keys(next.prefabInstances)), nextOutdoor = outdoorIdentityDescriptors(next)
     for (const [present, previous, field] of [[nextProps, previousProps, 'propTokens'], [nextPrefabs, previousPrefabs, 'prefabTokens']] as const) for (const id of present) {
       if (Object.hasOwn(result[field], id)) { if (!previous.has(id) && !options.allowResurrection) throw new Error(`普通编辑不能复用已分配的物件/组合 ID：${id}。`) }
       else { if (Object.hasOwn(result.outdoorTokens, id) || Object.hasOwn(result[field === 'propTokens' ? 'prefabTokens' : 'propTokens'], id)
-        || ALL_EXTENDED_IDENTITY_FIELDS.some(key => Object.hasOwn(result[key] ?? {}, id))) throw new Error(`新出生ID与已分配身份冲突：${id}。`); result[field][id] = context.ids.nextId() }
+        || Object.hasOwn(result.aggregateTokens ?? {}, id) || ALL_EXTENDED_IDENTITY_FIELDS.some(key => Object.hasOwn(result[key] ?? {}, id))) throw new Error(`新出生ID与已分配身份冲突：${id}。`); result[field][id] = context.ids.nextId() }
+    }
+    const nextAggregates = new Set(Object.keys(next.aggregateCoordinates?.groups ?? {}))
+    if (nextAggregates.size) result.aggregateTokens ??= {}
+    for (const id of nextAggregates) {
+      if (Object.hasOwn(result.aggregateTokens!, id)) {
+        if (!previousAggregates.has(id) && !options.allowResurrection) throw new Error(`普通编辑不能复用已分配的聚合容器ID：${id}。`)
+      } else {
+        if (Object.hasOwn(result.propTokens, id) || Object.hasOwn(result.prefabTokens, id) || Object.hasOwn(result.outdoorTokens, id)
+          || ALL_EXTENDED_IDENTITY_FIELDS.some(key => Object.hasOwn(result[key] ?? {}, id))) throw new Error(`新聚合容器ID与已分配身份冲突：${id}。`)
+        result.aggregateTokens![id] = context.ids.nextId()
+      }
     }
     for (const [id, descriptor] of Object.entries(nextOutdoor)) {
       const record = Object.hasOwn(result.outdoorTokens, id) ? result.outdoorTokens[id] : undefined
@@ -228,7 +253,7 @@ export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocum
         if (!wasPresent || record.topologyHash !== descriptor.topologyHash) result.outdoorTokens[id] = { ...record, kind: descriptor.kind, topologyHash: descriptor.topologyHash, topologyToken: context.ids.nextId() }
       } else {
         if (Object.hasOwn(result.propTokens, id) || Object.hasOwn(result.prefabTokens, id)
-          || ALL_EXTENDED_IDENTITY_FIELDS.some(key => Object.hasOwn(result[key] ?? {}, id))) throw new Error(`新室外ID与已分配身份冲突：${id}。`)
+          || Object.hasOwn(result.aggregateTokens ?? {}, id) || ALL_EXTENDED_IDENTITY_FIELDS.some(key => Object.hasOwn(result[key] ?? {}, id))) throw new Error(`新室外ID与已分配身份冲突：${id}。`)
         result.outdoorTokens[id] = newToken(descriptor, context)
       }
     }
@@ -245,6 +270,7 @@ export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocum
     previousTerrain = nextTerrain
     previousExtended = nextExtended
     previousProps = nextProps; previousPrefabs = nextPrefabs; previousOutdoor = nextOutdoor
+    previousAggregates = nextAggregates
   }
   return { observe, finish: next => { observe(next); return validateHistoryIdentity(result, next) } }
 }
@@ -258,6 +284,13 @@ export function mergeIdentityRecords(currentInput: unknown, others: readonly unk
     const historic = validateHistoryIdentityShape(historicInput)
     if(current.version !== historic.version) throw new Error('不同历史身份版本不能合并。')
     if (current.lineageId !== historic.lineageId || current.rootSceneId !== historic.rootSceneId) throw new Error('历史不是同一lineage/root，不能恢复。')
+    if (historic.aggregateTokens) {
+      current.aggregateTokens ??= {}
+      for (const [id, token] of Object.entries(historic.aggregateTokens)) {
+        if (Object.hasOwn(current.aggregateTokens, id) && current.aggregateTokens[id] !== token) throw new Error(`历史聚合容器出生身份冲突：${id}。`)
+        current.aggregateTokens[id] = token
+      }
+    }
     for (const field of TERRAIN_IDENTITY_FIELDS) if (historic[field]) {
       current[field] ??= {}
       for (const [id, record] of Object.entries(historic[field]!)) {

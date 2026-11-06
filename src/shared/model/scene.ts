@@ -3,6 +3,7 @@ import type { RegionalModel1 } from '../terrain-generation/contracts.js'
 import type { GenerationSystem5, VisualSystem3 } from '../terrain-generation/composition-contracts.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson } from '../validation/json.js'
+import type { AggregateCoordinates } from './aggregate.js'
 
 /** All world coordinates and dimensions are integer millimetres. */
 export type Id = string
@@ -185,6 +186,8 @@ export interface SceneDocument {
   decorationClusters: Record<Id, DecorationCluster>
   /** Continuous material and vegetation rules share one persisted collection. */
   surfaceRules: Record<Id, SurfaceRule>
+  /** World materialization in memory; I/O writes member points in local frames. */
+  aggregateCoordinates?: AggregateCoordinates
 }
 /** Transitional symbol for current callers; there is only one persisted shape. */
 export type SceneDocument8 = SceneDocument

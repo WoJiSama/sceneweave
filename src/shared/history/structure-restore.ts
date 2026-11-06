@@ -8,6 +8,7 @@ import { projectScene } from '../projection/projection.js'
 import { mergeHistoryIdentities, validateHistoryIdentity } from './identity.js'
 import { assertStructureContinuity, STRUCTURE_COLLECTIONS, structureKind, type StructureContinuity, type StructureKind } from './structure-continuity.js'
 import type { HistoryIdentity } from '../model/history.js'
+import { assertCommandBudget, commandSelectionLimit, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 
 
 export type StructureRestoreMode = 'geometry' | 'properties'
@@ -76,11 +77,12 @@ function checkedScene(scene: SceneDocument, label: string): SceneDocument {
   if (!result.ok) throw new Error(`${label}场景无效：${result.errors.map(issue => issue.message).join('；')}`)
   return result.document
 }
-function checkedRequest(input: StructureRestoreRequest): StructureRestoreRequest {
+function checkedRequest(input: StructureRestoreRequest, budget?: CommandBudgetProfile): StructureRestoreRequest {
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(`结构恢复选择无效：${issue.message}`)
-  const parsed = requestSchema.safeParse(input)
-  if (!parsed.success) throw new Error(`结构恢复选择无效：须明确选择 1 至 256 个现存结构及支持的属性组。${parsed.error.issues.map(item => item.message).join('；')}`)
+  const limit = commandSelectionLimit(budget)
+  const parsed = requestSchema.extend({ ids: z.array(id).min(1).max(limit) }).safeParse(input)
+  if (!parsed.success) throw new Error(`结构恢复选择无效：须明确选择 1 至 ${limit} 个现存结构及支持的属性组。${parsed.error.issues.map(item => item.message).join('；')}`)
   const request = parsed.data
   for (const values of [request.ids, request.acknowledgedDependencyIds ?? [], request.confirmedLayerIds ?? []]) {
     if (new Set(values).size !== values.length) throw new Error('结构恢复 ID 和确认项不能重复。')
@@ -110,9 +112,10 @@ function roomOwnsWall(room: Room, wall: Wall): boolean {
 function compose(
   currentInput: SceneDocument, currentIdentityInput: HistoryIdentity,
   historicInput: SceneDocument, historicIdentityInput: HistoryIdentity,
-  requestInput: StructureRestoreRequest, continuity: StructureContinuity,
+  requestInput: StructureRestoreRequest, continuity: StructureContinuity, budgetInput?: CommandBudgetProfile,
 ): { current: SceneDocument; historic: SceneDocument; request: StructureRestoreRequest; historyIdentity: HistoryIdentity; scope: StructureRestoreScope; writes: Map<string, string[]> } {
-  const request = checkedRequest(requestInput), current = checkedScene(currentInput, '当前'), historic = checkedScene(historicInput, '历史')
+  const budget = budgetInput ? parseCommandBudgetProfile(budgetInput) : undefined
+  const request = checkedRequest(requestInput, budget), current = checkedScene(currentInput, '当前'), historic = checkedScene(historicInput, '历史')
   const historyIdentity = mergeHistoryIdentities(currentIdentityInput, current, historicIdentityInput, historic)
   const roots = new Set(request.ids), writes = new Map<string, string[]>(), affected = new Set(request.ids)
   const requireStructure = (id: string): StructureKind => {
@@ -196,24 +199,38 @@ function compose(
   const scope: StructureRestoreScope = { rootIds: [...request.ids], writeIds: sorted(writes.keys()),
     dependencyIds: sorted([...affected].filter(id => !roots.has(id))), impacts, requiredLayerIds: [...new Set(requiredLayerIds)],
     commandCost: [...writes.values()].filter(fields => fields.length > 0).length, assetIds: dependencies.assetIds, subjects: dependencies.subjects }
-  if (scope.commandCost > COMMAND_LIMIT) throw new Error(`结构恢复需要 ${scope.commandCost} 条操作，超过单次 256 条预算；请缩小选择，不能自动拆批。`)
+  if (!budget && scope.commandCost > COMMAND_LIMIT) throw new Error(`结构恢复需要 ${scope.commandCost} 条操作，超过单次 256 条预算；请缩小选择，不能自动拆批。`)
+  if (budget) {
+    const candidate = cloneJson(current)
+    for (const [id, fields] of writes) {
+      const kind = structureKind(current, id)!, source = entity(historic, kind, id)! as unknown as Record<string, unknown>
+      const target = entity(candidate, kind, id)! as unknown as Record<string, unknown>
+      for (const field of fields) {
+        if (Object.hasOwn(source, field)) target[field] = cloneJson(source[field])
+        else delete target[field]
+      }
+    }
+    const usage = measureCommandBudget(current, candidate, { before: { historyIdentity: currentIdentityInput }, after: { historyIdentity } }, undefined, budget)
+    scope.commandCost = assertCommandBudget(budget, { ...usage, dependencyRefs: Math.max(usage.dependencyRefs, affected.size) }).semanticTargets
+  }
   return { current, historic, request, historyIdentity, scope, writes }
 }
 
 /** Inspect first; this cannot be adopted and does not silently confirm dependency expansion. */
 export function inspectStructureRestoreScope(
   current: SceneDocument, currentIdentity: HistoryIdentity, historic: SceneDocument, historicIdentity: HistoryIdentity,
-  request: StructureRestoreRequest, continuity: StructureContinuity,
+  request: StructureRestoreRequest, continuity: StructureContinuity, budget?: CommandBudgetProfile,
 ): StructureRestoreScope {
-  return freezeJson(compose(current, currentIdentity, historic, historicIdentity, request, continuity).scope)
+  return freezeJson(compose(current, currentIdentity, historic, historicIdentity, request, continuity, budget).scope)
 }
 
 /** Pure, checked candidate. Workspace owns protection persistence, CAS and revision+1. */
 export function buildStructureRestorePlan(
   currentInput: SceneDocument, currentIdentity: HistoryIdentity, historicInput: SceneDocument, historicIdentity: HistoryIdentity,
-  requestInput: StructureRestoreRequest, continuity: StructureContinuity,
+  requestInput: StructureRestoreRequest, continuity: StructureContinuity, budgetInput?: CommandBudgetProfile,
 ): StructureRestorePlan {
-  const { current, historic, request, historyIdentity, scope, writes } = compose(currentInput, currentIdentity, historicInput, historicIdentity, requestInput, continuity)
+  const budget = budgetInput ? parseCommandBudgetProfile(budgetInput) : undefined
+  const { current, historic, request, historyIdentity, scope, writes } = compose(currentInput, currentIdentity, historicInput, historicIdentity, requestInput, continuity, budget)
   const acknowledged = new Set(request.acknowledgedDependencyIds ?? []), confirmed = new Set(request.confirmedLayerIds ?? [])
   if (scope.dependencyIds.some(id => !acknowledged.has(id)) || [...acknowledged].some(id => !scope.dependencyIds.includes(id))) throw new Error('结构恢复依赖范围尚未完整确认或已变化，请检查全部扩展 ID 后重新预览。')
   if (scope.requiredLayerIds.some(id => !confirmed.has(id)) || [...confirmed].some(id => !scope.requiredLayerIds.includes(id))) throw new Error('结构恢复跨层影响尚未完整确认或已变化，请检查所列图层后重新预览。')
@@ -233,5 +250,9 @@ export function buildStructureRestorePlan(
   const document = changes.length ? checkedScene(candidate, '结构恢复候选') : current
   validateHistoryIdentity(historyIdentity, document)
   projectScene(document, 'player')
+  if (budget) {
+    const usage = measureCommandBudget(current, document, { before: { historyIdentity: currentIdentity }, after: { historyIdentity } }, undefined, budget)
+    scope.commandCost = assertCommandBudget(budget, { ...usage, dependencyRefs: Math.max(usage.dependencyRefs, scope.impacts.length) }).semanticTargets
+  }
   return freezeJson({ ...scope, request, historyIdentity, document, changes, changed: changes.length > 0 })
 }

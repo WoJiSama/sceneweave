@@ -4,7 +4,7 @@ import { validateCompositionIdentityContracts } from '../terrain-generation/comp
 import { z } from 'zod'
 import { cloneJson, inspectJsonInput } from './json.js'
 import { sceneSchema } from './scene.js'
-import { reviseSceneSnapshot, validateSceneSnapshot } from './snapshots.js'
+import { reviseSceneSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot } from './snapshots.js'
 import { enumerateLayerEntities } from '../commands/layers.js'
 import type { MaterialPaint, SceneDocument } from '../model/scene.js'
 import { bitmapVariant, equalCompositionValue, propAppearanceSnapshot, resolveAppearance, supportedAppearanceKinds, surfaceStyle } from '../appearance/graph.js'
@@ -95,6 +95,13 @@ export function certifyCompositionDraft(input: unknown): CompositionContent {
   const known = knownContent(input, [certifiedContents, certifiedDrafts])
   if (known) return known
   return registerOwnedContent(certifiedDrafts, readCompositionDraft(input, true))
+}
+/** Internal candidate route: the snapshot owner independently checks the full
+ * delta. Identity, generation receipts and appearance still validate normally. */
+export function certifyDerivedCompositionDraft(input: unknown, baseline: SceneDocument): CompositionContent {
+  const known = knownContent(input, [certifiedContents, certifiedDrafts])
+  if (known) return known
+  return registerOwnedContent(certifiedDrafts, readCompositionDraft(input, true, baseline))
 }
 function registerContent(content: CompositionContent): CompositionContent {
   return registerOwnedContent(certifiedContents, content)
@@ -190,14 +197,14 @@ export function validateAppearanceGraph(input: unknown, document: SceneDocument)
   validatePresentations(parsed.data, document)
   checkGraph(parsed.data, document); return parsed.data
 }
-function readCompositionDraft(input: unknown, certifyScene: boolean): CompositionContent {
+function readCompositionDraft(input: unknown, certifyScene: boolean, baseline?: SceneDocument): CompositionContent {
   const known = getCertifiedCompositionContent(input)
   if (known) return known
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(`组合工程无效：${issue.message}`)
   const parsed = contentEnvelopeSchema.safeParse(input)
   if (!parsed.success) throw new Error(`组合工程无效：${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
-  const checked = validateSceneSnapshot(parsed.data.document)
+  const checked = baseline && certifyScene ? validateSceneDerivationSnapshot(parsed.data.document, baseline) : validateSceneSnapshot(parsed.data.document)
   if (!checked.ok) throw new Error(`组合场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   // Identity validation may reuse only this exact privately certified scene.
   // Public drafts still receive detached mutable data, never the witness.

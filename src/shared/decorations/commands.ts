@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { assertCommandBudget, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import type { Decoration, DecorationCluster, Editable, PointMm, SceneDocument } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import type { AppearanceGraph } from '../model/appearance.js'
@@ -116,7 +117,8 @@ export function inspectDecorationChanges(before: SceneDocument, after: SceneDocu
   return { changedIds: [...changed].sort(), affectedIds: [...affected].sort(), layerIds: [...layers].sort(), commandCost: cost }
 }
 
-export function applyDecorationCommand(scene: SceneDocument, command: DecorationCommand, context: PreparationContext, appearance?: AppearanceGraph): DecorationImpact {
+export function applyDecorationCommand(scene: SceneDocument, command: DecorationCommand, context: PreparationContext, appearance?: AppearanceGraph, budget?: CommandBudgetProfile): DecorationImpact {
+  if (budget) parseCommandBudgetProfile(budget)
   const before = cloneJson(scene), decorations = scene.decorations!, clusters = scene.decorationClusters!
   const requireDecoration = (id: string) => { const row = decorations[id]; if (!row) throw new Error(`轻量装饰不存在：${id}。`); unlocked(before, row); assertDecorationMemberUnlocked(before, id); supportUnlocked(before, row); return row }
   const requireCluster = (id: string) => { const row = clusters[id]; if (!row) throw new Error(`簇状布景不存在：${id}。`); unlocked(before, row); supportUnlocked(before, row); return row }
@@ -208,6 +210,7 @@ export function applyDecorationCommand(scene: SceneDocument, command: Decoration
     const row = allEntities(before).find(row => row.id === id)
     if (row) unlocked(before, row)
   }
-  if (impact.commandCost > 256) throw new Error('轻量装饰、成员和人工记录实际展开超过256，不能拆批绕过。')
+  if (!isManualTransactionBudget(budget) && impact.commandCost > 256) throw new Error('轻量装饰、成员和人工记录实际展开超过256，不能拆批绕过。')
+  if (isManualTransactionBudget(budget)) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
   return impact
 }
