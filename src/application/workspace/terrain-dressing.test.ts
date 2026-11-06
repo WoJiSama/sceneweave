@@ -64,7 +64,8 @@ describe('terrain dressing stays one ordinary protected workspace preview', () =
     expect(workspace.getState().project).toBe(current); expect(workspace.getState().canUndo).toBe(false)
     expect(planTerrainDressing).toHaveBeenCalledWith({ document: expect.objectContaining({ propDefinitions: expect.objectContaining({ 'dressing-definition': expect.anything() }) }), appearance: expect.objectContaining({ presentations: expect.anything() }) }, raw)
     expect(wrapper.preview.commands).toEqual(recipe.commands); expect(wrapper.report).toEqual(recipe.report)
-    expect(wrapper.cost.total).toBeGreaterThan(1); expect(wrapper.cost).toMatchObject({ limit: 256 })
+    expect(wrapper.cost).toEqual({ total: 1, limit: 256 })
+    expect(wrapper.preview.budgetUsage!.metadataRecords).toBeGreaterThan(0)
     expect(wrapper.preview.document.props['new-dressing'].rotationDeg).toBe(0)
     expect(canonicalJson(toBundle(catalog).project)).toBe(catalogBefore); expect(canonicalJson(toBundle(current).project)).toBe(currentBefore)
     await workspace.adoptPreview(wrapper.preview)
@@ -98,12 +99,29 @@ describe('terrain dressing stays one ordinary protected workspace preview', () =
     await expect(workspace.previewPrepared(catalog)).rejects.toThrow(/只能新增固定素材/)
   })
 
-  it('rejects combined source additions plus a cumulative change-then-restore batch even when its final entity delta is zero', async () => {
+  it('budgets fixed sources separately while retaining geometry work for a manual change-then-restore batch', async () => {
     const { workspace, current } = await setup(), catalog = appended(current), rotation = current.document.props.item.rotationDeg
     const commands: CompositionCommand[] = Array.from({ length: 256 }, (_, index) => ({ type: 'updateProp', id: 'item', changes: { rotationDeg: index % 2 ? rotation : (rotation + 1) % 360 } }))
     plan(current, commands)
     const before = canonicalJson(toBundle(workspace.getState().project!).project)
-    await expect(workspace.previewTerrainDressing(catalog, request(current))).rejects.toThrow(/256/)
+    const wrapper = await workspace.previewTerrainDressing(catalog, request(current))
+    expect(wrapper.preview.commands).toHaveLength(256)
+    expect(wrapper.cost).toEqual({ total: 0, limit: 256 })
+    expect(wrapper.preview.document.props).toEqual(current.document.props)
+    expect(wrapper.preview.document.propDefinitions['dressing-definition']).toEqual(catalog.document.propDefinitions['dressing-definition'])
+    expect(wrapper.preview.budgetUsage!.geometryPoints).toBeGreaterThan(0)
+    expect(wrapper.preview.budgetUsage!.metadataRecords).toBeGreaterThan(0)
+    expect(canonicalJson(toBundle(workspace.getState().project!).project)).toBe(before)
+  })
+
+  it('rejects 1025 raw manual commands even when the last command restores the original value', async () => {
+    const { workspace, current } = await setup(), catalog = appended(current), rotation = current.document.props.item.rotationDeg
+    const commands: CompositionCommand[] = Array.from({ length: 1025 }, (_, index) => ({ type: 'updateProp', id: 'item',
+      changes: { rotationDeg: index === 1024 || index % 2 ? rotation : (rotation + 1) % 360 } }))
+    plan(current, commands)
+    const before = canonicalJson(toBundle(workspace.getState().project!).project)
+    await expect(workspace.previewTerrainDressing(catalog, request(current))).rejects.toThrow(/1024/)
+    expect(workspace.getState().project).toBe(current)
     expect(canonicalJson(toBundle(workspace.getState().project!).project)).toBe(before)
   })
 

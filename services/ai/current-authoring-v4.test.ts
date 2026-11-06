@@ -83,6 +83,7 @@ describe('explicit authoring4 stage and review tools (metadata fixtures, no real
     expect(tool(task, 'sceneweave_edit_props', { operations: [{ kind: 'opacity', id: target, value: .6 }] }).output.expected)
       .toEqual(authoringDraftStamp(task.authoring!.state, 1))
   })
+  // Seventeen real recipes cross two internal steps and repeatedly replay/validate the complete generated project.
   it('installs a 17-recipe stage once after both internal steps pass and refuses a stale budget identity', () => {
     const task = taskFixture(), expected = authoringDraftStamp(task.authoring!.state, 1), id = task.authoring!.start.scope.targetIds[0]
     const operations = Array.from({ length: 17 }, (_, index) => ({ kind: 'opacity', id, value: .3 + index / 100 }))
@@ -94,14 +95,15 @@ describe('explicit authoring4 stage and review tools (metadata fixtures, no real
     const unchanged = canonicalJson(task.authoring!.state)
     expect(tool(task, 'sceneweave_apply_stage', { stage: 'review', expected, operations: operations.slice(0, 1) }).result.success).toBe(false)
     expect(canonicalJson(task.authoring!.state)).toBe(unchanged)
-  })
+  }, 20000)
+  // The rejected second step still performs the preceding recipes' complete project and cumulative ledger checks.
   it('rejects a failure in the second internal step with no partial state, plan or artifact install', () => {
     const task = taskFixture(), before = canonicalJson(task), expected = authoringDraftStamp(task.authoring!.state, 1), id = task.authoring!.start.scope.targetIds[0]
     const operations = [...Array.from({ length: 16 }, () => ({ kind: 'opacity', id, value: .4 })), { kind: 'opacity', id: 'PRIVATE_UNGRANTED', value: .5 }]
     const failed = tool(task, 'sceneweave_apply_stage', { stage: 'review', expected, operations })
     expect(failed.result.success).toBe(false); expect(canonicalJson(task)).toBe(before)
     expect(failed.result.output).not.toContain('PRIVATE_UNGRANTED')
-  })
+  }, 20000)
   it('binds compact review to latest image and exact ledger, then requires a successful prior proposal before explicit apply', () => {
     const task = taskFixture(), start = task.authoring!.start, id = start.scope.targetIds[0]
     const image = createPublicVisionInput(svgFixturePng(), { sceneId: start.project.document.sceneId, revision: start.project.document.revision,
