@@ -26,7 +26,7 @@ export function assertLocalManaged(content: CompositionContent, kind: Generation
  * perform all geometry/lock/budget checks before their manual hook is reconciled. */
 export function finishLocalOwnership(before: SceneDocument, document: SceneDocument, writes: LocalWrite[], recipeId: string): void {
   const gen = getLegacyGeneration(document)!, old = getLegacyGeneration(before)!, recipe = gen.recipes[recipeId]
-  if (!recipe || !('domain' in recipe)) throw new Error('局部更新缺少严格领域配方。')
+  if (!recipe || !('domain' in recipe) || recipe.domain === 'mixed') throw new Error('局部更新须选择明确的建筑、森林或火山子配方；组合配方不授予重建权限。')
   for (const write of writes) {
     const prior = Object.values(old.ownership).find(row => row.target.kind === write.kind && row.target.entityId === write.entityId)
     if (prior) {

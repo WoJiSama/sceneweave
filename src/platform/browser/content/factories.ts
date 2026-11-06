@@ -7,9 +7,11 @@ import type { ProjectData } from '../../../shared/model/project.js'
 import { createHistoryIdentity } from '../../../shared/history/identity.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
-import { captureJson, freezeJson } from '../../../shared/validation/json.js'
+import { canonicalJson, captureJson, freezeJson } from '../../../shared/validation/json.js'
 import { fromBundle, type EditableProject } from '../../../application/workspace/project.js'
 import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
+import { projectResourceHashes } from '../../../shared/project/source-resources.js'
+import { namespaceMixedInteriorCatalogue } from './mixed-palette.js'
 
 export type SampleKind = 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano'
 export const BLANK_PRESETS = [
@@ -97,4 +99,46 @@ export async function createVolcanoBlankProject(input: BlankOptions, signal?: Ab
   }
   Object.assign(project, createCompositionContent(document, runtime), { schemaVersion: 1 })
   return complete(project, signal, onProgress)
+}
+
+/** Merge independently validated fixed catalogues into one empty project. No
+ * scene geometry, instance source, history or sample ownership is transferred. */
+export async function createMixedBlankProject(environment: 'forest' | 'volcano', input: BlankOptions, signal?: AbortSignal): Promise<EditableProject> {
+  const options = optionsSchema.parse(captureJson(input))
+  if (environment !== 'forest' && environment !== 'volcano') throw new Error('混合场景暂支持森林或火山。')
+  signal?.throwIfAborted()
+  const { createRefinedBlankProject } = await import('./refined-blank.js')
+  const interior = await createRefinedBlankProject('interior', options, signal)
+  const outdoor = environment === 'volcano' ? await createVolcanoBlankProject(options, signal)
+    : await (await import('./shore-blank.js')).createShoreBlankProject('island', options, signal, true, true)
+  signal?.throwIfAborted()
+  const { resources: _resources, ...metadata } = interior
+  const project = captureJson(metadata) as ProjectData
+  namespaceMixedInteriorCatalogue(project)
+  const merge = <T>(target: Record<string, T>, source: Record<string, T>) => {
+    for (const [id, value] of Object.entries(source)) {
+      if (Object.hasOwn(target, id) && canonicalJson(target[id]) !== canonicalJson(value)) throw new Error(`混合固定素材身份冲突：${id}`)
+      target[id] = captureJson(value)
+    }
+  }
+  for (const key of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) {
+    merge(project.document[key] as Record<string, unknown>, outdoor.document[key])
+  }
+  merge(project.assets, outdoor.assets); merge(project.licenses, outdoor.licenses); merge(project.authoringSources, outdoor.authoringSources)
+  const bindingBySubject = new Map(project.licenseBindings.map(row => [`${row.subjectKind}:${row.subjectId}`, row]))
+  for (const row of outdoor.licenseBindings) {
+    const key = `${row.subjectKind}:${row.subjectId}`, existing = bindingBySubject.get(key)
+    if (existing && canonicalJson(existing) !== canonicalJson(row)) throw new Error(`混合固定许可绑定冲突：${key}`)
+    if (!existing) { const captured = captureJson(row); bindingBySubject.set(key, captured); project.licenseBindings.push(captured) }
+  }
+  const bytes = new Map<string, Uint8Array>()
+  for (const source of [interior, outdoor]) for (const hash of projectResourceHashes(source)) {
+    signal?.throwIfAborted()
+    const value = await source.resources.read(hash), previous = bytes.get(hash)
+    if (previous && (previous.length !== value.length || previous.some((byte, index) => byte !== value[index]))) throw new Error('混合资源同hash字节不一致。')
+    bytes.set(hash, value)
+  }
+  Object.assign(project, createCompositionContent(project.document, runtime))
+  signal?.throwIfAborted()
+  return fromBundle({ project, resources: createMemoryResources(bytes) }, { ...validation, signal })
 }

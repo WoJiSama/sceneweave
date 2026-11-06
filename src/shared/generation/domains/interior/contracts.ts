@@ -20,8 +20,15 @@ export const interiorLayoutParametersSchema = z.object({ floorId: id, layerId: i
   }).strict(),
 }).strict()
 export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.literal(2), seed: z.string().min(1).max(128), parameters: interiorLayoutParametersSchema }).strict()
+/** A separate replay contract adds real terrain support without changing the
+ * original floor-only interior-layout@2 parameters or deterministic results. */
+export const supportedInteriorParametersSchema = interiorLayoutParametersSchema.extend({
+  supportRef: z.object({ kind: z.literal('terrainArea'), id }).strict(),
+}).strict()
+export const supportedInteriorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.literal(1), seed: z.string().min(1).max(128), parameters: supportedInteriorParametersSchema }).strict()
 export type InteriorLayoutParameters = z.infer<typeof interiorLayoutParametersSchema>
 export type InteriorGenerationInput = z.infer<typeof interiorGenerationInputSchema>
+export type SupportedInteriorGenerationInput = z.infer<typeof supportedInteriorGenerationInputSchema>
 export type InteriorRoomRequirement = InteriorLayoutParameters['rooms'][number]
 export interface InteriorRectangle { x: number; y: number; width: number; height: number }
 export interface InteriorLayout {

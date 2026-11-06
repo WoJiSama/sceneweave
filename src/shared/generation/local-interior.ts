@@ -39,7 +39,12 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   if (room.editLocked || before.userLayers[before.entityLayers[room.id]]?.editLocked || roomRule.editLocked || before.userLayers[roomRule.layerId]?.editLocked) throw new Error('房间、生成规则或图层已锁定。')
   const requirement = recipe.parameters.rooms.find(row => roomOwner.outputKey === `${recipe.id}:room:${row.id}`)
   if (!requirement) throw new Error('所选房间缺少真实稳定需求映射。')
-  const input: InteriorGenerationInput = { version: 1, algorithmVersion: 2, seed: recipe.seed, parameters: cloneJson(recipe.parameters) }
+  // Terrain support belongs to the supported-interior replay contract, while
+  // furnishing reads the actual current Room and its recursive support chain.
+  // Never feed the extra parameter into strict interior-layout@2 inputs.
+  const parameters = cloneJson(recipe.parameters)
+  if ('supportRef' in parameters) delete (parameters as Partial<typeof parameters>).supportRef
+  const input: InteriorGenerationInput = { version: 1, algorithmVersion: 2, seed: recipe.seed, parameters }
   const boundsMm = realRectangle(before, room.id), wallThickness = Math.max(input.parameters.wallThicknessMm, ...Object.values(before.walls).filter(wall => room.boundaryVertexIds.some((id, index, ring) =>
     id === wall.startVertexId && ring[(index + 1) % ring.length] === wall.endVertexId || id === wall.endVertexId && ring[(index + 1) % ring.length] === wall.startVertexId)).map(wall => wall.thicknessMm))
   input.parameters.wallThicknessMm = wallThickness
@@ -50,8 +55,27 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   for (const row of input.parameters.arrangement.palette) if (before.propDefinitions[row.ref.id]?.version !== row.ref.version) throw new Error('局部家具固定素材缺失或版本不符。')
   const readIds = new Set<string>([recipe.id, room.id, before.entityLayers[room.id], roomOwner.id, roomOwner.ruleId, ...room.boundaryVertexIds, ...connectivity.openingIds,
     ...input.parameters.arrangement.palette.map(row => row.ref.id)])
+  const readSupport = (id: string) => {
+    const surface = before.rooms[id] ?? before.terrainAreas[id]
+    readIds.add(id)
+    if (surface) {
+      readIds.add(before.entityLayers[id])
+      if (recipe.algorithmId === 'supported-interior' && (surface.editLocked || before.userLayers[before.entityLayers[id]]?.editLocked)) throw new Error('局部家具的真实支撑地形或图层已锁定。')
+      if ('supportRef' in surface) readSupport(surface.supportRef.id)
+    }
+  }
+  readSupport(room.supportRef.id)
+  // Current full-width door/circulation checks consume the outdoor physical
+  // scene as well as room walls and furniture. Expose that real read closure
+  // for supported buildings; these records remain strictly read-only.
+  if (recipe.algorithmId === 'supported-interior') for (const collection of ['terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'regions'] as const) {
+    for (const entity of Object.values(before[collection])) if (entity.floorId === room.floorId) {
+      readIds.add(entity.id); readIds.add(before.entityLayers[entity.id])
+    }
+  }
   for (const route of connectivity.routes) for (const id of [route.fromRoomId, route.toRoomId]) if (id) {
     readIds.add(id)
+    readSupport(before.rooms[id].supportRef.id)
     for (const vertexId of before.rooms[id].boundaryVertexIds) readIds.add(vertexId)
   }
   for (const wall of Object.values(before.walls).filter(wall => wall.floorId === room.floorId)) { readIds.add(wall.id); readIds.add(wall.startVertexId); readIds.add(wall.endVertexId) }

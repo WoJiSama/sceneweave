@@ -11,10 +11,10 @@ import {
 } from './execution.js'
 
 const context = { workspaceId: 'd7-workspace', checkpoint: 3, epoch: 2 }
-function request(domain: DomainGenerationKind) {
+function request(domain: Exclude<DomainGenerationKind, 'mixed'>) {
   return createDomainExecutionRequest({ requestId: `request-${domain}`, context, domain, ...domainExecutionFixture(domain) })
 }
-const direct = (domain: DomainGenerationKind) => {
+const direct = (domain: Exclude<DomainGenerationKind, 'mixed'>) => {
   const { base, input, profile } = domainExecutionFixture(domain), options = { profile, nowMilliseconds: () => 0 }
   if (domain === 'interior') return runInteriorGeneration(base, input, options)
   if (domain === 'forest') return runForestGeneration(base, input, options)

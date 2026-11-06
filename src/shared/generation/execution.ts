@@ -8,13 +8,15 @@ import { generationArtifactSchema, generationDiagnosticSchema, hashGenerationVal
 import { normalizeInteriorInput, runInteriorGeneration } from './domains/interior/index.js'
 import { normalizeForestInput, runForestGeneration } from './domains/forest/index.js'
 import { normalizeVolcanoInput, runVolcanoGeneration } from './domains/volcano/index.js'
+import { normalizeMixedInput, runMixedGeneration, mixedReportSchema } from './domains/mixed/index.js'
 import { interiorFurnitureRoleSchema } from './domains/interior/contracts.js'
 
-export type DomainGenerationKind = 'interior' | 'forest' | 'volcano'
+export type DomainGenerationKind = 'interior' | 'forest' | 'volcano' | 'mixed'
 export interface DomainGenerationResults {
   interior: ReturnType<typeof runInteriorGeneration>
   forest: ReturnType<typeof runForestGeneration>
   volcano: ReturnType<typeof runVolcanoGeneration>
+  mixed: ReturnType<typeof runMixedGeneration>
 }
 export const DOMAIN_GENERATION_LIMITS = Object.freeze({ requestBytes: 8 * 1024 * 1024, resultBytes: 16 * 1024 * 1024, maxTimeoutMs: 60000 })
 export interface DomainGenerationOptions { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: CancellationSignal }
@@ -24,6 +26,7 @@ const domains = {
   interior: { algorithm: { id: 'interior-layout', version: 2 }, normalize: normalizeInteriorInput, run: runInteriorGeneration },
   forest: { algorithm: { id: 'forest-layout', version: 1 }, normalize: normalizeForestInput, run: runForestGeneration },
   volcano: { algorithm: { id: 'volcano-layout', version: 1 }, normalize: normalizeVolcanoInput, run: runVolcanoGeneration },
+  mixed: { algorithm: { id: 'mixed-layout', version: 1 }, normalize: normalizeMixedInput, run: runMixedGeneration },
 } as const
 export function runDomainGeneration<K extends DomainGenerationKind>(domain: K, base: SceneDocument, input: unknown, options: DomainGenerationOptions): DomainGenerationResults[K] {
   checkCancelled(options.signal)
@@ -50,7 +53,7 @@ const point = z.object({ x: z.number().finite(), y: z.number().finite() }).stric
 const ref = z.object({ id, version: integer.positive() }).strict()
 const contextSchema = z.object({ workspaceId: id, checkpoint: count, epoch: count }).strict()
 const requestSchema = z.object({ protocolVersion: z.literal(1), requestId: id, context: contextSchema,
-  domain: z.enum(['interior', 'forest', 'volcano']), base: z.unknown(), input: z.unknown(), profile: z.unknown(), requestHash: hash,
+  domain: z.enum(['interior', 'forest', 'volcano', 'mixed']), base: z.unknown(), input: z.unknown(), profile: z.unknown(), requestHash: hash,
 }).strict()
 export interface DomainExecutionRequest<K extends DomainGenerationKind = DomainGenerationKind> {
   protocolVersion: 1; requestId: string; context: z.infer<typeof contextSchema>; domain: K
@@ -104,8 +107,9 @@ const resultSchemas = {
   interior: z.object({ ...resultBase, layout: layoutSchema, report: interiorReportSchema }).strict(),
   forest: z.object({ ...resultBase, report: forestReportSchema }).strict(),
   volcano: z.object({ ...resultBase, report: volcanoReportSchema }).strict(),
+  mixed: z.object({ ...resultBase, report: mixedReportSchema }).strict(),
 }
-const responseSchema = z.object({ protocolVersion: z.literal(1), requestId: id, context: contextSchema, domain: z.enum(['interior', 'forest', 'volcano']), requestHash: hash, result: z.unknown() }).strict()
+const responseSchema = z.object({ protocolVersion: z.literal(1), requestId: id, context: contextSchema, domain: z.enum(['interior', 'forest', 'volcano', 'mixed']), requestHash: hash, result: z.unknown() }).strict()
 /** Transport data is a preview only. Even a self-consistent digest is not an
  * adoption certificate: Workspace replays locally with real resources and CAS. */
 export function parseDomainExecutionResponse<K extends DomainGenerationKind>(raw: unknown, request: DomainExecutionRequest<K>): DomainExecutionResponse<K> {

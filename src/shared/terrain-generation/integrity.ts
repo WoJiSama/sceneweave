@@ -10,6 +10,7 @@ import { surroundingsEntityHash, surroundingsOutputHash } from './surroundings.j
 import { polygonBoolean } from '../geometry/polygon-boolean.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { openingEndpoints, roomPoints } from '../geometry/geometry.js'
+import { mixedFixedBindings } from '../generation/domains/mixed/contracts.js'
 
 export type TerrainContractDocument = LegacyTerrainScene
 const terrain = (value: SceneDocument | LegacyTerrainScene): TerrainContractDocument => legacyTerrainView(value)
@@ -237,6 +238,10 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
     for (const row of recipe.props) if (doc.propDefinitions[row.ref.id]?.version !== row.ref.version) fail('TERRAIN_DEFINITION', '生成物件固定版本缺失。', recipe.id)
     if ('domain' in recipe && recipe.domain === 'interior') {
       if (!doc.floors[recipe.parameters.floorId] || !doc.userLayers[recipe.parameters.layerId] || doc.userLayers[recipe.parameters.layerId].floorId !== recipe.parameters.floorId) fail('BUILDING_RECIPE_SCOPE', '室内配方的Floor/图层缺失或跨Floor。', recipe.id)
+      if (recipe.algorithmId === 'supported-interior') {
+        const support = doc.terrainAreas[recipe.parameters.supportRef.id]
+        if (!support || support.floorId !== recipe.parameters.floorId) fail('BUILDING_RECIPE_SUPPORT', '地形建筑配方须引用同Floor的真实支撑地形。', recipe.id)
+      }
       if (!equal(recipe.parameters.arrangement.palette, recipe.props)) fail('BUILDING_RECIPE_PALETTE', '室内配方的固定家具与初次布置参数不一致。', recipe.id)
       for (const role of ['floor', 'wall'] as const) {
         const expected = recipe.parameters.materials[role], bound = recipe.materials.find(row => row.role === role)?.ref ?? null
@@ -256,6 +261,12 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
       if (!equal(canonicalSet(props), canonicalSet(recipe.props)) || !equal(canonicalSet(materials), canonicalSet(recipe.materials))) fail('FOREST_RECIPE_BINDINGS', '森林规范参数与确切固定素材绑定不同。', recipe.id)
       for (const row of recipe.materials) if (!doc.materials[row.ref.id]?.applicableSurfaces.includes(row.role === 'ground' ? 'terrain' : 'path')) fail('FOREST_RECIPE_MATERIAL', '森林材质不适用于对应表面。', recipe.id)
     }
+    if ('domain' in recipe && recipe.domain === 'mixed') {
+      const p = recipe.parameters, outdoor = p.outdoor.parameters, bindings = mixedFixedBindings(p)
+      if (p.building.floorId !== outdoor.floorId || !doc.floors[outdoor.floorId] || doc.userLayers[outdoor.layerId]?.floorId !== outdoor.floorId
+        || doc.userLayers[p.building.layerId]?.floorId !== outdoor.floorId) fail('MIXED_RECIPE_SCOPE', '混合配方的真实Floor/图层须存在且一致。', recipe.id)
+      if (!equal(bindings.materials, recipe.materials) || !equal(bindings.props, recipe.props)) fail('MIXED_RECIPE_BINDINGS', '混合配方规范参数与固定素材绑定不一致。', recipe.id)
+    }
   }
   for (const recipe of Object.values(doc.generation.recipes)) if ('domain' in recipe && recipe.domain === 'volcano') {
     const p = recipe.parameters
@@ -270,6 +281,7 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
     if ((rule.kind === 'building') !== !!(recipe && 'domain' in recipe && recipe.domain === 'interior')) fail('BUILDING_RULE_RECIPE', '室内规则须引用对应领域的严格配方。', rule.id)
     if ((rule.kind === 'forest') !== !!(recipe && 'domain' in recipe && recipe.domain === 'forest')) fail('FOREST_RULE_RECIPE', '森林规则须引用对应领域的严格配方。', rule.id)
     if ((rule.kind === 'volcano') !== !!(recipe && 'domain' in recipe && recipe.domain === 'volcano')) fail('VOLCANO_RULE_RECIPE', '火山规则须引用对应领域严格配方。', rule.id)
+    if ((rule.kind === 'composition') !== !!(recipe && 'domain' in recipe && recipe.domain === 'mixed')) fail('MIXED_RULE_RECIPE', '混合规则须引用对应严格组合配方。', rule.id)
     for (const ref of rule.inputs) checkRef(ref, rule.floorId, rule.id, rule.state === 'detached')
     for (const ref of rule.outputs) {
       const owners = Object.values(doc.generation.ownership).filter(row => row.ruleId === rule.id && sameEntity(row.target, ref)

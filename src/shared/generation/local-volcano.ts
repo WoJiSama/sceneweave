@@ -1,8 +1,8 @@
 import type { CompositionContent } from '../model/appearance.js'
-import type { PointMm, SurfaceStyle } from '../model/scene.js'
+import type { PointMm, SurfaceRef, SurfaceStyle } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { applyCommands, type SceneCommand } from '../commands/commands.js'
-import { terrainPoints, polygonInside, polygonsOverlap, polygonDistance, pathPolygon, propFootprint } from '../geometry/geometry.js'
+import { terrainPoints, polygonInside, polygonsOverlap, polygonDistance, pathPolygon, propFootprint, connectionFootprint } from '../geometry/geometry.js'
 import { checkTerrainRoute, assertTerrainConnectionClearances } from '../geometry/terrain-travel.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
@@ -56,18 +56,42 @@ export function regenerateVolcanoSurface(content: CompositionContent, request: L
     if (flow && !polygonInside(terrainPoints(flow), request.positionsMm)) throw new Error('新火口轮廓不能吞没或移走现存流道支撑。')
     if (flow) reads.add(flow.id)
     const near = (points: PointMm[]) => polygonDistance(points, terrainPoints(area)) === 0 || polygonDistance(points, request.positionsMm) === 0
+    const onChangedSupport = (ref: SurfaceRef): boolean => ref.kind === 'room' ? onChangedSupport(before.rooms[ref.id].supportRef) : ref.kind === 'terrainArea' && ref.id === area.id
+    const readSupport = (ref: SurfaceRef): void => {
+      reads.add(ref.id)
+      if (ref.kind === 'room') readSupport(before.rooms[ref.id].supportRef)
+      else if (ref.kind === 'terrainArea') reads.add(before.terrainAreas[ref.id].floorId)
+    }
+    // Real building walls participate in the route/connection checks below.
+    // Keep their current geometry, support, opening state and locks visible in
+    // the read-only closure rather than silently treating them as terrain.
+    for (const room of Object.values(before.rooms)) if (room.floorId === area.floorId) {
+      reads.add(room.id); readSupport(room.supportRef)
+      for (const vertexId of room.boundaryVertexIds) reads.add(vertexId)
+    }
+    for (const wall of Object.values(before.walls)) if (wall.floorId === area.floorId) {
+      reads.add(wall.id); reads.add(wall.startVertexId); reads.add(wall.endVertexId)
+    }
+    for (const opening of Object.values(before.openings)) if (opening.floorId === area.floorId) reads.add(opening.id)
     for (const row of Object.values(before.terrainEdges)) if (row.source.areaId === area.id || row.neighborAreaId === area.id) reads.add(row.id)
-    for (const row of Object.values(before.terrainConnections)) if (row.from.surfaceRef.id === area.id || row.to.surfaceRef.id === area.id) reads.add(row.id)
-    for (const row of Object.values(before.paths)) if (row.supportRefs.some(ref => ref.id === area.id) || near(pathPolygon(row))) reads.add(row.id)
-    for (const row of Object.values(before.props)) if (row.supportRef.id === area.id || near(propFootprint(row))) reads.add(row.id)
+    for (const row of Object.values(before.terrainConnections)) if (onChangedSupport(row.from.surfaceRef) || onChangedSupport(row.to.surfaceRef) || near(connectionFootprint(row))) {
+      reads.add(row.id); readSupport(row.from.surfaceRef); readSupport(row.to.surfaceRef)
+      if (row.openingId) reads.add(row.openingId)
+    }
+    for (const row of Object.values(before.paths)) if (row.supportRefs.some(onChangedSupport) || near(pathPolygon(row))) {
+      reads.add(row.id); row.supportRefs.forEach(readSupport)
+    }
+    for (const row of Object.values(before.props)) if (onChangedSupport(row.supportRef) || near(propFootprint(row))) reads.add(row.id)
     for (const row of Object.values(before.regions)) if (near(row.boundaryMm)) reads.add(row.id)
     for (const row of Object.values(before.decorationClusters)) if (row.supportRef.id === area.id) reads.add(row.id)
     for (const row of Object.values(before.decorations)) if (row.supportRef.id === area.id) reads.add(row.id)
     for (const row of Object.values(before.surfaceRules)) if (row.supportRef.id === area.id) reads.add(row.id)
+    for (const entityId of [...reads]) if (before.entityLayers[entityId]) reads.add(before.entityLayers[entityId])
   }
   checkCancelled()
   const document = applyCommands(before, commands, runtime, { appearance: content.appearance })
   if (request.operation === 'volcano-boundary') {
+    for (const collection of ['rooms', 'walls', 'openings'] as const) if (canonicalJson(before[collection]) !== canonicalJson(document[collection])) throw new Error('火口局部修改不能改变已有建筑或门窗。')
     const connectionIds = Object.values(document.terrainConnections).filter(row => reads.has(row.id)).map(row => row.id)
     assertTerrainConnectionClearances(document, connectionIds.map(connectionId => ({ connectionId, minWidthMm: document.terrainConnections[connectionId].widthMm, approachDepthMm: Math.max(1, Math.floor(document.terrainConnections[connectionId].widthMm / 3)) })))
     for (const row of Object.values(document.paths)) if (reads.has(row.id)) {

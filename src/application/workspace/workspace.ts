@@ -1,3 +1,4 @@
+import { prepareMixedProject, type MixedCandidate } from './mixed.js'
 import { isDecorationCommand } from '../../shared/decorations/commands.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
 import { parseTaskBudgetProfile, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
@@ -146,7 +147,13 @@ export interface VolcanoPreview extends VolcanoCandidate {
   currentRevision: number | null
   baseContentHash: string | null
 }
-export interface DomainPreviewMap { interior: InteriorPreview; forest: ForestPreview; volcano: VolcanoPreview }
+export interface MixedPreview extends MixedCandidate {
+  checkpoint: number
+  currentSceneId: string | null
+  currentRevision: number | null
+  baseContentHash: string | null
+}
+export interface DomainPreviewMap { interior: InteriorPreview; forest: ForestPreview; volcano: VolcanoPreview; mixed: MixedPreview }
 export interface GenerationPreviewOptions extends ResourceOptions { execute?: DomainGenerationExecutor; epoch?: number }
 type NewGenerationRequest<K extends DomainGenerationKind = DomainGenerationKind> = { kind: 'new-project'; domain: K; base: EditableProject; input: unknown; profile: TaskBudgetProfile }
 type CurrentGenerationRequest = { kind: 'current-project'; input: LocalGenerationRequest; profile?: TaskBudgetProfile }
@@ -351,6 +358,7 @@ export class Workspace {
   private readonly terrainPreviews = new WeakMap<TerrainPreview, PreviewStatus>()
   private readonly interiorPreviews = new WeakMap<InteriorPreview, { status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
   private readonly forestPreviews = new WeakMap<ForestPreview, { status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
+  private readonly mixedPreviews = new WeakMap<MixedPreview, { status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
   private readonly volcanoPreviews = new WeakMap<VolcanoPreview, { status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
   private readonly terrainEditPreviews = new WeakMap<TerrainEditPreview, PreviewStatus>()
   private readonly terrainLocalPreviews = new WeakMap<TerrainLocalPreview, PreviewStatus>()
@@ -548,6 +556,7 @@ export class Workspace {
       interior: () => this.previewInteriorGeneration(request.base, request.input, request.profile, options),
       forest: () => this.previewForestGeneration(request.base, request.input, request.profile, options),
       volcano: () => this.previewVolcanoGeneration(request.base, request.input, request.profile, options),
+      mixed: () => this.previewMixedGeneration(request.base, request.input, request.profile, options),
     }
     if (!Object.hasOwn(prepare, request.domain)) throw new Error('此生成领域尚未支持。')
     return prepare[request.domain]()
@@ -558,6 +567,7 @@ export class Workspace {
       case 'interior': return this.cancelInteriorGeneration(selection.preview)
       case 'forest': return this.cancelForestGeneration(selection.preview)
       case 'volcano': return this.cancelVolcanoGeneration(selection.preview)
+      case 'mixed': return this.cancelMixedGeneration(selection.preview)
     }
   }
   adoptGeneration(selection: { kind: 'current-project'; preview: LocalGenerationPreview }, options?: ResourceOptions): ReturnType<Workspace['adoptLocalGeneration']>
@@ -568,6 +578,7 @@ export class Workspace {
       case 'interior': return this.adoptInteriorGeneration(selection.preview, options)
       case 'forest': return this.adoptForestGeneration(selection.preview, options)
       case 'volcano': return this.adoptVolcanoGeneration(selection.preview, options)
+      case 'mixed': return this.adoptMixedGeneration(selection.preview, options)
     }
   }
   /** A first-domain candidate stays independent until complete validation,
@@ -760,6 +771,70 @@ export class Workspace {
       if (!cold) throw new Error('火山新工程冷读失败，当前工程保持。')
       const installed = await fromBundle(cold, { ...this.validation(), signal }); assertActive()
       if (projectContentHash(toBundle(installed).project) !== projectContentHash(toBundle(project).project)) throw new Error('火山新工程在冷读前已变化，请从工程目录重新打开。')
+      this.atomicLock = null; this.install(installed); witness.status = 'applied'
+    } catch (error) { witness.status = 'cancelled'; throw error }
+    finally { if (this.atomicLock === token) this.atomicLock = null }
+  }
+  async previewMixedGeneration(base: EditableProject, input: unknown, profile: TaskBudgetProfile, options: GenerationPreviewOptions = {}): Promise<MixedPreview> {
+    this.assertWritable()
+    const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const ownedInput = captureJson(input), capturedProfile = parseTaskBudgetProfile(profile)
+    const owned = await validateEditableProject(base, { ...this.validation(), signal })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const preparedAt = this.options.runtime.clock.now(), identityAllocation: string[] = []
+    const runtime = { clock: { now: () => preparedAt }, ids: { nextId: () => { const id = this.options.runtime.ids.nextId(); identityAllocation.push(id); return id } } }
+    const prepared = await prepareMixedProject(owned, ownedInput, { runtime, validation: this.validation(), signal, profile: capturedProfile, execute: options.execute,
+      context: { workspaceId: this.state.project?.document.sceneId ?? 'empty-workspace', checkpoint, epoch: options.epoch ?? 0 } })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const current = this.state.project
+    if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('混合场景必须具有独立的新工程身份。')
+    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null,
+      baseContentHash: current ? projectContentHash(toBundle(current).project) : null })
+    this.mixedPreviews.set(preview, { status: 'active', base: owned, preparedAt, identityAllocation })
+    return preview
+  }
+  cancelMixedGeneration(preview: MixedPreview) {
+    const witness = this.mixedPreviews.get(preview)
+    if (witness && (witness.status === 'active' || witness.status === 'applying')) witness.status = 'cancelled'
+  }
+  async adoptMixedGeneration(preview: MixedPreview, options: ResourceOptions = {}) {
+    this.assertWritable()
+    const witness = this.mixedPreviews.get(preview)
+    if (!witness || witness.status !== 'active') throw new Error('混合场景候选已取消、已采用或不属于本会话。')
+    const token = {}, outerSignal = this.atomicSignal(options.signal)
+    const signal = { get aborted() { return outerSignal.aborted || witness.status === 'cancelled' } }
+    const assertActive = () => {
+      checkCancelled(signal); this.assertCheckpoint(preview.checkpoint)
+      const current = this.state.project
+      if (witness.status !== 'applying' || (current?.document.sceneId ?? null) !== preview.currentSceneId || (current?.document.revision ?? null) !== preview.currentRevision
+        || (current ? projectContentHash(toBundle(current).project) : null) !== preview.baseContentHash) throw new Error('混合场景候选基线已变化，请重新预览。')
+    }
+    witness.status = 'applying'; this.atomicLock = token
+    try {
+      assertActive()
+      let allocationIndex = 0
+      const runtime = { clock: { now: () => witness.preparedAt }, ids: { nextId: () => {
+        const id = witness.identityAllocation[allocationIndex++]
+        if (!id) throw new Error('混合场景候选身份分配与确定性重放不同。')
+        return id
+      } } }
+      const replay = await prepareMixedProject(witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
+      assertActive()
+      if (allocationIndex !== witness.identityAllocation.length) throw new Error('混合场景候选身份分配次数与确定性重放不同。')
+      const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
+      assertActive()
+      if (projectContentHash(toBundle(project).project) !== projectContentHash(toBundle(replay.project).project)
+        || preview.resultHash !== replay.resultHash || canonical(preview.report) !== canonical(replay.report) || canonical(preview.cost) !== canonical(replay.cost)) throw new Error('混合场景候选与完整重放不符。')
+      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      if (project.document.sceneId === this.state.project?.document.sceneId) throw new Error('混合场景身份不能覆盖当前工程。')
+      await this.flush(); assertActive()
+      await this.repository.save(toBundle(project), null, { signal }); assertActive()
+      if (!this.repository.load) throw new Error('当前仓库不支持混合场景新工程冷读。')
+      const cold = await this.repository.load(project.document.sceneId, { signal })
+      if (!cold) throw new Error('混合场景新工程冷读失败，当前工程保持。')
+      const installed = await fromBundle(cold, { ...this.validation(), signal }); assertActive()
+      if (projectContentHash(toBundle(installed).project) !== projectContentHash(toBundle(project).project)) throw new Error('混合场景新工程在冷读前已变化，请从工程目录重新打开。')
       this.atomicLock = null; this.install(installed); witness.status = 'applied'
     } catch (error) { witness.status = 'cancelled'; throw error }
     finally { if (this.atomicLock === token) this.atomicLock = null }

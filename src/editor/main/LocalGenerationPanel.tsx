@@ -8,7 +8,7 @@ import type { LocalGenerationPreview } from '../../application/workspace/workspa
 import './terrain-generation.css'
 import './local-generation.css'
 
-type DomainRecipe = Extract<GenerationRecipe, { domain: string }>
+type DomainRecipe = Extract<GenerationRecipe, { domain: 'interior' | 'forest' | 'volcano' }>
 type Operation = LocalGenerationRequest['operation']
 const operationLabels: Record<Operation, string> = { 'interior-furniture': '房间家具摆位', 'forest-density': '林区植被密度', 'volcano-material': '火山表面材质', 'volcano-boundary': '火口轮廓调整' }
 const names = { interior: '室内', forest: '森林', volcano: '火山' }
@@ -19,7 +19,7 @@ export default function LocalGenerationPanel({ document, busy, disabled, dirty, 
   onChange: () => void; onPreview: (request: LocalGenerationRequest) => void | Promise<void>; onAdopt: () => void | Promise<void>; onCancel: () => void
 }) {
   const gen = getLegacyGeneration(document)
-  const recipes = Object.values(gen?.recipes ?? {}).filter((recipe): recipe is DomainRecipe => 'domain' in recipe)
+  const recipes = Object.values(gen?.recipes ?? {}).filter((recipe): recipe is DomainRecipe => 'domain' in recipe && recipe.domain !== 'mixed')
   const [recipeId, setRecipeId] = useState(''), [operation, setOperation] = useState<Operation>('volcano-boundary'), [targetId, setTargetId] = useState('')
   const [variation, setVariation] = useState('local-1'), [coverage, setCoverage] = useState(3), [role, setRole] = useState<'tree' | 'shrub' | 'grass'>('tree')
   const [materialId, setMaterialId] = useState(''), [expansion, setExpansion] = useState(0), [positions, setPositions] = useState<string | null>(null)
