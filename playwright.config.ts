@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests',
+  // Formal visual fixtures are supplied only by tests/formal-visual.config.ts.
+  testIgnore: ['**/formal-visual.spec.ts'],
   timeout: 45_000,
   expect: { timeout: 8000 },
   fullyParallel: false,

@@ -87,6 +87,45 @@ node tools/performance/summarize-aggregate.mjs "$PWD/work/aggregate-observation-
 
 准备浏览器通过正常异步入口物化真实派生图、全验完整包与许可，关闭后才逐组启动生产浏览器；`--fixtures ABS_DIRECTORY`可复用已有manifest所列确切输入字节，每份SHA及磁盘复读保持。新准备进程可分配不同来源身份，不假设跨次包hash相同。运行器使用隔离profile，从正常首页导入并操作UI；只读审计发现的IDB表，不写入产品状态或读取用户库。汇总保留全部单次值、CPU连续性/缺样与逻辑块/行字节，不输出正式p95或容量结论。最终轮方法、冻结和剩余项归[性能参考](../docs/reference/performance.md#aggregate-integration-j-20261106)，失败分别保留于[主题台账](../docs/archive/workspace-content-validation.md#aggregate-integration-j-20261106)。
 
+<a id="current-formal-acceptance"></a>
+## 当前完整v1正式容量、性能与视觉入口
+
+完整命令及冷热、计时和资源边界见[贡献说明](../CONTRIBUTING.md#current-formal-acceptance)。先完成主路径及受影响正确性检查，冻结源码/固定素材/工具/正常dist，再按下面顺序串行执行；准备器、smoke、性能和视觉浏览器分别退出后才进入下一项。正式采样期间不运行其他浏览器、测试、构建或模型任务，不修改冻结目录，首轮失败保留且不自动重试。所有输出使用新的空绝对目录，命令说明不代表已通过。
+
+```sh
+npx vitest run --config tools/testing/formal-capacity.vitest.config.ts
+npm run build
+formal_prepared_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-fixtures.XXXXXX")
+node tools/performance/prepare-current-formal.mjs --output "$formal_prepared_dir" --mode all
+formal_smoke_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-smoke.XXXXXX")
+node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" --output "$formal_smoke_dir" --dist "$PWD/dist" --cases building-500 --smoke --timeout-ms 180000
+formal_performance_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-performance.XXXXXX")
+node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" --output "$formal_performance_dir" --dist "$PWD/dist" --timeout-ms 180000
+node tools/performance/summarize-current-formal.mjs "$formal_performance_dir" > "$formal_performance_dir/summary-recomputed.json"
+```
+
+`prepare-current-formal`的工具浏览器先全验真实字节/像素/许可并冷读，保存容量`manifest.json`、视觉`formal-visual-fixtures.json`及`preparation.json`后关闭；准备耗时不进入性能分布。容量默认建筑/自然/混合各500/2000完整Prop、无轻量Decoration替代，180m×180m范围与3.6m显示网格构成50×50格。`--smoke`仅一轮2次编辑/4次列表选择，为诊断；正式默认六组×三轮，每轮30次组内完整物件编辑、60列表/6画布选择、三段连续平移/缩放、组操作与撤销/重做、保存冷开、实际块/行字节及双受众4K。预备的远端＋500完整Prop和16条真实局部外接连接可另用`--cases mixed-500-remote,mixed-500-local-ports`独立观察；后者应按支撑合同拒绝不完整组移动。
+
+采用click→实际领域事务、Enter→预览及两阶段总区间分别报告；100ms采用子指标不等于旧即刻编辑全链通过。帧p95只覆盖真实连续输入窗；每轮与合并nearest-rank、CPU断续、资源采样/缺样及失败原样保留。组超限拒绝不降载；少量内容块不代表全链加速，逻辑块/行字节不代表物理磁盘写入。运行器自动写`summary.json`，重算汇总不启动浏览器。当前RSS采样仅支持macOS，系统Chrome须预先安装。
+
+性能结束后，先安装三个引擎，再在终端A启动同一正常生产包：
+
+```sh
+npx playwright install chromium firefox webkit
+npm run preview -- --port 5174 --strictPort
+```
+
+回到此前准备夹具和执行性能命令的原终端B，沿用其中的`formal_prepared_dir`并创建独立视觉输出目录；完成后关闭终端A服务：
+
+```sh
+formal_visual_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-visual.XXXXXX")
+SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5174/sceneweave/ SCENEWEAVE_FORMAL_VISUAL_FIXTURES="$formal_prepared_dir" SCENEWEAVE_FORMAL_VISUAL_OUTPUT="$formal_visual_dir" npx playwright test --config=tests/formal-visual.config.ts --workers=1
+```
+
+`formal-visual.config.ts`没有自动webServer，固定Chromium/Firefox/WebKit单worker、零重试，JSON结果在`results.json`，下载与trace在`results/`；默认Chromium为Playwright引擎，可通过`SCENEWEAVE_CHROME_CHANNEL=chrome`改用系统Chrome，旧`SCENEWEAVE_BROWSER_CHANNEL`不影响该专用配置。`formal-visual.spec.ts`核对室内/岩岛/海岸/混合四类的效果、中性、秘密配对及四份派生取景工程，以正常生产UI、真实完整包和双受众4K建立技术证据；同引擎比较实际秘密像素，跨引擎不强制相同抗锯齿。自动技术结果不关闭14第8节全操作矩阵、人工观感或用户P3；完整历史/故障、自由物件拖动、原SCN场景和1万/10万负载仍按09分别验收。
+
+上方j的`run-aggregate.mjs`保持开发观察定位；`run-native-m2.mjs`、旧`visual-v2-fixtures`及下方旧专项只保留各自历史冻结/格式范围，未适配当前schema/身份/存储/UI前不充当当前完整v1正式入口。
+
 ## 定向与跨浏览器入口
 
 ```sh

@@ -5,7 +5,6 @@ import { validation } from '../../src/platform/browser/runtime.js'
 import { decorationAsProp } from '../../src/shared/decorations/geometry.js'
 import { createHistoryIdentity } from '../../src/shared/history/identity.js'
 import { syncAppearanceGraph } from '../../src/shared/appearance/graph.js'
-import { bindTerrainVariantPresentations, bindTerrainVariantV2Presentations } from '../../src/shared/visual/terrain-variant-presentations.js'
 import { selectManualTransactionBudget } from '../../src/shared/budget/command-budget.js'
 import { inspectAggregateDomain } from '../../src/shared/aggregates/domain-adapters.js'
 import { detachChangedOutputs } from '../../src/shared/terrain-generation/integrity.js'
@@ -153,8 +152,12 @@ export async function prepareFormalCapacityFixture(kind: FormalCapacityKind, pro
   const bundle = await importProject(source.bytes, validation), complex = await fromBundle(bundle, validation)
   const built = convertToFormalDocument({ document: complex.document, controls: source.controls, summary: source.summary }, variant)
   const runtime = context(kind)
-  const content = bindTerrainVariantV2Presentations(bindTerrainVariantPresentations(syncAppearanceGraph({ document: built.document,
-    historyIdentity: createHistoryIdentity(built.document, runtime), appearance: complex.appearance }, complex.document)))
+  // Existing Props retain their exact fixed source/override mappings. Newly
+  // materialized Decoration Props get their full scaled source snapshot from
+  // sync; addPropAppearanceSource inherits the definition's fixed presentation.
+  // Rebinding a whole catalogue here would reset original mixed forest sources.
+  const content = syncAppearanceGraph({ document: built.document,
+    historyIdentity: createHistoryIdentity(built.document, runtime), appearance: complex.appearance }, complex.document)
   const project = await fromBundle({ project: { ...bundle.project, ...content }, resources: complex.resources }, validation)
   const aggregatePreparation = await transformPreflight(project, built.controls, kind)
   const bytes = await exportProject(toBundle(project), validation), cold = await importProject(bytes, validation)

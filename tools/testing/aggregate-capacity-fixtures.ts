@@ -15,7 +15,6 @@ import { selectManualTransactionBudget } from '../../src/shared/budget/command-b
 import { propFootprint, pointInPolygon, polygonsOverlap, roomPoints, openingEndpoints, supportedPolygon, supportSurfaceAt } from '../../src/shared/geometry/geometry.js'
 import { decorationAsProp, decorationFootprint } from '../../src/shared/decorations/geometry.js'
 import { effectivePropShadow, nearSidePaintEnvelope, propPaintPolygon, propPresentation } from '../../src/shared/appearance/presentation.js'
-import { bindTerrainVariantPresentations, bindTerrainVariantV2Presentations } from '../../src/shared/visual/terrain-variant-presentations.js'
 import { exportProject, importProject } from '../../src/shared/project/file.js'
 import { projectContentHash } from '../../src/shared/project/validate.js'
 import { sha256Text, sha256Bytes } from '../../src/shared/validation/hash.js'
@@ -341,8 +340,13 @@ export function buildAggregateCapacityDocument(kind: AggregateCapacityKind, deta
 export async function prepareAggregateCapacityFixture(kind: AggregateCapacityKind, detailCount: number, variant: AggregateCapacityVariant = {}) {
   const context = contextFor(kind), complex = await complexBase(kind)
   const built = buildAggregateCapacityDocument(kind, detailCount, complex.document, variant)
-  const content = bindTerrainVariantV2Presentations(bindTerrainVariantPresentations(syncAppearanceGraph({ document: built.document,
-    historyIdentity: createHistoryIdentity(built.document, context), appearance: complex.appearance }, complex.document)))
+  // The base is already resolved and has immutable presentation witnesses.
+  // Sync preserves its source/override mappings; new props capture their actual
+  // scaled snapshot and inherit the definition's existing fixed presentation.
+  // Whole-catalogue binders are only for fresh generation: they would rebind
+  // existing forest instances to unscaled defaults while leaving their fields.
+  const content = syncAppearanceGraph({ document: built.document,
+    historyIdentity: createHistoryIdentity(built.document, context), appearance: complex.appearance }, complex.document)
   fixedPrivacyMasks(content.document, `capacity-${kind}`, built.controls.privateMemberId, content.appearance)
   const project = await fromBundle({ project: { ...toBundle(complex).project, ...content }, resources: complex.resources }, validation)
   const privacyPreflight = await preflightAggregateCapacityPrivacy(project, built.controls, kind)

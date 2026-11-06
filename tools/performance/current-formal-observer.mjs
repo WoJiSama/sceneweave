@@ -27,7 +27,8 @@ export async function createCurrentFormalObserver(options) {
     async stop() {
       clearInterval(timer)
       const result = await observer.stop()
-      return { ...result, measurementClass: 'current-v1-trusted-production-ui-samples', clockGaps,
+      return { ...result, samples: result.samples.map(sample => ({ ...sample, measurementClass: 'current-v1-trusted-production-ui-sample' })),
+        measurementClass: 'current-v1-trusted-production-ui-samples', clockGaps,
         notes: result.notes.filter(note => !note.startsWith('These observations')).concat([
           'The caller separately establishes fixture, repetition and coverage completeness. A complete matrix is never an automatic threshold, capacity or visual acceptance pass.',
           'Clock gaps above 5 seconds invalidate formal timing. Network errors, process CPU discontinuities and missing resource samples are retained without retry.',
