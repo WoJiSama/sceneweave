@@ -251,7 +251,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const onCatalogPending = useCallback((pending: boolean) => { catalogPending.current = pending; setCatalogBusy(pending) }, [])
   const onCatalogDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.catalogForm === dirty ? current : { ...current, catalogForm: dirty }), [])
   const onPropAppearanceDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.propAppearanceForm === dirty ? current : { ...current, propAppearanceForm: dirty }), [])
-  const [busy, setBusy] = useState(false), [message, setMessage] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false), [busyMessage, setBusyMessage] = useState('正在处理完整工程…'), [message, setMessage] = useState<string | null>(null)
   const [uvttProject, setUvttProject] = useState<EditableProject | null>(null)
   const [selectionSession] = useState(() => new SelectionSession())
   const setSelected = (id: string | null) => selectionSession.set(id ? [id] : [])
@@ -384,11 +384,11 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   }
   const toolDisabled = (completing: readonly WorkspaceDraft[]) => !!workspaceTransitionReason(transient(), completing)
   const sessionActions = useRef<WorkspaceController | null>(null)
-  const action = async (run: () => Promise<void>, failureSource = '工程操作') => {
+  const action = async (run: () => Promise<void>, failureSource = '工程操作', progressMessage = '正在处理完整工程…') => {
     if (actionPending.current) return
     actionPending.current = true
     if (!candidate && !newScene && !document.activeElement?.closest('[role="dialog"]')) modalOrigin.current = document.activeElement as HTMLElement | null
-    setBusy(true); setMessage(null)
+    setBusyMessage(progressMessage); setBusy(true); setMessage(null)
     try { await run() } catch (error) {
       const scene = compositionWorkspace.getState().project?.document
       if (scene) error = historyPreviewError(error, scene)
@@ -608,7 +608,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       catch (error) { cancelInterior(false); setInteriorDraft(true); setInteriorError(error instanceof Error ? error.message : String(error)); throw error }
       interiorPreviewRef.current = null; setInteriorPreview(null); setInteriorDraft(false); setInteriorReset(value => value + 1); setSelected(null); setSessionGeneration(value => value + 1)
       setMessage('室内布局已完整保存并打开。首次建议的门和家具可继续修改、删除，不会自动补回。')
-    }, '保存室内布局')
+    }, '保存室内布局', '正在保存室内布局并准备打开…')
   }
   const cancelVolcano = (reset = true) => {
     volcanoEpoch.current++; volcanoAbort.current?.abort(); volcanoAbort.current = null
@@ -661,7 +661,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       catch (error) { cancelVolcano(false); setVolcanoDraft(true); setVolcanoError(error instanceof Error ? error.message : String(error)); throw error }
       volcanoPreviewRef.current = null; setVolcanoPreview(null); setVolcanoDraft(false); setVolcanoReset(value => value + 1); setSelected(null); setSessionGeneration(value => value + 1)
       setMessage('火山已完整保存并打开。地形、危险与通行策略可继续独立修改，不会自动补回。')
-    }, '保存火山')
+    }, '保存火山', '正在保存火山场景并准备打开…')
   }
   const cancelMixed = (reset = true, announce = false) => {
     const notice = mixedAbort.current ? '已取消混合场景生成，当前工程未改变。'
@@ -712,7 +712,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       catch (error) { cancelMixed(false); setMixedDraft(true); setMixedError(error instanceof Error ? error.message : String(error)); throw error }
       mixedPreviewRef.current = null; setMixedPreview(null); setMixedDraft(false); setMixedReset(value => value + 1); setSelected(null); setSessionGeneration(value => value + 1)
       setMessage('混合场景已完整保存并打开。首次建议的门、家具和接入路线可继续修改、删除，不会自动补回。')
-    }, '保存混合场景')
+    }, '保存混合场景', '正在保存混合场景并准备打开…')
   }
   const cancelForest = (reset = true) => {
     forestEpoch.current++; forestAbort.current?.abort(); forestAbort.current = null
@@ -774,7 +774,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       catch (error) { cancelForest(false); setForestDraft(true); setForestError(error instanceof Error ? error.message : String(error)); throw error }
       forestPreviewRef.current = null; setForestPreview(null); setForestDraft(false); setForestReset(value => value + 1); setSelected(null); setSessionGeneration(value => value + 1)
       setMessage('森林与营地已完整保存并打开。道路与植被可继续修改、删除，不会自动补回。')
-    }, '保存森林与营地')
+    }, '保存森林与营地', '正在保存森林与营地并准备打开…')
   }
   const cancelTerrain = () => {
     terrainOperation.current++; terrainAbort.current?.abort(); terrainAbort.current = null
@@ -1034,7 +1034,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const requestImport = () => { if (guard()) file.current?.click() }
   const leave = async (): Promise<boolean> => {
     if (!guard()) return false
-    actionPending.current = true; setBusy(true)
+    actionPending.current = true; setBusyMessage('正在保存当前编辑，完成后离开…'); setBusy(true)
     const checkpoint = compositionWorkspace.checkpoint()
     try {
       await compositionWorkspace.flush(); compositionWorkspace.assertCheckpoint(checkpoint)
@@ -1132,7 +1132,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       if (compositionWorkspace.getState().project?.document.sceneId !== sceneId) throw new Error('备份所属工程已切换，请重新选择备份范围。')
       download(new Blob([blob.slice().buffer], { type: 'application/octet-stream' }), selected ? 'sceneweave-history.sceneweave' : 'sceneweave-complete.sceneweave')
       setMessage(selected ? `已生成当前完整工程与所选 ${selected.length} 份快照备份。` : '已生成当前完整工程，含全部资源、许可和秘密。')
-    }, '下载工程备份')
+    }, '下载工程备份', selected ? '正在生成包含所选历史的工程备份…' : '正在生成完整工程备份…')
   }
   const commit = (run: () => void | Promise<void>) => { if (!guard()) return; void action(async () => { await run() }, '编辑未采用') }
   const preview = (input: CompositionCommand[] | (() => CompositionCommand[]), description: string, scopeIds?: string[], form?: WorkspaceFormDraft) => {
@@ -1297,7 +1297,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if(actionPending.current)throw new Error('另一个工程操作尚未完成。')
     const checkpoint=compositionWorkspace.checkpoint(),abort=new AbortController(),cancel=()=>abort.abort()
     signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)abort.abort()
-    actionPending.current=true;setBusy(true);setMessage(null);controller.current=abort
+    actionPending.current=true;setBusyMessage('正在检查导入素材并准备候选…');setBusy(true);setMessage(null);controller.current=abort
     let prepared:CompositionPreview|undefined
     try{
       const result=await prepareAssetBatchImport(completeProject,requests,{runtime,validation,signal:abort.signal})
@@ -1328,7 +1328,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     const cancel = () => abort.abort()
     signal?.addEventListener('abort', cancel, { once: true })
     if (signal?.aborted) abort.abort()
-    actionPending.current = true; setBusy(true); setMessage(null); controller.current = abort
+    actionPending.current = true; setBusyMessage('正在检查素材并准备添加候选…'); setBusy(true); setMessage(null); controller.current = abort
     try {
       const entries = typeof input === 'function' ? await input(abort.signal) : input
       const candidate = await prepareCatalogAdoption(completeProject, entries, abort.signal)
@@ -1542,7 +1542,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     const blob = await exportPng(toBundle(completeProject), { audience: targetAudience, longEdgePx: 4096 })
     download(blob, `sceneweave-${targetAudience}-map.png`)
     setMessage(`${targetAudience === 'gm' ? '主持人' : '玩家'} PNG 已生成 · r${completeProject.document.revision} · 固定工程范围 · 长边 4096 px`)
-  }) }
+  }, '导出地图 PNG', `正在生成${targetAudience === 'gm' ? '主持人' : '玩家'}地图 PNG…`) }
   const canFinishCanvas = (completing: readonly WorkspaceDraft[]) => active && audience === 'gm' && !catalogBusy
     && !document.querySelector('[role="dialog"],[role="menu"],.workspace-help[open],.workspace-export-menu[open]') && guard(completing)
   const buildingWorldTool = sketch && audience === 'gm' ? { ...sketch, snapMm: project?.document.units.snapMm ?? 100, onCancel: () => setSketch(null),
@@ -1584,13 +1584,13 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     : busy || editingBlocked ? transitionReason ?? '当前操作尚未结束，请等待完成，或采用/取消候选后再导出。' : null
   const openLayers = () => { setNavigationTab('layers'); revealPanel('navigation') }
   const changeSelectionView = (change: () => void) => { if (guard()) { change(); setMessage(null) } }
-  const layerPanel = completeProject && audience === 'gm' ? <UserLayerPanel scene={completeProject.document} session={selectionSession}
+  const panelKey = `${completeProject?.document.sceneId ?? 'empty'}-${sessionGeneration}`
+  const layerPanel = completeProject && audience === 'gm' ? <UserLayerPanel key={panelKey} scene={completeProject.document} session={selectionSession}
     currentLayerId={currentLayerId} hiddenLayerIds={hiddenLayerIds} soloLayerId={soloLayerId} currentOnly={currentOnly}
     disabled={editDisabled} onCurrent={id => changeSelectionView(() => setCurrentLayerId(id))}
     onHidden={id => changeSelectionView(() => setHiddenLayerIds(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next }))}
     onSolo={id => changeSelectionView(() => setSoloLayerId(current => current === id ? null : id))} onScope={value => changeSelectionView(() => setCurrentOnly(value))}
     moveRequest={layerMoveRequest} onSelectLayer={selectLayer} onCommand={commands => commit(() => compositionWorkspace.execute(commands))} onPreview={preview}/> : null
-  const panelKey = `${completeProject?.document.sceneId ?? 'empty'}-${sessionGeneration}`
   const openResources = (module: 'scene' | 'generate' | 'building' | 'library' | 'outdoor') => { setSidebar(module); revealPanel('resources') }
   const openHistory = () => { setNavigationTab('history'); revealPanel('navigation') }
   const startBuildingTool = (kind: BuildingSketch['kind']) => { if (!completeProject || !guard()) return; setSketch({ kind, points: [], cursor: null }); openResources('building') }
@@ -1812,7 +1812,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       ]} navigationTab={audience === 'player' ? 'objects' : navigationTab} onNavigationTabChange={setNavigationTab} tools={workspaceTools} footer={workspaceFooter}>{canvasPanel}</WorkspaceLayout>
       {uvttProject && <UvttExportDialog project={uvttProject} onClose={() => setUvttProject(null)}/>}
       <input hidden ref={file} type="file" accept=".sceneweave" aria-label="选择完整工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected && guard()) onImportFile(selected) }}/>
-      {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>正在处理完整工程…{controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}
+      {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>{busyMessage}{controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}
     </div>
     {active && menu && project && <SceneContextMenu key={`${menu.checkpoint}-${menu.x}-${menu.y}-${menu.ids.join('|')}`} project={project} menu={menu} onMoveToLayer={() => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); selectionSession.set(menu.ids); setLayerMoveRequest(value => value + 1) } catch (error) { setMessage(String(error)) } }} onClose={closeMenu} onAction={action => batchAction(action, undefined, menu.ids, menu.checkpoint)} onSelect={select} onFit={() => setFitRequest(value => value + 1)} onPlace={(id, point) => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); choosePlacement(id, point) } catch (error) { setMessage(String(error)) } }} onEdit={() => { revealPanel('inspector'); requestAnimationFrame(() => requestAnimationFrame(() => { const input = shell.current?.querySelector<HTMLElement>('.asset-inspector input:not(:disabled)') ?? shell.current?.querySelector<HTMLElement>('.asset-inspector button:not(:disabled)'); input?.focus() })) }}/>}
     {active && (candidate || newScene || preparation) && <div className="modal-scrim workspace-modal-scrim"><div ref={dialog} className="modal workspace-modal" role="dialog" aria-modal="true" aria-label={preparation ? '准备打开工程' : newScene ? '新建空白场景' : '确认打开工程'}>
