@@ -1,3 +1,4 @@
+import { commandSelectionLimit, type CommandBudgetProfile } from '../../shared/budget/command-budget.js'
 import { scenePresentation } from '../../shared/appearance/presentation.js'
 import { roundMm as roundMmV2 } from '../../shared/commands/base.js'
 import { orderedPropsV2 } from './projection'
@@ -6,9 +7,15 @@ import type { PointMm, SceneDocument as SceneDocumentV2 } from '../../shared/mod
 import { effectiveEditLockedV2, normalizeSelectionV2, selectionGeometryV2 } from './selection'
 
 export type SelectionActionV2 = 'move' | 'rotate' | 'delete' | 'copy' | 'lock' | 'unlock'
-export function selectionActionReasonV2(scene: SceneDocumentV2, ids: readonly string[], action: SelectionActionV2): string | null {
+export function selectionActionBehavior(scene: SceneDocumentV2, ids: readonly string[], action: SelectionActionV2) {
+  const decorationEdit = ids.some(id => scene.decorations?.[id] || scene.decorationClusters?.[id]) || Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.entityId && ids.includes(member.entityId)))
+  const scatterEdit = decorationEdit || Object.values(scene.scatterGroups).some(group => ids.includes(group.id) || Object.values(group.members).some(member => member.propId !== null && ids.includes(member.propId)))
+  return { decorationEdit, scatterEdit, requiresPreview: scatterEdit || (action !== 'lock' && action !== 'unlock') }
+}
+export function selectionActionReasonV2(scene: SceneDocumentV2, ids: readonly string[], action: SelectionActionV2, budget?: CommandBudgetProfile): string | null {
   if (!ids.length) return '请先选择对象。'
-  if (ids.length > 256) return '一次事务最多 256 条命令，请缩小选择范围。'
+  const limit = commandSelectionLimit(budget)
+  if (ids.length > limit) return `一次事务最多 ${limit} 条命令，请缩小选择范围。`
   const targets = normalizeSelectionV2(scene, [...ids], true)
   if (targets.length !== ids.length) return '选择已失效，请重新选择。'
   for (const id of targets) {
@@ -26,8 +33,8 @@ export function selectionActionReasonV2(scene: SceneDocumentV2, ids: readonly st
   return null
 }
 const degrees = (value: number) => ((value % 360) + 360) % 360
-export function selectionCommandsV2(scene: SceneDocumentV2, ids: readonly string[], action: SelectionActionV2, values: { dx?: number; dy?: number; angle?: number } = {}): SceneCommandV2[] {
-  const reason = selectionActionReasonV2(scene, ids, action)
+export function selectionCommandsV2(scene: SceneDocumentV2, ids: readonly string[], action: SelectionActionV2, values: { dx?: number; dy?: number; angle?: number } = {}, budget?: CommandBudgetProfile): SceneCommandV2[] {
+  const reason = selectionActionReasonV2(scene, ids, action, budget)
   if (reason) throw new Error(reason)
   const dx = values.dx ?? 0, dy = values.dy ?? 0, angle = values.angle ?? 0
   if (![dx, dy, angle].every(Number.isFinite) || !Number.isSafeInteger(dx) || !Number.isSafeInteger(dy)) throw new Error('位移须为整数毫米，角度须为有限数值。')

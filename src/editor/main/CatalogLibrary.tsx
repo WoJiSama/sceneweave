@@ -16,6 +16,7 @@ import AssetImportForm, { type AssetImportFields } from './AssetImportForm'
 import AssetBatchImportForm, { type AssetBatchReview } from './AssetBatchImportForm'
 import type { AssetImportRequest } from '../../application/workspace/asset-batch'
 import { definitionPresentation } from '../../shared/appearance/presentation'
+import { CATALOG_CATEGORIES, catalogCategory, catalogSizeLabel, type CatalogCategory } from './catalog-categories'
 import './catalog-library.css'
 
 type Scope = 'builtin' | 'variants' | 'mine' | 'project'
@@ -28,6 +29,7 @@ const sameOrganization = (left: CatalogOrganizationV1, right: CatalogOrganizatio
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error)
 const toggleValue = <T,>(values: T[], value: T) => values.includes(value) ? values.filter(item => item !== value) : [...values, value]
 const organizationOf = (snapshot: CatalogSnapshotV1, key: string) => snapshot.organizations[key] ?? EMPTY_CATALOG_ORGANIZATION_V1
+export type CatalogSelectorV1 = CatalogItemV1['selector']
 
 export interface CatalogLibraryProps {
   project: EditableProject
@@ -46,6 +48,7 @@ export interface CatalogLibraryProps {
   onPlace: (id: string) => void
   onMaterial: (id: string) => void
   onPrefab: (id: string) => void
+  onUse?: (source: EditableProject, selector: CatalogSelectorV1, signal?: AbortSignal) => Promise<void>
   onImport: (input: AssetImportFields) => void
   onImportBatch?: (requests: AssetImportRequest[], signal: AbortSignal) => Promise<AssetBatchReview>
   onAssetBatchDraftChange?: (dirty: boolean) => void
@@ -61,13 +64,15 @@ export default function CatalogLibrary({
   project, disabled, importDisabled = disabled, importResetKey = 0, organizationResetKey = 0,
   builtinProject, builtinLoading = false, builtinError, onBuiltinDemand,
   variantsProject, variantsLoading = false, variantsError, onVariantsDemand,
-  onPlace, onMaterial, onPrefab, onImport, onImportBatch, onAssetBatchDraftChange, onInvalidateAssetBatch, assetBatchPreviewActive = false, onAdopt, onPendingChange, onDraftChange,
+  onPlace, onMaterial, onPrefab, onUse, onImport, onImportBatch, onAssetBatchDraftChange, onInvalidateAssetBatch, assetBatchPreviewActive = false, onAdopt, onPendingChange, onDraftChange,
 }: CatalogLibraryProps) {
   const repository = useRef<CatalogRepositoryV1 | null>(null), mounted = useRef(false), controller = useRef<AbortController | null>(null)
   const pendingCallback = useRef(onPendingChange), draftCallback = useRef(onDraftChange)
   pendingCallback.current = onPendingChange; draftCallback.current = onDraftChange
   const [snapshot, setSnapshot] = useState<CatalogSnapshotV1>(EMPTY_SNAPSHOT), [ready, setReady] = useState(false)
+  const [reading, setReading] = useState(true), [readError, setReadError] = useState('')
   const [scope, setScope] = useState<Scope>('project'), [filter, setFilter] = useState<CatalogFilterV1>(EMPTY_CATALOG_FILTER_V1)
+  const [category, setCategory] = useState<CatalogCategory | 'all'>('all')
   const [selected, setSelected] = useState<string[]>([]), [detailKey, setDetailKey] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null), [review, setReview] = useState<Review | null>(null)
   const [busy, setBusy] = useState(false), [status, setStatus] = useState(''), [error, setError] = useState('')
@@ -87,9 +92,12 @@ export default function CatalogLibrary({
   const currentKeys = useMemo(() => new Set(currentItems.map(item => item.identity.key)), [currentItems])
   const installed = useMemo(() => new Map(snapshot.entries.map(entry => [entry.item.identity.key, entry])), [snapshot.entries])
   const sourceItems = scope === 'project' ? currentItems : scope === 'builtin' ? builtinItems : scope === 'variants' ? variantItems : mineItems
-  const found = useMemo(() => filterCatalogItems(sourceItems, snapshot.organizations, filter), [sourceItems, snapshot.organizations, filter])
+  const categories = useMemo(() => new Map(sourceItems.map(item => [item.identity.key, catalogCategory(item, catalogReadonlyTags(item))])), [sourceItems])
+  const matchingItems = useMemo(() => filterCatalogItems(sourceItems, snapshot.organizations, filter), [sourceItems, snapshot.organizations, filter])
+  const found = useMemo(() => category === 'all' ? matchingItems : matchingItems.filter(item => categories.get(item.identity.key) === category), [matchingItems, categories, category])
   const detail = detailKey ? allItems.get(detailKey) : undefined
   const detailCuration = detail ? catalogCurationFor(detail) : undefined
+  const detailOrganization = detail ? organizationOf(snapshot, detail.identity.key) : undefined
   const refinedSource = detailCuration?.refines ? allItems.get(detailCuration.refines) : undefined
   const refinedIdentity = detailCuration?.refines ? JSON.parse(detailCuration.refines) as [number, string, string, string, number, string] : undefined
   const selectedItems = selected.flatMap(key => allItems.has(key) ? [allItems.get(key)!] : [])
@@ -103,7 +111,9 @@ export default function CatalogLibrary({
   useEffect(() => {
     mounted.current = true
     const repo = new CatalogRepositoryV1(); repository.current = repo
-    repo.read().then(value => { if (mounted.current && repository.current === repo) { setSnapshot(value); setReady(true) } }).catch(reason => { if (mounted.current && repository.current === repo) setError(messageOf(reason)) })
+    repo.read().then(value => { if (mounted.current && repository.current === repo) { setSnapshot(value); setReady(true); setReadError('') } })
+      .catch(reason => { if (mounted.current && repository.current === repo) setReadError(messageOf(reason)) })
+      .finally(() => { if (mounted.current && repository.current === repo) setReading(false) })
     return () => { mounted.current = false; controller.current?.abort(); pendingCallback.current?.(false); draftCallback.current?.(false); repo.close(); if (repository.current === repo) repository.current = null }
   }, [])
   useEffect(() => { draftCallback.current?.(draft !== null || review !== null) }, [draft, review])
@@ -111,7 +121,7 @@ export default function CatalogLibrary({
   useEffect(() => {
     if (resetKey.current !== organizationResetKey) { resetKey.current = organizationResetKey; setDraft(null); setReview(null); setRemoveConfirmation(false); setError('') }
   }, [organizationResetKey])
-  useEffect(() => { setLimit(24) }, [scope, filter])
+  useEffect(() => { setLimit(24) }, [scope, filter, category])
   useEffect(() => { setRemoveConfirmation(false) }, [selected])
 
   const run = useCallback(async (label: string, operation: (repo: CatalogRepositoryV1, signal: AbortSignal) => Promise<void>) => {
@@ -164,12 +174,28 @@ export default function CatalogLibrary({
     await onAdopt(entries, signal)
     if (mounted.current) setStatus('工程采用候选已准备，请在候选面板确认。确认后可从“本工程”放置。')
   })
+  const useItem = (item: CatalogItemV1) => {
+    if (!onUse || disabled || busy) return
+    void run('正在准备素材…', async (_repo, signal) => {
+      const source = await loadProject(item)
+      signal.throwIfAborted()
+      if (!mounted.current) return
+      await onUse(source, item.selector, signal)
+      if (mounted.current && !signal.aborted) setStatus(`请确认添加“${item.name}”；确认后继续${item.identity.kind === 'material' ? '应用材质' : '放置'}。`)
+    })
+  }
   const refresh = () => run('读取素材库最新版本…', async repo => {
-    const next = await repo.read(); if (!mounted.current) return
-    setSnapshot(next); setReady(true)
-    setDraft(value => value ? { ...value, revision: next.revision } : null)
-    setReview(value => value ? { ...value, revision: next.revision } : null)
-    setStatus('已刷新库基线，保留输入草稿；请检查后明确再次保存或导入。')
+    setReading(true); setReadError('')
+    try {
+      const next = await repo.read(); if (!mounted.current) return
+      setSnapshot(next); setReady(true)
+      setDraft(value => value ? { ...value, revision: next.revision } : null)
+      setReview(value => value ? { ...value, revision: next.revision } : null)
+      setStatus('已刷新库基线，保留输入草稿；请检查后明确再次保存或导入。')
+    } catch (reason) {
+      if (mounted.current) setReadError(messageOf(reason))
+      throw reason
+    } finally { if (mounted.current) setReading(false) }
   })
   const beginOrganization = () => {
     if (!selected.length || selected.length > CATALOG_LIMITS_V1.batch || draft) return
@@ -221,61 +247,70 @@ export default function CatalogLibrary({
   const selectedReview = review?.records.filter(record => review.keys.includes(record.entry.item.identity.key)) ?? []
   const fixedConflicts = selectedReview.filter(record => snapshot.entries.some(entry => entry.item.identity.logicalKey === record.entry.item.identity.logicalKey && entry.item.identity.key !== record.entry.item.identity.key) || Object.keys(snapshot.organizations).some(key => key !== record.entry.item.identity.key && JSON.stringify(JSON.parse(key).slice(0, 5)) === record.entry.item.identity.logicalKey))
   const organizationConflicts = review ? [...new Set([...review.keys, ...review.organizationKeys])].filter(key => snapshot.organizations[key] && review.organizations[key] && !sameOrganization(snapshot.organizations[key], review.organizations[key])) : []
-  const hasFilters = !!filter.query || !!filter.kinds.length || !!filter.publisherTags.length || !!filter.tags.length || !!filter.colors.length || filter.favoriteOnly
+  const hasFilters = category !== 'all' || !!filter.query || !!filter.kinds.length || !!filter.publisherTags.length || !!filter.tags.length || !!filter.colors.length || filter.favoriteOnly
 
-  return <section className="composition-library catalog-library" aria-label="组件素材库" aria-busy={busy}>
-    <div className="asset-section-heading"><Layers3 size={16}/><h2>素材库</h2><span>{sourceItems.length}</span></div>
-    <div className="catalog-scopes" role="group" aria-label="素材范围">{(['builtin', 'variants', 'mine', 'project'] as const).map(value => <button key={value} aria-pressed={scope === value} onClick={() => { setScope(value); if (value === 'builtin') onBuiltinDemand?.(); if (value === 'variants') onVariantsDemand?.() }}>{{ builtin: '内置素材', variants: '地形变体', mine: '我的素材', project: '本工程' }[value]}</button>)}</div>
-    <p className="asset-muted catalog-explanation">{scope === 'builtin' ? '内置目录可供查看；完整安装成功后才会进入“我的素材”。' : scope === 'variants' ? '独立原创树岩、灌丛、草缘与碎石。明确选中后可保存到个人库或准备工程采用候选，已有物件保持。' : scope === 'mine' ? '本机完整安装的素材，可离线采用。移除不会删除工程内的内容。' : '工程已保存的固定素材。浏览不会自动保存到“我的素材”。'}</p><p className="asset-muted catalog-explanation">保存固定素材不截取当前实例或图层覆盖；组合保留固定模板成员和私密性。</p>
+  return <section className="composition-library catalog-library" aria-label="组件素材库" aria-busy={busy || reading}>
+    <div className="asset-section-heading"><Layers3 size={16}/><h2>素材库</h2><span>{scope === 'mine' && !ready ? '待读取' : sourceItems.length}</span></div>
+    <label className="composition-search"><Search size={14}/><input type="search" aria-label="搜索组件素材" placeholder="搜索树木、桌椅、石块…" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
+    <div className="catalog-categories" role="group" aria-label="素材用途分类"><button type="button" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>全部</button>{CATALOG_CATEGORIES.map(value => <button type="button" key={value.id} aria-pressed={category === value.id} onClick={() => setCategory(value.id)}>{value.label}</button>)}</div>
+    <label className="catalog-source-filter">素材来源<select aria-label="素材来源" value={scope} onChange={event => { const value = event.target.value as Scope; setScope(value); if (value === 'builtin') onBuiltinDemand?.(); if (value === 'variants') onVariantsDemand?.() }}><option value="project">本工程</option><option value="builtin">内置素材</option><option value="variants">地形素材包</option><option value="mine">我的素材</option></select></label>
+    {reading ? <p className="asset-muted catalog-explanation" role="status">正在读取个人素材库；安装与整理操作将在读取完成后可用。</p> : readError && <div className="catalog-read-feedback" role="alert">
+      <strong>个人素材库读取失败</strong>
+      <p>{ready ? '以下保留上次读取的内容，尚未确认最新版本。' : '个人素材列表尚未完成读取，不能据此判断素材是否为空。'}已有素材与整理草稿保留，请重新读取后继续。</p>
+      <details><summary>查看读取失败原因</summary><p>{readError}</p></details>
+      <button className="secondary" disabled={busy || reading} onClick={refresh}><RefreshCw size={12}/>重新读取个人素材库</button>
+    </div>}
+    <p className="asset-muted catalog-explanation">{scope === 'project' ? '放置到画布 · 材质应用于所选表面' : onUse ? '添加并预览，确认后继续放置或应用。' : '勾选素材，预览添加到本工程。'}</p>
     {scope === 'builtin' && builtinLoading && <p role="status">正在读取内置素材的实际资源…</p>}
     {scope === 'builtin' && builtinError && <div><p role="alert" className="asset-form-error">内置素材缺失或读取失败：{builtinError}</p><button className="secondary" disabled={builtinLoading} onClick={onBuiltinDemand}>重试内置素材</button></div>}
     {scope === 'variants' && variantsLoading && <p role="status">正在读取地形变体的实际资源…</p>}
     {scope === 'variants' && variantsError && <div><p role="alert" className="asset-form-error">地形变体缺失或读取失败：{variantsError}</p><button className="secondary" disabled={variantsLoading} onClick={onVariantsDemand}>重试地形变体</button></div>}
-    <label className="composition-search"><Search size={14}/><input type="search" aria-label="搜索组件素材" placeholder="名称、标签、来源或 ID" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
-    <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部</button>{(['prop', 'material', 'prefab'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
-    <details className="catalog-filters"><summary>标签、颜色与收藏筛选</summary>
+    <details className="catalog-filters"><summary title="类型、标签、颜色与收藏筛选"><span>详细筛选</span><span className="catalog-count">{scope === 'mine' && !ready ? '待读取' : `${found.length} 项匹配`}</span></summary>
+      <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部类型</button>{(['prop', 'material', 'prefab'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
       <fieldset><legend>只读标签（发布者＋目录补充，任一）</legend><div className="catalog-filter-options">{publisherTags.length ? publisherTags.map(tag => <label key={tag}><input type="checkbox" checked={filter.publisherTags.includes(tag)} onChange={() => updateFilter('publisherTags', toggleValue(filter.publisherTags, tag))}/>{tag}</label>) : <span className="asset-muted">此范围没有只读标签</span>}</div></fieldset>
-      <fieldset><legend>个人标签</legend><label className="catalog-inline">匹配<select aria-label="个人标签匹配方式" value={filter.tagMatch} onChange={event => updateFilter('tagMatch', event.target.value as 'all' | 'any')}><option value="all">全部所选标签</option><option value="any">任一所选标签</option></select></label><div className="catalog-filter-options">{personalTags.length ? personalTags.map(tag => <label key={normalizeCatalogText(tag)}><input type="checkbox" checked={filter.tags.includes(tag)} onChange={() => updateFilter('tags', toggleValue(filter.tags, tag))}/>{tag}</label>) : <span className="asset-muted">尚未保存个人标签</span>}</div></fieldset>
+      <fieldset><legend>个人标签</legend><label className="catalog-inline">匹配<select aria-label="个人标签匹配方式" value={filter.tagMatch} onChange={event => updateFilter('tagMatch', event.target.value as 'all' | 'any')}><option value="all">全部所选标签</option><option value="any">任一所选标签</option></select></label><div className="catalog-filter-options">{personalTags.length ? personalTags.map(tag => <label key={normalizeCatalogText(tag)}><input type="checkbox" checked={filter.tags.includes(tag)} onChange={() => updateFilter('tags', toggleValue(filter.tags, tag))}/>{tag}</label>) : <span className="asset-muted">{ready ? '尚未保存个人标签' : '个人素材库读取完成后显示标签'}</span>}</div></fieldset>
       <fieldset><legend>颜色（个人＋目录人工标记，任一）</legend><div className="catalog-colors">{CATALOG_COLORS_V1.map(color => <ColorButton key={color} color={color} selected={filter.colors.includes(color)} onClick={() => updateFilter('colors', toggleValue(filter.colors, color))}/>)}</div></fieldset>
       <label className="catalog-inline"><input type="checkbox" checked={filter.favoriteOnly} onChange={event => updateFilter('favoriteOnly', event.target.checked)}/><Heart size={13}/>仅收藏</label>
     </details>
     {hasFilters && <div className="catalog-filter-chips" aria-label="当前素材筛选条件">
+      {category !== 'all' && <FilterChip label={`用途：${CATALOG_CATEGORIES.find(value => value.id === category)!.label}`} onRemove={() => setCategory('all')}/>}
       {filter.query && <FilterChip label={`关键词：${filter.query}`} onRemove={() => updateFilter('query', '')}/>}
       {filter.kinds.map(kind => <FilterChip key={kind} label={KIND_LABELS[kind]} onRemove={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}/>)}
       {filter.publisherTags.map(tag => <FilterChip key={`publisher:${tag}`} label={`只读：${tag}`} onRemove={() => updateFilter('publisherTags', toggleValue(filter.publisherTags, tag))}/>)}
       {filter.tags.map(tag => <FilterChip key={`personal:${tag}`} label={`个人${filter.tagMatch === 'all' ? '全部' : '任一'}：${tag}`} onRemove={() => updateFilter('tags', toggleValue(filter.tags, tag))}/>)}
       {filter.colors.map(color => <FilterChip key={color} label={`颜色：${color}`} onRemove={() => updateFilter('colors', toggleValue(filter.colors, color))}/>)}
       {filter.favoriteOnly && <FilterChip label="仅收藏" onRemove={() => updateFilter('favoriteOnly', false)}/>}
-      <button onClick={() => setFilter({ ...EMPTY_CATALOG_FILTER_V1 })}>清空筛选</button>
+      <button onClick={() => { setFilter({ ...EMPTY_CATALOG_FILTER_V1 }); setCategory('all') }}>清空筛选</button>
     </div>}
-    <div className="catalog-count"><span>{found.length} 项匹配 · 已选{selected.length}项</span><button onClick={() => setSelected([])} disabled={!selected.length || busy}>清空选择</button></div>
+    {selected.length > 0 && <div className="catalog-selection-count"><span>已选{selected.length}项</span><button onClick={() => setSelected([])} disabled={busy}>清空选择</button></div>}
     <div className="catalog-entries">{found.slice(0, limit).map(item => {
-      const key = item.identity.key, organization = organizationOf(snapshot, key), inProject = currentKeys.has(key), curation = catalogCurationFor(item)
+      const key = item.identity.key, organization = organizationOf(snapshot, key), inProject = currentKeys.has(key)
       return <article key={key} data-definition-id={item.selector.definitionId} className={detailKey === key ? 'selected' : ''}>
         <label className="catalog-select"><input type="checkbox" aria-label={`选择素材 ${item.name}`} checked={selected.includes(key)} disabled={busy} onChange={() => toggleSelection(key)}/></label>
         <button className="catalog-item-main" aria-label={`查看素材 ${item.name}`} onClick={() => setDetailKey(value => value === key ? null : key)}>
-          <CatalogThumbnail item={item} loadProject={loadProject} onThumbnailState={updateThumbnailState}/><span className="catalog-item-copy"><strong>{item.name}{organization.favorite && <Heart size={11} aria-label="已收藏" fill="currentColor"/>}</strong><small>{KIND_LABELS[item.identity.kind]} · v{item.identity.fixedVersion} · {item.widthMm} × {item.heightMm} mm</small><small>{missingThumbnails.has(key) ? '缺失 / 校验失败' : installed.has(key) ? '已安装' : '可安装'}{item.visibility === 'gm' ? ' · 私密组合' : ''}</small><small className="catalog-tag-line">{item.publisherTags.join(' · ')}</small>{curation && <small className="catalog-curation-line">目录补充：{[...curation.tags, ...curation.colors.map(color => `${color}色`)].join(' · ')}（只读）</small>}{(organization.tags.length > 0 || organization.colors.length > 0) && <small className="catalog-personal-line">个人：{[...organization.tags, ...organization.colors.map(color => `${color}色`)].join(' · ')}</small>}</span>
+          <CatalogThumbnail item={item} loadProject={loadProject} onThumbnailState={updateThumbnailState}/><span className="catalog-item-copy"><strong>{item.name}{organization.favorite && <Heart size={12} aria-label="已收藏" fill="currentColor"/>}</strong><small>{KIND_LABELS[item.identity.kind]} · {catalogSizeLabel(item.widthMm, item.heightMm)}</small>{missingThumbnails.has(key) && <small className="catalog-item-warning">缩略图不可用 · 查看详情</small>}{item.visibility === 'gm' && <small>仅主持人可见</small>}</span>
         </button>
         {inProject && <button className="catalog-place" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '应用材质' : '放置组件'} ${item.name}`} onClick={() => item.identity.kind === 'prop' ? onPlace(item.selector.definitionId) : item.identity.kind === 'material' ? onMaterial(item.selector.definitionId) : onPrefab(item.selector.definitionId)}><Plus size={14}/>{item.identity.kind === 'material' ? '应用' : '放置'}</button>}
+        {!inProject && onUse && <button className="catalog-place catalog-add-use" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '添加并应用' : '添加并放置'} ${item.name}`} onClick={() => useItem(item)}><Plus size={14}/>{item.identity.kind === 'material' ? '添加并应用' : '添加并放置'}</button>}
       </article>
     })}</div>
-    {!found.length && !(scope === 'builtin' && builtinLoading) && <p className="catalog-empty">{scope === 'mine' && !mineItems.length ? '我的素材还没有完整安装条目。请从内置素材或本工程明确保存，或导入完整库备份。' : '没有匹配素材。可移除筛选条件后再试。'}</p>}
+    {!found.length && !(scope === 'builtin' && builtinLoading) && !(scope === 'variants' && variantsLoading) && !(scope === 'mine' && (!ready || reading || !!readError)) && <p className="catalog-empty">{scope === 'mine' && !mineItems.length ? '还没有个人素材。可以从内置素材保存，或导入素材库备份。' : '当前来源没有匹配素材。试试切换素材来源，或清空筛选条件。'}</p>}
     {found.length > limit && <button className="asset-wide" onClick={() => setLimit(value => value + 24)}>再显示24项（余{found.length - limit}项）</button>}
-    {detail && <div className="composition-source catalog-source" aria-label="素材来源详情"><h3>{detail.name}</h3><dl className="asset-facts"><dt>固定来源</dt><dd>{detail.originLabel}</dd><dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd><dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd><dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd><dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd><dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd><dt>目录补充标签／颜色</dt><dd>{detailCuration ? [...detailCuration.tags, ...detailCuration.colors.map(color => `${color}色`)].join(' · ') : '无'}（只读、人工描述）</dd>{refinedIdentity && <><dt>精修来源</dt><dd>{refinedSource?.name ?? refinedIdentity[3]} · v{refinedIdentity[4]}；保留旧版，可分别选择</dd></>}<dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd><dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd></dl>{refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照"><figure><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>精修版：{detail.name} · v{detail.identity.fixedVersion}</figcaption></figure><figure>{refinedSource ? <><CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>保留旧版：{refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption></> : <><span className="catalog-comparison-missing">旧版完整来源未在当前可用目录中找到；请读取内置目录或明确安装对应旧版。</span><figcaption>{refinedIdentity[3]} · v{refinedIdentity[4]}</figcaption></>}</figure></div>}<p className="asset-muted">缩略图显示固定源图片；目录补充标签／颜色来自应用只读索引，不改发布者信息，也不写入库备份。颜色为人工描述或个人整理，场景中的层与实例覆盖可能产生不同外观。</p>{detailProject && <details><summary>完整许可与署名</summary>{[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef)).map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))].map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}</details>}<button disabled={!ready || busy || !!draft} onClick={() => { setSelected([detail.identity.key]); const existing = organizationOf(snapshot, detail.identity.key); setDraft({ keys: [detail.identity.key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite }) }}>编辑此项个人整理</button></div>}
+    {detail && <div className="composition-source catalog-source" aria-label="素材来源详情"><h3>{detail.name}</h3><div className="catalog-detail-preview"><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/></div><dl className="asset-facts"><dt>用途分类</dt><dd>{CATALOG_CATEGORIES.find(value => value.id === catalogCategory(detail, catalogReadonlyTags(detail)))!.label}</dd><dt>我的素材</dt><dd>{!ready ? '尚未完成个人素材库读取' : installed.has(detail.identity.key) ? '已保存，可离线使用' : '尚未保存到个人库'}</dd><dt>个人标签／颜色</dt><dd>{!ready ? '个人素材库读取完成后显示' : detailOrganization && [...detailOrganization.tags, ...detailOrganization.colors.map(color => `${color}色`)].join(' · ') || '无'}</dd><dt>固定来源</dt><dd>{detail.originLabel}</dd><dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd><dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd><dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd><dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd><dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd><dt>目录补充标签／颜色</dt><dd>{detailCuration ? [...detailCuration.tags, ...detailCuration.colors.map(color => `${color}色`)].join(' · ') : '无'}（只读、人工描述）</dd>{refinedIdentity && <><dt>精修来源</dt><dd>{refinedSource?.name ?? refinedIdentity[3]} · v{refinedIdentity[4]}；保留旧版，可分别选择</dd></>}<dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd><dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd></dl>{refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照"><figure><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>精修版：{detail.name} · v{detail.identity.fixedVersion}</figcaption></figure><figure>{refinedSource ? <><CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>保留旧版：{refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption></> : <><span className="catalog-comparison-missing">旧版完整来源未在当前可用目录中找到；请读取内置目录或明确安装对应旧版。</span><figcaption>{refinedIdentity[3]} · v{refinedIdentity[4]}</figcaption></>}</figure></div>}<p className="asset-muted">缩略图显示固定源图片；目录补充标签／颜色来自应用只读索引，不改发布者信息，也不写入库备份。颜色为人工描述或个人整理，场景中的层与实例覆盖可能产生不同外观。</p>{detailProject && <details><summary>完整许可与署名</summary>{[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef)).map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))].map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}</details>}<button disabled={!ready || busy || !!draft} onClick={() => { setSelected([detail.identity.key]); const existing = organizationOf(snapshot, detail.identity.key); setDraft({ keys: [detail.identity.key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite }) }}>编辑此项个人整理</button></div>}
     {scope === 'mine' && organizationOnlyKeys.length > 0 && <details className="catalog-organization-only"><summary>未安装素材的个人整理 · {organizationOnlyKeys.length} 项</summary><p className="asset-muted">这些记录保留原身份、标签、颜色和收藏。选择后可整理或备份；安装与放置仍需要完整素材。</p>{organizationOnlyKeys.map(key => <label key={key}><input type="checkbox" aria-label={`选择个人整理 ${JSON.parse(key)[3]}`} checked={selected.includes(key)} disabled={busy} onChange={() => toggleSelection(key)}/>{allItems.get(key)?.name ?? JSON.parse(key)[3]} · {snapshot.organizations[key].tags.join(' · ')}{snapshot.organizations[key].favorite ? ' · 已收藏' : ''}</label>)}</details>}
-    <div className="catalog-batch" aria-label="素材批量操作"><p className="asset-muted">操作仅作用于明确勾选的{selected.length}项，最多64项；切换范围保留所选。</p><div className="catalog-actions">
+    <details className="catalog-management"><summary>批量添加与个人素材管理{selected.length > 0 ? ` · 已选 ${selected.length} 项` : ''}</summary><div className="catalog-batch" aria-label="素材批量操作"><p className="asset-muted">操作仅作用于明确勾选的{selected.length}项，最多64项；切换范围保留所选。</p><div className="catalog-actions">
       <button disabled={!ready || busy || !selectedMissing.length} onClick={saveToMine}><Download size={13}/>{scope === 'project' ? '保存到我的素材' : '安装到我的素材'}{selectedMissing.length > 0 ? `（${selectedMissing.length}）` : ''}</button>
       <button disabled={disabled || busy || !selected.length} onClick={adoptSelected}>预览采用到本工程</button>
       <button disabled={!ready || busy || !selected.length || !!draft} onClick={beginOrganization}>整理所选</button>
       <button disabled={!ready || busy || !selectedBackupKeys.length} onClick={backupSelected}><Download size={13}/>备份所选内容与整理（{selectedBackupKeys.length}）</button>
       <button disabled={!ready || busy || !selectedInstalled.length || !!draft || !!review} onClick={() => setRemoveConfirmation(true)}>移除个人安装条目</button>
-    </div></div>
+    </div><p className="asset-muted">保存到个人库会保留素材原版与许可，不包含场景中的调色；组合保留原有私密设置。</p></div></details>
     {removeConfirmation && <div className="catalog-confirm" role="group" aria-label="确认移除个人素材"><p>将移除明确所选的{selectedInstalled.length}项个人安装条目及其个人标签、颜色和收藏。工程、历史、内置目录和其他素材保持。</p><button disabled={busy} onClick={removeSelected}>确认移除这{selectedInstalled.length}项</button><button disabled={busy} onClick={() => setRemoveConfirmation(false)}>取消移除</button></div>}
     {draft && <form className="catalog-organization" aria-label="个人素材整理草稿" onSubmit={event => { event.preventDefault(); void saveOrganization() }}><fieldset disabled={busy}><legend>整理明确选中的{draft.keys.length}项</legend><p className="asset-muted">{draft.keys.length > 1 ? '保存会以此处完整标签、颜色和收藏替换这批所选条目的个人整理。' : '只更改个人整理；不安装素材，不改发布者信息或工程。'}该草稿的范围保持固定。</p><label>个人标签（每行一个，最多32个）<textarea aria-label="个人素材标签" rows={3} value={draft.tags} onChange={event => setDraft({ ...draft, tags: event.target.value })}/></label><fieldset><legend>个人颜色（最多8色）</legend><div className="catalog-colors">{CATALOG_COLORS_V1.map(color => <ColorButton key={color} color={color} selected={draft.colors.includes(color)} disabled={!draft.colors.includes(color) && draft.colors.length >= CATALOG_LIMITS_V1.colors} onClick={() => setDraft({ ...draft, colors: toggleValue(draft.colors, color) })}/>)}</div></fieldset><label className="catalog-inline"><input type="checkbox" aria-label="收藏所选素材" checked={draft.favorite} onChange={event => setDraft({ ...draft, favorite: event.target.checked })}/>收藏</label><div className="catalog-actions"><button type="submit">保存这{draft.keys.length}项整理</button><button type="button" onClick={() => setDraft(null)}>取消整理草稿</button></div></fieldset></form>}
     <details className="catalog-backup"><summary><Upload size={13}/>完整库备份与导入</summary><p className="asset-muted">备份包含所选安装条目的实际资源、许可，以及明确选择的个人整理；未安装记录也可单独备份。首批每次最多64项、文件64MiB；不含工程场景和历史。</p><label>选择完整库备份<input type="file" aria-label="导入素材库备份" accept=".sceneweave-library,application/json" disabled={!ready || busy || !!review || !!draft} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void readBackup(file) }}/></label></details>
     {review && <div className="catalog-review" aria-label="素材库导入预览"><h3>导入预览</h3><p>完整验证{review.records.length}项素材、{Object.keys(review.organizations).length}项整理，明确选中{new Set([...review.keys, ...review.organizationKeys]).size}个目标。固定内容冲突{fixedConflicts.length}项，个人整理差异{organizationConflicts.length}项。</p><div className="catalog-review-list">{review.records.map(record => { const item = record.entry.item; return <label key={item.identity.key}><input type="checkbox" checked={review.keys.includes(item.identity.key)} disabled={busy} onChange={() => setReview({ ...review, keys: toggleValue(review.keys, item.identity.key) })}/>{item.name} · v{item.identity.fixedVersion}</label> })}</div>{review.organizationKeys.length > 0 || Object.keys(review.organizations).some(key => !review.records.some(record => record.entry.item.identity.key === key)) ? <fieldset><legend>未安装素材的个人整理</legend>{Object.keys(review.organizations).filter(key => !review.records.some(record => record.entry.item.identity.key === key)).map(key => <label key={key}><input type="checkbox" disabled={busy} checked={review.organizationKeys.includes(key)} onChange={() => setReview({ ...review, organizationKeys: toggleValue(review.organizationKeys, key) })}/>{JSON.parse(key)[3]} · {review.organizations[key].tags.join(" · ") || "个人整理"}</label>)}</fieldset> : null}<label>个人整理冲突处理<select aria-label="导入个人整理策略" disabled={busy} value={review.strategy} onChange={event => setReview({ ...review, strategy: event.target.value as Review['strategy'] })}><option value="keep-local">保留本机整理</option><option value="replace-selected">替换本次选中整理</option></select></label>{fixedConflicts.length > 0 && <p className="asset-form-error">相同固定身份具有不同内容，不能覆盖或改名导入。请取消这些条目。</p>}<div className="catalog-actions"><button disabled={busy || !review.keys.length && !review.organizationKeys.length || new Set([...review.keys, ...review.organizationKeys]).size > 64 || fixedConflicts.length > 0} onClick={applyBackup}>确认导入所选{new Set([...review.keys, ...review.organizationKeys]).size}项</button><button disabled={busy} onClick={() => setReview(null)}>取消导入预览</button></div></div>}
-    <div className="catalog-status-actions"><button disabled={busy} onClick={refresh}><RefreshCw size={12}/>{draft || review ? '刷新基线（保留草稿）' : '刷新素材库'}</button>{busy && <button onClick={() => controller.current?.abort()}>取消当前操作</button>}</div>
-    {status && <p className="catalog-operation-status" role="status">{status}</p>}{error && <p className="asset-form-error" role="alert">{error}</p>}
+    <div className="catalog-status-actions"><button disabled={busy || reading} onClick={refresh}><RefreshCw size={12}/>{draft || review ? '刷新基线（保留草稿）' : '刷新素材库'}</button>{busy && <button onClick={() => controller.current?.abort()}>取消当前操作</button>}</div>
+    {status && <p className="catalog-operation-status" role="status">{status}</p>}{error && error !== readError && <p className="asset-form-error" role="alert">{error}</p>}
     <AssetImportForm key={importResetKey} disabled={importDisabled || busy} onImport={onImport}/>
     {onImportBatch && <AssetBatchImportForm key={`${project.document.sceneId}-${importResetKey}-batch`} disabled={importDisabled || busy} onPreview={onImportBatch} candidateActive={assetBatchPreviewActive} onDraftChange={onAssetBatchDraftChange} onInvalidate={onInvalidateAssetBatch}/>}
   </section>

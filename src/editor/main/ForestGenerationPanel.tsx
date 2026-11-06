@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { ForestPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
 import './forest-generation.css'
@@ -36,20 +36,31 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
   const [routeWidthMm, setRouteWidthMm] = useState(1800)
   const [treeCoveragePpm, setTreeCoveragePpm] = useState(80000), [shrubCoveragePpm, setShrubCoveragePpm] = useState(10000), [grassCoveragePpm, setGrassCoveragePpm] = useState(1000)
   const nextClearing = useRef(2)
+  const validationId = useId()
   const locked = busy || disabled, cleanTitle = title.trim(), cleanSeed = seed.trim()
   const change = (apply: () => void) => { if (locked) return; onChange(); apply() }
   const updateClearing = (id: string, patch: Partial<ForestGenerationUiRequest['clearings'][number]['boundsMm']>) => change(() => setClearings(current => current.map(row => row.id === id ? { ...row, boundsMm: { ...row.boundsMm, ...patch } } : row)))
-  const valid = !!cleanTitle && cleanTitle.length <= 120 && !!cleanSeed && cleanSeed.length <= 128
-    && [widthMm, heightMm].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 200000)
-    && clearings.length >= 1 && clearings.length <= 4
-    && clearings.every(({ boundsMm: b }) => [b.x, b.y, b.width, b.height].every(Number.isSafeInteger)
-      && b.x >= 0 && b.y >= 0 && b.width > 0 && b.height > 0 && b.x + b.width <= widthMm && b.y + b.height <= heightMm)
-    && Number.isSafeInteger(routeWidthMm) && routeWidthMm > 0 && routeWidthMm <= 10000
-    && [treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000)
+  const validationReason = (() => {
+    if (!cleanTitle || cleanTitle.length > 120) return '请填写工程名称，最多120个字符。'
+    if (!cleanSeed || cleanSeed.length > 128) return '请填写生成种子，最多128个字符。'
+    if (![widthMm, heightMm].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 200000)) return '地图宽和高须为1–200米，请调整地图尺寸。'
+    if (clearings.length < 1 || clearings.length > 4) return '请保留1–4块活动空地。'
+    for (const [index, { boundsMm: b }] of clearings.entries()) {
+      if (![b.x, b.y, b.width, b.height].every(Number.isSafeInteger)) return `空地${index + 1}的位置或尺寸无效，请重新填写数值。`
+      if (b.x < 0 || b.y < 0) return `空地${index + 1}的位置须从地图左上角起算且不小于0，请调整位置。`
+      if (b.width <= 0 || b.height <= 0) return `空地${index + 1}的宽和高须大于0，请调整空地尺寸。`
+      if (b.x + b.width > widthMm || b.y + b.height > heightMm) return `空地${index + 1}超出地图范围，请调整空地位置、尺寸或扩大地图。`
+    }
+    if (!(Number.isSafeInteger(routeWidthMm) && routeWidthMm > 0 && routeWidthMm <= 10000)) return '路线净宽须大于0且不超过10米，请调整净宽。'
+    if (![treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000)) return '树木、灌木和草簇的目标覆盖须为0–100%，请调整覆盖比例。'
+    return null
+  })()
+  const valid = validationReason === null
   return <section className="terrain-generation-panel forest-generation-panel" aria-label="森林与营地生成">
     <h2>森林与营地</h2>
     <p>先留出活动空地与入口路线，再在真实地面上布置树木、灌木和草簇。</p>
     <p className="asset-muted">覆盖目标与实际数量分别显示。空间不足会说明缺项；保存后可继续移动或删除，不会自动补回。</p>
+    {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, clearings: clearings.map(row => ({ ...row, boundsMm: { ...row.boundsMm } })), entranceSide, routeWidthMm, treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm }) }}>
       <fieldset disabled={locked}>
         <legend>地图与活动空间</legend>
@@ -89,10 +100,11 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
           <label>草簇（%）<input aria-label="森林草簇覆盖百分比" type="number" min="0" max="100" step="0.1" value={grassCoveragePpm / 10000} onChange={event => change(() => setGrassCoveragePpm(ppm(event.target.value)))}/></label>
         </div>
         <p className="asset-muted">覆盖目标按所用素材尺寸换算。实际布置还受支撑、占地与净空影响；超出生成容量时会明确说明。</p>
-        <button className="primary asset-wide" type="submit" disabled={!valid}>{busy ? '正在准备森林与营地…' : '预览森林与营地'}</button>
+        {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
+        <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备森林与营地…' : '预览森林与营地'}</button>
       </fieldset>
     </form>
-    {error && <p className="asset-error" role="alert">{error}</p>}
+    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消森林与营地」返回当前工程。</p></>}
     {candidate && <div className="forest-candidate" aria-label="森林与营地候选摘要"><h3>候选 · {candidate.input.parameters.clearings.length} 处空地</h3>
       <p>画布展示完整候选，当前工程尚未改变。</p>
       <p aria-label="森林实际生成结果">实际安排 {candidate.report.pathIds.length} 条路线、{candidate.report.propIds.length} 棵树和 {candidate.report.decorationIds.length} 处轻量草灌。</p>

@@ -3,6 +3,7 @@ import type { PointMm } from '../../shared/model/scene'
 import type { CubicSegment, VisualBoundary } from '../../shared/visual/types'
 import { connectionRouteSchema, sampleConnectionRoute, type ConnectionRoute } from '../../shared/geometry/connection-route'
 import type { VisualBoundaryEditor } from './VisualPanel'
+import { integerCoordinateRow } from './integer-coordinate-input'
 
 export interface ConnectionRouteDraft {
   mode: 'classic' | 'polyline' | 'cubic'
@@ -23,8 +24,8 @@ export function connectionPoints(text: string): PointMm[] {
   const rows = text.trim().split(/\r?\n/).filter(row => row.trim())
   if (rows.length < 2 || rows.length > 17) throw new Error('连接路线须有2–17个整数毫米节点。')
   return rows.map((row, index) => {
-    const values = row.trim().split(/[,，\s]+/).map(Number)
-    if (values.length !== 2 || values.some(value => !Number.isSafeInteger(value))) throw new Error(`连接路线第${index + 1}行需要x, y整数毫米。`)
+    const values = integerCoordinateRow(row, 2)
+    if (!values) throw new Error(`连接路线第${index + 1}行需要x, y整数毫米。`)
     return { x: values[0], y: values[1] }
   })
 }
@@ -57,8 +58,8 @@ export function readConnectionRoute(text: string, draft: ConnectionRouteDraft, r
     const rows = draft.controls.trim().split(/\r?\n/).filter(row => row.trim())
     if (rows.length < 1 || rows.length > 16) throw new Error('曲线连接须有1–16段控制源；可以先从路线节点生成。')
     raw = rows.map((row, index) => {
-      const values = row.trim().split(/[,，;；\s]+/).map(Number)
-      if (values.length !== 8 || values.some(value => !Number.isSafeInteger(value))) throw new Error(`曲线第${index + 1}段需要起点、两个控制点、终点的8个整数毫米坐标。`)
+      const values = integerCoordinateRow(row, 8, /[,，;；]/)
+      if (!values) throw new Error(`曲线第${index + 1}段需要起点、两个控制点、终点的8个整数毫米坐标。`)
       return { start: { x: values[0], y: values[1] }, control1: { x: values[2], y: values[3] }, control2: { x: values[4], y: values[5] }, end: { x: values[6], y: values[7] } }
     })
   }

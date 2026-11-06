@@ -226,7 +226,7 @@ export default function TerrainGenerationPanel({
           <div key={`${item.label}-${index}`}><dt>{costLabels[item.label] ?? '其他内容'}</dt><dd>{item.value}</dd></div>,
         )}</dl>
       </details>
-      {!candidateMatches && <p className="terrain-generation-notice" id={settingsHintId}>设置已改变，请重新生成后采用。</p>}
+      {!candidateMatches && <p className="terrain-generation-notice" id={settingsHintId} role="status">设置已改变，画布仍显示上次候选。请重新生成后采用。</p>}
       {candidateMatches && !candidateAllowed && <p className="terrain-generation-notice" id={settingsHintId}>此方案仍有未解决的检查项，暂时不能采用。</p>}
       <div className="terrain-generation-actions">
         <button className="primary" type="button" disabled={disabled || occupied || !candidateMatches || !candidateAllowed}

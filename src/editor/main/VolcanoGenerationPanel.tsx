@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { VolcanoPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
 import './volcano-generation.css'
@@ -29,22 +29,29 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
   onAdopt: () => void | Promise<void>; onCancel: () => void; onChange: () => void
 }) {
   const [input, setInput] = useState(initial)
+  const validationId = useId()
   const locked = busy || disabled
   const change = <K extends keyof VolcanoGenerationUiRequest>(key: K, value: VolcanoGenerationUiRequest[K]) => {
     if (locked) return
     onChange(); setInput(current => ({ ...current, [key]: value }))
   }
-  const valid = !!input.title.trim() && input.title.trim().length <= 120 && !!input.seed.trim() && input.seed.trim().length <= 128
-    && [input.widthMm, input.heightMm].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 200000)
-    && [input.mountainElevationMm, input.craterElevationMm].every(value => Number.isSafeInteger(value) && Math.abs(value) <= 100000)
-    && [input.craterWidthPercent, input.craterHeightPercent, input.craterCenterYPercent].every(value => Number.isFinite(value) && value > 0 && value < 100)
-    && [input.routeWidthMm, ...(input.flowEnabled ? [input.flowWidthMm] : [])].every(value => Number.isSafeInteger(value) && value > 0 && value <= 10000)
-    && [input.craterMovementCostMultiplier, ...(input.flowEnabled ? [input.flowMovementCostMultiplier] : [])].every(value => Number.isFinite(value) && value >= 1 && value <= 100)
+  const validationReason = (() => {
+    if (!input.title.trim() || input.title.trim().length > 120) return '请填写工程名称，最多120个字符。'
+    if (!input.seed.trim() || input.seed.trim().length > 128) return '请填写生成种子，最多128个字符。'
+    if (![input.widthMm, input.heightMm].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 200000)) return '地图宽和高须为1–200米，请调整地图尺寸。'
+    if (![input.mountainElevationMm, input.craterElevationMm].every(value => Number.isSafeInteger(value) && Math.abs(value) <= 100000)) return '山体和火口高程须在-100至100米之间，请调整高程。'
+    if (![input.craterWidthPercent, input.craterHeightPercent, input.craterCenterYPercent].every(value => Number.isFinite(value) && value > 0 && value < 100)) return '火口宽、高和纵向位置须大于0%且小于100%，请调整火口比例。'
+    if (![input.routeWidthMm, ...(input.flowEnabled ? [input.flowWidthMm] : [])].every(value => Number.isSafeInteger(value) && value > 0 && value <= 10000)) return '路线净宽和已启用的流道宽度须大于0且不超过10米，请调整宽度。'
+    if (![input.craterMovementCostMultiplier, ...(input.flowEnabled ? [input.flowMovementCostMultiplier] : [])].every(value => Number.isFinite(value) && value >= 1 && value <= 100)) return '火口和已启用流道的移动代价倍率须为1–100，请调整倍率。'
+    return null
+  })()
+  const valid = validationReason === null
   const p = candidate?.input.parameters
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="火山生成">
     <h2>火山</h2>
     <p>生成单火口、离散高台、活动平台和真实阶梯或坡道，核对指定路线的完整净宽。</p>
     <p className="asset-muted">熔岩外观、危险标记、阻挡和移动代价分别设置。保存后可自由删改，不会自动补回。</p>
+    {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ ...input, title: input.title.trim(), seed: input.seed.trim() }) }}>
       <fieldset disabled={locked}>
         <legend>地图与火口</legend>
@@ -87,10 +94,11 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
           <label>移动代价倍率<input aria-label="流道移动代价倍率" type="number" min="1" max="100" step="0.1" value={input.flowMovementCostMultiplier} onChange={event => change('flowMovementCostMultiplier', Number(event.target.value))}/></label>
         </fieldset>
         <p className="asset-muted">流道位于火口东侧，独立于西侧路线。尺寸过大、支撑或净空不足时会明确拒绝；移动代价不代表已提供全图最优寻路。</p>
-        <button className="primary asset-wide" type="submit" disabled={!valid}>{busy ? '正在准备火山…' : '预览火山'}</button>
+        {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
+        <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备火山…' : '预览火山'}</button>
       </fieldset>
     </form>
-    {error && <p className="asset-error" role="alert">{error}</p>}
+    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消火山」返回当前工程。</p></>}
     {candidate && p && <div className="volcano-candidate" aria-label="火山候选摘要"><h3>候选 · 单火口与活动平台</h3>
       <p>画布展示完整候选，当前工程尚未改变。</p>
       <p aria-label="火山实际生成结果">实际生成 {candidate.report.connectionIds.length} 处高差连接、{candidate.report.pathIds.length} 条路线及 {candidate.report.regionIds.length} 个通行策略区域。</p>

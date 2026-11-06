@@ -195,6 +195,8 @@ function captureCommands(commands: readonly CompositionCommand[]): readonly Comp
   return captured
 }
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
+const saveMessage = (error: unknown) => error instanceof Error && error.name === 'QuotaExceededError'
+  ? `浏览器存储空间不足：${message(error)}` : message(error)
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
 /** Only compare privately validated JSON branches; this is not an input validator or a hash. */
@@ -544,7 +546,7 @@ export class Workspace {
           this.publish({ status: this.pending ? 'unsaved' : 'saved', error: null })
         } catch (error) {
           this.pending = this.pending ?? snapshot; this.blocked = error
-          this.publish({ status: error instanceof Error && error.name === 'ProjectConflictError' ? 'conflict' : 'error', error: message(error) })
+          this.publish({ status: error instanceof Error && error.name === 'ProjectConflictError' ? 'conflict' : 'error', error: saveMessage(error) })
           throw error
         }
       }

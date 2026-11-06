@@ -7,6 +7,8 @@ import { terrainPoints } from '../../shared/geometry/geometry'
 import { TERRAIN_VARIANT_SPECS } from '../../platform/browser/content/terrain-variant-catalog'
 import type { CanvasTerrainBrush } from '../native-canvas/AssetCanvas'
 import { connectedTerrainAreaIds, surfaceRegionsFromStroke } from './canopy-brush'
+import { effectiveEditLocked, effectiveLayerLocked } from '../../shared/commands/layers'
+import EntityLockNotice from './EntityLockNotice'
 
 type CreateCommand = Extract<DecorationCommand, { type: 'createDecorationCluster' }>
 type Props = { scene: SceneDocument; layerId: string; disabled: boolean; onCreate: (command: CreateCommand) => void; onCanvasBrushChange: (brush: CanvasTerrainBrush | null) => void; onDraftChange: (dirty: boolean) => void; onPrepareSources: (definitionIds: string[]) => void; onPreview: (commands: SceneCommand[], label: string) => void; onSelect: (id: string) => void }
@@ -157,14 +159,18 @@ export default function DecorationPanel({ scene, layerId, disabled, onCreate, on
   </section>
 }
 
-export function DecorationInspector({ scene, id, disabled, onPreview, onSelect }: Pick<Props, 'scene' | 'disabled' | 'onPreview' | 'onSelect'> & { id: string }) {
+export function DecorationInspector({ scene, id, disabled, onPreview, onSelect, onOpenLayers }: Pick<Props, 'scene' | 'disabled' | 'onPreview' | 'onSelect'> & { id: string; onOpenLayers?: () => void }) {
   const decoration: Decoration | undefined = scene.decorations?.[id], cluster: DecorationCluster | undefined = scene.decorationClusters?.[id], row = decoration ?? cluster
   const [x, setX] = useState(String(decoration?.positionMm.x ?? 0)), [y, setY] = useState(String(decoration?.positionMm.y ?? 0)), [scale, setScale] = useState(String((decoration?.scalePpm ?? 1_000_000) / 1_000_000)), [rotation, setRotation] = useState(String(decoration?.rotationDeg ?? 0))
   const [visibility, setVisibility] = useState<'public' | 'gm'>(row?.visibility ?? 'public')
   if (!row) return null
-  const owner = Object.values(scene.decorationClusters ?? {}).find(group => Object.values(group.members).some(member => member.entityId === id && member.state !== 'detached'))
+  const owner = Object.values(scene.decorationClusters ?? {}).find(group => Object.values(group.members).some(member => member.entityId === id && member.state !== 'detached' && member.state !== 'deleted'))
+  const ownerRule = owner && Object.values(scene.surfaceRules ?? {}).find(rule => rule.field !== 'material' && rule.clusterId === owner.id)
+  const locked = effectiveEditLocked(scene, id)
+  const lockChangeBlocked = effectiveLayerLocked(scene, id) || !!owner && (owner.editLocked || effectiveLayerLocked(scene, owner.id)) || !!ownerRule && (ownerRule.editLocked || effectiveLayerLocked(scene, ownerRule.id))
   return <section aria-label="轻量装饰属性"><h2>{decoration ? '轻量装饰' : '布景簇'}</h2><p className="asset-muted">{id}</p>
-    {decoration && <><p>{scene.propDefinitions[decoration.definitionRef.id]?.name}</p><fieldset disabled={disabled || row.editLocked}>
+    <EntityLockNotice scene={scene} id={id} onSelect={onSelect} onOpenLayers={onOpenLayers}/>
+    {decoration && <><p>{scene.propDefinitions[decoration.definitionRef.id]?.name}</p><fieldset disabled={disabled || locked}>
       <label>X mm<input aria-label="装饰位置X" value={x} onChange={e => setX(e.target.value)}/></label><label>Y mm<input aria-label="装饰位置Y" value={y} onChange={e => setY(e.target.value)}/></label>
       <label>尺寸倍数<input aria-label="装饰尺寸倍数" value={scale} onChange={e => setScale(e.target.value)}/></label><label>朝向 °<input aria-label="装饰朝向" value={rotation} onChange={e => setRotation(e.target.value)}/></label>
       <label>受众<select aria-label="装饰受众" value={visibility} onChange={e => setVisibility(e.target.value as 'public' | 'gm')}><option value="public">玩家可见</option><option value="gm">仅主持人</option></select></label>
@@ -172,7 +178,7 @@ export function DecorationInspector({ scene, id, disabled, onPreview, onSelect }
       <button className="secondary asset-wide" onClick={() => onPreview([{ type: 'deleteDecoration', id }], '删除装饰并保存人工删除记录')}>预览删除装饰</button>
       {owner && <button className="secondary asset-wide" onClick={() => onPreview([{ type: 'detachDecorationMember', clusterId: owner.id, entityId: id }], '保留当前装饰并退出自动布景')}>退出自动布景</button>}
     </fieldset></>}
-    <button className="secondary asset-wide" disabled={disabled} onClick={() => onPreview([{ type: 'setEditLock', kind: decoration ? 'decoration' : 'decorationCluster', id, locked: !row.editLocked }], row.editLocked ? '解锁布景对象' : '锁定布景对象')}>{row.editLocked ? '解锁布景对象' : '锁定布景对象'}</button>
-    {cluster && <><p>人工记录随工程保存；重新布景不会复活删除项。</p><button className="primary asset-wide" disabled={disabled || row.editLocked} onClick={() => onPreview([{ type: 'regenerateDecorationCluster', id }], '重新布景并保全人工记录')}>预览重新布景</button><button className="secondary asset-wide" disabled={disabled || row.editLocked} onClick={() => onPreview([{ type: 'deleteDecorationCluster', id }], '删除布景簇及仍受管理的成员')}>预览删除布景簇</button><ul>{Object.entries(cluster.members).map(([key, member]) => <li key={key}>{member.entityId ? <button title={member.entityId} onClick={() => onSelect(member.entityId!)}>{scene.props[member.entityId] ? '完整物件' : '轻量装饰'} · {member.entityId}</button> : '已删除'} · {({ managed: '自动', manual: '人工保留', deleted: '删除保留', detached: '已退出' })[member.state]}</li>)}</ul></>}
+    <button className="secondary asset-wide" disabled={disabled || lockChangeBlocked} onClick={() => onPreview([{ type: 'setEditLock', kind: decoration ? 'decoration' : 'decorationCluster', id, locked: !row.editLocked }], row.editLocked ? '解锁布景对象' : '锁定布景对象')}>{row.editLocked ? '解锁布景对象' : '锁定布景对象'}</button>
+    {cluster && <><p>人工记录随工程保存；重新布景不会复活删除项。</p><button className="primary asset-wide" disabled={disabled || locked} onClick={() => onPreview([{ type: 'regenerateDecorationCluster', id }], '重新布景并保全人工记录')}>预览重新布景</button><button className="secondary asset-wide" disabled={disabled || locked} onClick={() => onPreview([{ type: 'deleteDecorationCluster', id }], '删除布景簇及仍受管理的成员')}>预览删除布景簇</button><ul>{Object.entries(cluster.members).map(([key, member]) => <li key={key}>{member.entityId ? <button title={member.entityId} onClick={() => onSelect(member.entityId!)}>{scene.props[member.entityId] ? '完整物件' : '轻量装饰'} · {member.entityId}</button> : '已删除'} · {({ managed: '自动', manual: '人工保留', deleted: '删除保留', detached: '已退出' })[member.state]}</li>)}</ul></>}
   </section>
 }

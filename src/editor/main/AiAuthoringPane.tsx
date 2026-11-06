@@ -73,18 +73,20 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
   const [prompt, setPrompt] = useState(''), [consent, setConsent] = useState(false), [placing, setPlacing] = useState(false)
   const [targets, setTargets] = useState<string[]>([]), [definitions, setDefinitions] = useState<string[]>([])
   const [opacity, setOpacity] = useState(true), [transform, setTransform] = useState(true), [deleting, setDeleting] = useState(false)
-  const [support, setSupport] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
+  const [support, setSupport] = useState(''), [busy, setBusy] = useState(false), [activity, setActivity] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const [candidate, setCandidate] = useState<AtomicCandidate | null>(null), [reviewed, setReviewed] = useState(false), [regionalBusy, setRegionalBusy] = useState(false)
   const [pending, setPending] = useState<CreateTaskRequest | null>(null)
   const [receipt, setReceipt] = useState<{ taskId: string; claim: DraftClaim; sceneId: string; revision: number; client: AiClient } | null>(null)
   const grants = useRef(new Map<string, AtomicAuthorization>()), lastHost = useRef(host), lastTask = useRef(task), lastClient = useRef(client), candidateRef = useRef(candidate)
   const controller = useRef<AbortController | null>(null), regionalController = useRef<AbortController | null>(null), mounted = useRef(true), serial = useRef(0)
   lastHost.current = host; lastTask.current = task; lastClient.current = client; candidateRef.current = candidate
+  const beginActivity = (label: string) => { setBusy(true); setActivity(label); setError('') }
+  const finishActivity = () => { setBusy(false); setActivity('') }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; serial.current++; controller.current?.abort(); regionalController.current?.abort(); lastHost.current?.onRegionalPreview(null) } }, [])
   const preview = (next: AtomicCandidate | null) => { setCandidate(next); setReviewed(false); lastHost.current?.onPreview(next?.changes.length ? next : null) }
   useEffect(() => {
     if (candidateRef.current) host?.workspace.cancelAtomicCandidate(candidateRef.current)
-    controller.current?.abort(); regionalController.current?.abort(); regionalController.current = null; serial.current++; grants.current.clear(); setBusy(false); setRegionalBusy(false); setPending(null); setReceipt(previous => previous?.client === client ? previous : null); setTargets([]); setDefinitions([]); setConsent(false); setSendVision(false); setChecks([]); setExtended(initialExtendedScope()); preview(null); host?.onRegionalPreview(null)
+    controller.current?.abort(); regionalController.current?.abort(); regionalController.current = null; serial.current++; grants.current.clear(); setBusy(false); setActivity(''); setRegionalBusy(false); setPending(null); setReceipt(previous => previous?.client === client ? previous : null); setTargets([]); setDefinitions([]); setConsent(false); setSendVision(false); setChecks([]); setExtended(initialExtendedScope()); preview(null); host?.onRegionalPreview(null)
   }, [host?.project.document.sceneId, host?.sessionKey, host?.baseMapPreview, client])
   const source = host?.baseMapPreview?.continuationSource
   const needsCurrentAuthoring = !!host
@@ -99,7 +101,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
     controller.current?.abort(); const abort = new AbortController(), current = ++serial.current; controller.current = abort
     const valid = () => mounted.current && !abort.signal.aborted && current === serial.current && lastClient.current === active && lastTask.current?.id === selected.id && lastTask.current?.generation === selected.generation && lastTask.current?.authoring?.contentHash === selected.authoring?.contentHash
       && sameBudgetIdentity(selected.authoring, lastTask.current.authoring) && lastHost.current?.project.document.sceneId === local.project.document.sceneId && lastHost.current?.baseMapPreview === local.baseMapPreview
-    setBusy(true); setError(''); let received = false
+    beginActivity('正在读取服务器草稿并在本机重放校验…'); let received = false
     try {
       const draft = await active.draft(selected.id, abort.signal, continuationIdentity(selected.authoring)?.schemaVersion ?? 1)
       if (!valid()) return
@@ -113,7 +115,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
       preview(next); setNotice(`本机重放及实际素材校验通过：草稿 ${next.draftRevision}，${next.changes.length} 件差异。`)
 
     } catch (failure) { if (valid()) { preview(null); setError(message(failure)); if (received && selected.status === 'waiting_browser') void active.validateDraft(selected.id, { expectedGeneration: selected.generation, draftRevision: selected.authoring!.draftRevision, contentHash: selected.authoring!.contentHash, ...budgetFields(selected.authoring), valid: false }).then(value => { if (valid()) onTask(value, active) }).catch(() => undefined) } }
-    finally { if (mounted.current && current === serial.current) setBusy(false) }
+    finally { if (mounted.current && current === serial.current) finishActivity() }
   }
   const regionArtifact = task?.tools.map(tool => { try { return RegionSceneCandidateToolOutputSchema.safeParse(JSON.parse(tool.output)) } catch { return { success: false } as const } }).filter(value => value.success).at(-1)?.data
   const fetchRegionalPreview = async () => {
@@ -155,7 +157,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
   const start = async (retry?: CreateTaskRequest) => {
     const local = lastHost.current, active = lastClient.current
     if (!local || !active || busy || disabled || !stop(lastTask.current) || !retry && (!consent || !local.canPrepare())) return
-    setBusy(true); setError(''); const current = ++serial.current, abort = new AbortController(); controller.current = abort
+    beginActivity(retry ? '正在按原请求 ID 重试草稿任务…' : '正在校验授权与工程基线，并创建隔离草稿…'); const current = ++serial.current, abort = new AbortController(); controller.current = abort
     const valid = () => mounted.current && current === serial.current && !abort.signal.aborted && lastHost.current?.project.document.sceneId === local.project.document.sceneId && lastHost.current?.baseMapPreview === local.baseMapPreview && lastClient.current === active
     try {
       let payload = retry
@@ -200,7 +202,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
       })
       if (valid()) { setPending(null); setSendVision(false); setReceipt(null); onTask(value, active); setNotice('独立草稿任务已创建。模型步骤不会写入主工程。') }
     } catch (failure) { if (valid()) { setError(message(failure)); if (failure instanceof AiClientError && failure.requestState === 'not_sent') { setPending(null); setNotice('请求尚未发送。原工程与合法底图保留。') } else setNotice('创建结果不明时，保留同一请求重试或查询最近任务；不会自动再调用模型。') } }
-    finally { if (mounted.current && current === serial.current) setBusy(false) }
+    finally { if (mounted.current && current === serial.current) finishActivity() }
   }
   const ack = async (value: NonNullable<typeof receipt>) => {
     const active = value.client
@@ -211,7 +213,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
   const adopt = async () => {
     if (!host || !client || !candidate || candidate.reviewOnly || !candidate.changes.length || !candidate.operationCost || !task || task.status !== 'ready' || !reviewed || busy || disabled || !sameBudgetIdentity(candidateIdentity(candidate), task.authoring)) return
     const selected = candidate, active = client, local = host, claim: DraftClaim = { ...stamp(selected), claimId: crypto.randomUUID() }
-    setBusy(true); local.onCritical(true); setError(''); let committed = false, claimAttempted = false
+    beginActivity('正在保护当前工程并一次采用 AI 草稿…'); local.onCritical(true); let committed = false, claimAttempted = false
     try {
       const result = await local.workspace.adoptAtomicCandidate(selected, { claim: () => { claimAttempted = true; return active.claimDraft(selected.taskId, claim) } })
       committed = true
@@ -227,35 +229,35 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
     } catch (failure) {
       setError(message(failure))
       if (!committed && claimAttempted) { try { const updated = await active.releaseDraft(selected.taskId, claim); if (lastTask.current?.id === updated.id) onTask(updated, active) } catch { setNotice('本机未采用。租约释放未确认，请刷新任务；租约到期后可明确释放。') } }
-    } finally { setBusy(false); local.onCritical(false) }
+    } finally { finishActivity(); local.onCritical(false) }
   }
   const finishPaused = async () => {
     if (!client || !candidate || !hasReviewableDraftRevision(candidate) || candidate.reviewOnly || !candidate.operationCost || !task || !(['paused', 'failed'].includes(task.status) || task.status === 'cancelled' && continuationIdentity(task.authoring)?.schemaVersion === 4) || task.authoring?.claim || busy || disabled) return
     const active = client, selected = task, checked = candidate
-    setBusy(true); setError('')
+    beginActivity('正在结束生成并确认当前草稿可供审阅…')
     try {
       const updated = await active.validateDraft(selected.id, { ...stamp(checked), valid: true })
       if (lastClient.current === active && lastTask.current?.id === selected.id) { onTask(updated, active); setNotice('已结束生成，当前有效草稿可审阅采用；没有发起新的模型请求。') }
-    } catch (failure) { setError(message(failure)) } finally { setBusy(false) }
+    } catch (failure) { setError(message(failure)) } finally { finishActivity() }
   }
   const release = async () => {
     if (!client || !task?.authoring?.claim || busy) return
-    setBusy(true); setError('')
+    beginActivity('正在确认释放旧采用租约…')
     try {
       const claim = task.authoring.claim
       onTask(await client.releaseDraft(task.id, { expectedGeneration: claim.generation, draftRevision: claim.draftRevision, contentHash: claim.contentHash, claimId: claim.claimId, ...budgetFields(claim) }), client)
       setNotice('已明确释放旧采用租约；它以后不能再确认采用。')
-    } catch (failure) { setError(message(failure)) } finally { setBusy(false) }
+    } catch (failure) { setError(message(failure)) } finally { finishActivity() }
   }
   const backup = async () => {
     if (!candidate || busy) return
-    setBusy(true); setError('')
+    beginActivity('正在准备完整草稿备份…')
     try {
       const bytes = await exportProject(toBundle(candidate.project), validation)
       const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })), anchor = document.createElement('a')
       anchor.href = url; anchor.download = 'sceneweave-ai-draft.sceneweave'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30000)
       setNotice('已下载完整草稿备份；通过普通导入打开为独立副本。')
-    } catch (failure) { setError(message(failure)) } finally { setBusy(false) }
+    } catch (failure) { setError(message(failure)) } finally { finishActivity() }
   }
   const scene = host?.project.document, available = scene ? Object.values(scene.propDefinitions).filter(definition => !definition.tags.includes('sceneweave:retained-appearance')) : []
   const unsupportedSurfaceBaseMap = !!host?.baseMapPreview && Object.keys(host.project.document.surfaceRules).length > 0
@@ -290,6 +292,6 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
       {task.authoring.claim && task.status !== 'applied' && !receipt && <><p>有尚未确认的采用租约。若当前工程已经采用，请保留任务并核对工程；释放后不能再补认旧租约。</p><button disabled={busy || disabled} onClick={() => void release()}>确认本机未采用并释放租约</button></>}
     </>}
     {receipt && <button disabled={busy} onClick={() => { void ack(receipt).catch(failure => setError(message(failure))) }}>仅向原后端重发采用回执</button>}
-    {busy && <p role="status">正在校验或处理草稿…</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert" className="ai-error">{error}</p>}
+    {busy && activity && <p className="ai-operation-status" role="status" aria-label="AI 草稿操作状态" aria-live="polite" aria-atomic="true">{activity}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert" className="ai-error">{error}</p>}
   </section>
 }

@@ -219,8 +219,8 @@ export function selectionGeometryLayersV3(scene: SceneDocumentV3, visibleHiddenI
 
 /** Preserve operation-unit/type/lock semantics while replacing native wall bounds. */
 export function summarizeSelectionLayersV3(scene: SceneDocumentV3, visibleHiddenIds?: ReadonlySet<string>): typeof summarizeSelectionV2 {
-  return (_domain, ids, memberMode = false) => {
-    const source = sourceFor(scene), summary = summarizeSelectionV2(source.domain, ids, memberMode)
+  return (_domain, ids, memberMode = false, budget) => {
+    const source = sourceFor(scene), summary = summarizeSelectionV2(source.domain, ids, memberMode, budget)
     const wallIds = summary.ids.filter(id => source.wallIds.has(id))
     if (!wallIds.length) return summary
     const bounds = summarizeSelectionV2(source.domain, summary.ids.filter(id => !source.wallIds.has(id)), true).boundsMm

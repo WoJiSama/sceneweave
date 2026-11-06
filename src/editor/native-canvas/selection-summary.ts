@@ -1,3 +1,4 @@
+import type { CommandBudgetProfile } from '../../shared/budget/command-budget.js'
 import type { BoundsMm, SceneDocument as SceneDocumentV2 } from '../../shared/model/scene.js'
 import { readSelectionSummaryV2 } from './selection'
 
@@ -16,8 +17,8 @@ export interface SelectionSummaryV2 {
  * It deliberately does not inspect full prop attributes or build operation
  * reasons. Those are deferred until the user requests a concrete action.
  */
-export function summarizeSelectionV2(scene: SceneDocumentV2, ids: readonly string[], memberMode = false): SelectionSummaryV2 {
-  return readSelectionSummaryV2(scene, ids, memberMode)
+export function summarizeSelectionV2(scene: SceneDocumentV2, ids: readonly string[], memberMode = false, budget?: CommandBudgetProfile): SelectionSummaryV2 {
+  return readSelectionSummaryV2(scene, ids, memberMode, budget)
 }
 
 export type { SelectionSummaryV2 as SelectionSummary }

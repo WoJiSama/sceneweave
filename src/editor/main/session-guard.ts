@@ -11,6 +11,7 @@ export const workspaceFormDraftLabels = {
   selectionForm: { name: '多选批量参数', cancel: '取消批量参数草稿' },
   visualForm: { name: '视觉效果与曲线', cancel: '取消视觉草稿' },
   displayForm: { name: '单位与格线设置', cancel: '取消显示设置草稿' },
+  titleForm: { name: '工程名称', cancel: '取消改名草稿' },
 } as const
 export type WorkspaceFormDraft = keyof typeof workspaceFormDraftLabels
 export type WorkspaceDraft = 'placement' | 'prefabPlacement' | 'sketch' | 'outdoorSketch' | WorkspaceFormDraft
@@ -47,6 +48,7 @@ export function workspaceTransitionReason(state: WorkspaceTransient, completing?
   for (const key of Object.keys(workspaceFormDraftLabels) as WorkspaceFormDraft[]) {
     if (state[key] && !allowed.has(key)) {
       const label = workspaceFormDraftLabels[key]
+      if (key === 'titleForm') return '工程名称尚未保存。请保存名称，或取消改名草稿后再继续。'
       return `${label.name}有尚未预览的输入。请完成当前草稿，或${label.cancel}后再继续。`
     }
   }

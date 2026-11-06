@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { InteriorPreview } from '../../application/workspace/workspace'
 import type { InteriorLayoutParameters } from '../../shared/generation/domains/interior/contracts'
 import './terrain-generation.css'
@@ -34,22 +34,38 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
   const [corridor, setCorridor] = useState<InteriorLayoutParameters['corridor']>({ axis: 'none', clearWidthMm: 1500 })
   const [arrangement, setArrangement] = useState<InteriorGenerationUiRequest['arrangement']>({ doors: true, entrance: true, furniture: true, doorWidthMm: 1100, clearWidthMm: 900 })
   const nextRoom = useRef(3)
+  const validationId = useId()
   const locked = busy || disabled
   const change = (apply: () => void) => { if (locked) return; onChange(); apply() }
   const updateRoom = (id: string, patch: Partial<InteriorLayoutParameters['rooms'][number]>) => change(() => setRooms(current => current.map(room => room.id === id ? { ...room, ...patch } : room)))
   const updateRelation = (index: number, patch: Partial<InteriorLayoutParameters['relations'][number]>) => change(() => setRelations(current => current.map((relation, at) => at === index ? { ...relation, ...patch } : relation)))
   const cleanSeed = seed.trim(), cleanTitle = title.trim()
-  const valid = !!cleanTitle && cleanTitle.length <= 120 && !!cleanSeed && cleanSeed.length <= 128
-    && [widthMm, heightMm].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 200000)
-    && Number.isSafeInteger(wallThicknessMm) && wallThicknessMm > 0 && wallThicknessMm <= 2000
-    && rooms.every(room => !!room.purpose.trim() && room.purpose.length <= 120 && [room.minAreaMm2, room.maxAreaMm2, room.minClearSideMm].every(value => Number.isSafeInteger(value) && value > 0) && room.maxAreaMm2 >= room.minAreaMm2)
-    && relations.every(relation => relation.a !== relation.b && relation.minimumSharedWallMm >= 0 && Number.isSafeInteger(relation.minimumSharedWallMm))
-    && Number.isSafeInteger(corridor.clearWidthMm) && corridor.clearWidthMm > 0 && corridor.clearWidthMm <= 1_000_000
-    && [arrangement.doorWidthMm, arrangement.clearWidthMm].every(value => Number.isSafeInteger(value) && value > 0 && value <= 5000)
+  const validationReason = (() => {
+    if (!cleanTitle || cleanTitle.length > 120) return '请填写工程名称，最多120个字符。'
+    if (!cleanSeed || cleanSeed.length > 128) return '请填写生成种子，最多128个字符。'
+    if (![widthMm, heightMm].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 200000)) return '建筑宽和高须为1–200米，请调整建筑尺寸。'
+    if (!(Number.isSafeInteger(wallThicknessMm) && wallThicknessMm > 0 && wallThicknessMm <= 2000)) return '墙厚须大于0且不超过200厘米，请调整墙厚。'
+    for (const [index, room] of rooms.entries()) {
+      if (!room.purpose.trim() || room.purpose.length > 120) return `请填写房间${index + 1}的用途，最多120个字符。`
+      if (![room.minAreaMm2, room.maxAreaMm2].every(value => Number.isSafeInteger(value) && value > 0)) return `房间${index + 1}的最小、最大净面积须大于0，请调整面积要求。`
+      if (!(Number.isSafeInteger(room.minClearSideMm) && room.minClearSideMm > 0)) return `房间${index + 1}的最小净边长须大于0，请调整净边长。`
+      if (room.maxAreaMm2 < room.minAreaMm2) return `房间${index + 1}的最大净面积小于最小净面积，请调整其中一个面积要求。`
+    }
+    for (const [index, relation] of relations.entries()) {
+      if (relation.a === relation.b) return `关系${index + 1}选择了同一个房间，请选择两个不同房间。`
+      if (!(relation.minimumSharedWallMm >= 0 && Number.isSafeInteger(relation.minimumSharedWallMm))) return `关系${index + 1}的最小共墙长度须为非负数，请调整共墙长度。`
+    }
+    if (!(Number.isSafeInteger(corridor.clearWidthMm) && corridor.clearWidthMm > 0 && corridor.clearWidthMm <= 1_000_000)) return corridor.axis === 'none' ? '走廊净宽须大于0且不超过1000米，请先选择横向或纵向走廊后调整净宽。' : '走廊净宽须大于0且不超过1000米，请调整净宽。'
+    if (!(Number.isSafeInteger(arrangement.doorWidthMm) && arrangement.doorWidthMm > 0 && arrangement.doorWidthMm <= 5000)) return '建议门宽须大于0且不超过5米，请调整门宽。'
+    if (!(Number.isSafeInteger(arrangement.clearWidthMm) && arrangement.clearWidthMm > 0 && arrangement.clearWidthMm <= 5000)) return '建议通路净宽须大于0且不超过5米，请调整净宽。'
+    return null
+  })()
+  const valid = validationReason === null
   return <section className="terrain-generation-panel interior-generation-panel" aria-label="室内布局生成">
     <h2>室内布局</h2>
     <p>按房间面积、净边长和相邻关系安排房间。候选包含真实房间与共享墙，可保存后继续编辑。</p>
     <p className="asset-muted">首次生成会按用途、大小与实际空间建议门和家具，并核对通路净空。未完成的建议会说明原因；保存后可自由修改、删除，不会自动补回。</p>
+    {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, wallThicknessMm, rooms: rooms.map(room => ({ ...room, purpose: room.purpose.trim() })), relations, corridor, arrangement }) }}>
       <fieldset disabled={locked}>
         <legend>建筑与房间要求</legend>
@@ -92,10 +108,11 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
           <label>建议通路净宽（米）<input aria-label="室内建议通路净宽米" type="number" min="0.1" max="5" step="0.1" value={arrangement.clearWidthMm / 1000} onChange={event => change(() => setArrangement(current => ({ ...current, clearWidthMm: mm(event.target.value) })))}/></label>
           <p className="asset-muted">空间不足时保留合法布局并列出未完成建议。生成后的编辑不会强制维持这些建议。</p>
         </fieldset>
-        <button className="primary asset-wide" type="submit" disabled={!valid}>{busy ? '正在准备室内布局…' : '预览室内布局'}</button>
+        {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
+        <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备室内布局…' : '预览室内布局'}</button>
       </fieldset>
     </form>
-    {error && <p className="asset-error" role="alert">{error}</p>}
+    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消室内布局」返回当前工程。</p></>}
     {candidate && <div className="interior-candidate" aria-label="室内布局候选摘要"><h3>候选 · {candidate.layout.rooms.length} 个房间</h3>
       <p>{candidate.layout.corridors.length ? '包含独立走廊。' : ''}画布展示完整候选，当前工程尚未改变。</p>
       <ul>{candidate.layout.rooms.map(room => <li key={room.requirementId}>{candidate.input.parameters.rooms.find(item => item.id === room.requirementId)?.purpose ?? '房间'} · 净面积 {(room.clearAreaMm2 / 1_000_000).toFixed(1)} 平方米</li>)}</ul>
