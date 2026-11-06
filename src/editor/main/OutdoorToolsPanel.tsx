@@ -74,15 +74,10 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
     <div className="asset-section-heading"><Mountain size={17}/><h2>室外制作</h2></div>
     <fieldset disabled={disabled}>
       <label>制作工具<select aria-label="室外制作工具" value={tool} onChange={event => { setTool(event.target.value as typeof tool); setError(null); onSketch(null) }}><option value="terrain">地形与高程</option><option value="region">用途 / 危险区域</option><option value="connection">台阶 / 坡道</option><option value="path">道路</option><option value="scatter">可控散布</option></select></label>
-      {tool !== 'scatter' && <>
-        <button className="secondary asset-wide" onClick={() => onSketch(sketch?.purpose === tool ? null : { kind: tool === 'path' || tool === 'connection' ? 'polyline' : 'polygon', purpose: tool, points: [], cursor: null })}><PencilRuler size={14}/>{sketch?.purpose === tool ? '结束画布取点' : '在画布逐点绘制'}</button>
-        <OutdoorCoordinates text={points} onChange={value => { setPoints(value); onSketch(null) }} label={tool === 'path' ? '道路中心线' : tool === 'connection' ? '连接路线节点' : '区域轮廓'} ariaLabel="室外坐标" minimum={minimum} unit={scene.units.display}/>
-      </>}
-      {tool === 'terrain' && <>
+      {tool === 'terrain' && <div className="workspace-form-pair">
         <MaterialSelect scene={scene} value={material} onChange={setMaterial}/>
         <NumberInput label="地面高程" ariaLabel="地形高程" value={Number(elevation)} displayUnit={scene.units.display} onCommit={value => setElevation(String(value))}/>
-        <details className="outdoor-advanced"><summary>重叠地形的显示顺序</summary><label>覆盖优先级<input aria-label="地形覆盖优先级" type="number" step="1" value={priority} onChange={event => setPriority(event.target.value)}/></label><small>高程决定实际高度，优先级决定重叠时的覆盖顺序；同优先级地形不能重叠。</small></details>
-      </>}
+      </div>}
       {tool === 'region' && <label>区域用途<select aria-label="区域用途" value={regionKind} onChange={event => setRegionKind(event.target.value as typeof regionKind)}><option value="terrain">用途区域</option><option value="hazard">危险区域</option></select></label>}
       {(tool === 'path' || tool === 'connection') && <>
         <NumberInput label="通路净宽" ariaLabel="室外通路净宽" value={Number(width)} displayUnit={scene.units.display} onCommit={value => setWidth(String(value))}/>
@@ -90,8 +85,6 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
         {tool === 'path' ? <MaterialSelect scene={scene} value={material} onChange={setMaterial} label="道路材质"/> : <>
           <SurfaceSelect scene={scene} value={toSupport} onChange={setToSupport} label="连接终点表面"/>
           <label>连接类型<select aria-label="高差连接类型" value={connectionKind} onChange={event => setConnectionKind(event.target.value as typeof connectionKind)}><option value="stairs">台阶</option><option value="ramp">坡道</option></select></label>
-          <details className="outdoor-advanced"><summary>路线形态与踏面</summary><ConnectionRouteFields enabled={scene.mapMode === 'scene'} text={points} draft={connectionRoute} onChange={setConnectionRoute} floorId={floorId} layerId={layerId} visibility={visibility} onBoundaryEditor={onBoundaryEditor}/></details>
-          <details className="outdoor-advanced"><summary>连接房间门窗</summary><label>房间端附着开口<select aria-label="连接附着开口" value={openingId} onChange={event => setOpeningId(event.target.value)}><option value="">无房间开口</option>{Object.values(scene.openings).map(opening => <option key={opening.id} value={opening.id}>{name(opening.id)}</option>)}</select></label></details>
         </>}
         <small>明确选择实际支撑面；道路图片和材质不改变高差或通行。</small>
       </>}
@@ -102,12 +95,26 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
         <label>密度 0–1<input aria-label="散布密度" type="number" min="0" max="1" step="0.05" value={density} onChange={event => setDensity(event.target.value)}/></label>
         <NumberInput label="最小间距" ariaLabel="散布最小间距" value={Number(spacing)} displayUnit={scene.units.display} onCommit={value => setSpacing(String(value))}/>
         {domain.startsWith('edgeBand:') && <NumberInput label="边缘带宽" ariaLabel="散布边缘带宽" value={Number(width)} displayUnit={scene.units.display} onCommit={value => setWidth(String(value))}/>}
-        <details className="outdoor-advanced"><summary>随机方案与候选格距</summary><label>随机方案<input aria-label="散布方案" value={seed} onChange={event => setSeed(event.target.value)}/></label><NumberInput label="候选格距" ariaLabel="散布候选格距" value={Number(cell)} displayUnit={scene.units.display} onCommit={value => setCell(String(value))}/></details>
         <small>先创建组，再选中组预览生成。完整结果与人工记录随工程保存；一次最多修改256个独立对象，几何和资源另行检查。</small>
       </>}
-      {(tool === 'terrain' || tool === 'region') && <label className="composition-check"><input aria-label="区域阻挡移动" type="checkbox" checked={blocking} onChange={event => setBlocking(event.target.checked)}/>阻挡移动</label>}
+      <div className={tool === 'terrain' || tool === 'region' ? 'workspace-form-pair' : undefined}>
       <label>内容可见性<select aria-label="室外内容可见性" value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}><option value="public">公开</option><option value="gm">仅主持人</option></select></label>
-      {error && <p role="alert" className="asset-form-error">{error}</p>}<button className="primary asset-wide" onClick={run} disabled={disabled || !layerId}><Route size={14}/>预览室外修改</button>
+      {(tool === 'terrain' || tool === 'region') && <label className="composition-check"><input aria-label="区域阻挡移动" type="checkbox" checked={blocking} onChange={event => setBlocking(event.target.checked)}/>阻挡移动</label>}
+      </div>
+      {error && <p role="alert" className="asset-form-error">{error}</p>}
+      <div className="workspace-form-actions">
+      {tool !== 'scatter' && <>
+        <button className="secondary asset-wide" onClick={() => onSketch(sketch?.purpose === tool ? null : { kind: tool === 'path' || tool === 'connection' ? 'polyline' : 'polygon', purpose: tool, points: [], cursor: null })}><PencilRuler size={14}/>{sketch?.purpose === tool ? '结束画布取点' : '在画布逐点绘制'}</button>
+      </>}
+      <button className="primary asset-wide" onClick={run} disabled={disabled || !layerId}><Route size={14}/>预览室外修改</button>
+      </div>
+      {tool !== 'scatter' && <>
+        <OutdoorCoordinates text={points} onChange={value => { setPoints(value); onSketch(null) }} label={tool === 'path' ? '道路中心线' : tool === 'connection' ? '连接路线节点' : '区域轮廓'} ariaLabel="室外坐标" minimum={minimum} unit={scene.units.display}/>
+      </>}
+      {tool === 'terrain' && <details className="outdoor-advanced"><summary>重叠地形的显示顺序</summary><label>覆盖优先级<input aria-label="地形覆盖优先级" type="number" step="1" value={priority} onChange={event => setPriority(event.target.value)}/></label><small>高程决定实际高度，优先级决定重叠时的覆盖顺序；同优先级地形不能重叠。</small></details>}
+      {tool === 'connection' && <details className="outdoor-advanced"><summary>路线形态与踏面</summary><ConnectionRouteFields enabled={scene.mapMode === 'scene'} text={points} draft={connectionRoute} onChange={setConnectionRoute} floorId={floorId} layerId={layerId} visibility={visibility} onBoundaryEditor={onBoundaryEditor}/></details>}
+      {tool === 'connection' && <details className="outdoor-advanced"><summary>连接房间门窗</summary><label>房间端附着开口<select aria-label="连接附着开口" value={openingId} onChange={event => setOpeningId(event.target.value)}><option value="">无房间开口</option>{Object.values(scene.openings).map(opening => <option key={opening.id} value={opening.id}>{name(opening.id)}</option>)}</select></label></details>}
+      {tool === 'scatter' && <details className="outdoor-advanced"><summary>随机方案与候选格距</summary><label>随机方案<input aria-label="散布方案" value={seed} onChange={event => setSeed(event.target.value)}/></label><NumberInput label="候选格距" ariaLabel="散布候选格距" value={Number(cell)} displayUnit={scene.units.display} onCommit={value => setCell(String(value))}/></details>}
     </fieldset>
     <details className="asset-details"><summary>室外对象 · {Object.keys(scene.terrainAreas).length} 地形 / {Object.keys(scene.paths).length} 道路</summary>{(['terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'scatterGroups', 'regions'] as const).map(collection => Object.values(scene[collection]).length > 0 && <div className="outdoor-object-list" key={collection}><h3>{{ terrainAreas: '地形', terrainEdges: '来源边缘', terrainConnections: '高差连接', paths: '道路', scatterGroups: '散布', regions: '用途与危险区' }[collection]}</h3>{Object.values(scene[collection]).map(entity => <button className="secondary" key={entity.id} disabled={disabled} onClick={() => onSelect(entity.id)} title={entity.id}>{name(entity.id)}{entity.editLocked ? ' · 已锁' : ''}</button>)}</div>)}</details>
   </section>

@@ -70,7 +70,7 @@ export default function AggregateBuildingPanel({ scene, disabled, onPreview, onS
         `整栋建筑变换 · ${current.name}`)
     } catch (cause) { setError(message(cause)) }
   }
-  return <details className="building-details" aria-label="建筑组工具" open>
+  return <details className="building-details" aria-label="建筑组工具">
     <summary>建筑组</summary>
     <p className="asset-muted">把相连房间和随建筑移动的对象组成整栋。可整体移动，也可进入内部继续编辑；每次变换先预览，再确认采用。</p>
     <fieldset disabled={disabled}>

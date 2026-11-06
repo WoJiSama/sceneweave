@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { MessageSquare } from 'lucide-react'
 import {
   AI_LIMITS, CreateTaskSchema, isTerminalTask, utf8Size, requiredSurfaceRecipeVersion,
   type ConnectionInfo, type CreateTaskRequest, type ReasoningEffort, type TaskContext, type TaskSnapshot, type TaskStatus,
@@ -230,13 +231,13 @@ export default function AiConversationPanel({ context, disabled: externalDisable
           : activeTask ? '正在连接任务进度'
             : '任务状态已同步'
   return <section className="ai-conversation" aria-label="AI 对话面板">
-    <header><h3>AI 对话</h3><p>流式对话与独立场景草稿</p></header>
+    <header className="workspace-panel-heading"><h2><MessageSquare size={16}/>AI 对话</h2><p className="workspace-panel-intro">流式对话与独立场景草稿</p></header>
     <details className="ai-connection" open={!connected}>
       <summary>连接设置{connected ? ` · ${connection.model}` : ' · 尚未连接'}</summary>
       <label>自有后端地址<input aria-label="AI 后端地址" type="url" disabled={busy || !!pending || disabled} value={baseUrl} placeholder="https://ai.example.com" autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setBaseUrl(event.target.value) }} /></label>
       <label>后端应用凭据<input aria-label="AI 应用凭据" type="password" disabled={busy || !!pending || disabled} value={token} autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setToken(event.target.value) }} /></label>
       <p>填写自有后端签发的应用凭据；模型供应商密钥只配置在服务器。此处凭据仅留在本次页面内存，刷新后清除。</p>
-      <div className="ai-actions"><button type="button" disabled={disabled || busy || !!pending || !baseUrl.trim() || !token.trim()} onClick={() => void connect()}>连接 AI 后端</button>{connected && <button type="button" disabled={busy || !!pending || disabled} onClick={disconnect}>断开本地连接</button>}</div>
+      <div className="ai-actions"><button type="button" className="primary" disabled={disabled || busy || !!pending || !baseUrl.trim() || !token.trim()} onClick={() => void connect()}>连接 AI 后端</button>{connected && <button type="button" disabled={busy || !!pending || disabled} onClick={disconnect}>断开本地连接</button>}</div>
     </details>
     <p className="ai-disclosure">普通对话发送范围：自有后端接收本次文字及工程 ID、修订号；模型只接收对话文字和只读连接工具结果，工程 ID 与修订号仅用于后端绑定。普通对话不上传地图、素材或快照；场景草稿需另行明确授权元数据。服务器保留任务 7 日，可主动删除。</p>
     <p className="ai-context">{context ? `当前工程 ${context.sceneId} · 修订 ${context.revision}` : '未打开工程，仅发送文字。'}{connection ? ` · 文字模型 ${connection.model}${connection.visionModel ? ` · 视觉模型 ${connection.visionModel}` : ''}` : ''}</p>
