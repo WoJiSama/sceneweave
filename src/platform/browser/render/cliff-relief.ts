@@ -2,7 +2,7 @@ import type { PointMm } from '../../../shared/model/scene.js'
 import type { ProjectedVisualBoundary } from '../../../shared/projection/types.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
-import { visualRandom } from './visual-geometry'
+import { variableOffsetPolyline, visualRandom } from './visual-geometry'
 
 export interface CliffStratum {
   upper: PointMm[]
@@ -23,6 +23,7 @@ export interface CliffErosionMark {
 
 export interface CliffRelief {
   face: PointMm[]
+  faceRings: PointMm[][]
   outer: PointMm[]
   strata: CliffStratum[]
   facets: CliffFacet[]
@@ -33,6 +34,7 @@ export interface CliffRelief {
 export interface CliffTread {
   polygon: PointMm[]
   lowerEdge: PointMm[]
+  upperEdge: PointMm[]
   fraction: number
   shade: number
   lengthMm: number
@@ -46,7 +48,7 @@ export function cliffRelief(boundary: ProjectedVisualBoundary, look: VisualEdgeL
   const phase = visualRandom(look.seed, 0, 18) * Math.PI * 2
   const widthAt = (distance: number) => {
     const wave = distance / length * Math.PI * 2
-    return look.widthMm * (.88 + .17 * Math.sin(wave * 3 + phase) + .1 * Math.cos(wave * 7 + phase * 1.7))
+    return look.widthMm * (.68 + .13 * Math.sin(wave * 3 + phase) + .08 * Math.cos(wave * 7 + phase * 1.7))
   }
   const pointAt = (distance: number, fraction: number): PointMm => {
     const sample = visualSampleAtDistance(boundary, distance)
@@ -54,11 +56,11 @@ export function cliffRelief(boundary: ProjectedVisualBoundary, look: VisualEdgeL
     return { x: sample.positionMm.x + sample.normal.x * width, y: sample.positionMm.y + sample.normal.y * width }
   }
   const distances = Array.from({ length: count + 1 }, (_, i) => length * i / count)
-  // Preserve the pre-existing silhouette exactly; detail density must not widen
-  // the face or replace its saved boundary with a denser offset approximation.
-  const exteriorCount = Math.max(4, Math.ceil(length / (look.repeatMm * 2.5)))
-  const outer = Array.from({ length: exteriorCount + 1 }, (_, index) => pointAt(length * index / exteriorCount, 1))
-  const face = [...boundary.points, ...outer.slice(0, boundary.closed ? -1 : undefined).reverse()]
+  // Paint stays inside the saved width. Physical terrain and the editable
+  // source boundary never change when the disposable relief is refined.
+  const outer = variableOffsetPolyline(boundary.points, boundary.samples.slice(0, boundary.points.length).map(sample => widthAt(sample.distanceMm) * side), boundary.closed)
+  const face = [...boundary.points, ...[...outer].reverse()]
+  const faceRings = boundary.closed ? [boundary.points, outer] : [face]
   const fraction = (row: number, distance: number) => {
     if (row === 0) return 0
     if (row === 4) return 1
@@ -123,7 +125,7 @@ export function cliffRelief(boundary: ProjectedVisualBoundary, look: VisualEdgeL
     return { polygon, shade: .12 + visualRandom(look.seed, index, 75) * .1 }
   })
 
-  return { face, outer, strata, facets, fractures, erosion }
+  return { face, faceRings, outer, strata, facets, fractures, erosion }
 }
 
 /** Irregular rock treads follow the real arc frame and remain within its physical band. */
@@ -138,13 +140,15 @@ export function naturalRockTreads(frame: { length: number; at: (distance: number
     const skew = (visualRandom(seed, index, 83) - .5) * Math.min(spacing * .16, widthMm * .045)
     const angle = (visualRandom(seed, index, 84) - .5) * .08
     const along = Math.cos(angle), across = Math.sin(angle), inset = half * (.91 + visualRandom(seed, index, 86) * .045)
-    const point = (distance: number, side: number): PointMm => frame.at(distance + centerShift + side * skew + side * inset * across,
+    const point = (distance: number, side: number): PointMm => frame.at(Math.max(0, Math.min(length, distance + centerShift + side * skew + side * inset * across)),
       side * inset * along)
-    const lowLeft = point(center - treadLength * .5, -1), lowRight = point(center - treadLength * .5, 1)
-    const highRight = point(center + treadLength * .5, 1), highLeft = point(center + treadLength * .5, -1)
-    const polygon = [lowLeft, lowRight, highRight, highLeft]
+    const low = center - treadLength * .5, high = center + treadLength * .5
+    const chip = treadLength * (.09 + visualRandom(seed, index, 87) * .13)
+    const lowLeft = point(low, -.78), lowRight = point(low + chip * .2, .83)
+    const highRight = point(high, .73), highLeft = point(high - chip * .3, -.85)
+    const polygon = [lowLeft, lowRight, point(low + chip, 1), point(high - chip * .7, 1), highRight, highLeft, point(high - chip, -1), point(low + chip * .8, -1)]
     const bevel = Math.min(34, spacing * .09)
-    const lowerEdge = [lowLeft, lowRight, point(center - treadLength * .5 + bevel, 1), point(center - treadLength * .5 + bevel, -1)]
-    return { polygon, lowerEdge, fraction: (index + .5) / count, shade: .82 + visualRandom(seed, index, 85) * .34, lengthMm: treadLength, angleRad: Math.atan2(lowRight.y - lowLeft.y, lowRight.x - lowLeft.x) }
+    const lowerEdge = [lowLeft, lowRight, point(low + bevel, .8), point(low + bevel, -.76)]
+    return { polygon, lowerEdge, upperEdge: [highRight, highLeft], fraction: (index + .5) / count, shade: .94 + visualRandom(seed, index, 85) * .2, lengthMm: treadLength, angleRad: Math.atan2(lowRight.y - lowLeft.y, lowRight.x - lowLeft.x) }
   })
 }

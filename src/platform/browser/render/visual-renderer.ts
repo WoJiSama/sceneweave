@@ -6,6 +6,7 @@ import type { VisualSegment } from './visual-geometry'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { cliffRelief } from './cliff-relief.js'
+import { grassEdgeRings } from './grass-edge.js'
 import { terrainTransitionStrokePolygon } from '../../../shared/visual/transition.js'
 import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
@@ -82,7 +83,7 @@ function edgeDetails(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBou
       ctx.lineWidth = Math.max(12, look.widthMm * .045); ctx.lineCap = 'round'; ctx.beginPath(); ctx.ellipse(0, 0, size, Math.max(8, look.widthMm * .09), 0, Math.PI * .08, Math.PI * .92); ctx.stroke()
       if (random > .5) { ctx.beginPath(); ctx.arc(size * .8, look.widthMm * .12, Math.max(5, look.widthMm * .02), 0, TAU); ctx.fill() }
     } else if (look.kind === 'grass') {
-      ctx.lineWidth = Math.max(8, look.widthMm * .025); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-size * .3, 0); ctx.quadraticCurveTo(-size * .2, -sign * look.widthMm * .35, size * .1, -sign * look.widthMm * .55); ctx.moveTo(0, 0); ctx.quadraticCurveTo(size * .35, -sign * look.widthMm * .2, size * .5, -sign * look.widthMm * .3); ctx.stroke()
+      ctx.globalAlpha *= .55; ctx.lineWidth = Math.max(6, look.widthMm * .016); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-size * .18, 0); ctx.quadraticCurveTo(-size * .08, -sign * look.widthMm * .1, size * .06, -sign * look.widthMm * .18); ctx.moveTo(0, 0); ctx.quadraticCurveTo(size * .12, -sign * look.widthMm * .08, size * .22, -sign * look.widthMm * .12); ctx.stroke()
     } else if (look.kind === 'fence') {
       ctx.rotate(-Math.atan2(p.tangent.y, p.tangent.x)); ctx.lineWidth = Math.max(18, look.widthMm * .12); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(0, -look.widthMm * .36); ctx.lineTo(0, look.widthMm * .36); ctx.stroke()
       ctx.fillStyle = look.color; ctx.beginPath(); ctx.arc(0, 0, Math.max(16, look.widthMm * .13), 0, TAU); ctx.fill()
@@ -105,8 +106,9 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
   }
   for (const sign of sides(look)) {
     const relief = cliffRelief(boundary, look, sign)
-    const face = ringsPath([relief.face])
-    ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity; ctx.fill(face, 'evenodd')
+    const face = ringsPath(relief.faceRings)
+    ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity * .82; ctx.fill(face, 'evenodd')
+    ctx.save(); ctx.clip(face, 'evenodd')
     for (let row = 0; row < relief.strata.length; row++) {
       const stratum = relief.strata[row]
       for (let i = 0; i + 1 < stratum.upper.length; i++) {
@@ -118,9 +120,11 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
       }
       const line = linePath(stratum.lower, boundary.closed)
       ctx.strokeStyle = row === relief.strata.length - 1 ? look.accentColor : '#34463E'
-      ctx.globalAlpha = look.opacity * (row === relief.strata.length - 1 ? .34 : .21 + row * .025)
+      ctx.globalAlpha = look.opacity * (row === relief.strata.length - 1 ? .2 : .15)
       ctx.lineWidth = Math.max(9, look.widthMm * (row === relief.strata.length - 1 ? .028 : .018))
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(line)
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+      ctx.setLineDash([look.repeatMm * (1.2 + row * .4), look.repeatMm * (.8 + row * .3)])
+      ctx.lineDashOffset = visualRandom(look.seed, row, 100) * look.repeatMm * 3; ctx.stroke(line); ctx.setLineDash([])
     }
     for (const facet of relief.facets) {
       ctx.fillStyle = shade({ x: facet.normal.x * sign, y: facet.normal.y * sign }, (facet.shade - 1) * .4)
@@ -141,9 +145,11 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
         ctx.stroke(linePath(fracture.map(point => ({ x: point.x - 13, y: point.y - 9 }))))
       }
     }
-    ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .46; ctx.lineWidth = Math.max(12, look.widthMm * .035); ctx.stroke(linePath(boundary.points, boundary.closed))
-    ctx.strokeStyle = '#32463B'; ctx.globalAlpha = look.opacity * .4; ctx.lineWidth = Math.max(10, look.widthMm * .03); ctx.stroke(linePath(relief.outer, boundary.closed))
+    ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .3; ctx.lineWidth = Math.max(12, look.widthMm * .035); ctx.stroke(linePath(boundary.points, boundary.closed))
+    ctx.strokeStyle = '#32463B'; ctx.globalAlpha = look.opacity * .22; ctx.lineWidth = Math.max(10, look.widthMm * .025)
+    ctx.setLineDash([look.repeatMm * 1.8, look.repeatMm * 1.2]); ctx.stroke(linePath(relief.outer, boundary.closed)); ctx.setLineDash([])
     if (connections.length) { ctx.save(); ctx.clip(face, 'evenodd'); drawConnectionCheeks(ctx, connections, '#32463B', Math.max(24, look.widthMm * .10), look.opacity * .65); ctx.restore() }
+    ctx.restore()
   }
 }
 
@@ -212,8 +218,10 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
         band(ctx, boundary, 0, sign * look.widthMm, look.color, look.opacity * .45, look.widthMm * .12)
         band(ctx, boundary, 0, sign * look.widthMm * .3, look.accentColor, look.opacity * .22, look.widthMm * .04)
       } else if (look.kind === 'grass') {
-        band(ctx, boundary, 0, sign * look.widthMm * .7, look.color, look.opacity * .72, look.widthMm * .035)
-        band(ctx, boundary, 0, sign * look.widthMm * .2, look.accentColor, look.opacity * .32)
+        for (const [fraction, opacity] of [[.85, .15], [.55, .22], [.24, .3]]) {
+          ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity * opacity
+          ctx.fill(ringsPath(grassEdgeRings(boundary, look, sign, fraction)), 'evenodd')
+        }
       } else if (look.kind === 'path') {
         band(ctx, boundary, 0, sign * look.widthMm * .5, look.color, look.opacity)
         ctx.strokeStyle = look.accentColor; ctx.globalAlpha = look.opacity * .5; ctx.lineWidth = Math.max(10, look.widthMm * .025); ctx.stroke(linePath(offsetPolyline(boundary.points, sign * look.widthMm * .5, boundary.closed), boundary.closed))

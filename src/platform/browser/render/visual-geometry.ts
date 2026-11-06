@@ -43,14 +43,26 @@ export function pointAtArc(points: readonly ArcPoint[], distanceMm: number): Arc
 
 /** Bounded miter/bevel offsets. One joined ring avoids independent segment cracks at concave/convex turns. */
 export function offsetPolyline(points: readonly PointMm[], offsetMm: number, closed = false, miterLimit = 2): PointMm[] {
+  return joinedOffset(points, () => offsetMm, closed, miterLimit)
+}
+
+/** Variable paint widths use the same bounded joins as a constant-width band.
+ * Widths are per original vertex; nothing is sampled from screen coordinates. */
+export function variableOffsetPolyline(points: readonly PointMm[], widthsMm: readonly number[], closed = false, miterLimit = 2): PointMm[] {
+  if (points.length !== widthsMm.length || widthsMm.some(width => !Number.isFinite(width))) throw new Error('可变边带须为每个源点提供有限宽度。')
+  return joinedOffset(points, index => widthsMm[index], closed, miterLimit)
+}
+
+function joinedOffset(points: readonly PointMm[], widthAt: (index: number) => number, closed: boolean, miterLimit: number): PointMm[] {
+  const widths = points.flatMap((p, i) => !i || !equal(p, points[i - 1]) ? [widthAt(i)] : [])
   const clean = points.filter((p, i) => !i || !equal(p, points[i - 1])).map(p => ({ ...p }))
-  if (closed && clean.length > 1 && equal(clean[0], clean[clean.length - 1])) clean.pop()
+  if (closed && clean.length > 1 && equal(clean[0], clean[clean.length - 1])) { clean.pop(); widths.pop() }
   if (clean.length < 2) return []
-  if (!offsetMm) return clean
   const result: PointMm[] = []
   const unit = (a: PointMm, b: PointMm) => { const d = subtract(b, a); return times(d, 1 / length(d)) }
   for (let i = 0; i < clean.length; i++) {
-    const p = clean[i]
+    const p = clean[i], offsetMm = widths[i]
+    if (!offsetMm) { result.push(p); continue }
     if (!closed && (i === 0 || i === clean.length - 1)) {
       const u = i === 0 ? unit(p, clean[1]) : unit(clean[i - 1], p)
       result.push(add(p, { x: -u.y * offsetMm, y: u.x * offsetMm })); continue

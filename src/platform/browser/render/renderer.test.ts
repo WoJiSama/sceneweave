@@ -126,6 +126,19 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
     expect(metrics).toHaveBeenCalledWith(expect.objectContaining({ audience: 'gm', width: 256, height: 256, decodedImages: 1, decodedPixels: 1 }))
   })
 
+  it('keeps full validation but defers offscreen prop draw bitmaps until the viewport demands them', async () => {
+    const input = fixture(), browser = primitives(), metrics = vi.fn(), read = vi.fn(input.resources.read)
+    input.resources = { read }
+    await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, viewBoundsMm: { x: 14000, y: 14000, width: 1000, height: 1000 }, onMetrics: metrics })
+    expect(read).toHaveBeenCalled()
+    // One full bundle validation bitmap; no extra offscreen drawing bitmap.
+    expect(browser.decode).toHaveBeenCalledTimes(1)
+    expect(metrics).toHaveBeenLastCalledWith(expect.objectContaining({ decodedImages: 0, decodedPixels: 0 }))
+    await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, viewBoundsMm: { x: 3000, y: 3000, width: 2000, height: 2000 }, onMetrics: metrics })
+    expect(metrics).toHaveBeenLastCalledWith(expect.objectContaining({ decodedImages: 1, decodedPixels: 1 }))
+    expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+  })
+
   it('uses GM-only layer hiding while keeping formal and player output on their audience projection', async () => {
     const input = fixture(), browser = primitives(), layer = input.project.document.entityLayers.item
     await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, hiddenLayerIds: new Set([layer]) })

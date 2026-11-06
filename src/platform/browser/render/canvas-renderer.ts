@@ -14,12 +14,13 @@ import type { Audience, ProjectedConnection, ProjectedDecoration, ProjectedOpeni
 import { decorationPaintBounds } from '../../../shared/decorations/presentation.js'
 import { createEditorRenderPlan, editorPaintBounds } from './editor-render-plan'
 import type { EditorPropDetail } from './editor-render-plan'
-import { boundaryConnections, clipConnectionOpenings, connectionFrame, drawConnectionCheeks } from './connection-geometry'
+import { boundaryConnections, clipConnectionOpenings, connectionFrame, connectionSideSegments, drawConnectionCheeks } from './connection-geometry'
 import { polylineBand, connectionBand } from '../../../shared/geometry/geometry.js'
 import { connectionArcFrame } from '../../../shared/geometry/connection-route.js'
 import { connectionLandingBlend, connectionLandingDepthMm } from '../../../shared/geometry/connection-landings.js'
 import { naturalRockTreads } from './cliff-relief.js'
 import { paintConnectionLandingMask } from './connection-landing-mask.js'
+import { editorResidentAssetIds } from './aggregate-residency.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -124,8 +125,9 @@ function polygonPath(points: PointMm[]): Path2D { const path = new Path2D(); add
 function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX: number, scaleY: number) { ctx.setTransform(scaleX, 0, 0, scaleY, -bounds.x * scaleX, -bounds.y * scaleY) }
 
 interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean }
-async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal, metrics?: Pick<RenderMetrics, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>): Promise<RasterSet> {
+async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal, metrics?: Pick<RenderMetrics, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>, residentAssetIds?: ReadonlySet<string>): Promise<RasterSet> {
   const bitmaps = new Map<string, ImageBitmap>(), byAssetId = new Map<string, ImageBitmap>(); let totalPixels = 0
+  const verifiedHashes = new Set<string>()
   try {
     for (const id of projection.assetIds) {
       checkCancelled(signal)
@@ -139,9 +141,10 @@ async function decodeRequired(sources: RasterSources, projection: Projection, si
       const header = inspectImageBytes(bytes)
       if (bytes.length !== resource.sizeBytes || header.mimeType !== ref.mimeType || header.width !== ref.pixelWidth || header.height !== ref.pixelHeight || await sha256Bytes(bytes) !== ref.sha256) throw new Error(`素材 ${id} 的实际格式、尺寸或 hash 不匹配。`)
       checkCancelled(signal)
-      totalPixels += header.width * header.height
-      if (bitmaps.size >= PACKAGE_LIMITS.uniqueImages || totalPixels > PACKAGE_LIMITS.totalImagePixels) throw new Error('绘制素材超过候选解码预算。')
+      if (!verifiedHashes.has(ref.sha256)) { verifiedHashes.add(ref.sha256); totalPixels += header.width * header.height }
+      if (verifiedHashes.size > PACKAGE_LIMITS.uniqueImages || totalPixels > PACKAGE_LIMITS.totalImagePixels) throw new Error('绘制素材超过候选解码预算。')
       if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted
+      if (residentAssetIds && !residentAssetIds.has(id)) continue
       const queuedStarted = metrics ? performance.now() : 0
       let bitmap: ImageBitmap
       try {
@@ -516,10 +519,11 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
           }
           const treadPath = polygonPath(tread.polygon), lowerPath = polygonPath(tread.lowerEdge)
           target.fillStyle = tint(palette.base, factor); target.globalAlpha = .94; target.fill(treadPath)
-          target.fillStyle = tint(palette.dark, .88); target.globalAlpha = .68; target.fill(lowerPath)
-          target.strokeStyle = tint(palette.dark, .9); target.lineWidth = 24; target.globalAlpha = .72; target.lineJoin = 'round'; target.stroke(treadPath)
-          target.strokeStyle = tint(palette.light, .86 + factor * .12); target.lineWidth = 18; target.globalAlpha = .68
-          target.stroke(linePath(tread.polygon[2], tread.polygon[3]))
+          target.fillStyle = tint(palette.dark, .88); target.globalAlpha = .4; target.fill(lowerPath)
+          target.strokeStyle = tint(palette.dark, .9); target.lineWidth = 16; target.globalAlpha = .45; target.lineJoin = 'round'
+          target.stroke(linePath(tread.polygon[0], tread.polygon[1]))
+          target.strokeStyle = tint(palette.light, .86 + factor * .12); target.lineWidth = 14; target.globalAlpha = .56
+          target.stroke(linePath(tread.upperEdge[0], tread.upperEdge[1]))
           if (i % 2 === 0) {
             const centerLeft = frame.at(tread.fraction * frame.length, -half * .32), centerRight = frame.at(tread.fraction * frame.length, half * .32)
             target.strokeStyle = tint(palette.light, 1.06); target.lineWidth = 10; target.globalAlpha = .3; target.stroke(linePath(centerLeft, centerRight))
@@ -530,7 +534,16 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
       const line = new Path2D(); points.forEach((p, i) => i ? line.lineTo(p.x, p.y) : line.moveTo(p.x, p.y))
       target.strokeStyle = palette.dark; target.lineWidth = 25; target.globalAlpha = .65; target.setLineDash([110, 85]); target.stroke(line); target.setLineDash([])
     }
-    target.strokeStyle = palette.dark; target.lineWidth = 24; target.globalAlpha = .48; target.stroke(path); target.restore()
+    target.strokeStyle = palette.dark
+    if (route.stairStyle === 'naturalRock') {
+      // Short contacts follow each real route leg. No closed frame or end-cap
+      // line turns the rock steps into a rectangular slab. The same full-width
+      // corridor clips these marks and the existing landing mask fades them.
+      target.lineWidth = 45; target.globalAlpha = .12; target.setLineDash([130, 95])
+      for (const [a, b] of connectionSideSegments(c)) target.stroke(linePath(a, b))
+      target.setLineDash([])
+    } else { target.lineWidth = 24; target.globalAlpha = .48; target.stroke(path) }
+    target.restore()
     // Fade only the two actual arc-length landing intervals. A global chord
     // gradient would erase unrelated legs of a curved/switchback route.
     maskContext.fillStyle = '#FFFFFF'; maskContext.fillRect(0, 0, mask.width, mask.height); worldTransform(maskContext, local.bounds, sx, sy)
@@ -753,7 +766,7 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   if (width * height > PNG_MAX_PIXELS) throw new Error('图片超过 16M 像素预算。')
   if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') throw new Error('图片绘制需要支持真实位图解码与 Canvas 的浏览器。')
   if (metrics) { metrics.validationProjectionMs = performance.now() - started; metrics.width = width; metrics.height = height }
-  const raster = await decodeRequired(sources, projection, options.signal, metrics)
+  const raster = await decodeRequired(sources, projection, options.signal, metrics, plan ? editorResidentAssetIds(visibleProjection, plan) : undefined)
   // Formal 4K output is read back for PNG encoding. Keep all of its temporary
   // surfaces on the readback path: WebKit's accelerated material composition
   // can vary by one color level even between two exports of the same input.

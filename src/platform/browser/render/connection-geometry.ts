@@ -20,6 +20,15 @@ export function connectionFrame(connection: Pick<ProjectedConnection, 'start' | 
   return { low, high, length, up, normal, at, sides: [[at(0, connection.widthMm / 2), at(length, connection.widthMm / 2)], [at(0, -connection.widthMm / 2), at(length, -connection.widthMm / 2)]] as [PointMm, PointMm][] }
 }
 
+/** Exact physical boundary segments, with the two flat caps omitted. A
+ * station's incoming normal cannot represent a miter/bevel at a route bend. */
+export function connectionSideSegments(connection: ProjectedConnection): [PointMm, PointMm][] {
+  const frame = connectionFrame(connection), half = connection.widthMm / 2
+  const caps = [0, frame.length].map(distance => [frame.at(distance, half), frame.at(distance, -half)])
+  const same = (a: PointMm, b: PointMm) => Math.hypot(a.x - b.x, a.y - b.y) < 1e-7
+  return frame.sides.filter(([a, b]) => !caps.some(([left, right]) => same(a, left) && same(b, right) || same(a, right) && same(b, left)))
+}
+
 /** A visible connection cuts only a bound support boundary that its centreline
  * actually crosses. Contact with a nearby extruded face alone cannot open it. */
 export function boundaryConnections(connections: readonly ProjectedConnection[], points: readonly PointMm[], closed: boolean, surfaceIds: readonly string[]): ProjectedConnection[] {
