@@ -8,6 +8,22 @@
 
 复制粘贴、Enter绘图及删除快捷键的正常生产旅程分别在 `clipboard-ux.spec.ts`、`enter-drawing-ux.spec.ts`、`canvas-delete-ux.spec.ts`；`keyboard-narrow-acceptance.spec.ts` 合并1512/900/390px的真实键盘、长候选摘要和备份冷读检查。共用 `keyboard-ux-helpers.ts`，事实来自实际下载完整工程，不使用DEV读取入口；取消候选后须等待真实画布就绪再发后续快捷键。当前范围、冻结与通过记录从[09限定验收](../docs/09-quality-plan.md#keyboard-narrow-acceptance)追溯，不能外推真实输入法或完整无障碍验收。
 
+`complete-journey-ux.spec.ts`在1512/390px通过正常首页新建、真实Worker生成室内、手工移动物件、撤销重做、最近工程冷重开及双受众4K下载，最后从空存储用文件选择器导入真实备份。核对完整条目hash、文档/身份/外观与资源清单/许可绑定；截图覆盖七个工具分类、首页、候选和导出。另检查新建对话框、帮助与导出菜单的Esc层级及isComposing/229守卫，合成事件只证明处理器逻辑；真实输入法、失焦、读屏和用户P3仍从09独立验收。
+
+`panel-appearance-ux.spec.ts`在1512/390px的正常生产UI核对工程/外观控件实际字体、字号、圆角和高度，截图覆盖七模块与六外观子工具；检查精细采样默认折叠、跨子工具草稿保留，布局设置Esc保留底层候选，以及展开/重置后菜单关闭与焦点返回。预览取消、布局操作和最近工程冷重开后比较完整包逐条目hash，检查页面错误与横向溢出；共用真实下载辅助函数，不注入工程。样式和布局变化配套复查既有三视口键盘旅程，结果归[主题台账](../docs/archive/workspace-content-validation.md#ux-panel-unification-20261106)，截图不能替代用户P3。
+
+`panel-polish-ux.spec.ts`通过正常UI创建有材质的房间，修改铺装目标、纹理尺寸/方向、对齐/相位与局部覆盖，跨子工具和工程/AI模块浏览后核对草稿及展开状态保留，再真实预览/取消并比较完整备份hash。桌面/390px同时核对AI/工程主标题、面板内边距、按钮高度、真实Tab/Shift+Tab焦点、禁用状态及未选工具的悬停反馈；只填本地占位凭据、不点击连接或调用后端。失败反例、修复和同一正常生产包回归见[细调台账](../docs/archive/workspace-content-validation.md#ux-panel-polish-20261106)。
+
+`building-terrain-forms-ux.spec.ts`在正常生产1512/390px核对建筑/地形主要预览首屏可见、键盘展开精确设置、房间与室外草稿跨折叠/模块/工具保留、绘图取消无误提交、候选期间字段禁用、错误恢复，以及两类预览取消后的完整包hash保持；不注入工程或读写测试钩子。既有房间/建筑组用例同步按需展开入口；`--list`仅证明解析。最终同包结果见[长表单台账](../docs/archive/workspace-content-validation.md#ux-building-terrain-20261106)。
+
+`workspace-feedback-polish-ux.spec.ts`通过正常生产1512/390px UI检查长候选的确认/操作可达、非法坐标反馈、真实取点后的绘图退出、新建尺寸错误、VTT组合状态处理器/实际Escape与焦点返回，以及首页无匹配清空后的搜索焦点。390×600另核对末尾尺寸字段、VTT确认框不被固定操作区遮挡，并用Space确认；取消前后比较正常下载完整包逐条目hash，不注入工程。该组配套复查长表单、完整旅程与三档键盘；同包结果、截图及未覆盖范围见[六项整理台账](../docs/archive/workspace-content-validation.md#ux-six-finish-20261106)，不把合成组合事件或VTT预检记作原生输入法/目标软件导入通过。
+
+`complex-workspace-ux.spec.ts`在1512/390px经正常UI生成林中建筑，下载核对2房间、42物件、地形/道路后，检查建筑/地形草稿跨模块保持、同一固定家具按明确支撑放置、新工程创建图层、两对象多选移层取消/采用/一次撤销重做、历史读取与刷新冷开。对取消和冷读比较完整包逐条目hash，移层保留物件/房间/地形；采集生成、保存、编辑、历史及冷开状态与驱动耗时，仅作体验诊断，不能作为正式性能。整合包的首轮11项检查与两项复验及失败保留见[本轮台账](../docs/archive/workspace-content-validation.md#ux-integration-20261107)。
+
+后续素材库/属性面板仅调整CSS，复用上述两份面板spec及三视口键盘spec完成同包回归；同图卡片/详情/空状态截图及正常UI浏览、筛选、勾选、取消放置的完整包保全证据归[素材库与属性面板台账](../docs/archive/workspace-content-validation.md#ux-library-inspector-20261106)，未为样式实现另写镜像测试。
+
+场景导航本轮同样只调整CSS，复用`keyboard-narrow-acceptance.spec.ts`并以隔离正常UI旅程核对对象搜索、图层草稿、历史搜索/勾选和取消快照草稿；固定对象40px、历史48px行高以及完整包保全事实归[导航样式台账](../docs/archive/workspace-content-validation.md#ux-navigation-20261106)。
+
 `terrain-connection-ux.spec.ts`补齐桌面台阶与390px坡道：正常UI制作1.2m高台，画布取点Enter预览、键盘取消/确认采用、一次撤销/重做，以及整页刷新后从首页最近工程重新打开。实际完整包检查支撑、整数毫米净宽、身份/资源与取消/重开hash；测试进程对下载文档检查显式直线净宽通行，不在页面注入工程或调用DEV接口。只关闭[09限定验收](../docs/09-quality-plan.md#keyboard-narrow-acceptance)所列成功路径，不证明完整寻路、曲线或全部失败矩阵。
 
 `terrain-connection-failure-ux.spec.ts`覆盖桌面/390px的支撑选择、错误端点、零宽、第三支撑、显式阻挡及支撑锁拒绝，核对可读目标/解除锁说明、输入和完整包保全及修正后恢复；双页例使用同context的真实UI改名保存触发CAS，直接下载冲突页备份、另存副本并分别刷新重开。跨页CAS保留独立内存分支，不等同采用阶段拒绝同页旧候选；后者由 `src/application/workspace/curved-connections.test.ts` 的锁后旧候选例及原支撑锁例定向检查。完整范围与冻结见[09](../docs/09-quality-plan.md#keyboard-narrow-acceptance)。
