@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
-import { boundaryConnections, connectionFrame } from './connection-geometry'
+import { boundaryConnections, connectionFrame, connectionSideSegments } from './connection-geometry'
+import { connectionBand } from '../../../shared/geometry/geometry.js'
 import { sampleConnectionRoute } from '../../../shared/geometry/connection-route.js'
 
 const connection = (angle = 0): ProjectedConnection => ({ id: 'stairs', kind: 'stairs', start: { x: -2000 * Math.cos(angle), y: -2000 * Math.sin(angle) }, end: { x: 2000 * Math.cos(angle), y: 2000 * Math.sin(angle) }, widthMm: 1500, fromElevationMm: 800, toElevationMm: 2600, blocksMovement: false, style: null, surfaceIds: ['low', 'high'] })
 describe('connection paint geometry preserves the real footprint', () => {
+  it('keeps side contacts on the exact bent corridor, excluding both end caps', () => {
+    const points = [{x:0,y:0},{x:1000,y:0},{x:2000,y:0},{x:2000,y:2000}]
+    const c = { ...connection(), start:points[0],end:points.at(-1)!,widthMm:100,
+      route:{centerlineMm:points,stairStyle:'naturalRock' as const,treadDepthMm:250} }
+    const sides = connectionSideSegments(c), ring = connectionBand(points,c.widthMm)
+    expect(sides).toHaveLength(4)
+    expect(sides.flat()).toContainEqual({x:2050,y:-50})
+    expect(sides.every(([a,b]) => ring.some((p,i) => p.x===a.x && p.y===a.y && ring[(i+1)%ring.length].x===b.x && ring[(i+1)%ring.length].y===b.y))).toBe(true)
+    expect(sides.every(([a,b]) => !(a.x===0&&b.x===0) && !(a.y===2000&&b.y===2000))).toBe(true)
+  })
   it.each([0, Math.PI / 2, Math.PI / 4, 2.4])('keeps full width, perpendicular treads and identical uphill direction at angle %s', angle => {
     const c = connection(angle), frame = connectionFrame(c)
     expect(Math.hypot(frame.sides[0][0].x - frame.sides[1][0].x, frame.sides[0][0].y - frame.sides[1][0].y)).toBeCloseTo(1500)

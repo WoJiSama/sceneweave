@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { VisualBoundary } from '../../../shared/visual/types.js'
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
+import { pointInPolygon } from '../../../shared/geometry/geometry.js'
 import { cliffRelief, naturalRockTreads } from './cliff-relief'
 
 function boundary() {
@@ -25,7 +26,23 @@ describe('deterministic cliff relief', () => {
     expect(first.facets.length).toBeGreaterThan(first.strata.length)
     expect(first.fractures.length).toBeGreaterThan(0)
     expect(first.erosion.length).toBeGreaterThan(0)
-    expect(first.outer).toHaveLength(Math.max(4, Math.ceil(source.lengthMm / (look.repeatMm * 2.5))) + 1)
+    expect(first.outer.length).toBeGreaterThanOrEqual(source.points.length)
+    // The natural face can vary in thickness, but must remain inside its
+    // declared paint envelope rather than widening the physical plateau.
+    for (const point of first.outer) expect(Math.min(...source.points.map(p => Math.hypot(p.x - point.x, p.y - point.y)))).toBeLessThan(look.widthMm)
+  })
+
+  it('keeps every corner of a closed plateau surrounded by a joined face', () => {
+    const points = [{x:0,y:0},{x:3000,y:0},{x:3000,y:3000},{x:0,y:3000}]
+    const source: VisualBoundary = { id:'closed',floorId:'floor',layerId:'layer',visibility:'public',editLocked:false,closed:true,sampleSpacingMm:100,toleranceMm:10,binding:{kind:'decoration'},
+      segments: points.map((start,i) => ({id:`side-${i}`,start,control1:start,control2:points[(i+1)%4],end:points[(i+1)%4]})) }
+    const sampled = {...sampleVisualBoundary(source),id:source.id,terrainAreaIds:[]}
+    const relief = cliffRelief(sampled,look,-1)
+    expect(relief.faceRings).toHaveLength(2)
+    expect(relief.faceRings[0]).toEqual(sampled.points)
+    // Outward offsets must surround the complete original loop, including the
+    // closing side; coarse normal sampling previously cut through corners.
+    expect(points.every(point => pointInPolygon(point,relief.outer))).toBe(true)
   })
 
   it('keeps irregular natural-rock treads inside the route band', () => {
@@ -39,5 +56,6 @@ describe('deterministic cliff relief', () => {
       expect(point.x).toBeLessThanOrEqual(length)
       expect(Math.abs(point.y)).toBeLessThanOrEqual(width / 2)
     }
+    expect(treads.every(tread => tread.polygon.length > 4 && tread.upperEdge.length === 2)).toBe(true)
   })
 })
