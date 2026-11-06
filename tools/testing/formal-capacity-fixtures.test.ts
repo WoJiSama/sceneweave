@@ -47,11 +47,26 @@ describe('formal complete-v1 full-Prop capacity corpus', () => {
       expect(supportedPolygon(scene, propFootprint(prop).map(point => ({ x: point.x + 1, y: point.y })), prop.supportRef, prop.floorId)).toBe(true)
     }
     expect(built.controls.bulkEditableMemberIds).toHaveLength(32)
+    const manualCluster = scene.decorationClusters[`capacity-${kind}-manual-cluster`]
+    expect(manualCluster).toBeDefined()
+    expect(Object.values(manualCluster.members).filter(member => member.state === 'manual')).toHaveLength(3)
+    expect(Object.values(manualCluster.members).filter(member => member.state === 'deleted')).toEqual([{ kind: 'prop', entityId: null, state: 'deleted' }])
+    expect(Object.values(manualCluster.members).filter(member => member.state === 'detached')).toEqual([{ kind: 'prop', entityId: null, state: 'detached' }])
     for (const group of Object.values(scene.decorationClusters)) {
       expect(group.palette.every(entry => entry.kind === 'prop')).toBe(true)
       expect(Object.values(group.members).every(member => member.kind === 'prop')).toBe(true)
-      expect(Object.values(group.members).some(member => member.state === 'deleted')).toBe(true)
       for (const member of Object.values(group.members)) if (member.entityId) expect(scene.props[member.entityId]).toBeDefined()
+    }
+    for (const [id, originalCluster] of Object.entries(original.decorationClusters)) {
+      const expected = cloneJson(originalCluster)
+      for (const entry of expected.palette) entry.kind = 'prop'
+      for (const member of Object.values(expected.members)) {
+        member.kind = 'prop'
+        if (member.entityId && member.state !== 'deleted' && member.state !== 'detached') member.state = 'manual'
+      }
+      // Only explicit full-Prop representation and prepared manual state differ;
+      // every original parameter, slot key, exclusion state and reference remains.
+      expect(scene.decorationClusters[id]).toEqual(expected)
     }
   }, 60000)
 

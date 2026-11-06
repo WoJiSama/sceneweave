@@ -239,6 +239,61 @@ node tools/testing/sample-load-diagnostic.mjs --runs 1 --samples study --delay-m
 
 工具默认真实`http://127.0.0.1:5174/sceneweave/`页面，系统Chrome独立上下文，不启用应用调试API；每个上下文首次/回首页再次打开各一次。记录点击至确认、采用至保存/画布就绪代理、PNG读取调用、位图创建及长任务，等待本次后台活动稳定再计数。`--delay-ms`仅模拟每次PNG请求的延迟，路由会禁用HTTP缓存，不能当作GitHub Pages实测；低次数结果不产生正式p95/通过结论。该诊断不引入长期位图缓存，也不测量地形Worker或完整正式矩阵。
 
+<a id="current-formal-acceptance"></a>
+## 当前完整v1容量、性能与视觉验收命令
+
+先完成[当前主路径回归](#当前主路径回归)及受影响的正确性检查，再冻结源码、固定素材、工具和正常`dist`。正式采样独占串行执行：夹具准备、smoke、性能矩阵、视觉三引擎分别结束并关闭浏览器后才进入下一项；期间不并行测试、构建、模型任务或其他自动浏览器。共享目录仍有源码/工具编辑时先使用独立完整副本，不能在采样中更新输入。以下命令均从仓库根目录执行，使用`.nvmrc`的Node、系统Chrome及新的空绝对输出目录；当前性能进程树RSS仅支持macOS。命令定义不表示已执行或通过，正式结论从[09](docs/09-quality-plan.md#aggregate-capacity-acceptance)及[性能记录](docs/reference/performance.md)追溯。
+
+先串行检查夹具合同、构建正常生产包，再由隔离工具浏览器准备并冻结真实完整工程：
+
+```sh
+npx vitest run --config tools/testing/formal-capacity.vitest.config.ts
+npm run build
+formal_prepared_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-fixtures.XXXXXX")
+node tools/performance/prepare-current-formal.mjs --output "$formal_prepared_dir" --mode all
+```
+
+准备器的`--mode all`生成建筑/自然/混合各500/2000完整Prop及远端/局部外接两种变体，容量清单为`manifest.json`；视觉输入为室内、岩岛、海岸、混合四类，每类包含效果/中性/秘密配对副本及四份派生取景工程，清单为`formal-visual-fixtures.json`。`preparation.json`保留准备结果和失败。所有工程使用当前完整v1，保留真实资源、许可、实际像素与完整字段，落盘复读SHA后才可测量；准备阶段不计入性能样本。可用`--mode capacity`或`--mode visual`单独准备，但必须保留确切输入字节，不能拼接不同准备进程的身份/输出。确认准备器成功退出且工具浏览器/服务关闭后再继续。
+
+先在新目录跑单组低样本smoke；它只核对运行链，不形成正式p95或容量通过：
+
+```sh
+formal_smoke_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-smoke.XXXXXX")
+node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" --output "$formal_smoke_dir" --dist "$PWD/dist" --cases building-500 --smoke --timeout-ms 180000
+```
+
+`--smoke`固定一轮、2次普通编辑、4次列表选择和缩减连续操作，分类为`diagnostic-current-v1-production-ui-smoke`；不能混入正式分布。修正问题后重新完成受影响正确性检查、正常构建和输入冻结，并另开输出目录。源码、素材、夹具清单、运行器和dist在采样前后均核对，冻结目录中的日志也不得继续写入。
+
+正式六组矩阵使用同一份冻结输入和全新输出目录，不带`--smoke`：
+
+```sh
+formal_performance_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-performance.XXXXXX")
+node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" --output "$formal_performance_dir" --dist "$PWD/dist" --timeout-ms 180000
+node tools/performance/summarize-current-formal.mjs "$formal_performance_dir" > "$formal_performance_dir/summary-recomputed.json"
+```
+
+默认建筑/自然/混合×500/2000六组，各三轮独立Chrome进程/profile；每轮30次公开完整Prop的世界X加1mm/复位、60次对象列表选择、6次实际画布选择，以及平移/缩放各三段，分别逐rAF发送30次pointermove和20次wheel。另测组预览/采用及撤销/重做、冷重开、完整包/资源hash、只读内容块/记录行字节和GM/player真实4K PNG。输入固定180m×180m、3.6m显示网格，即50×50格；500/2000均为完整Prop，轻量Decoration不替代物件数量。可显式`--cases mixed-500-remote,mixed-500-local-ports`在另一新目录测准备好的边界输入：前者在500基线上增加远端500完整Prop，后者有16条真实局部外接连接，按有限支撑合同应拒绝不完整组移动。它们不替代默认六组，也不证明更大规模支持。
+
+当前组内物件字段编辑采用预览→确认采用两阶段：分别报告Enter→候选、采用click→领域事务、Enter→领域事务总区间和保存/显示；总区间包含实际审阅/自动化等待，不能混成纯领域耗时。100ms只比较明确提交意图的采用子区间，同时标明它不建立旧即刻命令全链验收。连续帧只统计真实输入活动窗，排除前置与尾部等待；双rAF仍是浏览器调度代理。三轮及合并nearest-rank分布、CPU连续性、采样间隔/缺样、RSS/目标页JS堆、首轮失败和组保护拒绝均保留，失败不自动重试或降载。逻辑内容块/最终变化行字节不等于物理磁盘I/O。运行器自动写`manifest.json`、每轮结果和`summary.json`；上面的汇总命令只重算已有证据，不启动测量。
+
+性能浏览器全部退出后，视觉三引擎使用同一正常dist和独立产物目录。先安装引擎；在终端A启动已经构建的生产预览服务：
+
+```sh
+npx playwright install chromium firefox webkit
+npm run preview -- --port 5174 --strictPort
+```
+
+回到此前准备夹具和执行性能命令的原终端B（保留`formal_prepared_dir`），串行执行四类视觉输入，等待命令结束后关闭终端A服务：
+
+```sh
+formal_visual_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-visual.XXXXXX")
+SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5174/sceneweave/ SCENEWEAVE_FORMAL_VISUAL_FIXTURES="$formal_prepared_dir" SCENEWEAVE_FORMAL_VISUAL_OUTPUT="$formal_visual_dir" npx playwright test --config=tests/formal-visual.config.ts --workers=1
+```
+
+该配置不自动启动服务，要求`SCENEWEAVE_TEST_BASE_URL`包含部署base；固定Chromium/Firefox/WebKit、1512×982、单worker、零重试，`results.json`和`results/`保留真实下载、图像与失败trace。Chromium默认使用Playwright引擎，只有`SCENEWEAVE_CHROME_CHANNEL=chrome`会切换系统Chrome；通用`SCENEWEAVE_BROWSER_CHANNEL`不改变本配置。用例从正常首页导入冻结包，经实际UI编辑/采用/撤销、保存冷读及4K双受众输出，核对同引擎秘密配对像素、资源/完整内容和原生像素裁切；跨引擎不要求抗锯齿逐像素相同。这些自动技术证据不关闭14第8节全部视觉操作矩阵、人工观感或用户P3，也不替代自由物件拖动、完整轮廓/历史/故障矩阵、原SCN场景、1万/10万容量及完整QA-PERF-01/04。
+
+下方M2、Q5及开发期分段章节保留原冻结方法和历史工具定位。`run-native-m2.mjs`、旧`visual-v2-fixtures`仍含旧schema/身份/存储或UI假设，未按当前合同重新适配前，不作为当前完整v1正式入口；`run-aggregate.mjs`继续仅作j的低次数开发观察。
+
 ## M2 原生完整v1正常生产性能复现
 
 新标识完整v1负载使用`tools/performance/run-native-m2.mjs`，从正常`npm run build`产物的`/sceneweave/#home`进入同一原生完整v1工作区，不使用B5专用构建、旧v6入口或产品开发API。先完成受测功能修改与正确性验证，再冻结源码、构建和运行器；下列命令依次执行，采样期间不运行其他浏览器、单元/浏览器测试、构建或性能任务。系统须已安装Chrome；当前进程树RSS采样仅适配macOS。运行器使用独立回环HTTP服务和新Chrome进程/profile，拦截站外网络，不调用模型；macOS防空闲休眠仅在命令存活期间生效。
