@@ -19,6 +19,8 @@ import { ProjectRepository, PROJECT_STORAGE_LIMITS, assertCurrent, assertAutomat
 import { LibraryRepository } from '../library/repository.js'
 import { captureHistoryGraph, historyGraphProjects, captureHistoryVersionEnvelope, captureHistoryHeadEnvelope, captureHistoryPinEnvelope, sealHistoryRecord, type HistoryGraph, type HistoryVersion } from './incremental-history.js'
 import { CURRENT_DATABASE_SELECTION_KEY, currentDatabaseNames, type CurrentDatabaseNames } from './current-databases.js'
+import { CONTENT_PAYLOAD_FIELDS, CONTENT_BLOCK_STORE } from './content-block-middleware.js'
+import { partitionProjectContent, type ProjectContentBlock } from './content-blocks.js'
 
 type Row = Record<string, unknown>
 interface CapturedDatabase { version: number; rows: Record<string, Row[]> }
@@ -335,6 +337,11 @@ async function importUnderLock(options: DevelopmentImportOptions, expectedFinger
     entries.push({ key: row.key, logicalKey: row.logicalKey, entry: next })
   }
   const orgs = asRows(source.library, 'organizations')
+  // The middleware writes manifests and their exact immutable block closure in
+  // this same transaction. Include those derived bytes in the strict installer,
+  // and compare native cold rows against their physical storage representation.
+  const expectedPhysical = physicalProjectRows(transformed)
+  transformed[CONTENT_BLOCK_STORE] = expectedPhysical[CONTENT_BLOCK_STORE]
   try {
     await projectDb.open(); await libraryDb.open()
     await projectDb.transaction('rw', PROJECT_TABLES, async () => { for (const name of PROJECT_TABLES) await installExactRows(projectDb.table<Row>(name), transformed[name]) })
@@ -348,7 +355,7 @@ async function importUnderLock(options: DevelopmentImportOptions, expectedFinger
     // Cold reads may initialize independent history roots for pre-graph sources.
     // They must still retain every installed source row; enumerating only the
     // remaining owners would otherwise overlook a whole deleted project scope.
-    await assertCopiedRows(target, transformed, entries as unknown as Row[], orgs, asRows(source.library, 'metadata'), options)
+    await assertCopiedRows(target, expectedPhysical, entries as unknown as Row[], orgs, asRows(source.library, 'metadata'), options)
     const verifiedTargetFingerprint = await targetFingerprint(target, options)
     checkCancelled(options.validation.signal)
     // The durable ready journal precedes the single synchronous pair-pointer write.
@@ -367,6 +374,21 @@ async function importUnderLock(options: DevelopmentImportOptions, expectedFinger
 async function targetFingerprint(target: CurrentDatabaseNames, options: DevelopmentImportOptions): Promise<string> {
   const [projects, library] = await Promise.all([captureDatabase(target.projects, 'projects', options.validation.signal), captureDatabase(target.library, 'library', options.validation.signal)])
   return digest([target, databaseFingerprint(projects), databaseFingerprint(library)])
+}
+
+/** Derive only the current schema's physical representation from already
+ * validated complete rows. No source or target self-reported blocks are trusted. */
+function physicalProjectRows(expected: Record<string, Row[]>): Record<string, Row[]> {
+  const blocks = new Map<string, ProjectContentBlock>()
+  const physical = Object.fromEntries(PROJECT_TABLES.map(table => [table, expected[table].map(row => {
+    const field = CONTENT_PAYLOAD_FIELDS[table]
+    if (!field || row[field] === null) return row
+    const partition = partitionProjectContent(row[field] as ProjectData)
+    for (const block of partition.blocks) blocks.set(block.sha256, block)
+    return { ...row, [field]: partition.manifest }
+  })]))
+  physical[CONTENT_BLOCK_STORE] = [...blocks.values()] as unknown as Row[]
+  return physical
 }
 
 async function assertCopiedRows(target: CurrentDatabaseNames, expected: Record<string, Row[]>, entries: Row[], organizations: Row[], metadata: Row[], options: DevelopmentImportOptions) {
