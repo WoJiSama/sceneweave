@@ -1896,3 +1896,22 @@ Enter开发自检：正常构建通过（`work/ux-audit/enter-build.log`），�
 VoiceOver实际启动尝试记录于`voiceover-live-preflight`与`voiceover-starter-preflight`文件。直接进程启动未取得已注册读屏，正式Starter只打开首次使用Quickstart向导；未取得实际网页导航/朗读输出，不以ARIA或注入朗读代替。清理时直接终止向导未复原开关，直接偏好写入被系统拒绝，native stop/preference调用也未恢复；最终向本轮启动的Quickstart发送正常Quit，退出处理器恢复初始voiceOverOnOffKey=0，无向导/VoiceOver或独立测试浏览器残留，事实见`restore-voiceover-off.log`与最终JSON的restoration。未修改辅助功能/自动化/输入监听授权。
 
 真实产品窗口失焦、中文输入法和读屏均继续待实测；后续页面只用Codex侧栏，不能在该入口取得的原生证据明确留空，不继续弹出独立窗口。未完成窗口脚本已移至`work/ux-audit/native-window-blur-paused.spec.ts.txt`，停止与清理状态见`native-window-blur-stop.json`。类型检查`export-native-typecheck.log`及移除未完成用例后的`export-native-final-typecheck.log`均退出0；本地文档链接402项零错误，git diff --check通过。本轮仅新增回归和窄范围文档，不提交、推送或发布。
+
+<a id="ux-regression-sidebar-recheck-20261106"></a>
+### 已知失败复验与侧栏原生能力复核（2026-11-06）
+
+用户授权按“已知失败复验→后续修复分块提交→侧栏原生实测”执行。本次从`90dd8ea`捕获16个后续改动文件，再纳入默认浏览器发现范围修复，在`work/ux-closeout-20261106/workspace/`的独立完整源码副本验证。Node为24.14.1；17文件内容、起始提交与SHA256保存在该目录上级的`manifest.json`，验证后均与提交内容逐文件核对。没有读取用户工程库、调用模型、执行正式性能或启动浏览器。
+
+| 检查 | 当前结果与证据 |
+| --- | --- |
+| 迁入与内容块 | `migration-recheck.log`退出0，17/17通过；原7项失败转绿，并覆盖真实物理清单/块闭包、中断后精确重试、坏块/额外块拒绝、源只读保全与冷读后发布。修复不放宽额外记录或篡改拒绝 |
+| 正式完整Prop夹具 | `formal-fixture-recheck.log`退出0，8/8通过；原2项mixed断言改为明确检查专用人工簇的manual/deleted/detached记录，并核对每个原簇的参数、槽位和排除保全，不要求所有原簇都有删除成员 |
+| 手工预算与AI阶段 | `budget-regression-recheck.log`14/14通过；`authoring-regression-recheck.log`只运行受影响的两项跨内部步骤用例，2通过/12跳过，不代表完整AI组。本轮定向用例合计41通过 |
+| 构建与工具 | `normal-build.log`退出0，正常TypeScript/服务类型/Vite构建通过；`formal-tool-typecheck.log`退出0，额外检查正式工具TS入口；3个mjs语法检查通过，所检凭据模式无命中 |
+| 浏览器发现范围 | `browser-list-before.log`保留缺少正式夹具导致默认枚举失败；默认配置明确排除正式视觉专用spec后，`browser-list-after.log`退出0，264项/95文件。专用配置借用既有夹具清单的`formal-browser-list.log`退出0，12项/1文件；两次均仅枚举，不启动浏览器，也不证明夹具字节/像素或任何正式旅程通过 |
+
+源码修复分为`ebf4543`迁入、`851405d`预算/阶段测试和`49c1243`正式工具与默认发现隔离三个本地提交；未推送或部署。固定外观源保全及正式运行说明随工具提交，但工具静态检查不抵扣09的正式采样、视觉或P3。
+
+原生复核为本机macOS26.6.2只读API调用，2026-11-06 08:21:17 UTC记录于`work/ux-closeout-20261106/native-sidebar-capabilities.json`：输入源为搜狗拼音；`AXIsProcessTrusted`、`CGPreflightPostEventAccess`、`CGPreflightListenEventAccess`均false；VoiceOver自动化无提示预检为-600，进程未运行。未启动VoiceOver或向导、未请求系统权限、未发送键盘/鼠标事件或修改系统设置，原预检证据未覆盖。
+
+当前可用工具仅能通过`open_in_codex`打开侧栏UI，没有侧栏页面点击、按键、拖动、DOM/事件观察或实际朗读采集接口。因此未能开始真实产品曲线/填充失焦、原生拼音候选确认/取消和VoiceOver网页导航旅程；三项继续待实测，不判断为产品缺陷或通过。后续须具备现有侧栏的真实操控与证据采集能力，或由人在同一侧栏实际操作并记录事实；仍不得回退到独立窗口、合成事件、直接填汉字或ARIA替代。已有交付像素与键盘通过事实保留各自旧冻结，本次不扩大其范围。
