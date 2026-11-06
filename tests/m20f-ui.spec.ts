@@ -1,3 +1,5 @@
+import { openTerrainTask } from './workspace-navigation-helpers'
+import { openDetailsBySummary, reloadSaved } from './workspace-ux-helpers'
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -27,8 +29,8 @@ async function createBlank(page: Page, title: string) {
   await home(page).getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill(title)
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000')
-  await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0); await settled(page)
 }
@@ -73,12 +75,12 @@ test('M2-0f native creation, box selection, context copy, layers and mounted Hom
   await page.mouse.move(box.x + box.width - 4, box.y + box.height - 4, { steps: 6 }); await page.mouse.up()
   await expect(page.locator('.asset-selection-notice')).toContainText('框选 1 个对象')
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' })
-  await page.getByRole('menuitem', { name: '复制所选', exact: true }).click()
+  await page.getByRole('menuitem', { name: '预览复制所选', exact: true }).click()
   expect(Object.keys((await state(page)).document.props)).toHaveLength(1)
   await adopt(page, '批量'); expect(Object.keys((await state(page)).document.props)).toHaveLength(2)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   expect(Object.keys((await state(page)).document.props)).toHaveLength(1)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
   expect(Object.keys((await state(page)).document.props)).toHaveLength(2)
   await page.getByTestId('workspace-navigation').getByRole('tab', { name: '图层', exact: true }).click()
   await page.getByRole('button', { name: '新建用户图层', exact: true }).click()
@@ -99,7 +101,7 @@ test('M2-0f native creation, box selection, context copy, layers and mounted Hom
   await expect(page.locator(`.asset-entity-list [data-entity-id="${id}"]`)).toHaveClass(/selected/)
   expect((await state(page)).document).toEqual(before.document)
   expect((await state(page)).canUndo).toBe(true)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   const after = await state(page)
   expect(after.document).toEqual(before.document); expect(after.canUndo).toBe(false)
   const persisted = await page.evaluate(async sceneId => {
@@ -166,7 +168,7 @@ test('native history refresh waits for its tab and preserves a form across inact
   await page.getByLabel('命名快照名称', { exact: true }).fill('保留中的历史表单')
   await chooseProp(page, id)
   const before = await reads(), x = (await state(page)).document.props[id].positionMm.x
-  await number(page, '物件 X', x + 100); await settled(page)
+  await number(page, '物件 X', (x + 100) / 1000); await settled(page)
   expect(await reads()).toBe(before)
   await navigation.getByRole('tab', { name: '历史', exact: true }).click()
   await expect.poll(reads).toBeGreaterThan(before)
@@ -196,9 +198,10 @@ test('M2-0f mixed native room, terrain, appearance and protected partial history
   await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
   await chooseProp(page, propId); await opacity(page, '0.3')
   const movedX = (await state(page)).document.props[propId].positionMm.x + 500
-  await number(page, '物件 X', movedX); await settled(page)
-  await page.getByRole('tab', { name: '室外', exact: true }).click()
+  await number(page, '物件 X', movedX / 1000); await settled(page)
+  await openTerrainTask(page, '绘制地形')
   const tools = page.getByRole('region', { name: '室外制作工具', exact: true })
+  await openDetailsBySummary(tools, /^精确坐标 · 区域轮廓$/)
   await tools.getByLabel('室外坐标', { exact: true }).fill('10000,1000\n16000,1000\n16000,4500\n10000,4500')
   await tools.getByRole('button', { name: '预览室外修改', exact: true }).click(); await adopt(page, '室外')
   const beforeRestore = await state(page), terrain = beforeRestore.document.terrainAreas

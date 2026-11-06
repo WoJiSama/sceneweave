@@ -1,3 +1,5 @@
+import { openTerrainTask } from './workspace-navigation-helpers'
+import { openDetailsBySummary, mapExportButton, reloadSaved } from './workspace-ux-helpers'
 import { expect, test, chromium, type Page, type TestInfo } from '@playwright/test'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -345,7 +347,8 @@ test('390px actual mixed-tool UI, named restore, reload, keyboard drawers and fa
   await page.getByRole('button', { name: '关闭资源面板', exact: true }).click(); await expect(resourceTrigger).toBeFocused()
   await page.getByRole('button', { name: '属性面板', exact: true }).click(); await page.getByRole('button', { name: '在此放置', exact: true }).click(); await settled(page)
   await page.getByRole('button', { name: '关闭属性面板', exact: true }).click()
-  await resourceTrigger.click(); await page.getByTestId('workspace-resources').getByRole('tab', { name: '室外', exact: true }).click()
+  await resourceTrigger.click(); await openTerrainTask(page, '绘制地形')
+  await openDetailsBySummary(page.getByRole('region', { name: '室外制作工具', exact: true }), /^精确坐标 · 区域轮廓$/)
   await page.getByLabel('室外坐标', { exact: true }).fill('10000,1000\n13000,1000\n13000,4500\n10000,4500')
   await page.getByRole('button', { name: '预览室外修改', exact: true }).click(); await page.getByRole('button', { name: '关闭资源面板', exact: true }).click(); await page.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check(); await page.getByRole('button', { name: '采用室外修改', exact: true }).click(); await settled(page)
   await navigationTrigger.click(); await page.getByTestId('workspace-navigation').getByRole('tab', { name: '历史', exact: true }).click()
@@ -365,14 +368,14 @@ test('390px actual mixed-tool UI, named restore, reload, keyboard drawers and fa
     await info.attach(`390px-${label}.png`, { body: await page.screenshot(), contentType: 'image/png' })
     await page.getByRole('button', { name: `关闭${label}`, exact: true }).focus(); await page.keyboard.press('Escape'); await expect(trigger).toBeFocused()
   }
-  const download = page.waitForEvent('download'); await page.getByRole('button', { name: '4K PNG', exact: true }).click()
+  const download = page.waitForEvent('download'); await (await mapExportButton(page, 'gm')).click()
   const pngDownload = await download; expect(pngDownload.suggestedFilename()).toBe('sceneweave-gm-map.png')
   const stream = await pngDownload.createReadStream(), chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk))
   const pngBytes = Buffer.concat(chunks); expect(pngBytes.readUInt32BE(16)).toBe(4096)
   await settled(page); expect((await readState(page)).document).toEqual(restored.document)
   const overflow = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth }))
   expect(overflow.width).toBeLessThanOrEqual(overflow.viewport)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page); expect((await readState(page)).document).toEqual(restored.document)
+  await reloadSaved(page); await settled(page); expect((await readState(page)).document).toEqual(restored.document)
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
   await page.getByTestId('native-project-file').setInputFiles({ name: 'truncated.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from([80, 75, 3, 4, 0]) })
   await expect(page.locator('.workspace-notice')).toContainText(/导入失败|不能读取|无效|损坏|ZIP/i)

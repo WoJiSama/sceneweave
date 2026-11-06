@@ -1,3 +1,5 @@
+import { openGenerationTask } from './workspace-navigation-helpers'
+import { projectBackupButton } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 import { getLegacyGeneration } from '../src/shared/terrain-generation/composition-contracts.js'
@@ -18,7 +20,7 @@ async function state(page: Page) {
 
 async function settled(page: Page) {
   await expect(page.getByRole('article', { name: '区域候选', exact: true })).toHaveCount(0, { timeout: 120_000 })
-  await expect(page.getByRole('button', { name: '完整工程', exact: true })).toBeEnabled({ timeout: 120_000 })
+  await expect((await projectBackupButton(page))).toBeEnabled({ timeout: 120_000 })
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 120_000 })
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 120_000 })
 }
@@ -27,7 +29,7 @@ test('regional authoring UI previews all recipes, protects an edit, drills down,
   test.setTimeout(900_000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await page.goto('/#workspace'); await page.waitForFunction(() => Boolean(Reflect.get(window, '__sceneweaveOutdoorDev')))
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '区域地图')
   const recipeNames = ['河谷古道', '林间湖区', '群山隘口'] as const
   for (const [index, name] of recipeNames.entries()) {
     await page.getByLabel('区域配方', { exact: true }).selectOption(['riverlands', 'lakewood', 'highlands'][index])
@@ -59,14 +61,14 @@ test('regional authoring UI previews all recipes, protects an edit, drills down,
   expect(Object.keys(edited.document.regional!.areas).length).toBeGreaterThan(Object.keys(parent.document.regional!.areas).length)
   expect(edited.snapshots.filter(row => row.kind === 'protection')).toHaveLength(parent.snapshots.filter(row => row.kind === 'protection').length + 1)
 
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await settled(page)
   const undone = await state(page)
   expect(undone.document.sceneId).toBe(parentSceneId)
   expect(undone.document.regional!.areas).toEqual(parent.document.regional!.areas)
   expect(undone.document.revision).toBe(edited.document.revision + 1)
-  await expect(page.getByRole('button', { name: '重做素材编辑', exact: true })).toBeEnabled()
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click()
+  await expect(page.getByRole('button', { name: '重做编辑', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click()
   await settled(page)
   const redone = await state(page)
   expect(redone.document.regional!.areas).toEqual(edited.document.regional!.areas)
@@ -144,7 +146,7 @@ test('regional authoring UI previews all recipes, protects an edit, drills down,
   expect(offlineResult.player.rgbaHash).toBe(offlineStage.player.rgbaHash)
 
   const downloadEvent = page.waitForEvent('download')
-  await page.getByRole('button', { name: '完整工程', exact: true }).click()
+  await (await projectBackupButton(page)).click()
   const download = await downloadEvent, packagePath = info.outputPath('regional-child.sceneweave'); await download.saveAs(packagePath)
   const coldContext = await browser.newContext(), coldPage = await coldContext.newPage()
   try {

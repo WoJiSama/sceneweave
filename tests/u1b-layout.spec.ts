@@ -96,9 +96,10 @@ test('U1b desktop panels resize, fold, retain passive drafts and remember layout
   await expect.poll(() => preferences(page)).toEqual(defaults)
 
   // A parameter draft remains local and mounted while browsing both independent sides.
+  await page.getByText('外观与图层调整', { exact: true }).click()
   await page.getByLabel('外观调整项目', { exact: true }).selectOption('brightness')
   await page.getByLabel('外观亮度', { exact: true }).fill('0.55')
-  for (const name of ['建筑', '室外', '素材库']) await resources(page).getByRole('tab', { name, exact: true }).click()
+  for (const name of ['建筑', '地形', '素材库']) await resources(page).getByRole('tab', { name, exact: true }).click()
   for (const name of ['图层', '对象', '历史']) await navigation(page).getByRole('tab', { name, exact: true }).click()
   await page.getByRole('button', { name: '折叠属性面板', exact: true }).click()
   await page.getByRole('button', { name: '展开属性面板', exact: true }).click()
@@ -153,8 +154,11 @@ test.describe('U1b narrow workspace', () => {
       const drawer = page.getByRole('region', { name, exact: true })
       await expect(drawer).toBeVisible()
       expect(await drawer.evaluate(element => element.contains(document.activeElement))).toBe(true)
-      if (name === '资源面板') for (const tab of ['素材库', '建筑', '室外']) await drawer.getByRole('tab', { name: tab, exact: true }).tap()
-      if (name === '属性面板') await expect(drawer.getByLabel('外观调整项目', { exact: true })).toBeVisible()
+      if (name === '资源面板') for (const tab of ['素材库', '建筑', '地形']) await drawer.getByRole('tab', { name: tab, exact: true }).tap()
+      if (name === '属性面板') {
+        await drawer.getByText('外观与图层调整', { exact: true }).click()
+        await expect(drawer.getByLabel('外观调整项目', { exact: true })).toBeVisible()
+      }
       if (name === '场景导航') for (const tab of ['图层', '对象', '历史']) await drawer.getByRole('tab', { name: tab, exact: true }).tap()
       await page.keyboard.press('Escape')
       await expect(drawer).toHaveCount(0)

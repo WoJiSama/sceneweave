@@ -56,7 +56,12 @@ async function createBlank(page: Page, name: string) {
   const form = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await form.getByLabel('场景名称', { exact: true }).fill(name); await form.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(form).toHaveCount(0); await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
-  await page.getByRole('tab', { name: 'AI对话', exact: true }).click()
+  const tab = page.getByRole('tab', { name: 'AI对话', exact: true })
+  if (await tab.isVisible()) await tab.click()
+  else {
+    await page.getByRole('button', { name: '资源面板', exact: true }).click()
+    await page.getByRole('region', { name: '资源面板', exact: true }).getByRole('tab', { name: 'AI对话', exact: true }).click()
+  }
 }
 async function connect(page: Page) {
   const panel = page.getByRole('region', { name: 'AI 对话面板', exact: true })
@@ -78,10 +83,20 @@ test('M2-1 real HTTP text/tool continuation is plain text, preserves the project
   const errors: string[] = [], requests: unknown[] = []; page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => { if (request.url() === backendUrl + '/v1/tasks' && request.method() === 'POST') requests.push(request.postDataJSON()) })
   await createBlank(page, 'M2-1 对话隔离'); const before = await project(page), initial = modelRequests, panel = await connect(page)
+  let releaseCreate!: () => void
+  const createGate = new Promise<void>(resolve => { releaseCreate = resolve })
+  await page.route(backendUrl + '/v1/tasks', async route => {
+    if (route.request().method() === 'POST') await createGate
+    await route.continue()
+  })
   await panel.getByLabel('AI 对话输入', { exact: true }).fill('请检查连接，保持当前地图。')
   await panel.getByRole('button', { name: '发送新任务', exact: true }).click()
+  await expect(panel.getByRole('status', { name: 'AI 操作状态', exact: true })).toHaveText('正在提交新任务…')
+  releaseCreate()
   const task = panel.getByRole('article', { name: 'AI 当前任务', exact: true })
   await expect(task.locator('.ai-task-heading > strong')).toHaveText('已完成')
+  await expect(task.locator('.ai-task-heading > span')).toHaveText('任务状态已同步')
+  await expect(panel.getByRole('status', { name: 'AI 操作状态', exact: true })).toHaveCount(0)
   await expect(panel.getByLabel('当前任务思考程度', { exact: true })).toContainText('模型默认（未指定等级）')
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('当前只读，不修改场景。<img')
   await expect(panel.getByLabel('AI 只读工具进度', { exact: true })).toContainText('sceneweave_connection_info：完成')
@@ -108,12 +123,45 @@ test('M2-1 real HTTP text/tool continuation is plain text, preserves the project
   await expect(panel.getByLabel('AI 应用凭据', { exact: true })).toHaveValue('')
 })
 
+test('M2-1 at 390px the AI submit status fits the drawer and clears after the task completes', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
+  await createBlank(page, 'M2-1 窄屏对话反馈')
+  const before = await project(page), panel = await connect(page)
+  let releaseCreate!: () => void
+  const createGate = new Promise<void>(resolve => { releaseCreate = resolve })
+  await page.route(backendUrl + '/v1/tasks', async route => {
+    if (route.request().method() === 'POST') await createGate
+    await route.continue()
+  })
+  await panel.getByLabel('AI 对话输入', { exact: true }).fill('请检查连接，保持当前地图。')
+  await panel.getByRole('button', { name: '发送新任务', exact: true }).click()
+  const status = panel.getByRole('status', { name: 'AI 操作状态', exact: true })
+  await expect(status).toHaveText('正在提交新任务…')
+  const bounds = await status.boundingBox()
+  expect(bounds).not.toBeNull()
+  expect(bounds!.x).toBeGreaterThanOrEqual(0)
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
+  expect(bounds!.y).toBeGreaterThanOrEqual(0)
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(844)
+  await info.attach('m21-ai-390px-submitting.png', { body: await page.screenshot(), contentType: 'image/png' })
+  releaseCreate()
+  const task = panel.getByRole('article', { name: 'AI 当前任务', exact: true })
+  await expect(task.locator('.ai-task-heading > strong')).toHaveText('已完成')
+  await expect(status).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.body.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(await project(page)).toEqual(before)
+  expect(errors).toEqual([])
+  await info.attach('m21-ai-390px-complete.png', { body: await page.screenshot(), contentType: 'image/png' })
+})
+
 test('M2-1 disconnect only rereads checkpoints, pause/resume is explicit and cancel rejects late model completion', async ({ page }) => {
   await createBlank(page, 'M2-1 中断代次'); const before = await project(page), panel = await connect(page), initial = modelRequests
   await expect(panel.getByText(/请选择模型支持的思考程度/)).toBeVisible()
   await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('low')
   await panel.getByLabel('AI 对话输入', { exact: true }).fill('暂停测试')
   await panel.getByRole('button', { name: '发送新任务', exact: true }).click()
+  await expect(panel).toContainText('取消会停止后续服务器步骤并保留最后确认进度')
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('正在等待')
   await panel.getByRole('button', { name: '停止本地读取', exact: true }).click()
   await panel.getByRole('button', { name: '重新连接', exact: true }).click()

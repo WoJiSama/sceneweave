@@ -1,3 +1,4 @@
+import { openGenerationTask } from './workspace-navigation-helpers'
 import { expect, test } from '@playwright/test'
 
 test('volcano preview keeps separate physics, invalidates changed parameters and saves a cold-open project', async ({ page }, info) => {
@@ -11,7 +12,7 @@ test('volcano preview keeps separate physics, invalidates changed parameters and
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '火山')
   const panel = page.getByRole('region', { name: '火山生成', exact: true })
   await panel.getByLabel('火山工程名称', { exact: true }).fill('D5火山活动区')
   await panel.getByRole('button', { name: '预览火山', exact: true }).click()

@@ -28,8 +28,8 @@ async function createBlank(page: Page) {
   await home(page).getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('子格与填充复制')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000')
-  await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await settled(page)
@@ -124,7 +124,7 @@ test('subgrid placement and fill-copy candidates remain session-only until one a
   expect(adopted.document.revision).toBe(before.revision + 1)
   expect(adopted.document.props[copies[0]].positionMm).toEqual({ x: 4625, y: 6875 })
   expect(adopted.document.props[copies[1]].positionMm).toEqual({ x: 5625, y: 7125 })
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await settled(page)
   const undone = (await state(page)).document
   expect({ ...undone, updatedAt: before.updatedAt }).toEqual({ ...before, revision: before.revision + 2 })
@@ -195,11 +195,11 @@ test('prefab fill uses actual members and adopts or undoes the whole row once', 
         positionMm: { x: original.positionMm.x + dx, y: original.positionMm.y } })
     }
   }
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await settled(page)
   const undone = (await state(page)).document
   expect({ ...undone, updatedAt: before.updatedAt }).toEqual({ ...before, revision: before.revision + 2 })
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click()
   await settled(page)
   const redone = (await state(page)).document
   expect({ ...redone, updatedAt: adopted.updatedAt }).toEqual({ ...adopted, revision: before.revision + 3 })

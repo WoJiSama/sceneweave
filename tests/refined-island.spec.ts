@@ -1,3 +1,5 @@
+import { openSamples } from './workspace-navigation-helpers'
+import { projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Workspace, CompositionPreview } from '../src/application/workspace/workspace'
@@ -40,7 +42,7 @@ test('Q1 refined island cancels safely, edits one real candidate and preserves i
   page.on('pageerror', error => errors.push(error.message))
   try {
     await page.goto('/#workspace')
-    await page.getByRole('tab', { name: '工程', exact: true }).click()
+    await openSamples(page)
     await page.getByRole('button', { name: '苔冠岩岛 · 高差与草沿', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '确认打开工程', exact: true })
     await expect(dialog).toBeVisible({ timeout: 45_000 })
@@ -116,13 +118,13 @@ test('Q1 refined island cancels safely, edits one real candidate and preserves i
     expect(adopted.licenses).toEqual(original.licenses)
     expect(adopted.licenseBindings).toEqual(original.licenseBindings)
 
-    await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+    await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
     await settled(page)
     const undone = await current(page)
     expect(undone.revision).toBe(adopted.revision + 1)
     expect(withoutRevision(undone.document)).toEqual(withoutRevision(original.document))
-    await expect(page.getByRole('button', { name: '撤销素材编辑', exact: true })).toBeDisabled()
-    await page.getByRole('button', { name: '重做素材编辑', exact: true }).click()
+    await expect(page.getByRole('button', { name: '撤销编辑', exact: true })).toBeDisabled()
+    await page.getByRole('button', { name: '重做编辑', exact: true }).click()
     await settled(page)
     const redone = await current(page)
     expect(redone.revision).toBe(undone.revision + 1)
@@ -177,11 +179,11 @@ test('Q1 refined island cancels safely, edits one real candidate and preserves i
       expect(stored.closure.licenses[licenseHash].text).toContain('No reference-map imagery or third-party assets are embedded.')
     }
 
-    await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click()
+    await reloadSaved(page)
     await settled(page)
     expect((await current(page)).contentHash).toBe(redone.contentHash)
     const downloadPromise = page.waitForEvent('download')
-    await page.getByRole('button', { name: '完整工程', exact: true }).click()
+    await (await projectBackupButton(page)).click()
     const download = await downloadPromise
     const backupPath = info.outputPath('q1-edited.sceneweave')
     await download.saveAs(backupPath)

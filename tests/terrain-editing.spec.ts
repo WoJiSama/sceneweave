@@ -1,5 +1,9 @@
+import { openGenerationTask, openTerrainTask } from './workspace-navigation-helpers'
+import { mapExportButton, projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { unzipSync } from 'fflate'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 import type { PointMm } from '../src/shared/model/scene.js'
 import { visualBase } from '../src/shared/visual/base.js'
@@ -10,13 +14,14 @@ async function rendered(page: Page) {
   await expect(page.locator('canvas[aria-label="材质场景主持人预览"]')).toBeVisible({ timeout: 90_000 })
 }
 async function generateIsland(page: Page) {
-  await page.goto('/#workspace')
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await page.goto('./#workspace')
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
   await expect(page.getByRole('button', { name: '采用当前地形方案', exact: true })).toBeEnabled({ timeout: 90_000 })
   await page.getByRole('button', { name: '采用当前地形方案', exact: true }).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 })
   await rendered(page)
+  await openTerrainTask(page, '修改地形')
   await expect(page.getByRole('heading', { name: '局部地形编辑', exact: true })).toBeVisible()
 }
 async function contentState(page: Page) {
@@ -33,7 +38,7 @@ async function contentState(page: Page) {
         licenseBindings: project.licenseBindings, authoringSources: project.authoringSources }, canUndo: workspace.getState().canUndo }
   })
 }
-async function projectTab(page: Page) { await page.getByRole('tab', { name: '工程', exact: true }).click() }
+async function terrainEditTab(page: Page) { await openTerrainTask(page, '修改地形') }
 async function chooseEntity(page: Page, id: string, kind: '物件' | '结构' = '物件') {
   await page.getByRole('tab', { name: '对象', exact: true }).click()
   await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: kind, exact: true }).click()
@@ -50,10 +55,11 @@ async function contourPoint(page: Page) {
   return base.boundaries['terrain-coast-curve'].segments[0].control1
 }
 async function strokeSetup(page: Page, mode: '添陆' | '挖水' | '铺草' | '清出空地', radius: number, target = 'terrain-low') {
-  await projectTab(page)
+  await terrainEditTab(page)
   await page.getByRole('button', { name: mode, exact: true }).click()
   await page.getByLabel('地形编辑作用地形', { exact: true }).selectOption(target)
-  await page.getByLabel('地形编辑笔刷半径 mm', { exact: true }).fill(String(radius))
+  await page.getByLabel('地形编辑笔刷半径', { exact: true }).fill(String(radius / 1000))
+  await page.getByLabel('地形编辑笔刷半径', { exact: true }).press('Tab')
 }
 async function cancelDraft(page: Page) {
   const button = page.getByRole('button', { name: /取消(?:本次地形修改|局部地形预览)/ }).first()
@@ -63,7 +69,7 @@ async function cancelDraft(page: Page) {
 }
 async function uiPng(page: Page, path: string, audience: '主持人' | '玩家') {
   await page.getByRole('group', { name: '预览受众', exact: true }).getByRole('button', { name: audience, exact: true }).click()
-  const event = page.waitForEvent('download'); await page.getByRole('button', { name: '4K PNG', exact: true }).click()
+  const event = page.waitForEvent('download'); await (await mapExportButton(page, audience === '主持人' ? 'gm' : 'player')).click()
   await (await event).saveAs(path)
   const bytes = await readFile(path)
   expect(bytes.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
@@ -106,13 +112,88 @@ async function adopt(page: Page) {
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 }); await rendered(page)
 }
 
+test('canvas selection exits terrain brush without adopting a draft', async ({ page }) => {
+  test.setTimeout(240_000)
+  await generateIsland(page)
+  const original = await contentState(page), select = page.getByRole('button', { name: '选择地图对象', exact: true })
+  await strokeSetup(page, '清出空地', 300)
+  await expect(select).toHaveAttribute('aria-pressed', 'false')
+  await pointerStroke(page, [{ x: 2000, y: 2000 }, { x: 2400, y: 2000 }])
+  await select.click()
+  await expect(select).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('terrain-brush-overlay')).toHaveCount(0)
+  await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '清出空地', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByRole('button', { name: '取消本次地形修改', exact: true })).toHaveCount(0)
+  await page.locator('canvas[aria-label="材质场景主持人预览"]').click({ position: { x: 30, y: 30 } })
+  await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toHaveCount(0)
+  expect((await contentState(page)).hash).toBe(original.hash)
+})
+
+test('curve drag Escape restores the real canvas and release leaves no candidate or project change', async ({ page }, info) => {
+  test.setTimeout(240_000)
+  const errors: string[] = [], editWorkers: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  page.on('worker', worker => { if (/edit-worker/.test(worker.url())) editWorkers.push(worker.url()) })
+  await generateIsland(page)
+  const backup = async (name: string) => {
+    const downloaded = page.waitForEvent('download')
+    await (await projectBackupButton(page)).click()
+    const path = info.outputPath(name)
+    await (await downloaded).saveAs(path)
+    await expect(page.locator('.asset-busy')).toHaveCount(0)
+    await page.locator('.workspace-export-menu > summary').click()
+    const files = unzipSync(new Uint8Array(await readFile(path)))
+    return Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path, createHash('sha256').update(bytes).digest('hex')]))
+  }
+  const original = await backup('curve-before.sceneweave')
+  const revision = await page.locator('.workspace-unified').getAttribute('data-revision')
+  const undo = page.getByRole('button', { name: '撤销编辑', exact: true })
+  await expect(undo).toBeDisabled()
+  await page.getByLabel('地形编辑轮廓', { exact: true }).selectOption('terrain-coast-curve')
+  const handle = page.getByTestId('curve-handle-0-control1')
+  const controls = page.locator('svg.visual-controls')
+  await handle.scrollIntoViewIfNeeded()
+  const x = await handle.getAttribute('cx'), y = await handle.getAttribute('cy'), box = (await handle.boundingBox())!
+  const pointer = handle.evaluate(node => new Promise<number>(resolve => node.addEventListener('pointerdown', event => resolve((event as PointerEvent).pointerId), { once: true })))
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down()
+  const pointerId = await pointer
+  await page.mouse.move(box.x + box.width / 2 + 12, box.y + box.height / 2 + 8, { steps: 4 })
+  await expect(handle).not.toHaveAttribute('cx', x!)
+  await expect(handle).not.toHaveAttribute('cy', y!)
+  expect(await controls.evaluate((node, id) => node.hasPointerCapture(id), pointerId)).toBe(true)
+  await page.screenshot({ path: info.outputPath('curve-dragging.png') })
+  await page.keyboard.press('Escape')
+  await expect(handle).toHaveAttribute('cx', x!); await expect(handle).toHaveAttribute('cy', y!)
+  await expect(page.locator('.asset-selection-notice')).toHaveText('已取消曲线拖动，工程未修改。')
+  expect(await controls.evaluate((node, id) => node.hasPointerCapture(id), pointerId)).toBe(false)
+  await page.mouse.up()
+  // A further real move after release must not continue the cancelled gesture.
+  await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2 + 12, { steps: 3 })
+  await expect(handle).toHaveAttribute('cx', x!); await expect(handle).toHaveAttribute('cy', y!)
+  await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toHaveCount(0)
+  await expect(page.locator('.terrain-editing-panel .terrain-generation-progress')).toHaveCount(0)
+  await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', revision!)
+  await expect(undo).toBeDisabled()
+  await expect(page.locator('.asset-save')).toHaveText('本地已保存')
+  await page.screenshot({ path: info.outputPath('curve-cancelled.png') })
+  // Leave the contour tool before using the normal export entry, which guards drafts.
+  await page.getByRole('button', { name: '取消本次地形修改', exact: true }).click()
+  await expect(undo).toBeDisabled()
+  expect(await backup('curve-cancelled.sceneweave')).toEqual(original)
+  expect(editWorkers).toEqual([])
+  expect(errors).toEqual([])
+  await info.attach('curve-cancel-facts.json', { body: JSON.stringify({ revision, original, pointerId, editWorkers, errors }), contentType: 'application/json' })
+})
+
 test('T2 real pointer and keyboard multi-stroke drafts cancel safely and adopt as one protected undo unit', async ({ page, browser }, info) => {
   test.setTimeout(360_000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await generateIsland(page)
   const original = await contentState(page)
   await page.getByRole('button', { name: '清出空地', exact: true }).click()
-  await page.getByLabel('地形编辑笔刷半径 mm', { exact: true }).fill('300')
+  await page.getByLabel('地形编辑笔刷半径', { exact: true }).fill('0.3')
+  await page.getByLabel('地形编辑笔刷半径', { exact: true }).press('Tab')
   await pointerStroke(page, [{ x: 2000, y: 2000 }, { x: 2400, y: 2000 }])
   expect((await contentState(page)).hash).toBe(original.hash)
   await page.getByRole('group', { name: '地图视口', exact: true }).focus(); await page.keyboard.press('Escape')
@@ -120,7 +201,8 @@ test('T2 real pointer and keyboard multi-stroke drafts cancel safely and adopt a
   expect((await contentState(page)).hash).toBe(original.hash)
 
   await page.getByRole('button', { name: '清出空地', exact: true }).click()
-  await page.getByLabel('地形编辑笔刷半径 mm', { exact: true }).fill('300')
+  await page.getByLabel('地形编辑笔刷半径', { exact: true }).fill('0.3')
+  await page.getByLabel('地形编辑笔刷半径', { exact: true }).press('Tab')
   await numericStroke(page, { x: 2000, y: 2000 })
   await numericStroke(page, { x: 2400, y: 2000 })
   await expect(page.locator('.terrain-editing-panel')).toContainText('2 / 32 笔')
@@ -131,19 +213,19 @@ test('T2 real pointer and keyboard multi-stroke drafts cancel safely and adopt a
   expect(changed.generationVersion).toBe(2); expect(changed.hash).not.toBe(original.hash)
   if (changed.generation?.version !== 2) throw new Error('Expected strict generation2 after terrain editing')
   expect(Object.keys(changed.generation.strokes)).toHaveLength(2)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 })
   const undone = await contentState(page)
   expect(undone.generationVersion).toBe(original.generationVersion); expect(undone.props).toEqual(original.props)
   expect(undone.revision).toBe(changed.revision + 1)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 })
   const redone = await contentState(page)
   expect(redone.generation).toEqual(changed.generation); expect(redone.revision).toBe(undone.revision + 1)
   const downloadEvent = page.waitForEvent('download')
-  await page.getByRole('button', { name: '完整工程', exact: true }).click()
+  await (await projectBackupButton(page)).click()
   const download = await downloadEvent, path = info.outputPath('terrain-editing-multi.sceneweave'); await download.saveAs(path)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click()
+  await reloadSaved(page)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 }); await rendered(page)
   expect((await contentState(page)).hash).toBe(redone.hash)
   const coldContext = await browser.newContext(), coldPage = await coldContext.newPage()
@@ -215,12 +297,12 @@ test('T2 UI moves and deletes trees then drags the coast while preserving manual
   expect(trees.length).toBeGreaterThanOrEqual(3)
   const [moved, deleted, locked] = trees
   await chooseEntity(page, moved.id)
-  const x = page.getByRole('spinbutton', { name: '物件 X', exact: true }); await x.fill(String(moved.positionMm.x + 10)); await x.press('Tab'); await saved(page)
+  const x = page.getByRole('spinbutton', { name: '物件 X', exact: true }); await x.fill(String((moved.positionMm.x + 10) / 1000)); await x.press('Tab'); await saved(page)
   expect((await contentState(page)).props[moved.id].positionMm.x).toBe(moved.positionMm.x + 10)
   await chooseEntity(page, deleted.id); await page.getByRole('button', { name: '删除物件', exact: true }).click(); await saved(page)
   expect((await contentState(page)).props[deleted.id]).toBeUndefined()
   await chooseEntity(page, locked.id); await page.getByRole('button', { name: '更多操作', exact: true }).click()
-  await page.getByRole('menuitem', { name: '锁定所选', exact: true }).click(); await saved(page)
+  await page.getByRole('menuitem', { name: '立即锁定所选', exact: true }).click(); await saved(page)
   const manual = await contentState(page)
   expect(manual.props[locked.id].editLocked).toBe(true)
   const deletedOwner = Object.values(manual.generation!.ownership).find(owner => owner.target.entityId === deleted.id)!
@@ -231,7 +313,7 @@ test('T2 UI moves and deletes trees then drags the coast while preserving manual
   await strokeSetup(page, '清出空地', 400); await numericStroke(page, manual.props[locked.id].positionMm); await adopt(page)
   expect((await contentState(page)).props[locked.id]).toEqual(manual.props[locked.id])
 
-  await projectTab(page)
+  await terrainEditTab(page)
   const beforeContour = await contentState(page)
   await page.getByLabel('地形编辑轮廓', { exact: true }).selectOption('terrain-coast-curve')
   const handle = page.getByTestId('curve-handle-0-control1'); await handle.scrollIntoViewIfNeeded()
@@ -247,8 +329,11 @@ test('T2 UI moves and deletes trees then drags the coast while preserving manual
   expect(coastal.document.terrainAreas['terrain-low'].boundaryMm).not.toEqual(beforeContour.document.terrainAreas['terrain-low'].boundaryMm)
 
   await strokeSetup(page, '清出空地', 300)
-  await page.getByLabel('地形编辑范围宽 mm', { exact: true }).fill('100')
-  await page.getByLabel('地形编辑范围高 mm', { exact: true }).fill('100')
+  await page.locator('.terrain-editing-scope summary').click()
+  await page.getByLabel('地形编辑范围宽', { exact: true }).fill('0.1')
+  await page.getByLabel('地形编辑范围宽', { exact: true }).press('Tab')
+  await page.getByLabel('地形编辑范围高', { exact: true }).fill('0.1')
+  await page.getByLabel('地形编辑范围高', { exact: true }).press('Tab')
   const details = page.locator('.terrain-editing-panel details').filter({ has: page.getByText('键盘落笔', { exact: true }) })
   if (!await details.evaluate(element => (element as HTMLDetailsElement).open)) await details.locator('summary').click()
   await page.getByLabel('地形编辑落笔 X mm', { exact: true }).fill('2000'); await page.getByLabel('地形编辑落笔 Y mm', { exact: true }).fill('2000')

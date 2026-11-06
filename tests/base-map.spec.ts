@@ -1,3 +1,4 @@
+import { openGenerationTask, openGenerationSettings } from './workspace-navigation-helpers'
 import { writeFile } from 'node:fs/promises'
 import { test, expect, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
@@ -137,7 +138,7 @@ test('the UI explicitly selects server generation, cancels without changing the 
   test.setTimeout(240_000)
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message))
   const sent:any[]=[];page.on('request',request=>{if(request.url()===`${backendUrl}/v1/terrain/basemap`&&request.method()==='POST')sent.push(request.postDataJSON())})
-  await page.goto('/#workspace');await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await page.goto('/#workspace');await openGenerationTask(page, '组合地貌'); await openGenerationSettings(page)
   const before=await current(page)
   await page.getByLabel('程序底图生成位置',{exact:true}).selectOption('server')
   await page.getByLabel('程序底图后端地址',{exact:true}).fill(backendUrl)

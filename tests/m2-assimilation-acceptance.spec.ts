@@ -1,3 +1,4 @@
+import { reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { randomBytes } from 'node:crypto'
@@ -71,7 +72,7 @@ async function create(page: Page) {
   await page.goto('/#home'); await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('M2 冻结范围渐进同化验收')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000'); await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18'); await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await expect(dialog).toHaveCount(0); await saved(page)
   await page.evaluate(async () => {
     const path = '/src/editor/main/Workbench.tsx', helper = '/tests/helpers/m2-assimilation-browser.ts'
@@ -212,7 +213,7 @@ test('single SVG, fixed prefab and two frozen range batches keep manual edits, c
   expect(restored.document.terrainAreas).toEqual(beforeRestore.document.terrainAreas)
   expect(restored.document.revision).toBe(beforeRestore.document.revision + 1)
   // Cold reload and complete selected-history archive retain real SVG/PNG/licence bytes offline.
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await saved(page)
+  await reloadSaved(page); await saved(page)
   expect(await read(page)).toEqual(restored)
   await page.context().setOffline(true)
   const closure = await page.evaluate(async () => {

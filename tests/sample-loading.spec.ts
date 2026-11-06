@@ -129,7 +129,7 @@ test('builtin resources load only on explicit demand, allow a failed read to ret
     if (!failures) { failures++; await route.fulfill({ status: 503, contentType: 'text/plain', body: 'Deliberate unavailable builtin resource.' }) }
     else await route.continue()
   })
-  await lib.getByRole('button', { name: '内置素材', exact: true }).click()
+  await lib.getByLabel('素材来源', { exact: true }).selectOption('builtin')
   const retry = lib.getByRole('button', { name: '重试内置素材', exact: true })
   await expect(retry).toBeVisible({ timeout: 30_000 })
   expect(failures).toBe(1)
@@ -181,7 +181,7 @@ test('SCN-01 explicitly adopts its seven missing furniture assets without browsi
   expect(after.document.rooms).toEqual(before.document.rooms)
   expect(Object.keys(after.document.propDefinitions).filter(id => !before.document.propDefinitions[id])).toHaveLength(7)
   await expect(guide.getByRole('button', { name: '预览采用缺少的室内素材', exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   const undone = await current(page)
   expect(undone.document.props).toEqual(before.document.props)
   expect(undone.document.rooms).toEqual(before.document.rooms)

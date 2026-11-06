@@ -1,3 +1,4 @@
+import { reloadSaved } from './workspace-ux-helpers'
 import { test, expect } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { randomBytes } from 'node:crypto'
@@ -57,7 +58,7 @@ test('complete scene and SVG recipes survive real HTTP review, protected adoptio
   await page.goto('/#home'); await page.getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('M2-3/4 联合小屋')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000'); await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18'); await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await expect(dialog).toHaveCount(0)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存')
   await page.getByRole('tab', { name: 'AI对话', exact: true }).click()
@@ -97,9 +98,9 @@ test('complete scene and SVG recipes survive real HTTP review, protected adoptio
     return { sourceCount: Object.keys(imported.current.project.authoringSources).length, text, protectionCount: snapshots.length }
   })
   expect(verification).toEqual({ sourceCount: 1, text: svg, protectionCount: 1 })
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await expect(page.locator('.asset-save')).toHaveText('本地已保存'); expect((await read()).document.rooms).toEqual({})
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await expect(page.locator('.asset-save')).toHaveText('本地已保存')
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await expect(page.locator('.asset-save')).toHaveText('本地已保存')
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await expect(page.locator('.asset-save')).toHaveText('本地已保存'); expect((await read()).document.rooms).toEqual({})
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await expect(page.locator('.asset-save')).toHaveText('本地已保存')
+  await reloadSaved(page); await expect(page.locator('.asset-save')).toHaveText('本地已保存')
   const reopened = await read(); expect(reopened.sources).toEqual(adopted.sources); expect(reopened.document.props['ai-lamp']).toEqual(adopted.document.props['ai-lamp'])
   expect(errors).toEqual([])
 })

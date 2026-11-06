@@ -1,3 +1,4 @@
+import { openGenerationTask } from './workspace-navigation-helpers'
 import { expect, test } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { generateTerrainDocument } from '../src/shared/terrain-generation/generate.js'
@@ -127,7 +128,7 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
   const errors:string[]=[]
   page.on('pageerror',error=>errors.push(error.message))
   await page.goto('/#workspace')
-  await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'选择混合地形',exact:true}).click()
   await page.getByLabel('生成指定路线',{exact:true}).check()
   await page.getByRole('button',{name:'生成地形预览',exact:true}).click()
@@ -167,7 +168,7 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
 test('T8 exposes a bounded non-default canvas size and carries it into the candidate',async({page})=>{
   test.setTimeout(180000)
   await page.goto('/#workspace')
-  await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'选择森林地形',exact:true}).click()
   const generate=page.getByRole('button',{name:'生成地形预览',exact:true})
   const size=page.getByLabel('地形画布尺寸',{exact:true})
@@ -247,7 +248,7 @@ test('T1 retains all five untouched island and coast packages, neutral whole vie
 test('T1 manual preview cancellation, independent adoption, tree and coast edits survive cold storage, undo and complete dual4K export',async({page},info)=>{
   test.setTimeout(300000)
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message))
-  await page.goto('/#workspace');await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await page.goto('/#workspace');await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'生成地形预览',exact:true}).click()
   await expect(page.getByRole('article',{name:'当前地形候选'})).toBeVisible({timeout:60000})
   await page.getByRole('button',{name:'取消当前地形候选',exact:true}).click()

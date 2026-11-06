@@ -1,3 +1,5 @@
+import { openTerrainTask } from './workspace-navigation-helpers'
+import { reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import type { EditableProject } from '../src/application/workspace/project'
@@ -28,8 +30,8 @@ test('real original sprites enter one clustered preview; individual manual move/
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('簇状布景真实素材UI')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('48000')
-  await dialog.getByLabel('画布高度', { exact: true }).fill('36000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('48')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('36')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await saved(page)
   await page.getByRole('tab', { name: '工程', exact: true }).click()
   for (const [version, label] of [[3, '保存独立地形副本'], [4, '保存独立地形副本'], [5, '保存独立曲线连接副本'], [6, '保存独立簇状布景副本']] as const) {
@@ -37,7 +39,7 @@ test('real original sprites enter one clustered preview; individual manual move/
     await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', `sceneweave-complete-project@${version}`, { timeout: 90000 }); await saved(page)
   }
   const empty = await state(page)
-  await page.getByRole('tab', { name: '室外', exact: true }).click()
+  await openTerrainTask(page, '布置植被')
   const panel = page.getByRole('region', { name: '簇状布景', exact: true })
   await panel.getByLabel('布景种子', { exact: true }).fill('clustered-dressing-0')
   await panel.getByRole('button', { name: /^预览所选布景素材/ }).click()
@@ -79,11 +81,11 @@ test('real original sprites enter one clustered preview; individual manual move/
   expect(regenerated.document.decorations![other.id]).toBeUndefined()
   expect(regenerated.document.decorationClusters![cluster.id].members[member[0]].state).toBe('manual')
   expect(regenerated.document.decorationClusters![cluster.id].members[deletedSlot].state).toBe('deleted')
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.decorationClusters).toEqual(deleted.document.decorationClusters)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.decorations).toEqual(regenerated.document.decorations)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await saved(page)
+  await reloadSaved(page); await saved(page)
   expect((await state(page)).document.decorationClusters).toEqual(regenerated.document.decorationClusters)
 
   const proof = await page.evaluate(async () => {
