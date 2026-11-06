@@ -9,7 +9,7 @@ import { LibraryRepository } from '../library/repository.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { inspectLocalDevelopmentImport, importLocalDevelopmentData } from './development-import.js'
 import { CURRENT_DATABASE_SELECTION_KEY, DEFAULT_CURRENT_DATABASES } from './current-databases.js'
-import { LEGACY_DEVELOPMENT_PROJECT_DATABASE, PROJECT_STORES } from './database.js'
+import { LEGACY_DEVELOPMENT_PROJECT_DATABASE, PROJECT_STORES_V3 } from './database.js'
 import { LEGACY_DEVELOPMENT_LIBRARY_DATABASE } from '../library/database.js'
 import { fixture, runtime, validation as imageValidation } from '../../../application/workspace/test-fixtures.js'
 import { cloneJson } from '../../../shared/validation/json.js'
@@ -32,7 +32,7 @@ afterEach(async () => { for (const name of names) await Dexie.delete(name); for 
 
 async function legacyHistory() {
   const sourceName = `dev-import-test-${crypto.randomUUID()}`, sourceLibrary = `dev-import-test-${crypto.randomUUID()}`
-  const source = new Dexie(sourceName); source.version(3).stores(PROJECT_STORES); await source.open()
+  const source = new Dexie(sourceName); source.version(3).stores(PROJECT_STORES_V3); await source.open()
   const bundle = fixture({ image: true }), base = bundle.project, owner = base.document.sceneId
   const current = (revision: number, title: string) => { const project = cloneJson(base); project.document.revision = revision; project.document.title = title; return project }
   const originals = [current(0, 'root'), current(1, 'old branch'), current(2, 'active branch')]

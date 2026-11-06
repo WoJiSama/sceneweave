@@ -18,7 +18,9 @@ import * as binaryHash from '../../../shared/project/binary.js'
 import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES } from './database.js'
 import { ConversionConflictError, HistoryMetadataConflictError, ProjectConflictError, ProjectRepository, PROJECT_STORAGE_LIMITS } from './repository.js'
-import { historyHeadBytes, historyPinBytes, historyVersionBytes } from './incremental-history.js'
+import { historyPinBytes } from './incremental-history.js'
+import { canonicalProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
+import { partitionProjectContent } from './content-blocks.js'
 
 const NOW = '2026-10-24T00:00:00.000Z'
 const repositories: ProjectRepository[] = [], names = new Set<string>()
@@ -52,6 +54,20 @@ function revision(input: ProjectBundle, value: number): ProjectBundle {
   const project = cloneJson(input.project); project.document.revision = value; project.document.title = `Revision ${value}`
   return { project, resources: input.resources }
 }
+/** Read physical records independently of complete-project hydration/accounting. */
+async function nativeDocumentBytes(repo: ProjectRepository): Promise<number> {
+  const names = ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'historyVersions', 'historyHeads', 'historyPins', 'projectContentBlocks']
+  const transaction = repo.database.backendDB().transaction(names, 'readonly')
+  const totals = await Promise.all(names.map(name => new Promise<number>((resolve, reject) => {
+    const request = transaction.objectStore(name).getAll()
+    request.onsuccess = () => {
+      try { resolve(request.result.reduce((sum, row) => sum + (name === 'projectContentBlocks'
+        ? row.bytes.byteLength : encodeUtf8(canonicalJson(row)).length), 0)) } catch (error) { reject(error) }
+    }
+    request.onerror = () => reject(request.error)
+  })))
+  return totals.reduce((sum, value) => sum + value, 0)
+}
 async function reserve(repo: ProjectRepository, snapshotKeys: string[] = []): Promise<ConversionJob> {
   return repo.reserveJob({ sourceRepository: 'sceneweave-m1-outdoor', scopeId: 'old-owner', sourceFingerprint: 'a'.repeat(64), snapshotKeys, sourceContentHashes: { current: 'b'.repeat(64) } })
 }
@@ -80,11 +96,11 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 project repository and two-phase conversion', () => {
-  it('creates only on explicit use, owns the exact schema3 stores and refuses old names or unknown schemas', async () => {
+  it('creates only on explicit use, owns the exact schema4 stores and refuses old names or unknown schemas', async () => {
     const repo = repository(), before = (await indexedDB.databases()).map(db => db.name)
     expect(before).not.toContain(repo.database.name)
     await repo.open()
-    expect(repo.database.verno).toBe(3); expect(repo.database.backendDB().version).toBe(30)
+    expect(repo.database.verno).toBe(4); expect(repo.database.backendDB().version).toBe(40)
     expect(repo.database.tables.map(table => table.name).sort()).toEqual([...PROJECT_TABLES].sort())
     expect(repo.database.table('conversionJobs').schema.indexes.find(index => index.name === 'jobKey')?.unique).toBe(true)
     for (const name of ['sceneweave-m0', 'sceneweave-m1-outdoor', 'sceneweave-catalog-v1', 'sceneweave-library']) expect(() => repository(name)).toThrow(/不能/)
@@ -128,15 +144,14 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     const scanning = vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals')
     const named = await repo.createSnapshot(input, '相同内容命名', { expectedRevision: 0, expectedMetadataVersion: 0 })
     const protection = await repo.createSnapshot(input, '相同内容保护', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 1 })
-    const pins = await repo.database.historyPins.toArray(), head = (await repo.database.historyHeads.get(owner))!
+    const pins = await repo.database.historyPins.toArray()
     expect(pins.map(row => row.id).sort()).toEqual([named.id, protection.id].sort())
     expect(pins.every(row => row.versionId === baseline.id && !Object.hasOwn(row, 'project'))).toBe(true)
     expect(await repo.database.historyVersions.count()).toBe(1)
     expect(await repo.database.snapshots.count()).toBe(0)
     expect(await repo.database.automaticSnapshots.count()).toBe(0)
     const usage = await repo.usage(owner)
-    expect(usage).toEqual({ documentBytes: encodeUtf8(canonicalJson(input.project)).length + historyVersionBytes(baseline)
-      + historyHeadBytes(head) + pins.reduce((sum, pin) => sum + historyPinBytes(pin), 0),
+    expect(usage).toEqual({ documentBytes: await nativeDocumentBytes(repo),
       resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 0 })
     expect(usage.documentBytes - before.documentBytes).toBe(pins.reduce((sum, pin) => sum + historyPinBytes(pin), 0))
     expect(scanning).not.toHaveBeenCalled()
@@ -239,9 +254,8 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     expect(pin.versionId).toBe(versions.find(row => row.revision === 0)!.id)
     expect((await repo.loadSnapshot(owner, protection.id))!.bundle.project).toEqual(input.project)
     expect((await repo.load(owner))!.project).toEqual(revision(input, 1).project)
-    const usage = await repo.usage(owner), head = (await repo.database.historyHeads.get(owner))!
-    expect(usage.documentBytes).toBe(encodeUtf8(canonicalJson(revision(input, 1).project)).length
-      + versions.reduce((sum, row) => sum + historyVersionBytes(row), 0) + historyPinBytes(pin) + historyHeadBytes(head))
+    const usage = await repo.usage(owner)
+    expect(usage.documentBytes).toBe(await nativeDocumentBytes(repo))
   })
   it('rechecks selected immutable history and keeps rename/delete separate from version contents', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
@@ -307,13 +321,17 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await expect(repo.usage(owner)).rejects.toThrow(/hash/)
     const invalid = cloneJson(automatic)
     Object.assign(invalid.checkpoint!.authoringSources, { orphan: { kind: 'svg' } })
-    invalid.contentHash = sha256Bytes(encodeUtf8(canonicalJson(invalid.checkpoint)))
+    invalid.contentHash = sha256Bytes(encodeUtf8(canonicalProjectCoordinates(invalid.checkpoint!)))
     const { recordHash: _recordHash, ...payload } = invalid
-    invalid.recordHash = sha256Bytes(encodeUtf8(canonicalJson(payload)))
+    invalid.recordHash = sha256Bytes(encodeUtf8(canonicalJson({ ...payload, checkpoint: JSON.parse(canonicalProjectCoordinates(payload.checkpoint!)) })))
     await repo.database.historyVersions.put(invalid)
     await expect(repo.usage(owner)).rejects.toThrow(/字段无效/)
     await repo.database.historyVersions.put(automatic)
-    expect(await repo.usage(owner)).toEqual(before)
+    // Failed external tampering leaves immutable blocks retained. They remain
+    // real stored bytes even after the original visible record is restored.
+    const after = await repo.usage(owner)
+    expect(after).toEqual({ ...before, documentBytes: await nativeDocumentBytes(repo) })
+    expect(after.documentBytes).toBeGreaterThan(before.documentBytes)
   })
   it('rereads historical content, resources, licenses and originals changed by another connection after a successful scan', async () => {
     const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
@@ -551,6 +569,43 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     expect(await repo.list()).toEqual([])
     expect((await repo.getJob(job.jobId))!.stage).toBe('committed')
     expect((await repo.database.projects.get(job.targetSceneId))!.status).toBe('preparing')
+  })
+  it('admits shared conversion blocks near the document limit and checks actual manifests before committing', async () => {
+    for (const fits of [true, false]) {
+      const repo = repository(), input = fixture()
+      input.project.document.title = 'Shared conversion content '.repeat(8_000)
+      let { job, converted } = await prepared(repo, input)
+      const project = converted.current.project
+      const uniqueBytes = partitionProjectContent(project).blocks.reduce((sum, block) => sum + block.bytes.length, 0)
+      const fullBytes = encodeUtf8(canonicalProjectCoordinates(project)).length
+      // Model a nearly full library. The roomy case fits the real block closure
+      // and manifest rows, but not duplicate complete current/checkpoint JSON.
+      // The tight case fits new blocks alone, so final row accounting must abort.
+      const remaining = fits ? Math.floor(fullBytes * 1.5) : uniqueBytes
+      expect(remaining).toBeLessThan(fullBytes * 2)
+      const base = PROJECT_STORAGE_LIMITS.documentBytes - remaining
+      vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals').mockResolvedValue({ documentBytes: base, resourceBytes: 0, legacyBytes: 0 })
+      ;(repo as unknown as { accounting: { invalidate(): void } }).accounting.invalidate()
+      job = await repo.prepareConversion(job.jobId, job.jobVersion, converted)
+      expect(job.stage).toBe('prepared')
+      const beforeEpoch = await repo.database.storageState.get('epoch')
+      if (fits) {
+        job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
+        expect(job.stage).toBe('committed')
+        const actual = await nativeDocumentBytes(repo)
+        expect(actual).toBeLessThan(remaining)
+        expect((await repo.usage(job.targetSceneId)).documentBytes).toBe(base + actual)
+        expect((await repo.database.projects.get(job.targetSceneId))!.status).toBe('preparing')
+        expect(await repo.database.historyVersions.count()).toBe(1)
+      } else {
+        await expect(repo.commitConversion(job.jobId, job.jobVersion, converted)).rejects.toThrow(/累计预算/)
+        expect((await repo.getJob(job.jobId))!.stage).toBe('prepared')
+        expect(await repo.database.projects.count()).toBe(0)
+        expect(await repo.database.historyVersions.count()).toBe(0)
+        expect(await repo.database.projectContentBlocks.count()).toBe(0)
+        expect(await repo.database.storageState.get('epoch')).toEqual(beforeEpoch)
+      }
+    }
   })
   it('preflights target cumulative budgets and leaves the reservation/backup intact on rejection', async () => {
     const repo = repository(), input = await imageFixture(), { job, converted } = await prepared(repo, input)

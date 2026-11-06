@@ -55,7 +55,8 @@ describe('incremental history source-copy migration', () => {
   it('cold-verifies all old roots and pins before activating, then preserves original rows across new delta saves', async () => {
     const sourceRows = await source(true), repo = repository(sourceRows.name), owner = sourceRows.owner
     const history = await repo.listHistoryVersions(owner)
-    expect(repo.database.backendDB().version).toBe(30)
+    expect(repo.database.verno).toBe(4)
+    expect(repo.database.backendDB().version).toBe(40)
     expect(history.versions).toHaveLength(3); expect(history.versions.every(row => row.parentId === null && row.checkpoint)).toBe(true)
     expect(await repo.listSnapshots(owner)).toEqual(sourceRows.summaries.sort((a, b) => a.id.localeCompare(b.id)))
     for (const row of history.versions) expect(projectContentHash((await repo.loadHistoryVersion(owner, row.id))!.project)).toBe(row.contentHash)
