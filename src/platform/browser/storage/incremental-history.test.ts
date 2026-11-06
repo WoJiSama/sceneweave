@@ -12,7 +12,7 @@ import { projectContentHash } from '../../../shared/project/validate.js'
 import * as projectValidation from '../../../shared/project/validate.js'
 import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
-import { ProjectDatabase, PROJECT_STORES_V1, PROJECT_STORES_V2, PROJECT_TABLES, inspectProjectDatabase, type StoredProject, type StoredSnapshot } from './database.js'
+import { ProjectDatabase, PROJECT_STORES_V1, PROJECT_STORES_V2, PROJECT_STORES_V3, PROJECT_TABLES, inspectProjectDatabase, type StoredProject, type StoredSnapshot } from './database.js'
 import { INCREMENTAL_HISTORY_LIMITS, IncrementalHistory, captureHistoryGraph, historyGraphProjects, readHistoryGraphVersion, historyVersionBytes, historyPinBytes, historyHeadBytes, migrationManifest, type HistoryVersion } from './incremental-history.js'
 
 const NOW = '2026-10-30T00:00:00.000Z'
@@ -412,14 +412,14 @@ describe('incremental local history graph', () => {
   })
 })
 
-describe('explicit native IndexedDB schema3 upgrade', () => {
-  for (const [version, stores] of [[1, PROJECT_STORES_V1], [2, PROJECT_STORES_V2]] as const) it(`preserves every schema${version} source row while adding private history stores`, async () => {
+describe('explicit native IndexedDB schema4 upgrade', () => {
+  for (const [version, stores] of [[1, PROJECT_STORES_V1], [2, PROJECT_STORES_V2], [3, PROJECT_STORES_V3]] as const) it(`preserves every schema${version} source row while adding private history stores`, async () => {
     const name = `history-upgrade-${crypto.randomUUID()}`; names.add(name)
     const source = new Dexie(name); connections.push(source); source.version(version).stores(stores); await source.open()
     const retained = row(); await source.table('projects').add(retained); source.close()
     await inspectProjectDatabase(name)
     const upgraded = db(name); await upgraded.open()
-    expect(upgraded.verno).toBe(3); expect(upgraded.backendDB().version).toBe(30)
+    expect(upgraded.verno).toBe(4); expect(upgraded.backendDB().version).toBe(40)
     expect(await upgraded.projects.get(retained.sceneId)).toEqual(retained)
     expect(await upgraded.historyVersions.count()).toBe(0)
   })

@@ -1,6 +1,7 @@
 import type { ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
 import { createProjectDelta, applyProjectDelta, applyProjectDeltaChain, validateProjectDelta, projectDeltaBytes, projectDeltaJson, DeltaSizeError, type JsonDelta } from '../../../shared/project/delta.js'
 import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
+import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { canonicalJson, captureJson, cloneJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
 import type { ProjectDatabase, StoredAutomatic, StoredProject, StoredSnapshot } from './database.js'
@@ -84,7 +85,7 @@ function exact(input: unknown, fields: readonly string[]): asserts input is Reco
 /** The complete project and each delta have independent JSON input budgets. */
 function recordFields(input: object, includeHash = true): [string, string][] {
   return Object.entries(input).filter(([key]) => includeHash || key !== 'recordHash').sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
-    .map(([key, value]) => [key, `${JSON.stringify(key)}:${key === 'delta' && value !== null ? projectDeltaJson(value) : canonicalJson(value)}`])
+    .map(([key, value]) => [key, `${JSON.stringify(key)}:${key === 'delta' && value !== null ? projectDeltaJson(value) : key === 'checkpoint' && value !== null ? canonicalProjectCoordinates(value as ProjectData) : canonicalJson(value)}`])
 }
 function recordJson(input: object, includeHash = true): string { return `{${recordFields(input, includeHash).map(([, value]) => value).join(',')}}` }
 const digest = (input: object) => sha256Bytes(encodeUtf8(recordJson(input, false)))
@@ -201,6 +202,12 @@ class ReconstructionCache {
   clear(): void { this.entries.clear(); this.bytes = 0 }
 }
 const orderedVersions = (versions: HistoryVersion[]): HistoryVersion[] => [...versions].sort((a, b) => a.revision - b.revision || a.id.localeCompare(b.id))
+/** Public history JSON carries the sole local storage representation. Capture
+ * before inspecting its marker; the caller validates the decoded root once. */
+function readCheckpoint(input: unknown): ProjectData {
+  const captured = captureJson(input) as ProjectData
+  return captured?.document?.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(captured) : captured
+}
 function rebuildFromMap(byId: Map<string, HistoryVersion>, id: string, cache?: ReconstructionCache): ProjectData {
   const leaf = byId.get(id)
   if (!leaf) throw new Error('增量历史图版本缺失。')
@@ -221,7 +228,7 @@ function rebuildFromMap(byId: Map<string, HistoryVersion>, id: string, cache?: R
     break
   }
   // All rows were strictly checked before entering this private reconstruction.
-  let project = cached ?? cloneJson(current.checkpoint!), depth = cached ? current.depth : 0, bytes = cached ? current.chainBytes : 0
+  let project = cached ?? readCheckpoint(current.checkpoint), depth = cached ? current.depth : 0, bytes = cached ? current.chainBytes : 0
   if (!cached) {
     cache?.remember(current.id, project)
   }
@@ -241,7 +248,7 @@ export function* historyGraphProjects(graph: HistoryGraph): Generator<ProjectDat
   // Detach before yielding control to a consumer that can mutate its graph.
   const versions = graph.versions.map(version => {
     assertVersion(version, graph.head.ownerSceneId)
-    return { ...version, checkpoint: version.checkpoint === null ? null : validateProjectData(version.checkpoint),
+    return { ...version, checkpoint: version.checkpoint === null ? null : readCheckpoint(version.checkpoint),
       delta: version.delta === null ? null : validateProjectDelta(version.delta) }
   })
   const byId = new Map(versions.map(version => [version.id, version])), cache = new ReconstructionCache()
@@ -277,7 +284,7 @@ export function captureHistoryGraph(input: unknown): HistoryGraph {
     assertVersion(row, owner)
     if (ids.has(row.id)) throw new Error('增量历史图版本ID重复。')
     ids.add(row.id)
-    return { ...row, checkpoint: row.checkpoint === null ? null : validateProjectData(row.checkpoint), delta: row.delta === null ? null : validateProjectDelta(row.delta) }
+    return { ...row, checkpoint: row.checkpoint === null ? null : readCheckpoint(row.checkpoint), delta: row.delta === null ? null : validateProjectDelta(row.delta) }
   })
   const pinIds = new Set<string>(), pins = captureRows(input.pins, 84, row => {
     assertPin(row, owner)
@@ -424,7 +431,7 @@ export class IncrementalHistory {
   }
   private reconstructVersion(cursor: HistoryVersion, steps: HistoryVersion[]): ProjectData {
     // Empty chains also strictly validate/hash their complete checkpoint.
-    const rebuilt = applyProjectDeltaChain(cursor.checkpoint!, steps.map(row => row.delta!), cursor.contentHash)
+    const rebuilt = applyProjectDeltaChain(readCheckpoint(cursor.checkpoint), steps.map(row => row.delta!), cursor.contentHash)
     for (const [index, row] of steps.entries()) {
       const state = rebuilt.states[index]
       if (state.contentHash !== row.contentHash || state.revision !== row.revision) throw new Error('增量历史重建完整hash或修订不符。')
@@ -519,7 +526,7 @@ export class IncrementalHistory {
         catch (error) { if (!(error instanceof DeltaSizeError)) throw error }
         checkpoint = delta === null
         if (delta !== null) {
-          const deltaBytes = projectDeltaBytes(delta), fullBytes = encodeUtf8(canonicalJson(current.project)).length
+          const deltaBytes = projectDeltaBytes(delta), fullBytes = encodeUtf8(canonicalProjectCoordinates(current.project)).length
           chainBytes = parent.version.chainBytes + deltaBytes
           checkpoint = deltaBytes >= fullBytes || chainBytes >= fullBytes
         }

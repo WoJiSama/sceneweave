@@ -6,8 +6,11 @@ import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
 import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
 import { captureProjectBundleInput, createMemoryResources, validateProjectBundle, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
+import { checkedContentBlock, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest } from './content-blocks.js'
+import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
 import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
 import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
+import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
 import { parseBoundedJson } from '../../../shared/project/json.js'
@@ -56,10 +59,10 @@ function rememberCheckedContent(contents: ContentChecks, json: string, checked: 
   contents.retainedCharacters += json.length
 }
 function checkedContent(project: ProjectData, contents: ContentChecks): CheckedContent {
-  const json = canonicalJson(project)
+  const json = canonicalProjectCoordinates(project)
   let checked = contents.entries.get(json)
   if (!checked) {
-    validateProjectData(project)
+    validateProjectData(project.document.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(project) : project)
     const bytes = encodeUtf8(json)
     checked = { hash: sha256Bytes(bytes), byteLength: bytes.length }
     rememberCheckedContent(contents, json, checked)
@@ -70,7 +73,7 @@ function checkedContent(project: ProjectData, contents: ContentChecks): CheckedC
 function rememberReconstructedContent(project: ProjectData, hash: string): void {
   const transaction = Dexie.currentTransaction, contents = transaction && transactionContentChecks.get(transaction)
   if (!contents) return
-  const json = canonicalJson(project)
+  const json = canonicalProjectCoordinates(project)
   if (json.length > CONTENT_CHECK_CHARACTER_LIMIT) return
   rememberCheckedContent(contents, json, { hash, byteLength: encodeUtf8(json).length })
 }
@@ -598,13 +601,19 @@ export class ProjectRepository {
       if (checked.hash !== hash) throw new Error('存档完整内容hash损坏；原记录保持。')
       size += checked.byteLength
     }
-    if (table === 'projects') assertCurrent(value as StoredProject, content)
-    else if (table === 'automaticSnapshots') assertAutomatic(value as StoredAutomatic, content)
-    else if (table === 'snapshots' || table === 'importedSnapshots') assertSnapshot(value as StoredSnapshot, table === 'importedSnapshots', content)
+    const runtimeRecord = (row: unknown) => {
+      if (!row || typeof row !== 'object') return row
+      const record = row as Record<string, unknown>, project = record.project as ProjectData | undefined
+      return project?.document?.aggregateCoordinates?.encoding === 'local' ? { ...record, project: decodeProjectCoordinates(project) } : row
+    }
+    if (table === 'projects') assertCurrent(runtimeRecord(value) as StoredProject, content)
+    else if (table === 'automaticSnapshots') assertAutomatic(runtimeRecord(value) as StoredAutomatic, content)
+    else if (table === 'snapshots' || table === 'importedSnapshots') assertSnapshot(runtimeRecord(value) as StoredSnapshot, table === 'importedSnapshots', content)
     else if (table === 'nativeUpgradeCapsules') throw new Error('旧升级原件仅归独立迁入保全库，不能写入当前工程库。')
     else if (table === 'historyVersions') size = this.history.versionBytes(value)
     else if (table === 'historyHeads') size = historyHeadBytes(value)
     else if (table === 'historyPins') size = historyPinBytes(value)
+    else if (table === 'projectContentBlocks') return { kind: 'documentBytes', bytes: checkedContentBlock(value).bytes.length }
     else if (table === 'resources' || table === 'legacyBlobs') return { kind: table === 'resources' ? 'resourceBytes' : 'legacyBytes',
       bytes: bytesOf(value as StoredBytes, table === 'resources' ? 20 * 1024 * 1024 : PROJECT_STORAGE_LIMITS.legacyBytes).length }
     else if (table === 'licenseTexts') {
@@ -618,8 +627,9 @@ export class ProjectRepository {
   }
   private async scanTotals(): Promise<StorageTotals> {
     const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
-    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyVersions', 'historyHeads', 'historyPins']) {
-      await scanRows(this.database.table(table), row => { const cost = this.rowCost(table, row); if (cost) totals[cost.kind] += cost.bytes })
+    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyVersions', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
+      await scanRows(this.database.table(table), row => { const cost = this.rowCost(table, row); if (cost && !Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals[cost.kind] += cost.bytes })
+      if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += await this.database.rawJsonBytes(table)
     }
     // Cold/opened connections prove the whole graph once; a session receipt is
     // retained only while all subsequent writes are transactionally measured.
@@ -657,9 +667,17 @@ export class ProjectRepository {
     id(ownerSceneId); checkCancelled(options.signal); await this.open()
     return this.database.transaction('r', this.database.projects, this.database.historyMetadata, async () => {
       checkCancelled(options.signal)
-      const current = await this.database.projects.get(ownerSceneId)
+      const current = await this.database.rawJsonRecord('projects', ownerSceneId) as StoredProject | undefined
       if (!current) throw new ProjectConflictError(null)
-      assertCurrent(current, (_project, hash) => {
+      if (isProjectBlockManifest(current.project)) {
+        exact(current, ['sceneId', 'revision', 'savedAt', 'contentHash', 'status', 'conversionJobId', 'project'])
+        id(current.sceneId); time(current.savedAt)
+        const manifest = validateProjectBlockManifest(current.project)
+        if (!hashValue(current.contentHash) || current.contentHash !== manifest.contentHash) throw new Error('存档完整内容hash无效。')
+        if (current.sceneId !== ownerSceneId || !integer(current.revision)
+          || !['preparing', 'ready'].includes(current.status) || current.conversionJobId !== null && !validId(current.conversionJobId)
+          || current.status === 'preparing' && current.conversionJobId === null) throw new Error('当前工程身份、版本或发布状态损坏。')
+      } else assertCurrent(current, (_project, hash) => {
         if (!hashValue(hash)) throw new Error('存档完整内容hash无效。')
       })
       if (current.status !== 'ready') throw new ProjectConflictError(current.revision)
@@ -709,10 +727,20 @@ export class ProjectRepository {
         || !integer(preservation.guard.expectedMetadataVersion) || !hashValue(preservation.guard.protection.contentHash)) throw new Error('独立工程的原工程保护基线无效。')
     }
     const captured = captureProjectBundleInput(input), savedAt = this.options.runtime.clock.now(); time(savedAt)
-    const bundle = await validateProjectBundle(captured, this.validation(options)), project = bundle.project, hash = projectContentHash(project), owner = project.document.sceneId
+    const bundle = await validateProjectBundle(captured, this.validation(options)), project = bundle.project, owner = project.document.sceneId
+    // Only this call's complete validator result supplies the proof. Persisted
+    // clones may reuse it below only after exact canonical-content comparison.
+    const validatedJson = canonicalProjectCoordinates(project)
+    const checked: CheckedContent = (() => {
+      const bytes = encodeUtf8(validatedJson)
+      return { hash: sha256Bytes(bytes), byteLength: bytes.length }
+    })(), hash = checked.hash
     await this.ensureHistory(owner, options)
     if (preservation) await this.ensureHistory(preservation.sceneId, options)
     await this.atomic(options, async () => {
+      const contents = transactionContentChecks.get(Dexie.currentTransaction!)
+      if (!contents) throw new Error('保存完整内容证明须绑定当前事务。')
+      rememberCheckedContent(contents, validatedJson, checked)
       if (historyParentId !== undefined) {
         const parent = await this.history.readVersion(owner, historyParentId)
         if (!parent || parent.version.contentHash !== historyParentHash || parent.project.document.sceneId !== owner || parent.project.schemaVersion !== project.schemaVersion
@@ -1198,11 +1226,14 @@ export class ProjectRepository {
     const usage = await this.usageInTransaction(family.current.project.document.sceneId)
     let resources = usage.resourceBytes, documents = usage.documentBytes, legacy = usage.legacyBytes
     const all = [family.current, ...family.snapshots.map(row => row.bundle), ...family.importedSnapshots.map(row => row.bundle)]
-    // A successful conversion adds both current and its first normal automatic snapshot.
-    documents += encodeUtf8(canonicalJson(family.current.project)).length
+    // Preflight only a lower bound for new immutable content. Current and
+    // checkpoint share blocks; counting complete logical copies would reject
+    // valid imports. Actual manifests, graph rows and blocks are all charged
+    // by the final in-transaction assertBudgets before publication.
+    const blocks = new Map<string, Uint8Array>()
     const assets = new Set<string>(), licenses = new Set<string>(), originals = new Set<string>()
     for (const bundle of all) {
-      documents += encodeUtf8(canonicalJson(bundle.project)).length
+      for (const block of partitionProjectContent(bundle.project).blocks) blocks.set(block.sha256, block.bytes)
       for (const [hash, size] of projectResourceRecords(bundle.project)) if (!assets.has(hash)) {
         assets.add(hash)
         if (!(await this.database.resources.get(hash))) resources += size
@@ -1211,6 +1242,11 @@ export class ProjectRepository {
         licenses.add(hash)
         if (!(await this.database.licenseTexts.get(hash))) resources += encodeUtf8(license.text).length
       }
+    }
+    for (const [hash, bytes] of blocks) {
+      const existing = await this.database.projectContentBlocks.get(hash)
+      if (existing) checkedContentBlock(existing, { sha256: hash, byteLength: bytes.length })
+      else documents += bytes.length
     }
     for (const blob of family.legacyBlobs) if (!originals.has(blob.sha256)) {
       originals.add(blob.sha256)

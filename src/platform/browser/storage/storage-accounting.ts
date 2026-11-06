@@ -1,5 +1,6 @@
 import Dexie, { type Transaction } from 'dexie'
 import type { ProjectDatabase } from './database.js'
+import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
 
 export interface StorageTotals { documentBytes: number; resourceBytes: number; legacyBytes: number }
 type Cost = { kind: keyof StorageTotals; bytes: number } | null
@@ -15,6 +16,19 @@ export class StorageAccounting {
   private readonly foreign = new WeakSet<Transaction>()
   constructor(private readonly db: ProjectDatabase, private readonly scan: () => Promise<StorageTotals>,
     private readonly measure: (table: string, value: unknown) => Cost) {
+    // Payload hooks see complete runtime projects. Native middleware reports the
+    // actual manifest row delta plus newly inserted immutable block bytes.
+    db.onContentStorageDelta = delta => {
+      if (!Number.isSafeInteger(delta)) throw new Error('存储预算增量统计不一致；事务未采用。')
+      const tx = Dexie.currentTransaction
+      advance(db.name)
+      const totals = tx && this.pending.get(tx)
+      if (totals) this.adjust(totals, 'documentBytes', delta)
+      else {
+        this.invalidate()
+        if (tx) this.signalForeign(tx, 'projectContentBlocks')
+      }
+    }
     for (const table of db.tables) {
       const name = table.name
       table.hook('creating', (_key, value, tx) => { this.changed(tx, name, undefined, value) })
@@ -30,20 +44,26 @@ export class StorageAccounting {
     }
   }
   invalidate(): void { this.receipt = null }
+  private adjust(totals: StorageTotals, kind: keyof StorageTotals, delta: number): void {
+    totals[kind] += delta
+    if (!Number.isSafeInteger(totals[kind]) || totals[kind] < 0) throw new Error('存储预算增量统计不一致；事务未采用。')
+  }
   private changed(tx: Transaction, table: string, before: unknown, after: unknown): void {
     advance(this.db.name)
     const totals = this.pending.get(tx)
     if (totals) {
       for (const [value, sign] of [[before, -1], [after, 1]] as const) if (value !== undefined) {
+        // Always validate changed complete rows, even with a warm receipt. Only
+        // their physical native representation is charged by the callback.
         const cost = this.measure(table, value)
-        if (cost) {
-          totals[cost.kind] += sign * cost.bytes
-          if (!Number.isSafeInteger(totals[cost.kind]) || totals[cost.kind] < 0) throw new Error('存储预算增量统计不一致；事务未采用。')
-        }
+        if (cost && !Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) this.adjust(totals, cost.kind, sign * cost.bytes)
       }
       return
     }
     this.invalidate()
+    this.signalForeign(tx, table)
+  }
+  private signalForeign(tx: Transaction, table: string): void {
     // Other repository consumers (for example original-family preservation)
     // use their own transactions. Signal those writes to every other tab too.
     if (table !== 'storageState' && !this.foreign.has(tx) && tx.storeNames.includes('storageState')) {
