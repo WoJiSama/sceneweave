@@ -92,6 +92,7 @@ test('U1b desktop panels resize, fold, retain passive drafts and remember layout
     await page.getByRole('button', { name: `展开${name}`, exact: true }).click()
     await expectSameCanvas(page)
   }
+  await page.locator('.workspace-layout-settings > summary').click()
   await page.getByRole('button', { name: '重置布局', exact: true }).click()
   await expect.poll(() => preferences(page)).toEqual(defaults)
 

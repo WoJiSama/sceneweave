@@ -14,6 +14,7 @@ async function buildingTools(page: Page) {
   await page.getByRole('tab', { name: '建筑', exact: true }).click()
   const tools = page.getByLabel('建筑组工具', { exact: true })
   await expect(tools).toBeVisible()
+  if (await tools.getAttribute('open') === null) await tools.locator('summary').first().click()
   return tools
 }
 
