@@ -19,6 +19,7 @@ import { sealHistoryRecord } from './incremental-history.js'
 import { ProjectRepository } from './repository.js'
 import type { ProjectData } from '../../../shared/model/project.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
+import type { ProjectBlockManifest, ProjectContentBlock } from './content-blocks.js'
 
 const validation: CompleteValidationOptions = { images: {
   async decode() { throw new Error('empty migration must not decode images') },
@@ -55,6 +56,20 @@ async function legacyHistory() {
   for (const row of Object.values(base.licenses)) await source.table('licenseTexts').add(row)
   const before = await Promise.all(source.tables.map(async table => [table.name, await table.toArray()]))
   return { source, before, owner, originals, hashes, sourceNames: { projects: sourceName, library: sourceLibrary } }
+}
+
+async function nativeRows(database: Dexie) {
+  return Promise.all(database.tables.map(async table => [table.name, await table.toArray()]))
+}
+
+async function stopBeforeColdRead(options: Parameters<typeof importLocalDevelopmentData>[0], fingerprint: string) {
+  const load = ProjectRepository.prototype.load
+  const spy = vi.spyOn(ProjectRepository.prototype, 'load').mockImplementation(async function (this: ProjectRepository, ...args) {
+    if (this.database.name.startsWith('sceneweave-projects-dev-v1-')) throw new DOMException('fixture interrupts cold validation', 'AbortError')
+    return load.apply(this, args)
+  })
+  try { await expect(importLocalDevelopmentData(options, fingerprint)).rejects.toMatchObject({ name: 'AbortError' }) }
+  finally { spy.mockRestore() }
 }
 
 describe('independent development v1 migration boundary', () => {
@@ -108,6 +123,49 @@ describe('independent development v1 migration boundary', () => {
       expect(selected.getItem(CURRENT_DATABASE_SELECTION_KEY)).toBeNull()
       await expect(inspectLocalDevelopmentImport({ ...options, validation: { ...imageValidation, signal: { aborted: true } } })).rejects.toMatchObject({ name: 'AbortError' })
     } finally { data.source.close() }
+  })
+  it('resumes the exact private schema4 manifests and block closure after interrupted cold validation', async () => {
+    const data = await legacyHistory(), selected = storage(), options = { validation: imageValidation, storage: selected, locks, source: data.sourceNames }
+    const preview = await inspectLocalDevelopmentImport(options), target = new Dexie(preview.target.projects)
+    try {
+      await stopBeforeColdRead(options, preview.sourceFingerprint)
+      expect(selected.getItem(CURRENT_DATABASE_SELECTION_KEY)).toBeNull()
+      await target.open()
+      expect(target.backendDB().version).toBe(40)
+      const stored = await target.table('projects').get(data.owner) as { project: ProjectBlockManifest }
+      expect(stored.project.format).toBe('sceneweave-project-content-blocks')
+      const blocks = await target.table('projectContentBlocks').toArray() as ProjectContentBlock[]
+      expect(blocks.length).toBeGreaterThan(0)
+      const staged = await nativeRows(target)
+      await expect(importLocalDevelopmentData(options, preview.sourceFingerprint)).resolves.toEqual(preview)
+      expect(await nativeRows(target)).toEqual(staged)
+      expect(await nativeRows(data.source)).toEqual(data.before)
+      expect(JSON.parse(selected.getItem(CURRENT_DATABASE_SELECTION_KEY)!)).toEqual(preview.target)
+    } finally { target.close(); data.source.close() }
+  })
+  it.each(['missing', 'corrupt', 'extra'] as const)('refuses a %s private content block without repairing or replacing the staged or source rows', async damage => {
+    const data = await legacyHistory(), selected = storage(), options = { validation: imageValidation, storage: selected, locks, source: data.sourceNames }
+    const preview = await inspectLocalDevelopmentImport(options), target = new Dexie(preview.target.projects)
+    try {
+      await stopBeforeColdRead(options, preview.sourceFingerprint)
+      await target.open()
+      const stored = await target.table('projects').get(data.owner) as { project: ProjectBlockManifest }
+      const hash = stored.project.fields[0].blocks[0].sha256
+      const block = await target.table('projectContentBlocks').get(hash) as ProjectContentBlock
+      if (damage === 'missing') await target.table('projectContentBlocks').delete(hash)
+      else if (damage === 'corrupt') {
+        block.bytes[0] ^= 1
+        await target.table('projectContentBlocks').put(block)
+      } else {
+        const bytes = new Uint8Array(encodeUtf8(JSON.stringify({ independentUnreferencedResult: true })))
+        await target.table('projectContentBlocks').add({ sha256: sha256Bytes(bytes), bytes })
+      }
+      const staged = await nativeRows(target)
+      await expect(importLocalDevelopmentData(options, preview.sourceFingerprint)).rejects.toThrow(damage === 'extra' ? /额外成果/ : /内容块/)
+      expect(selected.getItem(CURRENT_DATABASE_SELECTION_KEY)).toBeNull()
+      expect(await nativeRows(target)).toEqual(staged)
+      expect(await nativeRows(data.source)).toEqual(data.before)
+    } finally { target.close(); data.source.close() }
   })
   it('converts personal capsules while preserving exact keys and all organization records', async () => {
     const data = await legacyHistory(), selected = storage(), library = new LibraryDatabase(data.sourceNames.library)
