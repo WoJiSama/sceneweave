@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { volcanoParametersSchema } from '../generation/domains/volcano/contracts.js'
-import { interiorLayoutParametersSchema, interiorFurnitureRoleSchema } from '../generation/domains/interior/contracts.js'
+import { interiorLayoutParametersSchema, interiorFurnitureRoleSchema, supportedInteriorParametersSchema } from '../generation/domains/interior/contracts.js'
 import { forestParametersSchema, forestPaletteRoleSchema } from '../generation/domains/forest/contracts.js'
+import { mixedParametersSchema, mixedMaterialRoleSchema, mixedPropRoleSchema } from '../generation/domains/mixed/contracts.js'
 
 /** Strict persisted terrain contracts. Algorithms, platform IO and scene validation are separate. */
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留 ID')
@@ -49,6 +50,10 @@ export const interiorGenerationRecipeSchema = naturalGenerationRecipeSchema.exte
   materials: z.array(z.object({ role: z.enum(['floor', 'wall']), ref: versionRef }).strict()).max(2).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
   props: z.array(z.object({ role: interiorFurnitureRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
 }).strict()
+export const supportedInteriorGenerationRecipeSchema = interiorGenerationRecipeSchema.extend({
+  recipeVersion: z.literal(1), algorithmId: z.literal('supported-interior'), algorithmVersion: z.literal(1),
+  parameters: supportedInteriorParametersSchema,
+}).strict()
 export const forestGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: forestParametersSchema,
@@ -61,14 +66,20 @@ export const volcanoGenerationRecipeSchema = naturalGenerationRecipeSchema.exten
   materials: z.array(z.object({ role: z.enum(['ground', 'mountain', 'crater', 'platform', 'flow', 'route']), ref: versionRef }).strict()).length(6).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
   props: z.array(z.never()).max(0),
 }).strict()
-export const generationRecipeSchema = z.union([naturalGenerationRecipeSchema, interiorGenerationRecipeSchema, forestGenerationRecipeSchema, volcanoGenerationRecipeSchema])
+export const mixedGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+  domain: z.literal('mixed'), recipeVersion: z.literal(1), algorithmId: z.literal('mixed-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
+  parameters: mixedParametersSchema,
+  materials: z.array(z.object({ role: mixedMaterialRoleSchema, ref: versionRef }).strict()).max(32).refine(unique),
+  props: z.array(z.object({ role: mixedPropRoleSchema, ref: versionRef }).strict()).max(128).refine(unique),
+}).strict()
+export const generationRecipeSchema = z.union([naturalGenerationRecipeSchema, interiorGenerationRecipeSchema, supportedInteriorGenerationRecipeSchema, forestGenerationRecipeSchema, volcanoGenerationRecipeSchema, mixedGenerationRecipeSchema])
 export type NaturalGenerationRecipe = z.infer<typeof naturalGenerationRecipeSchema>
 export const generationIntentSchema = z.object({ id, floorId: id, visibility, boundsMm: bounds,
   skeleton: z.array(z.object({ id, kind: z.enum(['landmass', 'plateau', 'bay', 'channel', 'ridge', 'forest']),
     positionMm: point, radiusMm: positive, directionDeg: z.number().finite().min(0).lt(360) }).strict()).max(128),
   constraintIds: z.array(id).max(256).refine(unique), preserveIds: z.array(id).max(256).refine(unique),
 }).strict()
-export const generationRuleSchema = z.object({ ...common, kind: z.enum(['terrain', 'transition', 'edge', 'scatter', 'route', 'regional', 'building', 'forest', 'volcano']),
+export const generationRuleSchema = z.object({ ...common, kind: z.enum(['terrain', 'transition', 'edge', 'scatter', 'route', 'regional', 'building', 'forest', 'volcano', 'composition']),
   recipeRef: versionRef, inputs: referenceList, outputs: referenceList, parameters: generationParametersSchema,
   state: z.enum(['active', 'paused', 'detached']), inputHash: hash, managedOutputHash: hash,
 }).strict()

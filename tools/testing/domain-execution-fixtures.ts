@@ -4,16 +4,22 @@ import { taskBudgetProfile } from '../../src/shared/budget/task-budget.js'
 import type { InteriorGenerationInput } from '../../src/shared/generation/domains/interior/contracts.js'
 import type { ForestGenerationInput } from '../../src/shared/generation/domains/forest/contracts.js'
 import { defaultVolcanoInput, type VolcanoGenerationInput } from '../../src/shared/generation/domains/volcano/index.js'
+import { defaultMixedInput, type MixedGenerationInput } from '../../src/shared/generation/domains/mixed/index.js'
 import type { SceneDocument } from '../../src/shared/model/scene.js'
 import { sceneSchema } from '../../src/shared/validation/scene.js'
 
-type Inputs = { interior: InteriorGenerationInput; forest: ForestGenerationInput; volcano: VolcanoGenerationInput }
+type Inputs = { interior: InteriorGenerationInput; forest: ForestGenerationInput; volcano: VolcanoGenerationInput; mixed: MixedGenerationInput }
 const stamp = '2026-11-05T00:00:00.000Z'
 const rectangle = (x: number, y: number, width: number, height: number) => [{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }]
 
 /** Test-only fixed inputs shared by direct, Worker and HTTP checks. No browser
  * storage, image decoder, live resources or provider is involved. */
 export function domainExecutionFixture<K extends keyof Inputs>(domain: K): { base: SceneDocument; input: Inputs[K]; profile: ReturnType<typeof taskBudgetProfile> } {
+  if (domain === 'mixed') {
+    const fixture = domainExecutionFixture('forest')
+    const input = defaultMixedInput(fixture.base, 'forest', 'mixed-transport')
+    return { ...fixture, input } as { base: SceneDocument; input: Inputs[K]; profile: ReturnType<typeof taskBudgetProfile> }
+  }
   const widthMm = domain === 'volcano' ? 40000 : domain === 'forest' ? 32000 : 20000
   const heightMm = domain === 'volcano' ? 32000 : domain === 'forest' ? 24000 : 16000
   const base = createShoreBlankDocument('island', { sceneId: `d7-${domain}`, title: `D7 ${domain}`, now: stamp, widthMm, heightMm, preset: 'narrative' }, domain === 'forest', domain === 'forest')

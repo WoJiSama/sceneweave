@@ -8,7 +8,7 @@ import { canonicalJson, cloneJson } from '../../../shared/validation/json.js'
 import { createDomainGenerationClient, type DomainGenerationClient, type DomainGenerationClientOptions, type DomainGenerationWorker } from './client.js'
 import { executeDomainGenerationWorkerRequest } from './worker.js'
 
-const domains = ['interior', 'forest', 'volcano'] as const
+const domains = ['interior', 'forest', 'volcano', 'mixed'] as const
 const request = (domain: DomainGenerationKind = 'interior', requestId = `client-${domain}`) => createDomainExecutionRequest({
   requestId, context: { workspaceId: 'current-workspace', checkpoint: 4, epoch: 7 }, domain, ...domainExecutionFixture(domain),
 })

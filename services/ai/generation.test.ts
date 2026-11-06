@@ -59,7 +59,7 @@ describe('programmatic domain generation HTTP service', () => {
     expect(complete).not.toHaveBeenCalled(); expect(beginBaseMap).not.toHaveBeenCalled(); expect(store.count()).toBe(0)
   })
 
-  for (const domain of ['interior', 'forest', 'volcano'] as const) it(`returns the exact shared ${domain} result without a model, AI task or base-map ledger`, async () => {
+  for (const domain of ['interior', 'forest', 'volcano', 'mixed'] as const) it(`returns the exact shared ${domain} result without a model, AI task or base-map ledger`, async () => {
     vi.spyOn(performance, 'now').mockReturnValue(0)
     const { store, complete, beginBaseMap, send } = setup(), input = prepared(domain)
     const expected = executeDomainExecutionRequest(input, { nowMilliseconds: () => 0 })
