@@ -10,14 +10,19 @@ import type { PreparationContext } from '../../shared/ports/runtime.js'
 import { advanceHistoryIdentity } from '../../shared/history/identity.js'
 import { addSurfaceAppearanceSource, surfaceStyle, syncAppearanceGraph } from '../../shared/appearance/graph.js'
 import { canonicalJson, captureJson } from '../../shared/validation/json.js'
-import { prepareTerrainEdit, terrainEditRequestSchema, type TerrainEditResult, type ProfiledTerrainEditResult } from '../../shared/terrain-generation/edit.js'
+import { prepareTerrainEdit, terrainEditEntityChanges, terrainEditRequestSchema, type TerrainEditResult, type ProfiledTerrainEditResult } from '../../shared/terrain-generation/edit.js'
+import { detachChangedAppearance } from '../../shared/terrain-generation/appearance-lifecycle.js'
+import { pauseChangedCompositionAppearance } from '../../shared/terrain-generation/composition-lifecycle.js'
+import { terrainSemanticCost } from '../../shared/terrain-generation/task-admission.js'
+import { terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 
 export interface TerrainEditPreview {
   project: EditableProject
   document: EditableProject['document']
   result: TerrainEditResult | ProfiledTerrainEditResult
   input: TerrainEditResult['request']
-  cost: TerrainEditResult['cost'] | ProfiledTerrainEditResult['cost']
+  cost: ReturnType<typeof terrainCommandCost>
+  impact: TerrainEditResult['impact']
   checkpoint: number
   currentSceneId: string
   currentRevision: number
@@ -74,9 +79,19 @@ export async function prepareTerrainEditProject(base: EditableProject, input: un
   checkCancelled(validation.signal)
   const historyIdentity = advanceHistoryIdentity(owned.historyIdentity, owned.document, result.document, options.runtime)
   const content = syncAppearanceGraph({ document: result.document, historyIdentity, appearance: synchronizeSurfaces(owned, result) })
+  // A fixed surface source can change when its overlay geometry follows the
+  // edited shoreline. Review the resulting manual protection before bitmap
+  // materialization; the worker's independently replayed result stays intact.
+  detachChangedAppearance(owned, content)
+  pauseChangedCompositionAppearance(owned, content)
   const project = await materializeProject({ ...owned, ...content }, { runtime: options.runtime, validation, signal: validation.signal, baseline: owned, budget: budgetProfile })
   checkCancelled(validation.signal)
-  if (canonicalJson(project.document) !== canonicalJson(result.document)) throw new Error('局部地形物化改变了已审阅结果；请先解决现有表面覆盖或依赖冲突。')
+  if (canonicalJson(project.document) !== canonicalJson(content.document)) throw new Error('局部地形物化改变了已审阅结果；请先解决现有表面覆盖或依赖冲突。')
+  const changes = terrainEditEntityChanges(owned.document, project.document)
+  const writeIds = new Set(changes.writeIds)
+  const impact = { ...result.impact, writeIds: changes.writeIds, preservedIds: result.impact.preservedIds.filter(id => !writeIds.has(id)) }
+  const cost = budgetProfile ? terrainSemanticCost(owned.document, project.document, budgetProfile) : terrainCommandCost(owned.document, project.document, { before: owned, after: project })
+  if (cost.total > cost.limit) throw new Error(`局部地形完整影响展开${cost.total}，超过${cost.limit}；请缩小本次修改。`)
   const usage = budgetProfile ? assertTaskBudget(budgetProfile, measureTaskBudget(owned.document, project.document, { before: owned, after: project }, meter?.snapshot())) : undefined
-  return { project, document: project.document, result, input: result.request, cost: result.cost, ...(budgetProfile ? { budgetProfile, profileHash: budgetProfile.profileHash, usage } : {}) }
+  return { project, document: project.document, result, input: result.request, cost, impact, ...(budgetProfile ? { budgetProfile, profileHash: budgetProfile.profileHash, usage } : {}) }
 }
