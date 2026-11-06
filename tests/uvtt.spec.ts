@@ -27,6 +27,10 @@ async function settled(page: Page) {
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 40_000 })
 }
 async function number(page: Page, name: string, value: number) {
+  if (name.startsWith('房间起点')) {
+    const details = page.locator('.building-panel form details').filter({ has: page.getByLabel(name, { exact: true }) })
+    if (await details.getAttribute('open') === null) await details.locator('summary').click()
+  }
   const field = page.getByLabel(name, { exact: true }); await field.fill(String(value)); await field.press('Tab')
 }
 async function createBlank(page: Page) {

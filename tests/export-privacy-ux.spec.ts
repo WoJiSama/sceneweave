@@ -18,6 +18,10 @@ async function closeDrawers(page: Page) {
 }
 
 async function number(page: Page, name: string, value: number) {
+  if (name.startsWith('房间起点')) {
+    const details = page.locator('.building-panel form details').filter({ has: page.getByLabel(name, { exact: true }) })
+    if (await details.getAttribute('open') === null) await details.locator('summary').click()
+  }
   const input = page.getByLabel(name, { exact: true })
   await input.fill(String(value)); await input.press('Tab')
 }
