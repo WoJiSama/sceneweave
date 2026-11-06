@@ -2,8 +2,9 @@ import 'fake-indexeddb/auto'
 import { createShoreBlankDocument } from '../../platform/browser/content/shore-blank.js'
 import { emptyCompositionDocument } from '../../shared/terrain-generation/composition-materialize.js'
 import { prepareCompositionCommands } from './prepare.js'
+import * as preparation from './prepare.js'
 import Dexie from 'dexie'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
@@ -12,6 +13,8 @@ import { inspectDependencies } from '../../shared/geometry/dependencies.js'
 import { sha256Bytes } from '../../shared/project/binary.js'
 import { createMemoryResources } from '../../shared/project/resources.js'
 import { compositionOutputHash } from '../../shared/terrain-generation/composition-integrity.js'
+import { visualBase } from '../../shared/visual/base.js'
+import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import { captureJson, encodeUtf8 } from '../../shared/validation/json.js'
 import { fromBundle, toBundle, type EditableProject } from './project.js'
 import { prepareTerrainProject } from './terrain.js'
@@ -48,6 +51,41 @@ afterEach(async () => {
 })
 
 describe('persisted new4/new5 maps remain manually editable under a frozen local task budget', () => {
+  it('previews a curved shoreline with its fixed sources and complete manual-protection review, then adopts and undoes once', async () => {
+    const profile = TASK_BUDGET_PROFILES.standard, base = await blank(5)
+    const generated = await prepareTerrainProject(base, { sceneId: base.document.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 5, budgetProfileId: profile.profileId, quality: 'standard' }, { runtime, validation, budget: profile })
+    const { workspace, repo } = await session(generated.project), current = workspace.getState().project!, before = toBundle(current).project
+    const boundary = captureJson(visualBase(before.document)!.boundaries['terrain-coast-curve'])
+    boundary.segments[0].control1.x += 100; boundary.segments[0].control1.y += 50
+    const input = { kind: 'contour' as const, sceneId: before.document.sceneId, operationId: 'shoreline-protection-review', floorId: boundary.floorId,
+      scopeMm: { x: -10000, y: -10000, width: 44000, height: 38000 }, linkMode: 'scenery' as const, boundary }
+    const preview = await workspace.previewTerrainEdit(input)
+    expect(workspace.getState().project).toBe(current)
+    expect(visualBase(preview.document)!.boundaries[boundary.id]).toEqual(boundary)
+    expect(preview.document.terrainAreas['terrain-low'].boundaryMm).not.toEqual(before.document.terrainAreas['terrain-low'].boundaryMm)
+    const owners = Object.values(getLegacyGeneration(preview.document)!.ownership).filter(row => row.manualFields.includes('geometry'))
+    expect(owners.length).toBeGreaterThan(0)
+    for (const owner of owners) expect(preview.impact.writeIds).toContain(owner.id)
+    for (const [id, source] of Object.entries(before.appearance.sources)) expect(preview.project.appearance.sources[id]).toEqual(source)
+    for (const [id, source] of Object.entries(before.appearance.surfaceSources)) {
+      const nextSource = preview.project.appearance.surfaceSources[id]
+      if (nextSource !== source) expect(preview.project.appearance.sources[nextSource].parentSourceId).toBe(source)
+    }
+    const materialize = preparation.materializeProject
+    const unexpected = vi.spyOn(preparation, 'materializeProject').mockImplementation(async (...args) => {
+      const project = await materialize(...args)
+      return { ...project, document: { ...project.document, title: 'unreviewed materialization' } }
+    })
+    try { await expect(workspace.previewTerrainEdit(input)).rejects.toThrow(/物化改变了已审阅结果/) }
+    finally { unexpected.mockRestore() }
+    expect(workspace.getState().project).toBe(current)
+    const adopted = await workspace.adoptTerrainEdit(preview); await adopted.save
+    expect((await repo.load(before.document.sceneId))!.project.document).toEqual(workspace.getDocument())
+    workspace.undo(); await workspace.flush()
+    expect(workspace.getDocument()!.terrainAreas).toEqual(before.document.terrainAreas)
+    expect(workspace.getState().project!.appearance).toEqual(before.appearance)
+    expect(workspace.getDocument()!.revision).toBe(before.document.revision + 2)
+  }, 120000)
   it.each([4,5] as const)('cold reads algorithm%s, binds one profile, adopts a real edit and undoes once', async version => {
     const profile=version===5?TASK_BUDGET_PROFILES.standard:TASK_BUDGET_PROFILES.small
     const base = await blank(version), generated = await prepareTerrainProject(base, { sceneId: base.document.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: version, budgetProfileId: profile.profileId, quality: 'standard' }, { runtime, validation, budget: profile })

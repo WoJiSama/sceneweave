@@ -92,7 +92,7 @@ function nearest(p: PointMm, points: readonly PointMm[]): { distance: number; po
   return best
 }
 function assertScope(points: readonly PointMm[], scope: BoundsMm) { if (points.some(p => !boundsContain(p, scope))) fail('实际写入超出冻结范围；请扩大范围后重新预览。') }
-function entityChanges(before: SceneDocument, after: SceneDocument) {
+export function terrainEditEntityChanges(before: SceneDocument, after: SceneDocument) {
   const records = (scene: SceneDocument) => {
     const generation = getLegacyGeneration(scene)!
     return new Map<string, unknown>([
@@ -102,6 +102,7 @@ function entityChanges(before: SceneDocument, after: SceneDocument) {
     ...Object.values(generation.recipes),...Object.values(generation.intents),...Object.values(generation.rules),...Object.values(generation.ownership),...Object.values(generation.exclusions),...Object.values(generation.constraints),...Object.values(generation.checks),...Object.values(generation.sourceLinks),...Object.values(generation.version!==1?generation.strokes:{}),
     ...Object.values(generation.version===3||generation.version===4?generation.surroundings:{}),
     ...Object.values(generation.version===4?generation.topology:{}),
+    ...['features','compositions','requirements','checks','thresholds','dependencies'].flatMap(key => Object.values(scene.generation[key as 'compositions'])),
   ].map(row => [row.id, row])) }
   const a = records(before), b = records(after)
   return { writeIds: [...new Set([...a.keys(), ...b.keys()])].filter(id => !same(a.get(id) ?? null, b.get(id) ?? null)).sort(), removedIds: [...a.keys()].filter(id => !b.has(id)) }
@@ -380,7 +381,7 @@ export function prepareTerrainEdit(base:SceneDocument,input:TerrainEditRequest,o
   else if(request.kind==='surroundings')run(0,()=>applySurroundings(scene,request,nextId,options))
   else if(request.kind==='topology')run(0,()=>applyTopology(scene,request,options))
   else request.strokes.forEach((stroke,index)=>run(index,()=>applyBrush(scene,request,stroke,index,nextId)))
-  const changes=entityChanges(base,scene),preservedIds=['vertices','rooms','walls','openings','paths','terrainConnections','props','notes','prefabInstances','scatterGroups'].flatMap(key=>Object.values(base[key as 'props']).filter(row=>same(row,scene[key as 'props'][row.id]??null)).map(row=>row.id)).sort()
+  const changes=terrainEditEntityChanges(base,scene),preservedIds=['vertices','rooms','walls','openings','paths','terrainConnections','props','notes','prefabInstances','scatterGroups'].flatMap(key=>Object.values(base[key as 'props']).filter(row=>same(row,scene[key as 'props'][row.id]??null)).map(row=>row.id)).sort()
   const readIds=[...new Set([...allEntityIds(base),...changes.writeIds,...Object.values(base.terrainConnections).map(connection=>connection.id),...Object.values(base.props).map(prop=>prop.id),...Object.values(getLegacyGeneration(base)!.rules).map(rule=>rule.id)])].sort()
   const floorBounds=Object.values(base.floors).map(floor=>floor.boundsMm),left=Math.min(...floorBounds.map(bounds=>bounds.x)),top=Math.min(...floorBounds.map(bounds=>bounds.y)),right=Math.max(...floorBounds.map(bounds=>bounds.x+bounds.width)),bottom=Math.max(...floorBounds.map(bounds=>bounds.y+bounds.height))
   const impact={writeIds:changes.writeIds,preservedIds,readIds,conflicts:[],writeBoundsMm:cloneJson(request.scopeMm),readBoundsMm:expand({x:left,y:top,width:right-left,height:bottom-top},Math.max(2000,...Object.values(visualBase(base)!.edgeLooks).map(look=>look.widthMm),...Object.values(base.props).map(prop=>Math.max(Math.abs(prop.visualBoundsMm.x),Math.abs(prop.visualBoundsMm.y),Math.abs(prop.visualBoundsMm.x+prop.visualBoundsMm.width),Math.abs(prop.visualBoundsMm.y+prop.visualBoundsMm.height))+(prop.shadowOverride?.offsetMm??0)+(prop.shadowOverride?.blurMm??0)),...(request.kind==='brush'?request.strokes.map(stroke=>stroke.radiusMm):[0])))}

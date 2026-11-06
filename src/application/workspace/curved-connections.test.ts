@@ -79,7 +79,22 @@ describe('curved connection editing authority', () => {
     expect(workspace.getState().project).toBe(locked)
     expect((await repo.load(locked.document.sceneId))!.project.document.terrainConnections).toEqual({})
   })
-  it('charges controls and full materialized samples before the public preview can install an oversized route', async () => {
+  it('rejects an older connection candidate after locking its support, retaining both current and saved content', async () => {
+    const { workspace, repo, floorId, layerId } = await setup()
+    const candidate = await workspace.preview([create(floorId, layerId)])
+    await workspace.execute([{ type: 'setEditLock', kind: 'terrainArea', id: 'high', locked: true }])
+    await workspace.flush()
+    const current = workspace.getState().project!, checkpoint = workspace.checkpoint()
+    const persisted = (await repo.load(current.document.sceneId))!
+    const hash = projectContentHash(persisted.project)
+    await expect(workspace.adoptPreview(candidate)).rejects.toThrow(/场景已有修改/)
+    expect(workspace.getState().project).toBe(current)
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    expect(current.document.terrainAreas.high.editLocked).toBe(true)
+    expect(current.document.terrainConnections).toEqual({})
+    expect(projectContentHash((await repo.load(current.document.sceneId))!.project)).toBe(hash)
+  })
+  it('separates a detailed route from its controls and full materialized sample budget', async () => {
     const { workspace, floorId, layerId } = await setup(), before = workspace.getState().project!
     const value = route([{ x: 10000, y: 10000 }, { x: 50000, y: 10000 }], 250)
     const after = cloneJson(before.document); after.terrainConnections.curved = { ...create(floorId, layerId, value), editLocked: false, visibility: 'public', openingId: null, blocksMovement: false, movementCostMultiplier: 1, surfaceStyle: null }; delete (after.terrainConnections.curved as unknown as Record<string, unknown>).type; delete (after.terrainConnections.curved as unknown as Record<string, unknown>).layerId; after.entityLayers.curved = layerId
@@ -87,7 +102,9 @@ describe('curved connection editing authority', () => {
     expect(inspectOutdoorChanges(before.document, after, ['curved']).commandCost).toBeGreaterThan(256)
     const usage = measureTaskBudget(before.document, after)
     expect(usage.geometryPoints).toBeGreaterThanOrEqual(value.centerlineMm.length + 4); expect(usage.curveSegments).toBe(1)
-    await expect(workspace.preview([create(floorId, layerId, value)])).rejects.toThrow(/256/)
+    const preview = await workspace.preview([create(floorId, layerId, value)])
+    expect(preview.budgetUsage?.semanticTargets).toBe(1)
+    expect(preview.budgetUsage!.geometryPoints).toBeGreaterThan(160)
     expect(workspace.getState().project).toBe(before)
   })
   it('does not send new-format geometry through unsupported AI start, operation or context APIs', async () => {
