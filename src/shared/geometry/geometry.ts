@@ -268,6 +268,42 @@ export function coveredEverywhere(polygon: PointMm[], boundaries: PointMm[][], p
   return true
 }
 
+/** Exact local geometry checks shared by complete and proven position-only
+ * candidate validation. This helper grants no scene certification. */
+export function validatePropGeometry(scene: SceneDocument, props: readonly Prop[]): Issue[] {
+  const errors: Issue[] = []
+  const error = (code: string, message: string, entityId: string) => errors.push({ code, message, entityId })
+  const withinFloor = (points: PointMm[], prop: Prop) => {
+    const floor = own(scene.floors, prop.floorId)
+    if (floor && points.some(point => !boundsContain(point, floor.boundsMm))) error('OUTSIDE_FLOOR', '实际几何越过 Floor 世界边界。', prop.id)
+  }
+  for (const prop of props) {
+    if (!Number.isSafeInteger(prop.visualBoundsMm.x + prop.visualBoundsMm.width) || !Number.isSafeInteger(prop.visualBoundsMm.y + prop.visualBoundsMm.height)) error('UNSAFE_BOUNDS', '边界端点超出安全整数范围。', prop.id)
+    const physical = propFootprint(prop)
+    withinFloor(physical, prop); withinFloor(transformBounds(prop.visualBoundsMm, prop.positionMm, prop.rotationDeg), prop)
+    if (!supportedPolygon(scene, physical, prop.supportRef, prop.floorId)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
+  }
+  return errors
+}
+
+/** Internal differential solver only. The caller must have strictly parsed the
+ * candidate and proved that its exact certified baseline differs solely in the
+ * positions/angles of these existing, independently owned props. Every other
+ * geometry/dependency conclusion must be unchanged; no certificate is issued. */
+export function validatePropMoveGeometry(scene: SceneDocument, changedIds: readonly string[], baselineWarnings: readonly Issue[]): { errors: Issue[]; warnings: Issue[] } {
+  const changed = new Set(changedIds)
+  // Preserve full-scene record order, including multiple blockers on one route.
+  const props = Object.values(scene.props).filter(prop => changed.has(prop.id))
+  const errors = validatePropGeometry(scene, props)
+  for (const connection of Object.values(scene.terrainConnections)) {
+    const band = connectionFootprint(connection)
+    for (const prop of props) if (prop.floorId === connection.floorId && prop.blocksMovement && polygonsOverlap(band, propFootprint(prop))) {
+      errors.push({ code: 'CONNECTION_OBSTACLE', message: '连接净宽带被物件占地阻挡。', entityId: connection.id })
+    }
+  }
+  return { errors, warnings: baselineWarnings.map(warning => ({ ...warning })) }
+}
+
 /** Hard geometry validity only. This deliberately does not claim a general movement/path solver. */
 export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warnings: Issue[] } {
   const errors: Issue[] = [], warnings: Issue[] = []
@@ -439,12 +475,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   const queue = [...reachable]
   for (let i = 0; i < queue.length; i++) for (const next of graph.get(queue[i]) ?? []) if (!reachable.has(next)) { reachable.add(next); queue.push(next) }
   for (const room of Object.values(scene.rooms)) if (room.accessExpectation === 'required' && !reachable.has(room.id)) error('REQUIRED_UNREACHABLE', 'required 房间须结构连接到显式外部入口；这不证明空间寻路。', room.id)
-  for (const prop of Object.values(scene.props)) {
-    validBounds(prop.visualBoundsMm, prop.id)
-    const physical = propFootprint(prop)
-    withinFloor(physical, prop.floorId, prop.id); withinFloor(transformBounds(prop.visualBoundsMm, prop.positionMm, prop.rotationDeg), prop.floorId, prop.id)
-    if (!supportedPolygon(scene, physical, prop.supportRef, prop.floorId)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
-  }
+  errors.push(...validatePropGeometry(scene, Object.values(scene.props)))
   const connectionPolygons = new Map<string, PointMm[]>()
   const connectionRouteIds = Object.values(scene.terrainConnections).some(connection => connection.route) ? connectionRouteReservedIds(scene) : new Set<string>()
   for (const connection of Object.values(scene.terrainConnections)) {

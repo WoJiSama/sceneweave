@@ -12,6 +12,7 @@ import { decodeUtf8, sha256Bytes } from './binary.js'
 import { parseBoundedJson } from './json.js'
 import { failPackage, hasExactKeys, isSha256, PACKAGE_LIMITS } from './limits.js'
 import { inspectZip, zipPathBudget } from './zip.js'
+import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
 
 export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'history'
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'asset' | 'license' | 'source'
@@ -141,7 +142,7 @@ async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'],
   const addJson = (path: string, role: PackageRole, value: unknown) => add(path, role, encodeUtf8(canonicalJson(value)), 'application/json')
   const addParts = (bundle: ProjectBundle, paths: typeof rootPaths, historical: boolean) => {
     const project = bundle.project, prefix = historical ? 'snapshot-' : ''
-    addJson(paths.scenePath, `${prefix}scene` as PackageRole, project.document)
+    addJson(paths.scenePath, `${prefix}scene` as PackageRole, encodeSceneCoordinates(project.document))
     addJson(paths.identityPath, `${prefix}identity` as PackageRole, project.historyIdentity)
     addJson(paths.appearancePath, `${prefix}appearance` as PackageRole, project.appearance)
     addJson(paths.sourcesPath, `${prefix}sources` as PackageRole, project.authoringSources)
@@ -252,7 +253,7 @@ async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], o
       if (!Object.hasOwn(licenses, hash)) return failPackage('历史引用缺少许可正文。')
       selectedLicenses[hash] = licenses[hash]; usedLicenses.add(hash)
     }
-    const document = json(refs.scenePath) as ProjectData['document']
+    const document = decodeSceneCoordinates(json(refs.scenePath))
     const project = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: document?.schemaVersion, document,
       historyIdentity: json(refs.identityPath) as ProjectData['historyIdentity'], appearance: json(refs.appearancePath) as ProjectData['appearance'], authoringSources: json(refs.sourcesPath) as ProjectData['authoringSources'],
       assets, licenses: selectedLicenses, licenseBindings: refs.licenseBindings })

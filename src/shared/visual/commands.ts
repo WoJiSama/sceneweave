@@ -1,4 +1,5 @@
 import { visualBase } from './base.js'
+import { assertCommandBudget, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { z } from 'zod'
 import type { PreparationContext } from '../ports/runtime.js'
 import type { SceneDocument, TerrainArea, PointMm } from '../model/scene.js'
@@ -402,7 +403,8 @@ export function inspectVisualChanges(before: Readonly<SceneDocument>, after: Rea
     layerIds, commandCost: visualCommandCost(before, after), reason: null }
 }
 /** Detached draft only; caller owns complete atomic validation and revision commit. */
-export function applyVisualCommand(scene: SceneDocument, input: VisualCommand, context: PreparationContext): OutdoorImpact {
+export function applyVisualCommand(scene: SceneDocument, input: VisualCommand, context: PreparationContext, budget?: CommandBudgetProfile): OutdoorImpact {
+  if (budget) parseCommandBudgetProfile(budget)
   const issue = inspectJsonInput(input), parsed = !issue && visualCommandSchema.safeParse(input)
   if (issue || !parsed || !parsed.success) throw new Error(`视觉指令无效：${issue?.message ?? (parsed && !parsed.success ? parsed.error.issues.map(issue => issue.message).join('；') : '')}`)
   const command = parsed.data, before = cloneJson(scene), dependenciesBefore = effectDependencies(before, command)
@@ -415,6 +417,7 @@ export function applyVisualCommand(scene: SceneDocument, input: VisualCommand, c
   const dependenciesAfter = effectDependencies(scene, command), commandCost = visualCommandCost(before, scene)
   checkPhysicalLocks(before, [...dependenciesBefore, ...dependenciesAfter, ...transitionImpact.affectedIds,
     ...outdoorDependencies(before, transitionImpact.affectedIds), ...outdoorDependencies(scene, transitionImpact.affectedIds), ...changedTransitionDependencies(before, scene)])
-  if (commandCost > COMMAND_LIMIT) throw new Error('展开后的视觉事务超过256条操作预算，不能拆批绕过。')
+  if (!isManualTransactionBudget(budget) && commandCost > COMMAND_LIMIT) throw new Error('展开后的视觉事务超过256条操作预算，不能拆批绕过。')
+  if (isManualTransactionBudget(budget)) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
   return inspectVisualChanges(before, scene, [command])
 }

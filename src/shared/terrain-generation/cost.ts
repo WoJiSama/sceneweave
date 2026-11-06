@@ -25,7 +25,7 @@ export interface TerrainCostMetadata {
   before: Pick<CompositionContent, 'historyIdentity' | 'appearance'>
   after: Pick<CompositionContent, 'historyIdentity' | 'appearance'>
 }
-const IDENTITY_POOLS = ['propTokens','prefabTokens','outdoorTokens','generationTokens','regionalTokens','presentationTokens','terrainTokens','decorationTokens','surfaceRuleTokens'] as const
+const IDENTITY_POOLS = ['propTokens','prefabTokens','outdoorTokens','generationTokens','regionalTokens','presentationTokens','terrainTokens','decorationTokens','surfaceRuleTokens','aggregateTokens'] as const
 const APPEARANCE_RECORDS = ['sources','propSources','surfaceSources','instanceAdjustments','layerAdjustments','variants','prefabAppearanceTemplates','presentations'] as const
 const FIXED_SOURCE_COLLECTIONS = ['assets','materials','propDefinitions','prefabDefinitions','styleThemes'] as const
 /** Decoration entities and slots are physical edit work. Keeping them in

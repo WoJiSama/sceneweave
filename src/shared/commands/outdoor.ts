@@ -1,4 +1,4 @@
-import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
+import { assertCommandBudget, commandSelectionLimit, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
@@ -454,8 +454,8 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
 }
 
 /** Detached draft mutation; the native command entry validates the complete batch once. */
-export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext, budget?: TaskBudgetProfile): OutdoorImpact {
-  if (budget) parseTaskBudgetProfile(budget)
+export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext, budget?: CommandBudgetProfile): OutdoorImpact {
+  if (budget) parseCommandBudgetProfile(budget)
   const before = cloneJson(scene), roots = rootsFor(command)
   mutate(scene, command, context)
   const derived = refreshScene5TransitionsAfterPhysicalEdit(before, scene)
@@ -472,15 +472,15 @@ export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorComman
   assertUnlocked(before, lockIds)
   assertUnlocked(before, [...outdoorDependencies(before, derived.affectedIds), ...outdoorDependencies(scene, derived.affectedIds)])
   if (!budget && impact.commandCost > COMMAND_LIMIT) throw new Error('展开后的室外事务超过256条操作预算，不能拆批绕过。')
-  if (budget) assertTaskBudget(budget, measureTaskBudget(before, scene))
+  if (budget) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
   return impact
 }
 
 /** Preview includes geometry-dependent and cross-layer scope, even for unchanged JSON. */
-export function previewOutdoorCommands(input: SceneDocument, commands: readonly OutdoorCommand[], context: PreparationContext, budget?: TaskBudgetProfile): OutdoorImpact {
+export function previewOutdoorCommands(input: SceneDocument, commands: readonly OutdoorCommand[], context: PreparationContext, budget?: CommandBudgetProfile): OutdoorImpact {
   const impact = emptyImpact(), validated = validateSceneDocument(input)
   if (!validated.ok) { impact.reason = `当前场景无效：${validated.errors.map(issue => issue.message).join('；')}`; return impact }
-  const issue = inspectJsonInput(commands), parsed = issue ? null : z.array(outdoorCommandSchema).max(COMMAND_LIMIT).safeParse(commands)
+  const issue = inspectJsonInput(commands), parsed = issue ? null : z.array(outdoorCommandSchema).max(commandSelectionLimit(budget)).safeParse(commands)
   if (issue || !parsed?.success) { impact.reason = `室外指令无效：${issue?.message ?? (parsed && !parsed.success ? parsed.error.issues.map(issue => issue.message).join('；') : '')}`; return impact }
   const next = cloneJson(validated.document), roots = parsed.data.flatMap(rootsFor)
   let cost = 0
@@ -496,7 +496,7 @@ export function previewOutdoorCommands(input: SceneDocument, commands: readonly 
       catch (error) { cost += diffImpact(before, next, rootsFor(command)).commandCost; throw error }
     }
     if (!budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体室外事务超过256条操作预算，不能拆批绕过。')
-    if (budget) assertTaskBudget(budget, measureTaskBudget(validated.document, next))
+    if (budget) assertCommandBudget(budget, measureCommandBudget(validated.document, next, undefined, undefined, budget))
     const result = validateSceneDocument(next)
     if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   } catch (error) { impact.reason = error instanceof Error ? error.message : String(error) }

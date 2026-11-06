@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { assertCommandBudget, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import type { AppearanceGraph } from '../model/appearance.js'
 import type { DecorationCluster, Editable, SceneDocument, SurfaceRule, SurfaceRuleField, SurfaceRuleRegion } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -78,7 +79,8 @@ export function clipSurfaceRuleRegions(scene: SceneDocument, areaId: string, inp
 }
 
 /** One candidate edits rule geometry, exact generated members and protection records together. */
-export function applySurfaceRuleCommand(scene: SceneDocument, command: SurfaceRuleCommand, context: PreparationContext, appearance?: AppearanceGraph) {
+export function applySurfaceRuleCommand(scene: SceneDocument, command: SurfaceRuleCommand, context: PreparationContext, appearance?: AppearanceGraph, budget?: CommandBudgetProfile) {
+  if (budget) parseCommandBudgetProfile(budget)
   if (scene.generation?.version !== 5 || scene.visual?.version !== 3) throw new Error('连续地表区域规则需要完整生成和视觉模型。')
   const before = cloneJson(scene), rules = scene.surfaceRules!, clusters = scene.decorationClusters!
   const beforeResolved = new Map(resolveSurfaceRules(before).map(row => [row.rule.id, row.regionsMm]))
@@ -168,7 +170,8 @@ export function applySurfaceRuleCommand(scene: SceneDocument, command: SurfaceRu
     const old = before.props[id] ?? before.decorations?.[id] ?? before.decorationClusters?.[id]
     if (old) unlocked(before, old)
   }
-  if (impact.commandCost > 256) throw new Error('地表规则及植被成员展开超过256条操作预算，不能拆批绕过。')
+  if (!isManualTransactionBudget(budget) && impact.commandCost > 256) throw new Error('地表规则及植被成员展开超过256条操作预算，不能拆批绕过。')
+  if (isManualTransactionBudget(budget)) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
   return impact
 }
 

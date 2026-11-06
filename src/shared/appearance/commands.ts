@@ -1,11 +1,12 @@
 import { reconcileDecorationMembers } from '../decorations/commands.js'
-import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
+import { reconcileAggregateMembers } from '../aggregates/state.js'
+import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { definitionPresentation, propPresentation } from './presentation.js'
 import { z } from 'zod'
 import { inspectJsonInput, cloneJson } from '../validation/json.js'
 import { roundMm } from '../commands/base.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
-import { applyCommands, applySnapshotCommands, sceneCommandSchema, refreshNativeDerivedTransitions, type SceneCommand } from '../commands/commands.js'
+import { applyCommands, applySnapshotCommands, sceneCommandSchemaForBudget, refreshNativeDerivedTransitions, type SceneCommand } from '../commands/commands.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
 import type { PointMm, Prop, SceneDocument, SurfaceRef } from '../model/scene.js'
@@ -15,29 +16,40 @@ import { detachChangedAppearance } from '../terrain-generation/appearance-lifecy
 import { pauseChangedCompositionAppearance } from '../terrain-generation/composition-lifecycle.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { addPropAppearanceSource, effectiveAdjustments, equalCompositionValue, freezeEffectivePropAppearance, inspectAppearanceScope, propAppearanceSnapshot, supportedAppearanceKinds, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './graph.js'
-import { appearanceAdjustmentSchema, certifyCompositionContent, certifyCompositionDraft, compositionIdSchema, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
+import { appearanceAdjustmentSchema, certifyCompositionContent, certifyCompositionDraft, certifyDerivedCompositionDraft, compositionIdSchema, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
 import { COMPOSITION_LIMITS, type AdjustmentKind, type AppearanceAdjustment, type AppearanceScope, type CompositionCommand, type CompositionContent } from '../model/appearance.js'
 
 export type { CompositionCommand } from '../model/appearance.js'
 
 const id = compositionIdSchema, integer = z.number().finite().refine(Number.isSafeInteger), point = z.object({ x: integer, y: integer }).strict()
-const ids = z.array(id).min(1).max(256).refine(values => new Set(values).size === values.length, 'ID不能重复')
-const scope = z.discriminatedUnion('kind', [z.object({ kind: z.literal('targets'), ids }).strict(), z.object({ kind: z.literal('layer'), layerId: id }).strict()])
-const surfaceRef = z.object({ kind: z.enum(['floor', 'room', 'terrainArea']), id }).strict()
-const version = z.object({ id, version: z.number().int().positive() }).strict()
-const c3Schema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('setAppearanceAdjustment'), scope, adjustment: appearanceAdjustmentSchema }).strict(),
-  z.object({ type: z.literal('toggleAppearanceAdjustment'), scope, adjustmentId: id, enabled: z.boolean() }).strict(),
-  z.object({ type: z.literal('removeAppearanceAdjustment'), scope, adjustmentId: id }).strict(),
-  z.object({ type: z.literal('setAppearanceSource'), ids, sourceId: id }).strict(),
-  z.object({ type: z.literal('createPrefab'), id, definitionId: id, name: z.string().trim().min(1).max(80), ids: ids.max(128), anchorMm: point, licenseRef: id.optional(), tags: z.array(z.string().min(1).max(256)).max(64).optional() }).strict(),
-  z.object({ type: z.literal('instantiatePrefab'), id, definitionRef: version, memberIds: z.record(id, id), anchorMm: point, rotationDeg: z.number().finite().min(0).lt(360).optional(), layerId: id, supportRef: surfaceRef }).strict(),
-  z.object({ type: z.literal('duplicatePrefab'), id, newId: id, memberIds: z.record(id, id), offsetMm: point }).strict(),
-  z.object({ type: z.literal('deletePrefab'), id, memberIds: z.array(id).max(128).refine(values => new Set(values).size === values.length) }).strict(),
-  z.object({ type: z.literal('detachPrefabMember'), groupId: id, propId: id }).strict(),
-  z.object({ type: z.literal('resetPrefabMember'), groupId: id, key: id, newId: id.optional(), supportRef: surfaceRef.optional() }).strict(),
-])
-const schemas = z.array(z.union([c3Schema, sceneCommandSchema])).max(256)
+function compositionSchemasForLimit(limit: number, budget?: CommandBudgetProfile): z.ZodType<CompositionCommand[]> {
+  const ids = z.array(id).min(1).max(limit).refine(values => new Set(values).size === values.length, 'ID不能重复')
+  const scope = z.discriminatedUnion('kind', [z.object({ kind: z.literal('targets'), ids }).strict(), z.object({ kind: z.literal('layer'), layerId: id }).strict()])
+  const surfaceRef = z.object({ kind: z.enum(['floor', 'room', 'terrainArea']), id }).strict()
+  const version = z.object({ id, version: z.number().int().positive() }).strict()
+  const c3Schema = z.discriminatedUnion('type', [
+    z.object({ type: z.literal('setAppearanceAdjustment'), scope, adjustment: appearanceAdjustmentSchema }).strict(),
+    z.object({ type: z.literal('toggleAppearanceAdjustment'), scope, adjustmentId: id, enabled: z.boolean() }).strict(),
+    z.object({ type: z.literal('removeAppearanceAdjustment'), scope, adjustmentId: id }).strict(),
+    z.object({ type: z.literal('setAppearanceSource'), ids, sourceId: id }).strict(),
+    z.object({ type: z.literal('createPrefab'), id, definitionId: id, name: z.string().trim().min(1).max(80), ids: ids.max(128), anchorMm: point, licenseRef: id.optional(), tags: z.array(z.string().min(1).max(256)).max(64).optional() }).strict(),
+    z.object({ type: z.literal('instantiatePrefab'), id, definitionRef: version, memberIds: z.record(id, id), anchorMm: point, rotationDeg: z.number().finite().min(0).lt(360).optional(), layerId: id, supportRef: surfaceRef }).strict(),
+    z.object({ type: z.literal('duplicatePrefab'), id, newId: id, memberIds: z.record(id, id), offsetMm: point }).strict(),
+    z.object({ type: z.literal('deletePrefab'), id, memberIds: z.array(id).max(128).refine(values => new Set(values).size === values.length) }).strict(),
+    z.object({ type: z.literal('detachPrefabMember'), groupId: id, propId: id }).strict(),
+    z.object({ type: z.literal('resetPrefabMember'), groupId: id, key: id, newId: id.optional(), supportRef: surfaceRef.optional() }).strict(),
+  ])
+  return z.array(z.union([c3Schema, sceneCommandSchemaForBudget(budget)])).max(limit)
+}
+const schemas = compositionSchemasForLimit(256)
+const manualSchemas = new Map<number, z.ZodType<CompositionCommand[]>>()
+function schemasForBudget(budget?: CommandBudgetProfile): z.ZodType<CompositionCommand[]> {
+  const limit = commandSelectionLimit(budget)
+  if (limit === 256) return schemas
+  let schema = manualSchemas.get(limit)
+  if (!schema) { schema = compositionSchemasForLimit(limit, budget); manualSchemas.set(limit, schema) }
+  return schema
+}
 const c3Types = new Set(['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource', 'createPrefab', 'instantiatePrefab', 'duplicatePrefab', 'deletePrefab', 'detachPrefabMember', 'resetPrefabMember'])
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
 /** Internal changed-entity accounting receives only independently parsed JSON records. */
@@ -55,7 +67,8 @@ function assertUnlocked(document: SceneDocument, ids: readonly string[]): void {
   for (const id of ids) if (effectiveEditLocked(document, id)) throw new Error(`实体、成员、图层或依赖已锁定：${id}。`)
 }
 function assertFresh(content: CompositionContent, id: string): void {
-  if (geometryIdentityIds(content.document).has(id) || Object.hasOwn(content.document.userLayers, id) || Object.hasOwn(content.historyIdentity.propTokens, id) || Object.hasOwn(content.historyIdentity.prefabTokens, id) || Object.hasOwn(content.historyIdentity.outdoorTokens, id)) throw new Error(`新身份不能复用已占用/已分配 ID：${id}。`)
+  if (geometryIdentityIds(content.document).has(id) || Object.hasOwn(content.document.userLayers, id) || Object.hasOwn(content.historyIdentity.propTokens, id) || Object.hasOwn(content.historyIdentity.prefabTokens, id) || Object.hasOwn(content.historyIdentity.outdoorTokens, id)
+    || Object.hasOwn(content.historyIdentity.aggregateTokens ?? {}, id)) throw new Error(`新身份不能复用已占用/已分配 ID：${id}。`)
 }
 function assertSupport(document: SceneDocument, floorId: string, ref: SurfaceRef): void {
   if (ref.kind === 'floor') { if (ref.id !== floorId || !own(document.floors, ref.id)) throw new Error('支撑必须属于同一Floor。'); return }
@@ -187,28 +200,37 @@ export function applyCompositionCommands(input: CompositionContent, inputCommand
   return applyCompositionCommandsInternal(input, inputCommands, context, false, accounting)
 }
 export interface CompositionOperationAccounting {
-  budget?: TaskBudgetProfile
+  budget?: CommandBudgetProfile
   /** Internal same-transaction fixed-source additions; never persisted in the document. */
   initialOperationCost?: number
   onOperationCost?: (cost: number) => void
   /** Internal synchronous observer; do not retain or mutate the reused draft. */
   onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => void
+  /** Includes synced appearance and identity. Inspect synchronously; never retain or mutate. */
+  onContentDraft?: (draft: Readonly<CompositionContent>) => void
 }
 /** Internal immutable draft only; complete resolving/materialization is still mandatory. */
 export function applyCompositionDraftCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, accounting?: CompositionOperationAccounting): CompositionContent {
   return applyCompositionCommandsInternal(input, inputCommands, context, true, accounting)
 }
 function applyCompositionCommandsInternal(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, ownedDraft: boolean, accounting?: CompositionOperationAccounting): CompositionContent {
-  const budget = accounting?.budget ? parseTaskBudgetProfile(accounting.budget) : undefined
+  const budget = accounting?.budget ? parseCommandBudgetProfile(accounting.budget) : undefined
+  const manual = isManualTransactionBudget(budget)
   const onSceneDraft = accounting?.onSceneDraft
+  const onContentDraft = accounting?.onContentDraft
   const initialCost = accounting?.initialOperationCost === undefined ? 0 : accounting.initialOperationCost
   if (!Number.isSafeInteger(initialCost) || initialCost < 0 || (!budget && initialCost > 256)) throw new Error('初始事务预算须为0–256安全整数。')
   const source = ownedDraft ? certifyCompositionContent(input) : validateCompositionContent(input), issue = inspectJsonInput(inputCommands)
   if (issue) throw new Error(`组合指令无效：${issue.message}`)
-  const parsed = schemas.safeParse(inputCommands)
-  if (!parsed.success) throw new Error(`组合指令无效，单事务最多256条：${parsed.error.issues.map(issue => issue.message).join('；')}`)
+  const parsed = schemasForBudget(budget).safeParse(inputCommands)
+  if (!parsed.success) throw new Error(`组合指令无效，单事务最多${commandSelectionLimit(budget)}条：${parsed.error.issues.map(issue => issue.message).join('；')}`)
   const commands = parsed.data as CompositionCommand[]
   for (const command of commands) if (['createTerrainArea', 'createTerrainEdge', 'createTerrainConnection', 'createPath', 'createScatter', 'createRegion'].includes(command.type) && 'id' in command) assertFresh(source, command.id)
+  for (const command of commands) {
+    if (command.type === 'createAggregateGroup') assertFresh(source, command.group.id)
+    else if (command.type === 'splitAggregateGroup') for (const part of command.parts) assertFresh(source, part.id)
+    else if (command.type === 'mergeAggregateGroups') assertFresh(source, command.newId)
+  }
   if (!commands.length) { accounting?.onOperationCost?.(initialCost); return source }
   const isComposition = commands.map(command => c3Types.has(command.type))
   if (isComposition.some(Boolean) && isComposition.some(value => !value)) throw new Error('外观/组件操作与普通场景操作须分别预览采用，不能混批绕过锁或资源准备。')
@@ -230,7 +252,9 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       ...Object.values(source.document.decorations ?? {}).filter(row => definitionPresentation(source.appearance, row.definitionRef)?.mode === 'nearSide').map(row => row.id),
     ])
     let accounting = source
-    const observer = { budget, fixedUprightPropIds, appearance: source.appearance, onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
+    const observer = { budget, fixedUprightPropIds, appearance: source.appearance,
+      budgetContent: { before: source, after: () => accounting },
+      onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
       onSceneDraft?.(draft, command, commandCost)
 
         // The observer's draft is reused by later commands; retain an owned
@@ -238,11 +262,16 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         const snapshot = { document: draft as SceneDocument, historyIdentity: identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }
         const next = unchangedAppearance ? { ...snapshot, document: cloneJson(snapshot.document) }
           : syncAppearanceGraph(snapshot, accounting.document, [command])
-        const estimated = terrainCommandCost(accounting.document, draft as SceneDocument)
-        const actual = terrainCommandCost(accounting.document, next.document, { before: accounting, after: next })
-        const physicalCost = commandCost - (estimated.total - estimated.items.physicalAndVisual)
-        consume(Math.max(1, physicalCost, actual.items.physicalAndVisual) + actual.total - actual.items.physicalAndVisual)
+        // Manual admission is measured from complete content by its own meter.
+        // Keep legacy expansion accounting only for the paths that consume it.
+        if (!manual) {
+          const estimated = terrainCommandCost(accounting.document, draft as SceneDocument)
+          const actual = terrainCommandCost(accounting.document, next.document, { before: accounting, after: next })
+          const physicalCost = commandCost - (estimated.total - estimated.items.physicalAndVisual)
+          consume(Math.max(1, physicalCost, actual.items.physicalAndVisual) + actual.total - actual.items.physicalAndVisual)
+        }
         accounting = next
+        onContentDraft?.(next)
     } }
     content.document = ownedDraft
       ? applySnapshotCommands(source.document, sceneCommands, context, { ...observer, preserveNoopIdentity: false })
@@ -330,6 +359,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         generationCost += expanded.total - expanded.items.physicalAndVisual
         if (!budget && initialCost + cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
       }
+      onContentDraft?.(content)
       if (false) identityTrace.observe(content.document)
     }
     const beforeSync = content
@@ -356,8 +386,12 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     if (!budget && initialCost + operationCost > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
   }
   content.historyIdentity = identityTrace.finish(content.document)
-  const result = ownedDraft ? certifyCompositionDraft(content) : validateCompositionDraft(content)
-  if (budget) assertTaskBudget(budget, measureTaskBudget(source.document, result.document, { before: source, after: result }))
+  reconcileAggregateMembers(source.document, content.document)
+  onContentDraft?.(content)
+  const result = ownedDraft
+    ? commands.every(command => command.type === 'updateProp') ? certifyDerivedCompositionDraft(content, source.document) : certifyCompositionDraft(content)
+    : validateCompositionDraft(content)
+  if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, result.document, { before: source, after: result }, undefined, budget))
   accounting?.onOperationCost?.(initialCost + operationCost)
   return result
 }

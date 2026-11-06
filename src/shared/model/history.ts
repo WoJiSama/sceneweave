@@ -8,6 +8,9 @@ export interface SurfaceRuleIdentityToken { kind: 'surfaceRule'; token: string; 
 /** Birth records include deleted entities. Tokens and topology evidence are never reassigned. */
 export interface HistoryIdentity {
   version: 1 | 2 | 3 | 4 | 5
+  /** Aggregate container births and retired IDs. Representation edits retain
+   * tokens; split/merge/copy allocate new containers instead of reusing IDs. */
+  aggregateTokens?: Record<string, string>
   generationTokens?: Record<string, ExtendedIdentityToken>
   regionalTokens?: Record<string, ExtendedIdentityToken>
   presentationTokens?: Record<string, ExtendedIdentityToken>

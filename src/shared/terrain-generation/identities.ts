@@ -108,7 +108,7 @@ export function advanceExtendedIdentityDescriptors(identity: HistoryIdentity, be
   if (identity.version < 3) identity.version = 2
   for (const field of TERRAIN_IDENTITY_FIELDS) identity[field] ??= {}
   for (const [id, descriptor] of Object.entries(after)) {
-    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id) || Object.hasOwn(identity.terrainTokens ?? {}, id) || Object.hasOwn(identity.decorationTokens ?? {}, id) || Object.hasOwn(identity.surfaceRuleTokens ?? {}, id)
+    if (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id) || Object.hasOwn(identity.outdoorTokens, id) || Object.hasOwn(identity.aggregateTokens ?? {}, id) || Object.hasOwn(identity.terrainTokens ?? {}, id) || Object.hasOwn(identity.decorationTokens ?? {}, id) || Object.hasOwn(identity.surfaceRuleTokens ?? {}, id)
       || TERRAIN_IDENTITY_FIELDS.some(field => field !== descriptor.field && Object.hasOwn(identity[field]!, id))) {
       throw new Error(`新地形出生身份与已分配身份冲突：${id}。`)
     }

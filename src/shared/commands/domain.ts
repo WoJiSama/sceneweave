@@ -33,7 +33,7 @@ export function geometryIdentityIds(scene: SceneDocument): Set<string> {
     // ID and falsely turn its genuine identity tombstone into a collision.
     const record = value as Record<string, unknown>
     for (const [key, child] of Object.entries(record)) {
-      if (key === 'parameters' && (record.domain === 'interior' && record.algorithmId === 'interior-layout' || record.domain === 'forest' && record.algorithmId === 'forest-layout' || record.domain === 'volcano' && record.algorithmId === 'volcano-layout')) continue
+      if (key === 'parameters' && (record.domain === 'interior' && ['interior-layout', 'supported-interior'].includes(String(record.algorithmId)) || record.domain === 'forest' && record.algorithmId === 'forest-layout' || record.domain === 'volcano' && record.algorithmId === 'volcano-layout' || record.domain === 'mixed' && record.algorithmId === 'mixed-layout')) continue
       visit(child)
     }
   }

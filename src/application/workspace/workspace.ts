@@ -1,13 +1,16 @@
-import { prepareMixedProject, type MixedCandidate } from './mixed.js'
 import { isDecorationCommand } from '../../shared/decorations/commands.js'
+import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
-import { parseTaskBudgetProfile, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { emptyBudgetUsage, parseTaskBudgetProfile, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { assertCommandBudget, measureCommandBudget, selectManualTransactionBudget, type ManualTransactionBudget, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
+import { selectManualCommandBudget } from '../../shared/budget/manual-request.js'
 import { ProfiledAuthoringScopeSchema } from '../../shared/ai/authoring-profile.js'
 import { prepareTerrainComposition } from './terrain-composition.js'
 import { prepareBaseMapProject, type BaseMapPreparationOptions } from './base-map.js'
 import { prepareInteriorProject, type InteriorCandidate } from './interior.js'
 import { prepareForestProject, type ForestCandidate } from './forest.js'
 import { prepareVolcanoProject, type VolcanoCandidate } from './volcano.js'
+import { prepareMixedProject, type MixedCandidate } from './mixed.js'
 import type { DomainGenerationExecutor } from './generation.js'
 import type { DomainGenerationKind } from '../../shared/generation/execution.js'
 import type { LocalGenerationRequest } from '../../shared/generation/local.js'
@@ -37,6 +40,7 @@ import { RegionSceneCandidateResultSchema } from '../../shared/ai/region-candida
 import type { TerrainEditResult, ProfiledTerrainEditResult } from '../../shared/terrain-generation/edit.js'
 import type { TerrainGenerationResult } from '../../shared/terrain-generation/generate.js'
 import { visualBase } from '../../shared/visual/base.js'
+import { visualBindingEntityIds } from '../../shared/visual/diagnostics.js'
 import { planTerrainDressing, type TerrainDressingReport } from '../../shared/visual/terrain-dressing.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
@@ -69,7 +73,7 @@ import type { ProjectRepository, CreateSnapshotOptions, ProjectSaveGuard, Snapsh
 import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStart, freezeAtomic, pureProject,
   type AtomicAuthorization, type AtomicCandidate, type AtomicCandidateRecord, type AtomicAdoptionResult, type AtomicCandidateStatus } from './atomic.js'
 import { materializeAuthoringArtwork } from './artwork.js'
-import { materializeProject, prepareCompositionCommands } from './prepare.js'
+import { combineManualPreparationUsage, materializeProject, prepareCompositionCommands } from './prepare.js'
 import { captureEditableDraft, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
 
 type GeneratedAtomicStart = Extract<AuthoringStart, { schemaVersion: 2 | 3 }> | (AuthoringStartV4 & { source: BaseMapSourceV3 })
@@ -100,16 +104,21 @@ export interface CompositionPreview {
   checkpoint: number
   currentSceneId: string
   currentRevision: number
+  /** Session-only admission evidence; recomputed from the private baseline at adoption. */
+  budgetUsage?: CommandBudgetUsage
+  budgetProfile?: ManualTransactionBudget
+  /** GM preparation diagnostics, excluded from project/history/player outputs. */
+  aggregateBoundaryImpact?: AggregateEditBoundaryImpact
 }
 export interface TerrainDressingPreview {
   preview: CompositionPreview
   report: TerrainDressingReport
-  cost: { total: number; limit: 256 }
+  cost: { total: number; limit: number }
 }
 export interface FillCopyPreview {
   preview: CompositionPreview
   report: FillCopyReport
-  cost: { total: number; limit: 256 }
+  cost: { total: number; limit: number }
 }
 export interface RestorePreview {
   snapshot: SnapshotSummary
@@ -119,6 +128,7 @@ export interface RestorePreview {
   currentSceneId: string
   currentRevision: number
   sourceContentHash: string
+  budgetProfile: ManualTransactionBudget
 }
 export interface StructureRestorePreview extends Omit<RestorePreview, 'plan'> {
   plan: StructureRestorePlan
@@ -165,6 +175,7 @@ export interface StructureRestoreInspection {
   checkpoint: number
   currentRevision: number
   sourceContentHash: string
+  budgetProfile: ManualTransactionBudget
 }
 type PreviewStatus = 'active' | 'applying' | 'cancelled' | 'applied'
 const copy = <T>(value: T): T => structuredClone(value)
@@ -319,7 +330,7 @@ function restorationProject(current: EditableProject, historic: EditableProject,
 }
 
 /** Diff rows describe the actual materialized result, including today's layer in source mode. */
-function materializedRestorePlan(current: EditableProject, plan: RestorePlan, project: EditableProject): RestorePlan {
+function materializedRestorePlan(current: EditableProject, plan: RestorePlan, project: EditableProject, budget: ManualTransactionBudget): RestorePlan {
   const changes = plan.changes.filter(change => change.kind !== 'generation').map(change => {
     if (change.after === null || typeof change.after !== 'object' || Array.isArray(change.after)) return change
     const after = copy(change.after) as Record<string, unknown>
@@ -341,14 +352,50 @@ function materializedRestorePlan(current: EditableProject, plan: RestorePlan, pr
   let commandCost = plan.commandCost
   {
     changes.push(...generationRestoreChanges(current.document, project.document))
-    const draftCost = terrainCommandCost(current.document, plan.document), finalCost = terrainCommandCost(current.document, project.document)
-    const baseCost = plan.commandCost - (draftCost.total - draftCost.items.physicalAndVisual)
-    commandCost = Math.max(baseCost, finalCost.items.physicalAndVisual) + finalCost.total - finalCost.items.physicalAndVisual
-    if (commandCost > 256) throw new Error('恢复材质化后的实体、真实几何与生成记录展开超过256条预算。')
+    commandCost = assertCommandBudget(budget,
+      measureCommandBudget(current.document, project.document, { before: current, after: project }, undefined, budget)).semanticTargets
   }
   return { ...plan, document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance, changes, commandCost,
     affectedIds: [...new Set([...plan.affectedIds, ...changes.map(change => change.id)])].sort(),
     changed: canonical({ document: current.document, appearance: current.appearance }) !== canonical({ document: project.document, appearance: project.appearance }) }
+}
+
+/** Resolve data-dependent restore expansion before preparing a candidate. The
+ * final restore meter still checks the exact writes under this frozen tier. */
+function manualRestoreBudget(current: EditableProject, historic: EditableProject, request: { ids: readonly string[]; mode: string }, structural = false): ManualTransactionBudget {
+  const affected = new Set(request.ids), roots = new Set(request.ids)
+  for (const { document } of [current, historic]) {
+    if (request.mode === 'layer') {
+      for (const [id, layerId] of Object.entries(document.entityLayers)) if (roots.has(layerId)) affected.add(id)
+    }
+    for (const id of request.ids) {
+      for (const member of Object.values(document.prefabInstances[id]?.members ?? {})) if (member.propId) affected.add(member.propId)
+      for (const member of Object.values(document.scatterGroups[id]?.members ?? {})) if (member.propId) affected.add(member.propId)
+      if (request.mode === 'visual') {
+        const visual = visualBase(document), filter = visual?.filters[id]
+        if (filter?.target.kind === 'entities') for (const target of filter.target.ids) affected.add(target)
+        if (filter?.target.kind === 'layer') for (const [entity, layer] of Object.entries(document.entityLayers)) if (layer === filter.target.layerId) affected.add(entity)
+        const boundary = visual?.boundaries[id]
+        if (boundary) {
+          for (const target of visualBindingEntityIds(boundary)) affected.add(target)
+          for (const edge of Object.values(visual!.edgeLooks)) if (edge.boundaryId === id) affected.add(edge.id)
+        }
+      }
+    }
+    if (structural) {
+      const vertices = new Set(request.ids.filter(id => Object.hasOwn(document.vertices, id)))
+      for (const id of request.ids) {
+        for (const vertex of document.rooms[id]?.boundaryVertexIds ?? []) vertices.add(vertex)
+        const wall = document.walls[id]
+        if (wall) { vertices.add(wall.startVertexId); vertices.add(wall.endVertexId) }
+      }
+      const walls = new Set(Object.values(document.walls).filter(wall => vertices.has(wall.startVertexId) || vertices.has(wall.endVertexId)).map(wall => wall.id))
+      for (const id of walls) affected.add(id)
+      for (const room of Object.values(document.rooms)) if (room.boundaryVertexIds.some(id => vertices.has(id))) affected.add(room.id)
+      for (const opening of Object.values(document.openings)) if (walls.has(opening.wallId)) affected.add(opening.id)
+    }
+  }
+  return selectManualTransactionBudget(current.document, affected.size)
 }
 
 /** Owns native complete-v1 history, byte closures and session-only structural evidence. */
@@ -392,6 +439,8 @@ export class Workspace {
   private validateCandidate = (document: SceneDocument) => this.options.validateCandidate?.(document)
   private validation = () => this.options.validation
   private preparation = (baseline?: EditableProject) => ({ validation: this.options.validation, runtime: this.options.runtime, ...(baseline ? { baseline } : {}) })
+  getManualBudget = (requestedTargets = 0): ManualTransactionBudget => selectManualTransactionBudget(this.requireProject().document, requestedTargets)
+  private manualPreparation = (baseline?: EditableProject, budget = this.getManualBudget()) => ({ ...this.preparation(baseline), budget })
   getDocument = () => this.state.project?.document ?? null
   open = (project: EditableProject) => this.openPersisted(project)
   retrySave = () => this.retry()
@@ -1243,6 +1292,9 @@ export class Workspace {
     for (const collection of ['propTokens', 'prefabTokens'] as const) for (const [id, token] of Object.entries(current.historyIdentity[collection])) {
       if (candidate.historyIdentity[collection][id] !== token) throw new Error(`候选不能丢弃或改写已分配身份：${id}。`)
     }
+    for (const [id, token] of Object.entries(current.historyIdentity.aggregateTokens ?? {})) {
+      if (candidate.historyIdentity.aggregateTokens?.[id] !== token) throw new Error(`候选不能丢弃或改写聚合组出生身份：${id}。`)
+    }
     for (const [id, record] of Object.entries(current.historyIdentity.outdoorTokens)) {
       const after = candidate.historyIdentity.outdoorTokens[id]
       if (!after || after.kind !== record.kind || after.token !== record.token) throw new Error(`候选不能丢弃或改写室外出生身份：${id}。`)
@@ -1285,17 +1337,17 @@ export class Workspace {
     const sourceCost = catalogAdditionCost(current, catalog)
     if (sourceCost > 256) throw new Error('地形布景固定源新增记录超过256条操作预算。')
     const planned = planTerrainDressing({ document: catalog.document, appearance: catalog.appearance }, capturedInput)
-    const commands = captureCommands(planned.commands)
+    const commands = captureCommands(planned.commands), budget = selectManualCommandBudget(catalog.document, commands)
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
-    let total = sourceCost
-    const candidate = await prepareCompositionCommands(catalog, commands, { ...this.preparation(), signal,
-      initialOperationCost: sourceCost, onOperationCost: cost => { total = cost } })
+    let total = sourceCost, preparedUsage: CommandBudgetUsage | undefined
+    const candidate = await prepareCompositionCommands(catalog, commands, { ...this.manualPreparation(undefined, budget), signal,
+      onOperationCost: cost => { total = cost }, onBudgetUsage: usage => { preparedUsage = usage } })
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
-    const preview = await this.registerPrepared(candidate, '地形层次与布景', checkpoint, commands)
+    const preview = await this.registerPrepared(candidate, '地形层次与布景', checkpoint, commands, budget, undefined, preparedUsage)
     if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
     this.structuralInvalidations.set(preview.project, invalidatedStructureIds(current.document, commands))
     this.visualInvalidations.set(preview.project, invalidatedVisualIds(current.document, commands))
-    return freeze({ preview, report: captureJson(planned.report), cost: { total, limit: 256 as const } })
+    return freeze({ preview, report: captureJson(planned.report), cost: { total, limit: budget.semanticTargets } })
   }
   /** Fixed source closure and every actual cluster/member edit share one bounded candidate. */
   async previewDecorationCommands(catalogInput: EditableProject, input: readonly CompositionCommand[], options: { checkpoint?: number; signal?: ResourceOptions['signal'] } = {}): Promise<CompositionPreview> {
@@ -1314,26 +1366,31 @@ export class Workspace {
     checkCancelled(signal); this.assertCatalogImport(catalog, checkpoint)
     const sourceCost = catalogAdditionCost(current, catalog)
     if (sourceCost > CATALOG_ADOPTION_LIMIT) throw new Error('轻量布景固定源新增记录超过256条操作预算。')
-    let total = sourceCost
-    const candidate = await prepareCompositionCommands(catalog, commands, { ...this.preparation(), signal, initialOperationCost: sourceCost, onOperationCost: cost => { total = cost } })
+    let total = sourceCost, preparedUsage: CommandBudgetUsage | undefined
+    const budget = selectManualCommandBudget(catalog.document, commands)
+    const candidate = await prepareCompositionCommands(catalog, commands, { ...this.manualPreparation(undefined, budget), signal, onOperationCost: cost => { total = cost }, onBudgetUsage: usage => { preparedUsage = usage } })
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
-    const preview = await this.registerPrepared(candidate, `固定素材与场景编辑 · 展开 ${total}/256`, checkpoint, commands)
+    const preview = await this.registerPrepared(candidate, `固定素材与场景编辑 · ${total}/${budget.semanticTargets} 个编辑对象`, checkpoint, commands, budget, undefined, preparedUsage)
     if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
     this.structuralInvalidations.set(preview.project, invalidatedStructureIds(current.document, commands))
     this.visualInvalidations.set(preview.project, invalidatedVisualIds(current.document, commands))
     return preview
   }
   /** Only the command preparation path may register candidates that change scene semantics. */
-  private async registerPrepared(input: EditableProject, description: string, checkpoint: number, commands: readonly CompositionCommand[] = []): Promise<CompositionPreview> {
+  private async registerPrepared(input: EditableProject, description: string, checkpoint: number, commands: readonly CompositionCommand[] = [], budget?: ManualTransactionBudget, aggregateBoundaryImpact?: AggregateEditBoundaryImpact, preparedUsage?: CommandBudgetUsage): Promise<CompositionPreview> {
     this.assertCandidateBaseline(input, checkpoint)
     const candidate = getVerifiedEditableProject(input) ?? await validateEditableProject(input, this.validation())
     this.assertCandidateBaseline(candidate, checkpoint)
     this.validateCandidate(candidate.document)
     projectScene(candidate.document, 'player')
     this.assertCheckpoint(checkpoint)
+    const current = this.requireProject()
+    const measured = budget ? measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, budget) : undefined
+    const budgetUsage = budget && measured ? assertCommandBudget(budget,
+      preparedUsage ? combineManualPreparationUsage(measured, preparedUsage, emptyBudgetUsage()) : measured) : undefined
     const project = freeze(candidate)
     const preview = freeze({ project, document: project.document, commands, description, checkpoint,
-      currentSceneId: project.document.sceneId, currentRevision: project.document.revision })
+      currentSceneId: project.document.sceneId, currentRevision: project.document.revision, ...(budgetUsage ? { budgetUsage, budgetProfile: budget } : {}), ...(aggregateBoundaryImpact ? { aggregateBoundaryImpact } : {}) })
     this.compositionPreviews.set(preview, 'active')
     return preview
   }
@@ -1342,10 +1399,13 @@ export class Workspace {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = options.checkpoint ?? this.checkpoint(), signal = this.atomicSignal(options.signal)
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
-    const prepared = await prepareFillCopy(current, captureJson(input), { ...this.preparation(), signal })
+    const prefab = current.document.prefabInstances[input.sourceId]
+    const budget = this.getManualBudget(input.count * (prefab ? 1 + Object.values(prefab.members).filter(member => member.propId).length : 1))
+    let preparedUsage: CommandBudgetUsage | undefined
+    const prepared = await prepareFillCopy(current, captureJson(input), { ...this.manualPreparation(undefined, budget), signal, onBudgetUsage: usage => { preparedUsage = usage } })
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
     const commands = captureCommands(prepared.commands)
-    const preview = await this.registerPrepared(prepared.project, '填充复制', checkpoint, commands)
+    const preview = await this.registerPrepared(prepared.project, '填充复制', checkpoint, commands, budget, undefined, preparedUsage)
     if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
     this.structuralInvalidations.set(preview.project, invalidatedStructureIds(current.document, commands))
     this.visualInvalidations.set(preview.project, invalidatedVisualIds(current.document, commands))
@@ -1353,11 +1413,13 @@ export class Workspace {
   }
   async preview(commands: readonly CompositionCommand[]): Promise<CompositionPreview> {
     const current = this.requireProject(), checkpoint = this.checkpoint(), frozenCommands = captureCommands(commands)
-    const tracedStructureIds = new Set<string>()
-    const candidate = await prepareCompositionCommands(current, frozenCommands, { ...this.preparation(),
-      onStructureInvalidations: ids => { for (const id of ids) tracedStructureIds.add(id) } })
+    const tracedStructureIds = new Set<string>(), budget = selectManualCommandBudget(current.document, frozenCommands)
+    let aggregateBoundaryImpact: AggregateEditBoundaryImpact | undefined, preparedUsage: CommandBudgetUsage | undefined
+    const candidate = await prepareCompositionCommands(current, frozenCommands, { ...this.manualPreparation(undefined, budget),
+      onStructureInvalidations: ids => { for (const id of ids) tracedStructureIds.add(id) },
+      onAggregateBoundaryImpact: impact => { aggregateBoundaryImpact = impact }, onBudgetUsage: usage => { preparedUsage = usage } })
     this.assertCheckpoint(checkpoint)
-    const preview = await this.registerPrepared(candidate, '场景与外观修改', checkpoint, frozenCommands)
+    const preview = await this.registerPrepared(candidate, '场景与外观修改', checkpoint, frozenCommands, budget, aggregateBoundaryImpact, preparedUsage)
     this.structuralInvalidations.set(preview.project, [...new Set([...invalidatedStructureIds(current.document, frozenCommands), ...tracedStructureIds])])
     this.visualInvalidations.set(preview.project, invalidatedVisualIds(current.document, frozenCommands))
     return preview
@@ -1380,6 +1442,10 @@ export class Workspace {
       this.validateCandidate(candidate.document)
       this.assertPreview(preview)
       const current = this.requireProject()
+      if (preview.budgetProfile) {
+        const measured = measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, preview.budgetProfile)
+        assertCommandBudget(preview.budgetProfile, preview.budgetUsage ? combineManualPreparationUsage(measured, preview.budgetUsage, emptyBudgetUsage()) : measured)
+      }
       if (!equalOwnedContent(current, candidate)
         || this.structuralInvalidations.get(preview.project)?.length || this.visualInvalidations.get(preview.project)?.length) {
         this.transferInvalidations(preview.project, candidate)
@@ -1394,8 +1460,8 @@ export class Workspace {
     // Preparation fully validates both the captured input and the materialized
     // candidate. Only validator-owned immutable byte/original closures are reused.
     // Immediate commands have no user-visible preview lifetime to register/recheck.
-    const tracedStructureIds = new Set<string>()
-    const candidate = await prepareCompositionCommands(current, frozenCommands, { ...this.preparation(),
+    const tracedStructureIds = new Set<string>(), budget = selectManualCommandBudget(current.document, frozenCommands)
+    const candidate = await prepareCompositionCommands(current, frozenCommands, { ...this.manualPreparation(undefined, budget),
       onStructureInvalidations: ids => { for (const id of ids) tracedStructureIds.add(id) } })
     this.assertCandidateBaseline(candidate, checkpoint)
     this.validateCandidate(candidate.document)
@@ -1720,7 +1786,7 @@ export class Workspace {
         this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
         protection = await this.createSnapshot(current, '底图AI采用前保护', { kind: 'protection', expectedRevision: current.document.revision,
           expectedMetadataVersion: usage.metadataVersion, signal })
-        preservation = { sceneId: current.document.sceneId, revision: current.document.revision, contentHash: start.source.preservation.contentHash!,
+        preservation = { sceneId: current.document.sceneId, revision: current.document.revision, contentHash: protection.contentHash,
           guard: { expectedMetadataVersion: usage.metadataVersion + 1, protection: { id: protection.id, contentHash: protection.contentHash } } }
       }
       this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
@@ -1835,10 +1901,11 @@ export class Workspace {
     const snapshot = await this.loadNamedSnapshot(snapshotId, current.document.sceneId)
     this.assertCheckpoint(checkpoint)
     if (!snapshot) throw new Error('源快照已被删除，请重新选择。')
-    const plan = buildRestorePlan(contentOf(current), contentOf(snapshot.project), frozenRequest, this.restoreEvidence(snapshot, frozenRequest))
+    const budget = manualRestoreBudget(current, snapshot.project, frozenRequest)
+    const plan = buildRestorePlan(contentOf(current), contentOf(snapshot.project), frozenRequest, this.restoreEvidence(snapshot, frozenRequest), budget)
     this.validateCandidate(plan.document)
     this.assertCheckpoint(checkpoint)
-    const materialized = await materializeProject(restorationProject(current, snapshot.project, plan), this.preparation(current))
+    const materialized = await materializeProject(restorationProject(current, snapshot.project, plan), this.manualPreparation(current, budget))
     this.assertCheckpoint(checkpoint)
     checkCancelled(this.validation().signal)
     const project = getVerifiedEditableProject(materialized) ?? await validateEditableProject(materialized, this.validation())
@@ -1846,10 +1913,10 @@ export class Workspace {
     this.assertCheckpoint(checkpoint)
     this.validateCandidate(project.document)
     projectScene(project.document, 'player')
-    const finalPlan = materializedRestorePlan(current, plan, project)
+    const finalPlan = materializedRestorePlan(current, plan, project, budget)
     const { project: _project, ...summary } = snapshot
     const preview = freeze({ snapshot: summary, plan: finalPlan, project, checkpoint, currentSceneId: current.document.sceneId,
-      currentRevision: current.document.revision, sourceContentHash: snapshot.contentHash })
+      currentRevision: current.document.revision, sourceContentHash: snapshot.contentHash, budgetProfile: budget })
     this.previews.set(preview, 'active')
     return preview
   }
@@ -1877,10 +1944,10 @@ export class Workspace {
       this.assertRestore(preview)
       if (!source || source.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容校验值已变化，请重新预览。')
       const current = this.requireProject()
-      const plan = buildRestorePlan(contentOf(current), contentOf(source.project), preview.plan.request, this.restoreEvidence(source, preview.plan.request))
+      const plan = buildRestorePlan(contentOf(current), contentOf(source.project), preview.plan.request, this.restoreEvidence(source, preview.plan.request), preview.budgetProfile)
       this.validateCandidate(plan.document)
       this.assertRestore(preview)
-      const materialized = await materializeProject(restorationProject(current, source.project, plan), this.preparation(current))
+      const materialized = await materializeProject(restorationProject(current, source.project, plan), this.manualPreparation(current, preview.budgetProfile))
       this.assertRestore(preview)
       checkCancelled(this.validation().signal)
       const candidate = getVerifiedEditableProject(materialized) ?? await validateEditableProject(materialized, this.validation())
@@ -1927,10 +1994,11 @@ export class Workspace {
     const snapshot = await this.loadNamedSnapshot(snapshotId, current.document.sceneId)
     this.assertCheckpoint(checkpoint)
     if (!snapshot) throw new Error('源快照已被删除，请重新选择。')
+    const budget = manualRestoreBudget(current, snapshot.project, frozenRequest, true)
     const continuity = this.structureContinuity.prove(snapshot.id, snapshot.contentHash, current.document, snapshot.project.document)
-    const scope = inspectStructureRestoreScope(current.document, current.historyIdentity, snapshot.project.document, snapshot.project.historyIdentity, frozenRequest, continuity)
+    const scope = inspectStructureRestoreScope(current.document, current.historyIdentity, snapshot.project.document, snapshot.project.historyIdentity, frozenRequest, continuity, budget)
     const { project: _project, ...summary } = snapshot
-    return freeze({ snapshot: summary, scope, checkpoint, currentRevision: current.document.revision, sourceContentHash: snapshot.contentHash })
+    return freeze({ snapshot: summary, scope, checkpoint, currentRevision: current.document.revision, sourceContentHash: snapshot.contentHash, budgetProfile: budget })
   }
 
   async prepareStructureRestore(snapshotId: string, request: StructureRestoreRequest): Promise<StructureRestorePreview> {
@@ -1938,17 +2006,19 @@ export class Workspace {
     const snapshot = await this.loadNamedSnapshot(snapshotId, current.document.sceneId)
     this.assertCheckpoint(checkpoint)
     if (!snapshot) throw new Error('源快照已被删除，请重新选择。')
+    const budget = manualRestoreBudget(current, snapshot.project, frozenRequest, true)
     const continuity = this.structureContinuity.prove(snapshot.id, snapshot.contentHash, current.document, snapshot.project.document)
-    const plan = buildStructureRestorePlan(current.document, current.historyIdentity, snapshot.project.document, snapshot.project.historyIdentity, frozenRequest, continuity)
+    const plan = buildStructureRestorePlan(current.document, current.historyIdentity, snapshot.project.document, snapshot.project.historyIdentity, frozenRequest, continuity, budget)
     this.validateCandidate(plan.document)
     this.assertCheckpoint(checkpoint)
     // C2 restores geometry/business fields only, so the exact current resource and license closure remains authoritative.
     const project = await validateEditableProject({ ...current, document: plan.document,
       historyIdentity: mergeHistoryIdentities(current.historyIdentity, current.document, snapshot.project.historyIdentity, snapshot.project.document) }, this.validation())
+    assertCommandBudget(budget, measureCommandBudget(current.document, project.document, { before: current, after: project }, undefined, budget))
     this.assertCheckpoint(checkpoint)
     const { project: _project, ...summary } = snapshot
     const preview = freeze({ snapshot: summary, plan, project, checkpoint, currentSceneId: current.document.sceneId,
-      currentRevision: current.document.revision, sourceContentHash: snapshot.contentHash })
+      currentRevision: current.document.revision, sourceContentHash: snapshot.contentHash, budgetProfile: budget })
     this.structurePreviews.set(preview, 'active')
     return preview
   }
@@ -1980,11 +2050,12 @@ export class Workspace {
       if (!source || source.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容校验值已变化，请重新预览。')
       const current = this.requireProject()
       const continuity = this.structureContinuity.prove(source.id, source.contentHash, current.document, source.project.document)
-      const plan = buildStructureRestorePlan(current.document, current.historyIdentity, source.project.document, source.project.historyIdentity, preview.plan.request, continuity)
+      const plan = buildStructureRestorePlan(current.document, current.historyIdentity, source.project.document, source.project.historyIdentity, preview.plan.request, continuity, preview.budgetProfile)
       this.validateCandidate(plan.document)
       this.assertStructureRestore(preview)
       const candidate = await validateEditableProject({ ...current, document: plan.document,
         historyIdentity: mergeHistoryIdentities(current.historyIdentity, current.document, source.project.historyIdentity, source.project.document) }, this.validation())
+      assertCommandBudget(preview.budgetProfile, measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, preview.budgetProfile))
       this.assertStructureRestore(preview)
       reviseSceneSnapshot(candidate.document, current.document.revision + 1, this.options.runtime.clock.now())
       const usage = await this.repository.usage(preview.currentSceneId)

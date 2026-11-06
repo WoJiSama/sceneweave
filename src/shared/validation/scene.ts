@@ -8,6 +8,9 @@ import { validateTerrainContracts } from '../terrain-generation/integrity.js'
 import { createVisual3Schema, generation5Schema, legacyTerrainView } from '../terrain-generation/composition-contracts.js'
 import { validateCompositionContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
+import { aggregateCoordinatesSchema } from '../aggregates/schema.js'
+import { validateAggregateCoordinates } from '../aggregates/state.js'
+import { assertCoordinateRoundTrip } from '../aggregates/scene-coordinates.js'
 import { visualSystemSchema } from '../visual/schema.js'
 import { validateVisualSystem } from '../visual/diagnostics.js'
 import { inspectJsonInput } from './json.js'
@@ -92,24 +95,39 @@ const sceneShape = {
 /** The sole current persisted schema includes every supported capability. */
 export const sceneDocumentSchema = z.object({ ...sceneShape,
   schemaVersion: z.literal(1),
+  aggregateCoordinates: aggregateCoordinatesSchema.optional(),
 }).strict().superRefine((value, ctx) => {
+  if (value.aggregateCoordinates?.encoding === 'local') ctx.addIssue({ code: 'custom', message: '局部存储须先解码为完整世界视图。' })
   if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
   if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters','surfaceRules'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体、轻量装饰或地表规则。' })
 })
 export const nativeSceneSchema = sceneDocumentSchema
 
 export type ValidationResult = { ok: true; document: SceneDocument; warnings: Issue[] } | { ok: false; errors: Issue[] }
-export function validateSceneDocument(input: unknown): ValidationResult {
-  // The ownership inspector already enforces the complete depth/value budget
-  // and descriptors. Preserve scene error codes without scanning twice.
+/** Shape capture only. Domain inspection and snapshot certification have separate
+ * owners; this result carries no scene-validation certificate. */
+export function parseSceneDocument(input: unknown): { ok: true; document: SceneDocument } | Extract<ValidationResult, { ok: false }> {
   const jsonIssue = inspectJsonInput(input, { budgetCode: 'JSON_BUDGET', accessorCode: 'JSON_BUDGET' })
   if (jsonIssue) return { ok: false, errors: [jsonIssue] }
   const parsed = nativeSceneSchema.safeParse(input)
   if (!parsed.success) return { ok: false, errors: parsed.error.issues.map(issue => ({ code: 'SCHEMA', message: `${issue.path.join('.') || 'document'}: ${issue.message}` })) }
-  const document = parsed.data as SceneDocument
-  const dependencies = inspectDependencies(document), geometry = validateGeometry(geometryDocumentForValidation(document))
-  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document)]
+  return { ok: true, document: parsed.data as SceneDocument }
+}
+
+/** Pure domain inspection, never a snapshot certificate. The snapshot owner may
+ * supply geometry established by its private, constrained derivation proof. */
+export function inspectSceneDocumentDomains(document: SceneDocument, geometry: ReturnType<typeof validateGeometry>): ValidationResult {
+  const dependencies = inspectDependencies(document)
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document)]
+  if (!errors.length) try { assertCoordinateRoundTrip(document) } catch (cause) { errors.push({ code: 'AGGREGATE_COORDINATES', message: cause instanceof Error ? cause.message : String(cause) }) }
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
+}
+
+/** Public validation always computes the complete geometry, including when a
+ * caller passes a certified, frozen, or otherwise familiar scene object. */
+export function validateSceneDocument(input: unknown): ValidationResult {
+  const parsed = parseSceneDocument(input)
+  return parsed.ok ? inspectSceneDocumentDomains(parsed.document, validateGeometry(geometryDocumentForValidation(parsed.document))) : parsed
 }
 export const sceneSchema = sceneDocumentSchema
 export const validateScene = validateSceneDocument

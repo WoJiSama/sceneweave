@@ -2,6 +2,7 @@ import type { ProjectData } from '../model/project.js'
 import { captureJson, cloneJson, encodeUtf8, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
 import { validateProjectData } from './validate.js'
+import { decodeProjectCoordinates, encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
 
 export type DeltaValue = null | boolean | number | string | DeltaValue[] | { [key: string]: DeltaValue }
 export type DeltaSlot = { present: false } | { present: true; value: DeltaValue }
@@ -20,7 +21,9 @@ export interface ProjectDeltaChainResult {
 
 const hash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 // Every digest input is this operation's detached strict ProjectData result.
-const digest = (value: ProjectData) => sha256Bytes(encodeUtf8(canonicalOwned(value)))
+const persisted = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'world' ? cloneJson(encodeProjectCoordinates(value)) : value
+const world = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(value) : value
+const digest = (value: ProjectData) => sha256Bytes(encodeUtf8(canonicalOwned(persisted(value))))
 const record = (value: unknown): value is Record<string, DeltaValue> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const MAX_DELTA_VALUES = 1_200_000
 const MAX_FORWARD_DELTAS = 3
@@ -120,7 +123,7 @@ export function validateProjectDelta(input: unknown): JsonDelta {
 
 /** Actual immutable-result differences, including identity, appearance and resource/permission metadata. */
 export function createProjectDelta(before: ProjectData, after: ProjectData): JsonDelta {
-  const source = validateProjectData(before), target = validateProjectData(after), changes: DeltaChange[] = []
+  const source = persisted(validateProjectData(before)), target = persisted(validateProjectData(after)), changes: DeltaChange[] = []
   const visit = (left: DeltaValue, right: DeltaValue, path: string[]) => {
     if (left === right) return
     if (record(left) && record(right)) {
@@ -156,10 +159,10 @@ function applyChanges(result: ProjectData, checked: JsonDelta, forward: boolean)
 /** Applies either direction only to the exact complete baseline and verifies the complete result. */
 export function applyProjectDelta(input: ProjectData, delta: unknown, direction: 'forward' | 'backward'): ProjectData {
   if (direction !== 'forward' && direction !== 'backward') throw new Error('增量应用方向无效。')
-  const result = validateProjectData(input), checked = validateProjectDelta(delta), forward = direction === 'forward'
+  const result = persisted(validateProjectData(input)), checked = validateProjectDelta(delta), forward = direction === 'forward'
   if (digest(result) !== (forward ? checked.beforeHash : checked.afterHash)) throw new Error('增量完整基线hash不符；原工程保持。')
   applyChanges(result, checked, forward)
-  const project = validateProjectData(result)
+  const project = validateProjectData(world(result))
   if (digest(project) !== (forward ? checked.afterHash : checked.beforeHash)) throw new Error('增量重建完整内容hash不符；原工程保持。')
   return project
 }
@@ -178,8 +181,9 @@ export function applyProjectDeltaChain(input: ProjectData, deltas: readonly unkn
     if (contentHash !== checked.beforeHash) throw new Error('增量链前一步完整内容hash不符；原工程保持。')
     // The strict root/previous output is already private and detached. No
     // intermediate project escapes this synchronous operation, including on failure.
-    applyChanges(project, checked, true)
-    project = validateProjectData(project)
+    const stored = persisted(project)
+    applyChanges(stored, checked, true)
+    project = validateProjectData(world(stored))
     contentHash = digest(project)
     if (contentHash !== checked.afterHash) throw new Error('增量重建完整内容hash不符；原工程保持。')
     states.push({ contentHash, revision: project.document.revision })

@@ -1,4 +1,4 @@
-import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
+import { assertCommandBudget, commandSelectionLimit, measureCommandBudget, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
@@ -17,6 +17,10 @@ import { sampleConnectionRoute } from '../geometry/connection-route.js'
 import { sampleVisualBoundary } from '../visual/geometry.js'
 import { visualBase } from '../visual/base.js'
 import { VISUAL_ENTITY_COLLECTIONS } from '../visual/diagnostics.js'
+import { AGGREGATE_ENTITY_COLLECTIONS, type AggregateEntityRef, type AggregateFrame } from '../model/aggregate.js'
+import { aggregateWorldFrames, WORLD_FRAME } from '../aggregates/state.js'
+import { reparentAggregateFrame } from '../aggregates/coordinates.js'
+import { assertAggregateBuildingClearance } from '../aggregates/building-clearance.js'
 
 export type BuildingCommand =
   | { type: 'createRoom'; id: string; floorId: string; boundaryMm: PointMm[]; thicknessMm: number; layerId?: string; purpose?: string; visibility?: Room['visibility']; accessExpectation?: Room['accessExpectation']; supportRef?: GroundSurfaceRef; materialRef?: VersionRef }
@@ -24,6 +28,7 @@ export type BuildingCommand =
   | { type: 'deleteRoom'; id: string; removeOrphanWalls?: boolean }
   | { type: 'deleteWall'; id: string }
   | { type: 'transformBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
+  | { type: 'transformAggregateBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
   | { type: 'repairBuildingTopology'; id: string; operation: 'mergeCollinear' | 'splitJunctions' }
   | { type: 'addOpening'; id: string; wallId: string; offsetReferenceVertexId: string; offsetMm: number; widthMm: number; kind: Opening['kind']; state?: Opening['state']; locked?: boolean; secret?: boolean; revealed?: boolean; layerId?: string }
   | { type: 'updateOpening'; id: string; changes: Partial<Pick<Opening, 'wallId' | 'offsetReferenceVertexId' | 'offsetMm' | 'widthMm' | 'kind' | 'state' | 'locked' | 'secret' | 'revealed'>> }
@@ -36,6 +41,8 @@ const positive = integer.refine(value => value > 0, '尺寸必须大于零')
 const nonnegative = integer.refine(value => value >= 0, '距离不得小于零')
 const point = z.object({ x: integer, y: integer }).strict()
 const visibility = z.enum(['public', 'gm']), access = z.enum(['unspecified', 'required', 'intentionalIsolation'])
+// The integer/range validators already prove this finite output union.
+const quarterTurnsSchema = z.number().int().min(0).max(3) as z.ZodType<0 | 1 | 2 | 3>
 const openingFields = { wallId: id, offsetReferenceVertexId: id, offsetMm: nonnegative, widthMm: positive, kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean() }
 export const buildingCommandSchemas = [
   z.object({ type: z.literal('createRoom'), id, floorId: id, boundaryMm: z.array(point).min(3).max(256), thicknessMm: positive, layerId: id.optional(), purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional(),
@@ -43,14 +50,22 @@ export const buildingCommandSchemas = [
   z.object({ type: z.literal('updateRoom'), id, changes: z.object({ purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional() }).strict() }).strict(),
   z.object({ type: z.literal('deleteRoom'), id, removeOrphanWalls: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('deleteWall'), id }).strict(),
-  z.object({ type: z.literal('transformBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: z.number().int().min(0).max(3) }).strict(),
+  z.object({ type: z.literal('transformBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
+  z.object({ type: z.literal('transformAggregateBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
   z.object({ type: z.literal('repairBuildingTopology'), id, operation: z.enum(['mergeCollinear', 'splitJunctions']) }).strict(),
   z.object({ type: z.literal('addOpening'), id, ...openingFields, state: openingFields.state.optional(), locked: z.boolean().optional(), secret: z.boolean().optional(), revealed: z.boolean().optional(), layerId: id.optional() }).strict(),
   z.object({ type: z.literal('updateOpening'), id, changes: z.object(openingFields).partial().strict() }).strict(),
   z.object({ type: z.literal('deleteOpening'), id }).strict(),
   z.object({ type: z.literal('setEntranceOpenings'), ids: z.array(id).max(COMMAND_LIMIT).refine(values => new Set(values).size === values.length, '入口 ID 不能重复') }).strict(),
 ] as const
-const commandSchema = z.array(z.discriminatedUnion('type', buildingCommandSchemas)).max(COMMAND_LIMIT)
+/** Only explicitly selected manual tiers may expand transaction target lists. */
+export function buildingCommandSchemasForBudget(budget?: CommandBudgetProfile): typeof buildingCommandSchemas {
+  const limit = commandSelectionLimit(budget)
+  const [first, ...rest] = buildingCommandSchemas
+  return [first, ...rest.map(schema => schema.shape.type.value === 'setEntranceOpenings'
+    ? z.object({ type: z.literal('setEntranceOpenings'), ids: z.array(id).max(limit).refine(values => new Set(values).size === values.length, '入口 ID 不能重复') }).strict()
+    : schema)] as unknown as typeof buildingCommandSchemas
+}
 const commandTypes = new Set(buildingCommandSchemas.map(schema => schema.shape.type.value))
 export const isBuildingCommand = (command: { type: string }): command is BuildingCommand => commandTypes.has(command.type as BuildingCommand['type'])
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
@@ -216,6 +231,66 @@ function buildingComponent(scene: SceneDocument, seedId: string): BuildingCompon
   }
   const roomIds = new Set(Object.values(scene.rooms).filter(room => [...wallIds].some(id => roomOwnsWall(room, scene.walls[id]))).map(room => room.id))
   return { wallIds, vertexIds, roomIds }
+}
+
+/** Complete connected building and its moving dependants. Terrain/Floor support
+ * stays external and is checked by the existing transform and full validator. */
+export function buildingAggregateMembers(scene: SceneDocument, seedId: string): AggregateEntityRef[] {
+  const component = buildingComponent(scene, seedId)
+  if (!component.roomIds.size) throw new Error('建筑组须包含完整房间，独立墙暂不支持整栋操作。')
+  const ids = new Set([...component.vertexIds, ...component.wallIds, ...component.roomIds,
+    ...buildingDependants(scene, [...component.wallIds], [...component.roomIds])])
+  const kinds = ['vertex', 'room', 'wall', 'opening', 'prop', 'path', 'terrainConnection', 'prefabInstance', 'scatterGroup', 'decoration', 'decorationCluster'] as const
+  const members: AggregateEntityRef[] = kinds.flatMap(kind => [...ids].filter(id => Object.hasOwn(scene[AGGREGATE_ENTITY_COLLECTIONS[kind]] ?? {}, id))
+    .sort().map(id => ({ kind, id })))
+  // Read-only supports are included in the lock/review closure, but their notes
+  // do not move. Trace notes only from actual moving entities, recursively.
+  const moving = new Set(members.map(ref => ref.id))
+  for (let changed = true; changed;) {
+    changed = false
+    for (const note of Object.values(scene.notes)) if (!moving.has(note.id) && note.anchor.type === 'entity' && moving.has(note.anchor.entityId)) {
+      moving.add(note.id); members.push({ kind: 'note', id: note.id }); changed = true
+    }
+  }
+  return members
+}
+
+/** Re-evaluate ownership on every request; a selected group is not permission
+ * to move shared geometry or silently absorb a new external dependant. */
+export function inspectAggregateBuilding(scene: SceneDocument, groupId: string): { seedId: string; members: AggregateEntityRef[]; groupIds: string[]; frame: AggregateFrame } {
+  const state = scene.aggregateCoordinates, root = state?.groups[groupId]
+  if (!state || state.encoding !== 'world' || !root) throw new Error('请选择现存建筑组。')
+  const frames = aggregateWorldFrames(state), groupIds = new Set([groupId])
+  for (let changed = true; changed;) {
+    changed = false
+    for (const group of Object.values(state.groups)) if (group.parentId !== null && groupIds.has(group.parentId) && !groupIds.has(group.id)) {
+      groupIds.add(group.id); changed = true
+    }
+  }
+  const members = [...groupIds].flatMap(id => state.groups[id].members)
+  const seedId = members.find(ref => ref.kind === 'room')?.id
+  if (!seedId) throw new Error('所选组没有完整建筑房间。')
+  const expected = buildingAggregateMembers(scene, seedId), key = (ref: AggregateEntityRef) => `${ref.kind}:${ref.id}`
+  const owned = new Set(members.map(key)), needed = new Set(expected.map(key))
+  if (owned.size !== members.length || owned.size !== needed.size || expected.some(ref => !owned.has(key(ref)))) {
+    throw new Error('建筑组须完整拥有连通建筑、门窗及随动成员；存在跨组共享结构、新依赖或额外成员，请先核对归属。')
+  }
+  return { seedId, members: cloneJson(expected), groupIds: [...groupIds].sort(), frame: frames.get(groupId)! }
+}
+
+function transformAggregateBuilding(scene: SceneDocument, command: Extract<BuildingCommand, { type: 'transformAggregateBuilding' }>, affected: Set<string>, ignoreLocks: boolean, fixedUprightIds: ReadonlySet<string>): void {
+  const scope = inspectAggregateBuilding(scene, command.id), state = scene.aggregateCoordinates!
+  const lockIds = new Set(scope.groupIds)
+  let ancestor = state.groups[command.id]
+  while (ancestor.parentId !== null) { lockIds.add(ancestor.parentId); ancestor = state.groups[ancestor.parentId] }
+  if ([...lockIds].some(id => state.groups[id].editLocked)) throw new Error('建筑组、子组或祖先组已锁定。')
+  if (command.quarterTurns === 0 && command.offsetMm.x === 0 && command.offsetMm.y === 0) return
+  transformBuilding(scene, { ...command, type: 'transformBuilding', id: scope.seedId }, affected, ignoreLocks, fixedUprightIds)
+  assertAggregateBuildingClearance(scene, scope.members)
+  const group = state.groups[command.id], frames = aggregateWorldFrames(state)
+  const worldFrame: AggregateFrame = { translationMm: transformPoint(scope.frame.translationMm, command.pivotMm, command.offsetMm, command.quarterTurns),
+    quarterTurns: ((scope.frame.quarterTurns + command.quarterTurns) % 4) as AggregateFrame['quarterTurns'] }
+  group.frame = reparentAggregateFrame(worldFrame, group.parentId === null ? WORLD_FRAME : frames.get(group.parentId)!)
 }
 
 function transformPoint(point: PointMm, pivot: PointMm, offset: PointMm, quarterTurns: number): PointMm {
@@ -634,6 +709,7 @@ function mutate(scene: SceneDocument, command: BuildingCommand, affected: Set<st
     case 'deleteRoom': deleteRoom(scene, command, affected, ignoreLocks); break
     case 'deleteWall': deleteWall(scene, command.id, affected, ignoreLocks); break
     case 'transformBuilding': transformBuilding(scene, command, affected, ignoreLocks, fixedUprightIds); break
+    case 'transformAggregateBuilding': transformAggregateBuilding(scene, command, affected, ignoreLocks, fixedUprightIds); break
     case 'repairBuildingTopology':
       if (command.operation === 'mergeCollinear') mergeCollinearWalls(scene, command.id, affected, ignoreLocks)
       else splitJunctions(scene, command.id, affected, ignoreLocks)
@@ -675,14 +751,16 @@ export function applyBuildingCommand(scene: SceneDocument, command: BuildingComm
   mutate(scene, command, affected, false, fixedUprightIds)
   const derived = refreshScene5TransitionsAfterPhysicalEdit(before, scene)
   assertUnlocked(before, [...outdoorDependencies(before, derived.affectedIds), ...outdoorDependencies(scene, derived.affectedIds)], affected, false)
-  return diffImpact(before, scene, affected)
+  const impact = diffImpact(before, scene, affected)
+  if (!equal(before.aggregateCoordinates, scene.aggregateCoordinates)) impact.commandCost++
+  return impact
 }
 
 /** Complete structural scope, including unchanged locked dependants and cross-layer joins. */
-export function previewBuildingCommands(scene: SceneDocument, commands: readonly BuildingCommand[], budget?: TaskBudgetProfile, fixedUprightIds: ReadonlySet<string> = new Set()): BuildingImpact {
+export function previewBuildingCommands(scene: SceneDocument, commands: readonly BuildingCommand[], budget?: CommandBudgetProfile, fixedUprightIds: ReadonlySet<string> = new Set()): BuildingImpact {
   const impact = emptyImpact(), source = validateSceneSnapshot(scene)
   if (!source.ok) { impact.reason = `当前场景无效：${source.errors.map(issue => issue.message).join('；')}`; return impact }
-  const issue = inspectJsonInput(commands), checked = issue ? null : commandSchema.safeParse(commands)
+  const issue = inspectJsonInput(commands), checked = issue ? null : z.array(z.discriminatedUnion('type', buildingCommandSchemasForBudget(budget))).max(commandSelectionLimit(budget)).safeParse(commands)
   if (issue || !checked?.success) { impact.reason = `建筑指令无效：${issue?.message ?? (checked && !checked.success ? checked.error.issues.map(issue => issue.message).join('；') : '')}`; return impact }
   const next = cloneJson(source.document), affected = new Set<string>(), byId = entities(source.document)
   let cost = 0
@@ -701,7 +779,7 @@ export function previewBuildingCommands(scene: SceneDocument, commands: readonly
     const lockedTarget = impact.layerIds.filter(id => source.document.userLayers[id]?.editLocked)
     if (locked.length || lockedTarget.length) throw new Error(`建筑事务涉及已锁定实体、图层或依赖：${locked.join('、')}${lockedTarget.length ? `；图层 ${lockedTarget.join('、')}` : ''}。`)
     if (!budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体建筑事务超过256条操作预算，不能拆批绕过。')
-    if (budget) assertTaskBudget(budget, measureTaskBudget(source.document, next))
+    if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, next, undefined, undefined, budget))
     const result = validateSceneDocument(next)
     if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   } catch (error) {

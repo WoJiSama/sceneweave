@@ -27,6 +27,25 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 workspace and repository boundary', () => {
+  it('renames the complete project atomically with undo, redo, no-op and cold persistence', async () => {
+    const { workspace, repo, owner } = await setup()
+    const original = workspace.getDocument()!.title
+    await workspace.execute([{ type: 'renameScene', title: '  用户体验工程  ' }])
+    expect(workspace.getDocument()).toMatchObject({ title: '用户体验工程', revision: 1 })
+    const checkpoint = workspace.checkpoint()
+    await workspace.execute([{ type: 'renameScene', title: '用户体验工程' }])
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    await expect(workspace.execute([{ type: 'renameScene', title: '   ' }])).rejects.toThrow()
+    expect(workspace.checkpoint()).toBe(checkpoint)
+    workspace.undo()
+    expect(workspace.getDocument()).toMatchObject({ title: original, revision: 2 })
+    workspace.redo()
+    expect(workspace.getDocument()).toMatchObject({ title: '用户体验工程', revision: 3 })
+    await workspace.flush()
+    expect((await repo.load(owner))!.project.document).toMatchObject({ title: '用户体验工程', revision: 3 })
+    expect((await repo.list()).find(entry => entry.sceneId === owner)?.title).toBe('用户体验工程')
+  })
+
   it('reuses an owned preparation for adoption and reopen while persistence still decodes its real bytes', async () => {
     const repo = repository(), project = await fromBundle(fixture({ image: true }), validation)
     const decode = vi.spyOn(validation.images, 'decode'), workspace = new Workspace(repo, { runtime, validation })
@@ -186,7 +205,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
     await workspace.updateProp('other', { rotationDeg: 30 })
     await expect(workspace.adoptPreview(preview)).rejects.toThrow(/已有修改/)
     const latest = workspace.getState().project
-    await expect(workspace.execute(Array.from({ length: 257 }, () => ({ type: 'updateProp' as const, id: 'item', changes: { rotationDeg: 20 } })))).rejects.toThrow(/256/)
+    await expect(workspace.execute(Array.from({ length: 1025 }, () => ({ type: 'updateProp' as const, id: 'item', changes: { rotationDeg: 20 } })))).rejects.toThrow(/1024/)
     expect(workspace.getState().project).toBe(latest)
     let getters = 0
     const untrusted = { type: 'updateProp' as const, id: 'item', changes: { rotationDeg: 15 } }

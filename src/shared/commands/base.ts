@@ -146,8 +146,7 @@ function terrainDependants(scene: SceneDocument, areaId: string): Editable[] {
   ]
 }
 
-/** Read-only selection affordance; commands still check their exact affected set when applied. */
-export function isEntityEditLocked(scene: SceneDocument, entityId: string): boolean {
+function entityEditLockDependants(scene: SceneDocument, entityId: string): Editable[] {
   let affected: Editable[]
   const prop = own(scene.props, entityId), vertex = own(scene.vertices, entityId), wall = own(scene.walls, entityId)
   const prefab = own(scene.prefabInstances, entityId), scatter = own(scene.scatterGroups, entityId)
@@ -175,10 +174,18 @@ export function isEntityEditLocked(scene: SceneDocument, entityId: string): bool
   else if (area) affected = terrainDependants(scene, area.id)
   else {
     const entity = own(scene.openings, entityId) ?? own(scene.rooms, entityId) ?? own(scene.terrainEdges, entityId) ?? own(scene.terrainConnections, entityId) ?? own(scene.paths, entityId) ?? own(scene.regions, entityId) ?? own(scene.notes, entityId)
-    if (!entity) return false
+    if (!entity) return []
     affected = [entity]
   }
-  return lockDependants(scene, affected, true).some(entity => entity.editLocked)
+  return lockDependants(scene, affected, true)
+}
+/** Read-only selection blockers; commands still check their exact affected set when applied. */
+export function entityEditLockBlockerIds(scene: SceneDocument, entityId: string): string[] {
+  return entityEditLockDependants(scene, entityId).filter(entity => entity.editLocked).map(entity => entity.id)
+}
+/** Read-only selection affordance; commands still check their exact affected set when applied. */
+export function isEntityEditLocked(scene: SceneDocument, entityId: string): boolean {
+  return entityEditLockDependants(scene, entityId).some(entity => entity.editLocked)
 }
 function memberRecord(scene: SceneDocument, propId: string) {
   for (const group of Object.values(scene.scatterGroups)) {

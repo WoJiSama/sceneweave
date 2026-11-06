@@ -11,6 +11,7 @@ import { STATIC_SVG_LIMITS } from '../ai/svg.js'
 import { PACKAGE_LIMITS } from './limits.js'
 import { projectSourceRecords } from './source-resources.js'
 import { legacyTerrainView } from '../terrain-generation/composition-contracts.js'
+import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
 
 const MiB = 1024 * 1024
 export const PROJECT_DATA_LIMITS = Object.freeze({ jsonBytes: 20 * MiB, imageBytes: 20 * MiB, imageSide: 8192, imagePixels: 32_000_000,
@@ -146,4 +147,9 @@ export function certifyProjectData(input: unknown): ProjectData {
   return freezeJson(readProjectData(input, true))
 }
 
-export const projectContentHash = (input: unknown): string => sha256Text(canonicalJson(validateProjectData(input)))
+export const projectContentHash = (input: unknown): string => {
+  const issue = inspectJsonInput(input)
+  if (issue) throw new Error(issue.message)
+  const wire = input as ProjectData
+  return sha256Text(canonicalProjectCoordinates(validateProjectData(wire?.document?.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(wire) : wire)))
+}
