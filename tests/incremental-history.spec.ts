@@ -1,3 +1,4 @@
+import { mapExportButton, projectBackupButton } from './workspace-ux-helpers'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
@@ -49,7 +50,7 @@ function unpack(bytes: Buffer) {
   return { manifest, files, current: project(history?.current), snapshots: history?.snapshots.map(refs => ({ ...refs.summary, project: project(refs) })) ?? [] }
 }
 async function complete(page: Page, info: TestInfo, name: string) {
-  return unpack(await download(page, info, page.getByRole('button', { name: '完整工程', exact: true }), `${name}.sceneweave`))
+  return unpack(await download(page, info, (await projectBackupButton(page)), `${name}.sceneweave`))
 }
 async function pixels(page: Page, png: Buffer) {
   return page.evaluate(async base64 => {
@@ -70,7 +71,7 @@ async function audienceImages(page: Page, info: TestInfo, name: string) {
   for (const [audience, label] of [['gm', '主持人'], ['player', '玩家']] as const) {
     await page.getByRole('group', { name: '预览受众', exact: true }).getByRole('button', { name: label, exact: true }).click()
     await settled(page)
-    result[audience] = await pixels(page, await download(page, info, page.getByRole('button', { name: '4K PNG', exact: true }), `${name}-${audience}.png`))
+    result[audience] = await pixels(page, await download(page, info, (await mapExportButton(page, audience)), `${name}-${audience}.png`))
     expect(Math.max(result[audience].width, result[audience].height)).toBe(4096)
   }
   await page.getByRole('group', { name: '预览受众', exact: true }).getByRole('button', { name: '主持人', exact: true }).click()
@@ -104,7 +105,7 @@ async function chooseProp(page: Page, id: string) {
 async function move(page: Page, id: string, x: number) {
   await chooseProp(page, id)
   const input = page.getByRole('spinbutton', { name: '物件 X', exact: true })
-  await input.fill(String(x)); await input.press('Tab'); await settled(page)
+  await input.fill(String(x / 1000)); await input.press('Tab'); await settled(page)
 }
 async function named(page: Page, name: string) {
   await history(page)
@@ -122,8 +123,8 @@ test('complete saved versions retain both branches, cold reads, selected portabl
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('增量历史分支检查')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000')
-  await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await settled(page)
 
   await page.getByRole('tab', { name: '素材库', exact: true }).click()

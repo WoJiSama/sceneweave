@@ -1,3 +1,4 @@
+import { openVttExport } from './workspace-ux-helpers'
 import { expect, test, type Download, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { strFromU8, unzipSync } from 'fflate'
@@ -33,8 +34,8 @@ async function createBlank(page: Page) {
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('VTT 导出实际像素自检')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000')
-  await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0); await settled(page)
 }
@@ -46,7 +47,7 @@ async function createRoom(page: Page) {
   await page.getByRole('tab', { name: '建筑', exact: true }).click()
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   await page.getByLabel('房间名称', { exact: true }).fill('公开测试房间')
-  for (const [label, value] of [['房间起点 X', 2000], ['房间起点 Y', 2000], ['房间宽度', 6000], ['房间高度', 4000]] as const) await number(page, label, value)
+  for (const [label, value] of [['房间起点 X', 2000], ['房间起点 Y', 2000], ['房间宽度', 6000], ['房间高度', 4000]] as const) await number(page, label, value / 1000)
   await page.getByRole('button', { name: '预览新房间', exact: true }).click(); await adopt(page)
   return Object.keys((await state(page)).document.rooms)[0]
 }
@@ -79,19 +80,19 @@ test('VTT UI exports the actual player raster, proportional native walls/portals
   const roomId = await createRoom(page), document = (await state(page)).document
   const wall = Object.values(document.walls).find(row => document.vertices[row.startVertexId].yMm === 2000 && document.vertices[row.endVertexId].yMm === 2000)!
   await selectWall(page, roomId, wall.id)
-  await number(page, '开口近端偏移', 500); await number(page, '开口净宽', 900)
+  await number(page, '开口近端偏移', 0.5); await number(page, '开口净宽', 0.9)
   await page.getByRole('button', { name: '预览新增门窗', exact: true }).click(); await adopt(page)
-  await number(page, '开口近端偏移', 3000)
+  await number(page, '开口近端偏移', 3)
   await page.getByLabel('秘密开口', { exact: true }).check()
   await page.getByRole('button', { name: '预览新增门窗', exact: true }).click(); await adopt(page)
-  await page.getByRole('tab', { name: '视觉', exact: true }).click()
+  await page.getByRole('tab', { name: '外观', exact: true }).click()
   await page.getByRole('navigation', { name: '视觉工具', exact: true }).getByRole('button', { name: '灯光', exact: true }).click()
   await number(page, '视觉灯光 X mm', 5000); await number(page, '视觉灯光 Y mm', 4000)
   await number(page, '视觉灯光半径 mm', 2500)
   await page.getByRole('button', { name: '预览灯光', exact: true }).click(); await adopt(page, '视觉')
   const before = await state(page)
 
-  await page.getByRole('button', { name: 'VTT 导出', exact: true }).click()
+  await openVttExport(page)
   const dialog = page.getByRole('dialog', { name: 'VTT 导出预检', exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('button', { name: '下载 VTT 导入包', exact: true })).toBeDisabled()
@@ -164,7 +165,7 @@ for (const protection of ['mask', 'gm-room'] as const) test(`VTT preflight block
     await workspace.flush()
   }, { roomId, protection })
   await settled(page); const before = await state(page)
-  await page.getByRole('button', { name: 'VTT 导出', exact: true }).click()
+  await openVttExport(page)
   const dialog = page.getByRole('dialog', { name: 'VTT 导出预检', exact: true })
   await expect(dialog.getByRole('alert')).toContainText('此场景不能安全导出结构包')
   await expect(dialog.getByRole('button', { name: '下载 VTT 导入包', exact: true })).toBeDisabled()

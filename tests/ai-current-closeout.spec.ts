@@ -1,3 +1,4 @@
+import { projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { createHash, randomBytes } from 'node:crypto'
@@ -109,7 +110,7 @@ async function saved(page: Page) {
 }
 async function current(page: Page) {
   const pending = page.waitForEvent('download')
-  await page.getByRole('button', { name: '完整工程', exact: true }).click()
+  await (await projectBackupButton(page)).click()
   const filename = await (await pending).path()
   if (!filename) throw new Error('Expected the actual complete project download')
   const files = unzipSync(new Uint8Array(await readFile(filename))), decode = new TextDecoder()
@@ -120,7 +121,7 @@ async function current(page: Page) {
   for (const entry of manifest.entries) { expect(files[entry.path].length).toBe(entry.sizeBytes); expect(sha(files[entry.path])).toBe(entry.sha256) }
   return { document, schemaVersion: manifest.schemaVersion, assetCount: Object.keys(manifest.assetRecords).length,
     hash: sha(JSON.stringify({ entries: manifest.entries.slice().sort((a, b) => a.path.localeCompare(b.path)), assetRecords: manifest.assetRecords, licenseBindings: manifest.licenseBindings })),
-    canUndo: await page.getByRole('button', { name: '撤销素材编辑', exact: true }).isEnabled() }
+    canUndo: await page.getByRole('button', { name: '撤销编辑', exact: true }).isEnabled() }
 }
 
 test('complete6 staged draft uses fresh authorised actual PNG for finite correction and protected in-place adoption', async ({ page }, info) => {
@@ -196,10 +197,10 @@ test('complete6 staged draft uses fresh authorised actual PNG for finite correct
   const adopted = await current(page), id = Object.keys(adopted.document.props)[0]
   expect(adopted.document.sceneId).toBe(before.document.sceneId); expect(adopted.document.revision).toBe(1)
   expect(adopted.document.props[id].appearance.opacity).toBe(0.55); expect(adopted.assetCount).toBe(before.assetCount)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   expect((await current(page)).document.props).toEqual({})
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await saved(page)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
+  await reloadSaved(page); await saved(page)
   const cold = await current(page); expect(cold.document.props[id].appearance.opacity).toBe(0.55); expect(cold.document.revision).toBe(3)
   expect(errors).toEqual([]); expect(external).toEqual([])
   await info.attach('current-authoring-complete6.sceneweave', { body: Buffer.from(archiveBytes), contentType: 'application/zip' })

@@ -1,3 +1,4 @@
+import { openGenerationTask, openTerrainTask } from './workspace-navigation-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 
@@ -15,11 +16,12 @@ test('dressing UI cancels safely and adopts all sources and editable groups as o
   test.setTimeout(240_000)
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message))
   await page.goto('/#workspace')
-  await page.getByRole('tab',{name:'工程',exact:true}).click()
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'生成地形预览',exact:true}).click()
   await expect(page.getByRole('button',{name:'采用当前地形方案',exact:true})).toBeEnabled({timeout:90000})
   await page.getByRole('button',{name:'采用当前地形方案',exact:true}).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存',{timeout:90000})
+  await openTerrainTask(page, '布置植被')
   const before=await state(page),preview=page.getByRole('button',{name:'预览地形层次与布景',exact:true})
   await preview.click()
   await expect(page.getByLabel('确认完整影响范围',{exact:true})).toBeVisible({timeout:90000})
@@ -41,7 +43,7 @@ test('dressing UI cancels safely and adopts all sources and editable groups as o
   expect(Object.values(after.document.propDefinitions).filter(def=>def.catalogId.startsWith('prop.sceneweave.terrain-dressing.'))).toHaveLength(6)
   expect(after.document.terrainAreas).toEqual(before.document.terrainAreas)
   for(const prop of Object.values(before.document.props))expect(after.document.props[prop.id]).toEqual(prop)
-  await page.getByRole('button',{name:'撤销素材编辑',exact:true}).click()
+  await page.getByRole('button',{name:'撤销编辑',exact:true}).click()
   await expect.poll(async()=>(await state(page)).document.revision).toBe(after.document.revision+1)
   const undone=await state(page)
   expect(undone.document.props).toEqual(before.document.props)

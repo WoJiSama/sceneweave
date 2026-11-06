@@ -1,3 +1,4 @@
+import { openGenerationTask } from './workspace-navigation-helpers'
 import { expect, test } from '@playwright/test'
 
 test('forest suggestions reserve routes, save, cold-open and keep a deleted tree absent', async ({ page }, info) => {
@@ -11,7 +12,7 @@ test('forest suggestions reserve routes, save, cold-open and keep a deleted tree
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '森林与营地')
   const panel = page.getByRole('region', { name: '森林与营地生成', exact: true })
   await panel.getByLabel('森林工程名称').fill('D4森林营地')
   await panel.getByRole('button', { name: '预览森林与营地', exact: true }).click()

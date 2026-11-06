@@ -1,3 +1,5 @@
+import { openGenerationTask, openGenerationSettings, openTerrainTask } from './workspace-navigation-helpers'
+import { reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import type { EditableProject } from '../src/application/workspace/project'
@@ -122,7 +124,8 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('自动布景岩岛开发样图')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await saved(page)
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '自然地形')
+  await openGenerationSettings(page)
   await page.getByLabel('程序底图预算选择', { exact: true }).selectOption('standard')
   await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
   const generationCandidate = page.getByRole('article', { name: '当前地形候选', exact: true })
@@ -132,6 +135,7 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   await expect(page.getByText('正在解码素材并绘制场景…', { exact: true })).toBeHidden({ timeout: 90000 })
   const base = await state(page)
   expect(base.document.schemaVersion).toBe(3)
+  await openTerrainTask(page, '布置植被')
   const panel = page.getByRole('region', { name: '岩岛生成后布景', exact: true })
   await panel.getByRole('button', { name: '准备布景工作副本', exact: true }).click()
   await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@6', { timeout: 360000 }); await saved(page)
@@ -176,11 +180,11 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   for (const [id, prop] of Object.entries(before.document.props)) expect(dressed.document.props[id]).toEqual(prop)
   await expect(panel).toContainText('成图细化已采用')
   expect((await state(page)).hash).toBe(dressed.hash)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   const undone = await state(page)
   expect(undone.document.decorationClusters).toEqual(before.document.decorationClusters)
   expect(undone.document.propDefinitions).toEqual(sourced.document.propDefinitions)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.decorationClusters).toEqual(dressed.document.decorationClusters)
 
   const beforeCliff = await state(page)
@@ -201,9 +205,9 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   expect(cliff.document.terrainAreas).toEqual(beforeCliff.document.terrainAreas)
   expect(cliff.document.terrainConnections).toEqual(beforeCliff.document.terrainConnections)
   await expect(panel).toContainText('高台崖面细节已采用')
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.visual).toEqual(beforeCliff.document.visual)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.visual).toEqual(cliff.document.visual)
 
   const proof = await page.evaluate(async ({ baseSceneId, baseHash }) => {
@@ -243,7 +247,7 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   await writeFile(`${root}/proof.json`, JSON.stringify({ ...proof, sourceReview, dressingReview, cliffReview, errors, external, package: undefined, outputs: proof.outputs.map(({ png: _png, ...row }) => row) }, null, 2))
   await info.attach('island-ui.png', { body: await page.screenshot(), contentType: 'image/png' })
 
-  await page.getByRole('tab', { name: '室外', exact: true }).click()
+  await openTerrainTask(page, '布置植被')
   const decorations = page.getByRole('region', { name: '簇状布景', exact: true })
   const v6 = await state(page)
   expect(v6.hash).toBe(proof.hash)
@@ -303,13 +307,13 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   if (!canopy) throw new Error('Expected the adopted tree canopy rule.')
   expect(Object.values(canopy.members).some(member => member.entityId && member.state === 'managed')).toBe(true)
   expect(Object.values(canopy.members).filter(member => member.entityId && member.state === 'managed')).toHaveLength(target.managedCount)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   const canopyUndone = await state(page)
   expect(canopyUndone.document.decorationClusters).toEqual(v7.document.decorationClusters)
   expect(canopyUndone.document.props).toEqual(v7.document.props)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.decorationClusters).toEqual(planted.document.decorationClusters)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await saved(page)
+  await reloadSaved(page); await saved(page)
   expect((await state(page)).document.decorationClusters).toEqual(planted.document.decorationClusters)
 
   await decorations.locator(`button[title="${canopy.id}"]`).click()
@@ -335,11 +339,11 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
     expect(adjustedCanopy.members[slot]).toMatchObject({ entityId: member.entityId, state: 'managed' })
     expect(adjusted.document.props[member.entityId]).toEqual(beforeCoverageEdit.document.props[member.entityId])
   }
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.decorationClusters).toEqual(beforeCoverageEdit.document.decorationClusters)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.decorationClusters).toEqual(adjusted.document.decorationClusters)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await saved(page)
+  await reloadSaved(page); await saved(page)
   const cold = await state(page)
   expect(cold.document.decorationClusters).toEqual(adjusted.document.decorationClusters)
   const canopyIo = await page.evaluate(async () => {
@@ -397,7 +401,7 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   }, v7.document.sceneId)
   expect(v7SourceHash).toBe(beforeV8.hash)
 
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openTerrainTask(page, '布置植被')
   await panel.getByRole('button', { name: '预览规则驱动岩岛布景', exact: true }).click()
   await expect(page.getByRole('checkbox', { name: '确认完整影响范围', exact: true })).toBeVisible({ timeout: 90_000 })
   const surfaceReview = await page.locator('.asset-structure-preview').innerText()
@@ -411,7 +415,7 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   await expect(page.getByRole('checkbox', { name: '确认完整影响范围', exact: true })).toBeVisible({ timeout: 90_000 })
   await page.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check()
   await page.getByRole('button', { name: '采用室外修改', exact: true }).click(); await saved(page)
-  await page.getByRole('tab', { name: '室外', exact: true }).click()
+  await openTerrainTask(page, '布置植被')
   const surfaceDressed = await state(page)
   expect(surfaceDressed.document.revision).toBe(v8.document.revision + 1)
   expect(surfaceDressed.document.terrainAreas).toEqual(v8.document.terrainAreas)
@@ -448,11 +452,11 @@ test('Worker island keeps its base through v8 surface-rule dressing, complete IO
   const painted = await state(page)
   expect(Object.keys(painted.document.surfaceRules!).length).toBe(Object.keys(surfaceDressed.document.surfaceRules!).length + 1)
   expect(Object.values(painted.document.surfaceRules!).filter(rule => rule.field === 'grass')).toHaveLength(2)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.surfaceRules).toEqual(surfaceDressed.document.surfaceRules)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await saved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.surfaceRules).toEqual(painted.document.surfaceRules)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await saved(page)
+  await reloadSaved(page); await saved(page)
   const surfaceCold = await state(page)
   expect(surfaceCold.document.surfaceRules).toEqual(painted.document.surfaceRules)
   const surfaceIo = await page.evaluate(async () => {

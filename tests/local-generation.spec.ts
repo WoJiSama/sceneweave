@@ -1,3 +1,4 @@
+import { openGenerationTask, openGenerationSettings, openTerrainTask } from './workspace-navigation-helpers'
 import { expect, test } from '@playwright/test'
 
 test('local crater adjustment previews full writes, adopts once, undoes, redoes and cold opens', async ({ page }, info) => {
@@ -14,7 +15,8 @@ test('local crater adjustment previews full writes, adopts once, undoes, redoes 
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '火山')
+  await openGenerationSettings(page)
   await expect(page.getByLabel('参数地图生成位置', { exact: true })).toHaveValue('worker')
   const volcano = page.getByRole('region', { name: '火山生成', exact: true })
   await volcano.getByLabel('火山工程名称', { exact: true }).fill('D6局部火山')
@@ -23,6 +25,7 @@ test('local crater adjustment previews full writes, adopts once, undoes, redoes 
   expect(workers.some(url => /worker-.*\.js/.test(url) || /generation\/worker\.ts/.test(url))).toBe(true)
   await volcano.getByRole('button', { name: '保存为新工程', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: '火山已完整保存并打开' })).toBeVisible({ timeout: 30000 })
+  await openTerrainTask(page, '局部重生成')
   const local = page.getByRole('region', { name: '受限局部重生成', exact: true })
   await expect(local).toBeVisible()
   const before = await local.getByLabel('火口当前轮廓坐标', { exact: true }).inputValue()
@@ -44,10 +47,10 @@ test('local crater adjustment previews full writes, adopts once, undoes, redoes 
   await expect(page.getByRole('alert').filter({ hasText: '采用局部重生成' })).toBeVisible({ timeout: 30000 })
   await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(after)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(before)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click()
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click()
   await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(after)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
   await page.goto('/#home')
@@ -56,7 +59,7 @@ test('local crater adjustment previews full writes, adopts once, undoes, redoes 
   await expect(row).toHaveCount(1, { timeout: 30000 })
   await row.getByRole('button', { name: '打开', exact: true }).click()
   await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible({ timeout: 30000 })
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openTerrainTask(page, '局部重生成')
   await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(after)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
   await page.screenshot({ path: info.outputPath('local-crater-cold-open.png') })

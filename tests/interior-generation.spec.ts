@@ -1,3 +1,4 @@
+import { openGenerationTask } from './workspace-navigation-helpers'
 import { expect, test } from '@playwright/test'
 
 test('interior suggestions save, cold-open and allow deleting furniture without restoring it', async ({ page }, info) => {
@@ -11,7 +12,7 @@ test('interior suggestions save, cold-open and allow deleting furniture without 
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '室内布局')
   const panel = page.getByRole('region', { name: '室内布局生成', exact: true })
   await panel.getByLabel('室内工程名称').fill('D3室内三房间')
   await panel.getByLabel('房间2用途').fill('卧室')

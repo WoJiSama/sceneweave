@@ -1,3 +1,5 @@
+import { openSamples } from './workspace-navigation-helpers'
+import { reloadSaved } from './workspace-ux-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page, type Request, type Route } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
@@ -60,7 +62,7 @@ test('SVG authoring preserves exact CPU raster pixels for transparent circle edg
 test('Q2 refined palette selection creates truly blank complete projects with actual 13/15/23-source closures', async ({ page }, info) => {
   test.setTimeout(150_000)
   await page.goto('/#workspace')
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openSamples(page)
   const results = []
   for (const palette of [{ value: 'island', sources: 13 }, { value: 'coast', sources: 15 }, { value: 'interior', sources: 23 }]) {
     await page.getByRole('button', { name: '新建视觉空白 · 原创素材', exact: true }).click()
@@ -95,7 +97,7 @@ for (const sample of [
   test.setTimeout(300_000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await page.goto('/#workspace')
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openSamples(page)
   await page.getByRole('button', { name: '苔冠岩岛 · 高差与草沿', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '确认打开工程', exact: true })
   await expect(dialog).toBeVisible({ timeout: 45_000 })
@@ -141,13 +143,13 @@ for (const sample of [
   const expected = structuredClone(original.document); expected.props[edit.id].rotationDeg = edit.rotationDeg
   expect(withoutRevision(adopted.document)).toEqual(withoutRevision(expected))
   expect(adopted.sources).toEqual(original.sources)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   expect(withoutRevision((await current(page)).document)).toEqual(withoutRevision(original.document))
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
   const redone = await current(page)
   expect(redone.revision).toBe(original.revision + 3)
   expect(withoutRevision(redone.document)).toEqual(withoutRevision(adopted.document))
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   expect((await current(page)).contentHash).toBe(redone.contentHash)
   const priorHash = await page.evaluate(async sceneId => {
     const path = '/src/platform/browser/runtime.ts', hashPath = '/src/shared/project/validate.ts'

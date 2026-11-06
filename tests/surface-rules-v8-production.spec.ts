@@ -1,3 +1,5 @@
+import { openGenerationTask, openGenerationSettings } from './workspace-navigation-helpers'
+import { projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -46,7 +48,7 @@ async function saved(page: Page) {
 async function exportPackage(page: Page) {
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('button', { name: '完整工程', exact: true }).click(),
+    (await projectBackupButton(page)).click(),
   ])
   const path = await download.path()
   if (!path) throw new Error('The complete-project download did not produce a file.')
@@ -78,11 +80,12 @@ test('normal production UI negotiates the v6 selector and saves a v8 surface-rul
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('连续地表生产旅程')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('24000')
-  await dialog.getByLabel('画布高度', { exact: true }).fill('18000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('24')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('18')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await saved(page)
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '自然地形')
+  await openGenerationSettings(page)
   await page.getByLabel('程序底图生成位置', { exact: true }).selectOption('server')
   await page.getByLabel('程序底图地表外观', { exact: true }).selectOption('surface-rules')
   await page.getByLabel('程序底图后端地址', { exact: true }).fill(backendUrl)
@@ -114,7 +117,7 @@ test('normal production UI negotiates the v6 selector and saves a v8 surface-rul
   expect(Object.keys(state.scene.surfaceRules ?? {}).length).toBeGreaterThan(0)
   await expect(page.getByRole('button', { name: '继续用 AI 修改底图', exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click()
+  await reloadSaved(page)
   await saved(page)
   expect(packageHash(await exportPackage(page))).toBe(adoptedHash)
   expect(capabilityUrls).toHaveLength(2)

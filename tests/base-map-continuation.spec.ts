@@ -1,3 +1,5 @@
+import { openGenerationTask, openGenerationSettings } from './workspace-navigation-helpers'
+import { mapExportButton, projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test'
 import { serve } from '@hono/node-server'
@@ -105,7 +107,8 @@ async function createBlank(page: Page, title: string) {
   await expect(dialog).toHaveCount(0); await settled(page)
 }
 async function generateIsland(page: Page) {
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openGenerationTask(page, '自然地形')
+  await openGenerationSettings(page)
   await page.getByLabel('程序底图生成位置', { exact: true }).selectOption('worker')
   await page.getByRole('button', { name: '选择岩岛地形', exact: true }).click()
   await page.getByLabel('地形画布尺寸', { exact: true }).selectOption('24000x18000')
@@ -150,7 +153,7 @@ async function downloadedBytes(page: Page, button: Locator) {
 async function exportPngProof(page: Page, info: TestInfo, audience: 'gm' | 'player') {
   await page.getByRole('group', { name: '预览受众', exact: true }).getByRole('button', { name: audience === 'gm' ? '主持人' : '玩家', exact: true }).click()
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 90_000 })
-  const { bytes, name } = await downloadedBytes(page, page.getByRole('button', { name: '4K PNG', exact: true }))
+  const { bytes, name } = await downloadedBytes(page, (await mapExportButton(page, audience)))
   expect(name).toBe(`sceneweave-${audience}-map.png`)
   const pixels = await page.evaluate(async base64 => {
     const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0))
@@ -232,16 +235,16 @@ test('UI generates a profile-bound v3 island, continues one authorized prop and 
   expect(original.hash).toBe(before.hash); expect(original.snapshots).toHaveLength(1)
   expect(original.snapshots[0]).toMatchObject({ kind: 'protection', sourceRevision: 0, contentHash: before.hash })
   expect((await persisted(page, adopted.document.sceneId)).hash).toBe(adopted.hash)
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   const undone = await state(page)
   expect(undone.document.sceneId).toBe(adopted.document.sceneId); expect(undone.document.revision).toBe(2)
   expect(undone.document.props).toEqual({}); expect(undone.document.terrainAreas).toEqual({}); expect(undone.canUndo).toBe(false)
-  await page.getByRole('button', { name: '重做素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
   const redone = await state(page)
   expect(redone.document.revision).toBe(3); expect(redone.document.props).toEqual(adopted.document.props); expect(redone.document.terrainAreas).toEqual(adopted.document.terrainAreas)
-  await page.getByRole('button', { name: '重新载入已保存版本', exact: true }).click(); await settled(page)
+  await reloadSaved(page); await settled(page)
   const reopened = await state(page); expect(reopened.hash).toBe(redone.hash); expect(reopened.canUndo).toBe(false)
-  const packaged = await downloadedBytes(page, page.getByRole('button', { name: '完整工程', exact: true }))
+  const packaged = await downloadedBytes(page, (await projectBackupButton(page)))
   const archive = unzipSync(packaged.bytes), decode = new TextDecoder(), manifest = JSON.parse(decode.decode(archive['manifest.json']))
   expect(manifest).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: adopted.schemaVersion, packageMode: 'complete', sceneId: adopted.document.sceneId, revision: 3 })
   expect(Object.keys(archive).some(path => path.startsWith('assets/'))).toBe(true)

@@ -27,8 +27,8 @@ async function createBlank(page: Page) {
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('建筑编辑自检')
-  await dialog.getByLabel('画布宽度', { exact: true }).fill('18000')
-  await dialog.getByLabel('画布高度', { exact: true }).fill('12000')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('18')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0); await settled(page)
   await page.getByRole('tab', { name: '建筑', exact: true }).click()
@@ -39,12 +39,12 @@ async function adopt(page: Page) {
   await settled(page)
 }
 async function undo(page: Page) {
-  await page.getByRole('button', { name: '撤销素材编辑', exact: true }).click(); await settled(page)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
 }
 async function rectangle(page: Page, name: string, x: number, y: number, width: number, height: number) {
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   await page.getByLabel('房间名称', { exact: true }).fill(name)
-  for (const [label, value] of [['房间起点 X', x], ['房间起点 Y', y], ['房间宽度', width], ['房间高度', height]] as const) await number(page, label, value)
+  for (const [label, value] of [['房间起点 X', x], ['房间起点 Y', y], ['房间宽度', width], ['房间高度', height]] as const) await number(page, label, value / 1000)
   await page.getByRole('button', { name: '预览新房间', exact: true }).click(); await adopt(page)
   return Object.values((await current(page)).rooms).find(room => room.purpose === name)!.id
 }
@@ -206,6 +206,7 @@ test('topology repair merges a redundant wall joint and rejects deleting a refer
   await createBlank(page)
   await page.getByLabel('房间形状', { exact: true }).selectOption('polygon')
   await page.getByLabel('房间名称', { exact: true }).fill('冗余接点房间')
+  await page.getByText('精确输入顶点坐标', { exact: true }).click()
   await page.getByLabel('房间多边形顶点', { exact: true }).fill('2000,2000\n5000,2000\n8000,2000\n8000,6000\n2000,6000')
   await page.getByRole('button', { name: '预览新房间', exact: true }).click(); await adopt(page)
   const baseline = await current(page), roomId = Object.keys(baseline.rooms)[0]
@@ -235,12 +236,12 @@ test('explicit junction repair splits a contacted room wall and preserves an ope
   const targetWall = Object.values(document.walls).find(wall => document.vertices[wall.startVertexId].xMm === 8000 && document.vertices[wall.endVertexId].xMm === 8000)!
   const sourceWall = Object.values(document.walls).find(wall => document.vertices[wall.startVertexId].xMm === 10000 && document.vertices[wall.startVertexId].yMm === 4000 && document.vertices[wall.endVertexId].xMm === 13000)!
   await selectWall(page, targetId, targetWall.id)
-  await number(page, '开口近端偏移', 2500)
+  await number(page, '开口近端偏移', 2.5)
   await page.getByRole('button', { name: '预览新增门窗', exact: true }).click(); await adopt(page)
   await selectRoom(page, sourceId); await openDetail(page, '删除房间')
   await page.getByRole('button', { name: '预览删除房间', exact: true }).click(); await adopt(page)
   await page.locator(`[data-building-wall-id="${sourceWall.id}"]`).click(); await openDetail(page, '平移整面墙')
-  await number(page, '墙平移 X', -2000)
+  await number(page, '墙平移 X', -2)
   const before = await current(page), opening = Object.values(before.openings)[0]
   await page.getByRole('button', { name: '预览平移并修复接点', exact: true }).click()
   expect(await current(page)).toEqual(before)
