@@ -1,3 +1,4 @@
+import { commandSelectionLimit, type CommandBudgetProfile } from '../../shared/budget/command-budget.js'
 import { propPaintPolygon, scenePresentation } from '../../shared/appearance/presentation.js'
 import { isEntityEditLocked as isEntityEditLockedV2 } from '../../shared/commands/base.js'
 import { isCertifiedSceneSnapshot as isCertifiedSceneSnapshotV2 } from '../../shared/validation/snapshots.js'
@@ -8,6 +9,9 @@ import type { ProjectedWallV2 } from './projection'
 import { wallGeometryV2 } from '../../platform/browser/render/renderer'
 import type { SelectionSummaryV2 } from './selection-summary'
 import { decorationPaintGeometry, decorationPaintPolygon } from '../../shared/decorations/presentation.js'
+import { buildAggregateChunkManifest, planAggregateChunks } from '../../shared/aggregates/chunks.js'
+import { aggregateEntityRelations } from '../../shared/aggregates/relations.js'
+import { createAggregateDerivedResidency } from '../../platform/browser/render/aggregate-residency.js'
 
 export interface SelectionOptionsV2 {
   memberMode?: boolean
@@ -75,13 +79,14 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
       return { id: item.id, start, end, widthMm: item.widthMm, kind: item.kind, state: item.state, secret: item.secret }
     }),
   })).sort(wallOrderV2)
-  let walls: Map<string, PointMm[][]> | undefined
   // Geometry is detached at the public boundary, but the certified document's
   // selection index may retain its own immutable copies.  This avoids rebuilding
   // every rotated polygon twice during a broad marquee (once for the coarse
   // query and again for the exact predicate).  Uncertified documents never use
   // this index as a cache, so caller-owned mutations remain observable.
   const geometryCache = new Map<string, PointMm[][]>()
+  let residency: ReturnType<typeof createAggregateDerivedResidency<PointMm[][]>> | undefined
+  let ensureResidency: (() => void) | undefined
   let geometry!: (id: string) => PointMm[][]
   const computeGeometry = (id: string): PointMm[][] => {
     const prop = own(scene.props, id)
@@ -97,10 +102,11 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     const opening = own(scene.openings, id)
     if (opening) return [corridor(...openingEndpointsV2(scene, opening), scene.walls[opening.wallId].thicknessMm)]
     if (own(scene.walls, id)) {
-      if (!walls) {
-        walls = new Map(wallGeometryV2(projectedWalls).map(item => [item.wall.id, item.polygons]))
-      }
-      return walls.get(id)!.map(clonePoints)
+      const wall = scene.walls[id], endpoints = new Set([wall.startVertexId, wall.endVertexId])
+      // Only endpoint neighbors affect this wall's real miter/bevel join.
+      // Preserve the complete wall draw order when assigning shared joins.
+      const local = projectedWalls.filter(row => row.id === id || [scene.walls[row.id].startVertexId, scene.walls[row.id].endVertexId].some(vertex => endpoints.has(vertex)))
+      return wallGeometryV2(local).find(row => row.wall.id === id)!.polygons.map(clonePoints)
     }
     const edge = own(scene.terrainEdges, id)
     if (edge) {
@@ -128,6 +134,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
   geometry = (id: string): PointMm[][] => {
     const cached = geometryCache.get(id)
     if (cached) return cached
+    if (ensureResidency && entities.has(id)) { ensureResidency(); return residency!.materialize(id) }
     const value = computeGeometry(id).filter(shape => shape.length).map(clonePoints)
     geometryCache.set(id, value)
     return value
@@ -154,19 +161,63 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
   ]
   type BoundsEntry = { x: number; y: number; right: number; bottom: number }
   const boundsById = new Map<string, BoundsEntry>()
-  const grid = new Map<string, Set<string>>(), broad = new Set<string>()
-  const sceneBounds = scene.exportBoundsMm
-  // A bounded 32-cell longest axis keeps normal fixtures cheap while avoiding
-  // an unbounded cell walk for very large polygons or sparse world coordinates.
-  const cellSize = Math.max(1, Math.max(sceneBounds.width, sceneBounds.height) / 32)
-  const maxCellsPerShape = 256, maxCellReferences = 65536
-  let cellReferences = 0
   const pickOrder = new Map(topFirst.map((id, position) => [id, position]))
-  const cellKey = (x: number, y: number) => `${x},${y}`
-  const addCell = (x: number, y: number, id: string) => {
-    const key = cellKey(x, y), bucket = grid.get(key)
-    if (bucket) bucket.add(id)
-    else grid.set(key, new Set([id]))
+  const coarse = new Map<string, BoundsMm | null>()
+  const wallPadding = new Map<string, number>()
+  for (const wall of Object.values(scene.walls)) for (const id of [wall.startVertexId, wall.endVertexId]) wallPadding.set(id, Math.max(wallPadding.get(id) ?? 0, wall.thicknessMm))
+  const pointsBounds = (points: readonly PointMm[], padding = 0): BoundsMm | null => {
+    if (!points.length) return null
+    const x = Math.min(...points.map(point => point.x)) - padding, y = Math.min(...points.map(point => point.y)) - padding
+    return { x, y, width: Math.max(...points.map(point => point.x)) - x + padding, height: Math.max(...points.map(point => point.y)) - y + padding }
+  }
+  const coarseBounds = (id: string): BoundsMm | null => {
+    if (coarse.has(id)) return coarse.get(id)!
+    const prop = own(scene.props, id), decoration = own(scene.decorations ?? {}, id), vertex = own(scene.vertices, id), terrainPoint = terrainPoints.get(id)
+    const wall = own(scene.walls, id), room = own(scene.rooms, id), area = own(scene.terrainAreas, id), opening = own(scene.openings, id)
+    const connection = own(scene.terrainConnections, id), path = own(scene.paths, id), region = own(scene.regions, id), edge = own(scene.terrainEdges, id)
+    let bounds: BoundsMm | null = null
+    if (prop) bounds = pointsBounds(propPaintPolygon(prop, scenePresentation(scene, id)))
+    else if (decoration) bounds = pointsBounds(decorationPaintPolygon(decorationPaintGeometry(scene, decoration)))
+    else if (vertex) bounds = pointsBounds([{ x: vertex.xMm, y: vertex.yMm }])
+    else if (terrainPoint) bounds = pointsBounds([terrainPoint])
+    else if (wall) {
+      const padding = Math.max(wall.thicknessMm, wallPadding.get(wall.startVertexId) ?? 0, wallPadding.get(wall.endVertexId) ?? 0)
+      bounds = pointsBounds([scene.vertices[wall.startVertexId], scene.vertices[wall.endVertexId]].map(point => ({ x: point.xMm, y: point.yMm })), padding)
+    } else if (room) bounds = pointsBounds(roomPointsV2(scene, room))
+    else if (area) bounds = pointsBounds(area.boundaryMm.map(point => point.positionMm))
+    else if (opening) bounds = pointsBounds(openingEndpointsV2(scene, opening), scene.walls[opening.wallId].thicknessMm)
+    else if (connection) bounds = pointsBounds(connection.route ? connection.route.segments.flatMap(segment => [segment.start, segment.control1, segment.control2, segment.end]) : [connection.from.positionMm, connection.to.positionMm], connection.widthMm)
+    else if (path) bounds = pointsBounds(path.centerlineMm, path.widthMm)
+    else if (region) bounds = pointsBounds(region.boundaryMm)
+    else if (edge) {
+      const boundary = scene.terrainAreas[edge.source.areaId].boundaryMm, index = boundary.findIndex(point => point.segmentId === edge.source.segmentId)
+      bounds = index < 0 ? null : pointsBounds([boundary[index].positionMm, boundary[(index + 1) % boundary.length].positionMm])
+    } else {
+      const prefab = own(scene.prefabInstances, id), cluster = own(scene.decorationClusters ?? {}, id), scatter = own(scene.scatterGroups, id)
+      const members = prefab ? Object.values(prefab.members).flatMap(member => member.propId ?? []) : cluster ? Object.values(cluster.members).flatMap(member => member.entityId === null || member.state === 'detached' ? [] : member.entityId) : []
+      const memberBounds = members.flatMap(memberId => coarseBounds(memberId) ?? [])
+      if (memberBounds.length) bounds = pointsBounds(memberBounds.flatMap(box => [{ x: box.x, y: box.y }, { x: box.x + box.width, y: box.y + box.height }]))
+      else if (scatter) {
+        const domain = scatter.domain, source = coarseBounds(domain.kind === 'area' ? domain.areaId : domain.kind === 'path' ? domain.pathId : domain.edgeId)
+        const padding = domain.kind === 'edgeBand' ? domain.widthMm : 0
+        if (source) bounds = { x: source.x - padding, y: source.y - padding, width: source.width + padding * 2, height: source.height + padding * 2 }
+      }
+    }
+    coarse.set(id, bounds); return bounds
+  }
+  let manifest: ReturnType<typeof buildAggregateChunkManifest> | undefined
+  ensureResidency = () => {
+    if (residency) return
+    const dependencies = new Map<string, Set<string>>()
+    for (const relation of aggregateEntityRelations(scene)) if (entities.has(relation.from.id) && entities.has(relation.to.id)) {
+      const refs = dependencies.get(relation.from.id) ?? new Set<string>(); refs.add(relation.to.id); dependencies.set(relation.from.id, refs)
+    }
+    manifest = buildAggregateChunkManifest([...entities.values()].map(entity => ({ id: entity.id, floorId: entity.floorId, boundsMm: coarseBounds(entity.id), dependencies: [...(dependencies.get(entity.id) ?? [])] })))
+    residency = createAggregateDerivedResidency(manifest, id => {
+      const value = computeGeometry(id).filter(shape => shape.length).map(clonePoints)
+      geometryCache.set(id, value)
+      return value
+    })
   }
   const boundsFor = (id: string): BoundsEntry | null => {
     const known = boundsById.get(id)
@@ -180,38 +231,19 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     boundsById.set(id, entry)
     return entry
   }
-  let spatialReady = false
-  const ensureSpatial = () => {
-    if (spatialReady) return
-    for (const id of topFirst) {
-      const entry = boundsFor(id)
-      if (!entry) continue
-      const x0 = Math.floor((entry.x - sceneBounds.x) / cellSize), x1 = Math.floor((entry.right - sceneBounds.x) / cellSize)
-      const y0 = Math.floor((entry.y - sceneBounds.y) / cellSize), y1 = Math.floor((entry.bottom - sceneBounds.y) / cellSize)
-      const count = (x1 - x0 + 1) * (y1 - y0 + 1)
-      if (![x0, x1, y0, y1, count].every(Number.isSafeInteger) || count < 1 || count > maxCellsPerShape || cellReferences + count > maxCellReferences) { broad.add(id); continue }
-      cellReferences += count
-      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) addCell(x, y, id)
-    }
-    spatialReady = true
-  }
   const queryCandidates = (bounds: BoundsEntry): string[] => {
-    ensureSpatial()
-    const x0 = Math.floor((bounds.x - EPS - sceneBounds.x) / cellSize), x1 = Math.floor((bounds.right + EPS - sceneBounds.x) / cellSize)
-    const y0 = Math.floor((bounds.y - EPS - sceneBounds.y) / cellSize), y1 = Math.floor((bounds.bottom + EPS - sceneBounds.y) / cellSize)
-    const count = (x1 - x0 + 1) * (y1 - y0 + 1)
-    // A huge finite coordinate can yield count=1 while x++ no longer changes
-    // the cell index. Bound the indices themselves before walking any cells.
-    if (![x0, x1, y0, y1, count].every(Number.isSafeInteger) || count < 1 || count > 4096) return topFirst
-    const possible = new Set<string>(broad)
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
-      const bucket = grid.get(cellKey(x, y)); if (bucket) for (const id of bucket) possible.add(id)
+    ensureResidency!()
+    const possible = new Set<string>()
+    for (const floorId of Object.keys(scene.floors)) {
+      const plan = planAggregateChunks(manifest!, { floorId, boundsMm: { x: bounds.x, y: bounds.y, width: bounds.right - bounds.x, height: bounds.bottom - bounds.y }, marginMm: EPS })
+      residency!.ensure(plan)
+      for (const id of plan.entityIds) if (pickOrder.has(id)) possible.add(id)
     }
     // Preserve render/picking order; the spatial index is only a candidate
     // filter and must never change overlap menu ordering.
     return [...possible].filter(id => {
-      const candidate = boundsFor(id)!
-      return candidate.right >= bounds.x - EPS && candidate.x <= bounds.right + EPS && candidate.bottom >= bounds.y - EPS && candidate.y <= bounds.bottom + EPS
+      const candidate = boundsFor(id)
+      return candidate !== null && candidate.right >= bounds.x - EPS && candidate.x <= bounds.right + EPS && candidate.bottom >= bounds.y - EPS && candidate.y <= bounds.bottom + EPS
     }).sort((a, b) => pickOrder.get(a)! - pickOrder.get(b)!)
   }
   const normalizedOrders = new Map<boolean, Map<string, number>>()
@@ -243,7 +275,7 @@ export function effectiveEditLockedV2(scene: SceneDocumentV2, id: string): boole
 }
 
 /** One index per summary, including callers that own a mutable scene. */
-export function readSelectionSummaryV2(scene: SceneDocumentV2, ids: readonly string[], memberMode = false): SelectionSummaryV2 {
+export function readSelectionSummaryV2(scene: SceneDocumentV2, ids: readonly string[], memberMode = false, budget?: CommandBudgetProfile): SelectionSummaryV2 {
   const index = selectionIndex(scene), normalized = index.normalize(ids, memberMode)
   const kinds: [keyof Pick<SceneDocumentV2, 'vertices' | 'rooms' | 'walls' | 'openings' | 'props' | 'regions' | 'notes' | 'terrainAreas' | 'terrainEdges' | 'terrainConnections' | 'paths' | 'prefabInstances' | 'scatterGroups'>, string][] = [
     ['vertices', 'vertex'], ['rooms', 'room'], ['walls', 'wall'], ['openings', 'opening'], ['props', 'prop'], ['regions', 'region'], ['notes', 'note'],
@@ -259,7 +291,7 @@ export function readSelectionSummaryV2(scene: SceneDocumentV2, ids: readonly str
     if (b) { x = Math.min(x, b.x); y = Math.min(y, b.y); right = Math.max(right, b.right); bottom = Math.max(bottom, b.bottom) }
   }
   return { ids: normalized, count: normalized.length, typeCounts, effectiveLockedCount,
-    boundsMm: x === Infinity ? null : { x, y, width: right - x, height: bottom - y }, overCommandBudget: normalized.length > 256 }
+    boundsMm: x === Infinity ? null : { x, y, width: right - x, height: bottom - y }, overCommandBudget: normalized.length > commandSelectionLimit(budget) }
 }
 
 function validPoint(point: PointMm): boolean { return Number.isFinite(point.x) && Number.isFinite(point.y) }

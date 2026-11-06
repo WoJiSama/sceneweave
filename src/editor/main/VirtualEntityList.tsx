@@ -26,7 +26,7 @@ const VirtualRow = memo(function VirtualRow({ item, index, selected, busy, tabSt
 }) {
   return <button type="button" data-entity-id={item.id} data-virtual-index={index}
     className={`asset-virtual-row${selected ? ' selected' : ''}`} style={{ top: index * ROW_HEIGHT }}
-    disabled={busy} tabIndex={tabStop ? 0 : -1} aria-pressed={selected} title={`${item.label}\n${item.id}`}
+    disabled={busy} tabIndex={tabStop ? 0 : -1} aria-pressed={selected} title={[item.label, item.detail, item.id].filter(Boolean).join('\n')}
     onFocus={() => onFocus(item.id)}
     onClick={event => onSelect(item.id, event.altKey ? 'subtract' : event.shiftKey ? 'add' : 'replace')}
     onKeyDown={event => {
@@ -118,6 +118,6 @@ export default function VirtualEntityList({ items, selectedIds, locateId, busy, 
       }}>
       <div className="asset-object-spacer" style={{ height: filtered.length * ROW_HEIGHT }}>{filtered.slice(first, end).map((item, offset) => <VirtualRow key={item.id} item={item} index={first + offset} selected={selectedIds.has(item.id)} busy={busy} tabStop={first + offset === tabIndex} onSelect={onSelect} onFocus={focusRow}/>)}</div>
     </div> : <p className="asset-muted asset-object-empty">{items.length ? `没有匹配的${noun}。可按名称或完整 ID 搜索。` : `场景中还没有${noun}。`}</p>}
-    <p className="asset-object-key-hint">↑↓ / Home / End / Page 浏览 · {selectionHint}</p>
+    <p className="asset-object-key-hint">↑↓ / Home / End / Page Up / Page Down 浏览 · {selectionHint}</p>
   </div>
 }

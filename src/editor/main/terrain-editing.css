@@ -14,6 +14,7 @@
 .terrain-editing-panel summary { color: #68775e; font-size: 11px; line-height: 1.6; cursor: pointer; }
 .terrain-editing-panel .asset-wide { min-height: 32px; justify-content: center; font-size: 11px; }
 .terrain-editing-scope, .terrain-editing-impact { padding-top: 10px; border-top: 1px solid #d1ddc7; }
+.terrain-editing-scope { display: grid; gap: 10px; min-width: 0; }
 .terrain-editing-impact { display: grid; gap: 10px; min-width: 0; }
 .terrain-editing-impact h3 { margin: 0; color: #47613d; font-size: 13px; }
 .terrain-editing-impact p, .terrain-editing-impact li { margin: 0; color: #64755c; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }

@@ -1,8 +1,9 @@
+import { selectManualTransactionBudget } from '../../shared/budget/command-budget'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { EditableProject } from '../../application/workspace/project'
 import type { PointMm } from '../../shared/model/scene'
 import { propName, groupName } from './SceneInspector'
-import { selectionActionReason, type SelectionAction } from '../native-canvas/selection-actions'
+import { selectionActionBehavior, selectionActionReason, type SelectionAction } from '../native-canvas/selection-actions'
 
 export type SceneMenu = { x: number; y: number; point: PointMm; hits: string[]; ids: string[]; checkpoint: number; origin: HTMLElement | null; blank: boolean }
 export function entityLabel(project: EditableProject, id: string): string {
@@ -30,7 +31,7 @@ export default function SceneContextMenu({ project, menu, onClose, onAction, onS
     }
   }}>
     <strong>{menu.blank ? '此处空白' : `已选 ${menu.ids.length} 个对象`}</strong><small>{menu.blank ? `世界坐标 ${menu.point.x}, ${menu.point.y} mm` : menu.ids.length === 1 ? entityLabel(project, menu.ids[0]) : '对当前选择执行操作'}</small>
-    {!menu.blank && <><button role="menuitem" onClick={() => invoke(onEdit)}>属性 / 编辑</button>{(['copy', 'delete', 'lock', 'unlock'] as const).map(action => { const reason = selectionActionReason(project.document, menu.ids, action), label = { copy: '复制所选', delete: '删除所选', lock: '锁定所选', unlock: '解锁所选' }[action]; return <div key={action}><button role="menuitem" disabled={!!reason} aria-describedby={reason ? `menu-reason-${action}` : undefined} onClick={() => invoke(() => onAction(action))}>{label}</button>{reason && <small id={`menu-reason-${action}`}>{reason}</small>}</div> })}</>}
+    {!menu.blank && <><button role="menuitem" onClick={() => invoke(onEdit)}>属性 / 编辑</button>{(['copy', 'delete', 'lock', 'unlock'] as const).map(action => { const reason = selectionActionReason(project.document, menu.ids, action, selectManualTransactionBudget(project.document, menu.ids.length)), label = `${selectionActionBehavior(project.document, menu.ids, action).requiresPreview ? '预览' : '立即'}${{ copy: '复制所选', delete: '删除所选', lock: '锁定所选', unlock: '解锁所选' }[action]}`; return <div key={action}><button role="menuitem" disabled={!!reason} aria-describedby={reason ? `menu-reason-${action}` : undefined} onClick={() => invoke(() => onAction(action))}>{label}</button>{reason && <small id={`menu-reason-${action}`}>{reason}</small>}</div> })}</>}
     {!menu.blank && onMoveToLayer && <button role="menuitem" onClick={() => invoke(onMoveToLayer)}>移动所选到图层…</button>}
     {menu.hits.length > 1 && <><strong>选择此处对象</strong>{menu.hits.map(id => <button role="menuitem" key={id} data-entity-id={id} onClick={() => invoke(() => onSelect(id))}>{entityLabel(project, id)}</button>)}</>}
     <button role="menuitem" disabled={!menu.ids.length} onClick={() => invoke(() => onSelect(null))}>清空选择</button><button role="menuitem" onClick={() => invoke(onFit)}>适应全图</button>

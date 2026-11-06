@@ -1,0 +1,8 @@
+.home-project-identity { display: block; color: #75846c; font-size: 10px; margin-top: 4px; }
+.home-project-id { margin-top: 6px; font-size: 10px; color: #75846c; }
+.home-project-id summary { cursor: pointer; }
+.home-project-id small { overflow-wrap: anywhere; white-space: normal; }
+.home-list-tools { flex-wrap: wrap; }
+.home-list-tools label { min-width: 0; }
+.home-continue h2 { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .home-continue { flex-wrap: wrap; } .home-continue > div { min-width: 0; } }

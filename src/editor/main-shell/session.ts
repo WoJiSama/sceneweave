@@ -2,6 +2,7 @@ import type { EditableProject } from '../../application/workspace/project'
 
 export type WorkspaceRequest =
   | { type: 'new' }
+  | { type: 'generate' }
   | { type: 'import' }
   | { type: 'sample'; sample: 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano' }
   | { type: 'open'; sceneId: string }
