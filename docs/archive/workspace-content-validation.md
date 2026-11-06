@@ -1915,3 +1915,184 @@ VoiceOver实际启动尝试记录于`voiceover-live-preflight`与`voiceover-star
 原生复核为本机macOS26.6.2只读API调用，2026-11-06 08:21:17 UTC记录于`work/ux-closeout-20261106/native-sidebar-capabilities.json`：输入源为搜狗拼音；`AXIsProcessTrusted`、`CGPreflightPostEventAccess`、`CGPreflightListenEventAccess`均false；VoiceOver自动化无提示预检为-600，进程未运行。未启动VoiceOver或向导、未请求系统权限、未发送键盘/鼠标事件或修改系统设置，原预检证据未覆盖。
 
 当前可用工具仅能通过`open_in_codex`打开侧栏UI，没有侧栏页面点击、按键、拖动、DOM/事件观察或实际朗读采集接口。因此未能开始真实产品曲线/填充失焦、原生拼音候选确认/取消和VoiceOver网页导航旅程；三项继续待实测，不判断为产品缺陷或通过。后续须具备现有侧栏的真实操控与证据采集能力，或由人在同一侧栏实际操作并记录事实；仍不得回退到独立窗口、合成事件、直接填汉字或ARIA替代。已有交付像素与键盘通过事实保留各自旧冻结，本次不扩大其范围。
+
+<a id="ux-full-journey-review-20261106"></a>
+### 全旅程复核与Esc保护收口（2026-11-06）
+
+用户要求完成剩余体验检查。范围为本会话页面工具/分类、完整操作旅程及原生交互/P3接续，不扩大为项目整体验收。起始提交`178c132`，独立源码副本和正常生产构建在`work/ux-final-review-20261106/workspace/`；只叠加本轮`Workbench.tsx`、`WorkspaceHelp.tsx`与新增旅程用例。起始无关`terrain-candidate.test.ts`不叠加、不修改；后续并行正式工具与视觉spec改动也未纳入本冻结。
+
+最终源码/用例/正常dist逐文件指纹见`work/ux-final-review-20261106/final-source-manifest.json`：运行时集合SHA256 `1a0acd94b9b10f5f8416027d51ae3567986ee32d8e4b3ff3e963af914a957a84`，dist集合SHA256 `0d9423de4164a610d20f23b6bf2a8618bf44570d431e309e4f0fb539c5736403`；集合值为排序路径→文件SHA256映射的紧凑JSON摘要。Node24.14.1、隔离Chromium141.0.7390.37；没有可见外部浏览器、用户库读写、模型调用或正式性能采样。页面可在Codex侧栏的5193查看；后台自动化使用独立临时context。
+
+**发现与修复**：原导出details没有局部Esc处理，生成候选存在时按Esc会取消底层候选而菜单保持展开，`escape-red.log`退出1保留实证。菜单现在只关闭自身、阻止冒泡并把焦点返回summary，保留候选与revision。首修后`journey-fixed-first.log`又复现合成组合状态Esc先进入全局候选取消分支，组合检查现移至监听器入口；独立新建/打开对话框监听器另有相同遗漏，`modal-ime-red.log`退出1复现新建表单消失，现补同样isComposing/229前置守卫。帮助的局部Esc同时补229判断。合成事件只证明处理器保护，不证明真实中文输入法。
+
+| 检查与冻结 | 实际结果 |
+| --- | --- |
+| 改前主旅程基线 | `baseline-journeys.log`退出0，键盘三视口及双受众完整秘密交付共5/5通过；这是修复前冻结，不与最终结果相加或当作修复后完整秘密复验 |
+| 最终正常构建 | `normal-build-final.log`退出0，含应用/测试TypeScript、服务类型及正常Vite构建。构建仍有既有大块体积提示，不作加载/性能达标结论 |
+| 完整旅程与键盘回归 | `final-verified-journeys.log`退出0，同一最终dist、单worker、零重试，`complete-journey-ux.spec.ts`桌面1512×982和390×844两项、`keyboard-narrow-acceptance.spec.ts`1512/900/390三项，共5/5通过 |
+| 实际内容与交付 | 每条完整旅程经正常UI创建原空白工程、真实Worker生成2房间/9物件独立工程、属性面板移动物件X 1mm，一次撤销/重做、实际保存后刷新并从最近工程重开。完整包条目hash保持；双受众4096×2731 PNG实际下载；空存储用文件选择器导入，fresh sceneId/r0与时标按合同重置，其他文档、identity/appearance、资源文件hash、manifest.assetRecords/licenseBindings保持。每组保留original/generated/edited/undone/redone/cold/imported完整包及`journey-facts.json`，无页面异常或生成HTTP请求 |
+| Esc和输入保护 | 新建名称中的合成isComposing/229 Escape均保留表单/输入；普通Escape关闭新建并保留原工程。候选期间帮助与导出Esc返回入口且保留候选；组合状态及229均不关闭浮层/取消候选。原三档键盘流程复验通过 |
+
+最终附件在`work/ux-final-review-20261106/final-verified-results/`。七个资源分类、首页、新建、生成表单/候选、画布、导出和导入截图已核看，实际截图点均无页面横向溢出；窄屏抽屉及菜单未见本轮阻断。该观察只覆盖所列取景，不作整个视觉规范或P3签收。截图切换页及可下载的本轮真实备份位于`work/ux-final-review-20261106/review/index.html`（本机5194）；原曲线/组合填充的已记录备份另作为人工实测样例，来源/hash在`review/native-samples.json`，不算本轮原生通过。复核页所有人工项默认待实测，只有人填写后才可下载观察JSON，不自动签收或写回项目状态。
+
+最终用例修正后`final-typecheck.log`退出0；收口逐文件核对工作区运行时与所选测试均和冻结一致，见`closeout-facts.json`。复核材料页另在隔离无界面浏览器1200/390px检查图片切换、无横向溢出及四个人工项默认均pending，`review-gallery-facts.json`保留事实；已查看页面截图。文档416个本地文件链接目标与新增证据锚点检查通过，git diff --check通过。侧栏打开请求返回queued，实际材料页在人重新显示本会话时出现，不以该返回判断人工已查看。
+
+**首次失败和准备记录保全**：`journey-fixed-final.log`桌面通过/窄屏失败，后者是生成保存标签先出现、完整工程收尾超过脚本8秒等待；改为显式等待busy消失后`verified-journeys.log`5/5通过，该包仅包含首修。补独立对话框/帮助守卫后的`final-journeys.log`4通过/1失败，桌面断言同时命中工程h1与属性h3；限定level1后最终同轮5/5通过，不修改产品规避断言。准备时第一次将修正构建放进前次隔离目录，已恢复前次源文件和dist，12项资产名称/大小与原清单逐项一致，见`baseline-restoration-check.json`；随后一次相对路径拷贝失败产生的旧源码构建另保留为`normal-build-before-modal-overlay.log`，不算最终证据。最终使用本轮独立目录并逐文件核对实际叠加与dist。
+
+**仍未完成**：当前工具只有打开侧栏，没有页面按键/拖动/DOM事件观察或实际朗读采集接口；本轮未改变系统权限或启动VoiceOver。真实中文输入法确认/取消、曲线/填充在真实系统失焦下回滚和重启、VoiceOver网页导航/实际朗读均未取得事实，继续待实测；P3依项目约定由用户签收。复核材料已经具体准备，下一接续为取得这些实际人工观察，有问题后只修复/复验影响范围。完整秘密、多领域/跨浏览器/故障与正式性能仍按09各自执行，不由这5项关闭。独立todo.md SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`，未提交、推送或部署。
+
+**后续用户决定与当前观感评审**：用户明确“这个不验了”“123，然后我们主要看4”，故中文输入法、真实失焦和VoiceOver保留未运行，本轮不再安排人工实测；不将判断或已有合成事件写成真实通过。当前实际重看最终桌面外观/工程与390px生成/素材库截图，并核对`VisualPanel.tsx`、`ProjectTitleForm.tsx`、`visual.css`和`unified-workbench.css`。七模块分类与浅色绿系可保留；外观面板和工程改名保留默认浏览器表单样式、常用与技术参数层级弱、小字号浅色说明偏多、窄屏多排工具与导航挤占首屏，是当前视觉整改建议。未改产品代码，也未作新的功能/性能通过结论。侧栏5194材料页现聚焦七分类截图与上述观感问题，移除前三项人工表单；原材料页另保全在`work/ux-final-review-20261106/review-before-focus4.html`。用户P3仍为未签收，下一实施优先级集中在07的当前UX接续。
+
+<a id="ux-panel-unification-20261106"></a>
+### 面板样式、外观层级与窄屏空间统一（2026-11-06）
+
+用户授权按上述观感评审整改，并以截图指出左侧“视觉创作”字体与其他区域不一致。本次统一当前工作区面板的字体、标题/标签/说明层级、表单控件与按钮；独立`workspace-controls.css`限定在当前工作区，保留既有数字字段的单位后缀和素材搜索结构。外观改为“外观与氛围”及六项分段入口，常用参数优先，坐标/采样/阴影/相位等精细设置默认折叠；地形材质过渡只在边界内展开且组件保持挂载，跨子工具不清草稿。窄屏缩减顶部/任务入口间距，“展开全部面板”“重置布局”收进“布局设置”，执行后自动收起并返回焦点；Esc只关闭设置，组合状态/229不误取消。数据模型、单位、命令、候选校验和保存事务未改。
+
+起始提交`178c132`，源码和正常生产构建独立冻结于`work/ux-panel-unification-20261106/workspace/`，此前`ux-final-review-20261106/workspace/dist/`保留作对照。最终逐文件内容与正常dist见`final-source-manifest.json`：运行时集合SHA256 `352ccc0054c46155e09eaa33d832fce3f6f7bbaca8fce3fdc4185a5797a5a85f`，dist集合SHA256 `8abeaecf7d9b724a01a2915d16955ad31b14f18bfd34805ca3d1006b97654dd5`；集合值为排序路径→SHA256映射的紧凑JSON摘要。Node24.14.1，隔离Chromium141.0.7390.37。无关正式性能工具、正式视觉spec及地形候选单测改动未叠入此冻结；最终运行时代码逐文件与当前工作区一致。
+
+| 必要自检 | 本次实际结果与范围 |
+| --- | --- |
+| 正常生产构建 | `build.log`退出0；初次构建、标题排版调整及菜单关闭前的构建分别保留，不用首轮结果替代最终冻结。既有打包体积提示不算正式性能结果 |
+| 面板与草稿 | `panel-appearance-ux.spec.ts`桌面1512×982、390×844两条通过。真实UI新建/放置/完整备份，七模块与六外观子工具取景；工程改名和灯光强度控件的实际字体完全相同、字号12px、圆角6px、高度36px。过渡距离采样默认隐藏，展开填450后切换仍保持；灯光0.35切换保持。预览后布局设置Esc关闭并返回焦点、底层候选保留；取消预览、布局全部展开/重置与刷新最近工程冷开后完整备份逐条目hash保持 |
+| 键盘与窄屏复查 | 既有`keyboard-narrow-acceptance.spec.ts`1512/900/390px三条通过，覆盖真实键盘、抽屉/帮助/菜单、长候选摘要可达、取消保全及完整包冷读。与上面两条在同一最终dist、单worker、零retry同轮5/5通过，`final-browser.log`退出0；附件`final-results/`保留实际备份、截图和控件事实。菜单自动关闭前另两项/三项通过的日志与附件保全在`before-menu-close-*`，不与最终轮相加 |
+| 同图视觉对照 | `capture-comparison.mjs`通过正常文件选择器将同一真实室内包分别导入改前5193和改后5195的隔离空存储页面，选择相同物件，取工程、生成、外观边界/环境/灯光五种状态及桌面/390px共20张截图；关闭有限动画后再取最终状态，首轮过渡帧另存`comparison-before-settle/`。最终附件`comparison/`、输入包hash/浏览器/取景尺寸归`facts.json`，日志`comparison.log`退出0，无页面错误或页面横向溢出。已核看七模块/六子工具及同图重点状态，未见本轮阻断；不作用户P3签收 |
+
+侧栏5194材料页更新为同图改前/改后切换与重点变化说明，并链接正常5195工作区；原观感评审页保全为`review-before-unification.html`，旧截图未覆盖。全部浏览器自动化为隔离后台context，没有启动用户浏览器或独立可见窗口、读取用户库、调用模型或执行正式性能。中文输入法、真实系统失焦和VoiceOver仍为“未运行；用户决定本轮不执行”，不再索取这三项人工结果；用户P3及其他独立验收未关闭。独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`；未提交、推送或部署。下一接续为具体页面观感反馈与对应范围修正。
+
+<a id="ux-panel-polish-20261106"></a>
+### AI面板、按钮状态与铺装草稿细调（2026-11-06）
+
+用户继续授权前端体验整改。本轮将AI对话的标题、图标和留白对齐共用面板基线，统一面板按钮与字段的键盘焦点，以及主次按钮悬停和禁用状态；另复现铺装子工具切换导致目标与未采用参数丢失，改为隐藏而不卸载铺装表单，保留目标、参数、局部覆盖和原生details展开状态。外层禁用、会话revision/重置、预览/采用/取消仍按原规则执行，未改模型、生成算法、命令、存储或AI请求行为。
+
+本轮运行时仅在上一节冻结上调整`AiConversationPanel.tsx`、`VisualPanel.tsx`、`workspace-controls.css`和`visual.css`，新增`tests/panel-polish-ux.spec.ts`。源码与正常生产构建独立冻结于`work/ux-panel-polish-20261106/workspace/`，逐文件清单归`final-source-manifest.json`：运行时集合SHA256 `ddb4ef2c1aded7dd69a73945e5ac57c2b28715cfdff97314053fc55cecf9c57c`，dist集合SHA256 `a7803ac614c872bc70658146f115ae0724c76242f9deb3381f32c567a1f816fc`，集合算法与上一节相同。起始提交仍为`178c132`，Node24.14.1、隔离Chromium141.0.7390.37；无关正式性能/视觉及地形候选测试编辑未叠入冻结，前轮源码/dist和失败附件均保留。
+
+| 必要自检 | 实际结果与范围 |
+| --- | --- |
+| 改前反例与脚本校准 | `before.log`首次因错误地精确匹配“对齐”标签而超时，属于定位器问题；改为在相位区域查找唯一combobox后，`draft-red.log`在上一节正常5195生产包实际复现：修改铺装并切换子工具后，原房间目标变为空，退出1。修复前附件在`draft-red-results/`，未把脚本失败记为产品缺陷 |
+| 正常生产构建 | 独立冻结目录执行`npm run build`，`build.log`退出0。既有Rollup/包体积提示保留，不作性能达标结论；修正包由5196/sceneweave提供 |
+| 新增桌面/窄屏旅程 | 正常UI新建有真实材质的房间，设置铺装目标、纹理宽2100/高1700mm、方向22°、表面对齐和相位725/-250mm、局部覆盖透明度0.25；跨环境/灯光/滤镜/边界及工程/AI模块浏览后，全部草稿和展开状态保留。真实预览并取消后完整备份逐条目hash保持。AI/工程主标题实际字体、15px字号、600字重及颜色一致，AI左右内边距桌面16px/390px为14px，连接按钮36px；真实Tab/Shift+Tab核对按钮与字段焦点均为2px同色环，原生disabled保持、透明度0.55，未选工具悬停有反馈。只填本地占位地址/凭据，不点击连接，AI网络请求为0 |
+| 同包回归 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5196/sceneweave/ node node_modules/@playwright/test/cli.js test tests/panel-polish-ux.spec.ts tests/panel-appearance-ux.spec.ts tests/keyboard-narrow-acceptance.spec.ts --workers=1 --retries=0 --reporter=line --output=work/ux-panel-polish-20261106/first-results`，`first-browser.log`退出0。新增1512/390px两条、既有面板两条及1512/900/390px键盘三条，同一最终正常dist共7/7通过；不与上一节5/5相加。真实工程包、截图和`polish-facts.json`保留在`first-results/`，无页面错误或页面横向溢出 |
+| 同图视觉对照 | `capture-comparison.mjs`以正常文件选择器把同一真实室内备份分别导入改前5195/改后5196的空存储context，选择同一物件；工程、生成、AI、边界、环境、灯光、铺装七种状态与1512/390px共28张截图。输入包SHA256 `84fa4810b257d4215632a1b4c91e5189c8627c42a52fed89beadcbf81a4ac08b`，取景与错误事实归`comparison/facts.json`，`comparison.log`退出0，无页面错误或页面横向溢出。已目视核看桌面/窄屏AI及铺装重点截图，未见本轮阻断；不替代用户P3 |
+
+侧栏5194材料页更新为本轮七种状态的前后对照，默认显示改后AI，实际工作区链接改为5196；上一轮页面另存`review-before-polish.html`，`unification-*`及更早截图均保留，本轮图片使用`polish-*`前缀。材料页只提供截图与真实样例下载，不自动写入验收状态。后台检查不启动用户浏览器或独立可见窗口，不调用模型，也不采集正式性能。
+
+收口另用隔离无界面浏览器在1200/390px检查材料页的七状态、两种截图尺寸及前后切换，28组图片加载检查通过，无页面异常或横向溢出；旧页/样例链接和5196实际工作区入口可读取，事实归`review-smoke.json`，材料页截图已核看。侧栏打开请求返回queued，不据此判断用户已查看。`closeout-facts.json`记录694个运行时文件、15个叠加文件及86个dist文件与最终清单无漂移；五份相关文档474个本地链接、其中392个Markdown锚点检查零错误，`git diff --check`通过。
+
+本轮开发整改及上述必要自检已完成，下一接续为具体页面观感反馈与对应范围修正。中文输入法、真实系统失焦、VoiceOver仍为“未运行；依用户决定本轮不执行”，用户P3尚未签收，其他验收继续按09各自执行。独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`；未提交、推送或部署。
+
+
+<a id="ux-library-inspector-20261106"></a>
+### 素材库卡片与属性面板视觉统一（2026-11-06）
+
+用户授权继续完成素材库与右侧属性面板细调。本轮运行时仅在上一节冻结上修改`src/editor/main/workspace-controls.css`：将素材分类/类型、卡片选中、放置/添加、来源详情、管理入口和空状态对齐工作区绿系基线，区分悬停与选中；属性面板统一标题、名称、说明、事实及数值字段的层级和间距。卡片采用勾选/内容/操作三列，名称与尺寸正常换行，较长的外部添加操作独占下一行；卡片缩略图桌面58px、窄屏52px，详情128px及精修对照84px保留。缺缩略图的警示颜色保持。共用字段选择器以同义的`:not(...)`列表降低特异性，让既有搜索/单位控件去除内部边框的规则正常生效，保留外层边框及焦点。没有修改筛选、浏览/勾选、放置、编辑、模型、命令或保存语义。
+
+独立冻结位于`work/ux-library-inspector-20261106/workspace/`，起始提交`178c132`并叠加前轮15个运行时文件，最终运行时代码逐文件与当前工作区一致；无关正式性能/视觉及地形候选测试编辑未叠入。`final-source-manifest.json`记录694个运行时文件、15个叠加文件及86个dist文件，运行时集合SHA256 `f434e18beac4f0f9d43e59824ef727d75284cb9fee4ccc844359ed445e3879b4`、dist集合SHA256 `31d64547ad087219ed253b454f7718e277ddd4c113104d84e129be7ac87542d7`，集合算法同前节。Node24.14.1、隔离Chromium141.0.7390.37；5196保留上一轮基线，5198提供本轮最终正常生产包。
+
+| 必要自检 | 本轮实际结果与边界 |
+| --- | --- |
+| 正常生产构建 | 冻结目录`npm run build`退出0，最终日志`build.log`；既有Rollup/体积提示保留，不作性能结论。调整卡片密度与换行前的构建另存`build-before-density.log`及`build-before-card-wrap.log`，不用中间结果替代最终冻结 |
+| 同图视觉与卡片可操作性 | `capture-comparison.mjs`从正常文件选择器将同一真实室内包导入改前5196/改后5198的空存储context，选同一物件；1512/390px各取属性、素材库、详情和筛选空状态，共16张最终截图。输入包SHA256 `84fa4810b257d4215632a1b4c91e5189c8627c42a52fed89beadcbf81a4ac08b`；最终`comparison-final-wrap.log`退出0，`comparison/facts.json`记录无页面错误/横向溢出，两档各24个名称/尺寸文本框无横向溢出，放置按钮与内容分列，搜索内框实际为0px。已目视核看最终桌面素材库、窄屏属性与详情；只作为本轮开发观察 |
+| 浏览与取消保全 | 两档正常UI导入后导出完整备份，再浏览/勾选素材、打开详情、筛选至空状态、清空筛选、进入放置并点击实际“取消放置”。清空筛选后仍选中1项；操作前后两组完整包各75个条目hash逐项相同，包含场景、身份、外观、源、资源与许可；没有注入工程或直接读写用户数据库 |
+| 最终同包回归 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5198/sceneweave/ node node_modules/@playwright/test/cli.js test tests/panel-appearance-ux.spec.ts tests/panel-polish-ux.spec.ts tests/keyboard-narrow-acceptance.spec.ts --workers=1 --retries=0 --reporter=line --output=work/ux-library-inspector-20261106/final-results`，`final-browser.log`退出0，7/7通过：1512/390px面板两条、铺装/按钮两条及1512/900/390px键盘三条。前密度5项和前换行7项日志/附件独立保留，不与本轮相加 |
+| 中间观察与修正 | 首轮卡片仍显疏，收紧后发现共用按钮的`white-space:nowrap`导致长名称越过操作区，最终显式恢复内容换行并重新构建/取景/回归；中间截图保存在`comparison-before-density/`及`comparison-before-card-wrap/`。详情/精修缩略图限定范围后未被卡片尺寸覆盖。探索脚本的页签/开关定位错误保留作脚本失败，不记为产品缺陷 |
+
+侧栏5194材料页继续复用，默认素材库；新增当前轮属性、详情及空状态，最终16张图片用`library-final-*`前缀，中间`library-*`及早期图片保全。AI/外观/工程/生成七种状态明确标为前轮对照，实际可操作入口指向5198；前轮完成页保留为`review-before-catalog.html`。浏览器检查全为隔离无界面context，不启动用户浏览器或独立可见窗口、调用模型或采集正式性能。
+
+收口时在1200/390px检查11种状态与两种截图尺寸，44组图片加载/切换检查通过，无页面错误和横向溢出，旧页、样例及5198入口可读取，事实归`review-smoke.json`；已核看最终材料页。首轮链接检查误用不存在的`browser.request`，其失败日志另存，改用正常HTTP读取后通过，不算产品失败。`closeout-facts.json`确认694个运行时文件、15个叠加文件和86个dist文件无漂移，五份相关文档483个本地链接、其中401个Markdown锚点零错误，`git diff --check`通过。
+
+本轮实现与必要自检完成，下一接续为具体页面观感反馈及对应范围修正；不扩为素材管理全矩阵、跨浏览器或用户P3签收。中文输入法、真实系统失焦和VoiceOver仍为“未运行；依用户决定本轮不执行”，不再索取人工结果。独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`；未提交、推送或部署。
+
+
+<a id="ux-navigation-20261106"></a>
+### 图层、对象与历史导航样式统一（2026-11-06）
+
+用户授权继续页面体验整改。本轮运行时只修改`src/editor/main/workspace-controls.css`，把场景导航的标题/说明/数量、面板留白与选中反馈对齐前轮素材库及属性面板，去掉图层/历史内部重复padding；对象和历史搜索只保留外框，真实键盘焦点显示在搜索容器。图层图标点击区域至少30px；保持对象40px、历史对象48px行高及虚拟定位，不改图层锁/隐藏/独显、搜索、选择、命令、恢复、模型或存储逻辑。静态复核发现选中底色被悬停覆盖并修正；截图另发现完整版本区只有一个“上一个版本”按钮时被`:last-child`图标按钮26px宽度挤成竖排，最终显式恢复普通操作按钮的宽度与伸展。危险删除及锁/隐藏状态没有改义。
+
+独立源码/正常dist冻结于`work/ux-navigation-20261106/workspace/`，起始提交`178c132`，沿前轮15个运行时叠加文件保留已完成能力；无关性能/正式视觉/地形候选测试未叠入。`final-source-manifest.json`记录694个运行时文件、15个叠加文件及86个dist文件，最终运行时集合SHA256 `e6f444f93a9d74aa3e89761f78b24f6125a6f6e4d945f363d80ad9066603232e`、dist集合SHA256 `c13a3f943e0554c216c38cfc006ac3560f390cac16d34aa04982a329eef0a3b0`，集合算法同前节。Node24.14.1、隔离Chromium141.0.7390.37，5198保留上一轮正常包，5199提供本轮最终包。
+
+| 必要自检 | 本轮实际结果与边界 |
+| --- | --- |
+| 正常构建 | 最终`npm run build`退出0，日志`build.log`；原Rollup/体积提示保留，不作性能结论。悬停及历史按钮修正前的源码/dist/构建/键盘日志独立保留，不与最终轮合并 |
+| 同图与交互 | `capture-comparison.mjs`经正常文件选择器，将同一真实室内包导入5198/5199隔离空库context；1512/390px取对象、图层、完整历史与局部历史搜索四状态，共16张截图。真实搜索→ArrowDown→Enter选择、无匹配→Esc清空后选区保持，图层名称草稿切页保持再收起，命名快照真实保存后搜索→ArrowDown→Space勾选、切页后搜索/勾选保持；未执行恢复。最终`comparison.log`退出0，`comparison/facts.json`记录38条截图/样式事实且无页面错误、页面或面板横向溢出；两种列表行高实测40/48px，改后搜索内框0px、键盘容器焦点2px，选中对象悬停保持同色，选中快照内部按钮悬停不盖底色；“上一个版本”改后正常36px高 |
+| 完整内容保全 | 改后两档在上述浏览、实际快照保存及第二个命名草稿取消前后，正常下载完整备份各75个条目hash逐项一致。快照元数据在隔离库内有明确新增，当前完整包不含命名历史，不能把包相同误写为“历史库未写入”或恢复事务验证 |
+| 最终键盘复查 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5199/sceneweave/ node node_modules/@playwright/test/cli.js test tests/keyboard-narrow-acceptance.spec.ts --workers=1 --retries=0 --reporter=line --output=work/ux-navigation-20261106/keyboard-results`退出0，1512/900/390px三条3/3通过，日志`keyboard.log`；不与前轮7/7或中间包3项相加 |
+| 脚本与中间失败 | 首次脚本对多行使用严格单元素evaluate失败，改为明确首行；随后窄屏选择会按原产品规则自动打开属性面板，脚本过早重开导航存在竞争，补等待原抽屉关闭后再开；两次均属取景脚本错误，未因此修改产品行为，失败日志/图片保留。重复启动已有5199预览被端口占用拒绝后继续复用原服务。材料页首轮旧页链接未复制进服务目录导致HTTP检查失败，补复制后通过 |
+
+侧栏5194继续复用，默认本轮场景对象，四状态/桌面与窄屏可前后切换，最终16张图使用`navigation-*`前缀；前轮完成页保留为`review/review-before-navigation.html`且所有旧图片保全，实际入口指向5199。材料页1200/390px的四状态×两种截图尺寸共16组图片检查通过，旧页/样例/实际入口可读取，无页面错误和横向溢出，事实归`review-smoke.json`。已目视核看最终桌面历史、窄屏图层与对象页面。所有浏览器检查使用隔离后台context，没有启动用户浏览器或独立可见窗口、读取用户库、调用模型或采集正式性能。
+
+收口检查确认本轮CSS与冻结CSS一致，86个dist文件无漂移；五份相关文档486个本地链接、其中404个Markdown锚点零错误，`git diff --check`通过。期间另一路任务新增SVG/PNG及属性校验编辑，11个既有运行时文件与本冻结出现差异，清单归`parallel-runtime-differences.json`，这些并行编辑及新文件保留，未混入本UX包或宣称已整合验证。侧栏打开请求返回queued，不据此判断用户已查看。
+
+本轮开发整改与上述必要自检完成，后续聚焦建筑/地形长表单参数分组和首屏层级；整体图层/历史故障与跨浏览器矩阵仍归09，用户P3未签收。中文输入法、真实系统失焦及VoiceOver仍为“未运行；依用户决定本轮不执行”。独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`；未提交、推送或部署。
+
+
+<a id="ux-building-terrain-20261106"></a>
+### 建筑与地形长表单层级整理（2026-11-06）
+
+用户授权继续处理建筑/地形长表单的常用参数、高级设置与窄屏首屏。本轮仅修改`BuildingPanel.tsx`、`AggregateBuildingPanel.tsx`、`OutdoorToolsPanel.tsx`和共用`workspace-controls.css`对应样式：房间名称/形状、宽高、墙厚/地板材质成组，明确支撑常显；起点X/Y与多边形顶点按需展开，绘制/量尺及预览位于整栋操作之前，建筑组默认收起。室外材质/高程与可见性/阻挡并排，主要绘制与预览先于精确坐标、覆盖优先级、连接路线/开口及散布随机参数。并排单位字段消除旧内边距并对齐高度。原生details保留挂载、状态与草稿捕获；支撑、单位、私密性、禁用/锁守卫及命令/模型/存储语义保持。进入form的绘图、量尺与取消按钮明确使用type=button，避免隐式提交。
+
+独立源码与正常dist基于上一轮导航冻结，仅叠加上述四个运行时文件，位于`work/ux-building-terrain-20261106/workspace/`。`final-source-manifest.json`记录694个运行时文件、24个叠加文件（含测试）和86个dist文件；运行时集合SHA256 `09d0031f58d954037c6a5dab9c9e829abdeeef567092eb1a7fc7c5d98188cbca`，dist集合SHA256 `e88951a2efa6fc8120344ace2286a02c07fc5bf494ba928b181e5f0e54db5d6c`，逐文件集合算法同前节。起始提交`178c132`，Node24.14.1，隔离Chromium141.0.7390.37。当前工作区25个并行运行时差异及新文件保留，未混入该冻结或宣称整合通过；清单见manifest。5199保留改前包，5200提供改后包。
+
+| 必要自检 | 本轮实际结果与边界 |
+| --- | --- |
+| 正常构建 | 最终冻结目录`npm run build`退出0，日志`build.log`；既有Rollup/体积提示保留，不作性能结论。地形单列及并排字段对齐前的构建/截图/日志另存，不能替代最终冻结 |
+| 同图首屏 | 正常文件选择器把同一真实室内包分别导入5199/5200隔离空库；1512/390px建筑、地形各取改前/改后，共8张截图，归`baseline/`及`after/`。输入包SHA256仍为`84fa4810b257d4215632a1b4c91e5189c8627c42a52fed89beadcbf81a4ac08b`。已目视核看窄屏建筑与地形：改前建筑首屏被展开的组管理占据，改后两类主要预览可见；截图只支持本轮页面观察 |
+| 草稿与取消保护 | 新增`tests/building-terrain-forms-ux.spec.ts`，以正常UI新建两档独立空白工程；房间起点/宽高/墙厚、折叠状态及建筑组跨模块保持，真实绘图启动/取消不触发候选；结构预览期间常用/精确字段禁用，取消后包hash保持。室外高程/优先级/坐标跨模块、通路净宽与散布随机草稿跨工具保持；重复坐标在折叠区外报错，修正后可真实预览，候选期间字段禁用，取消后包hash保持。两档建筑及室外取消后的完整包各40条目逐项一致，事实归`final-results/**/form-facts.json` |
+| 最终同包验证 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5200/sceneweave/ node node_modules/@playwright/test/cli.js test tests/building-terrain-forms-ux.spec.ts tests/keyboard-narrow-acceptance.spec.ts --workers=1 --retries=0 --reporter=line --output=work/ux-building-terrain-20261106/final-results`退出0，`final-browser.log`记录5/5通过：1512/390px表单两条及1512/900/390px键盘三条。无页面错误及页面/面板横向溢出；不与改前或中间包结果相加 |
+| 既有入口同步 | `building-edit`、`u1a-workspace`、`export-privacy-ux`、`uvtt`的数值helper仅在房间起点隐藏时展开精确位置，`aggregate-building` helper显式展开组工具；五文件`--list`退出0发现24项，日志`entry-list.log`。未运行这些完整组，不冒充UVTT或导出正式验收 |
+| 脚本与中间失败 | 首次在冻结目录执行复制脚本时根路径选择错误，未覆盖主工作区，纠正绝对根后重新构建。初轮新用例取消文案定位与相对has定位写法不符，人工中断后修正；其日志/trace保留在`form-results/`、`form-final-results/`。这些为脚本失败，未据此修改产品语义。截图另暴露地形单列仍挤占首屏及单位字段旧间距，已修正并以最终包重跑5项 |
+
+侧栏5194复核页更新为建筑/地形两种状态、桌面/窄屏前后对照；8张最终截图使用`forms-*`前缀，旧导航页保留为`review-before-building-terrain.html`，其余旧页及图片保持。实际工作区入口指向5200。所有浏览器检查使用隔离无界面context，未启动用户浏览器、独立可见窗口、模型请求或正式性能。
+
+侧栏复核页1200/390px、两种截图尺寸与两种状态共8组图片检查通过，旧页/样例及5200入口可读取，无页面错误和横向溢出，事实归`review-smoke.json`。最终四个运行时文件与冻结一致，86个dist文件无漂移，五份相关文档489个本地链接、其中407个Markdown锚点无错误，`git diff --check`通过；详见`closeout-facts.json`。侧栏打开请求返回queued，不据此判断用户已查看。
+
+本轮开发整改及必要自检完成，后续复查候选审阅区、空状态与错误反馈的一致性。用户P3未签收；中文输入法、真实系统失焦、VoiceOver继续为“未运行；依用户决定本轮不执行”。独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`；未提交、推送或部署。
+
+
+<a id="ux-six-finish-20261106"></a>
+### 候选、反馈、弹窗与完整页面旅程收口（2026-11-06）
+
+用户授权依次完成六项页面体验工作：候选审阅、空/错误/读取反馈、弹窗菜单、画布工具状态、窄屏长内容及整体一致性/完整旅程。本轮运行时仅修改`workspace-controls.css`、`Workbench.tsx`、`UvttExportDialog.tsx`、`SceneContextMenu.tsx`与`main-shell/WorkspaceHome.tsx`，新增正常生产旅程`tests/workspace-feedback-polish-ux.spec.ts`。共用字体、标题/正文、按钮与输入基线扩至候选、普通提示/保存恢复、帮助/导出、新建/VTT预检及右键菜单；读取、错误与真实空状态保持各自语义。候选移除正文内层240px滚动限制，由外层正文滚动且确认/操作保留，窄屏原先隐藏的解释恢复可见。普通长提示的正文可滚动，关闭按钮常显；保存问题仍在独立恢复区。
+
+房间、量尺及室外取点从开始就显示点数、下一步和退出按钮，点数足够后才提供原预览动作；退出沿原会话取消路径，保留表单草稿，不写工程。首页无匹配给出清空搜索，两处清空操作都返回搜索框焦点，真实空库说明三种起点。新建/VTT弹窗和右键菜单统一样式，VTT关闭键补`isComposing`/229守卫，原关闭/焦点回归保持；弹窗短屏滚动留出底部动作空间。没有修改领域命令、锁/依赖、支撑、模型、资源许可、保存或玩家投影。
+
+独立源码与正常dist基于前轮长表单冻结，仅叠加上述五个运行时文件，位于`work/ux-six-finish-20261106/workspace/`；起始提交`178c132`。`final-source-manifest.json`记录694个运行时文件、28个叠加文件（含测试）、86个dist文件；集合算法沿前节逐路径及SHA256排序计算，运行时集合SHA256为`c9d2d1e7a3cbc22193d8982b7ab61cf925ef17c7070e94cea9c1911d2a923aac`，dist集合SHA256为`0676055d1a661d57aa5cc256f8342943131914c3edc19cd64401af8b76830104`。冻结时当前根目录有29个并行运行时差异，另有新增文件，均保留但未混入本UX包，不宣称完整工作区整合通过。Node24.14.1、隔离Chromium141.0.7390.37；5200保留改前包，5201提供最终包。
+
+| 必要自检 | 最终结果与实际边界 |
+| --- | --- |
+| 正常构建 | 冻结目录`npm run build`最终退出0，日志`build.log`；保留既有Rollup/体积提示，不作性能结论。最后修改窄屏提示留白后重新构建，以下9条与两组取景均基于该最终dist |
+| 候选、反馈与弹窗 | 桌面1512px/390px两条正常UI新建旅程覆盖长房间名称候选、确认前禁用/勾选后可采用、正文滚动后确认/动作可见、取消、非法坐标错误、房间真实首点后的计数/退出及室外退出、新建尺寸拒绝、VTT预检/合成组合状态守卫/实际Escape与焦点返回、首页无匹配清空及搜索焦点。390×600额外聚焦末尾尺寸字段和VTT确认框，均在底部动作上方，Space勾选后下载可用。取消前后正常下载完整包各40个条目hash一致；未发起VTT下载或目标软件导入。事实归`final-results/**/feedback-facts.json` |
+| 长表单复验 | 同包1512/390px两条再次核对主要预览首屏、精确设置和跨模块/工具草稿、候选禁用、错误修正、取消完整包40条目hash保持。390px地形首屏原断言保持，未放宽阈值；事实归`final-results/**/form-facts.json` |
+| 完整操作旅程 | 同包1512/390px两条从首页新建→真实本机Worker室内生成→手工移动→撤销重做→刷新后最近工程冷重开→玩家/主持人PNG→空存储正常文件导入。两档均为2房间9物件，编辑后revision3，双受众PNG均4096×2731；冷重开完整包逐条目hash一致，导入只按合同改变工程身份/时间/revision，文档其余内容、身份、外观、资源记录与许可绑定保持。Worker加载被实际观察，无服务端生成请求；事实归`final-results/**/journey-facts.json`。本轮没有另跑完整秘密注入或PNG元数据矩阵，不用该旅程替代前轮保密证据 |
+| 最终同包命令 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5201/sceneweave/ node node_modules/@playwright/test/cli.js test tests/workspace-feedback-polish-ux.spec.ts tests/building-terrain-forms-ux.spec.ts tests/complete-journey-ux.spec.ts tests/keyboard-narrow-acceptance.spec.ts --workers=1 --retries=0 --reporter=line --output=work/ux-six-finish-20261106/final-results`退出0；`final-browser.log`记录9/9通过（两条反馈、两条表单、两条旅程和1512/900/390px键盘三条）。无页面异常，截图点无页面横向溢出；不与中间包或历史数字相加 |
+| 前后及模块观感 | `capture-comparison.mjs`通过相同正常UI新建/操作，在5200/5201分别取得1512/390px候选、错误、新建、VTT、绘制和首页空结果六状态共24张前后截图，`comparison/facts.json`为24条、errors为空。`capture-modules.mjs`正常文件选择器导入同一真实室内包，取得七模块两档14张最终截图，浏览前后两组完整包各75条目hash一致；`modules/facts.json`无页面异常或页面横向溢出。输入包SHA256为`84fa4810b257d4215632a1b4c91e5189c8627c42a52fed89beadcbf81a4ac08b`。已目视核看候选/绘图/弹窗、宽屏VTT及窄屏外观/素材库和桌面AI，截图仅支持本轮观感复核 |
+| 失败及修复保留 | 首次构建发现首页清空handler误用不存在的`setSearch`，改为原`setQuery`后构建通过，首败日志保留。早期反馈两条通过后，长表单回归发现390px地形预览底部807.984px超出面板底部806px；长提示限高后仍复现，最终定位为提示关闭按钮高度新增占位，窄屏提示padding收为6px并保留按钮点击区域，最终9项重跑通过。首轮6/7、8/9及旧构建/截图/trace均独立保留，不算最终通过。取景脚本曾在窄屏绘图自动开抽屉前抢先关闭，补等待data-open后取景，未改产品逻辑 |
+
+侧栏5194复核页更新为上述六状态、桌面/窄屏及前后对照，24张最终图片使用`six-finish-*`前缀，旧长表单页保留为`review-before-six-finish.html`，旧页面/图片链和实际样例保全；工作区入口指向5201。材料页在1200/390px下的六状态×两种截图尺寸共24组检查通过，旧页/样例/实际入口可读取，无页面异常和横向溢出，事实归`review-smoke.json`。侧栏打开请求不代表用户已查看。
+
+最终收口核对五个运行时文件及新增测试与冻结一致，694个冻结运行时文件、86个dist文件均无漂移；五份相关文档492个本地链接、其中410个Markdown锚点零错误，`git diff --check`通过，事实归`closeout-facts.json`。根目录29个并行运行时差异保持独立，不据该冻结外推整合结果。
+
+所有浏览器操作使用隔离无界面context，没有启动用户浏览器或独立可见窗口、读取用户库、连接AI后端/模型或采集正式性能。上述六项开发整改与必要自检已收口，后续按具体页面反馈修复；完整功能/跨浏览器矩阵及用户P3仍归09，UVTT真实目标导入仍待。中文输入法、曲线/填充真实系统失焦、VoiceOver为“未运行；依用户决定本轮不执行”，合成处理器检查不改写该边界。独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`；未提交、推送或部署。
+
+<a id="ux-integration-20261107"></a>
+## 当前完整版本UX整合、复杂地图与等待反馈（2026-11-06启动，2026-11-07收口）
+
+用户授权依次完成①整合当前完整代码、②复杂地图操作效率、③等待反馈、④修复及分块提交；界面继续只用Codex侧栏，独立自动化使用隔离无界面浏览器。没有操作用户浏览器或真实用户库、连接模型、运行本轮正式性能或恢复已决定不执行的原生实测。
+
+源码冻结于`work/ux-integration-20261106/workspace/`，起始提交`178c1320c278f2e9d1b10a16feeb720e449fbca4`，复制当时完整工作区及资源/许可，包括其他任务当时的存储、渲染、SVG/PNG整改，再只叠加本轮Workbench等待文案及图层初始化修复。`final-source-manifest.json`记录1505个源码/配置/文档文件、845个运行时输入及89个dist文件；集合按逐路径及SHA256排序计算，运行时SHA256为`0a715c5aa071f463229d19015f7beddc35f61254b5704faf0b36daad8c652fe6`，dist为`8ff092f868c713f9f517fb75d74f0c66f8d3e2a7c6f43c049fc81c929781378b`。Node24.14.1与隔离Chromium141.0.7390.37；5202保留改前整合包，5203提供最终正常包。该冻结证明所列整合范围；之后并行变化另列在`closeout-facts.json`，不据此宣称持续变化的根目录全量已测。
+
+本轮运行时只新增Workbench中的操作级busyMessage与UserLayerPanel的工程/会话key。保存室内/森林/火山/混合结果、离开前保存、素材批次/目录检查、完整/所选历史备份及双受众PNG分别说明当前操作；通用路径每次重置默认文案，原并发锁、取消及finally清理保持。图层面板此前在生成新工程后仍保留旧Floor，创建图层被领域校验拒绝；现在沿用其他工具的sceneId-sessionGeneration key重新初始化，普通分类导航只隐藏面板，key不变，仍保留同工程草稿。没有放松严格校验或改变模型、事务、撤销、CAS及保密合同。
+
+| 必要自检 | 实际结果与边界 |
+| --- | --- |
+| 正常构建 | 冻结目录`npm run build`退出0，最终`build.log`；保留既有Rollup/体积提示，不作为性能结论 |
+| 最终同包检查 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5203/sceneweave/ node node_modules/@playwright/test/cli.js test tests/complex-workspace-ux.spec.ts tests/workspace-feedback-polish-ux.spec.ts tests/building-terrain-forms-ux.spec.ts tests/complete-journey-ux.spec.ts tests/keyboard-narrow-acceptance.spec.ts --workers=1 --retries=0 --reporter=line --output=work/ux-integration-20261106/final-results`首轮退出1，`final-browser.log`记录9通过、复杂地图2项因冷重开脚本错误失败；只修正测试，保持同一dist，以`--output=work/ux-integration-20261106/complex-retest-results`单独运行`tests/complex-workspace-ux.spec.ts`退出0，两项2/2通过，日志`complex-retest-browser.log`。不宣称单轮11/11全绿，也不与改前包9项合计 |
+| 复杂地图 | 1512×982及390×844两条经正常页面生成并保存林中建筑，各含2房间、42物件、地形和道路。建筑名称/地形高程跨模块保持，浏览完整包hash不变；素材按原固定定义和明确房间支撑新增一件，资源hash保持；创建图层→两物件多选→移层预览取消完整包不变→采用→一次撤销/重做→历史读取→刷新冷开，物件/房间/地形内容保持，冷开逐条目hash与重做后相同。无页面错误或模型请求、无页面横向溢出，事实归`complex-ux-facts.json` |
+| 等待观察 | 两档`waiting-observations.json`记录生成、保存、放置、建层、移层采用、历史读取和冷开，保存生成结果的具体状态有实际断言；导航替换DOM后改为驱动计时，不伪造连续观察。DOM时标和驱动时间包含等待/截图/下载开销，且机器另有任务，不得作为正式性能或前后提速结论；数秒级保存仍是性能线独立整改事项 |
+| 完整交付与反馈 | 同包两条完整旅程新建→真实Worker室内生成→手工移动→撤销重做→最近工程冷开→玩家/主持人4096×2731 PNG→空库正常文件导入通过；两条长表单、两条候选/错误/弹窗/画布状态及三档键盘也通过。不据此关闭完整秘密像素、跨引擎或原生实测矩阵 |
+| 侧栏材料 | 原5194复核页更新为两档保存/地图/多选/移层/历史共10张实际操作截图，原页面保留为`review-before-integration.html`，所有旧图及样例保持；提供真实完整林中建筑备份及5203入口。材料页1200/390px的两截图尺寸×五状态共20组图片/链接/溢出检查通过，结果归`review-smoke.json`；页面已更新不代表用户P3签收 |
+
+初始构建在复制快照完成前启动，因文件未就绪失败，待复制完重跑通过；另一次构建为叠加最终文案而中断，不作为成功证据。首轮复杂旅程被共用辅助函数8秒busy检查提前拒绝，明确对真实生成保存完成等待90秒后继续，产品等待仍如实记录。随后真实复现新工程沿用旧Floor的新建图层失败，修复key后可创建、采用及撤销重做。该轮历史按钮实际包含“· r4”，测试用严格无修订号名称导致两档失败；改为匹配实际名称后，后续11项整合检查中9通过，复杂地图两档在冷开步骤失败：刷新后产品需要从首页最近工程重新打开，脚本误等自动打开。补齐实际最近工程路径、候选截图等待真实画布渲染完成后，保持同一dist的两条复杂地图复验2/2通过；未为这两个脚本问题修改产品。DOM观察跨reload会丢window状态的问题在静态复核时预先修正。首次失败、截图与trace均保留在各自`complex-*-results`及日志中。
+
+本次把累积UX按页面整理、交互修复、测试、文档分块提交：17个前轮运行时作为页面块，Workbench本轮增量单独提交，12份UX用例另块，五份文档只暂存UX内容；正式容量/性能/视觉、数据与资源整改的其他任务修改保留。精确归属核对见`commit-audit.md`及`commit-map.json`，最终Git事实见`commit-facts.json`。源码/产物无漂移、链接/锚点及`git diff --check`由`closeout-facts.json`核对；独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`。本轮未推送或部署。
+
+用户批准的1–4项开发工作收口；后续只根据具体页面反馈修复对应范围，整体功能、正式性能、目标VTT导入与用户P3仍按09独立验收。中文输入法、曲线/填充真实系统失焦和VoiceOver继续为“未运行；依用户决定本轮不执行”，不再索取人工结果。
