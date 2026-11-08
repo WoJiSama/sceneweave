@@ -8,7 +8,7 @@
 
 复制粘贴、Enter绘图及删除快捷键的正常生产旅程分别在 `clipboard-ux.spec.ts`、`enter-drawing-ux.spec.ts`、`canvas-delete-ux.spec.ts`；`keyboard-narrow-acceptance.spec.ts` 合并1512/900/390px的真实键盘、长候选摘要和备份冷读检查。共用 `keyboard-ux-helpers.ts`，事实来自实际下载完整工程，不使用DEV读取入口；取消候选后须等待真实画布就绪再发后续快捷键。当前范围、冻结与通过记录从[09限定验收](../docs/09-quality-plan.md#keyboard-narrow-acceptance)追溯，不能外推真实输入法或完整无障碍验收。
 
-`complete-journey-ux.spec.ts`在1512/390px通过正常首页新建、真实Worker生成室内、手工移动物件、撤销重做、最近工程冷重开及双受众4K下载，最后从空存储用文件选择器导入真实备份。核对完整条目hash、文档/身份/外观与资源清单/许可绑定；截图覆盖七个工具分类、首页、候选和导出。另检查新建对话框、帮助与导出菜单的Esc层级及isComposing/229守卫，合成事件只证明处理器逻辑；真实输入法、失焦、读屏和用户P3仍从09独立验收。
+`complete-journey-ux.spec.ts`在1512/390px通过正常首页新建、真实Worker生成室内、手工移动物件、撤销重做、最近工程冷重开及双受众4K下载，最后从空存储用文件选择器导入真实备份。核对完整条目hash、文档/身份/外观与资源清单/许可绑定；截图覆盖八个模块、首页、候选和导出。另检查新建对话框、帮助与导出菜单的Esc层级及isComposing/229守卫，合成事件只证明处理器逻辑；真实输入法、失焦、读屏和用户P3仍从09独立验收。
 
 `panel-appearance-ux.spec.ts`在1512/390px的正常生产UI核对工程/外观控件实际字体、字号、圆角和高度，截图覆盖七模块与六外观子工具；检查精细采样默认折叠、跨子工具草稿保留，布局设置Esc保留底层候选，以及展开/重置后菜单关闭与焦点返回。预览取消、布局操作和最近工程冷重开后比较完整包逐条目hash，检查页面错误与横向溢出；共用真实下载辅助函数，不注入工程。样式和布局变化配套复查既有三视口键盘旅程，结果归[主题台账](../docs/archive/workspace-content-validation.md#ux-panel-unification-20261106)，截图不能替代用户P3。
 
@@ -31,6 +31,8 @@
 `curve-interruption-ux.spec.ts`在正常生产页面生成岩岛，通过CDP真实触控流取消及原生捕获API检查pointercancel/lostpointercapture，并单独检查合成window blur处理逻辑；桌面/390px核对全曲线回滚、捕获释放、迟到松手、重新拖动/Esc、无新编辑Worker及实际完整包/冷重开。使用隔离Chromium与`hasTouch: true`的context，不调用DEV接口或写入数据库。后台切标签不会自动产生原生失焦；合成blur不能替代真实窗口失焦。成功松手预览/采用另有未解决拒绝，具体复现、配置和覆盖边界见[主题记录](../docs/archive/workspace-content-validation.md#curve-interruption-ux-20261106)。
 
 跨引擎主要旅程与768×500/390×844重排在 `platform-ux.spec.ts`，可配合 `clipboard-ux.spec.ts` 在隔离Chromium/Firefox/WebKit运行；macOS WebKit默认Option+Tab纳入按钮，WebKit引擎不代表Safari应用验收。数值字段Esc只取消该字段编辑，表单保留草稿时须通过原取消入口退出；启动画图后先等待设置抽屉实际展开再关闭，画布取点前使用「适应全图」并核对可见范围。`browser-zoom-ux.spec.ts`使用Playwright自带Chromium的隔离临时配置和本地测试扩展，通过浏览器原生 `chrome.tabs.setZoom/getZoom` 验证200%缩放、重排、错误反馈及长候选键盘可达，核对设备像素比/实际CSS视口并恢复100%；不会安装到用户浏览器，也不以CSS缩放抵扣浏览器缩放。两者均不证明真实输入法或VoiceOver朗读；口径与结果从[09接续验收](../docs/09-quality-plan.md#platform-input-accessibility-acceptance)追溯。
+
+`workspace-information-architecture.spec.ts`覆盖新八模块直达、目录临时详情、原选区/草稿保留、右侧唯一候选、查看层与绘制层分离、900/390px单抽屉/焦点、1079/1080/1081px断点往返、独立滤镜区域及旧布局偏好迁移。旧三面板/七模块定位已从本轮受影响的Enter、曲线、历史、素材和整合旅程迁移；使用`workspace-navigation-helpers.ts`统一入口。实际运行与首败/复验归[信息架构台账](../docs/archive/workspace-content-validation.md#workspace-information-architecture-implementation)，未运行的历史专项不因选择器更新而算通过。
 
 ## 运行规则
 
