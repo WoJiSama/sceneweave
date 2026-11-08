@@ -134,3 +134,9 @@
   .history-panel, .history-shell .user-layer-panel { padding: 15px; }
   .history-shell .history-sidebar-tabs { position: static; }
 }
+
+.history-details { padding: 0; }
+.history-details h2 { margin: 0 0 10px; font-size: 15px; color: var(--workspace-text, #465e4c); }
+.history-details .history-mode { grid-template-columns: 1fr; align-items: start; }
+.history-details .history-scope { margin-top: 12px; }
+.history-details .history-scope-tools { flex-wrap: wrap; }

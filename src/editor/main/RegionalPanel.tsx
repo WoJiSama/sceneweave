@@ -1,3 +1,4 @@
+import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Map, MapPin, Route, Trees } from 'lucide-react'
@@ -69,6 +70,11 @@ export default function RegionalPanel({ document, busy, error, candidate, source
   const materialization = candidate?.materialization
   const sourceOnlyEntries = materialization?.entries.filter(entry => entry.status === 'sourceOnly') ?? []
   const partialEntries = materialization?.entries.filter(entry => entry.status === 'partial') ?? []
+  const feedback = <>
+    {busy && <p role="status">正在校验区域候选与真实资源…</p>}
+    {(localError || error) && <p className="asset-form-error" role="alert">{localError || error}</p>}
+  </>
+  const cancelAction = <button type="button" className="secondary asset-wide" onClick={cancel}>取消区域候选</button>
   return <section className="regional-panel" aria-labelledby={heading}>
     <div className="asset-section-heading"><Map size={17}/><h2 id={heading}>区域地图</h2></div>
     <p className="regional-intro">用区域面、道路、山脊与直立图符规划旅程；选定小范围后，按原比例下钻成独立场景。</p>
@@ -102,9 +108,8 @@ export default function RegionalPanel({ document, busy, error, candidate, source
       <button type="button" className="primary asset-wide" disabled={Object.values(selectionMm).some(value => !Number.isSafeInteger(value)) || selectionMm.width <= 0 || selectionMm.height <= 0 || selectionMm.width > 500_000 || selectionMm.height > 500_000} onClick={() => void run(() => onPreviewDrillDown({ selectionMm: { ...selectionMm }, includePrivate: false }), true)}>预览独立下钻场景</button>
     </fieldset></>}
     {source && <article className="regional-source"><h3>区域来源</h3><p>来源版本 {source.sourceRevision} · 原始选区 {numberText(source.selectionMm.width)} × {numberText(source.selectionMm.height)}</p><p>当前子图独立保存，不会自动写回父图。</p><button type="button" className="secondary asset-wide" disabled={busy || disabled} onClick={() => void run(onCompareSource)}>核对父图来源</button>{sourceComparison && <p role="status">{sourceComparison}</p>}</article>}
-    {busy && <p role="status">正在校验区域候选与真实资源…</p>}
-    {(localError || error) && <p className="asset-form-error" role="alert">{localError || error}</p>}
-    {candidate && <article className="regional-candidate" aria-label="区域候选"><h3>{candidate.label}</h3><p>{candidate.kind === 'edit' ? '保护当前工程后，一次采用同工程修改。' : '保存独立完整工程；当前工程先保全。'}展开成本 {candidate.cost.total} / {candidate.cost.limit}。</p>{candidate.kind === 'drillDown' && <><p>来源快照 {drillSourceCount} 条；已物化 {materialization?.materializedCount ?? 0} 条，部分物化 {materialization?.partialCount ?? 0} 条，仅保留来源 {materialization?.sourceOnlyCount ?? 0} 条。场景包含 {Object.keys(drillDocument?.terrainAreas ?? {}).length} 个地形面、{Object.keys(drillDocument?.paths ?? {}).length} 条路径、{Object.keys(drillDocument?.props ?? {}).length} 个非阻挡物件和 {Object.keys(drillDocument?.notes ?? {}).length} 条说明。实际尺寸保持，不按区域比例缩小。</p>{partialEntries.length > 0 && <details><summary>部分物化的内容</summary><ul>{partialEntries.map(entry => <li key={entry.sourceFeatureId}>{entry.label}：{entry.reason}</li>)}</ul></details>}{sourceOnlyEntries.length > 0 && <details><summary>仅保留来源的内容</summary><ul>{sourceOnlyEntries.map(entry => <li key={entry.sourceFeatureId}>{entry.label}：{entry.reason}</li>)}</ul></details>}</>}{!matches && <p className="regional-hint">输入已改变，请重新预览。</p>}<label><input type="checkbox" aria-label="确认区域候选范围" checked={confirmed} disabled={!matches || busy || disabled} onChange={event => setConfirmed(event.target.checked)}/>已核对范围、私密性和独立保存方式</label><button type="button" className="primary asset-wide" disabled={!confirmed || !matches || busy || disabled} onClick={() => void run(onAdopt)}>{candidate.kind === 'edit' ? '保护并采用区域修改' : '保存并打开独立区域候选'}</button></article>}
-    {(dirty || candidate || busy) && <button type="button" className="secondary asset-wide" onClick={cancel}>取消区域候选</button>}
+    {!candidate && feedback}
+    {candidate && <WorkspaceReview><div className="regional-panel workspace-review-panel">{feedback}<article className="regional-candidate" aria-label="区域候选"><div className="workspace-review-body"><h3>{candidate.label}</h3><p>{candidate.kind === 'edit' ? '保护当前工程后，一次采用同工程修改。' : '保存独立完整工程；当前工程先保全。'}展开成本 {candidate.cost.total} / {candidate.cost.limit}。</p>{candidate.kind === 'drillDown' && <><p>来源快照 {drillSourceCount} 条；已物化 {materialization?.materializedCount ?? 0} 条，部分物化 {materialization?.partialCount ?? 0} 条，仅保留来源 {materialization?.sourceOnlyCount ?? 0} 条。场景包含 {Object.keys(drillDocument?.terrainAreas ?? {}).length} 个地形面、{Object.keys(drillDocument?.paths ?? {}).length} 条路径、{Object.keys(drillDocument?.props ?? {}).length} 个非阻挡物件和 {Object.keys(drillDocument?.notes ?? {}).length} 条说明。实际尺寸保持，不按区域比例缩小。</p>{partialEntries.length > 0 && <details><summary>部分物化的内容</summary><ul>{partialEntries.map(entry => <li key={entry.sourceFeatureId}>{entry.label}：{entry.reason}</li>)}</ul></details>}{sourceOnlyEntries.length > 0 && <details><summary>仅保留来源的内容</summary><ul>{sourceOnlyEntries.map(entry => <li key={entry.sourceFeatureId}>{entry.label}：{entry.reason}</li>)}</ul></details>}</>}{!matches && <p className="regional-hint">输入已改变，请重新预览。</p>}</div><div className="workspace-review-actions"><label><input type="checkbox" aria-label="确认区域候选范围" checked={confirmed} disabled={!matches || busy || disabled} onChange={event => setConfirmed(event.target.checked)}/>已核对范围、私密性和独立保存方式</label><button type="button" className="primary asset-wide" disabled={!confirmed || !matches || busy || disabled} onClick={() => void run(onAdopt)}>{candidate.kind === 'edit' ? '保护并采用区域修改' : '保存并打开独立区域候选'}</button>{cancelAction}</div></article></div></WorkspaceReview>}
+    {!candidate && (dirty || busy) && cancelAction}
   </section>
 }

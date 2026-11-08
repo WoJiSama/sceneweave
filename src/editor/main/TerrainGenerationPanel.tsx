@@ -1,3 +1,4 @@
+import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Check, ChevronRight, Download, Mountain, RefreshCw, Waves, X } from 'lucide-react'
 import { TERRAIN_FIXED_SEEDS, type TerrainGenerationInput } from '../../shared/terrain-generation/generate'
@@ -135,6 +136,14 @@ export default function TerrainGenerationPanel({
     catch (failure) { setLocalError(failure instanceof Error ? failure.message : '取消未完成，请重试。') }
   }
 
+  const feedback = <>
+    {occupied && <div className="terrain-generation-progress" role="status">
+      <span>{pending === 'adopt' ? '正在采用方案…' : pending === 'export' ? '正在准备导出…' : '正在生成地形预览…'}</span>
+      {!candidate && pending !== 'adopt' && pending !== 'export' && <button type="button" className="secondary" aria-label="取消地形生成" onClick={cancel}><X size={13} aria-hidden="true"/>取消</button>}
+    </div>}
+    {disabled && disabledReason && <p className="terrain-generation-notice" role="status">{disabledReason}</p>}
+    {(localError || error) && <p className="asset-form-error terrain-generation-error" role="alert">{localError || error}</p>}
+  </>
   return <section className="terrain-generation-panel" aria-labelledby={headingId}>
     <div className="asset-section-heading terrain-generation-heading">
       <Mountain size={17} aria-hidden="true"/>
@@ -202,14 +211,10 @@ export default function TerrainGenerationPanel({
       </button>}
     </details>
 
-    {occupied && <div className="terrain-generation-progress" role="status">
-      <span>{pending === 'adopt' ? '正在采用方案…' : pending === 'export' ? '正在准备导出…' : '正在生成地形预览…'}</span>
-      {pending !== 'adopt' && pending !== 'export' && <button type="button" className="secondary" aria-label="取消地形生成" onClick={cancel}><X size={13} aria-hidden="true"/>取消</button>}
-    </div>}
-    {disabled && disabledReason && <p className="terrain-generation-notice" role="status">{disabledReason}</p>}
-    {(localError || error) && <p className="asset-form-error terrain-generation-error" role="alert">{localError || error}</p>}
+    {!candidate && feedback}
 
-    {candidate && <article className="terrain-generation-candidate" aria-label="当前地形候选">
+    {candidate && <WorkspaceReview><div className="terrain-generation-panel workspace-review-panel">{feedback}<article className="terrain-generation-candidate" aria-label="当前地形候选">
+      <div className="workspace-review-body">
       <div className="terrain-generation-candidate-heading"><span>当前预览</span><strong>{candidate.name}</strong></div>
       <p className="terrain-generation-candidate-seed">{KIND_OPTIONS.find(option => option.value === candidate.kind)?.label ?? candidate.kind} · {candidate.seed}</p>
       <dl className="terrain-generation-facts">
@@ -228,12 +233,13 @@ export default function TerrainGenerationPanel({
       </details>
       {!candidateMatches && <p className="terrain-generation-notice" id={settingsHintId} role="status">设置已改变，画布仍显示上次候选。请重新生成后采用。</p>}
       {candidateMatches && !candidateAllowed && <p className="terrain-generation-notice" id={settingsHintId}>此方案仍有未解决的检查项，暂时不能采用。</p>}
-      <div className="terrain-generation-actions">
+      </div>
+      <div className="terrain-generation-actions workspace-review-actions">
         <button className="primary" type="button" disabled={disabled || occupied || !candidateMatches || !candidateAllowed}
           aria-describedby={!candidateMatches || !candidateAllowed ? settingsHintId : undefined} aria-label="采用当前地形方案" onClick={() => void run('adopt', onAdopt)}><Check size={14} aria-hidden="true"/>采用此方案</button>
         {onExport && <button className="secondary" type="button" disabled={disabled || occupied} aria-label="导出当前地形候选" onClick={() => void run('export', onExport)}><Download size={14} aria-hidden="true"/>导出候选</button>}
         <button className="secondary" type="button" disabled={occupied} aria-label="取消当前地形候选" onClick={cancel}>取消预览</button>
       </div>
-    </article>}
+    </article></div></WorkspaceReview>}
   </section>
 }

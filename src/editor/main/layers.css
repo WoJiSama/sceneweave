@@ -10,7 +10,7 @@
 .layer-session-hint { font-size: 10px; color: #7a8474; line-height: 1.6; margin: 7px 0 12px; }
 .user-layer-list { display: grid; gap: 3px; max-height: 340px; overflow-y: auto; }
 .user-layer-row { border: 1px solid transparent; border-radius: 6px; margin-bottom: 3px; }
-.user-layer-row.current { background: #edf0e6; border-color: #b8c8b5; }
+.user-layer-row.inspected { background: #edf0e6; border-color: #b8c8b5; }
 .user-layer-primary { display: flex; align-items: center; min-height: 36px; padding: 2px; gap: 2px; }
 .user-layer-primary .layer-current { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; align-items: flex-start; background: transparent; border: none; border-radius: 4px; text-align: left; padding: 3px 2px; }
 .layer-current span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #364e40; }
@@ -37,3 +37,7 @@
 .user-layer-menu { position: fixed; z-index: 80; width: 205px; padding: 5px; border: 1px solid #bbcbb2; background: #fafcf5; border-radius: 7px; box-shadow: 0 8px 28px #293e322e; }
 .user-layer-menu button { display: block; background: transparent; border: 0; color: #4d6549; text-align: left; width: 100%; font-size: 11px; padding: 9px; border-radius: 4px; }
 .user-layer-menu button:focus { outline: 2px solid #6e9660; outline-offset: -2px; }
+
+.workspace-unified .workspace-navigation .user-layer-row.inspected { background: var(--workspace-active, #edf0e6); border-color: var(--workspace-active-border, #b8c8b5); }
+.scene-library .asset-library-tabs { flex-wrap: wrap; }
+.scene-library-filter { margin: 4px 14px 10px; color: var(--workspace-muted, #7a8474); font-size: 11px; line-height: 1.6; }

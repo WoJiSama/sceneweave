@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { createEntityLabeler } from './entity-label'
 import { NumberInput } from '../native-canvas/controls'
 import OutdoorCoordinates from './OutdoorCoordinates'
@@ -11,6 +12,9 @@ import type { OutdoorCommand } from '../../shared/commands/outdoor'
 import type { PointMm, SceneDocument, SurfaceRef, VersionRef } from '../../shared/model/scene'
 
 export type OutdoorSketch = { kind: 'polygon' | 'polyline'; purpose: 'terrain' | 'region' | 'path' | 'connection'; points: PointMm[]; cursor: PointMm | null }
+export type OutdoorTask = OutdoorSketch['purpose'] | 'scatter'
+const taskLabels: Record<OutdoorTask, string> = { terrain: '地形与高程', region: '用途 / 危险区域', path: '道路', connection: '台阶 / 坡道', scatter: '可控散布' }
+const taskHints: Record<OutdoorTask, string> = { terrain: '绘制地形并设置真实高度', region: '标注区域用途与通行', path: '沿中心线铺设道路', connection: '连接不同高程的实际表面', scatter: '按范围铺放素材并保留人工修改' }
 export const surfaceValue = (ref: SurfaceRef) => `${ref.kind}:${ref.id}`
 export function parseSurface(value: string): SurfaceRef {
   const index = value.indexOf(':'), kind = value.slice(0, index), id = value.slice(index + 1)
@@ -30,8 +34,26 @@ export function MaterialSelect({ scene, value, onChange, label = '地形材质' 
 }
 const fresh = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
 
-export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, onSketch, onPreview, onSelect, onBoundaryEditor, onFinishReady }: { scene: SceneDocument; layerId: string; disabled: boolean; sketch: OutdoorSketch | null; onSketch: (sketch: OutdoorSketch | null) => void; onPreview: (commands: OutdoorCommand[], description: string) => void; onSelect: (id: string) => void; onBoundaryEditor?: (editor: VisualBoundaryEditor | null) => void; onFinishReady?: (finish: (() => void) | null) => void }) {
-  const [tool, setTool] = useState<OutdoorSketch['purpose'] | 'scatter'>('terrain'), [error, setError] = useState<string | null>(null)
+type Props = {
+  scene: SceneDocument; layerId: string; disabled: boolean; sketch: OutdoorSketch | null
+  onSketch: (sketch: OutdoorSketch | null) => void
+  onPreview: (commands: OutdoorCommand[], description: string) => void
+  onSelect: (id: string) => void
+  onBoundaryEditor?: (editor: VisualBoundaryEditor | null) => void
+  onFinishReady?: (finish: (() => void) | null) => void
+  detailsTarget?: HTMLElement | null; detailsActive?: boolean
+  activeTask?: OutdoorTask; onTaskChange?: (task: OutdoorTask) => void
+  onBrowseScene?: () => void
+}
+export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, onSketch, onPreview, onSelect, onBoundaryEditor, onFinishReady,
+  detailsTarget, detailsActive = true, activeTask, onTaskChange, onBrowseScene }: Props) {
+  const split = detailsTarget !== undefined
+  const [localTool, setLocalTool] = useState<OutdoorTask>('terrain'), [error, setError] = useState<string | null>(null)
+  const tool = activeTask ?? localTool
+  const chooseTask = (next: OutdoorTask) => {
+    if (onTaskChange) onTaskChange(next)
+    else { setLocalTool(next); setError(null); onSketch(null) }
+  }
   const [points, setPoints] = useState('2000, 2000\n12000, 2000\n12000, 10000\n2000, 10000')
   const [material, setMaterial] = useState(Object.values(scene.materials).find(item => item.applicableSurfaces.includes('terrain'))?.id ?? ''), [elevation, setElevation] = useState('0'), [priority, setPriority] = useState('0')
   const [visibility, setVisibility] = useState<'public' | 'gm'>('public'), [blocking, setBlocking] = useState(false), [regionKind, setRegionKind] = useState<'terrain' | 'hazard'>('terrain')
@@ -41,7 +63,7 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
   const name = useMemo(() => createEntityLabeler(scene), [scene])
   const domains = [...Object.values(scene.terrainAreas).map(area => ({ value: `area:${area.id}`, name: `地形 · ${name(area.id)}` })), ...Object.values(scene.paths).map(path => ({ value: `path:${path.id}`, name: name(path.id) })), ...Object.values(scene.terrainEdges).map(edge => ({ value: `edgeBand:${edge.id}`, name: name(edge.id) }))]
   const [domain, setDomain] = useState(''), [definition, setDefinition] = useState(''), [density, setDensity] = useState('0.4'), [cell, setCell] = useState('2500'), [spacing, setSpacing] = useState('300'), [seed, setSeed] = useState('camp-1')
-  useEffect(() => { if (sketch) { setTool(sketch.purpose); setPoints(pointText(sketch.points)) } }, [sketch])
+  useEffect(() => { if (sketch) { setLocalTool(sketch.purpose); setPoints(pointText(sketch.points)) } }, [sketch])
   const materialRef = (): VersionRef | undefined => material ? { id: material, version: scene.materials[material].version } : undefined
   const run = () => {
     try {
@@ -70,10 +92,11 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
   useLayoutEffect(() => { finishRef.current = finishReady ? run : null; finishListener.current = onFinishReady })
   const finish = useCallback(() => finishRef.current?.(), [])
   useLayoutEffect(() => { onFinishReady?.(finishReady ? finish : null); return () => finishListener.current?.(null) }, [finishReady, finish, onFinishReady])
-  return <section className="outdoor-panel" aria-label="室外制作工具">
-    <div className="asset-section-heading"><Mountain size={17}/><h2>室外制作</h2></div>
+  const parameters = <section className="outdoor-panel workspace-tool-parameters" aria-label={split ? `${taskLabels[tool]}参数` : '室外制作工具'} hidden={split && !detailsActive} inert={split && !detailsActive}>
+    <div className="asset-section-heading"><Mountain size={17}/><h2>{split ? taskLabels[tool] : '室外制作'}</h2></div>
+    {split && <p className="asset-muted">目标图层 · {scene.userLayers[layerId]?.name ?? '未选择'}。预览后确认采用。</p>}
     <fieldset disabled={disabled}>
-      <label>制作工具<select aria-label="室外制作工具" value={tool} onChange={event => { setTool(event.target.value as typeof tool); setError(null); onSketch(null) }}><option value="terrain">地形与高程</option><option value="region">用途 / 危险区域</option><option value="connection">台阶 / 坡道</option><option value="path">道路</option><option value="scatter">可控散布</option></select></label>
+      {!split && <label>制作工具<select aria-label="室外制作工具" value={tool} onChange={event => chooseTask(event.target.value as OutdoorTask)}>{Object.entries(taskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
       {tool === 'terrain' && <div className="workspace-form-pair">
         <MaterialSelect scene={scene} value={material} onChange={setMaterial}/>
         <NumberInput label="地面高程" ariaLabel="地形高程" value={Number(elevation)} displayUnit={scene.units.display} onCommit={value => setElevation(String(value))}/>
@@ -116,6 +139,15 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
       {tool === 'connection' && <details className="outdoor-advanced"><summary>连接房间门窗</summary><label>房间端附着开口<select aria-label="连接附着开口" value={openingId} onChange={event => setOpeningId(event.target.value)}><option value="">无房间开口</option>{Object.values(scene.openings).map(opening => <option key={opening.id} value={opening.id}>{name(opening.id)}</option>)}</select></label></details>}
       {tool === 'scatter' && <details className="outdoor-advanced"><summary>随机方案与候选格距</summary><label>随机方案<input aria-label="散布方案" value={seed} onChange={event => setSeed(event.target.value)}/></label><NumberInput label="候选格距" ariaLabel="散布候选格距" value={Number(cell)} displayUnit={scene.units.display} onCommit={value => setCell(String(value))}/></details>}
     </fieldset>
-    <details className="asset-details"><summary>室外对象 · {Object.keys(scene.terrainAreas).length} 地形 / {Object.keys(scene.paths).length} 道路</summary>{(['terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'scatterGroups', 'regions'] as const).map(collection => Object.values(scene[collection]).length > 0 && <div className="outdoor-object-list" key={collection}><h3>{{ terrainAreas: '地形', terrainEdges: '来源边缘', terrainConnections: '高差连接', paths: '道路', scatterGroups: '散布', regions: '用途与危险区' }[collection]}</h3>{Object.values(scene[collection]).map(entity => <button className="secondary" key={entity.id} disabled={disabled} onClick={() => onSelect(entity.id)} title={entity.id}>{name(entity.id)}{entity.editLocked ? ' · 已锁' : ''}</button>)}</div>)}</details>
+    {!split && <details className="asset-details"><summary>室外对象 · {Object.keys(scene.terrainAreas).length} 地形 / {Object.keys(scene.paths).length} 道路</summary>{(['terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'scatterGroups', 'regions'] as const).map(collection => Object.values(scene[collection]).length > 0 && <div className="outdoor-object-list" key={collection}><h3>{{ terrainAreas: '地形', terrainEdges: '来源边缘', terrainConnections: '高差连接', paths: '道路', scatterGroups: '散布', regions: '用途与危险区' }[collection]}</h3>{Object.values(scene[collection]).map(entity => <button className="secondary" key={entity.id} disabled={disabled} onClick={() => onSelect(entity.id)} title={entity.id}>{name(entity.id)}{entity.editLocked ? ' · 已锁' : ''}</button>)}</div>)}</details>}
+  </section>
+  if (!split) return parameters
+  return <section className="outdoor-panel workspace-tool-picker" aria-label="室外制作工具">
+    <p className="workspace-panel-intro">选择室外工具，参数显示在右侧；已有对象统一在场景中管理。</p>
+    <div className="workspace-task-picker" role="group" aria-label="室外任务">
+      {(['terrain', 'region', 'path', 'connection', 'scatter'] as const).map(value => <button key={value} type="button" aria-pressed={detailsActive && tool === value} disabled={disabled} onClick={() => chooseTask(value)}><strong>{taskLabels[value]}</strong><small>{taskHints[value]}</small></button>)}
+    </div>
+    {onBrowseScene && <button type="button" className="secondary asset-wide" onClick={onBrowseScene}>查看已有地形与道路</button>}
+    {detailsTarget && createPortal(parameters, detailsTarget)}
   </section>
 }

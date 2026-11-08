@@ -8,31 +8,31 @@
   --workspace-accent: #315a43;
 }
 
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) {
   color: var(--workspace-ink);
   font-size: 12px;
   line-height: 1.65;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(button, input, select, textarea) {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(button, input, select, textarea) {
   font-family: inherit;
   font-size: 12px;
   line-height: 1.5;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(h2, h3) {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(h2, h3) {
   color: var(--workspace-ink);
   font-family: inherit;
   font-weight: 600;
   line-height: 1.5;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) h2 { font-size: 15px; }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) h3 { font-size: 13px; }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) label { color: #4c604e; font-size: 12px; }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(.asset-muted, .workspace-panel-intro, .workspace-task-heading p, .workspace-start-help) {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) h2 { font-size: 15px; }
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) h3 { font-size: 13px; }
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) label { color: #4c604e; font-size: 12px; }
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(.asset-muted, .workspace-panel-intro, .workspace-task-heading p, .workspace-start-help) {
   color: var(--workspace-muted);
   font-size: 12px;
   line-height: 1.65;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]), select, textarea) {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]), select, textarea) {
   min-width: 0;
   width: 100%;
   min-height: 36px;
@@ -44,43 +44,43 @@
   box-sizing: border-box;
   font-variant-numeric: tabular-nums;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) textarea { resize: vertical; }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(input, select, textarea):disabled {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) textarea { resize: vertical; }
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(input, select, textarea):disabled {
   color: #7c8875;
   background: #f0f3eb;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(button, summary, input, select, textarea):focus-visible {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(button, summary, input, select, textarea):focus-visible {
   outline: 2px solid #6d8d59;
   outline-offset: 2px;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(input[type=checkbox], input[type=radio]) {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(input[type=checkbox], input[type=radio]) {
   accent-color: var(--workspace-accent);
 }
 /* Existing unit suffixes belong to the field container, with one border. */
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) .asset-number > div {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) .asset-number > div {
   border-color: var(--workspace-border);
   border-radius: 6px;
   background: var(--workspace-control);
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) .asset-number > div > input {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) .asset-number > div > input {
   border: 0;
   background: transparent;
   border-radius: 5px;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) .composition-search input {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) .composition-search input {
   min-height: 24px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) .composition-search {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) .composition-search {
   min-height: 36px;
   border-color: var(--workspace-border);
   border-radius: 6px;
   background: var(--workspace-control);
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) :is(button.primary, button.secondary) {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) :is(button.primary, button.secondary) {
   min-height: 36px;
   padding: 8px 11px;
   border-radius: 6px;
@@ -88,21 +88,21 @@
   line-height: 1.5;
   white-space: normal;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) button.secondary { border-color: var(--workspace-border); }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) button.primary {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) button.secondary { border-color: var(--workspace-border); }
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) button.primary {
   color: #fffdf3;
   border-color: var(--workspace-accent);
   background: var(--workspace-accent);
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) button.primary:not(:disabled):hover {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) button.primary:not(:disabled):hover {
   background: #284d38;
   border-color: #284d38;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) button.secondary:not(:disabled):hover {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) button.secondary:not(:disabled):hover {
   background: var(--workspace-active);
   border-color: #a7bc9a;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-modal, .workspace-context-menu) button:disabled { opacity: .55; cursor: not-allowed; }
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) button:disabled { opacity: .55; cursor: not-allowed; }
 .workspace-unified .ai-conversation { padding: 16px; gap: 14px; }
 .workspace-unified .ai-conversation label { font-weight: 500; }
 .workspace-unified .ai-conversation button { min-height: 36px; padding: 8px 11px; }
@@ -444,19 +444,19 @@
 
 /* Navigation keeps the fixed heights used by both virtual lists. */
 .workspace-unified .workspace-navigation-content { padding: 16px; }
-.workspace-unified .workspace-navigation :is(.user-layer-panel, .history-panel) {
+.workspace-unified .workspace-panel-body :is(.user-layer-panel, .history-panel) {
   padding: 0;
   border: 0;
   color: var(--workspace-ink);
 }
-.workspace-unified .workspace-navigation .asset-library-tabs { margin: 0 0 12px; }
-.workspace-unified .workspace-navigation .asset-library-tabs button { color: var(--workspace-muted); }
-.workspace-unified .workspace-navigation .asset-library-tabs button[aria-pressed=true] {
+.workspace-unified .workspace-panel-body .asset-library-tabs { margin: 0 0 12px; }
+.workspace-unified .workspace-panel-body .asset-library-tabs button { color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body .asset-library-tabs button[aria-pressed=true] {
   color: var(--workspace-accent);
   background: var(--workspace-active);
 }
-.workspace-unified .workspace-navigation .asset-entity-list > .asset-muted { margin: 0 0 12px; }
-.workspace-unified .workspace-navigation :is(.asset-object-search, .history-search) {
+.workspace-unified .workspace-panel-body .asset-entity-list > .asset-muted { margin: 0 0 12px; }
+.workspace-unified .workspace-panel-body :is(.asset-object-search, .history-search) {
   min-height: 36px;
   padding: 0 10px;
   border: 1px solid var(--workspace-border);
@@ -464,7 +464,7 @@
   background: var(--workspace-control);
   color: var(--workspace-muted);
 }
-.workspace-unified .workspace-navigation :is(.asset-object-search, .history-search) input {
+.workspace-unified .workspace-panel-body :is(.asset-object-search, .history-search) input {
   min-height: 32px;
   padding: 0;
   border: 0;
@@ -472,41 +472,41 @@
   background: transparent;
   color: var(--workspace-ink);
 }
-.workspace-unified .workspace-navigation .asset-object-search input::placeholder { color: var(--workspace-muted); }
-.workspace-unified .workspace-navigation :is(.asset-object-search, .history-search):has(input:focus-visible) {
+.workspace-unified .workspace-panel-body .asset-object-search input::placeholder { color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body :is(.asset-object-search, .history-search):has(input:focus-visible) {
   outline: 2px solid #6d8d59;
   outline-offset: 2px;
 }
-.workspace-unified .workspace-navigation :is(.asset-object-search, .history-search) input:focus-visible { outline: 0; }
-.workspace-unified .workspace-navigation :is(.asset-object-list-tools, .history-picker-count, .history-usage) {
+.workspace-unified .workspace-panel-body :is(.asset-object-search, .history-search) input:focus-visible { outline: 0; }
+.workspace-unified .workspace-panel-body :is(.asset-object-list-tools, .history-picker-count, .history-usage) {
   color: var(--workspace-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.workspace-unified .workspace-navigation .asset-object-list-tools { margin: 8px 0; }
-.workspace-unified .workspace-navigation .asset-object-list-tools button {
+.workspace-unified .workspace-panel-body .asset-object-list-tools { margin: 8px 0; }
+.workspace-unified .workspace-panel-body .asset-object-list-tools button {
   min-height: 30px;
   padding: 5px 7px;
   color: var(--workspace-accent);
   font-size: 11px;
 }
-.workspace-unified .workspace-navigation .asset-entity-list button[data-entity-id] { color: var(--workspace-ink); }
-.workspace-unified .workspace-navigation .asset-entity-list button[data-entity-id] > small { font-size: 10px; color: var(--workspace-muted); }
-.workspace-unified .workspace-navigation :is(.asset-entity-list button[data-entity-id].selected, .user-layer-row.current, .history-snapshot-row.selected) {
+.workspace-unified .workspace-panel-body .asset-entity-list button[data-entity-id] { color: var(--workspace-ink); }
+.workspace-unified .workspace-panel-body .asset-entity-list button[data-entity-id] > small { font-size: 10px; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body :is(.asset-entity-list button[data-entity-id].selected, .user-layer-row.current, .history-snapshot-row.selected) {
   border-color: #b8cbae;
   background: var(--workspace-active);
 }
-.workspace-unified .workspace-navigation .asset-entity-list button[data-entity-id]:not(.selected):not(:disabled):hover,
-.workspace-unified .workspace-navigation .history-snapshot-row:not(.selected) .history-snapshot-open:not(:disabled):hover { background: #f0f5e9; }
-.workspace-unified .workspace-navigation .history-snapshot-row.selected .history-snapshot-open:hover { background: transparent; }
-.workspace-unified .workspace-navigation :is(.layer-session-hint, .history-empty, .history-picker-key-hint) {
+.workspace-unified .workspace-panel-body .asset-entity-list button[data-entity-id]:not(.selected):not(:disabled):hover,
+.workspace-unified .workspace-panel-body .history-snapshot-row:not(.selected) .history-snapshot-open:not(:disabled):hover { background: #f0f5e9; }
+.workspace-unified .workspace-panel-body .history-snapshot-row.selected .history-snapshot-open:hover { background: transparent; }
+.workspace-unified .workspace-panel-body :is(.layer-session-hint, .history-empty, .history-picker-key-hint) {
   font-size: 12px;
   line-height: 1.65;
   color: var(--workspace-muted);
 }
-.workspace-unified .workspace-navigation .layer-session-hint { margin: 0 0 12px; }
-.workspace-unified .workspace-navigation .layer-current small { font-size: 11px; color: var(--workspace-muted); }
-.workspace-unified .workspace-navigation :is(.user-layer-primary > button:not(.layer-current), .user-layer-tools > button, .asset-section-heading > button) {
+.workspace-unified .workspace-panel-body .layer-session-hint { margin: 0 0 12px; }
+.workspace-unified .workspace-panel-body .layer-current small { font-size: 11px; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body :is(.user-layer-primary > button:not(.layer-current), .user-layer-tools > button, .asset-section-heading > button) {
   min-width: 30px;
   min-height: 30px;
   width: auto;
@@ -514,23 +514,23 @@
   border-radius: 5px;
   color: var(--workspace-accent);
 }
-.workspace-unified .workspace-navigation .user-layer-tools { flex-wrap: wrap; }
-.workspace-unified .workspace-navigation .user-layer-tools > button:first-child { padding-left: 7px; }
-.workspace-unified .workspace-navigation .history-list-section:first-of-type { margin-top: 0; }
-.workspace-unified .workspace-navigation .history-list-section:first-of-type > h3 { font-size: 15px; color: var(--workspace-ink); }
-.workspace-unified .workspace-navigation .history-list-section h3 > small { font-size: 11px; color: var(--workspace-muted); }
-.workspace-unified .workspace-navigation .history-scope-tools > button.secondary {
+.workspace-unified .workspace-panel-body .user-layer-tools { flex-wrap: wrap; }
+.workspace-unified .workspace-panel-body .user-layer-tools > button:first-child { padding-left: 7px; }
+.workspace-unified .workspace-panel-body .history-list-section:first-of-type { margin-top: 0; }
+.workspace-unified .workspace-panel-body .history-list-section:first-of-type > h3 { font-size: 15px; color: var(--workspace-ink); }
+.workspace-unified .workspace-panel-body .history-list-section h3 > small { font-size: 11px; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body .history-scope-tools > button.secondary {
   flex: 1;
   min-width: 0;
   width: auto;
   height: auto;
 }
-.workspace-unified .workspace-navigation .history-snapshot-open { padding: 9px 6px; }
-.workspace-unified .workspace-navigation .history-snapshot-open strong { font-size: 12px; color: var(--workspace-ink); }
-.workspace-unified .workspace-navigation .history-snapshot-open small { font-size: 11px; color: var(--workspace-muted); }
-.workspace-unified .workspace-navigation .history-prop-row strong { font-size: 11px; color: var(--workspace-ink); }
-.workspace-unified .workspace-navigation .history-prop-row small { font-size: 10px; color: var(--workspace-muted); }
-.workspace-unified .workspace-navigation .history-empty {
+.workspace-unified .workspace-panel-body .history-snapshot-open { padding: 9px 6px; }
+.workspace-unified .workspace-panel-body .history-snapshot-open strong { font-size: 12px; color: var(--workspace-ink); }
+.workspace-unified .workspace-panel-body .history-snapshot-open small { font-size: 11px; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body .history-prop-row strong { font-size: 11px; color: var(--workspace-ink); }
+.workspace-unified .workspace-panel-body .history-prop-row small { font-size: 10px; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body .history-empty {
   margin: 8px 0;
   padding: 10px;
   border: 1px dashed var(--workspace-border);

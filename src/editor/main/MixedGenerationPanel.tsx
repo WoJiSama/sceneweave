@@ -1,3 +1,4 @@
+import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useState } from 'react'
 import type { MixedPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
@@ -31,6 +32,8 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
     return null
   })()
   const valid = validationReason === null
+  const feedback = error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消混合场景」返回当前工程。</p></>
+  const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消混合场景</button>
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="混合场景生成">
     <h2>混合场景</h2>
     <p>把真实地面、建筑外门和室外路线组合为同一张可编辑地图；森林植被会避开实际建筑和通路。</p>
@@ -51,13 +54,17 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
         <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备混合场景…' : '预览混合场景'}</button>
       </fieldset>
     </form>
-    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消混合场景」返回当前工程。</p></>}
-    {candidate && <div className="volcano-candidate" aria-label="混合候选摘要"><h3>候选 · {candidate.report.environment === 'forest' ? '林中建筑' : '火山平台建筑'}</h3>
+    {!candidate && feedback}
+    {candidate && <WorkspaceReview><div className="volcano-generation-panel workspace-review-panel">{feedback}<div className="volcano-candidate" aria-label="混合候选摘要"><div className="workspace-review-body"><h3>候选 · {candidate.report.environment === 'forest' ? '林中建筑' : '火山平台建筑'}</h3>
       <p>画布展示完整候选，当前工程尚未改变。</p>
       <p aria-label="混合实际生成结果">实际生成 {candidate.report.roomIds.length} 个房间、{candidate.report.openingIds.length} 处门、{candidate.report.propIds.length} 件物件；建筑在真实地面上，外门接入路线已核查完整净宽。</p>
       {candidate.report.notes.length > 0 && <ul aria-label="混合生成说明">{candidate.report.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
+      </div>
+      <div className="workspace-review-actions">
       <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存混合场景为新工程</button>
-    </div>}
-    {(dirty || busy || candidate) && <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消混合场景</button>}
+        {cancelAction}
+      </div>
+    </div></div></WorkspaceReview>}
+    {!candidate && (dirty || busy) && cancelAction}
   </section>
 }

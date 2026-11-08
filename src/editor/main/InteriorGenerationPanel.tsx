@@ -1,3 +1,4 @@
+import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useRef, useState } from 'react'
 import type { InteriorPreview } from '../../application/workspace/workspace'
 import type { InteriorLayoutParameters } from '../../shared/generation/domains/interior/contracts'
@@ -61,6 +62,8 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
     return null
   })()
   const valid = validationReason === null
+  const feedback = error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消室内布局」返回当前工程。</p></>
+  const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消室内布局</button>
   return <section className="terrain-generation-panel interior-generation-panel" aria-label="室内布局生成">
     <h2>室内布局</h2>
     <p>按房间面积、净边长和相邻关系安排房间。候选包含真实房间与共享墙，可保存后继续编辑。</p>
@@ -112,15 +115,19 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
         <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备室内布局…' : '预览室内布局'}</button>
       </fieldset>
     </form>
-    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消室内布局」返回当前工程。</p></>}
-    {candidate && <div className="interior-candidate" aria-label="室内布局候选摘要"><h3>候选 · {candidate.layout.rooms.length} 个房间</h3>
+    {!candidate && feedback}
+    {candidate && <WorkspaceReview><div className="interior-generation-panel workspace-review-panel">{feedback}<div className="interior-candidate" aria-label="室内布局候选摘要"><div className="workspace-review-body"><h3>候选 · {candidate.layout.rooms.length} 个房间</h3>
       <p>{candidate.layout.corridors.length ? '包含独立走廊。' : ''}画布展示完整候选，当前工程尚未改变。</p>
       <ul>{candidate.layout.rooms.map(room => <li key={room.requirementId}>{candidate.input.parameters.rooms.find(item => item.id === room.requirementId)?.purpose ?? '房间'} · 净面积 {(room.clearAreaMm2 / 1_000_000).toFixed(1)} 平方米</li>)}</ul>
       <p aria-label="室内首次布置结果">实际安排 {Object.keys(candidate.project.document.openings).length} 扇门、{Object.keys(candidate.project.document.props).length} 件家具；{candidate.report.connectivity.routes.filter(route => route.status === 'clear').length}/{candidate.report.connectivity.routes.length} 条建议通路通过净空检查。</p>
       {candidate.report.notes.length > 0 && <div aria-label="室内未完成建议"><h3>布置说明</h3><ul>{candidate.report.notes.map((note, index) => <li key={index}>{note}</li>)}</ul></div>}
       <p className="asset-muted">门、家具及通路检查反映本次生成结果。保存后可继续删改，系统不会自动恢复被删除的内容。</p>
+      </div>
+      <div className="workspace-review-actions">
       <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>
-    </div>}
-    {(dirty || busy || candidate) && <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消室内布局</button>}
+        {cancelAction}
+      </div>
+    </div></div></WorkspaceReview>}
+    {!candidate && (dirty || busy) && cancelAction}
   </section>
 }

@@ -1,3 +1,4 @@
+import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useState } from 'react'
 import type { VolcanoPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
@@ -47,6 +48,8 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
   })()
   const valid = validationReason === null
   const p = candidate?.input.parameters
+  const feedback = error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消火山」返回当前工程。</p></>
+  const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消火山</button>
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="火山生成">
     <h2>火山</h2>
     <p>生成单火口、离散高台、活动平台和真实阶梯或坡道，核对指定路线的完整净宽。</p>
@@ -98,15 +101,19 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
         <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备火山…' : '预览火山'}</button>
       </fieldset>
     </form>
-    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消火山」返回当前工程。</p></>}
-    {candidate && p && <div className="volcano-candidate" aria-label="火山候选摘要"><h3>候选 · 单火口与活动平台</h3>
+    {!candidate && feedback}
+    {candidate && p && <WorkspaceReview><div className="volcano-generation-panel workspace-review-panel">{feedback}<div className="volcano-candidate" aria-label="火山候选摘要"><div className="workspace-review-body"><h3>候选 · 单火口与活动平台</h3>
       <p>画布展示完整候选，当前工程尚未改变。</p>
       <p aria-label="火山实际生成结果">实际生成 {candidate.report.connectionIds.length} 处高差连接、{candidate.report.pathIds.length} 条路线及 {candidate.report.regionIds.length} 个通行策略区域。</p>
       <p>山体高程 {p.mountain.elevationMm / 1000} 米，火口高程 {p.crater.elevationMm / 1000} 米；指定路线净宽 {p.route.widthMm / 1000} 米已检查。</p>
       <p aria-label="火山危险与外观设置">火口{p.crater.hazard ? '标记危险' : '不标记危险'}，{p.crater.blocksMovement ? '阻挡移动' : '允许移动'}，代价 ×{p.crater.movementCostMultiplier}。{p.flow ? `流道${p.flow.hazard ? '标记危险' : '不标记危险'}，${p.flow.blocksMovement ? '阻挡移动' : '允许移动'}，代价 ×${p.flow.movementCostMultiplier}。` : '未生成流道。'}</p>
       {candidate.report.notes.length > 0 && <ul aria-label="火山生成说明">{candidate.report.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
+      </div>
+      <div className="workspace-review-actions">
       <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>
-    </div>}
-    {(dirty || busy || candidate) && <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消火山</button>}
+        {cancelAction}
+      </div>
+    </div></div></WorkspaceReview>}
+    {!candidate && (dirty || busy) && cancelAction}
   </section>
 }
