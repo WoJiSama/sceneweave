@@ -2,11 +2,12 @@
 // including browser-driver overhead, and are not a formal performance benchmark.
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
+import { openWorkspaceModule, openTerrainTask } from './workspace-navigation-helpers'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
 
 async function closeDrawers(page: Page) {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const id of ['resources', 'inspector', 'navigation']) {
+  for (const id of ['resources', 'inspector']) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') === 'true') await panel.locator('.workspace-panel-header button').click()
   }
@@ -49,18 +50,18 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => { if (/\/v1\//.test(request.url())) requests.push(request.url()) })
   await createKeyboardProject(page, `复杂地图原工程 ${width}`)
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '生成', exact: true }).click()
+  const resources = await openWorkspaceModule(page, '生成')
   await resources.getByRole('group', { name: '生成场景类型', exact: true }).getByRole('button', { name: /混合场景/ }).click()
-  const mixed = page.getByRole('region', { name: '混合场景生成', exact: true })
+  const mixed = resources.getByRole('region', { name: '混合场景生成', exact: true })
+  const mixedCandidate = page.getByTestId('workspace-inspector').getByLabel('混合候选摘要', { exact: true })
   await mixed.getByLabel('混合工程名称', { exact: true }).fill(`林中建筑操作检查 ${width}`)
   await mixed.getByLabel('混合建筑房间数量', { exact: true }).fill('2')
   await observe(page, 'generate mixed map', async () => {
     await mixed.getByRole('button', { name: '预览混合场景', exact: true }).click()
-    await expect(mixed.getByLabel('混合候选摘要', { exact: true })).toBeVisible({ timeout: 90000 })
+    await expect(mixedCandidate).toBeVisible({ timeout: 90000 })
   })
   await observe(page, 'save generated map', async () => {
-    await mixed.getByRole('button', { name: '保存混合场景为新工程', exact: true }).click()
+    await mixedCandidate.getByRole('button', { name: '保存混合场景为新工程', exact: true }).click()
     await expect(page.locator('.asset-busy')).toContainText('正在保存混合场景并准备打开…')
     await page.screenshot({ path: info.outputPath('00-saving-generated-map.png') })
     await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 90000 })
@@ -76,24 +77,25 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   await page.screenshot({ path: info.outputPath('01-mixed-map.png') })
 
   // Read-only panel switching must retain both kinds of draft and the map.
-  await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openWorkspaceModule(page, '建筑')
+  await resources.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: /^绘制房间/ }).click()
   await page.getByLabel('房间名称', { exact: true }).fill('跨模块保留的房间草稿')
-  for (const tab of ['地形', '素材库', '建筑']) await resources.getByRole('tab', { name: tab, exact: true }).click()
+  for (const module of ['地形', '素材', '建筑'] as const) await openWorkspaceModule(page, module)
+  await openKeyboardPanel(page, 'inspector')
   await expect(page.getByLabel('房间名称', { exact: true })).toHaveValue('跨模块保留的房间草稿')
   await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
-  await resources.getByRole('tab', { name: '地形', exact: true }).click()
+  await openTerrainTask(page, '绘制地形')
   const elevation = page.getByLabel('地形高程', { exact: true })
   await elevation.fill('1.2'); await elevation.press('Tab')
-  for (const tab of ['建筑', '外观', '地形']) await resources.getByRole('tab', { name: tab, exact: true }).click()
+  for (const module of ['建筑', '氛围', '地形'] as const) await openWorkspaceModule(page, module)
+  await openKeyboardPanel(page, 'inspector')
   await expect(elevation).toHaveValue('1.2')
   await page.getByRole('button', { name: '取消室外草稿', exact: true }).click()
   await closeDrawers(page)
   expect((await keyboardProjectBackup(page, info.outputPath('after-browsing.sceneweave'))).hashes).toEqual(initial.hashes)
 
   // Place the same fixed furniture on its explicit original room support.
-  await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   const prop = furniture[0], definition = initial.document.propDefinitions[prop.definitionRef!.id]
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('搜索组件素材', { exact: true }).fill(definition.name)
@@ -115,12 +117,11 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   expect(keyboardResourceHashes(placed.hashes)).toEqual(keyboardResourceHashes(initial.hashes))
 
   let navigation = await openKeyboardPanel(page, 'navigation')
-  await navigation.getByRole('tab', { name: '图层', exact: true }).click()
   await navigation.getByRole('button', { name: '新建用户图层', exact: true }).click()
   await navigation.getByLabel('新图层名称', { exact: true }).fill('手工家具整理')
   await observe(page, 'create layer and save', async () => {
     await navigation.getByRole('button', { name: '创建图层', exact: true }).click()
-    await expect(navigation.getByRole('button', { name: '设为当前图层 手工家具整理', exact: true })).toBeVisible({ timeout: 30000 })
+    await expect(navigation.getByRole('button', { name: '查看图层 手工家具整理', exact: true })).toBeVisible({ timeout: 30000 })
     await keyboardWorkspaceSaved(page)
   })
   await closeDrawers(page)
@@ -130,9 +131,8 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   const ids = furniture.slice(0, 2).map(prop => prop.id)
   for (const [index, id] of ids.entries()) {
     navigation = await openKeyboardPanel(page, 'navigation')
-    await navigation.getByRole('tab', { name: '对象', exact: true }).click()
-    await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-    await navigation.getByLabel('搜索场景物件', { exact: true }).fill(id)
+    await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+    await navigation.getByLabel('搜索场景对象', { exact: true }).fill(id)
     await navigation.locator(`[data-entity-id="${id}"]`).click({ modifiers: index ? ['Shift'] : [] })
     if (width === 390) await expect(page.getByTestId('workspace-inspector')).toHaveAttribute('data-open', 'true')
   }
@@ -140,12 +140,11 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   await page.screenshot({ path: info.outputPath('02-multi-selection.png') })
   const previewMove = async () => {
     navigation = await openKeyboardPanel(page, 'navigation')
-    await navigation.getByRole('tab', { name: '图层', exact: true }).click()
     await navigation.getByRole('button', { name: '移动所选到图层 · 2', exact: true }).click()
     await navigation.getByLabel('图层操作目标', { exact: true }).selectOption(layer.id)
     await navigation.getByRole('button', { name: '预览图层修改', exact: true }).click()
-    await closeDrawers(page)
-    await expect(page.getByRole('region', { name: '候选审阅', exact: true })).toBeVisible()
+    await openKeyboardPanel(page, 'inspector')
+    await expect(page.getByTestId('workspace-inspector').getByRole('region', { name: '候选审阅', exact: true })).toBeVisible()
     await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30000 })
   }
   await previewMove()
@@ -169,7 +168,7 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   expect(redone.document.entityLayers).toEqual(moved.document.entityLayers)
   navigation = await openKeyboardPanel(page, 'navigation')
   await observe(page, 'read history', async () => {
-    await navigation.getByRole('tab', { name: '历史', exact: true }).click()
+    navigation = await openWorkspaceModule(page, '历史')
     await expect(navigation.getByRole('button', { name: /^上一个版本(?: · r\d+)?$/ })).toBeVisible({ timeout: 30000 })
   })
   await page.screenshot({ path: info.outputPath('04-history.png') })

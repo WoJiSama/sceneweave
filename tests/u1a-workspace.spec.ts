@@ -1,4 +1,5 @@
 import { reloadSaved } from './workspace-ux-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace'
 import type { WorkspaceRepository } from '../src/editor/main/repository'
@@ -65,10 +66,14 @@ async function goHome(page: Page) {
   await expect(home(page)).toBeVisible(); await expect(page).toHaveURL(/#home$/)
 }
 async function selectProp(page: Page, id = 'c3-left') {
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
+  await openWorkspaceModule(page, '场景')
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  await page.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
+}
+async function openBuilding(page: Page) {
+  const panel = await openWorkspaceModule(page, '建筑')
+  await panel.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: /^绘制房间/ }).click()
 }
 async function adoptOpen(page: Page) {
   const dialog = openDialog(page); await expect(dialog).toBeVisible({ timeout: 30_000 })
@@ -137,7 +142,7 @@ test('U1a Home Continue retains the same session, selected object, viewport, sea
   expect(await page.evaluate(() => Reflect.get(window, '__u1aOriginalCanvas') === document.querySelector('.asset-map-wrap canvas'))).toBe(true)
   expect((await current(page)).contentHash).toBe(before.contentHash)
   expect({ selected: await viewport.getAttribute('data-selected-ids'), zoom: await viewport.getAttribute('data-zoom'), x: await viewport.getAttribute('data-pan-x'), y: await viewport.getAttribute('data-pan-y') }).toEqual(visual)
-  await expect(page.getByLabel('搜索场景物件', { exact: true })).toHaveValue('c3-left')
+  await expect(page.getByLabel('搜索场景对象', { exact: true })).toHaveValue('c3-left')
   await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
   const undone = await current(page); expect(undone.sceneId).toBe(before.sceneId); expect(undone.revision).toBe(before.revision + 1); expect(undone.document.props['c3-left'].rotationDeg).toBe(0)
   await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
@@ -153,11 +158,11 @@ test('U1a passive module browsing retains inputs and selection; active drawing a
   test.setTimeout(150_000)
   const source = await seedCurrent(page); await selectProp(page)
   await goHome(page); await row(page, `native:${source.sceneId}`).getByRole('button', { name: '继续编辑', exact: true }).click(); await settled(page)
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openBuilding(page)
   await page.getByLabel('房间名称', { exact: true }).fill('U1a 保留的房间输入')
   await number(page, '房间起点 Y', 10)
-  await page.getByRole('tab', { name: '素材库', exact: true }).click(); await page.getByLabel('搜索组件素材', { exact: true }).fill('原创测试')
-  await page.getByRole('tab', { name: '建筑', exact: true }).click(); await expect(page.getByLabel('房间名称', { exact: true })).toHaveValue('U1a 保留的房间输入')
+  await openWorkspaceModule(page, '素材'); await page.getByLabel('搜索组件素材', { exact: true }).fill('原创测试')
+  await openBuilding(page); await expect(page.getByLabel('房间名称', { exact: true })).toHaveValue('U1a 保留的房间输入')
   await expect(page.getByRole('group', { name: '地图视口', exact: true })).toHaveAttribute('data-selected-ids', '["c3-left"]')
   await page.getByRole('button', { name: '回到首页', exact: true }).click(); await expect(page).toHaveURL(/#workspace$/)
   await expect(page.getByRole('button', { name: '取消建筑草稿', exact: true })).toBeEnabled()
@@ -165,11 +170,11 @@ test('U1a passive module browsing retains inputs and selection; active drawing a
   expect((await current(page)).revision).toBe(source.revision)
   await page.getByLabel('房间名称', { exact: true }).fill('U1a 保留的房间输入'); await number(page, '房间起点 Y', 10)
   await page.getByRole('button', { name: '在图上画房间', exact: true }).click()
-  await page.getByRole('tab', { name: '素材库', exact: true }).click(); await expect(page.getByLabel('搜索组件素材', { exact: true })).toHaveValue('原创测试')
+  await openWorkspaceModule(page, '素材'); await expect(page.getByLabel('搜索组件素材', { exact: true })).toHaveValue('原创测试')
   await page.goBack(); await expect(page).toHaveURL(/#workspace$/); await expect(home(page)).not.toBeVisible()
   await page.evaluate(() => { location.hash = '#home' }); await expect(page).toHaveURL(/#workspace$/); await expect(home(page)).not.toBeVisible()
   await page.evaluate(() => { location.hash = '#unknown-route' }); await expect(page).toHaveURL(/#workspace$/); await expect(home(page)).not.toBeVisible()
-  await page.getByRole('tab', { name: '建筑', exact: true }).click(); await expect(page.getByRole('button', { name: '取消绘图或量尺', exact: true })).toBeVisible()
+  await openBuilding(page); await expect(page.getByRole('button', { name: '取消绘图或量尺', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '取消绘图或量尺', exact: true }).click()
   const before = await current(page)
   await page.getByRole('button', { name: '预览新房间', exact: true }).click(); await expect(page.getByRole('button', { name: '采用结构修改', exact: true })).toBeVisible()
@@ -185,14 +190,16 @@ test('U1a passive module browsing retains inputs and selection; active drawing a
 test('U1a unpreviewed appearance input retains its target across browsing and refuses navigation or target changes until explicit cancel', async ({ page }, info) => {
   test.setTimeout(150_000)
   await seedCurrent(page); await selectProp(page)
-  await page.getByLabel('搜索场景物件', { exact: true }).fill('c3-')
+  await page.getByLabel('搜索场景对象', { exact: true }).fill('c3-')
+  const appearanceDetails = page.getByTestId('workspace-inspector').locator('details.workspace-advanced').filter({ has: page.getByLabel('外观调整项目', { exact: true }) })
+  if (await appearanceDetails.getAttribute('open') === null) await appearanceDetails.locator('summary').click()
   const viewport = page.getByRole('group', { name: '地图视口', exact: true })
   const before = await current(page), initialKind = await page.getByLabel('外观调整项目', { exact: true }).inputValue()
   const initialTint = await page.getByLabel('外观调色颜色', { exact: true }).inputValue()
   await page.getByLabel('外观调整项目', { exact: true }).selectOption('brightness')
   await page.getByLabel('外观亮度', { exact: true }).fill('0.55')
-  await page.getByRole('tab', { name: '素材库', exact: true }).click()
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
+  await openWorkspaceModule(page, '场景')
   await expect(page.getByLabel('外观调整项目', { exact: true })).toHaveValue('brightness')
   await expect(page.getByLabel('外观亮度', { exact: true })).toHaveValue('0.55')
   await expect(page.getByRole('button', { name: '预览外观调整', exact: true })).toBeEnabled()

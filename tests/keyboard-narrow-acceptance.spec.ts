@@ -26,12 +26,14 @@ for (const size of viewports) test(`production keyboard and narrow acceptance at
   }
   const closeDrawers = async () => {
     if (size.width >= 1080) return
-    for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+    for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
       const panel = page.getByTestId(`workspace-${id}`)
       if (await panel.getAttribute('data-open') === 'true') {
         await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
         await expect(panel).toHaveAttribute('data-open', 'false')
-        await expect(page.getByRole('button', { name, exact: true })).toBeFocused()
+        // Module selection and explicit detail actions now have their own return targets.
+        expect(await page.evaluate(() => document.activeElement !== document.body && !document.activeElement?.closest('[hidden],[inert]'))).toBe(true)
+        expect(await panel.evaluate(node => node.contains(document.activeElement))).toBe(false)
         await rememberFocus(`close ${name}`)
       }
     }
@@ -73,7 +75,7 @@ for (const size of viewports) test(`production keyboard and narrow acceptance at
   await key('Space', 'close export by Space')
   await expect(page.locator('.workspace-export-menu')).not.toHaveAttribute('open')
 
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const trigger = page.getByRole('button', { name, exact: true }), panel = page.getByTestId(`workspace-${id}`)
     await tabTo(trigger, `${name} trigger reached by Tab`)
     await key('Space', `${name} toggle by Space`)
@@ -98,7 +100,7 @@ for (const size of viewports) test(`production keyboard and narrow acceptance at
   expect(Object.keys(original.document.props)).toHaveLength(1)
   await selectKeyboardProp(page, source.id)
   const navigation = await openKeyboardPanel(page, 'navigation')
-  const search = navigation.getByLabel('搜索场景物件', { exact: true })
+  const search = navigation.getByLabel('搜索场景对象', { exact: true })
   await search.fill('文本输入保护')
   await search.press('ControlOrMeta+A')
   await search.press('ControlOrMeta+C')
@@ -110,7 +112,7 @@ for (const size of viewports) test(`production keyboard and narrow acceptance at
   await selectKeyboardProp(page, source.id)
   await closeDrawers()
   const viewport = page.getByRole('group', { name: '地图视口', exact: true })
-  const review = page.getByRole('region', { name: '候选审阅', exact: true })
+  const review = page.getByTestId('workspace-inspector').getByRole('region', { name: '候选审阅', exact: true })
   const revision = page.locator('.workspace-unified')
   await expect(revision).toHaveAttribute('data-revision', String(original.document.revision))
   await viewport.focus()
@@ -188,6 +190,7 @@ for (const size of viewports) test(`production keyboard and narrow acceptance at
   await keyboardWorkspaceSaved(page)
   await expect(revision).toHaveAttribute('data-revision', String(undone.document.revision))
 
+  await closeDrawers()
   await page.getByRole('button', { name: '工具：画房间', exact: true }).click()
   await closeDrawers()
   const canvas = page.locator('canvas[aria-label="材质场景主持人预览"]')
@@ -231,8 +234,8 @@ for (const size of viewports) test(`production keyboard and narrow acceptance at
   await key('Enter', 'cancel room candidate with keyboard')
   await expect(review).toHaveCount(0)
   await keyboardWorkspaceSaved(page)
-  await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
   await closeDrawers()
+  await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
   await viewport.focus()
   await key('ControlOrMeta+S', 'save current project to browser')
   await keyboardWorkspaceSaved(page)

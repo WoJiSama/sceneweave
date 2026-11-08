@@ -1,3 +1,4 @@
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
@@ -124,7 +125,7 @@ async function current(page: Page) {
     canUndo: await page.getByRole('button', { name: '撤销编辑', exact: true }).isEnabled() }
 }
 
-test('complete6 staged draft uses fresh authorised actual PNG for finite correction and protected in-place adoption', async ({ page }, info) => {
+test('current-v1 staged draft preserves workspace navigation and uses fresh authorised actual PNG for protected adoption', async ({ page }, info) => {
   test.setTimeout(240000)
   const errors: string[] = [], external: string[] = [], creates: CreateTaskRequest[] = [], capabilityUrls: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -144,18 +145,13 @@ test('complete6 staged draft uses fresh authorised actual PNG for finite correct
   })
   await page.goto(new URL(process.env.SCENEWEAVE_TEST_BASE_URL ?? 'http://127.0.0.1:5173').pathname + '#home'); await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
-  await dialog.getByLabel('场景名称', { exact: true }).fill('AI当前完整6阶段与真实图片链路')
+  await dialog.getByLabel('场景名称', { exact: true }).fill('AI当前完整工程阶段与真实图片链路')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await expect(dialog).toHaveCount(0); await saved(page)
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
-  for (const version of [3, 4, 5, 6]) {
-    const name = version === 6 ? '保存独立簇状布景副本' : version === 5 ? '保存独立曲线连接副本' : '保存独立地形副本'
-    await page.getByRole('button', { name, exact: true }).click()
-    await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', `sceneweave-complete-project@${version}`, { timeout: 90000 })
-    await saved(page)
-  }
-  await saved(page); const before = await current(page); expect(before.schemaVersion).toBe(6)
-  await page.getByRole('tab', { name: 'AI对话', exact: true }).click()
+  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
+  const before = await current(page); expect(before.schemaVersion).toBe(1)
+  await openWorkspaceModule(page, 'AI')
   const panel = page.getByRole('region', { name: 'AI 对话面板', exact: true }), authoring = panel.getByRole('region', { name: 'AI 场景草稿', exact: true })
+  const review = page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true, includeHidden: true })
   await panel.getByLabel('AI 后端地址', { exact: true }).fill(backendUrl); await panel.getByLabel('AI 应用凭据', { exact: true }).fill(token)
   await panel.getByRole('button', { name: '连接 AI 后端', exact: true }).click()
   await expect(panel.getByRole('button', { name: '查询最近任务', exact: true })).toBeEnabled()
@@ -187,12 +183,51 @@ test('complete6 staged draft uses fresh authorised actual PNG for finite correct
   expect(seenImages).toHaveLength(2); expect(seenImages.map(value => value.draftRevision)).toEqual([0, 3])
   expect(seenImages[0].sha256).not.toBe(seenImages[1].sha256)
   expect((await current(page)).hash).toBe(before.hash)
-  const downloaded = page.waitForEvent('download'); await authoring.getByRole('button', { name: '下载完整草稿备份', exact: true }).click()
+  await expect(review).toBeVisible({ timeout: 90000 })
+  const confirmation = review.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true })
+  await confirmation.check()
+  const requestsBeforeNavigation = requests, createsBeforeNavigation = creates.length
+  const sidebarTaskBeforeNavigation = await panel.locator('.ai-task-heading > strong').innerText()
+  // Module browsing preserves the same local candidate, confirmation and server task.
+  for (const module of ['场景', '素材'] as const) {
+    await openWorkspaceModule(page, module)
+    await expect(panel).toBeHidden()
+    await expect(review).toBeVisible()
+    await expect(confirmation).toBeChecked()
+    await page.getByRole('button', { name: '返回候选审阅', exact: true }).click()
+    await expect(review).toBeVisible()
+    expect(requests).toBe(requestsBeforeNavigation)
+    expect(creates).toHaveLength(createsBeforeNavigation)
+  }
+  const audience = page.getByRole('group', { name: '预览受众', exact: true })
+  const playerPreviewChecked = await audience.getByRole('button', { name: '玩家', exact: true }).isEnabled()
+  if (playerPreviewChecked) {
+    await audience.getByRole('button', { name: '玩家', exact: true }).click()
+    await expect(audience.getByRole('button', { name: '玩家', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(review).toBeHidden()
+    await expect(page.getByRole('button', { name: '返回候选审阅', exact: true })).toHaveCount(0)
+    await saved(page)
+    await audience.getByRole('button', { name: '主持人', exact: true }).click()
+    await expect(review).toBeVisible()
+    await expect(confirmation).toBeChecked()
+  }
+  await openWorkspaceModule(page, 'AI')
+  await expect(panel.locator('.ai-task-heading > strong')).toHaveText(sidebarTaskBeforeNavigation)
+  await expect(review).toBeVisible()
+  await expect(confirmation).toBeChecked()
+  expect(requests).toBe(requestsBeforeNavigation)
+  expect(creates).toHaveLength(createsBeforeNavigation)
+  expect(store.read(taskId!).snapshot).toMatchObject({ id: taskId, status: 'ready', generation: stored.snapshot.generation })
+  expect((await current(page)).hash).toBe(before.hash)
+  await page.screenshot({ path: info.outputPath('ai-review-after-module-navigation.png') })
+  const navigationEvidence = { modules: ['场景', '素材', 'AI'], requestsBefore: requestsBeforeNavigation, requestsAfter: requests,
+    createsBefore: createsBeforeNavigation, createsAfter: creates.length, playerPreviewChecked }
+  const downloaded = page.waitForEvent('download'); await review.getByRole('button', { name: '下载完整草稿备份', exact: true }).click()
   const archivePath = await (await downloaded).path(); expect(archivePath).not.toBeNull()
   const archiveBytes = new Uint8Array(await readFile(archivePath!)), archive = unzipSync(archiveBytes)
-  expect(JSON.parse(new TextDecoder().decode(archive['manifest.json']))).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 6 })
-  await authoring.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
-  await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  expect(JSON.parse(new TextDecoder().decode(archive['manifest.json']))).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1 })
+  await expect(confirmation).toBeChecked()
+  await review.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已采用', { timeout: 90000 }); await saved(page)
   const adopted = await current(page), id = Object.keys(adopted.document.props)[0]
   expect(adopted.document.sceneId).toBe(before.document.sceneId); expect(adopted.document.revision).toBe(1)
@@ -203,7 +238,7 @@ test('complete6 staged draft uses fresh authorised actual PNG for finite correct
   await reloadSaved(page); await saved(page)
   const cold = await current(page); expect(cold.document.props[id].appearance.opacity).toBe(0.55); expect(cold.document.revision).toBe(3)
   expect(errors).toEqual([]); expect(external).toEqual([])
-  await info.attach('current-authoring-complete6.sceneweave', { body: Buffer.from(archiveBytes), contentType: 'application/zip' })
-  await info.attach('current-authoring-evidence.json', { body: JSON.stringify({ taskId: stored.snapshot.id, sourceKind: 'current-baseline', nativeVersion: 6,
+  await info.attach('current-authoring-complete-v1.sceneweave', { body: Buffer.from(archiveBytes), contentType: 'application/zip' })
+  await info.attach('current-authoring-evidence.json', { body: JSON.stringify({ taskId: stored.snapshot.id, sourceKind: 'current-baseline', nativeVersion: 1, navigation: navigationEvidence,
     mockProviderRequests: requests, images: seenImages, steps: [1, 16, 1, 1], finalRevision: 3, completePackageBytes: archiveBytes.length }), contentType: 'application/json' })
 })

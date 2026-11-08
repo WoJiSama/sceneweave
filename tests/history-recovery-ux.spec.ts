@@ -1,6 +1,7 @@
 // Normal production UI; native API failures do not inject project data.
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import {
   createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved,
   openKeyboardPanel, placeKeyboardLamp, selectKeyboardProp,
@@ -55,7 +56,7 @@ async function armFault(page: Page, kind: 'read' | 'protection'): Promise<void> 
 
 async function closeDrawers(page: Page): Promise<void> {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') !== 'true') continue
     await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
@@ -64,8 +65,7 @@ async function closeDrawers(page: Page): Promise<void> {
 }
 
 async function openHistory(page: Page) {
-  const navigation = await openKeyboardPanel(page, 'navigation')
-  await navigation.getByRole('tab', { name: '历史', exact: true }).click()
+  const navigation = await openWorkspaceModule(page, '历史')
   const panel = navigation.getByRole('region', { name: '命名历史', exact: true })
   await expect(panel).toBeVisible()
   await expect(panel.getByLabel('完整保存版本', { exact: true })).toBeEnabled()
@@ -79,6 +79,7 @@ async function createNamedSnapshot(page: Page, name: string): Promise<void> {
   await history.getByLabel('命名快照名称', { exact: true }).fill(name)
   await history.getByRole('button', { name: '保存快照', exact: true }).click()
   await expect(page.locator('.asset-busy')).toHaveCount(0)
+  await openWorkspaceModule(page, '历史')
   await expect(history.getByRole('button', { name: `查看快照 ${name}`, exact: true })).toBeVisible()
 }
 
@@ -102,8 +103,7 @@ async function setPropLock(page: Page, id: string, locked: boolean): Promise<voi
 }
 
 async function setLayerLock(page: Page, name: string, locked: boolean): Promise<void> {
-  const navigation = await openKeyboardPanel(page, 'navigation')
-  await navigation.getByRole('tab', { name: '图层', exact: true }).click()
+  const navigation = await openWorkspaceModule(page, '场景')
   await navigation.getByRole('button', { name: `${locked ? '锁定' : '解锁'}图层 ${name}`, exact: true }).click()
   await keyboardWorkspaceSaved(page)
 }
@@ -111,17 +111,20 @@ async function setLayerLock(page: Page, name: string, locked: boolean): Promise<
 async function selectTransformRestore(page: Page, name: string, id: string) {
   const history = await openHistory(page)
   await history.getByRole('button', { name: `查看快照 ${name}`, exact: true }).click()
-  await history.getByLabel('局部恢复模式', { exact: true }).selectOption('transform')
-  await history.getByLabel('恢复对象类型', { exact: true }).selectOption('props')
-  await history.getByLabel('搜索历史物件', { exact: true }).fill('铜色桌灯')
-  await history.getByLabel(`恢复物件 ${id}`, { exact: true }).check()
-  await expect(history.getByLabel(`恢复物件 ${id}`, { exact: true })).toBeChecked()
-  return history
+  const inspector = await openKeyboardPanel(page, 'inspector')
+  const details = inspector.getByRole('region', { name: '历史详情', exact: true, includeHidden: true })
+  await expect(details).toBeVisible()
+  await details.getByLabel('恢复对象类型', { exact: true }).selectOption('props')
+  await details.getByLabel('局部恢复模式', { exact: true }).selectOption('transform')
+  await details.getByLabel('搜索历史物件', { exact: true }).fill('铜色桌灯')
+  await details.getByLabel(`恢复物件 ${id}`, { exact: true }).check()
+  await expect(details.getByLabel(`恢复物件 ${id}`, { exact: true })).toBeChecked()
+  return { history, details }
 }
 
 async function previewTransformRestore(page: Page, name: string, id: string): Promise<void> {
-  const history = await selectTransformRestore(page, name, id)
-  await history.getByRole('button', { name: '预览局部恢复 · 1 件', exact: true }).click()
+  const { details } = await selectTransformRestore(page, name, id)
+  await details.getByRole('button', { name: '预览局部恢复 · 1 件', exact: true }).click()
 }
 
 async function backup(page: Page, info: TestInfo, name: string) {
@@ -130,14 +133,14 @@ async function backup(page: Page, info: TestInfo, name: string) {
 }
 
 async function cancelRestore(page: Page): Promise<void> {
-  await closeDrawers(page)
+  await openKeyboardPanel(page, 'inspector')
   const candidate = page.getByRole('status', { name: '局部恢复候选', exact: true })
   await candidate.getByRole('button', { name: '取消局部恢复', exact: true }).click()
   await expect(candidate).toHaveCount(0)
 }
 
 async function adoptRestore(page: Page): Promise<void> {
-  await closeDrawers(page)
+  await openKeyboardPanel(page, 'inspector')
   const candidate = page.getByRole('status', { name: '局部恢复候选', exact: true })
   await candidate.getByLabel('确认恢复完整影响范围', { exact: true }).check()
   await candidate.getByRole('button', { name: '保护当前并采用', exact: true }).click()
@@ -175,10 +178,14 @@ for (const size of [{ width: 1512, height: 982 }, { width: 390, height: 844 }]) 
     const undo = page.getByRole('button', { name: '撤销编辑', exact: true })
 
     // 1. A failed explicit refresh must retain the actual old list and scope.
-    const history = await selectTransformRestore(page, snapshotName, prop.id)
+    const { history, details } = await selectTransformRestore(page, snapshotName, prop.id)
+    await openWorkspaceModule(page, '历史')
     const beforeRead = await faults(page)
     await armFault(page, 'read')
     await history.getByRole('button', { name: '刷新历史', exact: true }).click()
+    // Prove the real historyHeads.get failure fired before checking its UI.
+    // A changed storage route must fail here, rather than masquerade as a UI race.
+    await expect.poll(async () => (await faults(page)).hits.filter(hit => hit.kind === 'history-read').length).toBe(beforeRead.hits.filter(hit => hit.kind === 'history-read').length + 1)
     const readFailure = history.locator('[role="alert"]').filter({ hasText: '历史刷新失败，下面保留上次读取的记录。' })
     // This strict assertion may expose a refreshBlocked/onAction ticket race:
     // busy=true must not invalidate the refresh that the user just requested.
@@ -186,15 +193,15 @@ for (const size of [{ width: 1512, height: 982 }, { width: 390, height: 844 }]) 
     await expect(history).toHaveAttribute('aria-busy', 'false')
     await expect(history.getByRole('button', { name: `查看快照 ${snapshotName}`, exact: true })).toBeVisible()
     await expect(history.getByText('暂无命名快照', { exact: true })).toHaveCount(0)
-    await expect(history.getByLabel('搜索历史物件', { exact: true })).toHaveValue('铜色桌灯')
-    await expect(history.getByLabel(`恢复物件 ${prop.id}`, { exact: true })).toBeChecked()
+    await expect(details.getByLabel('搜索历史物件', { exact: true })).toHaveValue('铜色桌灯')
+    await expect(details.getByLabel(`恢复物件 ${prop.id}`, { exact: true })).toBeChecked()
     await expect(revision).toHaveAttribute('data-revision', String(tip.document.revision))
     expect((await faults(page)).hits.filter(hit => hit.kind === 'history-read')).toHaveLength(beforeRead.hits.filter(hit => hit.kind === 'history-read').length + 1)
     await history.getByRole('button', { name: '重试读取历史', exact: true }).click()
     await expect(readFailure).toHaveCount(0)
     await expect(history.getByLabel('完整保存版本', { exact: true })).toBeEnabled()
-    await expect(history.getByLabel('搜索历史物件', { exact: true })).toHaveValue('铜色桌灯')
-    await expect(history.getByLabel(`恢复物件 ${prop.id}`, { exact: true })).toBeChecked()
+    await expect(details.getByLabel('搜索历史物件', { exact: true })).toHaveValue('铜色桌灯')
+    await expect(details.getByLabel(`恢复物件 ${prop.id}`, { exact: true })).toBeChecked()
     expect((await backup(page, info, 'history-read-recovered')).hashes).toEqual(tip.hashes)
     facts.push({ step: 'history read failure and explicit retry', faults: await faults(page), revision: tip.document.revision })
 
@@ -235,6 +242,7 @@ for (const size of [{ width: 1512, height: 982 }, { width: 390, height: 844 }]) 
     const current = await backup(page, info, 'history-before-protection')
     const undoBefore = await undo.isEnabled()
     await previewTransformRestore(page, snapshotName, prop.id)
+    await expect(page.getByRole('status', { name: '局部恢复候选', exact: true })).toBeVisible()
     await closeDrawers(page)
     const beforeProtection = await faults(page)
     await armFault(page, 'protection')
@@ -249,6 +257,7 @@ for (const size of [{ width: 1512, height: 982 }, { width: 390, height: 844 }]) 
     expect((await backup(page, info, 'history-protection-failed')).hashes).toEqual(current.hashes)
 
     await previewTransformRestore(page, snapshotName, prop.id)
+    await expect(page.getByRole('status', { name: '局部恢复候选', exact: true })).toBeVisible()
     await adoptRestore(page)
     await expect(revision).toHaveAttribute('data-revision', String(current.document.revision + 1))
     await keyboardWorkspaceSaved(page)

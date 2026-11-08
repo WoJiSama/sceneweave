@@ -4,10 +4,11 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import { keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel, selectKeyboardProp } from './keyboard-ux-helpers'
 import { mapExportButton, openExportMenu } from './workspace-ux-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 
 async function closeDrawers(page: Page) {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') === 'true') await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
   }
@@ -46,22 +47,23 @@ for (const width of [1512, 390]) test(`production generation, edit, cold open an
   await keyboardWorkspaceSaved(page)
   const original = await keyboardProjectBackup(page, info.outputPath('original.sceneweave'))
 
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '工程', exact: true }).click()
-  await resources.getByRole('button', { name: '新建空白场景', exact: true }).click()
+  const fileMenu = page.locator('.workspace-file-menu')
+  await fileMenu.locator('summary').click()
+  await fileMenu.getByRole('button', { name: '新建空白场景', exact: true }).click()
   await dialog.getByLabel('场景名称', { exact: true }).fill('取消的新建草稿')
   await dialog.getByLabel('场景名称', { exact: true }).press('Escape')
   await expect(dialog).toHaveCount(0)
+  if (await fileMenu.getAttribute('open') !== null) await fileMenu.locator('summary').click()
   await expect(page.getByRole('heading', { name: `走查原工程 ${width}`, exact: true, level: 1 })).toBeVisible()
   await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', String(original.document.revision))
-  await resources.getByRole('tab', { name: '生成', exact: true }).click()
+  const resources = await openWorkspaceModule(page, '生成')
   await resources.getByRole('group', { name: '生成场景类型', exact: true }).getByRole('button', { name: /^室内布局/ }).click()
   const interior = page.getByRole('region', { name: '室内布局生成', exact: true, includeHidden: true })
   const title = `完整旅程室内 ${width}`
   await interior.getByLabel('室内工程名称', { exact: true }).fill(title)
   await screenshot(page, info, '03-generation-form')
   await interior.getByRole('button', { name: '预览室内布局', exact: true }).click()
-  const candidate = interior.getByLabel('室内布局候选摘要', { exact: true })
+  const candidate = page.getByTestId('workspace-inspector').getByLabel('室内布局候选摘要', { exact: true })
   await expect(candidate).toBeVisible({ timeout: 90_000 })
   await screenshot(page, info, '04-generation-candidate')
   await closeDrawers(page)
@@ -98,7 +100,7 @@ for (const width of [1512, 390]) test(`production generation, edit, cold open an
   await expect(candidate).toHaveCount(1)
   await summary.press('Escape')
   await expect(menu).not.toHaveAttribute('open')
-  await openKeyboardPanel(page, 'resources')
+  await openKeyboardPanel(page, 'inspector')
   await expect(candidate).toBeVisible()
   await candidate.getByRole('button', { name: '保存为新工程', exact: true }).click()
   // The saved label can appear before full-project preparation has released
@@ -132,10 +134,9 @@ for (const width of [1512, 390]) test(`production generation, edit, cold open an
   const redone = await keyboardProjectBackup(page, info.outputPath('redone.sceneweave'))
   expect(redone.document.props).toEqual(edited.document.props)
 
-  for (const tab of ['工程', '生成', '建筑', '素材库', '地形', '外观', 'AI对话']) {
-    const panel = await openKeyboardPanel(page, 'resources')
-    await panel.getByRole('tab', { name: tab, exact: true }).click()
-    await screenshot(page, info, `panel-${tab}`)
+  for (const module of ['场景', '素材', '建筑', '地形', '氛围', '生成', 'AI', '历史'] as const) {
+    await openWorkspaceModule(page, module)
+    await screenshot(page, info, `panel-${module}`)
   }
   await closeDrawers(page)
   await page.reload()
