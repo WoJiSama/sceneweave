@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import type { EditableProject } from '../src/application/workspace/project'
 import { projectBackupButton } from './workspace-ux-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 
 export async function keyboardWorkspaceSaved(page: Page): Promise<void> {
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
@@ -12,11 +13,12 @@ export async function keyboardWorkspaceSaved(page: Page): Promise<void> {
 }
 
 export async function openKeyboardPanel(page: Page, panel: 'resources' | 'inspector' | 'navigation'): Promise<Locator> {
+  if (panel === 'navigation') return openWorkspaceModule(page, '场景')
   const target = page.getByTestId(`workspace-${panel}`)
-  const name = { resources: '资源面板', inspector: '属性面板', navigation: '场景导航' }[panel]
+  const name = { resources: '内容面板', inspector: '当前详情' }[panel]
   if (await target.getAttribute('data-open') !== 'true') {
-    const trigger = page.getByRole('button', { name, exact: true })
-    await (await trigger.isVisible() ? trigger : page.getByRole('button', { name: `展开${name}`, exact: true })).click()
+    const trigger = page.locator('.workspace-layout-actions').getByRole('button', { name, exact: true })
+    await trigger.click()
   }
   await expect(target).toHaveAttribute('data-open', 'true')
   return target
@@ -33,8 +35,7 @@ export async function createKeyboardProject(page: Page, title: string): Promise<
 }
 
 export async function placeKeyboardLamp(page: Page): Promise<void> {
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await library.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
@@ -44,15 +45,20 @@ export async function placeKeyboardLamp(page: Page): Promise<void> {
     await page.getByLabel(`放置 ${axis}`, { exact: true }).press('Tab')
   }
   await page.getByRole('button', { name: '在此放置', exact: true }).click()
+  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') === 'true') {
+    const details = page.getByTestId('workspace-inspector')
+    if (await details.getAttribute('data-open') === 'true') await details.getByRole('button', { name: '关闭当前详情', exact: true }).click()
+  }
   await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
   await keyboardWorkspaceSaved(page)
 }
 
 export async function selectKeyboardProp(page: Page, id: string): Promise<void> {
   const navigation = await openKeyboardPanel(page, 'navigation')
-  await navigation.getByRole('tab', { name: '对象', exact: true }).click()
-  await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await navigation.getByLabel('搜索场景物件', { exact: true }).fill(id)
+  const allLayers = navigation.getByRole('button', { name: '显示所有图层的对象', exact: true })
+  if (await allLayers.isVisible()) await allLayers.click()
+  await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  await navigation.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await navigation.locator('.asset-entity-list [data-entity-id]').click()
 }
 

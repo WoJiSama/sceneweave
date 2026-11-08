@@ -7,7 +7,7 @@ import { getLegacyGeneration } from '../src/shared/terrain-generation/compositio
 
 async function closeDrawers(page: Page) {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') === 'true') {
       await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
@@ -17,7 +17,6 @@ async function closeDrawers(page: Page) {
 }
 
 async function selectCurve(page: Page, expand: boolean) {
-  await openKeyboardPanel(page, 'resources')
   await openTerrainTask(page, '修改地形')
   await page.getByLabel('地形编辑轮廓', { exact: true }).selectOption('terrain-coast-curve')
   if (expand) await page.getByRole('button', { name: '按完整曲线扩大范围', exact: true }).click()
@@ -33,7 +32,7 @@ async function dragCurve(page: Page) {
   await page.mouse.move(point.x + 2, point.y + 1, { steps: 2 })
   const next = { x: Number(await handle.getAttribute('cx')), y: Number(await handle.getAttribute('cy')) }
   await page.mouse.up()
-  await openKeyboardPanel(page, 'resources')
+  await openKeyboardPanel(page, 'inspector')
   await expect(page.locator('.terrain-editing-panel fieldset').first()).toBeEnabled({ timeout: 90_000 })
   return next
 }
@@ -43,7 +42,7 @@ for (const width of [1512, 390]) test(`production curve scope recovery, preview,
   await page.setViewportSize({ width, height: width === 390 ? 844 : 982 })
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await createKeyboardProject(page, `曲线提交 ${width}`)
-  await openKeyboardPanel(page, 'resources'); await openGenerationTask(page, '自然地形')
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
   await expect(page.getByRole('button', { name: '采用当前地形方案', exact: true })).toBeEnabled({ timeout: 90_000 })
   await page.getByRole('button', { name: '采用当前地形方案', exact: true }).click()

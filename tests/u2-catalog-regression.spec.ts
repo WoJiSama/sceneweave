@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import type { Workspace } from '../src/application/workspace/workspace'
 
 test('U2 private fixed template and real derived bytes survive complete library backup, empty-library offline restore and 4K audience output', async ({ page, browser }, info) => {
@@ -53,6 +54,7 @@ async function createBlank(page: Page, title: string) {
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill(title); await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0); await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
+  await openWorkspaceModule(page, '素材')
   await expect(library(page)).toHaveAttribute('aria-busy', 'false')
   await expect(library(page).getByRole('button', { name: '刷新素材库', exact: true })).toBeEnabled()
   await library(page).getByRole('button', { name: '本工程', exact: true }).click()
@@ -61,6 +63,9 @@ async function beginOrganization(page: Page, name: string, tags: string) {
   const lib = library(page)
   await lib.getByLabel('搜索组件素材', { exact: true }).fill(name)
   await lib.getByLabel(`选择素材 ${name}`, { exact: true }).check()
+  await lib.getByRole('group', { name: '素材库操作', exact: true }).getByRole('button', { name: /^导入\/管理/ }).click()
+  const management = lib.locator('details.catalog-management')
+  if (await management.getAttribute('open') === null) await management.locator('summary').click()
   await lib.getByRole('button', { name: '整理所选', exact: true }).click()
   await lib.getByLabel('个人素材标签', { exact: true }).fill(tags)
 }

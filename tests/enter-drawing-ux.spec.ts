@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
+import { openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
 
 test('production rectangle Enter requires two corners, preserves guards and previews one undoable edit', async ({ page }, info) => {
   test.setTimeout(180000)
@@ -28,8 +28,8 @@ test('production rectangle Enter requires two corners, preserves guards and prev
   await menu.locator('[role="menuitem"]:not(:disabled)').first().press('Escape')
   await expect(menu).toHaveCount(0)
 
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '建筑', exact: true }).click()
+  const resources = await openWorkspaceModule(page, '建筑')
+  await resources.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: /^绘制房间/ }).click()
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   const start = page.getByRole('button', { name: '在图上画房间', exact: true })
   await start.click()
@@ -119,8 +119,8 @@ test('production polygon, terrain and path Enter use their original candidates a
   const bounds = original.document.exportBoundsMm
   const viewport = page.getByRole('group', { name: '地图视口', exact: true })
   const review = page.getByRole('region', { name: '候选审阅', exact: true })
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '建筑', exact: true }).click()
+  const resources = await openWorkspaceModule(page, '建筑')
+  await resources.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: /^绘制房间/ }).click()
   await page.getByLabel('房间形状', { exact: true }).selectOption('polygon')
   await page.getByRole('button', { name: '在图上画房间', exact: true }).click()
   for (const point of [{ x: 1000, y: 1000 }, { x: 5000, y: 1000 }]) await clickKeyboardWorldPoint(page, point, bounds)
@@ -136,12 +136,13 @@ test('production polygon, terrain and path Enter use their original candidates a
   await review.getByRole('button', { name: '取消结构预览', exact: true }).click()
 
   await openTerrainTask(page, '绘制地形')
-  const tool = page.getByRole('combobox', { name: '室外制作工具', exact: true })
+  const tool = page.getByTestId('workspace-resources').getByRole('group', { name: '室外任务', exact: true })
   for (const [kind, points, label] of [
     ['terrain', [{ x: 1000, y: 1000 }, { x: 5000, y: 1000 }, { x: 5000, y: 4000 }], '新建地形'],
     ['path', [{ x: 3000, y: 3000 }, { x: 7000, y: 3000 }], '铺设道路'],
   ] as const) {
-    await tool.selectOption(kind)
+    await openWorkspaceModule(page, '地形')
+    await tool.getByRole('button', { name: kind === 'terrain' ? /^地形与高程/ : /^道路/ }).click()
     await page.getByRole('button', { name: '在画布逐点绘制', exact: true }).click()
     for (const point of points.slice(0, -1)) await clickKeyboardWorldPoint(page, point, bounds)
     await viewport.focus()
@@ -157,7 +158,8 @@ test('production polygon, terrain and path Enter use their original candidates a
     await review.getByRole('button', { name: '取消室外预览', exact: true }).click()
   }
 
-  await tool.selectOption('connection')
+  await openWorkspaceModule(page, '地形')
+  await tool.getByRole('button', { name: /^台阶 \/ 坡道/ }).click()
   await page.getByRole('button', { name: '在画布逐点绘制', exact: true }).click()
   await clickKeyboardWorldPoint(page, { x: 3000, y: 3000 }, bounds)
   await viewport.focus()

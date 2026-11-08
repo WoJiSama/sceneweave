@@ -1,0 +1,249 @@
+import { expect, test, type Page } from '@playwright/test'
+import { createKeyboardProject, keyboardWorkspaceSaved, placeKeyboardLamp } from './keyboard-ux-helpers'
+import { openSamples, openWorkspaceModule, type WorkspaceModule } from './workspace-navigation-helpers'
+
+const modules: WorkspaceModule[] = ['场景', '素材', '建筑', '地形', '氛围', '生成', 'AI', '历史']
+const resources = (page: Page) => page.getByTestId('workspace-resources')
+const inspector = (page: Page) => page.getByTestId('workspace-inspector')
+const revision = (page: Page) => page.getByTestId('outdoor-workbench').getAttribute('data-revision')
+const selectedCount = (page: Page) => page.locator('.workspace-footer').getByText('已选 1 项', { exact: true })
+const candidate = (page: Page) => inspector(page).getByRole('region', { name: '候选审阅', exact: true })
+
+async function openRoomParameters(page: Page) {
+  const panel = await openWorkspaceModule(page, '建筑')
+  await panel.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: /^绘制房间/ }).click()
+  await expect(inspector(page).getByLabel('房间名称', { exact: true })).toBeVisible()
+}
+
+async function selectOnlyProp(page: Page) {
+  const panel = await openWorkspaceModule(page, '场景')
+  await panel.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  const row = panel.locator('.asset-entity-list [data-entity-id]')
+  await expect(row).toHaveCount(1)
+  await row.click()
+  await expect(row).toHaveAttribute('aria-pressed', 'true')
+  return row.getAttribute('data-entity-id')
+}
+
+async function expectSingleDrawer(page: Page, open: 'resources' | 'inspector' | null) {
+  for (const panel of ['resources', 'inspector'] as const) {
+    await expect(page.getByTestId(`workspace-${panel}`)).toHaveAttribute('data-open', String(panel === open))
+  }
+  const dimensions = await page.evaluate(() => ({ viewport: innerWidth, body: document.body.scrollWidth, root: document.documentElement.scrollWidth }))
+  expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport)
+  expect(dimensions.root).toBeLessThanOrEqual(dimensions.viewport)
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[hidden],[inert]'))).toBe(false)
+}
+
+test('IA desktop exposes eight direct modules and keeps selection while inspecting a catalog source', async ({ page }) => {
+  test.setTimeout(150000)
+  await createKeyboardProject(page, '信息架构 · 直接导航与选择')
+  await placeKeyboardLamp(page)
+  const propId = await selectOnlyProp(page)
+  const before = await revision(page)
+  const canvas = await page.getByLabel('材质场景主持人预览', { exact: true }).elementHandle()
+  expect(canvas).not.toBeNull()
+  const navigation = page.getByTestId('workspace-module-navigation')
+  await expect(navigation.getByRole('button')).toHaveCount(8)
+  await expect(page.getByTestId('workspace-navigation')).toHaveCount(0)
+  for (const module of modules) {
+    await openWorkspaceModule(page, module)
+    await expect(resources(page)).toHaveAttribute('aria-label', module)
+    await expect(selectedCount(page)).toBeVisible()
+    expect(await revision(page)).toBe(before)
+    expect(await canvas!.evaluate(node => node.isConnected && node === document.querySelector('.asset-map-wrap canvas'))).toBe(true)
+  }
+
+  // Arrow navigation moves focus; Enter explicitly chooses the focused module.
+  await navigation.getByRole('button', { name: '场景', exact: true }).focus()
+  await page.keyboard.press('End')
+  await expect(navigation.getByRole('button', { name: '历史', exact: true })).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(navigation.getByRole('button', { name: '场景', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(navigation.getByRole('button', { name: '场景', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(resources(page).locator(`[data-entity-id="${propId}"]`)).toHaveAttribute('aria-pressed', 'true')
+
+  await openWorkspaceModule(page, '素材')
+  await resources(page).getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
+  await resources(page).getByRole('button', { name: '查看素材 铜色桌灯', exact: true }).click()
+  await expect(inspector(page).getByRole('region', { name: '素材详情面板', exact: true })).toBeVisible()
+  await expect(resources(page).getByLabel('素材来源详情', { exact: true })).toHaveCount(0)
+  await expect(selectedCount(page)).toBeVisible()
+  await inspector(page).getByRole('button', { name: '返回对象', exact: true }).click()
+  await expect(inspector(page).getByRole('region', { name: '素材详情面板', exact: true })).toBeHidden()
+  await openWorkspaceModule(page, '场景')
+  await expect(resources(page).locator(`[data-entity-id="${propId}"]`)).toHaveAttribute('aria-pressed', 'true')
+  expect(await revision(page)).toBe(before)
+
+  // File-level sample entry is outside the module hierarchy and changes no project by itself.
+  await openSamples(page)
+  await expect(inspector(page).getByRole('button', { name: '书房与露台', exact: true })).toBeVisible()
+  expect(await revision(page)).toBe(before)
+})
+
+test('IA room draft survives browsing and its candidate is reviewed only in the right pane', async ({ page }) => {
+  test.setTimeout(120000)
+  await createKeyboardProject(page, '信息架构 · 草稿与候选')
+  const before = await revision(page)
+  await openRoomParameters(page)
+  const roomName = inspector(page).getByLabel('房间名称', { exact: true })
+  await roomName.fill('跨模块保留的房间')
+  await expect(resources(page).getByLabel('房间名称', { exact: true })).toHaveCount(0)
+  for (const module of ['素材', '地形', '场景'] as const) {
+    await openWorkspaceModule(page, module)
+    await expect(roomName).toHaveValue('跨模块保留的房间')
+  }
+  expect(await revision(page)).toBe(before)
+  await inspector(page).getByRole('button', { name: '预览新房间', exact: true }).click()
+  await expect(candidate(page)).toBeVisible({ timeout: 30000 })
+  await expect(resources(page).getByRole('region', { name: '候选审阅', exact: true })).toHaveCount(0)
+  await expect(page.locator('.workspace-canvas').getByRole('button', { name: '采用结构修改', exact: true })).toHaveCount(0)
+  await expect(candidate(page).getByRole('button', { name: '采用结构修改', exact: true })).toBeDisabled()
+  await candidate(page).getByLabel('确认完整影响范围', { exact: true }).check()
+  await openWorkspaceModule(page, '素材')
+  await resources(page).getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
+  await resources(page).getByRole('button', { name: '查看素材 铜色桌灯', exact: true }).click()
+  await expect(candidate(page)).toBeHidden()
+  await inspector(page).getByRole('button', { name: '返回候选审阅', exact: true }).click()
+  await expect(candidate(page).getByLabel('确认完整影响范围', { exact: true })).toBeChecked()
+  await expect(candidate(page).getByRole('button', { name: '采用结构修改', exact: true })).toBeEnabled()
+  await candidate(page).getByRole('button', { name: '取消结构预览', exact: true }).click()
+  await expect(candidate(page)).toHaveCount(0)
+  expect(await revision(page)).toBe(before)
+})
+
+test('IA inspecting a layer preserves drawing layer and canvas selection until the explicit drawing action', async ({ page }) => {
+  test.setTimeout(150000)
+  await createKeyboardProject(page, '信息架构 · 图层范围')
+  await placeKeyboardLamp(page)
+  await selectOnlyProp(page)
+  const panel = resources(page)
+  const initialLayer = await panel.locator('.user-layer-row.drawing-layer').getAttribute('data-layer-id')
+  await panel.getByRole('button', { name: '新建用户图层', exact: true }).click()
+  await panel.getByLabel('新图层名称', { exact: true }).fill('只查看的图层')
+  await panel.getByRole('button', { name: '创建图层', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const before = await revision(page)
+  await panel.getByRole('button', { name: '查看图层 只查看的图层', exact: true }).click()
+  await expect(inspector(page).getByRole('heading', { name: '只查看的图层', exact: true })).toBeVisible()
+  await expect(inspector(page).getByRole('region', { name: '非破坏性外观', exact: true }).getByLabel('外观调整范围', { exact: true })).toHaveValue('layer')
+  await expect(panel.locator('.user-layer-row.drawing-layer')).toHaveAttribute('data-layer-id', initialLayer!)
+  await expect(selectedCount(page)).toBeVisible()
+  expect(await revision(page)).toBe(before)
+  const newLayerRow = panel.locator('.user-layer-row').filter({ has: page.getByRole('button', { name: '查看图层 只查看的图层', exact: true }) })
+  const newLayerId = await newLayerRow.getAttribute('data-layer-id')
+  await panel.getByRole('button', { name: '设为绘制图层 只查看的图层', exact: true }).click()
+  await expect(panel.locator('.user-layer-row.drawing-layer')).toHaveAttribute('data-layer-id', newLayerId!)
+  await expect(selectedCount(page)).toBeVisible()
+  expect(await revision(page)).toBe(before)
+  await openRoomParameters(page)
+  await expect(inspector(page).getByText('目标图层 · 只查看的图层。尺寸用米，墙厚用厘米；预览后确认采用。', { exact: true })).toBeVisible()
+})
+
+for (const width of [900, 390]) test(`IA narrow ${width} keeps one drawer and preserves a tool draft across module browsing`, async ({ page }, info) => {
+  test.setTimeout(120000)
+  await page.setViewportSize({ width, height: 844 })
+  await createKeyboardProject(page, `信息架构 · 窄屏 ${width}`)
+  await expect(page.getByTestId('workspace-layout')).toHaveAttribute('data-narrow', 'true')
+  for (const module of modules) {
+    await openWorkspaceModule(page, module)
+    await expectSingleDrawer(page, 'resources')
+  }
+  await openRoomParameters(page)
+  await expectSingleDrawer(page, 'inspector')
+  await inspector(page).getByLabel('房间名称', { exact: true }).fill(`窄屏保留 ${width}`)
+  await openWorkspaceModule(page, '素材')
+  await expectSingleDrawer(page, 'resources')
+  await page.getByRole('button', { name: '返回当前工具与草稿', exact: true }).click()
+  await expectSingleDrawer(page, 'inspector')
+  await expect(inspector(page).getByLabel('房间名称', { exact: true })).toHaveValue(`窄屏保留 ${width}`)
+  const close = inspector(page).getByRole('button', { name: '关闭当前详情', exact: true })
+  await close.focus()
+  await page.keyboard.press('Escape')
+  await expectSingleDrawer(page, null)
+  await expect(page.getByRole('button', { name: '返回当前工具与草稿', exact: true })).toBeFocused()
+  await page.screenshot({ path: info.outputPath(`workspace-ia-${width}.png`) })
+})
+
+test('IA independent filter region keeps its explicit boundary when fog draft changes', async ({ page }) => {
+  test.setTimeout(120000)
+  await createKeyboardProject(page, '信息架构 · 视觉作用范围')
+  const before = await revision(page)
+  await openWorkspaceModule(page, '氛围')
+  const tools = resources(page).getByRole('navigation', { name: '视觉工具', exact: true })
+  await tools.getByRole('button', { name: '滤镜', exact: true }).click()
+  await inspector(page).getByLabel('视觉滤镜范围', { exact: true }).selectOption('entities')
+  await expect(inspector(page).getByRole('button', { name: '预览滤镜', exact: true })).toBeDisabled()
+  await inspector(page).getByLabel('视觉滤镜范围', { exact: true }).selectOption('region')
+  await expect(inspector(page).getByRole('button', { name: '预览滤镜', exact: true })).toBeDisabled()
+  await inspector(page).getByLabel('视觉滤镜区域来源', { exact: true }).selectOption({ label: '使用当前出图范围' })
+  await inspector(page).locator('summary').filter({ hasText: /^滤镜区域轮廓坐标$/ }).click()
+  await inspector(page).getByLabel('视觉滤镜点1x', { exact: true }).fill('100')
+  await expect(inspector(page).getByRole('button', { name: '预览滤镜', exact: true })).toBeEnabled()
+  await tools.getByRole('button', { name: '雾', exact: true }).click()
+  await inspector(page).locator('summary').filter({ hasText: /^雾区轮廓坐标$/ }).click()
+  await inspector(page).getByLabel('视觉雾点1x', { exact: true }).fill('200')
+  await tools.getByRole('button', { name: '滤镜', exact: true }).click()
+  const filterCoordinates = inspector(page).locator('details').filter({ has: page.locator('summary').filter({ hasText: /^滤镜区域轮廓坐标$/ }) })
+  if (await filterCoordinates.getAttribute('open') === null) await filterCoordinates.locator('summary').click()
+  await expect(inspector(page).getByLabel('视觉滤镜点1x', { exact: true })).toHaveValue('100')
+  expect(await revision(page)).toBe(before)
+})
+
+test('IA browser migrates legacy layout without rewriting its source and restores the current record', async ({ page }) => {
+  test.setTimeout(120000)
+  const legacyKey = 'sceneweave:workspace-layout:v1', key = 'sceneweave:workspace-layout:v2'
+  const legacy = JSON.stringify({ version: 1, resourcesWidth: 350, detailsWidth: 400, resourcesCollapsed: true, navigationCollapsed: false, inspectorCollapsed: true })
+  await page.addInitScript(({ legacyKey, key, legacy }) => {
+    if (localStorage.getItem(legacyKey) === null) { localStorage.setItem(legacyKey, legacy); localStorage.setItem(key, '{damaged') }
+  }, { legacyKey, key, legacy })
+  await createKeyboardProject(page, '信息架构 · 布局偏好迁移')
+  await expect(resources(page)).toHaveAttribute('data-open', 'true')
+  await expect(inspector(page)).toHaveAttribute('data-open', 'false')
+  const migrated = { version: 2, resourcesWidth: 350, detailsWidth: 400, resourcesCollapsed: false, inspectorCollapsed: true }
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), key)).toEqual(migrated)
+  expect(await page.evaluate(key => localStorage.getItem(key), legacyKey)).toBe(legacy)
+  const before = await revision(page)
+  await page.locator('.workspace-layout-actions').getByRole('button', { name: '当前详情', exact: true }).click()
+  await expect(inspector(page)).toHaveAttribute('data-open', 'true')
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), key)).toEqual({ ...migrated, inspectorCollapsed: false })
+  await page.getByRole('button', { name: '回到首页', exact: true }).click()
+  await expect(page.getByTestId('workspace-home')).toBeVisible()
+  await page.reload()
+  await page.getByTestId('workspace-home').locator('.home-project-row').filter({ has: page.getByRole('heading', { name: '信息架构 · 布局偏好迁移', exact: true }) }).getByRole('button', { name: '打开', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  await expect(inspector(page)).toHaveAttribute('data-open', 'true')
+  expect(await revision(page)).toBe(before)
+  expect(await page.evaluate(key => localStorage.getItem(key), legacyKey)).toBe(legacy)
+})
+
+test('IA breakpoint round trip preserves the tool draft, revision and visible focus', async ({ page }, info) => {
+  test.setTimeout(120000)
+  await createKeyboardProject(page, '信息架构 · 跨断点草稿')
+  await openRoomParameters(page)
+  const field = inspector(page).getByLabel('房间名称', { exact: true })
+  await field.fill('跨断点保留的房间')
+  const before = await revision(page)
+  const viewport = page.getByRole('group', { name: '地图视口', exact: true })
+  const initialZoom = Number(await viewport.getAttribute('data-zoom'))
+  for (const width of [1079, 1080, 1081, 1079, 1512]) {
+    await page.setViewportSize({ width, height: 844 })
+    await expect(page.getByTestId('workspace-layout')).toHaveAttribute('data-narrow', String(width < 1080))
+    if (width < 1080) {
+      await expectSingleDrawer(page, null)
+      await page.getByRole('button', { name: '返回当前工具与草稿', exact: true }).click()
+      await expectSingleDrawer(page, 'inspector')
+    }
+    await expect(field).toBeVisible()
+    await expect(field).toHaveValue('跨断点保留的房间')
+    expect(await revision(page)).toBe(before)
+    expect(Number(await viewport.getAttribute('data-zoom'))).toBeGreaterThan(0)
+    if (width === 1080) expect(Number(await viewport.getAttribute('data-zoom'))).toBeGreaterThanOrEqual(initialZoom)
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[hidden],[inert]'))).toBe(false)
+    const size = await page.evaluate(() => ({ viewport: innerWidth, body: document.body.scrollWidth }))
+    expect(size.body).toBeLessThanOrEqual(size.viewport)
+    await field.focus()
+  }
+  await page.screenshot({ path: info.outputPath('breakpoint-restored-desktop.png') })
+})
