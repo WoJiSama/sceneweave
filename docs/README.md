@@ -6,6 +6,8 @@
 
 当前容量主线为[层级组合、局部坐标与分区存储设计](reference/general-map-generation.md#aggregate-spatial-capacity)，实施集中在[07同一大步骤的a–j表](07-roadmap.md#t2-implementation)，数据/存储目标见04/06，完整验收见[09补充矩阵](09-quality-plan.md#aggregate-capacity-acceptance)。运行时合同和完整v1使用方见[04](04-scene-document.md#aggregate-coordinate-contract)及[设计映射](reference/general-map-generation.md#aggregate-consumer-map)；整体编辑、分区加载与新存储状态仍以07为准。
 
+工作台信息架构八项开发整改已实现，整合自检与正式待验分开记录：需求看[01左右分工](01-product.md#workspace-information-architecture-requirements)，完整设计看[交互与架构](reference/editor-and-architecture.md#workspace-information-architecture)，八个实施切片与当前接续看[07](07-roadmap.md#workspace-information-architecture-plan)，新布局正式矩阵看[09](09-quality-plan.md#workspace-information-architecture-acceptance)。前轮UX自检不自动覆盖本次导航和上下文重排。
+
 ## 八份主文档
 
 | 要解决的问题 | 唯一主定义 |

@@ -18,6 +18,55 @@
 - [完整建筑组整体操作开发自检](#aggregate-building-transform-20261106)
 - [层级组合代表性整合与开发交接](#aggregate-integration-j-20261106)
 
+- [工作台信息架构与左右分工实施](#workspace-information-architecture-implementation)
+
+<a id="workspace-information-architecture-implementation"></a>
+## 工作台信息架构与左右分工实施（2026-11-08）
+
+用户授权完成[07实施计划](../07-roadmap.md#workspace-information-architecture-plan)的1–8项。本节只记录该工作线的开发自检，需求及归属见[01](../01-product.md#workspace-information-architecture-requirements)和[架构参考](../reference/editor-and-architecture.md#workspace-information-architecture)；[09正式矩阵](../09-quality-plan.md#workspace-information-architecture-acceptance)、P3及发布保持独立。原始日志、截图、下载工程和指纹保存在被Git忽略的`work/workspace-ia-implementation-20261108/`。
+
+### 实施范围
+
+- 外壳改为八个直接模块：场景、素材、建筑、地形、氛围、生成、AI、历史。左侧负责查找/组织/任务入口，右侧负责所选对象、活动工具和候选审阅；文件操作在顶部，选择/平移及绘图捷径在画布工具条。旧“资源面板”总分类、七模块网格和右下全局导航已退役。
+- 模块浏览、画布选区、查看图层/绘制图层、工具草稿和素材临时详情分别保持状态。场景统一虚拟对象搜索，图层的查看、设为绘制层和选择成员是三个独立动作；名称、显示、世界/导出范围、资源完整性和既有通路检查有独立场景设置入口。
+- 建筑/室外工具使用单份参数表单；退出取点保留参数草稿。素材详情可返回原对象、工具、候选或目录；独立保留导入/管理入口。六类表面铺装沿原目标类型处理，实例与图层规则分离，区域滤镜不再借用雾表单的范围。
+- 生成、局部修改、AI及历史候选通过`WorkspaceReview`进入右侧，采用/取消仍调用原处理器，不复制领域事务。历史列表留左、恢复配置归右；自动刷新票据不能取消显式刷新。玩家预览不展示迟到的完整AI审阅内容。
+- 1080px以下一次只打开一个抽屉，保留草稿、模块滚动及返回焦点；UI偏好v2只读迁入旧v1，不改写旧记录或工程。Esc按实际焦点和事件所有者分层处理，Enter仅完成绘图预览。帮助、现行入口说明和相关浏览器测试定位已同步。
+
+### 实际运行与冻结
+
+正常`npm run build -- --outDir work/workspace-ia-implementation-20261108/dist`退出0，包含应用及AI类型检查，日志`build-drawer-escape.log`。保留原有Rollup注释和大chunk提示；这不是性能测量。单元自检`unit.log`实际运行布局偏好与场景剪贴板两个文件，13/13通过；命令中误列的`src/editor/main/session-guard.test.ts`不存在，未计为已运行。
+
+最终正常生产包由`http://127.0.0.1:5209/sceneweave/`提供，Playwright使用隔离的headless Chromium上下文，单worker串行；没有打开用户的外部可见浏览器或操作其原站点工程库。最终整合结果收录于`verified-browser.log`及`verified-results/`，收口检查另见`closeout-facts.json`。
+
+| 最终包代表范围 | 证据内容 |
+|---|---|
+| 信息架构 | 八模块直达、画布单实例与选区保留、临时素材详情返回、候选确认保留、查看层/绘制层分离、900/390px单抽屉和草稿焦点返回、滤镜范围独立、旧偏好只读迁移与冷开 |
+| 建筑/地形与Enter | 1512/390px长表单和草稿取消；矩形、多边形、地形/道路完成绘图及不完整连接拒绝，Enter不直接采用 |
+| 键盘与窄屏 | 1512×982、900×800、390×844；Tab/Shift+Tab、菜单Esc、复制粘贴、删除取消、长候选确认/取消、撤销、保存冷开及完整包内容核对 |
+| 历史失败恢复 | 1512/390px真实IndexedDB方法故障注入；读取失败显式重试、实体/图层锁提示、保护点失败事务回滚及重试采用，保留当前完整包和撤销状态 |
+| 完整制作与交付 | 1512/390px正常新建、本机Worker室内生成、移动/撤销重做、冷开hash一致、GM/玩家PNG和空库重新导入；每例实际2房间9物件，双受众4096×2731，无服务端生成请求 |
+| 曲线 | 1512/390px实际拖动；范围不足拒绝、明确扩大范围、预览取消、保护采用、撤销重做和冷读hash一致 |
+| AI接续 | 受控provider经真实本地服务与正常工作台，导航不重发，读取新鲜授权PNG并保护采用；仅证明接线与会话语义，不代表真实收费模型验收 |
+
+实际目视复核`verified-results/complete-journey-*/panel-场景.png`的桌面布局及`04-generation-candidate.png`的390px候选：八模块文字和图标可见，左侧图层/对象与右侧物件参数分工明确；手机候选的摘要、采用和取消入口没有水平溢出。桌面截图已安排在Codex侧栏显示；这是开发观感检查，不代替用户P3签收。
+
+运行时源文件集合1235项，`final-runtime-manifest.json`集合SHA256为`bf19d75c57d01ab5cf673e175c6807238c14d11524f0b3f6469d032e2ea73014`；正常产物175项，`final-dist-manifest.json`集合SHA256为`3d7621830f3318337dd22a5f095ac9669c94e9c6ef64de2245398afc003800b8`。集合摘要算法为对路径→文件SHA256映射按key排序、紧凑JSON编码后再SHA256；源集合包含`src/`、`public/`及package/lock/Vite配置，不含`tests/`和`docs/`。本工作区同时有独立存储、渲染和容量整改，指纹绑定实际整合状态，不将它们归为本次UX新增功能。
+
+### 首败、修复与证据边界
+
+早期开发服务HMR及旧导航选择器使`e2e-1.log`、`regression-browser.log`的运行中断；转为正常冻结生产包。`ia-browser.log`首轮4过3失败，包括隐藏表单重复定位和窄屏焦点恢复；修正唯一可见目标及关闭抽屉后过期焦点记录。`final-browser.log`在Enter问题修复前中断，其中完整旅程和曲线各两宽度通过，不能称整轮通过；旧包和指纹保存在`dist-before-enter-fix/`与`before-enter-*-manifest.json`。
+
+`closeout-browser.log`完整执行17例，13过4失败：窄屏历史测试未等候选出现便关闭/重新打开抽屉造成测试时序竞争；900/390px画布Esc被“任意抽屉已打开”的全局守卫挡住；图层断言匹配了两份不同工具提示。分别补真实可见状态等待、让抽屉只消费属于自身焦点的Esc、精确定位房间提示。另修正画布已preventDefault后的候选取消传播、仅取点未修改字段时的工具草稿标记；不删除领域或完整包断言。该轮旧包保存在`dist-before-drawer-escape-fix/`及`before-drawer-escape-*-manifest.json`。最终结果只计最后冻结包的实际运行，不拼接此前通过数字。
+
+最后正常生产包的`verified-browser.log`完整执行21例，20过1失败：信息架构原7例、完整旅程、曲线、Enter、历史、AI及桌面/900px键盘通过；390px键盘脚本在右抽屉未关闭时点击被遮挡的画布工具，超时。仅将测试改为先用真实关闭按钮收起抽屉，不改产品或产物。`interaction-confirm.log`复验三种宽度键盘，3/3通过；同批新增断点用例首次因把随视口尺寸调整的相对zoom误当恒定值而失败。修正为检查有效缩放、原草稿、revision、可见焦点及无水平溢出后，`breakpoint.log`独立1/1通过，覆盖1079/1080/1081往返并回到1512px。原7例和新断点共8个信息架构用例已有各自通过证据，不虚构为一次22/22运行。
+
+最终源码及正常产物集合均无新增或改动漂移，649个相关文档本地链接/锚点检查通过，`git diff --check`及新增文件空白检查通过；详见`closeout-facts.json`。已完成开发整改，下一接续为具体页面反馈及09正式矩阵。
+
+本轮未执行真实中文输入法、系统失焦或VoiceOver，遵循用户已决定跳过的范围；合成composition/229事件及ARIA/焦点检查不替代原生实测。完整玩家秘密配对矩阵、跨浏览器、200%缩放、真实AI、正式性能、P3与目标VTT仍按09执行。开发自检不能写成验收或发布通过。上述开发实施阶段没有commit、push或部署；独立`todo.md`前后SHA256均为`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`。
+
+**提交前独立核验（2026-11-08）**：用户随后明确授权commit/push。以当时HEAD `fb041f5`加本次IA改动构造独立副本`work/ux-commit-20261108/workspace/`，排除并行的存储、SVG、容量与预览调度改造；共用`Workbench.tsx`只提交IA部分，`AssetCanvas.tsx`的调度改造及`persistenceBusy`接线留在工作区。该副本正常构建通过；布局偏好/剪贴板13项单测通过；正常生产包的IA8例、Enter2例、历史恢复2例及三宽度键盘3例在同轮15/15通过。日志为同目录上级的`projected-build.log`、`projected-unit.log`与`projected-browser.log`。待提交文档601个本地链接/锚点通过，新增代码无素材或第三方许可变更，凭据模式检查无命中。本证据只覆盖本次提交树，前述完整制作/曲线/AI等仍绑定各自整合冻结；不以此次检查替代正式验收或发布。
+
 <a id="aggregate-integration-j-20261106"></a>
 ## 层级组合代表性整合与开发交接（2026-11-06，j）
 
