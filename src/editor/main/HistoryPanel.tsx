@@ -2,6 +2,7 @@ import { selectManualTransactionBudget } from '../../shared/budget/command-budge
 import { visualBase } from '../../shared/visual/base.js'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Archive, Check, Download, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import type { SceneDocument } from '../../shared/model/scene'
 import { HISTORY_LIMITS } from '../../shared/model/history'
@@ -31,6 +32,7 @@ type Props = {
   onPreview: (preview: RestorePreview) => void
   onStructurePreview: (preview: StructureRestorePreview) => void
   onBackup: (snapshotIds: string[] | undefined, sceneId: string) => void
+  detailsTarget?: HTMLElement | null; detailsActive?: boolean; onInspect?: () => void
 }
 type Usage = Awaited<ReturnType<WorkspaceRepository['usage']>>
 type VersionHistory = Awaited<ReturnType<WorkspaceRepository['listHistoryVersions']>>
@@ -40,7 +42,10 @@ const bytes = (value: number) => `${(value / 1024 / 1024).toFixed(1)} MiB`
 function memberIds(scene: SceneDocument): Set<string> {
   return new Set([...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)].flatMap(group => Object.values(group.members).flatMap(member => member.propId ? [member.propId] : [])))
 }
-export default function HistoryPanel({ active, project, repository, workspace, session, disabled, refreshBlocked, refreshKey, onAction, onPreview, onStructurePreview, onBackup }: Props) {
+export default function HistoryPanel({ active, project, repository, workspace, session, disabled, refreshBlocked, refreshKey, onAction, onPreview, onStructurePreview, onBackup, detailsTarget, detailsActive = true, onInspect }: Props) {
+  const split = detailsTarget !== undefined
+  const historyActive = active || split && detailsActive
+  const [inspected, setInspected] = useState<'version' | 'snapshot'>('version')
   const sceneId = project.document.sceneId, canvasIds = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [summaries, setSummaries] = useState<SnapshotSummary[]>([]), [usage, setUsage] = useState<Usage | null>(null)
   const [legacySources, setLegacySources] = useState<LegacySource[]>([])
@@ -78,18 +83,21 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   }
   useEffect(() => {
     completedRefresh.current = null
-    setSummaries([]); setUsage(null); setLegacySources([]); setVersionHistory(null); setVersionId(''); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setHistoryError(null); setLoadingHistory(false); setRestoreResult(null); setRestoreError(null); setActiveId(null); pendingFocus.current = null
+    setInspected('version'); setSummaries([]); setUsage(null); setLegacySources([]); setVersionHistory(null); setVersionId(''); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setHistoryError(null); setLoadingHistory(false); setRestoreResult(null); setRestoreError(null); setActiveId(null); pendingFocus.current = null
     return () => { request.current++ }
   }, [sceneId])
   useEffect(() => {
-    if (!active) { completedRefresh.current = null; setLoadingHistory(false); return }
+    if (!historyActive) { completedRefresh.current = null; setLoadingHistory(false); return }
     // Revision and protection notifications can arrive before the save finishes.
     // Read the persisted history once after that write, rather than competing
     // with validation/rendering and immediately repeating the same full scan.
     if (refreshBlocked || completedRefresh.current === refreshStamp) { setLoadingHistory(false); return }
     void refresh().catch(() => {})
-    return () => { request.current++ }
-  }, [active, sceneId, project.document.revision, refreshKey, refreshBlocked])
+    const automaticTicket = request.current
+    // Busy state changes clean up this automatic read. An explicit refresh may
+    // already own a newer ticket; keep its result/error and retry UI alive.
+    return () => { if (request.current === automaticTicket) request.current++ }
+  }, [historyActive, sceneId, project.document.revision, refreshKey, refreshBlocked])
   const historicalMembers = useMemo(() => snapshot ? memberIds(snapshot.project.document) : new Set<string>(), [snapshot])
   const currentMembers = useMemo(() => memberIds(project.document), [project.document])
   const rows = useMemo(() => {
@@ -163,13 +171,16 @@ export default function HistoryPanel({ active, project, repository, workspace, s
     event.preventDefault(); event.stopPropagation()
     reveal(Math.max(0, Math.min(filtered.length - 1, target)), true, event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'End' ? -1 : 1)
   }
-  const chooseSnapshot = (summary: SnapshotSummary) => void onAction(async () => {
+  const chooseSnapshot = (summary: SnapshotSummary) => {
+    if (snapshot?.id === summary.id) { setInspected('snapshot'); onInspect?.(); return }
+    void onAction(async () => {
     const checkpoint = workspace.checkpoint(), loaded = await repository.loadNamedSnapshot(summary.id, sceneId)
     if (!loaded) throw new Error('快照已不存在。')
     workspace.assertCheckpoint(checkpoint)
-    setSnapshot(loaded); setSelected(new Set()); setQuery(''); setScrollTop(0); setActiveId(null); pendingFocus.current = null; setRename(null); setDeleting(null); setError(null)
+    setSnapshot(loaded); setInspected('snapshot'); onInspect?.(); setSelected(new Set()); setQuery(''); setScrollTop(0); setActiveId(null); pendingFocus.current = null; setRename(null); setDeleting(null); setError(null)
     if (viewport.current) viewport.current.scrollTop = 0
-  }, '打开历史快照')
+    }, '打开历史快照')
+  }
   const downloadOriginal = (source: LegacySource) => void onAction(async () => {
     const checkpoint = workspace.checkpoint()
     const original = await repository.loadLegacyOriginal(sceneId, source.nodeId)
@@ -206,40 +217,26 @@ export default function HistoryPanel({ active, project, repository, workspace, s
       throw failure
     }
   }, '恢复完整版本')
-  return <section className="history-panel" aria-label="命名历史" aria-busy={loadingHistory}>
-    {historyPending && <p className="asset-muted" role="status">{versionHistory ? '正在刷新历史，暂时显示上次读取的记录…' : refreshBlocked ? '当前操作完成后读取历史…' : '正在读取历史…'}</p>}
-    {historyError && <div className="history-limit" role="alert"><p>{versionHistory ? '历史刷新失败，下面保留上次读取的记录。' : '历史读取失败，尚不能确定是否有保存版本或快照。'} {historyError}</p><button className="secondary" disabled={disabled || refreshBlocked || loadingHistory} onClick={() => void onAction(refresh, '重试读取历史')}>重试读取历史</button></div>}
+  const restoreFeedback = <>
     {restoreResult && <p className="asset-muted" role="status">{restoreResult}</p>}
     {restoreError && <p role="alert" className="history-limit">{restoreError}</p>}
     {error && <p role="alert" className="history-limit">{error}</p>}
-    <section className="history-list-section" aria-label="完整版本历史">
-      <h3><Archive size={12}/> 完整版本历史<small>{versionHistory ? `${versions.length} 个版本` : '待读取'}</small></h3>
-      <p className="asset-muted">完整恢复会采用所选保存版本中整个工程的内容；如只想恢复部分对象，请使用下方快照的局部恢复。操作前会保留当前保护点，原来的后续版本仍可选择。</p>
-      <label className="history-mode">保存版本<select aria-label="完整保存版本" disabled={disabled || refreshBlocked || !historyReady || !versions.length} value={versionId} onChange={event => { setVersionId(event.target.value); setRestoreResult(null) }}>
-        {!versions.length && <option value="">{historyPending ? '正在读取保存版本…' : historyError ? '保存版本读取失败' : '暂无保存版本'}</option>}
-        {versions.map(version => <option value={version.id} key={version.id}>r{version.revision} · {dateLabel(version.savedAt)}{version.parentId && versionById.has(version.parentId) ? ` · 接续 r${versionById.get(version.parentId)!.revision}` : ' · 起始版本'}{version.id === versionHistory?.activeVersionId ? ' · 当前' : ''}</option>)}
-      </select></label>
+  </>
+  const versionDetails = <section aria-label="完整版本恢复详情">
+    <h2>完整版本恢复</h2>
+    <p className="asset-muted">完整恢复会采用所选保存版本中整个工程的内容。操作前会保留当前保护点，原来的后续版本仍可选择。</p>
+    {selectedVersion && <dl className="asset-facts"><dt>保存版本</dt><dd>r{selectedVersion.revision}{selectedVersion.id === versionHistory?.activeVersionId ? ' · 当前版本' : ''}</dd><dt>保存时间</dt><dd>{dateLabel(selectedVersion.savedAt)}</dd></dl>}
       {selectedVersion && <>
-        <div className="history-scope-tools"><button className="secondary" disabled={disabled || refreshBlocked || !parentVersion} onClick={() => parentVersion && setVersionId(parentVersion.id)}>上一个版本{parentVersion ? ` · r${parentVersion.revision}` : ''}</button>
-          {childVersions.length === 1 && <button className="secondary" disabled={disabled || refreshBlocked} onClick={() => setVersionId(childVersions[0].id)}>后续版本 · r{childVersions[0].revision}</button>}
-          {childVersions.length > 1 && <label className="history-mode">后续分支<select aria-label="选择后续分支" disabled={disabled || refreshBlocked} value="" onChange={event => { if (event.target.value) setVersionId(event.target.value) }}><option value="">选择 {childVersions.length} 个后续版本</option>{childVersions.map(version => <option value={version.id} key={version.id}>r{version.revision} · {dateLabel(version.savedAt)}</option>)}</select></label>}
+        <div className="history-scope-tools"><button className="secondary" disabled={!parentVersion} onClick={() => parentVersion && setVersionId(parentVersion.id)}>上一个版本{parentVersion ? ` · r${parentVersion.revision}` : ''}</button>
+          {childVersions.length === 1 && <button className="secondary" onClick={() => setVersionId(childVersions[0].id)}>后续版本 · r{childVersions[0].revision}</button>}
+          {childVersions.length > 1 && <label className="history-mode">后续分支<select aria-label="选择后续分支" value="" onChange={event => { if (event.target.value) setVersionId(event.target.value) }}><option value="">选择 {childVersions.length} 个后续版本</option>{childVersions.map(version => <option value={version.id} key={version.id}>r{version.revision} · {dateLabel(version.savedAt)}</option>)}</select></label>}
         </div>
         <button className="secondary asset-wide" aria-label={`恢复整个版本 · r${selectedVersion.revision}`} disabled={disabled || refreshBlocked || !historyReady || selectedVersion.id === versionHistory?.activeVersionId || protectionCount >= HISTORY_LIMITS.protectionPerScene} onClick={restoreVersion}>恢复整个工程至 r{selectedVersion.revision} 的内容</button>
       </>}
       {protectionCount >= HISTORY_LIMITS.protectionPerScene && <p className="history-limit">保护点已满，请先整理保护快照，再恢复完整版本。</p>}
-    </section>
-    <div className="asset-section-heading"><Archive size={16}/><h2>命名历史</h2><span>{versionHistory ? `${namedCount}/${HISTORY_LIMITS.namedPerScene}` : '待读取'}</span><button type="button" title="新建命名快照" aria-label="新建命名快照" disabled={disabled || namedCount >= HISTORY_LIMITS.namedPerScene} onClick={() => { setCreating(value => !value); setError(null) }}><Plus size={16}/></button><button type="button" title="刷新历史" aria-label="刷新历史" disabled={disabled || refreshBlocked || loadingHistory} onClick={() => void onAction(refresh, '刷新历史')}><RefreshCw size={14}/></button></div>
-    {creating && <form className="history-name-form" onSubmit={event => { event.preventDefault(); if (!name.trim()) return; void onAction(async () => { const created = await workspace.createNamedSnapshot(name.trim()); setName(''); setCreating(false); await refresh(); setSnapshot(created); setSelected(new Set()); setQuery(''); setScrollTop(0); setActiveId(null); pendingFocus.current = null }, '新建命名快照') }}><label>快照名称<input autoFocus aria-label="命名快照名称" value={name} maxLength={80} disabled={disabled} onChange={event => setName(event.target.value)}/></label><button className="primary" disabled={disabled || !name.trim()}><Check size={13}/>保存快照</button><button type="button" title="取消创建快照" aria-label="取消创建快照" disabled={disabled} onClick={() => setCreating(false)}><X size={14}/></button></form>}
-    {(['named', 'protection', 'imported-auto'] as const).map(kind => <div className="history-list-section" key={kind}>
-      <h3>{kind === 'named' ? <Archive size={12}/> : <ShieldCheck size={12}/>} {kind === 'named' ? '命名快照' : kind === 'protection' ? '恢复前保护' : '旧自动保存（只读）'}<small>{!versionHistory ? '待读取' : kind === 'named' ? namedCount : kind === 'protection' ? `${protectionCount}/${HISTORY_LIMITS.protectionPerScene}` : available.filter(item => item.kind === kind).length}</small></h3>
-      <div className="history-snapshot-list" aria-label={kind === 'named' ? '命名快照列表' : kind === 'protection' ? '保护快照列表' : '旧自动保存列表'}>{available.filter(item => item.kind === kind).map(summary => <div className={`history-snapshot-row${snapshot?.id === summary.id ? ' selected' : ''}`} data-snapshot-id={summary.id} key={summary.id}>
-        <button className="history-snapshot-open" aria-label={`查看快照 ${summary.name}`} aria-pressed={snapshot?.id === summary.id} disabled={disabled} onClick={() => chooseSnapshot(summary)}><strong>{summary.name}</strong><small>r{summary.sourceRevision} · {dateLabel(summary.createdAt)}</small></button>
-        {kind === 'named' && <button title="重命名快照" aria-label={`重命名快照 ${summary.name}`} disabled={disabled} onClick={() => { setRename({ snapshot: summary, name: summary.name }); setDeleting(null) }}><Pencil size={13}/></button>}
-        {kind !== 'imported-auto' && <button title="删除快照" aria-label={`删除快照 ${summary.name}`} disabled={disabled} onClick={() => { setDeleting(summary); setRename(null) }}><Trash2 size={13}/></button>}
-      </div>)}{historyReady && !available.some(item => item.kind === kind) && <p className="history-empty">{kind === 'named' ? '暂无命名快照' : kind === 'protection' ? '暂无恢复前保护快照' : '暂无旧自动保存'}</p>}</div>
-    </div>)}
-    {rename && <form className="history-name-form" onSubmit={event => { event.preventDefault(); if (!rename.name.trim()) return; void onAction(async () => { await repository.renameNamedSnapshot(rename.snapshot.id, rename.name.trim(), rename.snapshot.contentHash, usage?.metadataVersion, sceneId); if (snapshot?.id === rename.snapshot.id) setSnapshot(await repository.loadNamedSnapshot(rename.snapshot.id, sceneId)); setRename(null); await refresh() }, '重命名快照') }}><label>快照名称<input autoFocus aria-label="修改快照名称" value={rename.name} maxLength={80} disabled={disabled} onChange={event => setRename({ ...rename, name: event.target.value })}/></label><button className="secondary" disabled={disabled || !rename.name.trim()}>保存名称</button><button type="button" aria-label="取消快照改名" disabled={disabled} onClick={() => setRename(null)}><X size={13}/></button></form>}
-    {deleting && <div className="history-delete-confirm" role="group" aria-label="删除快照确认"><strong>删除「{deleting.name}」？</strong><span>此快照将从本工程历史移除</span><button className="secondary" disabled={disabled} onClick={() => setDeleting(null)}>取消删除</button><button className="history-danger" disabled={disabled} onClick={() => void onAction(async () => { await repository.deleteNamedSnapshot(deleting.id, deleting.contentHash, usage?.metadataVersion, sceneId); setDeleting(null); await refresh() }, '删除快照')}><Trash2 size={13}/>确认删除快照</button></div>}
+  </section>
+  const snapshotDetails = <section aria-label="快照恢复详情">
+    {snapshot ? <><h2>{snapshot.name}</h2><p className="asset-muted">快照 r{snapshot.sourceRevision} · 选择恢复对象、属性和明确范围，再预览差异。</p></> : <p className="history-empty">请从左侧选择一个快照。</p>}
     {snapshot && <label className="history-mode history-scope-type">恢复对象<select aria-label="恢复对象类型" disabled={disabled} value={scopeType} onChange={event => setScopeType(event.target.value as typeof scopeType)}><option value="props">组件、地形、外观与图层规则</option><option value="structure">建筑结构与注记</option></select></label>}
     {snapshot && scopeType === 'structure' && <StructureHistoryPanel key={snapshot.id} project={project} snapshot={snapshot} workspace={workspace} session={session} disabled={disabled} onAction={onAction} onPreview={onStructurePreview}/>}
     {snapshot && scopeType === 'props' && <div className="history-scope" aria-label="局部恢复范围">
@@ -266,6 +263,39 @@ export default function HistoryPanel({ active, project, repository, workspace, s
       {needsRecreation && <p role="alert" className="history-limit">所选含 {deletedCount} 件已删除物件，须使用完整物件或整组关系模式</p>}
       <button className="primary asset-wide" disabled={disabled || !selected.size || overBudget || needsRecreation} onClick={() => void onAction(async () => { const next = await workspace.prepareRestore(snapshot.id, { ids: [...selected], mode }); onPreview(next); setError(null) }, '预览局部恢复')}>预览局部恢复 · {selected.size} 件</button>
     </div>}
+  </section>
+  const historyDetails = <section className="history-panel history-details" aria-label="历史详情" hidden={!detailsActive} inert={!detailsActive}>
+    {restoreFeedback}
+    <div hidden={inspected !== 'version'} inert={inspected !== 'version'}>{versionDetails}</div>
+    <div hidden={inspected !== 'snapshot'} inert={inspected !== 'snapshot'}>{snapshotDetails}</div>
+  </section>
+  return <section className="history-panel" aria-label="命名历史" aria-busy={loadingHistory}>
+    {historyPending && <p className="asset-muted" role="status">{versionHistory ? '正在刷新历史，暂时显示上次读取的记录…' : refreshBlocked ? '当前操作完成后读取历史…' : '正在读取历史…'}</p>}
+    {historyError && <div className="history-limit" role="alert"><p>{versionHistory ? '历史刷新失败，下面保留上次读取的记录。' : '历史读取失败，尚不能确定是否有保存版本或快照。'} {historyError}</p><button className="secondary" disabled={disabled || refreshBlocked || loadingHistory} onClick={() => void onAction(refresh, '重试读取历史')}>重试读取历史</button></div>}
+    {!split && restoreFeedback}
+    <section className="history-list-section" aria-label="完整版本历史">
+      <h3><Archive size={12}/> 完整版本历史<small>{versionHistory ? `${versions.length} 个版本` : '待读取'}</small></h3>
+      <p className="asset-muted">浏览保存版本或命名快照；恢复方式与影响范围在详情中查看。</p>
+      <label className="history-mode">保存版本<select aria-label="完整保存版本" disabled={!historyReady || !versions.length} value={versionId} onChange={event => { setVersionId(event.target.value); setRestoreResult(null); setInspected('version'); onInspect?.() }}>
+        {!versions.length && <option value="">{historyPending ? '正在读取保存版本…' : historyError ? '保存版本读取失败' : '暂无保存版本'}</option>}
+        {versions.map(version => <option value={version.id} key={version.id}>r{version.revision} · {dateLabel(version.savedAt)}{version.parentId && versionById.has(version.parentId) ? ` · 接续 r${versionById.get(version.parentId)!.revision}` : ' · 起始版本'}{version.id === versionHistory?.activeVersionId ? ' · 当前' : ''}</option>)}
+      </select></label>
+      {split ? <button type="button" className="secondary asset-wide" disabled={!selectedVersion} onClick={() => { setInspected('version'); onInspect?.() }}>查看版本与恢复详情{selectedVersion ? ` · r${selectedVersion.revision}` : ''}</button> : versionDetails}
+    </section>
+    <div className="asset-section-heading"><Archive size={16}/><h2>命名历史</h2><span>{versionHistory ? `${namedCount}/${HISTORY_LIMITS.namedPerScene}` : '待读取'}</span><button type="button" title="新建命名快照" aria-label="新建命名快照" disabled={disabled || namedCount >= HISTORY_LIMITS.namedPerScene} onClick={() => { setCreating(value => !value); setError(null) }}><Plus size={16}/></button><button type="button" title="刷新历史" aria-label="刷新历史" disabled={disabled || refreshBlocked || loadingHistory} onClick={() => void onAction(refresh, '刷新历史')}><RefreshCw size={14}/></button></div>
+    {creating && <form className="history-name-form" onSubmit={event => { event.preventDefault(); if (!name.trim()) return; void onAction(async () => { const created = await workspace.createNamedSnapshot(name.trim()); setName(''); setCreating(false); await refresh(); setSnapshot(created); setInspected('snapshot'); onInspect?.(); setSelected(new Set()); setQuery(''); setScrollTop(0); setActiveId(null); pendingFocus.current = null }, '新建命名快照') }}><label>快照名称<input autoFocus aria-label="命名快照名称" value={name} maxLength={80} disabled={disabled} onChange={event => setName(event.target.value)}/></label><button className="primary" disabled={disabled || !name.trim()}><Check size={13}/>保存快照</button><button type="button" title="取消创建快照" aria-label="取消创建快照" disabled={disabled} onClick={() => setCreating(false)}><X size={14}/></button></form>}
+    {(['named', 'protection', 'imported-auto'] as const).map(kind => <div className="history-list-section" key={kind}>
+      <h3>{kind === 'named' ? <Archive size={12}/> : <ShieldCheck size={12}/>} {kind === 'named' ? '命名快照' : kind === 'protection' ? '恢复前保护' : '旧自动保存（只读）'}<small>{!versionHistory ? '待读取' : kind === 'named' ? namedCount : kind === 'protection' ? `${protectionCount}/${HISTORY_LIMITS.protectionPerScene}` : available.filter(item => item.kind === kind).length}</small></h3>
+      <div className="history-snapshot-list" aria-label={kind === 'named' ? '命名快照列表' : kind === 'protection' ? '保护快照列表' : '旧自动保存列表'}>{available.filter(item => item.kind === kind).map(summary => <div className={`history-snapshot-row${snapshot?.id === summary.id ? ' selected' : ''}`} data-snapshot-id={summary.id} key={summary.id}>
+        <button className="history-snapshot-open" aria-label={`查看快照 ${summary.name}`} aria-pressed={snapshot?.id === summary.id} disabled={loadingHistory} onClick={() => chooseSnapshot(summary)}><strong>{summary.name}</strong><small>r{summary.sourceRevision} · {dateLabel(summary.createdAt)}</small></button>
+        {kind === 'named' && <button title="重命名快照" aria-label={`重命名快照 ${summary.name}`} disabled={disabled} onClick={() => { setRename({ snapshot: summary, name: summary.name }); setDeleting(null) }}><Pencil size={13}/></button>}
+        {kind !== 'imported-auto' && <button title="删除快照" aria-label={`删除快照 ${summary.name}`} disabled={disabled} onClick={() => { setDeleting(summary); setRename(null) }}><Trash2 size={13}/></button>}
+      </div>)}{historyReady && !available.some(item => item.kind === kind) && <p className="history-empty">{kind === 'named' ? '暂无命名快照' : kind === 'protection' ? '暂无恢复前保护快照' : '暂无旧自动保存'}</p>}</div>
+    </div>)}
+    {rename && <form className="history-name-form" onSubmit={event => { event.preventDefault(); if (!rename.name.trim()) return; void onAction(async () => { await repository.renameNamedSnapshot(rename.snapshot.id, rename.name.trim(), rename.snapshot.contentHash, usage?.metadataVersion, sceneId); if (snapshot?.id === rename.snapshot.id) setSnapshot(await repository.loadNamedSnapshot(rename.snapshot.id, sceneId)); setRename(null); await refresh() }, '重命名快照') }}><label>快照名称<input autoFocus aria-label="修改快照名称" value={rename.name} maxLength={80} disabled={disabled} onChange={event => setRename({ ...rename, name: event.target.value })}/></label><button className="secondary" disabled={disabled || !rename.name.trim()}>保存名称</button><button type="button" aria-label="取消快照改名" disabled={disabled} onClick={() => setRename(null)}><X size={13}/></button></form>}
+    {deleting && <div className="history-delete-confirm" role="group" aria-label="删除快照确认"><strong>删除「{deleting.name}」？</strong><span>此快照将从本工程历史移除</span><button className="secondary" disabled={disabled} onClick={() => setDeleting(null)}>取消删除</button><button className="history-danger" disabled={disabled} onClick={() => void onAction(async () => { await repository.deleteNamedSnapshot(deleting.id, deleting.contentHash, usage?.metadataVersion, sceneId); setDeleting(null); await refresh() }, '删除快照')}><Trash2 size={13}/>确认删除快照</button></div>}
+    {!split && snapshotDetails}
+    {split && detailsTarget && createPortal(historyDetails, detailsTarget)}
     {legacySources.length > 0 && <section className="history-originals" aria-label="迁移原件">
       <h3>迁移原件 <small>{legacySources.length} 份</small></h3>
       <p className="asset-muted">保留转换前的确切原件。下载不改变当前工程或历史。</p>

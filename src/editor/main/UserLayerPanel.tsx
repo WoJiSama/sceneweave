@@ -8,7 +8,8 @@ import { USER_LAYER_LIMIT } from '../../shared/model/scene'
 import type { SelectionSession } from '../native-canvas/selection-session'
 
 type Props = {
-  scene: SceneDocument; session: SelectionSession; currentLayerId: string
+  scene: SceneDocument; session: SelectionSession; currentLayerId: string; inspectedLayerId: string
+  onInspect: (id: string) => void
   hiddenLayerIds: ReadonlySet<string>; soloLayerId: string | null; currentOnly: boolean; disabled: boolean
   onCurrent: (id: string) => void; onHidden: (id: string) => void; onSolo: (id: string) => void
   onScope: (value: boolean) => void; onCommand: (commands: SceneCommand[]) => void
@@ -18,7 +19,7 @@ type Props = {
 }
 
 /** Selection subscribes here without causing the complete workbench to update. */
-export default function UserLayerPanel({ scene, session, currentLayerId, hiddenLayerIds, soloLayerId, currentOnly, disabled, onCurrent, onHidden, onSolo, onScope, onCommand, onPreview, onSelectLayer, moveRequest }: Props) {
+export default function UserLayerPanel({ scene, session, currentLayerId, inspectedLayerId, onInspect, hiddenLayerIds, soloLayerId, currentOnly, disabled, onCurrent, onHidden, onSolo, onScope, onCommand, onPreview, onSelectLayer, moveRequest }: Props) {
   const ids = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const layers = useMemo(() => orderedLayers(scene), [scene])
   const counts = useMemo(() => Object.fromEntries(layers.map(layer => [layer.id, entitiesInLayer(scene, layer.id).length])), [scene, layers])
@@ -62,29 +63,30 @@ export default function UserLayerPanel({ scene, session, currentLayerId, hiddenL
           const reorder = (delta: number) => { const next = peers.map(peer => peer.id); [next[index], next[index + delta]] = [next[index + delta], next[index]]; onCommand([{ type: 'reorderLayers', floorId: layer.floorId, ids: next }]) }
           const visible = !hiddenLayerIds.has(layer.id) && (soloLayerId === null || soloLayerId === layer.id)
           const openMenu = (origin: HTMLElement, x: number, y: number) => { if (!disabled) setMenu({ id: layer.id, x: Math.max(8, Math.min(window.innerWidth - 216, x)), y: Math.max(8, Math.min(window.innerHeight - 300, y)), origin }) }
-          return <div key={layer.id} className={`user-layer-row${currentLayerId === layer.id ? ' current' : ''}${visible ? '' : ' hidden-layer'}`} data-layer-id={layer.id}
+          return <div key={layer.id} className={`user-layer-row${inspectedLayerId === layer.id ? ' inspected' : ''}${currentLayerId === layer.id ? ' drawing-layer' : ''}${visible ? '' : ' hidden-layer'}`} data-layer-id={layer.id}
             onContextMenu={event => { event.preventDefault(); openMenu(event.currentTarget.querySelector<HTMLElement>('.layer-current')!, event.clientX, event.clientY) }}
             onKeyDown={event => { if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) { event.preventDefault(); const b = event.currentTarget.getBoundingClientRect(); openMenu(event.target as HTMLElement, b.left + 20, b.bottom) } }}>
             <div className="user-layer-primary">
               <button className="layer-eye" aria-label={`${hiddenLayerIds.has(layer.id) ? '显示' : '隐藏'}图层 ${layer.name}`} aria-pressed={!hiddenLayerIds.has(layer.id)} disabled={disabled} onClick={() => onHidden(layer.id)}>{hiddenLayerIds.has(layer.id) ? <EyeOff size={15}/> : <Eye size={15}/>}</button>
-              <button className="layer-current" aria-label={`设为当前图层 ${layer.name}`} aria-pressed={currentLayerId === layer.id} disabled={disabled} onClick={() => onCurrent(layer.id)}><span>{layer.name}</span><small>{counts[layer.id]} 项{hiddenLayerIds.has(layer.id) ? ' · 已手动隐藏' : soloLayerId !== null && soloLayerId !== layer.id ? ' · 独显中暂不可见' : ''}{soloLayerId === layer.id ? ' · 正在独显' : ''}{layer.editLocked ? ' · 图层已锁定' : ''}</small></button>
+              <button className="layer-current" aria-label={`查看图层 ${layer.name}`} aria-pressed={inspectedLayerId === layer.id} onClick={() => onInspect(layer.id)}><span>{layer.name}</span><small>{counts[layer.id]} 项{currentLayerId === layer.id ? ' · 当前绘制层' : ''}{hiddenLayerIds.has(layer.id) ? ' · 已手动隐藏' : soloLayerId !== null && soloLayerId !== layer.id ? ' · 独显中暂不可见' : ''}{soloLayerId === layer.id ? ' · 正在独显' : ''}{layer.editLocked ? ' · 图层已锁定' : ''}</small></button>
               <button aria-label={`${layer.editLocked ? '解锁' : '锁定'}图层 ${layer.name}`} title={layer.editLocked ? '解除图层锁' : '锁定图层内容与依赖'} disabled={disabled} aria-pressed={layer.editLocked} onClick={() => onCommand([{ type: 'setLayerLock', id: layer.id, locked: !layer.editLocked }])}>{layer.editLocked ? <LockKeyhole size={14}/> : <UnlockKeyhole size={14}/>}</button>
               <button aria-label={`${soloLayerId === layer.id ? '退出独显' : '独显图层'} ${layer.name}`} title="临时独显" aria-pressed={soloLayerId === layer.id} disabled={disabled} onClick={() => onSolo(layer.id)}><Focus size={14}/></button>
             </div>
-            {currentLayerId === layer.id && <div className="user-layer-tools">
+            {inspectedLayerId === layer.id && <div className="user-layer-tools">
+              <button aria-label={`设为绘制图层 ${layer.name}`} aria-pressed={currentLayerId === layer.id} disabled={disabled || layer.editLocked || !visible || currentLayerId === layer.id} onClick={() => onCurrent(layer.id)}>{currentLayerId === layer.id ? '当前绘制层' : '设为绘制层'}</button>
               <button disabled={disabled || layer.editLocked} onClick={() => setRename({ id: layer.id, name: layer.name })}>改名</button>
-              <button aria-label={`选择图层成员 ${layer.name}`} title="选择本层可见且未锁定的画布对象" disabled={disabled || !visible || layer.editLocked} onClick={() => onSelectLayer(layer.id)}>选择此层</button>
+              <button aria-label={`选择图层成员 ${layer.name}`} title="选择本层可见且未锁定的画布对象" disabled={disabled || !visible || layer.editLocked} onClick={() => onSelectLayer(layer.id)}>选择成员</button>
               <button aria-label={`上移图层 ${layer.name}`} disabled={disabled || layer.editLocked || index >= peers.length - 1 || peers[index + 1]?.editLocked} onClick={() => reorder(1)}><ArrowUp size={12}/></button>
               <button aria-label={`下移图层 ${layer.name}`} disabled={disabled || layer.editLocked || index <= 0 || peers[index - 1]?.editLocked} onClick={() => reorder(-1)}><ArrowDown size={12}/></button>
               <button aria-label={`删除图层 ${layer.name}`} disabled={disabled || layer.editLocked || peers.length <= 1} onClick={() => { setPending({ kind: 'remove', id: layer.id }); setTarget('') }}><Trash2 size={12}/><span>删层</span></button>
             </div>}
-            {currentLayerId === layer.id && (!visible || layer.editLocked) && <p className="layer-state-reason">{!visible ? hiddenLayerIds.has(layer.id) ? '本层已隐藏，先点击眼睛显示本层；若仍在独显其他图层，还须退出独显。' : '本层被其他图层的独显暂时隐藏；先退出独显。' : ''}{layer.editLocked ? '本层已锁定；点击锁图标解锁后才能编辑或选择整层。' : ''}</p>}
+            {inspectedLayerId === layer.id && (!visible || layer.editLocked) && <p className="layer-state-reason">{!visible ? hiddenLayerIds.has(layer.id) ? '本层已隐藏，先点击眼睛显示本层；若仍在独显其他图层，还须退出独显。' : '本层被其他图层的独显暂时隐藏；先退出独显。' : ''}{layer.editLocked ? '本层已锁定；点击锁图标解锁后才能编辑或选择整层。' : ''}</p>}
           </div>
         })}
       </div>)}
     </div>
     {rename && <form className="layer-create" onSubmit={event => { event.preventDefault(); const name = rename.name.trim(); if (!name) return; onCommand([{ type: 'renameLayer', id: rename.id, name }]); setRename(null) }}><input autoFocus aria-label="修改图层名称" maxLength={80} value={rename.name} disabled={disabled} onChange={event => setRename({ ...rename, name: event.target.value })}/><button className="secondary" disabled={disabled || !rename.name.trim()}>保存名称</button><button type="button" aria-label="取消图层改名" onClick={() => setRename(null)}><X size={13}/></button></form>}
-    <label className="layer-scope">选择范围<select aria-label="图层选择范围" value={currentOnly ? 'current' : 'all'} disabled={disabled} onChange={event => onScope(event.target.value === 'current')}><option value="all">所有可见图层</option><option value="current">仅当前图层</option></select></label>
+    <label className="layer-scope">选择范围<select aria-label="图层选择范围" value={currentOnly ? 'current' : 'all'} disabled={disabled} onChange={event => onScope(event.target.value === 'current')}><option value="all">所有可见图层</option><option value="current">仅当前绘制图层</option></select></label>
     {currentOnly && <p className="layer-session-hint">其他图层即使可见也不会被选中；切换为「所有可见图层」可恢复跨层选择。</p>}
     <button className="secondary asset-wide" disabled={disabled || !ids.length || ids.length > budget.semanticTargets} onClick={() => { setPending({ kind: 'move' }); setTarget('') }}>移动所选到图层{ids.length ? ` · ${ids.length}` : ''}</button>
     {ids.length > budget.semanticTargets && <p className="layer-session-hint">一次最多选择 {budget.semanticTargets} 个操作单元；实际编辑对象与几何、资源分别检查。</p>}
@@ -102,7 +104,7 @@ export default function UserLayerPanel({ scene, session, currentLayerId, hiddenL
         items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length]?.focus()
       }
     }}>
-      <button role="menuitem" onClick={() => { onCurrent(menu.id); closeMenu() }}>设为当前图层</button>
+      <button role="menuitem" onClick={() => { onCurrent(menu.id); closeMenu() }}>设为绘制图层</button>
       <button role="menuitem" disabled={hiddenLayerIds.has(menu.id) || soloLayerId !== null && soloLayerId !== menu.id || scene.userLayers[menu.id].editLocked} onClick={() => { onSelectLayer(menu.id); closeMenu() }}>选择图层成员</button>
       <button role="menuitem" onClick={() => { onHidden(menu.id); closeMenu() }}>{hiddenLayerIds.has(menu.id) ? '显示图层' : '隐藏图层'}</button>
       <button role="menuitem" onClick={() => { onSolo(menu.id); closeMenu() }}>{soloLayerId === menu.id ? '退出独显' : '独显图层'}</button>

@@ -10,6 +10,7 @@ type Props = {
   selectedIds: ReadonlySet<string>
   locateId: string | null
   busy: boolean
+  searchDisabled?: boolean
   onSelect: (id: string, operation?: SelectionOperation) => void
   noun?: string
   selectionHint?: string
@@ -37,7 +38,7 @@ const VirtualRow = memo(function VirtualRow({ item, index, selected, busy, tabSt
 })
 
 /** Only visible object rows are mounted for long scenes; the complete data stays searchable. */
-export default function VirtualEntityList({ items, selectedIds, locateId, busy, onSelect, noun = '物件', selectionHint = 'Enter 选择' }: Props) {
+export default function VirtualEntityList({ items, selectedIds, locateId, busy, searchDisabled = busy, onSelect, noun = '物件', selectionHint = 'Enter 选择' }: Props) {
   const [query, setQuery] = useState(''), [scrollTop, setScrollTop] = useState(0), [activeId, setActiveId] = useState<string | null>(null), [focusRequest, setFocusRequest] = useState(0)
   const viewport = useRef<HTMLDivElement>(null), pendingFocus = useRef<string | null>(null), pendingLocate = useRef<string | null>(null)
   const focusFrame = useRef<number | null>(null)
@@ -89,7 +90,7 @@ export default function VirtualEntityList({ items, selectedIds, locateId, busy, 
     if (next !== null) { event.preventDefault(); event.stopPropagation(); reveal(Math.max(0, Math.min(filtered.length - 1, next)), true) }
   }
   return <div className="asset-object-browser">
-    <label className="asset-object-search"><Search size={13}/><input type="search" aria-label={`搜索场景${noun}`} placeholder="搜索名称或 ID" value={query} disabled={busy} autoComplete="off" spellCheck={false}
+    <label className="asset-object-search"><Search size={13}/><input type="search" aria-label={`搜索场景${noun}`} placeholder="搜索名称或 ID" value={query} disabled={searchDisabled} autoComplete="off" spellCheck={false}
       onChange={event => { setQuery(event.target.value); setActiveId(null); pendingFocus.current = null; setScrollTop(0); if (viewport.current) viewport.current.scrollTop = 0 }}
       onKeyDown={event => {
         if (event.nativeEvent.isComposing) return

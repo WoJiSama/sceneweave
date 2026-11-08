@@ -1,3 +1,4 @@
+import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useRef, useState } from 'react'
 import type { ForestPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
@@ -56,6 +57,8 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
     return null
   })()
   const valid = validationReason === null
+  const feedback = error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消森林与营地」返回当前工程。</p></>
+  const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消森林与营地</button>
   return <section className="terrain-generation-panel forest-generation-panel" aria-label="森林与营地生成">
     <h2>森林与营地</h2>
     <p>先留出活动空地与入口路线，再在真实地面上布置树木、灌木和草簇。</p>
@@ -104,15 +107,19 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
         <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备森林与营地…' : '预览森林与营地'}</button>
       </fieldset>
     </form>
-    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消森林与营地」返回当前工程。</p></>}
-    {candidate && <div className="forest-candidate" aria-label="森林与营地候选摘要"><h3>候选 · {candidate.input.parameters.clearings.length} 处空地</h3>
+    {!candidate && feedback}
+    {candidate && <WorkspaceReview><div className="forest-generation-panel workspace-review-panel">{feedback}<div className="forest-candidate" aria-label="森林与营地候选摘要"><div className="workspace-review-body"><h3>候选 · {candidate.input.parameters.clearings.length} 处空地</h3>
       <p>画布展示完整候选，当前工程尚未改变。</p>
       <p aria-label="森林实际生成结果">实际安排 {candidate.report.pathIds.length} 条路线、{candidate.report.propIds.length} 棵树和 {candidate.report.decorationIds.length} 处轻量草灌。</p>
       <ul aria-label="森林植被目标与实际数量">{candidate.report.vegetation.map(row => <li key={`${row.zoneId}:${row.role}:${row.ruleId}`}>{roleName(row.role)}：目标 {row.requested}，实际 {row.placed}。</li>)}</ul>
       {candidate.report.notes.length > 0 && <div aria-label="森林未完成建议"><h3>布置说明</h3><ul>{candidate.report.notes.map((note, index) => <li key={index}>{note}</li>)}</ul></div>}
       <p className="asset-muted">保存后可自由修改空地、道路或植被，已删除的内容不会在重开时自动恢复。</p>
+      </div>
+      <div className="workspace-review-actions">
       <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>
-    </div>}
-    {(dirty || busy || candidate) && <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消森林与营地</button>}
+        {cancelAction}
+      </div>
+    </div></div></WorkspaceReview>}
+    {!candidate && (dirty || busy) && cancelAction}
   </section>
 }

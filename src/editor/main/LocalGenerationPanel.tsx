@@ -1,3 +1,4 @@
+import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useState } from 'react'
 import type { SceneDocument } from '../../shared/model/scene'
 import type { GenerationRecipe } from '../../shared/terrain-generation/contracts'
@@ -60,6 +61,8 @@ export default function LocalGenerationPanel({ document, busy, disabled, dirty, 
       return '局部生成参数未通过检查，请核对所选范围和输入后重新预览。'
     })() : null
   if (!recipes.length) return <section className="terrain-generation-panel local-generation-panel" aria-label="受限局部重生成"><h2>局部重生成</h2><p role="status">当前工程没有支持局部重生成的室内、森林或火山生成记录。</p><p className="asset-muted">请从「生成」创建对应地图后再使用；现有手工内容可在建筑或地形工具中继续修改。</p></section>
+  const feedback = error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消局部重生成」继续手工编辑。</p></>
+  const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消局部重生成</button>
   return <section className="terrain-generation-panel local-generation-panel" aria-label="受限局部重生成">
     <h2>局部重生成</h2>
     <p>调整当前工程的选定生成结果，先审阅写入范围与依赖，再保护并一次采用。</p>
@@ -79,14 +82,18 @@ export default function LocalGenerationPanel({ document, busy, disabled, dirty, 
       {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
       <button className="primary asset-wide" disabled={locked || !request?.success} aria-describedby={!candidate && validationReason ? validationId : undefined} type="submit">{busy ? '正在准备局部候选…' : '预览局部重生成'}</button>
     </form>
-    {error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消局部重生成」继续手工编辑。</p></>}
-    {candidate && <div className="local-generation-candidate" aria-label="局部重生成候选摘要">
-      <h3>完整影响范围</h3><p>实际编辑量 {candidate.cost.total}/{candidate.cost.limit}；写入 {candidate.changes.length} 项，读取依赖 {candidate.readIds.length} 项。</p>
+    {!candidate && feedback}
+    {candidate && <WorkspaceReview><div className="local-generation-panel workspace-review-panel">{feedback}<div className="local-generation-candidate" aria-label="局部重生成候选摘要">
+      <div className="workspace-review-body"><h3>完整影响范围</h3><p>实际编辑量 {candidate.cost.total}/{candidate.cost.limit}；写入 {candidate.changes.length} 项，读取依赖 {candidate.readIds.length} 项。</p>
       <details open><summary>实际写入</summary><ul>{candidate.changes.map((row, index) => <li key={`${row.id}-${index}`}>{row.collection ?? 'project'} · {row.id} · {row.fields.join('、')}</li>)}</ul></details>
       <details><summary>只读依赖</summary><textarea aria-label="局部生成只读依赖" readOnly rows={5} value={candidate.readIds.join('\n')}/></details>
       <ul aria-label="局部生成说明">{candidate.result.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>
+      </div>
+      <div className="workspace-review-actions">
       <button className="primary asset-wide" disabled={locked} onClick={() => void onAdopt()}>保护并采用局部修改</button>
-    </div>}
-    {(dirty || candidate || busy) && <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消局部重生成</button>}
+        {cancelAction}
+      </div>
+    </div></div></WorkspaceReview>}
+    {!candidate && (dirty || busy) && cancelAction}
   </section>
 }

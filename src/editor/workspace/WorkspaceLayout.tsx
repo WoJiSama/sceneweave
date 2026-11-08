@@ -1,24 +1,25 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react'
 import {
   clampWorkspacePanelWidth, DEFAULT_WORKSPACE_LAYOUT, loadWorkspaceLayout, resolveWorkspaceWidths,
   saveWorkspaceLayout, WORKSPACE_LAYOUT_LIMITS, WORKSPACE_NARROW_WIDTH,
 } from './layout-preferences'
-import type { WorkspaceLayoutPreferences } from './layout-preferences'
 import './workspace-layout.css'
 
-export type WorkspaceNavigationTab = 'layers' | 'objects' | 'history'
-type Panel = 'resources' | 'inspector' | 'navigation'
+type Panel = 'resources' | 'inspector'
 type ResizeSide = 'resources' | 'details'
 
 export interface WorkspaceLayoutProps {
   active: boolean
   resources: ReactNode
   inspector: ReactNode
-  navigation: readonly { id: WorkspaceNavigationTab; label: string; content: ReactNode; disabled?: boolean }[]
-  navigationTab: WorkspaceNavigationTab
-  onNavigationTabChange: (tab: WorkspaceNavigationTab) => void
-  panelRequest?: { id: Panel; sequence: number }
+  modules: readonly { id: string; label: string; icon?: ReactNode; disabled?: boolean }[]
+  activeModule: string
+  onModuleChange: (id: string) => void
+  resourceTitle?: string
+  inspectorTitle?: string
+  sessionKey?: string | number
+  panelRequest?: { id: Panel; sequence: number; action?: 'open' | 'close'; focus?: boolean; narrowOnly?: boolean }
   tools: ReactNode
   footer: ReactNode
   children: ReactNode
@@ -29,11 +30,12 @@ function localStorageOrNull(): Storage | null {
   catch { return null }
 }
 
-const panelLabels: Record<Panel, string> = { resources: '资源面板', inspector: '属性面板', navigation: '场景导航' }
-const collapsedKeys = { resources: 'resourcesCollapsed', inspector: 'inspectorCollapsed', navigation: 'navigationCollapsed' } as const
+const panels = ['resources', 'inspector'] as const
+const panelLabels: Record<Panel, string> = { resources: '内容面板', inspector: '当前详情' }
+const collapsedKeys = { resources: 'resourcesCollapsed', inspector: 'inspectorCollapsed' } as const
 
-export default function WorkspaceLayout({ active, resources, inspector, navigation, navigationTab,
-  onNavigationTabChange, panelRequest, tools, footer, children }: WorkspaceLayoutProps) {
+export default function WorkspaceLayout({ active, resources, inspector, modules, activeModule, onModuleChange,
+  resourceTitle, inspectorTitle, sessionKey, panelRequest, tools, footer, children }: WorkspaceLayoutProps) {
   const [storage] = useState(localStorageOrNull)
   const [preferences, setPreferences] = useState(() => loadWorkspaceLayout(storage))
   const [persistent, setPersistent] = useState(true)
@@ -42,21 +44,25 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
   const [resizing, setResizing] = useState<ResizeSide | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const resourcePanel = useRef<HTMLElement>(null)
+  const resourceBody = useRef<HTMLDivElement>(null)
   const inspectorPanel = useRef<HTMLElement>(null)
-  const navigationPanel = useRef<HTMLElement>(null)
+  const moduleNavigation = useRef<HTMLElement>(null)
   const layoutSettings = useRef<HTMLDetailsElement>(null)
   const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const closeButtons = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const drag = useRef<{ pointerId: number; side: ResizeSide; x: number; width: number } | null>(null)
   const lastPanelFocus = useRef<HTMLElement | null>(null)
+  const drawerReturnFocus = useRef<HTMLElement | null>(null)
+  const moduleScroll = useRef(new Map<string, number>())
   const layoutId = useId()
   const narrow = hostWidth < WORKSPACE_NARROW_WIDTH
   const currentDrawer = useRef(drawer)
   currentDrawer.current = drawer
   const widths = resolveWorkspaceWidths(preferences, hostWidth)
-  const bothDetailsCollapsed = preferences.inspectorCollapsed && preferences.navigationCollapsed
   const visible = (panel: Panel) => narrow ? drawer === panel : !preferences[collapsedKeys[panel]]
-  const panelRef = (panel: Panel) => panel === 'resources' ? resourcePanel : panel === 'inspector' ? inspectorPanel : navigationPanel
+  const resourcesVisible = visible('resources')
+  const panelRef = (panel: Panel) => panel === 'resources' ? resourcePanel : inspectorPanel
+  const resourceLabel = resourceTitle ?? modules.find(module => module.id === activeModule)?.label ?? panelLabels.resources
 
   useEffect(() => { setPersistent(saveWorkspaceLayout(preferences, storage)) }, [preferences, storage])
 
@@ -79,38 +85,56 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
     if (!active || !narrow) setDrawer(null)
   }, [active, narrow])
 
-  useEffect(() => {
-    if (!panelRequest) return
-    const panel = panelRequest.id
-    if (narrow) {
-      setDrawer(panel)
-      requestAnimationFrame(() => closeButtons.current[panel]?.focus())
-    } else setPreferences(current => ({ ...current, [collapsedKeys[panel]]: false }))
-  }, [panelRequest?.id, panelRequest?.sequence])
+  useLayoutEffect(() => { moduleScroll.current.clear() }, [sessionKey])
+  useLayoutEffect(() => {
+    if (active && resourcesVisible && resourceBody.current) resourceBody.current.scrollTop = moduleScroll.current.get(activeModule) ?? 0
+  }, [active, activeModule, resourcesVisible, sessionKey])
 
   useEffect(() => {
-    const focused = document.activeElement
-    if (focused instanceof HTMLElement && navigationPanel.current?.contains(focused) && focused.closest('[hidden],[inert]')) {
-      navigationPanel.current.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus()
-    }
-  }, [navigationTab])
-
-  useEffect(() => {
-    const previous = lastPanelFocus.current
-    if (!active || !previous || !previous.closest('[hidden],[inert]') || document.querySelector('[role="dialog"],[role="menu"],dialog[open]')) return
-    const panel = (['resources', 'inspector', 'navigation'] as const).find(id => panelRef(id).current?.contains(previous))
-    if (!panel) return
-    lastPanelFocus.current = null
-    if (panel === 'navigation' && visible(panel)) navigationPanel.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus()
-    else triggers.current[panel]?.focus()
-  })
+    if (active) moduleNavigation.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [active, activeModule])
 
   const closeDrawer = (restoreFocus = true) => {
     const closing = currentDrawer.current
+    // The opener can sit outside this layout, so its focus event may not reach our capture handler.
+    lastPanelFocus.current = null
     setDrawer(null)
     currentDrawer.current = null
-    if (restoreFocus && active && closing) triggers.current[closing]?.focus()
+    if (restoreFocus && active && closing) {
+      const previous = drawerReturnFocus.current
+      if (previous?.isConnected && !previous.closest('[hidden],[inert]') && !panelRef(closing).current?.contains(previous)) previous.focus()
+      else triggers.current[closing]?.focus()
+    }
+    drawerReturnFocus.current = null
   }
+
+  const openPanel = (panel: Panel, focus = narrow) => {
+    if (narrow) {
+      if (currentDrawer.current !== panel) drawerReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      currentDrawer.current = panel
+      setDrawer(panel)
+    } else setPreferences(current => ({ ...current, [collapsedKeys[panel]]: false }))
+    if (focus) requestAnimationFrame(() => { if (!narrow || currentDrawer.current === panel) closeButtons.current[panel]?.focus() })
+  }
+
+  useEffect(() => {
+    if (!active || !panelRequest || (panelRequest.narrowOnly && !narrow)) return
+    const panel = panelRequest.id
+    if (panelRequest.action === 'close') {
+      if (narrow) { if (panelRequest.narrowOnly || currentDrawer.current === panel) closeDrawer(panelRequest.focus ?? true) }
+      else setPreferences(current => ({ ...current, [collapsedKeys[panel]]: true }))
+    } else openPanel(panel, panelRequest.focus ?? narrow)
+  }, [panelRequest?.id, panelRequest?.sequence])
+
+  useLayoutEffect(() => {
+    const previous = lastPanelFocus.current
+    if (!active || !previous || !previous.closest('[hidden],[inert]') || document.querySelector('[role="dialog"],[role="menu"],dialog[open]')) return
+    const panel = panels.find(id => panelRef(id).current?.contains(previous))
+    if (!panel) return
+    lastPanelFocus.current = null
+    if (visible(panel)) closeButtons.current[panel]?.focus()
+    else triggers.current[panel]?.focus()
+  })
 
   const closeLayoutSettings = () => {
     if (!layoutSettings.current) return
@@ -118,48 +142,45 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
     layoutSettings.current.querySelector('summary')?.focus()
   }
 
-  useEffect(() => {
-    if (!active || !narrow || !drawer) return
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.isComposing) return
-      const target = event.target instanceof Element ? event.target : null
-      if (!target || target.closest('input,textarea,select,[contenteditable],[role="dialog"],[role="menu"]')) return
-      if (!panelRef(drawer).current?.contains(target) && !triggers.current[drawer]?.contains(target)) return
-      // Let form, menu and current candidate handlers consume Escape first. This drawer owns no tool state.
-      queueMicrotask(() => {
-        if (event.defaultPrevented || document.querySelector('[role="dialog"],[role="menu"],dialog[open]') || currentDrawer.current !== drawer) return
-        closeDrawer()
-      })
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [active, narrow, drawer])
+  const drawerKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!active || !narrow || !drawer || event.defaultPrevented || event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    const target = event.target instanceof Element ? event.target : null
+    if (!target || target.closest('input,textarea,select,[contenteditable],[role="dialog"],[role="menu"]') || document.querySelector('[role="dialog"],[role="menu"],dialog[open]')) return
+    if (!panelRef(drawer).current?.contains(target) && !triggers.current[drawer]?.contains(target) && !moduleNavigation.current?.contains(target)) return
+    // Bubble after local form/tool handlers, before the global candidate shortcut.
+    event.preventDefault()
+    event.stopPropagation()
+    closeDrawer()
+  }
 
   const togglePanel = (panel: Panel) => {
     if (narrow) {
-      if (drawer === panel) { closeDrawer(); return }
-      setDrawer(panel)
-      requestAnimationFrame(() => closeButtons.current[panel]?.focus())
+      if (drawer === panel) closeDrawer()
+      else openPanel(panel)
       return
     }
     if (!preferences[collapsedKeys[panel]] && panelRef(panel).current?.contains(document.activeElement)) triggers.current[panel]?.focus()
     setPreferences(current => ({ ...current, [collapsedKeys[panel]]: !current[collapsedKeys[panel]] }))
   }
 
-  const changeWidth = (side: ResizeSide, value: number) => {
-    const maximum = maximumWidth(side)
-    const width = Math.min(maximum, clampWorkspacePanelWidth(side, value))
-    // A deliberate drag starts from the columns currently on screen. Otherwise an
-    // auto-fitted neighbour would expand toward its old preference at every pixel.
-    setPreferences(current => ({ ...current,
-      resourcesWidth: side === 'resources' ? width : current.resourcesCollapsed ? current.resourcesWidth : widths.resources,
-      detailsWidth: side === 'details' ? width : current.inspectorCollapsed && current.navigationCollapsed ? current.detailsWidth : widths.details,
-    }))
+  const selectModule = (id: string) => {
+    if (resourceBody.current && resourcesVisible) moduleScroll.current.set(activeModule, resourceBody.current.scrollTop)
+    onModuleChange(id)
+    openPanel('resources')
   }
+
   const maximumWidth = (side: ResizeSide) => {
     const other = side === 'resources' ? widths.details : widths.resources
-    const available = hostWidth - WORKSPACE_LAYOUT_LIMITS.tools - 2 * WORKSPACE_LAYOUT_LIMITS.separator - WORKSPACE_LAYOUT_LIMITS.canvas - other
+    const available = hostWidth - WORKSPACE_LAYOUT_LIMITS.navigation - 2 * WORKSPACE_LAYOUT_LIMITS.separator - WORKSPACE_LAYOUT_LIMITS.canvas - other
     return Math.max(WORKSPACE_LAYOUT_LIMITS[side].min, Math.min(WORKSPACE_LAYOUT_LIMITS[side].max, Math.floor(available)))
+  }
+  const changeWidth = (side: ResizeSide, value: number) => {
+    const width = Math.min(maximumWidth(side), clampWorkspacePanelWidth(side, value))
+    // Start a deliberate drag from fitted columns rather than expanding the neighbour on every pixel.
+    setPreferences(current => ({ ...current,
+      resourcesWidth: side === 'resources' ? width : current.resourcesCollapsed ? current.resourcesWidth : widths.resources,
+      detailsWidth: side === 'details' ? width : current.inspectorCollapsed ? current.detailsWidth : widths.details,
+    }))
   }
   const startResize = (event: PointerEvent<HTMLDivElement>, side: ResizeSide) => {
     if (event.button !== 0 || narrow) return
@@ -192,8 +213,8 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
   }
 
   const renderSeparator = (side: ResizeSide, hidden: boolean) => <div className="workspace-resizer" data-side={side}
-    role="separator" aria-label={side === 'resources' ? '调整资源面板宽度' : '调整右侧面板宽度'} aria-orientation="vertical"
-    aria-controls={`${layoutId}-${side === 'resources' ? 'resources' : 'details'}`} aria-valuemin={WORKSPACE_LAYOUT_LIMITS[side].min}
+    role="separator" aria-label={side === 'resources' ? '调整内容面板宽度' : '调整当前详情宽度'} aria-orientation="vertical"
+    aria-controls={`${layoutId}-${side === 'resources' ? 'resources' : 'inspector'}`} aria-valuemin={WORKSPACE_LAYOUT_LIMITS[side].min}
     aria-valuemax={maximumWidth(side)} aria-valuenow={widths[side]} aria-valuetext={`${widths[side]} 像素`}
     tabIndex={active && !narrow && !hidden ? 0 : -1} aria-hidden={narrow || hidden || undefined} data-disabled={hidden || narrow}
     onPointerDown={event => { if (!hidden) startResize(event, side) }} onPointerMove={moveResize}
@@ -201,34 +222,46 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
     onKeyDown={event => resizeKey(event, side)}/>
 
   const panelHeader = (panel: Panel) => <div className="workspace-panel-header">
-    <h2>{panelLabels[panel]}</h2>
+    <h2>{panel === 'resources' ? resourceLabel : inspectorTitle ?? panelLabels.inspector}</h2>
     <button type="button" ref={element => { closeButtons.current[panel] = element }}
       aria-label={`${narrow ? '关闭' : visible(panel) ? '折叠' : '展开'}${panelLabels[panel]}`} aria-expanded={visible(panel)}
       aria-controls={`${layoutId}-${panel}-content`} onClick={() => togglePanel(panel)}>
-      <span aria-hidden="true">{narrow ? '×' : visible(panel) ? panel === 'resources' ? '‹' : '⌃' : panel === 'resources' ? '›' : '⌄'}</span>
+      <span aria-hidden="true">{narrow ? '×' : (panel === 'resources') === visible(panel) ? '‹' : '›'}</span>
     </button>
   </div>
 
-  const navigationKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-    const tabs = navigation.filter(tab => !tab.disabled)
-    if (!tabs.length) return
-    const selected = Math.max(0, tabs.findIndex(tab => tab.id === navigationTab))
-    const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 :
-      (selected + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  const moduleKey = (event: KeyboardEvent<HTMLElement>) => {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    if (!buttons.length) return
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 :
+      (Math.max(0, current) + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
     event.preventDefault()
-    onNavigationTabChange(tabs[index].id)
-    event.currentTarget.querySelector<HTMLButtonElement>(`[data-tab="${tabs[index].id}"]`)?.focus()
+    event.stopPropagation()
+    buttons[index].focus()
+  }
+
+  const toolbarKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    if (current < 0 || !buttons.length) return
+    const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 :
+      (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
+    event.preventDefault()
+    event.stopPropagation()
+    buttons[index].focus()
   }
 
   const style = { '--workspace-resources-width': `${widths.resources}px`, '--workspace-details-width': `${widths.details}px` } as CSSProperties
   return <div className="workspace-layout" ref={host} style={style} data-testid="workspace-layout" data-narrow={narrow}
-    data-resizing={resizing ?? undefined} data-details-collapsed={bothDetailsCollapsed} onFocusCapture={event => {
+    data-resizing={resizing ?? undefined} onKeyDown={drawerKey} onFocusCapture={event => {
       const target = event.target as HTMLElement
-      lastPanelFocus.current = (['resources', 'inspector', 'navigation'] as const).some(panel => panelRef(panel).current?.contains(target)) ? target : null
+      lastPanelFocus.current = panels.some(panel => panelRef(panel).current?.contains(target)) ? target : null
     }}>
     <div className="workspace-layout-actions" aria-label="工作区布局">
-      {(['resources', 'inspector', 'navigation'] as const).map(panel => <button type="button" key={panel}
+      {panels.map(panel => <button type="button" key={panel}
         ref={element => { triggers.current[panel] = element }} aria-expanded={visible(panel)} aria-controls={`${layoutId}-${panel}`}
         onClick={() => togglePanel(panel)}>{panelLabels[panel]}</button>)}
       <span className="workspace-layout-spacer"/>
@@ -239,46 +272,40 @@ export default function WorkspaceLayout({ active, resources, inspector, navigati
       }}>
         <summary>布局设置</summary>
         <div aria-label="面板布局设置">
-          <button type="button" onClick={() => { setPreferences(current => ({ ...current, resourcesCollapsed: false, inspectorCollapsed: false, navigationCollapsed: false })); closeDrawer(false); closeLayoutSettings() }}>展开全部面板</button>
+          <button type="button" onClick={() => { setPreferences(current => ({ ...current, resourcesCollapsed: false, inspectorCollapsed: false })); closeDrawer(false); closeLayoutSettings() }}>展开全部面板</button>
           <button type="button" onClick={() => { setPreferences({ ...DEFAULT_WORKSPACE_LAYOUT }); closeDrawer(false); closeLayoutSettings() }}>重置布局</button>
         </div>
       </details>
       {!persistent && <span className="workspace-layout-storage" role="status">布局仅在本次会话生效</span>}
     </div>
     <div className="workspace-layout-body">
-      <nav className="workspace-tools" aria-label="画布工具">{tools}</nav>
+      <nav ref={moduleNavigation} className="workspace-module-navigation" data-testid="workspace-module-navigation" aria-label="工作区模块导航" onKeyDown={moduleKey}>
+        {modules.map(module => <button type="button" key={module.id} data-module={module.id} disabled={module.disabled}
+          aria-current={activeModule === module.id ? 'page' : undefined} aria-expanded={activeModule === module.id && resourcesVisible}
+          aria-controls={`${layoutId}-resources`} onClick={() => selectModule(module.id)}>
+          {module.icon && <span aria-hidden="true" className="workspace-module-icon">{module.icon}</span>}
+          <span>{module.label}</span>
+        </button>)}
+      </nav>
       <section id={`${layoutId}-resources`} ref={resourcePanel} className="workspace-panel workspace-resources" data-testid="workspace-resources"
-        aria-label="资源面板" data-open={visible('resources')} data-collapsed={!visible('resources')}
-        inert={narrow && !visible('resources')} aria-hidden={narrow && !visible('resources') || undefined}>
+        aria-label={resourceLabel} data-open={resourcesVisible} data-collapsed={!resourcesVisible}
+        inert={narrow && !resourcesVisible} aria-hidden={narrow && !resourcesVisible || undefined}>
         {panelHeader('resources')}
-        <div id={`${layoutId}-resources-content`} className="workspace-panel-body" hidden={!visible('resources')} inert={!visible('resources')}>{resources}</div>
+        <div ref={resourceBody} id={`${layoutId}-resources-content`} className="workspace-panel-body" hidden={!resourcesVisible} inert={!resourcesVisible}
+          onScroll={event => { if (resourcesVisible) moduleScroll.current.set(activeModule, event.currentTarget.scrollTop) }}>{resources}</div>
       </section>
       {renderSeparator('resources', preferences.resourcesCollapsed)}
-      <section className="workspace-canvas" aria-label="场景画布">{children}</section>
-      {renderSeparator('details', bothDetailsCollapsed)}
-      <div id={`${layoutId}-details`} className="workspace-details">
-        <section id={`${layoutId}-inspector`} ref={inspectorPanel} className="workspace-panel workspace-inspector" data-testid="workspace-inspector"
-          aria-label="属性面板" data-open={visible('inspector')} data-collapsed={!visible('inspector')}
-          inert={narrow && !visible('inspector')} aria-hidden={narrow && !visible('inspector') || undefined}>
-          {panelHeader('inspector')}
-          <div id={`${layoutId}-inspector-content`} className="workspace-panel-body" hidden={!visible('inspector')} inert={!visible('inspector')}>{inspector}</div>
-        </section>
-        <section id={`${layoutId}-navigation`} ref={navigationPanel} className="workspace-panel workspace-navigation" data-testid="workspace-navigation"
-          aria-label="场景导航" data-open={visible('navigation')} data-collapsed={!visible('navigation')}
-          inert={narrow && !visible('navigation')} aria-hidden={narrow && !visible('navigation') || undefined}>
-          {panelHeader('navigation')}
-          <div id={`${layoutId}-navigation-content`} className="workspace-panel-body" hidden={!visible('navigation')} inert={!visible('navigation')}>
-            <div className="workspace-navigation-tabs" role="tablist" aria-label="场景导航" onKeyDown={navigationKey}>
-              {navigation.map(tab => <button type="button" role="tab" key={tab.id} data-tab={tab.id} id={`${layoutId}-tab-${tab.id}`}
-                aria-controls={`${layoutId}-tabpanel-${tab.id}`} aria-selected={navigationTab === tab.id} disabled={tab.disabled}
-                tabIndex={navigationTab === tab.id ? 0 : -1} onClick={() => onNavigationTabChange(tab.id)}>{tab.label}</button>)}
-            </div>
-            {navigation.map(tab => <div key={tab.id} id={`${layoutId}-tabpanel-${tab.id}`} role="tabpanel"
-              aria-labelledby={`${layoutId}-tab-${tab.id}`} className="workspace-navigation-content"
-              hidden={navigationTab !== tab.id} inert={navigationTab !== tab.id}>{tab.content}</div>)}
-          </div>
-        </section>
-      </div>
+      <section className="workspace-canvas" aria-label="场景画布">
+        <div className="workspace-canvas-tools" role="toolbar" aria-label="画布工具" onKeyDown={toolbarKey}>{tools}</div>
+        {children}
+      </section>
+      {renderSeparator('details', preferences.inspectorCollapsed)}
+      <section id={`${layoutId}-inspector`} ref={inspectorPanel} className="workspace-panel workspace-inspector" data-testid="workspace-inspector"
+        aria-label={`${inspectorTitle ?? panelLabels.inspector}面板`} data-open={visible('inspector')} data-collapsed={!visible('inspector')}
+        inert={narrow && !visible('inspector')} aria-hidden={narrow && !visible('inspector') || undefined}>
+        {panelHeader('inspector')}
+        <div id={`${layoutId}-inspector-content`} className="workspace-panel-body" hidden={!visible('inspector')} inert={!visible('inspector')}>{inspector}</div>
+      </section>
     </div>
     <footer className="workspace-footer">{footer}</footer>
   </div>
