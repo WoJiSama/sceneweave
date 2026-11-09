@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { artworkValidation, ARTWORK_SVG, encodeFixtureRaster } from '../../../tests/helpers/m24-artwork-fixtures.js'
 import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
 import { normalizePngChunks } from '../../shared/project/image-bytes.js'
@@ -8,20 +8,6 @@ import { assessAddedCatalogQuality, assessImportedAssetQuality } from './asset-q
 import { prepareAssetBatchImport, AssetBatchImportError, type AssetImportRequest } from './asset-batch.js'
 import { captureEditableDraft, fromBundle, toBundle, validateEditableProject } from './project.js'
 import { fixture, pixelPng, runtime } from './test-fixtures.js'
-
-// Keep PNG normalization deterministic in Node. Real fixture byte/CRC/pixel
-// validation and quality assessment remain enabled; browser tests cover Canvas.
-vi.mock('../../platform/browser/images/index.js', async () => {
-  const { inspectImageBytes, normalizePngChunks } = await import('../../shared/project/image-bytes.js')
-  const { sha256Bytes } = await import('../../shared/project/binary.js')
-  return { normalizeBrowserImage: vi.fn(async (bytes: Uint8Array, mime: string) => {
-    const before = inspectImageBytes(bytes, false)
-    if (mime && mime !== 'application/octet-stream' && mime !== before.mimeType) throw new Error('MIME mismatch')
-    const normalized = normalizePngChunks(bytes), header = inspectImageBytes(normalized)
-    return { bytes: normalized, record: { sha256: sha256Bytes(normalized), mimeType: header.mimeType,
-      sizeBytes: normalized.length, pixelWidth: header.width, pixelHeight: header.height } }
-  }) }
-})
 
 const validation = artworkValidation()
 const png = () => encodeFixtureRaster({ width: 128, height: 128,

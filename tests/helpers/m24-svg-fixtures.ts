@@ -2,7 +2,7 @@ import { toCurrentSceneDocument } from '../../src/shared/model/current-scene'
 import { zlibSync } from 'fflate'
 import { layerSceneV3 } from '../../src/core/v3/test-fixtures'
 import { createCompositionContent } from '../../src/shared/appearance/graph'
-import { normalizeStaticSvg } from '../../src/shared/ai/svg'
+import { normalizeStaticSvg, CANONICAL_SVG_PROCESSOR } from '../../src/shared/ai/svg'
 import { inspectDependencies } from '../../src/shared/geometry/dependencies'
 import type { ProjectBundle } from '../../src/shared/model/project'
 import type { SceneDocument } from '../../src/shared/model/scene'
@@ -49,7 +49,7 @@ export function svgProjectFixture(sourceSvg = SVG_FIXTURE_SOURCE, rgba = SVG_FIX
     assets: { [rasterSha256]: { sha256: rasterSha256, mimeType: 'image/png', sizeBytes: rasterBytes.length, pixelWidth: 1, pixelHeight: 1 } },
     licenses: { [licenseHash]: { sha256: licenseHash, text: license } }, licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })),
     authoringSources: { image: { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256,
-      sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256, processorId: normalized.processorId, processorVersion: normalized.processorVersion } } }, resources: createMemoryResources(bytes) }
+      sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256, ...CANONICAL_SVG_PROCESSOR } } }, resources: createMemoryResources(bytes) }
   return { bundle, bytes, normalized }
 }
 
@@ -57,5 +57,5 @@ export function svgProjectFixture(sourceSvg = SVG_FIXTURE_SOURCE, rgba = SVG_FIX
 export function svgFixtureValidation(rgba = SVG_FIXTURE_RGBA): CompleteValidationOptions {
   const raster = (): RasterImage => ({ width: 1, height: 1, rgba: new Uint8ClampedArray(rgba) })
   return { images: { async decode() { return raster() }, async transform(image) { return image }, async encodePng() { throw new Error('Validation must not encode fixture PNG') } },
-    svg: { async rasterize() { return raster() } } }
+    svg: { processor: CANONICAL_SVG_PROCESSOR, async rasterize() { return raster() } } }
 }

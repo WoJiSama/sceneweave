@@ -1,3 +1,4 @@
+import { generationDomains } from '../../shared/generation/domains/registry.js'
 import { createDomainExecutionRequest, executeDomainExecutionRequest, parseDomainExecutionResponse, type DomainExecutionRequest, type DomainExecutionResponse, type DomainGenerationKind, type DomainGenerationResults } from '../../shared/generation/execution.js'
 import { bindTerrainVariantPresentations, bindTerrainVariantV2Presentations } from '../../shared/visual/terrain-variant-presentations.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
@@ -43,7 +44,7 @@ export async function prepareDomainProject<K extends DomainGenerationKind>(domai
   const result = parseDomainExecutionResponse(response, request).result
   const document = captureJson(result.candidate.document) as SceneDocument
   const rawContent = createCompositionContent(document, options.runtime)
-  const content = domain === 'interior' ? rawContent : bindTerrainVariantV2Presentations(bindTerrainVariantPresentations(rawContent))
+  const content = generationDomains[domain].presentation === 'terrain-variants' ? bindTerrainVariantV2Presentations(bindTerrainVariantPresentations(rawContent)) : rawContent
   const project = await materializeProject({ ...owned, ...content, schemaVersion: 1 }, { runtime: options.runtime, validation, budget: profile })
   checkCancelled(signal)
   const usage = assertTaskBudget(profile, measureTaskBudget(owned.document, project.document, { before: owned, after: project },

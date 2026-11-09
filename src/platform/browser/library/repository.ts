@@ -1,4 +1,7 @@
 import Dexie, { type Transaction } from 'dexie'
+import { LIBRARY_TARGET_FORMAT, type LibraryConversionStore, type LibraryConversionJob, type LibraryConversionInput, type ReserveLibraryConversion, type OrganizationPolicy } from '../../../application/ports/library-conversion-store.js'
+export { LIBRARY_TARGET_FORMAT } from '../../../application/ports/library-conversion-store.js'
+export type { OrganizationPolicy, ReserveLibraryConversion, LibraryConversionInput, LibraryConversionJob } from '../../../application/ports/library-conversion-store.js'
 import type { CatalogOrganization, LibraryEntrySummary, LibraryMutation, LibrarySnapshot, PreparedLibraryEntry } from '../../../shared/library/types.js'
 import { LIBRARY_LIMITS } from '../../../shared/library/types.js'
 import { validateCatalogItem, validateCatalogKey } from '../../../shared/library/metadata.js'
@@ -9,26 +12,10 @@ import { checkCancelled, type CompleteValidationOptions, type ResourceOptions } 
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
 import { canonicalJson, captureJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { assertBackupReceipt } from '../../../shared/migration/set.js'
-import { CONVERTER_VERSION, type BackupReceiptSummary, type ConversionStage } from '../../../shared/migration/types.js'
+import { CONVERTER_VERSION, type ConversionStage } from '../../../shared/migration/types.js'
 import { inspectLibraryDatabase, LibraryDatabase, LIBRARY_DATABASE_NAME, LIBRARY_TABLES, type StoredEntry, type StoredOrganization, type StagedRecord } from './database.js'
 
-export const LIBRARY_TARGET_FORMAT = 'sceneweave-asset-library@1' as const
-export type OrganizationPolicy = 'keep-local' | 'replace-selected'
 export interface LibraryRepositoryOptions { name?: string; validation: CompleteValidationOptions; runtime: PreparationContext }
-export interface ReserveLibraryConversion {
-  sourceRepository: string; scopeId: string; sourceFingerprint: string
-  entryKeys: string[]; organizationKeys: string[]; sourceContentHashes: Record<string, string>
-}
-export interface LibraryConversionInput {
-  entries: PreparedLibraryEntry[]; organizations: Record<string, CatalogOrganization>
-  sourceContentHashes: Record<string, string>; organizationPolicy: OrganizationPolicy
-}
-export interface LibraryConversionJob extends ReserveLibraryConversion {
-  jobId: string; jobKey: string; converterVersion: typeof CONVERTER_VERSION; targetFormat: typeof LIBRARY_TARGET_FORMAT
-  stage: ConversionStage; jobVersion: number; createdAt: string; updatedAt: string
-  backupReceipt: BackupReceiptSummary | null; targetRevision: number | null; targetHash: string | null
-  targetContentHashes: Record<string, string>; organizationPolicy: OrganizationPolicy | null; failure: string | null
-}
 export interface LibraryConversionRead { job: LibraryConversionJob; entries: PreparedLibraryEntry[]; organizations: Record<string, CatalogOrganization> }
 export class LibraryConflictError extends Error {
   constructor(readonly actualRevision: number) { super('个人素材库已在其他标签更新，请刷新后明确重应用。'); this.name = 'LibraryConflictError' }
@@ -143,7 +130,7 @@ function assertJob(job: LibraryConversionJob): void {
 }
 
 /** Native complete-v1 personal library. Private staging is never exposed to ordinary readers. */
-export class LibraryRepository {
+export class LibraryRepository implements LibraryConversionStore {
   readonly database: LibraryDatabase
   private opening: Promise<void> | null = null
   private closed = false

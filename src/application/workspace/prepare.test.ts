@@ -101,7 +101,7 @@ describe('native editable capture and bitmap preparation', () => {
     const original = await fromBundle(fixture({ image: true }), validation)
     const source = { document: original.document, historyIdentity: original.historyIdentity, appearance: original.appearance }
     const draft = applyCompositionDraftCommands(source, [{ type: 'updateProp', id: 'item', changes: { rotationDeg: 15 } }], runtime)
-    expect(getCertifiedCompositionDraft(draft)).toBe(draft)
+    expect(getCertifiedCompositionContent(draft)).toBe(draft)
     const prepared = await materializeProject({ ...original, ...draft }, { validation, runtime, baseline: original })
     expect(prepared.resources).toBe(original.resources)
     expect(prepared.document).toBe(draft.document)

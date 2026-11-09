@@ -8,6 +8,7 @@ import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { cliffRelief } from './cliff-relief.js'
 import { grassEdgeRings } from './grass-edge.js'
 import { terrainTransitionStrokePolygon } from '../../../shared/visual/transition.js'
+import { edgeLookPaintPadding } from '../../../shared/visual/paint-envelopes.js'
 import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
 
@@ -160,7 +161,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
   const byId = new Map(visual.boundaries.map(boundary => [boundary.id, boundary]))
   const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0)
   if (cliffs.length) {
-    const allPoints = cliffs.flatMap(look => byId.get(look.boundaryId)?.points ?? []), padding = Math.max(...cliffs.map(look => look.widthMm)) * 2
+    const allPoints = cliffs.flatMap(look => byId.get(look.boundaryId)?.points ?? []), padding = Math.max(...cliffs.map(edgeLookPaintPadding))
     const buffer = allPoints.length ? localBuffer(ctx, projection, minMaxBounds(allPoints, padding), readFrequently) : null
     if (buffer) try {
       const direction = visual.environment.lightDirectionDeg * Math.PI / 180
@@ -207,7 +208,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     const look = looksById.get(entry.id)
     if (!look) continue
     const boundary = byId.get(look.boundaryId)
-    if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, look.widthMm * 2), projection.bounds)) continue
+    if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, edgeLookPaintPadding(look)), projection.bounds)) continue
     const connections = connectionsFor(projection, boundary)
     ctx.save(); clipConnectionOpenings(ctx, projection.bounds, connections)
     if (look.kind === 'cliff') excludeHighGround(ctx, projection, boundary)

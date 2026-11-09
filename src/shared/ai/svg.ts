@@ -25,6 +25,18 @@ export const STATIC_SVG_LIMITS = Object.freeze({
 export const STATIC_SVG_PROCESSOR_ID = 'sceneweave-static-svg' as const
 export const STATIC_SVG_PROCESSOR_VERSION = 1 as const
 
+/** Text normalization stays at v1. Pixel execution has its own immutable profile. */
+export const LEGACY_SVG_PROCESSOR = Object.freeze({ processorId: STATIC_SVG_PROCESSOR_ID, processorVersion: 1 as const })
+export const CANONICAL_SVG_PROCESSOR = Object.freeze({
+  processorId: STATIC_SVG_PROCESSOR_ID,
+  processorVersion: 2 as const,
+  rasterizer: Object.freeze({ id: 'resvg-wasm' as const, version: '2.6.2' as const,
+    moduleSha256: '22bf6e9f9a100d972da0411a69c5ba504367fc1fa87b3b64e3f35e53926d2d70' as const }),
+  pixelFormat: 'rgba8-srgb-straight-v1' as const,
+})
+export type CanonicalSvgProcessor = typeof CANONICAL_SVG_PROCESSOR
+export type SvgRasterProcessor = typeof LEGACY_SVG_PROCESSOR | CanonicalSvgProcessor
+
 export interface SvgViewBox { x: number; y: number; width: number; height: number }
 export interface NormalizedStaticSvg {
   kind: 'normalized-static-svg'

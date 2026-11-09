@@ -7,6 +7,7 @@ import { decodeProjectCoordinates, encodeProjectCoordinates } from '../../../sha
 import { canonicalJson } from '../../../shared/validation/json.js'
 import { contentBlockMiddleware, type ContentBlockWrite } from './content-block-middleware.js'
 import type { ProjectContentBlock } from './content-blocks.js'
+import { exactEncodedSnapshot, matchingEncodedSnapshot } from './content-context.js'
 
 export const LEGACY_DEVELOPMENT_PROJECT_DATABASE = 'sceneweave-projects'
 export const PROJECT_DATABASE_NAME = currentDatabaseNames().projects
@@ -74,6 +75,12 @@ function coordinateHooks(table: Table, field: CoordinateField): void {
   const local = (project: ProjectData | null): boolean => project?.document?.aggregateCoordinates?.encoding === 'local'
   table.hook('reading', row => {
     if (row === undefined || field === 'checkpoint' && row[field] === null) return row
+    const transaction = Dexie.currentTransaction, project = payload(row)!
+    const prepared = transaction && exactEncodedSnapshot(transaction.idbtrans, project)
+    // The block middleware exposes this exact immutable local object only
+    // after the final transaction compared every actual native block byte.
+    // Preserve its owned world endpoint instead of decoding/cloning it again.
+    if (prepared && project === prepared.encoded.stored) return { ...row, [field]: prepared.project }
     const decoded = decodeProjectCoordinates(payload(row)!)
     return decoded === row[field] ? row : { ...row, [field]: decoded }
   })
@@ -84,7 +91,7 @@ function coordinateHooks(table: Table, field: CoordinateField): void {
         if (field === 'checkpoint') return
         throw new Error('工程存储记录不能缺少完整工程。')
       }
-      const encoded = encodeProjectCoordinates(original)
+      const encoded = matchingEncodedSnapshot(transaction.idbtrans, original)?.encoded.stored ?? encodeProjectCoordinates(original)
       if (encoded === original) return
       row[field] = encoded
       // Dexie's creating hook mutates the requested object. Restore the runtime
@@ -101,6 +108,14 @@ function coordinateHooks(table: Table, field: CoordinateField): void {
       const candidate = payload(next), touched = Object.keys(changes).some(path => path === field || path.startsWith(`${field}.`))
       if (!touched) return
       if (candidate === null && field === 'project') throw new Error('工程存储记录不能缺少完整工程。')
+      const prepared = candidate && matchingEncodedSnapshot(transaction.idbtrans, candidate)
+      if (prepared) {
+        const encoded = prepared.encoded.stored
+        this.onsuccess = written => {
+          if (written && typeof written === 'object' && (written as Record<string, unknown>)[field] === encoded) (written as Record<string, unknown>)[field] = prepared.project
+        }
+        return { [field]: encoded }
+      }
       if (local(previous) && candidate !== null && candidate?.document?.aggregateCoordinates?.encoding !== 'world') {
         // Dexie's modify clones arrays and reports them as changed even for an
         // unrelated metadata update. Equal JSON is still the same local payload.
@@ -235,6 +250,27 @@ export class ProjectDatabase extends Dexie {
     return new Dexie.Promise((resolve, reject) => {
       const request = transaction.idbtrans.objectStore(table).get(key)
       request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+  }
+
+  /** Native envelopes for navigation only. No coordinate decode or content
+   * block materialization; callers must not treat these as project proofs. */
+  rawJsonRows(table: string, query?: { index: string; key: IDBValidKey }): Promise<{ key: IDBValidKey; value: unknown }[]> {
+    const transaction = Dexie.currentTransaction
+    if (!transaction) throw new Error('目录记录读取须位于当前事务。')
+    return new Dexie.Promise((resolve, reject) => {
+      const store = transaction.idbtrans.objectStore(table), source = query ? store.index(query.index) : store
+      const request = query ? source.openCursor(IDBKeyRange.only(query.key)) : source.openCursor()
+      const rows: { key: IDBValidKey; value: unknown }[] = []
+      request.onsuccess = () => {
+        try {
+          const cursor = request.result
+          if (!cursor) { resolve(rows); return }
+          if (rows.length >= 65_536) throw new Error('目录记录超过读取保护值；未返回不完整目录。')
+          rows.push({ key: cursor.primaryKey, value: cursor.value }); cursor.continue()
+        } catch (error) { reject(error) }
+      }
       request.onerror = () => reject(request.error)
     })
   }

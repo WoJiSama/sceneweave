@@ -1,5 +1,7 @@
-import { effectivePropShadow, nearSidePaintEnvelope, presentationBounds, presentationContact, presentationShadow, propPaintPolygon, propShadowDirection } from '../../../shared/appearance/presentation.js'
+import { effectivePropShadow, presentationBounds, presentationContact, presentationShadow, propShadowDirection } from '../../../shared/appearance/presentation.js'
+import { propPresentationEnvelope } from '../../../shared/projection/presentation-contract.js'
 import { drawVisualAtmosphere, drawVisualBoundaries, drawVisualContacts, drawVisualEntity } from './visual-renderer'
+import { pathJunctionOutlines } from './path-junctions.js'
 import type { BoundsMm, MaterialPaint, PointMm, Prop, ShadowStyle, SurfaceOverlay, SurfaceStyle } from '../../../shared/model/scene.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { drawRegionalProjection } from './regional-renderer.js'
@@ -333,17 +335,8 @@ function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Pro
 }
 function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, detail: EditorPropDetail = 'full'): void {
   if (!projection.visual) { drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail); return }
-  const presentation = projection.propPresentations?.[prop.id], shadow = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
-  const paintShadow = detail === 'full' ? shadow : null
-  const contactBlur = presentation?.mode === 'nearSide' && paintShadow && projection.visual?.environment.contactShadowOpacity ? projection.visual.environment.contactShadowMm : null
-  const nearSideEnvelope = nearSidePaintEnvelope(prop, presentation, paintShadow, projection.visual?.environment.lightDirectionDeg, contactBlur)
-  if (nearSideEnvelope) {
-    drawVisualEntity(ctx, projection, prop.id, nearSideEnvelope, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
-    return
-  }
-  const points = propPaintPolygon(prop, presentation)
-  const padding = Math.max(detail === 'full' && shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : 0, contactBlur ?? 0)
-  drawVisualEntity(ctx, projection, prop.id, expandedBounds(points, padding), (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
+  const envelope = propPresentationEnvelope(projection, prop, { full: detail === 'full', outlinePaddingMm: detail === 'outline' ? .5 / Math.max(scaleX, scaleY) : 0 })
+  drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
 }
 function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoration, projection: Projection, raster: RasterSet): void {
   const bitmap = raster.byAssetId.get(value.assetId)
@@ -455,14 +448,21 @@ function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection,
   }
 }
 function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, sx: number, sy: number): void {
+  const junctions = pathJunctionOutlines(projection)
   for (const path of projection.paths) drawVisualEntity(ctx, projection, path.id, expandedBounds(path.points, path.edgeStyle.bandWidthMm * 2), (ctx, projection) => {
     const outline = polygonPath(path.points), edge = path.edgeStyle
+    const segments = junctions.get(path.id), exterior = segments ? new Path2D() : outline
+    if (segments) for (let i = 0; i < segments.length; i++) {
+      const [a, b] = segments[i], previous = segments[i - 1]?.[1]
+      if (!previous || Math.hypot(previous.x - a.x, previous.y - a.y) > EPS) exterior.moveTo(a.x, a.y)
+      exterior.lineTo(b.x, b.y)
+    }
     ctx.save()
     if (edge.bandWidthMm) {
-      ctx.save(); ctx.globalAlpha = .22; ctx.filter = `blur(${edge.bandWidthMm * .3 * Math.max(sx, sy)}px)`; ctx.strokeStyle = edge.color; ctx.lineWidth = edge.bandWidthMm; ctx.lineJoin = 'round'; ctx.stroke(outline); ctx.restore()
+      ctx.save(); ctx.globalAlpha = .22; ctx.filter = `blur(${edge.bandWidthMm * .3 * Math.max(sx, sy)}px)`; ctx.strokeStyle = edge.color; ctx.lineWidth = edge.bandWidthMm; ctx.lineJoin = 'round'; ctx.stroke(exterior); ctx.restore()
     }
     fillSurface(ctx, outline, path.style, projection, raster, '#B49D77')
-    if (edge.strokeWidthMm) { ctx.strokeStyle = edge.color; ctx.lineWidth = edge.strokeWidthMm; ctx.lineJoin = 'round'; ctx.stroke(outline) }
+    if (edge.strokeWidthMm) { ctx.strokeStyle = edge.color; ctx.lineWidth = edge.strokeWidthMm; ctx.lineJoin = 'round'; ctx.stroke(exterior) }
     ctx.restore()
   }, !!raster.readFrequently)
 }
@@ -759,7 +759,16 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   if (projection.limitations.length) throw new Error(projection.limitations.join(' '))
   const visibleProjection = editor?.drawingProjection ?? projection
   const plan = editor ? createEditorRenderPlan(visibleProjection, { viewBoundsMm: editor.viewBoundsMm, screenScalePxPerMm: editor.screenScalePxPerMm ?? options.longEdgePx / Math.max(visibleProjection.bounds.width, visibleProjection.bounds.height) }) : null
-  const drawingProjection = publicCropMm ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, { boundsMm: publicCropMm, props: visibleProjection.props.map(prop => ({ prop, detail: 'full' as const, screenSizePx: 0, visualBoundsMm: visibleProjection.bounds, paintBoundsMm: visibleProjection.bounds })), omittedPropCount: 0, detailCounts: { outline: 0, image: 0, full: visibleProjection.props.length } }) } : plan ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, plan), props: plan.props.map(entry => entry.prop) } : visibleProjection
+  const paintIds = plan ? new Set(plan.surfacePresentations.map(entry => `${entry.kind}:${entry.id}`)) : null
+  const drawingProjection = publicCropMm ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, { boundsMm: publicCropMm, props: visibleProjection.props.map(prop => ({ prop, detail: 'full' as const, screenSizePx: 0, visualBoundsMm: visibleProjection.bounds, paintBoundsMm: visibleProjection.bounds })) }) }
+    : plan ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, plan), props: plan.props.map(entry => entry.prop), decorations: plan.decorations,
+      // Only paint is culled. Occluders, contacts, supports and boundary facts
+      // remain the complete audience-owned dependency closure.
+      ...(visibleProjection.visual ? { visual: { ...visibleProjection.visual,
+        edgeLooks: visibleProjection.visual.edgeLooks.filter(entry => paintIds!.has(`edgeLook:${entry.id}`)),
+        materializedEdges: visibleProjection.visual.materializedEdges?.filter(entry => paintIds!.has(`materializedEdge:${entry.id}`)),
+        transitions: visibleProjection.visual.transitions?.filter(entry => paintIds!.has(`transition:${entry.id}`)),
+      } } : {}) } : visibleProjection
   const propDetails = plan ? new Map(plan.props.map(entry => [entry.prop.id, entry.detail])) : undefined
   const outputBounds = publicCropMm ?? plan?.boundsMm ?? projection.bounds
   const ratio = options.longEdgePx / Math.max(outputBounds.width, outputBounds.height), width = Math.max(1, Math.round(outputBounds.width * ratio)), height = Math.max(1, Math.round(outputBounds.height * ratio))

@@ -8,10 +8,10 @@ import type { PreparationContext } from '../../shared/ports/runtime.js'
 import { canonicalJson, captureJson } from '../../shared/validation/json.js'
 import type { CaptureOptions } from '../../compat/legacy/capture.js'
 import { captureLegacyCatalog, captureLegacyCatalogFile, prepareLegacyCatalog, restoreLegacyCatalogCapture, type LegacyCatalogCapture } from '../../compat/legacy/catalog.js'
-import type { LibraryConversionJob, LibraryRepository } from '../../platform/browser/library/index.js'
+import type { LibraryConversionJob, LibraryConversionStore } from '../ports/library-conversion-store.js'
 
 export interface LibraryConversionEnvironment {
-  repository: LibraryRepository
+  repository: LibraryConversionStore
   runtime: PreparationContext
   validation: CompleteValidationOptions
   legacy?: CaptureOptions

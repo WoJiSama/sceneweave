@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { TaskBudgetProfileSchema, type BudgetUsage } from '../budget/task-budget.js'
+import { BudgetUsageSchema, TaskBudgetProfileSchema, type BudgetUsage } from '../budget/task-budget.js'
 import { canonicalJson, captureJson, freezeJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 import type { SceneDocument } from '../model/scene.js'
@@ -107,8 +107,32 @@ export interface OperatorContext {
   readonly inputs: { get(bindingId: string): readonly GenerationArtifact[] }
   readonly deriveSeed: (stableKey: string) => string; readonly checkCancelled: () => void
 }
+/** Finite record boundaries. A create grant applies only to IDs absent from
+ * this stage's input; it never permits changing an earlier operator's record. */
+export const generationWriteCollectionSchema = z.enum([
+  'vertices', 'rooms', 'walls', 'openings', 'terrainAreas', 'terrainEdges', 'regions', 'terrainConnections', 'paths',
+  'props', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'entityLayers',
+  'assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes',
+  'generation.legacy.recipes', 'generation.legacy.rules', 'generation.legacy.ownership', 'generation.legacy.constraints',
+  'generation.legacy.checks', 'generation.legacy.exclusions', 'generation.legacy.surroundings', 'generation.legacy.topology',
+  'generation.features', 'generation.compositions', 'generation.requirements', 'generation.checks', 'generation.thresholds', 'generation.dependencies',
+  'visual.transitions', 'visual.base.materializedEdges', 'visual.base.base.boundaries', 'visual.base.base.edgeLooks',
+])
+export type GenerationWriteCollection = z.infer<typeof generationWriteCollectionSchema>
+const writeFields = z.array(z.union([z.literal('$value'), z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/)])).min(1).max(64).refine(values => new Set(values).size === values.length)
+export const generationWriteGrantSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('create'), collection: generationWriteCollectionSchema }).strict(),
+  z.object({ kind: z.literal('update'), collection: generationWriteCollectionSchema, ids: z.array(id).max(65536).refine(values => new Set(values).size === values.length), fields: writeFields }).strict(),
+  z.object({ kind: z.literal('delete'), collection: generationWriteCollectionSchema, ids: z.array(id).max(65536).refine(values => new Set(values).size === values.length) }).strict(),
+  z.object({ kind: z.literal('field'), path: z.enum(['updatedAt', 'activeStyleThemeRef', 'generationMetadata', 'constraints.entranceOpeningIds', 'constraints.pathChecks', 'constraints.wallEndClearanceMm', 'constraints.minDoorWidthMm', 'constraints.minPathWidthMm']) }).strict(),
+])
+export type GenerationWriteGrant = DeepReadonly<z.infer<typeof generationWriteGrantSchema>>
+export type GenerationWriteDeclaration = readonly GenerationWriteGrant[] | ((input: { readonly document: DeepReadonly<SceneDocument>; readonly context: OperatorContext }) => readonly GenerationWriteGrant[])
 export interface GenerationOperatorDescriptor {
   readonly id: string; readonly version: number; readonly phase: GenerationPhase; readonly consumes: readonly ArtifactKind[]; readonly produces: readonly ArtifactKind[]; readonly requires: readonly OperatorRef[]; readonly owner: ArtifactOwner
+  /** Required even for fact-only operators (writes: []). Resolved and frozen
+   * before execution, then checked against actual materialized records. */
+  readonly writes: GenerationWriteDeclaration
   /** Newly created/changed scene facts to extract after trusted materialization. */
   readonly publishFacts?: readonly ArtifactKind[]
   readonly determinism: { readonly replayVersion: number; readonly seedDerivation: 'request/recipe/step/operator/key' }
@@ -130,8 +154,29 @@ export interface GenerationStageReceipt {
   readonly stepId: string; readonly operator: DeepReadonly<OperatorRef>; readonly beforeHash: string; readonly afterHash: string
   readonly inputHash: string; readonly outputHash: string
 }
+/** Internal composition validates the same strict envelope without adopting
+ * transport byte/count limits. A composed step ID includes module prefixes. */
+export const generationStageReceiptSchema = z.object({ stepId: z.string().min(1), operator: operatorRefSchema,
+  beforeHash: hash, afterHash: hash, inputHash: hash, outputHash: hash }).strict()
+export const generationCandidateSchema = z.object({ status: z.literal('prepared'), materializationRequired: z.literal(true),
+  requestHash: hash, sourceHash: hash, outputHash: hash, outputs: z.array(z.unknown()),
+  diagnostics: z.array(generationDiagnosticSchema), usage: BudgetUsageSchema, document: z.unknown(), documentHash: hash,
+  stages: z.array(generationStageReceiptSchema).min(1) }).strict()
+/** These pre-existing limits belong only to the domain transport protocol. */
+export const domainGenerationCandidateSchema = generationCandidateSchema.extend({
+  outputs: generationCandidateSchema.shape.outputs.max(8192), diagnostics: generationCandidateSchema.shape.diagnostics.max(8192),
+  stages: z.array(generationStageReceiptSchema.extend({ stepId: id })).min(1).max(64),
+})
 export function hashGenerationValue(value: unknown): string { return sha256Text(canonicalJson(value)) }
 export function freezeArtifact(input: ArtifactInput): GenerationArtifact {
   const value = generationArtifactSchema.parse(captureJson(input))
   return freezeJson({ ...value, contentHash: hashGenerationValue(value) })
+}
+/** Digests never authorize unknown artifact fields or an untyped payload. */
+const artifactReceiptEnvelopeSchema = z.object({ contentHash: hash }).passthrough()
+export function parseGenerationArtifactReceipt(input: unknown): GenerationArtifact {
+  const { contentHash, ...body } = artifactReceiptEnvelopeSchema.parse(captureJson(input))
+  const artifact = generationArtifactSchema.parse(body)
+  if (contentHash !== hashGenerationValue(artifact)) throw new Error('生成产物摘要不符。')
+  return freezeJson({ ...artifact, contentHash })
 }

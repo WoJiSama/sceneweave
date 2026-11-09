@@ -100,7 +100,7 @@ afterEach(async () => { vi.restoreAllMocks(); for (const workspace of sessions.s
 
 describe('T12 workspace local transition/scenery transaction', () => {
   it('previews without writing, replays the exact result, and combines transition with scenery', async () => {
-    const { workspace, repo } = await setup(), current = workspace.getState().project!, before = canonicalJson(toBundle(current).project), checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'save')
+    const { workspace, repo } = await setup(), current = workspace.getState().project!, before = canonicalJson(toBundle(current).project), checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'saveSnapshot')
     const preview = await workspace.previewTerrainLocalRefresh(request(current))
     expect(save).not.toHaveBeenCalled(); expect(workspace.checkpoint()).toBe(checkpoint); expect(canonicalJson(toBundle(workspace.getState().project!).project)).toBe(before)
     expect(preview.result.dependencies.transitionIds).toEqual(['shore']); expect(preview.result.dependencies.sceneryGroupIds).toEqual(['trees']); expect(preview.result.changedIds).toEqual(expect.arrayContaining(['shore', 'trees']))
@@ -129,7 +129,7 @@ describe('T12 workspace local transition/scenery transaction', () => {
   it('keeps current branch on protection/CAS failure and keeps adopted memory on save failure', async () => {
     const { workspace, repo } = await setup(), current = workspace.getState().project!, first = await workspace.previewTerrainLocalRefresh(request(current))
     vi.spyOn(repo, 'checkProtection').mockRejectedValueOnce(new Error('local metadata moved')); await expect(workspace.adoptTerrainLocalRefresh(first)).rejects.toThrow(/metadata moved/); expect(workspace.getState().project).toBe(current)
-    const second = await workspace.previewTerrainLocalRefresh(request(current)); vi.spyOn(repo, 'save').mockRejectedValueOnce(new Error('local quota'))
+    const second = await workspace.previewTerrainLocalRefresh(request(current)); vi.spyOn(repo, 'saveSnapshot').mockRejectedValueOnce(new Error('local quota'))
     const adopted = await workspace.adoptTerrainLocalRefresh(second); await expect(adopted.save).rejects.toThrow(/quota/); expect(workspace.getState().status).toBe('error'); expect(workspace.getState().canUndo).toBe(true); expect((await repo.load(current.document.sceneId))!.project.document.revision).toBe(current.document.revision)
     workspace.undo(); expect(workspace.getDocument()!.revision).toBe(current.document.revision + 2); await workspace.retry()
   }, 30000)

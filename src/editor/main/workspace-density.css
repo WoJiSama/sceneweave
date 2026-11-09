@@ -1,0 +1,215 @@
+/* The current editor shares one density scale; world/canvas sizes stay independent. */
+.workspace-unified {
+  --workspace-control-height: 32px;
+  --workspace-control-padding: 5px 8px;
+  --workspace-panel-padding: 12px;
+  --workspace-field-gap: 8px;
+  --workspace-section-gap: 14px;
+  --workspace-muted: #5f6e5e;
+}
+
+/* Keep layout controls in the desktop header and retain the narrow drawer bar. */
+.workspace-unified .asset-header { height: 56px; min-height: 56px; padding: 6px 12px; gap: 12px; }
+.workspace-unified .asset-brand > span { font-size: 17px; }
+.workspace-unified .workspace-project-title h1 { font-size: 14px; line-height: 1.4; }
+.workspace-unified .asset-header-actions { overflow: visible; }
+.workspace-header-layout:empty { display: none; }
+.workspace-layout-actions[data-compact=true] { min-height: 0; padding: 0 0 0 6px; border: 0; border-left: 1px solid #d9e1d1; background: transparent; gap: 3px; }
+.workspace-layout-actions button, .workspace-layout-settings > summary { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.workspace-layout-actions[data-compact=true] > button, .workspace-layout-actions[data-compact=true] .workspace-layout-settings > summary { min-width: 30px; min-height: 30px; padding: 5px; }
+.workspace-layout-actions[data-compact=true] > button > span, .workspace-layout-actions[data-compact=true] .workspace-layout-settings > summary > span { display: none; }
+.workspace-layout-actions[data-compact=true] .workspace-layout-spacer { display: none; }
+.workspace-layout-actions[data-compact=true] .workspace-layout-storage { position: absolute; top: 58px; right: 12px; padding: 4px 8px; background: #fff9e9; border: 1px solid #d8c7a3; z-index: 32; }
+.workspace-unified .asset-notice:not(.workspace-save-recovery) { min-height: 32px; padding: 5px 12px; font-size: 12px; line-height: 1.5; gap: 8px; }
+.workspace-unified .asset-notice > button { flex: none; min-width: 28px; min-height: 28px; }
+.workspace-unified .workspace-panel-header { height: 32px; min-height: 32px; padding: 0 10px; }
+.workspace-unified .workspace-panel-header h2 { letter-spacing: 0; font-size: 12px; }
+.workspace-unified .workspace-canvas-tools { min-height: 36px; padding: 3px 7px; }
+.workspace-unified .workspace-canvas-tools > button, .workspace-unified .workspace-canvas-tools .asset-external-tool-controls button { min-height: 28px; padding: 4px 6px; }
+.workspace-unified .asset-view-bar { min-height: 34px; padding: 4px 10px; }
+.workspace-unified .asset-viewport-toolbar { min-height: 33px; padding: 3px 10px; }
+.workspace-unified .asset-viewport-toolbar button { height: 26px; }
+.workspace-unified .workspace-footer { min-height: 32px; padding: 2px 10px; font-size: 11px; color: #5f7354; }
+.workspace-unified .workspace-module-navigation { gap: 3px; padding-top: 5px; }
+.workspace-unified .workspace-module-navigation > button { min-height: 50px; gap: 3px; padding: 5px 3px; }
+.workspace-unified .workspace-module-icon svg { width: 18px; height: 18px; }
+
+/* Readable text with tighter controls, instead of shrinking all text. */
+.workspace-unified .workspace-panel-body { font-size: 12px; line-height: 1.5; }
+.workspace-unified .workspace-panel-body h2 { font-size: 14px; line-height: 1.45; }
+.workspace-unified .workspace-panel-body h3 { font-size: 13px; line-height: 1.45; margin: 14px 0 8px; }
+.workspace-unified .workspace-panel-body :is(.asset-muted, .workspace-panel-intro, .workspace-task-heading p, .workspace-start-help) { font-size: 12px; line-height: 1.5; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body :is(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]), select, textarea) {
+  min-height: var(--workspace-control-height);
+  padding: var(--workspace-control-padding);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.workspace-unified .workspace-panel-body .asset-number > div > input { min-height: 30px; padding: 5px 8px; }
+.workspace-unified .workspace-panel-body :is(button.primary, button.secondary),
+.workspace-unified .workspace-panel-body .ai-conversation button { min-height: var(--workspace-control-height); padding: var(--workspace-control-padding); line-height: 1.5; }
+.workspace-unified .workspace-panel-body .asset-wide { margin: 5px 0; }
+.workspace-unified .workspace-panel-body :is(.asset-select, .asset-number, .building-field) { margin: 10px 0; }
+.workspace-unified .workspace-panel-body :is(.asset-select select, .asset-number > div) { margin-top: 4px; }
+.workspace-unified .workspace-panel-body .asset-select small { margin-top: 4px; font-size: 11px; color: var(--workspace-muted); line-height: 1.5; }
+.workspace-unified .workspace-panel-body :is(.catalog-library, .asset-inspector, .workspace-navigation-content) .asset-section-heading,
+.workspace-unified .workspace-panel-body .asset-section-heading { min-height: 24px; gap: 6px; margin: 0 0 8px; padding-bottom: 6px; }
+.workspace-unified .workspace-panel-body :is(.catalog-library, .asset-inspector, .workspace-navigation-content) .asset-section-heading h2,
+.workspace-unified .workspace-panel-body .asset-section-heading h2 { margin: 0; font-size: 14px; }
+.workspace-unified .workspace-panel-body :is(.workspace-panel-heading, .workspace-control-section) { gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-panel-body .workspace-advanced { padding: 8px 0; }
+.workspace-unified .workspace-panel-body .workspace-advanced[open] > summary { margin-bottom: 8px; }
+.workspace-unified .workspace-panel-body .workspace-empty-hint { padding: 8px 10px; line-height: 1.5; }
+.workspace-unified .workspace-panel-body :is(.asset-facts, .appearance-facts) { margin: 12px 0; gap: 6px 10px; font-size: 12px; }
+.workspace-unified .workspace-panel-body .asset-facts :is(dt, dd) { font-size: 12px; color: #53664d; line-height: 1.5; }
+
+/* Panel gutters apply to the single mounted panel, including portal destinations. */
+.workspace-unified .workspace-panel-body > :is(.asset-library, .asset-inspector),
+.workspace-unified .workspace-panel-body :is(.user-layer-panel, .asset-library, .asset-inspector, .history-panel, .building-panel, .outdoor-panel, .outdoor-inspector, .outdoor-tools-panel, .visual-panel, .history-context-details, .workspace-project-tools, .terrain-generation-panel, .appearance-panel, .prefab-panel, .ai-conversation, .regional-panel) { padding: var(--workspace-panel-padding); }
+.workspace-unified .workspace-panel-body .asset-inspector { min-height: 0; }
+.workspace-unified .workspace-navigation-content { padding: 0; }
+.workspace-unified .workspace-panel-body .workspace-scene-actions { display: flex; justify-content: flex-end; padding: 8px 12px 0; }
+.workspace-unified .workspace-panel-body .workspace-scene-actions button { margin: 0; }
+.workspace-unified .workspace-context-content > button { margin: 8px 12px; width: calc(100% - 24px); }
+.workspace-unified .workspace-context-content > div > :is(h2, p) { margin: 10px 12px; }
+.workspace-unified .workspace-task-heading { padding: 12px 12px 0; }
+.workspace-unified .workspace-task-heading h2 { font-size: 14px; margin-bottom: 5px; }
+.workspace-unified .workspace-task-picker { padding: 8px 12px; gap: 6px; }
+.workspace-unified .workspace-task-picker button { padding: 7px 8px; gap: 2px; }
+.workspace-unified .workspace-task-picker small { font-size: 11px; line-height: 1.4; }
+.workspace-unified .workspace-task-picker :is(strong, small) { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.workspace-unified .workspace-panel-body .workspace-field-pair,
+.workspace-unified .workspace-panel-body .workspace-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--workspace-field-gap); min-width: 0; align-items: start; }
+.workspace-unified .workspace-panel-body :is(.workspace-field-pair, .workspace-form-pair) > .asset-number { display: grid; min-width: 0; gap: 4px; margin: 0; }
+.workspace-unified .workspace-panel-body .asset-inspector .workspace-field-pair > .asset-number { margin: 0; }
+.workspace-unified .workspace-panel-body :is(.workspace-field-pair, .workspace-form-pair) .asset-number > div { margin: 0; }
+.workspace-unified .workspace-panel-body .workspace-form-fields { gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-panel-body .workspace-form-fields > :is(.asset-number, .building-field) { margin: 0; gap: 4px; }
+.workspace-unified .workspace-panel-body .workspace-detail-disclosure { margin: 10px 0; padding: 8px 0; border-top: 1px solid #dce4d5; font-size: 12px; }
+.workspace-unified .workspace-panel-body .workspace-detail-disclosure > summary { cursor: pointer; color: #4c6545; font-weight: 500; line-height: 1.5; }
+.workspace-unified .workspace-panel-body .workspace-detail-disclosure[open] > summary { margin-bottom: 8px; }
+.workspace-unified .workspace-panel-body .workspace-detail-disclosure .asset-muted { margin: 6px 0; }
+.workspace-unified .workspace-panel-body .workspace-object-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.workspace-unified .workspace-panel-body .workspace-object-title h3 { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.workspace-unified .workspace-panel-body .workspace-object-lock { display: inline-flex; align-items: center; flex: none; gap: 4px; min-height: 28px; padding: 4px 7px; }
+.workspace-unified .workspace-panel-body .asset-inspector .asset-number { margin: 8px 0; }
+.workspace-unified .workspace-panel-body .asset-inspector .asset-facts { margin: 12px 0; padding: 8px 0; gap: 6px 10px; }
+
+/* Scene organization: compact layer rows, with the object browser close at hand. */
+.workspace-unified .workspace-panel-body .user-layer-panel { margin: 0; padding-bottom: 6px; }
+.workspace-unified .workspace-panel-body .user-layer-list { gap: 3px; margin: 4px 0 8px; }
+.workspace-unified .workspace-panel-body .user-layer-row { gap: 3px; padding: 3px 0; }
+.workspace-unified .workspace-panel-body .user-layer-primary { gap: 4px; }
+.workspace-unified .workspace-panel-body .user-layer-primary > button:not(.layer-current) { min-width: 28px; min-height: 28px; height: 28px; padding: 4px; }
+.workspace-unified .workspace-panel-body .user-layer-primary .layer-current { min-width: 0; min-height: 30px; padding: 3px 2px; gap: 2px; }
+.workspace-unified .workspace-panel-body .layer-current .layer-current-label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 6px; min-width: 0; max-width: 100%; width: auto; font-size: 12px; }
+.workspace-unified .workspace-panel-body .layer-current .layer-current-label > .layer-name { min-width: 0; width: auto; font-size: 12px; }
+.workspace-unified .workspace-panel-body .layer-current .layer-current-label > small { font-size: 11px; line-height: 1.4; color: #63765c; }
+.workspace-unified .workspace-panel-body .layer-current .layer-drawing-state { width: auto; font-size: 11px; color: #526c46; }
+.workspace-unified .workspace-panel-body .layer-current .layer-current-status { white-space: normal; font-size: 11px; color: #6c6547; }
+.workspace-unified .workspace-panel-body :is(.layer-help, .scene-object-help) { margin: 7px 0; font-size: 11px; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body :is(.layer-help, .scene-object-help) > summary { cursor: pointer; min-height: 24px; line-height: 1.5; }
+.workspace-unified .workspace-panel-body :is(.layer-help, .scene-object-help) p { margin: 5px 0; line-height: 1.5; }
+.workspace-unified .workspace-panel-body .layer-scope { margin: 7px 0; gap: 6px; }
+.workspace-unified .workspace-panel-body .asset-library:has(.asset-object-browser) { padding-top: 6px; }
+.workspace-unified .workspace-panel-body .asset-library-tabs { margin: 8px 0; padding: 3px; gap: 2px; }
+.workspace-unified .workspace-panel-body .asset-library-tabs button { padding: 5px 4px; min-height: 28px; font-size: 12px; }
+.workspace-unified .workspace-panel-body .asset-object-search { padding: 4px 7px; min-height: var(--workspace-control-height); }
+.workspace-unified .workspace-panel-body .asset-object-search input { min-height: 22px; padding: 0; border: 0; background: transparent; }
+.workspace-unified .workspace-panel-body .asset-object-list-tools { margin: 5px 0; color: #5f7354; font-size: 11px; }
+.workspace-unified .workspace-panel-body .asset-object-list-tools button { font-size: 11px; }
+.workspace-unified .workspace-panel-body .asset-virtual-row { font-size: 12px; }
+.workspace-unified .workspace-panel-body .asset-virtual-row > small { font-size: 10px; color: #716648; }
+.workspace-unified .workspace-panel-body .asset-object-key-hint { color: #62725a; font-size: 11px; }
+
+/* Materials and reusable components retain useful previews, with lighter list chrome. */
+.workspace-unified .workspace-panel-body .composition-search { min-height: var(--workspace-control-height); padding: 4px 7px; }
+.workspace-unified .workspace-panel-body .composition-search input { min-height: 22px; padding: 0; }
+.workspace-unified .workspace-panel-body .catalog-library .catalog-entries article { padding: 6px 4px; gap: 8px; }
+.workspace-unified .workspace-panel-body .catalog-library .catalog-entries .catalog-thumbnail { width: 48px; min-width: 48px; height: 48px; flex-basis: 48px; }
+.workspace-unified .workspace-panel-body .catalog-item-copy { gap: 3px; }
+.workspace-unified .workspace-panel-body :is(.catalog-categories, .catalog-source-filter) { margin: 8px 0; gap: 5px; }
+.workspace-unified .workspace-panel-body .catalog-library .catalog-source-filter select { min-height: var(--workspace-control-height); padding: var(--workspace-control-padding); }
+.workspace-unified .workspace-panel-body .catalog-categories button { min-height: 28px; padding: 4px 7px; }
+.workspace-unified .workspace-panel-body :is(.composition-fields, .composition-import, .appearance-panel) { gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-panel-body :is(.composition-import label, .appearance-rule) { margin: 8px 0; }
+.workspace-unified .workspace-panel-body .asset-batch-rows { gap: 8px; }
+.workspace-unified .workspace-panel-body .asset-batch-row { padding: 8px; }
+.workspace-unified .workspace-panel-body .asset-batch-thumbnail { width: 80px; height: 80px; margin: 0 0 8px 8px; }
+
+/* Building, terrain and visual tools share field and section rhythm. */
+.workspace-unified .workspace-panel-body :is(.building-panel, .outdoor-panel) > .asset-section-heading { margin-bottom: 8px; }
+.workspace-unified .workspace-panel-body .building-panel > .asset-muted { margin-bottom: 8px; }
+.workspace-unified .workspace-panel-body :is(.building-panel fieldset, .outdoor-panel fieldset, .outdoor-inspector fieldset) { gap: var(--workspace-field-gap); margin: 8px 0; }
+.workspace-unified .workspace-panel-body .building-field { gap: 4px; }
+.workspace-unified .workspace-panel-body :is(.building-details, .outdoor-advanced) { margin: 10px 0; padding: 8px 0; }
+.workspace-unified .workspace-panel-body .building-entity-list { gap: 4px; }
+.workspace-unified .workspace-panel-body .visual-panel { gap: 12px; }
+.workspace-unified .workspace-panel-body .visual-panel :is(fieldset, fieldset > section) { gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-panel-body .visual-panel label { gap: 4px; }
+.workspace-unified .workspace-panel-body .visual-panel button:not(.primary):not(.secondary) { min-height: var(--workspace-control-height); padding: var(--workspace-control-padding); }
+.workspace-unified .workspace-panel-body .visual-panel .visual-tabs { gap: 3px; padding: 3px; }
+.workspace-unified .workspace-panel-body .visual-panel .visual-tabs button { min-height: 28px; padding: 4px; }
+.workspace-unified .workspace-panel-body .visual-panel .visual-segment { padding: 8px 0; gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-panel-body .visual-panel input[type=color] { height: 36px; }
+.workspace-unified .workspace-panel-body .terrain-editing-panel { margin-top: 12px; padding: 12px 0; gap: 8px; }
+.workspace-unified .workspace-panel-body :is(.terrain-editing-panel fieldset, .terrain-editing-scope, .terrain-editing-impact) { gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-surface-actions { margin: 10px 0; padding-top: 8px; }
+
+/* All generator domains, AI and history use the same spacing scale. */
+.workspace-unified .workspace-panel-body :is(.terrain-generation-panel, .regional-panel, .local-generation-panel) { gap: 12px; }
+.workspace-unified .workspace-panel-body :is(.terrain-generation-panel form, .terrain-generation-panel fieldset, .regional-panel fieldset) { gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-panel-body :is(.interior-generation-panel, .forest-generation-panel, .volcano-generation-panel) fieldset { padding: 8px; margin-bottom: 8px; }
+.workspace-unified .workspace-panel-body :is(.interior-generation-panel, .forest-generation-panel, .volcano-generation-panel) p { line-height: 1.5; }
+.workspace-unified .workspace-panel-body .terrain-generation-kinds button { min-height: 44px; padding: 6px 8px; gap: 8px; }
+.workspace-unified .workspace-panel-body .terrain-generation-kinds small { margin-top: 2px; font-size: 11px; }
+.workspace-unified .workspace-panel-body :is(.terrain-generation-candidate, .forest-candidate, .interior-candidate, .volcano-candidate) { padding: 10px; gap: var(--workspace-field-gap); }
+.workspace-unified .workspace-panel-body :is(.terrain-generation-intro, .terrain-generation-hint) { line-height: 1.5; }
+.workspace-unified .workspace-panel-body .ai-conversation { gap: 10px; }
+.workspace-unified .workspace-panel-body :is(.ai-connection, .ai-task, .ai-disclosure, .ai-pending) { padding: 8px; }
+.workspace-unified .workspace-panel-body :is(.ai-connection[open], .ai-task, .ai-resume, .ai-compose, .ai-delete-confirm) { gap: 8px; }
+.workspace-unified .workspace-panel-body .ai-authoring { gap: 8px; padding-top: 10px; }
+.workspace-unified .workspace-panel-body .ai-authoring fieldset { gap: 8px; padding: 8px; }
+.workspace-unified .workspace-panel-body .ai-conversation textarea { min-height: 92px; }
+.workspace-unified .workspace-panel-body .workspace-inline-help { font-size: 12px; line-height: 1.5; }
+.workspace-unified .workspace-panel-body .workspace-inline-help > summary { cursor: pointer; color: #536b4b; }
+.workspace-unified .workspace-panel-body .workspace-inline-help p { margin-top: 6px; font-size: 12px; color: var(--workspace-muted); }
+.workspace-unified .workspace-panel-body .workspace-generation-help { margin: 0; padding: 6px 0; }
+.workspace-unified .workspace-panel-body .history-scope { margin-top: 12px; padding-top: 10px; }
+.workspace-unified .workspace-panel-body .history-list-section { margin: 10px 0; }
+.workspace-unified .workspace-panel-body .history-snapshot-open { padding: 6px 8px; }
+.workspace-unified .workspace-panel-body .history-usage { margin: 10px 0; padding: 8px; }
+.workspace-unified .workspace-panel-body :is(.history-change, .history-mode) { margin: 8px 0; padding: 8px; }
+.workspace-unified .workspace-panel-body :is(.history-snapshot-open small, .history-prop-row small, .history-usage small) { font-size: 11px; color: #62725a; }
+
+/* Review actions remain separate from the scrolling explanation. */
+.workspace-unified .workspace-inspector :is(.workspace-candidate-review, .workspace-review-panel) { max-height: calc(100dvh - 175px); }
+.workspace-unified .workspace-inspector .workspace-candidate-review > :is(.workspace-candidate-body, .workspace-candidate-actions) { padding: 10px 12px; }
+.workspace-unified .workspace-panel-body .workspace-candidate-title { font-size: 14px; }
+.workspace-unified .workspace-panel-body .workspace-candidate-buttons button { min-height: 34px; }
+.workspace-modal .modal-heading h2 { font-size: 16px; }
+.workspace-modal .modal-intro { margin-bottom: 14px; line-height: 1.6; }
+.workspace-modal .modal-actions { margin-top: 16px; padding-top: 14px; }
+
+@media (max-width: 1079px) {
+  .workspace-unified .asset-header { height: auto; min-height: 56px; }
+  .workspace-unified .workspace-header-layout { display: none; }
+  .workspace-unified .workspace-panel-body .workspace-field-pair { gap: 10px; }
+  .workspace-unified .workspace-inspector :is(.workspace-candidate-review, .workspace-review-panel) { max-height: calc(100dvh - 235px); }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .workspace-unified {
+    --workspace-control-height: 38px;
+    --workspace-control-padding: 8px 10px;
+    --workspace-panel-padding: 12px;
+    --workspace-field-gap: 10px;
+  }
+  .workspace-unified .workspace-panel-body .asset-number > div > input { min-height: 36px; padding: 8px; }
+  .workspace-unified .workspace-module-navigation > button { min-height: 54px; }
+  .workspace-unified .workspace-panel-header { height: 38px; min-height: 38px; }
+  .workspace-unified .workspace-panel-header > button { min-height: 32px; min-width: 32px; }
+  .workspace-unified .workspace-panel-body .user-layer-primary > button:not(.layer-current) { min-width: 32px; min-height: 32px; height: 32px; }
+  .workspace-unified .workspace-panel-body :is(.visual-panel .visual-tabs button, .catalog-categories button, .asset-library-tabs button) { min-height: 34px; }
+  .workspace-unified .workspace-panel-body :is(.composition-search, .asset-object-search) input { min-height: 28px; }
+  .workspace-unified .workspace-panel-body .workspace-candidate-buttons button { min-height: 38px; }
+}

@@ -4,11 +4,12 @@ import {
   parseDomainExecutionRequest, parseDomainExecutionResponse,
   type DomainExecutionRequest, type DomainExecutionResponse,
 } from '../../../shared/generation/execution.js'
+import { domainGenerationKinds } from '../../../shared/generation/domains/registry.js'
 import { canonicalJson, captureJson, encodeUtf8 } from '../../../shared/validation/json.js'
 
 const MAX_CAPABILITY_BYTES = 64 * 1024
 const workerErrorSchema = z.object({ protocolVersion: z.literal(1), type: z.literal('error'), requestId: z.string(),
-  context: z.unknown(), requestHash: z.string(), domain: z.enum(['interior', 'forest', 'volcano']),
+  context: z.unknown(), requestHash: z.string(), domain: z.enum(domainGenerationKinds),
   error: z.object({ code: z.literal('generation_failed'), message: z.string().min(1).max(512) }).strict(),
 }).strict()
 const serverErrorSchema = z.object({ schemaVersion: z.literal(1), error: z.object({

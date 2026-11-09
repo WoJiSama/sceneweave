@@ -108,7 +108,7 @@ describe('native complete-v1 workspace and repository boundary', () => {
       if (method === 'execute') await workspace.execute(commands)
       else await workspace.adoptPreview(await workspace.preview(commands))
     }
-    const before = workspace.getState().project!, save = vi.spyOn(repo, 'save'), point = before.document.props.item.positionMm
+    const before = workspace.getState().project!, save = vi.spyOn(repo, 'saveSnapshot'), point = before.document.props.item.positionMm
     expect(before.document.visual).toMatchObject({version:3,base:{version:2,base:{version:1}},transitions:{}})
     await apply([{ type: 'updateProp', id: 'item', changes: { rotationDeg: -0, positionMm: { y: point.y, x: point.x } } }])
     await workspace.flush()
@@ -149,15 +149,16 @@ describe('native complete-v1 workspace and repository boundary', () => {
   })
 
   it('retains private proof across execute, preview adoption, undo and redo while cold reads still decode', async () => {
-    const { repo, workspace, owner } = await setup({ image: true })
     const decode = vi.spyOn(validation.images, 'decode')
+    const { repo, workspace, owner } = await setup({ image: true })
+    decode.mockClear()
     let current = workspace.getState().project!
     expect(getVerifiedEditableProject(current)).toBe(current)
     await workspace.updateProp('item', { rotationDeg: 15 })
     current = workspace.getState().project!
     expect(getVerifiedEditableProject(current)).toBe(current)
     await workspace.flush()
-    expect(decode).toHaveBeenCalledTimes(1)
+    expect(decode).not.toHaveBeenCalled()
 
     const firstResources = current.resources
     await workspace.updateProp('item', { rotationDeg: 35 })
@@ -165,17 +166,17 @@ describe('native complete-v1 workspace and repository boundary', () => {
     expect(getVerifiedEditableProject(current)).toBe(current)
     expect(current.resources).toBe(firstResources)
     await workspace.flush()
-    expect(decode).toHaveBeenCalledTimes(2)
+    expect(decode).not.toHaveBeenCalled()
 
     const preview = await workspace.preview([{ type: 'updateProp', id: 'other', changes: { rotationDeg: 25 } }])
     expect(getVerifiedEditableProject(preview.project)).toBe(preview.project)
-    expect(decode).toHaveBeenCalledTimes(2)
+    expect(decode).not.toHaveBeenCalled()
     await workspace.adoptPreview(preview)
     current = workspace.getState().project!
     expect(getVerifiedEditableProject(current)).toBe(current)
-    expect(decode).toHaveBeenCalledTimes(3)
+    expect(decode).not.toHaveBeenCalled()
     await workspace.flush()
-    expect(decode).toHaveBeenCalledTimes(4)
+    expect(decode).not.toHaveBeenCalled()
 
     workspace.undo()
     current = workspace.getState().project!
@@ -185,16 +186,16 @@ describe('native complete-v1 workspace and repository boundary', () => {
     current = workspace.getState().project!
     expect(getVerifiedEditableProject(current)).toBe(current)
     expect(current.document).toMatchObject({ revision: 5, props: { item: { rotationDeg: 35 }, other: { rotationDeg: 25 } } })
-    expect(decode).toHaveBeenCalledTimes(4)
+    expect(decode).not.toHaveBeenCalled()
 
     await workspace.flush()
-    expect(decode).toHaveBeenCalledTimes(5)
+    expect(decode).not.toHaveBeenCalled()
     const cold = await repo.load(owner)
     expect(cold).not.toBeNull()
-    expect(decode).toHaveBeenCalledTimes(6)
+    expect(decode).toHaveBeenCalledTimes(1)
     const reopened = await fromBundle(cold!, validation)
     expect(getVerifiedEditableProject(reopened)).toBe(reopened)
-    expect(decode).toHaveBeenCalledTimes(7)
+    expect(decode).toHaveBeenCalledTimes(2)
   })
 
   it('keeps previews outside history, enforces their origin/baseline, locks and command budget', async () => {

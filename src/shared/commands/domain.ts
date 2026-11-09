@@ -1,4 +1,5 @@
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS, type SceneDocument } from '../model/scene.js'
+import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 
 /**
  * Detached effective-lock view for command and dependency inspection. The native
@@ -21,6 +22,9 @@ export function geometryDocumentForValidation(scene: SceneDocument, effectiveLoc
 /** IDs owned by the geometry domain, including nested stable identities. */
 export function geometryIdentityIds(scene: SceneDocument): Set<string> {
   const ids = new Set<string>()
+  // Recipe-local requirement keys do not allocate scene identities. The strict
+  // recipe schema owns these parameter records, independent of domain names.
+  const recipeParameters = new Set<unknown>(Object.values(getLegacyGeneration(scene)?.recipes ?? {}).map(recipe => recipe.parameters))
   const visit = (value: unknown) => {
     if (!value || typeof value !== 'object') return
     if (!Array.isArray(value)) {
@@ -28,12 +32,8 @@ export function geometryIdentityIds(scene: SceneDocument): Set<string> {
       if (typeof record.id === 'string') ids.add(record.id)
       if (typeof record.segmentId === 'string') ids.add(record.segmentId)
     }
-    // Interior room IDs inside normalized parameters name local requirements,
-    // not scene entities. In particular they cannot reserve a deleted entity's
-    // ID and falsely turn its genuine identity tombstone into a collision.
-    const record = value as Record<string, unknown>
-    for (const [key, child] of Object.entries(record)) {
-      if (key === 'parameters' && (record.domain === 'interior' && ['interior-layout', 'supported-interior'].includes(String(record.algorithmId)) || record.domain === 'forest' && record.algorithmId === 'forest-layout' || record.domain === 'volcano' && record.algorithmId === 'volcano-layout' || record.domain === 'mixed' && record.algorithmId === 'mixed-layout')) continue
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'parameters' && recipeParameters.has(child)) continue
       visit(child)
     }
   }

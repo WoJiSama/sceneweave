@@ -100,8 +100,8 @@ describe('unified domain generation transports', () => {
     expect(workers).toHaveLength(1)
   })
 
-  it('preserves a bound domain failure without accepting an error from another request', async () => {
-    const { client, workers } = setup(), source = request(), pending = client.execute(source)
+  it.each(domains)('preserves a bound %s failure without accepting an error from another request', async domain => {
+    const { client, workers } = setup(), source = request(domain), pending = client.execute(source)
     const failure = { protocolVersion: 1, type: 'error', requestId: source.requestId, context: source.context,
       requestHash: source.requestHash, domain: source.domain, error: { code: 'generation_failed', message: '指定净面积与范围矛盾。' } }
     workers[0].emit(failure)

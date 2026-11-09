@@ -1,6 +1,7 @@
 import type { SceneDocument } from './scene.js'
 import type { HistoryIdentity } from './history.js'
 import type { AppearanceGraph } from './appearance.js'
+import type { SvgRasterProcessor } from '../ai/svg.js'
 
 export interface AssetRecord {
   sha256: string
@@ -18,16 +19,15 @@ export interface LicenseBinding {
   licensePath: string
   embedding: 'allowed'
 }
-export interface SvgAuthoringSource {
+interface SvgSourceRecords {
   kind: 'svg'
   sourceSha256: string
   normalizedSha256: string
   sourceSizeBytes: number
   normalizedSizeBytes: number
   rasterSha256: string
-  processorId: 'sceneweave-static-svg'
-  processorVersion: 1
 }
+export type SvgAuthoringSource = SvgSourceRecords & SvgRasterProcessor
 
 /** Persistable JSON only. Metadata validation does not certify resource bytes. */
 export interface ProjectData {

@@ -1,6 +1,6 @@
 import { toBundle, type EditableProject } from '../../../application/workspace/project.js'
 import type { AssetReviewContent } from '../../../shared/assets/review.js'
-import { listCatalogItems, loadLibraryCapsule, prepareLibraryEntry } from '../../../shared/library/content.js'
+import { listSnapshotCatalogItems, loadLibraryCapsule, prepareLibraryEntry } from '../../../shared/library/content.js'
 import type { CatalogItem, CatalogSelector } from '../../../shared/library/types.js'
 import type { ProjectData } from '../../../shared/model/project.js'
 import { validateProjectBundle } from '../../../shared/project/resources.js'
@@ -27,7 +27,7 @@ export async function prepareProjectAssetReviews(project: EditableProject, signa
   const validation = { ...browserProjectValidation, signal }
   const bundle = await validateProjectBundle(toBundle(project), validation)
   signal?.throwIfAborted()
-  const catalog = listCatalogItems(bundle), items: CatalogItem[] = [], content: AssetReviewContent[] = []
+  const catalog = listSnapshotCatalogItems(bundle), items: CatalogItem[] = [], content: AssetReviewContent[] = []
   const exactItems = new Map<string, CatalogItem>()
   for (const item of catalog) {
     signal?.throwIfAborted()

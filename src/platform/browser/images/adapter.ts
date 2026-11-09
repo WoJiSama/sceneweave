@@ -97,6 +97,7 @@ async function encodeCanvasPng(canvas: HTMLCanvasElement, signal?: CancellationS
 export function createBrowserImagePort(): ImageProcessingPort {
   return {
     validationConcurrency: 2,
+    normalizeImport: normalizeBrowserImage,
     async decode(input, record, options = {}) {
       checkCancelled(options.signal)
       const bytes = captureBytes(input, PACKAGE_LIMITS.imageBytes), header = inspectImageBytes(bytes)

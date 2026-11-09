@@ -75,9 +75,9 @@ describe('merged history panel overview read', () => {
     await repo.save(revision(input, 1), 0)
     const projectReads = vi.spyOn(repo.database.projects, 'get')
     const overview = await repo.historyOverview(owner)
-    // The merged read touches the current row once for its full strict check and
-    // once more inside the usage assertion; the separate panel reads used four.
-    expect(projectReads).toHaveBeenCalledTimes(2)
+    // The merged read strictly checks current once; usage asks for existence
+    // through the primary key and does not hydrate its payload a second time.
+    expect(projectReads).toHaveBeenCalledTimes(1)
     projectReads.mockRestore()
     const [snapshots, usage, legacySources, history] = await fourSeparateReads(repo, owner)
     expect(overview.snapshots).toEqual(snapshots)

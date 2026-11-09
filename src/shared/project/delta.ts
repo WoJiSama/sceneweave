@@ -1,8 +1,10 @@
 import type { ProjectData } from '../model/project.js'
 import { captureJson, cloneJson, encodeUtf8, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
-import { validateProjectData } from './validate.js'
+import { getProjectLocalTransaction, getProjectTransactionReceipt, validateProjectData } from './validate.js'
+import { equalTransactionValue, transactionSlot } from '../transaction/receipt.js'
 import { decodeProjectCoordinates, encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
+import { getOwnedProjectEncoding, type OwnedProjectEncoding } from './encoding.js'
 
 export type DeltaValue = null | boolean | number | string | DeltaValue[] | { [key: string]: DeltaValue }
 export type DeltaSlot = { present: false } | { present: true; value: DeltaValue }
@@ -17,6 +19,24 @@ export interface JsonDelta {
 export interface ProjectDeltaChainResult {
   project: ProjectData
   states: { contentHash: string; revision: number }[]
+}
+export interface ProjectDeltaEncodings {
+  readonly before: OwnedProjectEncoding
+  readonly after: OwnedProjectEncoding
+}
+
+/** Only an executor's exact immutable endpoints can inherit an encoding. A
+ * mutable source reference, copied project or matching caller hash cannot. */
+function localEncodedEndpoints(input: ProjectDeltaEncodings | undefined, before: ProjectData, after: ProjectData,
+  baseline: ProjectData, result: ProjectData): ProjectDeltaEncodings | undefined {
+  if (!input || typeof input !== 'object') return
+  try {
+    const fields = Object.getOwnPropertyDescriptors(input)
+    if (Reflect.ownKeys(input).length !== 2 || !['before', 'after'].every(key => fields[key]?.enumerable && 'value' in fields[key])) return
+    const left = getOwnedProjectEncoding(fields.before.value, baseline), right = getOwnedProjectEncoding(fields.after.value, result)
+    if (!left || !right || before !== baseline && before !== left.stored || after !== result && after !== right.stored) return
+    return { before: left, after: right }
+  } catch { return }
 }
 
 const hash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
@@ -137,6 +157,82 @@ export function createProjectDelta(before: ProjectData, after: ProjectData): Jso
   }
   visit(source as unknown as DeltaValue, target as unknown as DeltaValue, [])
   return validateProjectDelta({ format: 'sceneweave-project-delta', version: 1, beforeHash: digest(source), afterHash: digest(target), changes })
+}
+
+/** Local writes are useful only for the exact complete persisted baseline and
+ * result. An original immutable result can carry proof through an owning save
+ * boundary's detached full validation, but never authorizes different content.
+ * Strict JSON capture plus complete equality inherits private validation; no
+ * caller hash, changed-path declaration or repeated domain parse is trusted.
+ * Actual canonical bytes and SHA-256 remain mandatory. Encodings produced once
+ * by the shared owner may be consumed only with exact immutable endpoints from
+ * this still-live private transaction; detached inputs retain full comparison. */
+export function tryCreateLocalProjectDelta(before: ProjectData, after: ProjectData, originalAfter: ProjectData = after,
+  encodings?: ProjectDeltaEncodings): JsonDelta | undefined {
+  const transaction = getProjectLocalTransaction(originalAfter)
+  const common = getProjectTransactionReceipt(originalAfter)
+  // The existing closed Prop writer already covers coordinate conversion and
+  // needs no general replay. Other commands use the conservative common path.
+  const receipt = transaction && common?.composition.validation.mode === 'prop-proof' ? undefined : common
+  const evidence = receipt ?? transaction
+  if (!evidence) return
+  const encoded = localEncodedEndpoints(encodings, before, after, evidence.baseline, evidence.result)
+  let source: ProjectData | undefined, target: ProjectData | undefined
+  if (encoded) { source = encoded.before.stored; target = encoded.after.stored }
+  else try {
+    const captureEndpoint = (input: ProjectData, certified: ProjectData): ProjectData | undefined => {
+      const owned = captureJson(input), local = owned?.document?.aggregateCoordinates?.encoding === 'local'
+      // Compare the original representation before any transform can normalize
+      // invalid world values. Exact persisted input is equally safe to inherit.
+      if (canonicalOwned(owned) !== canonicalOwned(local ? persisted(certified) : certified)) return
+      return local ? owned : persisted(owned)
+    }
+    source = captureEndpoint(before, evidence.baseline)
+    target = captureEndpoint(after, evidence.result)
+  } catch { return }
+  if (!source || !target) return
+  const sourceJson = encoded?.before.canonical ?? canonicalOwned(source), targetJson = encoded?.after.canonical ?? canonicalOwned(target)
+  const beforeHash = encoded?.before.contentHash ?? sha256Bytes(encodeUtf8(sourceJson))
+  const afterHash = encoded?.after.contentHash ?? sha256Bytes(encodeUtf8(targetJson))
+  const changes: DeltaChange[] = []
+  if (receipt) {
+    for (const write of receipt.changes) {
+      const left = transactionSlot(source, write.path), right = transactionSlot(target, write.path)
+      if (left.present === right.present && (!left.present || right.present && equalTransactionValue(left.value, right.value))) continue
+      changes.push({ path: [...write.path], before: cloneJson(left) as DeltaSlot, after: cloneJson(right) as DeltaSlot })
+    }
+    const result = validateProjectDelta({ format: 'sceneweave-project-delta', version: 1,
+      beforeHash, afterHash, changes })
+    // Encoding local aggregate coordinates can introduce writes not present in
+    // the world-space execution. Prove the complete stored endpoint or fall
+    // back; neither a receipt nor a matching revision can waive that check.
+    // Without coordinate conversion the executor's complete net writes cover
+    // the exact same stored values. Aggregate world encoding can introduce
+    // other writes, so it retains the existing complete replay comparison.
+    if (encoded && evidence.baseline.document.aggregateCoordinates?.encoding !== 'world'
+      && evidence.result.document.aggregateCoordinates?.encoding !== 'world') return result
+    try {
+      const applied = cloneJson(source)
+      applyChanges(applied, result, true)
+      if (canonicalOwned(applied) !== targetJson) return
+    } catch { return }
+    return result
+  }
+  const append = (path: string[], left: DeltaValue, right: DeltaValue) => {
+    if (!equal(left, right)) changes.push({ path, before: { present: true, value: cloneJson(left) }, after: { present: true, value: cloneJson(right) } })
+  }
+  // Aggregate frame-relative values come from the actual persisted documents,
+  // rather than treating the executor's world-space values as stored fields.
+  for (const change of transaction!.propChanges) for (const field of change.fields) {
+    append(['document', 'props', change.id, field], source.document.props[change.id][field] as DeltaValue,
+      target.document.props[change.id][field] as DeltaValue)
+  }
+  if (transaction!.revisionChanges) {
+    append(['document', 'revision'], source.document.revision, target.document.revision)
+    append(['document', 'updatedAt'], source.document.updatedAt, target.document.updatedAt)
+  }
+  return validateProjectDelta({ format: 'sceneweave-project-delta', version: 1,
+    beforeHash, afterHash, changes })
 }
 
 /** Mutates only a private owned project, using an already detached strict delta. */

@@ -5,8 +5,9 @@ import { polygonBoolean } from '../geometry/polygon-boolean.js'
 import { assertTaskBudget, emptyBudgetUsage, measureTaskBudget, withExecutionWorkObserver, type BudgetUsage } from '../budget/task-budget.js'
 import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { createSpaceContext } from './space.js'
-import { materializationViolation } from './materialization.js'
-import { generationArtifactSchema, generationDiagnosticSchema, generationRecipeSchema, generationRequestSchema, hashGenerationValue, freezeArtifact, type ArtifactKind, type ArtifactReader, type GenerationArtifact, type GenerationCandidate, type GenerationConstraint, type GenerationDiagnostic, type GenerationFailureCode, type GenerationOperatorDescriptor, type GenerationRecipe, type GenerationRequest, type OperatorRef, type RecipeStep, type SpaceQueries, type OperatorContext, type GenerationStageReceipt } from './contracts.js'
+import { declaredMaterializationViolation, materializationViolation } from './materialization.js'
+import { isNaturalReplayBridgeIdentity } from './natural-replay-contract.js'
+import { generationArtifactSchema, generationDiagnosticSchema, generationRecipeSchema, generationRequestSchema, generationWriteGrantSchema, hashGenerationValue, freezeArtifact, type ArtifactKind, type ArtifactReader, type GenerationArtifact, type GenerationCandidate, type GenerationConstraint, type GenerationDiagnostic, type GenerationFailureCode, type GenerationOperatorDescriptor, type GenerationRecipe, type GenerationRequest, type GenerationWriteGrant, type OperatorRef, type RecipeStep, type SpaceQueries, type OperatorContext, type GenerationStageReceipt } from './contracts.js'
 
 export class GenerationError extends Error {
   constructor(readonly code: GenerationFailureCode, message: string) { super(message); this.name = 'GenerationError' }
@@ -34,32 +35,40 @@ export class GenerationRegistry {
   #recipes = new Map<string, GenerationRecipe>()
   #naturalReplayBridges = new Set<string>()
   register(input: GenerationOperatorDescriptor): void {
+    this.#register(input, false)
+  }
+  #register(input: Omit<GenerationOperatorDescriptor, 'writes'> & { readonly writes?: GenerationOperatorDescriptor['writes'] }, naturalReplay: boolean): void {
     for (const key of Reflect.ownKeys(input)) {
       const descriptor = Object.getOwnPropertyDescriptor(input, key)
       if (typeof key !== 'string' || !descriptor || !('value' in descriptor) || !descriptor.enumerable) throw new GenerationError('invalid-request', '算子注册不接受访问器、隐藏或symbol字段。')
     }
-    const { run, parseParameters, materialize, ...raw } = input
+    const { run, parseParameters, materialize, writes: declaration, ...raw } = input
     if (typeof run !== 'function' || typeof parseParameters !== 'function' || materialize !== undefined && typeof materialize !== 'function') throw new GenerationError('invalid-request', '算子必须提供同步执行和参数校验。')
+    if (naturalReplay && (input.phase !== 'structure' || !materialize)) throw new GenerationError('ownership-conflict', '自然重放桥只允许结构阶段完整物化。')
+    if (!naturalReplay && (!Object.hasOwn(input, 'writes') || declaration === undefined)) throw new GenerationError('ownership-conflict', '普通算子必须显式声明物化目标/字段写域；纯事实算子使用空声明。')
+    const writes = typeof declaration === 'function' ? declaration : freezeJson(z.array(generationWriteGrantSchema).max(256).parse(captureJson(declaration ?? [])))
     const metadata = metadataSchema.parse(captureJson(raw)), key = identity(metadata)
+    if (naturalReplay && !isNaturalReplayBridgeIdentity(metadata)) throw new GenerationError('ownership-conflict', '完整自然重放桥须使用现有base-map3合同的精确算法身份和重放版本。')
     if (this.#operators.has(key) || metadata.owner !== metadata.phase || metadata.requires.some(ref => identity(ref) === key)
       || new Set(metadata.requires.map(identity)).size !== metadata.requires.length
       || new Set(metadata.consumes).size !== metadata.consumes.length || new Set(metadata.produces).size !== metadata.produces.length
       || new Set(metadata.publishFacts).size !== metadata.publishFacts.length || metadata.publishFacts.some(kind => !metadata.produces.includes(kind) || !materialize)
       || [...metadata.consumes, ...metadata.produces].some(kind => !kinds.has(kind as ArtifactKind))
       || metadata.produces.some(kind => !(allowedKinds[metadata.phase] as readonly string[]).includes(kind))) throw new GenerationError('ownership-conflict', `算子身份、依赖或阶段所有权无效：${key}`)
-    this.#operators.set(key, Object.freeze({ ...freezeJson(metadata), run, parseParameters, ...(materialize ? { materialize } : {}) }) as GenerationOperatorDescriptor)
+    this.#operators.set(key, Object.freeze({ ...freezeJson(metadata), writes, run, parseParameters, ...(materialize ? { materialize } : {}) }) as GenerationOperatorDescriptor)
+    if (naturalReplay) this.#naturalReplayBridges.add(key)
   }
   /** Internal compatibility bridge only: the old natural protocol materializes
    * all domains atomically. Ordinary registration always retains phase scopes. */
-  registerNaturalReplayBridge(input: GenerationOperatorDescriptor): void {
-    if (input.phase !== 'structure' || !input.materialize) throw new GenerationError('ownership-conflict', '自然重放桥只允许结构阶段完整物化。')
-    this.register(input)
-    this.#naturalReplayBridges.add(identity(input))
+  registerNaturalReplayBridge(input: Omit<GenerationOperatorDescriptor, 'writes'> & { readonly writes?: GenerationOperatorDescriptor['writes'] }): void {
+    this.#register(input, true)
   }
-  assertMaterialization(operator: GenerationOperatorDescriptor, before: Parameters<typeof materializationViolation>[0], after: SceneDocument): void {
+  assertMaterialization(operator: GenerationOperatorDescriptor, before: Parameters<typeof materializationViolation>[0], after: SceneDocument, writes: readonly GenerationWriteGrant[]): void {
     if (this.#naturalReplayBridges.has(identity(operator))) return
     const field = materializationViolation(before, after, operator.phase)
     if (field) throw new GenerationError('ownership-conflict', `算子 ${identity(operator)} 超出阶段物化写入范围：${field}`)
+    const target = declaredMaterializationViolation(before, after, writes)
+    if (target) throw new GenerationError('ownership-conflict', `算子 ${identity(operator)} 超出声明的目标/字段写域：${target}`)
   }
   registerRecipe(input: Omit<GenerationRecipe, 'recipeHash'>): GenerationRecipe {
     const body = generationRecipeSchema.omit({ recipeHash: true }).parse(captureJson(input)), key = identity(body)
@@ -227,10 +236,20 @@ export function runGeneration(raw: GenerationRequest, registry: GenerationRegist
     }
     const available = [...new Map([...selected.values()].flat().map(item => [item.id, item])).values()]
     const parameters = captureJson(operator.parseParameters(step.parameters))
+    checkCancelled()
     if (canonicalJson(parameters) !== canonicalJson(step.parameters)) throw new GenerationError('invalid-request', `步骤参数未规范化：${step.id}`)
     const context: OperatorContext = Object.freeze({ request, step, artifacts: reader(available), space,
       inputs: Object.freeze({ get: (id: string) => { const values = selected.get(id); if (!values) throw new GenerationError('missing-input', `未绑定的输入：${id}`); return values } }), checkCancelled,
       deriveSeed: (stableKey: string) => { if (!stableKey || stableKey.length > 512) throw new GenerationError('invalid-request', '种子派生需要稳定空间键。'); return hashGenerationValue([request.seed, request.recipe.id, request.recipe.version, step.id, operator.id, operator.version, operator.determinism.replayVersion, stableKey]) } })
+    let writes: readonly GenerationWriteGrant[]
+    try {
+      writes = freezeJson(z.array(generationWriteGrantSchema).max(256).parse(captureJson(typeof operator.writes === 'function' ? operator.writes({ document, context }) : operator.writes)))
+    } catch (error) {
+      if (error instanceof GenerationError) throw error
+      checkCancelled()
+      throw new GenerationError('ownership-conflict', `算子 ${identity(operator)} 写域声明无效：${String(error)}`)
+    }
+    checkCancelled()
     const beforeHash = space.contentHash
     let materializedUsage = emptyBudgetUsage()
     let result: z.infer<typeof outputSchema>
@@ -264,7 +283,7 @@ export function runGeneration(raw: GenerationRequest, registry: GenerationRegist
         const next = withExecutionWorkObserver(delta => { charge(delta); checkCancelled(); tick() }, () => captureJson(operator.materialize!({ document, context, outputs: Object.freeze(batch) })))
         checkCancelled(); tick()
         if (next.sceneId !== source.sceneId || next.revision !== source.revision || next.mapMode !== sourceDocument.mapMode || canonicalJson(next.floors) !== canonicalJson(sourceDocument.floors)) throw new GenerationError('candidate-invalid', '阶段候选不能改变基线身份、revision、Floor或坐标框架。')
-        registry.assertMaterialization(operator, document, next)
+        registry.assertMaterialization(operator, document, next, writes)
         const nextSpace = createSpaceContext(next, 'candidate')
         // The full scene's independent complexity is checked as well as the
         // cumulative actual operator work; hidden entities cannot evade budgets.

@@ -3,6 +3,7 @@ import { aggregateChunkAddress, planAggregateChunks } from '../../../shared/aggr
 import type { AggregateChunkResidency } from '../../../shared/model/aggregate.js'
 import type { Projection } from '../../../shared/projection/types.js'
 import type { EditorRenderPlan } from './editor-render-plan.js'
+import { projectionAssetConsumers } from '../../../shared/projection/presentation-contract.js'
 
 /** Disposable derived data only. The complete document stays resident and all
  * persistence/geometry/resource checks remain with their existing owners.
@@ -43,27 +44,20 @@ export function createAggregateDerivedResidency<T>(manifest: AggregateChunkManif
   }
 }
 
-/** Retain every non-prop image and every visible prop image. Only images used
- * exclusively by omitted editor props avoid this render's bitmap decode.
+/** Retain non-sprite images and visible sprites. Images used exclusively by
+ * omitted props/decorations avoid this render's bitmap decode.
  * All projected resource records and bytes are still verified by the renderer.
  * Formal PNG output continues to decode the complete projected asset closure.
  */
 export function editorResidentAssetIds(projection: Projection, plan: EditorRenderPlan): ReadonlySet<string> {
-  const required = new Set<string>()
-  const styles = [...projection.rooms.map(value => value.style), ...projection.terrain.map(value => value.style), ...projection.walls.map(value => value.style),
-    ...projection.edges.map(value => value.surfaceStyle), ...projection.paths.map(value => value.style), ...projection.connections.map(value => value.style)]
-  const paints = styles.flatMap(style => style ? [style.base, ...style.overlays.map(overlay => overlay.paint)] : [])
-    .concat(projection.terrain.flatMap(value => (value.materialPatches ?? []).map(patch => patch.paint)))
-  for (const paint of paints) {
-    const material = projection.materials[paint.materialRef.id]
-    if (!material || material.version !== paint.materialRef.version) throw new Error('区块绘制所需材质缺失或版本不符。')
-    required.add(material.textureAssetId)
+  const closure = projectionAssetConsumers(projection)
+  if (!closure.complete) return new Set(projection.assetIds)
+  const required = new Set(closure.consumers.flatMap(consumer => consumer.kind === 'always' ? [...consumer.assetIds] : []))
+  // Paint envelopes are the actual retained consumers. The complete registered
+  // closure above proves that omitted sprites have no other unknown consumer.
+  for (const envelope of plan.presentations) {
+    if (envelope.audience !== projection.audience) throw new Error('表现资源与当前受众不一致。')
+    for (const id of envelope.assetIds) required.add(id)
   }
-  for (const value of plan.props) if (value.prop.appearance.kind === 'image') required.add(value.prop.appearance.assetId)
-  for (const value of projection.decorations ?? []) required.add(value.assetId)
-  for (const value of [...(projection.regional?.landmarks ?? []), ...(projection.regional?.symbols ?? [])]) required.add(value.assetId)
-  // Unknown future consumers conservatively retain their assets.
-  const propImages = new Set(projection.props.flatMap(prop => prop.appearance.kind === 'image' ? [prop.appearance.assetId] : []))
-  for (const id of projection.assetIds) if (!propImages.has(id)) required.add(id)
   return required
 }

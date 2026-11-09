@@ -17,6 +17,7 @@ import { getLegacyGeneration } from '../../../terrain-generation/composition-con
 import { generationInputHash, managedOutputHash, detachChangedOutputs } from '../../../terrain-generation/integrity.js'
 import type { GenerationFieldGroup, GenerationRecipe, GenerationReference, GenerationRule } from '../../../terrain-generation/contracts.js'
 import { GenerationRegistry, runGeneration } from '../../orchestrator.js'
+import { generationCreationWrites } from '../../materialization.js'
 import { hashGenerationValue, type ArtifactInput, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
 import { forestGenerationInputSchema, ForestGenerationError, type ForestGenerationInput, type ForestSupport } from './contracts.js'
 
@@ -176,6 +177,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
   const parseParameters = (parameters: Readonly<Record<string, JsonValue>>) => captureJson(normalizeForestInput(parameters)) as unknown as Record<string, JsonValue>
   const determinism = { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' as const }
   registry.register({ id: 'forest-ground', version: 1, phase: 'structure', owner: 'structure', consumes: ['support-surface'], produces: ['support-surface', 'plan-region', 'reserved-zone'], publishFacts: ['support-surface'], requires: [], determinism, parseParameters,
+    writes: ({ document }) => generationCreationWrites(document, ['terrainAreas', 'generation.legacy.constraints']),
     run() { return { outputs: [
       ...p.zones.map(zone => ({ id: id(`plan:${zone.id}`), owner: 'structure', kind: 'plan-region', payload: { coordinateFrame: 'scene-mm', floorId: p.floorId, visibility: 'public', domain: 'natural', purpose: 'forest', boundaryMm: cloneJson(zone.boundaryMm) } } as ArtifactInput)),
       ...p.clearings.map(row => ({ id: id(`reserved:${row.id}`), owner: 'structure', kind: 'reserved-zone', payload: { coordinateFrame: 'scene-mm', floorId: p.floorId, visibility: 'public', sourceId: id(`clearing:${row.id}`), reason: 'preserve', boundaryMm: cloneJson(row.boundaryMm) } } as ArtifactInput)),
@@ -194,6 +196,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
     },
   })
   registry.register({ id: 'forest-routes', version: 1, phase: 'connectivity', owner: 'connectivity', consumes: ['plan-region', 'support-surface'], produces: ['access-zone', 'port'], publishFacts: ['access-zone'], requires: [{ id: 'forest-ground', version: 1 }], determinism, parseParameters,
+    writes: ({ document }) => generationCreationWrites(document, ['paths', 'generation.legacy.constraints']),
     run() { return { outputs: p.entrances.map(row => ({ id: id(`port:${row.id}`), owner: 'connectivity', kind: 'port', payload: { coordinateFrame: 'scene-mm', floorId: p.floorId, visibility: 'public', positionMm: cloneJson(row.positionMm), widthMm: row.widthMm, directionDeg: row.directionDeg, elevationMm: p.ground.kind === 'new' ? p.ground.elevationMm : source.terrainAreas[support(input, source.sceneId, row.supportRef).id].groundElevationMm, supportRef: support(input, source.sceneId, row.supportRef), role: 'entrance' } } as ArtifactInput)) } },
     materialize({ document: before, context }) {
       let document = cloneJson(before) as SceneDocument
@@ -220,6 +223,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
     },
   })
   registry.register({ id: 'forest-vegetation', version: 1, phase: 'content', owner: 'content', consumes: ['plan-region', 'port', 'access-zone'], produces: ['prop-placement', 'footprint'], publishFacts: ['prop-placement', 'footprint'], requires: [{ id: 'forest-routes', version: 1 }], determinism, parseParameters,
+    writes: ({ document }) => generationCreationWrites(document, ['props', 'decorations', 'decorationClusters', 'surfaceRules']),
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
       const document = cloneJson(before) as SceneDocument, meter = captureExecutionBudget(profile), appearance = fixedAppearance(document)

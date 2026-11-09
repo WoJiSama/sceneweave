@@ -21,7 +21,7 @@ export function runNaturalGeneration(raw: BaseMapRequestV3, options: Pick<Genera
     const phase = phaseOrder[index]
     const register = phase === 'structure' ? registry.registerNaturalReplayBridge.bind(registry) : registry.register.bind(registry)
     register({ id: operatorId(phase), version: replayVersion, phase, owner: phase, consumes: phase === 'structure' ? [] : ['support-surface'], produces: phaseKinds[phase], requires: index ? [{ id: operatorId(phaseOrder[index - 1]), version: replayVersion }] : [],
-      determinism: { replayVersion, seedDerivation: 'request/recipe/step/operator/key' },
+      writes: [], determinism: { replayVersion, seedDerivation: 'request/recipe/step/operator/key' },
       parseParameters(input) { if (Object.keys(input).length) throw new Error('自然适配器没有任意参数入口。'); return {} },
       ...(phase === 'structure' ? { materialize() { if (!complete) throw new Error('自然算法未生成完整候选。'); return complete } } : {}),
       run(context) {

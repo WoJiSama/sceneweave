@@ -6,10 +6,9 @@ import { fixture, pixelPng, runtime } from './test-fixtures.js'
 import { fromBundle, toBundle, validateEditableProject } from './project.js'
 import { AssetBatchImportError, prepareAssetBatchImport, type AssetImportRequest } from './asset-batch.js'
 import { prepareAssetImport } from './prepare.js'
-import { normalizeBrowserImage } from '../../platform/browser/images/index.js'
 import { canonicalJson, encodeUtf8 } from '../../shared/validation/json.js'
 import { decodeUtf8, sha256Bytes } from '../../shared/project/binary.js'
-import { normalizePngChunks } from '../../shared/project/image-bytes.js'
+import { inspectImageBytes, normalizePngChunks } from '../../shared/project/image-bytes.js'
 import { normalizeStaticSvg } from '../../shared/ai/svg.js'
 import { exportProject, importProject } from '../../shared/project/file.js'
 import { projectContentHash } from '../../shared/project/validate.js'
@@ -17,19 +16,14 @@ import { Workspace } from './workspace.js'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { topDownPresentation } from '../../shared/appearance/presentation.js'
 
-// This replaces the browser-only PNG Canvas normalization step with exact
-// fixture PNG bytes. All complete-project/byte/CRC/decode/SVG-pixel validation
-// remains real; Chromium separately verifies raster metadata stripping.
-vi.mock('../../platform/browser/images/index.js', async () => {
-  const { inspectImageBytes, normalizePngChunks } = await import('../../shared/project/image-bytes.js')
-  const { sha256Bytes } = await import('../../shared/project/binary.js')
-  return { normalizeBrowserImage: vi.fn(async (bytes: Uint8Array, mime: string) => {
-    const before = inspectImageBytes(bytes, false)
-    if (mime && mime !== 'application/octet-stream' && mime !== before.mimeType) throw new Error('MIME mismatch')
-    const normalized = normalizePngChunks(bytes), header = inspectImageBytes(normalized)
-    return { bytes: normalized, record: { sha256: sha256Bytes(normalized), mimeType: header.mimeType, sizeBytes: normalized.length,
-      pixelWidth: header.width, pixelHeight: header.height } }
-  }) }
+// A fixture import capability is injected at the application port. Complete
+// byte/CRC/decode/SVG-pixel checks remain real; browser tests own Canvas/EXIF.
+const normalizeImport = vi.fn(async (bytes: Uint8Array, mime?: string) => {
+  const before = inspectImageBytes(bytes, false)
+  if (mime && mime !== 'application/octet-stream' && mime !== before.mimeType) throw new Error('MIME mismatch')
+  const normalized = normalizePngChunks(bytes), header = inspectImageBytes(normalized)
+  return { bytes: normalized, record: { sha256: sha256Bytes(normalized), mimeType: header.mimeType, sizeBytes: normalized.length,
+    pixelWidth: header.width, pixelHeight: header.height } }
 })
 const repositories: ProjectRepository[] = [], workspaces: Workspace[] = []
 afterEach(async () => {
@@ -38,6 +32,7 @@ afterEach(async () => {
   for (const repo of repositories.splice(0)) { const name=repo.database.name; repo.close(); await Dexie.delete(name) }
 })
 const validation = artworkValidation()
+validation.images.normalizeImport = normalizeImport
 const png = pixelPng([12,34,56,255])
 const request = (overrides: Partial<AssetImportRequest> = {}): AssetImportRequest => ({ file: new Blob([new Uint8Array(png)], {type:'image/png'}), name:'Coastal tree', kind:'prop',
   widthMm:1200,heightMm:1800,footprintWidthMm:300,footprintHeightMm:200,rootAnchorMm:{x:600,y:1700}, blocksMovement:false,blocksSight:true,
@@ -95,7 +90,7 @@ describe('selected batch import is one complete resource candidate', () => {
       await expect(prepareAssetBatchImport(base,[request(override as never)],{runtime,validation})).rejects.toMatchObject({itemIndex:0})
     }
     await expect(prepareAssetBatchImport(base,[{file:request().file,name:'tile',kind:'material',widthMm:1000,heightMm:1000,applicableSurfaces:[],licenseText:'Full grant',attribution:'Author',canEmbed:true}],{runtime,validation})).rejects.toThrow(/适用表面/)
-    expect(normalizeBrowserImage).not.toHaveBeenCalled();expect(projectContentHash(toBundle(base).project)).toBe(before)
+    expect(normalizeImport).not.toHaveBeenCalled();expect(projectContentHash(toBundle(base).project)).toBe(before)
   })
 
   it('owns all metadata, arrays and native Blob handles before its first await', async () => {
@@ -125,7 +120,7 @@ describe('selected batch import is one complete resource candidate', () => {
     await expect(prepareAssetBatchImport(base,[request({rootAnchorMm:null as never})],{runtime,validation})).rejects.toThrow(/根锚/)
     const nested=request();Object.defineProperty(nested.rootAnchorMm!, 'x', {enumerable:true,get(){reads++;return 0}})
     await expect(prepareAssetBatchImport(base,[nested],{runtime,validation})).rejects.toThrow(/访问器/)
-    expect(reads).toBe(0);expect(normalizeBrowserImage).not.toHaveBeenCalled()
+    expect(reads).toBe(0);expect(normalizeImport).not.toHaveBeenCalled()
   })
 
   it('gives the failed selection index and leaves the original usable after a later corrupt item', async () => {
@@ -153,7 +148,7 @@ describe('selected batch import is one complete resource candidate', () => {
     for(const source of [ARTWORK_SVG.replace('</svg>','<script>alert(1)</script></svg>'),'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><image href="https://example.test/a.png"/></svg>']) {
       await expect(prepareAssetBatchImport(base,[request({file:new Blob([source],{type:'image/png'})})],{runtime,validation})).rejects.toMatchObject({itemIndex:0})
     }
-    expect(rasterize).not.toHaveBeenCalled();expect(normalizeBrowserImage).not.toHaveBeenCalled()
+    expect(rasterize).not.toHaveBeenCalled();expect(normalizeImport).not.toHaveBeenCalled()
     await expect(prepareAssetBatchImport(base,[request({file:new Blob([ARTWORK_SVG],{type:'image/svg+xml'})})],{runtime,validation:{images:validation.images}})).rejects.toThrow(/SVG/)
     await expect(prepareAssetBatchImport(base,[request({file:new Blob([new Uint8Array([0xc0,0xaf])],{type:'image/svg+xml'})})],{runtime,validation})).rejects.toThrow(/UTF-8/)
     rasterize.mockRestore()
@@ -164,12 +159,12 @@ describe('selected batch import is one complete resource candidate', () => {
     await expect(prepareAssetBatchImport(base,Array.from({length:65},()=>request()),{runtime,validation})).rejects.toThrow(/64/)
     const large=new Blob([new Uint8Array(17*1024*1024)],{type:'image/png'})
     await expect(prepareAssetBatchImport(base,Array.from({length:4},()=>request({file:large})),{runtime,validation})).rejects.toMatchObject({itemIndex:3})
-    expect(normalizeBrowserImage).not.toHaveBeenCalled()
+    expect(normalizeImport).not.toHaveBeenCalled()
   })
 
   it('cancels SVG materialization without returning any staged candidate', async () => {
     const base=await blank(), signal={aborted:false}, svg=validation.svg!
-    const cancelled={...validation,svg:{async rasterize(...args:Parameters<typeof svg.rasterize>){const image=await svg.rasterize(...args);signal.aborted=true;return image}}}
+    const cancelled={...validation,svg:{processor:svg.processor,async rasterize(...args:Parameters<typeof svg.rasterize>){const image=await svg.rasterize(...args);signal.aborted=true;return image}}}
     await expect(prepareAssetBatchImport(base,[request({file:new Blob([ARTWORK_SVG],{type:'image/svg+xml'})})],{runtime,validation:cancelled,signal})).rejects.toMatchObject({name:'AbortError'})
     expect(base.authoringSources).toEqual({})
   })

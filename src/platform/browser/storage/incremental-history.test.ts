@@ -218,6 +218,87 @@ describe('incremental local history graph', () => {
     await transaction(database, history => history.append(restored, ordinary, 'restored'))
     expect((await transaction(database, history => history.readVersion(original.sceneId, 'restored')))!.project).toEqual(restored.project)
   })
+  it('reuses only an audited fixed-family index and rebuilds that evidence after reopening', async () => {
+    const database = db(); await database.open()
+    const original = row(withFixedSource(project(), .25)), removed = row(original.project, 1)
+    delete removed.project.appearance.sources['retained-fixed-source']; delete removed.project.appearance.presentations!['retained-fixed-source']; removed.contentHash = projectContentHash(removed.project)
+    await transaction(database, history => history.append(original, null, 'root'))
+    await transaction(database, history => history.append(removed, original, 'removed'))
+    const reconstruct = vi.spyOn(projectDelta, 'applyProjectDelta')
+    const restored = row(withFixedSource(removed.project, .25), 2)
+    await transaction(database, history => history.append(restored, removed, 'restored'))
+    expect(reconstruct).not.toHaveBeenCalled()
+    const removedAgain = row(removed.project, 3)
+    await transaction(database, history => history.append(removedAgain, restored, 'removed-again'))
+    database.close()
+    const cold = db(database.name); await cold.open(); reconstruct.mockClear()
+    const coldRestored = row(withFixedSource(removedAgain.project, .25), 4)
+    await transaction(cold, history => history.append(coldRestored, removedAgain, 'cold-restored'))
+    expect(reconstruct).toHaveBeenCalled()
+    expect((await transaction(cold, history => history.readVersion(original.sceneId, 'cold-restored')))!.project).toEqual(coldRestored.project)
+  })
+  it('publishes no fixed meanings or branch fingerprints from an aborted append', async () => {
+    const database = db(); await database.open()
+    const original = row(), aborted = row(withFixedSource(original.project, .25), 1)
+    await transaction(database, history => history.append(original, null, 'root'))
+    await expect(transaction(database, async history => {
+      await history.append(aborted, original, 'aborted')
+      throw new Error('abort after staged index')
+    })).rejects.toThrow('abort after staged index')
+    expect(await database.historyVersions.count()).toBe(1)
+    const accepted = row(withFixedSource(original.project, .75), 1)
+    await transaction(database, history => history.append(accepted, original, 'accepted'))
+    expect((await transaction(database, history => history.readVersion(original.sceneId, 'accepted')))!.project).toEqual(accepted.project)
+  })
+  it('evicts bounded owner evidence and reconstructs the retained branch instead of skipping its fixed identity', async () => {
+    const database = db(); await database.open()
+    const original = row(withFixedSource(project(), .25)), removed = row(original.project, 1)
+    delete removed.project.appearance.sources['retained-fixed-source']; delete removed.project.appearance.presentations!['retained-fixed-source']; removed.contentHash = projectContentHash(removed.project)
+    await transaction(database, history => history.append(original, null, 'original'))
+    await transaction(database, history => history.append(removed, original, 'removed'))
+    for (let index = 0; index < 4; index++) {
+      const other = project(); other.document.sceneId = `other-owner-${index}`
+      await transaction(database, history => history.append(row(other), null, `other-root-${index}`))
+    }
+    const reconstruct = vi.spyOn(projectDelta, 'applyProjectDelta'), restored = row(withFixedSource(removed.project, .25), 2)
+    await transaction(database, history => history.append(restored, removed, 'restored'))
+    expect(reconstruct).toHaveBeenCalled()
+    expect(await database.historyVersions.where('ownerSceneId').equals(original.sceneId).count()).toBe(3)
+  })
+  it('checks actual historical block bytes again before reusing warm fixed meanings', async () => {
+    const database = db(); await database.open()
+    const original = row(withFixedSource(project(), .25)), removed = row(original.project, 1)
+    delete removed.project.appearance.sources['retained-fixed-source']; delete removed.project.appearance.presentations!['retained-fixed-source']; removed.contentHash = projectContentHash(removed.project)
+    await transaction(database, history => history.append(original, null, 'original'))
+    await transaction(database, history => history.append(removed, original, 'removed'))
+    await database.transaction('rw', PROJECT_TABLES, async () => {
+      const raw = await database.rawJsonRecord('historyVersions', [original.sceneId, 'original']) as { checkpoint: import('./content-blocks.js').ProjectBlockManifest }
+      const ref = raw.checkpoint.fields.find(field => field.path.join('.') === 'appearance.sources')!.blocks[0]
+      const block = (await database.projectContentBlocks.get(ref.sha256))!
+      const bytes = block.bytes.slice(); bytes[0] ^= 1
+      await new Dexie.Promise<void>((resolve, reject) => {
+        const request = Dexie.currentTransaction!.idbtrans.objectStore('projectContentBlocks').put({ sha256: block.sha256, bytes })
+        request.onsuccess = () => resolve(); request.onerror = () => reject(request.error)
+      })
+    })
+    const restored = row(withFixedSource(removed.project, .25), 2)
+    await expect(transaction(database, history => history.append(restored, removed, 'must-not-publish'))).rejects.toThrow(/内容块/)
+    expect(await database.historyVersions.count()).toBe(2)
+    expect((await database.historyHeads.get(original.sceneId))!.activeVersionId).toBe('removed')
+  })
+  it('invalidates warm fixed evidence for a foreign retained branch even beyond navigation pins', async () => {
+    const database = db(); await database.open()
+    const original = row(withFixedSource(project(), .25)), first = await transaction(database, history => history.append(original, null, 'first'))
+    const removed = row(original.project, 1)
+    delete removed.project.appearance.sources['retained-fixed-source']; delete removed.project.appearance.presentations!['retained-fixed-source']; removed.contentHash = projectContentHash(removed.project)
+    await transaction(database, history => history.append(removed, original, 'removed'))
+    const foreign = row(withFixedSource(original.project, .75), 0)
+    await database.historyVersions.add(reseal({ ...first, id: 'foreign', checkpoint: foreign.project, contentHash: foreign.contentHash, automatic: false }))
+    const restored = row(withFixedSource(removed.project, .25), 2)
+    await expect(transaction(database, history => history.append(restored, removed, 'must-not-publish'))).rejects.toThrow(/固定来源/)
+    expect(await database.historyVersions.count()).toBe(3)
+    expect((await database.historyHeads.get(original.sceneId))!.activeVersionId).toBe('removed')
+  })
   it('audits both old unpinned branches beyond the latest twenty even when current removed their fixed identity', async () => {
     const database = db(); await database.open()
     const original = row(withFixedSource(project(), .25)), owner = original.sceneId

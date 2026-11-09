@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { domainExecutionFixture } from '../../../tools/testing/domain-execution-fixtures.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
 import { runInteriorGeneration } from './domains/interior/index.js'
@@ -7,7 +7,7 @@ import { runVolcanoGeneration } from './domains/volcano/index.js'
 import {
   createDomainExecutionRequest, parseDomainExecutionRequest, executeDomainExecutionRequest, parseDomainExecutionResponse,
   domainGenerationCapabilities, parseDomainGenerationCapabilities, DOMAIN_GENERATION_LIMITS,
-  type DomainGenerationKind,
+  type DomainExecutionResponse, type DomainGenerationKind,
 } from './execution.js'
 
 const context = { workspaceId: 'd7-workspace', checkpoint: 3, epoch: 2 }
@@ -22,6 +22,14 @@ const direct = (domain: Exclude<DomainGenerationKind, 'mixed'>) => {
 }
 
 describe('strict common domain execution', () => {
+  it('retains the exact domain response type for a typed request and keeps unknown transport input broad', () => {
+    const prepared = createDomainExecutionRequest({ requestId: 'typed-interior', context, domain: 'interior', ...domainExecutionFixture('interior') })
+    const typed = () => executeDomainExecutionRequest(prepared, { nowMilliseconds: () => 0 })
+    const transport: unknown = prepared, untyped = () => executeDomainExecutionRequest(transport, { nowMilliseconds: () => 0 })
+    expectTypeOf<ReturnType<typeof typed>>().toEqualTypeOf<DomainExecutionResponse<'interior'>>()
+    expectTypeOf<ReturnType<typeof untyped>>().toEqualTypeOf<DomainExecutionResponse>()
+  })
+
   it.each(['interior', 'forest', 'volcano'] as const)('executes the exact shared %s implementation and preserves its spatial handoff', domain => {
     const prepared = request(domain), before = canonicalJson(prepared)
     const response = executeDomainExecutionRequest(prepared, { nowMilliseconds: () => 0 })

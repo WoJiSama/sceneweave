@@ -99,7 +99,7 @@ describe('persistent complete history navigation', () => {
 
   it('retains the adopted branch and undo when the final save fails, and retries with its selected parent', async () => {
     const { repo, workspace, owner, initial } = await setup()
-    vi.spyOn(repo, 'save').mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'))
+    vi.spyOn(repo, 'saveSnapshot').mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'))
     await expect(workspace.navigateHistoryVersion(initial)).rejects.toMatchObject({ name: 'QuotaExceededError' })
     expect(workspace.getState()).toMatchObject({ status: 'error', canUndo: true,
       project: { document: { revision: 2, props: { item: { rotationDeg: 0 } } } } })

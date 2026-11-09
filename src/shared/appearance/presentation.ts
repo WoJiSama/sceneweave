@@ -1,10 +1,11 @@
 import type { AppearanceGraph, CompositionContent, PropAppearanceSnapshot } from '../model/appearance.js'
 import type { BoundsMm, PointMm, Prop, SceneDocument, ShadowStyle, VersionRef } from '../model/scene.js'
 import type { FixedPresentation } from '../terrain-generation/contracts.js'
-import { canonicalJson, cloneJson } from '../validation/json.js'
+import { canonicalJson, cloneJson, freezeJson } from '../validation/json.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { pointInPolygon } from '../geometry/geometry.js'
 import { assertSimpleVisualPolyline } from '../visual/geometry.js'
+import { getPropUpdateTransaction } from '../validation/snapshots.js'
 
 /** Disposable paint inputs; fixed-source identity and orientation metadata stay in the GM graph. */
 export type PaintPresentation = Pick<FixedPresentation, 'mode' | 'rootAnchorMm' | 'groundShadowMm'>
@@ -120,17 +121,30 @@ export function visiblePresentations(content: Pick<CompositionContent, 'appearan
 // Disposable inspector hints, issued after complete composition validation.
 // These never certify a document or skip any source/resource validation.
 const sceneViews = new WeakMap<SceneDocument, Record<string, FixedPresentation>>()
+const sceneViewGraphs = new WeakMap<SceneDocument, AppearanceGraph>()
 export function associateScenePresentations(scene: SceneDocument, graph: AppearanceGraph): void {
   const values = visiblePresentations({ appearance: graph }, Object.keys(scene.props))
   for (const value of Object.values(scene.decorations ?? {})) {
     const presentation = definitionPresentation(graph, value.definitionRef)
     if (presentation) values[value.id] = cloneJson(presentation)
   }
-  sceneViews.set(scene, values)
+  sceneViews.set(scene, freezeJson(values))
+  sceneViewGraphs.set(scene, graph)
+}
+/** Reuse only an actual position/angle executor result and the exact graph that
+ * produced the baseline hints. A forged or unrelated pair always misses. */
+export function inheritPropUpdatePresentations(source: SceneDocument, target: SceneDocument, graph: AppearanceGraph): boolean {
+  if (!getPropUpdateTransaction(target, source) || sceneViewGraphs.get(source) !== graph) return false
+  const entries = sceneViews.get(source)
+  if (!entries) return false
+  sceneViews.set(target, entries); sceneViewGraphs.set(target, graph)
+  return true
 }
 export function scenePresentation(scene: SceneDocument, id: string): FixedPresentation | undefined { return sceneViews.get(scene)?.[id] }
 export function copyScenePresentations(source: SceneDocument, target: SceneDocument): void {
   const entries = sceneViews.get(source); if (entries) sceneViews.set(target, cloneJson(entries))
+  // General inspector copies carry no graph identity proof.
+  sceneViewGraphs.delete(target)
 }
 export function comparePresentationDepth(scene: SceneDocument, a: Prop, b: Prop): number {
   return scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0

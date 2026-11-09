@@ -1,10 +1,10 @@
-import { associateScenePresentations, validatePresentations } from '../appearance/presentation.js'
+import { associateScenePresentations, inheritPropUpdatePresentations, propPresentation, validatePresentations } from '../appearance/presentation.js'
 import { presentationRecordSchema } from '../terrain-generation/contracts.js'
 import { validateCompositionIdentityContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
-import { cloneJson, inspectJsonInput } from './json.js'
-import { sceneSchema } from './scene.js'
-import { reviseSceneSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot } from './snapshots.js'
+import { cloneJson, freezeJson, inspectJsonInput } from './json.js'
+import { sceneSchema, validateSceneDocument } from './scene.js'
+import { reviseSceneSnapshot, tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot, getPropUpdateTransaction, releasePropUpdateTransaction, type PropUpdateTransaction, type PropUpdateStep } from './snapshots.js'
 import { enumerateLayerEntities } from '../commands/layers.js'
 import type { MaterialPaint, SceneDocument } from '../model/scene.js'
 import { bitmapVariant, equalCompositionValue, propAppearanceSnapshot, resolveAppearance, supportedAppearanceKinds, surfaceStyle } from '../appearance/graph.js'
@@ -106,8 +106,8 @@ export function certifyDerivedCompositionDraft(input: unknown, baseline: SceneDo
 function registerContent(content: CompositionContent): CompositionContent {
   return registerOwnedContent(certifiedContents, content)
 }
-function registerOwnedContent(registry: ContentRegistry, content: CompositionContent): CompositionContent {
-  associateScenePresentations(content.document, content.appearance)
+function registerOwnedContent(registry: ContentRegistry, content: CompositionContent, propBaseline?: SceneDocument): CompositionContent {
+  if (!propBaseline || !inheritPropUpdatePresentations(propBaseline, content.document, content.appearance)) associateScenePresentations(content.document, content.appearance)
   freezeContent(content)
   let identities = registry.get(content.document)
   if (!identities) { identities = new WeakMap(); registry.set(content.document, identities) }
@@ -117,14 +117,159 @@ function registerOwnedContent(registry: ContentRegistry, content: CompositionCon
   return content
 }
 
+export interface PropUpdateCompositionStep extends Omit<PropUpdateStep, 'before' | 'after'> {
+  readonly before: CompositionContent
+  readonly after: CompositionContent
+  readonly commandCost: number
+}
+export interface PropUpdateCompositionTransaction {
+  readonly baseline: CompositionContent
+  readonly result: CompositionContent
+  readonly sceneTransaction: PropUpdateTransaction
+  readonly commands: PropUpdateTransaction['commands']
+  readonly steps: readonly PropUpdateCompositionStep[]
+  readonly changes: PropUpdateTransaction['changes']
+}
+const issuedPropCompositionTransactions = new WeakSet<object>()
+type PropCompositionReceipt = { latest: PropUpdateCompositionTransaction; baselines: WeakMap<SceneDocument, PropUpdateCompositionTransaction> }
+const propCompositionTransactions = new WeakMap<SceneDocument, WeakMap<object, WeakMap<object, PropCompositionReceipt>>>()
+function registerPropCompositionTransaction(witness: PropUpdateCompositionTransaction): void {
+  issuedPropCompositionTransactions.add(witness)
+  const { result, baseline } = witness
+  if (result.document === baseline.document) return
+  let identities = propCompositionTransactions.get(result.document)
+  if (!identities) { identities = new WeakMap(); propCompositionTransactions.set(result.document, identities) }
+  let appearances = identities.get(result.historyIdentity)
+  if (!appearances) { appearances = new WeakMap(); identities.set(result.historyIdentity, appearances) }
+  let entry = appearances.get(result.appearance)
+  if (!entry) { entry = { latest: witness, baselines: new WeakMap() }; appearances.set(result.appearance, entry) }
+  entry.latest = witness; entry.baselines.set(baseline.document, witness)
+}
+/** Exact document/identity/appearance references, not a caller-owned wrapper. */
+export function getPropUpdateCompositionTransaction(input: unknown, baseline?: CompositionContent): PropUpdateCompositionTransaction | undefined {
+  const result = getCertifiedCompositionContent(input)
+  if (!result) return
+  const entry = propCompositionTransactions.get(result.document)?.get(result.historyIdentity)?.get(result.appearance)
+  const source = baseline === undefined ? undefined : getCertifiedCompositionContent(baseline)
+  if (baseline !== undefined && !source) return
+  const witness = source ? entry?.baselines.get(source.document) : entry?.latest
+  if (!witness) return
+  if (source && (witness.baseline.historyIdentity !== source.historyIdentity || witness.baseline.appearance !== source.appearance)) return
+  return witness
+}
+/** Release consumed write-set evidence without revoking complete validation or
+ * transferring proof. The baseline may still serve other pending operations. */
+export function releasePropUpdateCompositionTransaction(witness: PropUpdateCompositionTransaction): void {
+  if (!issuedPropCompositionTransactions.has(witness)) return
+  issuedPropCompositionTransactions.delete(witness)
+  const remove = (content: CompositionContent) => {
+    if (content.document !== witness.baseline.document) propCompositionTransactions.get(content.document)?.get(content.historyIdentity)?.delete(content.appearance)
+  }
+  remove(witness.result)
+  witness.steps.forEach(step => remove(step.after))
+  releasePropUpdateTransaction(witness.sceneTransaction)
+}
+
+/** A complete resolved baseline plus the snapshot owner's closed executor proves
+ * unchanged births, sources, effective appearance and pixels. Position/angle
+ * cannot affect those fields; near-side orientation is the sole extra invariant.
+ * No changed-id argument or external registration API exists. */
+export function tryApplyPropUpdateCompositionTransaction(input: unknown, commands: unknown): PropUpdateCompositionTransaction | undefined {
+  const baseline = getCertifiedCompositionContent(input)
+  if (!baseline) return
+  const transaction = tryApplyPropUpdatesSnapshot(baseline.document, commands)
+  if (!transaction) return
+  for (const step of transaction.steps) for (const change of step.changes) {
+    if (propPresentation(baseline.appearance, change.id)?.mode === 'nearSide' && change.after.rotationDeg !== 0) return
+  }
+  const contents = new Map<SceneDocument, CompositionContent>([[baseline.document, baseline]])
+  const contentFor = (document: SceneDocument): CompositionContent => {
+    let result = contents.get(document)
+    if (!result) {
+      result = registerOwnedContent(certifiedContents, { document, historyIdentity: baseline.historyIdentity, appearance: baseline.appearance }, baseline.document)
+      contents.set(document, result)
+    }
+    return result
+  }
+  const steps = transaction.steps.map(step => ({ ...step, before: contentFor(step.before), after: contentFor(step.after), commandCost: 1 }))
+  const result = contentFor(transaction.result)
+  const witness = freezeJson({ baseline, result, sceneTransaction: transaction, commands: transaction.commands, steps, changes: transaction.changes })
+  for (let index = 0; index < steps.length; index++) {
+    const step = steps[index]
+    if (step.before.document === step.after.document) continue
+    const local = getPropUpdateTransaction(step.after.document, step.before.document)!
+    registerPropCompositionTransaction(freezeJson({ baseline: step.before, result: step.after, sceneTransaction: local, commands: local.commands, steps: [step], changes: local.changes }))
+    const prefix = getPropUpdateTransaction(step.after.document, baseline.document)
+    if (prefix) registerPropCompositionTransaction(freezeJson({ baseline, result: step.after, sceneTransaction: prefix, commands: prefix.commands, steps: steps.slice(0, index + 1), changes: prefix.changes }))
+  }
+  registerPropCompositionTransaction(witness)
+  return witness
+}
+
+export interface CompositionRevisionTransaction {
+  readonly baseline: CompositionContent
+  readonly result: CompositionContent
+  readonly changes: { readonly revision: { readonly before: number; readonly after: number }; readonly updatedAt: { readonly before: string; readonly after: string } }
+}
+/** Revision adoption may also preserve older identity tombstones. This proof
+ * records the real validated endpoints but does not widen the finite revision
+ * metadata fast path above. */
+export interface CompositionCommitTransaction {
+  readonly baseline: CompositionContent
+  readonly result: CompositionContent
+}
+const compositionCommits = new WeakMap<SceneDocument, CompositionCommitTransaction>()
+const issuedCompositionCommits = new WeakSet<CompositionCommitTransaction>()
+function registerCompositionCommit(baseline: CompositionContent, result: CompositionContent): void {
+  const witness = freezeJson({ baseline, result })
+  compositionCommits.set(result.document, witness); issuedCompositionCommits.add(witness)
+}
+export function getCompositionCommitTransaction(input: unknown): CompositionCommitTransaction | undefined {
+  const result = getCertifiedCompositionContent(input)
+  if (!result) return
+  const witness = compositionCommits.get(result.document)
+  return witness?.result.historyIdentity === result.historyIdentity && witness.result.appearance === result.appearance ? witness : undefined
+}
+export function releaseCompositionCommitTransaction(witness: CompositionCommitTransaction): void {
+  if (!issuedCompositionCommits.delete(witness)) return
+  if (compositionCommits.get(witness.result.document) === witness) compositionCommits.delete(witness.result.document)
+}
+const issuedCompositionRevisions = new WeakSet<object>()
+const compositionRevisions = new WeakMap<SceneDocument, CompositionRevisionTransaction>()
+export function getCompositionRevisionTransaction(input: unknown, baseline?: CompositionContent): CompositionRevisionTransaction | undefined {
+  const result = getCertifiedCompositionContent(input)
+  if (!result) return
+  const witness = compositionRevisions.get(result.document)
+  if (!witness || witness.result.historyIdentity !== result.historyIdentity || witness.result.appearance !== result.appearance) return
+  const source = baseline === undefined ? undefined : getCertifiedCompositionContent(baseline)
+  return baseline === undefined || source?.document === witness.baseline.document && source.historyIdentity === witness.baseline.historyIdentity && source.appearance === witness.baseline.appearance ? witness : undefined
+}
+
+export function releaseCompositionRevisionTransaction(witness: CompositionRevisionTransaction): void {
+  if (!issuedCompositionRevisions.has(witness)) return
+  issuedCompositionRevisions.delete(witness)
+  if (compositionRevisions.get(witness.result.document) === witness) compositionRevisions.delete(witness.result.document)
+}
+
 /** Revision metadata cannot change geometry or effective appearance. Identity is checked independently. */
 export function reviseCompositionContent(input: unknown, revision: number, updatedAt: string, identityInput?: unknown): CompositionContent {
   const current = certifyCompositionContent(input)
   const document = reviseSceneSnapshot(current.document, revision, updatedAt)
-  const historyIdentity = identityInput === undefined ? current.historyIdentity : validateHistoryIdentity(identityInput, document)
+  if (identityInput === undefined || identityInput === current.historyIdentity) {
+    const result = registerContent({ document, historyIdentity: current.historyIdentity, appearance: current.appearance })
+    const witness = freezeJson({ baseline: current, result, changes: {
+      revision: { before: current.document.revision, after: revision }, updatedAt: { before: current.document.updatedAt, after: updatedAt },
+    } })
+    issuedCompositionRevisions.add(witness); compositionRevisions.set(document, witness)
+    registerCompositionCommit(current, result)
+    return result
+  }
+  const historyIdentity = validateHistoryIdentity(identityInput, document)
   const issues = validateCompositionIdentityContracts(document, historyIdentity)
   if (issues.length) throw new Error(issues.map(issue => issue.message).join('；'))
-  return registerContent({ document, historyIdentity, appearance: current.appearance })
+  const result = registerContent({ document, historyIdentity, appearance: current.appearance })
+  registerCompositionCommit(current, result)
+  return result
 }
 
 function checkGraph(graph: AppearanceGraph, document: SceneDocument): void {
@@ -198,13 +343,13 @@ export function validateAppearanceGraph(input: unknown, document: SceneDocument)
   checkGraph(parsed.data, document); return parsed.data
 }
 function readCompositionDraft(input: unknown, certifyScene: boolean, baseline?: SceneDocument): CompositionContent {
-  const known = getCertifiedCompositionContent(input)
+  const known = certifyScene ? getCertifiedCompositionContent(input) : undefined
   if (known) return known
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(`组合工程无效：${issue.message}`)
   const parsed = contentEnvelopeSchema.safeParse(input)
   if (!parsed.success) throw new Error(`组合工程无效：${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
-  const checked = baseline && certifyScene ? validateSceneDerivationSnapshot(parsed.data.document, baseline) : validateSceneSnapshot(parsed.data.document)
+  const checked = !certifyScene ? validateSceneDocument(parsed.data.document) : baseline ? validateSceneDerivationSnapshot(parsed.data.document, baseline) : validateSceneSnapshot(parsed.data.document)
   if (!checked.ok) throw new Error(`组合场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   // Identity validation may reuse only this exact privately certified scene.
   // Public drafts still receive detached mutable data, never the witness.
@@ -216,7 +361,7 @@ function readCompositionDraft(input: unknown, certifyScene: boolean, baseline?: 
 }
 export function validateCompositionDraft(input: unknown): CompositionContent { return readCompositionDraft(input, false) }
 function readCompositionContent(input: unknown, certifyScene: boolean): CompositionContent {
-  const known = getCertifiedCompositionContent(input)
+  const known = certifyScene ? getCertifiedCompositionContent(input) : undefined
   if (known) return known
   // Only internal complete certification may reuse an exact immutable draft.
   // Public validation still returns the established detached mutable path and

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SHORE_ART, SHORE_LICENSE, SHORE_LICENSE_REF, SHORE_MATERIAL_IDS, shoreAssetId } from '../../../shared/visual/shore-art.js'
 import { REFINED_ISLAND_ART, REFINED_ISLAND_LICENSE } from '../../../shared/visual/island-art.js'
 import { REFINED_COAST_LICENSE } from '../../../shared/visual/coast-art.js'
-import { normalizeStaticSvg } from '../../../shared/ai/svg.js'
+import { normalizeStaticSvg, CANONICAL_SVG_PROCESSOR } from '../../../shared/ai/svg.js'
 import { sha256Bytes } from '../../../shared/validation/hash.js'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
 import { createRefinedBlankDocument } from './refined-blank.js'
@@ -18,7 +18,7 @@ import { terrainVariantV2AssetId, terrainVariantV2DefinitionId } from '../../../
 vi.mock('../ai/svg-raster.js', () => ({ rasterizeNormalizedSvg: vi.fn(async (source: { sourceSha256: string }) => {
   const bytes = encodeUtf8(`metadata-only raster fixture ${source.sourceSha256}`)
   return { pngBytes: bytes, sha256: sha256Bytes(bytes), mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512,
-    processorId: 'sceneweave-static-svg', processorVersion: 1 }
+    ...CANONICAL_SVG_PROCESSOR }
 }) }))
 vi.mock('../../../application/workspace/project.js', async importOriginal => ({
   ...await importOriginal<typeof import('../../../application/workspace/project.js')>(),

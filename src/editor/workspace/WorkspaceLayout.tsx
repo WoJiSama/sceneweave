@@ -1,5 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { Columns3, PanelLeft, PanelRight } from 'lucide-react'
 import {
   clampWorkspacePanelWidth, DEFAULT_WORKSPACE_LAYOUT, loadWorkspaceLayout, resolveWorkspaceWidths,
   saveWorkspaceLayout, WORKSPACE_LAYOUT_LIMITS, WORKSPACE_NARROW_WIDTH,
@@ -21,6 +23,7 @@ export interface WorkspaceLayoutProps {
   sessionKey?: string | number
   panelRequest?: { id: Panel; sequence: number; action?: 'open' | 'close'; focus?: boolean; narrowOnly?: boolean }
   tools: ReactNode
+  layoutControlsTarget?: HTMLElement | null
   footer: ReactNode
   children: ReactNode
 }
@@ -35,7 +38,7 @@ const panelLabels: Record<Panel, string> = { resources: '内容面板', inspecto
 const collapsedKeys = { resources: 'resourcesCollapsed', inspector: 'inspectorCollapsed' } as const
 
 export default function WorkspaceLayout({ active, resources, inspector, modules, activeModule, onModuleChange,
-  resourceTitle, inspectorTitle, sessionKey, panelRequest, tools, footer, children }: WorkspaceLayoutProps) {
+  resourceTitle, inspectorTitle, sessionKey, panelRequest, tools, layoutControlsTarget, footer, children }: WorkspaceLayoutProps) {
   const [storage] = useState(localStorageOrNull)
   const [preferences, setPreferences] = useState(() => loadWorkspaceLayout(storage))
   const [persistent, setPersistent] = useState(true)
@@ -48,6 +51,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const inspectorPanel = useRef<HTMLElement>(null)
   const moduleNavigation = useRef<HTMLElement>(null)
   const layoutSettings = useRef<HTMLDetailsElement>(null)
+  const focusedLayoutControl = useRef<Panel | 'settings' | null>(null)
   const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const closeButtons = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const drag = useRef<{ pointerId: number; side: ResizeSide; x: number; width: number } | null>(null)
@@ -65,6 +69,12 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const resourceLabel = resourceTitle ?? modules.find(module => module.id === activeModule)?.label ?? panelLabels.resources
 
   useEffect(() => { setPersistent(saveWorkspaceLayout(preferences, storage)) }, [preferences, storage])
+  useLayoutEffect(() => {
+    // Moving the same controls between the header and drawer bar replaces their DOM.
+    if (!active || document.activeElement !== document.body || !focusedLayoutControl.current) return
+    if (focusedLayoutControl.current === 'settings') layoutSettings.current?.querySelector('summary')?.focus()
+    else triggers.current[focusedLayoutControl.current]?.focus()
+  }, [active, narrow, layoutControlsTarget])
 
   useEffect(() => {
     const element = host.current
@@ -254,23 +264,25 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     buttons[index].focus()
   }
 
-  const style = { '--workspace-resources-width': `${widths.resources}px`, '--workspace-details-width': `${widths.details}px` } as CSSProperties
-  return <div className="workspace-layout" ref={host} style={style} data-testid="workspace-layout" data-narrow={narrow}
-    data-resizing={resizing ?? undefined} onKeyDown={drawerKey} onFocusCapture={event => {
-      const target = event.target as HTMLElement
-      lastPanelFocus.current = panels.some(panel => panelRef(panel).current?.contains(target)) ? target : null
+  const layoutActions = <div className="workspace-layout-actions" aria-label="工作区布局" data-compact={!narrow && !!layoutControlsTarget}
+    onFocusCapture={event => {
+      const panel = (event.target as HTMLElement).closest<HTMLElement>('[data-layout-panel]')?.dataset.layoutPanel
+      focusedLayoutControl.current = panel === 'resources' || panel === 'inspector' ? panel : 'settings'
+    }} onBlurCapture={event => {
+      if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedLayoutControl.current = null
     }}>
-    <div className="workspace-layout-actions" aria-label="工作区布局">
       {panels.map(panel => <button type="button" key={panel}
+        data-layout-panel={panel}
         ref={element => { triggers.current[panel] = element }} aria-expanded={visible(panel)} aria-controls={`${layoutId}-${panel}`}
-        onClick={() => togglePanel(panel)}>{panelLabels[panel]}</button>)}
+        aria-label={panelLabels[panel]} title={panelLabels[panel]} onClick={() => togglePanel(panel)}>
+        {panel === 'resources' ? <PanelLeft size={16} aria-hidden="true"/> : <PanelRight size={16} aria-hidden="true"/>}<span>{panelLabels[panel]}</span></button>)}
       <span className="workspace-layout-spacer"/>
       <details className="workspace-layout-settings" ref={layoutSettings} onKeyDown={event => {
         if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !event.currentTarget.open) return
         event.preventDefault(); event.stopPropagation()
         closeLayoutSettings()
       }}>
-        <summary>布局设置</summary>
+        <summary aria-label="布局设置" title="布局设置"><Columns3 size={16} aria-hidden="true"/><span>布局设置</span></summary>
         <div aria-label="面板布局设置">
           <button type="button" onClick={() => { setPreferences(current => ({ ...current, resourcesCollapsed: false, inspectorCollapsed: false })); closeDrawer(false); closeLayoutSettings() }}>展开全部面板</button>
           <button type="button" onClick={() => { setPreferences({ ...DEFAULT_WORKSPACE_LAYOUT }); closeDrawer(false); closeLayoutSettings() }}>重置布局</button>
@@ -278,6 +290,13 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
       </details>
       {!persistent && <span className="workspace-layout-storage" role="status">布局仅在本次会话生效</span>}
     </div>
+  const style = { '--workspace-resources-width': `${widths.resources}px`, '--workspace-details-width': `${widths.details}px` } as CSSProperties
+  return <div className="workspace-layout" ref={host} style={style} data-testid="workspace-layout" data-narrow={narrow}
+    data-resizing={resizing ?? undefined} onKeyDown={drawerKey} onFocusCapture={event => {
+      const target = event.target as HTMLElement
+      lastPanelFocus.current = panels.some(panel => panelRef(panel).current?.contains(target)) ? target : null
+    }}>
+    {!narrow && layoutControlsTarget ? createPortal(layoutActions, layoutControlsTarget) : layoutActions}
     <div className="workspace-layout-body">
       <nav ref={moduleNavigation} className="workspace-module-navigation" data-testid="workspace-module-navigation" aria-label="工作区模块导航" onKeyDown={moduleKey}>
         {modules.map(module => <button type="button" key={module.id} data-module={module.id} disabled={module.disabled}

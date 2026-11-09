@@ -1,7 +1,7 @@
 import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { PointMm, PropTemplate, SceneDocument, SurfaceRef, SurfaceStyle } from '../../../shared/model/scene.js'
 import type { CatalogItem } from '../../../shared/library/types.js'
-import { listCatalogItems } from '../../../shared/library/content.js'
+import { listSnapshotCatalogItems } from '../../../shared/library/content.js'
 import { THEME_PACK_PLANS, validateThemePackRegistrations, type ThemePackRegistration } from '../../../shared/assets/theme-packs.js'
 import { THEME_PACK_CATALOGS } from '../../../shared/assets/theme-pack-catalogs.js'
 import { createThemePackReviewContent, type AssetReviewContent } from '../../../shared/assets/review.js'
@@ -278,7 +278,7 @@ export interface LoadedThemePack {
 }
 /** Loads one independent pack. Review descriptors bind actual resources but never issue administrative review or P3. */
 export async function loadThemePack(id: ThemePackArtId, signal?: AbortSignal): Promise<LoadedThemePack> {
-  const project = await createThemePackCatalogProject(id, signal), pack = metadata(id), items = listCatalogItems(toBundle(project))
+  const project = await createThemePackCatalogProject(id, signal), pack = metadata(id), items = listSnapshotCatalogItems(toBundle(project))
   const theme = project.document.styleThemes[project.document.activeStyleThemeRef!.id]
   const plan = THEME_PACK_PLANS.find(value => value.id === pack.planId)!
   const coverage = { planHash: sha256Text(canonicalJson(plan)), requiredRequirementIds: plan.requirements.map(value => value.id),

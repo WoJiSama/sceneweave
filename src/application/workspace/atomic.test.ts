@@ -196,8 +196,8 @@ describe('task-scoped local authority and atomic adoption', () => {
 
   it('checks metadata and protection in the final save transaction, preserving the adopted in-memory branch on failure', async () => {
     const { workspace, repo, authorization, draft } = await setup(), owner = workspace.getDocument()!.sceneId
-    const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move)), realSave = repo.save.bind(repo)
-    vi.spyOn(repo, 'save').mockImplementationOnce(async (bundle, revision, options) => {
+    const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move)), realSave = repo.saveSnapshot.bind(repo)
+    vi.spyOn(repo, 'saveSnapshot').mockImplementationOnce(async (bundle, revision, options) => {
       await repo.database.historyMetadata.update(owner, { metadataVersion: 44 })
       return realSave(bundle, revision, options)
     })
@@ -215,7 +215,7 @@ describe('task-scoped local authority and atomic adoption', () => {
   it('retains the required protection guard across later edits after a failed adopted save', async () => {
     const { workspace, repo, authorization, draft } = await setup(), owner = workspace.getDocument()!.sceneId
     const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move))
-    vi.spyOn(repo, 'save').mockRejectedValueOnce(new Error('storage unavailable'))
+    vi.spyOn(repo, 'saveSnapshot').mockRejectedValueOnce(new Error('storage unavailable'))
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => lease(candidate) })
     await expect(result.save).rejects.toThrow(/storage/)
     await repo.deleteSnapshot(owner, result.protection!.id, result.protection!.contentHash, (await repo.usage(owner)).metadataVersion)
@@ -227,8 +227,8 @@ describe('task-scoped local authority and atomic adoption', () => {
 
   it('rejects protection deletion inside the final save even if its metadata version was not advanced', async () => {
     const { workspace, repo, authorization, draft } = await setup(), owner = workspace.getDocument()!.sceneId
-    const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move)), realSave = repo.save.bind(repo)
-    vi.spyOn(repo, 'save').mockImplementationOnce(async (...args) => {
+    const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move)), realSave = repo.saveSnapshot.bind(repo)
+    vi.spyOn(repo, 'saveSnapshot').mockImplementationOnce(async (...args) => {
       await repo.database.historyPins.where('ownerSceneId').equals(owner).delete()
       return realSave(...args)
     })
@@ -251,10 +251,10 @@ describe('task-scoped local authority and atomic adoption', () => {
 
   it('blocks writes throughout claim and save while keeping reads and the new result available', async () => {
     const { workspace, repo, authorization, draft } = await setup()
-    const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move)), realSave = repo.save.bind(repo)
+    const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move)), realSave = repo.saveSnapshot.bind(repo)
     let release!: () => void
     const gate = new Promise<void>(resolve => { release = resolve })
-    vi.spyOn(repo, 'save').mockImplementationOnce(async (...args) => { await gate; return realSave(...args) })
+    vi.spyOn(repo, 'saveSnapshot').mockImplementationOnce(async (...args) => { await gate; return realSave(...args) })
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => {
       expect(() => workspace.undo()).toThrow(/正在保护/)
       await expect(workspace.updateProp('other', { rotationDeg: 15 })).rejects.toThrow(/正在保护/)

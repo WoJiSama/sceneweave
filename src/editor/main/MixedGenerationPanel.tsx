@@ -4,10 +4,8 @@ import type { MixedPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
 import './volcano-generation.css'
 
-export interface MixedGenerationUiRequest {
-  title: string; environment: 'forest' | 'volcano'; widthMm: number; heightMm: number; seed: string
-  roomCount: number; purpose: string; furniture: boolean; vegetationMultiplier: number
-}
+import type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
+export type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 const initial = (): MixedGenerationUiRequest => ({ title: '林中驿站', environment: 'forest', widthMm: 40000, heightMm: 32000, seed: 'mixed-1', roomCount: 1, purpose: '驿站休息室', furniture: true, vegetationMultiplier: 1 })
 
 export default function MixedGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange }: {
@@ -37,7 +35,7 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="混合场景生成">
     <h2>混合场景</h2>
     <p>把真实地面、建筑外门和室外路线组合为同一张可编辑地图；森林植被会避开实际建筑和通路。</p>
-    <p className="asset-muted">首次建议的门、家具和路线保存后可自由删改；不会自动补回。当前支持一个建筑与同楼层的森林或火山。</p>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次建议的门、家具和路线保存后可自由删改；不会自动补回。当前支持一个建筑与同楼层的森林或火山。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ ...input, title: input.title.trim(), seed: input.seed.trim(), purpose: input.purpose.trim() }) }}>
       <fieldset disabled={locked}><legend>场景与建筑需求</legend>

@@ -10,6 +10,7 @@ import { getLegacyGeneration } from '../../../terrain-generation/composition-con
 import { generationInputHash, managedOutputHash, detachChangedOutputs } from '../../../terrain-generation/integrity.js'
 import type { GenerationFieldGroup, GenerationRecipe, GenerationRule } from '../../../terrain-generation/contracts.js'
 import { GenerationRegistry, runGeneration } from '../../orchestrator.js'
+import { generationCreationWrites } from '../../materialization.js'
 import { hashGenerationValue, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
 import { volcanoGenerationInputSchema, VolcanoGenerationError, type VolcanoGenerationInput } from './contracts.js'
 
@@ -126,6 +127,7 @@ export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options:
   const runtime = { clock: { now: () => source.updatedAt }, ids: { nextId: () => id(`native:${sequence++}`) } }
   const parseParameters = (parameters: Readonly<Record<string, JsonValue>>) => captureJson(normalizeVolcanoInput(parameters)) as unknown as Record<string, JsonValue>
   registry.register({ id: 'volcano-structure', version: 1, phase: 'structure', owner: 'structure', consumes: ['support-surface'], produces: ['support-surface'], publishFacts: ['support-surface'], requires: [], determinism, parseParameters,
+    writes: ({ document }) => generationCreationWrites(document, ['terrainAreas', 'terrainEdges', 'regions', 'generation.legacy.constraints']),
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
       context.checkCancelled()
@@ -150,6 +152,7 @@ export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options:
     },
   })
   registry.register({ id: 'volcano-connectivity', version: 1, phase: 'connectivity', owner: 'connectivity', consumes: ['support-surface'], produces: ['port', 'connection', 'access-zone'], publishFacts: ['port', 'connection', 'access-zone'], requires: [{ id: 'volcano-structure', version: 1 }], determinism, parseParameters,
+    writes: ({ document }) => generationCreationWrites(document, ['terrainConnections', 'paths', 'generation.legacy.constraints']),
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
       context.checkCancelled()

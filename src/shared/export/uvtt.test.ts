@@ -1,5 +1,6 @@
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
+import { collectUvttNativeEntities } from './entity-capabilities.js'
 import type { Opening, PointMm, Prop, SceneDocument } from '../model/scene.js'
 import { createAppearanceGraph } from '../appearance/graph.js'
 import { openingEndpoints, propFootprint } from '../geometry/geometry.js'
@@ -46,6 +47,16 @@ function light(scene: SceneDocument, id: string, changes: Partial<VisualLight> =
 const warnings = (scene: SceneDocument) => buildUvttPlan(scene).report.warnings.join('\n')
 
 describe('pure fixed-UBI UVTT layout and independent rendering plan', () => {
+  it('dispatches native mapping through delivery capabilities and keeps physical props in the player projection', () => {
+    const scene = fixture(); wall(scene); opening(scene, 'door'); prop(scene)
+    const projection = projectScene(scene, 'player')
+    const delivered = collectUvttNativeEntities(scene, projection)
+    expect(delivered.walls).toEqual([scene.walls.wall]); expect(delivered.openings).toEqual([scene.openings.door])
+    expect(delivered.props).toEqual(projection.props)
+    expect(collectUvttNativeEntities(scene, { ...projection, props: [] }).props).toEqual([])
+    expect(() => collectUvttNativeEntities(scene, { ...projection, audience: 'gm' })).toThrow(/玩家投影/)
+  })
+
   it.each([1] as const)('reads strict scene %i without changing its persistent contract', version => {
     const scene = fixture(version), graph = createAppearanceGraph(scene), before = canonicalJson(scene), graphBefore = canonicalJson(graph)
     const result = buildUvttPlan(scene, graph)

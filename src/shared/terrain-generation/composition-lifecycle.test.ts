@@ -7,7 +7,7 @@ import { applyCompositionDraftCommands } from '../appearance/commands.js'
 import { applyCommands, type SceneCommand } from '../commands/commands.js'
 import { advanceHistoryIdentity, createHistoryIdentity } from '../history/identity.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
-import { validateCompositionContent } from '../validation/content.js'
+import { certifyCompositionContent, tryApplyPropUpdateCompositionTransaction, validateCompositionContent } from '../validation/content.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { createMemoryResources } from '../project/resources.js'
@@ -70,6 +70,21 @@ function frozenReceipts(content: CompositionContent): unknown {
 }
 
 describe('composition manual-edit lifecycle', () => {
+  it('uses local Prop proofs only when generation receipts and dependencies remain unchanged', () => {
+    const commands = [{ type: 'updateProp' as const, id: 'item', changes: { positionMm: { x: 1500, y: 1000 } } }]
+    const independent = certifyCompositionContent(fixture({ hard: false }))
+    expect(tryApplyPropUpdateCompositionTransaction(independent, commands)).toBeDefined()
+    for (const content of [fixture(), fixture({ hard: false, propOutput: true })]) {
+      expect(tryApplyPropUpdateCompositionTransaction(certifyCompositionContent(content), commands)).toBeUndefined()
+    }
+    const unchecked = cloneJson(fixture())
+    unchecked.document.generation.checks.check.state = 'unchecked'
+    unchecked.document.generation.compositions.composition.state = 'paused'
+    expect(tryApplyPropUpdateCompositionTransaction(certifyCompositionContent(unchecked), commands)).toBeDefined()
+    const next = applyCompositionDraftCommands(certifyCompositionContent(fixture()), commands, context)
+    expect(next.document.generation.compositions.composition.state).toBe('paused')
+  })
+
   it('binds dependency receipts to complete transition rows, not only their IDs', () => {
     const content = fixture({ hard: false }), scene = content.document, dependency = scene.generation.dependencies.dependency
     if (scene.visual?.version !== 3) throw new Error('fixture')

@@ -59,6 +59,10 @@ describe('complete interior candidate and independent project publication', () =
     const preview = await workspace.previewGeneration({ kind: 'new-project', domain: 'interior', base, input: request(base), profile }, { execute, epoch: 7 })
     expect(execute).toHaveBeenCalledTimes(1)
     expect(workspace.getState().project).toBe(current)
+    // An authentic candidate is still bound to its own domain. Incorrect
+    // dispatch must neither adopt it nor cancel the rightful lifecycle.
+    workspace.cancelGeneration({ kind: 'new-project', domain: 'forest', preview: preview as never })
+    await expect(workspace.adoptGeneration({ kind: 'new-project', domain: 'forest', preview: preview as never })).rejects.toThrow(/本会话领域/)
     await workspace.adoptGeneration({ kind: 'new-project', domain: 'interior', preview })
     expect(execute).toHaveBeenCalledTimes(1)
     expect(projectContentHash((await repo.load(base.document.sceneId))!.project)).toBe(projectContentHash(toBundle(preview.project).project))

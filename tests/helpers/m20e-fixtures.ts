@@ -13,7 +13,7 @@ export { rereadBackup } from './m20d-fixtures'
 export const ORGANIZATION_ONLY_KEY = JSON.stringify([1, 'a'.repeat(64), 'prop', 'uninstalled-m20e', 1, 'b'.repeat(64)])
 export const OUTSIDE_KEY = JSON.stringify([1, 'c'.repeat(64), 'material', 'outside-m20e', 1, 'd'.repeat(64)])
 export const SOURCE_ORGANIZATION: CatalogOrganization = { tags: [' 原显示文本 ', '第二个标签'], colors: ['蓝', '灰'], favorite: true }
-export function libraryEnvironment(name?: string): LibraryConversionEnvironment {
+export function libraryEnvironment(name?: string): LibraryConversionEnvironment & { repository: LibraryRepository } {
   const prefix = crypto.randomUUID(); let sequence = 0
   const runtime: PreparationContext = { ids: { nextId: () => `${prefix}-${++sequence}` }, clock: { now: () => '2026-10-24T12:00:00.000Z' } }
   const validation = { images: createBrowserImagePort() }

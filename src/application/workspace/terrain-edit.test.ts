@@ -52,7 +52,7 @@ afterEach(async () => { vi.restoreAllMocks(); for (const workspace of sessions.s
 
 describe('T2 protected local terrain transaction', () => {
   it('previews and cancels without writing, rejects forged wrappers and stale baselines', async () => {
-    const { workspace, repo } = await setup(), current = workspace.getState().project!, checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'save')
+    const { workspace, repo } = await setup(), current = workspace.getState().project!, checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'saveSnapshot')
     const preview = await workspace.previewTerrainEdit(request(workspace))
     expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint); expect(save).not.toHaveBeenCalled()
     expect(preview.project.document.sceneId).toBe(current.document.sceneId)
@@ -139,7 +139,7 @@ describe('T2 protected local terrain transaction', () => {
     await expect(workspace.adoptTerrainEdit(first)).rejects.toThrow(/metadata moved/)
     expect(workspace.getState().project).toBe(current)
     const second = await workspace.previewTerrainEdit(input)
-    vi.spyOn(repo, 'save').mockRejectedValueOnce(new Error('T2 quota'))
+    vi.spyOn(repo, 'saveSnapshot').mockRejectedValueOnce(new Error('T2 quota'))
     const applied = await workspace.adoptTerrainEdit(second)
     await expect(applied.save).rejects.toThrow(/quota/)
     expect(workspace.getState().project!.document.generation.legacy.version).toBe(2); expect(workspace.getState().status).toBe('error'); expect(workspace.getState().canUndo).toBe(true)

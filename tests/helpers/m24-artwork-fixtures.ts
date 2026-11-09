@@ -2,7 +2,7 @@ import { unzlibSync, zlibSync } from 'fflate'
 import type { AuthoringDraft, AuthoringOperation, AuthoringScope, AuthoringStart } from '../../src/shared/ai/authoring-protocol-v1'
 import { authoringProjectHash } from '../../src/shared/ai/authoring'
 import { replayRetainedArtwork } from '../../src/shared/ai/authoring-v1'
-import { verifyNormalizedStaticSvg } from '../../src/shared/ai/svg'
+import { verifyNormalizedStaticSvg, CANONICAL_SVG_PROCESSOR } from '../../src/shared/ai/svg'
 import type { ProjectBundle } from '../../src/shared/model/project'
 import type { CompleteValidationOptions, RasterImage } from '../../src/shared/ports/resources'
 import { crc32 } from '../../src/shared/project/binary'
@@ -50,6 +50,7 @@ export function artworkValidation(): CompleteValidationOptions {
     async transform(image, parameters) { return { ...image, rgba: transformRgba(image.rgba, parameters.tint, parameters.brightness) } },
     async encodePng(image) { return encodeFixtureRaster(image) },
   }, svg: {
+    processor: CANONICAL_SVG_PROCESSOR,
     async rasterize(input, dimensions) {
       const source = verifyNormalizedStaticSvg(input)
       const color = /fill="(#[a-f0-9]{6})"/.exec(source.normalizedSource)?.[1]

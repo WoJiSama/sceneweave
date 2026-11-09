@@ -24,8 +24,9 @@ import { refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-tra
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { entitiesInLayer, enumerateLayerEntities, orderedLayers, previewLayerMove, previewLayerRemoval } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
-import { validateSceneDerivationSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
+import { tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
 import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
+import type { TransactionExecutionScope } from '../transaction/receipt.js'
 
 export type SceneCommand =
   | Exclude<BaseSceneCommand, { type: 'addProp' | 'setEditLock' }>
@@ -67,7 +68,7 @@ export interface ApplyCommandsOptions {
   /** Internal synchronous observer: inspect immediately; never mutate or retain the draft. */
   onOutdoorDraft?: (draft: Readonly<SceneDocument>, command: Readonly<OutdoorCommand | VisualCommand>) => void
   /** Includes base/building edits and runs after generation records are reconciled. */
-  onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => void
+  onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number, scope?: TransactionExecutionScope) => void
 }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -281,6 +282,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
   for (const command of commands) {
     const beforeTerrain=cloneJson(next)
     let commandCost: number
+    let scope: TransactionExecutionScope | undefined
     const derivedHandled = isVisualCommand(command) || needsOutdoorExpansion(next, command) || isBuildingCommand(command) || isNaturalAggregateCommand(command)
     if (isAggregateRepresentationCommand(command)) {
       commandCost = applyAggregateRepresentationCommand(next, command).commandCost
@@ -294,9 +296,15 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       commandCost = applyVisualCommand(next, command, context, options?.budget).commandCost
       options?.onOutdoorDraft?.(next, command)
     } else if (needsOutdoorExpansion(next, command)) {
-      commandCost = applyOutdoorCommand(next, command, context, options?.budget).commandCost
+      const impact = applyOutdoorCommand(next, command, context, options?.budget)
+      commandCost = impact.commandCost
+      scope = { owner: 'outdoor', affectedIds: impact.affectedIds }
       options?.onOutdoorDraft?.(next, command)
-    } else if (isBuildingCommand(command)) commandCost = applyBuildingCommand(next, command, options?.fixedUprightPropIds).commandCost
+    } else if (isBuildingCommand(command)) {
+      const impact = applyBuildingCommand(next, command, options?.fixedUprightPropIds)
+      commandCost = impact.commandCost
+      scope = { owner: 'building', affectedIds: impact.affectedIds }
+    }
     else if (isAnnotationCommand(command)) {
       const before = cloneJson(next)
       applyAnnotationCommand(next, command)
@@ -322,7 +330,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     } else {
       consume(commandCost)
     }
-    options?.onSceneDraft?.(next, command, chargedCost)
+    options?.onSceneDraft?.(next, command, chargedCost, scope)
   }
   return next
 }
@@ -425,6 +433,12 @@ export function applySnapshotCommands(scene: SceneDocument, commands: readonly S
   if (!source.ok) throw new Error(`当前场景无效：${source.errors.map(issue => issue.message).join('；')}`)
   const checked = checkedCommands(commands, options.budget)
   if (!checked.length) return source.document
+  const propTransaction = tryApplyPropUpdatesSnapshot(source.document, checked)
+  if (propTransaction && (propTransaction.result !== source.document || options.preserveNoopIdentity !== false)) {
+    for (const step of propTransaction.steps) options.onSceneDraft?.(step.after, step.command, 1)
+    if (options.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, propTransaction.result, manualBudgetMetadata(source.document, propTransaction.result, options), undefined, options.budget))
+    return propTransaction.result
+  }
   const next = candidate(source.document, checked, context, options)
   if (options.preserveNoopIdentity !== false && equal(next, source.document)) return source.document
   const result = checked.every(command => command.type === 'updateProp')

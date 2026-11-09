@@ -1,19 +1,27 @@
 import { toCurrentSceneDocument } from '../model/current-scene.js'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
 import { createCompositionContent } from '../appearance/graph.js'
+import { applyCompositionDraftCommands, completeCompositionTransactionReceipt, getCompositionTransactionReceipt } from '../appearance/commands.js'
+import type { CompositionCommand } from '../model/appearance.js'
 import type { ProjectData } from '../model/project.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
-import { createProjectDelta, applyProjectDelta, applyProjectDeltaChain, DeltaSizeError, projectDeltaBytes, projectDeltaJson, validateProjectDelta } from './delta.js'
-import { projectContentHash, validateProjectData } from './validate.js'
+import * as hashModule from '../validation/hash.js'
+import { encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
+import { reviseCompositionContent, tryApplyPropUpdateCompositionTransaction } from '../validation/content.js'
+import type { PropUpdateCommand } from '../validation/snapshots.js'
+import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, DeltaSizeError, projectDeltaBytes, projectDeltaJson, validateProjectDelta } from './delta.js'
+import { encodeProjectContentData, getOwnedProjectEncoding } from './encoding.js'
+import { certifyProjectData, completeProjectTransactionReceipt, getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt, tryCertifyLocalProjectData, validateProjectData } from './validate.js'
 
 let sequence = 0
-function fixture(): ProjectData {
+function fixture(configure?: (document: SceneDocument) => void): ProjectData {
   const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
+  configure?.(document)
   const content = createCompositionContent(document, { ids: { nextId: () => `delta-test-${++sequence}` }, clock: { now: () => '2026-10-29T00:00:00.000Z' } })
   return validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
     assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} })
@@ -113,6 +121,279 @@ describe('complete project bidirectional deltas', () => {
     expect(projectDeltaJson(delta)).toContain('"sceneweave-project-delta"')
     expect(() => validateProjectDelta({ ...delta, changes: [...delta.changes,
       { ...delta.changes[0], path: ['document', 'secondArray'] }] })).toThrow(DeltaSizeError)
+  })
+})
+
+describe('privately certified local project deltas', () => {
+  function propStage(before: ProjectData, changes: PropUpdateCommand['changes']) {
+    const content = { document: before.document, historyIdentity: before.historyIdentity, appearance: before.appearance }
+    const transaction = tryApplyPropUpdateCompositionTransaction(content, [{ type: 'updateProp', id: 'item', changes }])
+    expect(transaction).toBeDefined()
+    const result = tryCertifyLocalProjectData({ ...before, ...transaction!.result }, before)
+    expect(result).toBeDefined()
+    return result!
+  }
+  function revisionStage(before: ProjectData, increment = 1, updatedAt = '2026-11-06T00:00:00.000Z') {
+    const baseline = { document: before.document, historyIdentity: before.historyIdentity, appearance: before.appearance }
+    const content = reviseCompositionContent(baseline, before.document.revision + increment, updatedAt)
+    const result = tryCertifyLocalProjectData({ ...before, ...content }, before)
+    expect(result).toBeDefined()
+    return result!
+  }
+
+  it('derives only real position/rotation writes and preserves complete bidirectional hashes', () => {
+    const before = certifyProjectData(fixture()), after = propStage(before, { positionMm: { x: 4500, y: 4000 }, rotationDeg: 90 })
+    const receipt = getProjectLocalTransaction(after)!, delta = tryCreateLocalProjectDelta(cloneJson(before), after)!
+    expect(receipt.baseline).toBe(before)
+    expect(receipt.result).toBe(after)
+    expect(receipt.stage).toBe('prop')
+    expect(receipt.propChanges.map(change => change.fields)).toEqual([['positionMm', 'rotationDeg']])
+    expect(Object.isFrozen(receipt)).toBe(true)
+    expect(delta.changes.map(change => change.path)).toEqual([
+      ['document', 'props', 'item', 'positionMm'], ['document', 'props', 'item', 'rotationDeg'],
+    ])
+    const complete = createProjectDelta(before, after)
+    expect([delta.beforeHash, delta.afterHash]).toEqual([complete.beforeHash, complete.afterHash])
+    expect(applyProjectDelta(before, delta, 'forward')).toEqual(after)
+    expect(applyProjectDelta(after, delta, 'backward')).toEqual(before)
+  })
+
+  it('merges only the immediately preceding Prop stage into its single revision step', () => {
+    const before = certifyProjectData(fixture()), moved = propStage(before, { positionMm: { x: 4500, y: 4000 } }), after = revisionStage(moved)
+    const receipt = getProjectLocalTransaction(after)!, delta = tryCreateLocalProjectDelta(before, after)!
+    expect(receipt.baseline).toBe(before)
+    expect(receipt.stage).toBe('revision')
+    expect(receipt.propChanges).toHaveLength(1)
+    expect(delta.changes.map(change => change.path.join('.'))).toEqual(['document.props.item.positionMm', 'document.revision', 'document.updatedAt'])
+    expect(applyProjectDelta(before, delta, 'forward')).toEqual(after)
+    expect(applyProjectDelta(after, delta, 'backward')).toEqual(before)
+    expect(delta.afterHash).toBe(projectContentHash(after))
+  })
+
+  it('starts a fresh baseline for a later edit and never merges revision chains', () => {
+    const before = certifyProjectData(fixture()), first = revisionStage(propStage(before, { positionMm: { x: 4500, y: 4000 } }))
+    const second = revisionStage(propStage(first, { positionMm: { x: 5000, y: 4000 } }), 1, '2026-11-06T00:00:01.000Z')
+    expect(getProjectLocalTransaction(second)?.baseline).toBe(first)
+    expect(tryCreateLocalProjectDelta(before, second)).toBeUndefined()
+    expect(applyProjectDelta(first, tryCreateLocalProjectDelta(first, second)!, 'forward')).toEqual(second)
+    const third = revisionStage(second, 1, '2026-11-06T00:00:02.000Z')
+    expect(getProjectLocalTransaction(third)?.baseline).toBe(second)
+    expect(getProjectLocalTransaction(third)?.propChanges).toEqual([])
+    expect(tryCreateLocalProjectDelta(first, third)).toBeUndefined()
+    expect(applyProjectDelta(second, tryCreateLocalProjectDelta(second, third)!, 'forward')).toEqual(third)
+  })
+
+  it('does not merge a skipped revision and supports genuine revision-only writes', () => {
+    const before = certifyProjectData(fixture()), moved = propStage(before, { positionMm: { x: 4500, y: 4000 } }), after = revisionStage(moved, 2)
+    expect(getProjectLocalTransaction(after)?.baseline).toBe(moved)
+    expect(getProjectLocalTransaction(after)?.propChanges).toEqual([])
+    expect(tryCreateLocalProjectDelta(before, after)).toBeUndefined()
+    const delta = tryCreateLocalProjectDelta(moved, after)!
+    expect(delta.changes.map(change => change.path.join('.'))).toEqual(['document.revision', 'document.updatedAt'])
+    expect(applyProjectDelta(moved, delta, 'forward')).toEqual(after)
+    expect(applyProjectDelta(after, delta, 'backward')).toEqual(moved)
+  })
+
+  it('requires private proof and exact full before/after content through detached save copies', () => {
+    const before = certifyProjectData(fixture()), after = propStage(before, { positionMm: { x: 4500, y: 4000 } })
+    const copied = validateProjectData(after), forged = freezeJson(cloneJson(after))
+    expect(getProjectLocalTransaction(copied)).toBeUndefined()
+    expect(getProjectLocalTransaction(forged)).toBeUndefined()
+    expect(getProjectLocalTransaction({ ...after })).toBeUndefined()
+    expect(tryCreateLocalProjectDelta(before, copied)).toBeUndefined()
+    expect(tryCreateLocalProjectDelta(before, forged)).toBeUndefined()
+    expect(tryCreateLocalProjectDelta(before, copied, after)).toEqual(tryCreateLocalProjectDelta(before, after))
+    copied.document.title = 'Different saved result, same revision'
+    expect(tryCreateLocalProjectDelta(before, copied, after)).toBeUndefined()
+    const unrelated = cloneJson(before); unrelated.document.title = 'Different stored baseline, same revision'
+    expect(tryCreateLocalProjectDelta(unrelated, after)).toBeUndefined()
+    expect(unrelated.document.sceneId).toBe(before.document.sceneId)
+    expect(unrelated.document.revision).toBe(before.document.revision)
+  })
+
+  it('does not execute unsafe caller getters and releases only the named result', () => {
+    const before = certifyProjectData(fixture()), after = propStage(before, { positionMm: { x: 4500, y: 4000 } }), revised = revisionStage(after)
+    let calls = 0
+    const unsafeBefore = cloneJson(before), unsafeAfter = cloneJson(after)
+    Object.defineProperty(unsafeBefore.document, 'title', { enumerable: true, get() { calls++; return before.document.title } })
+    Object.defineProperty(unsafeAfter.document, 'title', { enumerable: true, get() { calls++; return after.document.title } })
+    expect(tryCreateLocalProjectDelta(unsafeBefore, after)).toBeUndefined()
+    expect(tryCreateLocalProjectDelta(before, unsafeAfter, after)).toBeUndefined()
+    expect(getProjectLocalTransaction(unsafeAfter)).toBeUndefined()
+    expect(calls).toBe(0)
+    releaseProjectLocalTransaction({ ...after })
+    expect(getProjectLocalTransaction(after)).toBeDefined()
+    releaseProjectLocalTransaction(after)
+    expect(getProjectLocalTransaction(after)).toBeUndefined()
+    expect(tryCreateLocalProjectDelta(before, after)).toBeUndefined()
+    expect(getProjectLocalTransaction(revised)).toBeDefined()
+    expect(tryCreateLocalProjectDelta(before, revised)).toBeDefined()
+  })
+
+  it('rejects extra fields, invalid JSON and custom prototypes at either copied endpoint', () => {
+    const before = certifyProjectData(fixture()), after = propStage(before, { positionMm: { x: 4500, y: 4000 } })
+    const mutations: ((project: ProjectData) => void)[] = [
+      project => { (project as unknown as Record<string, unknown>).extra = true },
+      project => { (project.document.props.item as unknown as Record<string, unknown>).extra = true },
+      project => { (project as unknown as Record<string, unknown>).assets = undefined },
+      project => { project.document.props.item.rotationDeg = NaN },
+      project => { (project as unknown as Record<string, unknown>).extra = () => true },
+      project => { (project as unknown as Record<PropertyKey, unknown>)[Symbol('hidden')] = true },
+      project => { Object.defineProperty(project.document, 'hidden', { value: true }) },
+      project => { Object.setPrototypeOf(project.document.props.item, { inherited: true }) },
+      project => { delete (project as Partial<ProjectData>).historyIdentity },
+    ]
+    for (const mutate of mutations) {
+      const invalidBefore = cloneJson(before), invalidAfter = cloneJson(after)
+      mutate(invalidBefore); mutate(invalidAfter)
+      expect(tryCreateLocalProjectDelta(invalidBefore, after)).toBeUndefined()
+      expect(tryCreateLocalProjectDelta(before, invalidAfter, after)).toBeUndefined()
+    }
+    expect(tryCreateLocalProjectDelta(null as unknown as ProjectData, after)).toBeUndefined()
+    expect(tryCreateLocalProjectDelta(before, { document: null } as unknown as ProjectData, after)).toBeUndefined()
+  })
+
+  it('rejects different complete content even when hash outputs are identical', () => {
+    const before = certifyProjectData(fixture()), after = propStage(before, { positionMm: { x: 4500, y: 4000 } })
+    const wrongBefore = cloneJson(before), wrongAfter = cloneJson(after)
+    wrongBefore.document.title = 'Another baseline'; wrongAfter.document.title = 'Another result'
+    const collision = vi.spyOn(hashModule, 'sha256Bytes').mockReturnValue('a'.repeat(64))
+    try {
+      expect(sha256Bytes(encodeUtf8('one'))).toBe(sha256Bytes(encodeUtf8('another')))
+      expect(tryCreateLocalProjectDelta(wrongBefore, after)).toBeUndefined()
+      expect(tryCreateLocalProjectDelta(before, wrongAfter, after)).toBeUndefined()
+    } finally { collision.mockRestore() }
+  })
+
+  it('stores actual frame-relative values for a moved and rotated aggregate member', () => {
+    const input = fixture(document => {
+      document.props.item.positionMm = { x: 4000, y: 4000 }; document.props.item.rotationDeg = 0
+      document.aggregateCoordinates = { encoding: 'world', groups: { group: { id: 'group', floorId: document.props.item.floorId,
+        parentId: null, frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
+    })
+    const before = certifyProjectData(input), after = revisionStage(propStage(before, { positionMm: { x: 4500, y: 4000 }, rotationDeg: 90 }))
+    const delta = tryCreateLocalProjectDelta(before, after)!
+    expect(delta.changes.find(change => change.path.at(-1) === 'positionMm')).toEqual({ path: ['document', 'props', 'item', 'positionMm'],
+      before: { present: true, value: { x: 2000, y: -3000 } }, after: { present: true, value: { x: 2000, y: -3500 } } })
+    expect(delta.changes.find(change => change.path.at(-1) === 'rotationDeg')).toEqual({ path: ['document', 'props', 'item', 'rotationDeg'],
+      before: { present: true, value: 270 }, after: { present: true, value: 0 } })
+    expect(delta.beforeHash).toBe(projectContentHash(before))
+    expect(delta.afterHash).toBe(projectContentHash(after))
+    expect(tryCreateLocalProjectDelta(encodeProjectCoordinates(before), encodeProjectCoordinates(after), after)).toEqual(delta)
+    const normalizedAlias = cloneJson(after); normalizedAlias.document.props.item.rotationDeg += 360
+    expect(tryCreateLocalProjectDelta(before, normalizedAlias, after)).toBeUndefined()
+    expect(applyProjectDelta(before, delta, 'forward')).toEqual(after)
+    expect(applyProjectDelta(after, delta, 'backward')).toEqual(before)
+  })
+
+  it('consumes exact owned encodings without rehashing and keeps full bidirectional delta bytes', () => {
+    const before = certifyProjectData(fixture(document => {
+      document.aggregateCoordinates = { encoding: 'world', groups: { group: { id: 'group', floorId: document.props.item.floorId,
+        parentId: null, frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
+    })), after = revisionStage(propStage(before, { positionMm: { x: 4500, y: 4000 }, rotationDeg: 90 }))
+    const encodings = { before: encodeProjectContentData(before), after: encodeProjectContentData(after) }
+    const expected = tryCreateLocalProjectDelta(before, after)!, digest = vi.spyOn(hashModule, 'sha256Bytes')
+    try {
+      expect(tryCreateLocalProjectDelta(before, after, after, encodings)).toEqual(expected)
+      expect(tryCreateLocalProjectDelta(encodings.before.stored, encodings.after.stored, after, encodings)).toEqual(expected)
+      expect(digest).not.toHaveBeenCalled()
+    } finally { digest.mockRestore() }
+    expect(applyProjectDelta(before, expected, 'forward')).toEqual(after)
+    expect(applyProjectDelta(after, expected, 'backward')).toEqual(before)
+    expect(encodings.before.contentHash).toBe(projectContentHash(before))
+    expect(encodings.after.contentHash).toBe(projectContentHash(after))
+    expect(Object.isFrozen(encodings.after.stored.document.props.item.positionMm)).toBe(true)
+  })
+
+  it('owns the actual complete encoding and rejects unsafe inputs without invoking getters', () => {
+    const input = fixture(); input.document.title = '完整编码 🗺️'
+    const encoding = encodeProjectContentData(input), bytes = new TextEncoder().encode(encoding.canonical)
+    expect(encoding.byteLength).toBe(bytes.length)
+    expect(encoding.contentHash).toBe(sha256Bytes(bytes))
+    expect(encoding.contentHash).toBe(projectContentHash(input))
+    expect(getOwnedProjectEncoding(encoding, input)).toBe(encoding)
+    expect(getOwnedProjectEncoding({ ...encoding })).toBeUndefined()
+    input.document.title = 'Caller changed later'
+    expect(encoding.stored.document.title).toBe('完整编码 🗺️')
+    let calls = 0
+    Object.defineProperty(input.document, 'title', { enumerable: true, get() { calls++; return 'Unsafe' } })
+    expect(() => encodeProjectContentData(input)).toThrow(/访问器|JSON/)
+    expect(calls).toBe(0)
+  })
+
+  it('keeps full comparison for copied endpoints, copied or forged encodings and mutable source lookalikes', () => {
+    const before = certifyProjectData(fixture()), after = revisionStage(propStage(before, { positionMm: { x: 4500, y: 4000 } }))
+    const encodings = { before: encodeProjectContentData(before), after: encodeProjectContentData(after) }, expected = tryCreateLocalProjectDelta(before, after)!
+    const copiedBefore = cloneJson(before), copiedAfter = cloneJson(after)
+    const mutableEncodings = { before: encodeProjectContentData(copiedBefore), after: encodeProjectContentData(copiedAfter) }
+    const forged = { before: { ...encodings.before, contentHash: 'a'.repeat(64) }, after: { ...encodings.after, contentHash: 'b'.repeat(64) } }
+    expect(getOwnedProjectEncoding(forged.before)).toBeUndefined()
+    expect(getOwnedProjectEncoding(encodings.before, copiedBefore)).toBeUndefined()
+    const digest = vi.spyOn(hashModule, 'sha256Bytes')
+    try {
+      for (const proof of [encodings, mutableEncodings, forged, cloneJson(encodings)]) {
+        digest.mockClear()
+        expect(tryCreateLocalProjectDelta(copiedBefore, copiedAfter, after, proof)).toEqual(expected)
+        expect(digest).toHaveBeenCalled()
+      }
+      digest.mockClear()
+      expect(tryCreateLocalProjectDelta(before, after, after, forged)).toEqual(expected)
+      expect(digest).toHaveBeenCalled()
+      copiedBefore.document.title = 'Stale before after encoding'
+      copiedAfter.document.title = 'Different after after encoding'
+      expect(tryCreateLocalProjectDelta(copiedBefore, after, after, mutableEncodings)).toBeUndefined()
+      expect(tryCreateLocalProjectDelta(before, copiedAfter, after, mutableEncodings)).toBeUndefined()
+      expect(tryCreateLocalProjectDelta(before, after, cloneJson(after), encodings)).toBeUndefined()
+      releaseProjectLocalTransaction(after)
+      expect(tryCreateLocalProjectDelta(before, after, after, encodings)).toBeUndefined()
+    } finally { digest.mockRestore() }
+  })
+
+  it('does not evaluate evidence accessors or let a genuine encoding authorize a noncontiguous baseline', () => {
+    const before = certifyProjectData(fixture()), first = revisionStage(propStage(before, { positionMm: { x: 4500, y: 4000 } }))
+    const second = revisionStage(propStage(first, { positionMm: { x: 5000, y: 4000 } }), 1, '2026-11-06T00:00:01.000Z')
+    let calls = 0
+    const encodings = { before: encodeProjectContentData(before), after: encodeProjectContentData(second) }
+    expect(tryCreateLocalProjectDelta(before, second, second, encodings)).toBeUndefined()
+    const unsafe = Object.defineProperty({ after: encodeProjectContentData(first) }, 'before', { enumerable: true, get() { calls++; return encodings.before } })
+    expect(tryCreateLocalProjectDelta(before, first, first, unsafe as typeof encodings)).toEqual(tryCreateLocalProjectDelta(before, first))
+    expect(calls).toBe(0)
+  })
+
+  function commonStage(before: ProjectData, commands: readonly CompositionCommand[]) {
+    const content = applyCompositionDraftCommands({ document: before.document, historyIdentity: before.historyIdentity, appearance: before.appearance }, commands,
+      { ids: { nextId: () => `delta-common-${++sequence}` }, clock: { now: () => '2026-11-09T00:00:00.000Z' } })
+    const after = certifyProjectData({ ...before, ...content })
+    const receipt = completeCompositionTransactionReceipt({ document: after.document, historyIdentity: after.historyIdentity, appearance: after.appearance }, getCompositionTransactionReceipt(content)!)!
+    expect(completeProjectTransactionReceipt(before, after, receipt)).toBeDefined()
+    return after
+  }
+
+  it('reuses actual encodings for complete common receipts and revokes that reuse with the receipt', () => {
+    const before = certifyProjectData(fixture()), after = commonStage(before, [{ type: 'renameScene', title: 'Common exact endpoint' }])
+    const encodings = { before: encodeProjectContentData(before), after: encodeProjectContentData(after) }
+    const expected = createProjectDelta(before, after), digest = vi.spyOn(hashModule, 'sha256Bytes')
+    try {
+      expect(tryCreateLocalProjectDelta(encodings.before.stored, encodings.after.stored, after, encodings)).toEqual(expected)
+      expect(digest).not.toHaveBeenCalled()
+    } finally { digest.mockRestore() }
+    expect(applyProjectDelta(before, expected, 'forward')).toEqual(after)
+    expect(applyProjectDelta(after, expected, 'backward')).toEqual(before)
+    releaseProjectTransactionReceipt(after)
+    expect(tryCreateLocalProjectDelta(before, after, after, encodings)).toBeUndefined()
+  })
+
+  it('retains full stored replay when aggregate encoding introduces changes absent from a common world receipt', () => {
+    const before = certifyProjectData(fixture()), after = commonStage(before, [{ type: 'createAggregateGroup', group: {
+      id: 'new-encoding-group', floorId: before.document.props.item.floorId, parentId: null, members: [{ kind: 'prop', id: 'item' }],
+      frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, editLocked: false,
+    } }])
+    const encodings = { before: encodeProjectContentData(before), after: encodeProjectContentData(after) }
+    expect(tryCreateLocalProjectDelta(before, after)).toBeUndefined()
+    expect(tryCreateLocalProjectDelta(encodings.before.stored, encodings.after.stored, after, encodings)).toBeUndefined()
+    const full = createProjectDelta(before, after)
+    expect(applyProjectDelta(before, full, 'forward')).toEqual(after)
+    expect(applyProjectDelta(after, full, 'backward')).toEqual(before)
   })
 })
 

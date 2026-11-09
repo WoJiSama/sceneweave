@@ -57,8 +57,8 @@ describe('internal immutable composition draft ownership', () => {
 
   it('preserves the actual parsed scene through graph sync and complete certification', () => {
     const source = sourceContent(), next = applyCompositionDraftCommands(source, change, context())
-    expect(getCertifiedCompositionDraft(next)).toBe(next)
-    expect(getCertifiedCompositionContent(next)).toBeUndefined()
+    expect(getCertifiedCompositionDraft(next)).toBeUndefined()
+    expect(getCertifiedCompositionContent(next)).toBe(next)
     expect(isCertifiedSceneSnapshot(next.document)).toBe(true)
     expect(Object.isFrozen(next.document.props.item.positionMm)).toBe(true)
     const synced = syncAppearanceGraphSnapshot(next)
@@ -136,7 +136,7 @@ describe('internal immutable composition draft ownership', () => {
     const draft = applyCompositionDraftCommands(sourceContent(), change, context())
     let reads = 0
     const proxy = new Proxy({ ...draft }, { get() { reads++; throw new Error('must not read proxy properties') } })
-    expect(getCertifiedCompositionDraft(proxy)).toBe(draft)
+    expect(getCertifiedCompositionContent(proxy)).toBe(draft)
     expect(certifyCompositionDraft(proxy)).toBe(draft)
     expect(reads).toBe(0)
     const swapped = cloneJson(draft)
@@ -145,7 +145,7 @@ describe('internal immutable composition draft ownership', () => {
       getOwnPropertyDescriptor(target, key) { return Reflect.getOwnPropertyDescriptor(target, key) },
       get(_target, key) { reads++; return Reflect.get(swapped, key) },
     })
-    expect(getCertifiedCompositionDraft(splitView)).toBe(draft)
+    expect(getCertifiedCompositionContent(splitView)).toBe(draft)
     expect(certifyCompositionDraft(splitView)).toBe(draft)
     expect(reads).toBe(0)
     const complete = certifyCompositionContent(draft)

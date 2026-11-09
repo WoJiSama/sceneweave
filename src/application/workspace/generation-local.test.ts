@@ -91,7 +91,7 @@ async function setup(dense = false) {
 }
 describe('bounded domain local generation lifecycle', () => {
   it('privately previews exact full changes, replays and adopts a material with one undo unit and cold preservation', async () => {
-    const { repo, workspace, material, areaId } = await setup(), before = workspace.getState().project!, checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'save')
+    const { repo, workspace, material, areaId } = await setup(), before = workspace.getState().project!, checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'saveSnapshot')
     const decode = vi.spyOn(validation.images, 'decode')
     const preview = await workspace.previewLocalGeneration(material, { budget: taskBudgetProfile('expanded') })
     expect(save).not.toHaveBeenCalled(); expect(decode).toHaveBeenCalled()
@@ -163,7 +163,7 @@ describe('bounded domain local generation lifecycle', () => {
     await expect(workspace.adoptLocalGeneration(preview)).rejects.toThrow(/取消/)
     expect(workspace.getState().project).toBe(before)
     const second = await workspace.previewLocalGeneration(material)
-    vi.spyOn(repo, 'save').mockRejectedValueOnce(new Error('local quota'))
+    vi.spyOn(repo, 'saveSnapshot').mockRejectedValueOnce(new Error('local quota'))
     const adopted = await workspace.adoptLocalGeneration(second); await expect(adopted.save).rejects.toThrow(/quota/)
     expect(workspace.getState().status).toBe('error'); expect(workspace.getState().canUndo).toBe(true)
     expect((await repo.load(before.document.sceneId))!.project.document.revision).toBe(before.document.revision)

@@ -9,8 +9,9 @@ import { aggregateEntityRelations } from '../aggregates/relations.js'
 import { definitionPresentation, propPresentation } from '../appearance/presentation.js'
 import { visualBase } from '../visual/base.js'
 import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../validation/json.js'
+import { getCertifiedCompositionContent, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction } from '../validation/content.js'
 import { BUDGET_DIMENSIONS, BudgetUsageSchema, TASK_BUDGET_PROFILES, assertTaskBudget, measureTaskBudget,
-  parseTaskBudgetProfile, semanticTargetEntries, type BudgetUsage, type TaskBudgetMetadata, type TaskBudgetProfile } from './task-budget.js'
+  measureBudgetGeometry, measuredRetainedSegments, parseTaskBudgetProfile, semanticTargetEntries, type BudgetUsage, type TaskBudgetMetadata, type TaskBudgetProfile } from './task-budget.js'
 
 /** Runtime admission policy only; never changes a saved document or an AI ledger. */
 export const MANUAL_TRANSACTION_BUDGET = freezeJson({
@@ -304,7 +305,73 @@ function manualCoreImpact(before: SceneDocument, after: SceneDocument, metadata:
   }
 }
 
+interface RetainedPropBudget {
+  identity: CompositionContent['historyIdentity']
+  appearance: CompositionContent['appearance']
+  usage: BudgetUsage
+  segments: number
+}
+const retainedPropBudgets = new WeakMap<SceneDocument, RetainedPropBudget>()
+function retainedPropBudget(content: CompositionContent): RetainedPropBudget {
+  const known = retainedPropBudgets.get(content.document)
+  if (known?.identity === content.historyIdentity && known.appearance === content.appearance) return known
+  const parent = getPropUpdateCompositionTransaction(content)?.baseline ?? getCompositionRevisionTransaction(content)?.baseline
+  const prior = parent && parent.document !== content.document ? retainedPropBudget(parent) : undefined
+  const usage = prior?.usage ?? measureTaskBudget(content.document, content.document, { before: content, after: content })
+  const result = { identity: content.historyIdentity, appearance: content.appearance, usage,
+    segments: prior?.segments ?? measuredRetainedSegments(content.document)! }
+  retainedPropBudgets.set(content.document, result)
+  return result
+}
+
+/** Convert a short-lived executor/revision proof into retained counters before
+ * releasing its intermediate snapshots. No caller data can seed this cache. */
+export function retainLocalCommandBudget(input: CompositionContent): void {
+  const content = getCertifiedCompositionContent(input)
+  if (content && (getPropUpdateCompositionTransaction(content) || getCompositionRevisionTransaction(content))) retainedPropBudget(content)
+}
+
+/** A private executor witness proves that only Prop position/angle changed.
+ * Retained geometry/references are inherited through that exact immutable chain;
+ * resource counters are still read from this call's actual metadata closure. */
+function measureProvenPropBudget(before: SceneDocument, after: SceneDocument, metadata: CommandBudgetMetadata | undefined,
+  execution: Partial<BudgetUsage>): CommandBudgetUsage | undefined {
+  if (!metadata) return
+  const first = { document: before, historyIdentity: metadata.before.historyIdentity, appearance: metadata.before.appearance } as CompositionContent
+  const second = { document: after, historyIdentity: metadata.after.historyIdentity, appearance: metadata.after.appearance }
+  const unchanged = before === after && first.historyIdentity === second.historyIdentity && first.appearance === second.appearance
+    ? getCertifiedCompositionContent(second) : undefined
+  const witness = getPropUpdateCompositionTransaction(second, first)
+    ?? (unchanged ? { baseline: unchanged, result: unchanged, changes: [] } : undefined)
+  if (!witness) return
+  const retained = retainedPropBudget(witness.baseline)
+  const usage = { ...retained.usage, semanticTargets: witness.changes.length, metadataRecords: 0, metadataBytes: 0,
+    geometryPoints: 0, geometrySegments: 0, curveSegments: 0, assetBytes: 0 }
+  for (const change of witness.changes) {
+    const first = measureBudgetGeometry(change.before), second = measureBudgetGeometry(change.after)
+    for (const key of ['geometryPoints', 'geometrySegments', 'curveSegments'] as const) usage[key] += Math.max(first[key], second[key])
+  }
+  usage.intersectionPairs = usage.geometrySegments * (retained.segments + usage.geometrySegments)
+  if (metadata.after.assets) {
+    usage.decodePixels = 0
+    for (const record of Object.values(metadata.after.assets)) {
+      usage.assetBytes += record.sizeBytes; usage.decodePixels += record.pixelWidth * record.pixelHeight
+    }
+  }
+  for (const [key, value] of Object.entries(execution) as [keyof BudgetUsage, number][]) {
+    if (!BUDGET_DIMENSIONS.includes(key) || !Number.isSafeInteger(value) || value < 0) throw new Error('任务执行计量无效。')
+    usage[key] = ['gridNodes', 'fieldEvaluations', 'intersectionPairs', 'candidateAttempts', 'activeExecutionMs'].includes(key)
+      ? usage[key] + value : Math.max(usage[key], value)
+  }
+  retainedPropBudgets.set(after, { ...retained, identity: witness.result.historyIdentity, appearance: witness.result.appearance })
+  return freezeJson({ ...BudgetUsageSchema.parse(usage), groupMembers: 0, externalDependencies: 0 })
+}
+
 export function measureCommandBudget(before: SceneDocument, after: SceneDocument, metadata?: CommandBudgetMetadata, execution: Partial<BudgetUsage> = {}, profile: CommandBudgetProfile = MANUAL_TRANSACTION_BUDGET): CommandBudgetUsage {
+  if (isManualTransactionBudget(profile)) {
+    const proven = measureProvenPropBudget(before, after, metadata, execution)
+    if (proven) return proven
+  }
   // The task meter reads absent identity/appearance branches as empty metadata.
   const measuredExecution = isManualTransactionBudget(profile) ? { ...execution, geometryPoints: 0, geometrySegments: 0 } : execution
   const usage = measureTaskBudget(before, after, metadata as TaskBudgetMetadata | undefined, measuredExecution)
