@@ -13,7 +13,7 @@ test('M2-4 actual Chromium normalizes bounded SVG and rasterizes it to a verifie
     return { mimeType: raster.mimeType, width: raster.pixelWidth, height: raster.pixelHeight, bytes: raster.pngBytes.byteLength,
       sha256: raster.sha256, normalizedSha256: raster.normalizedSha256, processorId: raster.processorId, processorVersion: raster.processorVersion }
   })
-  expect(result).toMatchObject({ mimeType: 'image/png', width: 64, height: 32, processorId: 'sceneweave-static-svg', processorVersion: 1 })
+  expect(result).toMatchObject({ mimeType: 'image/png', width: 64, height: 32, processorId: 'sceneweave-static-svg', processorVersion: 2 })
   expect(result.bytes).toBeGreaterThan(40)
   expect(result.sha256).toMatch(/^[a-f0-9]{64}$/)
   expect(result.normalizedSha256).toMatch(/^[a-f0-9]{64}$/)

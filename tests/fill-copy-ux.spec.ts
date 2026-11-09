@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import type { SceneDocument } from '../src/shared/model/scene'
-import { projectBackupButton } from './workspace-ux-helpers'
+import { openDetailsBySummary, projectBackupButton } from './workspace-ux-helpers'
 
 async function settled(page: Page) {
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
@@ -60,9 +60,10 @@ for (const unit of ['m', 'ft'] as const) test(`production fill-copy in ${unit} p
   await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
   await navigation.getByLabel('搜索场景物件', { exact: true }).fill(source.id)
   await navigation.locator('.asset-entity-list [data-entity-id]').click()
+  await openDetailsBySummary(page, /^填充复制$/)
   await page.getByLabel('填充副本数量', { exact: true }).fill('2')
   const numeric = page.locator('[data-fill-copy-settings] details')
-  await numeric.locator('summary').click()
+  await openDetailsBySummary(page.locator('[data-fill-copy-settings]'), /^用数值设置间距$/)
   await expect(numeric.locator('.asset-number small')).toHaveText([unit, unit])
   await numeric.getByLabel('填充间距 X', { exact: true }).fill(unit === 'm' ? '1' : '5')
   await numeric.getByLabel('填充间距 X', { exact: true }).press('Tab')
@@ -75,6 +76,8 @@ for (const unit of ['m', 'ft'] as const) test(`production fill-copy in ${unit} p
   const redo = page.getByRole('button', { name: '重做编辑', exact: true })
   const revision = page.locator('.workspace-unified')
   const preview = async () => {
+    await openDetailsBySummary(page, /^填充复制$/)
+    await openDetailsBySummary(page.locator('[data-fill-copy-settings]'), /^用数值设置间距$/)
     await numeric.getByRole('button', { name: '预览数值填充', exact: true }).click()
     await expect(review.getByLabel('填充复制参数', { exact: true })).toContainText('新增 2 份')
     await expect(review).toContainText(unit === 'm' ? '每份偏移 1.000 m, 0.250 m' : '每份偏移 5.000 ft, 1.250 ft')

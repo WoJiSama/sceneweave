@@ -151,14 +151,20 @@ test('native history refresh waits for its tab and preserves a form across inact
   await createBlank(page, '历史按需读取')
   await page.evaluate(async () => {
     const path = '/src/editor/main/repository.ts', { WorkspaceRepository } = await import(path) as typeof import('../src/editor/main/repository')
-    const usage = WorkspaceRepository.prototype.usage
+    const usage = WorkspaceRepository.prototype.usage, directory = WorkspaceRepository.prototype.historyDirectory
     Reflect.set(window, '__historyUiUsageReads', 0)
+    Reflect.set(window, '__historyUiDirectoryReads', 0)
     WorkspaceRepository.prototype.usage = function (id: string) {
       Reflect.set(window, '__historyUiUsageReads', Number(Reflect.get(window, '__historyUiUsageReads')) + 1)
       return usage.call(this, id)
     }
+    WorkspaceRepository.prototype.historyDirectory = function (id: string) {
+      Reflect.set(window, '__historyUiDirectoryReads', Number(Reflect.get(window, '__historyUiDirectoryReads')) + 1)
+      return directory.call(this, id)
+    }
   })
-  const reads = () => page.evaluate(() => Number(Reflect.get(window, '__historyUiUsageReads')))
+  const reads = () => page.evaluate(() => Number(Reflect.get(window, '__historyUiDirectoryReads')))
+  const usageReads = () => page.evaluate(() => Number(Reflect.get(window, '__historyUiUsageReads')))
   const id = await placeLamp(page)
   expect(await reads()).toBe(0)
   const navigation = page.getByTestId('workspace-navigation')
@@ -172,7 +178,10 @@ test('native history refresh waits for its tab and preserves a form across inact
   expect(await reads()).toBe(before)
   await navigation.getByRole('tab', { name: '历史', exact: true }).click()
   await expect.poll(reads).toBeGreaterThan(before)
+  expect(await usageReads()).toBe(0)
+  await page.getByRole('button', { name: '检查容量与迁移原件', exact: true }).click()
   await expect(page.locator('.history-usage')).toBeVisible()
+  expect(await usageReads()).toBe(1)
   await expect(page.getByLabel('命名快照名称', { exact: true })).toHaveValue('保留中的历史表单')
   const beforeSnapshot = await reads()
   await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
@@ -180,6 +189,7 @@ test('native history refresh waits for its tab and preserves a form across inact
   expect(await reads()).toBe(beforeSnapshot + 1)
   await page.getByRole('button', { name: '刷新历史', exact: true }).click(); await settled(page)
   expect(await reads()).toBe(beforeSnapshot + 2)
+  expect(await usageReads()).toBe(1)
 })
 
 test('M2-0f mixed native room, terrain, appearance and protected partial history restore', async ({ page }, info) => {

@@ -22,19 +22,48 @@ async function current(page: Page) {
 }
 const withoutRevision = (document: SceneDocument) => { const { revision: _revision, updatedAt: _updatedAt, ...rest } = document; return rest }
 
-test('SVG authoring preserves exact CPU raster pixels for transparent circle edges', async ({ page }, info) => {
+test('processor 2 matches the same frozen curved/transparent source pixels in every engine', async ({ page }, info) => {
   await page.goto('/')
   const result = await page.evaluate(async () => {
-    const sourcePath = '/src/shared/visual/sample-art.ts', svgPath = '/src/shared/ai/svg.ts', rasterPath = '/src/platform/browser/ai/svg-raster.ts'
+    const sourcePaths = ['/src/shared/visual/interior-art.ts', '/src/shared/visual/coast-art.ts', '/src/shared/visual/island-art.ts']
+    const [interior, coast, island] = await Promise.all(sourcePaths.map(path => import(path)))
+    const svgPath = '/src/shared/ai/svg.ts', rasterPath = '/src/platform/browser/ai/svg-raster.ts'
+    const pngPath = '/src/shared/project/png-rgba.ts', hashPath = '/src/shared/validation/hash.ts', goldenPath = '/tests/helpers/svg-processor2-goldens.ts'
+    const { normalizeStaticSvg } = await import(svgPath) as typeof import('../src/shared/ai/svg')
+    const { rasterizeNormalizedSvg } = await import(rasterPath) as typeof import('../src/platform/browser/ai/svg-raster')
+    const { decodeCanonicalPng } = await import(pngPath) as typeof import('../src/shared/project/png-rgba')
+    const { sha256Bytes } = await import(hashPath) as typeof import('../src/shared/validation/hash')
+    const { SVG_PROCESSOR2_GOLDENS } = await import(goldenPath) as typeof import('./helpers/svg-processor2-goldens')
+    const artwork = [...interior.REFINED_INTERIOR_ART, ...coast.REFINED_COAST_ART, ...island.REFINED_ISLAND_ART] as { key: string; sourceSvg: string }[]
+    const rows = []
+    for (const golden of SVG_PROCESSOR2_GOLDENS) {
+      const normalized = normalizeStaticSvg(artwork.find(art => art.key === golden.key)!.sourceSvg)
+      const output = await rasterizeNormalizedSvg(normalized, { longEdgePx: 512 })
+      const pixels = decodeCanonicalPng(output.pngBytes)
+      rows.push({ key: golden.key, processorVersion: output.processorVersion, sourceMatches: normalized.normalizedSha256 === golden.normalizedSha256,
+        pixelsMatch: sha256Bytes(Uint8Array.from(pixels.rgba)) === golden.rgbaSha256, moduleSha256: output.rasterizer.moduleSha256 })
+    }
+    return rows
+  })
+  expect(result).toHaveLength(3)
+  for (const row of result) expect(row).toMatchObject({ processorVersion: 2, sourceMatches: true, pixelsMatch: true,
+    moduleSha256: '22bf6e9f9a100d972da0411a69c5ba504367fc1fa87b3b64e3f35e53926d2d70' })
+  await info.attach('svg-processor2-fixed-pixels.json', { body: JSON.stringify(result), contentType: 'application/json' })
+})
+
+test('explicit legacy SVG recovery preserves its original CPU pixel contract for transparent circle edges', async ({ page }, info) => {
+  await page.goto('/')
+  const result = await page.evaluate(async () => {
+    const sourcePath = '/src/shared/visual/sample-art.ts', svgPath = '/src/shared/ai/svg.ts', rasterPath = '/src/platform/browser/ai/svg-raster-legacy.ts'
     const imagePath = '/src/platform/browser/images/adapter.ts', hashPath = '/src/shared/validation/hash.ts', imageBytesPath = '/src/shared/project/image-bytes.ts'
     const { VISUAL_SAMPLE_ART } = await import(sourcePath) as typeof import('../src/shared/visual/sample-art')
     const { normalizeStaticSvg } = await import(svgPath) as typeof import('../src/shared/ai/svg')
-    const { rasterizeNormalizedSvg } = await import(rasterPath) as typeof import('../src/platform/browser/ai/svg-raster')
+    const { rasterizeLegacyNormalizedSvg } = await import(rasterPath) as typeof import('../src/platform/browser/ai/svg-raster-legacy')
     const { createBrowserImagePort } = await import(imagePath) as typeof import('../src/platform/browser/images/adapter')
     const { sha256Bytes } = await import(hashPath) as typeof import('../src/shared/validation/hash')
     const { normalizePngChunks } = await import(imageBytesPath) as typeof import('../src/shared/project/image-bytes')
     const normalized = normalizeStaticSvg(VISUAL_SAMPLE_ART.find(art => art.key === 'barrel')!.sourceSvg)
-    const output = await rasterizeNormalizedSvg(normalized, { longEdgePx: 512 })
+    const output = await rasterizeLegacyNormalizedSvg(normalized, { longEdgePx: 512 })
     const images = createBrowserImagePort(), actual = await images.decode(output.pngBytes, { sha256: output.sha256, mimeType: 'image/png', sizeBytes: output.pngBytes.length, pixelWidth: 512, pixelHeight: 512 })
     const root = normalized.normalizedSource.replace(/^<svg\s/, '<svg height="512" width="512" ')
     const url = URL.createObjectURL(new Blob([root], { type: 'image/svg+xml;charset=utf-8' })), image = new Image()

@@ -127,6 +127,7 @@ async function beginFill(page: Page, before: Backup): Promise<void> {
   await closeDrawers(page)
   const inspector = await openKeyboardPanel(page, 'inspector')
   await inspector.getByRole('button', { name: `选择整个${groupName}`, exact: true }).click()
+  await openDetailsBySummary(inspector, /^填充复制$/)
   await inspector.getByLabel('填充副本数量', { exact: true }).fill('2')
   await inspector.getByRole('button', { name: '拖拽填充柄', exact: true }).click()
   await fit(page)

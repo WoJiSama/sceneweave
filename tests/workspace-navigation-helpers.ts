@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 export type WorkspaceModule = '场景' | '素材' | '建筑' | '地形' | '氛围' | '生成' | 'AI' | '历史'
 
-type GenerationTask = '室内布局' | '森林与营地' | '火山' | '自然地形' | '组合地貌' | '区域地图'
+type GenerationTask = '室内布局' | '森林与营地' | '火山' | '混合场景' | '自然地形' | '组合地貌' | '区域地图'
 type TerrainTask = '绘制地形' | '修改地形' | '布置植被' | '局部重生成'
 
 /** Direct module navigation opens the left content pane without changing the active canvas tool. */

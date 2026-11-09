@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openDetailsBySummary } from './workspace-ux-helpers'
 
 const home = (page: Page) => page.getByTestId('workspace-home')
 const library = (page: Page) => page.getByRole('region', { name: '组件素材库', exact: true })
@@ -71,6 +72,7 @@ test('subgrid placement and fill-copy candidates remain session-only until one a
   await settled(page)
 
   await chooseProp(page, placedId)
+  await openDetailsBySummary(page, /^填充复制$/)
   await page.getByLabel('填充副本数量', { exact: true }).fill('2')
   await page.getByRole('button', { name: '拖拽填充柄', exact: true }).click()
   const canvas = page.getByLabel('材质场景主持人预览', { exact: true }), canvasBox = await canvas.boundingBox()
@@ -94,6 +96,7 @@ test('subgrid placement and fill-copy candidates remain session-only until one a
   await expect(page.getByTestId('fill-copy-overlay')).toHaveCount(0)
   expect((await state(page)).document).toEqual(before)
 
+  await openDetailsBySummary(page, /^填充复制$/)
   await page.getByRole('button', { name: '拖拽填充柄', exact: true }).click()
   handle = await page.getByTestId('fill-copy-handle').boundingBox()
   if (!handle) throw new Error('Expected the fill handle after restarting the preview.')
@@ -107,7 +110,8 @@ test('subgrid placement and fill-copy candidates remain session-only until one a
   await expect(page.getByLabel('填充复制参数')).toHaveCount(0)
   expect((await state(page)).document).toEqual(before)
 
-  await page.locator('details').filter({ has: page.getByText('用数值设置间距', { exact: true }) }).locator('summary').click()
+  await openDetailsBySummary(page, /^填充复制$/)
+  await openDetailsBySummary(page.locator('[data-fill-copy-settings]'), /^用数值设置间距$/)
   await page.getByLabel('填充间距 X', { exact: true }).fill('1000')
   await page.getByLabel('填充间距 Y', { exact: true }).fill('250')
   await page.getByRole('button', { name: '预览数值填充', exact: true }).click()
@@ -160,6 +164,7 @@ test('prefab fill uses actual members and adopts or undoes the whole row once', 
   expect(Object.values(source.members).filter(member => member.propId)).toHaveLength(2)
   await chooseProp(page, memberId)
   await page.getByRole('button', { name: '选择整个双灯填充组合', exact: true }).click()
+  await openDetailsBySummary(page, /^填充复制$/)
   await page.getByLabel('填充副本数量', { exact: true }).fill('2')
   await page.getByRole('button', { name: '拖拽填充柄', exact: true }).click()
   const canvas = await page.getByLabel('材质场景主持人预览', { exact: true }).boundingBox()

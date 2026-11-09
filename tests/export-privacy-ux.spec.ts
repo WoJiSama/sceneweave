@@ -5,13 +5,14 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
 import { keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
 import { mapExportButton, openDetailsBySummary } from './workspace-ux-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 
 test.use({ actionTimeout: 15_000 })
-const review = (page: Page) => page.getByRole('region', { name: '候选审阅', exact: true })
+const review = (page: Page) => page.getByRole('region', { name: '候选审阅', exact: true }).and(page.locator('.workspace-candidate-review'))
 
 async function closeDrawers(page: Page) {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') === 'true') await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
   }
@@ -28,19 +29,29 @@ async function number(page: Page, name: string, value: number) {
 
 async function adopt(page: Page) {
   await closeDrawers(page)
+  await openKeyboardPanel(page, 'inspector')
   await review(page).getByLabel('确认完整影响范围', { exact: true }).check()
   await review(page).getByRole('button', { name: '采用结构修改', exact: true }).click()
   await expect(review(page)).toHaveCount(0); await keyboardWorkspaceSaved(page)
 }
 
 async function building(page: Page) {
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '建筑', exact: true }).click()
-  return resources
+  return openWorkspaceModule(page, '建筑')
+}
+
+async function selectStructure(page: Page, id: string) {
+  const scene = await openWorkspaceModule(page, '场景')
+  const allLayers = scene.getByRole('button', { name: '显示所有图层的对象', exact: true })
+  if (await allLayers.isVisible()) await allLayers.click()
+  await scene.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '结构', exact: true }).click()
+  await scene.getByLabel('搜索场景对象', { exact: true }).fill(id)
+  await scene.locator(`[data-entity-id="${id}"]`).click()
+  return openKeyboardPanel(page, 'inspector')
 }
 
 async function room(page: Page, name: string, x: number, y: number, width: number, height: number) {
-  await building(page)
+  const resources = await building(page)
+  await resources.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: /^绘制房间/ }).click()
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   await page.getByLabel('房间名称', { exact: true }).fill(name)
   for (const [label, value] of [['房间起点 X', x], ['房间起点 Y', y], ['房间宽度', width], ['房间高度', height]] as const) await number(page, label, value)
@@ -48,14 +59,14 @@ async function room(page: Page, name: string, x: number, y: number, width: numbe
 }
 
 async function selectRoom(page: Page, id: string) {
-  const resources = await building(page)
-  await resources.locator(`[data-building-room-id="${id}"] > summary`).getByRole('button').click()
-  return openKeyboardPanel(page, 'inspector')
+  return selectStructure(page, id)
 }
 
 async function note(page: Page, text: string, visibility: 'public' | 'gm', x: number, y: number) {
-  const resources = await building(page)
-  await openDetailsBySummary(resources, /^文字与线索$/)
+  await building(page)
+  await closeDrawers(page)
+  await page.getByRole('button', { name: '工具：注记', exact: true }).click()
+  await openKeyboardPanel(page, 'inspector')
   await page.getByLabel('新注记内容', { exact: true }).fill(text)
   await page.getByLabel('新注记可见性', { exact: true }).selectOption(visibility)
   await number(page, '新注记 X', x); await number(page, '新注记 Y', y)
@@ -119,8 +130,10 @@ for (const width of [1512, 390]) test(`complete export journey and actual secret
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await keyboardWorkspaceSaved(page)
   await room(page, '玩家大厅', 1, 1, 5, 4)
   await note(page, 'PUBLIC LABEL', 'public', 2, 8)
-  const resources = await building(page)
-  await openDetailsBySummary(resources, /^固定玩家遮罩$/)
+  await building(page)
+  await closeDrawers(page)
+  await page.getByRole('button', { name: '工具：遮罩', exact: true }).click()
+  await openKeyboardPanel(page, 'inspector')
   for (const [label, value] of [['遮罩 X', 9], ['遮罩 Y', 1], ['遮罩宽度', 8], ['遮罩高度', 8]] as const) await number(page, label, value)
   await page.getByRole('button', { name: '预览新增遮罩', exact: true }).click(); await adopt(page)
   await closeDrawers(page)
@@ -134,8 +147,7 @@ for (const width of [1512, 390]) test(`complete export journey and actual secret
   let inspector = await selectRoom(page, privateRoom.id)
   await inspector.getByLabel('房间可见性', { exact: true }).selectOption('gm')
   await inspector.getByRole('button', { name: '预览房间属性', exact: true }).click(); await adopt(page)
-  let library = await openKeyboardPanel(page, 'resources')
-  await library.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   const components = page.getByRole('region', { name: '组件素材库', exact: true })
   await components.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await components.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
@@ -153,11 +165,7 @@ for (const width of [1512, 390]) test(`complete export journey and actual secret
   await inspector.getByRole('button', { name: '预览附着线索', exact: true }).click(); await adopt(page)
 
   const wall = Object.values(baseline.document.walls).find(row => baseline.document.vertices[row.startVertexId].yMm === 1000 && baseline.document.vertices[row.endVertexId].yMm === 1000)!
-  await building(page)
-  const roomRow = page.locator(`[data-building-room-id="${publicRoom.id}"]`)
-  if (await roomRow.getAttribute('open') === null) await roomRow.locator(':scope > summary').click()
-  await roomRow.locator(`[data-building-wall-id="${wall.id}"]`).click()
-  inspector = await openKeyboardPanel(page, 'inspector')
+  inspector = await selectStructure(page, wall.id)
   await number(page, '开口近端偏移', 1.5); await number(page, '开口净宽', 0.9)
   await inspector.getByLabel('秘密开口', { exact: true }).check()
   await expect(inspector.getByLabel('揭示秘密开口', { exact: true })).not.toBeChecked()
@@ -180,9 +188,8 @@ for (const width of [1512, 390]) test(`complete export journey and actual secret
   expect(gm.rgbaSha256).not.toBe(player.rgbaSha256)
 
   // Removing the only safety mask is already rejected at the real candidate boundary.
-  await building(page)
-  await page.getByRole('button', { name: '固定遮罩 1', exact: true }).click()
-  inspector = await openKeyboardPanel(page, 'inspector')
+  const mask = Object.values(complete.document.regions).find(region => region.kind === 'manualMask')!
+  inspector = await selectStructure(page, mask.id)
   let unexpectedDownloads = 0; const record = () => unexpectedDownloads++
   page.on('download', record)
   await inspector.getByRole('button', { name: '预览删除遮罩', exact: true }).click()

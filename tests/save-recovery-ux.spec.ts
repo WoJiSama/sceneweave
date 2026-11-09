@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel, placeKeyboardLamp } from './keyboard-ux-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 
 type SaveFailureName = 'QuotaExceededError' | 'UnknownError'
 type Backup = Awaited<ReturnType<typeof keyboardProjectBackup>>
@@ -10,7 +11,7 @@ type SaveFaultFacts = { enabled: boolean; errorName: SaveFailureName; hits: { me
 
 async function closeDrawers(page: Page): Promise<void> {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') !== 'true') continue
     await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
@@ -56,10 +57,11 @@ async function clearSaveFault(page: Page): Promise<void> {
 }
 
 async function rename(page: Page, title: string): Promise<void> {
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '工程', exact: true }).click()
-  await resources.getByLabel('工程名称', { exact: true }).fill(title)
-  await resources.getByRole('button', { name: '保存名称', exact: true }).click()
+  const resources = await openWorkspaceModule(page, '场景')
+  await resources.getByRole('button', { name: '场景设置', exact: true }).click()
+  const settings = (await openKeyboardPanel(page, 'inspector')).getByRole('region', { name: '场景设置', exact: true }).and(page.locator('.workspace-project-tools'))
+  await settings.getByLabel('工程名称', { exact: true }).and(settings.locator('input:enabled')).fill(title)
+  await settings.getByRole('button', { name: '保存名称', exact: true }).and(settings.locator('button:enabled')).click()
 }
 
 async function savedColdOpen(page: Page, id: string): Promise<void> {
