@@ -17,8 +17,71 @@
 - [边界接口、空间候选与失效服务开发自检](#aggregate-boundaries-20261105)
 - [完整建筑组整体操作开发自检](#aggregate-building-transform-20261106)
 - [层级组合代表性整合与开发交接](#aggregate-integration-j-20261106)
-
+- [当前完整v1容量、性能与视觉验收前置及结果](#current-formal-acceptance-20261106)
+- [不可变会话快照与保存/预览架构整改](#workspace-snapshot-20261108)
 - [工作台信息架构与左右分工实施](#workspace-information-architecture-implementation)
+- [四项核心能力六步收束与开发自检](#core-convergence-20261109)
+- [目录与保存重复编码整改](#snapshot-remediation-20261109)
+
+<a id="snapshot-remediation-20261109"></a>
+## 目录与保存重复编码整改（2026-11-09）
+
+用户在时间分布分析后授权“按你说的，开始整改”。本项消费[快照合同](../04-scene-document.md#workspace-snapshot-contract)与[保存合同](../06-storage-and-export.md#snapshot-persistence-contract)，实施状态归[07](../07-roadmap.md#workspace-snapshot-implementation)，完整验收归[09](../09-quality-plan.md#workspace-snapshot-acceptance)。完整工程v1、数据库schema4/native40、history v1不变；保留无关脏树和独立`todo.md`，未提交、推送或部署。
+
+只读诊断绑定11月8日旧正式冻结，证据位于`work/mixed-2000-timing-20261109/`：隐藏目录每次工程对象改变重走完整元数据校验，采样约432/452ms；热保存函数约2.23/2.39秒，主要为重复canonical、clone、同步SHA及旧基线物化。预览解码await与保存主线程计算重叠，不能视为纯解码CPU。历史混合2000第三轮整段约30Hz，新独立诊断未复现，33.4ms原因仍未证实，未据保存整改宣称修复该问题。
+
+本轮实际实现：校验器签发的确切不可变固定素材闭包共享深冻结目录索引，实例位置/角度不使它失效，外部克隆/伪冻结/换reader保守检查；私有编码owner一次生成真实canonical/UTF8/SHA/stored，局部delta与checkpoint共用双端编码，只有活跃真实事务/receipt和精确不可变端点可复用。保存operation各持独立lease并pin结果/基线/分支，同事务raw row、实际块及物化结果共享；每个新事务仍重新读取全部引用块、核hash/长度，并在完整manifest和逐字节相等后复用owned解析，公开读仍为独立可变副本。资源/许可与最终CAS不减，基线提交成功才发布，失败保留旧lease；可选跨保存编码保留上限64MiB，显式/native close、versionchange/blocked及跨关闭保存均释放且不能重新挂缓存。
+
+证据集中于`work/snapshot-remediation-20261109/`，Node24.14.1、Vitest4.1.12、正常生产Chrome157.0.8103.38。`baseline/`在10:46冻结，已经包含目录优化，故前后pair仅用于保存整改，不能量化目录收益；遗漏的构建输入只按清单补齐tests/services/assets/config，没有覆盖冻结运行时源码。前两次缺输入构建失败保留，`baseline-build-final.log`正常build最终退出0。整改后1607份输入见`after-freeze.json`，正常`npm run build`执行架构检查、应用/AI类型及Vite后退出0，175份产物冻结于`after-build-freeze.json`；生产完整性测试后补的测试overlay另列，不假报全部输入始终相同。
+
+| 必要自检 | 新鲜结果与边界 |
+|---|---|
+| 最终整合单元 | `targeted-close-integration.log`同轮6文件96/96：目录反伪造/闭包、delta、content context/local blocks、增量历史与workspace snapshot persistence，串行`--maxWorkers=1 --testTimeout=30000`。关闭五类生命周期、可变/陌生端点回退、坏块/历史/失败保护及冷读在对应断言覆盖；此前spy/计数和fixture错误的失败独立保留，不与最后数字相加。 |
+| 类型与生产构建 | `typecheck.log`及`current-build.log`均退出0。正常构建保留既有Rollup/包体积提示，不将构建成功当作性能或全量回归。 |
+| 失败恢复 | `production-safety.log`首轮4项中2通过、2失败。通过项为桌面QuotaExceededError重试、390px UnknownError另存副本；内存编辑、旧持久分支、备份及恢复冷读保持。故障仅注入临时独立库的原生IDB写入，不是物理磁盘耗尽。 |
+| 实际坏块/缺块 | 上述首轮两项已验证热保存及冷打开拒绝，最后仍要求首页全量读块，与新目录not-checked合同冲突而失败。只改测试末尾：刷新后保留工程行并说明内容未检查，再实际打开拒绝；同一dist定向复验`production-integrity-confirm.log`2/2通过。实际块原生get、hash/长度、内存revision/undo、原行和故障块不被覆盖均保留，没有为通过修改产品。 |
+| 双标签CAS | `production-cas.log`独立单项通过：先热保存15°，第二标签30°成功，旧标签45°及撤销回15°均冲突；旧标签内存/递增revision/备份保持，第三冷页面逐条目hash与30°赢家一致。真实共享origin/IDB，无状态或故障注入。 |
+
+三组浏览器运行各自保留，不宣称同轮5/5。`production-test-overlay.json`、测试源码副本及`production-safety-audit.json`绑定实际用例与facts；未访问用户库、连接模型或启动用户外部浏览器。独占正常生产低样本、输出等价和剩余热点归[本次性能记录](../reference/performance.md#snapshot-remediation-20261109)，不以调用数或本节正确性检查关闭旧正式失败、全部性能/内存、视觉/P3或其他09矩阵。
+
+最终`closeout-facts.json`复核1607份after冻结输入、175份产物均无漂移，本轮10个目录/编码/保存运行时文件与根工作区相同，生产测试overlay保持；四份相关文档563条本地链接（499个Markdown锚点）无错误，`git diff --check`通过，独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`。测量后根工作区已有其他任务7份素材导入/准备相关文件变化，另有本轮测试overlay；明确列入漂移清单，不将冻结产品结论外推为不断变化的根目录全量通过。
+
+<a id="core-convergence-20261109"></a>
+## 四项核心能力六步收束与开发自检（2026-11-09）
+
+用户授权按1–6依次完成核心建设。本轮在当前完整工作区集成：①合同/owner与验收映射；②四领域共同操作会话、候选生命周期和应用端口；③实际逐步事务回执及准备/审阅/revision/delta消费；④静态领域注册、森林/火山事实owner、精确算子写域与混合串行组合；⑤共同表现/绘制包络、输出能力和应用意图准备；⑥轻量目录、事务内固定家族索引及真实选择链派生交接。具体合同归04/06和架构参考，开发状态只归[07](../07-roadmap.md#core-convergence-implementation)，正式矩阵只归[09](../09-quality-plan.md#core-convergence-acceptance)。
+
+共同入口已迁移实际UI/Workspace/Worker/存储消费者；旧四领域方法只作薄转发。未知命令/依赖/资源消费者继续完整回退；普通地形/建筑回执不扩大有限Prop证明，选择复用只允许确切受信Prop位置/角度事务及双端依赖闭包。导航`not-checked`不证明完整内容有效；历史实际记录/块/完整SHA与最终CAS仍检查，索引事务失败不发布。保存合并替换只撤销已弃置的确切临时证明，在途IO、撤销文档及失败副本保全。没有改变唯一完整v1、数据库/算法轴、资源字节/像素/许可、人工保护、保密投影或历史删除政策。
+
+性能owner于2026-11-08 17:23 UTC明确释放独占窗口后才恢复本轮检查。其18/18结果绑定旧`e23a417b`冻结，不能覆盖这里的架构变化。本轮没有正式性能数据，也不宣称O(K)、空间卸载、PNG/包IO提速或全部质量门通过。
+
+原始证据归被忽略的`work/sceneweave-core-analysis/`。Node24.14.1、Vitest4.1.12；各组串行`--maxWorkers=1 --no-file-parallelism`，必要失败只复验对应文件。前轮正常生产包175文件集合SHA256 `20074afdaecba55429db5e202986b8b4bef6e2871bbaa65cb1d5a8de1da41f28`；961份运行时输入集合SHA256 `695075d58c78b787241c5f3ce0a66ba7ef98d0452eda1156a15608fae6789a50`，HEAD `6fb36b4b622e7bf023119e2e2b107d98a865f712`加当时工作区修改。集合按路径→文件SHA256排序、紧凑JSON后SHA256；`source-freeze.json`、`dist-freeze.json`绑定下列原轮结果。新增森林边界修复后的最终独立冻结另见下文，最终收口不再断言正在并行修改的根工作区与旧冻结相同；各冻结均只证明明确影响范围，不能外推全仓回归。
+
+| 检查范围 | 新鲜结果与实际边界 |
+|---|---|
+| 类型/依赖与正常构建 | `typecheck-2.log`退出0，架构检查271个生产模块及应用/AI类型通过；`shared-1.log`为238个纯共享模块无DOM编译和原生ESM命令/身份/投影、工程/所选历史ZIP、迁入原件及素材库备份往返通过。`build-1.log`正常构建退出0，保留既有Rollup/大chunk提示，不作性能结论。 |
+| 会话/事务/资源准备 | `transactions-1.log`9文件104项中102通过、2项fixture假设失败；`transactions-receipt-2.log`单独21/21通过，其他8文件不重复。覆盖四领域会话取消/迟到、图片端口、意图、Prop普通回退、完整资源准备、逐步回执和delta，以及合并pending、延迟写、真实CAS失败与另存副本的冷读/撤销保全。 |
+| 领域注册/写域/组合 | `generation-1.log`16文件154/154，覆盖四领域执行/Worker失败协议、精确写域、空间事实、共同组合/预算/取消和应用候选；有限watch-room扩展夹具没有复制核心生命周期。`mixed-replay-1.log`另1/1，以改造前runner对照forest/volcano两种mixed@1规范完整结果，seed、阶段/实体/报告/hash保持。 |
+| 表现/隐私/输出与选择 | `presentation-1.log`11文件105项中102通过，新选择夹具三项失败；修正后`selection-transfer-4.log`12/12通过，其余10文件未重复。覆盖实际端帽/转角包络、裁剪/驻留、未归属资源全decode、GM/player投影、UVTT显式能力以及确切选择视图、锁/排序、组/外观/未知依赖回退；不代替视觉/P3或目标VTT真实导入。 |
+| 目录/历史/持久化 | `storage-1.log`7文件86/86；`lifecycle-storage-1.log`另3文件50/50。覆盖原生目录不物化、标题/元数据错误保留、完整打开拒坏块，固定身份各历史分支/取消/abort/冷开，repository与workspace的实际CAS/历史/迁入/素材库保存链。 |
+| 延迟/失败目录UI | `directory-browser-1.log`2/2，独立dev5234与隔离headless Chrome：搜索失败去掉旧cursor、迟到分页不覆盖新搜索；容量读取失败重试、旧工程迟到结果不污染新工程。只注入目录/usage延迟和失败，不伪造完整工程认证。dev已关闭。 |
+| 正常生产旅程 | `building-browser-2.log`同包建筑完整旅程1/1通过（真实Worker、编辑/撤销/重做、冷开hash、GM/player 4K与空库重新导入）；`remaining-browser-2.log`8条中6通过/2失败：四领域原生Worker真实结果门闩、Esc取消/迟到拒绝/显式重试/冷读包不变，以及森林/火山参数变更、保存冷开/删除保全通过。新forest/mixed完整交付的首败、再次复验及最终独立包2/2结果见下，不拼成单轮全绿。 |
+
+首次失败保留：类型首轮为状态联合泛型、Dexie多表overload和素材库fixture端口类型；事务两项错误假设普通revision没有独立local proof，修为显式隔离再测共同回执撤销。选择夹具将内容/显示/锁/外观跨分类混批或缺已采用许可，按合法独立命令和真实许可修正；中间两次复验又暴露updateProp只支持位置/角度及实体锁独立分类，最后用独立实体锁往返检查中间写入，不放宽生产约束。
+
+生产首轮建筑采用busy期间超时，trace存在约978秒无进展及更长teardown，保留原失败并中断该轮；未直接将原因归为产品。相同生产包单条建筑复验通过。新增森林交付用例先将默认8%树木降至4%，真实展开超过256而正确拒绝，改用2%→3%支持范围内的小事务；mixed首次已准备/采用后被通用辅助函数8秒busy默认提前判失败，本spec显式等待完整操作结束再核对新revision/saved，不扩大产品预算，也不将测试等待用于性能结论。失败日志与trace均保留，不写成单轮全绿。
+
+同旧包`core-browser-3.log`定向复验两条：mixed完整交付通过，forest的2%→3%局部修改被完整几何校验安全拒绝，暴露真实边界缺口。冻结采样器检查近侧视树木的根锚点绘制轮廓，可能接受绘制在世界内、原生未平移`visualBoundsMm`却出界的候选；初始forest@1已有额外过滤，当前地表命令安装缺此检查。修复仅在`surface-rules/commands.ts`按既有`validatePropGeometry`过滤本次提案中`OUTSIDE_FLOOR`受管实体及对应成员槽；若提案拟替换已有受管实体，将该ID交回普通删除与依赖检查。不重采样、不改冻结算法/目标覆盖/世界边界，人工、锁定及删除记录仍由原采样与事务保护。缺额仍按实际数量报告。
+
+`forest-boundary-1.log`三文件20/20；补强回归直接证明旧采样器仍产生原生出界候选，现命令结果完整合法、无悬空成员且原输入/世界/覆盖不变，`forest-boundary-2.log`两文件11/11（地表命令与工作区局部生成）。`mixed-replay-2.log`1/1，再次确认两种mixed@1规范完整输出与改造前一致。上述是定向开发自检，不扩大普通256预算或认证复用范围。
+
+随后性能owner开始另一项已授权存储/目录整改，本任务停止编辑其文件，捕获1605份源码/测试/配置/工具到独立`final-workspace/`。`final-source-capture.json`记录捕获前后与副本相同，集合SHA256 `a2dd1b11eda15719935195931690a1777c4b3e986d9a8bc8b6aa747b1326724c`。独立`build-2.log`仅因新增测试对SurfaceRule联合类型直接读取coveragePpm而失败；改为对象匹配断言，生产代码未变。`final-verified-source.json`记录该单测试overlay，最终1605份输入集合SHA256 `0c99cce6c1c6b8fbfa71cd9435737ca511673e9bf13d8a2b74eefad4341d4554`。`build-3.log`正常构建退出0，保留既有Rollup/大chunk提示；`final-dist-freeze.json`为175文件集合SHA256 `ce7a03c5e6dc63f7bb77b814c42e4008632ad6dd94920a80b7eec363a0e81183`。最终两条受影响旅程只消费这个独立生产包，根目录后续并行编辑不纳入本轮已验证声明。
+
+最终`core-browser-4.log`在独立preview5235、单worker隔离headless Chrome上2/2通过，日志退出0；`final-core-results/`与`final-core-journey-summary.json`保存实际下载和事实。森林2%→3%局部修改后10物件、0房间，混合局部修改后35物件、2房间；两者均经真实Worker生成，保护后一次采用、撤销/重做、冷开document/identity/appearance及资源hash完全一致，原工程完整保全，无生成服务请求或pageerror，玩家PNG分别4096×3072、4096×3277。这里只是两条代表旅程的正确性证据，不是运行时间/视觉验收或全部浏览器矩阵；自有preview已关闭。额外只读交叉审阅未发现边界过滤破坏人工/锁/依赖或旧重放路径，静态审阅不代替上述运行证据。
+
+最终`closeout-facts.json`核对独立1605份输入及175份产物无漂移、独立`todo.md`未改、`git diff --check`通过；正在变化的根目录文件及新增输入逐项报告，不断言其与独立副本一致。所列相关文档共检查808条本地链接/679个Markdown锚点；核心合同及证据链接有效，另有并行页面密度任务尚未写入的`workspace-information-density-20261109`一处待补锚点，单独列为`parallelPendingLinks`，本任务没有伪造该任务证据或改写其入口。
+
+全部浏览器使用独立headless上下文与临时站点库；未打开外部可见窗口、操作用户原库、调用真实AI或目标VTT。`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`，未提交、推送或部署。CDP诊断窗口已明确释放；本项必要开发自检完成，后续按09进入实际影响范围验收。完整失败矩阵、跨浏览器、正式性能/容量、视觉/P3、真实AI及VTT仍分别保留，后续存储/目录独立整改不继承本轮通过结论。
 
 <a id="workspace-information-architecture-implementation"></a>
 ## 工作台信息架构与左右分工实施（2026-11-08）
@@ -66,6 +129,99 @@
 本轮未执行真实中文输入法、系统失焦或VoiceOver，遵循用户已决定跳过的范围；合成composition/229事件及ARIA/焦点检查不替代原生实测。完整玩家秘密配对矩阵、跨浏览器、200%缩放、真实AI、正式性能、P3与目标VTT仍按09执行。开发自检不能写成验收或发布通过。上述开发实施阶段没有commit、push或部署；独立`todo.md`前后SHA256均为`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`。
 
 **提交前独立核验（2026-11-08）**：用户随后明确授权commit/push。以当时HEAD `fb041f5`加本次IA改动构造独立副本`work/ux-commit-20261108/workspace/`，排除并行的存储、SVG、容量与预览调度改造；共用`Workbench.tsx`只提交IA部分，`AssetCanvas.tsx`的调度改造及`persistenceBusy`接线留在工作区。该副本正常构建通过；布局偏好/剪贴板13项单测通过；正常生产包的IA8例、Enter2例、历史恢复2例及三宽度键盘3例在同轮15/15通过。日志为同目录上级的`projected-build.log`、`projected-unit.log`与`projected-browser.log`。待提交文档601个本地链接/锚点通过，新增代码无素材或第三方许可变更，凭据模式检查无命中。本证据只覆盖本次提交树，前述完整制作/曲线/AI等仍绑定各自整合冻结；不以此次检查替代正式验收或发布。
+
+<a id="workspace-snapshot-20261108"></a>
+## 2026-11-08：不可变会话快照与保存/预览架构整改
+
+用户先要求将方案成文，再按确认方案全部实施。目标合同归[04](../04-scene-document.md#workspace-snapshot-contract)、[06](../06-storage-and-export.md#snapshot-persistence-contract)，实际分层归[架构参考](../reference/editor-and-architecture.md#workspace-snapshot-architecture)，状态只归[07](../07-roadmap.md#workspace-snapshot-implementation)。本轮保留完整工程v1、schema4/native40、history v1和flat规范SHA；未操作用户库，未提交、推送或发布。
+
+| 实施与风险 | 新鲜证据及边界 |
+|---|---|
+| 共享资源证明 | `validateProjectSnapshot`只识别校验器自有的确切不可变project/resource对，能力绑定owner、实际方法、并发能力及源处理器profile；联合批次按每份工程的真实源能力记证。未知/克隆/改闭包及公开validate继续全验；新能力共享在途验证、独立取消，失败/最后取消不晚签。新增14项包含能力替换、混合批次、取消与恢复。 |
+| 保存与预览接线 | Workspace只有自动保存选择可选`saveSnapshot`，普通仓库适配器仍回退save；新建、导入及正式输出沿公开全验。runtime与editor renderer共用稳定平台能力。自动保存不重复未变像素验证，同时实际坏资源仍使保存失败并保留revision、内存和undo。两次门闩保存证明单writer、旧完成不误标新编辑saved，flush等待后续写入。 |
+| 编码与真实存储 | `EncodedSnapshot`每操作独占，局部准备、current、checkpoint及计量共用同次local编码/完整SHA。必要全文证明固定3槽；事务实际读缓存另限64MiB。并发读取同current及同根checkpoint只物化一次，每个原生块get一次；外返工程/manifest/字节独立。自有写入失效、跨事务重新实际读块；内存正确不能覆盖真实坏块/坏资源/CAS冲突。超过原4Mi字符窗口的新旧内容与周期checkpoint用例保持原recordHash。 |
+| 预览与清理 | 每画布`PreviewScheduler`只保留最新主图/精细请求；替换立即撤销发布资格，等待已取消任务清理后再开该lane；保存/交互忙时暂停精细图，空闲恢复最新视口。测试覆盖晚到成功/错误、受众/会话替换、重复取消、严格生命周期、主图失败不由裁剪替代；临时Canvas释放。未新增长期像素缓存。 |
+| 整合定向验证 | Node24.14.1，Vitest4.1.12，`--maxWorkers=1 --testTimeout=30000`。`integrated-verified.json`为18文件217/217；`resource-boundary-verified.json`为另2文件32/32；共20个不同文件249项通过。包含现有SVG、历史、repository、workspace、terrain/local生成及原子失败回归，不能替代全量09。 |
+| 平台边界与构建 | 共享边界/无DOM编译228模块及Node ESM往返通过。正常`npm run build`在独立副本退出0，包括应用与AI类型检查；随后当前根目录`npm run typecheck`也退出0。保留原有大chunk告警，无诊断产品API。`source-snapshot.json`证明1606文件捕获前后无漂移且复制一致；随后根目录另有UI编辑，生产结果只绑定冻结副本。 |
+| 真实生产旅程与输出 | `production-smoke-confirm`的建筑/自然/混合各500/2000完整Prop共6组complete、失败0、输入前后无漂移。真实组变换、撤销重做、成员与独立物件编辑、画布/列表选择、平移缩放、真实块/包审计、冷开及双受众4K通过。建筑两档输入与11月7日normal-control包字节相同；两档主持人/玩家4张4K PNG也逐字节相同，证据`normal-output-comparison.json`。不替代私密突变配对全集、视觉/P3或正式性能。 |
+
+原始证据集中在被忽略的`work/snapshot-architecture-20261108/`。首轮旧decode调用数断言、测试tuple类型及SVG旧字段夹具已按实际能力/严格模型修正；共享层计时器导致无DOM编译失败后改为结构取消订阅，完整共享检查复验通过，没有加DOM全局声明。概览存在性查询由两次严格读取降为一次后同步旧次数断言，实际坏块、资源与事务反例保持。
+
+生产运行器适配了并行任务的新导航入口；首轮因外层详情与内部内容同名“候选审阅”产生严格选择器冲突，失败目录`production-smoke/`原样保留。后续仅限定真实候选内容选择器，产品源码/dist未改变，工具调整单列`source-snapshot-tool-adjustments.json`。`production-smoke-confirm/`运行期间检测到另一个浏览器回归，整轮只作正确性证据；其耗时不纳入独占性能结论，冲突记录见`measurement-concurrency-note.json`。生产完整旅程及独占耗时的最终结果见[性能记录](../reference/performance.md#workspace-snapshot-20261108)。
+
+首次及接续独占尝试均在监测到外部构建后停止，原始失败/中断和已完成子项保留，不拼接为本轮通过。用户随后明确授权协调测试/构建暂停；Git提交和推送可以继续。`production-exclusive-resume-confirm-20261108`于2026-11-08 20:48:49–20:51:28 +0800完整结束：监控/运行器退出0，两档均complete、失败0、clockGaps为空；先等60秒空闲并每2秒排查其他测试/构建及自动化浏览器，测量期间未检测到并行负载，结束已通知恢复。
+
+新轮输入指纹仍为`3a580fd610118f85156401f6971e5ca6340ff3d6c3a31bc761c3efdcf627b62b`，前后未变；开始前核对冻结产品1478文件、保存/预览9个核心文件与当前工作区一致。两档完整包/实际块/资源许可、组变换和撤销重做、冷开与双受众4K通过；输入包及四张4K PNG与11月7日normal-control逐字节相同，比较脚本同时核对设备/浏览器、视口及操作次数一致。保存/画布的低样本前后区间、采样内存及剩余长任务只归[性能记录](../reference/performance.md#workspace-snapshot-20261108)，原值汇总为`exclusive-before-after-comparison-20261108.json`。2000档采样RSS较旧轮上升，保留为待复验风险；未以单轮判断泄漏或预先迁移Worker。
+
+本项实现、正确性及受影响的独占低样本观察已经收口；该轮不替代正式性能/内存和完整安全/失败矩阵。用户随后授权的集成冻结、正确性复验及六组正式性能见下节，视觉/P3及其余验收状态保持。
+
+<a id="workspace-snapshot-integrated-20261108"></a>
+### 2026-11-08：集成冻结与正确性复验
+
+用户明确授权“做123”：冻结已提交的新布局与快照架构，复验受影响正确性，再独占串行执行建筑/自然/混合×500/2000完整Prop各三轮。独立目录为`work/snapshot-formal-20261108/`，源码HEAD为`6fb36b4b622e7bf023119e2e2b107d98a865f712`，包含布局三次提交；`source-freeze.json`保留1606份源文件及当时脏树，正常构建后`product-freeze.json`固定1478份src/public/assets/dist，产品指纹为`e23a417b3d5b4010e9bf1abb5b40c3baee9554c8b67fb13b51508046d843103c`。`fixture-freeze.json`证明56份输入与原processor2完整v1容量语料逐字节一致，未重新生成身份；每次仍经正常UI严格导入并核对实际资源/像素/许可。
+
+| 风险 | 本冻结的新证据与限度 |
+|---|---|
+| 会话证明、真实内容及存储 | `correctness-core.json`为15文件181/181，覆盖snapshot persistence、workspace/history、content context/blocks、公开保存证明、repository、incremental history、snapshot resources、renderer/scheduler、路径接缝与玩家投影；`fixture-contracts.json`另1文件8/8。不是全量测试或全部09。 |
+| 平台边界与生产构建 | `shared-boundary.log`为228模块无DOM编译及实际Node ESM工程/历史ZIP往返；Node24.14.1正常构建退出0，应用/AI类型检查通过，仅保留既有chunk体积提示。 |
+| 真实旅程与玩家输出 | 正常生产Chrome隔离context，1512/390px两档生成→编辑→undo/redo→备份→冷开→新库导入及双受众PNG成功；秘密房间/物件/注记/开口/遮罩按实际RGBA及文件元数据核对，两档成功。完整旅程见`correctness-browser`，窄屏隐私修复确认见`correctness-browser-confirm`。 |
+| 保存/历史失败与CAS | 两档历史读取重试、锁拒绝、保护点写失败后恢复、undo和冷读成功，证据在首轮`correctness-browser-initial-interrupted`已结束的两个history用例；其另两个保存用例被主动中断，不能算该轮全绿。`correctness-browser-final`两档保存失败恢复2/2，分别注入原生IDB QuotaExceededError/UnknownError并检查内存及持久分支、备份、重试/副本和冷开；不是物理磁盘耗尽。真实第二标签保存CAS见`correctness-cas-final.log`1/1。 |
+| 真实DB坏块/缺块 | 新增`snapshot-storage-integrity.spec.ts`，`correctness-integrity`2/2：仅在临时独立context修改本次UI创建的唯一工程当前props块，分别翻转实际字节/删除块。manifest/revision/行SHA保持；原生get观察证明热保存和冷打开均重新读目标块并拒绝，内存编辑、递增revision与undo保留，故障块和持久行没有被覆盖；全页重载明确报告列表读取失败，不新建空工程。实际DB名、native40、引用/实际SHA/长度及命中归各例facts。 |
+
+浏览器首轮因新布局抽屉与同名隐藏/可用控件出现3个定位失败；第一次修复后保存名称仍因重复控件失败，最终限定真实场景设置与enabled输入/按钮后2/2成功，窄屏秘密输出先关闭抽屉后成功。只修改三份测试的导航/上下文定位及操作顺序，保留故障注入、断言和原超时；未改产品。初次准备坏块测试时路径基准错误的命令日志也单独保留，未运行用例。最终测试字节清单为`test-entry-adjustments-final.json`，首版清单和所有失败/中断目录保持。
+
+`correctness-evidence-index.json`索引本冻结11个不同浏览器场景的成功证据；它们来自如上明确的修复后定向运行，不宣称一次完整调用全绿。正式测量前另跑建筑500正常dist运行器smoke，退出0、输入不变、失败0，证据`runner-smoke/`，仅用于工具接线正确性，不计正式分布。
+
+2026-11-09归档本项完整正式复测：`performance-coordinated/`于2026-11-08 16:03:11–17:23:09 UTC结束，18/18轮complete、失败0，运行器/监控器均退出0，无外部负载事件，独占窗口已通知恢复。1546份输入/工具/产品文件复核无漂移；18份raw的SHA及压缩后内容与manifest相等，冻结工具重算summary也一致。所有完整包编辑后/冷读摘要及资源许可源闭包核对通过；36张真实4096×4096 PNG大小/SHA有效，同case同受众三轮字节一致。该配对只证明重复轮输出保持，不代替私密变形对照或用户P3。
+
+六组矩阵完整不等于全部验收通过：三类500的固定独立Prop即刻字段编辑100ms及连续帧33ms子项通过；混合2000第三轮及合并帧33.4ms、两处短暂选择阶段缺内存样本、CPU辅助进程连续性提示和剩余长任务均保留，具体数值与原始证据只归[性能参考](../reference/performance.md#workspace-snapshot-integrated-20261108)。前两次被外部tsc/Vitest中断的目录原样保留、不拼入新轮。
+
+本轮只调整测试入口、增加隔离故障用例并维护现有证据文档，后续核心收束代码不计入该产品冻结；用户脏树/独立todo保持，未提交、推送或发布。
+
+<a id="root-remediation-20261106"></a>
+## 2026-11-06：容量/视觉失败后的根因整改
+
+本轮承接用户授权的根因整改，保留上次正式失败证据和无关界面编辑；不提交、推送或发布。完整工程仍为v1，SVG processor2是独立处理协议；数据库结构未变，用户IndexedDB未打开。现行数据/存储合同归[04](../04-scene-document.md)和[06](../06-storage-and-export.md)。
+
+- 严格认证的有限Prop执行器覆盖归组与组外独立物件的位置/角度，真实写集贯通逐步预算、受控资源派生、元数据大小、revision和提交。托管成员、真实生成/过渡影响及不支持字段保守回退；瞬时往返工作不按最终零差异免计，外部克隆/伪冻结/替换资源闭包不继承证明。
+- 保存先完成原公开全量验证，再以真实工程凭证和完整世界/持久内容精确相等尝试局部历史差异及变化Prop桶编码。缓存最多4项/64MiB，只保留自有内容/清单/字节；完整SHA、累计预算、事务内CAS和DB实际块校验保持。非法角度不能通过坐标归一化成为合法候选，真实缺块/坏字节均拒绝，原持久revision保持。
+- SVG生产、验证及固定派生统一至固定SHA的resvg2.6.2 WASM及软件RGBA8/PNG链。原processor1不自动改写；独立CLI用原环境完整校验后分配新固定身份与lineage，保全原包和旧历史，拒绝未支持的生成/区域/aggregate转换。上次确切失败室内包已在Chrome157完成原件保全、转换包落盘复读及canonical-only冷导入，`mapping.status=complete`，源文件未变。
+- 同层/同高程/同样式可见道路的内部交叉描边移除，物理模型和命中保持；五类固定视觉输入新增真实算法7自然岩阶/高台树木，不用旧直梯夹具替代当前能力。
+
+必要自检：工作区/局部准备/历史差异3文件55项、SVG/投影/预算/PNG/道路9文件73项、内容块及真实Workspace保存2文件21项、校正后的artwork7项通过；另有资源、旧SVG迁入及视觉投影定向用例通过。正常构建和228模块共享边界检查通过。预览采用不再重复解码、canonical不再调用原生PNG编码器，两处旧故障注入/调用数断言随实际协议更新后复验通过；没有放松保存或冷读解码断言。
+
+实际生产输入及代码分别冻结在`work/root-remediation-20261106/fixtures/`与`workspace/`；完整源快照清单见`source-snapshot.json`。建筑500/2000低样本完成且包/冷读一致，领域提交为19.1–19.7/87.2–98.8ms，但保存与绘制仍秒级，详见[性能观察](../reference/performance.md#root-remediation-20261106)，不关闭正式门。五类三引擎长链视觉复验已保留5项Chromium通过、Firefox室内超时/岩岛中断及其余未运行；五类普通图及恢复包的正常生产三引擎SVG/冷读专项18/18通过，完整领域/资源/许可和冷读条目hash保持，详情及独立源码冻结归[视觉台账](visual-quality-validation.md#root-remediation-20261106)，不替代完整视觉长链。用户P3、真实模型、全部09及VTT仍分别待验收。
+
+<a id="current-formal-acceptance-20261106"></a>
+## 当前完整v1容量、性能与视觉验收前置及结果（2026-11-06）
+
+用户明确授权执行正式容量、性能与视觉专项，合同来自[09](../09-quality-plan.md#acceptance)，当前状态只在[07](../07-roadmap.md#acceptance-stage)维护。共享工作区有其他开发并行修改，因此本轮以`work/formal-acceptance-20261106/workspace`独立副本运行；原始源码/合同、修正前后hash、完整失败日志、输入包与正常dist分别保留。结果只适用于该副本，不能外推为随后共享HEAD、线上版本或完整项目通过；未操作用户存储，未授权提交、推送和部署。
+
+### 正确性前置及保留的失败
+
+| 检查 | 真实结果与边界 |
+|---|---|
+| 首轮完整单元 | `unit-full.log`：356文件中348通过、8失败；3415项中3391通过、24失败，1094.50秒，退出1。当次npm实际使用Node26；后续固定绝对路径Node24.14.1。失败包括旧schema/历史出生身份/预算计量测试输入、迁入内容块审核缺陷及默认5秒超时，原日志保留。 |
+| 修正后完整单元 | `unit-full-final.log`：356文件中355通过、1失败；3420项中3419通过，1090.77秒，退出1。唯一失败为`terrain-candidate.test.ts`保存中取消用例5020ms超过默认5秒；仅该用例给20秒预算、保留门闩与保全断言，随后全文件14/14通过（`terrain-candidate-final.log`）。这是完整轮失败后定向通过，不能写成单次完整全绿。 |
+| AI模块回归 | 首轮`ai-unit.log`为41文件40通过、554项552通过，375.63秒，两项17配方stage触发默认5秒超时。两项设置局部20秒后，`ai-unit-final.log`为41文件40通过、554项553通过，322.05秒；剩余接续重复/回退预算用例6264ms超时。该文件以显式`--testTimeout=20000`复验16/16通过（`ai-continuation-budget-final.log`，66.37秒），不改产品预算，也不将两轮数字合为全量通过。 |
+| 类型、边界和正常构建 | `typecheck-final.log / typecheck-ai-final.log / typecheck-formal-final.log / check-shared-final.log / normal-build-final.log / ai-build-final.log`对应检查退出0；正式工具/夹具额外显式类型检查，不假定默认tsconfig已包含它们。正常dist无性能专用产品钩子。容量夹具必要测试8/8通过，输入准备另做实际图片、许可及完整包冷读。 |
+| 本机迁入真实修复 | `development-import.ts`原先先由完整projects写出内容块，再把空预期块表判为额外成果；冷审核又把native清单与完整工程直接比较。现从已全验完整rows用同一`partitionProjectContent`推导真实行与唯一不可变块闭包，安装与冷审核比较同一物理表示。不允许额外块、不跳表、不放宽schema或来源保护。合法暂存重试、缺块/坏块/额外块及源/既有成果保全反例共17/17通过（`migration-corrected.log`）。未改数据库结构，不清库。 |
+
+首轮测试输入修正包括旧schema3使用确切`PROJECT_STORES_V3`、Dexie/native版本断言、通过真实`advanceHistoryIdentity`建立组合出生，以及按当前04分别检查固定源和semanticTargets；1025原始命令即使最终改回仍拒绝，累计几何工作不清零。夹具准备首轮失败、冒烟和视觉取景修正也各自保留，不混入正式分布。
+
+### 正式输入及执行边界
+
+`fixtures-second/preparation.json`为complete：建筑/自然/混合各恰好500/2000完整Prop、零Decoration；另有mixed500远端增加500完整Prop，以及16条真实局部外接支撑连接。完整资源/许可/来源和既有人工记录保留。范围180×180m、3.6m显示网格，实际50×50格；原细节集中在合法focus/remote支撑范围，不能冒充全图均匀可见密度。局部连接组变换必须因外部支撑不完整而拒绝，是安全负例。准备器移除了会全量重绑既有森林缩放素材的生成专用bind调用，保留原固定快照；由Decoration转成完整Prop的新输入不宣称与旧j样本逐像素相同。
+
+三类500正常生产冒烟`smoke-second`均complete、无失败，仅每类2次组内预览/采用和2次独立即刻编辑，不作为正式p95。正式性能使用同一冻结输入、正常dist，六组各三轮，每轮30次组内预览/采用和30次独立即刻编辑，连续输入、选择、冷读与双受众4K分列；实际结论归[性能参考](../reference/performance.md)。正式采样期间本任务不并行测试、构建、准备器或其他自动化浏览器，OS及其他应用背景另记录。艺术近景按实际几何固定，技术检查与用户P3分开，结果归[视觉台账](visual-quality-validation.md)。
+
+### 正式运行结果与复验边界
+
+性能原六组冻结A在natural-2000第3轮期间由测量运行器V8内存溢出退出134；之前已有合盖睡眠与超时失败，原日志、电源事实和采样缺口保持。产品Chrome内存与Node运行器内存分开，不把工具OOM记为产品OOM。仅修正工具在raw落盘后的重复资源序列保留方式，11份既有结果raw/compact汇总深相等；随后只运行原来尚未启动的mixed两组，各三轮独立冻结B。两份summary均failed，实际分布、失败及完整矩阵缺口只在[性能台账](../reference/performance.md#current-formal-acceptance-20261106)维护，不能拼成一轮全绿或自动补跑替换失败。500完整Prop三类的即刻编辑均未达到100ms目标，容量与性能未签收。
+
+最终视觉输入单独冻结，沿同一正常dist执行三引擎四类样图。Chromium四类完成普通/中性全景、真实结构与物件编辑、冷读/空库导入、双受众4K及私密物件移动配对；代理目视复核发现成图缺口，用户P3未签收。跨引擎实际失败、固定近景和观察记录只在[视觉台账](visual-quality-validation.md#current-formal-visual-20261106)维护；本节不把秘密位移配对外推为完整09保密矩阵通过。
+
+收口审核：最终视觉源码/构建/工具1474文件及输入38文件hash与集合无漂移；实际PNG附件hash/尺寸、16个原生近景和八份失败截图/trace均已核对。运行器与汇总工具`node --check`、共享工作区`git diff --check`通过；七份相关文档586个本地文件/锚点链接零错误。`visual-final-audit.json`、`document-final-check.json`和普通样图复核页`review.html`留在本轮忽略目录；复核页59个本地附件链接全部存在，本机HTTP读取成功，已请求在当前会话Codex侧栏展示。正式测试preview已停止，其他任务实例保留；未提交、推送或发布。
 
 <a id="aggregate-integration-j-20261106"></a>
 ## 层级组合代表性整合与开发交接（2026-11-06，j）
@@ -2146,6 +2302,31 @@ VoiceOver实际启动尝试记录于`voiceover-live-preflight`与`voiceover-star
 
 用户批准的1–4项开发工作收口；后续只根据具体页面反馈修复对应范围，整体功能、正式性能、目标VTT导入与用户P3仍按09独立验收。中文输入法、曲线/填充真实系统失焦和VoiceOver继续为“未运行；依用户决定本轮不执行”，不再索取人工结果。
 
+<a id="workspace-information-density-20261109"></a>
+## 统一工作台信息密度整改（2026-11-09）
+
+用户授权“全部调整”，覆盖场景、素材、建筑、地形、氛围、生成、AI和历史，以及顶部、右侧详情和窄屏。实现遵循[密度规范](../reference/editor-and-architecture.md#workspace-information-density)，开发状态归[07](../07-roadmap.md#workspace-information-architecture-plan)，正式验收仍归[09](../09-quality-plan.md#workspace-information-architecture-acceptance)。
+
+新增`workspace-density.css`统一标题/正文、控件、面板内边距与字段间距；桌面布局入口合并到顶栏，窄窗口保留具名抽屉栏，跨断点移动入口后恢复原焦点。图层名称/数量/绘制状态收紧，对象搜索与列表前置；物件名称/锁同行，物件、组合、放置、建筑顶点/整墙/遮罩/注记等关联坐标成组。填充复制、坐标说明、生成长说明及AI解释按需展开，仍保留直接可见的发送范围简述、错误及候选影响。素材缩略图48px，详情大图、多行输入和候选操作区保留用途；对象40px/历史48px虚拟行高不变。新增`WorkspaceNotice`只让显式成功的备份/PNG提示8秒收起，悬停或焦点停留暂停，其他提示保持。没有修改领域模型、命令、锁/依赖、CAS、资源许可或玩家投影。
+
+本轮14个UI运行时文件与175个正常生产产物记录于`work/workspace-density-20261109/final-ui-manifest.json`；生产产物集合按路径及SHA256的JSON排序计算，SHA256为`36d6d309dbd4d353752ee4a7b2f4765f2211225ee5b1cabbb1127ff702ff4021`。测试服务为5213的固定生产副本，不使用开发热更新包。构建前1267个输入的指纹另存`final-source-manifest.json`；构建期间其他会话修改了7个存储/领域及相关测试文件，详见`build-source-drift.json`，本轮UI文件无漂移。以下结论绑定确切生产产物，不外推为之后持续变化的整个工作区已全量通过。
+
+| 必要自检 | 实际结果与范围 |
+| --- | --- |
+| 正常构建 | 最终`npm run build`退出0，执行架构依赖检查、两组TypeScript检查和正常Vite构建，日志`final-build.log`。保留现有Rollup注解和包体积提示，不作为性能结论 |
+| 密度专项 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5213/sceneweave npx playwright test --config work/workspace-density-20261109/playwright.config.ts --output work/workspace-density-20261109/final-visual-results`退出0，`final-visual.log`为1/1通过。正常UI新建/放置/选择后，1079/1080/1081/1512px布局入口焦点保持；键盘展开填充、收起再展开保留数量，数值预览取消revision保持；八模块、七种生成及六个氛围页截图无页面横向溢出。普通取消提示保持alert，备份成功为status，悬停8.2秒及焦点8.2秒不消失，离开后收起；无页面异常 |
+| 实际布局 | 专项`density-facts.json`记录1512px顶栏56px、无提示时画布顶170px，单层行36px、对象虚拟行40px；右侧位置X/Y合计54px高，数值框30px。仅证明本轮样例的布局事实，不将不同内容状态的旧截图作严格前后量化 |
+| 最终同包回归 | `SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5213/sceneweave npx playwright test tests/workspace-information-architecture.spec.ts tests/keyboard-narrow-acceptance.spec.ts tests/complete-journey-ux.spec.ts --workers=1 --retries=0 --output work/workspace-density-20261109/final-results --reporter list`退出0，`final-browser.log`为单轮13/13通过：信息架构8项、1512/900/390px键盘3项及完整旅程2项。不与专项、开发包或历史结果拼接成同一轮 |
+| 完整旅程 | 1512×982与390×844通过首页新建→真实本机Worker室内生成→手工移动→撤销/重做→刷新后最近工程冷开→双受众PNG→空库正常文件导入。两档均2房间/9物件，编辑revision3，玩家/主持人PNG均4096×2731；冷开逐条目hash保持，导入按既有身份转换合同检查。无页面异常或生成服务端请求，详见两份`journey-facts.json`；此旅程不替代完整秘密像素、UVTT真实目标导入或原生输入/读屏检查 |
+| 截图及既有用例 | 已目视核看桌面场景/素材/AI/历史、室内/自然/区域生成和环境工具，以及390px场景/素材/候选。三个既有填充用例文件同步默认折叠入口及精确内层定位，`--list`退出0发现8项；未运行这三个完整文件，部分旧导航仍待其独立维护，本轮填充实际路径由专项覆盖 |
+| 中间失败 | 开发服务器首轮导航/键盘为10通过1失败，当时组件热更新且页面回到“尚未打开工程”；固定生产包的同项与全组最终通过，未为该首败改领域逻辑，原`browser.log`、`results/`保留。一次早期构建遇到并行新增的surface-rule测试未收窄联合类型；最终运行前该测试已修正，最终正常构建退出0。早期直接Vite打包仅作中间诊断，不替代最终正常构建 |
+
+5213的`/sceneweave/density-review/`提供八模块及候选的桌面/窄屏18张实际截图、当前工作区入口和本轮室内备份；材料单独附加，不改已测JS/CSS。复核页1200/390px视口×两档截图×九状态共36组图片/溢出检查通过，工作区及样例链接可读，详见`review-smoke.json`。所有自动化均使用隔离无界面Chromium，未打开用户外部浏览器或访问真实用户库；侧栏打开结果不代表用户已查看或P3签收。
+
+最终`closeout-facts.json`核对14个UI文件及175个已测生产产物无漂移，四份相关文档552条本地链接/锚点无错误，`git diff --check`通过。侧栏复核页打开请求返回queued，不据此宣称用户已查看。
+
+本轮开发整改及必要自检完成。中文输入法、曲线/填充真实系统失焦、VoiceOver仍为“未运行；依用户决定本轮不执行”；正式验收/P3及发布未完成。无关并行修改和独立`todo.md`保持，后者SHA256为`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`；本轮未提交、推送或部署。
+
 <a id="asset-expansion-20261109"></a>
 ## 六主题素材与自定义导入全流程开发自检（2026-11-09）
 
@@ -2228,3 +2409,21 @@ AI两文件31项的代理先行结果另保留于`work/asset-expansion-20261109/
 `commit-build-2.log`正常构建退出0；首次投影构建缺质量导入及混用后续端口的测试夹具，已适配既有接口。`commit-unit.log`为14文件190通过/4失败，四项失败同属新质量用例缺Node图片规范化适配；只补与既有批量测试相同的PNG规范化mock，真实PNG字节、CRC、解码、质量与完整工程校验保持，随后`commit-unit-quality-fixed.log`为5/5通过。其他13个通过文件覆盖清单、读取、审核、主题、确切确认、批量及AI采用；不把两轮拼作一轮全绿。既有`library-content`与`prepare`边界另以`commit-unit-existing-boundary.log`核对2文件15/15通过。
 
 `commit-browser.log`对本次正常dist的`http://127.0.0.1:5227/sceneweave/`串行运行`asset-expansion.spec.ts`和`asset-quality.spec.ts`，7/7通过：名字与标定、ZIP清单、撤销/重做、保存冷开、空个人库恢复、只选闭包/只读审核、六包实际PNG/12工程下载、室内/海岸可编辑样板与玩家PNG，以及透明拒绝保全、逐件确认/取消重置、390px图片与无横溢、真实PNG低分辨率和无提示SVG。AI单元使用受控端口，不代表真实模型运行。完整美术/状态覆盖、跨浏览器、整体性能、目标VTT和用户P3仍待09；本节只记录开发提交验证，不表示部署或签收。
+
+<a id="remaining-integration-delivery-20261109"></a>
+### 剩余工作区整合与提交验证（2026-11-09）
+
+用户在素材独立提交后明确要求继续处理其余三百余项改动，并要求提交标题和正文中英双语。本次包含核心/领域端口、事务回执、不可变会话快照、目录和增量内容块存储、SVG处理器2及许可、工作台整合、生产验证工具、AI恢复与语义入口，以及相应现行合同和历史证据。核心、存储、渲染与UI接口互相依赖，作为完整底座提交；验证工具、AI恢复、AI入口及文档分开提交。不改写此前各批冻结，也不把本次推送等同部署或验收。
+
+证据根为`work/remaining-delivery-20261109/`。`candidate/`冻结基础实现，`candidate-ai/`在其上叠加完成后的AI工作线；两者分别正常构建并使用独立5227/5228预览地址。源码hash、逐文件投影与暂存blob核对保存在证据根；基础投影与核心提交唯一差异是AI说明折叠，完整版本在后续AI入口提交纳入并验证。测试均为必要开发自检，本次没有运行完整验收或正式性能。
+
+| 检查 | 本次实际结果 |
+|---|---|
+| 核心底座 | `build-stable-final.log`正常构建通过；`unit-stable.log`55文件601项通过，覆盖事务/候选、快照与资源、内容块/目录/历史、渲染、生成注册、SVG/真实像素及素材集成 |
+| 基础生产浏览器 | `browser-stable.log`12/12通过：森林与混合生成→保护局部采用→撤销/重做→完整备份/冷读；四领域真实Worker取消/迟到结果；1512/900/390px操作；坏块/缺块拒绝保存与冷开，跨标签CAS保全双方分支 |
+| 验证工具 | `browser-discovery.log`发现16文件43项；`tool-syntax.json`核对当前性能及SVG迁入脚本语法通过。未运行这些文件的完整视觉、跨浏览器或性能矩阵，不把发现用例数记为通过数 |
+| AI整合 | `build-ai-final.log`正常构建、283源码模块架构边界及248共享模块无DOM编译/Node原生往返通过；`unit-ai-services.log`5文件105项、`unit-ai-entry.log`2文件19项、`unit-harness-io.log`4项全部通过 |
+| AI入口生产浏览器 | `browser-ai-final.log`5/5通过：参数仅填表、未知创建只读查原编号、超过20个更新任务仍能找回原请求、坏输出/人工修改保全，以及CLI文件正常导入→删除→撤销→保存冷开。实际CLI结果为complete、模型请求0，磁盘工程重读与PNG逐像素一致；页面AI使用受控提供方，未调用真实模型 |
+| 许可与交付范围 | 88份resvg许可/说明文本保留原字节，清单中86份原始许可SHA256一致；固定WASM来自锁定依赖。上游许可原文含CRLF/尾空格，完整diff检查的这些警告保留；排除其原文目录后的代码/文档空白检查通过。独立`todo.md`SHA256仍为`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`，本机工程、图片和验证附件保持ignored |
+
+底座提交为`56a1583`，验证工具为`2a3ed63`，AI恢复为`857d0d7`，AI入口为`1c66b84`，均使用中英双语标题和正文；文档随本节另行提交。AI入口末尾多余空行在提交收口时移除，未改可执行内容。当前受影响检查均通过，已有包体积/重复引用告警保持；后续六主题画风/用途整改、真实模型收益、完整故障/跨浏览器、整体性能、目标VTT及用户P3仍由07/09推进。本节只证明上述开发交付范围，远端推送结果由交付时Git回读确认。

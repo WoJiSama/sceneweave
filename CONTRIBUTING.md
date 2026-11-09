@@ -23,6 +23,8 @@ npm run test:e2e
 
 共享内核可单独运行`npm run check:shared`：AST依赖边界、无DOM/无Node类型编译、真实Node原生ESM命令/身份/投影及当前/历史ZIP往返，临时发射目录自动清理。保留的兼容模块API测试用于领域/存储依赖及既有来源记录，不能据此宣称产品支持旧版导入或转换；M2-0b至f当批命令与数字分别见[48](docs/archive/m2-project-validation.md#doc-48)至[52](docs/archive/m2-project-validation.md#doc-52)。
 
+`npm run check:architecture`检查共享层只依赖共享层、应用层只依赖共享层和应用层；类型导入与动态导入遵守同一边界。应用端口由应用层定义，浏览器在组合根注入实现。正常`typecheck`和`build`会先运行此检查；它不替代共享层无DOM编译或行为验证。
+
 原生定向入口位于`src/application/workspace`、`src/editor/main`、`src/editor/native-canvas`、`src/platform/browser/render`及新主库的历史包/原件测试。真实浏览器可定向运行`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m20f-ui.spec.ts tests/m20f-render.spec.ts tests/m20f-entry.spec.ts --reporter=line`，检查混合主会话/目录、实际GM/player 4K逐RGBA对照及完整v1所选历史包的独立导入；旧转换UI旅程不再执行。每次修改按实际范围验证，不将52的旧批次当作当前结果。
 
 Vitest 运行 `src/**/*.test.ts` 中的领域、存储、工程文件及渲染测试；Playwright 使用 `tests/` 下保留的浏览器旅程，会按配置启动本地服务或复用已有同端口服务。旧整页UI用例已退休，当前工作区与M2旅程继续执行，旧领域/IO的API用例按依赖保留，完整范围及退休清单见[tests/README](tests/README.md)。默认安装并使用 Playwright Chromium。系统 Chrome 可用时也可运行：
@@ -34,6 +36,46 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npm run test:e2e
 测试使用独立profile/浏览器上下文；当前范围见[测试导航](tests/README.md)，实际结果归对应[历史台账](docs/archive/README.md)，验收要求归[质量计划](docs/09-quality-plan.md#acceptance)。退休UI脚本和旧批次数字不能作为当前通过证明。
 
 生产构建在 dist/；可使用 `npm run preview` 在本地检查构建结果。[GitHub Pages 工作流](.github/workflows/deploy.yml)在推送 main 或手动触发时，读取 `.nvmrc` 安装 Node，执行 `npm ci` 和 `npm run build` 后部署静态站点至[在线预览](https://wojisama.github.io/sceneweave/)。该工作流只负责构建和部署，不代替上述单元/浏览器验证；成功结果以 GitHub Actions 运行记录为准。它不包含 AI 网关、工程云同步或正式发行版流程。
+
+<a id="local-map-harness"></a>
+## 本地地图harness（开发工具）
+
+当前适配器提供一个新建林中建筑的语义接口，供本地agent或人手提交JSON；使用与页面相同的生成意图、固定素材和领域执行器。它不含模型，不需要provider密钥；先安装依赖及Playwright Chromium。能力表、参数schema、限制和唯一样例由共享代码输出：
+
+```sh
+npx playwright install chromium
+node tools/harness/sceneweave.mjs capabilities
+node tools/harness/sceneweave.mjs example > /absolute/existing-parent/request.json
+node tools/harness/sceneweave.mjs generate --input /absolute/existing-parent/request.json --output /absolute/existing-parent/new-map --allow forest-building --budget standard
+```
+
+示例路径需替换，输入/输出均须绝对路径。输出目录必须尚不存在且父目录已存在；`--allow forest-building`明确授权此能力和内置固定素材，`--budget small|standard|expanded`由执行环境选择注册预算，两者均不接受模型JSON代填。也可用`npm run harness -- <子命令>`。参数包括20–100米宽高、1–4房间、共用用途、家具开关、0–2植被倍率和seed；未知字段或不支持环境明确拒绝。当前营地仅预留空地，不包含帐篷/篝火，不保证任意参数必有解；完整限制见[接口合同](docs/reference/ai-entry-strategy.md#semantic-entry-contract)。
+
+工具启动临时回环服务和全新Chromium上下文，禁止站外请求和浏览器数据库打开，不复用用户profile、不打开应用工作台。真实图片/像素校验、生成、完整包导出和玩家PNG使用现有平台端口；输出`request.json`、`map.sceneweave`、`preview.png`及`result.json`。只有结果`status:"complete"`才表示落盘SHA复读、另一空白页面完整冷导入和2048长边预览RGBA一致均通过。失败目录保留诊断且不自动重试；重试须明确使用新目录，不能将该工具当作旧AI任务的恢复入口。
+
+在正常页面首页选择“打开工程文件”，选取`map.sceneweave`，即可继续编辑和保存。文件交接仅是独立新工程；不授予替换已打开工程、直接写IndexedDB或合并历史的权限。CLI和SDK尚属仓库内开发工具，普通页面制图不要求clone源码；正式分发、真实模型收益、视觉/P3及[09比较](docs/09-quality-plan.md#ai-entry-acceptance)均另验。定向入口为`npx vitest run src/application/workspace/semantic-generation.test.ts`和`node --test tools/harness/io.test.mjs`。
+
+页面参数助手位于“生成 → 混合场景 → 林中建筑 → 用自然语言填写参数 · 实验”。先在“AI”模块连接现有任务服务，返回后输入需求，检查参数、默认值、歧义及未支持项，再点击“填入生成参数”；这一步只更新表单，仍须手动点击“预览混合场景”并按原流程保存新工程。解析失败保留原文和表单，可直接手填继续。用量显示来自实际任务，不承诺固定单次模型请求。
+
+<a id="legacy-svg-recovery"></a>
+## 旧 SVG 的独立恢复工具
+
+`tools/migration/migrate-legacy-svg.mjs`仅处理已导出的当前完整v1归档中仍含processor1的SVG，不提供旧IndexedDB发现、普通导入旁路或原地修复。先安装依赖及所选Playwright引擎，在仓库根目录显式指定输入文件、归档类型和**尚不存在**的绝对输出目录；输出目录的父目录必须已经存在，不能先用`mktemp -d`创建目标目录。以下绝对路径为待替换示例：
+
+```sh
+npx playwright install chromium
+node tools/migration/migrate-legacy-svg.mjs --input "/absolute/source.sceneweave" --output "/absolute/existing-parent/new-svg-copy" --mode complete
+```
+
+所选历史包改用`--mode history`；默认使用Playwright Chromium，可显式选`--browser chromium|firefox|webkit`，Chromium另可加`--channel chrome`。须安装对应引擎并选择与旧制品实际来源匹配的环境；选项不保证复现任意旧浏览器版本。工具先完整校验原始源、规范化源、原PNG及确切许可，原生SVG实际RGBA必须与旧PNG一致，任何不匹配都拒绝，不能猜测生产环境后静默重画。参数说明可用`node tools/migration/migrate-legacy-svg.mjs --help`查看。
+
+严格拒绝无processor1源的当前工程、区域地图、带`aggregateCoordinates`的工程，以及`generation`或`generation.legacy`下除版本标识外的非空记录；缺少可重建固定目录身份的符号外观源、兼作派生输出的SVG源也拒绝。归档仍受普通严格字段、资源/许可、CRC/SHA及预算校验，输入须为非空普通文件且不超过100MiB；不丢弃不支持的收据、历史或字段来制造成功。
+
+源文件只以只读方式捕获，工具启动临时本机服务和隔离浏览器，禁止IndexedDB/localStorage/sessionStorage及站外网络，不打开用户profile或应用工作台。新目标仅复制当前场景，分配新sceneId、lineage及固定身份、revision0，以processor2生成新PNG和派生并仅用其能力完成冷导入校验；所选旧快照及原固定身份完整留在原始归档，不伪造新历史连续性。
+
+独立输出包含原字节`original.sceneweave`、新候选`converted.sceneweave`和`mapping.json`；记录源/目标hash、身份映射、实际引擎和保全快照ID。只有`mapping.json`的`status:"complete"`确认原件与候选落盘重读hash、源文件未变和候选冷读均完成；失败目录保留供诊断，重试须另选新目标。工具不安装、保存或发布到用户工程库，不清源库；成功候选由用户另行显式导入，不代表视觉/P3、VTT或性能验收。
+
+恢复候选与五类冻结普通艺术工程可通过[SVG确定性与冷读专项](tests/README.md#svg-determinism)在正常生产dist执行6输入×三引擎回归。须显式传入冻结目录、恢复包文件、生产baseURL和输出目录；配置单worker、每例300秒且零重试，不启动开发服务器。该专项只核对真实UI导入、完整领域/来源/资源/许可及冷读保全，恢复包另留双受众4K PNG；不能替代完整视觉组合、人工美术/P3或正式性能验收。
 
 ## M2-1本地任务服务
 
@@ -253,7 +295,7 @@ formal_prepared_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-fixtures.XXX
 node tools/performance/prepare-current-formal.mjs --output "$formal_prepared_dir" --mode all
 ```
 
-准备器的`--mode all`生成建筑/自然/混合各500/2000完整Prop及远端/局部外接两种变体，容量清单为`manifest.json`；视觉输入为室内、岩岛、海岸、混合四类，每类包含效果/中性/秘密配对副本及四份派生取景工程，清单为`formal-visual-fixtures.json`。`preparation.json`保留准备结果和失败。所有工程使用当前完整v1，保留真实资源、许可、实际像素与完整字段，落盘复读SHA后才可测量；准备阶段不计入性能样本。可用`--mode capacity`或`--mode visual`单独准备，但必须保留确切输入字节，不能拼接不同准备进程的身份/输出。确认准备器成功退出且工具浏览器/服务关闭后再继续。
+准备器的`--mode all`生成建筑/自然/混合各500/2000完整Prop及远端/局部外接两种变体，容量清单为`manifest.json`；视觉输入为室内、原岩岛、海岸、混合及`current-island`五类，每类包含效果/中性/秘密配对副本及四份派生取景工程，清单为`formal-visual-fixtures.json`。原四类继续作为独立回归输入；`current-island`由当前生产算法7真实物化，单独覆盖带route的naturalRock双支撑台阶、紧凑高地树及真实海岸/悬崖材质消费，取景绑定实际生成几何，不以旧岩岛样片代替新能力证据。`preparation.json`保留准备结果和失败。所有工程使用当前完整v1，保留真实资源、许可、实际像素与完整字段，落盘复读SHA后才可测量；准备阶段不计入性能样本。可用`--mode capacity`或`--mode visual`单独准备，但必须保留确切输入字节，不能拼接不同准备进程的身份/输出。确认准备器成功退出且工具浏览器/服务关闭后再继续。
 
 先在新目录跑单组低样本smoke；它只核对运行链，不形成正式p95或容量通过：
 
@@ -262,7 +304,7 @@ formal_smoke_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-smoke.XXXXXX")
 node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" --output "$formal_smoke_dir" --dist "$PWD/dist" --cases building-500 --smoke --timeout-ms 180000
 ```
 
-`--smoke`固定一轮、2次普通编辑、4次列表选择和缩减连续操作，分类为`diagnostic-current-v1-production-ui-smoke`；不能混入正式分布。修正问题后重新完成受影响正确性检查、正常构建和输入冻结，并另开输出目录。源码、素材、夹具清单、运行器和dist在采样前后均核对，冻结目录中的日志也不得继续写入。
+`--smoke`固定一轮、2次组内预览/采用编辑＋2次独立物件即刻编辑、4次列表选择、2次画布选择和缩减连续操作，分类为`diagnostic-current-v1-production-ui-smoke`；不能混入正式分布。修正问题后重新完成受影响正确性检查、正常构建和输入冻结，并另开输出目录。源码、素材、夹具清单、运行器和dist在采样前后均核对，冻结目录中的日志也不得继续写入。
 
 正式六组矩阵使用同一份冻结输入和全新输出目录，不带`--smoke`：
 
@@ -272,9 +314,9 @@ node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" 
 node tools/performance/summarize-current-formal.mjs "$formal_performance_dir" > "$formal_performance_dir/summary-recomputed.json"
 ```
 
-默认建筑/自然/混合×500/2000六组，各三轮独立Chrome进程/profile；每轮30次公开完整Prop的世界X加1mm/复位、60次对象列表选择、6次实际画布选择，以及平移/缩放各三段，分别逐rAF发送30次pointermove和20次wheel。另测组预览/采用及撤销/重做、冷重开、完整包/资源hash、只读内容块/记录行字节和GM/player真实4K PNG。输入固定180m×180m、3.6m显示网格，即50×50格；500/2000均为完整Prop，轻量Decoration不替代物件数量。可显式`--cases mixed-500-remote,mixed-500-local-ports`在另一新目录测准备好的边界输入：前者在500基线上增加远端500完整Prop，后者有16条真实局部外接连接，按有限支撑合同应拒绝不完整组移动。它们不替代默认六组，也不证明更大规模支持。
+默认建筑/自然/混合×500/2000六组，各三轮独立Chrome进程/profile；每轮30次组内完整Prop预览/采用编辑＋30次独立完整Prop即刻编辑，两类均为公开物件的世界X加1mm/复位，另有60次对象列表选择、6次实际画布选择，以及平移/缩放各三段，分别逐rAF发送30次pointermove和20次wheel。独立即刻目标固定为`controls.remoteEntityId`，开始前核对未归属聚合组、预制组合、散布或装饰簇，且公开、未锁、原位与加1mm的完整足迹均有真实支撑。另测组预览/采用及撤销/重做；两类物件编辑完成后核对冷重开、完整包/资源hash、只读内容块/记录行字节和GM/player真实4K PNG。输入固定180m×180m、3.6m显示网格，即50×50格；500/2000均为完整Prop，轻量Decoration不替代物件数量。可显式`--cases mixed-500-remote,mixed-500-local-ports`在另一新目录测准备好的边界输入：前者在500基线上增加远端500完整Prop，后者有16条真实局部外接连接，按有限支撑合同应拒绝不完整组移动。它们不替代默认六组，也不证明更大规模支持。
 
-当前组内物件字段编辑采用预览→确认采用两阶段：分别报告Enter→候选、采用click→领域事务、Enter→领域事务总区间和保存/显示；总区间包含实际审阅/自动化等待，不能混成纯领域耗时。100ms只比较明确提交意图的采用子区间，同时标明它不建立旧即刻命令全链验收。连续帧只统计真实输入活动窗，排除前置与尾部等待；双rAF仍是浏览器调度代理。三轮及合并nearest-rank分布、CPU连续性、采样间隔/缺样、RSS/目标页JS堆、首轮失败和组保护拒绝均保留，失败不自动重试或降载。逻辑内容块/最终变化行字节不等于物理磁盘I/O。运行器自动写`manifest.json`、每轮结果和`summary.json`；上面的汇总命令只重算已有证据，不启动测量。
+当前组内物件字段编辑采用预览→确认采用两阶段：分别报告Enter→候选、采用click→领域事务、Enter→领域事务总区间和保存/显示；总区间包含实际审阅/自动化等待，不能混成纯领域耗时。独立物件由真实trusted Enter即刻提交，500完整Prop的100ms门使用Enter→实际校验完成的领域事务全链，要求三轮每轮至少30次、合并至少90次，逐轮及合并p95均不超过100ms；Enter→保存、实际重绘和显示代理分别报告。组内采用click子指标独立保留，不替代即刻编辑全链门；自由物件拖动及其余QA-PERF操作仍需各自证据。连续帧只统计真实输入活动窗，排除前置与尾部等待；双rAF仍是浏览器调度代理。三轮及合并nearest-rank分布、CPU连续性、采样间隔/缺样、RSS/目标页JS堆、首轮失败和组保护拒绝均保留，失败不自动重试或降载。逻辑内容块/最终变化行字节不等于物理磁盘I/O。运行器自动写`manifest.json`、每轮结果和`summary.json`；上面的汇总命令只重算已有证据，不启动测量。
 
 性能浏览器全部退出后，视觉三引擎使用同一正常dist和独立产物目录。先安装引擎；在终端A启动已经构建的生产预览服务：
 
@@ -283,7 +325,7 @@ npx playwright install chromium firefox webkit
 npm run preview -- --port 5174 --strictPort
 ```
 
-回到此前准备夹具和执行性能命令的原终端B（保留`formal_prepared_dir`），串行执行四类视觉输入，等待命令结束后关闭终端A服务：
+回到此前准备夹具和执行性能命令的原终端B（保留`formal_prepared_dir`），串行执行五类视觉输入，等待命令结束后关闭终端A服务：
 
 ```sh
 formal_visual_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-visual.XXXXXX")
