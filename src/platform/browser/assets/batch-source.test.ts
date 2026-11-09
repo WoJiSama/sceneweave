@@ -1,6 +1,8 @@
 import { zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
+import { sha256Bytes } from '../../../shared/validation/hash.js'
+import { ASSET_PACK_MANIFEST_FILENAME, ASSET_PACK_MANIFEST_LIMITS } from '../../../shared/assets/import-manifest.js'
 import { inspectBoundedZip, inspectZip } from '../../../shared/project/zip.js'
 import { ASSET_BATCH_LIMITS, collectAssetFiles } from './batch-source.js'
 
@@ -9,6 +11,14 @@ const image = (name = 'tree.png') => new File([bytes()], name, { type: 'image/pn
 const archive = (files: Record<string, Uint8Array>, level: 0 | 6 = 0) => new File([zipSync(files, { level }).buffer as ArrayBuffer], 'assets.zip', { type: 'application/zip' })
 const folderFile = (path: string) => Object.defineProperty(image(path.split('/').at(-1)), 'webkitRelativePath', { value: path, configurable: true }) as File
 const repeatedBlob = (mebibytes: number, type = 'image/png') => new Blob(Array.from({ length: mebibytes }, () => new Blob([new Uint8Array(1024 * 1024)])), { type })
+const packManifest = (items: Record<string, unknown>[] = [{ path: 'tree.png', name: ' 老树_01 ', kind: 'prop', widthMm: 2000, heightMm: 3000,
+  footprintWidthMm: 400, footprintHeightMm: 500, rootAnchorMm: { x: 1000, y: 2800 }, licenseId: 'original' }]) => ({
+  format: 'sceneweave-asset-pack', schemaVersion: 1,
+  pack: { id: 'forest', name: '森林包', version: 1, style: '水彩', scenes: ['营地'] },
+  licenses: [{ id: 'original', text: 'Original work. Embedding permitted.', attribution: '作者' }], items,
+})
+const packBytes = (value: unknown = packManifest()) => bytes(JSON.stringify(value))
+const fileAt = (path: string, content: Uint8Array) => Object.defineProperty(new File([content.buffer as ArrayBuffer], path.split('/').at(-1)!), 'webkitRelativePath', { value: path }) as File
 
 describe('owned batch source selection', () => {
   it('collects supported files and reports sidecars without pretending image/SVG content was decoded', async () => {
@@ -89,6 +99,100 @@ describe('owned batch source selection', () => {
     const second = new AbortController(), pending = collectAssetFiles([archive({ 'one.png': bytes(), 'two.webp': bytes() })], { source: 'zip', signal: second.signal })
     second.abort()
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
+describe('raw asset-pack manifest collection', () => {
+  it('accepts a folder-root manifest and fills immutable draft metadata without confirming permission', async () => {
+    const metadata = packBytes(), result = await collectAssetFiles([
+      fileAt(`forest/${ASSET_PACK_MANIFEST_FILENAME}`, metadata), fileAt('forest/tree.png', bytes()), fileAt('forest/README.txt', bytes('instructions')),
+    ], { source: 'folder' })
+    expect(result.entries[0].path).toBe('forest/tree.png')
+    expect(result.entries[0].metadata?.name).toBe(' 老树_01 ')
+    expect(result.entries[0].metadata).toBe(result.manifest!.items[0])
+    expect(result.entries[0].license).toBe(result.manifest!.licenses[0])
+    expect(result.entries[0].license?.attribution).toBe('作者')
+    expect(result.entries[0].license).not.toHaveProperty('canEmbed')
+    expect(result.skipped.map(row => row.path)).toEqual(['forest/README.txt'])
+    expect(result.totalBytes).toBe(bytes().length + metadata.length)
+    expect(result.inputBytes).toBe(result.totalBytes + bytes('instructions').length)
+    expect(Object.isFrozen(result.entries[0].metadata)).toBe(true); expect(Object.isFrozen(result.entries[0].license)).toBe(true)
+  })
+
+  it.each(['', 'forest/'] as const)('maps ZIP manifest paths relative to its directory %j', async root => {
+    const value = packManifest([{ ...packManifest().items[0], path: 'props/tree.png', sourceSha256: sha256Bytes(bytes('original image bytes')) }])
+    const result = await collectAssetFiles([archive({ [`${root}${ASSET_PACK_MANIFEST_FILENAME}`]: packBytes(value), [`${root}props/tree.png`]: bytes('original image bytes') }, 6)], { source: 'zip' })
+    expect(result.entries).toHaveLength(1)
+    expect(result.entries[0].metadata?.path).toBe('props/tree.png')
+    expect(result.entries[0].metadata?.sourceSha256).toBe(sha256Bytes(bytes('original image bytes')))
+    expect(new Uint8Array(await result.entries[0].file.arrayBuffer())).toEqual(bytes('original image bytes'))
+    expect(result.totalBytes).toBe(packBytes(value).length + bytes('original image bytes').length)
+  })
+
+  it('keeps no-manifest collection behavior and accepts a manifest selected with native files', async () => {
+    const without = await collectAssetFiles([image()])
+    expect(without.manifest).toBeUndefined(); expect(without.entries[0].metadata).toBeUndefined(); expect(without.entries[0].license).toBeUndefined()
+    const withManifest = await collectAssetFiles([new File([packBytes().buffer as ArrayBuffer], ASSET_PACK_MANIFEST_FILENAME), image()])
+    expect(withManifest.entries[0].metadata?.name).toBe(' 老树_01 ')
+  })
+
+  it('requires the exact manifest filename and permits only one at a common material root', async () => {
+    await expect(collectAssetFiles([archive({ 'Sceneweave-assets.json': packBytes(), 'tree.png': bytes() })], { source: 'zip' })).rejects.toThrow(/精确/)
+    await expect(collectAssetFiles([archive({ [`one/${ASSET_PACK_MANIFEST_FILENAME}`]: packBytes(), [`two/${ASSET_PACK_MANIFEST_FILENAME}`]: packBytes(), 'tree.png': bytes() })], { source: 'zip' })).rejects.toThrow(/一份/)
+    await expect(collectAssetFiles([archive({ [`forest/${ASSET_PACK_MANIFEST_FILENAME}`]: packBytes(), 'tree.png': bytes() })], { source: 'zip' })).rejects.toThrow(/不存在/)
+  })
+
+  it('requires exact one-to-one mapping of every collected supported image including SVG', async () => {
+    const declared = { [ASSET_PACK_MANIFEST_FILENAME]: packBytes(), 'tree.png': bytes() }
+    await expect(collectAssetFiles([archive({ ...declared, 'extra.svg': bytes('<svg/>') })], { source: 'zip' })).rejects.toThrow(/未列出/)
+    await expect(collectAssetFiles([archive({ [ASSET_PACK_MANIFEST_FILENAME]: packBytes() })], { source: 'zip' })).rejects.toThrow(/不存在/)
+    await expect(collectAssetFiles([archive({ [ASSET_PACK_MANIFEST_FILENAME]: packBytes(), 'Tree.png': bytes() })], { source: 'zip' })).rejects.toThrow(/大小写/)
+    const repeated = packManifest([packManifest().items[0], packManifest().items[0]])
+    await expect(collectAssetFiles([archive({ ...declared, [ASSET_PACK_MANIFEST_FILENAME]: packBytes(repeated) })], { source: 'zip' })).rejects.toThrow(/重复/)
+    const nonimage = packManifest([{ ...packManifest().items[0], path: 'README.txt' }])
+    await expect(collectAssetFiles([archive({ ...declared, [ASSET_PACK_MANIFEST_FILENAME]: packBytes(nonimage), 'README.txt': bytes('text') })], { source: 'zip' })).rejects.toThrow(/PNG/)
+  })
+
+  it('compares the optional SHA-256 with original source bytes and rejects any mismatch', async () => {
+    const value = packManifest([{ ...packManifest().items[0], sourceSha256: sha256Bytes(bytes('expected bytes')) }])
+    for (const source of ['files', 'zip'] as const) {
+      const selected = source === 'zip' ? [archive({ [ASSET_PACK_MANIFEST_FILENAME]: packBytes(value), 'tree.png': bytes('different bytes') })]
+        : [new File([packBytes(value).buffer as ArrayBuffer], ASSET_PACK_MANIFEST_FILENAME), image()]
+      await expect(collectAssetFiles(selected, { source })).rejects.toThrow(/原始字节.*SHA-256/)
+    }
+  })
+
+  it('does not accept approval flags, duplicate JSON keys or unknown license references through a manifest', async () => {
+    const value = packManifest(), invalid = [packBytes({ ...value, canEmbed: true }), packBytes({ ...value, licenses: [{ ...value.licenses[0], status: 'approved' }] }),
+      packBytes(packManifest([{ ...value.items[0], licenseId: 'missing' }])), bytes('{"format":"sceneweave-asset-pack","\\u0066ormat":"other"}')]
+    for (const metadata of invalid) await expect(collectAssetFiles([archive({ [ASSET_PACK_MANIFEST_FILENAME]: metadata, 'tree.png': bytes() })], { source: 'zip' })).rejects.toThrow(/素材包清单无效/)
+  })
+
+  it('enforces the separate manifest bound and counts it in the 64MiB source total', async () => {
+    const oversized = new Uint8Array(ASSET_PACK_MANIFEST_LIMITS.bytes + 1)
+    await expect(collectAssetFiles([new File([oversized], ASSET_PACK_MANIFEST_FILENAME), image()])).rejects.toThrow(/256KiB/)
+    await expect(collectAssetFiles([archive({ [ASSET_PACK_MANIFEST_FILENAME]: oversized, 'tree.png': bytes() }, 6)], { source: 'zip' })).rejects.toThrow(/预算/)
+    const item = packManifest().items[0], value = packManifest(Array.from({ length: 4 }, (_, i) => ({ ...item, path: `${i}.png` })))
+    const zipped = zipSync({ [ASSET_PACK_MANIFEST_FILENAME]: packBytes(value), '0.png': bytes(), '1.png': bytes(), '2.png': bytes(), '3.png': bytes() }, { level: 0 }), view = new DataView(zipped.buffer)
+    // Only declarations are needed: admission must reject before decompression.
+    for (let offset = 0; offset < zipped.length - 46; offset++) {
+      const signature = view.getUint32(offset, true), local = signature === 0x04034b50, central = signature === 0x02014b50
+      if (!local && !central) continue
+      const nameStart = offset + (local ? 30 : 46), nameLength = view.getUint16(offset + (local ? 26 : 28), true)
+      if (nameLength === 5 && zipped[nameStart] >= 48 && zipped[nameStart] <= 51
+        && zipped[nameStart + 1] === 46 && zipped[nameStart + 2] === 112 && zipped[nameStart + 3] === 110 && zipped[nameStart + 4] === 103) {
+        view.setUint32(offset + (local ? 22 : 24), 16 * 1024 * 1024, true)
+      }
+    }
+    await expect(collectAssetFiles([new Blob([new Uint8Array(zipped)])], { source: 'zip' })).rejects.toThrow(/64MiB/)
+  })
+
+  it('still reads skipped ZIP sidecars and checks their CRC before returning manifest-backed drafts', async () => {
+    const marker = bytes('unique manifest sidecar contents'), file = archive({ [ASSET_PACK_MANIFEST_FILENAME]: packBytes(), 'tree.png': bytes(), 'README.txt': marker })
+    const changed = new Uint8Array(await file.arrayBuffer())
+    const index = changed.findIndex((_, i) => marker.every((byte, offset) => changed[i + offset] === byte))
+    expect(index).toBeGreaterThan(0); changed[index] ^= 1
+    await expect(collectAssetFiles([new Blob([changed])], { source: 'zip' })).rejects.toThrow(/CRC/)
   })
 })
 

@@ -65,6 +65,39 @@ describe('selected batch import is one complete resource candidate', () => {
     expect(await result.project.resources.read(result.items[0].sha256)).toEqual(normalizePngChunks(png))
   })
 
+  it('keeps exact names and explicit physical semantics through capsules and a complete library backup', async () => {
+    const base=await blank(), exactName='  老木桌_02.final 🌲  '
+    const result=await prepareAssetBatchImport(base,[
+      request({name:exactName,footprintOffsetMm:{x:-100,y:250},renderLayer:'ground',shadowClass:'none',tags:[' 标记,原文 ']}),
+      request({name:exactName,file:new Blob([new Uint8Array(pixelPng([80,10,35,255]))],{type:'image/png'})}),
+      {file:request().file,name:'  木地板_01 ',kind:'material',widthMm:1000,heightMm:2000,applicableSurfaces:['room','terrain'],licenseText:'Full actual fixture grant',attribution:'Actual original fixture source',canEmbed:true},
+    ],{runtime,validation})
+    expect(result.addedDefinitionIds).toHaveLength(3)
+    const props=result.items.slice(0,2).map(item=>result.project.document.propDefinitions[item.definitionId])
+    expect(props.map(item=>item.name)).toEqual([exactName,exactName]);expect(props[0].id).not.toBe(props[1].id)
+    expect(props[0]).toMatchObject({defaultFootprintOffsetMm:{x:-100,y:250},defaultRenderLayer:'ground',defaultShadowClass:'none',tags:[' 标记,原文 ']})
+    const material=result.project.document.materials[result.items[2].definitionId]
+    expect(material.name).toBe('  木地板_01 ');expect(material.applicableSurfaces).toEqual(['room','terrain'])
+    const {prepareLibraryEntry,loadLibraryCapsule}=await import('../../shared/library/content.js')
+    const {exportLibraryBackup,importLibraryBackup}=await import('../../shared/library/backup.js')
+    const entries=[]
+    for(const item of result.items)entries.push(await prepareLibraryEntry(toBundle(result.project),{kind:item.kind,definitionId:item.definitionId},validation))
+    const restored=await importLibraryBackup(await exportLibraryBackup({entries,organizations:{}},validation),validation)
+    expect(restored.entries.map(entry=>entry.item.name)).toEqual(entries.map(entry=>entry.item.name))
+    for(const entry of restored.entries){const capsule=await loadLibraryCapsule(entry,validation);expect(entry.item.name).toBe(entry.item.selector.kind==='material'?capsule.project.document.materials[entry.item.selector.definitionId].name:capsule.project.document.propDefinitions[entry.item.selector.definitionId].name)}
+    const cold=await importProject(await exportProject(toBundle(result.project),validation),validation)
+    expect(cold.project.document.propDefinitions[props[0].id]).toEqual(props[0]);expect(cold.project.document.materials[material.id]).toEqual(material)
+  },60000)
+
+  it('rejects invalid names and wrong-kind semantics before any normalization without changing the input', async () => {
+    const base=await blank(),before=projectContentHash(toBundle(base).project)
+    for(const override of [{name:'x'.repeat(121)},{name:'bad\u202ename'},{footprintOffsetMm:null},{footprintOffsetMm:{x:0,y:0,other:1}},{renderLayer:'foreground'},{applicableSurfaces:['room']}]) {
+      await expect(prepareAssetBatchImport(base,[request(override as never)],{runtime,validation})).rejects.toMatchObject({itemIndex:0})
+    }
+    await expect(prepareAssetBatchImport(base,[{file:request().file,name:'tile',kind:'material',widthMm:1000,heightMm:1000,applicableSurfaces:[],licenseText:'Full grant',attribution:'Author',canEmbed:true}],{runtime,validation})).rejects.toThrow(/适用表面/)
+    expect(normalizeBrowserImage).not.toHaveBeenCalled();expect(projectContentHash(toBundle(base).project)).toBe(before)
+  })
+
   it('owns all metadata, arrays and native Blob handles before its first await', async () => {
     const base=await blank(), first=request(), second=request({name:'Other'}), inputs=[first,second]
     let reads=0

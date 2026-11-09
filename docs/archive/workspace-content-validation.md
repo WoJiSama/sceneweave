@@ -2145,3 +2145,86 @@ VoiceOver实际启动尝试记录于`voiceover-live-preflight`与`voiceover-star
 本次把累积UX按页面整理、交互修复、测试、文档分块提交：17个前轮运行时作为页面块，Workbench本轮增量单独提交，12份UX用例另块，五份文档只暂存UX内容；正式容量/性能/视觉、数据与资源整改的其他任务修改保留。精确归属核对见`commit-audit.md`及`commit-map.json`，最终Git事实见`commit-facts.json`。源码/产物无漂移、链接/锚点及`git diff --check`由`closeout-facts.json`核对；独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`。本轮未推送或部署。
 
 用户批准的1–4项开发工作收口；后续只根据具体页面反馈修复对应范围，整体功能、正式性能、目标VTT导入与用户P3仍按09独立验收。中文输入法、曲线/填充真实系统失焦和VoiceOver继续为“未运行；依用户决定本轮不执行”，不再索取人工结果。
+
+<a id="asset-expansion-20261109"></a>
+## 六主题素材与自定义导入全流程开发自检（2026-11-09）
+
+用户授权场景与画风同时扩展、先形成六个主题包，并把用户自有素材导入、名字、格式和配套流程一并实现。开发状态只归[07](../07-roadmap.md#asset-expansion-implementation)，合同归[14](../14-visual-and-assets.md#asset-theme-expansion)与[10](../10-rules-assets-and-licensing.md#asset-review-and-rights)，操作归[导入指南](../reference/asset-import.md)，正式验收按[09](../09-quality-plan.md#asset-expansion-acceptance)。本节是开发自检，不授予P2/P3或发布状态。
+
+实现包含：严格`sceneweave-assets.json`、多来源精确路径与许可映射；单图/批量名称原文、物理标定与表现语义；六包按需来源和选择闭包采用；当前工程固定素材只读审核、单件/整包四维记录及独立用户签收、本机持久化/导出。清单只预填，不授予嵌入权/原创/P3；公开validate、完整字节/像素、来源/许可、原子采用、撤销及CAS保护保持。素材为120份原创静态SVG经固定处理器物化的PNG候选，另有18个真实组合、12份可编辑工程；没有调用生图服务，完整目标画风、用途/状态和美术仍未完成签收。
+
+### 冻结与运行边界
+
+材料存于被Git忽略的`work/asset-expansion-20261109/`。性能owner明确释放独占后开始运行。第一轮正常构建`build-1.log`退出0，对应独立`production-1/sceneweave/`；初次源快照见`source-after-build.json`，最初生产文件hash见`production-1-manifest.json`。该冻结完成六包实际PNG/十二包下载和代表场景交付，后续修复不倒写这些结论。
+
+最终正常构建`build-final.log`退出0，执行架构检查、两组TypeScript和Vite，独立副本为`production-final/sceneweave/`，地址`http://127.0.0.1:5225/sceneweave/`。`source-final.json`记录1127份src/配置输入；`production-final-manifest.json`记录176份生产文件，以Python `json.dumps(files,sort_keys=True)` UTF-8计算SHA256为`24bffdf74fd4c9d91838ea8bdd499c9294cff1c7676e9e76d952b9ba3097acf1`。复核页、图片/包及导入说明随后独立附加，不改变已测JS/CSS；源/产物最终漂移检查单列于`closeout-facts.json`。正常打包保留现有包体积提示，不作为性能结论。
+
+### 必要自检与实际结果
+
+| 范围 | 实际结果与材料 |
+|---|---|
+| 名称/格式/准备边界 | 首次10文件146项定向单测为145通过1失败（`unit-final.log`），唯一失败是review repository测试旧fixture缺少新整包coverage；补真实两份不同layout/要求映射后11/11通过（`unit-review-repository-final.log`）。原清单、batch source、尺寸解码、prepare/asset-batch及审核用例的通过和失败不拼接为新的整轮数字 |
+| 最终受影响闭包/审核 | `unit-asset-final.log`为7文件53/53通过：library-content/snapshot-catalog、review-content/review-repository、theme plan/review/provider。真实双PNG组合完整包回读的固定identity保持；缩略图原序/反序可回读，丢项/伪造/重复仍拒绝，原条目不变 |
+| 初始生产旅程 | `browser-1.log`首轮3通过1失败：清单导入完整链、主题选择采用/审核、六包实际图通过；单图名称用例遗漏必填许可而被原生表单拦截，补前置后`browser-2.log`两项2/2通过。单图自动名随换图，手改后保持，超长名明确拒绝 |
+| 六包与十二份场景 | `browser-2-results`有六张palette截图与全部12份实际`.sceneweave`；每包23个真实加载缩略图，对应6材质/14物件/3组合。下载走完整导出校验，全部页面无异常；这些结果不等于逐用途覆盖已通过 |
+| 代表场景 | `browser-samples.log`为1/1通过：调查室内和海岸样板实际下载→空库正常导入→独立物件移动1mm→完整包确认→撤销→4096px玩家PNG。两张PNG和可编辑截图已目视核看；样板仍较简洁，只证明可编辑和交付的代表路径，不替代高质量成图、双受众秘密矩阵或全部12场景联合验证 |
+| 最终主题/本工程审核 | `browser-project-review.log`首次暴露旧组合元数据一致性误拒绝，修复后最终生产的`browser-final-fixed.log`为主题/本工程审核1通过、另一清单断言脚本失败。本工程素材准备显示实际选择列表，准备前后完整下载逐条目hash保持；主题只加勾选的一项，审核仅技术记录，整包及用户签收保持未完成 |
+| 最终清单与个人库 | 修正测试的双alert定位后，`browser-manifest-final.log`为1/1通过：ZIP清单姓名/标签/偏移/根锚/阻挡/层/材质表面预填，许可默认未确认；空根锚拒绝且无采用按钮，纠正后一次采用，撤销/重做，最近工程冷开逐条目hash保持，保存我的素材→完整备份→空个人库恢复名称原文保持。facts与完整包在`browser-manifest-final-results` |
+| 自有素材实际审核与窄屏 | `review-flow-smoke.log`退出0；从上项真实冷开包正常导入，选择带空格/Unicode的自定义素材，明确记录仅技术通过并实际导出JSON；来源/美术/场景未检查、用户未签收，完整key/资源闭包保留。390px审核选择/主题选择控件在视口内，无页面横向溢出或异常；事实与两张截图见`review-flow-smoke.json`、`custom-review-390.png`、`theme-controls-390.png` |
+| 复核材料 | `asset-review/`从已测实际包抽取120PNG，另展示两张实际玩家图及12个工程下载。`gallery-smoke.json`核对122图均成功解码、12下载HTTP200且非空、390px无溢出；已目视核看首屏与窄屏截图。它是本机复核附件，不是部署或用户签收 |
+
+### 首败、窄修复及限制
+
+初次类型检查因三个`fail`箭头函数不满足当前TypeScript控制流收窄失败，改为明确`never`函数声明后`typecheck-2.log`退出0；没有通过断言放宽输入。review repository首批测试的非法固定fixture已修正，后续coverage fixture遗漏独立保留于上述日志。
+
+实际“准备本工程素材审核”首次失败定位到旧`b2-pf-01`书桌六件组和同类组合：素材包canonical JSON重排成员key，导致原来按成员插入顺序生成的thumbnail数组顺序改变；固定hash/资源相同。`checkedCapsule`仅对比较双方的缩略图列表复制排序，其他metadata、完整identity、中性闭包与实际字节像素检查不减，不改变旧62项目录或其输出次序。定向双图回归与最终实际准备通过。
+
+只读复核另发现批量根锚清空后`Number('')`会隐式变零；已明确拒绝空值，并用真实浏览器拒绝→纠正→采用证明。最终第一次浏览器启动地址遗漏末尾斜线，辅助函数`./#home`落到静态目录根；主动中断该无有效UI轮次并保留`browser-final.log`。补斜线后的清单断言匹配到行错误/总错误两个alert，产品已正确拒绝空根锚；收窄根锚错误定位后同一生产包最小复验通过，未为这两项脚本问题改变产品。
+
+尚未执行完整六包世界尺度/近景、2×2/3×3平铺、美术与用途/状态逐项覆盖、跨浏览器、全部故障矩阵和用户P3。计划必需项仍全部保留待审；个人合法导入可用不表示公共默认包再分发已经核准。本轮未提交、推送或部署；无关dirty tree与独立`todo.md`保留，后者SHA256维持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`。
+
+最终静态收口：`closeout-facts.json`核对9份相关文档821条本地链接/锚点无错误，1127份源/配置及176份已测生产文件无漂移，`git diff --check`通过；`gallery-final-smoke.json`另核对最终5225复核页122图与14条页面/说明/工程链接全部可读，390px无横向溢出。136份复核附件另记`review-manifest.json`。侧栏打开请求返回queued，不据此宣称用户已查看或签收。
+
+<a id="asset-quality-20261109"></a>
+## 新素材共同质量初筛与六主题第一轮初审（2026-11-09）
+
+用户授权执行六包初审，并将部分质量规则落入代码，使AI制作或用户导入均先检查。合同归[14共同初筛](../14-visual-and-assets.md#asset-quality-screening)、[AI边界](../05-ai-and-generation.md#asset-quality-authoring)和[导入指南](../reference/asset-import.md)，开发归[07](../07-roadmap.md#asset-expansion-implementation)，完整矩阵仍归[09](../09-quality-plan.md#asset-expansion-acceptance)。本节不覆盖前轮素材扩展冻结，也不授予美术或用户P3。
+
+### 实现与信任边界
+
+共享纯像素策略`asset-quality-v1`扫描实际RGBA，只有全透明为新增硬拒绝；低分辨率、小主体、过淡、留白/背景、裁边、材质透明孔洞及对边接缝为启发提示，像素画、纯色、覆盖和贴边图案仍允许明确复核。单图/批量准备与个人库/主题新增定义使用同一应用检查，复用旧图片但新建尺寸定义仍重评估；原有工程/历史/完整备份不回溯拒绝。取消/坏末项不发布半批，原字节/像素/许可和最终事务校验保留。
+
+共同UI展示确切名称、图片和原因，逐件确认绑定规范PNG的hash、用途/世界尺寸及完整报告；新候选重置确认，采用按钮和处理器均检查。AI SVG及调色/亮度固定派生接入同策略，采用时重物化并比较确切报告；缺确认不flush、建保护或claim，候选继续可审。仅改opacity不当作新空图拒绝。当前创作4仍限定`artwork:null`，底图接续2/3/4显式拒绝SVG/style；本轮没有开放新生图能力、调用模型、自动重试或扩大权限。报告/复核为会话候选信息，不新增工程版本或持久信任凭证。
+
+### 必要开发自检与固定生产结果
+
+证据根为`work/asset-quality-20261109/`；`source-freeze.json`与`dist-freeze.json`记录本轮源码/配置及正常dist。所有生产浏览器使用同一副本`production/sceneweave/`，地址`http://127.0.0.1:5226/sceneweave/`；前轮5225及旧素材/成图未覆写。正式性能独占已释放，本轮不作性能结论。
+
+| 检查 | 实际结果与证据 |
+|---|---|
+| 类型、依赖与构建 | `typecheck-1.log`和`build-1.log`退出0，共享/应用280源码模块边界与正常Vite产物通过；既有包体积/重复静态动态引用告警保留，不宣称已优化 |
+| 定向集成单元 | `unit-final.log`为7文件76项通过：shared质量/确切确认，application真实PNG/SVG初筛/目录新标定/批量与prepare，AI artwork/atomic。覆盖全透明/稀疏低alpha、合法纯色/透明、策略阈值、取消/末项保全、不回溯、错误确认key、确认前无保护/claim及一次采用。AI物化使用受控端口，不代替真实模型/生产生图证明 |
+| 清单、库和主题回归 | `browser-1.log`同包清单/个人库、主题只选闭包/只读审核及六包实际PNG/12下载三项通过；名字/标定、撤销重做、冷开与空库恢复保持。六包下载项因grep包含“actual PNG”一并匹配执行，不再重复 |
+| 真PNG与无提示SVG | 同轮`asset-quality.spec.ts`第二项通过：实际Canvas生成16×16PNG触发低分辨率且采用禁用，取消后清晰SVG无警告、可采用。截图在`browser-1`对应目录 |
+| 透明拒绝、确认重置与窄屏采用 | 首轮透明SVG拒绝、下载完整工程hash保持、风险提示与确认重置已执行；390px后脚本未打开当前详情抽屉，截图等待至120秒失败。仅补真实抽屉操作与图像解码/无横溢断言，同dist的`browser-review-fixed.log`1/1通过：透明拒绝保全、逐件确认→取消→重建需重审，390px实际图像、采用revision+1、空格/Unicode名字保持与一次撤销定义恢复。facts、四份完整包及截图保留 |
+| 本地复核页 | `production/sceneweave/asset-review/`复制原120PNG/12工程/两张玩家图，新增12实际场景和6张材质3×3图及逐包整改。`gallery-smoke.json`核对140图全部解码、全部页面/记录/工程链接HTTP200且非空、390px无横溢或页面异常；首屏/窄屏截图已核看。本机附件不是公开发布或用户签收 |
+
+AI两文件31项的代理先行结果另保留于`work/asset-expansion-20261109/quality-ai-tests-final.log`，已包含在上述76项最终集，不重复相加。共享/应用测试初次fixture缺确切许可绑定及显式`undefined`引起失败，修正fixture后通过，未放宽模型。窄屏复验首次grep使用`^quality screening`未匹配Playwright完整测试名，未执行任何用例；去掉该起首锚后得到上表实际通过，不计无用例命令为通过。首轮浏览器为4通过/1脚本失败，最小复验为1通过，分别保留，不拼称首轮全绿。
+
+### 六包实际看图结果与后续
+
+`theme-review/review.md`保留逐包和逐素材观察，`layout-facts.json`包含12个实际工程hash/已放置实体和位置；`png-metrics.json`直接测量120张512×512规范PNG，无全透明，84物件无可见像素贴外边。36张逐项3×3图及6张合集实际核看；12份`.sceneweave`均经前轮5225固定生产正常首页导入，实际Canvas截图约600×450，不宣称全部双受众4K。
+
+六包均为“需要修改”：画风仍主要是相近的平涂矢量描边，现代显示器/冷藏柜和遗迹石像混用正视图标；诊疗屏风/器具台、生活角/托盘、客房/餐饮、真实储藏角、废弃营地和码头/聚落/值守用途有缺项。八份室内场景共用稀疏双房间框架，室外多为直线矩形分区；3×3当前尺度未见明显透明裂缝，但水纹/苔团周期重复明显。具体优先整改归[14初审清单](../14-visual-and-assets.md#asset-theme-first-review)，自动像素未命中不能关闭上述问题。本轮没有重画固定源、变更审核数据库或自动把候选标为通过。
+
+世界尺度/旋转/2×2与4K近景、完整用途状态、双受众、净空矩阵、跨浏览器、全部存储故障及用户P3仍待09。当前任务未提交、推送或部署；最终源码/产物、附件、文档链接与独立`todo.md`完整性见本根`closeout-facts.json`。
+
+
+<a id="asset-independent-commit-20261109"></a>
+### 素材独立提交范围与验证（2026-11-09）
+
+本次提交从`6fb36b4`叠加素材扩展、自定义导入、四维审核与共同质量初筛，排除并行的核心收束、快照/存储优化、SVG处理器2及后续AI入口工作。隔离源码位于`work/asset-quality-20261109/commit/candidate/`，沿用该基线既有SVG处理器1与完整目录校验；其PNG和包身份不冒充上文5225/5226较大工作区冻结，固定身份继续绑定各自真实源、处理器与像素。原工作副本的其他改动保持本地，不据本次结果宣称其已整合或发布。
+
+`commit-build-2.log`正常构建退出0；首次投影构建缺质量导入及混用后续端口的测试夹具，已适配既有接口。`commit-unit.log`为14文件190通过/4失败，四项失败同属新质量用例缺Node图片规范化适配；只补与既有批量测试相同的PNG规范化mock，真实PNG字节、CRC、解码、质量与完整工程校验保持，随后`commit-unit-quality-fixed.log`为5/5通过。其他13个通过文件覆盖清单、读取、审核、主题、确切确认、批量及AI采用；不把两轮拼作一轮全绿。既有`library-content`与`prepare`边界另以`commit-unit-existing-boundary.log`核对2文件15/15通过。
+
+`commit-browser.log`对本次正常dist的`http://127.0.0.1:5227/sceneweave/`串行运行`asset-expansion.spec.ts`和`asset-quality.spec.ts`，7/7通过：名字与标定、ZIP清单、撤销/重做、保存冷开、空个人库恢复、只选闭包/只读审核、六包实际PNG/12工程下载、室内/海岸可编辑样板与玩家PNG，以及透明拒绝保全、逐件确认/取消重置、390px图片与无横溢、真实PNG低分辨率和无提示SVG。AI单元使用受控端口，不代表真实模型运行。完整美术/状态覆盖、跨浏览器、整体性能、目标VTT和用户P3仍待09；本节只记录开发提交验证，不表示部署或签收。

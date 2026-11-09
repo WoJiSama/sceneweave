@@ -16,6 +16,7 @@ import { fromBundle, toBundle, type EditableProject } from './project'
 import { prepareCompositionCommands } from './prepare'
 import { fixture, runtime } from './test-fixtures'
 import { Workspace } from './workspace'
+import type { AssetQualityAssessment } from '../../shared/assets/quality-review'
 
 const svg = (sourceSvg = ARTWORK_SVG): AuthoringOperation => ({ kind: 'svg', id: 'item', sourceSvg, longEdgePx: 16, name: 'Immutable SVG variation' })
 const single = { mode: 'single' as const, targetIds: ['item'], operations: ['svg', 'style'] as ('svg' | 'style')[] }
@@ -29,6 +30,45 @@ afterEach(async () => {
 })
 
 describe('deferred SVG/style artwork materialization using actual PNG fixtures', () => {
+  it('screens actual new PNG pixels with exact names and calibration without granting approval', async () => {
+    const input = fixture({ image: true }), validation = artworkValidation(), editable = await fromBundle(input, validation)
+    const assessments: AssetQualityAssessment[] = [], operation = { ...svg(), name: '低分辨率_素材' }
+    const output = await materializeAuthoringArtwork(editable, artworkDraft(input, [[operation]], single), validation,
+      { onQualityAssessment: assessment => assessments.push(assessment) })
+    expect(assessments).toHaveLength(1)
+    const prop = output.document.props.item
+    expect(assessments[0]).toMatchObject({ name: operation.name, sha256: output.document.assets[prop.appearance.kind === 'image' ? prop.appearance.assetId : ''].sha256,
+      report: { status: 'review', pixelWidth: 16, pixelHeight: 16, context: { kind: 'prop', widthMm: prop.visualBoundsMm.width, heightMm: prop.visualBoundsMm.height } } })
+    expect(assessments[0].report.issues.some(issue => issue.code === 'low-resolution')).toBe(true)
+    expect(Object.isFrozen(assessments[0])).toBe(true)
+    expect(Object.isFrozen(assessments[0].report.issues)).toBe(true)
+  })
+
+  it('rejects empty generated pixels before returning artwork and preserves the source project and draft', async () => {
+    const input = fixture({ image: true }), validation = artworkValidation(), editable = await fromBundle(input, validation)
+    const draft = artworkDraft(input, [[svg()]], single), before = canonicalJson(toBundle(editable).project), draftBefore = canonicalJson(draft)
+    validation.svg!.rasterize = async (_source, dimensions) => ({ ...dimensions, rgba: new Uint8ClampedArray(dimensions.width * dimensions.height * 4) })
+    const assessments: AssetQualityAssessment[] = []
+    await expect(materializeAuthoringArtwork(editable, draft, validation, { onQualityAssessment: value => assessments.push(value) })).rejects.toThrow(/质量初筛|透明/)
+    expect(assessments).toEqual([])
+    expect(canonicalJson(toBundle(editable).project)).toBe(before)
+    expect(canonicalJson(draft)).toBe(draftBefore)
+  })
+
+  it('screens actual style bitmap variants while keeping intentional opacity-only edits outside image screening', async () => {
+    const input = fixture({ image: true }), validation = artworkValidation(), editable = await fromBundle(input, validation)
+    const assessments: AssetQualityAssessment[] = []
+    const styled = await materializeAuthoringArtwork(editable, artworkDraft(input, [[{ kind: 'style', ids: ['item'], brightness: .5 }]], single), validation,
+      { onQualityAssessment: value => assessments.push(value) })
+    expect(assessments).toHaveLength(1)
+    const appearance = styled.document.props.item.appearance
+    expect(appearance.kind).toBe('image')
+    expect(assessments[0].sha256).toBe(styled.document.assets[appearance.kind === 'image' ? appearance.assetId : ''].sha256)
+    const hidden = await materializeAuthoringArtwork(editable, artworkDraft(input, [[{ kind: 'style', ids: ['item'], opacity: 0 }]], single), validation,
+      { onQualityAssessment: () => { throw new Error('Opacity-only edits do not create image pixels') } })
+    expect(hidden.document.props.item.appearance.opacity).toBe(0)
+  })
+
   it('creates fixed SVG/PNG versions and preserves originals, licence, physical data and other objects', async () => {
     const input = fixture({ image: true }), validation = artworkValidation(), editable = await fromBundle(input, validation)
     const before = canonicalJson(input.project), oldProp = editable.document.props.item, oldAsset = editable.document.assets.image, oldSource = editable.appearance.propSources.item

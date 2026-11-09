@@ -23,6 +23,9 @@ import { sha256Bytes } from '../../shared/project/binary.js'
 import { PROJECT_DATA_LIMITS } from '../../shared/project/validate.js'
 import { canonicalJson, captureJson, encodeUtf8, inspectJsonInput, freezeJson } from '../../shared/validation/json.js'
 import { normalizeStaticSvg, STATIC_SVG_LIMITS } from '../../shared/ai/svg.js'
+import { validateAssetDisplayName } from '../../shared/assets/import-manifest.js'
+import type { AssetQualityAssessment } from '../../shared/assets/quality-review.js'
+import { assessImportedAssetQuality } from './asset-quality.js'
 import { inspectImageBytes, normalizePngChunks } from '../../shared/project/image-bytes.js'
 import { projectResourceRecords } from '../../shared/project/source-resources.js'
 import { normalizeBrowserImage } from '../../platform/browser/images/index.js'
@@ -57,8 +60,12 @@ export interface AssetImportRequest {
   footprintHeightMm?: number
   /** Image-space root in integer mm from the upper-left corner. Missing keeps the centred legacy default. */
   rootAnchorMm?: { x: number; y: number }
+  footprintOffsetMm?: { x: number; y: number }
   blocksMovement?: boolean
   blocksSight?: boolean
+  renderLayer?: 'ground' | 'object' | 'canopy'
+  shadowClass?: 'none' | 'furniture' | 'vegetation'
+  applicableSurfaces?: ('room' | 'wall' | 'terrain' | 'path')[]
   tags?: string[]
   licenseText: string
   attribution: string
@@ -253,7 +260,7 @@ export async function prepareCompositionCommands(input: EditableProject, command
 }
 
 function captureImportRequest(input: AssetImportRequest): AssetImportRequest {
-  const required = ['file', 'name', 'kind', 'widthMm', 'heightMm', 'licenseText', 'attribution', 'canEmbed'], optional = ['footprintWidthMm', 'footprintHeightMm', 'blocksMovement', 'blocksSight', 'tags', 'rootAnchorMm']
+  const required = ['file', 'name', 'kind', 'widthMm', 'heightMm', 'licenseText', 'attribution', 'canEmbed'], optional = ['footprintWidthMm', 'footprintHeightMm', 'blocksMovement', 'blocksSight', 'tags', 'rootAnchorMm', 'footprintOffsetMm', 'renderLayer', 'shadowClass', 'applicableSurfaces']
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('素材导入参数必须是普通对象。')
   const fields = Object.getOwnPropertyDescriptors(input)
   if (!required.every(key => fields[key]?.enumerable && 'value' in fields[key]) || Reflect.ownKeys(input).some(key => typeof key !== 'string' || !required.includes(key) && !optional.includes(key) || !fields[key].enumerable || !('value' in fields[key]))) throw new Error('素材导入字段缺失、未知或含访问器。')
@@ -263,11 +270,23 @@ function captureImportRequest(input: AssetImportRequest): AssetImportRequest {
   const size = Object.getOwnPropertyDescriptor(Blob.prototype, 'size')!.get!.call(file) as number
   const mime = Object.getOwnPropertyDescriptor(Blob.prototype, 'type')!.get!.call(file) as string
   const captured = { ...captureJson(json), file: Blob.prototype.slice.call(file, 0, size, mime) } as AssetImportRequest
-  if (captured.kind !== 'prop' && captured.kind !== 'material' || typeof captured.name !== 'string' || !captured.name.trim() || Array.from(captured.name).length > 120
+  validateAssetDisplayName(captured.name)
+  if (captured.kind !== 'prop' && captured.kind !== 'material'
     || captured.canEmbed !== true || typeof captured.attribution !== 'string' || !captured.attribution.trim() || Array.from(captured.attribution).length > 500) throw new Error('导入须提供类型、名称、来源署名与允许嵌入声明。')
   for (const size of [captured.widthMm, captured.heightMm, captured.footprintWidthMm ?? captured.widthMm, captured.footprintHeightMm ?? captured.heightMm]) if (!Number.isSafeInteger(size) || size <= 0 || size > 1_000_000) throw new Error('图片及占地尺寸须为正整数毫米。')
   if (captured.kind === 'prop' && (captured.footprintWidthMm === undefined || captured.footprintHeightMm === undefined)) throw new Error('物件必须明确填写实际占地宽高。')
   for (const flag of [captured.blocksMovement, captured.blocksSight]) if (flag !== undefined && typeof flag !== 'boolean') throw new Error('通行及视线参数必须为布尔值。')
+  if (captured.kind === 'prop') {
+    if (captured.applicableSurfaces !== undefined) throw new Error('物件不能携带材质适用表面。')
+    if (captured.renderLayer !== undefined && !['ground', 'object', 'canopy'].includes(captured.renderLayer)) throw new Error('物件绘制层无效。')
+    if (captured.shadowClass !== undefined && !['none', 'furniture', 'vegetation'].includes(captured.shadowClass)) throw new Error('物件阴影类别无效。')
+  } else if (['footprintWidthMm', 'footprintHeightMm', 'rootAnchorMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'renderLayer', 'shadowClass'].some(key => Object.hasOwn(captured, key))) throw new Error('材质不能携带物件占地、锚点或阻挡参数。')
+  if (captured.footprintOffsetMm !== undefined && (!captured.footprintOffsetMm || Object.keys(captured.footprintOffsetMm).length !== 2
+    || !Object.hasOwn(captured.footprintOffsetMm, 'x') || !Object.hasOwn(captured.footprintOffsetMm, 'y')
+    || ![captured.footprintOffsetMm.x, captured.footprintOffsetMm.y].every(value => Number.isSafeInteger(value) && Math.abs(value) <= 1_000_000))) throw new Error('占地偏移须为有界整数毫米。')
+  if (captured.applicableSurfaces !== undefined && (!Array.isArray(captured.applicableSurfaces) || !captured.applicableSurfaces.length
+    || captured.applicableSurfaces.length > 4 || new Set(captured.applicableSurfaces).size !== captured.applicableSurfaces.length
+    || captured.applicableSurfaces.some(value => !['room', 'wall', 'terrain', 'path'].includes(value)))) throw new Error('材质适用表面无效。')
   if (captured.tags !== undefined && (!Array.isArray(captured.tags) || captured.tags.length > 50 || captured.tags.some(tag => typeof tag !== 'string' || !tag.trim() || Array.from(tag).length > 80) || new Set(captured.tags).size !== captured.tags.length)) throw new Error('素材标签无效。')
   if (typeof captured.licenseText !== 'string' || !captured.licenseText.trim() || encodeUtf8(captured.licenseText).length > PROJECT_DATA_LIMITS.licenseBytes || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(captured.licenseText)) throw new Error('必须提供有效的完整许可文本。')
   if (captured.rootAnchorMm !== undefined && (!captured.rootAnchorMm || captured.kind !== 'prop' || !Number.isSafeInteger(captured.rootAnchorMm.x) || !Number.isSafeInteger(captured.rootAnchorMm.y)
@@ -298,6 +317,7 @@ export interface AssetBatchImportItem {
   sizeBytes: number
   reusedResource: boolean
   duplicateOf: number | null
+  quality: AssetQualityAssessment
 }
 export interface AssetBatchImportResult {
   project: EditableProject
@@ -408,11 +428,14 @@ export async function prepareAssetBatchImport(input: EditableProject, requests: 
       const fingerprint = canonicalJson({ metadata, sha256: image.record.sha256, source: image.source ?? null })
       const duplicate = fingerprints.get(fingerprint)
       if (duplicate) { items.push({ ...duplicate, index, reusedResource: true, duplicateOf: duplicate.index }); continue }
+      const quality = await assessImportedAssetQuality(request.name, image.bytes, image.record,
+        { kind: request.kind, widthMm: request.widthMm, heightMm: request.heightMm }, checked)
+      checkCancelled(checked.signal)
       const previous = project.assets[image.record.sha256]
       if (previous && canonicalJson(previous) !== canonicalJson(image.record)) throw new Error('同hash规范图片描述冲突。')
       const reusedResource = !!previous
       const licenseHash = sha256Bytes(encodeUtf8(request.licenseText)), licenseRef = `import-license-${licenseHash}`
-      const origin = { kind: 'imported' as const, attribution: request.attribution.trim(), canEmbed: true }
+      const origin = { kind: 'imported' as const, attribution: request.attribution, canEmbed: true }
       const assetId = `import-image-${options.runtime.ids.nextId()}`, definitionId = `import-${request.kind}-${options.runtime.ids.nextId()}`
       if (Object.hasOwn(project.document.assets, assetId) || Object.hasOwn(project.document.propDefinitions, definitionId) || Object.hasOwn(project.document.materials, definitionId)) throw new Error('新素材ID已存在。')
       project.document.assets[assetId] = { id: assetId, sha256: image.record.sha256, mimeType: image.record.mimeType, pixelWidth: image.record.pixelWidth, pixelHeight: image.record.pixelHeight,
@@ -423,22 +446,22 @@ export async function prepareAssetBatchImport(input: EditableProject, requests: 
       project.licenses[licenseHash] = { sha256: licenseHash, text: request.licenseText }
       const binding = (subjectKind: LicenseBinding['subjectKind'], subjectId: string): LicenseBinding => ({ subjectKind, subjectId, licenseRef, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })
       project.licenseBindings.push(binding('asset', assetId))
-      const base = { id: definitionId, catalogId: definitionId, version: 1, licenseRef, origin, name: request.name.trim(), tags: request.tags ?? [] }
+      const base = { id: definitionId, catalogId: definitionId, version: 1, licenseRef, origin, name: request.name, tags: request.tags ?? [] }
       const sourceId = `import-source-${options.runtime.ids.nextId()}`
       if (Object.hasOwn(project.appearance.sources, sourceId)) throw new Error('新外观源ID已存在。')
       if (request.kind === 'prop') {
         const root = request.rootAnchorMm ?? { x: Math.floor(request.widthMm / 2), y: Math.floor(request.heightMm / 2) }
         const definition = { ...base, defaultAppearance: { kind: 'image' as const, assetId, tint: null, opacity: 1 },
           defaultVisualBoundsMm: { x: -root.x, y: -root.y, width: request.widthMm, height: request.heightMm },
-          defaultFootprintMm: { width: request.footprintWidthMm!, height: request.footprintHeightMm! }, defaultFootprintOffsetMm: { x: 0, y: 0 },
-          defaultBlocksMovement: request.blocksMovement ?? false, defaultBlocksSight: request.blocksSight ?? false, defaultRenderLayer: 'object' as const, defaultShadowClass: 'furniture' as const }
+          defaultFootprintMm: { width: request.footprintWidthMm!, height: request.footprintHeightMm! }, defaultFootprintOffsetMm: request.footprintOffsetMm ?? { x: 0, y: 0 },
+          defaultBlocksMovement: request.blocksMovement ?? false, defaultBlocksSight: request.blocksSight ?? false, defaultRenderLayer: request.renderLayer ?? 'object' as const, defaultShadowClass: request.shadowClass ?? 'furniture' as const }
         project.document.propDefinitions[definitionId] = definition
         project.licenseBindings.push(binding('propDefinition', definitionId))
         project.appearance.sources[sourceId] = { id: sourceId, kind: 'prop', parentSourceId: null, snapshot: {
           definitionRef: { id: definitionId, version: 1 }, appearance: structuredClone(definition.defaultAppearance), visualBoundsMm: structuredClone(definition.defaultVisualBoundsMm), shadowClass: definition.defaultShadowClass, shadowOverride: null } }
         project.appearance.presentations![sourceId] = topDownPresentation()
       } else {
-        project.document.materials[definitionId] = { ...base, textureAssetId: assetId, defaultTileSizeMm: { width: request.widthMm, height: request.heightMm }, applicableSurfaces: ['room', 'wall', 'terrain', 'path'] }
+        project.document.materials[definitionId] = { ...base, textureAssetId: assetId, defaultTileSizeMm: { width: request.widthMm, height: request.heightMm }, applicableSurfaces: request.applicableSurfaces ?? ['room', 'wall', 'terrain', 'path'] }
         project.licenseBindings.push(binding('material', definitionId))
         project.appearance.sources[sourceId] = { id: sourceId, kind: 'surface', parentSourceId: null, snapshot: { base: { materialRef: { id: definitionId, version: 1 }, tileSizeMm: { width: request.widthMm, height: request.heightMm }, rotationDeg: 0,
           alignment: 'world', originMm: { x: 0, y: 0 }, tint: null, opacity: 1 }, overlays: [] } }
@@ -449,7 +472,7 @@ export async function prepareAssetBatchImport(input: EditableProject, requests: 
       const resourceBytes = [...projectResourceRecords(project).values()].reduce((sum, value) => sum + value, 0)
       if (resourceBytes > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('完整候选资源累计超过展开保护。')
       const item: AssetBatchImportItem = { index, assetId, definitionId, kind: request.kind, sourceKind: image.source ? 'svg' : 'raster', pixelWidth: image.record.pixelWidth, pixelHeight: image.record.pixelHeight,
-        sha256: image.record.sha256, sizeBytes: image.record.sizeBytes, reusedResource, duplicateOf: null }
+        sha256: image.record.sha256, sizeBytes: image.record.sizeBytes, reusedResource, duplicateOf: null, quality }
       items.push(item); fingerprints.set(fingerprint, item); addedDefinitionIds.push(definitionId); addedAssetIds.push(assetId)
     } catch (error) {
       checkCancelled(checked.signal)

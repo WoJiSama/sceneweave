@@ -10,6 +10,10 @@
 
 `complete-journey-ux.spec.ts`在1512/390px通过正常首页新建、真实Worker生成室内、手工移动物件、撤销重做、最近工程冷重开及双受众4K下载，最后从空存储用文件选择器导入真实备份。核对完整条目hash、文档/身份/外观与资源清单/许可绑定；截图覆盖八个模块、首页、候选和导出。另检查新建对话框、帮助与导出菜单的Esc层级及isComposing/229守卫，合成事件只证明处理器逻辑；真实输入法、失焦、读屏和用户P3仍从09独立验收。
 
+`asset-expansion.spec.ts`通过正常生产页面检查单图名称跟随/手改保留、严格清单ZIP及名称/标定原样采用、空根锚拒绝、撤销/重做、保存冷开和空个人库备份恢复；另检查按需主题加载/所选闭包采用、本工程只读审核与独立本机审核记录、六包真实PNG及十二份可编辑工程下载、室内/海岸样板的实际编辑和玩家4K输出。受影响单元入口为shared `assets/{import-manifest,theme-packs,review}`、browser `assets/{batch-source,image-dimensions,review-content,review-repository}`、content `theme-pack-catalog`及application `workspace/{prepare,asset-batch}`；确切素材闭包检查继续复用`shared/library-content`。冻结生产地址须带末尾斜线，例如`SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5225/sceneweave/`。实际结果和首败/最小复验归[素材台账](../docs/archive/workspace-content-validation.md#asset-expansion-20261109)，不替代美术、完整状态覆盖或P3。
+
+`asset-quality.spec.ts`通过正常生产页面核对真实透明SVG拒绝及完整备份保全、实际16px PNG低分辨率提示、逐件复核后采用、取消重建后确认失效、原文名称与一次撤销，并检查390px复核图片/控件及无提示SVG路径。`asset-quality-helpers.ts`只为测试明确fixture代行逐件查看确认，不改变产品默认值。纯规则/确切确认/应用入口的单元分别为shared `assets/{quality,quality-review}`、application `workspace/{asset-quality,prepare,asset-batch,artwork,atomic}`；AI覆盖现有SVG/调色物化、透明拒绝、复核前不保护/claim及重放一致性，不启用当前创作4禁止的素材能力。真实执行和限制见[初筛台账](../docs/archive/workspace-content-validation.md#asset-quality-20261109)。
+
 `panel-appearance-ux.spec.ts`在1512/390px的正常生产UI核对工程/外观控件实际字体、字号、圆角和高度，截图覆盖七模块与六外观子工具；检查精细采样默认折叠、跨子工具草稿保留，布局设置Esc保留底层候选，以及展开/重置后菜单关闭与焦点返回。预览取消、布局操作和最近工程冷重开后比较完整包逐条目hash，检查页面错误与横向溢出；共用真实下载辅助函数，不注入工程。样式和布局变化配套复查既有三视口键盘旅程，结果归[主题台账](../docs/archive/workspace-content-validation.md#ux-panel-unification-20261106)，截图不能替代用户P3。
 
 `panel-polish-ux.spec.ts`通过正常UI创建有材质的房间，修改铺装目标、纹理尺寸/方向、对齐/相位与局部覆盖，跨子工具和工程/AI模块浏览后核对草稿及展开状态保留，再真实预览/取消并比较完整备份hash。桌面/390px同时核对AI/工程主标题、面板内边距、按钮高度、真实Tab/Shift+Tab焦点、禁用状态及未选工具的悬停反馈；只填本地占位凭据、不点击连接或调用后端。失败反例、修复和同一正常生产包回归见[细调台账](../docs/archive/workspace-content-validation.md#ux-panel-polish-20261106)。

@@ -241,7 +241,10 @@ async function checkedCapsule(entry: PreparedLibraryEntry, validation: CompleteV
   const bundle = await importProject(entry.capsule, validation), project = bundle.project
   const closure = extractClosure(project, entry.item.selector)
   if (canonicalJson(project) !== canonicalJson(closure)) throw new Error('素材载体含场景信息或超出所选固定闭包。')
-  if (canonicalJson(entry.item) !== canonicalJson(describeItem(project, entry.item.selector))) throw new Error('素材身份、摘要或元数据与完整内容不一致。')
+  // Canonical package JSON may reorder prefab member keys. Thumbnail membership
+  // is exact; display order is independent of fixed content identity.
+  const comparableItem = (item: CatalogItem) => ({ ...item, thumbnailAssetIds: [...item.thumbnailAssetIds].sort() })
+  if (canonicalJson(comparableItem(entry.item)) !== canonicalJson(comparableItem(describeItem(project, entry.item.selector)))) throw new Error('素材身份、摘要或元数据与完整内容不一致。')
   checkCancelled(validation?.signal)
   return bundle
 }

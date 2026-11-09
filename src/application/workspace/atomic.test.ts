@@ -10,6 +10,9 @@ import { assertAtomicLease, atomicChanges, type AtomicCandidate } from './atomic
 import { fromBundle, toBundle } from './project.js'
 import { Workspace } from './workspace.js'
 import { fixture, runtime, validation } from './test-fixtures.js'
+import * as artwork from './artwork.js'
+import { assessAssetQuality } from '../../shared/assets/quality.js'
+import { createAssetQualityAssessment } from '../../shared/assets/quality-review.js'
 
 const repos: ProjectRepository[] = [], sessions: Workspace[] = [], names: string[] = []
 async function setup() {
@@ -39,6 +42,36 @@ afterEach(async () => {
 })
 
 describe('task-scoped local authority and atomic adoption', () => {
+  it('requires exact artwork-warning review before protection or claim and keeps an unreviewed candidate usable', async () => {
+    const { workspace, repo, authorization, draft } = await setup(), before = workspace.getState().project!
+    const image = before.document.assets.image, record = before.assets[image.sha256]
+    const pixels = await validation.images.decode(await before.resources.read(image.sha256), record, validation)
+    const assessment = createAssetQualityAssessment('素材初筛fixture', image.sha256,
+      assessAssetQuality(pixels, { kind: 'prop', widthMm: 1000, heightMm: 1000 }))
+    expect(assessment.report.status).toBe('review')
+    // Current authoring4 deliberately cannot create resources. This trusted
+    // materializer seam exercises the consumer contract independently of it;
+    // actual generated SVG/pixel screening is tested in artwork.test.ts.
+    const materialize = artwork.materializeAuthoringArtwork
+    vi.spyOn(artwork, 'materializeAuthoringArtwork').mockImplementation(async (input, remote, checks, options) => {
+      const project = await materialize(input, remote, checks, options)
+      options?.onQualityAssessment?.(assessment)
+      return project
+    })
+    const candidate = await workspace.prepareAtomicCandidate(authorization, draft(move))
+    expect(candidate.assetQuality).toEqual([assessment])
+    const claim = vi.fn(async () => lease(candidate)), protection = vi.spyOn(repo, 'createSnapshot')
+    await expect(workspace.adoptAtomicCandidate(candidate, { claim })).rejects.toThrow(/逐项复核/)
+    await expect(workspace.adoptAtomicCandidate(candidate, { claim, qualityAcknowledgments: ['wrong-content-key'] })).rejects.toThrow(/逐项复核/)
+    expect(claim).not.toHaveBeenCalled(); expect(protection).not.toHaveBeenCalled()
+    expect(workspace.getState().project).toBe(before)
+    expect(workspace.getAtomicCandidateStatus(candidate)).toBe('active')
+    const result = await workspace.adoptAtomicCandidate(candidate, { claim, qualityAcknowledgments: [assessment.key] })
+    await result.save
+    expect(claim).toHaveBeenCalledOnce(); expect(protection).toHaveBeenCalledOnce()
+    expect(workspace.getDocument()!.revision).toBe(before.document.revision + 1)
+  })
+
   it('summarizes touched building entities and project constraints for explicit review', () => {
     const before = fixture({ building: true }).project, after = cloneJson(before)
     after.document.rooms.room.purpose = 'guard room'

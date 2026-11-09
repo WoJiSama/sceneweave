@@ -73,6 +73,7 @@ import type { ProjectRepository, CreateSnapshotOptions, ProjectSaveGuard, Snapsh
 import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStart, freezeAtomic, pureProject,
   type AtomicAuthorization, type AtomicCandidate, type AtomicCandidateRecord, type AtomicAdoptionResult, type AtomicCandidateStatus } from './atomic.js'
 import { materializeAuthoringArtwork } from './artwork.js'
+import { assertAssetQualityAccepted, type AssetQualityAssessment } from '../../shared/assets/quality-review.js'
 import { combineManualPreparationUsage, materializeProject, prepareCompositionCommands } from './prepare.js'
 import { captureEditableDraft, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
 
@@ -1714,7 +1715,8 @@ export class Workspace {
       if (isGeneratedAtomicStart(authorization.start)) { this.assertCheckpoint(authorization.checkpoint); this.assertBaseMapPreservation(authorization.start.source) }
       const replayed = captureAtomicDraft(input, authorization, options)
       const raw = await fromBundle({ project: replayed.project, resources: source.resources }, { ...this.validation(), signal })
-      const project = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal })
+      const assetQuality: AssetQualityAssessment[] = []
+      const project = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal }, { onQualityAssessment: assessment => assetQuality.push(assessment) })
       checkCancelled(signal)
       if (isGeneratedAtomicStart(authorization.start)) { this.assertCheckpoint(authorization.checkpoint); this.assertBaseMapPreservation(authorization.start.source) }
       this.validateCandidate(project.document); projectScene(project.document, 'player')
@@ -1722,7 +1724,7 @@ export class Workspace {
       if (!changes.length && !options.allowEmpty) throw new Error('草稿没有可采用的实际修改。')
       const candidate = freezeAtomic({ schemaVersion: replayed.state.schemaVersion,
         ...(isClassifiedAuthoringState(replayed.state) ? { budgetIdentity: authoringBudgetIdentity(replayed.state), budget: replayed.state.budget } : {}),
-        project, document: project.document, changes, reviewOnly: options.allowEmpty === true && changes.length === 0, operationCost: replayed.state.operationCost,
+        project, document: project.document, changes, assetQuality, reviewOnly: options.allowEmpty === true && changes.length === 0, operationCost: replayed.state.operationCost,
         readIds: replayed.state.readIds, writeIds: replayed.state.writeIds, taskId: replayed.draft.taskId, generation: replayed.draft.generation,
         draftRevision: replayed.state.draftRevision, contentHash: replayed.state.contentHash, checkpoint: authorization.checkpoint,
         currentSceneId: authorization.currentSceneId, currentRevision: authorization.currentRevision })
@@ -1819,11 +1821,15 @@ export class Workspace {
   }
 
   /** Protect first, claim the exact task generation last, and commit one undo unit. */
-  async adoptAtomicCandidate(candidate: AtomicCandidate, options: { claim: () => Promise<DraftLease>; signal?: ResourceOptions['signal'] }): Promise<AtomicAdoptionResult> {
+  async adoptAtomicCandidate(candidate: AtomicCandidate, options: { claim: () => Promise<DraftLease>; signal?: ResourceOptions['signal']; qualityAcknowledgments?: readonly string[] }): Promise<AtomicAdoptionResult> {
     this.assertWritable()
     const record = this.atomicCandidates.get(candidate)
     if (!record || record.status !== 'active') throw new Error('AI 草稿不属于当前工作区、已取消或已采用。')
     if (candidate.reviewOnly || !candidate.changes.length || !candidate.operationCost) throw new Error('区域来源审阅凭证只能用于独立下钻，不能采用到主工程。')
+    const qualityAcknowledgments = [...(options.qualityAcknowledgments ?? [])]
+    // Missing human review leaves the candidate active and does not create a
+    // protection snapshot or request the short-lived server claim.
+    assertAssetQualityAccepted(candidate.assetQuality, qualityAcknowledgments)
     if (isGeneratedAtomicStart(record.authorization.start)) return this.adoptBaseMapAtomicCandidate(candidate, record, options)
     const signal = this.atomicSignal(options.signal)
     this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
@@ -1834,8 +1840,11 @@ export class Workspace {
       const replayed = captureAtomicDraft(record.draft, record.authorization)
       const source = this.atomicAuthorizations.get(record.authorization)!
       const raw = await fromBundle({ project: replayed.project, resources: source.resources }, { ...this.validation(), signal })
-      const checkedProject = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal })
+      const assetQuality: AssetQualityAssessment[] = []
+      const checkedProject = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal }, { onQualityAssessment: assessment => assetQuality.push(assessment) })
       if (canonical(pureProject(checkedProject)) !== canonical(pureProject(candidate.project))) throw new Error('素材本机物化结果与已审阅草稿不同，请重新审阅。')
+      if (canonical(assetQuality) !== canonical(candidate.assetQuality)) throw new Error('素材质量检查与已审阅的确切图片不同，请重新审阅。')
+      assertAssetQualityAccepted(assetQuality, qualityAcknowledgments)
       // Preserve the exact verified wrapper before requesting a short-lived server claim.
       const project = checkedProject
       checkCancelled(signal); this.assertAtomicBaseline(candidate, record)
