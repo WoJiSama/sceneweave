@@ -13,7 +13,8 @@ import type { VisionInput } from '../../shared/ai/vision'
 import AiDraftReview from './AiDraftReview'
 import './ai-conversation.css'
 
-export interface AiConversationPanelProps { context: TaskContext; disabled?: boolean; authoring?: AiAuthoringHost }
+export interface AiConnection { client: AiClient; info: ConnectionInfo }
+export interface AiConversationPanelProps { context: TaskContext; disabled?: boolean; authoring?: AiAuthoringHost; onConnectionChange?: (connection: AiConnection | null) => void }
 const labels: Record<TaskStatus, string> = { running: '正在回复', paused: '已暂停', completed: '已完成', cancelled: '已取消', failed: '未完成', expired: '已过期', waiting_browser: '等待本机校验', ready: '草稿可审阅采用', applying: '正在采用', applied: '已采用' }
 const defaultUrl = () => import.meta.env.VITE_SCENEWEAVE_AI_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:8787' : '')
 const sceneOf = (context: TaskContext) => context?.sceneId ?? null
@@ -21,7 +22,7 @@ const cancelled = (error: unknown) => error instanceof Error && error.name === '
 const effortLabel = (effort: ReasoningEffort | null) => effort === null ? '模型默认（未指定等级）' : ({ low: '低 · low', high: '高 · high', max: '最高 · max' })[effort]
 
 /** Conversation stays outside project/history storage. Hidden resource tabs keep this component mounted. */
-export default function AiConversationPanel({ context, disabled: externalDisabled = false, authoring }: AiConversationPanelProps) {
+export default function AiConversationPanel({ context, disabled: externalDisabled = false, authoring, onConnectionChange }: AiConversationPanelProps) {
   const [critical, setCritical] = useState(false)
   const disabled = externalDisabled || critical
   const [baseUrl, setBaseUrl] = useState(defaultUrl), [token, setToken] = useState('')
@@ -51,6 +52,9 @@ export default function AiConversationPanel({ context, disabled: externalDisable
     : !!connection && supportsContinuation(connection, 'authoring', continuationPolicy, continuationVersion === 4 ? 3 : continuationVersion, surfaceVersion)
   const visionSupported = connection?.capabilities.vision === 'enabled'
     && (!needsCurrentAuthoring || connection.capabilities.visualReviewVersions?.includes(1) === true)
+
+  useEffect(() => { onConnectionChange?.(client && connection ? { client, info: connection } : null) }, [client, connection, onConnectionChange])
+  useEffect(() => () => onConnectionChange?.(null), [onConnectionChange])
 
   useEffect(() => {
     if (!client) return
@@ -236,17 +240,17 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       <summary>连接设置{connected ? ` · ${connection.model}` : ' · 尚未连接'}</summary>
       <label>自有后端地址<input aria-label="AI 后端地址" type="url" disabled={busy || !!pending || disabled} value={baseUrl} placeholder="https://ai.example.com" autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setBaseUrl(event.target.value) }} /></label>
       <label>后端应用凭据<input aria-label="AI 应用凭据" type="password" disabled={busy || !!pending || disabled} value={token} autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setToken(event.target.value) }} /></label>
-      <p>填写自有后端签发的应用凭据；模型供应商密钥只配置在服务器。此处凭据仅留在本次页面内存，刷新后清除。</p>
+      <details className="workspace-inline-help"><summary>应用凭据与隐私说明</summary><p>填写自有后端签发的应用凭据；模型供应商密钥只配置在服务器。此处凭据仅留在本次页面内存，刷新后清除。</p></details>
       <div className="ai-actions"><button type="button" className="primary" disabled={disabled || busy || !!pending || !baseUrl.trim() || !token.trim()} onClick={() => void connect()}>连接 AI 后端</button>{connected && <button type="button" disabled={busy || !!pending || disabled} onClick={disconnect}>断开本地连接</button>}</div>
     </details>
-    <p className="ai-disclosure">普通对话发送范围：自有后端接收本次文字及工程 ID、修订号；模型只接收对话文字和只读连接工具结果，工程 ID 与修订号仅用于后端绑定。普通对话不上传地图、素材或快照；场景草稿需另行明确授权元数据。服务器保留任务 7 日，可主动删除。</p>
+    <div className="ai-disclosure"><p>普通对话发送文字与工程标识；不自动上传地图、素材或快照。场景草稿需另行授权。</p><details className="workspace-inline-help"><summary>完整发送范围与保留期限</summary><p>自有后端接收本次文字及工程 ID、修订号；模型只接收对话文字和只读连接工具结果，工程 ID 与修订号仅用于后端绑定。普通对话不上传地图、素材或快照；场景草稿需另行明确授权元数据。服务器保留任务 7 日，可主动删除。</p></details></div>
     <p className="ai-context">{context ? `当前工程 ${context.sceneId} · 修订 ${context.revision}` : '未打开工程，仅发送文字。'}{connection ? ` · 文字模型 ${connection.model}${connection.visionModel ? ` · 视觉模型 ${connection.visionModel}` : ''}` : ''}</p>
     <div className="ai-reasoning">
       <label>新任务思考程度<select aria-label="AI 思考程度" aria-describedby={reasoningHintId} value={reasoningEffort} disabled={!supportsReasoning || busy || disabled} onChange={event => setReasoningEffort(event.target.value as ReasoningEffort | '')}>
         <option value="">跟随服务设置{supportsReasoning ? ` · ${effortLabel(connection.reasoningEffort ?? null)}` : ''}</option>
         <option value="low">低 · low</option><option value="high">高 · high</option><option value="max">最高 · max</option>
       </select></label>
-      <p id={reasoningHintId}>请选择模型支持的思考程度。此设置适用于新建的对话和场景草稿；已有任务、继续和同一请求重试保持原设置。较高程度可能增加等待和用量，不保证质量或完成时间。{!supportsReasoning && (connected ? '当前后端尚不支持页面选择，请更新后端后重连。' : '连接后可选择。')}</p>
+      {!supportsReasoning && <p>{connected ? '当前后端不支持选择思考程度。' : '连接后可选择思考程度。'}</p>}<details className="workspace-inline-help"><summary>思考程度如何生效</summary><p id={reasoningHintId}>请选择模型支持的思考程度。此设置适用于新建的对话和场景草稿；已有任务、继续和同一请求重试保持原设置。较高程度可能增加等待和用量，不保证质量或完成时间。{!supportsReasoning && connected && '当前后端尚不支持页面选择，请更新后端后重连。'}</p></details>
     </div>
     {busy && activity && <p className="ai-operation-status" role="status" aria-label="AI 操作状态" aria-live="polite" aria-atomic="true">{activity}</p>}
     {notice && <p role="status">{notice}</p>}{error && <p className="ai-error" role="alert">{error}</p>}

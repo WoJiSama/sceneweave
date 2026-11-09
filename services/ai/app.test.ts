@@ -146,6 +146,48 @@ describe('private AI task HTTP service', () => {
     expect(store.count()).toBe(1)
     expect(JSON.stringify(await (await request(`/v1/tasks/${snapshot.id}`)).json())).not.toContain('system')
   })
+  it('recovers a retained request beyond the recent twenty with owner isolation and no model execution', async () => {
+    let now = 1000
+    const complete = vi.fn(async () => done())
+    const { app, request, store } = setup({ complete }, () => now)
+    const original = taskRequest()
+    const finish = (owner: string, input: CreateTaskRequest) => {
+      const { task } = store.create(owner, input, 4)
+      store.change(task.snapshot.id, 1, current => { current.snapshot.status = 'completed'; current.runStartedAt = null; return [] })
+      now++
+      return store.read(task.snapshot.id, owner).snapshot
+    }
+    const oldest = finish('alice', original)
+    for (let index = 0; index < 21; index++) finish('alice', taskRequest({ sceneId: `scene-${index}`, revision: 1, audience: 'public' }))
+    const recent = await (await request('/v1/tasks')).json()
+    expect(recent.tasks).toHaveLength(20)
+    expect(recent.tasks.some((task: TaskSnapshot) => task.id === oldest.id)).toBe(false)
+    const path = `/v1/tasks?clientRequestId=${original.clientRequestId}`
+    expect(await (await request(path)).json()).toEqual({ schemaVersion: 1, tasks: [oldest] })
+    expect(await (await request(path, 'GET', undefined, { token: tokenB })).json()).toEqual({ schemaVersion: 1, tasks: [] })
+    const bobsTask = finish('bob', original)
+    expect(await (await request(path, 'GET', undefined, { token: tokenB })).json()).toEqual({ schemaVersion: 1, tasks: [bobsTask] })
+    expect(await (await request(path)).json()).toEqual({ schemaVersion: 1, tasks: [oldest] })
+    expect(await (await request(`/v1/tasks?clientRequestId=${randomUUID()}`)).json()).toEqual({ schemaVersion: 1, tasks: [] })
+    expect((await app.request(path)).status).toBe(401)
+    expect(store.count()).toBe(23)
+    expect(complete).not.toHaveBeenCalled()
+    now = oldest.expiresAt + 1
+    expect(await (await request(path)).json()).toEqual({ schemaVersion: 1, tasks: [] })
+    expect(complete).not.toHaveBeenCalled()
+  })
+  it('rejects invalid, duplicate, combined and unknown task lookup query parameters', async () => {
+    const { request, store } = setup()
+    const id = randomUUID()
+    for (const query of ['clientRequestId=', 'clientRequestId=invalid', `clientRequestId=${id}&clientRequestId=${id}`,
+      `clientRequestId=${id}&sceneId=scene-1`, `clientRequestId=${id}&unknown=1`, 'sceneId=',
+      'sceneId=scene-1&sceneId=scene-1', 'unknown=1', `clientRequestId=${id}%00`]) {
+      const response = await request(`/v1/tasks?${query}`)
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: { code: 'invalid_request' } })
+    }
+    expect(store.count()).toBe(0)
+  })
   it('streams ordered real tool results, passes them back to the model, and replays events without tool reexecution', async () => {
     const complete = vi.fn(async (input: ProviderInput) => {
       if (complete.mock.calls.length === 1) {

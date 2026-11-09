@@ -154,12 +154,16 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     return context.json(snapshot, 201)
   })
   app.get('/v1/tasks', context => {
-    if (Object.keys(context.req.query()).some(key => key !== 'sceneId') || (context.req.queries('sceneId')?.length ?? 0) > 1) throw new TaskFault('invalid_request', 400)
-    const sceneId = context.req.query('sceneId')
+    if (Object.keys(context.req.query()).some(key => key !== 'sceneId' && key !== 'clientRequestId')
+      || ['sceneId', 'clientRequestId'].some(key => (context.req.queries(key)?.length ?? 0) > 1)) throw new TaskFault('invalid_request', 400)
+    const sceneId = context.req.query('sceneId'), clientRequestId = context.req.query('clientRequestId')
     if (sceneId !== undefined && !/^[A-Za-z0-9_.:-]{1,128}$/.test(sceneId)) throw new TaskFault('invalid_request', 400)
+    if (clientRequestId !== undefined && (sceneId !== undefined || !CreateTaskSchema.shape.clientRequestId.safeParse(clientRequestId).success)) throw new TaskFault('invalid_request', 400)
+    const matched = clientRequestId === undefined ? undefined : store.findByClientRequestId(context.get('owner'), clientRequestId)
+    const tasks = clientRequestId === undefined ? store.list(context.get('owner'), sceneId) : matched ? [matched] : []
     const rows: string[] = []
     let bytes = utf8Size('{"schemaVersion":1,"tasks":[]}')
-    for (const task of store.list(context.get('owner'), sceneId)) {
+    for (const task of tasks) {
       const row = JSON.stringify(task)
       bytes += utf8Size(row) + (rows.length ? 1 : 0)
       if (bytes > AI_LIMITS.taskBytes) throw new TaskFault('task_list_limit', 413)
