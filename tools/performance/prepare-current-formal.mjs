@@ -79,7 +79,7 @@ try {
     await write('manifest.json', capacity)
   }
   if (mode !== 'capacity') {
-    for (const kind of ['interior', 'island', 'coast', 'mixed']) {
+    for (const kind of ['interior', 'island', 'coast', 'mixed', 'current-island']) {
       console.log(`Prepare fixed visual: ${kind}`)
       const item = await prepare('/tools/testing/formal-visual-fixtures.ts', 'prepareFormalVisualFixture', [kind])
       const variants = {}

@@ -11,22 +11,34 @@ import type { SceneDocument, BoundsMm } from '../src/shared/model/scene'
 import { visualBase } from '../src/shared/visual/base'
 import { detachChangedOutputs } from '../src/shared/terrain-generation/integrity'
 import { pauseChangedCompositions } from '../src/shared/terrain-generation/composition-lifecycle'
+import { getLegacyGeneration } from '../src/shared/terrain-generation/composition-contracts'
+import { projectScene } from '../src/shared/projection/projection'
+import { terrainVariantV2DefinitionId } from '../src/shared/visual/terrain-variant-v2-specs'
 
 interface PackageInput { file: string; sha256: string }
 interface FixtureCase {
-  name: string; kind: 'interior' | 'island' | 'coast' | 'mixed'
+  name: string; kind: 'interior' | 'island' | 'coast' | 'mixed' | 'current-island'
   variants: Record<'art' | 'artNeutral' | 'effect' | 'neutral' | 'privatePair', PackageInput>
   controls: { editablePropId: string; privatePropId: string; privateMaskId: string; privateNoteId: string;
     structure: { kind: 'wall' | 'connection' | 'visualBoundary'; id: string; beforeMm: number; afterMm: number; segmentIndex?: number; expectedDocument?: SceneDocument } }
-  views: (PackageInput & { name: string; boundsMm: BoundsMm; cropBoundsMm: BoundsMm; method: string;
+  views: (PackageInput & { name: string; boundsMm: BoundsMm; cropBoundsMm: BoundsMm; method: string; targetIds: string[]; framingBasis: string;
+    pixelAlignment: { worldPeriodMm: number; pixelsPerPeriod: number; sourceRectPx: number[] };
     provenance: { beforeGenerationSha256: string; afterGenerationSha256: string; method: string } })[]
   summary: { exportBoundsMm: BoundsMm; [key: string]: unknown }
 }
 const fixtureRoot = resolve(process.env.SCENEWEAVE_FORMAL_VISUAL_FIXTURES ?? 'work/missing-formal-visual-fixtures')
 const manifest = JSON.parse(readFileSync(resolve(fixtureRoot, 'formal-visual-fixtures.json'), 'utf8')) as { format: string; version: number; cases: FixtureCase[] }
-if (manifest.format !== 'sceneweave-formal-visual-fixtures' || manifest.version !== 1 || manifest.cases.length !== 4) throw new Error('Expected the frozen interior/island/coast/mixed formal visual fixture manifest.')
+if (manifest.format !== 'sceneweave-formal-visual-fixtures' || manifest.version !== 1
+  || manifest.cases.length !== 5 || new Set(manifest.cases.map(row => row.kind)).size !== 5
+  || !manifest.cases.some(row => row.kind === 'current-island')) throw new Error('Expected the four original regression fixtures plus the separate current-island algorithm7 production input.')
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const review = (page: Page) => page.getByRole('region', { name: '候选审阅', exact: true })
+function containsEntityId(value: unknown, id: string): boolean {
+  if (value === null || typeof value !== 'object') return false
+  if (Array.isArray(value)) return value.some(row => containsEntityId(row, id))
+  const row = value as Record<string, unknown>
+  return row.id === id || Object.keys(row).includes(id) || Object.values(row).some(child => containsEntityId(child, id))
+}
 
 function archive(bytes: Uint8Array) {
   const files = unzipSync(bytes)
@@ -38,6 +50,38 @@ function archive(bytes: Uint8Array) {
     hashes: Object.fromEntries(Object.entries(files).map(([name, body]) => [name, digest(body)])), packageSha256: digest(bytes) }
 }
 type Archive = ReturnType<typeof archive>
+function currentVisualConsumption(input: Archive) {
+  const recipes = Object.values(getLegacyGeneration(input.document)?.recipes ?? {}).filter(row => row.algorithmId === 'terrain-scene')
+  expect(recipes.length).toBeGreaterThan(0)
+  for (const recipe of recipes) expect(recipe).toMatchObject({ algorithmVersion: 7, recipeVersion: 7 })
+  const projection = projectScene(input.document, 'gm', input.appearance)
+  const stairs = projection.connections.filter(row => row.kind === 'stairs')
+  expect(stairs.length).toBeGreaterThan(0)
+  for (const stair of stairs) {
+    expect(stair.route?.stairStyle).toBe('naturalRock')
+    expect(stair.route!.centerlineMm.length).toBeGreaterThanOrEqual(2)
+    expect(stair.surfaceIds).toHaveLength(2)
+  }
+  const trees = projection.props.filter(row => row.definitionRef?.id === terrainVariantV2DefinitionId('tree-highland-copse'))
+  expect(trees.length).toBeGreaterThan(0)
+  const consumed = trees.map(tree => {
+    const sourceId = input.appearance.propSources[tree.id], source = input.appearance.sources[sourceId], presentation = input.appearance.presentations[sourceId]
+    expect(source).toMatchObject({ kind: 'prop', snapshot: { definitionRef: tree.definitionRef } })
+    expect(presentation.mode).toBe('nearSide')
+    expect(projection.propPresentations?.[tree.id]?.mode).toBe('nearSide')
+    expect(tree.appearance.kind).toBe('image')
+    if (tree.appearance.kind !== 'image') throw new Error('Current highland tree has no actual image.')
+    const asset = input.document.assets[tree.appearance.assetId]
+    expect(asset).toBeDefined(); expect(projection.assetIds).toContain(asset.id)
+    expect(input.hashes[`assets/${asset.sha256}.png`]).toBe(asset.sha256)
+    expect(asset.licenseRef).toContain('Terrain-Variants-2')
+    return { id: tree.id, definitionRef: tree.definitionRef, sourceId, presentation, assetId: asset.id, assetSha256: asset.sha256, licenseRef: asset.licenseRef }
+  })
+  expect(projection.assetIds.some(id => id.startsWith('shore-v1-'))).toBe(true)
+  return { algorithmVersion: 7, rendererBranch: 'drawRoutedConnectionBody/naturalRock',
+    recipes: recipes.map(row => ({ id: row.id, algorithmId: row.algorithmId, algorithmVersion: row.algorithmVersion, recipeVersion: row.recipeVersion })),
+    stairs: stairs.map(row => ({ id: row.id, route: row.route, surfaceIds: row.surfaceIds, widthMm: row.widthMm })), trees: consumed }
+}
 const fixedFiles = (value: Archive) => Object.fromEntries(Object.entries(value.hashes).filter(([name]) => !['scene.json', 'manifest.json', 'identity.json'].includes(name)))
 const stableFiles = (value: Archive) => Object.fromEntries(Object.entries(value.hashes).filter(([name]) => !['scene.json', 'manifest.json'].includes(name)))
 const resourceFiles = (value: Archive) => Object.fromEntries(Object.entries(value.hashes).filter(([name]) => /^(assets\/|sources\/|licenses\/|sources\.json$)/.test(name)))
@@ -133,7 +177,9 @@ async function png(page: Page, audience: 'player' | 'gm', path: string, bounds: 
     let closeup: { width: number; height: number; base64: string; sourceRectPx: number[] } | null = null
     if (crop) {
       const scale = canvas.width / bounds.width
-      const sourceRectPx = [(crop.x - bounds.x) * scale, (crop.y - bounds.y) * scale, crop.width * scale, crop.height * scale].map(Math.round)
+      const exactSourceRectPx = [(crop.x - bounds.x) * scale, (crop.y - bounds.y) * scale, crop.width * scale, crop.height * scale]
+      if (exactSourceRectPx.some(value => Math.abs(value - Math.round(value)) > 1e-9)) throw new Error('Frozen world crop is not aligned to native PNG pixels.')
+      const sourceRectPx = exactSourceRectPx.map(Math.round)
       const out = document.createElement('canvas'); out.width = sourceRectPx[2]; out.height = sourceRectPx[3]
       // getImageData/putImageData copies exact native pixels; no scaling/interpolation.
       out.getContext('2d')!.putImageData(context.getImageData(sourceRectPx[0], sourceRectPx[1], out.width, out.height), 0, 0)
@@ -182,8 +228,15 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   // Real user Prop edit, a single transaction, then undo/redo and complete archives.
   await select(page, fixture.controls.editablePropId, '物件')
   const prop = baseline.document.props[fixture.controls.editablePropId]
+  expect(Object.values(baseline.document.aggregateCoordinates?.groups ?? {}).some(group => group.members.some(member => member.id === prop.id))).toBe(false)
+  expect(Object.values(baseline.document.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === prop.id))).toBe(false)
+  expect(Object.values(baseline.document.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === prop.id))).toBe(false)
+  expect(Object.values(baseline.document.decorationClusters).some(group => Object.values(group.members).some(member => member.kind === 'prop' && member.entityId === prop.id))).toBe(false)
   const propX = page.getByRole('spinbutton', { name: '物件 X', exact: true })
-  await propX.fill(String((prop.positionMm.x + 1) / 1000)); await propX.press('Enter'); await adopt(page, 'prop')
+  // Independent Prop commits immediately through the finite command entry.
+  // Group-owned Props use a separate preview path, excluded explicitly above.
+  await propX.fill(String((prop.positionMm.x + 1) / 1000)); await propX.press('Enter')
+  await saved(page); await expect(review(page)).toHaveCount(0)
   const propEdited = await backup(page, info.outputPath('prop-edited.sceneweave'))
   const expectedProp = structuredClone(baseline.document); expectedProp.props[prop.id].positionMm.x++
   expect(physics(propEdited.document)).toEqual(physics(expectedProp)); expect(fixedFiles(propEdited)).toEqual(fixedFiles(baseline))
@@ -205,7 +258,7 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     await resources.getByRole('tab', { name: '外观', exact: true }).click()
     const panel = page.getByRole('region', { name: '视觉场景创作', exact: true })
     await panel.getByLabel('视觉已有曲线', { exact: true }).selectOption(structure.id)
-    await panel.locator('details').filter({ has: panel.getByText(/^控制点坐标 · /) }).locator('summary').click()
+    await panel.locator('summary').filter({ hasText: /^控制点坐标 · / }).click()
     await panel.locator('.visual-segment').nth(structure.segmentIndex!).getByLabel('视觉控制1y', { exact: true }).fill(String(structure.afterMm))
     await panel.getByRole('button', { name: '预览曲线与边带', exact: true }).click()
   } else {
@@ -228,7 +281,7 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   expect(resourceFiles(structureEdited)).toEqual(resourceFiles(structureBefore))
   const structureGm = await png(page, 'gm', info.outputPath('structure-edited-gm-4k.png'), structureEdited.document.exportBoundsMm)
   expect(structureGm.rgbaSha256).not.toBe(gm.rgbaSha256)
-  await png(page, 'player', info.outputPath('structure-edited-player-4k.png'), structureEdited.document.exportBoundsMm)
+  const structurePlayer = await png(page, 'player', info.outputPath('structure-edited-player-4k.png'), structureEdited.document.exportBoundsMm)
   await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
   const structureUndo = await backup(page, info.outputPath('structure-undo.sceneweave'))
   expect(physics(structureUndo.document)).toEqual(physics(structureBefore.document))
@@ -236,7 +289,12 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   const structureRedo = await backup(page, info.outputPath('structure-redo.sceneweave'))
   expect(physics(structureRedo.document)).toEqual(physics(structureEdited.document))
   expect(structureRedo.document.revision).toBe(structureEdited.document.revision + 2)
-  await png(page, 'gm', info.outputPath('structure-redo-gm-4k.png'), structureRedo.document.exportBoundsMm)
+  expect(await png(page, 'gm', info.outputPath('structure-redo-gm-4k.png'), structureRedo.document.exportBoundsMm)).toEqual(structureGm)
+  await reopen(page, structureRedo.document.sceneId)
+  const structureCold = await backup(page, info.outputPath('structure-cold.sceneweave'))
+  expect(structureCold.hashes).toEqual(structureRedo.hashes)
+  expect(await png(page, 'gm', info.outputPath('structure-cold-gm-4k.png'), structureCold.document.exportBoundsMm)).toEqual(structureGm)
+  expect(await png(page, 'player', info.outputPath('structure-cold-player-4k.png'), structureCold.document.exportBoundsMm)).toEqual(structurePlayer)
 
   const variantFacts: Record<string, unknown> = {}
   for (const variant of ['neutral', 'privatePair'] as const) await isolated(browser, page, errors, async variantPage => {
@@ -278,6 +336,7 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   let artFacts: Record<string, unknown> = {}
   await isolated(browser, page, errors, async artPage => {
     const input = await load(artPage, fixture.variants.art)
+    const consumption = fixture.kind === 'current-island' ? currentVisualConsumption(input) : undefined
     artOriginal = input
     const current = await backup(artPage, info.outputPath('art.sceneweave'))
     expect(withoutRoot(current.document)).toEqual(withoutRoot(input.document)); expect(stableFiles(current)).toEqual(stableFiles(input))
@@ -289,10 +348,11 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     await artPage.screenshot({ path: info.outputPath('art-workbench.png') })
     await reopen(artPage, current.document.sceneId)
     const artCold = await backup(artPage, info.outputPath('art-cold.sceneweave'))
+    if (consumption) expect(currentVisualConsumption(artCold)).toEqual(consumption)
     expect(artCold.hashes).toEqual(current.hashes)
     expect(await png(artPage, 'gm', info.outputPath('art-cold-gm-4k.png'), artCold.document.exportBoundsMm)).toEqual(artGm)
     expect(await png(artPage, 'player', info.outputPath('art-cold-player-4k.png'), artCold.document.exportBoundsMm)).toEqual(artPlayer)
-    artFacts = { inputSha256: fixture.variants.art.sha256, packageSha256: current.packageSha256, hashes: current.hashes,
+    artFacts = { ...(consumption ? { currentVisualConsumption: consumption } : {}), inputSha256: fixture.variants.art.sha256, packageSha256: current.packageSha256, hashes: current.hashes,
       gm: artGm, player: artPlayer, coldRead: 'Complete archive and both actual audience PNGs unchanged',
       scope: 'Ordinary original benchmark. Privacy QA mask and sentinel are absent; human art review remains required.' }
   })
@@ -314,6 +374,9 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   const views: unknown[] = []
   for (const view of fixture.views) await isolated(browser, page, errors, async viewPage => {
     const input = await load(viewPage, view)
+    expect(view.targetIds.length).toBeGreaterThan(0)
+    expect(view.framingBasis.length).toBeGreaterThan(0)
+    for (const id of view.targetIds) expect(containsEntityId(input.document, id), `Fixed crop target ${id} must exist in its actual input`).toBe(true)
     const expected = structuredClone(artOriginal!.document); expected.exportBoundsMm = view.boundsMm
     // A real manual crop can invalidate saved generation receipts. Permit only
     // the exact production lifecycle result, never an ignored generation branch.
@@ -321,13 +384,15 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     pauseChangedCompositions(artOriginal!.document, expected)
     expect(withoutRoot(input.document)).toEqual(withoutRoot(expected)); expect(stableFiles(input)).toEqual(stableFiles(artOriginal!))
     const result = await png(viewPage, 'gm', info.outputPath(`view-${view.name}.png`), view.boundsMm, view.cropBoundsMm)
+    expect(result.sourceRectPx).toEqual(view.pixelAlignment.sourceRectPx)
     views.push({ name: view.name, inputSha256: view.sha256, boundsMm: view.boundsMm, cropBoundsMm: view.cropBoundsMm,
-      method: view.method, provenance: view.provenance, result })
+      targetIds: view.targetIds, framingBasis: view.framingBasis, pixelAlignment: view.pixelAlignment, method: view.method, provenance: view.provenance, result })
   })
   expect(errors).toEqual([]); expect(developmentRequests).toEqual([])
   const facts = { case: fixture.name, kind: fixture.kind, engine: info.project.name, browserVersion: browser.version(),
     frozenInputs: fixture, actualBaseline: { packageSha256: baseline.packageSha256, hashes: baseline.hashes, revision: baseline.document.revision },
-    art: artFacts, privacyQa: { gm, player, coldGm, structure, structureGm, variants: variantFacts }, views, errors, developmentRequests,
+    art: artFacts, privacyQa: { gm, player, coldGm, structure, structureGm, structurePlayer,
+      structureCold: { packageSha256: structureCold.packageSha256, allEntryHashesEqual: true, dualAudiencePngsEqual: true }, variants: variantFacts }, views, errors, developmentRequests,
     verdict: 'Automated technical assertions passed; art review and user P3 remain separate.',
     excluded: ['Real model generation', 'Six terrain families x five seeds x three region inputs', 'External VTT software import', 'Human six-dimension art approval', 'User P3 signoff'] }
   const factsPath = info.outputPath('formal-visual-facts.json')

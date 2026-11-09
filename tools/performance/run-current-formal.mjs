@@ -11,7 +11,7 @@ import { unzipSync } from 'fflate'
 import { closeMeasuredBrowser } from './close-browser.mjs'
 import { diffAggregateBlocks } from './aggregate-observer.mjs'
 import { createCurrentFormalObserver } from './current-formal-observer.mjs'
-import { summarizeCurrentFormal } from './summarize-current-formal.mjs'
+import { summarizeCurrentFormal, compactFormalRunForManifest } from './summarize-current-formal.mjs'
 
 // Current complete-v1 production runner. Fixture preparation is a separate,
 // already-closed process; no product hook, injected state, retry or reduced load.
@@ -20,7 +20,7 @@ const args = process.argv.slice(2)
 const argument = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback
 if (args.includes('--help')) {
   console.log('node tools/performance/run-current-formal.mjs --fixtures ABS --output ABS [--dist ABS] [--channel chrome] [--timeout-ms 180000] [--cases building-500,building-2000,natural-500,natural-2000,mixed-500,mixed-2000] [--smoke]')
-  console.log('Formal: 3 independent runs per case, 30 public full-Prop edits and 60 object-list selections per run, real canvas selection, 3 x 30 pan moves and 3 x 20 wheel inputs, group/undo/redo, cold open, dual 4K PNG and exact package/storage audits. --smoke is diagnostic only: one run, 2 edits and 4 list selections. Run exclusively and serially, without other automated browsers, builds or tests. Failures are retained, never retried. This measured subset cannot close all of 09 or P3.')
+  console.log('Formal: 3 independent runs per case, 30 grouped preview/adopt edits plus 30 independent immediate full-Prop edits and 60 object-list selections per run, real canvas selection, 3 x 30 pan moves and 3 x 20 wheel inputs, group/undo/redo, cold open, dual 4K PNG and exact package/storage audits. --smoke is diagnostic only: one run, 2 edits per flow and 4 list selections. Run exclusively and serially, without other automated browsers, builds or tests. Failures are retained, never retried. This measured subset cannot close all of 09 or P3.')
   process.exit(0)
 }
 const check = (value, message) => { if (!value) throw new Error(message) }
@@ -64,16 +64,17 @@ const manifest = { format: 'sceneweave-current-formal-performance', version: 1, 
   sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceDirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }), frozen, inputFingerprint: hash(JSON.stringify(frozen)),
   device: { platform: os.platform(), release: os.release(), arch: os.arch(), cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem(), node: process.version },
-  config: { cases, channel, timeoutMs, viewport: { width: 1512, height: 982 }, dpr: 1, runCount, editCount, selectionCount, base,
+  config: { cases, channel, timeoutMs, viewport: { width: 1512, height: 982 }, dpr: 1, runCount, editCount, immediateEditCount: editCount, selectionCount, base,
     cache: 'New dedicated Chrome headless process/profile for each case/run; HTTP cache disabled. OS cache is not purged. Page reload before cold open resets page/module/decoded-image state; same browser process remains.',
-    ordinary: 'Public full Prop world X alternates +1mm/back. Enter prepares a preview; trusted adoption click commits. Preview, adoption-click-to-domain and Enter-to-domain including review/automation delay are all retained separately. The adoption subinterval is not proof of old immediate-command whole-chain latency.',
+    ordinary: 'Grouped public full Prop world X alternates +1mm/back. Enter prepares a preview; trusted adoption click commits. Preview, adoption-click-to-domain and Enter-to-domain including review/automation delay are retained separately.',
+    immediate: 'Fixed independent controls.remoteEntityId public full Prop world X alternates +1mm/back. Trusted Enter commits directly. Enter-to-validated-domain, saved, raster-ready and display-proxy intervals are retained separately; the 500-Prop 100ms ordinary-edit gate uses the complete Enter-to-domain interval.',
     frames: 'Nearest-rank browser rAF intervals overlapping actual trusted continuous pointer/wheel input only; double-rAF is a scheduling proxy, not presentation/GPU completion.',
     storage: 'Native readonly committed rows; SHA-verified immutable content payloads and distinct changed final JSON rows, never physical disk I/O.',
     limitations: ['RSS is the dedicated macOS process-tree sum and may double-count shared mappings; target JS heap excludes GPU/other targets.',
       'CPU brackets include automation, observer/CDP waits and retain process births/exits/resets; no profiler or forced GC.',
       'Tooling package/pixel/hash/storage audit and setup phases are excluded from product peaks.',
       'Predeclared replicate failures are retained and independent runs continue; there are no automatic retries.'] },
-  omittedCoverage: ['Full QA-PERF-01 immediate-command edit latency, free Prop drag and broad marquee are not established by this two-stage full-Prop field-edit matrix.',
+  omittedCoverage: ['Free Prop drag and broad marquee are not established by these grouped preview/adopt and independent immediate full-Prop X field edits.',
     'Continuous contour/curve edits, layer visibility/order, appearance editing, named/protected history, restoration depth/branches and failure matrices remain separate 09 work.',
     'Original SCN-01/02/03, VIS-01/02 and SCN-04 exact visual fixtures, cross-browser and physical display/GPU timings are not replaced by this corpus.',
     'Player PNG metadata/dimensions are checked; paired private-mutation pixel equality, privacy geometry/shadows, human visual quality and user P3 need independent evidence.',
@@ -232,6 +233,21 @@ function sameContent(a, b, context) {
 }
 async function details(locator) { if (await locator.getAttribute('open') === null) await locator.locator('summary').first().click() }
 async function number(scope, label, value) { const field = scope.getByRole('spinbutton', { name: label, exact: true }); await field.fill(String(value)); await field.press('Enter') }
+// Follow the same real module/task controls as workspace-navigation-helpers;
+// navigation is setup, outside every measured edit/selection/export interval.
+async function openWorkspaceModule(page, name) {
+  const choice = page.getByTestId('workspace-module-navigation').getByRole('button', { name, exact: true })
+  await choice.click()
+  await choice.and(page.locator('[aria-current="page"]')).waitFor({ state: 'visible' })
+  const panel = page.getByTestId('workspace-resources')
+  await panel.and(page.locator('[data-open="true"]')).waitFor({ state: 'visible' })
+  return panel
+}
+async function openSceneObjects(page) {
+  const panel = await openWorkspaceModule(page, '场景')
+  await panel.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  return panel
+}
 async function download(page, stem) {
   observer.setPhase('tooling-package-audit')
   const menu = page.locator('details.workspace-export-menu'); await details(menu)
@@ -247,22 +263,27 @@ async function download(page, stem) {
   return result
 }
 async function adoptReview(page, kind, revision, expectedLabel) {
-  const review = page.getByRole('region', { name: '候选审阅', exact: true })
+  const review = page.locator('.workspace-candidate-review[aria-label="候选审阅"]')
   const confirmation = review.getByLabel('确认完整影响范围', { exact: true })
   if (await confirmation.count()) await confirmation.check()
   return observer.measure(kind, { start: { event: 'click', selector: 'button', label: expectedLabel }, expectedRevision: revision,
     domainCommit: true, requireSaved: true }, () => review.getByRole('button', { name: expectedLabel, exact: true }).click())
 }
 async function selectMember(page, id) {
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await page.getByRole('searchbox', { name: '搜索场景物件', exact: true }).fill(id)
-  await page.locator(`.asset-virtual-row[data-entity-id="${id}"]`).click()
+  const panel = await openSceneObjects(page)
+  await panel.getByRole('searchbox', { name: '搜索场景对象', exact: true }).fill(id)
+  await panel.locator(`.asset-virtual-row[data-entity-id="${id}"]`).click()
 }
 async function groupTools(page, controls) {
   const domain = controls.domain === 'building' ? '建筑' : '地形'
-  await page.getByRole('tab', { name: domain, exact: true }).click()
-  if (domain === '地形') await page.getByRole('group', { name: '地形任务', exact: true }).getByRole('button', { name: /^绘制地形/ }).click()
-  const tools = page.getByLabel(domain === '建筑' ? '建筑组工具' : '自然组工具', { exact: true }); await details(tools)
+  const panel = await openWorkspaceModule(page, domain)
+  if (domain === '建筑') await panel.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: /^建筑组/ }).click()
+  else {
+    await panel.getByRole('group', { name: '地形任务', exact: true }).getByRole('button', { name: /^绘制地形/ }).click()
+    await panel.getByRole('group', { name: '室外任务', exact: true }).getByRole('button', { name: /^地形与高程/ }).click()
+    await panel.getByRole('button', { name: '自然组 · 创建与整体调整', exact: true }).click()
+  }
+  const tools = page.getByTestId('workspace-inspector').getByLabel(domain === '建筑' ? '建筑组工具' : '自然组工具', { exact: true }); await details(tools)
   await tools.getByRole('combobox', { name: domain === '建筑' ? '建筑组' : '自然组', exact: true }).selectOption(controls.groupId)
   const prefix = domain === '建筑' ? '整栋' : '自然组'
   await number(tools, `${prefix}偏移 X`, controls.offsetMm.x / 1000)
@@ -289,7 +310,7 @@ async function groupLifecycle(page, fixture, baseline, result, stem) {
     return
   }
   check(controls.expectedGroupTransform !== 'reject-external-support', 'Incomplete external-support negative case unexpectedly prepared')
-  const review = page.getByRole('region', { name: '候选审阅', exact: true })
+  const review = page.locator('.workspace-candidate-review[aria-label="候选审阅"]')
   const extra = review.locator('.composition-preview-details'); if (await extra.count()) await details(extra)
   const budget = review.getByLabel('普通事务保护详情', { exact: true }); if (await budget.count()) await details(budget)
   result.groupReview = await review.innerText()
@@ -307,12 +328,73 @@ async function groupLifecycle(page, fixture, baseline, result, stem) {
   result.coverage.groupTransform = { status: 'complete', coreFrameAndLocalMembersExact: true, externalRecordsUnchanged: true, undoRedoResetCompleteContent: true }
 }
 
+// Fixed before measurement from the frozen package geometry, independently of
+// the existing small-Prop list/edit targets. Never pick from screen results.
+const canvasSelectionIdsByKind = Object.freeze({
+  building: Object.freeze(['q2-bed-sage-25', 'q2-bed-indigo-24']),
+  natural: Object.freeze(['q1-tree-split-crown-3', 'q1-tree-windbent-6']),
+  mixed: Object.freeze(['interior-94abf0846ab07254cb189ad3c7f8f4061cf5ee77', 'interior-0fdf5a321fc0023b9428541eface4c67b4be5310']),
+})
+function canvasSelectionIds(name) {
+  // Mixed fixtures deliberately use the natural aggregate operation adapter.
+  // Their fixture kind, rather than controls.domain, owns the frozen targets.
+  const ids = canvasSelectionIdsByKind[name.split('-')[0]]
+  check(ids?.length === 2 && new Set(ids).size === 2, `Missing fixed canvas targets for ${name}`)
+  return ids
+}
+function immediatePropPreflight(data, id) {
+  const scene = data.scene, prop = scene.props[id]
+  check(prop?.visibility === 'public' && !prop.editLocked && !scene.userLayers[scene.entityLayers[id]]?.editLocked,
+    `Immediate edit target must be an existing public unlocked full Prop: ${id}`)
+  check(!Object.values(scene.aggregateCoordinates.groups).some(group => group.members.some(member => member.id === id)),
+    `Immediate edit target is owned by an aggregate: ${id}`)
+  for (const collection of ['prefabInstances', 'scatterGroups', 'decorationClusters']) {
+    check(!Object.values(scene[collection]).some(group => Object.values(group.members).some(member => member.propId === id || member.entityId === id)),
+      `Immediate edit target is managed by ${collection}: ${id}`)
+  }
+  // This corpus freezes a remote rectangular terrain support. Prove both
+  // complete footprints remain inside it, without importing a compiled product
+  // build or pretending a point-only check establishes arbitrary support.
+  const support = prop.supportRef.kind === 'terrainArea' ? scene.terrainAreas[prop.supportRef.id] : null
+  check(support?.floorId === prop.floorId && !support.editLocked
+    && !scene.userLayers[scene.entityLayers[support.id]]?.editLocked, `Immediate edit requires its unlocked frozen terrain support: ${id}`)
+  const ring = support.boundaryMm.map(vertex => vertex.positionMm)
+  const left = Math.min(...ring.map(point => point.x)), right = Math.max(...ring.map(point => point.x))
+  const top = Math.min(...ring.map(point => point.y)), bottom = Math.max(...ring.map(point => point.y))
+  check(ring.length === 4 && left < right && top < bottom
+    && new Set(ring.map(point => `${point.x},${point.y}`)).size === 4
+    && ring.every((point, index) => (point.x === left || point.x === right) && (point.y === top || point.y === bottom)
+      && (point.x === ring[(index + 1) % 4].x || point.y === ring[(index + 1) % 4].y)),
+    `Immediate edit fixture support must be the declared exact rectangle: ${id}`)
+  const floor = scene.floors[prop.floorId]?.boundsMm, angle = prop.rotationDeg * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle)
+  const footprint = { x: prop.footprintOffsetMm.x - prop.footprintMm.width / 2,
+    y: prop.footprintOffsetMm.y - prop.footprintMm.height / 2, ...prop.footprintMm }
+  for (const offsetMm of [0, 1]) {
+    const polygon = [[footprint.x, footprint.y], [footprint.x + footprint.width, footprint.y],
+      [footprint.x + footprint.width, footprint.y + footprint.height], [footprint.x, footprint.y + footprint.height]]
+      .map(([x, y]) => ({ x: prop.positionMm.x + offsetMm + x * c - y * s, y: prop.positionMm.y + x * s + y * c }))
+    check(floor && polygon.every(point => point.x >= left && point.x <= right && point.y >= top && point.y <= bottom
+      && point.x >= floor.x && point.x <= floor.x + floor.width && point.y >= floor.y && point.y <= floor.y + floor.height),
+      `Immediate edit footprint loses actual support at world X+${offsetMm}mm: ${id}`)
+    const bounds = { left: Math.min(...polygon.map(point => point.x)), right: Math.max(...polygon.map(point => point.x)),
+      top: Math.min(...polygon.map(point => point.y)), bottom: Math.max(...polygon.map(point => point.y)) }
+    check(!Object.values(scene.terrainAreas).some(area => area.floorId === prop.floorId && area.coveragePriority > support.coveragePriority
+      && Math.max(...area.boundaryMm.map(vertex => vertex.positionMm.x)) > bounds.left
+      && Math.min(...area.boundaryMm.map(vertex => vertex.positionMm.x)) < bounds.right
+      && Math.max(...area.boundaryMm.map(vertex => vertex.positionMm.y)) > bounds.top
+      && Math.min(...area.boundaryMm.map(vertex => vertex.positionMm.y)) < bounds.bottom),
+      `Immediate edit fixture needs an unoccluded frozen support at world X+${offsetMm}mm: ${id}`)
+  }
+  return { fullPropId: id, supportRef: prop.supportRef, originalWorldPositionMm: prop.positionMm,
+    supportedWorldXOffsetsMm: [0, 1], independentOfAggregateAndManagedContainers: true }
+}
 function worldProp(data, id) {
   const prop = structuredClone(data.scene.props[id]); check(prop, `Missing full Prop ${id}`)
   let group = Object.values(data.scene.aggregateCoordinates.groups).find(value => value.members.some(member => member.kind === 'prop' && member.id === id))
   const visited = new Set()
   while (group) {
     check(!visited.has(group.id), 'Cyclic group while deriving independent canvas target'); visited.add(group.id)
+    prop.editLocked ||= group.editLocked
     const p = prop.positionMm, rotated = [{ x: p.x, y: p.y }, { x: -p.y, y: p.x }, { x: -p.x, y: -p.y }, { x: p.y, y: -p.x }][group.frame.quarterTurns]
     prop.positionMm = { x: rotated.x + group.frame.translationMm.x, y: rotated.y + group.frame.translationMm.y }
     prop.rotationDeg = (prop.rotationDeg + group.frame.quarterTurns * 90) % 360
@@ -322,7 +404,10 @@ function worldProp(data, id) {
 }
 function canvasTarget(data, id) {
   const prop = worldProp(data, id), presentation = data.appearance.presentations?.[data.appearance.propSources[id]]
-  check(prop.visibility === 'public' && !prop.editLocked && prop.renderLayer !== 'ground', 'Canvas target must be a public unlocked object/canopy Prop')
+  check(prop.visibility === 'public' && !prop.editLocked && !data.scene.userLayers[data.scene.entityLayers[id]]?.editLocked
+    && ['object', 'canopy'].includes(prop.renderLayer), `Canvas target must be a public unlocked object/canopy Prop: ${id}`)
+  check(prop.appearance.kind === 'image' && Math.min(prop.visualBoundsMm.width, prop.visualBoundsMm.height) >= 1000,
+    `Fixed canvas target must have an image with a visual short side of at least 1000mm: ${id}`)
   const b = prop.visualBoundsMm, near = presentation?.mode === 'nearSide', angle = (near ? 0 : prop.rotationDeg) * Math.PI / 180
   const x = b.x + b.width / 2 - (near ? presentation.rootAnchorMm.x : 0), y = b.y + b.height / 2 - (near ? presentation.rootAnchorMm.y : 0)
   return { x: prop.positionMm.x + x * Math.cos(angle) - y * Math.sin(angle), y: prop.positionMm.y + x * Math.sin(angle) + y * Math.cos(angle) }
@@ -423,6 +508,8 @@ try {
     check(Object.keys(data.scene.props).length === expectedCount && Object.keys(data.scene.decorations).length === 0, `Fixture ${name} is not the declared complete-Prop load`)
     check(data.scene.schemaVersion === 1 && data.manifest.schemaVersion === 1, 'Frozen fixture must be current complete v1')
     check(data.scene.units.gridVisible === true && data.scene.units.gridSizeMm === 3600 && data.scene.exportBoundsMm.width === 180000 && data.scene.exportBoundsMm.height === 180000, 'Expected real 50x50 displayed grid')
+    for (const id of canvasSelectionIds(name)) canvasTarget(data, id)
+    immediatePropPreflight(data, row.controls.remoteEntityId)
     const filename = `${name}-input.sceneweave`; await fs.writeFile(path.join(output, filename), bytes, { flag: 'wx' })
     check(hash(await fs.readFile(path.join(output, filename))) === expectedHash, 'Fixture copied bytes differ')
     manifest.fixtures.push({ ...row, file: filename, package: data.summary })
@@ -460,12 +547,17 @@ try {
       await groupLifecycle(page, fixture, baseline, result, stem)
       const controls = fixture.controls, ids = controls.selectionMemberIds ?? [controls.editableMemberId, controls.remoteEntityId]
       check(ids.length === 2 && new Set(ids).size === 2 && ids.every(id => baseline.scene.props[id]?.visibility === 'public'), 'Two explicit public full Prop selection targets required')
+      const canvasTargets = canvasSelectionIds(fixture.name).map(id => ({ id,
+        visualBoundsMm: baseline.scene.props[id].visualBoundsMm, worldVisualCenterMm: canvasTarget(baseline, id) }))
+      result.coverage.canvasSelection = { status: 'running', count: 0, expectedCount: smoke ? 2 : 6,
+        explicitExpectedIds: canvasTargets.map(target => target.id), targets: canvasTargets,
+        coordinateSource: 'Fixed per-kind full Prop IDs, complete local package frames and actual presentation visual center, mapped through transformed canvas DOM bounds; exact expected ID asserted.' }
       await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
       await page.getByRole('button', { name: '适应全图', exact: true }).click()
       await page.getByRole('checkbox', { name: '选择组合成员', exact: true }).check()
       await page.getByRole('button', { name: '替换选择', exact: true }).click(); await observer.ready()
       for (let index = 0; index < (smoke ? 2 : 6); index++) {
-        const id = ids[index % 2], target = canvasTarget(baseline, id), bounds = baseline.scene.exportBoundsMm
+        const { id, worldVisualCenterMm: target } = canvasTargets[index % 2], bounds = baseline.scene.exportBoundsMm
         const box = await page.locator('canvas[aria-label="材质场景主持人预览"]').boundingBox(), viewport = await page.locator('.asset-viewport').boundingBox()
         check(box && viewport, 'Canvas target unavailable')
         const point = { x: box.x + (target.x - bounds.x) / bounds.width * box.width, y: box.y + (target.y - bounds.y) / bounds.height * box.height }
@@ -473,11 +565,12 @@ try {
         const state = await observer.snapshot()
         await observer.measure('canvas-prop-selection', { start: { event: 'click', selector: '.asset-viewport' }, expectedRevision: state.revision,
           unchangedDocument: true, requireSaved: true, until: { selection: JSON.stringify([id]) } }, () => page.mouse.click(point.x, point.y))
+        result.coverage.canvasSelection.count++
       }
-      result.coverage.canvasSelection = { status: 'complete', count: smoke ? 2 : 6, explicitExpectedIds: ids, coordinateSource: 'Complete local package frames and fixed visual center, mapped through actual transformed canvas DOM bounds; exact expected ID asserted.' }
-      await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
+      result.coverage.canvasSelection.status = 'complete'
+      const objects = await openSceneObjects(page)
       for (let index = 0; index < selectionCount; index++) {
-        const id = ids[index % 2]; await page.getByRole('searchbox', { name: '搜索场景物件', exact: true }).fill(id)
+        const id = ids[index % 2]; await objects.getByRole('searchbox', { name: '搜索场景对象', exact: true }).fill(id)
         const state = await observer.snapshot()
         await observer.measure('object-list-selection', { start: { event: 'click', selector: '.asset-virtual-row' }, expectedRevision: state.revision,
           unchangedDocument: true, requireSaved: true, until: { selection: JSON.stringify([id]) } }, () => page.locator(`.asset-virtual-row[data-entity-id="${id}"]`).click())
@@ -504,12 +597,38 @@ try {
           result.storage.firstPropEdit = diffAggregateBlocks(beforeBlocks, await observer.blockSnapshot(beforeBlocks.databaseName))
         }
       }
-      const edited = await download(page, `${stem}-edited`); sameContent(beforeEdits, edited, 'Alternating ordinary edits')
-      check(edited.scene.revision === beforeEdits.scene.revision + editCount, 'Ordinary edits did not produce one revision each')
+      const groupedEdited = await download(page, `${stem}-grouped-edited`); sameContent(beforeEdits, groupedEdited, 'Alternating grouped ordinary edits')
+      check(groupedEdited.scene.revision === beforeEdits.scene.revision + editCount, 'Grouped ordinary edits did not produce one revision each')
       const afterBlocks = await observer.blockSnapshot(beforeBlocks.databaseName)
-      result.storage.allPropEdits = diffAggregateBlocks(beforeBlocks, afterBlocks); result.storage.afterEdits = afterBlocks
+      result.storage.allPropEdits = diffAggregateBlocks(beforeBlocks, afterBlocks); result.storage.afterGroupedEdits = afterBlocks
       result.coverage.ordinary = { status: 'complete', count: editCount, fullPropId: controls.editableMemberId, exactFirstEditAndFinalContent: true,
         flow: 'Enter -> complete preview -> trusted adoption click -> exact domain revision and saved/raster-ready; both intervals retained.' }
+      const immediateTarget = immediatePropPreflight(groupedEdited, controls.remoteEntityId)
+      await selectMember(page, immediateTarget.fullPropId); await observer.ready()
+      const immediateField = page.getByRole('spinbutton', { name: '物件 X', exact: true })
+      const immediateOriginalMm = Math.round(Number(await immediateField.inputValue()) * displayMillimetres)
+      check(immediateOriginalMm === immediateTarget.originalWorldPositionMm.x, 'Immediate target field differs from its independent world position')
+      result.coverage.immediateOrdinary = { status: 'running', count: 0, expectedCount: editCount, ...immediateTarget,
+        flow: 'Trusted Enter -> immediate complete validated domain commit -> actual saved/raster-ready; no preview/adoption interval.' }
+      for (let index = 0; index < editCount; index++) {
+        if (interrupted) throw new Error('Interrupted')
+        const targetMm = immediateOriginalMm + (index % 2 === 0 ? 1 : 0), state = await observer.snapshot()
+        await immediateField.fill(String(targetMm / displayMillimetres))
+        await observer.measure('immediate-prop-edit', { start: { event: 'keydown', selector: 'input', key: 'Enter' }, expectedRevision: state.revision + 1,
+          domainCommit: true, requireSaved: true, requireRaster: true, rejectText: '候选未通过，工程未修改', until: { preview: false } }, () => immediateField.press('Enter'))
+        check(Math.round(Number(await immediateField.inputValue()) * displayMillimetres) === targetMm, 'Immediate world millimetre position differs')
+        result.coverage.immediateOrdinary.count++
+        if (index === 0) {
+          const first = await download(page, `${stem}-first-immediate-edit`)
+          assertOnlyProps(groupedEdited, first, [immediateTarget.fullPropId]); sameResources(groupedEdited, first)
+          result.storage.firstImmediatePropEdit = diffAggregateBlocks(afterBlocks, await observer.blockSnapshot(afterBlocks.databaseName))
+        }
+      }
+      const edited = await download(page, `${stem}-edited`); sameContent(groupedEdited, edited, 'Alternating independent immediate edits')
+      check(edited.scene.revision === groupedEdited.scene.revision + editCount, 'Immediate edits did not produce one revision each')
+      const finalBlocks = await observer.blockSnapshot(afterBlocks.databaseName)
+      result.storage.allImmediatePropEdits = diffAggregateBlocks(afterBlocks, finalBlocks); result.storage.afterEdits = finalBlocks
+      result.coverage.immediateOrdinary.status = 'complete'; result.coverage.immediateOrdinary.exactFirstEditAndFinalContent = true
       await continuousViewport(page, result)
       result.exports.push(await exportPng(page, edited, 'gm', stem)); result.exports.push(await exportPng(page, edited, 'player', stem))
       check(result.exports[0].decoded.rgbaSha256 !== result.exports[1].decoded.rgbaSha256, 'Secret-bearing fixture produced identical GM/player pixels')
@@ -539,7 +658,12 @@ try {
           ...audit.browserErrors.filter(row => !row.url?.endsWith('/favicon.ico')), ...(result.metrics.resources.errors ?? []), ...(result.metrics.clockGaps ?? [])]
         if (errors.length) { result.status = 'failed'; result.auditFailures = errors; manifest.failures.push({ name: fixture.name, run, error: 'Browser/network/resource/clock errors', details: errors }) }
       }
-      await write(`${stem}.json`, result); await write('manifest.json', manifest)
+      const rawName = `${stem}.json`
+      const rawBytes = JSON.stringify(result, null, 2)
+      await fs.writeFile(path.join(output, rawName), rawBytes)
+      manifest.results[manifest.results.length - 1] = compactFormalRunForManifest(result,
+        { file: rawName, sha256: hash(rawBytes), resourceSeries: 'All exact raw process and heap samples remain in this per-run file.' })
+      await write('manifest.json', manifest)
     }
     check(isDeepStrictEqual(frozen, await inputs()), 'Source/build/tool/fixture bytes drifted during measurement')
   }

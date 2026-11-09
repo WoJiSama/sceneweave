@@ -7,6 +7,13 @@ const distribution = values => {
   return sorted.length ? { count: sorted.length, min: sorted[0], p50: sorted[Math.ceil(sorted.length * .5) - 1],
     p95: sorted[Math.ceil(sorted.length * .95) - 1], max: sorted.at(-1), mean: sorted.reduce((a, b) => a + b, 0) / sorted.length } : { count: 0 }
 }
+// The exact per-run file retains every process/heap sample. The manifest keeps
+// the same observations and summary, without retaining duplicate raw series.
+export function compactFormalRunForManifest(run, rawEvidence) {
+  if (!run.metrics?.resources) return { ...run, rawEvidence }
+  const { samples: _processSamples, heapSamples: _heapSamples, ...resources } = run.metrics.resources
+  return { ...run, rawEvidence, metrics: { ...run.metrics, resources } }
+}
 export function summarizeCurrentFormal(manifest) {
   const cases = manifest.fixtures.map(fixture => {
     const runs = manifest.results.filter(run => run.name === fixture.name), samples = runs.flatMap(run => run.metrics?.samples ?? [])
@@ -30,22 +37,42 @@ export function summarizeCurrentFormal(manifest) {
     const perRunOrdinary = runs.map(run => ({ run: run.run, status: run.status,
       adoptionClickToDomain: distribution((run.metrics?.samples ?? []).filter(sample => sample.kind === 'ordinary-adopt' && sample.status === 'complete').map(sample => sample.sample.intentToDomainCommitMs)),
       enterToDomainIncludingReview: distribution((run.metrics?.samples ?? []).filter(sample => sample.kind === 'ordinary-adopt' && sample.status === 'complete').map(sample => sample.sample.editIntentToDomainCommitMs)) }))
+    const immediate = statistics['immediate-prop-edit']?.intentToDomainCommitMs ?? { count: 0 }
+    const perRunImmediate = runs.map(run => {
+      const edits = (run.metrics?.samples ?? []).filter(sample => sample.kind === 'immediate-prop-edit' && sample.status === 'complete')
+      return { run: run.run, status: run.status,
+        enterToDomain: distribution(edits.map(sample => sample.sample.intentToDomainCommitMs)),
+        enterToSaved: distribution(edits.map(sample => sample.sample.intentToSavedMs)),
+        enterToRasterReady: distribution(edits.map(sample => sample.sample.intentToRasterReadyMs)) }
+    })
+    const immediateEvidenceComplete = manifest.measurementClass === 'formal-current-v1-production-ui-observation'
+      && manifest.status === 'complete' && manifest.inputUnchangedAfterMeasurement === true
+      && runs.length === 3 && new Set(runs.map(run => run.run)).size === 3 && immediate.count >= 90
+      && perRunImmediate.every(run => run.status === 'complete' && run.enterToDomain.count >= 30
+        && run.enterToSaved.count >= 30 && run.enterToRasterReady.count >= 30)
+      && runs.every(run => run.coverage?.immediateOrdinary?.status === 'complete' && run.coverage.immediateOrdinary.count >= 30
+        && run.coverage.immediateOrdinary.exactFirstEditAndFinalContent === true)
     const frameKinds = ['continuous-pan', 'continuous-wheel']
     const frameGate = frameKinds.map(kind => ({ kind, targetMs: 33, measured: statistics[kind]?.framesMs ?? { count: 0 },
       perRun: runs.map(run => ({ run: run.run, framesMs: distribution((run.metrics?.samples ?? []).filter(sample => sample.kind === kind && sample.status === 'complete')
         .flatMap(sample => sample.sample.frameIntervals.filter(frame => frame.endMs >= sample.sample.activeInputStartMs && frame.startMs <= sample.sample.activeInputEndMs).map(frame => frame.durationMs))) })) }))
     const groupRejected = runs.some(run => run.coverage?.groupTransform?.status !== 'complete')
-    return { name: fixture.name, fixture: fixture.summary, runs: runs.length, statistics, perRunOrdinary,
+    return { name: fixture.name, fixture: fixture.summary, runs: runs.length, statistics, perRunOrdinary, perRunImmediate,
       storage: runs.map(run => ({ run: run.run, ...run.storage })),
       resources: { productSampledRssPeakBytes: peak('rssPeakBytes'), productTargetHeapPeakBytes: peak('jsHeapPeakUsedBytes'),
         sampleErrors: runs.reduce((n, run) => n + (run.metrics?.resources?.errors?.length ?? 0), 0), phaseCoverage: resourceCoverage,
         missingPhasePeakEvidence: resourceCoverage.filter(value => !value.processSampleCount || !value.heapSampleCount),
         note: 'Sampled peaks may miss transients. Missing phase samples remain missing evidence; bracket heap values are not substituted for peaks.' },
-      ordinary500Target: { required: Number(fixture.name.match(/-(\d+)$/)?.[1]) === 500, targetMs: 100,
-        scope: 'Trusted adoption click to actual validated domain commit in the current two-stage preview/adopt flow. Preview preparation and Enter-to-domain total are reported separately; this does not establish the whole immediate-command QA-PERF-01 gate.',
+      immediate500Target: { required: (fixture.summary.fullPropCount ?? Number(fixture.name.match(/-(\d+)(?:-|$)/)?.[1])) === 500, targetMs: 100,
+        scope: 'Trusted Enter to actual complete validated domain commit for the fixed independent full Prop world-X field edit; no preview/adoption or automation review interval is excluded. Free drag and other QA-PERF-01 operations remain separate.',
+        measuredP95Ms: immediate.p95 ?? null, count: immediate.count, evidenceComplete: immediateEvidenceComplete,
+        pass: immediateEvidenceComplete && immediate.p95 <= 100 && perRunImmediate.every(run => run.enterToDomain.p95 <= 100) },
+      groupedAdoption500Subtarget: { required: (fixture.summary.fullPropCount ?? Number(fixture.name.match(/-(\d+)(?:-|$)/)?.[1])) === 500, targetMs: 100,
+        scope: 'Trusted adoption click to actual validated domain commit in the grouped two-stage preview/adopt flow. Preview preparation and Enter-to-domain total are reported separately; this subinterval does not establish immediate-command latency.',
         measuredP95Ms: ordinary.p95 ?? null, count: ordinary.count,
-        adoptionSubtargetPass: ordinary.count >= 90 && ordinary.p95 <= 100 && perRunOrdinary.every(run => run.adoptionClickToDomain.count >= 30 && run.adoptionClickToDomain.p95 <= 100),
-        wholeImmediateOrdinaryGateEstablished: false },
+        adoptionSubtargetPass: manifest.measurementClass === 'formal-current-v1-production-ui-observation' && runs.length === 3
+          && ordinary.count >= 90 && ordinary.p95 <= 100
+          && perRunOrdinary.every(run => run.status === 'complete' && run.adoptionClickToDomain.count >= 30 && run.adoptionClickToDomain.p95 <= 100) },
       viewportFrameSubtargets: frameGate,
       viewportFrameSubtargetsPass: manifest.measurementClass === 'formal-current-v1-production-ui-observation' && runs.length === 3
         && frameKinds.every(kind => statistics[kind]?.intentToDisplayProxyMs.count >= 9)
@@ -57,6 +84,7 @@ export function summarizeCurrentFormal(manifest) {
   const completeCoreMatrix = manifest.measurementClass === 'formal-current-v1-production-ui-observation' && manifest.status === 'complete'
     && manifest.inputUnchangedAfterMeasurement === true && required.every(name => cases.some(item => item.name === name && item.runs === 3 && !item.failures.length
       && item.statistics['ordinary-adopt']?.intentToDomainCommitMs.count >= 90 && item.statistics['object-list-selection']?.intentToDisplayProxyMs.count >= 180
+      && item.statistics['immediate-prop-edit']?.intentToDomainCommitMs.count >= 90 && item.immediate500Target.evidenceComplete
       && item.statistics['canvas-prop-selection']?.intentToDisplayProxyMs.count >= 18
       && item.statistics['continuous-pan']?.intentToDisplayProxyMs.count >= 9 && item.statistics['continuous-wheel']?.intentToDisplayProxyMs.count >= 9
       && item.statistics['cold-open']?.intentToDisplayProxyMs.count >= 3 && item.exports.every(run => run.outputs.length === 2)))
@@ -65,10 +93,10 @@ export function summarizeCurrentFormal(manifest) {
     completeFormalMatrix: completeCoreMatrix && cases.every(item => item.groupTransformComplete),
     full09Acceptance: false, omittedCoverage: manifest.omittedCoverage,
     interpretation: ['All percentiles use pooled nearest-rank with per-run distributions retained; failed samples are retained separately, never discarded or retried.',
-      'Adoption-click-to-domain, Enter-to-preview and Enter-to-domain are separate. Only the explicit commit-intent interval is compared with the adoption subtarget; the total includes automation/review delay. This two-stage flow alone cannot establish the old immediate-command whole-chain gate.',
+      'Independent immediate edits compare the entire trusted Enter-to-validated-domain interval with the 500-Prop 100ms target, requiring at least 30 samples in each of three runs and 90 pooled. Saved/raster-ready distributions remain separate. Grouped adoption-click-to-domain, Enter-to-preview and Enter-to-domain including automation/review delay retain separate subtargets.',
       'Frame intervals only overlap the actual trusted continuous input window (pointerdown through pointerup, or first through last wheel event). Setup, trailing save/display waits and idle frames do not dilute p95. This is browser scheduling, not physical display/GPU completion.',
       'New committed immutable block payloads and distinct final changed row bytes are logical storage observations, not physical disk I/O.',
-      'Matrix completion and ordinary100ms subtarget do not close full QA-PERF-01/04, capacity, privacy pixels, P3 or unsupported group transforms.'] }
+      'Matrix completion and the independent X-edit 100ms target do not close the remaining QA-PERF-01/04 operations, capacity, privacy pixels, P3 or unsupported group transforms.'] }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const directory = process.argv[2]

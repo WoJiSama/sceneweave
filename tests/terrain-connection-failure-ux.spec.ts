@@ -3,18 +3,18 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { unzipSync } from 'fflate'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { openDetailsBySummary } from './workspace-ux-helpers'
 
 const highPoints = '7300,1000\n12500,1000\n12500,9000\n7300,9000'
 const crossingPoints = '4000,5000\n9000,5000'
 const clearPoints = '4000,8000\n9000,8000'
-const toolsFor = (page: Page) => page.getByRole('region', { name: '室外制作工具', exact: true })
-const reviewFor = (page: Page) => page.getByRole('region', { name: '候选审阅', exact: true })
+const toolsFor = (page: Page) => page.getByTestId('workspace-inspector').locator('.outdoor-panel.workspace-tool-parameters')
+const reviewFor = (page: Page) => page.getByRole('region', { name: '候选审阅', exact: true }).and(page.locator('.workspace-candidate-review'))
 
 async function closeDrawers(page: Page): Promise<void> {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') === 'true') {
       await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
@@ -23,9 +23,10 @@ async function closeDrawers(page: Page): Promise<void> {
   }
 }
 
-async function openTools(page: Page) {
-  await openKeyboardPanel(page, 'resources')
-  await openTerrainTask(page, '绘制地形')
+async function openTools(page: Page, task: '地形与高程' | '用途 / 危险区域' | '台阶 / 坡道') {
+  const resources = await openWorkspaceModule(page, '地形')
+  await resources.getByRole('group', { name: '室外任务', exact: true }).getByRole('button', { name: new RegExp(`^${task}`) }).click()
+  await expect(page.getByTestId('workspace-inspector')).toHaveAttribute('data-open', 'true')
   return toolsFor(page)
 }
 
@@ -33,14 +34,14 @@ async function adopt(page: Page): Promise<void> {
   const review = reviewFor(page)
   await expect(review).toBeVisible()
   await closeDrawers(page)
+  await openKeyboardPanel(page, 'inspector')
   await review.getByLabel('确认完整影响范围', { exact: true }).check()
   await review.getByRole('button', { name: '采用室外修改', exact: true }).click()
   await expect(review).toHaveCount(0)
 }
 
 async function area(page: Page, coordinates: string, elevation: string, priority: string): Promise<void> {
-  const tools = await openTools(page)
-  await tools.getByRole('combobox', { name: '室外制作工具', exact: true }).selectOption('terrain')
+  const tools = await openTools(page, '地形与高程')
   await openDetailsBySummary(tools, /^精确坐标 · 区域轮廓$/)
   await tools.getByLabel('室外坐标', { exact: true }).fill(coordinates)
   await tools.getByLabel('地形高程', { exact: true }).fill(elevation)
@@ -53,8 +54,7 @@ async function area(page: Page, coordinates: string, elevation: string, priority
 }
 
 async function configureConnection(page: Page, floorId: string, highId: string, points = crossingPoints): Promise<void> {
-  const tools = await openTools(page)
-  await tools.getByRole('combobox', { name: '室外制作工具', exact: true }).selectOption('connection')
+  const tools = await openTools(page, '台阶 / 坡道')
   await openDetailsBySummary(tools, /^精确坐标 · 连接路线节点$/)
   await tools.getByLabel('室外坐标', { exact: true }).fill(points)
   await tools.getByLabel('连接起点表面', { exact: true }).selectOption(`floor:${floorId}`)
@@ -70,10 +70,11 @@ async function cancelDraft(page: Page): Promise<void> {
 }
 
 async function selectOutdoor(page: Page, id: string): Promise<void> {
-  const nav = await openKeyboardPanel(page, 'navigation')
-  await nav.getByRole('tab', { name: '对象', exact: true }).click()
+  const nav = await openWorkspaceModule(page, '场景')
+  const allLayers = nav.getByRole('button', { name: '显示所有图层的对象', exact: true })
+  if (await allLayers.isVisible()) await allLayers.click()
   await nav.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '结构', exact: true }).click()
-  await nav.getByLabel('搜索场景结构', { exact: true }).fill(id)
+  await nav.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await nav.locator('[data-entity-id]').click()
   await closeDrawers(page)
   await openKeyboardPanel(page, 'inspector')
@@ -123,7 +124,7 @@ for (const size of [{ width: 1512, height: 982 }, { width: 390, height: 844 }]) 
       await page.screenshot({ path: info.outputPath(`${name}.png`) })
       messages.push({ name, ...visible })
       expect((await keyboardProjectBackup(page, info.outputPath(`${name}.sceneweave`))).hashes).toEqual(baseline.hashes)
-      await openKeyboardPanel(page, 'resources')
+      await openKeyboardPanel(page, 'inspector')
       await expect(tools.getByLabel('室外坐标', { exact: true })).toHaveValue(input)
     }
 
@@ -146,8 +147,7 @@ for (const size of [{ width: 1512, height: 982 }, { width: 390, height: 844 }]) 
     await cancelDraft(page)
 
     // This blocker occupies a different route, leaving the upper route clear.
-    const tools = await openTools(page)
-    await tools.getByRole('combobox', { name: '室外制作工具', exact: true }).selectOption('region')
+    const tools = await openTools(page, '用途 / 危险区域')
     await openDetailsBySummary(tools, /^精确坐标 · 区域轮廓$/)
     await tools.getByLabel('室外坐标', { exact: true }).fill('5500,6500\n6500,6500\n6500,7500\n5500,7500')
     await tools.getByLabel('区域阻挡移动', { exact: true }).check()
@@ -183,6 +183,7 @@ for (const size of [{ width: 1512, height: 982 }, { width: 390, height: 844 }]) 
     await toolsFor(page).getByRole('button', { name: '预览室外修改', exact: true }).click()
     await expect(reviewFor(page)).toContainText('创建高差连接')
     await closeDrawers(page)
+    await openKeyboardPanel(page, 'inspector')
     await reviewFor(page).getByRole('button', { name: '取消室外预览', exact: true }).click()
     await keyboardWorkspaceSaved(page)
     expect((await keyboardProjectBackup(page, info.outputPath('recovered-cancelled.sceneweave'))).hashes).toEqual(baseline.hashes)
@@ -207,15 +208,16 @@ test('production connection preview preserves both branches after a real second-
   await expect(review).toContainText('创建高差连接')
   await expect(page.getByRole('button', { name: '撤销编辑', exact: true })).toBeDisabled()
   const tools = toolsFor(page)
-  await expect(tools.getByRole('button', { name: '预览室外修改', exact: true })).toBeDisabled()
+  await expect(tools.getByRole('button', { name: '预览室外修改', exact: true, includeHidden: true })).toBeDisabled()
 
   const other = await context.newPage()
   other.on('pageerror', error => errors.push(error.message))
   await openSavedHome(other, before.document.sceneId)
-  await openKeyboardPanel(other, 'resources')
-  await other.getByTestId('workspace-resources').getByRole('tab', { name: '工程', exact: true }).click()
-  await other.getByLabel('工程名称', { exact: true }).fill('另一标签页已保存')
-  await other.getByRole('button', { name: '保存名称', exact: true }).click()
+  const otherScene = await openWorkspaceModule(other, '场景')
+  await otherScene.getByRole('button', { name: '场景设置', exact: true }).click()
+  const settings = (await openKeyboardPanel(other, 'inspector')).getByRole('region', { name: '场景设置', exact: true }).and(other.locator('.workspace-project-tools'))
+  await settings.getByLabel('工程名称', { exact: true }).and(settings.locator('input:enabled')).fill('另一标签页已保存')
+  await settings.getByRole('button', { name: '保存名称', exact: true }).and(settings.locator('button:enabled')).click()
   await keyboardWorkspaceSaved(other)
   const external = await keyboardProjectBackup(other, info.outputPath('external-saved.sceneweave'))
   expect(external.document.revision).toBe(before.document.revision + 1)

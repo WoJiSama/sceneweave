@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
-import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel, placeKeyboardLamp } from './keyboard-ux-helpers'
+import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, placeKeyboardLamp } from './keyboard-ux-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 
 type Domain = 'interior' | 'forest' | 'volcano' | 'mixed'
 type DeliveryFact = { domain: string | null; requestId: string | null; hasResult: boolean; type: string | null; trusted: boolean; delivered: number }
@@ -82,7 +83,7 @@ async function deliver(page: Page, index: number): Promise<void> {
 
 async function closeDrawers(page: Page): Promise<void> {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
+  for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const panel = page.getByTestId(`workspace-${id}`)
     if (await panel.getAttribute('data-open') !== 'true') continue
     await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
@@ -122,12 +123,12 @@ for (const scenario of scenarios) test(`production ${scenario.domain} running Es
   await page.setViewportSize(scenario.size)
   await closeDrawers(page)
   await installDomainGate(page)
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '生成', exact: true }).click()
+  const resources = await openWorkspaceModule(page, '生成')
   await resources.getByRole('group', { name: '生成场景类型', exact: true }).getByRole('button', { name: new RegExp(`^${scenario.task}`) }).click()
-  const panel = page.getByRole('region', { name: scenario.panel, exact: true })
+  const panel = resources.getByRole('region', { name: scenario.panel, exact: true, includeHidden: true })
   const status = page.getByRole('status', { name: scenario.status, exact: true })
-  const candidate = panel.getByLabel(scenario.candidate, { exact: true })
+  const inspector = page.getByTestId('workspace-inspector')
+  const candidate = inspector.getByLabel(scenario.candidate, { exact: true })
   const revision = page.locator('.workspace-unified')
   try {
     await expect(panel.getByLabel(scenario.seed, { exact: true })).toHaveValue(scenario.seedValue)
@@ -154,7 +155,7 @@ for (const scenario of scenarios) test(`production ${scenario.domain} running Es
     // No subsequent request is made until the explicit preview button below.
     expect((await gateFacts(page)).posts).toHaveLength(1)
 
-    await openKeyboardPanel(page, 'resources')
+    await openWorkspaceModule(page, '生成')
     await expect(panel.getByLabel(scenario.seed, { exact: true })).toHaveValue(scenario.seedValue)
     await panel.getByRole('button', { name: scenario.preview, exact: true }).click()
     await expect(status).toContainText(`正在准备${scenario.task}`)
@@ -174,15 +175,20 @@ for (const scenario of scenarios) test(`production ${scenario.domain} running Es
     expect((await gateFacts(page)).terminations).toBe(1)
     await deliver(page, 1)
     await expect(candidate).toBeVisible({ timeout: 90_000 })
-    await expect(status).toContainText('候选')
-    await expect(status).not.toContainText('正在准备')
+    await expect(inspector).toHaveAttribute('data-open', 'true')
+    // The running canvas status ends when the complete candidate moves to the
+    // shared review pane; it is no longer a second ready-candidate banner.
+    await expect(status).toHaveCount(0)
+    await expect(candidate).toContainText('候选')
+    await expect(candidate).not.toContainText('正在准备')
     await expect(panel.locator('.asset-error')).toHaveCount(0)
+    await expect(inspector.locator('.asset-error')).toHaveCount(0)
     await expect(revision).toHaveAttribute('data-revision', String(original.document.revision))
     expect((await gateFacts(page)).terminations).toBe(2)
     await candidate.scrollIntoViewIfNeeded()
     await page.screenshot({ path: info.outputPath('domain-retry-candidate.png') })
     const candidateSemantics = await candidate.ariaSnapshot()
-    await panel.getByRole('button', { name: scenario.cancel, exact: true }).click()
+    await candidate.getByRole('button', { name: scenario.cancel, exact: true }).click()
     await expect(candidate).toHaveCount(0)
     await expect(status).toHaveCount(0)
     await closeDrawers(page)
