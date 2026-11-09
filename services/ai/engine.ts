@@ -15,6 +15,7 @@ import type { AuthoringDraft, DraftClaim, DraftLease, DraftStamp } from '../../s
 import { validateAuthoringStart, checkAuthoringDraft, authoringBudgetIdentity, authoringDraftStamp } from '../../src/shared/ai/authoring.js'
 import { StaticSvgArtifacts } from './svg-artifacts.js'
 import { getAuthoringTools, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
+import { compactProviderTools } from './tool-schema.js'
 import { validateTaskVision } from './vision-input.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
@@ -224,6 +225,7 @@ export class TaskEngine {
           if (task.authoring?.start.schemaVersion === 4 && (!screenshotRef || this.connectionInfo.capabilities.vision !== 'enabled' || !this.connectionInfo.capabilities.visualReviewVersions?.includes(1))) {
             availableTools = availableTools.filter(tool => !['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(tool.name))
           }
+          if (task.authoring?.start.schemaVersion === 4) availableTools = compactProviderTools(availableTools)
           let streamed = ''
           const completion = await this.provider.complete({ messages, reasoningEffort: requestTask.snapshot.reasoningEffort, tools: availableTools, maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
             onText: text => {
