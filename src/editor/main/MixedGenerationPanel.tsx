@@ -1,6 +1,8 @@
 import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useState } from 'react'
 import type { MixedPreview } from '../../application/workspace/workspace'
+import GenerationParameterAssistant from './GenerationParameterAssistant'
+import type { AiConnection } from './AiConversationPanel'
 import './terrain-generation.css'
 import './volcano-generation.css'
 
@@ -8,17 +10,19 @@ import type { MixedGenerationUiRequest } from '../../application/workspace/gener
 export type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 const initial = (): MixedGenerationUiRequest => ({ title: '林中驿站', environment: 'forest', widthMm: 40000, heightMm: 32000, seed: 'mixed-1', roomCount: 1, purpose: '驿站休息室', furniture: true, vegetationMultiplier: 1 })
 
-export default function MixedGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange }: {
+export default function MixedGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange, aiConnection = null }: {
   busy: boolean; disabled: boolean; error: string | null; candidate: MixedPreview | null; dirty: boolean
+  aiConnection?: AiConnection | null
   onGenerate: (input: MixedGenerationUiRequest) => void | Promise<void>
   onAdopt: () => void | Promise<void>; onCancel: () => void; onChange: () => void
 }) {
   const [input, setInput] = useState(initial)
+  const [formRevision, setFormRevision] = useState(0)
   const validationId = useId()
   const locked = busy || disabled
   const change = <K extends keyof MixedGenerationUiRequest>(key: K, value: MixedGenerationUiRequest[K]) => {
     if (locked) return
-    onChange(); setInput(current => ({ ...current, [key]: value }))
+    onChange(); setFormRevision(value => value + 1); setInput(current => ({ ...current, [key]: value }))
   }
   const validationReason = (() => {
     if (!input.title.trim() || input.title.trim().length > 120) return '请填写工程名称，最多120个字符。'
@@ -36,6 +40,7 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
     <h2>混合场景</h2>
     <p>把真实地面、建筑外门和室外路线组合为同一张可编辑地图；森林植被会避开实际建筑和通路。</p>
     <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次建议的门、家具和路线保存后可自由删改；不会自动补回。当前支持一个建筑与同楼层的森林或火山。</p></details>
+    <div hidden={input.environment !== 'forest'}><GenerationParameterAssistant connection={aiConnection} parameters={{ ...input, environment: 'forest' }} formRevision={formRevision} disabled={locked || input.environment !== 'forest'} onApply={parameters => { if (!locked) { onChange(); setFormRevision(value => value + 1); setInput(parameters) } }}/></div>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ ...input, title: input.title.trim(), seed: input.seed.trim(), purpose: input.purpose.trim() }) }}>
       <fieldset disabled={locked}><legend>场景与建筑需求</legend>

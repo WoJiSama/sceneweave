@@ -114,6 +114,32 @@ describe('current authoring capability and screenshot checkpoint', () => {
 })
 
  describe('native AI transport', () => {
+  it('finds one original request through a read-only exact query without creating or resuming tasks', async () => {
+    const calls: { url: string; method: string | undefined }[] = []
+    const fetcher = mockFetch((url, init) => { calls.push({ url, method: init?.method }); return json({ schemaVersion: 1, tasks: calls.length === 1 ? [snapshot()] : [] }) })
+    const client = new AiClient('https://ai.example.com', 'token', fetcher)
+    await expect(client.findByClientRequestId(request.clientRequestId)).resolves.toEqual(snapshot())
+    await expect(client.findByClientRequestId(request.clientRequestId)).resolves.toBeUndefined()
+    expect(calls).toEqual(Array.from({ length: 2 }, () => ({ url: `https://ai.example.com/v1/tasks?clientRequestId=${request.clientRequestId}`, method: 'GET' })))
+  })
+  it('rejects duplicate, mismatched and malformed exact lookup results without another request', async () => {
+    for (const payload of [{ schemaVersion: 1, tasks: [snapshot(), snapshot({ id: 'other-task' })] },
+      { schemaVersion: 1, tasks: [snapshot({ clientRequestId: '12345678-1234-4234-8234-123456789012' })] },
+      { tasks: [snapshot()] }, { schemaVersion: 1, tasks: [], extra: true }]) {
+      const fetcher = mockFetch(() => json(payload)), client = new AiClient('https://ai.example.com', 'token', fetcher)
+      await expect(client.findByClientRequestId(request.clientRequestId)).rejects.toMatchObject({ code: 'protocol' })
+      expect(fetcher).toHaveBeenCalledTimes(1)
+    }
+    const fetcher = mockFetch(() => json({ schemaVersion: 1, tasks: [] })), client = new AiClient('https://ai.example.com', 'token', fetcher)
+    await expect(client.findByClientRequestId('invalid')).rejects.toMatchObject({ code: 'protocol' })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('asks for a backend update when exact recovery is unsupported and never falls back to creating a task', async () => {
+    const fetcher = mockFetch(() => json({ schemaVersion: 1, error: { code: 'invalid_request', message: 'invalid_request', retryable: false, requestState: 'not_sent' } }, 400))
+    const client = new AiClient('https://ai.example.com', 'token', fetcher)
+    await expect(client.findByClientRequestId(request.clientRequestId)).rejects.toMatchObject({ code: 'unsupported_request_lookup', requestState: 'unknown', message: expect.stringContaining('请更新后端') })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
   it('normalizes origin only and refuses insecure remote hosts, paths and embedded credentials', () => {
     expect(normalizeAiBaseUrl(' https://AI.example.com:443/ ')).toBe('https://ai.example.com')
     expect(normalizeAiBaseUrl('http://localhost:8787')).toBe('http://localhost:8787')

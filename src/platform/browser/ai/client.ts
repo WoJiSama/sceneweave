@@ -219,6 +219,18 @@ export class AiClient {
     if (sceneId !== null && result.tasks.some(value => value.context?.sceneId !== sceneId)) throw new AiClientError('protocol', '任务列表包含其他工程，已停止显示。')
     return result.tasks
   }
+  /** Exact read-only recovery remains available after a task leaves the recent list. */
+  async findByClientRequestId(clientRequestId: string, signal?: AbortSignal): Promise<TaskSnapshot | undefined> {
+    const requestId = parseSchema(CreateTaskSchema.shape.clientRequestId, clientRequestId)
+    try {
+      const result = await this.#json(`tasks?clientRequestId=${encodeURIComponent(requestId)}`, listSchema, 'GET', undefined, signal, AI_LIMITS.taskBytes)
+      if (result.tasks.length > 1 || result.tasks.some(value => value.clientRequestId !== requestId)) throw new AiClientError('protocol', '查询结果与原请求身份不匹配，已停止读取。')
+      return result.tasks[0]
+    } catch (error) {
+      if (error instanceof AiClientError && error.status === 400 && error.code === 'invalid_request') throw new AiClientError('unsupported_request_lookup', '后端尚未支持按原请求编号查询，请更新后端；原请求结果仍未知，不会自动重发。', 'unknown', error.status)
+      throw error
+    }
+  }
   async control(taskId: string, request: ControlTaskRequest, signal?: AbortSignal, version: 1 | 2 | 3 | 4 = 1): Promise<TaskSnapshot> {
     const input = parseSchema(ControlTaskSchema, request)
     if (utf8Size(JSON.stringify(input)) > (input.vision ? VISION_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new AiClientError('request_limit', '请求超过允许大小，请缩小授权范围。')

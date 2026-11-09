@@ -132,6 +132,11 @@ export class TaskStore {
     const rows = sceneId === undefined ? this.db.prepare('SELECT data FROM tasks WHERE owner=? ORDER BY updated_at DESC LIMIT 20').all(owner) : this.db.prepare('SELECT data FROM tasks WHERE owner=? AND scene_id=? ORDER BY updated_at DESC LIMIT 20').all(owner, sceneId)
     return (rows as { data: string }[]).map(row => (JSON.parse(row.data) as StoredTask).snapshot)
   }
+  /** Recover a retained request without creating another model execution. */
+  findByClientRequestId(owner: string, clientRequestId: string): TaskSnapshot | undefined {
+    const row = this.db.prepare('SELECT id FROM tasks WHERE owner=? AND request_id=?').get(owner, clientRequestId) as { id: string } | undefined
+    return row ? this.read(row.id, owner).snapshot : undefined
+  }
   activeCount() { return Number((this.db.prepare("SELECT count(*) AS count FROM tasks WHERE status='running'").get() as { count: number }).count) }
   private checkScene(owner: string, sceneId: string | undefined, except?: string) {
     if (sceneId && this.db.prepare("SELECT 1 FROM tasks WHERE owner=? AND scene_id=? AND id<>? AND status IN ('running','paused','waiting_browser','ready','applying') LIMIT 1").get(owner, sceneId, except ?? '')) throw new TaskFault('scene_task_active')

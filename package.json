@@ -15,6 +15,7 @@
     "typecheck": "node tools/check-architecture.mjs && tsc -b && tsc -p tsconfig.ai.json --noEmit",
     "check:architecture": "node tools/check-architecture.mjs",
     "check:shared": "node tools/check-shared.mjs",
+    "harness": "node tools/harness/sceneweave.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
