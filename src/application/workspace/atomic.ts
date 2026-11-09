@@ -11,6 +11,7 @@ import { canonicalJson, captureJson } from '../../shared/validation/json.js'
 import type { EditableProject } from './project.js'
 import type { EditableSnapshot } from './workspace.js'
 import type { BudgetIdentity, BudgetState } from '../../shared/ai/continuation-protocol.js'
+import type { AssetQualityAssessment } from '../../shared/assets/quality-review.js'
 
 export interface AtomicAuthorization {
   start: AuthoringStart
@@ -28,6 +29,8 @@ export interface AtomicCandidate {
   project: EditableProject
   document: EditableProject['document']
   changes: readonly AtomicChange[]
+  /** Session-only checks of newly materialized artwork; never a saved approval. */
+  assetQuality: readonly AssetQualityAssessment[]
   /** Empty candidates are read-only review credentials for regional drill-down. */
   reviewOnly: boolean
   operationCost: number

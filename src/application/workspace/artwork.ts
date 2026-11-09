@@ -9,13 +9,29 @@ import { applyCompositionCommands } from '../../shared/appearance/commands.js'
 import { canonicalJson, encodeUtf8 } from '../../shared/validation/json.js'
 import { sha256Bytes, sha256Text } from '../../shared/validation/hash.js'
 import { normalizePngChunks } from '../../shared/project/image-bytes.js'
+import { assessAssetQuality } from '../../shared/assets/quality.js'
+import { createAssetQualityAssessment, assertAssetQualityAccepted, type AssetQualityAssessment } from '../../shared/assets/quality-review.js'
 import { captureEditableDraft, type EditableProject } from './project.js'
 import { materializeProject } from './prepare.js'
 
 const contentOf = (project: EditableProject): CompositionContent => ({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance })
 /** A task owns recipes, never trusted PNGs, asset metadata or resource ports. */
-export async function materializeAuthoringArtwork(input: EditableProject, draft: AuthoringDraft, validation: CompleteValidationOptions): Promise<EditableProject> {
+export async function materializeAuthoringArtwork(input: EditableProject, draft: AuthoringDraft, validation: CompleteValidationOptions,
+  options: { onQualityAssessment?: (assessment: AssetQualityAssessment) => void } = {}): Promise<EditableProject> {
   let project = input
+  const assessments = new Map<string, AssetQualityAssessment>()
+  const assessImage = async (name: string, assetId: string, widthMm: number, heightMm: number) => {
+    const asset = project.document.assets[assetId], record = project.assets[asset.sha256]
+    const bytes = await project.resources.read(asset.sha256)
+    checkCancelled(validation.signal)
+    const pixels = await validation.images.decode(bytes, record, validation)
+    checkCancelled(validation.signal)
+    const assessment = createAssetQualityAssessment(name, asset.sha256, assessAssetQuality(pixels, { kind: 'prop', widthMm, heightMm }, validation))
+    // Unambiguous empty pixels cannot become an adoptable candidate. Warnings
+    // remain readable and require exact-content consent at the adoption boundary.
+    if (assessment.report.status === 'blocked') assertAssetQualityAccepted([assessment])
+    assessments.set(assessment.key, assessment)
+  }
   for (const step of draft.state.steps) for (let index = 0; index < step.operations.length; index++) {
     const operation = step.operations[index]
     if (operation.kind !== 'svg' && operation.kind !== 'style') continue
@@ -59,6 +75,7 @@ export async function materializeAuthoringArtwork(input: EditableProject, draft:
       const sourceId = addPropAppearanceSource(project.appearance, { definitionRef: { id: definitionId, version: 1 }, appearance, visualBoundsMm: prop.visualBoundsMm, shadowClass: prop.shadowClass, shadowOverride: prop.shadowOverride }, previous)
       const sourceResources = project.resources, added = new Map([[hash, png], [normalized.sourceSha256, encodeUtf8(normalized.sourceSvg)], [normalized.normalizedSha256, encodeUtf8(normalized.normalizedSource)]])
       project.resources = Object.freeze({ read: (sha: string) => added.has(sha) ? Promise.resolve(added.get(sha)!.slice()) : sourceResources.read(sha) })
+      await assessImage(operation.name, assetId, prop.visualBoundsMm.width, prop.visualBoundsMm.height)
       Object.assign(project, applyCompositionCommands(contentOf(project), [{ type: 'setAppearanceSource', ids: [prop.id], sourceId }], runtime))
     } else {
       const commands: CompositionCommand[] = []
@@ -69,6 +86,17 @@ export async function materializeAuthoringArtwork(input: EditableProject, draft:
       Object.assign(project, applyCompositionCommands(contentOf(project), commands, runtime))
     }
     project = await materializeProject(project, { validation, runtime })
+    // Tint/brightness can create a fixed bitmap variant. Inspect its actual
+    // normalized pixels too; opacity-only edits intentionally create no image.
+    if (operation.kind === 'svg' || operation.tint !== undefined || operation.brightness !== undefined) {
+      for (const id of operation.kind === 'svg' ? [operation.id] : operation.ids) {
+        const prop = project.document.props[id]
+        if (prop?.appearance.kind !== 'image') continue
+        const name = project.document.propDefinitions[prop.definitionRef?.id ?? '']?.name ?? id
+        await assessImage(name, prop.appearance.assetId, prop.visualBoundsMm.width, prop.visualBoundsMm.height)
+      }
+    }
   }
+  for (const assessment of assessments.values()) options.onQualityAssessment?.(assessment)
   return project
 }

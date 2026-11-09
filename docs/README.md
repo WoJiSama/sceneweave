@@ -21,7 +21,7 @@
 | 规则、素材、参考项目和公开分发许可 | [10 许可](10-rules-assets-and-licensing.md) |
 | 画面风格、成图方法、固定素材及尺寸/占地/许可台账 | [14 视觉与素材](14-visual-and-assets.md) |
 
-## 六份按需参考
+## 按需参考
 
 | 场景 | 参考 |
 |---|---|
@@ -31,6 +31,7 @@
 | 执行固定SCN/VIS场景，核对尺寸、输入和秘密 | [固定验收场景](reference/acceptance-scenarios.md) |
 | 追溯设计决定、外部来源和未实测问题 | [决策与研究依据](reference/decisions-and-research.md) |
 | 查正式性能方法、各冻结分布、失败和未达门槛 | [性能方法与结果](reference/performance.md) |
+| 准备自有图片、名称、标定、清单和个人库携带 | [素材导入指南](reference/asset-import.md) |
 
 运行/配置/部署命令见[贡献说明](../CONTRIBUTING.md)，用例选择见[测试说明](../tests/README.md)。只读源码核对不等于运行测试；已有工具不等于真实模型或目标软件验收通过。
 

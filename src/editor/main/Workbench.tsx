@@ -1,3 +1,5 @@
+import ProjectAssetReviewPanel from './ProjectAssetReviewPanel'
+import ThemePacksPanel from './ThemePacksPanel'
 import DecorationPanel, { DecorationInspector } from './DecorationPanel'
 import IslandDressingPanel from './IslandDressingPanel'
 import { buildIslandDressingCommandsV2, hasGeneratedIslandBase } from '../../shared/decorations/island-dressing'
@@ -34,7 +36,9 @@ import { createRegionalBlankProject } from '../../platform/browser/content/regio
 import { compareRegionalSource, type RegionalCreateUiRequest, type RegionalDrillDownUiRequest } from '../../application/workspace/regional'
 import type { RegionalEditRequest } from '../../shared/terrain-generation/regional-authoring'
 import { fromBundle } from '../../application/workspace/project'
-import { prepareAssetImport } from '../../application/workspace/prepare'
+import { assessAddedCatalogQuality } from '../../application/workspace/asset-quality'
+import { assertAssetQualityAccepted, assetQualityAcknowledgmentsComplete, type AssetQualityAssessment } from '../../shared/assets/quality-review'
+import AssetQualityReview from './AssetQualityReview'
 import { toBundle, type EditableProject } from '../../application/workspace/project'
 import { exportProject, exportHistoryArchive } from '../../shared/project/file'
 import { validateProjectBundle } from '../../shared/project/resources'
@@ -168,7 +172,7 @@ const download = (blob: Blob, name: string) => {
 }
 type Candidate = { project: EditableProject; checkpoint: number; description: string }
 type CatalogUse = { selector: CatalogSelectorV1; layerId: string; ids: string[] }
-type StructurePreview = { afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
+type StructurePreview = { assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
 function AffectedObjectNames({ before, after, ids }: { before: SceneDocument; after: SceneDocument; ids: readonly string[] }) {
   const labels = useMemo(() => {
     const previousName = createEntityLabeler(before), nextName = createEntityLabeler(after)
@@ -271,7 +275,14 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const syncAssetDraft=()=>setFormDrafts(current=>({...current,assetImportForm:singleAssetDraft.current||batchAssetDraft.current}))
   const onAssetBatchDraft=(dirty:boolean)=>{batchAssetDraft.current=dirty;syncAssetDraft()}
   useEffect(()=>{singleAssetDraft.current=false;batchAssetDraft.current=false;setFormDrafts(current=>({...current,assetImportForm:false}))},[formReset.assetImportForm,completeProject?.document.sceneId,sessionGeneration])
-  const onCatalogPending = useCallback((pending: boolean) => { catalogPending.current = pending; setCatalogBusy(pending) }, [])
+  const pendingCatalogSources = useRef(new Set<string>())
+  const updateCatalogPending = useCallback((source: string, pending: boolean) => {
+    if (pending) pendingCatalogSources.current.add(source); else pendingCatalogSources.current.delete(source)
+    catalogPending.current = pendingCatalogSources.current.size > 0; setCatalogBusy(catalogPending.current)
+  }, [])
+  const onCatalogPending = useCallback((pending: boolean) => updateCatalogPending('catalog', pending), [updateCatalogPending])
+  const onThemePending = useCallback((pending: boolean) => updateCatalogPending('themes', pending), [updateCatalogPending])
+  const onProjectReviewPending = useCallback((pending: boolean) => updateCatalogPending('project-review', pending), [updateCatalogPending])
   const onCatalogDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.catalogForm === dirty ? current : { ...current, catalogForm: dirty }), [])
   const onPropAppearanceDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.propAppearanceForm === dirty ? current : { ...current, propAppearanceForm: dirty }), [])
   const [busy, setBusy] = useState(false), [busyMessage, setBusyMessage] = useState('正在处理完整工程…'), [message, setMessage] = useState<string | null>(null)
@@ -1307,11 +1318,12 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     void action(async () => {
       const checkpoint = compositionWorkspace.checkpoint(), abort = new AbortController(); controller.current = abort
       try {
-        const candidate = await prepareAssetImport(completeProject, input, { validation, runtime, signal: abort.signal })
+        const result = await prepareAssetBatchImport(completeProject, [input], { validation, runtime, signal: abort.signal })
+        const candidate = result.project
         abort.signal.throwIfAborted()
         const prepared = await compositionWorkspace.previewPrepared(candidate, `导入素材 · ${input.name}`, checkpoint)
         if (abort.signal.aborted) { compositionWorkspace.cancelPreview(prepared); abort.signal.throwIfAborted() }
-        setStructure({ prepared, checkpoint, commands: [], document: prepared.document, description: `导入${input.kind === 'prop' ? '物件' : '材质'} · ${input.name}` })
+        setStructure({ prepared, checkpoint, commands: [], document: prepared.document, description: `导入${input.kind === 'prop' ? '物件' : '材质'} · ${input.name}`, assetQuality: result.items.map(item => item.quality), qualityAcknowledgments: [] })
         singleAssetDraft.current=false;syncAssetDraft()
       } finally { if (controller.current === abort) controller.current = null }
     }, '素材导入未采用')
@@ -1339,7 +1351,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
         items.push({...item,thumbnail})
       }
       abort.signal.throwIfAborted();compositionWorkspace.assertCheckpoint(checkpoint)
-      const next:StructurePreview={prepared,checkpoint,commands:[],document:prepared.document,description:`批量导入 ${requests.length} 项 · 新增 ${result.addedDefinitionIds.length} 个定义 · 完整新增记录 ${result.operationCost}/256`,assetBatch:{count:requests.length,addedDefinitions:result.addedDefinitionIds.length,operationCost:result.operationCost}}
+      const next:StructurePreview={prepared,checkpoint,commands:[],document:prepared.document,description:`批量导入 ${requests.length} 项 · 新增 ${result.addedDefinitionIds.length} 个定义 · 完整新增记录 ${result.operationCost}/256`,assetQuality:[...new Map(result.items.map(item=>[item.quality.key,item.quality])).values()],qualityAcknowledgments:[],assetBatch:{count:requests.length,addedDefinitions:result.addedDefinitionIds.length,operationCost:result.operationCost}}
       structureRef.current=next;setStructure(next)
       batchAssetDraft.current=false;syncAssetDraft()
       return {items,addedDefinitions:result.addedDefinitionIds.length,uniqueImageBytes:result.uniqueImageBytes}
@@ -1363,10 +1375,12 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       abort.signal.throwIfAborted()
       compositionWorkspace.assertCheckpoint(checkpoint)
       if (!candidate.operationCost) throw new Error('确切固定素材及完整依赖已在本工程，无需重复采用。')
+      const assetQuality = await assessAddedCatalogQuality(completeProject, candidate.project, { ...validation, signal: abort.signal })
+      abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
       const prepared = await compositionWorkspace.previewPrepared(candidate.project, `采用素材库 · ${entries.length} 项`, checkpoint)
       if (abort.signal.aborted) { compositionWorkspace.cancelPreview(prepared); abort.signal.throwIfAborted() }
       setStructure({ prepared, checkpoint, commands: [], document: prepared.document,
-        description: `${afterUse ? '添加并' + (afterUse.selector.kind === 'material' ? '应用' : '放置') : '采用素材库'} · ${entries.length} 项素材`, scopeIds: candidate.addedDefinitionIds, afterUse })
+        description: `${afterUse ? '添加并' + (afterUse.selector.kind === 'material' ? '应用' : '放置') : '采用素材库'} · ${entries.length} 项素材`, scopeIds: candidate.addedDefinitionIds, afterUse, assetQuality, qualityAcknowledgments: [] })
     } catch (error) {
       setMessage(`素材采用未提交：${error instanceof Error ? error.message : String(error)}`)
       throw error
@@ -1517,6 +1531,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const adoptStructurePreview = () => {
     const candidate = structure
     if (!candidate) return
+    try { assertAssetQualityAccepted(candidate.assetQuality ?? [], candidate.qualityAcknowledgments) }
+    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return }
     void action(async () => {
       try {
         const checkpoint = compositionWorkspace.checkpoint()
@@ -1707,9 +1723,9 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
                 const ids = selectionSession.getSnapshot()
                 preview(() => surfaceMaterialCommands(completeProject, ids, id), '将固定材质应用到所选表面')
               } }
-            return <CatalogLibrary detailTarget={catalogTarget} detailVisible={catalogDetailOpen} detailReturnLabel={detailMode === 'review' ? '返回候选审阅' : detailMode === 'selection' ? '返回对象' : '返回当前任务'} onDetailChange={open => { setCatalogDetailOpen(open); if (open) revealPanel('inspector') }} key={panelKey} {...libraryProps} builtinProject={builtinProject} builtinLoading={builtinLoading} builtinError={builtinError}
+            return <><ThemePacksPanel key={`${panelKey}-theme-packs`} disabled={editDisabled} onAdopt={adoptCatalog} onPendingChange={onThemePending}/><ProjectAssetReviewPanel project={completeProject} disabled={editDisabled} onPendingChange={onProjectReviewPending}/><CatalogLibrary detailTarget={catalogTarget} detailVisible={catalogDetailOpen} detailReturnLabel={detailMode === 'review' ? '返回候选审阅' : detailMode === 'selection' ? '返回对象' : '返回当前任务'} onDetailChange={open => { setCatalogDetailOpen(open); if (open) revealPanel('inspector') }} key={panelKey} {...libraryProps} builtinProject={builtinProject} builtinLoading={builtinLoading} builtinError={builtinError}
               onBrowse={() => openResources('library')} onManage={() => { setCatalogDetailOpen(false); openResources('library') }} onBuiltinDemand={requestBuiltin} variantsProject={variantsProject} variantsLoading={variantsLoading} variantsError={variantsError} onVariantsDemand={requestVariants}
-              onAdopt={adoptCatalog} onUse={useCatalogItem} onPendingChange={onCatalogPending} onDraftChange={onCatalogDraft} organizationResetKey={formReset.catalogForm}/>
+              onAdopt={adoptCatalog} onUse={useCatalogItem} onPendingChange={onCatalogPending} onDraftChange={onCatalogDraft} organizationResetKey={formReset.catalogForm}/></>
           })()}</div>
           <div hidden={sidebar !== 'building' || audience !== 'gm'} onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-aggregate-session-control]')) markFormDraft('buildingForm') }}>{completeProject && <BuildingPanel detailsTarget={buildingTarget} detailsActive={detailMode === 'building' && !catalogDetailOpen} activeTask={buildingTask} onTaskChange={task => { if (task !== buildingTask && !guard(['buildingForm', 'sketch'])) return; setBuildingTask(task); inspect('building') }} onBrowseScene={openLayers} onOpenSettings={showSettings} onOpenings={() => { if (guard()) { setOpeningTool({ kind: 'door', widthMm: 900 }); inspect('selection') } }} key={`${panelKey}-${formReset.buildingForm}`} scene={completeProject.document} layerId={currentLayerId}
             disabled={toolDisabled(['sketch', 'buildingForm']) || effectiveHiddenLayers.has(currentLayerId)} sketch={sketch}
@@ -1758,6 +1774,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             <div className="workspace-candidate-body">
               <strong className="workspace-candidate-title">{structure.description} · 候选预览</strong>
               <p className="workspace-confirm-help">尚未写入工程。采用会形成一次编辑，可从顶部撤销；自动保存状态见右上角。</p>
+              {!!structure.assetQuality?.length && <AssetQualityReview resources={structure.prepared.project.resources} assessments={structure.assetQuality} acknowledgedKeys={structure.qualityAcknowledgments ?? []} disabled={busy} onAcknowledgedKeysChange={keys => setStructure(current => current?.prepared === structure.prepared ? { ...current, qualityAcknowledgments: keys } : current)}/>}
               <CompositionChangesPanel current={completeProject!} candidate={structure.prepared.project} commands={structure.commands} budgetUsage={structure.prepared.budgetUsage} budgetProfile={structure.prepared.budgetProfile} aggregateBoundaryImpact={structure.prepared.aggregateBoundaryImpact}/>{structure.layerIds && <span>{structure.layerIds.map(id => completeProject?.document.userLayers[id]?.name ?? id).join(' · ')}</span>}{structure.scopeIds && <AffectedObjectNames before={completeProject!.document} after={structure.document} ids={structure.scopeIds}/>}{structure.scopeIds && <details className="layer-preview-scope"><summary>实际操作范围 · {structure.scopeIds.length} 项</summary><textarea readOnly aria-label={structure.kind === 'building' ? '待采用建筑操作 ID' : structure.kind === 'visual' ? '待采用视觉操作 ID' : structure.kind === 'outdoor' ? '待采用室外操作 ID' : '待采用图层操作 ID'} rows={4} value={structure.scopeIds.join('\n')}/></details>}
               {structure.fillCopy && <div className="fill-copy-summary" aria-label="填充复制参数"><strong>填充复制 · {structure.fillCopy.report.sourceKind === 'prefab' ? '组合' : '独立物件'} · 新增 {structure.fillCopy.report.count} 份 · 独立编辑对象 {structure.fillCopy.cost.total}/{structure.fillCopy.cost.limit}</strong>
               <p>每份偏移 {formatDistanceMm(structure.fillCopy.report.stepMm.x, structure.document.units.display)}, {formatDistanceMm(structure.fillCopy.report.stepMm.y, structure.document.units.display)}；方向 {Math.round(Math.atan2(structure.fillCopy.report.stepMm.y, structure.fillCopy.report.stepMm.x) * 180 / Math.PI)}°；首件 ({formatDistanceMm(structure.fillCopy.report.positions[0]!.x, structure.document.units.display)}, {formatDistanceMm(structure.fillCopy.report.positions[0]!.y, structure.document.units.display)}) · 末件 ({formatDistanceMm(structure.fillCopy.report.positions.at(-1)!.x, structure.document.units.display)}, {formatDistanceMm(structure.fillCopy.report.positions.at(-1)!.y, structure.document.units.display)})；支撑/锁依赖 {structure.fillCopy.report.dependencyIds.length} 项 · 重叠 {structure.fillCopy.report.overlaps.length} 处。</p>
@@ -1765,7 +1782,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             </div>
             <div className="workspace-candidate-actions">
               {(structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && <label className="building-check"><input type="checkbox" aria-label="确认完整影响范围" checked={structure.confirmed ?? false} onChange={event => setStructure(current => current ? { ...current, confirmed: event.target.checked } : current)}/>确认以上修改及关联影响</label>}{(structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && <p className="workspace-confirm-help">勾选确认后可采用；取消预览不会修改工程。</p>}
-              <div className="workspace-candidate-buttons"><button className="secondary" disabled={busy} onClick={cancelStructurePreview}>{structure.fillCopy ? '取消填充复制预览' : structure.afterUse ? '取消素材添加' : structure.assetBatch ? '取消素材导入预览' : structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : structure.kind === 'outdoor' ? '取消室外预览' : structure.kind === 'building' ? '取消结构预览' : structure.kind === 'visual' ? '取消视觉预览' : structure.kind === 'display' ? '取消显示预览' : '取消组件预览'}</button><button className="primary" disabled={busy || (structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && !structure.confirmed} onClick={adoptStructurePreview}>{structure.fillCopy ? '采用填充复制' : structure.afterUse ? structure.afterUse.selector.kind === 'material' ? '添加并应用材质' : '添加并继续放置' : structure.assetBatch ? '采用所选素材' : structure.kind === 'batch' ? '采用批量修改' : structure.kind === 'layer' ? '采用图层修改' : structure.kind === 'outdoor' ? '采用室外修改' : structure.kind === 'building' ? '采用结构修改' : structure.kind === 'visual' ? '采用视觉修改' : structure.kind === 'display' ? '采用显示设置' : '采用组件修改'}</button></div>
+              <div className="workspace-candidate-buttons"><button className="secondary" disabled={busy} onClick={cancelStructurePreview}>{structure.fillCopy ? '取消填充复制预览' : structure.afterUse ? '取消素材添加' : structure.assetBatch ? '取消素材导入预览' : structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : structure.kind === 'outdoor' ? '取消室外预览' : structure.kind === 'building' ? '取消结构预览' : structure.kind === 'visual' ? '取消视觉预览' : structure.kind === 'display' ? '取消显示预览' : '取消组件预览'}</button><button className="primary" disabled={busy || !assetQualityAcknowledgmentsComplete(structure.assetQuality ?? [], structure.qualityAcknowledgments) || (structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && !structure.confirmed} onClick={adoptStructurePreview}>{structure.fillCopy ? '采用填充复制' : structure.afterUse ? structure.afterUse.selector.kind === 'material' ? '添加并应用材质' : '添加并继续放置' : structure.assetBatch ? '采用所选素材' : structure.kind === 'batch' ? '采用批量修改' : structure.kind === 'layer' ? '采用图层修改' : structure.kind === 'outdoor' ? '采用室外修改' : structure.kind === 'building' ? '采用结构修改' : structure.kind === 'visual' ? '采用视觉修改' : structure.kind === 'display' ? '采用显示设置' : '采用组件修改'}</button></div>
             </div>
           </section>}
           {restore && <div className="asset-structure-preview history-restore-banner" role="status" aria-label="局部恢复候选"><div><strong>{restore.snapshot.name} · 局部恢复预览</strong><span>{restore.plan.request.ids.length} 件请求 · {restore.plan.changes.length} 件变化 · 当前 r{restore.currentRevision}</span><label className="building-check"><input type="checkbox" aria-label="确认恢复完整影响范围" checked={restoreConfirmed} onChange={event => setRestoreConfirmed(event.target.checked)}/>确认下方列出的全部依赖与跨层变化</label></div><button className="secondary" disabled={busy} onClick={() => { compositionWorkspace.cancelRestore(restore); setRestore(null); setMessage('已取消局部恢复预览，工程未修改。') }}>取消局部恢复</button><button className="primary" disabled={busy || !restore.plan.changed || !restoreConfirmed} onClick={() => void action(async () => { try { await compositionWorkspace.applyRestore(restore); setSelected(null); setMessage(`已保护恢复前工程并恢复「${restore.snapshot.name}」的所选内容，可撤销；保存状态见右上角。`) } finally { setRestore(null); setHistoryRefresh(value => value + 1) } }, '采用局部恢复')}>保护当前并采用</button></div>}
