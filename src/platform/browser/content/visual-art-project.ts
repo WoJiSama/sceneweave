@@ -45,7 +45,8 @@ export async function materializeVisualArtBatches(scene: SceneDocument, batches:
       assetLicenses.set(id, licensePath)
       Object.assign(scene.assets[id], { sha256: output.sha256, pixelWidth: output.pixelWidth, pixelHeight: output.pixelHeight })
       assets[output.sha256] = { sha256: output.sha256, mimeType: output.mimeType, sizeBytes: output.pngBytes.length, pixelWidth: output.pixelWidth, pixelHeight: output.pixelHeight }
-      authoringSources[id] = { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256, sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: output.sha256, processorId: output.processorId, processorVersion: output.processorVersion }
+      authoringSources[id] = { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256, sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: output.sha256,
+        processorId: output.processorId, processorVersion: output.processorVersion, rasterizer: output.rasterizer, pixelFormat: output.pixelFormat }
       bytes.set(output.sha256, output.pngBytes); bytes.set(normalized.sourceSha256, encodeUtf8(normalized.sourceSvg)); bytes.set(normalized.normalizedSha256, encodeUtf8(normalized.normalizedSource))
     }
   }

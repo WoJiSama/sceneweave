@@ -10,8 +10,13 @@ import { wallGeometryV2 } from '../../platform/browser/render/renderer'
 import type { SelectionSummaryV2 } from './selection-summary'
 import { decorationPaintGeometry, decorationPaintPolygon } from '../../shared/decorations/presentation.js'
 import { buildAggregateChunkManifest, planAggregateChunks } from '../../shared/aggregates/chunks.js'
-import { aggregateEntityRelations } from '../../shared/aggregates/relations.js'
+import { aggregateAffectedClosure, aggregateEntityRelations } from '../../shared/aggregates/relations.js'
 import { createAggregateDerivedResidency } from '../../platform/browser/render/aggregate-residency.js'
+import { ownedSelectionViewSource } from './selection-scene.js'
+import type { ProjectData } from '../../shared/model/project.js'
+import { getProjectTransactionReceipt } from '../../shared/project/validate.js'
+import { isIssuedCompositionTransactionReceipt } from '../../shared/appearance/commands.js'
+import { freezeJson } from '../../shared/validation/json.js'
 
 export interface SelectionOptionsV2 {
   memberMode?: boolean
@@ -33,12 +38,73 @@ export function propVisualPolygonV2(prop: PropV2): PointMm[] {
 
 const indexes = new WeakMap<SceneDocumentV2, ReturnType<typeof buildSelectionIndex>>()
 function selectionIndex(scene: SceneDocumentV2) {
-  // Only owned, strictly validated immutable snapshots have stable geometry and
-  // lock dependencies. Caller-owned inputs (including shallow freezes) rebuild.
-  if (!isCertifiedSceneSnapshotV2(scene)) return buildSelectionIndex(scene)
+  // A selection-owned immutable view can cache derived data without becoming a
+  // certified project. External objects (including shallow freezes) rebuild.
+  const source = ownedSelectionViewSource(scene)?.source
+  if (!isCertifiedSceneSnapshotV2(scene) && !(source && isCertifiedSceneSnapshotV2(source))) return buildSelectionIndex(scene)
   let index = indexes.get(scene)
   if (!index) { index = buildSelectionIndex(scene); indexes.set(scene, index) }
   return index
+}
+
+/** Internal layer-selector handoff. The exact project registry is the authority;
+ * a changed-id list, cloned receipt or matching scene/revision grants nothing.
+ * Only geometry values cross snapshots, never closures, locks or query order. */
+export function inheritSelectionGeometry(project: ProjectData, beforeView: SceneDocumentV2, afterView: SceneDocumentV2): number {
+  const receipt = getProjectTransactionReceipt(project)
+  if (!receipt || !isIssuedCompositionTransactionReceipt(receipt.composition)) return 0
+  const { baseline, result, composition } = receipt
+  const before = ownedSelectionViewSource(beforeView), after = ownedSelectionViewSource(afterView)
+  if (!before || !after || before.source !== baseline.document || after.source !== result.document || before.options !== after.options
+    || !isCertifiedSceneSnapshotV2(baseline.document) || !isCertifiedSceneSnapshotV2(result.document)
+    || composition.baseline.document !== baseline.document || composition.result.document !== result.document
+    || composition.baseline.historyIdentity !== baseline.historyIdentity || composition.result.historyIdentity !== result.historyIdentity
+    || composition.baseline.appearance !== baseline.appearance || composition.result.appearance !== result.appearance
+    || baseline.appearance !== result.appearance || baseline.historyIdentity !== result.historyIdentity
+    || composition.validation.mode !== 'prop-proof' || composition.identityEvents.length
+    || receipt.resources !== 'unchanged-metadata' || composition.resources.status !== 'unchanged') return 0
+  const previous = indexes.get(beforeView)
+  if (!previous || beforeView === afterView) return 0
+
+  const touched = new Set<string>()
+  for (const step of composition.steps) {
+    if (step.before.appearance !== baseline.appearance || step.after.appearance !== baseline.appearance
+      || step.before.historyIdentity !== baseline.historyIdentity || step.after.historyIdentity !== baseline.historyIdentity) return 0
+    if (step.phase === 'command') {
+      if (step.command?.type !== 'updateProp' || Object.keys(step.command.changes).some(field => field !== 'positionMm' && field !== 'rotationDeg')
+        || !own(baseline.document.props, step.command.id) || !own(result.document.props, step.command.id)) return 0
+    } else if (step.phase !== 'revision' || step.command !== undefined) return 0
+    for (const write of step.writes) {
+      const [root, collection, id, field] = write.path
+      if (!write.before.present || !write.after.present || root !== 'document') return 0
+      if (step.phase === 'revision') {
+        if (write.path.length !== 2 || collection !== 'revision' && collection !== 'updatedAt') return 0
+      } else {
+        if (collection !== 'props' || write.path.length !== 4 || field !== 'positionMm' && field !== 'rotationDeg'
+          || step.command?.type !== 'updateProp' || id !== step.command.id
+          || !own(baseline.document.props, id) || !own(result.document.props, id)) return 0
+        touched.add(id)
+      }
+    }
+  }
+  // The existing relation owner expands both endpoints. Its incomplete spatial
+  // and appearance domains are safe here only because this admitted executor
+  // changes independent Prop transforms and keeps every other branch unchanged.
+  let invalidated: Set<string>
+  try {
+    const roots = [...touched].map(id => ({ kind: 'prop' as const, id }))
+    const closures = [baseline.document, result.document].map(scene => aggregateAffectedClosure(scene, roots))
+    if (closures.some(closure => closure.requiresSceneWideFallback)) return 0
+    invalidated = new Set(closures.flatMap(closure => closure.affected.map(ref => ref.id)))
+  } catch { return 0 }
+  const next = selectionIndex(afterView)
+  let inherited = 0
+  for (const [id, shapes] of previous.geometryCache) {
+    if (!invalidated.has(id) && next.entities.has(id) && !next.geometryCache.has(id)) {
+      next.geometryCache.set(id, shapes); inherited++
+    }
+  }
+  return inherited
 }
 function buildSelectionIndex(scene: SceneDocumentV2) {
   const entities = new Map<string, Pick<Editable, 'id' | 'floorId'>>()
@@ -135,7 +201,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     const cached = geometryCache.get(id)
     if (cached) return cached
     if (ensureResidency && entities.has(id)) { ensureResidency(); return residency!.materialize(id) }
-    const value = computeGeometry(id).filter(shape => shape.length).map(clonePoints)
+    const value = freezeJson(computeGeometry(id).filter(shape => shape.length).map(clonePoints))
     geometryCache.set(id, value)
     return value
   }
@@ -214,7 +280,9 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     }
     manifest = buildAggregateChunkManifest([...entities.values()].map(entity => ({ id: entity.id, floorId: entity.floorId, boundsMm: coarseBounds(entity.id), dependencies: [...(dependencies.get(entity.id) ?? [])] })))
     residency = createAggregateDerivedResidency(manifest, id => {
-      const value = computeGeometry(id).filter(shape => shape.length).map(clonePoints)
+      const cached = geometryCache.get(id)
+      if (cached) return cached
+      const value = freezeJson(computeGeometry(id).filter(shape => shape.length).map(clonePoints))
       geometryCache.set(id, value)
       return value
     })
@@ -263,7 +331,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     if (!locks.has(id)) locks.set(id, isEntityEditLockedV2(scene, id))
     return locks.get(id)!
   }
-  return { entities, unit, normalize, hidden, geometry, topFirst, locked, boundsFor, candidatesForPoint, candidatesForBounds, boundsUnits }
+  return { entities, unit, normalize, hidden, geometry, geometryCache, topFirst, locked, boundsFor, candidatesForPoint, candidatesForBounds, boundsUnits }
 }
 
 /** Shapes use polygons (3+ points), segments (2), or edit handles (1). Returned points are detached. */

@@ -45,6 +45,9 @@ export interface Projection {
   /** GM editor session only; ignored by formal exports. */
   groundView?: boolean
   edges: ProjectedTerrainEdge[]; paths: ProjectedPath[]; connections: ProjectedConnection[]
+  /** Same-floor/layer/elevation public paths, after audience and editor filtering.
+   * Only visible IDs survive; style/filter compatibility is checked at paint time. */
+  pathJoinGroups?: string[][]
   /** Audience-filtered C4 band choice survives GM-only temporary path hiding. */
   pathPaintOrder?: 'over-room-before-connection'
   /** Disposable symbol-band order; only projected public IDs appear in player output. */

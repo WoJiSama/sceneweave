@@ -10,6 +10,7 @@ import { getLegacyGeneration } from '../../../terrain-generation/composition-con
 import { generationInputHash, managedOutputHash } from '../../../terrain-generation/integrity.js'
 import type { GenerationFieldGroup, GenerationRecipe, GenerationRule, OutputOwnership } from '../../../terrain-generation/contracts.js'
 import { createSpaceContext } from '../../space.js'
+import { generationCreationWrites } from '../../materialization.js'
 import { GenerationRegistry, runGeneration, checkGenerationConstraints } from '../../orchestrator.js'
 import { hashGenerationValue, type ArtifactInput, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
 import { interiorGenerationInputSchema, supportedInteriorGenerationInputSchema, type InteriorGenerationInput, type InteriorLayout, type InteriorRectangle, type SupportedInteriorGenerationInput } from './contracts.js'
@@ -163,6 +164,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
   if (supported && getLegacyGeneration(document)!.recipes[interiorEntityId(document.sceneId, input.seed, 'recipe')]) throw new InteriorGenerationError('contradiction', '建筑种子对应的生成身份已存在；请为新建筑选择独立种子。')
   let layout: InteriorLayout | undefined, connectivity: InteriorConnectivityReport | undefined, furnishing: InteriorFurnishingReport | undefined
   registry.register({ id: structureId, version, phase: 'structure', owner: 'structure', consumes: ['support-surface'], produces: ['plan-region', 'support-surface', 'wall'], publishFacts: ['support-surface', 'wall'], requires: [], determinism: { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' },
+    writes: ({ document }) => generationCreationWrites(document, ['vertices', 'rooms', 'walls']),
     parseParameters,
     run(context) {
       layout = solveInteriorLayout(document.sceneId, interior, profile, context.deriveSeed('rectangular-layout'), context.checkCancelled)
@@ -186,6 +188,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
     },
   })
   registry.register({ id: connectionsId, version, phase: 'connectivity', owner: 'connectivity', consumes: ['wall', 'support-surface'], produces: ['opening'], publishFacts: ['opening'], requires: [{ id: structureId, version }], determinism: { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' },
+    writes: ({ document }) => [...generationCreationWrites(document, ['openings']), { kind: 'update', collection: 'generation.legacy.rules', ids: [interiorEntityId(document.sceneId, input.seed, 'layout-rule')], fields: ['outputs'] }],
     parseParameters,
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
@@ -197,6 +200,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
     },
   })
   registry.register({ id: furnishingId, version, phase: 'content', owner: 'content', consumes: ['opening', 'support-surface'], produces: ['prop-placement', 'footprint'], publishFacts: ['prop-placement', 'footprint'], requires: [{ id: connectionsId, version }], determinism: { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' },
+    writes: ({ document }) => [...generationCreationWrites(document, ['props']), { kind: 'update', collection: 'generation.legacy.rules', ids: [interiorEntityId(document.sceneId, input.seed, 'layout-rule')], fields: ['outputs'] }],
     parseParameters,
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {

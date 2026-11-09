@@ -8,6 +8,7 @@ import { validateAppearanceGraph } from '../validation/content.js'
 import { cloneJson } from '../validation/json.js'
 import { nativeSceneSchema } from '../validation/scene.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
+import { collectUvttNativeEntities, unmappedUvttBlockers } from './entity-capabilities.js'
 
 /** Source audit only, not a claim of successful import or player-view acceptance. */
 export const UVTT_TARGET = Object.freeze({ importer: 'Universal Battlemap Importer', version: '6.1.1', foundryMajor: 14,
@@ -220,12 +221,13 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
     if (semantics !== undefined) sourceWallLines.push({ points: clipped, semantics })
     return true
   }
+  const delivered = collectUvttNativeEntities(scene, projection)
   const openingsByWall = new Map<string, Opening[]>()
-  for (const opening of Object.values(scene.openings)) {
+  for (const opening of delivered.openings) {
     const values = openingsByWall.get(opening.wallId) ?? []
     values.push(opening); openingsByWall.set(opening.wallId, values)
   }
-  for (const wall of Object.values(scene.walls).sort((a, b) => a.id.localeCompare(b.id))) {
+  for (const wall of delivered.walls.sort((a, b) => a.id.localeCompare(b.id))) {
     const av = scene.vertices[wall.startVertexId], bv = scene.vertices[wall.endVertexId], a = point(av.xMm, av.yMm), b = point(bv.xMm, bv.yMm)
     if (!clipSegment(a, b, sourceBoundsMm)) continue
     report.counts.walls++
@@ -265,7 +267,7 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
   for (const ends of geometry.line_of_sight) lineKeys.add(ends.map(p => `${p.x},${p.y}`).sort().join('|'))
   if (report.counts.walls) add(report.warnings, '墙厚仅保留在底图，原生墙使用中心线；通道净宽、碰撞与墙角需在目标端复核。')
   if (report.counts.hiddenSecretOpenings) add(report.warnings, '未揭示秘密门安全降级为连续普通墙，不导出秘密门位置或可操作门；需要时在主持人目标工程中另行配置。')
-  for (const prop of projection.props) {
+  for (const prop of delivered.props) {
     if (!prop.blocksMovement && !prop.blocksSight) continue
     const footprint = propFootprint(prop), before = geometry.line_of_sight.length
     for (let index = 0; index < footprint.length; index++) appendLine(footprint[index], footprint[(index + 1) % footprint.length])
@@ -273,10 +275,7 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
     if (prop.blocksMovement !== prop.blocksSight && geometry.line_of_sight.length > before)
       add(report.warnings, '部分物件仅阻挡移动或视线；按旋转后的物理占地边界保守映射为同时阻挡两者的薄墙。')
   }
-  report.counts.terrainBlockersOmitted = Object.values(scene.terrainAreas).filter(value => value.blocksMovement || value.blocksSight).length
-    + Object.values(scene.terrainEdges).filter(value => value.blocksMovement || value.blocksSight || value.kind === 'cliff').length
-    + Object.values(scene.regions).filter(value => value.blocksMovement).length
-    + Object.values(scene.terrainConnections).filter(value => value.blocksMovement).length
+  report.counts.terrainBlockersOmitted = unmappedUvttBlockers(scene)
   if (Object.keys(scene.terrainAreas).length || Object.keys(scene.terrainEdges).length || Object.keys(scene.terrainConnections).length || Object.keys(scene.paths).length || Object.keys(scene.regions).length || Object.keys(scene.rooms).length)
     add(report.warnings, '地形面及边缘、悬崖、高程、楼梯/坡道、道路和区域的阻挡、通行、净宽与移动代价未映射为原生规则；外观保留在底图，不能据图像认定已可通行。')
   if (Object.keys(scene.notes).length || Object.keys(scene.regions).length) add(report.warnings, '注记和区域边框不写入 UVTT 底图，也不作为文字或区域元数据导出。')

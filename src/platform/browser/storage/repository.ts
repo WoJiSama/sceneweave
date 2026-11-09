@@ -1,15 +1,21 @@
 import Dexie, { type Table, type Transaction } from 'dexie'
+import type { ProjectConversionStore, ReserveConversionJob } from '../../../application/ports/project-conversion-store.js'
+import type { HistoryDirectory, ProjectDirectoryPage, ProjectDirectoryQuery, ProjectDirectoryStore } from '../../../application/ports/project-directory.js'
+export type { ReserveConversionJob } from '../../../application/ports/project-conversion-store.js'
+import type { AutomaticSummary, CreateSnapshotOptions, HistoryOverview, ProjectSaveGuard, ProjectStore, ProjectSummary, SaveProjectOptions, SnapshotReadSession, SourcePreservationGuard, StorageUsage } from '../../../application/ports/project-store.js'
+export type { AutomaticSummary, CreateSnapshotOptions, HistoryOverview, ProjectSaveGuard, ProjectSummary, SaveProjectOptions, SnapshotReadSession, SourcePreservationGuard, StorageUsage } from '../../../application/ports/project-store.js'
 import type { ProjectBundle, ProjectData, ResourceBytePort, SnapshotSummary } from '../../../shared/model/project.js'
 import type { PreparationContext } from '../../../shared/ports/runtime.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../../shared/ports/resources.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
 import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
-import { captureProjectBundleInput, createMemoryResources, validateProjectBundle, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
+import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
 import { checkedContentBlock, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest } from './content-blocks.js'
 import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
+import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot } from './content-context.js'
 import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
-import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
+import { projectContentHash, validateProjectData, releaseProjectLocalTransaction, releaseProjectTransactionReceipt } from '../../../shared/project/validate.js'
 import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
@@ -23,6 +29,7 @@ import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT
 import { StorageAccounting, type StorageTotals } from './storage-accounting.js'
 import { IncrementalHistory, migrationManifest, historyVersionBytes, historyHeadBytes, historyPinBytes, type HistoryReadSession, type HistoryVersionSummary } from './incremental-history.js'
 import { collectUnusedResources, type UnusedResourceCollection } from './history-maintenance.js'
+import { readProjectDirectory, readHistoryDirectory } from './directory.js'
 
 export const PROJECT_STORAGE_LIMITS = Object.freeze({ resourceBytes: 256 * 1024 * 1024, documentBytes: 128 * 1024 * 1024,
   legacyBytes: 128 * 1024 * 1024, automatic: 20, named: 32, protection: 32, imported: 20 } as const)
@@ -41,14 +48,17 @@ function name(input: unknown): string {
   return input.trim()
 }
 interface CheckedContent { hash: string; byteLength: number }
-interface ContentChecks { entries: Map<string, CheckedContent>; retainedCharacters: number }
+interface ContentChecks { entries: Map<string, CheckedContent>; pins: Map<ContentSlot, { json: string; checked: CheckedContent }>; retainedCharacters: number }
 // UTF-16 string storage is bounded independently of the persisted byte budget.
 const CONTENT_CHECK_CHARACTER_LIMIT = 4 * 1024 * 1024
-const createContentChecks = (): ContentChecks => ({ entries: new Map(), retainedCharacters: 0 })
+const createContentChecks = (): ContentChecks => ({ entries: new Map(), pins: new Map(), retainedCharacters: 0 })
 // Only a selected live transaction owns this table. Fresh IDB clones must
 // match the entire inspected canonical JSON, never only an ID or claimed hash.
 const transactionContentChecks = new WeakMap<object, ContentChecks>()
-function rememberCheckedContent(contents: ContentChecks, json: string, checked: CheckedContent): void {
+function rememberCheckedContent(contents: ContentChecks, json: string, checked: CheckedContent, slot?: ContentSlot): void {
+  // Required before/after/branch proofs belong to this operation. An optional
+  // cache budget must never evict one while another consumer still needs it.
+  if (slot) { contents.pins.set(slot, { json, checked }); return }
   if (contents.entries.has(json) || json.length > CONTENT_CHECK_CHARACTER_LIMIT) return
   while (contents.retainedCharacters + json.length > CONTENT_CHECK_CHARACTER_LIMIT) {
     const oldest = contents.entries.keys().next().value!
@@ -58,15 +68,19 @@ function rememberCheckedContent(contents: ContentChecks, json: string, checked: 
   contents.entries.set(json, checked)
   contents.retainedCharacters += json.length
 }
-function checkedContent(project: ProjectData, contents: ContentChecks): CheckedContent {
-  const json = canonicalProjectCoordinates(project)
-  let checked = contents.entries.get(json)
+function checkedContent(project: ProjectData, contents: ContentChecks, slot?: ContentSlot): CheckedContent {
+  const transaction = Dexie.currentTransaction
+  const snapshot = transaction && matchingEncodedSnapshot(transaction.idbtrans, project)
+  const json = snapshot?.encoded.canonical ?? canonicalProjectCoordinates(project)
+  let checked = snapshot ? { hash: snapshot.encoded.contentHash, byteLength: snapshot.encoded.byteLength }
+    : [...contents.pins.values()].find(pin => pin.json === json)?.checked ?? contents.entries.get(json)
   if (!checked) {
     validateProjectData(project.document.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(project) : project)
     const bytes = encodeUtf8(json)
     checked = { hash: sha256Bytes(bytes), byteLength: bytes.length }
     rememberCheckedContent(contents, json, checked)
   }
+  if (slot) rememberCheckedContent(contents, json, checked, slot)
   return checked
 }
 /** Called only with this history reader's complete, strictly reconstructed result. */
@@ -154,20 +168,6 @@ export class ProjectConflictError extends Error {
 export class HistoryMetadataConflictError extends Error {
   constructor() { super('历史元数据或来源快照已变化，请刷新后重试。'); this.name = 'HistoryMetadataConflictError' }
 }
-export interface ProjectSummary { sceneId: string; title: string; revision: number; savedAt: string; conversionJobId: string | null }
-export interface AutomaticSummary { ownerSceneId: string; revision: number; savedAt: string; contentHash: string }
-export interface StorageUsage { resourceBytes: number; documentBytes: number; legacyBytes: number; metadataVersion: number; namedCount: number; protectionCount: number; importedCount: number }
-export interface HistoryOverview {
-  snapshots: SnapshotSummary[]
-  usage: StorageUsage
-  legacySources: LegacySource[]
-  history: { activeVersionId: string | null; versions: HistoryVersionSummary[] }
-}
-/** One restoration operation; close in finally. Public snapshot reads stay full-validation reads. */
-export interface SnapshotReadSession {
-  load(ownerSceneId: string, snapshotId: string, options?: ResourceOptions): Promise<SnapshotBundle | null>
-  close(): void
-}
 interface SnapshotReadState {
   closed: boolean
   busy: boolean
@@ -175,37 +175,10 @@ interface SnapshotReadState {
   history: HistoryReadSession
   cached: { json: string; bundle: VerifiedProjectBundle; pixels: readonly unknown[] } | null
 }
-export interface CreateSnapshotOptions extends ResourceOptions {
-  id?: string
-  kind?: 'named' | 'protection'
-  expectedRevision: number
-  expectedMetadataVersion: number
-  sourceSnapshot?: { id: string; contentHash: string }
-  readSession?: SnapshotReadSession
-}
-/** Checked in the very same write transaction as the new current revision. */
-export interface ProjectSaveGuard {
-  expectedMetadataVersion: number
-  protection: { id: string; contentHash: string }
-}
-export interface SourcePreservationGuard {
-  sceneId: string
-  revision: number
-  contentHash: string
-  guard: ProjectSaveGuard
-}
-export interface SaveProjectOptions extends ResourceOptions { guard?: ProjectSaveGuard; preservation?: SourcePreservationGuard; historyParentId?: string; historyParentHash?: string }
 export interface ProjectRepositoryOptions {
   name?: string
   validation: CompleteValidationOptions
   runtime: PreparationContext
-}
-export interface ReserveConversionJob {
-  sourceRepository: string
-  scopeId: string
-  sourceFingerprint: string
-  snapshotKeys: string[]
-  sourceContentHashes: Record<string, string>
 }
 export interface ConversionRead { job: ConversionJob; family: ConvertedFamily; contentHash: string; metadataVersion: number; historyFingerprint: string }
 interface ResourceAssembly {
@@ -308,7 +281,7 @@ function captureFamily(input: ConvertedFamily): ConvertedFamily {
 }
 
 /** One native repository, independent of every legacy writer. Reads and public saves verify real bytes. */
-export class ProjectRepository {
+export class ProjectRepository implements ProjectStore, ProjectConversionStore, ProjectDirectoryStore {
   readonly database: ProjectDatabase
   private opening: Promise<void> | null = null
   private invalidated = false
@@ -317,13 +290,24 @@ export class ProjectRepository {
   private readonly historyMigrations = new Map<string, Promise<void>>()
   private readonly snapshotReads = new WeakMap<SnapshotReadSession, SnapshotReadState>()
   private readonly activeSnapshotReads = new Set<SnapshotReadState>()
+  // One bounded optional lease, never a disk-freshness receipt. The next final
+  // transaction still reads every manifest/block and compares actual bytes.
+  private savedEncoding: EncodedSnapshot | undefined
+  // A close can race an in-flight validation/transaction. A later continuation
+  // must not publish an optional lease into that closed repository generation.
+  private saveEpoch = 0
   constructor(private readonly options: ProjectRepositoryOptions) {
     this.database = new ProjectDatabase(options.name ?? PROJECT_DATABASE_NAME)
     this.history = new IncrementalHistory(this.database, contentHashInTransaction, rememberReconstructedContent)
     this.accounting = new StorageAccounting(this.database, () => this.scanTotals(), (table, row) => this.rowCost(table, row))
     this.database.on('versionchange', () => { this.invalidated = true; this.database.close(); return false })
     this.database.on('blocked', () => { this.invalidated = true; this.database.close() })
-    this.database.on('close', () => { for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state) })
+    this.database.on('close', () => {
+      this.saveEpoch++
+      if (this.savedEncoding) releaseEncodedSnapshot(this.savedEncoding)
+      this.savedEncoding = undefined
+      for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state)
+    })
   }
   async open(): Promise<void> {
     if (this.invalidated) throw new Error('工程数据库结构已变化，请更新应用后重新打开。')
@@ -499,6 +483,8 @@ export class ProjectRepository {
   }
   close(): void {
     for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state)
+    if (this.savedEncoding) releaseEncodedSnapshot(this.savedEncoding)
+    this.savedEncoding = undefined
     this.accounting.invalidate(); this.database.close()
   }
   private validation(options: ResourceOptions = {}): CompleteValidationOptions { return { images: this.options.validation.images, svg: this.options.validation.svg, signal: options.signal ?? this.options.validation.signal } }
@@ -550,6 +536,18 @@ export class ProjectRepository {
       assertCurrent(record)
       return { sceneId: record.sceneId, title: record.project.document.title, revision: record.revision, savedAt: record.savedAt, conversionJobId: record.conversionJobId }
     }).sort((a, b) => b.savedAt.localeCompare(a.savedAt) || a.sceneId.localeCompare(b.sceneId))
+  }
+  /** Navigation-only reads never certify the unread project/resource closure. */
+  async projectDirectory(query: ProjectDirectoryQuery = {}): Promise<ProjectDirectoryPage> {
+    const owned = captureJson(query)
+    await this.open()
+    return this.database.transaction('r', this.database.projects, this.database.projectContentBlocks, () => readProjectDirectory(this.database, owned))
+  }
+  async historyDirectory(ownerSceneId: string): Promise<HistoryDirectory> {
+    id(ownerSceneId); await this.open()
+    return this.database.transaction('r', [this.database.projects, this.database.historyMetadata, this.database.historyHeads,
+      this.database.historyVersions, this.database.historyPins, this.database.snapshots, this.database.importedSnapshots],
+      () => readHistoryDirectory(this.database, ownerSceneId))
   }
   async load(sceneId: string, options: ResourceOptions = {}): Promise<ProjectBundle | null> {
     id(sceneId); checkCancelled(options.signal); await this.open()
@@ -645,7 +643,8 @@ export class ProjectRepository {
   }
   private async usageInTransaction(ownerSceneId: string): Promise<StorageUsage> {
     const totals = await this.accounting.totals(), metadata = await this.database.historyMetadata.get(ownerSceneId)
-    if (await this.database.projects.get(ownerSceneId)) assertMetadata(metadata, ownerSceneId)
+    // A primary-key existence query has no project payload to hydrate.
+    if (await this.database.projects.where('sceneId').equals(ownerSceneId).count()) assertMetadata(metadata, ownerSceneId)
     const head = await this.history.head(ownerSceneId)
     const pins = head?.status === 'ready' ? await this.history.pins(ownerSceneId) : null
     const rows = pins ?? await this.database.snapshots.where('ownerSceneId').equals(ownerSceneId).toArray()
@@ -686,13 +685,13 @@ export class ProjectRepository {
       return metadata.metadataVersion
     })
   }
-  private async addCurrent(bundle: ProjectBundle, hash: string, savedAt: string, conversionJobId: string | null, previous: StoredProject | null, parentId?: string): Promise<void> {
+  private async addCurrent(bundle: ProjectBundle, hash: string, savedAt: string, conversionJobId: string | null, previous: StoredProject | null, parentId?: string, localSource?: ProjectData): Promise<void> {
     const project = bundle.project, owner = project.document.sceneId
     const row: StoredProject = { sceneId: owner, revision: project.document.revision, savedAt, contentHash: hash, status: 'ready', conversionJobId, project }
     if (previous) await this.database.projects.put(row)
     else await this.database.projects.add(row)
     await this.database.resourceBindings.put(binding(project, owner, 'current', 'current'))
-    await this.history.append(row, previous, this.options.runtime.ids.nextId(), parentId)
+    await this.history.append(row, previous, this.options.runtime.ids.nextId(), parentId, localSource)
   }
   private async installFamily(bundle: ProjectBundle, hash: string, savedAt: string, status: StoredProject['status'], conversionJobId: string | null, snapshots: readonly SnapshotBundle[]): Promise<void> {
     const owner = bundle.project.document.sceneId
@@ -709,7 +708,16 @@ export class ProjectRepository {
     await this.history.activate(owner, hash, current.revision, 0)
   }
   async save(input: ProjectBundle, expectedRevision: number | null, options: SaveProjectOptions = {}): Promise<void> {
+    return this.saveWithValidation(input, expectedRevision, options, false)
+  }
+  /** Workspace-only proof consumer. Unauthenticated bundles still receive full
+   * validation; final actual DB bytes, identities and CAS are always checked. */
+  async saveSnapshot(input: ProjectBundle, expectedRevision: number | null, options: SaveProjectOptions = {}): Promise<void> {
+    return this.saveWithValidation(input, expectedRevision, options, true)
+  }
+  private async saveWithValidation(input: ProjectBundle, expectedRevision: number | null, options: SaveProjectOptions, snapshotInput: boolean): Promise<void> {
     if (expectedRevision !== null && !integer(expectedRevision)) throw new Error('保存基线须为非负revision或无记录。')
+    const saveEpoch = this.saveEpoch
     const historyParentId = options.historyParentId, historyParentHash = options.historyParentHash
     if ((historyParentId === undefined) !== (historyParentHash === undefined)) throw new Error('完整历史分支须同时绑定版本与内容hash。')
     if (historyParentId !== undefined) { id(historyParentId); if (!hashValue(historyParentHash) || expectedRevision === null) throw new Error('完整历史分支来源无效。') }
@@ -726,32 +734,41 @@ export class ProjectRepository {
       if (expectedRevision !== null || !integer(preservation.revision) || !hashValue(preservation.contentHash)
         || !integer(preservation.guard.expectedMetadataVersion) || !hashValue(preservation.guard.protection.contentHash)) throw new Error('独立工程的原工程保护基线无效。')
     }
-    const captured = captureProjectBundleInput(input), savedAt = this.options.runtime.clock.now(); time(savedAt)
-    const bundle = await validateProjectBundle(captured, this.validation(options)), project = bundle.project, owner = project.document.sceneId
-    // Only this call's complete validator result supplies the proof. Persisted
-    // clones may reuse it below only after exact canonical-content comparison.
-    const validatedJson = canonicalProjectCoordinates(project)
-    const checked: CheckedContent = (() => {
-      const bytes = encodeUtf8(validatedJson)
-      return { hash: sha256Bytes(bytes), byteLength: bytes.length }
-    })(), hash = checked.hash
+    // Capture private executor evidence before public IO validation detaches
+    // JSON. It is only a hint: history compares fresh DB content in full.
+    const localSource = getVerifiedProjectBundle(input)?.project
+    const savedAt = this.options.runtime.clock.now(); time(savedAt)
+    // Keep the exact workspace capability intact until its owning validator
+    // examines it. Public save deliberately keeps its full capture/validation.
+    const bundle = snapshotInput ? await validateProjectSnapshot(input, this.validation(options))
+      : await validateProjectBundle(captureProjectBundleInput(input), this.validation(options))
+    const project = bundle.project, owner = project.document.sceneId
+    const baseline = this.savedEncoding
+    const encodedSnapshot = prepareEncodedSnapshot(bundle, localSource, baseline)
+    let retained = false
+    const validatedJson = encodedSnapshot.encoded.canonical
+    const checked: CheckedContent = { hash: encodedSnapshot.encoded.contentHash, byteLength: encodedSnapshot.encoded.byteLength }, hash = checked.hash
+    try {
     await this.ensureHistory(owner, options)
     if (preservation) await this.ensureHistory(preservation.sceneId, options)
     await this.atomic(options, async () => {
       const contents = transactionContentChecks.get(Dexie.currentTransaction!)
       if (!contents) throw new Error('保存完整内容证明须绑定当前事务。')
-      rememberCheckedContent(contents, validatedJson, checked)
+      pinEncodedSnapshot(Dexie.currentTransaction!.idbtrans, 'result', encodedSnapshot)
+      if (baseline) pinEncodedSnapshot(Dexie.currentTransaction!.idbtrans, 'baseline', baseline)
+      rememberCheckedContent(contents, validatedJson, checked, 'result')
       if (historyParentId !== undefined) {
         const parent = await this.history.readVersion(owner, historyParentId)
         if (!parent || parent.version.contentHash !== historyParentHash || parent.project.document.sceneId !== owner || parent.project.schemaVersion !== project.schemaVersion
           || parent.project.historyIdentity.lineageId !== project.historyIdentity.lineageId) throw new HistoryMetadataConflictError()
+        checkedContent(parent.project, contents, 'branch')
       }
       if (preservation) {
         if (preservation.sceneId === owner) throw new Error('独立工程不能覆盖原工程身份。')
         await this.assertProtectionInTransaction(preservation.sceneId, preservation.revision, preservation.contentHash, preservation.guard)
       }
       const previous = await this.database.projects.get(owner)
-      if (previous) assertCurrent(previous)
+      if (previous) assertCurrent(previous, (value, expected) => { if (checkedContent(value, contents, 'baseline').hash !== expected) throw new Error('存档完整内容hash损坏；原记录保持。') })
       if ((previous?.revision ?? null) !== expectedRevision || previous && (previous.status !== 'ready' || project.document.revision <= previous.revision)) throw new ProjectConflictError(previous?.revision ?? null)
       if (guard) {
         await this.metadataCAS(owner, guard.expectedMetadataVersion)
@@ -772,9 +789,19 @@ export class ProjectRepository {
         await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
       }
       await this.putResources([bundle], options)
-      await this.addCurrent(bundle, hash, savedAt, previous?.conversionJobId ?? null, previous ?? null, historyParentId)
+      await this.addCurrent(bundle, hash, savedAt, previous?.conversionJobId ?? null, previous ?? null, historyParentId, localSource)
       await this.assertBudgets(owner)
     }, true)
+    // Publish optional reuse only after native commit. A failed save keeps the
+    // last committed lease; concurrent saves own their separate endpoint slots.
+    if (this.saveEpoch === saveEpoch) {
+      const previousEncoding = this.savedEncoding
+      this.savedEncoding = canRetainEncodedSnapshot(encodedSnapshot) ? encodedSnapshot : undefined
+      retained = this.savedEncoding === encodedSnapshot
+      if (previousEncoding && previousEncoding !== encodedSnapshot) releaseEncodedSnapshot(previousEncoding)
+    }
+    if (localSource) { releaseProjectLocalTransaction(localSource); releaseProjectTransactionReceipt(localSource) }
+    } finally { if (!retained) releaseEncodedSnapshot(encodedSnapshot) }
   }
   private async assertProtectionInTransaction(owner: string, expectedRevision: number, expectedContentHash: string, guard: ProjectSaveGuard) {
     const current = await this.database.projects.get(owner)

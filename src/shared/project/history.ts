@@ -78,18 +78,31 @@ export function hasAddedFixedProjectDefinitions(previous: ProjectData, candidate
   return false
 }
 /** Keeps only fixed meanings, never a synthetic project or complete historical state. */
+export class FixedProjectFamilyIndex {
+  private meanings = new Map<string, Map<string, string>>()
+  private characters = 0
+  get retainedCharacters(): number { return this.characters }
+  /** Fork before a storage transaction adds definitions. The caller publishes
+   * the fork only after commit; failed transactions cannot poison old proofs. */
+  fork(): FixedProjectFamilyIndex {
+    const result = new FixedProjectFamilyIndex()
+    result.meanings = new Map([...this.meanings].map(([namespace, rows]) => [namespace, new Map(rows)]))
+    result.characters = this.characters
+    return result
+  }
+  include(project: ProjectData): void {
+    for (const { namespace, id, value, message = `固定来源或定义冲突：${id}。` } of fixedProjectDefinitions(project)) {
+      let rows = this.meanings.get(namespace)
+      if (!rows) { rows = new Map(); this.meanings.set(namespace, rows); this.characters += namespace.length }
+      const meaning = canonicalJson(value), previous = rows.get(id)
+      if (previous !== undefined && previous !== meaning) throw new Error(message)
+      if (previous === undefined) { rows.set(id, meaning); this.characters += id.length + meaning.length + 64 }
+    }
+  }
+}
 export function createFixedProjectFamilyCheck(): (project: ProjectData) => void {
-  const meanings = new Map<string, Map<string, string>>()
-  const observe = (namespace: string, id: string, value: unknown, message = `固定来源或定义冲突：${id}。`) => {
-    let rows = meanings.get(namespace)
-    if (!rows) { rows = new Map(); meanings.set(namespace, rows) }
-    const meaning = canonicalJson(value), previous = rows.get(id)
-    if (previous !== undefined && previous !== meaning) throw new Error(message)
-    rows.set(id, meaning)
-  }
-  return project => {
-    for (const { namespace, id, value, message } of fixedProjectDefinitions(project)) observe(namespace, id, value, message)
-  }
+  const index = new FixedProjectFamilyIndex()
+  return project => index.include(project)
 }
 /** Linear in the fixed definitions across every retained branch, even when current content removed an old ID. */
 export function assertFixedProjectFamilyCompatible(projects: Iterable<ProjectData>): void {

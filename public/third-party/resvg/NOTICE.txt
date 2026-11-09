@@ -1,0 +1,43 @@
+Sceneweave distributes the unmodified @resvg/resvg-wasm 2.6.2 npm artifact.
+WASM SHA-256:
+22bf6e9f9a100d972da0411a69c5ba504367fc1fa87b3b64e3f35e53926d2d70
+
+The resvg-js wrapper and its resvg/usvg renderer use Mozilla Public License
+2.0. See LICENSE-MPL-2.0.txt and the original renderer license under
+original-licenses/resvg-usvg-3495d870/.
+
+Corresponding wrapper release source (npm gitHead and v2.6.2):
+https://github.com/yisibl/resvg-js/tree/9ca058462ac529120c8cc84ddcd6fef644cc5406
+https://github.com/yisibl/resvg-js/archive/9ca058462ac529120c8cc84ddcd6fef644cc5406.tar.gz
+
+The release Cargo.toml patches the renderer to this resvg/usvg fork. Its
+revision is also present in the distributed WASM's source paths:
+https://github.com/zimond/resvg/tree/3495d8705b302d6d266748516973606ca9657906
+https://github.com/zimond/resvg/archive/3495d8705b302d6d266748516973606ca9657906.tar.gz
+
+The distributed woff2 source revision, identified in the actual WASM:
+https://github.com/yisibl/woff2-rs/tree/88cce4cd07da2c3f35839068c6f73672700cfc8b
+https://github.com/yisibl/woff2-rs/archive/88cce4cd07da2c3f35839068c6f73672700cfc8b.tar.gz
+Its original Apache-2.0 license is under original-licenses/woff2-88cce4cd/.
+
+Other incorporated libraries retain their own BSD, MIT, Apache-2.0, or Zlib
+terms and copyright notices. Their original texts are in original-licenses/.
+LICENSES.json maps each distributed notice to its actual upstream URL,
+archive member or exact source-header byte range, and SHA-256. Source headers
+are copied verbatim; they are not a replacement license written by Sceneweave.
+Pathfinder Content 0.5.0 is used under the Apache-2.0 option granted by its
+original dual-license source notice; the official Apache text is included.
+
+This collection covers source-path evidence found in this fixed WASM and
+the corresponding source manifests. Such paths provide a lower bound, not
+an exhaustive SBOM. The resvg-js release has no Cargo.lock or upstream
+aggregate THIRD-PARTY/NOTICE; its renderer fork's lockfile is not the npm
+WASM build lockfile. No reproducible-build or complete-dependency claim is
+made. The artifact's text/font/raster-image code remains distributed even
+when Sceneweave's runtime SVG profile does not expose those inputs.
+
+Package:
+https://www.npmjs.com/package/@resvg/resvg-wasm/v/2.6.2
+
+Sceneweave's MIT license applies to its original code and documents, not
+to these third-party components. No dependency is relicensed by this notice.

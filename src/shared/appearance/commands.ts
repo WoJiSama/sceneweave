@@ -3,7 +3,7 @@ import { reconcileAggregateMembers } from '../aggregates/state.js'
 import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { definitionPresentation, propPresentation } from './presentation.js'
 import { z } from 'zod'
-import { inspectJsonInput, cloneJson } from '../validation/json.js'
+import { inspectJsonInput, cloneJson, freezeJson } from '../validation/json.js'
 import { roundMm } from '../commands/base.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { applyCommands, applySnapshotCommands, sceneCommandSchemaForBudget, refreshNativeDerivedTransitions, type SceneCommand } from '../commands/commands.js'
@@ -16,10 +16,82 @@ import { detachChangedAppearance } from '../terrain-generation/appearance-lifecy
 import { pauseChangedCompositionAppearance } from '../terrain-generation/composition-lifecycle.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { addPropAppearanceSource, effectiveAdjustments, equalCompositionValue, freezeEffectivePropAppearance, inspectAppearanceScope, propAppearanceSnapshot, supportedAppearanceKinds, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './graph.js'
-import { appearanceAdjustmentSchema, certifyCompositionContent, certifyCompositionDraft, certifyDerivedCompositionDraft, compositionIdSchema, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
+import { appearanceAdjustmentSchema, certifyCompositionContent, certifyCompositionDraft, certifyDerivedCompositionDraft, getCertifiedCompositionContent, getCertifiedCompositionDraft, getCompositionCommitTransaction, releaseCompositionCommitTransaction, compositionIdSchema, tryApplyPropUpdateCompositionTransaction, type PropUpdateCompositionTransaction, validateCompositionContent, validateCompositionDraft } from '../validation/content.js'
+import { captureTransactionContent, describeTransactionReceipt, describeTransactionStep, equalTransactionValue, type TransactionReceipt, type TransactionStep, type TransactionExecutionScope } from '../transaction/receipt.js'
 import { COMPOSITION_LIMITS, type AdjustmentKind, type AppearanceAdjustment, type AppearanceScope, type CompositionCommand, type CompositionContent } from '../model/appearance.js'
 
 export type { CompositionCommand } from '../model/appearance.js'
+
+type ReceiptRegistry = WeakMap<object, WeakMap<object, WeakMap<object, TransactionReceipt>>>
+const transactionReceipts: ReceiptRegistry = new WeakMap()
+const issuedTransactionReceipts = new WeakSet<TransactionReceipt>()
+const sameContent = (left: CompositionContent, right: CompositionContent) => left.document === right.document && left.historyIdentity === right.historyIdentity && left.appearance === right.appearance
+function registerTransactionReceipt(receipt: TransactionReceipt): TransactionReceipt {
+  issuedTransactionReceipts.add(receipt)
+  // A net-noop belongs to this invocation only. The unchanged snapshot can
+  // still carry an earlier committed edit that has not reached storage yet.
+  if (sameContent(receipt.baseline, receipt.result)) return receipt
+  const { result } = receipt
+  let identities = transactionReceipts.get(result.document)
+  if (!identities) { identities = new WeakMap(); transactionReceipts.set(result.document, identities) }
+  let appearances = identities.get(result.historyIdentity)
+  if (!appearances) { appearances = new WeakMap(); identities.set(result.historyIdentity, appearances) }
+  appearances.set(result.appearance, receipt)
+  return receipt
+}
+/** Exact executor-owned content only. Cloned receipts/snapshots and caller
+ * changed-id lists cannot enter the registry. This is not adoption authority. */
+export function getCompositionTransactionReceipt(input: unknown, baseline?: CompositionContent): TransactionReceipt | undefined {
+  const result = getCertifiedCompositionContent(input) ?? getCertifiedCompositionDraft(input)
+  if (!result) return
+  const source = baseline === undefined ? undefined : getCertifiedCompositionContent(baseline) ?? getCertifiedCompositionDraft(baseline)
+  if (baseline !== undefined && !source) return
+  let receipt = transactionReceipts.get(result.document)?.get(result.historyIdentity)?.get(result.appearance)
+  if (!receipt) {
+    const commit = getCompositionCommitTransaction(result)
+    if (commit && commit.result.document.revision === commit.baseline.document.revision + 1) {
+      const previous = transactionReceipts.get(commit.baseline.document)?.get(commit.baseline.historyIdentity)?.get(commit.baseline.appearance)
+      if (previous && previous.result.document.revision === previous.baseline.document.revision) {
+        const step = describeTransactionStep(previous.result, result, 'revision', undefined, 0)
+        receipt = registerTransactionReceipt(describeTransactionReceipt(previous.baseline, result, [...previous.steps, step], previous.budget.operationCost, previous.validation.mode))
+      }
+    }
+  }
+  if (!receipt || source && !sameContent(receipt.baseline, source)) return
+  return receipt
+}
+export function isIssuedCompositionTransactionReceipt(receipt: TransactionReceipt): boolean { return issuedTransactionReceipts.has(receipt) }
+export function releaseCompositionTransactionReceipt(receipt: TransactionReceipt): void {
+  if (!issuedTransactionReceipts.delete(receipt)) return
+  const entries = transactionReceipts.get(receipt.result.document)?.get(receipt.result.historyIdentity)
+  if (entries?.get(receipt.result.appearance) === receipt) {
+    entries.delete(receipt.result.appearance)
+    const commit = getCompositionCommitTransaction(receipt.result)
+    if (commit) releaseCompositionCommitTransaction(commit)
+  }
+}
+/** Full materialization may capture a different immutable wrapper. Only exact
+ * complete content equality transfers the existing execution receipt. New
+ * appearance/resource writes require their own executor and fall back today. */
+export function completeCompositionTransactionReceipt(resultInput: CompositionContent, previous: TransactionReceipt): TransactionReceipt | undefined {
+  if (!isIssuedCompositionTransactionReceipt(previous)) return
+  const result = getCertifiedCompositionContent(resultInput)
+  if (!result || previous.result.document.sceneId !== result.document.sceneId || previous.result.document.revision !== result.document.revision) return
+  if (sameContent(previous.result, result)) return previous
+  if (!equalTransactionValue(previous.result, result)) return
+  return registerTransactionReceipt(describeTransactionReceipt(previous.baseline, result, previous.steps, previous.budget.operationCost, previous.validation.mode))
+}
+function registerPropReceipt(transaction: PropUpdateCompositionTransaction, initialCost = 0): TransactionReceipt {
+  const steps = transaction.steps.map(step => describeTransactionStep(step.before, step.after, 'command', step.command, step.commandCost,
+    { owner: 'prop', affectedIds: step.dependencyIds }, step.changes.flatMap(change => change.fields.map(field => ({ path: ['document', 'props', change.id, field],
+      before: { present: true as const, value: change.before[field] }, after: { present: true as const, value: change.after[field] } })))))
+  return registerTransactionReceipt(describeTransactionReceipt(transaction.baseline, transaction.result, steps, initialCost + steps.reduce((sum, step) => sum + step.commandCost, 0), 'prop-proof'))
+}
+/** Retains the existing closed Prop executor, while issuing the common result. */
+export function tryApplyPropCompositionTransaction(input: unknown, commands: unknown): (PropUpdateCompositionTransaction & { readonly receipt: TransactionReceipt }) | undefined {
+  const transaction = tryApplyPropUpdateCompositionTransaction(input, commands)
+  return transaction ? Object.freeze({ ...transaction, receipt: registerPropReceipt(transaction) }) : undefined
+}
 
 const id = compositionIdSchema, integer = z.number().finite().refine(Number.isSafeInteger), point = z.object({ x: integer, y: integer }).strict()
 function compositionSchemasForLimit(limit: number, budget?: CommandBudgetProfile): z.ZodType<CompositionCommand[]> {
@@ -204,12 +276,18 @@ export interface CompositionOperationAccounting {
   /** Internal same-transaction fixed-source additions; never persisted in the document. */
   initialOperationCost?: number
   onOperationCost?: (cost: number) => void
+  /** Executor-owned complete transaction, including net-noop intermediate work. */
+  onPropUpdateTransaction?: (transaction: PropUpdateCompositionTransaction) => void
+  onTransactionReceipt?: (receipt: TransactionReceipt) => void
+  /** Immutable actual step, shared with budgeting and continuity consumers. */
+  onTransactionStep?: (step: TransactionStep) => void
   /** Internal synchronous observer; do not retain or mutate the reused draft. */
   onSceneDraft?: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => void
   /** Includes synced appearance and identity. Inspect synchronously; never retain or mutate. */
   onContentDraft?: (draft: Readonly<CompositionContent>) => void
 }
-/** Internal immutable draft only; complete resolving/materialization is still mandatory. */
+/** Internal immutable result; the controlled position/angle path retains its
+ * complete content proof. Other drafts still require resolving/materialization. */
 export function applyCompositionDraftCommands(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, accounting?: CompositionOperationAccounting): CompositionContent {
   return applyCompositionCommandsInternal(input, inputCommands, context, true, accounting)
 }
@@ -231,7 +309,26 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     else if (command.type === 'splitAggregateGroup') for (const part of command.parts) assertFresh(source, part.id)
     else if (command.type === 'mergeAggregateGroups') assertFresh(source, command.newId)
   }
-  if (!commands.length) { accounting?.onOperationCost?.(initialCost); return source }
+  if (!commands.length) { accounting?.onOperationCost?.(initialCost); return getCertifiedCompositionContent(input) ?? source }
+  // This owner consumes the real write set before any whole-document clone,
+  // appearance reconciliation or identity trace loses the baseline references.
+  const propTransaction = ownedDraft ? tryApplyPropUpdateCompositionTransaction(source, commands) : undefined
+  if (propTransaction) {
+    accounting?.onPropUpdateTransaction?.(propTransaction)
+    const operationCost = manual ? propTransaction.changes.length : propTransaction.steps.length
+    if (!budget && initialCost + operationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。')
+    const common = registerPropReceipt(propTransaction, initialCost)
+    for (const [index, step] of propTransaction.steps.entries()) {
+      onSceneDraft?.(step.after.document, step.command, step.commandCost)
+      onContentDraft?.(step.after)
+      accounting?.onTransactionStep?.(common.steps[index])
+    }
+    onContentDraft?.(propTransaction.result)
+    if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, propTransaction.result.document, { before: source, after: propTransaction.result }, undefined, budget))
+    accounting?.onOperationCost?.(initialCost + operationCost)
+    accounting?.onTransactionReceipt?.(common)
+    return propTransaction.result
+  }
   const isComposition = commands.map(command => c3Types.has(command.type))
   if (isComposition.some(Boolean) && isComposition.some(value => !value)) throw new Error('外观/组件操作与普通场景操作须分别预览采用，不能混批绕过锁或资源准备。')
   // Ordinary commands own their new scene below; do not clone a scene that is
@@ -239,6 +336,18 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   let content = ownedDraft && !isComposition[0]
     ? { document: source.document, historyIdentity: source.historyIdentity, appearance: source.appearance }
     : cloneJson(source), cost = 0, generationCost = 0
+  const transactionSteps: TransactionStep[] = []
+  let observedContent = source
+  const observeTransaction = (next: CompositionContent, command: Readonly<CompositionCommand> | undefined, commandCost: number, scope?: TransactionExecutionScope) => {
+    if (!ownedDraft) return
+    // Ordinary synchronization already owns a new snapshot. Composition
+    // commands reuse a mutable draft and must detach their observation once.
+    const after = isComposition[0] ? captureTransactionContent(next) : freezeJson(next)
+    const step = describeTransactionStep(observedContent, after, command ? 'command' : 'reconcile', command, commandCost, scope)
+    transactionSteps.push(step)
+    observedContent = after
+    accounting?.onTransactionStep?.(step)
+  }
   const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context)
   const consume = (value: number) => { cost += value; if (!budget && initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
@@ -254,7 +363,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     let accounting = source
     const observer = { budget, fixedUprightPropIds, appearance: source.appearance,
       budgetContent: { before: source, after: () => accounting },
-      onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number) => {
+      onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number, scope?: TransactionExecutionScope) => {
       onSceneDraft?.(draft, command, commandCost)
 
         // The observer's draft is reused by later commands; retain an owned
@@ -272,6 +381,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         }
         accounting = next
         onContentDraft?.(next)
+        observeTransaction(next, command, commandCost, scope)
     } }
     content.document = ownedDraft
       ? applySnapshotCommands(source.document, sceneCommands, context, { ...observer, preserveNoopIdentity: false })
@@ -360,7 +470,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         if (!budget && initialCost + cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
       }
       onContentDraft?.(content)
-      if (false) identityTrace.observe(content.document)
+      observeTransaction(content, command, cost - beforeCost)
     }
     const beforeSync = content
     content = syncAppearanceGraph(content)
@@ -393,5 +503,10 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     : validateCompositionDraft(content)
   if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, result.document, { before: source, after: result }, undefined, budget))
   accounting?.onOperationCost?.(initialCost + operationCost)
+  if (ownedDraft) {
+    observeTransaction(result, undefined, 0)
+    const receipt = registerTransactionReceipt(describeTransactionReceipt(source, result, transactionSteps, initialCost + operationCost, 'full'))
+    accounting?.onTransactionReceipt?.(receipt)
+  }
   return result
 }

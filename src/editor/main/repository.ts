@@ -6,6 +6,8 @@ import { HISTORY_LIMITS } from '../../shared/model/history'
 export class WorkspaceRepository {
   open() { return projectRepository.open() }
   list() { return projectRepository.list() }
+  projectDirectory(...args: Parameters<typeof projectRepository.projectDirectory>) { return projectRepository.projectDirectory(...args) }
+  historyDirectory(sceneId: string) { return projectRepository.historyDirectory(sceneId) }
   async load(sceneId: string) { const value = await projectRepository.load(sceneId); return value ? fromVerifiedBundle(value) : null }
   listNamedSnapshots(sceneId: string) { return projectRepository.listSnapshots(sceneId) }
   async historyOverview(sceneId: string) {

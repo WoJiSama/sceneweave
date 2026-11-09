@@ -1,13 +1,64 @@
+import Dexie, { type Transaction } from 'dexie'
+import type { HistoryVersionSummary } from '../../../application/ports/project-store.js'
+export type { HistoryVersionSummary } from '../../../application/ports/project-store.js'
 import type { ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
-import { createProjectDelta, applyProjectDelta, applyProjectDeltaChain, validateProjectDelta, projectDeltaBytes, projectDeltaJson, DeltaSizeError, type JsonDelta } from '../../../shared/project/delta.js'
-import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
+import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, validateProjectDelta, projectDeltaBytes, projectDeltaJson, DeltaSizeError, type JsonDelta } from '../../../shared/project/delta.js'
+import { getProjectLocalTransaction, getProjectTransactionReceipt, projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
 import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { canonicalJson, captureJson, cloneJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
 import type { ProjectDatabase, StoredAutomatic, StoredProject, StoredSnapshot } from './database.js'
-import { assertFixedProjectCompatible, createFixedProjectFamilyCheck, hasAddedFixedProjectDefinitions, validateSnapshotSummary } from '../../../shared/project/history.js'
+import { assertFixedProjectCompatible, createFixedProjectFamilyCheck, FixedProjectFamilyIndex, hasAddedFixedProjectDefinitions, validateSnapshotSummary } from '../../../shared/project/history.js'
+import { matchingEncodedSnapshot } from './content-context.js'
 
 export const INCREMENTAL_HISTORY_LIMITS = Object.freeze({ chainLength: 4, versions: 65_536 })
+export const FIXED_HISTORY_INDEX_LIMITS = Object.freeze({ owners: 4, retainedCharacters: 4 * 1024 * 1024 })
+interface FixedHistoryIndex { meanings: FixedProjectFamilyIndex; versions: Map<string, string> }
+interface FixedHistoryState { owners: Map<string, FixedHistoryIndex>; pending: WeakMap<Transaction, Map<string, FixedHistoryIndex | null>> }
+const fixedHistoryStates = new WeakMap<ProjectDatabase, FixedHistoryState>()
+const fixedIndexSize = (value: FixedHistoryIndex) => value.meanings.retainedCharacters
+  + [...value.versions].reduce((sum, [id, hash]) => sum + id.length + hash.length + 64, 0)
+function fixedHistoryState(database: ProjectDatabase): FixedHistoryState {
+  let state = fixedHistoryStates.get(database)
+  if (!state) {
+    state = { owners: new Map(), pending: new WeakMap() }; fixedHistoryStates.set(database, state)
+    database.on('close', () => fixedHistoryStates.delete(database))
+  }
+  return state
+}
+function knownFixedIndex(database: ProjectDatabase, owner: string): FixedHistoryIndex | undefined {
+  const state = fixedHistoryState(database), transaction = Dexie.currentTransaction, pending = transaction && state.pending.get(transaction)
+  return pending?.has(owner) ? pending.get(owner) ?? undefined : state.owners.get(owner)
+}
+function forkFixedIndex(value: FixedHistoryIndex): FixedHistoryIndex {
+  return { meanings: value.meanings.fork(), versions: new Map(value.versions) }
+}
+/** A private acceleration index, never a persisted integrity claim. Only a
+ * completed native transaction publishes a new version of this evidence. */
+function stageFixedIndex(database: ProjectDatabase, owner: string, value: FixedHistoryIndex | null): void {
+  const transaction = Dexie.currentTransaction
+  if (!transaction) throw new Error('固定历史身份索引须绑定当前事务。')
+  const state = fixedHistoryState(database)
+  let pending = state.pending.get(transaction)
+  if (!pending) {
+    pending = new Map(); state.pending.set(transaction, pending)
+    const changes = pending
+    transaction.on('complete', () => {
+      for (const [key, next] of changes) {
+        state.owners.delete(key)
+        if (!next) continue
+        const size = fixedIndexSize(next)
+        if (size > FIXED_HISTORY_INDEX_LIMITS.retainedCharacters) continue
+        while (state.owners.size >= FIXED_HISTORY_INDEX_LIMITS.owners
+          || [...state.owners.values()].reduce((sum, entry) => sum + fixedIndexSize(entry), size) > FIXED_HISTORY_INDEX_LIMITS.retainedCharacters) state.owners.delete(state.owners.keys().next().value!)
+        state.owners.set(key, next)
+      }
+      state.pending.delete(transaction)
+    })
+    transaction.on('abort', () => { state.pending.delete(transaction) })
+  }
+  pending.set(owner, value && fixedIndexSize(value) <= FIXED_HISTORY_INDEX_LIMITS.retainedCharacters ? value : null)
+}
 export interface HistoryVersion {
   format: 'sceneweave-history-version'
   version: 1
@@ -48,16 +99,6 @@ export interface HistoryPin extends SnapshotSummary {
   versionId: string
   recordHash: string
 }
-export interface HistoryVersionSummary {
-  id: string
-  ownerSceneId: string
-  revision: number
-  savedAt: string
-  contentHash: string
-  parentId: string | null
-  checkpoint: boolean
-  automatic: boolean
-}
 export interface HistoryGraph { head: HistoryHead; versions: HistoryVersion[]; pins: HistoryPin[] }
 /** Opaque proof lifetime for one repository restoration; never a persisted cache. */
 export interface HistoryReadSession { close(): void }
@@ -85,14 +126,38 @@ function exact(input: unknown, fields: readonly string[]): asserts input is Reco
 /** The complete project and each delta have independent JSON input budgets. */
 function recordFields(input: object, includeHash = true): [string, string][] {
   return Object.entries(input).filter(([key]) => includeHash || key !== 'recordHash').sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
-    .map(([key, value]) => [key, `${JSON.stringify(key)}:${key === 'delta' && value !== null ? projectDeltaJson(value) : key === 'checkpoint' && value !== null ? canonicalProjectCoordinates(value as ProjectData) : canonicalJson(value)}`])
+    .map(([key, value]) => [key, `${JSON.stringify(key)}:${key === 'delta' && value !== null ? projectDeltaJson(value) : key === 'checkpoint' && value !== null ? checkpointJson(value as ProjectData) : canonicalJson(value)}`])
+}
+function checkpointJson(project: ProjectData): string {
+  const transaction = Dexie.currentTransaction
+  return transaction && matchingEncodedSnapshot(transaction.idbtrans, project)?.encoded.canonical || canonicalProjectCoordinates(project)
+}
+/** Pure byte/hash memoization only, scoped to one native tx. Every incoming row
+ * is still serialized in full and its declared recordHash compared below. */
+const recordDigests = new WeakMap<IDBTransaction, { body: string; hash: string }[]>()
+function digestBody(body: string): string {
+  const transaction = Dexie.currentTransaction?.idbtrans
+  let entries = transaction && recordDigests.get(transaction)
+  const known = entries?.find(entry => entry.body === body)
+  if (known) return known.hash
+  const hash = sha256Bytes(encodeUtf8(body))
+  if (transaction && body.length * 2 <= 16 * 1024 * 1024) {
+    if (!entries) {
+      entries = []; recordDigests.set(transaction, entries)
+      const clear = () => recordDigests.delete(transaction)
+      transaction.addEventListener('complete', clear, { once: true }); transaction.addEventListener('abort', clear, { once: true })
+    }
+    while (entries.length >= 4 || entries.reduce((sum, entry) => sum + entry.body.length * 2, body.length * 2) > 16 * 1024 * 1024) entries.shift()
+    entries.push({ body, hash })
+  }
+  return hash
 }
 function recordJson(input: object, includeHash = true): string { return `{${recordFields(input, includeHash).map(([, value]) => value).join(',')}}` }
-const digest = (input: object) => sha256Bytes(encodeUtf8(recordJson(input, false)))
+const digest = (input: object) => digestBody(recordJson(input, false))
 const seal = <T extends object>(input: T): T & { recordHash: string } => ({ ...input, recordHash: digest(input) })
 function assertDigest(input: { recordHash: string }): string {
   const fields = recordFields(input), body = `{${fields.filter(([key]) => key !== 'recordHash').map(([, value]) => value).join(',')}}`
-  if (!hash(input.recordHash) || sha256Bytes(encodeUtf8(body)) !== input.recordHash) throw new Error('增量历史记录hash损坏。')
+  if (!hash(input.recordHash) || digestBody(body) !== input.recordHash) throw new Error('增量历史记录hash损坏。')
   return `{${fields.map(([, value]) => value).join(',')}}`
 }
 /** Strict wire/envelope checks. Only readVersion may defer checkpoint metadata
@@ -151,6 +216,11 @@ function assertPin(input: unknown, owner: string): asserts input is HistoryPin {
 }
 export function historyVersionBytes(input: unknown): number {
   return encodeUtf8(checkedVersionJson(input)).length
+}
+function versionByteLength(input: HistoryVersion, json: string): number {
+  const transaction = Dexie.currentTransaction
+  const snapshot = input.checkpoint && transaction && matchingEncodedSnapshot(transaction.idbtrans, input.checkpoint)
+  return snapshot ? encodeUtf8(recordJson({ ...input, checkpoint: null })).length - 4 + snapshot.encoded.byteLength : encodeUtf8(json).length
 }
 export function historyHeadBytes(input: unknown): number {
   exact(input, HEAD_FIELDS)
@@ -357,7 +427,7 @@ export class IncrementalHistory {
     return state
   }
   /** Uses only this repository's transaction-bound exact-content checker. */
-  versionBytes(input: unknown): number { return encodeUtf8(checkedVersionJson(input, this.hashContent)).length }
+  versionBytes(input: unknown): number { const json = checkedVersionJson(input, this.hashContent); return versionByteLength(input as HistoryVersion, json) }
   async head(owner: string): Promise<HistoryHead | null> {
     if (!validId(owner)) throw new Error('增量历史工程ID无效。')
     const row = await this.database.historyHeads.get(owner)
@@ -487,17 +557,22 @@ export class IncrementalHistory {
     if (!active || active.version.contentHash !== currentHash) throw new Error('增量历史迁移当前版本冷读不符。')
     await this.database.historyHeads.put(seal({ ...head, status: 'ready' as const }))
   }
-  async append(current: StoredProject, previous: StoredProject | null, versionId: string, parentId?: string): Promise<HistoryVersion> {
+  async append(current: StoredProject, previous: StoredProject | null, versionId: string, parentId?: string, localSource?: ProjectData): Promise<HistoryVersion> {
     assertProject(current, this.hashContent)
+    const snapshot = Dexie.currentTransaction && matchingEncodedSnapshot(Dexie.currentTransaction.idbtrans, current.project)
+    const checkpointProject = () => snapshot?.project ?? validateProjectData(current.project)
     if (!validId(versionId)) throw new Error('增量历史新版本ID无效。')
     const owner = current.sceneId, head = await this.head(owner)
     let row: HistoryVersion
+    let fixedIndex: FixedHistoryIndex | undefined
     if (!previous) {
       if (head || parentId !== undefined || await this.database.historyVersions.where('ownerSceneId').equals(owner).count()
         || await this.database.historyPins.where('ownerSceneId').equals(owner).count()) throw new Error('增量历史新工程身份已占用。')
       row = seal({ format: 'sceneweave-history-version' as const, version: 1 as const, ownerSceneId: owner, id: versionId,
         revision: current.revision, savedAt: current.savedAt, contentHash: current.contentHash, parentId: null, parentHash: null,
-        checkpoint: validateProjectData(current.project), delta: null, depth: 0, chainBytes: 0, automatic: true })
+        checkpoint: checkpointProject(), delta: null, depth: 0, chainBytes: 0, automatic: true })
+      fixedIndex = { meanings: new FixedProjectFamilyIndex(), versions: new Map() }
+      fixedIndex.meanings.include(current.project)
     } else {
       assertProject(previous, this.hashContent)
       if (!head || head.status !== 'ready' || previous.sceneId !== owner || head.savedRevision !== previous.revision || head.contentHash !== previous.contentHash
@@ -506,13 +581,26 @@ export class IncrementalHistory {
       if (!active || active.contentHash !== previous.contentHash || active.revision !== previous.revision) throw new Error('增量历史活动版本与当前保存不符。')
       assertFixedProjectCompatible(previous.project, current.project)
       if (hasAddedFixedProjectDefinitions(previous.project, current.project)) {
-        const includeFixedMeanings = createFixedProjectFamilyCheck()
-        includeFixedMeanings(current.project)
         const versions = await this.database.historyVersions.where('ownerSceneId').equals(owner).toArray()
+        // Fresh table reads hydrate and hash-check actual referenced blocks.
+        // Recompute every record body, including inline checkpoints and deltas;
+        // a stored recordHash or storage epoch alone never authorizes reuse.
         for (const version of versions) assertVersion(version, owner)
-        const byId = new Map(versions.map(version => [version.id, version])), cache = new ReconstructionCache()
-        try { for (const version of orderedVersions(versions)) includeFixedMeanings(rebuildFromMap(byId, version.id, cache)) }
-        finally { cache.clear() }
+        const known = knownFixedIndex(this.database, owner)
+        if (known && known.versions.size === versions.length && versions.every(version => known.versions.get(version.id) === version.recordHash)) fixedIndex = forkFixedIndex(known)
+        else {
+          fixedIndex = { meanings: new FixedProjectFamilyIndex(), versions: new Map(versions.map(version => [version.id, version.recordHash])) }
+          const byId = new Map(versions.map(version => [version.id, version])), cache = new ReconstructionCache()
+          try { for (const version of orderedVersions(versions)) fixedIndex.meanings.include(rebuildFromMap(byId, version.id, cache)) }
+          finally { cache.clear() }
+        }
+        fixedIndex.meanings.include(current.project)
+      } else {
+        // Ordinary saves retain the adjacent path and do not scan old branches.
+        // Before any later index lookup, the entire actual record set is checked
+        // again, so an external write cannot inherit this speculative extension.
+        const known = knownFixedIndex(this.database, owner)
+        if (known) fixedIndex = { meanings: known.meanings, versions: new Map(known.versions) }
       }
       const parent = parentId === undefined || parentId === head.activeVersionId
         ? { version: active, project: previous.project }
@@ -522,24 +610,32 @@ export class IncrementalHistory {
       let delta: JsonDelta | null = null
       let checkpoint = depth >= INCREMENTAL_HISTORY_LIMITS.chainLength, chainBytes = 0
       if (!checkpoint) {
-        try { delta = createProjectDelta(parent.project, current.project) }
+        const hasLocalEvidence = localSource && (getProjectLocalTransaction(localSource) || getProjectTransactionReceipt(localSource))
+        const baselineSnapshot = hasLocalEvidence && Dexie.currentTransaction && matchingEncodedSnapshot(Dexie.currentTransaction.idbtrans, parent.project)
+        const encodings = baselineSnapshot && snapshot ? { before: baselineSnapshot.encoded, after: snapshot.encoded } : undefined
+        try { delta = (localSource ? tryCreateLocalProjectDelta(parent.project, current.project, localSource, encodings) : undefined)
+          ?? createProjectDelta(parent.project, current.project) }
         catch (error) { if (!(error instanceof DeltaSizeError)) throw error }
         checkpoint = delta === null
         if (delta !== null) {
-          const deltaBytes = projectDeltaBytes(delta), fullBytes = encodeUtf8(canonicalProjectCoordinates(current.project)).length
+          const deltaBytes = projectDeltaBytes(delta), fullBytes = snapshot?.encoded.byteLength ?? encodeUtf8(canonicalProjectCoordinates(current.project)).length
           chainBytes = parent.version.chainBytes + deltaBytes
           checkpoint = deltaBytes >= fullBytes || chainBytes >= fullBytes
         }
       }
       row = seal({ format: 'sceneweave-history-version' as const, version: 1 as const, ownerSceneId: owner, id: versionId,
         revision: current.revision, savedAt: current.savedAt, contentHash: current.contentHash, parentId: parent.version.id, parentHash: parent.version.contentHash,
-        checkpoint: checkpoint ? validateProjectData(current.project) : null, delta: checkpoint ? null : delta,
+        checkpoint: checkpoint ? checkpointProject() : null, delta: checkpoint ? null : delta,
         depth: checkpoint ? 0 : depth, chainBytes: checkpoint ? 0 : chainBytes, automatic: true })
     }
     if (await this.database.historyVersions.where('ownerSceneId').equals(owner).count() >= INCREMENTAL_HISTORY_LIMITS.versions) throw new Error('增量历史版本数达到保护上限；未回收分支或保护数据。')
     await this.database.historyVersions.add(row)
     await this.database.historyHeads.put(seal({ format: 'sceneweave-history-head' as const, version: 1 as const, ownerSceneId: owner,
       status: 'ready' as const, activeVersionId: row.id, savedRevision: row.revision, contentHash: row.contentHash, migration: head?.migration ?? null }))
+    if (fixedIndex) {
+      fixedIndex.versions.set(row.id, row.recordHash)
+      stageFixedIndex(this.database, owner, fixedIndex)
+    }
     return row
   }
   async versions(owner: string): Promise<HistoryVersionSummary[]> {

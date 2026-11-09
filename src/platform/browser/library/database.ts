@@ -1,7 +1,7 @@
 import { currentDatabaseNames } from '../storage/current-databases.js'
 import Dexie, { type Table } from 'dexie'
 import type { CatalogOrganization, PreparedLibraryEntry } from '../../../shared/library/types.js'
-import type { LibraryConversionJob } from './repository.js'
+import type { LibraryConversionJob } from '../../../application/ports/library-conversion-store.js'
 
 export const LEGACY_DEVELOPMENT_LIBRARY_DATABASE = 'sceneweave-library'
 export const LIBRARY_DATABASE_NAME = currentDatabaseNames().library

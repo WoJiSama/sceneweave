@@ -1,13 +1,16 @@
 import { z } from 'zod'
 import { nativeSceneSchema } from '../validation/scene.js'
 import { nativeHistoryIdentitySchema } from '../history/identity.js'
-import { nativeAppearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, validateCompositionContent } from '../validation/content.js'
+import { nativeAppearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction, getCompositionCommitTransaction, validateCompositionContent } from '../validation/content.js'
+import { getCompositionTransactionReceipt, isIssuedCompositionTransactionReceipt, releaseCompositionTransactionReceipt } from '../appearance/commands.js'
+import { equalTransactionValue, netTransactionWrites, type TransactionReceipt, type TransactionWrite } from '../transaction/receipt.js'
+import type { CompositionRevisionTransaction, PropUpdateCompositionTransaction } from '../validation/content.js'
 import { inspectDependencies } from '../commands/dependencies.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { sha256Bytes } from '../validation/hash.js'
 import { canonicalJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput } from '../validation/json.js'
 import type { ProjectData } from '../model/project.js'
-import { STATIC_SVG_LIMITS } from '../ai/svg.js'
+import { STATIC_SVG_LIMITS, CANONICAL_SVG_PROCESSOR } from '../ai/svg.js'
 import { PACKAGE_LIMITS } from './limits.js'
 import { projectSourceRecords } from './source-resources.js'
 import { legacyTerrainView } from '../terrain-generation/composition-contracts.js'
@@ -24,8 +27,15 @@ export const assetRecordSchema = z.object({ sha256: hash, mimeType: z.enum(['ima
 export const licenseBindingSchema = z.object({ subjectKind: z.enum(['asset', 'material', 'propDefinition', 'prefabDefinition', 'styleTheme']),
   subjectId: id, licenseRef: id, licensePath: z.string().regex(/^licenses\/[a-f0-9]{64}\.txt$/), embedding: z.literal('allowed') }).strict()
 export const nativeLicenseBindingSchema = licenseBindingSchema.extend({subjectKind:z.enum(['asset','material','propDefinition','prefabDefinition','styleTheme','regionalSymbolDefinition'])}).strict()
-const svgSchema = z.object({ kind: z.literal('svg'), sourceSha256: hash, normalizedSha256: hash, sourceSizeBytes: positive.max(MiB),
-  normalizedSizeBytes: positive.max(MiB), rasterSha256: hash, processorId: z.literal('sceneweave-static-svg'), processorVersion: z.literal(1) }).strict()
+const svgSourceFields = { kind: z.literal('svg'), sourceSha256: hash, normalizedSha256: hash, sourceSizeBytes: positive.max(MiB),
+  normalizedSizeBytes: positive.max(MiB), rasterSha256: hash, processorId: z.literal('sceneweave-static-svg') }
+const svgSchema = z.discriminatedUnion('processorVersion', [
+  z.object({ ...svgSourceFields, processorVersion: z.literal(1) }).strict(),
+  z.object({ ...svgSourceFields, processorVersion: z.literal(2),
+    rasterizer: z.object({ id: z.literal(CANONICAL_SVG_PROCESSOR.rasterizer.id), version: z.literal(CANONICAL_SVG_PROCESSOR.rasterizer.version),
+      moduleSha256: z.literal(CANONICAL_SVG_PROCESSOR.rasterizer.moduleSha256) }).strict(),
+    pixelFormat: z.literal(CANONICAL_SVG_PROCESSOR.pixelFormat) }).strict(),
+])
 export const projectDataSchema: z.ZodType<ProjectData> = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.literal(1),
   document: nativeSceneSchema, historyIdentity: nativeHistoryIdentitySchema, appearance: nativeAppearanceGraphSchema,
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
@@ -42,6 +52,87 @@ const projectEnvelopeSchema = z.object({ format: z.literal('sceneweave-complete-
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
   licenseBindings: z.array(nativeLicenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
 }).strict()
+
+interface ProjectSizeProof { documentBytes: number; expandedBytes: number }
+const projectSizes = new WeakMap<ProjectData, ProjectSizeProof>()
+
+export interface ProjectTransactionReceipt {
+  readonly baseline: ProjectData
+  readonly result: ProjectData
+  readonly composition: TransactionReceipt
+  readonly changes: readonly TransactionWrite[]
+  /** The byte validator remains the owner of the immutable resource closure. */
+  readonly resources: 'unchanged-metadata'
+}
+const projectTransactionReceipts = new WeakMap<ProjectData, ProjectTransactionReceipt>()
+const receiptsByContent = new WeakMap<object, WeakMap<object, WeakMap<object, ProjectTransactionReceipt>>>()
+const projectContent = (project: ProjectData) => ({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance })
+const equalProjectContent = (left: ProjectData, right: TransactionReceipt['baseline']) => left.document === right.document && left.historyIdentity === right.historyIdentity && left.appearance === right.appearance
+function registerProjectReceipt(receipt: ProjectTransactionReceipt): ProjectTransactionReceipt {
+  projectTransactionReceipts.set(receipt.result, receipt)
+  let identities = receiptsByContent.get(receipt.result.document)
+  if (!identities) { identities = new WeakMap(); receiptsByContent.set(receipt.result.document, identities) }
+  let appearances = identities.get(receipt.result.historyIdentity)
+  if (!appearances) { appearances = new WeakMap(); identities.set(receipt.result.historyIdentity, appearances) }
+  appearances.set(receipt.result.appearance, receipt)
+  return receipt
+}
+export function getProjectTransactionReceipt(input: unknown): ProjectTransactionReceipt | undefined {
+  const receipt = input !== null && typeof input === 'object' ? projectTransactionReceipts.get(input as ProjectData) : undefined
+  return receipt && isIssuedCompositionTransactionReceipt(receipt.composition) ? receipt : undefined
+}
+/** A cancellation must supply its exact invocation handle. Persistence may
+ * release the receipt owned by the exact snapshot it has just saved. */
+export function releaseProjectTransactionReceipt(input: unknown, expectedComposition?: TransactionReceipt): void {
+  if (input === null || typeof input !== 'object') return
+  const receipt = projectTransactionReceipts.get(input as ProjectData)
+  if (!receipt || expectedComposition && receipt.composition !== expectedComposition) return
+  projectTransactionReceipts.delete(receipt.result)
+  const entries = receiptsByContent.get(receipt.result.document)?.get(receipt.result.historyIdentity)
+  if (entries?.get(receipt.result.appearance) === receipt) {
+    entries.delete(receipt.result.appearance)
+    releaseCompositionTransactionReceipt(receipt.composition)
+  }
+}
+const unchangedProjectMetadata = (before: ProjectData, after: ProjectData) => Object.keys(before).length === Object.keys(after).length
+  && (Object.keys(before) as (keyof ProjectData)[]).every(key => ['document', 'historyIdentity', 'appearance'].includes(key) || equalTransactionValue(before[key], after[key]))
+/** Attach actual command evidence only to fully certified metadata endpoints.
+ * The remaining metadata must be exactly unchanged; materialization that adds
+ * resources falls back instead of accepting caller-declared write paths. */
+export function completeProjectTransactionReceipt(baseline: ProjectData, result: ProjectData, composition: TransactionReceipt): ProjectTransactionReceipt | undefined {
+  if (!projectSizes.has(baseline) || !projectSizes.has(result) || !isIssuedCompositionTransactionReceipt(composition)
+    || equalProjectContent(baseline, result)
+    || !equalProjectContent(baseline, composition.baseline) || !equalProjectContent(result, composition.result) || !unchangedProjectMetadata(baseline, result)) return
+  return registerProjectReceipt(freezeJson({ baseline, result, composition, changes: composition.changes, resources: 'unchanged-metadata' as const }))
+}
+function inheritProjectReceipt(result: ProjectData): void {
+  const commit = getCompositionCommitTransaction(projectContent(result))
+  if (!commit || commit.result.document.revision !== commit.baseline.document.revision + 1) return
+  const previous = receiptsByContent.get(commit.baseline.document)?.get(commit.baseline.historyIdentity)?.get(commit.baseline.appearance)
+  if (!previous || previous.result.document.revision !== previous.baseline.document.revision || !unchangedProjectMetadata(previous.result, result)) return
+  const composition = getCompositionTransactionReceipt(projectContent(result))
+  if (!composition || !equalProjectContent(previous.baseline, composition.baseline)) return
+  registerProjectReceipt(freezeJson({ baseline: previous.baseline, result, composition,
+    changes: netTransactionWrites(previous.baseline, result, composition.changes), resources: 'unchanged-metadata' as const }))
+}
+
+/** Exact, privately issued local derivation. These values describe the domain
+ * executor's actual writes; callers cannot register paths or substitute proof. */
+export interface ProjectLocalTransaction {
+  readonly baseline: ProjectData
+  readonly result: ProjectData
+  readonly stage: 'prop' | 'revision'
+  readonly propChanges: PropUpdateCompositionTransaction['changes']
+  readonly revisionChanges?: CompositionRevisionTransaction['changes']
+}
+const projectLocalTransactions = new WeakMap<ProjectData, ProjectLocalTransaction>()
+export function getProjectLocalTransaction(input: unknown): ProjectLocalTransaction | undefined {
+  return input !== null && typeof input === 'object' ? projectLocalTransactions.get(input as ProjectData) : undefined
+}
+/** Release this result only; no validation or proof transfers to another object. */
+export function releaseProjectLocalTransaction(input: unknown): void {
+  if (input !== null && typeof input === 'object') projectLocalTransactions.delete(input as ProjectData)
+}
 
 /** Only for strict-parser-owned JSON. Key order cannot change its byte length. */
 function ownedJsonByteLength(value: unknown): number {
@@ -126,14 +217,60 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
       || /(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,})/.test(record.text)) throw new Error('许可正文hash、编码、预算或来源信息无效。')
     expanded += bytes.length
   }
+  let documentBytes = 0
   for (const value of [project.document, project.historyIdentity, project.appearance, project.authoringSources]) {
     const size = ownedJsonByteLength(value)
+    if (value === project.document) documentBytes = size
     if (value === project.authoringSources && size > PACKAGE_LIMITS.sourcesBytes) throw new Error('SVG来源JSON超过1MiB。')
     if (size > PROJECT_DATA_LIMITS.jsonBytes) throw new Error('场景、身份或外观JSON超过20MiB。')
     expanded += size
   }
   if (expanded > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节超过300MiB。')
+  if (certifyContent) projectSizes.set(project, { documentBytes, expandedBytes: expanded })
   return project
+}
+
+/** Closed internal derivation only. The full metadata validator owns baseline
+ * size/closure proofs; the domain executor owns the exact changed values.
+ * Public parsing and cold IO continue to run the complete validator. */
+export function tryCertifyLocalProjectData(input: unknown, baseline: ProjectData): ProjectData | undefined {
+  const sizes = projectSizes.get(baseline)
+  if (!sizes || !input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) return
+  const fields = Object.getOwnPropertyDescriptors(input), keys = Object.keys(baseline)
+  if (Reflect.ownKeys(input).length !== keys.length || !keys.every(key => fields[key]?.enumerable && 'value' in fields[key])) return
+  const candidate = Object.fromEntries(keys.map(key => [key, fields[key].value])) as unknown as ProjectData
+  for (const key of keys as (keyof ProjectData)[]) {
+    if (!['document', 'historyIdentity', 'appearance'].includes(key) && candidate[key] !== baseline[key]) return
+  }
+  const before = { document: baseline.document, historyIdentity: baseline.historyIdentity, appearance: baseline.appearance }
+  const after = { document: candidate.document, historyIdentity: candidate.historyIdentity, appearance: candidate.appearance }
+  if (after.document === before.document && after.historyIdentity === before.historyIdentity && after.appearance === before.appearance) return baseline
+  const prop = getPropUpdateCompositionTransaction(after, before), revision = getCompositionRevisionTransaction(after, before)
+  if (!prop && !revision) return
+  let delta = 0
+  if (prop) for (const change of prop.changes) delta += ownedJsonByteLength(change.after) - ownedJsonByteLength(change.before)
+  if (revision) {
+    delta += ownedJsonByteLength(revision.changes.revision.after) - ownedJsonByteLength(revision.changes.revision.before)
+      + ownedJsonByteLength(revision.changes.updatedAt.after) - ownedJsonByteLength(revision.changes.updatedAt.before)
+  }
+  const documentBytes = sizes.documentBytes + delta, expandedBytes = sizes.expandedBytes + delta
+  if (documentBytes > PROJECT_DATA_LIMITS.jsonBytes) throw new Error('场景、身份或外观JSON超过20MiB。')
+  if (expandedBytes > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节超过300MiB。')
+  const result = freezeJson(candidate)
+  projectSizes.set(result, { documentBytes, expandedBytes })
+  inheritProjectReceipt(result)
+  if (prop) projectLocalTransactions.set(result, freezeJson({ baseline, result, stage: 'prop', propChanges: prop.changes }))
+  else if (revision) {
+    const previous = projectLocalTransactions.get(baseline)
+    // A Prop stage does not alter revision. Only its immediately following
+    // single revision step belongs to the same edit; never concatenate edits.
+    const merge = previous?.stage === 'prop' && previous.result === baseline
+      && previous.baseline.document.revision === revision.changes.revision.before
+      && revision.changes.revision.after === revision.changes.revision.before + 1
+    projectLocalTransactions.set(result, freezeJson({ baseline: merge ? previous.baseline : baseline, result, stage: 'revision',
+      propChanges: merge ? previous.propChanges : [], revisionChanges: revision.changes }))
+  }
+  return result
 }
 
 /**
@@ -144,7 +281,9 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
  * complete resource validator.
  */
 export function certifyProjectData(input: unknown): ProjectData {
-  return freezeJson(readProjectData(input, true))
+  const result = freezeJson(readProjectData(input, true))
+  inheritProjectReceipt(result)
+  return result
 }
 
 export const projectContentHash = (input: unknown): string => {

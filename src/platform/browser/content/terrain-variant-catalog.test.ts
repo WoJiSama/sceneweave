@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { artworkValidation } from '../../../../tests/helpers/m24-artwork-fixtures.js'
-import { normalizeStaticSvg, verifyNormalizedStaticSvg } from '../../../shared/ai/svg.js'
+import { normalizeStaticSvg, verifyNormalizedStaticSvg, CANONICAL_SVG_PROCESSOR } from '../../../shared/ai/svg.js'
 import { definitionPresentation, presentationSourceId } from '../../../shared/appearance/presentation.js'
 import { pointInPolygon } from '../../../shared/geometry/geometry.js'
 import { assertSimpleVisualPolyline } from '../../../shared/visual/geometry.js'
@@ -31,26 +31,26 @@ const fixturePixels = vi.hoisted(() => ({
 // Actual SVG raster silhouettes, alpha and gallery are checked in Chromium.
 vi.mock('../runtime.js', async () => {
   const { artworkValidation } = await import('../../../../tests/helpers/m24-artwork-fixtures.js')
-  const { verifyNormalizedStaticSvg } = await import('../../../shared/ai/svg.js')
+  const { verifyNormalizedStaticSvg, CANONICAL_SVG_PROCESSOR } = await import('../../../shared/ai/svg.js')
   let sequence = 0
   return { runtime: { ids: { nextId: () => `variant-test-${++sequence}` }, clock: { now: () => '2026-10-31T00:00:00.000Z' } },
-    validation: { ...artworkValidation(), svg: { async rasterize(input: Parameters<typeof verifyNormalizedStaticSvg>[0], dimensions: { width: number; height: number }) {
+    validation: { ...artworkValidation(), svg: { processor: CANONICAL_SVG_PROCESSOR, async rasterize(input: Parameters<typeof verifyNormalizedStaticSvg>[0], dimensions: { width: number; height: number }) {
       const normalized = verifyNormalizedStaticSvg(input)
       return fixturePixels.raster(normalized.normalizedSha256, dimensions.width, dimensions.height)
     } } } }
 })
 vi.mock('../ai/svg-raster.js', async () => {
   const { encodeFixtureRaster } = await import('../../../../tests/helpers/m24-artwork-fixtures.js')
-  const { verifyNormalizedStaticSvg } = await import('../../../shared/ai/svg.js')
+  const { verifyNormalizedStaticSvg, CANONICAL_SVG_PROCESSOR } = await import('../../../shared/ai/svg.js')
   const { sha256Bytes } = await import('../../../shared/validation/hash.js')
   return { async rasterizeNormalizedSvg(input: Parameters<typeof verifyNormalizedStaticSvg>[0], options: { longEdgePx: number; signal?: AbortSignal }) {
     options.signal?.throwIfAborted()
     const normalized = verifyNormalizedStaticSvg(input), pngBytes = encodeFixtureRaster(fixturePixels.raster(normalized.normalizedSha256, options.longEdgePx, options.longEdgePx))
     return { mimeType: 'image/png', pngBytes, sha256: sha256Bytes(pngBytes), pixelWidth: options.longEdgePx, pixelHeight: options.longEdgePx,
-      normalizedSha256: normalized.normalizedSha256, processorId: normalized.processorId, processorVersion: normalized.processorVersion }
+      normalizedSha256: normalized.normalizedSha256, ...CANONICAL_SVG_PROCESSOR }
   } }
 })
-const validation = { ...artworkValidation(), svg: { async rasterize(input: Parameters<typeof verifyNormalizedStaticSvg>[0], dimensions: { width: number; height: number }) {
+const validation = { ...artworkValidation(), svg: { processor: CANONICAL_SVG_PROCESSOR, async rasterize(input: Parameters<typeof verifyNormalizedStaticSvg>[0], dimensions: { width: number; height: number }) {
   const normalized = verifyNormalizedStaticSvg(input)
   return fixturePixels.raster(normalized.normalizedSha256, dimensions.width, dimensions.height)
 } } }

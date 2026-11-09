@@ -8,9 +8,9 @@ import type { CompleteValidationOptions } from '../ports/resources.js'
 import { checkCancelled } from '../ports/resources.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { bitmapVariant } from '../appearance/graph.js'
-import { canonicalJson, captureJson, cloneJson, encodeUtf8 } from '../validation/json.js'
+import { canonicalJson, captureJson, cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { captureBytes, sha256Bytes } from '../project/binary.js'
-import { captureProjectBundleInput, createMemoryResources, validateProjectBundle } from '../project/resources.js'
+import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, validateProjectBundle } from '../project/resources.js'
 import { projectResourceHashes, projectSourceRecords } from '../project/source-resources.js'
 import { PROJECT_DATA_LIMITS } from '../project/validate.js'
 import { assertFixedProjectCompatible } from '../project/history.js'
@@ -194,13 +194,54 @@ function describeItem(project: ProjectData, selector: CatalogSelector): CatalogI
 
 /** Synchronous display metadata is an index only; preparation and every external read validate actual complete bytes. */
 export function listCatalogItems(bundle: ProjectBundle): CatalogItem[] {
-  const project = captureProjectBundleInput(bundle).project
+  return catalogItems(captureProjectBundleInput(bundle).project)
+}
+function catalogItems(project: ProjectData): CatalogItem[] {
   const selectors: CatalogSelector[] = [
     ...Object.values(project.document.propDefinitions).filter(value => !value.tags.some(tag => tag.startsWith('sceneweave:'))).map(value => ({ kind: 'prop' as const, definitionId: value.id })),
     ...Object.values(project.document.materials).filter(value => !value.tags.some(tag => tag.startsWith('sceneweave:'))).map(value => ({ kind: 'material' as const, definitionId: value.id })),
     ...Object.values(project.document.prefabDefinitions).filter(value => !value.tags.some(tag => tag.startsWith('sceneweave:'))).map(value => ({ kind: 'prefab' as const, definitionId: value.id })),
   ]
   return selectors.map(selector => describeItem(project, selector))
+}
+
+interface SnapshotCatalogIndex {
+  readonly branches: WeakMap<object, SnapshotCatalogIndex>
+  items?: readonly CatalogItem[]
+}
+const snapshotCatalogIndex: SnapshotCatalogIndex = { branches: new WeakMap() }
+const noPresentations = Object.freeze({})
+
+/**
+ * Fixed-catalog display consumes only the validator's exact immutable snapshot.
+ * A new wrapper may name that exact metadata/byte pair, but neither a frozen
+ * clone nor a caller's scene ID/revision grants access to the private proof.
+ * Unknown callers retain the public complete metadata check on every read.
+ */
+export function listSnapshotCatalogItems(input: ProjectBundle): readonly CatalogItem[] {
+  const verified = getVerifiedProjectBundle(input)
+  if (!verified) return freezeJson(listCatalogItems(input))
+  const project = verified.project
+  // extractClosure/describeItem read these fixed branches only. Live instance
+  // positions, layer/instance overrides, mappings and surface rules cannot
+  // change a fixed capsule. Every fixed source/definition, retained variant,
+  // presentation, original SVG, asset record and license dependency is keyed.
+  // Weak edges do not retain previous snapshots after their owners release them.
+  const closure: object[] = [
+    ...fixedCollections.map(key => project.document[key]),
+    ...appearanceCollections.map(key => project.appearance[key]),
+    project.appearance.presentations ?? noPresentations,
+    project.assets, project.licenses, project.licenseBindings, project.authoringSources,
+  ]
+  let index = snapshotCatalogIndex
+  for (const branch of closure) {
+    let next = index.branches.get(branch)
+    if (!next) { next = { branches: new WeakMap() }; index.branches.set(branch, next) }
+    index = next
+  }
+  // Deep freezing prevents a UI consumer from poisoning another snapshot's
+  // shared identity, tags, thumbnails or ordering through this read-only view.
+  return index.items ??= freezeJson(catalogItems(project))
 }
 
 /** Captures metadata and native bytes before any asynchronous validation. */
@@ -242,7 +283,7 @@ async function checkedCapsule(entry: PreparedLibraryEntry, validation: CompleteV
   const closure = extractClosure(project, entry.item.selector)
   if (canonicalJson(project) !== canonicalJson(closure)) throw new Error('素材载体含场景信息或超出所选固定闭包。')
   // Canonical package JSON may reorder prefab member keys. Thumbnail membership
-  // is exact; display order is independent of fixed content identity.
+  // is exact, while its display order is independent of fixed content identity.
   const comparableItem = (item: CatalogItem) => ({ ...item, thumbnailAssetIds: [...item.thumbnailAssetIds].sort() })
   if (canonicalJson(comparableItem(entry.item)) !== canonicalJson(comparableItem(describeItem(project, entry.item.selector)))) throw new Error('素材身份、摘要或元数据与完整内容不一致。')
   checkCancelled(validation?.signal)

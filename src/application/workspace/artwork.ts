@@ -9,6 +9,7 @@ import { applyCompositionCommands } from '../../shared/appearance/commands.js'
 import { canonicalJson, encodeUtf8 } from '../../shared/validation/json.js'
 import { sha256Bytes, sha256Text } from '../../shared/validation/hash.js'
 import { normalizePngChunks } from '../../shared/project/image-bytes.js'
+import { encodeCanonicalPng } from '../../shared/project/png-rgba.js'
 import { assessAssetQuality } from '../../shared/assets/quality.js'
 import { createAssetQualityAssessment, assertAssetQualityAccepted, type AssetQualityAssessment } from '../../shared/assets/quality-review.js'
 import { captureEditableDraft, type EditableProject } from './project.js'
@@ -48,7 +49,7 @@ export async function materializeAuthoringArtwork(input: EditableProject, draft:
       const pixels = await validation.svg.rasterize(normalized, dimensions, validation)
       checkCancelled(validation.signal)
       if (pixels.width !== dimensions.width || pixels.height !== dimensions.height || pixels.rgba.length !== dimensions.width * dimensions.height * 4) throw new Error('SVG实际像素尺寸无效。')
-      const png = normalizePngChunks(await validation.images.encodePng(pixels, validation)), hash = sha256Bytes(png)
+      const png = validation.svg.processor.processorVersion === 2 ? encodeCanonicalPng(pixels) : normalizePngChunks(await validation.images.encodePng(pixels, validation)), hash = sha256Bytes(png)
       checkCancelled(validation.signal)
       const oldDefinition = prop.definitionRef ? project.document.propDefinitions[prop.definitionRef.id] : null
       const oldAsset = prop.appearance.kind === 'image' ? project.document.assets[prop.appearance.assetId] : null
@@ -60,7 +61,7 @@ export async function materializeAuthoringArtwork(input: EditableProject, draft:
         logicalSizeMm: { width: prop.visualBoundsMm.width, height: prop.visualBoundsMm.height }, licenseRef: reference.licenseRef, origin: structuredClone(reference.origin) }
       project.assets[hash] = { sha256: hash, mimeType: 'image/png', sizeBytes: png.length, pixelWidth: dimensions.width, pixelHeight: dimensions.height }
       project.authoringSources[assetId] = { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256,
-        sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: hash, processorId: normalized.processorId, processorVersion: normalized.processorVersion }
+        sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: hash, ...validation.svg.processor }
       const oldSource = project.appearance.sources[project.appearance.propSources[prop.id]]
       const originalAppearance = oldSource?.kind === 'prop' ? oldSource.snapshot.appearance : prop.appearance
       const appearance = { kind: 'image' as const, assetId, tint: originalAppearance.tint, opacity: originalAppearance.opacity }

@@ -4,18 +4,8 @@ import type { ForestPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
 import './forest-generation.css'
 
-export interface ForestGenerationUiRequest {
-  title: string
-  widthMm: number
-  heightMm: number
-  seed: string
-  clearings: Array<{ id: string; boundsMm: { x: number; y: number; width: number; height: number } }>
-  entranceSide: 'west' | 'east' | 'north' | 'south'
-  routeWidthMm: number
-  treeCoveragePpm: number
-  shrubCoveragePpm: number
-  grassCoveragePpm: number
-}
+import type { ForestGenerationUiRequest } from '../../application/workspace/generation-intent.js'
+export type { ForestGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 
 const initialClearings = (): ForestGenerationUiRequest['clearings'] => [
   { id: 'clearing-1', boundsMm: { x: 12000, y: 9000, width: 8000, height: 6000 } },
@@ -62,7 +52,7 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
   return <section className="terrain-generation-panel forest-generation-panel" aria-label="森林与营地生成">
     <h2>森林与营地</h2>
     <p>先留出活动空地与入口路线，再在真实地面上布置树木、灌木和草簇。</p>
-    <p className="asset-muted">覆盖目标与实际数量分别显示。空间不足会说明缺项；保存后可继续移动或删除，不会自动补回。</p>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">覆盖目标与实际数量分别显示。空间不足会说明缺项；保存后可继续移动或删除，不会自动补回。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, clearings: clearings.map(row => ({ ...row, boundsMm: { ...row.boundsMm } })), entranceSide, routeWidthMm, treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm }) }}>
       <fieldset disabled={locked}>

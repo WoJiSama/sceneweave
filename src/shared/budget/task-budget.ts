@@ -171,14 +171,11 @@ export interface TaskBudgetMetadata {
   before: Pick<CompositionContent,'historyIdentity'|'appearance'>
   after: Pick<CompositionContent,'historyIdentity'|'appearance'> & { assets?: Record<string,{sizeBytes:number;pixelWidth:number;pixelHeight:number}> }
 }
-/** Structural delta and retained closures. Runtime decodes/time must be metered by their executor. */
-export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {}): BudgetUsage {
-  const usage = emptyBudgetUsage(); usage.semanticTargets = taskSemanticTargets(before,after).length
-  const geometry = (value: unknown): Pick<BudgetUsage,'geometryPoints'|'geometrySegments'|'curveSegments'> => {
+export const measureBudgetGeometry = (value: unknown): Pick<BudgetUsage,'geometryPoints'|'geometrySegments'|'curveSegments'> => {
     const result={geometryPoints:0,geometrySegments:0,curveSegments:0}
     const row=value as Record<string,unknown> | undefined
     if (!row || typeof row !== 'object') return result
-    const add=(item:unknown)=>{const next=geometry(item);for(const key of ['geometryPoints','geometrySegments','curveSegments'] as const)result[key]+=next[key]}
+    const add=(item:unknown)=>{const next=measureBudgetGeometry(item);for(const key of ['geometryPoints','geometrySegments','curveSegments'] as const)result[key]+=next[key]}
     const ring=row.boundaryMm as unknown[] | undefined, path=(row.centerlineMm ?? row.pointsMm) as unknown[] | undefined
     if (Array.isArray(ring)) { result.geometryPoints+=ring.length; result.geometrySegments+=ring.length }
     if (Array.isArray(path)) { result.geometryPoints+=path.length; result.geometrySegments+=Math.max(0,path.length-1) }
@@ -199,41 +196,51 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
     }
     return result
   }
+
+const retainedGeometry = new WeakMap<SceneDocument, number>()
+/** Measured by the full meter; consumers must additionally require a private domain witness. */
+export const measuredRetainedSegments = (document: SceneDocument): number | undefined => retainedGeometry.get(document)
+
+/** Structural delta and retained closures. Runtime decodes/time must be metered by their executor. */
+export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {}): BudgetUsage {
+  const usage = emptyBudgetUsage(); usage.semanticTargets = taskSemanticTargets(before,after).length
+
   const addChanged=(first:unknown,second:unknown)=>{
     if(same(first,second))return
-    const a=geometry(first),b=geometry(second)
+    const a=measureBudgetGeometry(first),b=measureBudgetGeometry(second)
     // Removing or simplifying complex geometry still checks its old closure.
     for(const key of ['geometryPoints','geometrySegments','curveSegments'] as const)usage[key]+=Math.max(a[key],b[key])
   }
   let retainedSegments=0
   for (const collection of LAYER_ENTITY_COLLECTIONS) for (const id of new Set([...Object.keys(before[collection]),...Object.keys(after[collection])])) {
-    addChanged(before[collection][id],after[collection][id]);retainedSegments+=geometry(after[collection][id]).geometrySegments
+    addChanged(before[collection][id],after[collection][id]);retainedSegments+=measureBudgetGeometry(after[collection][id]).geometrySegments
   }
   for (const collection of DECORATION_COLLECTIONS) for (const id of new Set([...Object.keys(before[collection] ?? {}), ...Object.keys(after[collection] ?? {})])) {
-    addChanged(before[collection]?.[id], after[collection]?.[id]); retainedSegments += geometry(after[collection]?.[id]).geometrySegments
+    addChanged(before[collection]?.[id], after[collection]?.[id]); retainedSegments += measureBudgetGeometry(after[collection]?.[id]).geometrySegments
   }
   for (const collection of SURFACE_RULE_COLLECTIONS) for (const id of new Set([...Object.keys(before[collection] ?? {}), ...Object.keys(after[collection] ?? {})])) {
-    addChanged(before[collection]?.[id], after[collection]?.[id]); retainedSegments += geometry(after[collection]?.[id]).geometrySegments
+    addChanged(before[collection]?.[id], after[collection]?.[id]); retainedSegments += measureBudgetGeometry(after[collection]?.[id]).geometrySegments
   }
   const av=visualBase(before),bv=visualBase(after)
   for(const collection of ['boundaries','edgeLooks','lights','fogs','filters'] as const)
     for (const id of new Set([...Object.keys(av?.[collection]??{}),...Object.keys(bv?.[collection]??{})])) {
-      addChanged(av?.[collection][id],bv?.[collection][id]);retainedSegments+=geometry(bv?.[collection][id]).geometrySegments
+      addChanged(av?.[collection][id],bv?.[collection][id]);retainedSegments+=measureBudgetGeometry(bv?.[collection][id]).geometrySegments
     }
   const materialized=(document:SceneDocument)=>document.visual.base.materializedEdges
   const am=materialized(before),bm=materialized(after)
   for(const id of new Set([...Object.keys(am),...Object.keys(bm)])){
-    addChanged(am[id],bm[id]);retainedSegments+=geometry(bm[id]).geometrySegments
+    addChanged(am[id],bm[id]);retainedSegments+=measureBudgetGeometry(bm[id]).geometrySegments
   }
   const transitions=(document:SceneDocument)=>document.visual?.version===3?document.visual.transitions:{}
   const at=transitions(before),bt=transitions(after)
   for(const id of new Set([...Object.keys(at),...Object.keys(bt)])){
-    addChanged(at[id],bt[id]);retainedSegments+=geometry(bt[id]).geometrySegments
+    addChanged(at[id],bt[id]);retainedSegments+=measureBudgetGeometry(bt[id]).geometrySegments
   }
   for(const collection of ['areas','lines','landmarks','symbols'] as const)
     for(const id of new Set([...Object.keys(before.regional?.[collection]??{}),...Object.keys(after.regional?.[collection]??{})])){
-      addChanged(before.regional?.[collection][id],after.regional?.[collection][id]);retainedSegments+=geometry(after.regional?.[collection][id]).geometrySegments
+      addChanged(before.regional?.[collection][id],after.regional?.[collection][id]);retainedSegments+=measureBudgetGeometry(after.regional?.[collection][id]).geometrySegments
     }
+  retainedGeometry.set(after, retainedSegments)
   // Conservative edge-pair admission for a changed closure against retained
   // geometry. Executors add repeated clipping/search/validation work through
   // executionUsage; this bound is independent of the editable target count.

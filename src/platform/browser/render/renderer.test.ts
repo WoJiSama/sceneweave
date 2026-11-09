@@ -7,11 +7,12 @@ import { inspectDependencies } from '../../../shared/geometry/dependencies.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import { crc32, sha256Bytes } from '../../../shared/project/binary.js'
-import { createMemoryResources } from '../../../shared/project/resources.js'
+import { createMemoryResources, validateProjectBundle } from '../../../shared/project/resources.js'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
 import { exportPng, exportPublicViewportPng, renderEditorProject, renderProject } from './renderer'
 import { encodePng, PNG_MAX_ENCODED_BYTES } from './canvas-renderer'
 import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
+import { browserProjectValidation } from '../project-validation.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -137,6 +138,26 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
     await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, viewBoundsMm: { x: 3000, y: 3000, width: 2000, height: 2000 }, onMetrics: metrics })
     expect(metrics).toHaveBeenLastCalledWith(expect.objectContaining({ decodedImages: 1, decodedPixels: 1 }))
     expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+  })
+
+  it('shares an exact snapshot resource proof across main/detail audiences while public output still fully validates', async () => {
+    const input = fixture(), browser = primitives()
+    const snapshot = await validateProjectBundle(input, browserProjectValidation)
+    expect(browser.decode).toHaveBeenCalledTimes(1)
+    const main = await renderEditorProject(snapshot, { audience: 'gm', longEdgePx: 256 })
+    const detail = await renderEditorProject(snapshot, { audience: 'gm', longEdgePx: 256, viewBoundsMm: { x: 14000, y: 14000, width: 1000, height: 1000 } })
+    const player = await renderEditorProject(snapshot, { audience: 'player', longEdgePx: 256 })
+    // Each actual drawing owns fresh bitmaps. The offscreen detail needs none;
+    // the immutable byte/pixel proof is independent of audience projection.
+    expect(browser.decode).toHaveBeenCalledTimes(3)
+    const formal = await renderProject(snapshot, { audience: 'player', longEdgePx: 256 })
+    expect(browser.decode).toHaveBeenCalledTimes(5)
+    const crop = await exportPublicViewportPng(snapshot, { x: 3000, y: 3000, width: 2000, height: 1000 }, 256)
+    expect(crop.type).toBe('image/png'); expect(browser.decode).toHaveBeenCalledTimes(7)
+    const forged = { ...snapshot, resources: { async read() { throw new Error('replacement bytes') } } }
+    await expect(renderEditorProject(forged, { audience: 'gm', longEdgePx: 256 })).rejects.toThrow('replacement bytes')
+    expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+    for (const image of [main, detail, player, formal]) image.width = image.height = 0
   })
 
   it('uses GM-only layer hiding while keeping formal and player output on their audience projection', async () => {

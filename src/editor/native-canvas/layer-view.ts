@@ -4,6 +4,7 @@ import type { EditableProject as CompleteProjectV3 } from '../../application/wor
 import type { EditableProject as CompleteProjectV2 } from '../../application/workspace/project'
 import { hiddenDependentsV3 } from './layer-selection'
 export { hitTestLayersV3, selectInBoundsLayersV3, selectionGeometryLayersV3, summarizeSelectionLayersV3 } from './layer-selection'
+export { inheritSelectionGeometryForProject } from './layer-selection'
 
 /** Explicit physical/domain view. Never use this as a renderer or storage input. */
 export function domainProjectV3(project: CompleteProjectV3): CompleteProjectV2 {

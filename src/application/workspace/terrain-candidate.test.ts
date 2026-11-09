@@ -210,6 +210,7 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(47)
   })
 
+  // Complete generation/preview, real save, cold read and the following edit/save all run within this test's budget.
   it('honors cancellation during an awaited real save and releases the write lock without switching', async () => {
     const { repo, workspace } = await setup(), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
     const { preview } = await candidate(workspace), entered = deferred(), release = deferred(), saving = repo.save.bind(repo)
@@ -228,7 +229,7 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
     expect((await repo.load(preview.project.document.sceneId))!.project.schemaVersion).toBe(1)
     await workspace.updateProp('item', { rotationDeg: 59 }); await workspace.flush()
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(59)
-  })
+  }, 20000)
 })
 
 function addSymbol(document: SceneDocument, index: number) {

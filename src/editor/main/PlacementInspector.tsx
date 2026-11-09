@@ -13,10 +13,10 @@ export default function PlacementInspector({ scene, prop, busy, ready, onChange,
     ...Object.values(scene.terrainAreas).map((area, index) => ({ ref: { kind: 'terrainArea' as const, id: area.id }, label: `地形 ${index + 1} · 高度 ${formatDistanceMm(area.groundElevationMm, scene.units.display)}` })),
   ]
   return <><div className="asset-section-heading"><Move size={16}/><h2>放置物件</h2></div><h3>{definition ? definition.name : '物件'}</h3>
-    <p className="asset-muted">移动鼠标预览，点击画布放置；也可输入坐标后确认。坐标使用{scene.units.display === 'ft' ? '英尺' : '米'}，按最近 1 mm 保存。虚线显示图像范围与物理占地，Escape 取消。</p>
+    <p className="asset-muted">移动鼠标预览，点击画布放置；Escape 取消。</p>
     <fieldset disabled={busy}>
-      <NumberInput displayUnit={scene.units.display} label="放置 X" value={prop.positionMm.x} onCommit={x => onChange({ positionMm: { ...prop.positionMm, x } })}/>
-      <NumberInput displayUnit={scene.units.display} label="放置 Y" value={prop.positionMm.y} onCommit={y => onChange({ positionMm: { ...prop.positionMm, y } })}/>
+      <div className="workspace-field-pair" role="group" aria-label="放置位置"><NumberInput displayUnit={scene.units.display} label="放置 X" value={prop.positionMm.x} onCommit={x => onChange({ positionMm: { ...prop.positionMm, x } })}/>
+      <NumberInput displayUnit={scene.units.display} label="放置 Y" value={prop.positionMm.y} onCommit={y => onChange({ positionMm: { ...prop.positionMm, y } })}/></div>
       <NumberInput label="放置旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => onChange({ rotationDeg })}/>
       <label className="asset-select">放置表面<select aria-label="放置表面" value={`${prop.supportRef.kind}:${prop.supportRef.id}`} onChange={event => {
         const surface = surfaces.find(value => `${value.ref.kind}:${value.ref.id}` === event.target.value)
@@ -26,6 +26,7 @@ export default function PlacementInspector({ scene, prop, busy, ready, onChange,
       {!ready && <p className="asset-muted" role="status">正在检查并解码待放置素材…</p>}
     </fieldset>
     <button className="secondary asset-wide" disabled={busy} onClick={onCancel}><X size={14}/>取消放置</button>
+    <details className="workspace-detail-disclosure workspace-coordinate-help"><summary>坐标与占地说明</summary><p className="asset-muted">也可输入坐标后确认放置。坐标使用{scene.units.display === 'ft' ? '英尺' : '米'}，按最近 1 mm 保存。虚线分别显示图像范围与物理占地。</p></details>
     <dl className="asset-facts"><dt>物理占地</dt><dd>{formatDistanceMm(prop.footprintMm.width, scene.units.display)} × {formatDistanceMm(prop.footprintMm.height, scene.units.display)}</dd><dt>图像范围</dt><dd>{formatDistanceMm(prop.visualBoundsMm.width, scene.units.display)} × {formatDistanceMm(prop.visualBoundsMm.height, scene.units.display)}</dd></dl>
   </>
 }

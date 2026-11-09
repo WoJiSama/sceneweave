@@ -4,15 +4,8 @@ import type { VolcanoPreview } from '../../application/workspace/workspace'
 import './terrain-generation.css'
 import './volcano-generation.css'
 
-export interface VolcanoGenerationUiRequest {
-  title: string; widthMm: number; heightMm: number; seed: string
-  mountainElevationMm: number; craterElevationMm: number
-  craterWidthPercent: number; craterHeightPercent: number; craterCenterYPercent: number
-  routeWidthMm: number; connectionKind: 'stairs' | 'ramp'
-  craterHazard: boolean; craterBlocksMovement: boolean; craterMovementCostMultiplier: number
-  flowEnabled: boolean; flowWidthMm: number; lavaAppearance: 'cold' | 'hot'
-  flowHazard: boolean; flowBlocksMovement: boolean; flowMovementCostMultiplier: number
-}
+import type { VolcanoGenerationUiRequest } from '../../application/workspace/generation-intent.js'
+export type { VolcanoGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 const mm = (value: string) => Math.round(Number(value) * 1000)
 const initial = (): VolcanoGenerationUiRequest => ({
   title: '火山活动区', widthMm: 40000, heightMm: 32000, seed: 'volcano-1',
@@ -53,7 +46,7 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="火山生成">
     <h2>火山</h2>
     <p>生成单火口、离散高台、活动平台和真实阶梯或坡道，核对指定路线的完整净宽。</p>
-    <p className="asset-muted">熔岩外观、危险标记、阻挡和移动代价分别设置。保存后可自由删改，不会自动补回。</p>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">熔岩外观、危险标记、阻挡和移动代价分别设置。保存后可自由删改，不会自动补回。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ ...input, title: input.title.trim(), seed: input.seed.trim() }) }}>
       <fieldset disabled={locked}>

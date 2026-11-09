@@ -6,16 +6,23 @@ import { freezeJson } from '../../shared/validation/json.js'
 import { decorationPaintGeometry } from '../../shared/decorations/presentation.js'
 
 const views = new WeakMap<SceneDocument, Map<number, SceneDocument>>()
+const viewSources = new WeakMap<SceneDocument, Readonly<{ source: SceneDocument; options: number }>>()
+/** Selection-owned provenance only. This never certifies a document for editing,
+ * rendering, persistence or validation, and caller-owned sources cannot issue it. */
+export function ownedSelectionViewSource(view: SceneDocument): Readonly<{ source: SceneDocument; options: number }> | undefined {
+  return viewSources.get(view)
+}
 /** Native format retained; this disposable inspector view is never a save or renderer input. */
 export function selectionScene(scene: SceneDocument, options: { effectiveLocks?: boolean; layerOrder?: boolean } = {}): SceneDocument {
-  const certified = isCertifiedSceneSnapshot(scene), key = Number(!!options.effectiveLocks) + Number(!!options.layerOrder) * 2
+  const effectiveLocks = !!options.effectiveLocks, layerOrder = !!options.layerOrder
+  const certified = isCertifiedSceneSnapshot(scene), key = Number(effectiveLocks) + Number(layerOrder) * 2
   const cached = certified ? views.get(scene) : undefined
   if (cached?.has(key)) return cached.get(key)!
   const checked = validateSceneSnapshot(scene)
   if (!checked.ok) throw new Error(checked.errors.map(issue => issue.message).join('；'))
   copyScenePresentations(scene, checked.document)
-  let view = geometryDocumentForValidation(checked.document, options.effectiveLocks)
-  if (options.layerOrder) {
+  let view = geometryDocumentForValidation(checked.document, effectiveLocks)
+  if (layerOrder) {
     const source = checked.document, bands = { ground: 0, object: 1, canopy: 2 }
     const ordered = Object.values(view.props).sort((a, b) => bands[a.renderLayer] - bands[b.renderLayer]
       || source.userLayers[source.entityLayers[a.id]].order - source.userLayers[source.entityLayers[b.id]].order
@@ -36,7 +43,10 @@ export function selectionScene(scene: SceneDocument, options: { effectiveLocks?:
   if (checked.document.generation.version === 5) {
     copyScenePresentations(scene, view)
     const result = freezeJson(view)
-    if (certified) { const entry = cached ?? new Map(); entry.set(key, result); views.set(scene, entry) }
+    if (certified) {
+      const entry = cached ?? new Map(); entry.set(key, result); views.set(scene, entry)
+      viewSources.set(result, Object.freeze({ source: scene, options: key }))
+    }
     return result
   }
   const result = validateSceneSnapshot(view)

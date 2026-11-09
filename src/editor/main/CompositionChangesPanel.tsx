@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { DECORATION_COLLECTIONS, LAYER_ENTITY_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../../shared/model/scene'
 import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics'
 import { inspectAppearanceScope } from '../../shared/appearance/graph'
+import { getCompositionTransactionReceipt } from '../../shared/appearance/commands.js'
 import { MANUAL_TRANSACTION_BUDGET, type CommandBudgetUsage, type ManualTransactionBudget } from '../../shared/budget/command-budget'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { EditableProject } from '../../application/workspace/project'
@@ -45,18 +46,29 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
   const dependencyIds = aggregateBoundaryImpact ? [...new Set(aggregateBoundaryImpact.dependencyClosure.affected
     .filter(ref => ref.kind !== 'floor' && !aggregateBoundaryImpact.dependencyClosure.roots.some(root => root.kind === ref.kind && root.id === ref.id)).map(ref => ref.id))] : []
   const changes = useMemo(() => {
+    const receipt = getCompositionTransactionReceipt(candidate, current)
     const currentVisual = visualBase(current.document), candidateVisual = visualBase(candidate.document)
     const records = [...[...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS].map(collection => ({ collection: String(collection), before: current.document[collection] ?? {}, after: candidate.document[collection] ?? {} })),
       ...VISUAL_ENTITY_COLLECTIONS.map(collection => ({ collection: `visual.${collection}`, before: currentVisual?.[collection] ?? {}, after: candidateVisual?.[collection] ?? {} })),
       { collection: 'userLayers', before: current.document.userLayers, after: candidate.document.userLayers },
       { collection: 'visual.environment', before: currentVisual ? { 'visual-environment': currentVisual.environment } : {}, after: candidateVisual ? { 'visual-environment': candidateVisual.environment } : {} }]
-    return records.flatMap(({ collection, before: a, after: b }) => [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap(id => {
+    return records.flatMap(({ collection, before: a, after: b }) => {
+      // Actual executor writes bound the review scan. Unsupported/nested visual
+      // records retain their complete comparison; a caller list grants nothing.
+      const ids = !receipt || collection.startsWith('visual.') ? [...new Set([...Object.keys(a), ...Object.keys(b)])]
+        : [...new Set(receipt.changes.flatMap(write => {
+          const [root, field, id] = write.path
+          if (root !== 'document') return []
+          if (field === collection) return id ? [id] : [...Object.keys(a), ...Object.keys(b)]
+          return field === 'entityLayers' && id && (Object.hasOwn(a, id) || Object.hasOwn(b, id)) ? [id] : []
+        }))]
+      return ids.flatMap(id => {
     const withLayer = (record: unknown, layerId: string | undefined): Record<string, unknown> | undefined => record ? { ...(record as Record<string, unknown>), ...(layerId ? { layerId } : {}) } : undefined
     const before = withLayer((a as Record<string, unknown>)[id], current.document.entityLayers[id]), after = withLayer((b as Record<string, unknown>)[id], candidate.document.entityLayers[id])
     if (JSON.stringify(before) === JSON.stringify(after)) return []
     const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].filter(key => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
     return [{ id, collection, before, after, keys }]
-  })) }, [current, candidate])
+  }) }) }, [current, candidate])
   const terrainChanges = useMemo(() => terrainRecordChanges(current.document, candidate.document), [current, candidate])
   const aggregateChanges = useMemo(() => {
     const before = current.document.aggregateCoordinates?.groups ?? {}, after = candidate.document.aggregateCoordinates?.groups ?? {}

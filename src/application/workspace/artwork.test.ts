@@ -152,10 +152,10 @@ describe('deferred SVG/style artwork materialization using actual PNG fixtures',
     }
   })
 
-  it('returns no adopted changes when PNG encoding, source verification or cancellation fails', async () => {
+  it('returns no adopted changes when canonical raster data or cancellation fails', async () => {
     const input = fixture({ image: true }), validation = artworkValidation(), editable = await fromBundle(input, validation), before = canonicalJson(toBundle(editable).project)
     const draft = artworkDraft(input, [[svg()]], single), corrupt = artworkValidation()
-    corrupt.images.encodePng = async () => new Uint8Array([0])
+    corrupt.svg!.rasterize = async (_input, dimensions) => ({ ...dimensions, rgba: new Uint8ClampedArray([0]) })
     await expect(materializeAuthoringArtwork(editable, draft, corrupt)).rejects.toThrow()
     const cancelled = artworkValidation(), signal = { aborted: false }, rasterize = cancelled.svg!.rasterize
     cancelled.svg!.rasterize = async (...args) => { signal.aborted = true; return rasterize(...args) }

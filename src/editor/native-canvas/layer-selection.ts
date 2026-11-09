@@ -5,10 +5,12 @@ import { isCertifiedSceneSnapshot as isCertifiedSceneSnapshotV3, validateSceneSn
 import type { SceneDocument as SceneDocumentV3 } from '../../shared/model/scene.js'
 import { wallOrderV3, type ProjectedWallV3 } from './projection'
 import { wallGeometryV3 } from '../../platform/browser/render/renderer'
-import { effectiveEditLockedV2, hitTestAllV2, selectInBoundsV2, selectionGeometryV2 } from './selection'
+import { effectiveEditLockedV2, hitTestAllV2, inheritSelectionGeometry, selectInBoundsV2, selectionGeometryV2 } from './selection'
 import type { SelectionOptionsV2 } from './selection'
 import { summarizeSelectionV2 } from './selection-summary'
 import { copyScenePresentations } from '../../shared/appearance/presentation.js'
+import type { ProjectData } from '../../shared/model/project.js'
+import { getProjectTransactionReceipt } from '../../shared/project/validate.js'
 
 const EPS = 1e-6
 const cloneShapes = (shapes: PointMm[][]): PointMm[][] => shapes.map(shape => shape.map(point => ({ ...point })))
@@ -53,6 +55,17 @@ interface SelectionSourceV3 {
   legacyWallShapes: Map<string, PointMm[][]>
 }
 const sources = new WeakMap<SceneDocumentV3, SelectionSourceV3>()
+
+/** Called when an exact current project arrives. No previous index is created
+ * just for reuse, and neither this owner nor the new index retains the receipt.
+ * The result is a count of reused shapes, not a complexity or performance claim. */
+export function inheritSelectionGeometryForProject(project: ProjectData): number {
+  const receipt = getProjectTransactionReceipt(project)
+  if (!receipt || receipt.composition.validation.mode !== 'prop-proof') return 0
+  const previous = sources.get(receipt.baseline.document)
+  if (!previous) return 0
+  return inheritSelectionGeometry(project, previous.domain, sourceFor(receipt.result.document).domain)
+}
 
 function sourceFor(scene: SceneDocumentV3): SelectionSourceV3 {
   // A factory may outlive a caller-owned object. Only our own strict, deeply

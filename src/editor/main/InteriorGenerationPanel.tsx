@@ -5,17 +5,8 @@ import type { InteriorLayoutParameters } from '../../shared/generation/domains/i
 import './terrain-generation.css'
 import './interior-generation.css'
 
-export interface InteriorGenerationUiRequest {
-  title: string
-  widthMm: number
-  heightMm: number
-  seed: string
-  wallThicknessMm: number
-  rooms: InteriorLayoutParameters['rooms']
-  relations: InteriorLayoutParameters['relations']
-  corridor: InteriorLayoutParameters['corridor']
-  arrangement: Omit<InteriorLayoutParameters['arrangement'], 'palette'>
-}
+import type { InteriorGenerationUiRequest } from '../../application/workspace/generation-intent.js'
+export type { InteriorGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 const initialRooms = (): InteriorLayoutParameters['rooms'] => [
   { id: 'room-1', purpose: '公共室', minAreaMm2: 8_000_000, maxAreaMm2: 80_000_000, minClearSideMm: 2000 },
   { id: 'room-2', purpose: '储藏室', minAreaMm2: 8_000_000, maxAreaMm2: 80_000_000, minClearSideMm: 2000 },
@@ -67,7 +58,7 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
   return <section className="terrain-generation-panel interior-generation-panel" aria-label="室内布局生成">
     <h2>室内布局</h2>
     <p>按房间面积、净边长和相邻关系安排房间。候选包含真实房间与共享墙，可保存后继续编辑。</p>
-    <p className="asset-muted">首次生成会按用途、大小与实际空间建议门和家具，并核对通路净空。未完成的建议会说明原因；保存后可自由修改、删除，不会自动补回。</p>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次生成会按用途、大小与实际空间建议门和家具，并核对通路净空。未完成的建议会说明原因；保存后可自由修改、删除，不会自动补回。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, wallThicknessMm, rooms: rooms.map(room => ({ ...room, purpose: room.purpose.trim() })), relations, corridor, arrangement }) }}>
       <fieldset disabled={locked}>

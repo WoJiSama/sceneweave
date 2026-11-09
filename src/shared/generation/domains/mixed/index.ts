@@ -1,7 +1,7 @@
 import type { SceneDocument, PointMm } from '../../../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../../../model/scene.js'
 import { applyCommands } from '../../../commands/commands.js'
-import { assertTaskBudget, emptyBudgetUsage, measureTaskBudget, parseTaskBudgetProfile, captureExecutionBudget, BUDGET_DIMENSIONS, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { parseTaskBudgetProfile, captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/task-budget.js'
 import { captureJson, cloneJson, freezeJson, canonicalJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
@@ -9,8 +9,10 @@ import { getLegacyGeneration } from '../../../terrain-generation/composition-con
 import { generationInputHash, managedOutputHash } from '../../../terrain-generation/integrity.js'
 import type { GenerationRecipe, GenerationReference, GenerationRule } from '../../../terrain-generation/contracts.js'
 import { createSpaceContext } from '../../space.js'
+import { generationCreationWrites } from '../../materialization.js'
+import { GenerationCompositionExecution } from '../../composition-execution.js'
 import { GenerationRegistry, runGeneration, GenerationError } from '../../orchestrator.js'
-import { hashGenerationValue, type GenerationCandidate, type GenerationRequest, type GenerationArtifact, type JsonValue } from '../../contracts.js'
+import { hashGenerationValue, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
 import { resolveBuildingEntrancePort } from '../../building-port.js'
 import { normalizeInteriorInput, runSupportedInteriorGeneration } from '../interior/index.js'
 import { normalizeForestInput, runForestGeneration, forestEntityId, forestRectangle, type ForestGenerationInput } from '../forest/index.js'
@@ -71,6 +73,7 @@ function runAdapter(source: SceneDocument, input: MixedGenerationInput, supportA
   const p = input.parameters, registry = new GenerationRegistry(), ground = !openingId, name = ground ? 'mixed-ground' : 'mixed-approach'
   const phase = ground ? 'structure' : 'connectivity', produces = ground ? ['support-surface' as const] : ['access-zone' as const]
   registry.register({ id: name, version: 1, phase, owner: phase, consumes: ground ? ['support-surface'] : ['support-surface', 'opening'], produces, publishFacts: produces, requires: [],
+    writes: ({ document }) => generationCreationWrites(document, ground ? ['terrainAreas'] : ['paths']),
     determinism: { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' }, parseParameters: raw => captureJson(raw), run: () => ({ outputs: [] }),
     materialize({ document: before, context }) {
       const runtime = { ids: { nextId: () => mixedEntityId(source.sceneId, input.seed, `${name}:native`) }, clock: { now: () => source.updatedAt } }
@@ -127,72 +130,42 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
   if (!validateSceneDocument(source).ok || source.mapMode !== 'scene' || Object.keys(source.floors).length !== 1
     || [...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS].some(key => Object.keys(source[key]).length)
     || Object.keys(source.vertices).length || Object.keys(getLegacyGeneration(source)!.recipes).length) throw new GenerationError('invalid-request', '混合全图生成须使用合法独立单Floor空白工程。')
-  const usage = emptyBudgetUsage(), stages: GenerationCandidate['stages'][number][] = [], outputs: GenerationArtifact[] = [], diagnostics: GenerationCandidate['diagnostics'][number][] = []
-  usage.candidateAttempts = 1
-  const start = options.nowMilliseconds(); let lastTime = start, current = source
-  const nowMilliseconds = () => {
-    if (options.signal?.aborted) throw new GenerationError('cancelled', '混合生成已取消，未发布部分候选。')
-    const now = options.nowMilliseconds()
-    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(now) || now < lastTime) throw new GenerationError('invalid-request', '混合执行时钟须返回非负单调整数毫秒。')
-    lastTime = now
-    if (now - start > profile.limits.activeExecutionMs) throw new GenerationError('budget-exceeded', '混合生成累计执行时间超限。')
-    return now
-  }
-  nowMilliseconds()
-  const opts = { ...options, profile, nowMilliseconds }
-  const append = (module: string, candidate: GenerationCandidate) => {
-    if (candidate.sourceHash !== hashGenerationValue(current)) throw new GenerationError('candidate-invalid', '混合前序候选摘要断链。')
-    for (const key of BUDGET_DIMENSIONS) usage[key] += key === 'candidateAttempts' ? Math.max(0, candidate.usage[key] - 1) : candidate.usage[key]
-    usage.activeExecutionMs = Math.max(usage.activeExecutionMs, nowMilliseconds() - start)
-    assertTaskBudget(profile, usage)
-    stages.push(...candidate.stages.map(stage => ({ ...stage, stepId: `${module}:${stage.stepId}` })))
-    outputs.push(...candidate.outputs); diagnostics.push(...candidate.diagnostics)
-    current = cloneJson(candidate.document) as SceneDocument
-  }
+  const execution = new GenerationCompositionExecution(source, { ...options, profile })
   const outdoorSeed = moduleSeed(input.seed, 'outdoor'), buildingSeed = moduleSeed(input.seed, 'building')
   let outdoorRecipeId: string, volcano: ReturnType<typeof runVolcanoGeneration> | undefined
   const supportAreaId = p.outdoor.kind === 'forest' ? mixedEntityId(source.sceneId, input.seed, 'ground') : volcanoEntityId(source.sceneId, outdoorSeed, 'platform')
-  if (p.outdoor.kind === 'forest') append('foundation', runAdapter(current, input, supportAreaId, opts))
+  if (p.outdoor.kind === 'forest') execution.run('foundation', (current, opts) => ({ candidate: runAdapter(current, input, supportAreaId, opts) }))
   else {
-    volcano = runVolcanoGeneration(current, { version: 1, algorithmVersion: 1, seed: outdoorSeed, parameters: p.outdoor.parameters }, opts)
-    append('outdoor', volcano.candidate)
+    const parameters = p.outdoor.parameters
+    volcano = execution.run('outdoor', (current, opts) => runVolcanoGeneration(current, { version: 1, algorithmVersion: 1, seed: outdoorSeed, parameters }, opts))
   }
-  const building = runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: 1, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId } } }, opts)
-  append('building', building.candidate)
+  const building = execution.run('building', (current, opts) => runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: 1, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId } } }, opts))
   const entranceOpeningId = building.report.connectivity.entranceOpeningId
   if (!entranceOpeningId) throw new GenerationError('candidate-invalid', '初次混合候选未找到可接入的真实外门；请调整建筑尺寸或门建议参数。')
-  append('approach', runAdapter(current, input, supportAreaId, opts, entranceOpeningId))
+  execution.run('approach', (current, opts) => ({ candidate: runAdapter(current, input, supportAreaId, opts, entranceOpeningId) }))
   const notes = [...building.report.notes]
   if (p.outdoor.kind === 'forest') {
     const parameters = cloneJson(p.outdoor.parameters)
     parameters.ground = { kind: 'existing' }
     for (const row of [...parameters.zones, ...parameters.clearings, ...parameters.entrances]) row.supportRef = { kind: 'terrainArea', id: supportAreaId }
     const forestInput: ForestGenerationInput = { version: 1, algorithmVersion: 1, seed: outdoorSeed, parameters }
-    const forest = runForestGeneration(current, forestInput, opts)
-    append('outdoor', forest.candidate); notes.push(...forest.report.notes)
+    const forest = execution.run('outdoor', (current, opts) => runForestGeneration(current, forestInput, opts))
+    notes.push(...forest.report.notes)
     outdoorRecipeId = forestEntityId(source.sceneId, outdoorSeed, 'recipe')
   } else {
-    checkVolcanoResult(current, volcano!.input, volcano!.report); notes.push(...volcano!.report.notes)
+    checkVolcanoResult(execution.document, volcano!.input, volcano!.report); notes.push(...volcano!.report.notes)
     outdoorRecipeId = volcanoEntityId(source.sceneId, outdoorSeed, 'recipe')
   }
-  const finalRoute = current.paths[mixedEntityId(source.sceneId, input.seed, 'approach')]
+  const current = execution.document, finalRoute = current.paths[mixedEntityId(source.sceneId, input.seed, 'approach')]
   const port = resolveBuildingEntrancePort(current, entranceOpeningId, p.approach.widthMm)
   for (const pointsMm of [finalRoute.centerlineMm, [...finalRoute.centerlineMm, port.insideMm]]) {
     const checked = checkTerrainRoute(current, { floorId: port.floorId, pointsMm, widthMm: p.approach.widthMm })
     if (!checked.ok) throw new GenerationError('candidate-invalid', `后续内容破坏建筑接入净空：${checked.issues.map(row => row.message).join('；')}`)
   }
   const buildingRecipe = Object.values(getLegacyGeneration(current)!.recipes).find(row => 'domain' in row && row.domain === 'interior' && row.algorithmId === 'supported-interior')!
-  const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
-  const sorted = outputs.sort((a, b) => compare(a.kind, b.kind) || compare(a.id, b.id))
-  if (new Set(sorted.map(row => row.id)).size !== sorted.length) throw new GenerationError('ownership-conflict', '混合模块输出事实身份冲突。')
-  const full = measureTaskBudget(source, current)
-  for (const key of BUDGET_DIMENSIONS) usage[key] = Math.max(usage[key], full[key])
-  usage.activeExecutionMs = Math.max(usage.activeExecutionMs, nowMilliseconds() - start)
-  assertTaskBudget(profile, usage)
   const report: MixedReport = { environment: p.outdoor.kind, supportAreaId, buildingRecipeId: buildingRecipe.id, outdoorRecipeId,
     roomIds: Object.keys(current.rooms).sort(), openingIds: Object.keys(current.openings).sort(), propIds: Object.keys(current.props).sort(), entranceOpeningId, approachPathId: finalRoute.id, notes }
-  const candidate: GenerationCandidate = { status: 'prepared', materializationRequired: true, requestHash: hashGenerationValue({ algorithm: 'mixed-layout', version: 1, input, profile }), sourceHash: hashGenerationValue(source),
-    document: freezeJson(current), documentHash: hashGenerationValue(current), outputs: sorted, outputHash: hashGenerationValue(sorted.map(row => [row.kind, row.id, row.contentHash])), diagnostics, usage, stages }
+  const candidate = execution.publish(hashGenerationValue({ algorithm: 'mixed-layout', version: 1, input, profile }))
   const resultHash = hashGenerationValue({ input, report, documentHash: candidate.documentHash, outputHash: candidate.outputHash, stages: candidate.stages })
   return freezeJson({ input, candidate, report, resultHash })
 }

@@ -41,7 +41,8 @@ export async function createRegionalBlankProject(options: { sceneId?: string; ti
     document.assets[assetId] = { id: assetId, sha256: raster.sha256, mimeType: raster.mimeType, pixelWidth: raster.pixelWidth, pixelHeight: raster.pixelHeight, logicalSizeMm: { width: 120_000, height: 120_000 }, licenseRef: REGIONAL_SYMBOL_LICENSE_REF, origin }
     document.regional!.symbolDefinitions[definitionId] = { id: definitionId, catalogId: `sceneweave.regional.${art.key}`, version: 1, name: art.name, assetId, licenseRef: REGIONAL_SYMBOL_LICENSE_REF, origin, visualBoundsMm: { x: -60_000, y: -112_000, width: 120_000, height: 120_000 }, rootAnchorMm: { x: 0, y: 0 }, orientation: 'upright' }
     assets[raster.sha256] = { sha256: raster.sha256, mimeType: raster.mimeType, sizeBytes: raster.pngBytes.length, pixelWidth: raster.pixelWidth, pixelHeight: raster.pixelHeight }
-    authoringSources[assetId] = { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256, sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: raster.sha256, processorId: raster.processorId, processorVersion: raster.processorVersion }
+    authoringSources[assetId] = { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256, sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: raster.sha256,
+      processorId: raster.processorId, processorVersion: raster.processorVersion, rasterizer: raster.rasterizer, pixelFormat: raster.pixelFormat }
     resources.set(raster.sha256, raster.pngBytes); resources.set(normalized.sourceSha256, encodeUtf8(normalized.sourceSvg)); resources.set(normalized.normalizedSha256, encodeUtf8(normalized.normalizedSource))
   }
   const content = createCompositionContent(document, runtime), licenseHash = sha256Bytes(encodeUtf8(REGIONAL_SYMBOL_LICENSE))

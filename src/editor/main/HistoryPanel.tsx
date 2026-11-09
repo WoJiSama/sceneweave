@@ -48,6 +48,9 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const [inspected, setInspected] = useState<'version' | 'snapshot'>('version')
   const sceneId = project.document.sceneId, canvasIds = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [summaries, setSummaries] = useState<SnapshotSummary[]>([]), [usage, setUsage] = useState<Usage | null>(null)
+  const [metadataVersion, setMetadataVersion] = useState<number | undefined>()
+  const [directoryIssues, setDirectoryIssues] = useState<string[]>([]), [legacyHistory, setLegacyHistory] = useState(false)
+  const [loadingStorage, setLoadingStorage] = useState(false), [storageError, setStorageError] = useState<string | null>(null)
   const [legacySources, setLegacySources] = useState<LegacySource[]>([])
   const [versionHistory, setVersionHistory] = useState<VersionHistory | null>(null), [versionId, setVersionId] = useState('')
   const [name, setName] = useState(''), [creating, setCreating] = useState(false), [snapshot, setSnapshot] = useState<EditableSnapshot | null>(null)
@@ -59,17 +62,23 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const [historyError, setHistoryError] = useState<string | null>(null), [loadingHistory, setLoadingHistory] = useState(false)
   const [restoreResult, setRestoreResult] = useState<string | null>(null), [restoreError, setRestoreError] = useState<string | null>(null)
   const [scopeType, setScopeType] = useState<'props' | 'structure'>('props')
-  const request = useRef(0), viewport = useRef<HTMLDivElement>(null), pendingFocus = useRef<string | null>(null), focusFrame = useRef<number | null>(null)
+  const request = useRef(0), storageRequest = useRef(0), viewport = useRef<HTMLDivElement>(null), pendingFocus = useRef<string | null>(null), focusFrame = useRef<number | null>(null)
   const completedRefresh = useRef<string | null>(null)
   const refreshStamp = `${sceneId}:${project.document.revision}:${refreshKey}`
+  const resetStorageDetails = () => {
+    storageRequest.current++
+    setUsage(null); setLegacySources([]); setStorageError(null); setLoadingStorage(false)
+  }
   const refresh = async () => {
     const ticket = ++request.current
+    resetStorageDetails()
     setLoadingHistory(true)
     try {
-      const overview = await repository.historyOverview(sceneId)
+      const overview = await repository.historyDirectory(sceneId)
       if (ticket !== request.current) return
       completedRefresh.current = refreshStamp
-      setSummaries(overview.snapshots); setUsage(overview.usage); setLegacySources(overview.legacySources)
+      setSummaries(overview.snapshots); setMetadataVersion(overview.metadataVersion)
+      setDirectoryIssues(overview.issues.map(issue => `${issue.key}：${issue.message}`)); setLegacyHistory(overview.historyState === 'legacy')
       setVersionHistory(overview.history); setHistoryError(null); setError(null)
       setVersionId(current => overview.history.versions.some(version => version.id === current && version.automatic) ? current : overview.history.activeVersionId ?? '')
       setSnapshot(current => current && overview.snapshots.some(item => item.id === current.id) ? current : null)
@@ -81,17 +90,31 @@ export default function HistoryPanel({ active, project, repository, workspace, s
       if (ticket === request.current) setLoadingHistory(false)
     }
   }
+  const loadStorageDetails = async () => {
+    const ticket = ++storageRequest.current, directoryTicket = request.current
+    const current = () => ticket === storageRequest.current && directoryTicket === request.current
+    setLoadingStorage(true); setStorageError(null)
+    try {
+      const [actualUsage, sources] = await Promise.all([repository.usage(sceneId), repository.listLegacySources(sceneId)])
+      if (!current()) return
+      setUsage(actualUsage); setLegacySources(sources)
+    } catch (failure) {
+      if (current()) setStorageError(failure instanceof Error ? failure.message : String(failure))
+    } finally { if (current()) setLoadingStorage(false) }
+  }
   useEffect(() => {
     completedRefresh.current = null
-    setInspected('version'); setSummaries([]); setUsage(null); setLegacySources([]); setVersionHistory(null); setVersionId(''); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setHistoryError(null); setLoadingHistory(false); setRestoreResult(null); setRestoreError(null); setActiveId(null); pendingFocus.current = null
-    return () => { request.current++ }
+    resetStorageDetails()
+    setInspected('version'); setSummaries([]); setMetadataVersion(undefined); setDirectoryIssues([]); setLegacyHistory(false); setVersionHistory(null); setVersionId(''); setSnapshot(null); setSelected(new Set()); setBackupIds(new Set()); setIncludeHistory(false); setName(''); setRename(null); setDeleting(null); setCreating(false); setError(null); setHistoryError(null); setLoadingHistory(false); setRestoreResult(null); setRestoreError(null); setActiveId(null); pendingFocus.current = null
+    return () => { request.current++; storageRequest.current++ }
   }, [sceneId])
   useEffect(() => {
-    if (!historyActive) { completedRefresh.current = null; setLoadingHistory(false); return }
+    if (!historyActive) { completedRefresh.current = null; resetStorageDetails(); setLoadingHistory(false); return }
     // Revision and protection notifications can arrive before the save finishes.
     // Read the persisted history once after that write, rather than competing
     // with validation/rendering and immediately repeating the same full scan.
-    if (refreshBlocked || completedRefresh.current === refreshStamp) { setLoadingHistory(false); return }
+    if (refreshBlocked) { resetStorageDetails(); setLoadingHistory(false); return }
+    if (completedRefresh.current === refreshStamp) { setLoadingHistory(false); return }
     void refresh().catch(() => {})
     const automaticTicket = request.current
     // Busy state changes clean up this automatic read. An explicit refresh may
@@ -199,7 +222,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const parentVersion = selectedVersion?.parentId ? versionById.get(selectedVersion.parentId) : undefined
   const childVersions = selectedVersion ? versions.filter(version => version.parentId === selectedVersion.id) : []
   const historyPending = loadingHistory || !versionHistory && !historyError
-  const historyReady = versionHistory !== null && !historyPending && !historyError
+  const historyReady = versionHistory !== null && !historyPending && !historyError && !directoryIssues.length
   const restoreVersion = () => selectedVersion && void onAction(async () => {
     const before = workspace.getState().project
     setError(null); setRestoreResult(null); setRestoreError(null)
@@ -270,6 +293,9 @@ export default function HistoryPanel({ active, project, repository, workspace, s
     <div hidden={inspected !== 'snapshot'} inert={inspected !== 'snapshot'}>{snapshotDetails}</div>
   </section>
   return <section className="history-panel" aria-label="命名历史" aria-busy={loadingHistory}>
+    <p className="asset-muted">这里只展示历史目录。查看、恢复或导出时会检查对应完整内容。</p>
+    {directoryIssues.length > 0 && <div className="history-limit" role="alert"><p>部分历史目录不可读，记录仍保留；可读条目不代表完整历史已通过检查。</p>{directoryIssues.map((issue, index) => <p key={index}>{issue}</p>)}</div>}
+    {legacyHistory && <p role="status">此工程保留旧历史记录；保存或查看历史快照时会完成历史接续，原记录保持。</p>}
     {historyPending && <p className="asset-muted" role="status">{versionHistory ? '正在刷新历史，暂时显示上次读取的记录…' : refreshBlocked ? '当前操作完成后读取历史…' : '正在读取历史…'}</p>}
     {historyError && <div className="history-limit" role="alert"><p>{versionHistory ? '历史刷新失败，下面保留上次读取的记录。' : '历史读取失败，尚不能确定是否有保存版本或快照。'} {historyError}</p><button className="secondary" disabled={disabled || refreshBlocked || loadingHistory} onClick={() => void onAction(refresh, '重试读取历史')}>重试读取历史</button></div>}
     {!split && restoreFeedback}
@@ -292,10 +318,13 @@ export default function HistoryPanel({ active, project, repository, workspace, s
         {kind !== 'imported-auto' && <button title="删除快照" aria-label={`删除快照 ${summary.name}`} disabled={disabled} onClick={() => { setDeleting(summary); setRename(null) }}><Trash2 size={13}/></button>}
       </div>)}{historyReady && !available.some(item => item.kind === kind) && <p className="history-empty">{kind === 'named' ? '暂无命名快照' : kind === 'protection' ? '暂无恢复前保护快照' : '暂无旧自动保存'}</p>}</div>
     </div>)}
-    {rename && <form className="history-name-form" onSubmit={event => { event.preventDefault(); if (!rename.name.trim()) return; void onAction(async () => { await repository.renameNamedSnapshot(rename.snapshot.id, rename.name.trim(), rename.snapshot.contentHash, usage?.metadataVersion, sceneId); if (snapshot?.id === rename.snapshot.id) setSnapshot(await repository.loadNamedSnapshot(rename.snapshot.id, sceneId)); setRename(null); await refresh() }, '重命名快照') }}><label>快照名称<input autoFocus aria-label="修改快照名称" value={rename.name} maxLength={80} disabled={disabled} onChange={event => setRename({ ...rename, name: event.target.value })}/></label><button className="secondary" disabled={disabled || !rename.name.trim()}>保存名称</button><button type="button" aria-label="取消快照改名" disabled={disabled} onClick={() => setRename(null)}><X size={13}/></button></form>}
-    {deleting && <div className="history-delete-confirm" role="group" aria-label="删除快照确认"><strong>删除「{deleting.name}」？</strong><span>此快照将从本工程历史移除</span><button className="secondary" disabled={disabled} onClick={() => setDeleting(null)}>取消删除</button><button className="history-danger" disabled={disabled} onClick={() => void onAction(async () => { await repository.deleteNamedSnapshot(deleting.id, deleting.contentHash, usage?.metadataVersion, sceneId); setDeleting(null); await refresh() }, '删除快照')}><Trash2 size={13}/>确认删除快照</button></div>}
+    {rename && <form className="history-name-form" onSubmit={event => { event.preventDefault(); if (!rename.name.trim()) return; void onAction(async () => { await repository.renameNamedSnapshot(rename.snapshot.id, rename.name.trim(), rename.snapshot.contentHash, metadataVersion, sceneId); if (snapshot?.id === rename.snapshot.id) setSnapshot(await repository.loadNamedSnapshot(rename.snapshot.id, sceneId)); setRename(null); await refresh() }, '重命名快照') }}><label>快照名称<input autoFocus aria-label="修改快照名称" value={rename.name} maxLength={80} disabled={disabled} onChange={event => setRename({ ...rename, name: event.target.value })}/></label><button className="secondary" disabled={disabled || !rename.name.trim()}>保存名称</button><button type="button" aria-label="取消快照改名" disabled={disabled} onClick={() => setRename(null)}><X size={13}/></button></form>}
+    {deleting && <div className="history-delete-confirm" role="group" aria-label="删除快照确认"><strong>删除「{deleting.name}」？</strong><span>此快照将从本工程历史移除</span><button className="secondary" disabled={disabled} onClick={() => setDeleting(null)}>取消删除</button><button className="history-danger" disabled={disabled} onClick={() => void onAction(async () => { await repository.deleteNamedSnapshot(deleting.id, deleting.contentHash, metadataVersion, sceneId); setDeleting(null); await refresh() }, '删除快照')}><Trash2 size={13}/>确认删除快照</button></div>}
     {!split && snapshotDetails}
     {split && detailsTarget && createPortal(historyDetails, detailsTarget)}
+    <div className="history-storage-inspection"><button className="secondary" disabled={disabled || refreshBlocked || loadingHistory || loadingStorage} onClick={() => void loadStorageDetails()}>{loadingStorage ? '正在检查容量与迁移原件…' : '检查容量与迁移原件'}</button>
+      {storageError && <p role="alert" className="asset-error">容量或迁移原件检查失败：{storageError}</p>}
+    </div>
     {legacySources.length > 0 && <section className="history-originals" aria-label="迁移原件">
       <h3>迁移原件 <small>{legacySources.length} 份</small></h3>
       <p className="asset-muted">保留转换前的确切原件。下载不改变当前工程或历史。</p>

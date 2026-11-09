@@ -6,6 +6,7 @@ import { createPublicVisibility } from '../geometry/visibility.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { captureJson, freezeJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
+import { domainFactProviders } from './domains/fact-providers.js'
 import { freezeArtifact, hashGenerationValue, type ArtifactInput, type GenerationArtifact, type SpaceQueries } from './contracts.js'
 
 const boundsPolygon = (bounds: BoundsMm): PointMm[] => [{ x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.width, y: bounds.y }, { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, { x: bounds.x, y: bounds.y + bounds.height }]
@@ -47,35 +48,7 @@ export function createSpaceContext(raw: SceneDocument, prefix = 'source'): Space
       for (const [name, endpoint, toward] of [['from', connection.from, path[1]], ['to', connection.to, path[path.length - 2]]] as const) add({ kind: 'port', id: key('port', `${connection.id}:${name}`), owner: 'connectivity', payload: { ...common, positionMm: endpoint.positionMm, directionDeg: direction(endpoint.positionMm, toward), widthMm: connection.widthMm, elevationMm: elevation(endpoint.surfaceRef), supportRef: endpoint.surfaceRef, role: 'connection-end' } })
       add({ kind: 'connection', id: key('connection', connection.id), owner: 'connectivity', payload: { ...common, entityId: connection.id, fromPortId: key('port', `${connection.id}:from`), toPortId: key('port', `${connection.id}:to`), widthMm: connection.widthMm, pathMm: path, blocksMovement: connection.blocksMovement } })
     }
-    // Volcano recipes expose their saved ground entrance without inferring a
-    // port from texture, bounds or seed alone.
-    for (const recipe of Object.values(getLegacyGeneration(scene)?.recipes ?? {})) if ('domain' in recipe && recipe.domain === 'volcano') {
-      const identity = (name: string) => `volcano-${hashGenerationValue([scene.sceneId, recipe.seed, name]).slice(0, 32)}`
-      const port = getLegacyGeneration(scene)!.constraints[identity('entrance')], surface = scene.terrainAreas[identity('ground')]
-      if (port?.kind !== 'port' || !surface || surface.floorId !== port.floorId) continue
-      const r = Math.ceil(port.widthMm / 2), e = port.positionMm
-      // Soft reservations may outlive manual geometry edits. Publish only an
-      // entrance whose complete width still has its exact current support.
-      if (!supportedPolygon(scene, boundsPolygon({ x: e.x - r, y: e.y - r, width: r * 2, height: r * 2 }), { kind: 'terrainArea', id: surface.id }, port.floorId)) continue
-      add({ kind: 'port', id: key('port', port.id), owner: 'connectivity', payload: {
-        coordinateFrame: 'scene-mm', floorId: port.floorId, visibility: port.visibility, positionMm: port.positionMm, directionDeg: port.directionDeg,
-        widthMm: port.widthMm, elevationMm: surface.groundElevationMm, supportRef: { kind: 'terrainArea', id: surface.id }, role: 'entrance',
-      } })
-    }
-    // Forest entrances bind a saved explicit port to a saved explicit surface.
-    // Old untyped natural port records retain their existing fact projection.
-    const generation = getLegacyGeneration(scene)
-    for (const recipe of Object.values(generation?.recipes ?? {})) if ('domain' in recipe && recipe.domain === 'forest') {
-      const identity = (name: string) => `forest-${hashGenerationValue([scene.sceneId, recipe.seed, name]).slice(0, 32)}`
-      for (const entrance of recipe.parameters.entrances) {
-        const port = generation!.constraints[identity(`entrance:${entrance.id}`)]
-        const supportRef = { kind: 'terrainArea' as const, id: entrance.supportRef.kind === 'generated-ground' ? identity('ground') : entrance.supportRef.id }
-        const surface = scene.terrainAreas[supportRef.id]
-        if (!port || port.kind !== 'port' || !surface || surface.floorId !== port.floorId) continue
-        add({ kind: 'port', id: key('port', port.id), owner: 'connectivity', payload: { coordinateFrame: 'scene-mm', floorId: port.floorId, visibility: port.visibility,
-          positionMm: port.positionMm, directionDeg: port.directionDeg, widthMm: port.widthMm, elevationMm: surface.groundElevationMm, supportRef, role: 'entrance' } })
-      }
-    }
+    for (const provider of domainFactProviders) for (const fact of provider(scene, key)) add(fact)
     for (const path of Object.values(scene.paths)) add({ kind: 'access-zone', id: key('path', path.id), owner: 'connectivity', payload: { coordinateFrame: 'scene-mm', floorId: path.floorId, visibility: path.visibility, boundaryMm: pathPolygon(path), sourceId: path.id, purpose: 'route' } })
     for (const constraint of Object.values(getLegacyGeneration(scene)?.constraints ?? {})) if (constraint.kind === 'activityArea') add({ kind: 'access-zone', id: key('activity', constraint.id), owner: 'connectivity', payload: { coordinateFrame: 'scene-mm', floorId: constraint.floorId, visibility: constraint.visibility, boundaryMm: constraint.boundaryMm, sourceId: constraint.id, purpose: 'activity' } })
     for (const region of Object.values(scene.regions)) if (region.kind === 'hazard' || region.kind === 'manualMask') add({ kind: 'reserved-zone', id: key('region', region.id), owner: 'structure', payload: { coordinateFrame: 'scene-mm', floorId: region.floorId, visibility: region.visibility, boundaryMm: region.boundaryMm, sourceId: region.id, reason: region.kind === 'hazard' ? 'hazard' : 'manual-mask' } })

@@ -8,9 +8,12 @@ import type { PointMm, SceneDocument, SceneDocument8, SurfaceRuleRegion } from '
 import { polygonBooleanWithHoles } from '../geometry/polygon-boolean.js'
 import { cloneJson } from '../validation/json.js'
 import { emptyVisualSystem } from '../visual/types.js'
-import { estimateSurfaceRegionInstances } from '../decorations/generate.js'
+import { buildDecorationRegeneration, estimateSurfaceRegionInstances } from '../decorations/generate.js'
+import { validatePropGeometry } from '../geometry/geometry.js'
 import { applySurfaceRuleCommand, type SurfaceRuleCommand } from './commands.js'
 import { resolveSurfaceRules } from './resolve.js'
+import { addPropAppearanceSource, createCompositionContent } from '../appearance/graph.js'
+import { validateSceneDocument } from '../validation/scene.js'
 
 const p = (x: number, y: number): PointMm => ({ x, y })
 const rect = (x: number, y: number, width: number, height: number): PointMm[] => [p(x, y), p(x + width, y), p(x + width, y + height), p(x, y + height)]
@@ -63,6 +66,29 @@ function polygonArea(regions: SurfaceRuleRegion[]): bigint {
 }
 
 describe('v8 surface-rule command transactions', () => {
+  it('retains native world bounds when fixed root-anchored paint would fit beyond them', () => {
+    const scene = fixture(), tree = scene.propDefinitions[terrainVariantDefinitionId('tree-wind-oak')]
+    tree.defaultVisualBoundsMm = { x: -1000, y: -2000, width: 2000, height: 4000 }
+    tree.defaultFootprintMm = { width: 100, height: 100 }
+    tree.defaultFootprintOffsetMm = p(0, 0)
+    const graph = createCompositionContent(scene, context()).appearance
+    addPropAppearanceSource(graph, { definitionRef: { id: tree.id, version: tree.version }, appearance: tree.defaultAppearance,
+      visualBoundsMm: tree.defaultVisualBoundsMm, shadowClass: tree.defaultShadowClass, shadowOverride: null }, null,
+    { mode: 'nearSide', rootAnchorMm: p(0, 2000), orientation: 'fixedUpright', fixedRotationDeg: 0, footprintAxes: 'world', groundShadowMm: null })
+    const command = vegetation(scene, { id: 'world-boundary', field: 'trees', area: region(4000, 35000, 40000, 500), coveragePpm: 1_000_000 })
+    const before = cloneJson(scene), result = applyCommands(scene, [command], context(), { appearance: graph })
+    expect(scene).toEqual(before)
+    expect(validateSceneDocument(result).ok).toBe(true)
+    expect(result.props).toEqual({})
+    expect(result.decorationClusters['world-boundary-cluster'].members).toEqual({})
+    expect(result.surfaceRules['world-boundary-rule']).toMatchObject({ field: 'trees', coveragePpm: 1_000_000 })
+    expect(result.floors).toEqual(scene.floors)
+    const replay = buildDecorationRegeneration(result, result.decorationClusters['world-boundary-cluster'], context(), graph,
+      { polygons: [{ outer: rect(4000, 35000, 40000, 500), holes: [] }], coveragePpm: 1_000_000 })
+    expect(replay.props.length).toBeGreaterThan(0)
+    expect(validatePropGeometry(result, replay.props).some(issue => issue.code === 'OUTSIDE_FLOOR')).toBe(true)
+  })
+
   it('lets the newest same-channel rule cover, then local erase reveals the earlier rule', () => {
     const original = fixture(), whole = region(4000, 4000, 16000, 14000), patch = region(9000, 8000, 5000, 5000)
     const base = applyCommands(original, [vegetation(original, { id: 'grass-base', field: 'grass', area: whole })], context())

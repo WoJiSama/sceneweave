@@ -109,6 +109,16 @@ function assertUnlocked(scene: SceneDocument, entities: Editable[], includeAncho
   if (locked.length) throw new Error(`事务涉及已锁定的实体：${locked.map(entity => entity.id).join('、')}。`)
 }
 
+/** The controlled immutable Prop executor has no effective-lock scene clone.
+ * Apply the same recursive entity/note dependencies and their layer locks. */
+export function assertIndependentPropUpdateUnlocked(scene: SceneDocument, prop: Prop): readonly string[] {
+  const dependencies = lockDependants(scene, [prop], true)
+  const locked = dependencies.filter(entity => entity.editLocked
+    || !!scene.userLayers[scene.entityLayers[entity.id]]?.editLocked)
+  if (locked.length) throw new Error(`事务涉及已锁定的实体或图层：${locked.map(entity => entity.id).join('、')}。`)
+  return dependencies.map(entity => entity.id)
+}
+
 function roomOwnsWall(scene: SceneDocument, wall: Wall, roomId: string): boolean {
   const vertices = scene.rooms[roomId].boundaryVertexIds
   return vertices.some((id, i) => id === wall.startVertexId && vertices[(i + 1) % vertices.length] === wall.endVertexId || id === wall.endVertexId && vertices[(i + 1) % vertices.length] === wall.startVertexId)

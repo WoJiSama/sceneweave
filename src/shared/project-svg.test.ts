@@ -8,6 +8,7 @@ import { projectContentHash, validateProjectData } from './project/validate'
 import { projectResourceHashes, projectSourceRecords } from './project/source-resources'
 import { decodeUtf8, sha256Bytes } from './project/binary'
 import { cloneJson, encodeUtf8 } from './validation/json'
+import { CANONICAL_SVG_PROCESSOR, LEGACY_SVG_PROCESSOR } from './ai/svg'
 
 describe('SVG complete-project byte and pixel closure', () => {
   it('owns original, normalized and raster bytes under the exact verified resource scope', async () => {
@@ -76,6 +77,39 @@ describe('SVG complete-project byte and pixel closure', () => {
     cancelled.svg!.rasterize = async (...args) => { signal.aborted = true; return original(...args) }
     await expect(validateProjectBundle(bundle, { ...cancelled, signal })).rejects.toMatchObject({ name: 'AbortError' })
     expect(getVerifiedProjectBundle(bundle)).toBeUndefined()
+  })
+
+  it('requires the exact processor capability and does not invoke forged profile accessors', async () => {
+    const { bundle } = svgProjectFixture(), options = svgFixtureValidation()
+    Object.assign(options.svg!, { processor: LEGACY_SVG_PROCESSOR })
+    await expect(validateProjectBundle(bundle, options)).rejects.toMatchObject({ code: 'svg-capability-unavailable' })
+    let accessed = 0
+    Object.defineProperty(options.svg!, 'processor', { get() { accessed++; return CANONICAL_SVG_PROCESSOR } })
+    await expect(validateProjectBundle(bundle, options)).rejects.toThrow()
+    expect(accessed).toBe(0)
+    expect(getVerifiedProjectBundle(bundle)).toBeUndefined()
+  })
+
+  it('keeps legacy sources immutable and requires an explicit exact-pixel legacy capability', async () => {
+    const { bundle } = svgProjectFixture(), source = bundle.project.authoringSources.image
+    const { rasterizer: _rasterizer, pixelFormat: _pixelFormat, ...records } = source as typeof source & typeof CANONICAL_SVG_PROCESSOR
+    bundle.project.authoringSources.image = { ...records, ...LEGACY_SVG_PROCESSOR }
+    const before = cloneJson(bundle.project), options = svgFixtureValidation()
+    await expect(validateProjectBundle(bundle, options)).rejects.toMatchObject({ code: 'legacy-svg-rasterizer-required' })
+    expect(bundle.project).toEqual(before)
+    const legacySvg = { ...options.svg!, processor: LEGACY_SVG_PROCESSOR }
+    expect((await validateProjectBundle(bundle, { ...options, legacySvg })).project).toEqual(before)
+    legacySvg.rasterize = async () => ({ width: 1, height: 1, rgba: new Uint8ClampedArray([1, 2, 3, 255]) })
+    await expect(validateProjectBundle(bundle, { ...options, legacySvg })).rejects.toThrow(/实际栅格像素/)
+    expect(bundle.project).toEqual(before)
+  })
+
+  it('rejects a false rasterizer identity and retains the source/PNG relation with valid hashes', async () => {
+    const { bundle } = svgProjectFixture(), badProfile = cloneJson(bundle.project)
+    Reflect.set(badProfile.authoringSources.image, 'rasterizer', { ...CANONICAL_SVG_PROCESSOR.rasterizer, version: '2.6.3' })
+    expect(() => validateProjectData(badProfile)).toThrow()
+    const mismatch = svgProjectFixture(SVG_FIXTURE_SOURCE, [0, 0, 255, 255])
+    await expect(validateProjectBundle(mismatch.bundle, svgFixtureValidation())).rejects.toThrow(/实际栅格像素/)
   })
 
   it('keeps source scopes separate for independent complete bundles', async () => {

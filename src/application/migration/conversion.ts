@@ -10,10 +10,10 @@ import { sha256Text } from '../../shared/validation/hash.js'
 import { captureLegacyFamily, restoreLegacyCapture, LEGACY_DATABASES, type CaptureOptions, type LegacyCapture, type LegacyReference, type LegacyRepository } from '../../compat/legacy/capture.js'
 import { captureLegacyFile } from '../../compat/legacy/file.js'
 import { prepareLegacyFamily } from '../../compat/legacy/convert.js'
-import type { ProjectRepository } from '../../platform/browser/storage/repository.js'
+import type { ProjectConversionStore } from '../ports/project-conversion-store.js'
 
 export interface ConversionEnvironment {
-  repository: ProjectRepository
+  repository: ProjectConversionStore
   runtime: PreparationContext
   validation: CompleteValidationOptions
   legacy?: CaptureOptions

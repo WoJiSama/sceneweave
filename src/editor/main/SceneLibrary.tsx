@@ -50,9 +50,10 @@ export default function SceneLibrary({ project, selected, selectedIds, busy, onS
   return <aside className="asset-library scene-library"><div className="asset-section-heading"><Layers3 size={16}/><h2>场景对象</h2></div>
     {scene && <><div className="asset-library-tabs" role="group" aria-label="场景对象分类">{(['all', 'objects', 'groups', 'structure', 'geometry'] as const).map(kind => <button type="button" key={kind} aria-pressed={tab === kind} onClick={() => setTab(kind)}>{{ all: '全部', objects: '物件与装饰', groups: '组合', structure: '结构', geometry: '顶点与边缘' }[kind]}</button>)}</div>
       {layerFilter && <p className="scene-library-filter" role="status">当前浏览 · {scene.userLayers[layerFilter]?.name ?? '已移除图层'}。此筛选不会改变绘制图层或画布选区。</p>}
-      <div className="asset-entity-list">{Object.keys(scene.surfaceRules).length > 0 && <p className="asset-muted">地面铺装与植被分布规则在「地形 → 布景」中查看和调整。</p>}<p className="asset-muted">按住 Shift 再点击、按 Enter 或空格可增选；按住 Option / Alt 可减选。</p>
+      <div className="asset-entity-list">
         {blockedId && scene && excludedIds?.has(blockedId) && <div className="scene-selection-blocked" role="status"><p>「{createEntityLabeler(scene)(blockedId)}」{hiddenIds?.has(blockedId) ? '已在编辑视图中隐藏。请显示所属图层、退出独显，或检查其支撑和附着对象是否隐藏。' : '在当前选择范围外。请切换当前绘制图层，或改为「所有可见图层」。'}</p>{onOpenLayers && <button type="button" className="secondary" onClick={onOpenLayers}>调整图层与选择范围</button>}</div>}
         <VirtualEntityList key={scene.sceneId} items={shown} noun="对象" selectedIds={selectedSet} locateId={selectedIn(shown)} busy={busy} searchDisabled={false} onSelect={selectRow}/>
+        <details className="workspace-detail-disclosure scene-object-help"><summary>对象选择与浏览说明</summary><p className="asset-muted">按住 Shift 再点击、按 Enter 或空格可增选；按住 Option / Alt 可减选。</p>{Object.keys(scene.surfaceRules).length > 0 && <p className="asset-muted">地面铺装与植被分布规则在「地形 → 布景」中查看和调整。</p>}</details>
       </div></>}
   </aside>
 }

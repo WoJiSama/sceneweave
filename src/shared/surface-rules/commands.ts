@@ -6,10 +6,11 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { editable, id, int, paint, positive, versionRef, visibility } from '../validation/primitives.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { polygonBooleanWithHoles, type PolygonWithHoles } from '../geometry/polygon-boolean.js'
-import { terrainPoints } from '../geometry/geometry.js'
+import { terrainPoints, validatePropGeometry } from '../geometry/geometry.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { decorationClusterSchema } from '../decorations/contracts.js'
 import { buildDecorationRegeneration } from '../decorations/generate.js'
+import { decorationAsProp } from '../decorations/geometry.js'
 import { inspectDecorationChanges } from '../decorations/commands.js'
 import { surfaceRuleRegionSchema } from './contracts.js'
 import { resolveSurfaceRules } from './resolve.js'
@@ -142,6 +143,19 @@ export function applySurfaceRuleCommand(scene: SceneDocument, command: SurfaceRu
     const owner = Object.values(rules).find(rule => rule.field !== 'material' && rule.clusterId === cluster.id)
     if (owner?.regionsMm.length) cluster.boundsMm = bounds(owner.regionsMm)
     const result = buildDecorationRegeneration(scene, cluster, context, appearance, effective)
+    // The frozen sampler checks root-anchored paint when a fixed presentation
+    // exists. Current commands must also retain the native document's geometry
+    // bounds. Discard only proposed managed slots, without resampling or changing
+    // recipe replay, manual members, the target coverage, or the world bounds.
+    const outside = new Set(validatePropGeometry(scene, [...result.props, ...result.decorations.map(row => decorationAsProp(scene, row))])
+      .filter(issue => issue.code === 'OUTSIDE_FLOOR').map(issue => issue.entityId))
+    if (outside.size) {
+      for (const row of result.props) if (outside.has(row.id) && scene.props[row.id]) result.removePropIds.push(row.id)
+      for (const row of result.decorations) if (outside.has(row.id) && scene.decorations[row.id]) result.removeDecorationIds.push(row.id)
+      result.props = result.props.filter(row => !outside.has(row.id))
+      result.decorations = result.decorations.filter(row => !outside.has(row.id))
+      for (const [key, member] of Object.entries(result.cluster.members)) if (member.entityId && outside.has(member.entityId)) delete result.cluster.members[key]
+    }
     for (const id of [...result.removePropIds, ...result.removeDecorationIds]) {
       if (Object.values(scene.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === id)
         || scene.constraints.pathChecks.some(check => [check.from, check.to].some(anchor => anchor.type === 'entity' && anchor.entityId === id))) throw new Error(`植被移除仍涉及注记或路径依赖：${id}。`)

@@ -3,7 +3,7 @@ import { CATALOG_CURATION, catalogCurationFor as curated } from '../../platform/
 import { loadBuiltinCatalog } from '../../platform/browser/content'
 import { validation, runtime } from '../../platform/browser/runtime'
 import { toBundle, fromBundle, fromVerifiedBundle, type EditableProject } from '../../application/workspace/project'
-import { listCatalogItems, prepareLibraryEntry, loadLibraryCapsule, adoptLibraryEntries } from '../../shared/library/content'
+import { listSnapshotCatalogItems, prepareLibraryEntry, loadLibraryCapsule, adoptLibraryEntries } from '../../shared/library/content'
 import { exportLibraryBackup, importLibraryBackup } from '../../shared/library/backup'
 import { catalogReadonlyTags as readonlyTags } from '../../shared/library/curation'
 import { filterCatalogItems as filterItems, EMPTY_CATALOG_FILTER } from '../../shared/library/query'
@@ -20,7 +20,7 @@ export type {
 } from '../../shared/library/types'
 export type { CatalogFilter as CatalogFilterV1 } from '../../shared/library/query'
 export const EMPTY_CATALOG_FILTER_V1 = EMPTY_CATALOG_FILTER
-export const describeCatalogItems = (project: EditableProject) => listCatalogItems(toBundle(project))
+export const describeCatalogItems = (project: EditableProject) => listSnapshotCatalogItems(toBundle(project))
 export const prepareCatalogEntry = (project: EditableProject, selector: Parameters<typeof prepareLibraryEntry>[1], signal?: AbortSignal) => prepareLibraryEntry(toBundle(project), selector, { ...validation, signal })
 export const readCatalogEntry = async (entry: PreparedLibraryEntry, signal?: AbortSignal) => fromBundle(await loadLibraryCapsule(entry, { ...validation, signal }), { ...validation, signal })
 export const loadBuiltinCatalogV1 = async (signal?: AbortSignal) => fromVerifiedBundle(await loadBuiltinCatalog({ ...validation, signal }), { signal })

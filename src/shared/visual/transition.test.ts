@@ -1,5 +1,8 @@
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
+import { symbolPropV3 } from '../../core/v3/test-fixtures.js'
+import { tryApplyPropUpdatesSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
+import { applyCommands } from '../commands/commands.js'
 import type { SceneDocument } from '../model/scene.js'
 import { emptyVisualSystem, type VisualBoundary } from './types.js'
 import { createTerrainDistanceField, materializeTerrainTransition, validateTerrainTransition, validateTerrainTransitions, hitTerrainTransition, transitionBounds, terrainTransitionStrokePolygon, refreshTerrainTransitionsLocal } from './transition.js'
@@ -33,6 +36,27 @@ function closedFixture(): SceneDocument {
 }
 
 describe('T10 terrain transitions', () => {
+  it('keeps distant blocker moves local but falls back before entering transition influence', () => {
+    const scene = fixture()
+    scene.assets.asset = { id: 'asset', mimeType: 'image/png', sha256: hash, pixelWidth: 1, pixelHeight: 1, logicalSizeMm: { width: 1000, height: 1000 }, licenseRef: 'lic', origin: { kind: 'original', attribution: 'fixture', canEmbed: true } }
+    scene.entityLayers.sand = scene.entityLayers.water = scene.entityLayers.item = 'layer'
+    scene.props.item = { ...symbolPropV3('item', 7600, 7600), floorId: 'floor', blocksMovement: true, supportRef: { kind: 'floor', id: 'floor' } }
+    const row = materializeTerrainTransition(scene, { id: 'shore-transition', boundaryId: 'coast', kind: 'shore', side: 'left', widthMm: 400, clipMm: { x: 1000, y: 1000, width: 6000, height: 6000 } })
+    scene.visual.transitions[row.id] = row
+    const validated = validateSceneSnapshot(scene)
+    if (!validated.ok) throw new Error(validated.errors.map(error => error.message).join(';'))
+    const far = [{ type: 'updateProp' as const, id: 'item', changes: { positionMm: { x: 7700, y: 7600 } } }]
+    const nearby = [{ type: 'updateProp' as const, id: 'item', changes: { positionMm: { x: 7000, y: 7000 } } }]
+    const result = tryApplyPropUpdatesSnapshot(validated.document, far)
+    expect(result).toBeDefined()
+    expect(result!.result).toEqual(applyCommands(validated.document, far, { ids: { nextId: () => 'unused' }, clock: { now: () => scene.updatedAt } }))
+    expect(tryApplyPropUpdatesSnapshot(validated.document, nearby)).toBeUndefined()
+    scene.props.item.blocksMovement = false
+    const decoration = validateSceneSnapshot(scene)
+    if (!decoration.ok) throw new Error('fixture')
+    expect(tryApplyPropUpdatesSnapshot(decoration.document, nearby)).toBeDefined()
+  })
+
   it('materializes strict source-derived shore geometry and replays it', () => {
     const scene = fixture(), row = materializeTerrainTransition(scene, { id: 'shore-transition', boundaryId: 'coast', kind: 'shore', side: 'both', widthMm: 400, clipMm: { x: 1000, y: 1000, width: 6000, height: 6000 } })
     expect(row.leftSurface).toBe('sand'); expect(row.rightSurface).toBe('water'); expect(row.leftElevationMm).toBe(100); expect(row.rightElevationMm).toBe(0)

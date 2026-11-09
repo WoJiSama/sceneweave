@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { STATIC_SVG_LIMITS } from '../../../shared/ai/svg.js'
 import { crc32 } from '../../../shared/project/binary.js'
-import { encodeFixtureRaster } from '../../../../tests/helpers/m24-artwork-fixtures.js'
+import { encodeCanonicalPng } from '../../../shared/project/png-rgba.js'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
 import { assetImageDimensions } from './image-dimensions.js'
 
-const pixels = () => encodeFixtureRaster({ width: 2, height: 3, rgba: new Uint8ClampedArray(2 * 3 * 4).fill(255) })
+const pixels = () => encodeCanonicalPng({ width: 2, height: 3, rgba: new Uint8ClampedArray(2 * 3 * 4).fill(255) })
 const blob = (bytes: Uint8Array, type = '') => new Blob([bytes.slice().buffer as ArrayBuffer], { type })
 const svg = (body = '<rect x="0" y="0" width="64" height="32" fill="#123456"/>') => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32">${body}</svg>`
 const bitmap = (width = 2, height = 3) => ({ width, height, close: vi.fn() })

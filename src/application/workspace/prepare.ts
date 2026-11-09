@@ -7,20 +7,20 @@ import { detachChangedOutputs } from '../../shared/terrain-generation/integrity.
 import { pauseChangedCompositionAppearance, pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
 import { detachChangedAppearance } from '../../shared/terrain-generation/appearance-lifecycle.js'
 import { assertTerrainBudget, terrainCommandCost } from '../../shared/terrain-generation/cost.js'
-import { applyCompositionDraftCommands } from '../../shared/appearance/commands.js'
+import { applyCompositionDraftCommands, completeCompositionTransactionReceipt, tryApplyPropCompositionTransaction } from '../../shared/appearance/commands.js'
 import { listRequiredVariants, resolveAppearance, syncAppearanceGraph } from '../../shared/appearance/graph.js'
 import { topDownPresentation } from '../../shared/appearance/presentation.js'
-import { certifyCompositionContent, validateCompositionDraft } from '../../shared/validation/content.js'
+import { certifyCompositionContent, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction, validateCompositionDraft } from '../../shared/validation/content.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
-import type { SceneDocument } from '../../shared/model/scene.js'
-import { structureTopology } from '../../shared/history/structure-continuity.js'
+import type { TransactionReceipt, TransactionStep } from '../../shared/transaction/receipt.js'
 import type { AssetRecord, LicenseBinding, LicenseSubjectKind, SvgAuthoringSource } from '../../shared/model/project.js'
 import type { CompleteValidationOptions, CancellationSignal } from '../../shared/ports/resources.js'
-import { checkCancelled, SvgCapabilityError } from '../../shared/ports/resources.js'
+import { checkCancelled, ImageCapabilityError, SvgCapabilityError } from '../../shared/ports/resources.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
-import { createMemoryResources, deriveBitmapVariant } from '../../shared/project/resources.js'
+import { createMemoryResources, deriveBitmapVariant, bitmapVariantPixelPipeline } from '../../shared/project/resources.js'
+import { encodeCanonicalPng } from '../../shared/project/png-rgba.js'
 import { sha256Bytes } from '../../shared/project/binary.js'
-import { PROJECT_DATA_LIMITS } from '../../shared/project/validate.js'
+import { completeProjectTransactionReceipt, PROJECT_DATA_LIMITS } from '../../shared/project/validate.js'
 import { canonicalJson, captureJson, encodeUtf8, inspectJsonInput, freezeJson } from '../../shared/validation/json.js'
 import { normalizeStaticSvg, STATIC_SVG_LIMITS } from '../../shared/ai/svg.js'
 import { validateAssetDisplayName } from '../../shared/assets/import-manifest.js'
@@ -28,7 +28,6 @@ import type { AssetQualityAssessment } from '../../shared/assets/quality-review.
 import { assessImportedAssetQuality } from './asset-quality.js'
 import { inspectImageBytes, normalizePngChunks } from '../../shared/project/image-bytes.js'
 import { projectResourceRecords } from '../../shared/project/source-resources.js'
-import { normalizeBrowserImage } from '../../platform/browser/images/index.js'
 import { adoptLibraryEntries, listCatalogItems, prepareLibraryEntry } from '../../shared/library/content.js'
 import type { CatalogSelector, PreparedLibraryEntry } from '../../shared/library/types.js'
 import { captureEditableDraft, captureEditableInput, fromBundle, getVerifiedEditableProject, tryDeriveEditableProject, toBundle, validateEditableProject, type EditableProject } from './project.js'
@@ -45,6 +44,8 @@ export interface PrepareOptions {
   /** Internal accounting for fixed sources added in this same transaction. */
   initialOperationCost?: number
   onOperationCost?: (cost: number) => void
+  /** Private executor receipt; no validation or adoption authority is conferred. */
+  onTransactionReceipt?: (receipt: TransactionReceipt) => void
   /** Session-only IDs whose structure topology changed between commands. */
   onStructureInvalidations?: (ids: readonly string[]) => void
   /** GM-only read-only baseline diagnostics; never permission to skip validation. */
@@ -123,6 +124,12 @@ export async function materializeProject(input: EditableProject, options: Prepar
   checkCancelled(checked.signal)
   const baseline = getVerifiedEditableProject(options.baseline ?? input)
   let captured = captureEditableInput(input)
+  if (baseline && (getPropUpdateCompositionTransaction(contentOf(captured), contentOf(baseline))
+    || getCompositionRevisionTransaction(contentOf(captured), contentOf(baseline))
+    || captured.document === baseline.document && captured.historyIdentity === baseline.historyIdentity && captured.appearance === baseline.appearance)) {
+    const derived = tryDeriveEditableProject(captured, baseline, checked)
+    if (derived) { assertPreparationBudget(baseline, derived, options); return derived }
+  }
   if (baseline) {
     // Reconcile manual drafts before strict active-receipt validation. Own the
     // JSON branches first; neither caller data nor the baseline is repairable.
@@ -154,7 +161,7 @@ export async function materializeProject(input: EditableProject, options: Prepar
     const sourceAsset = project.document.assets[variant.sourceAssetId], source = sourceAsset && project.assets[sourceAsset.sha256]
     if (!sourceAsset || !source) throw new Error('派生位图缺少固定源字节。')
     const sourceBytes = added.get(source.sha256) ?? await originalResources.read(source.sha256)
-    const output = await deriveBitmapVariant(sourceBytes, source, { tint: variant.tint, brightness: variant.brightness }, checked)
+    const output = await deriveBitmapVariant(sourceBytes, source, { tint: variant.tint, brightness: variant.brightness }, checked, bitmapVariantPixelPipeline(project, variant.sourceAssetId))
     const adopted = { ...structuredClone(sourceAsset), id: variant.outputAssetId, sha256: output.record.sha256, mimeType: output.record.mimeType,
       pixelWidth: output.record.pixelWidth, pixelHeight: output.record.pixelHeight }
     const prior = project.document.assets[variant.outputAssetId]
@@ -206,38 +213,66 @@ export async function prepareCompositionCommands(input: EditableProject, command
   const initialCost = options.initialOperationCost === undefined ? 0 : options.initialOperationCost
   let operationCost = initialCost
   const manual = isManualTransactionBudget(options.budget), work: CommandBudgetUsage = emptyBudgetUsage(), observedWork = emptyBudgetUsage()
-  let previousContent: CompositionContent = contentOf(project)
+  // The executor carries a private write set and complete content proof. Keep
+  // those exact branches through accounting and resource derivation. A miss
+  // continues through the general composition/lifecycle/materialization route.
+  const propTransaction = manual && initialCost === 0 ? tryApplyPropCompositionTransaction(contentOf(project), capturedCommands) : undefined
+  if (propTransaction) {
+    for (const step of propTransaction.steps) {
+      if (step.before.document !== step.after.document) {
+        const delta = measureCommandBudget(step.before.document, step.after.document, { before: step.before, after: step.after }, undefined, options.budget)
+        for (const key of ['geometryPoints', 'geometrySegments', 'curveSegments', 'intersectionPairs'] as const) work[key] += delta[key]
+      }
+      const base = measureCommandBudget(project.document, step.after.document, { before: project, after: { ...step.after, assets: project.assets } }, undefined, options.budget)
+      assertCommandBudget(options.budget!, combineManualPreparationUsage(base, work, observedWork))
+    }
+    const prepared = await materializeProject({ ...project, ...propTransaction.result }, { ...options, baseline: project })
+    checkCancelled(checked.signal)
+    const base = measureCommandBudget(project.document, prepared.document, { before: project, after: prepared }, undefined, options.budget)
+    const usage = assertCommandBudget(options.budget!, combineManualPreparationUsage(base, work, observedWork))
+    options.onBudgetUsage?.(usage); options.onOperationCost?.(usage.semanticTargets)
+    const receipt = completeCompositionTransactionReceipt(contentOf(prepared), propTransaction.receipt)
+    if (receipt) {
+      completeProjectTransactionReceipt(toBundle(project).project, toBundle(prepared).project, receipt)
+      options.onTransactionReceipt?.(receipt)
+    }
+    if (options.onAggregateBoundaryImpact) {
+      const impact = inspectAggregateEdit(project, prepared.document, capturedCommands)
+      if (impact) options.onAggregateBoundaryImpact(impact)
+    }
+    return prepared
+  }
   const manualUsage = (after: CompositionContent & { assets?: EditableProject['assets'] }) => {
     const metadata = { before: project, after }, base = measureCommandBudget(project.document, after.document, metadata, undefined, options.budget)
     return combineManualPreparationUsage(base, work, observedWork)
   }
-  const observeContent = manual ? (draft: Readonly<CompositionContent>) => {
-    const delta = measureCommandBudget(previousContent.document, draft.document, { before: previousContent, after: draft }, undefined, options.budget)
+  const observeStep = manual ? ({ before, after: draft }: TransactionStep) => {
+    const delta = measureCommandBudget(before.document, draft.document, { before, after: draft }, undefined, options.budget)
     for (const key of ['geometryPoints', 'geometrySegments', 'curveSegments', 'intersectionPairs'] as const) work[key] += delta[key]
     for (const key of ['groupMembers', 'externalDependencies'] as const) work[key] = Math.max(work[key] ?? 0, delta[key] ?? 0)
     const usage = manualUsage({ ...draft, assets: project.assets })
     assertCommandBudget(options.budget!, usage)
-    previousContent = captureJson(draft)
   } : undefined
-  const tracesStructure = capturedCommands.some(command => command.type === 'deleteRoom' || command.type === 'deleteWall' || command.type === 'repairBuildingTopology')
-  let previousStructure = tracesStructure ? structureTopology(project.document) : undefined
-  const invalidatedStructures = new Set<string>()
-  const onSceneDraft = tracesStructure ? (draft: Readonly<SceneDocument>) => {
-    const next = structureTopology(draft as SceneDocument)
-    for (const id of new Set([...previousStructure!.keys(), ...next.keys()])) {
-      if (previousStructure!.get(id) !== next.get(id)) invalidatedStructures.add(id)
-    }
-    previousStructure = next
-    options.onStructureInvalidations?.([...invalidatedStructures])
-  } : undefined
+  let execution: TransactionReceipt | undefined
   const applyDraft = () => applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime,
-    accounting || options.budget || onSceneDraft ? { initialOperationCost: initialCost, budget: options.budget,
-      onOperationCost: cost => { operationCost = cost }, ...(observeContent ? { onContentDraft: observeContent } : {}), ...(onSceneDraft ? { onSceneDraft } : {}) } : undefined)
+    { initialOperationCost: initialCost, budget: options.budget,
+      onOperationCost: cost => { operationCost = cost }, onTransactionReceipt: receipt => { execution = receipt },
+      ...(observeStep ? { onTransactionStep: observeStep } : {}) })
   const draft = manual ? withExecutionWorkObserver(delta => {
     for (const [key, amount] of Object.entries(delta) as [keyof BudgetUsage, number][]) observedWork[key] += amount
     assertCommandBudget(options.budget!, observedWork)
   }, applyDraft) : applyDraft()
   const prepared = await materializeProject({ ...project, ...draft, schemaVersion: draft.document.schemaVersion }, { ...options, baseline: project })
+  checkCancelled(checked.signal)
+  // Use this execution's handle: the same result snapshot can retain a
+  // different committed receipt until its automatic save has finished.
+  const receipt = execution ? completeCompositionTransactionReceipt(contentOf(prepared), execution) : undefined
+  if (execution) options.onStructureInvalidations?.(execution.invalidation.structureIds)
+  const publishReceipt = () => {
+    if (!receipt) return
+    completeProjectTransactionReceipt(toBundle(project).project, toBundle(prepared).project, receipt)
+    options.onTransactionReceipt?.(receipt)
+  }
   if (options.onAggregateBoundaryImpact) {
     const impact = inspectAggregateEdit(project, prepared.document, capturedCommands)
     if (impact) options.onAggregateBoundaryImpact(impact)
@@ -246,6 +281,7 @@ export async function prepareCompositionCommands(input: EditableProject, command
     const usage = assertCommandBudget(options.budget!, manualUsage(prepared))
     options.onBudgetUsage?.(usage)
     options.onOperationCost?.(usage.semanticTargets)
+    publishReceipt()
     return prepared
   }
   if (accounting) {
@@ -256,6 +292,7 @@ export async function prepareCompositionCommands(input: EditableProject, command
     if (options.budget) assertPreparationBudget(project, prepared, options)
     options.onOperationCost?.(total)
   }
+  publishReceipt()
   return prepared
 }
 
@@ -367,7 +404,28 @@ async function prepareImportImage(bytes: Uint8Array, mime: string, checked: Comp
   if (!looksLikeSvg(bytes, mime)) {
     const header = inspectImageBytes(bytes, false)
     admitPixels(header.width * header.height)
-    return normalizeBrowserImage(bytes, mime, checked)
+    if (mime && mime !== 'application/octet-stream' && mime !== header.mimeType) throw new Error('图片声明MIME与实际格式不一致。')
+    if (checked.images.normalizeImport) return checked.images.normalizeImport(bytes, mime, checked)
+    // A generic decode/encode adapter cannot prove EXIF orientation for JPEG or
+    // WebP. Strict PNG inspection also excludes eXIf and color-profile metadata;
+    // stripping either before decoding would silently change source semantics.
+    if (header.mimeType !== 'image/png') throw new ImageCapabilityError()
+    try { inspectImageBytes(bytes) } catch { throw new ImageCapabilityError() }
+    const sourceRecord: AssetRecord = { sha256: sha256Bytes(bytes), mimeType: header.mimeType, sizeBytes: bytes.length, pixelWidth: header.width, pixelHeight: header.height }
+    const image = await checked.images.decode(bytes.slice(), sourceRecord, checked)
+    checkCancelled(checked.signal)
+    if (image.width !== header.width || image.height !== header.height || !(image.rgba instanceof Uint8ClampedArray)
+      || image.rgba.length !== image.width * image.height * 4) throw new Error('图片实际像素与源尺寸不符。')
+    const expected = image.rgba.slice(), encoded = normalizePngChunks(await checked.images.encodePng({ ...image, rgba: expected.slice() }, checked))
+    checkCancelled(checked.signal)
+    const normalized = inspectImageBytes(encoded)
+    if (normalized.mimeType !== 'image/png' || normalized.width !== image.width || normalized.height !== image.height) throw new Error('规范化PNG与实际像素尺寸不符。')
+    const record: AssetRecord = { sha256: sha256Bytes(encoded), mimeType: 'image/png', sizeBytes: encoded.length, pixelWidth: normalized.width, pixelHeight: normalized.height }
+    const actual = await checked.images.decode(encoded.slice(), record, checked)
+    checkCancelled(checked.signal)
+    if (actual.width !== image.width || actual.height !== image.height || !(actual.rgba instanceof Uint8ClampedArray)
+      || actual.rgba.length !== expected.length || expected.some((channel, index) => channel !== actual.rgba[index])) throw new Error('规范化PNG实际像素与来源解码结果不一致。')
+    return { bytes: encoded, record }
   }
   if (bytes.length > STATIC_SVG_LIMITS.sourceBytes) throw new Error('SVG原始源超过1MiB。')
   let source: string
@@ -383,7 +441,7 @@ async function prepareImportImage(bytes: Uint8Array, mime: string, checked: Comp
   checkCancelled(checked.signal)
   if (image.width !== dimensions.width || image.height !== dimensions.height || !(image.rgba instanceof Uint8ClampedArray)
     || image.rgba.length !== dimensions.width * dimensions.height * 4) throw new Error('SVG实际像素与固定输出尺寸不符。')
-  const png = normalizePngChunks(await checked.images.encodePng(image, checked))
+  const png = checked.svg.processor.processorVersion === 2 ? encodeCanonicalPng(image) : normalizePngChunks(await checked.images.encodePng(image, checked))
   checkCancelled(checked.signal)
   const header = inspectImageBytes(png)
   if (header.mimeType !== 'image/png' || header.width !== dimensions.width || header.height !== dimensions.height) throw new Error('SVG规范PNG尺寸无效。')
@@ -391,7 +449,7 @@ async function prepareImportImage(bytes: Uint8Array, mime: string, checked: Comp
   return { bytes: png, record: { sha256: hash, mimeType: 'image/png', sizeBytes: png.length, pixelWidth: header.width, pixelHeight: header.height },
     source: { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256,
       sourceSizeBytes: normalized.sourceSizeBytes, normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: hash,
-      processorId: normalized.processorId, processorVersion: normalized.processorVersion },
+      ...checked.svg.processor },
     sourceBytes: new Map([[normalized.sourceSha256, encodeUtf8(normalized.sourceSvg)], [normalized.normalizedSha256, encodeUtf8(normalized.normalizedSource)]]) }
 }
 
