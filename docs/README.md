@@ -8,6 +8,8 @@
 
 工作台信息架构八项开发整改已实现，整合自检与正式待验分开记录：需求看[01左右分工](01-product.md#workspace-information-architecture-requirements)，完整设计看[交互与架构](reference/editor-and-architecture.md#workspace-information-architecture)，八个实施切片与当前接续看[07](07-roadmap.md#workspace-information-architecture-plan)，新布局正式矩阵看[09](09-quality-plan.md#workspace-information-architecture-acceptance)。前轮UX自检不自动覆盖本次导航和上下文重排。
 
+保存与预览的后续整改采用[不可变会话快照架构](reference/editor-and-architecture.md#workspace-snapshot-architecture)，信任/领域合同归[04](04-scene-document.md#workspace-snapshot-contract)，编码与最终事务归[06](06-storage-and-export.md#snapshot-persistence-contract)，执行状态归[07](07-roadmap.md#workspace-snapshot-implementation)，验证归[09](09-quality-plan.md#workspace-snapshot-acceptance)。
+
 ## 八份主文档
 
 | 要解决的问题 | 唯一主定义 |
@@ -27,6 +29,7 @@
 |---|---|
 | 查用户操作、候选生命周期、模块和平台边界 | [交互与架构](reference/editor-and-architecture.md) |
 | 查通用地图生成器的总体分层、领域接入和迁移边界 | [通用地图生成器设计](reference/general-map-generation.md) |
+| 查页面轻量AI、本地harness、语义接口与工程交接的下一步方向 | [AI入口与地图能力复用](reference/ai-entry-strategy.md)；[开发顺序](07-roadmap.md#ai-entry-development)；[验收范围](09-quality-plan.md#ai-entry-acceptance) |
 | 查地形当前支持/拒绝边界、双尺度、算法和局部联动 | [地形生成](reference/terrain-generation.md#terrain-capabilities) |
 | 执行固定SCN/VIS场景，核对尺寸、输入和秘密 | [固定验收场景](reference/acceptance-scenarios.md) |
 | 追溯设计决定、外部来源和未实测问题 | [决策与研究依据](reference/decisions-and-research.md) |

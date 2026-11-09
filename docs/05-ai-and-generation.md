@@ -20,6 +20,13 @@
 
 能力表中的`aiTools`为空；室内、森林、火山与混合生成及D6四类局部重生成均未授权AI调用。混合算法只组合已支持领域，不按题材名称增加模型工具。局部操作只在`direct`能力表列出，Worker/server明确为空。后续若向模型开放，必须先实现工具协商、scope/规则与资源权限、可本机重放来源、累计预算及采用合同；当前有完整v1或有程序化HTTP入口均不授予这些权限。
 
+<a id="ai-entry-direction"></a>
+2026-11-09确认的[入口调整](reference/ai-entry-strategy.md)按[下一步开发](07-roadmap.md#ai-entry-development)推进：独立本地语义能力`sceneweave-forest-building@1`只接受新建林中建筑、内置固定素材与规范参数，按[最小接口合同](reference/ai-entry-strategy.md#semantic-entry-contract)由宿主绑定确切请求hash并选择注册预算。CLI每次执行一个独立请求，不读当前工程，不承接旧任务或unknown；完成真实资源校验、包/预览落盘和冷读后交付文件，用户在页面另行导入续编。它不扩展现有程序化能力表的`aiTools:[]`、创作4或HTTP权限。
+
+页面轻量入口只产生可修改参数草稿，由用户触发现有生成与审阅。解析复用普通文字任务，`context:null`，不附创作授权、工程、图片或历史；发送范围仅为用户明确输入和当前生成表单。普通任务仍可能调用只读连接工具，按实际模型请求/工具和用量计量，不承诺一次模型调用。完成文字必须通过同一严格参数schema，先展示默认值、歧义和未支持要求再由用户填表；非法/中断输出不采用，解析失败保留原文/表单，创建结果未知只查询原任务且不自动重发。当前工程修改仍须另行完成基线/依赖与保护采用合同，外部agent不直接取得浏览器IndexedDB或主工程写权；完整内置整图agent暂缓扩建，现有数据/权限/采用边界仍维护。
+
+创建响应丢失、尚无任务ID时，通过`GET /v1/tasks?clientRequestId=<原UUID>`精准只读查找，返回原列表信封中的零或一项，不受最近20条截断影响。查询仍绑定当前凭据owner，拒绝非法/重复查询参数及与`sceneId`混用；客户端复核原请求身份及任务类型。找不到、已过保留期或后端不支持时仍保留未知状态，不将“未找到”当作未执行凭证，不自动重发POST。现有按工程/最近任务查询语义保持。
+
 用户明确选择服务端后，发送新候选的完整空白场景元数据/固定定义、规范参数、profile及当前工程标识，不发送当前地图/历史/实际图片字节。客户端先核对精确能力再执行，地址/凭据仅在页面内存；取消、超时或未知结果不自动重发、不回退其他执行端。传输与临时报告不进入工程。最终资源与采用边界见[06](06-storage-and-export.md#domain-generation-storage)。
 
 <a id="asset-quality-authoring"></a>
@@ -32,7 +39,7 @@
 <a id="1-第一版目标"></a>
 ## 1. 能力与非目标
 
-主入口是流式对话。用户描述场景、局部修改或素材风格，AI 使用项目内技能与受支持工具，在隔离任务草稿中多步制作、检查和调整；用户能实时看进展、打断或追加要求，最后审阅差异并一次采用。手工编辑、保存、素材使用和 PNG 导出继续不依赖 AI 在线。
+现有AI入口是流式对话。用户描述场景、局部修改或素材风格，AI 使用项目内技能与受支持工具，在隔离任务草稿中多步制作、检查和调整；用户能实时看进展、打断或追加要求，最后审阅差异并一次采用。下一步新增能力按[入口调整](#ai-entry-direction)收束，下面的工具/任务合同继续约束现有执行路径。手工编辑、保存、素材使用和 PNG 导出继续不依赖 AI 在线。
 
 第一版只接对话 API，不接生图/图像编辑 API。场景保持语义实体可编辑；新素材可由模型输出受限 SVG，或通过既有参数生成固定派生外观。SVG/场景导出 PNG 使用本地渲染。模型看图能力单独探测，不从“有对话接口”推定已支持。
 
@@ -416,7 +423,10 @@ provider组合schema显式提供根`type:object`、分支属性并集、`require
 以下工具约定不扩大任务预算或授权，错误参数严格拒绝：
 
 - `find_assets`按最终完整工具回执裁页，计入`callId/name`、嵌套JSON转义、剩余预算和最终轮提示。条目完整返回，`nextOffset`按实际数量推进；单条仍超8KiB时拒绝，不截断定义。最终回执硬门及拒绝前不安装草稿/计划/制品的规则保持。
-- `plan_draft.requirements[].index`只索引冻结的`brief.requirements`，从0开始；`checks/evidenceChecks`是独立诊断列表。无brief、越界、重复索引和claimed缺证据返回`invalid_arguments`及固定修正提示；未授权证据返回`outside_scope`，不回显其ID。失败保留原计划、摘要和草稿。
+- `read_scene.section:targets`只读取授权Prop；房间、墙、真实墙端点/顶点、门窗、地形和道路从`scene`读取，视觉实体从`visual`读取，并按对应分页使用实际返回的ID。错误分区或未授权ID返回`outside_scope`及固定分区提示，不误报几何错误，也不回显未授权ID；空`targets`同样说明读取范围，不能据此推断其他分区存在或不存在某实体。
+- `plan_draft.requirements[].index`只索引冻结的`brief.requirements`，从0开始；`checks/evidenceChecks`是独立诊断列表。无brief、越界、重复索引和claimed缺证据返回`invalid_arguments`及固定修正提示；pending要求可用`evidenceIds:[]`，Floor属于支撑元数据，不能当作实体证据。未授权证据返回`outside_scope`，不回显其ID，并提示回到已授权或任务新建的实际实体证据；失败保留原计划、摘要和草稿。
+- 房间因真实`ROOM_SUPPORT`领域检查失败时，提示显式设置`room.supportRef`：当地形覆盖Floor时，使用`{kind:"terrainArea",id:<已授权的实际地形ID>}`，省略支撑仍按裸Floor处理，不能删除合法地形来绕过检查。该提示仅用于对应房间有效支撑错误；未授权支撑仍返回`outside_scope`，不回显支撑ID或据此授予访问。
+- `entrance`操作只接收`kind/openingIds`，额外`id`等字段严格拒绝；schema失败按实际操作序号和已知kind返回定向提示，不回显任意参数、未知键或私密ID。门窗须从`scene`读取真实墙与端点后附着，道路须核对方端帽/转角完整带区、支撑及要求净宽；提示不补默认值、猜测ID或放宽几何。
 - 曲线提案明确用`{"operations":[candidateOperation]}`提交编辑，组合提案用`{"operations":candidateOperations}`；操作字段直接位于数组元素顶层，不新增`candidateOperation/boundary`包装或null可选字段。回执、工具说明与制作指导一致；错误输入继续严格拒绝，不自动解包。
 - 布局材质角色写入schema说明和候选details：海岸base水/primary沙；岩岛base水/primary低台/secondary高台；室内primary普通地板，secondary覆盖厨房地板，缺secondary时厨房回退primary，base不使用。墙材质仍需单独显式操作，缺材质继续报告未完成。
 
@@ -435,6 +445,8 @@ provider组合schema显式提供根`type:object`、分支属性并集、`require
 引擎每个非最终工具轮按已验证的固定scope生成模型目录：`edit_scene`分支取顶层、scene、visual和artwork四组operations并集，`edit_props`只取顶层四类中已授权项，空集隐藏对应入口。曲线提案/短参数采用须有`visualBoundary`授权；地形工具只在scene存在对应生成/编辑授权时出现，候选数组精确裁剪，regenerate仅`terrainEdit`、区域下钻仅`regionalEdit`。保留composition严格oneOf与根object兼容层；不按brief、文件名或实体数量推导权限，任务新建对象仍有原先获准的变换能力。
 
 目录逐任务独立复制；执行端完整schema、公开范围、依赖/锁、普通账本、256实际展开、8KiB回执及本机保护/CAS保持。未展示的调用仍由原执行端校验。曲线`areaId`是现存地形，`boundaryId`须是不同于该地形及其他现存实体的新ID。
+
+当前authoring4目录仅在发送给provider的传输表示中，对完全相同的JSON Schema子结构使用工具内`$defs/$ref`无损复用；根`type:object`、属性、必需字段和额外字段等约束保留，执行端严格schema不变。schema已有`$id/$ref`、锚点、定义或递归引用作用域时保持原样，不改写引用语义。压缩不扩大工具/字段权限，不改变失败原子性，也不自动重发付费请求；目录字节减少不证明实际模型兼容、生成提速或成品通过，须由对应真实渠道的新任务分别验证。
 
 新增可选`SCENEWEAVE_AI_PROVIDER_REASONING_EFFORT=low|high|max`，缺省不发送额外字段，显式配置才发送`thinking:{type:'enabled'}`和`reasoning_effort`。provider创建时捕获配置，非法值在请求前安全拒绝。[官方GLM-5.3说明](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3)规定强制思考、默认max并建议enabled+low；[思考文档](https://docs.bigmodel.cn/cn/guide/capabilities/thinking)确认Coding Plan可用low，当前Flash亦支持。此项不代替私有`reasoning_content`续答，不改变8192输出/16请求/64工具/300秒等原预算；effort不是独立数字预算，不承诺正文余量、固定延迟或费用。配置变化不恢复或重发旧unknown任务。验证和真实结果见[54第13.9–13.10节](archive/visual-quality-validation.md#doc-54-139-2026-10-28短参数入口真实pilot)。
 

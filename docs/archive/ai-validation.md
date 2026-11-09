@@ -402,3 +402,46 @@ UI供应商使用进程内确定性fixture，共4轮mock请求，无外部付费
 - 最终两个保护点故障注入用例已从旧表切换到现行pin，20项原子采用用例全部通过，生产保护逻辑未改。
 
 本机证据根目录为`work/ai-closeout-20261031/`，由Git忽略。正常生产完整包与摘要另在`production-artifacts/`；它们可在本机审阅，不是线上发布或正式参考岩岛成图。没有提交、推送或部署；真实模型/视觉/P3、完整Q4与正式性能继续从[09](../09-quality-plan.md#branch-feature-acceptance)统一执行，下一开发任务归07第7项。
+
+<a id="authoring-recovery-20261109"></a>
+## 2026-11-09 林中哨站工具纠错与目录去重（开发自检）
+
+用户要求修复真实GLM任务暴露的问题。修复限于[05有限诊断](../05-ai-and-generation.md#186-工具参数与有限诊断)、制作指导及当前创作4的provider工具表示；不修改固定素材、严格工程格式、授权、预算、失败原子性或保护/CAS。原始失败与局部草稿保留，不补画模型结果。
+
+| 修复与检查 | 结果与范围 |
+|---|---|
+| 房间支撑、结构读取、计划证据、入口参数 | 真实房间支撑错误提示显式terrainArea支撑；墙和端点从scene读取，targets仅Prop；pending可空证据，Floor不获实体证据权；入口额外id仍拒绝。未授权ID不回显，不自动纠参。新增错误用例先红后绿。 |
+| 连续制作重放 | 草地＋三房间先失败整批回滚，显式支撑后成功；墙读取纠正、入口参数纠正后创建三门/入口，再创建两条道路和两个物件，完整重放与几何检查通过，源hash不变。此夹具不证明真实模型成图或像素质量。 |
+| provider schema无损复用 | 工具内$defs/$ref展开精确相等，原运行时schema不变。冻结20工具220820→139556字节（−36.8%），18工具193160→118838字节（−38.5%）；目录减少不等于实际提速。 |
+| 必要自检 | 新增3文件20/20通过；邻近6文件129/129、另4文件105/105分别通过，不合并重叠计数。npm run build和ai:build通过，保留原有Rollup/大chunk警告。 |
+| 正常生产纯UI | ai-current-closeout 1/1通过，0重试/跳过，命令43.421秒；真实HTTP/SSE、Canvas公开截图、SQLite/IndexedDB、阶段操作、模块切换、保护采用、撤销重做、保存冷读。provider为本地确定性替身，不作为真实生成速度。 |
+
+同题修复后新任务在正常生产UI提交，导出基线除导入身份/时间外场景相等，固定资源字节相等。**测量脚本**的Playwright `response.json`事件回调出现未捕获`Network.getResponseBody`异常，进程中断；1请求已发、完成0、工具0，结果unknown。存储重启守卫保全为paused / execution_unknown，未创建provider继续、未自动重发；不能据此判断产品失败或生成速度。测量回调已改为读取隔离后端任务身份，不再异步读浏览器响应体；没有再次发起付费地图任务。
+
+另一次独立工具协议探针使用glm-5.3-flash、Chat Completions、low/8192和压缩20工具目录，HTTP200/SSE，7.718秒完成，输入49274/输出18 token；未返回指定工具调用，功能探针未通过，只证明接口接受请求。修复新增说明后的该目录为221113→139849字节。没有自动重试或切换协议。**完整同题成图、真实工具制作成功及速度改善仍未验证**，不能关闭09真实AI、视觉/P3或正式性能。
+
+独立无费浏览器探测确认waiting_browser→ready自动本机校验成功、工程引用保持。Workbench模块重评会创建空Workspace的风险可复现，但原任务缺少HMR/工作区轨迹，历史触发原因未确证，本轮不据推测改工作区生命周期。
+
+本机证据：`work/codex-vs-page-ai-20261109/repair-tests.log`、`repair-production-ui.json`、`browser-state-probe.json`及`glm-repair-2026-11-09T05-15-33.962Z/`下的`repair-report.md`、`repair-summary.json`、`schema-probe.json`、`page-run-evidence.json`；均由Git忽略。比较页保留历史成品与失败，并另列本次修复及限制。未提交、推送或部署。
+
+<a id="semantic-entry-20261109"></a>
+## 2026-11-09 语义新建、本地文件交接与页面填参数（开发自检）
+
+按用户确认的[入口方向](../reference/ai-entry-strategy.md)，实现一个同楼层林中建筑的新建语义能力，复用既有生成意图、混合领域执行及真实资源/渲染端口。CLI不含模型，页面助手只用普通文字任务形成待确认表单。准确支持参数、独立授权、宿主预算、限制及落盘完成条件归[接口合同](../reference/ai-entry-strategy.md#semantic-entry-contract)，实现状态与接续只归[07](../07-roadmap.md#ai-entry-development)。
+
+| 检查 | 新鲜结果及边界 |
+|---|---|
+| 严格合同与准备 | `npx vitest run src/shared/ai/generation-parameters.test.ts src/application/workspace/semantic-generation.test.ts src/application/workspace/generation-intent.test.ts --reporter=dot`：3文件25项通过。覆盖未知/越界参数、独立确切授权、宿主预算、访问器拒绝、取消/迟到、准备时间及误接环境；准备夹具不冒充真实资源验证。 |
+| 独占交付与取消 | `node --test tools/harness/io.test.mjs`：4项通过，包含结果发布写入/rename期间取消与同步完成边界。另实际检查已有输出目录拒绝且原包hash不变、非法环境在新建输出前拒绝。 |
+| 真实CLI | `sceneweave.mjs generate`使用规范样例与standard预算；新目录生成完整v1包和玩家PNG，实际资源全验、落盘SHA复读、另一空白页面冷导入完整hash相等，2048×1638预览RGBA差异0像素，浏览器错误0，模型请求0。 |
+| 产品页面交接 | 正常生产`tests/harness-delivery.spec.ts` 1/1通过：CLI实际产物经首页“打开工程文件”导入→删除一件家具→撤销→保存冷重开→UI下载完整包，场景/身份/资源/许可保全。未调用模型或程序化HTTP生成。 |
+| 页面参数与恢复 | 最终正常生产`tests/generation-parameters.spec.ts` 4/4通过（22.9秒、单worker、确定性文字替身）：审阅填表不生成、不含工程/图片/创作授权、unknown只查询原请求、21个更新任务后精准恢复且POST仍1次、非法回复保全及迟到草稿拒绝。 |
+| 精准查询服务/客户端 | `npx vitest run --config vitest.ai.config.ts services/ai/app.test.ts src/platform/browser/ai/client.test.ts`：2文件85项通过（14.81秒）。覆盖最近20条之外的任务、同requestId不同owner、鉴权/过期/未找到、非法/重复/混合参数、错身份/重复响应及旧后端更新提示；无模型执行或新增任务。 |
+
+真实CLI样例生成2房间、7墙、2开口、41物件、1地形、2道路、6布景和3表面规则；树木目标32、实际31，缺项报告保留。Chromium `141.0.7390.37`，生成19.087秒，含启动/包/冷读/PNG/磁盘复核的命令总计44.913秒；SDK及交付主动执行计40.989秒。这是单次开发工具观察，未冻结机器负载/同等完成度，不作为正式性能或AI速度比较；不能与原未完成的300秒任务计算提速比。原题帐篷/篝火、逐房间用途等仍不支持，不记完整林中哨站通过。
+
+包SHA-256为`21711cc12b58373ed5cab015a5d7f40831a8be17d911cb0d6f4a88131b67b72a`，完整内容hash为`90d520b1c3aeb87a204eee3f0e1f9e49273624cf6320702741fd991ac54c8503`。本机证据在被Git忽略的`work/ai-entry-implementation-20261109/`：`delivery/result.json`、完整包及PNG、`cli-rejection-check.json`和`browser/`实际交接文件。
+
+首轮页面3项失败来自测试mock缺少现行能力响应的保留期/预算字段；修正能力/任务夹具后独立复跑2通过/1失败，余项为列表mock缺少协议字段，未放宽产品校验。失败trace分别保留在`browser/`、`browser-parameters-rerun/`。只读复核另发现产品恢复仅查最近20条任务的缺口，已修为按原请求编号精准只读查询；未知创建不重发，最终4项复验通过。最终命令日志在`browser-parameters-final.log`，输出目录为`browser-parameters-final/`。
+
+恢复修复后的最终`npm run build`通过（应用/服务类型、283模块架构边界及生产构建），保留既有Zod注解/大chunk警告，日志为`build-final.log`。文档本地链接和`git diff --check`通过，独立`todo.md`未改。未调用付费模型，未提交、推送或部署。[09冻结比较](../09-quality-plan.md#ai-entry-acceptance)、完整真实AI/视觉/P3及正式性能继续待验，当前工程修改提案、更多领域及分发安装均未开放。

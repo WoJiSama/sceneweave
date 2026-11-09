@@ -10,6 +10,8 @@
 
 **开发期版本策略（2026-11-04用户确认，优先于后文旧版本兼容约定）**：最终验收前只维护一套当前完整能力的工程v1，以现有v8全量字段/语义为底座合并。后续直接修改同一严格模型/schema，不为新增功能累加工程版本，不长期兼容各旧开发工程文件。保留独立一次性本机IndexedDB迁入工具，源数据/历史/个人素材只读保全，目标全量验证冷读成功才发布，不自动清库；普通入口只认当前完整v1。算法/配方重放、不可变固定素材身份、AI任务/权限、预算、增量历史和数据库结构版本是独立轴，不做全仓数字替换。下文v1–v8、相邻升级及旧M1描述只作实现来源/迁入参考；完整领域校验、资源许可、人工保护、CAS/撤销和玩家保密要求继续执行。目标合同归[04](docs/04-scene-document.md#development-single-v1)、[06](docs/06-storage-and-export.md#development-single-v1-import)，实际代码收束状态见[07](docs/07-roadmap.md#general-map-generation-priority)。
 
+**会话快照架构（2026-11-08用户确认）**：按[04快照合同](docs/04-scene-document.md#workspace-snapshot-contract)、[06保存合同](docs/06-storage-and-export.md#snapshot-persistence-contract)与[统一架构](docs/reference/editor-and-architecture.md#workspace-snapshot-architecture)实施。内部editor预览/自动保存允许消费校验器签发的确切不可变快照及未变资源证明；下文C0/C5“每次渲染/保存全验”对此内部消费路径由新合同替代。公开validate/save、冷读、导入/导出与正式输出继续实际字节/像素全验，数据库新鲜性/坏块、资源许可、锁/身份/保护及CAS不减；不以调用方标记免检。
+
 ## 开始工作
 
 - 先读 README.md 和 docs/README.md，再按任务读主文档。核对工作区与 Git 状态，保留无关编辑。

@@ -10,9 +10,13 @@
 
 `complete-journey-ux.spec.ts`在1512/390px通过正常首页新建、真实Worker生成室内、手工移动物件、撤销重做、最近工程冷重开及双受众4K下载，最后从空存储用文件选择器导入真实备份。核对完整条目hash、文档/身份/外观与资源清单/许可绑定；截图覆盖八个模块、首页、候选和导出。另检查新建对话框、帮助与导出菜单的Esc层级及isComposing/229守卫，合成事件只证明处理器逻辑；真实输入法、失焦、读屏和用户P3仍从09独立验收。
 
+核心收束的正常生产补充入口为 `core-convergence-journey.spec.ts`：森林及林中建筑通过真实Worker候选、独立保存、保护后局部密度修改、撤销/重做、目录冷开和玩家4K PNG，下载工程核对真实文档、身份、外观与资源/许可，并重开原工程检查保全。`domain-cancel-ux.spec.ts`共用现行八模块与右侧候选定位，继续覆盖四领域的运行取消和真实迟到响应。这些是定向旅程，不替代09完整领域、视觉或性能验收。
+
 `asset-expansion.spec.ts`通过正常生产页面检查单图名称跟随/手改保留、严格清单ZIP及名称/标定原样采用、空根锚拒绝、撤销/重做、保存冷开和空个人库备份恢复；另检查按需主题加载/所选闭包采用、本工程只读审核与独立本机审核记录、六包真实PNG及十二份可编辑工程下载、室内/海岸样板的实际编辑和玩家4K输出。受影响单元入口为shared `assets/{import-manifest,theme-packs,review}`、browser `assets/{batch-source,image-dimensions,review-content,review-repository}`、content `theme-pack-catalog`及application `workspace/{prepare,asset-batch}`；确切素材闭包检查继续复用`shared/library-content`。冻结生产地址须带末尾斜线，例如`SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5225/sceneweave/`。实际结果和首败/最小复验归[素材台账](../docs/archive/workspace-content-validation.md#asset-expansion-20261109)，不替代美术、完整状态覆盖或P3。
 
 `asset-quality.spec.ts`通过正常生产页面核对真实透明SVG拒绝及完整备份保全、实际16px PNG低分辨率提示、逐件复核后采用、取消重建后确认失效、原文名称与一次撤销，并检查390px复核图片/控件及无提示SVG路径。`asset-quality-helpers.ts`只为测试明确fixture代行逐件查看确认，不改变产品默认值。纯规则/确切确认/应用入口的单元分别为shared `assets/{quality,quality-review}`、application `workspace/{asset-quality,prepare,asset-batch,artwork,atomic}`；AI覆盖现有SVG/调色物化、透明拒绝、复核前不保护/claim及重放一致性，不启用当前创作4禁止的素材能力。真实执行和限制见[初筛台账](../docs/archive/workspace-content-validation.md#asset-quality-20261109)。
+
+`directory-navigation-ux.spec.ts`是需要Vite源码模块的开发回归：只控制目录/容量读取的完成时机和失败，核对搜索失败后游标撤销、迟到分页隔离、容量检查恢复及切工程后的旧结果丢弃；严格内容打开/恢复仍由正常入口检查。它不作为正常生产包或正式存储故障矩阵证据。
 
 `panel-appearance-ux.spec.ts`在1512/390px的正常生产UI核对工程/外观控件实际字体、字号、圆角和高度，截图覆盖七模块与六外观子工具；检查精细采样默认折叠、跨子工具草稿保留，布局设置Esc保留底层候选，以及展开/重置后菜单关闭与焦点返回。预览取消、布局操作和最近工程冷重开后比较完整包逐条目hash，检查页面错误与横向溢出；共用真实下载辅助函数，不注入工程。样式和布局变化配套复查既有三视口键盘旅程，结果归[主题台账](../docs/archive/workspace-content-validation.md#ux-panel-unification-20261106)，截图不能替代用户P3。
 
@@ -78,6 +82,7 @@
 | h不可变完整内容块 | browser `storage/content-blocks`、`aggregate-coordinates`、`incremental-history`、`history-maintenance/history-overview/import-archive/snapshot-read/save-content-proof` | 同事务内容块/清单/历史head、真实新写字节及未变共享、保留分支/完整离线包、缺块坏字节拒绝、插块后配额/取消/CAS回滚；schema1–3 additive升级保留源，不跳过资源或完整冷读；暂不自动GC内容块 |
 | i普通事务与组影响预算 | `manual-tiers`、`aggregate-building`；shared `budget/command-budget/manual-request`、commands `manual-tier-commands/command-budget-commands`、history `manual-budget`；workspace `manual-tier/manual-budget/prepare-budget-usage/fill-copy-manual`及UI `command-budget-details` | 准备前展开单命令成员/图层/外观/新副本、256/512/1024冻结目标与4096/16384/65536组内影响；纯核心变换的真实局部不变量、近侧视固定朝向及表面源派生、伪造或混合成员变化回退；真实新容器及新成员计量、完整几何独立拒绝、锁/保护/CAS、取消/旧基线/一次撤销/保存冷开。正常生产UI显示各项读数并下载完整工程核对；保护上限不是已测容量，完整性能仍留09 |
 | j复杂基底整合与开发观察 | `tools/testing/aggregate-capacity-fixtures.test.ts`、`tools/performance/run-aggregate.mjs` | 建筑/自然/混合的500/2000细节，真实素材/结构和人工记录，固定局部组后增加远端500细节或16条远处独立Floor→terrain连接，1/32目标修改；正常UI整体预览/采用、撤销重做、远处选择、保存冷开和完整包比对。细节为完整Prop与轻量Decoration之和，不能代替500/2000完整物件或局部端口扇出的正式矩阵；方法与结果见[性能参考](../docs/reference/performance.md#aggregate-integration-j-20261106) |
+| 语义生成与轻量页面参数 | `harness-delivery`、`generation-parameters`；application `workspace/semantic-generation`、shared `ai/generation-parameters`及`node --test tools/harness/io.test.mjs` | 显式授权与严格支持参数、取消/预算/固定素材，真实CLI落盘包/PNG及冷读像素一致；产品首页打开→编辑→撤销→保存冷开；确定性文字替身只填表不生成、失败保全、未知创建只读查原请求与迟到草稿拒绝。不证明真实模型收益或原完整哨站成图 |
 | AI与保护采用 | `m21-ai-conversation`、`m22-ai-authoring`、`m2-assimilation-acceptance`、`m2-failed-draft-recovery` | 真实HTTP/SSE/SQLite与受控provider，单件→组合→明确范围，失败草稿恢复及保护一次采用 |
 | 当前创作4阶段与图片 | `ai-current-closeout`；shared/application `current-authoring`、service `current-authoring-v4`、browser `client/public-vision`与`ai-draft-reviewability` | 当前完整1/协议4/真实source3严格协商、固定资源；旧协议只用于经过来源核对的内部重放；阶段原子/预算收尾/图片确切身份/有限修正；纯UI的当前完整工程正常生产包与保护采用链，确定性provider不作审美签收 |
 | 视觉编辑 | `visual-authoring`、`visual-ai-authoring`、`visual-renderer`、`refined-island`、`refined-samples` | 原创空白、真实样板、曲线控制柄、授权/范围、滤镜/透明阴影、秘密与离线双受众4K |
@@ -126,9 +131,9 @@ node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" 
 node tools/performance/summarize-current-formal.mjs "$formal_performance_dir" > "$formal_performance_dir/summary-recomputed.json"
 ```
 
-`prepare-current-formal`的工具浏览器先全验真实字节/像素/许可并冷读，保存容量`manifest.json`、视觉`formal-visual-fixtures.json`及`preparation.json`后关闭；准备耗时不进入性能分布。容量默认建筑/自然/混合各500/2000完整Prop、无轻量Decoration替代，180m×180m范围与3.6m显示网格构成50×50格。`--smoke`仅一轮2次编辑/4次列表选择，为诊断；正式默认六组×三轮，每轮30次组内完整物件编辑、60列表/6画布选择、三段连续平移/缩放、组操作与撤销/重做、保存冷开、实际块/行字节及双受众4K。预备的远端＋500完整Prop和16条真实局部外接连接可另用`--cases mixed-500-remote,mixed-500-local-ports`独立观察；后者应按支撑合同拒绝不完整组移动。
+`prepare-current-formal`的工具浏览器先全验真实字节/像素/许可并冷读，保存容量`manifest.json`、视觉`formal-visual-fixtures.json`及`preparation.json`后关闭；准备耗时不进入性能分布。容量默认建筑/自然/混合各500/2000完整Prop、无轻量Decoration替代，180m×180m范围与3.6m显示网格构成50×50格。`--smoke`仅一轮2次组内预览/采用＋2次独立即刻编辑、4次列表/2次画布选择，为诊断；正式默认六组×三轮，每轮30次组内完整Prop预览/采用编辑＋30次独立完整Prop即刻编辑、60次列表/6次画布选择、平移/缩放各三段（每段逐rAF发送30次pointermove/20次wheel），另测组操作与撤销/重做。独立即刻目标固定为`controls.remoteEntityId`，启动前检查无聚合组/预制组合/散布/装饰簇归属、公开未锁及原位/+1mm完整足迹支撑；两类编辑完成后检查保存冷开、完整内容/资源、实际块/行字节及双受众4K。预备的远端＋500完整Prop和16条真实局部外接连接可另用`--cases mixed-500-remote,mixed-500-local-ports`独立观察；后者应按支撑合同拒绝不完整组移动。
 
-采用click→实际领域事务、Enter→预览及两阶段总区间分别报告；100ms采用子指标不等于旧即刻编辑全链通过。帧p95只覆盖真实连续输入窗；每轮与合并nearest-rank、CPU断续、资源采样/缺样及失败原样保留。组超限拒绝不降载；少量内容块不代表全链加速，逻辑块/行字节不代表物理磁盘写入。运行器自动写`summary.json`，重算汇总不启动浏览器。当前RSS采样仅支持macOS，系统Chrome须预先安装。
+独立即刻编辑的500完整Prop 100ms门使用真实trusted Enter→校验完成的领域事务全链，要求三轮每轮至少30次、合并至少90次，逐轮及合并p95均不超过100ms；保存、实际重绘及显示代理另列。组内采用click→领域事务子指标、Enter→预览及两阶段总区间独立报告，不替代即刻门；自由拖动和其余QA-PERF操作仍需各自验收。帧p95只覆盖真实连续输入窗；每轮与合并nearest-rank、CPU断续、资源采样/缺样及失败原样保留。组超限拒绝不降载；少量内容块不代表全链加速，逻辑块/行字节不代表物理磁盘写入。运行器自动写`summary.json`，重算汇总不启动浏览器。当前RSS采样仅支持macOS，系统Chrome须预先安装。
 
 性能结束后，先安装三个引擎，再在终端A启动同一正常生产包：
 
@@ -144,9 +149,23 @@ formal_visual_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-visual.XXXXXX"
 SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5174/sceneweave/ SCENEWEAVE_FORMAL_VISUAL_FIXTURES="$formal_prepared_dir" SCENEWEAVE_FORMAL_VISUAL_OUTPUT="$formal_visual_dir" npx playwright test --config=tests/formal-visual.config.ts --workers=1
 ```
 
-`formal-visual.config.ts`没有自动webServer，固定Chromium/Firefox/WebKit单worker、零重试，JSON结果在`results.json`，下载与trace在`results/`；默认Chromium为Playwright引擎，可通过`SCENEWEAVE_CHROME_CHANNEL=chrome`改用系统Chrome，旧`SCENEWEAVE_BROWSER_CHANNEL`不影响该专用配置。`formal-visual.spec.ts`核对室内/岩岛/海岸/混合四类的效果、中性、秘密配对及四份派生取景工程，以正常生产UI、真实完整包和双受众4K建立技术证据；同引擎比较实际秘密像素，跨引擎不强制相同抗锯齿。自动技术结果不关闭14第8节全操作矩阵、人工观感或用户P3；完整历史/故障、自由物件拖动、原SCN场景和1万/10万负载仍按09分别验收。
+`formal-visual.config.ts`没有自动webServer，固定Chromium/Firefox/WebKit单worker、零重试，JSON结果在`results.json`，下载与trace在`results/`；默认Chromium为Playwright引擎，可通过`SCENEWEAVE_CHROME_CHANNEL=chrome`改用系统Chrome，旧`SCENEWEAVE_BROWSER_CHANNEL`不影响该专用配置。`formal-visual.spec.ts`核对室内/岩岛/海岸/混合/current-island五类的效果、中性、秘密配对及每类四份派生取景工程，以正常生产UI、真实完整包和双受众4K建立技术证据；同引擎比较实际秘密像素，跨引擎不强制相同抗锯齿。自动技术结果不关闭14第8节全操作矩阵、人工观感或用户P3；完整历史/故障、自由物件拖动、原SCN场景和1万/10万负载仍按09分别验收。
 
 上方j的`run-aggregate.mjs`保持开发观察定位；`run-native-m2.mjs`、旧`visual-v2-fixtures`及下方旧专项只保留各自历史冻结/格式范围，未适配当前schema/身份/存储/UI前不充当当前完整v1正式入口。
+
+<a id="svg-determinism"></a>
+## 正常生产 SVG 确定性与冷读回归
+
+`svg-determinism.config.ts`独立运行五类冻结普通`art`输入（室内、岩岛、海岸、混合、当前算法岩岛）及旧失败室内经独立工具生成的`converted.sceneweave`，共6输入×Chromium/Firefox/WebKit。每例使用全新上下文，通过正常dist首页文件选择器导入、下载完整备份、刷新后从最近工程冷重开并再次备份。比较完整领域数据，导入仅允许根`sceneId/revision/createdAt/updatedAt`变化；身份、外观、来源、资源和许可逐条目hash保持，冷重开全部条目hash严格相同。实际非空SVG、processor2/resvg固定描述及已有派生资源链必须存在且保全，六输入整体至少含一条真实位图派生链；不使用DEV动态导入、状态钩子或像素mock。
+
+先在独立终端启动已冻结的正常生产dist，串行执行下列命令。四个环境变量均显式提供，目录/文件为绝对路径，输出使用新的空目录；配置不启动服务器，每例300秒、零重试、单worker。恢复包在每个引擎各真实导出GM/player4K PNG一次并检查尺寸与无元数据块，其他输入不重复大图或局部取景。
+
+```sh
+svg_determinism_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-svg-determinism.XXXXXX")
+SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5174/sceneweave/ SCENEWEAVE_SVG_DETERMINISM_FIXTURES="$formal_prepared_dir" SCENEWEAVE_SVG_DETERMINISM_RECOVERY="$PWD/work/root-remediation-20261106/svg-recovery-interior/converted.sceneweave" SCENEWEAVE_SVG_DETERMINISM_OUTPUT="$svg_determinism_dir" npx playwright test --config=tests/svg-determinism.config.ts --workers=1
+```
+
+`FIXTURES`指向含`formal-visual-fixtures.json`的冻结目录；`RECOVERY`指向显式选定的恢复包文件，不能用原始旧源替代。JSON报告为输出目录的`results.json`，实际备份、恢复包PNG与逐条目事实在`results/`。默认测试配置忽略该专用spec；`--list`仅证明18条用例可发现。该聚焦回归只补SVG确定性与持久化支持证据，不补齐完整formal视觉15组合、人工美术/P3或性能验收。
 
 ## 定向与跨浏览器入口
 
