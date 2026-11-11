@@ -5,7 +5,7 @@ import { checkTerrainRoute, TERRAIN_ROUTE_LIMITS } from '../geometry/terrain-tra
 import { pathPolygon, polygonDistance, propFootprint, terrainPoints } from '../geometry/geometry.js'
 import { wallMovementPolygons } from '../geometry/doorway-clearance.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
-import { canonicalJson, captureJson, encodeUtf8 } from '../validation/json.js'
+import { canonicalJson, captureJson, cloneJson as clone, encodeUtf8 } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { id, nonnegative, positive } from '../validation/primitives.js'
@@ -15,7 +15,6 @@ import { pathAttachmentAnchorSchema as anchorSchema, type PathAttachmentAnchorWi
 export type { PathAttachmentAnchorWitness } from './contracts.js'
 
 const hash = (value: unknown) => sha256Text(canonicalJson(value))
-const clone = <T>(value: T): T => structuredClone(value)
 const same = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 interface RequestBase {
   pathId: string; openingId: string; end: 'start' | 'end'

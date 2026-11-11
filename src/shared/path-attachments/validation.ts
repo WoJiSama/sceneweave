@@ -5,12 +5,11 @@ import { resolveBuildingStructurePortGeometry } from '../generation/building-por
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { structureIdentityDescriptors } from '../history/structure-identity.js'
-import { canonicalJson, captureJson } from '../validation/json.js'
+import { canonicalJson, captureJson, cloneJson as clone } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 
 export type AttachmentScene = SceneDocument & { pathAttachments?: Record<string, PathAttachment> }
 type Token = { kind: string; token: string; topologyToken: string; topologyHash: string }
-const clone = <T>(value: T): T => structuredClone(value)
 const hash = (value: unknown) => sha256Text(canonicalJson(value))
 const same = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
