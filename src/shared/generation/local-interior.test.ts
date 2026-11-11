@@ -14,7 +14,7 @@ import { regenerateRoomFurniture } from './local-interior.js'
 
 const stamp = '2026-11-05T00:00:00.000Z', profile = taskBudgetProfile('standard'), options = { profile, checkCancelled() {} }
 function runtime() { let next = 0; return { ids: { nextId: () => `local-interior-identity-${++next}` }, clock: { now: () => stamp } } }
-function fixture(furniture = true, doors = false) {
+function fixture(furniture = true, doors = false, algorithmVersion: InteriorGenerationInput['algorithmVersion'] = 2) {
   const bounds = { x: 0, y: 0, width: 24000, height: 16000 }, origin = { kind: 'original' as const, attribution: 'test fixture', canEmbed: true }
   const definitions: Record<string, PropDefinition> = Object.fromEntries((['table', 'seat', 'storage'] as const).map(role => [role, {
     id: role, catalogId: `local-test-${role}`, version: 1, licenseRef: 'MIT', origin, name: role, tags: [],
@@ -28,7 +28,7 @@ function fixture(furniture = true, doors = false) {
     vertices: {}, rooms: {}, walls: {}, openings: {}, props: {}, regions: {}, notes: {}, assets: {}, propDefinitions: definitions, materials: {}, terrainAreas: {}, terrainEdges: {}, terrainConnections: {}, paths: {},
     prefabDefinitions: {}, prefabInstances: {}, scatterGroups: {}, styleThemes: {}, activeStyleThemeRef: null,
     presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] } })
-  const input: InteriorGenerationInput = { version: 1, algorithmVersion: 2, seed: 'local-furniture', parameters: {
+  const input: InteriorGenerationInput = { version: 1, algorithmVersion, seed: 'local-furniture', parameters: {
     floorId: 'floor', layerId: 'layer', boundsMm: { x: 1000, y: 1000, width: 22000, height: 14000 }, wallThicknessMm: 200,
     rooms: ['selected', 'outside'].map(id => ({ id, purpose: '公共室', minAreaMm2: 4_000_000, maxAreaMm2: 400_000_000, minClearSideMm: 1000 })), relations: [],
     corridor: { axis: 'none', clearWidthMm: 1200 }, materials: { floor: null, wall: null }, arrangement: { doors, entrance: false, furniture, doorWidthMm: 1200, clearWidthMm: 1000,
@@ -42,6 +42,23 @@ function fixture(furniture = true, doors = false) {
 }
 
 describe('selected generated-room furniture regeneration', () => {
+  it.each(['moved', 'deleted'] as const)('uses expanded v4 slots while preserving a manually %s member', action => {
+    const f = fixture(true, false, 4)
+    const props = Object.values(f.content.document.props).filter(prop => prop.roomId === f.roomId)
+    expect(props.length).toBeGreaterThan(6)
+    const target = props.at(-1)!
+    const content = applyCompositionCommands(f.content, action === 'moved'
+      ? [{ type: 'updateProp', id: target.id, changes: { positionMm: { x: target.positionMm.x + 10, y: target.positionMm.y } } }]
+      : [{ type: 'deleteProp', id: target.id }], f.context)
+    const before = canonicalJson(content)
+    const result = regenerateRoomFurniture(content, { recipeId: f.recipeId, roomId: f.roomId, variation: 'expanded-arrangement' }, f.context, options)
+    expect(canonicalJson(content)).toBe(before)
+    expect(result.document.props[target.id]).toEqual(content.document.props[target.id])
+    expect(result.writes.every(row => row.entityId !== target.id)).toBe(true)
+    for (const prop of Object.values(content.document.props).filter(prop => prop.roomId !== f.roomId)) expect(result.document.props[prop.id]).toEqual(prop)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+  }, 30_000)
+
   it('repositions live managed props deterministically and preserves every outside prop', () => {
     const f = fixture(), before = canonicalJson(f.content), request = { recipeId: f.recipeId, roomId: f.roomId, variation: 'arrangement-b' }
     const result = regenerateRoomFurniture(f.content, request, f.context, options)

@@ -82,7 +82,9 @@ describe('generated building persistence and native edit continuity', () => {
     const deleted = applyCompositionCommands(content, [{ type: 'deleteRoom', id: 'bedroom', removeOrphanWalls: true }], runtime())
     expect(owner(deleted.document, 'bedroom')).toMatchObject({ state: 'deleted', managedFields: [] })
     expect(deleted.historyIdentity.generationTokens!.bedroom.token).toBe(content.historyIdentity.generationTokens!.bedroom.token)
-    expect(() => applyCompositionCommands(deleted, [{ type: 'createRoom', id: 'bedroom', floorId, layerId, boundaryMm: boundary, thicknessMm: 200 }], runtime())).toThrow(/出生身份不能复用/)
+    const beforeRetry = canonicalJson(deleted)
+    expect(() => applyCompositionCommands(deleted, [{ type: 'createRoom', id: 'bedroom', floorId, layerId, boundaryMm: boundary, thicknessMm: 200 }], runtime())).toThrow('新身份不能复用已占用/已分配 ID：bedroom。')
+    expect(canonicalJson(deleted)).toBe(beforeRetry)
   })
 
   it('rejects a cold document whose real building geometry no longer matches the managed hash', () => {

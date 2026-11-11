@@ -9,7 +9,7 @@ import { cloneJson, canonicalJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { roomPoints } from '../geometry/geometry.js'
 import { clearArea, interiorEntityId } from './domains/interior/layout.js'
-import type { InteriorGenerationInput, InteriorLayout } from './domains/interior/contracts.js'
+import { supportedInteriorLayoutVersion, type InteriorGenerationInput, type InteriorLayout } from './domains/interior/contracts.js'
 import { furnishInterior, recommendInteriorFurniture, type InteriorFurnitureSlot } from './domains/interior/furnishing.js'
 import { inspectInteriorConnections } from './domains/interior/connectivity.js'
 import { assertLocalManaged, finishLocalOwnership, localOwner, type LocalDomainResult, type LocalWrite } from './local-common.js'
@@ -44,7 +44,7 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   // Never feed the extra parameter into strict interior-layout@2 inputs.
   const parameters = cloneJson(recipe.parameters)
   if ('supportRef' in parameters) delete (parameters as Partial<typeof parameters>).supportRef
-  const input: InteriorGenerationInput = { version: 1, algorithmVersion: recipe.algorithmId === 'supported-interior' ? recipe.algorithmVersion === 1 ? 2 : 3 : recipe.algorithmVersion, seed: recipe.seed, parameters }
+  const input: InteriorGenerationInput = { version: 1, algorithmVersion: recipe.algorithmId === 'supported-interior' ? supportedInteriorLayoutVersion(recipe.algorithmVersion) : recipe.algorithmVersion, seed: recipe.seed, parameters }
   const boundsMm = realRectangle(before, room.id), wallThickness = Math.max(input.parameters.wallThicknessMm, ...Object.values(before.walls).filter(wall => room.boundaryVertexIds.some((id, index, ring) =>
     id === wall.startVertexId && ring[(index + 1) % ring.length] === wall.endVertexId || id === wall.endVertexId && ring[(index + 1) % ring.length] === wall.startVertexId)).map(wall => wall.thicknessMm))
   input.parameters.wallThicknessMm = wallThickness
@@ -83,10 +83,10 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   const owners = Object.values(gen.ownership).filter(owner => gen.rules[owner.ruleId]?.recipeRef.id === recipe.id && owner.target.kind === 'prop')
   const slots = new Map<string, { owner?: OutputOwnership; prop?: Prop; propId?: string; suppressed: boolean }>(), used = geometryIdentityIds(before)
   for (const id of Object.keys(content.historyIdentity.propTokens)) used.add(id)
-  const currentRoles = recommendInteriorFurniture(room.purpose, layout.rooms[0].clearAreaMm2)
+  const currentRoles = recommendInteriorFurniture(room.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion)
   // Include original-role slots so a changed room purpose cannot bypass a
   // previously deleted or manually reserved furniture slot with a new identity.
-  const originalRoles = recommendInteriorFurniture(requirement.purpose, layout.rooms[0].clearAreaMm2)
+  const originalRoles = recommendInteriorFurniture(requirement.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion)
   const notes: string[] = []
   for (const [index, role] of currentRoles.entries()) {
     const slot = { requirementId: requirement.id, role, index }, key = slotKey(slot), stableKey = `${recipe.id}:${key}`

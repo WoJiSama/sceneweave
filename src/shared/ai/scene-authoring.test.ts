@@ -75,7 +75,8 @@ describe('finite complete scene authoring', () => {
     const f = flow(), original = canonicalJson(f.project)
     validateSceneScope(f.project, f.grant)
     const first = f.apply({ kind: 'room', id: 'house', boundaryMm: box(2000, 2000, 4000, 4000), thicknessMm: 200, purpose: 'living room' })
-    expect(first.cost).toBe(9)
+    // The room, four vertices and four walls each add a physical record and a birth.
+    expect(first.cost).toBe(18)
     f.apply({ kind: 'room', id: 'bedroom', boundaryMm: box(6000, 2000, 4000, 4000), thicknessMm: 200 })
     expect(Object.keys(f.project.document.rooms)).toHaveLength(2)
     expect(Object.keys(f.project.document.walls)).toHaveLength(7)

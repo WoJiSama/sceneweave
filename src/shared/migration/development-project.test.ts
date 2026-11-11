@@ -12,6 +12,8 @@ function oldSnapshot(version: number) {
   const project = cloneJson(fixture({ image: true }).project) as unknown as Record<string, unknown>, scene = project.document as Record<string, unknown>
   const identity = project.historyIdentity as Record<string, unknown>, appearance = project.appearance as Record<string, unknown>
   project.schemaVersion = scene.schemaVersion = version
+  // Persistent structural births belong to the current v1 contract, not these older envelopes.
+  delete identity.structureTokens
   if (version < 8) { delete scene.surfaceRules; delete identity.surfaceRuleTokens }
   if (version < 6) { delete scene.decorations; delete scene.decorationClusters; delete identity.decorationTokens }
   if (version < 4) { scene.generation = (scene.generation as Record<string, unknown>).legacy; scene.visual = (scene.visual as Record<string, unknown>).base; delete identity.terrainTokens }
@@ -65,7 +67,7 @@ function oldCanopySnapshot() {
   adopted.historyIdentity.decorationTokens!.canopy.topologyHash = decorationIdentityDescriptors(adopted.document).canopy.topologyHash
   adopted.historyIdentity.decorationTokens!.canopy.topologyToken = 'old-v7-canopy-topology'
   const { surfaceRules: _surfaceRules, ...legacyDocument } = adopted.document
-  const { surfaceRuleTokens: _surfaceRuleTokens, ...legacyIdentity } = adopted.historyIdentity
+  const { surfaceRuleTokens: _surfaceRuleTokens, structureTokens: _structureTokens, ...legacyIdentity } = adopted.historyIdentity
   const legacy = readLegacyDevelopmentProject({ ...project, ...adopted, schemaVersion: 7,
     document: { ...legacyDocument, schemaVersion: 7 }, historyIdentity: { ...legacyIdentity, version: 4 } })
   if (legacy.document.schemaVersion !== 7 || legacy.historyIdentity.version !== 4) throw new Error('Expected the historical v7 fixture')

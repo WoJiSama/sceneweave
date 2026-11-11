@@ -49,7 +49,7 @@ describe('application generation intent preparation', () => {
     input.rooms[0].purpose = 'Changed during load'; input.arrangement.furniture = false
     release()
     const result = await pending
-    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 3, seed: original.seed,
+    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 4, seed: original.seed,
       parameters: { rooms: original.rooms, corridor: original.corridor, arrangement: { ...original.arrangement, palette: env.palette } } } })
     expect(env.content.interior).toHaveBeenCalledWith(expect.objectContaining({ title: original.title, preset: 'narrative', gridVisible: false, seed: original.seed }), expect.any(Object))
     expect(env.selectBudget).toHaveBeenCalledExactlyOnceWith({ widthMm: 12000, heightMm: 8000, quality: 'standard', mode: 'auto' })
@@ -60,6 +60,7 @@ describe('application generation intent preparation', () => {
   it('keeps forest clearings and entrance geometry in the base floor while consuming injected fixed references', async () => {
     const env = await environment(), input = forest(), bounds = Object.values(env.base.document.floors)[0].boundsMm
     const result = await prepareGenerationIntent({ domain: 'forest', request: input }, env), p = result.input.parameters
+    expect(result.input.algorithmVersion).toBe(2)
     expect(p.ground).toEqual({ kind: 'new', elevationMm: 0, materialRef: { id: 'adapter-ground', version: 3 } })
     expect(p.clearings[0]).toMatchObject({ id: 'camp', anchorMm: { x: bounds.x + 4000, y: bounds.y + 6000 }, clearanceMm: 300 })
     expect(p.entrances[0]).toMatchObject({ positionMm: { x: Math.round(bounds.x + bounds.width / 2), y: bounds.y + 1051 }, directionDeg: 90, widthMm: 1501 })

@@ -25,13 +25,13 @@ export function domainExecutionFixture<K extends keyof Inputs>(domain: K): { bas
   const heightMm = domain === 'volcano' ? 32000 : domain === 'forest' ? 24000 : 16000
   const base = createShoreBlankDocument('island', { sceneId: `d7-${domain}`, title: `D7 ${domain}`, now: stamp, widthMm, heightMm, preset: 'narrative' }, domain === 'forest', domain === 'forest')
   let input: Inputs[keyof Inputs]
-  if (domain === 'interior') input = { version: 1, algorithmVersion: 3, seed: 'd7-interior', parameters: {
+  if (domain === 'interior') input = { version: 1, algorithmVersion: 4, seed: 'd7-interior', parameters: {
     floorId: 'visual-floor', layerId: 'visual-layer-ground', boundsMm: { x: 1000, y: 1000, width: 18000, height: 14000 }, wallThicknessMm: 200,
     rooms: [{ id: 'hall', purpose: '大厅', minAreaMm2: 8_000_000, maxAreaMm2: 240_000_000, minClearSideMm: 2000 }, { id: 'study', purpose: '书房', minAreaMm2: 8_000_000, maxAreaMm2: 240_000_000, minClearSideMm: 2000 }],
     relations: [{ a: 'hall', b: 'study', kind: 'adjacent', minimumSharedWallMm: 2000 }], corridor: { axis: 'none', clearWidthMm: 1500 }, materials: { floor: null, wall: null },
     arrangement: { doors: true, entrance: true, furniture: false, doorWidthMm: 1200, clearWidthMm: 1000, palette: [] },
   } }
-  else if (domain === 'forest') input = { version: 1, algorithmVersion: 1, seed: 'd7-forest', parameters: {
+  else if (domain === 'forest') input = { version: 1, algorithmVersion: 2, seed: 'd7-forest', parameters: {
     floorId: 'visual-floor', layerId: 'visual-layer-ground', boundsMm: { x: 2000, y: 2000, width: 28000, height: 20000 }, ground: { kind: 'new', elevationMm: 0, materialRef: null },
     zones: [{ id: 'woods', supportRef: { kind: 'generated-ground' }, boundaryMm: rectangle(2500, 2500, 27000, 19000), vegetation: [
       { role: 'tree', coveragePpm: 80000, spacingMm: 2500, clusterRadiusMm: 6500, clearanceMm: 100,

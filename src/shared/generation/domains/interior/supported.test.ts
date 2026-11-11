@@ -3,12 +3,14 @@ import { createCompositionContent } from '../../../appearance/graph.js'
 import { applyCompositionCommands } from '../../../appearance/commands.js'
 import { applyCommands, type SceneCommand } from '../../../commands/commands.js'
 import { taskBudgetProfile } from '../../../budget/task-budget.js'
+import { selectManualTransactionBudget } from '../../../budget/command-budget.js'
 import { propFootprint, supportedPolygon } from '../../../geometry/geometry.js'
 import { toCurrentSceneDocument } from '../../../model/current-scene.js'
 import type { PropDefinition, SceneDocument } from '../../../model/scene.js'
 import { canonicalJson, cloneJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { getLegacyGeneration } from '../../../terrain-generation/composition-contracts.js'
+import { generationRecipeSchema } from '../../../terrain-generation/contracts.js'
 import { regenerateRoomFurniture } from '../../local-interior.js'
 import { interiorEntityId, normalizeSupportedInteriorInput, rectanglePoints, runInteriorGeneration, runSupportedInteriorGeneration, type InteriorGenerationInput, type SupportedInteriorGenerationInput } from './index.js'
 
@@ -48,6 +50,24 @@ function terrain(existing = false) {
 }
 
 describe('supported-interior@1 composition adapter', () => {
+  it('freezes the furnished floor-only and supported replay results before the next algorithm', () => {
+    const input = request(), { supportRef: _supportRef, ...parameters } = input.parameters
+    const results = {
+      interior2: runInteriorGeneration(blank(), { version: 1, algorithmVersion: 2, seed: input.seed, parameters }, options).resultHash,
+      interior3: runInteriorGeneration(blank(), { version: 1, algorithmVersion: 3, seed: input.seed, parameters }, options).resultHash,
+      supported1: runSupportedInteriorGeneration(terrain(), { ...input, algorithmVersion: 1 }, options).resultHash,
+      supported2: runSupportedInteriorGeneration(terrain(), { ...input, algorithmVersion: 2 }, options).resultHash,
+    }
+    expect(results).toMatchInlineSnapshot(`
+      {
+        "interior2": "4ae61d9e1fc7d4890ff204389411b9131115fb747cafa2f16ccfcd93353b4b4e",
+        "interior3": "921a322bd36516aefc883878cc780b877cac30caf031fbe2c2fd9bd26382691f",
+        "supported1": "4fcc56a450e467bac1b4371571ec7edbacc113836e6d3d0a184c1fc5a859a666",
+        "supported2": "d3462de17cbf9118947af24cf2fd9f8982f185f1cf25e2d05d3358859232c988",
+      }
+    `)
+  }, 30000)
+
   it('materializes elevated furnished rooms without changing or claiming existing entities', () => {
     const base = terrain(true), before = canonicalJson(base), input = request(), generated = runSupportedInteriorGeneration(base, input, options), result = cloneJson(generated.candidate.document) as SceneDocument
     expect(runSupportedInteriorGeneration(base, input, options)).toEqual(generated)
@@ -116,13 +136,18 @@ describe('supported-interior@1 composition adapter', () => {
     expect(validateSceneDocument(second.candidate.document).ok).toBe(true)
   })
 
-  it.each([1, 2] as const)('reuses D6 furniture on elevated support at version %s and preserves manual or deleted slots', version => {
+  for (const version of [1, 2, 3] as const) it(`reuses D6 furniture on elevated support at version ${version} and preserves manual or deleted slots`, () => {
     const input = request(); input.algorithmVersion = version
     const generated = runSupportedInteriorGeneration(terrain(), input, options), context = runtime()
     const content = createCompositionContent(cloneJson(generated.candidate.document) as SceneDocument, context), roomId = generated.layout.rooms[0].roomId
     const props = Object.values(content.document.props).filter(prop => prop.roomId === roomId)
     expect(props.length).toBeGreaterThanOrEqual(2)
-    const edited = applyCompositionCommands(content, [{ type: 'deleteProp', id: props[0].id }, { type: 'updateProp', id: props[1].id, changes: { positionMm: { x: props[1].positionMm.x + 10, y: props[1].positionMm.y } } }], context)
+    // New suggestions use the editor's normal compact manual policy, which
+    // counts real targets and separately bounds all changed metadata. Keep the
+    // legacy no-policy replay fixture unchanged for supported versions 1/2.
+    const accounting = version === 3 ? { budget: selectManualTransactionBudget(content.document) } : undefined
+    if (accounting) expect(accounting.budget.semanticTargets).toBe(256)
+    const edited = applyCompositionCommands(content, [{ type: 'deleteProp', id: props[0].id }, { type: 'updateProp', id: props[1].id, changes: { positionMm: { x: props[1].positionMm.x + 10, y: props[1].positionMm.y } } }], context, accounting)
     const requestLocal = { recipeId: interiorEntityId(content.document.sceneId, input.seed, 'recipe'), roomId, variation: 'supported-local' }
     const result = regenerateRoomFurniture(edited, requestLocal, context, { profile, checkCancelled() {} })
     expect(result.writes.length).toBeGreaterThan(0)
@@ -130,10 +155,23 @@ describe('supported-interior@1 composition adapter', () => {
     expect(result.document.props[props[1].id]).toEqual(edited.document.props[props[1].id])
     expect(result.document.rooms).toEqual(edited.document.rooms)
     expect(result.document.terrainAreas).toEqual(edited.document.terrainAreas)
+    for (const [id, prop] of Object.entries(edited.document.props)) if (result.document.props[id]) expect({ ...result.document.props[id], positionMm: prop.positionMm }).toEqual(prop)
     expect(result.readIds).toContain('support')
     expect(validateSceneDocument(result.document).ok).toBe(true)
-    const locked = applyCompositionCommands(edited, [{ type: 'setEditLock', kind: 'terrainArea', id: 'support', locked: true }], context)
+    const locked = applyCompositionCommands(edited, [{ type: 'setEditLock', kind: 'terrainArea', id: 'support', locked: true }], context, accounting)
     expect(() => regenerateRoomFurniture(locked, requestLocal, context, { profile, checkCancelled() {} })).toThrow(/支撑.*锁定/)
+  }, version === 3 ? 30_000 : 5000)
+
+  it.each([1, 2, 3] as const)('persists the exact supported version %s and rejects mixed recipe selectors', algorithmVersion => {
+    const input = request(); input.algorithmVersion = algorithmVersion
+    input.parameters.arrangement.furniture = false
+    const generated = runSupportedInteriorGeneration(terrain(), input, options)
+    const recipe = Object.values(getLegacyGeneration(cloneJson(generated.candidate.document) as SceneDocument)!.recipes)[0]
+    expect(generated.input.algorithmVersion).toBe(algorithmVersion)
+    expect(generated.candidate.stages.every(stage => stage.operator.version === algorithmVersion)).toBe(true)
+    expect(recipe).toMatchObject({ recipeVersion: algorithmVersion, algorithmId: 'supported-interior', algorithmVersion })
+    expect(generationRecipeSchema.safeParse(recipe).success).toBe(true)
+    expect(generationRecipeSchema.safeParse({ ...recipe, recipeVersion: algorithmVersion === 3 ? 2 : 3 }).success).toBe(false)
   })
 
   it('retains the original interior-layout@2 replay identity', () => {

@@ -241,7 +241,9 @@ describe('terrain identity2 births and topology continuity', () => {
 
   it('counts legacy, nested and deleted identities under the same global 65536 ceiling', () => {
     const identity = createHistoryIdentity(blank(), context())
-    identity.propTokens = Object.fromEntries(Array.from({ length: 65535 }, (_, i) => [`deleted-${i}`, `deleted-birth-${i}`]))
+    expect(Object.keys(identity.structureTokens!)).toEqual(['floor'])
+    // The live Floor, 65,534 deleted Props and one nested point fill the shared ceiling.
+    identity.propTokens = Object.fromEntries(Array.from({ length: 65534 }, (_, i) => [`deleted-${i}`, `deleted-birth-${i}`]))
     identity.regionalTokens!['deleted-point'] = token('regionalPoint', 'point')
     expect(() => validateHistoryIdentityShape(identity)).not.toThrow()
     identity.presentationTokens!['deleted-stroke'] = token('materializedStroke', 'stroke')

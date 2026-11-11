@@ -29,10 +29,10 @@ const resultBase = { input: z.unknown(), candidate: domainGenerationCandidateSch
  * algorithms, local capability declarations and host presentation preparation.
  * Transport schemas and Workspace lifecycle derive their dispatch from here. */
 export const generationDomains = Object.freeze({
-  interior: Object.freeze({ algorithm: Object.freeze({ id: 'interior-layout', version: 3 }), normalize: normalizeInteriorInput, run: runInteriorGeneration,
+  interior: Object.freeze({ algorithm: Object.freeze({ id: 'interior-layout', version: 4 }), normalize: normalizeInteriorInput, run: runInteriorGeneration,
     resultSchema: z.object({ ...resultBase, layout: layoutSchema, report: interiorReportSchema }).strict(),
     presentation: 'default', localOperations: Object.freeze(['interior-furniture']) }),
-  forest: Object.freeze({ algorithm: Object.freeze({ id: 'forest-layout', version: 1 }), normalize: normalizeForestInput, run: runForestGeneration,
+  forest: Object.freeze({ algorithm: Object.freeze({ id: 'forest-layout', version: 2 }), normalize: normalizeForestInput, run: runForestGeneration,
     resultSchema: z.object({ ...resultBase, report: forestReportSchema }).strict(),
     presentation: 'terrain-variants', localOperations: Object.freeze(['forest-density']) }),
   volcano: Object.freeze({ algorithm: Object.freeze({ id: 'volcano-layout', version: 1 }), normalize: normalizeVolcanoInput, run: runVolcanoGeneration,

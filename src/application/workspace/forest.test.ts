@@ -27,10 +27,10 @@ async function blank(): Promise<EditableProject> {
   return fromBundle({ project: { ...bundle.project, ...content, licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({ ...subject,
     licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const })) }, resources: bundle.resources }, validation)
 }
-function request(base: EditableProject): ForestGenerationInput {
+function request(base: EditableProject, algorithmVersion: ForestGenerationInput['algorithmVersion']): ForestGenerationInput {
   const floorId = Object.keys(base.document.floors)[0], layerId = Object.keys(base.document.userLayers)[0], boundsMm = { x: 1000, y: 1000, width: 14000, height: 12000 }
   const supportRef = { kind: 'generated-ground' as const }
-  return { version: 1, algorithmVersion: 1, seed: 'forest-workspace-stable', parameters: {
+  return { version: 1, algorithmVersion, seed: 'forest-workspace-stable', parameters: {
     floorId, layerId, boundsMm, ground: { kind: 'new', elevationMm: 0, materialRef: null },
     zones: [{ id: 'wood', supportRef, boundaryMm: forestRectangle(boundsMm), vegetation: [{ role: 'tree', coveragePpm: 100000, spacingMm: 1000, clusterRadiusMm: 5000, clearanceMm: 200,
       palette: [{ key: 'tree', definitionRef: { id: 'definition', version: 1 }, kind: 'prop', weight: 1 }] }] }],
@@ -51,9 +51,9 @@ async function setup() {
   return { repo, workspace }
 }
 describe('forest complete candidate publication', () => {
-  it('previews without writes, fully replays and cold-saves an editable v1 with deletion/undo preserved', async () => {
+  it.each([1, 2] as const)('algorithm %s previews without writes, fully replays and cold-saves an editable v1 with deletion/undo preserved', async algorithmVersion => {
     const { repo, workspace } = await setup(), current = workspace.getState().project!, before = projectContentHash(toBundle(current).project), base = await blank()
-    const save = vi.spyOn(repo, 'save'), preview = await workspace.previewForestGeneration(base, request(base), profile)
+    const save = vi.spyOn(repo, 'save'), preview = await workspace.previewForestGeneration(base, request(base, algorithmVersion), profile)
     expect(save).not.toHaveBeenCalled(); expect(workspace.getState().project).toBe(current)
     expect(preview.report.propIds.length).toBeGreaterThan(0); expect(preview.report.pathIds).toHaveLength(1)
     await expect(workspace.adoptForestGeneration({ ...preview })).rejects.toThrow(/本会话/)
@@ -72,19 +72,19 @@ describe('forest complete candidate publication', () => {
     expect(reopened.project.document.props[removed]).toBeUndefined()
     expect(Object.values(reopened.project.document.decorationClusters).some(cluster => Object.values(cluster.members).some(member => member.state === 'deleted'))).toBe(true)
   }, 30000)
-  it('rejects cancellation, stale or failed publication without replacing the current project', async () => {
+  it.each([1, 2] as const)('algorithm %s rejects cancellation, stale or failed publication without replacing the current project', async algorithmVersion => {
     const { repo, workspace } = await setup(), base = await blank()
-    const cancelled = await workspace.previewForestGeneration(base, request(base), profile)
+    const cancelled = await workspace.previewForestGeneration(base, request(base, algorithmVersion), profile)
     workspace.cancelForestGeneration(cancelled)
     await expect(workspace.adoptForestGeneration(cancelled)).rejects.toThrow(/取消/)
-    const stale = await workspace.previewForestGeneration(base, request(base), profile)
+    const stale = await workspace.previewForestGeneration(base, request(base, algorithmVersion), profile)
     await workspace.updateProp('item', { rotationDeg: 17 }); await workspace.flush()
     await expect(workspace.adoptForestGeneration(stale)).rejects.toThrow(/已有修改|基线/)
-    const preview = await workspace.previewForestGeneration(base, request(base), profile), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
+    const preview = await workspace.previewForestGeneration(base, request(base, algorithmVersion), profile), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
     vi.spyOn(repo, 'save').mockRejectedValueOnce(new Error('quota'))
     await expect(workspace.adoptForestGeneration(preview)).rejects.toThrow(/quota/)
     expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
-    const coldPreview = await workspace.previewForestGeneration(base, request(base), profile)
+    const coldPreview = await workspace.previewForestGeneration(base, request(base, algorithmVersion), profile)
     vi.spyOn(repo, 'load').mockResolvedValueOnce(null)
     await expect(workspace.adoptForestGeneration(coldPreview)).rejects.toThrow(/冷读/)
     expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)

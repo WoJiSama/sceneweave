@@ -51,6 +51,13 @@ function onExistingGround(): { base: SceneDocument; input: ForestGenerationInput
 }
 
 describe('forest clearings, real routes and vegetation', () => {
+  it('preserves the algorithm 1 full replay captured from the frozen original source', () => {
+    const result = runForestGeneration(source(), request(), options)
+    expect(result.resultHash).toBe('6cb7de658f9020208944355360be36300439a2058b16563082152ba549e88b9d')
+    expect(result.candidate.documentHash).toBe('459e0e67aa47feebe0927937633a46619ef7fcce4eb527fbdfd60b66103771a6')
+    expect(result.candidate.outputHash).toBe('b3b90b99f591792a743090912d20a016b572975f0f26ae2303439c1f5b89b934')
+  }, 30000)
+
   it('generates the default Workbench forest request with real route clearance', () => {
     const base = source(), before = canonicalJson(base), input = request(), p = input.parameters
     input.seed = 'forest-1'

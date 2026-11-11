@@ -31,8 +31,10 @@ export const browserGenerationContent: GenerationContentPort = {
       { role: 'bed' as const, ref: { id: 'refined-prop-interior-bed-indigo', version: 1 } },
       { role: 'seat' as const, ref: { id: 'refined-prop-interior-chair-slat', version: 1 } },
       { role: 'table' as const, ref: { id: 'refined-prop-interior-table-round', version: 1 } },
+      { role: 'table' as const, ref: { id: 'refined-prop-interior-table-long', version: 1 } },
       { role: 'storage' as const, ref: { id: 'refined-prop-interior-cupboard-linen', version: 1 } },
       { role: 'work' as const, ref: { id: 'refined-prop-interior-counter-kitchen', version: 1 } },
+      { role: 'work' as const, ref: { id: 'refined-prop-interior-desk-writing', version: 1 } },
       { role: 'hearth' as const, ref: { id: 'refined-prop-interior-stove-masonry', version: 1 } },
       { role: 'shelf' as const, ref: { id: 'refined-prop-interior-shelf-books', version: 1 } },
     ].filter(row => base.document.propDefinitions[row.ref.id]?.version === row.ref.version)

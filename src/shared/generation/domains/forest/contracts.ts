@@ -27,7 +27,9 @@ export const forestParametersSchema = z.object({
   entrances: z.array(z.object({ id, supportRef: forestSupportSchema, positionMm: point, directionDeg: z.number().finite().min(0).lt(360), widthMm: positive.max(10_000) }).strict()).max(16),
   routes: z.array(z.object({ id, fromEntranceId: id, toClearingId: id, viaMm: z.array(point).max(16), widthMm: positive.max(10_000), materialRef: ref.nullable() }).strict()).max(16),
 }).strict()
-export const forestGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.literal(1), seed: z.string().min(1).max(128), parameters: forestParametersSchema }).strict()
+/** Algorithm 1 retains canonical materialization order; algorithm 2 places
+ * trees before shrubs and grass without changing normalization or geometry. */
+export const forestGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2)]), seed: z.string().min(1).max(128), parameters: forestParametersSchema }).strict()
 export type ForestGenerationInput = z.infer<typeof forestGenerationInputSchema>
 export type ForestParameters = z.infer<typeof forestParametersSchema>
 export type ForestSupport = z.infer<typeof forestSupportSchema>
