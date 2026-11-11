@@ -16,6 +16,7 @@ import { TASK_BUDGET_PROFILES } from '../../src/shared/budget/task-budget.js'
 import { domainGenerationCapabilities } from '../../src/shared/generation/execution.js'
 import { createDomainGenerationService, GenerationServiceFault } from './generation.js'
 import { createTaskBodyReader } from './task-body.js'
+import { createImageEditService, ImageEditFault } from './image-edit.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
@@ -34,7 +35,7 @@ export function authenticate(config: AiConfig, authorization: string | undefined
   return owner
 }
 const errorPayload = (code: string, requestState: AiError['requestState'] = 'not_sent') => ({ schemaVersion: 1 as const, error: { code, message: code === 'unauthorized' ? '需要有效的应用访问凭据。' : code === 'origin_rejected' ? '此站点未获准访问任务服务。' : code === 'not_found' ? '任务不存在。' : code === 'snapshot_required' ? '事件游标无效，请先读取任务检查点。' : '请求未完成，请检查任务状态或服务配置。', retryable: false, requestState } satisfies AiError })
-export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider?: ProviderAdapter; bodyTimeoutMs?: number }
+export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider?: ProviderAdapter; bodyTimeoutMs?: number; imageEditFetch?: typeof fetch }
 export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir)
   const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
@@ -42,6 +43,8 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     begin: (owner, request) => store.beginBaseMap(owner, request), measure: (token, run) => store.measureBaseMapWork(token, run), finish: (token, elapsedMs, resultHash) => store.finishBaseMap(token, elapsedMs, resultHash),
   } })
   const domainGeneration = createDomainGenerationService({ maxConcurrent: Math.min(config.maxConcurrent, 2) })
+  const imageEdit = createImageEditService({ provider: config.imageEdit, dataDir: config.dataDir, fetcher: options.imageEditFetch,
+    maxConcurrent: Math.min(config.maxConcurrent, 2), bodyTimeoutMs: options.bodyTimeoutMs })
   const maximumTaskBody = Math.max(VISION_LIMITS.requestBytes, CONTINUATION_POLICY.requestBytes, ...CONTINUATION_POLICIES_V2.map(policy => policy.requestBytes))
   const boundedJson = createTaskBodyReader({ maxConcurrent: config.maxConcurrent,
     maxBytes: maximumTaskBody * Math.min(config.maxConcurrent, 2), timeoutMs: options.bodyTimeoutMs })
@@ -49,6 +52,7 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   const streams = new Map<string, number>()
   let streamCount = 0
   app.onError((error, context) => {
+    if (error instanceof ImageEditFault) return context.json({ schemaVersion: 1, error: { code: error.code, requestState: error.requestState, retryable: false } }, error.status)
     if (error instanceof GenerationServiceFault) {
       const payload = errorPayload(error.code)
       return context.json({ ...payload, error: { ...payload.error, message: error.safeMessage } }, error.status)
@@ -81,6 +85,11 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     return next()
   })
   app.get('/healthz', context => context.json({ ok: true }))
+  app.get('/v1/image-edit/capabilities', context => {
+    if (new URL(context.req.url).search) throw new ImageEditFault('image_edit_invalid_request', 400)
+    return context.json(imageEdit.capabilities)
+  })
+  app.post('/v1/image-edit', async context => context.json(await imageEdit.edit(context.req.raw, context.get('owner'))))
   app.get('/v1/capabilities', context => {
     if (Object.keys(context.req.query()).some(key => !['authoringVersion', 'surfaceVersion', 'baseMapSelector'].includes(key))
       || ['authoringVersion', 'surfaceVersion', 'baseMapSelector'].some(key => (context.req.queries(key)?.length ?? 0) > 1)) throw new TaskFault('invalid_request', 400)

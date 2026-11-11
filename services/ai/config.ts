@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { isProviderModel, isProviderReasoningEffort, type ChatProviderConfig } from './provider-types.js'
 import { AI_LIMITS } from '../../src/shared/ai/protocol.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
+import { validateImageEditConfig, type ImageEditProviderConfig } from './image-edit.js'
 
 export interface AiConfig {
   host: string
@@ -12,6 +13,7 @@ export interface AiConfig {
   provider: ChatProviderConfig
   maxConcurrent: number
   authoringOutputTokens?: number
+  imageEdit?: ImageEditProviderConfig
 }
 function invalid(name: string): never { throw new Error(`Invalid server configuration: ${name}`) }
 const token = (value: unknown): value is string => typeof value === 'string' && value.length >= 32 && value.length <= 512 && /^[\x21-\x7e]+$/.test(value)
@@ -61,7 +63,13 @@ export function loadAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
   try { url = new URL(base) } catch { invalid('PROVIDER_BASE_URL') }
   if (url!.username || url!.password || url!.search || url!.hash ||
     !(url!.protocol === 'https:' || url!.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url!.hostname))) invalid('PROVIDER_BASE_URL')
+  const imageBase = read('IMAGE_EDIT_BASE_URL'), imageKey = read('IMAGE_EDIT_API_KEY'), imageModel = read('IMAGE_EDIT_MODEL')
+  let imageEdit: ImageEditProviderConfig | undefined
+  if ([imageBase, imageKey, imageModel].some(value => value !== undefined)) {
+    if (!imageBase || !imageKey || !imageModel || accessTokens.has(imageKey)) invalid('IMAGE_EDIT_PROVIDER')
+    imageEdit = validateImageEditConfig({ baseUrl: imageBase, apiKey: imageKey, model: imageModel })
+  }
   return { host, port, dataDir: resolve(read('DATA_DIR') ?? 'local-data/ai'), allowedOrigins, accessTokens,
     provider: { baseUrl: base.replace(/\/$/, ''), apiKey, model, ...(visionModel !== undefined ? { visionModel } : {}), vision: vision as 'unverified' | 'disabled' | 'enabled', preserveReasoning,
-      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) }, maxConcurrent: 4, authoringOutputTokens }
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) }, maxConcurrent: 4, authoringOutputTokens, ...(imageEdit ? { imageEdit } : {}) }
 }
