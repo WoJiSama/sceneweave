@@ -67,7 +67,9 @@ const close = (a: PointMm, b: PointMm) => Math.abs(a.x - b.x) < EPS && Math.abs(
 /** Canonical collinear merges prevent private split vertices creating public seams or joins. */
 function canonicalWalls(walls: ProjectedWall[], compareLayer: (a: { id: string }, b: { id: string }) => number, openingRanks: Map<string, number>, projectedOpeningRanks: Map<string, number>): ProjectedWall[] {
   for (const wall of walls) if (wall.start.x > wall.end.x || wall.start.x === wall.end.x && wall.start.y > wall.end.y) [wall.start, wall.end] = [wall.end, wall.start]
-  walls.sort(wallOrder)
+  // Endpoints are oriented along +x (or +y for vertical walls); merge in that
+  // same direction so negative slopes cannot put a successor before its join.
+  walls.sort((a, b) => a.start.x - b.start.x || a.start.y - b.start.y || a.end.x - b.end.x || a.end.y - b.end.y || wallOrder(a, b))
   const result: ProjectedWall[] = []
   for (const wall of walls) {
     const previous = result.find(item => {

@@ -82,6 +82,29 @@ describe('pure fixed-UBI UVTT layout and independent rendering plan', () => {
     expect(buildUvttPlan(scene).units).toEqual({ display: 'ft', distanceUnit: 'ft', distancePerGrid: 5, gridSizeMm: 1524, gridVisible: false })
   })
 
+  it('uses the saved single-Floor crop for padding, painting and native geometry', () => {
+    const scene = fixture(), crop = { x: 1250, y: 2250, width: 5000, height: 4000 }
+    scene.floors.floor.outputBoundsMm = crop
+    wall(scene, p(1000, 4000), p(11000, 4000))
+    opening(scene, 'inside', { offsetMm: 2000 })
+    opening(scene, 'outside', { offsetMm: 6000 })
+    light(scene, 'inside-light', { positionMm: p(4000, 5000), radiusMm: 500 })
+    light(scene, 'outside-light', { positionMm: p(8000, 5000), radiusMm: 500 })
+    const checked = validateSceneDocument(scene)
+    expect(checked.ok, checked.ok ? '' : JSON.stringify(checked.errors)).toBe(true)
+    const before = canonicalJson(scene), result = buildUvttPlan(scene)
+    expect(result.report.blocked).toEqual([])
+    expect(result.sourceBoundsMm).toEqual(crop)
+    expect(result.boundsMm).toEqual({ x: 1000, y: 2000, width: 6000, height: 5000 })
+    expect(result.projection!.bounds).toEqual(result.boundsMm)
+    expect(result.projection!.visual!.boundsMm).toEqual(crop)
+    expect(result.geometry!.resolution).toEqual({ map_origin: p(1, 2), map_size: p(6, 5), pixels_per_grid: 140 })
+    expect(result.geometry!.line_of_sight).toEqual([[p(1.25, 4), p(3, 4)], [p(4, 4), p(6.25, 4)]])
+    expect(result.geometry!.portals.map(value => value.bounds)).toEqual([[p(3, 4), p(4, 4)]])
+    expect(result.geometry!.lights.map(value => value.position)).toEqual([p(4, 5)])
+    expect(canonicalJson(scene)).toBe(before)
+  })
+
   it('keeps small output at least 256px, admits 81 padded cells, and refuses 82 without lowering the protection', () => {
     const scene = fixture(); scene.exportBoundsMm = { x: 0, y: 0, width: 100, height: 100 }
     const small = buildUvttPlan(scene)
