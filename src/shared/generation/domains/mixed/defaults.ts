@@ -29,13 +29,13 @@ export function defaultMixedInput(document: SceneDocument, environment: 'forest'
     volcano.platform.boundaryMm = forestRectangle(box(.27, .18, .22, .53))
     volcano.platform.anchorMm = at(.405, .6)
     volcano.route.widthMm = 1200
-    return { version: 1, algorithmVersion: 1, seed, parameters: { outdoor: { kind: 'volcano', parameters: volcano }, building,
+    return { version: 1, algorithmVersion: 2, seed, parameters: { outdoor: { kind: 'volcano', parameters: volcano }, building,
       approach: { fromMm: cloneJson(volcano.platform.anchorMm), viaMm: [], widthMm: 1000, materialRef: cloneJson(volcano.materials.route) } } }
   }
   const tree = 'terrain-variants-v2-prop-tree-highland-copse', shrub = 'terrain-variants-v1-prop-shrub-heath-mound', grass = 'terrain-variants-v1-prop-grass-sedge-fan'
   for (const id of [tree, shrub, grass]) if (document.propDefinitions[id]?.version !== 1) throw new Error('混合森林模板缺少确切授权植被定义。')
   const entry = at(.08, .65), camp = box(.2, .5, .22, .25)
-  return { version: 1, algorithmVersion: 1, seed, parameters: {
+  return { version: 1, algorithmVersion: 2, seed, parameters: {
     outdoor: { kind: 'forest', parameters: { floorId: floor.id, layerId: layer.id, boundsMm: cloneJson(b), ground: { kind: 'new', elevationMm: 0, materialRef: material('shore-v1-material-grass') },
       zones: [{ id: 'woodland', supportRef: { kind: 'generated-ground' }, boundaryMm: forestRectangle(b), vegetation: [
         { role: 'tree', coveragePpm: 50000, spacingMm: 2500, clusterRadiusMm: 6000, clearanceMm: 200, palette: [{ key: 'tree', definitionRef: { id: tree, version: 1 }, kind: 'prop', weight: 1 }] },
@@ -47,4 +47,10 @@ export function defaultMixedInput(document: SceneDocument, environment: 'forest'
       routes: [{ id: 'camp-route', fromEntranceId: 'entry', toClearingId: 'camp', viaMm: [], widthMm: 1200, materialRef: material('shore-v1-material-sand-dry') }],
     } }, building, approach: { fromMm: entry, viaMm: [], widthMm: 1000, materialRef: material('shore-v1-material-sand-dry') },
   } }
+}
+
+/** Explicit new recipe selection; the established defaultMixedInput remains
+ * version 2 so old programmatic requests keep their original replay meaning. */
+export function defaultMixedInputV3(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 3 }
 }

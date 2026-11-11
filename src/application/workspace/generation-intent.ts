@@ -44,6 +44,7 @@ export interface VolcanoGenerationUiRequest {
 export interface MixedGenerationUiRequest {
   title: string; environment: 'forest' | 'volcano'; widthMm: number; heightMm: number; seed: string
   roomCount: number; purpose: string; furniture: boolean; vegetationMultiplier: number
+  algorithmVersion?: MixedGenerationInput['algorithmVersion']
 }
 
 export interface GenerationIntentRequests {
@@ -118,7 +119,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '室内布局'), palette = captureJson(content.palette)
       return { kind: 'new-project', domain: 'interior', base: content.base, profile: profile(), input: {
-        version: 1, algorithmVersion: 2, seed: owned.seed, parameters: {
+        version: 1, algorithmVersion: 3, seed: owned.seed, parameters: {
           floorId: floor.id, layerId: layer.id, boundsMm: { ...floor.boundsMm }, wallThicknessMm: owned.wallThicknessMm,
           rooms: owned.rooms, relations: owned.relations, corridor: owned.corridor,
           materials: { floor: null, wall: null }, arrangement: { ...owned.arrangement, palette },
@@ -170,9 +171,11 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
     case 'mixed': {
       const owned = intent.request
       if (!Number.isSafeInteger(owned.roomCount) || owned.roomCount < 1 || owned.roomCount > 4) throw new Error('房间数量须为1–4的整数。')
+      if (owned.algorithmVersion !== undefined && ![1, 2, 3].includes(owned.algorithmVersion)) throw new Error('混合生成算法版本须为1、2或3。')
       const content = await options.content.mixed({ ...baseIntent, environment: owned.environment }, resourceOptions)
       checkCancelled(options.signal)
       const input = captureJson(content.defaults), p = input.parameters, bounds = p.building.boundsMm
+      if (owned.algorithmVersion !== undefined) input.algorithmVersion = owned.algorithmVersion
       const clearArea = Math.max(1, (bounds.width - p.building.wallThicknessMm) * (bounds.height - p.building.wallThicknessMm))
       p.building.rooms = Array.from({ length: owned.roomCount }, (_, index) => ({ id: `room-${index + 1}`, purpose: owned.purpose,
         minAreaMm2: Math.max(1, Math.floor(clearArea / (owned.roomCount * 3))), maxAreaMm2: clearArea, minClearSideMm: 1200 }))

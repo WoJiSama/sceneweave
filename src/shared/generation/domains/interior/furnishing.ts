@@ -8,6 +8,7 @@ import { validateSceneDocument } from '../../../validation/scene.js'
 import { cloneJson } from '../../../validation/json.js'
 import type { InteriorFurnitureRole, InteriorGenerationInput, InteriorLayout, InteriorRectangle } from './contracts.js'
 import { InteriorGenerationError, interiorEntityId } from './layout.js'
+import { hashGenerationValue } from '../../contracts.js'
 import { checkInteriorCirculation, interiorDoorReservations, type InteriorConnectivityReport } from './connectivity.js'
 
 export interface InteriorFurnishingRoom {
@@ -114,7 +115,12 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
       for (const item of available) {
         const definition = next.propDefinitions[item.ref.id]
         if (!definition || definition.version !== item.ref.version) { invalid = true; continue }
-        const rank = (key: string) => interiorEntityId(document.sceneId, input.seed, options.rankSalt === undefined ? `position:${row.requirementId}:${role}:${index}:${key}` : `position:${row.requirementId}:${role}:${index}:${options.rankSalt}:${key}`)
+        const rank = (key: string) => {
+          const positionKey = options.rankSalt === undefined ? `position:${row.requirementId}:${role}:${index}:${key}` : `position:${row.requirementId}:${role}:${index}:${options.rankSalt}:${key}`
+          // Entity identity stays scene-scoped; layout choice belongs to the
+          // semantic seed. Legacy recipes retain their exact original ranking.
+          return input.algorithmVersion === 2 ? interiorEntityId(document.sceneId, input.seed, positionKey) : hashGenerationValue(['interior-position', input.seed, positionKey])
+        }
         for (const positionMm of placementPositions(row.boundsMm, definition, inset, rank)) {
           options.checkCancelled(); report.testedPlacements++; meter.charge({ gridNodes: 1, fieldEvaluations: 1 })
           const prop = existing ? { ...cloneJson(existing), positionMm } : createBasePlacedProp(next, definition.id, positionMm, context, { id: propId, rotationDeg: 0, supportRef: { kind: 'room', id: row.roomId } })

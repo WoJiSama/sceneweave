@@ -3,7 +3,7 @@ import { createShoreBlankDocument } from '../../platform/browser/content/shore-b
 import { applyCommands } from '../commands/commands.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
-import { resolveBuildingEntrancePort } from './building-port.js'
+import { resolveBuildingEntrancePort, resolveBuildingStructurePort } from './building-port.js'
 
 const rectangle = (x: number, y: number, width: number, height: number) => [{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }]
 function fixture(side: 'top' | 'right' | 'bottom' | 'left' = 'top', reversed = false) {
@@ -35,10 +35,41 @@ describe('actual exterior building entrance ports', () => {
     for (const reversed of [false, true]) {
       const { document } = fixture(side, reversed), before = canonicalJson(document)
       const port = resolveBuildingEntrancePort(document, 'entrance', 1000)
+      expect(resolveBuildingStructurePort(document, 'entrance', 1000)).toEqual(port)
       expect(port).toMatchObject({ openingId: 'entrance', roomId: 'building', floorId: 'visual-floor', supportRef: { kind: 'terrainArea', id: 'ground' }, elevationMm: 1200,
         directionDeg, outsideMm, insideMm, widthMm: 1000 })
       expect(checkTerrainRoute(document, { floorId: port.floorId, pointsMm: [port.outsideMm, port.insideMm], widthMm: port.widthMm }).ok).toBe(true)
       expect(canonicalJson(document)).toBe(before)
+    }
+  })
+  it('keeps structural geometry under closed or door-locked current states without changing the document', () => {
+    const { document } = fixture(), port = resolveBuildingStructurePort(document, 'entrance', 1000)
+    for (const changes of [{ state: 'closed' as const }, { locked: true }, { state: 'closed' as const, locked: true }]) {
+      const changed = cloneJson(document); Object.assign(changed.openings.entrance, changes)
+      const before = canonicalJson(changed)
+      expect(resolveBuildingStructurePort(changed, 'entrance', 1000)).toEqual(port)
+      expect(() => resolveBuildingEntrancePort(changed, 'entrance', 1000)).toThrow('建筑入口须为真实、公开可见、已打开且未上锁的门。')
+      expect(checkTerrainRoute(changed, { floorId: port.floorId, pointsMm: [port.insideMm, port.outsideMm], widthMm: 1000 }).ok).toBe(false)
+      expect(canonicalJson(changed)).toBe(before)
+    }
+  })
+  it('preserves the old entrance error priority and rejects the same structural width/support limits', () => {
+    const { document } = fixture(), changed = cloneJson(document)
+    changed.openings.entrance.state = 'closed'
+    expect(() => resolveBuildingEntrancePort(changed, 'entrance', 0)).toThrow('建筑入口净宽须为正整数毫米。')
+    expect(() => resolveBuildingEntrancePort(changed, 'entrance', 1300)).toThrow('建筑入口须为真实、公开可见、已打开且未上锁的门。')
+    expect(() => resolveBuildingStructurePort(changed, 'entrance', 1300)).toThrow('建筑实际门洞净宽不足。')
+    changed.openings.entrance.widthMm = 1201
+    expect(() => resolveBuildingStructurePort(changed, 'entrance', 1000)).toThrow(/整数毫米/)
+    delete changed.walls[changed.openings.entrance.wallId]
+    expect(() => resolveBuildingEntrancePort(changed, 'entrance', 1000)).toThrow('建筑入口须来自合法完整场景。')
+    expect(() => resolveBuildingStructurePort(changed, 'entrance', 1000)).toThrow('建筑入口须来自合法完整场景。')
+  })
+  it('does not turn a private or window opening into a public structural door', () => {
+    const { document } = fixture()
+    for (const changes of [{ secret: true, revealed: false }, { kind: 'window' as const }]) {
+      const changed = cloneJson(document); Object.assign(changed.openings.entrance, changes)
+      expect(() => resolveBuildingStructurePort(changed, 'entrance', 1000)).toThrow(/公开可见的门/)
     }
   })
   it('refuses closed, locked, hidden, undersized and half-millimetre doorways', () => {
@@ -55,8 +86,10 @@ describe('actual exterior building entrance ports', () => {
     const { document, runtime } = fixture('right')
     const shared = applyCommands(document, [{ type: 'createRoom', id: 'neighbor', floorId: 'visual-floor', boundaryMm: rectangle(10000, 4000, 6000, 6000), thicknessMm: 400, supportRef: { kind: 'terrainArea', id: 'ground' } }], runtime)
     expect(() => resolveBuildingEntrancePort(shared, 'entrance', 1000)).toThrow(/恰好/)
+    expect(() => resolveBuildingStructurePort(shared, 'entrance', 1000)).toThrow(/恰好/)
     const top = fixture()
     const crossed = applyCommands(top.document, [{ type: 'createTerrainArea', id: 'other-surface', floorId: 'visual-floor', boundaryMm: rectangle(6000, 2500, 2000, 1000), groundElevationMm: 1200, coveragePriority: 1 }], top.runtime)
     expect(() => resolveBuildingEntrancePort(crossed, 'entrance', 1000)).toThrow(/同一真实地形/)
+    expect(() => resolveBuildingStructurePort(crossed, 'entrance', 1000)).toThrow(/同一真实地形/)
   })
 })

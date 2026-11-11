@@ -8,7 +8,7 @@ import './volcano-generation.css'
 
 import type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 export type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
-const initial = (): MixedGenerationUiRequest => ({ title: '林中驿站', environment: 'forest', widthMm: 40000, heightMm: 32000, seed: 'mixed-1', roomCount: 1, purpose: '驿站休息室', furniture: true, vegetationMultiplier: 1 })
+const initial = (): MixedGenerationUiRequest => ({ title: '林中驿站', environment: 'forest', widthMm: 40000, heightMm: 32000, seed: 'mixed-1', roomCount: 1, purpose: '驿站休息室', furniture: true, vegetationMultiplier: 1, algorithmVersion: 3 })
 
 export default function MixedGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange, aiConnection = null }: {
   busy: boolean; disabled: boolean; error: string | null; candidate: MixedPreview | null; dirty: boolean
@@ -18,6 +18,7 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
 }) {
   const [input, setInput] = useState(initial)
   const [formRevision, setFormRevision] = useState(0)
+  const { algorithmVersion, ...assistantParameters } = input
   const validationId = useId()
   const locked = busy || disabled
   const change = <K extends keyof MixedGenerationUiRequest>(key: K, value: MixedGenerationUiRequest[K]) => {
@@ -39,13 +40,14 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="混合场景生成">
     <h2>混合场景</h2>
     <p>把真实地面、建筑外门和室外路线组合为同一张可编辑地图；森林植被会避开实际建筑和通路。</p>
-    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次建议的门、家具和路线保存后可自由删改；不会自动补回。当前支持一个建筑与同楼层的森林或火山。</p></details>
-    <div hidden={input.environment !== 'forest'}><GenerationParameterAssistant connection={aiConnection} parameters={{ ...input, environment: 'forest' }} formRevision={formRevision} disabled={locked || input.environment !== 'forest'} onApply={parameters => { if (!locked) { onChange(); setFormRevision(value => value + 1); setInput(parameters) } }}/></div>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次建议的门、家具和路线保存后可自由删改；不会自动补回。新版在门外预留直入段，沿门面垂直方向接入，并核查完整净宽。当前支持一个建筑与同楼层的森林或火山。</p></details>
+    <div hidden={input.environment !== 'forest'}><GenerationParameterAssistant connection={aiConnection} parameters={{ ...assistantParameters, environment: 'forest' }} formRevision={formRevision} disabled={locked || input.environment !== 'forest'} onApply={parameters => { if (!locked) { onChange(); setFormRevision(value => value + 1); setInput(current => ({ ...current, ...parameters })) } }}/></div>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ ...input, title: input.title.trim(), seed: input.seed.trim(), purpose: input.purpose.trim() }) }}>
       <fieldset disabled={locked}><legend>场景与建筑需求</legend>
         <label>工程名称<input aria-label="混合工程名称" value={input.title} maxLength={120} onChange={event => change('title', event.target.value)}/></label>
         <label>室外环境<select aria-label="混合场景环境" value={input.environment} onChange={event => change('environment', event.target.value as MixedGenerationUiRequest['environment'])}><option value="forest">林中建筑</option><option value="volcano">火山平台建筑</option></select></label>
+        <label>接路方式<select aria-label="混合接路算法版本" value={algorithmVersion} onChange={event => change('algorithmVersion', Number(event.target.value) as 2 | 3)}><option value="3">门前垂直直入 · 第3版</option><option value="2">原版接路 · 第2版</option></select></label>
         <div className="volcano-field-pair"><label>地图宽（米）<input aria-label="混合地图宽米" type="number" min="20" max="100" step="1" value={input.widthMm / 1000} onChange={event => change('widthMm', Math.round(Number(event.target.value) * 1000))}/></label><label>地图高（米）<input aria-label="混合地图高米" type="number" min="20" max="100" step="1" value={input.heightMm / 1000} onChange={event => change('heightMm', Math.round(Number(event.target.value) * 1000))}/></label></div>
         <label>生成种子<input aria-label="混合生成种子" value={input.seed} maxLength={128} onChange={event => change('seed', event.target.value)}/></label>
         <label>房间数量<input aria-label="混合建筑房间数量" type="number" min="1" max="4" step="1" value={input.roomCount} onChange={event => change('roomCount', Number(event.target.value))}/></label>

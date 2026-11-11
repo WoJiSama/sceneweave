@@ -18,13 +18,14 @@ export function domainExecutionFixture<K extends keyof Inputs>(domain: K): { bas
   if (domain === 'mixed') {
     const fixture = domainExecutionFixture('forest')
     const input = defaultMixedInput(fixture.base, 'forest', 'mixed-transport')
+    input.algorithmVersion = 3
     return { ...fixture, input } as { base: SceneDocument; input: Inputs[K]; profile: ReturnType<typeof taskBudgetProfile> }
   }
   const widthMm = domain === 'volcano' ? 40000 : domain === 'forest' ? 32000 : 20000
   const heightMm = domain === 'volcano' ? 32000 : domain === 'forest' ? 24000 : 16000
   const base = createShoreBlankDocument('island', { sceneId: `d7-${domain}`, title: `D7 ${domain}`, now: stamp, widthMm, heightMm, preset: 'narrative' }, domain === 'forest', domain === 'forest')
   let input: Inputs[keyof Inputs]
-  if (domain === 'interior') input = { version: 1, algorithmVersion: 2, seed: 'd7-interior', parameters: {
+  if (domain === 'interior') input = { version: 1, algorithmVersion: 3, seed: 'd7-interior', parameters: {
     floorId: 'visual-floor', layerId: 'visual-layer-ground', boundsMm: { x: 1000, y: 1000, width: 18000, height: 14000 }, wallThicknessMm: 200,
     rooms: [{ id: 'hall', purpose: '大厅', minAreaMm2: 8_000_000, maxAreaMm2: 240_000_000, minClearSideMm: 2000 }, { id: 'study', purpose: '书房', minAreaMm2: 8_000_000, maxAreaMm2: 240_000_000, minClearSideMm: 2000 }],
     relations: [{ a: 'hall', b: 'study', kind: 'adjacent', minimumSharedWallMm: 2000 }], corridor: { axis: 'none', clearWidthMm: 1500 }, materials: { floor: null, wall: null },

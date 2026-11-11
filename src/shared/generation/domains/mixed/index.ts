@@ -1,7 +1,7 @@
 import type { SceneDocument, PointMm } from '../../../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../../../model/scene.js'
 import { applyCommands } from '../../../commands/commands.js'
-import { parseTaskBudgetProfile, captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { parseTaskBudgetProfile, captureExecutionBudget, measureBudgetGeometry, type TaskBudgetProfile } from '../../../budget/task-budget.js'
 import { captureJson, cloneJson, freezeJson, canonicalJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
@@ -18,9 +18,10 @@ import { normalizeInteriorInput, runSupportedInteriorGeneration } from '../inter
 import { normalizeForestInput, runForestGeneration, forestEntityId, forestRectangle, type ForestGenerationInput } from '../forest/index.js'
 import { normalizeVolcanoInput, runVolcanoGeneration, checkVolcanoResult, volcanoEntityId } from '../volcano/index.js'
 import { mixedGenerationInputSchema, mixedFixedBindings, type MixedGenerationInput, type MixedReport } from './contracts.js'
+import { planBuildingEntranceApproaches } from './entrance-approach.js'
 
 export * from './contracts.js'
-export { defaultMixedInput } from './defaults.js'
+export { defaultMixedInput, defaultMixedInputV3 } from './defaults.js'
 export const mixedEntityId = (sceneId: string, seed: string, key: string) => `mixed-${hashGenerationValue([sceneId, seed, key]).slice(0, 32)}`
 const moduleSeed = (seed: string, module: string) => hashGenerationValue(['mixed-layout', 1, seed, module])
 const equal = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
@@ -44,7 +45,7 @@ export function normalizeMixedInput(raw: unknown): MixedGenerationInput {
  * modules retain their own strict recipes and finite output ownership. */
 function persist(document: SceneDocument, input: MixedGenerationInput, supportAreaId: string, entranceOpeningId?: string): void {
   const p = input.parameters, gen = getLegacyGeneration(document)!, id = (key: string) => mixedEntityId(document.sceneId, input.seed, key), recipeId = id('recipe')
-  const recipe: GenerationRecipe = { id: recipeId, domain: 'mixed', recipeVersion: 1, algorithmId: 'mixed-layout', algorithmVersion: 1, mapMode: 'scene', seed: input.seed,
+  const recipe: GenerationRecipe = { id: recipeId, domain: 'mixed', ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : { recipeVersion: 3 as const, algorithmVersion: 3 as const }), algorithmId: 'mixed-layout', mapMode: 'scene', seed: input.seed,
     parameters: cloneJson(p), ...mixedFixedBindings(p), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   gen.recipes[recipeId] = recipe
   const addRule = (key: string, kind: 'terrainArea' | 'path', entityId: string, inputs: GenerationReference[]) => {
@@ -52,7 +53,7 @@ function persist(document: SceneDocument, input: MixedGenerationInput, supportAr
     const target: GenerationReference = { kind, entityId, parentId: null, fieldGroup: 'geometry' }
     const ownerId = id(`owner:${key}`)
     gen.ownership[ownerId] = { id: ownerId, outputKey: `${recipeId}:${key}`, ruleId, target, managedFields: [...fields], manualFields: [], state: 'managed', birthToken: id(`birth:${key}`) }
-    const rule: GenerationRule = { id: ruleId, floorId: p.outdoor.parameters.floorId, layerId: p.outdoor.parameters.layerId, visibility: 'public', editLocked: false, kind: 'composition', recipeRef: { id: recipeId, version: 1 },
+    const rule: GenerationRule = { id: ruleId, floorId: p.outdoor.parameters.floorId, layerId: p.outdoor.parameters.layerId, visibility: 'public', editLocked: false, kind: 'composition', recipeRef: { id: recipeId, version: recipe.recipeVersion },
       inputs, outputs: fields.map(fieldGroup => ({ ...target, fieldGroup })), parameters: { widthMm: p.approach.widthMm, minWidthMm: 0, maxWidthMm: p.approach.widthMm, roughness: 0, densityFactor: 0 }, state: 'active', inputHash: '0'.repeat(64), managedOutputHash: '0'.repeat(64) }
     gen.rules[ruleId] = rule
     rule.inputHash = generationInputHash(document, rule); rule.managedOutputHash = managedOutputHash(document, rule)
@@ -90,17 +91,25 @@ function runAdapter(source: SceneDocument, input: MixedGenerationInput, supportA
         if (port.supportRef.id !== supportAreaId) throw new GenerationError('candidate-invalid', '真实外门与混合建筑声明的支撑不一致。')
         const { fromMm: from, viaMm, widthMm } = p.approach, to = port.outsideMm
         const b = p.building.boundsMm, margin = Math.ceil(p.building.wallThicknessMm / 2) + Math.ceil(widthMm / 2) + 2
-        const variants: PointMm[][] = viaMm.length ? [[from, ...viaMm, to]] : [
+        const variants: PointMm[][] = input.algorithmVersion === 3 ? planBuildingEntranceApproaches({ port, fromMm: from, viaMm,
+          buildingBoundsMm: b, wallThicknessMm: p.building.wallThicknessMm }).variantsMm : viaMm.length ? [[from, ...viaMm, to]] : [
           [from, to], [from, { x: from.x, y: to.y }, to], [from, { x: to.x, y: from.y }, to],
           ...[b.x - margin, b.x + b.width + margin].map(x => [from, { x, y: from.y }, { x, y: to.y }, to]),
           ...[b.y - margin, b.y + b.height + margin].map(y => [from, { x: from.x, y }, { x: to.x, y }, to]),
         ]
         let selected: { pointsMm: PointMm[]; supportRefs: ReturnType<typeof checkTerrainRoute>['supportRefs'] } | undefined
         const notes: string[] = []
+        // Each new full-band check also validates the retained physical scene.
+        // Charge a conservative pair bound for both road/door continuations,
+        // including rejected alternatives; the executor's work observer folds
+        // these charges into the same cumulative composition budget.
+        const retainedSegments = input.algorithmVersion === 3 ? LAYER_ENTITY_COLLECTIONS.reduce((sum, key) => sum + Object.values(document[key]).reduce((n, row) => n + measureBudgetGeometry(row).geometrySegments, 0), 0) : 0
+        if (input.algorithmVersion === 3) meter.charge({ fieldEvaluations: variants.reduce((sum, points) => sum + points.length, 0) })
         for (const variant of variants) {
           context.checkCancelled(); meter.charge({ gridNodes: 1, fieldEvaluations: Object.keys(document.walls).length + Object.keys(document.props).length + variant.length })
           const pointsMm = variant.filter((point, index) => index === 0 || !equal(point, variant[index - 1]))
           if (pointsMm.length < 2) continue
+          if (input.algorithmVersion === 3) meter.charge({ intersectionPairs: 2 * (retainedSegments + 6 * (pointsMm.length + 1)) ** 2 })
           const route = checkTerrainRoute(document, { floorId: port.floorId, pointsMm, widthMm }), joined = checkTerrainRoute(document, { floorId: port.floorId, pointsMm: [...pointsMm, port.insideMm], widthMm })
           if (route.ok && joined.ok) { selected = { pointsMm, supportRefs: route.supportRefs }; break }
           notes.push(...route.issues.map(row => row.message), ...joined.issues.map(row => row.message))
@@ -139,7 +148,7 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
     const parameters = p.outdoor.parameters
     volcano = execution.run('outdoor', (current, opts) => runVolcanoGeneration(current, { version: 1, algorithmVersion: 1, seed: outdoorSeed, parameters }, opts))
   }
-  const building = execution.run('building', (current, opts) => runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: 1, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId } } }, opts))
+  const building = execution.run('building', (current, opts) => runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: input.algorithmVersion === 3 ? 2 : input.algorithmVersion, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId } } }, opts))
   const entranceOpeningId = building.report.connectivity.entranceOpeningId
   if (!entranceOpeningId) throw new GenerationError('candidate-invalid', '初次混合候选未找到可接入的真实外门；请调整建筑尺寸或门建议参数。')
   execution.run('approach', (current, opts) => ({ candidate: runAdapter(current, input, supportAreaId, opts, entranceOpeningId) }))
@@ -165,7 +174,7 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
   const buildingRecipe = Object.values(getLegacyGeneration(current)!.recipes).find(row => 'domain' in row && row.domain === 'interior' && row.algorithmId === 'supported-interior')!
   const report: MixedReport = { environment: p.outdoor.kind, supportAreaId, buildingRecipeId: buildingRecipe.id, outdoorRecipeId,
     roomIds: Object.keys(current.rooms).sort(), openingIds: Object.keys(current.openings).sort(), propIds: Object.keys(current.props).sort(), entranceOpeningId, approachPathId: finalRoute.id, notes }
-  const candidate = execution.publish(hashGenerationValue({ algorithm: 'mixed-layout', version: 1, input, profile }))
+  const candidate = execution.publish(hashGenerationValue({ algorithm: 'mixed-layout', version: input.algorithmVersion, input, profile }))
   const resultHash = hashGenerationValue({ input, report, documentHash: candidate.documentHash, outputHash: candidate.outputHash, stages: candidate.stages })
   return freezeJson({ input, candidate, report, resultHash })
 }

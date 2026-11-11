@@ -19,13 +19,15 @@ export const interiorLayoutParametersSchema = z.object({ floorId: id, layerId: i
     palette: z.array(z.object({ role: interiorFurnitureRoleSchema, ref }).strict()).max(64),
   }).strict(),
 }).strict()
-export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.literal(2), seed: z.string().min(1).max(128), parameters: interiorLayoutParametersSchema }).strict()
+/** Explicit replay selectors: v2 keeps legacy identity-sensitive ordering;
+ * v3 separates layout choices from the new project's entity identities. */
+export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3)]), seed: z.string().min(1).max(128), parameters: interiorLayoutParametersSchema }).strict()
 /** A separate replay contract adds real terrain support without changing the
  * original floor-only interior-layout@2 parameters or deterministic results. */
 export const supportedInteriorParametersSchema = interiorLayoutParametersSchema.extend({
   supportRef: z.object({ kind: z.literal('terrainArea'), id }).strict(),
 }).strict()
-export const supportedInteriorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.literal(1), seed: z.string().min(1).max(128), parameters: supportedInteriorParametersSchema }).strict()
+export const supportedInteriorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2)]), seed: z.string().min(1).max(128), parameters: supportedInteriorParametersSchema }).strict()
 export type InteriorLayoutParameters = z.infer<typeof interiorLayoutParametersSchema>
 export type InteriorGenerationInput = z.infer<typeof interiorGenerationInputSchema>
 export type SupportedInteriorGenerationInput = z.infer<typeof supportedInteriorGenerationInputSchema>

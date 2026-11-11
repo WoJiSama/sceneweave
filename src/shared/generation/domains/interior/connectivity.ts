@@ -1,7 +1,7 @@
 import type { PointMm, SceneDocument, Wall } from '../../../model/scene.js'
 import { applyCommands } from '../../../commands/commands.js'
 import { captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/task-budget.js'
-import { cloneJson } from '../../../validation/json.js'
+import { cloneJson, canonicalJson } from '../../../validation/json.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { corridor, coveredEverywhere, openingEndpoints, pathPolygon, pointInPolygon, roomPoints } from '../../../geometry/geometry.js'
 import { interiorEntityId } from './layout.js'
@@ -157,15 +157,20 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
   let next = cloneJson(document)
   const p = input.parameters, arrangement = p.arrangement, meter = captureExecutionBudget(options.profile), notes: string[] = []
   const report: InteriorConnectivityReport = { openingIds: [], entranceOpeningId: null, routes: [], notes }
-  const roomIds = [...layout.rooms, ...layout.corridors].map(row => row.roomId).sort(compare), actual = new Set(roomIds)
+  const semanticRooms = new Map([...layout.rooms.map(row => [row.roomId, `room:${row.requirementId}`] as const), ...layout.corridors.map(row => [row.roomId, 'corridor'] as const)])
+  const roomOrder = (a: string, b: string) => input.algorithmVersion === 2 ? compare(a, b) : compare(semanticRooms.get(a)!, semanticRooms.get(b)!)
+  const roomIds = [...layout.rooms, ...layout.corridors].map(row => row.roomId).sort(roomOrder), actual = new Set(roomIds)
   const roomByDemand = new Map(layout.rooms.map(room => [room.requirementId, room.roomId]))
   const forbidden = new Set(p.relations.filter(row => row.kind === 'no-direct-connection').map(row => [roomByDemand.get(row.a), roomByDemand.get(row.b)].sort().join('\0')))
   const tick = () => { options.checkCancelled(); meter.charge({ fieldEvaluations: 1 }) }
   const walls = Object.values(next.walls).filter(wall => wall.floorId === p.floorId).map(wall => {
     tick()
-    const start = next.vertices[wall.startVertexId], end = next.vertices[wall.endVertexId], rooms = owners(next, wall).filter(id => actual.has(id))
-    return { wall, rooms, length: Math.abs(end.xMm - start.xMm) + Math.abs(end.yMm - start.yMm) }
-  }).sort((a, b) => b.length - a.length || compare(a.wall.id, b.wall.id))
+    const start = next.vertices[wall.startVertexId], end = next.vertices[wall.endVertexId], rooms = owners(next, wall).filter(id => actual.has(id)).sort(roomOrder)
+    // Equal-length wall selection must follow geometry, rather than random
+    // native IDs. Preserve the ID tie break for the old replay contract.
+    const stableKey = canonicalJson([[start.xMm, start.yMm], [end.xMm, end.yMm]].sort((a, b) => a[0] - b[0] || a[1] - b[1]))
+    return { wall, rooms, stableKey, length: Math.abs(end.xMm - start.xMm) + Math.abs(end.yMm - start.yMm) }
+  }).sort((a, b) => b.length - a.length || compare(input.algorithmVersion === 2 ? a.wall.id : a.stableKey, input.algorithmVersion === 2 ? b.wall.id : b.stableKey))
   const createDoor = (wall: Wall): string | null => {
     tick()
     const a = next.vertices[wall.startVertexId], b = next.vertices[wall.endVertexId]
