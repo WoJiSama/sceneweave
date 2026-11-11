@@ -2,6 +2,7 @@ import type { BoundsMm, GroundSurfaceRef, Issue, Opening, Path, PointMm, Prop, R
 import { connectionCenterline, connectionRouteSchema, type ConnectionRouteGeometry } from './connection-route.js'
 import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
 import { visualBase } from '../visual/base.js'
+import { validateFloorSettings } from '../floors/output.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -319,7 +320,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   const validBounds = (bounds: BoundsMm, id: string) => {
     if (!Number.isSafeInteger(bounds.x + bounds.width) || !Number.isSafeInteger(bounds.y + bounds.height)) error('UNSAFE_BOUNDS', '边界端点超出安全整数范围。', id)
   }
-  if (Object.keys(scene.floors).length !== 1) error('UNSUPPORTED_FLOORS', 'M1 恰好支持一个 Floor。')
+  errors.push(...validateFloorSettings(scene))
   validBounds(scene.exportBoundsMm, scene.sceneId)
   for (const floor of Object.values(scene.floors)) validBounds(floor.boundsMm, floor.id)
   for (const definition of Object.values(scene.propDefinitions)) validBounds(definition.defaultVisualBoundsMm, definition.id)
@@ -342,7 +343,12 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
       if ((!sharedEndpoint && !sharedFull) || partialOverlap) error('UNSPLIT_TERRAIN_INTERSECTION', '地形交点及共边端点必须显式分段，不能靠隐式求交修补。', b.id)
     }
   }
-  const terrainBoundaries = validAreas.map(terrainPoints)
+  const terrainBoundariesByFloor = new Map<string,PointMm[][]>()
+  for (const item of validAreas) {
+    const boundaries=terrainBoundariesByFloor.get(item.floorId)??[]
+    boundaries.push(terrainPoints(item));terrainBoundariesByFloor.set(item.floorId,boundaries)
+  }
+  const terrainBoundaries = (floorId: string): PointMm[][] => terrainBoundariesByFloor.get(floorId)??[]
   const edgeSources = new Set<string>()
   for (const edge of Object.values(scene.terrainEdges)) {
     styleGeometry(edge.surfaceStyle)
@@ -355,7 +361,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     const a = source.boundaryMm[index].positionMm, b = source.boundaryMm[(index + 1) % source.boundaryMm.length].positionMm, midpoint = at(a, b, 0.5), length = Math.hypot(b.x - a.x, b.y - a.y)
     if (!length) continue
     let offset = Math.min(0.1, length / 100)
-    for (const boundary of terrainBoundaries) for (const [c, d] of edges(boundary)) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
+    for (const boundary of terrainBoundaries(edge.floorId)) for (const [c, d] of edges(boundary)) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
     const inside = supportSurfaceAt(scene, { x: midpoint.x - (b.y - a.y) / length * offset, y: midpoint.y + (b.x - a.x) / length * offset }, edge.floorId)
     const outside = supportSurfaceAt(scene, { x: midpoint.x + (b.y - a.y) / length * offset, y: midpoint.y - (b.x - a.x) / length * offset }, edge.floorId)
     if (inside?.kind !== 'terrainArea' || inside.id !== source.id || !outside || refEqual(inside, outside)) { error('COVERED_EDGE_SOURCE', '源边段必须是暴露的有效支撑面边界，不能保留被覆盖边缘。', edge.id); continue }
@@ -416,7 +422,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   for (const item of wallGeometry) {
     const expected = wallRooms.get(item.wall.id)?.[0]?.groundElevationMm ?? (supportSurfaceAt(scene, at(item.a, item.b, 0.5), item.wall.floorId) ? elevation(scene, supportSurfaceAt(scene, at(item.a, item.b, 0.5), item.wall.floorId)!) : undefined)
     withinFloor(item.polygon, item.wall.floorId, item.wall.id)
-    if (expected !== undefined && !coveredEverywhere(item.polygon, terrainBoundaries, p => { const support = supportSurfaceAt(scene, p, item.wall.floorId); return !!support && elevation(scene, support) === expected })) error('WALL_SUPPORT_ELEVATION', '真实厚墙带区不能悬在不同高程地面上。', item.wall.id)
+    if (expected !== undefined && !coveredEverywhere(item.polygon, terrainBoundaries(item.wall.floorId), p => { const support = supportSurfaceAt(scene, p, item.wall.floorId); return !!support && elevation(scene, support) === expected })) error('WALL_SUPPORT_ELEVATION', '真实厚墙带区不能悬在不同高程地面上。', item.wall.id)
   }
   const wallJoins: { floorId: string; polygon: PointMm[]; wallId: string }[] = []
   for (let i = 0; i < wallGeometry.length; i++) for (let j = i + 1; j < wallGeometry.length; j++) {
@@ -438,7 +444,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
       if (Math.abs(area(join)) <= EPS) continue
       withinFloor(join, a.wall.floorId, a.wall.id)
       const expected = wallRooms.get(a.wall.id)?.[0]?.groundElevationMm ?? (supportSurfaceAt(scene, at(a.a, a.b, 0.5), a.wall.floorId) ? elevation(scene, supportSurfaceAt(scene, at(a.a, a.b, 0.5), a.wall.floorId)!) : undefined)
-      if (expected !== undefined && !coveredEverywhere(join, terrainBoundaries, p => { const support = supportSurfaceAt(scene, p, a.wall.floorId); return !!support && elevation(scene, support) === expected })) error('WALL_SUPPORT_ELEVATION', '厚墙转角的 miter/bevel 区域不能悬跨不同高程地面。', a.wall.id)
+      if (expected !== undefined && !coveredEverywhere(join, terrainBoundaries(a.wall.floorId), p => { const support = supportSurfaceAt(scene, p, a.wall.floorId); return !!support && elevation(scene, support) === expected })) error('WALL_SUPPORT_ELEVATION', '厚墙转角的 miter/bevel 区域不能悬跨不同高程地面。', a.wall.id)
       wallJoins.push({ floorId: a.wall.floorId, polygon: join, wallId: a.wall.id })
     }
   }
@@ -496,10 +502,10 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!band.length || refEqual(from.surfaceRef, to.surfaceRef) || elevation(scene, from.surfaceRef) === undefined || elevation(scene, from.surfaceRef) === elevation(scene, to.surfaceRef)) error('CONNECTION_HEIGHT', '连接须具有不同有效支撑面、不同高度与非零长度。', connection.id)
     if (!pointOnSurface(scene, from.positionMm, from.surfaceRef, connection.floorId) || !pointOnSurface(scene, to.positionMm, to.surfaceRef, connection.floorId)) error('CONNECTION_ENDPOINT', '连接两端须落在各自的有效支撑面内。', connection.id)
     const refs = [from.surfaceRef, to.surfaceRef]
-    if (!coveredEverywhere(band, [...terrainBoundaries, ...validRooms.map(item => item.points)], p => refs.some(ref => pointOnSurface(scene, p, ref, connection.floorId)))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
+    if (!coveredEverywhere(band, [...terrainBoundaries(connection.floorId), ...validRooms.filter(item=>item.room.floorId===connection.floorId).map(item => item.points)], p => refs.some(ref => pointOnSurface(scene, p, ref, connection.floorId)))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
     const transitions: string[] = []
     for (let segment = 1; segment < centerline.length; segment++) {
-      const a = centerline[segment - 1], b = centerline[segment], cuts = segmentCuts(a, b, terrainBoundaries.flatMap(edges))
+      const a = centerline[segment - 1], b = centerline[segment], cuts = segmentCuts(a, b, terrainBoundaries(connection.floorId).flatMap(edges))
       for (let i = 1; i < cuts.length; i++) {
         const p = at(a, b, (cuts[i - 1] + cuts[i]) / 2), support = supportSurfaceAt(scene, p, connection.floorId), key = support ? `${support.kind}\0${support.id}` : 'outside'
         if (transitions.at(-1) !== key) transitions.push(key)
@@ -529,10 +535,10 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!polygon(band, path.id)) continue
     const crossing = path.centerlineMm.slice(1).some((b, i) => path.centerlineMm.slice(i + 3).some((d, k) => meet(path.centerlineMm[i], b, path.centerlineMm[i + 2 + k], d)))
     if (crossing) error('PATH_SELF_OVERLAP', '路径中心线/带区不能自交或折返。', path.id)
-    if (!coveredEverywhere(band, [...terrainBoundaries, ...validRooms.map(item => item.points)], p => path.supportRefs.some(ref => pointOnSurface(scene, p, ref, path.floorId)))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
+    if (!coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item=>item.room.floorId===path.floorId).map(item => item.points)], p => path.supportRefs.some(ref => pointOnSurface(scene, p, ref, path.floorId)))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
     let previousPathSurface: SurfaceRef | null = null
     for (let i = 1; i < path.centerlineMm.length; i++) {
-      const a = path.centerlineMm[i - 1], b = path.centerlineMm[i], cuts = segmentCuts(a, b, terrainBoundaries.flatMap(edges))
+      const a = path.centerlineMm[i - 1], b = path.centerlineMm[i], cuts = segmentCuts(a, b, terrainBoundaries(path.floorId).flatMap(edges))
       for (let j = 1; j < cuts.length; j++) {
         const support = supportSurfaceAt(scene, at(a, b, (cuts[j - 1] + cuts[j]) / 2), path.floorId)
         if (support && previousPathSurface && elevation(scene, support) !== elevation(scene, previousPathSurface)) {

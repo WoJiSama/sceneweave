@@ -6,6 +6,7 @@ import { sampleVisualBoundary } from './geometry.js'
 import type { VisualSystem } from './types.js'
 import { getLegacyVisual } from '../terrain-generation/composition-contracts.js'
 import { decorationPaintPolygon } from '../decorations/presentation.js'
+import { resolveFloorOutput, type FloorOutput } from '../floors/output.js'
 
 const copy = <T>(value: T): T => cloneJson(value)
 const bounds = (points: PointMm[]): BoundsMm => ({ x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)), width: Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)), height: Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y)) })
@@ -17,8 +18,11 @@ function propVisualRing(prop: SceneDocument['props'][string]): PointMm[] {
 }
 
 /** This boundary receives the audience's completed physical projection, never a GM render cache. */
-export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, projection: Projection, audience: Audience, hiddenLayerIds?: ReadonlySet<string>, visibleWallIds?: ReadonlySet<string>): ProjectedVisualSystem {
-  const shown = (value: { layerId: string; visibility: string; enabled?: boolean }) => value.enabled !== false && !hiddenLayerIds?.has(value.layerId) && (audience === 'gm' || value.visibility === 'public')
+export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, projection: Projection, audience: Audience, hiddenLayerIds?: ReadonlySet<string>, visibleWallIds?: ReadonlySet<string>, resolvedFloor?: FloorOutput): ProjectedVisualSystem {
+  const floorId = resolvedFloor?.floorId ?? projection.floorId ?? (Object.keys(scene.floors).length === 1 ? Object.keys(scene.floors)[0] : undefined)
+  if (floorId === undefined) throw new Error('多楼层视觉投影必须明确选择目标Floor。')
+  const output = resolvedFloor ?? resolveFloorOutput(scene, floorId)
+  const shown = (value: { floorId: string; layerId: string; visibility: string; enabled?: boolean }) => value.floorId === floorId && value.enabled !== false && !hiddenLayerIds?.has(value.layerId) && (audience === 'gm' || value.visibility === 'public')
   const terrains = new Set(projection.terrain.map(a => a.id)), paths = new Set(projection.paths.map(a => a.id))
   const boundaries: ProjectedVisualBoundary[] = []
   for (const boundary of Object.values(visual.boundaries).sort((a, b) => a.id.localeCompare(b.id))) {
@@ -66,7 +70,7 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
   for (const prop of projection.props) targetRings.set(prop.id, [propVisualRing(prop)])
   for (const value of projection.decorations ?? []) targetRings.set(value.id, [decorationPaintPolygon(value)])
   for (const region of projection.regions) targetRings.set(region.id, [copy(region.points)])
-  for (const wall of Object.values(scene.walls)) {
+  for (const wall of Object.values(scene.walls).filter(wall => wall.floorId === floorId)) {
     if (visibleWallIds ? !visibleWallIds.has(wall.id) : !projection.walls.some(projected => projected.sourceIds.includes(wall.id))) continue
     const a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId], dx = b.xMm - a.xMm, dy = b.yMm - a.yMm, l = Math.hypot(dx, dy), nx = -dy / l * wall.thicknessMm / 2, ny = dx / l * wall.thicknessMm / 2
     targetRings.set(wall.id, [[{ x: a.xMm + nx, y: a.yMm + ny }, { x: b.xMm + nx, y: b.yMm + ny }, { x: b.xMm - nx, y: b.yMm - ny }, { x: a.xMm - nx, y: a.yMm - ny }]])
@@ -78,22 +82,22 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
       targetRings.set(connection.id, [[{ x: connection.start.x + nx, y: connection.start.y + ny }, { x: connection.end.x + nx, y: connection.end.y + ny }, { x: connection.end.x - nx, y: connection.end.y - ny }, { x: connection.start.x - nx, y: connection.start.y - ny }]])
     }
   }
-  for (const group of Object.values(scene.prefabInstances)) {
+  for (const group of Object.values(scene.prefabInstances).filter(group => group.floorId === floorId)) {
     const rings = Object.values(group.members).flatMap(member => member.propId ? targetRings.get(member.propId) ?? [] : [])
     if ((audience === 'gm' || group.visibility === 'public') && rings.length) targetRings.set(group.id, rings)
   }
-  for (const group of Object.values(scene.scatterGroups)) {
+  for (const group of Object.values(scene.scatterGroups).filter(group => group.floorId === floorId)) {
     const rings = Object.values(group.members).flatMap(member => member.state !== 'detached' && member.propId ? targetRings.get(member.propId) ?? [] : [])
     if ((audience === 'gm' || group.visibility === 'public') && rings.length) targetRings.set(group.id, rings)
   }
-  for (const group of Object.values(scene.decorationClusters ?? {})) {
+  for (const group of Object.values(scene.decorationClusters ?? {}).filter(group => group.floorId === floorId)) {
     const rings = Object.values(group.members).flatMap(member => member.state !== 'detached' && member.entityId ? targetRings.get(member.entityId) ?? [] : [])
     if ((audience === 'gm' || group.visibility === 'public') && rings.length) targetRings.set(group.id, rings)
   }
   const renderTargets = new Map([...targetRings.keys()].map(id => [id, [id]]))
-  for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) renderTargets.set(group.id, Object.values(group.members).flatMap(member => member.propId && targetRings.has(member.propId) ? [member.propId] : []))
-  for (const group of Object.values(scene.decorationClusters ?? {})) renderTargets.set(group.id, Object.values(group.members).flatMap(member => member.entityId && member.state !== 'detached' && targetRings.has(member.entityId) ? [member.entityId] : []))
-  for (const wall of Object.values(scene.walls)) if (targetRings.has(wall.id)) {
+  for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)].filter(group => group.floorId === floorId)) renderTargets.set(group.id, Object.values(group.members).flatMap(member => member.propId && targetRings.has(member.propId) ? [member.propId] : []))
+  for (const group of Object.values(scene.decorationClusters ?? {}).filter(group => group.floorId === floorId)) renderTargets.set(group.id, Object.values(group.members).flatMap(member => member.entityId && member.state !== 'detached' && targetRings.has(member.entityId) ? [member.entityId] : []))
+  for (const wall of Object.values(scene.walls).filter(wall => wall.floorId === floorId)) if (targetRings.has(wall.id)) {
     const a = scene.vertices[wall.startVertexId], b = scene.vertices[wall.endVertexId]
     renderTargets.set(wall.id, projection.walls.filter(projected => {
       const dx = projected.end.x - projected.start.x, dy = projected.end.y - projected.start.y, length2 = dx * dx + dy * dy
@@ -110,10 +114,10 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     const ids = target.kind === 'entities' ? target.ids : target.kind === 'layer' ? [...targetRings.keys()].filter(id => scene.entityLayers[id] === target.layerId) : undefined
     const sourceEntityIds = ids ? [...new Set(ids.flatMap(id => renderTargets.get(id) ?? []))] : undefined
     if (sourceEntityIds && !sourceEntityIds.length) continue
-    const targetBoundsMm = rings ? bounds(rings.flat()) : copy(scene.exportBoundsMm)
+    const targetBoundsMm = rings ? bounds(rings.flat()) : copy(output.boundsMm)
     filters.push({ ...copy(parameters), ...(sourceEntityIds ? { sourceEntityIds } : {}), ...(target.kind === 'region' ? { regionFeatherMm: Math.min(1200, Math.min(targetBoundsMm.width, targetBoundsMm.height) * .16) } : {}), targetRings: rings, targetBoundsMm })
   }
-  return { environment: copy(visual.environment), boundsMm: copy(scene.exportBoundsMm), boundaries, transitions, edgeLooks,
+  return { environment: copy(output.environment), boundsMm: copy(output.boundsMm), boundaries, transitions, edgeLooks,
     ...(legacyVisual ? { materializedEdges, edgePaintOrder } : {}),
     lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !projection.masks.some(mask => { const b = bounds(mask); return light.positionMm.x >= b.x && light.positionMm.y >= b.y && light.positionMm.x <= b.x + b.width && light.positionMm.y <= b.y + b.height }))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
     fogs: Object.values(visual.fogs).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).map(copy), filters,

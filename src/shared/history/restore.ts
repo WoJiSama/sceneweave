@@ -10,7 +10,7 @@ import { polygonDistance, propFootprint } from '../geometry/geometry.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
 import { reconcileAggregateMembers } from '../aggregates/state.js'
 import type { PrefabInstance, PropOverrideField, Prop, SceneDocument, SurfaceRef, SurfaceStyle } from '../model/scene.js'
-import { projectScene } from '../projection/projection.js'
+import { assertAllFloorPlayerProjections } from '../projection/projection.js'
 import { assertStructureContinuity, type StructureContinuity } from './structure-continuity.js'
 import { addSurfaceAppearanceSource, ensureSourceAssetRoots, freezeEffectivePropAppearance, freezeEffectiveSurfaceAppearance, inspectAppearanceScope, propAppearanceSnapshot, setSurfaceStyle, surfaceStyle } from '../appearance/graph.js'
 import { assertOutdoorContinuity, mergeHistoryIdentities, validateHistoryIdentity } from './identity.js'
@@ -615,7 +615,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
   candidate.document = checked.document
   validateHistoryIdentity(candidate.historyIdentity, candidate.document)
   // Re-run after materialization as well: a new layer bitmap may enlarge/alter its true player mask.
-  projectScene(candidate.document, 'player')
+  assertAllFloorPlayerProjections(candidate.document)
   const changed = !equal(current.document, candidate.document) || !equal(current.appearance, candidate.appearance)
   return { ...candidate, request, changes, affectedIds: [...affected].sort(), inapplicableIds: [...inapplicable].sort(), commandCost, adoptedSubjects: [...subjects.values()], changed }
 }

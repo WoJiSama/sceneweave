@@ -182,10 +182,14 @@ export function outdoorDependencies(scene: SceneDocument, roots: readonly string
     result.add(connection.id); for (const end of [connection.from, connection.to]) if (end.surfaceRef.kind !== 'floor') result.add(end.surfaceRef.id)
     if (connection.openingId !== null) result.add(connection.openingId)
   }
-  for (const path of Object.values(scene.paths)) if (result.has(path.id) || path.supportRefs.some(ref => result.has(ref.id))) {
+  // A retained support read by one road is not a physical change that should
+  // pull in every later sibling road/prop. Use the incoming dependency seeds
+  // for all siblings, independent of dictionary insertion order.
+  const physicalSeeds = new Set(result)
+  for (const path of Object.values(scene.paths)) if (physicalSeeds.has(path.id) || path.supportRefs.some(ref => physicalSeeds.has(ref.id))) {
     result.add(path.id); for (const ref of path.supportRefs) if (ref.kind !== 'floor') result.add(ref.id)
   }
-  for (const prop of Object.values(scene.props)) if (result.has(prop.id) || result.has(prop.supportRef.id) || prop.roomId && result.has(prop.roomId)) {
+  for (const prop of Object.values(scene.props)) if (physicalSeeds.has(prop.id) || physicalSeeds.has(prop.supportRef.id) || prop.roomId && physicalSeeds.has(prop.roomId)) {
     result.add(prop.id)
   }
   let expanded = true
@@ -215,6 +219,10 @@ function recordsCost(before: Record<string, unknown>, after: Record<string, unkn
 }
 function diffImpact(before: SceneDocument, after: SceneDocument, roots: readonly string[]): OutdoorImpact {
   const left = entities(before), right = entities(after)
+  // Relations have no independent user layer, but their actual creation,
+  // change or removal must still appear in the complete candidate write set.
+  for (const row of Object.values(before.pathAttachments ?? {})) left.set(row.id, row)
+  for (const row of Object.values(after.pathAttachments ?? {})) right.set(row.id, row)
   const createdIds = [...right.keys()].filter(id => !left.has(id)), removedIds = [...left.keys()].filter(id => !right.has(id))
   const changedIds = [...left.keys()].filter(id => right.has(id) && (!equal(left.get(id), right.get(id)) || before.entityLayers[id] !== after.entityLayers[id]))
   let commandCost = createdIds.length + changedIds.length + removedIds.length
@@ -240,6 +248,22 @@ function diffImpact(before: SceneDocument, after: SceneDocument, roots: readonly
     commandCost += recordsCost(Object.fromEntries((a?.exclusions ?? []).map(value => [value.id, value])), Object.fromEntries((b?.exclusions ?? []).map(value => [value.id, value])))
   }
   const affectedIds = [...new Set([...outdoorDependencies(before, roots), ...outdoorDependencies(after, roots), ...createdIds, ...changedIds, ...removedIds])].sort()
+  const relationDependencies = new Set<string>()
+  for (const id of [...createdIds, ...changedIds, ...removedIds]) for (const scene of [before, after]) {
+    const row = scene.pathAttachments?.[id]
+    if (!row) continue
+    for (const dependency of [row.pathId, row.openingId, row.anchor.wallId, row.anchor.roomId, ...row.anchor.wallVertexIds, ...row.anchor.roomBoundaryVertexIds]) relationDependencies.add(dependency)
+  }
+  // Disclose the read closure of relationships that actually changed. These
+  // reads must not become roots for mutating or locking sibling relationships.
+  let moreNotes = true
+  while (moreNotes) {
+    moreNotes = false
+    for (const scene of [before, after]) for (const note of Object.values(scene.notes)) if (note.anchor.type === 'entity' && relationDependencies.has(note.anchor.entityId) && !relationDependencies.has(note.id)) {
+      relationDependencies.add(note.id); moreNotes = true
+    }
+  }
+  for (const id of relationDependencies) if (!affectedIds.includes(id)) affectedIds.push(id)
   const derived = inspectScene5TransitionChanges(before, after)
   for (const id of [...outdoorDependencies(before, derived.affectedIds), ...outdoorDependencies(after, derived.affectedIds)]) if (!affectedIds.includes(id)) affectedIds.push(id)
   for (const id of derived.changedIds) if (!changedIds.includes(id)) changedIds.push(id)

@@ -279,8 +279,8 @@ function copyProp(scene: SceneDocument, command: Extract<BaseSceneCommand, { typ
   return copy
 }
 
-export type BasePlacePropOptions = { id?: string; rotationDeg?: number; supportRef?: SurfaceRef }
-const placementOptions = z.object({ id: id.optional(), rotationDeg: angle.optional(), supportRef: surfaceRef.optional() }).strict()
+export type BasePlacePropOptions = { floorId?: string; id?: string; rotationDeg?: number; supportRef?: SurfaceRef }
+const placementOptions = z.object({ floorId: id.optional(), id: id.optional(), rotationDeg: angle.optional(), supportRef: surfaceRef.optional() }).strict()
 
 /** Detached preview template from an adopted definition. Acceptance still requires addProp's whole-scene validation. */
 export function createBasePlacedProp(scene: SceneDocument, definitionId: string, positionMm: PointMm, context: PreparationContext, options: BasePlacePropOptions = {}): Prop {
@@ -288,7 +288,8 @@ export function createBasePlacedProp(scene: SceneDocument, definitionId: string,
   if (jsonIssue) throw new Error(`放置参数无效：${jsonIssue.message}`)
   const checked = placementOptions.safeParse(options)
   if (!checked.success) throw new Error(`放置参数无效：${checked.error.issues.map(issue => issue.message).join('；')}`)
-  const definition = requireEntity(scene.propDefinitions, definitionId, '物件定义'), floorId = Object.keys(scene.floors)[0]
+  const definition = requireEntity(scene.propDefinitions, definitionId, '物件定义'), floorId = checked.data.floorId ?? (Object.keys(scene.floors).length === 1 ? Object.keys(scene.floors)[0] : undefined)
+  if (!floorId || !Object.hasOwn(scene.floors, floorId)) throw new Error('多Floor放置必须明确选择现存目标Floor。')
   const command = checkedCommands([{ type: 'addProp', id: checked.data.id ?? context.ids.nextId(), floorId,
     definitionRef: { id: definitionId, version: definition.version }, positionMm,
     ...(checked.data.rotationDeg === undefined ? {} : { rotationDeg: checked.data.rotationDeg }),

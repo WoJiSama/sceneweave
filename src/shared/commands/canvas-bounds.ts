@@ -12,9 +12,11 @@ export function applyCanvasBoundsCommand(scene: SceneDocument, command: CanvasBo
   const floor = Object.hasOwn(scene.floors, command.floorId) ? scene.floors[command.floorId] : null
   if (!floor) throw new Error('画布所在 Floor 不存在。')
   const entities = LAYER_ENTITY_COLLECTIONS.flatMap(key => Object.values(scene[key])).filter(entity => entity.floorId === floor.id)
+  if (Object.values(scene.userLayers).some(layer => layer.floorId === floor.id && layer.editLocked)) throw new Error('目标Floor有锁定图层，不能修改范围。')
   const locked = entities.filter(entity => entity.editLocked || scene.userLayers[scene.entityLayers[entity.id]]?.editLocked)
   if (locked.length) throw new Error(`调整世界范围涉及已锁定实体或图层：${locked.map(entity => entity.id).join('、')}。`)
   floor.boundsMm = { ...command.floorBoundsMm }
-  scene.exportBoundsMm = { ...command.exportBoundsMm }
+  if (Object.keys(scene.floors).length > 1 || floor.outputBoundsMm) floor.outputBoundsMm = { ...command.exportBoundsMm }
+  else scene.exportBoundsMm = { ...command.exportBoundsMm }
   return { affectedIds: entities.map(entity => entity.id), commandCost: entities.length + 1 }
 }

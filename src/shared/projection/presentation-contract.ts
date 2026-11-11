@@ -107,7 +107,7 @@ export interface ProjectionAssetClosure { readonly complete: boolean; readonly c
 // These exhaustively registered modules are the resource-consumer boundary.
 // A new projection module cannot silently inherit sprite-only decode behavior.
 const projectionModules = {
-  audience: true, sourceRevision: true, bounds: true, gridSizeMm: true, rooms: true, terrain: true, walls: true, props: true,
+  audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, rooms: true, terrain: true, walls: true, props: true,
   decorations: true, spritePaintOrder: true, propPresentations: true, groundView: true, edges: true, paths: true, connections: true,
   pathJoinGroups: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
   theme: true, materials: true, visual: true, assetIds: true, limitations: true, diagnostics: true,

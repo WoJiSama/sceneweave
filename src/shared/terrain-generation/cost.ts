@@ -1,3 +1,4 @@
+import { structureIdentityDescriptors } from '../history/structure-identity.js'
 import { legacyTerrainView, terrainIdentityDescriptors } from './composition-integrity.js'
 import { outdoorIdentityDescriptors } from '../history/identity.js'
 import { extendedIdentityDescriptors } from './identities.js'
@@ -25,7 +26,7 @@ export interface TerrainCostMetadata {
   before: Pick<CompositionContent, 'historyIdentity' | 'appearance'>
   after: Pick<CompositionContent, 'historyIdentity' | 'appearance'>
 }
-const IDENTITY_POOLS = ['propTokens','prefabTokens','outdoorTokens','generationTokens','regionalTokens','presentationTokens','terrainTokens','decorationTokens','surfaceRuleTokens','aggregateTokens'] as const
+const IDENTITY_POOLS = ['propTokens','prefabTokens','outdoorTokens','generationTokens','regionalTokens','presentationTokens','terrainTokens','decorationTokens','surfaceRuleTokens','aggregateTokens','structureTokens'] as const
 const APPEARANCE_RECORDS = ['sources','propSources','surfaceSources','instanceAdjustments','layerAdjustments','variants','prefabAppearanceTemplates','presentations'] as const
 const FIXED_SOURCE_COLLECTIONS = ['assets','materials','propDefinitions','prefabDefinitions','styleThemes'] as const
 /** Decoration entities and slots are physical edit work. Keeping them in
@@ -70,6 +71,7 @@ export function terrainCommandCost(before:SceneDocument,after:SceneDocument,meta
       if(metadata.before.appearance.version!==metadata.after.appearance.version)items['composition.appearance.version']=1
     }else{
       // Draft-only estimates cannot see retained tombstones, changed tokens or fixed sources.
+      items['composition.identity.estimate.structure']=recordDiff(structureIdentityDescriptors(originalBefore),structureIdentityDescriptors(originalAfter))
       items['composition.identity.estimate.outdoor']=recordDiff(outdoorIdentityDescriptors(originalBefore),outdoorIdentityDescriptors(originalAfter))
       items['composition.identity.estimate.legacy']=recordDiff(extendedIdentityDescriptors(originalBefore),extendedIdentityDescriptors(originalAfter))
       items['composition.identity.estimate.terrain']=recordDiff(terrainIdentityDescriptors(originalBefore),terrainIdentityDescriptors(originalAfter))

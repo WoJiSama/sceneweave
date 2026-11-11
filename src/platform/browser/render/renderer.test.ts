@@ -1,3 +1,4 @@
+import { projectScene } from '../../../shared/projection/projection.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { zlibSync } from 'fflate'
@@ -10,13 +11,13 @@ import { crc32, sha256Bytes } from '../../../shared/project/binary.js'
 import { createMemoryResources, validateProjectBundle } from '../../../shared/project/resources.js'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
 import { exportPng, exportPublicViewportPng, renderEditorProject, renderProject } from './renderer'
-import { encodePng, PNG_MAX_ENCODED_BYTES } from './canvas-renderer'
+import { encodePng, PNG_MAX_ENCODED_BYTES, renderRasterProjection } from './canvas-renderer'
 import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
 import { browserProjectValidation } from '../project-validation.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-function pixelPng(width = 1, height = 1, metadata?: string): Uint8Array {
+function pixelPng(width = 1, height = 1, metadata?: string, uncompressed = false): Uint8Array {
   const chunk = (type: string, data: Uint8Array) => {
     const bytes = new Uint8Array(data.length + 12), view = new DataView(bytes.buffer)
     view.setUint32(0, data.length); bytes.set(encodeUtf8(type), 4); bytes.set(data, 8)
@@ -25,7 +26,7 @@ function pixelPng(width = 1, height = 1, metadata?: string): Uint8Array {
   const header = new Uint8Array(13), view = new DataView(header.buffer)
   view.setUint32(0, width); view.setUint32(4, height); header[8] = 8; header[9] = 6
   const scanlines = width === 1 && height === 1 ? new Uint8Array([0, 200, 100, 50, 255]) : new Uint8Array((width * 4 + 1) * height)
-  const chunks = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), ...(metadata ? [chunk('eXIf', encodeUtf8(metadata))] : []), chunk('IDAT', zlibSync(scanlines)), chunk('IEND', new Uint8Array())]
+  const chunks = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), ...(metadata ? [chunk('eXIf', encodeUtf8(metadata))] : []), chunk('IDAT', uncompressed ? zlibSync(scanlines, { level: 0 }) : zlibSync(scanlines)), chunk('IEND', new Uint8Array())]
   const output = new Uint8Array(chunks.reduce((sum, bytes) => sum + bytes.length, 0))
   let offset = 0; for (const bytes of chunks) { output.set(bytes, offset); offset += bytes.length }; return output
 }
@@ -53,6 +54,33 @@ function fixture(): ProjectBundle {
     resources: createMemoryResources(new Map([[hash, bytes]])) }
 }
 
+async function multiFloorFixture(): Promise<ProjectBundle> {
+  const source = fixture(), document = structuredClone(source.project.document), floorId = Object.keys(document.floors)[0], layerId = document.entityLayers.item
+  document.floors[floorId].outputBoundsMm = { x: 0, y: 0, width: 10000, height: 8000 }
+  document.floors.upper = { id: 'upper', name: 'Upper', boundsMm: { ...document.floors[floorId].boundsMm }, outputBoundsMm: { x: 0, y: 0, width: 8000, height: 10000 } }
+  document.userLayers.upperLayer = { ...document.userLayers[layerId], id: 'upperLayer', floorId: 'upper', name: 'Upper objects', order: 0 }
+  // Independent, normalized bytes with the same actual pixel; no private
+  // metadata is introduced merely to allocate a second resource hash.
+  const bytes = pixelPng(1, 1, undefined, true), hash = sha256Bytes(bytes)
+  document.assets.upperPixel = { ...document.assets.pixel, id: 'upperPixel', sha256: hash }
+  document.propDefinitions.upperDefinition = { ...structuredClone(document.propDefinitions.pixelDefinition), id: 'upperDefinition', catalogId: 'test.upper-render',
+    defaultAppearance: { kind: 'image', assetId: 'upperPixel', tint: null, opacity: 1 } }
+  for (let index = 0; index < 2; index++) {
+    const id = `upper-item-${index}`
+    document.props[id] = { ...structuredClone(document.props.item), id, floorId: 'upper', supportRef: { kind: 'floor', id: 'upper' },
+      definitionRef: { id: 'upperDefinition', version: 1 }, appearance: { kind: 'image', assetId: 'upperPixel', tint: null, opacity: 1 }, positionMm: { x: 5000 + index * 1000, y: 4000 } }
+    document.entityLayers[id] = 'upperLayer'
+  }
+  let sequence = 0
+  const content = createCompositionContent(document, { ids: { nextId: () => `floor-render-token-${++sequence}` }, clock: { now: () => document.updatedAt } })
+  const licensePath = source.project.licenseBindings[0].licensePath
+  const resourceBytes = new Map<string, Uint8Array>()
+  for (const key of Object.keys(source.project.assets)) resourceBytes.set(key, await source.resources.read(key))
+  resourceBytes.set(hash, bytes)
+  return { project: { ...source.project, ...content, assets: { ...source.project.assets, [hash]: { sha256: hash, mimeType: 'image/png', sizeBytes: bytes.length, pixelWidth: 1, pixelHeight: 1 } },
+    licenseBindings: inspectDependencies(document).subjects.map(subject => ({ ...subject, embedding: 'allowed', licensePath })) }, resources: createMemoryResources(resourceBytes) }
+}
+
 /** Ownership/order checks using Node primitives; real Canvas pixels are exercised in Chrome. */
 function primitives() {
   const bitmaps: { width: number; height: number; close: ReturnType<typeof vi.fn> }[] = []
@@ -74,6 +102,49 @@ function primitives() {
 }
 
 describe('native complete-v1 browser rendering boundary (Node primitives)', () => {
+  it('rejects target, audience and drawing-range mismatches before resource IO', async () => {
+    const input = fixture(), floorId = Object.keys(input.project.document.floors)[0]
+    const projection = projectScene(input.project.document, 'gm', input.project.appearance, { floorId }), read = vi.fn(input.resources.read)
+    const sources = { assetRefs: input.project.document.assets, assets: input.project.assets, resources: { read } }
+    await expect(renderRasterProjection(sources, projection, { audience: 'gm', longEdgePx: 256, floorId: 'other' })).rejects.toThrow(/不一致/)
+    await expect(renderRasterProjection(sources, projection, { audience: 'player', longEdgePx: 256, floorId })).rejects.toThrow(/不一致/)
+    await expect(renderRasterProjection(sources, projection, { audience: 'gm', longEdgePx: 256, floorId }, { audience: 'gm', longEdgePx: 256, drawingProjection: { ...projection, floorId: 'other' } })).rejects.toThrow(/不一致/)
+    await expect(renderRasterProjection(sources, projection, { audience: 'gm', longEdgePx: 256, floorId }, { audience: 'gm', longEdgePx: 256, drawingProjection: { ...projection, bounds: { ...projection.bounds, width: projection.bounds.width + 1 } } })).rejects.toThrow(/不一致/)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('renders and encodes only an explicit Floor while preserving full validation and same-target editor hiding', async () => {
+    const input = await multiFloorFixture(), browser = primitives(), floorId = Object.keys(input.project.document.floors)[0], metrics = vi.fn()
+    const lower = await renderProject(input, { audience: 'gm', longEdgePx: 256, floorId, onMetrics: metrics })
+    expect([lower.width, lower.height]).toEqual([256, 205]); expect(metrics.mock.calls[0][0]).toMatchObject({ floorId, audience: 'gm', width: 256, height: 205 })
+    const lowerCanvas = browser.canvases.find(canvas => Object.is(canvas, lower))!
+    expect(lowerCanvas.context.drawImage).toHaveBeenCalledTimes(1)
+    const upper = await renderProject(input, { audience: 'player', longEdgePx: 256, floorId: 'upper' })
+    expect([upper.width, upper.height]).toEqual([205, 256])
+    expect(browser.canvases.find(canvas => Object.is(canvas, upper))!.context.drawImage).toHaveBeenCalledTimes(2)
+    const editor = await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, floorId, screenScalePxPerMm: .25, hiddenLayerIds: new Set(['upperLayer']) })
+    expect(browser.canvases.find(canvas => Object.is(canvas, editor))!.context.drawImage).toHaveBeenCalledTimes(1)
+    const hidden = await renderEditorProject(input, { audience: 'gm', longEdgePx: 256, floorId, screenScalePxPerMm: .25, hiddenLayerIds: new Set([input.project.document.entityLayers.item]) })
+    expect(browser.canvases.find(canvas => Object.is(canvas, hidden))!.context.drawImage).not.toHaveBeenCalled()
+    const png = await exportPng(input, { audience: 'player', longEdgePx: 256, floorId: 'upper' })
+    const header = inspectImageBytes(new Uint8Array(await png.arrayBuffer()))
+    expect(header).toMatchObject({ width: 205, height: 256 })
+    const crop = await exportPublicViewportPng(input, { x: 2000, y: 1000, width: 4000, height: 5000 }, 256, undefined, 'upper')
+    expect(inspectImageBytes(new Uint8Array(await crop.arrayBuffer()))).toMatchObject({ width: 205, height: 256 })
+    await expect(exportPublicViewportPng(input, { x: 8500, y: 0, width: 1000, height: 1000 }, 256, undefined, 'upper')).rejects.toThrow(/固定导出范围/)
+    for (const canvas of [lower, upper, editor, hidden]) canvas.width = canvas.height = 0
+    expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+  })
+
+  it('requires explicit multi-Floor render targets and rejects corrupted non-target resource bytes', async () => {
+    const input = await multiFloorFixture(); primitives()
+    await expect(renderProject(input, { audience: 'gm', longEdgePx: 256 })).rejects.toThrow(/目标Floor/)
+    await expect(renderEditorProject(input, { audience: 'gm', longEdgePx: 256 })).rejects.toThrow(/目标Floor/)
+    await expect(exportPublicViewportPng(input, { x: 0, y: 0, width: 1000, height: 1000 }, 256)).rejects.toThrow(/目标Floor/)
+    const floorId = Object.keys(input.project.document.floors)[0], upperHash = input.project.document.assets.upperPixel.sha256
+    const corrupt = { ...input, resources: { read: async (hash: string) => hash === upperHash ? new Uint8Array([1, 2, 3]) : input.resources.read(hash) } }
+    await expect(renderProject(corrupt, { audience: 'gm', longEdgePx: 256, floorId })).rejects.toThrow(/字节|PNG|图片|资源/)
+  })
   it('rejects old formats, extra fields and accessors before browser IO', async () => {
     const input = fixture(), browser = primitives(), read = vi.fn(input.resources.read)
     input.resources = { read }

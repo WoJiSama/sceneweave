@@ -1,9 +1,11 @@
+import type { PathAttachment } from '../path-attachments/contracts.js'
 import type { ConnectionRoute } from '../geometry/connection-route.js'
 import type { RegionalModel1 } from '../terrain-generation/contracts.js'
 import type { GenerationSystem5, VisualSystem3 } from '../terrain-generation/composition-contracts.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson } from '../validation/json.js'
 import type { AggregateCoordinates } from './aggregate.js'
+import type { VisualEnvironment } from '../visual/types.js'
 
 /** All world coordinates and dimensions are integer millimetres. */
 export type Id = string
@@ -11,7 +13,11 @@ export type PointMm = { x: number; y: number }
 export type BoundsMm = { x: number; y: number; width: number; height: number }
 export type Visibility = 'public' | 'gm'
 export interface Editable { id: Id; floorId: Id; editLocked: boolean }
-export interface Floor { id: Id; name: string; boundsMm: BoundsMm }
+export interface Floor {
+  id: Id; name: string; boundsMm: BoundsMm
+  outputBoundsMm?: BoundsMm
+  environment?: VisualEnvironment
+}
 export interface Vertex extends Editable { xMm: number; yMm: number }
 export interface AssetRef {
   id: Id; sha256: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
@@ -152,12 +158,18 @@ export interface PathCheck {
   id: Id; from: Anchor; to: Anchor; clearanceMm: number
   mode: 'structural' | 'current'; assumedOpenDoorIds: Id[]
 }
+/** Output paint only; transparency never removes physical ground or privacy masks. */
+export type SceneOutputBackground = { mode: 'solid'; color: string } | { mode: 'transparent' }
 /** Complete, independent persisted model. No legacy view is used by the native path. */
 export interface SceneDocument {
+  /** Explicit exterior door/path relation; no layer membership or player metadata. */
+  pathAttachments?: Record<Id, PathAttachment>
   format: 'sceneweave-scene'; schemaVersion: 1; sceneId: Id; revision: number
   title: string; createdAt: string; updatedAt: string
   units: { world: 'mm'; display: 'm' | 'ft'; gridSizeMm: number; snapMm: number; gridVisible: boolean }
   exportBoundsMm: BoundsMm
+  /** Absent uses the renderer's normal background. Shared by preview and PNG. */
+  outputBackground?: SceneOutputBackground
   floors: Record<Id, Floor>; vertices: Record<Id, Vertex>; rooms: Record<Id, Room>
   walls: Record<Id, Wall>; openings: Record<Id, Opening>; props: Record<Id, Prop>
   regions: Record<Id, Region>; notes: Record<Id, Note>; assets: Record<Id, AssetRef>

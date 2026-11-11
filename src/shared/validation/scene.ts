@@ -1,3 +1,5 @@
+import { pathAttachmentSchema } from '../path-attachments/contracts.js'
+import { validatePathAttachmentGeometry } from '../path-attachments/validation.js'
 import { connectionRouteSchema } from '../geometry/connection-route.js'
 import { decorationSchema, decorationClusterSchema, DECORATION_LIMITS } from '../decorations/contracts.js'
 import { validateDecorations } from '../decorations/validation.js'
@@ -9,9 +11,10 @@ import { createVisual3Schema, generation5Schema, legacyTerrainView } from '../te
 import { validateCompositionContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
 import { aggregateCoordinatesSchema } from '../aggregates/schema.js'
+import { sceneOutputBackgroundSchema } from './scene-background.js'
 import { validateAggregateCoordinates } from '../aggregates/state.js'
 import { assertCoordinateRoundTrip } from '../aggregates/scene-coordinates.js'
-import { visualSystemSchema } from '../visual/schema.js'
+import { visualEnvironmentSchema, visualSystemSchema } from '../visual/schema.js'
 import { validateVisualSystem } from '../visual/diagnostics.js'
 import { inspectJsonInput } from './json.js'
 import { validateGeometry } from '../geometry/geometry.js'
@@ -34,7 +37,8 @@ const sceneShape = {
   title: z.string().min(1), createdAt: timestamp, updatedAt: timestamp,
   units: z.object({ world: z.literal('mm'), display: z.enum(['m', 'ft']), gridSizeMm: positive, snapMm: positive, gridVisible: z.boolean() }).strict(),
   exportBoundsMm: bounds,
-  floors: record(z.object({ id, name: z.string(), boundsMm: bounds }).strict()),
+  outputBackground: sceneOutputBackgroundSchema.optional(),
+  floors: record(z.object({ id, name: z.string(), boundsMm: bounds, outputBoundsMm: bounds.optional(), environment: visualEnvironmentSchema.optional() }).strict()),
   vertices: record(z.object({ ...editable, xMm: int, yMm: int }).strict()),
   regions: record(z.object({ ...editable, boundaryMm: z.array(point).min(3), kind: z.enum(['terrain', 'hazard', 'manualMask']),
     blocksMovement: z.boolean(), movementCostMultiplier: z.number().finite().min(1), visibility }).strict()),
@@ -60,6 +64,7 @@ const sceneShape = {
     kind: z.enum(['shore', 'cliff', 'materialTransition']), shoreline: z.boolean(), blocksMovement: z.boolean(), blocksSight: z.boolean(), surfaceStyle: style, styleOverride: edgeStyle.nullable() }).strict()),
   terrainConnections: record(z.object({ ...editable, visibility, kind: z.enum(['stairs', 'ramp']), from: z.object({ surfaceRef, positionMm: point }).strict(), to: z.object({ surfaceRef, positionMm: point }).strict(),
     widthMm: positive, openingId: id.nullable(), blocksMovement: z.boolean(), movementCostMultiplier: movementCost, surfaceStyle: style, route: connectionRouteSchema.optional() }).strict()),
+  pathAttachments: record(pathAttachmentSchema).optional(),
   paths: record(z.object({ ...editable, visibility, centerlineMm: z.array(point).min(2).max(256), widthMm: positive, supportRefs: z.array(surfaceRef).min(1).refine(unique, '支撑引用不能重复'),
     surfaceStyle: style, movementCostMultiplier: movementCost, renderOrder: rank }).strict()),
   prefabDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, members: z.array(z.object({ key: id, propTemplate: z.object(templateShape).strict() }).strict()).min(1).max(128) }).strict()),
@@ -99,7 +104,7 @@ export const sceneDocumentSchema = z.object({ ...sceneShape,
 }).strict().superRefine((value, ctx) => {
   if (value.aggregateCoordinates?.encoding === 'local') ctx.addIssue({ code: 'custom', message: '局部存储须先解码为完整世界视图。' })
   if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
-  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters','surfaceRules'].some(key => Object.keys(value[key as 'props']).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体、轻量装饰或地表规则。' })
+  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters','surfaceRules','pathAttachments'].some(key => Object.keys(value[key as 'props'] ?? {}).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体、轻量装饰或地表规则。' })
 })
 export const nativeSceneSchema = sceneDocumentSchema
 
@@ -118,7 +123,7 @@ export function parseSceneDocument(input: unknown): { ok: true; document: SceneD
  * supply geometry established by its private, constrained derivation proof. */
 export function inspectSceneDocumentDomains(document: SceneDocument, geometry: ReturnType<typeof validateGeometry>): ValidationResult {
   const dependencies = inspectDependencies(document)
-  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document)]
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document)]
   if (!errors.length) try { assertCoordinateRoundTrip(document) } catch (cause) { errors.push({ code: 'AGGREGATE_COORDINATES', message: cause instanceof Error ? cause.message : String(cause) }) }
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }

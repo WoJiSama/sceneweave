@@ -1,3 +1,4 @@
+import { resolveFloorOutput } from '../../../shared/floors/output'
 import type { BoundsMm } from '../../../shared/model/scene'
 import type { EditableProject } from '../../../application/workspace/project'
 import { toBundle } from '../../../application/workspace/project'
@@ -14,7 +15,9 @@ export async function renderPublicVision(project: EditableProject, boundsMm: Bou
   signal?.throwIfAborted()
   const bundle = toBundle(project), capturedBounds = captureJson(boundsMm) as BoundsMm
   const capturedDraft = draft ? captureJson(draft) as NonNullable<VisionInput['draft']> : undefined
-  const document = bundle.project.document, full = document.exportBoundsMm
+  const document = bundle.project.document
+  if (Object.keys(document.floors).length !== 1) throw new Error('AI公开截图回读暂只支持单楼层工程；多楼层请使用明确楼层的玩家PNG，不发送无楼层绑定的截图。')
+  const full = resolveFloorOutput(document, Object.keys(document.floors)[0]).boundsMm
   boundsMm = capturedBounds
   if (![boundsMm.x, boundsMm.y, boundsMm.width, boundsMm.height].every(Number.isSafeInteger)
     || boundsMm.width <= 0 || boundsMm.height <= 0 || boundsMm.x < full.x || boundsMm.y < full.y

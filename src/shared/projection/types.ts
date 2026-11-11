@@ -33,6 +33,10 @@ export interface ProjectedRegionalSymbol { id: string; positionMm: PointMm; visu
 /** Disposable visual data. In particular, a player projection has no source document or hidden definitions. */
 export interface Projection {
   audience: Audience; sourceRevision: number; bounds: BoundsMm; gridSizeMm: number | null
+  /** Present for an explicit target; omitted by the legacy single-Floor call. */
+  floorId?: string
+  /** Shared preview/export background, independent of physical ground and masks. */
+  outputBackground?: import('../model/scene.js').SceneOutputBackground
   rooms: ProjectedSurface[]; terrain: ProjectedSurface[]; walls: ProjectedWall[]
   /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
   props: Prop[]

@@ -1,3 +1,4 @@
+import { validatePathAttachmentProofs } from '../path-attachments/validation.js'
 import { associateScenePresentations, inheritPropUpdatePresentations, propPresentation, validatePresentations } from '../appearance/presentation.js'
 import { presentationRecordSchema } from '../terrain-generation/contracts.js'
 import { validateCompositionIdentityContracts } from '../terrain-generation/composition-integrity.js'
@@ -265,7 +266,7 @@ export function reviseCompositionContent(input: unknown, revision: number, updat
     return result
   }
   const historyIdentity = validateHistoryIdentity(identityInput, document)
-  const issues = validateCompositionIdentityContracts(document, historyIdentity)
+  const issues = [...validateCompositionIdentityContracts(document, historyIdentity), ...validatePathAttachmentProofs(document, historyIdentity)]
   if (issues.length) throw new Error(issues.map(issue => issue.message).join('；'))
   const result = registerContent({ document, historyIdentity, appearance: current.appearance })
   registerCompositionCommit(current, result)
@@ -354,7 +355,7 @@ function readCompositionDraft(input: unknown, certifyScene: boolean, baseline?: 
   // Identity validation may reuse only this exact privately certified scene.
   // Public drafts still receive detached mutable data, never the witness.
   const historyIdentity = validateHistoryIdentity(parsed.data.historyIdentity, checked.document)
-  const compositionIssues = validateCompositionIdentityContracts(checked.document, historyIdentity)
+  const compositionIssues = [...validateCompositionIdentityContracts(checked.document, historyIdentity), ...validatePathAttachmentProofs(checked.document, historyIdentity)]
   if (compositionIssues.length) throw new Error(`地貌组合回执无效：${compositionIssues.map(issue => issue.message).join('；')}`)
   const appearance = validateAppearanceGraph(parsed.data.appearance, checked.document)
   return { document: certifyScene ? checked.document : cloneJson(checked.document), historyIdentity, appearance }

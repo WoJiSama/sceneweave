@@ -66,6 +66,12 @@ export function withExecutionWorkObserver<T>(observer:(delta:Partial<BudgetUsage
     return result
   } finally {executionWorkObserver=previous}
 }
+/** Add one synchronous accounting owner without hiding an enclosing owner. */
+export function withAdditionalExecutionWorkObserver<T>(observer:(delta:Partial<BudgetUsage>)=>void,callback:()=>T):T {
+  if(typeof observer!=='function'||typeof callback!=='function')throw new Error('任务工作观察范围需要同步函数。')
+  const previous=executionWorkObserver
+  return withExecutionWorkObserver(delta=>{previous?.(delta);observer(delta)},callback)
+}
 export function captureExecutionBudget(profileInput: TaskBudgetProfile) {
   const profile = parseTaskBudgetProfile(profileInput), usage = emptyBudgetUsage()
   return Object.freeze({ charge(delta: Partial<BudgetUsage>) {
@@ -117,6 +123,8 @@ export function semanticTargetEntries(document: SceneDocument): Map<string, { id
     else rows.set(`decoration:${id}`, { id, value: { row, layerId: document.entityLayers[id], memberships: Object.values(document.decorationClusters ?? {}).flatMap(group => Object.entries(group.members).filter(([, member]) => member.entityId === id).map(([candidateKey, member]) => ({ clusterId: group.id, candidateKey, member }))) } })
   }
   for (const key of SURFACE_RULE_COLLECTIONS) for (const [id, row] of Object.entries(document[key] ?? {})) rows.set(`surfaceRule:${id}`, { id, value: { row, layerId: document.entityLayers[id] } })
+  for (const [id, row] of Object.entries(document.floors)) rows.set(`floor:${id}`, { id, value: row })
+  for (const [id, row] of Object.entries(document.pathAttachments ?? {})) rows.set(`pathAttachment:${id}`, { id, value: row })
   for (const [id, row] of Object.entries(document.userLayers)) rows.set(`layer:${id}`, { id, value: row })
   const visual = visualBase(document)
   for (const key of ['boundaries', 'edgeLooks', 'lights', 'fogs', 'filters'] as const) for (const [id, row] of Object.entries(visual?.[key] ?? {})) rows.set(`visual.${key}:${id}`, { id, value: row })

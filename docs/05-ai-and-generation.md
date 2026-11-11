@@ -134,7 +134,7 @@ v2以`authoring_checkpoint`事件一次更新创作摘要、usage与executionChe
 
 新4在完成、用户取消或时间/请求/工具/操作/工作预算边界生成严格 `closeout`：记录理由、确切草稿、是否可审阅、真实剩余额度、逐需求状态和 `appearanceReview:'unconfirmed'`。合法生成底图即使A=0仍可保全；当前基线没有实际修改时不可采用。收尾不删除既有草稿，也不把在途请求写成已完成或清除unknown；未知计费不自动重发。已原子安装的合法新4状态在预算边界可据持久账本/检查点完整性和确切stamp进行审阅与claim，不重新发起模型或额外耗预算预演；客户端仍独立完整重放、校验真实资源并经保护/CAS采用。旧1–3的边界行为保持。
 
-公开图片必须由用户分别同意首次发送或暂停后本次继续，累计最多4张。浏览器在首次await前同步捕获完整工程、矩形与草稿stamp，使用真正player projection/Canvas PNG，再在发送前重新核对本机checkpoint及选中任务/代次/草稿/四预算hash。最长边最多768像素，实际PNG仍受512KiB、解码/CRC/hash/尺寸限制。引用由服务端当前任务持有的最新图片生成，包含task/generation、真实SHA、scene/revision、bounds、尺寸及确切草稿stamp/四hash；模型参数不携带PNG字节、URL或新图片。旧草稿、旧代次、旧预算账本及被替换图片的引用均拒绝。
+公开图片必须由用户分别同意首次发送或暂停后本次继续，累计最多4张。 当前图片协议尚无Floor绑定，多Floor公开截图入口明确拒绝，不回退首层；按楼层隔离的环境也不接受现有AI全景环境操作，普通当前楼层手工工具可继续使用。浏览器在首次await前同步捕获完整工程、矩形与草稿stamp，使用真正player projection/Canvas PNG，再在发送前重新核对本机checkpoint及选中任务/代次/草稿/四预算hash。最长边最多768像素，实际PNG仍受512KiB、解码/CRC/hash/尺寸限制。引用由服务端当前任务持有的最新图片生成，包含task/generation、真实SHA、scene/revision、bounds、尺寸及确切草稿stamp/四hash；模型参数不携带PNG字节、URL或新图片。旧草稿、旧代次、旧预算账本及被替换图片的引用均拒绝。
 
 `sceneweave_visual_review`只读返回模型观察/不确定性、未覆盖项和最多16条有限修正候选、候选hash与expected；`sceneweave_apply_visual_correction`须原样引用图片、观察、候选及hash，重新核对同一基线、公开范围、锁、依赖和累计预算后才原子写入隔离草稿。当前有限复核修正范围以工具schema为准，不因可解析任意场景操作扩大权限。结构诊断、模型观察、PNG存在和候选通过均不表示视觉验收通过；界面始终保留待人工确认。截图后的修改需要用户再次授权新的当前画面才能继续复核。最终保护采用仍由用户明确发起。
 
