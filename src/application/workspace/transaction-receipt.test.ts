@@ -154,7 +154,12 @@ describe('executor-owned common transaction receipts', () => {
     const after = await prepareCompositionCommands(before, commands, { runtime, validation, budget: MANUAL_TRANSACTION_BUDGET })
     const receipt = getCompositionTransactionReceipt(content(after), content(before))!
     expect(after.document).toEqual(before.document)
-    expect(receipt.changes).toEqual([])
+    const previous = before.historyIdentity.structureTokens!['wall-0'], current = after.historyIdentity.structureTokens!['wall-0']
+    expect(current.token).toBe(previous.token)
+    expect(current.topologyHash).toBe(previous.topologyHash)
+    expect(current.topologyToken).not.toBe(previous.topologyToken)
+    expect(receipt.changes).toEqual([{ path: ['historyIdentity', 'structureTokens', 'wall-0', 'topologyToken'],
+      before: { present: true, value: previous.topologyToken }, after: { present: true, value: current.topologyToken } }])
     expect(receipt.steps.filter(step => step.phase === 'command')).toHaveLength(2)
     expect(receipt.invalidation.structureIds).toContain('wall-0')
     expect(receipt.identityEvents.filter(event => event.kind === 'topology' && event.target.id === 'wall-0')).toHaveLength(2)

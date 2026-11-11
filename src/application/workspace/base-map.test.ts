@@ -87,6 +87,39 @@ describe('verified program base-map preparation',()=>{
     return { repo, workspace, current, base, preview, authorization, draft, candidate, state, claim }
   }
 
+  const sources = (workspace: Workspace) => (workspace as unknown as { baseMapSources: Map<string, unknown> }).baseMapSources
+
+  it.each(['adopt', 'save failure', 'cold read failure', 'cancel', 'close', 'empty close', 'switch', 'edit'] as const)('releases base-map source ownership on %s', async action => {
+    const item = await continuation('island', action === 'empty close', 'small')
+    const checkpoint = item.workspace.checkpoint()
+    expect(sources(item.workspace).size).toBe(1)
+    if (action === 'adopt') await item.workspace.adoptTerrainGeneration(item.preview)
+    else if (action === 'save failure') {
+      vi.spyOn(item.repo, 'save').mockRejectedValueOnce(new Error('storage full'))
+      await expect(item.workspace.adoptTerrainGeneration(item.preview)).rejects.toThrow('storage full')
+    } else if (action === 'cold read failure') {
+      vi.spyOn(item.repo, 'load').mockResolvedValueOnce(null)
+      await expect(item.workspace.adoptTerrainGeneration(item.preview)).rejects.toThrow(/冷读/)
+    } else if (action === 'cancel') item.workspace.cancelTerrainGeneration(item.preview)
+    else if (action === 'switch') await item.workspace.adoptNew(await fromBundle(fixture(), validation))
+    else if (action === 'edit') await item.workspace.updateProp('item', { rotationDeg: 50 })
+    else await item.workspace.close()
+    expect(sources(item.workspace).size).toBe(0)
+    if (action === 'close' || action === 'empty close') expect(item.workspace.checkpoint()).toBeGreaterThan(checkpoint)
+    await expect(item.workspace.adoptTerrainGeneration(item.preview)).rejects.toThrow(/取消|采用|本会话|过期|修改/)
+  }, 60000)
+
+  it('retains a live AI continuation source after a failed candidate and releases it only on successful publication', async () => {
+    const item = await continuation('island', false, 'small')
+    await expect(item.workspace.adoptAtomicCandidate(item.candidate, { claim: async () => { throw new Error('claim unavailable') } })).rejects.toThrow('claim unavailable')
+    expect(sources(item.workspace).size).toBe(1)
+    const candidate = await item.workspace.prepareAtomicCandidate(item.authorization, item.draft)
+    await item.workspace.adoptAtomicCandidate(candidate, { claim: item.claim })
+    expect(sources(item.workspace).size).toBe(0)
+    const statuses = (item.workspace as unknown as { terrainPreviews: WeakMap<object, string> }).terrainPreviews
+    expect(statuses.get(item.preview)).toBe('applied')
+  }, 60000)
+
   it.each(['small','standard','expanded'] as const)('pins %s profile through full materialization, AI replay, CAS publication, cold read, package and undo', async profileId => {
     const item = await continuation('island', false, profileId)
     expect(item.preview.baseMap!.operationLimit).toBe(taskBudgetProfile(profileId).semanticTargets)

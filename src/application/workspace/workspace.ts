@@ -427,6 +427,7 @@ export class Workspace {
   private readonly atomicAuthorizations = new WeakMap<AtomicAuthorization, EditableProject>()
   private readonly atomicCandidates = new WeakMap<AtomicCandidate, AtomicCandidateRecord>()
   private readonly saveGuards = new WeakMap<EditableProject, ProjectSaveGuard>()
+  private readonly completedSaveGuards = new WeakSet<ProjectSaveGuard>()
   private readonly historyParents = new WeakMap<EditableProject, { id: string; hash: string }>()
   private atomicLock: object | null = null
   private readonly structureContinuity = new StructureContinuitySession()
@@ -479,6 +480,14 @@ export class Workspace {
     releaseProjectLocalTransaction(previous)
     releaseProjectTransactionReceipt(previous)
   }
+  private pendingSaveGuard(project: EditableProject): ProjectSaveGuard | undefined {
+    const guard = this.saveGuards.get(project)
+    return guard && !this.completedSaveGuards.has(guard) ? guard : undefined
+  }
+  private releaseBaseMapSources() {
+    for (const { preview } of this.baseMapSources.values()) this.cancelTerrainGeneration(preview)
+    this.baseMapSources.clear()
+  }
   private install(project: EditableProject) {
     this.assertWritable()
     const verified = getVerifiedEditableProject(project)
@@ -486,6 +495,7 @@ export class Workspace {
     if (!verified) Object.assign(owned, certifyCompositionContent({ document: owned.document, historyIdentity: owned.historyIdentity, appearance: owned.appearance }))
     this.structureContinuity.reset(owned.document)
     this.visualContinuity.reset(owned.document)
+    this.releaseBaseMapSources()
     this.version++
     // All install paths finish the previous save first. A successful independent
     // copy can still abandon an unsaved/conflicted pending branch here.
@@ -560,9 +570,13 @@ export class Workspace {
         try {
           this.publish({ status: 'saving' })
           const historyParent = this.historyParents.get(snapshot)
+          const guard = this.pendingSaveGuard(snapshot)
           const save = this.repository.saveSnapshot ?? this.repository.save
-          await save.call(this.repository, toBundle(snapshot), this.persistedRevision, { guard: this.saveGuards.get(snapshot),
+          await save.call(this.repository, toBundle(snapshot), this.persistedRevision, { guard,
             historyParentId: historyParent?.id, historyParentHash: historyParent?.hash })
+          // Edits made during IO share this exact guard. Once its protected
+          // transition is durable, descendants must use the new saved baseline.
+          if (guard) this.completedSaveGuards.add(guard)
           this.saveGuards.delete(snapshot)
           this.historyParents.delete(snapshot)
           this.persistedRevision = snapshot.document.revision
@@ -594,12 +608,14 @@ export class Workspace {
     await this.flush()
     this.assertWritable()
     this.assertCheckpoint(checkpoint)
+    this.releaseBaseMapSources()
+    // Closing an empty workspace also invalidates independent work that began there.
+    this.version++
     const current = this.state.project
     if (!current) return
     // Reset the existing witness owner so even previously issued proofs expire.
     this.structureContinuity.reset(current.document)
     this.visualContinuity.reset(current.document)
-    this.version++
     this.past = []; this.future = []; this.pending = null; this.blocked = null
     this.persistedRevision = null
     this.publish({ project: null, status: 'empty', error: null, lastTransaction: null })
@@ -775,7 +791,7 @@ export class Workspace {
     this.terrainPreviews.set(preview,'active');return preview
   }
   cancelTerrainGeneration(preview:TerrainPreview) {
-    if(this.terrainPreviews.has(preview))this.terrainPreviews.set(preview,'cancelled')
+    if (['active', 'applying'].includes(this.terrainPreviews.get(preview) ?? '')) this.terrainPreviews.set(preview,'cancelled')
     if (preview.continuationSource && this.baseMapSources.get(preview.continuationSource.flowId)?.preview === preview) this.baseMapSources.delete(preview.continuationSource.flowId)
   }
   async adoptTerrainGeneration(preview:TerrainPreview) {
@@ -799,7 +815,7 @@ export class Workspace {
       if (projectContentHash(toBundle(installed).project) !== projectContentHash(toBundle(project).project)) throw new Error('新地形工程在冷读前已改变，请从工程目录重新打开。')
       this.atomicLock=null
       this.install(installed);this.terrainPreviews.set(preview,'applied')
-    } catch(error) {this.terrainPreviews.set(preview,'cancelled');throw error}
+    } catch(error) {this.cancelTerrainGeneration(preview);throw error}
     finally {if(this.atomicLock===token)this.atomicLock=null}
   }
   /** A local edit stays in this family and shares protection, CAS and history with other editors. */
@@ -1125,7 +1141,7 @@ export class Workspace {
       releaseProjectLocalTransaction(toBundle(candidate).project)
     }
     this.assertCheckpoint(checkpoint)
-    const retainedGuard = saveGuard ?? this.saveGuards.get(current)
+    const retainedGuard = saveGuard ?? this.pendingSaveGuard(current)
     if (retainedGuard) this.saveGuards.set(next, retainedGuard)
     const retainedParent = historyParent ?? this.historyParents.get(current)
     if (retainedParent) this.historyParents.set(next, retainedParent)
@@ -1139,6 +1155,7 @@ export class Workspace {
     if (history === 'edit') { this.past.push(current); this.future = [] }
     else if (history === 'undo') { this.past.pop(); this.future.push(current) }
     else { this.future.pop(); this.past.push(current) }
+    this.releaseBaseMapSources()
     this.version++
     this.enqueue(next)
   }
@@ -1681,11 +1698,11 @@ export class Workspace {
       const installed = await fromBundle(cold, { ...this.validation(), signal })
       if (authoringProjectHash(pureProject(installed)) !== authoringProjectHash(pureProject(final))) throw new Error('AI底图在冷读前已变化；请从工程目录核对独立成果。')
       this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
+      const local = this.baseMapSources.get(start.source.flowId)
       this.atomicLock = null; this.install(installed)
       this.past = [baseline]; this.future = []
       this.publish({ lastTransaction: { sceneId: installed.document.sceneId, revision: installed.document.revision, committedAtMs: performance.now() } })
       record.status = 'applied'; published = true
-      const local = this.baseMapSources.get(start.source.flowId)
       if (local) this.terrainPreviews.set(local.preview, 'applied')
       this.baseMapSources.delete(start.source.flowId)
       return { protection, revision: installed.document.revision, save: Promise.resolve() }
@@ -1860,9 +1877,13 @@ export class Workspace {
       const retained = await this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId, readSession)
       this.assertRestore(preview)
       if (!retained || retained.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容变化，保护快照已保留，未采用恢复。')
+      const guard: ProjectSaveGuard = { expectedMetadataVersion: metadataVersion + 1,
+        protection: { id: protection.id, contentHash: protection.contentHash } }
+      await this.repository.checkProtection(preview.currentSceneId, current.document.revision, protection.contentHash, guard, { signal: this.validation().signal })
+      this.assertRestore(preview); checkCancelled(this.validation().signal)
       this.restoreEvidence(retained, preview.plan.request)
       this.previews.set(preview, 'applied')
-      this.commit(candidate, 'edit')
+      this.commit(candidate, 'edit', undefined, guard)
       return protection
     } catch (error) {
       this.previews.set(preview, 'cancelled')
@@ -1959,10 +1980,14 @@ export class Workspace {
       const retained = await this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId, readSession)
       this.assertStructureRestore(preview)
       if (!retained || retained.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容变化，保护快照已保留，未采用结构恢复。')
+      const guard: ProjectSaveGuard = { expectedMetadataVersion: usage.metadataVersion + 1,
+        protection: { id: protection.id, contentHash: protection.contentHash } }
+      await this.repository.checkProtection(preview.currentSceneId, current.document.revision, protection.contentHash, guard, { signal: this.validation().signal })
+      this.assertStructureRestore(preview); checkCancelled(this.validation().signal)
       // Re-prove after every asynchronous step; topology or source changes cannot slip through protection IO.
       this.structureContinuity.prove(retained.id, retained.contentHash, current.document, retained.project.document)
       this.structurePreviews.set(preview, 'applied')
-      this.commit(candidate, 'edit')
+      this.commit(candidate, 'edit', undefined, guard)
       return protection
     } catch (error) {
       this.structurePreviews.set(preview, 'cancelled')

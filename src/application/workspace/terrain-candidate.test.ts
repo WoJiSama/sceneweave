@@ -152,15 +152,18 @@ describe('T1 terrain candidate ownership and atomic independent adoption', () =>
     expect(workspace.checkpoint()).toBe(adoptedCheckpoint)
   })
 
-  it.each(['manual edit', 'project switch'] as const)('rejects a stale checkpoint after %s', async action => {
+  it.each(['manual edit', 'project switch'] as const)('invalidates the owned candidate after %s and preserves current data', async action => {
     const { repo, workspace } = await setup(), { preview } = await candidate(workspace)
+    const cancelling = vi.spyOn(workspace, 'cancelTerrainGeneration')
     if (action === 'manual edit') {
       await workspace.updateProp('item', { rotationDeg: 29 }); await workspace.flush()
     } else await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
     const current = workspace.getState().project!, checkpoint = workspace.checkpoint(), saving = vi.spyOn(repo, 'save')
     const currentHash = projectContentHash(toBundle(current).project)
     expect(checkpoint).not.toBe(preview.checkpoint)
-    await expect(workspace.adoptTerrainGeneration(preview)).rejects.toThrow(/已有修改|重新预览/)
+    // Checkpoint-changing actions release the source and cancel its owned preview first.
+    expect(cancelling).toHaveBeenCalledWith(preview)
+    await expect(workspace.adoptTerrainGeneration(preview)).rejects.toThrow('地形候选已取消、已采用或不属于本会话。')
     expect(saving).not.toHaveBeenCalled(); expect(workspace.getState().project).toBe(current)
     expect(workspace.checkpoint()).toBe(checkpoint)
     expect(projectContentHash((await repo.load(current.document.sceneId))!.project)).toBe(currentHash)
@@ -254,28 +257,28 @@ describe('current-v1 legacy budget boundary includes real identity and fixed sou
     })
     const baseline = await fromBundle(complete(empty), validation)
     // 83 physical Props, their actual births and source bindings, a shared
-    // immutable source/presentation, new lineage, and one note total 256.
+    // immutable source/presentation, new lineage and fresh Floor birth total 256.
     for (let index = 0; index < 83; index++) addSymbol(atLimit, index)
     const addNote = (document: SceneDocument, id: string) => {
       document.notes[id] = { id, floorId: Object.keys(document.floors)[0], editLocked: false,
         kind: 'note', anchor: { type: 'point', positionMm: { x: 500, y: 500 } }, text: id, visibility: 'public' }
       document.entityLayers[id] = 'visual-layer-props'
     }
-    addNote(atLimit, 'budget-note-1')
     const accepted = await fromBundle(complete(atLimit), validation), metadata = { before: baseline, after: accepted }
     const cost = assertTerrainBudget(empty, accepted.document, metadata)
     expect(Object.keys(accepted.document.props)).toHaveLength(83)
-    expect(cost).toMatchObject({ total: 256, limit: 256, items: { physicalAndVisual: 84,
+    expect(cost).toMatchObject({ total: 256, limit: 256, items: { physicalAndVisual: 83,
       'composition.identity.actual.propTokens': 83, 'composition.appearance.propSources': 83,
-      'composition.appearance.sources': 3, 'composition.appearance.presentations': 2, 'composition.identity.lineage': 1 } })
+      'composition.appearance.sources': 3, 'composition.appearance.presentations': 2, 'composition.identity.lineage': 1,
+      'composition.identity.actual.structureTokens': 1 } })
     expect(() => assertTerrainBudget(empty, accepted.document)).toThrow(/缺少真实历史身份/)
-    const overLimit = cloneJson(accepted.document); addNote(overLimit, 'budget-note-2')
+    const overLimit = cloneJson(accepted.document); addNote(overLimit, 'budget-note-1')
     // Strict complete validation proves refusal is the atomic budget, not malformed scene data.
     const rejected = await fromBundle(complete(overLimit), validation), rejectedMetadata = { before: baseline, after: rejected }
     expect(terrainCommandCost(empty, rejected.document, rejectedMetadata).total).toBe(257)
     expect(() => assertTerrainBudget(empty, rejected.document, rejectedMetadata)).toThrow(/257.*256/)
     expect(Object.keys(empty.props)).toHaveLength(0)
-    expect(Object.keys(accepted.document.notes)).toHaveLength(1)
+    expect(Object.keys(accepted.document.notes)).toHaveLength(0)
   })
 
   it.each([1, 2, 3] as const)('refuses algorithm%s installation above 256 without changing current or persistent data', async algorithmVersion => {
