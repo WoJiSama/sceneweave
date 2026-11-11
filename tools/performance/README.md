@@ -1,5 +1,7 @@
 # 历史 B5/C0 负载复现方法
 
+当前性能／容量会话的跨电脑接续见[07交接入口](../../docs/07-roadmap.md#performance-capacity-cross-machine-handoff)。`baselines/wall-paint-20261111.patch`与`baselines/encoding-owner-20261111.patch`保留两个独立优化的正向源码差异；只在隔离测量副本反向应用以重建单项基线，先`--reverse --check`，不能直接回退日常工作区。它们不包含旧机的忽略输入、原始证据或完整历史冻结，不是性能通过证明。
+
 本页只维护B5/C0旧格式负载和保留运行器的复现方法；当前验收入口见[质量计划](../../docs/09-quality-plan.md#acceptance)，正常原生主路径及严格v2视觉负载的命令见[贡献说明](../../CONTRIBUTING.md)。旧工作台已经退役，以下结果不能替代当前产品验证。
 
 B5工具测量 VIS-01 书房与露台、VIS-02 双层岩岛的 500/2000 物件副本。它通过独立生产入口复用实际 `AssetCanvas`、`WorkspaceV2`、样板候选守卫、资源校验、IndexedDB 仓库及 PNG 管线。普通 `npm run build` 不暴露 `window.__sceneweavePerformance`。

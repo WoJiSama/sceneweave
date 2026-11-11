@@ -2,9 +2,272 @@
 
 本文件汇集原始批次记录，正文中的“当前”、未通过项、发布授权和测试数字只属于各自日期及冻结。现行顺序以[路线图](../07-roadmap.md)为准；不把历史通过数拼成新验收。
 
+- [主题作品驱动的代码与算法开发自检（2026-11-11）](#theme-driven-interior-20261111)
+- [图片算法诊断与真实前端预览（2026-11-11）](#image-algorithm-diagnostics-20261111)
+- [图片色边、纹理接缝与草稿保护接续（2026-11-11）](#image-quality-followup-20261111)
+- [源码审查发现项整改自检（2026-11-11）](#source-review-fixes-20261111)
+- [旧测试清理与必要自检（2026-11-11）](#old-test-cleanup-20261111)
+- [全系统回归与中断接续（2026-11-11）](#system-regression-20261111)
 - [图片分层琴房样板开发自检（2026-11-10）](#image-room-sample-20261110)
 - [项目图片拆解工具与本地item开发自检（2026-11-10）](#image-import-tool-20261110)
 - [图片拆解画面质量整改（2026-11-10）](#image-import-quality-20261110)
+
+<a id="theme-driven-interior-20261111"></a>
+## 主题作品驱动的代码与算法开发自检（2026-11-11）
+
+用户要求在本会话持续制作各主题精美完整作品，并明确以创作暴露问题、持续改进项目代码和算法为重点；最后由用户审核效果。本轮先以近代调查、现代城市、奇幻城镇三类室内研究候选检验通用家具摆位，未把候选、自动检查或生成数量记为成品/P3。开发状态只归[07](../07-roadmap.md#theme-driven-development)，实际算法边界归[室内设计](../reference/general-map-generation.md#d-interior-layout)，正式验收仍归[09](../09-quality-plan.md#theme-driven-acceptance)。
+
+两项可复现缺口为旧家具始终0°、座椅与桌面各自优先贴墙而可能分处房间两端。本批室内算法4新增有限四向姿态及先主体后座椅的邻近候选，完整旋转占地/绘制边界、支撑、100mm物理间隔、门前带与已通过路线继续检查；有同室桌面却无法邻近安置座椅时列缺项，不回退远墙孤椅。新建默认接入室内4，旧室内2/3与地形建筑1/2完整结果保留；新增地形建筑3显式映射室内4，混合3仍使用地形建筑2。工程容器仍为唯一完整v1，局部重排现存家具只改位置、保留其任意旋转与人工保护。
+
+本机证据根为忽略目录 `work/theme-masterpieces-20261111/`。以下首个画面冻结的数据分别来自 `investigation-furnishing-review-2/result.json`、`modern-furnishing-review-2/result.json`、`fantasy-furnishing-review-2/result.json`，浏览器均为141.0.7390.37、页面异常数组为空。共同seed为 `theme-masterpieces-interior-1`，建筑范围17×13m、墙厚240mm、建议门宽1500mm/通路净宽1100mm，均生成4房；三份实际素材palette、输入、布局、报告和包hash保存在各自结果中。
+
+**对照边界**：before在算法4已产生的同一固定房间、墙、门与通路几何上，只替换为旧 `interior-furnishing@3`；after是算法4完整结果。两侧世界尺度、固定素材字节、灯光和滤镜相同，before另清除不适用的生成来源，避免伪造完整旧配方重放。因此该组只隔离家具摆位差异，不表示旧完整生成器也会选择新算法的结构，不是旧版与新版整条生成链的总体效果或性能比较。
+
+| 实际研究候选 | 物件数 before→after | 非零旋转 before→after | 座椅距同室最近桌面占地边缘 before→after | 通路及缺项 |
+|---|---|---|---|---|
+| 雨夜旧宅调查所 | 20→19 | 0→14 | 345–5274mm→415–440mm | 两侧均4/4指定路线clear；新版研究办公室1件座椅无合法邻近摆位，明确保留缺项 |
+| 街角事务与社区服务中心 | 20→19 | 0→14 | 348–5513mm→380–405mm | 两侧均4/4指定路线clear；新版研究办公室1件座椅同样列缺项 |
+| 余烬酒馆与旅舍 | 20→20 | 0→13 | 500–4080mm→395–420mm | 两侧均4/4指定路线clear；本组家具报告无缺项 |
+
+距离来自结果中的 `nearestWorkSurfaceMm`，是实际占地多边形的最近间距；它不证明座椅拉出空间、桌面操作净空或主观构图已合格。clear也只覆盖本次指定端点/实际门与完整带区，不外推任意全图寻路。
+
+三组各保存 `before.sceneweave`、`after.sceneweave`、玩家2048×1638 PNG与主持人4096×3277 PNG。六份完整包均从磁盘重新读入，在新页面实际冷读资源/许可/像素；`diskVerification.projectHash`与各自导出前值相同，玩家PNG与冷读后同尺度Canvas2D逐RGBA比较均 `changedPixels:0`。包SHA-256、项目hash及冷读诊断时长在各份结果中，时长不作正式性能证据。该像素一致性不扩大为双受众4K全矩阵、保密渗漏或用户视觉验收。
+
+生成及落盘冷读命令为 `SCENEWEAVE_THEME_REVIEW_RUN=2 node work/theme-masterpieces-20261111/run-interior-review.mjs investigation modern fantasy`；该脚本调用项目共用生成、完整工程导出/导入和原生渲染函数，浏览器IndexedDB打开/删除被显式阻止，未访问用户库。首轮研究输出仍保留在 `*-furnishing-review-1/`，上述数据只属于review-2，不拼接前轮或后续结果。
+
+review-2技术整合冻结的7文件48项定向检查通过：`npx vitest run src/shared/generation/domains/interior/furnishing.test.ts src/shared/generation/domains/interior/interior.test.ts src/shared/generation/domains/interior/supported.test.ts src/shared/generation/local-interior.test.ts src/shared/generation/domains/registry.test.ts src/application/workspace/generation-intent.test.ts src/shared/generation/determinism.test.ts --maxWorkers=1`，该次总耗时53.46秒。覆盖窄室旋转、桌椅关系、偏心完整姿态、缺项、当前默认与跨工程身份确定性、严格新旧版本配对、旧非空家具完整hash、局部位置更新及人工保全。四组旧结果hash在改契约前冻结、改后复验保持；首次组合hash测试触发默认5秒超时，明确提高该检查等待至30秒后通过，不修改产品执行预算或据此宣称性能正常。正常 `npm run build`通过，保留常规bundle告警；整合仅补其他会话所有的 `src/shared/image-import/layer-replay.ts` 回调类型 `layer: T`，该模块既有工作不计为本次家具算法行为证据。
+
+该冻结中主代理实际回看review-2三份成图，桌椅邻近与转向改进可观察，画面仍明显稀疏。本批保持算法研究候选：室内用途细节、构图疏密、朝向与操作空间、题材素材画法继续制作；review-2只冻结这次研究输入/结果，不把算法4记为最终成品语义。其他主题及首页岩岛、墓园、火山等题材未被本组覆盖。该冻结尚未覆盖实际生产页面操作；后续生产补验另列下文。完整编辑/撤销/存储故障矩阵、跨浏览器、独占性能、完整09和用户P3仍分别待验，不以离线harness交付替代。保留其他会话脏改动与独立 `todo.md`，未提交、推送或部署。
+
+**用途扩展冻结（review-3）**：在review-2之后，算法4按用途与面积扩展建议至每房最多16件／总64件，授权palette按固定name／tags的用途偏好排序、以seed破同序；正常新建palette补入写字桌与长桌。三份 `*-furnishing-review-3/result.json` 仍采用上面的固定结构旧摆位对照方法，新版近代调查／现代城市／奇幻城镇实际物件数分别35／39／31，before各20件，两侧指定通路均4/4 clear。六份完整包独立落盘冷读后项目hash保持，2048×1638实际RGBA变化均0，浏览器141.0.7390.37、页面异常数组为空。近代调查与奇幻仍各列一件座椅未落下，现代本组无缺项；更多物件或更近的座椅不等于构图、工作站完整度或操作空间已合格。review-3是座位负载偏好补强前的独立冻结，不能外推最终源码。
+
+随后补入临时座位负载：同室现有座椅按真实占地最近距离关联桌面，优先给尚未服务的桌面第一把椅子；人工保留座椅参与读取，但不保存永久配对，也不保证每桌齐备。新 `supported-interior@3` 的原12000×10000两房保护夹具，按现行普通事务默认compact策略及完整document／historyIdentity／appearance执行同批删除与移动，实际为2个语义目标、19条元数据、1565字节，后续局部重布保留两项人工结果并读取真实支撑；锁支撑后正确拒绝重布。旧无budget API会在每步重复计入整栋规则的156个output引用，组合为173＋162＝335而拒绝；这不是扩大当前普通编辑档位的理由。旧supported1／2保留原夹具和调用，原组合成本255；诊断原始数据另存 `work/supported3-budget-diagnostic-20261111/result.json`，不把旧展开上限与现行普通事务的多维计数混成一种证据。
+
+本轮沿上面同一条7文件联合命令再次自检，51项全部通过、总耗时75.17秒，较前轮新增局部家具2项、家具摆位1项；完整输出只留在本会话工具session18580，没有另外保存文件日志。它属于用途扩展与座位分配之后的新冻结，与上面的48项／53.46秒分开，不相加；最终9份生产源码摘要另存 `final-source-manifest.json`。新增supported3保护用例曾触发默认5秒等待超时，记录首败后仅该新版本用例明确等待至30秒；旧1／2仍用原阈值。等待调整没有改变产品执行预算，也不能证明正常性能。源码构建曾因 `FurnitureAnchor` 未包含真实Prop字段失败，已将使用处类型补为交集；最终正常 `npm run build` 已退出0，架构与类型检查及普通Vite打包完成，Vite阶段9.33秒；该数字不是整条构建耗时或性能验收。首败保留，不抹去。review-2后的正常生产页面旅程在独立浏览器上下文通过室内生成、保存、reload冷读、手工删除与再次冷读不补回，31.0秒，产物／附件归 `production-smoke-1/`；它只证明当时冻结，后续第二次生产补验另列下文，不用31.0秒旧结果代表后续源码。
+
+**首份原生命令细化候选（dressed-2）**：`investigation-dressed-2/result.json` 记录算法4生成后，继续用项目原生表面、物件、门窗及灯光命令细化的近代调查工程，含4房、62个Prop、7扇窗、6盏灯，4/4指定通路clear。完整包磁盘冷读项目hash保持，2048×1638实际RGBA变化0，页面异常为空；这没有新增通用自动细化算子，也不记为精修成品或用户P3。该次候选独立保留，材质调整后另生成 `investigation-dressed-3/`，不覆写本次冻结。review-4在诊断工具重构时漏传profile而首败，修复后重新执行review-5，原目录保留。
+
+**座位分配冻结（review-5，宽边整改前）**：三主题六包生成及磁盘冷读脚本退出0，数据分别见 `investigation-furnishing-review-5/result.json`、`modern-furnishing-review-5/result.json`、`fantasy-furnishing-review-5/result.json`。对照仍遵守上面的固定结构边界，不能把before当成旧生成器完整结构输出。
+
+| 研究候选 | 物件数 before→after | 非零旋转 before→after | 指定通路 |
+|---|---|---|---|
+| 近代调查 | 20→35 | 0→27 | 两侧4/4 clear |
+| 现代城市 | 20→39 | 0→29 | 两侧4/4 clear |
+| 奇幻城镇 | 20→31 | 0→20 | 两侧4/4 clear |
+
+六份完整包均从磁盘重新导入，项目hash与导出前保持；2048×1638同尺度Canvas2D逐RGBA比较全部 `changedPixels:0`，浏览器141.0.7390.37、页面异常数组为空。主持人4096×3277 PNG另保留。它是当前算法候选的技术证据，未完成用户构图／美术审核，数量与旋转数不代表质量签收。
+
+**调查细化冻结（dressed-3，宽边整改前）**：脚本退出0，`investigation-dressed-3/result.json` 记录材质调整后的完整可编辑工程，仍为4房、62个Prop、7扇窗、6盏灯及4/4指定通路clear。项目hash为 `e37ce0d5f638182a079f3c0eb09c699490cebd045b9a7426a0eb426d902c8d62`，完整包SHA-256为 `14b00d79c4245b6e7b4d51aef38abca3f25781be154d0142361c6a95ff3f722e`；磁盘冷读项目hash保持，2048×1638逐RGBA变化0，页面异常为空。它延续原生命令细化，未声明新增通用自动细化能力，仍待用户审阅，不记为精修成品或P3。
+
+**正常生产补验（production-smoke-2）**：独占性能窗口释放后，正常生产E2E工具session93049退出0，1项通过，整体47.7秒、用例43.8秒；附件归 `production-smoke-2/`，覆盖室内生成、保存／冷开、删除家具与再次冷开不补回。该结果对应 `final-source-manifest.json` 的宽边整改前源码冻结，与上一31.0秒生产结果独立，不能外推随后修改。
+
+**本机审核画廊（gallery-review-1）**：`gallery-review-1/result.json` 记录8个去重文件URL实际返回HTTP200，三主题对照slider均实测0%→100%，实际下载文件名为 `investigation.sceneweave`。`desktop.png` 为1600×1100、`mobile.png` 为390×844；窄屏scrollWidth为390、图片全部加载、页面异常0。主代理实际回看桌面截图与dressed-3成图，构图仍偏规整、桌椅组合松散；链接、下载和布局检查不证明美术质量或用户P3。
+
+**宽边整改前诊断**：只读几何核对发现，调查dressed-3的11把椅子有6把在最近桌面的局部短端，现代review-5的15把有8把在短端。当时四边等权，最近距离与路线合法不等于自然桌椅组合；两组椅源SVG可证明本组+Y前向，但定义及授权palette没有通用前向字段，不能将此假设推广到所有素材。主代理随后写入矩形宽边几何偏好，短端保留候选；前述51项、正常构建、review-5／dressed-3成图及production-smoke-2均属于整改前冻结，新代码的必要自检独立记录如下。
+
+**宽边偏好独立冻结（review-6）**：证据归 `wide-edge-remediation/`。新增偏好只给正交长方桌面的长边更高候选次序，保留短端回退，不推断通用前向，也不减少完整占地、支撑、门前带、锁或已通过通路检查。`before-manifest.json` 与 `after-product-manifest.json` 的本轮9份自有生产源码中，仅 `src/shared/generation/domains/interior/furnishing-poses.ts` 改变；这项对照范围不能扩大为全工作区只有该文件变化。
+
+| 本次必要自检 | 完整结果与边界 |
+|---|---|
+| 新增边界 | `new-edge-cases.log`：4项通过、7项跳过；单文件5.32秒，不把跳过项记为本次执行 |
+| 家具摆位全文件 | `furnishing.log`：11项通过，15.17秒 |
+| 七文件联合复验 | `unit-recheck.log`：7文件55项全部通过，90.06秒；原测试等待阈值未改。本次与旧51项独立，不累加 |
+| 首轮联合中断 | `unit.log` 已输出部分失败文件，但完整失败详情未取得；主代理在主机负载173.86时中断自有进程，退出130。`unit-attempt-1.json` 保留部分报告和未完成状态，不将所有失败归因于负载，也不记首轮全绿 |
+| 正常生产构建 | `npm run build -- --outDir work/theme-masterpieces-20261111/production-wide-edge-dist` 通过；Vite阶段11.04秒，保留常规注释／导入／大包告警。`build-start-manifest.json` 冻结1380文件，`build-source-drift.json` 为0漂移；这是该构建期间核对范围，不是性能验收 |
+
+`review-6.log` 及三份 `*-furnishing-review-6/result.json` 保存同一固定结构对照的独立输出。三主题before仍各20件／0转向，after近代调查35件／28转向、现代39件／29转向、奇幻31件／20转向；两侧均4/4指定通路clear。六包实际磁盘冷读均成功，项目hash与导出前一致，玩家2048×1638逐RGBA变化全部0；六张主持人PNG均4096×3277。浏览器141.0.7390.37，页面异常数组均空；4K文件存在及尺寸不等于4K冷读像素矩阵已验。
+
+`edge-comparison.json` 只按最近实际正交矩形占地作几何分类：调查宽边席5→6／11、现代7→9／15、奇幻4→4／6；通路均4/4。改善有限，没有证明桌椅自然朝向、操作空间或整体美术已好。下一方向是核对桌面落位时是否需要预留邻近座椅空间，仍待验证，不能写成已证实根因；旧production-smoke-2和调查dressed-3不代表这次源码。
+
+**正常生产宽边补验（production-smoke-3）**：`wide-edge-remediation/production-smoke-3.log` 记录工具session18783退出0，单worker的1项真实页面旅程通过，总30.9秒、用例30.3秒。使用4179的独立正常 `production-wide-edge-dist`，覆盖真实室内生成、保存、reload冷开、手工删家具与再reload不补回；附件归 `production-smoke-3/`。完成后preview主动Ctrl-C退出130；不把正常停服记为测试失败。该冻结与smoke-2独立，属于正确性自检，不是性能、美术或完整验收。
+
+**现代独立构图首败保留**：以13×15m建筑范围、四种不同面积功能房和真实走廊调用室内算法4，初步生成成功；继续原生命令细化时，`modern-dressed-1/` 的新增档案架找不到安全位置而拒绝，未导出工程或PNG。原失败源码 `authoring-source.ts`、`failure.json` 和 `wide-edge-remediation/modern-dressed-1.log` 保留。随后经原生命令删减通用档案货箱、保留书架后重新执行，不靠放宽几何或资源校验通过。
+
+**宽边源码下的两份原生命令候选**：`modern-dressed-2` 和 `investigation-dressed-4` 脚本均退出0，各自保留完整包、双受众PNG及 `result.json`；不覆写旧dressed-3。
+
+| 独立候选 | 实际内容与通路 | 项目hash／完整包SHA-256 | 磁盘冷读像素与主持人输出 |
+|---|---|---|---|
+| modern-dressed-2 | 32 Prop、四功能房加1真廊（rooms共5）、5窗、8灯；5/5指定通路clear | `3e02bf141f1fae316b6638bab903155b48552b9c9c39bb868515e3284fdf54f9`／`786b47e93866d4164e1f703fc69606ee8e724b2c7d23bdc6e37bbcbb3a16fd88` | 玩家1820×2048实际RGBA变化0，项目hash保持；主持人3641×4096 PNG |
+| investigation-dressed-4 | 62 Prop、4房、7窗、6灯；4/4指定通路clear | `24bdc345a28421600a43aa57c274e50a22d2e6c59327a4fc03550506b5432c4e`／`a1afcce635eba0c3feba3b02d253ca657dabb2495211debcb71e39628a2b821e` | 玩家2048×1638实际RGBA变化0，项目hash保持；主持人4096×3277 PNG |
+
+两份浏览器均141.0.7390.37、页面异常数组空。主代理已目视现代图，用途材质区分与真实廊道成立，但侧廊偏长且空、候客沙发零散、部分桌椅仍在短端；调查新图材质与细节良好，但四矩形结构和松散构图仍在；均不算精修成品。这些离线工程和像素自检不代替09正式验收或用户美术签收。
+
+**新版画廊独立冻结（gallery-review-2）**：画廊更新至两份原生命令候选与review-6后，`gallery-review-2/result.json` 记录10个去重文件URL均HTTP200，三个比较滑块实测0%→100%；两份真实下载的SHA-256与上表原完整包完全一致，分别为 `investigation.sceneweave` 与 `modern.sceneweave`。1600px桌面及390px窄屏scrollWidth均等于视口宽度、8图全部加载，页面异常数组空，浏览器141.0.7390.37。主代理实际回看 `modern-feature.png` 和 `mobile.png`，版面可用；链接、下载和页面布局检查不抵扣作品美术签收。旧gallery-review-1保持review-5／dressed-3独立冻结，不覆写或外推。
+
+性能第三次自然窗口已释放，本轮headless浏览器、测试、构建与preview均结束，只留4181静态服务供用户查看。本文本更新只整理已有结果，不启动新重任务；接续向用户展示两份可编辑候选，继续桌面落位／构图、现代与奇幻细化及其余六类题材。写实版、09完整验收与用户P3仍分别待完成，不提交、推送或部署。
+
+**并排座位整改与长凳反例（独立冻结）**：`seat-diagnostics/initial/` 在未改产品时，从实际生成结构重放家具；三主题的带记录副本均与真实内核完整document／report一致，且props与实际生成结果一致，才解释拒绝。调查268、现代165、奇幻287次实际尝试，页面异常为空。短端对应的长边有边界删候选、通路以及其他桌椅碰撞等多类原因；至少四例可证先放中央椅占住同侧两个四分之一偏移，而另一侧在房间外。日志仅记录接受前实际访问候选，另列房间边界probe，不把未访问位置当穷尽失败或认定所有短端同根因。
+
+室内4因此只在建议多席、正交矩形真实长边能容下两份当前座具完整占地／画框包络及100mm间隔时，优先试尺寸感知并排位置，中央仍作回退；单席、过宽长凳、短端及未知长边优先中央并保留原有限沿边错位。完整物理／绘制／支撑／门带／通路、预算、取消、原生事务及人工保全不减，未写永久桌椅配对。首轮12项中1项短端回退失败，收紧到已知长边后57项通过；review-7虽六包冷读像素一致，却因误删过宽长凳旧错位使奇幻6→5席，保留中间结果并修复，不记最终成功。首轮构建期间其他会话两张图片编辑面板变化另记`build-source-drift.json`，不能作为全仓静止冻结。
+
+最终恢复长凳回退后，`pair-spacing-bench-unit.log`记录相关七文件57项通过、46.78秒，无预算／超时放宽；覆盖双椅完整并排、单席／整长凳中心与错位、偏心／转向、门路及旧2／3、supported1／2重放和局部人工保全。额外base-map的早期七文件78项属中间冻结，不与57相加。正常`production-pair-spacing-bench-dist`构建通过，Vite10.05秒，常规warnings保留；1441个源码／工具／配置文件在该构建前后hash不变，详见`bench-build-start-manifest.json`与`bench-build-source-drift.json`。`production-smoke.log`在该正常构建的4179独立页面运行1项通过，总36.4秒／用例35.5秒，覆盖生成、保存、冷开、删除、再冷开不补回；附件在`seat-diagnostics/production-smoke/`，完成后preview结束。属于正确性自检，不是性能或视觉签收。
+
+`*-furnishing-review-8/`三主题六包均磁盘冷导入hash保持、玩家2048×1638逐RGBA变化0，页面异常为空，主持人4096×3277。与review-6同输入和结构比，调查35→36物件、宽边席6/11→9/12；现代39物件、9/15→13/15；奇幻31物件、4/6保持。两侧各4/4指定路线clear。`bench-edge-comparison.json`只是最近真实正交矩形占地分类，不等同桌面操作空间、未知素材正面或艺术评分；review-8的before仍是同固定结构替换旧家具3，不能当完整旧生成链。
+
+**最新三份原生命令候选**：`investigation-dressed-5`为63 Prop／4房／7窗／6灯、4/4路线，项目hash`1f98891c916818074a413a517f3c0660bb47cf445fbff41e3ee23ac2be039585`；`modern-dressed-3`为32 Prop／四功能房加真廊／5窗／8灯、5/5路线，项目hash`7c85cbfca72ec55bc3fdbe3953ead3eb4e94c580fc055fbfa01a04452a3a2c2a`。两包落盘冷读hash保持，玩家分别2048×1638、1820×2048实际RGBA变化0，页面异常为空；完整包SHA及输出参数在各自result与`seat-diagnostics/verification-summary.json`。主代理已看两张新玩家图和现代／奇幻review-8：椅子并排有改善，但调查四矩形与松散桌组、现代长空廊及候客区、奇幻同质平涂仍在，未签收精美成品。
+
+遗迹`ruins-dressed-7`独立采用14.5×12m室内4五房／340mm实际墙及真实门，原生命令细化24固定物件／6灯，房间用途为门厅、祭祀室、主墓库、纪念侧室、藏室；无新增自动墓库布景能力。全部5条实际路线在布景时保护，最后显式关闭上锁仅主墓库相连的藏室门，最终4条clear／该1条unavailable。大柱、墓盖、石像及窄藏室石棺的五轮拒绝保留在各轮日志、source／failure及`review-and-failure-index.json`；调整真实布景密度，没有缩放定义或松安全条件。完整包项目hash`0810a5a769d2001678f068292ebbef1afab3ad10d7ca5654d4eb654133525377`，SHA-256`e667a7e0c4745c09607b2fea54e02b259ee7931f873f25144c974d9d4ccbde14`，磁盘冷读hash保持、玩家2048×1755逐RGBA变化0、主持人4096×3511，页面异常为空。主代理已看6／7，子代理另看7的GM图：用途可辨，石材和线描偏平、墓葬松散，暖光改善有限，继续待精修／用户审阅。失败到通过仅属这一创作过程，不推定生成器能自动完成同类美术。
+
+新版画廊`gallery-review-3/result.json`独立复核三份新候选与review-8：12个唯一文件URL均HTTP200，三个滑块实测0%→100%；三份完整工程实际下载文件名及SHA与原件相同，1600／390px均无横向溢出且图片全部加载，页面异常为空。主代理已看遗迹feature和窄屏截图，页面可用，不作作品美术验收。旧gallery-review-1／2及各旧作品保持原冻结。
+
+**奇幻五用途候选与新手绘表面冻结**：`fantasy-dressed-1`因work源码注记结尾多余括号失败，原source／failure／日志保留；修正后`fantasy-dressed-2`实际生成14.5×12m室内4五个不同面积用途房、23物件／4窗／5灯，五条指定路线全部clear。公共餐厅保留两组生成桌凳，厨房复用真实石灶和备餐台，酒粮库仅接厨房，两间客房仅接公共厅；三份现有精修室内来源与奇幻主题分别保留确切字节、固定尺寸和各自许可，没有把锻炉改成灶或缩放定义。两个桌面组保留完整图框／实际图案在桌面内的独立证明，物件仍是房间支撑，不宣称新增Prop台面支撑系统。原工程hash`99660be53ce7d53ffa597828d4217fb19485867a91256f2a98c1f116939a36ae`、包SHA`a9af58c3ea919b6ea1d956b79cd58f65c9cafe5de91f51dc2a810d67d89f1eaa`，磁盘冷读hash保持，玩家2048×1755实际RGBA变化0、GM4096×3511、errors[]。主代理看图确认功能可辨但餐厅／客房留白大、桌组松散、图案偏平，仍待精修与用户审阅。
+
+新`handdrawn-surfaces`独立四来源用于检验共同材质债务，固定身份／尺寸／许可归[14](../14-visual-and-assets.md#handdrawn-surfaces-v1)。木纹、石板色层、边角和颗粒由有限确定性静态SVG生成，自由笔触跨两轴重复。`surface-swatches-1`工具误按ID读取hash-key资源失败，修正为document.assets；2／3／4保留石块尺度与重复边缘的中间校样。最终`surface-swatches-5`为实际canonical1024×1024 PNG，四张alpha全255、SVG源hash与512校样保持，源大小约26–56KB、5–18path／1948–4170commands，均在原限额内。X边界平均RGB差分别木0.115、石灰岩0.302、玄武岩0.168、灰泥0.004，Y分别0.003／0.060／0.059／0.032；只是接缝诊断，主代理实际回看3×3和两张地图，仍有程序化平涂与周期，不作美术通过。
+
+普通生产页面的512初筛提示木80px/m和石约107px/m低于128参考，因此修改共享`materializeVisualArtBatches`支持批次显式512／1024／2048像素，缺省512保留旧批次；新独立四材质batch选1024，不改毫米尺寸／固定源或初筛规则。非法尺寸在任何batch栅格化或scene修改前整批拒绝。最终`handdrawn-surfaces-1024-unit.log`三文件20项通过11.08秒，包括旧默认512实际参数／fixture字节、显式1024源／尺寸／许可、非法值前拒绝、固定源SHA、正常胶囊采用及完整包冷读；目录测试用签名像素，不冒充真实美术。正常`production-handdrawn-surfaces-1024-dist`构建通过、Vite9.77秒，1457源码／工具／配置文件前后hash无变化，常规warnings保留；早期512七项／构建另留独立冻结，不与20相加。
+
+`surface-production-ui-1`采用／撤销／重做后错误假设reload自动开工程而失败，原证据保留；2使用首页最近工程实际打开通过，但仅512冻结。最终3在新正常1024生产包走新建→普通四材质预览→采用→真实缩略图→撤销消失→重做恢复→首页刷新并最近工程冷开→真实工程下载，errors[]；主代理回看实际预览，初筛明确“未发现本轮规则覆盖的明显像素问题”，不是用户签收。真实下载包SHA`9af7620e2a8752a8206897d83acbc2d0ce772fb48983bc7141e2a5c4161c99d1`，ZIP审计四新材质／四实际1024图／四authoring source、0场景Prop；页面采用不自动放置物件。
+
+两张完整工程的最终同几何地板对照为`fantasy-surface-review-3`与`ruins-surface-review-2`。均正常准备／采用四素材，再单事务修改五房地板材质及显式实际tile尺寸，所有墙保持，灰泥仅入库未应用。before为确切原包；after逐项核对room／wall业务与结构、其余几何／Prop／门／灯／注记／图层、历史出生／拓扑令牌、人工外观、全部旧固定源／派生／许可绑定和真实资源字节不变，revision只加1。普通编辑选择器自动得到compact，实际semanticTargets5／256，不提高档位或拆批。此前奇幻review1含墙、review2只地板但helper漏传普通预算而触发旧展开计数拒绝，两份failure保留；helper改按现有Workspace／dressed普通路径向apply和materialize传同一注册预算，未修改产品预算策略。
+
+| 最终对照 | after项目hash | after完整包SHA256 | 落盘冷读与输出 |
+|---|---|---|---|
+| 奇幻地板review3 | `112a62f49fb45e0beb71f1bf28d52fe7f7e8c6db7f1a444dd7d1a48356c6edc6` | `dc83ab90cabd6cdbbdc4bc70c53bf9d2a746872f84a966523f965943244f3e84` | 前后各2048×1755玩家RGBA变化0、hash保持；GM4096×3511 |
+| 遗迹地板review2 | `f45806b73101a0b603705ca1e2957d2c72081413a396a1855411ea9725690942` | `d740478e9fdbd29722dcb8418ad99eb4ca5afa3bc4433cb3790b43e5353c1f93` | 前后各2048×1755玩家RGBA变化0、hash保持；GM4096×3511 |
+
+上述两组四包均从磁盘重新读取实际archive和PNG后导入独立空页面，浏览器141.0.7390.37、errors[]；时长仅诊断，不是独占性能。主代理实际看两份after及原图，新地板明暗／接缝可见，仍不能解决整体构图和笔触品质；完整正式矩阵与P3未关闭。五个室外题材待创作，下一片以独立溪岸补给站核对真实地形、建筑工作面与道路，尚未运行；写实继续等内置工具，不调用API备用路径。未提交、推送或部署。
+
+当前画廊`gallery-review-4`独立检查17个唯一文件URL均HTTP200、五个滑块0%→100%、四份主作品实际下载与原包字节／SHA相同；1600／390px均无横向溢出且全部图加载、errors[]。主代理看新遗迹feature与窄屏截图，四候选、两个地板对照及平铺校样均可回看；旧gallery3与512中间结果保留，不把页面检查算作品艺术验收。1024 preview服务器已结束，4181仅保留静态审核画廊。
+
+**五类户外独立候选冻结**：先前四室内之后，使用原生领域生成与普通命令独立创作五户外；不是新增五种专用自动布景领域。首轮海岸生成包／PNG后，冷读遇到其他工作线正在写入的模块缺依赖而失败，`coast-dressed-1`保留，不记整轮通过。为避免在途源码混合，建立`source-freeze-outdoor-1`，复制1320份src及必要素材／harness，捕获前后与副本hash0漂移；后续作者稿另存每轮source，不把可继续编辑的work文件当永久冻结。以下五份均在该冻结运行，成功后复制回根work供画廊读取；不外推后续根目录其他会话代码。
+
+| 独立候选 | 实际规模 | 项目hash | 完整包SHA256 | 玩家／GM像素 |
+|---|---|---|---|---|
+| 溪岸巡林补给站／`wilderness-dressed-3` | 46物件；4/4条指定路线clear | `1f126223df6d0e6ad6bc45a40d3c882296af363fbb93c8f2c9368ef313cafb40` | `69074de763b074bb17acece520e89bde789ddd9c81007e63fca7851ef371c4b0` | 2048×1583／4096×3165 |
+| 潮湾渔获与岸边补给站／`coast-dressed-2` | 54物件；6/6条指定路线clear | `bd0e2a158ac6b773cc300b765ddb481443dd4ddf28b8fe50f0343d37ce8bfd65` | `8948289d13e2dd06951320af13c7cf2a663c5304393b3c991c8bdc41936c36e9` | 2048×1638／4096×3277 |
+| 双台岬岛／`island-dressed-1` | 23物件；4/4条指定路线clear | `ea7dcf3d8e0baf10c744ce56384b1ebace990b099d44f77b9be26ae9199b7d37` | `a98b2f5fdafa2b00c413a6619344799858c56175752597bd841301d69431b4cb` | 2048×1593／4096×3186 |
+| 雨后纪念花园／`graveyard-dressed-5` | 36物件；3/3条指定路线clear | `57ab774f8f9a9be69e9d11fcdddf624fc6d90563bef82603d62345faaec8a2ae` | `e82b869700838934601e67aead832ede6f40bd69564301c871abd8e696e97d97` | 2048×1664／4096×3328 |
+| 灰脊火口观测步道／`volcano-dressed-1` | 24物件；5/5条指定路线clear | `7f4925be163c172af74741bb29e7dff7e44ba656583092cf790d3f488f9e456d` | `876d3940a17e795bb490a5ac236532655dda78825748f4f976ebbcfc46dbca49` | 2048×1556／4096×3113 |
+
+五份完整包均从磁盘另页冷读，项目hash保持、玩家同尺寸逐RGBA变化0、页面errors[]，浏览器141.0.7390.37；GM为实际4096长边PNG，未把玩家一致扩大成双受众全部验收或正式性能。确切报告、完整字节与尺寸归各result及`outdoor-verification-summary.json`。五份均为`formalAcceptance:false`、用户美术待审；仅画廊可访问或工程合法不能记精修签收。
+
+荒野44×34m包含真实阻水溪流、双房supported-interior3（室内4）、完整门前路、七林区与营地；153植被目标实际124（27树），普通`buildRoadCampPatchPlan`采用两条实际路肩覆盖，旧底材保全。荒野首轮ground与溪流cap共边缺分段、次轮直接将浮点pathPolygon写成整数毫米覆盖失败均保留；作者稿显式分段，路肩改用已有整数构造plan，未取整物理带或放宽产品守卫。海岸40×32m有两房、三Path、10.08m²真实分拣空地，55物件请求实际54、一个optional shell因安全几何跳过；海水负探针核对`TERRAIN_NOT_WALKABLE`且实际支撑为阻水water，不强求该错误本来不携带的entityId。
+
+岩岛36×28m使用确切refined-island1的13固定图及原512像素，真实900／2700mm台地、1800mm石阶和两端1200mm接入，五块普通自然地表覆盖与10.15m²活动区。墓园32×26m采用确切荒野2／遗迹1／植被细节1及既有独立leafy-fern批，11墓位、无顶纪念庭院与2200mm门洞；先unspecified草稿建门，再改required。原env与rename混批、未建门required、蕨与墙完整占地冲突的失败保留，后者移动真实位置，不放宽检查；三条访墓Path全部读实际records核对。火山50×38m经过正常blank→prepare→采用，5面／17崖／2Path／2高差连接，37.13m²活动平台，平台与山体1800mm／火口-400mm；熔岩阻挡来自实际Region，负探针为`TERRAIN_TRAVEL_OBSTACLE`及该Region ID，24／24物件落位。
+
+主代理逐份实际回看：荒野／海岸空房与松散工作组、岸线和道路硬边；岩岛崖面像棕色平带、苔点重复；墓园规整围合、植被稀疏、细蕨弱；火山石纹周期、火口折线和熔脉过直。全部继续精修，未认定九主题成品完成。写实仍等内置工具，不走付费API备用；用户P3、完整正式矩阵分别待完成。
+
+**森林顺序隔离诊断**：`forest-order-diagnostics/run-1`先逐项精确复现wilderness3的input／inputHash／report／resultHash／stages／buildingResultHash，参考树27、灌49、草48，总124。单处可逆仪器改动仅按tree→shrub→grass物化，所有规范化／种子／几何／保护／有限搜索／预算及完整森林检查保持；7项配对控制全部true、冻结1320份源码前后0漂移、errors[]。试排树39、灌46、草48，总133；北岸柳0→1，南岸柳1→0，未承诺各区都改善或必达目标。reference结果hash`8cffad9931d28ba98a9e31291b886fa88e05e9f2ae3b22939374a421e0c1e469`、试排`a1c5a7e0dfda99f36c89e6293076a1b6c120a2b0ec0e8d1267c506063a208c92`。这只证明单输入顺序效应，试排不导出旧forest1身份工程／PNG；正式新版本会改变派生seed，必须另留实际结果与异输入验证，不以39棵作为新版承诺。
+
+<a id="image-algorithm-diagnostics-20261111"></a>
+## 图片算法诊断与真实前端预览（2026-11-11）
+
+用户明确本阶段为持续改进算法与设计，琴房不是待交付成品。证据根为本机忽略目录 `work/image-quality-remediation-20261111/`。人工mask与取样实验全部保留为诊断；没有把局部变干净称为通用改善，没有提交／推送／部署或调用外部模型。以下冻结与此前92项／8项自检分开。
+
+| 范围 | 实际行为与边界 |
+|---|---|
+| 真实缺陷与失败实验 | 浏览器实际规范化源身份为 `7cb9e9b371c119651243ecd508b98a820f07ae3596615d2cefa9efe8f4dec851`，1280×840；`normalized-source.json`记录原JPG和确切PNG。粗琴选区包含真实地毯／木板，人工收紧又切掉部分黑轮廓，不能作为通用分割真值。单镜像取样、相位搜索、patch与方向延续仍产生板缝错接、重复阴影、块状或纹理变平，未新增生产补底算法；`edge/`早期“final／交付”命名仅保留实验原貌，当前范围以根README为准 |
+| 共享顺序重放 | 页面预览、MCP的逐层操作与重建共用 `replayImageLayers`。一张最终来源图记录最后修补者，裁片及声明取样矩形分别统计前序推断；RGBA没变仍记推断，孔洞／未修补保留原图身份。报告仅诊断，不改变配方准入及旧tile／seamless／aligned的提取、修补RGBA。取样框交集包含重复声明，不是实际读取或污染像素数；actualSampled／boundary明确未测。页面在完成标定后的保真区显示，MCP通过assess／build返回；inspect不增加重放 |
+| 诊断成本与编码边界 | 只读审阅发现初稿反复全矩形扫描的成本回归，改为32px精确块统计，完整块计数／producer位集、部分块检查原来源，覆盖时清除旧producer；不保留中间全图。另发现直接复用固定SVG编码器会收窄导入预算，已独立提供原色PNG编码路径保留8192／3200万／20MiB，SVG的4096／1600万不变。软件编码保全半透明RGB；不宣称PNG编码文件字节沿用旧值 |
+| 定向自检 | 最终7文件79项通过，`verification/source-evidence-unit-final.log`。覆盖朴素扫描对照、跨块／图像边块、重复覆盖、producer高位、孔洞／清理、相交但实际tile未采样、旧三种修补RGBA与蒙版一致、MCP评估／撤销、PNG透明RGB及8192侧预算；来源输入不变 |
+| 无DOM与正常构建 | `verification/shared-final.log`通过286共享源码模块及Node ESM／无图片工程ZIP往返，未代替真实图片适配器。`verification/build-final.log`为本轮正常架构／全工程及AI类型／Vite构建，产物见production-dist；源码／产物hash及并发漂移如实记录于verification，不把其他会话变化称全仓冻结 |
+| 正常生产页面 | 同一production-dist的9条串行旅程全部通过，`verification/browser-final.log`及browser-final/。覆盖三个增强、三个草稿保护、两个旧拆解质量旅程和新增来源诊断：裁片200／声明取样框50前序推断、实际读取未测及配方导出原样。使用隔离Chromium与正常UI，不是独占性能或正式视觉验收 |
+| 原真实配方重放 | `verification/real-replay-report.json`使用确切规范化源和此前17层aligned配方，不加人工mask。逐层与旧顺序extract原语核对裁片、mask、repairMask及最终剩余底图RGBA完全一致，源图不变；最终推断49,567像素、裁片累计3,256像素来自前序推断、声明取样框交集0。后两项不能代替实际采样／边界读取或视觉质量，不能把修补来源视为新观察 |
+| 真实前端预览 | frontend-current/保留4张1600×1000真实截图、1600×1216总览与index.html；使用上述正常生产包、旧完整琴房和17层原配方，不使用人工mask、不采用候选。实际零变化并禁用采用，页面明确“本次未处理”；来源报告3256／0与共享重放一致。facts.json记录输入／配方hash、浏览器及原文，gallery-check.json记录5图／18链接可读、1600和390宽无横向溢出。frontend-before/的16张旧功能截图和总览保持，画廊明确分开时间与用途 |
+
+
+收尾 `verification/final-integrity.json`记录本任务源码无漂移、177份生产产物hash保持、605个本地文档文件目标存在、`todo.md`不变及`git diff --check`通过。构建及截图期间其他活动会话仍在修改无关生成模块和旧测试，因此未宣称全工作区不可变冻结。预览端口5403／5404已停止。
+
+下一算法方向归[设计边界](../reference/image-to-project.md#layer-source-evidence)与[路线图](../07-roadmap.md#image-to-project-plan)。来源报告只帮助识别证据循环，不能判断琴沿是否准确、木纹是否自然。真实蓝边、木纹接缝和暗带仍未解决；前景／背景引导候选、结构补底、未参与调参组合与异画风盲测尚待继续。开发自检与截图不关闭09或用户P3。
+
+<a id="image-quality-followup-20261111"></a>
+## 图片色边、纹理接缝与草稿保护接续（2026-11-11）
+
+用户在琴房导入整改会话后要求并发接续。本轮新增显式 `decontaminate` 画质方向与 `repair:'aligned'` 补底；R3草稿保护由[源码整改会话](#source-review-fixes-20261111)独立实现，本轮只复核并纳入整合。保留其他会话编辑与独立 `todo.md`，未提交、推送、部署或调用外部模型。证据根为本机忽略目录 `work/image-quality-followup-20261111/`，本节不把开发自检算正式验收。
+
+| 范围 | 实际结果与证据 |
+|---|---|
+| 固定算法与边界 | `aligned`按每种用户指定材质搜索有限整数平移，再执行已有无缝融合，不旋转或扩大遮罩；默认seamless、旧tile/缺省及旧seamless固定结果保持。`decontaminate`仅在真实透明轮廓旁窄边带、存在稳定内侧颜色依据时减弱异常色度，alpha保留，亮度只容许通道取整误差；不可靠区域不变。旧三方向的算法及源解码保持。页面、Worker、采用与公开冷读共用相同方向语义；新方向的规范RGBA8 PNG从编码字节读取确切像素，其他合法格式回退既有图片适配器，真实资源解码及完整许可校验继续执行 |
+| 定向算法／平台／资源 | 确切源修正后9文件92项通过，日志 `verification/unit-exact-png.log`；此前89项属于修正前冻结，不重复加总。覆盖透明窄边、固有彩色与无证据不改、局部范围外、原件及输入不变、旧方向固定hash、Worker取消、私有采用witness、PNG回退、native半透明RGB舍入、实际解码失败及完整资源重放；补底覆盖已知错相位、双材质隔离、孔洞/清理外沿、取样冲突和预算失败原子保全 |
+| 无DOM与正常构建 | `verification/shared-exact-png.log`记录284共享源码模块及真实Node ESM/工程ZIP往返通过，不代替真实图片适配器检查。最终正常 `npm run build -- --outDir work/image-quality-followup-20261111/production-final-dist`通过，`verification/build-final.log`；319源码模块架构、全工程及AI类型和普通Vite打包均完成。最终1,351份源码/配置/测试输入在构建中无漂移，177份产物hash归 `verification/source-final-build-start.json`、`source-final-build-drift.json`、`production-final-manifest.json`；未使用性能profile。保留动态/静态混合导入与大chunk警告 |
+| 最新正常生产页面 | 预览端口5398的`/sceneweave/`，三个增强、三个草稿保护及两个拆解质量旅程共8项串行通过，见 `verification/browser-final.log`与`browser-final/`。覆盖同基线候选、真实局部采用及源保全、无关编辑/旧目标拒绝、撤销/冷开再增强、去色边真实PNG与alpha、R3失败/取消/匹配成功、显式aligned配方重载/两底材/采用/冷开；不用合成样例证明真实琴沿已改善 |
+| 真实琴房共享MCP与冷读 | `repair/project-output/candidate-1-14f4de34-af98-4eeb-b46b-687084b872d0/`实际完成落盘及独立冷读，只有琴、毯改aligned，其他层保持原设置。`result.json`的projectHash为`762952b8f73603b80efe998d5a6aa7f703167f8e1ad1ce1bd47bf2ab9577e017`；原图可比较163,666像素变化0，背景修补范围外变化0，2048×1825冷读RGBA变化0。物件及背景推断区域分别单列，不能证明真实遮挡细节；原图来源及用途约束沿用原导入台账 |
+| 真实编码源对照 | `style-comparison-exact/`从上述完整包的原编码assets直接取琴/毯/植物/地板，另取4张已知原创MIT素材；未复用旧native派生source.png。8图×4方向×3强度96候选重放/实际PNG复读一致，8原图不变，32组局部范围外RGB及alpha变化均0。新方向真实图RGB变化为琴0、毯26、植物0、地板0，alpha均不变；MIT椅/盆/毯/木为421/4/1284/0，均为既有半透明边沿，不能据此认定存在污染或质量改善。源码/输入/产物hash归该目录`manifest.json`，视觉结论归`visual-review.md`。该离线组仅比较像素算法，不模拟旧方向的native输入，也不是独立盲测 |
+| 完整琴房继续编辑与目视 | `real-ui-final/verification.json`及实际备份/截图记录正常生产UI独立IndexedDB导入、200%同尺度黑白换底、三个去色边候选无变化且预览禁用、未采用后全部props/materials/assets保持；保存冷开资源字节hash相同，继续旋转7°、移琴至X4950mm／移毯至X6025mm成功，页面错误0。最终三候选说明文字换行且均留在按钮内。实际移开图已查看，琴沿青蓝仍在，板缝和重复暗带仍可见。确切源修正前与修正后未补换行的诊断分别留在`real-ui/`和`real-ui-exact/`，不能冒充最后产物 |
+
+首轮失败与修正保留：`verification/browser.log`的两条新增失败分别为去色边夹具缺真实透明依据、aligned旧label定位；改为有真实透明边框与显式蒙版的夹具及角色定位后，`browser-recheck.log`再暴露断言把房间裁片当整张400×240原图，按360×200裁片及20,20偏移比较后通过。操作定位等待设15秒，未删除业务像素断言。合成透明夹具56个RGB像素改变、alpha0只证明可采用链路，不能外推到琴房蓝边。上述首败、补验与最终8项是不同冻结，不拼接成一次更大通过数。
+
+真实图复核另确证：修正前钢琴导出出现520个RGB变化，均为半透明像素，而原编码源上直接运行去色边为0；这是native Canvas解码量化，证据归`real-ui/pixel-audit.json`、`pixel-decoder-comparison.json`。本轮仅对新增方向引入确切PNG输入后，页面如实显示不变并禁用采用；既有方向不改重放。实际截图还发现候选长说明横向溢出，最终补换行约束并在正常产物检查。离线对照脚本首轮独立PNG库要求Buffer而收到Uint8Array，转换为Buffer视图后完整再生退出0；不涉及产品源像素变更。早先`sips`补底对照及native派生源对照只作辅助诊断，不能作为确切编码源的改善证据。
+
+收尾核对1,351份输入与177份产物均无漂移，`todo.md`的SHA-256保持；7份相关文档822个本地文件目标均存在，`git diff --check`通过，详见`verification/final-integrity.json`。
+
+本轮证明新增选项及必要编辑链路已接入，没有证明完整蓝边修复、任意手绘木纹无缝、缺失细节恢复或整体画质达标。固有彩色边饰也可能被估计改变，应显式局部审阅；强度和变化像素数不是质量分。下一接续点由[07](../07-roadmap.md#image-to-project-plan)维护；授权异画风盲测、完整视觉、真实模型收益、跨浏览器、独占性能及用户P3仍从09执行。
+
+<a id="source-review-fixes-20261111"></a>
+## 源码审查发现项整改自检（2026-11-11）
+
+承接源码审查，按用户要求先核对图片增强与旧测试整改两个会话，再修复独立范围。HEAD为`36eedc26ef27a2e6b11250d4c2f753667cae1006`；工作区含其他会话脏改动，修复前清单、各组日志、逐文件hash与浏览器输出保存在本机忽略目录`work/source-review-fixes-20261111/`。原错误行为及覆盖边界保留于`work/source-review-20261111-122600/review-summary.md`，未把审查索引覆盖说成全部源码逐行审读。
+
+本轮修复AI runner最终错误边界及body准入、两种有限恢复的保护守卫、底图终结释放、历史读取能力身份、共享纯JSON复制、UVTT Floor范围、区域下钻输出和负斜率墙归一。图片增强会话随后收口，才接手图片拆解草稿离开保护，保留其既有增强实现；旧测试会话仍活动，本轮未接管其既有测试。
+
+| 必要自检 | 当前证据与解释 |
+|---|---|
+| AI任务与上传 | 本地stub/临时SQLite，3文件38项通过；同例旧冻结3失败并捕获1个未处理拒绝，日志`ai-boundaries-red.log`/`ai-boundaries-final.log`。覆盖错误处理再次读库失败、多请求中止、抛错订阅、上传数量/总字节、取消/超时与容量恢复。整合发现测试helper未接收Hono同步Response后，仅修类型适配并同文件3项通过；不向外部模型发请求 |
+| 恢复、底图与仓库证明 | 新增关键回归17项通过，同案旧实现15失败/2通过，见`core-red.log`/`core-green.log`；包括两个连接删除真实historyPins保护点、采用前保全、最终保存失败保留内存及undo、在途后代guard消费、失败重试，以及SVG processor/并发能力变化。收窄现有回归5文件69项通过，另两个普通/空工作区关闭checkpoint用例通过，见`core-focused-regression.log`/`core-close-regression.log`；与17项有重叠，不重复加总 |
+| Floor/区域/墙归一 | 9文件63项通过，见`floor-regression.log`；旧实现区域/负斜率及有效UVTT crop首败各自保留，UVTT错误夹具的首轮失败不算产品诊断。当前覆盖非零裁剪/补边、LOS/门窗/点光、区域重建/下钻、父图不变和正负斜率/逆序/分组不误合并 |
+| 共享层 | 282源码模块无DOM/无Node类型编译与真实Node ESM、命令/身份/投影、工程/历史ZIP往返通过；`shared-check-final.log`。JSON复制直接影响的4文件4项通过，`shared-focused.log`；更宽5文件同步预算组中断exit130，未计通过。Pages CI已增加共享检查 |
+| 真实浏览器输出 | Chromium开发源码端口5391调用实际完整验证/导出链，两个检查完成。4096×3072玩家PNG整墙/同形拆墙、重复对照、拆墙有无未公开秘密门三组逐RGBA均0差异；`wall-pixel-evidence.json`。UVTT显式Floor范围`2500,2300,10000,7000`，补边`2000,2000,11000,8000`，实际1540×1120 PNG、LOS和报告一致，补边像素留空；`uvtt-floor-crop-evidence.json`和实际PNG。不据此声称秘密字段曾泄露或Foundry真实导入已验 |
+| 图片草稿保护 | 纯规则3项通过（含匹配草稿身份），开发源码真实页面两旅程通过，见`image-draft-green.log`/`image-draft-browser-final.log`；另“未载图文字编辑→返回草稿→丢弃后旧requestKey不重弹”单独1条通过，`image-draft-text-final.log`。核心同两旅程在正常生产177文件产物、5392的`/sceneweave/`子路径再次2/2通过，`image-draft-production.log`，不重复加总独立场景。覆盖原图/房间标注收起重开、导航/新建阻挡、真实刷新beforeunload选择保留、明确丢弃，以及自交房间准备失败、候选取消、真实IndexedDB新增工程QuotaExceeded失败/重试与匹配采用后清空。旧行为规则/浏览器首败保留；修复后首旅程因Playwright取消reload后的导航等待超时，trace确认旧页面及草稿仍在，改为页面直接触发真实刷新后按原45秒限制通过；第二旅程首轮已通过，不把工具等待错误记作新产品缺陷 |
+| 正常整合构建 | `integrated-build-final.log`退出0：317源码模块架构、全工程类型、AI类型及正常Vite生产打包完成；未使用性能profile。`final-source-manifest.json`记录1,096份非测试源码/配置，构建及生产旅程核对时无漂移，177文件产物hash保存在`production-artifact.json`；包含另一会话此前已完成的图片增强，不能将其新增能力独立归于本轮修复。收尾14:58后图片增强/补底工作线继续修改7份源码，包含`ImageImportTool.tsx`；其草稿保护目标区段另做只读核对，其余15份本轮修复源码与所测输入相同。这些后续叠加不在所测产物和构建结论中，详见`final-integrity.json`。依赖注释和大chunk警告保留，不影响该次构建退出状态 |
+
+本轮仅做受影响的开发自检。宽范围核心首轮运行3分钟未完成后中断exit143，另收窄为直接影响用例；两次中断均保留，不记全量通过。正常构建首轮类型错误保留于`integrated-build.log`；本轮只修自有AI测试helper，另一个旧测试会话同步完成其`terrain-surroundings`的类型收窄，再执行最终构建。真实模型收益、用户P3、跨浏览器其余矩阵、独占性能和目标VTT导入仍归09；不据本轮自检关闭。
+
+<a id="old-test-cleanup-20261111"></a>
+## 旧测试清理与必要自检（2026-11-11）
+
+本次是获授权的测试维护，承接原回归首败分类，保留产品缺陷的实际回归。改动范围为单元夹具/成本/身份/错误合同、八模块与左右两栏导航、候选portal、当前完整v1及严格旧包、真实取消/事务故障注入和测试输出路径；不改产品代码，不提高预算或超时。原32条单元失败不能全部归为旧测试：兼容多历史转换的8条真实失败仍单独保留。其他会话的图片增强、源码修复、文档与`todo.md`未由本轮接管。
+
+| 必要自检 | 已执行事实与边界 |
+|---|---|
+| 失败单元所在9文件 | 首轮107通过/2条旧错误文案断言失败；8个最终未再变的文件共95项通过。地形候选补上“编辑/切工程主动取消确切候选”的断言，最终单文件14项通过。两次有效绿色证据分别为`work/old-test-cleanup-20261111/unit/after.{log,json}`与`unit/terrain-candidate-final.{log,json}`，不是一次9文件全绿运行；状态/逐文件hash归`unit/final-status.json` |
+| 类型与构建 | 普通`npm run build`已有通过证据，见`build-integrated.log`；更早被其他工作线Response类型适配阻断的`build.log`保留。最后测试修改后，根目录主工程`tsc --noEmit`及AI `tsc -p tsconfig.ai.json --noEmit`均exit0，见`typecheck-final.{log,json}`；不以此前构建证明根目录后续产品编辑。差异检查及510个本地文档文件目标检查通过 |
+| 浏览器稳定输入 | 共享目录首组因外部`Workbench.tsx`热更新与`work/`trace HTML触发Vite页面重载而中断，2失败/1中断/7通过/15未运行保留于`browser-navigation-root/`，均不作为有效结论。随后冻结当前源码与测试到`source/`，关闭HMR、产物置于快照外；61文件经当前HTTP/内部保留SVG拆分后发现162项，按单worker、原测试/断言阈值、无自动重试分批续验。完整逐文件hash归`frozen-source.json`，选择归`browser-selection.json`，当前发现归`browser-current-discovery.json` |
+| 冻结单元整合与阈值复核 | 较早`unit/integrated-final.{log,json}`为108过/1条原5000ms超时，取消条同阈值独立通过。最终`unit/closure-nine.{log,json}`完整9文件109项为105过/4超时：重复无操作预算原30000ms、真实候选采用/变更冷读/哨站外观原5000ms。`unit/closure-timeouts-focused.{log,json}`同阈值4条全部通过（14.397s/4.144s/3.865s/1.110s），31条仅名称筛选未执行；不合称一次109全绿，也未新增skip或提高阈值。9文件hash仍匹配`unit/final-status.json` |
+| 稳定余项首批及修正 | `browser-stable-remaining/results.json`实际13过/5败/139未运行；额外runner错误仅为达到5败停止。首条完整底图接续已完成真实PNG、撤销、冷读及资源检查。3条协议首败分别为当前authoring4协商与`basemap?baseMapVersion=3`请求/当前v1基线的旧断言，历史详情首败为未从目录打开右栏；另补4文件同根AI审阅portal定位。原请求次数、GET-only、零模型、预算/身份、备份/保护/撤销断言保留。测试增量hash归`test-updates-2.json`；143条修正及未执行项续验选择归`stable-followup-tests.txt`，产品源码未变见`source-integrity-followup.json` |
+| 新暴露的真实产品失败 | `building-edit.spec.ts`的`explicit junction repair`通过公开UI创建合法场景；共享命令逐步观察在首个`moveVertex`后调用身份`finish`并完整校验，尚未执行同批后续移动和`splitJunctions`即报未拆分交点。错误、截图与trace保留于`browser-stable-remaining/results/building-edit-explicit-jun-67e61-ening-in-the-same-candidate-chromium/`。该用例未删除、skip或修改业务预期；后续测试维护续验中明确保留该红灯，产品修复另行接续 |
+| 续验与旧夹具最小修复 | `browser-stable-followup/`完整13过/5败/125未运行，3条协议修复及桌面复杂地图已过。素材补充用例补回“浏览素材”后在`browser-targeted-recheck/`通过；旧库原生版本30夹具从当前表清单改为`PROJECT_STORES_V3`，`browser-stable-next/`两条迁入成功/取消及源库保全均通过。该批8过/4败/1中断/114未运行后主动停止，避免旧候选父区域定位重复等待，退出130保留 |
+| 填充、生成取消及共同就绪 | `browser-patched-focused/`6条中4过/2败：两条填充复制修复当前米制输入/摘要与组合工具展开后通过，两条桌面真实Worker取消/迟到隔离/重试通过。候选定位只改生成article，结构自有“候选审阅”区域未批量替换。共同保存helper在原30秒窗口同时等待保存文本、全局busy为0及画布就绪，不再先通过旧工程保存标记后只给完整采用8秒。测试增量归`test-updates-3/4/5.json`；窄屏曲线已越过采用等待，仍在真实关闭抽屉后丢失焦点，原断言保留 |
+
+已取得后续完整旅程通过：增量历史分支/冷读/历史包/双受众像素、局部重生成采用/撤销/冷读、当前authoring4的结构HTTP创作、内部保留SVG/同化重放、秘密门4K对照及其他三组A/B、390px混合工具/历史恢复、原生200%缩放、混合生成交付/取消、面板草稿/密度、精修岩岛/海岸/旅舍离线4K、区域创作/PNG取消、组合地貌故障保全与地形生成。每组以各自完整JSON为准，不将跨批定向通过拼成一次全套绿色；当前入口不开放素材AI授权，retained内部发布及冷重开不提供AI采用的撤销记录，另用普通编辑/局部恢复验证撤销。样板切工程后需通过正常菜单重开，图层查看筛选与绘制层分开，尺寸断言依11月9日信息密度合同改为桌面32px/窄屏38px及12px内边距。
+
+本轮新增确认且保留的产品红灯：窄屏关闭抽屉后焦点丢失（复杂地图、曲线中断及生成取消三条）、区域植被range使用无效HTML数值字符串而实际value被压成100、AI预算收尾先发terminal failed再发waiting_browser，客户端提前停止读取且没有POST本机草稿校验。最后一项在`browser-ai-closeout-diagnostic/results.json`以原30秒ready断言独立复现；真实SQLite依次为running→failed→waiting_browser，16请求/15工具，校验请求为空，相关root与冻结源码hash相同，精简诊断归`ai-closeout-product-diagnostic.json`。建筑接点中间态与保留兼容API的Floor身份冲突继续保留，不把手动结束生成当作自动收尾通过。植被三段撤销补回除revision/updatedAt外的完整文档严格比较、每步revision+1与冷读精确一致；滑杆之后仍未到达的断言不记已测。
+
+最终61文件发现的162项均有执行记录；按每个当前标题取跨批最近完成结果为151通过/11失败、无未执行，索引为`browser-latest-evidence.json`，不是一次162项全绿。最后完整批次分别是`browser-final-fifteen/results.json`9过/5败/1未执行、`browser-final-four/results.json`1过/3败、`browser-final-three/results.json`2过/1败；此前所有首败/中断原始记录保留。米/英尺设置、手工岸线、视觉创作7项与1512/390px反馈旅程均已完整通过。反馈测试显式取消退出取点后保留的表单草稿，弹窗标题按当前统一样式核对16px；最终完整包不变、键盘与焦点断言未弱化。
+
+新增4条真实产品失败归于3类边界，精简证据见`new-product-failures-final.json`：周边重生成与拓扑操作新建current回执后，在候选准备的`detachChangedAppearance→detachChangedOutputs`中立即被误标historical，采用及冷读均持久该状态；四刷第一次添陆采用后，岸线geometry按手工编辑合同转为manual；第二次显式挖水却沿只接受自动管理的轮廓分支被拒绝，显式笔刷的持续编辑权限衔接有缺口，不能以取消人工保护修复；视觉AI已完成创作4协商与生成，但当前包装差异路径缺少业务标签映射，显示`visual.base.base.lights/fogs`而非点光/区域雾。原current、连续四刷和业务标签预期继续保留，不用改断言消除失败。四刷先验证原scope拒绝且hash/revision不变，再通过可见精确字段授权真实整曲线及边带范围；首次采用、revision+1、700mm半径、10mm规范落点、持久scope及资源保全已通过，第二刷之后的铺草/清空/双受众PNG未到达。周边/拓扑采用冷读已观测，后续撤销未到达；视觉AI采用/撤销与其后授权细节未到达，不记为通过。
+
+11项失败为原7项加上述4项；对应8类产品问题：Floor身份合并、建筑原子中间态、窄屏焦点、植被range、AI预算收尾SSE、地形新回执、连续显式笔刷权限与AI视觉标签。兼容迁入8条单元失败仍单独保留。冻结产品1496份文件无漂移，61份测试及5个helper与根目录一致，独立todo未变，见`final-integrity.json`。本轮runner均已结束、冻结Vite停止，没有测试/构建/服务器继续运行。
+
+当前执行日志归本机忽略目录`work/old-test-cleanup-20261111/`。导航发现/静态检查只证明可解析；测试名称含“production”而本次使用开发入口时仍只记DEV集成。正式视觉、容量性能、真实模型、VTT目标导入和用户P3各自保持待验。下一步和未收口范围只在[07](../07-roadmap.md#old-test-cleanup-20261111)维护，不覆盖原回归冻结结果。
+
+<a id="system-regression-20261111"></a>
+## 全系统回归与中断接续（2026-11-11）
+
+按用户“回归全系统已实现能力，看看有没有问题”的要求，只读执行并归因，没有修复产品或测试。证据根为本机忽略目录`work/system-regression-20261111/`；源码复制于2026-11-11 11:47（北京时间），HEAD为`ebee8d016a8254234bb011fe1d5b6dfc480fc3dd`。`source-manifest.json`绑定1,855份文件，`frozen-artifact.json`绑定正常生产构建及176份产物，生产预览为5311。接续核对源码和产物均无漂移，详见`continuation/resumed-integrity.json`。根目录随后已有独立提交及图片增强等编辑，本次结果仅属于原冻结；固定素材、用户数据与`todo.md`没有因回归而修改。
+
+| 范围 | 实际结果与解释 |
+|---|---|
+| 正常构建与共享检查 | 正常`npm run build`通过；`check:shared`及`tsc -p tsconfig.shared.json --noEmit`失败，详见`build.log`、`shared-boundaries.log`、`shared-types.log`。不能由普通构建推定共享检查通过 |
+| 完整单元 | 452文件、4,346项：4,313通过、32失败、1跳过。32项归为8个保留兼容迁入回归、18个旧夹具/断言失配、6个按原超时单项复跑通过的超时。完整集首败保留，未重新宣称全绿；失配断言之后未到达的检查仍未获证。结果及归因见`unit/full-results.json`、`unit/failure-classification.json`、`continuation/final-unit-review.json` |
+| AI服务 | 26文件、379项，首轮378通过、1超时；该项按原Node24及原60秒限制复跑通过。原首败与补验分别保留，非同一轮379全绿；无真实模型、外网服务或计费调用 |
+| Node工具与容量夹具 | Node工具32/32，正式容量夹具8/8；聚合夹具首轮4通过、2断言失败、2超时，后两条按原30秒分别通过，2条建筑玩家投影误拒绝仍存在。夹具正确性不等于容量或性能验收，见`continuation/final-service-shared-review.json` |
+| 默认浏览器范围 | 开发211项（118通过、89失败、4跳过）与生产147项（104通过、41失败、2跳过），合计358项：222通过、130失败、6跳过。中断恢复只合并同一测试的最终完成结果，没有重复加总；后半程把已确证旧定位的单动作等待改为15秒，测试级及断言级限制保持，原首轮也保留。不能将130失败全部算产品缺陷或全部算旧测试 |
+| SVG一致性补充组 | 原配置、零重试、3引擎18项完整结束：Chromium6/6、WebKit6/6、Firefox3通过/3失败，其中2个导入检查等待失败、1个下载/测试超时。15份完整facts保留；Firefox原因尚未确证，无自动重试或延长阈值后通过的结论。见`svg-determinism/results.json`、`continuation/svg-determinism-review.json` |
+| 完整视觉补充组 | 室内和岩岛均完成正常导入、双受众PNG及冷读，随后在已移除的资源面板“对象”tab定位失败。确认重复根因后向本轮runner发SIGINT，退出130：2失败、1中断、12未运行。阶段记录不替代完整facts，见`formal-visual/results.json`、`continuation/formal-visual-review.json` |
+
+确证的产品/公共合同问题如下；同一根因的多条失败不当作多个缺陷：
+
+- **当前首页迁入补造结构连续性**：`src/shared/migration/development-project.ts`在旧历史没有`structureTokens`时，以相同lineage/scene/序号生成新证明。真实“加门→删除→同ID重建”的严格旧快照迁入后被判为同出生，违反不凭同ID补造连续性的合同。当前首页迁入17项通过用例保留真实结构池，没有覆盖此条件；未证明页面恢复可利用、源数据损坏或丢失。最小复现为`ai-tools/legacy-structure-current-diagnostic.json`。
+- **保留兼容API多历史转换失败**：`src/compat/legacy/convert.ts`分别为当前及历史生成Floor身份，合并时同Floor出生冲突，导致8项迁入失败。此API与首页一次性迁入是不同调用链，不能把前者失败直接说成首页迁入不可用。
+- **玩家安全范围误计不存在的阴影**：`src/shared/projection/presentation-contract.ts`的普通物件范围对`shadowClass=none`仍添加`contactShadowMm*4`边距，而真实画法和contact元数据均排除该阴影。500/2000建筑夹具的真实私密图像已被遮罩覆盖，却因额外每边200mm范围被拒绝；+1000mm平移后仍可复现。保持私密而仅关闭contact透明度即可通过。必须修共同范围合同，不删除真实遮罩检查；证据为`ai-tools/aggregate-privacy-current-diagnostic.json`。
+- **共享平台边界破坏**：`path-attachments/endpoint-plan.ts`、`state.ts`、`validation.ts`与`surface-details/road-camp-patches.ts`四处直接调用`structuredClone`，使平台隔离检查与无DOM编译失败；相关当前源码与冻结一致。
+- **固定样板与首页图来源漂移**：六张缩略PNG字节仍匹配原manifest，但六份当前场景源摘要全部不匹配；摘要匹配`7cf25f2`，`231cd05`更新源而未重建图。书房原主题45°阴影被后来补入的visual默认135°覆盖；全局光照机制有设计依据，但14仍规定45°，未找到专门授权该固定样板切换方向的证据。不能仅改摘要掩盖来源过期，也不能直接判当前画面等价或P3通过。源码/提交关系见`continuation/final-unit-review.json`的`supplementaryVisualAudit`。
+
+图片RGB需区分冻结：旧生产用例有31个半透明像素发生RGB差异，最大通道差8，不透明像素保持；符合Canvas预乘量化，但不满足原RGB保真合同。另一图片工作线已改软件编码并保存独立构建/生产复验记录，见[精细选区台账](#image-import-boundary-editor-20261111)，不把该修复回写为本轮原冻结通过。接续另对当前代码作极小纯Node诊断，确证合法4097×1裁片可提取，却被复用的`png-rgba.ts`之4096边/1600万像素上限拒绝；图片合同允许8192边/3200万像素。探针结果在`continuation/final-service-shared-review.json`的`new-image-canonical-encoder-dimension-regression`项，不能由小图保RGB证明完整大图链路已修复。
+
+接续按原配置串行复验3项：390px普通曲线提交完整通过；图片精细选区在原冻结仍因RGB量化失败；390px曲线中断在旧helper等待“关闭资源面板”至原360秒超时，此前首轮8秒busy失败没有在本次同阶段重现。结果1通过/2失败保留于`browser-production/recheck-results.json`及`continuation/curve-image-recheck.log`，不是修复后的绿结果。区域确认框“被顶栏挡住”已排除为产品布局缺陷：正常旅程在相同位置可点击，测试`settled()`调用`projectBackupButton`打开导出菜单后未关闭，随后VTT按钮拦截确认框；普通关闭菜单即成功。最小命中与实际点击证据为`continuation/regional-menu-hit-test.json`及对应图，无需改产品布局。
+
+本轮不覆盖真人美术/P3、实际模型收益、目标VTT导入、真实小团、全矩阵性能或根目录新改动；运行中的长链耗时存在并发干扰，不作为正式性能。整改顺序只在[07](../07-roadmap.md#system-regression-20261111)维护，正式验收仍从09执行。默认浏览器最终分类和原配置复验见`continuation/final-browser-review.json`，首轮失败保留，不通过改阈值、删断言或恢复旧UI制造全绿。
 
 <a id="image-import-quality-20261110"></a>
 ## 图片拆解画面质量整改（2026-11-10）
@@ -280,7 +543,8 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 - 来源组合续测按分组2＋1收口，不写作单次3/3。`work/general-provenance/channel-disclosure-integration.log`保留森林、手工两条完整通过及第三条中断；本轮哨站用Node24.14.1同冻结/同测试复跑，`outpost-integration-node24.log`最终1/1、3.1分钟、退出0。森林/手工/哨站四通道实际数依次为0/2/8/5、0/1/2/4、0/1/3/0，零件均明确显示“本次未生成”，森林390px候选无溢出。每一步采用、撤销、重做、完整冷读及玩家PNG断言完成；redo与cold分别127/59/109个ZIP条目逐字节相同，既有源祖先和生成记录保持。`work/general-provenance/resume-20261111-facts.json`关联完整附件及源码/产物同一性。Node26首次哨站续测打印通过后runner未退出，SIGINT退出130，原日志与附件保留；未据此判定产品缺陷或进程成功，也未复跑未变化的岩岛。
 - Firefox哨站已有整合冻结上的独立1/1通过，`visual/firefox-outpost-integration.log`为3.7分钟，原90秒就绪断言没有放宽。本轮`visual/firefox-resume-audit.json`重核176项产物、与原Chromium相同的输入SHA、5个完整包逐条目、12份实际PNG文件及RGBA、6份旧素材和4个真实通道，页面异常为空；未重复启动长链。旧trace仅证明当次保存就绪标志未出现，根因仍无确证。功能兼容复验收口，不将其当作性能正常或完整冷重开矩阵通过。
 - `resume-integrity-audit.json`核对1815份冻结输入和176份产物均未变，接续时工作区产品源码亦相同；独立`todo.md`仍为`c80b1d29…e49b6`。只读画面复核确认profile3仍调用连续侧壁描线，原岛线宽87mm、alpha约0.441；落地带同时消费每端928mm支撑混合、自然岩阶蒙版与两片固定落地覆盖，尚未消融区分贡献。后续视觉开发先用原输入分别隔离这些层，再以显式新画法/配方改善，不能全局改写旧保存语义或以端帽修复关闭美术/P3。
-- 性能前置首败保存在`performance-resume-node24-smoke/`：原复用输入`debc756d…d2b7`含旧版SVG固定资源，普通导入明确拒绝，180秒就绪等待后退出1，未产生编辑样本。没有扩大等待或旁路校验。独立准备脚本仅从冻结的当前准备器选取`natural-500`，`performance-resume-inputs/preparation.json`完整退出，500完整Prop、0轻量替代、14份真实图片及完整冷读/许可验证；实际新包SHA为`47502d58…9063`。新输入与旧分布分开，不能用此次测量宣称历史提速；后续串行结果归[性能参考](../reference/performance.md)。
+- 性能前置首败保存在`performance-resume-node24-smoke/`：原复用输入`debc756d…d2b7`含旧版SVG固定资源，普通导入明确拒绝，180秒就绪等待后退出1，未产生编辑样本。没有扩大等待或旁路校验。独立准备脚本仅从冻结的当前准备器选取`natural-500`，`performance-resume-inputs/preparation.json`完整退出，500完整Prop、0轻量替代、14份真实图片及完整冷读/许可验证；实际新包SHA为`47502d58…9063`。随后新输入smoke及三轮正式运行均退出0，共510个操作观察、完整冷读和六张实际4K PNG，原始结果与重算汇总一致；分布与子门边界归[性能参考](../reference/performance.md#map-detail-natural-500-20261111)。新输入与旧分布分开，不能用此次测量宣称历史提速。
+- `resume-final-audit.json`确认三轮原始文件及PNG实际SHA、冷读全条目、浏览器退出及冻结源/产物完整性。工作区图片导入线后续修改了8份产品/测试文件，未进入隔离测量源码与产物；不把本次结果外推到这些编辑。全部本会话进程已结束，独立`todo.md`哈希保持，未提交、推送或部署。
 
 <a id="generation-certificate-20261110"></a>
 ## 生成链路确切快照消费整改与开发自检（2026-11-10）
@@ -2794,3 +3058,113 @@ AI两文件31项的代理先行结果另保留于`work/asset-expansion-20261109/
 同坐标拆层合成比较163666像素、差异0，2191个轮廓抗锯齿像素另列。补底区以外比较116290像素、差异0，49567个遮挡像素属于推断。实际原生输出以原图比例比较，1177像素存在至多1级的通道差异。首轮原生墙体的零宽描边仍叠出底色，最大通道误差64，修正后宽度0时跳过轮廓底色及二次遮罩。独立冷导入后2048×1825玩家PNG与同一工程先前输出差异0，此项只证明存取一致。
 
 定向单元93项通过、1项私人诊断跳过，正常构建通过。正常生产Chromium的图片导入4条回归通过，新增旧配方修正用例还检查实际玩家PNG墙边未被描边染暗。同一失败样板通过MCP重放时以 `material-replacement` 拒绝，未写入候选目录。首轮浏览器用例因旧预览按钮名超时，更新名称后通过。移琴检查发现紧轮廓留琴沿残影，细修轮廓后重新生成并实测。琴边仍带少量蓝毯像素，补出的木板还有局部接缝。2倍素材复制原色像素，缺失细节仍未知。正式视觉和盲测结论归09。
+
+
+<a id="image-import-boundary-editor-20261111"></a>
+### 2026-11-11物件画笔、磁性贴边与精细选区（开发自检）
+
+本轮按用户确认增加磁性自由套索、保留／排除连续画笔、一笔撤销和取消回滚；物件在黑／白／棋盘背景试移试转，查看操作不进入配方。选区以原图坐标RLE蒙版贯通页面、JSON、重放、实际PNG、完整工程及MCP，保留孔洞和分离细节，显式物理占地独立。页面和 `image_import_refine_selection` 共用局部颜色梯度与画笔算法；本轮没有调用视觉模型、上传云端分割或生成式去色边。
+
+证据根为本机忽略目录 `work/image-to-project/boundary-editor-20261111/`。`candidate/` 为独立源码冻结，正常生产预览在5293；只同步本任务文件，不把并行地图细节工作区的后续变化纳入此冻结结论。原图及原配方保持原文件不动，修边结果另存。
+
+首轮定向单元 `unit.log` 为13文件85项通过／1项私人诊断跳过，另1文件因冻结漏复制原始素材许可而收集失败。补齐真实 `assets/` 后 `unit-assets-fixed.log` 的4项通过，未更改产品许可逻辑。首轮构建因撤销记录字面量类型变宽失败，显式保留字面量后正常构建通过。
+
+生产页面首轮 `browser-selection.log` 为1通过／1失败，真实工程PNG检查发现Canvas编码把半透明边缘RGB `[25,31,35]` 改成 `[26,32,34]`；改用既有确定性RGBA编码器，保持像素和透明度，不放宽断言。`unit-encoding-fixed.log` 3文件20项通过，`build-encoding-fixed.log` 正常构建通过；`browser-final.log` 的6条生产回归通过，覆盖连续加减画笔、孔洞／细尖、原RGB与alpha、JSON重放、取消／失焦、400%查看、换底试转、采用后个人库及保存冷开继续编辑、旧重画配方拒绝。以上分轮记录，不拼接为一次全绿。
+
+真实stdio MCP的 `mcp-smoke-fixed.log` 和 `mcp-smoke/2026-11-11T04-05-57-052Z/result.json` 记录15个公开工具、remove孔洞alpha0、keep外伸alpha255、内部alpha255、旧代次拒绝且草稿不变、两步撤销精确恢复。实际生成完整包及磁盘配方保留蒙版；独立冷读2048×2048输出逐像素差异0。源可比较3815像素差异0、29个抗锯齿像素另列，补底区外3261像素差异0。首轮64×64原创小样的墙距边只有2px，厚墙越界被拒绝；小样内缩6px后通过，未放宽几何校验。未调用视觉模型，故本项只证明接口与保存链路。
+
+原图正常页面载入17层配方，钢琴／地毯／西盆栽均实际检查黑白棋盘、23°试转和画笔撤销；撤销后导出配方严格等于初始配方。`reference-ui/` 保留首轮磁性候选：同坐标合成163672像素差异0，但白底出现琴凳与顶左角刺，不能判为视觉改善。原琴沿有蓝灰混边，毯沿有深色边框与不齐小角，植物本身分辨率低且叶缘混色，缺失细节未恢复。`manual-edge-ui/` 用2px排除画笔沿琴左侧和下沿削掉外侧蓝边；修正配方重载保持，显式占地不变，163675个可比较原图像素差异0。局部修边没有证明所有混边或补底接缝已解决。
+
+窄窗口实测还暴露拆解dialog继承折叠侧栏的hidden状态，1024px下不再可见；已将dialog挂载到页面body，并补1024／390／1512px持续编辑和无横溢回归。`build-portal.log` 正常构建及 `browser-portal.log` 同例1/1通过；`manual-edge-ui-fixed.log` 的同原图修边／重载／1024px检查通过，首败保留在 `manual-edge-ui-first-failure.log`。
+
+磁性凹角根因是只约束法向偏移差，没有限制真实线段前进方向。增加实际位移连续性和闭合接缝约束；局部仍反折时有限范围保留人工笔迹，不平滑重画。真实26点的独立几何诊断最小转角余弦从-0.906到0.112，没有自交；该诊断使用独立解码，仅证明几何，正常页面图像另行核看。最终 `unit-final.log` 15文件93项通过／1项私人诊断跳过；追加非邻接边自交断言后 `unit-corners-final.log` 的11/11通过，不重复加总。`build-final.log` 正常构建及313模块架构边界通过，`browser-closeout.log` 对最终正常dist的6/6通过，包含1024／390／1512px不丢草稿且无横溢。已有包体积／动态引用告警保持。
+
+`owned-source-comparison.json` 核对本任务17个代码／测试文件与实际构建冻结相等；`source-freeze.json` 和 `dist-freeze.json` 保存最终摘要，初始清单另保留为 `source-freeze-initial.json`。独立 `todo.md` 与开始时一致。完整视觉、真实模型收益、跨浏览器与用户P3仍按09执行，本任务没有提交、推送或部署；并行会话的其他修改不由本冻结证明。
+
+
+最终原图生产复验 `reference-ui-final.log` 退出0、页面异常0；`reference-ui-final/` 与首轮分开保存。白底实际核看确认顶左反折尖刺消除，琴凳外侧仍吸入蓝灰背景小块，未把自动候选标为合格切图。最终候选同坐标可比较163689像素、改变0，2168个抗锯齿／推断像素另列、49546个遮挡像素；这些数字仍只证明合成保真。实际手工修边对照为 `manual-edge-ui/piano-brush-comparison.png`，左旧选区、右排除画笔后，其他边缘的混色仍需人工修正。两份候选配方分别保留，未覆盖原样板。
+
+补验 `mcp-smoke-contour.log` 与 `mcp-smoke/2026-11-11T04-26-37-685Z/result.json` 在最终磁性算法上通过真实contour分支（4点、半径4、strokes为空）、内部alpha255／外部0、同源及补底范围外变化0、一次撤销精确恢复；同时复跑加减笔迹、旧代次拒绝、完整包与冷读。脚本及server退出0，仍未调用视觉模型。
+
+
+<a id="image-enhancement-20261111"></a>
+### 2026-11-11画质方向、少量候选与可编辑采用（开发自检）
+
+接续用户确认的“选择方向→2/3个同基线候选→真实场景比较→采用后继续编辑”，并行完成本机算法、严格固定来源和页面。支持图片Prop、房间地板、地形和墙面，原件保留，三方向为2倍受限双三次、半透明边带alpha精修和弱保边去噪；局部画笔、当前/原图依据、黑白棋盘背景及同步倍率均为显式操作。元数据直接演进当前完整工程v1，算法配方独立v1；合同归[04](../04-scene-document.md#image-enhancement-model)、[06](../06-storage-and-export.md#image-to-project-save)及[工具说明](../reference/image-to-project.md#image-enhancement)，正式检查归09。
+
+证据根为本机忽略目录 `work/image-enhancement-20261111/`。原会话中断前的单项结果不拼接为本次完整通过。接续后核心与严格元数据2文件29项通过，含三方向连续两代2倍增强及局部蒙版完整包冷读；平台/Worker/命令准备/快照4文件33项通过（`integration-final.log`）；导入会话/选区2文件23项通过（`import-regression.log`）；个人库与位图管线2文件4项、恶意依赖1文件1项分别通过。上述是分组执行的90项定向检查，不是完整回归。许可、原件、伪造输出、坏来源、循环/深度、颜色覆盖只应用一次、局部范围外像素及无关编辑/锁/旧基线均有针对证据。
+
+审查收束两个边界：纯算法原先允许8192边而保存只支持4096，统一到共享4096门并验证候选生成阶段提前拒绝；来源依赖新增递归改为显式栈，12000层恶意链可正常到达16层领域拒绝。正常 `npm run build` 在 `build-final.log` 退出0，317源码模块架构边界通过，已有大块/动态引用告警保持。`production-dist/` 保存独立正常产物，177文件摘要在 `production-dist-manifest.json`；`owned-source-comparison.json` 核对本项18个生产源码与冻结一致。构建时其他会话另有四份道路源码编辑，单列 `unrelated-source-drift.json`，不由本项验证其行为或性能，也不把后续根目录修改纳入本次正常产物结论。
+
+生产页面首轮 `browser-continuation.log` 为1通过/1失败：取消后面板收起，断言读取隐藏提示；调整为展开后检查。随后 `browser-final.log` 为1通过/1失败，取消Worker后的被拦截网络请求已结束，测试再次continue触发“Route is already handled”，并中断后续保存等待；测试现在等待该被取消路由完成并只处理这项确定的取消错误。产品代码未因此放宽或绕过取消逻辑。最终 `browser-route-fixed.log` 对相同冻结正常产物2/2通过，覆盖三方向、2/3候选、390px无横溢、笔画取消/撤销、生成时修改另一物件、取消/迟到、旧目标拒绝、局部范围外真实RGBA、场景预览取消/采用、撤销重做、冷开移动旋转及当前/原图再生成。首败输出分别保留。
+
+`real-comparison/metrics.json` 固定原琴房包SHA-256 `15214c3df9283e86c3bb67b59728be4ee6350663f3be6b1c8d6d46b6de6ae9ad`。钢琴204×150、地毯144×200、盆栽60×56、地板898×796各生成三方向三候选，原图/轻/中/强用灰/绿/蓝/紫条在同尺度对照；地板联系图只取中央裁片，完整PNG另保留。四类×三方向12组实际局部范围外变化均0，配方重放hash一致，输入包未修改。该离线对照使用软件PNG直RGBA，原始普通位图在页面按native路径解码，半透明RGB可能有舍入差；不把两条路径的输出混成同一像素结论。
+
+`real-ui/run.log` 与 `real-ui/verification.json` 在独立浏览器库、冻结正常生产5387上完成真实原琴房：钢琴从204×150生成三候选，选中间2倍结果408×300，两侧同物理比例显示宽均408px，白/黑底实测；实际画布预览后一次采用，原Prop除定义/外观外全字段保持，其他16件物件保持。下载 `real-ui/map.sceneweave`，页面冷开后的资源hash与采用前备份一致；旋转7度并保存 `continued-edit.sceneweave`，继续处理时可分别读取408px当前图和204px保留原图。原输入hash保持，页面异常0；截图为实际页面和原生画布，不是离线联系图。
+
+代理已实际查看钢琴、地毯、盆栽、地板的候选及琴房冷开画布：放大边缘更平顺，但原图模糊、琴沿混色、植物缺失细节和补底接缝仍在；去噪可能削弱笔触，候选的变化量不代表质量提升。增强是显式派生编辑，不能冒充原图逐像素保真、模型超分或用户P3签收；此轮未接云端/生成式细节。完整跨浏览器、盲测与09矩阵另执行。独立 `todo.md` 保持；保留其他会话改动，未提交、推送或部署。
+
+<a id="unified-asset-editor-20261111"></a>
+### 2026-11-11统一素材编辑与导入总览（前轮开发自检）
+
+用户要求素材围绕同一个item编辑，图片导入围绕同一工作台的对象、统计和问题整改；图像处理不另设产品页面。内置、个人与导入物件/材质/组合共用素材副本页，场景实例明确独立范围，切页保留字段和图像草稿；导入集中四阶段、对象清单、统计、可定位问题与单画布。
+
+前轮证据独立保存在本机忽略目录 `work/unified-asset-editor-20261111/`：`unit-final.log` 2文件17项通过，`build-fixed.log` 正常构建通过，`browser-production.log` 对该轮冻结生产包16条通过（6.7分钟）。`frontend/` 保存8张实际页面截图、DOM与 `facts.json`，覆盖场景/素材副本、390px与导入工作台。首次失败和中断输出保留，不将未完成的额外typecheck记为成功；这些结果不覆盖下节新增两路线代码。
+
+钢琴蓝边、木纹接缝和暗带没有因页面统一而解决，插值后的精细度也未改善。后续转为以原钢琴比较矢量结构重建和有限模型补画，目标是可推广的算法与设计收益，不能用手工修好单张或只增加分辨率关闭真实缺陷。
+
+<a id="asset-refinement-routes-20261111"></a>
+### 2026-11-11同页矢量重建与模型补画（开发自检）
+
+用户确认两条路线均归统一素材编辑页，目标为持续改善算法与设计。矢量从分色初稿提取共享边界链，同一内界正反复用，在有限双向误差内拟合二次曲线，保护细小闭环与拐角；输出真实受限SVG与固定PNG。模型接入独立图片编辑配置的应用服务，每次一张透明PNG，显式上传/计费同意；采用保留原件、实际PNG、上传像素hash、提示与客户端/供应商请求ID，离线冷读不再调用模型。服务端完整请求摘要与上传像素hash含义不同，工程记录的是后者。基础插值明确不增加细节，收在同页折叠项。
+
+新增 `imageRefinement` 严格来源合同直接演进当前完整工程v1，与基础处理共用16层祖先闭包、资源/许可、逻辑尺寸、固定定义、普通候选采用与撤销。矢量公开/冷读重放到确切SVG并核对实际像素，模型冷读核对上传原件像素hash；颜色派生不复制另一输出的来源声明。私有候选witness防止页面改像素或伪造候选，目标变化/锁定拒绝旧结果。个人素材加入新候选前明确确认清理其他图像草稿，取消保留各路线；名称/尺寸/占地仍保留，未知模型请求ID跨图像子面板重挂载保持。
+
+证据根为本机忽略目录 `work/piano-limited-inpainting-20261111/`。`unit-closeout.log` 的6文件61项通过，覆盖共享曲线/孔洞/细线/半透明边、取消/预算、原件与混合来源闭包、个人副本、完整导入导出/冷读、伪造/旧基线/锁定和普通亮度只应用一次。`service-final.log` 的图片服务11项与 `service-boundaries-final.log` 的配置/HTTP边界18项分组通过；全部受控fetch，不发真实模型请求。`shared-integrated.log` 的289模块无DOM编译与共享边界通过。
+
+审阅修复400万至800万像素规范RGBA源的模型输入模式记录：实际解码方式不再取决于可选小图副本，2048×2048半透明SVG在模拟原生RGB舍入时仍可生成并冷读。首轮该新夹具使用不受支持的 `fill-opacity` 被严格SVG守卫拒绝，改用既有 `opacity`；随后对1600万通道做逐值测试断言导致测试worker退出，改为相同完整RGBA的SHA-256比较后通过，不放宽像素判定或产品预算。首次共享编译发现 `TextEncoder` 进入无DOM模块，改用既有UTF-8适配器；日志原样保留。
+
+原钢琴仍为204×150 PNG，hash `43aec9d33b6c303d39b3865ae49b1181d938fc69040c61475111f29cf4fea390`。`vector-structure-four-way-comparison.png` 用同尺寸比较原图、旧插值、旧trace与新曲线，`vector-structure-report.json` 保留参数/摘要；24条路径、574条Q曲线及最大0.354源像素误差只描述算法结构。实际查看仍见碎分色、蓝边和缺失键盘细节，未判为精细度改善，也未替换示例工程。真实模型尚未请求；钢琴蓝边、木纹接缝/暗带与用户视觉P3仍待09，未提交、推送或部署。
+
+最终 `build-closeout.log` 正常构建退出0，324模块架构边界通过；既有动态引用/包体积告警仍在。`source-freeze.json` 固定1447份源码/工具/配置，构建前后摘要一致，`production-dist/` 与清单为5410上的独立正常产物；`source-drift-check.json` 也未见构建后源码漂移。工作区仍有其他会话编辑，本轮测试仅证明所列影响范围，不外推全仓验收或性能。
+
+生产 `browser-production.log` 首轮为7通过、1失败、1中断、1未运行：失败的个人库用例先用role查找折叠details内隐藏面板，因此无法定位其summary；中断用例停在相同选择器。改为直接定位实际折叠标题，产品代码与正常产物未改变。`browser-unified-fixed.log` 对同包的3条统一编辑旅程全部通过；与首轮7条分组记录，不拼成一次全套通过。实际覆盖SVG下载、两路线保留参数/候选、目标编辑失效、场景一次采用/撤销/重做、原件/完整包冷开、基础局部范围、个人副本、明确清草稿/取消保全，以及unknown只一次POST且ID跨加入候选保留。所有模型HTTP均为受控fixture，无真实费用。
+
+`frontend/capture-final.log` 与 `frontend/facts.json` 从正常UI导入同一原琴房，生成默认24色/0.45矢量候选，实际保存7张桌面、黑底200%、未配置模型、390px与素材副本图；页面异常、控制台错误、失败请求与image-edit请求均0。截图脚本首轮在素材详情同名外容器/内容区严格选择器冲突，前6张与失败记录留 `frontend-first-attempt/`，收窄到真实目录内容区后整轮完成。已实际查看桌面、棋盘/黑底对照、390px与库副本，候选没有预览、采用或另存；两页均明确丢弃草稿，原素材摘要保持。截图只证明当前界面和真实算法输出，不代表画质改善或P3。
+
+用户要求持续自审后的新增证据放在 `work/asset-refinement-self-review-20261111/`，保留前轮冻结。`boundary-audit/run.log` 的3项诊断复现旧缺陷：全透明PNG仍可生成/采用/冷读，成功HTTP后取消或实际解码失败丢失请求ID。已在宿主拒绝全透明结果，响应后拒绝统一保留finished ID；传输在单次POST前同步登记ID，服务明确未发送时更新为not_sent。两编辑器分别持有请求记录，清草稿、切路和个人图像面板重挂载保留；记录用于关闭/离页保护，不作为未采用图像草稿卡住保存。新增修复的 `unit-request-and-host.log` 为2文件21项通过，包含返回后取消/解码/比例/全透明、完成失败及发送前后状态；不重复发送模型请求。诊断用例描述旧行为，其通过表示成功复现旧缺陷，不算修复后的通过证据。
+
+`build.log` 正常构建退出0，325模块边界通过；依赖注释、动态引用与包体积告警保留。`source-freeze.json` 固定1451项源码/工具/配置，构建前后无变化，`production-dist/` 与清单是5411的独立正常产物。该包串行执行 `browser-unified.log` 3项及 `browser-refinement.log` 7项，分别全部通过：正常矢量/模型候选的场景采用、撤销/重做、原图/物理/许可保全及冷开，旧目标拒绝，个人副本跨图像候选确认/取消，未配置不上传，全透明拒绝，POST未返回前已有ID，取消/切路/清草稿及关闭确认仍可核对ID；每个模型旅程只一次受控POST。模型成功夹具只改变一个不透明像素以验证传输与采用，不是补画质量证据。构建后 `source-drift-check.json` 发现其他会话继续修改两份handdrawn-surfaces源/测试；本轮精修相关文件未漂移，所列浏览器结果绑定冻结包，不外推当前全工作区或全仓回归。
+
+`frontend/capture.log`、`frontend/facts.json` 从正常UI导入同一真实琴房，更新7张桌面、对照、黑底200%、未配置模型、390px和素材副本图；Chromium 141.0.7390.37，异常/控制台错误/失败请求/模型请求均0，390px文档横向溢出为0，候选均未采用或另存。路径/曲线数字改收在折叠的“算法与误差记录”，明确不是画质分数。另在 `vector/comparison.png`、`vector/report.json` 对照原图、24色和48色：48色更接近原图色阶，但未补出键盘结构或解决蓝边；加平滑的48色诊断超过16384命令预算，被拒绝，未放宽预算或改变生产算法。实际视觉仍未达到精细度目标，木纹接缝/暗带也未解决。只读检查本机专用图片编辑三项配置均缺失，未发真实模型请求、未产生模型费用；实际补画质量与用户P3仍待，未提交、推送或部署。
+
+用户随后纠正了接续表述：缺少图片编辑模型不能阻塞本机SVG路线。已在页面与专题合同明确SVG不需要模型、服务地址或访问凭据，并在07把SVG整改列为独立优先工作。`work/svg-independent-route-20261111/browser.log` 对当前dev页面定向运行原有矢量旅程1项通过，新增断言覆盖生成、切路、SVG下载、场景采用及撤销/重做期间image-edit请求总数为0；未重跑整套生产回归，也未改变矢量算法或宣称画质改善。
+
+本机SVG继续独立整改的证据归 `work/svg-reconstruction-20261111/`。新 `regional-tones-v1` 用实际源像素距离分色、连通区邻接与受限单方向RGB渐变拟合替换平色填色选择，再复用原共享曲线几何阶段；细窄区不合并，未选用渐变的区域保留原始分色标签。源采样逐通道RMSE≤4、最大通道误差≤12、总平方误差至少比平色低10%才采用渐变，端点限制在观测范围；这些门槛不代表最终曲线渲染全图误差或画质。100万像素、65536采样格、16384区域、20万合并尝试/每区64次及96渐变均有界，超SVG256路径/16384指令预算明确拒绝，不删区域。新旧算法按严格来源ID分别重放，不原地改义。
+
+`integrated-unit.log` 的3文件23项全部通过：旧曲线算法、独立解析色阶夹具的规范SVG实际渲染、1px细线/2px孔洞/独立小块/alpha128、平色无渐变、确定性/源不可变/取消/实际区域超限，以及宿主个人副本/混合来源/完整包/冷读/旧ID和改标篡改拒绝。首轮宿主4项因平色输出空defs被严格SVG拒绝，已改为仅有定义时输出defs；首轮半透明细线RGB断言遇到规范resvg预乘舍入，改与独立同色SVG参考逐值比较，仍精确检查alpha与1px线宽，旧失败日志保留。自审再把渐变RMSE由三通道合计限制收紧为逐通道限制。`legacy-replay-comparison.json` 与原冻结钢琴24色SVG逐字节相同，SHA-256为 `53e6e7c26da1a4ebaebbd759246dcf22d79fb347181b6cf3e6ae9c7a877801e3`。
+
+`evaluation/comparison.png` 依次为同一204×150钢琴原图、旧24色、新24色与新48色。实际查看新算法的碎色块减少，但默认24色仍有色带，48色更接近原图；键盘未知结构没有补出，蓝边仍在。`evaluation/report.json` 的不透明源像素RGB通道RMSE分别为旧24色5.733、新24色4.515、新48色3.222，仅描述对原图的近似，不是新增细节或美术质量评分；原图hash继续为 `43aec9d33b6c303d39b3865ae49b1181d938fc69040c61475111f29cf4fea390`。默认仍24色/0.45，未用提高默认颜色数量替代算法收益；木纹接缝/暗带没有在本次SVG色阶整改中解决。
+
+`shared-check-final.log` 的292共享模块边界与无DOM编译通过；`build.log` 正常构建退出0，327模块架构边界通过，既有依赖注释/动态引用/包体积提示保留。`source-freeze.json` 固定1454项源码/工具/配置，构建前后摘要一致，正常产物独立复制至本轮 `production-dist/` 并在5413预览；全部检查后 `source-drift-check.json` 未见该冻结漂移。`browser-production.log` 在同包串行执行7条双路线和3条统一编辑旅程，10/10通过；SVG全流程零模型请求，新来源ID实际进入采用包，模型仍全部为受控HTTP夹具。
+
+`frontend/capture.log` 与 `frontend/facts.json` 从首页正常导入同一真实琴房，7张桌面、棋盘/黑底200%、未配置模型、390px与素材副本截图全部完成。已实际查看桌面、原图/候选、黑底、两张窄屏和库副本；页面异常/控制台错误/失败请求/image-edit请求均0，390px横向溢出为0。截图用默认24色/0.45，候选均明确丢弃，没有改写原样板。另一次隔离旅程 `frontend/adopt-cold-read.log`/`adopt-cold-read-facts.json` 对真实钢琴生成同参数候选，普通场景一次采用、撤销/重做、完整包下载，再在空白浏览器存储正常导入冷读全部完成；原件与全部PNG/SVG/许可资源摘要保持，物理/支撑/私密/锁字段保持，异常与模型请求均0。输出固定资源ID为 `image-enhancement-41ced7a065814812d63cc31a9e865c2156649989eab8a494e39181f4083b7083`，仅此隔离验证工程采用，不替换用户原琴房。
+
+本轮原型试验中的直接逐色块渐变与过强聚类因仍有色带或压平质感未进入生产；一次过宽对照拼图超过规范PNG边长预算，改为有限布局，不放宽产品限制。自审结论为色阶表达相对旧SVG改善，尚未达到真实钢琴的精细重建目标；继续按07处理前景/环境混色与结构约束，真实模型效果、木纹缺陷和P3保持待验。未发真实付费请求，未提交、推送或部署。
+
+用户对前轮实际画面明确判为不合格，要求以视觉理解重绘边缘和细节。后续证据归 `work/structural-redraw-20261111/`；钢琴几何不写入生产默认算法，而是依据原图分析为独立源绑定结构稿，经共享 `structure-plan.ts` 与同一宿主生成/采用/冷读。结构稿明确区分依据原图的部件关系和推断的具体键数、黑键节律、铰接、缝线、高光形状与接触阴影。编译器不从像素自动识别，不能将该人工视觉稿当自动语义算法已完成。
+
+局部稿件经过三轮实际图像复查：首稿虽然清楚且去掉整圈背景蓝边，但琴盖偏长、高光像胶带、键盘过亮、琴凳像胶囊；第二稿缩短盖面与高光、压低键色并调整凳框，仍有过宽塑料感厚边；第三稿抬起第一层厚边并断开低对比高光，轮廓/键盘/厚边和琴凳已可辨。`piano-structure-plan.json`、`piano-structure.svg` 与 `comparison.png` 保存当前稿，31个声明元素展开为64路径/373指令，10项依据原图与21项含推断；数字仅说明结构复杂度与声明，不证明画质。白/黑/暖底局部复查未见原先整圈青蓝杂边，画风仍更等宽圆顺、色面更平整，属于矢量插画重绘候选，不能称完全保留手绘笔触或真实细节恢复。原保真裁片不改写，木纹接缝/暗带不在本次结构稿修复范围。
+
+默认SVG方式调整为结构重绘；像素描摹作为明确保留原图缺陷的对照入口。页面载入JSON结构稿、审阅部件/推断、修改旧候选阻止采用、切换方式保留各稿，重开可读取已保存稿；生成使用1024长边固定PNG与真实SVG，不套原alpha。严格 `structure-plan-v1` 来源分支直接演进完整工程v1，绑定实际源hash/尺寸与完整计划；公开/冷读重编译计划再核对实际SVG/PNG。原件/许可、物理支撑/私密/锁与旧基线/witness继续适用，结构稿可以修改轮廓但全透明输出拒绝。旧regional/legacy ID语义保持。新增通用路径/重复形元/渐变的源框、累积预算、危险引用、访问器与描边外扩守卫，贴框粗描边显式拒绝而不静默裁断；该控制点包围盒检查是保守界，可能拒绝实际曲线未越界的极端稿件。
+
+
+本轮冻结验证在 `work/structural-redraw-20261111/`：最终 `unit-parent-fix.log` 为结构编译器与宿主两文件 **33/33通过**，包含基础处理A→中间图B→结构稿C→完整导出/冷读后恢复B实际hash/像素/坐标框并继续生成。首轮最终定向跑有一个既有大源冷读用例在并行构建负载下超过原30000ms时限（`unit-final.log`），最终串行跑保持原时限通过；没有提高超时或删断言。独立审查发现保存稿只可选根原图/当前结果而无法恢复中间父源，已新增「已保存结构稿来源」：只由当前已校验结构资产指定确切直接父源，保持当前目标基线、真实字节/许可和私有witness，不改写稿件hash。新增正常页面链式旅程同时覆盖该修复。
+
+正常构建因其他存储工作线改动导致源冻结守卫拒绝，不将该现场dist当作本次绑定证据；随后复制隔离输入。第一次隔离副本遗漏 `assets/` 导致编译失败（`snapshot-build.log`），补入71个素材输入后通过；父源修复后最终 `snapshot-build-parent-fix.log` 的 `npm run build` **exit 0**。冻结包含1878输入文件与179生产文件，`source-snapshot-after-build.json`、`production-dist-manifest.json` 和 `final-integrity.json` 记录无源码/产物漂移，12个本任务源码/测试与当前工作区内容一致；不覆写其他存储编辑。Vite既有大包与依赖注解警告保留，不当作性能改善证据。
+
+对该冻结正常dist在 `http://127.0.0.1:5414/sceneweave/` 串行运行 `asset-structure-redraw.spec.ts`、`asset-refinement.spec.ts` 和 `unified-asset-editor.spec.ts`：**13/13通过**（`browser-production.log`），包括3条结构稿页面旅程、7条原双路线回归与3条统一编辑页旅程。受控模型响应只作流程验证，不代表真实补画效果或真实渠道已配置。
+
+`frontend/capture.mjs` 从普通首页导入真实琴房工程，以真实 `extracted-piano` 生成本次结构稿，保存7张桌面/棋盘/黑底200%/未配置模型/390窄屏/目录副本截图及DOM观测。`frontend/facts.json` 记录页面错误、console错误、失败请求与图片模型请求均为0；窄屏client/scroll/body宽均390px，生成后显式丢弃场景与素材副本草稿。`frontend/adopt-cold-read.mjs` 再从普通页面实际采用，导出、撤销、重做，并把下载包导入空白浏览器存储：`adopt-cold-read-facts.json` 记录原件/实际资源hash保全、物理/支撑/位置/私密/锁不变、撤销回原图与重做回候选、空库冷读一致，页面错误与模型请求均为0。可继续编辑完整包为 `frontend/piano-redone.sceneweave` 与 `frontend/piano-cold-read.sceneweave`。
+
+原场景对照 `frontend/08-room-original.png`、`09-room-redrawn.png` 使用相同视口，实际canvas均1200×1070、显示1176.984375×1049，并从正常场景菜单清空选中框。第一次截图在布局尚未稳定时画布尺寸不同、采用后仍有选中框，保留于 `frontend/first-room-capture/`，不作为同尺度证明；一次在画布外空白处右键未弹出菜单的截图脚本失败保留于 `frontend/context-capture-failure/`，改为聚焦视口后Shift+F10正常菜单及两帧布局稳定再截图，最终完整旅程通过。独立视觉复查实际查看最终两图，确认本轮轮廓/厚边/键盘更清楚、下沿青蓝混色边消失，无不可接受的位置/方向/比例/遮挡变化；色调与琴房基本协调，但新琴比周围家具规整清晰，琴键略亮且重复更均匀。结论只为本轮有限结构重绘候选达到开发自审目标，不外推自动识别、完整手绘保真、全部拆图质量或用户P3。原保真裁片、木纹接缝/暗带与周边低清仍未修，未发真实模型请求，未提交、推送或部署。
