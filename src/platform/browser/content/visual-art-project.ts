@@ -16,6 +16,8 @@ export interface VisualArtBatch {
   artwork: readonly VisualSampleArt[]
   licenseText: string
   assetId: (key: string) => string
+  /** Fixed per batch: opting in creates new pixels, never replaces an old source. */
+  rasterLongEdgePx?: 512 | 1024 | 2048
 }
 
 /** A complete original-art batch. The single-batch call retains its exact
@@ -31,6 +33,10 @@ export function materializeVisualArt(scene: SceneDocument, artwork: readonly Vis
 export async function materializeVisualArtBatches(scene: SceneDocument, batches: readonly VisualArtBatch[], signal?: AbortSignal): Promise<EditableProject> {
   signal?.throwIfAborted()
   if (!batches.length) throw new Error('原创素材需要至少一批固定来源。')
+  // Reject the entire request before modifying placeholders or decoding any source.
+  if (batches.some(batch => batch.rasterLongEdgePx !== undefined && ![512, 1024, 2048].includes(batch.rasterLongEdgePx))) {
+    throw new Error('原创素材栅格尺寸只支持512、1024或2048像素。')
+  }
   const bytes = new Map<string, Uint8Array>(), assets: Record<string, AssetRecord> = {}, authoringSources: Record<string, SvgAuthoringSource> = {}
   const licenses: ProjectData['licenses'] = {}, assetLicenses = new Map<string, string>()
   for (const batch of batches) {
@@ -41,7 +47,7 @@ export async function materializeVisualArtBatches(scene: SceneDocument, batches:
       const id = batch.assetId(art.key)
       if (!scene.assets[id]) throw new Error(`原创素材缺少固定定义：${id}`)
       if (assetLicenses.has(id)) throw new Error(`原创素材固定身份重复：${id}`)
-      const normalized = normalizeStaticSvg(art.sourceSvg), output = await rasterizeNormalizedSvg(normalized, { longEdgePx: 512, signal })
+      const normalized = normalizeStaticSvg(art.sourceSvg), output = await rasterizeNormalizedSvg(normalized, { longEdgePx: batch.rasterLongEdgePx ?? 512, signal })
       assetLicenses.set(id, licensePath)
       Object.assign(scene.assets[id], { sha256: output.sha256, pixelWidth: output.pixelWidth, pixelHeight: output.pixelHeight })
       assets[output.sha256] = { sha256: output.sha256, mimeType: output.mimeType, sizeBytes: output.pngBytes.length, pixelWidth: output.pixelWidth, pixelHeight: output.pixelHeight }

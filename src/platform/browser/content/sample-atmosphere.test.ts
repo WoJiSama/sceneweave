@@ -56,8 +56,10 @@ describe('new sample daylight composition', () => {
     expect(() => applySampleAtmosphere(outpost, '__proto__' as SampleAtmosphereProfileId)).toThrow('未知')
     expect(canonicalJson(outpost)).toBe(before)
     const multiple = fixture('outpost-daylight'), floor = Object.values(multiple.floors)[0]
+    floor.outputBoundsMm = { ...multiple.exportBoundsMm }
     multiple.floors.upper = { ...floor, id: 'upper', name: '楼上' }
     multiple.userLayers['upper-layer'] = { id: 'upper-layer', floorId: 'upper', name: '楼上', order: 0, editLocked: false }
+    expect(validateSceneDocument(multiple).ok).toBe(true)
     const multiBefore = canonicalJson(multiple)
     expect(() => applySampleAtmosphere(multiple, 'outpost-daylight')).toThrow(/单 Floor|一个 Floor/)
     expect(canonicalJson(multiple)).toBe(multiBefore)
