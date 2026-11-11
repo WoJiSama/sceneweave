@@ -1,0 +1,81 @@
+diff --git a/src/platform/browser/render/canvas-renderer.ts b/src/platform/browser/render/canvas-renderer.ts
+--- a/src/platform/browser/render/canvas-renderer.ts
++++ b/src/platform/browser/render/canvas-renderer.ts
+@@ -257,22 +257,30 @@
+   flush()
+ }
+ 
+-function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number): void {
+-  if (!projection.walls.length) return
+-  const width = ctx.canvas.width, height = ctx.canvas.height, mask = canvas(width, height), color = canvas(width, height), interior = canvas(width, height)
++function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, geometry: WallGeometry[]): void {
++  if (!geometry.length) return
++  const outline = projection.theme?.outline ?? { widthMm: 24, color: '#39443E' }
++  const shadowSource = projection.theme?.shadowPresets.wall
++  const shadow = shadowSource && projection.visual ? { ...shadowSource, directionDeg: projection.visual.environment.lightDirectionDeg } : shadowSource
++  const needsSilhouette = outline.widthMm !== 0 || !!shadow && shadow.opacity > 0
++  const width = ctx.canvas.width, height = ctx.canvas.height, color = canvas(width, height)
++  let mask: HTMLCanvasElement | undefined, interior: HTMLCanvasElement | undefined
+   try {
+-    const outline = projection.theme?.outline ?? { widthMm: 24, color: '#39443E' }
+-    const maskCtx = context(mask, raster.readFrequently), colorCtx = context(color, raster.readFrequently), interiorCtx = context(interior, raster.readFrequently), geometry = wallGeometry(projection.walls)
+-    worldTransform(maskCtx, projection.bounds, scaleX, scaleY); worldTransform(colorCtx, projection.bounds, scaleX, scaleY)
+-    const union = new Path2D()
++    const colorCtx = context(color, raster.readFrequently)
++    worldTransform(colorCtx, projection.bounds, scaleX, scaleY)
++    const union = needsSilhouette ? new Path2D() : undefined
+     for (const item of geometry) {
+-      const path = new Path2D(); item.polygons.forEach(p => { addRing(path, p); addRing(union, p) })
++      const path = new Path2D(); item.polygons.forEach(p => { addRing(path, p); if (union) addRing(union, p) })
+       drawVisualEntity(colorCtx, projection, item.wall.id, expandedBounds(item.polygons.flat(), 0), (target, local) => fillSurface(target, path, item.wall.style, local, raster,
+         outline.widthMm === 0 && item.wall.style ? '#00000000' : '#899087'), !!raster.readFrequently)
+     }
++    // Source-faithful walls need only their color buffer when neither an
++    // outline nor a wall shadow consumes the full-canvas silhouette.
++    if (!union) { ctx.save(); ctx.resetTransform(); ctx.drawImage(color, 0, 0); ctx.restore(); return }
++    mask = canvas(width, height); interior = canvas(width, height)
++    const maskCtx = context(mask, raster.readFrequently), interiorCtx = context(interior, raster.readFrequently)
++    worldTransform(maskCtx, projection.bounds, scaleX, scaleY)
+     maskCtx.fillStyle = '#fff'; maskCtx.fill(union)
+-    const shadowSource = projection.theme?.shadowPresets.wall
+-    const shadow = shadowSource && projection.visual ? { ...shadowSource, directionDeg: projection.visual.environment.lightDirectionDeg } : shadowSource
+     ctx.save(); ctx.resetTransform()
+     if (shadow && shadow.opacity > 0) {
+       interiorCtx.drawImage(mask, 0, 0); interiorCtx.globalCompositeOperation = 'source-in'; interiorCtx.fillStyle = shadow.color; interiorCtx.fillRect(0, 0, width, height)
+@@ -292,7 +300,7 @@
+     ctx.drawImage(mask, 0, 0)
+     colorCtx.resetTransform(); colorCtx.globalCompositeOperation = 'destination-in'; colorCtx.drawImage(interior, 0, 0); ctx.drawImage(color, 0, 0)
+     ctx.restore()
+-  } finally { disposeCanvas(mask); disposeCanvas(color); disposeCanvas(interior) }
++  } finally { if (mask) disposeCanvas(mask); disposeCanvas(color); if (interior) disposeCanvas(interior) }
+ }
+ 
+ function drawOpening(ctx: CanvasRenderingContext2D, opening: ProjectedOpening, wall: ProjectedWall, projection: Projection): void {
+@@ -756,13 +764,14 @@
+   // Projection owns the canonical layer/order/id sorting; keep its order through the wall split.
+   drawSprites(true)
+   checkCancelled(signal)
++  const walls = wallGeometry(projection.walls)
+   if (projection.visual) {
+-    const contacts = wallGeometry(projection.walls).flatMap(wall => wall.polygons)
++    const contacts = walls.flatMap(wall => wall.polygons)
+     drawVisualContacts(ctx, projection, contacts, !!raster.readFrequently, (target, local) => {
+       for (const prop of projection.props) if (prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' && !projection.propPresentations?.[prop.id]) drawPropBody(target, prop, local, raster, sx, sy, 'image', false)
+     })
+   }
+-  drawWallBody(ctx, projection, raster, sx, sy)
++  drawWallBody(ctx, projection, raster, sx, sy, walls)
+   const symbols = projection.walls.flatMap(wall => wall.openings.map(opening => ({ wall, opening })))
+   if (projection.openingPaintOrder) {
+     const rank = new Map(projection.openingPaintOrder.map((id, index) => [id, index]))
+@@ -771,7 +780,9 @@
+   for (const { wall, opening } of symbols) if (opening.paintSymbol !== false) drawOpening(ctx, opening, wall, projection)
+   drawSprites(false)
+   if (projection.visual) {
+-    const atmosphere = () => drawVisualAtmosphere(ctx, projection, wallGeometry(projection.walls.filter(wall => wall.blocksLight !== false)).flatMap(wall => wall.polygons), signal, !!raster.readFrequently)
++    // Light blockers are already captured in the audience-owned projection;
++    // the atmosphere helper does not consume reconstructed wall paint rings.
++    const atmosphere = () => drawVisualAtmosphere(ctx, projection, [], signal, !!raster.readFrequently)
+     if (projection.outputBackground?.mode === 'transparent') paintWithPreservedAlpha(ctx, atmosphere, signal)
+     else atmosphere()
+   }

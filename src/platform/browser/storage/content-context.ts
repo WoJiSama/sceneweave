@@ -13,14 +13,20 @@ const snapshots = new WeakSet<EncodedSnapshot>()
 const partitions = new WeakMap<EncodedSnapshot, ProjectContentPartition>()
 const ownedProjects = new WeakMap<ProjectData, EncodedSnapshot>()
 const worldJson = new WeakMap<EncodedSnapshot, string>()
-export function prepareEncodedSnapshot(bundle: ProjectBundle, localSource?: ProjectData, baseline?: EncodedSnapshot): EncodedSnapshot {
+export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: ProjectBundle, baseline?: EncodedSnapshot): EncodedSnapshot {
   const verified = getVerifiedProjectBundle(bundle)
   if (!verified) throw new Error('保存编码须来自本次不可变工程校验结果。')
+  const source = getVerifiedProjectBundle(localInput)?.project
+  // Public save still fully validates a detached copy. Preserve the original
+  // validator-owned immutable endpoint only after complete raw equality, before
+  // coordinate conversion could normalize a different world representation.
+  const encodingSource = source && (source === verified.project || canonicalJson(source) === canonicalJson(verified.project))
+    ? source : verified.project
   // Each operation owns an independent lease; one concurrent repository save
   // cannot release another save's prepared state for the same project object.
-  const encoded = encodeProjectContent(verified.project)
-  if (localSource) prepareLocalProjectContent(localSource, verified.project, encoded, baseline && snapshots.has(baseline) ? baseline.encoded : undefined)
-  const snapshot = Object.freeze({ project: verified.project, encoded })
+  const encoded = encodeProjectContent(encodingSource)
+  if (source) prepareLocalProjectContent(source, verified.project, encoded, baseline && snapshots.has(baseline) ? baseline.encoded : undefined)
+  const snapshot = Object.freeze({ project: encodingSource, encoded })
   partitions.set(snapshot, partitionEncodedProjectContent(encoded))
   snapshots.add(snapshot); ownedProjects.set(snapshot.project, snapshot); ownedProjects.set(encoded.stored, snapshot)
   return snapshot

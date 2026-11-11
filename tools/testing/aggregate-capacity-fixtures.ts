@@ -14,7 +14,9 @@ import { taskBudgetProfile } from '../../src/shared/budget/task-budget.js'
 import { selectManualTransactionBudget } from '../../src/shared/budget/command-budget.js'
 import { propFootprint, pointInPolygon, polygonsOverlap, roomPoints, openingEndpoints, supportedPolygon, supportSurfaceAt } from '../../src/shared/geometry/geometry.js'
 import { decorationAsProp, decorationFootprint } from '../../src/shared/decorations/geometry.js'
-import { effectivePropShadow, nearSidePaintEnvelope, propPaintPolygon, propPresentation } from '../../src/shared/appearance/presentation.js'
+import { effectivePropShadow, propPaintPolygon, propPresentation } from '../../src/shared/appearance/presentation.js'
+import { propPaintEnvelope } from '../../src/shared/projection/presentation-contract.js'
+import { resolveFloorOutput } from '../../src/shared/floors/output.js'
 import { exportProject, importProject } from '../../src/shared/project/file.js'
 import { projectContentHash } from '../../src/shared/project/validate.js'
 import { sha256Text, sha256Bytes } from '../../src/shared/validation/hash.js'
@@ -72,7 +74,7 @@ function fixedPrivacyMasks(scene: SceneDocument, prefix: string, privateMemberId
   const floorId = scene.props[privateMemberId].floorId, floor = scene.floors[floorId].boundsMm
   const layerId = scene.entityLayers[privateMemberId], offset = point(1000, 0)
   const theme = scene.activeStyleThemeRef ? scene.styleThemes[scene.activeStyleThemeRef.id] : undefined
-  const visual = visualBase(scene), maskIds: string[] = []
+  const environment = resolveFloorOutput(scene, floorId).environment, maskIds: string[] = []
   const expand = (bounds: BoundsMm, padding: number): BoundsMm => ({ x: bounds.x - padding, y: bounds.y - padding, width: bounds.width + 2 * padding, height: bounds.height + 2 * padding })
   const install = (id: string, bounds: BoundsMm) => {
     const x = Math.max(floor.x, Math.floor(bounds.x - 32)), y = Math.max(floor.y, Math.floor(bounds.y - 32))
@@ -84,9 +86,9 @@ function fixedPrivacyMasks(scene: SceneDocument, prefix: string, privateMemberId
   }
   const prop = scene.props[privateMemberId], presentation = appearance ? propPresentation(appearance, privateMemberId) : undefined
   const shadow = effectivePropShadow(prop, presentation, theme?.shadowPresets[prop.shadowClass])
-  const contactBlur = presentation?.mode === 'nearSide' && shadow && visual?.environment.contactShadowOpacity ? visual.environment.contactShadowMm : null
-  const envelope = nearSidePaintEnvelope(prop, presentation, shadow, visual?.environment.lightDirectionDeg, contactBlur)
-    ?? expand(pointsBounds(propPaintPolygon(prop, presentation)), shadowPadding(shadow))
+  // Match the full production privacy envelope, including physical footprint,
+  // floor-specific contact shadow and the conservative native shadow blur.
+  const envelope = propPaintEnvelope(prop, presentation, shadow, environment)
   install(`${prefix}-private-prop-mask`, envelope)
   for (const opening of Object.values(scene.openings)) if (opening.secret && !opening.revealed) {
     const wall = scene.walls[opening.wallId]
