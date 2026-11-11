@@ -336,6 +336,8 @@ SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5174/sceneweave/ SCENEWEAVE_FORMAL_VIS
 
 该配置不自动启动服务，要求`SCENEWEAVE_TEST_BASE_URL`包含部署base；固定Chromium/Firefox/WebKit、1512×982、单worker、零重试，`results.json`和`results/`保留真实下载、图像与失败trace。Chromium默认使用Playwright引擎，只有`SCENEWEAVE_CHROME_CHANNEL=chrome`会切换系统Chrome；通用`SCENEWEAVE_BROWSER_CHANNEL`不改变本配置。用例从正常首页导入冻结包，经实际UI编辑/采用/撤销、保存冷读及4K双受众输出，核对同引擎秘密配对像素、资源/完整内容和原生像素裁切；跨引擎不要求抗锯齿逐像素相同。这些自动技术证据不关闭14第8节全部视觉操作矩阵、人工观感或用户P3，也不替代自由物件拖动、完整轮廓/历史/故障矩阵、原SCN场景、1万/10万容量及完整QA-PERF-01/04。
 
+每条视觉用例另写`results/<test-id>/formal-visual-progress.json`并附入报告，逐阶段保留实际包/像素事实，记录导入、备份、PNG/像素处理、冷开和隔离上下文创建/关闭的耗时。失败或900秒超时时保留当前操作、已完成阶段和Playwright首败；突然终止或磁盘不可写只能保留最近成功检查点。该文件仅供诊断，全部原断言完成后的`formal-visual-facts.json`才是完整技术事实，阶段耗时不作正式性能。无需启动浏览器即可执行`node --test tools/testing/formal-visual-progress.test.mjs`核查记录器边界。
+
 下方M2、Q5及开发期分段章节保留原冻结方法和历史工具定位。`run-native-m2.mjs`、旧`visual-v2-fixtures`仍含旧schema/身份/存储或UI假设，未按当前合同重新适配前，不作为当前完整v1正式入口；`run-aggregate.mjs`继续仅作j的低次数开发观察。
 
 ## M2 原生完整v1正常生产性能复现

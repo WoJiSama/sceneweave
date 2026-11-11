@@ -27,6 +27,8 @@
 <a id="validation-tool-remediation-20261110"></a>
 ## 性能运行器草稿退出工具整改（2026-11-10）
 
+本项按用户明确选择的两项并行工具整改实施，当前状态归[07](../07-roadmap.md#validation-tool-remediation)，视觉诊断另归[视觉台账](visual-quality-validation.md#visual-progress-tooling-20261110)。不修改产品/素材/生成算法，不提交、推送或发布；另一活跃会话的生产运行不作为本项证据。
+
 原失败位于`work/snapshot-remediation-20261109/baseline-normal/building-500-run1.json`：组预览因预算/几何等受支持的拒绝结束后，建筑表单输入仍保留，首次`canvas-prop-selection`被导航守卫阻止，180秒超时。原完整失败文本明确要求“取消建筑草稿”；失败冻结、该组无性能结论及其他已完成mixed结果均保持。
 
 `run-current-formal.mjs`现通过独立`aggregate-draft-cleanup.mjs`包裹组生命周期。仅在组操作成功结束或原逻辑已明确确认的拒绝返回后，点击本领域唯一的普通取消按钮；建筑使用“取消建筑草稿”，自然组使用“取消室外草稿”。无残留草稿不额外导出，未知错误保留首败且不取消。实际取消放在setup阶段，取消前后保存两份完整包，复用逐manifest/条目集合/实际条目SHA一致性检查，并核对revision、格式与选择未变，全部通过后才进入画布选择。新辅助模块纳入测量前后工具指纹，拒绝与原采样门槛不降低。
