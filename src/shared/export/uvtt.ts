@@ -1,6 +1,7 @@
 import type { AppearanceGraph } from '../model/appearance.js'
 import type { BoundsMm, Opening, PointMm, SceneDocument } from '../model/scene.js'
 import type { Projection } from '../projection/types.js'
+import { resolveFloorOutput } from '../floors/output.js'
 import { openingEndpoints, propFootprint } from '../geometry/geometry.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { projectScene } from '../projection/projection.js'
@@ -113,8 +114,8 @@ function canonicalWallLines(lines: WallLine[], report: UvttReport): [PointMm, Po
   return [...active.values()].map(row => [...row.points].sort(comparePoint) as [PointMm, PointMm]).sort((a, b) => comparePoint(a[0], b[0]) || comparePoint(a[1], b[1]))
 }
 
-function layout(scene: SceneDocument, report: UvttReport) {
-  const source = scene.exportBoundsMm, grid = BigInt(scene.units.gridSizeMm)
+function layout(scene: SceneDocument, source: BoundsMm, report: UvttReport) {
+  const grid = BigInt(scene.units.gridSizeMm)
   const left = floorDiv(BigInt(source.x), grid), top = floorDiv(BigInt(source.y), grid)
   const right = ceilDiv(BigInt(source.x) + BigInt(source.width), grid), bottom = ceilDiv(BigInt(source.y) + BigInt(source.height), grid)
   const values = [left * grid, top * grid, (right - left) * grid, (bottom - top) * grid, right * grid, bottom * grid]
@@ -170,10 +171,11 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
     if (!parsed?.success) throw new Error('场景未通过完整模型校验，不能生成 UVTT 导出计划。')
     scene = parsed.data as SceneDocument
   }
-  const grid = scene.units.gridSizeMm, size = layout(scene, report), sourceBoundsMm = cloneJson(scene.exportBoundsMm)
+  const floorIds = Object.keys(scene.floors), sourceBoundsMm = floorIds.length === 1 ? resolveFloorOutput(scene, floorIds[0]).boundsMm : cloneJson(scene.exportBoundsMm)
+  const grid = scene.units.gridSizeMm, size = layout(scene, sourceBoundsMm, report)
   const units: UvttUnitsSummary = { display: scene.units.display, gridSizeMm: grid, distancePerGrid: grid / (scene.units.display === 'ft' ? 304.8 : 1000), distanceUnit: scene.units.display, gridVisible: scene.units.gridVisible }
   const plan: UvttPlan = { ...size, sourceBoundsMm, units, projection: null, geometry: null, report }
-  if (Object.keys(scene.floors).length !== 1) {
+  if (floorIds.length !== 1) {
     add(report.blocked, 'UVTT 结构包仅支持单 Floor；请使用受支持的单层工程或普通玩家 PNG。')
     return plan
   }

@@ -193,7 +193,9 @@ export function createRegionalDocument(base: SceneDocument, rawInput: unknown, o
   if (width === undefined || height === undefined) throw new Error('区域生成必须提供宽高。')
   const definitions = cloneJson(scene.regional?.symbolDefinitions ?? {})
   scene.sceneId = request.sceneId; scene.title = request.title ?? scene.title; scene.mapMode = 'regional'; scene.regional = createEmptyRegional(); scene.regional.symbolDefinitions = definitions; scene.exportBoundsMm = { x: 0, y: 0, width, height }
-  scene.floors[floorId].boundsMm = cloneJson(scene.exportBoundsMm); addGeneratedFeatures(scene, request, floorId, layerId); addRequestedFeatures(scene, request, floorId, layerId); installGeneration(scene, request, floorId, layerId)
+  scene.floors[floorId].boundsMm = cloneJson(scene.exportBoundsMm)
+  if (scene.floors[floorId].outputBoundsMm !== undefined) scene.floors[floorId].outputBoundsMm = cloneJson(scene.exportBoundsMm)
+  addGeneratedFeatures(scene, request, floorId, layerId); addRequestedFeatures(scene, request, floorId, layerId); installGeneration(scene, request, floorId, layerId)
   const checked = validateSceneDocument(scene); if (!checked.ok) throw new Error(`区域候选无效：${checked.errors.map(error => `${error.code}:${error.message}`).join('；')}`)
   const empty = cloneJson(scene); empty.regional = createEmptyRegional(); empty.generation = createEmptyGeneration5(); const cost = budget ? terrainSemanticCost(empty, checked.document, budget) : terrainCommandCost(empty, checked.document)
   const admission=budget?{countingVersion:2 as const,profileHash:budget.profileHash,usage:terrainTaskUsage(empty,checked.document,{...options,budget})}:undefined
@@ -354,7 +356,10 @@ export function prepareRegionalDrillDown(base: SceneDocument, rawInput: unknown,
   // was removed; assets still used by fixed scene definitions remain intact.
   const retainedAssets = new Set(inspectDependencies(scene).assetIds)
   for (const id of Object.keys(scene.assets)) if (!retainedAssets.has(id)) delete scene.assets[id]
-  for (const floor of Object.values(scene.floors)) floor.boundsMm = cloneJson(scene.exportBoundsMm)
+  for (const floor of Object.values(scene.floors)) {
+    floor.boundsMm = cloneJson(scene.exportBoundsMm)
+    if (floor.outputBoundsMm !== undefined) floor.outputBoundsMm = cloneJson(scene.exportBoundsMm)
+  }
   scene.generation = createEmptyGeneration5()
   const sourceContentHash = sha256Text(canonicalJson(base)), publicInputHash = sha256Text(canonicalJson({ selection, inherited: publicPayload }))
   const link: SourceRegionLink = { version: 2, id: `source-region-${request.operationId}`, sourceSceneId: base.sceneId, sourceRevision: base.revision, sourceContentHash, selectionMm: cloneJson(selection), translationMm: { x: selection.x === 0 ? 0 : -selection.x, y: selection.y === 0 ? 0 : -selection.y }, publicInputHash, inherited, recipeRefs: [] }
