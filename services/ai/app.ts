@@ -15,6 +15,7 @@ import { CONTINUATION_POLICY, CONTINUATION_POLICIES_V2, BUDGET_POLICY_HASHES } f
 import { TASK_BUDGET_PROFILES } from '../../src/shared/budget/task-budget.js'
 import { domainGenerationCapabilities } from '../../src/shared/generation/execution.js'
 import { createDomainGenerationService, GenerationServiceFault } from './generation.js'
+import { createTaskBodyReader } from './task-body.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
@@ -32,31 +33,8 @@ export function authenticate(config: AiConfig, authorization: string | undefined
   }
   return owner
 }
-async function boundedJson(request: Request, limit: number = AI_LIMITS.requestBytes) {
-  if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) throw new TaskFault('invalid_request', 400)
-  const declared = request.headers.get('content-length')
-  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > limit)) throw new TaskFault('request_limit', 413)
-  if (!request.body) throw new TaskFault('invalid_request', 400)
-  const reader = request.body.getReader(), parts: Uint8Array[] = []
-  let size = 0
-  try {
-    while (true) {
-      const value = await reader.read()
-      if (value.done) break
-      size += value.value.byteLength
-      if (size > limit) { await reader.cancel(); throw new TaskFault('request_limit', 413) }
-      parts.push(value.value)
-    }
-    const bytes = new Uint8Array(size)
-    let offset = 0; for (const part of parts) { bytes.set(part, offset); offset += part.byteLength }
-    let value: unknown
-    try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown } catch { throw new TaskFault('invalid_request', 400) }
-    if (size > AI_LIMITS.requestBytes && (!value || typeof value !== 'object' || (!Object.hasOwn(value, 'authoring') && !Object.hasOwn(value, 'vision')))) throw new TaskFault('request_limit', 413)
-    return value
-  } finally { reader.releaseLock() }
-}
 const errorPayload = (code: string, requestState: AiError['requestState'] = 'not_sent') => ({ schemaVersion: 1 as const, error: { code, message: code === 'unauthorized' ? '需要有效的应用访问凭据。' : code === 'origin_rejected' ? '此站点未获准访问任务服务。' : code === 'not_found' ? '任务不存在。' : code === 'snapshot_required' ? '事件游标无效，请先读取任务检查点。' : '请求未完成，请检查任务状态或服务配置。', retryable: false, requestState } satisfies AiError })
-export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider?: ProviderAdapter }
+export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider?: ProviderAdapter; bodyTimeoutMs?: number }
 export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir)
   const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
@@ -64,6 +42,9 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     begin: (owner, request) => store.beginBaseMap(owner, request), measure: (token, run) => store.measureBaseMapWork(token, run), finish: (token, elapsedMs, resultHash) => store.finishBaseMap(token, elapsedMs, resultHash),
   } })
   const domainGeneration = createDomainGenerationService({ maxConcurrent: Math.min(config.maxConcurrent, 2) })
+  const maximumTaskBody = Math.max(VISION_LIMITS.requestBytes, CONTINUATION_POLICY.requestBytes, ...CONTINUATION_POLICIES_V2.map(policy => policy.requestBytes))
+  const boundedJson = createTaskBodyReader({ maxConcurrent: config.maxConcurrent,
+    maxBytes: maximumTaskBody * Math.min(config.maxConcurrent, 2), timeoutMs: options.bodyTimeoutMs })
   const app = new Hono<{ Variables: { owner: string } }>()
   const streams = new Map<string, number>()
   let streamCount = 0
