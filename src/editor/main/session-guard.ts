@@ -16,7 +16,7 @@ export const workspaceFormDraftLabels = {
   titleForm: { name: '工程名称', cancel: '取消改名草稿' },
 } as const
 export type WorkspaceFormDraft = keyof typeof workspaceFormDraftLabels
-export type WorkspaceDraft = 'placement' | 'prefabPlacement' | 'sketch' | 'outdoorSketch' | WorkspaceFormDraft
+export type WorkspaceDraft = 'placement' | 'prefabPlacement' | 'sketch' | 'outdoorSketch' | 'imageImport' | WorkspaceFormDraft
 export interface WorkspaceTransient extends Record<WorkspaceFormDraft, boolean> {
   busy: boolean
   preparing: boolean
@@ -31,7 +31,11 @@ export interface WorkspaceTransient extends Record<WorkspaceFormDraft, boolean> 
   structure: boolean
   terrainPreview?: boolean
   aiPreview?: boolean
+  imageImport?: boolean
 }
+
+/** An unrelated or stale new-project candidate cannot release a newer image draft. */
+export const imageImportDraftMatches = (current: string | null, candidate: string | undefined): boolean => current !== null && candidate !== undefined && current === candidate
 
 /** Browsing is passive; departures and conflicting tools use the same reasons. */
 export function workspaceTransitionReason(state: WorkspaceTransient, completing?: WorkspaceDraft | readonly WorkspaceDraft[]): string | null {
@@ -43,6 +47,7 @@ export function workspaceTransitionReason(state: WorkspaceTransient, completing?
   if (state.terrainPreview) return '地图候选尚未结束。请先采用或取消预览后再继续。'
   if (state.aiPreview) return '正在预览AI草稿。可切回主工程继续手工编辑，或在AI面板审阅并采用草稿。'
   if (state.structure || state.restore || state.structureRestore) return '当前候选尚未结束。请先采用或明确取消候选；可以继续浏览侧栏与素材详情。'
+  if (state.imageImport && !allowed.has('imageImport')) return '图片导入草稿尚未采用。请返回图片工具继续，或明确丢弃图片草稿后再继续。'
   if (state.placement && !allowed.has('placement')) return '物件放置尚未结束。请继续放置或取消放置后再开始其他操作。'
   if (state.prefabPlacement && !allowed.has('prefabPlacement')) return '组合放置尚未结束。请预览并采用组合，或取消组合放置后再开始其他操作。'
   if (state.sketch && !allowed.has('sketch')) return '建筑绘图或量尺尚未结束。请继续当前工具或明确取消绘图后再开始其他操作。'

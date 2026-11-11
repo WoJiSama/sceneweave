@@ -3,6 +3,10 @@ import PathAttachmentTools from './PathAttachmentTools'
 import FloorTools from './FloorTools'
 import { resolveFloorOutput } from '../../shared/floors/output'
 import ImageImportTool from './ImageImportTool'
+import SceneAssetEditor, { type SceneAssetTarget } from './SceneAssetEditor'
+import { prepareImageEnhancementCandidate, type ImageEnhancementSource } from '../../platform/browser/content/image-enhancement'
+import { prepareImageRefinementCandidate, type ImageRefinementCandidate } from '../../platform/browser/content/image-refinement'
+import type { ImageEnhancementRecipe } from '../../shared/image-enhancement'
 import { installSavedImageImportItems } from '../../platform/browser/content/image-import-library'
 import ProjectAssetReviewPanel from './ProjectAssetReviewPanel'
 import ThemePacksPanel from './ThemePacksPanel'
@@ -151,7 +155,7 @@ import { SelectionSubscriber } from '../native-canvas/SelectionSubscriber'
 import type { WorkspaceController, WorkspaceRequest, WorkspaceSessionSummary } from '../main-shell/session'
 import WorkspaceLayout from '../workspace/WorkspaceLayout'
 import WorkspaceNotice from './WorkspaceNotice'
-import { workspaceTransitionReason, workspaceFormDraftLabels, type WorkspaceDraft, type WorkspaceFormDraft, type WorkspaceTransient } from './session-guard'
+import { imageImportDraftMatches, workspaceTransitionReason, workspaceFormDraftLabels, type WorkspaceDraft, type WorkspaceFormDraft, type WorkspaceTransient } from './session-guard'
 import './assets.css'
 import './layers.css'
 import './history.css'
@@ -188,9 +192,9 @@ const download = (blob: Blob, name: string) => {
   const url = URL.createObjectURL(blob), anchor = document.createElement('a')
   anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
-type Candidate = { project: EditableProject; checkpoint: number; description: string }
+type Candidate = { project: EditableProject; checkpoint: number; description: string; imageDraftToken?: string }
 type CatalogUse = { selector: CatalogSelectorV1; layerId: string; ids: string[] }
-type StructurePreview = { assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
+type StructurePreview = { assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display' | 'image-enhancement'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
 function AffectedObjectNames({ before, after, ids }: { before: SceneDocument; after: SceneDocument; ids: readonly string[] }) {
   const labels = useMemo(() => {
     const previousName = createEntityLabeler(before), nextName = createEntityLabeler(after)
@@ -312,7 +316,17 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const onThemePending = useCallback((pending: boolean) => updateCatalogPending('themes', pending), [updateCatalogPending])
   const onProjectReviewPending = useCallback((pending: boolean) => updateCatalogPending('project-review', pending), [updateCatalogPending])
   const onCatalogDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.catalogForm === dirty ? current : { ...current, catalogForm: dirty }), [])
-  const onPropAppearanceDraft = useCallback((dirty: boolean) => setFormDrafts(current => current.propAppearanceForm === dirty ? current : { ...current, propAppearanceForm: dirty }), [])
+  const propAppearanceDraftOwners = useRef({ inspector: false, editor: false })
+  const onPropAppearanceDraft = useCallback((dirty: boolean) => {
+    propAppearanceDraftOwners.current.inspector = dirty
+    const any = dirty || propAppearanceDraftOwners.current.editor
+    setFormDrafts(current => current.propAppearanceForm === any ? current : { ...current, propAppearanceForm: any })
+  }, [])
+  const onEditorAppearanceDraft = useCallback((dirty: boolean) => {
+    propAppearanceDraftOwners.current.editor = dirty
+    const any = dirty || propAppearanceDraftOwners.current.inspector
+    setFormDrafts(current => current.propAppearanceForm === any ? current : { ...current, propAppearanceForm: any })
+  }, [])
   const [busy, setBusy] = useState(false), [busyMessage, setBusyMessage] = useState('正在处理完整工程…'), [message, setMessage] = useState<string | null>(null)
   const [transientMessage, setTransientMessage] = useState<string | null>(null)
   const dismissMessage = useCallback(() => setMessage(null), [])
@@ -376,6 +390,14 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   terrainLocalPreviewRef.current = terrainLocalPreview
   const [candidate, setCandidate] = useState<Candidate | null>(null)
   const [imageImportRequest, setImageImportRequest] = useState(0)
+  const [imageImportDraft, setImageImportDraft] = useState<string | null>(null)
+  const imageImportDraftRef = useRef<string | null>(null)
+  const [imageImportReset, setImageImportReset] = useState(0)
+  const updateImageImportDraft = useCallback((token: string | null) => {
+    const previous = imageImportDraftRef.current
+    imageImportDraftRef.current = token; setImageImportDraft(token)
+    if (token === null && previous !== null) { setImageImportRequest(0); setImageImportReset(value => value + 1) }
+  }, [])
   const [imageLibraryRefresh, setImageLibraryRefresh] = useState(0)
   const [imageLibraryStatus, setImageLibraryStatus] = useState<{ sceneId: string; message: string; failed: boolean } | null>(null)
   const imageLibraryAttempts = useRef(new Set<string>())
@@ -422,6 +444,17 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [structureRestore, setStructureRestore] = useState<StructureRestorePreview | null>(null)
   const structureRestoreRef = useRef<StructureRestorePreview | null>(null)
   structureRestoreRef.current = structureRestore
+  const [enhancementTarget, setEnhancementTarget] = useState<SceneAssetTarget | null>(null)
+  const assetEditorDraft = useRef(false)
+  const [assetEditorResume, setAssetEditorResume] = useState(0)
+  const onAssetEditorDraft = useCallback((dirty: boolean) => { assetEditorDraft.current = dirty }, [])
+  const guardAssetEditorDeparture = () => {
+    if (!assetEditorDraft.current) return true
+    setMessage('素材编辑还有未采用的图像草稿，请返回编辑页继续，或明确丢弃后再离开。')
+    setAssetEditorResume(value => value + 1)
+    return false
+  }
+
   const [structure, setStructure] = useState<StructurePreview | null>(null), [audience, setAudience] = useState<'gm' | 'player'>('gm'), [groundView, setGroundView] = useState(false)
   const structureRef = useRef<StructurePreview | null>(null)
   structureRef.current = structure
@@ -454,6 +487,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   aiCriticalRef.current = aiCritical
   const aiShown = !!aiPreview && showAiDraft && audience === 'gm'
   useEffect(() => { setAiPreview(null); setShowAiDraft(false) }, [completeProject?.document.sceneId, sessionGeneration])
+  useEffect(() => { setEnhancementTarget(null) }, [completeProject?.document.sceneId, sessionGeneration])
   const previewRef = useRef(false)
   previewRef.current = !!localGenerationPreview || domainSummary.hasCandidate || domainSummary.hasDraft || !!regionalPreview || !!structure || !!restore || !!structureRestore || !!terrainPreview || !!terrainEditPreview || !!terrainLocalPreview
   const editingBlocked = localGenerationBusy || !!localGenerationPreview || domainSummary.blocking || regionalBusy || !!regionalPreview || !!structure || !!restore || !!structureRestore || !!terrainPreview || terrainBusy || !!terrainEditPreview || terrainEditBusy || !!terrainLocalPreview || terrainLocalBusy || aiShown || aiCritical
@@ -468,7 +502,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     const domains = domainOperations.summary(exceptDomain)
     return { busy: busy || localGenerationBusy || domains.busy || terrainBusy || terrainEditBusy || regionalBusy || actionPending.current || catalogPending.current || aiCritical, preparing: !!controller.current && creatingStageRef.current !== 'saving',
       newScene, candidate: !!candidate, terrainPreview: domains.hasDraft || domains.hasCandidate || !!localGenerationPreviewRef.current || localGenerationDraftRef.current || !!terrainPreview || !!terrainEditPreview || !!terrainLocalPreview || terrainEditDraft || !!regionalPreview || regionalDraft, placement: !!placement || !!fillCopy, prefabPlacement: !!prefabPlacement, sketch: !!sketch,
-      outdoorSketch: !!outdoorSketch || !!openingTool, restore: !!restore, structureRestore: !!structureRestore, structure: !!structure, aiPreview: aiShown, ...formDrafts }
+      outdoorSketch: !!outdoorSketch || !!openingTool, restore: !!restore, structureRestore: !!structureRestore, structure: !!structure, aiPreview: aiShown, imageImport: imageImportDraftRef.current !== null, ...formDrafts }
   }
   const transientRef = useRef(transient)
   transientRef.current = transient
@@ -478,7 +512,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (reason) { setMessage(reason); return false }
     return true
   }
-  const hasDraft = domainSummary.hasDraft || localGenerationDraft || regionalDraft || terrainEditDraft || !!placement || !!fillCopy || !!prefabPlacement || !!sketch || !!outdoorSketch || !!openingTool || Object.values(formDrafts).some(Boolean)
+  const hasDraft = imageImportDraft !== null || domainSummary.hasDraft || localGenerationDraft || regionalDraft || terrainEditDraft || !!placement || !!fillCopy || !!prefabPlacement || !!sketch || !!outdoorSketch || !!openingTool || Object.values(formDrafts).some(Boolean)
   const editDisabled = busy || catalogBusy || editingBlocked || hasDraft
   const markFormDraft = (key: keyof typeof formDrafts) => setFormDrafts(current => current[key] ? current : { ...current, [key]: true })
   const finishFormDraft = (key: keyof typeof formDrafts, reset = false) => {
@@ -604,8 +638,9 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     window.addEventListener('keydown', key)
     return () => { if (background) background.inert = false; window.removeEventListener('keydown', key); requestAnimationFrame(() => { if (prior?.isConnected) prior.focus() }) }
   }, [candidate, newScene, busy, active, !!preparation])
-  const prepare = (factory: (signal: AbortSignal, progress?: LoadProgress) => Promise<EditableProject>, description: string) => {
-    if (actionPending.current || !guard()) return
+  const prepare = (factory: (signal: AbortSignal, progress?: LoadProgress) => Promise<EditableProject>, description: string, imageDraftToken?: string): boolean => {
+    if (imageDraftToken !== undefined && !imageImportDraftMatches(imageImportDraftRef.current, imageDraftToken)) { setMessage('图片草稿已变化，请返回图片工具重新预览。'); return false }
+    if (actionPending.current || !guard(imageDraftToken === undefined ? undefined : 'imageImport')) return false
     const abort = new AbortController(); controller.current = abort
     setPreparation({ abort, description, progress: null, cancelling: false })
     void action(async () => {
@@ -616,14 +651,16 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
         abort.signal.throwIfAborted()
         const prepared = await factory(abort.signal, progress => setPreparation(current => current?.abort === abort && !abort.signal.aborted ? { ...current, progress } : current))
         abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
-        setCandidate({ project: prepared, checkpoint, description })
+        setCandidate({ project: prepared, checkpoint, description, ...(imageDraftToken === undefined ? {} : { imageDraftToken }) })
       } finally {
         if (controller.current === abort) controller.current = null
         setPreparation(current => current?.abort === abort ? null : current)
       }
     }, '准备打开工程')
+    return true
   }
   const openReference = (sceneId: string, reload = false) => {
+    if (!guardAssetEditorDeparture()) return
     if (!reload && sceneId === compositionWorkspace.getState().project?.document.sceneId) return
     if (!guard()) return
     void action(async () => {
@@ -638,6 +675,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     }, reload ? '重新打开工程' : '打开本地工程')
   }
   const openNewScene = () => {
+    if (!guardAssetEditorDeparture()) return
     if (!guard()) return
     modalOrigin.current = document.activeElement as HTMLElement | null
     setMessage(null); setVisualNewScene(false); setNewScene(true)
@@ -962,8 +1000,9 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     }, '比较区域来源')
   }
   const openVisualNewScene = () => { if (!guard()) return; openNewScene(); setVisualNewScene(true) }
-  const requestImport = () => { if (guard()) file.current?.click() }
+  const requestImport = () => { if (guardAssetEditorDeparture() && guard()) file.current?.click() }
   const leave = async (): Promise<boolean> => {
+    if (!guardAssetEditorDeparture()) return false
     if (!guard()) return false
     actionPending.current = true; setBusyMessage('正在保存当前编辑，完成后离开…'); setBusy(true)
     const checkpoint = compositionWorkspace.checkpoint()
@@ -979,9 +1018,10 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (requested.type === 'new') openNewScene()
     else if (requested.type === 'generate') { if (guard()) { setAudience('gm'); openResources('generate') } }
     else if (requested.type === 'import') requestImport()
-    else if (requested.type === 'image-import') { if (guard()) { setAudience('gm'); setSidebar('scene'); openResources('scene'); setImageImportRequest(value => value + 1) } }
+    else if (requested.type === 'image-import') { if (guard('imageImport')) { setAudience('gm'); setSidebar('scene'); openResources('scene'); setImageImportRequest(value => value + 1) } }
     else if (requested.type === 'open') openReference(requested.sceneId)
     else if (requested.type === 'open-project') {
+      if (!guardAssetEditorDeparture()) return
       if (!requested.reload && requested.project.document.sceneId === compositionWorkspace.getState().project?.document.sceneId) return
       if (!guard()) return
       void action(async () => { const checkpoint = compositionWorkspace.checkpoint(); await compositionWorkspace.flush(); compositionWorkspace.assertCheckpoint(checkpoint); if (requested.saved !== false) await compositionWorkspace.openPersisted(requested.project, checkpoint); else await compositionWorkspace.adoptNew(requested.project, checkpoint); setSessionGeneration(value => value + 1); setAudience('gm'); setSelected(null) }, '打开工程')
@@ -1140,6 +1180,30 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       } finally { if (controller.current === abort) controller.current = null }
     }, '层次与布景候选未通过，工程未修改')
   }
+  const previewImageCandidate = async (source: ImageEnhancementSource, prepare: (current: EditableProject, signal: AbortSignal) => ReturnType<typeof prepareImageEnhancementCandidate>, signal?: AbortSignal) => {
+    signal?.throwIfAborted()
+    if (audience !== 'gm' || !guard() || actionPending.current) throw new Error('请先完成当前场景操作，再预览画质候选。')
+    const current = compositionWorkspace.getState().project
+    if (!current) throw new Error('当前工程已关闭。')
+    const checkpoint = compositionWorkspace.checkpoint(), abort = new AbortController()
+    const cancel = () => abort.abort()
+    signal?.addEventListener('abort', cancel, { once: true })
+    controller.current = abort; actionPending.current = true; setBusy(true); setBusyMessage('正在检查画质候选与原始来源…')
+    try {
+      const candidate = await prepare(current, abort.signal)
+      abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
+      const prepared = await compositionWorkspace.previewCatalogCommands(candidate.catalog, candidate.commands, { checkpoint, signal: abort.signal })
+      if (abort.signal.aborted) { compositionWorkspace.cancelPreview(prepared); abort.signal.throwIfAborted() }
+      setStructure({ prepared, checkpoint, commands: candidate.commands, document: prepared.document,
+        description: candidate.label, kind: 'image-enhancement', scopeIds: [source.target.id] })
+    } finally {
+      signal?.removeEventListener('abort', cancel)
+      if (controller.current === abort) controller.current = null
+      actionPending.current = false; setBusy(false)
+    }
+  }
+  const previewImageEnhancement = (source: ImageEnhancementSource, recipe: ImageEnhancementRecipe, scope?: Uint8Array, signal?: AbortSignal) => previewImageCandidate(source, (current, activeSignal) => prepareImageEnhancementCandidate(current, source, recipe, scope, activeSignal), signal)
+  const previewImageRefinement = (source: ImageEnhancementSource, candidate: ImageRefinementCandidate, signal?: AbortSignal) => previewImageCandidate(source, (current, activeSignal) => prepareImageRefinementCandidate(current, source, candidate, activeSignal), signal)
   const previewDecorationSources = (definitionIds: string[]) => {
     if (!completeProject || audience !== 'gm' || !guard('outdoorForm')) return
     const requested = [...definitionIds]
@@ -1614,6 +1678,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const showNotes = () => { if (!guard()) return; setBuildingTask('note'); setSidebar('building'); inspect('building') }
   const showSamples = () => inspect('samples')
   const resumeDraft = () => {
+    if (imageImportDraft !== null) { request({ type: 'image-import' }); return }
     if (sculptSession) { setSidebar('outdoor'); inspect('sculpt'); return }
     if (elevationSession) { setSidebar('outdoor'); inspect('elevation'); return }
     if (localGenerationDraft) { setSidebar('outdoor'); setOutdoorTab('regenerate'); inspect('regenerate'); return }
@@ -1728,28 +1793,33 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           <div hidden={sidebar !== 'visual' || audience !== 'gm'} onChangeCapture={() => markFormDraft('visualForm')}>{completeProject && <SelectionSubscriber session={selectionSession}>{ids => <VisualPanel surfaceRequest={surfaceRequest} detailsTarget={visualTarget} detailsActive={detailMode === 'visual' && !catalogDetailOpen} activeTab={visualTab} onTabChange={tab => { if (tab !== visualTab && !guard('visualForm')) return; setVisualTab(tab); inspect('visual') }} onInspect={() => inspect('visual')} key={`${panelKey}-${completeProject.document.revision}-${formReset.visualForm}`} scene={completeProject.document} appearance={completeProject.appearance} historyIdentity={completeProject.historyIdentity} layerId={currentLayerId} selectedIds={ids} disabled={toolDisabled(['visualForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'visualForm')}  onBoundaryEditor={setBoundaryEditor} onDraftChange={() => markFormDraft('visualForm')}/>}</SelectionSubscriber>}</div>
           <div hidden={sidebar !== 'generate' || audience !== 'gm'}>{generationTools}</div>
           <div hidden={sidebar !== 'history' || audience !== 'gm'}>{historyBrowser}</div>
-          <div hidden={sidebar !== 'scene' && audience === 'gm'}>{audience === 'gm' && <><ImageImportTool disabled={editDisabled} requestKey={imageImportRequest} onPrepare={prepare}/>{imageLibraryStatus && imageLibraryStatus.sceneId === project?.document.sceneId && <div role="status" className="asset-muted"><p>{imageLibraryStatus.message}</p>{imageLibraryStatus.failed && <button className="secondary" disabled={editDisabled} onClick={() => { if (project) void syncImageItems(project.document.sceneId, Object.keys(project.document.props)) }}>重试保存拆解素材</button>}</div>}</>}<div className="workspace-scene-actions"><button className="secondary" disabled={!project || audience === 'player'} onClick={showSettings}>场景设置</button></div>{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
+          <div hidden={sidebar !== 'scene' && audience === 'gm'}>{audience === 'gm' && <><ImageImportTool key={imageImportReset} disabled={toolDisabled(['imageImport'])} requestKey={imageImportRequest} onDraftChange={updateImageImportDraft} onPrepare={(factory, description, token) => prepare(factory, description, token)}/>{imageLibraryStatus && imageLibraryStatus.sceneId === project?.document.sceneId && <div role="status" className="asset-muted"><p>{imageLibraryStatus.message}</p>{imageLibraryStatus.failed && <button className="secondary" disabled={editDisabled} onClick={() => { if (project) void syncImageItems(project.document.sceneId, Object.keys(project.document.props)) }}>重试保存拆解素材</button>}</div>}</>}<div className="workspace-scene-actions"><button className="secondary" disabled={!project || audience === 'player'} onClick={showSettings}>场景设置</button></div>{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
         </div>
+  const editInspectorProp = (selected: string, commands: SceneCommand[], description: string, selectionAfterCommit?: string | null) => {
+    if (!completeProject) return
+    const scatterOwner = Object.values(completeProject.document.scatterGroups).find(group => Object.values(group.members).some(member => member.propId === selected))
+    const aggregateMember = Object.values(completeProject.document.aggregateCoordinates?.groups ?? {}).some(group => group.members.some(member => member.kind === 'prop' && member.id === selected))
+    if (aggregateMember && commands.length === 1 && commands[0].type === 'updateProp'
+      && Object.keys(commands[0].changes).every(field => field === 'positionMm' || field === 'rotationDeg')) {
+      preview(commands, description); return
+    }
+    if (!scatterOwner) { commit(async () => { await compositionWorkspace.execute(commands); if (selectionAfterCommit !== undefined) setSelected(selectionAfterCommit) }); return }
+    if (!commands.every(isOutdoorCommand)) { setMessage('散布成员修改包含不支持的室外操作。'); return }
+    previewOutdoor(commands as OutdoorCommand[], description, selectionAfterCommit)
+  }
   const inspectorPanel = <SelectionSubscriber session={selectionSession}>{ids => {
     const selectedIds = ids, selected = ids.length === 1 ? ids[0] : null
+    const enhancement = completeProject && selected ? (['prop', 'room', 'terrainArea', 'wall'] as const)
+      .map(kind => ({ kind, id: selected })).find(target => target.kind === 'prop' ? !!completeProject.document.props[target.id] : target.kind === 'room' ? !!completeProject.document.rooms[target.id] : target.kind === 'wall' ? !!completeProject.document.walls[target.id] : !!completeProject.document.terrainAreas[target.id]) : undefined
     return <aside className="asset-inspector">
+      {enhancement && audience === 'gm' && <button type="button" className="secondary asset-wide" disabled={editDisabled} onClick={() => { if (guardAssetEditorDeparture() && guard()) setEnhancementTarget(enhancement) }}>编辑素材</button>}
       {openingTool ? <OpeningPlacementPanel value={openingTool} unit={completeProject?.document.units.display ?? 'm'} disabled={busy} onChange={setOpeningTool} onCancel={() => setOpeningTool(null)}/> : project && placement && audience === 'gm' ? <PlacementInspector scene={project.document} prop={placement.prop} busy={busy} ready={placementReady} onChange={changes => setPlacement(current => current ? { ...current, prop: { ...current.prop, ...changes } } : null)} onPlace={() => placeAt(placement.prop.positionMm)} onCancel={() => setPlacement(null)}/>
             : visibleProject && selectedIds.length > 1 && audience === 'gm' ? <div onChangeCapture={() => markFormDraft('selectionForm')}><SelectionInspector key={`${panelKey}-${formReset.selectionForm}`} scene={project!.document} ids={selectedIds} summaryReader={selectionSummaryReader} busy={toolDisabled(['selectionForm'])} onAction={batchAction} onClear={() => select(null)}/></div>
               : completeProject && selected && audience === 'gm' && (completeProject.document.decorations?.[selected] || completeProject.document.decorationClusters?.[selected]) ? <div onChangeCapture={() => markFormDraft('outdoorInspector')}><DecorationInspector onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.outdoorInspector}`} scene={completeProject.document} id={selected} disabled={toolDisabled(['outdoorInspector'])} onPreview={(commands, label) => previewDecorations(commands, label, 'outdoorInspector')} onSelect={select}/></div>
                 : completeProject && selected && audience === 'gm' && outdoorEntityKind(completeProject.document, selected) ? <div onChangeCapture={() => markFormDraft('outdoorInspector')} onClickCapture={event => { if ((event.target as HTMLElement).closest('.connection-route-fields button')) markFormDraft('outdoorInspector') }}><OutdoorInspector onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.outdoorInspector}`} scene={completeProject.document} id={selected} disabled={toolDisabled(['outdoorInspector'])} onPreview={(commands, label) => previewOutdoor(commands as OutdoorCommand[], label, undefined, 'outdoorInspector')} onSelect={select} onBoundaryEditor={editConnectionInspector}/></div>
                   : completeProject && selected && audience === 'gm' && (completeProject.document.rooms[selected] || completeProject.document.walls[selected] || completeProject.document.vertices[selected] || completeProject.document.openings[selected] || completeProject.document.notes[selected] || completeProject.document.regions[selected]?.kind === 'manualMask') ? <div onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-road-door-start]')) markFormDraft('buildingInspector') }}><BuildingInspector onRoadDoorStart={startDoorRoad} onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.buildingInspector}`} scene={completeProject.document} selected={selected} layerId={currentLayerId} disabled={toolDisabled(['buildingInspector'])} onPreview={(commands, label) => previewBuilding(commands, label, 'buildingInspector')} onSelect={select} onLock={(kind, id, locked) => commit(() => compositionWorkspace.execute([{ type: 'setEditLock', kind, id, locked }]))}/>{completeProject.document.openings[selected]?.kind === 'door' && <PathAttachmentTools project={completeProject} openingId={selected} disabled={toolDisabled(['buildingInspector'])} onDraftChange={() => markFormDraft('buildingInspector')} onPreview={(commands, label) => previewBuilding(commands, label, 'buildingInspector')}/>}</div>
                     : completeProject && visibleProject && selected && audience === 'gm' ? <div>
-                        <SceneInspector onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.propAppearanceForm}`} project={completeProject} selected={selected} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onPropAppearanceDraft} onFillCopy={beginFillCopy} onFillCopyNumeric={previewNumericFillCopy} fillCopyBusy={!!fillCopy} workspace={compositionWorkspace} onSelect={select} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => command.type === 'replacePropAppearance') ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => {
-                          const scatterOwner = Object.values(completeProject.document.scatterGroups).find(group => Object.values(group.members).some(member => member.propId === selected))
-                          const aggregateMember = Object.values(completeProject.document.aggregateCoordinates?.groups ?? {}).some(group => group.members.some(member => member.kind === 'prop' && member.id === selected))
-                          if (aggregateMember && commands.length === 1 && commands[0].type === 'updateProp'
-                            && Object.keys(commands[0].changes).every(field => field === 'positionMm' || field === 'rotationDeg')) {
-                            preview(commands, description); return
-                          }
-                          if (!scatterOwner) { commit(async () => { await compositionWorkspace.execute(commands); if (selectionAfterCommit !== undefined) setSelected(selectionAfterCommit) }); return }
-                          if (!commands.every(isOutdoorCommand)) { setMessage('散布成员修改包含不支持的室外操作。'); return }
-                          previewOutdoor(commands as OutdoorCommand[], description, selectionAfterCommit)
-                        }}/>
+                        <SceneInspector onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.propAppearanceForm}`} project={completeProject} selected={selected} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onPropAppearanceDraft} onFillCopy={beginFillCopy} onFillCopyNumeric={previewNumericFillCopy} fillCopyBusy={!!fillCopy} workspace={compositionWorkspace} onSelect={select} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => command.type === 'replacePropAppearance') ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => editInspectorProp(selected, commands, description, selectionAfterCommit)}/>
                       </div> : <>
           <div className="asset-section-heading"><Move size={16}/><h2>{audience === 'player' ? '玩家输出预览' : '当前选择'}</h2></div>
           <p className="asset-muted">{audience === 'player' ? '画布和对象列表仅展示公开投影。' : '点击画布或左侧场景对象查看详情；选择工具后在这里调整参数。'}</p>
@@ -1777,7 +1847,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             </div>
             <div className="workspace-candidate-actions">
               {(structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && <label className="building-check"><input type="checkbox" aria-label="确认完整影响范围" checked={structure.confirmed ?? false} onChange={event => setStructure(current => current ? { ...current, confirmed: event.target.checked } : current)}/>确认以上修改及关联影响</label>}{(structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && <p className="workspace-confirm-help">勾选确认后可采用；取消预览不会修改工程。</p>}
-              <div className="workspace-candidate-buttons"><button className="secondary" disabled={busy} onClick={cancelStructurePreview}>{structure.fillCopy ? '取消填充复制预览' : structure.afterUse ? '取消素材添加' : structure.assetBatch ? '取消素材导入预览' : structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : structure.kind === 'outdoor' ? '取消室外预览' : structure.kind === 'building' ? '取消结构预览' : structure.kind === 'visual' ? '取消视觉预览' : structure.kind === 'display' ? '取消显示预览' : '取消组件预览'}</button><button className="primary" disabled={busy || !assetQualityAcknowledgmentsComplete(structure.assetQuality ?? [], structure.qualityAcknowledgments) || (structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && !structure.confirmed} onClick={adoptStructurePreview}>{structure.fillCopy ? '采用填充复制' : structure.afterUse ? structure.afterUse.selector.kind === 'material' ? '添加并应用材质' : '添加并继续放置' : structure.assetBatch ? '采用所选素材' : structure.kind === 'batch' ? '采用批量修改' : structure.kind === 'layer' ? '采用图层修改' : structure.kind === 'outdoor' ? '采用室外修改' : structure.kind === 'building' ? '采用结构修改' : structure.kind === 'visual' ? '采用视觉修改' : structure.kind === 'display' ? '采用显示设置' : '采用组件修改'}</button></div>
+              <div className="workspace-candidate-buttons"><button className="secondary" disabled={busy} onClick={cancelStructurePreview}>{structure.kind === 'image-enhancement' ? '取消图像预览' : structure.fillCopy ? '取消填充复制预览' : structure.afterUse ? '取消素材添加' : structure.assetBatch ? '取消素材导入预览' : structure.kind === 'batch' ? '取消批量预览' : structure.kind === 'layer' ? '取消图层预览' : structure.kind === 'outdoor' ? '取消室外预览' : structure.kind === 'building' ? '取消结构预览' : structure.kind === 'visual' ? '取消视觉预览' : structure.kind === 'display' ? '取消显示预览' : '取消组件预览'}</button><button className="primary" disabled={busy || !assetQualityAcknowledgmentsComplete(structure.assetQuality ?? [], structure.qualityAcknowledgments) || (structure.kind === 'building' || structure.kind === 'outdoor' || structure.kind === 'visual') && !structure.confirmed} onClick={adoptStructurePreview}>{structure.kind === 'image-enhancement' ? '采用图像候选' : structure.fillCopy ? '采用填充复制' : structure.afterUse ? structure.afterUse.selector.kind === 'material' ? '添加并应用材质' : '添加并继续放置' : structure.assetBatch ? '采用所选素材' : structure.kind === 'batch' ? '采用批量修改' : structure.kind === 'layer' ? '采用图层修改' : structure.kind === 'outdoor' ? '采用室外修改' : structure.kind === 'building' ? '采用结构修改' : structure.kind === 'visual' ? '采用视觉修改' : structure.kind === 'display' ? '采用显示设置' : '采用组件修改'}</button></div>
             </div>
           </section>}
           {restore && <div className="asset-structure-preview history-restore-banner" role="status" aria-label="局部恢复候选"><div><strong>{restore.snapshot.name} · 局部恢复预览</strong><span>{restore.plan.request.ids.length} 件请求 · {restore.plan.changes.length} 件变化 · 当前 r{restore.currentRevision}</span><label className="building-check"><input type="checkbox" aria-label="确认恢复完整影响范围" checked={restoreConfirmed} onChange={event => setRestoreConfirmed(event.target.checked)}/>确认下方列出的全部依赖与跨层变化</label></div><button className="secondary" disabled={busy} onClick={() => { compositionWorkspace.cancelRestore(restore); setRestore(null); setMessage('已取消局部恢复预览，工程未修改。') }}>取消局部恢复</button><button className="primary" disabled={busy || !restore.plan.changed || !restoreConfirmed} onClick={() => void action(async () => { try { await compositionWorkspace.applyRestore(restore); setSelected(null); setMessage(`已保护恢复前工程并恢复「${restore.snapshot.name}」的所选内容，可撤销；保存状态见右上角。`) } finally { setRestore(null); setHistoryRefresh(value => value + 1) } }, '采用局部恢复')}>保护当前并采用</button></div>}
@@ -1790,7 +1860,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           {sketch && <div className="workspace-canvas-hint" role="status" aria-label={sketch.kind === 'ruler' ? '量尺操作提示' : '房间绘制提示'}><span>{sketch.kind === 'ruler' ? `${sketch.points.length} / 2 点 · 点击起点和终点测量距离；Esc 退出。` : finishBuilding ? '轮廓已就绪，可先检查名称、尺寸和支撑表面；Enter 预览，Esc 退出。' : sketch.kind === 'rectangle' ? `${sketch.points.length} / 2 点 · 点击矩形的两个对角；Esc 退出。` : `${sketch.points.length} 个点 · 继续点击顶点，至少三点后预览；Esc 退出。`}</span>{finishBuilding && <button className="primary" disabled={busy || editingBlocked} onClick={finishBuilding}>预览房间</button>}<button className="secondary" disabled={busy || editingBlocked} onClick={() => setSketch(null)}>退出{sketch.kind === 'ruler' ? '量尺' : '房间绘制'}</button></div>}
           {outdoorSketch && <div className="workspace-canvas-hint" role="status" aria-label="地形绘制提示"><span>{outdoorSketch.points.length} 个点 · {finishOutdoor ? '草图已就绪，预览后确认材质、宽度与实际影响。' : '继续在画布取点；道路与连接至少两点，地形与区域至少三点；Esc 退出。'}</span>{finishOutdoor && <> <button className="primary" disabled={busy || editingBlocked} onClick={finishOutdoor}>预览绘制结果</button></>}<button className="secondary" disabled={busy || editingBlocked} onClick={() => setOutdoorSketch(null)}>退出地形绘制</button></div>}
           {openingTool && <div className="workspace-canvas-hint">点击目标墙面，门窗将以点击位置为中心。净宽可在「放置门窗」面板调整；Esc 退出。</div>}
-          <div className="asset-view-bar">{completeProject && <label className="workspace-floor-switch">当前楼层<select aria-label="当前楼层" value={activeFloorId} disabled={editDisabled} onChange={event => changeFloor(event.target.value)}>{Object.values(completeProject.document.floors).map(floor => <option key={floor.id} value={floor.id}>{floor.name}</option>)}</select></label>}<div role="group" aria-label="预览受众" className="asset-audience"><button disabled={editDisabled} aria-pressed={audience === 'gm'} onClick={() => { if (guard()) setAudience('gm') }}>主持人</button><button disabled={editDisabled} aria-pressed={audience === 'player'} onClick={() => { if (guard()) { setAudience('player'); setGroundView(false); setSelected(null); setDetailMode('selection'); setCatalogDetailOpen(false) } }}>玩家</button></div><div className="asset-view-actions"><span>{visibleProject && visibleFloor ? `${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.width, visibleProject.document.units.display)} × ${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.height, visibleProject.document.units.display)} · 固定范围` : '二维俯视 · 毫米世界坐标'}</span>{project && audience === 'gm' && <button className="secondary" disabled={busy} aria-pressed={atmosphereBypass} title="暂时关闭氛围调色、点光、薄雾和滤镜，保留材质与高差阴影；仅影响主持人预览。" onClick={() => setAtmosphereBypass(value => !value)}>对比原色（仅预览）</button>}{project && audience === 'gm' && <button className="secondary" disabled={editDisabled} aria-pressed={groundView} onClick={() => setGroundView(value => !value)}>地面查看</button>}</div></div>
+          <div className="asset-view-bar">{completeProject && <label className="workspace-floor-switch">当前楼层<select aria-label="当前楼层" value={activeFloorId} disabled={editDisabled} onChange={event => changeFloor(event.target.value)}>{Object.values(completeProject.document.floors).map(floor => <option key={floor.id} value={floor.id}>{floor.name}</option>)}</select></label>}<div role="group" aria-label="预览受众" className="asset-audience"><button disabled={editDisabled} aria-pressed={audience === 'gm'} onClick={() => { if (guard()) setAudience('gm') }}>主持人</button><button disabled={editDisabled} aria-pressed={audience === 'player'} onClick={() => { if (guardAssetEditorDeparture() && guard()) { setAudience('player'); setGroundView(false); setSelected(null); setDetailMode('selection'); setCatalogDetailOpen(false) } }}>玩家</button></div><div className="asset-view-actions"><span>{visibleProject && visibleFloor ? `${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.width, visibleProject.document.units.display)} × ${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.height, visibleProject.document.units.display)} · 固定范围` : '二维俯视 · 毫米世界坐标'}</span>{project && audience === 'gm' && <button className="secondary" disabled={busy} aria-pressed={atmosphereBypass} title="暂时关闭氛围调色、点光、薄雾和滤镜，保留材质与高差阴影；仅影响主持人预览。" onClick={() => setAtmosphereBypass(value => !value)}>对比原色（仅预览）</button>}{project && audience === 'gm' && <button className="secondary" disabled={editDisabled} aria-pressed={groundView} onClick={() => setGroundView(value => !value)}>地面查看</button>}</div></div>
           {localGenerationBusy && <div className="asset-structure-preview" role="status" aria-label="局部重生成候选状态"><div><strong>{localGenerationBusy ? '正在准备局部重生成' : '局部重生成候选 · 当前工程尚未改变'}</strong><span>在地形的「局部重生成」中审阅实际修改与依赖，再保护并采用。</span></div><button className="secondary" disabled={busy} onClick={() => cancelLocalGeneration()}>取消局部候选</button></div>}
           {domainOperationState.mixed.phase === 'preparing' && <div className="asset-structure-preview" role="status" aria-label="混合场景候选状态"><div><strong>{mixedBusy ? '正在准备混合场景' : '混合场景候选 · 当前工程尚未改变'}</strong><span>在生成面板审阅建筑支撑、真实外门和室外路线，再保存为新工程或取消。</span></div><button className="secondary" disabled={busy} onClick={() => cancelMixed(true, true)}>取消混合场景预览</button></div>}
           {domainOperationState.volcano.phase === 'preparing' && <div className="asset-structure-preview" role="status" aria-label="火山候选状态"><div><strong>{volcanoBusy ? '正在准备火山' : '火山候选 · 当前工程尚未改变'}</strong><span>在生成面板查看真实连接、路线及独立危险设置，再保存为新工程或取消。</span></div><button className="secondary" disabled={busy} onClick={() => cancelVolcano()}>取消火山预览</button></div>}
@@ -1827,7 +1897,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   return <WorkspacePresentationContext.Provider value={{ ...presentation, aiReviewActive: !!aiPreview }}>
     <div className="asset-shell history-shell composition-shell outdoor-shell workspace-unified" ref={shell} data-testid="outdoor-workbench" data-native-format={`sceneweave-complete-project@${completeProject?.schemaVersion ?? 1}`} data-revision={project?.document.revision}
       data-transaction-revision={state.lastTransaction?.revision} data-transaction-committed-at={state.lastTransaction?.committedAtMs}>
-      <header className="asset-header"><button className="asset-brand" aria-label="回到首页" onClick={onBack}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><div className="workspace-project-title"><small>统一工作区</small><h1>{project?.document.title ?? '织境场景'}</h1></div></div><div className="asset-toolbar"><button aria-label="撤销编辑" title="撤销编辑（Ctrl / ⌘ + Z）" aria-keyshortcuts="Control+Z Meta+Z" disabled={!state.canUndo || editDisabled} onClick={() => commit(() => applyEditHistory('undo'))}><Undo2 size={17}/></button><button aria-label="重做编辑" title="重做编辑（Ctrl / ⌘ + Shift + Z / Y）" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y Meta+Y" disabled={!state.canRedo || editDisabled} onClick={() => commit(() => applyEditHistory('redo'))}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || audience === 'player'} onClick={openHistory}><Archive size={17}/></button></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`} title="已采用的编辑自动保存在此浏览器；下载工程备份请使用「导出」。">{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : state.status === 'error' || state.status === 'conflict' ? <AlertTriangle size={14}/> : state.status === 'unsaved' ? <Clock3 size={14}/> : state.status === 'saved' ? <CheckCircle2 size={14}/> : null} {saveLabels[state.status]}</span><details className="workspace-file-menu" onClick={event => { if ((event.target as HTMLElement).closest('button')) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.currentTarget.open) { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}><summary>文件</summary><div role="group" aria-label="文件操作"><button className="secondary" disabled={editDisabled} onClick={openNewScene}>新建空白场景</button><button className="secondary" disabled={editDisabled} onClick={requestImport}>打开工程文件</button><button className="secondary" disabled={editDisabled} onClick={() => request({ type: 'image-import' })}>从图片新建场景</button><button className="secondary" disabled={editDisabled} onClick={showSamples}>从样板开始</button><button className="secondary" disabled={editDisabled || !project} onClick={() => request({ type: 'reload' })}>重新载入已保存版本</button><button className="secondary" disabled={busy || editingBlocked || !project} onClick={() => backup()}>备份可编辑工程 · 含秘密</button></div></details><WorkspaceHelp/><details className="workspace-export-menu" onKeyDown={event => {
+      <header className="asset-header"><button className="asset-brand" aria-label="回到首页" onClick={onBack}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><div className="workspace-project-title"><small>统一工作区</small><h1>{project?.document.title ?? '织境场景'}</h1></div></div><div className="asset-toolbar"><button aria-label="撤销编辑" title="撤销编辑（Ctrl / ⌘ + Z）" aria-keyshortcuts="Control+Z Meta+Z" disabled={!state.canUndo || editDisabled} onClick={() => commit(() => applyEditHistory('undo'))}><Undo2 size={17}/></button><button aria-label="重做编辑" title="重做编辑（Ctrl / ⌘ + Shift + Z / Y）" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y Meta+Y" disabled={!state.canRedo || editDisabled} onClick={() => commit(() => applyEditHistory('redo'))}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || audience === 'player'} onClick={openHistory}><Archive size={17}/></button></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`} title="已采用的编辑自动保存在此浏览器；下载工程备份请使用「导出」。">{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : state.status === 'error' || state.status === 'conflict' ? <AlertTriangle size={14}/> : state.status === 'unsaved' ? <Clock3 size={14}/> : state.status === 'saved' ? <CheckCircle2 size={14}/> : null} {saveLabels[state.status]}{imageImportDraft !== null ? ' · 图片草稿未采用' : ''}</span><details className="workspace-file-menu" onClick={event => { if ((event.target as HTMLElement).closest('button')) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.currentTarget.open) { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}><summary>文件</summary><div role="group" aria-label="文件操作"><button className="secondary" disabled={editDisabled} onClick={openNewScene}>新建空白场景</button><button className="secondary" disabled={editDisabled} onClick={requestImport}>打开工程文件</button><button className="secondary" disabled={toolDisabled(['imageImport'])} onClick={() => request({ type: 'image-import' })}>从图片新建场景</button><button className="secondary" disabled={editDisabled} onClick={showSamples}>从样板开始</button><button className="secondary" disabled={editDisabled || !project} onClick={() => request({ type: 'reload' })}>重新载入已保存版本</button><button className="secondary" disabled={busy || editingBlocked || !project} onClick={() => backup()}>备份可编辑工程 · 含秘密</button></div></details><WorkspaceHelp/><details className="workspace-export-menu" onKeyDown={event => {
         if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !event.currentTarget.open) return
         event.preventDefault(); event.stopPropagation()
         event.currentTarget.open = false
@@ -1877,6 +1947,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       <input hidden ref={file} type="file" accept=".sceneweave" aria-label="选择完整工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected && guard()) onImportFile(selected) }}/>
       {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>{busyMessage}{controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}
     </div>
+    {active && completeProject && audience === 'gm' && enhancementTarget && <SceneAssetEditor key={`${completeProject.document.sceneId}-${enhancementTarget.kind}-${enhancementTarget.id}`} project={completeProject} target={enhancementTarget} disabled={editDisabled} previewActive={!!structure} resumeRequest={assetEditorResume} onDraftChange={onAssetEditorDraft} propertiesDirty={propAppearanceDraftOwners.current.editor || enhancementTarget.kind !== 'prop' && formDrafts.appearanceForm} onPreview={previewImageEnhancement} onRefinementPreview={previewImageRefinement} onClose={() => { assetEditorDraft.current = false; onEditorAppearanceDraft(false); if (enhancementTarget.kind !== 'prop') finishFormDraft('appearanceForm', true); else setFormReset(current => ({ ...current, propAppearanceForm: current.propAppearanceForm + 1 })); setEnhancementTarget(null) }} properties={enhancementTarget.kind === 'prop' ? <SceneInspector project={completeProject} selected={enhancementTarget.id} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onEditorAppearanceDraft} workspace={compositionWorkspace} onSelect={id => { select(id) }} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => command.type === 'replacePropAppearance') ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => editInspectorProp(enhancementTarget.id, commands, description, selectionAfterCommit)}/> : <div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel project={completeProject} ids={[enhancementTarget.id]} layerId={completeProject.document.entityLayers[enhancementTarget.id]} scopeKind="targets" disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div>}/>}
     {active && menu && project && <SceneContextMenu key={`${menu.checkpoint}-${menu.x}-${menu.y}-${menu.ids.join('|')}`} project={project} menu={menu} onMoveToLayer={() => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); selectionSession.set(menu.ids); setLayerMoveRequest(value => value + 1); openLayers() } catch (error) { setMessage(String(error)) } }} onClose={closeMenu} onAction={action => batchAction(action, undefined, menu.ids, menu.checkpoint)} onSelect={select} onFit={() => setFitRequest(value => value + 1)} onPlace={(id, point) => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); choosePlacement(id, point) } catch (error) { setMessage(String(error)) } }} onEdit={() => { inspect('selection'); requestAnimationFrame(() => requestAnimationFrame(() => { const input = shell.current?.querySelector<HTMLElement>('.asset-inspector input:not(:disabled)') ?? shell.current?.querySelector<HTMLElement>('.asset-inspector button:not(:disabled)'); input?.focus() })) }}/>}
     {active && (candidate || newScene || preparation) && <div className="modal-scrim workspace-modal-scrim"><div ref={dialog} className="modal workspace-modal" role="dialog" aria-modal="true" aria-label={preparation ? '准备打开工程' : newScene ? '新建空白场景' : '确认打开工程'}>
       <div className="modal-heading"><h2>{preparation ? '准备打开工程' : newScene ? '新建空白场景' : '确认打开工程'}</h2><button className="icon-button" disabled={preparation ? preparation.cancelling : busy && !(newScene && creatingStage === 'preparing')} aria-label={preparation ? '关闭准备窗口' : newScene ? '取消新建场景' : '取消打开工程'} onClick={() => { if (preparation) cancelPreparation(); else if (newScene) cancelNewScene(); else setCandidate(null) }}><X size={18}/></button></div>
@@ -1886,7 +1957,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
         <progress className="asset-preparation-progress" aria-label="工程准备进度" max={preparation.progress?.total || 1} value={preparation.progress?.phase === 'resources' ? preparation.progress.completed : undefined}/>
         <p className="asset-muted">准备完成后可审阅并打开副本，当前工程保持。</p>
         <div className="modal-actions"><button className="secondary" disabled={preparation.cancelling} onClick={cancelPreparation}>取消准备</button></div>
-      </> : newScene ? <NewSceneForm visualPack={visualNewScene} busy={busy} cancellable={creatingStage === 'preparing'} failure={message ?? state.error} onCreate={createScene} onCancel={cancelNewScene}/> : candidate && <><p>{candidate.description}</p><div className="asset-candidate"><strong>{candidate.project.document.title}</strong><span>{Object.keys(candidate.project.assets).length} 张位图 · {Object.keys(candidate.project.document.props).length} 件物件 · 完整工程</span></div>{message && <p role="alert" className="asset-form-error">{message}</p>}<div className="modal-actions"><button className="secondary" disabled={busy} onClick={() => setCandidate(null)}>取消</button><button className="primary" disabled={busy} onClick={() => void action(async () => { await ready(); await compositionWorkspace.adoptNew(candidate.project, candidate.checkpoint); setCandidate(null); setSelected(null); setAudience('gm'); setSessionGeneration(value => value + 1) })}>保存并打开副本</button></div></>}
+      </> : newScene ? <NewSceneForm visualPack={visualNewScene} busy={busy} cancellable={creatingStage === 'preparing'} failure={message ?? state.error} onCreate={createScene} onCancel={cancelNewScene}/> : candidate && <><p>{candidate.description}</p><div className="asset-candidate"><strong>{candidate.project.document.title}</strong><span>{Object.keys(candidate.project.assets).length} 张位图 · {Object.keys(candidate.project.document.props).length} 件物件 · 完整工程</span></div>{message && <p role="alert" className="asset-form-error">{message}</p>}<div className="modal-actions"><button className="secondary" disabled={busy} onClick={() => setCandidate(null)}>取消</button><button className="primary" disabled={busy} onClick={() => void action(async () => { await ready(); await compositionWorkspace.adoptNew(candidate.project, candidate.checkpoint); if (imageImportDraftMatches(imageImportDraftRef.current, candidate.imageDraftToken)) updateImageImportDraft(null); setCandidate(null); setSelected(null); setAudience('gm'); setSessionGeneration(value => value + 1) })}>保存并打开副本</button></div></>}
     </div></div>}
   </WorkspacePresentationContext.Provider>
 }
