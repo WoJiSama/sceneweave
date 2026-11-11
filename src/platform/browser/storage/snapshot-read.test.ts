@@ -9,6 +9,8 @@ import * as projectDelta from '../../../shared/project/delta.js'
 import * as projectValidation from '../../../shared/project/validate.js'
 import type { StoredHistoryMetadata } from './database.js'
 import { HistoryMetadataConflictError, ProjectRepository, type SnapshotReadSession } from './repository.js'
+import { LEGACY_SVG_PROCESSOR } from '../../../shared/ai/svg.js'
+import { svgFixtureValidation, svgProjectFixture } from '../../../../tests/helpers/m24-svg-fixtures.js'
 
 const repositories: ProjectRepository[] = [], names = new Set<string>()
 function repository(checking: CompleteValidationOptions, name = `snapshot-read-${crypto.randomUUID()}`): ProjectRepository {
@@ -39,6 +41,24 @@ afterEach(async () => {
 })
 
 describe('operation-owned snapshot read session', () => {
+  it('uses the shared SVG processor identity when reusing an exact snapshot', async () => {
+    const checking = svgFixtureValidation(), repo = repository(checking), { bundle } = svgProjectFixture(), owner = bundle.project.document.sceneId
+    await repo.save(bundle, null)
+    const source = await repo.createSnapshot(bundle, 'SVG source', { expectedRevision: 0, expectedMetadataVersion: 0 }), session = repo.beginSnapshotRead()
+    await session.load(owner, source.id)
+    Object.defineProperty(checking.svg!, 'processor', { value: LEGACY_SVG_PROCESSOR, writable: true, configurable: true, enumerable: true })
+    await expect(session.load(owner, source.id)).rejects.toThrow(/SVG/)
+  })
+
+  it('revalidates changed concurrency and rejects invalid adapter capabilities after a cached read', async () => {
+    const { repo, checking, decode, owner, source } = await setup(), session = repo.beginSnapshotRead()
+    await session.load(owner, source.id)
+    Object.defineProperty(checking.images, 'validationConcurrency', { value: 2, writable: true, configurable: true, enumerable: true })
+    await session.load(owner, source.id)
+    expect(decode).toHaveBeenCalledTimes(2)
+    Object.defineProperty(checking.images, 'validationConcurrency', { value: 3 })
+    await expect(session.load(owner, source.id)).rejects.toThrow()
+  })
   it('reuses only identical successful pixels in one session while public snapshot loads still fully decode', async () => {
     const { repo, decode, original, owner, source } = await setup(), session = repo.beginSnapshotRead()
     const first = await session.load(owner, source.id), second = await session.load(owner, source.id)

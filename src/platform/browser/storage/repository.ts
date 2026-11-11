@@ -173,7 +173,7 @@ interface SnapshotReadState {
   busy: boolean
   writes: Set<Transaction>
   history: HistoryReadSession
-  cached: { json: string; bundle: VerifiedProjectBundle; pixels: readonly unknown[] } | null
+  cached: { json: string; bundle: VerifiedProjectBundle } | null
 }
 export interface ProjectRepositoryOptions {
   name?: string
@@ -924,16 +924,6 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     if (!state || state.closed || this.invalidated) throw new Error('历史读取会话无效、已关闭或不属于当前仓库。')
     return state
   }
-  /** Only trusted platform objects and their own data methods identify pixel validation. */
-  private snapshotPixelKey(): readonly unknown[] | null {
-    const { images, svg } = this.options.validation
-    if (!images || typeof images !== 'object') return null
-    const fields = Object.getOwnPropertyDescriptors(images), methods = ['decode', 'transform', 'encodePng'].map(key => fields[key])
-    if (methods.some(method => !method || !('value' in method) || typeof method.value !== 'function')) return null
-    const rasterize = svg && Object.getOwnPropertyDescriptor(svg, 'rasterize')
-    if (svg && (!rasterize || !('value' in rasterize) || typeof rasterize.value !== 'function')) return null
-    return [images, ...methods.map(method => method.value), svg, rasterize?.value]
-  }
   beginSnapshotRead(): SnapshotReadSession {
     if (this.invalidated) throw new Error('工程数据库连接已失效。')
     const state: SnapshotReadState = { closed: false, busy: false, cached: null, writes: new Set(), history: this.history.beginRead() }
@@ -949,8 +939,6 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     if (state.busy) { this.closeSnapshotRead(state); throw new Error('历史读取会话不能并发使用。') }
     state.busy = true
     const assertActive = () => { this.snapshotReadState(session); checkCancelled(signal) }
-    const samePixels = (left: readonly unknown[] | null, right: readonly unknown[] | null) => left !== null && right !== null
-      && left.length === right.length && left.every((value, index) => value === right[index])
     try {
       assertActive()
       // Each read freshly proves the real DB rows, complete graph, bindings,
@@ -958,9 +946,9 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       const captured = await this.captureSnapshot(owner, snapshotId, options, session)
       assertActive()
       if (!captured) { state.cached = null; return null }
-      const json = canonicalJson(captured.bundle.project), pixels = this.snapshotPixelKey(), cached = state.cached
+      const json = canonicalJson(captured.bundle.project), cached = state.cached
       let bundle: VerifiedProjectBundle | null = null
-      if (cached && json === cached.json && samePixels(pixels, cached.pixels)) {
+      if (cached && json === cached.json) {
         let sameBytes = true
         for (const [hash] of projectResourceRecords(captured.bundle.project)) {
           const actual = await captured.bundle.resources.read(hash), original = await cached.bundle.resources.read(hash)
@@ -972,17 +960,17 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
           }
           if (actual.length !== original.length || !actual.every((byte, index) => byte === original[index])) { sameBytes = false; break }
         }
-        if (sameBytes && samePixels(pixels, this.snapshotPixelKey())) bundle = cached.bundle
+        // The shared owner captures the complete adapter identity, including
+        // processor/profile and concurrency, and fully verifies changed capabilities.
+        if (sameBytes) bundle = await validateProjectSnapshot(cached.bundle, this.validation(options))
       }
-      let proofPixels = pixels
       if (!bundle) {
-        proofPixels = this.snapshotPixelKey()
         bundle = await validateProjectBundle(captured.bundle, this.validation(options))
       }
       assertActive()
       // No RGBA/Bitmap is retained. Only a successful immutable metadata/byte
       // closure may survive until the next read in this explicitly scoped operation.
-      state.cached = proofPixels && samePixels(proofPixels, this.snapshotPixelKey()) ? { json, bundle, pixels: proofPixels } : null
+      state.cached = { json, bundle }
       return { ...captured, bundle }
     } catch (error) {
       this.closeSnapshotRead(state); throw error

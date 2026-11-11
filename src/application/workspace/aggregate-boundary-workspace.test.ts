@@ -3,7 +3,7 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { projectScene } from '../../shared/projection/projection.js'
-import { getSceneDerivationEvidence } from '../../shared/validation/snapshots.js'
+import { getPropUpdateTransaction, getSceneDerivationEvidence } from '../../shared/validation/snapshots.js'
 import { advanceHistoryIdentity } from '../../shared/history/identity.js'
 import { validateSceneDocument } from '../../shared/validation/scene.js'
 import { canonicalJson, cloneJson } from '../../shared/validation/json.js'
@@ -36,7 +36,12 @@ describe('aggregate boundary diagnostics through normal workspace preview', () =
     const { workspace, repository, project } = await setup(), point = project.document.props.item.positionMm
     const move = { type: 'updateProp' as const, id: 'item', changes: { positionMm: { x: 9000, y: 9000 } } }
     const preview = await workspace.preview([move]), report = preview.aggregateBoundaryImpact!
-    expect(getSceneDerivationEvidence(preview.document)).toMatchObject({ algorithmContract: 'aggregate-prop-move-geometry@1', changedPropIds: ['item'] })
+    const transaction = getPropUpdateTransaction(preview.document, project.document)!
+    expect(transaction).toBeDefined()
+    expect(transaction.baseline).toBe(project.document)
+    expect(transaction.result).toBe(preview.document)
+    expect(transaction.commands).toEqual([move])
+    expect(transaction.changes.map(change => ({ id: change.id, fields: change.fields }))).toEqual([{ id: 'item', fields: ['positionMm'] }])
     expect(validateSceneDocument(preview.document)).toMatchObject({ ok: true })
     expect(report.groups[0]).toMatchObject({ groupId: 'boundary-root', baselineProofValid: true, queryScope: 'supplied-bounds', requiresFullDomainValidation: true })
     expect(report.groups[0].externalCandidates.next.some(row => row.entity.id === 'other')).toBe(true)
@@ -78,7 +83,12 @@ describe('aggregate boundary diagnostics through normal workspace preview', () =
     const { workspace, repository, project } = await setup(true)
     const commands = ['item', 'other'].map(id => ({ type: 'updateProp' as const, id, changes: { positionMm: { x: 7000, y: 7000 } } }))
     const preview = await workspace.preview(commands), report = preview.aggregateBoundaryImpact!
-    expect(getSceneDerivationEvidence(preview.document)?.changedPropIds).toEqual(['item', 'other'])
+    const transaction = getPropUpdateTransaction(preview.document, project.document)!
+    expect(transaction).toBeDefined()
+    expect(transaction.baseline).toBe(project.document)
+    expect(transaction.result).toBe(preview.document)
+    expect(transaction.commands).toEqual(commands)
+    expect(transaction.changes.map(change => change.id)).toEqual(['item', 'other'])
     expect(report.groups.map(group => group.groupId)).toEqual(['boundary-root', 'neighbor'])
     expect(report.groups.every(group => group.externalCandidates.next.some(row => row.entity.kind === 'prop'))).toBe(true)
     expect(workspace.getState().project).toBe(project)
@@ -93,6 +103,7 @@ describe('aggregate boundary diagnostics through normal workspace preview', () =
     expect(canonicalJson(cold)).not.toContain('unboundedTargets')
     expect(canonicalJson(cold)).not.toContain('aggregate-prop-move-geometry')
     expect(getSceneDerivationEvidence(cold)).toBeUndefined()
+    expect(getPropUpdateTransaction(cold)).toBeUndefined()
     expect(canonicalJson(projectScene(cold, 'player'))).not.toContain('aggregateBoundaryImpact')
   })
 
