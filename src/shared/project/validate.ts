@@ -183,6 +183,12 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
     expanded += record.sizeBytes
   }
   if (Object.keys(project.authoringSources).length > PROJECT_DATA_LIMITS.images) throw new Error('SVG来源最多256项。')
+  const variantOutputs = new Set(Object.values(project.appearance.variants).map(variant => variant.outputAssetId))
+  for (const asset of Object.values(project.document.assets)) if (asset.imageEnhancement
+    && (Object.hasOwn(project.authoringSources, asset.id) || variantOutputs.has(asset.id))) throw new Error('画质增强输出不能同时属于SVG栅格或外观颜色派生。')
+  for (const asset of Object.values(project.document.assets)) if (asset.imageRefinement) {
+    if (variantOutputs.has(asset.id) || (asset.imageRefinement.kind === 'vector') !== Object.hasOwn(project.authoringSources, asset.id)) throw new Error('矢量精修必须保留确切SVG源；模型补画不能冒充SVG或颜色派生。')
+  }
   for (const [assetId, source] of Object.entries(project.authoringSources)) {
     const asset = project.document.assets[assetId], raster = asset && project.assets[asset.sha256]
     if (!asset || !raster || asset.mimeType !== 'image/png' || source.rasterSha256 !== asset.sha256

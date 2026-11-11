@@ -1,4 +1,6 @@
 import { pathAttachmentSchema } from '../path-attachments/contracts.js'
+import { imageEnhancementMetadataSchema } from '../image-enhancement/metadata.js'
+import { assetRefinementMetadataSchema } from '../asset-refinement/metadata.js'
 import { validatePathAttachmentGeometry } from '../path-attachments/validation.js'
 import { connectionRouteSchema } from '../geometry/connection-route.js'
 import { decorationSchema, decorationClusterSchema, DECORATION_LIMITS } from '../decorations/contracts.js'
@@ -45,7 +47,7 @@ const sceneShape = {
   generationMetadata: z.object({ generatorVersion: z.string(), seed: z.string(), summary: z.string().optional(), adoptedAt: timestamp }).strict().optional(),
 
   assets: record(z.object({ id, sha256: z.string().regex(/^[a-f0-9]{64}$/), mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
-    pixelWidth: positive, pixelHeight: positive, logicalSizeMm: size, licenseRef: id, origin }).strict()),
+    pixelWidth: positive, pixelHeight: positive, logicalSizeMm: size, licenseRef: id, origin, imageEnhancement: imageEnhancementMetadataSchema.optional(), imageRefinement: assetRefinementMetadataSchema.optional() }).strict()),
   presetSnapshot: z.object({ presetId: id, presetVersion: positive, distanceMode: z.enum(['metric', 'grid', 'abstract']), source: z.string(), gridSizeMm: positive }).strict(),
   rooms: record(z.object({ ...editable, boundaryVertexIds: ids.min(3).max(256), purpose: z.string(), visibility,
     accessExpectation: z.enum(['unspecified', 'required', 'intentionalIsolation']), supportRef: groundRef, groundElevationMm: int, floorStyle: style }).strict()),

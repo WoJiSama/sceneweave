@@ -57,6 +57,7 @@ function fixedAssetRoots(document: SceneDocument): Set<string> {
     ...Object.values(document.propDefinitions).flatMap(value => value.defaultAppearance.kind === 'image' ? [value.defaultAppearance.assetId] : []),
     ...Object.values(document.materials).map(value => value.textureAssetId),
     ...Object.values(document.prefabDefinitions).flatMap(value => value.members.flatMap(member => member.propTemplate.appearance.kind === 'image' ? [member.propTemplate.appearance.assetId] : [])),
+    ...Object.values(document.assets).flatMap(value => { const parent = value.imageRefinement ?? value.imageEnhancement; return parent ? [parent.sourceAssetId, parent.originalAssetId] : [] }),
   ])
 }
 
@@ -69,6 +70,8 @@ function extractClosure(source: ProjectData, selectorInput: CatalogSelector): Pr
   const addAsset = (id: string): void => {
     if (Object.hasOwn(document.assets, id)) return
     document.assets[id] = cloneJson(own(source.document.assets, id))
+    const enhancement = document.assets[id].imageRefinement ?? document.assets[id].imageEnhancement
+    if (enhancement) { addAsset(enhancement.sourceAssetId); addAsset(enhancement.originalAssetId) }
     if (Object.hasOwn(source.authoringSources, id)) result.authoringSources[id] = cloneJson(source.authoringSources[id])
     for (const variant of Object.values(source.appearance.variants)) if (variant.outputAssetId === id) {
       graph.variants[variant.id] = cloneJson(variant); addAsset(variant.sourceAssetId)
