@@ -6,7 +6,7 @@ import { pathAttachmentSchema, type PathAttachment } from './contracts.js'
 import { planPathAttachmentEndpoint } from './endpoint-plan.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../model/scene.js'
-import { canonicalJson, captureJson, encodeUtf8 } from '../validation/json.js'
+import { canonicalJson, captureJson, cloneJson as clone, encodeUtf8 } from '../validation/json.js'
 import { pathPolygon } from '../geometry/geometry.js'
 import { id, nonnegative, positive } from '../validation/primitives.js'
 import { MANUAL_TRANSACTION_BUDGET, assertCommandBudget } from '../budget/command-budget.js'
@@ -15,7 +15,6 @@ import { emptyBudgetUsage } from '../budget/task-budget.js'
 import { records, readProofs, validatePathAttachmentGeometry, validatePathAttachmentProofs, type AttachmentScene } from './validation.js'
 export { validatePathAttachmentGeometry, validatePathAttachmentProofs } from './validation.js'
 export type { AttachmentScene } from './validation.js'
-const clone = <T>(value: T): T => structuredClone(value)
 const same = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const ringIdentity = (ids: string[]) => {
   const first = ids.reduce((best, value, index) => value < ids[best] ? index : best, 0)

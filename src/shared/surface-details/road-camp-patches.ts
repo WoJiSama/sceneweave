@@ -9,7 +9,7 @@ import { polygonBooleanExact } from '../geometry/polygon-boolean.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { MANUAL_TRANSACTION_BUDGET, assertCommandBudget, measureCommandBudget } from '../budget/command-budget.js'
 import { captureExecutionBudget, TASK_BUDGET_PROFILES, type ExecutionBudget } from '../budget/task-budget.js'
-import { canonicalJson, captureJson, encodeUtf8 } from '../validation/json.js'
+import { canonicalJson, captureJson, cloneJson as clone, encodeUtf8 } from '../validation/json.js'
 import { id, nonnegative, paint as paintSchema, point, positive } from '../validation/primitives.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { validateAppearanceGraph } from '../validation/content.js'
@@ -37,7 +37,6 @@ export interface RoadCampPatchPlan {
   notes: string[]
 }
 
-const clone = <T>(value: T): T => structuredClone(value)
 const samePoint = (a: PointMm, b: PointMm) => a.x === b.x && a.y === b.y
 const generatedPoint = (x: number, y: number): PointMm => {
   const result = { x: Math.round(x), y: Math.round(y) }
