@@ -50,7 +50,7 @@ import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
 import type { SceneDocument, SurfaceRef } from '../../shared/model/scene.js'
 import type { LicenseBinding, SnapshotSummary } from '../../shared/model/project.js'
-import { getVerifiedProjectBundle } from '../../shared/project/resources.js'
+import { getVerifiedProjectBundle, validateProjectSnapshot } from '../../shared/project/resources.js'
 import { certifyCompositionContent, getCompositionRevisionTransaction, getPropUpdateCompositionTransaction, releaseCompositionRevisionTransaction, releasePropUpdateCompositionTransaction, reviseCompositionContent } from '../../shared/validation/content.js'
 import { validateCompositionIdentityContracts } from '../../shared/terrain-generation/composition-integrity.js'
 import { surfaceStyle } from '../../shared/appearance/graph.js'
@@ -77,7 +77,7 @@ import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStar
 import { materializeAuthoringArtwork } from './artwork.js'
 import { assertAssetQualityAccepted, type AssetQualityAssessment } from '../../shared/assets/quality-review.js'
 import { combineManualPreparationUsage, materializeProject, prepareCompositionCommands } from './prepare.js'
-import { captureEditableDraft, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
+import { captureEditableDraft, consumeEditableSnapshot, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
 
 type GeneratedAtomicStart = Extract<AuthoringStart, { schemaVersion: 2 | 3 }> | (AuthoringStartV4 & { source: BaseMapSourceV3 })
 /** Classified budget identity also applies to edits of the current project. Only
@@ -645,7 +645,7 @@ export class Workspace {
     this.assertWritable()
     const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
     const ownedInput = captureJson(input), capturedProfile = parseTaskBudgetProfile(profile)
-    const owned = await validateEditableProject(base, { ...this.validation(), signal })
+    const owned = await consumeEditableSnapshot(base, { ...this.validation(), signal })
     checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
     const preparedAt = this.options.runtime.clock.now(), identityAllocation: string[] = []
     const runtime = { clock: { now: () => preparedAt }, ids: { nextId: () => { const id = this.options.runtime.ids.nextId(); identityAllocation.push(id); return id } } }
@@ -688,7 +688,7 @@ export class Workspace {
       const replay = await prepareDomainProject(domain, witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
       assertActive()
       if (allocationIndex !== witness.identityAllocation.length) throw new Error('生成候选身份分配次数与确定性重放不同。')
-      const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
+      const project = await consumeEditableSnapshot(preview.project, { ...this.validation(), signal })
       assertActive()
       const review = (candidate: DomainPreviewMap[DomainGenerationKind] | typeof replay) => ({ resultHash: candidate.resultHash,
         report: candidate.report, cost: candidate.cost, layout: 'layout' in candidate ? candidate.layout : null })
@@ -701,7 +701,10 @@ export class Workspace {
       if (!this.repository.load) throw new Error('当前仓库不支持生成新工程冷读。')
       const cold = await this.repository.load(project.document.sceneId, { signal })
       if (!cold) throw new Error('生成新工程冷读失败，当前工程保持。')
-      const installed = await fromBundle(cold, { ...this.validation(), signal }); assertActive()
+      // load still validates actual database bytes and pixels. Consume that
+      // exact proof only under the current workspace capabilities; unfamiliar
+      // repository results continue through full validation.
+      const installed = fromVerifiedBundle(await validateProjectSnapshot(cold, { ...this.validation(), signal }), { signal }); assertActive()
       if (projectContentHash(toBundle(installed).project) !== projectContentHash(toBundle(project).project)) throw new Error('生成新工程在冷读前已变化，请从工程目录重新打开。')
       this.atomicLock = null; this.install(installed); witness.status = 'applied'
     } catch (error) { witness.status = 'cancelled'; throw error }
