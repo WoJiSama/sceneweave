@@ -12,6 +12,7 @@ import { closeMeasuredBrowser } from './close-browser.mjs'
 import { diffAggregateBlocks } from './aggregate-observer.mjs'
 import { createCurrentFormalObserver } from './current-formal-observer.mjs'
 import { summarizeCurrentFormal, compactFormalRunForManifest } from './summarize-current-formal.mjs'
+import { runAggregateWithDraftCleanup } from './aggregate-draft-cleanup.mjs'
 
 // Current complete-v1 production runner. Fixture preparation is a separate,
 // already-closed process; no product hook, injected state, retry or reduced load.
@@ -49,7 +50,7 @@ async function fingerprint(directory, stem = '') {
 async function inputs() {
   return { src: await fingerprint(path.join(root, 'src')), public: await fingerprint(path.join(root, 'public')),
     assets: await fingerprint(path.join(root, 'assets')), build: await fingerprint(dist), fixtures: await fingerprint(fixtureDirectory),
-    tools: await Promise.all(['tools/performance/run-current-formal.mjs', 'tools/performance/current-formal-observer.mjs',
+    tools: await Promise.all(['tools/performance/run-current-formal.mjs', 'tools/performance/aggregate-draft-cleanup.mjs', 'tools/performance/current-formal-observer.mjs',
       'tools/performance/summarize-current-formal.mjs', 'tools/performance/aggregate-observer.mjs', 'tools/performance/native-m2-observer.mjs',
       'tools/performance/resources.mjs', 'tools/performance/close-browser.mjs', 'tools/testing/formal-capacity-fixtures.ts',
       'tools/testing/aggregate-capacity-fixtures.ts', 'package.json', 'package-lock.json', 'vite.config.ts']
@@ -70,6 +71,7 @@ const manifest = { format: 'sceneweave-current-formal-performance', version: 1, 
     immediate: 'Fixed independent controls.remoteEntityId public full Prop world X alternates +1mm/back. Trusted Enter commits directly. Enter-to-validated-domain, saved, raster-ready and display-proxy intervals are retained separately; the 500-Prop 100ms ordinary-edit gate uses the complete Enter-to-domain interval.',
     frames: 'Nearest-rank browser rAF intervals overlapping actual trusted continuous pointer/wheel input only; double-rAF is a scheduling proxy, not presentation/GPU completion.',
     storage: 'Native readonly committed rows; SHA-verified immutable content payloads and distinct changed final JSON rows, never physical disk I/O.',
+    aggregateDraftExit: 'After a completed or explicitly refused group attempt, dismiss only its remaining form through the ordinary cancel button. Cancellation is setup outside measured samples; unchanged revision/selection and exact complete-package payloads are audited before canvas selection. Unexpected failures are not discarded or retried.',
     limitations: ['RSS is the dedicated macOS process-tree sum and may double-count shared mappings; target JS heap excludes GPU/other targets.',
       'CPU brackets include automation, observer/CDP waits and retain process births/exits/resets; no profiler or forced GC.',
       'Tooling package/pixel/hash/storage audit and setup phases are excluded from product peaks.',
@@ -544,7 +546,10 @@ try {
       const baseline = await download(page, `${stem}-baseline`)
       sameImported(packageData(await fs.readFile(path.join(output, fixture.file))), baseline)
       result.storage.baseline = await observer.blockSnapshot()
-      await groupLifecycle(page, fixture, baseline, result, stem)
+      result.coverage.aggregateDraftExit = await runAggregateWithDraftCleanup({
+        operation: () => groupLifecycle(page, fixture, baseline, result, stem), page, observer, domain: fixture.controls.domain,
+        readProject: phase => download(page, `${stem}-${phase}`), assertSameProject: sameComplete,
+      })
       const controls = fixture.controls, ids = controls.selectionMemberIds ?? [controls.editableMemberId, controls.remoteEntityId]
       check(ids.length === 2 && new Set(ids).size === 2 && ids.every(id => baseline.scene.props[id]?.visibility === 'public'), 'Two explicit public full Prop selection targets required')
       const canvasTargets = canvasSelectionIds(fixture.name).map(id => ({ id,
