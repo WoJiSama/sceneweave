@@ -1,6 +1,7 @@
-import { cropImageRegion, extractImageLayer, imagePolygonMask, type ImagePixels } from './pixels.js'
+import { cropImageRegion, imagePolygonMask, type ImagePixels } from './pixels.js'
 import { parseImageImportRecipe } from './recipe.js'
 import { assertSourcePreservingRecipe } from './fidelity.js'
+import { replayImageLayers } from './layer-replay.js'
 
 /** Coordinates and all comparison masks stay on the captured original pixel grid. */
 export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
@@ -14,9 +15,9 @@ export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
     scopeMask[index] = coverage > 0 ? 255 : 0
     if (coverage && coverage !== 255) edgeMask[index] = 255
   }
-  let remaining = source
-  const layers = recipe.layers.map(layer => {
-    const extracted = extractImageLayer(remaining, layer.polygon, layer.donor, { repair: layer.repair, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask: layer.selectionMask })
+  const replay = replayImageLayers(source, recipe.layers), remaining = replay.remaining
+  for (let index = 0; index < replay.provenance.length; index++) if (replay.provenance[index]) inferenceMask[index] = 255
+  const layers = replay.layers.map(({ layer, extracted }) => {
     for (let y = 0; y < extracted.mask.height; y++) for (let x = 0; x < extracted.mask.width; x++) {
       const value = extracted.mask.data[y * extracted.mask.width + x]
       if (!value) continue
@@ -27,7 +28,6 @@ export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
     for (let y = 0; y < extracted.repairMask.height; y++) for (let x = 0; x < extracted.repairMask.width; x++) {
       if (!extracted.repairMask.data[y * extracted.repairMask.width + x]) continue
       const sx = x + extracted.repairMask.boundsPx.x, sy = y + extracted.repairMask.boundsPx.y, index = sy * source.width + sx
-      inferenceMask[index] = 255
       const mx = sx - extracted.mask.boundsPx.x, my = sy - extracted.mask.boundsPx.y
       const coverage = mx < 0 || my < 0 || mx >= extracted.mask.width || my >= extracted.mask.height ? 0 : extracted.mask.data[my * extracted.mask.width + mx]
       // A supplied mask is geometry, never permission to waive arbitrary interior pixels.
@@ -38,7 +38,6 @@ export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
       }))
       if (coverage !== 255 && (!layer.selectionMask || coverage === 0 || touchesOutside())) edgeMask[index] = 255
     }
-    remaining = extracted.remaining
     return { ...layer, pixels: extracted.layer, boundsPx: extracted.layer.boundsPx }
   })
   const composite: ImagePixels = { width: source.width, height: source.height, data: remaining.data.slice() }
@@ -62,5 +61,6 @@ export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
     }
     return { width: image.width, height: image.height, data }
   }
-  return { recipe, remaining, floor: cropImageRegion(remaining, boundary), layers, source: clip(source), composite: clip(composite), scopeMask, inferenceMask, edgeMask }
+  return { recipe, remaining, floor: cropImageRegion(remaining, boundary), layers, source: clip(source), composite: clip(composite), scopeMask, inferenceMask, edgeMask,
+    provenance: replay.provenance, sourceReport: replay.sourceReport }
 }

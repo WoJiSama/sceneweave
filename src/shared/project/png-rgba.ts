@@ -3,6 +3,7 @@ import type { RasterImage } from '../ports/resources.js'
 import { STATIC_SVG_LIMITS } from '../ai/svg.js'
 import { crc32 } from './binary.js'
 import { inspectImageBytes } from './image-bytes.js'
+import { PACKAGE_LIMITS } from './limits.js'
 
 /** Processor 2 owns straight RGBA8/sRGB pixels. No native Canvas rounding. */
 function dimensions(width: number, height: number): void {
@@ -85,6 +86,18 @@ export function decodeCanonicalPng(input: Uint8Array): RasterImage {
 /** Fixed software encoding; fully transparent RGB is retained and compared. */
 export function encodeCanonicalPng(image: RasterImage): Uint8Array {
   dimensions(image.width, image.height)
+  return encodeRgbaPng(image)
+}
+
+/** Original image-import pixels retain the package image budget, independently of fixed SVGs. */
+export function encodeSourcePng(image: RasterImage): Uint8Array {
+  if (!Number.isSafeInteger(image.width) || !Number.isSafeInteger(image.height) || image.width < 1 || image.height < 1
+    || image.width > PACKAGE_LIMITS.imageSide || image.height > PACKAGE_LIMITS.imageSide
+    || image.width * image.height > PACKAGE_LIMITS.imagePixels) throw new Error('原色PNG像素超出图片保护预算。')
+  return encodeRgbaPng(image)
+}
+
+function encodeRgbaPng(image: RasterImage): Uint8Array {
   if (!(image.rgba instanceof Uint8ClampedArray) || image.rgba.length !== image.width * image.height * 4) throw new Error('固定SVG RGBA像素长度无效。')
   const stride = image.width * 4, raw = new Uint8Array(image.height * (stride + 1))
   for (let y = 0; y < image.height; y++) raw.set(image.rgba.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1)

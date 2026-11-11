@@ -176,6 +176,9 @@ function contours(image: ImagePixels, labels: Int16Array): Map<number, ImagePoin
   return result
 }
 
+// Shared exact-grid topology only; callers own their colour/paint semantics.
+export { contours as traceIndexedContours }
+
 function simplifyOpen(points: ImagePoint[], tolerance: number): ImagePoint[] {
   const keep = new Uint8Array(points.length), stack: Array<[number, number]> = [[0, points.length - 1]]
   keep[0] = keep[points.length - 1] = 1

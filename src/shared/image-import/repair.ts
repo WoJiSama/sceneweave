@@ -9,13 +9,20 @@ export interface ImageRegionRepairOptions {
   regions?: Array<{ mask: ImagePixelMask; donor: PixelBounds }>
   /** Original object selection, before the separately declared cleanup halo is expanded. */
   baseMask?: ImagePixelMask
+  /** Explicit fixed algorithm; omitted keeps the original seamless recipe byte-for-byte. */
+  alignment?: 'boundary-phase-v1'
 }
 interface CorrectionGrid { x: number; y: number; step: number; width: number; height: number; values: Float32Array }
+interface DonorPhase { x: number; y: number }
 const DEFAULT_ITERATIONS = 24
 const DEFAULT_WORK = 80_000_000
 const MAX_GRID_PIXELS = 1_000_000
 const BOUNDARY_RADIUS = 3
 const COLOR_DECAY_PX = 8
+const ALIGNMENT_SAMPLES = 256
+const ALIGNMENT_GRID = 12
+const ALIGNMENT_EXACT_PERIOD = 32
+const ALIGNMENT_CANDIDATES = ALIGNMENT_EXACT_PERIOD ** 2 + 1 + 9 * 15
 
 function median(values: number[]): number {
   values.sort((a, b) => a - b)
@@ -48,8 +55,62 @@ function mirror(position: number, origin: number, length: number): number {
   return origin + (value < length ? value : period - 1 - value)
 }
 
-function donorIndex(image: ImagePixels, donor: PixelBounds, x: number, y: number): number {
-  return (mirror(y, donor.y, donor.height) * image.width + mirror(x, donor.x, donor.width)) * 4
+function donorIndex(image: ImagePixels, donor: PixelBounds, x: number, y: number, phase?: DonorPhase): number {
+  return (mirror(y + (phase?.y ?? 0), donor.y, donor.height) * image.width + mirror(x + (phase?.x ?? 0), donor.x, donor.width)) * 4
+}
+
+/** Match a translation of this exact donor, never rotate it or inspect removed object pixels. */
+function alignDonor(image: ImagePixels, donor: PixelBounds, evidence: number[]): DonorPhase {
+  if (evidence.length < 8) return { x: 0, y: 0 }
+  // Uniformly retain the full perimeter rather than just the first side in scan order.
+  const samples = Array.from({ length: Math.min(evidence.length, ALIGNMENT_SAMPLES) }, (_, index) =>
+    evidence[Math.floor(index * evidence.length / Math.min(evidence.length, ALIGNMENT_SAMPLES))])
+  const periodX = donor.width * 2, periodY = donor.height * 2
+  const seen = new Set<number>()
+  let best = { x: 0, y: 0 }, bestScore = Infinity
+  const score = (phase: DonorPhase): number => {
+    const differences = [[], [], [], []] as number[][]
+    for (const original of samples) {
+      const pixel = original / 4, x = pixel % image.width, y = Math.floor(pixel / image.width)
+      const sample = donorIndex(image, donor, x, y, phase)
+      for (let channel = 0; channel < 4; channel++) differences[channel].push(
+        premultiplied(image.data, original, channel) - premultiplied(image.data, sample, channel))
+    }
+    // Remove broad colour bias: the existing seamless solve owns lighting correction.
+    // Clipping limits the influence of a residual shadow or another narrow boundary mark.
+    let total = 0
+    for (const values of differences) {
+      const center = values.reduce((sum, value) => sum + value, 0) / values.length
+      for (const value of values) total += Math.min(96, Math.abs(value - center))
+    }
+    return total / samples.length
+  }
+  const consider = (x: number, y: number) => {
+    x = ((x % periodX) + periodX) % periodX; y = ((y % periodY) + periodY) % periodY
+    const key = y * periodX + x
+    if (seen.has(key)) return
+    seen.add(key)
+    const candidate = { x, y }, value = score(candidate)
+    if (value + 1e-9 < bestScore) { best = candidate; bestScore = value }
+  }
+  consider(0, 0)
+  const originalScore = bestScore
+  const columns = periodX <= ALIGNMENT_EXACT_PERIOD ? periodX : ALIGNMENT_GRID
+  const rows = periodY <= ALIGNMENT_EXACT_PERIOD ? periodY : ALIGNMENT_GRID
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      consider(Math.floor(column * periodX / columns), Math.floor(row * periodY / rows))
+    }
+  }
+  let stepX = Math.max(1, Math.ceil(periodX / ALIGNMENT_GRID / 2)), stepY = Math.max(1, Math.ceil(periodY / ALIGNMENT_GRID / 2))
+  for (;;) {
+    const center = best
+    for (const dy of [-stepY, 0, stepY]) for (const dx of [-stepX, 0, stepX]) consider(center.x + dx, center.y + dy)
+    if (stepX === 1 && stepY === 1) break
+    stepX = Math.max(1, Math.floor(stepX / 2)); stepY = Math.max(1, Math.floor(stepY / 2))
+  }
+  // A nearly tied phase has no useful supporting evidence; retain the original mapping.
+  return bestScore < originalScore * .98 ? best : { x: 0, y: 0 }
 }
 
 /** Labels are inferred from user choices, without reading any selected source color. */
@@ -115,6 +176,7 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
   validate(image, mask, donor)
   const iterations = options.iterations ?? DEFAULT_ITERATIONS, maxWork = options.maxWork ?? DEFAULT_WORK
   if (!Number.isSafeInteger(iterations) || iterations < 1 || iterations > 128 || !Number.isSafeInteger(maxWork) || maxWork < 1) throw new Error('无缝补底迭代或工作预算无效。')
+  if (options.alignment !== undefined && options.alignment !== 'boundary-phase-v1') throw new Error('不支持的纹理对齐算法。')
   const regions = options.regions ?? []
   if (!Array.isArray(regions) || regions.length > 8) throw new Error('无缝补底最多支持8个取样区域。')
   regions.forEach(region => validate(image, region.mask, region.donor))
@@ -128,11 +190,15 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
   }
   if (!baseCount) throw new Error('原物件遮罩没有覆盖像素。')
   const donors = [donor, ...regions.map(region => region.donor)]
+  const phases = new Map<PixelBounds, DonorPhase>()
   const guidanceDonor = (x: number, y: number) => {
     const index = (y - labels.bounds.y) * labels.bounds.width + x - labels.bounds.x
     return donors[labels.data[index]]
   }
-  const guidanceIndex = (x: number, y: number) => donorIndex(image, guidanceDonor(x, y), x, y)
+  const guidanceIndex = (x: number, y: number) => {
+    const material = guidanceDonor(x, y)
+    return donorIndex(image, material, x, y, phases.get(material))
+  }
   const boundaryCache = new Map<number, number[]>()
   const boundaryCorrection = (x: number, y: number): number[] => {
     const key = y * image.width + x, cached = boundaryCache.get(key)
@@ -153,6 +219,8 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
   while (firstStep < 16 && Math.max(mask.width, mask.height) / firstStep > 64) firstStep *= 2
   const shapes: Array<Omit<CorrectionGrid, 'values'>> = []
   let work = mask.data.length * (4 + donors.length) + Math.min(image.width, mask.width + 70) * Math.min(image.height, mask.height + 70) * (2 * regions.length + 1)
+  if (options.alignment) work += Math.min(image.width, mask.width + 6) * Math.min(image.height, mask.height + 6) * 16
+    + donors.length * ALIGNMENT_SAMPLES * ALIGNMENT_CANDIDATES * 16
   for (let step = firstStep; step >= 1; step /= 2) {
     const shape = gridShape(image, mask.boundsPx, step), pixels = shape.width * shape.height
     work += pixels * ((iterations + 1) * 4 + (2 * BOUNDARY_RADIUS + 1) ** 2 * (regions.length + 4))
@@ -160,6 +228,24 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
     shapes.push(shape)
   }
   const labels = extendMaterialLabels(image, mask, base, regions)
+  if (options.alignment) {
+    const evidence = new Map(donors.map(material => [material, [] as number[]]))
+    for (let y = Math.max(0, mask.boundsPx.y - 3); y < Math.min(image.height, mask.boundsPx.y + mask.height + 3); y++) {
+      for (let x = Math.max(0, mask.boundsPx.x - 3); x < Math.min(image.width, mask.boundsPx.x + mask.width + 3); x++) {
+        if (maskAt(mask, x, y)) {
+          if (donors.some(bounds => x >= bounds.x && x < bounds.x + bounds.width && y >= bounds.y && y < bounds.y + bounds.height)) {
+            throw new Error('补底取样范围与遮罩相交。')
+          }
+          continue
+        }
+        let near = false
+        for (let distance = 1; distance <= 3 && !near; distance++) near = !!(maskAt(mask, x - distance, y)
+          || maskAt(mask, x + distance, y) || maskAt(mask, x, y - distance) || maskAt(mask, x, y + distance))
+        if (near) evidence.get(guidanceDonor(x, y))!.push((y * image.width + x) * 4)
+      }
+    }
+    for (const material of donors) phases.set(material, alignDonor(image, material, evidence.get(material)!))
+  }
   const boundarySamples = new Map(donors.map(material => [material, [[], [], [], []] as number[][]]))
   let selectedCount = 0
   for (let row = 0; row < mask.height; row++) {

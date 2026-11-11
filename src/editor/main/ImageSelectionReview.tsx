@@ -32,7 +32,10 @@ export default function ImageSelectionReview({ image, mask }: Props) {
   }, [image, mask, angle, offset])
   const cancelDrag = () => {
     const current = drag.current
-    if (current) { setOffset(current.before); drag.current = null }
+    if (current) {
+      setOffset(current.before); drag.current = null
+      if (canvas.current?.hasPointerCapture(current.id)) canvas.current.releasePointerCapture(current.id)
+    }
   }
   useEffect(() => {
     window.addEventListener('blur', cancelDrag)
@@ -43,7 +46,7 @@ export default function ImageSelectionReview({ image, mask }: Props) {
       <option value="checker">棋盘格</option><option value="white">白色</option><option value="black">黑色</option>
     </select></label></div>
     <canvas ref={canvas} width={640} height={320} data-background={background} aria-label="物件透明边缘预览" onPointerDown={event => {
-      if (event.button !== 0) return
+      if (event.button !== 0 || drag.current) return
       drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, before: offset }
       event.currentTarget.setPointerCapture(event.pointerId)
     }} onPointerMove={event => {
@@ -53,9 +56,10 @@ export default function ImageSelectionReview({ image, mask }: Props) {
       setOffset({ x: Math.max(-240, Math.min(240, current.before.x + (event.clientX - current.x) * 640 / bounds.width)),
         y: Math.max(-120, Math.min(120, current.before.y + (event.clientY - current.y) * 320 / bounds.height)) })
     }} onPointerUp={event => {
+      if (drag.current?.id !== event.pointerId) return
       drag.current = null
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-    }} onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}/>
+    }} onPointerCancel={event => { if (drag.current?.id === event.pointerId) cancelDrag() }} onLostPointerCapture={event => { if (drag.current?.id === event.pointerId) cancelDrag() }}/>
     <div className="image-selection-review-actions"><label>试转角度<input aria-label="物件检查旋转角度" type="range" min={-180} max={180} step={1} value={angle} onChange={event => setAngle(Number(event.target.value))}/><output>{angle}°</output></label>
       <button type="button" onClick={() => { cancelDrag(); setOffset({ x: 0, y: 0 }); setAngle(0) }}>复位检查视角</button></div>
     <p>拖动或旋转检查漏边、残留底色和孔洞，仅改变此处的查看位置。原图边缘已混入的底色仍需人工判断。</p>

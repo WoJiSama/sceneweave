@@ -1,16 +1,18 @@
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { captureJson, freezeJson } from '../../../shared/validation/json.js'
-import { cropImageRegion, extractImageLayer, imagePolygonMask, suggestImageRegion, type ImagePixels, type PixelBounds } from '../../../shared/image-import/pixels.js'
+import { cropImageRegion, imagePolygonMask, suggestImageRegion, type ImagePixels, type PixelBounds } from '../../../shared/image-import/pixels.js'
 import { encodeSelectionMask, decodeSelectionMask, assertSelectionMaskBudget } from '../../../shared/image-import/selection-mask.js'
 import { paintImageSelection, snapImageContour, type ImageSelectionStroke } from '../../../shared/image-import/selection.js'
 import { imageImportToolArguments, parseImageImportRecipe, type ImageImportRecipe, type ImageImportToolName } from '../../../shared/image-import/recipe.js'
 import { createImageCalibration, assertImagePoint } from '../../../shared/image-import/calibration.js'
 import { createBrowserImagePort, normalizeBrowserImage } from '../images/adapter.js'
+import { encodeSourcePng } from '../../../shared/project/png-rgba.js'
 import { createImageImportProject } from './image-import-project.js'
 import { vectorizeImageLayer, type ImageVectorOptions } from '../../../shared/image-import/vector.js'
 import { normalizeStaticSvg } from '../../../shared/ai/svg.js'
 import { rasterizeCanonicalSvgPixels } from '../ai/svg-raster.js'
 import { reconstructSourceLayers } from '../../../shared/image-import/reconstruction.js'
+import { replayImageLayers } from '../../../shared/image-import/layer-replay.js'
 import { scaleSourcePixels } from '../../../shared/image-import/sampling.js'
 import { assertSourcePreservingRecipe, compareImageFidelity, IMAGE_IMPORT_FIDELITY_RULES, ImageFidelityError } from '../../../shared/image-import/fidelity.js'
 
@@ -25,7 +27,12 @@ export async function loadImageImportSource(bytes: Uint8Array, mime = '', signal
 }
 
 export async function encodeImageImportPixels(pixels: ImagePixels, signal?: AbortSignal): Promise<Uint8Array> {
-  return createBrowserImagePort().encodePng({ width: pixels.width, height: pixels.height, rgba: pixels.data }, { signal })
+  signal?.throwIfAborted()
+  // Canvas premultiplication rounds RGB at partial coverage. The fixed encoder
+  // retains every source channel alongside the independently edited alpha.
+  const bytes = encodeSourcePng({ width: pixels.width, height: pixels.height, rgba: pixels.data })
+  signal?.throwIfAborted()
+  return bytes
 }
 
 /** Geometric mask coverage must not be mistaken for source material opacity. */
@@ -70,7 +77,7 @@ export async function prepareImageImportFidelityPreview(source: ImageImportSourc
   }
   signal?.throwIfAborted()
   return { source: replay.source, composite: replay.composite, difference, inference,
-    report: { ...visible, background, occlusionPixels, inferenceIsUnverified: true as const } }
+    report: { ...visible, background, occlusionPixels, inferenceIsUnverified: true as const, sourceReport: replay.sourceReport } }
 }
 
 function reconstructedLayers(source: ImageImportSource, input: unknown) {
@@ -183,10 +190,9 @@ export class ImageImportToolSession {
       return { target, ...result, boundsPx: cropped?.boundsPx ?? item!.boundsPx, generation: startedGeneration }
     }
     if (name === 'image_import_suggest_region') {
-      let pixels = this.source.pixels
-      for (const layer of this.draft.layers) pixels = extractImageLayer(pixels, layer.polygon, layer.donor, { repair: layer.repair, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask: layer.selectionMask }).remaining
-      const { mask: ignoredMask, ...suggestion } = suggestImageRegion(pixels, args as unknown as Parameters<typeof suggestImageRegion>[1])
-      return { ...suggestion, generation: this.generation }
+      const pixels = replayImageLayers(this.source.pixels, this.draft.layers).remaining
+      const { mask, ...suggestion } = suggestImageRegion(pixels, args as unknown as Parameters<typeof suggestImageRegion>[1])
+      return { ...suggestion, selectionMask: encodeSelectionMask(mask), generation: this.generation }
     }
     if (name === 'image_import_preview') {
       const view = args as { view: 'original' | 'remaining' | 'reconstructed' | 'difference' | 'inference' }
@@ -205,8 +211,7 @@ export class ImageImportToolSession {
         assertCurrent()
         return { mimeType: 'image/png', bytes, generation: startedGeneration }
       }
-      let pixels = this.source.pixels
-      if (view.view === 'remaining') for (const layer of this.draft.layers) pixels = extractImageLayer(pixels, layer.polygon, layer.donor, { repair: layer.repair, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask: layer.selectionMask }).remaining
+      const pixels = view.view === 'remaining' ? replayImageLayers(this.source.pixels, this.draft.layers).remaining : this.source.pixels
       const bytes = await encodeImageImportPixels(pixels, signal)
       assertCurrent()
       return { mimeType: 'image/png', bytes, generation: startedGeneration }
@@ -249,9 +254,7 @@ export class ImageImportToolSession {
         assertImagePoint(this.source.image, { x: layer.footprintPx.x, y: layer.footprintPx.y })
         assertImagePoint(this.source.image, { x: layer.footprintPx.x + layer.footprintPx.width, y: layer.footprintPx.y + layer.footprintPx.height })
       }
-      let remaining = this.source.pixels
-      for (const previous of next.layers) remaining = extractImageLayer(remaining, previous.polygon, previous.donor, { repair: previous.repair, fills: previous.fills, cleanupPx: previous.cleanupPx, selectionMask: previous.selectionMask }).remaining
-      extractImageLayer(remaining, layer.polygon, layer.donor, { repair: layer.repair, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask: layer.selectionMask })
+      replayImageLayers(this.source.pixels, [...next.layers, layer])
       next = { ...next, layers: [...next.layers, layer] }
     } else if (name === 'image_import_refine_selection') {
       const { target, strokes, contour } = args as { target: string; strokes: ImageSelectionStroke[];
@@ -259,8 +262,7 @@ export class ImageImportToolSession {
       const index = next.layers.findIndex(layer => layer.id === target)
       if (index < 0) throw new Error('精修目标不存在，请先拆出物件。')
       if (!contour && !strokes.length) throw new Error('请提供磁性轮廓或保留/排除笔迹。')
-      let pixels = this.source.pixels
-      for (const previous of next.layers.slice(0, index)) pixels = extractImageLayer(pixels, previous.polygon, previous.donor, previous).remaining
+      const pixels = replayImageLayers(this.source.pixels, next.layers.slice(0, index)).remaining
       const layer = next.layers[index]
       let mask = contour
         ? imagePolygonMask(pixels, snapImageContour(pixels, contour.points, { radiusPx: contour.radiusPx, closed: true }))
@@ -272,8 +274,8 @@ export class ImageImportToolSession {
         : [{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }] : layer.polygon
       next = { ...next, layers: next.layers.map((row, position) => position === index ? { ...row, polygon, selectionMask } : row) }
       // Recompute every following occlusion before committing one atomic undo step.
-      pixels = this.source.pixels
-      for (const row of next.layers) { assertCurrent(); pixels = extractImageLayer(pixels, row.polygon, row.donor, row).remaining }
+      assertCurrent()
+      replayImageLayers(this.source.pixels, next.layers)
       if (next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
     } else if (name === 'image_import_set_vector') {
       const { target, options } = args as { target: string; options: ImageVectorOptions | null }

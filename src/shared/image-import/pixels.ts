@@ -129,8 +129,8 @@ function expandedRepairMask(image: ImagePixels, mask: ImagePixelMask, radius: nu
 
 /** Extract original object pixels, then repair only the declared mask and optional cleanup halo. */
 export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoint[], donorBoundsPx: PixelBounds,
-  options: { repair?: 'tile' | 'seamless'; fills?: readonly ImageRepairFill[]; cleanupPx?: number; selectionMask?: ImageSelectionMask } = {}): ExtractedImageLayer {
-  if (options.repair !== undefined && options.repair !== 'tile' && options.repair !== 'seamless') throw new Error('不支持的补底方式。')
+  options: { repair?: 'tile' | 'seamless' | 'aligned'; fills?: readonly ImageRepairFill[]; cleanupPx?: number; selectionMask?: ImageSelectionMask } = {}): ExtractedImageLayer {
+  if (options.repair !== undefined && options.repair !== 'tile' && options.repair !== 'seamless' && options.repair !== 'aligned') throw new Error('不支持的补底方式。')
   const cleanupPx = options.cleanupPx ?? 0
   if (!Number.isSafeInteger(cleanupPx) || cleanupPx < 0 || cleanupPx > 8) throw new Error('残影清理范围须为0至8像素。')
   checkImage(image)
@@ -184,7 +184,8 @@ export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoi
     }
   }
   return { layer: { width: mask.width, height: mask.height, data: layerData, boundsPx: { ...mask.boundsPx } },
-    remaining: options.repair === 'seamless' ? repairImageRegion(image, repairMask, donorBoundsPx, { regions, baseMask: mask })
+    remaining: options.repair === 'seamless' || options.repair === 'aligned' ? repairImageRegion(image, repairMask, donorBoundsPx,
+      { regions, baseMask: mask, ...(options.repair === 'aligned' ? { alignment: 'boundary-phase-v1' as const } : {}) })
       : { width: image.width, height: image.height, data: remainingData }, mask, repairMask }
 }
 
