@@ -57,6 +57,38 @@ node tools/harness/sceneweave.mjs generate --input /absolute/existing-parent/req
 
 页面参数助手位于“生成 → 混合场景 → 林中建筑 → 用自然语言填写参数 · 实验”。先在“AI”模块连接现有任务服务，返回后输入需求，检查参数、默认值、歧义及未支持项，再点击“填入生成参数”；这一步只更新表单，仍须手动点击“预览混合场景”并按原流程保存新工程。解析失败保留原文和表单，可直接手填继续。用量显示来自实际任务，不承诺固定单次模型请求。
 
+<a id="image-import-mcp"></a>
+## 图片拆解页面与模型 tools
+
+正常页面首页、工作区文件菜单或“场景”面板选择“从图片新建场景”。上传原图后，标注房间和两点标尺，按上层优先顺序拆出物件，分别指定下层纹理取样。审阅合成、补底和逐层显隐，填写实际来源/许可并确认嵌入后，预览、保存并打开独立工程。保存成功后物件自动进入“素材与布景 → 我的素材”，可再次放置或编辑为独立素材副本。当前补底使用用户取样平铺，复杂边缘与高差继续按[支持范围](docs/reference/image-to-project.md#shared-tool)校正。
+
+项目自带MCP工具可由支持stdio的模型宿主启动。先安装依赖和Playwright Chromium，指定一张获准处理的图片、许可全文、署名及已经存在的输出目录。
+
+```sh
+node tools/image-import/server.mjs --image /absolute/map.jpg --license-file /absolute/license.txt --attribution "实际作者与来源" --output /absolute/existing-output
+```
+
+服务实现initialize、ping、tools/list和tools/call，工具定义含严格JSON Schema。先inspect读取原图身份与generation，再set_scale、set_room、extract_item或apply_recipe，每次修改使用返回的新generation。suggest_region提供颜色连通区域建议，preview返回PNG，undo推进代次，build_project输出独立候选。只有候选目录result.json为complete，才表示落盘复读、独立页面完整冷读及2048预览像素一致通过。工具参数只能访问启动时的原图，源文件和许可路径由宿主配置。
+
+`image_import_refine_selection` 接收 `{generation,target,strokes,contour?}`：target为已拆图层ID，strokes中的每笔为 `{mode:'keep'|'remove',points,radiusPx}`，可选contour为 `{points,radiusPx?}`。工具使用同一磁性贴边与连续画笔，重放受影响层成功后一次提交，失败/取消/旧代次保持草稿。精细覆盖保存为可选selectionMask，配方及MCP请求最多8MiB；像素及复杂度预算另按schema检查。模型可提交候选并在页面继续修正，本接口不自动外发图片，也不代表已验证视觉模型识别质量。
+
+候选recipe.json可在页面原图上传后载入“模型拆解提案 JSON”，与手工操作走同一执行层。页面功能可在关闭模型时完成。MCP服务和页面均调用项目模块，运行期所需的是项目依赖与浏览器。定向检查为 `npx vitest run src/shared/image-import src/platform/browser/content/image-import*.test.ts` 及 `npx playwright test tests/image-import-tool.spec.ts`。
+
+无需模型宿主时，可直接让程序重放同一严格配方，仍通过上述项目MCP执行层交付和完整冷读。
+
+```sh
+node tools/image-import/replay.mjs --image /absolute/map.jpg --recipe /absolute/recipe.json --license-file /absolute/license.txt --attribution "实际作者与来源" --output /absolute/existing-output
+```
+
+原图保真模式禁止当前 `trace` / `wood` / `rug` 改写可见外观；MCP `image_import_set_vector` 仅接受 `options:null` 清理旧设置，旧提案不能直接采用。`set_source_boundary` 保存包含原墙线的外框；`set_output_scale` 指定1/2/4倍原色采样，物理尺寸不变且不声称恢复缺失细节。`assess_fidelity` 现场计算同坐标原图报告，`preview` 支持difference/inference；`build_project` 的sourceFidelity与落盘/冷读verification分开。地板材质与物件自动入库，源墙沿只关联房间外观。既有SVG素材编辑仍可制作新固定副本，不作为保真转换通过的证据。详见[失败规则与保真边界](docs/reference/image-to-project.md#fidelity-failure-rules)。
+
+<a id="image-room-sample-tool"></a>
+## 图片分层样板工具
+
+`node tools/image-import/build-room-sample.mjs --input /absolute/room-sample.json --output /absolute/existing-parent/new-output` 在隔离浏览器中构建蓝毯琴房完整v1。输入清单包含 `floor`、`piano`、`rug` 三项，各有本地PNG的 `path`（可相对清单目录）及原图像素范围 `boundsPx: {x,y,width,height}`，另需 `licenseText` 和 `attribution`；可选 `sceneId` 与 `now` 固定新工程身份及时间。工具使用现有PNG规范化和完整资源/像素校验。先安装Playwright Chromium，输出目录须为尚不存在的新目录。
+
+成功输出 `map.sceneweave`、`preview.png` 和 `result.json`。只有结果为 `complete` 才表示落盘复读、独立页面完整冷导入和2048预览RGBA一致通过。工具仅写指定文件目录，输入原件保留；失败保留结果，修正后另选新目录运行。工程可从正常页面“打开工程文件”继续编辑，输入素材及实际样板均在被忽略的 `work/image-to-project/`。两点标定、样板的编辑粒度、比例及视觉差异见[设计](docs/reference/image-to-project.md#sample-tool)，开发状态见[07](docs/07-roadmap.md#image-to-project-plan)。
+
 <a id="legacy-svg-recovery"></a>
 ## 旧 SVG 的独立恢复工具
 

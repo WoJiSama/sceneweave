@@ -300,6 +300,30 @@ export async function prepareLibraryEntry(input: ProjectBundle, selectorInput: C
   return { item, capsule, capsuleSha256: sha256Bytes(capsule) }
 }
 
+/** One captured source is fully verified for this call. Each neutral capsule
+ * still passes public export validation over its own complete resource closure. */
+export async function prepareLibraryEntries(input: ProjectBundle, selectorInputs: readonly CatalogSelector[], validation: CompleteValidationOptions): Promise<PreparedLibraryEntry[]> {
+  const bundle = captureProjectBundleInput(input)
+  if (!Array.isArray(selectorInputs) || Object.getPrototypeOf(selectorInputs) !== Array.prototype || selectorInputs.length < 1 || selectorInputs.length > LIBRARY_LIMITS.batch) {
+    throw new Error('素材准备批次须包含1–64个明确选择。')
+  }
+  const selectors = z.array(selectorSchema).min(1).max(LIBRARY_LIMITS.batch).parse(captureJson(selectorInputs))
+  checkCancelled(validation?.signal)
+  const verified = await validateProjectBundle(bundle, validation), entries: PreparedLibraryEntry[] = []
+  let totalBytes = 0
+  for (const selector of selectors) {
+    checkCancelled(validation?.signal)
+    const project = extractClosure(verified.project, selector), item = describeItem(project, selector)
+    const capsule = await exportProject({ project, resources: verified.resources }, validation)
+    if (capsule.length > LIBRARY_LIMITS.capsuleBytes) throw new Error('素材完整载体超过32MiB。')
+    if ((totalBytes += capsule.length) > LIBRARY_LIMITS.storedCapsuleBytes) throw new Error('素材准备批次超过128MiB实际载体预算。')
+    checkCancelled(validation?.signal)
+    entries.push({ item, capsule, capsuleSha256: sha256Bytes(capsule) })
+  }
+  checkCancelled(validation?.signal)
+  return entries
+}
+
 /** Every external installation/read checks bytes, native ZIP, exact neutral metadata and root closure. */
 export async function validateLibraryEntry(input: PreparedLibraryEntry, validation: CompleteValidationOptions): Promise<PreparedLibraryEntry> {
   const entry = captureLibraryEntry(input)

@@ -2,6 +2,8 @@ import { visualBase } from '../../shared/visual/base'
 import PathAttachmentTools from './PathAttachmentTools'
 import FloorTools from './FloorTools'
 import { resolveFloorOutput } from '../../shared/floors/output'
+import ImageImportTool from './ImageImportTool'
+import { installSavedImageImportItems } from '../../platform/browser/content/image-import-library'
 import ProjectAssetReviewPanel from './ProjectAssetReviewPanel'
 import ThemePacksPanel from './ThemePacksPanel'
 import DecorationPanel, { DecorationInspector } from './DecorationPanel'
@@ -373,6 +375,40 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const terrainLocalPreviewRef = useRef<TerrainLocalPreview | null>(null)
   terrainLocalPreviewRef.current = terrainLocalPreview
   const [candidate, setCandidate] = useState<Candidate | null>(null)
+  const [imageImportRequest, setImageImportRequest] = useState(0)
+  const [imageLibraryRefresh, setImageLibraryRefresh] = useState(0)
+  const [imageLibraryStatus, setImageLibraryStatus] = useState<{ sceneId: string; message: string; failed: boolean } | null>(null)
+  const imageLibraryAttempts = useRef(new Set<string>())
+  const imageLibraryJob = useRef<{ sceneId: string; controller: AbortController } | null>(null)
+  useEffect(() => () => {
+    const job = imageLibraryJob.current
+    if (job) { job.controller.abort(); imageLibraryAttempts.current.delete(job.sceneId) }
+    imageLibraryJob.current = null
+  }, [])
+  const syncImageItems = async (sceneId: string, ids: string[]) => {
+    const previous = imageLibraryJob.current
+    if (previous?.sceneId === sceneId) return
+    if (previous) { previous.controller.abort(); imageLibraryAttempts.current.delete(previous.sceneId) }
+    const job = { sceneId, controller: new AbortController() }
+    imageLibraryJob.current = job
+    setImageLibraryStatus({ sceneId, message: '工程已保存，正在将拆解物件加入我的素材…', failed: false })
+    try {
+      const result = await installSavedImageImportItems(sceneId, ids, job.controller.signal)
+      if (job.controller.signal.aborted || imageLibraryJob.current !== job) return
+      setImageLibraryRefresh(value => value + 1)
+      setImageLibraryStatus({ sceneId, message: `拆解物件已保存到我的素材，新增${result.savedCount}项，已有${result.existingCount}项。`, failed: false })
+    } catch (error) {
+      if (job.controller.signal.aborted || imageLibraryJob.current !== job) return
+      setImageLibraryStatus({ sceneId, message: `工程已保存，素材入库待重试。${error instanceof Error ? error.message : String(error)}`, failed: true })
+    } finally { if (imageLibraryJob.current === job) imageLibraryJob.current = null }
+  }
+  useEffect(() => {
+    const document = completeProject?.document
+    if (!document || state.status !== 'saved' || document.presetSnapshot.presetId !== 'image-import-manual' || imageLibraryAttempts.current.has(document.sceneId)) return
+    imageLibraryAttempts.current.add(document.sceneId)
+    void syncImageItems(document.sceneId, Object.keys(document.props))
+  }, [completeProject?.document.sceneId, state.status])
+
   const [preparation, setPreparation] = useState<{ abort: AbortController; description: string; progress: ContentLoadProgress | null; cancelling: boolean } | null>(null)
   const cancelPreparation = () => { controller.current?.abort(); setPreparation(current => current ? { ...current, cancelling: true } : current) }
   const [sidebar, setSidebar] = useState<'scene' | 'generate' | 'building' | 'library' | 'outdoor' | 'visual' | 'ai' | 'history'>('scene'), [historyRefresh, setHistoryRefresh] = useState(0)
@@ -943,6 +979,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (requested.type === 'new') openNewScene()
     else if (requested.type === 'generate') { if (guard()) { setAudience('gm'); openResources('generate') } }
     else if (requested.type === 'import') requestImport()
+    else if (requested.type === 'image-import') { if (guard()) { setAudience('gm'); setSidebar('scene'); openResources('scene'); setImageImportRequest(value => value + 1) } }
     else if (requested.type === 'open') openReference(requested.sceneId)
     else if (requested.type === 'open-project') {
       if (!requested.reload && requested.project.document.sceneId === compositionWorkspace.getState().project?.document.sceneId) return
@@ -1681,7 +1718,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
                 const ids = selectionSession.getSnapshot()
                 preview(() => surfaceMaterialCommands(completeProject, ids, id), '将固定材质应用到所选表面')
               } }
-            return <><ThemePacksPanel key={`${panelKey}-theme-packs`} disabled={editDisabled} onAdopt={adoptCatalog} onPendingChange={onThemePending}/><ProjectAssetReviewPanel project={completeProject} disabled={editDisabled} onPendingChange={onProjectReviewPending}/><CatalogLibrary detailTarget={catalogTarget} detailVisible={catalogDetailOpen} detailReturnLabel={detailMode === 'review' ? '返回候选审阅' : detailMode === 'selection' ? '返回对象' : '返回当前任务'} onDetailChange={open => { setCatalogDetailOpen(open); if (open) revealPanel('inspector') }} key={panelKey} {...libraryProps} builtinProject={builtinProject} builtinLoading={builtinLoading} builtinError={builtinError}
+            return <><ThemePacksPanel key={`${panelKey}-theme-packs`} disabled={editDisabled} onAdopt={adoptCatalog} onPendingChange={onThemePending}/><ProjectAssetReviewPanel project={completeProject} disabled={editDisabled} onPendingChange={onProjectReviewPending}/><CatalogLibrary organizationDisabled={toolDisabled(['catalogForm'])} externalRefreshKey={imageLibraryRefresh} detailTarget={catalogTarget} detailVisible={catalogDetailOpen} detailReturnLabel={detailMode === 'review' ? '返回候选审阅' : detailMode === 'selection' ? '返回对象' : '返回当前任务'} onDetailChange={open => { setCatalogDetailOpen(open); if (open) revealPanel('inspector') }} key={panelKey} {...libraryProps} builtinProject={builtinProject} builtinLoading={builtinLoading} builtinError={builtinError}
               onBrowse={() => openResources('library')} onManage={() => { setCatalogDetailOpen(false); openResources('library') }} onBuiltinDemand={requestBuiltin} variantsProject={variantsProject} variantsLoading={variantsLoading} variantsError={variantsError} onVariantsDemand={requestVariants}
               onAdopt={adoptCatalog} onUse={useCatalogItem} onPendingChange={onCatalogPending} onDraftChange={onCatalogDraft} organizationResetKey={formReset.catalogForm}/></>
           })()}</div>
@@ -1691,7 +1728,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           <div hidden={sidebar !== 'visual' || audience !== 'gm'} onChangeCapture={() => markFormDraft('visualForm')}>{completeProject && <SelectionSubscriber session={selectionSession}>{ids => <VisualPanel surfaceRequest={surfaceRequest} detailsTarget={visualTarget} detailsActive={detailMode === 'visual' && !catalogDetailOpen} activeTab={visualTab} onTabChange={tab => { if (tab !== visualTab && !guard('visualForm')) return; setVisualTab(tab); inspect('visual') }} onInspect={() => inspect('visual')} key={`${panelKey}-${completeProject.document.revision}-${formReset.visualForm}`} scene={completeProject.document} appearance={completeProject.appearance} historyIdentity={completeProject.historyIdentity} layerId={currentLayerId} selectedIds={ids} disabled={toolDisabled(['visualForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'visualForm')}  onBoundaryEditor={setBoundaryEditor} onDraftChange={() => markFormDraft('visualForm')}/>}</SelectionSubscriber>}</div>
           <div hidden={sidebar !== 'generate' || audience !== 'gm'}>{generationTools}</div>
           <div hidden={sidebar !== 'history' || audience !== 'gm'}>{historyBrowser}</div>
-          <div hidden={sidebar !== 'scene' && audience === 'gm'}><div className="workspace-scene-actions"><button className="secondary" disabled={!project || audience === 'player'} onClick={showSettings}>场景设置</button></div>{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
+          <div hidden={sidebar !== 'scene' && audience === 'gm'}>{audience === 'gm' && <><ImageImportTool disabled={editDisabled} requestKey={imageImportRequest} onPrepare={prepare}/>{imageLibraryStatus && imageLibraryStatus.sceneId === project?.document.sceneId && <div role="status" className="asset-muted"><p>{imageLibraryStatus.message}</p>{imageLibraryStatus.failed && <button className="secondary" disabled={editDisabled} onClick={() => { if (project) void syncImageItems(project.document.sceneId, Object.keys(project.document.props)) }}>重试保存拆解素材</button>}</div>}</>}<div className="workspace-scene-actions"><button className="secondary" disabled={!project || audience === 'player'} onClick={showSettings}>场景设置</button></div>{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
         </div>
   const inspectorPanel = <SelectionSubscriber session={selectionSession}>{ids => {
     const selectedIds = ids, selected = ids.length === 1 ? ids[0] : null
@@ -1790,7 +1827,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   return <WorkspacePresentationContext.Provider value={{ ...presentation, aiReviewActive: !!aiPreview }}>
     <div className="asset-shell history-shell composition-shell outdoor-shell workspace-unified" ref={shell} data-testid="outdoor-workbench" data-native-format={`sceneweave-complete-project@${completeProject?.schemaVersion ?? 1}`} data-revision={project?.document.revision}
       data-transaction-revision={state.lastTransaction?.revision} data-transaction-committed-at={state.lastTransaction?.committedAtMs}>
-      <header className="asset-header"><button className="asset-brand" aria-label="回到首页" onClick={onBack}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><div className="workspace-project-title"><small>统一工作区</small><h1>{project?.document.title ?? '织境场景'}</h1></div></div><div className="asset-toolbar"><button aria-label="撤销编辑" title="撤销编辑（Ctrl / ⌘ + Z）" aria-keyshortcuts="Control+Z Meta+Z" disabled={!state.canUndo || editDisabled} onClick={() => commit(() => applyEditHistory('undo'))}><Undo2 size={17}/></button><button aria-label="重做编辑" title="重做编辑（Ctrl / ⌘ + Shift + Z / Y）" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y Meta+Y" disabled={!state.canRedo || editDisabled} onClick={() => commit(() => applyEditHistory('redo'))}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || audience === 'player'} onClick={openHistory}><Archive size={17}/></button></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`} title="已采用的编辑自动保存在此浏览器；下载工程备份请使用「导出」。">{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : state.status === 'error' || state.status === 'conflict' ? <AlertTriangle size={14}/> : state.status === 'unsaved' ? <Clock3 size={14}/> : state.status === 'saved' ? <CheckCircle2 size={14}/> : null} {saveLabels[state.status]}</span><details className="workspace-file-menu" onClick={event => { if ((event.target as HTMLElement).closest('button')) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.currentTarget.open) { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}><summary>文件</summary><div role="group" aria-label="文件操作"><button className="secondary" disabled={editDisabled} onClick={openNewScene}>新建空白场景</button><button className="secondary" disabled={editDisabled} onClick={requestImport}>打开工程文件</button><button className="secondary" disabled={editDisabled} onClick={showSamples}>从样板开始</button><button className="secondary" disabled={editDisabled || !project} onClick={() => request({ type: 'reload' })}>重新载入已保存版本</button><button className="secondary" disabled={busy || editingBlocked || !project} onClick={() => backup()}>备份可编辑工程 · 含秘密</button></div></details><WorkspaceHelp/><details className="workspace-export-menu" onKeyDown={event => {
+      <header className="asset-header"><button className="asset-brand" aria-label="回到首页" onClick={onBack}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><div className="workspace-project-title"><small>统一工作区</small><h1>{project?.document.title ?? '织境场景'}</h1></div></div><div className="asset-toolbar"><button aria-label="撤销编辑" title="撤销编辑（Ctrl / ⌘ + Z）" aria-keyshortcuts="Control+Z Meta+Z" disabled={!state.canUndo || editDisabled} onClick={() => commit(() => applyEditHistory('undo'))}><Undo2 size={17}/></button><button aria-label="重做编辑" title="重做编辑（Ctrl / ⌘ + Shift + Z / Y）" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y Meta+Y" disabled={!state.canRedo || editDisabled} onClick={() => commit(() => applyEditHistory('redo'))}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || audience === 'player'} onClick={openHistory}><Archive size={17}/></button></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`} title="已采用的编辑自动保存在此浏览器；下载工程备份请使用「导出」。">{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : state.status === 'error' || state.status === 'conflict' ? <AlertTriangle size={14}/> : state.status === 'unsaved' ? <Clock3 size={14}/> : state.status === 'saved' ? <CheckCircle2 size={14}/> : null} {saveLabels[state.status]}</span><details className="workspace-file-menu" onClick={event => { if ((event.target as HTMLElement).closest('button')) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.currentTarget.open) { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}><summary>文件</summary><div role="group" aria-label="文件操作"><button className="secondary" disabled={editDisabled} onClick={openNewScene}>新建空白场景</button><button className="secondary" disabled={editDisabled} onClick={requestImport}>打开工程文件</button><button className="secondary" disabled={editDisabled} onClick={() => request({ type: 'image-import' })}>从图片新建场景</button><button className="secondary" disabled={editDisabled} onClick={showSamples}>从样板开始</button><button className="secondary" disabled={editDisabled || !project} onClick={() => request({ type: 'reload' })}>重新载入已保存版本</button><button className="secondary" disabled={busy || editingBlocked || !project} onClick={() => backup()}>备份可编辑工程 · 含秘密</button></div></details><WorkspaceHelp/><details className="workspace-export-menu" onKeyDown={event => {
         if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !event.currentTarget.open) return
         event.preventDefault(); event.stopPropagation()
         event.currentTarget.open = false

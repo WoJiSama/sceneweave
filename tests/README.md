@@ -13,6 +13,9 @@
 核心收束的正常生产补充入口为 `core-convergence-journey.spec.ts`：森林及林中建筑通过真实Worker候选、独立保存、保护后局部密度修改、撤销/重做、目录冷开和玩家4K PNG，下载工程核对真实文档、身份、外观与资源/许可，并重开原工程检查保全。`domain-cancel-ux.spec.ts`共用现行八模块与右侧候选定位，继续覆盖四领域的运行取消和真实迟到响应。这些是定向旅程，不替代09完整领域、视觉或性能验收。
 
 `asset-expansion.spec.ts`通过正常生产页面检查单图名称跟随/手改保留、严格清单ZIP及名称/标定原样采用、空根锚拒绝、撤销/重做、保存冷开和空个人库备份恢复；另检查按需主题加载/所选闭包采用、本工程只读审核与独立本机审核记录、六包真实PNG及十二份可编辑工程下载、室内/海岸样板的实际编辑和玩家4K输出。受影响单元入口为shared `assets/{import-manifest,theme-packs,review}`、browser `assets/{batch-source,image-dimensions,review-content,review-repository}`、content `theme-pack-catalog`及application `workspace/{prepare,asset-batch}`；确切素材闭包检查继续复用`shared/library-content`。冻结生产地址须带末尾斜线，例如`SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5225/sceneweave/`。实际结果和首败/最小复验归[素材台账](../docs/archive/workspace-content-validation.md#asset-expansion-20261109)，不替代美术、完整状态覆盖或P3。
+
+图片导入的页面回归在 `image-import-tool.spec.ts`（人工/配方拆层、原像素、自动物件入库和副本）、`image-import-quality.spec.ts`（近景拖点/撤销、多材质补底及范围外保全）、`image-import-vector.spec.ts`（程序/人工矢量参数、实际SVG与PNG、材质/物件自动入库、SVG源编辑副本及保存冷开）。共用纯算法入口为 `src/shared/image-import`，工程/素材入口为 `src/platform/browser/content/image-import*.test.ts`；矢量测试使用实际固定resvg WASM和规范PNG。私有参考图只在 `work/` 调试，不成为默认CI输入。完整美术、独立盲测与P3仍归[09图片转工程](../docs/09-quality-plan.md#image-to-project-acceptance)。
+
 `outpost-density.spec.ts`通过正常生产页面下载新哨站疏/适中/密三档，检查三个散布组的真实成员、道路完整净宽、固定资源一致及当前工程备份不变。`wilderness-remediation.spec.ts`覆盖新哨站的真实门前接线、六条持久地表过渡、受管树木移动转人工及撤销、完整包冷开与双受众4096输出，并保留河岸山道接续。相关规则在browser content `outpost-{roads,surfaces,vegetation}.test.ts`及`theme-pack-catalog.test.ts`；只属必要开发自检，正式地图细节与画面验收仍从09执行。
 
 `map-detail-tools.spec.ts`覆盖道路默认吸附/Shift释放、裸整面滚轮草稿及带纯材质覆盖层整面升降的正常生产旅程。覆盖层夹具以实际下载工程为底，经正式完整模型事务构造后从普通文件入口导入；核对审阅采用、材质/来源不变、单次撤销及冷重开。规则入口为`terrain-elevation-tools.test.ts`；道路入同材质营地去线由`path-junctions.test.ts`及`shared/projection/path-terrain-joins.test.ts`覆盖，包括实体/层滤镜、覆盖面、房间、私密/隐藏、跨高程及预算退回原描边。实际PNG、首败和最小复验从[地图细节台账](../docs/archive/workspace-content-validation.md#map-detail-tools-20261110)追溯。

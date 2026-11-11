@@ -261,12 +261,14 @@ function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, ras
   if (!projection.walls.length) return
   const width = ctx.canvas.width, height = ctx.canvas.height, mask = canvas(width, height), color = canvas(width, height), interior = canvas(width, height)
   try {
+    const outline = projection.theme?.outline ?? { widthMm: 24, color: '#39443E' }
     const maskCtx = context(mask, raster.readFrequently), colorCtx = context(color, raster.readFrequently), interiorCtx = context(interior, raster.readFrequently), geometry = wallGeometry(projection.walls)
     worldTransform(maskCtx, projection.bounds, scaleX, scaleY); worldTransform(colorCtx, projection.bounds, scaleX, scaleY)
     const union = new Path2D()
     for (const item of geometry) {
       const path = new Path2D(); item.polygons.forEach(p => { addRing(path, p); addRing(union, p) })
-      drawVisualEntity(colorCtx, projection, item.wall.id, expandedBounds(item.polygons.flat(), 0), (target, local) => fillSurface(target, path, item.wall.style, local, raster, '#899087'), !!raster.readFrequently)
+      drawVisualEntity(colorCtx, projection, item.wall.id, expandedBounds(item.polygons.flat(), 0), (target, local) => fillSurface(target, path, item.wall.style, local, raster,
+        outline.widthMm === 0 && item.wall.style ? '#00000000' : '#899087'), !!raster.readFrequently)
     }
     maskCtx.fillStyle = '#fff'; maskCtx.fill(union)
     const shadowSource = projection.theme?.shadowPresets.wall
@@ -279,9 +281,12 @@ function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, ras
       ctx.drawImage(interior, Math.cos(angle) * shadow.offsetMm * scaleX, Math.sin(angle) * shadow.offsetMm * scaleY); ctx.restore()
       interiorCtx.globalCompositeOperation = 'source-over'; interiorCtx.clearRect(0, 0, width, height)
     }
+    // Zero outline means no silhouette underpaint or second alpha mask. Either
+    // would darken antialiased edges even with width zero and change source art.
+    if (outline.widthMm === 0) { ctx.drawImage(color, 0, 0); ctx.restore(); return }
     // Erode one union silhouette, so joins and shared-wall pieces have no internal outline seams.
     interiorCtx.drawImage(mask, 0, 0); interiorCtx.globalCompositeOperation = 'destination-in'
-    const outline = projection.theme?.outline ?? { widthMm: 24, color: '#39443E' }, radius = outline.widthMm * Math.max(scaleX, scaleY) / 2
+    const radius = outline.widthMm * Math.max(scaleX, scaleY) / 2
     if (radius > 0) for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; interiorCtx.drawImage(mask, Math.cos(a) * radius, Math.sin(a) * radius) }
     const outlineCtx = maskCtx; outlineCtx.resetTransform(); outlineCtx.globalCompositeOperation = 'source-in'; outlineCtx.fillStyle = outline.color; outlineCtx.fillRect(0, 0, width, height)
     ctx.drawImage(mask, 0, 0)
