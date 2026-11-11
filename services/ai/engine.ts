@@ -88,10 +88,13 @@ export class TaskEngine {
   assertStorageAvailable() { if (this.unavailable) throw new TaskFault('storage_unavailable', 503) }
   onStorageUnavailable(callback: () => void) { this.unavailableListeners.add(callback); return () => { this.unavailableListeners.delete(callback) } }
   private markUnavailable() {
+    if (this.unavailable) return
     this.unavailable = true
     for (const active of this.active.values()) { active.abort.abort(); clearTimeout(active.timer) }
     this.active.clear()
-    for (const listener of [...this.unavailableListeners]) listener()
+    // Subscriber cleanup cannot replace the storage failure with an escaped
+    // rejection, or prevent other task streams from learning it is unavailable.
+    for (const listener of [...this.unavailableListeners]) { try { listener() } catch { /* Storage is already unavailable. */ } }
   }
   private current(id: string, generation: number): StoredTask {
     const task = this.store.read(id)
@@ -110,7 +113,9 @@ export class TaskEngine {
     }, Math.max(1, this.store.remaining(task) - (task.authoring?.start.schemaVersion === 4 ? AUTHORING_V4_LIMITS.closeoutReserveMs : 0)))
     timer.unref?.()
     this.active.set(id, { generation, abort, timer })
-    queueMicrotask(() => { void this.run(id, generation, abort.signal).finally(() => {
+    // Error handling can itself fail to read/checkpoint storage. Every runner
+    // has a final non-throwing boundary; never retry an uncertain paid request.
+    queueMicrotask(() => { void this.run(id, generation, abort.signal).catch(() => this.markUnavailable()).finally(() => {
       const current = this.active.get(id)
       if (current?.generation === generation) { clearTimeout(current.timer); this.active.delete(id) }
     }) })
