@@ -15,6 +15,7 @@ import {
 } from './catalog'
 import AssetImportForm, { type AssetImportFields } from './AssetImportForm'
 import AssetBatchImportForm, { type AssetBatchReview } from './AssetBatchImportForm'
+import ImageImportItemEditor from './ImageImportItemEditor'
 import type { AssetImportRequest } from '../../application/workspace/asset-batch'
 import { definitionPresentation } from '../../shared/appearance/presentation'
 import { CATALOG_CATEGORIES, catalogCategory, catalogSizeLabel, type CatalogCategory } from './catalog-categories'
@@ -36,8 +37,10 @@ export interface CatalogLibraryProps {
   project: EditableProject
   disabled: boolean
   importDisabled?: boolean
+  organizationDisabled?: boolean
   importResetKey?: number
   organizationResetKey?: number
+  externalRefreshKey?: number
   builtinProject?: EditableProject
   builtinLoading?: boolean
   builtinError?: string
@@ -68,13 +71,14 @@ export interface CatalogLibraryProps {
 
 /** Library browsing never selects or changes a scene entity. Fixed content is adopted through the workspace preview. */
 export default function CatalogLibrary({
-  project, disabled, importDisabled = disabled, importResetKey = 0, organizationResetKey = 0,
+  project, disabled, importDisabled = disabled, organizationDisabled = disabled, importResetKey = 0, organizationResetKey = 0, externalRefreshKey = 0,
   builtinProject, builtinLoading = false, builtinError, onBuiltinDemand,
   variantsProject, variantsLoading = false, variantsError, onVariantsDemand,
   detailTarget, detailVisible = true, onDetailChange, onManage, onBrowse, detailReturnLabel = '返回对象',
   onPlace, onMaterial, onPrefab, onUse, onImport, onImportBatch, onAssetBatchDraftChange, onInvalidateAssetBatch, assetBatchPreviewActive = false, onAdopt, onPendingChange, onDraftChange,
 }: CatalogLibraryProps) {
   const repository = useRef<CatalogRepositoryV1 | null>(null), mounted = useRef(false), controller = useRef<AbortController | null>(null)
+  const readGeneration = useRef(0), externalKey = useRef(externalRefreshKey)
   const pendingCallback = useRef(onPendingChange), draftCallback = useRef(onDraftChange)
   pendingCallback.current = onPendingChange; draftCallback.current = onDraftChange
   const [snapshot, setSnapshot] = useState<CatalogSnapshotV1>(EMPTY_SNAPSHOT), [ready, setReady] = useState(false)
@@ -86,6 +90,7 @@ export default function CatalogLibrary({
   const [busy, setBusy] = useState(false), [status, setStatus] = useState(''), [error, setError] = useState('')
   const [limit, setLimit] = useState(24), [removeConfirmation, setRemoveConfirmation] = useState(false)
   const [detailProject, setDetailProject] = useState<EditableProject | null>(null)
+  const [imageItemEdit, setImageItemEdit] = useState<{ key: string; project: EditableProject; definitionId: string } | null>(null)
   const managementId = useId()
   const [managementOpen, setManagementOpen] = useState(false)
   const [missingThumbnails, setMissingThumbnails] = useState<Set<string>>(() => new Set())
@@ -121,15 +126,31 @@ export default function CatalogLibrary({
   useEffect(() => {
     mounted.current = true
     const repo = new CatalogRepositoryV1(); repository.current = repo
-    repo.read().then(value => { if (mounted.current && repository.current === repo) { setSnapshot(value); setReady(true); setReadError('') } })
-      .catch(reason => { if (mounted.current && repository.current === repo) setReadError(messageOf(reason)) })
-      .finally(() => { if (mounted.current && repository.current === repo) setReading(false) })
+    const generation = ++readGeneration.current
+    repo.read().then(value => { if (mounted.current && repository.current === repo && generation === readGeneration.current) { setSnapshot(current => value.revision >= current.revision ? value : current); setReady(true); setReadError('') } })
+      .catch(reason => { if (mounted.current && repository.current === repo && generation === readGeneration.current) setReadError(messageOf(reason)) })
+      .finally(() => { if (mounted.current && repository.current === repo && generation === readGeneration.current) setReading(false) })
     return () => { mounted.current = false; controller.current?.abort(); pendingCallback.current?.(false); draftCallback.current?.(false); repo.close(); if (repository.current === repo) repository.current = null }
   }, [])
-  useEffect(() => { draftCallback.current?.(draft !== null || review !== null) }, [draft, review])
+  useEffect(() => {
+    if (externalKey.current === externalRefreshKey || busy || !repository.current) return
+    externalKey.current = externalRefreshKey
+    const repo = repository.current, generation = ++readGeneration.current
+    setReading(true); setReadError('')
+    repo.read().then(value => {
+      if (mounted.current && repository.current === repo && generation === readGeneration.current) {
+        setSnapshot(current => value.revision >= current.revision ? value : current); setReady(true)
+      }
+    }).catch(reason => {
+      if (mounted.current && repository.current === repo && generation === readGeneration.current) setReadError(messageOf(reason))
+    }).finally(() => {
+      if (mounted.current && repository.current === repo && generation === readGeneration.current) setReading(false)
+    })
+  }, [externalRefreshKey, busy])
+  useEffect(() => { draftCallback.current?.(draft !== null || review !== null || imageItemEdit !== null) }, [draft, review, imageItemEdit])
   const resetKey = useRef(organizationResetKey)
   useEffect(() => {
-    if (resetKey.current !== organizationResetKey) { resetKey.current = organizationResetKey; setDraft(null); setReview(null); setRemoveConfirmation(false); setError('') }
+    if (resetKey.current !== organizationResetKey) { resetKey.current = organizationResetKey; setDraft(null); setReview(null); setImageItemEdit(null); setRemoveConfirmation(false); setError('') }
   }, [organizationResetKey])
   useEffect(() => { setLimit(24) }, [scope, filter, category])
   useEffect(() => { setRemoveConfirmation(false) }, [selected])
@@ -259,13 +280,27 @@ export default function CatalogLibrary({
   const organizationConflicts = review ? [...new Set([...review.keys, ...review.organizationKeys])].filter(key => snapshot.organizations[key] && review.organizations[key] && !sameOrganization(snapshot.organizations[key], review.organizations[key])) : []
   const hasFilters = category !== 'all' || !!filter.query || !!filter.kinds.length || !!filter.publisherTags.length || !!filter.tags.length || !!filter.colors.length || filter.favoriteOnly
 
+  const saveImageItem = async (entry: PreparedCatalogEntryV1, signal: AbortSignal) => {
+    const repo = repository.current
+    if (!repo) throw new Error('个人素材库尚未打开。')
+    const before = await repo.read(), key = entry.item.identity.key
+    const next = before.entries.some(row => row.item.identity.key === key) ? before : await repo.commit(before.revision, { put: [entry] }, signal)
+    await repo.load(key, signal)
+    if (mounted.current && !signal.aborted) {
+      setSnapshot(next); setImageItemEdit(null); setScope('mine'); setDetailKey(key); setSelected([key]); setStatus('已保存图片素材编辑副本，可从我的素材重复放置。')
+    }
+  }
   const detailContent = <section className="catalog-library" aria-label="素材详情面板" hidden={!detailVisible} inert={!detailVisible} onKeyDown={event => {
     if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !detailVisible || !onDetailChange) return
     event.preventDefault(); event.stopPropagation(); onDetailChange(false)
   }}>
     {detail && detailTarget !== undefined && <button type="button" className="secondary asset-wide" onClick={() => onDetailChange?.(false)}>{detailReturnLabel}</button>}
     {detail && onBrowse && <button type="button" className="secondary asset-wide" onClick={() => { setManagementOpen(false); onDetailChange?.(false); onBrowse() }}>返回素材列表</button>}
-    {detail && <div className="composition-source catalog-source" aria-label="素材来源详情"><h3>{detail.name}</h3><p className="asset-muted">当前查看素材来源；画布所选对象保持。</p><div className="catalog-detail-preview"><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/></div><dl className="asset-facts"><dt>用途分类</dt><dd>{CATALOG_CATEGORIES.find(value => value.id === catalogCategory(detail, catalogReadonlyTags(detail)))!.label}</dd><dt>我的素材</dt><dd>{!ready ? '尚未完成个人素材库读取' : installed.has(detail.identity.key) ? '已保存，可离线使用' : '尚未保存到个人库'}</dd><dt>个人标签／颜色</dt><dd>{!ready ? '个人素材库读取完成后显示' : detailOrganization && [...detailOrganization.tags, ...detailOrganization.colors.map(color => `${color}色`)].join(' · ') || '无'}</dd><dt>固定来源</dt><dd>{detail.originLabel}</dd><dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd><dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd><dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd><dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd><dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd><dt>目录补充标签／颜色</dt><dd>{detailCuration ? [...detailCuration.tags, ...detailCuration.colors.map(color => `${color}色`)].join(' · ') : '无'}（只读、人工描述）</dd>{refinedIdentity && <><dt>精修来源</dt><dd>{refinedSource?.name ?? refinedIdentity[3]} · v{refinedIdentity[4]}；保留旧版，可分别选择</dd></>}<dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd><dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd></dl>{refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照"><figure><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>精修版：{detail.name} · v{detail.identity.fixedVersion}</figcaption></figure><figure>{refinedSource ? <><CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>保留旧版：{refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption></> : <><span className="catalog-comparison-missing">旧版完整来源未在当前可用目录中找到；请读取内置目录或明确安装对应旧版。</span><figcaption>{refinedIdentity[3]} · v{refinedIdentity[4]}</figcaption></>}</figure></div>}<p className="asset-muted">缩略图显示固定源图片；目录补充标签／颜色来自应用只读索引，不改发布者信息，也不写入库备份。颜色为人工描述或个人整理，场景中的层与实例覆盖可能产生不同外观。</p>{detailProject && <details><summary>完整许可与署名</summary>{[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef)).map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))].map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}</details>}<button disabled={!ready || busy || !!draft} onClick={() => { setManagementOpen(true); onManage?.(); setSelected([detail.identity.key]); const existing = organizationOf(snapshot, detail.identity.key); setDraft({ keys: [detail.identity.key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite }) }}>编辑此项个人整理</button></div>}
+    {detail && <div className="composition-source catalog-source" aria-label="素材来源详情"><h3>{detail.name}</h3><p className="asset-muted">当前查看素材来源；画布所选对象保持。</p><div className="catalog-detail-preview"><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/></div><dl className="asset-facts"><dt>用途分类</dt><dd>{CATALOG_CATEGORIES.find(value => value.id === catalogCategory(detail, catalogReadonlyTags(detail)))!.label}</dd><dt>我的素材</dt><dd>{!ready ? '尚未完成个人素材库读取' : installed.has(detail.identity.key) ? '已保存，可离线使用' : '尚未保存到个人库'}</dd><dt>个人标签／颜色</dt><dd>{!ready ? '个人素材库读取完成后显示' : detailOrganization && [...detailOrganization.tags, ...detailOrganization.colors.map(color => `${color}色`)].join(' · ') || '无'}</dd><dt>固定来源</dt><dd>{detail.originLabel}</dd><dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd><dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd><dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd><dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd><dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd><dt>目录补充标签／颜色</dt><dd>{detailCuration ? [...detailCuration.tags, ...detailCuration.colors.map(color => `${color}色`)].join(' · ') : '无'}（只读、人工描述）</dd>{refinedIdentity && <><dt>精修来源</dt><dd>{refinedSource?.name ?? refinedIdentity[3]} · v{refinedIdentity[4]}；保留旧版，可分别选择</dd></>}<dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd><dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd></dl>{refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照"><figure><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>精修版：{detail.name} · v{detail.identity.fixedVersion}</figcaption></figure><figure>{refinedSource ? <><CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>保留旧版：{refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption></> : <><span className="catalog-comparison-missing">旧版完整来源未在当前可用目录中找到；请读取内置目录或明确安装对应旧版。</span><figcaption>{refinedIdentity[3]} · v{refinedIdentity[4]}</figcaption></>}</figure></div>}<p className="asset-muted">缩略图显示固定源图片；目录补充标签／颜色来自应用只读索引，不改发布者信息，也不写入库备份。颜色为人工描述或个人整理，场景中的层与实例覆盖可能产生不同外观。</p>{detailProject && <details><summary>完整许可与署名</summary>{[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef)).map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))].map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}</details>}<button disabled={!ready || busy || !!draft} onClick={() => { setManagementOpen(true); onManage?.(); setSelected([detail.identity.key]); const existing = organizationOf(snapshot, detail.identity.key); setDraft({ keys: [detail.identity.key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite }) }}>编辑此项个人整理</button>
+      {(detail.identity.kind === 'prop' || detail.identity.kind === 'material') && detail.publisherTags.includes('图片拆解') && detailProject && <button disabled={!ready || busy || !!draft || !!review || !!imageItemEdit} onClick={() => setImageItemEdit({ key: detail.identity.key, project: detailProject, definitionId: detail.selector.definitionId })}>编辑图片素材副本</button>}
+    </div>}
+    {imageItemEdit && <ImageImportItemEditor key={imageItemEdit.key} project={imageItemEdit.project} definitionId={imageItemEdit.definitionId} kind={imageItemEdit.project.document.materials[imageItemEdit.definitionId] ? 'material' : 'prop'} disabled={busy || organizationDisabled} onSave={saveImageItem} onCancel={() => setImageItemEdit(null)} onPendingChange={active => { controller.current = active; setBusy(active !== null); pendingCallback.current?.(active !== null) }}/>}
+
   </section>
 
   return <section className="composition-library catalog-library" aria-label="组件素材库" aria-busy={busy || reading}>

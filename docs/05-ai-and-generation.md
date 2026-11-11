@@ -140,6 +140,13 @@ v2以`authoring_checkpoint`事件一次更新创作摘要、usage与executionChe
 
 创作4的start/state/summary、stage、图片引用、closeout、执行checkpoint4、SSE及claim/lease都显式分派。四预算hash贯穿；持久state的操作hash、账本链、预算汇总及摘要/检查点绑定严格核验。任务删除清正文、图片与草稿，独立owner/flow防重摘要保留到原七日到期，不能删除重建来重置额度；摘要不进入工程、历史或导出。开发证据与真实模型质量分别归[AI台账](archive/ai-validation.md#current-authoring-20261031)和[09](09-quality-plan.md#branch-feature-acceptance)。
 
+<a id="image-import-tools"></a>
+### 图片拆解的模型工具入口
+
+图片拆解提供项目自带stdio MCP宿主，与页面手工入口共用严格配方、像素拆层/矢量重建执行层和完整工程工厂。启动宿主时明确指定原图、来源/许可及输出目录，模型工具参数只包含该图内的坐标、取样区、有限属性和草稿代次。inspect/preview读取获准图像，set_scale/set_room/suggest_region/extract_item/set_vector/vector_source/undo/apply_recipe/build_project按[工具说明](../CONTRIBUTING.md#image-import-mcp)执行；build只交付完整候选，普通页面采用后保存本机工程与item。矢量重建由项目内的确定性程序执行，模型可设置相同方法和参数、读取真实SVG及预览；不调用图像生成服务。页面人工重建与离线程序不依赖模型在线，权限不因矢量设置而扩大。
+
+修改操作比较当前generation，撤销仍推进代次，预览和构建完成时再检查在途代次。严格schema拒绝路径、嵌入许可、审批等越权字段，来源和嵌入范围由宿主实际输入提供。recipe绑定规范化图片摘要，页面载入模型结果后可继续人工修正。当前内置聊天任务仍按其既有工具集运行，图片拆解的可调用入口由独立MCP宿主及共享执行模块提供；接入在线模型时，图片外发按本页上下文授权执行。
+
 ## 3. 技能与工具
 
 技能是可版本化的工作说明：目标、适用情形、步骤、示例和检查标准，例如俯视素材制作、建筑布景、墓园风格或渐进同化。由项目维护，任务记录技能标识/版本。模型可选择适用技能，技能不能增加权限；素材名称、导入文字和用户内容不能伪装成系统指令。Codex 本机已安装的技能不会自动接入应用。
