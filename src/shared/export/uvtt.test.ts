@@ -252,7 +252,11 @@ describe('explicit native light conversion and fail-closed privacy', () => {
   })
 
   it('returns a structured single-Floor refusal and rejects invalid/unowned source values before any conversion', () => {
-    const scene = fixture(); scene.floors.second = { id: 'second', name: 'Do not reveal', boundsMm: { x: 0, y: 0, width: 1000, height: 1000 } }
+    const scene = fixture()
+    scene.floors.floor.outputBoundsMm = { ...scene.exportBoundsMm }
+    scene.floors.second = { id: 'second', name: 'Do not reveal', boundsMm: { x: 0, y: 0, width: 1000, height: 1000 }, outputBoundsMm: { x: 0, y: 0, width: 1000, height: 1000 } }
+    scene.userLayers.secondLayer = { id: 'secondLayer', floorId: 'second', name: 'Hidden source layer name', order: 0, editLocked: false }
+    expect(validateSceneDocument(scene).ok).toBe(true)
     const multi = buildUvttPlan(scene)
     expect(multi.projection).toBeNull(); expect(multi.geometry).toBeNull(); expect(multi.report.blocked.join()).toMatch(/单 Floor/)
     expect(JSON.stringify(multi.report)).not.toContain('Do not reveal')

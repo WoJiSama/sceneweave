@@ -12,6 +12,7 @@ import { regionalEntityVisibility } from '../terrain-generation/integrity.js'
 import { decorationPaintGeometry, decorationPaintBounds } from '../decorations/presentation.js'
 import { resolveSurfaceRules } from '../surface-rules/resolve.js'
 import { propPaintEnvelope } from './presentation-contract.js'
+import { resolveFloorOutput, type FloorOutput } from '../floors/output.js'
 
 import type { Audience, ProjectedSurface, ProjectedTerrainEdge, ProjectedConnection, ProjectedWall, ProjectedNote, Projection } from './types.js'
 export type { Audience, ProjectedSurface, ProjectedMaterialPatch, ProjectedTerrainEdge, ProjectedConnection, ProjectedPath, ProjectedOpening, ProjectedWall, ProjectedNote, ProjectedRegion, ProjectedRegionalArea, ProjectedRegionalLine, ProjectedRegionalLandmark, ProjectedRegionalSymbol, Projection } from './types.js'
@@ -92,9 +93,9 @@ const defaultEdgeStyles: Record<TerrainEdge['kind'], EdgeStyle> = {
   materialTransition: { strokeWidthMm: 0, color: '#71865A', bandWidthMm: 250 },
 }
 /** Shared by fixed-mask creation and the player projection safety check. */
-export function terrainDecorationPadding(scene: SceneDocument, theme: Projection['theme']): number {
+export function terrainDecorationPadding(scene: SceneDocument, theme: Projection['theme'], floorId?: string): number {
   const cliff = theme?.terrainCliff, shore = theme?.edgeStyles.shore ?? defaultEdgeStyles.shore
-  const styles = [...Object.values(theme?.edgeStyles ?? defaultEdgeStyles), ...Object.values(scene.terrainEdges).flatMap(edge => edge.styleOverride ? [edge.styleOverride] : [])]
+  const styles = [...Object.values(theme?.edgeStyles ?? defaultEdgeStyles), ...Object.values(scene.terrainEdges).filter(edge => floorId === undefined || edge.floorId === floorId).flatMap(edge => edge.styleOverride ? [edge.styleOverride] : [])]
   return Math.max(cliff?.maxOffsetMm ?? 600, shore.bandWidthMm * .65 + shore.strokeWidthMm / 2,
     ...styles.map(style => Math.max(style.bandWidthMm * 1.7, style.strokeWidthMm / 2))) + (cliff?.opacity ? cliff.blurMm * 4 : 0)
 }
@@ -125,7 +126,9 @@ function deriveTerrainEdges(areas: TerrainArea[], declarations: TerrainEdge[], t
 export interface EditorProjectionOptions {
   /** Current GM editor session only. Never used for either published audience. */
   hiddenLayerIds?: ReadonlySet<string>
+  floorId?: string
 }
+export interface ProjectSceneOptions { floorId?: string }
 
 function checkedScene(input: SceneDocument): SceneDocument {
   const result = validateSceneSnapshot(input)
@@ -134,52 +137,66 @@ function checkedScene(input: SceneDocument): SceneDocument {
 }
 
 /** Strict v3 audience filtering precedes textures, joins, shadows and resources. */
-export function projectScene(scene: SceneDocument, audience: Audience, appearance?: import('../model/appearance.js').AppearanceGraph): Projection {
+export function projectScene(scene: SceneDocument, audience: Audience, appearance?: import('../model/appearance.js').AppearanceGraph, options: ProjectSceneOptions = {}): Projection {
   const checked = checkedScene(scene); copyScenePresentations(scene, checked); if (appearance) associateScenePresentations(checked, appearance)
-  return projectSceneInternal(checked, audience)
+  return projectSceneInternal(checked, audience, selectedFloorOutput(checked, options.floorId), undefined, options.floorId !== undefined)
 }
 
 /** GM session hiding uses the intact source; no support or stored relationship is removed. */
 export function projectEditorScene(scene: SceneDocument, options: EditorProjectionOptions = {}, appearance?: import('../model/appearance.js').AppearanceGraph): Projection {
   const checked = checkedScene(scene); copyScenePresentations(scene, checked); if (appearance) associateScenePresentations(checked, appearance)
-  return projectSceneInternal(checked, 'gm', options.hiddenLayerIds?.size ? options.hiddenLayerIds : undefined)
+  return projectSceneInternal(checked, 'gm', selectedFloorOutput(checked, options.floorId), options.hiddenLayerIds?.size ? options.hiddenLayerIds : undefined, options.floorId !== undefined)
 }
 
-function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLayerIds?: ReadonlySet<string>): Projection {
+function selectedFloorOutput(scene: SceneDocument, floorId?: string): FloorOutput {
+  const ids = Object.keys(scene.floors)
+  if (floorId === undefined && ids.length !== 1) throw new Error('多楼层投影必须明确选择目标Floor，不能自动选择第一层。')
+  return resolveFloorOutput(scene, floorId ?? ids[0])
+}
+
+/** Full-scene validation runs once; every Floor then proves its own player
+ * safety independently of the current editor target, masks or viewport. */
+export function assertAllFloorPlayerProjections(scene: SceneDocument, appearance?: import('../model/appearance.js').AppearanceGraph): void {
+  const checked = checkedScene(scene); copyScenePresentations(scene, checked); if (appearance) associateScenePresentations(checked, appearance)
+  for (const floorId of Object.keys(checked.floors).sort()) projectSceneInternal(checked, 'player', resolveFloorOutput(checked, floorId), undefined, true)
+}
+
+function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOutput: FloorOutput, hiddenLayerIds?: ReadonlySet<string>, explicitFloor = false): Projection {
+  const targetFloorId = floorOutput.floorId
+  const floorValues = <T extends { floorId: string }>(record: Record<string, T>): T[] => Object.values(record).filter(row => row.floorId === targetFloorId)
   const regional = scene.mapMode==='regional' && scene.regional ? {
-    areas: Object.values(scene.regional.areas).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'area', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: clone(row.boundaryMm), kind: row.kind, style: clone(row.style), relativeElevationMm: row.relativeElevationMm })),
-    lines: Object.values(scene.regional.lines).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'line', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: row.pointsMm.map(point => clone(point.positionMm)), kind: row.kind, displayWidthMm: row.displayWidthMm, actualWidthMm: row.actualWidthMm, style: clone(row.style) })),
-    landmarks: Object.values(scene.regional.landmarks).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'landmark', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, positionMm: clone(row.positionMm), purpose: row.purpose, name: row.name, description: row.description, assetId: scene.regional!.symbolDefinitions[row.definitionRef.id].assetId, visualBoundsMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].visualBoundsMm), rootAnchorMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].rootAnchorMm) })),
-    symbols: Object.values(scene.regional.symbols).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'symbol', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, positionMm: clone(row.positionMm), visualBoundsMm: clone(row.visualBoundsMm), assetId: scene.regional!.symbolDefinitions[row.definitionRef.id].assetId, rootAnchorMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].rootAnchorMm), renderOrder: row.renderOrder, sourceRef: audience === 'gm' ? clone(row.sourceRef) : null })),
+    areas: floorValues(scene.regional.areas).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'area', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: clone(row.boundaryMm), kind: row.kind, style: clone(row.style), relativeElevationMm: row.relativeElevationMm })),
+    lines: floorValues(scene.regional.lines).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'line', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, points: row.pointsMm.map(point => clone(point.positionMm)), kind: row.kind, displayWidthMm: row.displayWidthMm, actualWidthMm: row.actualWidthMm, style: clone(row.style) })),
+    landmarks: floorValues(scene.regional.landmarks).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'landmark', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, positionMm: clone(row.positionMm), purpose: row.purpose, name: row.name, description: row.description, assetId: scene.regional!.symbolDefinitions[row.definitionRef.id].assetId, visualBoundsMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].visualBoundsMm), rootAnchorMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].rootAnchorMm) })),
+    symbols: floorValues(scene.regional.symbols).filter(row => (audience === 'gm' || regionalEntityVisibility(scene, 'symbol', row.id) === 'public') && !hiddenLayerIds?.has(row.layerId)).map(row => ({ id: row.id, positionMm: clone(row.positionMm), visualBoundsMm: clone(row.visualBoundsMm), assetId: scene.regional!.symbolDefinitions[row.definitionRef.id].assetId, rootAnchorMm: clone(scene.regional!.symbolDefinitions[row.definitionRef.id].rootAnchorMm), renderOrder: row.renderOrder, sourceRef: audience === 'gm' ? clone(row.sourceRef) : null })),
   } : undefined
-  const entityShown = (id: string): boolean => !hiddenLayerIds?.has(scene.entityLayers[id])
+  const entityShown = (id: string): boolean => (id === targetFloorId || scene.userLayers[scene.entityLayers[id]]?.floorId === targetFloorId) && !hiddenLayerIds?.has(scene.entityLayers[id])
   const layerOrder = (id: string) => scene.userLayers[scene.entityLayers[id]]?.order ?? 0
   const compareLayer = (a: { id: string }, b: { id: string }) => layerOrder(a.id) - layerOrder(b.id)
   // v2 dictionaries have no paint order: canonical file serialization reorders
   // their keys. Use stable IDs within each user layer, retaining v1 behavior.
   const localOrder = (items: { id: string }[]) => new Map([...items].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     .map((item, index) => [item.id, index]))
-  const roomOrder = localOrder(Object.values(scene.rooms)), noteOrder = localOrder(Object.values(scene.notes)), regionOrder = localOrder(Object.values(scene.regions))
+  const roomOrder = localOrder(floorValues(scene.rooms)), noteOrder = localOrder(floorValues(scene.notes)), regionOrder = localOrder(floorValues(scene.regions))
   if (audience !== 'gm' && audience !== 'player') throw new Error('必须明确选择主持人或玩家输出。')
-  if (Object.keys(scene.floors).length !== 1) throw new Error('素材场景渲染仅支持单楼层。')
-  const bounds = clone(scene.exportBoundsMm)
+  const bounds = clone(floorOutput.boundsMm)
   if (Object.values(bounds).some(v => !Number.isFinite(v)) || bounds.width <= 0 || bounds.height <= 0) throw new Error('导出边界必须是有效固定矩形。')
   const themeDefinition = scene.activeStyleThemeRef ? scene.styleThemes[scene.activeStyleThemeRef.id] : null
   if (scene.activeStyleThemeRef && (!themeDefinition || themeDefinition.version !== scene.activeStyleThemeRef.version)) throw new Error('主题快照缺失或版本不匹配。')
   const theme = themeDefinition ? clone({ outline: themeDefinition.outline, openingStyle: themeDefinition.openingStyle, shadowPresets: themeDefinition.shadowPresets, edgeStyles: themeDefinition.edgeStyles, terrainCliff: themeDefinition.terrainCliff }) : null
-  const masks = Object.values(scene.regions).filter(r => r.kind === 'manualMask').map(r => clone(r.boundaryMm))
+  const masks = floorValues(scene.regions).filter(r => r.kind === 'manualMask').map(r => clone(r.boundaryMm))
   const rectangles = audience === 'player' ? masks.map(maskRectangle) : []
   const maskedPoint = (p: PointMm) => rectangles.some(r => includesPoint(r, p))
-  const areaPublic = (id: string) => scene.terrainAreas[id]?.visibility === 'public'
-  const roomPublic = (id: string): boolean => !!scene.rooms[id] && scene.rooms[id].visibility === 'public' && (scene.rooms[id].supportRef.kind === 'floor' || areaPublic(scene.rooms[id].supportRef.id))
-  const surfacePublic = (ref: SurfaceRef): boolean => ref.kind === 'floor' ? !!scene.floors[ref.id] : ref.kind === 'room' ? roomPublic(ref.id) : areaPublic(ref.id)
-  const surfaceShown = (ref: SurfaceRef): boolean => ref.kind === 'floor' || entityShown(ref.id) && (ref.kind !== 'room' || scene.rooms[ref.id]?.supportRef.kind !== 'terrainArea' || entityShown(scene.rooms[ref.id].supportRef.id))
+  const areaPublic = (id: string) => scene.terrainAreas[id]?.floorId === targetFloorId && scene.terrainAreas[id]?.visibility === 'public'
+  const roomPublic = (id: string): boolean => scene.rooms[id]?.floorId === targetFloorId && scene.rooms[id].visibility === 'public' && (scene.rooms[id].supportRef.kind === 'floor' || areaPublic(scene.rooms[id].supportRef.id))
+  const surfacePublic = (ref: SurfaceRef): boolean => ref.kind === 'floor' ? ref.id === targetFloorId : ref.kind === 'room' ? roomPublic(ref.id) : areaPublic(ref.id)
+  const surfaceShown = (ref: SurfaceRef): boolean => ref.kind === 'floor' ? ref.id === targetFloorId : entityShown(ref.id) && (ref.kind !== 'room' || scene.rooms[ref.id]?.supportRef.kind !== 'terrainArea' || entityShown(scene.rooms[ref.id].supportRef.id))
   const pathPublic = (id: string) => scene.paths[id]?.visibility === 'public' && scene.paths[id].supportRefs.every(surfacePublic)
   const edgePublic = (id: string) => scene.terrainEdges[id]?.visibility === 'public' && areaPublic(scene.terrainEdges[id].source.areaId) && (!scene.terrainEdges[id].neighborAreaId || areaPublic(scene.terrainEdges[id].neighborAreaId!))
   const groupHiddenProps = new Set<string>()
   const groupHiddenDecorations = new Set<string>()
   const clusterForEntity = new Map<string, NonNullable<SceneDocument['decorationClusters']>[string]>()
-  for (const group of Object.values(scene.decorationClusters ?? {})) for (const member of Object.values(group.members)) {
+  for (const group of floorValues(scene.decorationClusters ?? {})) for (const member of Object.values(group.members)) {
     if (member.entityId && member.state !== 'detached' && member.state !== 'deleted') clusterForEntity.set(member.entityId, group)
   }
   const clusterMemberShown = (id: string) => {
@@ -187,26 +204,26 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
     return !group || entityShown(group.id) && surfaceShown(group.supportRef)
   }
   if (audience === 'player') {
-    for (const group of Object.values(scene.prefabInstances)) if (group.visibility !== 'public') for (const member of Object.values(group.members)) if (member.propId) groupHiddenProps.add(member.propId)
-    for (const group of Object.values(scene.scatterGroups)) {
+    for (const group of floorValues(scene.prefabInstances)) if (group.visibility !== 'public') for (const member of Object.values(group.members)) if (member.propId) groupHiddenProps.add(member.propId)
+    for (const group of floorValues(scene.scatterGroups)) {
       const visibleDomain = group.domain.kind === 'area' ? areaPublic(group.domain.areaId) : group.domain.kind === 'path' ? pathPublic(group.domain.pathId) : edgePublic(group.domain.edgeId)
       if (group.visibility !== 'public' || !visibleDomain) for (const member of Object.values(group.members)) if (member.propId && member.state !== 'detached') groupHiddenProps.add(member.propId)
     }
-    for (const group of Object.values(scene.decorationClusters ?? {})) if (group.visibility !== 'public' || !surfacePublic(group.supportRef)) {
+    for (const group of floorValues(scene.decorationClusters ?? {})) if (group.visibility !== 'public' || !surfacePublic(group.supportRef)) {
       for (const member of Object.values(group.members)) if (member.entityId && member.state !== 'detached' && member.state !== 'deleted') {
         (member.kind === 'prop' ? groupHiddenProps : groupHiddenDecorations).add(member.entityId)
       }
     }
   }
   const propPublic = (prop: Prop) => prop.visibility === 'public' && !groupHiddenProps.has(prop.id) && surfacePublic(prop.supportRef) && (!prop.roomId || roomPublic(prop.roomId))
-  const visibleRooms = Object.values(scene.rooms).filter(r => entityShown(r.id) && (audience === 'gm' || roomPublic(r.id)))
-  const audienceTerrain = Object.values(scene.terrainAreas).filter(a => audience === 'gm' || areaPublic(a.id))
+  const visibleRooms = floorValues(scene.rooms).filter(r => entityShown(r.id) && (audience === 'gm' || roomPublic(r.id)))
+  const audienceTerrain = floorValues(scene.terrainAreas).filter(a => audience === 'gm' || areaPublic(a.id))
   const visibleTerrain = audienceTerrain.filter(a => entityShown(a.id))
   const rooms = visibleRooms.map(r => ({ id: r.id, points: simplify(roomPoints(scene, r)), style: clone(r.floorStyle), elevationMm: r.groundElevationMm, priority: 0 })).sort((a, b) => compareLayer(a, b) || roomOrder.get(a.id)! - roomOrder.get(b.id)! || a.id.localeCompare(b.id))
   const terrain: ProjectedSurface[] = visibleTerrain.map(a => ({ id: a.id, points: simplify(terrainPoints(a)), style: clone(a.surfaceStyle), elevationMm: a.groundElevationMm, priority: a.coveragePriority })).sort((a, b) => a.priority - b.priority || compareLayer(a, b) || a.id.localeCompare(b.id))
   {
     const byId = new Map(terrain.map(area => [area.id, area]))
-    for (const { rule, regionsMm } of resolveSurfaceRules(scene, undefined, { audience, hiddenLayerIds })) {
+    for (const { rule, regionsMm } of resolveSurfaceRules(scene, floorValues(scene.surfaceRules), { audience, hiddenLayerIds })) {
       if (rule.field !== 'material') continue
       const area = byId.get(rule.supportRef.id)
       if (area) (area.materialPatches ??= []).push({ regionsMm, paint: clone(rule.paint), blendWidthMm: rule.blendWidthMm })
@@ -214,7 +231,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   }
   // Coverage/elevation resolution uses the audience's intact physical surfaces.
   // Hiding a source omits its decoration instead of inventing replacement cliffs.
-  const edges = deriveTerrainEdges(audienceTerrain, Object.values(scene.terrainEdges).filter(e => audience === 'gm' || edgePublic(e.id)), theme)
+  const edges = deriveTerrainEdges(audienceTerrain, floorValues(scene.terrainEdges).filter(e => audience === 'gm' || edgePublic(e.id)), theme)
     .filter(e => entityShown(e.sourceAreaId) && (!e.neighborAreaId || entityShown(e.neighborAreaId)) && (!scene.terrainEdges[e.id] || entityShown(e.id)))
     .sort((a, b) => Math.max(a.elevationMm, a.neighborElevationMm) - Math.max(b.elevationMm, b.neighborElevationMm) || layerOrder(scene.terrainEdges[a.id] ? a.id : a.sourceAreaId) - layerOrder(scene.terrainEdges[b.id] ? b.id : b.sourceAreaId) || a.start.y - b.start.y || a.start.x - b.start.x || a.end.y - b.end.y || a.end.x - b.end.x)
 
@@ -224,8 +241,8 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
       && (!c.openingId || !!opening && (!opening.secret || opening.revealed))
   }
   const surfaceElevation = (ref: SurfaceRef) => ref.kind === 'terrainArea' ? scene.terrainAreas[ref.id]?.groundElevationMm ?? 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm ?? 0 : 0
-  const connections: ProjectedConnection[] = Object.values(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle), surfaceIds: [c.from.surfaceRef.id, c.to.surfaceRef.id] as [string, string], ...(c.route ? { route: { centerlineMm: clone(c.route.centerlineMm), stairStyle: c.route.stairStyle, treadDepthMm: c.route.treadDepthMm } } : {}) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
-  const paths = Object.values(scene.paths).filter(path => entityShown(path.id) && path.supportRefs.every(ref => ref.kind === 'floor' || entityShown(ref.id)) && (audience === 'gm' || pathPublic(path.id))).sort((a, b) => compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id)).map(path => projectPath(path, theme))
+  const connections: ProjectedConnection[] = floorValues(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle), surfaceIds: [c.from.surfaceRef.id, c.to.surfaceRef.id] as [string, string], ...(c.route ? { route: { centerlineMm: clone(c.route.centerlineMm), stairStyle: c.route.stairStyle, treadDepthMm: c.route.treadDepthMm } } : {}) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
+  const paths = floorValues(scene.paths).filter(path => entityShown(path.id) && path.supportRefs.every(ref => ref.kind === 'floor' || entityShown(ref.id)) && (audience === 'gm' || pathPublic(path.id))).sort((a, b) => compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id)).map(path => projectPath(path, theme))
   const pathGroups = new Map<string, string[]>()
   for (const projected of paths) {
     const path = scene.paths[projected.id]
@@ -239,31 +256,31 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
     const group = pathGroups.get(key) ?? []; group.push(path.id); pathGroups.set(key, group)
   }
   const pathJoinGroups = [...pathGroups.values()].filter(group => group.length > 1)
-  const visibleProps = Object.values(scene.props).filter(p => entityShown(p.id) && clusterMemberShown(p.id) && (audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm)))
+  const visibleProps = floorValues(scene.props).filter(p => entityShown(p.id) && clusterMemberShown(p.id) && (audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm)))
   const props = visibleProps.map(clone).sort((a, b) => propLayer[a.renderLayer] - propLayer[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id))
   const visiblePropIds = new Set(props.map(p => p.id))
   const decorationPublic = (value: NonNullable<SceneDocument['decorations']>[string]) => value.visibility === 'public' && surfacePublic(value.supportRef) && !groupHiddenDecorations.has(value.id)
-  const decorations = Object.values(scene.decorations ?? {}).filter(value => entityShown(value.id) && clusterMemberShown(value.id)
+  const decorations = floorValues(scene.decorations ?? {}).filter(value => entityShown(value.id) && clusterMemberShown(value.id)
     && surfaceShown(value.supportRef) && (audience === 'gm' || decorationPublic(value) && !maskedPoint(value.positionMm)))
     .map(value => decorationPaintGeometry(scene, value))
     .sort((a, b) => propLayer[a.renderLayer] - propLayer[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id))
   const diagnostics: string[] = []
   const allRoomEdges = new Map<string, string[]>()
   const edgeKey = (a: string, b: string) => [a, b].sort().join('\0')
-  for (const room of Object.values(scene.rooms)) for (let i = 0; i < room.boundaryVertexIds.length; i++) {
+  for (const room of floorValues(scene.rooms)) for (let i = 0; i < room.boundaryVertexIds.length; i++) {
     const key = edgeKey(room.boundaryVertexIds[i], room.boundaryVertexIds[(i + 1) % room.boundaryVertexIds.length])
     allRoomEdges.set(key, [...allRoomEdges.get(key) ?? [], room.id])
   }
   const visibleWallIds = new Set<string>(), visibleOpeningIds = new Set<string>()
   const openingsByWall = new Map<string, SceneDocument['openings'][string][]>()
-  for (const opening of Object.values(scene.openings)) {
+  for (const opening of floorValues(scene.openings)) {
     if (audience === 'player' && opening.secret && !opening.revealed) continue
     const group = openingsByWall.get(opening.wallId)
     if (group) group.push(opening)
     else openingsByWall.set(opening.wallId, [opening])
   }
   const walls: ProjectedWall[] = []
-  for (const wall of Object.values(scene.walls)) {
+  for (const wall of floorValues(scene.walls)) {
     if (!entityShown(wall.id)) continue
     const av = scene.vertices[wall.startVertexId], bv = scene.vertices[wall.endVertexId]
     if (!av || !bv) throw new Error('墙的顶点缺失。')
@@ -283,7 +300,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   }
   const regionVisible = (id: string) => scene.regions[id]?.kind !== 'manualMask' && scene.regions[id]?.visibility === 'public'
   const visibleWallVertices = new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId]))
-  const visibleIds: Partial<Record<string, Set<string>>> = { path: new Set(paths.map(path => path.id)), terrainEdge: new Set(edges.map(e => e.id)), terrainConnection: new Set(connections.map(c => c.id)), room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: visiblePropIds, region: new Set(Object.values(scene.regions).filter(r => entityShown(r.id) && (audience === 'gm' || regionVisible(r.id))).map(r => r.id)), vertex: new Set(Object.values(scene.vertices).filter(v => entityShown(v.id) && (audience === 'gm' || visibleWallVertices.has(v.id))).map(v => v.id)), prefabInstance: new Set(Object.values(scene.prefabInstances).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && visiblePropIds.has(m.propId)))).map(g => g.id)), scatterGroup: new Set(Object.values(scene.scatterGroups).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public') && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && visiblePropIds.has(m.propId))).map(g => g.id)) }
+  const visibleIds: Partial<Record<string, Set<string>>> = { path: new Set(paths.map(path => path.id)), terrainEdge: new Set(edges.map(e => e.id)), terrainConnection: new Set(connections.map(c => c.id)), room: new Set(rooms.map(r => r.id)), terrainArea: new Set(terrain.map(a => a.id)), wall: visibleWallIds, opening: visibleOpeningIds, prop: visiblePropIds, region: new Set(floorValues(scene.regions).filter(r => entityShown(r.id) && (audience === 'gm' || regionVisible(r.id))).map(r => r.id)), vertex: new Set(floorValues(scene.vertices).filter(v => entityShown(v.id) && (audience === 'gm' || visibleWallVertices.has(v.id))).map(v => v.id)), prefabInstance: new Set(floorValues(scene.prefabInstances).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public' && Object.values(g.members).some(m => !!m.propId && visiblePropIds.has(m.propId)))).map(g => g.id)), scatterGroup: new Set(floorValues(scene.scatterGroups).filter(g => entityShown(g.id) && (audience === 'gm' || g.visibility === 'public') && Object.values(g.members).some(m => !!m.propId && m.state !== 'detached' && visiblePropIds.has(m.propId))).map(g => g.id)) }
   function anchorPosition(note: Note, seen = new Set<string>()): PointMm | null {
     if (seen.has(note.id) || !entityShown(note.id)) return null
     seen.add(note.id)
@@ -311,7 +328,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
     return null
   }
   const notes: ProjectedNote[] = []
-  for (const note of Object.values(scene.notes)) {
+  for (const note of floorValues(scene.notes)) {
     const position = anchorPosition(note)
     if (!entityShown(note.id) || audience === 'player' && note.visibility !== 'public') continue
     if (!position || audience === 'player' && maskedPoint(position)) { if (audience === 'gm') diagnostics.push(`注记 ${note.id} 的锚点尚不支持。`); continue }
@@ -320,25 +337,25 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   }
   if (audience === 'player') {
     const privateBounds: BoundsMm[] = []
-    for (const room of Object.values(scene.rooms)) if (!roomPublic(room.id)) {
-      const adjacent = Object.values(scene.walls).filter(w => allRoomEdges.get(edgeKey(w.startVertexId, w.endVertexId))?.includes(room.id))
+    for (const room of floorValues(scene.rooms)) if (!roomPublic(room.id)) {
+      const adjacent = floorValues(scene.walls).filter(w => allRoomEdges.get(edgeKey(w.startVertexId, w.endVertexId))?.includes(room.id))
       privateBounds.push(inflate(pointsBounds(roomPoints(scene, room)), Math.max(0, ...adjacent.map(w => w.thicknessMm)) / 2 * 2 + shadowPadding(theme?.shadowPresets.wall)))
     }
-    for (const prop of Object.values(scene.props)) if (!propPublic(prop)) {
+    for (const prop of floorValues(scene.props)) if (!propPublic(prop)) {
       const presentation = scenePresentation(scene, prop.id), shadow = effectivePropShadow(prop, presentation, theme?.shadowPresets[prop.shadowClass])
-      privateBounds.push(propPaintEnvelope(prop, presentation, shadow, visualBase(scene)?.environment))
+      privateBounds.push(propPaintEnvelope(prop, presentation, shadow, floorOutput.environment))
     }
-    for (const value of Object.values(scene.decorations ?? {})) if (!decorationPublic(value)) privateBounds.push(decorationPaintBounds(decorationPaintGeometry(scene, value)))
+    for (const value of floorValues(scene.decorations ?? {})) if (!decorationPublic(value)) privateBounds.push(decorationPaintBounds(decorationPaintGeometry(scene, value)))
     // Face and shadow extents are bounded by one controlled displacement, not stacked offsets.
-    const edgePadding = terrainDecorationPadding(scene, theme)
-    for (const area of Object.values(scene.terrainAreas)) if (!areaPublic(area.id)) privateBounds.push(inflate(pointsBounds(terrainPoints(area)), edgePadding))
-    for (const edge of Object.values(scene.terrainEdges)) if (!edgePublic(edge.id)) {
+    const edgePadding = terrainDecorationPadding(scene, theme, targetFloorId)
+    for (const area of floorValues(scene.terrainAreas)) if (!areaPublic(area.id)) privateBounds.push(inflate(pointsBounds(terrainPoints(area)), edgePadding))
+    for (const edge of floorValues(scene.terrainEdges)) if (!edgePublic(edge.id)) {
       const area = scene.terrainAreas[edge.source.areaId], index = area?.boundaryMm.findIndex(p => p.segmentId === edge.source.segmentId) ?? -1
       if (area && index >= 0) privateBounds.push(inflate(pointsBounds([area.boundaryMm[index].positionMm, area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm]), edgePadding))
     }
-    for (const connection of Object.values(scene.terrainConnections)) if (!connectionPublic(connection.id)) privateBounds.push(connection.route ? inflate(pointsBounds(connectionFootprint(connection)), 24) : inflate(pointsBounds([connection.from.positionMm, connection.to.positionMm]), connection.widthMm / 2 + 24))
-    for (const path of Object.values(scene.paths)) if (!pathPublic(path.id)) privateBounds.push(inflate(pointsBounds(pathPolygon(path)), pathDecorationPadding(pathEdgeStyle(theme))))
-    for (const region of Object.values(scene.regions)) if (region.kind !== 'manualMask' && region.visibility !== 'public') privateBounds.push(pointsBounds(region.boundaryMm))
+    for (const connection of floorValues(scene.terrainConnections)) if (!connectionPublic(connection.id)) privateBounds.push(connection.route ? inflate(pointsBounds(connectionFootprint(connection)), 24) : inflate(pointsBounds([connection.from.positionMm, connection.to.positionMm]), connection.widthMm / 2 + 24))
+    for (const path of floorValues(scene.paths)) if (!pathPublic(path.id)) privateBounds.push(inflate(pointsBounds(pathPolygon(path)), pathDecorationPadding(pathEdgeStyle(theme))))
+    for (const region of floorValues(scene.regions)) if (region.kind !== 'manualMask' && region.visibility !== 'public') privateBounds.push(pointsBounds(region.boundaryMm))
     for (const box of privateBounds) { const clipped = intersects(box, bounds); if (clipped && !boundsCovered(clipped, rectangles)) throw new Error('玩家输出不安全：固定遮罩未覆盖私密几何、视觉范围或装饰阴影；请扩大遮罩或恢复公开。') }
   }
   const limitations: string[] = []
@@ -354,23 +371,24 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, hiddenLa
   for (const prop of props) if (prop.appearance.kind === 'image') assetIds.add(prop.appearance.assetId)
   for (const value of decorations) assetIds.add(value.assetId)
   for (const row of [...(regional?.landmarks ?? []), ...(regional?.symbols ?? [])]) assetIds.add(row.assetId)
-  const regions = Object.values(scene.regions).filter(r => r.kind !== 'manualMask' && entityShown(r.id) && (audience === 'gm' || regionVisible(r.id))).map(r => ({ id: r.id, points: clone(r.boundaryMm), kind: r.kind as 'terrain' | 'hazard' })).sort((a, b) => compareLayer(a, b) || regionOrder.get(a.id)! - regionOrder.get(b.id)! || a.id.localeCompare(b.id))
+  const regions = floorValues(scene.regions).filter(r => r.kind !== 'manualMask' && entityShown(r.id) && (audience === 'gm' || regionVisible(r.id))).map(r => ({ id: r.id, points: clone(r.boundaryMm), kind: r.kind as 'terrain' | 'hazard' })).sort((a, b) => compareLayer(a, b) || regionOrder.get(a.id)! - regionOrder.get(b.id)! || a.id.localeCompare(b.id))
   const openingRanks = new Map(walls.flatMap(wall => wall.openings).map(opening => [opening.id, layerOrder(opening.id)]))
   const projectedOpeningRanks = new Map<string, number>()
   const orderedWalls = audience === 'player' ? canonicalWalls(walls, compareLayer, openingRanks, projectedOpeningRanks) : walls.sort((a, b) => compareLayer(a, b) || wallOrder(a, b))
   const symbolRanks = audience === 'player' ? projectedOpeningRanks : openingRanks
   const openingPaintOrder = new Set(symbolRanks.values()).size > 1 ? orderedWalls.flatMap(wall => wall.openings.map(opening => opening.id)).sort((a, b) => symbolRanks.get(a)! - symbolRanks.get(b)!) : undefined
-  const pathPaintOrder = Object.values(scene.paths).some(path => audience === 'gm' || pathPublic(path.id)) ? 'over-room-before-connection' as const : undefined
+  const pathPaintOrder = floorValues(scene.paths).some(path => audience === 'gm' || pathPublic(path.id)) ? 'over-room-before-connection' as const : undefined
   const propPresentations = Object.fromEntries(props.flatMap(prop => {
     const value = scenePresentation(scene, prop.id)
     return value?.mode === 'nearSide' ? [[prop.id, { mode: value.mode, rootAnchorMm: clone(value.rootAnchorMm), groundShadowMm: clone(value.groundShadowMm) }]] : []
   }))
-  const result: Projection = { ...(Object.keys(propPresentations).length ? { propPresentations } : {}), ...(regional ? { regional } : {}), audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: orderedWalls, ...(openingPaintOrder ? { openingPaintOrder } : {}), props, edges, paths, ...(pathJoinGroups.length ? { pathJoinGroups } : {}), ...(pathPaintOrder ? { pathPaintOrder } : {}), connections, notes: notes.sort((a, b) => compareLayer(a, b) || noteOrder.get(a.id)! - noteOrder.get(b.id)! || a.id.localeCompare(b.id)), regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
+  const result: Projection = { ...(explicitFloor ? { floorId: targetFloorId } : {}), ...(Object.keys(propPresentations).length ? { propPresentations } : {}), ...(regional ? { regional } : {}), audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: orderedWalls, ...(openingPaintOrder ? { openingPaintOrder } : {}), props, edges, paths, ...(pathJoinGroups.length ? { pathJoinGroups } : {}), ...(pathPaintOrder ? { pathPaintOrder } : {}), connections, notes: notes.sort((a, b) => compareLayer(a, b) || noteOrder.get(a.id)! - noteOrder.get(b.id)! || a.id.localeCompare(b.id)), regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
+  if (scene.outputBackground) result.outputBackground = clone(scene.outputBackground)
   if (decorations.length) {
     result.decorations = decorations
     result.spritePaintOrder = [...props, ...decorations].sort((a, b) => propLayer[a.renderLayer] - propLayer[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder
       || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id)).map(value => value.id)
   }
-  if (scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds)
+  if (scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds, floorOutput)
   return result
 }

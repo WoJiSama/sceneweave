@@ -10,7 +10,7 @@ import { z } from 'zod'
 
 type ValidSnapshot = Extract<ValidationResult, { ok: true }>
 const snapshots = new WeakMap<object, ValidSnapshot>()
-const revisionSchema = z.object({ revision: sceneDocumentSchema.shape.revision, updatedAt: sceneDocumentSchema.shape.updatedAt }).strict()
+let revisionSchema: z.ZodType<{ revision: number; updatedAt: string }> | undefined
 
 /** Certification belongs only to the independently parsed, owned result. */
 export function isCertifiedSceneSnapshot(input: unknown): input is SceneDocument {
@@ -222,6 +222,7 @@ export function validateSceneDerivationSnapshot(input: unknown, baseline: SceneD
 export function reviseSceneSnapshot(input: SceneDocument, revision: number, updatedAt: string): SceneDocument {
   const current = validateSceneSnapshot(input)
   if (!current.ok) throw new Error(`当前场景无效：${current.errors.map(error => error.message).join('；')}`)
+  revisionSchema ??= z.object({ revision: sceneDocumentSchema.shape.revision, updatedAt: sceneDocumentSchema.shape.updatedAt }).strict()
   const checked = revisionSchema.safeParse({ revision, updatedAt })
   if (!checked.success) throw new Error(checked.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；'))
   return certify({ ...current.document, ...checked.data }, current.warnings).document

@@ -140,7 +140,7 @@ function assertUnlocked(document: SceneDocument, ids: readonly string[]): void {
 }
 function assertFresh(content: CompositionContent, id: string): void {
   if (geometryIdentityIds(content.document).has(id) || Object.hasOwn(content.document.userLayers, id) || Object.hasOwn(content.historyIdentity.propTokens, id) || Object.hasOwn(content.historyIdentity.prefabTokens, id) || Object.hasOwn(content.historyIdentity.outdoorTokens, id)
-    || Object.hasOwn(content.historyIdentity.aggregateTokens ?? {}, id)) throw new Error(`新身份不能复用已占用/已分配 ID：${id}。`)
+    || Object.hasOwn(content.historyIdentity.aggregateTokens ?? {}, id) || Object.hasOwn(content.historyIdentity.structureTokens ?? {}, id)) throw new Error(`新身份不能复用已占用/已分配 ID：${id}。`)
 }
 function assertSupport(document: SceneDocument, floorId: string, ref: SurfaceRef): void {
   if (ref.kind === 'floor') { if (ref.id !== floorId || !own(document.floors, ref.id)) throw new Error('支撑必须属于同一Floor。'); return }
@@ -303,7 +303,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   const parsed = schemasForBudget(budget).safeParse(inputCommands)
   if (!parsed.success) throw new Error(`组合指令无效，单事务最多${commandSelectionLimit(budget)}条：${parsed.error.issues.map(issue => issue.message).join('；')}`)
   const commands = parsed.data as CompositionCommand[]
-  for (const command of commands) if (['createTerrainArea', 'createTerrainEdge', 'createTerrainConnection', 'createPath', 'createScatter', 'createRegion'].includes(command.type) && 'id' in command) assertFresh(source, command.id)
+  for (const command of commands) if (['createTerrainArea', 'createTerrainEdge', 'createTerrainConnection', 'createPath', 'createScatter', 'createRegion', 'createFloor', 'bindPathAttachment', 'createRoom', 'addOpening'].includes(command.type) && 'id' in command) assertFresh(source, command.id)
   for (const command of commands) {
     if (command.type === 'createAggregateGroup') assertFresh(source, command.group.id)
     else if (command.type === 'splitAggregateGroup') for (const part of command.parts) assertFresh(source, part.id)
@@ -348,7 +348,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     observedContent = after
     accounting?.onTransactionStep?.(step)
   }
-  const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context)
+  const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context, { initializeStructures: commands.some(command => command.type === 'initializeStructureIdentity' || ['createFloor', 'renameFloor', 'setFloorOutputBounds', 'setFloorEnvironment', 'deleteEmptyFloor'].includes(command.type)) })
   const consume = (value: number) => { cost += value; if (!budget && initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
@@ -361,7 +361,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       ...Object.values(source.document.decorations ?? {}).filter(row => definitionPresentation(source.appearance, row.definitionRef)?.mode === 'nearSide').map(row => row.id),
     ])
     let accounting = source
-    const observer = { budget, fixedUprightPropIds, appearance: source.appearance,
+    const observer = { budget, fixedUprightPropIds, appearance: source.appearance, historyIdentity: source.historyIdentity,
       budgetContent: { before: source, after: () => accounting },
       onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number, scope?: TransactionExecutionScope) => {
       onSceneDraft?.(draft, command, commandCost)

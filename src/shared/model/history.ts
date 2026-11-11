@@ -5,6 +5,8 @@ export type OutdoorIdentityKind = 'terrainArea' | 'terrainPoint' | 'terrainSegme
 export interface OutdoorIdentityToken { kind: OutdoorIdentityKind; token: string; topologyToken: string; topologyHash: string }
 export interface DecorationIdentityToken { kind: 'decoration' | 'decorationCluster'; token: string; topologyToken: string; topologyHash: string }
 export interface SurfaceRuleIdentityToken { kind: 'surfaceRule'; token: string; topologyToken: string; topologyHash: string }
+export type StructureIdentityKind = 'floor' | 'room' | 'wall' | 'vertex' | 'opening' | 'pathAttachment'
+export interface StructureIdentityToken { kind: StructureIdentityKind; token: string; topologyToken: string; topologyHash: string }
 /** Birth records include deleted entities. Tokens and topology evidence are never reassigned. */
 export interface HistoryIdentity {
   version: 1 | 2 | 3 | 4 | 5
@@ -17,6 +19,9 @@ export interface HistoryIdentity {
   terrainTokens?: Record<string, TerrainIdentityToken>
   decorationTokens?: Record<string, DecorationIdentityToken>
   surfaceRuleTokens?: Record<string, SurfaceRuleIdentityToken>
+  /** Persistent structural continuity, independent of generation provenance.
+   * Absence on an earlier development project grants no structural witness. */
+  structureTokens?: Record<string, StructureIdentityToken>
   lineageId: string
   rootSceneId: string
   propTokens: Record<string, string>

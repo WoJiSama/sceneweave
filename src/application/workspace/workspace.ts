@@ -1,3 +1,4 @@
+import { rebindPathAttachmentProofs } from '../../shared/path-attachments/state.js'
 import { isDecorationCommand } from '../../shared/decorations/commands.js'
 import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
@@ -56,7 +57,7 @@ import { validateCompositionIdentityContracts } from '../../shared/terrain-gener
 import { surfaceStyle } from '../../shared/appearance/graph.js'
 import { inspectDependencies } from '../../shared/geometry/dependencies.js'
 import { reviseSceneSnapshot } from '../../shared/validation/snapshots.js'
-import { projectScene } from '../../shared/projection/projection.js'
+import { assertAllFloorPlayerProjections } from '../../shared/projection/projection.js'
 import { advanceHistoryIdentity, mergeIdentityRecords, mergeHistoryIdentities } from '../../shared/history/identity.js'
 import { buildRestorePlan, generationRestoreChanges, type RestorePlan, type RestoreRequest } from '../../shared/history/restore.js'
 import { terrainCommandCost } from '../../shared/terrain-generation/cost.js'
@@ -654,7 +655,7 @@ export class Workspace {
     checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
     const current = this.state.project
     if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('生成布局必须具有独立的新工程身份。')
-    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    this.validateCandidate(prepared.project.document); assertAllFloorPlayerProjections(prepared.project.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null,
       baseContentHash: current ? projectContentHash(toBundle(current).project) : null }) as DomainPreviewMap[K]
     this.domainPreviews.set(preview, { domain, status: 'active', base: owned, preparedAt, identityAllocation })
@@ -694,7 +695,7 @@ export class Workspace {
         report: candidate.report, cost: candidate.cost, layout: 'layout' in candidate ? candidate.layout : null })
       if (projectContentHash(toBundle(project).project) !== projectContentHash(toBundle(replay.project).project)
         || canonical(review(preview)) !== canonical(review(replay))) throw new Error('生成候选与完整重放不符。')
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       if (project.document.sceneId === this.state.project?.document.sceneId) throw new Error('生成布局身份不能覆盖当前工程。')
       await this.flush(); assertActive()
       await this.repository.save(toBundle(project), null, { signal }); assertActive()
@@ -746,7 +747,7 @@ export class Workspace {
           revision: current?.document.revision ?? null, contentHash: current ? authoringProjectHash(pureProject(current)) : null, checkpoint } })
       checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
       if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('程序底图必须具有独立的新工程身份。')
-      this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+      this.validateCandidate(prepared.project.document); assertAllFloorPlayerProjections(prepared.project.document)
       const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null }) as TerrainPreview
       this.terrainPreviews.set(preview, 'active')
       if (preview.continuationSource) this.baseMapSources.set(preview.continuationSource.flowId, { preview, project: preview.project })
@@ -760,7 +761,7 @@ export class Workspace {
     this.assertWritable();this.assertCheckpoint(checkpoint)
     if(prepared.project.document.sceneId===current?.document.sceneId)throw new Error('生成地图必须具有独立的新工程身份。')
     this.validateCandidate(prepared.project.document)
-    projectScene(prepared.project.document,'player')
+    assertAllFloorPlayerProjections(prepared.project.document)
     const preview=freeze({...prepared,checkpoint,currentSceneId:current?.document.sceneId??null,currentRevision:current?.document.revision??null})
     this.terrainPreviews.set(preview,'active');return preview
   }
@@ -769,7 +770,7 @@ export class Workspace {
     const prepared=await prepareTerrainComposition(base,input,{runtime:this.options.runtime,validation:this.validation(),plan})
     this.assertWritable();this.assertCheckpoint(checkpoint)
     if(prepared.project.document.sceneId===current?.document.sceneId)throw new Error('地貌组合必须具有独立身份。')
-    this.validateCandidate(prepared.project.document);projectScene(prepared.project.document,'player')
+    this.validateCandidate(prepared.project.document);assertAllFloorPlayerProjections(prepared.project.document)
     const preview=freeze({...prepared,checkpoint,currentSceneId:current?.document.sceneId??null,currentRevision:current?.document.revision??null})
     this.terrainPreviews.set(preview,'active');return preview
   }
@@ -808,7 +809,7 @@ export class Workspace {
     const baseContentHash = projectContentHash(toBundle(current).project)
     const prepared = await prepareTerrainEditProject(current, input, { runtime: this.options.runtime, validation: this.validation(), result: options.result, budget: options.budget, signal })
     checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
-    this.validateCandidate(prepared.document); projectScene(prepared.document, 'player')
+    this.validateCandidate(prepared.document); assertAllFloorPlayerProjections(prepared.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision, baseContentHash })
     this.terrainEditPreviews.set(preview, 'active')
     return preview
@@ -841,7 +842,7 @@ export class Workspace {
       assertActive()
       if (canonical(project.document) !== canonical(replayed.document) || canonical(project.appearance) !== canonical(replayed.project.appearance)) throw new Error('局部地形重放与已审阅完整候选不同，请重新预览。')
       if (equalOwnedContent(this.requireProject(), project)) throw new Error('本次地形候选没有实际变化，无需采用。')
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       reviseSceneSnapshot(project.document, preview.currentRevision + 1, this.options.runtime.clock.now())
       await this.flush(); assertActive()
       const current = this.requireProject(), usage = await this.repository.usage(preview.currentSceneId)
@@ -871,7 +872,7 @@ export class Workspace {
     if (current.document.mapMode !== 'scene') throw new Error('局部联动预览需要场景工程。')
     const prepared = await prepareTerrainLocalRefreshProject(current, input, { runtime: this.options.runtime, validation: this.validation(), result: options.result, budget: options.budget, signal })
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
-    this.validateCandidate(prepared.project.document); projectScene(prepared.project.document, 'player')
+    this.validateCandidate(prepared.project.document); assertAllFloorPlayerProjections(prepared.project.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision, baseContentHash: projectContentHash(toBundle(current).project) })
     this.terrainLocalPreviews.set(preview, 'active')
     return preview
@@ -904,7 +905,7 @@ export class Workspace {
       if (canonical(project.document) !== canonical(replayed.document) || canonical(project.appearance) !== canonical(replayed.project.appearance)
         || canonical(project.historyIdentity) !== canonical(replayed.project.historyIdentity)) throw new Error('局部联动重放与已审阅完整候选不同，请重新预览。')
       if (equalOwnedContent(this.requireProject(), project)) throw new Error('本次局部联动没有实际变化，无需采用。')
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       reviseSceneSnapshot(project.document, preview.currentRevision + 1, this.options.runtime.clock.now())
       await this.flush(); assertActive()
       const current = this.requireProject(), usage = await this.repository.usage(preview.currentSceneId)
@@ -929,7 +930,7 @@ export class Workspace {
     const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
     const prepared = await prepareLocalGenerationProject(current, input, { runtime: this.options.runtime, validation: this.validation(), budget: options.budget, signal })
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
-    this.validateCandidate(prepared.document); projectScene(prepared.document, 'player')
+    this.validateCandidate(prepared.document); assertAllFloorPlayerProjections(prepared.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision,
       baseContentHash: projectContentHash(toBundle(current).project) })
     this.localGenerationPreviews.set(preview, 'active')
@@ -963,7 +964,7 @@ export class Workspace {
       const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
       assertActive()
       if (equalOwnedContent(this.requireProject(), project)) throw new Error('本次局部生成没有实际变化，无需采用。')
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       reviseSceneSnapshot(project.document, preview.currentRevision + 1, this.options.runtime.clock.now())
       await this.flush(); assertActive()
       const current = this.requireProject(), usage = await this.repository.usage(preview.currentSceneId)
@@ -1035,7 +1036,7 @@ export class Workspace {
     this.assertWritable(); this.assertCheckpoint(checkpoint)
     const current = this.state.project
     if (prepared.kind !== 'edit' && prepared.document.sceneId === current?.document.sceneId) throw new Error('区域新图必须使用独立身份。')
-    this.validateCandidate(prepared.document); projectScene(prepared.document, 'player')
+    this.validateCandidate(prepared.document); assertAllFloorPlayerProjections(prepared.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null, baseContentHash: current ? projectContentHash(toBundle(current).project) : null })
     this.regionalPreviews.set(preview, { status: 'active', base, sourceBase, sourceResult, sceneBase })
     return preview
@@ -1067,7 +1068,7 @@ export class Workspace {
       const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
       assertActive()
       if (canonical(project.document) !== canonical(replay.document) || canonical(project.appearance) !== canonical(replay.project.appearance) || preview.resultHash !== replay.resultHash || canonical(preview.cost) !== canonical(replay.cost)) throw new Error('区域候选与完整重放不符。')
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       await this.flush(); assertActive()
       if (preview.kind === 'edit') {
         const current = this.requireProject()
@@ -1159,6 +1160,10 @@ export class Workspace {
       const after = candidate.historyIdentity.outdoorTokens[id]
       if (!after || after.kind !== record.kind || after.token !== record.token) throw new Error(`候选不能丢弃或改写室外出生身份：${id}。`)
     }
+    for (const [id, record] of Object.entries(current.historyIdentity.structureTokens ?? {})) {
+      const after = candidate.historyIdentity.structureTokens?.[id]
+      if (!after || after.kind !== record.kind || after.token !== record.token) throw new Error(`候选不能丢弃或改写结构出生身份：${id}。`)
+    }
     if (Object.entries(current.authoringSources).some(([id, value]) => canonical(value) !== canonical(candidate.authoringSources[id]))) throw new Error('候选不能替换工程创作源。')
   }
   private assertCatalogImport(candidate: EditableProject, checkpoint: number) {
@@ -1238,7 +1243,7 @@ export class Workspace {
     const candidate = getVerifiedEditableProject(input) ?? await validateEditableProject(input, this.validation())
     this.assertCandidateBaseline(candidate, checkpoint)
     this.validateCandidate(candidate.document)
-    projectScene(candidate.document, 'player')
+    assertAllFloorPlayerProjections(candidate.document)
     this.assertCheckpoint(checkpoint)
     const current = this.requireProject()
     const measured = budget ? measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, budget) : undefined
@@ -1338,7 +1343,7 @@ export class Workspace {
       onStructureInvalidations: ids => { for (const id of ids) tracedStructureIds.add(id) }, onTransactionReceipt: receipt => { executionReceipt = receipt } })
     this.assertCandidateBaseline(candidate, checkpoint)
     this.validateCandidate(candidate.document)
-    projectScene(candidate.document, 'player')
+    assertAllFloorPlayerProjections(candidate.document)
     this.assertCandidateBaseline(candidate, checkpoint)
     const { structure: structuralInvalidations, visual: visualInvalidations } = this.commandInvalidations(current, candidate, frozenCommands, [...tracedStructureIds])
     if (!equalOwnedContent(current, candidate)
@@ -1374,6 +1379,7 @@ export class Workspace {
     // whose frozen output receipt no longer matches the restored identity.
     pauseChangedCompositions(current.document, draft.document)
     const historyIdentity = advanceHistoryIdentity(current.historyIdentity, current.document, draft.document, this.options.runtime, { allowResurrection: true })
+    if (Object.keys(draft.document.pathAttachments ?? {}).length) draft.document = rebindPathAttachmentProofs(draft.document, historyIdentity)
     protectLocalGenerationContinuity(draft.document, candidate.historyIdentity, historyIdentity)
     {
       const receiptIssues = validateCompositionIdentityContracts(draft.document, historyIdentity)
@@ -1433,7 +1439,7 @@ export class Workspace {
       this.assertWritable(token); this.assertCheckpoint(checkpoint); checkCancelled(this.validation().signal)
       const candidate = getVerifiedEditableProject(source) ? source : await validateEditableProject(source, this.validation())
       const reconciled = this.prepareRestoredProject(candidate)
-      this.validateCandidate(reconciled.document); projectScene(reconciled.document, 'player')
+      this.validateCandidate(reconciled.document); assertAllFloorPlayerProjections(reconciled.document)
       reviseSceneSnapshot(reconciled.document, revision + 1, this.options.runtime.clock.now())
       const metadataVersion = this.repository.historyMetadataVersion
         ? await this.repository.historyMetadataVersion(owner, { signal: this.validation().signal })
@@ -1588,7 +1594,7 @@ export class Workspace {
       const project = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal }, { onQualityAssessment: assessment => assetQuality.push(assessment) })
       checkCancelled(signal)
       if (isGeneratedAtomicStart(authorization.start)) { this.assertCheckpoint(authorization.checkpoint); this.assertBaseMapPreservation(authorization.start.source) }
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       const changes = atomicChanges(isGeneratedAtomicStart(authorization.start) ? authorization.start.source.blank : authorization.start.project, pureProject(project), replayed.state.changedIds, replayed.visualInvalidatedIds)
       if (!changes.length && !options.allowEmpty) throw new Error('草稿没有可采用的实际修改。')
       const candidate = freezeAtomic({ schemaVersion: replayed.state.schemaVersion,
@@ -1644,7 +1650,7 @@ export class Workspace {
       const resources = this.atomicAuthorizations.get(record.authorization)!.resources
       const project = await fromBundle({ project: replayed.project, resources }, { ...this.validation(), signal })
       if (canonical(pureProject(project)) !== canonical(pureProject(candidate.project))) throw new Error('AI接续本机完整重放与已审阅结果不同。')
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       const baseline = await this.baseMapUndoBaseline(start.source, project, signal)
       const revised = captureEditableDraft(project)
       revised.document = reviseSceneSnapshot(revised.document, baseline.document.revision + 1, this.options.runtime.clock.now())
@@ -1717,7 +1723,7 @@ export class Workspace {
       // Preserve the exact verified wrapper before requesting a short-lived server claim.
       const project = checkedProject
       checkCancelled(signal); this.assertAtomicBaseline(candidate, record)
-      this.validateCandidate(project.document); projectScene(project.document, 'player')
+      this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       reviseSceneSnapshot(project.document, this.requireProject().document.revision + 1, this.options.runtime.clock.now())
       await this.flush()
       checkCancelled(signal); this.assertAtomicBaseline(candidate, record)
@@ -1792,7 +1798,7 @@ export class Workspace {
     this.transferInvalidations(materialized, project)
     this.assertCheckpoint(checkpoint)
     this.validateCandidate(project.document)
-    projectScene(project.document, 'player')
+    assertAllFloorPlayerProjections(project.document)
     const finalPlan = materializedRestorePlan(current, plan, project, budget)
     const { project: _project, ...summary } = snapshot
     const preview = freeze({ snapshot: summary, plan: finalPlan, project, checkpoint, currentSceneId: current.document.sceneId,
@@ -1834,7 +1840,7 @@ export class Workspace {
       this.transferInvalidations(materialized, candidate)
       this.assertRestore(preview)
       this.validateCandidate(candidate.document)
-      projectScene(candidate.document, 'player')
+      assertAllFloorPlayerProjections(candidate.document)
       // Check revision capacity before persisting a protection snapshot.
       reviseSceneSnapshot(candidate.document, current.document.revision + 1, this.options.runtime.clock.now())
       const metadataVersion = this.repository.historyMetadataVersion

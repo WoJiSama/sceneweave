@@ -2,7 +2,7 @@
 
 本页集中视觉目标、成图方法、固定素材及来源规格；精确字段和版本归[数据](04-scene-document.md)，资源/玩家输出归[存储](06-storage-and-export.md)，AI协议归[AI](05-ai-and-generation.md)。当前任务只看[路线图](07-roadmap.md#development)，全部验收只从[质量计划](09-quality-plan.md#acceptance)开始。
 
-文中的B/C等代号用于追溯既有能力和旧M1格式的字段语义，不指定当前工程容器；新标识完整v1–v4的精确组合以04为准。固定主题和素材参数按其具名版本保留，后续风格不原地重释旧值。
+文中的B/C等代号和旧版本表用于追溯既有能力及旧M1格式的字段语义，不指定当前工程容器；开发期仅维护[唯一完整工程v1](04-scene-document.md#development-single-v1)。固定主题和素材参数按其具名版本保留，后续风格不原地重释旧值。
 
 - [视觉与物理边界、主题参数](#doc-14)
 - [共享曲线、静态效果与近侧视](#visual-rendering)

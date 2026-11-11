@@ -379,6 +379,7 @@ export function visualCommandCost(before: SceneDocument, after: SceneDocument): 
     ...[...Object.values(document.terrainAreas), ...Object.values(document.paths), ...Object.values(document.terrainEdges), ...Object.values(document.terrainConnections)].map(value => [value.id, value.surfaceStyle] as const),
   ].flatMap(([id, surface]) => (surface?.overlays ?? []).map(overlay => [`${id}\0${overlay.id}`, overlay])))
   cost += diffRecord(surfaceOverlays(before), surfaceOverlays(after))
+  cost += diffRecord(before.floors, after.floors) + diffRecord(before.pathAttachments ?? {}, after.pathAttachments ?? {})
   return cost
 }
 /** Inspect the exact prepared documents. Never applies commands or allocates geometry identities. */

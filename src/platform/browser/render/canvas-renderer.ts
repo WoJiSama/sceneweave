@@ -23,6 +23,7 @@ import { connectionLandingBlend, connectionLandingDepthMm } from '../../../share
 import { naturalRockTreads } from './cliff-relief.js'
 import { paintConnectionLandingMask } from './connection-landing-mask.js'
 import { editorResidentAssetIds } from './aggregate-residency.js'
+import { paintWithPreservedAlpha } from './alpha-preservation.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -50,9 +51,12 @@ export interface RenderMetrics {
   width: number
   height: number
   audience: Audience
+  floorId?: string
 }
 export interface RenderOptions {
   audience: Audience; longEdgePx: number; signal?: AbortSignal
+  /** Explicit output target; legacy single-Floor calls may omit it. */
+  floorId?: string
   /** Called once after a successful render and temporary-resource cleanup; observer errors are ignored. PNG encoding is excluded. */
   onMetrics?: (metrics: RenderMetrics) => void
 }
@@ -222,6 +226,8 @@ function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: Surface
   ctx.restore()
 }
 
+/** Equal opaque floor paints share one clip, so a shared edge is covered once.
+ * Different paints and per-entity/layer filters keep the projection's order. */
 function drawRoomFloors(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
   const filtered = new Set(projection.visual?.filters.flatMap(filter => filter.sourceEntityIds ?? []) ?? [])
   let batch: ProjectedSurface[] = [], key: string | undefined
@@ -716,7 +722,10 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
       else drawDecoration(ctx, sprite.value, projection, raster)
     }
   }
-  ctx.fillStyle = '#D8D5C5'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  if (projection.outputBackground?.mode !== 'transparent') {
+    ctx.fillStyle = projection.outputBackground?.mode === 'solid' ? projection.outputBackground.color : '#D8D5C5'
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  }
   worldTransform(ctx, bounds, sx, sy)
   // VTT padding aligns the image with the world grid. It must never reveal
   // content beyond the original fixed export rectangle.
@@ -750,7 +759,11 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   }
   for (const { wall, opening } of symbols) if (opening.paintSymbol !== false) drawOpening(ctx, opening, wall, projection)
   drawSprites(false)
-  if (projection.visual) drawVisualAtmosphere(ctx, projection, wallGeometry(projection.walls.filter(wall => wall.blocksLight !== false)).flatMap(wall => wall.polygons), signal, !!raster.readFrequently)
+  if (projection.visual) {
+    const atmosphere = () => drawVisualAtmosphere(ctx, projection, wallGeometry(projection.walls.filter(wall => wall.blocksLight !== false)).flatMap(wall => wall.polygons), signal, !!raster.readFrequently)
+    if (projection.outputBackground?.mode === 'transparent') paintWithPreservedAlpha(ctx, atmosphere, signal)
+    else atmosphere()
+  }
   for (const region of projection.regions) drawVisualEntity(ctx, projection, region.id, expandedBounds(region.points, 20), ctx => {
     ctx.save(); ctx.strokeStyle = region.kind === 'hazard' ? '#9A674A' : '#71865A'; ctx.lineWidth = 18; ctx.setLineDash([85, 65]); ctx.stroke(polygonPath(region.points)); ctx.restore()
   }, !!raster.readFrequently)
@@ -781,11 +794,14 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
 export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm): Promise<HTMLCanvasElement> {
   options = { ...options }
   const started = options.onMetrics ? validationStarted ?? performance.now() : 0
-  const metrics: RenderMetrics | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience } : undefined
+  const metrics: RenderMetrics | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience, ...(projection.floorId === undefined ? {} : { floorId: projection.floorId }) } : undefined
   checkCancelled(options.signal)
   if (!Number.isInteger(options.longEdgePx) || options.longEdgePx < 256 || options.longEdgePx > PNG_MAX_LONG_EDGE) throw new Error('图片长边须为 256–4096 整数像素。')
+  if (projection.audience !== options.audience || options.floorId !== undefined && projection.floorId !== options.floorId) throw new Error('栅格请求与投影的受众或目标Floor不一致。')
   if (projection.limitations.length) throw new Error(projection.limitations.join(' '))
   const visibleProjection = editor?.drawingProjection ?? projection
+  if (visibleProjection.audience !== projection.audience || visibleProjection.floorId !== projection.floorId
+    || ['x', 'y', 'width', 'height'].some(key => visibleProjection.bounds[key as keyof BoundsMm] !== projection.bounds[key as keyof BoundsMm])) throw new Error('编辑绘制投影的Floor、受众或固定输出范围与完整投影不一致。')
   const plan = editor ? createEditorRenderPlan(visibleProjection, { viewBoundsMm: editor.viewBoundsMm, screenScalePxPerMm: editor.screenScalePxPerMm ?? options.longEdgePx / Math.max(visibleProjection.bounds.width, visibleProjection.bounds.height) }) : null
   const paintIds = plan ? new Set(plan.surfacePresentations.map(entry => `${entry.kind}:${entry.id}`)) : null
   const drawingProjection = publicCropMm ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, { boundsMm: publicCropMm, props: visibleProjection.props.map(prop => ({ prop, detail: 'full' as const, screenSizePx: 0, visualBoundsMm: visibleProjection.bounds, paintBoundsMm: visibleProjection.bounds })) }) }

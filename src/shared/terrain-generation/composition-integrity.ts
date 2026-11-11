@@ -208,14 +208,16 @@ export function validateCompositionContracts(scene: SceneDocument): Issue[] {
     const expected=['riverValley','ridge'].includes(feature.kind)?'corridor':'ellipse'
     if(feature.shape.kind!==expected)fail('COMPOSITION_FEATURE_SHAPE','特征类型与shape分支不匹配。',feature.id)
     const points=feature.shape.kind==='ellipse'?[feature.shape.centerMm]:feature.shape.pointsMm
-    if(points.some(point=>!inBounds(point,scene.exportBoundsMm)))fail('COMPOSITION_FEATURE_BOUNDS','特征控制点越出场景范围。',feature.id)
+    const featureBounds=Object.keys(scene.floors).length>1?scene.floors[feature.floorId]?.boundsMm:scene.exportBoundsMm
+    if(!featureBounds||points.some(point=>!inBounds(point,featureBounds)))fail('COMPOSITION_FEATURE_BOUNDS','特征控制点越出场景或所属Floor范围。',feature.id)
     if(!Object.values(generation.compositions).some(row=>row.members.some(member=>member.featureId===feature.id)))fail('COMPOSITION_FEATURE_OWNER','特征至少须属于一个组合。',feature.id)
   }
   const writers=new Map<string,string>(), links=new Map<string,Set<string>>()
   for(const rule of Object.values(generation.legacy.rules))if(rule.state!=='detached')for(const ref of rule.outputs)writers.set(refKey(ref),rule.id)
   for(const row of Object.values(generation.compositions)){
     scope(row);links.set(row.id,new Set())
-    if(!contains(scene.exportBoundsMm,row.boundsMm)||!contains(scene.floors[row.floorId]?.boundsMm??scene.exportBoundsMm,row.boundsMm))fail('COMPOSITION_BOUNDS','组合范围必须位于场景及Floor内。',row.id)
+    const compositionBounds=Object.keys(scene.floors).length>1?scene.floors[row.floorId]?.boundsMm:scene.exportBoundsMm
+    if(!compositionBounds||!contains(compositionBounds,row.boundsMm)||!contains(scene.floors[row.floorId]?.boundsMm??scene.exportBoundsMm,row.boundsMm))fail('COMPOSITION_BOUNDS','组合范围必须位于场景及所属Floor内。',row.id)
     const recipe=generation.legacy.recipes[row.recipeRef.id]
     if(!recipe||recipe.recipeVersion!==row.recipeRef.version||recipe.mapMode!=='scene')fail('COMPOSITION_RECIPE','组合固定配方不存在或版本/模式不符。',row.id)
     for(const member of row.members){const feature=generation.features[member.featureId];if(!feature)continue;if(feature.floorId!==row.floorId||!allowed[feature.kind].includes(member.field))fail('COMPOSITION_MEMBER','组合成员跨Floor或特征字段不匹配。',row.id);if(row.visibility==='public'&&feature.visibility==='gm')fail('COMPOSITION_VISIBILITY','公开组合不得读取GM特征。',row.id)}

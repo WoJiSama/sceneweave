@@ -34,9 +34,9 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
   checkCancelled(options.signal)
   const sources = { assetRefs: scene.assets, assets: project.assets, resources: bundle.resources }
   // The unhidden audience closure is verified before session hiding, crop or LOD.
-  const projection = projectScene(scene, options.audience, project.appearance)
+  const projection = projectScene(scene, options.audience, project.appearance, { floorId: options.floorId })
   const drawing = options.audience === 'gm' && editor?.hiddenLayerIds?.size
-    ? projectEditorScene(scene, { hiddenLayerIds: new Set(editor.hiddenLayerIds) }, project.appearance) : projection
+    ? projectEditorScene(scene, { floorId: options.floorId, hiddenLayerIds: new Set(editor.hiddenLayerIds) }, project.appearance) : projection
   const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: options.audience === 'gm' && editor.groundView ? { ...drawing, groundView: true } : drawing }
   return renderRasterProjection(sources, projection, options, preview, started)
 }
@@ -52,14 +52,14 @@ export type { RenderOptions as RenderOptionsV2, EditorProjectRenderOptions as Ed
 export { wallGeometry as wallGeometryV2, wallGeometry as wallGeometryV3, connectionPolygon as connectionPolygonV2 } from './canvas-renderer'
 
 /** Actual public crop for explicitly authorized visual feedback. No editor LOD or hidden-layer state is used. */
-export async function exportPublicViewportPng(input: ProjectBundle, boundsMm: import('../../../shared/model/scene.js').BoundsMm, longEdgePx = 768, signal?: AbortSignal): Promise<Blob> {
+export async function exportPublicViewportPng(input: ProjectBundle, boundsMm: import('../../../shared/model/scene.js').BoundsMm, longEdgePx = 768, signal?: AbortSignal, floorId?: string): Promise<Blob> {
   const values = [boundsMm.x, boundsMm.y, boundsMm.width, boundsMm.height, boundsMm.x + boundsMm.width, boundsMm.y + boundsMm.height]
   if (!values.every(Number.isSafeInteger) || boundsMm.width <= 0 || boundsMm.height <= 0) throw new Error('视觉回读范围须为有效整数毫米矩形。')
   if (!Number.isSafeInteger(longEdgePx) || longEdgePx < 256 || longEdgePx > PNG_MAX_LONG_EDGE) throw new Error('视觉回读长边须为256–4096整数像素。')
   checkCancelled(signal)
   const bundle = await validateProjectBundle(input, { ...browserProjectValidation, signal }), scene = bundle.project.document
-  const projection = projectScene(scene, 'player', bundle.project.appearance), b = projection.bounds
+  const projection = projectScene(scene, 'player', bundle.project.appearance, { floorId }), b = projection.bounds
   if (boundsMm.x < b.x || boundsMm.y < b.y || boundsMm.x + boundsMm.width > b.x + b.width || boundsMm.y + boundsMm.height > b.y + b.height) throw new Error('视觉回读范围须完全落在固定导出范围内。')
   const sources = { assetRefs: scene.assets, assets: bundle.project.assets, resources: bundle.resources }
-  return encodePng(await renderRasterProjection(sources, projection, { audience: 'player', longEdgePx, signal }, undefined, undefined, { ...boundsMm }), signal)
+  return encodePng(await renderRasterProjection(sources, projection, { audience: 'player', longEdgePx, signal, ...(floorId === undefined ? {} : { floorId }) }, undefined, undefined, { ...boundsMm }), signal)
 }

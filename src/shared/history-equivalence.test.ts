@@ -35,6 +35,9 @@ const context = (): PreparationContext => {
 const nativeScene = (document: SceneDocumentV3): SceneDocument => toCurrentSceneDocument({ ...cloneJson(document), format: 'sceneweave-scene' })
 const native = (input: CompositionContentV6): CompositionContent => {
   const document = nativeScene(input.document), currentIdentity = createHistoryIdentity(document, context())
+  // Historical fixtures have no structure axis. Give their shared live
+  // structures stable test witnesses independent of the old prop allocator.
+  currentIdentity.structureTokens = Object.fromEntries(Object.entries(currentIdentity.structureTokens ?? {}).map(([id, record]) => [id, { ...record, token: `structure-birth-${id}`, topologyToken: `structure-topology-${id}` }]))
   return { document, historyIdentity: { ...currentIdentity, ...cloneJson(input.historyIdentity), version: 5 },
     appearance: { ...cloneJson(input.appearance), version: 2, presentations: Object.fromEntries(Object.values(input.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) } }
 }
@@ -45,7 +48,7 @@ function legacy(input: CompositionContent): CompositionContentV6 {
   expect(mapMode).toBe('scene'); expect(regional).toBeNull()
   expect(decorations).toEqual({}); expect(decorationClusters).toEqual({}); expect(surfaceRules).toEqual({})
   expect(visual.base.base.boundaries).toEqual({}); expect(visual.base.materializedEdges).toEqual({}); expect(visual.transitions).toEqual({})
-  const { generationTokens, regionalTokens, presentationTokens, terrainTokens, decorationTokens, surfaceRuleTokens, ...identity } = copy.historyIdentity
+  const { generationTokens, regionalTokens, presentationTokens, terrainTokens, decorationTokens, surfaceRuleTokens, structureTokens: _structureTokens, ...identity } = copy.historyIdentity
   for (const records of [generationTokens, regionalTokens, terrainTokens, decorationTokens, surfaceRuleTokens]) expect(records).toEqual({})
   // Current overlay identity is additional evidence; historical surface primitives remain identical.
   expect(Object.keys(presentationTokens ?? {})).toEqual(Object.values(document.terrainAreas).flatMap(area => (area.surfaceStyle?.overlays ?? []).map(overlay => overlay.id)))
@@ -233,7 +236,10 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
     expect(certified.document).not.toBe(input.document)
     expect(Object.isFrozen(certified.document.props.item.positionMm)).toBe(true)
     expect(Object.isFrozen(certified.historyIdentity.propTokens)).toBe(true)
-    expect(validateCompositionContent({ ...certified })).toBe(certified)
+    // Public validation parses again; only the internal certificate lookup
+    // reuses the exact owned immutable triad.
+    expect(validateCompositionContent({ ...certified })).toEqual(certified)
+    expect(getCertifiedCompositionContent({ ...certified })).toBe(certified)
     input.document.props.item.rotationDeg = 34
     expect(certified.document.props.item.rotationDeg).toBe(0)
     const fake = cloneJson(certified); fake.document.props.item.appearance.opacity = .25; Object.freeze(fake)

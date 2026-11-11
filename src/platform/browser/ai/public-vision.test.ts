@@ -1,3 +1,4 @@
+import { applyCompositionCommands } from '../../../shared/appearance/commands'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { svgFixturePng, svgProjectFixture } from '../../../../tests/helpers/m24-svg-fixtures'
 import { cloneJson } from '../../../shared/validation/json'
@@ -58,5 +59,27 @@ describe('actual public screenshot capture boundary', () => {
   it('rejects a crop outside the complete export range before rendering', async () => {
     await expect(renderPublicVision(project(), { x: Number.MIN_SAFE_INTEGER, y: 0, width: 1, height: 1 })).rejects.toThrow(/截图范围/)
     expect(render).not.toHaveBeenCalled()
+  })
+
+  it('refuses an unbound multi-Floor screenshot before requesting pixels', async () => {
+    const input = project(), boundsMm = { ...Object.values(input.document.floors)[0].boundsMm }
+    let sequence = 0
+    Object.assign(input, applyCompositionCommands({ document: input.document, historyIdentity: input.historyIdentity, appearance: input.appearance },
+      [{ type: 'createFloor', id: 'another', name: '独立层', boundsMm, outputBoundsMm: boundsMm, newLayerId: 'another-layer', layerName: '独立图层' }],
+      { ids: { nextId: () => `vision-floor-proof-${++sequence}` }, clock: { now: () => input.document.updatedAt } }))
+    await expect(renderPublicVision(input, bounds())).rejects.toThrow(/楼层绑定/)
+    expect(render).not.toHaveBeenCalled()
+  })
+
+  it('uses a single Floor explicit output range even outside the legacy global crop', async () => {
+    const input = project(), floor = Object.values(input.document.floors)[0], old = input.document.exportBoundsMm
+    const area = { x: old.x + old.width + 1000, y: old.y, width: 1000, height: 1000 }
+    const x = Math.min(floor.boundsMm.x, old.x), y = Math.min(floor.boundsMm.y, area.y)
+    floor.boundsMm = { x, y, width: Math.max(floor.boundsMm.x + floor.boundsMm.width, area.x + area.width) - x, height: Math.max(floor.boundsMm.y + floor.boundsMm.height, area.y + area.height) - y }
+    floor.outputBoundsMm = { ...area }
+    render.mockResolvedValueOnce(blob())
+    const image = await renderPublicVision(input, area)
+    expect(image.boundsMm).toEqual(area)
+    expect(render.mock.calls[0][1]).toEqual(area)
   })
 })

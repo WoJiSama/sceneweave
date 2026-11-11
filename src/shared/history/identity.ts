@@ -11,6 +11,7 @@ import type { SceneDocument } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { COMPOSITION_LIMITS } from '../model/appearance.js'
 import type { HistoryIdentity, OutdoorIdentityKind, OutdoorIdentityToken, DecorationIdentityToken, SurfaceRuleIdentityToken } from '../model/history.js'
+import { advanceStructureIdentities, mergeStructureIdentityRecords, structureIdentityDescriptors, validateStructureIdentities } from './structure-identity.js'
 
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留 ID')
@@ -23,6 +24,8 @@ export const historyIdentity4Schema = historyIdentity3Schema.extend({ version: z
 export const surfaceRuleIdentityTokenSchema = z.object({ kind: z.literal('surfaceRule'), token: id, topologyToken: id, topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
 export const historyIdentity5Schema = historyIdentity4Schema.extend({ version: z.literal(5), surfaceRuleTokens: z.record(id, surfaceRuleIdentityTokenSchema),
   aggregateTokens: z.record(id, id).optional(),
+  structureTokens: z.record(id, z.object({ kind: z.enum(['floor', 'room', 'wall', 'vertex', 'opening', 'pathAttachment']), token: id, topologyToken: id,
+    topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).optional(),
 }).strict()
 export const nativeHistoryIdentitySchema = historyIdentity5Schema
 const ALL_EXTENDED_IDENTITY_FIELDS = [...TERRAIN_IDENTITY_FIELDS, 'terrainTokens', 'decorationTokens', 'surfaceRuleTokens'] as const
@@ -87,8 +90,12 @@ export function validateHistoryIdentityShape(input: unknown): HistoryIdentity {
   const births = [...Object.values(identity.propTokens), ...Object.values(identity.prefabTokens), ...Object.values(identity.outdoorTokens).map(value => value.token), ...Object.values(identity.aggregateTokens ?? {})]
   const extended = ALL_EXTENDED_IDENTITY_FIELDS.flatMap(field => Object.entries(identity[field] ?? {}))
   ids.push(...extended.map(([id]) => id)); births.push(...extended.map(([,value]) => value.token))
-  const topologies = [...Object.values(identity.outdoorTokens).map(value => value.topologyToken), ...extended.map(([,value]) => value.topologyToken)]
-  if (ids.length > COMPOSITION_LIMITS.identities || new Set(ids).size !== ids.length) throw new Error('物件、组合、聚合容器、室外及新地形出生身份/墓碑合计超过65536或ID重复。')
+  // Structure records reference physical entities and may coexist with their
+  // generation provenance. Their birth/topology tokens are independent.
+  const structures = Object.values(identity.structureTokens ?? {})
+  births.push(...structures.map(value => value.token))
+  const topologies = [...Object.values(identity.outdoorTokens).map(value => value.topologyToken), ...extended.map(([,value]) => value.topologyToken), ...structures.map(value => value.topologyToken)]
+  if (ids.length + structures.length > COMPOSITION_LIMITS.identities || new Set(ids).size !== ids.length) throw new Error('物件、组合、聚合容器、室外及结构出生身份/墓碑合计超过65536或ID重复。')
   if (new Set([...births, ...topologies]).size !== births.length + topologies.length) throw new Error('出生及拓扑令牌必须全局唯一。')
   return identity
 }
@@ -96,6 +103,7 @@ export function validateHistoryIdentity(input: unknown, document: SceneDocument)
   const identity = validateHistoryIdentityShape(input), checked = validateSceneSnapshot(document)
   if (!checked.ok) throw new Error(`历史身份对应场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   if (identity.version !== 5) throw new Error('场景与历史身份版本必须严格匹配。')
+  validateStructureIdentities(identity, checked.document)
   const descriptors3 = extendedIdentityDescriptors(checked.document)
   for (const [id, descriptor] of Object.entries(descriptors3)) {
     const pool = identity[descriptor.field]
@@ -167,6 +175,7 @@ export function createHistoryIdentity(inputDocument: SceneDocument, context: Pre
   advanceTerrainIdentities(identity, {}, terrainIdentityDescriptors(document), context, true)
   advanceDecorationIdentities(identity, {}, decorationIdentityDescriptors(document), context, true)
   advanceSurfaceRuleIdentities(identity, {}, surfaceRuleIdentityDescriptors(document), context, true)
+  advanceStructureIdentities(identity, {}, structureIdentityDescriptors(document), context, true)
   return validateHistoryIdentity(identity, document)
 }
 function advanceTerrainIdentities(identity: HistoryIdentity, before: Record<string, TerrainIdentityDescriptor>, after: Record<string, TerrainIdentityDescriptor>, context: PreparationContext, allowResurrection = false): void {
@@ -206,7 +215,7 @@ function advanceSurfaceRuleIdentities(identity: HistoryIdentity, before: Record<
     } else identity.surfaceRuleTokens[id] = { ...descriptor, token: context.ids.nextId(), topologyToken: context.ids.nextId() }
   }
 }
-export interface AdvanceHistoryIdentityOptions { allowResurrection?: boolean }
+export interface AdvanceHistoryIdentityOptions { allowResurrection?: boolean; initializeStructures?: boolean }
 export interface HistoryIdentityTrace {
   /** Extract identities synchronously; the caller retains ownership of the mutable draft. */
   observe(document: Readonly<SceneDocument>): void
@@ -220,6 +229,8 @@ export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocum
   const identity = validateHistoryIdentity(input, previousDocument)
   const result = cloneJson(identity)
   const sceneId = previousDocument.sceneId
+  let previousStructures = structureIdentityDescriptors(previousDocument)
+  if (options.initializeStructures && !result.structureTokens) advanceStructureIdentities(result, {}, previousStructures, context, true)
   let previousExtended = extendedIdentityDescriptors(previousDocument)
   let previousTerrain = terrainIdentityDescriptors(previousDocument)
   let previousDecorations = decorationIdentityDescriptors(previousDocument)
@@ -265,6 +276,9 @@ export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocum
     advanceDecorationIdentities(result, previousDecorations, nextDecorations, context, options.allowResurrection)
     const nextSurfaceRules = surfaceRuleIdentityDescriptors(next)
     advanceSurfaceRuleIdentities(result, previousSurfaceRules, nextSurfaceRules, context, options.allowResurrection)
+    const nextStructures = structureIdentityDescriptors(next)
+    if (result.structureTokens) advanceStructureIdentities(result, previousStructures, nextStructures, context, options.allowResurrection)
+    previousStructures = nextStructures
     previousSurfaceRules = nextSurfaceRules
     previousDecorations = nextDecorations
     previousTerrain = nextTerrain
@@ -291,6 +305,7 @@ export function mergeIdentityRecords(currentInput: unknown, others: readonly unk
         current.aggregateTokens[id] = token
       }
     }
+    mergeStructureIdentityRecords(current, historic)
     for (const field of TERRAIN_IDENTITY_FIELDS) if (historic[field]) {
       current[field] ??= {}
       for (const [id, record] of Object.entries(historic[field]!)) {

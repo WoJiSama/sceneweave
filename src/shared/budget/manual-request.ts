@@ -6,7 +6,8 @@ import { buildingAggregateMembers } from '../commands/building.js'
 import { captureJson, freezeJson } from '../validation/json.js'
 import { visualBase } from '../visual/base.js'
 import { visualBindingEntityIds } from '../visual/diagnostics.js'
-import { selectManualTransactionBudget, type ManualTransactionBudget } from './command-budget.js'
+import { MANUAL_TRANSACTION_BUDGET, selectManualTransactionBudget, type ManualTransactionBudget } from './command-budget.js'
+import { requestsPathAttachmentTransaction } from '../path-attachments/transaction-budget.js'
 
 export interface ManualCommandWork {
   /** Conservative request expansion, used before preparing any candidate.
@@ -169,6 +170,7 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
 
 export function selectManualCommandBudget(document: SceneDocument, commands: readonly CompositionCommand[]): ManualTransactionBudget {
   const work = planManualCommandWork(document, commands)
+  if (requestsPathAttachmentTransaction(document, commands)) return MANUAL_TRANSACTION_BUDGET
   if (work.semanticTargets > 1024) throw new Error(`普通事务请求展开超限[semanticTargets]：${work.semanticTargets}/1024，保留当前成果。`)
   if (work.groupMembers > 65536) throw new Error(`普通事务请求展开超限[groupMembers]：${work.groupMembers}/65536，保留当前成果。`)
   return selectManualTransactionBudget(document, work.semanticTargets, work.groupMembers)

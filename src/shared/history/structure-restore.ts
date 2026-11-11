@@ -4,7 +4,7 @@ import { inspectDependencies, type LicenseSubject } from '../commands/dependenci
 import { enumerateLayerEntities } from '../commands/layers.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
 import { COMMAND_LIMIT, type Editable, type EntityKind, type Note, type Opening, type Room, type SceneDocument, type Vertex, type Wall } from '../model/scene.js'
-import { projectScene } from '../projection/projection.js'
+import { assertAllFloorPlayerProjections } from '../projection/projection.js'
 import { mergeHistoryIdentities, validateHistoryIdentity } from './identity.js'
 import { assertStructureContinuity, STRUCTURE_COLLECTIONS, structureKind, type StructureContinuity, type StructureKind } from './structure-continuity.js'
 import type { HistoryIdentity } from '../model/history.js'
@@ -249,7 +249,7 @@ export function buildStructureRestorePlan(
   }
   const document = changes.length ? checkedScene(candidate, '结构恢复候选') : current
   validateHistoryIdentity(historyIdentity, document)
-  projectScene(document, 'player')
+  assertAllFloorPlayerProjections(document)
   if (budget) {
     const usage = measureCommandBudget(current, document, { before: { historyIdentity: currentIdentity }, after: { historyIdentity } }, undefined, budget)
     scope.commandCost = assertCommandBudget(budget, { ...usage, dependencyRefs: Math.max(usage.dependencyRefs, scope.impacts.length) }).semanticTargets

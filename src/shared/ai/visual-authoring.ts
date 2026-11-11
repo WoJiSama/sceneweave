@@ -88,6 +88,7 @@ export function validateVisualAuthoringScope(project: ProjectData, input: Visual
   }
   for (const id of scope.definitionIds) if (!scene.propDefinitions[id]?.origin.canEmbed || scene.propDefinitions[id].tags.includes('sceneweave:retained-appearance')) deny('视觉布景固定素材未获授权。')
   for (const id of scope.materialIds) if (!scene.materials[id]?.origin.canEmbed) deny('视觉固定材质未获授权。')
+  if (scope.allowGlobalEnvironment && (Object.keys(scene.floors).length !== 1 || floor.environment !== undefined)) deny('按楼层隔离的环境暂不支持AI全景环境操作；请使用当前楼层的环境工具。')
   if (scope.allowGlobalEnvironment && (scope.boundsMm.x !== floor.boundsMm.x || scope.boundsMm.y !== floor.boundsMm.y || scope.boundsMm.width !== floor.boundsMm.width || scope.boundsMm.height !== floor.boundsMm.height)) deny('全图环境须明确授权整个Floor范围。')
   return scope
 }
