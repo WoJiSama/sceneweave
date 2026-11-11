@@ -23,7 +23,7 @@ npm run test:e2e
 
 共享内核可单独运行`npm run check:shared`：AST依赖边界、无DOM/无Node类型编译、真实Node原生ESM命令/身份/投影及当前/历史ZIP往返，临时发射目录自动清理。保留的兼容模块API测试用于领域/存储依赖及既有来源记录，不能据此宣称产品支持旧版导入或转换；M2-0b至f当批命令与数字分别见[48](docs/archive/m2-project-validation.md#doc-48)至[52](docs/archive/m2-project-validation.md#doc-52)。
 
-`npm run check:architecture`检查共享层只依赖共享层、应用层只依赖共享层和应用层；类型导入与动态导入遵守同一边界。应用端口由应用层定义，浏览器在组合根注入实现。正常`typecheck`和`build`会先运行此检查；它不替代共享层无DOM编译或行为验证。
+`npm run check:architecture`检查共享层只依赖共享层、应用层只依赖共享层和应用层；类型导入与动态导入遵守同一边界。应用端口由应用层定义，浏览器在组合根注入实现。正常`typecheck`和`build`会先运行此检查；它不替代共享层无DOM编译或行为验证。Pages CI在构建前另执行`npm run check:shared`，阻止平台全局或无DOM类型错误进入发布产物。
 
 原生定向入口位于`src/application/workspace`、`src/editor/main`、`src/editor/native-canvas`、`src/platform/browser/render`及新主库的历史包/原件测试。真实浏览器可定向运行`SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/m20f-ui.spec.ts tests/m20f-render.spec.ts tests/m20f-entry.spec.ts --reporter=line`，检查混合主会话/目录、实际GM/player 4K逐RGBA对照及完整v1所选历史包的独立导入；旧转换UI旅程不再执行。每次修改按实际范围验证，不将52的旧批次当作当前结果。
 
@@ -166,6 +166,15 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome npx playwright test tests/base-map.spec.ts tes
 ```
 
 浏览器用例启动隔离Hono/SQLite/SSE服务并使用确定性provider，不读`.env.ai`或发送付费请求；底图生成本身模型/新增任务数为0，接续用例检查真实Worker、资源像素、保护CAS、一次采用/撤销、冷读和完整包/双受众PNG。真实模型质量与正式验收另行冻结执行。
+
+<a id="image-edit-service"></a>
+#### 素材补画专用服务
+
+在服务端私有环境显式设置 `SCENEWEAVE_AI_IMAGE_EDIT_BASE_URL`、`SCENEWEAVE_AI_IMAGE_EDIT_API_KEY`、`SCENEWEAVE_AI_IMAGE_EDIT_MODEL`；base URL应为供应商API根（例如以 `/v1` 结尾），程序追加 `/images/edits`。三项须同时配置，全部省略则能力返回不可用；不自动复用对话配置。不得使用 `VITE_` 前缀或向静态产物/工程写供应商密钥。
+
+浏览器使用应用服务Origin与应用访问凭据，先GET `/v1/image-edit/capabilities`，明确同意后POST `/v1/image-edit`。该独立接口沿用应用鉴权和精确Origin检查，单次multipart编辑、单候选、透明内联PNG、明确尺寸，拒绝URL输出；并发最多2，超时180秒。请求要求供应商支持16对齐、655360至800万像素、长边3840/短边2160内且比例1:3–3:1的显式尺寸与透明PNG；能力标 `configured-unverified`，必须对实际固定渠道另测，配置不等于模型可用或图像质量证明。[官方参数依据](https://developers.openai.com/api/reference/resources/images/methods/edit)。
+
+服务在私有 `DATA_DIR/image-edit-requests/` 保存hash与unknown/finished收据，每次付费请求前落盘；同owner+clientRequestId跨重启拒绝重发，最多1万收据后明确拒绝新请求，维护者应在独立核对计费后处理容量，不能自动删除未知记录。取消或断网后先按页面保留的客户端ID核对，不自动重发。测试用fake fetch，不读取私有配置或发付费请求：`npx vitest run --config vitest.ai.config.ts services/ai/image-edit.test.ts services/ai/config.test.ts services/ai/request-boundaries.test.ts --maxWorkers=1`，浏览器transport和完整源闭包用 `src/platform/browser/content/image-refinement-model.test.ts` / `image-refinement.test.ts`，生产旅程用 `tests/asset-refinement.spec.ts`。
 
 ### 当前完整3–6的创作4检查
 

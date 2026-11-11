@@ -69,13 +69,13 @@ Floor预设槽位绑定structureTokens中的真实出生身份，以floorId+birt
 
 D1的请求/步骤依赖、13类临时空间产物、只读候选快照及阶段hash回执仅存在于会话，不加入工程、历史或导出字段。算子物化到私有完整SceneDocument，后续阶段读取实际墙门、支撑和占地；主工程身份/revision/Floor不变。`prepared`不是可采用凭据，仍须沿完整ProjectData的身份、资源/许可/像素、范围/锁、预算、保护/CAS及一次撤销路径准备与采用。具体接口及旧自然协议桥见[生成设计](reference/general-map-generation.md#d1-stage-contract)。
 
-当前D2/D3室内沿现有`generation.legacy`严格联合保存`domain:interior / algorithmId:interior-layout`，旧算法/配方为`2/2`，新建默认`3/3`，两者必须严格配对，包含规范化完整房间/关系需求、范围/墙厚/走廊、固定floor/wall材质及初次布置`arrangement`。后者精确保存门/入口/家具开关、建议门宽/通路净宽与显式角色→固定定义palette；配方props必须与该palette逐项一致。不增加工程版本或开发工程兼容分支。既有自然配方分支的结构和字段不变。building规则使用现有rules/ownership，引用可含room/wall/vertex/opening；结构→连接→内容三个阶段依次产room/wall/vertex、真实opening、真实prop，每阶段只补本阶段归属并重算完整规则hash。稳定需求ID是配方局部键，不占用场景实体ID；实际房间/墙/顶点/门/家具有独立稳定输出键及受管理geometry/properties/surface/source组。
+当前D2/D3室内沿现有`generation.legacy`严格联合保存`domain:interior / algorithmId:interior-layout`，算法／配方2／2、3／3保留重放，新建默认4／4，必须同号严格配对，包含规范化完整房间/关系需求、范围/墙厚/走廊、固定floor/wall材质及初次布置`arrangement`。后者精确保存门/入口/家具开关、建议门宽/通路净宽与显式角色→固定定义palette；配方props必须与该palette逐项一致。算法4仅在新选择中增加完整旋转轮廓和功能邻近摆位，不增加工程字段或开发工程兼容分支。既有自然配方分支的结构和字段不变。building规则使用现有rules/ownership，引用可含room/wall/vertex/opening；结构→连接→内容三个阶段依次产room/wall/vertex、真实opening、真实prop，每阶段只补本阶段归属并重算完整规则hash。稳定需求ID是配方局部键，不占用场景实体ID；实际房间/墙/顶点/门/家具有独立稳定输出键及受管理geometry/properties/surface/source组。
 
-新建语义确定性按布局几何而非完整工程hash定义：相同规范参数、seed、固定素材与注册预算，在不同新工程身份下，室内算法3及地形建筑算法2以语义需求/实际墙几何和seed选择房间连接、外门及家具位置，身份分配仍独立。混合算法2选择地形建筑算法2，并沿既有森林/火山算法1执行；后续树木仍避让实际家具与路径。旧算法不得因新默认改写输入、版本、实体或重放hash；完整文档与资源继续保存，不能靠固定sceneId、删业务字段或只保存seed制造等价。当前工程后续人工编辑与局部家具操作不自动重建整图，局部操作按原配方选择新/旧排序策略。
+新建语义确定性按布局几何而非完整工程hash定义：相同规范参数、seed、固定素材与注册预算，在不同新工程身份下，室内算法3／4及地形建筑算法2／3以语义需求/实际墙几何和seed选择房间连接、外门及家具位置，身份分配仍独立。混合算法2选择地形建筑算法2，并沿既有森林/火山算法1执行；后续树木仍避让实际家具与路径。旧算法不得因新默认改写输入、版本、实体或重放hash；完整文档与资源继续保存，不能靠固定sceneId、删业务字段或只保存seed制造等价。当前工程后续人工编辑与局部家具操作不自动重建整图，局部操作按原配方选择新/旧排序策略。
 
 生成建筑的真实出生与拓扑记录复用当前`historyIdentity.generationTokens`，kind增加generatedRoom/generatedWall/generatedVertex/generatedOpening，只为building归属目标建立，不给普通手工建筑补造生成身份。出生/墓碑仍计入同一65536总上限，不增工程或身份版本、不另开身份池。手工用途、顶点坐标、共享墙及真实端点几何变化进入脱管判断；删除保留墓碑，每条原生命令后的拓扑推进及撤销/重做不回退旧拓扑令牌。稳定输出键和临时回执都不替代身份凭据。家具继续使用现有propTokens，门使用generatedOpening，归属记录仍在同一building规则；没有第二套身份池。初次布置仅为建议，不写`Room.accessExpectation=required`、入口必达列表、pathChecks或持久必需家具数；门关闭/删除、家具搬动/删除沿原生命令脱管/墓碑及撤销语义，冷读不补回。D4/D5沿此责任扩展；没有真实凭据时拒绝需要该证明的结构重生成，不扩大现有历史恢复权限。
 
-D4森林沿同一`generation.legacy`保存严格`domain:forest / algorithmId:forest-layout / algorithmVersion:1 / recipeVersion:1`。参数包含明确林区/空地/入口/折线路线、选定或新建地面、三通道覆盖/间距和固定palette；recipe.materials/props必须与输入中的ground/path和tree/shrub/grass引用完整一致。局部需求ID不占场景实体ID。forest规则按真实产出分别绑定geometry/properties及适用的surface/appearance/source/membership，完整树Prop、轻量Decoration、DecorationCluster和SurfaceRule使用现有身份池与人工状态；引用联合增加后三种实体，并只为新种类补其真实字段投影，旧自然引用hash保持。
+D4森林沿同一`generation.legacy`保存严格`domain:forest / algorithmId:forest-layout`，旧算法／配方1／1保留精确重放，新建默认2／2，拒绝1／2与2／1错配。算法2只在物化时先树、后灌、再草；规范参数排序保持，独立算子／配方身份使派生种子变化，实际位置与目标缺项另行检查，不改工程容器版本。参数包含明确林区/空地/入口/折线路线、选定或新建地面、三通道覆盖/间距和固定palette；recipe.materials/props必须与输入中的ground/path和tree/shrub/grass引用完整一致。局部需求ID不占场景实体ID。forest规则按真实产出分别绑定geometry/properties及适用的surface/appearance/source/membership，完整树Prop、轻量Decoration、DecorationCluster和SurfaceRule使用现有身份池与人工状态；引用联合增加后三种实体，并只为新种类补其真实字段投影，旧自然引用hash保持。
 
 森林空地activityArea与入口port均为soft首次保留；实际生成仍复核完整占地/绘制范围、真实支撑与道路净宽，缺少合法连接的路线拒绝。手工删改走原生脱管/删除/墓碑，不在打开/保存时补回。完整坐标、成员槽位、固定资源和软保留记录保存在工程，临时预览报告与空间事实不成为另一份权威地图。已有同通道规则不被隐式重撒；同seed已有森林配方的追加拒绝，受限局部更新见下述D6合同。
 
@@ -85,12 +85,12 @@ volcano规则按实际TerrainArea/TerrainEdge/TerrainConnection/Path/Region逐�
 
 D6不增加工程字段或版本。四类局部操作复用已保存配方、现有rules/ownership、SurfaceRule/DecorationCluster与真实身份；只认领本次明确授权且之前仍受管的字段，既有manual/deleted/detached与墓碑不清零。原配方保留首次输入，当前密度、材质及坐标由实际规则/实体保存；新家具、林区成员分配独立出生身份和有限归属，稳定输出键不授权复活旧ID。火口坐标调整保留现有点/段及拓扑；改变拓扑或删除重建后即使撤销回原几何，原生历史推进的新拓扑令牌仍使该几何归属保持人工，不能恢复旧生成控制。相关Region仅在其几何仍受管时随动，不改变人工策略；不支持建筑分合/新删房间等拓扑重写。操作范围和拒绝边界见[设计11.6](reference/general-map-generation.md#d-regeneration)，保存事务见[06](06-storage-and-export.md#local-generation-storage)。
 
-E在同一严格配方联合保存`domain:interior / supported-interior`与`domain:mixed / mixed-layout`；两者旧算法/配方均为`1/1`，新建默认均为`2/2`，拒绝错配。前者沿室内完整参数增加显式terrainArea支撑；后者保存室外模块参数、房间需求和接入路线。`composition`规则只管理组合自身新增的地面及路径，建筑与森林/火山保留各自配方及逐输出归属，不接管前序实体。接入规则读取实际房间、墙厚、门开闭/锁/秘密及支撑的几何/业务字段；新配方/规则严格配对、固定材质/物件与规范输入一致。初次连通仅为生成时检查，后续手改只按原生人工/删除/依赖失效语义保存。建筑/火山局部操作读取真实跨领域支撑、路径与建筑依赖，但不获得结构重写权。工程版本保持完整v1，旧室内算法2及自然算法6重放不改义；细节见[设计11.8](reference/general-map-generation.md#e-mixed-delivery)。
+E在同一严格配方联合保存`domain:interior / supported-interior`与`domain:mixed / mixed-layout`；两者旧算法／配方1／1及2／2均保留；当前混合默认3／3仍选择地形建筑2／2，独立地形建筑另支持3／3映射室内4，拒绝错配。前者沿室内完整参数增加显式terrainArea支撑；后者保存室外模块参数、房间需求和接入路线。`composition`规则只管理组合自身新增的地面及路径，建筑与森林/火山保留各自配方及逐输出归属，不接管前序实体。接入规则读取实际房间、墙厚、门开闭/锁/秘密及支撑的几何/业务字段；新配方/规则严格配对、固定材质/物件与规范输入一致。初次连通仅为生成时检查，后续手改只按原生人工/删除/依赖失效语义保存。建筑/火山局部操作读取真实跨领域支撑、路径与建筑依赖，但不获得结构重写权。工程版本保持完整v1，旧室内算法2及自然算法6重放不改义；细节见[设计11.8](reference/general-map-generation.md#e-mixed-delivery)。
 
 <a id="domain-generation-protocol"></a>
 ### 领域生成的会话传输边界
 
-D7使用独立`protocolVersion:1`请求，精确包含requestId、workspaceId/checkpoint/epoch、domain、完整候选基底SceneDocument、规范输入、注册profile和requestHash；不传图片字节、当前工程或历史。最新能力声明为`interior-layout@3 / forest-layout@1 / volcano-layout@1 / mixed-layout@2`；明确旧输入仍按`interior-layout@2 / mixed-layout@1`原路径重放。响应绑定同一请求/上下文，包含完整领域结果、强类型空间产物/阶段回执和报告；逐项验证场景、产物与阶段hash。实际计时单独计量，不进入确定性resultHash。8MiB请求、16MiB结果和600000个JSON值均为保护上限，不是容量承诺。
+D7使用独立`protocolVersion:1`请求，精确包含requestId、workspaceId/checkpoint/epoch、domain、完整候选基底SceneDocument、规范输入、注册profile和requestHash；不传图片字节、当前工程或历史。最新能力声明为`interior-layout@4 / forest-layout@2 / volcano-layout@1 / mixed-layout@3`；旧室内2／3、森林1与混合1／2输入仍按原路径重放；混合1–3的子森林继续算法1。响应绑定同一请求/上下文，包含完整领域结果、强类型空间产物/阶段回执和报告；逐项验证场景、产物与阶段hash。实际计时单独计量，不进入确定性resultHash。8MiB请求、16MiB结果和600000个JSON值均为保护上限，不是容量承诺。
 
 这些信封、临时事实、诊断、端点凭据与执行端选择不增加持久字段。唯一完整v1继续保存实际实体、精确配方/归属、人工状态、身份、外观和资源。摘要只能证明候选自洽；即使远端重算全部摘要，采用仍须本机会话私有凭据、完整重放与资源校验，不能直接另存网络场景。旧自然底图协议与算法6重放原路保留。
 
@@ -265,7 +265,25 @@ processor2在生产、PNG编码/解码和源关联验证中采用固定软件RGB
 
 拆解图层可选 `selectionMask` 保存原图坐标中的严格RLE覆盖蒙版，作为裁片外观的实际边界，保留孔洞及不连通细节；粗多边形与物理占地不替代该蒙版。页面画笔、磁性套索及MCP精修共用，采用时物化为固定PNG，普通工程与个人素材不依赖导入草稿。蒙版受尺寸、段数及累计预算约束，不能作为任意半透明内部或补底范围外改画的保真豁免。协议详情归[图片工具](reference/image-to-project.md#shared-tool)。
 
+逐层 `repair:'aligned'` 为显式纹理对齐补底：只在用户指定的同材质取样中选择整数平移相位，再融合修补边界；不旋转、替换或重画可见纹理。修补遮罩及显式清理外沿之外RGBA保持，材质分区分别取样。旧 `tile`、`seamless` 及未指定方式的配方保留原算法重放，普通新建仍默认 `seamless`。该设置直接演进同一操作配方，采用结果仍是固定PNG与当前完整工程v1。
+
+<a id="image-enhancement-model"></a>
+#### 可撤销画质候选与固定来源
+
+用户显式选择图片物件、房间地板、地形或墙面后，可按方向生成2或3个同基线候选。已采用PNG的 `AssetRef.imageEnhancement` 使用严格元数据v1，记录直接 `sourceAssetId`、真实起点 `originalAssetId`、算法配方及可选源像素坐标RLE `scopeMask`；配方固定方向、强度和1/2倍输出。算法版本与工程版本分开，当前完整工程仍为v1。来源必须存在、无循环且连同原件最多16层，输出逻辑毫米尺寸、来源及许可保持，不能同时声明为SVG输出或外观颜色派生。
+
+`decontaminate` 为单独选择的去色边方向，默认1倍，按稳定内侧颜色估计窄边带的异常色度，保持alpha与亮度；没有可靠依据时不改动。对于规范RGBA8 PNG直接从编码字节读取确切像素，避免把原生Canvas的半透明RGB舍入误当色边；其他合法格式沿原适配器解码，资源真实解码仍执行。审阅、候选生成、采用和公开重放消费相同输入语义，既有三种方向不改解码或固定配方。它修改派生RGB，不能当作真实底色还原或原件保真；局部范围及强度随同配方保全。
+
+增强创建新固定asset及物件定义或材质，通过既有外观替换命令一次采用；实例身份、位置、角度、尺寸、占地、支撑、Floor、通行、秘密及既有层/实例外观覆盖保持。临时候选和检查背景不入工程。候选生成允许继续编辑；准备预览时按目标完整记录、固定来源、层/实例覆盖与身份重新核对，目标变化或锁定拒绝旧候选，无关编辑保留。正式采用仍受工作区checkpoint、完整依赖、预算及保存CAS约束。增强明确修改派生像素，不属于原图保真检查的豁免；操作边界见[专题](reference/image-to-project.md#image-enhancement)。
+
 矢量拆解沿用本节既有静态SVG `authoringSources`，地面绑定材质纹理asset，物件绑定PropDefinition的图片asset；源、规范化源、processor2和实际PNG闭包全量校验。配方的 `floorVector` 与逐层 `vector` 记录重建方法、调色板、轮廓简化、木板方向/板宽和种子，仍为独立导入协议；不为它增加工程版本。矢量地面裁切保留原图坐标偏移，不能改变物理标定。逐层可选原图绝对像素占地矩形 `footprintPx`，转换到既有占地毫米尺寸和相对图像中心的偏移；完整视觉轮廓与物理本体分开。盆栽叶片伸到墙上不授权跳过本体支撑校验，非阻挡装饰同样检查支撑。源编辑创建新固定asset/定义/item，旧源及祖先许可不原地修改，完整保存与冷读仍按已有SVG合同执行。
+
+<a id="asset-refinement-model"></a>
+#### 显式精修来源
+
+当前完整v1的 `AssetRef.imageRefinement` 为严格元数据v1，与基础 `imageEnhancement` 互斥。共有直接源/真实原件ID、源/输出字节hash和源像素解码方式（确切RGBA8或既有原生解码）；向量记录固定算法ID：显式结构重绘使用 `structure-plan-v1` 与源hash/源框绑定的完整结构稿（曲线、重复形元、填色与逐部件观察/推断说明）；像素描摹保留 `regional-tones-v1` 和 `shared-boundary-curves-v1` 的颜色/容差与原语义，不能原地改义。结构稿允许改变原alpha和轮廓，不能伪称原图保真提取。模型记录实际模型、客户端/供应商请求ID、上传像素PNG hash和补画要求。两类处理混合来源链仍最多16层且不可循环；保全实际来源、许可和逻辑毫米尺寸，输出PNG最多4096边/800万像素，比例差最多2%。
+
+矢量精修必须同时绑定既有 `authoringSources`：公开/冷读按固定算法重放原件，或以确切来源hash/源框重编译完整结构稿到SVG source hash，再实际核对SVG/PNG像素。模型补画保存实际返回PNG，冷读只验证输入像素hash、输出资源和许可闭包，不再请求模型，也不能证明模型艺术质量或复原真实细节；模型输出不声明SVG或颜色派生。个人素材闭包与后续基础处理保留两类来源链，采用仍使用普通外观命令，不暗改物理语义。[两路线交互](reference/image-to-project.md#asset-refinement-routes)。
 
 <a id="asset-batch-import"></a>
 #### 外部素材批量候选与现有字段映射

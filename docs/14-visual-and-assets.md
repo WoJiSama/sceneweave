@@ -691,6 +691,26 @@ T4新增六件独立原创素材：南望苔橡、分层矮松、西倾风樟、
 
 11月10日按用户确认先整改温带荒野：新固定v2使用低对比度不规则底材、透明叠色树冠和纯俯视营帐，增加废弃状态与哨站用品，并在两份36×28m完整场景中实际放置。哨站包含双房间共享墙/门窗、在用营地、废弃组、成簇林缘与450mm羽化地表；河岸山道具有1.8m实际高差、阻挡崖边和1.8m坡道。正常生产双受众4096输出及编辑/撤销/冷开已开发复核，具体冻结归[本轮台账](archive/workspace-content-validation.md#wilderness-remediation-20261110)。实际看图确认旧用途缺件和稀疏林缘已有具体整改，但程序化叠色仍有形状简化，河岸/道路仍为折线表达；不将目标“自然水彩”改记为已签收，其余五包和完整视觉矩阵继续待验。
 
+<a id="handdrawn-surfaces-v1"></a>
+### 独立手绘地板材质
+
+主题成图暴露旧底材颜色与接缝过于统一，新增四种独立原创候选，复用受限静态SVG、规范化源、固定栅格器、完整资源和许可链。木板具有不同长度、宽度、色差与细木纹；石板具有八种行高、种子宽度、缺角、细裂和低对比色层；灰泥使用低对比叠色与颗粒。自由笔触和跨边界石板／木板在两轴重复确切几何，不用边框遮盖接缝。代码源为[手绘表面](../src/shared/visual/handdrawn-surfaces.ts)，目录与正常采用入口为[独立目录](../src/platform/browser/content/handdrawn-surfaces-catalog.ts)。程序纹理及重复周期仍需世界尺度目视与用户签收，不据数量或像素指标认定手绘品质已完成。
+
+| 固定key | 名称 | 平铺毫米 | 新批次目标像素 |
+|---|---|---|---|
+| weathered-oak | 磨旧橡木长板 | 6400×6400 | 1024×1024 |
+| old-limestone-flags | 旧石灰岩板 | 4800×4800 | 1024×1024 |
+| dark-basalt-flags | 深灰玄武岩板 | 4800×4800 | 1024×1024 |
+| warm-plaster | 暖灰泥地面 | 3600×3600 | 1024×1024 |
+
+固定asset为`handdrawn-surfaces-v1-art-<key>`，material为`handdrawn-surfaces-v1-material-<key>`，目录身份为`material.sceneweave.handdrawn-surfaces.<key>@1`，许可引用`MIT-Sceneweave-Handdrawn-Surfaces-1`。完整声明与MIT正文由`HANDDRAWN_SURFACE_LICENSE`随工程绑定，不替换旧主题、其他原创批次或用户数据。普通入口从「素材与布景→主题素材包→手绘基础材质」准备四份候选，按原子采用／撤销／保存流程入工程，再选择目标表面应用；不会自动替换既有实例或主题。
+
+真实页面初筛发现512像素对应木板80px/m、石板约107px/m，低于128px/m参考。共用[素材物化器](../src/platform/browser/content/visual-art-project.ts)因此新增每批显式512／1024／2048像素选项，缺省512保持旧固定输出；非法值在任一素材栅格化或场景修改前整批拒绝。新独立批次明确选择1024，目标分别160、约213和约284px/m；这增加原创矢量源的实际采样精度，不增加材质的美术细节。各冻结实际像素、采用／冷读及限制归[主题证据](archive/workspace-content-validation.md#theme-driven-interior-20261111)，开发接续只归[07](07-roadmap.md#theme-driven-development)，正式复验和用户P3只归[09](09-quality-plan.md#theme-driven-acceptance)。
+
+### 九题材候选的实际画面债务
+
+首页与主题库合并的九题材均已有独立手绘构图候选，技术冻结和逐份工程从[主题证据](archive/workspace-content-validation.md#theme-driven-interior-20261111)追溯。当前共同问题是功能组松散、室内留白过大、地表纹理周期与程序平涂；五户外另有岸线／崖缘折线、崖面像平带、道路硬直、植被重复／过细、墓位排布规整、火山熔脉和火口几何感。后续修改须落到相应通用生成、渲染或独立固定素材来源，并保留同范围对照；工程可冷读和更多物件都不能替代这些视觉目标。墓园采用现有独立leafy-fern固定批，不改旧蕨源语义，也不认领新产品素材实现。森林树先诊断的数量变化仅作顺序证据，正式新版仍需实际成图与异输入核对；开发接续归07，正式复验和用户P3归09。
+
 <a id="custom-asset-import-contract"></a>
 ## 个人素材导入全流程
 

@@ -37,7 +37,7 @@
 | 查地形当前支持/拒绝边界、双尺度、算法和局部联动 | [地形生成](reference/terrain-generation.md#terrain-capabilities) |
 | 执行固定SCN/VIS场景，核对尺寸、输入和秘密 | [固定验收场景](reference/acceptance-scenarios.md) |
 | 追溯设计决定、外部来源和未实测问题 | [决策与研究依据](reference/decisions-and-research.md) |
-| 查正式性能方法、各冻结分布、失败和未达门槛 | [性能方法与结果](reference/performance.md) |
+| 查正式性能方法、各冻结分布、失败和未达门槛 | [性能方法与结果](reference/performance.md)；换电脑接续看[性能会话交接](07-roadmap.md#performance-capacity-cross-machine-handoff) |
 | 准备自有图片、名称、标定、清单和个人库携带 | [素材导入指南](reference/asset-import.md) |
 
 运行/配置/部署命令见[贡献说明](../CONTRIBUTING.md)，用例选择见[测试说明](../tests/README.md)。只读源码核对不等于运行测试；已有工具不等于真实模型或目标软件验收通过。
