@@ -64,6 +64,9 @@
 | 工作 | 实现、自检与后续边界 |
 |---|---|
 | 建筑500性能运行器草稿退出 | 已在组操作正常结束或明确拒绝后，通过普通UI取消对应表单草稿，取消前后核对revision、选择及完整工程包；未知失败不自动取消或重试。工具级回归通过，真实建筑500生产smoke待独立冻结、空闲窗口执行；不新增性能结论。见[工具证据](archive/workspace-content-validation.md#validation-tool-remediation-20261110) |
+| 视觉长链分段诊断与失败保全 | 已接入阶段/操作耗时、已完成事实及超时/失败进度文件；完整facts、原断言和900秒零重试保持。工具自检与用例发现/类型检查分别记录，Firefox真实长链慢段仍待复现定位。见[视觉工具证据](archive/visual-quality-validation.md#visual-progress-tooling-20261110) |
+
+两项只修改验证工具，不改产品、素材或算法，也不沿用另一工作线的生产验证结果；正式采样、完整视觉复验与P3保持独立。
 
 <a id="development-self-check-policy"></a>
 ### 开发期验证范围（2026-11-05用户确认）

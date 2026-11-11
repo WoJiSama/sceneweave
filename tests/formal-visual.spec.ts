@@ -3,7 +3,7 @@ import { expect, test, type Browser, type BrowserContext, type Page, type TestIn
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { basename, resolve } from 'node:path'
 import { unzipSync, strFromU8 } from 'fflate'
 import { openKeyboardPanel } from './keyboard-ux-helpers'
 import { mapExportButton, projectBackupButton } from './workspace-ux-helpers'
@@ -14,6 +14,7 @@ import { pauseChangedCompositions } from '../src/shared/terrain-generation/compo
 import { getLegacyGeneration } from '../src/shared/terrain-generation/composition-contracts'
 import { projectScene } from '../src/shared/projection/projection'
 import { terrainVariantV2DefinitionId } from '../src/shared/visual/terrain-variant-v2-specs'
+import { FormalVisualProgress } from '../tools/testing/formal-visual-progress'
 
 interface PackageInput { file: string; sha256: string }
 interface FixtureCase {
@@ -33,6 +34,25 @@ if (manifest.format !== 'sceneweave-formal-visual-fixtures' || manifest.version 
   || !manifest.cases.some(row => row.kind === 'current-island')) throw new Error('Expected the four original regression fixtures plus the separate current-island algorithm7 production input.')
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const review = (page: Page) => page.getByRole('region', { name: '候选审阅', exact: true })
+const progressByTest = new Map<string, FormalVisualProgress>()
+const progressByPage = new WeakMap<Page, FormalVisualProgress>()
+function measure<T>(page: Page, name: string, run: () => Promise<T>, summarize?: (result: T) => unknown): Promise<T> {
+  const progress = progressByPage.get(page)
+  return progress ? progress.measure(name, run, summarize) : run()
+}
+test.afterEach(async ({}, info) => {
+  const progress = progressByTest.get(info.testId)
+  if (!progress) return
+  try {
+    progress.finish(info.status ?? 'interrupted', info.errors)
+    await info.attach('formal-visual-progress', { path: info.outputPath('formal-visual-progress.json'), contentType: 'application/json' })
+  } catch (error) {
+    // Preserve the runner's first failure/timeout if diagnostic persistence or
+    // attachment also fails. Successful tests must surface a recorder failure.
+    if (info.status === 'passed' && !info.errors.length) throw error
+    console.error('Formal visual progress finalization failed; the prior checkpoint and original test error remain:', error)
+  } finally { progressByTest.delete(info.testId) }
+})
 function containsEntityId(value: unknown, id: string): boolean {
   if (value === null || typeof value !== 'object') return false
   if (Array.isArray(value)) return value.some(row => containsEntityId(row, id))
@@ -108,6 +128,9 @@ async function saved(page: Page) {
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 120_000 })
 }
 async function backup(page: Page, path: string) {
+  return measure(page, `backup ${basename(path)}`, () => backupUnchecked(page, path), value => ({ packageSha256: value.packageSha256, revision: value.document.revision }))
+}
+async function backupUnchecked(page: Page, path: string) {
   const event = page.waitForEvent('download', { timeout: 120_000 })
   await (await projectBackupButton(page)).click()
   await (await event).saveAs(path)
@@ -116,6 +139,9 @@ async function backup(page: Page, path: string) {
   return archive(new Uint8Array(await readFile(path)))
 }
 async function load(page: Page, input: PackageInput) {
+  return measure(page, `import ${input.file}`, () => loadUnchecked(page, input), value => ({ inputSha256: input.sha256, packageSha256: value.packageSha256 }))
+}
+async function loadUnchecked(page: Page, input: PackageInput) {
   const path = resolve(fixtureRoot, input.file), bytes = new Uint8Array(await readFile(path))
   expect(digest(bytes)).toBe(input.sha256)
   const original = archive(bytes)
@@ -130,6 +156,9 @@ async function load(page: Page, input: PackageInput) {
   return original
 }
 async function reopen(page: Page, sceneId: string) {
+  return measure(page, 'cold reopen', () => reopenUnchecked(page, sceneId))
+}
+async function reopenUnchecked(page: Page, sceneId: string) {
   await page.reload(); await expect(page.locator('.asset-save')).toHaveText('尚未打开工程')
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
   await page.locator(`[data-project-key="native:${sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click()
@@ -149,6 +178,9 @@ async function adopt(page: Page, kind: 'prop' | 'wall' | 'connection' | 'visualB
   await expect(review(page)).toHaveCount(0); await saved(page)
 }
 async function png(page: Page, audience: 'player' | 'gm', path: string, bounds: BoundsMm, crop?: BoundsMm) {
+  return measure(page, `PNG ${basename(path)}`, () => pngUnchecked(page, audience, path, bounds, crop), value => value)
+}
+async function pngUnchecked(page: Page, audience: 'player' | 'gm', path: string, bounds: BoundsMm, crop?: BoundsMm) {
   const download = page.waitForEvent('download', { timeout: 120_000 })
   await (await mapExportButton(page, audience)).click()
   const result = await download
@@ -168,7 +200,7 @@ async function png(page: Page, audience: 'player' | 'gm', path: string, bounds: 
     if (name === 'IEND') break
   }
   expect(offset).toBe(bytes.length)
-  const pixels = await page.evaluate(async ({ base64, bounds, crop }) => {
+  const pixels = await measure(page, `decode/hash/crop ${basename(path)}`, () => page.evaluate(async ({ base64, bounds, crop }) => {
     const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], { type: 'image/png' }))
     const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
     const context = canvas.getContext('2d', { willReadFrequently: true })!; context.drawImage(bitmap, 0, 0); bitmap.close()
@@ -186,7 +218,7 @@ async function png(page: Page, audience: 'player' | 'gm', path: string, bounds: 
       closeup = { width: out.width, height: out.height, base64: out.toDataURL('image/png').split(',')[1], sourceRectPx }
     }
     return { width: canvas.width, height: canvas.height, rgbaSha256: hash, closeup }
-  }, { base64: bytes.toString('base64'), bounds, crop })
+  }, { base64: bytes.toString('base64'), bounds, crop }))
   const long = Math.max(bounds.width, bounds.height)
   expect(pixels.width).toBe(Math.round(4096 * bounds.width / long)); expect(pixels.height).toBe(Math.round(4096 * bounds.height / long))
   const { closeup, ...facts } = pixels
@@ -198,18 +230,35 @@ async function png(page: Page, audience: 'player' | 'gm', path: string, bounds: 
   return { ...facts, chunks, byteSha256: digest(bytes), ...(closeup ? { sourceRectPx: closeup.sourceRectPx, cropBoundsMm: crop, cropPixelsPerMetre: 256 } : {}) }
 }
 
-async function isolated(browser: Browser, sourcePage: Page, errors: string[], run: (page: Page) => Promise<void>) {
-  const context: BrowserContext = await browser.newContext({ viewport: { width: 1512, height: 982 }, baseURL: new URL('./', sourcePage.url()).href })
+async function isolated(browser: Browser, sourcePage: Page, errors: string[], phase: string, run: (page: Page) => Promise<void>) {
+  const progress = progressByPage.get(sourcePage)
+  progress?.begin(phase)
+  const context: BrowserContext = await measure(sourcePage, 'create isolated context', () => browser.newContext({ viewport: { width: 1512, height: 982 }, baseURL: new URL('./', sourcePage.url()).href }))
+  let failed = false
   try {
-    const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message))
+    const page = await measure(sourcePage, 'create isolated page', () => context.newPage()); page.on('pageerror', error => errors.push(error.message))
+    if (progress) progressByPage.set(page, progress)
     await run(page)
-  } finally { await context.close() }
+  } catch (error) { failed = true; progress?.failed(error); throw error }
+  finally {
+    try {
+      if (progress) await progress.cleanup('close isolated context', () => context.close())
+      else await context.close()
+    } catch (error) { if (!failed) throw error }
+  }
 }
 
 for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 production visual, edit, privacy, cold read and native crops`, async ({ page, browser }, info: TestInfo) => {
+  const progress = new FormalVisualProgress(info.outputPath('formal-visual-progress.json'), {
+    case: fixture.name, kind: fixture.kind, engine: info.project.name, browserVersion: browser.version(),
+    testId: info.testId, retry: info.retry, timeoutMs: info.timeout,
+    frozenInputs: { variants: fixture.variants, views: fixture.views.map(({ name, file, sha256 }) => ({ name, file, sha256 })) },
+  })
+  progressByTest.set(info.testId, progress); progressByPage.set(page, progress)
   const errors: string[] = [], developmentRequests: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => { if (/\/(?:@vite|src|tools\/testing)\//.test(new URL(request.url()).pathname)) developmentRequests.push(request.url()) })
+  progress.begin('effect baseline and dual audience PNGs')
   const original = await load(page, fixture.variants.effect)
   const baselinePath = info.outputPath('effect-baseline.sceneweave')
   const baseline = await backup(page, baselinePath)
@@ -219,13 +268,17 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   const gm = await png(page, 'gm', info.outputPath('effect-gm-4k.png'), baseline.document.exportBoundsMm)
   const player = await png(page, 'player', info.outputPath('effect-player-4k.png'), baseline.document.exportBoundsMm)
   await page.screenshot({ path: info.outputPath('effect-workbench.png') })
+  progress.complete({ packageSha256: baseline.packageSha256, hashes: baseline.hashes, revision: baseline.document.revision, gm, player })
+  progress.begin('baseline cold read')
   await reopen(page, baseline.document.sceneId)
   const cold = await backup(page, info.outputPath('effect-cold.sceneweave'))
   expect(cold.hashes).toEqual(baseline.hashes)
   const coldGm = await png(page, 'gm', info.outputPath('effect-cold-gm-4k.png'), cold.document.exportBoundsMm)
   expect(coldGm).toEqual(gm)
+  progress.complete({ packageSha256: cold.packageSha256, allEntryHashesEqual: true, gm: coldGm })
 
   // Real user Prop edit, a single transaction, then undo/redo and complete archives.
+  progress.begin('Prop edit undo redo')
   await select(page, fixture.controls.editablePropId, '物件')
   const prop = baseline.document.props[fixture.controls.editablePropId]
   expect(Object.values(baseline.document.aggregateCoordinates?.groups ?? {}).some(group => group.members.some(member => member.id === prop.id))).toBe(false)
@@ -249,8 +302,10 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   expect(physics(propRedo.document)).toEqual(physics(propEdited.document)); expect(propRedo.document.revision).toBe(propEdited.document.revision + 2)
   await png(page, 'gm', info.outputPath('prop-edited-gm-4k.png'), propRedo.document.exportBoundsMm)
   await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await saved(page)
+  progress.complete({ editedPackageSha256: propEdited.packageSha256, undoPackageSha256: propUndo.packageSha256, redoPackageSha256: propRedo.packageSha256 })
 
   // A real structural/connection geometry change is distinct from the Prop edit.
+  progress.begin('structure edit undo redo and cold read')
   const structureBefore = await backup(page, info.outputPath('structure-before.sceneweave'))
   const structure = fixture.controls.structure
   if (structure.kind === 'visualBoundary') {
@@ -295,9 +350,11 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   expect(structureCold.hashes).toEqual(structureRedo.hashes)
   expect(await png(page, 'gm', info.outputPath('structure-cold-gm-4k.png'), structureCold.document.exportBoundsMm)).toEqual(structureGm)
   expect(await png(page, 'player', info.outputPath('structure-cold-player-4k.png'), structureCold.document.exportBoundsMm)).toEqual(structurePlayer)
+  progress.complete({ structure: { kind: structure.kind, id: structure.id, beforeMm: structure.beforeMm, afterMm: structure.afterMm },
+    gm: structureGm, player: structurePlayer, coldPackageSha256: structureCold.packageSha256, allEntryHashesEqual: true })
 
   const variantFacts: Record<string, unknown> = {}
-  for (const variant of ['neutral', 'privatePair'] as const) await isolated(browser, page, errors, async variantPage => {
+  for (const variant of ['neutral', 'privatePair'] as const) await isolated(browser, page, errors, `${variant} comparison`, async variantPage => {
     const input = await load(variantPage, fixture.variants[variant])
     const current = await backup(variantPage, info.outputPath(`${variant}.sceneweave`))
     expect(withoutRoot(current.document)).toEqual(withoutRoot(input.document)); expect(stableFiles(current)).toEqual(stableFiles(input))
@@ -317,10 +374,11 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     }
     await variantPage.screenshot({ path: info.outputPath(`${variant}-workbench.png`) })
     variantFacts[variant] = { gm: variantGm, player: variantPlayer, packageSha256: current.packageSha256 }
+    progress.complete(variantFacts[variant])
   })
 
   // Actual complete output imported into a genuinely empty IndexedDB context, then cold read.
-  await isolated(browser, page, errors, async freshPage => {
+  await isolated(browser, page, errors, 'empty storage import and cold read', async freshPage => {
     const actualInput = { file: baselinePath, sha256: digest(new Uint8Array(await readFile(baselinePath))) }
     await load(freshPage, actualInput)
     const fresh = await backup(freshPage, info.outputPath('fresh-import.sceneweave'))
@@ -330,11 +388,12 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     expect(freshCold.hashes).toEqual(fresh.hashes)
     expect(await png(freshPage, 'gm', info.outputPath('fresh-cold-gm-4k.png'), freshCold.document.exportBoundsMm)).toEqual(gm)
     expect(await png(freshPage, 'player', info.outputPath('fresh-cold-player-4k.png'), freshCold.document.exportBoundsMm)).toEqual(player)
+    progress.complete({ importedPackageSha256: fresh.packageSha256, coldPackageSha256: freshCold.packageSha256, allEntryHashesEqual: true, dualAudiencePngsEqual: true })
   })
 
   let artOriginal: Archive | undefined
   let artFacts: Record<string, unknown> = {}
-  await isolated(browser, page, errors, async artPage => {
+  await isolated(browser, page, errors, 'ordinary art and cold read', async artPage => {
     const input = await load(artPage, fixture.variants.art)
     const consumption = fixture.kind === 'current-island' ? currentVisualConsumption(input) : undefined
     artOriginal = input
@@ -355,8 +414,9 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     artFacts = { ...(consumption ? { currentVisualConsumption: consumption } : {}), inputSha256: fixture.variants.art.sha256, packageSha256: current.packageSha256, hashes: current.hashes,
       gm: artGm, player: artPlayer, coldRead: 'Complete archive and both actual audience PNGs unchanged',
       scope: 'Ordinary original benchmark. Privacy QA mask and sentinel are absent; human art review remains required.' }
+    progress.complete(artFacts)
   })
-  await isolated(browser, page, errors, async artNeutralPage => {
+  await isolated(browser, page, errors, 'ordinary art neutral comparison', async artNeutralPage => {
     const input = await load(artNeutralPage, fixture.variants.artNeutral)
     const current = await backup(artNeutralPage, info.outputPath('art-neutral.sceneweave'))
     expect(withoutRoot(current.document)).toEqual(withoutRoot(input.document)); expect(stableFiles(current)).toEqual(stableFiles(input))
@@ -369,10 +429,11 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     await artNeutralPage.screenshot({ path: info.outputPath('art-neutral-workbench.png') })
     artFacts.neutral = { inputSha256: fixture.variants.artNeutral.sha256, packageSha256: current.packageSha256, gm, player,
       scope: 'Ordinary art neutral comparison: lights/fog/filters disabled, ambientOpacity=0 and exposure=1; contact shadows and physical fields preserved. Pixel difference is not required when the art source has no active effects.' }
+    progress.complete(artFacts.neutral)
   })
   expect(fixture.views).toHaveLength(4)
   const views: unknown[] = []
-  for (const view of fixture.views) await isolated(browser, page, errors, async viewPage => {
+  for (const view of fixture.views) await isolated(browser, page, errors, `native crop ${view.name}`, async viewPage => {
     const input = await load(viewPage, view)
     expect(view.targetIds.length).toBeGreaterThan(0)
     expect(view.framingBasis.length).toBeGreaterThan(0)
@@ -387,7 +448,9 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     expect(result.sourceRectPx).toEqual(view.pixelAlignment.sourceRectPx)
     views.push({ name: view.name, inputSha256: view.sha256, boundsMm: view.boundsMm, cropBoundsMm: view.cropBoundsMm,
       targetIds: view.targetIds, framingBasis: view.framingBasis, pixelAlignment: view.pixelAlignment, method: view.method, provenance: view.provenance, result })
+    progress.complete(views.at(-1))
   })
+  progress.begin('final assertions and full facts publication')
   expect(errors).toEqual([]); expect(developmentRequests).toEqual([])
   const facts = { case: fixture.name, kind: fixture.kind, engine: info.project.name, browserVersion: browser.version(),
     frozenInputs: fixture, actualBaseline: { packageSha256: baseline.packageSha256, hashes: baseline.hashes, revision: baseline.document.revision },
@@ -396,5 +459,7 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
     verdict: 'Automated technical assertions passed; art review and user P3 remain separate.',
     excluded: ['Real model generation', 'Six terrain families x five seeds x three region inputs', 'External VTT software import', 'Human six-dimension art approval', 'User P3 signoff'] }
   const factsPath = info.outputPath('formal-visual-facts.json')
-  await writeFile(factsPath, JSON.stringify(facts, null, 2)); await info.attach('formal-visual-facts', { path: factsPath, contentType: 'application/json' })
+  await writeFile(factsPath, JSON.stringify(facts, null, 2)); progress.factsWritten('formal-visual-facts.json')
+  await info.attach('formal-visual-facts', { path: factsPath, contentType: 'application/json' })
+  progress.complete({ artifact: 'formal-visual-facts.json', errors, developmentRequests })
 })

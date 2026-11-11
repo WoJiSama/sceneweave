@@ -4,6 +4,18 @@
 
 - [当前完整v1正式视觉验收与成图缺口](#current-formal-visual-20261106)
 - [固定SVG处理链与当前岩岛能力复验](#root-remediation-20261106)
+- [视觉长链分段诊断与失败进度保全](#visual-progress-tooling-20261110)
+
+<a id="visual-progress-tooling-20261110"></a>
+## 视觉长链分段诊断与失败进度保全（2026-11-10）
+
+本项按用户选择实施，状态归[07](../07-roadmap.md#validation-tool-remediation)，性能运行器的独立整改归[工作区台账](workspace-content-validation.md#validation-tool-remediation-20261110)。此前Firefox室内在最后近景阶段耗尽900秒，后续中断/未运行与原冻结保持；新增工具没有重跑旧样本，也不能推断慢段已经修复。
+
+`formal-visual.spec.ts`在每条用例独立输出路径接入`formal-visual-progress.json`：记录阶段开始/结束、导入/备份/PNG/冷重开及隔离context创建/关闭等操作耗时，以及已经完成断言的实际包/像素hash与事实。每个检查点通过同目录临时文件原子替换；初建拒绝覆盖已有证据。Playwright收尾按真实passed/failed/timedOut/interrupted状态记录当前阶段、在途操作和首个失败，并附入报告；首败不被后续context关闭或诊断写入错误替换。收尾后迟到的异步完成/拒绝不能覆盖既有状态；记录器已结束或写入失败也仍实际执行context清理。
+
+进度文件始终是诊断产物。完整`formal-visual-facts.json`仍只在全部原断言完成后发布，900秒单项上限、零重试、原秘密/资源/冷读/近景断言均保持；阶段耗时包含记录器和自动化开销，不作为正式性能分布。进程被直接终止时只能保留上一个有效检查点，不能保证afterEach写出终态。
+
+本轮工具级10项通过，覆盖成功/失败/超时、迟到写入、证据覆盖保护、写失败下仍执行清理和真实首败优先。定向严格类型检查退出0，Playwright `--list`发现15条；首次缺少必要环境变量被配置拒绝，补齐后发现通过。另以TypeScript语法树核对原106处expect断言及顺序、完整facts对象内容均未变，900秒与零重试保持；与建筑工具7项合并同轮17项通过。不启动浏览器或正常生产构建；具体结果保存在`work/parallel-runner-repair-20261110/`。真实Firefox各阶段耗时、完整15条长链、视觉/P3和跨引擎验收仍待独立冻结复验，不替代旧失败结论。
 
 <a id="root-remediation-20261106"></a>
 ## 2026-11-06：固定SVG处理链与当前岩岛能力复验

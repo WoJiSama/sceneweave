@@ -135,7 +135,7 @@ node tools/performance/summarize-current-formal.mjs "$formal_performance_dir" > 
 
 独立即刻编辑的500完整Prop 100ms门使用真实trusted Enter→校验完成的领域事务全链，要求三轮每轮至少30次、合并至少90次，逐轮及合并p95均不超过100ms；保存、实际重绘及显示代理另列。组内采用click→领域事务子指标、Enter→预览及两阶段总区间独立报告，不替代即刻门；自由拖动和其余QA-PERF操作仍需各自验收。帧p95只覆盖真实连续输入窗；每轮与合并nearest-rank、CPU断续、资源采样/缺样及失败原样保留。组超限拒绝不降载；少量内容块不代表全链加速，逻辑块/行字节不代表物理磁盘写入。运行器自动写`summary.json`，重算汇总不启动浏览器。当前RSS采样仅支持macOS，系统Chrome须预先安装。
 
-组操作已完成或明确拒绝后，运行器通过普通取消入口退出残留建筑/室外表单草稿，核对取消前后revision、选择和完整包条目保持，再进入画布选择。该退出及包审计位于setup/tooling阶段，不写入产品测量样本；未知操作失败不自动取消。
+组操作已完成或明确拒绝后，运行器通过普通取消入口退出残留建筑/室外表单草稿，核对取消前后revision、选择和完整包条目保持，再进入画布选择。该退出及包审计位于setup/tooling阶段，不写入产品测量样本；未知操作失败不自动取消。无浏览器的工具回归入口为`node --test tools/performance/aggregate-draft-cleanup.test.mjs tools/testing/formal-visual-progress.test.mjs`，不替代真实建筑500smoke或视觉长链。
 
 性能结束后，先安装三个引擎，再在终端A启动同一正常生产包：
 
@@ -151,7 +151,7 @@ formal_visual_dir=$(mktemp -d "${TMPDIR:-/tmp/}sceneweave-current-visual.XXXXXX"
 SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5174/sceneweave/ SCENEWEAVE_FORMAL_VISUAL_FIXTURES="$formal_prepared_dir" SCENEWEAVE_FORMAL_VISUAL_OUTPUT="$formal_visual_dir" npx playwright test --config=tests/formal-visual.config.ts --workers=1
 ```
 
-`formal-visual.config.ts`没有自动webServer，固定Chromium/Firefox/WebKit单worker、零重试，JSON结果在`results.json`，下载与trace在`results/`；默认Chromium为Playwright引擎，可通过`SCENEWEAVE_CHROME_CHANNEL=chrome`改用系统Chrome，旧`SCENEWEAVE_BROWSER_CHANNEL`不影响该专用配置。`formal-visual.spec.ts`核对室内/岩岛/海岸/混合/current-island五类的效果、中性、秘密配对及每类四份派生取景工程，以正常生产UI、真实完整包和双受众4K建立技术证据；同引擎比较实际秘密像素，跨引擎不强制相同抗锯齿。自动技术结果不关闭14第8节全操作矩阵、人工观感或用户P3；完整历史/故障、自由物件拖动、原SCN场景和1万/10万负载仍按09分别验收。
+`formal-visual.config.ts`没有自动webServer，固定Chromium/Firefox/WebKit单worker、零重试，JSON结果在`results.json`，下载与trace在`results/`；默认Chromium为Playwright引擎，可通过`SCENEWEAVE_CHROME_CHANNEL=chrome`改用系统Chrome，旧`SCENEWEAVE_BROWSER_CHANNEL`不影响该专用配置。`formal-visual.spec.ts`核对室内/岩岛/海岸/混合/current-island五类的效果、中性、秘密配对及每类四份派生取景工程，以正常生产UI、真实完整包和双受众4K建立技术证据；同引擎比较实际秘密像素，跨引擎不强制相同抗锯齿。每条用例另写`results/<test-id>/formal-visual-progress.json`并附在Playwright结果：阶段和操作耗时、已完成事实、当前失败/超时及首败。该文件仅作失败诊断；只有全部原断言完成后生成的`formal-visual-facts.json`才是完整技术事实，阶段完成不表示视觉/P3/正式性能通过。自动技术结果不关闭14第8节全操作矩阵、人工观感或用户P3；完整历史/故障、自由物件拖动、原SCN场景和1万/10万负载仍按09分别验收。
 
 上方j的`run-aggregate.mjs`保持开发观察定位；`run-native-m2.mjs`、旧`visual-v2-fixtures`及下方旧专项只保留各自历史冻结/格式范围，未适配当前schema/身份/存储/UI前不充当当前完整v1正式入口。
 
