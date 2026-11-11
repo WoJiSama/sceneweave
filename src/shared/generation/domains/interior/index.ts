@@ -54,16 +54,17 @@ export function normalizeSupportedInteriorInput(raw: unknown): SupportedInterior
   let input: SupportedInteriorGenerationInput
   try { input = supportedInteriorGenerationInputSchema.parse(captureJson(raw)) } catch (error) { throw new InteriorGenerationError('invalid-input', `地形建筑输入无效：${error instanceof Error ? error.message : String(error)}`) }
   const { supportRef, ...parameters } = input.parameters
-  const normalized = normalizeInteriorInput({ version: 1, algorithmVersion: 2, seed: input.seed, parameters })
-  return freezeJson({ version: 1, algorithmVersion: 1, seed: normalized.seed, parameters: { ...cloneJson(normalized.parameters), supportRef } })
+  const normalized = normalizeInteriorInput({ version: 1, algorithmVersion: input.algorithmVersion === 1 ? 2 : 3, seed: input.seed, parameters })
+  return freezeJson({ version: 1, algorithmVersion: input.algorithmVersion, seed: normalized.seed, parameters: { ...cloneJson(normalized.parameters), supportRef } })
 }
 
 type InteriorInput = InteriorGenerationInput | SupportedInteriorGenerationInput
+const isSupported = (input: InteriorInput): input is SupportedInteriorGenerationInput => 'supportRef' in input.parameters
 type InteriorOptions = { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: { readonly aborted: boolean } }
 function layoutInput(input: InteriorInput): InteriorGenerationInput {
-  if (input.algorithmVersion === 2) return input
+  if (!isSupported(input)) return input
   const { supportRef: _supportRef, ...parameters } = input.parameters
-  return { version: 1, algorithmVersion: 2, seed: input.seed, parameters }
+  return { version: 1, algorithmVersion: input.algorithmVersion === 1 ? 2 : 3, seed: input.seed, parameters }
 }
 
 function assertBase(document: SceneDocument, input: InteriorInput): void {
@@ -71,7 +72,7 @@ function assertBase(document: SceneDocument, input: InteriorInput): void {
   if (!checked.ok) throw new InteriorGenerationError('invalid-input', '室内生成基底必须为严格合法的完整场景。')
   const p = input.parameters, floor = document.floors[p.floorId], layer = document.userLayers[p.layerId]
   if (document.mapMode !== 'scene' || Object.keys(document.floors).length !== 1 || !floor || !layer || layer.floorId !== floor.id || layer.editLocked) throw new InteriorGenerationError('unsupported', '当前室内布局只支持单Floor，并须选择同Floor未锁定的图层。')
-  if (input.algorithmVersion === 2) {
+  if (!isSupported(input)) {
     if ([...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS].some(key => Object.keys(document[key]).length)
       || Object.keys(document.vertices).length || Object.keys(getLegacyGeneration(document)!.recipes).length) throw new InteriorGenerationError('unsupported', '室内布局须使用独立空白工程；已有编辑工程的结构重生成将在后续明确范围内提供。')
   } else {
@@ -100,9 +101,10 @@ function persistGeneration(document: SceneDocument, input: InteriorInput, layout
   const p = input.parameters, gen = getLegacyGeneration(document)!, id = (key: string) => interiorEntityId(document.sceneId, input.seed, key)
   const recipeId = id('recipe'), ruleId = id('layout-rule')
   const bindings = { materials: Object.entries(p.materials).flatMap(([role, ref]) => ref ? [{ role: role as 'floor' | 'wall', ref: cloneJson(ref) }] : []), props: cloneJson(p.arrangement.palette), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
-  const recipe: GenerationRecipe = input.algorithmVersion === 2
-    ? { id: recipeId, domain: 'interior', recipeVersion: 2, algorithmId: 'interior-layout', algorithmVersion: 2, mapMode: 'scene', seed: input.seed, parameters: cloneJson(input.parameters), ...bindings }
-    : { id: recipeId, domain: 'interior', recipeVersion: 1, algorithmId: 'supported-interior', algorithmVersion: 1, mapMode: 'scene', seed: input.seed, parameters: cloneJson(input.parameters), ...bindings }
+  const common = { id: recipeId, domain: 'interior' as const, mapMode: 'scene' as const, seed: input.seed, ...bindings }
+  const recipe: GenerationRecipe = isSupported(input)
+    ? { ...common, ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : { recipeVersion: 2 as const, algorithmVersion: 2 as const }), algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) }
+    : { ...common, ...(input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : { recipeVersion: 3 as const, algorithmVersion: 3 as const }), algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) }
   gen.recipes[recipeId] = recipe
   const roomKeys = new Map([...layout.rooms.map(row => [row.roomId, `room:${row.requirementId}`] as const), ...layout.corridors.map(row => [row.roomId, 'corridor'] as const)])
   const fields: GenerationFieldGroup[] = ['geometry', 'properties', 'surface', 'source']
@@ -114,7 +116,7 @@ function persistGeneration(document: SceneDocument, input: InteriorInput, layout
   }
   const owners = Object.values(gen.ownership).filter(row => row.ruleId === ruleId)
   const rule: GenerationRule = { id: ruleId, floorId: p.floorId, layerId: p.layerId, visibility: 'public', editLocked: false, kind: 'building', recipeRef: { id: recipeId, version: recipe.recipeVersion },
-    inputs: input.algorithmVersion === 2 ? [] : (['geometry', 'properties', 'surface'] as const).map(fieldGroup => ({ kind: 'terrainArea', entityId: input.parameters.supportRef.id, parentId: null, fieldGroup })),
+    inputs: !isSupported(input) ? [] : (['geometry', 'properties', 'surface'] as const).map(fieldGroup => ({ kind: 'terrainArea', entityId: input.parameters.supportRef.id, parentId: null, fieldGroup })),
     outputs: owners.flatMap(row => fields.map(fieldGroup => ({ ...row.target, fieldGroup }))), parameters: { widthMm: p.boundsMm.width, minWidthMm: 0, maxWidthMm: p.boundsMm.width, roughness: 0, densityFactor: 0 }, state: 'active', inputHash: '0'.repeat(64), managedOutputHash: '0'.repeat(64) }
   gen.rules[ruleId] = rule
   rule.inputHash = generationInputHash(document, rule); rule.managedOutputHash = managedOutputHash(document, rule)
@@ -157,8 +159,8 @@ export function runSupportedInteriorGeneration(base: SceneDocument, raw: unknown
 function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, input: Input, options: InteriorOptions): { input: Input; layout: InteriorLayout; candidate: GenerationCandidate; report: InteriorArrangementReport; resultHash: string } {
   const profile = parseTaskBudgetProfile(options.profile), document = captureJson(base), interior = layoutInput(input)
   assertBase(document, input)
-  const p = input.parameters, registry = new GenerationRegistry(), supported = input.algorithmVersion === 1
-  const structureId = supported ? 'supported-interior' : 'interior-layout', connectionsId = supported ? 'supported-interior-connections' : 'interior-connections', furnishingId = supported ? 'supported-interior-furnishing' : 'interior-furnishing', version = supported ? 1 : 2
+  const p = input.parameters, registry = new GenerationRegistry(), supported = isSupported(input)
+  const structureId = supported ? 'supported-interior' : 'interior-layout', connectionsId = supported ? 'supported-interior-connections' : 'interior-connections', furnishingId = supported ? 'supported-interior-furnishing' : 'interior-furnishing', version = input.algorithmVersion
   const parseParameters = (parameters: Record<string, JsonValue>) => captureJson(supported ? normalizeSupportedInteriorInput(parameters) : normalizeInteriorInput(parameters)) as unknown as Record<string, JsonValue>
   const persist = (next: SceneDocument) => { if (!layout) throw new InteriorGenerationError('invalid-input', '建筑尚未生成真实布局。'); persistGeneration(next, input, layout, supported ? document : undefined) }
   if (supported && getLegacyGeneration(document)!.recipes[interiorEntityId(document.sceneId, input.seed, 'recipe')]) throw new InteriorGenerationError('contradiction', '建筑种子对应的生成身份已存在；请为新建筑选择独立种子。')
@@ -173,7 +175,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
     materialize({ document: before, context }) {
       if (!layout) throw new InteriorGenerationError('invalid-input', '室内布局阶段没有结果。')
       let sequence = 0
-      const commands: SceneCommand[] = [...layout.rooms.map(row => ({ ...row, purpose: p.rooms.find(r => r.id === row.requirementId)!.purpose })), ...layout.corridors.map(row => ({ ...row, purpose: '通道' }))].map(row => ({ type: 'createRoom', id: row.roomId, floorId: p.floorId, layerId: p.layerId, boundaryMm: rectanglePoints(row.boundsMm), thicknessMm: p.wallThicknessMm, purpose: row.purpose, visibility: 'public', accessExpectation: 'unspecified', supportRef: input.algorithmVersion === 1 ? input.parameters.supportRef : { kind: 'floor', id: p.floorId }, ...(p.materials.floor ? { materialRef: p.materials.floor } : {}) }))
+      const commands: SceneCommand[] = [...layout.rooms.map(row => ({ ...row, purpose: p.rooms.find(r => r.id === row.requirementId)!.purpose })), ...layout.corridors.map(row => ({ ...row, purpose: '通道' }))].map(row => ({ type: 'createRoom', id: row.roomId, floorId: p.floorId, layerId: p.layerId, boundaryMm: rectanglePoints(row.boundsMm), thicknessMm: p.wallThicknessMm, purpose: row.purpose, visibility: 'public', accessExpectation: 'unspecified', supportRef: isSupported(input) ? input.parameters.supportRef : { kind: 'floor', id: p.floorId }, ...(p.materials.floor ? { materialRef: p.materials.floor } : {}) }))
       context.checkCancelled()
       const next = applyCommands(cloneJson(before) as SceneDocument, commands, { ids: { nextId: () => interiorEntityId(document.sceneId, input.seed, `native:${sequence++}`) }, clock: { now: () => document.updatedAt } }, { budget: profile })
       if (p.materials.wall) for (const wall of Object.values(next.walls)) {
@@ -211,7 +213,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
       return result.document
     },
   })
-  const supportRef = input.algorithmVersion === 1 ? input.parameters.supportRef : { kind: 'floor', id: p.floorId }
+  const supportRef = isSupported(input) ? input.parameters.supportRef : { kind: 'floor', id: p.floorId }
   const sourceFact = createSpaceContext(document).artifacts.find(fact => fact.kind === 'support-surface' && fact.payload.sourceRef.kind === supportRef.kind && fact.payload.sourceRef.id === supportRef.id)!
   const parameters = captureJson(input) as unknown as Record<string, JsonValue>
   const recipe = registry.registerRecipe({ id: structureId, version, steps: [

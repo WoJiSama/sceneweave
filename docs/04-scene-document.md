@@ -22,7 +22,9 @@
 
 D1的请求/步骤依赖、13类临时空间产物、只读候选快照及阶段hash回执仅存在于会话，不加入工程、历史或导出字段。算子物化到私有完整SceneDocument，后续阶段读取实际墙门、支撑和占地；主工程身份/revision/Floor不变。`prepared`不是可采用凭据，仍须沿完整ProjectData的身份、资源/许可/像素、范围/锁、预算、保护/CAS及一次撤销路径准备与采用。具体接口及旧自然协议桥见[生成设计](reference/general-map-generation.md#d1-stage-contract)。
 
-当前D2/D3室内沿现有`generation.legacy`严格联合保存`domain:interior / algorithmId:interior-layout / algorithmVersion:2 / recipeVersion:2`，包含规范化完整房间/关系需求、范围/墙厚/走廊、固定floor/wall材质及初次布置`arrangement`。后者精确保存门/入口/家具开关、建议门宽/通路净宽与显式角色→固定定义palette；配方props必须与该palette逐项一致。不增加工程版本或开发工程兼容分支。既有自然配方分支的结构和字段不变。building规则使用现有rules/ownership，引用可含room/wall/vertex/opening；结构→连接→内容三个阶段依次产room/wall/vertex、真实opening、真实prop，每阶段只补本阶段归属并重算完整规则hash。稳定需求ID是配方局部键，不占用场景实体ID；实际房间/墙/顶点/门/家具有独立稳定输出键及受管理geometry/properties/surface/source组。
+当前D2/D3室内沿现有`generation.legacy`严格联合保存`domain:interior / algorithmId:interior-layout`，旧算法/配方为`2/2`，新建默认`3/3`，两者必须严格配对，包含规范化完整房间/关系需求、范围/墙厚/走廊、固定floor/wall材质及初次布置`arrangement`。后者精确保存门/入口/家具开关、建议门宽/通路净宽与显式角色→固定定义palette；配方props必须与该palette逐项一致。不增加工程版本或开发工程兼容分支。既有自然配方分支的结构和字段不变。building规则使用现有rules/ownership，引用可含room/wall/vertex/opening；结构→连接→内容三个阶段依次产room/wall/vertex、真实opening、真实prop，每阶段只补本阶段归属并重算完整规则hash。稳定需求ID是配方局部键，不占用场景实体ID；实际房间/墙/顶点/门/家具有独立稳定输出键及受管理geometry/properties/surface/source组。
+
+新建语义确定性按布局几何而非完整工程hash定义：相同规范参数、seed、固定素材与注册预算，在不同新工程身份下，室内算法3及地形建筑算法2以语义需求/实际墙几何和seed选择房间连接、外门及家具位置，身份分配仍独立。混合算法2选择地形建筑算法2，并沿既有森林/火山算法1执行；后续树木仍避让实际家具与路径。旧算法不得因新默认改写输入、版本、实体或重放hash；完整文档与资源继续保存，不能靠固定sceneId、删业务字段或只保存seed制造等价。当前工程后续人工编辑与局部家具操作不自动重建整图，局部操作按原配方选择新/旧排序策略。
 
 生成建筑的真实出生与拓扑记录复用当前`historyIdentity.generationTokens`，kind增加generatedRoom/generatedWall/generatedVertex/generatedOpening，只为building归属目标建立，不给普通手工建筑补造生成身份。出生/墓碑仍计入同一65536总上限，不增工程或身份版本、不另开身份池。手工用途、顶点坐标、共享墙及真实端点几何变化进入脱管判断；删除保留墓碑，每条原生命令后的拓扑推进及撤销/重做不回退旧拓扑令牌。稳定输出键和临时回执都不替代身份凭据。家具继续使用现有propTokens，门使用generatedOpening，归属记录仍在同一building规则；没有第二套身份池。初次布置仅为建议，不写`Room.accessExpectation=required`、入口必达列表、pathChecks或持久必需家具数；门关闭/删除、家具搬动/删除沿原生命令脱管/墓碑及撤销语义，冷读不补回。D4/D5沿此责任扩展；没有真实凭据时拒绝需要该证明的结构重生成，不扩大现有历史恢复权限。
 
@@ -36,12 +38,12 @@ volcano规则按实际TerrainArea/TerrainEdge/TerrainConnection/Path/Region逐�
 
 D6不增加工程字段或版本。四类局部操作复用已保存配方、现有rules/ownership、SurfaceRule/DecorationCluster与真实身份；只认领本次明确授权且之前仍受管的字段，既有manual/deleted/detached与墓碑不清零。原配方保留首次输入，当前密度、材质及坐标由实际规则/实体保存；新家具、林区成员分配独立出生身份和有限归属，稳定输出键不授权复活旧ID。火口坐标调整保留现有点/段及拓扑；改变拓扑或删除重建后即使撤销回原几何，原生历史推进的新拓扑令牌仍使该几何归属保持人工，不能恢复旧生成控制。相关Region仅在其几何仍受管时随动，不改变人工策略；不支持建筑分合/新删房间等拓扑重写。操作范围和拒绝边界见[设计11.6](reference/general-map-generation.md#d-regeneration)，保存事务见[06](06-storage-and-export.md#local-generation-storage)。
 
-E在同一严格配方联合增加`domain:interior / supported-interior@1 / recipeVersion:1`和`domain:mixed / mixed-layout@1 / recipeVersion:1`。前者沿室内完整参数增加显式terrainArea支撑；后者保存室外模块参数、房间需求和接入路线。`composition`规则只管理组合自身新增的地面及路径，建筑与森林/火山保留各自配方及逐输出归属，不接管前序实体。接入规则读取实际房间、墙厚、门开闭/锁/秘密及支撑的几何/业务字段；新配方/规则严格配对、固定材质/物件与规范输入一致。初次连通仅为生成时检查，后续手改只按原生人工/删除/依赖失效语义保存。建筑/火山局部操作读取真实跨领域支撑、路径与建筑依赖，但不获得结构重写权。工程版本保持完整v1，旧室内算法2及自然算法6重放不改义；细节见[设计11.8](reference/general-map-generation.md#e-mixed-delivery)。
+E在同一严格配方联合保存`domain:interior / supported-interior`与`domain:mixed / mixed-layout`；两者旧算法/配方均为`1/1`，新建默认均为`2/2`，拒绝错配。前者沿室内完整参数增加显式terrainArea支撑；后者保存室外模块参数、房间需求和接入路线。`composition`规则只管理组合自身新增的地面及路径，建筑与森林/火山保留各自配方及逐输出归属，不接管前序实体。接入规则读取实际房间、墙厚、门开闭/锁/秘密及支撑的几何/业务字段；新配方/规则严格配对、固定材质/物件与规范输入一致。初次连通仅为生成时检查，后续手改只按原生人工/删除/依赖失效语义保存。建筑/火山局部操作读取真实跨领域支撑、路径与建筑依赖，但不获得结构重写权。工程版本保持完整v1，旧室内算法2及自然算法6重放不改义；细节见[设计11.8](reference/general-map-generation.md#e-mixed-delivery)。
 
 <a id="domain-generation-protocol"></a>
 ### 领域生成的会话传输边界
 
-D7使用独立`protocolVersion:1`请求，精确包含requestId、workspaceId/checkpoint/epoch、domain、完整候选基底SceneDocument、规范输入、注册profile和requestHash；不传图片字节、当前工程或历史。严格分派支持`interior-layout@2 / forest-layout@1 / volcano-layout@1 / mixed-layout@1`新工程。响应绑定同一请求/上下文，包含完整领域结果、强类型空间产物/阶段回执和报告；逐项验证场景、产物与阶段hash。实际计时单独计量，不进入确定性resultHash。8MiB请求、16MiB结果和600000个JSON值均为保护上限，不是容量承诺。
+D7使用独立`protocolVersion:1`请求，精确包含requestId、workspaceId/checkpoint/epoch、domain、完整候选基底SceneDocument、规范输入、注册profile和requestHash；不传图片字节、当前工程或历史。最新能力声明为`interior-layout@3 / forest-layout@1 / volcano-layout@1 / mixed-layout@2`；明确旧输入仍按`interior-layout@2 / mixed-layout@1`原路径重放。响应绑定同一请求/上下文，包含完整领域结果、强类型空间产物/阶段回执和报告；逐项验证场景、产物与阶段hash。实际计时单独计量，不进入确定性resultHash。8MiB请求、16MiB结果和600000个JSON值均为保护上限，不是容量承诺。
 
 这些信封、临时事实、诊断、端点凭据与执行端选择不增加持久字段。唯一完整v1继续保存实际实体、精确配方/归属、人工状态、身份、外观和资源。摘要只能证明候选自洽；即使远端重算全部摘要，采用仍须本机会话私有凭据、完整重放与资源校验，不能直接另存网络场景。旧自然底图协议与算法6重放原路保留。
 
@@ -154,7 +156,7 @@ c实现采用前一种方式：独立深冻结ProjectData和私有不可变字�
 
 以下相邻升级过程仅为旧数据来源说明，日常入口已退役。当前新建直接创建完整v1，并在visual3.base.base保留严格 `visual:{version:1,boundaries,edgeLooks,lights,fogs,filters,environment}`，其余完整字段不丢失。当前命名空间的完整v1仍可读；从视觉面板启用时先保存原工程，再创建新sceneId/r0、独立完整校验和保存的v2副本，成功后切换。原v1及历史不覆盖。该版本号与旧M1 `sceneweave/schemaVersion:2` 不同。
 
-场景2的房间、注记和用途区在各自合法绘制带内先按用户图层，再按稳定ID排序；字典键的插入顺序不是持久层序。规范JSON重排键后仍产生相同投影和画面。场景1保持原有局部顺序规则。
+场景2的房间、注记和用途区在各自合法绘制带内先按用户图层，再按稳定ID排序；字典键的插入顺序不是持久层序。规范JSON重排键后仍产生相同投影和画面。渲染时，连续同外观且无独立实体/图层滤镜的房间可共享一次裁切，子路径按实际几何固定顺序，避免共边重复抗锯齿覆盖；不同外观或独立滤镜保持投影顺序。这只改变呈现派生，不改领域几何、工程身份或投影层序。场景1保持原有局部顺序规则。
 
 | 对象 | 必需字段（除共同字段外） | 约束 |
 |---|---|---|

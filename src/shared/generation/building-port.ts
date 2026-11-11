@@ -9,14 +9,24 @@ export interface BuildingEntrancePort {
   elevationMm: number; positionMm: PointMm; directionDeg: number
   insideMm: PointMm; outsideMm: PointMm; widthMm: number
 }
+/** Structural geometry has the same finite fields; it grants no current travel
+ * permission and is not a persistent attachment or continuity witness. */
+export type BuildingStructurePort = BuildingEntrancePort
 
-/** Adapt one actual exterior doorway to a finite outdoor port. This is a
- * read-only geometry fact, never a persistent requirement to retain the door. */
-export function resolveBuildingEntrancePort(document: SceneDocument, openingId: string, widthMm: number): BuildingEntrancePort {
+function resolvePort(document: SceneDocument, openingId: string, widthMm: number, current: boolean): BuildingEntrancePort {
   if (!Number.isSafeInteger(widthMm) || widthMm <= 0) throw new Error('建筑入口净宽须为正整数毫米。')
   if (!validateSceneDocument(document).ok) throw new Error('建筑入口须来自合法完整场景。')
+  return resolvePortGeometry(document, openingId, widthMm, current)
+}
+
+function resolvePortGeometry(document: SceneDocument, openingId: string, widthMm: number, current: boolean): BuildingEntrancePort {
+  if (!Number.isSafeInteger(widthMm) || widthMm <= 0) throw new Error('建筑入口净宽须为正整数毫米。')
   const opening = document.openings[openingId], visible = createPublicVisibility(document)
-  if (!opening || opening.kind !== 'door' || opening.state !== 'open' || opening.locked || !visible.opening(openingId)) throw new Error('建筑入口须为真实、公开可见、已打开且未上锁的门。')
+  if (current) {
+    // Keep the original creation gate and its error priority intact. Structural
+    // callers do not create a modified temporary document to pass this gate.
+    if (!opening || opening.kind !== 'door' || opening.state !== 'open' || opening.locked || !visible.opening(openingId)) throw new Error('建筑入口须为真实、公开可见、已打开且未上锁的门。')
+  } else if (!opening || opening.kind !== 'door' || !visible.opening(openingId)) throw new Error('建筑结构端口须为真实、公开可见的门。')
   if (opening.widthMm < widthMm) throw new Error('建筑实际门洞净宽不足。')
   const wall = document.walls[opening.wallId]
   const attached = Object.values(document.rooms).flatMap(room => room.boundaryVertexIds.flatMap((id, index, ring) => {
@@ -49,4 +59,24 @@ export function resolveBuildingEntrancePort(document: SceneDocument, openingId: 
   if (!supportedPolygon(document, band, ref, opening.floorId)) throw new Error('建筑门前完整净宽须由同一真实地形面支撑，不能跨越其他支撑。')
   return { openingId, roomId: room.id, floorId: opening.floorId, supportRef: { kind: 'terrainArea', id: ref.id }, elevationMm: room.groundElevationMm, positionMm,
     directionDeg: (Math.atan2(normal.y, normal.x) * 180 / Math.PI + 360) % 360, insideMm, outsideMm, widthMm }
+}
+
+/** Adapt one actual exterior doorway for current creation. This preserves the
+ * historical open/unlocked gate and returns only a read-only geometry fact. */
+export function resolveBuildingEntrancePort(document: SceneDocument, openingId: string, widthMm: number): BuildingEntrancePort {
+  return resolvePort(document, openingId, widthMm, true)
+}
+
+/** Resolve actual public exterior doorway geometry independently of current
+ * door state/door lock. Closed doors retain their structural aperture; checking
+ * whether a person can currently pass belongs to the current travel planner. */
+export function resolveBuildingStructurePort(document: SceneDocument, openingId: string, widthMm: number): BuildingStructurePort {
+  return resolvePort(document, openingId, widthMm, false)
+}
+
+/** Internal domain geometry calculation only. The owner has already strictly
+ * parsed the complete scene and checked physical geometry. No validation or
+ * snapshot certificate is issued, and this is not a public import/save path. */
+export function resolveBuildingStructurePortGeometry(document: SceneDocument, openingId: string, widthMm: number): BuildingStructurePort {
+  return resolvePortGeometry(document, openingId, widthMm, false)
 }

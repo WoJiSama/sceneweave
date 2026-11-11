@@ -87,7 +87,7 @@ describe('supported-interior@1 composition adapter', () => {
   it('strictly normalizes the new contract and rejects conflicting support or real reserved geometry', () => {
     const input = request(), reordered = cloneJson(input); reordered.parameters.rooms.reverse(); reordered.parameters.arrangement.palette.reverse()
     expect(normalizeSupportedInteriorInput(reordered)).toEqual(normalizeSupportedInteriorInput(input))
-    expect(() => normalizeSupportedInteriorInput({ ...input, algorithmVersion: 2 })).toThrow(/输入无效/)
+    expect(() => normalizeSupportedInteriorInput({ ...input, algorithmVersion: 99 })).toThrow(/输入无效/)
     expect(() => normalizeSupportedInteriorInput({ ...input, parameters: { ...input.parameters, hiddenExtra: true } })).toThrow(/输入无效/)
     const base = terrain(), missing = request(); missing.parameters.supportRef.id = 'missing'
     expect(() => runSupportedInteriorGeneration(base, missing, options)).toThrow(/真实/)
@@ -116,8 +116,9 @@ describe('supported-interior@1 composition adapter', () => {
     expect(validateSceneDocument(second.candidate.document).ok).toBe(true)
   })
 
-  it('reuses D6 furniture on actual elevated support and preserves manual or deleted slots', () => {
-    const input = request(), generated = runSupportedInteriorGeneration(terrain(), input, options), context = runtime()
+  it.each([1, 2] as const)('reuses D6 furniture on elevated support at version %s and preserves manual or deleted slots', version => {
+    const input = request(); input.algorithmVersion = version
+    const generated = runSupportedInteriorGeneration(terrain(), input, options), context = runtime()
     const content = createCompositionContent(cloneJson(generated.candidate.document) as SceneDocument, context), roomId = generated.layout.rooms[0].roomId
     const props = Object.values(content.document.props).filter(prop => prop.roomId === roomId)
     expect(props.length).toBeGreaterThanOrEqual(2)

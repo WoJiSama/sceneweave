@@ -49,7 +49,7 @@ describe('application generation intent preparation', () => {
     input.rooms[0].purpose = 'Changed during load'; input.arrangement.furniture = false
     release()
     const result = await pending
-    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 2, seed: original.seed,
+    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 3, seed: original.seed,
       parameters: { rooms: original.rooms, corridor: original.corridor, arrangement: { ...original.arrangement, palette: env.palette } } } })
     expect(env.content.interior).toHaveBeenCalledWith(expect.objectContaining({ title: original.title, preset: 'narrative', gridVisible: false, seed: original.seed }), expect.any(Object))
     expect(env.selectBudget).toHaveBeenCalledExactlyOnceWith({ widthMm: 12000, heightMm: 8000, quality: 'standard', mode: 'auto' })
@@ -89,7 +89,23 @@ describe('application generation intent preparation', () => {
     expect(p.building.rooms.map(room => [room.id, room.purpose, room.minClearSideMm])).toEqual([['room-1', 'Research', 1200], ['room-2', 'Research', 1200]])
     expect(p.building.arrangement.furniture).toBe(false); expect(p.building.relations).toEqual([])
     expect(p.outdoor).toEqual(defaults.parameters.outdoor)
+    expect(result.input.algorithmVersion).toBe(2)
     expect(env.mixedDefaults).toEqual(defaults)
+  })
+
+  it.each([1, 2, 3] as const)('prepares the explicitly selected mixed version %s without rewriting defaults', async algorithmVersion => {
+    const env = await environment(), defaults = cloneJson(env.mixedDefaults)
+    const result = await prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), algorithmVersion } }, env)
+    expect(result.input.algorithmVersion).toBe(algorithmVersion)
+    expect(env.mixedDefaults).toEqual(defaults)
+  })
+
+  it('rejects an unsupported mixed version before loading content or selecting a budget', async () => {
+    const env = await environment(), prepare = vi.spyOn(env.content, 'mixed')
+    for (const algorithmVersion of [0, 4, '3']) {
+      await expect(prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), algorithmVersion } as MixedGenerationUiRequest }, env)).rejects.toThrow(/算法版本/)
+    }
+    expect(prepare).not.toHaveBeenCalled(); expect(env.selectBudget).not.toHaveBeenCalled()
   })
 
   it('rejects accessors before content work and rejects a late cancelled result before budget selection', async () => {

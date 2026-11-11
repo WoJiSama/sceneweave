@@ -222,6 +222,34 @@ function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: Surface
   ctx.restore()
 }
 
+function drawRoomFloors(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
+  const filtered = new Set(projection.visual?.filters.flatMap(filter => filter.sourceEntityIds ?? []) ?? [])
+  let batch: ProjectedSurface[] = [], key: string | undefined
+  const flush = () => {
+    if (batch.length) {
+      const path = new Path2D()
+      // Even one compound clip can round shared endpoints differently when
+      // its subpaths follow random entity IDs. Equal paints have no visual
+      // order to preserve inside this batch; use their geometry instead.
+      batch.sort((a, b) => JSON.stringify(a.points).localeCompare(JSON.stringify(b.points)))
+      for (const room of batch) addRing(path, room.points)
+      fillSurface(ctx, path, batch[0].style, projection, raster, '#B9AA88')
+    }
+    batch = []; key = undefined
+  }
+  for (const room of projection.rooms) {
+    if (filtered.has(room.id)) {
+      flush()
+      drawVisualEntity(ctx, projection, room.id, expandedBounds(room.points, 0), (target, local) => fillSurface(target, polygonPath(room.points), room.style, local, raster, '#B9AA88'), !!raster.readFrequently)
+      continue
+    }
+    const nextKey = JSON.stringify(room.style)
+    if (key !== nextKey) { flush(); key = nextKey }
+    batch.push(room)
+  }
+  flush()
+}
+
 function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number): void {
   if (!projection.walls.length) return
   const width = ctx.canvas.width, height = ctx.canvas.height, mask = canvas(width, height), color = canvas(width, height), interior = canvas(width, height)
@@ -701,7 +729,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   // audience-owned flag survives temporary hiding of the last editor path.
   const pathsOverRooms = projection.pathPaintOrder !== undefined
   if (!pathsOverRooms) drawConnections(ctx, projection, raster)
-  for (const room of projection.rooms) drawVisualEntity(ctx, projection, room.id, expandedBounds(room.points, 0), (target, local) => fillSurface(target, polygonPath(room.points), room.style, local, raster, '#B9AA88'), !!raster.readFrequently)
+  drawRoomFloors(ctx, projection, raster)
   drawPaths(ctx, projection, raster, sx, sy)
   // A road color never conceals the explicit crossing's stair/ramp marks.
   if (pathsOverRooms) drawConnections(ctx, projection, raster)

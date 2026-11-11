@@ -44,16 +44,22 @@ export const naturalGenerationRecipeSchema = z.object({ id, recipeVersion: posit
   precision: z.object({ sampleSpacingMm: positive, toleranceMm: positive, noiseCellMm: positive }).strict(),
 }).strict()
 /** Independent domain source; old natural records retain their exact shape. */
-export const interiorGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+const interiorGenerationRecipeV2Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('interior'), recipeVersion: z.literal(2), algorithmId: z.literal('interior-layout'), algorithmVersion: z.literal(2), mapMode: z.literal('scene'),
   parameters: interiorLayoutParametersSchema,
   materials: z.array(z.object({ role: z.enum(['floor', 'wall']), ref: versionRef }).strict()).max(2).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
   props: z.array(z.object({ role: interiorFurnitureRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
 }).strict()
-export const supportedInteriorGenerationRecipeSchema = interiorGenerationRecipeSchema.extend({
+// Keep each replay selector paired; independent numeric unions would accept
+// a recipeVersion from one algorithm with an algorithmVersion from another.
+const interiorGenerationRecipeV3Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
+export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema])
+const supportedInteriorGenerationRecipeV1Schema = interiorGenerationRecipeV2Schema.extend({
   recipeVersion: z.literal(1), algorithmId: z.literal('supported-interior'), algorithmVersion: z.literal(1),
   parameters: supportedInteriorParametersSchema,
 }).strict()
+const supportedInteriorGenerationRecipeV2Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
+export const supportedInteriorGenerationRecipeSchema = z.union([supportedInteriorGenerationRecipeV1Schema, supportedInteriorGenerationRecipeV2Schema])
 export const forestGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: forestParametersSchema,
@@ -66,12 +72,15 @@ export const volcanoGenerationRecipeSchema = naturalGenerationRecipeSchema.exten
   materials: z.array(z.object({ role: z.enum(['ground', 'mountain', 'crater', 'platform', 'flow', 'route']), ref: versionRef }).strict()).length(6).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
   props: z.array(z.never()).max(0),
 }).strict()
-export const mixedGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+const mixedGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('mixed'), recipeVersion: z.literal(1), algorithmId: z.literal('mixed-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: mixedParametersSchema,
   materials: z.array(z.object({ role: mixedMaterialRoleSchema, ref: versionRef }).strict()).max(32).refine(unique),
   props: z.array(z.object({ role: mixedPropRoleSchema, ref: versionRef }).strict()).max(128).refine(unique),
 }).strict()
+const mixedGenerationRecipeV2Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
+const mixedGenerationRecipeV3Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
+export const mixedGenerationRecipeSchema = z.union([mixedGenerationRecipeV1Schema, mixedGenerationRecipeV2Schema, mixedGenerationRecipeV3Schema])
 export const generationRecipeSchema = z.union([naturalGenerationRecipeSchema, interiorGenerationRecipeSchema, supportedInteriorGenerationRecipeSchema, forestGenerationRecipeSchema, volcanoGenerationRecipeSchema, mixedGenerationRecipeSchema])
 export type NaturalGenerationRecipe = z.infer<typeof naturalGenerationRecipeSchema>
 export const generationIntentSchema = z.object({ id, floorId: id, visibility, boundsMm: bounds,
