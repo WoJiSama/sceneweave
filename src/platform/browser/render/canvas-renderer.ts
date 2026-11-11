@@ -21,6 +21,7 @@ import { polylineBand, connectionBand } from '../../../shared/geometry/geometry.
 import { connectionArcFrame } from '../../../shared/geometry/connection-route.js'
 import { connectionLandingBlend, connectionLandingDepthMm } from '../../../shared/geometry/connection-landings.js'
 import { naturalRockTreads } from './cliff-relief.js'
+import { drawNaturalRockSteps } from './natural-rock-steps.js'
 import { paintConnectionLandingMask } from './connection-landing-mask.js'
 import { editorResidentAssetIds } from './aggregate-residency.js'
 import { paintWithPreservedAlpha } from './alpha-preservation.js'
@@ -544,6 +545,8 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
       }
       if (route.stairStyle === 'naturalRock') {
         const seed = `${c.id}/${route.centerlineMm.map(p => `${p.x},${p.y}`).join(';')}`
+        if (route.renderProfile === 'naturalRockSteps2') drawNaturalRockSteps(target, { frame, widthMm: c.widthMm, count, seed, bandMm: polygon, palette })
+        else {
         const treads = naturalRockTreads(frame, c.widthMm, seed, count)
         for (let i = 0; i < treads.length; i++) {
           const tread = treads[i], factor = tread.shade
@@ -563,13 +566,16 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
             target.strokeStyle = tint(palette.light, 1.06); target.lineWidth = 10; target.globalAlpha = .3; target.stroke(linePath(centerLeft, centerRight))
           }
         }
+        }
       }
     } else {
       const line = new Path2D(); points.forEach((p, i) => i ? line.lineTo(p.x, p.y) : line.moveTo(p.x, p.y))
       target.strokeStyle = palette.dark; target.lineWidth = 25; target.globalAlpha = .65; target.setLineDash([110, 85]); target.stroke(line); target.setLineDash([])
     }
     target.strokeStyle = palette.dark
-    if (route.stairStyle === 'naturalRock') {
+    if (route.renderProfile === 'naturalRockSteps2') {
+      // This profile already paints finite contacts; keep both landings open.
+    } else if (route.stairStyle === 'naturalRock') {
       // Short contacts follow each real route leg. No closed frame or end-cap
       // line turns the rock steps into a rectangular slab. The same full-width
       // corridor clips these marks and the existing landing mask fades them.

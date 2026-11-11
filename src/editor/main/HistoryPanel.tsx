@@ -399,8 +399,8 @@ function restoreValueLabel(value: unknown, field: string, label: (id: string) =>
 }
 export function RestoreChangesPanel({ preview, current }: { preview: RestorePreview; current: EditableProject }) {
   const publicIds = (scene: SceneDocument) => {
-    const projection = projectScene(scene, 'player')
-    return new Set([...projection.rooms, ...projection.terrain, ...projection.walls, ...projection.props, ...projection.edges, ...projection.paths, ...projection.connections, ...projection.notes, ...projection.regions, ...projection.walls.flatMap(wall => wall.openings)].map(entity => entity.id))
+    const projections = Object.keys(scene.floors).map(floorId => projectScene(scene, 'player', undefined, { floorId }))
+    return new Set(projections.flatMap(projection => [...projection.rooms, ...projection.terrain, ...projection.walls, ...projection.props, ...projection.edges, ...projection.paths, ...projection.connections, ...projection.notes, ...projection.regions, ...projection.walls.flatMap(wall => wall.openings)].map(entity => entity.id)))
   }
   const playerBefore = publicIds(current.document), playerAfter = publicIds(preview.project.document)
   const newlyPublic = [...playerAfter].filter(id => !playerBefore.has(id))

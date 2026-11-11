@@ -1,12 +1,14 @@
 # 文档导航
 
-日常先看[路线图](07-roadmap.md#development)确认任务，再读相关主定义。当前分支的第一优先级与A–E执行序列集中在[同一份路线图](07-roadmap.md#general-map-generation-priority)，总体架构见[通用地图生成器设计](reference/general-map-generation.md)。全部验收从[质量计划](09-quality-plan.md#acceptance)开始。正文负责现行合同，历史台账负责按日期/冻结保留的实现、测试、失败和发布证据；两者不混写。
+日常先看[路线图](07-roadmap.md#development)确认任务，再读相关主定义。2026-11-10确认并已启动的主线是[地图细节、自然衔接与创作工具](07-roadmap.md#map-detail-mainline)，其中包含参考项目研究、依赖、可并行文件分工和跨会话接续提示。既有A–E生成基础与剩余事项仍在[原实施表](07-roadmap.md#general-map-generation-priority)，总体架构见[通用地图生成器设计](reference/general-map-generation.md)。全部验收从[质量计划](09-quality-plan.md#acceptance)开始。正文负责现行合同，历史台账负责按日期/冻结保留的实现、测试、失败和发布证据；两者不混写。
 
 开发期只维护[一套当前完整工程v1](04-scene-document.md#development-single-v1)，保留[独立一次性本机迁入](06-storage-and-export.md#development-single-v1-import)；旧版本表只作迁入和领域能力来源说明，当前归一实现的验证与剩余项见07。B的实际模块/版本映射见[设计第10节](reference/general-map-generation.md#capability-version-map)；D的源码研究、算法选择和领域边界见[第11节](reference/general-map-generation.md#d-domain-design)，实施状态按[07的D1–D7表](07-roadmap.md#d-domain-implementation)维护；E的有限混合与交付合同见[11.8](reference/general-map-generation.md#e-mixed-delivery)。
 
 当前容量主线为[层级组合、局部坐标与分区存储设计](reference/general-map-generation.md#aggregate-spatial-capacity)，实施集中在[07同一大步骤的a–j表](07-roadmap.md#t2-implementation)，数据/存储目标见04/06，完整验收见[09补充矩阵](09-quality-plan.md#aggregate-capacity-acceptance)。运行时合同和完整v1使用方见[04](04-scene-document.md#aggregate-coordinate-contract)及[设计映射](reference/general-map-generation.md#aggregate-consumer-map)；整体编辑、分区加载与新存储状态仍以07为准。
 
 工作台信息架构八项开发整改已实现，整合自检与正式待验分开记录：需求看[01左右分工](01-product.md#workspace-information-architecture-requirements)，完整设计看[交互与架构](reference/editor-and-architecture.md#workspace-information-architecture)，八个实施切片与当前接续看[07](07-roadmap.md#workspace-information-architecture-plan)，新布局正式矩阵看[09](09-quality-plan.md#workspace-information-architecture-acceptance)。前轮UX自检不自动覆盖本次导航和上下文重排。
+
+细节主线已开始实施，导航、道路辅助和简单整面高程的确切支持范围及自检见07：产品范围归[01](01-product.md#map-detail-scope)，交互归[道路与创作顺序](reference/editor-and-architecture.md#detail-workflow-and-road-tools)，地形归[升降与局部台地](reference/terrain-generation.md#terrain-sculpting-tools)，画面目标归[14](14-visual-and-assets.md#map-detail-visual-design)，借鉴来源归[研究](reference/decisions-and-research.md#map-detail-reference-study)，正式检查归[09](09-quality-plan.md#map-detail-acceptance)。状态只回填07；连续高度场仅做独立原型评估，完整3D不在本轮。
 
 保存与预览的后续整改采用[不可变会话快照架构](reference/editor-and-architecture.md#workspace-snapshot-architecture)，信任/领域合同归[04](04-scene-document.md#workspace-snapshot-contract)，编码与最终事务归[06](06-storage-and-export.md#snapshot-persistence-contract)，执行状态归[07](07-roadmap.md#workspace-snapshot-implementation)，验证归[09](09-quality-plan.md#workspace-snapshot-acceptance)。
 
@@ -27,6 +29,7 @@
 
 | 场景 | 参考 |
 |---|---|
+| 接续地图细节、道路吸附、背景/植被、光影及地形小工具 | [主线计划与会话交接](07-roadmap.md#map-detail-mainline)；[外部借鉴](reference/decisions-and-research.md#map-detail-reference-study)；[统一验收](09-quality-plan.md#map-detail-acceptance) |
 | 查用户操作、候选生命周期、模块和平台边界 | [交互与架构](reference/editor-and-architecture.md) |
 | 查通用地图生成器的总体分层、领域接入和迁移边界 | [通用地图生成器设计](reference/general-map-generation.md) |
 | 查页面轻量AI、本地harness、语义接口与工程交接的下一步方向 | [AI入口与地图能力复用](reference/ai-entry-strategy.md)；[开发顺序](07-roadmap.md#ai-entry-development)；[验收范围](09-quality-plan.md#ai-entry-acceptance) |

@@ -300,7 +300,7 @@ const asStructuredMultiPolygon = (polygons: PolygonWithHoles[]): MultiPolygon =>
   ...polygon.holes.map(hole => hole.map(point => [point.x, point.y] as FloatPoint)),
 ])
 
-export function polygonBoolean(raw: unknown, executionMeter?: ExecutionBudget): PolygonBooleanResult {
+function runPolygonBoolean(raw: unknown, executionMeter: ExecutionBudget | undefined, exact: boolean): PolygonBooleanResult {
   // Count actual comparisons, charging bounded blocks to avoid revalidating a
   // registered budget on every edge comparison. A failing operation flushes
   // its already executed work as well.
@@ -314,8 +314,26 @@ export function polygonBoolean(raw: unknown, executionMeter?: ExecutionBudget): 
   if (request.operation === 'union') result = subject.length && clip.length ? polygonClipping.union(subject, clip) : subject.length ? polygonClipping.union(subject) : polygonClipping.union(clip)
   else if (request.operation === 'intersection') result = subject.length && clip.length ? polygonClipping.intersection(subject, clip) : []
   else result = subject.length ? (clip.length ? polygonClipping.difference(subject, clip) : polygonClipping.difference(subject)) : []
+  if (exact) {
+    let points = 0
+    for (const polygon of result) for (const ring of polygon) for (const [x, y] of ring) {
+      if (++points > POLYGON_BOOLEAN_LIMITS.maxOutputPoints + POLYGON_BOOLEAN_LIMITS.maxRings) fail('精确结果顶点数超过预算。')
+      if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) fail('精确裁切产生非整数毫米交点，请调整范围；不能隐式取整。')
+    }
+  }
   return validateOutput(result, meter)
   } finally { flush() }
+}
+
+/** Existing recipes retain their explicit millimetre quantization contract. */
+export function polygonBoolean(raw: unknown, executionMeter?: ExecutionBudget): PolygonBooleanResult {
+  return runPolygonBoolean(raw, executionMeter, false)
+}
+
+/** Persistent overlay fragments must already be integer millimetres before
+ * canonicalization. Numerical results that cannot prove this are rejected. */
+export function polygonBooleanExact(raw: unknown, executionMeter?: ExecutionBudget): PolygonBooleanResult {
+  return runPolygonBoolean(raw, executionMeter, true)
 }
 
 /** Structured counterpart that preserves holes as holes in both operands. */

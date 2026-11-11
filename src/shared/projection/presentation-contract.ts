@@ -109,7 +109,7 @@ export interface ProjectionAssetClosure { readonly complete: boolean; readonly c
 const projectionModules = {
   audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, rooms: true, terrain: true, walls: true, props: true,
   decorations: true, spritePaintOrder: true, propPresentations: true, groundView: true, edges: true, paths: true, connections: true,
-  pathJoinGroups: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
+  pathJoinGroups: true, pathTerrainJoins: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
   theme: true, materials: true, visual: true, assetIds: true, limitations: true, diagnostics: true,
 } satisfies Record<keyof Projection, true>
 const visualModules = {

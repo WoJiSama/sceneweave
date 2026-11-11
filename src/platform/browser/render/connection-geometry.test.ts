@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
-import { boundaryConnections, connectionFrame, connectionSideSegments } from './connection-geometry'
+import { boundaryConnections, connectionFrame, connectionSideSegments, drawConnectionCheeks } from './connection-geometry'
 import { connectionBand } from '../../../shared/geometry/geometry.js'
 import { sampleConnectionRoute } from '../../../shared/geometry/connection-route.js'
 
 const connection = (angle = 0): ProjectedConnection => ({ id: 'stairs', kind: 'stairs', start: { x: -2000 * Math.cos(angle), y: -2000 * Math.sin(angle) }, end: { x: 2000 * Math.cos(angle), y: 2000 * Math.sin(angle) }, widthMm: 1500, fromElevationMm: 800, toElevationMm: 2600, blocksMovement: false, style: null, surfaceIds: ['low', 'high'] })
 describe('connection paint geometry preserves the real footprint', () => {
+  it.each([false, true])('paints routed cliff cheeks without either landing end cap, reversed=%s', reversed => {
+    const points = [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 2000, y: 0 }, { x: 2000, y: 2000 }]
+    const c: ProjectedConnection = { ...connection(), start: points[0], end: points.at(-1)!, widthMm: 100,
+      route: { centerlineMm: points, stairStyle: 'naturalRock', treadDepthMm: 250, renderProfile: 'naturalRockSteps2' } }
+    if (reversed) {
+      c.start = points.at(-1)!; c.end = points[0]
+      ;[c.fromElevationMm, c.toElevationMm] = [c.toElevationMm, c.fromElevationMm]
+      c.route!.centerlineMm = [...points].reverse()
+    }
+    const painted: { x: number; y: number }[][] = []
+    const ctx = { save() {}, restore() {}, beginPath() { painted.push([]) },
+      moveTo(x: number, y: number) { painted.at(-1)!.push({ x, y }) },
+      lineTo(x: number, y: number) { painted.at(-1)!.push({ x, y }) }, stroke() {} }
+    drawConnectionCheeks(ctx as unknown as CanvasRenderingContext2D, [c], '#32463B', 24, .5)
+    expect(painted).toHaveLength(4)
+    expect(painted.every(([a, b]) => !(a.x === 0 && b.x === 0) && !(a.y === 2000 && b.y === 2000))).toBe(true)
+    expect(painted.flat()).toContainEqual({ x: 2050, y: -50 })
+    expect(c.widthMm).toBe(100)
+  })
   it('keeps side contacts on the exact bent corridor, excluding both end caps', () => {
     const points = [{x:0,y:0},{x:1000,y:0},{x:2000,y:0},{x:2000,y:2000}]
     const c = { ...connection(), start:points[0],end:points.at(-1)!,widthMm:100,

@@ -1,4 +1,4 @@
-import type { PointMm } from '../../../shared/model/scene.js'
+import type { PointMm, SurfaceStyle } from '../../../shared/model/scene.js'
 import type { ProjectedPath, Projection } from '../../../shared/projection/types.js'
 import { pointInPolygon } from '../../../shared/geometry/geometry.js'
 import { canonicalJson } from '../../../shared/validation/json.js'
@@ -24,13 +24,14 @@ function cuts(a: PointMm, b: PointMm, c: PointMm, d: PointMm): number[] {
   const length2 = ab.x * ab.x + ab.y * ab.y
   return [c, d].map(p => ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / length2).filter(t => t > EPS && t < 1 - EPS)
 }
-const bounds = (path: ProjectedPath) => ({ left: Math.min(...path.points.map(p => p.x)), right: Math.max(...path.points.map(p => p.x)),
+const bounds = (path: Pick<ProjectedPath, 'points'>) => ({ left: Math.min(...path.points.map(p => p.x)), right: Math.max(...path.points.map(p => p.x)),
   top: Math.min(...path.points.map(p => p.y)), bottom: Math.max(...path.points.map(p => p.y)) })
 const overlaps = (a: ReturnType<typeof bounds>, b: ReturnType<typeof bounds>) => a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top
 
 /** Keep every physical band and its paint order. Only boundary segments lying
  * inside the compatible visible union are removed. No model or hit shape changes. */
-export function pathJunctionOutlines(projection: Pick<Projection, 'paths' | 'pathJoinGroups' | 'visual'>): Map<string, Segment[]> {
+export function pathJunctionOutlines(projection: Pick<Projection, 'paths' | 'pathJoinGroups' | 'visual'>
+  & Partial<Pick<Projection, 'terrain' | 'rooms' | 'pathTerrainJoins'>>): Map<string, Segment[]> {
   const result = new Map<string, Segment[]>(), byId = new Map(projection.paths.map(path => [path.id, path]))
   const filtered = new Set(projection.visual?.filters.flatMap(filter => filter.sourceEntityIds ?? []) ?? [])
   for (const ids of projection.pathJoinGroups ?? []) {
@@ -71,5 +72,59 @@ export function pathJunctionOutlines(projection: Pick<Projection, 'paths' | 'pat
       }
     }
   }
+  trimTerrainInteriors(projection, result, filtered)
   return result
+}
+
+const opaqueWorldPaint = (style: SurfaceStyle | null) => style && style.base.opacity === 1
+  && style.base.alignment === 'world' && !style.overlays.length ? canonicalJson(style.base) : null
+
+/** A road keeps its original fill and hit polygon. Only its already-computed
+ * exterior stroke is shortened where both sides share the same exposed paint. */
+function trimTerrainInteriors(projection: Pick<Projection, 'paths'> & Partial<Pick<Projection, 'terrain' | 'rooms' | 'pathTerrainJoins'>>,
+  outlines: Map<string, Segment[]>, filtered: ReadonlySet<string>): void {
+  const joins = projection.pathTerrainJoins
+  if (!joins || !projection.terrain) return
+  const byId = new Map(projection.terrain.map(area => [area.id, area]))
+  if (joins.terrainPaintOrder.some(id => !byId.has(id)) || joins.roomIds.some(id => !projection.rooms?.some(room => room.id === id))) return
+  const terrain = joins.terrainPaintOrder.flatMap(id => byId.has(id) ? [byId.get(id)!] : [])
+  const roomIds = new Set(joins.roomIds), rooms = (projection.rooms ?? []).filter(room => roomIds.has(room.id))
+  const pathById = new Map(projection.paths.map(path => [path.id, path]))
+  for (const join of joins.paths) {
+    const path = pathById.get(join.pathId), paint = path && opaqueWorldPaint(path.style)
+    if (!path || !paint || filtered.has(path.id)) continue
+    const candidates = new Set(join.terrainIds.filter(id => {
+      const area = byId.get(id)
+      return !!area && !filtered.has(id) && !area.materialPatches?.length && opaqueWorldPaint(area.style) === paint
+    }))
+    if (!candidates.size) continue
+    const pathBounds = bounds(path), covers = terrain.filter(area => overlaps(pathBounds, bounds(area)))
+    const roomCovers = rooms.filter(room => overlaps(pathBounds, bounds(room)))
+    const coverEdges = [...covers, ...roomCovers].flatMap(area => edges(area.points))
+    const exposedMatch = (point: PointMm): boolean => {
+      if (roomCovers.some(room => pointInPolygon(point, room.points, false))) return false
+      // Last fill wins. An incompatible/filtered higher cover blocks a matching
+      // lower surface; private and hidden geometry never entered this ID list.
+      for (let index = covers.length - 1; index >= 0; index--) {
+        if (pointInPolygon(point, covers[index].points, false)) return candidates.has(covers[index].id)
+      }
+      return false
+    }
+    const original = outlines.get(path.id) ?? edges(path.points), retained: Segment[] = []
+    let removed = false
+    for (const [a, b] of original) {
+      const length = Math.hypot(b.x - a.x, b.y - a.y)
+      if (!length) continue
+      const stations = [0, ...coverEdges.flatMap(([c, d]) => cuts(a, b, c, d)), 1].sort((a, b) => a - b)
+      const normal = { x: -(b.y - a.y) / length * .001, y: (b.x - a.x) / length * .001 }
+      for (let index = 1; index < stations.length; index++) {
+        if (stations[index] - stations[index - 1] <= EPS) continue
+        const mid = at(a, b, (stations[index - 1] + stations[index]) / 2)
+        if (exposedMatch({ x: mid.x + normal.x, y: mid.y + normal.y })
+          && exposedMatch({ x: mid.x - normal.x, y: mid.y - normal.y })) { removed = true; continue }
+        retained.push([at(a, b, stations[index - 1]), at(a, b, stations[index])])
+      }
+    }
+    if (removed) outlines.set(path.id, retained)
+  }
 }

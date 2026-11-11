@@ -1,3 +1,4 @@
+import { resolveFloorOutput } from '../../shared/floors/output'
 import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import AiScopeFields, { initialExtendedScope, extendedAuthoringScope } from './AiScopeFields'
 import AiBriefChecks from './AiBriefChecks'
@@ -73,6 +74,8 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
   const [useStyle, setUseStyle] = useState(false), [palette, setPalette] = useState('#D9BD83, #67836B, #488B99')
   const [lineWeight, setLineWeight] = useState(20), [textureScale, setTextureScale] = useState(1000), [density, setDensity] = useState(.45), [lightDirection, setLightDirection] = useState(135)
   const [sendVision, setSendVision] = useState(false)
+  const visionFloorSupported = !host || Object.keys(host.project.document.floors).length === 1
+  useEffect(() => { if (!visionFloorSupported) setSendVision(false) }, [visionFloorSupported])
   const [prompt, setPrompt] = useState(''), [consent, setConsent] = useState(false), [placing, setPlacing] = useState(false)
   const [targets, setTargets] = useState<string[]>([]), [definitions, setDefinitions] = useState<string[]>([])
   const [opacity, setOpacity] = useState(true), [transform, setTransform] = useState(true), [deleting, setDeleting] = useState(false)
@@ -175,7 +178,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
         if (placing && (!parts.length || !definitions.length)) throw new Error('请明确选择放置表面和允许使用的素材。')
         const scope = { ...extendedAuthoringScope(extended, local.project, floorId, local.layerId, definitions, needsCurrentAuthoring),
           ...(local.baseMapPreview || needsCurrentAuthoring ? { artwork: null, ...(!needsCurrentAuthoring ? { visual: null } : {}) } : {}),
-          targetIds: targets, operations, placement: placing ? { floorId, layerId: local.layerId, supportRef: { kind: kind as 'floor' | 'room' | 'terrainArea', id: parts.join(':') }, boundsMm: extended.bounds ?? local.project.document.exportBoundsMm, definitionIds: definitions } : null }
+          targetIds: targets, operations, placement: placing ? { floorId, layerId: local.layerId, supportRef: { kind: kind as 'floor' | 'room' | 'terrainArea', id: parts.join(':') }, boundsMm: extended.bounds ?? resolveFloorOutput(local.project.document, floorId).boundsMm, definitionIds: definitions } : null }
         const items = requirements.split('\n').map(value => value.trim()).filter(Boolean)
         const brief = items.length ? AuthoringBriefSchema.parse({ recipe, requirements: items, ...(checks.length ? { checks } : {}), ...(useStyle ? { style: { palette: palette.split(',').map(value => value.trim()), lineWeightMm: lineWeight, textureScaleMm: textureScale, detailDensity: density, lightDirectionDeg: lightDirection } } : {}) }) : undefined
         if ((useStyle || checks.length) && !items.length) throw new Error('使用风格参数或可核对目标时，请填写至少一项制作要求。')
@@ -190,7 +193,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
         if (sendVision) {
           if (!visionEnabled) throw new Error('当前渠道尚未启用图片输入，可继续使用结构诊断。')
           if (!scope.visual && !scope.scene && !scope.artwork && !scope.placement) throw new Error('发送截图前，请在视觉、场景、素材或放置工具中明确授权矩形范围。')
-          payload.vision = await renderPublicVision(local.project, extended.bounds ?? local.project.document.exportBoundsMm, abort.signal,
+          payload.vision = await renderPublicVision(local.project, extended.bounds ?? resolveFloorOutput(local.project.document, floorId).boundsMm, abort.signal,
             { draftRevision: 0, contentHash: grant.start.baseContentHash })
           local.workspace.assertCheckpoint(grant.checkpoint)
         }
@@ -285,7 +288,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
       <label>草稿要求<textarea aria-label="AI 草稿要求" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="例如：把选中的椅子向右移动500毫米，并将透明度改为0.8。"/></label>
       <details><summary>制作清单与统一风格</summary><label>场景类型<select aria-label="AI 场景类型" value={recipe} onChange={e => setRecipe(e.target.value as AuthoringBrief['recipe'])}><option value="custom">自定义</option><option value="beach">海岸</option><option value="island">岩岛</option><option value="interior">室内</option></select></label><label>逐项要求（每行一项，最多16项）<textarea aria-label="AI 制作清单" value={requirements} onChange={e => setRequirements(e.target.value)} placeholder="保留六米活动区\n沿岸布置三组可单独编辑的礁石\n上方入口保持通畅"/></label><label className="ai-check"><input type="checkbox" checked={useStyle} onChange={e => setUseStyle(e.target.checked)}/>使用明确风格参数</label>{useStyle && <><label>配色（十六进制，用逗号分隔）<input aria-label="AI 风格配色" value={palette} onChange={e => setPalette(e.target.value)}/></label>{([['线条毫米',lineWeight,setLineWeight],['纹理毫米',textureScale,setTextureScale],['细节密度',density,setDensity],['光照方向',lightDirection,setLightDirection]] as const).map(([label,value,setter]) => <label key={label}>{label}<input type="number" aria-label={`AI ${label}`} value={value} step={label === '细节密度' ? .05 : 1} onChange={e => setter(Number(e.target.value))}/></label>)}</>}<p>AI 按布局、材质、边缘、布景、环境、复核分阶段工作；文字目标的美术效果仍需人工核对。</p></details>
       <details><summary>可核对目标</summary><AiBriefChecks value={checks} onChange={setChecks} project={host.project} bounds={extended.bounds ?? host.project.document.exportBoundsMm} definitionIds={definitions} materialIds={extended.materials} disabled={busy || disabled}/></details>
-      <label className="ai-check"><input type="checkbox" aria-label="AI 发送公开截图" checked={sendVision} disabled={!visionEnabled || busy || disabled} onChange={e => setSendVision(e.target.checked)}/>另行同意把明确范围的实际玩家画面发送给模型供应商（本次最多768像素，任务累计最多4张）</label><p>{visionEnabled ? '截图会经过玩家秘密过滤，绑定当前工程修订；图片随任务在自有后端保留七日，可删除。' : '当前连接未启用视觉输入，结构诊断仍可使用。'}</p>
+      <label className="ai-check"><input type="checkbox" aria-label="AI 发送公开截图" checked={sendVision} disabled={!visionEnabled || !visionFloorSupported || busy || disabled} onChange={e => setSendVision(e.target.checked)}/>另行同意把明确范围的实际玩家画面发送给模型供应商（本次最多768像素，任务累计最多4张）</label><p>{!visionFloorSupported ? '多楼层公开截图尚未提供楼层绑定，当前不发送截图；可继续使用明确授权的结构工具。' : visionEnabled ? '截图会经过玩家秘密过滤，绑定当前工程修订；图片随任务在自有后端保留七日，可删除。' : '当前连接未启用视觉输入，结构诊断仍可使用。'}</p>
       <p className="ai-disclosure">发送范围：自有后端接收本次要求、完整工程元数据（含主持人字段）及授权范围，用于完整校验；除另行勾选的公开截图外，不发送图片字节；不发送历史快照。模型仅接收授权公开对象、必要支撑几何、授权素材名称/标签/尺寸及工具结果。任务保留七日，可删除。{(host?.baseMapPreview || needsCurrentAuthoring) && '删除任务正文后，不含对话与工程正文的流程防重置摘要仍保留至七日到期。'}</p>
       <label className="ai-check"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}/>同意向自有后端发送上述完整元数据，并向模型发送授权的公开内容</label>
       <small>{host?.baseMapPreview ? `程序底图接续：生成最多 ${sourcePolicy.generationTargets}，AI 最多 ${sourcePolicy.aiTargets} 个语义目标，最终一次采用最多 ${sourcePolicy.finalAdoptionTargets}；完整账本保留。` : needsCurrentAuthoring ? '当前完整工程：最多16轮模型请求、64次工具、累计300秒；全部实际操作仍计入本次256上限，分阶段执行不会扩大额度。' : '固定技能 v1：独立物件 / 完整场景 / SVG与同化 / 视觉创作 · 最多16轮模型请求、64次工具、累计300秒、256条实际操作。'}</small>

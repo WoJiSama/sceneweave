@@ -15,7 +15,7 @@ export interface WorkspaceLayoutProps {
   active: boolean
   resources: ReactNode
   inspector: ReactNode
-  modules: readonly { id: string; label: string; icon?: ReactNode; disabled?: boolean }[]
+  modules: readonly { id: string; label: string; icon?: ReactNode; disabled?: boolean; group?: 'workflow' | 'utility' }[]
   activeModule: string
   onModuleChange: (id: string) => void
   resourceTitle?: string
@@ -252,6 +252,13 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     buttons[index].focus()
   }
 
+  const renderModule = (module: WorkspaceLayoutProps['modules'][number]) => <button type="button" key={module.id} data-module={module.id} disabled={module.disabled}
+    aria-current={activeModule === module.id ? 'page' : undefined} aria-expanded={activeModule === module.id && resourcesVisible}
+    aria-controls={`${layoutId}-resources`} onClick={() => selectModule(module.id)}>
+    {module.icon && <span aria-hidden="true" className="workspace-module-icon">{module.icon}</span>}
+    <span>{module.label}</span>
+  </button>
+
   const toolbarKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
     const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
@@ -299,12 +306,12 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     {!narrow && layoutControlsTarget ? createPortal(layoutActions, layoutControlsTarget) : layoutActions}
     <div className="workspace-layout-body">
       <nav ref={moduleNavigation} className="workspace-module-navigation" data-testid="workspace-module-navigation" aria-label="工作区模块导航" onKeyDown={moduleKey}>
-        {modules.map(module => <button type="button" key={module.id} data-module={module.id} disabled={module.disabled}
-          aria-current={activeModule === module.id ? 'page' : undefined} aria-expanded={activeModule === module.id && resourcesVisible}
-          aria-controls={`${layoutId}-resources`} onClick={() => selectModule(module.id)}>
-          {module.icon && <span aria-hidden="true" className="workspace-module-icon">{module.icon}</span>}
-          <span>{module.label}</span>
-        </button>)}
+        <div className="workspace-module-group workspace-module-workflow" role="group" aria-label="创作流程">
+          {modules.filter(module => module.group !== 'utility').map(renderModule)}
+        </div>
+        {modules.some(module => module.group === 'utility') && <div className="workspace-module-group workspace-module-utility" role="group" aria-label="全程工具">
+          {modules.filter(module => module.group === 'utility').map(renderModule)}
+        </div>}
       </nav>
       <section id={`${layoutId}-resources`} ref={resourcePanel} className="workspace-panel workspace-resources" data-testid="workspace-resources"
         aria-label={resourceLabel} data-open={resourcesVisible} data-collapsed={!resourcesVisible}

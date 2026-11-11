@@ -176,7 +176,11 @@ function commandFor(project: ProjectData, scope: VisualAuthoringScope, operation
   const { kind, ...fields } = operation, common = { floorId: scope.floorId, layerId: previous?.layerId ?? scope.layerId, visibility: 'public' as const, editLocked: false }
   switch (kind) {
     case 'visualBoundary': return { type: 'upsertVisualBoundary', boundary: { ...fields, ...common } as Extract<VisualCommand, { type: 'upsertVisualBoundary' }>['boundary'] }
-    case 'visualEdge': { const { edgeKind, ...rest } = fields as Omit<Extract<VisualAuthoringOperation, { kind: 'visualEdge' }>, 'kind'>; return { type: 'upsertVisualEdgeLook', edgeLook: { ...rest, ...common, kind: edgeKind } } }
+    case 'visualEdge': {
+      if (visualBase(project.document)?.edgeLooks[operation.id]?.renderProfile) throw new Error('当前AI视觉协议不修改带细化表现的边带，请使用手工边带工具。')
+      const { edgeKind, ...rest } = fields as Omit<Extract<VisualAuthoringOperation, { kind: 'visualEdge' }>, 'kind'>
+      return { type: 'upsertVisualEdgeLook', edgeLook: { ...rest, ...common, kind: edgeKind } }
+    }
     case 'visualLight': return { type: 'upsertVisualLight', light: { ...fields, ...common } as Extract<VisualCommand, { type: 'upsertVisualLight' }>['light'] }
     case 'visualFog': return { type: 'upsertVisualFog', fog: { ...fields, ...common } as Extract<VisualCommand, { type: 'upsertVisualFog' }>['fog'] }
     case 'visualFilter': return { type: 'upsertVisualFilter', filter: { ...fields, ...common } as Extract<VisualCommand, { type: 'upsertVisualFilter' }>['filter'] }

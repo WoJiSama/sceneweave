@@ -1,7 +1,18 @@
-import type { BoundsMm, PointMm } from '../../shared/model/scene.js'
+import type { BoundsMm, PointMm, SurfaceRef } from '../../shared/model/scene.js'
 
 export type BuildingSketch = { kind: 'rectangle' | 'polygon' | 'orthogonal' | 'ruler'; points: PointMm[]; cursor: PointMm | null }
-export type CanvasWorldTool = Omit<BuildingSketch, 'kind'> & { kind: BuildingSketch['kind'] | 'polyline'; label?: string; snapMm: number; onPoint: (point: PointMm) => void; onMove: (point: PointMm) => void; onCancel: () => void; onFinish?: () => void }
+export type CanvasWorldTool = Omit<BuildingSketch, 'kind'> & {
+  kind: BuildingSketch['kind'] | 'polyline'
+  label?: string
+  snapMm: number
+  road?: { floorId: string; widthMm: number; supportRefs: readonly SurfaceRef[]; visibility: 'public' | 'gm' }
+  elevation?: { mode: 'elevate' | 'sample'; scopeMm?: PointMm[]; onStep: (direction: -1 | 1) => void }
+  onPoint: (point: PointMm) => void
+  onMove: (point: PointMm) => void
+  onClearCursor?: () => void
+  onCancel: () => void
+  onFinish?: () => void
+}
 
 export function snapBuildingPoint(point: PointMm, snapMm: number): PointMm {
   const snap = (value: number) => {

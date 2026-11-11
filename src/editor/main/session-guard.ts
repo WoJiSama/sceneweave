@@ -1,6 +1,8 @@
 export const workspaceFormDraftLabels = {
   buildingForm: { name: '建筑表单', cancel: '取消建筑草稿' },
   outdoorForm: { name: '室外表单', cancel: '取消室外草稿' },
+  sculptForm: { name: '局部台地与洼地', cancel: '取消局部高程草稿' },
+  elevationForm: { name: '地形高程', cancel: '取消高程草稿' },
   assetImportForm: { name: '素材导入表单', cancel: '取消素材导入草稿' },
   catalogForm: { name: '素材个人整理', cancel: '取消素材整理草稿' },
   appearanceForm: { name: '外观参数', cancel: '取消外观草稿' },

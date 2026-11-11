@@ -26,7 +26,7 @@ export const TerrainBoundaryProposalSchema = z.object({ areaId: id, boundaryId: 
 export type TerrainBoundaryProposal = z.infer<typeof TerrainBoundaryProposalSchema>
 export const VisualAuthoringOperationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('visualBoundary'), ...visualBoundarySchema.omit({ floorId: true, layerId: true, visibility: true, editLocked: true }).shape }).strict(),
-  z.object({ kind: z.literal('visualEdge'), ...visualEdgeLookSchema.omit({ floorId: true, layerId: true, visibility: true, editLocked: true, kind: true }).shape,
+  z.object({ kind: z.literal('visualEdge'), ...visualEdgeLookSchema.omit({ floorId: true, layerId: true, visibility: true, editLocked: true, kind: true, renderProfile: true }).shape,
     edgeKind: visualEdgeLookSchema.shape.kind }).strict(),
   z.object({ kind: z.literal('visualLight'), ...visualLightSchema.omit({ floorId: true, layerId: true, visibility: true, editLocked: true }).shape }).strict(),
   z.object({ kind: z.literal('visualFog'), ...visualFogSchema.omit({ floorId: true, layerId: true, visibility: true, editLocked: true }).shape }).strict(),

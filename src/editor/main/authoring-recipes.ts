@@ -6,7 +6,7 @@ import { isOutdoorCommand } from '../../shared/commands/outdoor'
 import { applyCompositionCommands } from '../../shared/appearance/commands'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { EditableProject } from '../../application/workspace/project'
-import { projectScene } from '../../shared/projection/projection'
+import { assertAllFloorPlayerProjections } from '../../shared/projection/projection'
 import { OUTPOST_CATALOG } from './outpost-catalog'
 import { OUTPOST_IDS } from './outpost-ids'
 
@@ -46,7 +46,7 @@ export const AUTHORING_INTERIOR_CATALOG_IDS = ['coat-rack', 'bench', 'hearth', '
 const compositionTypes = new Set(['instantiatePrefab', 'createPrefab', 'duplicatePrefab', 'deletePrefab', 'detachPrefabMember', 'resetPrefabMember', 'setAppearanceSource', 'setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment'])
 /** Select the existing preview surface, preserving its actual dependency review. */
 export function authoringStageKind(commands: readonly CompositionCommand[]): 'building' | 'outdoor' | 'composition' | 'display' {
-  if (commands.every(command => command.type === 'setSceneDisplay')) return 'display'
+  if (commands.every(command => command.type === 'setSceneDisplay' || command.type === 'setSceneBackground')) return 'display'
   if (commands.every(command => compositionTypes.has(command.type))) return 'composition'
   if (commands.every(isOutdoorCommand)) return 'outdoor'
   return 'building'
@@ -309,7 +309,7 @@ export function buildAuthoringPlan(project: EditableProject, id: AuthoringRecipe
         // Same core gate as a normal candidate. The workbench still rechecks the
         // current checkpoint, actual resources, dependency expansion and adoption.
         const candidate = applyCompositionCommands({ document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance }, commands, runtime)
-        projectScene(candidate.document, 'player')
+        assertAllFloorPlayerProjections(candidate.document)
         return { ...display, status: 'ready', commands }
       } catch (error) {
         return { ...display, status: 'blocked', reason: error instanceof Error ? error.message : '本步准备失败，当前工程保持。', commands: [] }

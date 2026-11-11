@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { THEME_PACK_PLANS, selectThemePacks } from '../../shared/assets/theme-packs'
 import { THEME_PACK_CATALOGS, type ThemePackArtId } from '../../shared/assets/theme-pack-catalogs'
 import type { LoadedThemePack } from '../../platform/browser/content/theme-pack-catalog'
+import type { OutpostVegetationDensity } from '../../platform/browser/content/outpost-vegetation'
 import type { PreparedCatalogEntryV1 } from './catalog'
 import { prepareCatalogEntry } from './catalog'
 import AssetReviewPanel from './AssetReviewPanel'
@@ -26,6 +27,7 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({}), [pending, setPending] = useState(false)
   const [reviewPending, setReviewPending] = useState(false)
   const [error, setError] = useState(''), [message, setMessage] = useState('')
+  const [outpostVegetation, setOutpostVegetation] = useState<OutpostVegetationDensity>('balanced')
   const mounted = useRef(true), epoch = useRef(0), controller = useRef<AbortController | null>(null), urls = useRef<string[]>([])
   const pendingCallback = useRef(onPendingChange); pendingCallback.current = onPendingChange
   const clearImages = () => { urls.current.forEach(url => URL.revokeObjectURL(url)); urls.current = []; setThumbnails({}) }
@@ -70,21 +72,52 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
     }, signal)
     if (current()) { setSelected([]); setMessage('候选已准备，请在画布审阅后一次采用。') }
   })
-  const sample = (variant: 0 | 1) => void perform(async (signal, current) => {
+  const sample = (variant: 0 | 1, daylight = false) => void perform(async (signal, current) => {
     const [{ createThemePackSampleProject }, { exportProject }, { toBundle }, { validation }] = await Promise.all([
       import('../../platform/browser/content/theme-pack-catalog'), import('../../shared/project/file'),
       import('../../application/workspace/project'), import('../../platform/browser/runtime'),
     ])
-    const project = await createThemePackSampleProject(packId, variant, signal)
+    const outpost = packId === 'wilderness' && variant === 0
+    const project = await createThemePackSampleProject(packId, variant, signal, outpost ? { outpostVegetation, ...(daylight ? { outpostAtmosphere: 'daylight' as const } : {}) } : {})
     const bytes = await exportProject(toBundle(project), { ...validation, signal })
     signal.throwIfAborted()
-    if (current()) { download(`${packId}-sample-${variant + 1}.sceneweave`, new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })); setMessage('可编辑场景已下载，可从工程导入入口打开。当前工程保持。') }
+    if (current()) { download(`${packId}-sample-${variant + 1}${outpost ? `-${outpostVegetation}${daylight ? '-daylight' : ''}` : ''}.sceneweave`, new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })); setMessage('可编辑场景已下载，可从工程导入入口打开。当前工程保持。') }
+  })
+  const naturalOutpost = () => void perform(async (signal, current) => {
+    const [{ createNaturalDetailOutpostProject }, { exportProject }, { toBundle }, { validation }] = await Promise.all([
+      import('../../platform/browser/content/natural-detail-samples'), import('../../shared/project/file'),
+      import('../../application/workspace/project'), import('../../platform/browser/runtime'),
+    ])
+    const project = await createNaturalDetailOutpostProject(outpostVegetation, signal)
+    const bytes = await exportProject(toBundle(project), { ...validation, signal })
+    signal.throwIfAborted()
+    if (current()) { download(`outpost-natural-detail-${outpostVegetation}.sceneweave`, new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })); setMessage('自然编排哨站已下载，固定素材、实际植被与地表均保存在完整工程中。') }
+  })
+  const vegetationDetails = () => void perform(async (signal, current) => {
+    const { createVegetationDetailCatalogProject } = await import('../../platform/browser/content/vegetation-detail-catalog')
+    const source = await createVegetationDetailCatalogProject(signal)
+    await onAdopt(async adoptionSignal => {
+      const prepared: PreparedCatalogEntryV1[] = []
+      for (const definition of Object.values(source.document.propDefinitions)) {
+        adoptionSignal.throwIfAborted()
+        prepared.push(await prepareCatalogEntry(source, { kind: 'prop', definitionId: definition.id }, adoptionSignal))
+      }
+      return prepared
+    }, signal)
+    if (current()) setMessage('六件独立植被变体已准备，请审阅图像、标定与许可后一次采用。尚未取得美术或用户P3签收。')
+  })
+  const leafyFern = () => void perform(async (signal, current) => {
+    const { createLeafyFernCatalogProject } = await import('../../platform/browser/content/leafy-fern-catalog')
+    const source = await createLeafyFernCatalogProject(signal)
+    await onAdopt(async adoptionSignal => Promise.all(Object.values(source.document.propDefinitions).map(definition =>
+      prepareCatalogEntry(source, { kind: 'prop', definitionId: definition.id }, adoptionSignal))), signal)
+    if (current()) setMessage('新羽叶蕨已准备；旧蕨叶与已有实例保留，请审阅新固定素材后采用。')
   })
   const choices = selectThemePacks(THEME_PACK_CATALOGS, { query }), metadata = THEME_PACK_CATALOGS.find(pack => pack.id === packId)!
   const plan = THEME_PACK_PLANS.find(plan => plan.id === metadata.planId)!
   return <section aria-label="主题素材包" className="theme-packs-panel"><details>
     <summary>主题素材包 · 场景与画风</summary>
-    <p>六套独立候选。每包6种材质、14件物件和3个可拆组合，另有两份可编辑场景。按需加载，再选择需要的内容添加。</p>
+    <p>六套独立候选。当前所选包含{metadata.counts.materials}种材质、{metadata.counts.props}件物件和{metadata.counts.prefabs}个可拆组合，另有两份可编辑场景。按需加载，再选择需要的内容添加。</p>
     <label>查找主题<input aria-label="查找主题包" value={query} onChange={event => setQuery(event.target.value)} placeholder="主题、场景或画风"/></label>
     <fieldset disabled={disabled || pending || reviewPending}><label>主题包<select aria-label="选择主题包" value={packId} onChange={event => { setPackId(event.target.value as ThemePackArtId); setLoaded(null); setSelected([]); clearImages(); setError(''); setMessage('') }}>
       {!choices.some(pack => pack.id === packId) && <option value={packId}>{metadata.name}</option>}
@@ -103,7 +136,17 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
       <button type="button" className="primary asset-wide" disabled={disabled || pending || reviewPending || !selected.length} onClick={adopt}>预览添加所选 {selected.length} 项主题素材</button>
       <AssetReviewPanel key={loaded.registration.id} registration={loaded.registration} content={loaded.reviewContent} items={loaded.items} selectedKeys={selected} disabled={disabled || pending} onPendingChange={value => { setReviewPending(value); pendingCallback.current(value) }}/>
     </>}
-    <details><summary>两份可编辑代表场景</summary><p>用于检查尺度、组合及用途。它们是候选样板，不能替代完整场景覆盖、美术审核或用户签收。</p>{metadata.scenarios.map((scene, index) => <button className="secondary asset-wide" key={scene.id} type="button" disabled={disabled || pending || reviewPending} onClick={() => sample(index as 0 | 1)}>下载场景 · {scene.name}</button>)}</details>
+    <details><summary>两份可编辑代表场景</summary><p>用于检查尺度、组合及用途。它们是候选样板，不能替代完整场景覆盖、美术审核或用户签收。</p>
+      {packId === 'wilderness' && <fieldset disabled={disabled || pending || reviewPending}>
+        <label>林中哨站植被<select aria-label="林中哨站植被密度" value={outpostVegetation} onChange={event => setOutpostVegetation(event.target.value as OutpostVegetationDensity)}>
+          <option value="sparse">疏 · 开阔林缘</option><option value="balanced">适中 · 树群与留白</option><option value="dense">密 · 林缘环抱</option>
+        </select></label><p className="asset-muted">仅用于新建林中哨站。大树、灌木和草簇分别编排，避让道路、房屋与营地；打开后可逐件编辑，改变此处不会重排已打开工程。</p>
+      </fieldset>}
+      {metadata.scenarios.map((scene, index) => <button className="secondary asset-wide" key={scene.id} type="button" disabled={disabled || pending || reviewPending} onClick={() => sample(index as 0 | 1)}>下载场景 · {scene.name}</button>)}
+      {packId === 'wilderness' && <button className="secondary asset-wide" type="button" disabled={disabled || pending || reviewPending} onClick={() => sample(0, true)}>下载场景 · 林中哨站 · 清朗白昼</button>}{packId === 'wilderness' && <button className="secondary asset-wide" type="button" disabled={disabled || pending || reviewPending} onClick={naturalOutpost}>下载场景 · 林中哨站 · 自然编排</button>}
+    </details>
+    <details><summary>植被细节 · 六件独立变体</summary><p>三种树冠、缺口灌丛、疏展蕨与弯叶草簇，保留独立根锚、占地及许可。先预览添加，再从素材库逐件放置。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={vegetationDetails}>预览添加六件植被细节变体</button></details>
+    <details><summary>羽叶蕨 · 清晰叶面变体</summary><p>独立的新固定蕨叶，保留有面积的叶面与根锚。采用后可放置，也可加入群落编排；旧素材与实例保持。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={leafyFern}>预览添加清晰羽叶蕨</button></details>
     {pending && <div role="status">正在准备真实资源…<button type="button" onClick={cancel}>取消主题包准备</button></div>}
     {error && <p role="alert" className="asset-form-error">{error}</p>}{message && <p role="status">{message}</p>}
   </details></section>

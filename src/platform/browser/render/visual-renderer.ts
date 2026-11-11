@@ -6,6 +6,9 @@ import type { VisualSegment } from './visual-geometry'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { cliffRelief } from './cliff-relief.js'
+import { cliffReliefV2 } from './cliff-relief-v2.js'
+import { cliffReliefV3 } from './cliff-relief-v3.js'
+import { connectionBand, corridor } from '../../../shared/geometry/geometry.js'
 import { grassEdgeRings } from './grass-edge.js'
 import { terrainTransitionStrokePolygon } from '../../../shared/visual/transition.js'
 import { edgeLookPaintPadding } from '../../../shared/visual/paint-envelopes.js'
@@ -98,7 +101,7 @@ function edgeDetails(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBou
 }
 
 /** One joined face with variable ledges and broken strata, rather than repeated cliff stickers. */
-function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number, connections: ProjectedConnection[]): void {
+function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number, connections: ProjectedConnection[], dropMm?: number): void {
   const angle = directionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }, reliefRgb = colorRgb(look.color)
   const shade = (normal: PointMm, variation: number) => {
     const facing = normal.x * light.x + normal.y * light.y
@@ -106,6 +109,32 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
     return `rgb(${reliefRgb.map(channel => Math.round(Math.max(0, Math.min(255, channel * factor)))).join(',')})`
   }
   for (const sign of sides(look)) {
+    if (look.renderProfile === 'rockRelief2' || look.renderProfile === 'rockRelief3') {
+      const openingPolygons = connections.map(connection => connection.route
+        ? connectionBand(connection.route.centerlineMm, connection.widthMm)
+        : corridor(connection.start, connection.end, connection.widthMm))
+      const relief = (look.renderProfile === 'rockRelief3' ? cliffReliefV3 : cliffReliefV2)(boundary, look, sign, { openingPolygons, ...(dropMm === undefined ? {} : { dropMm }) })
+      if (!relief.faceRings.length) continue
+      const face = ringsPath(relief.faceRings)
+      ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity * relief.baseOpacity; ctx.fill(face, 'evenodd')
+      ctx.save(); ctx.clip(face, 'evenodd')
+      try {
+        for (const facet of relief.facets) {
+          ctx.fillStyle = shade(facet.normal, (facet.shade - 1) * .55)
+          ctx.globalAlpha = look.opacity * facet.opacity; ctx.fill(ringsPath([facet.polygon]))
+        }
+        for (const mark of relief.erosion) {
+          ctx.fillStyle = '#33483F'; ctx.globalAlpha = look.opacity * mark.shade; ctx.fill(ringsPath([mark.polygon]))
+        }
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([])
+        for (const stroke of [...relief.ledges, ...relief.crestRuns, ...relief.footRuns, ...relief.fractures]) {
+          ctx.strokeStyle = stroke.color; ctx.lineWidth = stroke.widthMm; ctx.globalAlpha = look.opacity * stroke.opacity
+          ctx.stroke(linePath(stroke.points))
+        }
+        if (connections.length) drawConnectionCheeks(ctx, connections, '#32463B', Math.max(24, look.widthMm * .10), look.opacity * .45)
+      } finally { ctx.restore() }
+      continue
+    }
     const relief = cliffRelief(boundary, look, sign)
     const face = ringsPath(relief.faceRings)
     ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity * .82; ctx.fill(face, 'evenodd')
@@ -210,9 +239,17 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     const boundary = byId.get(look.boundaryId)
     if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, edgeLookPaintPadding(look)), projection.bounds)) continue
     const connections = connectionsFor(projection, boundary)
-    ctx.save(); clipConnectionOpenings(ctx, projection.bounds, connections)
+    ctx.save()
+    try {
+    clipConnectionOpenings(ctx, projection.bounds, connections)
     if (look.kind === 'cliff') excludeHighGround(ctx, projection, boundary)
-    if (look.kind === 'cliff') { drawCliffFace(ctx, boundary, look, visual.environment.lightDirectionDeg, connections); ctx.restore(); continue }
+    if (look.kind === 'cliff') {
+      // Only elevations already visible to this audience may affect pixels.
+      const elevations = boundary.terrainAreaIds.flatMap(id => projection.terrain.filter(area => area.id === id).map(area => area.elevationMm))
+      const dropMm = elevations.length >= 2 ? Math.max(...elevations) - Math.min(...elevations) : undefined
+      drawCliffFace(ctx, boundary, look, visual.environment.lightDirectionDeg, connections, dropMm)
+      continue
+    }
     for (const sign of sides(look)) {
       if (look.kind === 'shore') {
         band(ctx, boundary, -sign * look.widthMm * .5, 0, look.color, look.opacity * .22, look.widthMm * .1)
@@ -231,7 +268,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       }
     }
     edgeDetails(ctx, boundary, look)
-    ctx.restore()
+    } finally { ctx.restore() }
   }
 }
 

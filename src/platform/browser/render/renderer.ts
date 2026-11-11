@@ -5,6 +5,7 @@ import { browserProjectValidation } from '../project-validation.js'
 import { projectEditorScene, projectScene } from '../../../shared/projection/projection.js'
 import { encodePng, renderRasterProjection, EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE } from './canvas-renderer'
 import type { RenderOptions, EditorRenderOptions } from './canvas-renderer'
+import { atmosphereComparison } from './atmosphere-comparison'
 
 export type { RenderMetrics, RenderOptions, WallGeometry } from './canvas-renderer'
 export { EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS, wallGeometry, connectionPolygon, terrainFace, terrainShadow } from './canvas-renderer'
@@ -12,6 +13,8 @@ export interface EditorProjectRenderOptions extends EditorRenderOptions {
   /** GM session only. Ignored by player previews and both formal audiences. */
   hiddenLayerIds?: ReadonlySet<string>
   groundView?: boolean
+  /** Temporary GM color/light/fog/filter comparison; never a public output option. */
+  atmosphereBypass?: boolean
 }
 
 /** Complete native-v1 boundary. Pure shared validation precedes any browser resource IO. */
@@ -37,7 +40,8 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
   const projection = projectScene(scene, options.audience, project.appearance, { floorId: options.floorId })
   const drawing = options.audience === 'gm' && editor?.hiddenLayerIds?.size
     ? projectEditorScene(scene, { floorId: options.floorId, hiddenLayerIds: new Set(editor.hiddenLayerIds) }, project.appearance) : projection
-  const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: options.audience === 'gm' && editor.groundView ? { ...drawing, groundView: true } : drawing }
+  const comparison = options.audience === 'gm' && editor?.atmosphereBypass ? atmosphereComparison(drawing) : drawing
+  const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: options.audience === 'gm' && editor.groundView ? { ...comparison, groundView: true } : comparison }
   return renderRasterProjection(sources, projection, options, preview, started)
 }
 

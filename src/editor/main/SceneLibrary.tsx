@@ -10,9 +10,9 @@ type Props = {
   project: EditableProject | null; selected: string | null; selectedIds?: string[]; busy: boolean
   onSelect: (id: string | null, operation?: 'replace' | 'add' | 'subtract') => void
   hiddenIds?: ReadonlySet<string>; excludedIds?: ReadonlySet<string>; onOpenLayers?: () => void
-  layerFilter?: string
+  floorId?: string; layerFilter?: string
 }
-export default function SceneLibrary({ project, selected, selectedIds, busy, onSelect, hiddenIds, excludedIds, onOpenLayers, layerFilter }: Props) {
+export default function SceneLibrary({ project, selected, selectedIds, busy, onSelect, hiddenIds, excludedIds, onOpenLayers, layerFilter, floorId }: Props) {
   const [tab, setTab] = useState<'all' | 'objects' | 'structure' | 'groups' | 'geometry'>('all')
   const [blockedId, setBlockedId] = useState<string | null>(null)
   const scene = project?.document
@@ -40,9 +40,10 @@ export default function SceneLibrary({ project, selected, selectedIds, busy, onS
       ...Object.keys(scene.vertices).map(id => item(id, '建筑顶点')),
       ...Object.values(scene.terrainAreas).flatMap(area => area.boundaryMm.map(point => item(point.id, '地形轮廓点'))),
     ]
+    if (floorId) for (const kind of Object.keys(result) as (keyof typeof result)[]) result[kind] = result[kind].filter(row => scene.userLayers[layerIdForEntity(scene, row.id) ?? '']?.floorId === floorId)
     if (layerFilter) for (const kind of Object.keys(result) as (keyof typeof result)[]) result[kind] = result[kind].filter(row => layerIdForEntity(scene, row.id) === layerFilter)
     return result
-  }, [scene, hiddenIds, excludedIds, layerFilter])
+  }, [scene, hiddenIds, excludedIds, layerFilter, floorId])
   const shown = useMemo(() => tab === 'all' ? [...lists.objects, ...lists.groups, ...lists.structure, ...lists.geometry] : lists[tab], [lists, tab])
   const selectRef = useRef(onSelect); selectRef.current = onSelect
   const selectRow = useCallback<Props['onSelect']>((id, operation) => { setBlockedId(id && excludedIds?.has(id) ? id : null); selectRef.current(id, operation) }, [excludedIds])

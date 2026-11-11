@@ -80,7 +80,7 @@ export function clipConnectionOpenings(ctx: CanvasRenderingContext2D, bounds: { 
 /** Cheek lines terminate the existing face at the exact two sides of the gap. */
 export function drawConnectionCheeks(ctx: CanvasRenderingContext2D, connections: readonly ProjectedConnection[], color: string, widthMm: number, opacity: number): void {
   ctx.save(); ctx.strokeStyle = color; ctx.globalAlpha = opacity; ctx.lineWidth = widthMm; ctx.lineCap = 'butt'
-  for (const connection of connections) for (const [start, end] of connectionFrame(connection).sides) {
+  for (const connection of connections) for (const [start, end] of connectionSideSegments(connection)) {
     ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke()
   }
   ctx.restore()

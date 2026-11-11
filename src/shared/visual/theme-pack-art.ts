@@ -1,5 +1,6 @@
 import type { VisualSampleArt } from './sample-art.js'
 import { freezeJson } from '../validation/json.js'
+import { createWildernessArtV2 } from './wilderness-art.js'
 
 /** Original editable vector candidates, not photographs or a P3 approval.
  * Every source is in the existing static SVG subset and has no embedded media,
@@ -560,8 +561,12 @@ function coast(): VisualSampleArt[] {
 /** Each pack contains six opaque repeating surfaces and fourteen individually
  * editable props. Membership is fixed; new art must use a new fixed identity.
  * These are source candidates until pixels, placement and scenes are reviewed. */
-export const THEME_PACK_ART: Readonly<Record<ThemePackArtId, readonly VisualSampleArt[]>> = freezeJson({
+export const THEME_PACK_ART_V1: Readonly<Record<ThemePackArtId, readonly VisualSampleArt[]>> = freezeJson({
   investigation: investigation(), modern: modern(), fantasy: fantasy(), ruins: ruins(), wilderness: wilderness(), coast: coast(),
+})
+
+export const THEME_PACK_ART: Readonly<Record<ThemePackArtId, readonly VisualSampleArt[]>> = freezeJson({
+  ...THEME_PACK_ART_V1, wilderness: createWildernessArtV2(THEME_PACK_ART_V1.wilderness),
 })
 
 export const THEME_PACK_LICENSE = 'Sceneweave Theme Pack Vector Candidates, version 1\nCopyright (c) 2026 Sceneweave contributors\n\nOriginal editable static SVG artwork created for Sceneweave with coding assistance. No reference-map pixels, external image assets or third-party artwork are embedded. This source batch is an art candidate and carries no P3 or user art approval.\n\n'

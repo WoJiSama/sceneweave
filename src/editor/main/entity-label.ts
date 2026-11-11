@@ -52,6 +52,7 @@ export function createEntityLabeler(scene: SceneDocument): (id: string) => strin
     labels.set(point.id, `${name(area.id)} · 轮廓点 ${index + 1}`)
     labels.set(point.segmentId, `${name(area.id)} · 边段 ${index + 1}`)
   })
+  numbered(scene.pathAttachments, '门路关联', row => `${name(row.openingId)} → ${name(row.pathId)}`)
   numbered(scene.terrainEdges, '地形边缘', edge => `${name(edge.source.areaId)} · ${edge.shoreline ? '岸线' : edge.kind === 'cliff' ? '崖边' : '材质交界'}`)
   numbered(scene.terrainConnections, '高差连接', connection => `${connection.kind === 'stairs' ? '台阶' : '坡道'} · ${name(connection.from.surfaceRef.id)} → ${name(connection.to.surfaceRef.id)}`)
   numbered(scene.scatterGroups, '散布组', group => {

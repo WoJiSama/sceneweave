@@ -16,6 +16,7 @@ import { NumberInput } from '../native-canvas/controls'
 import { formatDistanceMm } from '../native-canvas/building-session'
 import { formatLengthInput } from '../native-canvas/length-input'
 import { expandTerrainContourScope } from './terrain-contour-scope'
+import { resolveFloorOutput } from '../../shared/floors/output'
 import './terrain-editing.css'
 
 export interface TerrainEditCanvasSession {
@@ -30,14 +31,23 @@ const links = { contour: '只改轮廓', transitions: '轮廓及相关过渡', s
 const pointNames = { start: '起点', control1: '控制点一', control2: '控制点二', end: '终点' } as const
 const areaLabel = (scene: SceneDocument, id: string) => { const area = scene.terrainAreas[id]; if (!area) return id; const material = area.surfaceStyle?.base.materialRef; return `${material ? scene.materials[material.id]?.name ?? '地形' : '地形'} · 高程 ${formatDistanceMm(area.groundElevationMm, scene.units.display)}` }
 
-export default function TerrainEditingPanel({ scene, busy, adopting = false, disabled, error, candidate, onPreview, onAdopt, onCancel, onCanvasSession, onDraftChange }: {
-  scene: SceneDocument; busy: boolean; adopting?: boolean; disabled: boolean; error: string | null; candidate: { request: TerrainEditResult['request']; cost: { total: number; limit: number }; impact: TerrainEditResult['impact'] } | null
+interface TerrainEditingPanelProps {
+  scene: SceneDocument; floorId?: string; busy: boolean; adopting?: boolean; disabled: boolean; error: string | null; candidate: { request: TerrainEditResult['request']; cost: { total: number; limit: number }; impact: TerrainEditResult['impact'] } | null
   onPreview: (request: TerrainEditRequest) => Promise<void>; onAdopt: () => Promise<void>; onCancel: () => void
   onCanvasSession: (value: TerrainEditCanvasSession | null) => void; onDraftChange: (dirty: boolean) => void
-}) {
+}
+export default function TerrainEditingPanel(props: TerrainEditingPanelProps) {
+  const floors = Object.keys(props.scene.floors), floorId = props.floorId ?? (floors.length === 1 ? floors[0] : undefined)
+  if (!floorId) throw new Error('多楼层地形编辑必须明确选择当前Floor。')
+  const output = resolveFloorOutput(props.scene, floorId)
+  // A changed Floor starts a fresh local draft. The complete document remains
+  // intact for dependency checks and the ordinary backend candidate validator.
+  return <FloorTerrainEditingPanel key={floorId} {...props} floorId={floorId} initialBoundsMm={output.boundsMm}/>
+}
+function FloorTerrainEditingPanel({ scene, floorId, initialBoundsMm, busy, adopting = false, disabled, error, candidate, onPreview, onAdopt, onCancel, onCanvasSession, onDraftChange }: TerrainEditingPanelProps & { floorId: string; initialBoundsMm: BoundsMm }) {
   const heading = useId()
-  const areas = Object.values(scene.terrainAreas), materials = Object.values(scene.materials).filter(value => value.applicableSurfaces.includes('terrain'))
-  const boundaries = Object.values(visualBase(scene)?.boundaries ?? {}).filter(value => value.binding.kind === 'terrain')
+  const areas = Object.values(scene.terrainAreas).filter(area => area.floorId === floorId), materials = Object.values(scene.materials).filter(value => value.applicableSurfaces.includes('terrain'))
+  const boundaries = Object.values(visualBase(scene)?.boundaries ?? {}).filter(value => value.floorId === floorId && value.binding.kind === 'terrain')
   const [tool, setTool] = useState<'brush' | 'contour' | 'surroundings' | 'topology' | null>(null)
   const [surroundingsSeed, setSurroundingsSeed] = useState('courtyard-surroundings-1')
   const [displacementMm, setDisplacementMm] = useState(300)
@@ -50,10 +60,10 @@ export default function TerrainEditingPanel({ scene, busy, adopting = false, dis
   const [strokes, setStrokes] = useState<{ pointsMm: PointMm[]; radiusMm: number }[]>([])
   const strokesRef = useRef(strokes); strokesRef.current = strokes
   const [boundary, setBoundary] = useState<VisualBoundary | null>(null), [segmentIndex, setSegmentIndex] = useState(0)
-  const [scopeMm, setScopeMm] = useState<BoundsMm>(() => ({ ...scene.exportBoundsMm }))
+  const [scopeMm, setScopeMm] = useState<BoundsMm>(() => ({ ...initialBoundsMm }))
   const [scopePoints, setScopePoints] = useState<PointMm[] | null>(null), [scopeCursor, setScopeCursor] = useState<PointMm | null>(null)
   const [linkMode, setLinkMode] = useState<TerrainEditRequest['linkMode']>('scenery')
-  const [numericPoint, setNumericPoint] = useState<PointMm>(() => ({ x: Math.round(scene.exportBoundsMm.x + scene.exportBoundsMm.width / 2), y: Math.round(scene.exportBoundsMm.y + scene.exportBoundsMm.height / 2) }))
+  const [numericPoint, setNumericPoint] = useState<PointMm>(() => ({ x: Math.round(initialBoundsMm.x + initialBoundsMm.width / 2), y: Math.round(initialBoundsMm.y + initialBoundsMm.height / 2) }))
   const [topologyOperation, setTopologyOperation] = useState<TerrainTopologyRequest['operation']>('difference')
   const [topologyAreaIds, setTopologyAreaIds] = useState<string[]>(() => targetAreaId ? [targetAreaId] : [])
   const [topologyTemplateAreaId, setTopologyTemplateAreaId] = useState(() => targetAreaId)
@@ -67,11 +77,10 @@ export default function TerrainEditingPanel({ scene, busy, adopting = false, dis
   const [submittedKey, setSubmittedKey] = useState<string | null>(null)
   const operationId = useRef(newId()), callbacks = useRef({ onPreview, onCancel, onCanvasSession, onDraftChange })
   callbacks.current = { onPreview, onCancel, onCanvasSession, onDraftChange }
-  const target = scene.terrainAreas[targetAreaId]
+  const target = areas.find(area => area.id === targetAreaId)
   const elevationMm = target?.groundElevationMm ?? 0
   const topologyAreas = areas.filter(area => topologyAreaIds.includes(area.id))
   const topologyDeps = tool === 'topology' ? terrainTopologyDependencies(scene, topologyAreaIds) : []
-  const floorId = (tool === 'surroundings' ? boundaries.find(row => row.id === surroundingsBoundaries[0])?.floorId : tool === 'topology' ? topologyAreas[0]?.floorId : boundary?.floorId) ?? target?.floorId ?? Object.keys(scene.floors)[0]
   const valid = Number.isSafeInteger(radiusMm) && radiusMm >= 100 && radiusMm <= 10000 && Number.isSafeInteger(elevationMm)
     && [scopeMm.x, scopeMm.y, scopeMm.width, scopeMm.height].every(Number.isSafeInteger) && scopeMm.width > 0 && scopeMm.height > 0
   const surroundingsValid = surroundingsSeed.trim().length > 0 && surroundingsSeed.length <= 128 && Number.isSafeInteger(displacementMm) && displacementMm >= 10 && displacementMm <= 1500 && surroundingsBoundaries.length > 0 && surroundingsBoundaries.length <= 32

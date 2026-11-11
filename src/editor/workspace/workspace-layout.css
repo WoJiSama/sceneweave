@@ -16,12 +16,15 @@
 .workspace-layout-storage{font-size:10px;color:#926d3c}
 .workspace-layout-body{position:relative;display:grid;grid-template-columns:64px var(--workspace-resources-width) 8px minmax(0,1fr) 8px var(--workspace-details-width);min-height:0;min-width:0;flex:1;overflow:hidden}
 /* Module navigation and pointer tools have separate, stable homes. */
-.workspace-module-navigation{display:flex;flex-direction:column;align-items:stretch;gap:5px;min-height:0;padding:8px 5px;background:#f2f5eb;border-right:1px solid #d8e0d0;overflow-y:auto;overscroll-behavior:contain;z-index:1}
-.workspace-module-navigation>button{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:none;gap:5px;min-height:58px;padding:7px 3px;border:1px solid transparent;border-radius:6px;background:transparent;color:#617957;cursor:pointer;font-size:11px;line-height:1.3;position:relative}
-.workspace-module-navigation>button:hover{background:#e5ecdc}
-.workspace-module-navigation>button[aria-current=page]{border-color:#bdcfae;background:#e2ecd8;color:#3e6330;font-weight:600}
-.workspace-module-navigation>button[aria-current=page]:before{content:"";position:absolute;left:-5px;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0;background:#5d8548}
-.workspace-module-navigation>button:disabled{opacity:.45;cursor:default}
+.workspace-module-navigation{display:flex;flex-direction:column;align-items:stretch;min-height:0;background:#f2f5eb;border-right:1px solid #d8e0d0;overflow:hidden;z-index:1}
+.workspace-module-group{display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:8px 5px}
+.workspace-module-workflow{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.workspace-module-utility{flex:none;border-top:1px solid #d8e0d0}
+.workspace-module-group>button{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:none;gap:5px;min-height:58px;padding:7px 3px;border:1px solid transparent;border-radius:6px;background:transparent;color:#617957;cursor:pointer;font-size:11px;line-height:1.3;position:relative}
+.workspace-module-group>button:hover{background:#e5ecdc}
+.workspace-module-group>button[aria-current=page]{border-color:#bdcfae;background:#e2ecd8;color:#3e6330;font-weight:600}
+.workspace-module-group>button[aria-current=page]:before{content:"";position:absolute;left:-5px;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0;background:#5d8548}
+.workspace-module-group>button:disabled{opacity:.45;cursor:default}
 .workspace-module-icon{display:flex;align-items:center;justify-content:center;height:21px}
 .workspace-module-icon svg{width:20px;height:20px}
 .workspace-canvas-tools{display:flex;align-items:center;gap:4px;flex:none;min-height:42px;min-width:0;padding:5px 8px;border-bottom:1px solid #d9e1d1;background:#f8faf4;overflow-x:auto;overscroll-behavior:contain}

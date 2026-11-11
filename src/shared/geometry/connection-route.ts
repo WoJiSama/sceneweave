@@ -8,6 +8,7 @@ const routeShape = z.object({ version: z.literal(1), kind: z.enum(['polyline', '
   segments: z.array(segment).min(1).max(16), sampleSpacingMm: z.number().int().min(4).max(20_000),
   toleranceMm: z.number().int().min(1).max(1000), centerlineMm: z.array(point).min(2).max(256),
   stairStyle: z.enum(['stone', 'wood', 'naturalRock']), treadDepthMm: z.number().int().min(50).max(2000),
+  renderProfile: z.literal('naturalRockSteps2').optional(),
 }).strict()
 export type ConnectionRoute = z.infer<typeof routeShape>
 export const CONNECTION_ROUTE_LIMITS = Object.freeze({ segments: 16, samples: 256, treads: 512 })
@@ -24,6 +25,7 @@ export function sampleConnectionRoute(route: Pick<ConnectionRoute, 'kind' | 'seg
 }
 export const connectionRouteSchema = routeShape.superRefine((route, context) => {
   try {
+    if (route.renderProfile && route.stairStyle !== 'naturalRock') throw new Error('细化自然踏面仅用于自然岩阶。')
     const expected = sampleConnectionRoute(route)
     if (expected.length !== route.centerlineMm.length || expected.some((p, i) => !same(p, route.centerlineMm[i]))) throw new Error('连接保存的中心线须与控制源的确定性完整采样逐点一致。')
     const length = expected.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - expected[i].x, p.y - expected[i].y), 0)

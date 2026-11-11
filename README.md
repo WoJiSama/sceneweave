@@ -8,7 +8,7 @@ Sceneweave 是面向桌面角色扮演的二维场景地图编辑器，用同一
 
 ## 当前能力与边界
 
-- 统一工作区按场景、素材、建筑、地形、氛围、生成、AI和历史八模块组织；支持点击墙面放门窗、按用途找素材、米/英尺输入、图层、非破坏性外观及有限历史恢复。玩家地图、主持人地图与可编辑工程备份从「导出」分别选择。
+- 统一工作区按场景→生成→地形→建筑→素材与布景→氛围组织，AI和历史独立置底；支持点击墙面放门窗、按用途找素材、米/英尺输入、图层、非破坏性外观及有限历史恢复。玩家地图、主持人地图与可编辑工程备份从「导出」分别选择。
 - 当前正常入口只接收当前完整 v1 工程，保留原 v8 的全量能力；旧整页工作台和旧格式产品入口已退役，旧用户数据不删除。
 - 开发期只维护一套当前完整能力的工程v1，后续功能直接演进同一schema；归一、一次性本机迁入和通用生成薄层已实现，室内、森林、火山及有限混合场景接入同一公共入口，支持本机Worker与显式程序化服务端。完整回归与验收留开发完成后统一执行，具体状态见[路线图](docs/07-roadmap.md#general-map-generation-priority)。
 - 生成模块提供参数化室内布局：可变房间、净面积/净边长、邻接/分离和可选走廊，首次按用途/大小建议门和家具并核对实际通路净空，缺项可审阅；预览后保存为可编辑的新工程，后续删改不会自动补回。
@@ -23,7 +23,9 @@ Sceneweave 是面向桌面角色扮演的二维场景地图编辑器，用同一
 
 当前安排：**开发整改阶段 → 验收阶段**，完成后再进入M3真实小团。开发任务只在[路线图](docs/07-roadmap.md#development)维护，全部验收从[质量计划](docs/09-quality-plan.md#acceptance)执行。
 
-工作台已采用最左八模块（场景、素材、建筑、地形、氛围、生成、AI、历史）、左侧全局查找/组织与右侧上下文详情，选择/平移等独立为画布工具条，文件操作集中在顶栏。完整[设计](docs/reference/editor-and-architecture.md#workspace-information-architecture)、[实施计划](docs/07-roadmap.md#workspace-information-architecture-plan)及[验收映射](docs/09-quality-plan.md#workspace-information-architecture-acceptance)分别维护当前合同、开发状态及正式待验范围；开发自检不等于验收或发布。
+当前已启动主线为[地图细节、自然衔接与创作工具](docs/07-roadmap.md#map-detail-mainline)：道路吸附和地表融合、地形层次、背景与植被、光影对照，并配套创作顺序导航和有限高程工具。参考项目研究、工作包依赖、并行文件分工与可直接复用的会话接续提示都在该节；首轮接入导航、道路辅助和简单整面高程，确切支持范围及开发自检见07，连续高度场仅独立原型评估，完整3D不在本轮。
+
+工作台已采用最左八模块（场景、生成、地形、建筑、素材与布景、氛围，以及底部AI、历史）、左侧全局查找/组织与右侧上下文详情，选择/平移等独立为画布工具条，文件操作集中在顶栏。完整[设计](docs/reference/editor-and-architecture.md#workspace-information-architecture)、[实施计划](docs/07-roadmap.md#workspace-information-architecture-plan)及[验收映射](docs/09-quality-plan.md#workspace-information-architecture-acceptance)分别维护当前合同、开发状态及正式待验范围；开发自检不等于验收或发布。
 
 ## 本地运行
 
