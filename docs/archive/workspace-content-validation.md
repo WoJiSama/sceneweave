@@ -23,6 +23,35 @@
 - [四项核心能力六步收束与开发自检](#core-convergence-20261109)
 - [目录与保存重复编码整改](#snapshot-remediation-20261109)
 - [性能运行器草稿退出工具整改](#validation-tool-remediation-20261110)
+- [生成链路确切快照消费整改与开发自检](#generation-certificate-20261110)
+
+<a id="generation-certificate-20261110"></a>
+## 生成链路确切快照消费整改与开发自检（2026-11-10）
+
+用户在温带荒野整改和共同链路诊断后要求继续。本项消费已有[04会话快照合同](../04-scene-document.md#workspace-snapshot-contract)及[06保存合同](../06-storage-and-export.md#snapshot-persistence-contract)，开发状态只归[07](../07-roadmap.md#generation-certificate-implementation)，正式矩阵归[09](../09-quality-plan.md#workspace-snapshot-acceptance)。本次在main工作区继续，保留原脏树及独立`todo.md`，未切分支、提交、推送或部署；没有模型请求、重发未知任务或更改素材/生成算法。
+
+### 实现及保全边界
+
+`workspace/project.ts`增加内部`consumeEditableSnapshot`，以共享校验器的`validateProjectSnapshot`消费确切metadata/独立字节闭包及当前真实images/SVG能力；未知包装、外部克隆、伪冻结、换reader或更换实际方法均回退全验。公开`fromBundle`及`validateEditableProject`不变，没有调用方免检字段或持久化凭证。
+
+共同`prepareDomainProject`不再先克隆base丢失私有认证，物化传入已认证baseline，并在执行器await及物化后再次确认当前实际处理能力，防止等待期间替换解码器而沿用旧能力证明。Workspace的生成base、采用前候选和冷读后转换使用同一私有消费路径；冷读仍由仓库真正读取实际数据库并全验，未知仓库返回仍完整验证。传输提案严格解析及采用时本机完整重放、精确身份分配、当前基线/领域/锁/依赖/玩家投影、预算、公开save、实际load/CAS与失败保全保持。当前完整v1及数据库结构未变。
+
+### 必要自检、首败与实际交付
+
+证据根为被Git忽略的本机`work/generation-certificate-20261110/`。原正常生产包复用前轮最终产物，开始前1142份产品源/配置逐份与原冻结相同；副本与全部计时另存，不覆盖上轮诊断或AI比较。后组1662份源/配置/素材/测试与176份正常产物独立冻结，交付校验使用冻结源码，不消费后来并行任务的文档状态。
+
+| 检查 | 新鲜结果与实际范围 |
+|---|---|
+| 重复校验复现及同案修复 | `red-generation.log`在原实现对同一已认证1px资源预览断言失败，实际decode调用3次。实现后`green-generation.log`同案通过：预览不重复解码，采用时公开save及真实cold load仍解码2次。首败是整改前目标复现，未删除/弱化断言。 |
+| 相关集成回归 | `unit-integration.log`同轮7文件52项通过，串行maxWorkers1/testTimeout30000；覆盖应用资源交接、四生成领域、语义生成入口与共享快照能力生命周期。新增未知/克隆/换reader、坏字节/许可、getter不执行、缓存取消、执行器await更换实际方法、冷读后更换能力/取消及未知冷读返回；现有重算公开hash的恶意提案仍被本机重放拒绝，过期/保存/冷读失败保全与删除/撤销保持。 |
+| 正常生产构建 | `build-normal.log`退出0，架构284模块、应用/AI类型及正常Vite通过；既有包体积/重复导入告警保留，没有性能构建或探针。 |
+| 真实UI生成及前后观察 | 原九参数表单路径，前后各三轮空context，正常生产页面实际预览、采用保存、完整工程及4096玩家PNG下载均complete，页面异常0，无自动重试。设备、全量样本、计时终点及后台负载限制统一归[性能参考](../reference/performance.md#generation-certificate-observation-20261110)，不在此重复数表或关闭正式性能。 |
+| 六包独立冷导入/资源/实际PNG | `verification.log`及六份`baseline/proof-*`、`after/proof-*`均verified；每份实际包经真实资源/许可全验，实际下载的4096×3277玩家PNG与重渲染RGBA一致。六份限定几何、56PNG+112SVG源共168资源与实际RGBA一致，原完整工程/文档规范内容及比较排除项独立保留于proof，不宣称全元数据或原包二进制完全相同。 |
+
+本轮开发缩样不替代真人时间、真实模型、全跨浏览器、完整视觉/P3、存储故障/容量或09正式性能。未更改源码中的通行、固定源/许可、人工编辑保护和公开验证边界；素材工厂与正式输出仍有完整验证开销。后续从07当前主线接续，需要继续性能整改时另立确切输入及正常生产证据。
+
+最终`final-integrity.json`确认前后各176份固定产物、后组1662份输入均无漂移；1142份原产品输入仅本轮3份运行时/2份测试变化，当前根工作区与后组输入一致。并行会话的04、14及其他新增文档修改单列，不覆盖或归为本轮产品验证；`todo.md`哈希保持。五份相关文档788条本地链接/锚点及`git diff --check`通过。新的本机成果页`http://127.0.0.1:5214/work/generation-certificate-20261110/`展示全部六轮、实际地图/工程及proof；26条链接HTTP200，实际图片解码、1440/390布局无横溢、页面异常0，最终两视口截图已实际核看，不代表公开发布或用户签收。
+
 
 <a id="validation-tool-remediation-20261110"></a>
 ## 性能运行器草稿退出工具整改（2026-11-10）

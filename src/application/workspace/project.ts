@@ -1,7 +1,7 @@
 import type { ProjectBundle, ProjectData, ResourceBytePort } from '../../shared/model/project.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
-import { captureProjectBundleInput, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, type VerifiedProjectBundle } from '../../shared/project/resources.js'
+import { captureProjectBundleInput, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectSnapshot, type VerifiedProjectBundle } from '../../shared/project/resources.js'
 import { captureJson } from '../../shared/validation/json.js'
 
 /** Native complete-v1 metadata plus an owned byte reader, never a legacy view. */
@@ -84,4 +84,10 @@ export async function fromBundle(bundle: ProjectBundle, options: CompleteValidat
 
 export async function validateEditableProject(input: EditableProject, options: CompleteValidationOptions): Promise<EditableProject> {
   return fromBundle(toBundle(input), options)
+}
+
+/** Internal consumption of exact owned snapshots under the current processing
+ * capabilities. Unknown wrappers or changed adapters retain full validation. */
+export async function consumeEditableSnapshot(input: EditableProject, options: CompleteValidationOptions): Promise<EditableProject> {
+  return fromVerifiedBundle(await validateProjectSnapshot(toBundle(input), options), options)
 }

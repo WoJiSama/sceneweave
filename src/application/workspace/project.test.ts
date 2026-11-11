@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { cloneJson } from '../../shared/validation/json.js'
 import { getVerifiedProjectBundle, validateProjectBundle } from '../../shared/project/resources.js'
 import { fixture, validation } from './test-fixtures.js'
-import { fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject } from './project.js'
+import { consumeEditableSnapshot, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject } from './project.js'
 
 const options = () => ({ images: { ...validation.images, decode: vi.fn(validation.images.decode) } })
 
@@ -54,6 +54,46 @@ describe('owned editable project verification handoff', () => {
     expect(publicEditable).not.toBe(internal)
     expect(toBundle(publicCopy).resources).not.toBe(verified.resources)
     expect(toBundle(publicEditable).resources).not.toBe(verified.resources)
+  })
+
+  it('consumes only an exact snapshot and rechecks changed processing capabilities', async () => {
+    const checking = options(), project = await fromBundle(fixture({ image: true }), checking)
+    checking.images.decode.mockClear()
+    expect(toBundle(await consumeEditableSnapshot(project, { ...checking }))).toBe(toBundle(project))
+    expect(checking.images.decode).not.toHaveBeenCalled()
+    const other = { images: { ...checking.images } }
+    await consumeEditableSnapshot(project, other)
+    await consumeEditableSnapshot(project, other)
+    expect(checking.images.decode).toHaveBeenCalledTimes(1)
+    other.images.decode = vi.fn(async () => { throw new Error('changed decoder') })
+    await expect(consumeEditableSnapshot(project, other)).rejects.toThrow('changed decoder')
+    expect(other.images.decode).toHaveBeenCalledTimes(1)
+  })
+
+  it('fully checks unfamiliar editable wrappers and rejects corrupted bytes or license closures', async () => {
+    const checking = options(), project = await fromBundle(fixture({ image: true }), checking)
+    checking.images.decode.mockClear()
+    for (const candidate of [Object.freeze({ ...project }), { ...project, document: cloneJson(project.document) },
+      { ...project, resources: Object.freeze({ read: project.resources.read }) }]) {
+      await consumeEditableSnapshot(candidate, checking)
+    }
+    expect(checking.images.decode).toHaveBeenCalledTimes(3)
+    await expect(consumeEditableSnapshot({ ...project, resources: { async read(hash) {
+      const bytes = await project.resources.read(hash); bytes[0] ^= 1; return bytes
+    } } }, checking)).rejects.toThrow()
+    await expect(consumeEditableSnapshot({ ...project, licenseBindings: [] }, checking)).rejects.toThrow()
+    let reads = 0
+    const hostile = Object.defineProperty({ ...project }, 'document', { enumerable: true, get() { reads++; return project.document } })
+    await expect(consumeEditableSnapshot(hostile, checking)).rejects.toThrow(/访问器/)
+    expect(reads).toBe(0)
+  })
+
+  it('rejects pre-cancelled consumption even for an exact certified snapshot', async () => {
+    const checking = options(), project = await fromBundle(fixture({ image: true }), checking)
+    checking.images.decode.mockClear()
+    await expect(consumeEditableSnapshot(project, { ...checking, signal: { aborted: true } })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(checking.images.decode).not.toHaveBeenCalled()
+    expect(toBundle(await consumeEditableSnapshot(project, checking))).toBe(toBundle(project))
   })
 
   it('keeps detached bytes and rejects accessors without evaluating them', async () => {

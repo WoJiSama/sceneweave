@@ -7,6 +7,8 @@
 - [会话快照整改后的生产观察](#workspace-snapshot-20261108)
 - [新布局与会话快照整合冻结的正式复测](#workspace-snapshot-integrated-20261108)
 - [目录与保存重复编码整改的生产对照](#snapshot-remediation-20261109)
+- [林中建筑预览与采用保存的单次分段诊断](#generation-validation-diagnosis-20261110)
+- [生成链路快照消费整改的正常生产前后观察](#generation-certificate-observation-20261110)
 - [根因整改后的正常生产低样本观察](#root-remediation-20261106)
 - [层级组合代表性整合与开发观察（j）](#aggregate-integration-j-20261106)
 - [普通事务分档与编辑/保存首轮诊断](#t2-manual-capacity-20261105)
@@ -21,6 +23,55 @@
 - [大图交互与分级容量诊断](#interaction-capacity-20261030)
 - [普通编辑优化](#ordinary-edit-optimization-20261029)
 - [既有冻结与失败记录](#doc-34)
+
+<a id="generation-certificate-observation-20261110"></a>
+## 生成链路快照消费整改的正常生产前后观察（2026-11-10）
+
+用户在上轮诊断后要求继续实施。开发状态归[07](../07-roadmap.md#generation-certificate-implementation)，实现/安全自检归[工作区台账](../archive/workspace-content-validation.md#generation-certificate-20261110)。本节是正常生产的本机低样本对照，没有插桩、模型请求、模拟响应或自动重试；不替换下节诊断和原AI三入口记录，不代表正式性能验收或真人收益。
+
+证据根为`work/generation-certificate-20261110/`。前组复用上一轮最终正常生产包，开始前本次核对1142份产品源/配置与其冻结逐字节一致，复制为独立`baseline-production/`；五份本轮变更前源码/测试另外恢复并逐份核对预编辑哈希，没有用新源码重命名为旧基线。后组`build-normal.log`正常架构/类型/Vite构建成功，1662份源/配置/素材/测试和176份实际产物分别冻结于`after-source-freeze.json`、`after-dist-freeze.json`，独立静态副本`after-production/`不含性能API或探针。
+
+设备为Apple M1、8逻辑核、16GiB、Darwin25.6.0 arm64、Node24.14.1、headless Playwright Chromium141.0.7390.37，1512×982/DPR1、zh-CN、reduced-motion。前后三轮分别顺序执行，每轮空browser context/IndexedDB；前组地址5254、后组5255，均为本机静态正常产物。输入固定为40×32m、`forest-outpost-1`、两间“哨站休息室”、家具开启、植被倍率1，与原机器样例九参数相同。
+
+`comparison-runner.mjs`只封装原`page-path.mjs`的表单路径，原文件及参数文件在前后各轮执行后哈希保持。计时使用同一Node `performance.now`，预览终点为候选及画布就绪，采用终点为新工程打开并显示已保存，交付终点为实际4096玩家PNG下载完成；末尾证据截图在计时之后。全程不主动并行测试、构建或另开浏览器，代理只作只读审查/文本工作。没有清OS缓存或全程系统排他监控；两组开始时系统1分钟load average分别约8.41/18.56，后台竞争不能排除。全部六轮保留，无失败重跑或剔除，不能将单一窄样例百分比当作稳定容量或跨路径承诺。
+
+| 正常UI区间 | 前组三轮（秒） | 后组三轮（秒） | 前/后中位（秒） | 观察 |
+|---|---|---|---|---|
+| 预览 | 22.11 / 22.55 / 21.76 | 12.50 / 12.27 / 12.48 | 22.11 / 12.48 | 减少43.6% |
+| 采用保存 | 22.78 / 23.73 / 22.97 | 10.08 / 10.38 / 10.47 | 22.97 / 10.38 | 减少54.8% |
+| 完整工程下载 | 3.43 / 3.50 / 3.45 | 3.41 / 3.45 / 3.72 | 3.45 / 3.45 | 无可归因改善 |
+| 玩家4096PNG下载 | 9.62 / 9.68 / 9.22 | 9.30 / 9.58 / 11.33 | 9.62 / 9.58 | 无可归因改善 |
+| 完整交付终点 | 60.15 / 61.27 / 59.15 | 37.83 / 37.34 / 39.84 | 60.15 / 37.83 | 减少22.32秒，约37.1% |
+
+本轮仅贯通生成base、物化baseline、采用前候选和实际冷读后转换的私有快照证明，处理器能力换代仍需全验；没有更改素材工厂、算法、本机重放、公开save、实际load或正式导出。真实1px资源回归先复现预览3次重复解码，修复后同案预览不重解码，采用中仍执行公开保存和实际冷读两次解码。这个内部计数只证明复用边界，上表才是正常端到端观察，未将旧插桩区间相加为节省时间。
+
+`verify-comparison.mjs`在计时全部结束后，通过冻结的`after-source/`独立核验六个实际下载包：每包全量冷导入、资源/许可及实际像素验证，下载的4096×3277玩家PNG与包重渲染逐像素相同。六包明确范围几何、56PNG+112SVG源共168资源及RGBA均一致，RGBA为`45223a13ac673edb58aa878089041428eb099eac65fc2511ae5cf54a9694908c`；每份原始完整工程规范内容和原文档另存，包的场景ID/时间/历史身份不同，不宣称完整工程二进制或全部元数据完全相同。比较视图排除了生成配方/归属/receipt、外观/历史身份/源图和visual/regional/aggregate元数据，具体排除清单保留于每份`proof.json`及`comparison.json`，不以限定几何等价冒充全工程相同。
+
+两组`summary.json`均complete、页面异常0、模型任务POST0；六份`proof.json`和本根`comparison.json`status均verified。当前只证明本轮窄样例的正确交付与较少等待，完整跨浏览器、负载/内存、正式性能和09其他项保持原状态。后续产品开发按07当前主线接续；进一步性能工作须重新冻结剩余热点，不能将本轮结果外推为AI模型变快。
+
+<a id="generation-validation-diagnosis-20261110"></a>
+## 林中建筑共同生成链路分段诊断（2026-11-10）
+
+用户在三入口比较后确认先整改温带荒野、再定位共同等待。素材/真实工程开发证据归[工作区台账](../archive/workspace-content-validation.md#wilderness-remediation-20261110)，后续开发只归[07](../07-roadmap.md#asset-expansion-implementation)。本节仅为一次隔离插桩诊断，不是优化前后对照、正式性能或新的AI速度比较；没有模型请求，也没有替换旧机器样本。
+
+证据根为`work/wilderness-remediation-20261110/performance/`。`profile-source-2/`冻结1663份原输入及17个有效函数/15个细区间，`profile-source-manifest.json`连同`instrumentation-repair.json`记录生成意图整函数恢复原文的修正。实际正常副本构建见`build-2-final.log`，额外`await`和`performance.now`只在副本。原正常生产构建无探针，源码/dist不改。设备为Apple M1、8逻辑核、16GiB、Darwin25.6.0 arm64、Node24.14.1、headless Chromium141.0.7390.37、1512×982/DPR1；新profile、串行正常表单点击，测量期间未主动并行测试、构建或浏览器。未清OS缓存，也没有全程系统负载排他证明，不据此建立正式分布。
+
+输入沿原三入口的40×32m、`forest-outpost-1`、两间“哨站休息室”、家具开、植被倍率1。实际固定资源是56PNG与112SVG源文件，共168资源；不是168张图片。`observation/result.json`保留原始区间、`summary.json`按标签聚合，父子区间重叠不得相加。
+
+| 区间 | 预览 | 采用保存 |
+|---|---:|---:|
+| UI外层等待 | 22.67秒 | 23.98秒 |
+| 完整资源验证 | 6次，累计16.38秒 | 6次，累计19.67秒 |
+| 其中实际像素验证 | 累计16.12秒 | 累计19.32秒 |
+| 固定SVG栅格调用 | 336次，累计10.76秒 | 336次，累计10.65秒 |
+| 领域执行器 | 2.41秒 | 重放执行器2.36秒 |
+| 数据库资源写入 | 不适用 | 0.09秒 |
+
+预览的整套素材工厂9.43秒，另有Workspace base全验3.39秒、生成prepare base全验3.38秒、候选物化3.43秒。采用的完整重放9.20秒，候选再验3.27秒、公开save3.56秒、实际load3.61秒、冷读后`fromBundle`再验3.25秒。上述项仍含嵌套成本，不能相加为独立CPU时间或可节省时间。采用资源写入只有0.09秒，当前证据优先指向重复字节/像素验证，不能把整个等待归为IndexedDB写入。
+
+具体候选边界：`prepareDomainProject`的`captureEditableDraft`丢失私有认证、`materializeProject`未消费baseline，以及`repository.load`已返回认证bundle后又`fromBundle`全验。后续先设计校验器签发的确切不可变凭证如何贯通，仍逐次检查当前领域/许可/锁/依赖/基线；公开save、实际数据库冷读/坏块、导入/导出、CAS和不可信执行器本机重放继续。未经凭证证明的可变包装或更换资源端口必须回退全验；不能删公开全验或靠调用方标记免检。
+
+两个观测窗口均无丢弃和未结束跨度，交付complete、页面异常0；renderInternal另有4个failed跨度，探针只记录布尔而未捕获错误种类，不据此推断其原因或签收渲染可靠性。诊断生成的实际完整包已独立冷导入/资源全验，4096玩家PNG与包重渲染逐像素一致，并与原独立机器样例几何/168资源/RGBA一致，见本轮`delivery-verification.json`及`performance/delivery-proof/proof.json`。旧机器记录保持，后续优化仍须独立正常构建、原输出不变及正常端到端对照，当前没有已提速结论。
 
 <a id="snapshot-remediation-20261109"></a>
 ## 2026-11-09：目录与保存重复编码整改的正常生产对照

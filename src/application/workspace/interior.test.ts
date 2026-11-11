@@ -50,6 +50,18 @@ afterEach(async () => {
 })
 
 describe('complete interior candidate and independent project publication', () => {
+  it('reuses exact generation resources while still checking public save and actual cold read pixels', async () => {
+    const { repo, workspace } = await setup(), decode = vi.spyOn(validation.images, 'decode'), base = await blank()
+    decode.mockClear()
+    const preview = await workspace.previewInteriorGeneration(base, request(base), profile)
+    expect(decode).not.toHaveBeenCalled()
+    const load = vi.spyOn(repo, 'load'), save = vi.spyOn(repo, 'save')
+    await workspace.adoptInteriorGeneration(preview)
+    expect(save).toHaveBeenCalledTimes(1); expect(load).toHaveBeenCalledTimes(1)
+    expect(decode).toHaveBeenCalledTimes(2)
+    expect(projectContentHash(toBundle(workspace.getState().project!).project)).toBe(projectContentHash(toBundle(preview.project).project))
+  }, 30000)
+
   it('uses the public entry for an executor preview and replays locally before cold publication', async () => {
     const { repo, workspace } = await setup(), base = await blank(), current = workspace.getState().project!
     const execute = vi.fn(async raw => {
@@ -66,6 +78,50 @@ describe('complete interior candidate and independent project publication', () =
     await workspace.adoptGeneration({ kind: 'new-project', domain: 'interior', preview })
     expect(execute).toHaveBeenCalledTimes(1)
     expect(projectContentHash((await repo.load(base.document.sceneId))!.project)).toBe(projectContentHash(toBundle(preview.project).project))
+  }, 30000)
+
+  it('rechecks a processing method replaced while awaiting an executor without publishing a candidate', async () => {
+    const { repo, workspace } = await setup(), base = await blank(), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
+    const save = vi.spyOn(repo, 'save')
+    await expect(workspace.previewInteriorGeneration(base, request(base), profile, { execute: async raw => {
+      const result = executeDomainExecutionRequest(raw, { nowMilliseconds: () => 0 })
+      vi.spyOn(validation.images, 'decode').mockRejectedValue(new Error('executor changed decoder'))
+      return result
+    } })).rejects.toThrow('executor changed decoder')
+    expect(save).not.toHaveBeenCalled(); expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
+  }, 30000)
+
+  it.each(['valid-reader', 'corrupt-reader', 'changed-capability', 'cancelled'] as const)('checks cold publication for %s instead of trusting a repository wrapper', async kind => {
+    const { repo, workspace } = await setup(), base = await blank()
+    const preview = await workspace.previewInteriorGeneration(base, request(base), profile), current = workspace.getState().project!, checkpoint = workspace.checkpoint()
+    const originalLoad = repo.load.bind(repo), decode = vi.spyOn(validation.images, 'decode'), signal = { aborted: false }
+    vi.spyOn(repo, 'load').mockImplementationOnce(async (...args) => {
+      const cold = (await originalLoad(...args))!
+      decode.mockClear()
+      if (kind === 'changed-capability') {
+        validation.images.decode = vi.fn(async () => { throw new Error('cold changed decoder') })
+        return cold
+      }
+      if (kind === 'cancelled') { signal.aborted = true; return cold }
+      return { project: cloneJson(cold.project), resources: { async read(hash) {
+        const bytes = await cold.resources.read(hash)
+        if (kind === 'corrupt-reader') bytes[0] ^= 1
+        return bytes
+      } } }
+    })
+    // The capability case deliberately replaces the method itself, not a spy's
+    // implementation: the actual function identity is part of the certificate.
+    try {
+      if (kind === 'valid-reader') {
+        await workspace.adoptInteriorGeneration(preview, { signal })
+        expect(decode).toHaveBeenCalledTimes(1)
+        expect(workspace.getState().project!.document.sceneId).toBe(base.document.sceneId)
+      } else {
+        await expect(workspace.adoptInteriorGeneration(preview, { signal })).rejects.toThrow()
+        expect(workspace.getState().project).toBe(current); expect(workspace.checkpoint()).toBe(checkpoint)
+        if (kind === 'changed-capability') expect(validation.images.decode).toHaveBeenCalledTimes(1)
+      }
+    } finally { validation.images.decode = decode }
   }, 30000)
 
   it('rejects a self-consistent rehashed transport proposal at local adoption without saving it', async () => {
