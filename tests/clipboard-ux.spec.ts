@@ -40,7 +40,7 @@ test('production keyboard clipboard keeps object data private, previews once and
   await expect(revision).toHaveAttribute('data-revision', String(original.document.revision))
   await expect(review).toHaveCount(0)
   const navigation = await openKeyboardPanel(page, 'navigation')
-  const search = navigation.getByLabel('搜索场景物件', { exact: true })
+  const search = navigation.getByLabel('搜索场景对象', { exact: true })
   await search.fill('')
   await search.press('ControlOrMeta+V')
   const marker = await search.inputValue()

@@ -1,16 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
-import { openGenerationTask, openTerrainTask } from './workspace-navigation-helpers'
+import { openGenerationTask, openTerrainTask, closeWorkspaceDrawers } from './workspace-navigation-helpers'
 
 async function closeDrawers(page: Page): Promise<void> {
-  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') !== 'true') continue
-    await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
-    await expect(panel).toHaveAttribute('data-open', 'false')
-  }
+  await closeWorkspaceDrawers(page)
 }
 
 async function chooseContour(page: Page): Promise<void> {

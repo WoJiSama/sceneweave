@@ -1,3 +1,4 @@
+import { openBuildingTask, openSceneObjects, openVisualTask } from './workspace-navigation-helpers'
 import { openVttExport } from './workspace-ux-helpers'
 import { expect, test, type Download, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -48,17 +49,16 @@ async function adopt(page: Page, kind: '结构' | '视觉' = '结构') {
   await page.getByRole('button', { name: `采用${kind}修改`, exact: true }).click(); await settled(page)
 }
 async function createRoom(page: Page) {
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openBuildingTask(page)
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   await page.getByLabel('房间名称', { exact: true }).fill('公开测试房间')
   for (const [label, value] of [['房间起点 X', 2000], ['房间起点 Y', 2000], ['房间宽度', 6000], ['房间高度', 4000]] as const) await number(page, label, value / 1000)
   await page.getByRole('button', { name: '预览新房间', exact: true }).click(); await adopt(page)
   return Object.keys((await state(page)).document.rooms)[0]
 }
-async function selectWall(page: Page, roomId: string, wallId: string) {
-  const room = page.locator(`[data-building-room-id="${roomId}"]`)
-  if (!await room.evaluate(element => (element as HTMLDetailsElement).open)) await room.locator('summary').click()
-  await room.locator(`[data-building-wall-id="${wallId}"]`).click()
+async function selectWall(page: Page, _roomId: string, wallId: string) {
+  const objects = await openSceneObjects(page, '结构')
+  await objects.locator(`[data-entity-id="${wallId}"]`).click()
 }
 async function downloaded(download: Download) {
   const file = await download.path(); expect(file).not.toBeNull()
@@ -89,8 +89,7 @@ test('VTT UI exports the actual player raster, proportional native walls/portals
   await number(page, '开口近端偏移', 3)
   await page.getByLabel('秘密开口', { exact: true }).check()
   await page.getByRole('button', { name: '预览新增门窗', exact: true }).click(); await adopt(page)
-  await page.getByRole('tab', { name: '外观', exact: true }).click()
-  await page.getByRole('navigation', { name: '视觉工具', exact: true }).getByRole('button', { name: '灯光', exact: true }).click()
+  await openVisualTask(page, '灯光')
   await number(page, '视觉灯光 X mm', 5000); await number(page, '视觉灯光 Y mm', 4000)
   await number(page, '视觉灯光半径 mm', 2500)
   await page.getByRole('button', { name: '预览灯光', exact: true }).click(); await adopt(page, '视觉')

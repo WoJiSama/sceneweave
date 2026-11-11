@@ -1,4 +1,4 @@
-import { openGenerationTask } from './workspace-navigation-helpers'
+import { openGenerationTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test } from '@playwright/test'
 
 test('interior suggestions save, cold-open and allow deleting furniture without restoring it', async ({ page }, info) => {
@@ -14,28 +14,29 @@ test('interior suggestions save, cold-open and allow deleting furniture without 
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
   await openGenerationTask(page, '室内布局')
   const panel = page.getByRole('region', { name: '室内布局生成', exact: true })
+  const candidate = page.getByTestId('workspace-inspector').getByLabel('室内布局候选摘要', { exact: true })
   await panel.getByLabel('室内工程名称').fill('D3室内三房间')
   await panel.getByLabel('房间2用途').fill('卧室')
   await panel.getByRole('button', { name: '增加房间', exact: true }).click()
   await panel.getByLabel('房间3用途').fill('厨房')
   await panel.getByRole('button', { name: '增加房间关系', exact: true }).click()
   await panel.getByRole('button', { name: '预览室内布局', exact: true }).click()
-  await expect(panel.getByLabel('室内布局候选摘要')).toBeVisible({ timeout: 30000 })
-  await expect(panel.getByLabel('室内布局候选摘要')).toContainText('3 个房间')
-  await expect(panel.getByLabel('室内首次布置结果')).toContainText(/实际安排 [1-9]\d* 扇门、[1-9]\d* 件家具/)
+  await expect(candidate).toBeVisible({ timeout: 30000 })
+  await expect(candidate).toContainText('3 个房间')
+  await expect(candidate.getByLabel('室内首次布置结果')).toContainText(/实际安排 [1-9]\d* 扇门、[1-9]\d* 件家具/)
   await expect(page.locator('.asset-view-actions')).toContainText('12.000 m × 8.000 m')
   await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible()
   await page.screenshot({ path: info.outputPath('interior-preview.png') })
   // Changing a parameter invalidates the old candidate before another preview.
   await panel.getByLabel('房间1用途').fill('会客室')
-  await expect(panel.getByLabel('室内布局候选摘要')).toHaveCount(0)
+  await expect(candidate).toHaveCount(0)
   await panel.getByRole('button', { name: '预览室内布局', exact: true }).click()
-  await expect(panel.getByLabel('室内布局候选摘要')).toContainText('会客室', { timeout: 30000 })
-  await panel.getByRole('button', { name: '保存为新工程', exact: true }).click()
+  await expect(candidate).toContainText('会客室', { timeout: 30000 })
+  await candidate.getByRole('button', { name: '保存为新工程', exact: true }).click()
   // The old project can still read “saved” while the independent candidate is
   // being replayed and cold-read. Await the actual publication completion.
   await expect(page.getByRole('alert').filter({ hasText: '室内布局已完整保存' })).toBeVisible({ timeout: 30000 })
-  await expect(panel.getByLabel('室内布局候选摘要')).toHaveCount(0)
+  await expect(candidate).toHaveCount(0)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
   // A page reload and the public recent-project UI exercise actual cold opening.
   await page.goto('/#home')
@@ -48,13 +49,13 @@ test('interior suggestions save, cold-open and allow deleting furniture without 
   await page.screenshot({ path: info.outputPath('interior-cold-open.png') })
   // Initial suggestions never become permanent requirements. Delete a real
   // generated furniture instance through the normal inspector, then cold-open.
-  await page.getByRole('tab', { name: '对象', exact: true }).click()
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
+  await openWorkspaceModule(page, '场景')
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
   const furniture = page.locator('.asset-entity-list button[data-entity-id]').first()
   await expect(furniture).toBeVisible()
   const deletedId = await furniture.getAttribute('data-entity-id')
   expect(deletedId).toBeTruthy()
-  await page.getByLabel('搜索场景物件', { exact: true }).fill(deletedId!)
+  await page.getByLabel('搜索场景对象', { exact: true }).fill(deletedId!)
   await furniture.click()
   await page.getByRole('button', { name: '删除物件', exact: true }).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
@@ -66,9 +67,9 @@ test('interior suggestions save, cold-open and allow deleting furniture without 
   const reopened = page.getByTestId('workspace-home').locator('.home-project-row').filter({ hasText: 'D3室内三房间' })
   await reopened.getByRole('button', { name: '打开', exact: true }).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await page.getByRole('tab', { name: '对象', exact: true }).click()
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await page.getByLabel('搜索场景物件', { exact: true }).fill(deletedId!)
+  await openWorkspaceModule(page, '场景')
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  await page.getByLabel('搜索场景对象', { exact: true }).fill(deletedId!)
   await expect(page.locator(`.asset-entity-list [data-entity-id="${deletedId}"]`)).toHaveCount(0)
   await page.screenshot({ path: info.outputPath('interior-deleted-cold-open.png') })
   expect(errors).toEqual([])

@@ -1,3 +1,5 @@
+import { acknowledgeAssetQuality } from './asset-quality-helpers'
+import { openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page } from '@playwright/test'
 
 // Targeted loading/cancellation checks; timings here do not certify the deferred performance matrix.
@@ -46,6 +48,7 @@ async function createBlank(page: Page, title: string) {
 }
 
 async function placeExistingLamp(page: Page) {
+  await openWorkspaceModule(page, '素材')
   const lib = library(page)
   await lib.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await lib.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
@@ -144,6 +147,7 @@ test('builtin resources load only on explicit demand, allow a failed read to ret
 
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
   await home(page).getByRole('button', { name: '继续编辑', exact: true }).first().click(); await settled(page)
+  await openWorkspaceModule(page, '素材')
   await expect(lib.locator('.asset-section-heading > span')).toHaveText('62')
   expect(contentRequests).toHaveLength(requestCount)
   expect(await current(page)).toEqual(before)
@@ -161,7 +165,7 @@ test('SCN-01 explicitly adopts its seven missing furniture assets without browsi
   await createBlank(page, '分步制作按需读取缺少素材')
   expect(contentRequests).toBe(0)
   const before = await current(page)
-  await page.getByTestId('workspace-resources').getByRole('tab', { name: '工程', exact: true }).click()
+  await openSceneSettings(page)
   await page.locator('.workspace-authoring-details > summary').click()
   const guide = page.getByRole('region', { name: '场景分步制作', exact: true })
   await guide.getByLabel('制作基线', { exact: true }).selectOption('scn-01')
@@ -171,6 +175,7 @@ test('SCN-01 explicitly adopts its seven missing furniture assets without browsi
   await expect(adopt).toBeVisible({ timeout: 30_000 })
   expect(contentRequests).toBeGreaterThan(0)
   expect(await current(page)).toEqual(before)
+  await acknowledgeAssetQuality(page)
   await adopt.click(); await expect(adopt).toHaveCount(0); await settled(page)
   const after = await current(page)
   expect(after.document.sceneId).toBe(before.document.sceneId)

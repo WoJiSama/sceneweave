@@ -51,6 +51,9 @@ test('Q1 refined island cancels safely, edits one real candidate and preserves i
     await settled(page)
     const prior = await current(page)
 
+    // Opening a project resets the inspector to selection; revisit the public
+    // sample chooser before requesting a second independent sample.
+    await openSamples(page)
     const refinedButton = page.getByRole('button', { name: '岬湾苔岛 · 精修版', exact: true })
     await refinedButton.click()
     await expect(dialog).toBeVisible({ timeout: 45_000 })
@@ -74,8 +77,8 @@ test('Q1 refined island cancels safely, edits one real candidate and preserves i
     const original = await current(page)
     expect(original.sceneId).not.toBe(prior.sceneId)
     expect(original.title).toBe('岬湾苔岛 · 精修版')
-    expect(original.schemaVersion).toBe(2)
-    expect(original.document.schemaVersion).toBe(2)
+    expect(original.schemaVersion).toBe(1)
+    expect(original.document.schemaVersion).toBe(1)
     expect(original.revision).toBe(0)
     expect(Object.keys(original.sources)).toHaveLength(13)
     expect(Object.keys(original.document.props).length).toBeGreaterThan(30)
@@ -225,8 +228,8 @@ test('Q1 refined island cancels safely, edits one real candidate and preserves i
     expect(after.licenses).toBe(before.licenses)
     expect(after.authoringSources).toBe(13)
     expect(after.assets).toBe(before.assets)
-    expect(after.schemaVersion).toBe(2)
-    expect(after.sceneSchemaVersion).toBe(2)
+    expect(after.schemaVersion).toBe(1)
+    expect(after.sceneSchemaVersion).toBe(1)
     for (const audience of ['gm', 'player'] as const) {
       expect([after[audience].width, after[audience].height]).toEqual([4096, 3072])
       expect(after[audience].rgbaHash).toBe(before[audience].rgbaHash)

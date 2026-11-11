@@ -1,11 +1,11 @@
-import { openGenerationTask, openTerrainTask } from './workspace-navigation-helpers'
+import { openGenerationTask, openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { mapExportButton, projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { unzipSync } from 'fflate'
 import type { Workspace } from '../src/application/workspace/workspace.js'
-import type { PointMm } from '../src/shared/model/scene.js'
+import type { BoundsMm, PointMm, SceneDocument } from '../src/shared/model/scene.js'
 import { visualBase } from '../src/shared/visual/base.js'
 
 type Dev = { workspace: Workspace }
@@ -33,16 +33,16 @@ async function contentState(page: Page) {
     const { getLegacyGeneration } = await import(contractsPath) as typeof import('../src/shared/terrain-generation/composition-contracts')
     const workspace = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace, project = workspace.getState().project!
     return { hash: projectContentHash(toBundle(project).project), revision: project.document.revision, sceneId: project.document.sceneId,
-      generationVersion: project.document.generation!.version, generation: getLegacyGeneration(project.document), props: project.document.props,
+      generationVersion: getLegacyGeneration(project.document)?.version, generation: getLegacyGeneration(project.document), props: project.document.props,
       document: project.document, resources: { assets: project.assets, licenses: project.licenses,
         licenseBindings: project.licenseBindings, authoringSources: project.authoringSources }, canUndo: workspace.getState().canUndo }
   })
 }
 async function terrainEditTab(page: Page) { await openTerrainTask(page, '修改地形') }
 async function chooseEntity(page: Page, id: string, kind: '物件' | '结构' = '物件') {
-  await page.getByRole('tab', { name: '对象', exact: true }).click()
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: kind, exact: true }).click()
-  if (kind === '物件') await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
+  await openWorkspaceModule(page, '场景')
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: kind === '物件' ? '物件与装饰' : kind, exact: true }).click()
+  await page.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
 }
 async function saved(page: Page) {
@@ -52,7 +52,15 @@ async function saved(page: Page) {
 async function contourPoint(page: Page) {
   const state = await contentState(page), base = visualBase(state.document)
   if (!base) throw new Error('Expected a generated visual scene')
-  return base.boundaries['terrain-coast-curve'].segments[0].control1
+  const boundary = base.boundaries['terrain-coast-curve'], floor = state.document.floors[boundary.floorId].boundsMm
+  // A curve midpoint can miss every editable control at the 700 mm radius.
+  // An endpoint is both on the shoreline and moved by the brush algorithm;
+  // keep 1000 mm clearance for the full brush and its 210 mm displacement.
+  const point = boundary.segments.flatMap(segment => [segment.start, segment.end]).find(point =>
+    [floor, state.document.exportBoundsMm].every(bounds => point.x >= bounds.x + 1000 && point.x <= bounds.x + bounds.width - 1000
+      && point.y >= bounds.y + 1000 && point.y <= bounds.y + bounds.height - 1000))
+  if (!point) throw new Error('Expected a real coast endpoint with room for the 700 mm brush inside the floor and edit scope')
+  return { ...point }
 }
 async function strokeSetup(page: Page, mode: '添陆' | '挖水' | '铺草' | '清出空地', radius: number, target = 'terrain-low') {
   await terrainEditTab(page)
@@ -71,6 +79,7 @@ async function uiPng(page: Page, path: string, audience: '主持人' | '玩家')
   await page.getByRole('group', { name: '预览受众', exact: true }).getByRole('button', { name: audience, exact: true }).click()
   const event = page.waitForEvent('download'); await (await mapExportButton(page, audience === '主持人' ? 'gm' : 'player')).click()
   await (await event).saveAs(path)
+  await page.locator('.workspace-export-menu > summary').click()
   const bytes = await readFile(path)
   expect(bytes.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
   return page.evaluate(async base64 => {
@@ -84,14 +93,51 @@ async function uiPng(page: Page, path: string, audience: '主持人' | '玩家')
     return { width: canvas.width, height: canvas.height, rgbaHash: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('') }
   }, bytes.toString('base64'))
 }
-async function numericStroke(page: Page, point: PointMm) {
-  const details = page.locator('.terrain-editing-panel details').filter({ has: page.getByText('键盘落笔', { exact: true }) })
+function coastStrokeScope(scene: SceneDocument, radiusMm: number): BoundsMm {
+  const base = visualBase(scene), boundary = base?.boundaries['terrain-coast-curve']
+  if (!base || !boundary) throw new Error('Expected the current generated coast and its enabled edge bands')
+  const looks = Object.values(base.edgeLooks).filter(look => look.boundaryId === boundary.id && look.enabled)
+  const bandMarginMm = Math.max(0, ...looks.map(look => look.widthMm * 3 + look.repeatMm))
+  // The scope guard checks the complete old/new drawn curve. A Bezier stays
+  // inside its control hull; each brush control moves at most 30% of its radius.
+  const paddingMm = bandMarginMm + Math.ceil(radiusMm * .3)
+  const controls = boundary.segments.flatMap(segment => [segment.start, segment.control1, segment.control2, segment.end])
+  const left = Math.min(scene.exportBoundsMm.x, ...controls.map(point => point.x - paddingMm))
+  const top = Math.min(scene.exportBoundsMm.y, ...controls.map(point => point.y - paddingMm))
+  const right = Math.max(scene.exportBoundsMm.x + scene.exportBoundsMm.width, ...controls.map(point => point.x + paddingMm))
+  const bottom = Math.max(scene.exportBoundsMm.y + scene.exportBoundsMm.height, ...controls.map(point => point.y + paddingMm))
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+async function setTerrainScope(page: Page, scope: BoundsMm) {
+  const panel = page.getByRole('region', { name: '局部地形编辑', exact: true })
+  const details = panel.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^精确调整可写范围$/ }) })
+  if (await details.getAttribute('open') === null) await details.locator('summary').click()
+  for (const [name, value] of [['范围 X', scope.x], ['范围 Y', scope.y], ['范围宽', scope.width], ['范围高', scope.height]] as const) {
+    const input = panel.getByLabel(`地形编辑${name}`, { exact: true })
+    await input.fill(String(value / 1000)); await input.press('Tab')
+    await expect(input).toHaveValue(String(value / 1000))
+  }
+}
+async function numericStroke(page: Page, point: PointMm, recoverScope?: { afterRejection: BoundsMm }) {
+  await terrainEditTab(page)
+  const panel = page.getByRole('region', { name: '局部地形编辑', exact: true, includeHidden: true })
+  const details = panel.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^键盘落笔$/ }) })
   if (!await details.evaluate(element => (element as HTMLDetailsElement).open)) await details.locator('summary').click()
   await page.getByLabel('地形编辑落笔 X mm', { exact: true }).fill(String(point.x))
   await page.getByLabel('地形编辑落笔 Y mm', { exact: true }).fill(String(point.y))
+  const before = recoverScope ? await contentState(page) : null
   await page.getByRole('button', { name: '添加落笔并预览', exact: true }).click()
+  if (recoverScope) {
+    await expect(panel.getByRole('alert')).toContainText('实际写入超出冻结范围', { timeout: 90_000 })
+    await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toHaveCount(0)
+    const rejected = await contentState(page)
+    expect(rejected.hash).toBe(before!.hash); expect(rejected.revision).toBe(before!.revision)
+    await expect(panel.locator('fieldset')).toBeEnabled({ timeout: 90_000 })
+    await setTerrainScope(page, recoverScope.afterRejection)
+    await panel.getByRole('button', { name: '预览局部地形修改', exact: true }).click()
+  }
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toBeVisible({ timeout: 90_000 })
-  await expect(page.locator('.terrain-editing-panel fieldset')).toBeEnabled({ timeout: 90_000 })
+  await expect(panel.locator('fieldset')).toBeEnabled({ timeout: 90_000 })
 }
 async function pointerStroke(page: Page, points: PointMm[]) {
   await rendered(page)
@@ -103,7 +149,7 @@ async function pointerStroke(page: Page, points: PointMm[]) {
   for (const point of points.slice(1)) { const next = screen(point); await page.mouse.move(next.x, next.y, { steps: 5 }) }
   await page.mouse.up()
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toBeVisible({ timeout: 90_000 })
-  await expect(page.locator('.terrain-editing-panel fieldset')).toBeEnabled({ timeout: 90_000 })
+  await expect(page.getByRole('region', { name: '局部地形编辑', exact: true, includeHidden: true }).locator('fieldset')).toBeEnabled({ timeout: 90_000 })
 }
 async function adopt(page: Page) {
   await page.getByLabel('确认本次地形影响范围', { exact: true }).check()
@@ -155,9 +201,12 @@ test('curve drag Escape restores the real canvas and release leaves no candidate
   const controls = page.locator('svg.visual-controls')
   await handle.scrollIntoViewIfNeeded()
   const x = await handle.getAttribute('cx'), y = await handle.getAttribute('cy'), box = (await handle.boundingBox())!
-  const pointer = handle.evaluate(node => new Promise<number>(resolve => node.addEventListener('pointerdown', event => resolve((event as PointerEvent).pointerId), { once: true })))
+  await handle.evaluate(node => {
+    node.addEventListener('pointerdown', event => { node.setAttribute('data-test-pointer-id', String((event as PointerEvent).pointerId)) }, { once: true })
+  })
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down()
-  const pointerId = await pointer
+  await expect(handle).toHaveAttribute('data-test-pointer-id', /[0-9]+/)
+  const pointerId = Number(await handle.getAttribute('data-test-pointer-id'))
   await page.mouse.move(box.x + box.width / 2 + 12, box.y + box.height / 2 + 8, { steps: 4 })
   await expect(handle).not.toHaveAttribute('cx', x!)
   await expect(handle).not.toHaveAttribute('cy', y!)
@@ -205,7 +254,7 @@ test('T2 real pointer and keyboard multi-stroke drafts cancel safely and adopt a
   await page.getByLabel('地形编辑笔刷半径', { exact: true }).press('Tab')
   await numericStroke(page, { x: 2000, y: 2000 })
   await numericStroke(page, { x: 2400, y: 2000 })
-  await expect(page.locator('.terrain-editing-panel')).toContainText('2 / 32 笔')
+  await expect(page.getByRole('region', { name: '局部地形编辑', exact: true, includeHidden: true })).toContainText('2 / 32 笔')
   expect((await contentState(page)).hash).toBe(original.hash)
   await adopt(page)
   const changed = await contentState(page)
@@ -230,8 +279,10 @@ test('T2 real pointer and keyboard multi-stroke drafts cancel safely and adopt a
   expect((await contentState(page)).hash).toBe(redone.hash)
   const coldContext = await browser.newContext(), coldPage = await coldContext.newPage()
   try {
-    await coldPage.goto('/#workspace')
-    await coldPage.getByLabel('选择完整工程', { exact: true }).setInputFiles(path)
+    await coldPage.goto('/#home')
+    const chooser = coldPage.waitForEvent('filechooser')
+    await coldPage.getByTestId('workspace-home').getByRole('button', { name: '打开工程文件', exact: true }).click()
+    await (await chooser).setFiles(path)
     await expect.poll(async () => { try { return (await contentState(coldPage)).generationVersion } catch { return null } }, { timeout: 90_000 }).toBe(2)
     await rendered(coldPage)
     const imported = await contentState(coldPage)
@@ -251,25 +302,35 @@ test('T2 all four brushes use current geometry, keep unrelated terrain and resou
   const original = await contentState(page), facts: unknown[] = []
   for (const mode of ['添陆', '挖水'] as const) {
     const before = await contentState(page), point = await contourPoint(page)
-    await strokeSetup(page, mode, 700); await numericStroke(page, point)
+    const scope = coastStrokeScope(before.document, 700)
+    await strokeSetup(page, mode, 700); await setTerrainScope(page, before.document.exportBoundsMm)
+    await numericStroke(page, point, { afterRejection: scope })
     expect((await contentState(page)).hash).toBe(before.hash)
     await adopt(page)
     const after = await contentState(page)
+    expect(after.revision).toBe(before.revision + 1)
+    if (after.generation?.version !== 2) throw new Error('Expected persisted coast brushes')
+    const strokes = Object.values(after.generation.strokes).filter(stroke => stroke.brush === (mode === '添陆' ? 'addLand' : 'digWater'))
+    expect(strokes).toHaveLength(1)
+    // The persisted brush contract canonicalizes world points to 10 mm.
+    expect(strokes[0]).toMatchObject({ pointsMm: [{ x: Math.round(point.x / 10) * 10, y: Math.round(point.y / 10) * 10 }], radiusMm: 700, scopeMm: scope })
     expect(after.document.terrainAreas['terrain-low'].boundaryMm).not.toEqual(before.document.terrainAreas['terrain-low'].boundaryMm)
     expect(after.document.terrainAreas['terrain-high']).toEqual(before.document.terrainAreas['terrain-high'])
     expect(after.resources).toEqual(original.resources)
-    facts.push({ mode, point, beforeRevision: before.revision, afterRevision: after.revision })
+    facts.push({ mode, point, scope, beforeRevision: before.revision, afterRevision: after.revision })
   }
   const beforePaint = await contentState(page), activity = Object.values(beforePaint.generation!.constraints).find(row => row.kind === 'activityArea')!
   if (activity.kind !== 'activityArea') throw new Error('Expected fixed activity area')
   const point = { x: Math.round(activity.boundaryMm.reduce((sum, p) => sum + p.x, 0) / activity.boundaryMm.length),
     y: Math.round(activity.boundaryMm.reduce((sum, p) => sum + p.y, 0) / activity.boundaryMm.length) }
   await strokeSetup(page, '铺草', 300, 'terrain-high')
+  await setTerrainScope(page, beforePaint.document.exportBoundsMm)
   await page.getByLabel('地形编辑地面材质', { exact: true }).selectOption(beforePaint.document.terrainAreas['terrain-high'].surfaceStyle!.base.materialRef.id)
   await numericStroke(page, point)
   await page.getByLabel('确认本次地形影响范围', { exact: true }).check()
+  await terrainEditTab(page)
   await page.getByLabel('地形编辑联动内容', { exact: true }).selectOption('transitions')
-  await expect(page.getByRole('button', { name: '保护并采用地形修改', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '保护并采用地形修改', exact: true, includeHidden: true })).toBeDisabled()
   expect((await contentState(page)).hash).toBe(beforePaint.hash)
   await page.getByRole('button', { name: '预览局部地形修改', exact: true }).click()
   await expect(page.getByLabel('确认本次地形影响范围', { exact: true })).toBeEnabled({ timeout: 90_000 })
@@ -320,6 +381,12 @@ test('T2 UI moves and deletes trees then drags the coast while preserving manual
   const box = (await handle.boundingBox())!, canvas = (await page.locator('canvas[aria-label="材质场景主持人预览"]').boundingBox())!
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down()
   await page.mouse.move(box.x + box.width / 2 + 50 / beforeContour.document.exportBoundsMm.width * canvas.width, box.y + box.height / 2, { steps: 1 }); await page.mouse.up()
+  // The full drawn edge band can extend beyond the initial canvas scope.
+  // Review the real rejection, then explicitly grant the complete old/new curve.
+  await expect(page.getByRole('region', { name: '局部地形编辑', exact: true }).getByRole('alert')).toContainText('实际写入超出冻结范围', { timeout: 90_000 })
+  expect((await contentState(page)).hash).toBe(beforeContour.hash)
+  await page.getByRole('button', { name: '按完整曲线扩大范围', exact: true }).click()
+  await page.getByRole('button', { name: '预览局部地形修改', exact: true }).click()
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toBeVisible({ timeout: 90_000 })
   expect((await contentState(page)).hash).toBe(beforeContour.hash)
   await adopt(page)
@@ -334,11 +401,11 @@ test('T2 UI moves and deletes trees then drags the coast while preserving manual
   await page.getByLabel('地形编辑范围宽', { exact: true }).press('Tab')
   await page.getByLabel('地形编辑范围高', { exact: true }).fill('0.1')
   await page.getByLabel('地形编辑范围高', { exact: true }).press('Tab')
-  const details = page.locator('.terrain-editing-panel details').filter({ has: page.getByText('键盘落笔', { exact: true }) })
+  const details = page.getByRole('region', { name: '局部地形编辑', exact: true, includeHidden: true }).locator('details').filter({ has: page.locator('summary').filter({ hasText: /^键盘落笔$/ }) })
   if (!await details.evaluate(element => (element as HTMLDetailsElement).open)) await details.locator('summary').click()
   await page.getByLabel('地形编辑落笔 X mm', { exact: true }).fill('2000'); await page.getByLabel('地形编辑落笔 Y mm', { exact: true }).fill('2000')
   await page.getByRole('button', { name: '添加落笔并预览', exact: true }).click()
-  await expect(page.locator('.terrain-editing-panel [role="alert"]')).toContainText('范围', { timeout: 90_000 })
+  await expect(page.getByRole('region', { name: '局部地形编辑', exact: true, includeHidden: true }).getByRole('alert')).toContainText('范围', { timeout: 90_000 })
   expect((await contentState(page)).hash).toBe(coastal.hash); await cancelDraft(page)
   await chooseEntity(page, 'terrain-low', '结构')
   await page.getByRole('button', { name: '锁定对象编辑', exact: true }).click()
@@ -346,11 +413,11 @@ test('T2 UI moves and deletes trees then drags the coast while preserving manual
   await page.getByRole('button', { name: '采用室外修改', exact: true }).click(); await saved(page)
   const lockedTerrain = await contentState(page)
   await strokeSetup(page, '添陆', 700)
-  const p = await contourPoint(page), keyboard = page.locator('.terrain-editing-panel details').filter({ has: page.getByText('键盘落笔', { exact: true }) })
+  const p = await contourPoint(page), keyboard = page.getByRole('region', { name: '局部地形编辑', exact: true, includeHidden: true }).locator('details').filter({ has: page.locator('summary').filter({ hasText: /^键盘落笔$/ }) })
   if (!await keyboard.evaluate(element => (element as HTMLDetailsElement).open)) await keyboard.locator('summary').click()
   await page.getByLabel('地形编辑落笔 X mm', { exact: true }).fill(String(p.x)); await page.getByLabel('地形编辑落笔 Y mm', { exact: true }).fill(String(p.y))
   await page.getByRole('button', { name: '添加落笔并预览', exact: true }).click()
-  await expect(page.locator('.terrain-editing-panel [role="alert"]')).toContainText('锁', { timeout: 90_000 })
+  await expect(page.getByRole('region', { name: '局部地形编辑', exact: true, includeHidden: true }).getByRole('alert')).toContainText('锁', { timeout: 90_000 })
   expect((await contentState(page)).hash).toBe(lockedTerrain.hash); await cancelDraft(page)
   await info.attach('manual-and-rejections.json', { body: JSON.stringify({ moved: moved.id, deleted: deleted.id, locked: locked.id,
     before: original.hash, afterCoast: coastal.hash, afterTerrainLock: lockedTerrain.hash, deletedOwner }), contentType: 'application/json' })

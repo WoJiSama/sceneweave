@@ -76,7 +76,7 @@ test('T9 three families by three seeds have identical complete Node and real Wor
   await info.attach('t9-node-worker-parity.json', { body: JSON.stringify(actual, null, 2), contentType: 'application/json' })
 })
 
-test('T9 UI cancels unchanged, adopts and cold-loads complete v4, and preserves current project after save or cold-read failure', async ({ page }, info) => {
+test('T9 UI cancels unchanged, adopts and cold-loads the complete current v1, and preserves current project after save or cold-read failure', async ({ page }, info) => {
   test.setTimeout(360_000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await page.goto('/#workspace'); await page.waitForFunction(() => Boolean(Reflect.get(window, '__sceneweaveOutdoorDev')))
@@ -105,7 +105,7 @@ test('T9 UI cancels unchanged, adopts and cold-loads complete v4, and preserves 
   await preview(); await candidate.getByRole('button', { name: '采用地貌组合', exact: true }).click()
   await expect(candidate).toHaveCount(0, { timeout: 120_000 }); await settled(page)
   const adopted = await state(page)
-  expect(adopted.sceneId).not.toBe(before.sceneId); expect(adopted.schemaVersion).toBe(4)
+  expect(adopted.sceneId).not.toBe(before.sceneId); expect(adopted.schemaVersion).toBe(1)
   expect(adopted.generationVersion).toBe(5); expect(adopted.hash).toBe(adopted.coldHash)
   expect(adopted.count).toBe(before.count + 1)
   expect(adopted.boundsMm).toEqual({ x: 0, y: 0, width: 48000, height: 36000 })

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
+import { closeWorkspaceDrawers, openBuildingTask } from './workspace-navigation-helpers'
 import { writeFile } from 'node:fs/promises'
 import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
 import { reloadSaved } from './workspace-ux-helpers'
@@ -14,14 +15,7 @@ async function keyboardFact(page: Page, facts: FocusFact[], key: string, step: s
 }
 
 async function closePlatformDrawers(page: Page): Promise<void> {
-  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, label] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') !== 'true') continue
-    await panel.getByRole('button', { name: `关闭${label}`, exact: true }).click()
-    await expect(panel).toHaveAttribute('data-open', 'false')
-    await expect(page.getByRole('button', { name: label, exact: true })).toBeFocused()
-  }
+  await closeWorkspaceDrawers(page)
 }
 
 async function pageDimensions(page: Page) {
@@ -62,8 +56,7 @@ test('production browser main journey preserves text input, rectangle review, on
   const review = page.getByRole('region', { name: '候选审阅', exact: true })
 
   const navigation = await openKeyboardPanel(page, 'navigation')
-  await navigation.getByRole('tab', { name: '对象', exact: true }).click()
-  const search = navigation.getByLabel('搜索场景物件', { exact: true })
+  const search = navigation.getByLabel('搜索场景对象', { exact: true })
   await search.fill('文字输入保护')
   await search.press('Enter')
   await expect(search).toHaveValue('文字输入保护')
@@ -95,11 +88,11 @@ test('production browser main journey preserves text input, rectangle review, on
   await expect(menu).toHaveCount(0)
   await expect(viewport).toBeFocused()
 
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openBuildingTask(page)
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   const begin = page.getByRole('button', { name: '在图上画房间', exact: true })
   const drawRoom = async () => {
+    await openBuildingTask(page)
     await begin.click()
     await closePlatformDrawers(page)
     await page.getByRole('button', { name: '适应全图', exact: true }).click()
@@ -189,8 +182,8 @@ test('production reduced viewports preserve error semantics, keyboard drawers an
     await closePlatformDrawers(page)
     await expect(page.getByTestId('workspace-layout')).toHaveAttribute('data-narrow', 'true')
     await pageDimensions(page)
-    const resources = await openKeyboardPanel(page, 'resources')
-    await resources.getByRole('tab', { name: '建筑', exact: true }).click()
+    await openBuildingTask(page)
+    const inspector = page.getByTestId('workspace-inspector')
     await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
     const width = page.getByRole('spinbutton', { name: '房间宽度', exact: true })
     const initialWidth = await width.inputValue()
@@ -215,11 +208,11 @@ test('production reduced viewports preserve error semantics, keyboard drawers an
     // Resetting one field does not discard the containing form's retained draft.
     await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
 
-    const closeResources = resources.getByRole('button', { name: '关闭资源面板', exact: true })
-    await closeResources.focus()
-    await keyboardFact(page, focus, 'Escape', `close ${size.width}px resource drawer`)
-    await expect(resources).toHaveAttribute('data-open', 'false')
-    await expect(page.getByRole('button', { name: '资源面板', exact: true })).toBeFocused()
+    const closeInspector = inspector.getByRole('button', { name: '关闭当前详情', exact: true })
+    await closeInspector.focus()
+    await keyboardFact(page, focus, 'Escape', `close ${size.width}px current-details drawer`)
+    await expect(inspector).toHaveAttribute('data-open', 'false')
+    await expect(page.getByRole('button', { name: '当前详情', exact: true })).toBeFocused()
     const help = page.locator('.workspace-help > summary')
     await help.focus()
     await keyboardFact(page, focus, 'Enter', `open ${size.width}px help`)
@@ -234,7 +227,9 @@ test('production reduced viewports preserve error semantics, keyboard drawers an
     await expect(help).toBeFocused()
 
     await page.getByRole('button', { name: '工具：画房间', exact: true }).click()
-    await expect(resources).toHaveAttribute('data-open', 'true')
+    await expect(page.getByRole('status', { name: '房间绘制提示', exact: true })).toBeVisible()
+    await expect(inspector).toHaveAttribute('data-open', 'false')
+    await expect(page.getByTestId('workspace-resources')).toHaveAttribute('data-open', 'false')
     await closePlatformDrawers(page)
     await keyboardWorkspaceSaved(page)
     await page.getByRole('button', { name: '适应全图', exact: true }).click()

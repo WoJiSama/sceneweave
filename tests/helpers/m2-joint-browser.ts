@@ -73,7 +73,9 @@ export async function nativePrivacyPair(name: PrivacyCaseB4 | 'M2-SECRET-DOOR') 
       assets: { [raster.sha256]: { sha256: raster.sha256, mimeType: 'image/png', sizeBytes: raster.pngBytes.length, pixelWidth: 32, pixelHeight: 32 } },
       licenses: { [licenseHash]: { sha256: licenseHash, text } }, licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })),
       authoringSources: { 'private-svg-image': { kind: 'svg', sourceSha256: normalized.sourceSha256, normalizedSha256: normalized.normalizedSha256, sourceSizeBytes: normalized.sourceSizeBytes,
-        normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: raster.sha256, processorId: normalized.processorId, processorVersion: normalized.processorVersion } } }, resources: createMemoryResources(bytes) }
+        // Text normalization stays at v1; the exact PNG is produced by the current rasterizer profile.
+        normalizedSizeBytes: normalized.normalizedSizeBytes, rasterSha256: raster.sha256, processorId: raster.processorId, processorVersion: raster.processorVersion,
+        rasterizer: raster.rasterizer, pixelFormat: raster.pixelFormat } } }, resources: createMemoryResources(bytes) }
     variants.push(await validateProjectBundle(bundle, validation))
   }
   return { a: variants[0], b: variants[1], privateAssetIds: ['private-svg-image'], sentinels: ['M2-PRIVATE-SOURCE-PROMPT-', 'generationMetadata', 'sceneweave-complete-project'] }

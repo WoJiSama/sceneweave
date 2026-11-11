@@ -78,7 +78,7 @@ async function openComposition(page: Page) {
   const panel = page.getByRole('region', { name: '通用地貌组合', exact: true })
   await panel.getByLabel('组合岛屿数量', { exact: true }).selectOption('2')
   return { original, revision, panel, progress: panel.getByRole('status', { name: '地貌组合处理状态', exact: true }),
-    candidate: panel.getByRole('article', { name: '地貌组合候选', exact: true }) }
+    candidate: page.getByTestId('workspace-inspector').getByRole('article', { name: '地貌组合候选', exact: true }) }
 }
 
 async function expectOriginal(page: Page, revision: string | null) {

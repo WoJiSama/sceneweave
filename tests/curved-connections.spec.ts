@@ -1,4 +1,4 @@
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { openOutdoorTask, openSceneObjects, openVisualTask } from './workspace-navigation-helpers'
 import { openDetailsBySummary, reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
@@ -9,19 +9,13 @@ async function saved(page: Page) {
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 90000 })
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90000 })
 }
-async function blank5(page: Page, title: string) {
+async function blankProject(page: Page, title: string) {
   await page.goto('/#home')
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill(title)
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await saved(page)
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
-  for (const version of [3, 4]) {
-    await page.getByRole('button', { name: '保存独立地形副本', exact: true }).click()
-    await expect(workbench(page)).toHaveAttribute('data-native-format', `sceneweave-complete-project@${version}`, { timeout: 90000 }); await saved(page)
-  }
-  await page.getByRole('button', { name: '保存独立曲线连接副本', exact: true }).click()
-  await expect(workbench(page)).toHaveAttribute('data-native-format', 'sceneweave-complete-project@5', { timeout: 90000 }); await saved(page)
+  await expect(workbench(page)).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
 }
 async function adopt(page: Page, kind: '室外' | '视觉') {
   await expect(page.getByRole('checkbox', { name: '确认完整影响范围', exact: true })).toBeVisible({ timeout: 90000 })
@@ -37,13 +31,11 @@ async function state(page: Page) {
   })
 }
 
-test('actual UI upgrades a preserved copy, edits a routed stair with canvas handles and cold-reopens its complete geometry', async ({ page }, info) => {
+test('complete-v1 UI edits a routed stair with canvas handles and cold-reopens its complete geometry', async ({ page }, info) => {
   test.setTimeout(300000)
   const pageErrors: string[] = []; page.on('pageerror', error => pageErrors.push(error.message))
-  await blank5(page, '曲线连接UI')
-  await openTerrainTask(page, '绘制地形')
-  const tools = page.getByRole('region', { name: '室外制作工具', exact: true })
-  await tools.getByLabel('室外制作工具', { exact: true }).selectOption('terrain')
+  await blankProject(page, '曲线连接UI')
+  let tools = await openOutdoorTask(page, '地形与高程')
   await openDetailsBySummary(tools, /^精确坐标 · 区域轮廓$/)
   await tools.getByLabel('室外坐标', { exact: true }).fill('7300,1000\n12500,1000\n12500,9000\n7300,9000')
   await tools.getByLabel('地形高程', { exact: true }).fill('1.2')
@@ -52,7 +44,7 @@ test('actual UI upgrades a preserved copy, edits a routed stair with canvas hand
   await tools.getByLabel('地形覆盖优先级', { exact: true }).fill('1')
   await tools.getByRole('button', { name: '预览室外修改', exact: true }).click(); await adopt(page, '室外')
   const high = Object.keys((await state(page)).document.terrainAreas)[0]
-  await tools.getByLabel('室外制作工具', { exact: true }).selectOption('connection')
+  tools = await openOutdoorTask(page, '台阶 / 坡道')
   await openDetailsBySummary(tools, /^路线形态与踏面$/)
   await tools.getByLabel('连接路线形态', { exact: true }).selectOption('polyline')
   await openDetailsBySummary(tools, /^精确坐标 · 连接路线节点$/)
@@ -69,8 +61,8 @@ test('actual UI upgrades a preserved copy, edits a routed stair with canvas hand
   await tools.getByRole('button', { name: '预览室外修改', exact: true }).click(); await adopt(page, '室外')
   const polyline = await state(page), id = Object.keys(polyline.document.terrainConnections)[0]
   expect(polyline.document.terrainConnections[id].route).toMatchObject({ kind: 'polyline', stairStyle: 'wood' })
-  await openDetailsBySummary(tools, /^室外对象 · /)
-  await tools.getByTitle(id, { exact: true }).click()
+  const objects = await openSceneObjects(page, '结构')
+  await objects.locator(`[data-entity-id="${id}"]`).click()
   const inspector = page.getByRole('region', { name: '室外对象属性', exact: true })
   await openDetailsBySummary(inspector, /^路线形态与踏面$/)
   await inspector.getByLabel('连接路线形态', { exact: true }).selectOption('cubic')
@@ -91,13 +83,13 @@ test('actual UI upgrades a preserved copy, edits a routed stair with canvas hand
   await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await saved(page)
   expect((await state(page)).document.terrainConnections[id].route).toEqual(curved.document.terrainConnections[id].route)
   await reloadSaved(page); await saved(page)
-  await expect(workbench(page)).toHaveAttribute('data-native-format', 'sceneweave-complete-project@5')
+  await expect(workbench(page)).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
   expect((await state(page)).document.terrainConnections[id].route).toEqual(curved.document.terrainConnections[id].route)
   await info.attach('curved-stair-ui.png', { body: await page.screenshot(), contentType: 'image/png' })
 
   const proof = await page.evaluate(async id => {
     const p = '/src/editor/main/Workbench.tsx', a = '/src/application/workspace/project.ts', r = '/src/platform/browser/runtime.ts', renderer = '/src/platform/browser/render/renderer.ts', h = '/src/shared/validation/hash.ts', f = '/src/shared/project/file.ts', v = '/src/shared/project/validate.ts'
-    const { nativeWorkspace } = await import(p), { captureEditableDraft, validateEditableProject, toBundle } = await import(a), { validation, projectRepository } = await import(r), { renderProject } = await import(renderer), { sha256Bytes } = await import(h), { exportProject, importProject } = await import(f), { projectContentHash } = await import(v)
+    const { nativeWorkspace } = await import(p), { captureEditableDraft, validateEditableProject, toBundle } = await import(a), { validation, projectRepository, runtime } = await import(r), { renderProject } = await import(renderer), { sha256Bytes } = await import(h), { exportProject, importProject } = await import(f), { projectContentHash } = await import(v)
     const current = nativeWorkspace.getState().project!, styles = []
     for (const style of ['stone', 'wood', 'naturalRock']) {
       const draft = captureEditableDraft(current); draft.document.terrainConnections[id].route.stairStyle = style
@@ -109,6 +101,7 @@ test('actual UI upgrades a preserved copy, edits a routed stair with canvas hand
     if (projectContentHash(bundle.project) !== projectContentHash(round.project) || projectContentHash(cold!.project) !== projectContentHash(bundle.project)) throw new Error('Actual routed package/cold save mismatch')
     const output = []
     for (const audience of ['gm', 'player']) { const canvas = await renderProject(bundle, { audience, longEdgePx: 4096 }); output.push({ audience, width: canvas.width, height: canvas.height, png: canvas.toDataURL('image/png').split(',')[1] }) }
+    const identityPath = '/src/shared/history/identity.ts', { advanceHistoryIdentity } = await import(identityPath)
     const privateHashes = [], privateImages = []
     for (const offset of [0, 200]) {
       const draft = captureEditableDraft(current), connection = draft.document.terrainConnections[id]
@@ -118,6 +111,7 @@ test('actual UI upgrades a preserved copy, edits a routed stair with canvas hand
       const maskId = 'private-route-mask'
       draft.document.regions[maskId] = { id: maskId, floorId: connection.floorId, editLocked: false, visibility: 'gm', kind: 'manualMask', boundaryMm: [{ x: 800, y: 1500 }, { x: 11800, y: 1500 }, { x: 11800, y: 8800 }, { x: 800, y: 8800 }], blocksMovement: false, movementCostMultiplier: 1 }
       draft.document.entityLayers[maskId] = draft.document.entityLayers[id]
+      draft.historyIdentity = advanceHistoryIdentity(draft.historyIdentity, current.document, draft.document, runtime)
       const project = await validateEditableProject(draft, validation), canvas = await renderProject(toBundle(project), { audience: 'player', longEdgePx: 1400 })
       const rgba = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
       privateHashes.push(sha256Bytes(new Uint8Array(rgba.buffer))); privateImages.push(canvas.toDataURL('image/png').split(',')[1])
@@ -127,7 +121,7 @@ test('actual UI upgrades a preserved copy, edits a routed stair with canvas hand
   }, id)
   expect(new Set(proof.styles.map(row => row.pixelHash)).size).toBe(3)
   expect(proof.privateHashes[0]).toBe(proof.privateHashes[1])
-  for (const row of proof.styles) await writeFile(`work/curved-connections-20261031/stair-${row.style}.png`, Buffer.from(row.png, 'base64'))
+  for (const row of proof.styles) await writeFile(info.outputPath(`stair-${row.style}.png`), Buffer.from(row.png, 'base64'))
   for (const row of proof.output) { expect(row.width).toBe(4096); await writeFile(info.outputPath(`${row.audience}-4k.png`), Buffer.from(row.png, 'base64')) }
   await writeFile(info.outputPath('curved.sceneweave'), Buffer.from(proof.package, 'base64'))
   for (const [index, png] of proof.privateImages.entries()) await writeFile(info.outputPath(`private-player-${index}.png`), Buffer.from(png, 'base64'))
@@ -137,9 +131,8 @@ test('actual UI upgrades a preserved copy, edits a routed stair with canvas hand
 
 test('ordinary fence component bends and stretches through one preview while world detail spacing and source identities persist', async ({ page }, info) => {
   test.setTimeout(180000)
-  await blank5(page, '程序组件变形UI')
-  await page.getByRole('tab', { name: '外观', exact: true }).click()
-  const visual = page.getByRole('region', { name: '视觉场景创作', exact: true })
+  await blankProject(page, '程序组件变形UI')
+  const visual = await openVisualTask(page, '边界')
   await visual.getByLabel('视觉曲线绑定', { exact: true }).selectOption('decoration')
   await visual.getByRole('button', { name: '建立曲线草稿', exact: true }).click()
   await visual.getByLabel('视觉边带样式', { exact: true }).selectOption('fence')
@@ -171,10 +164,8 @@ test('ordinary fence component bends and stretches through one preview while wor
 
 test('actual UI creates a U switchback with opposite runs and traversal follows its real crossing', async ({ page }, info) => {
   test.setTimeout(180000)
-  await blank5(page, 'U形回折楼梯UI')
-  await openTerrainTask(page, '绘制地形')
-  const tools = page.getByRole('region', { name: '室外制作工具', exact: true })
-  await tools.getByLabel('室外制作工具', { exact: true }).selectOption('terrain')
+  await blankProject(page, 'U形回折楼梯UI')
+  let tools = await openOutdoorTask(page, '地形与高程')
   await openDetailsBySummary(tools, /^精确坐标 · 区域轮廓$/)
   await tools.getByLabel('室外坐标', { exact: true }).fill('1000,5000\n13000,5000\n13000,9000\n1000,9000')
   await tools.getByLabel('地形高程', { exact: true }).fill('1.2')
@@ -183,7 +174,7 @@ test('actual UI creates a U switchback with opposite runs and traversal follows 
   await tools.getByLabel('地形覆盖优先级', { exact: true }).fill('1')
   await tools.getByRole('button', { name: '预览室外修改', exact: true }).click(); await adopt(page, '室外')
   const high = Object.keys((await state(page)).document.terrainAreas)[0]
-  await tools.getByLabel('室外制作工具', { exact: true }).selectOption('connection')
+  tools = await openOutdoorTask(page, '台阶 / 坡道')
   await openDetailsBySummary(tools, /^路线形态与踏面$/)
   await tools.getByLabel('连接路线形态', { exact: true }).selectOption('polyline')
   await openDetailsBySummary(tools, /^精确坐标 · 连接路线节点$/)
@@ -207,6 +198,6 @@ test('actual UI creates a U switchback with opposite runs and traversal follows 
   expect(proof.travel.ok, JSON.stringify(proof.travel.issues)).toBe(true)
   expect(proof.travel.lengthMm).toBe(17000)
   expect(proof.chord.ok).toBe(false)
-  await writeFile('work/curved-connections-20261031/stair-switchback.png', Buffer.from(proof.png, 'base64'))
+  await writeFile(info.outputPath('stair-switchback.png'), Buffer.from(proof.png, 'base64'))
   await writeFile(info.outputPath('switchback-proof.json'), JSON.stringify({ ...proof, png: undefined }, null, 2))
 })

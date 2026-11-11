@@ -1,4 +1,4 @@
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { openOutdoorTask, openBuildingTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { openDetailsBySummary, reloadSaved } from './workspace-ux-helpers'
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
@@ -19,7 +19,7 @@ async function state(page: Page) {
   })
 }
 async function settled(page: Page) {
-  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@2')
+  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
   await expect(page.locator('.asset-busy')).toHaveCount(0)
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
@@ -35,13 +35,13 @@ async function createBlank(page: Page, title: string) {
   await expect(dialog).toHaveCount(0); await settled(page)
 }
 async function chooseProp(page: Page, id: string) {
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
+  await openWorkspaceModule(page, '场景')
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  await page.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
 }
 async function placeLamp(page: Page) {
-  await page.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   await library(page).getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await library(page).getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
   await page.getByRole('button', { name: '在此放置', exact: true }).click(); await settled(page)
@@ -58,6 +58,7 @@ async function adopt(page: Page, kind: '组件' | '结构' | '室外' | '批量'
   await button.click(); await expect(button).toHaveCount(0); await settled(page)
 }
 async function opacity(page: Page, value: string) {
+  await openDetailsBySummary(page.getByTestId('workspace-inspector'), /^外观与图层调整$/)
   await page.getByLabel('外观调整项目', { exact: true }).selectOption('opacity')
   await page.getByLabel('外观透明度', { exact: true }).fill(value)
   await page.getByRole('button', { name: '预览外观调整', exact: true }).click(); await adopt(page, '组件')
@@ -67,7 +68,7 @@ test('M2-0f native creation, box selection, context copy, layers and mounted Hom
   test.setTimeout(90_000)
   await createBlank(page, 'M2-0f 原生交互')
   const id = await placeLamp(page), initial = await state(page)
-  expect(initial).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 2, document: { format: 'sceneweave-scene', schemaVersion: 2 }, identity: { version: 1 } })
+  expect(initial).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, document: { format: 'sceneweave-scene', schemaVersion: 1 }, identity: { version: 5 } })
   await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
   const canvas = page.getByLabel('材质场景主持人预览', { exact: true }), box = await canvas.boundingBox()
   if (!box) throw new Error('Expected a real native canvas.')
@@ -82,15 +83,21 @@ test('M2-0f native creation, box selection, context copy, layers and mounted Hom
   expect(Object.keys((await state(page)).document.props)).toHaveLength(1)
   await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await settled(page)
   expect(Object.keys((await state(page)).document.props)).toHaveLength(2)
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '图层', exact: true }).click()
+  await openWorkspaceModule(page, '场景')
   await page.getByRole('button', { name: '新建用户图层', exact: true }).click()
   await page.getByLabel('新图层名称', { exact: true }).fill('原生家具层')
   await page.getByRole('button', { name: '创建图层', exact: true }).click(); await settled(page)
-  await page.getByRole('button', { name: '设为当前图层 原生家具层', exact: true }).click()
+  const layers = page.getByRole('region', { name: '用户图层', exact: true })
+  const previousDrawingLayer = await layers.locator('.user-layer-row.drawing-layer').getAttribute('data-layer-id')
+  await layers.getByRole('button', { name: '查看图层 原生家具层', exact: true }).click()
+  await expect(layers.locator('.user-layer-row.drawing-layer')).toHaveAttribute('data-layer-id', previousDrawingLayer!)
+  await layers.getByRole('button', { name: '设为绘制图层 原生家具层', exact: true }).click()
+  await expect(layers.locator('.user-layer-row.drawing-layer').getByRole('button', { name: '查看图层 原生家具层', exact: true })).toBeVisible()
   const revision = (await state(page)).document.revision
   await page.getByRole('button', { name: '隐藏图层 原生家具层', exact: true }).click()
   await page.getByRole('button', { name: '显示图层 原生家具层', exact: true }).click()
   expect((await state(page)).document.revision).toBe(revision)
+  await page.getByRole('button', { name: '显示所有图层的对象', exact: true }).click()
   await chooseProp(page, id)
   await page.getByRole('button', { name: '放大地图', exact: true }).click()
   await expect(page.getByLabel('地图缩放比例', { exact: true })).toHaveText('125%')
@@ -110,7 +117,7 @@ test('M2-0f native creation, box selection, context copy, layers and mounted Hom
     return { format: project?.project.format, document: project?.project.document, databases: (await indexedDB.databases()).map(value => value.name) }
   }, after.document.sceneId)
   expect(persisted.document).toEqual(after.document)
-  expect(persisted.databases).toContain('sceneweave-projects')
+  expect(persisted.databases).toContain('sceneweave-projects-dev-v1')
   for (const name of ['sceneweave-m0', 'sceneweave-m1', 'sceneweave-m1-layers', 'sceneweave-m1-history', 'sceneweave-m1-composition', 'sceneweave-m1-outdoor', 'sceneweave-catalog-v1']) expect(persisted.databases).not.toContain(name)
   await info.attach('native-main-continuation.json', { body: JSON.stringify({ sceneId: after.document.sceneId, revision: after.document.revision, zoom, props: Object.keys(after.document.props).length, layers: Object.keys(after.document.userLayers).length, nativeDatabases: persisted.databases }), contentType: 'application/json' })
 })
@@ -167,8 +174,7 @@ test('native history refresh waits for its tab and preserves a form across inact
   const usageReads = () => page.evaluate(() => Number(Reflect.get(window, '__historyUiUsageReads')))
   const id = await placeLamp(page)
   expect(await reads()).toBe(0)
-  const navigation = page.getByTestId('workspace-navigation')
-  await navigation.getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   await expect.poll(reads).toBeGreaterThan(0)
   await page.getByRole('button', { name: '新建命名快照', exact: true }).click()
   await page.getByLabel('命名快照名称', { exact: true }).fill('保留中的历史表单')
@@ -176,7 +182,7 @@ test('native history refresh waits for its tab and preserves a form across inact
   const before = await reads(), x = (await state(page)).document.props[id].positionMm.x
   await number(page, '物件 X', (x + 100) / 1000); await settled(page)
   expect(await reads()).toBe(before)
-  await navigation.getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   await expect.poll(reads).toBeGreaterThan(before)
   expect(await usageReads()).toBe(0)
   await page.getByRole('button', { name: '检查容量与迁移原件', exact: true }).click()
@@ -195,29 +201,28 @@ test('native history refresh waits for its tab and preserves a form across inact
 test('M2-0f mixed native room, terrain, appearance and protected partial history restore', async ({ page }, info) => {
   test.setTimeout(90_000)
   await createBlank(page, 'M2-0f 混合工具与局部恢复')
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openBuildingTask(page)
   await page.getByLabel('房间名称', { exact: true }).fill('原生值守室')
   await page.getByRole('button', { name: '预览新房间', exact: true }).click()
   expect(Object.keys((await state(page)).document.rooms)).toHaveLength(0)
   await adopt(page, '结构')
   const propId = await placeLamp(page)
   await opacity(page, '0.6')
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   await page.getByRole('button', { name: '新建命名快照', exact: true }).click()
   await page.getByLabel('命名快照名称', { exact: true }).fill('原生混合基线')
   await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
   await chooseProp(page, propId); await opacity(page, '0.3')
   const movedX = (await state(page)).document.props[propId].positionMm.x + 500
   await number(page, '物件 X', movedX / 1000); await settled(page)
-  await openTerrainTask(page, '绘制地形')
-  const tools = page.getByRole('region', { name: '室外制作工具', exact: true })
+  const tools = await openOutdoorTask(page, '地形与高程')
   await openDetailsBySummary(tools, /^精确坐标 · 区域轮廓$/)
   await tools.getByLabel('室外坐标', { exact: true }).fill('10000,1000\n16000,1000\n16000,4500\n10000,4500')
   await tools.getByRole('button', { name: '预览室外修改', exact: true }).click(); await adopt(page, '室外')
   const beforeRestore = await state(page), terrain = beforeRestore.document.terrainAreas
   expect(Object.keys(terrain)).toHaveLength(1)
   await chooseProp(page, propId)
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   await page.getByRole('button', { name: '查看快照 原生混合基线', exact: true }).click()
   await page.getByLabel('局部恢复模式', { exact: true }).selectOption('appearance')
   await page.getByRole('checkbox', { name: `恢复物件 ${propId}`, exact: true }).check()
@@ -242,10 +247,14 @@ test('M2-0f mixed native room, terrain, appearance and protected partial history
 test('M2-0f native personal organization-only backup roundtrip keeps installation and scene unchanged', async ({ page }, info) => {
   test.setTimeout(90_000)
   await createBlank(page, 'M2-0f 未安装素材整理')
+  await openWorkspaceModule(page, '素材')
   const lib = library(page), initial = await state(page)
   await expect(lib.getByRole('button', { name: '刷新素材库', exact: true })).toBeEnabled()
   await lib.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await lib.getByRole('checkbox', { name: '选择素材 铜色桌灯', exact: true }).check()
+  const manage = lib.getByRole('group', { name: '素材库操作', exact: true }).getByRole('button', { name: /^导入\/管理/ })
+  await manage.click()
+  await lib.locator('.catalog-management > summary').click()
   await lib.getByRole('button', { name: '整理所选', exact: true }).click()
   const draft = lib.getByRole('form', { name: '个人素材整理草稿', exact: true })
   await draft.getByLabel('个人素材标签', { exact: true }).fill('  Ｍ２－０ｆ  \n灯具')
@@ -261,7 +270,9 @@ test('M2-0f native personal organization-only backup roundtrip keeps installatio
   expect(organized.entries).toEqual([]); expect(keys).toHaveLength(1)
   const original = organized.organizations[keys[0]]
   expect(original).toEqual({ tags: ['  Ｍ２－０ｆ  ', '灯具'], colors: ['蓝', '绿'], favorite: true })
-  await lib.getByRole('button', { name: '我的素材', exact: true }).click()
+  await lib.getByRole('button', { name: '浏览素材', exact: true }).click()
+  await lib.getByLabel('素材来源', { exact: true }).selectOption('mine')
+  await manage.click()
   await lib.locator('.catalog-organization-only > summary').click()
   await expect(lib.locator('.catalog-organization-only')).toContainText('铜色桌灯')
   const pending = page.waitForEvent('download')

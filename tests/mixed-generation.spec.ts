@@ -6,6 +6,8 @@ import { openGenerationSettings, openTerrainTask, openWorkspaceModule } from './
 
 type GenerationWorkerGate = { hold: boolean; pending: Array<() => void> }
 type WindowWithGenerationWorkerGate = Window & { __sceneweaveGenerationWorkerGate: GenerationWorkerGate }
+// Vite serves the actual worker module in dev and a hashed entry in production.
+const isGenerationWorker = (url: string) => /\/(?:worker-[^/?]+\.js|generation\/worker\.ts)(?:\?|$)/.test(url)
 
 test('mixed forest delivery preserves the original, supports local undo and cold-open', async ({ page }, info) => {
   test.setTimeout(480_000)
@@ -32,7 +34,7 @@ test('mixed forest delivery preserves the original, supports local undo and cold
   await mixed.getByRole('button', { name: '预览混合场景', exact: true }).click()
   await expect(candidate).toBeVisible({ timeout: 90000 })
   await expect(candidate.getByLabel('混合实际生成结果', { exact: true })).toContainText('2 个房间')
-  expect(workers.some(url => /\/worker-[^/]+\.js(?:\?|$)/.test(url))).toBe(true)
+  expect(workers.some(isGenerationWorker)).toBe(true)
   const fileMenu = page.locator('details.workspace-file-menu')
   await fileMenu.locator('summary').click()
   await expect(fileMenu.getByRole('button', { name: '新建空白场景', exact: true })).toBeDisabled()
@@ -47,7 +49,7 @@ test('mixed forest delivery preserves the original, supports local undo and cold
   await expect(page.getByRole('alert').filter({ hasText: '混合场景已完整保存并打开' })).toBeVisible({ timeout: 90000 })
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90000 })
   await openTerrainTask(page, '局部重生成')
-  const local = resources.getByRole('region', { name: '受限局部重生成', exact: true, includeHidden: true })
+  const local = inspector.getByRole('region', { name: '受限局部重生成', exact: true })
   const localCandidate = inspector.getByLabel('局部重生成候选摘要', { exact: true })
   await expect(local.getByLabel('局部生成配方').locator('option')).toHaveCount(2)
   const forestRecipe = await local.getByLabel('局部生成配方').locator('option').filter({ hasText: /^森林/ }).getAttribute('value')
@@ -105,7 +107,7 @@ test('mixed volcano preview renders a real supported building through the Worker
   await candidate.getByRole('button', { name: '取消混合场景', exact: true }).click()
   await expect(candidate).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'E火山原工程', exact: true })).toBeVisible()
-  expect(workers.some(url => /\/worker-[^/]+\.js(?:\?|$)/.test(url))).toBe(true)
+  expect(workers.some(isGenerationWorker)).toBe(true)
   expect(errors).toEqual([]); expect(requests).toEqual([])
   await info.attach('mixed-worker-proof.json', { body: JSON.stringify({ workers, errors, generationHttpRequests: requests }, null, 2), contentType: 'application/json' })
 })

@@ -6,6 +6,14 @@ import { effectiveAdjustments } from '../../src/shared/appearance/graph'
 import { canonicalJson } from '../../src/shared/validation/json'
 import { sha256Bytes, decodeUtf8 } from '../../src/shared/project/binary'
 import { projectResourceHashes } from '../../src/shared/project/source-resources'
+import type { AuthoringDraft, AuthoringOperation, AuthoringScope } from '../../src/shared/ai/authoring-protocol-v1'
+import { authoringProjectHash } from '../../src/shared/ai/authoring'
+import { replayRetainedArtwork } from '../../src/shared/ai/authoring-v1'
+import { materializeAuthoringArtwork } from '../../src/application/workspace/artwork'
+import { fromBundle } from '../../src/application/workspace/project'
+import { reviseSceneSnapshot } from '../../src/shared/validation/snapshots'
+import { projectContentHash } from '../../src/shared/project/validate'
+import { projectRepository, runtime, validation } from '../../src/platform/browser/runtime'
 
 export const ASSIMILATION_IDS = ['assim-a', 'assim-b', 'assim-delete', 'assim-detach', 'range-a', 'range-b', 'outside-same']
 
@@ -46,4 +54,97 @@ export async function verifyResourceClosure(project: EditableProject) {
       normalized: decodeUtf8(await bundle.resources.read(source.normalizedSha256)), rasterSha256: source.rasterSha256 })
   }
   return { hashes: verified.sort(), sourceTexts, licenseJson: canonicalJson(project.licenses), bindingsJson: canonicalJson(project.licenseBindings) }
+}
+
+type ArtworkScope = NonNullable<AuthoringScope['artwork']>
+const scopes = new WeakMap<Workspace, ArtworkScope>()
+const previews = new WeakMap<Workspace, { baseline: EditableProject; draft: AuthoringDraft; materialized: EditableProject }>()
+
+/** Test-only retained artifact replay. This grants no current public AI rights,
+ * creates no HTTP task and always uses the actual browser SVG/image adapters. */
+export function freezeRetainedArtwork(workspace: Workspace, scope: ArtworkScope) {
+  scopes.set(workspace, structuredClone(scope))
+  previews.delete(workspace)
+}
+
+export async function prepareRetainedArtwork(workspace: Workspace, operations: AuthoringOperation[]) {
+  previews.delete(workspace)
+  const baseline = workspace.getState().project!, artwork = scopes.get(workspace)
+  if (!baseline || !artwork) throw new Error('Retained artwork needs an explicit local baseline and frozen scope')
+  const start = { schemaVersion: 1 as const, project: toBundle(baseline).project, baseContentHash: authoringProjectHash(toBundle(baseline).project),
+    scope: { targetIds: [], placement: null, operations: [], artwork: structuredClone(artwork) }, seed: crypto.randomUUID(),
+    preparedAt: runtime.clock.now(), skill: { id: 'sceneweave-artwork-authoring' as const, version: 1 as const }, disclosure: 'complete-metadata/public-model' as const }
+  const steps = [{ index: 1, stepId: 'retained-artifact-step', operations: structuredClone(operations) }]
+  const draft: AuthoringDraft = { schemaVersion: 1, taskId: crypto.randomUUID(), generation: 1, start, state: replayRetainedArtwork(start, steps).state }
+  const assessments: { key: string; sha256: string; status: string }[] = []
+  const materialized = await materializeAuthoringArtwork(await fromBundle(toBundle(baseline), validation), draft, validation,
+    { onQualityAssessment: assessment => assessments.push({ key: assessment.key, sha256: assessment.sha256, status: assessment.report.status }) })
+  if (workspace.getState().project !== baseline) throw new Error('Retained artwork baseline changed during preparation')
+  previews.set(workspace, { baseline, draft, materialized })
+  return { seed: start.seed, revision: baseline.document.revision, artwork: start.scope.artwork, operationCost: draft.state.operationCost,
+    processor: validation.svg!.processor, assessments }
+}
+
+export async function retainedPublicationState(workspace: Workspace) {
+  const project = workspace.getState().project!, owner = project.document.sceneId
+  const usage = await projectRepository.usage(owner), snapshots = await projectRepository.listSnapshots(owner), cold = await projectRepository.load(owner)
+  return { hash: projectContentHash(toBundle(project).project), coldHash: cold ? projectContentHash(cold.project) : null,
+    revision: project.document.revision, metadataVersion: usage.metadataVersion,
+    snapshots: snapshots.map(snapshot => ({ id: snapshot.id, kind: snapshot.kind, contentHash: snapshot.contentHash })).sort((a, b) => a.id.localeCompare(b.id)) }
+}
+
+export async function rejectRetainedArtwork(workspace: Workspace, operations: AuthoringOperation[]) {
+  const writes: { database: string; mode: IDBTransactionMode }[] = [], transaction = IDBDatabase.prototype.transaction
+  let failure: string | null = null
+  IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase['transaction']>) {
+    if (args[1] && args[1] !== 'readonly') writes.push({ database: this.name, mode: args[1] })
+    return transaction.apply(this, args)
+  } as IDBDatabase['transaction']
+  try { await prepareRetainedArtwork(workspace, operations) }
+  catch (error) { failure = error instanceof Error ? error.message : String(error) }
+  finally { IDBDatabase.prototype.transaction = transaction }
+  return { failure, writes }
+}
+
+/** Retained results are published through explicit protection and repository
+ * CAS, never by manufacturing an authoring4 authorization or server lease. */
+export async function publishRetainedArtwork(workspace: Workspace) {
+  const preview = previews.get(workspace)
+  if (!preview || workspace.getState().project !== preview.baseline) throw new Error('Retained artwork preview is absent or stale')
+  await workspace.flush()
+  if (workspace.getState().project !== preview.baseline) throw new Error('Retained artwork baseline changed before publication')
+  const { baseline, materialized } = preview, owner = baseline.document.sceneId
+  const next = await fromBundle({ project: { ...toBundle(materialized).project,
+    document: reviseSceneSnapshot(materialized.document, baseline.document.revision + 1, runtime.clock.now()) }, resources: materialized.resources }, validation)
+  const usage = await projectRepository.usage(owner)
+  const protection = await projectRepository.createSnapshot(toBundle(baseline), 'Retained artwork source baseline', { kind: 'protection',
+    expectedRevision: baseline.document.revision, expectedMetadataVersion: usage.metadataVersion })
+  await projectRepository.save(toBundle(next), baseline.document.revision, { guard: { expectedMetadataVersion: usage.metadataVersion + 1,
+    protection: { id: protection.id, contentHash: protection.contentHash } } })
+  const cold = await projectRepository.load(owner)
+  if (!cold || projectContentHash(cold.project) !== projectContentHash(toBundle(next).project)) throw new Error('Retained publication cold-read mismatch')
+  await workspace.openPersisted(await fromBundle(cold, validation))
+  previews.delete(workspace)
+  return { protectionId: protection.id, revision: next.document.revision }
+}
+
+/** Cancel an independent materialization only after decoding actual bytes.
+ * Observe native write transactions as well as persisted metadata/protections. */
+export async function cancelRetainedArtwork(workspace: Workspace) {
+  const preview = previews.get(workspace)
+  if (!preview || workspace.getState().project !== preview.baseline) throw new Error('Retained cancellation needs an active preview')
+  await workspace.flush()
+  const before = await retainedPublicationState(workspace), abort = new AbortController(), writes: { database: string; mode: IDBTransactionMode }[] = []
+  let realDecodes = 0, failure: string | null = null
+  const transaction = IDBDatabase.prototype.transaction
+  IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase['transaction']>) {
+    if (args[1] && args[1] !== 'readonly') writes.push({ database: this.name, mode: args[1] })
+    return transaction.apply(this, args)
+  } as IDBDatabase['transaction']
+  try {
+    await materializeAuthoringArtwork(preview.baseline, preview.draft, { ...validation, signal: abort.signal, images: { ...validation.images,
+      async decode(...args) { const pixels = await validation.images.decode(...args); realDecodes++; abort.abort(); return pixels } } })
+  } catch (error) { failure = error instanceof Error ? error.name : String(error) }
+  finally { IDBDatabase.prototype.transaction = transaction; previews.delete(workspace) }
+  return { failure, realDecodes, writes, before, after: await retainedPublicationState(workspace) }
 }

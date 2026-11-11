@@ -77,7 +77,7 @@ test('v6 automatic island rules, connection landings, package cold read, and pub
       connectionSummary,
       outputs, resultHash: response.resultHash }
   })
-  expect(proof.schemaVersion).toBe(8)
+  expect(proof.schemaVersion).toBe(1)
   expect(proof.roundTripHash).toBe(proof.contentHash)
   expect(proof.styledAreas).toBeGreaterThan(0)
   expect(proof.ruleCounts.trees).toBeGreaterThan(0)

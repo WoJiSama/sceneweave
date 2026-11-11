@@ -1,3 +1,5 @@
+import { acknowledgeAssetQuality } from './asset-quality-helpers'
+import { openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
@@ -37,6 +39,7 @@ async function adopt(page: Page) {
   await expect(button).toBeVisible({ timeout: 30000 })
   const confirmation = page.getByRole('checkbox', { name: '确认完整影响范围', exact: true })
   if (await confirmation.count()) await confirmation.check()
+  await acknowledgeAssetQuality(page)
   await expect(button).toBeEnabled({ timeout: 30000 }); await button.click(); await settled(page)
 }
 
@@ -88,10 +91,10 @@ for (const sample of [{ name: '苔石墓园', kind: 'graveyard' }, { name: '灰�
       for (const license of resources.licenses) { expect(license.actualHash).toBe(license.hash); expect(license.sha256).toBe(license.hash) }
       await info.attach('volcano-original-and-hot-resources.json', { body: JSON.stringify(resources, null, 2), contentType: 'application/json' })
     }
-    await page.getByRole('tab', { name: '对象', exact: true }).click()
-    await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
+    await openWorkspaceModule(page, '场景')
+    await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
     const id = sample.kind === 'graveyard' ? 'graveyard-tree-west' : 'volcano-refined-rock'
-    await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
+    await page.getByLabel('搜索场景对象', { exact: true }).fill(id)
     await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
     const field = page.getByRole('spinbutton', { name: '物件旋转', exact: true })
     await field.fill('25'); await field.press('Tab'); await settled(page)
@@ -111,6 +114,7 @@ test('content simple: supplemental tags and refined comparison leave the origina
   test.setTimeout(90000)
   await blank(page, '目录与精修'); const before = await current(page)
   expect(before.assetCount).toBe(34)
+  await openWorkspaceModule(page, '素材')
   const lib = library(page)
   await lib.getByLabel('素材来源', { exact: true }).selectOption('builtin')
   await expect(lib.getByRole('button', { name: '刷新素材库', exact: true })).toBeEnabled({ timeout: 30000 })
@@ -118,13 +122,14 @@ test('content simple: supplemental tags and refined comparison leave the origina
   const row = lib.locator('.catalog-entries article')
   await expect(row).toHaveCount(1)
   await row.getByRole('button', { name: /^查看素材/ }).click()
-  await expect(lib.locator('.catalog-source')).toContainText('目录补充标签／颜色')
-  const comparison = lib.getByRole('group', { name: '精修素材与旧版对照', exact: true })
+  await expect(page.getByTestId('workspace-inspector').locator('.catalog-source')).toContainText('目录补充标签／颜色')
+  const comparison = page.getByTestId('workspace-inspector').getByRole('group', { name: '精修素材与旧版对照', exact: true })
   await expect(comparison).toBeVisible()
   await expect.poll(() => comparison.locator('img').evaluateAll(images => images.length === 2 && images.every(img => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0))).toBe(true)
   expect(await current(page)).toEqual(before)
   await info.attach('refined-comparison.png', { body: await page.screenshot(), contentType: 'image/png' })
   await row.getByRole('checkbox').check()
+  await lib.getByRole('group', { name: '素材库操作', exact: true }).getByRole('button', { name: /^导入\/管理/ }).click()
   if (!await lib.locator('.catalog-management').evaluate(element => (element as HTMLDetailsElement).open)) await lib.locator('.catalog-management > summary').click()
   await lib.getByRole('button', { name: '预览采用到本工程', exact: true }).click()
   await expect(page.getByRole('button', { name: '取消组件预览', exact: true })).toBeVisible()
@@ -134,6 +139,8 @@ test('content simple: supplemental tags and refined comparison leave the origina
   expect(after.assetCount).toBe(35)
   expect(after.document.props).toEqual(before.document.props)
   expect(Object.values(after.document.propDefinitions).filter(item => item.catalogId.endsWith('tree-broadleaf.refined'))).toHaveLength(1)
+  await lib.getByRole('group', { name: '素材库操作', exact: true }).getByRole('button', { name: '浏览素材', exact: true }).click()
+  await expect(lib.getByRole('button', { name: '浏览素材', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await lib.getByRole('button', { name: '放置组件 阔叶树冠·精修', exact: true }).click()
   await page.getByRole('button', { name: '在此放置', exact: true }).click()
   await expect.poll(async () => Object.keys((await current(page)).document.props).length).toBe(1)
@@ -164,7 +171,7 @@ for (const recipe of ['scn-01', 'scn-04'] as const) test(`M1-D simple: ${recipe}
   const initial = await current(page)
   expect(Object.keys(initial.document.rooms)).toHaveLength(0)
   expect(Object.keys(initial.document.terrainAreas)).toHaveLength(0)
-  await page.getByTestId('workspace-resources').getByRole('tab', { name: '工程', exact: true }).click()
+  await openSceneSettings(page)
   await page.locator('.workspace-authoring-details > summary').click()
   const guide = page.getByRole('region', { name: '场景分步制作', exact: true })
   await guide.getByLabel('制作基线', { exact: true }).selectOption(recipe)

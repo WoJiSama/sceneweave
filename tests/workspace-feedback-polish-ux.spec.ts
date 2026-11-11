@@ -1,16 +1,13 @@
 // Current normal production UI only; engineering facts come from downloaded backups.
+import { closeWorkspaceDrawers, openBuildingTask, openOutdoorTask } from './workspace-navigation-helpers'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel, clickKeyboardWorldPoint } from './keyboard-ux-helpers'
-import { openExportMenu } from './workspace-ux-helpers'
+import { openExportMenu, openNewScene } from './workspace-ux-helpers'
 
 test.use({ actionTimeout: 15000 })
 async function closeDrawers(page: Page) {
-  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const id of ['resources', 'inspector', 'navigation']) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') === 'true') await panel.locator('.workspace-panel-header button').click()
-  }
+  await closeWorkspaceDrawers(page)
 }
 async function shot(page: Page, info: TestInfo, name: string) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
@@ -23,12 +20,9 @@ for (const width of [1512, 390]) test(`candidate feedback, dialogs and canvas cu
   await page.setViewportSize({ width, height: width === 390 ? 844 : 982 })
   await createKeyboardProject(page, `反馈与弹窗 ${width}`)
   const before = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '建筑', exact: true }).click()
-  const building = page.getByRole('region', { name: '建筑工具', exact: true })
+  const building = await openBuildingTask(page)
   await building.getByLabel('房间名称', { exact: true }).fill(longName)
   await building.getByRole('button', { name: '预览新房间', exact: true }).click()
-  await closeDrawers(page)
   const candidate = page.getByRole('region', { name: '候选审阅', exact: true })
   await expect(candidate).toBeVisible()
   const adopt = candidate.getByRole('button', { name: '采用结构修改', exact: true })
@@ -48,8 +42,7 @@ for (const width of [1512, 390]) test(`candidate feedback, dialogs and canvas cu
   await keyboardWorkspaceSaved(page)
   await openKeyboardPanel(page, 'resources')
   if (await page.getByRole('button', { name: '取消建筑草稿', exact: true }).isVisible()) await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
-  await resources.getByRole('tab', { name: '地形', exact: true }).click()
-  const outdoor = page.getByRole('region', { name: '室外制作工具', exact: true })
+  const outdoor = await openOutdoorTask(page)
   const coords = outdoor.locator('.outdoor-coordinates details')
   await coords.locator('summary').click(); await outdoor.getByLabel('室外坐标', { exact: true }).fill('坏坐标'.repeat(30)); await coords.locator('summary').click()
   await outdoor.getByRole('button', { name: '预览室外修改', exact: true }).click()
@@ -67,14 +60,17 @@ for (const width of [1512, 390]) test(`candidate feedback, dialogs and canvas cu
   await expect(hint).toHaveCount(0)
   await expect(page.getByRole('button', { name: '工具：画房间', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await expect(candidate).toHaveCount(0)
+  // Leaving canvas point entry keeps its form draft until explicitly cancelled.
+  await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
   await page.getByRole('button', { name: '工具：画地形', exact: true }).click(); await closeDrawers(page)
   const outdoorHint = page.getByRole('status', { name: '地形绘制提示', exact: true })
   await expect(outdoorHint).toContainText('道路与连接至少两点')
   await outdoorHint.getByRole('button', { name: '退出地形绘制', exact: true }).click()
   await expect(outdoorHint).toHaveCount(0)
-  await openKeyboardPanel(page, 'resources'); await resources.getByRole('tab', { name: '工程', exact: true }).click()
-  await resources.getByRole('button', { name: '新建空白场景', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
+  await page.getByRole('button', { name: '取消室外草稿', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const dialog = await openNewScene(page)
   await dialog.getByLabel('场景名称', { exact: true }).fill(longName)
   await dialog.getByLabel('画布宽度', { exact: true }).fill('999')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
@@ -89,7 +85,7 @@ for (const width of [1512, 390]) test(`candidate feedback, dialogs and canvas cu
     await page.setViewportSize({ width, height: 844 })
   }
   const titleStyle = await dialog.getByRole('heading').evaluate(n => ({ size: getComputedStyle(n).fontSize, font: getComputedStyle(n).fontFamily }))
-  expect(titleStyle.size).toBe('15px')
+  expect(titleStyle.size).toBe('16px')
   await dialog.getByRole('button', { name: '取消', exact: true }).focus(); await page.keyboard.press('Enter')
   await expect(dialog).toHaveCount(0)
   await closeDrawers(page); await openExportMenu(page)

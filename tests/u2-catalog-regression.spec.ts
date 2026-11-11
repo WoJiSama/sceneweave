@@ -57,7 +57,7 @@ async function createBlank(page: Page, title: string) {
   await openWorkspaceModule(page, '素材')
   await expect(library(page)).toHaveAttribute('aria-busy', 'false')
   await expect(library(page).getByRole('button', { name: '刷新素材库', exact: true })).toBeEnabled()
-  await library(page).getByRole('button', { name: '本工程', exact: true }).click()
+  await library(page).getByLabel('素材来源', { exact: true }).selectOption('project')
 }
 async function beginOrganization(page: Page, name: string, tags: string) {
   const lib = library(page)

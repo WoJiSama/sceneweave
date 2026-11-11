@@ -1,3 +1,4 @@
+import { openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { openDetailsBySummary } from './workspace-ux-helpers'
 
@@ -18,7 +19,7 @@ async function state(page: Page) {
 }
 
 async function settled(page: Page) {
-  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@2')
+  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
   await expect(page.locator('.asset-busy')).toHaveCount(0)
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
@@ -37,7 +38,7 @@ async function createBlank(page: Page) {
 }
 
 async function placeLamp(page: Page, at?: { x: number; y: number }) {
-  await page.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   await library(page).getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await library(page).getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
   if (at) {
@@ -51,9 +52,9 @@ async function placeLamp(page: Page, at?: { x: number; y: number }) {
 }
 
 async function chooseProp(page: Page, id: string) {
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
+  await openWorkspaceModule(page, '场景')
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  await page.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
 }
 
@@ -112,13 +113,16 @@ test('subgrid placement and fill-copy candidates remain session-only until one a
 
   await openDetailsBySummary(page, /^填充复制$/)
   await openDetailsBySummary(page.locator('[data-fill-copy-settings]'), /^用数值设置间距$/)
-  await page.getByLabel('填充间距 X', { exact: true }).fill('1000')
-  await page.getByLabel('填充间距 Y', { exact: true }).fill('250')
+  await expect(page.getByRole('group', { name: '填充间距', exact: true }).locator('.asset-number small')).toHaveText(['m', 'm'])
+  await page.getByLabel('填充间距 X', { exact: true }).fill('1')
+  await page.getByLabel('填充间距 X', { exact: true }).press('Tab')
+  await page.getByLabel('填充间距 Y', { exact: true }).fill('0.25')
+  await page.getByLabel('填充间距 Y', { exact: true }).press('Tab')
   await page.getByRole('button', { name: '预览数值填充', exact: true }).click()
   const candidate = page.getByLabel('填充复制参数')
   await expect(candidate).toBeVisible()
   await expect(candidate).toContainText('新增 2 份')
-  await expect(candidate).toContainText('每份偏移 1000, 250 mm')
+  await expect(candidate).toContainText('每份偏移 1.000 m, 0.250 m')
   expect((await state(page)).document).toEqual(before)
   await page.getByRole('button', { name: '采用填充复制', exact: true }).click()
   await settled(page)
@@ -133,7 +137,7 @@ test('subgrid placement and fill-copy candidates remain session-only until one a
   const undone = (await state(page)).document
   expect({ ...undone, updatedAt: before.updatedAt }).toEqual({ ...before, revision: before.revision + 2 })
 
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
+  await openSceneSettings(page)
   await page.getByText('单位与格线', { exact: true }).click()
   await page.getByLabel('场景格距', { exact: true }).fill('1')
   await page.getByRole('button', { name: '预览显示设置', exact: true }).click()
@@ -153,7 +157,10 @@ test('prefab fill uses actual members and adopts or undoes the whole row once', 
   await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
   await settled(page)
   await page.getByRole('button', { name: '全选可编辑对象', exact: true }).click()
-  const prefabTools = page.getByRole('region', { name: '固定组合工具', exact: true })
+  const inspector = page.getByTestId('workspace-inspector')
+  await expect(inspector.getByRole('heading', { name: '已选择 2 个对象', exact: true })).toBeVisible()
+  await openDetailsBySummary(inspector, /^组合与重复布置$/)
+  const prefabTools = inspector.getByRole('region', { name: '固定组合工具', exact: true })
   await prefabTools.getByLabel('新组合名称', { exact: true }).fill('双灯填充组合')
   await prefabTools.getByRole('button', { name: '预览保存组合 · 2 件', exact: true }).click()
   await page.getByRole('button', { name: '采用组件修改', exact: true }).click()
@@ -177,7 +184,7 @@ test('prefab fill uses actual members and adopts or undoes the whole row once', 
   await page.mouse.up()
   const candidate = page.getByLabel('填充复制参数', { exact: true })
   await expect(candidate).toContainText('组合 · 新增 2 份')
-  await expect(candidate).toContainText('每份偏移 2000, 0 mm')
+  await expect(candidate).toContainText('每份偏移 2.000 m, 0.000 m')
   expect((await state(page)).document).toEqual(before)
   await page.screenshot({ path: testInfo.outputPath('prefab-fill-preview.png') })
   await page.getByRole('button', { name: '采用填充复制', exact: true }).click()

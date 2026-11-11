@@ -192,7 +192,7 @@ test('U1a unpreviewed appearance input retains its target across browsing and re
   await seedCurrent(page); await selectProp(page)
   await page.getByLabel('搜索场景对象', { exact: true }).fill('c3-')
   const appearanceDetails = page.getByTestId('workspace-inspector').locator('details.workspace-advanced').filter({ has: page.getByLabel('外观调整项目', { exact: true }) })
-  if (await appearanceDetails.getAttribute('open') === null) await appearanceDetails.locator('summary').click()
+  if (await appearanceDetails.getAttribute('open') === null) await appearanceDetails.locator(':scope > summary').click()
   const viewport = page.getByRole('group', { name: '地图视口', exact: true })
   const before = await current(page), initialKind = await page.getByLabel('外观调整项目', { exact: true }).inputValue()
   const initialTint = await page.getByLabel('外观调色颜色', { exact: true }).inputValue()

@@ -1,3 +1,4 @@
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
@@ -71,14 +72,18 @@ test('a visual-only AI grant submits the complete brief, streams its plan and ad
   test.setTimeout(120_000)
   const errors: string[] = [], creates: CreateTaskRequest[] = []
   page.on('pageerror', error => errors.push(error.message))
-  page.on('request', request => { if (request.url() === backendUrl + '/v1/tasks' && request.method() === 'POST') creates.push(request.postDataJSON() as CreateTaskRequest) })
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.origin === backendUrl && url.pathname === '/v1/tasks' && request.method() === 'POST') creates.push(request.postDataJSON() as CreateTaskRequest)
+  })
   await page.goto('/#home'); await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('只授权视觉的AI任务')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await expect(dialog).toHaveCount(0); await saved(page)
   const before = await current(page)
-  await page.getByRole('tab', { name: 'AI对话', exact: true }).click()
+  await openWorkspaceModule(page, 'AI')
   const panel = page.getByRole('region', { name: 'AI 对话面板', exact: true }), authoring = page.getByRole('region', { name: 'AI 场景草稿', exact: true })
+  const review = page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true })
   await panel.getByLabel('AI 后端地址', { exact: true }).fill(backendUrl); await panel.getByLabel('AI 应用凭据', { exact: true }).fill(token)
   await panel.getByRole('button', { name: '连接 AI 后端', exact: true }).click()
   await expect(panel.getByRole('button', { name: '查询最近任务', exact: true })).toBeEnabled()
@@ -106,29 +111,39 @@ test('a visual-only AI grant submits the complete brief, streams its plan and ad
   await expect(authoring.getByLabel('AI 素材创作和同化', { exact: true })).not.toBeChecked()
   await expect(authoring.getByRole('checkbox', { name: '允许使用明确素材放置新物件', exact: true })).not.toBeChecked()
   await expect(start).toBeEnabled()
-  const creation = page.waitForResponse(response => response.url() === backendUrl + '/v1/tasks' && response.request().method() === 'POST')
-  await start.click(); const task = await (await creation).json() as TaskSnapshot
+  const creation = page.waitForResponse(response => {
+    const url = new URL(response.url())
+    return url.origin === backendUrl && url.pathname === '/v1/tasks' && response.request().method() === 'POST'
+  })
+  await start.click()
+  const created = await creation
+  expect(created.status()).toBe(201)
+  expect(new URL(created.url()).searchParams.get('authoringVersion')).toBe('4')
+  const task = await created.json() as TaskSnapshot
   const progress = authoring.getByLabel('AI 制作进度', { exact: true })
   await expect(progress).toContainText('当前阶段：环境'); await expect(progress.locator('li')).toHaveCount(2)
   await expect(progress).toContainText('待完成'); expect((await current(page)).contentHash).toBe(before.contentHash)
   await expect.poll(() => Boolean(releaseVisualEdit)).toBe(true); releaseVisualEdit!()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('草稿可审阅采用', { timeout: 40_000 })
   await expect(progress).toContainText('当前阶段：复核'); await expect(progress).toContainText('AI 已标记，待人工核对')
-  const differences = authoring.getByLabel('AI 草稿差异', { exact: true })
+  const differences = review.getByLabel('AI 草稿差异', { exact: true })
   await expect(differences.locator(':scope > li')).toHaveCount(2)
   await expect(differences).toContainText(`点光 · ${lightId} · 新增`); await expect(differences).toContainText(`区域雾 · ${fogId} · 新增`)
   expect((await current(page)).contentHash).toBe(before.contentHash); expect(creates).toHaveLength(1)
   const posted = creates[0].authoring!
+  expect(posted).toMatchObject({ schemaVersion: 4, capability: 'sceneweave-current-authoring@1',
+    source: { version: 4, kind: 'current-baseline', preservation: { sceneId: before.sceneId, revision: before.revision, contentHash: before.contentHash } } })
   expect(posted.scope.targetIds).toEqual([]); expect(posted.scope.operations).toEqual([]); expect(posted.scope.placement).toBeNull()
   expect(posted.scope.scene ?? null).toBeNull(); expect(posted.scope.artwork ?? null).toBeNull()
   expect(posted.scope.visual).toMatchObject({ entityIds: [], definitionIds: [], materialIds: [], allowGlobalEnvironment: false, boundsMm: before.document.exportBoundsMm })
+  expect(posted.scope.visual!.operations).toEqual(['visualBoundary', 'visualEdge', 'visualLight', 'visualFog', 'visualFilter', 'visualEnvironment', 'visualSurface', 'furnishAlong', 'visualRemove'])
   expect(posted.brief).toMatchObject({ recipe: 'custom', requirements, style, checks: [{ kind: 'clearArea', floorId: Object.keys(before.document.floors)[0], boundsMm: { x: 0, y: 0, width: 4000, height: 4000 }, minimumWidthMm: 4000, avoidVisual: true }] })
   expect(posted.brief!.checks![0].id).toMatch(/^check-/); expect(creates[0].vision).toBeUndefined()
   const stored = store.read(task.id)
   expect(stored.snapshot.tools.every(value => value.success)).toBe(true); expect(requests).toBe(4)
   expect(stored.authoring!.state.steps).toHaveLength(1); expect(stored.authoring!.state.steps[0].operations.map(value => value.kind)).toEqual(['visualLight', 'visualFog'])
-  await authoring.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
-  await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  await review.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
+  await review.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已采用', { timeout: 40_000 }); await expect(authoring).toContainText('保护快照和保存已完成', { timeout: 40_000 }); await saved(page)
   const adopted = await current(page)
   expect(adopted.revision).toBe(before.revision + 1); expect(visualBase(adopted.document)!.lights[lightId]).toMatchObject({ color: '#EAC582', intensity: .65, visibility: 'public' })

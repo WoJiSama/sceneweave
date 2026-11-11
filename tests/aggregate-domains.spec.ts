@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { createServer } from 'vite'
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { openWorkspaceModule, openSceneObjects, openBuildingTask } from './workspace-navigation-helpers'
 
 const NATURAL_TITLE = '自然组整体操作开发自检'
 const STRUCTURE_TITLE = '组拆合复制开发自检'
@@ -17,7 +17,8 @@ async function openDetails(details: Locator) {
 }
 
 async function naturalTools(page: Page) {
-  await openTerrainTask(page, '绘制地形')
+  const panel = await openWorkspaceModule(page, '地形')
+  await panel.getByRole('button', { name: '自然组 · 创建与整体调整', exact: true }).click()
   const tools = page.getByLabel('自然组工具', { exact: true })
   await openDetails(tools)
   await expect(tools).toBeVisible()
@@ -25,7 +26,7 @@ async function naturalTools(page: Page) {
 }
 
 async function structureTools(page: Page) {
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openBuildingTask(page, '拆分与组合结构')
   const tools = page.getByLabel('组结构工具', { exact: true })
   await openDetails(tools)
   await expect(tools).toBeVisible()
@@ -54,6 +55,7 @@ async function number(scope: Locator, name: string, value: string) {
 }
 
 async function itemCoordinates(page: Page, x: string, y: string, rotation = '0') {
+  if (!await page.getByRole('heading', { name: '物件属性', exact: true }).isVisible()) await page.getByRole('button', { name: '返回所选对象', exact: true }).click()
   await expect(page.getByRole('heading', { name: '物件属性', exact: true })).toBeVisible()
   await expect(page.getByRole('spinbutton', { name: '物件 X', exact: true })).toHaveValue(x)
   await expect(page.getByRole('spinbutton', { name: '物件 Y', exact: true })).toHaveValue(y)
@@ -189,17 +191,19 @@ test('create and transform a natural group through production preview, undo and 
   const reopened = await naturalMembers(page)
   await reopened.getByRole('button', { name: '桌子', exact: true }).click()
   await itemCoordinates(page, '11', '6', '90')
+  await naturalMembers(page)
   await reopened.getByRole('button', { name: NATURAL_NOTE, exact: true }).click()
   const inspector = page.getByLabel('建筑属性', { exact: true })
   await expect(inspector.getByRole('textbox', { name: '编辑注记内容', exact: true })).toHaveValue(NATURAL_NOTE)
   await expect(inspector.getByRole('combobox', { name: '注记可见性', exact: true })).toHaveValue('gm')
   await expect(inspector.getByRole('combobox', { name: '注记附着对象', exact: true })).toHaveValue('item')
+  await naturalMembers(page)
   await reopened.getByRole('button', { name: '道路 · 宽 0.4 m', exact: true }).click()
   await expect(page.getByRole('listbox', { name: '对象道路支撑', exact: true })).toHaveValues(['terrainArea:ground'])
   await page.getByText('精确坐标 · 道路中心线', { exact: true }).click()
   await expect(page.getByRole('textbox', { name: '室外对象坐标', exact: true })).toHaveValue('8000, 5000\n8000, 10000')
   await page.screenshot({ path: info.outputPath('aggregate-natural-cold-open.png'), fullPage: true })
-  await page.getByRole('tab', { name: '对象', exact: true }).click()
+  await openSceneObjects(page)
   await page.locator('[data-entity-id="other"]').click()
   await itemCoordinates(page, '18', '18')
   expect(errors).toEqual([])
@@ -242,6 +246,7 @@ test('split, merge and copy an existing prop and note group using normal product
   const members = await structureMembers(page)
   await members.getByRole('button', { name: '桌子', exact: true }).click()
   await itemCoordinates(page, '4', '4')
+  await structureMembers(page)
   await members.getByRole('button', { name: '木箱', exact: true }).click()
   await itemCoordinates(page, '9', '9')
 
@@ -286,8 +291,10 @@ test('split, merge and copy an existing prop and note group using normal product
   const copied = await structureMembers(page)
   await copied.getByRole('button', { name: '桌子', exact: true }).click()
   await itemCoordinates(page, '5', '4')
+  await structureMembers(page)
   await copied.getByRole('button', { name: '木箱', exact: true }).click()
   await itemCoordinates(page, '10', '9')
+  await structureMembers(page)
   await copied.getByRole('button', { name: STRUCTURE_NOTE, exact: true }).click()
   const inspector = page.getByLabel('建筑属性', { exact: true })
   await expect(inspector.getByRole('textbox', { name: '编辑注记内容', exact: true })).toHaveValue(STRUCTURE_NOTE)
@@ -295,6 +302,7 @@ test('split, merge and copy an existing prop and note group using normal product
   await expect(inspector.getByRole('combobox', { name: '注记附着对象', exact: true })).not.toHaveValue('item')
   await expect(inspector.getByRole('combobox', { name: '注记附着对象', exact: true }).locator('option:checked')).toHaveText(/^现有附着对象 · /)
   await page.screenshot({ path: info.outputPath('aggregate-structure-cold-open.png'), fullPage: true })
+  await structureTools(page)
   await coldChoices.selectOption(originalGroupId)
   const original = await structureMembers(page)
   await original.getByRole('button', { name: '桌子', exact: true }).click()

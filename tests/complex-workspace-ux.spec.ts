@@ -2,15 +2,11 @@
 // including browser-driver overhead, and are not a formal performance benchmark.
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
-import { openWorkspaceModule, openTerrainTask } from './workspace-navigation-helpers'
+import { openWorkspaceModule, openTerrainTask, closeWorkspaceDrawers } from './workspace-navigation-helpers'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
 
 async function closeDrawers(page: Page) {
-  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const id of ['resources', 'inspector']) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') === 'true') await panel.locator('.workspace-panel-header button').click()
-  }
+  await closeWorkspaceDrawers(page)
 }
 
 async function observe(page: Page, label: string, operation: () => Promise<unknown>) {
@@ -108,6 +104,7 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   }
   await observe(page, 'place furniture and save', async () => {
     await inspector.getByRole('button', { name: '在此放置', exact: true }).click()
+    await closeDrawers(page)
     await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
     await keyboardWorkspaceSaved(page)
   })
@@ -166,10 +163,11 @@ for (const width of [1512, 390]) test(`mixed-map editing, layer movement and wai
   await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
   const redone = await keyboardProjectBackup(page, info.outputPath('redone.sceneweave'))
   expect(redone.document.entityLayers).toEqual(moved.document.entityLayers)
-  navigation = await openKeyboardPanel(page, 'navigation')
   await observe(page, 'read history', async () => {
     navigation = await openWorkspaceModule(page, '历史')
-    await expect(navigation.getByRole('button', { name: /^上一个版本(?: · r\d+)?$/ })).toBeVisible({ timeout: 30000 })
+    await navigation.getByRole('button', { name: /^查看版本与恢复详情 · r\d+$/ }).click()
+    const history = page.getByTestId('workspace-inspector').getByRole('region', { name: '历史详情', exact: true })
+    await expect(history.getByRole('button', { name: /^上一个版本(?: · r\d+)?$/ })).toBeVisible({ timeout: 30000 })
   })
   await page.screenshot({ path: info.outputPath('04-history.png') })
   await closeDrawers(page)

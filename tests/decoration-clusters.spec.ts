@@ -1,10 +1,9 @@
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { openTerrainTask, openSceneObjects } from './workspace-navigation-helpers'
 import { reloadSaved } from './workspace-ux-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import type { EditableProject } from '../src/application/workspace/project'
 
-const root = 'work/clustered-dressing-20261031'
 async function saved(page: Page) {
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 90000 })
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90000 })
@@ -33,11 +32,7 @@ test('real original sprites enter one clustered preview; individual manual move/
   await dialog.getByLabel('画布宽度', { exact: true }).fill('48')
   await dialog.getByLabel('画布高度', { exact: true }).fill('36')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await saved(page)
-  await page.getByRole('tab', { name: '工程', exact: true }).click()
-  for (const [version, label] of [[3, '保存独立地形副本'], [4, '保存独立地形副本'], [5, '保存独立曲线连接副本'], [6, '保存独立簇状布景副本']] as const) {
-    await page.getByRole('button', { name: label, exact: true }).click()
-    await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', `sceneweave-complete-project@${version}`, { timeout: 90000 }); await saved(page)
-  }
+  await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-native-format', 'sceneweave-complete-project@1')
   const empty = await state(page)
   await openTerrainTask(page, '布置植被')
   const panel = page.getByRole('region', { name: '簇状布景', exact: true })
@@ -61,7 +56,8 @@ test('real original sprites enter one clustered preview; individual manual move/
   expect(new Set(Object.values(created.document.decorations!).map(row => row.scalePpm)).size).toBeGreaterThan(1)
   const decoration = Object.values(created.document.decorations!)[0], other = Object.values(created.document.decorations!)[1]
   expect(other).toBeTruthy()
-  await page.getByRole('region', { name: '轻量装饰属性', exact: true }).getByRole('button', { name: `轻量装饰 · ${decoration.id}`, exact: true }).click()
+  const objects = await openSceneObjects(page)
+  await objects.locator(`[data-entity-id="${decoration.id}"]`).click()
   const inspector = page.getByRole('region', { name: '轻量装饰属性', exact: true })
   await inspector.getByLabel('装饰位置X', { exact: true }).fill(String(decoration.positionMm.x + 100))
   await inspector.getByRole('button', { name: '预览装饰修改', exact: true }).click(); await adopt(page)
@@ -69,13 +65,16 @@ test('real original sprites enter one clustered preview; individual manual move/
   expect(moved.document.decorations![decoration.id].positionMm.x).toBe(decoration.positionMm.x + 100)
   const member = Object.entries(moved.document.decorationClusters![cluster.id].members).find(([, row]) => row.entityId === decoration.id)!
   expect(member[1].state).toBe('manual')
-  await panel.getByRole('button', { name: new RegExp(`^${cluster.id} ·`) }).click()
+  await openSceneObjects(page)
+  await objects.locator(`[data-entity-id="${cluster.id}"]`).click()
   await page.getByRole('region', { name: '轻量装饰属性', exact: true }).getByRole('button', { name: `轻量装饰 · ${other.id}`, exact: true }).click()
   await inspector.getByRole('button', { name: '预览删除装饰', exact: true }).click(); await adopt(page)
   const deleted = await state(page), deletedSlot = Object.entries(created.document.decorationClusters![cluster.id].members).find(([, row]) => row.entityId === other.id)![0]
   expect(deleted.document.decorations![other.id]).toBeUndefined()
   expect(deleted.document.decorationClusters![cluster.id].members[deletedSlot]).toMatchObject({ entityId: null, state: 'deleted' })
-  await panel.getByRole('button', { name: '预览重新布景', exact: true }).click(); await adopt(page)
+  await openSceneObjects(page)
+  await objects.locator(`[data-entity-id="${cluster.id}"]`).click()
+  await inspector.getByRole('button', { name: '预览重新布景', exact: true }).click(); await adopt(page)
   const regenerated = await state(page)
   expect(regenerated.document.decorations![decoration.id]).toEqual(deleted.document.decorations![decoration.id])
   expect(regenerated.document.decorations![other.id]).toBeUndefined()
@@ -99,10 +98,10 @@ test('real original sprites enter one clustered preview; individual manual move/
     let binary = ''; for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768))
     return { hash: projectContentHash(bundle.project), decorationCount: Object.keys(current.document.decorations!).length, propCount: Object.keys(current.document.props).length, clusters: current.document.decorationClusters, identityVersion: current.historyIdentity.version, assets: Object.keys(current.assets).length, licenses: Object.keys(current.licenses).length, output, hits, compactId: compact.id, package: btoa(binary) }
   })
-  expect(proof.identityVersion).toBe(4)
+  expect(proof.identityVersion).toBe(5)
   expect(proof.hits).toContain(proof.compactId)
   expect(proof.assets).toBeGreaterThanOrEqual(12)
-  for (const row of proof.output) await writeFile(`${root}/clusters-${row.audience}.png`, Buffer.from(row.png, 'base64'))
+  for (const row of proof.output) await writeFile(info.outputPath(`clusters-${row.audience}.png`), Buffer.from(row.png, 'base64'))
   await writeFile(info.outputPath('clusters.sceneweave'), Buffer.from(proof.package, 'base64'))
   await writeFile(info.outputPath('proof.json'), JSON.stringify({ ...proof, package: undefined, output: proof.output.map(({ png: _png, ...row }) => row) }, null, 2))
   await info.attach('clusters-ui.png', { body: await page.screenshot(), contentType: 'image/png' })

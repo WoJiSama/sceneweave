@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { openSceneObjects, openBuildingTask } from './workspace-navigation-helpers'
 import { createServer } from 'vite'
 
 const TITLE = '建筑组整体操作开发自检'
@@ -11,7 +12,7 @@ async function saved(page: Page) {
 }
 
 async function buildingTools(page: Page) {
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openBuildingTask(page, '建筑组')
   const tools = page.getByLabel('建筑组工具', { exact: true })
   await expect(tools).toBeVisible()
   if (await tools.getAttribute('open') === null) await tools.locator('summary').first().click()
@@ -34,6 +35,7 @@ async function commitNumber(scope: Locator, name: string, value: string) {
 }
 
 async function itemCoordinates(page: Page, x: string, y: string, rotation: string) {
+  if (!await page.getByRole('heading', { name: '物件属性', exact: true }).isVisible()) await page.getByRole('button', { name: '返回所选对象', exact: true }).click()
   await expect(page.getByRole('heading', { name: '物件属性', exact: true })).toBeVisible()
   await expect(page.getByRole('spinbutton', { name: '物件 X', exact: true })).toHaveValue(x)
   await expect(page.getByRole('spinbutton', { name: '物件 Y', exact: true })).toHaveValue(y)
@@ -116,6 +118,7 @@ test('create a building group, transform its members, undo and reopen the saved 
   await expect(tools.getByRole('combobox', { name: '建筑组', exact: true }).locator('option')).toHaveCount(1)
   await expect(tools.getByRole('button', { name: '创建建筑组', exact: true })).toBeDisabled()
   await tools.getByRole('button', { name: '选择整栋', exact: true }).click()
+  await page.getByRole('button', { name: '返回所选对象', exact: true }).click()
   await expect(page.getByRole('heading', { name: '多选属性', exact: true })).toBeVisible()
   const members = await insideBuilding(page)
   await expect(members.getByRole('button', { name: '桌子', exact: true })).toHaveCount(1)
@@ -148,6 +151,7 @@ test('create a building group, transform its members, undo and reopen the saved 
   await expect(review).toHaveCount(0)
   await expect(workbench).toHaveAttribute('data-revision', '1')
   await itemCoordinates(page, '4.5', '4.5', '0')
+  await buildingTools(page)
   await tools.getByRole('button', { name: '预览整栋变换', exact: true }).click()
   await review.getByLabel('确认完整影响范围', { exact: true }).check()
   await review.getByRole('button', { name: '采用结构修改', exact: true }).click()
@@ -175,6 +179,7 @@ test('create a building group, transform its members, undo and reopen the saved 
   await page.screenshot({ path: info.outputPath('aggregate-building-cold-open.png'), fullPage: true })
 
   // The attached opening retains its physical and confidentiality fields.
+  await insideBuilding(page)
   await reopenedMembers.getByRole('button', { name: `${ROOM} · 墙 1 · 门 1`, exact: true }).click()
   const inspector = page.getByLabel('建筑属性', { exact: true })
   await expect(inspector.getByRole('combobox', { name: '门窗状态', exact: true })).toHaveValue('closed')
@@ -184,16 +189,18 @@ test('create a building group, transform its members, undo and reopen the saved 
   await expect(inspector.getByRole('spinbutton', { name: '开口净宽', exact: true })).toHaveValue('1.2')
   await expect(inspector.getByRole('spinbutton', { name: '开口近端偏移', exact: true })).toHaveValue('1')
   await expect(inspector.getByRole('combobox', { name: '开口基准端点', exact: true })).toHaveValue('vertex-0')
+  await insideBuilding(page)
   await reopenedMembers.getByRole('button', { name: NOTE, exact: true }).click()
   await expect(inspector.getByRole('textbox', { name: '编辑注记内容', exact: true })).toHaveValue(NOTE)
   await expect(inspector.getByRole('combobox', { name: '注记可见性', exact: true })).toHaveValue('gm')
   await expect(inspector.getByRole('combobox', { name: '注记附着对象', exact: true })).toHaveValue('item')
+  await insideBuilding(page)
   await reopenedMembers.getByRole('button', { name: '道路 · 宽 0.4 m', exact: true }).click()
   await expect(page.getByRole('spinbutton', { name: '对象通路净宽', exact: true })).toHaveValue('0.4')
   await expect(page.getByRole('listbox', { name: '对象道路支撑', exact: true })).toHaveValues(['room:room'])
   await page.getByText('精确坐标 · 道路中心线', { exact: true }).click()
   await expect(page.getByRole('textbox', { name: '室外对象坐标', exact: true })).toHaveValue('7000, 4500\n7000, 7500')
-  await page.getByRole('tab', { name: '对象', exact: true }).click()
+  await openSceneObjects(page)
   await page.locator('[data-entity-id="other"]').click()
   await itemCoordinates(page, '16', '16', '0')
   await expect(workbench).toHaveAttribute('data-revision', '4')

@@ -1,19 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { checkTerrainTravel } from '../src/shared/geometry/terrain-travel'
-import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
+import { openOutdoorTask, closeWorkspaceDrawers } from './workspace-navigation-helpers'
 import { openDetailsBySummary, reloadSaved } from './workspace-ux-helpers'
 
 async function closeDrawers(page: Page): Promise<void> {
-  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') !== 'true') continue
-    await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
-    await expect(panel).toHaveAttribute('data-open', 'false')
-    await expect(page.getByRole('button', { name, exact: true })).toBeFocused()
-  }
+  await closeWorkspaceDrawers(page)
 }
 
 for (const scenario of [
@@ -32,13 +25,10 @@ for (const scenario of [
     }) })
   }
   await createKeyboardProject(page, `高差连接 ${scenario.label} ${scenario.size.width}`)
-  await openKeyboardPanel(page, 'resources')
-  await openTerrainTask(page, '绘制地形')
-  const tools = page.getByRole('region', { name: '室外制作工具', exact: true })
+  const tools = await openOutdoorTask(page, '地形与高程')
   const review = page.getByRole('region', { name: '候选审阅', exact: true })
   const revision = page.locator('.workspace-unified')
   const viewport = page.getByRole('group', { name: '地图视口', exact: true })
-  await tools.getByRole('combobox', { name: '室外制作工具', exact: true }).selectOption('terrain')
   await openDetailsBySummary(tools, /^精确坐标 · 区域轮廓$/)
   await tools.getByLabel('室外坐标', { exact: true }).fill('7300,1000\n12500,1000\n12500,9000\n7300,9000')
   await tools.getByLabel('地形高程', { exact: true }).fill('1.2')
@@ -47,7 +37,6 @@ for (const scenario of [
   await tools.getByLabel('地形覆盖优先级', { exact: true }).fill('1')
   await tools.getByRole('button', { name: '预览室外修改', exact: true }).click()
   await expect(review).toContainText('新建地形')
-  await closeDrawers(page)
   await review.getByLabel('确认完整影响范围', { exact: true }).check()
   await review.getByRole('button', { name: '采用室外修改', exact: true }).click()
   await expect(review).toHaveCount(0)
@@ -65,9 +54,7 @@ for (const scenario of [
   expect(beforeTravel.issues.some(issue => issue.code === 'TERRAIN_HEIGHT_CONNECTION')).toBe(true)
 
   const configureAndPreview = async () => {
-    await openKeyboardPanel(page, 'resources')
-    await openTerrainTask(page, '绘制地形')
-    await tools.getByRole('combobox', { name: '室外制作工具', exact: true }).selectOption('connection')
+    const tools = await openOutdoorTask(page, '台阶 / 坡道')
     await tools.getByLabel('连接起点表面', { exact: true }).selectOption(`floor:${floorId}`)
     await tools.getByLabel('连接终点表面', { exact: true }).selectOption(`terrainArea:${high.id}`)
     await tools.getByLabel('高差连接类型', { exact: true }).selectOption(scenario.kind)

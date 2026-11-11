@@ -1,4 +1,5 @@
 /** Formal technical evidence from normal production UI and actual delivered files. */
+import { openVisualTask, openSceneObjects } from './workspace-navigation-helpers'
 import { expect, test, type Browser, type BrowserContext, type Page, type TestInfo } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -165,10 +166,8 @@ async function reopenUnchecked(page: Page, sceneId: string) {
   await saved(page)
 }
 async function select(page: Page, id: string, kind: '物件' | '结构') {
-  const navigation = await openKeyboardPanel(page, 'navigation')
-  await navigation.getByRole('tab', { name: '对象', exact: true }).click()
-  await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: kind, exact: true }).click()
-  await navigation.getByLabel(`搜索场景${kind}`, { exact: true }).fill(id)
+  const navigation = await openSceneObjects(page, kind === '物件' ? '物件与装饰' : '结构')
+  await navigation.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await navigation.locator(`.asset-virtual-row[data-entity-id="${id}"]`).click()
   return openKeyboardPanel(page, 'inspector')
 }
@@ -309,9 +308,7 @@ for (const fixture of manifest.cases) test(`${fixture.kind}: frozen current-v1 p
   const structureBefore = await backup(page, info.outputPath('structure-before.sceneweave'))
   const structure = fixture.controls.structure
   if (structure.kind === 'visualBoundary') {
-    const resources = await openKeyboardPanel(page, 'resources')
-    await resources.getByRole('tab', { name: '外观', exact: true }).click()
-    const panel = page.getByRole('region', { name: '视觉场景创作', exact: true })
+    const panel = await openVisualTask(page)
     await panel.getByLabel('视觉已有曲线', { exact: true }).selectOption(structure.id)
     await panel.locator('summary').filter({ hasText: /^控制点坐标 · / }).click()
     await panel.locator('.visual-segment').nth(structure.segmentIndex!).getByLabel('视觉控制1y', { exact: true }).fill(String(structure.afterMm))

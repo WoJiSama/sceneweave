@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSceneObjects, openWorkspaceModule } from './workspace-navigation-helpers'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
@@ -37,7 +38,7 @@ for (const unit of ['m', 'ft'] as const) test(`production fill-copy in ${unit} p
   await expect(dialog).toHaveCount(0)
   await settled(page)
 
-  await page.getByTestId('workspace-resources').getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await library.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
@@ -55,10 +56,9 @@ for (const unit of ['m', 'ft'] as const) test(`production fill-copy in ${unit} p
   const [source] = Object.values(original.document.props)
   expect(Object.keys(original.document.props)).toHaveLength(1)
   expect(source.positionMm).toEqual({ x: 4000, y: 4000 })
-  const navigation = page.getByTestId('workspace-navigation')
-  await navigation.getByRole('tab', { name: '对象', exact: true }).click()
-  await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await navigation.getByLabel('搜索场景物件', { exact: true }).fill(source.id)
+  const navigation = await openSceneObjects(page, '物件与装饰')
+  await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  await navigation.getByLabel('搜索场景对象', { exact: true }).fill(source.id)
   await navigation.locator('.asset-entity-list [data-entity-id]').click()
   await openDetailsBySummary(page, /^填充复制$/)
   await page.getByLabel('填充副本数量', { exact: true }).fill('2')

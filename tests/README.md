@@ -4,7 +4,11 @@
 
 当前产品只保留首页`#home`与统一工作区`#workspace`，正常工程只读写当前完整v1；旧整页工作台和旧文件导入不作为产品入口。首页另有独立的一次性本机迁入工具，使用只读源与隔离目标。未知hash回首页，活动草稿经过离开守卫；实际支持及拒绝范围归04/06。
 
-当前工具入口按[交互与架构](../docs/reference/editor-and-architecture.md#current-task-navigation)定位：生成/地形子任务使用 `workspace-navigation-helpers.ts`，明确受众导出与工程管理重开使用 `workspace-ux-helpers.ts`。UX定向单测为 `src/editor/main/{opening-placement,catalog-categories,entity-label}.test.ts` 与 `src/editor/native-canvas/length-input.test.ts`。入口同步与 `--list` 只证明用例可解析，不代表完整浏览器组通过；旧格式升级流程的历史用例须按归一v1合同另行整理。
+当前工具入口按[交互与架构](../docs/reference/editor-and-architecture.md#current-task-navigation)定位：模块、场景对象分类、建筑/室外/视觉参数与场景设置使用 `workspace-navigation-helpers.ts`，明确受众导出、新建与工程管理重开使用 `workspace-ux-helpers.ts`。当前左右两栏分别承载内容与详情，候选在右侧审阅；窄屏只使用这两个抽屉。UX定向单测为 `src/editor/main/{opening-placement,catalog-categories,entity-label}.test.ts` 与 `src/editor/native-canvas/length-input.test.ts`。入口同步与 `--list` 只证明用例可解析，不代表浏览器组通过。
+
+当前创作旅程直接创建完整v1，不再通过已退役的逐级“保存独立副本”按钮启用地形、曲线或布景。算法/配方重放、历史身份和数据库结构版本仍分别检查；旧格式只在明确的兼容转换或独立迁入用例构造严格历史夹具。新增实体夹具应通过完整命令或真实身份推进补齐出生，预算断言计入所有身份池。取消与存储故障注入须命中实际异步边界/原生事务，并断言命中、迟到拒绝与失败保全。产品缺陷继续保留为回归失败，不通过删除、skip或放宽预算/超时来清理。
+
+AI场景HTTP旅程使用[当前创作4](../docs/05-ai-and-generation.md#current-authoring-contract)，素材创作保持禁用且`artwork:null`。`m2-assimilation-acceptance.spec.ts`与`m23-m24-authoring.spec.ts`中的SVG/同化部分明确测试内部保留配方重放：使用真实浏览器SVG/图片适配器、保护快照、CAS和冷读，保全固定源、许可、冻结范围与离线历史；不伪装公开新建AI任务。直接保全后重开不提供撤销记录，后续普通编辑及局部恢复另核对撤销语义。
 
 复制粘贴、Enter绘图及删除快捷键的正常生产旅程分别在 `clipboard-ux.spec.ts`、`enter-drawing-ux.spec.ts`、`canvas-delete-ux.spec.ts`；`keyboard-narrow-acceptance.spec.ts` 合并1512/900/390px的真实键盘、长候选摘要和备份冷读检查。共用 `keyboard-ux-helpers.ts`，事实来自实际下载完整工程，不使用DEV读取入口；取消候选后须等待真实画布就绪再发后续快捷键。当前范围、冻结与通过记录从[09限定验收](../docs/09-quality-plan.md#keyboard-narrow-acceptance)追溯，不能外推真实输入法或完整无障碍验收。
 
@@ -15,6 +19,8 @@
 `asset-expansion.spec.ts`通过正常生产页面检查单图名称跟随/手改保留、严格清单ZIP及名称/标定原样采用、空根锚拒绝、撤销/重做、保存冷开和空个人库备份恢复；另检查按需主题加载/所选闭包采用、本工程只读审核与独立本机审核记录、六包真实PNG及十二份可编辑工程下载、室内/海岸样板的实际编辑和玩家4K输出。受影响单元入口为shared `assets/{import-manifest,theme-packs,review}`、browser `assets/{batch-source,image-dimensions,review-content,review-repository}`、content `theme-pack-catalog`及application `workspace/{prepare,asset-batch}`；确切素材闭包检查继续复用`shared/library-content`。冻结生产地址须带末尾斜线，例如`SCENEWEAVE_TEST_BASE_URL=http://127.0.0.1:5225/sceneweave/`。实际结果和首败/最小复验归[素材台账](../docs/archive/workspace-content-validation.md#asset-expansion-20261109)，不替代美术、完整状态覆盖或P3。
 
 图片导入的页面回归在 `image-import-tool.spec.ts`（人工/配方拆层、原像素、自动物件入库和副本）、`image-import-quality.spec.ts`（近景拖点/撤销、多材质补底及范围外保全）、`image-import-vector.spec.ts`（程序/人工矢量参数、实际SVG与PNG、材质/物件自动入库、SVG源编辑副本及保存冷开）。共用纯算法入口为 `src/shared/image-import`，工程/素材入口为 `src/platform/browser/content/image-import*.test.ts`；矢量测试使用实际固定resvg WASM和规范PNG。私有参考图只在 `work/` 调试，不成为默认CI输入。完整美术、独立盲测与P3仍归[09图片转工程](../docs/09-quality-plan.md#image-to-project-acceptance)。
+
+统一素材编辑的正常生产旅程在 `unified-asset-editor.spec.ts` 与 `image-enhancement.spec.ts`；`asset-refinement.spec.ts` 检查同页两路线、真实SVG下载、SVG全流程零模型请求、路线草稿保留、旧目标拒绝、场景采用/撤销，以及未配置服务不上传、受控模型成功返回到采用/冷开、全透明拒绝、取消及未知请求不重发与ID保留。结构重绘正常页面旅程为 `asset-structure-redraw.spec.ts`，覆盖源绑定稿件、推断审阅、草稿切换、采用/撤销和冷读，以及先基础处理再结构重绘的确切父源恢复与继续编辑，结构编译边界在 `shared/asset-refinement/structure-plan.test.ts`，宿主闭包沿同一 `content/image-refinement.test.ts` 检查。共享像素描摹算法入口为 `shared/asset-refinement/vector.test.ts` 与 `shared/asset-refinement/regional-tones.test.ts`；后者以独立解析渐变夹具和实际规范SVG渲染对比源像素/旧分色，并检查1px细线、孔洞、半透明与纯色无渐变/空defs。完整来源与个人素材/冷读为 browser `content/image-refinement.test.ts`，含超过400万像素的半透明规范RGBA源、旧固定算法字节/像素重放及改标新算法拒绝；HTTP与服务使用 `content/image-refinement-model.test.ts`、`services/ai/image-edit.test.ts` 的受控响应，不发真实付费请求。使用 `SCENEWEAVE_TEST_BASE_URL` 指定冻结正常dist；开发结果归[双路线台账](../docs/archive/workspace-content-validation.md#asset-refinement-routes-20261111)，不能替代真实模型效果或钢琴缺陷验收。
 
 `outpost-density.spec.ts`通过正常生产页面下载新哨站疏/适中/密三档，检查三个散布组的真实成员、道路完整净宽、固定资源一致及当前工程备份不变。`wilderness-remediation.spec.ts`覆盖新哨站的真实门前接线、六条持久地表过渡、受管树木移动转人工及撤销、完整包冷开与双受众4096输出，并保留河岸山道接续。相关规则在browser content `outpost-{roads,surfaces,vegetation}.test.ts`及`theme-pack-catalog.test.ts`；只属必要开发自检，正式地图细节与画面验收仍从09执行。
 
@@ -60,6 +66,7 @@
 
 - 普通Vitest、AI和Playwright测试使用受控输入/provider，不调用真实付费模型。真实模型验收必须另行明确发起，未知计费请求不自动重发。
 - 完整浏览器回归前冻结源码并启动同版Vite。运行中修改Workbench可能使带时间戳导入和测试无查询导入得到不同会话，不能把该环境失败解释为数据丢失，也不能用定向通过拼成全套通过。
+- 在产品源码不变的快照上维护测试时，更新页面动态导入的测试helper后须重启Vite并核对实际返回的新模块；关闭HMR或文件监听不会自动清除已有转换缓存。保留受旧缓存影响的结果，重启后独立复验。
 - 正常生产检查先运行正常`npm run build`，从dist的真实UI操作，不使用DEV钩子、源码导入或存储注入。浏览器、测试、构建与正式性能串行。
 - 每轮使用新的输出目录，保留首次失败、修复及复验。默认产物位于忽略的`work/`或`test-results/`；可用`SCENEWEAVE_EVIDENCE_DIR`指定生产检查目录。
 - 同轮本机冷重载检查完整内容hash；独立导入会分配fresh身份/revision0，不要求导入前后整包hash相同。图像仍按实际像素、秘密过滤和资源闭包核对。
