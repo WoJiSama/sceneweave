@@ -7,7 +7,8 @@ import { sha256Bytes } from '../../../shared/validation/hash.js'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
 import { createRefinedBlankDocument } from './refined-blank.js'
 import { createShoreBlankDocument, createShoreBlankProject } from './shore-blank.js'
-import { materializeVisualArt, materializeVisualArtBatches } from './visual-art-project.js'
+import { materializeVisualArt, materializeVisualArtBatches, type VisualArtBatch } from './visual-art-project.js'
+import { rasterizeNormalizedSvg } from '../ai/svg-raster.js'
 import { validateProjectData } from '../../../shared/project/validate.js'
 import { terrainVariantAssetId, terrainVariantDefinitionId } from '../../../shared/visual/terrain-variant-specs.js'
 import { TERRAIN_VARIANT_V2_LICENSE_REF } from '../../../shared/visual/terrain-variant-v2-art.js'
@@ -15,9 +16,10 @@ import { terrainVariantV2AssetId, terrainVariantV2DefinitionId } from '../../../
 
 // These mocks only exercise source/metadata propagation and exact licence
 // ownership. PNG raster, decoding and pixels are verified in the real browser.
-vi.mock('../ai/svg-raster.js', () => ({ rasterizeNormalizedSvg: vi.fn(async (source: { sourceSha256: string }) => {
-  const bytes = encodeUtf8(`metadata-only raster fixture ${source.sourceSha256}`)
-  return { pngBytes: bytes, sha256: sha256Bytes(bytes), mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512,
+vi.mock('../ai/svg-raster.js', () => ({ rasterizeNormalizedSvg: vi.fn(async (source: { sourceSha256: string }, options: { longEdgePx: number }) => {
+  const sizeMarker = options.longEdgePx === 512 ? '' : ` ${options.longEdgePx}`
+  const bytes = encodeUtf8(`metadata-only raster fixture ${source.sourceSha256}${sizeMarker}`)
+  return { pngBytes: bytes, sha256: sha256Bytes(bytes), mimeType: 'image/png', pixelWidth: options.longEdgePx, pixelHeight: options.longEdgePx,
     ...CANONICAL_SVG_PROCESSOR }
 }) }))
 vi.mock('../../../application/workspace/project.js', async importOriginal => ({
@@ -112,11 +114,44 @@ describe('independent shore surface palette', () => {
 
   it('retains the old one-batch licence mapping and rejects duplicate fixed batch identities', async () => {
     const scene = createRefinedBlankDocument('island', options)
+    const rasterStart = vi.mocked(rasterizeNormalizedSvg).mock.calls.length
     const project = await materializeVisualArt(scene, REFINED_ISLAND_ART, REFINED_ISLAND_LICENSE, key => `refined-art-${key}`)
+    expect(vi.mocked(rasterizeNormalizedSvg).mock.calls.slice(rasterStart).map(([, call]) => call.longEdgePx)).toEqual(REFINED_ISLAND_ART.map(() => 512))
+    expect(Object.values(project.document.assets).every(asset => asset.pixelWidth === 512 && asset.pixelHeight === 512)).toBe(true)
+    for (const art of REFINED_ISLAND_ART) {
+      const expectedBytes = encodeUtf8(`metadata-only raster fixture ${normalizeStaticSvg(art.sourceSvg).sourceSha256}`)
+      expect(project.document.assets[`refined-art-${art.key}`].sha256).toBe(sha256Bytes(expectedBytes))
+    }
     expect(Object.keys(project.licenses)).toHaveLength(1)
     expect(project.licenseBindings.every(binding => binding.licensePath === licensePath(REFINED_ISLAND_LICENSE))).toBe(true)
     const batch = { artwork: REFINED_ISLAND_ART, licenseText: REFINED_ISLAND_LICENSE, assetId: (key: string) => `refined-art-${key}` }
     await expect(materializeVisualArtBatches(createRefinedBlankDocument('island', options), [batch, batch])).rejects.toThrow('固定身份重复')
+  })
+
+  it('uses an explicit 1024 raster size without changing the SVG source, physical size or exact licence', async () => {
+    const scene = createRefinedBlankDocument('island', options), rasterStart = vi.mocked(rasterizeNormalizedSvg).mock.calls.length
+    const batch: VisualArtBatch = { artwork: REFINED_ISLAND_ART, licenseText: REFINED_ISLAND_LICENSE,
+      assetId: key => `refined-art-${key}`, rasterLongEdgePx: 1024 }
+    const project = await materializeVisualArtBatches(scene, [batch])
+    expect(vi.mocked(rasterizeNormalizedSvg).mock.calls.slice(rasterStart).map(([, call]) => call.longEdgePx)).toEqual(REFINED_ISLAND_ART.map(() => 1024))
+    for (const art of REFINED_ISLAND_ART) {
+      const asset = project.document.assets[`refined-art-${art.key}`], source = project.authoringSources[asset.id]
+      expect(asset).toMatchObject({ pixelWidth: 1024, pixelHeight: 1024, logicalSizeMm: { width: art.widthMm, height: art.heightMm } })
+      expect(source.sourceSha256).toBe(normalizeStaticSvg(art.sourceSvg).sourceSha256)
+      expect(project.assets[asset.sha256]).toMatchObject({ pixelWidth: 1024, pixelHeight: 1024 })
+    }
+    expect(Object.values(project.licenses).map(record => record.text)).toEqual([REFINED_ISLAND_LICENSE])
+    expect(project.licenseBindings.every(binding => binding.licensePath === licensePath(REFINED_ISLAND_LICENSE))).toBe(true)
+  })
+
+  it.each([0, 768, 4096])('rejects unsupported raster size %s in any batch before raster work or scene mutation', async rasterLongEdgePx => {
+    const scene = createRefinedBlankDocument('island', options), before = JSON.stringify(scene)
+    const rasterStart = vi.mocked(rasterizeNormalizedSvg).mock.calls.length
+    const batch: VisualArtBatch = { artwork: REFINED_ISLAND_ART, licenseText: REFINED_ISLAND_LICENSE, assetId: key => `refined-art-${key}` }
+    const batches = [batch, { ...batch, rasterLongEdgePx }] as unknown as VisualArtBatch[]
+    await expect(materializeVisualArtBatches(scene, batches)).rejects.toThrow()
+    expect(vi.mocked(rasterizeNormalizedSvg).mock.calls).toHaveLength(rasterStart)
+    expect(JSON.stringify(scene)).toBe(before)
   })
 
   it('rejects unsupported palette and cancellation before any raster work', async () => {

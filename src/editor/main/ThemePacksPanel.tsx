@@ -113,6 +113,19 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
       prepareCatalogEntry(source, { kind: 'prop', definitionId: definition.id }, adoptionSignal))), signal)
     if (current()) setMessage('新羽叶蕨已准备；旧蕨叶与已有实例保留，请审阅新固定素材后采用。')
   })
+  const handdrawnSurfaces = () => void perform(async (signal, current) => {
+    const { createHanddrawnSurfacesCatalogProject } = await import('../../platform/browser/content/handdrawn-surfaces-catalog')
+    const source = await createHanddrawnSurfacesCatalogProject(signal)
+    await onAdopt(async adoptionSignal => {
+      const prepared: PreparedCatalogEntryV1[] = []
+      for (const definition of Object.values(source.document.materials)) {
+        adoptionSignal.throwIfAborted()
+        prepared.push(await prepareCatalogEntry(source, { kind: 'material', definitionId: definition.id }, adoptionSignal))
+      }
+      return prepared
+    }, signal)
+    if (current()) setMessage('四种手绘材质已准备，请审阅图像、平铺尺寸与许可后采用。')
+  })
   const choices = selectThemePacks(THEME_PACK_CATALOGS, { query }), metadata = THEME_PACK_CATALOGS.find(pack => pack.id === packId)!
   const plan = THEME_PACK_PLANS.find(plan => plan.id === metadata.planId)!
   return <section aria-label="主题素材包" className="theme-packs-panel"><details>
@@ -147,6 +160,7 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
     </details>
     <details><summary>植被细节 · 六件独立变体</summary><p>三种树冠、缺口灌丛、疏展蕨与弯叶草簇，保留独立根锚、占地及许可。先预览添加，再从素材库逐件放置。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={vegetationDetails}>预览添加六件植被细节变体</button></details>
     <details><summary>羽叶蕨 · 清晰叶面变体</summary><p>独立的新固定蕨叶，保留有面积的叶面与根锚。采用后可放置，也可加入群落编排；旧素材与实例保持。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={leafyFern}>预览添加清晰羽叶蕨</button></details>
+    <details><summary>手绘基础材质 · 木板、石板与灰泥</summary><p>四种可独立采用的手绘材质，带有固定平铺尺寸与完整来源。采用后可在房间、墙顶、地形和道路的表面设置中使用。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={handdrawnSurfaces}>预览添加四种手绘基础材质</button></details>
     {pending && <div role="status">正在准备真实资源…<button type="button" onClick={cancel}>取消主题包准备</button></div>}
     {error && <p role="alert" className="asset-form-error">{error}</p>}{message && <p role="status">{message}</p>}
   </details></section>
