@@ -1,4 +1,4 @@
-import { openTerrainTask } from './workspace-navigation-helpers'
+import { closeWorkspaceDrawers, openBuildingTask, openOutdoorTask, openSceneObjects, openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { openDetailsBySummary, mapExportButton, reloadSaved } from './workspace-ux-helpers'
 import { expect, test, chromium, type Page, type TestInfo } from '@playwright/test'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
@@ -98,7 +98,7 @@ test('native protected restore failure rolls back actual IndexedDB and retains s
     const originalAdd = IDBObjectStore.prototype.add, originalPut = IDBObjectStore.prototype.put
     let phase = 'protect', hits = 0, injected = false
     IDBObjectStore.prototype.add = function(value: any, key?: IDBValidKey) {
-      if (phase === 'protect' && this.name === 'snapshots' && value.kind === 'protection') { hits++; throw new DOMException('M2 deterministic protection abort', 'QuotaExceededError') }
+      if (phase === 'protect' && this.name === 'historyPins' && value.kind === 'protection') { hits++; throw new DOMException('M2 deterministic protection abort', 'QuotaExceededError') }
       return key === undefined ? originalAdd.call(this, value) : originalAdd.call(this, value, key)
     }
     IDBObjectStore.prototype.put = function(value: any, key?: IDBValidKey) {
@@ -335,38 +335,40 @@ test('selected SVG history archive imports in an empty native database offline a
 test('390px actual mixed-tool UI, named restore, reload, keyboard drawers and failed import preserve the native project', async ({ page }, info) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await page.setViewportSize({ width: 390, height: 844 }); await blank(page, 'M2 390px mixed acceptance')
-  const resourceTrigger = page.getByRole('button', { name: '资源面板', exact: true }), navigationTrigger = page.getByRole('button', { name: '场景导航', exact: true })
-  await resourceTrigger.click(); await page.getByTestId('workspace-resources').getByRole('tab', { name: '建筑', exact: true }).click()
-  await page.getByLabel('房间名称', { exact: true }).fill('窄屏值守室'); await page.getByRole('button', { name: '预览新房间', exact: true }).click()
-  await page.getByRole('button', { name: '关闭资源面板', exact: true }).click()
-  await page.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check(); await page.getByRole('button', { name: '采用结构修改', exact: true }).click(); await settled(page)
-  await resourceTrigger.click()
-  await page.getByTestId('workspace-resources').getByRole('tab', { name: '素材库', exact: true }).click()
+  const building = await openBuildingTask(page)
+  const inspector = page.getByTestId('workspace-inspector'), review = page.getByRole('region', { name: '候选审阅', exact: true })
+  await building.getByLabel('房间名称', { exact: true }).fill('窄屏值守室'); await building.getByRole('button', { name: '预览新房间', exact: true }).click()
+  await review.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check(); await review.getByRole('button', { name: '采用结构修改', exact: true }).click(); await settled(page)
+  await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯'); await library.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
-  await page.getByRole('button', { name: '关闭资源面板', exact: true }).click(); await expect(resourceTrigger).toBeFocused()
-  await page.getByRole('button', { name: '属性面板', exact: true }).click(); await page.getByRole('button', { name: '在此放置', exact: true }).click(); await settled(page)
-  await page.getByRole('button', { name: '关闭属性面板', exact: true }).click()
-  await resourceTrigger.click(); await openTerrainTask(page, '绘制地形')
-  await openDetailsBySummary(page.getByRole('region', { name: '室外制作工具', exact: true }), /^精确坐标 · 区域轮廓$/)
-  await page.getByLabel('室外坐标', { exact: true }).fill('10000,1000\n13000,1000\n13000,4500\n10000,4500')
-  await page.getByRole('button', { name: '预览室外修改', exact: true }).click(); await page.getByRole('button', { name: '关闭资源面板', exact: true }).click(); await page.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check(); await page.getByRole('button', { name: '采用室外修改', exact: true }).click(); await settled(page)
-  await navigationTrigger.click(); await page.getByTestId('workspace-navigation').getByRole('tab', { name: '历史', exact: true }).click()
+  await page.getByRole('button', { name: '返回当前工具与草稿', exact: true }).click()
+  await expect(inspector).toHaveAttribute('data-open', 'true')
+  await inspector.getByRole('button', { name: '在此放置', exact: true }).click(); await settled(page)
+  const outdoor = await openOutdoorTask(page)
+  await openDetailsBySummary(outdoor, /^精确坐标 · 区域轮廓$/)
+  await outdoor.getByLabel('室外坐标', { exact: true }).fill('10000,1000\n13000,1000\n13000,4500\n10000,4500')
+  await outdoor.getByRole('button', { name: '预览室外修改', exact: true }).click(); await review.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check(); await review.getByRole('button', { name: '采用室外修改', exact: true }).click(); await settled(page)
+  await openWorkspaceModule(page, '历史')
   await page.getByRole('button', { name: '新建命名快照', exact: true }).click(); await page.getByLabel('命名快照名称', { exact: true }).fill('390px mixed baseline'); await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
-  await page.getByRole('button', { name: '关闭场景导航', exact: true }).click()
   const mixed = await readState(page), propId = Object.keys(mixed.document.props)[0]
-  await page.getByRole('button', { name: '属性面板', exact: true }).click()
-  await page.getByLabel('外观调整项目', { exact: true }).selectOption('opacity'); await page.getByLabel('外观透明度', { exact: true }).fill('0.55')
-  await page.getByRole('button', { name: '预览外观调整', exact: true }).click(); await page.getByRole('button', { name: '关闭属性面板', exact: true }).click(); await page.getByRole('button', { name: '采用组件修改', exact: true }).click(); await settled(page)
-  await navigationTrigger.click(); await page.getByRole('button', { name: '查看快照 390px mixed baseline', exact: true }).click()
-  await page.getByLabel('局部恢复模式', { exact: true }).selectOption('appearance'); await page.getByRole('checkbox', { name: `恢复物件 ${propId}`, exact: true }).check()
-  await page.getByRole('button', { name: '预览局部恢复 · 1 件', exact: true }).click(); await page.getByRole('button', { name: '关闭场景导航', exact: true }).click(); await page.getByRole('checkbox', { name: '确认恢复完整影响范围', exact: true }).check(); await page.getByRole('button', { name: '保护当前并采用', exact: true }).click(); await settled(page)
+  const objects = await openSceneObjects(page, '物件与装饰')
+  await objects.getByLabel('搜索场景对象', { exact: true }).fill(propId); await objects.locator(`[data-entity-id="${propId}"]`).click()
+  await openDetailsBySummary(inspector, /^外观与图层调整$/)
+  await inspector.getByLabel('外观调整项目', { exact: true }).selectOption('opacity'); await inspector.getByLabel('外观透明度', { exact: true }).fill('0.55')
+  await inspector.getByRole('button', { name: '预览外观调整', exact: true }).click(); await review.getByRole('button', { name: '采用组件修改', exact: true }).click(); await settled(page)
+  await openWorkspaceModule(page, '历史'); await page.getByRole('button', { name: '查看快照 390px mixed baseline', exact: true }).click()
+  await inspector.getByLabel('局部恢复模式', { exact: true }).selectOption('appearance'); await inspector.getByRole('checkbox', { name: `恢复物件 ${propId}`, exact: true }).check()
+  await inspector.getByRole('button', { name: '预览局部恢复 · 1 件', exact: true }).click()
+  const restoreCandidate = inspector.getByRole('status', { name: '局部恢复候选', exact: true })
+  await restoreCandidate.getByRole('checkbox', { name: '确认恢复完整影响范围', exact: true }).check(); await restoreCandidate.getByRole('button', { name: '保护当前并采用', exact: true }).click(); await settled(page)
   const restored = await readState(page); expect(restored.document.props[propId].appearance.opacity).toBe(1); expect(restored.document.terrainAreas).toEqual(mixed.document.terrainAreas); expect(restored.document.rooms).toEqual(mixed.document.rooms)
-  for (const label of ['资源面板', '属性面板', '场景导航']) {
+  await closeWorkspaceDrawers(page)
+  for (const [id, label] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
     const trigger = page.getByRole('button', { name: label, exact: true }); await trigger.focus(); await trigger.press('Enter')
-    await expect(page.getByRole('region', { name: label, exact: true })).toBeVisible()
+    const panel = page.getByTestId(`workspace-${id}`); await expect(panel).toHaveAttribute('data-open', 'true'); await expect(panel).toBeVisible()
     await info.attach(`390px-${label}.png`, { body: await page.screenshot(), contentType: 'image/png' })
-    await page.getByRole('button', { name: `关闭${label}`, exact: true }).focus(); await page.keyboard.press('Escape'); await expect(trigger).toBeFocused()
+    await panel.getByRole('button', { name: `关闭${label}`, exact: true }).focus(); await page.keyboard.press('Escape'); await expect(panel).toHaveAttribute('data-open', 'false'); await expect(trigger).toBeFocused()
   }
   const download = page.waitForEvent('download'); await (await mapExportButton(page, 'gm')).click()
   const pngDownload = await download; expect(pngDownload.suggestedFilename()).toBe('sceneweave-gm-map.png')
@@ -378,7 +380,7 @@ test('390px actual mixed-tool UI, named restore, reload, keyboard drawers and fa
   await reloadSaved(page); await settled(page); expect((await readState(page)).document).toEqual(restored.document)
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
   await page.getByTestId('native-project-file').setInputFiles({ name: 'truncated.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from([80, 75, 3, 4, 0]) })
-  await expect(page.locator('.workspace-notice')).toContainText(/导入失败|不能读取|无效|损坏|ZIP/i)
+  await expect(page.locator('.workspace-notice')).toContainText('只支持当前完整工程v1文件；旧开发数据请使用首页独立迁入工具。')
   await page.getByTestId('workspace-home').getByRole('button', { name: '继续编辑', exact: true }).first().click(); await settled(page); expect((await readState(page)).document).toEqual(restored.document)
   await page.getByRole('button', { name: '关闭提示', exact: true }).click()
   expect(errors).toEqual([])
@@ -404,9 +406,10 @@ test('actual browser 200% tab zoom keeps essential UI reachable without document
     const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true }); await dialog.getByLabel('场景名称', { exact: true }).fill('Actual 200 percent zoom')
     await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await expect(dialog).toHaveCount(0); await settled(page)
     const before = await readState(page)
-    for (const label of ['资源面板', '属性面板', '场景导航']) {
+    await closeWorkspaceDrawers(page)
+    for (const [id, label] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
       const trigger = page.getByRole('button', { name: label, exact: true }); await trigger.click()
-      await expect(page.getByRole('region', { name: label, exact: true })).toBeVisible(); await page.getByRole('button', { name: `关闭${label}`, exact: true }).focus(); await page.keyboard.press('Escape'); await expect(trigger).toBeFocused()
+      const panel = page.getByTestId(`workspace-${id}`); await expect(panel).toHaveAttribute('data-open', 'true'); await expect(panel).toBeVisible(); await panel.getByRole('button', { name: `关闭${label}`, exact: true }).focus(); await page.keyboard.press('Escape'); await expect(panel).toHaveAttribute('data-open', 'false'); await expect(trigger).toBeFocused()
     }
     await page.getByRole('button', { name: '放大地图', exact: true }).click(); await page.getByRole('button', { name: '适应全图', exact: true }).click()
     expect(await readState(page)).toEqual(before)

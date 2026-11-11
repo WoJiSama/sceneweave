@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSceneObjects, openWorkspaceModule, openSceneSettings } from './workspace-navigation-helpers'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import type { SceneDocument } from '../src/shared/model/scene'
-import { projectBackupButton } from './workspace-ux-helpers'
+import { projectBackupButton, openNewScene } from './workspace-ux-helpers'
 
 async function saved(page: Page) {
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
@@ -35,8 +36,7 @@ test('production canvas Delete and Backspace preview once with focus, draft, IME
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await saved(page)
-  const resources = page.getByTestId('workspace-resources')
-  await resources.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await library.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
@@ -49,11 +49,11 @@ test('production canvas Delete and Backspace preview once with focus, draft, IME
   await saved(page)
   const original = await backup(page, info.outputPath('delete-original.sceneweave'))
   const [source] = Object.values(original.document.props)
-  const navigation = page.getByTestId('workspace-navigation')
-  await navigation.getByRole('tab', { name: '对象', exact: true }).click()
-  await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  const search = navigation.getByLabel('搜索场景物件', { exact: true })
+  const navigation = await openSceneObjects(page, '物件与装饰')
+  await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  const search = navigation.getByLabel('搜索场景对象', { exact: true })
   const select = async () => {
+    await openSceneObjects(page, '物件与装饰')
     await search.fill(source.id)
     await navigation.locator('.asset-entity-list [data-entity-id]').click()
   }
@@ -101,25 +101,25 @@ test('production canvas Delete and Backspace preview once with focus, draft, IME
   await page.getByRole('menu').getByRole('menuitem').first().press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
 
-  await resources.getByRole('tab', { name: '工程', exact: true }).click()
-  await resources.getByRole('button', { name: '新建空白场景', exact: true }).click()
+  await openNewScene(page)
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('场景名称', { exact: true }).press('Backspace')
   await unchanged()
   await dialog.getByRole('button', { name: '取消', exact: true }).click()
-  await resources.getByLabel('工程名称', { exact: true }).fill('保留中的名称草稿')
+  const settings = await openSceneSettings(page)
+  await settings.getByLabel('工程名称', { exact: true }).fill('保留中的名称草稿')
   await viewport.focus()
   await viewport.press('Delete')
   await unchanged()
-  await expect(resources.getByLabel('工程名称', { exact: true })).toHaveValue('保留中的名称草稿')
-  await resources.getByRole('button', { name: '取消改名', exact: true }).click()
+  await expect(settings.getByLabel('工程名称', { exact: true })).toHaveValue('保留中的名称草稿')
+  await settings.getByRole('button', { name: '取消改名', exact: true }).click()
 
   await page.getByRole('button', { name: '平移地图', exact: true }).click()
   await viewport.focus()
   await viewport.press('Delete')
   await unchanged()
   await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
-  await resources.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   await library.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
   await viewport.focus()
   await viewport.press('Delete')

@@ -13,16 +13,26 @@ async function installRectangleFixture(page: Page) {
     const { runtime, validation, projectRepository } = await import(runtimePath) as typeof import('../src/platform/browser/runtime')
     const { createRefinedBlankProject } = await import(blankPath) as typeof import('../src/platform/browser/content/refined-blank')
     const { prepareTerrainProject } = await import(terrainPath) as typeof import('../src/application/workspace/terrain')
+    const budgetPath = '/src/shared/budget/task-budget.ts'
+    const { taskBudgetProfile } = await import(budgetPath) as typeof import('../src/shared/budget/task-budget')
+    const profile = taskBudgetProfile('small')
     const { toBundle, captureEditableDraft, validateEditableProject } = await import(projectPath) as typeof import('../src/application/workspace/project')
     const { detachChangedOutputs } = await import(integrityPath) as typeof import('../src/shared/terrain-generation/integrity')
     const { visualBase } = await import(visualPath) as typeof import('../src/shared/visual/base')
     const { createCompositionContent } = await import(graphPath) as typeof import('../src/shared/appearance/graph')
     const workspace = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace
     const sceneId = runtime.ids.nextId(), blank = await createRefinedBlankProject('island', { sceneId, title: '拓扑矩形夹具', widthMm: 24_000, heightMm: 18_000, preset: 'narrative' })
-    const generated = await prepareTerrainProject(blank, { sceneId, kind: 'island', seed: 'terrain-v1-0' }, { runtime, validation })
+    const generated = await prepareTerrainProject(blank, { sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 4, budgetProfileId: profile.profileId, quality: 'standard' }, { runtime, validation, budget: profile })
     const source = generated.project, next = captureEditableDraft(source), low = next.document.terrainAreas['terrain-low']
     const rectangle = [{ x: 1_000, y: 1_000 }, { x: 23_000, y: 1_000 }, { x: 23_000, y: 17_000 }, { x: 1_000, y: 17_000 }]
     low.boundaryMm = rectangle.map((positionMm, index) => ({ id: `fixture-low-p-${index}`, segmentId: `fixture-low-s-${index}`, positionMm }))
+    // This artificial rectangle also underlies v4's two offshore reefs. Keep them
+    // explicit above it: equal-priority positive-area overlap is invalid (04).
+    for (const id of ['terrain-reef-0', 'terrain-reef-1']) {
+      const reef = next.document.terrainAreas[id]
+      if (!reef) throw new Error(`Expected the v4 island reef ${id}.`)
+      reef.coveragePriority = low.coveragePriority + 1
+    }
     const visual = visualBase(next.document)!
     delete visual.boundaries['terrain-coast-curve']
     for (const id of Object.keys(visual.edgeLooks)) if (visual.edgeLooks[id].boundaryId === 'terrain-coast-curve') delete visual.edgeLooks[id]

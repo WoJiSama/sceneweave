@@ -4,12 +4,14 @@ import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import type { EditableProject } from '../src/application/workspace/project'
 import { projectBackupButton } from './workspace-ux-helpers'
-import { openWorkspaceModule } from './workspace-navigation-helpers'
+import { openWorkspaceModule, openSceneObjects } from './workspace-navigation-helpers'
 
 export async function keyboardWorkspaceSaved(page: Page): Promise<void> {
-  await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  await expect(page.locator('.asset-busy')).toHaveCount(0)
-  await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30000 })
+  await expect.poll(async () => ({
+    save: (await page.locator('.asset-save').textContent())?.trim(),
+    busy: await page.locator('.asset-busy').count(),
+    rendering: await page.locator('.asset-map-wrap').getAttribute('aria-busy'),
+  }), { timeout: 30000 }).toEqual({ save: '本地已保存', busy: 0, rendering: 'false' })
 }
 
 export async function openKeyboardPanel(page: Page, panel: 'resources' | 'inspector' | 'navigation'): Promise<Locator> {
@@ -54,7 +56,7 @@ export async function placeKeyboardLamp(page: Page): Promise<void> {
 }
 
 export async function selectKeyboardProp(page: Page, id: string): Promise<void> {
-  const navigation = await openKeyboardPanel(page, 'navigation')
+  const navigation = await openSceneObjects(page, '物件与装饰')
   const allLayers = navigation.getByRole('button', { name: '显示所有图层的对象', exact: true })
   if (await allLayers.isVisible()) await allLayers.click()
   await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()

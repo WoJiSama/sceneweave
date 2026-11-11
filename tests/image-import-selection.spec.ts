@@ -30,12 +30,15 @@ async function openTool(page: Page): Promise<Locator> {
   await createKeyboardProject(page, '精细选区前的工程')
   await openWorkspaceModule(page, '场景')
   await page.getByRole('button', { name: '从图片新建场景', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '从图片新建可编辑场景', exact: true })
+  const dialog = page.getByRole('dialog', { name: '图片导入工作台', exact: true })
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '原图与标定', exact: true }).click()
   await dialog.getByLabel('图片转工程原图', { exact: true }).setInputFiles({ name: 'fine-selection.png', mimeType: 'image/png', buffer: sourcePng() })
   await expect(dialog).toContainText('96 × 64 px · 已拆 0 层')
   await mark(dialog, '房间轮廓', box(4, 4, 88, 56))
   await mark(dialog, '比例尺', [{ x: 8, y: 8 }, { x: 28, y: 8 }])
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '结构与比例', exact: true }).click()
   await dialog.getByLabel('两点间实际距离（毫米）', { exact: true }).fill('1000')
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '物件与补底', exact: true }).click()
   await dialog.getByLabel('物件名称', { exact: true }).fill('钢琴与细叶')
   return dialog
 }
@@ -66,6 +69,7 @@ async function stroke(page: Page, dialog: Locator, mode: string, points: Point[]
 }
 
 async function exportRecipe(page: Page, dialog: Locator, filename: string): Promise<ImageImportRecipe> {
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '原图与标定', exact: true }).click()
   const details = dialog.locator('details').filter({ hasText: '模型拆解提案 JSON' })
   if (await details.getAttribute('open') === null) await details.locator('summary').click()
   const downloading = page.waitForEvent('download')
@@ -77,7 +81,7 @@ async function exportRecipe(page: Page, dialog: Locator, filename: string): Prom
 async function applySelection(dialog: Locator): Promise<void> {
   await mark(dialog, '补底取样', [{ x: 8, y: 8 }, { x: 16, y: 16 }])
   await dialog.getByRole('button', { name: '拆出物件并补底', exact: true }).click()
-  await expect(dialog).toContainText('已拆 1 层')
+  await expect(dialog.locator('.image-import-stat').filter({ hasText: '已拆物件与装饰' })).toContainText('1 层')
 }
 
 test('fine brush masks preserve holes and thin tips in recipe, real PNG assets and cold-open editing', async ({ page }, info) => {
@@ -89,6 +93,7 @@ test('fine brush masks preserve holes and thin tips in recipe, real PNG assets a
   await dialog.getByLabel('选区画笔半径', { exact: true }).fill('2')
   await stroke(page, dialog, '保留画笔', [{ x: 57, y: 29 }, { x: 66, y: 20 }])
   const selectionStatus = dialog.getByRole('status').filter({ hasText: '精细选区 ·' })
+  await expect(selectionStatus).toBeVisible()
   const beforeRemoval = await selectionStatus.textContent()
   await dialog.getByLabel('选区画笔半径', { exact: true }).fill('4')
   await stroke(page, dialog, '排除画笔', [{ x: 44, y: 32 }])
@@ -105,12 +110,16 @@ test('fine brush masks preserve holes and thin tips in recipe, real PNG assets a
   expect(alpha(44, 32)).toBe(0)
   expect(alpha(64, 22)).toBeGreaterThan(0)
   expect(alpha(35, 25)).toBe(255)
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '原图与标定', exact: true }).click()
   const upload = dialog.getByLabel('载入提案', { exact: true })
   await upload.setInputFiles({ name: 'fine-selection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(recipe)) })
   await expect(dialog.getByRole('alert')).toHaveCount(0)
   expect(await exportRecipe(page, dialog, info.outputPath('replayed-selection.json'))).toEqual(recipe)
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '总览与采用', exact: true }).click()
   await dialog.getByLabel('署名与来源', { exact: true }).fill('Sceneweave original selection test')
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '总览与采用', exact: true }).click()
   await dialog.getByLabel('完整许可', { exact: true }).fill('CC0 1.0 Universal. Original synthetic pixels.')
+  await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '总览与采用', exact: true }).click()
   await dialog.getByRole('checkbox', { name: '我确认有权将这些像素和派生素材嵌入工程及个人素材库', exact: true }).check()
   await dialog.getByRole('button', { name: '预览可编辑新工程', exact: true }).click()
   await expect(page.getByRole('button', { name: '保存并打开副本', exact: true })).toBeVisible({ timeout: 60000 })
@@ -173,6 +182,14 @@ test('freehand selection, cancelled strokes, zoom and edge inspection preserve t
   await review.screenshot({ path: info.outputPath('black-background-rotated.png') })
   await review.getByLabel('物件检查背景', { exact: true }).selectOption('checker')
   await dialog.getByLabel('图片缩放', { exact: true }).selectOption('fit')
+  for (const width of [1024, 390, 1512]) {
+    await page.setViewportSize({ width, height: 982 })
+    await expect(dialog).toBeVisible()
+    await expect(status).toHaveText(originalStatus!)
+    await review.getByLabel('物件检查背景', { exact: true }).selectOption('white')
+    const layout = await dialog.evaluate(element => ({ width: element.clientWidth, content: element.scrollWidth }))
+    expect(layout.content).toBeLessThanOrEqual(layout.width + 1)
+  }
   await dialog.getByRole('button', { name: '应用物件修正并补底', exact: true }).click()
   expect(await exportRecipe(page, dialog, info.outputPath('after-inspection.json'))).toEqual(before)
 })

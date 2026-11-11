@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel, placeKeyboardLamp } from './keyboard-ux-helpers'
-import { openGenerationTask } from './workspace-navigation-helpers'
+import { openGenerationTask, closeWorkspaceDrawers } from './workspace-navigation-helpers'
 
 // Normal production UI; only delivery of genuine worker results is delayed.
 
@@ -62,11 +62,7 @@ async function gateFacts(page: Page) {
 }
 
 async function closeNarrowDrawers(page: Page, width: number) {
-  if (width >= 1080) return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') === 'true') await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
-  }
+  await closeWorkspaceDrawers(page)
 }
 
 for (const scenario of [
@@ -86,10 +82,15 @@ for (const scenario of [
   const original = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
   const undo = page.getByRole('button', { name: '撤销编辑', exact: true })
   const undoDisabled = await undo.isDisabled()
-  const expectOriginal = async () => {
+  const expectOriginal = async (running = false) => {
     await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible()
     await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', String(original.document.revision))
-    if (undoDisabled) await expect(undo).toBeDisabled()
+    if (running) {
+      // Running work disables editing controls without clearing native undo.
+      const canUndo = await page.evaluate(() => (Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: { getState(): { canUndo: boolean } } }).workspace.getState().canUndo)
+      expect(canUndo).toBe(!undoDisabled)
+    }
+    if (undoDisabled || running) await expect(undo).toBeDisabled()
     else await expect(undo).toBeEnabled()
     await expect(page.locator('.asset-save')).toHaveText('本地已保存')
   }
@@ -105,7 +106,7 @@ for (const scenario of [
   const preview = panel.getByRole('button', { name: composition ? '预览地貌组合' : '生成地形预览', exact: true })
   const progress = panel.getByRole('status').filter({ hasText: composition ? '正在生成地貌组合预览' : '正在生成地形预览' })
   const cancelRunning = panel.getByRole('button', { name: composition ? '取消地貌组合生成' : '取消地形生成', exact: true })
-  const candidate = panel.getByRole('article', { name: composition ? '地貌组合候选' : '当前地形候选', exact: true })
+  const candidate = page.getByTestId('workspace-inspector').getByRole('article', { name: composition ? '地貌组合候选' : '当前地形候选', exact: true })
 
   await preview.click()
   await expect(progress).toBeVisible()
@@ -117,6 +118,18 @@ for (const scenario of [
   await expect(cancelRunning).toBeFocused()
   await page.screenshot({ path: info.outputPath('running-before-escape.png') })
   await page.keyboard.press('Escape')
+  if (scenario.width === 390) {
+    // The drawer consumes its own Escape before the global running-task shortcut.
+    // Closing presentation must leave the held real Worker request running.
+    await expect(page.getByTestId('workspace-resources')).toHaveAttribute('data-open', 'false')
+    const hiddenPanel = page.getByRole('region', { name: '通用地貌组合', exact: true, includeHidden: true })
+    await expect(hiddenPanel.getByRole('button', { name: '取消地貌组合生成', exact: true, includeHidden: true })).toHaveCount(1)
+    expect(await gateFacts(page)).toEqual({ posts: 1, deliveries: 0, pending: 1, failures: 0 })
+    await expectOriginal(true)
+    await page.keyboard.press('Escape')
+    await expect(hiddenPanel.getByRole('button', { name: '取消地貌组合生成', exact: true, includeHidden: true })).toHaveCount(0)
+    await openKeyboardPanel(page, 'resources')
+  }
   await expect(progress).toHaveCount(0)
   await expect(cancelRunning).toHaveCount(0)
   await expect(candidate).toHaveCount(0)

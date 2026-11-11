@@ -39,8 +39,8 @@ test('actual Worker and HTTP produce the same four base maps with real images, c
   test.setTimeout(300_000)
   await page.goto('/')
   const rows=await page.evaluate(async({backendUrl,token})=>{
-    const paths={client:'/src/platform/browser/terrain-generation/base-map-client.ts',protocol:'/src/shared/terrain-generation/base-map.ts',blank:'/src/platform/browser/content/refined-blank.ts',sample:'/src/platform/browser/content/refined-island.ts',workspace:'/src/application/workspace/workspace.ts',repository:'/src/platform/browser/storage/repository.ts',runtime:'/src/platform/browser/runtime.ts',project:'/src/application/workspace/project.ts',hash:'/src/shared/project/validate.ts',json:'/src/shared/validation/json.ts',file:'/src/shared/project/file.ts',renderer:'/src/platform/browser/render/renderer.ts'}
-    const {createBaseMapGenerationClient}=await import(paths.client),{prepareBaseMapRequest}=await import(paths.protocol),{createRefinedBlankProject}=await import(paths.blank),{createRefinedIslandProject}=await import(paths.sample)
+    const paths={client:'/src/platform/browser/terrain-generation/base-map-client.ts',protocol:'/src/shared/terrain-generation/base-map-v3.ts',budget:'/src/shared/budget/task-budget.ts',blank:'/src/platform/browser/content/refined-blank.ts',sample:'/src/platform/browser/content/refined-island.ts',workspace:'/src/application/workspace/workspace.ts',repository:'/src/platform/browser/storage/repository.ts',runtime:'/src/platform/browser/runtime.ts',project:'/src/application/workspace/project.ts',hash:'/src/shared/project/validate.ts',json:'/src/shared/validation/json.ts',file:'/src/shared/project/file.ts',renderer:'/src/platform/browser/render/renderer.ts'}
+    const {createBaseMapGenerationClient}=await import(paths.client),{prepareBaseMapRequestV3}=await import(paths.protocol),{taskBudgetProfile}=await import(paths.budget),{createRefinedBlankProject}=await import(paths.blank),{createRefinedIslandProject}=await import(paths.sample)
     const {Workspace}=await import(paths.workspace),{ProjectRepository}=await import(paths.repository),{runtime,validation}=await import(paths.runtime),{toBundle}=await import(paths.project),{projectContentHash}=await import(paths.hash),{canonicalJson}=await import(paths.json),{exportProject,importProject}=await import(paths.file),{exportPng}=await import(paths.renderer)
     const name=`base-map-browser-proof-${crypto.randomUUID()}`,repo=new ProjectRepository({name,runtime,validation}),workspace=new Workspace(repo,{runtime,validation}),client=createBaseMapGenerationClient(),rows=[]
     const hash=(project:any)=>projectContentHash(toBundle(project).project)
@@ -51,14 +51,15 @@ test('actual Worker and HTTP produce the same four base maps with real images, c
         const composition=kind==='archipelago'||kind==='tidalCoast',widthMm=composition?48000:24000,heightMm=composition?36000:18000
         const base=await createRefinedBlankProject(kind==='coast'?'coast':'island',{sceneId:runtime.ids.nextId(),title:'Native base-map proof',now:'2026-10-29T07:00:00.000Z',widthMm,heightMm,preset:'narrative',gridVisible:false})
         const before=workspace.getState().project,beforeHash=hash(before),checkpoint=workspace.checkpoint()
-        const request=prepareBaseMapRequest({requestId:runtime.ids.nextId(),workspaceSceneId:before.document.sceneId,checkpoint,operationEpoch:1,base:base.document,generation:composition
-          ?{kind:'composition',input:{sceneId:base.document.sceneId,preset:kind,seed:'terrain-compose-0',widthMm,heightMm,recipeVersion:kind==='archipelago'?3:2}}
-          :{kind:'terrain',input:{sceneId:base.document.sceneId,kind,seed:'terrain-v1-0',widthMm,heightMm,algorithmVersion:kind==='island'?3:2}}})
+        const profile=taskBudgetProfile('small')
+        const request=prepareBaseMapRequestV3({profile,flowId:runtime.ids.nextId(),requestId:runtime.ids.nextId(),workspaceSceneId:before.document.sceneId,checkpoint,operationEpoch:1,base:base.document,generation:composition
+          ?{kind:'composition',input:{sceneId:base.document.sceneId,preset:kind,seed:'terrain-compose-0',widthMm,heightMm,recipeVersion:4,budgetProfileId:profile.profileId,quality:'standard'}}
+          :{kind:'terrain',input:{sceneId:base.document.sceneId,kind,seed:'terrain-v1-0',widthMm,heightMm,algorithmVersion:4,budgetProfileId:profile.profileId,quality:'standard'}}})
         const worker=await client.generate(request),remote=await client.generate(request,{server:{baseUrl:backendUrl,token},isCurrent:()=>workspace.checkpoint()===checkpoint})
         if(canonicalJson(worker)!==canonicalJson(remote))throw new Error('Worker and HTTP results differ')
         const preview=await workspace.previewBaseMapGeneration(base,request,remote,{source:'server'})
         if(hash(workspace.getState().project)!==beforeHash)throw new Error('Preview changed current map')
-        if(preview.baseMap.initialOperationCost+preview.baseMap.remainingOperationCost!==256)throw new Error('Flow budget mismatch')
+        if(preview.baseMap.initialOperationCost+preview.baseMap.remainingOperationCost!==profile.semanticTargets)throw new Error('Flow budget mismatch')
         const png=base64(new Uint8Array(await(await exportPng(toBundle(preview.project),{audience:'gm',longEdgePx:1000})).arrayBuffer()))
         await workspace.adoptTerrainGeneration(preview)
         const cold=await repo.load(base.document.sceneId),savedHash=hash(workspace.getState().project)
@@ -66,13 +67,13 @@ test('actual Worker and HTTP produce the same four base maps with real images, c
         if(projectContentHash((await repo.load(before.document.sceneId)).project)!==beforeHash)throw new Error('Previous map was overwritten')
         const bytes=await exportProject(toBundle(workspace.getState().project),validation),round=await importProject(bytes,validation)
         if(projectContentHash(round.project)!==savedHash||Object.hasOwn(round.project,'baseMap'))throw new Error('Complete package receipt boundary changed')
-        rows.push({kind,domainHash:remote.resultHash,projectHash:savedHash,version:round.project.schemaVersion,cost:preview.cost.total,remaining:preview.baseMap.remainingOperationCost,assets:Object.keys(round.project.assets).length,png,package:base64(bytes)})
+        rows.push({kind,domainHash:remote.resultHash,projectHash:savedHash,version:round.project.schemaVersion,limit:profile.semanticTargets,cost:preview.cost.total,remaining:preview.baseMap.remainingOperationCost,assets:Object.keys(round.project.assets).length,png,package:base64(bytes)})
       }
       return rows
     }finally{client.dispose();await workspace.close();repo.close();await new Promise<void>((resolve,reject)=>{const request=indexedDB.deleteDatabase(name);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error)})}
   },{backendUrl,token})
   for(const row of rows){
-    expect(row.cost).toBeLessThanOrEqual(256)
+    expect(row.limit).toBe(512);expect(row.cost).toBeLessThanOrEqual(row.limit)
     await info.attach(`base-map-${row.kind}.png`,{body:Buffer.from(row.png,'base64'),contentType:'image/png'})
     await info.attach(`base-map-${row.kind}.sceneweave`,{body:Buffer.from(row.package,'base64'),contentType:'application/zip'})
   }
@@ -137,7 +138,7 @@ test('registered budget profiles materialize richer maps across actual Worker an
 test('the UI explicitly selects server generation, cancels without changing the current map and adopts independently',async({page})=>{
   test.setTimeout(240_000)
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message))
-  const sent:any[]=[];page.on('request',request=>{if(request.url()===`${backendUrl}/v1/terrain/basemap`&&request.method()==='POST')sent.push(request.postDataJSON())})
+  const sent:any[]=[];page.on('request',request=>{if(request.url()===`${backendUrl}/v1/terrain/basemap?baseMapVersion=3`&&request.method()==='POST')sent.push(request.postDataJSON())})
   await page.goto('/#workspace');await openGenerationTask(page, '组合地貌'); await openGenerationSettings(page)
   const before=await current(page)
   await page.getByLabel('程序底图生成位置',{exact:true}).selectOption('server')
@@ -151,11 +152,11 @@ test('the UI explicitly selects server generation, cancels without changing the 
   await page.getByRole('button',{name:'预览地貌组合',exact:true}).click();await expect(candidate).toBeVisible({timeout:90000})
   await candidate.getByRole('button',{name:'采用地貌组合',exact:true}).click()
   await expect(candidate).toBeHidden({timeout:90000})
-  await expect.poll(async()=>(await current(page))?.version,{timeout:90000}).toBe(4)
+  await expect.poll(async()=>(await current(page))?.version,{timeout:90000}).toBe(1)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存',{timeout:90000})
   const after=await current(page);expect(after!.hash).toBe(after!.coldHash);expect(after!.sceneId).not.toBe(before?.sceneId)
   expect(sent).toHaveLength(2)
-  for(const request of sent){expect(request.generation.kind).toBe('composition');expect(request.base.props).toEqual({});expect(request.base.notes).toEqual({});expect(request.base.schemaVersion).toBe(2);expect(request).not.toHaveProperty('historyIdentity');expect(request).not.toHaveProperty('resources')}
+  for(const request of sent){expect(request).toMatchObject({protocol:'sceneweave-base-map',version:3,type:'generate'});expect(request.generation.kind).toBe('composition');expect(request.base.props).toEqual({});expect(request.base.notes).toEqual({});expect(request.base.schemaVersion).toBe(1);expect(request).not.toHaveProperty('historyIdentity');expect(request).not.toHaveProperty('resources')}
   expect(providerCalls).toBe(0);expect(store.count()).toBe(0);expect(errors).toEqual([])
 })
 
@@ -270,7 +271,7 @@ test('terrain algorithm7 finds supported highland plants and closes the same isl
     }
   }, { backendUrl, token })
 
-  expect(proof.schemaVersion).toBe(8)
+  expect(proof.schemaVersion).toBe(1)
   expect(proof.physicalMatch).toBe(true)
   expect(proof.rules).toHaveLength(2)
   expect(proof.rules.every(rule => rule.count > 0 && rule.valid)).toBe(true)

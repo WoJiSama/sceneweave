@@ -1,14 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { openBuildingTask, openWorkspaceModule, openVisualTask, openSceneSettings } from './workspace-navigation-helpers'
 import { writeFile } from 'node:fs/promises'
-import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
-
-async function closeDrawers(page: Page) {
-  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') === 'true') await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
-  }
-}
+import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
 
 for (const width of [1512, 390]) test(`surface drafts and common panel states at ${width}px`, async ({ page, browser }, info) => {
   test.setTimeout(180000)
@@ -18,24 +11,18 @@ for (const width of [1512, 390]) test(`surface drafts and common panel states at
   page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => { if (/\/v1\//.test(request.url())) aiRequests.push(request.url()) })
   await createKeyboardProject(page, `面板细调 ${width}`)
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '建筑', exact: true }).click()
-  const building = page.getByRole('region', { name: '建筑工具', exact: true })
+  const building = await openBuildingTask(page)
   await building.getByLabel('房间名称', { exact: true }).fill('铺装测试房间')
   const material = building.getByLabel('新房间地板材质', { exact: true })
   await material.selectOption(await material.locator('option').evaluateAll(options => options.find(option => option.getAttribute('value'))!.getAttribute('value')!))
   await building.getByRole('button', { name: '预览新房间', exact: true }).click()
-  await closeDrawers(page)
   const review = page.getByRole('region', { name: '候选审阅', exact: true })
   await review.getByLabel('确认完整影响范围', { exact: true }).check()
   await review.getByRole('button', { name: '采用结构修改', exact: true }).click()
   await keyboardWorkspaceSaved(page)
   const before = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
   const room = Object.values(before.document.rooms)[0]
-  await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '外观', exact: true }).click()
-  const visual = page.getByRole('region', { name: '视觉场景创作', exact: true })
-  await visual.getByRole('button', { name: '铺装', exact: true }).click()
+  const visual = await openVisualTask(page, '铺装')
   const target = visual.getByLabel('视觉铺装对象', { exact: true })
   await target.selectOption(room.id)
   const tileWidth = visual.getByLabel('视觉纹理宽 mm', { exact: true })
@@ -51,7 +38,7 @@ for (const width of [1512, 390]) test(`surface drafts and common panel states at
   await overlays.locator('summary').click()
   await overlays.getByRole('button', { name: '添加明确局部覆盖', exact: true }).click()
   await overlays.getByLabel('视觉覆盖1透明度', { exact: true }).fill('0.25')
-  for (const tab of ['环境', '灯光', '滤镜', '边界', '铺装']) await visual.getByRole('button', { name: tab, exact: true }).click()
+  for (const tab of ['环境', '灯光', '滤镜', '边界', '铺装'] as const) await openVisualTask(page, tab)
   await expect(target).toHaveValue(room.id)
   await expect(tileWidth).toHaveValue('2100')
   await expect(visual.getByLabel('视觉纹理高 mm', { exact: true })).toHaveValue('1700')
@@ -61,12 +48,12 @@ for (const width of [1512, 390]) test(`surface drafts and common panel states at
   await expect(phase.getByLabel('视觉纹理原点X mm', { exact: true })).toHaveValue('725')
   await expect(phase.getByLabel('视觉纹理原点Y mm', { exact: true })).toHaveValue('-250')
   await expect(overlays.getByLabel('视觉覆盖1透明度', { exact: true })).toHaveValue('0.25')
-  await resources.getByRole('tab', { name: '工程', exact: true }).click()
-  const projectHeading = await resources.getByRole('heading', { name: '工程', exact: true, level: 2 }).evaluate(node => {
+  const sceneSettings = await openSceneSettings(page)
+  const projectHeading = await sceneSettings.getByRole('heading', { name: '场景设置', exact: true, level: 2 }).evaluate(node => {
     const css = getComputedStyle(node)
     return { font: css.fontFamily, size: css.fontSize, weight: css.fontWeight, color: css.color }
   })
-  await resources.getByRole('tab', { name: 'AI对话', exact: true }).click()
+  await openWorkspaceModule(page, 'AI')
   const ai = page.getByRole('region', { name: 'AI 对话面板', exact: true })
   await expect(ai.getByRole('heading', { name: 'AI 对话', exact: true, level: 2 })).toBeVisible()
   const aiHeading = await ai.getByRole('heading', { name: 'AI 对话', exact: true, level: 2 }).evaluate(node => {
@@ -75,39 +62,40 @@ for (const width of [1512, 390]) test(`surface drafts and common panel states at
   })
   expect(aiHeading).toEqual(projectHeading)
   const padding = await ai.evaluate(node => ({ left: getComputedStyle(node).paddingLeft, right: getComputedStyle(node).paddingRight }))
-  expect(padding).toEqual({ left: width === 390 ? '14px' : '16px', right: width === 390 ? '14px' : '16px' })
+  // docs/reference/editor-and-architecture.md#workspace-information-density (2026-11-09):
+  // panel gutters remain 12px at both viewport widths.
+  expect(padding).toEqual({ left: '12px', right: '12px' })
   await ai.getByLabel('AI 后端地址', { exact: true }).fill('https://example.invalid')
   await ai.getByLabel('AI 应用凭据', { exact: true }).fill('local-ui-placeholder')
   const connect = ai.getByRole('button', { name: '连接 AI 后端', exact: true })
   await expect(connect).toBeEnabled()
   const regular = await connect.evaluate(node => ({ height: node.getBoundingClientRect().height, opacity: getComputedStyle(node).opacity }))
-  expect(regular.height).toBeGreaterThanOrEqual(36)
+  // Regular controls share the desktop 32px / narrow and coarse-pointer 38px scale.
+  expect(regular.height).toBeGreaterThanOrEqual(width === 390 ? 38 : 32)
   await connect.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab')
   await expect(connect).toBeFocused()
   const aiFocus = await connect.evaluate(node => ({ color: getComputedStyle(node).outlineColor, width: getComputedStyle(node).outlineWidth }))
   await page.screenshot({ path: info.outputPath('ai-panel.png'), animations: 'disabled' })
-  await resources.getByRole('tab', { name: '外观', exact: true }).click()
+  await openVisualTask(page, '铺装')
   await expect(tileWidth).toHaveValue('2100')
   await visual.getByRole('button', { name: '预览铺装', exact: true }).click()
-  await closeDrawers(page)
   await expect(review).toBeVisible()
   await review.getByRole('button', { name: '取消视觉预览', exact: true }).click()
   await keyboardWorkspaceSaved(page)
   const after = await keyboardProjectBackup(page, info.outputPath('after.sceneweave'))
   expect(after.hashes).toEqual(before.hashes)
-  await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '外观', exact: true }).click()
-  await visual.getByRole('button', { name: '灯光', exact: true }).click()
+  await openVisualTask(page, '灯光')
   const input = visual.getByLabel('视觉灯光强度', { exact: true })
   await input.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab')
   const fieldFocus = await input.evaluate(node => ({ color: getComputedStyle(node).outlineColor, width: getComputedStyle(node).outlineWidth }))
   expect(aiFocus).toEqual(fieldFocus)
-  await visual.getByRole('button', { name: '铺装', exact: true }).click()
+  await openVisualTask(page, '铺装')
   const disabled = visual.getByRole('button', { name: '使用选中的表面', exact: true })
   await expect(disabled).toBeDisabled()
   const disabledOpacity = await disabled.evaluate(node => getComputedStyle(node).opacity)
   expect(Number(disabledOpacity)).toBeGreaterThanOrEqual(0.5)
-  const inactiveTool = visual.getByRole('button', { name: '灯光', exact: true })
+  const visualTools = await openWorkspaceModule(page, '氛围')
+  const inactiveTool = visualTools.getByRole('navigation', { name: '视觉工具', exact: true }).getByRole('button', { name: '灯光', exact: true })
   const inactiveBackground = await inactiveTool.evaluate(node => getComputedStyle(node).backgroundColor)
   await inactiveTool.hover()
   await expect.poll(() => inactiveTool.evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe(inactiveBackground)

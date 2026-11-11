@@ -1,8 +1,9 @@
 import { chromium, expect, test } from '@playwright/test'
+import { closeWorkspaceDrawers, openBuildingTask } from './workspace-navigation-helpers'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
+import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
 
 declare const chrome: { tabs: {
   query: (query: Record<string, unknown>) => Promise<Array<{ id?: number; url?: string }>>
@@ -58,18 +59,12 @@ test('real Chromium tab zoom at 200 percent keeps review, errors and keyboard co
       return size
     }
     const closeDrawers = async () => {
-      for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
-        const panel = page.getByTestId(`workspace-${id}`)
-        if (await panel.getAttribute('data-open') !== 'true') continue
-        await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
-        await expect(panel).toHaveAttribute('data-open', 'false')
-        await expect(page.getByRole('button', { name, exact: true })).toBeFocused()
-      }
+      await closeWorkspaceDrawers(page)
     }
     await closeDrawers()
     const zoomed = await assertWidth()
-    const resources = await openKeyboardPanel(page, 'resources')
-    await resources.getByRole('tab', { name: '建筑', exact: true }).click()
+    await openBuildingTask(page)
+    const inspector = page.getByTestId('workspace-inspector')
     const width = page.getByRole('spinbutton', { name: '房间宽度', exact: true })
     const initialWidth = await width.inputValue()
     await width.fill('')
@@ -83,7 +78,7 @@ test('real Chromium tab zoom at 200 percent keeps review, errors and keyboard co
     await width.scrollIntoViewIfNeeded()
     // Native 200% zoom can round a scroll edge by less than one CSS pixel.
     await expect(width).toBeInViewport({ ratio: 0.99 })
-    // The drawer's module tabs are sticky; align below them instead of under their overlay.
+    // Keep the error inside the current-details drawer's scrollport at native zoom.
     await errorMessage.evaluate(node => node.scrollIntoView({ block: 'end' }))
     const errorVisibility = await errorMessage.evaluate(node => {
       const rect = node.getBoundingClientRect()
@@ -101,11 +96,11 @@ test('real Chromium tab zoom at 200 percent keeps review, errors and keyboard co
     await width.press('Escape')
     await expect(width).toHaveAttribute('aria-invalid', 'false')
     await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
-    const closeResources = resources.getByRole('button', { name: '关闭资源面板', exact: true })
-    await closeResources.focus()
-    await closeResources.press('Escape')
-    await expect(resources).toHaveAttribute('data-open', 'false')
-    await expect(page.getByRole('button', { name: '资源面板', exact: true })).toBeFocused()
+    const closeInspector = inspector.getByRole('button', { name: '关闭当前详情', exact: true })
+    await closeInspector.focus()
+    await closeInspector.press('Escape')
+    await expect(inspector).toHaveAttribute('data-open', 'false')
+    await expect(page.getByRole('button', { name: '当前详情', exact: true })).toBeFocused()
 
     const help = page.locator('.workspace-help > summary')
     await help.focus()
@@ -121,7 +116,9 @@ test('real Chromium tab zoom at 200 percent keeps review, errors and keyboard co
     await expect(help).toBeFocused()
 
     await page.getByRole('button', { name: '工具：画房间', exact: true }).click()
-    await expect(resources).toHaveAttribute('data-open', 'true')
+    await expect(page.getByRole('status', { name: '房间绘制提示', exact: true })).toBeVisible()
+    await expect(inspector).toHaveAttribute('data-open', 'false')
+    await expect(page.getByTestId('workspace-resources')).toHaveAttribute('data-open', 'false')
     await closeDrawers()
     await keyboardWorkspaceSaved(page)
     await page.getByRole('button', { name: '适应全图', exact: true }).click()
@@ -141,7 +138,7 @@ test('real Chromium tab zoom at 200 percent keeps review, errors and keyboard co
       }, pixel)
       expect(before.inMapViewport).toBe(true)
       await clickKeyboardWorldPoint(page, point, bounds)
-      canvasClicks.push({ point, box, pixel, before, resourcesOpen: await resources.getAttribute('data-open') })
+      canvasClicks.push({ point, box, pixel, before, resourcesOpen: await page.getByTestId('workspace-resources').getAttribute('data-open') })
       await writeFile(info.outputPath('browser-zoom-pointer-facts.json'), JSON.stringify(canvasClicks, null, 2))
     }
     const viewport = page.getByRole('group', { name: '地图视口', exact: true })

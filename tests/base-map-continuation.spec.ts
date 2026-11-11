@@ -1,4 +1,4 @@
-import { openGenerationTask, openGenerationSettings } from './workspace-navigation-helpers'
+import { openWorkspaceModule, openGenerationTask, openGenerationSettings } from './workspace-navigation-helpers'
 import { mapExportButton, projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test'
@@ -131,7 +131,7 @@ async function connectAi(page: Page) {
   return panel
 }
 async function beginContinuation(panel: Locator, prompt: string, visual = false) {
-  const authoring = panel.getByRole('region', { name: 'AI 场景草稿', exact: true })
+  const authoring = panel.page().getByRole('region', { name: 'AI 场景草稿', exact: true })
   await expect(authoring).toContainText('在程序底图上继续修改')
   await expect(authoring.getByRole('checkbox', { name: 'AI 素材创作和同化', exact: true })).toBeDisabled()
   await expect(authoring.getByRole('checkbox', { name: 'AI 视觉场景创作', exact: true })).toBeEnabled()
@@ -187,7 +187,8 @@ test('UI generates a profile-bound v3 island, continues one authorized prop and 
   await generateIsland(page); expect(await state(page)).toEqual(before)
   const panel = await connectContinuation(page), authoring = await beginContinuation(panel, '生成底图视觉接线：把明确授权的第一个现存底图物件透明度调为0.55，并按明确视觉授权新建公开点光；保留全部地形。', true)
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('草稿可审阅采用', { timeout: 90_000 })
-  const differences = authoring.getByLabel('AI 草稿差异', { exact: true })
+  const review = page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true })
+  const differences = review.getByLabel('AI 草稿差异', { exact: true })
   await expect(differences).toContainText('地形区域')
   await expect(differences).toContainText('独立物件')
   await expect(authoring).toContainText('AI 2/1024')
@@ -226,8 +227,8 @@ test('UI generates a profile-bound v3 island, continues one authorized prop and 
   await expect(page.locator('.ai-preview-banner')).toContainText('AI草稿预览 · 主工程未改变')
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 90_000 })
   await page.getByRole('button', { name: '查看程序底图', exact: true }).click(); expect(await state(page)).toEqual(before)
-  await authoring.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
-  await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  await page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
+  await page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
   await expect(authoring).toContainText('保护快照和保存已完成', { timeout: 90_000 }); await settled(page)
   const adopted = await state(page), original = await persisted(page, before.document.sceneId)
   expect(adopted.schemaVersion).toBe(start.project.schemaVersion); expect(adopted.document.sceneId).toBe(start.project.document.sceneId); expect(adopted.document.revision).toBe(1)
@@ -273,9 +274,9 @@ test('cancelled authoring4 with A=0 preserves its generated baseline for explici
   await createBlank(page, '底图接续 · 取消后独立采用')
   const before = await state(page), initialRequests = modelRequests, capabilities: string[] = []
   page.on('request', request => { if (request.url().startsWith(backendUrl + '/v1/capabilities?')) capabilities.push(request.url()) })
-  await page.getByRole('tab', { name: 'AI对话', exact: true }).click()
+  await openWorkspaceModule(page, 'AI')
   const panel = await connectAi(page)
-  expect(capabilities).toContain(backendUrl + '/v1/capabilities?authoringVersion=2')
+  expect(capabilities).toContain(backendUrl + '/v1/capabilities?authoringVersion=4')
   await generateIsland(page)
   await page.getByRole('button', { name: '继续用 AI 修改底图', exact: true }).click()
   await expect.poll(() => capabilities.includes(backendUrl + '/v1/capabilities?authoringVersion=4&surfaceVersion=1')).toBe(true)
@@ -285,14 +286,14 @@ test('cancelled authoring4 with A=0 preserves its generated baseline for explici
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已取消', { timeout: 30_000 })
   expect(await state(page)).toEqual(before); expect((await persisted(page, before.document.sceneId)).snapshots).toEqual([])
   await expect(page.getByRole('button', { name: '继续用 AI 修改底图', exact: true })).toBeEnabled()
-  const authoring = panel.getByRole('region', { name: 'AI 场景草稿', exact: true })
+  const authoring = panel.page().getByRole('region', { name: 'AI 场景草稿', exact: true })
   await authoring.getByRole('button', { name: '重新绑定并校验草稿', exact: true }).click()
-  await expect(authoring.getByLabel('AI 草稿差异', { exact: true })).toContainText('地形区域', { timeout: 90000 })
-  await authoring.getByRole('button', { name: '结束生成并审阅当前草稿', exact: true }).click()
+  await expect(page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByLabel('AI 草稿差异', { exact: true })).toContainText('地形区域', { timeout: 90000 })
+  await page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByRole('button', { name: '结束生成并审阅当前草稿', exact: true }).click()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('草稿可审阅采用', { timeout: 90000 })
   await expect(authoring).toContainText('AI 0/1024')
-  await authoring.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
-  await authoring.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  await page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
+  await page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
   await expect(authoring).toContainText('保护快照和保存已完成', { timeout: 90000 }); await settled(page)
   const adopted = await state(page)
   expect(adopted.document.sceneId).not.toBe(before.document.sceneId); expect(adopted.document.revision).toBe(1)
@@ -325,15 +326,16 @@ test('explicit legacy v2 fixture remains readable through the v2 connection with
   try {
     const requests: { path: string; method: string }[] = []
     page.on('request', request => { if (request.url().startsWith(backendUrl + '/v1/')) requests.push({ path: new URL(request.url()).pathname + new URL(request.url()).search, method: request.method() }) })
-    await page.getByRole('tab', { name: 'AI对话', exact: true }).click()
+    await openWorkspaceModule(page, 'AI')
     const panel = await connectAi(page)
     await panel.getByText('按任务 ID 查询', { exact: true }).click()
     await panel.getByLabel('AI 任务 ID', { exact: true }).fill(created.snapshot.id)
     await panel.getByRole('button', { name: '按任务 ID 只读查询', exact: true }).click()
     await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已暂停')
-    await expect(panel.getByRole('region', { name: 'AI 场景草稿', exact: true })).toContainText('AI 0/256')
+    await expect(panel.page().getByRole('region', { name: 'AI 场景草稿', exact: true })).toContainText('AI 0/256')
     expect(store.read(created.snapshot.id).snapshot.authoring).toMatchObject({ schemaVersion: 2, policyHash: CONTINUATION_POLICY.policyHash })
-    expect(requests).toContainEqual({ path: '/v1/capabilities?authoringVersion=2', method: 'GET' })
+    // The current workspace negotiates authoring4; explicit lookup still retains the task's legacy identity.
+    expect(requests).toContainEqual({ path: '/v1/capabilities?authoringVersion=4', method: 'GET' })
     expect(requests.every(request => request.method === 'GET')).toBe(true)
     expect(modelRequests).toBe(initialRequests); expect(await state(page)).toEqual(before)
   } finally { store.delete(created.snapshot.id, 'maintainer') }

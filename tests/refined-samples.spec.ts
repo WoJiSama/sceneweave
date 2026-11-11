@@ -91,9 +91,9 @@ test('explicit legacy SVG recovery preserves its original CPU pixel contract for
 test('Q2 refined palette selection creates truly blank complete projects with actual 13/15/23-source closures', async ({ page }, info) => {
   test.setTimeout(150_000)
   await page.goto('/#workspace')
-  await openSamples(page)
   const results = []
   for (const palette of [{ value: 'island', sources: 13 }, { value: 'coast', sources: 15 }, { value: 'interior', sources: 23 }]) {
+    await openSamples(page)
     await page.getByRole('button', { name: '新建视觉空白 · 原创素材', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
     await expect(dialog).toBeVisible()
@@ -106,7 +106,7 @@ test('Q2 refined palette selection creates truly blank complete projects with ac
       const path = '/tests/helpers/visual-authoring-browser.ts', { inspectVisualResourceClosure } = await import(path) as typeof import('./helpers/visual-authoring-browser')
       return { schemaVersion: project.schemaVersion, document: structuredClone(project.document), closure: await inspectVisualResourceClosure(project) }
     })
-    expect(result.schemaVersion).toBe(2)
+    expect(result.schemaVersion).toBe(1)
     expect(result.document.title).toBe(`Q2 ${palette.value} 空白素材`)
     for (const group of [result.document.props, result.document.rooms, result.document.walls, result.document.terrainAreas, result.document.prefabInstances, result.document.scatterGroups, result.document.notes]) expect(Object.keys(group)).toHaveLength(0)
     expect(Object.keys(visualBase(result.document)!.boundaries)).toHaveLength(0)
@@ -133,6 +133,7 @@ for (const sample of [
   await dialog.getByRole('button', { name: '保存并打开副本', exact: true }).click()
   await expect(dialog).toHaveCount(0); await settled(page)
   const prior = await current(page), button = page.getByRole('button', { name: sample.name, exact: true })
+  await openSamples(page)
   await button.click(); await expect(dialog).toBeVisible({ timeout: 45_000 })
   await expect(dialog).toContainText(sample.name)
   await dialog.getByRole('button', { name: '取消', exact: true }).click()
@@ -143,7 +144,7 @@ for (const sample of [
   await expect(dialog).toHaveCount(0); await settled(page)
   const original = await current(page)
   expect(original.title).toBe(sample.name); expect(original.sceneId).not.toBe(prior.sceneId)
-  expect(original.document.schemaVersion).toBe(2)
+  expect(original.document.schemaVersion).toBe(1)
   expect(Object.keys(original.sources)).toHaveLength(sample.sources)
   expect(Object.keys(original.document.props)).toHaveLength(sample.props)
   expect(Object.keys(original.document.rooms)).toHaveLength(sample.rooms)

@@ -1,4 +1,6 @@
 import { openGenerationTask, openTerrainTask } from './workspace-navigation-helpers'
+import { getLegacyGeneration } from '../src/shared/terrain-generation/composition-contracts'
+import { visualBase } from '../src/shared/visual/base'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace.js'
 
@@ -29,7 +31,21 @@ test('T-S06 UI previews, cancels, adopts and cold-validates surroundings regener
   await page.evaluate(async () => {
     const workspace = (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev).workspace
     const scene = workspace.getDocument()!, low = scene.terrainAreas['terrain-low']
-    const points = low.boundaryMm.map(row => row.positionMm), cx = Math.round(points.reduce((sum, p) => sum + p.x, 0) / points.length), cy = Math.round(points.reduce((sum, p) => sum + p.y, 0) / points.length)
+    const geometryPath = '/src/shared/geometry/geometry.ts'
+    const { supportedPolygon, propFootprint, polygonsOverlap } = await import(geometryPath) as typeof import('../src/shared/geometry/geometry')
+    // An irregular polygon's centroid need not lie on the active low surface.
+    // Check the entire rooms and thick-wall envelope against actual coverage.
+    let center: { x: number; y: number } | undefined
+    const bounds = scene.exportBoundsMm
+    for (let y = bounds.y + 1500; !center && y < bounds.y + bounds.height - 1500; y += 500) {
+      for (let x = bounds.x + 1500; !center && x < bounds.x + bounds.width - 1500; x += 500) {
+        const envelope = [{ x: x - 1400, y: y - 1400 }, { x: x + 1400, y: y - 1400 }, { x: x + 1400, y: y + 1400 }, { x: x - 1400, y: y + 1400 }]
+        if (supportedPolygon(scene, envelope, { kind: 'terrainArea', id: low.id }, low.floorId)
+          && !Object.values(scene.props).some(prop => polygonsOverlap(envelope, propFootprint(prop)))) center = { x, y }
+      }
+    }
+    if (!center) throw new Error('The generated map has no clear low-surface room fixture envelope.')
+    const { x: cx, y: cy } = center
     await workspace.execute([
       { type: 'createRoom', id: 'existing-west', floorId: low.floorId, boundaryMm: [{ x: cx - 700, y: cy - 700 }, { x: cx, y: cy - 700 }, { x: cx, y: cy + 700 }], thicknessMm: 240, purpose: '既有值守房', supportRef: { kind: 'terrainArea', id: low.id } },
       { type: 'createRoom', id: 'existing-east', floorId: low.floorId, boundaryMm: [{ x: cx, y: cy - 700 }, { x: cx + 700, y: cy - 700 }, { x: cx, y: cy + 700 }], thicknessMm: 240, purpose: '既有储藏房', supportRef: { kind: 'terrainArea', id: low.id } },
@@ -45,13 +61,21 @@ test('T-S06 UI previews, cancels, adopts and cold-validates surroundings regener
   const before = await readState(page)
   expect(Object.keys(before.document.rooms)).toHaveLength(2)
   expect(before.document.openings['existing-door'].state).toBe('open')
+  const boundaries = Object.values(visualBase(before.document)!.boundaries).filter(boundary =>
+    boundary.floorId === before.document.terrainAreas['terrain-high'].floorId && boundary.binding.kind === 'terrain')
+  const highIndex = boundaries.findIndex(boundary => boundary.id === 'terrain-high-curve')
+  expect(highIndex).toBeGreaterThanOrEqual(0)
+  const selectHighBoundary = async () => {
+    // New reef curves precede the original coast/high curves. Select the
+    // intended plateau by its real identity, rather than the former ordinal 2.
+    const choices = page.getByRole('checkbox', { name: /^周边轮廓 \d+$/ })
+    await expect(choices).toHaveCount(boundaries.length)
+    for (let index = 0; index < boundaries.length; index++) await choices.nth(index).uncheck()
+    await page.getByRole('checkbox', { name: `周边轮廓 ${highIndex + 1}`, exact: true }).check()
+  }
   await page.getByRole('button', { name: '既有建筑周边重生成', exact: true }).click()
   await expect(page.getByLabel('周边生成种子', { exact: true })).toHaveValue('courtyard-surroundings-1')
-  const boundaryTwo = page.getByRole('checkbox', { name: '周边轮廓 2', exact: true })
-  if (await boundaryTwo.count()) {
-    await page.getByRole('checkbox', { name: '周边轮廓 1', exact: true }).uncheck()
-    await boundaryTwo.check()
-  }
+  await selectHighBoundary()
   await expect(page.getByRole('checkbox', { name: '重做周边自动布景', exact: true })).toBeChecked()
   await page.getByRole('button', { name: '预览局部地形修改', exact: true }).click()
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toBeVisible({ timeout: 90_000 })
@@ -59,10 +83,7 @@ test('T-S06 UI previews, cancels, adopts and cold-validates surroundings regener
   await page.getByRole('button', { name: '取消本次地形修改', exact: true }).click()
   expect((await readState(page)).hash).toBe(before.hash)
   await page.getByRole('button', { name: '既有建筑周边重生成', exact: true }).click()
-  if (await boundaryTwo.count()) {
-    await page.getByRole('checkbox', { name: '周边轮廓 1', exact: true }).uncheck()
-    await boundaryTwo.check()
-  }
+  await selectHighBoundary()
   await page.getByRole('button', { name: '预览局部地形修改', exact: true }).click()
   await expect(page.getByRole('article', { name: '本次地形影响', exact: true })).toBeVisible({ timeout: 90_000 })
   await page.getByLabel('确认本次地形影响范围', { exact: true }).check()
@@ -71,13 +92,15 @@ test('T-S06 UI previews, cancels, adopts and cold-validates surroundings regener
   await expect.poll(async () => (await readState(page)).document.revision, { timeout: 90_000 }).toBe(before.document.revision + 1)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 90_000 })
   const after = await readState(page)
-  expect(after.document.generation?.version).toBe(3)
-  const generation = after.document.generation as any
+  const generation = getLegacyGeneration(after.document)
+  expect(generation?.version).toBe(3)
+  if (generation?.version !== 3) throw new Error('Expected the legacy surroundings record inside the current generation wrapper.')
   const current = Object.values(generation?.surroundings ?? {}).find((row: any) => row.state === 'current') as any
   expect(current).toBeDefined()
   expect(current?.algorithmId).toBe('terrain-surroundings')
-  expect(after.cold?.project.document.generation?.version).toBe(3)
-  expect(Object.values((after.cold?.project.document.generation as any)?.surroundings ?? {}).some((row: any) => row.state === 'current')).toBe(true)
+  expect(current.boundaryIds).toEqual(['terrain-high-curve'])
+  expect(getLegacyGeneration(after.cold!.project.document)?.version).toBe(3)
+  expect(Object.values((getLegacyGeneration(after.cold!.project.document) as any)?.surroundings ?? {}).some((row: any) => row.state === 'current')).toBe(true)
   for (const collection of ['vertices', 'rooms', 'walls', 'openings', 'paths'] as const) {
     expect(after.document[collection]).toEqual(before.document[collection])
     expect(after.cold?.project.document[collection]).toEqual(before.document[collection])

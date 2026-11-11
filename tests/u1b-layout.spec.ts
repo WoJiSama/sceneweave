@@ -1,15 +1,24 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace'
+import { openBuildingTask, openSceneObjects, openWorkspaceModule } from './workspace-navigation-helpers'
 
 // Two small U1b smoke cases only. Creation uses the public Home form; DEV access
 // observes the active project and never installs fixtures or calls editor writes.
-const preferenceKey = 'sceneweave:workspace-layout:v1'
-const defaults = { version: 1, resourcesWidth: 280, detailsWidth: 320, resourcesCollapsed: false, inspectorCollapsed: false, navigationCollapsed: false }
+const preferenceKey = 'sceneweave:workspace-layout:v2'
+const defaults = { version: 2, resourcesWidth: 280, detailsWidth: 320, resourcesCollapsed: false, inspectorCollapsed: false }
 type Dev = { workspace: Workspace }
 const home = (page: Page) => page.getByTestId('workspace-home')
 const layout = (page: Page) => page.getByTestId('workspace-layout')
 const resources = (page: Page) => page.getByTestId('workspace-resources')
-const navigation = (page: Page) => page.getByTestId('workspace-navigation')
+const inspector = (page: Page) => page.getByTestId('workspace-inspector')
+
+async function expectDrawers(page: Page, open: 'resources' | 'inspector' | null) {
+  for (const panel of ['resources', 'inspector'] as const) {
+    await expect(page.getByTestId(`workspace-${panel}`)).toHaveAttribute('data-open', String(panel === open))
+  }
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[hidden],[inert]'))).toBe(false)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.body.scrollWidth <= window.innerWidth)).toBe(true)
+}
 
 async function settled(page: Page) {
   await expect(page.getByTestId('outdoor-workbench')).toBeVisible({ timeout: 30_000 })
@@ -73,8 +82,8 @@ test('U1b desktop panels resize, fold, retain passive drafts and remember layout
   const before = await projectState(page)
   await rememberCanvas(page)
   await expect(layout(page)).toBeVisible()
-  const resourceSeparator = page.getByRole('separator', { name: '调整资源面板宽度', exact: true })
-  const detailSeparator = page.getByRole('separator', { name: '调整右侧面板宽度', exact: true })
+  const resourceSeparator = page.getByRole('separator', { name: '调整内容面板宽度', exact: true })
+  const detailSeparator = page.getByRole('separator', { name: '调整当前详情宽度', exact: true })
   const initialWidth = Number(await resourceSeparator.getAttribute('aria-valuenow'))
   await resourceSeparator.focus()
   await resourceSeparator.press('ArrowRight')
@@ -87,7 +96,7 @@ test('U1b desktop panels resize, fold, retain passive drafts and remember layout
   await page.mouse.move(divider.x - 32, divider.y + divider.height / 2)
   await page.mouse.up()
   await expect.poll(async () => Number(await detailSeparator.getAttribute('aria-valuenow'))).toBeGreaterThan(oldDetailsWidth)
-  for (const name of ['资源面板', '属性面板', '场景导航']) {
+  for (const name of ['内容面板', '当前详情']) {
     await page.getByRole('button', { name: `折叠${name}`, exact: true }).click()
     await page.getByRole('button', { name: `展开${name}`, exact: true }).click()
     await expectSameCanvas(page)
@@ -96,27 +105,28 @@ test('U1b desktop panels resize, fold, retain passive drafts and remember layout
   await page.getByRole('button', { name: '重置布局', exact: true }).click()
   await expect.poll(() => preferences(page)).toEqual(defaults)
 
-  // A parameter draft remains local and mounted while browsing both independent sides.
-  await page.getByText('外观与图层调整', { exact: true }).click()
-  await page.getByLabel('外观调整项目', { exact: true }).selectOption('brightness')
-  await page.getByLabel('外观亮度', { exact: true }).fill('0.55')
-  for (const name of ['建筑', '地形', '素材库']) await resources(page).getByRole('tab', { name, exact: true }).click()
-  for (const name of ['图层', '对象', '历史']) await navigation(page).getByRole('tab', { name, exact: true }).click()
-  await page.getByRole('button', { name: '折叠属性面板', exact: true }).click()
-  await page.getByRole('button', { name: '展开属性面板', exact: true }).click()
-  await expect(page.getByLabel('外观亮度', { exact: true })).toHaveValue('0.55')
+  // A passive tool draft remains mounted while the content pane browses modules.
+  await openBuildingTask(page)
+  const roomName = inspector(page).getByLabel('房间名称', { exact: true })
+  await roomName.fill('布局切换保留的房间草稿')
+  for (const name of ['地形', '素材与布景', '场景', '历史'] as const) await openWorkspaceModule(page, name)
+  await openSceneObjects(page, '物件与装饰')
+  await expect(resources(page).getByLabel('搜索场景对象', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '折叠当前详情', exact: true }).click()
+  await page.getByRole('button', { name: '展开当前详情', exact: true }).click()
+  await expect(roomName).toHaveValue('布局切换保留的房间草稿')
   await expectSameCanvas(page)
   expect(await projectState(page)).toEqual(before)
-  await page.getByRole('button', { name: '取消外观草稿', exact: true }).click()
+  await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
 
   await resourceSeparator.focus()
   await resourceSeparator.press('ArrowRight')
   await detailSeparator.focus()
   await detailSeparator.press('ArrowLeft')
-  await page.getByRole('button', { name: '折叠场景导航', exact: true }).click()
-  await expect.poll(async () => (await preferences(page))?.navigationCollapsed).toBe(true)
+  await page.getByRole('button', { name: '折叠内容面板', exact: true }).click()
+  await expect.poll(async () => (await preferences(page))?.resourcesCollapsed).toBe(true)
   const remembered = await preferences(page)
-  expect(remembered?.navigationCollapsed).toBe(true)
+  expect(remembered?.resourcesCollapsed).toBe(true)
   expect(remembered?.resourcesWidth).toBeGreaterThan(defaults.resourcesWidth)
   expect(await projectState(page)).toEqual(before)
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
@@ -124,7 +134,9 @@ test('U1b desktop panels resize, fold, retain passive drafts and remember layout
   await page.reload()
   await reopenFromHome(page, before.document.sceneId)
   expect(await preferences(page)).toEqual(remembered)
-  await expect(page.getByRole('button', { name: '展开场景导航', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '展开内容面板', exact: true })).toBeVisible()
+  await expect(page.getByTestId('workspace-navigation')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.body.scrollWidth <= window.innerWidth)).toBe(true)
   expect(await projectState(page)).toEqual(before)
   await info.attach('u1b-desktop.png', { body: await page.screenshot(), contentType: 'image/png' })
   await info.attach('u1b-desktop-smoke.json', { body: JSON.stringify({ viewport: { width: 1512, height: 982 }, sceneId: before.document.sceneId, revision: before.document.revision, remembered, unchangedDocumentIdentityAppearance: true, sameCanvasBeforeRealReload: true }), contentType: 'application/json' })
@@ -136,7 +148,7 @@ test.describe('U1b narrow workspace', () => {
     test.setTimeout(75_000)
     await page.addInitScript(key => {
       if (!sessionStorage.getItem('__u1bPreferencesSeeded')) {
-        localStorage.setItem(key, JSON.stringify({ version: 999, resourcesWidth: 999999, detailsWidth: -1, resourcesCollapsed: true, inspectorCollapsed: true, navigationCollapsed: true }))
+        localStorage.setItem(key, JSON.stringify({ version: 999, resourcesWidth: 999999, detailsWidth: -1, resourcesCollapsed: true, inspectorCollapsed: true }))
         sessionStorage.setItem('__u1bPreferencesSeeded', 'yes')
       }
     }, preferenceKey)
@@ -149,24 +161,41 @@ test.describe('U1b narrow workspace', () => {
     const before = await projectState(page)
     await expect.poll(() => preferences(page)).toEqual(defaults)
     await rememberCanvas(page)
-    for (const name of ['资源面板', '属性面板', '场景导航']) {
+    for (const [id, name] of [['resources', '内容面板'], ['inspector', '当前详情']] as const) {
       const trigger = page.getByRole('button', { name, exact: true })
+      await trigger.focus()
       await trigger.tap()
-      const drawer = page.getByRole('region', { name, exact: true })
+      const drawer = page.getByTestId(`workspace-${id}`)
       await expect(drawer).toBeVisible()
+      await expectDrawers(page, id)
       expect(await drawer.evaluate(element => element.contains(document.activeElement))).toBe(true)
-      if (name === '资源面板') for (const tab of ['素材库', '建筑', '地形']) await drawer.getByRole('tab', { name: tab, exact: true }).tap()
-      if (name === '属性面板') {
-        await drawer.getByText('外观与图层调整', { exact: true }).click()
-        await expect(drawer.getByLabel('外观调整项目', { exact: true })).toBeVisible()
-      }
-      if (name === '场景导航') for (const tab of ['图层', '对象', '历史']) await drawer.getByRole('tab', { name: tab, exact: true }).tap()
+      await drawer.getByRole('button', { name: `关闭${name}`, exact: true }).focus()
       await page.keyboard.press('Escape')
-      await expect(drawer).toHaveCount(0)
+      await expectDrawers(page, null)
+      await expect(drawer).toBeHidden()
       await expect(trigger).toBeFocused()
       await expectSameCanvas(page)
     }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.body.scrollWidth <= window.innerWidth)).toBe(true)
+    await openBuildingTask(page)
+    await expectDrawers(page, 'inspector')
+    await inspector(page).getByLabel('房间名称', { exact: true }).fill('窄屏保留的房间草稿')
+    for (const module of ['素材与布景', '地形', '场景', '历史'] as const) {
+      await openWorkspaceModule(page, module)
+      await expectDrawers(page, 'resources')
+    }
+    const returnToDraft = page.getByRole('button', { name: '返回当前工具与草稿', exact: true })
+    await returnToDraft.click()
+    await expectDrawers(page, 'inspector')
+    await expect(inspector(page).getByLabel('房间名称', { exact: true })).toHaveValue('窄屏保留的房间草稿')
+    await inspector(page).getByRole('button', { name: '关闭当前详情', exact: true }).focus()
+    await page.keyboard.press('Escape')
+    await expectDrawers(page, null)
+    await expect(returnToDraft).toBeFocused()
+    await returnToDraft.click()
+    await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
+    await inspector(page).getByRole('button', { name: '关闭当前详情', exact: true }).click()
+    await expectDrawers(page, null)
+    await expectSameCanvas(page)
     expect(await projectState(page)).toEqual(before)
 
     await page.getByRole('button', { name: '回到首页', exact: true }).click()
@@ -177,9 +206,10 @@ test.describe('U1b narrow workspace', () => {
     expect(await page.evaluate(() => (Reflect.get(window, '__sceneweaveOutdoorDev') as Dev | undefined)?.workspace.getState().project ?? null)).toBeNull()
     await reopenFromHome(page, before.document.sceneId)
     await expect.poll(() => preferences(page)).toEqual(defaults)
-    await expect(page.getByRole('button', { name: '资源面板', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '内容面板', exact: true })).toBeVisible()
+    await expectDrawers(page, null)
     expect(await projectState(page)).toEqual(before)
     await info.attach('u1b-narrow.png', { body: await page.screenshot(), contentType: 'image/png' })
-    await info.attach('u1b-narrow-smoke.json', { body: JSON.stringify({ viewport: { width: 390, height: 844 }, touch: true, sceneId: before.document.sceneId, revision: before.document.revision, unknownAndMalformedPreferences: 'usable defaults', drawers: ['resources', 'inspector', 'navigation'], unchangedDocumentIdentityAppearance: true }), contentType: 'application/json' })
+    await info.attach('u1b-narrow-smoke.json', { body: JSON.stringify({ viewport: { width: 390, height: 844 }, touch: true, sceneId: before.document.sceneId, revision: before.document.revision, unknownAndMalformedPreferences: 'usable defaults', drawers: ['resources', 'inspector'], unchangedDocumentIdentityAppearance: true, sameCanvasBeforeRealReload: true }), contentType: 'application/json' })
   })
 })

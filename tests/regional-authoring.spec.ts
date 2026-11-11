@@ -21,6 +21,7 @@ async function state(page: Page) {
 async function settled(page: Page) {
   await expect(page.getByRole('article', { name: '区域候选', exact: true })).toHaveCount(0, { timeout: 120_000 })
   await expect((await projectBackupButton(page))).toBeEnabled({ timeout: 120_000 })
+  await page.locator('.workspace-export-menu > summary').click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 120_000 })
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 120_000 })
 }
@@ -150,9 +151,11 @@ test('regional authoring UI previews all recipes, protects an edit, drills down,
   const download = await downloadEvent, packagePath = info.outputPath('regional-child.sceneweave'); await download.saveAs(packagePath)
   const coldContext = await browser.newContext(), coldPage = await coldContext.newPage()
   try {
-    await coldPage.goto('/#workspace')
-    await coldPage.getByLabel('选择完整工程', { exact: true }).setInputFiles(packagePath)
-    await expect.poll(async () => { try { return (await state(coldPage)).document.schemaVersion } catch { return null } }, { timeout: 120_000 }).toBe(3)
+    await coldPage.goto('/#home')
+    const chooser = coldPage.waitForEvent('filechooser')
+    await coldPage.getByTestId('workspace-home').getByRole('button', { name: '打开工程文件', exact: true }).click()
+    await (await chooser).setFiles(packagePath)
+    await expect.poll(async () => { try { return (await state(coldPage)).document.schemaVersion } catch { return null } }, { timeout: 120_000 }).toBe(1)
     const imported = await state(coldPage)
     expect(imported.document.sceneId).not.toBe(child.document.sceneId)
     expect(imported.coldHash).toBe(imported.hash)

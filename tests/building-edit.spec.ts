@@ -1,3 +1,4 @@
+import { openBuildingTask, openSceneObjects } from './workspace-navigation-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace'
@@ -35,7 +36,7 @@ async function createBlank(page: Page) {
   await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0); await settled(page)
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
+  await openBuildingTask(page)
 }
 async function adopt(page: Page) {
   await page.getByLabel('确认完整影响范围', { exact: true }).check()
@@ -46,20 +47,23 @@ async function undo(page: Page) {
   await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await settled(page)
 }
 async function rectangle(page: Page, name: string, x: number, y: number, width: number, height: number) {
+  await openBuildingTask(page)
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   await page.getByLabel('房间名称', { exact: true }).fill(name)
   for (const [label, value] of [['房间起点 X', x], ['房间起点 Y', y], ['房间宽度', width], ['房间高度', height]] as const) await number(page, label, value / 1000)
   await page.getByRole('button', { name: '预览新房间', exact: true }).click(); await adopt(page)
   return Object.values((await current(page)).rooms).find(room => room.purpose === name)!.id
 }
+async function selectStructure(page: Page, id: string) {
+  const objects = await openSceneObjects(page, '结构')
+  await objects.locator(`[data-entity-id="${id}"]`).click()
+}
 async function selectRoom(page: Page, roomId: string) {
-  await page.locator(`[data-building-room-id="${roomId}"]`).getByRole('button').first().click()
+  await selectStructure(page, roomId)
   await expect(page.getByLabel('建筑属性', { exact: true })).toBeVisible()
 }
-async function selectWall(page: Page, roomId: string, wallId: string) {
-  const room = page.locator(`[data-building-room-id="${roomId}"]`)
-  if (!await room.evaluate(element => (element as HTMLDetailsElement).open)) await room.locator('summary').click()
-  await room.locator(`[data-building-wall-id="${wallId}"]`).click()
+async function selectWall(page: Page, _roomId: string, wallId: string) {
+  await selectStructure(page, wallId)
 }
 async function openDetail(page: Page, name: string) {
   const detail = page.getByLabel('建筑属性', { exact: true }).locator('details').filter({ has: page.getByText(name, { exact: true }) })
@@ -164,7 +168,7 @@ test('whole-building transform preserves shared structure and legal deletion ret
   const roomOnlyDeleted = await current(page)
   expect(Object.keys(roomOnlyDeleted.walls)).toHaveLength(7)
   const orphan = Object.values(roomOnlyDeleted.walls).find(wall => !roomOnlyDeleted.rooms[rightId].boundaryVertexIds.includes(wall.startVertexId))!
-  await page.locator(`[data-building-wall-id="${orphan.id}"]`).click(); await openDetail(page, '删除墙体')
+  await selectStructure(page, orphan.id); await openDetail(page, '删除墙体')
   await page.getByRole('button', { name: '预览删除墙体', exact: true }).click(); await adopt(page)
   expect(Object.keys((await current(page)).walls)).toHaveLength(6)
 })
@@ -244,7 +248,7 @@ test('explicit junction repair splits a contacted room wall and preserves an ope
   await page.getByRole('button', { name: '预览新增门窗', exact: true }).click(); await adopt(page)
   await selectRoom(page, sourceId); await openDetail(page, '删除房间')
   await page.getByRole('button', { name: '预览删除房间', exact: true }).click(); await adopt(page)
-  await page.locator(`[data-building-wall-id="${sourceWall.id}"]`).click(); await openDetail(page, '平移整面墙')
+  await selectStructure(page, sourceWall.id); await openDetail(page, '平移整面墙')
   await number(page, '墙平移 X', -2)
   const before = await current(page), opening = Object.values(before.openings)[0]
   await page.getByRole('button', { name: '预览平移并修复接点', exact: true }).click()

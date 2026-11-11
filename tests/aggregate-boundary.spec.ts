@@ -1,3 +1,4 @@
+import { openSceneObjects } from './workspace-navigation-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { createServer } from 'vite'
 
@@ -14,9 +15,10 @@ test('grouped prop and building inspectors preview boundary diagnostics before a
   const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' })
   let bytes: Uint8Array
   try {
-    const { fixture, validation } = await vite.ssrLoadModule('/src/application/workspace/test-fixtures.ts')
+    const { fixture, validation, runtime } = await vite.ssrLoadModule('/src/application/workspace/test-fixtures.ts')
     const { exportProject } = await vite.ssrLoadModule('/src/shared/project/file.ts')
     const source = fixture({ building: true }), scene = source.project.document
+    const before = structuredClone(scene)
     scene.title = '聚合边界预览开发自检'
     scene.aggregateCoordinates = { encoding: 'world', groups: {
       'boundary-root': { id: 'boundary-root', parentId: null, floorId: 'blank-floor', editLocked: false,
@@ -25,6 +27,8 @@ test('grouped prop and building inspectors preview boundary diagnostics before a
     scene.aggregateCoordinates.groups.building = { id: 'building', parentId: null, floorId: 'blank-floor', editLocked: false, frame: { translationMm: { x: 0, y: 0 }, quarterTurns: 0 }, members: [
       { kind: 'room', id: 'room' }, ...Object.keys(scene.walls).map(id => ({ kind: 'wall', id })), ...Object.keys(scene.vertices).map(id => ({ kind: 'vertex', id })),
     ] }
+    const { advanceHistoryIdentity } = await vite.ssrLoadModule('/src/shared/history/identity.ts')
+    source.project.historyIdentity = advanceHistoryIdentity(source.project.historyIdentity, before, scene, runtime)
     bytes = await exportProject(source, validation)
   } finally { await vite.close() }
   const errors: string[] = []
@@ -35,7 +39,7 @@ test('grouped prop and building inspectors preview boundary diagnostics before a
   await (await chooser).setFiles({ name: 'aggregate-boundary.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) })
   const workbench = page.getByTestId('outdoor-workbench')
   await expect(workbench).toBeVisible(); await saved(page)
-  await page.getByRole('tab', { name: '对象', exact: true }).click()
+  await openSceneObjects(page, '物件与装饰')
   await page.locator('[data-entity-id="item"]').click()
   const rotation = page.getByRole('spinbutton', { name: '物件旋转', exact: true })
   await rotation.fill('30'); await rotation.press('Enter')
@@ -60,16 +64,14 @@ test('grouped prop and building inspectors preview boundary diagnostics before a
   await page.locator('.home-project-row').filter({ has: page.getByRole('heading', { name: '聚合边界预览开发自检', exact: true }) })
     .getByRole('button', { name: '打开', exact: true }).click()
   await saved(page)
-  await page.getByRole('tab', { name: '对象', exact: true }).click()
+  await openSceneObjects(page, '物件与装饰')
   await page.locator('[data-entity-id="item"]').click()
   await expect(page.getByRole('spinbutton', { name: '物件旋转', exact: true })).toHaveValue('30')
   await page.screenshot({ path: info.outputPath('aggregate-boundary.png'), fullPage: true })
   // Structural preview uses the same real production entry, including the
   // owning candidate review and its explicit full-scope confirmation.
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
-  const room = page.locator('[data-building-room-id="room"]')
-  if (!await room.evaluate(element => (element as HTMLDetailsElement).open)) await room.locator('summary').click()
-  await room.locator('[data-building-wall-id="wall-0"]').click()
+  const structures = await openSceneObjects(page, '结构')
+  await structures.locator('[data-entity-id="wall-0"]').click()
   const thickness = page.getByRole('spinbutton', { name: '编辑墙厚', exact: true })
   await thickness.fill('30'); await thickness.press('Tab')
   await page.getByRole('button', { name: '预览墙厚修改', exact: true }).click()
@@ -92,10 +94,8 @@ test('grouped prop and building inspectors preview boundary diagnostics before a
   await page.locator('.home-project-row').filter({ has: page.getByRole('heading', { name: '聚合边界预览开发自检', exact: true }) })
     .getByRole('button', { name: '打开', exact: true }).click()
   await saved(page)
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
-  const reopenedRoom = page.locator('[data-building-room-id="room"]')
-  if (!await reopenedRoom.evaluate(element => (element as HTMLDetailsElement).open)) await reopenedRoom.locator('summary').click()
-  await reopenedRoom.locator('[data-building-wall-id="wall-0"]').click()
+  await openSceneObjects(page, '结构')
+  await structures.locator('[data-entity-id="wall-0"]').click()
   await expect(page.getByRole('spinbutton', { name: '编辑墙厚', exact: true })).toHaveValue('30')
   await page.screenshot({ path: info.outputPath('aggregate-building.png'), fullPage: true })
   expect(errors).toEqual([])

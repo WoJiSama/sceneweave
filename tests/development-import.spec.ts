@@ -14,14 +14,17 @@ const modules = {
 
 async function installSource(page: Page) {
   return page.evaluate(async paths => {
-    const { fixture } = await import(paths.fixture), { PROJECT_STORES, LEGACY_DEVELOPMENT_PROJECT_DATABASE } = await import(paths.database)
-    const { LIBRARY_STORES, LEGACY_DEVELOPMENT_LIBRARY_DATABASE } = await import(paths.library), { legacyDevelopmentProjectHash } = await import(paths.legacy)
+    const { fixture } = await import(paths.fixture), { PROJECT_STORES_V3, LEGACY_DEVELOPMENT_PROJECT_DATABASE } = await import(paths.database)
+    const { LIBRARY_STORES, LEGACY_DEVELOPMENT_LIBRARY_DATABASE } = await import(paths.library), { legacyDevelopmentProjectHash, convertDevelopmentProject } = await import(paths.legacy)
     const { sealHistoryRecord } = await import(paths.history), { createProjectDelta, projectDeltaBytes } = await import(paths.delta)
     const { cloneJson, canonicalJson } = await import(paths.json), { projectContentHash } = await import(paths.hash), { sha256Bytes } = await import(paths.binary)
     const { validation } = await import(paths.runtime), { exportPng } = await import(paths.renderer)
     const base = fixture({ image: true }), owner = base.project.document.sceneId
     const projects = [0, 1, 2].map(revision => { const project = cloneJson(base.project); project.document.revision = revision; project.document.title = ['迁入根版本', '保留分支版本', '迁入后的完整地图'][revision]; return project })
-    const old = projects.map(project => ({ ...cloneJson(project), schemaVersion: 8, document: { ...cloneJson(project.document), schemaVersion: 8 } }))
+    const old = projects.map(project => {
+      const { structureTokens: _currentStructuralBirths, ...historyIdentity } = cloneJson(project.historyIdentity)
+      return { ...cloneJson(project), schemaVersion: 8, historyIdentity, document: { ...cloneJson(project.document), schemaVersion: 8 } }
+    })
     const hashes = old.map(legacyDevelopmentProjectHash), delta = { ...createProjectDelta(projects[0], projects[2]), beforeHash: hashes[0], afterHash: hashes[2] }
     const versions = projects.map((project, index) => sealHistoryRecord({ format: 'sceneweave-history-version', version: 1, ownerSceneId: owner, id: `version-${index}`, revision: index, savedAt: project.document.updatedAt,
       contentHash: hashes[index], parentId: index ? 'version-0' : null, parentHash: index ? hashes[0] : null, checkpoint: index === 2 ? null : old[index], delta: index === 2 ? delta : null,
@@ -39,10 +42,10 @@ async function installSource(page: Page) {
       }
       request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error)
     })
-    const db = await createDatabase(LEGACY_DEVELOPMENT_PROJECT_DATABASE, 30, PROJECT_STORES)
+    const db = await createDatabase(LEGACY_DEVELOPMENT_PROJECT_DATABASE, 30, PROJECT_STORES_V3)
     const resources = await Promise.all(Object.keys(base.project.assets).map(async sha256 => ({ sha256, bytes: await base.resources.read(sha256) })))
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(Object.keys(PROJECT_STORES), 'readwrite')
+      const tx = db.transaction(Object.keys(PROJECT_STORES_V3), 'readwrite')
       tx.objectStore('projects').add({ sceneId: owner, revision: 2, savedAt: base.project.document.updatedAt, contentHash: hashes[2], status: 'ready', conversionJobId: null, project: old[2] })
       tx.objectStore('historyMetadata').add({ ownerSceneId: owner, metadataVersion: 1 })
       for (const row of versions) tx.objectStore('historyVersions').add(row)
@@ -53,12 +56,12 @@ async function installSource(page: Page) {
       tx.oncomplete = () => resolve(); tx.onerror = tx.onabort = () => reject(tx.error)
     }); db.close()
     const library = await createDatabase(LEGACY_DEVELOPMENT_LIBRARY_DATABASE, 10, LIBRARY_STORES); library.close()
-    const expected = { ...base, project: projects[2] }, png = await exportPng(expected, { audience: 'gm', longEdgePx: 512 })
+    const expected = { ...base, project: convertDevelopmentProject(old[2]) }, png = await exportPng(expected, { audience: 'gm', longEdgePx: 512 })
     const bitmap = await createImageBitmap(png), canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
     const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
     localStorage.setItem('development-import-spec-source-guard', 'enabled')
     sessionStorage.setItem('development-import-spec-source-writes', '[]')
-    return { owner, hashes, expectedHash: projectContentHash(projects[2]), resourceHashes: resources.map(row => row.sha256), pixelHash: sha256Bytes(new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data)), renderSize: [canvas.width, canvas.height], hasRealLocks: !!navigator.locks, canonicalLength: canonicalJson(old[2]).length }
+    return { owner, hashes, expectedHash: projectContentHash(expected.project), expectedDocument: projects[2].document, expectedLegacyIdentity: old[2].historyIdentity, expectedAppearance: old[2].appearance, resourceHashes: resources.map(row => row.sha256), pixelHash: sha256Bytes(new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data)), renderSize: [canvas.width, canvas.height], hasRealLocks: !!navigator.locks, canonicalLength: canonicalJson(old[2]).length }
   }, modules)
 }
 async function sourceFingerprint(page: Page) {
@@ -103,9 +106,13 @@ test('DEV integration: homepage migrates full v8 branched bitmap project, reload
     if (!bundle || !historical) throw new Error('Cold project or pinned branch missing')
     const png = await exportPng(bundle, { audience: 'gm', longEdgePx: 512 }), bitmap = await createImageBitmap(png), canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
     const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
-    return { projectVersion: bundle.project.schemaVersion, documentVersion: bundle.project.document.schemaVersion, fullFields: ['generation', 'visual', 'decorations', 'decorationClusters', 'surfaceRules'].every(key => Object.hasOwn(bundle.project.document, key)), hash: projectContentHash(bundle.project), versions: (overview.history.versions as { id: string; parentId: string | null; contentHash: string }[]).map((version: { id: string; parentId: string | null; contentHash: string }) => ({ id: version.id, parentId: version.parentId, contentHash: version.contentHash })), pins: (overview.snapshots as { id: string; sourceRevision: number }[]).map((pin: { id: string; sourceRevision: number }) => ({ id: pin.id, sourceRevision: pin.sourceRevision })), branchTitle: historical.project.document.title, resourceHashes: Object.keys(bundle.project.assets).sort(), actualResourceHashes: await Promise.all(Object.keys(bundle.project.assets).sort().map(async hash => sha256Bytes(await bundle.resources.read(hash)))), pixelHash: sha256Bytes(new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data)), renderSize: [canvas.width, canvas.height] }
+    return { document: bundle.project.document, identity: bundle.project.historyIdentity, appearance: bundle.project.appearance, projectVersion: bundle.project.schemaVersion, documentVersion: bundle.project.document.schemaVersion, fullFields: ['generation', 'visual', 'decorations', 'decorationClusters', 'surfaceRules'].every(key => Object.hasOwn(bundle.project.document, key)), hash: projectContentHash(bundle.project), versions: (overview.history.versions as { id: string; parentId: string | null; contentHash: string }[]).map((version: { id: string; parentId: string | null; contentHash: string }) => ({ id: version.id, parentId: version.parentId, contentHash: version.contentHash })), pins: (overview.snapshots as { id: string; sourceRevision: number }[]).map((pin: { id: string; sourceRevision: number }) => ({ id: pin.id, sourceRevision: pin.sourceRevision })), branchTitle: historical.project.document.title, resourceHashes: Object.keys(bundle.project.assets).sort(), actualResourceHashes: await Promise.all(Object.keys(bundle.project.assets).sort().map(async hash => sha256Bytes(await bundle.resources.read(hash)))), pixelHash: sha256Bytes(new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data)), renderSize: [canvas.width, canvas.height] }
   }, { paths: modules, owner: fixture.owner })
   expect(cold).toMatchObject({ projectVersion: 1, documentVersion: 1, fullFields: true, hash: fixture.expectedHash, branchTitle: '保留分支版本', pins: [{ id: 'branch-pin', sourceRevision: 1 }], pixelHash: fixture.pixelHash, renderSize: fixture.renderSize })
+  expect(cold.document).toEqual(fixture.expectedDocument)
+  const { structureTokens: _newStructureBirths, ...preservedIdentity } = cold.identity
+  expect(preservedIdentity).toEqual(fixture.expectedLegacyIdentity)
+  expect(cold.appearance).toEqual(fixture.expectedAppearance)
   expect(cold.versions).toHaveLength(3); expect(cold.versions.find((row: { id: string; parentId: string | null }) => row.id === 'version-2')?.parentId).toBe('version-0'); expect(cold.versions.find((row: { id: string; parentId: string | null }) => row.id === 'version-1')?.parentId).toBe('version-0')
   expect(cold.resourceHashes).toEqual(fixture.resourceHashes); expect(cold.actualResourceHashes).toEqual(fixture.resourceHashes)
   for (const version of cold.versions) expect(fixture.hashes).not.toContain(version.contentHash)

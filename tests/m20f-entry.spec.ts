@@ -33,10 +33,10 @@ test('M2-0f native history file opens as an independent complete project and col
   expect(result.currentId).not.toBe(file.sourceId)
   expect(result).toMatchObject({ format: 'sceneweave-complete-project', revision: 0, identity: file.identity, historical: file.document, hash: file.contentHash, title: '明确携带的原生历史' })
   expect(result.owner).toBe(result.currentId)
-  expect(result.databases.sort()).toEqual(['sceneweave-library', 'sceneweave-projects'])
+  expect(result.databases.sort()).toEqual(['sceneweave-library-dev-v1', 'sceneweave-projects-dev-v1'])
   await page.getByTestId('native-project-file').setInputFiles({ name: 'broken.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from('broken project') })
   await expect(page.getByRole('dialog', { name: '检查完整工程', exact: true })).toHaveCount(0)
-  await expect(page.locator('.workspace-notice')).toContainText(/不支持|无效|格式/)
+  await expect(page.locator('.workspace-notice')).toContainText('只支持当前完整工程v1文件；旧开发数据请使用首页独立迁入工具。')
   const retained = await page.evaluate(async () => {
     const wp = '/src/editor/main/Workbench.tsx', { nativeWorkspace } = await import(wp) as typeof import('../src/editor/main/Workbench')
     return nativeWorkspace.getState().project!.document.sceneId

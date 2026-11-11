@@ -1,4 +1,5 @@
 // Normal UI setup; facts only from actual project downloads and DOM events.
+import { closeWorkspaceDrawers, openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import {
@@ -14,13 +15,7 @@ const review = (page: Page) => page.getByRole('region', { name: '候选审阅', 
 const viewport = (page: Page) => page.getByRole('group', { name: '地图视口', exact: true })
 
 async function closeDrawers(page: Page): Promise<void> {
-  if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
-  for (const [id, name] of [['resources', '资源面板'], ['inspector', '属性面板'], ['navigation', '场景导航']] as const) {
-    const panel = page.getByTestId(`workspace-${id}`)
-    if (await panel.getAttribute('data-open') !== 'true') continue
-    await panel.getByRole('button', { name: `关闭${name}`, exact: true }).click()
-    await expect(panel).toHaveAttribute('data-open', 'false')
-  }
+  await closeWorkspaceDrawers(page)
 }
 
 async function backup(page: Page, info: TestInfo, name: string): Promise<Backup> {
@@ -40,8 +35,7 @@ async function selected(page: Page, id: string): Promise<void> {
 
 async function placeSecondLamp(page: Page): Promise<void> {
   await closeDrawers(page)
-  const resources = await openKeyboardPanel(page, 'resources')
-  await resources.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await library.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
@@ -68,7 +62,6 @@ async function createLampGroup(page: Page, info: TestInfo, width: number): Promi
   const tools = inspector.getByRole('region', { name: '固定组合工具', exact: true })
   await tools.getByLabel('新组合名称', { exact: true }).fill(groupName)
   await tools.getByRole('button', { name: '预览保存组合 · 2 件', exact: true }).click()
-  await closeDrawers(page)
   await review(page).getByRole('button', { name: '采用组件修改', exact: true }).click()
   await keyboardWorkspaceSaved(page)
   const grouped = await backup(page, info, 'group-created')

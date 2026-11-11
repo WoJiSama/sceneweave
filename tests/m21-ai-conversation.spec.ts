@@ -1,3 +1,5 @@
+import { openWorkspaceModule } from './workspace-navigation-helpers'
+import { openDetailsBySummary } from './workspace-ux-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { randomBytes } from 'node:crypto'
@@ -56,12 +58,7 @@ async function createBlank(page: Page, name: string) {
   const form = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await form.getByLabel('场景名称', { exact: true }).fill(name); await form.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(form).toHaveCount(0); await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
-  const tab = page.getByRole('tab', { name: 'AI对话', exact: true })
-  if (await tab.isVisible()) await tab.click()
-  else {
-    await page.getByRole('button', { name: '资源面板', exact: true }).click()
-    await page.getByRole('region', { name: '资源面板', exact: true }).getByRole('tab', { name: 'AI对话', exact: true }).click()
-  }
+  await openWorkspaceModule(page, 'AI')
 }
 async function connect(page: Page) {
   const panel = page.getByRole('region', { name: 'AI 对话面板', exact: true })
@@ -119,7 +116,7 @@ test('M2-1 real HTTP text/tool continuation is plain text, preserves the project
   await panel.getByRole('button', { name: '删除服务器任务', exact: true }).click()
   await panel.getByRole('button', { name: '确认删除服务器任务', exact: true }).click()
   await expect(task).toHaveCount(0); expect(store.count()).toBe(0); expect(await project(page)).toEqual(before); expect(errors).toEqual([])
-  await page.reload(); await page.getByRole('tab', { name: 'AI对话', exact: true }).click()
+  await page.reload(); await openWorkspaceModule(page, 'AI')
   await expect(panel.getByLabel('AI 应用凭据', { exact: true })).toHaveValue('')
 })
 
@@ -157,6 +154,7 @@ test('M2-1 at 390px the AI submit status fits the drawer and clears after the ta
 
 test('M2-1 disconnect only rereads checkpoints, pause/resume is explicit and cancel rejects late model completion', async ({ page }) => {
   await createBlank(page, 'M2-1 中断代次'); const before = await project(page), panel = await connect(page), initial = modelRequests
+  await openDetailsBySummary(panel, /^思考程度如何生效$/)
   await expect(panel.getByText(/请选择模型支持的思考程度/)).toBeVisible()
   await panel.getByLabel('AI 思考程度', { exact: true }).selectOption('low')
   await panel.getByLabel('AI 对话输入', { exact: true }).fill('暂停测试')

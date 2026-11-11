@@ -141,7 +141,10 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
   await expect(page.locator('.asset-save')).toHaveText('本地已保存',{timeout:60000})
   const persisted=await page.evaluate(async()=>{
     const runtimePath='/src/platform/browser/runtime.ts',contractsPath='/src/shared/terrain-generation/composition-contracts.ts'
-    const {projectRepository}=await import(runtimePath) as typeof import('../src/platform/browser/runtime')
+    const {projectRepository,validation}=await import(runtimePath) as typeof import('../src/platform/browser/runtime')
+    const resourcePath='/src/shared/project/resources.ts',hashPath='/src/shared/validation/hash.ts'
+    const {validateProjectBundle}=await import(resourcePath) as typeof import('../src/shared/project/resources')
+    const {sha256Bytes}=await import(hashPath) as typeof import('../src/shared/validation/hash')
     const {getLegacyGeneration}=await import(contractsPath) as typeof import('../src/shared/terrain-generation/composition-contracts')
     const workspace=(Reflect.get(window,'__sceneweaveOutdoorDev') as Dev).workspace
     await workspace.flush()
@@ -149,14 +152,25 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
     if(!project)throw new Error('T3采用后缺少当前工程。')
     const cold=await projectRepository.load(project.document.sceneId)
     if(!cold)throw new Error('T3采用后冷读工程失败。')
+    await validateProjectBundle(cold,validation)
     const generation=getLegacyGeneration(cold.project.document)!
-    return {sceneId:project.document.sceneId,revision:cold.project.document.revision,terrainAreas:Object.keys(cold.project.document.terrainAreas),connections:Object.keys(cold.project.document.terrainConnections),generation:!!cold.project.document.generation,route:cold.project.document.paths['terrain-route'],routeCheck:generation.checks['terrain-route-check'],variants:Object.values(cold.project.appearance.variants),assets:Object.keys(cold.project.assets),rules:Object.values(generation.rules),ownership:Object.values(generation.ownership)}
+    const variants=Object.values(cold.project.appearance.variants)
+    const variantResources=await Promise.all(variants.map(async variant=>{
+      const source=cold.project.document.assets[variant.sourceAssetId],output=cold.project.document.assets[variant.outputAssetId]
+      const bytes=await cold.resources.read(output.sha256)
+      return {source:source.id,output:output.id,hash:output.sha256,actualHash:sha256Bytes(bytes),bytes:bytes.length,record:cold.project.assets[output.sha256]}
+    }))
+    return {sceneId:project.document.sceneId,revision:cold.project.document.revision,terrainAreas:Object.keys(cold.project.document.terrainAreas),connections:Object.keys(cold.project.document.terrainConnections),generation:!!cold.project.document.generation,route:cold.project.document.paths['terrain-route'],routeCheck:generation.checks['terrain-route-check'],variants,variantResources,assets:Object.keys(cold.project.assets),rules:Object.values(generation.rules),ownership:Object.values(generation.ownership)}
   })
   expect(persisted.revision).toBeGreaterThanOrEqual(0)
   expect(persisted.route.widthMm).toBe(1000)
   expect(persisted.routeCheck.state).toBe('passed')
-  expect(persisted.variants).toHaveLength(2)
-  expect(persisted.assets).toHaveLength(15)
+  expect(persisted.variants.map(variant=>({sourceAssetId:variant.sourceAssetId,tint:variant.tint,brightness:variant.brightness}))).toEqual([{sourceAssetId:'shore-v1-art-rock-dry',tint:'#CCAE85',brightness:1}])
+  for(const resource of persisted.variantResources){
+    expect(resource.actualHash).toBe(resource.hash)
+    expect(resource.bytes).toBe(resource.record.sizeBytes)
+    expect(persisted.assets).toContain(resource.hash)
+  }
   expect(persisted.rules.every(rule=>rule.state==='active')).toBe(true)
   expect(persisted.ownership.every(row=>row.state==='managed')).toBe(true)
   expect(persisted.generation).toBe(true)
@@ -218,12 +232,15 @@ test('T1 retains all five untouched island and coast packages, neutral whole vie
       const {exportPng,exportPublicViewportPng}=await import(rendererPath) as typeof import('../src/platform/browser/render/renderer')
       const {toBundle,captureEditableDraft}=await import(projectPath) as typeof import('../src/application/workspace/project')
       const {projectContentHash}=await import(validatePath) as typeof import('../src/shared/project/validate')
+      const budgetPath='/src/shared/budget/task-budget.ts'
+      const {taskBudgetProfile}=await import(budgetPath) as typeof import('../src/shared/budget/task-budget')
+      const profile=taskBudgetProfile('small')
       const base=await createRefinedBlankProject(kind,{sceneId:`terrain-review-${kind}`,title:'未修图固定组',widthMm:24000,heightMm:18000,preset:'narrative',now:'2026-10-26T00:00:00.000Z'})
       const encode=(bytes:Uint8Array)=>{let value='';for(let i=0;i<bytes.length;i+=32768)value+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(value)}
       const outputs=[]
       for(const seed of TERRAIN_FIXED_SEEDS){
         const independent=captureEditableDraft(base);independent.document.sceneId=`terrain-review-${kind}-${seed}`;independent.historyIdentity.rootSceneId=independent.document.sceneId;independent.historyIdentity.lineageId=`terrain-review-lineage-${kind}-${seed}`
-        const prepared=await prepareTerrainProject(independent,{sceneId:independent.document.sceneId,kind,seed},{runtime,validation})
+        const prepared=await prepareTerrainProject(independent,{sceneId:independent.document.sceneId,kind,seed,algorithmVersion:4,budgetProfileId:profile.profileId,quality:'standard'},{runtime,validation,budget:profile})
         const bundle=toBundle(prepared.project),bytes=await exportProject(bundle,validation),cold=await importProject(bytes,validation)
         if(projectContentHash(cold.project)!==projectContentHash(bundle.project))throw new Error('Cold roundtrip hash mismatch')
         const full=await exportPng(cold,{audience:'gm',longEdgePx:2048}),close=await exportPublicViewportPng(cold,{x:6000,y:4500,width:12000,height:9000},1024)
@@ -234,7 +251,7 @@ test('T1 retains all five untouched island and coast packages, neutral whole vie
       return outputs
     },kind)
     for(const item of output){
-      expect(item.cost.total).toBeLessThanOrEqual(256);expect(item.props).toBeGreaterThanOrEqual(4);expect(item.stairs.widthMm).toBe(1500)
+      expect(item.cost.limit).toBe(512);expect(item.cost.total).toBeLessThanOrEqual(item.cost.limit);expect(item.props).toBeGreaterThanOrEqual(4);expect(item.stairs.widthMm).toBe(1500)
       const name=`${item.kind}-${item.seed}`
       await writeFile(info.outputPath(`${name}.sceneweave`),Buffer.from(item.package,'base64'))
       await writeFile(info.outputPath(`${name}-whole.png`),Buffer.from(item.full,'base64'))

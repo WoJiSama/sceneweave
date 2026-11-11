@@ -1,4 +1,4 @@
-import { openSamples } from './workspace-navigation-helpers'
+import { openSamples, openWorkspaceModule, openVisualTask } from './workspace-navigation-helpers'
 import { projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { expect, test, type Page } from '@playwright/test'
@@ -156,8 +156,7 @@ test('manual curve drag stays a draft, previews both bound sides, adopts once an
   test.setTimeout(120_000)
   await openSample(page, '潮声浅湾 · 连续海岸')
   const before = await current(page)
-  await page.getByRole('tab', { name: '外观', exact: true }).click()
-  const panel = page.getByRole('region', { name: '视觉场景创作', exact: true })
+  const panel = await openVisualTask(page, '边界')
   await panel.getByLabel('视觉已有曲线', { exact: true }).selectOption('beach-coast')
   const handle = page.getByTestId('curve-handle-0-control1')
   await expect(handle).toBeVisible()
@@ -204,13 +203,11 @@ test('visual history restores an existing light with protection and once undo, k
   page.setDefaultTimeout(15_000)
   await openSample(page, '灯下旅舍 · 材质与灯光')
   const original = await current(page), id = 'inn-light-common', name = '旅舍原有灯光'
-  await page.getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   await page.getByRole('button', { name: '新建命名快照', exact: true }).click()
   await page.getByLabel('命名快照名称', { exact: true }).fill(name)
   await page.getByRole('button', { name: '保存快照', exact: true }).click(); await settled(page)
-  await page.getByRole('tab', { name: '外观', exact: true }).click()
-  const panel = page.getByRole('region', { name: '视觉场景创作', exact: true })
-  await panel.getByRole('button', { name: '灯光', exact: true }).click()
+  const panel = await openVisualTask(page, '灯光')
   await panel.getByRole('combobox', { name: /^灯光/ }).selectOption(id)
   await panel.getByLabel('视觉灯光强度', { exact: true }).fill('0.35')
   await panel.getByRole('button', { name: '预览灯光', exact: true }).click()
@@ -230,7 +227,7 @@ test('visual history restores an existing light with protection and once undo, k
   await settled(page)
   const beforeRestore = await current(page)
   expect(visualBase(beforeRestore.document)!.lights[id].intensity).toBe(.35)
-  await page.getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   const selectHistoricalLight = async () => {
     await page.getByRole('button', { name: `查看快照 ${name}`, exact: true }).click()
     await page.getByLabel('局部恢复模式', { exact: true }).selectOption('visual')
@@ -267,7 +264,7 @@ test('visual history restores an existing light with protection and once undo, k
   expect(omitSelectedLight(undone.document)).toEqual(omitSelectedLight(beforeRestore.document))
   await reloadSaved(page); await settled(page)
   const reopened = await current(page)
-  await page.getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   await selectHistoricalLight()
   await expect(page.getByRole('alert')).toContainText('本会话')
   await expect(changes).toHaveCount(0)

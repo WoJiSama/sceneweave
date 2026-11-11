@@ -1,3 +1,4 @@
+import { openBuildingTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { mapExportButton, projectBackupButton } from './workspace-ux-helpers'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -20,6 +21,8 @@ async function download(page: Page, info: TestInfo, button: Locator, filename: s
   await file.saveAs(target)
   expect(await file.failure()).toBeNull()
   await settled(page)
+  const exportMenu = page.locator('.workspace-export-menu')
+  if (await exportMenu.getAttribute('open') !== null) await exportMenu.locator(':scope > summary').click()
   const bytes = await readFile(target)
   await info.attach(filename, { path: target })
   return bytes
@@ -79,7 +82,7 @@ async function audienceImages(page: Page, info: TestInfo, name: string) {
   return result
 }
 async function history(page: Page) {
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '历史', exact: true }).click()
+  await openWorkspaceModule(page, '历史')
   await expect(page.getByLabel('完整保存版本', { exact: true })).toBeEnabled()
 }
 async function chooseVersion(page: Page, revision: number) {
@@ -97,9 +100,9 @@ async function restore(page: Page, revision: number) {
   await settled(page)
 }
 async function chooseProp(page: Page, id: string) {
-  await page.getByTestId('workspace-navigation').getByRole('tab', { name: '对象', exact: true }).click()
-  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件', exact: true }).click()
-  await page.getByLabel('搜索场景物件', { exact: true }).fill(id)
+  await openWorkspaceModule(page, '场景')
+  await page.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
+  await page.getByLabel('搜索场景对象', { exact: true }).fill(id)
   await page.locator(`.asset-entity-list [data-entity-id="${id}"]`).click()
 }
 async function move(page: Page, id: string, x: number) {
@@ -127,7 +130,7 @@ test('complete saved versions retain both branches, cold reads, selected portabl
   await dialog.getByLabel('画布高度', { exact: true }).fill('12')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await settled(page)
 
-  await page.getByRole('tab', { name: '素材库', exact: true }).click()
+  await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('搜索组件素材', { exact: true }).fill('铜色桌灯')
   await library.getByRole('button', { name: '放置组件 铜色桌灯', exact: true }).click()
@@ -135,8 +138,7 @@ test('complete saved versions retain both branches, cold reads, selected portabl
   const placed = await complete(page, info, 'placed'), propId = Object.keys(placed.current.document.props)[0]
   expect(propId).toBeTruthy()
 
-  await page.getByRole('tab', { name: '建筑', exact: true }).click()
-  await page.locator('.building-details').filter({ has: page.getByLabel('新注记内容', { exact: true }) }).locator('summary').click()
+  await openBuildingTask(page, '文字与线索')
   await page.getByLabel('新注记内容', { exact: true }).fill('只供主持人查看的历史标记')
   await page.getByLabel('新注记可见性', { exact: true }).selectOption('gm')
   await page.getByRole('button', { name: '预览新增注记', exact: true }).click()

@@ -52,6 +52,7 @@ async function exportPackage(page: Page) {
   ])
   const path = await download.path()
   if (!path) throw new Error('The complete-project download did not produce a file.')
+  await page.locator('.workspace-export-menu > summary').click()
   return new Uint8Array(readFileSync(path))
 }
 
@@ -63,7 +64,7 @@ function packageScene(bytes: Uint8Array) {
   return { manifest, scene }
 }
 
-test('normal production UI negotiates the v6 selector and saves a v8 surface-rules project without AI continuation', async ({ page }) => {
+test('normal production UI negotiates the v6 selector and saves a current v1 surface-rules project without AI continuation', async ({ page }) => {
   test.setTimeout(360_000)
   const errors: string[] = [], capabilityUrls: string[] = [], generationRequests: any[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -90,7 +91,7 @@ test('normal production UI negotiates the v6 selector and saves a v8 surface-rul
   await page.getByLabel('程序底图地表外观', { exact: true }).selectOption('surface-rules')
   await page.getByLabel('程序底图后端地址', { exact: true }).fill(backendUrl)
   await page.getByLabel('程序底图应用访问凭据', { exact: true }).fill(token)
-  await expect(page.getByText(/当前 AI 接续尚不支持这一工程格式/)).toBeVisible()
+  await expect(page.getByText('规则地表会保存连续材质覆盖与区域植物簇；生成前校验素材、许可和预算。自动模式至少使用标准容量。', { exact: true })).toBeVisible()
   const original = await exportPackage(page)
   const originalHash = packageHash(original)
 
@@ -98,7 +99,7 @@ test('normal production UI negotiates the v6 selector and saves a v8 surface-rul
   await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
   await expect(candidate).toBeVisible({ timeout: 240_000 })
   await expect(candidate.getByRole('button', { name: '采用当前地形方案', exact: true })).toBeEnabled({ timeout: 90_000 })
-  await expect(page.locator('.asset-structure-preview')).toContainText('此v8候选当前仅可直接采用')
+  await expect(page.locator('.asset-structure-preview')).toContainText('此规则候选当前仅可直接采用')
   await expect(page.getByRole('button', { name: '继续用 AI 修改底图', exact: true })).toHaveCount(0)
   await candidate.getByRole('button', { name: '取消当前地形候选', exact: true }).click()
   await expect(candidate).toBeHidden()
@@ -106,14 +107,14 @@ test('normal production UI negotiates the v6 selector and saves a v8 surface-rul
 
   await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
   await expect(candidate).toBeVisible({ timeout: 240_000 })
-  await expect(page.locator('.asset-structure-preview')).toContainText('此v8候选当前仅可直接采用')
+  await expect(page.locator('.asset-structure-preview')).toContainText('此规则候选当前仅可直接采用')
   await candidate.getByRole('button', { name: '采用当前地形方案', exact: true }).click()
   await expect(candidate).toBeHidden({ timeout: 90_000 })
   await saved(page)
 
   const adopted = await exportPackage(page), adoptedHash = packageHash(adopted), state = packageScene(adopted)
-  expect(state.manifest.schemaVersion).toBe(8)
-  expect(state.scene.schemaVersion).toBe(8)
+  expect(state.manifest.schemaVersion).toBe(1)
+  expect(state.scene.schemaVersion).toBe(1)
   expect(Object.keys(state.scene.surfaceRules ?? {}).length).toBeGreaterThan(0)
   await expect(page.getByRole('button', { name: '继续用 AI 修改底图', exact: true })).toHaveCount(0)
 

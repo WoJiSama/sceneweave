@@ -1,3 +1,4 @@
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
@@ -51,9 +52,12 @@ test('normal UI moves 500 layer members in one frozen tier and preserves undo, r
   await (await chooser).setFiles({ name: 'manual-tier.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) })
   await expect(page.getByTestId('outdoor-workbench')).toBeVisible()
   await saved(page)
-  await page.getByRole('tab', { name: '图层', exact: true }).click()
+  await openWorkspaceModule(page, '场景')
   const layers = page.getByRole('region', { name: '用户图层', exact: true })
-  await layers.getByRole('button', { name: `设为当前图层 ${layerName}`, exact: true }).click()
+  await layers.getByRole('button', { name: `查看图层 ${layerName}`, exact: true }).click()
+  const drawingLayer = layers.getByRole('button', { name: `设为绘制图层 ${layerName}`, exact: true })
+  if (await drawingLayer.getAttribute('aria-pressed') !== 'true') await drawingLayer.click()
+  await expect(drawingLayer).toHaveAttribute('aria-pressed', 'true')
   await layers.getByRole('button', { name: `选择图层成员 ${layerName}`, exact: true }).click()
   await expect(layers.getByRole('button', { name: '移动所选到图层 · 500', exact: true })).toBeEnabled()
   await layers.getByRole('button', { name: '移动所选到图层 · 500', exact: true }).click()

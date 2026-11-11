@@ -1,3 +1,5 @@
+import { acknowledgeAssetQuality } from './asset-quality-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -23,7 +25,10 @@ test('real ZIP and folder selected import preserves SVG source, calibrates roots
     const images=await page.evaluate(async()=>{const canvas=document.createElement('canvas');canvas.width=80;canvas.height=60;const c=canvas.getContext('2d')!;c.fillStyle='#b49a6c';c.fillRect(0,0,80,60);c.fillStyle='#57724e';c.fillRect(8,9,38,36);const result:Record<string,string>={};for(const [key,type]of [['png','image/png'],['jpg','image/jpeg'],['webp','image/webp']]){const blob=await new Promise<Blob>(resolve=>canvas.toBlob(v=>resolve(v!),type,.91));let text='';const bytes=new Uint8Array(await blob.arrayBuffer());for(const b of bytes)text+=String.fromCharCode(b);result[key]=btoa(text)}return result})
     const png=withText(Buffer.from(images.png,'base64')),zip=zipSync({'pack/':new Uint8Array(0),'pack/01-map.png':png,'pack/02-safe.svg':Buffer.from(svg),'pack/03-copy.png':png,'pack/04-photo.jpg':Buffer.from(images.jpg,'base64'),'pack/05-tile.webp':Buffer.from(images.webp,'base64'),'pack/06-bad.svg':Buffer.from(unsafe),'pack/LICENSE.txt':Buffer.from(license)})
     const zipPath=join(dir,'assets.zip');await writeFile(zipPath,zip)
-    const lib=library(page),form=lib.locator('.asset-batch-import');await form.locator(':scope > summary').click()
+    await openWorkspaceModule(page, '素材')
+    const lib=library(page),form=lib.locator('.asset-batch-import')
+    await lib.getByRole('group', { name: '素材库操作', exact: true }).getByRole('button', { name: /^导入\/管理/ }).click()
+    await form.locator(':scope > summary').click()
     await form.getByLabel('素材ZIP',{exact:true}).setInputFiles(zipPath)
     await expect(form).toContainText('已读取 6 项素材')
     await form.getByLabel('批次素材署名与来源',{exact:true}).fill('Sceneweave contributors; original batch fixtures')
@@ -42,10 +47,10 @@ test('real ZIP and folder selected import preserves SVG source, calibrates roots
     await expect(page.getByRole('button',{name:'采用所选素材',exact:true})).toBeVisible({timeout:90000})
     await expect(form.locator('img')).toHaveCount(5);await expect.poll(()=>form.locator('img').evaluateAll(images=>images.every(image=>(image as HTMLImageElement).complete&&(image as HTMLImageElement).naturalWidth>0))).toBe(true)
     expect((await state(page)).hash).toBe(before.hash)
-    const reviewImage=await form.screenshot();await writeFile('work/asset-batch-20261031/batch-review.png',reviewImage);await info.attach('batch-normalized-review.png',{body:reviewImage,contentType:'image/png'})
+    const reviewImage=await form.screenshot();await writeFile(info.outputPath('batch-review.png'),reviewImage);await info.attach('batch-normalized-review.png',{body:reviewImage,contentType:'image/png'})
     await page.getByRole('button',{name:'取消素材导入预览',exact:true}).click()
     await expect(form.getByRole('button',{name:'预览所选 5 项素材',exact:true})).toBeEnabled();await expect(form.locator('img')).toHaveCount(0)
-    await form.getByRole('button',{name:'预览所选 5 项素材',exact:true}).click();await expect(page.getByRole('button',{name:'采用所选素材',exact:true})).toBeVisible({timeout:90000});await page.getByRole('button',{name:'采用所选素材',exact:true}).click();await settled(page)
+    await form.getByRole('button',{name:'预览所选 5 项素材',exact:true}).click();await expect(page.getByRole('button',{name:'采用所选素材',exact:true})).toBeVisible({timeout:90000});await acknowledgeAssetQuality(page);await page.getByRole('button',{name:'采用所选素材',exact:true}).click();await settled(page)
     const adopted=await state(page),added=Object.values(adopted.document.propDefinitions).filter((d:any)=>!before.document.propDefinitions[d.id]) as any[]
     expect(added).toHaveLength(5);expect(adopted.revision).toBe(before.revision+1);expect(adopted.document.props).toEqual(before.document.props)
     const anchored=added.find(d=>d.name==='批量根锚图')!;expect(anchored.defaultVisualBoundsMm).toEqual({x:-350,y:-800,width:1200,height:900});expect(anchored.defaultFootprintMm).toEqual({width:1000,height:1000})
