@@ -13,7 +13,7 @@ export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm
 export interface ProjectedPath { id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle }
 export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null
   /** Only this audience's complete physical route and finite paint parameters. */
-  route?: Pick<import('../geometry/connection-route.js').ConnectionRoute, 'centerlineMm' | 'stairStyle' | 'treadDepthMm'>
+  route?: Pick<import('../geometry/connection-route.js').ConnectionRoute, 'centerlineMm' | 'stairStyle' | 'treadDepthMm' | 'renderProfile'>
   /** Disposable endpoint support IDs, included only after this audience's dependency filtering. */
   surfaceIds?: [string, string]
 }
@@ -52,6 +52,14 @@ export interface Projection {
   /** Same-floor/layer/elevation public paths, after audience and editor filtering.
    * Only visible IDs survive; style/filter compatibility is checked at paint time. */
   pathJoinGroups?: string[][]
+  /** Disposable public path/terrain relationships after audience and editor
+   * filtering. Paint-order IDs include incompatible public covers so a lower
+   * matching surface cannot remove a road edge through a higher surface. */
+  pathTerrainJoins?: {
+    terrainPaintOrder: string[]
+    roomIds: string[]
+    paths: { pathId: string; terrainIds: string[] }[]
+  }
   /** Audience-filtered C4 band choice survives GM-only temporary path hiding. */
   pathPaintOrder?: 'over-room-before-connection'
   /** Disposable symbol-band order; only projected public IDs appear in player output. */

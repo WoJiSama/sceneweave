@@ -489,8 +489,19 @@ export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorComman
   // Locked retained/manual scatter members are read-only obstacles, not edits.
   const memberCommand = command.type === 'detachScatterMember' || command.type === 'deleteProp' || command.type === 'updateProp' || command.type === 'replacePropAppearance'
   const memberParents = memberCommand ? Object.values(before.scatterGroups).filter(group => Object.values(group.members).some(member => member.propId !== null && roots.includes(member.propId))).map(group => group.id) : []
+  const configurationGroup = command.type === 'createScatter' ? scene.scatterGroups[command.id]
+    : command.type === 'upsertScatterExclusion' || command.type === 'removeScatterExclusion' ? scene.scatterGroups[command.groupId] : undefined
+  // Creating/configuring an empty group changes no retained scenery. Its
+  // support and target layer remain protected; unrelated locked occupants are
+  // read-only obstacles, as they already are during regeneration.
+  const emptyConfiguration = configurationGroup && !Object.keys(configurationGroup.members).length
+  const domain = emptyConfiguration ? configurationGroup.domain : undefined
+  const supportIds = domain?.kind === 'area' ? [domain.areaId] : domain?.kind === 'path'
+    ? [domain.pathId, ...(scene.paths[domain.pathId]?.supportRefs ?? []).map(ref => ref.id)]
+    : domain?.kind === 'edgeBand' ? [domain.edgeId, scene.terrainEdges[domain.edgeId]?.source.areaId, scene.terrainEdges[domain.edgeId]?.neighborAreaId].filter((id): id is string => typeof id === 'string') : []
   const lockIds = command.type === 'regenerateScatter'
     ? [...anchoredNoteIds(before, [command.id, ...impact.changedIds, ...impact.removedIds]), ...[...impact.createdIds, ...impact.changedIds].flatMap(id => scene.props[id] ? [scene.props[id].supportRef.id] : [])]
+    : emptyConfiguration ? [...supportIds, ...anchoredNoteIds(before, [...roots, ...impact.changedIds, ...impact.removedIds])]
     : memberCommand ? anchoredNoteIds(before, [...roots, ...memberParents, ...impact.changedIds, ...impact.removedIds])
     : impact.affectedIds
   assertUnlocked(before, lockIds)

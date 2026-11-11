@@ -488,6 +488,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     styleGeometry(connection.surfaceStyle)
     const { from, to } = connection
     if (connection.route) {
+      if (connection.route.renderProfile && connection.kind !== 'stairs') error('CONNECTION_RENDER_PROFILE', '细化自然踏面仅用于楼梯连接。', connection.id)
       const checked = connectionRouteSchema.safeParse(connection.route)
       if (!checked.success) { error('CONNECTION_ROUTE', checked.error.issues.map(issue => issue.message).join('；'), connection.id); continue }
       for (const segment of connection.route.segments) {

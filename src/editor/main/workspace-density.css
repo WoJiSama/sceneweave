@@ -27,11 +27,12 @@
 .workspace-unified .workspace-canvas-tools { min-height: 36px; padding: 3px 7px; }
 .workspace-unified .workspace-canvas-tools > button, .workspace-unified .workspace-canvas-tools .asset-external-tool-controls button { min-height: 28px; padding: 4px 6px; }
 .workspace-unified .asset-view-bar { min-height: 34px; padding: 4px 10px; }
+.workspace-unified .asset-view-actions { flex-wrap: wrap; max-width: 100%; row-gap: 4px; }
 .workspace-unified .asset-viewport-toolbar { min-height: 33px; padding: 3px 10px; }
 .workspace-unified .asset-viewport-toolbar button { height: 26px; }
 .workspace-unified .workspace-footer { min-height: 32px; padding: 2px 10px; font-size: 11px; color: #5f7354; }
-.workspace-unified .workspace-module-navigation { gap: 3px; padding-top: 5px; }
-.workspace-unified .workspace-module-navigation > button { min-height: 50px; gap: 3px; padding: 5px 3px; }
+.workspace-unified .workspace-module-group { gap: 3px; padding-top: 5px; }
+.workspace-unified .workspace-module-group > button { min-height: 50px; gap: 3px; padding: 5px 3px; }
 .workspace-unified .workspace-module-icon svg { width: 18px; height: 18px; }
 
 /* Readable text with tighter controls, instead of shrinking all text. */
@@ -205,11 +206,27 @@
     --workspace-field-gap: 10px;
   }
   .workspace-unified .workspace-panel-body .asset-number > div > input { min-height: 36px; padding: 8px; }
-  .workspace-unified .workspace-module-navigation > button { min-height: 54px; }
+  .workspace-unified .workspace-module-group > button { min-height: 54px; }
   .workspace-unified .workspace-panel-header { height: 38px; min-height: 38px; }
   .workspace-unified .workspace-panel-header > button { min-height: 32px; min-width: 32px; }
   .workspace-unified .workspace-panel-body .user-layer-primary > button:not(.layer-current) { min-width: 32px; min-height: 32px; height: 32px; }
   .workspace-unified .workspace-panel-body :is(.visual-panel .visual-tabs button, .catalog-categories button, .asset-library-tabs button) { min-height: 34px; }
   .workspace-unified .workspace-panel-body :is(.composition-search, .asset-object-search) input { min-height: 28px; }
   .workspace-unified .workspace-panel-body .workspace-candidate-buttons button { min-height: 38px; }
+}
+
+/* Transparency is a viewing aid; the checker never enters rendered pixels.
+   A refined canvas owns its checker so fractional alpha replaces the coarse
+   preview instead of darkening it by being composited twice. */
+.asset-viewport-image[data-transparent=true],
+.asset-viewport-image[data-transparent=true] .asset-detail-preview {
+  background-color: #F4F5F0;
+  background-image: conic-gradient(#D9DED3 25%, transparent 0 50%, #D9DED3 0 75%, transparent 0);
+  background-size: 20px 20px;
+}
+.workspace-floor-switch { display: flex; align-items: center; gap: .4rem; min-width: 0; max-width: 15rem; }
+.workspace-floor-switch select { min-width: 0; max-width: 10rem; }
+@media (max-width: 600px) {
+  .workspace-floor-switch { max-width: 100%; }
+  .workspace-floor-switch select { max-width: 8rem; }
 }

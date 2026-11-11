@@ -8,7 +8,7 @@ import { USER_LAYER_LIMIT } from '../../shared/model/scene'
 import type { SelectionSession } from '../native-canvas/selection-session'
 
 type Props = {
-  scene: SceneDocument; session: SelectionSession; currentLayerId: string; inspectedLayerId: string
+  activeFloorId?: string; scene: SceneDocument; session: SelectionSession; currentLayerId: string; inspectedLayerId: string
   onInspect: (id: string) => void
   hiddenLayerIds: ReadonlySet<string>; soloLayerId: string | null; currentOnly: boolean; disabled: boolean
   onCurrent: (id: string) => void; onHidden: (id: string) => void; onSolo: (id: string) => void
@@ -19,12 +19,12 @@ type Props = {
 }
 
 /** Selection subscribes here without causing the complete workbench to update. */
-export default function UserLayerPanel({ scene, session, currentLayerId, inspectedLayerId, onInspect, hiddenLayerIds, soloLayerId, currentOnly, disabled, onCurrent, onHidden, onSolo, onScope, onCommand, onPreview, onSelectLayer, moveRequest }: Props) {
+export default function UserLayerPanel({ activeFloorId, scene, session, currentLayerId, inspectedLayerId, onInspect, hiddenLayerIds, soloLayerId, currentOnly, disabled, onCurrent, onHidden, onSolo, onScope, onCommand, onPreview, onSelectLayer, moveRequest }: Props) {
   const ids = useSyncExternalStore(session.subscribe, session.getSnapshot)
-  const layers = useMemo(() => orderedLayers(scene), [scene])
+  const layers = useMemo(() => orderedLayers(scene, activeFloorId), [scene, activeFloorId])
   const counts = useMemo(() => Object.fromEntries(layers.map(layer => [layer.id, entitiesInLayer(scene, layer.id).length])), [scene, layers])
   const [name, setName] = useState(''), [rename, setRename] = useState<{ id: string; name: string } | null>(null)
-  const [create, setCreate] = useState(false), [floorId, setFloorId] = useState(Object.keys(scene.floors)[0])
+  const [create, setCreate] = useState(false), [floorId, setFloorId] = useState(activeFloorId ?? Object.keys(scene.floors)[0])
   const [pending, setPending] = useState<{ kind: 'move' | 'remove'; id?: string } | null>(null), [target, setTarget] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number; origin: HTMLElement } | null>(null)
@@ -42,7 +42,7 @@ export default function UserLayerPanel({ scene, session, currentLayerId, inspect
   const budget = useMemo(() => selectManualTransactionBudget(scene, Math.max(ids.length, pending?.kind === 'remove' && pending.id ? counts[pending.id] + 1 : 0)), [scene, ids, pending, counts])
   const plan = useMemo(() => pending?.kind === 'move' ? previewLayerMove(scene, ids, target, budget)
     : pending?.id ? previewLayerRemoval(scene, pending.id, target || undefined, budget) : null, [scene, ids, pending, target, budget])
-  const floors = Object.values(scene.floors)
+  const floors = Object.values(scene.floors).filter(floor => !activeFloorId || floor.id === activeFloorId)
   const submitName = () => {
     const trimmed = name.trim()
     if (!trimmed || trimmed.length > 80) { setError('图层名称须为 1–80 个字符。'); return }

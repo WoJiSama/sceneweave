@@ -10,7 +10,7 @@ import type { CompositionCommand } from '../../shared/model/appearance'
 import type { EditableProject } from '../../application/workspace/project'
 import type { AggregateEditBoundaryImpact } from '../../application/workspace/aggregate-boundary'
 import { createEntityLabeler } from './entity-label'
-const fields: Record<string, string> = { layerId: '所属图层', name: '名称', order: '图层顺序', floorId: '所在楼层', purpose: '房间名称', positionMm: '位置', rotationDeg: '角度', appearance: '有效图像与透明度', definitionRef: '固定定义版本', visualBoundsMm: '图像范围', shadowClass: '阴影类别', shadowOverride: '阴影参数', footprintMm: '物理占地', supportRef: '支撑表面', members: '成员映射及人工记录', anchorMm: '组合锚点', visibility: '可见范围', editLocked: '编辑锁', floorStyle: '地面铺装', surfaceStyle: '表面铺装', topStyle: '墙顶铺装', boundaryVertexIds: '房间边界', offsetMm: '开口偏移', widthMm: '净宽', startVertexId: '墙起点', endVertexId: '墙终点', xMm: 'X', yMm: 'Y', thicknessMm: '墙厚' }
+const fields: Record<string, string> = { boundsMm: '世界范围', outputBoundsMm: '楼层固定输出范围', environment: '楼层环境', pathId: '附着道路', openingId: '实际外门', end: '附着端点', leadLengthMm: '门前引导长度', maxDisplacementMm: '有限位移范围', anchor: '门前端点与保留线路', proofs: '结构连续性依据', renderProfile: '细节表现', route: '连接路线与踏面', layerId: '所属图层', name: '名称', order: '图层顺序', floorId: '所在楼层', purpose: '房间名称', positionMm: '位置', rotationDeg: '角度', appearance: '有效图像与透明度', definitionRef: '固定定义版本', visualBoundsMm: '图像范围', shadowClass: '阴影类别', shadowOverride: '阴影参数', footprintMm: '物理占地', supportRef: '支撑表面', members: '成员映射及人工记录', anchorMm: '组合锚点', visibility: '可见范围', editLocked: '编辑锁', floorStyle: '地面铺装', surfaceStyle: '表面铺装', topStyle: '墙顶铺装', boundaryVertexIds: '房间边界', offsetMm: '开口偏移', widthMm: '净宽', startVertexId: '墙起点', endVertexId: '墙终点', xMm: 'X', yMm: 'Y', thicknessMm: '墙厚' }
 function AdoptedImage({ project, hash, name }: { project: EditableProject; hash: string; name: string }) {
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => { let active = true, created: string | undefined; setUrl(null); void project.resources.read(hash).then(bytes => { if (!active) return; created = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: project.assets[hash].mimeType })); setUrl(created) }).catch(() => {}); return () => { active = false; if (created) URL.revokeObjectURL(created) } }, [project.resources, hash])
@@ -35,9 +35,9 @@ const terrainFieldNames: Record<string, string> = { state: '管理状态', manag
   pointsMm: '线路坐标', polygons: '边缘面', strokes: '边缘线条', fillColor: '填充颜色', opacity: '透明度',
   inherited: '继承内容', sourceContentHash: '来源原图校验', publicInputHash: '公开输入校验', symbolScale: '图符比例',
   sourceRef: '来源要素', style: '外观样式', reason: '保留原因' }
-const collectionNames: Record<string, string> = { userLayers: '图层', vertices: '建筑顶点', rooms: '房间', walls: '墙体', openings: '门窗', props: '物件', regions: '区域', notes: '注记', terrainAreas: '地形', terrainEdges: '地形边缘', terrainConnections: '高差连接', paths: '道路', prefabInstances: '组合', scatterGroups: '散布', decorations: '装饰', decorationClusters: '簇状布景', surfaceRules: '地表规则', 'visual.boundaries': '边界曲线', 'visual.edgeLooks': '边带效果', 'visual.lights': '灯光', 'visual.fogs': '区域雾', 'visual.filters': '滤镜', 'visual.environment': '环境' }
-const summaryOrder = ['rooms', 'props', 'terrainAreas', 'openings', 'walls', 'terrainConnections', 'paths', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'regions', 'notes', 'surfaceRules', 'visual.lights', 'visual.fogs', 'visual.filters', 'visual.environment', 'visual.boundaries', 'visual.edgeLooks']
-const summaryUnits: Record<string, string> = { rooms: '间', props: '件', terrainAreas: '处', openings: '处', walls: '面', terrainConnections: '处', paths: '条', prefabInstances: '组', scatterGroups: '组', decorations: '件', decorationClusters: '组', regions: '处', notes: '条', 'visual.lights': '盏', 'visual.fogs': '处', 'visual.filters': '个', 'visual.boundaries': '条' }
+const collectionNames: Record<string, string> = { floors: '楼层', pathAttachments: '门路关联', userLayers: '图层', vertices: '建筑顶点', rooms: '房间', walls: '墙体', openings: '门窗', props: '物件', regions: '区域', notes: '注记', terrainAreas: '地形', terrainEdges: '地形边缘', terrainConnections: '高差连接', paths: '道路', prefabInstances: '组合', scatterGroups: '散布', decorations: '装饰', decorationClusters: '簇状布景', surfaceRules: '地表规则', 'visual.boundaries': '边界曲线', 'visual.edgeLooks': '边带效果', 'visual.lights': '灯光', 'visual.fogs': '区域雾', 'visual.filters': '滤镜', 'visual.environment': '环境' }
+const summaryOrder = ['floors', 'pathAttachments', 'rooms', 'props', 'terrainAreas', 'openings', 'walls', 'terrainConnections', 'paths', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'regions', 'notes', 'surfaceRules', 'visual.lights', 'visual.fogs', 'visual.filters', 'visual.environment', 'visual.boundaries', 'visual.edgeLooks']
+const summaryUnits: Record<string, string> = { floors: '个', pathAttachments: '条', rooms: '间', props: '件', terrainAreas: '处', openings: '处', walls: '面', terrainConnections: '处', paths: '条', prefabInstances: '组', scatterGroups: '组', decorations: '件', decorationClusters: '组', regions: '处', notes: '条', 'visual.lights': '盏', 'visual.fogs': '处', 'visual.filters': '个', 'visual.boundaries': '条' }
 export default function CompositionChangesPanel({ current, candidate, commands, budgetUsage, budgetProfile = MANUAL_TRANSACTION_BUDGET, aggregateBoundaryImpact }: { current: EditableProject; candidate: EditableProject; commands: readonly CompositionCommand[]; budgetUsage?: CommandBudgetUsage; budgetProfile?: ManualTransactionBudget; aggregateBoundaryImpact?: AggregateEditBoundaryImpact }) {
   const currentName = useMemo(() => createEntityLabeler(current.document), [current.document])
   const candidateName = useMemo(() => createEntityLabeler(candidate.document), [candidate.document])
@@ -50,6 +50,8 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
     const currentVisual = visualBase(current.document), candidateVisual = visualBase(candidate.document)
     const records = [...[...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS].map(collection => ({ collection: String(collection), before: current.document[collection] ?? {}, after: candidate.document[collection] ?? {} })),
       ...VISUAL_ENTITY_COLLECTIONS.map(collection => ({ collection: `visual.${collection}`, before: currentVisual?.[collection] ?? {}, after: candidateVisual?.[collection] ?? {} })),
+      { collection: 'floors', before: current.document.floors, after: candidate.document.floors },
+      { collection: 'pathAttachments', before: current.document.pathAttachments ?? {}, after: candidate.document.pathAttachments ?? {} },
       { collection: 'userLayers', before: current.document.userLayers, after: candidate.document.userLayers },
       { collection: 'visual.environment', before: currentVisual ? { 'visual-environment': currentVisual.environment } : {}, after: candidateVisual ? { 'visual-environment': candidateVisual.environment } : {} }]
     return records.flatMap(({ collection, before: a, after: b }) => {
@@ -92,7 +94,11 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
   const newlyPublic = changes.filter(change => change.after?.visibility === 'public' && change.before?.visibility !== 'public').length
     + terrainChanges.filter(change => ['regional.areas', 'regional.lines', 'regional.landmarks', 'regional.symbols', 'visual.materializedEdges'].includes(change.collection)
       && (change.after as { visibility?: string } | null)?.visibility === 'public' && (change.before as { visibility?: string } | null)?.visibility !== 'public').length
+  const structureIdentityCreated = !current.historyIdentity.structureTokens && !!candidate.historyIdentity.structureTokens
   const displayChanged = JSON.stringify(current.document.units) !== JSON.stringify(candidate.document.units) || JSON.stringify(current.document.presetSnapshot) !== JSON.stringify(candidate.document.presetSnapshot)
+  const backgroundChanged = JSON.stringify(current.document.outputBackground) !== JSON.stringify(candidate.document.outputBackground)
+  const backgroundLabel = (scene: EditableProject['document']) => scene.outputBackground?.mode === 'transparent' ? '透明背景'
+    : scene.outputBackground?.mode === 'solid' ? `纯色 ${scene.outputBackground.color}` : '默认背景'
   const actionName = (before: unknown, after: unknown) => before == null ? '新增' : after == null ? '删除' : '更新'
   const layerChanges = changes.filter(change => change.collection === 'userLayers')
   const objectChanges = changes.filter(change => !['vertices', 'terrainEdges', 'userLayers'].includes(change.collection)).sort((a, b) => summaryOrder.indexOf(a.collection) - summaryOrder.indexOf(b.collection))
@@ -104,7 +110,9 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
   })
   if (layerChanges.length) summary.push(`调整${layerChanges.length}个图层`)
   if (addedDefinitions > 0) summary.push(`添加${addedDefinitions}项素材`)
+  if (structureIdentityCreated) summary.push(`为当前 ${Object.keys(candidate.historyIdentity.structureTokens!).length} 个结构建立出生与拓扑记录；不补写旧历史`)
   if (displayChanged) summary.push('更新显示设置')
+  if (backgroundChanged) summary.push('更新输出背景')
   if (aggregateChanges.length) summary.push(`调整${aggregateChanges.length}个分组`)
   if (!summary.length && scopes.length) summary.push('调整所选范围的外观')
   if (!summary.length && terrainChanges.length) summary.push('调整地形规则与记录')
@@ -120,7 +128,8 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
       <p>另有 {dependencyIds.length} 个关联对象{dependencyIds.length ? `：${dependencyIds.slice(0, 8).map(id => candidateName(id) === id ? currentName(id) : candidateName(id)).join('、')}${dependencyIds.length > 8 ? '等' : ''}` : ''}。附近对象不一定阻挡移动；支撑、通行与编辑锁按本次实际修改检查。</p>
       {aggregateBoundaryImpact.requiresSceneWideFallback && <p>部分关联内容需结合全图检查，已保留完整校验。</p>}
     </details>}
-    <details className="composition-preview-details" open={newDefinitions.length > 0 || newPrefabs.length > 0 || displayChanged}><summary>核对实际变化 · {objectChanges.length} 个场景对象{layerChanges.length > 0 ? ` · ${layerChanges.length} 个图层` : ''}{geometryCount > 0 ? ` · ${geometryCount} 项顶点与边缘记录` : ''}{terrainChanges.length > 0 ? ` · ${terrainChanges.length} 项地形记录` : ''}{addedDefinitions > 0 ? ` · ${addedDefinitions} 项新素材` : ''}{addedAssets > 0 ? ` · ${addedAssets} 份新位图` : ''}</summary>
+    <details className="composition-preview-details" open={newDefinitions.length > 0 || newPrefabs.length > 0 || displayChanged || backgroundChanged}><summary>核对实际变化 · {objectChanges.length} 个场景对象{backgroundChanged ? ' · 输出背景' : ''}{layerChanges.length > 0 ? ` · ${layerChanges.length} 个图层` : ''}{geometryCount > 0 ? ` · ${geometryCount} 项顶点与边缘记录` : ''}{terrainChanges.length > 0 ? ` · ${terrainChanges.length} 项地形记录` : ''}{addedDefinitions > 0 ? ` · ${addedDefinitions} 项新素材` : ''}{addedAssets > 0 ? ` · ${addedAssets} 份新位图` : ''}</summary>
+    {backgroundChanged && <article className="composition-diff-item" aria-label="输出背景变化"><h3>输出背景</h3><p>{backgroundLabel(current.document)} → {backgroundLabel(candidate.document)}</p></article>}
     {budgetUsage && <details aria-label="普通事务保护详情"><summary>事务保护详情</summary><dl className="asset-facts">
       <dt>编辑目标</dt><dd>{budgetUsage.semanticTargets} / {budgetProfile.semanticTargets}</dd>
       {budgetUsage.groupMembers !== undefined && <><dt>组内影响</dt><dd>{budgetUsage.groupMembers} / {budgetProfile.groupMemberLimit}</dd></>}

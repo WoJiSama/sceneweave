@@ -80,6 +80,7 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
   }
   if (totalSamples > VISUAL_LIMITS.totalSamples || totalSegments > VISUAL_LIMITS.totalCurveSegments) add('VISUAL_BUDGET', '全图曲线超过4096采样点或256条控制段预算。')
   for (const edge of Object.values(visual.edgeLooks)) {
+    if (edge.renderProfile && edge.kind !== 'cliff') add('VISUAL_RENDER_PROFILE', '细化岩面表现仅用于崖面边带。', edge.id)
     const boundary = own(visual.boundaries, edge.boundaryId)
     if (!boundary || boundary.floorId !== edge.floorId || edge.visibility === 'public' && boundary.visibility !== 'public') { add('VISUAL_EDGE', '边缘外观须引用同Floor有效曲线，且不能公开私密曲线。', edge.id); continue }
     try {

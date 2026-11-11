@@ -15,14 +15,14 @@ type Props = {
 export default function SceneBoundsPanel({ scene, floorId, disabled, onPreview, onDraftChange }: Props) {
   const floor = scene.floors[floorId]
   const [world, setWorld] = useState(() => ({ ...(floor?.boundsMm ?? scene.exportBoundsMm) }))
-  const [exportBounds, setExportBounds] = useState(() => ({ ...scene.exportBoundsMm }))
+  const [exportBounds, setExportBounds] = useState(() => ({ ...(floor?.outputBoundsMm ?? scene.exportBoundsMm) }))
   useEffect(() => {
     setWorld({ ...(scene.floors[floorId]?.boundsMm ?? scene.exportBoundsMm) })
-    setExportBounds({ ...scene.exportBoundsMm })
+    setExportBounds({ ...(floor?.outputBoundsMm ?? scene.exportBoundsMm) })
   }, [scene.sceneId, scene.revision, floorId])
   return <details className="building-details scene-bounds-settings">
     <summary>世界与导出范围</summary>
-    <p className="asset-muted">世界范围 · {floor?.name ?? '未选择地面'}；须容纳真实墙厚。双受众共享固定导出范围，坐标可为负数。</p>
+    <p className="asset-muted">世界范围 · {floor?.name ?? '未选择地面'}；须容纳真实墙厚。本楼层双受众共享固定导出范围，坐标可为负数。</p>
     <fieldset disabled={disabled || !floor}>
       <h3>世界范围</h3>
       {(['x', 'y', 'width', 'height'] as const).map((key, index) => <NumberInput key={key} displayUnit={scene.units.display}

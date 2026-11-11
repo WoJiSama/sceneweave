@@ -8,9 +8,9 @@ export default function PlacementInspector({ scene, prop, busy, ready, onChange,
 }) {
   const definition = prop.definitionRef && scene.propDefinitions[prop.definitionRef.id]
   const surfaces: { ref: SurfaceRef; label: string }[] = [
-    ...Object.values(scene.floors).map(floor => ({ ref: { kind: 'floor' as const, id: floor.id }, label: floor.name })),
-    ...Object.values(scene.rooms).map(room => ({ ref: { kind: 'room' as const, id: room.id }, label: room.purpose || '房间' })),
-    ...Object.values(scene.terrainAreas).map((area, index) => ({ ref: { kind: 'terrainArea' as const, id: area.id }, label: `地形 ${index + 1} · 高度 ${formatDistanceMm(area.groundElevationMm, scene.units.display)}` })),
+    ...Object.values(scene.floors).filter(floor => floor.id === prop.floorId).map(floor => ({ ref: { kind: 'floor' as const, id: floor.id }, label: floor.name })),
+    ...Object.values(scene.rooms).filter(room => room.floorId === prop.floorId).map(room => ({ ref: { kind: 'room' as const, id: room.id }, label: room.purpose || '房间' })),
+    ...Object.values(scene.terrainAreas).filter(area => area.floorId === prop.floorId).map((area, index) => ({ ref: { kind: 'terrainArea' as const, id: area.id }, label: `地形 ${index + 1} · 高度 ${formatDistanceMm(area.groundElevationMm, scene.units.display)}` })),
   ]
   return <><div className="asset-section-heading"><Move size={16}/><h2>放置物件</h2></div><h3>{definition ? definition.name : '物件'}</h3>
     <p className="asset-muted">移动鼠标预览，点击画布放置；Escape 取消。</p>

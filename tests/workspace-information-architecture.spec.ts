@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { createKeyboardProject, keyboardWorkspaceSaved, placeKeyboardLamp } from './keyboard-ux-helpers'
 import { openSamples, openWorkspaceModule, type WorkspaceModule } from './workspace-navigation-helpers'
 
-const modules: WorkspaceModule[] = ['场景', '素材', '建筑', '地形', '氛围', '生成', 'AI', '历史']
+const modules: WorkspaceModule[] = ['场景', '生成', '地形', '建筑', '素材与布景', '氛围', 'AI', '历史']
 const resources = (page: Page) => page.getByTestId('workspace-resources')
 const inspector = (page: Page) => page.getByTestId('workspace-inspector')
 const revision = (page: Page) => page.getByTestId('outdoor-workbench').getAttribute('data-revision')
@@ -56,8 +56,15 @@ test('IA desktop exposes eight direct modules and keeps selection while inspecti
 
   // Arrow navigation moves focus; Enter explicitly chooses the focused module.
   await navigation.getByRole('button', { name: '场景', exact: true }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(navigation.getByRole('button', { name: '生成', exact: true })).toBeFocused()
+  await expect(navigation.getByRole('button', { name: '历史', exact: true })).toHaveAttribute('aria-current', 'page')
   await page.keyboard.press('End')
   await expect(navigation.getByRole('button', { name: '历史', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(navigation.getByRole('group', { name: '全程工具', exact: true }).getByRole('button', { name: 'AI', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(navigation.getByRole('group', { name: '创作流程', exact: true }).getByRole('button', { name: '氛围', exact: true })).toBeFocused()
   await page.keyboard.press('Home')
   await expect(navigation.getByRole('button', { name: '场景', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
@@ -163,6 +170,20 @@ for (const width of [900, 390]) test(`IA narrow ${width} keeps one drawer and pr
   await page.keyboard.press('Escape')
   await expectSingleDrawer(page, null)
   await expect(page.getByRole('button', { name: '返回当前工具与草稿', exact: true })).toBeFocused()
+  const before = await revision(page)
+  await page.setViewportSize({ width, height: 568 })
+  const navigation = page.getByTestId('workspace-module-navigation')
+  const utilities = navigation.getByRole('group', { name: '全程工具', exact: true })
+  await expect(utilities.getByRole('button', { name: 'AI', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(utilities.getByRole('button', { name: '历史', exact: true })).toBeInViewport({ ratio: 1 })
+  await navigation.getByRole('button', { name: '场景', exact: true }).focus()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await expectSingleDrawer(page, 'resources')
+  await expect(resources(page)).toHaveAttribute('aria-label', '历史')
+  await page.getByRole('button', { name: '返回当前工具与草稿', exact: true }).click()
+  await expect(inspector(page).getByLabel('房间名称', { exact: true })).toHaveValue(`窄屏保留 ${width}`)
+  expect(await revision(page)).toBe(before)
   await page.screenshot({ path: info.outputPath(`workspace-ia-${width}.png`) })
 })
 

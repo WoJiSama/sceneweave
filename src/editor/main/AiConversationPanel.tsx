@@ -48,9 +48,10 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   const surfaceVersion = requiredSurfaceRecipeVersion(continuationSource?.request.generation)
   const currentAuthoringSupported = !!connection && !!authoring && supportsCurrentAuthoring(connection, authoring.project.schemaVersion,
     continuationPolicy, continuationSource?.version === 3 ? continuationSource.request.profileHash : undefined, surfaceVersion)
+  useEffect(() => { if (authoring && Object.keys(authoring.project.document.floors).length !== 1) setResumeVision(false) }, [authoring?.project.document.floors])
   const continuationSupported = needsCurrentAuthoring ? currentAuthoringSupported
     : !!connection && supportsContinuation(connection, 'authoring', continuationPolicy, continuationVersion === 4 ? 3 : continuationVersion, surfaceVersion)
-  const visionSupported = connection?.capabilities.vision === 'enabled'
+  const visionSupported = (!authoring || Object.keys(authoring.project.document.floors).length === 1) && connection?.capabilities.vision === 'enabled'
     && (!needsCurrentAuthoring || connection.capabilities.visualReviewVersions?.includes(1) === true)
 
   useEffect(() => { onConnectionChange?.(client && connection ? { client, info: connection } : null) }, [client, connection, onConnectionChange])

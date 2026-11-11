@@ -4,12 +4,13 @@ import type { AppearanceGraph } from '../../shared/model/appearance'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { surfaceStyle } from '../../shared/appearance/graph'
 import { newId } from './runtime'
+import SurfaceDetailTools from './SurfaceDetailTools'
 
 const collections = { room: 'rooms', terrainArea: 'terrainAreas', wall: 'walls', path: 'paths', terrainEdge: 'terrainEdges', terrainConnection: 'terrainConnections' } as const
 const names = { room: '房间', terrainArea: '地形', wall: '墙面', path: '道路', terrainEdge: '边缘', terrainConnection: '台阶/坡道' }
 type Kind = keyof typeof collections
-export default function VisualSurfacePanel({ scene, appearance, selectedIds, onPreview }: {
-  scene: SceneDocument; appearance: AppearanceGraph; selectedIds: readonly string[]; onPreview: (commands: SceneCommand[], label: string) => void
+export default function VisualSurfacePanel({ floorId, scene, appearance, selectedIds, onPreview }: {
+  floorId?: string; scene: SceneDocument; appearance: AppearanceGraph; selectedIds: readonly string[]; onPreview: (commands: SceneCommand[], label: string) => void
 }) {
   const materials = Object.values(scene.materials)
   const kindOf = (id: string) => (Object.keys(collections) as Kind[]).find(key => Object.hasOwn(scene[collections[key]], id))
@@ -35,7 +36,7 @@ export default function VisualSurfacePanel({ scene, appearance, selectedIds, onP
   const numeric = (label: string, value: number, change: (value: number) => void, step = 1) => <label key={label}>{label}<input aria-label={`视觉${label}`} type="number" value={value} step={step} onChange={e => change(Number(e.target.value))}/></label>
   return <><p className="workspace-panel-intro">先选择铺装对象，再调整底材、纹理尺寸和方向；局部覆盖与精细对齐可按需展开。</p>
     <button className="secondary asset-wide" disabled={!selectedSurfaceId} onClick={() => { if (selectedSurfaceId) select(selectedSurfaceId) }}>使用选中的表面</button>
-    <label>铺装对象<select aria-label="视觉铺装对象" value={target?.id ?? ''} onChange={e => select(e.target.value)}><option value="">选择对象</option>{(Object.keys(collections) as Kind[]).flatMap(kind => Object.values(scene[collections[kind]]).map(entity => <option key={entity.id} value={entity.id}>{names[kind]} · {entity.id}</option>))}</select></label>
+    <label>铺装对象<select aria-label="视觉铺装对象" value={target?.id ?? ''} onChange={e => select(e.target.value)}><option value="">选择对象</option>{(Object.keys(collections) as Kind[]).flatMap(kind => Object.values(scene[collections[kind]]).filter(entity => !floorId || entity.floorId === floorId).map(entity => <option key={entity.id} value={entity.id}>{names[kind]} · {entity.id}</option>))}</select></label>
     {target && <p className="workspace-panel-intro">当前铺装目标：{names[target.kind]} · {target.id}。{selectedSurfaceId && selectedSurfaceId !== target.id ? '画布选择已改变；使用上方按钮明确切换目标。' : '切换目标会保留各自的铺装草稿。'}</p>}
     {target && !targetExists && <p role="status" className="asset-form-error">此铺装对象已不在工程中；请明确选择另一个表面。</p>}
     {style && target && targetExists && <><label>底材<select aria-label="视觉铺装底材" value={style.base.materialRef.id} onChange={e => setStyle({ ...style, base: { ...style.base, materialRef: { id: e.target.value, version: scene.materials[e.target.value].version } } })}>{materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
@@ -51,5 +52,6 @@ export default function VisualSurfacePanel({ scene, appearance, selectedIds, onP
       <button type="button" className="secondary asset-wide" onClick={() => { drafts.current.delete(target.id); setStyle(readStyle(target.id)) }}>重新读取此对象的已保存铺装</button>
       <button className="primary asset-wide" onClick={() => onPreview([{ type: 'setVisualSurface', kind: target.kind, id: target.id, style }], '调整材质比例、方向与局部覆盖')}>预览铺装</button>
     </>}
+    {scene.mapMode === 'scene' && <SurfaceDetailTools floorId={floorId} key={`${scene.sceneId}-${scene.revision}`} scene={scene} appearance={appearance} selectedIds={selectedIds} onPreview={onPreview}/>}
   </>
 }

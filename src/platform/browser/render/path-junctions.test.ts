@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Path, PointMm, SurfaceStyle } from '../../../shared/model/scene.js'
-import type { ProjectedPath, Projection } from '../../../shared/projection/types.js'
+import type { ProjectedPath, ProjectedSurface, Projection } from '../../../shared/projection/types.js'
 import { createRefinedBlankDocument } from '../content/refined-blank.js'
 import { projectEditorScene, projectScene } from '../../../shared/projection/projection.js'
 import { pathPolygon, pointInPolygon } from '../../../shared/geometry/geometry.js'
@@ -90,5 +90,66 @@ describe('path join projection ownership', () => {
     const before = JSON.stringify(player)
     source.paths[privateId].centerlineMm = [p(5000, 4000), p(9000, 4000)]
     expect(JSON.stringify(projectScene(source, 'player'))).toBe(before)
+  })
+})
+
+describe('same-paint road and camp exterior', () => {
+  const style: SurfaceStyle = { base: { materialRef: { id: 'loam', version: 2 }, tileSizeMm: { width: 2000, height: 2000 },
+    rotationDeg: 0, alignment: 'world', originMm: p(0, 0), tint: null, opacity: 1 }, overlays: [] }
+  const rectangle = (x: number, y: number, width: number, height: number) => [p(x, y), p(x + width, y), p(x + width, y + height), p(x, y + height)]
+  function fixture() {
+    const road = { ...path('road', [p(-3000, 0), p(2000, 0)], 1000), style: structuredClone(style) }
+    const camp: ProjectedSurface = { id: 'camp', points: rectangle(0, -2000, 4000, 4000), style: structuredClone(style), elevationMm: 0, priority: 1 }
+    return { paths: [road], terrain: [camp], rooms: [] as ProjectedSurface[], pathTerrainJoins: { terrainPaintOrder: ['camp'], roomIds: [] as string[], paths: [{ pathId: road.id, terrainIds: ['camp'] }] } }
+  }
+  it('removes the internal end cap and side lines while preserving road geometry and saved paint', () => {
+    const projection = fixture(), before = JSON.stringify(projection), segments = pathJunctionOutlines(projection).get('road')!
+    expect(segments).toBeTruthy()
+    expect(totalLength(segments)).toBe(8000)
+    expect(segments.every(([a, b]) => (a.x + b.x) / 2 <= 0)).toBe(true)
+    expect(segments.some(([a, b]) => a.x === -3500 && b.x === -3500)).toBe(true)
+    expect(JSON.stringify(projection)).toBe(before)
+  })
+  it('keeps edges exposed by an incompatible higher public surface and clips only the visible matching part', () => {
+    const projection = fixture(), cover = { ...structuredClone(projection.terrain[0]), id: 'cover', points: rectangle(500, -2000, 3500, 4000), priority: 2,
+      style: { ...structuredClone(style), base: { ...style.base, tint: '#BBAA88' } } }
+    projection.terrain.push(cover); projection.pathTerrainJoins.terrainPaintOrder.push('cover')
+    const segments = pathJunctionOutlines(projection).get('road')!
+    expect(totalLength(segments)).toBe(13000)
+    expect(segments.some(([a, b]) => a.x === 2500 && b.x === 2500)).toBe(true)
+    expect(segments.some(([a, b]) => a.x === 0 && b.x === 500 || a.x === 500 && b.x === 0)).toBe(false)
+  })
+  it('requires the exact opaque world paint with no overlay or rule patch conflict', () => {
+    const changes = [
+      (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.opacity = .8 },
+      (value: ReturnType<typeof fixture>) => { value.terrain[0].style!.base.opacity = .8 },
+      (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.rotationDeg = 90 },
+      (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.originMm.x = 10 },
+      (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.alignment = 'surface' },
+      (value: ReturnType<typeof fixture>) => { value.terrain[0].style!.overlays.push({ id: 'paint', paint: structuredClone(style.base), boundaryMm: rectangle(0, 0, 100, 100), blendWidthMm: 0, renderOrder: 0 }) },
+      (value: ReturnType<typeof fixture>) => { value.paths[0].style.overlays.push({ id: 'paint', paint: structuredClone(style.base), boundaryMm: rectangle(0, 0, 100, 100), blendWidthMm: 0, renderOrder: 0 }) },
+      (value: ReturnType<typeof fixture>) => { value.terrain[0].materialPatches = [{ regionsMm: [{ outerMm: rectangle(0, 0, 100, 100), holesMm: [] }], paint: structuredClone(style.base), blendWidthMm: 0 }] },
+    ]
+    for (const change of changes) {
+      const projection = fixture(); change(projection)
+      expect(pathJunctionOutlines(projection).size).toBe(0)
+    }
+    for (const id of ['road', 'camp']) {
+      const projection = { ...fixture(), visual: { filters: [{ sourceEntityIds: [id] }] } as Projection['visual'] }
+      expect(pathJunctionOutlines(projection).size).toBe(0)
+    }
+  })
+  it('does not consume private or hidden terrain, and fails closed if a public cover was dropped downstream', () => {
+    const projection = fixture(), original = pathJunctionOutlines(projection)
+    projection.terrain.push({ ...structuredClone(projection.terrain[0]), id: 'private-or-hidden', points: rectangle(-4000, -3000, 8000, 6000), style: null, priority: 9 })
+    expect(pathJunctionOutlines(projection)).toEqual(original)
+    projection.pathTerrainJoins.terrainPaintOrder.push('missing-public-cover')
+    expect(pathJunctionOutlines(projection).size).toBe(0)
+  })
+  it('does not erase through a room painted over the matching terrain', () => {
+    const projection = fixture()
+    projection.rooms.push({ ...structuredClone(projection.terrain[0]), id: 'room', points: rectangle(-100, -2500, 4500, 5000) })
+    projection.pathTerrainJoins.roomIds.push('room')
+    expect(pathJunctionOutlines(projection).size).toBe(0)
   })
 })

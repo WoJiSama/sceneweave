@@ -32,6 +32,16 @@ const edge: AuthoringOperation = { kind: 'visualEdge', id: 'foam', boundaryId: '
 const light: AuthoringOperation = { kind: 'visualLight', id: 'lamp', positionMm: { x: 5000, y: 5000 }, radiusMm: 1000, color: '#FFD080', intensity: .6, wallOcclusion: true, enabled: true }
 
 describe('visual authoring capabilities and atomic replay', () => {
+  it('refuses an old-protocol rewrite of a profiled cliff without dropping its saved profile', () => {
+    const input = start(), cliff = { ...edge, edgeKind: 'cliff' as const }
+    const built = applyAuthoringStep(input, replayAuthoring(input, []).state, [boundary, cliff], 'profile-base')
+    input.project = built.project
+    visualBase(input.project.document)!.edgeLooks.foam.renderProfile = 'rockRelief2'
+    input.scope.visual!.entityIds.push('coast', 'foam')
+    const authorized = reauthorize(input), before = canonicalJson(authorized.project)
+    expect(() => applyAuthoringStep(authorized, replayAuthoring(authorized, []).state, [cliff], 'old-profile-rewrite')).toThrow(/不修改带细化表现/)
+    expect(canonicalJson(authorized.project)).toBe(before)
+  })
   it('proposes a rounded authorised ring without inward-star controls or writes and replays the explicit result at its real cost', () => {
     const input = start(), scope = input.scope.visual!
     input.scope.scene = { floorId: scope.floorId, layerId: scope.layerId, boundsMm: scope.boundsMm, entityIds: [], definitionIds: [], prefabDefinitionIds: [], materialIds: [], operations: ['terrain'] }

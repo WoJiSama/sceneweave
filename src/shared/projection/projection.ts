@@ -241,7 +241,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       && (!c.openingId || !!opening && (!opening.secret || opening.revealed))
   }
   const surfaceElevation = (ref: SurfaceRef) => ref.kind === 'terrainArea' ? scene.terrainAreas[ref.id]?.groundElevationMm ?? 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm ?? 0 : 0
-  const connections: ProjectedConnection[] = floorValues(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle), surfaceIds: [c.from.surfaceRef.id, c.to.surfaceRef.id] as [string, string], ...(c.route ? { route: { centerlineMm: clone(c.route.centerlineMm), stairStyle: c.route.stairStyle, treadDepthMm: c.route.treadDepthMm } } : {}) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
+  const connections: ProjectedConnection[] = floorValues(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle), surfaceIds: [c.from.surfaceRef.id, c.to.surfaceRef.id] as [string, string], ...(c.route ? { route: { centerlineMm: clone(c.route.centerlineMm), stairStyle: c.route.stairStyle, treadDepthMm: c.route.treadDepthMm, ...(c.route.renderProfile ? { renderProfile: c.route.renderProfile } : {}) } } : {}) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
   const paths = floorValues(scene.paths).filter(path => entityShown(path.id) && path.supportRefs.every(ref => ref.kind === 'floor' || entityShown(ref.id)) && (audience === 'gm' || pathPublic(path.id))).sort((a, b) => compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id)).map(path => projectPath(path, theme))
   const pathGroups = new Map<string, string[]>()
   for (const projected of paths) {
@@ -256,6 +256,26 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
     const group = pathGroups.get(key) ?? []; group.push(path.id); pathGroups.set(key, group)
   }
   const pathJoinGroups = [...pathGroups.values()].filter(group => group.length > 1)
+  // Finite paint-only relationships. Public roads never consume a GM-only
+  // surface, even in the GM view; hidden editor layers have already been removed.
+  // Over budget, keep all independent outlines rather than sampling the scene.
+  let pathTerrainJoins: Projection['pathTerrainJoins']
+  const publicJoinPaths = paths.filter(path => pathPublic(path.id)), publicJoinTerrain = terrain.filter(area => areaPublic(area.id))
+  const publicJoinRooms = rooms.filter(room => roomPublic(room.id))
+  if (publicJoinPaths.length <= 128 && publicJoinTerrain.length <= 256 && publicJoinRooms.length <= 256) {
+    const joins = publicJoinPaths.flatMap(projected => {
+      const path = scene.paths[projected.id]
+      const heights = new Set(path.supportRefs.map(surfaceElevation))
+      if (heights.size !== 1) return []
+      const box = pointsBounds(projected.points), elevation = [...heights][0]
+      const terrainIds = publicJoinTerrain.filter(area => scene.terrainAreas[area.id].floorId === path.floorId
+        && scene.entityLayers[area.id] === scene.entityLayers[path.id] && area.elevationMm === elevation
+        && !!intersects(box, pointsBounds(area.points))).map(area => area.id)
+      return terrainIds.length ? [{ pathId: path.id, terrainIds }] : []
+    })
+    if (joins.length) pathTerrainJoins = { terrainPaintOrder: publicJoinTerrain.map(area => area.id),
+      roomIds: publicJoinRooms.map(room => room.id), paths: joins }
+  }
   const visibleProps = floorValues(scene.props).filter(p => entityShown(p.id) && clusterMemberShown(p.id) && (audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm)))
   const props = visibleProps.map(clone).sort((a, b) => propLayer[a.renderLayer] - propLayer[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id))
   const visiblePropIds = new Set(props.map(p => p.id))
@@ -390,5 +410,6 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id)).map(value => value.id)
   }
   if (scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds, floorOutput)
+  if (pathTerrainJoins) result.pathTerrainJoins = pathTerrainJoins
   return result
 }

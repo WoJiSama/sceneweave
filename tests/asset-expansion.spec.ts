@@ -5,6 +5,7 @@ import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, k
 import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { mapExportButton } from './workspace-ux-helpers'
 import { acknowledgeAssetQuality } from './asset-quality-helpers'
+import { THEME_PACK_CATALOGS } from '../src/shared/assets/theme-pack-catalogs'
 
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 60"><rect x="8" y="6" width="64" height="48" rx="6" fill="#92724c"/><path d="M14 16L66 16M14 30L66 30M14 44L66 44" stroke="#43392b" stroke-width="3"/></svg>'
 const credit = 'Sceneweave original import fixtures'
@@ -161,11 +162,11 @@ test('all six native palettes materialize actual PNGs and representative scenes 
   const panel = page.getByRole('region', { name: '主题素材包', exact: true })
   await panel.locator(':scope > details > summary').click()
   const facts = []
-  for (const id of ['investigation', 'modern', 'fantasy', 'ruins', 'wilderness', 'coast']) {
+  for (const { id, counts } of THEME_PACK_CATALOGS) {
     await panel.getByLabel('选择主题包', { exact: true }).selectOption(id)
     await panel.getByRole('button', { name: '加载所选主题包', exact: true }).click()
-    await expect(panel).toContainText('已加载 6 材质、14 物件、3 组合', { timeout: 90_000 })
-    await expect.poll(() => panel.locator('img').evaluateAll(images => images.length === 23 && images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true)
+    await expect(panel).toContainText(`已加载 ${counts.materials} 材质、${counts.props} 物件、${counts.prefabs} 组合`, { timeout: 90_000 })
+    await expect.poll(() => panel.locator('img').evaluateAll((images, total) => images.length === total && images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0), counts.materials + counts.props + counts.prefabs)).toBe(true)
     const dimensions = await panel.locator('img').evaluateAll(images => images.map(image => ({ name: image.getAttribute('alt'), width: (image as HTMLImageElement).naturalWidth, height: (image as HTMLImageElement).naturalHeight })))
     await panel.screenshot({ path: info.outputPath(`palette-${id}.png`) })
     const scenarios = panel.getByText('两份可编辑代表场景', { exact: true })

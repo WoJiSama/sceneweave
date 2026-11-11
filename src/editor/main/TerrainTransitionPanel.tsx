@@ -1,3 +1,4 @@
+import { resolveFloorOutput } from '../../shared/floors/output.js'
 import { useState } from 'react'
 import type { SceneDocument } from '../../shared/model/scene.js'
 import type { SceneCommand } from '../../shared/commands/commands.js'
@@ -14,8 +15,9 @@ export default function TerrainTransitionPanel({ scene, layerId, disabled, onPre
   scene: SceneDocument; layerId: string; disabled: boolean
   onPreview: (commands: SceneCommand[], label: string) => void
 }) {
+  const floorId = scene.userLayers[layerId]?.floorId
   const visual = scene.visual?.version === 3 ? scene.visual : null
-  const boundaries = Object.values(visual?.base.base.boundaries ?? {}).filter(boundary => boundary.binding.kind !== 'decoration')
+  const boundaries = Object.values(visual?.base.base.boundaries ?? {}).filter(boundary => boundary.floorId === floorId && boundary.binding.kind !== 'decoration')
   const [boundaryId, setBoundaryId] = useState(boundaries[0]?.id ?? '')
   const [kind, setKind] = useState<TerrainTransition['kind']>('shore')
   const [side, setSide] = useState<TerrainTransition['side']>('both')
@@ -28,7 +30,7 @@ export default function TerrainTransitionPanel({ scene, layerId, disabled, onPre
       if (!boundary) throw new Error('请先选择已保存的真实地形或道路边界。')
       const transition = materializeTerrainTransition(scene, {
         id: newId(), floorId: boundary.floorId, layerId, visibility: boundary.visibility, editLocked: false,
-        enabled: true, boundaryId, kind, side, widthMm, clipMm: scene.exportBoundsMm,
+        enabled: true, boundaryId, kind, side, widthMm, clipMm: resolveFloorOutput(scene, boundary.floorId).boundsMm,
         sampleSpacingMm, reachMm: widthMm,
       })
       setError(''); onPreview([{ type: 'upsertTerrainTransition', transition }], `预览${names[kind]}过渡`)
@@ -43,7 +45,7 @@ export default function TerrainTransitionPanel({ scene, layerId, disabled, onPre
       <label>宽度 mm<input aria-label="地形过渡宽度" type="number" min={1} step={50} value={widthMm} onChange={event => setWidthMm(Number(event.target.value))}/></label>
       <details className="workspace-advanced"><summary>精细设置</summary><p className="workspace-panel-intro">采样间距控制过渡细节；调整后重新预览。</p><label>距离采样 mm<input aria-label="地形过渡距离采样" type="number" min={1} step={50} value={sampleSpacingMm} onChange={event => setSpacing(Number(event.target.value))}/></label></details>
       <button className="primary asset-wide" disabled={!boundaryId} onClick={create}>预览地形过渡</button>
-      {Object.values(visual.transitions).map(transition => <div key={transition.id}><strong>{names[transition.kind]}</strong><span> · {transition.polygons.length} 片 / {transition.strokes.length} 笔触</span><button onClick={() => {
+      {Object.values(visual.transitions).filter(row => row.floorId === floorId).map(transition => <div key={transition.id}><strong>{names[transition.kind]}</strong><span> · {transition.polygons.length} 片 / {transition.strokes.length} 笔触</span><button onClick={() => {
         try { const next = materializeTerrainTransition(scene, { ...transition, clipMm: transition.distanceSource.clipMm, sampleSpacingMm: transition.distanceSource.sampleSpacingMm, reachMm: transition.distanceSource.reachMm, enabled: !transition.enabled }); setError(''); onPreview([{ type: 'upsertTerrainTransition', transition: next }], transition.enabled ? '停用地形过渡' : '启用地形过渡') }
         catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
       }}>{transition.enabled ? '停用' : '启用'}</button><button onClick={() => onPreview([{ type: 'removeTerrainTransition', id: transition.id }], '移除地形过渡')}>移除</button></div>)}

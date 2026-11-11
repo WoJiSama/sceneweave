@@ -1,13 +1,14 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export type WorkspaceModule = '场景' | '素材' | '建筑' | '地形' | '氛围' | '生成' | 'AI' | '历史'
+export type WorkspaceModule = '场景' | '生成' | '地形' | '建筑' | '素材与布景' | '素材' | '氛围' | 'AI' | '历史'
 
 type GenerationTask = '室内布局' | '森林与营地' | '火山' | '混合场景' | '自然地形' | '组合地貌' | '区域地图'
 type TerrainTask = '绘制地形' | '修改地形' | '布置植被' | '局部重生成'
 
 /** Direct module navigation opens the left content pane without changing the active canvas tool. */
 export async function openWorkspaceModule(page: Page, name: WorkspaceModule): Promise<Locator> {
-  const choice = page.getByTestId('workspace-module-navigation').getByRole('button', { name, exact: true })
+  const label = name === '素材' ? '素材与布景' : name
+  const choice = page.getByTestId('workspace-module-navigation').getByRole('button', { name: label, exact: true })
   await choice.click()
   await expect(choice).toHaveAttribute('aria-current', 'page')
   const panel = page.getByTestId('workspace-resources')
