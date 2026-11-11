@@ -29,7 +29,7 @@
 
 | 场景 | 参考 |
 |---|---|
-| 页面或模型tools拆解图片，自动保存本地item并编辑复用 | [共用工具与步骤图](reference/image-to-project.md#shared-tool) · [实施计划](07-roadmap.md#image-to-project-plan) · [统一验收](09-quality-plan.md#image-to-project-acceptance) |
+| 页面或模型tools拆解图片，自动保存本地item并编辑复用 | [共用工具与步骤图](reference/image-to-project.md#shared-tool) · [实施计划](07-roadmap.md#image-to-project-plan) · [统一验收](09-quality-plan.md#image-to-project-acceptance)；换电脑接续看[图片修复会话交接](reference/image-repair-handoff-20261111.md) |
 | 接续地图细节、道路吸附、背景/植被、光影及地形小工具 | [主线计划与会话交接](07-roadmap.md#map-detail-mainline)；[外部借鉴](reference/decisions-and-research.md#map-detail-reference-study)；[统一验收](09-quality-plan.md#map-detail-acceptance) |
 | 查用户操作、候选生命周期、模块和平台边界 | [交互与架构](reference/editor-and-architecture.md) |
 | 查通用地图生成器的总体分层、领域接入和迁移边界 | [通用地图生成器设计](reference/general-map-generation.md) |
