@@ -1,4 +1,6 @@
 import type { Appearance, DefinitionIdentity, Editable, Issue, SceneDocument, SurfaceRef, SurfaceStyle, VersionRef } from '../model/scene.js'
+import { inspectImageEnhancementAssets } from '../image-enhancement/metadata.js'
+import { imageAssetParent, inspectAssetRefinementAssets } from '../asset-refinement/metadata.js'
 
 export type LicenseSubject = { subjectKind: 'asset' | 'material' | 'propDefinition' | 'prefabDefinition' | 'styleTheme' | 'regionalSymbolDefinition'; subjectId: string; licenseRef: string }
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -45,8 +47,18 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
     return target
   }
   const useAsset = (id: string, owner: string) => {
-    if (!own(scene.assets, id)) error('MISSING_ASSET', `图片素材 ${id} 不存在；请恢复原素材或显式采用可用替代。完整工程不能用占位补齐。`, owner, { dependencyId: id })
-    else assetIds.add(id)
+    // Metadata depth is checked below. External malformed chains must reach
+    // that domain error without exhausting the JavaScript call stack first.
+    const pending = [{ id, owner }]
+    while (pending.length) {
+      const next = pending.pop()!, asset = own(scene.assets, next.id)
+      if (!asset) error('MISSING_ASSET', `图片素材 ${next.id} 不存在；请恢复原素材或显式采用可用替代。完整工程不能用占位补齐。`, next.owner, { dependencyId: next.id })
+      else if (!assetIds.has(next.id)) {
+        assetIds.add(next.id)
+        const enhancement = imageAssetParent(asset)
+        if (enhancement) pending.push({ id: enhancement.originalAssetId, owner: next.id }, { id: enhancement.sourceAssetId, owner: next.id })
+      }
+    }
   }
   const checkAppearance = (appearance: Appearance, definitionRef: VersionRef | null, owner: string) => {
     if (definitionRef) checkVersion(definitionRef, scene.propDefinitions, owner)
@@ -177,6 +189,8 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
       }
     }
   }
+  errors.push(...inspectImageEnhancementAssets(scene.assets))
+  errors.push(...inspectAssetRefinementAssets(scene.assets))
   for (const [id, asset] of Object.entries(scene.assets)) {
     if (!assetIds.has(id)) error('UNUSED_ASSET', '未被已采用场景或定义引用的资源不能进入正式工程。', id)
     else subjects.push({ subjectKind: 'asset', subjectId: id, licenseRef: asset.licenseRef })

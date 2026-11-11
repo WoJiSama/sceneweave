@@ -13,6 +13,11 @@ export { bitmapVariantPixelPipeline } from './bitmap-pixels.js'
 import { PACKAGE_LIMITS } from './limits.js'
 import { projectResourceHashes, projectSourceRecords } from './source-resources.js'
 import { WeightedTaskQueue } from './task-queue.js'
+import { applyImageEnhancement } from '../image-enhancement/pixels.js'
+import { expandImageEnhancementScopeMask } from '../image-enhancement/metadata.js'
+import { tryDecodeDecontaminationSource } from '../image-enhancement/source-pixels.js'
+import { replayVectorRefinement } from '../asset-refinement/algorithms.js'
+import { compileVectorStructurePlan } from '../asset-refinement/structure-plan.js'
 
 const captured = new WeakMap<object, WeakMap<object, VerifiedProjectBundle>>()
 interface ValidationCapabilities {
@@ -281,6 +286,49 @@ async function verifyCapturedBundles(bundles: readonly ProjectBundle[], capabili
           const actual = checkedRaster(source.processorVersion === 2 ? decodeCanonicalPng(pngBytes) : await images.decode(pngBytes, record, { signal }), record)
           checkCancelled(signal)
           if (expected.rgba.some((channel, i) => channel !== actual.rgba[i])) throw new Error(`SVG实际栅格像素与PNG不一致：${assetId}。`)
+        } }
+      }
+      for (const asset of Object.values(bundle.project.document.assets)) {
+        const refinement = asset.imageRefinement
+        if (!refinement) continue
+        const sourceAsset = bundle.project.document.assets[refinement.sourceAssetId], source = bundle.project.assets[sourceAsset.sha256]
+        yield { weight: source.pixelWidth * source.pixelHeight * 8, async run({ signal }) {
+          checkCancelled(signal)
+          const sourceBytes = bytesByHash.get(source.sha256)!.slice()
+          const exact = refinement.sourcePixelMode === 'rgba8' ? tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
+          if (refinement.sourcePixelMode === 'rgba8' && !exact) throw new Error('精修源不符合记录的确切RGBA8解码方式。')
+          const original = checkedRaster(exact ?? await images.decode(sourceBytes, source, { signal }), source)
+          checkCancelled(signal)
+          if (refinement.kind === 'vector') {
+            const expected = refinement.algorithm === 'structure-plan-v1'
+              ? compileVectorStructurePlan(refinement.plan, { sha256: source.sha256, width: original.width, height: original.height })
+              : replayVectorRefinement(refinement.algorithm, { width: original.width, height: original.height, data: original.rgba }, refinement.options, signal)
+            const normalized = normalizeStaticSvg(expected.sourceSvg), proof = bundle.project.authoringSources[asset.id]
+            if (!proof || proof.sourceSha256 !== normalized.sourceSha256) throw new Error('矢量重建源不匹配原件和固定算法。')
+          } else {
+            const inputHash = sha256Bytes(encodeCanonicalPng(original))
+            if (inputHash !== refinement.inputSha256) throw new Error('模型补画输入不匹配所保留的原件像素。')
+          }
+          checkCancelled(signal)
+        } }
+      }
+      for (const asset of Object.values(bundle.project.document.assets)) {
+        const enhancement = asset.imageEnhancement
+        if (!enhancement) continue
+        const sourceAsset = bundle.project.document.assets[enhancement.sourceAssetId]
+        const source = bundle.project.assets[sourceAsset.sha256], output = bundle.project.assets[asset.sha256]
+        yield { weight: (source.pixelWidth * source.pixelHeight + output.pixelWidth * output.pixelHeight) * 8, async run({ signal }) {
+          checkCancelled(signal)
+          const sourceBytes = bytesByHash.get(source.sha256)!.slice()
+          const exact = enhancement.recipe.direction === 'decontaminate' ? tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
+          const original = checkedRaster(exact ?? (bitmapPipeline(sourceAsset.id) === 'svg-rgba8-v1' ? decodeCanonicalPng(sourceBytes)
+            : await images.decode(sourceBytes, source, { signal })), source)
+          checkCancelled(signal)
+          const scope = expandImageEnhancementScopeMask(enhancement.scopeMask, original.width, original.height)
+          const expected = applyImageEnhancement({ width: original.width, height: original.height, data: original.rgba }, enhancement.recipe, scope, signal)
+          const actual = checkedRaster(decodeCanonicalPng(bytesByHash.get(output.sha256)!.slice()), output)
+          checkCancelled(signal)
+          if (expected.data.some((channel, index) => channel !== actual.rgba[index])) throw new Error(`画质增强真实像素与来源/配方不一致：${asset.id}。`)
         } }
       }
       for (const variant of Object.values(bundle.project.appearance.variants)) {

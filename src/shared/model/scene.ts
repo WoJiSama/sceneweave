@@ -6,6 +6,8 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson } from '../validation/json.js'
 import type { AggregateCoordinates } from './aggregate.js'
 import type { VisualEnvironment } from '../visual/types.js'
+import type { ImageEnhancementMetadata } from '../image-enhancement/metadata.js'
+import type { AssetRefinementMetadata } from '../asset-refinement/metadata.js'
 
 /** All world coordinates and dimensions are integer millimetres. */
 export type Id = string
@@ -23,6 +25,8 @@ export interface AssetRef {
   id: Id; sha256: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
   pixelWidth: number; pixelHeight: number; logicalSizeMm: { width: number; height: number }
   licenseRef: string; origin: { kind: 'original' | 'imported' | 'generated'; attribution: string; canEmbed: boolean }
+  imageEnhancement?: ImageEnhancementMetadata
+  imageRefinement?: AssetRefinementMetadata
 }
 export interface Region extends Editable {
   boundaryMm: PointMm[]

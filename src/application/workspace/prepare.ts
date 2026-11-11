@@ -162,7 +162,10 @@ export async function materializeProject(input: EditableProject, options: Prepar
     if (!sourceAsset || !source) throw new Error('派生位图缺少固定源字节。')
     const sourceBytes = added.get(source.sha256) ?? await originalResources.read(source.sha256)
     const output = await deriveBitmapVariant(sourceBytes, source, { tint: variant.tint, brightness: variant.brightness }, checked, bitmapVariantPixelPipeline(project, variant.sourceAssetId))
-    const adopted = { ...structuredClone(sourceAsset), id: variant.outputAssetId, sha256: output.record.sha256, mimeType: output.record.mimeType,
+    // The variant owns this output's replay; an enhancement recipe belongs only
+    // to its immutable source and remains reachable through sourceAssetId.
+    const { imageEnhancement: _enhancement, imageRefinement: _refinement, ...sourceMetadata } = structuredClone(sourceAsset)
+    const adopted = { ...sourceMetadata, id: variant.outputAssetId, sha256: output.record.sha256, mimeType: output.record.mimeType,
       pixelWidth: output.record.pixelWidth, pixelHeight: output.record.pixelHeight }
     const prior = project.document.assets[variant.outputAssetId]
     if (prior && canonicalJson(prior) !== canonicalJson(adopted)) throw new Error('固定派生资产ID已被不同内容占用。')
