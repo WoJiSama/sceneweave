@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { extractImageLayer, type ImagePixelMask, type ImagePixels, type PixelBounds } from './pixels.js'
 import { repairImageRegion } from './repair.js'
+import { createHash } from 'node:crypto'
 
 function image(width: number, height: number, color: (x: number, y: number) => number[]): ImagePixels {
   const data = new Uint8ClampedArray(width * height * 4)
@@ -142,5 +143,79 @@ describe('donor-guided multiscale image-region repair', () => {
     expect(() => repairImageRegion(source, mask, donor, { regions: [{ mask: rectangleMask({ x: 10, y: 0, width: 10, height: 20 }),
       donor: { x: 6, y: 6, width: 2, height: 2 } }] })).toThrow('相交')
     expect(() => repairImageRegion(source, { ...mask, data: new Uint8Array(mask.data.length) }, donor)).toThrow('没有覆盖')
+  })
+})
+
+function phaseFixture(object = [240, 0, 220, 255]) {
+  const bounds = { x: 34, y: 20, width: 30, height: 32 }, donor = { x: 2, y: 2, width: 12, height: 10 }
+  const mirrored = (value: number, length: number) => {
+    const position = ((value % (length * 2)) + length * 2) % (length * 2)
+    return position < length ? position : length * 2 - 1 - position
+  }
+  const texture = (x: number, y: number) => {
+    const grain = mirrored(x, 12) % 3, plank = mirrored(y, 10)
+    return plank === 2 ? [42, 33, 24, 255] : [122 + grain * 3, 90 + grain * 2, 62 + grain, 255]
+  }
+  const truth = image(96, 72, (x, y) => texture(x + 4, y + 5))
+  const source = image(96, 72, (x, y) => x >= 34 && x < 64 && y >= 20 && y < 52 ? object
+    : x >= 2 && x < 14 && y >= 2 && y < 12 ? texture(x - 2, y - 2) : texture(x + 4, y + 5))
+  return { source, truth, bounds, donor, mask: rectangleMask(bounds) }
+}
+
+describe('explicit donor boundary-phase alignment', () => {
+  it('retains the original seamless replay and only changes the explicitly selected strategy', () => {
+    const { source, mask, donor } = phaseFixture()
+    const old = repairImageRegion(source, mask, donor)
+    expect(createHash('sha256').update(old.data).digest('hex')).toBe('d46b3cc5fc5d7c4d33d36131ef339e555c307d6a10d3c6c7e887613aa2dfae13')
+    expect(extractImageLayer(source, polygon(mask.boundsPx), donor, { repair: 'seamless' }).remaining.data).toEqual(old.data)
+    expect(extractImageLayer(source, polygon(mask.boundsPx), donor, { repair: 'tile' }).remaining.data)
+      .toEqual(extractImageLayer(source, polygon(mask.boundsPx), donor).remaining.data)
+  })
+
+  it('aligns shifted plank joints and grain from the selected donor without changing any exterior pixel', () => {
+    const { source, truth, mask, donor, bounds } = phaseFixture(), before = source.data.slice()
+    const old = repairImageRegion(source, mask, donor)
+    const repaired = extractImageLayer(source, polygon(bounds), donor, { repair: 'aligned' }).remaining
+    let beforeError = 0, afterError = 0
+    for (let y = 0; y < source.height; y++) for (let x = 0; x < source.width; x++) {
+      if (x >= 34 && x < 64 && y >= 20 && y < 52) {
+        for (let channel = 0; channel < 3; channel++) {
+          const at = (y * source.width + x) * 4 + channel
+          beforeError += Math.abs(old.data[at] - truth.data[at]); afterError += Math.abs(repaired.data[at] - truth.data[at])
+        }
+      } else expect(rgba(repaired, x, y)).toEqual(rgba(source, x, y))
+    }
+    expect(beforeError).toBeGreaterThan(10000)
+    expect(afterError).toBe(0)
+    expect(source.data).toEqual(before)
+    expect(repaired.data).toEqual(repairImageRegion(source, mask, donor, { alignment: 'boundary-phase-v1' }).data)
+  })
+
+  it('does not infer phase from removed object colors and preserves excluded holes', () => {
+    const first = phaseFixture(), second = phaseFixture([0, 255, 0, 40])
+    expect(repairImageRegion(first.source, first.mask, first.donor, { alignment: 'boundary-phase-v1' }).data)
+      .toEqual(repairImageRegion(second.source, second.mask, second.donor, { alignment: 'boundary-phase-v1' }).data)
+    first.mask.data[10 * first.mask.width + 10] = 0
+    const repaired = repairImageRegion(first.source, first.mask, first.donor, { alignment: 'boundary-phase-v1' })
+    expect(rgba(repaired, 44, 30)).toEqual(rgba(first.source, 44, 30))
+  })
+
+  it('keeps material donors isolated and extends their labels through the explicit cleanup halo', () => {
+    const blue = [50, 110, 150, 255], wood = [130, 100, 70, 255]
+    const base = rectangleMask({ x: 180, y: 80, width: 40, height: 60 }), main = rectangleMask({ x: 177, y: 77, width: 46, height: 66 })
+    const zone = rectangleMask({ x: 200, y: 80, width: 20, height: 60 })
+    const source = image(320, 200, (x, y) => x >= 180 && x < 220 && y >= 80 && y < 140 ? [220, 0, 220, 255] : x < 200 ? blue : wood)
+    const repaired = repairImageRegion(source, main, { x: 80, y: 40, width: 40, height: 20 },
+      { alignment: 'boundary-phase-v1', baseMask: base, regions: [{ mask: zone, donor: { x: 280, y: 40, width: 40, height: 20 } }] })
+    for (let y = 77; y < 143; y++) for (let x = 177; x < 223; x++) expect(rgba(repaired, x, y)).toEqual(x < 200 ? blue : wood)
+    expect(rgba(repaired, 176, 110)).toEqual(blue)
+    expect(rgba(repaired, 223, 110)).toEqual(wood)
+  })
+
+  it('admits matching work before computation and rejects overlapping donors without mutating source', () => {
+    const { source, mask, donor } = phaseFixture(), before = source.data.slice()
+    expect(() => repairImageRegion(source, mask, donor, { alignment: 'boundary-phase-v1', maxWork: 1_000_000 })).toThrow('计算预算')
+    expect(() => repairImageRegion(source, mask, { x: 34, y: 20, width: 2, height: 2 }, { alignment: 'boundary-phase-v1' })).toThrow('相交')
+    expect(source.data).toEqual(before)
   })
 })

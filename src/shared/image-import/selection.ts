@@ -140,6 +140,19 @@ export function snapImageContour(image: ImagePixels, points: readonly ImagePoint
     const length = Math.hypot(after.x - before.x, after.y - before.y) || 1
     return { x: -(after.y - before.y) / length, y: (after.x - before.x) / length }
   })
+  const transitionCost = (index: number, column: number, beforeIndex: number, beforeColumn: number): number => {
+    const from = path[beforeIndex], to = path[index], dx = to.x - from.x, dy = to.y - from.y
+    const previous = beforeColumn - radius, offset = column - radius
+    const movedX = dx + normals[index].x * offset - normals[beforeIndex].x * previous
+    const movedY = dy + normals[index].y * offset - normals[beforeIndex].y * previous
+    // Offset continuity alone permits backwards edges where a concave corner rotates the normal.
+    // Require progress along the actual stroke, and price the resulting geometric displacement.
+    if (movedX * dx + movedY * dy < (dx * dx + dy * dy) * .15) return Infinity
+    return .12 * (column - beforeColumn) ** 2 + .2 * ((movedX - dx) ** 2 + (movedY - dy) ** 2)
+  }
+  const candidatePoint = (index: number, column: number): ImagePoint => ({
+    x: path[index].x + normals[index].x * (column - radius), y: path[index].y + normals[index].y * (column - radius),
+  })
   const costs = new Float64Array(count * width), valid = new Uint8Array(count * width)
   let maximumEdge = 0
   for (let index = 0; index < count; index++) for (let column = 0; column < width; column++) {
@@ -172,7 +185,7 @@ export function snapImageContour(image: ImagePixels, points: readonly ImagePoint
       for (let column = 0; column < width; column++) {
         if (!valid[index * width + column]) continue
         for (let candidate = Math.max(0, column - 3); candidate <= Math.min(width - 1, column + 3); candidate++) {
-          const score = previous[candidate] + .12 * (column - candidate) ** 2 + costs[index * width + column]
+          const score = previous[candidate] + transitionCost(index, column, index - 1, candidate) + costs[index * width + column]
           if (score < next[column]) { next[column] = score; parents[index * width + column] = candidate }
         }
       }
@@ -181,7 +194,7 @@ export function snapImageContour(image: ImagePixels, points: readonly ImagePoint
     let end = -1, score = Infinity
     for (let column = 0; column < width; column++) {
       if (closed && Math.abs(column - start) > 3) continue
-      const candidate = previous[column] + (closed ? .12 * (column - start) ** 2 : 0)
+      const candidate = previous[column] + (closed ? transitionCost(0, start, count - 1, column) : 0)
       if (candidate < score) { score = candidate; end = column }
     }
     if (end < 0 || score >= bestScore) continue
@@ -191,6 +204,34 @@ export function snapImageContour(image: ImagePixels, points: readonly ImagePoint
     bestScore = score; bestColumns = columns
   }
   if (!bestColumns) throw new Error('当前吸附范围无法形成连续轮廓，请缩小半径或补充取点。')
-  return path.map((point, index) => ({ x: point.x + normals[index].x * (bestColumns[index] - radius),
-    y: point.y + normals[index].y * (bestColumns[index] - radius) }))
+  const result = path.map((_, index) => candidatePoint(index, bestColumns[index]))
+  const cosine = (first: ImagePoint, middle: ImagePoint, last: ImagePoint) => {
+    const ux = middle.x - first.x, uy = middle.y - first.y, vx = last.x - middle.x, vy = last.y - middle.y
+    const length = Math.hypot(ux, uy) * Math.hypot(vx, vy)
+    return length ? (ux * vx + uy * vy) / length : -1
+  }
+  // A turning normal can still make a local hairpin despite forward segment progress.
+  // Keep the user's nearby stroke at those corners instead of smoothing or inventing a new corner.
+  const unsafeCorners = () => {
+    const unsafe: number[] = []
+    for (let index = closed ? 0 : 1; index < (closed ? count : count - 1); index++) {
+      const before = (index + count - 1) % count, after = (index + 1) % count
+      const minimum = Math.min(-.1, cosine(path[before], path[index], path[after]) - .2)
+      if (cosine(result[before], result[index], result[after]) < minimum) unsafe.push(index)
+    }
+    return unsafe
+  }
+  const retain = Math.ceil(radius / 1.25) + 2
+  for (let pass = 0; pass < 8; pass++) {
+    const unsafe = unsafeCorners()
+    if (!unsafe.length) return result
+    for (const index of unsafe) for (let delta = -retain; delta <= retain; delta++) {
+      const target = index + delta
+      if (closed || target >= 0 && target < count) {
+        const next = (target + count) % count
+        result[next] = { ...path[next] }
+      }
+    }
+  }
+  return unsafeCorners().length ? path : result
 }

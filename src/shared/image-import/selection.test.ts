@@ -115,6 +115,41 @@ describe('magnetic contour constrained to the user stroke', () => {
     expect(result[0]).not.toBe(points[0])
   })
 
+  it('does not create hairpins at a concave bench notch when nearby source edges move the normal offsets', () => {
+    const rough = [{ x: 18, y: 8 }, { x: 56, y: 8 }, { x: 62, y: 14 }, { x: 62, y: 26 },
+      { x: 54, y: 34 }, { x: 40, y: 36 }, { x: 34, y: 45 }, { x: 26, y: 50 }, { x: 18, y: 50 },
+      { x: 15, y: 43 }, { x: 11, y: 43 }, { x: 7, y: 39 }, { x: 7, y: 22 }, { x: 10, y: 17 }, { x: 16, y: 17 }]
+    const target = rough.map(point => ({ x: point.x - 2, y: point.y - 1 }))
+    const inside = (x: number, y: number) => {
+      let result = false
+      for (let index = 0, previous = target.length - 1; index < target.length; previous = index++) {
+        const a = target[index], b = target[previous]
+        if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) result = !result
+      }
+      return result
+    }
+    const source = raster(72, 60, (x, y) => inside(x + .5, y + .5) ? [20, 25, 30, 255] : [50, 110, 150, 255])
+    const before = source.data.slice()
+    // Rotate the starting vertex to exercise both a normal interior notch and the closed seam.
+    for (const shift of [0, 10, 14]) {
+      const points = [...rough.slice(shift), ...rough.slice(0, shift)]
+      const snapped = snapImageContour(source, points, { radiusPx: 3, closed: true })
+      for (let index = 0; index < snapped.length; index++) {
+        const a = snapped[(index + snapped.length - 1) % snapped.length], b = snapped[index], c = snapped[(index + 1) % snapped.length]
+        const ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y
+        expect((ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy))).toBeGreaterThan(-.2)
+      }
+      const side = (a: ImagePoint, b: ImagePoint, c: ImagePoint) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+      for (let first = 0; first < snapped.length; first++) for (let second = first + 2; second < snapped.length; second++) {
+        if (first === 0 && second === snapped.length - 1) continue
+        const a = snapped[first], b = snapped[(first + 1) % snapped.length], c = snapped[second], d = snapped[(second + 1) % snapped.length]
+        expect(side(a, b, c) * side(a, b, d) < -1e-8 && side(c, d, a) * side(c, d, b) < -1e-8).toBe(false)
+      }
+      expect(snapped.some(point => point.y < 7.5)).toBe(true)
+    }
+    expect(source.data).toEqual(before)
+  })
+
   it('checks image bytes, radius, point and path budgets before returning any candidate', () => {
     const source = raster(64, 64), points = [{ x: 4, y: 4 }, { x: 22, y: 5 }, { x: 16, y: 25 }]
     expect(() => snapImageContour({ ...source, data: new Uint8ClampedArray(4) }, points)).toThrow('RGBA')
