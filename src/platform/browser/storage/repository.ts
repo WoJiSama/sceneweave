@@ -736,7 +736,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     }
     // Capture private executor evidence before public IO validation detaches
     // JSON. It is only a hint: history compares fresh DB content in full.
-    const localSource = getVerifiedProjectBundle(input)?.project
+    const localInput = getVerifiedProjectBundle(input), localSource = localInput?.project
     const savedAt = this.options.runtime.clock.now(); time(savedAt)
     // Keep the exact workspace capability intact until its owning validator
     // examines it. Public save deliberately keeps its full capture/validation.
@@ -744,7 +744,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       : await validateProjectBundle(captureProjectBundleInput(input), this.validation(options))
     const project = bundle.project, owner = project.document.sceneId
     const baseline = this.savedEncoding
-    const encodedSnapshot = prepareEncodedSnapshot(bundle, localSource, baseline)
+    const encodedSnapshot = prepareEncodedSnapshot(bundle, localInput, baseline)
     let retained = false
     const validatedJson = encodedSnapshot.encoded.canonical
     const checked: CheckedContent = { hash: encodedSnapshot.encoded.contentHash, byteLength: encodedSnapshot.encoded.byteLength }, hash = checked.hash
