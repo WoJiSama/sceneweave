@@ -236,7 +236,8 @@ describe('shared public prop authoring ledger', () => {
     expect(edited.project.document.props.table.appearance.opacity).toBe(.4)
     expect(edited.project.document.props.table.supportRef).toEqual({ kind: 'room', id: 'house' })
     expect(edited.project.document.props.table.footprintMm).toEqual(project.document.propDefinitions.definition.defaultFootprintMm)
-    expect(edited.state.operationCost).toBe(19)
+    // Creating the room owns nine physical records and nine structural births.
+    expect(edited.state.operationCost).toBe(28)
     expect(replayAuthoring(input, edited.state.steps)).toEqual(edited)
     expect(() => applyAuthoringStep(input, edited.state, [{ kind: 'transform', id: 'yard-table', positionMm: { x: 9200, y: 8000 } }], 'outside-scene')).toThrow(/新增授权范围/)
     expect(() => applyAuthoringStep(input, edited.state, [{ kind: 'place', definitionId: 'definition', positionMm: { x: 8000, y: 8000 } }], 'no-placement')).toThrow(/未获授权/)

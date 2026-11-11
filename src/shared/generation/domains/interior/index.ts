@@ -13,7 +13,7 @@ import { createSpaceContext } from '../../space.js'
 import { generationCreationWrites } from '../../materialization.js'
 import { GenerationRegistry, runGeneration, checkGenerationConstraints } from '../../orchestrator.js'
 import { hashGenerationValue, type ArtifactInput, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
-import { interiorGenerationInputSchema, supportedInteriorGenerationInputSchema, type InteriorGenerationInput, type InteriorLayout, type InteriorRectangle, type SupportedInteriorGenerationInput } from './contracts.js'
+import { interiorGenerationInputSchema, supportedInteriorGenerationInputSchema, supportedInteriorLayoutVersion, type InteriorGenerationInput, type InteriorLayout, type InteriorRectangle, type SupportedInteriorGenerationInput } from './contracts.js'
 import { arrangeInteriorConnections, type InteriorConnectivityReport } from './connectivity.js'
 import { furnishInterior, type InteriorFurnishingReport } from './furnishing.js'
 import { InteriorGenerationError, checkInteriorLayout, clearArea, interiorEntityId, rectanglePoints, solveInteriorLayout } from './layout.js'
@@ -54,7 +54,7 @@ export function normalizeSupportedInteriorInput(raw: unknown): SupportedInterior
   let input: SupportedInteriorGenerationInput
   try { input = supportedInteriorGenerationInputSchema.parse(captureJson(raw)) } catch (error) { throw new InteriorGenerationError('invalid-input', `地形建筑输入无效：${error instanceof Error ? error.message : String(error)}`) }
   const { supportRef, ...parameters } = input.parameters
-  const normalized = normalizeInteriorInput({ version: 1, algorithmVersion: input.algorithmVersion === 1 ? 2 : 3, seed: input.seed, parameters })
+  const normalized = normalizeInteriorInput({ version: 1, algorithmVersion: supportedInteriorLayoutVersion(input.algorithmVersion), seed: input.seed, parameters })
   return freezeJson({ version: 1, algorithmVersion: input.algorithmVersion, seed: normalized.seed, parameters: { ...cloneJson(normalized.parameters), supportRef } })
 }
 
@@ -64,7 +64,7 @@ type InteriorOptions = { profile: TaskBudgetProfile; nowMilliseconds: () => numb
 function layoutInput(input: InteriorInput): InteriorGenerationInput {
   if (!isSupported(input)) return input
   const { supportRef: _supportRef, ...parameters } = input.parameters
-  return { version: 1, algorithmVersion: input.algorithmVersion === 1 ? 2 : 3, seed: input.seed, parameters }
+  return { version: 1, algorithmVersion: supportedInteriorLayoutVersion(input.algorithmVersion), seed: input.seed, parameters }
 }
 
 function assertBase(document: SceneDocument, input: InteriorInput): void {
@@ -103,8 +103,8 @@ function persistGeneration(document: SceneDocument, input: InteriorInput, layout
   const bindings = { materials: Object.entries(p.materials).flatMap(([role, ref]) => ref ? [{ role: role as 'floor' | 'wall', ref: cloneJson(ref) }] : []), props: cloneJson(p.arrangement.palette), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   const common = { id: recipeId, domain: 'interior' as const, mapMode: 'scene' as const, seed: input.seed, ...bindings }
   const recipe: GenerationRecipe = isSupported(input)
-    ? { ...common, ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : { recipeVersion: 2 as const, algorithmVersion: 2 as const }), algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) }
-    : { ...common, ...(input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : { recipeVersion: 3 as const, algorithmVersion: 3 as const }), algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) }
+    ? { ...common, ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : { recipeVersion: 3 as const, algorithmVersion: 3 as const }), algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) }
+    : { ...common, ...(input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : { recipeVersion: 4 as const, algorithmVersion: 4 as const }), algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) }
   gen.recipes[recipeId] = recipe
   const roomKeys = new Map([...layout.rooms.map(row => [row.roomId, `room:${row.requirementId}`] as const), ...layout.corridors.map(row => [row.roomId, 'corridor'] as const)])
   const fields: GenerationFieldGroup[] = ['geometry', 'properties', 'surface', 'source']

@@ -66,7 +66,7 @@ describe('new-project semantic determinism across independent identities', () =>
     expect(first.report.furnishing.propIds).not.toEqual(second.report.furnishing.propIds)
     expect(geometry(second.candidate.document as SceneDocument)).toEqual(geometry(first.candidate.document as SceneDocument))
     const recipe = Object.values(getLegacyGeneration(first.candidate.document as SceneDocument)!.recipes).find(row => 'domain' in row && row.domain === 'interior')!
-    expect(recipe).toMatchObject({ recipeVersion: 3, algorithmVersion: 3 })
+    expect(recipe).toMatchObject({ recipeVersion: 4, algorithmVersion: 4 })
     expect(generationRecipeSchema.safeParse({ ...recipe, algorithmVersion: 2 }).success).toBe(false)
   }, 30000)
   it.each(['forest', 'volcano'] as const)('keeps %s furniture, exterior door, approach and vegetation stable across new identities', kind => {

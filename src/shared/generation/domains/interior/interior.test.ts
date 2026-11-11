@@ -6,6 +6,7 @@ import { createCompositionContent } from '../../../appearance/graph.js'
 import { applyCompositionCommands } from '../../../appearance/commands.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { getLegacyGeneration } from '../../../terrain-generation/composition-contracts.js'
+import { generationRecipeSchema } from '../../../terrain-generation/contracts.js'
 import type { SceneDocument } from '../../../model/scene.js'
 import { normalizeInteriorInput, runInteriorGeneration, InteriorGenerationError, checkMaterializedInterior, type InteriorGenerationInput } from './index.js'
 
@@ -20,6 +21,17 @@ let sequence = 0
 const runtime = { ids: { nextId: () => `interior-token-${sequence++}` }, clock: { now: () => '2026-11-05T00:00:00.000Z' } }
 
 describe('parameterized finite interior generation', () => {
+  it.each([2, 3, 4] as const)('persists and replays version %s without accepting mismatched selectors', algorithmVersion => {
+    const input = request(); input.algorithmVersion = algorithmVersion
+    const generated = runInteriorGeneration(source(), input, options)
+    const recipe = Object.values(getLegacyGeneration(cloneJson(generated.candidate.document) as SceneDocument)!.recipes)[0]
+    expect(runInteriorGeneration(source(), input, options)).toEqual(generated)
+    expect(generated.candidate.stages.every(stage => stage.operator.version === algorithmVersion)).toBe(true)
+    expect(recipe).toMatchObject({ recipeVersion: algorithmVersion, algorithmId: 'interior-layout', algorithmVersion })
+    expect(generationRecipeSchema.safeParse(recipe).success).toBe(true)
+    expect(generationRecipeSchema.safeParse({ ...recipe, recipeVersion: algorithmVersion === 4 ? 3 : 4 }).success).toBe(false)
+  })
+
   it('creates two distinct actual room counts, unique shared walls and deterministic full results', () => {
     const base = source(), before = canonicalJson(base), input = request(2), first = runInteriorGeneration(base, input, options)
     const other = request(4); other.parameters.corridor = { axis: 'horizontal', clearWidthMm: 1800 }

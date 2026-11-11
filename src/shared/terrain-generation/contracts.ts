@@ -53,19 +53,23 @@ const interiorGenerationRecipeV2Schema = naturalGenerationRecipeSchema.extend({
 // Keep each replay selector paired; independent numeric unions would accept
 // a recipeVersion from one algorithm with an algorithmVersion from another.
 const interiorGenerationRecipeV3Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
-export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema])
+const interiorGenerationRecipeV4Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(4), algorithmVersion: z.literal(4) }).strict()
+export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema, interiorGenerationRecipeV4Schema])
 const supportedInteriorGenerationRecipeV1Schema = interiorGenerationRecipeV2Schema.extend({
   recipeVersion: z.literal(1), algorithmId: z.literal('supported-interior'), algorithmVersion: z.literal(1),
   parameters: supportedInteriorParametersSchema,
 }).strict()
 const supportedInteriorGenerationRecipeV2Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
-export const supportedInteriorGenerationRecipeSchema = z.union([supportedInteriorGenerationRecipeV1Schema, supportedInteriorGenerationRecipeV2Schema])
-export const forestGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+const supportedInteriorGenerationRecipeV3Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
+export const supportedInteriorGenerationRecipeSchema = z.union([supportedInteriorGenerationRecipeV1Schema, supportedInteriorGenerationRecipeV2Schema, supportedInteriorGenerationRecipeV3Schema])
+const forestGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: forestParametersSchema,
   materials: z.array(z.object({ role: z.enum(['ground', 'path']), ref: versionRef }).strict()).max(17).refine(unique),
   props: z.array(z.object({ role: forestPaletteRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
 }).strict()
+const forestGenerationRecipeV2Schema = forestGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
+export const forestGenerationRecipeSchema = z.union([forestGenerationRecipeV1Schema, forestGenerationRecipeV2Schema])
 export const volcanoGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('volcano'), recipeVersion: z.literal(1), algorithmId: z.literal('volcano-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: volcanoParametersSchema,

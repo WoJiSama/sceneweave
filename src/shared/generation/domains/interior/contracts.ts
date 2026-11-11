@@ -20,17 +20,20 @@ export const interiorLayoutParametersSchema = z.object({ floorId: id, layerId: i
   }).strict(),
 }).strict()
 /** Explicit replay selectors: v2 keeps legacy identity-sensitive ordering;
- * v3 separates layout choices from the new project's entity identities. */
-export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3)]), seed: z.string().min(1).max(128), parameters: interiorLayoutParametersSchema }).strict()
+ * v3 separates layout choices from entity identities; v4 adds finite oriented
+ * furniture and functional seating candidates without rewriting either replay. */
+export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3), z.literal(4)]), seed: z.string().min(1).max(128), parameters: interiorLayoutParametersSchema }).strict()
 /** A separate replay contract adds real terrain support without changing the
  * original floor-only interior-layout@2 parameters or deterministic results. */
 export const supportedInteriorParametersSchema = interiorLayoutParametersSchema.extend({
   supportRef: z.object({ kind: z.literal('terrainArea'), id }).strict(),
 }).strict()
-export const supportedInteriorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2)]), seed: z.string().min(1).max(128), parameters: supportedInteriorParametersSchema }).strict()
+export const supportedInteriorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]), seed: z.string().min(1).max(128), parameters: supportedInteriorParametersSchema }).strict()
 export type InteriorLayoutParameters = z.infer<typeof interiorLayoutParametersSchema>
 export type InteriorGenerationInput = z.infer<typeof interiorGenerationInputSchema>
 export type SupportedInteriorGenerationInput = z.infer<typeof supportedInteriorGenerationInputSchema>
+const supportedInteriorLayoutVersions = { 1: 2, 2: 3, 3: 4 } as const
+export const supportedInteriorLayoutVersion = (version: SupportedInteriorGenerationInput['algorithmVersion']) => supportedInteriorLayoutVersions[version]
 export type InteriorRoomRequirement = InteriorLayoutParameters['rooms'][number]
 export interface InteriorRectangle { x: number; y: number; width: number; height: number }
 export interface InteriorLayout {

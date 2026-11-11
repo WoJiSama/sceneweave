@@ -119,7 +119,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '室内布局'), palette = captureJson(content.palette)
       return { kind: 'new-project', domain: 'interior', base: content.base, profile: profile(), input: {
-        version: 1, algorithmVersion: 3, seed: owned.seed, parameters: {
+        version: 1, algorithmVersion: 4, seed: owned.seed, parameters: {
           floorId: floor.id, layerId: layer.id, boundsMm: { ...floor.boundsMm }, wallThicknessMm: owned.wallThicknessMm,
           rooms: owned.rooms, relations: owned.relations, corridor: owned.corridor,
           materials: { floor: null, wall: null }, arrangement: { ...owned.arrangement, palette },
@@ -140,7 +140,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
         const rectangle = { ...row.boundsMm, x: bounds.x + row.boundsMm.x, y: bounds.y + row.boundsMm.y }
         return { id: row.id, supportRef, boundaryMm: forestRectangle(rectangle), anchorMm: { x: Math.round(rectangle.x + rectangle.width / 2), y: Math.round(rectangle.y + rectangle.height / 2) }, clearanceMm: 300 }
       })
-      return { kind: 'new-project', domain: 'forest', base: content.base, profile: selectedProfile, input: { version: 1, algorithmVersion: 1, seed: owned.seed, parameters: {
+      return { kind: 'new-project', domain: 'forest', base: content.base, profile: selectedProfile, input: { version: 1, algorithmVersion: 2, seed: owned.seed, parameters: {
         floorId: floor.id, layerId: layer.id, boundsMm: { ...bounds }, ground: { kind: 'new', elevationMm: 0, materialRef: captureJson(content.groundMaterial) },
         zones: [{ id: 'woodland', supportRef, boundaryMm: forestRectangle(bounds), vegetation: [
           { role: 'tree', coveragePpm: owned.treeCoveragePpm, spacingMm: 2500, clusterRadiusMm: 6000, clearanceMm: 200, palette: captureJson(content.palettes.tree) },

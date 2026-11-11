@@ -112,7 +112,10 @@ const boundsOf = (regions: PolygonWithHoles[]) => {
 function persist(document: SceneDocument, base: SceneDocument, input: ForestGenerationInput): void {
   const gen = getLegacyGeneration(document)!, p = input.parameters, id = (key: string) => forestEntityId(document.sceneId, input.seed, key)
   const recipeId = id('recipe')
-  const recipe: GenerationRecipe = { id: recipeId, domain: 'forest', recipeVersion: 1, algorithmId: 'forest-layout', algorithmVersion: 1, mapMode: 'scene', seed: input.seed, parameters: cloneJson(p), ...cloneJson(forestFixedBindings(input)), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
+  const recipe: GenerationRecipe = { id: recipeId, domain: 'forest',
+    ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmId: 'forest-layout' as const, algorithmVersion: 1 as const }
+      : { recipeVersion: 2 as const, algorithmId: 'forest-layout' as const, algorithmVersion: 2 as const }),
+    mapMode: 'scene', seed: input.seed, parameters: cloneJson(p), ...cloneJson(forestFixedBindings(input)), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   gen.recipes[recipeId] = recipe
   const inputs: GenerationReference[] = [...new Set([...p.zones, ...p.clearings, ...p.entrances].flatMap(row => row.supportRef.kind === 'terrainArea' ? [row.supportRef.id] : []))].map(entityId => ({ kind: 'terrainArea', entityId, parentId: null, fieldGroup: 'geometry' }))
   // Each actual output has a stable rule. Updating one member must charge its
@@ -126,7 +129,7 @@ function persist(document: SceneDocument, base: SceneDocument, input: ForestGene
     if (base[collection][entity.id]) continue
     const ownerId = id(`owner:${kind}:${entity.id}`), ruleId = id(`rule:${kind}:${entity.id}`), fields = managed[kind]
     if (!gen.ownership[ownerId]) gen.ownership[ownerId] = { id: ownerId, outputKey: `${recipeId}:${kind}:${entity.id}`, ruleId, target: { kind, entityId: entity.id, parentId: null, fieldGroup: 'geometry' }, managedFields: [...fields], manualFields: [], state: 'managed', birthToken: id(`birth:${kind}:${entity.id}`) }
-    const rule: GenerationRule = { id: ruleId, floorId: p.floorId, layerId: p.layerId, visibility: 'public', editLocked: false, kind: 'forest', recipeRef: { id: recipeId, version: 1 }, inputs: cloneJson(inputs),
+    const rule: GenerationRule = { id: ruleId, floorId: p.floorId, layerId: p.layerId, visibility: 'public', editLocked: false, kind: 'forest', recipeRef: { id: recipeId, version: recipe.recipeVersion }, inputs: cloneJson(inputs),
       outputs: fields.map(fieldGroup => ({ ...gen.ownership[ownerId].target, fieldGroup })), parameters: { widthMm: p.boundsMm.width, minWidthMm: 0, maxWidthMm: p.boundsMm.width, roughness: 0, densityFactor: 0 }, state: 'active', inputHash: '0'.repeat(64), managedOutputHash: '0'.repeat(64) }
     gen.rules[ruleId] = rule; rule.inputHash = generationInputHash(document, rule); rule.managedOutputHash = managedOutputHash(document, rule)
   }
@@ -167,7 +170,7 @@ export function checkForestResult(document: SceneDocument, input: ForestGenerati
 }
 
 export function runForestGeneration(base: SceneDocument, raw: unknown, options: { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: { readonly aborted: boolean } }): { input: ForestGenerationInput; report: ForestReport; candidate: GenerationCandidate; resultHash: string } {
-  const input = normalizeForestInput(raw), profile = parseTaskBudgetProfile(options.profile), source = captureJson(base), p = input.parameters
+  const input = normalizeForestInput(raw), profile = parseTaskBudgetProfile(options.profile), source = captureJson(base), p = input.parameters, version = input.algorithmVersion
   assertBase(source, input)
   if (getLegacyGeneration(source)?.recipes[forestEntityId(source.sceneId, input.seed, 'recipe')]) throw new ForestGenerationError('unsupported', '同一森林配方已存在；局部重生成须由D6明确选择范围，不能覆盖现存成员。')
   const id = (key: string) => forestEntityId(source.sceneId, input.seed, key), registry = new GenerationRegistry()
@@ -176,7 +179,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
   const runtime = { clock: { now: () => source.updatedAt }, ids: { nextId: () => id(`native:${sequence++}`) } }
   const parseParameters = (parameters: Readonly<Record<string, JsonValue>>) => captureJson(normalizeForestInput(parameters)) as unknown as Record<string, JsonValue>
   const determinism = { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' as const }
-  registry.register({ id: 'forest-ground', version: 1, phase: 'structure', owner: 'structure', consumes: ['support-surface'], produces: ['support-surface', 'plan-region', 'reserved-zone'], publishFacts: ['support-surface'], requires: [], determinism, parseParameters,
+  registry.register({ id: 'forest-ground', version, phase: 'structure', owner: 'structure', consumes: ['support-surface'], produces: ['support-surface', 'plan-region', 'reserved-zone'], publishFacts: ['support-surface'], requires: [], determinism, parseParameters,
     writes: ({ document }) => generationCreationWrites(document, ['terrainAreas', 'generation.legacy.constraints']),
     run() { return { outputs: [
       ...p.zones.map(zone => ({ id: id(`plan:${zone.id}`), owner: 'structure', kind: 'plan-region', payload: { coordinateFrame: 'scene-mm', floorId: p.floorId, visibility: 'public', domain: 'natural', purpose: 'forest', boundaryMm: cloneJson(zone.boundaryMm) } } as ArtifactInput)),
@@ -195,7 +198,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
       persist(document, source, input); return document
     },
   })
-  registry.register({ id: 'forest-routes', version: 1, phase: 'connectivity', owner: 'connectivity', consumes: ['plan-region', 'support-surface'], produces: ['access-zone', 'port'], publishFacts: ['access-zone'], requires: [{ id: 'forest-ground', version: 1 }], determinism, parseParameters,
+  registry.register({ id: 'forest-routes', version, phase: 'connectivity', owner: 'connectivity', consumes: ['plan-region', 'support-surface'], produces: ['access-zone', 'port'], publishFacts: ['access-zone'], requires: [{ id: 'forest-ground', version }], determinism, parseParameters,
     writes: ({ document }) => generationCreationWrites(document, ['paths', 'generation.legacy.constraints']),
     run() { return { outputs: p.entrances.map(row => ({ id: id(`port:${row.id}`), owner: 'connectivity', kind: 'port', payload: { coordinateFrame: 'scene-mm', floorId: p.floorId, visibility: 'public', positionMm: cloneJson(row.positionMm), widthMm: row.widthMm, directionDeg: row.directionDeg, elevationMm: p.ground.kind === 'new' ? p.ground.elevationMm : source.terrainAreas[support(input, source.sceneId, row.supportRef).id].groundElevationMm, supportRef: support(input, source.sceneId, row.supportRef), role: 'entrance' } } as ArtifactInput)) } },
     materialize({ document: before, context }) {
@@ -222,7 +225,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
       persist(document, source, input); return document
     },
   })
-  registry.register({ id: 'forest-vegetation', version: 1, phase: 'content', owner: 'content', consumes: ['plan-region', 'port', 'access-zone'], produces: ['prop-placement', 'footprint'], publishFacts: ['prop-placement', 'footprint'], requires: [{ id: 'forest-routes', version: 1 }], determinism, parseParameters,
+  registry.register({ id: 'forest-vegetation', version, phase: 'content', owner: 'content', consumes: ['plan-region', 'port', 'access-zone'], produces: ['prop-placement', 'footprint'], publishFacts: ['prop-placement', 'footprint'], requires: [{ id: 'forest-routes', version }], determinism, parseParameters,
     writes: ({ document }) => generationCreationWrites(document, ['props', 'decorations', 'decorationClusters', 'surfaceRules']),
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
@@ -232,7 +235,10 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
         context.checkCancelled()
         const region = polygonBooleanWithHoles({ operation: 'difference', subject: [{ outer: cloneJson(zone.boundaryMm), holes: [] }], clip: p.clearings.map(row => ({ outer: cloneJson(row.boundaryMm), holes: [] })) }, meter).polygons
         if (!region.length) { report.notes.push(`林区${zone.id}被空地完整占用，未生成植被。`); continue }
-        for (const vegetation of zone.vegetation) {
+        // The old canonical order is part of forest@1 replay. A separate v2
+        // reserves tree roots first; all sampling and acceptance checks stay.
+        const vegetationRows = version === 1 ? zone.vegetation : [...zone.vegetation].sort((a, b) => ['tree', 'shrub', 'grass'].indexOf(a.role) - ['tree', 'shrub', 'grass'].indexOf(b.role))
+        for (const vegetation of vegetationRows) {
           context.checkCancelled()
           const field = vegetation.role === 'tree' ? 'trees' : vegetation.role === 'shrub' ? 'shrubs' : 'grass'
           const ruleId = id(`surface:${zone.id}:${field}`), clusterId = id(`cluster:${zone.id}:${field}`)
@@ -264,11 +270,11 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
     },
   })
   const parameters = captureJson(input) as unknown as Record<string, JsonValue>
-  const stepInput = (stepId: string, operator: string, kind: 'plan-region' | 'port' | 'access-zone') => ({ id: kind, kind, from: { kind: 'step' as const, stepId, operator: { id: operator, version: 1 } }, cardinality: { min: kind === 'plan-region' ? 1 : 0, max: 8192 }, floorId: p.floorId, coordinateFrame: 'scene-mm' as const })
-  const recipe = registry.registerRecipe({ id: 'forest-layout', version: 1, steps: [
-    { id: 'ground', operator: { id: 'forest-ground', version: 1 }, required: true, parameters, dependsOn: [], inputs: [{ id: 'source', kind: 'support-surface', from: { kind: 'source' }, cardinality: { min: 1, max: 8192 }, floorId: p.floorId, coordinateFrame: 'scene-mm' }] },
-    { id: 'routes', operator: { id: 'forest-routes', version: 1 }, required: true, parameters, dependsOn: ['ground'], inputs: [stepInput('ground', 'forest-ground', 'plan-region'), { id: 'surfaces', kind: 'support-surface', from: p.ground.kind === 'new' ? { kind: 'step', stepId: 'ground', operator: { id: 'forest-ground', version: 1 } } : { kind: 'source' }, cardinality: { min: 1, max: 8192 }, floorId: p.floorId, coordinateFrame: 'scene-mm' }] },
-    { id: 'vegetation', operator: { id: 'forest-vegetation', version: 1 }, required: true, parameters, dependsOn: ['ground', 'routes'], inputs: [stepInput('ground', 'forest-ground', 'plan-region'), stepInput('routes', 'forest-routes', 'port'), stepInput('routes', 'forest-routes', 'access-zone')] },
+  const stepInput = (stepId: string, operator: string, kind: 'plan-region' | 'port' | 'access-zone') => ({ id: kind, kind, from: { kind: 'step' as const, stepId, operator: { id: operator, version } }, cardinality: { min: kind === 'plan-region' ? 1 : 0, max: 8192 }, floorId: p.floorId, coordinateFrame: 'scene-mm' as const })
+  const recipe = registry.registerRecipe({ id: 'forest-layout', version, steps: [
+    { id: 'ground', operator: { id: 'forest-ground', version }, required: true, parameters, dependsOn: [], inputs: [{ id: 'source', kind: 'support-surface', from: { kind: 'source' }, cardinality: { min: 1, max: 8192 }, floorId: p.floorId, coordinateFrame: 'scene-mm' }] },
+    { id: 'routes', operator: { id: 'forest-routes', version }, required: true, parameters, dependsOn: ['ground'], inputs: [stepInput('ground', 'forest-ground', 'plan-region'), { id: 'surfaces', kind: 'support-surface', from: p.ground.kind === 'new' ? { kind: 'step', stepId: 'ground', operator: { id: 'forest-ground', version } } : { kind: 'source' }, cardinality: { min: 1, max: 8192 }, floorId: p.floorId, coordinateFrame: 'scene-mm' }] },
+    { id: 'vegetation', operator: { id: 'forest-vegetation', version }, required: true, parameters, dependsOn: ['ground', 'routes'], inputs: [stepInput('ground', 'forest-ground', 'plan-region'), stepInput('routes', 'forest-routes', 'port'), stepInput('routes', 'forest-routes', 'access-zone')] },
   ] })
   const request: GenerationRequest = { requestVersion: 1, normalizationVersion: 1, target: { kind: 'new-project' }, coordinateFrame: 'scene-mm', intent: { environment: 'forest', structures: [], purposes: ['clearing', 'route', 'vegetation'], tags: [] }, intentSource: { kind: 'manual', contentHash: hashGenerationValue(input) }, hardConstraints: [{ id: 'forest-bounds', kind: 'bounds', boundsMm: p.boundsMm }], softGoals: [], seed: input.seed, budgetProfile: profile, recipe }
   const candidate = runGeneration(request, registry, { source, nowMilliseconds: options.nowMilliseconds, signal: options.signal })
