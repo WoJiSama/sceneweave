@@ -306,6 +306,8 @@ node tools/performance/run-current-formal.mjs --fixtures "$formal_prepared_dir" 
 
 `--smoke`固定一轮、2次组内预览/采用编辑＋2次独立物件即刻编辑、4次列表选择、2次画布选择和缩减连续操作，分类为`diagnostic-current-v1-production-ui-smoke`；不能混入正式分布。修正问题后重新完成受影响正确性检查、正常构建和输入冻结，并另开输出目录。源码、素材、夹具清单、运行器和dist在采样前后均核对，冻结目录中的日志也不得继续写入。
 
+组操作正常结束或明确拒绝后，运行器会通过普通取消按钮退出仍存在的对应表单草稿，核对取消前后revision/选择及完整包实际条目不变，再开始选择测量。取消与额外包审计是setup/tooling，不计作产品操作样本；未知失败保留原错误，不自动取消或重试。只检查该工具边界可执行`node --test tools/performance/aggregate-draft-cleanup.test.mjs`，不启动浏览器；完整建筑500链仍须按上面的独占smoke执行。
+
 正式六组矩阵使用同一份冻结输入和全新输出目录，不带`--smoke`：
 
 ```sh

@@ -22,6 +22,18 @@
 - [工作台信息架构与左右分工实施](#workspace-information-architecture-implementation)
 - [四项核心能力六步收束与开发自检](#core-convergence-20261109)
 - [目录与保存重复编码整改](#snapshot-remediation-20261109)
+- [性能运行器草稿退出工具整改](#validation-tool-remediation-20261110)
+
+<a id="validation-tool-remediation-20261110"></a>
+## 性能运行器草稿退出工具整改（2026-11-10）
+
+原失败位于`work/snapshot-remediation-20261109/baseline-normal/building-500-run1.json`：组预览因预算/几何等受支持的拒绝结束后，建筑表单输入仍保留，首次`canvas-prop-selection`被导航守卫阻止，180秒超时。原完整失败文本明确要求“取消建筑草稿”；失败冻结、该组无性能结论及其他已完成mixed结果均保持。
+
+`run-current-formal.mjs`现通过独立`aggregate-draft-cleanup.mjs`包裹组生命周期。仅在组操作成功结束或原逻辑已明确确认的拒绝返回后，点击本领域唯一的普通取消按钮；建筑使用“取消建筑草稿”，自然组使用“取消室外草稿”。无残留草稿不额外导出，未知错误保留首败且不取消。实际取消放在setup阶段，取消前后保存两份完整包，复用逐manifest/条目集合/实际条目SHA一致性检查，并核对revision、格式与选择未变，全部通过后才进入画布选择。新辅助模块纳入测量前后工具指纹，拒绝与原采样门槛不降低。
+
+工具级回归先在缺少退出行为时复现“草稿阻止选择”，随后同组7项通过，覆盖建筑/自然草稿、无草稿、未知失败不丢弃、重复控件拒绝、revision/选择变化与相同revision下资源被改动拒绝；运行器语法检查与`--help`通过。工具单测使用受控UI端口，不冒充真实浏览器；日志及本任务文件指纹保存在忽略目录`work/parallel-runner-repair-20261110/`。
+
+本轮没有启动建筑500生产smoke、正式性能矩阵或完整视觉浏览器，也没有新建正常生产构建；后续须在独立冻结和空闲窗口执行真实UI链。工具回归不能证明建筑500时延、33.4ms帧缺口或整体性能通过。
 
 <a id="snapshot-remediation-20261109"></a>
 ## 目录与保存重复编码整改（2026-11-09）

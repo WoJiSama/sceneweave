@@ -58,6 +58,13 @@
 
 质量初筛接续的实现、定向76项检查、正常生产构建及浏览器结果独立记录在[初筛与初审台账](archive/workspace-content-validation.md#asset-quality-20261109)。后续素材整改按14逐包补用途/状态、重画视角及目标画风，再复审确切新版本；像素初筛未命中不能替代这些工作。完整故障、跨浏览器和用户P3仍由09执行。
 
+<a id="validation-tool-remediation"></a>
+### 验证工具整改（2026-11-10用户授权）
+
+| 工作 | 实现、自检与后续边界 |
+|---|---|
+| 建筑500性能运行器草稿退出 | 已在组操作正常结束或明确拒绝后，通过普通UI取消对应表单草稿，取消前后核对revision、选择及完整工程包；未知失败不自动取消或重试。工具级回归通过，真实建筑500生产smoke待独立冻结、空闲窗口执行；不新增性能结论。见[工具证据](archive/workspace-content-validation.md#validation-tool-remediation-20261110) |
+
 <a id="development-self-check-policy"></a>
 ### 开发期验证范围（2026-11-05用户确认）
 
