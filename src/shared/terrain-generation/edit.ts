@@ -258,8 +258,12 @@ function applyContour(scene: SceneDocument, request: TerrainEditRequest, boundar
   if(!previous||boundary.binding.kind!=='terrain'||previous.binding.kind!=='terrain')fail('仅支持现有地形共享轮廓的有限拖动。')
   if(previous.floorId!==request.floorId)fail('轮廓必须属于本次选择的Floor。')
   if(!same(previous.binding,boundary.binding)||previous.closed!==boundary.closed||!same(previous.segments.map(s=>s.id),boundary.segments.map(s=>s.id)))fail('此操作改变曲线拓扑或绑定；请分步创建新的明确拓扑。')
-  assertManaged(scene,boundary.id,'geometry',request.kind==='contour')
-  for(const side of previous.binding.sides)assertManaged(scene,side.areaId,'geometry',request.kind==='contour')
+  // A coast brush is an explicit geometry edit of this shared boundary and
+  // both real sides. Automatic surroundings regeneration keeps its separate
+  // managed-only authorization, including support and derived dependencies.
+  const explicitGeometry=request.kind==='contour'||request.kind==='brush'&&(request.mode==='addLand'||request.mode==='digWater')
+  assertManaged(scene,boundary.id,'geometry',explicitGeometry)
+  for(const side of previous.binding.sides)assertManaged(scene,side.areaId,'geometry',explicitGeometry)
   const roots = new Set([boundary.id, ...previous.binding.sides.map(side => side.areaId)])
   if (Object.values(scene.notes).some(note => note.anchor.type === 'entity' && roots.has(note.anchor.entityId))) fail('轮廓有附着注记，请先明确处理附着范围后编辑。')
   // Existing visual edge looks are pure derived bands; contour edits therefore update their real drawn shape.

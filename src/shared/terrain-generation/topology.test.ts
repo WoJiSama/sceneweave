@@ -83,6 +83,16 @@ describe('complex terrain topology transactions', () => {
     }
     const owner = Object.values(next.generation.legacy.ownership).find(row => row.target.kind === 'terrainArea' && row.target.entityId === 'terrain-low')
     expect(owner?.state).toBe('deleted')
+    detachChangedOutputs(scene,next)
+    expect(next.generation.legacy.topology[operation!.id].state).toBe('current')
+    const forged=cloneJson(next)
+    if(forged.generation.legacy.version!==4)throw new Error('fixture topology missing')
+    forged.generation.legacy.topology[operation!.id].outputHash='0'.repeat(64)
+    detachChangedOutputs(scene,forged)
+    expect(validateSceneDocument(forged).ok).toBe(false)
+    const edited=cloneJson(next);edited.title+=' manual edit';detachChangedOutputs(next,edited)
+    if(edited.generation.legacy.version!==4)throw new Error('fixture topology missing')
+    expect(edited.generation.legacy.topology[operation!.id].state).toBe('historical')
     expect(validateSceneDocument(next).ok).toBe(true)
   })
 
