@@ -15,7 +15,7 @@ export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
     scopeMask[index] = coverage > 0 ? 255 : 0
     if (coverage && coverage !== 255) edgeMask[index] = 255
   }
-  const replay = replayImageLayers(source, recipe.layers), remaining = replay.remaining
+  const replay = replayImageLayers(source, recipe.layers, recipe.repairSurfaces), remaining = replay.remaining
   for (let index = 0; index < replay.provenance.length; index++) if (replay.provenance[index]) inferenceMask[index] = 255
   const layers = replay.layers.map(({ layer, extracted }) => {
     for (let y = 0; y < extracted.mask.height; y++) for (let x = 0; x < extracted.mask.width; x++) {

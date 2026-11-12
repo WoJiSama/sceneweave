@@ -49,6 +49,8 @@ describe('source-image fidelity rules and same-coordinate pixel evidence', () =>
     const report = compareImageFidelity(source, candidate)
     expect(report).toMatchObject({ verified: true, passed: false, status: 'failed', comparedPixels: 64, changedPixels: 8,
       maxChannelError: 100, meanChannelError: 7.5, alphaChangedPixels: 0 })
+    expect(report.firstDifferences?.[0]).toEqual({ x: 1, y: 0, maxChannelError: 100, kind: 'visible' })
+    expect(report.firstDifferences).toHaveLength(8)
   })
 
   it('keeps a successful file roundtrip separate from a failed comparison against the original painting', () => {
@@ -74,6 +76,7 @@ describe('source-image fidelity rules and same-coordinate pixel evidence', () =>
     expect(report).toMatchObject({ verified: true, passed: false, verificationScope: 'source-outside-inference', comparedPixels: 7,
       changedPixels: 0, inferredPixels: 1, inferenceChangedPixels: 1, outsideScopeChangedPixels: 1 })
     expect(report.issues.map(issue => issue.code)).toContain('outside-scope-changed')
+    expect(report.firstDifferences).toEqual([{ x: 0, y: 0, maxChannelError: 50, kind: 'outside-scope' }])
     candidate.data[0] = source.data[0]
     const onlyOcclusion = compareImageFidelity(source, candidate, { scopeMask, allowedInferenceMask })
     expect(onlyOcclusion).toMatchObject({ passed: true, verificationScope: 'source-outside-inference', inferredPixels: 1, inferenceChangedPixels: 1 })

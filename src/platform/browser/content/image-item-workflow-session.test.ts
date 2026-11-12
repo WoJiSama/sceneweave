@@ -21,6 +21,28 @@ const guide = { bounds: { x: 1, y: 1, width: 9, height: 9 }, foreground: [{ poin
 const item = { id: 'chair', name: '椅', polygon: [{ x: 1, y: 1 }, { x: 10, y: 1 }, { x: 10, y: 10 }, { x: 1, y: 10 }], donor: { x: 10, y: 0, width: 2, height: 2 }, renderLayer: 'object', blocksMovement: true, guidedSelection: guide }
 
 describe('model-neutral resumable image workflow', () => {
+  it('persists the explicit structure repair mode and cold-replays identical item/background bytes', async () => {
+    const data = new Uint8ClampedArray(64 * 64 * 4)
+    for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) data.set(y % 12 === 0 ? [35, 30, 25, 255] : [104, 92, 80, 255], (y * 64 + x) * 4)
+    const pixels = { width: 64, height: 64, data }, bytes = await encodeImageImportPixels(pixels)
+    const input: ImageImportSource = { pixels, image: { sha256: sha256Bytes(bytes), pixelWidth: 64, pixelHeight: 64 }, originalBytes: bytes, normalizedBytes: bytes }
+    const session = new ImageImportToolSession(input, rights)
+    await session.execute('image_import_extract_item', { generation: 0, id: 'chair', name: '椅',
+      polygon: [{ x: 25, y: 25 }, { x: 35, y: 25 }, { x: 35, y: 35 }, { x: 25, y: 35 }],
+      selectionMask: { x: 25, y: 25, width: 10, height: 10, runs: [100, 255] }, donor: { x: 3, y: 4, width: 17, height: 52 }, renderLayer: 'object', blocksMovement: true })
+    const before = await session.execute('image_import_item_preview', { target: 'chair' }) as { inputHash: string; itemSha256: string; backgroundSha256: string }
+    const scope = { generation: 1, target: 'chair', repair: 'structure', removalMask: { x: 22, y: 22, width: 16, height: 16, runs: [256, 255] }, protectionMask: null }
+    await session.execute('image_import_set_repair_scope', scope)
+    const after = await session.execute('image_import_item_preview', { target: 'chair' }) as typeof before
+    expect(after.itemSha256).toBe(before.itemSha256)
+    expect(after.inputHash).not.toBe(before.inputHash)
+    await expect(session.execute('image_import_set_repair_scope', scope)).rejects.toThrow('已变化')
+    const pack = await readImageWorkPackage(await session.exportWork()), fresh = new ImageImportToolSession(input, rights)
+    expect(pack.state.draft.layers[0].repair).toBe('structure')
+    fresh.restoreWork(pack.state)
+    const cold = await fresh.execute('image_import_item_preview', { target: 'chair' }) as typeof before
+    expect(cold.itemSha256).toBe(after.itemSha256); expect(cold.backgroundSha256).toBe(after.backgroundSha256); expect(cold.inputHash).toBe(after.inputHash)
+  })
   it('changes only repair scope atomically, invalidates old reviews, and replays exact bytes after undo and cold resume', async () => {
     const input = await source(), session = new ImageImportToolSession(input, rights)
     const selectionMask = { x: 3, y: 3, width: 5, height: 5, runs: [25, 255] }
