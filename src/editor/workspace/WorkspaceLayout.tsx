@@ -112,8 +112,15 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     currentDrawer.current = null
     if (restoreFocus && active && closing) {
       const previous = drawerReturnFocus.current
-      if (previous?.isConnected && !previous.closest('[hidden],[inert]') && !panelRef(closing).current?.contains(previous)) previous.focus()
-      else triggers.current[closing]?.focus()
+      // Programmatic panels can open after their initiating button unmounts,
+      // leaving body as the recorded opener. Connected/visible alone does not
+      // make an element focusable (a disabled opener also ignores focus()).
+      let restored = false
+      if (previous?.isConnected && previous !== document.body && !previous.closest('[hidden],[inert]') && !panelRef(closing).current?.contains(previous)) {
+        previous.focus()
+        restored = document.activeElement === previous
+      }
+      if (!restored) triggers.current[closing]?.focus()
     }
     drawerReturnFocus.current = null
   }

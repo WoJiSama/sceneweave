@@ -195,6 +195,7 @@ test.describe('U1b narrow workspace', () => {
     await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
     await inspector(page).getByRole('button', { name: '关闭当前详情', exact: true }).click()
     await expectDrawers(page, null)
+    await expect(page.getByRole('button', { name: '当前详情', exact: true })).toBeFocused()
     await expectSameCanvas(page)
     expect(await projectState(page)).toEqual(before)
 
