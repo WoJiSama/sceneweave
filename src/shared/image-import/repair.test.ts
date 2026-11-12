@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { extractImageLayer, type ImagePixelMask, type ImagePixels, type PixelBounds } from './pixels.js'
-import { repairImageRegion } from './repair.js'
+import { repairImageRegion, repairImageTexture } from './repair.js'
+import { imageImportLayerSchema } from './recipe.js'
 import { createHash } from 'node:crypto'
 
 function image(width: number, height: number, color: (x: number, y: number) => number[]): ImagePixels {
@@ -216,6 +217,71 @@ describe('explicit donor boundary-phase alignment', () => {
     const { source, mask, donor } = phaseFixture(), before = source.data.slice()
     expect(() => repairImageRegion(source, mask, donor, { alignment: 'boundary-phase-v1', maxWork: 1_000_000 })).toThrow('计算预算')
     expect(() => repairImageRegion(source, mask, { x: 34, y: 20, width: 2, height: 2 }, { alignment: 'boundary-phase-v1' })).toThrow('相交')
+    expect(source.data).toEqual(before)
+  })
+})
+
+describe('explicit source-sized texture patch repair', () => {
+  const texture = (x: number, y: number) => {
+    const row = ((y % 13) + 13) % 13, column = ((x % 17) + 17) % 17
+    if (row === 0 || column === 0 && row < 7) return [32, 26, 18, 255]
+    return [116 + column % 3 * 9, 82 + row % 3 * 6, 50 + (column + row) % 4 * 3, 255]
+  }
+  const fixture = () => {
+    const bounds = { x: 49, y: 30, width: 29, height: 26 }, donor = { x: 2, y: 2, width: 36, height: 28 }
+    const truth = image(110, 82, texture), source = image(110, 82, (x, y) => x >= 49 && x < 78 && y >= 30 && y < 56 ? [245, 0, 230, 255] : texture(x, y))
+    return { bounds, donor, truth, source, mask: rectangleMask(bounds) }
+  }
+
+  it('continues known plank lines and fine grain using real donor colours without smooth object-shaped patches', () => {
+    const { source, truth, bounds, donor, mask } = fixture(), before = source.data.slice()
+    const repaired = repairImageTexture(source, mask, donor), palette = new Set<string>()
+    for (let y = donor.y; y < donor.y + donor.height; y++) for (let x = donor.x; x < donor.x + donor.width; x++) palette.add(rgba(source, x, y).join(','))
+    let error = 0, selectedPixels = 0, truthDark = 0, recoveredDark = 0
+    for (let y = 0; y < source.height; y++) for (let x = 0; x < source.width; x++) {
+      if (x >= bounds.x && x < bounds.x + bounds.width && y >= bounds.y && y < bounds.y + bounds.height) {
+        selectedPixels++
+        expect(palette.has(rgba(repaired, x, y).join(','))).toBe(true)
+        for (let channel = 0; channel < 3; channel++) error += Math.abs(rgba(repaired, x, y)[channel] - rgba(truth, x, y)[channel])
+        if (rgba(truth, x, y)[0] < 40) truthDark++
+        if (rgba(repaired, x, y)[0] < 40) recoveredDark++
+      } else expect(rgba(repaired, x, y)).toEqual(rgba(source, x, y))
+    }
+    expect(error / selectedPixels / 3).toBeLessThan(6)
+    expect(recoveredDark / truthDark).toBeGreaterThan(.8)
+    expect(recoveredDark / truthDark).toBeLessThan(1.2)
+    expect(repairImageTexture(source, mask, donor).data).toEqual(repaired.data)
+    expect(extractImageLayer(source, polygon(bounds), donor, { repair: 'texture' }).remaining.data).toEqual(repaired.data)
+    expect(source.data).toEqual(before)
+  })
+
+  it('does not sample removed object colours and preserves excluded visible holes byte for byte', () => {
+    const first = fixture(), second = fixture()
+    for (let y = first.bounds.y; y < first.bounds.y + first.bounds.height; y++) for (let x = first.bounds.x; x < first.bounds.x + first.bounds.width; x++) second.source.data.set([0, 255, 0, 40], (y * second.source.width + x) * 4)
+    expect(repairImageTexture(first.source, first.mask, first.donor).data).toEqual(repairImageTexture(second.source, second.mask, second.donor).data)
+    first.mask.data[12 * first.mask.width + 14] = 0
+    const repaired = repairImageTexture(first.source, first.mask, first.donor)
+    expect(rgba(repaired, first.bounds.x + 14, first.bounds.y + 12)).toEqual([245, 0, 230, 255])
+  })
+
+  it('isolates two material donors and carries explicit zones through the cleanup halo', () => {
+    const blue = [40, 90, 150, 255], wood = [140, 100, 60, 255]
+    const source = image(80, 60, (x, y) => x >= 30 && x < 50 && y >= 20 && y < 40 ? [250, 0, 250, 255] : x < 40 ? blue : wood)
+    const base = rectangleMask({ x: 30, y: 20, width: 20, height: 20 }), mask = rectangleMask({ x: 28, y: 18, width: 24, height: 24 })
+    const repaired = repairImageTexture(source, mask, { x: 5, y: 5, width: 15, height: 15 },
+      { baseMask: base, regions: [{ mask: rectangleMask({ x: 40, y: 20, width: 10, height: 20 }), donor: { x: 60, y: 5, width: 15, height: 15 } }] })
+    for (let y = 18; y < 42; y++) for (let x = 28; x < 52; x++) expect(rgba(repaired, x, y)).toEqual(x < 40 ? blue : wood)
+    expect(rgba(repaired, 27, 30)).toEqual(blue)
+    expect(rgba(repaired, 52, 30)).toEqual(wood)
+  })
+
+  it('admits the new strict replay mode and rejects insufficient budgets or invalid donors without mutating input', () => {
+    const { source, mask, donor, bounds } = fixture(), before = source.data.slice()
+    expect(imageImportLayerSchema.parse({ id: 'texture', name: 'texture', polygon: polygon(bounds), donor, renderLayer: 'object', blocksMovement: false, repair: 'texture' }).repair).toBe('texture')
+    expect(() => repairImageTexture(source, mask, donor, { maxWork: 1 })).toThrow('计算预算')
+    expect(() => repairImageTexture(source, mask, { x: 0, y: 0, width: 2, height: 2 })).toThrow('至少3×3')
+    expect(() => repairImageTexture(source, mask, { ...bounds, width: 5, height: 5 })).toThrow('相交')
+    expect(() => repairImageTexture(source, { ...mask, data: new Uint8Array(mask.data.length) }, donor)).toThrow('没有覆盖')
     expect(source.data).toEqual(before)
   })
 })

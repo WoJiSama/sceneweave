@@ -3,18 +3,26 @@ import { captureJson, freezeJson } from '../validation/json.js'
 import { createImageCalibration, assertImagePoint, imagePointSchema } from './calibration.js'
 import { imageVectorOptionsSchema } from './vector.js'
 import { imageSelectionMaskSchema, decodeSelectionMask, assertSelectionMaskBudget } from './selection-mask.js'
+import { guidedSelectionSchema } from './guided-selection.js'
+import { imageSelectionOriginSchema, assertImageSelectionOrigin } from './selection-origin.js'
+import { imageEnhancementDirectionSchema } from '../image-enhancement/schema.js'
 
 const points = z.array(imagePointSchema).min(3).max(256)
 const donor = z.strictObject({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative(),
   width: z.number().int().positive(), height: z.number().int().positive() })
+export const binaryImageScopeSchema = imageSelectionMaskSchema.refine(value => value.runs.every((entry, index) => index % 2 === 0 || entry === 0 || entry === 255),
+  '独立移除和保护范围必须为二值覆盖。')
 export const imageImportLayerSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/).refine(value => value !== '__proto__'),
   name: z.string().trim().min(1).max(120), polygon: points, donor,
   renderLayer: z.enum(['ground', 'object']), blocksMovement: z.boolean(),
-  repair: z.enum(['tile', 'seamless', 'aligned']).optional(),
+  repair: z.enum(['tile', 'seamless', 'aligned', 'texture', 'context']).optional(),
   fills: z.array(z.strictObject({ polygon: points, donor })).max(8).optional(),
   cleanupPx: z.number().int().min(0).max(8).optional(),
   selectionMask: imageSelectionMaskSchema.optional(),
+  removalMask: binaryImageScopeSchema.optional(), protectionMask: binaryImageScopeSchema.optional(),
+  selectionOrigin: imageSelectionOriginSchema.optional(),
+  guidedSelection: guidedSelectionSchema.optional(),
   vector: imageVectorOptionsSchema.optional(),
   footprintPx: z.strictObject({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative(),
     width: z.number().finite().positive(), height: z.number().finite().positive() }).optional(),
@@ -40,15 +48,27 @@ export function parseImageImportRecipe(input: unknown): ImageImportRecipe {
   if (recipe.layers.length + 1 > 64) throw new Error('地板材质与拆出物件合计最多64项，请收窄采用范围。')
   createImageCalibration({ ...recipe.calibration, pixelWidth: recipe.image.pixelWidth, pixelHeight: recipe.image.pixelHeight })
   const ids = new Set<string>()
-  assertSelectionMaskBudget(recipe.layers.map(layer => layer.selectionMask))
+  assertSelectionMaskBudget(recipe.layers.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]))
   for (const point of recipe.roomPointsPx) assertImagePoint(recipe.image, point)
   for (const point of recipe.sourceBoundaryPx ?? []) assertImagePoint(recipe.image, point)
   for (const layer of recipe.layers) {
     if (ids.has(layer.id)) throw new Error('拆解物件身份重复。')
     ids.add(layer.id)
     layer.polygon.forEach(point => assertImagePoint(recipe.image, point))
-    if (layer.selectionMask) {
-      decodeSelectionMask(layer.selectionMask, { width: recipe.image.pixelWidth, height: recipe.image.pixelHeight })
+    if (layer.guidedSelection) {
+      const guide = layer.guidedSelection, bounds = guide.bounds
+      assertImagePoint(recipe.image, { x: bounds.x, y: bounds.y })
+      assertImagePoint(recipe.image, { x: bounds.x + bounds.width, y: bounds.y + bounds.height })
+      for (const stroke of [...guide.foreground, ...guide.background]) for (const point of stroke.points) {
+        assertImagePoint(recipe.image, point)
+        if (point.x < bounds.x || point.y < bounds.y || point.x > bounds.x + bounds.width || point.y > bounds.y + bounds.height) throw new Error('辅助笔迹超出本物件局部范围。')
+      }
+    }
+    for (const mask of [layer.selectionMask, layer.removalMask, layer.protectionMask]) if (mask) decodeSelectionMask(mask, { width: recipe.image.pixelWidth, height: recipe.image.pixelHeight })
+    if (layer.removalMask && layer.cleanupPx) throw new Error('独立移除范围不能同时使用残影外扩。')
+    if (layer.selectionOrigin) {
+      if (!layer.selectionMask) throw new Error('本机候选来源必须伴随确切选区。')
+      assertImageSelectionOrigin(layer.selectionOrigin, recipe.image)
     }
     if (layer.footprintPx) {
       assertImagePoint(recipe.image, { x: layer.footprintPx.x, y: layer.footprintPx.y })
@@ -65,6 +85,18 @@ export function parseImageImportRecipe(input: unknown): ImageImportRecipe {
 
 const generation = { generation: z.number().int().nonnegative() }
 export const imageImportToolArguments = {
+  image_import_workflow: z.strictObject({}),
+  image_import_export_work: z.strictObject({}),
+  image_import_set_checkpoint: z.strictObject({ ...generation, notes: z.string().max(8000), nextAction: z.string().max(2000), scaleStatus: z.enum(['provisional', 'measured']) }),
+  image_import_guided_selection: z.strictObject({ ...generation, target: z.string().min(1).max(80).optional(), guide: guidedSelectionSchema }),
+  image_import_set_selection: z.strictObject({ ...generation, target: z.string().min(1).max(80), selectionMask: imageSelectionMaskSchema, selectionOrigin: imageSelectionOriginSchema }),
+  image_import_set_repair_scope: z.strictObject({ ...generation, target: z.string().min(1).max(80),
+    removalMask: binaryImageScopeSchema.nullable(), protectionMask: binaryImageScopeSchema.nullable(),
+    donor: donor.optional(), repair: imageImportLayerSchema.shape.repair }),
+  image_import_item_preview: z.strictObject({ target: z.string().min(1).max(80) }),
+  image_import_enhancement_candidates: z.strictObject({ target: z.string().min(1).max(80), direction: imageEnhancementDirectionSchema,
+    count: z.union([z.literal(2), z.literal(3)]), scale: z.union([z.literal(1), z.literal(2)]).optional() }),
+  image_import_review_item: z.strictObject({ ...generation, target: z.string().min(1).max(80), inputHash: z.string().regex(/^[a-f0-9]{64}$/), verdict: z.enum(['needs-work', 'reviewed']), note: z.string().min(1).max(2000) }),
   image_import_inspect: z.strictObject({}),
   image_import_set_scale: calibrationSchema.extend(generation),
   image_import_set_room: z.strictObject({ ...generation, points }),
@@ -87,10 +119,19 @@ export const imageImportToolArguments = {
 export type ImageImportToolName = keyof typeof imageImportToolArguments
 export const IMAGE_IMPORT_TOOLS = Object.entries(imageImportToolArguments).map(([name, schema]) => ({
   name, description: ({
+    image_import_workflow: '读取通用制作流程、恢复状态、下一步与已失效复核；新任务先调用。',
+    image_import_export_work: '保存独立制作工作包，包含原图、辅助输入和断点；普通工程不包含这些制作资料。',
+    image_import_set_checkpoint: '记录尚未解决的问题、下一操作与暂定/实测比例，不授予视觉通过。',
+    image_import_guided_selection: '在局部粗框中用少量前景/背景笔迹生成多色与边缘约束选区。新请求默认算法2；建议显式edgeCoverage:boundary防止内部半透明，回传guide供保存。旧配方未写版本仍按算法1重放，缺edgeCoverage保持旧边缘。未指定target时只返回候选；指定已有item时原子重放后更新。',
+    image_import_set_selection: '将已查看的本机模型候选选区用于已有物件，保留确切来源、点与模型摘要；按当前代次原子重放，不修改源RGB或授予视觉通过。新物件用extract_item携带相同selectionMask及selectionOrigin。',
+    image_import_set_repair_scope: '独立设置物件移除和邻物保护蒙版；null清除该范围，可同时选择取样和方式。移除须覆盖物件、保护不得与物件冲突；保护区不写入或作为取样证据。重放后一次采用，可撤销。context只用单材质完整取样补片，不恢复未知细节。',
+    image_import_item_preview: '读取指定item的400%黑底/白底/棋盘预览与确切输入、PNG及补底摘要，供真实视觉复核。',
+    image_import_enhancement_candidates: '从实际保真裁片生成2/3个独立增强候选及换底预览，返回确切源/参数/PNG摘要。只读，不替换原裁片或修改工程；选定后在统一素材页按同配方审阅采用。插值不恢复细节。',
+    image_import_review_item: '将助手的视觉复核绑定当前确切候选摘要；不代表用户签收，输入变化后失效。',
     image_import_inspect: '读取已授权原图身份、当前拆解草稿和代次。',
     image_import_set_scale: '用原图两点和实际毫米距离设置比例。',
-    image_import_set_room: '设置原图中的房间闭合轮廓。',
-    image_import_set_source_boundary: '标注需要原样保留的原画外轮廓，包括黑墙，排除图外棋盘格。',
+    image_import_set_room: '设置房间地面内边界。保全原画墙沿和家具最外沿另用set_source_boundary；每件guide.boundaryPx只是局部分割限制。',
+    image_import_set_source_boundary: '设置整间原画保留外框，包含墙沿、叶尖及家具最外沿，排除图外棋盘。未设置时只能保留room内。完成范围和比例后先assess_fidelity预检再拆第一件。',
     image_import_set_output_scale: '设置1/2/4倍原色像素输出，不调色、不重画、不声称恢复原图缺失的细节。',
     image_import_extract_item: '按多边形提取原像素物件，并用指定露出纹理补底。上层先拆。',
     image_import_refine_selection: '在当前物件上磁性贴边或用保留/排除笔迹修正精细像素蒙版；保留原色与独立物理占地，成功重放才替换草稿。',

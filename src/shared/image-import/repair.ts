@@ -1,4 +1,5 @@
 import type { ImagePixelMask, ImagePixels, PixelBounds } from './pixels.js'
+import { maskCoverage } from './repair-scope.js'
 
 export interface ImageRegionRepairOptions {
   /** Relaxation iterations per scale. Affects the fixed output and must accompany replay settings. */
@@ -9,6 +10,8 @@ export interface ImageRegionRepairOptions {
   regions?: Array<{ mask: ImagePixelMask; donor: PixelBounds }>
   /** Original object selection, before the separately declared cleanup halo is expanded. */
   baseMask?: ImagePixelMask
+  /** Exclude neighbours from boundary evidence; caller supplies a protection-subtracted write mask. */
+  protectionMask?: ImagePixelMask
   /** Explicit fixed algorithm; omitted keeps the original seamless recipe byte-for-byte. */
   alignment?: 'boundary-phase-v1'
 }
@@ -206,12 +209,12 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
     const material = guidanceDonor(x, y), channels: number[][] = [[], [], [], []]
     for (let ny = Math.max(0, y - BOUNDARY_RADIUS); ny <= Math.min(image.height - 1, y + BOUNDARY_RADIUS); ny++) {
       for (let nx = Math.max(0, x - BOUNDARY_RADIUS); nx <= Math.min(image.width - 1, x + BOUNDARY_RADIUS); nx++) {
-        if (maskAt(mask, nx, ny) || guidanceDonor(nx, ny) !== material) continue
+        if (maskAt(mask, nx, ny) || maskCoverage(options.protectionMask, nx, ny) || guidanceDonor(nx, ny) !== material) continue
         const original = (ny * image.width + nx) * 4, sample = guidanceIndex(nx, ny)
         for (let channel = 0; channel < 4; channel++) channels[channel].push(premultiplied(image.data, original, channel) - premultiplied(image.data, sample, channel))
       }
     }
-    const correction = channels.map(median)
+    const correction = channels.map(values => values.length ? median(values) : 0)
     boundaryCache.set(key, correction)
     return correction
   }
@@ -241,7 +244,7 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
         let near = false
         for (let distance = 1; distance <= 3 && !near; distance++) near = !!(maskAt(mask, x - distance, y)
           || maskAt(mask, x + distance, y) || maskAt(mask, x, y - distance) || maskAt(mask, x, y + distance))
-        if (near) evidence.get(guidanceDonor(x, y))!.push((y * image.width + x) * 4)
+        if (near && !maskCoverage(options.protectionMask, x, y)) evidence.get(guidanceDonor(x, y))!.push((y * image.width + x) * 4)
       }
     }
     for (const material of donors) phases.set(material, alignDonor(image, material, evidence.get(material)!))
@@ -255,7 +258,7 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
       const x = mask.boundsPx.x + column, y = mask.boundsPx.y + row
       if (donors.some(bounds => x >= bounds.x && x < bounds.x + bounds.width && y >= bounds.y && y < bounds.y + bounds.height)) throw new Error('补底取样范围与遮罩相交。')
       for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-        if (nx < 0 || ny < 0 || nx >= image.width || ny >= image.height || maskAt(mask, nx, ny)) continue
+        if (nx < 0 || ny < 0 || nx >= image.width || ny >= image.height || maskAt(mask, nx, ny) || maskCoverage(options.protectionMask, nx, ny)) continue
         const correction = boundaryCorrection(nx, ny)
         const samples = boundarySamples.get(guidanceDonor(nx, ny))!
         for (let channel = 0; channel < 4; channel++) samples[channel].push(correction[channel])
@@ -318,6 +321,135 @@ export function repairImageRegion(image: ImagePixels, mask: ImagePixelMask, dono
       for (let channel = 0; channel < 3; channel++) {
         data[output + channel] = alpha > 0 ? Math.round((premultiplied(image.data, sample, channel) + correction.values[gridIndex + channel]) * 255 / alpha) : 0
       }
+    }
+  }
+  return { width: image.width, height: image.height, data }
+}
+
+/**
+ * Fixed texture-patches-v1: fill in source-sized patches from the declared
+ * material. Exact donor pixels are copied; no colour diffusion, resampling,
+ * mirroring or smoothing can erase hand-drawn ink. Hidden content is inferred.
+ */
+export function repairImageTexture(image: ImagePixels, mask: ImagePixelMask, donor: PixelBounds,
+  options: Pick<ImageRegionRepairOptions, 'maxWork' | 'regions' | 'baseMask' | 'protectionMask'> = {}): ImagePixels {
+  validate(image, mask, donor)
+  const regions = options.regions ?? [], base = options.baseMask ?? mask, maxWork = options.maxWork ?? DEFAULT_WORK
+  if (!Number.isSafeInteger(maxWork) || maxWork < 1) throw new Error('纹理补片工作预算无效。')
+  if (mask.width * mask.height > MAX_GRID_PIXELS) throw new Error('纹理补片选区超过100万像素，请缩小范围。')
+  if (!Array.isArray(regions) || regions.length > 8) throw new Error('纹理补片最多支持8个取样区域。')
+  validate(image, base, donor); regions.forEach(region => validate(image, region.mask, region.donor))
+  let work = 0
+  const charge = (amount: number) => {
+    work += amount
+    if (work > maxWork) throw new Error('纹理补片超过计算预算，请缩小选区或扩大合适的取样。')
+  }
+  const donors = [donor, ...regions.map(region => region.donor)]
+  for (const material of donors) {
+    if (material.width < 3 || material.height < 3) throw new Error('纹理补片需要至少3×3像素的同材质取样。')
+    charge(material.width * material.height)
+    for (let y = material.y; y < material.y + material.height; y++) for (let x = material.x; x < material.x + material.width; x++) {
+      if (maskAt(mask, x, y)) throw new Error('补底取样范围与遮罩相交。')
+    }
+  }
+  let selected = 0, baseCount = 0
+  for (let y = 0; y < base.height; y++) for (let x = 0; x < base.width; x++) if (base.data[y * base.width + x]) {
+    baseCount++
+    if (!maskAt(mask, base.boundsPx.x + x, base.boundsPx.y + y)) throw new Error('原物件遮罩必须完整包含在修补范围内。')
+  }
+  if (!baseCount) throw new Error('原物件遮罩没有覆盖像素。')
+  charge(mask.data.length * (5 + donors.length) + Math.min(image.width, mask.width + 70) * Math.min(image.height, mask.height + 70) * (2 * regions.length + 1))
+  const labels = extendMaterialLabels(image, mask, base, regions)
+  const labelAt = (x: number, y: number) => labels.data[(y - labels.bounds.y) * labels.bounds.width + x - labels.bounds.x]
+  const unknown = Uint8Array.from(mask.data, value => value ? 1 : 0), seen = new Uint8Array(mask.data.length), queue = new Int32Array(mask.data.length)
+  const unknownAt = (x: number, y: number) => {
+    const localX = x - mask.boundsPx.x, localY = y - mask.boundsPx.y
+    return localX >= 0 && localY >= 0 && localX < mask.width && localY < mask.height ? unknown[localY * mask.width + localX] : 0
+  }
+  const originalSelected = (x: number, y: number) => maskAt(mask, x, y) > 0
+  let head = 0, tail = 0
+  for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+    const index = y * mask.width + x
+    if (!unknown[index]) continue
+    selected++
+    const px = x + mask.boundsPx.x, py = y + mask.boundsPx.y
+    if (px === 0 || py === 0 || px + 1 === image.width || py + 1 === image.height
+      || !originalSelected(px - 1, py) || !originalSelected(px + 1, py) || !originalSelected(px, py - 1) || !originalSelected(px, py + 1)) {
+      queue[tail++] = index; seen[index] = 1
+    }
+  }
+  if (!selected) throw new Error('补底遮罩没有覆盖像素。')
+  // Geometric breadth-first order depends on the mask only, never object RGB.
+  while (head < tail) {
+    const index = queue[head++], x = index % mask.width, y = Math.floor(index / mask.width)
+    for (const next of [x ? index - 1 : -1, x + 1 < mask.width ? index + 1 : -1,
+      y ? index - mask.width : -1, y + 1 < mask.height ? index + mask.width : -1]) {
+      if (next >= 0 && unknown[next] && !seen[next]) { seen[next] = 1; queue[tail++] = next }
+    }
+  }
+  const data = image.data.slice()
+  interface Evidence { dx: number; dy: number; original: number; gradient: number }
+  for (let pending = 0; pending < tail; pending++) {
+    const local = queue[pending]
+    if (!unknown[local]) continue
+    const tx = local % mask.width + mask.boundsPx.x, ty = Math.floor(local / mask.width) + mask.boundsPx.y
+    const label = labelAt(tx, ty), material = donors[label], radius = Math.min(4, Math.floor((Math.min(material.width, material.height) - 1) / 2))
+    const evidence: Evidence[] = []
+    for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+      const x = tx + dx, y = ty + dy
+      if (x < 0 || y < 0 || x >= image.width || y >= image.height || unknownAt(x, y) || maskCoverage(options.protectionMask, x, y) || labelAt(x, y) !== label) continue
+      const original = (y * image.width + x) * 4
+      let gradient = 0
+      if (x + 1 < image.width && !unknownAt(x + 1, y) && !maskCoverage(options.protectionMask, x + 1, y) && labelAt(x + 1, y) === label) gradient |= 1
+      if (y + 1 < image.height && !unknownAt(x, y + 1) && !maskCoverage(options.protectionMask, x, y + 1) && labelAt(x, y + 1) === label) gradient |= 2
+      evidence.push({ dx, dy, original, gradient })
+    }
+    const sampled = Array.from({ length: Math.min(40, evidence.length) }, (_, index) => evidence[Math.floor(index * evidence.length / Math.min(40, evidence.length))])
+    const left = material.x + radius, top = material.y + radius
+    const right = material.x + material.width - radius - 1, bottom = material.y + material.height - radius - 1
+    const candidatePixels = (right - left + 1) * (bottom - top + 1), stride = Math.max(1, Math.ceil(Math.sqrt(candidatePixels / 256)))
+    const visited = new Set<number>(), best: Array<{ x: number; y: number; score: number }> = []
+    const consider = (x: number, y: number) => {
+      if (x < left || y < top || x > right || y > bottom) return
+      const key = y * image.width + x
+      if (visited.has(key)) return
+      visited.add(key); charge(Math.max(1, sampled.length) * 12)
+      let score = 0
+      for (const point of sampled) {
+        const from = ((y + point.dy) * image.width + x + point.dx) * 4
+        for (let channel = 0; channel < 4; channel++) {
+          const difference = premultiplied(data, point.original, channel) - premultiplied(image.data, from, channel)
+          score += difference * difference
+          // Match the direction and contrast of visible ink as well as colour.
+          if (point.gradient & 1 && x + point.dx + 1 < material.x + material.width) {
+            const gradient = premultiplied(data, point.original + 4, channel) - premultiplied(data, point.original, channel)
+              - premultiplied(image.data, from + 4, channel) + premultiplied(image.data, from, channel)
+            score += gradient * gradient * .5
+          }
+          if (point.gradient & 2 && y + point.dy + 1 < material.y + material.height) {
+            const gradient = premultiplied(data, point.original + image.width * 4, channel) - premultiplied(data, point.original, channel)
+              - premultiplied(image.data, from + image.width * 4, channel) + premultiplied(image.data, from, channel)
+            score += gradient * gradient * .5
+          }
+        }
+      }
+      score /= Math.max(1, sampled.length)
+      best.push({ x, y, score }); best.sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x)
+      if (best.length > 3) best.length = 3
+    }
+    // The unshifted source phase is an ordinary candidate, never privileged over evidence.
+    consider(Math.max(left, Math.min(right, tx)), Math.max(top, Math.min(bottom, ty)))
+    for (let y = top; y <= bottom; y += stride) for (let x = left; x <= right; x += stride) consider(x, y)
+    if (stride > 1) for (const coarse of [...best]) for (let dy = -stride + 1; dy < stride; dy++) for (let dx = -stride + 1; dx < stride; dx++) consider(coarse.x + dx, coarse.y + dy)
+    const chosen = best[0]
+    if (!chosen) throw new Error('同材质取样无法提供完整纹理补片，请扩大取样。')
+    charge((radius * 2 + 1) ** 2 * 4)
+    for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+      const x = tx + dx, y = ty + dy
+      if (x < 0 || y < 0 || x >= image.width || y >= image.height || !unknownAt(x, y) || labelAt(x, y) !== label) continue
+      const destination = (y * image.width + x) * 4, source = ((chosen.y + dy) * image.width + chosen.x + dx) * 4
+      data.set(image.data.subarray(source, source + 4), destination)
+      unknown[(y - mask.boundsPx.y) * mask.width + x - mask.boundsPx.x] = 0
     }
   }
   return { width: image.width, height: image.height, data }

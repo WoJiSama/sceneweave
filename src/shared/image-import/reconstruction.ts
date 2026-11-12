@@ -23,7 +23,7 @@ export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
       if (!value) continue
       const sx = x + extracted.mask.boundsPx.x, sy = y + extracted.mask.boundsPx.y
       const bx = sx - scope.boundsPx.x, by = sy - scope.boundsPx.y
-      if (bx < 0 || by < 0 || bx >= scope.width || by >= scope.height || !scope.data[by * scope.width + bx]) throw new Error('物件轮廓超出原图保留范围，请扩大外框；不能裁掉原画细节。')
+      if (bx < 0 || by < 0 || bx >= scope.width || by >= scope.height || !scope.data[by * scope.width + bx]) throw new Error(`物件“${layer.name}”在原图像素(${sx}, ${sy})超出原图保留范围，请扩大外框；不能裁掉原画细节。房间内边界用于地面，原图保留外框还须包含墙沿和家具最外沿；物件粗范围不能代替外框。`)
     }
     for (let y = 0; y < extracted.repairMask.height; y++) for (let x = 0; x < extracted.repairMask.width; x++) {
       if (!extracted.repairMask.data[y * extracted.repairMask.width + x]) continue

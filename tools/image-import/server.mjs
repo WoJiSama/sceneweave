@@ -7,20 +7,27 @@ import { chromium } from '@playwright/test'
 import { startHarnessTooling } from '../harness/tooling.mjs'
 import { verifyDiskDelivery } from '../harness/browser.mjs'
 import { readBounded, replaceResult, writeVerified } from '../harness/io.mjs'
+import { executeLocalSegmentation, LOCAL_SEGMENTATION_TOOL } from './local-tool.mjs'
 
-const usage = 'node tools/image-import/server.mjs --image ABS_IMAGE --license-file ABS_LICENSE --attribution TEXT --output EXISTING_OUTPUT_DIRECTORY'
+const usage = 'node tools/image-import/server.mjs (--image ABS_IMAGE --license-file ABS_LICENSE --attribution TEXT | --resume ABS_WORK_PACKAGE) --output EXISTING_OUTPUT_DIRECTORY [--local-model-dir ABS_DIR --python ABS_PYTHON [--python-path ABS_DEPENDENCY_DIR]]'
 
 function parseOptions(args) {
   if (args.length === 1 && args[0] === '--help') return null
   const values = new Map()
-  const allowed = ['--image', '--license-file', '--attribution', '--output']
+  const allowed = ['--image', '--license-file', '--attribution', '--output', '--resume', '--local-model-dir', '--python', '--python-path']
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index]
     const value = args[index + 1]
     if (!allowed.includes(key) || !value || values.has(key)) throw new Error(usage)
     values.set(key, value)
   }
-  if (values.size !== 4 || ['--image', '--license-file', '--output'].some(key => !path.isAbsolute(values.get(key)))) {
+  const resumed = values.has('--resume')
+  const local = values.has('--local-model-dir')
+  const extras = ['--local-model-dir', '--python', '--python-path'].filter(key => values.has(key)).length
+  if ((resumed ? values.size - extras !== 2 || !path.isAbsolute(values.get('--resume')) || !path.isAbsolute(values.get('--output') ?? '')
+    : values.size - extras !== 4 || ['--image', '--license-file', '--output'].some(key => !path.isAbsolute(values.get(key) ?? '')))
+    || (local ? ['--local-model-dir', '--python'].some(key => !path.isAbsolute(values.get(key) ?? '')) : extras > 0)
+    || values.has('--python-path') && !path.isAbsolute(values.get('--python-path'))) {
     throw new Error(usage)
   }
   return {
@@ -28,6 +35,8 @@ function parseOptions(args) {
     licenseFile: values.get('--license-file'),
     attribution: values.get('--attribution'),
     output: values.get('--output'),
+    resume: values.get('--resume'),
+    localModelDir: values.get('--local-model-dir'), python: values.get('--python'), pythonPath: values.get('--python-path'),
   }
 }
 
@@ -48,8 +57,17 @@ async function executeInBrowser({ name, input }) {
     }
     return btoa(text)
   }
-  if (name === 'image_import_preview') {
-    return { previewBase64: encode(result.bytes), generation: result.generation }
+  if (name === 'image_import_export_work') return { workBase64: encode(result.bytes), generation: result.generation }
+  if (name === 'image_import_enhancement_candidates') {
+    const { sourceBytes, candidates, ...metadata } = result
+    return { enhancements: { ...metadata, sourceBase64: encode(sourceBytes), candidates: candidates.map(candidate => {
+      const { bytes, reviewBytes, ...info } = candidate
+      return { ...info, pngBase64: encode(bytes), reviewBase64: encode(reviewBytes) }
+    }) } }
+  }
+  if (name === 'image_import_preview' || name === 'image_import_item_preview') {
+    const { bytes, ...metadata } = result
+    return { previewBase64: encode(bytes), ...metadata }
   }
   if (name !== 'image_import_build_project') return { value: result }
 
@@ -109,10 +127,11 @@ async function saveCandidate(response, output, context, tooling) {
 }
 
 async function serve(options) {
-  const image = await readBounded(options.image, 20 * 1024 * 1024)
-  const licenseBytes = await readBounded(options.licenseFile, 256 * 1024)
-  const licenseText = new TextDecoder('utf-8', { fatal: true }).decode(licenseBytes)
-  if (!(await fs.stat(options.output)).isDirectory() || !licenseText.trim() || !options.attribution.trim()) {
+  const work = options.resume ? await readBounded(options.resume, 100 * 1024 * 1024) : null
+  const image = work ? null : await readBounded(options.image, 20 * 1024 * 1024)
+  const licenseBytes = work ? null : await readBounded(options.licenseFile, 256 * 1024)
+  const licenseText = licenseBytes ? new TextDecoder('utf-8', { fatal: true }).decode(licenseBytes) : ''
+  if (!(await fs.stat(options.output)).isDirectory() || !work && (!licenseText.trim() || !options.attribution.trim())) {
     throw new Error(usage)
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -126,7 +145,11 @@ async function serve(options) {
   let browser
   let lines
   try {
-    browser = await chromium.launch({ headless: true })
+    try { browser = await chromium.launch({ headless: true, ...(process.env.SCENEWEAVE_BROWSER_CHANNEL ? { channel: process.env.SCENEWEAVE_BROWSER_CHANNEL } : {}) }) }
+    catch (error) {
+      if (process.env.SCENEWEAVE_BROWSER_CHANNEL || !String(error).includes("Executable doesn't exist")) throw error
+      browser = await chromium.launch({ headless: true, channel: 'chrome' })
+    }
     const context = await browser.newContext({ serviceWorkers: 'block' })
     await context.route('**/*', route => route.request().url().startsWith(tooling.origin + '/') ? route.continue() : route.abort())
     await context.addInitScript(() => {
@@ -135,14 +158,36 @@ async function serve(options) {
     })
     const page = await context.newPage()
     await page.goto(tooling.url)
-    const definitions = await page.evaluate(async ({ base64, rights }) => {
+    const definitions = await page.evaluate(async ({ base64, workBase64, rights, originalName }) => {
       const sessionPath = '/src/platform/browser/content/image-import-session.ts'
       const schemaPath = '/src/shared/image-import/recipe.ts'
-      const { ImageImportToolSession, loadImageImportSource } = await import(sessionPath)
-      const source = await loadImageImportSource(Uint8Array.from(atob(base64), value => value.charCodeAt(0)))
-      window.imageImportTools = new ImageImportToolSession(source, rights)
+      const { ImageImportToolSession, loadImageImportSource, loadImageImportWorkSource } = await import(sessionPath)
+      const unpack = value => Uint8Array.from(atob(value), character => character.charCodeAt(0))
+      if (workBase64) {
+        const { readBrowserImageWorkPackage } = await import('/src/platform/browser/content/image-workflow-store.ts')
+        const work = await readBrowserImageWorkPackage(unpack(workBase64))
+        const source = await loadImageImportWorkSource(work)
+        source.originalName = work.state.original.name
+        window.imageImportTools = new ImageImportToolSession(source, work.state.rights)
+        window.imageImportSource = source
+        window.imageImportTools.restoreWork(work.state)
+      } else {
+        const source = await loadImageImportSource(unpack(base64))
+        source.originalName = originalName
+        window.imageImportTools = new ImageImportToolSession(source, rights)
+        window.imageImportSource = source
+      }
       return (await import(schemaPath)).IMAGE_IMPORT_TOOLS
-    }, { base64: image.toString('base64'), rights: { licenseText, attribution: options.attribution } })
+    }, { base64: image?.toString('base64'), workBase64: work?.toString('base64'), rights: { licenseText, attribution: options.attribution }, originalName: options.image ? path.basename(options.image) : '' })
+    if (options.localModelDir) definitions.push(LOCAL_SEGMENTATION_TOOL)
+
+    const saveWork = async () => {
+      const response = await page.evaluate(executeInBrowser, { name: 'image_import_export_work', input: {} })
+      if (response.toolError) throw new Error(response.toolError.message)
+      const filename = `work-${response.generation}-${randomUUID()}.sceneweave-image-work`
+      const written = await writeVerified(options.output, filename, Buffer.from(response.workBase64, 'base64'))
+      return { path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation }
+    }
 
     const handleLine = async line => {
       if (!line.trim()) return
@@ -191,21 +236,53 @@ async function serve(options) {
         return
       }
       try {
+        if (params.name === LOCAL_SEGMENTATION_TOOL.name) {
+          const content = await executeLocalSegmentation(page, options, params.arguments ?? {})
+          send({ jsonrpc: '2.0', id: request.id, result: { content } })
+          return
+        }
         const response = await page.evaluate(executeInBrowser, { name: params.name, input: params.arguments ?? {} })
         if (response.toolError) {
           send({ jsonrpc: '2.0', id: request.id, result: { isError: true, content: [{ type: 'text', text: JSON.stringify(response.toolError) }] } })
           return
         }
         let content
-        if (response.archiveBase64) {
+        if (response.enhancements) {
+          const { sourceBase64, candidates, ...metadata } = response.enhancements
+          const directory = path.join(options.output, `enhancement-${metadata.generation}-${randomUUID()}`)
+          await fs.mkdir(directory, { mode: 0o700 })
+          const source = await writeVerified(directory, 'source.png', Buffer.from(sourceBase64, 'base64'))
+          const records = [], images = []
+          for (const [index, candidate] of candidates.entries()) {
+            const { pngBase64, reviewBase64, ...info } = candidate
+            const png = await writeVerified(directory, `candidate-${index}.png`, Buffer.from(pngBase64, 'base64'))
+            const review = await writeVerified(directory, `candidate-${index}-review.png`, Buffer.from(reviewBase64, 'base64'))
+            if (png.record.sha256 !== info.pngSha256) throw new Error('增强候选落盘摘要不一致。')
+            records.push({ ...info, png: png.record, review: review.record })
+            images.push({ type: 'image', mimeType: 'image/png', data: reviewBase64 })
+          }
+          if (source.record.sha256 !== metadata.sourceItemSha256) throw new Error('增强原件落盘摘要不一致。')
+          const record = { ...metadata, source: source.record, candidates: records }
+          const written = await writeVerified(directory, 'candidates.json', Buffer.from(JSON.stringify(record, null, 2)+'\n'))
+          content = [{ type: 'text', text: JSON.stringify({ path: path.join(directory, 'candidates.json'), sha256: written.record.sha256, ...record }) }, ...images]
+        } else if (response.workBase64) {
+          const filename = `work-${response.generation}-${randomUUID()}.sceneweave-image-work`
+          const written = await writeVerified(options.output, filename, Buffer.from(response.workBase64, 'base64'))
+          content = [{ type: 'text', text: JSON.stringify({ path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation }) }]
+        } else if (response.archiveBase64) {
           content = await saveCandidate(response, options.output, context, tooling)
         } else if (response.previewBase64) {
           content = [
             { type: 'image', mimeType: 'image/png', data: response.previewBase64 },
-            { type: 'text', text: JSON.stringify({ generation: response.generation }) },
+            { type: 'text', text: JSON.stringify(Object.fromEntries(Object.entries(response).filter(([key]) => key !== 'previewBase64'))) },
           ]
         } else {
           content = [{ type: 'text', text: JSON.stringify(response.value) }]
+        }
+        if (Object.hasOwn(params.arguments ?? {}, 'generation') && params.name !== 'image_import_build_project'
+          && !(params.name === 'image_import_guided_selection' && !params.arguments?.target)) {
+          try { content.push({ type: 'text', text: JSON.stringify({ checkpoint: await saveWork() }) }) }
+          catch (error) { content.push({ type: 'text', text: JSON.stringify({ checkpointError: String(error), nextAction: '当前候选仍在进程中；先导出工作包再结束会话。' }) }) }
         }
         send({ jsonrpc: '2.0', id: request.id, result: { content } })
       } catch (error) {
