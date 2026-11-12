@@ -2,7 +2,7 @@ import type { SvgProcessingPort } from '../../../shared/ports/resources.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { CANONICAL_SVG_PROCESSOR, LEGACY_SVG_PROCESSOR } from '../../../shared/ai/svg.js'
 import { createBrowserImagePort } from '../images/index.js'
-import { rasterizeCanonicalSvgPixels } from './svg-raster.js'
+import { rasterizeCanonicalSvgInWorker } from './svg-worker-client.js'
 import { rasterizeLegacyNormalizedSvg } from './svg-raster-legacy.js'
 
 /** Actual isolated SVG -> PNG -> pixels; no persistent image or DOM SVG. */
@@ -10,7 +10,7 @@ export function createBrowserSvgPort(): SvgProcessingPort {
   return {
     processor: CANONICAL_SVG_PROCESSOR,
     validationConcurrency: 2,
-    rasterize(source, dimensions, options = {}) { return rasterizeCanonicalSvgPixels(source, dimensions, options.signal) },
+    rasterize(source, dimensions, options = {}) { return rasterizeCanonicalSvgInWorker(source, dimensions, options.signal) },
   }
 }
 
