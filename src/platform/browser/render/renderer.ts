@@ -47,7 +47,7 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
 
 export async function exportPng(input: ProjectBundle, options: RenderOptions): Promise<Blob> {
   options = { ...options }
-  return encodePng(await renderProject(input, options), options.signal)
+  return encodePng(await renderProject(input, options), options.signal, options.onPngMetrics)
 }
 
 // Existing leaf prop names remain source-compatible while all data and runtime paths are native-v1.

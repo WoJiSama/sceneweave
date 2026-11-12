@@ -60,7 +60,10 @@ export interface RenderOptions {
   floorId?: string
   /** Called once after a successful render and temporary-resource cleanup; observer errors are ignored. PNG encoding is excluded. */
   onMetrics?: (metrics: RenderMetrics) => void
+  /** Native output stages only; observers receive no reusable pixel data. */
+  onPngMetrics?: (metrics: PngMetrics) => void
 }
+export interface PngMetrics { mode: 'native'; encodeMs: number; submitMs: number; callbackWaitMs: number; readBytesMs: number; normalizeMs: number; totalMs: number; byteLength: number }
 export interface EditorRenderOptions extends RenderOptions {
   viewBoundsMm?: BoundsMm
   screenScalePxPerMm?: number
@@ -382,9 +385,29 @@ function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Pro
   ctx.restore()
 }
 function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, detail: EditorPropDetail = 'full'): void {
-  if (!projection.visual) { drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail); return }
+  const clipped = raster.readFrequently && prop.appearance.kind === 'image'
+  if (!projection.visual && !clipped) { drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail); return }
   const envelope = propPresentationEnvelope(projection, prop, { full: detail === 'full', outlinePaddingMm: detail === 'outline' ? .5 / Math.max(scaleX, scaleY) : 0 })
-  drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
+  // Canvas may defer thousands of blurred sprites until PNG readback. Bound
+  // each formal software-raster draw to its complete body/shadow envelope so
+  // native shadow processing need not consider the whole output surface.
+  // Round outward in device pixels and leave two extra pixels for sampling.
+  if (clipped) ctx.save()
+  try {
+    if (clipped) {
+      const b = envelope.boundsMm, origin = projection.bounds
+      // Filtered ground polygons must retain the full surface's top-left
+      // origin; moving it changes native blur rounding. Crop their far edges
+      // only. Ordinary Canvas image shadows can use all four finite edges.
+      const nearSide = projection.propPresentations?.[prop.id]?.mode === 'nearSide'
+      const left = nearSide ? 0 : Math.floor((b.x - origin.x) * scaleX) - 2, top = nearSide ? 0 : Math.floor((b.y - origin.y) * scaleY) - 2
+      const right = Math.ceil((b.x + b.width - origin.x) * scaleX) + 2, bottom = Math.ceil((b.y + b.height - origin.y) * scaleY) + 2
+      const transform = ctx.getTransform()
+      ctx.resetTransform(); ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top); ctx.clip(); ctx.setTransform(transform)
+    }
+    if (!projection.visual) drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail)
+    else drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
+  } finally { if (clipped) ctx.restore() }
 }
 function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoration, projection: Projection, raster: RasterSet): void {
   const bitmap = raster.byAssetId.get(value.assetId)
@@ -883,18 +906,28 @@ export async function renderRasterProjection(sources: RasterSources, projection:
 }
 
 /** PNG encoding owns and releases the output surface, including failure/cancel paths. */
-export async function encodePng(output: HTMLCanvasElement, signal?: AbortSignal): Promise<Blob> {
+export async function encodePng(output: HTMLCanvasElement, signal?: AbortSignal, onMetrics?: (metrics: PngMetrics) => void): Promise<Blob> {
+  const started = onMetrics ? performance.now() : 0
+  let submitMs = 0
   try {
     checkCancelled(signal)
-    const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(result => result ? resolve(result) : reject(new Error('PNG 编码失败，请降低输出尺寸。')), 'image/png'))
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      output.toBlob(result => result ? resolve(result) : reject(new Error('PNG 编码失败，请降低输出尺寸。')), 'image/png')
+      if (onMetrics) submitMs = performance.now() - started
+    })
+    const encodedAt = onMetrics ? performance.now() : 0
     checkCancelled(signal)
     if (blob.type !== 'image/png' || !blob.size || blob.size > PNG_MAX_ENCODED_BYTES) throw new Error('PNG 编码格式或字节数超过输出保护值。')
-    const bytes = normalizePngChunks(new Uint8Array(await blob.arrayBuffer()), PNG_MAX_ENCODED_BYTES)
+    const encoded = new Uint8Array(await blob.arrayBuffer()), readAt = onMetrics ? performance.now() : 0
+    const bytes = normalizePngChunks(encoded, PNG_MAX_ENCODED_BYTES)
     checkCancelled(signal)
     // Normalization already validates the actual PNG container/CRC/dimensions.
     // Its header remains first; avoid reapplying the per-asset 20 MiB budget here.
     const header = new DataView(bytes.buffer, bytes.byteOffset + 16, 8)
     if (header.getUint32(0) !== output.width || header.getUint32(4) !== output.height) throw new Error('PNG 实际编码尺寸与输出画布不一致。')
-    return new Blob([bytes.slice().buffer], { type: 'image/png' })
+    const result = new Blob([bytes.slice().buffer], { type: 'image/png' })
+    if (onMetrics) try { onMetrics({ mode: 'native', encodeMs: encodedAt - started, submitMs, callbackWaitMs: Math.max(0, encodedAt - started - submitMs), readBytesMs: readAt - encodedAt,
+      normalizeMs: performance.now() - readAt, totalMs: performance.now() - started, byteLength: bytes.length }) } catch { /* Observation cannot change output. */ }
+    return result
   } finally { disposeCanvas(output) }
 }
