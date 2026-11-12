@@ -1,7 +1,7 @@
 import type { ProjectData } from '../model/project.js'
-import { captureJson, cloneJson, encodeUtf8, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
+import { captureJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
-import { getProjectLocalTransaction, getProjectTransactionReceipt, validateProjectData } from './validate.js'
+import { createProjectReplayValidator, getProjectLocalTransaction, getProjectTransactionReceipt, validateProjectData } from './validate.js'
 import { equalTransactionValue, transactionSlot } from '../transaction/receipt.js'
 import { decodeProjectCoordinates, encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
 import { getOwnedProjectEncoding, type OwnedProjectEncoding } from './encoding.js'
@@ -41,9 +41,12 @@ function localEncodedEndpoints(input: ProjectDeltaEncodings | undefined, before:
 
 const hash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 // Every digest input is this operation's detached strict ProjectData result.
-const persisted = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'world' ? cloneJson(encodeProjectCoordinates(value)) : value
+// Coordinate transforms return frozen points. Hashing can consume those exact
+// owned values; mutable delta application still needs an unfrozen deep copy.
+const encodedRepresentation = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'world' ? encodeProjectCoordinates(value) : value
+const persisted = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'world' ? cloneJson(encodedRepresentation(value)) : value
 const world = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(value) : value
-const digest = (value: ProjectData) => sha256Bytes(encodeUtf8(canonicalOwned(persisted(value))))
+const digest = (value: ProjectData) => sha256Bytes(encodeUtf8(canonicalOwned(encodedRepresentation(value))))
 const record = (value: unknown): value is Record<string, DeltaValue> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const MAX_DELTA_VALUES = 1_200_000
 const MAX_FORWARD_DELTAS = 3
@@ -261,6 +264,36 @@ export function applyProjectDelta(input: ProjectData, delta: unknown, direction:
   const project = validateProjectData(world(result))
   if (digest(project) !== (forward ? checked.afterHash : checked.beforeHash)) throw new Error('增量重建完整内容hash不符；原工程保持。')
   return project
+}
+
+/** One graph audit owns these immutable strictly checked states. Every new
+ * result still receives full domain validation and an actual content digest;
+ * only the exact previous result can avoid repeating its baseline check. */
+export function createProjectDeltaReplay() {
+  const states = new WeakMap<ProjectData, string>()
+  const validator = createProjectReplayValidator()
+  // One optional complete local endpoint, never caller data. Audits typically
+  // visit consecutive versions; retaining only the last avoids re-encoding an
+  // already fully hashed predecessor without retaining a second graph/cache.
+  let encoded: { project: ProjectData; stored: ProjectData } | undefined
+  const remember = (project: ProjectData, expected: string): ProjectData => {
+    const stored = encodedRepresentation(project)
+    if (sha256Bytes(encodeUtf8(canonicalOwned(stored))) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
+    const owned = freezeJson(project); states.set(owned, expected)
+    encoded = { project: owned, stored: freezeJson(stored) }; return owned
+  }
+  const capture = (input: ProjectData, expected: string): ProjectData => {
+    if (!hash(expected)) throw new Error('增量链完整基线hash无效。')
+    if (states.get(input) === expected) return input
+    return remember(validator.validate(input), expected)
+  }
+  return Object.freeze({ capture, apply(input: ProjectData, delta: unknown): ProjectData {
+    const checked = validateProjectDelta(delta), baseline = capture(input, checked.beforeHash)
+    // All working objects remain private; cached states are never mutated.
+    const stored = cloneJson(encoded?.project === baseline ? encoded.stored : encodedRepresentation(baseline))
+    applyChanges(stored, checked, true)
+    return remember(validator.validate(world(stored)), checked.afterHash)
+  }, clear(): void { validator.clear(); encoded = undefined } })
 }
 
 /** Strict synchronous forward reconstruction; no validation authority escapes this operation. */

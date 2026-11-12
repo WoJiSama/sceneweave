@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fixture, runtime } from '../../application/workspace/test-fixtures.js'
 import { hitTestAllV2, selectionGeometryV2 } from '../../editor/native-canvas/selection.js'
 import { applyCommands, applySnapshotCommands } from '../commands/commands.js'
@@ -6,13 +6,13 @@ import { advanceHistoryIdentity } from '../history/identity.js'
 import type { AggregateGroup } from '../model/aggregate.js'
 import type { ProjectData } from '../model/project.js'
 import type { SceneDocument } from '../model/scene.js'
-import { applyProjectDelta, applyProjectDeltaChain, createProjectDelta } from '../project/delta.js'
+import { applyProjectDelta, applyProjectDeltaChain, createProjectDelta, createProjectDeltaReplay } from '../project/delta.js'
 import { projectContentHash, validateProjectData } from '../project/validate.js'
 import { projectScene } from '../projection/projection.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { aggregateWorldFrames } from './state.js'
-import { decodeSceneCoordinates, encodeSceneCoordinates } from './scene-coordinates.js'
+import { canonicalProjectCoordinates, decodeSceneCoordinates, encodeSceneCoordinates, encodeProjectCoordinates } from './scene-coordinates.js'
 
 function group(id: string, parentId: string | null = null, members: AggregateGroup['members'] = [], x = 0, y = 0, quarterTurns: 0 | 1 | 2 | 3 = 0): AggregateGroup {
   return { id, parentId, members, floorId: 'blank-floor', editLocked: false, frame: { translationMm: { x, y }, quarterTurns } }
@@ -33,6 +33,19 @@ const withDocument = (project: ProjectData, document: SceneDocument): ProjectDat
 })
 
 describe('aggregate representation through normal consumers', () => {
+  it('canonicalizes the complete at-rest representation without invoking caller accessors', () => {
+    const base = fixture().project, project = withDocument(base, grouped(base.document))
+    expect(canonicalProjectCoordinates(project)).toBe(canonicalJson(encodeProjectCoordinates(project)))
+    const noCoordinates = cloneJson(project); delete noCoordinates.document.aggregateCoordinates
+    expect(canonicalProjectCoordinates(noCoordinates)).toBe(canonicalJson(noCoordinates))
+    for (const level of ['document', 'aggregateCoordinates', 'encoding'] as const) {
+      const value = cloneJson(project), getter = vi.fn(() => { throw new Error('must not read') })
+      if (level === 'document') Object.defineProperty(value, level, { enumerable: true, get: getter })
+      else if (level === 'aggregateCoordinates') Object.defineProperty(value.document, level, { enumerable: true, get: getter })
+      else Object.defineProperty(value.document.aggregateCoordinates!, level, { enumerable: true, get: getter })
+      expect(() => canonicalProjectCoordinates(value)).toThrow(); expect(getter).not.toHaveBeenCalled()
+    }
+  })
   it('uses normal atomic commands for creation, reparent and dissolution without changing world content', () => {
     const source = fixture().project.document, original = cloneJson(source), initial = grouped(source)
     const frame = aggregateWorldFrames(initial.aggregateCoordinates!).get('representation-members')
@@ -115,5 +128,15 @@ describe('aggregate representation through normal consumers', () => {
     expect(deltaA.beforeHash).toBe(projectContentHash(first))
     expect(deltaA.afterHash).toBe(projectContentHash(second))
     expect(deltaB.afterHash).toBe(projectContentHash(third))
+    const replay = createProjectDeltaReplay(), captured = replay.capture(first, deltaA.beforeHash)
+    const replaySecond = replay.apply(captured, deltaA), replayThird = replay.apply(replaySecond, deltaB)
+    expect(replayThird).toEqual(third)
+    expect(projectContentHash(replayThird)).toBe(deltaB.afterHash)
+    // Returning to an older branch falls back to its complete encoding; an
+    // optional last endpoint cannot substitute another project's coordinates.
+    expect(replay.apply(captured, deltaA)).toEqual(second)
+    expect(() => replay.apply(replaySecond, { ...deltaB, afterHash: 'f'.repeat(64) })).toThrow(/hash/)
+    expect(replay.apply(replaySecond, deltaB)).toEqual(third)
+    expect(encodeSceneCoordinates(first.document)).toEqual(encodeSceneCoordinates(captured.document))
   })
 })

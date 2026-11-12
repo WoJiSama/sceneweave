@@ -30,6 +30,12 @@ export function validateSceneSnapshot(input: unknown): ValidationResult {
     const known = snapshots.get(input)
     if (known) return known
   }
+  return validateFreshSceneSnapshot(input)
+}
+
+/** Always perform the public complete parse/domain checks, then certify only
+ * that parser's detached result. This cannot register caller-owned data. */
+export function validateFreshSceneSnapshot(input: unknown): ValidationResult {
   const result = validateSceneDocument(input)
   return result.ok ? certify(result.document, result.warnings) : result
 }

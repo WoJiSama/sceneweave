@@ -8,7 +8,7 @@ import type { CompositionRevisionTransaction, PropUpdateCompositionTransaction }
 import { inspectDependencies } from '../commands/dependencies.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { sha256Bytes } from '../validation/hash.js'
-import { canonicalJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput } from '../validation/json.js'
+import { canonicalJson, captureJson, cloneJson, encodeUtf8, equalOwnedJson, freezeJson, inspectJsonInput } from '../validation/json.js'
 import type { ProjectData } from '../model/project.js'
 import { STATIC_SVG_LIMITS, CANONICAL_SVG_PROCESSOR } from '../ai/svg.js'
 import { PACKAGE_LIMITS } from './limits.js'
@@ -153,7 +153,7 @@ function ownedJsonByteLength(value: unknown): number {
 export function validateProjectData(input: unknown): ProjectData {
   return readProjectData(input, false)
 }
-function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
+function readProjectData(input: unknown, certifyContent: boolean, replayOwned = false): ProjectData {
   const issue = inspectJsonInput(input)
   if (issue) throw new Error(issue.message)
   const parsed = projectEnvelopeSchema.safeParse(input)
@@ -232,8 +232,58 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
     expanded += size
   }
   if (expanded > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节超过300MiB。')
-  if (certifyContent) projectSizes.set(project, { documentBytes, expandedBytes: expanded })
+  // Public results remain mutable and must never acquire reusable size proof.
+  // Replay callers freeze this privately owned result before returning it.
+  if (certifyContent || replayOwned) projectSizes.set(project, { documentBytes, expandedBytes: expanded })
   return project
+}
+
+const replayMetadataSchema = z.object({ title: nativeSceneSchema.shape.title,
+  revision: nativeSceneSchema.shape.revision, updatedAt: nativeSceneSchema.shape.updatedAt }).strict()
+export const PROJECT_REPLAY_CACHE_LIMITS = Object.freeze({ entries: 4, retainedBytes: 16 * 1024 * 1024 })
+/** One audit owns this bounded family of fully checked immutable projects.
+ * Every input is independently captured before comparison. Complete structural
+ * equality, not a digest, delta path, caller flag or revision, establishes that
+ * all non-metadata validation inputs are unchanged. The three excluded scene
+ * metadata fields have their actual strict schema and size budgets checked.
+ * Any other change falls back to the public complete validator, including
+ * identity, locks, topology, coordinate frames, resources and license changes. */
+export function createProjectReplayValidator() {
+  const entries: { project: ProjectData; body: unknown; bytes: number }[] = []
+  let retained = 0
+  const body = (project: ProjectData): unknown => ({ ...project, document: { ...project.document,
+    title: null, revision: null, updatedAt: null } })
+  const metadata = (project: ProjectData) => ({ title: project.document.title,
+    revision: project.document.revision, updatedAt: project.document.updatedAt })
+  return Object.freeze({
+    validate(input: unknown): ProjectData {
+      const captured = captureJson(input) as ProjectData
+      const hasDocument = captured && typeof captured === 'object' && captured.document
+        && typeof captured.document === 'object' && !Array.isArray(captured.document)
+      if (hasDocument) {
+        const values = replayMetadataSchema.parse(metadata(captured)), candidate = body(captured)
+        const index = entries.findIndex(entry => equalOwnedJson(candidate, entry.body))
+        if (index >= 0) {
+          const entry = entries.splice(index, 1)[0]; entries.push(entry)
+          const sizes = projectSizes.get(entry.project)!
+          const delta = ownedJsonByteLength(values) - ownedJsonByteLength(metadata(entry.project))
+          if (sizes.documentBytes + delta > PROJECT_DATA_LIMITS.jsonBytes
+            || sizes.expandedBytes + delta > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节或场景JSON超过保护预算。')
+          const result = freezeJson({ ...entry.project, document: { ...entry.project.document, ...values } })
+          projectSizes.set(result, { documentBytes: sizes.documentBytes + delta, expandedBytes: sizes.expandedBytes + delta })
+          return result
+        }
+      }
+      const project = freezeJson(readProjectData(captured, false, true))
+      const bytes = JSON.stringify(project).length * 3
+      if (bytes <= PROJECT_REPLAY_CACHE_LIMITS.retainedBytes) {
+        while (entries.length >= PROJECT_REPLAY_CACHE_LIMITS.entries || retained + bytes > PROJECT_REPLAY_CACHE_LIMITS.retainedBytes) retained -= entries.shift()!.bytes
+        entries.push({ project, body: body(project), bytes }); retained += bytes
+      }
+      return project
+    },
+    clear(): void { entries.length = 0; retained = 0 },
+  })
 }
 
 /** Closed internal derivation only. The full metadata validator owns baseline

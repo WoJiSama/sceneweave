@@ -10,12 +10,13 @@ import type { SceneDocument } from '../model/scene.js'
 import { cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
 import * as hashModule from '../validation/hash.js'
+import * as sceneModule from '../validation/scene.js'
 import { encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
 import { reviseCompositionContent, tryApplyPropUpdateCompositionTransaction } from '../validation/content.js'
 import type { PropUpdateCommand } from '../validation/snapshots.js'
-import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, DeltaSizeError, projectDeltaBytes, projectDeltaJson, validateProjectDelta } from './delta.js'
+import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, createProjectDeltaReplay, DeltaSizeError, projectDeltaBytes, projectDeltaJson, validateProjectDelta } from './delta.js'
 import { encodeProjectContentData, getOwnedProjectEncoding } from './encoding.js'
-import { certifyProjectData, completeProjectTransactionReceipt, getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt, tryCertifyLocalProjectData, validateProjectData } from './validate.js'
+import { certifyProjectData, completeProjectTransactionReceipt, createProjectReplayValidator, getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt, tryCertifyLocalProjectData, validateProjectData } from './validate.js'
 
 let sequence = 0
 function fixture(configure?: (document: SceneDocument) => void): ProjectData {
@@ -28,6 +29,54 @@ function fixture(configure?: (document: SceneDocument) => void): ProjectData {
 }
 
 describe('complete project bidirectional deltas', () => {
+  it('does not issue a reusable size proof to a public mutable validation result', () => {
+    const project = fixture()
+    expect(tryCertifyLocalProjectData(project, project)).toBeUndefined()
+    project.document.revision = -1
+    expect(tryCertifyLocalProjectData(project, project)).toBeUndefined()
+    expect(() => validateProjectData(project)).toThrow()
+  })
+  it('reuses only complete equal owned replay bodies and still checks metadata, changed content and every digest', () => {
+    const original = fixture(), validator = createProjectReplayValidator(), scene = vi.spyOn(sceneModule, 'validateSceneDocument')
+    try {
+      const first = validator.validate(original); expect(scene).toHaveBeenCalledTimes(1)
+      const same = cloneJson(original); same.document.title = 'Metadata only'; same.document.revision++
+      expect(validator.validate(same)).toEqual(same); expect(scene).toHaveBeenCalledTimes(1)
+      same.document.title = 'Caller mutated'; expect(first.document.title).toBe(original.document.title)
+      const changed = cloneJson(original); changed.document.notes['unregistered'] = { invalid: true } as never
+      expect(() => validator.validate(changed)).toThrow(); expect(scene).toHaveBeenCalledTimes(2)
+      const unknown = cloneJson(original) as ProjectData & { unknown: boolean }; unknown.unknown = true
+      expect(() => validator.validate(unknown)).toThrow()
+      const badTitle = cloneJson(original); badTitle.document.title = ''
+      expect(() => validator.validate(badTitle)).toThrow()
+      const badRevision = cloneJson(original); badRevision.document.revision = -1
+      expect(() => validator.validate(badRevision)).toThrow()
+      const badLicense = cloneJson(original); badLicense.licenses['a'.repeat(64)] = { sha256: 'a'.repeat(64), text: 'not matching' }
+      expect(() => validator.validate(badLicense)).toThrow()
+      const calls = scene.mock.calls.length; validator.clear(); validator.validate(original)
+      expect(scene).toHaveBeenCalledTimes(calls + 1)
+      // Public validation never consumes this private family's memo.
+      validateProjectData(first); expect(scene).toHaveBeenCalledTimes(calls + 2)
+    } finally { scene.mockRestore() }
+  })
+  it('owns immutable audit states while checking unknown baselines, every result and independent branches', () => {
+    const before = fixture(), left = cloneJson(before), right = cloneJson(before)
+    left.document.title = 'Left'; right.document.title = 'Right'
+    const first = createProjectDelta(before, left), second = createProjectDelta(before, right), replay = createProjectDeltaReplay()
+    const captured = replay.capture(before, first.beforeHash)
+    expect(Object.isFrozen(captured.document)).toBe(true)
+    before.document.title = 'caller changed'
+    expect(replay.apply(captured, first)).toEqual(left)
+    expect(replay.apply(captured, second)).toEqual(right)
+    expect(() => replay.apply(before, first)).toThrow(/hash/)
+    expect(() => replay.apply(captured, { ...first, afterHash: 'a'.repeat(64) })).toThrow(/hash/)
+    expect(() => replay.capture(captured, 'b'.repeat(64))).toThrow(/hash/)
+    const invalid = cloneJson(captured); invalid.document.revision = -1
+    expect(() => replay.capture(invalid, first.beforeHash)).toThrow()
+    const getter = vi.fn(() => 1), unsafe = { ...captured }
+    Object.defineProperty(unsafe, 'unexpected', { enumerable: true, get: getter })
+    expect(() => replay.capture(unsafe, first.beforeHash)).toThrow(); expect(getter).not.toHaveBeenCalled()
+  })
   it('round trips changed leaves, arrays, inserted and removed records in both directions', () => {
     const before = fixture(); before.appearance.instanceAdjustments.item = []
     const after = cloneJson(before)

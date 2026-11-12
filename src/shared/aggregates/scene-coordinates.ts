@@ -2,7 +2,7 @@ import type { AggregateCoordinates, AggregateFrame } from '../model/aggregate.js
 import { AGGREGATE_ENTITY_COLLECTIONS } from '../model/aggregate.js'
 import type { ProjectData } from '../model/project.js'
 import type { MaterialPaint, PointMm, SceneDocument, SurfaceStyle } from '../model/scene.js'
-import { captureJson, canonicalJson, inspectJsonInput } from '../validation/json.js'
+import { captureJson, canonicalJson, cloneJson, equalOwnedJson } from '../validation/json.js'
 import { aggregateCoordinatesSchema } from './schema.js'
 import { aggregateWorldFrames, validateAggregateCoordinates } from './state.js'
 import { localToWorldBounds, localToWorldPoint, worldToLocalBounds, worldToLocalPoint } from './coordinates.js'
@@ -121,15 +121,26 @@ export function decodeProjectCoordinates(project: ProjectData): ProjectData {
 }
 /** Canonical project bytes use the sole at-rest coordinate representation. */
 export function canonicalProjectCoordinates(project: ProjectData): string {
-  const issue = inspectJsonInput(project)
-  if (issue) throw new Error(issue.message)
-  return canonicalJson(!project.document.aggregateCoordinates || project.document.aggregateCoordinates.encoding === 'local' ? project : encodeProjectCoordinates(project))
+  // canonicalJson owns the strict input inspection. Keeping a second walk here
+  // doubled the safety traversal for every content/hash/accounting call while
+  // adding no protection: coordinate conversion itself captures and validates
+  // its input, and canonicalJson rechecks the final representation.
+  // Peek only through data descriptors before the owning JSON boundary. A
+  // caller accessor at any of these levels must never execute to select a path.
+  const data = (value: unknown, key: string): unknown => value !== null && typeof value === 'object'
+    ? Object.getOwnPropertyDescriptor(value, key)?.value : undefined
+  const coordinates = data(data(project, 'document'), 'aggregateCoordinates')
+  return canonicalJson(!coordinates || data(coordinates, 'encoding') === 'local' ? project : encodeProjectCoordinates(project))
 }
 /** Domain validators use this after strict parsing, before issuing a certificate. */
 export function assertCoordinateRoundTrip(scene: SceneDocument): void {
   if (!scene.aggregateCoordinates) return
-  const restored = decodeSceneCoordinates(encodeSceneCoordinates(scene))
-  if (canonicalJson(restored) !== canonicalJson(scene)) throw new Error('聚合坐标往返改变了完整场景；事务未采用。')
+  // Own the complete source before transforming it. Both conversions still
+  // execute, and equality covers every field, array order and integer value.
+  // The intermediate local object is private, so decoding can consume it
+  // directly rather than capturing another complete copy or sorting two trees.
+  const source = captureJson(scene), restored = convert(convert(cloneJson(source), 'local'), 'world')
+  if (!equalOwnedJson(restored, source)) throw new Error('聚合坐标往返改变了完整场景；事务未采用。')
 }
 /** A coordinate owner table for diagnostics; does not authorize transforms. */
 export function aggregateMemberOwners(scene: SceneDocument): Map<string, string> {
