@@ -367,6 +367,12 @@ export function getVerifiedProjectBundle(input: unknown): VerifiedProjectBundle 
     return fields.project.value && fields.resources.value ? captured.get(fields.project.value)?.get(fields.resources.value) : undefined
   } catch { return }
 }
+/** Exact immutable metadata issued after successful complete validation. This
+ * proves JSON provenance only; consumers must still check resource bytes and
+ * current licenses. It deliberately retains no resource-port/byte closure. */
+export function isVerifiedProjectData(input: unknown): input is ProjectData {
+  return !!input && typeof input === 'object' && captured.has(input)
+}
 
 interface SnapshotConsumer {
   readonly signal?: ResourceOptions['signal']

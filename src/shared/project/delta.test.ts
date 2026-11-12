@@ -7,7 +7,7 @@ import { applyCompositionDraftCommands, completeCompositionTransactionReceipt, g
 import type { CompositionCommand } from '../model/appearance.js'
 import type { ProjectData } from '../model/project.js'
 import type { SceneDocument } from '../model/scene.js'
-import { cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
+import { canonicalJson, cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
 import * as hashModule from '../validation/hash.js'
 import * as sceneModule from '../validation/scene.js'
@@ -76,6 +76,41 @@ describe('complete project bidirectional deltas', () => {
     const getter = vi.fn(() => 1), unsafe = { ...captured }
     Object.defineProperty(unsafe, 'unexpected', { enumerable: true, get: getter })
     expect(() => replay.capture(unsafe, first.beforeHash)).toThrow(); expect(getter).not.toHaveBeenCalled()
+  })
+  it('reuses exact canonical bodies across branches while hashing every output and invalidating changed geometry', () => {
+    const original = fixture(document => {
+      document.aggregateCoordinates = { encoding: 'world', groups: { group: { id: 'group', floorId: document.props.item.floorId,
+        parentId: null, frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
+    })
+    // Valid numeric and reserved-name entity IDs must keep the preexisting
+    // canonical wire ordering and own-data semantics.
+    for (const key of ['10', '2', '01', 'constructor', 'prototype']) {
+      original.document.userLayers[key] = { ...Object.values(original.document.userLayers)[0], id: key, name: key,
+        order: Object.keys(original.document.userLayers).length }
+    }
+    const root = validateProjectData(original), projects: ProjectData[] = []
+    for (let revision = 1; revision <= 9; revision++) {
+      const project = cloneJson(root)
+      project.document.revision = revision; project.document.updatedAt = `2026-11-12T00:00:00.${String(revision).padStart(3,'0')}Z`
+      project.document.title = ['完整 😀', '\"quoted\" \\ path\n', '数值键 10 2'][revision % 3]
+      if (revision >= 5) project.document.props.item.positionMm.x += 250
+      projects.push(validateProjectData(project))
+    }
+    const deltas = projects.map(project => createProjectDelta(root, project)), replay = createProjectDeltaReplay()
+    const baseline = replay.capture(root, deltas[0].beforeHash), digest = vi.spyOn(hashModule,'sha256Bytes')
+    try {
+      for (let i = 0; i < projects.length; i++) {
+        const count = digest.mock.calls.length
+        const actual = replay.apply(baseline,deltas[i])
+        expect(actual).toEqual(projects[i]); expect(Object.isFrozen(actual.document)).toBe(true)
+        expect(digest.mock.calls.length).toBeGreaterThan(count)
+        const bytes = digest.mock.calls.at(-1)![0]
+        expect(new TextDecoder().decode(bytes)).toBe(canonicalJson(encodeProjectCoordinates(projects[i])))
+      }
+      expect(() => replay.apply(baseline,{ ...deltas.at(-1)!, afterHash: 'f'.repeat(64) })).toThrow(/hash/)
+      replay.clear()
+      expect(replay.capture(projects[0],deltas[0].afterHash)).toEqual(projects[0])
+    } finally {digest.mockRestore();replay.clear()}
   })
   it('round trips changed leaves, arrays, inserted and removed records in both directions', () => {
     const before = fixture(); before.appearance.instanceAdjustments.item = []

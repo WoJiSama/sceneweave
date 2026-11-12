@@ -1,4 +1,5 @@
 import type { ProjectData } from '../model/project.js'
+import { isVerifiedProjectData } from './resources.js'
 import { captureJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
 import { createProjectReplayValidator, getProjectLocalTransaction, getProjectTransactionReceipt, validateProjectData } from './validate.js'
@@ -87,6 +88,63 @@ function canonicalOwned(value: unknown): string {
       ? Object.fromEntries(Object.keys(item).sort().map(key => [key, order((item as Record<string, unknown>)[key])])) : item
   return JSON.stringify(order(value))
 }
+
+const REPLAY_ENCODING_LIMITS = Object.freeze({ entries: 4, retainedBytes: 32 * 1024 * 1024 })
+type ReplayMetadata = 'revision' | 'title' | 'updatedAt'
+const replayMetadata = (key: string): key is ReplayMetadata => key === 'revision' || key === 'title' || key === 'updatedAt'
+/** Private to this replay: every source is the validator's detached, deeply
+ * frozen result. Exact unchanged references prove the complete nonmetadata
+ * body, including resources/identity/coordinates; caller objects never enter.
+ * Cache encoding work only. Every assembled full string is still hashed. */
+function createReplayEncoder() {
+  type Part = string | { field: ReplayMetadata }
+  type Entry = { source: ProjectData; stored: ProjectData; parts: Part[]; retainedBytes: number }
+  const entries: Entry[] = []
+  let retainedBytes = 0
+  const sameBody = (left: ProjectData, right: ProjectData): boolean => {
+    const keys = Object.keys(left) as (keyof ProjectData)[], fields = Object.keys(left.document) as (keyof ProjectData['document'])[]
+    return keys.length === Object.keys(right).length && keys.every(key => key === 'document' || Object.hasOwn(right, key) && left[key] === right[key])
+      && fields.length === Object.keys(right.document).length && fields.every(key => Object.hasOwn(right.document, key)
+        && (replayMetadata(key) || left.document[key] === right.document[key]))
+  }
+  const canonical = (parts: Part[], project: ProjectData): string => parts.map(part => typeof part === 'string' ? part : JSON.stringify(project.document[part.field])).join('')
+  return {
+    encode(project: ProjectData): { stored: ProjectData; canonical: string } {
+      const index = entries.findIndex(entry => sameBody(project, entry.source))
+      if (index >= 0) {
+        const entry = entries.splice(index, 1)[0]; entries.push(entry)
+        const stored = freezeJson({ ...entry.stored, document: { ...entry.stored.document,
+          revision: project.document.revision, title: project.document.title, updatedAt: project.document.updatedAt } })
+        return { stored, canonical: canonical(entry.parts, project) }
+      }
+      const stored = freezeJson(encodedRepresentation(project)), parts: Part[] = []
+      let pending = '{'
+      // Strict project/document field names are nonnumeric. Nested entity IDs
+      // retain canonicalOwned's exact JSON.stringify integer-key ordering.
+      for (const [index, key] of Object.keys(stored).sort().entries()) {
+        pending += (index ? ',' : '') + JSON.stringify(key) + ':'
+        if (key !== 'document') { pending += canonicalOwned(stored[key as keyof ProjectData]); continue }
+        pending += '{'
+        for (const [index, field] of Object.keys(stored.document).sort().entries()) {
+          pending += (index ? ',' : '') + JSON.stringify(field) + ':'
+          if (replayMetadata(field)) { parts.push(pending, { field }); pending = '' }
+          else pending += canonicalOwned(stored.document[field as keyof ProjectData['document']])
+        }
+        pending += '}'
+      }
+      parts.push(pending + '}')
+      const text = canonical(parts, project), size = text.length * 4
+      // Conservative serialized-data estimate, not a JS heap/RSS guarantee.
+      // Oversized or unique bodies still use exact complete encoding.
+      if (size <= REPLAY_ENCODING_LIMITS.retainedBytes) {
+        while (entries.length >= REPLAY_ENCODING_LIMITS.entries || retainedBytes + size > REPLAY_ENCODING_LIMITS.retainedBytes) retainedBytes -= entries.shift()!.retainedBytes
+        entries.push({ source: project, stored, parts, retainedBytes: size }); retainedBytes += size
+      }
+      return { stored, canonical: text }
+    },
+    clear(): void { entries.length = 0; retainedBytes = 0 },
+  }
+}
 function equal(left: DeltaValue, right: DeltaValue): boolean {
   if (left === right) return true
   if (Array.isArray(left)) return Array.isArray(right) && left.length === right.length && left.every((value, index) => equal(value, right[index]))
@@ -146,7 +204,25 @@ export function validateProjectDelta(input: unknown): JsonDelta {
 
 /** Actual immutable-result differences, including identity, appearance and resource/permission metadata. */
 export function createProjectDelta(before: ProjectData, after: ProjectData): JsonDelta {
-  const source = persisted(validateProjectData(before)), target = persisted(validateProjectData(after)), changes: DeltaChange[] = []
+  const source = persisted(validateProjectData(before)), target = persisted(validateProjectData(after))
+  return diffProjectData(source, target, digest(source), digest(target))
+}
+
+/** Optional internal consumer. Both complete immutable endpoints must belong
+ * to the byte validator, and both complete encodings to their exact sources.
+ * Merely freezing a caller object or providing a matching hash grants nothing.
+ * This proves content only; the repository still confirms actual DB state. */
+export function tryCreateVerifiedProjectDelta(before: ProjectData, after: ProjectData, encodings: ProjectDeltaEncodings): JsonDelta | undefined {
+  if (!isVerifiedProjectData(before) || !isVerifiedProjectData(after)) return
+  let fields: Record<string, unknown>
+  try { fields = safeRecord(encodings, ['before', 'after']) } catch { return }
+  const left = getOwnedProjectEncoding(fields.before, before), right = getOwnedProjectEncoding(fields.after, after)
+  if (!left || !right) return
+  return diffProjectData(left.stored, right.stored, left.contentHash, right.contentHash)
+}
+
+function diffProjectData(source: ProjectData, target: ProjectData, beforeHash: string, afterHash: string): JsonDelta {
+  const changes: DeltaChange[] = []
   const visit = (left: DeltaValue, right: DeltaValue, path: string[]) => {
     if (left === right) return
     if (record(left) && record(right)) {
@@ -159,7 +235,7 @@ export function createProjectDelta(before: ProjectData, after: ProjectData): Jso
     } else if (!equal(left, right)) changes.push({ path, before: { present: true, value: cloneJson(left) }, after: { present: true, value: cloneJson(right) } })
   }
   visit(source as unknown as DeltaValue, target as unknown as DeltaValue, [])
-  return validateProjectDelta({ format: 'sceneweave-project-delta', version: 1, beforeHash: digest(source), afterHash: digest(target), changes })
+  return validateProjectDelta({ format: 'sceneweave-project-delta', version: 1, beforeHash, afterHash, changes })
 }
 
 /** Local writes are useful only for the exact complete persisted baseline and
@@ -272,13 +348,14 @@ export function applyProjectDelta(input: ProjectData, delta: unknown, direction:
 export function createProjectDeltaReplay() {
   const states = new WeakMap<ProjectData, string>()
   const validator = createProjectReplayValidator()
+  const encoder = createReplayEncoder()
   // One optional complete local endpoint, never caller data. Audits typically
   // visit consecutive versions; retaining only the last avoids re-encoding an
   // already fully hashed predecessor without retaining a second graph/cache.
   let encoded: { project: ProjectData; stored: ProjectData } | undefined
   const remember = (project: ProjectData, expected: string): ProjectData => {
-    const stored = encodedRepresentation(project)
-    if (sha256Bytes(encodeUtf8(canonicalOwned(stored))) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
+    const { stored, canonical } = encoder.encode(project)
+    if (sha256Bytes(encodeUtf8(canonical)) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
     const owned = freezeJson(project); states.set(owned, expected)
     encoded = { project: owned, stored: freezeJson(stored) }; return owned
   }
@@ -293,7 +370,7 @@ export function createProjectDeltaReplay() {
     const stored = cloneJson(encoded?.project === baseline ? encoded.stored : encodedRepresentation(baseline))
     applyChanges(stored, checked, true)
     return remember(validator.validate(world(stored)), checked.afterHash)
-  }, clear(): void { validator.clear(); encoded = undefined } })
+  }, clear(): void { validator.clear(); encoder.clear(); encoded = undefined } })
 }
 
 /** Strict synchronous forward reconstruction; no validation authority escapes this operation. */
