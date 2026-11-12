@@ -92,9 +92,9 @@ function primitives() {
     const output = { width: 0, height: 0, context: {} as Record<string, unknown>, getContext: (_kind: string, options?: CanvasRenderingContext2DSettings) => { contextCalls.push({ width: output.width, height: output.height, options }); return output.context },
       toBlob: vi.fn((callback: BlobCallback) => callback(new Blob([pixelPng(output.width, output.height).slice().buffer], { type: 'image/png' }))) }
     const context = output.context
-    Object.assign(context, { canvas: output, getImageData: () => ({ data: new Uint8ClampedArray([200, 100, 50, 255]) }),
+    Object.assign(context, { canvas: output, getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }), getImageData: () => ({ data: new Uint8ClampedArray([200, 100, 50, 255]) }),
       drawImage: vi.fn(), createImageData: () => ({ data: new Uint8ClampedArray(4) }) })
-    for (const key of ['fillRect', 'strokeRect', 'setTransform', 'resetTransform', 'save', 'restore', 'translate', 'rotate', 'putImageData']) context[key] = vi.fn()
+    for (const key of ['fillRect', 'strokeRect', 'setTransform', 'resetTransform', 'save', 'restore', 'translate', 'rotate', 'putImageData', 'beginPath', 'rect', 'clip']) context[key] = vi.fn()
     canvases.push(output); return output
   })
   vi.stubGlobal('document', { createElement })
@@ -281,9 +281,11 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
     const input = fixture(), browser = primitives()
     const preview = await renderEditorProject(input, { audience: 'player', longEdgePx: 2048 })
     expect(browser.contextCalls.find(call => call.width === 2048)?.options).toEqual({ colorSpace: 'srgb' })
+    expect(browser.canvases.find(canvas => Object.is(canvas, preview))!.context.clip).not.toHaveBeenCalled()
     preview.width = preview.height = 0
     const output = await renderProject(input, { audience: 'player', longEdgePx: 4096 })
     expect(browser.contextCalls.find(call => call.width === 4096)?.options).toEqual({ colorSpace: 'srgb', willReadFrequently: true })
+    expect(browser.canvases.find(canvas => Object.is(canvas, output))!.context.clip).toHaveBeenCalledTimes(1)
     output.width = output.height = 0
     expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
   })
