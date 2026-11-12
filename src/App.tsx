@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import WorkspaceHome from './editor/main-shell/WorkspaceHome'
 import type { WorkspaceController, WorkspaceRequest, WorkspaceSessionSummary } from './editor/main-shell/session'
-import { fromBundle } from './application/workspace/project'
+import { fromVerifiedBundle } from './application/workspace/project'
+import { validateProjectSnapshot } from './shared/project/resources'
 import { projectRepository, validation } from './platform/browser/runtime'
 import { importProject, importHistoryArchive } from './shared/project/file'
 import { inspectZip } from './shared/project/zip'
@@ -79,8 +80,8 @@ export default function App() {
     finally { if (operation.current === abort) { operation.current = null; setBusy(false) } }
   }
   const preserveCurrent = async () => !controller.current || await controller.current.leave()
-  const openInstalled = async (bundle: Parameters<typeof fromBundle>[0], signal: AbortSignal) => {
-    const project = await fromBundle(bundle, { ...validation, signal }); signal.throwIfAborted()
+  const openInstalled = async (bundle: Parameters<typeof fromVerifiedBundle>[0], signal: AbortSignal) => {
+    const project = fromVerifiedBundle(await validateProjectSnapshot(bundle, { ...validation, signal }), { signal }); signal.throwIfAborted()
     request({ type: 'open-project', project, saved: true })
   }
   const handleFile = (file: File) => void run(async signal => {
@@ -100,7 +101,7 @@ export default function App() {
       : mode === 'complete' ? { current: await importProject(bytes, { ...validation, signal }), snapshots: [] }
         : null
     if (!archive) throw new Error('未知的完整工程包模式。')
-    const imported = await projectRepository.importArchive(archive, { signal }); await openInstalled(imported.project, signal)
+    const imported = await projectRepository.importSnapshotArchive(archive, { signal }); await openInstalled(imported.project, signal)
   })
   const closeSession = () => void run(async signal => {
     if (!await preserveCurrent()) return

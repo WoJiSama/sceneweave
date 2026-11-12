@@ -365,6 +365,7 @@ describe('incremental local history graph', () => {
     for (const corrupt of [badHash, badSchema, badRevision]) {
       await database.historyVersions.put(reseal(corrupt))
       for (const id of ['v0', 'v1']) await expect(transaction(database, history => history.readVersion(first.sceneId, id))).rejects.toThrow()
+      await expect(transaction(database, history => history.audit(first.sceneId))).rejects.toThrow()
       expect(() => historyVersionBytes(reseal(corrupt))).toThrow()
     }
   })
@@ -471,7 +472,11 @@ describe('incremental local history graph', () => {
     const deltaCount = graph.versions.filter(version => version.delta !== null).length
     const spy = vi.spyOn(projectDelta, 'applyProjectDelta')
     captureHistoryGraph(graph); expect(spy).toHaveBeenCalledTimes(deltaCount)
-    spy.mockClear(); await transaction(database, history => history.audit(current.sceneId)); expect(spy).toHaveBeenCalledTimes(deltaCount)
+    spy.mockClear()
+    const replay = vi.spyOn(projectDelta, 'createProjectDeltaReplay')
+    await transaction(database, history => history.audit(current.sceneId))
+    expect(replay).toHaveBeenCalledTimes(1); expect(spy).not.toHaveBeenCalled()
+    replay.mockRestore()
     spy.mockClear()
     const iterator = historyGraphProjects(graph), first = iterator.next().value!
     first.document.title = 'consumer mutation'; first.document.props.item.positionMm.x = 9999
