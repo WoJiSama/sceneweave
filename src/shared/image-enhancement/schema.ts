@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { captureJson, freezeJson } from '../validation/json.js'
 
-export const imageEnhancementDirectionSchema = z.enum(['clarity', 'edge', 'denoise', 'decontaminate'])
+export const imageEnhancementDirectionSchema = z.enum(['clarity', 'edge', 'denoise', 'decontaminate', 'contour'])
 export const imageEnhancementStrengthSchema = z.enum(['gentle', 'balanced', 'strong'])
 export const imageEnhancementRecipeSchema = z.strictObject({
   version: z.literal(1),

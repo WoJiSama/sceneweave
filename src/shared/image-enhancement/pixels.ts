@@ -2,6 +2,7 @@ import type { ImagePixels } from '../image-import/pixels.js'
 import type { CancellationSignal } from '../ports/resources.js'
 import { parseImageEnhancementRecipe, type ImageEnhancementDirection, type ImageEnhancementRecipe, type ImageEnhancementStrength } from './schema.js'
 import { decontaminateImageEdges } from './decontaminate.js'
+import { softenImageContour } from './contour.js'
 
 export const IMAGE_ENHANCEMENT_LIMITS = Object.freeze({ inputPixels: 4_000_000, outputPixels: 8_000_000,
   candidatePixels: 16_000_000, inputEdge: 8192, outputEdge: 4096 })
@@ -170,7 +171,8 @@ export function applyImageEnhancement(image: ImagePixels, input: ImageEnhancemen
   cancelled(signal)
   const recipe = parseImageEnhancementRecipe(input)
   validate(image, recipe.scale, scopeMask)
-  const filtered = recipe.direction === 'decontaminate' ? decontaminateImageEdges(image, recipe.strength, signal) : filter(image, recipe, signal)
+  const filtered = recipe.direction === 'decontaminate' ? decontaminateImageEdges(image, recipe.strength, signal)
+    : recipe.direction === 'contour' ? softenImageContour(image, recipe.strength, signal) : filter(image, recipe, signal)
   const result = recipe.scale === 2 ? upscale(filtered, recipe.strength, signal) : filtered
   scopeOutput(image, result, recipe.scale, scopeMask, signal)
   cancelled(signal)
@@ -200,8 +202,9 @@ const descriptions: Record<ImageEnhancementDirection, readonly [string, string, 
   edge: ['轻调已有半透明边缘，保留实心细节和孔洞。', '平衡边缘透明度，原有颜色保持。', '加强已有边缘的透明度过渡，需检查细小轮廓。'],
   denoise: ['轻减局部杂点，优先保留笔触。', '减弱相近颜色中的噪点，保留高反差线。', '更明显地减弱局部噪点，需检查木纹细节。'],
   decontaminate: ['轻减窄边带超出的色度，保留亮度和透明度。', '按稳定内侧颜色估计色边，原图真实颜色仍需对照。', '加强局部色边估计，需检查固有彩色边饰；证据不足处不改。'],
+  contour: ['轻调有实心支撑的二值斜角，保留原色和细部。', '减轻部分斜向阶梯，原有透明孔洞与内部实心保持。', '更明显地软化受支撑斜角，需核对描边是否变淡；不恢复未知轮廓。'],
 }
-const labels = { clarity: ['柔和插值', '平衡插值', '较强插值'], edge: ['轻调边缘', '平衡边缘', '加强边缘'], denoise: ['保留笔触', '平衡降噪', '加强降噪'], decontaminate: ['轻减色边', '平衡色边', '加强色边'] } as const
+const labels = { clarity: ['柔和插值', '平衡插值', '较强插值'], edge: ['轻调边缘', '平衡边缘', '加强边缘'], denoise: ['保留笔触', '平衡降噪', '加强降噪'], decontaminate: ['轻减色边', '平衡色边', '加强色边'], contour: ['轻调斜角', '平衡斜角', '加强斜角'] } as const
 
 /** All alternatives use the same supplied baseline; none consumes a sibling candidate's pixels. */
 export function generateImageEnhancementCandidates(image: ImagePixels, options: ImageEnhancementOptions, signal?: CancellationSignal): ImageEnhancementCandidate[] {

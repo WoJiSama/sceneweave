@@ -16,14 +16,21 @@ const contaminatedSelection = () => {
   for (let y = 2; y < 22; y++) for (let x = 2; x < 26; x++) data[y * 28 + x] = x === 2 || x === 25 || y === 2 || y === 21 ? 128 : 255
   return encodeSelectionMask({ width: 28, height: 24, boundsPx: { x: 30, y: 20, width: 28, height: 24 }, data })
 }
+const contourSelection = () => {
+  const data = new Uint8Array(28 * 24)
+  for (let y = 2; y < 22; y++) for (let x = 2; x < 26; x++) if (x + y >= 14) data[y * 28 + x] = 255
+  return encodeSelectionMask({ width: 28, height: 24, boundsPx: { x: 30, y: 20, width: 28, height: 24 }, data })
+}
 
 /** Original hand-mark fixture: sharp dark lines, restrained grain and a separate editable stool. */
-function sourcePng(contaminatedEdge = false): Buffer {
+function sourcePng(contaminatedEdge = false, contour = false): Buffer {
   const png = new PNG({ width, height })
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     let color = [140 + x % 3, 102, 65, 255]
     if (x >= 30 && x < 58 && y >= 20 && y < 44) color = [55 + (x + y) % 5 * 3, 71 + (x * 3 + y) % 5 * 3, 84 + (x + y) % 5 * 3, 255]
     if (x >= 34 && x < 38 && y >= 23 && y < 40 || x >= 34 && x < 54 && y === 23) color = [18, 23, 28, 255]
+    if (contour && x >= 30 && x < 58 && y >= 20 && y < 44 &&
+      (x < 32 || x >= 56 || y < 22 || y >= 42 || x - 30 + y - 20 < 14)) color = [140 + x % 3, 102, 65, 255]
     if (contaminatedEdge && x >= 30 && x < 58 && y >= 20 && y < 44) {
       // Keep real clear pixels inside the cropped PNG. A cropped opaque edge
       // alone cannot establish that a neighbouring colour came from outside.
@@ -46,13 +53,13 @@ async function mark(dialog: Locator, mode: string, points: Point[]): Promise<voi
   for (const point of points) await canvas.click({ position: { x: point.x / width * bounds.width, y: point.y / height * bounds.height } })
 }
 
-async function createSourceProject(page: Page, info: TestInfo, contaminatedEdge = false) {
+async function createSourceProject(page: Page, info: TestInfo, contaminatedEdge = false, contour = false) {
   await createKeyboardProject(page, '画质候选前的工程')
   await openWorkspaceModule(page, '场景')
   await page.getByRole('button', { name: '从图片新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '图片导入工作台', exact: true })
   await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '原图与标定', exact: true }).click()
-  await dialog.getByLabel('图片转工程原图', { exact: true }).setInputFiles({ name: 'quality-source.png', mimeType: 'image/png', buffer: sourcePng(contaminatedEdge) })
+  await dialog.getByLabel('图片转工程原图', { exact: true }).setInputFiles({ name: 'quality-source.png', mimeType: 'image/png', buffer: sourcePng(contaminatedEdge, contour) })
   await expect(dialog).toContainText('96 × 64 px · 已拆 0 层')
   await mark(dialog, '房间轮廓', box(4, 4, 88, 56))
   await mark(dialog, '比例尺', [{ x: 8, y: 8 }, { x: 28, y: 8 }])
@@ -66,7 +73,7 @@ async function createSourceProject(page: Page, info: TestInfo, contaminatedEdge 
     await dialog.getByRole('button', { name: '拆出物件并补底', exact: true }).click()
   }
   await expect(dialog.locator('.image-import-stat').filter({ hasText: '已拆物件与装饰' })).toContainText('2 层')
-  if (contaminatedEdge) {
+  if (contaminatedEdge || contour) {
     // The explicit selection excludes the source's clear padding from repair;
     // partial coverage is confined to the edge beside real unselected pixels.
     await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '原图与标定', exact: true }).click()
@@ -77,7 +84,7 @@ async function createSourceProject(page: Page, info: TestInfo, contaminatedEdge 
     const path = info.outputPath('contaminated-edge-selection.json')
     await (await downloading).saveAs(path)
     const recipe = JSON.parse(await readFile(path, 'utf8'))
-    recipe.layers[0].selectionMask = contaminatedSelection()
+    recipe.layers[0].selectionMask = contour ? contourSelection() : contaminatedSelection()
     await dialog.getByRole('group', { name: '图片导入阶段', exact: true }).getByRole('button', { name: '原图与标定', exact: true }).click()
     await dialog.getByLabel('载入提案', { exact: true }).setInputFiles({ name: 'contaminated-edge-selection.json',
       mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(recipe)) })
@@ -374,5 +381,58 @@ test('explicit edge decontamination keeps alpha, physical semantics and original
   await generate(panel, 3)
   await panel.getByRole('button', { name: '都不采用', exact: true }).click(); await closeEnhancement(panel)
   expect(imageAsset(await keyboardProjectBackup(page, info.outputPath('decontamination-original-discarded.sceneweave')), piano.id).id).toBe(asset.id)
+  expect(errors).toEqual([])
+})
+
+test('binary contour candidates preserve colour and support through page adoption, undo and cold open', async ({ page }, info) => {
+  test.setTimeout(180000)
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const { saved: original, filename: originalFile, piano, stool } = await createSourceProject(page, info, false, true)
+  const source = imageAsset(original, piano.id), before = await decodedAsset(originalFile, source.sha256)
+  let panel = await openEnhancement(page, piano.id)
+  await panel.getByLabel('画质改善方向', { exact: true }).selectOption('contour')
+  await (await generate(panel, 3)).nth(1).click()
+  await panel.getByLabel('画质检查背景', { exact: true }).selectOption('black')
+  await panel.getByLabel('画质对照缩放', { exact: true }).selectOption('400')
+  await panel.screenshot({ path: info.outputPath('binary-contour-candidates.png') })
+  await adopt(page, panel); await closeEnhancement(panel)
+  const enhancedFile = info.outputPath('contour.sceneweave'), enhanced = await keyboardProjectBackup(page, enhancedFile)
+  const asset = imageAsset(enhanced, piano.id), after = await decodedAsset(enhancedFile, asset.sha256)
+  expect(asset.imageEnhancement).toMatchObject({ sourceAssetId: source.id, originalAssetId: source.id,
+    recipe: { direction: 'contour', strength: 'balanced', scale: 1 } })
+  expect([after.width, after.height]).toEqual([before.width, before.height])
+  let changedAlpha = 0
+  for (let index = 0; index < before.data.length; index += 4) {
+    expect([...after.data.slice(index, index + 3)]).toEqual([...before.data.slice(index, index + 3)])
+    expect(after.data[index + 3] > 0).toBe(before.data[index + 3] > 0)
+    if (after.data[index + 3] !== before.data[index + 3]) changedAlpha++
+  }
+  expect(changedAlpha).toBeGreaterThan(0)
+  const { definitionRef: oldDefinition, appearance: oldAppearance, ...oldSemantics } = piano
+  const { definitionRef: newDefinition, appearance: newAppearance, ...newSemantics } = enhanced.document.props[piano.id]
+  expect(newDefinition).not.toEqual(oldDefinition)
+  expect(newAppearance).not.toEqual(oldAppearance)
+  expect(newSemantics).toEqual(oldSemantics)
+  expect(enhanced.document.props[stool.id]).toEqual(original.document.props[stool.id])
+  expect(enhanced.document.assets[source.id]).toEqual(source)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  expect(imageAsset(await keyboardProjectBackup(page, info.outputPath('contour-undone.sceneweave')), piano.id).id).toBe(source.id)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  expect(imageAsset(await keyboardProjectBackup(page, info.outputPath('contour-redone.sceneweave')), piano.id).id).toBe(asset.id)
+  await page.reload()
+  await page.getByRole('button', { name: '回到首页', exact: true }).click()
+  await page.getByTestId('workspace-home').locator(`[data-project-key="native:${enhanced.document.sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const coldFile = info.outputPath('contour-cold.sceneweave'), cold = await keyboardProjectBackup(page, coldFile)
+  expect(keyboardResourceHashes(cold.hashes)).toEqual(keyboardResourceHashes(enhanced.hashes))
+  expect((await decodedAsset(coldFile, source.sha256)).data).toEqual(before.data)
+  expect((await decodedAsset(coldFile, asset.sha256)).data).toEqual(after.data)
+  panel = await openEnhancement(page, piano.id)
+  await panel.getByLabel('画质处理依据', { exact: true }).selectOption('original')
+  await panel.getByLabel('画质改善方向', { exact: true }).selectOption('contour')
+  await generate(panel, 3)
+  await panel.getByRole('button', { name: '都不采用', exact: true }).click(); await closeEnhancement(panel)
+  expect(imageAsset(await keyboardProjectBackup(page, info.outputPath('contour-discarded.sceneweave')), piano.id).id).toBe(asset.id)
   expect(errors).toEqual([])
 })
