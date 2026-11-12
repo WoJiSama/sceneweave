@@ -37,7 +37,7 @@
 <a id="detail-render-profiles"></a>
 #### 显式细节表现（当前完整v1）
 
-`VisualEdgeLook.renderProfile?: "rockRelief2" | "rockRelief3"`只适用于cliff边带；`ConnectionRoute.renderProfile?: "naturalRockSteps2"`只适用于stairs连接且stairStyle为naturalRock。字段缺省保留原算法/原固定像素路径；新配方显式选择新算法，不从实体ID、seed前缀或调用方标记猜测。它们是外观算法轴，不增加工程容器版本；严格模型/schema、命令、受众投影、当前编辑表单与完整I/O同步。改变profile不改变物理轮廓、支撑或净宽，仍重验完整工程/许可/锁/基线和实际像素。AI视觉协议暂不声明新profile，拒绝对带新profile边带的隐式重写，手工入口可明确切换。
+`VisualEdgeLook.renderProfile?: "rockRelief2" | "rockRelief3" | "rockRelief4"`只适用于cliff边带；`ConnectionRoute.renderProfile?: "naturalRockSteps2" | "naturalRockSteps3" | "naturalRockSteps4"`只适用于stairs连接且stairStyle为naturalRock，2为浅色层岩，3为深灰火山岩，4为错列凿岩阶。自然火山新模板显式选择rockRelief4／naturalRockSteps4：前者在原有完整崖面与连接开口内按环境光向和崖顶至崖脚深度绘制主面；后者仅在绘制踏石前，用有界临时蒙版羽化底材侧边，实际足宽、高差、支撑、landing和完整物理裁剪保持。字段缺省及旧2/3保留原算法/原固定像素路径；新配方显式选择新算法，不从实体ID、seed前缀或调用方标记猜测。它们是外观算法轴，不增加工程容器版本；严格模型/schema、命令、受众投影、当前编辑表单与完整I/O同步。改变profile不改变物理轮廓、支撑或净宽，仍重验完整工程/许可/锁/基线和实际像素。AI视觉协议暂不声明新profile，拒绝对带新profile边带的隐式重写，手工入口可明确切换。
 
 <a id="detail-followup-contracts"></a>
 #### 局部覆盖、持续附着与独立多Floor合同
@@ -994,6 +994,8 @@ supportRef指实际地面；supportRef为room时，roomId若存在必须为同�
 Room.floorStyle、Wall.topStyle、TerrainArea.surfaceStyle、Path.surfaceStyle取SurfaceStyle或null。每个材质引用必须满足适用表面；tileSizeMm表示**整张纹理一周期**的世界宽高，不能误当单根木板宽度。base必须为不透明铺装（opacity=1），局部overlays可以透明；overlay按renderOrder升序、相同时按稳定id排序，并裁剪到所属表面。它们只改变材质，没有独立高程/通行/秘密属性；需要不同受众时建立独立受众实体。草/岩/沙过渡用overlay，不额外制造台地。SurfaceOverlay的边界改变也必须原子校验，不能留下自交遮罩。
 
 MaterialPaint.originMm始终存世界坐标，rotationDeg始终存当前世界方向；alignment规定整面移动/旋转时的行为：world保持原点和纹理方向，surface随明确的整面变换更新两者。仅拖动边界顶点不重置纹理原点或尺度。这样既能跨区域连续铺设，也能旋转房间铺装，不从新包围盒重新拉伸纹理。
+
+当前完整v1的`setSurfaceMaterial`与`setSurfacePaint`均支持`wall`墙顶目标；后者只改明确指定的平铺尺寸、世界方向、对齐方式及原点，检查墙和所在图层锁。墙厚、端点、门窗附着、开口净宽、支撑与通行不随纹理变化。局部polygon覆盖命令仍不增加wall目标，不能把墙顶铺装扩展解释成任意墙面遮罩能力。
 
 主题的outline为 `{widthMm,color}`，仅用于墙的主轮廓；物件本体线条在PNG中，崖/岸/路径边线使用edgeStyles。openingStyle为 `{doorStrokeWidthMm,windowStrokeWidthMm,frameWidthMm,doorFill,windowFill}`；edgeStyles是shore/cliff/materialTransition/path四个必填条目，每项为 `{strokeWidthMm,color,bandWidthMm}`。宽度均为非负整数，颜色均为 `#RRGGBB`。门框只作装饰，不能侵占声明净宽。shadowPresets包含none/furniture/vegetation/wall四个完整ShadowStyle；terrainCliff为 `{directionDeg,offsetFactor,maxOffsetMm,blurMm,opacity,color}`，offsetFactor为[0,1]有限数，其装饰偏移为 `round(min(maxOffsetMm,offsetFactor*abs(deltaHeightMm)))`。Prop覆盖只替换自身shadowStyle；阴影始终沿世界方向，不随图片旋转。主题中的建议引用也是完整包依赖；仅已制作且采用的定义可进入快照，不能用未来占位引用破坏闭包。
 

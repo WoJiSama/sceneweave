@@ -244,7 +244,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   }
   const surfaceElevation = (ref: SurfaceRef) => ref.kind === 'terrainArea' ? scene.terrainAreas[ref.id]?.groundElevationMm ?? 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm ?? 0 : 0
   const connections: ProjectedConnection[] = floorValues(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle), surfaceIds: [c.from.surfaceRef.id, c.to.surfaceRef.id] as [string, string], ...(c.route ? { route: { centerlineMm: clone(c.route.centerlineMm), stairStyle: c.route.stairStyle, treadDepthMm: c.route.treadDepthMm, ...(c.route.renderProfile ? { renderProfile: c.route.renderProfile } : {}) } } : {}) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
-  const paths = floorValues(scene.paths).filter(path => entityShown(path.id) && path.supportRefs.every(ref => ref.kind === 'floor' || entityShown(ref.id)) && (audience === 'gm' || pathPublic(path.id))).sort((a, b) => compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id)).map(path => projectPath(path, theme))
+  const paths = floorValues(scene.paths).filter(path => entityShown(path.id) && path.supportRefs.every(surfaceShown) && (audience === 'gm' || pathPublic(path.id))).sort((a, b) => compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id)).map(path => projectPath(path, theme))
   const pathGroups = new Map<string, string[]>()
   for (const projected of paths) {
     const path = scene.paths[projected.id]
@@ -254,10 +254,14 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
     if (!pathPublic(path.id)) continue
     const heights = new Set(path.supportRefs.map(surfaceElevation))
     if (heights.size !== 1) continue
-    const key = JSON.stringify([path.floorId, scene.entityLayers[path.id], [...heights][0]])
+    // Layer order controls editing and paint order; it does not turn a shared
+    // public road junction into two separate surfaces. Hidden layers and private
+    // supports were filtered above; incompatible/graded paints stay independent.
+    const key = JSON.stringify([path.floorId, [...heights][0]])
     const group = pathGroups.get(key) ?? []; group.push(path.id); pathGroups.set(key, group)
   }
   const pathJoinGroups = [...pathGroups.values()].filter(group => group.length > 1)
+  const pathJoinPaintOrder = paths.filter(path => pathPublic(path.id)).map(path => path.id)
   // Finite paint-only relationships. Public roads never consume a GM-only
   // surface, even in the GM view; hidden editor layers have already been removed.
   // Over budget, keep all independent outlines rather than sampling the scene.
@@ -413,5 +417,6 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   }
   if (scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds, floorOutput)
   if (pathTerrainJoins) result.pathTerrainJoins = pathTerrainJoins
+  if (pathJoinGroups.length || pathTerrainJoins) result.pathJoinPaintOrder = pathJoinPaintOrder
   return result
 }

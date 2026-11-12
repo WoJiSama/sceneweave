@@ -49,9 +49,12 @@ export interface Projection {
   /** GM editor session only; ignored by formal exports. */
   groundView?: boolean
   edges: ProjectedTerrainEdge[]; paths: ProjectedPath[]; connections: ProjectedConnection[]
-  /** Same-floor/layer/elevation public paths, after audience and editor filtering.
+  /** Same-floor/elevation public paths across visible editing layers, after audience and editor filtering.
    * Only visible IDs survive; style/filter compatibility is checked at paint time. */
   pathJoinGroups?: string[][]
+  /** Public paths in actual paint order, including incompatible covers.
+   * Private paths never participate in public seam decisions. */
+  pathJoinPaintOrder?: string[]
   /** Disposable public path/terrain relationships after audience and editor
    * filtering. Paint-order IDs include incompatible public covers so a lower
    * matching surface cannot remove a road edge through a higher surface. */

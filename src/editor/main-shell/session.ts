@@ -1,3 +1,4 @@
+import type { HomeShowcaseKind } from '../../platform/browser/content/home-showcase'
 import type { EditableProject } from '../../application/workspace/project'
 
 export type WorkspaceRequest =
@@ -5,6 +6,7 @@ export type WorkspaceRequest =
   | { type: 'generate' }
   | { type: 'import' }
   | { type: 'image-import' }
+  | { type: 'showcase'; sample: HomeShowcaseKind }
   | { type: 'sample'; sample: 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano' }
   | { type: 'open'; sceneId: string }
   | { type: 'open-project'; project: EditableProject; saved?: boolean; reload?: boolean }

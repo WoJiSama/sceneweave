@@ -1,11 +1,22 @@
 import { reloadSaved } from './workspace-ux-helpers'
 import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { unzipSync } from 'fflate'
 import type { Workspace } from '../src/application/workspace/workspace'
 import type { WorkspaceRepository } from '../src/editor/main/repository'
 import type { CompositionCommand } from '../src/shared/model/appearance'
 
 type Dev = { workspace: Workspace; repository: WorkspaceRepository }
+const showcaseManifest = JSON.parse(await readFile(new URL('../src/platform/browser/content/home-showcase-manifest.json', import.meta.url), 'utf8')) as {
+  entries: Record<string, { name: string; archiveFile: string }>
+}
+const homeSamples = await Promise.all(['investigation', 'island', 'coast'].map(async id => {
+  const entry = showcaseManifest.entries[id]
+  const files = unzipSync(await readFile(new URL('../public/assets/home-scenes/projects/' + entry.archiveFile, import.meta.url)))
+  const source = JSON.parse(new TextDecoder().decode(files['scene.json'])) as { presetSnapshot: Record<string, unknown> }
+  return { name: entry.name, preset: source.presetSnapshot }
+}))
 const headline = '把故事画成可以探索的地方'
 const home = (page: Page) => page.getByTestId('workspace-home')
 const row = (page: Page, key: string) => page.locator(`[data-project-key="${key}"]`)
@@ -89,7 +100,7 @@ async function fileFromHome(page: Page, buffer: Buffer, name: string) {
 test('U1a default Home creates one native complete-v1 blank project through real UI', async ({ page }, info) => {
   test.setTimeout(150_000)
   await page.goto('/'); await expect(page.getByRole('heading', { level: 1, name: headline, exact: true })).toBeVisible()
-  for (const name of ['新建场景', '打开工程文件', '刷新工程列表', '书房与露台', '双层岩岛', '海岸哨所']) await expect(home(page).getByRole('button', { name, exact: true })).toBeVisible()
+  for (const name of ['新建场景', '打开工程文件', '刷新工程列表', ...homeSamples.map(sample => sample.name)]) await expect(home(page).getByRole('button', { name, exact: true })).toBeVisible()
   await home(page).getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('U1a 首页创建原生完整工程')
@@ -105,11 +116,7 @@ test('U1a default Home creates one native complete-v1 blank project through real
   await report(info, 'u1a-home-create.json', { method: 'Home form, actual stock bytes, native IDB save; DEV observation only.', created })
 })
 
-for (const sample of [
-  { name: '书房与露台', preset: 'sceneweave-vis01' },
-  { name: '双层岩岛', preset: 'sceneweave-vis02' },
-  { name: '海岸哨所', preset: 'sceneweave-scn04' },
-]) test(`U1a Home sample ${sample.name} requires review before saving a complete editable copy`, async ({ page }, info) => {
+for (const sample of homeSamples) test(`U1a Home sample ${sample.name} requires review before saving a complete editable copy`, async ({ page }, info) => {
   test.setTimeout(180_000)
   await page.goto('/#home'); await home(page).getByRole('button', { name: sample.name, exact: true }).click()
   await expect(openDialog(page)).toBeVisible({ timeout: 40_000 })
@@ -119,8 +126,7 @@ for (const sample of [
   if (!(await home(page).isVisible())) await goHome(page)
   await home(page).getByRole('button', { name: sample.name, exact: true }).click(); await adoptOpen(page)
   const adopted = await current(page)
-  expect(adopted.document.presetSnapshot.presetId).toBe(sample.preset)
-  expect(adopted.document.presetSnapshot.presetVersion).toBe(1)
+  expect(adopted.document.presetSnapshot).toEqual(sample.preset)
   expect(Object.keys(adopted.document.props).length).toBeGreaterThan(0); expect(Object.keys(adopted.assets).length).toBeGreaterThan(0)
   expect(adopted.persisted?.contentHash).toBe(adopted.contentHash)
   await report(info, 'u1a-home-sample.json', { sample: sample.name, method: 'Real sample resources, review/cancel, explicit native complete-v1 copy adoption.', adopted })

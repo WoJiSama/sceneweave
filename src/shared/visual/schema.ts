@@ -20,7 +20,7 @@ export const visualBoundarySchema = z.object({ ...entity, closed: z.boolean(), s
 }).strict()
 export const visualEdgeLookSchema = z.object({ ...entity, boundaryId: id, kind: z.enum(['shore', 'cliff', 'grass', 'path', 'fence']), side: z.enum(['left', 'right', 'both']),
   widthMm: mm(1, 5000), color, accentColor: color, opacity, intensity: finite(0, 2), seed, repeatMm: mm(20, 20_000), enabled: z.boolean(),
-  renderProfile: z.enum(['rockRelief2', 'rockRelief3']).optional(),
+  renderProfile: z.enum(['rockRelief2', 'rockRelief3', 'rockRelief4']).optional(),
 }).strict()
 export const visualLightSchema = z.object({ ...entity, positionMm: point, radiusMm: mm(1, 50_000), color, intensity: finite(0, 2), wallOcclusion: z.boolean(), enabled: z.boolean() }).strict()
 export const visualFogSchema = z.object({ ...entity, boundaryMm: region, color, opacity, directionDeg: angle, scaleMm: mm(50, 20_000), seed, enabled: z.boolean() }).strict()

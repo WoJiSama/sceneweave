@@ -22,6 +22,8 @@ import { connectionArcFrame } from '../../../shared/geometry/connection-route.js
 import { connectionLandingBlend, connectionLandingDepthMm } from '../../../shared/geometry/connection-landings.js'
 import { naturalRockTreads } from './cliff-relief.js'
 import { drawNaturalRockSteps } from './natural-rock-steps.js'
+import { drawNaturalRockStepsV4 } from './natural-rock-steps-v4.js'
+import { planRockStepSideMask } from './rock-step-surface-mask.js'
 import { paintConnectionLandingMask } from './connection-landing-mask.js'
 import { editorResidentAssetIds } from './aggregate-residency.js'
 import { paintWithPreservedAlpha } from './alpha-preservation.js'
@@ -555,9 +557,28 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
     const local = { ...projection, bounds: { x: projection.bounds.x + left / sx, y: projection.bounds.y + top / sy, width: surface.width / sx, height: surface.height / sy } }
     worldTransform(target, local.bounds, sx, sy)
     const palette = route.stairStyle === 'wood' ? { base: '#AB9165', dark: '#65523E', light: '#E1C693' }
-      : route.stairStyle === 'naturalRock' ? { base: '#B6B094', dark: '#606D5E', light: '#E4D4A9' }
+      : route.stairStyle === 'naturalRock' ? route.renderProfile === 'naturalRockSteps4'
+        ? { base: '#666D67', dark: '#303C36', light: '#9CA396' }
+        : route.renderProfile === 'naturalRockSteps3'
+        ? { base: '#777B72', dark: '#424B47', light: '#AAA999' }
+        : { base: '#B6B094', dark: '#606D5E', light: '#E4D4A9' }
         : { base: '#AAA98E', dark: '#59665D', light: '#E4D9B5' }
-    fillSurface(target, path, c.style, local, raster, palette.base); target.save(); target.clip(path); target.lineCap = 'butt'
+    fillSurface(target, path, c.style, local, raster, palette.base)
+    if (route.renderProfile === 'naturalRockSteps4') {
+      const plan = planRockStepSideMask({ bounds: local.bounds, width: surface.width, height: surface.height,
+        centerlineMm: route.centerlineMm, widthMm: c.widthMm })
+      const sideMask = canvas(plan.width, plan.height)
+      try {
+        const maskContext = context(sideMask, raster.readFrequently), image = maskContext.createImageData(plan.width, plan.height)
+        image.data.set(plan.data); maskContext.putImageData(image, 0, 0)
+        target.save()
+        try {
+          target.resetTransform(); target.globalCompositeOperation = 'destination-in'; target.globalAlpha = 1; target.filter = 'none'
+          target.imageSmoothingEnabled = true; target.drawImage(sideMask, 0, 0, surface.width, surface.height)
+        } finally { target.restore() }
+      } finally { disposeCanvas(sideMask) }
+    }
+    target.save(); target.clip(path); target.lineCap = 'butt'
     if (c.kind === 'stairs') {
       const count = Math.max(1, Math.ceil(frame.length / route.treadDepthMm)), depth = frame.length / count
       if (count > 512) throw new Error('连接踏面超过512级预算。')
@@ -581,7 +602,8 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
       }
       if (route.stairStyle === 'naturalRock') {
         const seed = `${c.id}/${route.centerlineMm.map(p => `${p.x},${p.y}`).join(';')}`
-        if (route.renderProfile === 'naturalRockSteps2') drawNaturalRockSteps(target, { frame, widthMm: c.widthMm, count, seed, bandMm: polygon, palette })
+        if (route.renderProfile === 'naturalRockSteps4') drawNaturalRockStepsV4(target, { frame, widthMm: c.widthMm, count, seed, bandMm: polygon, palette })
+        else if (route.renderProfile === 'naturalRockSteps2' || route.renderProfile === 'naturalRockSteps3') drawNaturalRockSteps(target, { frame, widthMm: c.widthMm, count, seed, bandMm: polygon, palette })
         else {
         const treads = naturalRockTreads(frame, c.widthMm, seed, count)
         for (let i = 0; i < treads.length; i++) {
@@ -609,7 +631,7 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
       target.strokeStyle = palette.dark; target.lineWidth = 25; target.globalAlpha = .65; target.setLineDash([110, 85]); target.stroke(line); target.setLineDash([])
     }
     target.strokeStyle = palette.dark
-    if (route.renderProfile === 'naturalRockSteps2') {
+    if (route.renderProfile === 'naturalRockSteps2' || route.renderProfile === 'naturalRockSteps3' || route.renderProfile === 'naturalRockSteps4') {
       // This profile already paints finite contacts; keep both landings open.
     } else if (route.stairStyle === 'naturalRock') {
       // Short contacts follow each real route leg. No closed frame or end-cap
