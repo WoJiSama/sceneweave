@@ -4,14 +4,18 @@ import { taskBudgetProfile } from '../../../budget/task-budget.js'
 import { polygonDistance, polygonInside, polygonsOverlap, propFootprint, roomPoints, supportedPolygon } from '../../../geometry/geometry.js'
 import { toCurrentSceneDocument } from '../../../model/current-scene.js'
 import type { PropDefinition, SceneDocument } from '../../../model/scene.js'
-import { canonicalJson } from '../../../validation/json.js'
+import { canonicalJson, cloneJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { furnishInterior } from './furnishing.js'
+import { furnitureAccessBand, roomDoorPorts } from './furnishing-circulation.js'
 import { arrangeInteriorConnections, checkInteriorCirculation, type InteriorConnectivityReport } from './connectivity.js'
 import type { InteriorGenerationInput, InteriorLayout } from './contracts.js'
 import { interiorEntityId } from './layout.js'
 import { furnitureBoundsPolygon, furniturePoseCandidates, type FurnitureAnchor } from './furnishing-poses.js'
 import { furnitureUseSpacePolygon, furnitureWorkingSpacePolygon } from './furnishing-use-space.js'
+import { bedroomStorageCandidates, planBedroomAccess } from './furnishing-bedroom.js'
+import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
+import { hashGenerationValue } from '../../contracts.js'
 
 const stamp = '2026-11-05T00:00:00.000Z', profile = taskBudgetProfile('small'), options = { profile, checkCancelled: () => {} }
 const context = { ids: { nextId: () => { throw new Error('native room IDs must be explicit') } }, clock: { now: () => stamp } }
@@ -43,6 +47,54 @@ function fixture(widthMm: number, heightMm = widthMm, twoRooms = false): { docum
 }
 
 describe('initial interior furniture suggestions', () => {
+  it.each(['客房', '餐厅', '厨房'])('keeps exact established %s furniture and reports when the new algorithm prunes distant room geometry', purpose => {
+    const value = fixture(6500, 7500, true)
+    value.input.algorithmVersion = 9
+    value.input.parameters.rooms.forEach(room => { room.purpose = purpose })
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const before = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const after = furnishInterior(connected.document, { ...value.input, algorithmVersion: 10 }, value.layout, connected.report, options)
+    expect(after).toEqual(before)
+  })
+
+  it('keeps established algorithm 8 bedroom, dining and kitchen doorway replay fingerprints', () => {
+    const fingerprints = ['客房', '餐厅', '厨房'].map(purpose => {
+      const value = fixture(6500, 7500)
+      value.input.algorithmVersion = 8; value.input.parameters.rooms[0].purpose = purpose
+      value.input.parameters.arrangement.entrance = true
+      const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+      return hashGenerationValue(furnishInterior(connected.document, value.input, value.layout, connected.report, options))
+    })
+    expect(fingerprints).toMatchSnapshot()
+  })
+
+  it('keeps established algorithm 7 bedroom, dining and kitchen replay fingerprints', () => {
+    const fingerprints = ['客房', '餐厅', '厨房'].map(purpose => {
+      const value = fixture(6500, 7500)
+      value.input.algorithmVersion = 7; value.input.parameters.rooms[0].purpose = purpose
+      return hashGenerationValue(furnishInterior(value.document, value.input, value.layout, emptyConnectivity, options))
+    })
+    expect(fingerprints).toMatchSnapshot()
+  })
+
+  it('keeps the established algorithm 6 bedroom, dining and kitchen results', () => {
+    const fingerprints = ['客房', '餐厅', '厨房'].map(purpose => {
+      const value = fixture(6500, 7500)
+      value.input.algorithmVersion = 6; value.input.parameters.rooms[0].purpose = purpose
+      return hashGenerationValue(furnishInterior(value.document, value.input, value.layout, emptyConnectivity, options))
+    })
+    expect(fingerprints).toMatchSnapshot()
+  })
+
+  it.each([2, 3, 4, 5] as const)('keeps frozen replay fingerprints for algorithm %s across dining and kitchen inputs', algorithmVersion => {
+    const fingerprints = ['餐厅', '厨房'].map(purpose => {
+      const value = fixture(6500, 7500)
+      value.input.algorithmVersion = algorithmVersion; value.input.parameters.rooms[0].purpose = purpose
+      return hashGenerationValue(furnishInterior(value.document, value.input, value.layout, emptyConnectivity, options))
+    })
+    expect(fingerprints).toMatchSnapshot()
+  })
+
   it('uses real room area and fixed footprints, is deterministic and leaves later deletion unconstrained', () => {
     const small = fixture(3000), large = fixture(8000), before = canonicalJson(large.document)
     const first = furnishInterior(small.document, small.input, small.layout, emptyConnectivity, options)
@@ -95,6 +147,222 @@ describe('initial interior furniture suggestions', () => {
     const checked = checkInteriorCirculation(result.document, value.input, value.layout, connected.report)
     expect(checked.routes.every((route, at) => connected.report.routes[at].status !== 'clear' || route.status === 'clear')).toBe(true)
     expect(() => furnishInterior(value.document, value.input, value.layout, connected.report, { profile, checkCancelled: () => { throw new Error('cancelled') } })).toThrow('cancelled')
+  })
+})
+
+describe('current furniture units with real doorway access', () => {
+  it.each(([8, 9] as const).flatMap(version => ['客房', '餐厅', '厨房', '库房'].map(purpose => [version, purpose] as const)))('connects version %s %s use areas to an actual door and protects complete bands', (algorithmVersion, purpose) => {
+    const value = fixture(8000, 9000)
+    value.input.algorithmVersion = algorithmVersion; value.input.parameters.rooms[0].purpose = purpose
+    value.input.parameters.arrangement.entrance = true
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const before = canonicalJson(connected.document)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const access = result.report.rooms[0].circulation!
+    expect(result.report.propIds.length).toBeGreaterThan(2)
+    expect(access.length).toBeGreaterThan(1)
+    expect(access.every(route => route.status === 'clear')).toBe(true)
+    for (const route of access) {
+      expect(connected.document.openings[route.openingId!].kind).toBe('door')
+      expect(checkTerrainRoute(result.document, { floorId: 'floor', pointsMm: route.pointsMm, widthMm: route.widthMm }).ok).toBe(true)
+      const band = furnitureAccessBand(route.pointsMm, route.widthMm)
+      expect(polygonInside(band, roomPoints(result.document, result.document.rooms['room-0']))).toBe(true)
+      for (const prop of Object.values(result.document.props)) {
+        expect(polygonsOverlap(band, propFootprint(prop))).toBe(false)
+        expect(polygonsOverlap(band, furnitureBoundsPolygon(prop.visualBoundsMm, prop))).toBe(false)
+      }
+    }
+    expect(canonicalJson(connected.document)).toBe(before)
+    expect(furnishInterior(connected.document, value.input, value.layout, connected.report, options)).toEqual(result)
+  })
+
+  it.each(['餐厅', '厨房', '库房'])('keeps complete %s use areas and routes on a separate long-room input', purpose => {
+    const value = fixture(9600, 6200)
+    value.input.algorithmVersion = 9; value.input.seed = 'functional-heldout'; value.input.parameters.rooms[0].purpose = purpose
+    value.input.parameters.arrangement.entrance = true
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const room = result.report.rooms[0]
+    expect(room.placed.length).toBeGreaterThan(2)
+    expect(room.circulation!.every(route => route.status === 'clear')).toBe(true)
+    for (const route of room.circulation!) {
+      const prop = result.document.props[route.propId]
+      const use = route.role === 'seat' ? furnitureUseSpacePolygon(prop, prop) : furnitureWorkingSpacePolygon(prop, prop)
+      expect(polygonInside(use, roomPoints(result.document, result.document.rooms[room.roomId]))).toBe(true)
+      expect(checkTerrainRoute(result.document, { floorId: prop.floorId, pointsMm: route.pointsMm, widthMm: 600 }).ok).toBe(true)
+      for (const other of Object.values(result.document.props).filter(p => p.id !== prop.id)) {
+        expect(polygonsOverlap(use, propFootprint(other))).toBe(false)
+        expect(polygonsOverlap(use, furnitureBoundsPolygon(other.visualBoundsMm, other))).toBe(false)
+      }
+    }
+    expect(checkInteriorCirculation(result.document, value.input, value.layout, connected.report).routes.every((r, i) => connected.report.routes[i].status !== 'clear' || r.status === 'clear')).toBe(true)
+  })
+
+  it.each([[6200, 7800], [9400, 6200]])('forms a full bed/cabinet unit in an independent %s by %s room', (width, height) => {
+    const value = fixture(width, height)
+    value.input.algorithmVersion = 9; value.input.seed = 'bed-unit-heldout'; value.input.parameters.rooms[0].purpose = '客房'
+    value.input.parameters.arrangement.entrance = true
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const rows = result.report.rooms[0].placed, beds = rows.filter(p => p.role === 'bed').map(p => result.document.props[p.propId])
+    const storage = rows.filter(p => p.role === 'storage').map(p => result.document.props[p.propId])
+    expect(beds.length).toBeGreaterThan(0)
+    expect(storage.length).toBeGreaterThan(0)
+    expect(storage.some(prop => bedroomStorageCandidates(value.layout.rooms[0].boundsMm, prop, 200, beds, key => key)
+      .some(pose => canonicalJson(pose) === canonicalJson({ positionMm: prop.positionMm, rotationDeg: prop.rotationDeg })))).toBe(true)
+    expect(result.report.rooms[0].circulation!.every(route => route.status === 'clear')).toBe(true)
+  })
+
+  it('does not promote a closed/locked/narrow door into an available port', () => {
+    const value = fixture(8000)
+    value.input.algorithmVersion = 8; value.input.parameters.arrangement.entrance = true
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const id = connected.report.entranceOpeningId!
+    expect(roomDoorPorts(connected.document, 'room-0', 600, () => {}, () => {})).toHaveLength(1)
+    const closed = applyCommands(connected.document, [{ type: 'updateOpening', id, changes: { state: 'closed', locked: true } }], context)
+    expect(roomDoorPorts(closed, 'room-0', 600, () => {}, () => {})).toHaveLength(0)
+    const result = furnishInterior(closed, value.input, value.layout, checkInteriorCirculation(closed, value.input, value.layout, connected.report), options)
+    expect(result.document.openings[id]).toEqual(closed.openings[id])
+    expect(result.report.rooms[0].circulation!.every(route => route.status === 'unavailable')).toBe(true)
+    const narrow = cloneJson(connected.document); narrow.openings[id].widthMm = 599
+    expect(roomDoorPorts(narrow, 'room-0', 600, () => {}, () => {})).toHaveLength(0)
+  })
+
+  it('keeps inaccessible locked furniture unchanged, reports the gap and preserves cancelled input', () => {
+    const value = fixture(6500, 7500)
+    value.input.algorithmVersion = 8; value.input.parameters.rooms[0].purpose = '客房'
+    value.input.parameters.arrangement.entrance = true
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const created = applyCommands(connected.document, [{ type: 'addProp', id: 'protected-bed', floorId: 'floor', layerId: 'layer',
+      definitionRef: { id: 'bed', version: 1 }, positionMm: { x: 6250, y: 6750 }, rotationDeg: 37, supportRef: { kind: 'room', id: 'room-0' } }], context)
+    const document = applyCommands(created, [{ type: 'setEditLock', kind: 'prop', id: 'protected-bed', locked: true }], context)
+    const before = canonicalJson(document), protectedOptions = { ...options, propIdForSlot: () => null }
+    const result = furnishInterior(document, value.input, value.layout, connected.report, protectedOptions)
+    expect(canonicalJson(result.document)).toBe(before)
+    expect(result.report.rooms[0].circulation).toEqual([expect.objectContaining({ propId: 'protected-bed', status: 'unavailable' })])
+    let checks = 0
+    expect(() => furnishInterior(document, value.input, value.layout, connected.report, { ...protectedOptions,
+      checkCancelled() { if (++checks > 10) throw new Error('cancelled') } })).toThrow('cancelled')
+    expect(canonicalJson(document)).toBe(before)
+  })
+})
+
+describe('interior-layout@7 bedroom use and storage', () => {
+  it('reports an unfilled bed when its artwork fits but no full bedside strip fits', () => {
+    const value = fixture(2100, 3000), bed = value.document.propDefinitions.bed
+    bed.defaultVisualBoundsMm = { x: -750, y: -1250, width: 1500, height: 2500 }; bed.defaultFootprintMm = { width: 1100, height: 2100 }
+    value.input.parameters.rooms[0].purpose = '卧室'
+    const old = furnishInterior(value.document, { ...value.input, algorithmVersion: 6 }, value.layout, emptyConnectivity, options)
+    expect(old.report.rooms[0].placed.filter(entry => entry.role === 'bed')).toHaveLength(1)
+    const before = canonicalJson(value.document)
+    const current = furnishInterior(value.document, { ...value.input, algorithmVersion: 7 }, value.layout, emptyConnectivity, options)
+    expect(current.report.rooms[0].placed).toEqual([])
+    expect(current.report.notes.some(note => note.includes('床侧使用'))).toBe(true)
+    expect(canonicalJson(value.document)).toBe(before)
+  })
+
+  it('retains an inaccessible protected non-cardinal bed as a draft and observes cancellation during its read-only check', () => {
+    const value = fixture(6500, 7500)
+    value.input.algorithmVersion = 7; value.input.parameters.rooms[0].purpose = '客房'
+    const created = applyCommands(value.document, [{ type: 'addProp', id: 'protected-bed', floorId: 'floor', layerId: 'layer',
+      definitionRef: { id: 'bed', version: 1 }, positionMm: { x: 6250, y: 6750 }, rotationDeg: 37, supportRef: { kind: 'room', id: 'room-0' } }], context)
+    const document = applyCommands(created, [{ type: 'setEditLock', kind: 'prop', id: 'protected-bed', locked: true }], context)
+    const before = canonicalJson(document), protectedOptions = { ...options, propIdForSlot: () => null }
+    const result = furnishInterior(document, value.input, value.layout, emptyConnectivity, protectedOptions)
+    expect(canonicalJson(result.document)).toBe(before)
+    expect(result.report.notes.some(note => note.includes('保留床当前未找到'))).toBe(true)
+    let checks = 0
+    expect(() => furnishInterior(document, value.input, value.layout, emptyConnectivity, { ...protectedOptions,
+      checkCancelled() { if (++checks > 2) throw new Error('cancelled during protected bed check') } })).toThrow('cancelled during protected bed check')
+    expect(canonicalJson(document)).toBe(before)
+  })
+
+  it.each([[6500, 7500, 'guest-a'], [5500, 6200, 'guest-independent-b']] as const)('keeps usable beds, retrieval space and real door routes at %s by %s', (width, height, seed) => {
+    const value = fixture(width, height, true), bed = value.document.propDefinitions.bed
+    bed.defaultVisualBoundsMm = { x: -750, y: -1250, width: 1500, height: 2500 }; bed.defaultFootprintMm = { width: 1100, height: 2100 }
+    value.input.algorithmVersion = 7; value.input.seed = seed
+    value.input.parameters.rooms.forEach(room => { room.purpose = '客房' })
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    for (const row of result.report.rooms) {
+      const room = result.document.rooms[row.roomId], layout = value.layout.rooms.find(room => room.roomId === row.roomId)!
+      const beds = row.placed.filter(entry => entry.role === 'bed')
+      expect(beds.length).toBeGreaterThan(0)
+      for (const entry of beds) {
+        const prop = result.document.props[entry.propId]
+        const blockers = Object.values(result.document.props).filter(p => p.floorId === prop.floorId)
+          .flatMap(p => [propFootprint(p), furnitureBoundsPolygon(p.visualBoundsMm, p)])
+        const access = planBedroomAccess({ shape: prop, pose: prop, roomPolygon: roomPoints(result.document, room),
+          centerMm: { x: layout.boundsMm.x + width / 2, y: layout.boundsMm.y + height / 2 }, blockers, rank: key => key,
+          checkCancelled() {}, chargeCandidate() {}, chargePair() {} })
+        expect(access).toBeDefined()
+        expect(checkTerrainRoute(result.document, { floorId: prop.floorId, pointsMm: access!.pointsMm, widthMm: 600 }).ok).toBe(true)
+      }
+      for (const entry of row.placed.filter(entry => entry.role === 'storage')) {
+        const prop = result.document.props[entry.propId], use = furnitureWorkingSpacePolygon(prop, prop)
+        expect(polygonInside(use, roomPoints(result.document, room))).toBe(true)
+        for (const other of Object.values(result.document.props).filter(p => p.id !== prop.id)) expect(polygonsOverlap(use, propFootprint(other))).toBe(false)
+      }
+    }
+    expect(checkInteriorCirculation(result.document, value.input, value.layout, connected.report).routes.every((route, i) => connected.report.routes[i].status !== 'clear' || route.status === 'clear')).toBe(true)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+    expect(furnishInterior(connected.document, value.input, value.layout, connected.report, options)).toEqual(result)
+  })
+})
+
+describe('interior-layout@6 functional groups', () => {
+  it.each([[6500, 7500, 'kitchen-group-a'], [8500, 6000, 'kitchen-independent-b']] as const)('joins an actual kitchen work group at %s by %s while retaining operating clearance', (width, height, seed) => {
+    const value = fixture(width, height, true)
+    value.input.algorithmVersion = 6; value.input.seed = seed
+    value.input.parameters.rooms.forEach(room => { room.purpose = '厨房' })
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const before = canonicalJson(connected.document), result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    for (const row of result.report.rooms) {
+      const furniture = row.placed.filter(p => ['work', 'hearth', 'storage', 'shelf'].includes(p.role)).map(p => result.document.props[p.propId])
+      expect(furniture.length).toBeGreaterThanOrEqual(5)
+      let adjacentPairs = 0
+      for (const [at, a] of furniture.entries()) for (const b of furniture.slice(at + 1)) {
+        if (a.rotationDeg !== b.rotationDeg) continue
+        const angle = a.rotationDeg * Math.PI / 180
+        const local = (prop: typeof a) => [...propFootprint(prop), ...furnitureBoundsPolygon(prop.visualBoundsMm, prop)].map(p => ({
+          x: Math.round(p.x * Math.cos(angle) + p.y * Math.sin(angle)), y: Math.round(-p.x * Math.sin(angle) + p.y * Math.cos(angle)),
+        }))
+        const ac = local(a), bc = local(b), backA = Math.min(...ac.map(p => p.y)), backB = Math.min(...bc.map(p => p.y))
+        const gap = Math.max(Math.min(...ac.map(p => p.x)) - Math.max(...bc.map(p => p.x)), Math.min(...bc.map(p => p.x)) - Math.max(...ac.map(p => p.x)))
+        if (backA === backB && gap === 100) adjacentPairs++
+      }
+      expect(adjacentPairs).toBeGreaterThanOrEqual(3)
+      for (const entry of row.placed.filter(p => p.role === 'work' || p.role === 'hearth')) {
+        const prop = result.document.props[entry.propId], working = furnitureWorkingSpacePolygon(prop, prop)
+        expect(polygonInside(working, roomPoints(result.document, result.document.rooms[row.roomId]))).toBe(true)
+        for (const other of furniture.filter(p => p.id !== prop.id)) expect(polygonsOverlap(working, propFootprint(other))).toBe(false)
+      }
+    }
+    expect(checkInteriorCirculation(result.document, value.input, value.layout, connected.report).routes.every((route, index) => connected.report.routes[index].status !== 'clear' || route.status === 'clear')).toBe(true)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+    expect(canonicalJson(connected.document)).toBe(before)
+    expect(furnishInterior(connected.document, value.input, value.layout, connected.report, options)).toEqual(result)
+  })
+
+  it('fulfils complete reserved seat definitions before alternatives and leaves no extra seat obligation', () => {
+    const value = fixture(6500, 7500)
+    value.input.algorithmVersion = 6; value.input.parameters.rooms[0].purpose = '餐厅'
+    const alternate = cloneJson(value.document.propDefinitions.seat)
+    alternate.id = 'seat-alternate'; alternate.catalogId = 'seat-alternate'
+    alternate.defaultFootprintMm = { width: 850, height: 700 }; alternate.defaultVisualBoundsMm = { x: -425, y: -350, width: 850, height: 700 }
+    value.document.propDefinitions[alternate.id] = alternate
+    value.input.parameters.arrangement.palette.push({ role: 'seat', ref: { id: alternate.id, version: 1 } })
+    const result = furnishInterior(value.document, value.input, value.layout, emptyConnectivity, options)
+    const row = result.report.rooms[0], seats = row.placed.filter(p => p.role === 'seat')
+    expect(seats).toHaveLength(row.recommended.filter(role => role === 'seat').length)
+    expect(seats.every(p => p.definitionRef.id === 'seat')).toBe(true)
+    for (const entry of seats) {
+      const seat = result.document.props[entry.propId], usePolygon = furnitureUseSpacePolygon(seat, seat)
+      for (const other of Object.values(result.document.props).filter(p => p.id !== seat.id)) expect(polygonsOverlap(usePolygon, propFootprint(other))).toBe(false)
+    }
+    const deleted = applyCommands(result.document, [{ type: 'deleteProp', id: seats[0].propId }], context)
+    expect(validateSceneDocument(deleted).ok).toBe(true)
+    expect(deleted.constraints).toEqual(value.document.constraints)
   })
 })
 

@@ -21,8 +21,9 @@ const source = (kind: 'forest' | 'volcano') => {
   return base
 }
 describe('real mixed module composition', () => {
-  it.each(['forest', 'volcano'] as const)('version 4 joins actual %s vegetation, editable functional groups and the full-width exterior approach', kind => {
+  it.each([['forest', 4], ['volcano', 4], ['forest', 5], ['volcano', 5], ['forest', 6], ['volcano', 6], ['forest', 7], ['volcano', 7], ['forest', 8], ['volcano', 8], ['forest', 9], ['volcano', 9]] as const)('%s version %s joins actual vegetation, editable functional groups and the full-width exterior approach', (kind, version) => {
     const base = source(kind), input = defaultMixedInputV4(base, kind, 'functional-outpost-v4')
+    input.algorithmVersion = version
     for (const role of ['table', 'seat', 'storage'] as const) base.propDefinitions[`group-${role}`] = {
       id: `group-${role}`, catalogId: `group-${role}`, version: 1, licenseRef: 'MIT', origin: { kind: 'original', attribution: 'Mixed composition regression fixture', canEmbed: true },
       name: role, tags: [], defaultAppearance: { kind: 'symbol', symbol: 'crate', tint: null, opacity: 1 },
@@ -33,9 +34,9 @@ describe('real mixed module composition', () => {
     input.parameters.building.arrangement.palette = (['table', 'seat', 'storage'] as const).map(role => ({ role, ref: { id: `group-${role}`, version: 1 } }))
     const before = canonicalJson(base), result = runMixedGeneration(base, input, options), document = cloneJson(result.candidate.document) as SceneDocument
     const recipes = Object.values(getLegacyGeneration(document)!.recipes)
-    for (const [algorithmId, version] of [['mixed-layout', 4], ['supported-interior', 4], ...(kind === 'forest' ? [['forest-layout', 2] as const] : [])] as const) {
+    for (const [algorithmId, recipeVersion] of [['mixed-layout', version], ['supported-interior', version], ...(kind === 'forest' ? [['forest-layout', 2] as const] : [])] as const) {
       const recipe = recipes.find(recipe => recipe.algorithmId === algorithmId)!
-      expect(recipe).toMatchObject({ recipeVersion: version, algorithmVersion: version })
+      expect(recipe).toMatchObject({ recipeVersion, algorithmVersion: recipeVersion })
       expect(generationRecipeSchema.safeParse(recipe).success).toBe(true)
       expect(generationRecipeSchema.safeParse({ ...recipe, recipeVersion: 99 }).success).toBe(false)
     }

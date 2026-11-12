@@ -1,7 +1,7 @@
 import type { GenerationBaseIntent, GenerationContentPort } from '../../../application/workspace/generation-intent.js'
 import { checkCancelled, type ResourceOptions } from '../../../shared/ports/resources.js'
 import { defaultVolcanoInput } from '../../../shared/generation/domains/volcano/index.js'
-import { defaultMixedInputV4 } from '../../../shared/generation/domains/mixed/index.js'
+import { defaultMixedInputV9 } from '../../../shared/generation/domains/mixed/index.js'
 import { createRefinedBlankProject } from './refined-blank.js'
 import { createShoreBlankProject } from './shore-blank.js'
 import { createVolcanoBlankProject, createMixedBlankProject } from './factories.js'
@@ -57,6 +57,6 @@ export const browserGenerationContent: GenerationContentPort = {
   }),
   mixed: (input, options) => withNativeSignal(options, async signal => {
     const base = await createMixedBlankProject(input.environment, blankOptions(input), signal)
-    return { base, defaults: defaultMixedInputV4(base.document, input.environment, input.seed) }
+    return { base, defaults: defaultMixedInputV9(base.document, input.environment, input.seed) }
   }),
 }

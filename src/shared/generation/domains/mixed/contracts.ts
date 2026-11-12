@@ -17,7 +17,7 @@ export const mixedParametersSchema = z.object({
   building: interiorLayoutParametersSchema,
   approach: z.object({ fromMm: point, viaMm: z.array(point).max(16), widthMm: mm.positive().max(5000), materialRef: ref.nullable() }).strict(),
 }).strict()
-export const mixedGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]), seed: z.string().min(1).max(128), parameters: mixedParametersSchema }).strict()
+export const mixedGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9)]), seed: z.string().min(1).max(128), parameters: mixedParametersSchema }).strict()
 export type MixedGenerationInput = z.infer<typeof mixedGenerationInputSchema>
 export type MixedParameters = z.infer<typeof mixedParametersSchema>
 export const mixedMaterialRoleSchema = z.enum(['ground', 'path', 'mountain', 'crater', 'platform', 'flow', 'route', 'floor', 'wall', 'approach'])

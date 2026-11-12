@@ -136,7 +136,7 @@ describe('supported-interior@1 composition adapter', () => {
     expect(validateSceneDocument(second.candidate.document).ok).toBe(true)
   })
 
-  for (const version of [1, 2, 3, 4] as const) it(`reuses D6 furniture on elevated support at version ${version} and preserves manual or deleted slots`, () => {
+  for (const version of [1, 2, 3, 4, 5, 6, 7, 8, 9] as const) it(`reuses D6 furniture on elevated support at version ${version} and preserves manual or deleted slots`, () => {
     const input = request(); input.algorithmVersion = version
     const generated = runSupportedInteriorGeneration(terrain(), input, options), context = runtime()
     const content = createCompositionContent(cloneJson(generated.candidate.document) as SceneDocument, context), roomId = generated.layout.rooms[0].roomId
@@ -162,7 +162,7 @@ describe('supported-interior@1 composition adapter', () => {
     expect(() => regenerateRoomFurniture(locked, requestLocal, context, { profile, checkCancelled() {} })).toThrow(/支撑.*锁定/)
   }, version >= 3 ? 30_000 : 5000)
 
-  it.each([1, 2, 3, 4] as const)('persists the exact supported version %s and rejects mixed recipe selectors', algorithmVersion => {
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9] as const)('persists the exact supported version %s and rejects mixed recipe selectors', algorithmVersion => {
     const input = request(); input.algorithmVersion = algorithmVersion
     input.parameters.arrangement.furniture = false
     const generated = runSupportedInteriorGeneration(terrain(), input, options)

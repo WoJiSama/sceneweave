@@ -19,6 +19,7 @@ const interiorReportSchema = z.object({ connectivity: z.object({ openingIds: ids
   routes: z.array(z.object({ id, fromRoomId: id.nullable(), toRoomId: id, openingId: id, from: point, to: point, pointsMm: z.array(point).max(4096), widthMm: integer.positive(), status: z.enum(['clear', 'unavailable']), notes }).strict()).max(8192) }).strict(),
   furnishing: z.object({ propIds: ids, notes, testedPlacements: count,
     rooms: z.array(z.object({ requirementId: id, roomId: id, recommended: z.array(interiorFurnitureRoleSchema).max(64),
+      circulation: z.array(z.object({ propId: id, role: interiorFurnitureRoleSchema, openingId: id.nullable(), pointsMm: z.array(point).max(4096), widthMm: integer.positive(), status: z.enum(['clear', 'unavailable']), notes }).strict()).max(8192).optional(),
       placed: z.array(z.object({ propId: id, role: interiorFurnitureRoleSchema, definitionRef: ref }).strict()).max(8192), notes }).strict()).max(24) }).strict(), notes }).strict()
 const forestReportSchema = z.object({ groundAreaId: id.nullable(), pathIds: ids, surfaceRuleIds: ids, propIds: ids, decorationIds: ids,
   vegetation: z.array(z.object({ zoneId: id, role: z.enum(['tree', 'shrub', 'grass']), requested: count, placed: count, ruleId: id, clusterId: id }).strict()).max(8192), notes }).strict()
@@ -29,7 +30,7 @@ const resultBase = { input: z.unknown(), candidate: domainGenerationCandidateSch
  * algorithms, local capability declarations and host presentation preparation.
  * Transport schemas and Workspace lifecycle derive their dispatch from here. */
 export const generationDomains = Object.freeze({
-  interior: Object.freeze({ algorithm: Object.freeze({ id: 'interior-layout', version: 5 }), normalize: normalizeInteriorInput, run: runInteriorGeneration,
+  interior: Object.freeze({ algorithm: Object.freeze({ id: 'interior-layout', version: 10 }), normalize: normalizeInteriorInput, run: runInteriorGeneration,
     resultSchema: z.object({ ...resultBase, layout: layoutSchema, report: interiorReportSchema }).strict(),
     presentation: 'default', localOperations: Object.freeze(['interior-furniture']) }),
   forest: Object.freeze({ algorithm: Object.freeze({ id: 'forest-layout', version: 2 }), normalize: normalizeForestInput, run: runForestGeneration,
@@ -38,7 +39,7 @@ export const generationDomains = Object.freeze({
   volcano: Object.freeze({ algorithm: Object.freeze({ id: 'volcano-layout', version: 1 }), normalize: normalizeVolcanoInput, run: runVolcanoGeneration,
     resultSchema: z.object({ ...resultBase, report: volcanoReportSchema }).strict(),
     presentation: 'terrain-variants', localOperations: Object.freeze(['volcano-material', 'volcano-boundary']) }),
-  mixed: Object.freeze({ algorithm: Object.freeze({ id: 'mixed-layout', version: 4 }), normalize: normalizeMixedInput, run: runMixedGeneration,
+  mixed: Object.freeze({ algorithm: Object.freeze({ id: 'mixed-layout', version: 9 }), normalize: normalizeMixedInput, run: runMixedGeneration,
     resultSchema: z.object({ ...resultBase, report: mixedReportSchema }).strict(),
     presentation: 'terrain-variants', localOperations: Object.freeze([]) }),
 } as const)

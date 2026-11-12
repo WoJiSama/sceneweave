@@ -2,6 +2,7 @@ import type { InteriorGenerationInput, InteriorLayout, InteriorRectangle, Interi
 import { captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/task-budget.js'
 import { GenerationError } from '../../orchestrator.js'
 import { hashGenerationValue } from '../../contracts.js'
+import { solveBalancedInteriorLayout } from './layout-balanced.js'
 
 export type InteriorFailure = 'invalid-input' | 'unsupported' | 'contradiction' | 'search-exhausted' | 'budget-exceeded' | 'cancelled'
 export class InteriorGenerationError extends GenerationError {
@@ -50,6 +51,14 @@ export function checkInteriorLayout(input: InteriorGenerationInput, layout: Inte
 /** Slicing rectangles + bounded backtracking. It supports a finite family of
  * guillotine partitions, not arbitrary adjacency-graph feasibility. */
 export function solveInteriorLayout(sceneId: string, input: InteriorGenerationInput, profile: TaskBudgetProfile, stableSeed: string, checkCancelled: () => void): InteriorLayout {
+  if (input.algorithmVersion >= 10) {
+    try { return solveBalancedInteriorLayout(sceneId, input, profile, stableSeed, checkCancelled) }
+    catch (error) {
+      if (error instanceof GenerationError) throw error
+      if (String(error).includes('任务预算超限')) throw new InteriorGenerationError('budget-exceeded', String(error))
+      throw error
+    }
+  }
   const p = input.parameters, meter = captureExecutionBudget(profile), t = p.wallThicknessMm, inset = Math.ceil(t / 2)
   const root = { x: p.boundsMm.x + inset, y: p.boundsMm.y + inset, width: p.boundsMm.width - 2 * inset, height: p.boundsMm.height - 2 * inset }
   const limit = Math.min(8192, profile.limits.gridNodes), maxProposals = profile.limits.candidateAttempts

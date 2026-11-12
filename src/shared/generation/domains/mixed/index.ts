@@ -21,7 +21,7 @@ import { mixedGenerationInputSchema, mixedFixedBindings, type MixedGenerationInp
 import { planBuildingEntranceApproaches } from './entrance-approach.js'
 
 export * from './contracts.js'
-export { defaultMixedInput, defaultMixedInputV3, defaultMixedInputV4 } from './defaults.js'
+export { defaultMixedInput, defaultMixedInputV3, defaultMixedInputV4, defaultMixedInputV5, defaultMixedInputV6, defaultMixedInputV7, defaultMixedInputV8, defaultMixedInputV9 } from './defaults.js'
 export const mixedEntityId = (sceneId: string, seed: string, key: string) => `mixed-${hashGenerationValue([sceneId, seed, key]).slice(0, 32)}`
 const moduleSeed = (seed: string, module: string) => hashGenerationValue(['mixed-layout', 1, seed, module])
 const equal = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
@@ -45,7 +45,7 @@ export function normalizeMixedInput(raw: unknown): MixedGenerationInput {
  * modules retain their own strict recipes and finite output ownership. */
 function persist(document: SceneDocument, input: MixedGenerationInput, supportAreaId: string, entranceOpeningId?: string): void {
   const p = input.parameters, gen = getLegacyGeneration(document)!, id = (key: string) => mixedEntityId(document.sceneId, input.seed, key), recipeId = id('recipe')
-  const recipe: GenerationRecipe = { id: recipeId, domain: 'mixed', ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : { recipeVersion: 4 as const, algorithmVersion: 4 as const }), algorithmId: 'mixed-layout', mapMode: 'scene', seed: input.seed,
+  const recipe: GenerationRecipe = { id: recipeId, domain: 'mixed', ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : { recipeVersion: 9 as const, algorithmVersion: 9 as const }), algorithmId: 'mixed-layout', mapMode: 'scene', seed: input.seed,
     parameters: cloneJson(p), ...mixedFixedBindings(p), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   gen.recipes[recipeId] = recipe
   const addRule = (key: string, kind: 'terrainArea' | 'path', entityId: string, inputs: GenerationReference[]) => {
@@ -148,7 +148,7 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
     const parameters = p.outdoor.parameters
     volcano = execution.run('outdoor', (current, opts) => runVolcanoGeneration(current, { version: 1, algorithmVersion: 1, seed: outdoorSeed, parameters }, opts))
   }
-  const buildingVersion = input.algorithmVersion === 4 ? 4 : input.algorithmVersion === 3 ? 2 : input.algorithmVersion
+  const buildingVersion = input.algorithmVersion >= 4 ? input.algorithmVersion : input.algorithmVersion === 3 ? 2 : input.algorithmVersion
   const building = execution.run('building', (current, opts) => runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: buildingVersion, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId } } }, opts))
   const entranceOpeningId = building.report.connectivity.entranceOpeningId
   if (!entranceOpeningId) throw new GenerationError('candidate-invalid', '初次混合候选未找到可接入的真实外门；请调整建筑尺寸或门建议参数。')
@@ -158,7 +158,7 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
     const parameters = cloneJson(p.outdoor.parameters)
     parameters.ground = { kind: 'existing' }
     for (const row of [...parameters.zones, ...parameters.clearings, ...parameters.entrances]) row.supportRef = { kind: 'terrainArea', id: supportAreaId }
-    const forestInput: ForestGenerationInput = { version: 1, algorithmVersion: input.algorithmVersion === 4 ? 2 : 1, seed: outdoorSeed, parameters }
+    const forestInput: ForestGenerationInput = { version: 1, algorithmVersion: input.algorithmVersion >= 4 ? 2 : 1, seed: outdoorSeed, parameters }
     const forest = execution.run('outdoor', (current, opts) => runForestGeneration(current, forestInput, opts))
     notes.push(...forest.report.notes)
     outdoorRecipeId = forestEntityId(source.sceneId, outdoorSeed, 'recipe')

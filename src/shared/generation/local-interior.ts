@@ -68,7 +68,7 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   // Current full-width door/circulation checks consume the outdoor physical
   // scene as well as room walls and furniture. Expose that real read closure
   // for supported buildings; these records remain strictly read-only.
-  if (recipe.algorithmId === 'supported-interior') for (const collection of ['terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'regions'] as const) {
+  if (recipe.algorithmId === 'supported-interior' || input.algorithmVersion >= 8) for (const collection of ['terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'regions'] as const) {
     for (const entity of Object.values(before[collection])) if (entity.floorId === room.floorId) {
       readIds.add(entity.id); readIds.add(before.entityLayers[entity.id])
     }

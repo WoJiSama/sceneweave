@@ -60,3 +60,29 @@ export function defaultMixedInputV3(document: SceneDocument, environment: 'fores
 export function defaultMixedInputV4(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
   return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 4 }
 }
+
+/** Explicit functional-group replay selector; previous template functions keep
+ * their original algorithms and parameters. */
+export function defaultMixedInputV5(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 5 }
+}
+
+/** Explicit current bedroom grouping; old templates retain their replay selectors. */
+export function defaultMixedInputV6(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 6 }
+}
+
+/** Connect functional use strips to real doors; the original default remains 2. */
+export function defaultMixedInputV7(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 7 }
+}
+
+/** Complete bedroom/kitchen units; prior template functions retain their selectors. */
+export function defaultMixedInputV8(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 8 }
+}
+
+/** Finite proportion and shortened-corridor choices; the original default remains 2. */
+export function defaultMixedInputV9(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 9 }
+}
