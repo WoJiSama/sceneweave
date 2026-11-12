@@ -1,9 +1,10 @@
 import { extractImageLayer, type ExtractedImageLayer, type ImagePixelMask, type ImagePixels, type PixelBounds } from './pixels.js'
 import type { ImageImportLayer } from './recipe.js'
-import { assertSelectionMaskBudget } from './selection-mask.js'
+import { assertSelectionMaskBudget, encodeSelectionMask } from './selection-mask.js'
+import { guidedImageSelection } from './guided-selection.js'
 
 /** Replaying a draft does not require a room, scale or complete import recipe. */
-export type ImageReplayLayer = Pick<ImageImportLayer, 'id' | 'polygon' | 'donor' | 'repair' | 'fills' | 'cleanupPx' | 'selectionMask'>
+export type ImageReplayLayer = Pick<ImageImportLayer, 'id' | 'polygon' | 'donor' | 'repair' | 'fills' | 'cleanupPx' | 'selectionMask' | 'guidedSelection' | 'removalMask' | 'protectionMask'>
 
 export interface ImageDeclaredDonorSource {
   /** Zero is the default donor; subsequent indexes retain the declared fill order. */
@@ -144,12 +145,13 @@ export function replayImageLayers<T extends ImageReplayLayer>(source: ImagePixel
     if (ids.has(layer.id)) throw new Error('拆解物件身份重复。')
     ids.add(layer.id)
   }
-  assertSelectionMaskBudget(input.map(layer => layer.selectionMask))
+  assertSelectionMaskBudget(input.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]))
   const sourceProvenance = new ImageSourceProvenance(source.width, source.height, input.length), provenance = sourceProvenance.data
   let remaining = source, repairPixels = 0, extractedInferencePixels = 0, declaredDonorPriorInferencePixels = 0
   const layers = input.map((layer: T, index): ImageLayerReplay<T> => {
+    const selectionMask = layer.selectionMask ?? (layer.guidedSelection ? encodeSelectionMask(guidedImageSelection(remaining, layer.guidedSelection).mask) : undefined)
     const extracted = extractImageLayer(remaining, layer.polygon, layer.donor,
-      { repair: layer.repair, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask: layer.selectionMask })
+      { repair: layer.repair, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask, removalMask: layer.removalMask, protectionMask: layer.protectionMask })
     const priorProducers = new Set<number>()
     const declaredDonors = [layer.donor, ...(layer.fills ?? []).map(fill => fill.donor)].map((bounds, donorIndex) => {
       const priorInferencePixels = sourceProvenance.declaredOverlap(bounds, priorProducers)

@@ -1,6 +1,8 @@
-import { repairImageRegion } from './repair.js'
+import { repairImageRegion, repairImageTexture } from './repair.js'
 import type { ImagePoint } from './calibration.js'
 import { decodeSelectionMask, type ImageSelectionMask } from './selection-mask.js'
+import { imageRepairScope, maskCoverage } from './repair-scope.js'
+import { repairContextPatch } from './context-patch.js'
 
 export interface ImagePixels { width: number; height: number; data: Uint8ClampedArray }
 export interface PixelBounds { x: number; y: number; width: number; height: number }
@@ -129,15 +131,17 @@ function expandedRepairMask(image: ImagePixels, mask: ImagePixelMask, radius: nu
 
 /** Extract original object pixels, then repair only the declared mask and optional cleanup halo. */
 export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoint[], donorBoundsPx: PixelBounds,
-  options: { repair?: 'tile' | 'seamless' | 'aligned'; fills?: readonly ImageRepairFill[]; cleanupPx?: number; selectionMask?: ImageSelectionMask } = {}): ExtractedImageLayer {
-  if (options.repair !== undefined && options.repair !== 'tile' && options.repair !== 'seamless' && options.repair !== 'aligned') throw new Error('不支持的补底方式。')
+  options: { repair?: 'tile' | 'seamless' | 'aligned' | 'texture' | 'context'; fills?: readonly ImageRepairFill[]; cleanupPx?: number; selectionMask?: ImageSelectionMask;
+    removalMask?: ImageSelectionMask; protectionMask?: ImageSelectionMask } = {}): ExtractedImageLayer {
+  if (options.repair !== undefined && !['tile', 'seamless', 'aligned', 'texture', 'context'].includes(options.repair)) throw new Error('不支持的补底方式。')
   const cleanupPx = options.cleanupPx ?? 0
   if (!Number.isSafeInteger(cleanupPx) || cleanupPx < 0 || cleanupPx > 8) throw new Error('残影清理范围须为0至8像素。')
   checkImage(image)
   checkDonor(image, donorBoundsPx)
   // A fine mask is authoritative: the rough polygon must not erase holes or leaf tips.
   const mask = options.selectionMask ? decodeSelectionMask(options.selectionMask, image) : polygonMask(image, polygon)
-  const repairMask = expandedRepairMask(image, mask, cleanupPx)
+  if (options.removalMask && cleanupPx) throw new Error('独立移除范围已明确，不能同时使用残影外扩。')
+  const { repairMask, protectionMask } = imageRepairScope(image, mask, expandedRepairMask(image, mask, cleanupPx), options.removalMask, options.protectionMask)
   if (options.fills && (!Array.isArray(options.fills) || options.fills.length > 8)) throw new Error('补底分区最多8个。')
   // Region guidance is only consumed around this repair, even if a user marks an entire material plane.
   const contextX = Math.max(0, repairMask.boundsPx.x - 64), contextY = Math.max(0, repairMask.boundsPx.y - 64)
@@ -149,6 +153,10 @@ export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoi
     return { mask: polygonMask(image, fill.polygon, context), donor: fill.donor }
   })
   const donors = [donorBoundsPx, ...regions.map(region => region.donor)]
+  for (const donor of donors) for (let y = donor.y; y < donor.y + donor.height; y++) for (let x = donor.x; x < donor.x + donor.width; x++) {
+    if (maskCoverage(protectionMask, x, y)) throw new Error('补底取样与保护范围相交，请选择可信的干净底材。')
+  }
+  if (options.repair === 'context' && regions.length) throw new Error('完整纹理补片当前只支持单一底材，请先分开处理。')
   const prioritizedRegions = [...regions].reverse()
   const regionCoverage = (region: ImagePixelMask, x: number, y: number): number => {
     const column = x - region.boundsPx.x, row = y - region.boundsPx.y
@@ -185,8 +193,10 @@ export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoi
   }
   return { layer: { width: mask.width, height: mask.height, data: layerData, boundsPx: { ...mask.boundsPx } },
     remaining: options.repair === 'seamless' || options.repair === 'aligned' ? repairImageRegion(image, repairMask, donorBoundsPx,
-      { regions, baseMask: mask, ...(options.repair === 'aligned' ? { alignment: 'boundary-phase-v1' as const } : {}) })
-      : { width: image.width, height: image.height, data: remainingData }, mask, repairMask }
+      { regions, baseMask: mask, protectionMask, ...(options.repair === 'aligned' ? { alignment: 'boundary-phase-v1' as const } : {}) })
+      : options.repair === 'texture' ? repairImageTexture(image, repairMask, donorBoundsPx, { regions, baseMask: mask, protectionMask })
+        : options.repair === 'context' ? repairContextPatch(image, repairMask, donorBoundsPx, protectionMask)
+        : { width: image.width, height: image.height, data: remainingData }, mask, repairMask }
 }
 
 function regionContours(mask: ImagePixelMask): ImagePoint[][] {

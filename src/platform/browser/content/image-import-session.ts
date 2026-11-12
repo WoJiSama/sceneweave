@@ -15,15 +15,40 @@ import { reconstructSourceLayers } from '../../../shared/image-import/reconstruc
 import { replayImageLayers } from '../../../shared/image-import/layer-replay.js'
 import { scaleSourcePixels } from '../../../shared/image-import/sampling.js'
 import { assertSourcePreservingRecipe, compareImageFidelity, IMAGE_IMPORT_FIDELITY_RULES, ImageFidelityError } from '../../../shared/image-import/fidelity.js'
+import { guidedImageSelection, type GuidedSelectionInput } from '../../../shared/image-import/guided-selection.js'
+import { assertImageSelectionOrigin } from '../../../shared/image-import/selection-origin.js'
+import { IMAGE_ITEM_WORKFLOW } from '../../../shared/image-import/workflow-instructions.js'
+import { PROJECT_CREATION_WORKFLOW } from '../../../shared/ai/project-workflow.js'
+import { generateImageEnhancementCandidates } from '../../../shared/image-enhancement/index.js'
+import { imageItemReviewSheet } from '../../../shared/image-import/review.js'
+import { sha256Text } from '../../../shared/validation/hash.js'
+import { canonicalJson } from '../../../shared/validation/json.js'
+import { sha256Bytes } from '../../../shared/project/binary.js'
+import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
+import { parseImageWorkState, writeImageWorkPackage, type ImageWorkState } from '../../../shared/image-import/workflow.js'
+import type { ImageWorkPackage } from '../../../shared/image-import/workflow.js'
+import type { ImageProcessingPort } from '../../../shared/ports/resources.js'
+import { readBrowserImageWorkPackage } from './image-workflow-store.js'
 
-export interface ImageImportSource { image: ImageImportRecipe['image']; pixels: ImagePixels }
+export interface ImageImportSource { image: ImageImportRecipe['image']; pixels: ImagePixels; originalBytes?: Uint8Array; normalizedBytes?: Uint8Array; originalName?: string; originalMime?: string }
 export interface ImageImportRights { licenseText: string; attribution: string }
 
 export async function loadImageImportSource(bytes: Uint8Array, mime = '', signal?: AbortSignal): Promise<ImageImportSource> {
-  const normalized = await normalizeBrowserImage(bytes, mime, { signal })
+  const originalBytes = bytes.slice(), normalized = await normalizeBrowserImage(originalBytes, mime, { signal })
   const raster = await createBrowserImagePort().decode(normalized.bytes, normalized.record, { signal })
   return { image: { sha256: normalized.record.sha256, pixelWidth: raster.width, pixelHeight: raster.height },
-    pixels: { width: raster.width, height: raster.height, data: raster.rgba } }
+    pixels: { width: raster.width, height: raster.height, data: raster.rgba }, originalBytes, normalizedBytes: normalized.bytes, originalMime: inspectImageBytes(originalBytes, false).mimeType }
+}
+
+/** Restore the saved source encoding after real pixel validation; browser PNG encoders may differ. */
+export async function loadImageImportWorkSource(input: ImageWorkPackage, signal?: AbortSignal,
+  images: ImageProcessingPort = createBrowserImagePort()): Promise<ImageImportSource> {
+  const work = await readBrowserImageWorkPackage(await writeImageWorkPackage(input.state, input.original, input.normalized, signal), signal, images)
+  const raster = await images.decode(work.normalized, { sha256: work.state.image.sha256, mimeType: 'image/png',
+    sizeBytes: work.normalized.length, pixelWidth: work.state.image.pixelWidth, pixelHeight: work.state.image.pixelHeight }, { signal })
+  signal?.throwIfAborted()
+  return { image: work.state.image, pixels: { width: raster.width, height: raster.height, data: raster.rgba },
+    originalBytes: work.original, normalizedBytes: work.normalized, originalName: work.state.original.name, originalMime: work.state.original.mimeType }
 }
 
 export async function encodeImageImportPixels(pixels: ImagePixels, signal?: AbortSignal): Promise<Uint8Array> {
@@ -148,6 +173,8 @@ function assertNativeSourceAppearance(project: EditableProject): void {
   if (!art.length || art.some(prop => prop.roomId !== room.id || prop.supportRef?.kind !== 'room' || prop.supportRef.id !== room.id || prop.blocksMovement || prop.shadowClass !== 'none')) throw new ImageFidelityError('source-building-art-missing', '原图墙沿必须作为房间关联的源外观保全，不能遗漏或丢失受众关联。')
 }
 
+const hashJson = (value: unknown) => sha256Text(canonicalJson(value))
+
 type Draft = Omit<ImageImportRecipe, 'format' | 'version' | 'image' | 'calibration'> & { calibration: ImageImportRecipe['calibration'] | null }
 
 /** A host-owned session grants access to one image. Tool arguments never contain file paths or permissions. */
@@ -157,11 +184,67 @@ export class ImageImportToolSession {
   private history: Draft[] = []
   private source: ImageImportSource
   private readonly rights: ImageImportRights
+  private canEmbed = true
+  private workId: string = crypto.randomUUID()
+  private notes = ''
+  private nextAction = '确认房间范围与暂定/实测比例，再建立第一个item。'
+  private scaleStatus: 'provisional' | 'measured' = 'provisional'
+  private journal: ImageWorkState['journal'] = []
+  private reviews: ImageWorkState['reviews'] = []
+  private restoredActive: ImageWorkState['active']
+  private restoredRuler: Pick<ImageWorkState['draft'], 'rulerPointsPx' | 'distanceInput' | 'originPx'> = {}
   constructor(source: ImageImportSource, rights: ImageImportRights) {
-    this.source = { image: freezeJson(captureJson(source.image)), pixels: { ...source.pixels, data: source.pixels.data.slice() } }
+    this.source = { ...source, image: freezeJson(captureJson(source.image)), pixels: { ...source.pixels, data: source.pixels.data.slice() },
+      originalBytes: source.originalBytes?.slice(), normalizedBytes: source.normalizedBytes?.slice() }
     this.rights = freezeJson(captureJson(rights))
   }
   inspect() { return freezeJson({ generation: this.generation, image: this.source.image, draft: captureJson(this.draft), fidelityRules: IMAGE_IMPORT_FIDELITY_RULES }) }
+  captureWorkState(): ImageWorkState {
+    const bytes = this.source.originalBytes
+    if (!bytes || !this.source.normalizedBytes) throw new Error('此宿主没有保全原始字节，不能伪造可恢复工作包。')
+    return parseImageWorkState({ format: 'sceneweave-image-work', version: 1, id: this.workId, revision: this.generation,
+      image: this.source.image, original: { sha256: sha256Bytes(bytes), sizeBytes: bytes.length,
+        name: this.source.originalName || 'source-image', mimeType: this.source.originalMime || inspectImageBytes(bytes, false).mimeType },
+      draft: { ...this.draft, ...(this.draft.calibration ? {} : this.restoredRuler) }, rights: { ...this.rights, canEmbed: this.canEmbed }, notes: this.notes, nextAction: this.nextAction,
+      scaleStatus: this.scaleStatus, journal: this.journal, reviews: this.reviews, ...(this.restoredActive ? { active: this.restoredActive } : {}) })
+  }
+  async exportWork(signal?: AbortSignal): Promise<Uint8Array> {
+    return writeImageWorkPackage(this.captureWorkState(), this.source.originalBytes!, this.source.normalizedBytes!, signal)
+  }
+  restoreWork(input: unknown): void {
+    const state = parseImageWorkState(input)
+    if (state.image.sha256 !== this.source.image.sha256 || state.image.pixelWidth !== this.source.pixels.width || state.image.pixelHeight !== this.source.pixels.height
+      || !this.source.originalBytes || state.original.sha256 !== sha256Bytes(this.source.originalBytes)) throw new Error('恢复工作包的原图身份不匹配。')
+    replayImageLayers(this.source.pixels, state.draft.layers)
+    if (Math.max(this.generation, state.revision) >= Number.MAX_SAFE_INTEGER) throw new Error('工作包代次已达上限，请保全原件后创建新制作任务。')
+    const { rulerPointsPx, distanceInput, originPx, ...recipeDraft } = state.draft
+    this.restoredRuler = Object.fromEntries(Object.entries({ rulerPointsPx, distanceInput, originPx }).filter(([, value]) => value !== undefined))
+    this.history = [...this.history, this.draft]; this.draft = freezeJson(captureJson(recipeDraft))
+    this.generation = Math.max(this.generation, state.revision) + 1; this.workId = state.id
+    this.notes = state.notes; this.nextAction = state.nextAction; this.scaleStatus = state.scaleStatus
+    this.journal = state.journal; this.reviews = state.reviews
+    this.restoredActive = state.active
+    this.canEmbed = state.rights.canEmbed
+  }
+  private itemInputHash(target: string): string {
+    const index = this.draft.layers.findIndex(layer => layer.id === target)
+    if (index < 0) throw new Error('物件不存在。')
+    return hashJson({ image: this.source.image, calibration: this.draft.calibration, outputScale: this.draft.outputScale ?? 1,
+      algorithm: 'image-item-review@1/guided-geodesic@1', layers: this.draft.layers.slice(0, index + 1) })
+  }
+  private async itemPreview(target: string, signal?: AbortSignal) {
+    const index = this.draft.layers.findIndex(layer => layer.id === target)
+    if (index < 0) throw new Error('物件不存在。')
+    const replay = replayImageLayers(this.source.pixels, this.draft.layers.slice(0, index + 1))
+    const extracted = replay.layers[index].extracted
+    const prior = replayImageLayers(this.source.pixels, this.draft.layers.slice(0, index)).remaining
+    const itemBytes = await encodeImageImportPixels(scaleSourcePixels(extracted.layer, this.draft.outputScale ?? 1), signal), backgroundBytes = await encodeImageImportPixels(replay.remaining, signal)
+    const bytes = await encodeImageImportPixels(imageItemReviewSheet(prior, extracted.mask), signal)
+    return { bytes, mimeType: 'image/png', target, inputHash: this.itemInputHash(target), itemSha256: sha256Bytes(itemBytes),
+      backgroundSha256: sha256Bytes(backgroundBytes), generation: this.generation, inference: replay.layers[index].diagnostics,
+      repairMask: encodeSelectionMask(extracted.repairMask),
+      ...(this.draft.layers[index].protectionMask ? { protectionMask: this.draft.layers[index].protectionMask } : {}) }
+  }
   private recipe(draft: Draft = this.draft): ImageImportRecipe {
     if (!draft.calibration) throw new Error('请先设置图片比例。')
     return parseImageImportRecipe({ format: 'sceneweave-image-import-recipe', version: 1, image: this.source.image, ...draft })
@@ -174,6 +257,48 @@ export class ImageImportToolSession {
     const assertCurrent = () => { signal?.throwIfAborted(); if (this.generation !== startedGeneration) throw new Error('拆解草稿在处理期间已变化，请重新预览。') }
     if ('generation' in args && args.generation !== this.generation) throw new Error('拆解草稿已变化，请读取新代次后重试。')
     if (name === 'image_import_inspect') return this.inspect()
+    if (name === 'image_import_workflow') return { ...this.inspect(), workflow: IMAGE_ITEM_WORKFLOW, projectWorkflow: PROJECT_CREATION_WORKFLOW, id: this.workId,
+      notes: this.notes, nextAction: this.nextAction, scaleStatus: this.scaleStatus, active: this.restoredActive ?? null,
+      reviews: this.reviews.map(review => ({ ...review, matchesInput: this.draft.layers.some(layer => layer.id === review.target)
+        && this.itemInputHash(review.target) === review.inputHash, requiresOutputCheck: true })) }
+    if (name === 'image_import_export_work') { const bytes = await this.exportWork(signal); assertCurrent(); return { bytes, mimeType: 'application/zip', generation: startedGeneration } }
+    if (name === 'image_import_item_preview') { const result = await this.itemPreview((args as { target: string }).target, signal); assertCurrent(); return result }
+    if (name === 'image_import_enhancement_candidates') {
+      const options = args as import('zod').infer<typeof imageImportToolArguments.image_import_enhancement_candidates>
+      const index = this.draft.layers.findIndex(layer => layer.id === options.target)
+      if (index < 0) throw new Error('增强目标不存在，请先拆出物件。')
+      const replay = replayImageLayers(this.source.pixels, this.draft.layers.slice(0, index + 1))
+      const original = replay.layers[index].extracted.layer
+      const sourceBytes = await encodeImageImportPixels(original, signal)
+      const sourceItemSha256 = sha256Bytes(sourceBytes), inputHash = this.itemInputHash(options.target)
+      const generated = generateImageEnhancementCandidates(original, options, signal)
+      const candidates = []
+      for (const candidate of generated) {
+        assertCurrent()
+        const { pixels, ...metadata } = candidate
+        const bytes = await encodeImageImportPixels(pixels, signal)
+        const previewScale = ([4, 2, 1] as const).find(scale => ((pixels.width * scale + 8) * 3 + 8) * (pixels.height * scale + 16) <= 16_000_000)
+        if (!previewScale) throw new Error('增强候选换底预览超过1600万像素，请缩小物件范围。')
+        const mask = { width: pixels.width, height: pixels.height, boundsPx: { x: 0, y: 0, width: pixels.width, height: pixels.height },
+          data: new Uint8Array(pixels.width * pixels.height).fill(255) }
+        const reviewBytes = await encodeImageImportPixels(imageItemReviewSheet(pixels, mask, previewScale), signal)
+        candidates.push({ ...metadata, bytes, reviewBytes, previewScale, pixelWidth: pixels.width, pixelHeight: pixels.height, pngSha256: sha256Bytes(bytes) })
+      }
+      assertCurrent()
+      return { taskId: this.workId, target: options.target, inputHash, sourceItemSha256, sourceBytes, sourceBoundsPx: original.boundsPx,
+        generation: startedGeneration, candidates, adopted: false, sourceChanged: false,
+        nextAction: '实际比较所有候选与保真裁片；采用需在统一素材编辑页以同配方生成并经保护链确认。候选目录需另行携带，制作包不嵌入这些派生PNG。' }
+    }
+    if (name === 'image_import_guided_selection' && !(args as { target?: string }).target) {
+      const inputGuide = (args as unknown as { guide: GuidedSelectionInput }).guide
+      const version = inputGuide.algorithmVersion ?? 2
+      const guide: GuidedSelectionInput = { ...inputGuide, algorithmVersion: version,
+        ...(version === 2 ? { edgeCoverage: inputGuide.edgeCoverage ?? 'boundary' } : {}) }
+      const pixels = replayImageLayers(this.source.pixels, this.draft.layers).remaining
+      const result = guidedImageSelection(pixels, guide)
+      assertCurrent()
+      return { guide, selectionMask: encodeSelectionMask(result.mask), ...(result.uncertainMask.data.some(value => value > 0) ? { uncertainMask: encodeSelectionMask(result.uncertainMask) } : {}), diagnostics: result.diagnostics, generation: startedGeneration }
+    }
     if (name === 'image_import_assess_fidelity') {
       const preview = await prepareImageImportFidelityPreview(this.source, this.recipe(this.draft), signal)
       assertCurrent()
@@ -217,9 +342,10 @@ export class ImageImportToolSession {
       return { mimeType: 'image/png', bytes, generation: startedGeneration }
     }
     if (name === 'image_import_build_project') {
+      if (!this.canEmbed) throw new Error('工作包尚未确认像素嵌入许可，请在页面核对许可后采用。')
       const title = (args as { title?: string }).title
       const recipe = this.recipe(title ? { ...this.draft, title } : this.draft)
-      const project = await prepareImageImportRecipe(this.source, recipe, this.rights, signal)
+      const project = await prepareImageImportRecipe(this.source, recipe, { ...this.rights, attribution: `${this.rights.attribution}\n图片制作任务：${this.workId}` }, signal)
       const sourceFidelity = (await prepareImageImportFidelityPreview(this.source, recipe, signal)).report
       assertCurrent()
       return { project, recipe, sourceFidelity, generation: startedGeneration }
@@ -227,11 +353,52 @@ export class ImageImportToolSession {
     if (name === 'image_import_undo') {
       const previous = this.history.at(-1)
       if (!previous) throw new Error('没有可撤销的拆解操作。')
+      this.journal = [...this.journal, { action: name, note: '', inputHash: hashJson(this.draft), outputHash: hashJson(previous), paramsJson: JSON.stringify(args) }]
       this.draft = previous; this.history = this.history.slice(0, -1); this.generation++
       return this.inspect()
     }
     let next = captureJson(this.draft)
-    if (name === 'image_import_set_scale') {
+    let nextNotes = this.notes, nextAction = this.nextAction, nextScaleStatus = this.scaleStatus, nextReviews = this.reviews, nextActive = this.restoredActive
+    if (name === 'image_import_set_checkpoint') {
+      const checkpoint = args as unknown as { notes: string; nextAction: string; scaleStatus: 'provisional' | 'measured' }
+      nextNotes = checkpoint.notes; nextAction = checkpoint.nextAction; nextScaleStatus = checkpoint.scaleStatus
+    } else if (name === 'image_import_review_item') {
+      const review = args as { target: string; inputHash: string; verdict: 'reviewed' | 'needs-work'; note: string }
+      const actual = await this.itemPreview(review.target, signal)
+      assertCurrent()
+      if (actual.inputHash !== review.inputHash) throw new Error('复核对应旧候选，请重新打开当前PNG查看。')
+      nextReviews = [...this.reviews, { target: review.target, inputHash: review.inputHash, verdict: review.verdict, note: review.note,
+        itemSha256: actual.itemSha256, backgroundSha256: actual.backgroundSha256, reviewer: 'assistant' as const }]
+    } else if (name === 'image_import_guided_selection') {
+      const { target, guide: inputGuide } = args as { target: string; guide: GuidedSelectionInput }
+      const version = inputGuide.algorithmVersion ?? 2
+      const guide: GuidedSelectionInput = { ...inputGuide, algorithmVersion: version,
+        ...(version === 2 ? { edgeCoverage: inputGuide.edgeCoverage ?? 'boundary' } : {}) }
+      const index = next.layers.findIndex(layer => layer.id === target)
+      if (index < 0) throw new Error('辅助分割目标不存在。')
+      const pixels = replayImageLayers(this.source.pixels, next.layers.slice(0, index)).remaining
+      const result = guidedImageSelection(pixels, guide)
+      const selectionMask = encodeSelectionMask(result.mask)
+      next = { ...next, layers: next.layers.map((layer, position) => position === index ? { ...layer, guidedSelection: guide, selectionMask } : layer) }
+      replayImageLayers(this.source.pixels, next.layers)
+    } else if (name === 'image_import_set_selection') {
+      const { target, selectionMask, selectionOrigin } = args as import('zod').infer<typeof imageImportToolArguments.image_import_set_selection>
+      const index = next.layers.findIndex(layer => layer.id === target)
+      if (index < 0) throw new Error('候选选区目标不存在。')
+      next = { ...next, layers: next.layers.map((layer, position) => {
+        if (position !== index) return layer
+        const { guidedSelection: ignored, ...rest } = layer
+        return { ...rest, selectionMask, selectionOrigin }
+      }) }
+      // Validate source binding even when room and scale are still unfinished.
+      assertImageSelectionOrigin(selectionOrigin, this.source.image, selectionMask)
+      if (selectionOrigin.priorLayersHash !== hashJson(next.layers.slice(0, index))) throw new Error('候选依赖的先前拆分已变化，请重新生成。')
+      const base = index ? await encodeImageImportPixels(replayImageLayers(this.source.pixels, next.layers.slice(0, index)).remaining, signal)
+        : this.source.normalizedBytes ?? await encodeImageImportPixels(this.source.pixels, signal)
+      if (sha256Bytes(base) !== selectionOrigin.inputSha256) throw new Error('候选实际输入像素摘要不匹配，请重新生成。')
+      assertCurrent()
+      replayImageLayers(this.source.pixels, next.layers)
+    } else if (name === 'image_import_set_scale') {
       const { generation: ignored, ...calibration } = args as ImageImportRecipe['calibration'] & { generation: number }
       createImageCalibration({ ...calibration, pixelWidth: this.source.image.pixelWidth, pixelHeight: this.source.image.pixelHeight })
       next = { ...next, calibration }
@@ -249,6 +416,15 @@ export class ImageImportToolSession {
     } else if (name === 'image_import_extract_item') {
       const { generation: ignored, ...layer } = args as ImageImportRecipe['layers'][number] & { generation: number }
       assertSourcePreservingRecipe({ layers: [layer] })
+      if (layer.selectionOrigin) {
+        if (!layer.selectionMask) throw new Error('本机候选来源必须伴随确切选区。')
+        assertImageSelectionOrigin(layer.selectionOrigin, this.source.image, layer.selectionMask)
+        if (layer.selectionOrigin.priorLayersHash !== hashJson(next.layers)) throw new Error('候选依赖的先前拆分已变化，请重新生成。')
+        const base = next.layers.length ? await encodeImageImportPixels(replayImageLayers(this.source.pixels, next.layers).remaining, signal)
+          : this.source.normalizedBytes ?? await encodeImageImportPixels(this.source.pixels, signal)
+        if (sha256Bytes(base) !== layer.selectionOrigin.inputSha256) throw new Error('候选实际输入像素摘要不匹配，请重新生成。')
+        assertCurrent()
+      }
       if (next.layers.length >= 64 || next.layers.some(item => item.id === layer.id)) throw new Error('物件数量超限或身份重复。')
       if (layer.footprintPx) {
         assertImagePoint(this.source.image, { x: layer.footprintPx.x, y: layer.footprintPx.y })
@@ -256,6 +432,19 @@ export class ImageImportToolSession {
       }
       replayImageLayers(this.source.pixels, [...next.layers, layer])
       next = { ...next, layers: [...next.layers, layer] }
+      if (next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
+      if (this.restoredActive?.id === layer.id) nextActive = undefined
+    } else if (name === 'image_import_set_repair_scope') {
+      const options = args as import('zod').infer<typeof imageImportToolArguments.image_import_set_repair_scope>
+      const index = next.layers.findIndex(layer => layer.id === options.target)
+      if (index < 0) throw new Error('移除范围目标不存在。')
+      const { removalMask: ignoredRemoval, protectionMask: ignoredProtection, ...layer } = next.layers[index]
+      const updated = { ...layer, ...(options.removalMask ? { removalMask: options.removalMask, cleanupPx: 0 } : {}),
+        ...(options.protectionMask ? { protectionMask: options.protectionMask } : {}),
+        ...(options.donor ? { donor: options.donor } : {}), ...(options.repair ? { repair: options.repair } : {}) }
+      next = { ...next, layers: next.layers.map((row, position) => position === index ? updated : row) }
+      replayImageLayers(this.source.pixels, next.layers)
+      if (next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
     } else if (name === 'image_import_refine_selection') {
       const { target, strokes, contour } = args as { target: string; strokes: ImageSelectionStroke[];
         contour?: { points: ImageImportRecipe['roomPointsPx']; radiusPx?: number } }
@@ -266,7 +455,8 @@ export class ImageImportToolSession {
       const layer = next.layers[index]
       let mask = contour
         ? imagePolygonMask(pixels, snapImageContour(pixels, contour.points, { radiusPx: contour.radiusPx, closed: true }))
-        : layer.selectionMask ? decodeSelectionMask(layer.selectionMask, pixels) : imagePolygonMask(pixels, layer.polygon)
+        : layer.selectionMask ? decodeSelectionMask(layer.selectionMask, pixels)
+          : layer.guidedSelection ? guidedImageSelection(pixels, layer.guidedSelection).mask : imagePolygonMask(pixels, layer.polygon)
       for (const stroke of strokes) { assertCurrent(); mask = paintImageSelection(pixels, mask, stroke) }
       const selectionMask = encodeSelectionMask(mask)
       const { x, y, width, height } = mask.boundsPx
@@ -297,8 +487,14 @@ export class ImageImportToolSession {
       next = draft
     }
     assertCurrent()
-    assertSelectionMaskBudget(next.layers.map(layer => layer.selectionMask))
+    if (['image_import_guided_selection', 'image_import_set_selection', 'image_import_set_room', 'image_import_set_source_boundary'].includes(name)
+      && next.layers.length && next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
+    assertSelectionMaskBudget(next.layers.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]))
     if (next.layers.length + 1 > 64) throw new Error('地板材质与拆出物件合计最多64项，请收窄采用范围。')
+    const event = { action: name, note: '', inputHash: hashJson(this.draft), outputHash: hashJson(next), paramsJson: JSON.stringify(args) }
+    if (new TextEncoder().encode(event.paramsJson).length > 256 * 1024) throw new Error('本次操作参数超过256KiB记录预算，请缩小处理范围；现有草稿保持。')
+    if (this.journal.length >= 1024) throw new Error('操作记录已达1024条，请保全工作包后创建后续制作任务。')
+    this.journal = [...this.journal, event]; this.notes = nextNotes; this.nextAction = nextAction; this.scaleStatus = nextScaleStatus; this.reviews = nextReviews; this.restoredActive = nextActive
     this.history = [...this.history, this.draft]; this.draft = freezeJson(next); this.generation++
     return this.inspect()
   }
