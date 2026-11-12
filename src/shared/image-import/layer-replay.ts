@@ -2,9 +2,11 @@ import { extractImageLayer, type ExtractedImageLayer, type ImagePixelMask, type 
 import type { ImageImportLayer } from './recipe.js'
 import { assertSelectionMaskBudget, encodeSelectionMask } from './selection-mask.js'
 import { guidedImageSelection } from './guided-selection.js'
+import { validateImageRepairSurfaces, type ImageRepairSurface } from './surfaces.js'
+import { imageNeighborhoodObjectEvidence, type ImageNeighborhoodSignal } from './neighborhood-evidence.js'
 
 /** Replaying a draft does not require a room, scale or complete import recipe. */
-export type ImageReplayLayer = Pick<ImageImportLayer, 'id' | 'polygon' | 'donor' | 'repair' | 'fills' | 'cleanupPx' | 'selectionMask' | 'guidedSelection' | 'removalMask' | 'protectionMask'>
+export type ImageReplayLayer = Pick<ImageImportLayer, 'id' | 'polygon' | 'donor' | 'repair' | 'fills' | 'cleanupPx' | 'selectionMask' | 'guidedSelection' | 'removalMask' | 'protectionMask' | 'appearanceSource' | 'repairSurfaceIds'> & { renderLayer?: ImageImportLayer['renderLayer'] }
 
 export interface ImageDeclaredDonorSource {
   /** Zero is the default donor; subsequent indexes retain the declared fill order. */
@@ -136,8 +138,10 @@ class ImageSourceProvenance {
  * Provenance records repair membership, never byte difference or confidence: even an unchanged
  * repaired pixel is inferred. Only the final map is returned (0=captured source, 1..64=last repair).
  */
-export function replayImageLayers<T extends ImageReplayLayer>(source: ImagePixels, input: readonly T[]) {
+export function replayImageLayers<T extends ImageReplayLayer>(source: ImagePixels, input: readonly T[], surfaces: readonly ImageRepairSurface[] = [],
+  context: { evidenceLayers?: readonly ImageReplayLayer[]; signal?: ImageNeighborhoodSignal } = {}) {
   assertSource(source)
+  validateImageRepairSurfaces(source, surfaces)
   if (!Array.isArray(input) || input.length > 64) throw new Error('一次拆解最多64层。')
   const ids = new Set<string>()
   for (const layer of input) {
@@ -145,15 +149,24 @@ export function replayImageLayers<T extends ImageReplayLayer>(source: ImagePixel
     if (ids.has(layer.id)) throw new Error('拆解物件身份重复。')
     ids.add(layer.id)
   }
-  assertSelectionMaskBudget(input.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]))
+  assertSelectionMaskBudget([...input.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]), ...surfaces.flatMap(s => [s.mask, s.excludedEvidenceMask])])
   const sourceProvenance = new ImageSourceProvenance(source.width, source.height, input.length), provenance = sourceProvenance.data
   let remaining = source, repairPixels = 0, extractedInferencePixels = 0, declaredDonorPriorInferencePixels = 0
   const layers = input.map((layer: T, index): ImageLayerReplay<T> => {
-    const selectionMask = layer.selectionMask ?? (layer.guidedSelection ? encodeSelectionMask(guidedImageSelection(remaining, layer.guidedSelection).mask) : undefined)
+    context.signal?.throwIfAborted()
+    if (layer.repairSurfaceIds && new Set(layer.repairSurfaceIds).size !== layer.repairSurfaceIds.length) throw new Error('物件不能重复引用补底表面。')
+    const appearance = layer.appearanceSource === 'original' ? source : remaining
+    const selectionMask = layer.selectionMask ?? (layer.guidedSelection ? encodeSelectionMask(guidedImageSelection(appearance, layer.guidedSelection).mask) : undefined)
+    const selectedSurfaces = layer.repairSurfaceIds?.map(id => { const surface = surfaces.find(s => s.id === id); if (!surface) throw new Error('物件引用了不存在的补底表面。'); return surface })
+    if (layer.repair === 'surfaces' && (!selectedSurfaces?.length || layer.fills?.length)) throw new Error('按表面补底须指定表面身份，不能同时使用旧分区fills。')
+    const evidenceLayers = context.evidenceLayers ?? input, evidenceIndex = evidenceLayers.findIndex(candidate => candidate.id === layer.id)
+    const neighborhoodEvidence = layer.repair === 'surfaces' && selectedSurfaces?.some(surface => surface.kind.startsWith('neighbors-') || surface.kind === 'guided')
+      ? { priorInference: provenance, objectEvidence: imageNeighborhoodObjectEvidence(source, evidenceLayers.slice(evidenceIndex + 1)), signal: context.signal } : undefined
     const extracted = extractImageLayer(remaining, layer.polygon, layer.donor,
-      { repair: layer.repair, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask, removalMask: layer.removalMask, protectionMask: layer.protectionMask })
+      { repair: layer.repair, repairSurfaces: selectedSurfaces, appearanceImage: appearance, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask, removalMask: layer.removalMask, protectionMask: layer.protectionMask, neighborhoodEvidence })
     const priorProducers = new Set<number>()
-    const declaredDonors = [layer.donor, ...(layer.fills ?? []).map(fill => fill.donor)].map((bounds, donorIndex) => {
+    const donorBounds = layer.repair === 'surfaces' ? (selectedSurfaces ?? []).map(surface => surface.donor) : [layer.donor, ...(layer.fills ?? []).map(fill => fill.donor)]
+    const declaredDonors = donorBounds.map((bounds, donorIndex) => {
       const priorInferencePixels = sourceProvenance.declaredOverlap(bounds, priorProducers)
       declaredDonorPriorInferencePixels += priorInferencePixels
       return { index: donorIndex, boundsPx: { ...bounds }, priorInferencePixels }
@@ -161,7 +174,7 @@ export function replayImageLayers<T extends ImageReplayLayer>(source: ImagePixel
     let extractedCount = 0, repairCount = 0
     visitMask(extracted.mask, source.width, sourceIndex => {
       const producer = provenance[sourceIndex]
-      if (producer) { extractedCount++; priorProducers.add(producer) }
+      if (producer && layer.appearanceSource !== 'original') { extractedCount++; priorProducers.add(producer) }
     })
     visitMask(extracted.repairMask, source.width, sourceIndex => {
       repairCount++

@@ -6,6 +6,7 @@ import { imageSelectionMaskSchema, decodeSelectionMask, assertSelectionMaskBudge
 import { guidedSelectionSchema } from './guided-selection.js'
 import { imageSelectionOriginSchema, assertImageSelectionOrigin } from './selection-origin.js'
 import { imageEnhancementDirectionSchema } from '../image-enhancement/schema.js'
+import { imageRepairSurfaceSchema, validateImageRepairSurfaces } from './surfaces.js'
 
 const points = z.array(imagePointSchema).min(3).max(256)
 const donor = z.strictObject({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative(),
@@ -16,7 +17,9 @@ export const imageImportLayerSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/).refine(value => value !== '__proto__'),
   name: z.string().trim().min(1).max(120), polygon: points, donor,
   renderLayer: z.enum(['ground', 'object']), blocksMovement: z.boolean(),
-  repair: z.enum(['tile', 'seamless', 'aligned', 'texture', 'context']).optional(),
+  repair: z.enum(['tile', 'seamless', 'aligned', 'texture', 'context', 'structure', 'surfaces']).optional(),
+  appearanceSource: z.enum(['original', 'working']).optional(),
+  repairSurfaceIds: z.array(z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/)).min(1).max(16).optional(),
   fills: z.array(z.strictObject({ polygon: points, donor })).max(8).optional(),
   cleanupPx: z.number().int().min(0).max(8).optional(),
   selectionMask: imageSelectionMaskSchema.optional(),
@@ -37,6 +40,7 @@ export const imageImportRecipeSchema = z.strictObject({
   floorVector: imageVectorOptionsSchema.optional(),
   sourceBoundaryPx: points.optional(),
   outputScale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional(),
+  repairSurfaces: z.array(imageRepairSurfaceSchema).max(16).optional(),
 })
 export type ImageImportRecipe = z.infer<typeof imageImportRecipeSchema>
 export type ImageImportLayer = ImageImportRecipe['layers'][number]
@@ -48,12 +52,15 @@ export function parseImageImportRecipe(input: unknown): ImageImportRecipe {
   if (recipe.layers.length + 1 > 64) throw new Error('地板材质与拆出物件合计最多64项，请收窄采用范围。')
   createImageCalibration({ ...recipe.calibration, pixelWidth: recipe.image.pixelWidth, pixelHeight: recipe.image.pixelHeight })
   const ids = new Set<string>()
-  assertSelectionMaskBudget(recipe.layers.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]))
+  validateImageRepairSurfaces({ width: recipe.image.pixelWidth, height: recipe.image.pixelHeight }, recipe.repairSurfaces ?? [])
+  assertSelectionMaskBudget([...recipe.layers.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]), ...(recipe.repairSurfaces ?? []).flatMap(s => [s.mask, s.excludedEvidenceMask])])
   for (const point of recipe.roomPointsPx) assertImagePoint(recipe.image, point)
   for (const point of recipe.sourceBoundaryPx ?? []) assertImagePoint(recipe.image, point)
   for (const layer of recipe.layers) {
     if (ids.has(layer.id)) throw new Error('拆解物件身份重复。')
     ids.add(layer.id)
+    if (layer.repair === 'surfaces' && (!layer.repairSurfaceIds?.length || layer.fills?.length)) throw new Error('按表面补底须指定表面身份，不能同时使用旧分区fills。')
+    if (layer.repairSurfaceIds && (new Set(layer.repairSurfaceIds).size !== layer.repairSurfaceIds.length || layer.repairSurfaceIds.some(id => !recipe.repairSurfaces?.some(s => s.id === id)))) throw new Error('物件引用了不存在或重复的补底表面。')
     layer.polygon.forEach(point => assertImagePoint(recipe.image, point))
     if (layer.guidedSelection) {
       const guide = layer.guidedSelection, bounds = guide.bounds
@@ -94,14 +101,18 @@ export const imageImportToolArguments = {
     removalMask: binaryImageScopeSchema.nullable(), protectionMask: binaryImageScopeSchema.nullable(),
     donor: donor.optional(), repair: imageImportLayerSchema.shape.repair }),
   image_import_item_preview: z.strictObject({ target: z.string().min(1).max(80) }),
+  image_import_analyze_repair: z.strictObject({ target: z.string().min(1).max(80) }),
   image_import_enhancement_candidates: z.strictObject({ target: z.string().min(1).max(80), direction: imageEnhancementDirectionSchema,
     count: z.union([z.literal(2), z.literal(3)]), scale: z.union([z.literal(1), z.literal(2)]).optional() }),
+  image_import_matte_candidates: z.strictObject({ target: z.string().min(1).max(80),
+    count: z.union([z.literal(2), z.literal(3)]), bandPx: z.union([z.literal(1), z.literal(2)]).optional() }),
   image_import_review_item: z.strictObject({ ...generation, target: z.string().min(1).max(80), inputHash: z.string().regex(/^[a-f0-9]{64}$/), verdict: z.enum(['needs-work', 'reviewed']), note: z.string().min(1).max(2000) }),
   image_import_inspect: z.strictObject({}),
   image_import_set_scale: calibrationSchema.extend(generation),
   image_import_set_room: z.strictObject({ ...generation, points }),
   image_import_set_source_boundary: z.strictObject({ ...generation, points }),
   image_import_set_output_scale: z.strictObject({ ...generation, scale: z.union([z.literal(1), z.literal(2), z.literal(4)]) }),
+  image_import_set_surfaces: z.strictObject({ ...generation, surfaces: z.array(imageRepairSurfaceSchema).max(16) }),
   image_import_extract_item: imageImportLayerSchema.extend(generation),
   image_import_refine_selection: z.strictObject({ ...generation, target: z.string().min(1).max(80),
     strokes: z.array(z.strictObject({ mode: z.enum(['keep', 'remove']), points: z.array(imagePointSchema).min(1).max(512), radiusPx: z.number().finite().min(.5).max(64) })).max(64),
@@ -126,13 +137,16 @@ export const IMAGE_IMPORT_TOOLS = Object.entries(imageImportToolArguments).map((
     image_import_set_selection: '将已查看的本机模型候选选区用于已有物件，保留确切来源、点与模型摘要；按当前代次原子重放，不修改源RGB或授予视觉通过。新物件用extract_item携带相同selectionMask及selectionOrigin。',
     image_import_set_repair_scope: '独立设置物件移除和邻物保护蒙版；null清除该范围，可同时选择取样和方式。移除须覆盖物件、保护不得与物件冲突；保护区不写入或作为取样证据。重放后一次采用，可撤销。context只用单材质完整取样补片，不恢复未知细节。',
     image_import_item_preview: '读取指定item的400%黑底/白底/棋盘预览与确切输入、PNG及补底摘要，供真实视觉复核。',
+    image_import_analyze_repair: '只读分析指定物件的实际补底，按显式同材质表面比较附近可信原始小块，解释候选颜色/梯度/纹理/结构差异，定位冲突并给出一小处人工辅助操作。返回确切输入/补底/报告/审阅PNG摘要；分数不是通过概率，不自动采用或写审核。未分材质时先指引圈范围，不靠颜色猜语义。',
     image_import_enhancement_candidates: '从实际保真裁片生成2/3个独立增强候选及换底预览，返回确切源/参数/PNG摘要。只读，不替换原裁片或修改工程；选定后在统一素材页按同配方审阅采用。插值不恢复细节。',
+    image_import_matte_candidates: '从实际原图上下文与当前选区生成2/3个只读边带分色候选和换底图。只在既有半透明边及稳定可见底材处估计前景RGB，alpha和核心不变；二值边缘无依据时保持不变，零变化不算改善。前序推断和保护区不作外侧取证，不上传原图或采用到工程。配方需原图上下文，不等同普通裁片增强。',
     image_import_review_item: '将助手的视觉复核绑定当前确切候选摘要；不代表用户签收，输入变化后失效。',
     image_import_inspect: '读取已授权原图身份、当前拆解草稿和代次。',
     image_import_set_scale: '用原图两点和实际毫米距离设置比例。',
     image_import_set_room: '设置房间地面内边界。保全原画墙沿和家具最外沿另用set_source_boundary；每件guide.boundaryPx只是局部分割限制。',
     image_import_set_source_boundary: '设置整间原画保留外框，包含墙沿、叶尖及家具最外沿，排除图外棋盘。未设置时只能保留room内。完成范围和比例后先assess_fidelity预检再拆第一件。',
     image_import_set_output_scale: '设置1/2/4倍原色像素输出，不调色、不重画、不声称恢复原图缺失的细节。',
+    image_import_set_surfaces: '原子定义同材质表面、干净取样及禁止取证范围，重放受影响物件；guided类型须显式提供方向和有限结构引导及各自可见可信参考。引导改变隐藏结构推断，分数不授予视觉通过；每个物件显式引用下层表面身份，改变后重新审核。',
     image_import_extract_item: '按多边形提取原像素物件，并用指定露出纹理补底。上层先拆。',
     image_import_refine_selection: '在当前物件上磁性贴边或用保留/排除笔迹修正精细像素蒙版；保留原色与独立物理占地，成功重放才替换草稿。',
     image_import_set_vector: '清除旧描摹/模板设置（options:null）。当前trace/wood/rug会改变原图颜色与笔触，保真导入拒绝启用。',

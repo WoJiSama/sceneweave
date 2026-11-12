@@ -58,7 +58,11 @@ async function executeInBrowser({ name, input }) {
     return btoa(text)
   }
   if (name === 'image_import_export_work') return { workBase64: encode(result.bytes), generation: result.generation }
-  if (name === 'image_import_enhancement_candidates') {
+  if (name === 'image_import_analyze_repair') {
+    const { bytes, ...metadata } = result
+    return { neighborhood: { ...metadata, reviewBase64: encode(bytes) } }
+  }
+  if (name === 'image_import_enhancement_candidates' || name === 'image_import_matte_candidates') {
     const { sourceBytes, candidates, ...metadata } = result
     return { enhancements: { ...metadata, sourceBase64: encode(sourceBytes), candidates: candidates.map(candidate => {
       const { bytes, reviewBytes, ...info } = candidate
@@ -247,7 +251,17 @@ async function serve(options) {
           return
         }
         let content
-        if (response.enhancements) {
+        if (response.neighborhood) {
+          const { reviewBase64, ...metadata } = response.neighborhood
+          const directory = path.join(options.output, `neighborhood-${metadata.generation}-${randomUUID()}`)
+          await fs.mkdir(directory, { mode: 0o700 })
+          const review = await writeVerified(directory, 'review.png', Buffer.from(reviewBase64, 'base64'))
+          if (review.record.sha256 !== metadata.reviewSha256) throw new Error('邻域审阅图落盘摘要不一致。')
+          const record = { ...metadata, review: review.record }
+          const written = await writeVerified(directory, 'analysis.json', Buffer.from(JSON.stringify(record, null, 2) + '\n'))
+          content = [{ type: 'text', text: JSON.stringify({ path: path.join(directory, 'analysis.json'), sha256: written.record.sha256, ...record }) },
+            { type: 'image', mimeType: 'image/png', data: reviewBase64 }]
+        } else if (response.enhancements) {
           const { sourceBase64, candidates, ...metadata } = response.enhancements
           const directory = path.join(options.output, `enhancement-${metadata.generation}-${randomUUID()}`)
           await fs.mkdir(directory, { mode: 0o700 })

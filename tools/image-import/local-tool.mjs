@@ -8,6 +8,7 @@ import { runLocalSegmentation } from './local-segmentation.mjs'
 const bounds = z.strictObject({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative(),
   width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192) })
 const argumentsSchema = z.strictObject({ generation: z.number().int().nonnegative(), target: z.string().min(1).max(80).optional(),
+  appearanceSource: z.enum(['original', 'working']).optional(),
   contextBounds: bounds, targetBounds: bounds,
   points: z.array(z.strictObject({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative(), label: z.union([z.literal(0), z.literal(1)]) })).min(1).max(32),
   cleanup: z.strictObject({ fillHoles: z.number().int().min(0).max(4), removeIslands: z.number().int().min(0).max(4) }).optional() })
@@ -27,8 +28,9 @@ export async function executeLocalSegmentation(page, options, raw) {
     const { encodeImageImportPixels } = await import('/src/platform/browser/content/image-import-session.ts')
     const { sha256Text } = await import('/src/shared/validation/hash.ts')
     const { canonicalJson } = await import('/src/shared/validation/json.ts')
-    const prior = state.draft.layers.slice(0, index)
-    const bytes = index ? await encodeImageImportPixels(replayImageLayers(source.pixels, prior).remaining) : source.normalizedBytes
+    const original = args.appearanceSource === 'original' || args.target && state.draft.layers[index].appearanceSource === 'original'
+    const prior = original ? [] : state.draft.layers.slice(0, index)
+    const bytes = prior.length ? await encodeImageImportPixels(replayImageLayers(source.pixels, prior, state.draft.repairSurfaces, { evidenceLayers: state.draft.layers }).remaining) : source.normalizedBytes
     let binary = ''
     for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768))
     return { imageBase64: btoa(binary), sourceSha256: state.image.sha256, priorLayersHash: sha256Text(canonicalJson(prior)) }

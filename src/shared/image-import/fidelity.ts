@@ -36,6 +36,8 @@ export interface ImageFidelityReport {
   missingCoveragePixels: number
   addedCoveragePixels: number
   issues: Array<{ code: string; message: string }>
+  /** Bounded diagnostics only; never a mask or permission to waive differences. */
+  firstDifferences?: Array<{ x: number; y: number; maxChannelError: number; kind: 'visible' | 'outside-scope' }>
 }
 function checkImage(image: ImagePixels): void {
   if (!Number.isSafeInteger(image.width) || !Number.isSafeInteger(image.height) || image.width < 1 || image.height < 1
@@ -54,13 +56,17 @@ export function compareImageFidelity(source: ImagePixels, candidate: ImagePixels
     comparedPixels: 0, changedPixels: 0, inferredPixels: 0, inferenceChangedPixels: 0, maxChannelError: 0, meanChannelError: 0,
     outsideScopeChangedPixels: 0, alphaChangedPixels: 0, missingCoveragePixels: 0, addedCoveragePixels: 0, issues: [] }
   let errorSum = 0
+  const locate = (index: number, errors: number[], kind: 'visible' | 'outside-scope') => {
+    const differences = report.firstDifferences ??= []
+    if (differences.length < 16) differences.push({ x: index % source.width, y: Math.floor(index / source.width), maxChannelError: Math.max(...errors), kind })
+  }
   for (let index = 0; index < pixels; index++) {
     const offset = index * 4, errors = [0, 1, 2, 3].map(channel => Math.abs(source.data[offset + channel] - candidate.data[offset + channel])), changed = errors.some(Boolean)
-    if (options.scopeMask && !options.scopeMask[index]) { if (changed) report.outsideScopeChangedPixels++; continue }
+    if (options.scopeMask && !options.scopeMask[index]) { if (changed) { report.outsideScopeChangedPixels++; locate(index, errors, 'outside-scope') } continue }
     if (!source.data[offset + 3] && !candidate.data[offset + 3] && !changed) continue
     if (options.allowedInferenceMask?.[index]) { report.inferredPixels++; if (changed) report.inferenceChangedPixels++; continue }
     report.comparedPixels++
-    if (changed) report.changedPixels++
+    if (changed) { report.changedPixels++; locate(index, errors, 'visible') }
     if (errors[3]) report.alphaChangedPixels++
     if (source.data[offset + 3] > candidate.data[offset + 3]) report.missingCoveragePixels++
     if (source.data[offset + 3] < candidate.data[offset + 3]) report.addedCoveragePixels++

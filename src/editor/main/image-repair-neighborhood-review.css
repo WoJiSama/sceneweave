@@ -1,0 +1,17 @@
+.image-neighborhood-review { border: 1px solid #628d91; border-radius: 8px; padding: 12px; margin: 12px 0; min-width: 0; }
+.image-neighborhood-review h3, .image-neighborhood-review h4 { margin: 6px 0 10px; }
+.image-neighborhood-review > section { border-top: 1px solid #697b7a66; margin-top: 12px; padding-top: 12px; }
+.image-neighborhood-review ul { padding-left: 20px; }
+.image-neighborhood-review li, .image-neighborhood-review p { overflow-wrap: anywhere; line-height: 1.5; }
+.image-neighborhood-review article { padding: 10px; margin: 8px 0; border: 1px solid #697b7a66; border-radius: 6px; }
+.image-neighborhood-review details { margin: 10px 0; }
+.image-neighborhood-review summary { cursor: pointer; line-height: 1.5; }
+.image-neighborhood-patch { margin: 10px 0; min-width: 0; }
+.image-neighborhood-patch > div { overflow: auto; max-height: 240px; padding: 8px; background: #181f22; border-radius: 4px; }
+.image-neighborhood-patch canvas { display: block; image-rendering: pixelated; max-width: none; }
+.image-neighborhood-patch figcaption { font-weight: 600; margin-bottom: 5px; }
+.image-neighborhood-patch small { display: block; margin-top: 5px; }
+.image-neighborhood-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.image-neighborhood-conflicts > details, .image-neighborhood-guidance { border-left: 3px solid #e7ae64; padding: 8px; }
+.image-import-neighborhood-locate { padding: 6px 10px; margin: 0; background: #133434; color: #e4fff9; border: 1px solid #52e3ce; }
+.image-import-workbench .image-import-layer-row > button.image-import-neighborhood-button { flex: 0 0 auto; width: auto; font-size: 12px; padding: 6px; }
