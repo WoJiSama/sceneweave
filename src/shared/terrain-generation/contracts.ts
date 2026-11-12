@@ -55,7 +55,12 @@ const interiorGenerationRecipeV2Schema = naturalGenerationRecipeSchema.extend({
 const interiorGenerationRecipeV3Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
 const interiorGenerationRecipeV4Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(4), algorithmVersion: z.literal(4) }).strict()
 const interiorGenerationRecipeV5Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(5), algorithmVersion: z.literal(5) }).strict()
-export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema, interiorGenerationRecipeV4Schema, interiorGenerationRecipeV5Schema])
+const interiorGenerationRecipeV6Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(6), algorithmVersion: z.literal(6) }).strict()
+const interiorGenerationRecipeV7Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(7), algorithmVersion: z.literal(7) }).strict()
+const interiorGenerationRecipeV8Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(8), algorithmVersion: z.literal(8) }).strict()
+const interiorGenerationRecipeV9Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(9), algorithmVersion: z.literal(9) }).strict()
+const interiorGenerationRecipeV10Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(10), algorithmVersion: z.literal(10) }).strict()
+export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema, interiorGenerationRecipeV4Schema, interiorGenerationRecipeV5Schema, interiorGenerationRecipeV6Schema, interiorGenerationRecipeV7Schema, interiorGenerationRecipeV8Schema, interiorGenerationRecipeV9Schema, interiorGenerationRecipeV10Schema])
 const supportedInteriorGenerationRecipeV1Schema = interiorGenerationRecipeV2Schema.extend({
   recipeVersion: z.literal(1), algorithmId: z.literal('supported-interior'), algorithmVersion: z.literal(1),
   parameters: supportedInteriorParametersSchema,
@@ -63,7 +68,12 @@ const supportedInteriorGenerationRecipeV1Schema = interiorGenerationRecipeV2Sche
 const supportedInteriorGenerationRecipeV2Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
 const supportedInteriorGenerationRecipeV3Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
 const supportedInteriorGenerationRecipeV4Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(4), algorithmVersion: z.literal(4) }).strict()
-export const supportedInteriorGenerationRecipeSchema = z.union([supportedInteriorGenerationRecipeV1Schema, supportedInteriorGenerationRecipeV2Schema, supportedInteriorGenerationRecipeV3Schema, supportedInteriorGenerationRecipeV4Schema])
+const supportedInteriorGenerationRecipeV5Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(5), algorithmVersion: z.literal(5) }).strict()
+const supportedInteriorGenerationRecipeV6Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(6), algorithmVersion: z.literal(6) }).strict()
+const supportedInteriorGenerationRecipeV7Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(7), algorithmVersion: z.literal(7) }).strict()
+const supportedInteriorGenerationRecipeV8Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(8), algorithmVersion: z.literal(8) }).strict()
+const supportedInteriorGenerationRecipeV9Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(9), algorithmVersion: z.literal(9) }).strict()
+export const supportedInteriorGenerationRecipeSchema = z.union([supportedInteriorGenerationRecipeV1Schema, supportedInteriorGenerationRecipeV2Schema, supportedInteriorGenerationRecipeV3Schema, supportedInteriorGenerationRecipeV4Schema, supportedInteriorGenerationRecipeV5Schema, supportedInteriorGenerationRecipeV6Schema, supportedInteriorGenerationRecipeV7Schema, supportedInteriorGenerationRecipeV8Schema, supportedInteriorGenerationRecipeV9Schema])
 const forestGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: forestParametersSchema,
@@ -87,7 +97,12 @@ const mixedGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
 const mixedGenerationRecipeV2Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
 const mixedGenerationRecipeV3Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
 const mixedGenerationRecipeV4Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(4), algorithmVersion: z.literal(4) }).strict()
-export const mixedGenerationRecipeSchema = z.union([mixedGenerationRecipeV1Schema, mixedGenerationRecipeV2Schema, mixedGenerationRecipeV3Schema, mixedGenerationRecipeV4Schema])
+const mixedGenerationRecipeV5Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(5), algorithmVersion: z.literal(5) }).strict()
+const mixedGenerationRecipeV6Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(6), algorithmVersion: z.literal(6) }).strict()
+const mixedGenerationRecipeV7Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(7), algorithmVersion: z.literal(7) }).strict()
+const mixedGenerationRecipeV8Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(8), algorithmVersion: z.literal(8) }).strict()
+const mixedGenerationRecipeV9Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(9), algorithmVersion: z.literal(9) }).strict()
+export const mixedGenerationRecipeSchema = z.union([mixedGenerationRecipeV1Schema, mixedGenerationRecipeV2Schema, mixedGenerationRecipeV3Schema, mixedGenerationRecipeV4Schema, mixedGenerationRecipeV5Schema, mixedGenerationRecipeV6Schema, mixedGenerationRecipeV7Schema, mixedGenerationRecipeV8Schema, mixedGenerationRecipeV9Schema])
 export const generationRecipeSchema = z.union([naturalGenerationRecipeSchema, interiorGenerationRecipeSchema, supportedInteriorGenerationRecipeSchema, forestGenerationRecipeSchema, volcanoGenerationRecipeSchema, mixedGenerationRecipeSchema])
 export type NaturalGenerationRecipe = z.infer<typeof naturalGenerationRecipeSchema>
 export const generationIntentSchema = z.object({ id, floorId: id, visibility, boundsMm: bounds,

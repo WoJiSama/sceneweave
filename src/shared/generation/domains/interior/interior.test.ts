@@ -21,7 +21,7 @@ let sequence = 0
 const runtime = { ids: { nextId: () => `interior-token-${sequence++}` }, clock: { now: () => '2026-11-05T00:00:00.000Z' } }
 
 describe('parameterized finite interior generation', () => {
-  it.each([2, 3, 4, 5] as const)('persists and replays version %s without accepting mismatched selectors', algorithmVersion => {
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10] as const)('persists and replays version %s without accepting mismatched selectors', algorithmVersion => {
     const input = request(); input.algorithmVersion = algorithmVersion
     const generated = runInteriorGeneration(source(), input, options)
     const recipe = Object.values(getLegacyGeneration(cloneJson(generated.candidate.document) as SceneDocument)!.recipes)[0]

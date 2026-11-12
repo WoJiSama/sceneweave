@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createCompositionContent, syncAppearanceGraph } from '../appearance/graph.js'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { taskBudgetProfile } from '../budget/task-budget.js'
+import { selectManualTransactionBudget } from '../budget/command-budget.js'
 import { advanceHistoryIdentity } from '../history/identity.js'
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import type { PropDefinition } from '../model/scene.js'
@@ -42,6 +43,19 @@ function fixture(furniture = true, doors = false, algorithmVersion: InteriorGene
 }
 
 describe('selected generated-room furniture regeneration', () => {
+  it('lists actual floor-only v8 physical region dependencies without claiming or changing them', () => {
+    const f = fixture(false, true, 8)
+    const content = applyCompositionCommands(f.content, [{ type: 'createRegion', id: 'read-only-region', floorId: 'floor', layerId: 'layer',
+      kind: 'hazard', blocksMovement: true, boundaryMm: [{ x: 100, y: 100 }, { x: 500, y: 100 }, { x: 500, y: 500 }, { x: 100, y: 500 }] }], f.context,
+      { budget: selectManualTransactionBudget(f.content.document) })
+    const before = canonicalJson(content)
+    const result = regenerateRoomFurniture(content, { recipeId: f.recipeId, roomId: f.roomId, variation: 'physical-read-closure' }, f.context, options)
+    expect(result.readIds).toContain('read-only-region')
+    expect(result.document.regions).toEqual(content.document.regions)
+    expect(result.writes.every(row => row.entityId !== 'read-only-region')).toBe(true)
+    expect(canonicalJson(content)).toBe(before)
+  })
+
   it.each(['moved', 'deleted'] as const)('uses expanded v4 slots while preserving a manually %s member', action => {
     const f = fixture(true, false, 4)
     const props = Object.values(f.content.document.props).filter(prop => prop.roomId === f.roomId)
@@ -81,15 +95,16 @@ describe('selected generated-room furniture regeneration', () => {
     expect(completed.appearance).toEqual(f.content.appearance)
   })
 
-  it('preserves moved, deleted, locked and appearance-adjusted furniture slots', () => {
-    const f = fixture(), props = Object.values(f.content.document.props).filter(prop => prop.roomId === f.roomId)
+  it.each([2, 6, 7, 8, 9, 10] as const)('preserves moved, deleted, locked and appearance-adjusted furniture slots at version %s', algorithmVersion => {
+    const f = fixture(true, false, algorithmVersion), props = Object.values(f.content.document.props).filter(prop => prop.roomId === f.roomId)
+    const accounting = algorithmVersion >= 6 ? {budget:selectManualTransactionBudget(f.content.document)} : undefined
     expect(props.length).toBeGreaterThanOrEqual(5)
     let content = applyCompositionCommands(f.content, [
       { type: 'updateProp', id: props[0].id, changes: { positionMm: { x: props[0].positionMm.x + 10, y: props[0].positionMm.y } } },
       { type: 'deleteProp', id: props[1].id },
-    ], f.context)
-    content = applyCompositionCommands(content, [{ type: 'setEditLock', kind: 'prop', id: props[2].id, locked: true }], f.context)
-    content = applyCompositionCommands(content, [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: [props[3].id] }, adjustment: { id: 'manual-opacity', enabled: true, kind: 'opacity', value: 0.6 } }], f.context)
+    ], f.context, accounting)
+    content = applyCompositionCommands(content, [{ type: 'setEditLock', kind: 'prop', id: props[2].id, locked: true }], f.context, accounting)
+    content = applyCompositionCommands(content, [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: [props[3].id] }, adjustment: { id: 'manual-opacity', enabled: true, kind: 'opacity', value: 0.6 } }], f.context, accounting)
     const before = canonicalJson(content), result = regenerateRoomFurniture(content, { recipeId: f.recipeId, roomId: f.roomId, variation: 'arrangement-c' }, f.context, options)
     expect(canonicalJson(content)).toBe(before)
     for (const index of [0, 2, 3]) expect(result.document.props[props[index].id]).toEqual(content.document.props[props[index].id])
@@ -120,8 +135,8 @@ describe('selected generated-room furniture regeneration', () => {
     }
   })
 
-  it('keeps closed or deleted doors as user edits and rejects cancellation without mutation', () => {
-    const f = fixture(true, true), openingId = Object.keys(f.content.document.openings)[0]
+  it.each([2, 6, 7, 8, 9, 10] as const)('keeps closed or deleted doors as user edits and rejects cancellation without mutation at version %s', algorithmVersion => {
+    const f = fixture(true, true, algorithmVersion), openingId = Object.keys(f.content.document.openings)[0]
     expect(openingId).toBeDefined()
     const closed = applyCompositionCommands(f.content, [{ type: 'updateOpening', id: openingId, changes: { state: 'closed', locked: true } }], f.context)
     const request = { recipeId: f.recipeId, roomId: f.roomId, variation: 'arrangement-door' }, before = canonicalJson(closed)

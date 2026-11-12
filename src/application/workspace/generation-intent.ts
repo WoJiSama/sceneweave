@@ -122,7 +122,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '室内布局'), palette = captureJson(content.palette)
       return { kind: 'new-project', domain: 'interior', base: content.base, profile: profile(), input: {
-        version: 1, algorithmVersion: 5, seed: owned.seed, parameters: {
+        version: 1, algorithmVersion: 10, seed: owned.seed, parameters: {
           floorId: floor.id, layerId: layer.id, boundsMm: { ...floor.boundsMm }, wallThicknessMm: owned.wallThicknessMm,
           rooms: owned.rooms, relations: owned.relations, corridor: owned.corridor,
           materials: { floor: null, wall: null }, arrangement: { ...owned.arrangement, palette },
@@ -177,7 +177,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
     case 'mixed': {
       const owned = intent.request
       if (!Number.isSafeInteger(owned.roomCount) || owned.roomCount < 1 || owned.roomCount > 4) throw new Error('房间数量须为1–4的整数。')
-      if (owned.algorithmVersion !== undefined && ![1, 2, 3, 4].includes(owned.algorithmVersion)) throw new Error('混合生成算法版本须为1、2、3或4。')
+      if (owned.algorithmVersion !== undefined && ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(owned.algorithmVersion)) throw new Error('混合生成算法版本须为1、2、3、4、5、6、7、8或9。')
       if (owned.woodlandDistribution !== undefined && !['uniform', 'copses'].includes(owned.woodlandDistribution)) throw new Error('植被分布须为均匀散布或疏密林地。')
       const content = await options.content.mixed({ ...baseIntent, environment: owned.environment }, resourceOptions)
       checkCancelled(options.signal)

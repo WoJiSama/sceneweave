@@ -4,6 +4,7 @@ import { createBasePlacedProp } from '../../../commands/base.js'
 import { captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/task-budget.js'
 import { pathPolygon, polygonDistance, polygonInside, polygonsOverlap, propFootprint, roomPoints, supportedPolygon } from '../../../geometry/geometry.js'
 import { wallMovementPolygons } from '../../../geometry/doorway-clearance.js'
+import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { cloneJson } from '../../../validation/json.js'
 import type { InteriorFurnitureRole, InteriorGenerationInput, InteriorLayout, InteriorRectangle } from './contracts.js'
@@ -12,6 +13,11 @@ import { hashGenerationValue } from '../../contracts.js'
 import { checkInteriorCirculation, interiorDoorReservations, type InteriorConnectivityReport } from './connectivity.js'
 import { furnitureBoundsPolygon, furniturePoseCandidates, type FurnitureAnchor } from './furnishing-poses.js'
 import { furnitureUseSpacePolygon, furnitureWorkingSpacePolygon, planFurnitureSeats, type FurnitureSeatReservation } from './furnishing-use-space.js'
+import { isKitchenPurpose, kitchenFurnitureGroupCandidates } from './furnishing-groups.js'
+import { bedroomStorageCandidates, isBedroomPurpose, planBedroomAccess, type BedroomAccess } from './furnishing-bedroom.js'
+import { findFurnitureAccess, furnitureApproachPoint, roomDoorPorts, type FurnitureAccessRoute, type InteriorFurnitureAccess } from './furnishing-circulation.js'
+import { bedroomGroupPoseCandidates } from './furnishing-bedroom-group.js'
+import { mayAffectInteriorRoom } from './furnishing-spatial.js'
 
 export interface InteriorFurnishingRoom {
   requirementId: string
@@ -19,6 +25,7 @@ export interface InteriorFurnishingRoom {
   recommended: InteriorFurnitureRole[]
   placed: { propId: string; role: InteriorFurnitureRole; definitionRef: VersionRef }[]
   notes: string[]
+  circulation?: InteriorFurnitureAccess[]
 }
 export interface InteriorFurnishingReport {
   propIds: string[]
@@ -122,14 +129,28 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
   if (!input.parameters.arrangement.furniture) return { document: next, report }
   const meter = captureExecutionBudget(options.profile), p = input.parameters, inset = Math.ceil(p.wallThicknessMm / 2) + 100
   const palette = [...p.arrangement.palette].sort((a, b) => compare(a.role, b.role) || compare(a.ref.id, b.ref.id) || a.ref.version - b.ref.version)
-  const reservations = interiorDoorReservations(next, connectivity, p.arrangement.clearWidthMm)
-  const solids = wallMovementPolygons(next, true).filter(row => row.floorId === p.floorId).map(row => row.polygon)
+  const floorReservations = interiorDoorReservations(next, connectivity, p.arrangement.clearWidthMm)
+  const floorSolids = wallMovementPolygons(next, true).filter(row => row.floorId === p.floorId).map(row => row.polygon)
   const floorPolygon = rectangle(next.floors[p.floorId].boundsMm)
   const context = { ids: { nextId: () => { throw new Error('家具建议必须提供稳定ID。') } }, clock: { now: () => document.updatedAt } }
   for (const row of [...layout.rooms].sort((a, b) => compare(a.requirementId, b.requirementId))) {
     options.checkCancelled()
     const requirement = p.rooms.find(room => room.id === row.requirementId), room = next.rooms[row.roomId]
     if (!requirement || !room) throw new InteriorGenerationError('invalid-input', '家具建议缺少真实房间或需求。')
+    const relevant = (polygon: PointMm[]) => {
+      meter.charge({ fieldEvaluations: 1 }); options.checkCancelled()
+      return mayAffectInteriorRoom(polygon, row.boundsMm)
+    }
+    const solids = input.algorithmVersion >= 10 ? floorSolids.filter(relevant) : floorSolids
+    const reservations = input.algorithmVersion >= 10 ? floorReservations.filter(relevant) : floorReservations
+    // Only this room is edited during its pass. Capture the conservative halo
+    // of external bodies AND painted envelopes once; new or moved room members
+    // always participate. Full native support, lock and route checks still read
+    // the complete current document, including distant resources and obstacles.
+    const nearExternal = new Set(input.algorithmVersion >= 10 ? Object.values(next.props).filter(prop => prop.floorId === p.floorId)
+      .filter(prop => relevant(propFootprint(prop)) || prop.renderLayer !== 'ground' && relevant(furnitureBoundsPolygon(prop.visualBoundsMm, prop))).map(prop => prop.id) : [])
+    const spatialProps = (document = next) => input.algorithmVersion >= 10 ? Object.values(document.props).filter(prop => nearExternal.has(prop.id)
+      || prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId) : Object.values(document.props)
     const roomReport: InteriorFurnishingRoom = { requirementId: row.requirementId, roomId: row.roomId, recommended: recommendInteriorFurniture(requirement.purpose, row.clearAreaMm2, input.algorithmVersion), placed: [], notes: [] }
     report.rooms.push(roomReport)
     const slots = roomReport.recommended.map((role, index) => ({ role, index }))
@@ -138,9 +159,21 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
     // recipe when a later table is brought forward for placement.
     if (input.algorithmVersion >= 4) {
       const order = (role: InteriorFurnitureRole) => role === 'work' || role === 'table' || role === 'bed' || role === 'hearth' ? 0 : role === 'seat' ? 1 : 2
-      slots.sort((a, b) => order(a.role) - order(b.role) || a.index - b.index)
+      // Complete bed/storage units before adding another bed or an optional
+      // table. Kitchens follow the functional recommendation sequence so later
+      // counters cannot consume every cupboard/working-group continuation.
+      // Stable slot indices, including protected and deleted ones, never change.
+      const unitOrder = (role: InteriorFurnitureRole) => role === 'bed' || role === 'storage' ? 0 : order(role) + 1
+      slots.sort((a, b) => input.algorithmVersion >= 9 && isKitchenPurpose(requirement.purpose) ? a.index - b.index
+        : input.algorithmVersion >= 9 && isBedroomPurpose(requirement.purpose) ? unitOrder(a.role) - unitOrder(b.role) || a.index - b.index
+          : order(a.role) - order(b.role) || a.index - b.index)
     }
-    const useSpaces: FurnitureSeatReservation[] = [], reserveUseSpace = input.algorithmVersion === 5
+    const useSpaces: FurnitureSeatReservation[] = [], reserveUseSpace = input.algorithmVersion >= 5
+    const functionalGroups = input.algorithmVersion >= 6, kitchen = functionalGroups && isKitchenPurpose(requirement.purpose)
+    const bedroom = input.algorithmVersion >= 7 && isBedroomPurpose(requirement.purpose)
+    const connectedUse = input.algorithmVersion >= 8
+    const bedAccess = new Map<string, BedroomAccess>()
+    const accessRoutes = new Map<string, FurnitureAccessRoute>()
     const seatCount = slots.filter(slot => slot.role === 'seat').length
     const anchorCount = slots.filter(slot => slot.role === 'table' || slot.role === 'work').length
     const seatsPerAnchor = Math.min(4, Math.ceil(seatCount / Math.max(1, anchorCount)))
@@ -151,6 +184,57 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
     const routeBands = reserveUseSpace ? connectivity.routes.filter(route => route.status === 'clear').map(route => pathPolygon({
       id: 'furnishing-route-reservation', floorId: p.floorId, editLocked: false, visibility: 'public', centerlineMm: route.pointsMm, widthMm: route.widthMm,
       supportRefs: [{ kind: 'floor', id: p.floorId }], surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 })) : []
+    const roleProps = (wanted: InteriorFurnitureRole) => spatialProps().filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId
+      && palette.some(item => item.role === wanted && item.ref.id === prop.definitionRef?.id && item.ref.version === prop.definitionRef.version))
+    const ports = connectedUse ? roomDoorPorts(next, row.roomId, 600, options.checkCancelled,
+      pairs => meter.charge({ fieldEvaluations: pairs })) : []
+    const findAccess = (targetMm: PointMm, document = next, extra: PointMm[][] = [], retainedRoute?: FurnitureAccessRoute) => findFurnitureAccess({
+      roomPolygon: roomPoints(document, room), targetMm, ports,
+      retainedRoute,
+      blockers: [...solids, ...extra, ...spatialProps(document).filter(prop => prop.floorId === p.floorId && prop.blocksMovement)
+        .flatMap(prop => [propFootprint(prop), ...(prop.renderLayer === 'ground' ? [] : [furnitureBoundsPolygon(prop.visualBoundsMm, prop)])]),
+        ...Object.values(document.regions).filter(region => region.floorId === p.floorId && region.blocksMovement).map(region => region.boundaryMm)],
+      checkCancelled: options.checkCancelled,
+      chargeNode: () => { report.testedPlacements++; meter.charge({ gridNodes: 1, fieldEvaluations: 1 }) },
+      chargePair: () => meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 }),
+      checkNative: (pointsMm, widthMm) => {
+        meter.charge({ fieldEvaluations: Object.keys(document.walls).length + Object.keys(document.props).length + Object.keys(document.terrainAreas).length + pointsMm.length })
+        options.checkCancelled()
+        return checkTerrainRoute(document, { floorId: p.floorId, pointsMm, widthMm }).ok
+      },
+    })
+    const planBed = (prop: Prop, rank: (key: string) => string) => planBedroomAccess({ shape: prop, pose: prop, roomPolygon: roomPoints(next, room),
+      centerMm: { x: Math.round(row.boundsMm.x + row.boundsMm.width / 2), y: Math.round(row.boundsMm.y + row.boundsMm.height / 2) },
+      blockers: [...solids, ...(connectedUse ? [] : reservations), propFootprint(prop), furnitureBoundsPolygon(prop.visualBoundsMm, prop),
+        ...spatialProps().filter(value => value.floorId === p.floorId && value.id !== prop.id && value.blocksMovement)
+          .flatMap(value => [propFootprint(value), ...(value.renderLayer === 'ground' ? [] : [furnitureBoundsPolygon(value.visualBoundsMm, value)])]),
+        ...Object.values(next.regions).filter(value => value.floorId === p.floorId && value.blocksMovement).map(value => value.boundaryMm)], rank,
+      ...(connectedUse && ports.length ? { routeTo: (entry: PointMm) => {
+        // The proposed bed is a real obstacle even before its native command.
+        const document = { ...next, props: { ...next.props, [prop.id]: prop } }
+        return findAccess(entry, document)
+      } } : {}),
+      checkCancelled: options.checkCancelled, chargeCandidate: () => { report.testedPlacements++; meter.charge({ gridNodes: 1, fieldEvaluations: 1 }) },
+      chargePair: () => meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 }) })
+    // Protected beds remain read-only anchors. Preserve any currently usable
+    // bedside route without treating an already inaccessible manual draft as
+    // invalid or moving the bed to repair it.
+    if (bedroom) for (const bed of roleProps('bed')) {
+      const access = planBed(bed, key => hashGenerationValue(['bed-access', input.seed, row.requirementId, key]))
+      if (access) bedAccess.set(bed.id, access)
+      else roomReport.notes.push(connectedUse && ports.length ? '保留床当前未找到完整床侧使用带及到真实门口的有限通路，本次不强制改动。'
+        : '保留床当前未找到完整床侧使用带及到房间中心的有限通路，本次不强制改动。')
+    }
+    if (connectedUse) for (const prop of spatialProps().filter(value => value.supportRef.kind === 'room' && value.supportRef.id === row.roomId)) {
+      const role = palette.find(item => item.ref.id === prop.definitionRef?.id && item.ref.version === prop.definitionRef.version)?.role
+      if (!role || role === 'table' || role === 'work' && seatCount > 0) continue
+      const access = role === 'bed' ? bedAccess.get(prop.id) : undefined
+      const target = access?.pointsMm.at(-1) ?? (role !== 'bed' ? furnitureApproachPoint(prop, prop, role === 'seat') : undefined)
+      const route = target ? findAccess(target) : undefined
+      if (route) accessRoutes.set(prop.id, route)
+      if (role !== 'bed') useSpaces.push({ anchorKey: prop.id, positionMm: prop.positionMm, rotationDeg: prop.rotationDeg,
+        definitionRef: cloneJson(prop.definitionRef!), usePolygon: role === 'seat' ? furnitureUseSpacePolygon(prop, prop) : furnitureWorkingSpacePolygon(prop, prop), claimed: true })
+    }
     for (const { index, role } of slots) {
       options.checkCancelled()
       if (report.propIds.length >= 64) { roomReport.notes.push('已达到本次64件家具建议上限，其余建议保留为空。'); break }
@@ -164,6 +248,11 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
         - purposePreference(requirement.purpose, role, next.propDefinitions[b.ref.id])
         || compare(hashGenerationValue(['interior-furniture', input.seed, row.requirementId, role, index, a.ref]),
           hashGenerationValue(['interior-furniture', input.seed, row.requirementId, role, index, b.ref])))
+      if (functionalGroups && role === 'seat') {
+        const promisedDefinition = (ref: VersionRef) => useSpaces.some(space => !space.claimed && space.definitionRef.id === ref.id
+          && space.definitionRef.version === ref.version && (existing === undefined || existing.rotationDeg === space.rotationDeg))
+        available.sort((a, b) => Number(promisedDefinition(b.ref)) - Number(promisedDefinition(a.ref)))
+      }
       if (!available.length) { roomReport.notes.push(`未提供${roleName[role]}的固定素材，本次保留空位。`); continue }
       let placed = false, invalid = false
       for (const item of available) {
@@ -176,7 +265,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
           return input.algorithmVersion === 2 ? interiorEntityId(document.sceneId, input.seed, positionKey) : hashGenerationValue(['interior-position', input.seed, positionKey])
         }
         const composed = input.algorithmVersion >= 4
-        const anchors: (FurnitureAnchor & Prop)[] = composed ? Object.values(next.props).filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId && prop.id !== existingId)
+        const anchors: (FurnitureAnchor & Prop)[] = composed ? spatialProps().filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId && prop.id !== existingId)
           .flatMap(prop => {
             const roles = palette.filter(entry => (entry.role === 'work' || entry.role === 'table') && entry.ref.id === prop.definitionRef?.id && entry.ref.version === prop.definitionRef.version)
             return roles.length ? [{ ...prop, role: roles[0].role as 'work' | 'table', seatingLoad: 0 }] : []
@@ -186,7 +275,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
           // occupied one. This transient preference reads real current seats,
           // including protected/manual ones; it creates no persistent duty.
           anchors.sort((a, b) => a.positionMm.y - b.positionMm.y || a.positionMm.x - b.positionMm.x || a.rotationDeg - b.rotationDeg)
-          const seats = Object.values(next.props).filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId && prop.id !== existingId
+          const seats = spatialProps().filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId && prop.id !== existingId
             && palette.some(entry => entry.role === 'seat' && entry.ref.id === prop.definitionRef?.id && entry.ref.version === prop.definitionRef.version))
           for (const seat of seats) {
             const footprint = propFootprint(seat)
@@ -197,8 +286,23 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             if (nearest && nearest.distance <= 900) nearest.anchor.seatingLoad!++
           }
         }
-        const poses = composed ? furniturePoseCandidates(row.boundsMm, existing ?? { visualBoundsMm: definition.defaultVisualBoundsMm,
-          footprintMm: definition.defaultFootprintMm, footprintOffsetMm: definition.defaultFootprintOffsetMm }, inset, role, anchors, rank, existing?.rotationDeg,
+        const shape = existing ?? { visualBoundsMm: definition.defaultVisualBoundsMm,
+          footprintMm: definition.defaultFootprintMm, footprintOffsetMm: definition.defaultFootprintOffsetMm }
+        const kitchenAnchors = kitchen ? spatialProps().filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId && prop.id !== existingId)
+          .flatMap(prop => {
+            const entry = palette.find(item => ['work', 'hearth', 'storage', 'shelf'].includes(item.role)
+              && item.ref.id === prop.definitionRef?.id && item.ref.version === prop.definitionRef.version)
+            return entry ? [{ ...prop, role: entry.role }] : []
+          }) : []
+        const groupPoses = kitchen ? kitchenFurnitureGroupCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, existing?.rotationDeg) : []
+        const beds = bedroom && role === 'storage' ? roleProps('bed').map(bed => ({ ...bed, storageLoad: 0 })) : []
+        for (const storage of beds.length ? roleProps('storage').filter(prop => prop.id !== existingId) : []) {
+          const nearest = beds.map(bed => ({ bed, distance: polygonDistance(propFootprint(storage), propFootprint(bed)) }))
+            .sort((a, b) => a.distance - b.distance || a.bed.positionMm.y - b.bed.positionMm.y || a.bed.positionMm.x - b.bed.positionMm.x)[0]
+          if (nearest && nearest.distance <= 900) nearest.bed.storageLoad++
+        }
+        const bedsidePoses = beds.length ? bedroomStorageCandidates(row.boundsMm, shape, inset, beds, rank, existing?.rotationDeg) : []
+        const poses = composed ? furniturePoseCandidates(row.boundsMm, shape, inset, role, anchors, rank, existing?.rotationDeg,
           roomReport.recommended.filter(role => role === 'seat').length > 1)
           : placementPositions(row.boundsMm, definition, inset, rank).map(positionMm => ({ positionMm, rotationDeg: existing?.rotationDeg ?? 0 }))
         const promised = reserveUseSpace && role === 'seat' ? useSpaces.filter(space => !space.claimed && space.definitionRef.id === definition.id
@@ -207,7 +311,16 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
         // filling the second place of an already served group.
         promised.sort((a, b) => useSpaces.filter(space => space.claimed && space.anchorKey === a.anchorKey).length
           - useSpaces.filter(space => space.claimed && space.anchorKey === b.anchorKey).length)
-        const orderedPoses = [...promised, ...poses]
+        // A tighter new route reservation must not force a live managed member
+        // out of an already valid position during local re-layout.
+        const groupedBeds = input.algorithmVersion >= 9 && bedroom && role === 'bed' && roomReport.recommended.includes('storage')
+          ? bedroomGroupPoseCandidates(row.boundsMm, shape, palette.filter(item => item.role === 'storage').flatMap(item => {
+            const source = next.propDefinitions[item.ref.id]
+            return source?.version === item.ref.version ? [{ visualBoundsMm: source.defaultVisualBoundsMm,
+              footprintMm: source.defaultFootprintMm, footprintOffsetMm: source.defaultFootprintOffsetMm }] : []
+          }), inset, rank, existing?.rotationDeg) : []
+        const allPoses = [...groupedBeds, ...promised, ...groupPoses, ...bedsidePoses, ...poses, ...(connectedUse && existing ? [existing] : [])]
+        const orderedPoses = input.algorithmVersion >= 9 ? [...new Map(allPoses.map(pose => [`${pose.positionMm.x}/${pose.positionMm.y}/${pose.rotationDeg}`, pose])).values()] : allPoses
         for (const { positionMm, rotationDeg } of orderedPoses) {
           options.checkCancelled(); report.testedPlacements++; meter.charge({ gridNodes: 1, fieldEvaluations: 1 })
           const prop = existing ? { ...cloneJson(existing), positionMm } : createBasePlacedProp(next, definition.id, positionMm, context, { id: propId, rotationDeg, supportRef: { kind: 'room', id: row.roomId } })
@@ -217,9 +330,9 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
           if (composed && !polygonInside(visual, roomPoints(next, room))) continue
           const ownUseSpace = reserveUseSpace && role === 'seat' ? promised.find(space => space.positionMm.x === positionMm.x && space.positionMm.y === positionMm.y && space.rotationDeg === rotationDeg) : undefined
           const usePolygon = !reserveUseSpace ? undefined : role === 'seat' ? furnitureUseSpacePolygon(prop, prop)
-            : role === 'hearth' || role === 'work' && seatCount === 0 ? furnitureWorkingSpacePolygon(prop, prop) : undefined
+            : role === 'hearth' || role === 'work' && seatCount === 0 || bedroom && role === 'storage' || connectedUse && (role === 'storage' || role === 'shelf') ? furnitureWorkingSpacePolygon(prop, prop) : undefined
           if (usePolygon && !polygonInside(usePolygon, roomPoints(next, room))) continue
-          const other = Object.values(next.props).filter(value => value.floorId === p.floorId && value.id !== existingId).map(propFootprint)
+          const other = spatialProps().filter(value => value.floorId === p.floorId && value.id !== existingId).map(propFootprint)
           const blockers = [...solids, ...reservations, ...other]
           let blocked = false
           for (const polygon of blockers) {
@@ -227,14 +340,23 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             if (polygonsOverlap(physical, polygon) || polygonDistance(physical, polygon) < 100) { blocked = true; break }
           }
           if (blocked) continue
+          if (bedroom) for (const [id, access] of bedAccess) {
+            if (id === existingId) continue
+            for (const polygon of connectedUse ? [access.usePolygon] : [access.usePolygon, access.routePolygon]) {
+              meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
+              if (polygonsOverlap(physical, polygon) || polygonsOverlap(visual, polygon)) { blocked = true; break }
+            }
+            if (blocked) break
+          }
+          if (blocked) continue
           if (reserveUseSpace) {
             for (const space of useSpaces) {
-              if (space === ownUseSpace) continue
+              if (space === ownUseSpace || connectedUse && space.anchorKey === existingId) continue
               meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
               if (polygonsOverlap(usePolygon ?? physical, space.usePolygon) || polygonsOverlap(visual, space.usePolygon)) { blocked = true; break }
             }
             if (blocked) continue
-            if (usePolygon) for (const polygon of [...blockers, ...Object.values(next.props).filter(value => value.floorId === p.floorId
+            if (usePolygon) for (const polygon of [...blockers, ...spatialProps().filter(value => value.floorId === p.floorId
               && value.id !== existingId && value.blocksMovement && value.renderLayer !== 'ground').map(value => furnitureBoundsPolygon(value.visualBoundsMm, value))]) {
               meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
               if (polygonsOverlap(usePolygon, polygon) || polygonDistance(usePolygon, polygon) < 100) { blocked = true; break }
@@ -242,7 +364,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             if (blocked) continue
           }
           if (composed) {
-            const paintedBlockers = [...solids, ...reservations, ...Object.values(next.props).filter(value => value.floorId === p.floorId
+            const paintedBlockers = [...solids, ...reservations, ...spatialProps().filter(value => value.floorId === p.floorId
               && value.id !== existingId && value.blocksMovement && value.renderLayer !== 'ground').map(value => furnitureBoundsPolygon(value.visualBoundsMm, value))]
             for (const polygon of paintedBlockers) {
               meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
@@ -250,34 +372,107 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             }
             if (blocked) continue
           }
-          const needsSeatPlan = reserveUseSpace && !existing && (role === 'table' || role === 'work') && seatsPerAnchor > 0 && seatDefinitions.length > 0
+          const anchorsLeft = slots.slice(slots.findIndex(slot => slot.index === index)).filter(slot => slot.role === 'table' || slot.role === 'work').length
+          const seatQuota = functionalGroups ? Math.min(4, Math.ceil(Math.max(0, seatCount - useSpaces.filter(space => !space.claimed).length) / Math.max(1, anchorsLeft))) : seatsPerAnchor
+          const needsSeatPlan = reserveUseSpace && !existing && (role === 'table' || role === 'work') && seatQuota > 0 && seatDefinitions.length > 0
           const planned = needsSeatPlan
-            ? planFurnitureSeats({ anchorKey: propId, anchor: { ...prop, role }, seats: seatDefinitions, count: seatsPerAnchor, bounds: row.boundsMm, inset,
+            ? planFurnitureSeats({ anchorKey: propId, anchor: { ...prop, role }, seats: seatDefinitions, count: seatQuota, bounds: row.boundsMm, inset,
               roomPolygon: roomPoints(next, room), blockers: [...blockers, physical, visual, ...useSpaces.map(space => space.usePolygon),
-                ...Object.values(next.props).filter(value => value.floorId === p.floorId && value.id !== existingId && value.blocksMovement
-                  && value.renderLayer !== 'ground').map(value => furnitureBoundsPolygon(value.visualBoundsMm, value))], routeBands, rank,
+                ...spatialProps().filter(value => value.floorId === p.floorId && value.id !== existingId && value.blocksMovement
+                  && value.renderLayer !== 'ground').map(value => furnitureBoundsPolygon(value.visualBoundsMm, value))],
+              routeBands: [...routeBands, ...[...bedAccess.values()].flatMap(access => connectedUse ? [access.usePolygon] : [access.usePolygon, access.routePolygon])], rank,
               checkCancelled: options.checkCancelled, chargeCandidate: () => { report.testedPlacements++; meter.charge({ gridNodes: 1, fieldEvaluations: 1 }) },
               chargePair: () => meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 }) }) : []
           if (needsSeatPlan && !planned.length) continue
+          const bedsideAccess = bedroom && role === 'bed' ? planBed(prop, rank) : undefined
+          if (bedroom && role === 'bed' && !bedsideAccess) continue
           // Native creation performs complete support/lock/definition validation.
           // Its failures are data/budget failures and must not be swallowed.
           const candidate = applyCommands(next, existingId ? [{ type: 'updateProp', id: existingId, changes: { positionMm } }] : [{ type: 'addProp', id: propId, floorId: p.floorId, layerId: p.layerId, definitionRef: cloneJson(item.ref), positionMm,
             rotationDeg, supportRef: { kind: 'room', id: row.roomId } }], context, { budget: options.profile })
+          if (bedsideAccess) {
+            meter.charge({ fieldEvaluations: Object.keys(candidate.walls).length + Object.keys(candidate.props).length + bedsideAccess.pointsMm.length })
+            if (!checkTerrainRoute(candidate, { floorId: p.floorId, pointsMm: bedsideAccess.pointsMm, widthMm: 600 }).ok) continue
+          }
           meter.charge({ fieldEvaluations: connectivity.routes.reduce((sum, route) => sum + route.pointsMm.length, 0) })
           options.checkCancelled()
           const checked = checkInteriorCirculation(candidate, input, layout, connectivity)
           options.checkCancelled()
           if (!checked.routes.every((route, at) => connectivity.routes[at]?.status !== 'clear' || route.status === 'clear')) continue
+          const newRoutes = new Map<string, FurnitureAccessRoute>()
+          if (connectedUse && ports.length) {
+            const pendingSeats = [...useSpaces.filter(space => !space.claimed && space !== ownUseSpace), ...planned]
+            const plannedBlockers = pendingSeats.flatMap(space => {
+              const shape = next.propDefinitions[space.definitionRef.id]
+              return [furnitureBoundsPolygon(shape.defaultVisualBoundsMm, space),
+                furnitureBoundsPolygon({ x: shape.defaultFootprintOffsetMm.x - shape.defaultFootprintMm.width / 2,
+                  y: shape.defaultFootprintOffsetMm.y - shape.defaultFootprintMm.height / 2, ...shape.defaultFootprintMm }, space)]
+            })
+            // Preserve the actual connection, rather than freezing an arbitrary
+            // early diagonal through a later bedside/kitchen grouping position.
+            // An affected route must be replaced in full before acceptance.
+            for (const [id, route] of accessRoutes) {
+              if (id === existingId) continue
+              meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
+              if (![physical, visual, ...plannedBlockers].some(polygon => polygonsOverlap(polygon, route.polygon))) continue
+              const replacement = findAccess(route.pointsMm.at(-1)!, candidate, plannedBlockers, route)
+              if (!replacement) { blocked = true; break }
+              newRoutes.set(id, replacement)
+            }
+            if (blocked) continue
+            const target = bedsideAccess?.pointsMm.at(-1) ?? (usePolygon ? furnitureApproachPoint(prop, prop, role === 'seat') : undefined)
+            if (target) {
+              const route = findAccess(target, candidate, plannedBlockers)
+              if (!route) continue
+              newRoutes.set(propId, route)
+            }
+            const seatShapes = planned.map(space => ({ space, shape: next.propDefinitions[space.definitionRef.id] }))
+            for (const { space, shape } of seatShapes) {
+              const route = findAccess(furnitureApproachPoint({ visualBoundsMm: shape.defaultVisualBoundsMm,
+                footprintMm: shape.defaultFootprintMm, footprintOffsetMm: shape.defaultFootprintOffsetMm }, space, true), candidate, plannedBlockers)
+              if (!route) { blocked = true; break }
+              newRoutes.set(`planned:${space.anchorKey}:${space.positionMm.x}/${space.positionMm.y}/${space.rotationDeg}`, route)
+            }
+            if (blocked) continue
+          }
           if (reserveUseSpace && usePolygon) {
             if (ownUseSpace) ownUseSpace.claimed = true
             else useSpaces.push({ anchorKey: propId, positionMm, rotationDeg, definitionRef: cloneJson(item.ref), usePolygon, claimed: true })
           }
           useSpaces.push(...planned)
+          if (bedsideAccess) bedAccess.set(propId, bedsideAccess)
+          for (const [id, route] of newRoutes) {
+            accessRoutes.set(id, route)
+            const access = bedAccess.get(id)
+            if (access) bedAccess.set(id, { ...access, pointsMm: route.pointsMm, routePolygon: route.polygon })
+          }
+          if (kitchen && kitchenAnchors.length && ['work', 'hearth', 'storage', 'shelf'].includes(role)
+            && !groupPoses.some(pose => pose.rotationDeg === rotationDeg && pose.positionMm.x === positionMm.x && pose.positionMm.y === positionMm.y)) {
+            roomReport.notes.push(`${roleName[role]}未找到可接续现有厨房工作组的合法位置，本次采用独立摆位。`)
+          }
+          if (bedroom && role === 'storage' && beds.length && !bedsidePoses.some(pose => pose.rotationDeg === rotationDeg
+            && pose.positionMm.x === positionMm.x && pose.positionMm.y === positionMm.y)) {
+            roomReport.notes.push('收纳家具未找到合法床边组合位置，本次采用独立摆位并保留取物空间。')
+          }
           next = candidate; report.propIds.push(propId); roomReport.placed.push({ propId, role, definitionRef: cloneJson(item.ref) }); placed = true; break
         }
         if (placed) break
       }
-      if (!placed) roomReport.notes.push(invalid ? `${roleName[role]}的固定素材引用失效，未添加该建议。` : `${roleName[role]}在有限摆位中未找到同时满足支撑、门前带和通路净空${reserveUseSpace ? '及座位使用空间' : ''}的位置。`)
+      if (!placed) roomReport.notes.push(invalid ? `${roleName[role]}的固定素材引用失效，未添加该建议。` : `${roleName[role]}在有限摆位中未找到同时满足支撑、门前带和通路净空${reserveUseSpace ? '及座位使用空间' : ''}${bedroom ? '、床侧使用及取物空间' : ''}的位置。`)
+    }
+    if (connectedUse) {
+      roomReport.circulation = []
+      for (const prop of spatialProps().filter(value => value.supportRef.kind === 'room' && value.supportRef.id === row.roomId)) {
+        const role = palette.find(item => item.ref.id === prop.definitionRef?.id && item.ref.version === prop.definitionRef.version)?.role
+        if (!role || role === 'table' || role === 'work' && seatCount > 0) continue
+        const access = role === 'bed' ? bedAccess.get(prop.id) : undefined
+        const target = access?.pointsMm.at(-1) ?? (role !== 'bed' ? furnitureApproachPoint(prop, prop, role === 'seat') : undefined)
+        const route = target ? findAccess(target, next, [], accessRoutes.get(prop.id)) : undefined
+        const notes = route ? [] : [ports.length ? '有限全宽绕行未找到门口到该家具使用区的连接；保留人工内容，不强移。' : '房间没有通过当前门状态、净宽和实际支撑检查的门口；保留为可编辑草稿。']
+        roomReport.circulation.push({ propId: prop.id, role, openingId: route?.openingId ?? null, pointsMm: route?.pointsMm ?? [],
+          widthMm: 600, status: route ? 'clear' : 'unavailable', notes })
+        roomReport.notes.push(...notes)
+      }
     }
     roomReport.notes = [...new Set(roomReport.notes)]
     report.notes.push(...roomReport.notes.map(note => `${requirement.purpose}：${note}`))

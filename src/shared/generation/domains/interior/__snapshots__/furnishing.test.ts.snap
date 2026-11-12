@@ -1,0 +1,53 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`initial interior furniture suggestions > keeps established algorithm 7 bedroom, dining and kitchen replay fingerprints 1`] = `
+[
+  "e952f5e3acb4c6aac8ccdc1dc7f5a51d65698495928e9aef383af9ef50b2d2d6",
+  "c57af6b9fc78534a4a0d7394bc87c83c67b122796560d4c21ffc88f81383476d",
+  "59a41a90e25d067069ff444d7461a1f9ccfd5cf0cdcf95fae75cef59e575af6a",
+]
+`;
+
+exports[`initial interior furniture suggestions > keeps established algorithm 8 bedroom, dining and kitchen doorway replay fingerprints 1`] = `
+[
+  "96d341c814ccfd093f968fc7ecb6959356086321b16b3bb700ebdf309efab734",
+  "4196de8475a8cd2e9fbbbd0c7ed2bc96fb2abcaf575a64e666a9db32c4001c2e",
+  "bb816a607a994bee10701b1d497f387156792d387aefe2122538b580c286dabf",
+]
+`;
+
+exports[`initial interior furniture suggestions > keeps frozen replay fingerprints for algorithm 2 across dining and kitchen inputs 1`] = `
+[
+  "99d2a84f42eb7ab3567e7f08b2fd1ea79a51c70ac0364c0452cc2847d06ffbd4",
+  "e037c43971830eed45818f3de1a9abd56d46434f2cbb84f19bd53422184c47dd",
+]
+`;
+
+exports[`initial interior furniture suggestions > keeps frozen replay fingerprints for algorithm 3 across dining and kitchen inputs 1`] = `
+[
+  "2c712e6d08265753882c99cecc583db74aa3ec1e1013c4ac901a71744a7395e5",
+  "8db3401a359dcbafa9afb6fa4acb0e6096ee1c70b42d3991c15d4b08a59b8b20",
+]
+`;
+
+exports[`initial interior furniture suggestions > keeps frozen replay fingerprints for algorithm 4 across dining and kitchen inputs 1`] = `
+[
+  "2f3c49eabace3e0ff20e729fc0763ca2eb767cf74f2d4e0da081ac7d0dbfe1ab",
+  "2aa03b22f8abc1a226682215e09ec7552242907f4e5d5ee556b6f41af1cc878f",
+]
+`;
+
+exports[`initial interior furniture suggestions > keeps frozen replay fingerprints for algorithm 5 across dining and kitchen inputs 1`] = `
+[
+  "01c01f0027f1c3227e6a91961a14c11a21351716799bf3b0f9c4f187eaa20a70",
+  "2aa03b22f8abc1a226682215e09ec7552242907f4e5d5ee556b6f41af1cc878f",
+]
+`;
+
+exports[`initial interior furniture suggestions > keeps the established algorithm 6 bedroom, dining and kitchen results 1`] = `
+[
+  "c62eca5a5cd1964b1a6511aa48087a071f1afc29d2e4eef7f7a8ebe61ec51791",
+  "c57af6b9fc78534a4a0d7394bc87c83c67b122796560d4c21ffc88f81383476d",
+  "59a41a90e25d067069ff444d7461a1f9ccfd5cf0cdcf95fae75cef59e575af6a",
+]
+`;
