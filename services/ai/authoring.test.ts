@@ -27,6 +27,7 @@ import { PROVIDER_REASONING_BYTES, type ProviderAdapter, type ProviderCompletion
 import { terrainAuthoringFixture } from '../../tests/helpers/terrain-authoring-fixture.js'
 import { RegionSceneCandidateToolOutputSchema } from '../../src/shared/ai/region-candidate-protocol.js'
 import { createProviderCooldown } from './request-scheduler.js'
+import { DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS } from '../../src/shared/ai/project-workflow.js'
 
 const stamp = '2026-10-24T00:00:00.000Z', token = 'a'.repeat(40), tokenB = 'b'.repeat(40)
 const cleanups: (() => void)[] = []
@@ -120,6 +121,8 @@ describe('isolated AI prop authoring backend', () => {
     await wait(subject.store, created.id)
     expect(inputs).toHaveLength(2)
     for (const input of inputs) {
+      expect(input.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining(DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS) })
+      expect(input.tools.some(tool => tool.name.startsWith('image_import_'))).toBe(false)
       expect(input.tools.some(tool => tool.name.startsWith('sceneweave_terrain_') || tool.name === 'sceneweave_region_scene_candidate')).toBe(false)
       expect(input.tools.some(tool => tool.name === 'sceneweave_propose_boundary' || tool.name === 'sceneweave_apply_boundary_candidates')).toBe(false)
       for (const name of ['sceneweave_edit_scene', 'sceneweave_edit_props']) {
@@ -839,7 +842,14 @@ describe('isolated AI prop authoring backend', () => {
     expect(failed.tools).toHaveLength(1); expect(task.authoring!.state.steps).toHaveLength(1)
     expect(replayAuthoring(task.authoring!.start, task.authoring!.state.steps).project.document.props.target.appearance.opacity).toBe(.5)
     expect(task.messages.filter(message => message.role === 'tool')).toHaveLength(1)
-    expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'authoring_checkpoint' && event.data.authoring?.draftRevision === 1).length).toBeGreaterThan(0)
+    const events = subject.store.events(snapshot.id, 0)
+    expect(events.filter(event => event.type === 'authoring_checkpoint' && event.data.authoring?.draftRevision === 1).length).toBeGreaterThan(0)
+    // The browser stops SSE at a terminal status. The retained draft and its
+    // final closeout must arrive before its only final lifecycle event.
+    expect(events.filter(event => event.type === 'status').map(event => event.data.status)).toEqual(['running', 'waiting_browser'])
+    const finalCheckpoint = events.findLastIndex(event => event.type === 'authoring_checkpoint')
+    expect(events[finalCheckpoint]).toMatchObject({ data: { authoring: { closeout: task.authoring!.closeout } } })
+    expect(events.findLastIndex(event => event.type === 'status')).toBeGreaterThan(finalCheckpoint)
   })
   it.each([
     { executionMs: 300000, remainingMs: 30000, final: true },
@@ -912,7 +922,12 @@ describe('isolated AI prop authoring backend', () => {
     expect(Object.keys(task.calls)).toEqual(['edit'])
     expect(replayAuthoring(task.authoring!.start, task.authoring!.state.steps).project.document.props.target).toMatchObject({ positionMm: { x: 4000, y: 4000 }, appearance: { opacity: .5 } })
     expect(task.messages.filter(message => message.role === 'tool')).toHaveLength(1)
-    expect(subject.store.events(snapshot.id, 0).filter(event => event.type === 'authoring_checkpoint' && event.data.authoring?.draftRevision === 1).length).toBeGreaterThan(0)
+    const events = subject.store.events(snapshot.id, 0)
+    expect(events.filter(event => event.type === 'authoring_checkpoint' && event.data.authoring?.draftRevision === 1).length).toBeGreaterThan(0)
+    expect(events.filter(event => event.type === 'status').map(event => event.data.status)).toEqual(['running', 'waiting_browser'])
+    const finalCheckpoint = events.findLastIndex(event => event.type === 'authoring_checkpoint')
+    expect(events[finalCheckpoint]).toMatchObject({ data: { authoring: { closeout: task.authoring!.closeout } } })
+    expect(events.findLastIndex(event => event.type === 'status')).toBeGreaterThan(finalCheckpoint)
   })
   it('keeps the original hard deadline for a stalled time-final provider and preserves unknown usage after a late reply', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })

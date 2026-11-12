@@ -10,6 +10,7 @@ import { createAiApp, connectionInfo } from './app.js'
 import { loadAiConfig } from './config.js'
 import { TaskEngine } from './engine.js'
 import { TaskStore } from './store.js'
+import { assertPrivateStorageAccess } from './private-storage.js'
 
 const cleanups: (() => void)[] = []
 afterEach(() => { vi.restoreAllMocks(); for (const clean of cleanups.splice(0).reverse()) clean() })
@@ -45,7 +46,8 @@ describe('bounded single-request image editing', () => {
     expect(() => loadAiConfig({ ...valid, SCENEWEAVE_AI_IMAGE_EDIT_BASE_URL: 'https://private:secret@images.example.test/v1' })).toThrow('Invalid server configuration: IMAGE_EDIT_PROVIDER')
   })
   it('sends one real multipart PNG edit with explicit aligned size, fixed model, one candidate and no forced alpha', async () => {
-    const bytes = png(), fetcher = vi.fn<typeof fetch>(async (url, init) => {
+    const directory = temporary(), bytes = png(), fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      expect(() => assertPrivateStorageAccess(join(directory, 'image-edit-requests'))).not.toThrow()
       expect(url).toBe(provider.baseUrl + '/images/edits'); expect(init?.redirect).toBe('error')
       expect(init?.headers).toMatchObject({ Authorization: `Bearer ${provider.apiKey}` })
       const form = init!.body as FormData, file = form.get('image') as File
@@ -56,7 +58,7 @@ describe('bounded single-request image editing', () => {
       expect(String(form.get('prompt'))).toContain('Refine the existing piano keys')
       return response(bytes)
     })
-    const service = createImageEditService({ provider, fetcher, dataDir: temporary() })
+    const service = createImageEditService({ provider, fetcher, dataDir: directory })
     const result = await service.edit(request(), 'alice')
     expect(result).toMatchObject({ model: provider.model, requestId: 'provider-request-1', sourceSha256: sha256Bytes(bytes), outputHash: sha256Bytes(bytes), pngBase64: encodeImageEditBase64(bytes) })
     expect(result.inputHash).toMatch(/^[a-f0-9]{64}$/); expect(fetcher).toHaveBeenCalledOnce()
