@@ -5,6 +5,7 @@ import ts from 'typescript'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const sourceRoot = resolve(root, 'src')
+const sourceRelative = path => relative(sourceRoot, path).replaceAll('\\', '/')
 const allowedPackages = new Set(['zod', 'fflate', 'polygon-clipping'])
 // This test-only helper imports the legacy fixture used by application tests.
 // Production modules must never acquire that dependency through the helper.
@@ -23,7 +24,7 @@ async function walk(folder) {
     const path = resolve(folder, item.name)
     if (item.isDirectory()) await walk(path)
     else if (['.ts', '.tsx'].includes(extname(path)) && !/\.test\.tsx?$/.test(path)
-      && !testSupport.has(relative(sourceRoot, path).replace(/\.tsx?$/, ''))) files.push(path)
+      && !testSupport.has(sourceRelative(path).replace(/\.tsx?$/, ''))) files.push(path)
   }
 }
 for (const layer of ['shared', 'application']) await walk(resolve(sourceRoot, layer))
@@ -31,11 +32,11 @@ for (const layer of ['shared', 'application']) await walk(resolve(sourceRoot, la
 // Imports of types obey the same ownership boundary as runtime imports. Ports
 // belong to their consumers; the browser composition root supplies adapters.
 for (const path of files) {
-  const layer = relative(sourceRoot, path).split('/')[0]
+  const layer = sourceRelative(path).split('/')[0]
   const syntax = ts.createSourceFile(path, await readFile(path, 'utf8'), ts.ScriptTarget.Latest, true)
   const inspect = specifier => {
-    if (migrationImports.get(relative(sourceRoot, path))?.has(specifier)) return
-    const targetPath = specifier.startsWith('.') ? relative(sourceRoot, resolve(dirname(path), specifier)) : null
+    if (migrationImports.get(sourceRelative(path))?.has(specifier)) return
+    const targetPath = specifier.startsWith('.') ? sourceRelative(resolve(dirname(path), specifier)) : null
     if (targetPath && testSupport.has(targetPath.replace(/\.[jt]sx?$/, ''))) throw new Error(`生产模块不能依赖测试夹具：${relative(root, path)} → ${specifier}`)
     const target = targetPath?.split('/')[0]
     const valid = target ? target === 'shared' || layer === 'application' && target === 'application' : allowedPackages.has(specifier)

@@ -1,0 +1,607 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index ca107d8..c7a11d0 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,7 +1,8 @@
+ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+ import WorkspaceHome from './editor/main-shell/WorkspaceHome'
+ import type { WorkspaceController, WorkspaceRequest, WorkspaceSessionSummary } from './editor/main-shell/session'
+-import { fromBundle } from './application/workspace/project'
++import { fromVerifiedBundle } from './application/workspace/project'
++import { validateProjectSnapshot } from './shared/project/resources'
+ import { projectRepository, validation } from './platform/browser/runtime'
+ import { importProject, importHistoryArchive } from './shared/project/file'
+ import { inspectZip } from './shared/project/zip'
+@@ -79,8 +80,8 @@ export default function App() {
+     finally { if (operation.current === abort) { operation.current = null; setBusy(false) } }
+   }
+   const preserveCurrent = async () => !controller.current || await controller.current.leave()
+-  const openInstalled = async (bundle: Parameters<typeof fromBundle>[0], signal: AbortSignal) => {
+-    const project = await fromBundle(bundle, { ...validation, signal }); signal.throwIfAborted()
++  const openInstalled = async (bundle: Parameters<typeof fromVerifiedBundle>[0], signal: AbortSignal) => {
++    const project = fromVerifiedBundle(await validateProjectSnapshot(bundle, { ...validation, signal }), { signal }); signal.throwIfAborted()
+     request({ type: 'open-project', project, saved: true })
+   }
+   const handleFile = (file: File) => void run(async signal => {
+@@ -100,7 +101,7 @@ export default function App() {
+       : mode === 'complete' ? { current: await importProject(bytes, { ...validation, signal }), snapshots: [] }
+         : null
+     if (!archive) throw new Error('未知的完整工程包模式。')
+-    const imported = await projectRepository.importArchive(archive, { signal }); await openInstalled(imported.project, signal)
++    const imported = await projectRepository.importSnapshotArchive(archive, { signal }); await openInstalled(imported.project, signal)
+   })
+   const closeSession = () => void run(async signal => {
+     if (!await preserveCurrent()) return
+diff --git a/src/platform/browser/render/canvas-renderer.ts b/src/platform/browser/render/canvas-renderer.ts
+index 5a39949..9a4aacc 100644
+--- a/src/platform/browser/render/canvas-renderer.ts
++++ b/src/platform/browser/render/canvas-renderer.ts
+@@ -60,7 +60,10 @@ export interface RenderOptions {
+   floorId?: string
+   /** Called once after a successful render and temporary-resource cleanup; observer errors are ignored. PNG encoding is excluded. */
+   onMetrics?: (metrics: RenderMetrics) => void
++  /** Native output stages only; observers receive no reusable pixel data. */
++  onPngMetrics?: (metrics: PngMetrics) => void
+ }
++export interface PngMetrics { mode: 'native'; encodeMs: number; submitMs: number; callbackWaitMs: number; readBytesMs: number; normalizeMs: number; totalMs: number; byteLength: number }
+ export interface EditorRenderOptions extends RenderOptions {
+   viewBoundsMm?: BoundsMm
+   screenScalePxPerMm?: number
+@@ -382,9 +385,29 @@ function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Pro
+   ctx.restore()
+ }
+ function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, detail: EditorPropDetail = 'full'): void {
+-  if (!projection.visual) { drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail); return }
++  const clipped = raster.readFrequently && prop.appearance.kind === 'image'
++  if (!projection.visual && !clipped) { drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail); return }
+   const envelope = propPresentationEnvelope(projection, prop, { full: detail === 'full', outlinePaddingMm: detail === 'outline' ? .5 / Math.max(scaleX, scaleY) : 0 })
+-  drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
++  // Canvas may defer thousands of blurred sprites until PNG readback. Bound
++  // each formal software-raster draw to its complete body/shadow envelope so
++  // native shadow processing need not consider the whole output surface.
++  // Round outward in device pixels and leave two extra pixels for sampling.
++  if (clipped) ctx.save()
++  try {
++    if (clipped) {
++      const b = envelope.boundsMm, origin = projection.bounds
++      // Filtered ground polygons must retain the full surface's top-left
++      // origin; moving it changes native blur rounding. Crop their far edges
++      // only. Ordinary Canvas image shadows can use all four finite edges.
++      const nearSide = projection.propPresentations?.[prop.id]?.mode === 'nearSide'
++      const left = nearSide ? 0 : Math.floor((b.x - origin.x) * scaleX) - 2, top = nearSide ? 0 : Math.floor((b.y - origin.y) * scaleY) - 2
++      const right = Math.ceil((b.x + b.width - origin.x) * scaleX) + 2, bottom = Math.ceil((b.y + b.height - origin.y) * scaleY) + 2
++      const transform = ctx.getTransform()
++      ctx.resetTransform(); ctx.beginPath(); ctx.rect(left, top, right - left, bottom - top); ctx.clip(); ctx.setTransform(transform)
++    }
++    if (!projection.visual) drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail)
++    else drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
++  } finally { if (clipped) ctx.restore() }
+ }
+ function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoration, projection: Projection, raster: RasterSet): void {
+   const bitmap = raster.byAssetId.get(value.assetId)
+@@ -883,18 +906,28 @@ export async function renderRasterProjection(sources: RasterSources, projection:
+ }
+ 
+ /** PNG encoding owns and releases the output surface, including failure/cancel paths. */
+-export async function encodePng(output: HTMLCanvasElement, signal?: AbortSignal): Promise<Blob> {
++export async function encodePng(output: HTMLCanvasElement, signal?: AbortSignal, onMetrics?: (metrics: PngMetrics) => void): Promise<Blob> {
++  const started = onMetrics ? performance.now() : 0
++  let submitMs = 0
+   try {
+     checkCancelled(signal)
+-    const blob = await new Promise<Blob>((resolve, reject) => output.toBlob(result => result ? resolve(result) : reject(new Error('PNG 编码失败，请降低输出尺寸。')), 'image/png'))
++    const blob = await new Promise<Blob>((resolve, reject) => {
++      output.toBlob(result => result ? resolve(result) : reject(new Error('PNG 编码失败，请降低输出尺寸。')), 'image/png')
++      if (onMetrics) submitMs = performance.now() - started
++    })
++    const encodedAt = onMetrics ? performance.now() : 0
+     checkCancelled(signal)
+     if (blob.type !== 'image/png' || !blob.size || blob.size > PNG_MAX_ENCODED_BYTES) throw new Error('PNG 编码格式或字节数超过输出保护值。')
+-    const bytes = normalizePngChunks(new Uint8Array(await blob.arrayBuffer()), PNG_MAX_ENCODED_BYTES)
++    const encoded = new Uint8Array(await blob.arrayBuffer()), readAt = onMetrics ? performance.now() : 0
++    const bytes = normalizePngChunks(encoded, PNG_MAX_ENCODED_BYTES)
+     checkCancelled(signal)
+     // Normalization already validates the actual PNG container/CRC/dimensions.
+     // Its header remains first; avoid reapplying the per-asset 20 MiB budget here.
+     const header = new DataView(bytes.buffer, bytes.byteOffset + 16, 8)
+     if (header.getUint32(0) !== output.width || header.getUint32(4) !== output.height) throw new Error('PNG 实际编码尺寸与输出画布不一致。')
+-    return new Blob([bytes.slice().buffer], { type: 'image/png' })
++    const result = new Blob([bytes.slice().buffer], { type: 'image/png' })
++    if (onMetrics) try { onMetrics({ mode: 'native', encodeMs: encodedAt - started, submitMs, callbackWaitMs: Math.max(0, encodedAt - started - submitMs), readBytesMs: readAt - encodedAt,
++      normalizeMs: performance.now() - readAt, totalMs: performance.now() - started, byteLength: bytes.length }) } catch { /* Observation cannot change output. */ }
++    return result
+   } finally { disposeCanvas(output) }
+ }
+diff --git a/src/platform/browser/render/renderer.test.ts b/src/platform/browser/render/renderer.test.ts
+index 756ebfb..6787f0c 100644
+--- a/src/platform/browser/render/renderer.test.ts
++++ b/src/platform/browser/render/renderer.test.ts
+@@ -92,9 +92,9 @@ function primitives() {
+     const output = { width: 0, height: 0, context: {} as Record<string, unknown>, getContext: (_kind: string, options?: CanvasRenderingContext2DSettings) => { contextCalls.push({ width: output.width, height: output.height, options }); return output.context },
+       toBlob: vi.fn((callback: BlobCallback) => callback(new Blob([pixelPng(output.width, output.height).slice().buffer], { type: 'image/png' }))) }
+     const context = output.context
+-    Object.assign(context, { canvas: output, getImageData: () => ({ data: new Uint8ClampedArray([200, 100, 50, 255]) }),
++    Object.assign(context, { canvas: output, getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }), getImageData: () => ({ data: new Uint8ClampedArray([200, 100, 50, 255]) }),
+       drawImage: vi.fn(), createImageData: () => ({ data: new Uint8ClampedArray(4) }) })
+-    for (const key of ['fillRect', 'strokeRect', 'setTransform', 'resetTransform', 'save', 'restore', 'translate', 'rotate', 'putImageData']) context[key] = vi.fn()
++    for (const key of ['fillRect', 'strokeRect', 'setTransform', 'resetTransform', 'save', 'restore', 'translate', 'rotate', 'putImageData', 'beginPath', 'rect', 'clip']) context[key] = vi.fn()
+     canvases.push(output); return output
+   })
+   vi.stubGlobal('document', { createElement })
+@@ -281,9 +281,11 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
+     const input = fixture(), browser = primitives()
+     const preview = await renderEditorProject(input, { audience: 'player', longEdgePx: 2048 })
+     expect(browser.contextCalls.find(call => call.width === 2048)?.options).toEqual({ colorSpace: 'srgb' })
++    expect(browser.canvases.find(canvas => Object.is(canvas, preview))!.context.clip).not.toHaveBeenCalled()
+     preview.width = preview.height = 0
+     const output = await renderProject(input, { audience: 'player', longEdgePx: 4096 })
+     expect(browser.contextCalls.find(call => call.width === 4096)?.options).toEqual({ colorSpace: 'srgb', willReadFrequently: true })
++    expect(browser.canvases.find(canvas => Object.is(canvas, output))!.context.clip).toHaveBeenCalledTimes(1)
+     output.width = output.height = 0
+     expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+   })
+diff --git a/src/platform/browser/render/renderer.ts b/src/platform/browser/render/renderer.ts
+index 83951fd..8d7897f 100644
+--- a/src/platform/browser/render/renderer.ts
++++ b/src/platform/browser/render/renderer.ts
+@@ -47,7 +47,7 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
+ 
+ export async function exportPng(input: ProjectBundle, options: RenderOptions): Promise<Blob> {
+   options = { ...options }
+-  return encodePng(await renderProject(input, options), options.signal)
++  return encodePng(await renderProject(input, options), options.signal, options.onPngMetrics)
+ }
+ 
+ // Existing leaf prop names remain source-compatible while all data and runtime paths are native-v1.
+diff --git a/src/platform/browser/storage/incremental-history.test.ts b/src/platform/browser/storage/incremental-history.test.ts
+index 265cc51..6365410 100644
+--- a/src/platform/browser/storage/incremental-history.test.ts
++++ b/src/platform/browser/storage/incremental-history.test.ts
+@@ -365,6 +365,7 @@ describe('incremental local history graph', () => {
+     for (const corrupt of [badHash, badSchema, badRevision]) {
+       await database.historyVersions.put(reseal(corrupt))
+       for (const id of ['v0', 'v1']) await expect(transaction(database, history => history.readVersion(first.sceneId, id))).rejects.toThrow()
++      await expect(transaction(database, history => history.audit(first.sceneId))).rejects.toThrow()
+       expect(() => historyVersionBytes(reseal(corrupt))).toThrow()
+     }
+   })
+@@ -471,7 +472,11 @@ describe('incremental local history graph', () => {
+     const deltaCount = graph.versions.filter(version => version.delta !== null).length
+     const spy = vi.spyOn(projectDelta, 'applyProjectDelta')
+     captureHistoryGraph(graph); expect(spy).toHaveBeenCalledTimes(deltaCount)
+-    spy.mockClear(); await transaction(database, history => history.audit(current.sceneId)); expect(spy).toHaveBeenCalledTimes(deltaCount)
++    spy.mockClear()
++    const replay = vi.spyOn(projectDelta, 'createProjectDeltaReplay')
++    await transaction(database, history => history.audit(current.sceneId))
++    expect(replay).toHaveBeenCalledTimes(1); expect(spy).not.toHaveBeenCalled()
++    replay.mockRestore()
+     spy.mockClear()
+     const iterator = historyGraphProjects(graph), first = iterator.next().value!
+     first.document.title = 'consumer mutation'; first.document.props.item.positionMm.x = 9999
+diff --git a/src/platform/browser/storage/incremental-history.ts b/src/platform/browser/storage/incremental-history.ts
+index 6f5d948..a4f9543 100644
+--- a/src/platform/browser/storage/incremental-history.ts
++++ b/src/platform/browser/storage/incremental-history.ts
+@@ -2,7 +2,7 @@ import Dexie, { type Transaction } from 'dexie'
+ import type { HistoryVersionSummary } from '../../../application/ports/project-store.js'
+ export type { HistoryVersionSummary } from '../../../application/ports/project-store.js'
+ import type { ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
+-import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, validateProjectDelta, projectDeltaBytes, projectDeltaJson, DeltaSizeError, type JsonDelta } from '../../../shared/project/delta.js'
++import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, createProjectDeltaReplay, validateProjectDelta, projectDeltaBytes, projectDeltaJson, DeltaSizeError, type JsonDelta } from '../../../shared/project/delta.js'
+ import { getProjectLocalTransaction, getProjectTransactionReceipt, projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
+ import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
+ import { sha256Bytes } from '../../../shared/project/binary.js'
+@@ -278,7 +278,8 @@ function readCheckpoint(input: unknown): ProjectData {
+   const captured = captureJson(input) as ProjectData
+   return captured?.document?.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(captured) : captured
+ }
+-function rebuildFromMap(byId: Map<string, HistoryVersion>, id: string, cache?: ReconstructionCache): ProjectData {
++function rebuildFromMap(byId: Map<string, HistoryVersion>, id: string, cache?: ReconstructionCache,
++  replay?: ReturnType<typeof createProjectDeltaReplay>): ProjectData {
+   const leaf = byId.get(id)
+   if (!leaf) throw new Error('增量历史图版本缺失。')
+   let current = leaf
+@@ -298,14 +299,14 @@ function rebuildFromMap(byId: Map<string, HistoryVersion>, id: string, cache?: R
+     break
+   }
+   // All rows were strictly checked before entering this private reconstruction.
+-  let project = cached ?? readCheckpoint(current.checkpoint), depth = cached ? current.depth : 0, bytes = cached ? current.chainBytes : 0
++  let project = cached ?? (replay ? replay.capture(readCheckpoint(current.checkpoint), current.contentHash) : readCheckpoint(current.checkpoint)), depth = cached ? current.depth : 0, bytes = cached ? current.chainBytes : 0
+   if (!cached) {
+     cache?.remember(current.id, project)
+   }
+   for (const version of chain.reverse().slice(cached ? 0 : 1)) {
+     depth++; bytes += projectDeltaBytes(version.delta)
+     if (version.depth !== depth || version.chainBytes !== bytes) throw new Error('增量历史图链长或累计字节不符。')
+-    project = applyProjectDelta(project, version.delta, 'forward')
++    project = replay ? replay.apply(project, version.delta) : applyProjectDelta(project, version.delta, 'forward')
+     // applyProjectDelta verifies the complete result hash; assertVersion binds
+     // that delta.afterHash to this immutable row's contentHash.
+     if (project.document.revision !== version.revision) throw new Error('增量历史图重建修订不符。')
+@@ -716,15 +717,22 @@ export class IncrementalHistory {
+     if (!rows.length || rows.length > INCREMENTAL_HISTORY_LIMITS.versions) throw new Error('增量历史版本数或根损坏。')
+     let documentBytes = historyHeadBytes(head)
+     const includeFixedMeanings = createFixedProjectFamilyCheck()
+-    for (const row of rows) assertVersion(row, owner)
++    const byteLengths = new Map<string, number>()
++    for (const row of rows) {
++      // Actual complete wire digest now; checkpoint domain/content checks
++      // follow once in the private reconstruction below, including every branch.
++      const checked = checkVersionRecord(row, owner)
++      byteLengths.set(row.id, encodeUtf8(checked.json).length)
++    }
+     const byId = new Map(rows.map(row => [row.id, row])), cache = new ReconstructionCache()
++    const replay = createProjectDeltaReplay()
+     try {
+       for (const row of orderedVersions(rows)) {
+-        includeFixedMeanings(rebuildFromMap(byId, row.id, cache))
+-        documentBytes += historyVersionBytes(row)
++        includeFixedMeanings(rebuildFromMap(byId, row.id, cache, replay))
++        documentBytes += byteLengths.get(row.id)!
+       }
+       for (const pin of pins) {
+-        const project = rebuildFromMap(byId, pin.versionId, cache)
++        const project = rebuildFromMap(byId, pin.versionId, cache, replay)
+         if (byId.get(pin.versionId)!.contentHash !== pin.contentHash || project.document.revision !== pin.sourceRevision
+           || project.historyIdentity.lineageId !== pin.lineageId) throw new Error('增量历史快照在审计时内容或身份不符。')
+         documentBytes += historyPinBytes(pin)
+diff --git a/src/platform/browser/storage/repository.test.ts b/src/platform/browser/storage/repository.test.ts
+index b573fdc..f204c28 100644
+--- a/src/platform/browser/storage/repository.test.ts
++++ b/src/platform/browser/storage/repository.test.ts
+@@ -11,7 +11,7 @@ import type { CompleteValidationOptions } from '../../../shared/ports/resources.
+ import type { ConversionJob, ConvertedFamily } from '../../../shared/migration/types.js'
+ import { CONVERTER_VERSION } from '../../../shared/migration/types.js'
+ import { exportMigrationSet, importMigrationSet } from '../../../shared/migration/set.js'
+-import { createMemoryResources } from '../../../shared/project/resources.js'
++import { createMemoryResources, validateProjectBundle } from '../../../shared/project/resources.js'
+ import { projectContentHash } from '../../../shared/project/validate.js'
+ import { sha256Bytes } from '../../../shared/project/binary.js'
+ import * as binaryHash from '../../../shared/project/binary.js'
+@@ -96,6 +96,46 @@ afterEach(async () => {
+ })
+ 
+ describe('native complete-v1 project repository and two-phase conversion', () => {
++  it('composes a verified file import with one pixel check, but fully checks public and forged/replaced-capability inputs', async () => {
++    const repo = repository(), raw = await imageFixture(), decode = vi.spyOn(validation.images, 'decode')
++    const verified = await validateProjectBundle(raw, validation), count = decode.mock.calls.length
++    expect(count).toBeGreaterThan(0)
++    const installed = await repo.importSnapshotArchive({ current: verified, snapshots: [] })
++    expect(installed.project.project.document.sceneId).not.toBe(verified.project.document.sceneId)
++    expect(decode).toHaveBeenCalledTimes(count)
++    await repo.importArchive({ current: verified, snapshots: [] })
++    expect(decode).toHaveBeenCalledTimes(count * 2)
++    await repo.importSnapshotArchive({ current: { project: cloneJson(verified.project), resources: verified.resources }, snapshots: [] })
++    expect(decode).toHaveBeenCalledTimes(count * 3)
++    const original = validation.images.decode
++    validation.images.decode = async (...args) => original(...args)
++    try { await repo.importSnapshotArchive({ current: verified, snapshots: [] }); expect(decode).toHaveBeenCalledTimes(count * 4) }
++    finally { validation.images.decode = original }
++    const cancelled = new AbortController(); cancelled.abort()
++    await expect(repo.importSnapshotArchive({ current: verified, snapshots: [] }, { signal: cancelled.signal })).rejects.toMatchObject({ name: 'AbortError' })
++  })
++  it('preserves selected verified history under fresh local bindings and rejects oversized archives before pixel replay', async () => {
++    const repo = repository(), raw = await imageFixture(), decode = vi.spyOn(validation.images, 'decode')
++    const verified = await validateProjectBundle(raw, validation), original = cloneJson(verified.project)
++    decode.mockClear()
++    const snapshot = { id: 'original-history', ownerSceneId: original.document.sceneId, lineageId: original.historyIdentity.lineageId,
++      sourceRevision: original.document.revision, name: 'selected history', kind: 'named' as const, createdAt: NOW,
++      contentHash: projectContentHash(original), bundle: verified }
++    const installed = await repo.importSnapshotArchive({ current: verified, snapshots: [snapshot] })
++    expect(decode).not.toHaveBeenCalled()
++    expect(installed.snapshots).toHaveLength(1)
++    const summary = installed.snapshots[0]
++    expect(summary.id).not.toBe(snapshot.id)
++    expect(summary.ownerSceneId).toBe(installed.project.project.document.sceneId)
++    expect(summary.contentHash).toBe(snapshot.contentHash)
++    expect((await repo.loadSnapshot(summary.ownerSceneId, summary.id))!.bundle.project).toEqual(original)
++    expect(verified.project).toEqual(original)
++    decode.mockClear(); const projects = await repo.database.projects.count()
++    await expect(repo.importSnapshotArchive({ current: verified,
++      snapshots: Array.from({ length: 65 }, (_, i) => ({ ...snapshot, id: `too-many-${i}` })) })).rejects.toThrow(/64/)
++    expect(decode).not.toHaveBeenCalled()
++    expect(await repo.database.projects.count()).toBe(projects)
++  })
+   it('creates only on explicit use, owns the exact schema4 stores and refuses old names or unknown schemas', async () => {
+     const repo = repository(), before = (await indexedDB.databases()).map(db => db.name)
+     expect(before).not.toContain(repo.database.name)
+@@ -211,6 +251,24 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
+     await expect(repo.save(revision(input, 1), 0)).rejects.toThrow(/资源字节hash/)
+     expect((await repo.database.projects.get(owner))!.revision).toBe(0)
+   })
++  it('cold-audits other owners and orphan rows before saving, with exact physical document accounting', async () => {
++    const repo = repository(), input = fixture(), other = fixture()
++    other.project.document.sceneId = 'another-owner'
++    await repo.save(input, null); await repo.save(other, null)
++    const owners = [input.project.document.sceneId, other.project.document.sceneId]
++    repo.close()
++    const cold = repository(repo.database.name)
++    expect((await cold.usage(owners[0])).documentBytes).toBe(await nativeDocumentBytes(cold))
++    const root = (await cold.database.historyVersions.where('ownerSceneId').equals(owners[1]).first())!
++    const changed = cloneJson(root); changed.checkpoint!.document.title = 'damaged other project'
++    await cold.database.historyVersions.put(changed)
++    await expect(cold.save(revision(input, 1), 0)).rejects.toThrow(/hash/)
++    expect((await cold.database.projects.get(owners[0]))!.revision).toBe(0)
++    await cold.database.historyVersions.put(root)
++    await cold.database.historyHeads.delete(owners[1])
++    await expect(cold.usage(owners[0])).rejects.toThrow(/所属|分支/)
++    expect((await cold.database.projects.get(owners[0]))!.revision).toBe(0)
++  })
+   it('checks metadata/current envelopes and preserves final metadata CAS after the lightweight query', async () => {
+     const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+     await expect(repo.historyMetadataVersion(owner)).rejects.toBeInstanceOf(ProjectConflictError)
+diff --git a/src/platform/browser/storage/repository.ts b/src/platform/browser/storage/repository.ts
+index b361cb9..9abd0d6 100644
+--- a/src/platform/browser/storage/repository.ts
++++ b/src/platform/browser/storage/repository.ts
+@@ -9,8 +9,8 @@ import type { PreparationContext } from '../../../shared/ports/runtime.js'
+ import type { CompleteValidationOptions, ResourceOptions } from '../../../shared/ports/resources.js'
+ import { checkCancelled } from '../../../shared/ports/resources.js'
+ import { mergeIdentityRecords } from '../../../shared/history/identity.js'
+-import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
+-import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
++import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, consumeHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
++import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
+ import { checkedContentBlock, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest } from './content-blocks.js'
+ import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
+ import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot } from './content-context.js'
+@@ -574,24 +574,45 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+   private async putResources(bundles: readonly ProjectBundle[], options: ResourceOptions): Promise<void> {
+     // Bundles have owned immutable byte ports; DB transactions never perform native image decoding.
+     for (const bundle of bundles) {
+-      for (const [hash, size] of projectResourceRecords(bundle.project)) {
+-        const bytes = await Dexie.waitFor(bundle.resources.read(hash)), existing = await this.database.resources.get(hash)
+-        if (bytes.length !== size || sha256Bytes(bytes) !== hash) throw new Error('准备后的资源字节发生改变。')
+-        if (existing) {
+-          const before = bytesOf(existing)
+-          if (before.length !== bytes.length || !before.every((value, index) => value === bytes[index])) throw new Error('相同资源hash的已有字节冲突。')
+-        } else await this.database.resources.add({ sha256: hash, bytes })
++      const records = [...projectResourceRecords(bundle.project)]
++      // Bound fresh DB rows and byte-port copies together: at most four
++      // resources and 20 MiB per batch, including a single maximum-size image.
++      for (let offset = 0; offset < records.length;) {
+         checkCancelled(options.signal)
++        const batch: typeof records = []; let sizeBytes = 0
++        while (offset < records.length && batch.length < 4) {
++          const next = records[offset]
++          if (batch.length && sizeBytes + next[1] > 20 * 1024 * 1024) break
++          batch.push(next); sizeBytes += next[1]; offset++
++        }
++        const existingRows = await this.database.resources.bulkGet(batch.map(([hash]) => hash))
++        const captured = await Dexie.waitFor(Promise.all(batch.map(([hash]) => bundle.resources.read(hash))))
++        for (const [i, [hash, size]] of batch.entries()) {
++          const bytes = captured[i], existing = existingRows[i]
++          if (bytes.length !== size || sha256Bytes(bytes) !== hash) throw new Error('准备后的资源字节发生改变。')
++          if (existing) {
++            const before = bytesOf(existing)
++            if (before.length !== bytes.length || !before.every((value, index) => value === bytes[index])) throw new Error('相同资源hash的已有字节冲突。')
++          } else await this.database.resources.add({ sha256: hash, bytes })
++          checkCancelled(options.signal)
++        }
+       }
+-      for (const [hash, license] of Object.entries(bundle.project.licenses)) {
+-        const existing = await this.database.licenseTexts.get(hash)
+-        if (existing) {
+-          exact(existing, ['sha256', 'text'])
+-          if (existing.sha256 !== hash || existing.text !== license.text) throw new Error('相同许可hash的已有正文冲突。')
+-        } else await this.database.licenseTexts.add(license)
++      const licenses = Object.entries(bundle.project.licenses)
++      for (let offset = 0; offset < licenses.length; offset += 4) {
++        const batch = licenses.slice(offset, offset + 4)
++        const existingRows = await this.database.licenseTexts.bulkGet(batch.map(([hash]) => hash))
++        for (const [i, [hash, license]] of batch.entries()) {
++          const existing = existingRows[i]
++          if (existing) {
++            exact(existing, ['sha256', 'text'])
++            if (existing.sha256 !== hash || existing.text !== license.text) throw new Error('相同许可hash的已有正文冲突。')
++          } else await this.database.licenseTexts.add(license)
++          checkCancelled(options.signal)
++        }
+       }
+     }
+   }
++
+   private rowCost(table: string, value: unknown): { kind: keyof StorageTotals; bytes: number } | null {
+     let size = 0
+     const content: typeof assertContent = (project, hash) => {
+@@ -625,10 +646,14 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+   }
+   private async scanTotals(): Promise<StorageTotals> {
+     const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
+-    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyVersions', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
++    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
+       await scanRows(this.database.table(table), row => { const cost = this.rowCost(table, row); if (cost && !Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals[cost.kind] += cost.bytes })
+       if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += await this.database.rawJsonBytes(table)
+     }
++    // Physical history rows are charged once, independently of hydrated
++    // checkpoints. The graph audit below checks every complete version; doing
++    // rowCost here repeated its checkpoint validation before reconstruction.
++    totals.documentBytes += await this.database.rawJsonBytes('historyVersions')
+     // Cold/opened connections prove the whole graph once; a session receipt is
+     // retained only while all subsequent writes are transactionally measured.
+     const heads = await this.database.historyHeads.toArray(), owners = new Set(heads.map(row => row.ownerSceneId))
+@@ -827,14 +852,24 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+   }
+   /** Install an explicitly selected native archive as one fresh complete project, atomically with every history binding. */
+   async importArchive(input: HistoryArchive, options: ResourceOptions = {}): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
+-    const pending = validateHistoryArchive(input, this.validation(options))
++    return this.installArchive(validateHistoryArchive(input, this.validation(options)), options)
++  }
++  /** Internal file-import handoff; a copied/fake proof falls back to full IO. */
++  async importSnapshotArchive(input: HistoryArchive, options: ResourceOptions = {}): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
++    return this.installArchive(consumeHistoryArchive(input, this.validation(options)), options)
++  }
++  private async installArchive(pending: Promise<HistoryArchive>, options: ResourceOptions): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
+     const owner = this.options.runtime.ids.nextId(), savedAt = this.options.runtime.clock.now()
+     id(owner); time(savedAt)
+     const archive = await pending
+     if (owner === archive.current.project.document.sceneId) throw new Error('导入须创建独立工程身份。')
+-    const data = cloneJson(archive.current.project)
+-    Object.assign(data.document, { sceneId: owner, revision: 0, createdAt: savedAt, updatedAt: savedAt })
+-    const project = await validateProjectBundle({ project: data, resources: archive.current.resources }, this.validation(options))
++    const data = { ...archive.current.project, document: { ...archive.current.project.document,
++      sceneId: owner, revision: 0, createdAt: savedAt, updatedAt: savedAt } }
++    const candidate = { project: data, resources: archive.current.resources }
++    const project = tryDerivedProjectBundle(candidate, archive.current, options)
++      ?? await validateProjectBundle(candidate, this.validation(options))
++    // Capabilities, including a replaced adapter, must match before installing.
++    await validateProjectSnapshot(project, this.validation(options))
+     const usedIds = new Set<string>(), snapshots: SnapshotBundle[] = archive.snapshots.map(source => {
+       const snapshotId = this.options.runtime.ids.nextId(); id(snapshotId)
+       if (usedIds.has(snapshotId)) throw new Error('导入快照身份重复。')
+diff --git a/src/shared/project/delta.test.ts b/src/shared/project/delta.test.ts
+index e0f6681..4bf6e33 100644
+--- a/src/shared/project/delta.test.ts
++++ b/src/shared/project/delta.test.ts
+@@ -13,7 +13,7 @@ import * as hashModule from '../validation/hash.js'
+ import { encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
+ import { reviseCompositionContent, tryApplyPropUpdateCompositionTransaction } from '../validation/content.js'
+ import type { PropUpdateCommand } from '../validation/snapshots.js'
+-import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, DeltaSizeError, projectDeltaBytes, projectDeltaJson, validateProjectDelta } from './delta.js'
++import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, createProjectDeltaReplay, DeltaSizeError, projectDeltaBytes, projectDeltaJson, validateProjectDelta } from './delta.js'
+ import { encodeProjectContentData, getOwnedProjectEncoding } from './encoding.js'
+ import { certifyProjectData, completeProjectTransactionReceipt, getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt, tryCertifyLocalProjectData, validateProjectData } from './validate.js'
+ 
+@@ -28,6 +28,24 @@ function fixture(configure?: (document: SceneDocument) => void): ProjectData {
+ }
+ 
+ describe('complete project bidirectional deltas', () => {
++  it('owns immutable audit states while checking unknown baselines, every result and independent branches', () => {
++    const before = fixture(), left = cloneJson(before), right = cloneJson(before)
++    left.document.title = 'Left'; right.document.title = 'Right'
++    const first = createProjectDelta(before, left), second = createProjectDelta(before, right), replay = createProjectDeltaReplay()
++    const captured = replay.capture(before, first.beforeHash)
++    expect(Object.isFrozen(captured.document)).toBe(true)
++    before.document.title = 'caller changed'
++    expect(replay.apply(captured, first)).toEqual(left)
++    expect(replay.apply(captured, second)).toEqual(right)
++    expect(() => replay.apply(before, first)).toThrow(/hash/)
++    expect(() => replay.apply(captured, { ...first, afterHash: 'a'.repeat(64) })).toThrow(/hash/)
++    expect(() => replay.capture(captured, 'b'.repeat(64))).toThrow(/hash/)
++    const invalid = cloneJson(captured); invalid.document.revision = -1
++    expect(() => replay.capture(invalid, first.beforeHash)).toThrow()
++    const getter = vi.fn(() => 1), unsafe = { ...captured }
++    Object.defineProperty(unsafe, 'unexpected', { enumerable: true, get: getter })
++    expect(() => replay.capture(unsafe, first.beforeHash)).toThrow(); expect(getter).not.toHaveBeenCalled()
++  })
+   it('round trips changed leaves, arrays, inserted and removed records in both directions', () => {
+     const before = fixture(); before.appearance.instanceAdjustments.item = []
+     const after = cloneJson(before)
+diff --git a/src/shared/project/delta.ts b/src/shared/project/delta.ts
+index 39386a5..61eb1b7 100644
+--- a/src/shared/project/delta.ts
++++ b/src/shared/project/delta.ts
+@@ -1,5 +1,5 @@
+ import type { ProjectData } from '../model/project.js'
+-import { captureJson, cloneJson, encodeUtf8, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
++import { captureJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
+ import { sha256Bytes } from '../validation/hash.js'
+ import { getProjectLocalTransaction, getProjectTransactionReceipt, validateProjectData } from './validate.js'
+ import { equalTransactionValue, transactionSlot } from '../transaction/receipt.js'
+@@ -263,6 +263,29 @@ export function applyProjectDelta(input: ProjectData, delta: unknown, direction:
+   return project
+ }
+ 
++/** One graph audit owns these immutable strictly checked states. Every new
++ * result still receives full domain validation and an actual content digest;
++ * only the exact previous result can avoid repeating its baseline check. */
++export function createProjectDeltaReplay() {
++  const states = new WeakMap<ProjectData, string>()
++  const remember = (project: ProjectData, expected: string): ProjectData => {
++    if (digest(project) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
++    const owned = freezeJson(project); states.set(owned, expected); return owned
++  }
++  const capture = (input: ProjectData, expected: string): ProjectData => {
++    if (!hash(expected)) throw new Error('增量链完整基线hash无效。')
++    if (states.get(input) === expected) return input
++    return remember(validateProjectData(input), expected)
++  }
++  return Object.freeze({ capture, apply(input: ProjectData, delta: unknown): ProjectData {
++    const checked = validateProjectDelta(delta), baseline = capture(input, checked.beforeHash)
++    // All working objects remain private; cached states are never mutated.
++    const stored = cloneJson(persisted(baseline))
++    applyChanges(stored, checked, true)
++    return remember(validateProjectData(world(stored)), checked.afterHash)
++  } })
++}
++
+ /** Strict synchronous forward reconstruction; no validation authority escapes this operation. */
+ export function applyProjectDeltaChain(input: ProjectData, deltas: readonly unknown[], expectedBeforeHash: string): ProjectDeltaChainResult {
+   if (!hash(expectedBeforeHash)) throw new Error('增量链完整基线hash无效。')
+diff --git a/src/shared/project/history.ts b/src/shared/project/history.ts
+index 716b71e..92ee043 100644
+--- a/src/shared/project/history.ts
++++ b/src/shared/project/history.ts
+@@ -6,7 +6,7 @@ import { checkCancelled } from '../ports/resources.js'
+ import { mergeIdentityRecords, validateHistoryIdentity } from '../history/identity.js'
+ import { canonicalJson, encodeUtf8, inspectJsonInput } from '../validation/json.js'
+ import { projectContentHash } from './validate.js'
+-import { captureProjectBundleInput, validateProjectBundles } from './resources.js'
++import { captureProjectBundleInput, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundles, validateProjectSnapshot } from './resources.js'
+ import { projectSourceRecords } from './source-resources.js'
+ 
+ export interface SnapshotBundle extends SnapshotSummary { bundle: ProjectBundle }
+@@ -27,20 +27,21 @@ function fields(input: unknown, required: readonly string[]): Record<string, Pro
+   return descriptors
+ }
+ /** No async gaps while capturing summaries and every mutable metadata branch. */
+-function captureArchive(input: HistoryArchive): HistoryArchive {
++function captureArchive(input: HistoryArchive, snapshots = false): HistoryArchive {
+   const top = fields(input, ['current', 'snapshots']), values = top.snapshots.value
+   if (!Array.isArray(values) || Object.getPrototypeOf(values) !== Array.prototype || values.length > 64) throw new Error('历史包最多64个显式快照。')
+   const ownKeys = Reflect.ownKeys(values)
+   if (ownKeys.length !== values.length + 1 || ownKeys.some(key => key !== 'length' && (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key)))) throw new Error('历史数组不能含空洞或额外字段。')
+-  const current = captureProjectBundleInput(top.current.value), snapshots: SnapshotBundle[] = []
++  const capture = (bundle: ProjectBundle) => snapshots && getVerifiedProjectBundle(bundle) || captureProjectBundleInput(bundle)
++  const current = capture(top.current.value), capturedSnapshots: SnapshotBundle[] = []
+   for (let i = 0; i < values.length; i++) {
+     const descriptor = Object.getOwnPropertyDescriptor(values, String(i))
+     if (!descriptor?.enumerable || !('value' in descriptor)) throw new Error('历史数组不能包含访问器。')
+     const row = fields(descriptor.value, ['id', 'ownerSceneId', 'lineageId', 'sourceRevision', 'name', 'kind', 'createdAt', 'contentHash', 'bundle'])
+     const summary = validateSnapshotSummary(Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'bundle').map(([key, value]) => [key, value.value])))
+-    snapshots.push({ ...summary, bundle: captureProjectBundleInput(row.bundle.value) })
++    capturedSnapshots.push({ ...summary, bundle: capture(row.bundle.value) })
+   }
+-  return { current, snapshots }
++  return { current, snapshots: capturedSnapshots }
+ }
+ /** One fixed source/version has exactly one meaning throughout selected history. */
+ export function assertFixedProjectCompatible(left: ProjectData, right: ProjectData): void {
+@@ -111,7 +112,15 @@ export function assertFixedProjectFamilyCompatible(projects: Iterable<ProjectDat
+ }
+ 
+ export async function validateHistoryArchive(input: HistoryArchive, options: CompleteValidationOptions): Promise<HistoryArchive> {
+-  const archive = captureArchive(input), ids = new Set<string>()
++  return validateArchive(input, options, false)
++}
++/** Internal import composition. Only validator-owned immutable bundles inherit
++ * pixel facts; unknown bundles and changed processing capabilities fully check. */
++export async function consumeHistoryArchive(input: HistoryArchive, options: CompleteValidationOptions): Promise<HistoryArchive> {
++  return validateArchive(input, options, true)
++}
++async function validateArchive(input: HistoryArchive, options: CompleteValidationOptions, snapshot: boolean): Promise<HistoryArchive> {
++  const archive = captureArchive(input, snapshot), ids = new Set<string>()
+   let named = 0, protections = 0, bytes = 0
+   checkCancelled(options?.signal)
+   for (const snapshot of archive.snapshots) {
+@@ -125,7 +134,8 @@ export async function validateHistoryArchive(input: HistoryArchive, options: Com
+   }
+   const identity = mergeIdentityRecords(archive.current.project.historyIdentity, archive.snapshots.map(snapshot => snapshot.bundle.project.historyIdentity))
+   validateHistoryIdentity(identity, archive.current.project.document)
+-  archive.current = { project: { ...archive.current.project, historyIdentity: identity }, resources: archive.current.resources }
++  const merged = { project: { ...archive.current.project, historyIdentity: identity }, resources: archive.current.resources }
++  archive.current = snapshot && tryDerivedProjectBundle(merged, archive.current, options) || merged
+   const projects = [archive.current.project, ...archive.snapshots.map(snapshot => snapshot.bundle.project)]
+   assertFixedProjectFamilyCompatible(projects)
+   const imageRecords = new Map<string, AssetRecord>(), licenses = new Map<string, string>(), sources = new Map<string, number>()
+@@ -153,7 +163,9 @@ export async function validateHistoryArchive(input: HistoryArchive, options: Com
+   const sourceBytes = [...sources.values()].reduce((sum, size) => sum + size, 0)
+   if (sourceBytes > 32 * 1024 * 1024 || sources.size > 512) throw new Error('历史联合SVG源超过保护预算。')
+   if (bytes + sourceBytes + union.reduce((sum, record) => sum + record.sizeBytes, 0) + [...licenses.values()].reduce((sum, text) => sum + encodeUtf8(text).length, 0) > 300 * 1024 * 1024) throw new Error('历史联合展开字节超过300MiB。')
+-  const verified = await validateProjectBundles([archive.current, ...archive.snapshots.map(snapshot => snapshot.bundle)], options)
++  const bundles = [archive.current, ...archive.snapshots.map(snapshot => snapshot.bundle)]
++  const verified = snapshot ? [] : await validateProjectBundles(bundles, options)
++  if (snapshot) for (const bundle of bundles) verified.push(await validateProjectSnapshot(bundle, options))
+   archive.current = verified[0]
+   archive.snapshots.forEach((snapshot, index) => { snapshot.bundle = verified[index + 1] })
+   checkCancelled(options?.signal)

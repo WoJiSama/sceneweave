@@ -117,8 +117,10 @@ export function diffAggregateBlocks(before, after) {
  * Creation does not navigate or launch a browser. Call before page.goto(), stop
  * before browser teardown, and keep storage/download audits in tooling phases.
  */
-export async function createAggregateObserver({ page, browser, rootPid, timeoutMs = 120000, intervalMs = 100, heapIntervalMs = 200 }) {
-  if (process.platform !== 'darwin') throw new Error('Aggregate process-tree RSS observation is currently validated only on macOS.')
+export async function createAggregateObserver({ page, browser, rootPid, timeoutMs = 120000, intervalMs = 100, heapIntervalMs = 200, rssMode = 'macos-process-tree' }) {
+  if (!['macos-process-tree', 'windows-process-tree', 'unavailable'].includes(rssMode)) throw new TypeError('Unknown RSS mode.')
+  if (rssMode === 'macos-process-tree' && process.platform !== 'darwin') throw new Error('Aggregate process-tree RSS observation is currently validated only on macOS.')
+  if (rssMode === 'windows-process-tree' && process.platform !== 'win32') throw new Error('Windows process-tree observation requires Windows.')
   if (!validTimeout(timeoutMs)) throw new TypeError('timeoutMs must be a positive integer no greater than 600000.')
   const cdp = await page.context().newCDPSession(page), browserCdp = await browser.newBrowserCDPSession()
   let sampler, stopped = false, stopping, measuring = false, phase = 'idle'
@@ -134,7 +136,7 @@ export async function createAggregateObserver({ page, browser, rootPid, timeoutM
     await page.addInitScript(installNativeM2Observer)
     await cdp.send('Performance.enable'); await cdp.send('Network.enable'); await cdp.send('Log.enable')
     await cdp.send('Network.setCacheDisabled', { cacheDisabled: true })
-    sampler = startResourceSampling({ rootPid, cdp, intervalMs, heapIntervalMs })
+    sampler = startResourceSampling({ rootPid, cdp, intervalMs, heapIntervalMs, sampleProcess: rssMode !== 'unavailable' })
   } catch (error) {
     page.off('pageerror', onPageError); page.off('requestfailed', onRequestFailed); page.off('console', onConsole)
     await Promise.allSettled([cdp.detach(), browserCdp.detach()]); throw error
@@ -228,7 +230,10 @@ export async function createAggregateObserver({ page, browser, rootPid, timeoutM
         cdp.off('Network.responseReceived', onResponse); cdp.off('Log.entryAdded', onLog)
         await Promise.allSettled([cdp.detach(), browserCdp.detach()])
         return { measurementClass: 'diagnostic-normal-production-ui', samples, resources, cpuWarnings, audit,
-          notes: ['Double-rAF is a browser scheduling proxy, not GPU/presentation completion.', 'RSS is a sampled dedicated macOS process-tree sum and may count shared mappings more than once; target JS heap omits GPU and other targets.', 'No CPU profiling, forced garbage collection, product instrumentation or database writes are performed by this observer.', 'Sampling, automation and CDP overhead are retained. Tooling storage/hash/download phases must not be reported as product peaks.', 'These observations do not establish a formal performance pass, capacity promise, human UX or cross-browser acceptance.'] }
+          notes: ['Double-rAF is a browser scheduling proxy, not GPU/presentation completion.', rssMode === 'unavailable'
+            ? 'RSS is unavailable on this diagnostic path. Null RSS values are missing evidence, never zero or a memory improvement; target JS heap omits GPU and other targets.'
+            : rssMode === 'windows-process-tree' ? 'Windows Working Set is a sampled dedicated process-tree sum with shared-page duplication; private commitment is recorded separately. Neither is GPU memory or unique physical memory. Other browser counts and system CPU are background observations, not an exclusive-system proof.'
+              : 'RSS is a sampled dedicated macOS process-tree sum and may count shared mappings more than once; target JS heap omits GPU and other targets.', 'No CPU profiling, forced garbage collection, product instrumentation or database writes are performed by this observer.', 'Sampling, automation and CDP overhead are retained. Tooling storage/hash/download phases must not be reported as product peaks.', 'These observations do not establish a formal performance pass, capacity promise, human UX or cross-browser acceptance.'] }
       })()
       return stopping
     },

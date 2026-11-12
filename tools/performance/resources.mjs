@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { promisify } from 'node:util'
+import { startWindowsProcessSampling } from './windows-process-sampler.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -84,6 +85,10 @@ function summarize(samples, heapSamples, errors, config, phaseMarkers) {
     byPhase[phase] = {
       processSampleCount: processPhase.length, heapSampleCount: heapPhase.length,
       rssPeakBytes: maxSample(processPhase, 'rssBytes')?.rssBytes ?? null,
+      privateCommitPeakBytes: maxSample(processPhase, 'privateBytes')?.privateBytes ?? null,
+      backgroundBrowserProcessMax: processPhase.length ? Math.max(...processPhase.map(row => row.background?.browserProcessCount ?? 0)) : null,
+      systemCpuBusyFractionMax: processPhase.some(row => Number.isFinite(row.background?.systemCpuBusyFraction))
+        ? Math.max(...processPhase.map(row => row.background?.systemCpuBusyFraction).filter(Number.isFinite)) : null,
       jsHeapPeakUsedBytes: maxSample(heapPhase, 'heapUsedBytes')?.heapUsedBytes ?? null,
       processSamplingIntervalsMs: intervals(processPhase), heapSamplingIntervalsMs: intervals(heapPhase),
     }
@@ -102,6 +107,14 @@ function summarize(samples, heapSamples, errors, config, phaseMarkers) {
     heapValueSampleCount: heapSamples.filter(sample => Number.isFinite(sample.heapUsedBytes)).length,
     errorCount: errors.length,
     rssSampledPeakBytes: rssPeak?.rssBytes ?? null,
+    processMetric: config.processMetric,
+    workingSetSampledPeakBytes: config.processMetric === 'windows-working-set' ? rssPeak?.rssBytes ?? null : null,
+    privateCommitSampledPeakBytes: maxSample(usable, 'privateBytes')?.privateBytes ?? null,
+    backgroundObservation: { browserProcessMax: usable.length ? Math.max(...usable.map(row => row.background?.browserProcessCount ?? 0)) : null,
+      nodeProcessMax: usable.length ? Math.max(...usable.map(row => row.background?.nodeProcessCount ?? 0)) : null,
+      systemCpuBusyFraction: distribution(usable.map(row => row.background?.systemCpuBusyFraction).filter(Number.isFinite)),
+      noOtherBrowserObserved: config.processMetric === 'windows-working-set' && usable.length > 0 && usable.every(row => row.background.browserProcessCount === 0),
+      note: 'Counts alone do not establish exclusive load. System CPU includes the sampler, automation and unrelated work. No unrelated command lines or process identities are retained.' },
     rssPeak: sampleReference(rssPeak, 'rssBytes'),
     firstRssBytes: usable[0]?.rssBytes ?? null, lastRssBytes: usable.at(-1)?.rssBytes ?? null,
     peakMinusFirstRssBytes: rssPeak && usable.length ? rssPeak.rssBytes - usable[0].rssBytes : null,
@@ -115,7 +128,10 @@ function summarize(samples, heapSamples, errors, config, phaseMarkers) {
     phaseBoundaryHeapSamples: heapSamples.filter(sample => sample.phaseBoundary).length,
     phaseMarkers, byPhase,
     notes: [
-      'RSS is a sampled simultaneous sum over the dedicated root PID and its currently observed descendants. ps RSS KiB is multiplied by 1024.',
+      config.processSamplingStatus === 'unavailable'
+        ? 'RSS was not measured on this diagnostic path. Empty process samples and null RSS peaks are missing evidence, not zero memory use.'
+        : config.processMetric === 'windows-working-set' ? 'Windows Working Set is a simultaneous sampled process-tree sum; PrivatePageCount is recorded separately as private committed bytes, not private resident bytes. WMI query duration and actual polling intervals are retained.'
+          : 'RSS is a sampled simultaneous sum over the dedicated root PID and its currently observed descendants. ps RSS KiB is multiplied by 1024.',
       'Shared mappings can be counted in several processes. RSS sum is not deduplicated physical memory, complete browser memory, or GPU/Metal allocation peak.',
       'Children reparented outside the observed root tree are excluded. No unrelated Chrome or user processes are retained in these results.',
       'Configured intervals are targets; actual intervals and poll durations are recorded. Transients between polls may be missed.',
@@ -133,15 +149,19 @@ function summarize(samples, heapSamples, errors, config, phaseMarkers) {
  * on the supplied CDP session before starting and stops before closing Chrome.
  * Importing this module does not start a browser or sampler.
  */
-export function startResourceSampling({ rootPid, cdp, intervalMs = 100, heapIntervalMs = 200 }) {
+export function startResourceSampling({ rootPid, cdp, intervalMs = 100, heapIntervalMs = 200, sampleProcess = true }) {
+  if (typeof sampleProcess !== 'boolean') throw new TypeError('sampleProcess must be a boolean.')
   if (!Number.isSafeInteger(rootPid) || rootPid < 1) throw new TypeError('rootPid must be a positive OS process id.')
   if (!cdp || typeof cdp.send !== 'function') throw new TypeError('An enabled target CDP session is required.')
   if (![intervalMs, heapIntervalMs].every(value => Number.isFinite(value) && value >= 10)) throw new TypeError('Sampling intervals must be finite and at least 10 ms.')
   const startedAtMs = Date.now(), origin = performance.now()
   const samples = [], heapSamples = [], errors = [], phaseMarkers = [{ phase: 'idle', atMs: startedAtMs, elapsedMs: 0 }]
   let phase = 'idle', phaseVersion = 0, stopped = false, stopPromise
-  let processTimer, heapTimer, processInFlight, heapInFlight
-  const config = { rootPid, intervalMs, heapIntervalMs, startedAtMs, psCommand: '/bin/ps -axo pid=,ppid=,rss=,comm=' }
+  let processTimer, heapTimer, processInFlight, heapInFlight, windowsSampler
+  const config = { rootPid, intervalMs, heapIntervalMs, startedAtMs,
+    processSamplingStatus: sampleProcess ? 'sampled' : 'unavailable',
+    processMetric: sampleProcess ? process.platform === 'win32' ? 'windows-working-set' : 'ps-rss' : null,
+    psCommand: sampleProcess && process.platform !== 'win32' ? '/bin/ps -axo pid=,ppid=,rss=,comm=' : null }
   const stamp = () => ({ atMs: Date.now(), elapsedMs: performance.now() - origin })
   const startObservation = () => ({ startedAtMs: Date.now(), startedElapsedMs: performance.now() - origin, phase, phaseVersion })
   function finishObservation(start) {
@@ -197,7 +217,18 @@ export function startResourceSampling({ rootPid, cdp, intervalMs = 100, heapInte
       if (!stopped) heapTimer = setTimeout(pollHeap, Math.max(0, heapIntervalMs - (performance.now() - start)))
     })
   }
-  pollProcess()
+  if (sampleProcess && process.platform === 'win32') {
+    windowsSampler = startWindowsProcessSampling({ rootPid, intervalMs,
+      onSnapshot(parsed) {
+        const timing = startObservation(), ended = finishObservation(timing)
+        // WMI rows are collected over an interval, not at the delivery instant.
+        ended.startedAtMs -= parsed.nativePollDurationMs; ended.startedElapsedMs -= parsed.nativePollDurationMs; ended.durationMs += parsed.nativePollDurationMs
+        const startedPhase = phaseMarkers.findLast(marker => marker.elapsedMs <= ended.startedElapsedMs)?.phase
+        ended.phase = startedPhase ?? 'idle'; ended.phaseBoundary = ended.phase !== phase
+        samples.push({ ...ended, ...parsed })
+      }, onError(error) { recordError('WINDOWS_PROCESS_SNAPSHOT_FAILED', error, startObservation()) } })
+    config.processTargetIntervalMs = windowsSampler.actualIntervalMs
+  } else if (sampleProcess) pollProcess()
   pollHeap()
   return {
     setPhase(nextPhase) {
@@ -214,7 +245,7 @@ export function startResourceSampling({ rootPid, cdp, intervalMs = 100, heapInte
       clearTimeout(processTimer)
       clearTimeout(heapTimer)
       stopPromise = (async () => {
-        await Promise.allSettled([processInFlight, heapInFlight].filter(Boolean))
+        await Promise.allSettled([processInFlight, heapInFlight, windowsSampler?.stop()].filter(Boolean))
         const ended = stamp()
         return { samples, heapSamples, errors, summary: {
           ...summarize(samples, heapSamples, errors, config, phaseMarkers),

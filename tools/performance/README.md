@@ -1,8 +1,81 @@
-# 历史 B5/C0 负载复现方法
+# 性能运行器与历史负载复现方法
 
 当前性能／容量会话的跨电脑接续见[07交接入口](../../docs/07-roadmap.md#performance-capacity-cross-machine-handoff)。`baselines/wall-paint-20261111.patch`与`baselines/encoding-owner-20261111.patch`保留两个独立优化的正向源码差异；只在隔离测量副本反向应用以重建单项基线，先`--reverse --check`，不能直接回退日常工作区。它们不包含旧机的忽略输入、原始证据或完整历史冻结，不是性能通过证明。
 
-本页只维护B5/C0旧格式负载和保留运行器的复现方法；当前验收入口见[质量计划](../../docs/09-quality-plan.md#acceptance)，正常原生主路径及严格v2视觉负载的命令见[贡献说明](../../CONTRIBUTING.md)。旧工作台已经退役，以下结果不能替代当前产品验证。
+本页先列当前跨电脑单项对照工具，再维护B5/C0旧格式负载和保留运行器的方法；当前验收入口见[质量计划](../../docs/09-quality-plan.md#acceptance)，正常原生主路径及严格v2视觉负载的命令见[贡献说明](../../CONTRIBUTING.md)。旧工作台已经退役，历史结果不能替代当前产品验证。
+
+## 当前完整v1单项开发对照
+
+长历史总耗时三步整改使用`baselines/history-total-20261112.patch`，`prepare-production-pair.mjs --optimization history-total`可在新隔离副本反向还原改前实现，保留全部13个产品／测试文件的确切差异；临时Git库显式关闭换行转换，正反向逐字节核对。`run-production-pair.mjs --optimization history-total --history-depth 20`只接受该范围内12个src文件差异，页面测试第13文件另由生产专项执行。20／44／66深度分别运行AB／BA／AB；这是三项合并整改的对照，不能归因成某一个小改动的独立收益。往返一毫米会重复两个实际领域状态，缓存收益不能外推到每次都产生不同领域内容的长历史；任意实际内容变化仍完整校验。
+
+`run-history-cause-analysis.mjs`现同时观察旧`scanTotals`／`history.audit`与新`prepareAccounting`／`auditCapturedTotals`，保留冷首写实际原生事务完成跨度、审计期间另一原生连接readwrite的获得／完成等待，以及原保活空读次数。锁探针只读epoch、不写入内容；它会扰动调度，跨度仍含克隆、加载、等待和GC，只作单独组件归因，不能与正常生产UI耗时拼接。旧实际图／profile及旧版本工具指纹保留，新增结果按本轮冻结记录，方法与边界见[三步整改](../../docs/reference/performance.md#history-total-remediation-20261112)。
+
+长历史整改使用`baselines/history-audit-20261112.patch`在独立源码副本反向重建基线，再各自正常build。`run-production-pair.mjs --optimization history-audit --history-depth 20`在冷开前通过真实UI保留指定次数的往返编辑；可分别用20／44／66，`--first-side after`将该对改为BA。深度必须为2–100的偶数，默认2保持旧八操作方法；每侧共`historyDepth+6`条观测、`historyDepth+2`次真实修订，完整包及双受众实际RGBA在浏览器退出后复核。该scope同时包括完整历史后台调度及同次新鲜场景证明消除内容／身份重复领域校验，不宣称二者各自单项净收益。输入／源码／正常产物／工具全部冻结；不能在采样时修改本目录。
+
+`run-storage-scale.mjs`仍为源码组件诊断，另保留每笔保存内的long task及50ms心跳实际间隔。显式源码插桩副本可输出`SCENEWEAVE_HISTORY_DIAGNOSTIC`分段，工具只捕获该前缀；递归函数逐次计时可能严重扰动结果，不能拿插桩总时长或相互包含的span相加当作正常生产性能。原生事务保活／复制／锁等待包含在真实总等待内，页面heap不包含Worker／native／GPU；正式判定继续从09执行。
+
+`prepare-production-pair.mjs`只向仓库忽略的`work/`新空目录捕获副本，不反转日常工作区；它链接现有锁定依赖、反向预检并应用所选patch，再串行运行与正常build相同的架构、前后端类型和Vite步骤。编码基线的旧函数签名与新增回归测试不兼容，因此将该测试原文保全到副本外的`baseline-optimized-test.ts.txt`，after和日常工作区完整保留测试。两侧产品只允许编码的两个存储文件或墙面一个renderer文件不同，额外测试差异显式登记；不能同时逆转两项后宣称单项收益。
+
+先安装锁定依赖，按以下顺序执行；路径需替换为本机绝对路径，每个输出均须新空目录。Windows默认npm缓存若无写权限，可显式用`npm ci --cache D:\code\sceneweave\work\npm-cache`，不修改锁文件或全局配置。
+
+```powershell
+node tools/performance/prepare-current-formal.mjs --mode capacity --cases mixed-2000 --channel chrome --output D:\code\sceneweave\work\new-pair\fixtures
+node tools/performance/prepare-production-pair.mjs --optimization encoding-owner --output D:\code\sceneweave\work\new-pair\builds
+node --test tools/performance/production-pair-audit.test.mjs tools/performance/resources.test.mjs
+node tools/performance/run-production-pair.mjs --optimization encoding-owner --before-source D:\code\sceneweave\work\new-pair\builds\before --after-source D:\code\sceneweave\work\new-pair\builds\after --before-dist D:\code\sceneweave\work\new-pair\builds\before\dist --after-dist D:\code\sceneweave\work\new-pair\builds\after\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --case mixed-2000 --pairs 3 --channel chrome --output D:\code\sceneweave\work\new-pair\results
+node tools/performance/summarize-production-pair.mjs D:\code\sceneweave\work\new-pair\results --output D:\code\sceneweave\work\new-pair\summary-recomputed.json
+```
+
+准备器`--cases`可选八份完整Prop容量输入的子集；不传保持原矩阵，`--mode visual`拒绝容量筛选。准备器、测试、构建结束并关闭浏览器后才开始测量。运行器默认三对AB／BA／AB，每侧独立Chrome/profile，真实UI导入→独立公开Prop首次X+1mm→暖笔回原位→双受众4K→一次完整页面重置／目录冷开→冷开首笔+1mm→下一笔回原位。所有操作均校验确切revision与保存／画布就绪；文件选择自动化、observer与CDP开销保留。运行器只消费上述容量manifest和独立Prop，不是通用拆图／多图片负载替身；墙面反例与图片负载仍须补适配和对应输入，不能用无有效遮罩分配差异的输入代表所有墙面收益。
+
+完整包下载在采样停止后，PNG与包审计在专属浏览器退出后以Node完成。PNG核对CRC、4K尺寸／比例、元数据白名单与实际解码RGBA；工程核对完整包全部条目、领域／身份／外观／固定来源／资源／许可，只允许导入的独立root／时钟及确切4次revision变化。汇总器重新审计已保留最终包／PNG，并拒绝失败／未完成manifest，不修复旧失败为通过。原始输入比较在运行器保留；重建仍需冻结的fixtures目录，Git不携带运行产物。
+
+这是低样本开发诊断，未接入独占系统负载guard，不可关闭正式性能或宣称稳定净收益。macOS仍采专属进程树RSS；2026-11-12起本开发对照在Windows单独采Working Set和私有提交，其他未支持平台显式`rssMode:unavailable`，缺值为null。原`run-current-formal.mjs`默认macOS RSS要求保持，Windows不能直接并入旧RSS分布。旧Windows缺测结果见[原记录](../../docs/reference/performance.md#encoding-owner-windows-20261111)，新方法/限制见[三步接续](../../docs/reference/performance.md#three-steps-20261112)。
+
+`--optimization workflow`使用`baselines/workflow-20261112.patch`重建2026-11-12四条路径的整体改前版本。准备器捕获所有未忽略源码/测试，运行器严格要求7产品+4测试文件差异；其他模式的单项白名单保持。它比较整组整改，不能将合并前后数字当作其中某个微优化的独立收益。新补丁已独立正反向应用并核对完整文本，Windows Git换行归一与原始源码SHA分开记录；不把文本相等声称为所有换行字节相等。后续源码演进先反向`--check`，上下文不兼容时显式适配，不能覆盖日常工作区。具体数值及撤回候选见[本轮整改](../../docs/reference/performance.md#workflow-remediation-20261112)。
+
+<a id="storage-responsiveness-capacity"></a>
+## 保存规模、后台计算和资源连续旅程
+
+本组全部是开发诊断，正式入口和阈值仍归09。先冻结源码/真实资源输入并完成正常构建；每条命令使用独立新空输出目录，准备、构建、单元测试与浏览器测量串行。原始输入、profile、图片及工作包放忽略目录，不随Git携带；下列准备器可在新机器重建压力输入，但独立素材身份可能变化，必须冻结实际包hash，不能与旧分布拼接。
+
+`run-storage-scale.mjs --source ABS --input ABS_SCENEWEAVE --output ABS_NEW [--matrix 1:2,5:2,1:20]`使用真实Chrome/native IndexedDB和公共仓库API，分别准备owner数量/每owner历史保存次数，重开后量冷读/冷首写/两次暖写及inclusive方法跨度。它用源码模块并包装私有方法归因，不是生产UI计时；标题修改没有Prop编辑器的局部事务回执。每case前后冻结源码/输入/工具，漂移即拒绝。全库/全部分支审计、真实字节、预算/CAS不关闭。
+
+`run-history-cause-analysis.mjs --source ABS_FROZEN --input ABS_SYNTHETIC_SCENEWEAVE --output ABS_NEW_WORK_DIRECTORY [--history 20]`在忽略的输出目录复制冻结src，44处同步边界记录inclusive／self与调用父边，避免对递归JSON节点逐次插桩。真实导入、逐笔标题保存、冷读首写后保留`actual-read-graph.json`；对同一图串行执行事务内／外／外／内Worker审计，计实际保活空读并用另一原生连接探测readwrite等待。只读探针不改数据；事务外模式只是分析，不是新的产品保存合同。JSON大小不代表堆／RSS，函数self仍含未插桩子函数／调度／GC。`analysis.json`包含冻结、事件、原始图摘要与每次结果，正常源码／dist不改。
+
+`profile-history-audit.mjs --source ABS_FROZEN --graph ABS_ACTUAL_READ_SYNTHETIC_JSON --output ABS_NEW`对上项实际图运行未修改源码，三次独立Worker审计，另一次同步页面调用采CPU profile及互斥叶节点汇总。它独立核对源码／图／工具指纹和图不变、所有严格审计结果一致；没有数据库事务／资源／正常UI保存，不与插桩分布拼接。两工具只用可保全的合成压力输入，图和profile留忽略目录；计时含加载、克隆、编译与调度，未提供独占guard。具体根因与方案边界见[最终实现复核](../../docs/reference/performance.md#history-audit-causes-20261112)。
+
+`run-svg-worker-analysis.mjs --source ABS --input ABS_SCENEWEAVE --output ABS_NEW [--rounds 3]`在源码模块环境读取完整工程的规范SVG，使用相同固定WASM处理器比较主线程/后台，先初始化、交替次序，分别保留实际RGBA、总耗时、long task及16ms heartbeat。初始化、严格导入、结果hash和取消专项不计进批次。它不代表正常UI或全部验证无阻塞；正常旅程另用`run-production-pair.mjs --optimization representation-worker`，对应可携带基线为`baselines/representation-worker-20261112.patch`，只在隔离副本反向应用，正常源码不回退。
+
+`--optimization history-endpoint`由`baselines/history-endpoint-20261112.patch`重建最近完整编码端点复用之前的版本，源码只允许`delta.ts`及表示集成测试两个文件差异。它与`representation-worker`分开做正常三对；长历史组件另用`run-storage-scale.mjs --matrix 1:20`按AB/BA交替执行，不能用不同时段的合并改动冒充单项收益。两份补丁均在隔离目录正向/反向应用并逐字节roundtrip核对；Windows检查副本显式设置本地`core.autocrlf=false`以免新增文件换行自动转换，只影响该临时Git库，不修改全局设置。叠加后的实现要还原本轮之前基线时，先逆转history-endpoint再逆转representation-worker；每步先`--reverse --check`，只在副本执行。实际SHA与测量边界归[性能主题](../../docs/reference/performance.md#three-steps-20261112)，源码演进后上下文冲突须重新适配。
+
+`prepare-resource-stress.mjs --source ABS_FROZEN --output ABS_NEW [--cases names]`调用`tools/testing/resource-stress-fixtures.ts`创建原创确定性棋盘/透明PNG，保留完整Prop/固定定义/许可/资源闭包并严格导出冷读。默认7份合法压力输入为2048²、4096²、8192×3906近3200万像素、3×4096²约5033万像素，以及64/128/256张256²独立图片；另实际准备257张和4×4096²超累计预算负例。每张实际字节不同，来源和synthetic标记明确；这些是附加资源压力，不能替代真实建筑/自然/混合地图。负例保持在manifest.rejections，不伪造可导入成功包。
+
+`run-capacity-journey.mjs --source ABS --dist ABS --fixtures ABS --output ABS_NEW [--cases names] [--cycles 3] [--edits 20]`消费正常生产构建与已完成manifest，每case新Chrome/profile。默认三循环各20次独立公开Prop一毫米往返、撤销/重做、命名快照、页面重置冷开核命名历史；首尾双受众4K，空闲6秒核后台Worker释放，结束后下载完整包并在Chrome退出后核全部内容/实际RGBA。所有场景内容回原位，revision精确增加；命名历史在本机冷读检查，不因普通备份未携带本机pins判内容丢失。失败保留截图/页面文本/部分操作，不自动重试；短时循环不证明无长期泄漏，完整09故障/恢复/拖动等矩阵另行执行。
+
+Windows资源采样由单个隐藏PowerShell助手读取名称/父子PID/WorkingSetSize/PrivatePageCount/CPU与出生计数，不读取命令行。专用Chrome进程树的Working Set同时求和可能重复共享页；PrivatePageCount是私有提交，不是私有驻留或GPU；目标CDP heap不含Worker/native/GPU。WMI目标间隔下限500ms，记录真实查询耗时与样本间隔；助手不重叠发起查询，停止时结束自身进程。树外只保留浏览器/Node数量及全系统CPU繁忙比例，不保存用户进程名/路径。后台存在时仍只交付诊断，不关闭正式独占性能门。
+
+<a id="workflow-analysis"></a>
+## 当前完整v1逐步耗时与CPU归因
+
+`workflow-diagnostic-targets.mjs`声明当前函数边界，确切数量/行号随每份诊断metadata冻结；旧分析为76处。`build-workflow-diagnostic.mjs`仅对独立产物插入阶段计时，不修改src或正常dist；观察器compact模式保留全部次数／inclusive耗时／输入长度及失败，≥0.25ms才保留逐次span。函数span有嵌套、并行和await等待，不得相加或解释为CPU；非async函数返回Promise只测提交部分。新PNG metrics另列原生toBlob同步提交、回调/等待、Blob读取及规范化；原生提交可包含延迟绘制，不能统称压缩CPU。
+
+可选`build-workflow-diagnostic.mjs ABS_NEW --flush-4k`在4K主绘制函数的各顶层绘制语句后读回1像素，观察`canvas.flush4k:*`跨度，定位原本延迟到输出时才完成的Canvas工作。该模式改变提交/完成时机和成本，只作归因；绝不能把其中变短的encodePng当作优化收益。对照正常构建的耗时、PNG像素以及不带该选项的分段分别保留。
+
+`run-workflow-analysis.mjs --mode stages|cpu`运行与上面相同的八个实际UI操作。stages必须使用带诊断metadata的构建；cpu必须用未插桩正常构建，逐操作采1ms目标间隔主线程profile。每操作先保留保存／主画布／显示代理终点，再另行排空精细预览；尾部等待单列，避免混进下一操作。PNG／完整包审计在测量与浏览器结束后进行，源码／产物／输入／工具指纹须保持。两个模式都只是归因，不作正式分布或优化前后收益。
+
+```powershell
+node tools/performance/build-workflow-diagnostic.mjs D:\code\sceneweave\work\new-analysis\stage-dist
+node tools/performance/run-workflow-analysis.mjs --mode stages --dist D:\code\sceneweave\work\new-analysis\stage-dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --output D:\code\sceneweave\work\new-analysis\stages
+node tools/performance/summarize-workflow-analysis.mjs --analysis D:\code\sceneweave\work\new-analysis\stages\analysis.json --output D:\code\sceneweave\work\new-analysis\stages-summary.json
+node tools/performance/run-workflow-analysis.mjs --mode cpu --dist D:\code\sceneweave\work\new-pair\builds\after\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --output D:\code\sceneweave\work\new-analysis\cpu
+```
+
+CPU源码映射应在**同一捕获副本**以Vite `--sourcemap hidden --outDir ABS_NEW`另建产物；可见sourceMappingURL可能改变worker引用和chunk名，不可只剥离主文件注释后假定等同。`summarize-workflow-analysis.mjs --analysis ABS_CPU_JSON --maps ABS_HIDDEN_MAP_DIST --reference-dist ABS_NORMAL_DIST --output ABS_NEW_JSON`逐字节检查全部正常文件与profile构建指纹，只许额外map，再映射并保留原始profile／map SHA。独占叶节点按timeDeltas分配，inclusive来源每样本递归去重但仍重叠，SHA祖先不作调用次数；idle／GC／program／未知／原生帧不丢弃。CPU只覆盖目标主线程，原生帧可含flush／阻塞，不能据此断言纯编码或数据库等待。
+
+每个输出目录必须新空；测量期间不要并行运行浏览器、测试或构建。语法检查及`node --test tools/performance/workflow-analysis.test.mjs tools/performance/production-pair-audit.test.mjs tools/performance/resources.test.mjs`在测量结束后运行。当前具体数值、失败和实现分析见[性能主题](../../docs/reference/performance.md#workflow-attribution-20261111)。
+
+## 以下为历史B5/C0方法
 
 B5工具测量 VIS-01 书房与露台、VIS-02 双层岩岛的 500/2000 物件副本。它通过独立生产入口复用实际 `AssetCanvas`、`WorkspaceV2`、样板候选守卫、资源校验、IndexedDB 仓库及 PNG 管线。普通 `npm run build` 不暴露 `window.__sceneweavePerformance`。
 

@@ -1,0 +1,264 @@
+diff --git a/src/platform/browser/ai/svg-port.ts b/src/platform/browser/ai/svg-port.ts
+index 86d3021..97b7f02 100644
+--- a/src/platform/browser/ai/svg-port.ts
++++ b/src/platform/browser/ai/svg-port.ts
+@@ -2,7 +2,7 @@ import type { SvgProcessingPort } from '../../../shared/ports/resources.js'
+ import { checkCancelled } from '../../../shared/ports/resources.js'
+ import { CANONICAL_SVG_PROCESSOR, LEGACY_SVG_PROCESSOR } from '../../../shared/ai/svg.js'
+ import { createBrowserImagePort } from '../images/index.js'
+-import { rasterizeCanonicalSvgPixels } from './svg-raster.js'
++import { rasterizeCanonicalSvgInWorker } from './svg-worker-client.js'
+ import { rasterizeLegacyNormalizedSvg } from './svg-raster-legacy.js'
+ 
+ /** Actual isolated SVG -> PNG -> pixels; no persistent image or DOM SVG. */
+@@ -10,7 +10,7 @@ export function createBrowserSvgPort(): SvgProcessingPort {
+   return {
+     processor: CANONICAL_SVG_PROCESSOR,
+     validationConcurrency: 2,
+-    rasterize(source, dimensions, options = {}) { return rasterizeCanonicalSvgPixels(source, dimensions, options.signal) },
++    rasterize(source, dimensions, options = {}) { return rasterizeCanonicalSvgInWorker(source, dimensions, options.signal) },
+   }
+ }
+ 
+diff --git a/src/platform/browser/ai/svg-worker-client.test.ts b/src/platform/browser/ai/svg-worker-client.test.ts
+new file mode 100644
+index 0000000..8f64031
+--- /dev/null
++++ b/src/platform/browser/ai/svg-worker-client.test.ts
+@@ -0,0 +1,75 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { normalizeStaticSvg } from '../../../shared/ai/svg.js'
++import { disposeCanonicalSvgWorkers, rasterizeCanonicalSvgInWorker } from './svg-worker-client.js'
++
++class FakeWorker {
++  static instances: FakeWorker[] = []
++  static failPost = false
++  onmessage: ((event: { data: unknown }) => void) | null = null
++  onerror: ((event: { preventDefault(): void }) => void) | null = null
++  onmessageerror: (() => void) | null = null
++  terminate = vi.fn()
++  postMessage = vi.fn(() => { if (FakeWorker.failPost) throw new Error('posting failed') })
++  constructor() { FakeWorker.instances.push(this) }
++  reply(width = 4, height = 2) { this.onmessage?.({ data: { ok: true, width, height, rgba: new Uint8ClampedArray(width * height * 4) } }) }
++}
++const source = normalizeStaticSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect x="0" y="0" width="4" height="2" fill="#804020"/></svg>')
++const run = (signal?: AbortSignal | { aborted: boolean }) => rasterizeCanonicalSvgInWorker(source, { width: 4, height: 2 }, signal)
++const drain = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
++
++describe('bounded fixed SVG worker lifecycle', () => {
++  beforeEach(() => { vi.useFakeTimers(); FakeWorker.instances = []; FakeWorker.failPost = false; vi.stubGlobal('Worker', FakeWorker) })
++  afterEach(async () => { disposeCanonicalSvgWorkers(); await drain(); vi.unstubAllGlobals(); vi.useRealTimers() })
++
++  it('bounds work to two workers, transfers real pixels, reuses and releases idle WASM', async () => {
++    const first = run(), second = run(), third = run()
++    await drain(); expect(FakeWorker.instances).toHaveLength(2)
++    FakeWorker.instances[0].reply(); expect((await first).rgba).toHaveLength(32)
++    await drain(); expect(FakeWorker.instances).toHaveLength(2)
++    expect(FakeWorker.instances[0].postMessage).toHaveBeenCalledTimes(2)
++    FakeWorker.instances[0].reply(); FakeWorker.instances[1].reply()
++    await Promise.all([second, third]); await vi.advanceTimersByTimeAsync(5000)
++    expect(FakeWorker.instances.every(worker => worker.terminate.mock.calls.length === 1)).toBe(true)
++  })
++
++  it('rejects malformed dimensions and worker messages before returning usable pixels', async () => {
++    await expect(rasterizeCanonicalSvgInWorker(source, { width: 4097, height: 2 })).rejects.toThrow(/保护预算/)
++    expect(FakeWorker.instances).toHaveLength(0)
++    const task = run(), rejected = expect(task).rejects.toThrow(/实际像素/)
++    await drain(); FakeWorker.instances[0].reply(3, 2); await rejected
++    expect(FakeWorker.instances[0].terminate).toHaveBeenCalledOnce()
++  })
++
++  it('terminates cancelled admitted work immediately and removes listeners', async () => {
++    const controller = new AbortController(), remove = vi.spyOn(controller.signal, 'removeEventListener')
++    const task = run(controller.signal), rejected = expect(task).rejects.toMatchObject({ name: 'AbortError' })
++    await drain(); const worker = FakeWorker.instances[0], late = worker.onmessage
++    controller.abort(); await rejected
++    expect(worker.terminate).toHaveBeenCalledOnce(); expect(worker.onmessage).toBeNull()
++    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function))
++    late?.({ data: { ok: true, width: 4, height: 2, rgba: new Uint8ClampedArray(32) } })
++    expect(worker.terminate).toHaveBeenCalledOnce()
++  })
++
++  it('observes flag-only cancellation, rejects queued page work and can restart after pagehide', async () => {
++    const signal = { aborted: false }, first = run(signal), second = run(), third = run()
++    const rejected = [first, second, third].map(task => expect(task).rejects.toMatchObject({ name: 'AbortError' }))
++    await drain(); signal.aborted = true; await vi.advanceTimersByTimeAsync(50)
++    disposeCanonicalSvgWorkers(); await Promise.all(rejected); await drain()
++    expect(FakeWorker.instances.every(worker => worker.terminate.mock.calls.length === 1)).toBe(true)
++    const restarted = run(); await drain(); FakeWorker.instances.at(-1)!.reply(); await restarted
++  })
++
++  it.each(['error', 'messageerror', 'timeout', 'postMessage'] as const)('releases queue capacity after %s', async kind => {
++    FakeWorker.failPost = kind === 'postMessage'
++    const first = run(), rejected = expect(first).rejects.toThrow()
++    // A synchronous posting error still has to remove all listeners/timers.
++    await drain(); const worker = FakeWorker.instances[0]
++    if (kind === 'error') worker.onerror?.({ preventDefault() {} })
++    if (kind === 'messageerror') worker.onmessageerror?.()
++    if (kind === 'timeout') await vi.advanceTimersByTimeAsync(120_000)
++    await rejected; expect(worker.terminate).toHaveBeenCalledOnce()
++    FakeWorker.failPost = false
++    const next = run(); await drain(); FakeWorker.instances.at(-1)!.reply(); await next
++  })
++})
+diff --git a/src/platform/browser/ai/svg-worker-client.ts b/src/platform/browser/ai/svg-worker-client.ts
+new file mode 100644
+index 0000000..cc08d5d
+--- /dev/null
++++ b/src/platform/browser/ai/svg-worker-client.ts
+@@ -0,0 +1,64 @@
++import { verifyNormalizedStaticSvg, STATIC_SVG_LIMITS, type NormalizedStaticSvg } from '../../../shared/ai/svg.js'
++import { CancelledOperationError, checkCancelled, type CancellationSignal, type RasterImage } from '../../../shared/ports/resources.js'
++import { WeightedTaskQueue } from '../../../shared/project/task-queue.js'
++import { rasterizeCanonicalSvgPixels } from './svg-raster.js'
++
++interface Slot { worker: Worker; busy: boolean; cancel?: () => void; idle?: ReturnType<typeof setTimeout> }
++// Bound the worker count and active raster pixels independently of the outer
++// resource validator. No RGBA survives a completed task; idle WASM is released.
++const queue = new WeightedTaskQueue(2, 16_000_000), slots = new Set<Slot>()
++let generation = 0
++const release = (slot: Slot) => { clearTimeout(slot.idle); slot.worker.terminate(); slots.delete(slot) }
++/** Closing a document cancels active and queued work, including bfcache entry. */
++export function disposeCanonicalSvgWorkers(): void {
++  generation++
++  for (const slot of slots) { if (slot.cancel) slot.cancel(); else release(slot) }
++}
++if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeCanonicalSvgWorkers)
++
++export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, dimensions: { width: number; height: number }, signal?: CancellationSignal): Promise<RasterImage> {
++  checkCancelled(signal)
++  // Keep the nonbrowser/explicit legacy test environment on the same engine.
++  if (typeof Worker === 'undefined') return rasterizeCanonicalSvgPixels(input, dimensions, signal)
++  const source = verifyNormalizedStaticSvg(input), { width, height } = dimensions
++  if (![width, height].every(value => Number.isSafeInteger(value) && value > 0 && value <= STATIC_SVG_LIMITS.rasterSide)
++    || width * height > STATIC_SVG_LIMITS.rasterPixels) throw new Error('SVG输出尺寸超出像素保护预算。')
++  const admittedGeneration = generation
++  const cancellation: CancellationSignal = { get aborted() { return generation !== admittedGeneration || signal?.aborted === true },
++    addEventListener: signal?.addEventListener?.bind(signal), removeEventListener: signal?.removeEventListener?.bind(signal) }
++  return queue.run(width * height, cancellation, () => new Promise<RasterImage>((resolve, reject) => {
++    checkCancelled(cancellation)
++    let slot = [...slots].find(value => !value.busy)
++    if (!slot) { slot = { worker: new Worker(new URL('./svg-worker.ts', import.meta.url), { type: 'module' }), busy: false }; slots.add(slot) }
++    const active = slot; clearTimeout(active.idle); active.busy = true
++    let settled = false
++    const finish = (error?: unknown, image?: RasterImage) => {
++      if (settled) return
++      settled = true; clearInterval(poll); clearTimeout(timeout)
++      signal?.removeEventListener?.('abort', cancel)
++      active.worker.onmessage = active.worker.onerror = active.worker.onmessageerror = null
++      active.busy = false; active.cancel = undefined
++      if (error) { release(active); reject(error) }
++      else { active.idle = setTimeout(() => release(active), 5000); resolve(image!) }
++    }
++    const cancel = () => { try { checkCancelled(cancellation) } catch (error) { finish(error) } }
++    // Flag-only cancellation is used by the resource queue. It must terminate
++    // an admitted worker as well as remove its abort listener on all paths.
++    const poll = setInterval(cancel, 50), timeout = setTimeout(() => finish(new Error('固定SVG后台栅格化超时。')), 120_000)
++    active.cancel = () => finish(new CancelledOperationError())
++    signal?.addEventListener?.('abort', cancel, { once: true })
++    active.worker.onerror = event => { event.preventDefault(); finish(new Error('固定SVG后台栅格器执行失败。')) }
++    active.worker.onmessageerror = () => finish(new Error('固定SVG后台像素无法读取。'))
++    active.worker.onmessage = event => {
++      try {
++        checkCancelled(cancellation)
++        const result = event.data
++        if (!result?.ok) throw new Error(typeof result?.message === 'string' ? result.message : '固定SVG后台栅格化失败。')
++        if (result.width !== width || result.height !== height || !(result.rgba instanceof Uint8ClampedArray)
++          || result.rgba.length !== width * height * 4) throw new Error('固定SVG后台实际像素与尺寸不符。')
++        finish(undefined, { width, height, rgba: result.rgba })
++      } catch (error) { finish(error) }
++    }
++    try { active.worker.postMessage({ source, dimensions: { width, height } }); cancel() } catch (error) { finish(error) }
++  }))
++}
+diff --git a/src/platform/browser/ai/svg-worker.ts b/src/platform/browser/ai/svg-worker.ts
+new file mode 100644
+index 0000000..5083af6
+--- /dev/null
++++ b/src/platform/browser/ai/svg-worker.ts
+@@ -0,0 +1,13 @@
++import { rasterizeCanonicalSvgPixels } from './svg-raster.js'
++import type { NormalizedStaticSvg } from '../../../shared/ai/svg.js'
++
++// Bundled application worker. It returns pixels only; all project/permission,
++// byte closure and expected-PNG checks remain with the calling validator.
++self.onmessage = async (event: MessageEvent<{ source: NormalizedStaticSvg; dimensions: { width: number; height: number } }>) => {
++  try {
++    const image = await rasterizeCanonicalSvgPixels(event.data.source, event.data.dimensions)
++    self.postMessage({ ok: true, width: image.width, height: image.height, rgba: image.rgba }, { transfer: [image.rgba.buffer] })
++  } catch (error) {
++    self.postMessage({ ok: false, message: error instanceof Error ? error.message : '固定SVG后台栅格化失败。' })
++  }
++}
+diff --git a/src/shared/aggregates/representation-integration.test.ts b/src/shared/aggregates/representation-integration.test.ts
+index 0f53e07..489c37d 100644
+--- a/src/shared/aggregates/representation-integration.test.ts
++++ b/src/shared/aggregates/representation-integration.test.ts
+@@ -1,4 +1,4 @@
+-import { describe, expect, it } from 'vitest'
++import { describe, expect, it, vi } from 'vitest'
+ import { fixture, runtime } from '../../application/workspace/test-fixtures.js'
+ import { hitTestAllV2, selectionGeometryV2 } from '../../editor/native-canvas/selection.js'
+ import { applyCommands, applySnapshotCommands } from '../commands/commands.js'
+@@ -12,7 +12,7 @@ import { projectScene } from '../projection/projection.js'
+ import { canonicalJson, cloneJson } from '../validation/json.js'
+ import { validateSceneDocument } from '../validation/scene.js'
+ import { aggregateWorldFrames } from './state.js'
+-import { decodeSceneCoordinates, encodeSceneCoordinates } from './scene-coordinates.js'
++import { canonicalProjectCoordinates, decodeSceneCoordinates, encodeSceneCoordinates, encodeProjectCoordinates } from './scene-coordinates.js'
+ 
+ function group(id: string, parentId: string | null = null, members: AggregateGroup['members'] = [], x = 0, y = 0, quarterTurns: 0 | 1 | 2 | 3 = 0): AggregateGroup {
+   return { id, parentId, members, floorId: 'blank-floor', editLocked: false, frame: { translationMm: { x, y }, quarterTurns } }
+@@ -33,6 +33,19 @@ const withDocument = (project: ProjectData, document: SceneDocument): ProjectDat
+ })
+ 
+ describe('aggregate representation through normal consumers', () => {
++  it('canonicalizes the complete at-rest representation without invoking caller accessors', () => {
++    const base = fixture().project, project = withDocument(base, grouped(base.document))
++    expect(canonicalProjectCoordinates(project)).toBe(canonicalJson(encodeProjectCoordinates(project)))
++    const noCoordinates = cloneJson(project); delete noCoordinates.document.aggregateCoordinates
++    expect(canonicalProjectCoordinates(noCoordinates)).toBe(canonicalJson(noCoordinates))
++    for (const level of ['document', 'aggregateCoordinates', 'encoding'] as const) {
++      const value = cloneJson(project), getter = vi.fn(() => { throw new Error('must not read') })
++      if (level === 'document') Object.defineProperty(value, level, { enumerable: true, get: getter })
++      else if (level === 'aggregateCoordinates') Object.defineProperty(value.document, level, { enumerable: true, get: getter })
++      else Object.defineProperty(value.document.aggregateCoordinates!, level, { enumerable: true, get: getter })
++      expect(() => canonicalProjectCoordinates(value)).toThrow(); expect(getter).not.toHaveBeenCalled()
++    }
++  })
+   it('uses normal atomic commands for creation, reparent and dissolution without changing world content', () => {
+     const source = fixture().project.document, original = cloneJson(source), initial = grouped(source)
+     const frame = aggregateWorldFrames(initial.aggregateCoordinates!).get('representation-members')
+diff --git a/src/shared/aggregates/scene-coordinates.ts b/src/shared/aggregates/scene-coordinates.ts
+index ac5df6f..5b09541 100644
+--- a/src/shared/aggregates/scene-coordinates.ts
++++ b/src/shared/aggregates/scene-coordinates.ts
+@@ -2,7 +2,7 @@ import type { AggregateCoordinates, AggregateFrame } from '../model/aggregate.js
+ import { AGGREGATE_ENTITY_COLLECTIONS } from '../model/aggregate.js'
+ import type { ProjectData } from '../model/project.js'
+ import type { MaterialPaint, PointMm, SceneDocument, SurfaceStyle } from '../model/scene.js'
+-import { captureJson, canonicalJson, inspectJsonInput } from '../validation/json.js'
++import { captureJson, canonicalJson } from '../validation/json.js'
+ import { aggregateCoordinatesSchema } from './schema.js'
+ import { aggregateWorldFrames, validateAggregateCoordinates } from './state.js'
+ import { localToWorldBounds, localToWorldPoint, worldToLocalBounds, worldToLocalPoint } from './coordinates.js'
+@@ -121,9 +121,16 @@ export function decodeProjectCoordinates(project: ProjectData): ProjectData {
+ }
+ /** Canonical project bytes use the sole at-rest coordinate representation. */
+ export function canonicalProjectCoordinates(project: ProjectData): string {
+-  const issue = inspectJsonInput(project)
+-  if (issue) throw new Error(issue.message)
+-  return canonicalJson(!project.document.aggregateCoordinates || project.document.aggregateCoordinates.encoding === 'local' ? project : encodeProjectCoordinates(project))
++  // canonicalJson owns the strict input inspection. Keeping a second walk here
++  // doubled the safety traversal for every content/hash/accounting call while
++  // adding no protection: coordinate conversion itself captures and validates
++  // its input, and canonicalJson rechecks the final representation.
++  // Peek only through data descriptors before the owning JSON boundary. A
++  // caller accessor at any of these levels must never execute to select a path.
++  const data = (value: unknown, key: string): unknown => value !== null && typeof value === 'object'
++    ? Object.getOwnPropertyDescriptor(value, key)?.value : undefined
++  const coordinates = data(data(project, 'document'), 'aggregateCoordinates')
++  return canonicalJson(!coordinates || data(coordinates, 'encoding') === 'local' ? project : encodeProjectCoordinates(project))
+ }
+ /** Domain validators use this after strict parsing, before issuing a certificate. */
+ export function assertCoordinateRoundTrip(scene: SceneDocument): void {
