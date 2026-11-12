@@ -1,6 +1,7 @@
 import { CancelledOperationError, checkCancelled, type CancellationSignal } from '../../../shared/ports/resources.js'
 import { WeightedTaskQueue } from '../../../shared/project/task-queue.js'
-import { auditHistoryRecords, type HistoryHead, type HistoryVersion, type HistoryPin } from './history-records.js'
+import type { HistoryHead, HistoryVersion, HistoryPin } from './history-records.js'
+import { auditHistoryMessage, type CapturedHistoryAudit, type HistoryAuditMessage } from './history-audit-message.js'
 
 // At most one full historical graph is executing in this page. Workers retain
 // no state after completion, failure, cancellation or transaction abort.
@@ -12,14 +13,26 @@ export function disposeHistoryAudits(): void {
 }
 if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHistoryAudits)
 
-/** Internal transaction consumer, never a caller-provided validation flag.
- * Rows come from the same native transaction that awaits this computation;
- * its write lock and all final resource/CAS checks remain repository-owned. */
+/** Expanded fallback for audits that still execute inside a transaction. */
 export async function auditHistoryInWorker(owner: string, head: HistoryHead | null, versions: HistoryVersion[], pins: HistoryPin[], signal?: CancellationSignal): Promise<{ documentBytes: number }> {
+  return runHistoryAudit({ owner, head, versions, pins }, signal)
+}
+/** Native captured rows, including every owner and branch. No transfer list:
+ * the final transaction retains and rechecks the original actual byte arrays. */
+export async function auditCapturedHistoryInWorker(message: CapturedHistoryAudit, signal?: CancellationSignal): Promise<{ documentBytes: number }> {
+  return runHistoryAudit(message, signal)
+}
+async function runHistoryAudit(message: HistoryAuditMessage, signal?: CancellationSignal): Promise<{ documentBytes: number }> {
   checkCancelled(signal)
-  if (typeof Worker === 'undefined') return auditHistoryRecords(owner, head, versions, pins)
   const admitted = generation
   const cancellation: CancellationSignal = { get aborted() { return generation !== admitted || signal?.aborted === true } }
+  if (typeof Worker === 'undefined') {
+    let start = performance.now()
+    return queue.run(1, cancellation, () => auditHistoryMessage(message, cancellation, async () => {
+      checkCancelled(cancellation)
+      if (performance.now() - start >= 12) { await new Promise<void>(resolve => setTimeout(resolve, 0)); checkCancelled(cancellation); start = performance.now() }
+    }))
+  }
   return queue.run(1, cancellation, () => new Promise((resolve, reject) => {
     checkCancelled(cancellation)
     const worker = new Worker(new URL('./history-audit-worker.ts', import.meta.url), { type: 'module' })
@@ -47,6 +60,6 @@ export async function auditHistoryInWorker(owner: string, head: HistoryHead | nu
         finish(undefined, value.documentBytes)
       } catch (error) { finish(error) }
     }
-    try { worker.postMessage({ owner, head, versions, pins }); cancel() } catch (error) { finish(error) }
+    try { worker.postMessage(message); cancel() } catch (error) { finish(error) }
   }))
 }

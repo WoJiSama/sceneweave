@@ -1,6 +1,7 @@
 import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
 import { getVerifiedProjectBundle } from '../../../shared/project/resources.js'
-import { canonicalJson, cloneJson } from '../../../shared/validation/json.js'
+import { DeltaSizeError, tryCreateVerifiedProjectDelta, type JsonDelta } from '../../../shared/project/delta.js'
+import { captureJson, cloneJson, equalOwnedJson, freezeJson } from '../../../shared/validation/json.js'
 import { encodeProjectContent, partitionEncodedProjectContent, prepareLocalProjectContent, type EncodedProjectContent, type ProjectContentPartition } from './content-blocks.js'
 
 /** A private operation result. Encoding identity and actual IDB freshness are
@@ -12,7 +13,6 @@ export interface EncodedSnapshot {
 const snapshots = new WeakSet<EncodedSnapshot>()
 const partitions = new WeakMap<EncodedSnapshot, ProjectContentPartition>()
 const ownedProjects = new WeakMap<ProjectData, EncodedSnapshot>()
-const worldJson = new WeakMap<EncodedSnapshot, string>()
 export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: ProjectBundle, baseline?: EncodedSnapshot): EncodedSnapshot {
   const verified = getVerifiedProjectBundle(bundle)
   if (!verified) throw new Error('保存编码须来自本次不可变工程校验结果。')
@@ -20,7 +20,7 @@ export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: Proje
   // Public save still fully validates a detached copy. Preserve the original
   // validator-owned immutable endpoint only after complete raw equality, before
   // coordinate conversion could normalize a different world representation.
-  const encodingSource = source && (source === verified.project || canonicalJson(source) === canonicalJson(verified.project))
+  const encodingSource = source && equalOwnedJson(source, verified.project)
     ? source : verified.project
   // Each operation owns an independent lease; one concurrent repository save
   // cannot release another save's prepared state for the same project object.
@@ -49,7 +49,29 @@ export function canRetainEncodedSnapshot(snapshot: EncodedSnapshot): boolean {
 export function releaseEncodedSnapshot(snapshot: EncodedSnapshot): void {
   if (ownedProjects.get(snapshot.project) === snapshot) ownedProjects.delete(snapshot.project)
   if (ownedProjects.get(snapshot.encoded.stored) === snapshot) ownedProjects.delete(snapshot.encoded.stored)
-  worldJson.delete(snapshot)
+}
+
+/** An operation-local speculative delta, never an assertion about DB state. */
+export interface PreparedProjectDelta { readonly kind: 'prepared-project-delta' }
+const preparedDeltas = new WeakMap<PreparedProjectDelta, { before: EncodedSnapshot; after: EncodedSnapshot; delta: JsonDelta | null }>()
+export function prepareEncodedProjectDelta(before: EncodedSnapshot, after: EncodedSnapshot): PreparedProjectDelta | undefined {
+  if (!snapshots.has(before) || !snapshots.has(after)) return
+  let delta: JsonDelta | undefined | null
+  try { delta = tryCreateVerifiedProjectDelta(before.project, after.project, { before: before.encoded, after: after.encoded }) }
+  catch (error) { if (!(error instanceof DeltaSizeError)) throw error; delta = null }
+  if (delta === undefined) return
+  const handle = Object.freeze({ kind: 'prepared-project-delta' as const })
+  preparedDeltas.set(handle, { before, after, delta: delta && freezeJson(delta) })
+  return handle
+}
+/** Called only after fresh actual blocks and all parent/CAS checks. Complete
+ * raw endpoint matching precedes any coordinate normalization. A stale plan
+ * simply declines and the full generic implementation remains authoritative. */
+export function consumeEncodedProjectDelta(transaction: IDBTransaction, handle: PreparedProjectDelta | undefined,
+  before: ProjectData, after: ProjectData): { delta: JsonDelta | null } | undefined {
+  const plan = handle && preparedDeltas.get(handle)
+  if (!plan || matchingEncodedSnapshot(transaction, before) !== plan.before || matchingEncodedSnapshot(transaction, after) !== plan.after) return
+  return { delta: plan.delta }
 }
 
 export type ContentSlot = 'result' | 'baseline' | 'branch'
@@ -67,19 +89,18 @@ export function pinEncodedSnapshot(transaction: IDBTransaction, slot: ContentSlo
   }
   content.slots.set(slot, snapshot)
 }
-/** Exact complete text equality, never a caller's ID/hash/frozen marker. Raw
+/** Exact complete owned JSON equality, never a caller's ID/hash/frozen marker. Raw
  * middleware must still read and compare every referenced actual block. */
 export function matchingEncodedSnapshot(transaction: IDBTransaction, project: ProjectData): EncodedSnapshot | undefined {
   const content = transactions.get(transaction)
   if (!content) return
   const own = exactEncodedSnapshot(transaction, project)
   if (own) return own
-  const json = canonicalJson(project)
+  // Capture every descriptor once before comparison. Mutable caller objects,
+  // including Proxies, cannot swap a checked value during serialization.
+  const captured = captureJson(project)
   for (const snapshot of content.slots.values()) {
-    if (json === snapshot.encoded.canonical) return snapshot
-    let world = worldJson.get(snapshot)
-    if (world === undefined) { world = canonicalJson(snapshot.project); worldJson.set(snapshot, world) }
-    if (json === world) return snapshot
+    if (equalOwnedJson(captured, snapshot.encoded.stored) || equalOwnedJson(captured, snapshot.project)) return snapshot
   }
 }
 /** Exact immutable references only. Middleware uses this after its complete
