@@ -5,3 +5,6 @@ assets/sceneweave-handdrawn-outdoor/*.svg text eol=lf
 assets/**/LICENSE.txt text eol=lf
 public/assets/**/LICENSE.txt text eol=lf
 /LICENSE text eol=lf
+
+# Frozen comparison patches retain their exact bytes, including mixed newlines.
+tools/performance/baselines/*-20261112.patch -text

@@ -1,0 +1,75 @@
+diff --git a/src/shared/aggregates/representation-integration.test.ts b/src/shared/aggregates/representation-integration.test.ts
+index 489c37d..b040872 100644
+--- a/src/shared/aggregates/representation-integration.test.ts
++++ b/src/shared/aggregates/representation-integration.test.ts
+@@ -6,7 +6,7 @@ import { advanceHistoryIdentity } from '../history/identity.js'
+ import type { AggregateGroup } from '../model/aggregate.js'
+ import type { ProjectData } from '../model/project.js'
+ import type { SceneDocument } from '../model/scene.js'
+-import { applyProjectDelta, applyProjectDeltaChain, createProjectDelta } from '../project/delta.js'
++import { applyProjectDelta, applyProjectDeltaChain, createProjectDelta, createProjectDeltaReplay } from '../project/delta.js'
+ import { projectContentHash, validateProjectData } from '../project/validate.js'
+ import { projectScene } from '../projection/projection.js'
+ import { canonicalJson, cloneJson } from '../validation/json.js'
+@@ -128,5 +128,15 @@ describe('aggregate representation through normal consumers', () => {
+     expect(deltaA.beforeHash).toBe(projectContentHash(first))
+     expect(deltaA.afterHash).toBe(projectContentHash(second))
+     expect(deltaB.afterHash).toBe(projectContentHash(third))
++    const replay = createProjectDeltaReplay(), captured = replay.capture(first, deltaA.beforeHash)
++    const replaySecond = replay.apply(captured, deltaA), replayThird = replay.apply(replaySecond, deltaB)
++    expect(replayThird).toEqual(third)
++    expect(projectContentHash(replayThird)).toBe(deltaB.afterHash)
++    // Returning to an older branch falls back to its complete encoding; an
++    // optional last endpoint cannot substitute another project's coordinates.
++    expect(replay.apply(captured, deltaA)).toEqual(second)
++    expect(() => replay.apply(replaySecond, { ...deltaB, afterHash: 'f'.repeat(64) })).toThrow(/hash/)
++    expect(replay.apply(replaySecond, deltaB)).toEqual(third)
++    expect(encodeSceneCoordinates(first.document)).toEqual(encodeSceneCoordinates(captured.document))
+   })
+ })
+diff --git a/src/shared/project/delta.ts b/src/shared/project/delta.ts
+index d074db1..c22c295 100644
+--- a/src/shared/project/delta.ts
++++ b/src/shared/project/delta.ts
+@@ -41,9 +41,12 @@ function localEncodedEndpoints(input: ProjectDeltaEncodings | undefined, before:
+ 
+ const hash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+ // Every digest input is this operation's detached strict ProjectData result.
+-const persisted = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'world' ? cloneJson(encodeProjectCoordinates(value)) : value
++// Coordinate transforms return frozen points. Hashing can consume those exact
++// owned values; mutable delta application still needs an unfrozen deep copy.
++const encodedRepresentation = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'world' ? encodeProjectCoordinates(value) : value
++const persisted = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'world' ? cloneJson(encodedRepresentation(value)) : value
+ const world = (value: ProjectData) => value.document.aggregateCoordinates?.encoding === 'local' ? decodeProjectCoordinates(value) : value
+-const digest = (value: ProjectData) => sha256Bytes(encodeUtf8(canonicalOwned(persisted(value))))
++const digest = (value: ProjectData) => sha256Bytes(encodeUtf8(canonicalOwned(encodedRepresentation(value))))
+ const record = (value: unknown): value is Record<string, DeltaValue> => value !== null && typeof value === 'object' && !Array.isArray(value)
+ const MAX_DELTA_VALUES = 1_200_000
+ const MAX_FORWARD_DELTAS = 3
+@@ -268,9 +271,15 @@ export function applyProjectDelta(input: ProjectData, delta: unknown, direction:
+  * only the exact previous result can avoid repeating its baseline check. */
+ export function createProjectDeltaReplay() {
+   const states = new WeakMap<ProjectData, string>()
++  // One optional complete local endpoint, never caller data. Audits typically
++  // visit consecutive versions; retaining only the last avoids re-encoding an
++  // already fully hashed predecessor without retaining a second graph/cache.
++  let encoded: { project: ProjectData; stored: ProjectData } | undefined
+   const remember = (project: ProjectData, expected: string): ProjectData => {
+-    if (digest(project) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
+-    const owned = freezeJson(project); states.set(owned, expected); return owned
++    const stored = encodedRepresentation(project)
++    if (sha256Bytes(encodeUtf8(canonicalOwned(stored))) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
++    const owned = freezeJson(project); states.set(owned, expected)
++    encoded = { project: owned, stored: freezeJson(stored) }; return owned
+   }
+   const capture = (input: ProjectData, expected: string): ProjectData => {
+     if (!hash(expected)) throw new Error('增量链完整基线hash无效。')
+@@ -280,7 +289,7 @@ export function createProjectDeltaReplay() {
+   return Object.freeze({ capture, apply(input: ProjectData, delta: unknown): ProjectData {
+     const checked = validateProjectDelta(delta), baseline = capture(input, checked.beforeHash)
+     // All working objects remain private; cached states are never mutated.
+-    const stored = cloneJson(persisted(baseline))
++    const stored = cloneJson(encoded?.project === baseline ? encoded.stored : encodedRepresentation(baseline))
+     applyChanges(stored, checked, true)
+     return remember(validateProjectData(world(stored)), checked.afterHash)
+   } })

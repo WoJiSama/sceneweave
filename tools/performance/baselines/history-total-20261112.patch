@@ -1,0 +1,945 @@
+diff --git a/src/platform/browser/storage/history-audit-transaction.test.ts b/src/platform/browser/storage/history-audit-transaction.test.ts
+index 876afdc..2e7b23c 100644
+--- a/src/platform/browser/storage/history-audit-transaction.test.ts
++++ b/src/platform/browser/storage/history-audit-transaction.test.ts
+@@ -7,6 +7,7 @@ import { cloneJson } from '../../../shared/validation/json.js'
+ import { auditHistoryRecords } from './history-records.js'
+ import { disposeHistoryAudits } from './history-audit-client.js'
+ import { ProjectRepository } from './repository.js'
++import * as storageAudit from './storage-audit.js'
+ 
+ class AuditingWorker {
+   static instances: AuditingWorker[] = []
+@@ -45,7 +46,7 @@ afterEach(async () => {
+   names.clear()
+ })
+ 
+-it('holds native transaction freshness while awaiting the actual full audit and preserves cross-connection CAS', async () => {
++it('rechecks changed preflight content before mutation and preserves cross-connection CAS', async () => {
+   const repo = repository(), input = fixture(); await repo.save(input, null)
+   repo.close(); await repo.open()
+   const other = repository(repo.database.name); await other.open()
+@@ -87,8 +88,10 @@ it('resumes read-only accounting in its owning transaction after a successful ba
+   expect(AuditingWorker.instances).toHaveLength(1)
+ })
+ 
+-it.each(['save', 'usage'] as const)('observes native transaction abort during %s and cannot publish a late successful audit', async operation => {
++it.each(['save', 'usage'] as const)('observes native transaction abort during fallback %s and cannot publish a late successful audit', async operation => {
+   const repo = repository(), input = fixture(); await repo.save(input, null); repo.close()
++  // Oversized preparations retain the original transaction-bound audit path.
++  vi.spyOn(storageAudit, 'prepareStorageAudit').mockResolvedValue(undefined)
+   vi.stubGlobal('Worker', AuditingWorker)
+   const transact = IDBDatabase.prototype.transaction
+   let writing: IDBTransaction | undefined
+@@ -106,6 +109,78 @@ it.each(['save', 'usage'] as const)('observes native transaction abort during %s
+   expect(await repo.database.historyVersions.count()).toBe(1)
+ })
+ 
++it.each(['save', 'usage'] as const)('aborts final native %s confirmation after the independent audit without adopting its receipt', async operation => {
++  const repo = repository(), input = fixture(); await repo.save(input, null); repo.close()
++  vi.stubGlobal('Worker', AuditingWorker)
++  const pending = operation === 'save' ? repo.save(revision(input, 1), 0) : repo.usage(input.project.document.sceneId)
++  const rejected = expect(pending).rejects.toThrow()
++  await started()
++  let aborted = false
++  const cursor = IDBObjectStore.prototype.openCursor
++  vi.spyOn(IDBObjectStore.prototype, 'openCursor').mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore['openCursor']>) {
++    const request = cursor.apply(this, args)
++    if (!aborted && this.transaction.mode === (operation === 'save' ? 'readwrite' : 'readonly')) {
++      const tx = this.transaction
++      request.addEventListener('success', () => { if (!aborted) { aborted = true; tx.abort() } }, { once: true })
++    }
++    return request
++  })
++  AuditingWorker.release!(); await rejected
++  expect(aborted).toBe(true)
++  expect(AuditingWorker.instances[0].terminate).toHaveBeenCalledOnce()
++  expect((await repo.database.projects.get(input.project.document.sceneId))!.revision).toBe(0)
++  expect(await repo.database.historyVersions.count()).toBe(1)
++})
++
++it('releases the capture transaction before the worker so an independent native writer can finish', async () => {
++  const repo = repository(), input = fixture(); await repo.save(input, null); repo.close(); await repo.open()
++  vi.stubGlobal('Worker', AuditingWorker)
++  const pending = repo.save(revision(input, 1), 0)
++  await started()
++  // A readwrite transaction on another connection completes while the worker
++  // remains paused. It performs no mutation, so confirmation stays valid.
++  const db = await new Promise<IDBDatabase>((resolve, reject) => {
++    const request = indexedDB.open(repo.database.name); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error)
++  })
++  await new Promise<void>((resolve, reject) => {
++    const tx = db.transaction(['storageState'], 'readwrite'); tx.objectStore('storageState').get('epoch')
++    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error)
++  }); db.close()
++  expect(AuditingWorker.instances[0].terminate).not.toHaveBeenCalled()
++  AuditingWorker.release!(); await pending
++  expect((await repo.database.projects.get(input.project.document.sceneId))!.revision).toBe(1)
++})
++
++it('re-reads actual block bytes even when a native writer keeps every declared hash and epoch unchanged', async () => {
++  const repo = repository(), input = fixture(); await repo.save(input, null); repo.close(); await repo.open()
++  vi.stubGlobal('Worker', AuditingWorker)
++  const pending = repo.save(revision(input, 1), 0), rejected = expect(pending).rejects.toThrow(/hash/)
++  await started()
++  const before = await repo.database.storageState.get('epoch')
++  await new Promise<void>((resolve, reject) => {
++    const tx = repo.database.backendDB().transaction(['projectContentBlocks'], 'readwrite'), store = tx.objectStore('projectContentBlocks')
++    const request = store.openCursor()
++    request.onsuccess = () => {
++      const row = request.result!.value; row.bytes[0] ^= 1; store.put(row)
++    }
++    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error)
++  })
++  AuditingWorker.release!(); await rejected
++  expect(await repo.database.storageState.get('epoch')).toEqual(before)
++  expect(await repo.database.projects.count()).toBe(1); expect(await repo.database.historyVersions.count()).toBe(1)
++  expect(AuditingWorker.instances).toHaveLength(1)
++})
++
++it('cancels an independent preflight when its repository closes and never starts a final write', async () => {
++  const repo = repository(), input = fixture(); await repo.save(input, null); repo.close(); await repo.open()
++  vi.stubGlobal('Worker', AuditingWorker)
++  const pending = repo.save(revision(input, 1), 0), rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
++  await started(); repo.close(); await rejected
++  expect(AuditingWorker.instances[0].terminate).toHaveBeenCalledOnce()
++  const cold = repository(repo.database.name)
++  expect((await cold.load(input.project.document.sceneId))!.project.document.revision).toBe(0)
++})
++
+ it('cancels an admitted full audit, rolls back the atomic save and terminates its worker', async () => {
+   const repo = repository(), input = fixture(); await repo.save(input, null); repo.close(); await repo.open()
+   vi.stubGlobal('Worker', AuditingWorker)
+diff --git a/src/platform/browser/storage/history-records.ts b/src/platform/browser/storage/history-records.ts
+index c0cc947..aa51613 100644
+--- a/src/platform/browser/storage/history-records.ts
++++ b/src/platform/browser/storage/history-records.ts
+@@ -409,6 +409,6 @@ export function auditHistoryRecords(owner: string, head: HistoryHead | null, row
+     const active = byId.get(head.activeVersionId)
+     if (!active || active.contentHash !== head.contentHash || active.revision !== head.savedRevision || !active.automatic) throw new Error('增量历史活动根与持久修订不符。')
+     return { documentBytes }
+-  } finally { cache.clear() }
++  } finally { cache.clear(); replay.clear() }
+ }
+ 
+diff --git a/src/platform/browser/storage/repository.test.ts b/src/platform/browser/storage/repository.test.ts
+index d6e91ee..8646662 100644
+--- a/src/platform/browser/storage/repository.test.ts
++++ b/src/platform/browser/storage/repository.test.ts
+@@ -195,7 +195,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
+       resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 0 })
+     expect(usage.documentBytes - before.documentBytes).toBe(pins.reduce((sum, pin) => sum + historyPinBytes(pin), 0))
+     expect(scanning).not.toHaveBeenCalled()
+-    const cold = repository(repo.database.name), coldScan = vi.spyOn(cold as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals')
++    const cold = repository(repo.database.name), coldScan = vi.spyOn(cold as unknown as { auditCapturedTotals(): Promise<unknown> }, 'auditCapturedTotals')
+     expect(await cold.usage(owner)).toEqual(usage)
+     expect(coldScan).toHaveBeenCalledTimes(1)
+     expect(await cold.usage(owner)).toEqual(usage)
+@@ -209,7 +209,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
+       epoch: await repo.database.storageState.get('epoch') }
+     // Model a nearly full library without allocating 128MiB of test data.
+     const totals = await repo.usage(owner)
+-    vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals').mockResolvedValue({ ...totals,
++    vi.spyOn(repo as unknown as { auditCapturedTotals(): Promise<unknown> }, 'auditCapturedTotals').mockResolvedValue({ ...totals,
+       documentBytes: PROJECT_STORAGE_LIMITS.documentBytes - 1 })
+     ;(repo as unknown as { accounting: { invalidate(): void } }).accounting.invalidate()
+     await expect(repo.renameSnapshot(owner, snapshot.id, 'longer snapshot name', snapshot.contentHash, 1)).rejects.toThrow(/累计预算/)
+diff --git a/src/platform/browser/storage/repository.ts b/src/platform/browser/storage/repository.ts
+index c5cae95..4097c3e 100644
+--- a/src/platform/browser/storage/repository.ts
++++ b/src/platform/browser/storage/repository.ts
+@@ -11,7 +11,7 @@ import { checkCancelled } from '../../../shared/ports/resources.js'
+ import { mergeIdentityRecords } from '../../../shared/history/identity.js'
+ import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, consumeHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
+ import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
+-import { checkedContentBlock, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest } from './content-blocks.js'
++import { checkedContentBlock, isProjectBlockManifest, materializeProjectContent, partitionProjectContent, validateProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
+ import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
+ import { waitForStorageTransaction } from './transaction-lifetime.js'
+ import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot } from './content-context.js'
+@@ -28,6 +28,9 @@ import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT
+   type StoredBinding, type StoredBytes, type StoredHistoryMetadata, type StoredProject, type StoredSnapshot } from './database.js'
+ 
+ import { StorageAccounting, type StorageTotals } from './storage-accounting.js'
++import { prepareStorageAudit, StorageAuditConflictError, type StorageAuditPreparation } from './storage-audit.js'
++import { auditHistoryInWorker } from './history-audit-client.js'
++import type { HistoryHead, HistoryPin, HistoryVersion } from './history-records.js'
+ import { IncrementalHistory, migrationManifest, historyVersionBytes, historyHeadBytes, historyPinBytes, type HistoryReadSession, type HistoryVersionSummary } from './incremental-history.js'
+ import { collectUnusedResources, type UnusedResourceCollection } from './history-maintenance.js'
+ import { readProjectDirectory, readHistoryDirectory } from './directory.js'
+@@ -291,6 +294,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+   private readonly historyMigrations = new Map<string, Promise<void>>()
+   private readonly auditSignals = new WeakMap<Transaction, CancellationSignal>()
+   private readonly atomicTransactions = new WeakSet<Transaction>()
++  private readonly preparingAudits = new Set<AbortController>()
+   private readonly snapshotReads = new WeakMap<SnapshotReadSession, SnapshotReadState>()
+   private readonly activeSnapshotReads = new Set<SnapshotReadState>()
+   // One bounded optional lease, never a disk-freshness receipt. The next final
+@@ -307,6 +311,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+     this.database.on('blocked', () => { this.invalidated = true; this.database.close() })
+     this.database.on('close', () => {
+       this.saveEpoch++
++      for (const controller of this.preparingAudits) controller.abort()
+       if (this.savedEncoding) releaseEncodedSnapshot(this.savedEncoding)
+       this.savedEncoding = undefined
+       for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state)
+@@ -485,26 +490,53 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+     return bundle ? validateProjectBundle(bundle, this.validation(options)) : null
+   }
+   close(): void {
++    for (const controller of this.preparingAudits) controller.abort()
+     for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state)
+     if (this.savedEncoding) releaseEncodedSnapshot(this.savedEncoding)
+     this.savedEncoding = undefined
+     this.accounting.invalidate(); this.database.close()
+   }
+   private validation(options: ResourceOptions = {}): CompleteValidationOptions { return { images: this.options.validation.images, svg: this.options.validation.svg, signal: options.signal ?? this.options.validation.signal } }
++  private async prepareAccounting(options: ResourceOptions = {}): Promise<StorageAuditPreparation | undefined> {
++    // Nested native transactions retain their original isolation/rollback path.
++    if (Dexie.currentTransaction || !await this.accounting.needsScan()) return
++    const controller = new AbortController(), abort = () => controller.abort()
++    this.preparingAudits.add(controller); options.signal?.addEventListener?.('abort', abort, { once: true })
++    const signal: CancellationSignal = { get aborted() { return controller.signal.aborted || options.signal?.aborted === true },
++      addEventListener: controller.signal.addEventListener.bind(controller.signal), removeEventListener: controller.signal.removeEventListener.bind(controller.signal) }
++    const cleanup = () => { this.preparingAudits.delete(controller); options.signal?.removeEventListener?.('abort', abort) }
++    try {
++      const prepared = await prepareStorageAudit(this.database, rows => this.auditCapturedTotals(rows, signal), signal)
++      if (!prepared) { cleanup(); return }
++      return { confirm: (transaction, currentSignal) => prepared.confirm(transaction, currentSignal ?? signal),
++        release() { prepared.release(); cleanup() } }
++    } catch (error) { cleanup(); throw error }
++  }
+   private async atomic<T>(options: ResourceOptions, run: () => Promise<T>, shareContentChecks = false): Promise<T> {
+     checkCancelled(options.signal); await this.open(); checkCancelled(options.signal)
+-    return this.database.transaction('rw', PROJECT_TABLES, async () => {
++    for (let attempt = 0; ; attempt++) {
++    const prepared = await this.prepareAccounting(options)
++    let executing = false
++    try { return await this.database.transaction('rw', PROJECT_TABLES, async () => {
+       this.atomicTransactions.add(Dexie.currentTransaction!)
+       if (options.signal) this.auditSignals.set(Dexie.currentTransaction!, options.signal)
+       const execute = async () => {
+         checkCancelled(options.signal)
++        executing = true
+         const result = await run()
+         checkCancelled(options.signal); return result
+       }
+       // All mutations share one bounded exact-content table and a measured budget receipt.
+       void shareContentChecks
+-      return withTransactionContentChecks(() => this.accounting.run(execute))
+-    })
++      return withTransactionContentChecks(() => this.accounting.run(execute, prepared))
++    }) } catch (error) {
++      // Confirmation precedes every mutation/caller callback. A changed
++      // snapshot can be re-audited safely; never retry an executed operation,
++      // a CAS conflict, worker failure, unknown outcome or metered request.
++      if (!(error instanceof StorageAuditConflictError) || executing || attempt >= 2) throw error
++      checkCancelled(options.signal)
++    } finally { prepared?.release() }
++    }
+   }
+   private async assembled(project: ProjectData, owner: string, kind: BindingKind, recordId: string, shared?: ResourceAssembly, expectedBytes?: ReadonlyMap<string, Uint8Array>): Promise<ProjectBundle> {
+     assertBinding(await this.database.resourceBindings.get([owner, kind, recordId]), project, owner, kind, recordId)
+@@ -672,8 +704,62 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+     await scanRows(this.database.historyPins, row => { if (!owners.has(row.ownerSceneId)) throw new Error('增量历史快照缺少所属分支。') })
+     return totals
+   }
+-  private async usageInTransaction(ownerSceneId: string): Promise<StorageUsage> {
+-    const totals = await this.accounting.totals(), metadata = await this.database.historyMetadata.get(ownerSceneId)
++  /** The native snapshot transaction is already complete. Validate its actual
++   * immutable block closure and every owner/branch without holding a DB lock.
++   * The final transaction must compare all captured rows and actual bytes. */
++  private async auditCapturedTotals(rows: ReadonlyMap<string, readonly unknown[]>, signal: CancellationSignal): Promise<StorageTotals> {
++    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
++    const blocks = new Map<string, ProjectContentBlock>(), hydrated = new Map<string, ProjectData>()
++    for (const raw of rows.get('projectContentBlocks') ?? []) {
++      checkCancelled(signal); const block = checkedContentBlock(raw); blocks.set(block.sha256, block)
++    }
++    const readRows = new Map<string, unknown[]>()
++    const materialize = async (table: string, raw: unknown): Promise<unknown> => {
++      const field = CONTENT_PAYLOAD_FIELDS[table]
++      if (!field || !raw || typeof raw !== 'object') return raw
++      const row = raw as Record<string, unknown>, value = row[field]
++      if (value === null) return raw
++      let project = value as ProjectData
++      if (isProjectBlockManifest(value)) {
++        const key = canonicalJson(value)
++        const known = hydrated.get(key)
++        if (known) return { ...row, [field]: known }
++        project = await materializeProjectContent(value, async hash => blocks.get(hash))
++        if (project.document.aggregateCoordinates?.encoding === 'local') project = decodeProjectCoordinates(project)
++        // Only this audit owns these objects. Consumers never mutate a raw row.
++        hydrated.set(key, project)
++      } else if (project?.document?.aggregateCoordinates?.encoding === 'local') project = decodeProjectCoordinates(project)
++      return { ...row, [field]: project }
++    }
++    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
++      const actual: unknown[] = []; readRows.set(table, actual)
++      for (const raw of rows.get(table) ?? []) {
++        checkCancelled(signal)
++        const row = await materialize(table, raw); actual.push(row)
++        const cost = this.rowCost(table, row)
++        if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
++        else if (cost) totals[cost.kind] += cost.bytes
++      }
++    }
++    const versions: HistoryVersion[] = []
++    for (const raw of rows.get('historyVersions') ?? []) {
++      checkCancelled(signal); totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
++      versions.push(await materialize('historyVersions', raw) as HistoryVersion)
++    }
++    const heads = readRows.get('historyHeads') as HistoryHead[], pins = readRows.get('historyPins') as HistoryPin[]
++    const owners = new Set(heads.map(head => head.ownerSceneId)), currents = readRows.get('projects') as StoredProject[]
++    for (const head of heads) {
++      checkCancelled(signal)
++      await auditHistoryInWorker(head.ownerSceneId, head, versions.filter(row => row.ownerSceneId === head.ownerSceneId), pins.filter(row => row.ownerSceneId === head.ownerSceneId), signal)
++      const current = currents.find(row => row.sceneId === head.ownerSceneId)
++      if (!current || current.revision !== head.savedRevision || current.contentHash !== head.contentHash) throw new Error('历史活动版本与完整当前工程不一致。')
++    }
++    if (versions.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史缺少所属活动分支。')
++    if (pins.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史快照缺少所属分支。')
++    return totals
++  }
++  private async usageInTransaction(ownerSceneId: string, prepared?: StorageAuditPreparation): Promise<StorageUsage> {
++    const totals = await this.accounting.totals(prepared), metadata = await this.database.historyMetadata.get(ownerSceneId)
+     // A primary-key existence query has no project payload to hydrate.
+     if (await this.database.projects.where('sceneId').equals(ownerSceneId).count()) assertMetadata(metadata, ownerSceneId)
+     const head = await this.history.head(ownerSceneId)
+@@ -690,7 +776,12 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+   }
+   async usage(ownerSceneId: string): Promise<StorageUsage> {
+     id(ownerSceneId); await this.open()
+-    return this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(this.usageInTransaction(ownerSceneId), 125_000))
++    for (let attempt = 0; ; attempt++) {
++    const prepared = await this.prepareAccounting()
++    try { return await this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(this.usageInTransaction(ownerSceneId, prepared), 125_000)) }
++    catch (error) { if (!(error instanceof StorageAuditConflictError) || attempt >= 2) throw error }
++    finally { prepared?.release() }
++    }
+   }
+   /** Metadata for a later CAS only; this is not complete project/library validation. */
+   async historyMetadataVersion(ownerSceneId: string, options: ResourceOptions = {}): Promise<number> {
+diff --git a/src/platform/browser/storage/storage-accounting.ts b/src/platform/browser/storage/storage-accounting.ts
+index ba5f7d6..316491b 100644
+--- a/src/platform/browser/storage/storage-accounting.ts
++++ b/src/platform/browser/storage/storage-accounting.ts
+@@ -1,6 +1,7 @@
+ import Dexie, { type Transaction } from 'dexie'
+ import type { ProjectDatabase } from './database.js'
+ import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
++import type { StorageAuditPreparation } from './storage-audit.js'
+ 
+ export interface StorageTotals { documentBytes: number; resourceBytes: number; legacyBytes: number }
+ type Cost = { kind: keyof StorageTotals; bytes: number } | null
+@@ -86,25 +87,31 @@ export class StorageAccounting {
+       || (value as { key: unknown }).key !== 'epoch' || !Number.isSafeInteger((value as { epoch: number }).epoch) || (value as { epoch: number }).epoch < 0) throw new Error('存储事务版本损坏。')
+     return (value as { epoch: number }).epoch
+   }
+-  async totals(): Promise<StorageTotals> {
++  /** This is only a scheduling hint. totals() repeats the actual transaction
++   * check, and a preparation must prove every native byte before adoption. */
++  async needsScan(): Promise<boolean> {
++    if (!this.receipt || this.receipt.generation !== generation(this.db.name)) return true
++    return this.receipt.epoch !== this.checkedEpoch(await this.db.storageState.get('epoch'))
++  }
++  async totals(prepared?: StorageAuditPreparation): Promise<StorageTotals> {
+     const tx = Dexie.currentTransaction
+     if (!tx) throw new Error('预算检查必须位于存储事务中。')
+     const pending = this.pending.get(tx)
+     if (pending) return { ...pending }
+     const epoch = this.checkedEpoch(await this.db.storageState.get('epoch')), current = generation(this.db.name)
+-    if (this.receipt && this.receipt.epoch === epoch && this.receipt.generation === current) return { ...this.receipt.totals }
+-    const totals = await this.scan()
++    if (!prepared && this.receipt && this.receipt.epoch === epoch && this.receipt.generation === current) return { ...this.receipt.totals }
++    const totals = prepared ? await prepared.confirm(tx.idbtrans) : await this.scan()
+     const receipt = { totals: { ...totals }, epoch, generation: current }
+     tx.on('complete', () => { if (generation(this.db.name) === current) this.receipt = receipt })
+     return totals
+   }
+-  async run<T>(operation: () => Promise<T>): Promise<T> {
++  async run<T>(operation: () => Promise<T>, prepared?: StorageAuditPreparation): Promise<T> {
+     const tx = Dexie.currentTransaction
+     if (!tx) throw new Error('预算记账必须绑定当前原子写事务。')
+     if (this.pending.has(tx)) return operation()
+     const epoch = this.checkedEpoch(await this.db.storageState.get('epoch'))
+     if (epoch === Number.MAX_SAFE_INTEGER) throw new Error('存储事务版本已耗尽。')
+-    const totals = await this.totals()
++    const totals = await this.totals(prepared)
+     this.pending.set(tx, totals)
+     try {
+       const result = await operation()
+diff --git a/src/platform/browser/storage/storage-audit.ts b/src/platform/browser/storage/storage-audit.ts
+new file mode 100644
+index 0000000..cad3c5b
+--- /dev/null
++++ b/src/platform/browser/storage/storage-audit.ts
+@@ -0,0 +1,114 @@
++import Dexie from 'dexie'
++import { CancelledOperationError, checkCancelled, type CancellationSignal } from '../../../shared/ports/resources.js'
++import type { ProjectDatabase } from './database.js'
++import type { StorageTotals } from './storage-accounting.js'
++
++// Bounded operation-local evidence, never a persisted counter or certificate.
++// This is a conservative data estimate, not a claim about actual JS heap/RSS.
++export const STORAGE_AUDIT_LIMITS = Object.freeze({ retainedBytes: 64 * 1024 * 1024, values: 2_000_000 })
++export class StorageAuditConflictError extends Error {
++  constructor() { super('完整核账期间本地数据库内容已变化；本次保存未采用，请重新保存。'); this.name = 'StorageAuditConflictError' }
++}
++export interface StorageAuditPreparation {
++  /** Re-read every native row/byte in this final transaction before consuming. */
++  confirm(transaction: IDBTransaction, signal?: CancellationSignal): Promise<StorageTotals>
++  release(): void
++}
++type Rows = ReadonlyMap<string, readonly unknown[]>
++
++function estimate(value: unknown, budget: { bytes: number; values: number }, ancestors = new Set<object>(), depth = 0): boolean {
++  if (++budget.values > STORAGE_AUDIT_LIMITS.values || depth > 128) return false
++  if (typeof value === 'string') budget.bytes += value.length * 2 + 16
++  else if (value instanceof Uint8Array && Object.getPrototypeOf(value) === Uint8Array.prototype) budget.bytes += value.byteLength + 64
++  else if (value && typeof value === 'object') {
++    if (ancestors.has(value) || ![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(value))) return false
++    ancestors.add(value); budget.bytes += 64
++    for (const key of Object.keys(value)) {
++      budget.bytes += key.length * 2 + 16
++      if (!estimate((value as Record<string, unknown>)[key], budget, ancestors, depth + 1)) return false
++    }
++    ancestors.delete(value)
++  } else if (value === null || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) budget.bytes += 16
++  else return false
++  return budget.bytes <= STORAGE_AUDIT_LIMITS.retainedBytes
++}
++function equalNative(left: unknown, right: unknown): boolean {
++  if (Object.is(left, right)) return true
++  if (left instanceof Uint8Array || right instanceof Uint8Array) {
++    if (!(left instanceof Uint8Array) || !(right instanceof Uint8Array) || left.length !== right.length) return false
++    for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false
++    return true
++  }
++  if (!left || !right || typeof left !== 'object' || typeof right !== 'object' || Array.isArray(left) !== Array.isArray(right)) return false
++  if (Object.getPrototypeOf(left) !== Object.getPrototypeOf(right)) return false
++  const keys = Object.keys(left)
++  if (keys.length !== Object.keys(right).length) return false
++  for (const key of keys) if (!Object.hasOwn(right, key) || !equalNative((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key])) return false
++  return !Array.isArray(left) || left.length === (right as unknown[]).length
++}
++/** All cursors share a native snapshot. Overflow only declines optional
++ * preparation; the caller falls back to the original in-transaction audit. */
++async function capture(database: ProjectDatabase, signal?: CancellationSignal): Promise<Map<string, unknown[]> | null> {
++  checkCancelled(signal)
++  const names = database.tables.map(table => table.name), native = database.backendDB().transaction(names, 'readonly')
++  return new Promise((resolve, reject) => {
++    const rows = new Map(names.map(name => [name, [] as unknown[]])), budget = { bytes: 0, values: 0 }
++    let overflow = false, failure: unknown
++    const cancel = () => { failure = new CancelledOperationError(); try { native.abort() } catch { /* already settled */ } }
++    signal?.addEventListener?.('abort', cancel, { once: true })
++    const cleanup = () => signal?.removeEventListener?.('abort', cancel)
++    native.oncomplete = () => { cleanup(); resolve(rows) }
++    native.onabort = () => { cleanup(); rows.clear(); if (overflow) resolve(null); else reject(failure ?? native.error ?? new CancelledOperationError()) }
++    for (const name of names) {
++      const request = native.objectStore(name).openCursor()
++      request.onerror = () => { failure = request.error }
++      request.onsuccess = () => {
++        try {
++          checkCancelled(signal)
++          const cursor = request.result
++          if (!cursor) return
++          if (!estimate(cursor.value, budget)) { overflow = true; native.abort(); return }
++          rows.get(name)!.push(cursor.value); cursor.continue()
++        } catch (error) { failure = error; try { native.abort() } catch { /* already settled */ } }
++      }
++    }
++  })
++}
++
++/** Capture first and let that readonly transaction finish before any expensive
++ * audit begins. Only repository-owned validation composes this internal helper;
++ * no save option accepts a preparation or caller-provided validation callback. */
++export async function prepareStorageAudit(database: ProjectDatabase, audit: (rows: Rows) => Promise<StorageTotals>, signal?: CancellationSignal): Promise<StorageAuditPreparation | undefined> {
++  const rows = await capture(database, signal)
++  if (!rows) return
++  try {
++    const totals = await audit(rows); checkCancelled(signal)
++    let released = false
++    return Object.freeze({
++      async confirm(transaction: IDBTransaction, currentSignal?: CancellationSignal): Promise<StorageTotals> {
++        if (released || transaction.db !== database.backendDB()) throw new StorageAuditConflictError()
++        const cancellation = currentSignal ?? signal
++        checkCancelled(cancellation)
++        // Dexie's Promise binds the continuation to the existing transaction.
++        // Native cursor reads themselves keep it alive; no worker/spin wait.
++        await Dexie.Promise.all([...rows].map(([name, expected]) => new Dexie.Promise<void>((resolve, reject) => {
++          let index = 0
++          const request = transaction.objectStore(name).openCursor()
++          request.onerror = () => reject(request.error)
++          request.onsuccess = () => {
++            try {
++              checkCancelled(cancellation)
++              if (released) throw new StorageAuditConflictError()
++              const cursor = request.result
++              if (!cursor) { if (index !== expected.length) throw new StorageAuditConflictError(); resolve(); return }
++              if (index >= expected.length || !equalNative(cursor.value, expected[index++])) throw new StorageAuditConflictError()
++              cursor.continue()
++            } catch (error) { reject(error) }
++          }
++        })))
++        return { ...totals }
++      },
++      release(): void { released = true; rows.clear() },
++    })
++  } catch (error) { rows.clear(); throw error }
++}
+diff --git a/src/shared/aggregates/scene-coordinates.ts b/src/shared/aggregates/scene-coordinates.ts
+index 5b09541..428bb52 100644
+--- a/src/shared/aggregates/scene-coordinates.ts
++++ b/src/shared/aggregates/scene-coordinates.ts
+@@ -2,7 +2,7 @@ import type { AggregateCoordinates, AggregateFrame } from '../model/aggregate.js
+ import { AGGREGATE_ENTITY_COLLECTIONS } from '../model/aggregate.js'
+ import type { ProjectData } from '../model/project.js'
+ import type { MaterialPaint, PointMm, SceneDocument, SurfaceStyle } from '../model/scene.js'
+-import { captureJson, canonicalJson } from '../validation/json.js'
++import { captureJson, canonicalJson, cloneJson, equalOwnedJson } from '../validation/json.js'
+ import { aggregateCoordinatesSchema } from './schema.js'
+ import { aggregateWorldFrames, validateAggregateCoordinates } from './state.js'
+ import { localToWorldBounds, localToWorldPoint, worldToLocalBounds, worldToLocalPoint } from './coordinates.js'
+@@ -135,8 +135,12 @@ export function canonicalProjectCoordinates(project: ProjectData): string {
+ /** Domain validators use this after strict parsing, before issuing a certificate. */
+ export function assertCoordinateRoundTrip(scene: SceneDocument): void {
+   if (!scene.aggregateCoordinates) return
+-  const restored = decodeSceneCoordinates(encodeSceneCoordinates(scene))
+-  if (canonicalJson(restored) !== canonicalJson(scene)) throw new Error('聚合坐标往返改变了完整场景；事务未采用。')
++  // Own the complete source before transforming it. Both conversions still
++  // execute, and equality covers every field, array order and integer value.
++  // The intermediate local object is private, so decoding can consume it
++  // directly rather than capturing another complete copy or sorting two trees.
++  const source = captureJson(scene), restored = convert(convert(cloneJson(source), 'local'), 'world')
++  if (!equalOwnedJson(restored, source)) throw new Error('聚合坐标往返改变了完整场景；事务未采用。')
+ }
+ /** A coordinate owner table for diagnostics; does not authorize transforms. */
+ export function aggregateMemberOwners(scene: SceneDocument): Map<string, string> {
+diff --git a/src/shared/project/delta.test.ts b/src/shared/project/delta.test.ts
+index 9c61879..12d61a2 100644
+--- a/src/shared/project/delta.test.ts
++++ b/src/shared/project/delta.test.ts
+@@ -10,12 +10,13 @@ import type { SceneDocument } from '../model/scene.js'
+ import { cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
+ import { sha256Bytes } from '../validation/hash.js'
+ import * as hashModule from '../validation/hash.js'
++import * as sceneModule from '../validation/scene.js'
+ import { encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
+ import { reviseCompositionContent, tryApplyPropUpdateCompositionTransaction } from '../validation/content.js'
+ import type { PropUpdateCommand } from '../validation/snapshots.js'
+ import { createProjectDelta, tryCreateLocalProjectDelta, applyProjectDelta, applyProjectDeltaChain, createProjectDeltaReplay, DeltaSizeError, projectDeltaBytes, projectDeltaJson, validateProjectDelta } from './delta.js'
+ import { encodeProjectContentData, getOwnedProjectEncoding } from './encoding.js'
+-import { certifyProjectData, completeProjectTransactionReceipt, getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt, tryCertifyLocalProjectData, validateProjectData } from './validate.js'
++import { certifyProjectData, completeProjectTransactionReceipt, createProjectReplayValidator, getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt, tryCertifyLocalProjectData, validateProjectData } from './validate.js'
+ 
+ let sequence = 0
+ function fixture(configure?: (document: SceneDocument) => void): ProjectData {
+@@ -28,6 +29,36 @@ function fixture(configure?: (document: SceneDocument) => void): ProjectData {
+ }
+ 
+ describe('complete project bidirectional deltas', () => {
++  it('does not issue a reusable size proof to a public mutable validation result', () => {
++    const project = fixture()
++    expect(tryCertifyLocalProjectData(project, project)).toBeUndefined()
++    project.document.revision = -1
++    expect(tryCertifyLocalProjectData(project, project)).toBeUndefined()
++    expect(() => validateProjectData(project)).toThrow()
++  })
++  it('reuses only complete equal owned replay bodies and still checks metadata, changed content and every digest', () => {
++    const original = fixture(), validator = createProjectReplayValidator(), scene = vi.spyOn(sceneModule, 'validateSceneDocument')
++    try {
++      const first = validator.validate(original); expect(scene).toHaveBeenCalledTimes(1)
++      const same = cloneJson(original); same.document.title = 'Metadata only'; same.document.revision++
++      expect(validator.validate(same)).toEqual(same); expect(scene).toHaveBeenCalledTimes(1)
++      same.document.title = 'Caller mutated'; expect(first.document.title).toBe(original.document.title)
++      const changed = cloneJson(original); changed.document.notes['unregistered'] = { invalid: true } as never
++      expect(() => validator.validate(changed)).toThrow(); expect(scene).toHaveBeenCalledTimes(2)
++      const unknown = cloneJson(original) as ProjectData & { unknown: boolean }; unknown.unknown = true
++      expect(() => validator.validate(unknown)).toThrow()
++      const badTitle = cloneJson(original); badTitle.document.title = ''
++      expect(() => validator.validate(badTitle)).toThrow()
++      const badRevision = cloneJson(original); badRevision.document.revision = -1
++      expect(() => validator.validate(badRevision)).toThrow()
++      const badLicense = cloneJson(original); badLicense.licenses['a'.repeat(64)] = { sha256: 'a'.repeat(64), text: 'not matching' }
++      expect(() => validator.validate(badLicense)).toThrow()
++      const calls = scene.mock.calls.length; validator.clear(); validator.validate(original)
++      expect(scene).toHaveBeenCalledTimes(calls + 1)
++      // Public validation never consumes this private family's memo.
++      validateProjectData(first); expect(scene).toHaveBeenCalledTimes(calls + 2)
++    } finally { scene.mockRestore() }
++  })
+   it('owns immutable audit states while checking unknown baselines, every result and independent branches', () => {
+     const before = fixture(), left = cloneJson(before), right = cloneJson(before)
+     left.document.title = 'Left'; right.document.title = 'Right'
+diff --git a/src/shared/project/delta.ts b/src/shared/project/delta.ts
+index c22c295..80fcf43 100644
+--- a/src/shared/project/delta.ts
++++ b/src/shared/project/delta.ts
+@@ -1,7 +1,7 @@
+ import type { ProjectData } from '../model/project.js'
+ import { captureJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput, JSON_LIMITS } from '../validation/json.js'
+ import { sha256Bytes } from '../validation/hash.js'
+-import { getProjectLocalTransaction, getProjectTransactionReceipt, validateProjectData } from './validate.js'
++import { createProjectReplayValidator, getProjectLocalTransaction, getProjectTransactionReceipt, validateProjectData } from './validate.js'
+ import { equalTransactionValue, transactionSlot } from '../transaction/receipt.js'
+ import { decodeProjectCoordinates, encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
+ import { getOwnedProjectEncoding, type OwnedProjectEncoding } from './encoding.js'
+@@ -271,6 +271,7 @@ export function applyProjectDelta(input: ProjectData, delta: unknown, direction:
+  * only the exact previous result can avoid repeating its baseline check. */
+ export function createProjectDeltaReplay() {
+   const states = new WeakMap<ProjectData, string>()
++  const validator = createProjectReplayValidator()
+   // One optional complete local endpoint, never caller data. Audits typically
+   // visit consecutive versions; retaining only the last avoids re-encoding an
+   // already fully hashed predecessor without retaining a second graph/cache.
+@@ -284,15 +285,15 @@ export function createProjectDeltaReplay() {
+   const capture = (input: ProjectData, expected: string): ProjectData => {
+     if (!hash(expected)) throw new Error('增量链完整基线hash无效。')
+     if (states.get(input) === expected) return input
+-    return remember(validateProjectData(input), expected)
++    return remember(validator.validate(input), expected)
+   }
+   return Object.freeze({ capture, apply(input: ProjectData, delta: unknown): ProjectData {
+     const checked = validateProjectDelta(delta), baseline = capture(input, checked.beforeHash)
+     // All working objects remain private; cached states are never mutated.
+     const stored = cloneJson(encoded?.project === baseline ? encoded.stored : encodedRepresentation(baseline))
+     applyChanges(stored, checked, true)
+-    return remember(validateProjectData(world(stored)), checked.afterHash)
+-  } })
++    return remember(validator.validate(world(stored)), checked.afterHash)
++  }, clear(): void { validator.clear(); encoded = undefined } })
+ }
+ 
+ /** Strict synchronous forward reconstruction; no validation authority escapes this operation. */
+diff --git a/src/shared/project/validate.ts b/src/shared/project/validate.ts
+index b0b2250..68db52e 100644
+--- a/src/shared/project/validate.ts
++++ b/src/shared/project/validate.ts
+@@ -8,7 +8,7 @@ import type { CompositionRevisionTransaction, PropUpdateCompositionTransaction }
+ import { inspectDependencies } from '../commands/dependencies.js'
+ import { sha256Text } from '../geometry/scatter.js'
+ import { sha256Bytes } from '../validation/hash.js'
+-import { canonicalJson, cloneJson, encodeUtf8, freezeJson, inspectJsonInput } from '../validation/json.js'
++import { canonicalJson, captureJson, cloneJson, encodeUtf8, equalOwnedJson, freezeJson, inspectJsonInput } from '../validation/json.js'
+ import type { ProjectData } from '../model/project.js'
+ import { STATIC_SVG_LIMITS, CANONICAL_SVG_PROCESSOR } from '../ai/svg.js'
+ import { PACKAGE_LIMITS } from './limits.js'
+@@ -153,7 +153,7 @@ function ownedJsonByteLength(value: unknown): number {
+ export function validateProjectData(input: unknown): ProjectData {
+   return readProjectData(input, false)
+ }
+-function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
++function readProjectData(input: unknown, certifyContent: boolean, replayOwned = false): ProjectData {
+   const issue = inspectJsonInput(input)
+   if (issue) throw new Error(issue.message)
+   const parsed = projectEnvelopeSchema.safeParse(input)
+@@ -232,10 +232,60 @@ function readProjectData(input: unknown, certifyContent: boolean): ProjectData {
+     expanded += size
+   }
+   if (expanded > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节超过300MiB。')
+-  if (certifyContent) projectSizes.set(project, { documentBytes, expandedBytes: expanded })
++  // Public results remain mutable and must never acquire reusable size proof.
++  // Replay callers freeze this privately owned result before returning it.
++  if (certifyContent || replayOwned) projectSizes.set(project, { documentBytes, expandedBytes: expanded })
+   return project
+ }
+ 
++const replayMetadataSchema = z.object({ title: nativeSceneSchema.shape.title,
++  revision: nativeSceneSchema.shape.revision, updatedAt: nativeSceneSchema.shape.updatedAt }).strict()
++export const PROJECT_REPLAY_CACHE_LIMITS = Object.freeze({ entries: 4, retainedBytes: 16 * 1024 * 1024 })
++/** One audit owns this bounded family of fully checked immutable projects.
++ * Every input is independently captured before comparison. Complete structural
++ * equality, not a digest, delta path, caller flag or revision, establishes that
++ * all non-metadata validation inputs are unchanged. The three excluded scene
++ * metadata fields have their actual strict schema and size budgets checked.
++ * Any other change falls back to the public complete validator, including
++ * identity, locks, topology, coordinate frames, resources and license changes. */
++export function createProjectReplayValidator() {
++  const entries: { project: ProjectData; body: unknown; bytes: number }[] = []
++  let retained = 0
++  const body = (project: ProjectData): unknown => ({ ...project, document: { ...project.document,
++    title: null, revision: null, updatedAt: null } })
++  const metadata = (project: ProjectData) => ({ title: project.document.title,
++    revision: project.document.revision, updatedAt: project.document.updatedAt })
++  return Object.freeze({
++    validate(input: unknown): ProjectData {
++      const captured = captureJson(input) as ProjectData
++      const hasDocument = captured && typeof captured === 'object' && captured.document
++        && typeof captured.document === 'object' && !Array.isArray(captured.document)
++      if (hasDocument) {
++        const values = replayMetadataSchema.parse(metadata(captured)), candidate = body(captured)
++        const index = entries.findIndex(entry => equalOwnedJson(candidate, entry.body))
++        if (index >= 0) {
++          const entry = entries.splice(index, 1)[0]; entries.push(entry)
++          const sizes = projectSizes.get(entry.project)!
++          const delta = ownedJsonByteLength(values) - ownedJsonByteLength(metadata(entry.project))
++          if (sizes.documentBytes + delta > PROJECT_DATA_LIMITS.jsonBytes
++            || sizes.expandedBytes + delta > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节或场景JSON超过保护预算。')
++          const result = freezeJson({ ...entry.project, document: { ...entry.project.document, ...values } })
++          projectSizes.set(result, { documentBytes: sizes.documentBytes + delta, expandedBytes: sizes.expandedBytes + delta })
++          return result
++        }
++      }
++      const project = freezeJson(readProjectData(captured, false, true))
++      const bytes = JSON.stringify(project).length * 3
++      if (bytes <= PROJECT_REPLAY_CACHE_LIMITS.retainedBytes) {
++        while (entries.length >= PROJECT_REPLAY_CACHE_LIMITS.entries || retained + bytes > PROJECT_REPLAY_CACHE_LIMITS.retainedBytes) retained -= entries.shift()!.bytes
++        entries.push({ project, body: body(project), bytes }); retained += bytes
++      }
++      return project
++    },
++    clear(): void { entries.length = 0; retained = 0 },
++  })
++}
++
+ /** Closed internal derivation only. The full metadata validator owns baseline
+  * size/closure proofs; the domain executor owns the exact changed values.
+  * Public parsing and cold IO continue to run the complete validator. */
+diff --git a/src/shared/validation/json-capture.test.ts b/src/shared/validation/json-capture.test.ts
+new file mode 100644
+index 0000000..5af42c6
+--- /dev/null
++++ b/src/shared/validation/json-capture.test.ts
+@@ -0,0 +1,41 @@
++import { expect, it, vi } from 'vitest'
++import { captureJson, cloneJson, equalOwnedJson, inspectJsonInput } from './json.js'
++
++it('captures exactly the descriptor values inspected without reading caller getters or Proxy values', () => {
++  const get = vi.fn(() => { throw new Error('uninspected read') })
++  const target = { nested: { value: 42 }, list: [1, null, 'text'] }, proxy = new Proxy(target, { get })
++  const captured = captureJson(proxy)
++  expect(captured).toEqual(target); expect(get).not.toHaveBeenCalled()
++  target.nested.value = 99; target.list[0] = 3
++  expect(captured.nested.value).toBe(42); expect(captured.list[0]).toBe(1)
++  expect(captureJson(new Proxy([1, 2], { get }))).toEqual([1, 2]); expect(get).not.toHaveBeenCalled()
++})
++
++it('keeps complete strict JSON rejection for both inspection and capture', () => {
++  const accessor = Object.defineProperty({}, 'value', { enumerable: true, get: vi.fn() })
++  const hidden = Object.defineProperty({}, 'value', { enumerable: false, value: 1 })
++  const cycle: { self?: unknown } = {}; cycle.self = cycle
++  const unsafe = Object.fromEntries([['__proto__', { unsafe: true }]])
++  const sparse = new Array(2); sparse[1] = 1
++  for (const input of [accessor, hidden, cycle, unsafe, sparse, { [Symbol('hidden')]: 1 },
++    { value: undefined }, { value: Infinity }, Object.create({ inherited: true }), new Date(), new Uint8Array([1])]) {
++    expect(inspectJsonInput(input)).toBeDefined(); expect(() => captureJson(input)).toThrow()
++  }
++  expect(Object.getOwnPropertyDescriptor(accessor, 'value')!.get).not.toHaveBeenCalled()
++  let deep: unknown = 1
++  for (let n = 0; n < 129; n++) deep = [deep]
++  expect(inspectJsonInput(deep, { budgetCode: 'LIMIT' })?.code).toBe('LIMIT')
++  expect(() => captureJson(deep)).toThrow(/128/)
++})
++
++it('preserves valid special IDs and full equality without aliasing or prototype changes', () => {
++  const source = Object.assign(Object.create(null), { constructor: { prototype: [0, -0, 'same'] }, other: { x: 1 } })
++  const captured = captureJson(source), copy = cloneJson(captured)
++  expect(Object.getPrototypeOf(captured)).toBe(Object.prototype)
++  expect(Object.hasOwn(captured, 'constructor')).toBe(true)
++  expect(equalOwnedJson(captured, { other: { x: 1 }, constructor: { prototype: [0, 0, 'same'] } })).toBe(true)
++  copy.other.x = 2; expect(captured.other.x).toBe(1); expect(equalOwnedJson(captured, copy)).toBe(false)
++  expect(equalOwnedJson([1, 2], [2, 1])).toBe(false)
++  const unsafeCopy = cloneJson(Object.fromEntries([['__proto__', { retained: true }]]))
++  expect(Object.getPrototypeOf(unsafeCopy)).toBe(Object.prototype); expect(Object.hasOwn(unsafeCopy, '__proto__')).toBe(true)
++})
+diff --git a/src/shared/validation/json.ts b/src/shared/validation/json.ts
+index 54e4c31..ee22707 100644
+--- a/src/shared/validation/json.ts
++++ b/src/shared/validation/json.ts
+@@ -3,49 +3,90 @@ export interface JsonInputIssue { code: string; message: string }
+ interface JsonInspectionOptions { budgetCode?: string; accessorCode?: string }
+ export const JSON_LIMITS = Object.freeze({ depth: 128, values: 600_000 })
+ 
+-export function inspectJsonInput(input: unknown, options: JsonInspectionOptions = {}): JsonInputIssue | undefined {
++class JsonInputFailure {
++  constructor(readonly issue: JsonInputIssue) {}
++}
++/** Capture descriptor values in the same walk that checks them. In particular,
++ * never re-read a Proxy/getter after inspection to construct a different copy. */
++function readJsonInput(input: unknown, options: JsonInspectionOptions, copy: boolean): { value?: unknown; issue?: JsonInputIssue } {
+   const ancestors = new Set<object>()
+   let values = 0
+-  const invalid = (message: string): JsonInputIssue => ({ code: 'NON_JSON_INPUT', message })
+-  const visit = (value: unknown, depth: number): JsonInputIssue | undefined => {
+-    if (++values > JSON_LIMITS.values || depth > JSON_LIMITS.depth) return { code: options.budgetCode ?? 'NON_JSON_INPUT', message: 'JSON超过128层或600000值的保护限制。' }
+-    if (value === null || typeof value === 'string' || typeof value === 'boolean') return
+-    if (typeof value === 'number') return Number.isFinite(value) ? undefined : invalid('JSON数字必须有限。')
+-    if (typeof value !== 'object') return invalid('输入只能包含JSON值，不接受undefined、函数、BigInt或Symbol。')
+-    if (ancestors.has(value)) return invalid('JSON不能包含循环引用。')
++  function fail(message: string, code = 'NON_JSON_INPUT'): never { throw new JsonInputFailure({ code, message }) }
++  const visit = (value: unknown, depth: number): unknown => {
++    if (++values > JSON_LIMITS.values || depth > JSON_LIMITS.depth) fail('JSON超过128层或600000值的保护限制。', options.budgetCode)
++    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
++    if (typeof value === 'number') return Number.isFinite(value) ? value : fail('JSON数字必须有限。')
++    if (typeof value !== 'object') return fail('输入只能包含JSON值，不接受undefined、函数、BigInt或Symbol。')
++    if (ancestors.has(value)) fail('JSON不能包含循环引用。')
+     const array = Array.isArray(value), prototype = Object.getPrototypeOf(value)
+-    if (prototype !== null && prototype !== Object.prototype && !(array && prototype === Array.prototype)) return invalid('输入只能包含普通JSON对象与数组。')
++    if (prototype !== null && prototype !== Object.prototype && !(array && prototype === Array.prototype)) fail('输入只能包含普通JSON对象与数组。')
+     ancestors.add(value)
+     const keys = Reflect.ownKeys(value)
++    const length = array ? Object.getOwnPropertyDescriptor(value, 'length')?.value : 0
++    if (array && (!Number.isSafeInteger(length) || length < 0)) fail('JSON数组长度无效。')
++    const owned: Record<string, unknown> | unknown[] | undefined = copy ? array ? [] : {} : undefined
+     let indexes = 0
+     for (const key of keys) {
+-      if (key === '__proto__' || typeof key !== 'string') return { code: 'UNSAFE_KEY', message: 'JSON不接受__proto__或Symbol键。' }
++      if (key === '__proto__' || typeof key !== 'string') return fail('JSON不接受__proto__或Symbol键。', 'UNSAFE_KEY')
+       if (array && key === 'length') continue
+-      if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) return invalid('JSON数组不能带额外属性。')
++      if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= length)) fail('JSON数组不能带额外属性。')
+       const descriptor = Object.getOwnPropertyDescriptor(value, key)
+-      if (!descriptor || !('value' in descriptor)) return { code: options.accessorCode ?? 'NON_JSON_INPUT', message: 'JSON不能含访问器或隐藏字段。' }
+-      if (!descriptor.enumerable) return invalid('JSON不能含访问器或隐藏字段。')
++      if (!descriptor || !('value' in descriptor)) return fail('JSON不能含访问器或隐藏字段。', options.accessorCode)
++      if (!descriptor.enumerable) fail('JSON不能含访问器或隐藏字段。')
+       if (array) indexes++
+-      const issue = visit(descriptor.value, depth + 1)
+-      if (issue) return issue
++      const child = visit(descriptor.value, depth + 1)
++      if (owned) (owned as Record<string, unknown>)[key] = child
+     }
+     ancestors.delete(value)
+-    return array && indexes !== value.length ? invalid('JSON数组不能包含空洞。') : undefined
++    if (array && indexes !== length) fail('JSON数组不能包含空洞。')
++    return owned
+   }
+-  try { return visit(input, 0) } catch { return invalid('无法独立读取JSON输入。') }
++  try { return { value: visit(input, 0) } }
++  catch (error) { return { issue: error instanceof JsonInputFailure ? error.issue : { code: 'NON_JSON_INPUT', message: '无法独立读取JSON输入。' } } }
++}
++export function inspectJsonInput(input: unknown, options: JsonInspectionOptions = {}): JsonInputIssue | undefined {
++  return readJsonInput(input, options, false).issue
+ }
+ 
+ /** Owned recursive copy; callers may also use this for optional internal values. */
+ export function cloneJson<T>(value: T): T {
+-  if (Array.isArray(value)) return value.map(child => cloneJson(child)) as T
+-  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, cloneJson(child)])) as T
++  if (Array.isArray(value)) {
++    const result = new Array(value.length)
++    for (let index = 0; index < value.length; index++) if (index in value) result[index] = cloneJson(value[index])
++    return result as T
++  }
++  if (value !== null && typeof value === 'object') {
++    const result: Record<string, unknown> = {}
++    for (const key of Object.keys(value)) {
++      const child = cloneJson((value as Record<string, unknown>)[key])
++      if (key === '__proto__') Object.defineProperty(result, key, { value: child, enumerable: true, writable: true, configurable: true })
++      else result[key] = child
++    }
++    return result as T
++  }
+   return value
+ }
+ 
+ export function captureJson<T>(value: T): T {
+-  const issue = inspectJsonInput(value)
+-  if (issue) throw new Error(issue.message)
+-  return cloneJson(value)
++  const result = readJsonInput(value, {}, true)
++  if (result.issue) throw new Error(result.issue.message)
++  return result.value as T
++}
++
++/** Complete structural equality for private, already captured JSON values.
++ * This helper grants no validation authority to either argument. */
++export function equalOwnedJson(left: unknown, right: unknown): boolean {
++  if (left === right) return true
++  if (Array.isArray(left)) {
++    if (!Array.isArray(right) || left.length !== right.length) return false
++    for (let index = 0; index < left.length; index++) if (!equalOwnedJson(left[index], right[index])) return false
++    return true
++  }
++  if (!left || !right || typeof left !== 'object' || typeof right !== 'object' || Array.isArray(right)) return false
++  const keys = Object.keys(left)
++  if (keys.length !== Object.keys(right).length) return false
++  for (const key of keys) if (!Object.hasOwn(right, key) || !equalOwnedJson((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key])) return false
++  return true
+ }
+ 
+ export function freezeJson<T>(value: T): T {
+diff --git a/tests/history-audit-worker.spec.ts b/tests/history-audit-worker.spec.ts
+index 63ba63f..4e480bc 100644
+--- a/tests/history-audit-worker.spec.ts
++++ b/tests/history-audit-worker.spec.ts
+@@ -29,10 +29,13 @@ for (const fault of ['native-abort', 'unknown-result', 'pagehide'] as const) tes
+   const owner = baseline.document.sceneId, [prop] = Object.keys(baseline.document.props), before = await storedState(page, owner)
+   await page.addInitScript(fault => {
+     const NativeWorker = Worker, transact = IDBDatabase.prototype.transaction
+-    let activeWrite: IDBTransaction | undefined
++    let abortFinalWrite = false
+     IDBDatabase.prototype.transaction = function (...args: Parameters<IDBDatabase['transaction']>) {
+       const tx = transact.apply(this, args)
+-      if (args[1] === 'readwrite' && tx.objectStoreNames.contains('historyVersions')) activeWrite = tx
++      if (abortFinalWrite && args[1] === 'readwrite' && tx.objectStoreNames.contains('historyVersions')) {
++        abortFinalWrite = false
++        setTimeout(() => { try { tx.abort() } catch { /* the assertion below detects a missed abort */ } }, 0)
++      }
+       return tx
+     }
+     Reflect.set(window, '__historyFaultStarts', 0)
+@@ -45,8 +48,14 @@ for (const fault of ['native-abort', 'unknown-result', 'pagehide'] as const) tes
+       }
+       override postMessage(message: unknown, transferOrOptions?: Transferable[] | StructuredSerializeOptions): void {
+         if (!this.history) { super.postMessage(message, transferOrOptions as StructuredSerializeOptions); return }
++        if (fault === 'native-abort') {
++          // Preflight now has no active native transaction. Let the real
++          // worker complete, then abort the final byte-confirmation write tx.
++          abortFinalWrite = true
++          super.postMessage(message, transferOrOptions as StructuredSerializeOptions)
++          return
++        }
+         setTimeout(() => {
+-          if (fault === 'native-abort') activeWrite!.abort()
+           if (fault === 'unknown-result') this.dispatchEvent(new MessageEvent('message', { data: { ok: true, documentBytes: -1 } }))
+           if (fault === 'pagehide') window.dispatchEvent(new PageTransitionEvent('pagehide'))
+         }, 30)
+@@ -68,3 +77,46 @@ for (const fault of ['native-abort', 'unknown-result', 'pagehide'] as const) tes
+   await expect.poll(() => page.evaluate(() => Reflect.get(window, '__historyFaultTerminations'))).toBe(1)
+   expect(await storedState(page, owner)).toEqual(before)
+ })
++
++test('production preflight permits an independent native write transaction before final confirmation', async ({ page }, info) => {
++  await createKeyboardProject(page, '后台核账不占写锁')
++  await placeKeyboardLamp(page)
++  const baseline = await keyboardProjectBackup(page, info.outputPath('baseline.sceneweave'))
++  const owner = baseline.document.sceneId, [prop] = Object.keys(baseline.document.props), before = await storedState(page, owner)
++  await page.addInitScript(() => {
++    const NativeWorker = Worker
++    window.Worker = class extends NativeWorker {
++      private readonly history: boolean
++      constructor(url: string | URL, options?: WorkerOptions) { super(url, options); this.history = String(url).includes('history-audit-worker') }
++      override postMessage(message: unknown, options?: Transferable[] | StructuredSerializeOptions): void {
++        if (this.history) {
++          Reflect.set(window, '__releaseHistoryPreflight', () => super.postMessage(message, options as StructuredSerializeOptions))
++          return
++        }
++        super.postMessage(message, options as StructuredSerializeOptions)
++      }
++    }
++  })
++  await page.goto('./?history-audit-lock=1#home')
++  await page.getByTestId('workspace-home').locator(`[data-project-key="native:${owner}"]`).getByRole('button', { name: '打开', exact: true }).click()
++  await keyboardWorkspaceSaved(page); await selectKeyboardProp(page, prop)
++  const rotation = (await openKeyboardPanel(page, 'inspector')).getByLabel('物件旋转', { exact: true })
++  await rotation.fill('15'); await rotation.press('Tab')
++  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, '__releaseHistoryPreflight'))).toBe('function')
++  const probe = await page.evaluate(async owner => {
++    const name = (await indexedDB.databases()).find(row => /^sceneweave-projects-dev-v1(?:-[a-f0-9]{64})?$/.test(row.name ?? ''))!.name!
++    const db = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open(name); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) })
++    try {
++      return await new Promise<number>((resolve, reject) => {
++        const tx = db.transaction(['projects'], 'readwrite'), request = tx.objectStore('projects').get(owner)
++        tx.oncomplete = () => resolve(request.result.revision); tx.onabort = () => reject(tx.error)
++      })
++    } finally { db.close() }
++  }, owner)
++  expect(probe).toBe(before.revision)
++  expect((await storedState(page, owner)).versions).toBe(before.versions)
++  await page.evaluate(() => Reflect.get(window, '__releaseHistoryPreflight')())
++  await keyboardWorkspaceSaved(page)
++  const after = await storedState(page, owner)
++  expect(after.revision).toBe(before.revision + 1); expect(after.versions).toBe(before.versions + 1)
++})

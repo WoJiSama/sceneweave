@@ -2,6 +2,15 @@ import { createServer } from 'vite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { createServer as createNetServer } from 'node:net'
+
+async function privatePort() {
+  const probe = createNetServer()
+  await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', resolve) })
+  const port = probe.address().port
+  await new Promise((resolve, reject) => probe.close(error => error ? reject(error) : resolve()))
+  return port
+}
 
 /** A private source adapter, never the product page or a user's browser profile. */
 export async function startHarnessTooling(root, listen = false) {
@@ -11,7 +20,7 @@ export async function startHarnessTooling(root, listen = false) {
   try {
     server = await createServer({
       root, configFile: false, base: '/', cacheDir: cacheDirectory, logLevel: 'error',
-      server: { host: '127.0.0.1', port: 0, hmr: false, fs: { strict: true, allow: [root, cacheDirectory] } },
+      server: { host: '127.0.0.1', port: listen ? await privatePort() : 0, strictPort: true, hmr: false, fs: { strict: true, allow: [root, cacheDirectory] } },
       optimizeDeps: { noDiscovery: true, include: ['dexie', 'fflate', 'zod', 'polygon-clipping'] },
       plugins: [{ name: 'semantic-generation-harness', configureServer(instance) {
         instance.middlewares.use((request, response, next) => {

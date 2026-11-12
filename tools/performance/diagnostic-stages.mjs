@@ -24,19 +24,23 @@ export const diagnosticTargets = {
 }
 
 /** Installed by Playwright before navigating the isolated diagnostic page. */
-export function installDiagnosticStageObserver() {
+export function installDiagnosticStageObserver(options = {}) {
   let current = null
   const limit = 100_000
   Reflect.set(globalThis, '__sceneweaveDiagnosticStages', Object.freeze({
     start(kind, ordinal) {
-      current = { kind, ordinal, startedAtMs: performance.now(), spans: [], open: new Set(), renderMetrics: [], dropped: 0 }
+      current = { kind, ordinal, startedAtMs: performance.now(), spans: [], open: new Set(), renderMetrics: [], pngMetrics: [], dropped: 0,
+        ...(options.compact ? { aggregates: new Map(), filteredSmallSpans: 0 } : {}) }
     },
     renderMetrics(metrics) { if (current) current.renderMetrics.push({ atMs: performance.now(), ...metrics }) },
-    begin(name) {
+    pngMetrics(metrics) { if (current) current.pngMetrics.push({ atMs: performance.now(), ...metrics }) },
+    pending() { return current?.open.size ?? 0 },
+    begin(name, inputSize) {
       const owner = current
       if (!owner) return undefined
       if (owner.spans.length + owner.open.size >= limit) { owner.dropped++; return undefined }
-      const span = { name, startMs: performance.now(), failed: false }
+      const span = { name, startMs: performance.now(), failed: false,
+        ...(Number.isSafeInteger(inputSize) && inputSize >= 0 ? { inputSize } : {}) }
       owner.open.add(span)
       let ended = false
       return {
@@ -44,7 +48,15 @@ export function installDiagnosticStageObserver() {
         fail() { span.failed = true },
         end() {
           if (ended) return
-          ended = true; span.endMs = performance.now(); owner.open.delete(span); owner.spans.push(span)
+          ended = true; span.endMs = performance.now(); owner.open.delete(span)
+          if (owner.aggregates) {
+            const row = owner.aggregates.get(name) ?? { name, count: 0, failed: 0, totalMs: 0, maxMs: 0, inputSize: 0 }
+            const duration = span.endMs - span.startMs
+            row.count++; row.failed += Number(span.failed); row.totalMs += duration; row.maxMs = Math.max(row.maxMs, duration); row.inputSize += span.inputSize ?? 0
+            owner.aggregates.set(name, row)
+            if (duration < 0.25) { owner.filteredSmallSpans++; return }
+          }
+          owner.spans.push(span)
         },
       }
     },
@@ -54,22 +66,23 @@ export function installDiagnosticStageObserver() {
       current = null
       const endedAtMs = performance.now()
       return { kind: owner.kind, ordinal: owner.ordinal, startedAtMs: owner.startedAtMs, endedAtMs, dropped: owner.dropped,
-        spans: owner.spans.map(span => ({ ...span })), renderMetrics: owner.renderMetrics,
+        ...(owner.aggregates ? { aggregates: [...owner.aggregates.values()], filteredSmallSpans: owner.filteredSmallSpans } : {}),
+        spans: owner.spans.map(span => ({ ...span })), renderMetrics: owner.renderMetrics, pngMetrics: owner.pngMetrics,
         openAtEnd: [...owner.open].map(span => ({ ...span, clippedAtMs: endedAtMs })) }
     },
   }))
 }
 
-export async function buildDiagnosticStages(outputDirectory) {
+export async function buildDiagnosticStages(outputDirectory, targets = diagnosticTargets, options = {}) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
   if (!outputDirectory || !path.isAbsolute(outputDirectory) || path.resolve(outputDirectory) === path.join(root, 'dist')) throw new Error('Use a separate absolute diagnostic output directory, never normal dist')
   try { if ((await fs.readdir(outputDirectory)).length) throw new Error('Diagnostic output must be empty') } catch (error) { if (error.code !== 'ENOENT') throw error }
   const [{ build }, { default: ts }, { default: MagicString }] = await Promise.all([import('vite'), import('typescript'), import('magic-string')])
-  const transformed = [], expected = new Set(Object.entries(diagnosticTargets).flatMap(([name, symbols]) => symbols.map(symbol => `${name}#${symbol}`)))
+  const transformed = [], expected = new Set(Object.entries(targets).flatMap(([name, symbols]) => symbols.map(symbol => `${name}#${symbol}`)))
   await build({ configFile: path.join(root, 'vite.config.ts'), plugins: [{
     name: 'sceneweave-diagnostic-stages', enforce: 'pre',
     transform(code, id) {
-      const name = path.relative(root, id.split('?')[0]).split(path.sep).join('/'), symbols = diagnosticTargets[name]
+      const name = path.relative(root, id.split('?')[0]).split(path.sep).join('/'), symbols = targets[name]
       if (!symbols) return null
       const source = ts.createSourceFile(name, code, ts.ScriptTarget.Latest, true, name.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
       const edits = new MagicString(code), selected = []
@@ -88,12 +101,26 @@ export async function buildDiagnosticStages(outputDirectory) {
         const key = `${name}#${label}`, variable = '__swDiagnosticSpan', body = node.body
         if (!expected.delete(key)) throw new Error(`Unexpected duplicate diagnostic boundary ${key}`)
         transformed.push({ name, symbol: label, line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1 })
-        const start = `const ${variable}=Reflect.get(globalThis,'__sceneweaveDiagnosticStages')?.begin(${JSON.stringify(key)});try{`
+        const inputSize = name === 'src/shared/validation/hash.ts' && label === 'sha256Bytes' ? ',bytes.length'
+          : name === 'src/shared/validation/json.ts' && label === 'encodeUtf8' ? ',text.length' : ''
+        const start = `const ${variable}=Reflect.get(globalThis,'__sceneweaveDiagnosticStages')?.begin(${JSON.stringify(key)}${inputSize});try{`
         const end = `}catch(__swDiagnosticError){${variable}?.fail();throw __swDiagnosticError}finally{${variable}?.end()}`
         const isAsync = node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)
         if (ts.isBlock(body)) {
+          if (options.flush4k && name.endsWith('/render/canvas-renderer.ts') && label === 'drawProjection') {
+            // Attribution only: force completion of deferred Canvas work after
+            // each top-level painting statement. Never enable in normal builds.
+            for (const [index, statement] of body.statements.entries()) {
+              if (!ts.isExpressionStatement(statement) && !ts.isForOfStatement(statement) && !ts.isIfStatement(statement)) continue
+              const description = statement.getText(source).split(/\r?\n/)[0].slice(0, 100)
+              const key = `canvas.flush4k:${index}:${description}`
+              edits.appendLeft(statement.end, `;if(Math.max(ctx.canvas.width,ctx.canvas.height)===4096){const __swFlush=Reflect.get(globalThis,'__sceneweaveDiagnosticStages')?.begin(${JSON.stringify(key)});try{ctx.getImageData(0,0,1,1)}finally{__swFlush?.end()}}`)
+            }
+          }
           const renderMetrics = name.endsWith('/render/renderer.ts') && label === 'renderInternal'
-            ? `const __swOriginalMetrics=options.onMetrics;options={...options,onMetrics:(metrics)=>{Reflect.get(globalThis,'__sceneweaveDiagnosticStages')?.renderMetrics(metrics);__swOriginalMetrics?.(metrics)}};` : ''
+            ? `const __swOriginalMetrics=options.onMetrics;options={...options,onMetrics:(metrics)=>{Reflect.get(globalThis,'__sceneweaveDiagnosticStages')?.renderMetrics(metrics);__swOriginalMetrics?.(metrics)}};`
+            : name.endsWith('/render/renderer.ts') && label === 'exportPng'
+              ? `const __swOriginalPngMetrics=options.onPngMetrics;options={...options,onPngMetrics:(metrics)=>{Reflect.get(globalThis,'__sceneweaveDiagnosticStages')?.pngMetrics(metrics);__swOriginalPngMetrics?.(metrics)}};` : ''
           edits.appendLeft(body.getStart(source) + 1, start + renderMetrics); edits.appendLeft(body.end - 1, end)
           // Await direct returned promises so async inclusive time ends on settlement.
           // The extra await/microtask overhead is part of this diagnostic only.
@@ -118,8 +145,8 @@ export async function buildDiagnosticStages(outputDirectory) {
     },
   }], build: { outDir: outputDirectory, emptyOutDir: false, sourcemap: true } })
   if (expected.size) throw new Error(`Missing diagnostic boundaries: ${[...expected].join(', ')}`)
-  const sourceFiles = await Promise.all(Object.keys(diagnosticTargets).sort().map(async name => ({ name, sha256: createHash('sha256').update(await fs.readFile(path.join(root, name))).digest('hex') })))
-  const metadata = { format: 'sceneweave-diagnostic-stages', version: 1, builtAt: new Date().toISOString(), transformed, sourceFiles,
+  const sourceFiles = await Promise.all(Object.keys(targets).sort().map(async name => ({ name, sha256: createHash('sha256').update(await fs.readFile(path.join(root, name))).digest('hex') })))
+  const metadata = { format: 'sceneweave-diagnostic-stages', version: 1, builtAt: new Date().toISOString(), transformed, sourceFiles, flush4k: !!options.flush4k,
     limitations: ['Separate instrumented production UI build; never formal performance.', 'Function durations include awaited descendants and can overlap; do not sum nested stages.', 'Async direct returns await settlement; added microtasks and timers affect timing.', 'Raw spans contain code names and timestamps only; no document, resource bytes or credentials.', 'Open spans at window end are clipped, never reported as completed.'] }
   await fs.writeFile(path.join(outputDirectory, 'diagnostic-stages.json'), JSON.stringify(metadata, null, 2), { flag: 'wx' })
   return metadata

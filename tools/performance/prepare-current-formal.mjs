@@ -12,10 +12,17 @@ const argument = (key, fallback) => args.includes(key) ? args[args.indexOf(key) 
 const output = argument('--output', null)
 const channel = argument('--channel', 'chrome')
 const mode = argument('--mode', 'all')
+if (args.includes('--help')) {
+  console.log('node tools/performance/prepare-current-formal.mjs --output ABS [--mode all|capacity|visual] [--channel chrome] [--cases mixed-2000,building-500]')
+  process.exit(0)
+}
+const selectedCases = argument('--cases', null)?.split(',')
 const check = (ok, message) => { if (!ok) throw new Error(message) }
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 check(output && path.isAbsolute(output), 'Expected --output ABS_DIRECTORY')
 check(['all', 'capacity', 'visual'].includes(mode), 'Expected --mode all/capacity/visual')
+check(!selectedCases || mode !== 'visual' && selectedCases.length > 0 && new Set(selectedCases).size === selectedCases.length
+  && selectedCases.every(name => /^(building|natural|mixed)-(500|2000)$/.test(name) || ['mixed-500-remote', 'mixed-500-local-ports'].includes(name)), 'Invalid capacity --cases')
 await fs.mkdir(output, { recursive: true })
 check((await fs.readdir(output)).length === 0, 'Output must be empty; retained evidence cannot be overwritten')
 const record = { format: 'sceneweave-current-formal-preparation', version: 1, status: 'running', startedAt: new Date().toISOString(), node: process.version,
@@ -67,7 +74,7 @@ try {
     const requests = ['building', 'natural', 'mixed'].flatMap(kind => [500, 2000].map(count => ({ kind, count, name: `${kind}-${count}`, variant: {} })))
     requests.push({ kind: 'mixed', count: 500, name: 'mixed-500-remote', variant: { remoteExtraProps: 500 } },
       { kind: 'mixed', count: 500, name: 'mixed-500-local-ports', variant: { localExternalPorts: 16 } })
-    for (const { kind, count, name, variant } of requests) {
+    for (const { kind, count, name, variant } of requests.filter(item => !selectedCases || selectedCases.includes(item.name))) {
       console.log(`Prepare full-Prop capacity: ${name}`)
       const item = await prepare('/tools/testing/formal-capacity-fixtures.ts', 'prepareFormalCapacityFixture', [kind, count, variant])
       const saved = await saveBlob(`${name}.sceneweave`, item)
