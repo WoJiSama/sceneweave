@@ -4,8 +4,8 @@ import { presentationRecordSchema } from '../terrain-generation/contracts.js'
 import { validateCompositionIdentityContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
 import { cloneJson, freezeJson, inspectJsonInput } from './json.js'
-import { sceneSchema, validateSceneDocument } from './scene.js'
-import { reviseSceneSnapshot, tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot, getPropUpdateTransaction, releasePropUpdateTransaction, type PropUpdateTransaction, type PropUpdateStep } from './snapshots.js'
+import { sceneSchema } from './scene.js'
+import { reviseSceneSnapshot, tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot, validateFreshSceneSnapshot, getPropUpdateTransaction, releasePropUpdateTransaction, type PropUpdateTransaction, type PropUpdateStep } from './snapshots.js'
 import { enumerateLayerEntities } from '../commands/layers.js'
 import type { MaterialPaint, SceneDocument } from '../model/scene.js'
 import { bitmapVariant, equalCompositionValue, propAppearanceSnapshot, resolveAppearance, supportedAppearanceKinds, surfaceStyle } from '../appearance/graph.js'
@@ -350,7 +350,7 @@ function readCompositionDraft(input: unknown, certifyScene: boolean, baseline?: 
   if (issue) throw new Error(`组合工程无效：${issue.message}`)
   const parsed = contentEnvelopeSchema.safeParse(input)
   if (!parsed.success) throw new Error(`组合工程无效：${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
-  const checked = !certifyScene ? validateSceneDocument(parsed.data.document) : baseline ? validateSceneDerivationSnapshot(parsed.data.document, baseline) : validateSceneSnapshot(parsed.data.document)
+  const checked = !certifyScene ? validateFreshSceneSnapshot(parsed.data.document) : baseline ? validateSceneDerivationSnapshot(parsed.data.document, baseline) : validateSceneSnapshot(parsed.data.document)
   if (!checked.ok) throw new Error(`组合场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   // Identity validation may reuse only this exact privately certified scene.
   // Public drafts still receive detached mutable data, never the witness.
