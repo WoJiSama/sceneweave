@@ -1,0 +1,7 @@
+# Source bytes are bound by the immutable asset manifest.
+assets/sceneweave-handdrawn-outpost/*.svg text eol=lf
+assets/sceneweave-handdrawn/*.svg text eol=lf
+assets/sceneweave-handdrawn-outdoor/*.svg text eol=lf
+assets/**/LICENSE.txt text eol=lf
+public/assets/**/LICENSE.txt text eol=lf
+/LICENSE text eol=lf
