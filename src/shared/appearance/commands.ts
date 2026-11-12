@@ -8,6 +8,7 @@ import { roundMm } from '../commands/base.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { applyCommands, applySnapshotCommands, sceneCommandSchemaForBudget, refreshNativeDerivedTransitions, type SceneCommand } from '../commands/commands.js'
 import { geometryIdentityIds } from '../commands/domain.js'
+import { isBuildingCommand } from '../commands/building.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
 import type { PointMm, Prop, SceneDocument, SurfaceRef } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -352,6 +353,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   const consume = (value: number) => { cost += value; if (!budget && initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
+    const structuralBatch = sceneCommands.every(command => isBuildingCommand(command) || ['moveVertex', 'setWallThickness', 'reverseWall', 'splitWall'].includes(command.type))
     // Position/rotation and member overrides cannot change fixed sources,
     // mappings, presentations or adjustments. Only this owned, fully checked
     // input may carry the unchanged graph through to final draft validation.
@@ -366,9 +368,10 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number, scope?: TransactionExecutionScope) => {
       onSceneDraft?.(draft, command, commandCost)
 
-        // The observer's draft is reused by later commands; retain an owned
-        // scene snapshot for the next per-command cost comparison.
-        const snapshot = { document: draft as SceneDocument, historyIdentity: identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }
+        // Intermediate geometry can require a later command's junction repair.
+        // Capture real identities for accounting now; finish validates the
+        // complete atomic result after every command has been observed.
+        const snapshot = { document: draft as SceneDocument, historyIdentity: structuralBatch ? identityTrace.capture(draft) : identityTrace.finish(draft as SceneDocument), appearance: accounting.appearance }
         const next = unchangedAppearance ? { ...snapshot, document: cloneJson(snapshot.document) }
           : syncAppearanceGraph(snapshot, accounting.document, [command])
         // Manual admission is measured from complete content by its own meter.

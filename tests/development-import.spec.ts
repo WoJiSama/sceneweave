@@ -110,8 +110,8 @@ test('DEV integration: homepage migrates full v8 branched bitmap project, reload
   }, { paths: modules, owner: fixture.owner })
   expect(cold).toMatchObject({ projectVersion: 1, documentVersion: 1, fullFields: true, hash: fixture.expectedHash, branchTitle: '保留分支版本', pins: [{ id: 'branch-pin', sourceRevision: 1 }], pixelHash: fixture.pixelHash, renderSize: fixture.renderSize })
   expect(cold.document).toEqual(fixture.expectedDocument)
-  const { structureTokens: _newStructureBirths, ...preservedIdentity } = cold.identity
-  expect(preservedIdentity).toEqual(fixture.expectedLegacyIdentity)
+  expect(cold.identity.structureTokens).toBeUndefined()
+  expect(cold.identity).toEqual(fixture.expectedLegacyIdentity)
   expect(cold.appearance).toEqual(fixture.expectedAppearance)
   expect(cold.versions).toHaveLength(3); expect(cold.versions.find((row: { id: string; parentId: string | null }) => row.id === 'version-2')?.parentId).toBe('version-0'); expect(cold.versions.find((row: { id: string; parentId: string | null }) => row.id === 'version-1')?.parentId).toBe('version-0')
   expect(cold.resourceHashes).toEqual(fixture.resourceHashes); expect(cold.actualResourceHashes).toEqual(fixture.resourceHashes)
