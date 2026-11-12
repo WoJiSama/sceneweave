@@ -85,11 +85,8 @@ for (const scenario of [
   const expectOriginal = async (running = false) => {
     await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible()
     await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', String(original.document.revision))
-    if (running) {
-      // Running work disables editing controls without clearing native undo.
-      const canUndo = await page.evaluate(() => (Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: { getState(): { canUndo: boolean } } }).workspace.getState().canUndo)
-      expect(canUndo).toBe(!undoDisabled)
-    }
+    // The normal build has no DEV workspace handle. Check the disabled control
+    // while running, then exercise the retained undo stack after cancellation.
     if (undoDisabled || running) await expect(undo).toBeDisabled()
     else await expect(undo).toBeEnabled()
     await expect(page.locator('.asset-save')).toHaveText('本地已保存')
@@ -174,5 +171,15 @@ for (const scenario of [
   await closeNarrowDrawers(page, scenario.width)
   expect((await keyboardProjectBackup(page, info.outputPath('after-retry-cancel.sceneweave'))).hashes).toEqual(original.hashes)
   expect(await gateFacts(page)).toEqual({ posts: 2, deliveries: 2, pending: 2, failures: 0 })
+  expect(undoDisabled).toBe(false)
+  await undo.click()
+  await keyboardWorkspaceSaved(page)
+  const undone = await keyboardProjectBackup(page, info.outputPath('retained-undo.sceneweave'))
+  expect(Object.keys(undone.document.props)).toHaveLength(Object.keys(original.document.props).length - 1)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const redone = await keyboardProjectBackup(page, info.outputPath('retained-redo.sceneweave'))
+  expect(redone.document.props).toEqual(original.document.props)
+  expect(redone.document.revision).toBe(original.document.revision + 2)
   expect(errors).toEqual([])
 })
