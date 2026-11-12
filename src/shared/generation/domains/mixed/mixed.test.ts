@@ -7,8 +7,11 @@ import { getLegacyGeneration } from '../../../terrain-generation/composition-con
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { resolveBuildingEntrancePort } from '../../building-port.js'
 import { createDomainExecutionRequest, executeDomainExecutionRequest } from '../../execution.js'
-import { defaultMixedInput, defaultMixedInputV3, runMixedGeneration, normalizeMixedInput } from './index.js'
-import type { SceneDocument } from '../../../model/scene.js'
+import { defaultMixedInput, defaultMixedInputV3, defaultMixedInputV4, runMixedGeneration, normalizeMixedInput } from './index.js'
+import type { PropDefinition, SceneDocument } from '../../../model/scene.js'
+import { polygonDistance, polygonInside, polygonsOverlap, propFootprint, roomPoints } from '../../../geometry/geometry.js'
+import { furnitureUseSpacePolygon } from '../interior/furnishing-use-space.js'
+import { generationRecipeSchema } from '../../../terrain-generation/contracts.js'
 
 const options = { profile: taskBudgetProfile('standard'), nowMilliseconds: () => 0 }
 const source = (kind: 'forest' | 'volcano') => {
@@ -18,6 +21,40 @@ const source = (kind: 'forest' | 'volcano') => {
   return base
 }
 describe('real mixed module composition', () => {
+  it.each(['forest', 'volcano'] as const)('version 4 joins actual %s vegetation, editable functional groups and the full-width exterior approach', kind => {
+    const base = source(kind), input = defaultMixedInputV4(base, kind, 'functional-outpost-v4')
+    for (const role of ['table', 'seat', 'storage'] as const) base.propDefinitions[`group-${role}`] = {
+      id: `group-${role}`, catalogId: `group-${role}`, version: 1, licenseRef: 'MIT', origin: { kind: 'original', attribution: 'Mixed composition regression fixture', canEmbed: true },
+      name: role, tags: [], defaultAppearance: { kind: 'symbol', symbol: 'crate', tint: null, opacity: 1 },
+      defaultFootprintMm: { width: role === 'table' ? 1200 : 600, height: 600 }, defaultFootprintOffsetMm: { x: 0, y: 0 },
+      defaultVisualBoundsMm: { x: role === 'table' ? -600 : -300, y: -300, width: role === 'table' ? 1200 : 600, height: 600 },
+      defaultBlocksMovement: true, defaultBlocksSight: false, defaultRenderLayer: 'object', defaultShadowClass: 'furniture',
+    } satisfies PropDefinition
+    input.parameters.building.arrangement.palette = (['table', 'seat', 'storage'] as const).map(role => ({ role, ref: { id: `group-${role}`, version: 1 } }))
+    const before = canonicalJson(base), result = runMixedGeneration(base, input, options), document = cloneJson(result.candidate.document) as SceneDocument
+    const recipes = Object.values(getLegacyGeneration(document)!.recipes)
+    for (const [algorithmId, version] of [['mixed-layout', 4], ['supported-interior', 4], ...(kind === 'forest' ? [['forest-layout', 2] as const] : [])] as const) {
+      const recipe = recipes.find(recipe => recipe.algorithmId === algorithmId)!
+      expect(recipe).toMatchObject({ recipeVersion: version, algorithmVersion: version })
+      expect(generationRecipeSchema.safeParse(recipe).success).toBe(true)
+      expect(generationRecipeSchema.safeParse({ ...recipe, recipeVersion: 99 }).success).toBe(false)
+    }
+    const seats = Object.values(document.props).filter(prop => prop.definitionRef?.id === 'group-seat')
+    const tables = Object.values(document.props).filter(prop => prop.definitionRef?.id === 'group-table')
+    expect(tables.length).toBeGreaterThan(0); expect(seats.length).toBeGreaterThan(0)
+    for (const table of tables) expect(Math.min(...seats.map(seat => polygonDistance(propFootprint(table), propFootprint(seat))))).toBeLessThanOrEqual(500)
+    for (const seat of seats) {
+      const usePolygon = furnitureUseSpacePolygon(seat, seat)
+      expect(polygonInside(usePolygon, roomPoints(document, document.rooms[seat.roomId!]))).toBe(true)
+      for (const other of Object.values(document.props)) if (other.id !== seat.id) expect(polygonsOverlap(usePolygon, propFootprint(other))).toBe(false)
+    }
+    const port = resolveBuildingEntrancePort(document, result.report.entranceOpeningId, input.parameters.approach.widthMm), path = document.paths[result.report.approachPathId]
+    for (const pointsMm of [path.centerlineMm, [...path.centerlineMm, port.insideMm]]) expect(checkTerrainRoute(document, { floorId: port.floorId, pointsMm, widthMm: path.widthMm }).ok).toBe(true)
+    const request = createDomainExecutionRequest({ requestId: `mixed-v4-${kind}`, context: { workspaceId: 'mixed-v4', checkpoint: 0, epoch: 1 }, domain: 'mixed', base, input, profile: options.profile })
+    expect(executeDomainExecutionRequest(request, { nowMilliseconds: () => 0 }).result.resultHash).toBe(result.resultHash)
+    expect(validateSceneDocument(document).ok).toBe(true); expect(canonicalJson(base)).toBe(before)
+  }, 30000)
+
   it.each(['forest', 'volcano'] as const)('persists and exactly replays version 3 %s with a full-width normal door approach', kind => {
     const base = source(kind), before = canonicalJson(base), input = defaultMixedInputV3(base, kind, 'mixed-v3-fixed')
     expect(defaultMixedInput(base, kind).algorithmVersion).toBe(2)

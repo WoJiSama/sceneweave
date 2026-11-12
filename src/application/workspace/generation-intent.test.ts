@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { taskBudgetProfile } from '../../shared/budget/task-budget.js'
 import { defaultVolcanoInput } from '../../shared/generation/domains/volcano/index.js'
-import { defaultMixedInput } from '../../shared/generation/domains/mixed/index.js'
+import { defaultMixedInput, defaultMixedInputV4 } from '../../shared/generation/domains/mixed/index.js'
+import { createShoreBlankDocument } from '../../platform/browser/content/shore-blank.js'
 import { cloneJson } from '../../shared/validation/json.js'
 import { fromBundle } from './project.js'
 import { fixture, runtime, validation } from './test-fixtures.js'
@@ -49,7 +50,7 @@ describe('application generation intent preparation', () => {
     input.rooms[0].purpose = 'Changed during load'; input.arrangement.furniture = false
     release()
     const result = await pending
-    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 4, seed: original.seed,
+    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 5, seed: original.seed,
       parameters: { rooms: original.rooms, corridor: original.corridor, arrangement: { ...original.arrangement, palette: env.palette } } } })
     expect(env.content.interior).toHaveBeenCalledWith(expect.objectContaining({ title: original.title, preset: 'narrative', gridVisible: false, seed: original.seed }), expect.any(Object))
     expect(env.selectBudget).toHaveBeenCalledExactlyOnceWith({ widthMm: 12000, heightMm: 8000, quality: 'standard', mode: 'auto' })
@@ -84,6 +85,47 @@ describe('application generation intent preparation', () => {
     expect(disabled.input.parameters.flow).toBeNull()
   })
 
+  it('keeps omitted and explicit uniform distribution inputs identical', async () => {
+    const env = await environment()
+    const forestDefault = await prepareGenerationIntent({ domain: 'forest', request: forest() }, env)
+    const forestUniform = await prepareGenerationIntent({ domain: 'forest', request: { ...forest(), woodlandDistribution: 'uniform' } }, env)
+    expect(forestUniform.input).toEqual(forestDefault.input)
+    const mixedDefault = await prepareGenerationIntent({ domain: 'mixed', request: mixed() }, env)
+    const mixedUniform = await prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), woodlandDistribution: 'uniform' } }, env)
+    expect(mixedUniform.input).toEqual(mixedDefault.input)
+  })
+
+  it('expands forest and mixed form choices to complete fixed zones without changing supplied defaults or building/path requests', async () => {
+    const env = await environment(), document = createShoreBlankDocument('island', { sceneId: 'intent-woodland', title: 'Woodland',
+      now: '2026-11-12T00:00:00.000Z', widthMm: 40000, heightMm: 32000, preset: 'narrative' }, true, true)
+    const base = { ...env.base, document }, defaults = defaultMixedInputV4(document, 'forest', 'intent-copses')
+    if (defaults.parameters.outdoor.kind !== 'forest') throw new Error('forest expected')
+    const palettes = Object.fromEntries(defaults.parameters.outdoor.parameters.zones[0].vegetation.map(row => [row.role, row.palette])) as Awaited<ReturnType<GenerationContentPort['forest']>>['palettes']
+    env.content.forest = async () => ({ base, groundMaterial: { id: 'shore-v1-material-grass', version: 1 }, routeMaterial: { id: 'shore-v1-material-sand-dry', version: 1 }, palettes })
+    env.content.mixed = async () => ({ base, defaults })
+    const before = cloneJson(defaults)
+    const trees = await prepareGenerationIntent({ domain: 'forest', request: { ...forest(), woodlandDistribution: 'copses' } }, env)
+    expect(trees.input.parameters.zones).toHaveLength(4)
+    expect(trees.input.algorithmVersion).toBe(2)
+    const request = { ...mixed(), environment: 'forest' as const, woodlandDistribution: 'copses' as const }
+    const grouped = await prepareGenerationIntent({ domain: 'mixed', request }, env)
+    const uniform = await prepareGenerationIntent({ domain: 'mixed', request: { ...request, woodlandDistribution: 'uniform' } }, env)
+    expect(grouped.input.algorithmVersion).toBe(4)
+    expect(grouped.input.parameters.outdoor.parameters).toHaveProperty('zones', expect.any(Array))
+    if (grouped.input.parameters.outdoor.kind !== 'forest') throw new Error('forest expected')
+    expect(grouped.input.parameters.outdoor.parameters.zones).toHaveLength(4)
+    expect(grouped.input.parameters.building).toEqual(uniform.input.parameters.building)
+    expect(grouped.input.parameters.approach).toEqual(uniform.input.parameters.approach)
+    expect(defaults).toEqual(before)
+  })
+
+  it('rejects unsupported distribution choices before loading forest or mixed resources', async () => {
+    const env = await environment(), forestContent = vi.spyOn(env.content, 'forest'), mixedContent = vi.spyOn(env.content, 'mixed')
+    await expect(prepareGenerationIntent({ domain: 'forest', request: { ...forest(), woodlandDistribution: 'anything' } as unknown as ForestGenerationUiRequest }, env)).rejects.toThrow(/植被分布/)
+    await expect(prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), woodlandDistribution: 'anything' } as unknown as MixedGenerationUiRequest }, env)).rejects.toThrow(/植被分布/)
+    expect(forestContent).not.toHaveBeenCalled(); expect(mixedContent).not.toHaveBeenCalled()
+  })
+
   it('maps mixed building requirements and preserves the default outdoor domain', async () => {
     const env = await environment(), defaults = cloneJson(env.mixedDefaults), input = mixed()
     const result = await prepareGenerationIntent({ domain: 'mixed', request: input }, env), p = result.input.parameters
@@ -94,7 +136,7 @@ describe('application generation intent preparation', () => {
     expect(env.mixedDefaults).toEqual(defaults)
   })
 
-  it.each([1, 2, 3] as const)('prepares the explicitly selected mixed version %s without rewriting defaults', async algorithmVersion => {
+  it.each([1, 2, 3, 4] as const)('prepares the explicitly selected mixed version %s without rewriting defaults', async algorithmVersion => {
     const env = await environment(), defaults = cloneJson(env.mixedDefaults)
     const result = await prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), algorithmVersion } }, env)
     expect(result.input.algorithmVersion).toBe(algorithmVersion)
@@ -103,7 +145,7 @@ describe('application generation intent preparation', () => {
 
   it('rejects an unsupported mixed version before loading content or selecting a budget', async () => {
     const env = await environment(), prepare = vi.spyOn(env.content, 'mixed')
-    for (const algorithmVersion of [0, 4, '3']) {
+    for (const algorithmVersion of [0, 5, '3']) {
       await expect(prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), algorithmVersion } as MixedGenerationUiRequest }, env)).rejects.toThrow(/算法版本/)
     }
     expect(prepare).not.toHaveBeenCalled(); expect(env.selectBudget).not.toHaveBeenCalled()

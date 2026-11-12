@@ -136,7 +136,7 @@ describe('supported-interior@1 composition adapter', () => {
     expect(validateSceneDocument(second.candidate.document).ok).toBe(true)
   })
 
-  for (const version of [1, 2, 3] as const) it(`reuses D6 furniture on elevated support at version ${version} and preserves manual or deleted slots`, () => {
+  for (const version of [1, 2, 3, 4] as const) it(`reuses D6 furniture on elevated support at version ${version} and preserves manual or deleted slots`, () => {
     const input = request(); input.algorithmVersion = version
     const generated = runSupportedInteriorGeneration(terrain(), input, options), context = runtime()
     const content = createCompositionContent(cloneJson(generated.candidate.document) as SceneDocument, context), roomId = generated.layout.rooms[0].roomId
@@ -145,7 +145,7 @@ describe('supported-interior@1 composition adapter', () => {
     // New suggestions use the editor's normal compact manual policy, which
     // counts real targets and separately bounds all changed metadata. Keep the
     // legacy no-policy replay fixture unchanged for supported versions 1/2.
-    const accounting = version === 3 ? { budget: selectManualTransactionBudget(content.document) } : undefined
+    const accounting = version >= 3 ? { budget: selectManualTransactionBudget(content.document) } : undefined
     if (accounting) expect(accounting.budget.semanticTargets).toBe(256)
     const edited = applyCompositionCommands(content, [{ type: 'deleteProp', id: props[0].id }, { type: 'updateProp', id: props[1].id, changes: { positionMm: { x: props[1].positionMm.x + 10, y: props[1].positionMm.y } } }], context, accounting)
     const requestLocal = { recipeId: interiorEntityId(content.document.sceneId, input.seed, 'recipe'), roomId, variation: 'supported-local' }
@@ -160,9 +160,9 @@ describe('supported-interior@1 composition adapter', () => {
     expect(validateSceneDocument(result.document).ok).toBe(true)
     const locked = applyCompositionCommands(edited, [{ type: 'setEditLock', kind: 'terrainArea', id: 'support', locked: true }], context, accounting)
     expect(() => regenerateRoomFurniture(locked, requestLocal, context, { profile, checkCancelled() {} })).toThrow(/支撑.*锁定/)
-  }, version === 3 ? 30_000 : 5000)
+  }, version >= 3 ? 30_000 : 5000)
 
-  it.each([1, 2, 3] as const)('persists the exact supported version %s and rejects mixed recipe selectors', algorithmVersion => {
+  it.each([1, 2, 3, 4] as const)('persists the exact supported version %s and rejects mixed recipe selectors', algorithmVersion => {
     const input = request(); input.algorithmVersion = algorithmVersion
     input.parameters.arrangement.furniture = false
     const generated = runSupportedInteriorGeneration(terrain(), input, options)

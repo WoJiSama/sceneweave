@@ -8,7 +8,7 @@ import './volcano-generation.css'
 
 import type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 export type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
-const initial = (): MixedGenerationUiRequest => ({ title: '林中驿站', environment: 'forest', widthMm: 40000, heightMm: 32000, seed: 'mixed-1', roomCount: 1, purpose: '驿站休息室', furniture: true, vegetationMultiplier: 1, algorithmVersion: 3 })
+const initial = (): MixedGenerationUiRequest => ({ title: '林中驿站', environment: 'forest', widthMm: 40000, heightMm: 32000, seed: 'mixed-1', roomCount: 1, purpose: '驿站休息室', furniture: true, vegetationMultiplier: 1, algorithmVersion: 4, woodlandDistribution: 'uniform' })
 
 export default function MixedGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange, aiConnection = null }: {
   busy: boolean; disabled: boolean; error: string | null; candidate: MixedPreview | null; dirty: boolean
@@ -18,7 +18,7 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
 }) {
   const [input, setInput] = useState(initial)
   const [formRevision, setFormRevision] = useState(0)
-  const { algorithmVersion, ...assistantParameters } = input
+  const { algorithmVersion, woodlandDistribution, ...assistantParameters } = input
   const validationId = useId()
   const locked = busy || disabled
   const change = <K extends keyof MixedGenerationUiRequest>(key: K, value: MixedGenerationUiRequest[K]) => {
@@ -47,13 +47,15 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
       <fieldset disabled={locked}><legend>场景与建筑需求</legend>
         <label>工程名称<input aria-label="混合工程名称" value={input.title} maxLength={120} onChange={event => change('title', event.target.value)}/></label>
         <label>室外环境<select aria-label="混合场景环境" value={input.environment} onChange={event => change('environment', event.target.value as MixedGenerationUiRequest['environment'])}><option value="forest">林中建筑</option><option value="volcano">火山平台建筑</option></select></label>
-        <label>接路方式<select aria-label="混合接路算法版本" value={algorithmVersion} onChange={event => change('algorithmVersion', Number(event.target.value) as 2 | 3)}><option value="3">门前垂直直入 · 第3版</option><option value="2">原版接路 · 第2版</option></select></label>
+        <label>布置与接路<select aria-label="混合接路算法版本" value={algorithmVersion} onChange={event => change('algorithmVersion', Number(event.target.value) as 2 | 3 | 4)}><option value="4">预留座位与使用空间 · 树木优先</option><option value="3">门前垂直直入 · 第3版</option><option value="2">原版接路 · 第2版</option></select></label>
         <div className="volcano-field-pair"><label>地图宽（米）<input aria-label="混合地图宽米" type="number" min="20" max="100" step="1" value={input.widthMm / 1000} onChange={event => change('widthMm', Math.round(Number(event.target.value) * 1000))}/></label><label>地图高（米）<input aria-label="混合地图高米" type="number" min="20" max="100" step="1" value={input.heightMm / 1000} onChange={event => change('heightMm', Math.round(Number(event.target.value) * 1000))}/></label></div>
         <label>生成种子<input aria-label="混合生成种子" value={input.seed} maxLength={128} onChange={event => change('seed', event.target.value)}/></label>
         <label>房间数量<input aria-label="混合建筑房间数量" type="number" min="1" max="4" step="1" value={input.roomCount} onChange={event => change('roomCount', Number(event.target.value))}/></label>
         <label>房间用途<input aria-label="混合建筑房间用途" value={input.purpose} maxLength={120} onChange={event => change('purpose', event.target.value)}/></label>
         <label className="volcano-check"><input aria-label="混合建筑建议家具" type="checkbox" checked={input.furniture} onChange={event => change('furniture', event.target.checked)}/>按用途和面积建议家具</label>
         {input.environment === 'forest' && <label>植被密度倍率<input aria-label="混合森林密度倍率" type="number" min="0" max="2" step="0.1" value={input.vegetationMultiplier} onChange={event => change('vegetationMultiplier', Number(event.target.value))}/></label>}
+        {input.environment === 'forest' && <label>植被分布<select aria-label="混合森林植被分布" value={woodlandDistribution ?? 'uniform'} onChange={event => change('woodlandDistribution', event.target.value as NonNullable<MixedGenerationUiRequest['woodlandDistribution']>)}><option value="uniform">均匀散布</option><option value="copses">疏密林地</option></select></label>}
+        {input.environment === 'forest' && woodlandDistribution === 'copses' && <p className="asset-muted">把同一目标数量集中为两片不规则树群及灌草过渡，建筑与通路继续避让。区域不足会说明，实际数量以候选为准。</p>}
         <p className="asset-muted">房间、支撑或足宽接入不成立时会说明冲突，可调整需求后重新预览。</p>
         {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
         <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备混合场景…' : '预览混合场景'}</button>

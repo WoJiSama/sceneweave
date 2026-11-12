@@ -206,6 +206,8 @@ test('production mixed v3 persists a full-width normal door approach through the
   const original = await keyboardProjectBackup(page, info.outputPath('original.sceneweave'))
   await openGenerationTask(page, '混合场景')
   const panel = page.getByRole('region', { name: '混合场景生成', exact: true })
+  await expect(panel.getByLabel('混合接路算法版本', { exact: true })).toHaveValue('4')
+  await panel.getByLabel('混合接路算法版本', { exact: true }).selectOption('3')
   await expect(panel.getByLabel('混合接路算法版本', { exact: true })).toHaveValue('3')
   await panel.getByLabel('混合工程名称', { exact: true }).fill('第3版门前直入')
   await panel.getByLabel('混合建筑房间数量', { exact: true }).fill('2')
