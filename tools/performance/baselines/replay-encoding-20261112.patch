@@ -1,0 +1,243 @@
+diff --git a/src/shared/project/delta.test.ts b/src/shared/project/delta.test.ts
+index 12d61a2..3b46852 100644
+--- a/src/shared/project/delta.test.ts
++++ b/src/shared/project/delta.test.ts
+@@ -7,7 +7,7 @@ import { applyCompositionDraftCommands, completeCompositionTransactionReceipt, g
+ import type { CompositionCommand } from '../model/appearance.js'
+ import type { ProjectData } from '../model/project.js'
+ import type { SceneDocument } from '../model/scene.js'
+-import { cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
++import { canonicalJson, cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
+ import { sha256Bytes } from '../validation/hash.js'
+ import * as hashModule from '../validation/hash.js'
+ import * as sceneModule from '../validation/scene.js'
+@@ -77,6 +77,41 @@ describe('complete project bidirectional deltas', () => {
+     Object.defineProperty(unsafe, 'unexpected', { enumerable: true, get: getter })
+     expect(() => replay.capture(unsafe, first.beforeHash)).toThrow(); expect(getter).not.toHaveBeenCalled()
+   })
++  it('reuses exact canonical bodies across branches while hashing every output and invalidating changed geometry', () => {
++    const original = fixture(document => {
++      document.aggregateCoordinates = { encoding: 'world', groups: { group: { id: 'group', floorId: document.props.item.floorId,
++        parentId: null, frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
++    })
++    // Valid numeric and reserved-name entity IDs must keep the preexisting
++    // canonical wire ordering and own-data semantics.
++    for (const key of ['10', '2', '01', 'constructor', 'prototype']) {
++      original.document.userLayers[key] = { ...Object.values(original.document.userLayers)[0], id: key, name: key,
++        order: Object.keys(original.document.userLayers).length }
++    }
++    const root = validateProjectData(original), projects: ProjectData[] = []
++    for (let revision = 1; revision <= 9; revision++) {
++      const project = cloneJson(root)
++      project.document.revision = revision; project.document.updatedAt = `2026-11-12T00:00:00.${String(revision).padStart(3,'0')}Z`
++      project.document.title = ['完整 😀', '\"quoted\" \\ path\n', '数值键 10 2'][revision % 3]
++      if (revision >= 5) project.document.props.item.positionMm.x += 250
++      projects.push(validateProjectData(project))
++    }
++    const deltas = projects.map(project => createProjectDelta(root, project)), replay = createProjectDeltaReplay()
++    const baseline = replay.capture(root, deltas[0].beforeHash), digest = vi.spyOn(hashModule,'sha256Bytes')
++    try {
++      for (let i = 0; i < projects.length; i++) {
++        const count = digest.mock.calls.length
++        const actual = replay.apply(baseline,deltas[i])
++        expect(actual).toEqual(projects[i]); expect(Object.isFrozen(actual.document)).toBe(true)
++        expect(digest.mock.calls.length).toBeGreaterThan(count)
++        const bytes = digest.mock.calls.at(-1)![0]
++        expect(new TextDecoder().decode(bytes)).toBe(canonicalJson(encodeProjectCoordinates(projects[i])))
++      }
++      expect(() => replay.apply(baseline,{ ...deltas.at(-1)!, afterHash: 'f'.repeat(64) })).toThrow(/hash/)
++      replay.clear()
++      expect(replay.capture(projects[0],deltas[0].afterHash)).toEqual(projects[0])
++    } finally {digest.mockRestore();replay.clear()}
++  })
+   it('round trips changed leaves, arrays, inserted and removed records in both directions', () => {
+     const before = fixture(); before.appearance.instanceAdjustments.item = []
+     const after = cloneJson(before)
+diff --git a/src/shared/project/delta.ts b/src/shared/project/delta.ts
+index 80fcf43..e520855 100644
+--- a/src/shared/project/delta.ts
++++ b/src/shared/project/delta.ts
+@@ -87,6 +87,63 @@ function canonicalOwned(value: unknown): string {
+       ? Object.fromEntries(Object.keys(item).sort().map(key => [key, order((item as Record<string, unknown>)[key])])) : item
+   return JSON.stringify(order(value))
+ }
++
++const REPLAY_ENCODING_LIMITS = Object.freeze({ entries: 4, retainedBytes: 32 * 1024 * 1024 })
++type ReplayMetadata = 'revision' | 'title' | 'updatedAt'
++const replayMetadata = (key: string): key is ReplayMetadata => key === 'revision' || key === 'title' || key === 'updatedAt'
++/** Private to this replay: every source is the validator's detached, deeply
++ * frozen result. Exact unchanged references prove the complete nonmetadata
++ * body, including resources/identity/coordinates; caller objects never enter.
++ * Cache encoding work only. Every assembled full string is still hashed. */
++function createReplayEncoder() {
++  type Part = string | { field: ReplayMetadata }
++  type Entry = { source: ProjectData; stored: ProjectData; parts: Part[]; retainedBytes: number }
++  const entries: Entry[] = []
++  let retainedBytes = 0
++  const sameBody = (left: ProjectData, right: ProjectData): boolean => {
++    const keys = Object.keys(left) as (keyof ProjectData)[], fields = Object.keys(left.document) as (keyof ProjectData['document'])[]
++    return keys.length === Object.keys(right).length && keys.every(key => key === 'document' || Object.hasOwn(right, key) && left[key] === right[key])
++      && fields.length === Object.keys(right.document).length && fields.every(key => Object.hasOwn(right.document, key)
++        && (replayMetadata(key) || left.document[key] === right.document[key]))
++  }
++  const canonical = (parts: Part[], project: ProjectData): string => parts.map(part => typeof part === 'string' ? part : JSON.stringify(project.document[part.field])).join('')
++  return {
++    encode(project: ProjectData): { stored: ProjectData; canonical: string } {
++      const index = entries.findIndex(entry => sameBody(project, entry.source))
++      if (index >= 0) {
++        const entry = entries.splice(index, 1)[0]; entries.push(entry)
++        const stored = freezeJson({ ...entry.stored, document: { ...entry.stored.document,
++          revision: project.document.revision, title: project.document.title, updatedAt: project.document.updatedAt } })
++        return { stored, canonical: canonical(entry.parts, project) }
++      }
++      const stored = freezeJson(encodedRepresentation(project)), parts: Part[] = []
++      let pending = '{'
++      // Strict project/document field names are nonnumeric. Nested entity IDs
++      // retain canonicalOwned's exact JSON.stringify integer-key ordering.
++      for (const [index, key] of Object.keys(stored).sort().entries()) {
++        pending += (index ? ',' : '') + JSON.stringify(key) + ':'
++        if (key !== 'document') { pending += canonicalOwned(stored[key as keyof ProjectData]); continue }
++        pending += '{'
++        for (const [index, field] of Object.keys(stored.document).sort().entries()) {
++          pending += (index ? ',' : '') + JSON.stringify(field) + ':'
++          if (replayMetadata(field)) { parts.push(pending, { field }); pending = '' }
++          else pending += canonicalOwned(stored.document[field as keyof ProjectData['document']])
++        }
++        pending += '}'
++      }
++      parts.push(pending + '}')
++      const text = canonical(parts, project), size = text.length * 4
++      // Conservative serialized-data estimate, not a JS heap/RSS guarantee.
++      // Oversized or unique bodies still use exact complete encoding.
++      if (size <= REPLAY_ENCODING_LIMITS.retainedBytes) {
++        while (entries.length >= REPLAY_ENCODING_LIMITS.entries || retainedBytes + size > REPLAY_ENCODING_LIMITS.retainedBytes) retainedBytes -= entries.shift()!.retainedBytes
++        entries.push({ source: project, stored, parts, retainedBytes: size }); retainedBytes += size
++      }
++      return { stored, canonical: text }
++    },
++    clear(): void { entries.length = 0; retainedBytes = 0 },
++  }
++}
+ function equal(left: DeltaValue, right: DeltaValue): boolean {
+   if (left === right) return true
+   if (Array.isArray(left)) return Array.isArray(right) && left.length === right.length && left.every((value, index) => equal(value, right[index]))
+@@ -272,13 +329,14 @@ export function applyProjectDelta(input: ProjectData, delta: unknown, direction:
+ export function createProjectDeltaReplay() {
+   const states = new WeakMap<ProjectData, string>()
+   const validator = createProjectReplayValidator()
++  const encoder = createReplayEncoder()
+   // One optional complete local endpoint, never caller data. Audits typically
+   // visit consecutive versions; retaining only the last avoids re-encoding an
+   // already fully hashed predecessor without retaining a second graph/cache.
+   let encoded: { project: ProjectData; stored: ProjectData } | undefined
+   const remember = (project: ProjectData, expected: string): ProjectData => {
+-    const stored = encodedRepresentation(project)
+-    if (sha256Bytes(encodeUtf8(canonicalOwned(stored))) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
++    const { stored, canonical } = encoder.encode(project)
++    if (sha256Bytes(encodeUtf8(canonical)) !== expected) throw new Error('增量重建完整内容hash不符；原工程保持。')
+     const owned = freezeJson(project); states.set(owned, expected)
+     encoded = { project: owned, stored: freezeJson(stored) }; return owned
+   }
+@@ -293,7 +351,7 @@ export function createProjectDeltaReplay() {
+     const stored = cloneJson(encoded?.project === baseline ? encoded.stored : encodedRepresentation(baseline))
+     applyChanges(stored, checked, true)
+     return remember(validator.validate(world(stored)), checked.afterHash)
+-  }, clear(): void { validator.clear(); encoded = undefined } })
++  }, clear(): void { validator.clear(); encoder.clear(); encoded = undefined } })
+ }
+ 
+ /** Strict synchronous forward reconstruction; no validation authority escapes this operation. */
+diff --git a/src/shared/validation/hash.test.ts b/src/shared/validation/hash.test.ts
+new file mode 100644
+index 0000000..90899f4
+--- /dev/null
++++ b/src/shared/validation/hash.test.ts
+@@ -0,0 +1,40 @@
++import {createHash} from 'node:crypto'
++import {describe, expect, it} from 'vitest'
++import {sha256Bytes, sha256Text} from './hash.js'
++
++describe('complete actual byte SHA-256', () => {
++  it.each([
++    ['', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],
++    ['abc', 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'],
++    ['abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq', '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1'],
++  ])('matches the published vector %j', (text, digest) => { expect(sha256Text(text)).toBe(digest) })
++
++  it('matches the million-a vector', () => {
++    expect(sha256Text('a'.repeat(1_000_000))).toBe('cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0')
++  })
++
++  it('matches independent native crypto across padding boundaries and offset views without mutating input', () => {
++    const sizes = new Set([...Array.from({length:260}, (_, i) => i), 511, 512, 513, 4095, 4096, 4097, 65535, 65536, 65537, 2_376_653])
++    for (const size of sizes) {
++      const backing = new Uint8Array(size + 37)
++      let state = 0x9e3779b9
++      for (let i = 0; i < backing.length; i++) { state ^= state << 13; state ^= state >>> 17; state ^= state << 5; backing[i] = state & 255 }
++      const before = backing.slice(), input = backing.subarray(13,13+size)
++      expect(sha256Bytes(input), `offset view size ${size}`).toBe(createHash('sha256').update(input).digest('hex'))
++      expect(backing.every((byte, index) => byte === before[index]), `input unchanged at size ${size}`).toBe(true)
++    }
++  })
++
++  it('encodes full Unicode text and detects an actual changed byte', () => {
++    const text = '完整工程 😀\u0000\ud800\udfff\u2028', bytes = new TextEncoder().encode(text)
++    expect(sha256Text(text)).toBe(createHash('sha256').update(bytes).digest('hex'))
++    const first = sha256Bytes(bytes); bytes[bytes.length-1] ^= 1
++    expect(sha256Bytes(bytes)).not.toBe(first)
++  })
++
++  it('accepts an offset shared buffer by capturing its bytes before hashing', () => {
++    const input = new Uint8Array(new SharedArrayBuffer(153), 7, 128)
++    for (let i = 0; i < input.length; i++) input[i] = i
++    expect(sha256Bytes(input)).toBe(createHash('sha256').update(new Uint8Array(input)).digest('hex'))
++  })
++})
+diff --git a/src/shared/validation/hash.ts b/src/shared/validation/hash.ts
+index 9208db2..2d3d768 100644
+--- a/src/shared/validation/hash.ts
++++ b/src/shared/validation/hash.ts
+@@ -13,27 +13,34 @@ const SHA256_K = new Uint32Array([
+ const rotate = (n: number, bits: number) => (n >>> bits) | (n << (32 - bits))
+ /** Synchronous byte SHA-256 is available in browser and Node without global adapters. */
+ export function sha256Bytes(bytes: Uint8Array): string {
+-  const size = Math.ceil((bytes.length + 9) / 64) * 64
+-  const padded = new Uint8Array(size); padded.set(bytes); padded[bytes.length] = 0x80
+-  const view = new DataView(padded.buffer), bitLength = bytes.length * 8
+-  view.setUint32(size - 8, Math.floor(bitLength / 0x100000000)); view.setUint32(size - 4, bitLength >>> 0)
++  // Another thread may mutate a SharedArrayBuffer during this synchronous
++  // call. Preserve the original detached-copy behavior for shared input.
++  if (!(bytes.buffer instanceof ArrayBuffer)) bytes = bytes.slice()
++  // Read full blocks in place. Only the final one or two blocks need padding;
++  // copying a complete multi-megabyte image/project adds no hash protection.
++  const fullLength = Math.floor(bytes.length / 64) * 64, remaining = bytes.length - fullLength
++  const tail = new Uint8Array(remaining < 56 ? 64 : 128)
++  tail.set(bytes.subarray(fullLength)); tail[remaining] = 0x80
++  const input = new DataView(bytes.buffer, bytes.byteOffset, fullLength), ending = new DataView(tail.buffer), bitLength = bytes.length * 8
++  ending.setUint32(tail.length - 8, Math.floor(bitLength / 0x100000000)); ending.setUint32(tail.length - 4, bitLength >>> 0)
+   const state = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]), words = new Uint32Array(64)
+-  for (let offset = 0; offset < size; offset += 64) {
+-    for (let i = 0; i < 16; i++) words[i] = view.getUint32(offset + i * 4)
++  for (let offset = 0; offset < fullLength + tail.length; offset += 64) {
++    const view = offset < fullLength ? input : ending, blockOffset = offset < fullLength ? offset : offset - fullLength
++    for (let i = 0; i < 16; i++) words[i] = view.getUint32(blockOffset + i * 4)
+     for (let i = 16; i < 64; i++) {
+       const a = words[i - 15], b = words[i - 2]
+       const s0 = rotate(a, 7) ^ rotate(a, 18) ^ (a >>> 3), s1 = rotate(b, 17) ^ rotate(b, 19) ^ (b >>> 10)
+       words[i] = (words[i - 16] + s0 + words[i - 7] + s1) >>> 0
+     }
+-    let [a, b, c, d, e, f, g, h] = state
++    let a = state[0], b = state[1], c = state[2], d = state[3], e = state[4], f = state[5], g = state[6], h = state[7]
+     for (let i = 0; i < 64; i++) {
+       const sum1 = rotate(e, 6) ^ rotate(e, 11) ^ rotate(e, 25), choose = (e & f) ^ (~e & g)
+       const t1 = (h + sum1 + choose + SHA256_K[i] + words[i]) >>> 0
+       const sum0 = rotate(a, 2) ^ rotate(a, 13) ^ rotate(a, 22), majority = (a & b) ^ (a & c) ^ (b & c), t2 = (sum0 + majority) >>> 0
+       h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0
+     }
+-    const values = [a, b, c, d, e, f, g, h]
+-    for (let i = 0; i < 8; i++) state[i] = (state[i] + values[i]) >>> 0
++    state[0] += a; state[1] += b; state[2] += c; state[3] += d
++    state[4] += e; state[5] += f; state[6] += g; state[7] += h
+   }
+   return [...state].map(n => n.toString(16).padStart(8, '0')).join('')
+ }

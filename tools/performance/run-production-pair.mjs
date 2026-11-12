@@ -16,7 +16,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
 const argument = (key, fallback = '') => args.includes(key) ? args[args.indexOf(key) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/run-production-pair.mjs --before-source ABS --after-source ABS --before-dist ABS --after-dist ABS --fixtures ABS --output ABS --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-audit|history-total [--case mixed-2000] [--pairs 3] [--history-depth 2] [--channel chrome] [--timeout-ms 180000]')
+  console.log('node tools/performance/run-production-pair.mjs --before-source ABS --after-source ABS --before-dist ABS --after-dist ABS --fixtures ABS --output ABS --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-audit|history-total|replay-encoding|content-equality|history-boundaries [--case mixed-2000] [--pairs 3] [--history-depth 2] [--channel chrome] [--timeout-ms 180000]')
   console.log('AB/BA alternating independent browsers. Import -> first +1mm -> warm reset -> dual 4K -> page-reset cold open -> cold first +1mm -> cold warm reset. Stop product sampling before complete-package download; audit PNG/package in Node after browser exit. macOS RSS / Windows Working Set are distinct metrics. Diagnostic only; cannot close formal capacity/performance gates.')
   process.exit(0)
 }
@@ -27,7 +27,7 @@ const historyDepth = Number(argument('--history-depth', '2'))
 const firstSide = argument('--first-side', 'before')
 const sources = Object.fromEntries(['before', 'after'].map(side => [side, argument(`--${side}-source`)]))
 const builds = Object.fromEntries(['before', 'after'].map(side => [side, argument(`--${side}-dist`)]))
-check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-audit', 'history-total'].includes(optimization), 'Choose an explicit optimization scope')
+check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-audit', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries'].includes(optimization), 'Choose an explicit optimization scope')
 check(Number.isSafeInteger(historyDepth) && historyDepth >= 2 && historyDepth <= 100 && historyDepth % 2 === 0, 'History depth must be an even count from 2 to 100')
 check(['before', 'after'].includes(firstSide), 'Invalid first side')
 check([output, fixtures, ...Object.values(sources), ...Object.values(builds)].every(value => value && path.isAbsolute(value)), 'All directory arguments must be absolute')
@@ -81,7 +81,20 @@ try {
   const frozen = await inputs(); manifest.frozen = frozen; manifest.fingerprint = sha(JSON.stringify(frozen))
   const before = new Map(frozen.before.source.map(row => [row.path, row.sha256])), after = new Map(frozen.after.source.map(row => [row.path, row.sha256]))
   const differences = [...new Set([...before.keys(), ...after.keys()])].filter(name => before.get(name) !== after.get(name)).sort()
-  const expected = optimization === 'history-total' ? [
+  const expected = optimization === 'history-boundaries' ? [
+    'src/platform/browser/storage/content-blocks.ts', 'src/platform/browser/storage/content-context.ts',
+    'src/platform/browser/storage/content-materialization.test.ts', 'src/platform/browser/storage/content-generic-delta.test.ts',
+    'src/platform/browser/storage/history-audit-client.ts', 'src/platform/browser/storage/history-audit-client.test.ts',
+    'src/platform/browser/storage/history-audit-message.ts', 'src/platform/browser/storage/history-audit-worker.ts',
+    'src/platform/browser/storage/history-audit-transaction.test.ts', 'src/platform/browser/storage/incremental-history.ts',
+    'src/platform/browser/storage/repository.ts', 'src/shared/project/delta.ts', 'src/shared/project/resources.ts',
+  ].sort() : optimization === 'content-equality' ? [
+    'src/platform/browser/storage/content-context.ts', 'src/platform/browser/storage/content-blocks.ts',
+    'src/platform/browser/storage/content-block-local.test.ts', 'src/platform/browser/storage/content-equality.test.ts',
+  ].sort() : optimization === 'replay-encoding' ? [
+    'src/shared/validation/hash.ts', 'src/shared/validation/hash.test.ts',
+    'src/shared/project/delta.ts', 'src/shared/project/delta.test.ts',
+  ].sort() : optimization === 'history-total' ? [
     'src/shared/validation/json.ts', 'src/shared/validation/json-capture.test.ts',
     'src/shared/aggregates/scene-coordinates.ts', 'src/shared/project/validate.ts',
     'src/shared/project/delta.ts', 'src/shared/project/delta.test.ts',

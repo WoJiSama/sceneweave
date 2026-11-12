@@ -8,9 +8,11 @@ import { startNativeFixtureTooling } from './prepare-native-m2-fixture.mjs'
 import { fingerprintPaths, MODULE_SOURCE_PATHS, assertFrozen } from './frozen-input.mjs'
 
 const args = process.argv.slice(2), arg = (key, fallback) => args.includes(key) ? args[args.indexOf(key) + 1] : fallback
+const editMode = arg('--edit-mode', 'title'), propId = arg('--prop-id', 'capacity-mixed-remote-0000')
+if (!['title', 'unique-prop'].includes(editMode)) throw new Error('Choose title or unique-prop edits')
 if (args.includes('--help')) {
-  console.log('node tools/performance/run-storage-scale.mjs --source ABS --input ABS_SCENEWEAVE --output ABS_NEW_DIRECTORY [--matrix 1:2,5:2,1:20]')
-  console.log('Real Chrome/native IndexedDB component attribution, not normal-production UI timing. Each isolated context prepares owner:history-save counts through validated repository APIs, reopens the repository, fully cold-loads, then saves one cold and two warm title revisions. Method spans include descendants; do not add. No persisted counters or integrity checks are bypassed.')
+  console.log('node tools/performance/run-storage-scale.mjs --source ABS --input ABS_SCENEWEAVE --output ABS_NEW_DIRECTORY [--matrix 1:2,5:2,1:20] [--edit-mode title|unique-prop] [--prop-id capacity-mixed-remote-0000]')
+  console.log('Real Chrome/native IndexedDB component attribution, not normal-production UI timing. Each isolated context prepares owner:history-save counts through validated repository APIs, reopens the repository, fully cold-loads, then saves one cold and two warm revisions. unique-prop moves the explicit public Prop +1mm each revision, yielding different actual geometry in every state. Method spans include descendants; do not add. Full cold project, exact owner/version counts and final position are checked.')
   process.exit(0)
 }
 const source = path.resolve(arg('--source', path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')))
@@ -25,9 +27,9 @@ const fingerprints = async () => ({ source: await fingerprintPaths(source, MODUL
 const frozen = await fingerprints()
 const report = { format: 'sceneweave-storage-scale-component', version: 1, status: 'running', startedAt: new Date().toISOString(),
   device: { platform: os.platform(), cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem(), node: process.version },
-  input: { sha256: sha(bytes), byteLength: bytes.length }, source, frozen, fingerprint: sha(JSON.stringify(frozen)), matrix, cases: [],
+  input: { sha256: sha(bytes), byteLength: bytes.length }, source, frozen, fingerprint: sha(JSON.stringify(frozen)), matrix, editMode, propId: editMode === 'unique-prop' ? propId : null, cases: [],
   limitations: ['Component attribution with source modules and method timers, not normal production UI or formal timing.',
-    'Prepared title-only saves have no editor local-transaction receipt. Their generic delta cost does not represent immediate Prop UI edits.',
+    'Prepared title or unique-prop saves have no editor local-transaction receipt. Their generic delta cost does not represent immediate Prop UI edits.',
     'Inclusive spans overlap. Native DB, CPU, decoding and scheduling waits are not separately attributed.',
     'Each case owns a fresh browser context and test-only database. No user profile or source DB is changed.'] }
 const write = () => fs.writeFile(path.join(output, 'analysis.json'), JSON.stringify(report, null, 2))
@@ -51,7 +53,7 @@ try {
         }
       })
       await page.goto(tooling.url)
-      const row = await page.evaluate(async ({ base64, owners, history }) => {
+      const row = await page.evaluate(async ({ base64, owners, history, editMode, propId }) => {
         const filePath = '/src/shared/project/file.ts', resourcesPath = '/src/shared/project/resources.ts'
         const repositoryPath = '/src/platform/browser/storage/repository.ts', runtimePath = '/src/platform/browser/runtime.ts'
         const [{ importProject }, { tryDerivedProjectBundle, validateProjectSnapshot }, { ProjectRepository }, { runtime, validation }] = await Promise.all([
@@ -62,8 +64,11 @@ try {
         const make = () => new ProjectRepository({ name, runtime, validation })
         let repo = make(), current
         const next = (bundle, title) => {
+          const props = bundle.project.document.props, prop = props[propId]
+          if (editMode === 'unique-prop' && (!prop || prop.editLocked || prop.visibility !== 'public')) throw new Error('Unique edit requires the explicit unlocked public fixture Prop')
           const candidate = { project: { ...bundle.project, document: { ...bundle.project.document,
-            title, revision: bundle.project.document.revision + 1, updatedAt: new Date().toISOString() } }, resources: bundle.resources }
+            title, revision: bundle.project.document.revision + 1, updatedAt: new Date().toISOString(),
+            ...(editMode === 'unique-prop' ? { props: { ...props, [propId]: { ...prop, positionMm: { ...prop.positionMm, x: prop.positionMm.x + 1 } } } } : {}) } }, resources: bundle.resources }
           const result = tryDerivedProjectBundle(candidate, bundle)
           if (!result) throw new Error('Expected exact verified resource closure')
           return result
@@ -87,7 +92,7 @@ try {
             finally { spans.push({ name: label ?? name, ms: performance.now() - start, failed }) }
           }
         }
-        for (const name of ['scanTotals', 'putResources', 'saveWithValidation']) wrap(repo, name)
+        for (const name of ['scanTotals', 'prepareAccounting', 'auditCapturedTotals', 'putResources', 'saveWithValidation']) if (typeof repo[name] === 'function') wrap(repo, name)
         wrap(repo.history, 'audit', 'history.audit')
         const openedAt = performance.now(), loaded = await repo.load(owner), coldLoadMs = performance.now() - openedAt
         if (!loaded) throw new Error('Cold project disappeared')
@@ -114,9 +119,15 @@ try {
         }
         clearInterval(heartbeat); observer.disconnect()
         const counts = Object.fromEntries(await Promise.all(['projects', 'historyVersions', 'resources', 'projectContentBlocks'].map(async table => [table, await repo.database.table(table).count()])))
-        const usage = await repo.usage(owner); repo.close()
-        return { owners, history, setupMs, coldLoadMs, saves, counts, usage }
-      }, { base64: bytes.toString('base64'), owners, history })
+        const usage = await repo.usage(owner); repo.close(); repo = make()
+        const cold = await repo.load(owner)
+        if (!cold || JSON.stringify(cold.project) !== JSON.stringify(current.project)) throw new Error('Final complete project differs after cold read')
+        if (counts.projects !== owners || counts.historyVersions !== owners * (history + 1) + 3) throw new Error('Missing owner or retained history version')
+        const finalPosition = editMode === 'unique-prop' ? cold.project.document.props[propId].positionMm.x : null
+        if (editMode === 'unique-prop' && finalPosition !== original.project.document.props[propId].positionMm.x + history + 3) throw new Error('Distinct geometry history did not preserve every actual edit')
+        repo.close()
+        return { owners, history, editMode, finalPosition, finalCompleteProjectEqual: true, setupMs, coldLoadMs, saves, counts, usage }
+      }, { base64: bytes.toString('base64'), owners, history, editMode, propId })
       assertFrozen(frozen, await fingerprints(), 'source/input/tools after case')
       report.cases.push({ status: 'complete', ...row }); await write()
     } finally { await context.close() }
