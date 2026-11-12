@@ -80,6 +80,7 @@ describe('isolated historical project conversion', () => {
     const result = convertDevelopmentProject(parsed)
     expect(result.schemaVersion).toBe(1); expect(result.document.schemaVersion).toBe(1)
     expect(result.historyIdentity.version).toBe(5); expect(result.appearance.version).toBe(2)
+    expect(result.historyIdentity.structureTokens).toBeUndefined()
     expect(result.document.props).toEqual((old.document as ProjectData['document']).props)
     expect(result.historyIdentity.propTokens).toEqual((old.historyIdentity as ProjectData['historyIdentity']).propTokens)
     expect(result.appearance.sources).toEqual((old.appearance as ProjectData['appearance']).sources)
@@ -91,6 +92,12 @@ describe('isolated historical project conversion', () => {
     const broken = oldSnapshot(1), identity = broken.historyIdentity as ProjectData['historyIdentity']
     identity.propTokens = {}
     expect(() => convertDevelopmentProject(broken)).toThrow(/token|身份/)
+  })
+
+  it('retains an exact existing structure pool rather than replacing its births during conversion', () => {
+    const old = oldSnapshot(8), original = fixture({ image: true }).project.historyIdentity.structureTokens!
+    ;(old.historyIdentity as ProjectData['historyIdentity']).structureTokens = cloneJson(original)
+    expect(convertDevelopmentProject(old).historyIdentity.structureTokens).toEqual(original)
   })
 
   it('converts a real v7 canopy without resampling members or losing manual, deleted, detached and birth evidence', () => {

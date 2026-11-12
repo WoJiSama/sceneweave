@@ -194,7 +194,12 @@ function nativeProject(project: LegacyProject, repository: LegacyRepository, tar
     identity = { ...previous, version: 1, prefabTokens: repository === 'v5' ? previous.prefabTokens : Object.fromEntries(Object.keys(document.prefabInstances).map(key => [key, context.ids.nextId()])),
       outdoorTokens: Object.fromEntries(Object.entries(outdoorIdentityDescriptors(document)).map(([key, descriptor]) => [key, { ...descriptor, token: context.ids.nextId(), topologyToken: context.ids.nextId() }])) } as HistoryIdentity
   } else identity = createHistoryIdentity(document, context)
-  identity = { ...createHistoryIdentity(document, context), ...identity, version: 5 }
+  // Legacy formats carry no persistent structural witness. Adding independent
+  // births to every snapshot both invents continuity and makes a proven v6
+  // family conflict when its real historical identities are merged.
+  const { structureTokens: _unprovenStructures, ...currentFields } = createHistoryIdentity(document, context)
+  identity = { ...currentFields, ...identity, version: 5 }
+  delete identity.structureTokens
   const appearance = cloneJson(project.appearance ?? createAppearanceGraph(document))
   appearance.version = 2
   appearance.presentations = Object.fromEntries(Object.values(appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()]))

@@ -8,6 +8,8 @@ import { applyCommands, type SceneCommand } from './commands.js'
 import { applyBuildingCommand, buildingDependants, inspectBuildingChanges, previewBuildingCommands } from './building.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
 import { sampleVisualBoundary } from '../visual/geometry.js'
+import { createCompositionContent } from '../appearance/graph.js'
+import { applyCompositionCommands, applyCompositionDraftCommands } from '../appearance/commands.js'
 
 const floorId = 'blank-floor', layerId = 'layer-default-0'
 let sequence = 0
@@ -201,6 +203,18 @@ describe('native building edits', () => {
       { type: 'moveVertex', id: 'branch-end', positionMm: { x: 5000, y: 15000 } },
       { type: 'repairBuildingTopology', id: 'branch', operation: 'splitJunctions' })).toThrow(/跨越T型拆分点/)
     expect(canonicalJson(crossing)).toBe(before)
+    for(const execute of [applyCompositionCommands,applyCompositionDraftCommands]){
+      const content=createCompositionContent(source,runtime()),saved=canonicalJson(content)
+      const commands:SceneCommand[]=[{type:'moveVertex',id:'branch-end',positionMm:{x:5000,y:15000}},{type:'repairBuildingTopology',id:'branch',operation:'splitJunctions'}]
+      const result=execute(content,commands,runtime())
+      expect(Object.values(result.document.walls).filter(wall=>wall.startVertexId==='branch-end'||wall.endVertexId==='branch-end')).toHaveLength(3)
+      expect(openingEndpoints(result.document,result.document.openings.door)).toEqual(beforeDoor)
+      expect(validateSceneDocument(result.document).ok).toBe(true)
+      expect(canonicalJson(content)).toBe(saved)
+      expect(()=>execute(content,commands.slice(0,1),runtime())).toThrow(/墙相交须拆分/)
+      const protectedContent=createCompositionContent(crossing,runtime())
+      expect(()=>execute(protectedContent,commands,runtime())).toThrow(/跨越T型拆分点/)
+    }
   })
 
   it('keeps an opening ending exactly at a T junction when its intermediate sum exceeds safe integers', () => {

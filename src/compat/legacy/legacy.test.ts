@@ -107,6 +107,7 @@ describe('strict read-only legacy family capture and conversion', () => {
       const result = await prepareLegacyFamily(capture, preparation(capture), options)
       expect(result.current.project).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, document: { format: 'sceneweave-scene', schemaVersion: 1, sceneId: 'new-unified-project', revision: 0 } })
       expect(capture.records.filter(record => record.role === 'automatic')).toHaveLength(1)
+      expect(result.current.project.historyIdentity.structureTokens).toBeUndefined()
       if (repository !== 'v6') { expect(result.snapshots).toEqual([]); expect(result.importedSnapshots).toEqual([]) }
       expect((await captureLegacyFamily({ repository, sceneId: data.sceneId }, { factory: isolated })).sourceFingerprint).toBe(before)
     }
@@ -128,6 +129,7 @@ describe('strict read-only legacy family capture and conversion', () => {
     for (const row of [...prepared.snapshots, ...prepared.importedSnapshots]) {
       expect(row.ownerSceneId).toBe('new-unified-project'); expect(row.bundle.project.document.sceneId).toBe(data.sceneId)
       expect(row.bundle.project.historyIdentity).toMatchObject({ ...data.project!.historyIdentity, version: 5 })
+      expect(row.bundle.project.historyIdentity.structureTokens).toBeUndefined()
     }
     expect(prepared.importedSnapshots[0].kind).toBe('imported-auto')
     expect(prepared.current.project.historyIdentity.propTokens).toEqual(data.project!.historyIdentity.propTokens)

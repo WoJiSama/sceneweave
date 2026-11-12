@@ -81,7 +81,10 @@ export function convertDevelopmentProject(input: unknown): ProjectData {
   const document = toCurrentSceneDocument(old.document)
   Object.assign(document.surfaceRules, convertedRules)
   let sequence = 0
-  const fresh = createHistoryIdentity(document, { ids: { nextId: () => `import-${sha256Text(canonicalJson([old.historyIdentity.lineageId, old.document.sceneId, ++sequence]))}` }, clock: { now: () => old.document.updatedAt } })
+  // A missing historical structure pool is not a witness. Preserve an exact
+  // existing pool below, or leave it absent until explicit initialization of
+  // the current revision; matching IDs/topology must not create continuity.
+  const { structureTokens: _unprovenStructures, ...fresh } = createHistoryIdentity(document, { ids: { nextId: () => `import-${sha256Text(canonicalJson([old.historyIdentity.lineageId, old.document.sceneId, ++sequence]))}` }, clock: { now: () => old.document.updatedAt } })
   const historyIdentity = { ...fresh, ...createEmptyIdentity2Fields(), ...old.historyIdentity, version: 5 as const,
     generationTokens: 'generationTokens' in old.historyIdentity ? old.historyIdentity.generationTokens : fresh.generationTokens,
     regionalTokens: 'regionalTokens' in old.historyIdentity ? old.historyIdentity.regionalTokens : fresh.regionalTokens,

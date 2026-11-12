@@ -219,6 +219,8 @@ export interface AdvanceHistoryIdentityOptions { allowResurrection?: boolean; in
 export interface HistoryIdentityTrace {
   /** Extract identities synchronously; the caller retains ownership of the mutable draft. */
   observe(document: Readonly<SceneDocument>): void
+  /** Detached accounting snapshot; final scene/identity validation belongs to finish. */
+  capture(document: Readonly<SceneDocument>): HistoryIdentity
   finish(document: SceneDocument): HistoryIdentity
 }
 /**
@@ -286,7 +288,7 @@ export function createHistoryIdentityTrace(input: HistoryIdentity, previousDocum
     previousProps = nextProps; previousPrefabs = nextPrefabs; previousOutdoor = nextOutdoor
     previousAggregates = nextAggregates
   }
-  return { observe, finish: next => { observe(next); return validateHistoryIdentity(result, next) } }
+  return { observe, capture: next => { observe(next); return cloneJson(result) }, finish: next => { observe(next); return validateHistoryIdentity(result, next) } }
 }
 export function advanceHistoryIdentity(input: HistoryIdentity, previousDocument: SceneDocument, next: SceneDocument, context: PreparationContext, options: AdvanceHistoryIdentityOptions = {}): HistoryIdentity {
   return createHistoryIdentityTrace(input, previousDocument, context, options).finish(next)

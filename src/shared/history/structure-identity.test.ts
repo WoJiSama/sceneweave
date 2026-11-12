@@ -42,7 +42,10 @@ describe('persistent ordinary structural continuity', () => {
     const { scene, context } = fixture(), identity = createHistoryIdentity(scene, context), wall = Object.values(scene.walls)[0]
     const trace = createHistoryIdentityTrace(identity, scene, context), draft = structuredClone(scene)
     const changed = draft.walls[wall.id]; [changed.startVertexId, changed.endVertexId] = [changed.endVertexId, changed.startVertexId]
-    trace.observe(draft); trace.observe(scene)
+    const captured=trace.capture(draft),capturedTopology=captured.structureTokens![wall.id].topologyToken
+    trace.observe(scene)
+    expect(captured.structureTokens![wall.id].topologyToken).toBe(capturedTopology)
+    captured.structureTokens![wall.id].token='untrusted-accounting-copy'
     const after = trace.finish(scene)
     expect(after.structureTokens![wall.id].token).toBe(identity.structureTokens![wall.id].token)
     expect(after.structureTokens![wall.id].topologyToken).not.toBe(identity.structureTokens![wall.id].topologyToken)
