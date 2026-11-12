@@ -28,6 +28,7 @@ type Stroke = { pointerId: number; before: ImagePixelMask | null; last: ImagePoi
 const directions: Array<[ImageEnhancementDirection, string, string]> = [
   ['clarity', '插值放大', '仅用已有像素生成 2 倍图像，比较平滑程度，不增加细节。'],
   ['edge', '边缘更干净', '调整已有半透明边缘，保留孔洞、细枝与原色。'],
+  ['contour', '减轻硬边阶梯', '仅软化有实心支撑的二值斜角，保留原色、孔洞与细杆；描边可能略淡，请换底核对。'],
   ['denoise', '减少噪点', '轻量处理相近颜色的杂点，注意保留手绘笔触。'],
   ['decontaminate', '减轻背景色边', '根据稳定的内侧颜色，局部估计并减轻窄边带混色；保留轮廓与亮度，请换底核对真实边饰。'],
 ]
@@ -100,7 +101,7 @@ export default function ImageEnhancementPanel({ project, target, disabled, onPre
   const info = useMemo(() => inspectImageEnhancementTarget(project, target), [project, target.kind, target.id])
   const stale = !!source && (!info || info.baseline !== source.baseline)
   const selectedCandidate = batch?.candidates.find(candidate => candidate.id === selected)
-  const sourcePixels = source ? direction === 'decontaminate' ? source.canonicalPixels ?? source.pixels : source.pixels : null
+  const sourcePixels = source ? direction === 'decontaminate' || direction === 'contour' ? source.canonicalPixels ?? source.pixels : source.pixels : null
   const selectedPixels = useMemo(() => mask?.data.reduce((total, value) => total + (value > 0 ? 1 : 0), 0) ?? 0, [mask])
   const editing = disabled || !!pending
   const pendingCallback = useRef(onPendingChange), dirtyCallback = useRef(onDirtyChange)

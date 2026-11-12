@@ -142,7 +142,7 @@ export async function prepareImageEnhancementCandidate(input: EditableProject, i
   const layer = records.entity ? current.document.userLayers[current.document.entityLayers[witness.target.id]] : undefined
   if (records.entity?.editLocked || layer?.editLocked) throw new Error('对象或所在图层已锁定，不能采用画质候选。')
   if (witness.pixels.width * recipe.scale > IMAGE_ENHANCEMENT_LIMITS.outputEdge || witness.pixels.height * recipe.scale > IMAGE_ENHANCEMENT_LIMITS.outputEdge) throw new Error('当前画质PNG输出边长最多4096，请降低倍率或缩小范围。')
-  const sourcePixels = recipe.direction === 'decontaminate' ? witness.canonicalPixels ?? witness.pixels : witness.pixels
+  const sourcePixels = recipe.direction === 'decontaminate' || recipe.direction === 'contour' ? witness.canonicalPixels ?? witness.pixels : witness.pixels
   const output = applyImageEnhancement(sourcePixels, recipe, scope, signal)
   signal?.throwIfAborted()
   const metadata: ImageEnhancementMetadata = { version: 1, sourceAssetId: witness.assetId, originalAssetId: witness.originalAssetId, recipe,

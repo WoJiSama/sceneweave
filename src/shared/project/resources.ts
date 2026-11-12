@@ -320,7 +320,7 @@ async function verifyCapturedBundles(bundles: readonly ProjectBundle[], capabili
         yield { weight: (source.pixelWidth * source.pixelHeight + output.pixelWidth * output.pixelHeight) * 8, async run({ signal }) {
           checkCancelled(signal)
           const sourceBytes = bytesByHash.get(source.sha256)!.slice()
-          const exact = enhancement.recipe.direction === 'decontaminate' ? tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
+          const exact = enhancement.recipe.direction === 'decontaminate' || enhancement.recipe.direction === 'contour' ? tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
           const original = checkedRaster(exact ?? (bitmapPipeline(sourceAsset.id) === 'svg-rgba8-v1' ? decodeCanonicalPng(sourceBytes)
             : await images.decode(sourceBytes, source, { signal })), source)
           checkCancelled(signal)

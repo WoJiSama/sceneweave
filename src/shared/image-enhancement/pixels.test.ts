@@ -137,7 +137,7 @@ describe('bounded image enhancement candidates', () => {
     }
   })
 
-  it.each(['clarity', 'edge', 'denoise', 'decontaminate'] as const)('keeps every out-of-scope RGBA exact for %s, including hidden RGB and 2x output', direction => {
+  it.each(['clarity', 'edge', 'denoise', 'decontaminate', 'contour'] as const)('keeps every out-of-scope RGBA exact for %s, including hidden RGB and 2x output', direction => {
     const source = image(9, 7, (x, y) => [25 + x * 9, 31 + y * 8, 99, x === 2 ? 64 : x >= 3 ? 255 : 0])
     const scope = new Uint8Array(source.width * source.height)
     for (let y = 2; y <= 4; y++) for (let x = 2; x <= 5; x++) scope[y * source.width + x] = x === 2 ? 96 : 255

@@ -91,7 +91,7 @@ describe('image enhancement provenance and actual resource closure', () => {
     expect(reopened.project.licenseBindings.filter(binding => binding.subjectKind === 'asset')).toHaveLength(3)
   })
 
-  it.each(['clarity', 'edge', 'denoise', 'decontaminate'] as const)('cold-replays 2x %s using masks on each immediate source grid', async direction => {
+  it.each(['clarity', 'edge', 'denoise', 'decontaminate', 'contour'] as const)('cold-replays 2x %s using masks on each immediate source grid', async direction => {
     const { bundle, lastId } = fixture(2, scopeMask, { ...recipe, direction, scale: 2 })
     const encoded = await exportProject(bundle, { images }), reopened = await importProject(encoded.slice(), { images })
     const source = reopened.project.document.assets.source, output = reopened.project.document.assets[lastId]
@@ -100,6 +100,24 @@ describe('image enhancement provenance and actual resource closure', () => {
     expect(reopened.project.document.assets['enhanced-1'].imageEnhancement?.scopeMask).toEqual(scopeMask)
     expect(output.imageEnhancement?.scopeMask).toEqual(scopeMask)
     expect(decodeCanonicalPng(await reopened.resources.read(output.sha256)).rgba).toEqual(decodeCanonicalPng(await bundle.resources.read(output.sha256)).rgba)
+  })
+
+  it('cold-replays explicit contour coverage through its exact source and permission closure', async () => {
+    const data = new Uint8ClampedArray(19 * 19 * 4)
+    for (let y = 0; y < 19; y++) for (let x = 0; x < 19; x++) data.set([27, 43, 91,
+      x >= 2 && y >= 2 && x <= 16 && y <= 16 && x + y >= 11 ? 255 : 0], (y * 19 + x) * 4)
+    const input: ImagePixels = { width: 19, height: 19, data }, selectedRecipe = { ...recipe, direction: 'contour' as const }
+    const { bundle, lastId } = fixture(1, undefined, selectedRecipe, input)
+    const reopened = await importProject((await exportProject(bundle, { images })).slice(), { images })
+    const output = reopened.project.document.assets[lastId], original = reopened.project.document.assets.source
+    const decoded = decodeCanonicalPng(await reopened.resources.read(output.sha256))
+    expect(decoded.rgba[(6 * 19 + 5) * 4 + 3]).toBe(192)
+    expect(decoded.rgba).toEqual(applyImageEnhancement(input, selectedRecipe).data)
+    expect(output.imageEnhancement?.sourceAssetId).toBe(original.id)
+    expect(output.logicalSizeMm).toEqual(original.logicalSizeMm)
+    expect(output.origin).toEqual(original.origin)
+    expect(output.licenseRef).toBe(original.licenseRef)
+    expect(decodeCanonicalPng(await reopened.resources.read(original.sha256)).rgba).toEqual(data)
   })
 
   it('cold-replays changed colour-fringe pixels and retains the source and exact permission closure', async () => {
