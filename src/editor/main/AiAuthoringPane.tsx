@@ -61,7 +61,9 @@ const collectionLabel: Record<string, string> = { props: '独立物件', rooms: 
 const changeAction = (collection: string | undefined, change: AtomicCandidate['changes'][number]) => collection === 'props'
   ? !rowProp(change.before) ? '新增' : !rowProp(change.after) ? '删除' : '调整'
   : change.before === null ? '新增' : change.after === null ? '删除' : '调整'
-Object.assign(collectionLabel, { 'visual.boundaries': '共享曲线', 'visual.edgeLooks': '连续边缘', 'visual.lights': '点光', 'visual.fogs': '区域雾', 'visual.filters': '外观滤镜', 'visual.environment': '全图环境' })
+for (const [collection, label] of Object.entries({ boundaries: '共享曲线', edgeLooks: '连续边缘', lights: '点光', fogs: '区域雾', filters: '外观滤镜', environment: '全图环境' })) {
+  for (const prefix of ['visual.', 'visual.base.', 'visual.base.base.']) collectionLabel[`${prefix}${collection}`] = label
+}
 const phaseLabel = { layout: '布局与通路', surfaces: '材质', boundaries: '边缘', furnishing: '布景', atmosphere: '环境', review: '复核' }
 const requirementLabel = { pending: '待完成', claimed: 'AI 已标记，待人工核对', unsupported: '当前工具不支持' }
 
