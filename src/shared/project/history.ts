@@ -6,7 +6,7 @@ import { checkCancelled } from '../ports/resources.js'
 import { mergeIdentityRecords, validateHistoryIdentity } from '../history/identity.js'
 import { canonicalJson, encodeUtf8, inspectJsonInput } from '../validation/json.js'
 import { projectContentHash } from './validate.js'
-import { captureProjectBundleInput, validateProjectBundles } from './resources.js'
+import { captureProjectBundleInput, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundles, validateProjectSnapshot } from './resources.js'
 import { projectSourceRecords } from './source-resources.js'
 
 export interface SnapshotBundle extends SnapshotSummary { bundle: ProjectBundle }
@@ -27,20 +27,21 @@ function fields(input: unknown, required: readonly string[]): Record<string, Pro
   return descriptors
 }
 /** No async gaps while capturing summaries and every mutable metadata branch. */
-function captureArchive(input: HistoryArchive): HistoryArchive {
+function captureArchive(input: HistoryArchive, snapshots = false): HistoryArchive {
   const top = fields(input, ['current', 'snapshots']), values = top.snapshots.value
   if (!Array.isArray(values) || Object.getPrototypeOf(values) !== Array.prototype || values.length > 64) throw new Error('历史包最多64个显式快照。')
   const ownKeys = Reflect.ownKeys(values)
   if (ownKeys.length !== values.length + 1 || ownKeys.some(key => key !== 'length' && (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key)))) throw new Error('历史数组不能含空洞或额外字段。')
-  const current = captureProjectBundleInput(top.current.value), snapshots: SnapshotBundle[] = []
+  const capture = (bundle: ProjectBundle) => snapshots && getVerifiedProjectBundle(bundle) || captureProjectBundleInput(bundle)
+  const current = capture(top.current.value), capturedSnapshots: SnapshotBundle[] = []
   for (let i = 0; i < values.length; i++) {
     const descriptor = Object.getOwnPropertyDescriptor(values, String(i))
     if (!descriptor?.enumerable || !('value' in descriptor)) throw new Error('历史数组不能包含访问器。')
     const row = fields(descriptor.value, ['id', 'ownerSceneId', 'lineageId', 'sourceRevision', 'name', 'kind', 'createdAt', 'contentHash', 'bundle'])
     const summary = validateSnapshotSummary(Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'bundle').map(([key, value]) => [key, value.value])))
-    snapshots.push({ ...summary, bundle: captureProjectBundleInput(row.bundle.value) })
+    capturedSnapshots.push({ ...summary, bundle: capture(row.bundle.value) })
   }
-  return { current, snapshots }
+  return { current, snapshots: capturedSnapshots }
 }
 /** One fixed source/version has exactly one meaning throughout selected history. */
 export function assertFixedProjectCompatible(left: ProjectData, right: ProjectData): void {
@@ -111,7 +112,15 @@ export function assertFixedProjectFamilyCompatible(projects: Iterable<ProjectDat
 }
 
 export async function validateHistoryArchive(input: HistoryArchive, options: CompleteValidationOptions): Promise<HistoryArchive> {
-  const archive = captureArchive(input), ids = new Set<string>()
+  return validateArchive(input, options, false)
+}
+/** Internal import composition. Only validator-owned immutable bundles inherit
+ * pixel facts; unknown bundles and changed processing capabilities fully check. */
+export async function consumeHistoryArchive(input: HistoryArchive, options: CompleteValidationOptions): Promise<HistoryArchive> {
+  return validateArchive(input, options, true)
+}
+async function validateArchive(input: HistoryArchive, options: CompleteValidationOptions, snapshot: boolean): Promise<HistoryArchive> {
+  const archive = captureArchive(input, snapshot), ids = new Set<string>()
   let named = 0, protections = 0, bytes = 0
   checkCancelled(options?.signal)
   for (const snapshot of archive.snapshots) {
@@ -125,7 +134,8 @@ export async function validateHistoryArchive(input: HistoryArchive, options: Com
   }
   const identity = mergeIdentityRecords(archive.current.project.historyIdentity, archive.snapshots.map(snapshot => snapshot.bundle.project.historyIdentity))
   validateHistoryIdentity(identity, archive.current.project.document)
-  archive.current = { project: { ...archive.current.project, historyIdentity: identity }, resources: archive.current.resources }
+  const merged = { project: { ...archive.current.project, historyIdentity: identity }, resources: archive.current.resources }
+  archive.current = snapshot && tryDerivedProjectBundle(merged, archive.current, options) || merged
   const projects = [archive.current.project, ...archive.snapshots.map(snapshot => snapshot.bundle.project)]
   assertFixedProjectFamilyCompatible(projects)
   const imageRecords = new Map<string, AssetRecord>(), licenses = new Map<string, string>(), sources = new Map<string, number>()
@@ -153,7 +163,9 @@ export async function validateHistoryArchive(input: HistoryArchive, options: Com
   const sourceBytes = [...sources.values()].reduce((sum, size) => sum + size, 0)
   if (sourceBytes > 32 * 1024 * 1024 || sources.size > 512) throw new Error('历史联合SVG源超过保护预算。')
   if (bytes + sourceBytes + union.reduce((sum, record) => sum + record.sizeBytes, 0) + [...licenses.values()].reduce((sum, text) => sum + encodeUtf8(text).length, 0) > 300 * 1024 * 1024) throw new Error('历史联合展开字节超过300MiB。')
-  const verified = await validateProjectBundles([archive.current, ...archive.snapshots.map(snapshot => snapshot.bundle)], options)
+  const bundles = [archive.current, ...archive.snapshots.map(snapshot => snapshot.bundle)]
+  const verified = snapshot ? [] : await validateProjectBundles(bundles, options)
+  if (snapshot) for (const bundle of bundles) verified.push(await validateProjectSnapshot(bundle, options))
   archive.current = verified[0]
   archive.snapshots.forEach((snapshot, index) => { snapshot.bundle = verified[index + 1] })
   checkCancelled(options?.signal)

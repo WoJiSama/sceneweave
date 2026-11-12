@@ -6,13 +6,14 @@ import type { AutomaticSummary, CreateSnapshotOptions, HistoryOverview, ProjectS
 export type { AutomaticSummary, CreateSnapshotOptions, HistoryOverview, ProjectSaveGuard, ProjectSummary, SaveProjectOptions, SnapshotReadSession, SourcePreservationGuard, StorageUsage } from '../../../application/ports/project-store.js'
 import type { ProjectBundle, ProjectData, ResourceBytePort, SnapshotSummary } from '../../../shared/model/project.js'
 import type { PreparationContext } from '../../../shared/ports/runtime.js'
-import type { CompleteValidationOptions, ResourceOptions } from '../../../shared/ports/resources.js'
+import type { CancellationSignal, CompleteValidationOptions, ResourceOptions } from '../../../shared/ports/resources.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
-import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
-import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
-import { checkedContentBlock, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest } from './content-blocks.js'
+import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, consumeHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
+import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
+import { checkedContentBlock, isProjectBlockManifest, materializeProjectContent, partitionProjectContent, validateProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
 import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
+import { waitForStorageTransaction } from './transaction-lifetime.js'
 import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot } from './content-context.js'
 import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
 import { projectContentHash, validateProjectData, releaseProjectLocalTransaction, releaseProjectTransactionReceipt } from '../../../shared/project/validate.js'
@@ -27,6 +28,9 @@ import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT
   type StoredBinding, type StoredBytes, type StoredHistoryMetadata, type StoredProject, type StoredSnapshot } from './database.js'
 
 import { StorageAccounting, type StorageTotals } from './storage-accounting.js'
+import { prepareStorageAudit, StorageAuditConflictError, type StorageAuditPreparation } from './storage-audit.js'
+import { auditHistoryInWorker } from './history-audit-client.js'
+import type { HistoryHead, HistoryPin, HistoryVersion } from './history-records.js'
 import { IncrementalHistory, migrationManifest, historyVersionBytes, historyHeadBytes, historyPinBytes, type HistoryReadSession, type HistoryVersionSummary } from './incremental-history.js'
 import { collectUnusedResources, type UnusedResourceCollection } from './history-maintenance.js'
 import { readProjectDirectory, readHistoryDirectory } from './directory.js'
@@ -288,6 +292,9 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   private readonly accounting: StorageAccounting
   private readonly history: IncrementalHistory
   private readonly historyMigrations = new Map<string, Promise<void>>()
+  private readonly auditSignals = new WeakMap<Transaction, CancellationSignal>()
+  private readonly atomicTransactions = new WeakSet<Transaction>()
+  private readonly preparingAudits = new Set<AbortController>()
   private readonly snapshotReads = new WeakMap<SnapshotReadSession, SnapshotReadState>()
   private readonly activeSnapshotReads = new Set<SnapshotReadState>()
   // One bounded optional lease, never a disk-freshness receipt. The next final
@@ -304,6 +311,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     this.database.on('blocked', () => { this.invalidated = true; this.database.close() })
     this.database.on('close', () => {
       this.saveEpoch++
+      for (const controller of this.preparingAudits) controller.abort()
       if (this.savedEncoding) releaseEncodedSnapshot(this.savedEncoding)
       this.savedEncoding = undefined
       for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state)
@@ -352,7 +360,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     const existing = this.historyMigrations.get(owner)
     if (existing) return existing
     const pending = (async () => {
-      const source = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+      const source = await this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(withTransactionContentChecks(async () => {
         const head = await this.history.head(owner)
         if (head?.status === 'ready') return null
         const rows = await this.legacyHistoryRows(owner)
@@ -375,10 +383,10 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
         else if (head.migration?.sourceManifestHash !== manifest) throw new HistoryMetadataConflictError()
         await this.assertBudgets(owner)
       }, true)
-      const cold = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+      const cold = await this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(withTransactionContentChecks(async () => {
         const head = await this.history.head(owner)
         if (!head || head.migration?.sourceManifestHash !== manifest) throw new HistoryMetadataConflictError()
-        await this.history.audit(owner)
+        await this.history.audit(owner, options.signal, false)
         const versions = await this.history.versions(owner), pins = await this.history.pins(owner)
         const expectedHashes = new Set([current.contentHash, ...automatic.map(row => row.contentHash), ...snapshots.map(row => row.contentHash), ...imported.map(row => row.contentHash)])
         if (versions.length !== expectedHashes.size || versions.some(row => row.parentId !== null || row.id !== `root:${row.contentHash}` || !expectedHashes.has(row.contentHash))
@@ -432,7 +440,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
    * strictly validated version rows of this same transaction. */
   async historyOverview(ownerSceneId: string): Promise<HistoryOverview> {
     id(ownerSceneId); await this.ensureHistory(ownerSceneId)
-    const overview = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+    const overview = await this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(withTransactionContentChecks(async () => {
       const current = await this.database.projects.get(ownerSceneId)
       if (!current || current.status !== 'ready') throw new Error('原件所属工程不存在或尚未完成转换。')
       assertCurrent(current)
@@ -482,24 +490,53 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     return bundle ? validateProjectBundle(bundle, this.validation(options)) : null
   }
   close(): void {
+    for (const controller of this.preparingAudits) controller.abort()
     for (const state of this.activeSnapshotReads) this.closeSnapshotRead(state)
     if (this.savedEncoding) releaseEncodedSnapshot(this.savedEncoding)
     this.savedEncoding = undefined
     this.accounting.invalidate(); this.database.close()
   }
   private validation(options: ResourceOptions = {}): CompleteValidationOptions { return { images: this.options.validation.images, svg: this.options.validation.svg, signal: options.signal ?? this.options.validation.signal } }
+  private async prepareAccounting(options: ResourceOptions = {}): Promise<StorageAuditPreparation | undefined> {
+    // Nested native transactions retain their original isolation/rollback path.
+    if (Dexie.currentTransaction || !await this.accounting.needsScan()) return
+    const controller = new AbortController(), abort = () => controller.abort()
+    this.preparingAudits.add(controller); options.signal?.addEventListener?.('abort', abort, { once: true })
+    const signal: CancellationSignal = { get aborted() { return controller.signal.aborted || options.signal?.aborted === true },
+      addEventListener: controller.signal.addEventListener.bind(controller.signal), removeEventListener: controller.signal.removeEventListener.bind(controller.signal) }
+    const cleanup = () => { this.preparingAudits.delete(controller); options.signal?.removeEventListener?.('abort', abort) }
+    try {
+      const prepared = await prepareStorageAudit(this.database, rows => this.auditCapturedTotals(rows, signal), signal)
+      if (!prepared) { cleanup(); return }
+      return { confirm: (transaction, currentSignal) => prepared.confirm(transaction, currentSignal ?? signal),
+        release() { prepared.release(); cleanup() } }
+    } catch (error) { cleanup(); throw error }
+  }
   private async atomic<T>(options: ResourceOptions, run: () => Promise<T>, shareContentChecks = false): Promise<T> {
     checkCancelled(options.signal); await this.open(); checkCancelled(options.signal)
-    return this.database.transaction('rw', PROJECT_TABLES, async () => {
+    for (let attempt = 0; ; attempt++) {
+    const prepared = await this.prepareAccounting(options)
+    let executing = false
+    try { return await this.database.transaction('rw', PROJECT_TABLES, async () => {
+      this.atomicTransactions.add(Dexie.currentTransaction!)
+      if (options.signal) this.auditSignals.set(Dexie.currentTransaction!, options.signal)
       const execute = async () => {
         checkCancelled(options.signal)
+        executing = true
         const result = await run()
         checkCancelled(options.signal); return result
       }
       // All mutations share one bounded exact-content table and a measured budget receipt.
       void shareContentChecks
-      return withTransactionContentChecks(() => this.accounting.run(execute))
-    })
+      return withTransactionContentChecks(() => this.accounting.run(execute, prepared))
+    }) } catch (error) {
+      // Confirmation precedes every mutation/caller callback. A changed
+      // snapshot can be re-audited safely; never retry an executed operation,
+      // a CAS conflict, worker failure, unknown outcome or metered request.
+      if (!(error instanceof StorageAuditConflictError) || executing || attempt >= 2) throw error
+      checkCancelled(options.signal)
+    } finally { prepared?.release() }
+    }
   }
   private async assembled(project: ProjectData, owner: string, kind: BindingKind, recordId: string, shared?: ResourceAssembly, expectedBytes?: ReadonlyMap<string, Uint8Array>): Promise<ProjectBundle> {
     assertBinding(await this.database.resourceBindings.get([owner, kind, recordId]), project, owner, kind, recordId)
@@ -574,24 +611,45 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   private async putResources(bundles: readonly ProjectBundle[], options: ResourceOptions): Promise<void> {
     // Bundles have owned immutable byte ports; DB transactions never perform native image decoding.
     for (const bundle of bundles) {
-      for (const [hash, size] of projectResourceRecords(bundle.project)) {
-        const bytes = await Dexie.waitFor(bundle.resources.read(hash)), existing = await this.database.resources.get(hash)
-        if (bytes.length !== size || sha256Bytes(bytes) !== hash) throw new Error('准备后的资源字节发生改变。')
-        if (existing) {
-          const before = bytesOf(existing)
-          if (before.length !== bytes.length || !before.every((value, index) => value === bytes[index])) throw new Error('相同资源hash的已有字节冲突。')
-        } else await this.database.resources.add({ sha256: hash, bytes })
+      const records = [...projectResourceRecords(bundle.project)]
+      // Bound fresh DB rows and byte-port copies together: at most four
+      // resources and 20 MiB per batch, including a single maximum-size image.
+      for (let offset = 0; offset < records.length;) {
         checkCancelled(options.signal)
+        const batch: typeof records = []; let sizeBytes = 0
+        while (offset < records.length && batch.length < 4) {
+          const next = records[offset]
+          if (batch.length && sizeBytes + next[1] > 20 * 1024 * 1024) break
+          batch.push(next); sizeBytes += next[1]; offset++
+        }
+        const existingRows = await this.database.resources.bulkGet(batch.map(([hash]) => hash))
+        const captured = await waitForStorageTransaction(Promise.all(batch.map(([hash]) => bundle.resources.read(hash))))
+        for (const [i, [hash, size]] of batch.entries()) {
+          const bytes = captured[i], existing = existingRows[i]
+          if (bytes.length !== size || sha256Bytes(bytes) !== hash) throw new Error('准备后的资源字节发生改变。')
+          if (existing) {
+            const before = bytesOf(existing)
+            if (before.length !== bytes.length || !before.every((value, index) => value === bytes[index])) throw new Error('相同资源hash的已有字节冲突。')
+          } else await this.database.resources.add({ sha256: hash, bytes })
+          checkCancelled(options.signal)
+        }
       }
-      for (const [hash, license] of Object.entries(bundle.project.licenses)) {
-        const existing = await this.database.licenseTexts.get(hash)
-        if (existing) {
-          exact(existing, ['sha256', 'text'])
-          if (existing.sha256 !== hash || existing.text !== license.text) throw new Error('相同许可hash的已有正文冲突。')
-        } else await this.database.licenseTexts.add(license)
+      const licenses = Object.entries(bundle.project.licenses)
+      for (let offset = 0; offset < licenses.length; offset += 4) {
+        const batch = licenses.slice(offset, offset + 4)
+        const existingRows = await this.database.licenseTexts.bulkGet(batch.map(([hash]) => hash))
+        for (const [i, [hash, license]] of batch.entries()) {
+          const existing = existingRows[i]
+          if (existing) {
+            exact(existing, ['sha256', 'text'])
+            if (existing.sha256 !== hash || existing.text !== license.text) throw new Error('相同许可hash的已有正文冲突。')
+          } else await this.database.licenseTexts.add(license)
+          checkCancelled(options.signal)
+        }
       }
     }
   }
+
   private rowCost(table: string, value: unknown): { kind: keyof StorageTotals; bytes: number } | null {
     let size = 0
     const content: typeof assertContent = (project, hash) => {
@@ -625,15 +683,20 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   }
   private async scanTotals(): Promise<StorageTotals> {
     const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
-    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyVersions', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
+    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
       await scanRows(this.database.table(table), row => { const cost = this.rowCost(table, row); if (cost && !Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals[cost.kind] += cost.bytes })
       if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += await this.database.rawJsonBytes(table)
     }
+    // Physical history rows are charged once, independently of hydrated
+    // checkpoints. The graph audit below checks every complete version; doing
+    // rowCost here repeated its checkpoint validation before reconstruction.
+    totals.documentBytes += await this.database.rawJsonBytes('historyVersions')
     // Cold/opened connections prove the whole graph once; a session receipt is
     // retained only while all subsequent writes are transactionally measured.
     const heads = await this.database.historyHeads.toArray(), owners = new Set(heads.map(row => row.ownerSceneId))
     for (const head of heads) {
-      await this.history.audit(head.ownerSceneId)
+      const transaction = Dexie.currentTransaction!
+      await this.history.audit(head.ownerSceneId, this.auditSignals.get(transaction), this.atomicTransactions.has(transaction))
       const current = await this.database.projects.get(head.ownerSceneId)
       if (!current || current.revision !== head.savedRevision || current.contentHash !== head.contentHash) throw new Error('历史活动版本与完整当前工程不一致。')
     }
@@ -641,8 +704,62 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     await scanRows(this.database.historyPins, row => { if (!owners.has(row.ownerSceneId)) throw new Error('增量历史快照缺少所属分支。') })
     return totals
   }
-  private async usageInTransaction(ownerSceneId: string): Promise<StorageUsage> {
-    const totals = await this.accounting.totals(), metadata = await this.database.historyMetadata.get(ownerSceneId)
+  /** The native snapshot transaction is already complete. Validate its actual
+   * immutable block closure and every owner/branch without holding a DB lock.
+   * The final transaction must compare all captured rows and actual bytes. */
+  private async auditCapturedTotals(rows: ReadonlyMap<string, readonly unknown[]>, signal: CancellationSignal): Promise<StorageTotals> {
+    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
+    const blocks = new Map<string, ProjectContentBlock>(), hydrated = new Map<string, ProjectData>()
+    for (const raw of rows.get('projectContentBlocks') ?? []) {
+      checkCancelled(signal); const block = checkedContentBlock(raw); blocks.set(block.sha256, block)
+    }
+    const readRows = new Map<string, unknown[]>()
+    const materialize = async (table: string, raw: unknown): Promise<unknown> => {
+      const field = CONTENT_PAYLOAD_FIELDS[table]
+      if (!field || !raw || typeof raw !== 'object') return raw
+      const row = raw as Record<string, unknown>, value = row[field]
+      if (value === null) return raw
+      let project = value as ProjectData
+      if (isProjectBlockManifest(value)) {
+        const key = canonicalJson(value)
+        const known = hydrated.get(key)
+        if (known) return { ...row, [field]: known }
+        project = await materializeProjectContent(value, async hash => blocks.get(hash))
+        if (project.document.aggregateCoordinates?.encoding === 'local') project = decodeProjectCoordinates(project)
+        // Only this audit owns these objects. Consumers never mutate a raw row.
+        hydrated.set(key, project)
+      } else if (project?.document?.aggregateCoordinates?.encoding === 'local') project = decodeProjectCoordinates(project)
+      return { ...row, [field]: project }
+    }
+    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
+      const actual: unknown[] = []; readRows.set(table, actual)
+      for (const raw of rows.get(table) ?? []) {
+        checkCancelled(signal)
+        const row = await materialize(table, raw); actual.push(row)
+        const cost = this.rowCost(table, row)
+        if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
+        else if (cost) totals[cost.kind] += cost.bytes
+      }
+    }
+    const versions: HistoryVersion[] = []
+    for (const raw of rows.get('historyVersions') ?? []) {
+      checkCancelled(signal); totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
+      versions.push(await materialize('historyVersions', raw) as HistoryVersion)
+    }
+    const heads = readRows.get('historyHeads') as HistoryHead[], pins = readRows.get('historyPins') as HistoryPin[]
+    const owners = new Set(heads.map(head => head.ownerSceneId)), currents = readRows.get('projects') as StoredProject[]
+    for (const head of heads) {
+      checkCancelled(signal)
+      await auditHistoryInWorker(head.ownerSceneId, head, versions.filter(row => row.ownerSceneId === head.ownerSceneId), pins.filter(row => row.ownerSceneId === head.ownerSceneId), signal)
+      const current = currents.find(row => row.sceneId === head.ownerSceneId)
+      if (!current || current.revision !== head.savedRevision || current.contentHash !== head.contentHash) throw new Error('历史活动版本与完整当前工程不一致。')
+    }
+    if (versions.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史缺少所属活动分支。')
+    if (pins.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史快照缺少所属分支。')
+    return totals
+  }
+  private async usageInTransaction(ownerSceneId: string, prepared?: StorageAuditPreparation): Promise<StorageUsage> {
+    const totals = await this.accounting.totals(prepared), metadata = await this.database.historyMetadata.get(ownerSceneId)
     // A primary-key existence query has no project payload to hydrate.
     if (await this.database.projects.where('sceneId').equals(ownerSceneId).count()) assertMetadata(metadata, ownerSceneId)
     const head = await this.history.head(ownerSceneId)
@@ -659,7 +776,12 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   }
   async usage(ownerSceneId: string): Promise<StorageUsage> {
     id(ownerSceneId); await this.open()
-    return this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(this.usageInTransaction(ownerSceneId)))
+    for (let attempt = 0; ; attempt++) {
+    const prepared = await this.prepareAccounting()
+    try { return await this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(this.usageInTransaction(ownerSceneId, prepared), 125_000)) }
+    catch (error) { if (!(error instanceof StorageAuditConflictError) || attempt >= 2) throw error }
+    finally { prepared?.release() }
+    }
   }
   /** Metadata for a later CAS only; this is not complete project/library validation. */
   async historyMetadataVersion(ownerSceneId: string, options: ResourceOptions = {}): Promise<number> {
@@ -819,7 +941,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     id(owner); checkCancelled(options.signal); await this.ensureHistory(owner, options)
     const captured = captureJson(guard) as unknown as ProjectSaveGuard
     if (!integer(expectedRevision) || !hashValue(expectedContentHash) || !integer(captured.expectedMetadataVersion)) throw new Error('保护检查基线无效。')
-    return this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+    return this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(withTransactionContentChecks(async () => {
       checkCancelled(options.signal)
       await this.assertProtectionInTransaction(owner, expectedRevision, expectedContentHash, captured)
       checkCancelled(options.signal)
@@ -827,14 +949,24 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   }
   /** Install an explicitly selected native archive as one fresh complete project, atomically with every history binding. */
   async importArchive(input: HistoryArchive, options: ResourceOptions = {}): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
-    const pending = validateHistoryArchive(input, this.validation(options))
+    return this.installArchive(validateHistoryArchive(input, this.validation(options)), options)
+  }
+  /** Internal file-import handoff; a copied/fake proof falls back to full IO. */
+  async importSnapshotArchive(input: HistoryArchive, options: ResourceOptions = {}): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
+    return this.installArchive(consumeHistoryArchive(input, this.validation(options)), options)
+  }
+  private async installArchive(pending: Promise<HistoryArchive>, options: ResourceOptions): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
     const owner = this.options.runtime.ids.nextId(), savedAt = this.options.runtime.clock.now()
     id(owner); time(savedAt)
     const archive = await pending
     if (owner === archive.current.project.document.sceneId) throw new Error('导入须创建独立工程身份。')
-    const data = cloneJson(archive.current.project)
-    Object.assign(data.document, { sceneId: owner, revision: 0, createdAt: savedAt, updatedAt: savedAt })
-    const project = await validateProjectBundle({ project: data, resources: archive.current.resources }, this.validation(options))
+    const data = { ...archive.current.project, document: { ...archive.current.project.document,
+      sceneId: owner, revision: 0, createdAt: savedAt, updatedAt: savedAt } }
+    const candidate = { project: data, resources: archive.current.resources }
+    const project = tryDerivedProjectBundle(candidate, archive.current, options)
+      ?? await validateProjectBundle(candidate, this.validation(options))
+    // Capabilities, including a replaced adapter, must match before installing.
+    await validateProjectSnapshot(project, this.validation(options))
     const usedIds = new Set<string>(), snapshots: SnapshotBundle[] = archive.snapshots.map(source => {
       const snapshotId = this.options.runtime.ids.nextId(); id(snapshotId)
       if (usedIds.has(snapshotId)) throw new Error('导入快照身份重复。')
@@ -897,7 +1029,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   }
   private async captureSnapshot(ownerSceneId: string, snapshotId: string, options: ResourceOptions, readSession?: SnapshotReadSession): Promise<SnapshotBundle | null> {
     id(snapshotId); await this.ensureHistory(ownerSceneId, options)
-    const captured = await this.database.transaction('r', PROJECT_TABLES, () => Dexie.waitFor(withTransactionContentChecks(async () => {
+    const captured = await this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(withTransactionContentChecks(async () => {
       const current = await this.database.projects.get(ownerSceneId)
       if (!current || current.status !== 'ready') return null
       assertCurrent(current)

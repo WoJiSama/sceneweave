@@ -64,6 +64,31 @@ it('connects independently verified equal endpoints while rejecting same-revisio
   } finally { releaseEncodedSnapshot(rejected) }
 })
 
+it('records the cold-open first delta full-hash fallback separately from its following warm edit', async () => {
+  const name = `encoding-cold-open-${crypto.randomUUID()}`
+  const initial = new ProjectRepository({ name, runtime, validation })
+  const original = await validateProjectBundle(fixture(), validation)
+  await initial.save(original, null); initial.close()
+  const repo = new ProjectRepository({ name, runtime, validation }), workspace = new Workspace(repo, { runtime, validation })
+  const observations: { hashes: number; delta: boolean; encodingPair: boolean }[] = []
+  try {
+    const cold = await repo.load(original.project.document.sceneId)
+    expect(cold).not.toBeNull()
+    await workspace.openPersisted(await fromBundle(cold!, validation))
+    const digest = vi.spyOn(hashModule, 'sha256Bytes'), create = deltaModule.tryCreateLocalProjectDelta
+    vi.spyOn(deltaModule, 'tryCreateLocalProjectDelta').mockImplementation((before, after, source = after, encodings) => {
+      const start = digest.mock.calls.length, delta = create(before, after, source, encodings)
+      observations.push({ hashes: digest.mock.calls.length - start, delta: !!delta, encodingPair: !!encodings })
+      return delta
+    })
+    for (const rotationDeg of [90, 180]) { await workspace.updateProp('item', { rotationDeg }); await workspace.flush() }
+    expect(observations).toEqual([{ hashes: 2, delta: true, encodingPair: false }, { hashes: 0, delta: true, encodingPair: true }])
+    const expected = toBundle(workspace.getState().project!).project
+    vi.restoreAllMocks(); repo.close()
+    expect((await repo.load(expected.document.sceneId))!.project).toEqual(expected)
+  } finally { vi.restoreAllMocks(); await workspace.close().catch(() => {}); repo.close(); await Dexie.delete(name) }
+})
+
 it('never inherits an encoding owner from a cloned, caller-frozen or accessor bundle', async () => {
   const source = await validateProjectBundle(fixture(), validation)
   const clone = cloneJson(source.project), frozen = freezeJson(cloneJson(source.project))

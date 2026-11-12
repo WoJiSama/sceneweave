@@ -11,7 +11,7 @@ import type { CompleteValidationOptions } from '../../../shared/ports/resources.
 import type { ConversionJob, ConvertedFamily } from '../../../shared/migration/types.js'
 import { CONVERTER_VERSION } from '../../../shared/migration/types.js'
 import { exportMigrationSet, importMigrationSet } from '../../../shared/migration/set.js'
-import { createMemoryResources } from '../../../shared/project/resources.js'
+import { createMemoryResources, validateProjectBundle } from '../../../shared/project/resources.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import * as binaryHash from '../../../shared/project/binary.js'
@@ -96,6 +96,46 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 project repository and two-phase conversion', () => {
+  it('composes a verified file import with one pixel check, but fully checks public and forged/replaced-capability inputs', async () => {
+    const repo = repository(), raw = await imageFixture(), decode = vi.spyOn(validation.images, 'decode')
+    const verified = await validateProjectBundle(raw, validation), count = decode.mock.calls.length
+    expect(count).toBeGreaterThan(0)
+    const installed = await repo.importSnapshotArchive({ current: verified, snapshots: [] })
+    expect(installed.project.project.document.sceneId).not.toBe(verified.project.document.sceneId)
+    expect(decode).toHaveBeenCalledTimes(count)
+    await repo.importArchive({ current: verified, snapshots: [] })
+    expect(decode).toHaveBeenCalledTimes(count * 2)
+    await repo.importSnapshotArchive({ current: { project: cloneJson(verified.project), resources: verified.resources }, snapshots: [] })
+    expect(decode).toHaveBeenCalledTimes(count * 3)
+    const original = validation.images.decode
+    validation.images.decode = async (...args) => original(...args)
+    try { await repo.importSnapshotArchive({ current: verified, snapshots: [] }); expect(decode).toHaveBeenCalledTimes(count * 4) }
+    finally { validation.images.decode = original }
+    const cancelled = new AbortController(); cancelled.abort()
+    await expect(repo.importSnapshotArchive({ current: verified, snapshots: [] }, { signal: cancelled.signal })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+  it('preserves selected verified history under fresh local bindings and rejects oversized archives before pixel replay', async () => {
+    const repo = repository(), raw = await imageFixture(), decode = vi.spyOn(validation.images, 'decode')
+    const verified = await validateProjectBundle(raw, validation), original = cloneJson(verified.project)
+    decode.mockClear()
+    const snapshot = { id: 'original-history', ownerSceneId: original.document.sceneId, lineageId: original.historyIdentity.lineageId,
+      sourceRevision: original.document.revision, name: 'selected history', kind: 'named' as const, createdAt: NOW,
+      contentHash: projectContentHash(original), bundle: verified }
+    const installed = await repo.importSnapshotArchive({ current: verified, snapshots: [snapshot] })
+    expect(decode).not.toHaveBeenCalled()
+    expect(installed.snapshots).toHaveLength(1)
+    const summary = installed.snapshots[0]
+    expect(summary.id).not.toBe(snapshot.id)
+    expect(summary.ownerSceneId).toBe(installed.project.project.document.sceneId)
+    expect(summary.contentHash).toBe(snapshot.contentHash)
+    expect((await repo.loadSnapshot(summary.ownerSceneId, summary.id))!.bundle.project).toEqual(original)
+    expect(verified.project).toEqual(original)
+    decode.mockClear(); const projects = await repo.database.projects.count()
+    await expect(repo.importSnapshotArchive({ current: verified,
+      snapshots: Array.from({ length: 65 }, (_, i) => ({ ...snapshot, id: `too-many-${i}` })) })).rejects.toThrow(/64/)
+    expect(decode).not.toHaveBeenCalled()
+    expect(await repo.database.projects.count()).toBe(projects)
+  })
   it('creates only on explicit use, owns the exact schema4 stores and refuses old names or unknown schemas', async () => {
     const repo = repository(), before = (await indexedDB.databases()).map(db => db.name)
     expect(before).not.toContain(repo.database.name)
@@ -155,7 +195,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
       resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 0 })
     expect(usage.documentBytes - before.documentBytes).toBe(pins.reduce((sum, pin) => sum + historyPinBytes(pin), 0))
     expect(scanning).not.toHaveBeenCalled()
-    const cold = repository(repo.database.name), coldScan = vi.spyOn(cold as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals')
+    const cold = repository(repo.database.name), coldScan = vi.spyOn(cold as unknown as { auditCapturedTotals(): Promise<unknown> }, 'auditCapturedTotals')
     expect(await cold.usage(owner)).toEqual(usage)
     expect(coldScan).toHaveBeenCalledTimes(1)
     expect(await cold.usage(owner)).toEqual(usage)
@@ -169,7 +209,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
       epoch: await repo.database.storageState.get('epoch') }
     // Model a nearly full library without allocating 128MiB of test data.
     const totals = await repo.usage(owner)
-    vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals').mockResolvedValue({ ...totals,
+    vi.spyOn(repo as unknown as { auditCapturedTotals(): Promise<unknown> }, 'auditCapturedTotals').mockResolvedValue({ ...totals,
       documentBytes: PROJECT_STORAGE_LIMITS.documentBytes - 1 })
     ;(repo as unknown as { accounting: { invalidate(): void } }).accounting.invalidate()
     await expect(repo.renameSnapshot(owner, snapshot.id, 'longer snapshot name', snapshot.contentHash, 1)).rejects.toThrow(/累计预算/)
@@ -210,6 +250,24 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     expect(await repo.historyMetadataVersion(owner)).toBe(0)
     await expect(repo.save(revision(input, 1), 0)).rejects.toThrow(/资源字节hash/)
     expect((await repo.database.projects.get(owner))!.revision).toBe(0)
+  })
+  it('cold-audits other owners and orphan rows before saving, with exact physical document accounting', async () => {
+    const repo = repository(), input = fixture(), other = fixture()
+    other.project.document.sceneId = 'another-owner'
+    await repo.save(input, null); await repo.save(other, null)
+    const owners = [input.project.document.sceneId, other.project.document.sceneId]
+    repo.close()
+    const cold = repository(repo.database.name)
+    expect((await cold.usage(owners[0])).documentBytes).toBe(await nativeDocumentBytes(cold))
+    const root = (await cold.database.historyVersions.where('ownerSceneId').equals(owners[1]).first())!
+    const changed = cloneJson(root); changed.checkpoint!.document.title = 'damaged other project'
+    await cold.database.historyVersions.put(changed)
+    await expect(cold.save(revision(input, 1), 0)).rejects.toThrow(/hash/)
+    expect((await cold.database.projects.get(owners[0]))!.revision).toBe(0)
+    await cold.database.historyVersions.put(root)
+    await cold.database.historyHeads.delete(owners[1])
+    await expect(cold.usage(owners[0])).rejects.toThrow(/所属|分支/)
+    expect((await cold.database.projects.get(owners[0]))!.revision).toBe(0)
   })
   it('checks metadata/current envelopes and preserves final metadata CAS after the lightweight query', async () => {
     const repo = repository(), input = fixture(), owner = input.project.document.sceneId

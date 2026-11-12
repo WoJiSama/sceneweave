@@ -1,6 +1,7 @@
 import Dexie, { type Transaction } from 'dexie'
 import type { ProjectDatabase } from './database.js'
 import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
+import type { StorageAuditPreparation } from './storage-audit.js'
 
 export interface StorageTotals { documentBytes: number; resourceBytes: number; legacyBytes: number }
 type Cost = { kind: keyof StorageTotals; bytes: number } | null
@@ -86,25 +87,31 @@ export class StorageAccounting {
       || (value as { key: unknown }).key !== 'epoch' || !Number.isSafeInteger((value as { epoch: number }).epoch) || (value as { epoch: number }).epoch < 0) throw new Error('存储事务版本损坏。')
     return (value as { epoch: number }).epoch
   }
-  async totals(): Promise<StorageTotals> {
+  /** This is only a scheduling hint. totals() repeats the actual transaction
+   * check, and a preparation must prove every native byte before adoption. */
+  async needsScan(): Promise<boolean> {
+    if (!this.receipt || this.receipt.generation !== generation(this.db.name)) return true
+    return this.receipt.epoch !== this.checkedEpoch(await this.db.storageState.get('epoch'))
+  }
+  async totals(prepared?: StorageAuditPreparation): Promise<StorageTotals> {
     const tx = Dexie.currentTransaction
     if (!tx) throw new Error('预算检查必须位于存储事务中。')
     const pending = this.pending.get(tx)
     if (pending) return { ...pending }
     const epoch = this.checkedEpoch(await this.db.storageState.get('epoch')), current = generation(this.db.name)
-    if (this.receipt && this.receipt.epoch === epoch && this.receipt.generation === current) return { ...this.receipt.totals }
-    const totals = await this.scan()
+    if (!prepared && this.receipt && this.receipt.epoch === epoch && this.receipt.generation === current) return { ...this.receipt.totals }
+    const totals = prepared ? await prepared.confirm(tx.idbtrans) : await this.scan()
     const receipt = { totals: { ...totals }, epoch, generation: current }
     tx.on('complete', () => { if (generation(this.db.name) === current) this.receipt = receipt })
     return totals
   }
-  async run<T>(operation: () => Promise<T>): Promise<T> {
+  async run<T>(operation: () => Promise<T>, prepared?: StorageAuditPreparation): Promise<T> {
     const tx = Dexie.currentTransaction
     if (!tx) throw new Error('预算记账必须绑定当前原子写事务。')
     if (this.pending.has(tx)) return operation()
     const epoch = this.checkedEpoch(await this.db.storageState.get('epoch'))
     if (epoch === Number.MAX_SAFE_INTEGER) throw new Error('存储事务版本已耗尽。')
-    const totals = await this.totals()
+    const totals = await this.totals(prepared)
     this.pending.set(tx, totals)
     try {
       const result = await operation()
