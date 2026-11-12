@@ -12,6 +12,14 @@
 
 地图收口的验收入口见[09对应矩阵](../docs/09-quality-plan.md#map-completion-acceptance)，实际轮次见[主题证据](../docs/archive/workspace-content-validation.md#map-completion-20261112)。`vegetation-slider.spec.ts`检查真实ppm范围及鼠标／键盘；`island-dressing.spec.ts`保留原完整树冠绘制旅程，`shared/surface-rules/{regions,commands}.test.ts`检查斜边整数裁切同时不超出支撑和原笔迹、孔洞／断开分量及非法输入。室内5／地形建筑4／混合4沿`generation/domains/{interior,mixed}`及registry／intent核对整椅与600mm使用区、真实通路、旧配方hash和严格映射；`natural-detail-queue.spec.ts`明确保留旧混合3重放并另断言新默认4。迁入、窄屏焦点、建筑批次与生成回执继续运行原用例，不能以新小测试替代完整旅程。
 
+`woodland-distribution.spec.ts`从正常森林／混合表单显式选择疏密林地，保存新工程后下载完整包核对4个不规则确切分区与角色，再从首页冷开并比较全部条目hash、保留原工程。配合`application/workspace/woodland-distribution.test.ts`及generation-intent测试核目标守恒、真实清除区／占地／通路、偏移seed／边界拒绝、默认均匀和旧重放；不是给共享forest算法新增版本，也不承诺目标全部可放置。
+
+`interior/layout-balanced.test.ts`核横纵走廊缩短、1–24房、准确净面积及完整分区、硬关系、单房最大面积扣除走廊、取消与同一四候选预算；独立真实工程新旧重放及普通保存冷开继续另证，不把比例评分等同美术签收。
+
+`bedroom-groups.spec.ts`走正常室内／混合客房入口，核当前室内10／地形建筑及混合9配方、实际床、删除／撤销重做／保存和首页冷开；`furniture-groups.spec.ts`继续覆盖厨房／餐厅入口。真实床侧600mm使用带、旧版到中心的有限路线、储物取物区、旋转／偏心和不可放置边界由`interior/furnishing-bedroom.test.ts`及`furnishing.test.ts`独立读实际几何；`furnishing-bedroom-group.test.ts`另核床柜完整包络、横纵原图、偏心／四向、取物区及过大／非正交回退；`furnishing.test.ts`保留修改前算法8三用途真实门口指纹并覆盖新9的独立房间尺寸与功能组。`furnishing-circulation.test.ts`另覆盖新版真实门口连接、交错绕行、599／600mm临界口、凹房／转角、原生拒绝及预算／取消。`furnishing.test.ts`核客房／餐厅／厨房／库房实际门与全带物理／绘制不相交，人工保护、关门／删门与完整物理只读依赖由`local-interior.test.ts`覆盖。普通入口通过不自动证明完整床侧／美术矩阵或全图可达。
+
+`furniture-groups.spec.ts`从普通室内与混合表单生成厨房／餐厅，实际采用并下载完整包核对当前室内10／地形建筑9／混合9的确切配方，真实删除家具、一次撤销／重做、保存首页冷开及全部包条目hash保持。只读下载来自正常UI，不使用DEV句柄或数据库注入。纯共享`interior/furnishing-groups`及`furnishing`另核完整偏心图框、四向接续／长墙端点起排、工作净空／实际通路、多座具预留兑现，以及修改前冻结的旧2–5餐厅／厨房结果指纹；技术检查不替代成图目视与用户P3。
+
 服务端`private-storage.test.ts`在当前系统检查实际权限及链接／越界拒绝；`svg-artifacts.test.ts`覆盖真实文件额外BOM和持久字节，`image-edit.test.ts`与`app.test.ts`核对服务资源、预算／任务保全。Windows不能以POSIX mode位代替DACL证据，未运行的Linux检查须另标明。AI任务256上限测试保留默认5秒等待，首次超时及后续复验一并保全，不将单项筛选运行的其他跳过项算作整套通过。
 
 AI场景HTTP旅程使用[当前创作4](../docs/05-ai-and-generation.md#current-authoring-contract)，素材创作保持禁用且`artwork:null`。`m2-assimilation-acceptance.spec.ts`与`m23-m24-authoring.spec.ts`中的SVG/同化部分明确测试内部保留配方重放：使用真实浏览器SVG/图片适配器、保护快照、CAS和冷读，保全固定源、许可、冻结范围与离线历史；不伪装公开新建AI任务。直接保全后重开不提供撤销记录，后续普通编辑及局部恢复另核对撤销语义。
