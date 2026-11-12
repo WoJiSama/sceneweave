@@ -10,10 +10,12 @@ import { loadAiConfig } from './config.js'
 import { TaskEngine } from './engine.js'
 import { TaskFault, TaskStore } from './store.js'
 import { ProviderFailure } from './provider-types.js'
+import { assertPrivateStorageAccess } from './private-storage.js'
 import { AUTHORING_LIMITS } from '../../src/shared/ai/authoring-protocol.js'
 import { CONTINUATION_POLICY, BUDGET_POLICY_HASHES, createContinuationPolicyV2 } from '../../src/shared/ai/budget-policy.js'
 import { TASK_BUDGET_PROFILES } from '../../src/shared/budget/task-budget.js'
 import type { ProviderAdapter, ProviderCompletion, ProviderInput, ProviderToolCall } from './provider-types.js'
+import { DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS } from '../../src/shared/ai/project-workflow.js'
 
 const tokenA = 'a'.repeat(40), tokenB = 'b'.repeat(40), origin = 'https://editor.example.test'
 const cleanups: (() => void)[] = []
@@ -35,6 +37,23 @@ const done = (text = '', toolCalls: ProviderToolCall[] = []): ProviderCompletion
 async function waitStatus(store: TaskStore, id: string, status: string) { await vi.waitFor(() => expect(store.read(id).snapshot.status).toBe(status), { timeout: 3000, interval: 5 }); return store.read(id).snapshot }
 
 describe('private AI task HTTP service', () => {
+  it('loads project and image-item procedures into a new conversation without granting image execution', async () => {
+    const inputs: ProviderInput[] = []
+    const { create, store } = setup({ complete: async input => {
+      inputs.push(input)
+      expect(input.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining(DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS) })
+      expect(input.messages[0].content).toContain('sceneweave-project-creation@1')
+      expect(input.messages[0].content).toContain('sceneweave-image-items@1')
+      expect(input.tools.map(tool => tool.name)).toEqual(['sceneweave_connection_info'])
+      return inputs.length === 1 ? done('', [{ id: 'image-request', name: 'image_import_extract_item', arguments: '{}' }]) : done()
+    } })
+    const created = await (await create()).json() as TaskSnapshot
+    const completed = await waitStatus(store, created.id, 'completed')
+    expect(inputs).toHaveLength(2)
+    expect(completed.tools).toEqual([expect.objectContaining({ name: 'image_import_extract_item', success: false })])
+    expect(JSON.parse(completed.tools[0].output).error.code).toBe('unsupported_tool')
+    expect(store.read(created.id).authoring).toBeUndefined()
+  })
   it('requires a distinct bearer, exact Origin and restrictive preflight; health never reveals configuration', async () => {
     const { app, request } = setup()
     expect(await (await app.request('/healthz')).json()).toEqual({ ok: true })
@@ -431,7 +450,8 @@ describe('task lifecycle and physical private storage', () => {
     const { directory, store } = setup(undefined, () => now)
     const created = store.create('alice', taskRequest(), 4).task
     const artifacts = join(directory, 'artifacts', created.snapshot.id); mkdirSync(artifacts); writeFileSync(join(artifacts, 'temp'), 'private')
-    expect(statSync(directory).mode & 0o777).toBe(0o700); expect(statSync(join(directory, 'tasks.sqlite')).mode & 0o777).toBe(0o600)
+    if (process.platform === 'win32') assertPrivateStorageAccess(directory)
+    else { expect(statSync(directory).mode & 0o777).toBe(0o700); expect(statSync(join(directory, 'tasks.sqlite')).mode & 0o777).toBe(0o600) }
     now += AI_LIMITS.retentionDays * 86400000 + 1; store.sweep()
     expect(store.count()).toBe(0); expect(() => statSync(artifacts)).toThrow()
     const orphan = join(directory, 'artifacts', randomUUID()); mkdirSync(orphan); writeFileSync(join(orphan, 'temp'), 'private')

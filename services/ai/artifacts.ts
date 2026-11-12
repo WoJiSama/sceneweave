@@ -1,15 +1,16 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { PrivateStorage } from './private-storage.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** A reserved private root; M2-1 has no endpoint capable of creating or serving artifacts. */
 export class PrivateArtifacts {
   readonly root: string
-  constructor(dataDir: string) {
+  readonly access: PrivateStorage
+  constructor(dataDir: string, access = new PrivateStorage(dataDir)) {
+    this.access = access
     this.root = join(resolve(dataDir), 'artifacts')
-    mkdirSync(this.root, { recursive: true, mode: 0o700 })
-    if (lstatSync(this.root).isSymbolicLink() || !statSync(this.root).isDirectory()) throw new Error('Invalid private storage')
-    chmodSync(this.root, 0o700)
+    this.access.directory(this.root)
   }
   removeTask(id: string) {
     if (!uuid.test(id)) throw new Error('Invalid task identity')

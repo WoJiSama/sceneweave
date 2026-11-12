@@ -279,11 +279,14 @@ export class TaskEngine {
             current.messages.push({ role: 'assistant', content: completion.text || null, ...(completion.toolCalls.length ? { toolCalls: completion.toolCalls } : {}), ...(reasoningContent !== undefined ? { reasoningContent } : {}) })
             const events: EventInput[] = [{ type: 'usage', data: current.snapshot.usage }]
             // A provider ignoring the last-round tool boundary cannot mutate the
-            // draft. Keep its completed usage receipt, then fail without retry.
+            // draft. Commit its completed usage and retained-draft closeout
+            // together: SSE consumers stop at the first terminal status.
             if (textOnlyFinalRound && completion.toolCalls.length) {
               this.store.stopClock(current)
               current.snapshot.status = 'failed'; current.snapshot.error = safeTaskError(finalRoundReason!, 'finished')
-              events.push({ type: 'error', data: current.snapshot.error }, { type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } })
+              events.push({ type: 'error', data: current.snapshot.error })
+              if (current.authoring?.start.schemaVersion === 4) events.push(...this.finishStoppedDraft(current, finalRoundReason === 'execution_limit' ? 'time' : 'request_budget'))
+              else events.push({ type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } })
               return events
             }
             for (const call of completion.toolCalls) events.push(...this.executeTool(current, call))
@@ -293,21 +296,15 @@ export class TaskEngine {
                 checkAuthoringDraft(current.authoring.start, current.authoring.state)
                 current.snapshot.status = 'waiting_browser'
               } else current.snapshot.status = 'completed'
-              events.push({ type: 'status', data: { status: current.snapshot.status, reason: current.snapshot.status === 'waiting_browser' ? '草稿已生成，等待本机资源检查。' : null } })
+              if (current.authoring?.start.schemaVersion === 4) events.push(...this.finishStoppedDraft(current, textOnlyFinalRound ? finalRoundReason === 'execution_limit' ? 'time' : 'request_budget' : 'completed'))
+              else events.push({ type: 'status', data: { status: current.snapshot.status, reason: current.snapshot.status === 'waiting_browser' ? '草稿已生成，等待本机资源检查。' : null } })
             }
             if (current.snapshot.lastSequence + events.length > AI_LIMITS.events - (completion.toolCalls.length ? 2 : 0)) throw new TaskFault('event_limit')
             return events
           })
-          if (textOnlyFinalRound && completion.toolCalls.length) {
-            // A provider ignoring the tool boundary is never retried. Its valid
-            // preceding draft remains available with a structured boundary report.
-            if (task.authoring?.start.schemaVersion === 4) this.finishStoppedDraft(id, generation, finalRoundReason === 'execution_limit' ? 'time' : 'request_budget')
-            return
-          }
-          if (!completion.toolCalls.length) {
-            if (task.authoring?.start.schemaVersion === 4) this.finishStoppedDraft(id, generation, textOnlyFinalRound ? finalRoundReason === 'execution_limit' ? 'time' : 'request_budget' : 'completed')
-            return
-          }
+          // No further request follows a final round, including a provider
+          // ignoring its text-only boundary. The committed draft stays intact.
+          if (textOnlyFinalRound || !completion.toolCalls.length) return
         } finally { releaseRequest?.() }
       }
     } catch (error) {
@@ -323,16 +320,15 @@ export class TaskEngine {
       this.active.get(id)?.abort.abort()
     }
   }
-  private finishStoppedDraft(id: string, generation: number, reason: AuthoringCloseoutV4['reason']) {
-    this.store.change(id, generation, current => {
-      if (current.authoring?.start.schemaVersion !== 4) return []
-      const closeout = buildAuthoringCloseout(current, reason, this.store.remaining(current), this.store.limits(current))
-      current.authoring.closeout = closeout
-      if (closeout.reviewable) current.snapshot.status = 'waiting_browser'
-      updateAuthoringSummary(current)
-      return [{ type: 'draft_updated', data: current.snapshot.authoring! }, { type: 'status', data: { status: current.snapshot.status,
-        reason: closeout.reviewable ? '合法隔离草稿已保留；请检查列出的缺项与实际画面后在本机校验。' : '任务没有生成可采用的新改动。' } }]
-    })
+  /** Called inside the same store transaction as the final provider receipt. */
+  private finishStoppedDraft(current: StoredTask, reason: AuthoringCloseoutV4['reason']): EventInput[] {
+    if (current.authoring?.start.schemaVersion !== 4) return []
+    const closeout = buildAuthoringCloseout(current, reason, this.store.remaining(current), this.store.limits(current))
+    current.authoring.closeout = closeout
+    if (closeout.reviewable) current.snapshot.status = 'waiting_browser'
+    updateAuthoringSummary(current)
+    return [{ type: 'draft_updated', data: current.snapshot.authoring! }, { type: 'status', data: { status: current.snapshot.status,
+      reason: closeout.reviewable ? '合法隔离草稿已保留；请检查列出的缺项与实际画面后在本机校验。' : '任务没有生成可采用的新改动。' } }]
   }
   private executeTool(task: StoredTask, call: ProviderToolCall): EventInput[] {
     if (!validId.test(call.id) || !validId.test(call.name) || utf8Size(call.arguments) > AI_LIMITS.promptBytes) throw new ProviderFailure('provider_protocol', 'Invalid tool call')

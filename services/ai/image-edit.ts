@@ -1,9 +1,10 @@
-import { constants, closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { constants, closeSync, fsyncSync, ftruncateSync, lstatSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { inflateSync } from 'node:zlib'
 import { ImageEditRequestSchema, ImageEditResponseSchema, IMAGE_EDIT_LIMITS, chooseImageEditSize, decodeImageEditBase64,
   imageEditCapabilities, imageEditInputHash, inspectImageEditPng, sha256Bytes, type ImageEditResponse } from '../../src/shared/asset-refinement/model-protocol.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
+import { PrivateStorage } from './private-storage.js'
 
 export interface ImageEditProviderConfig { baseUrl: string; apiKey: string; model: string }
 export class ImageEditFault extends Error {
@@ -74,11 +75,11 @@ export function createImageEditService(options: ImageEditServiceOptions) {
   if (!Number.isInteger(maximum) || maximum < 1 || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > IMAGE_EDIT_LIMITS.timeoutMs) throw new Error('Invalid image editing service limits')
   const receipts = new Map<string, Receipt>(), directory = options.dataDir && join(options.dataDir, 'image-edit-requests')
   let active = 0
+  let access: PrivateStorage | undefined
   const ensureDirectory = () => {
     if (!directory) return
-    mkdirSync(directory, { recursive: true, mode: 0o700 })
-    const stat = lstatSync(directory)
-    if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw new ImageEditFault('image_edit_storage_unavailable', 503)
+    try { access ??= new PrivateStorage(directory); access.directory(directory) }
+    catch { throw new ImageEditFault('image_edit_storage_unavailable', 503) }
   }
   const claim = (key: string, inputHash: string) => {
     const duplicate = (receipt: Receipt): never => { throw new ImageEditFault(receipt.inputHash === inputHash ? 'image_edit_duplicate_request' : 'image_edit_request_conflict', 409, receipt.state) }
@@ -96,11 +97,12 @@ export function createImageEditService(options: ImageEditServiceOptions) {
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
           const stat = lstatSync(path)
           if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512) throw new Error('Invalid receipt')
+          access!.file(path)
           const saved: unknown = JSON.parse(readFileSync(path, 'utf8'))
           if (!object(saved) || typeof saved.inputHash !== 'string' || !/^[a-f0-9]{64}$/.test(saved.inputHash) || !['unknown', 'finished'].includes(String(saved.state))) throw new Error('Invalid receipt')
           duplicate(saved as unknown as Receipt)
         }
-        writeFileSync(fd!, JSON.stringify(receipt)); fsyncSync(fd!)
+        access!.file(path); writeFileSync(fd!, JSON.stringify(receipt)); fsyncSync(fd!)
       } catch (error) { if (error instanceof ImageEditFault) throw error; throw new ImageEditFault('image_edit_storage_unavailable', 503) }
       finally { if (fd !== undefined) closeSync(fd) }
     } else if (receipts.size >= 10000) throw new ImageEditFault('image_edit_receipt_limit', 503)
@@ -110,7 +112,13 @@ export function createImageEditService(options: ImageEditServiceOptions) {
     const receipt: Receipt = { inputHash, state: 'finished' }
     if (directory) {
       let fd: number | undefined
-      try { fd = openSync(join(directory, key + '.json'), constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW); writeFileSync(fd, JSON.stringify(receipt)); fsyncSync(fd) }
+      try {
+        const path = join(directory, key + '.json'); access!.file(path)
+        // Windows rejects O_TRUNC without O_CREAT. Open the verified existing
+        // receipt read/write, then truncate that exact handle; never recreate.
+        fd = openSync(path, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0))
+        ftruncateSync(fd, 0); writeFileSync(fd, JSON.stringify(receipt)); fsyncSync(fd)
+      }
       catch { throw new ImageEditFault('image_edit_storage_unavailable', 503, 'finished') }
       finally { if (fd !== undefined) closeSync(fd) }
     }

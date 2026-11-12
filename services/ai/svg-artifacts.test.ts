@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { PrivateArtifacts } from './artifacts.js'
 import { StaticSvgArtifacts } from './svg-artifacts.js'
+import { assertPrivateStorageAccess } from './private-storage.js'
 
 const roots: string[] = []
 const source = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 16"><rect x="0" y="0" width="32" height="16" fill="#13579b"/></svg>'
@@ -16,15 +17,18 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 
 describe('private static SVG artifacts', () => {
   it('stores an atomically verified, task-local original and normalized source without returning a path', () => {
-    const { artifacts, taskId } = make(), stored = artifacts.store(taskId, source), again = artifacts.store(taskId, source)
+    const { root, artifacts, taskId } = make(), stored = artifacts.store(taskId, source), again = artifacts.store(taskId, source)
     expect(stored).toEqual(again)
     expect(stored.record).toMatchObject({ schemaVersion: 1, id: stored.record.sourceSha256, processorId: 'sceneweave-static-svg', processorVersion: 1 })
     expect(stored.sourceSvg).toBe(source)
     expect(stored.normalizedSvg).toContain('viewBox="0 0 32 16"')
     expect(Object.keys(stored)).toEqual(['record', 'sourceSvg', 'normalizedSvg'])
     const base = join(artifacts.root, taskId, 'svg', stored.record.id)
-    expect(statSync(base).mode & 0o777).toBe(0o700)
-    for (const name of ['source.svg', 'normalized.svg', 'record.json']) expect(statSync(join(base, name)).mode & 0o777).toBe(0o600)
+    if (process.platform === 'win32') assertPrivateStorageAccess(root)
+    else {
+      expect(statSync(base).mode & 0o777).toBe(0o700)
+      for (const name of ['source.svg', 'normalized.svg', 'record.json']) expect(statSync(join(base, name)).mode & 0o777).toBe(0o600)
+    }
   })
 
   it('rejects active SVG before creating a task artifact and isolates task namespaces', () => {
@@ -41,7 +45,7 @@ describe('private static SVG artifacts', () => {
     writeFileSync(join(base, 'normalized.svg'), '<svg/>')
     expect(() => artifacts.read(taskId, stored.record.id)).toThrow(/SVG|一致/)
     rmSync(base, { recursive: true, force: true })
-    const target = join(root, 'outside'); mkdirSync(target); symlinkSync(target, base)
+    const target = join(root, 'outside'); mkdirSync(target); symlinkSync(target, base, process.platform === 'win32' ? 'junction' : 'dir')
     expect(() => artifacts.read(taskId, stored.record.id)).toThrow(/实际目录/)
   })
 
@@ -51,5 +55,13 @@ describe('private static SVG artifacts', () => {
     record.sourceSizeBytes = 1
     writeFileSync(join(base, 'record.json'), JSON.stringify(record))
     expect(() => artifacts.read(taskId, stored.record.id)).toThrow(/规范编码|一致/)
+  })
+  it.each(['source.svg', 'normalized.svg', 'record.json'])('rejects prepended UTF-8 BOM bytes in %s instead of decoding away the tamper', name => {
+    const { artifacts, taskId } = make(), stored = artifacts.store(taskId, source)
+    const path = join(artifacts.root, taskId, 'svg', stored.record.id, name), original = readFileSync(path)
+    writeFileSync(path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), original]))
+    expect(() => artifacts.read(taskId, stored.record.id)).toThrow(/SVG|一致|JSON|UTF-8/)
+    writeFileSync(path, original)
+    expect(artifacts.read(taskId, stored.record.id)).toEqual(stored)
   })
 })
