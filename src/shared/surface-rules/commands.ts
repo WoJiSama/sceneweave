@@ -14,6 +14,7 @@ import { decorationAsProp } from '../decorations/geometry.js'
 import { inspectDecorationChanges } from '../decorations/commands.js'
 import { surfaceRuleRegionSchema } from './contracts.js'
 import { resolveSurfaceRules } from './resolve.js'
+import { clipSurfaceRegions } from './regions.js'
 
 const field = z.enum(['material', 'trees', 'shrubs', 'grass'])
 const region = z.array(surfaceRuleRegionSchema).min(1).max(128)
@@ -76,7 +77,7 @@ export function inspectSurfaceRuleChanges(before: SceneDocument, after: SceneDoc
 export function clipSurfaceRuleRegions(scene: SceneDocument, areaId: string, input: SurfaceRuleRegion[]): SurfaceRuleRegion[] {
   const area = scene.terrainAreas[areaId]
   if (!area) throw new Error('地表规则的明确支撑不存在。')
-  return regions(polygonBooleanWithHoles({ operation: 'intersection', subject: polygons(input), clip: [{ outer: terrainPoints(area), holes: [] }] }).polygons)
+  return clipSurfaceRegions(input, terrainPoints(area))
 }
 
 /** One candidate edits rule geometry, exact generated members and protection records together. */

@@ -1,7 +1,8 @@
 import type { PointMm, SceneDocument, SurfaceRuleRegion } from '../../shared/model/scene.js'
 import { polygonInside } from '../../shared/geometry/geometry.js'
-import { polygonBoolean, polygonBooleanWithHoles } from '../../shared/geometry/polygon-boolean.js'
+import { polygonBoolean } from '../../shared/geometry/polygon-boolean.js'
 import { terrainTransitionStrokePolygon } from '../../shared/visual/transition.js'
+import { clipSurfaceRegions } from '../../shared/surface-rules/regions.js'
 
 function pointBrush(point: PointMm, radiusMm: number): PointMm[] {
   return Array.from({ length: 24 }, (_, index) => {
@@ -31,9 +32,9 @@ export function surfaceRegionsFromStroke(points: readonly PointMm[], radiusMm: n
   const clean = points.filter((point, index) => index === 0 || point.x !== points[index - 1].x || point.y !== points[index - 1].y)
   const stroke = clean.length === 1 ? pointBrush(clean[0], radiusMm) : terrainTransitionStrokePolygon(clean, radiusMm * 2)
   if (stroke.length < 3) throw new Error('地表画笔笔迹无效，请重新绘制。')
-  const clipped = polygonBooleanWithHoles({ operation: 'intersection', subject: [{ outer: stroke, holes: [] }], clip: [{ outer: support as PointMm[], holes: [] }] })
-  if (!clipped.polygons.length) throw new Error('笔迹没有覆盖选定的地形表面。')
-  return clipped.polygons.map(polygon => ({ outerMm: polygon.outer, holesMm: polygon.holes }))
+  const clipped = clipSurfaceRegions([{ outerMm: stroke, holesMm: [] }], support)
+  if (!clipped.length) throw new Error('笔迹没有覆盖选定的地形表面。')
+  return clipped
 }
 
 /** Explicit expansion follows shared boundary segments and actual terrain links. */

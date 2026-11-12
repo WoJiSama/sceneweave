@@ -67,6 +67,25 @@ describe('bounded terrain editing T2 pure core',()=>{
   else expect(areaSize(result.document.terrainAreas['terrain-low'])).toBeLessThan(areaSize(scene.terrainAreas['terrain-low']))
   expect(validateSceneDocument(result.document).ok).toBe(true)
  })
+ it('continues explicit coast brushes after manual geometry protection without restoring automatic ownership',()=>{
+  const scene=base(),curve=visualBase(scene)!.boundaries['terrain-coast-curve']
+  const first=prepareTerrainEdit(scene,brush(scene,'addLand',curve.segments[0].control1,700)).document
+  detachChangedOutputs(scene,first)
+  const before=canonicalJson(first),owners=Object.values(getLegacyGeneration(first)!.ownership).filter(row=>row.target.entityId==='terrain-low'||row.target.entityId===curve.id)
+  expect(owners.some(row=>row.manualFields.includes('geometry'))).toBe(true)
+  const request=brush(first,'digWater',visualBase(first)!.boundaries[curve.id].segments[0].control1,700)
+  const next=prepareTerrainEdit(first,request).document
+  detachChangedOutputs(first,next)
+  expect(next.terrainAreas['terrain-low'].boundaryMm).not.toEqual(first.terrainAreas['terrain-low'].boundaryMm)
+  for(const row of owners)expect(getLegacyGeneration(next)!.ownership[row.id].manualFields).toEqual(expect.arrayContaining(row.manualFields))
+  expect(next.props).toEqual(first.props)
+  expect(validateSceneDocument(next).ok).toBe(true)
+  expect(canonicalJson(first)).toBe(before)
+  const locked=cloneJson(first);visualBase(locked)!.boundaries[curve.id].editLocked=true;detachChangedOutputs(first,locked)
+  expect(()=>prepareTerrainEdit(locked,request)).toThrow(/锁/)
+  const automatic=terrainEditRequestSchema.parse({kind:'surroundings',sceneId:first.sceneId,operationId:'no-implicit-manual-edit',floorId:'visual-floor',scopeMm:first.exportBoundsMm,linkMode:'scenery',boundaryIds:[curve.id],seed:'manual-protection',maxDisplacementMm:50,regenerateScenery:false})
+  expect(()=>prepareTerrainEdit(first,automatic)).toThrow(/人工|自动/)
+ })
  it('refuses non-shape metadata and request Floor changes at the terrain contour boundary',()=>{
   const scene=base(),before=canonicalJson(scene),original=visualBase(scene)!.boundaries['terrain-coast-curve']
   for(const key of ['floorId','layerId','visibility','editLocked','sampleSpacingMm','toleranceMm'] as const){

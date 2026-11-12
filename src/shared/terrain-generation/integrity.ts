@@ -379,8 +379,12 @@ export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: Scen
   replaceGeneration(cloneJson(originalGeneration))
   const next = terrain(nextInput)
   let cost = 0, changed = false
-  if(next.generation.version>=3&&canonicalJson(beforeInput)!==canonicalJson(nextInput))for(const row of Object.values((next.generation as GenerationSystem3|GenerationSystem4).surroundings))if(row.state==='current'){row.state='historical';cost++;changed=true}
-  if(next.generation.version===4&&canonicalJson(beforeInput)!==canonicalJson(nextInput))for(const row of Object.values(next.generation.topology))if(row.state==='current'){row.state='historical';cost++;changed=true}
+  // Only receipts already present in the baseline describe a previous result.
+  // A receipt created by this exact candidate still has to pass the full
+  // current-output checks; reconciliation must not hide it as historical.
+  const documentChanged=next.generation.version>=3&&canonicalJson(beforeInput)!==canonicalJson(nextInput)
+  if(next.generation.version>=3&&documentChanged)for(const row of Object.values((next.generation as GenerationSystem3|GenerationSystem4).surroundings))if(row.state==='current'&&before.generation.version>=3&&Object.hasOwn((before.generation as GenerationSystem3|GenerationSystem4).surroundings,row.id)){row.state='historical';cost++;changed=true}
+  if(next.generation.version===4&&documentChanged)for(const row of Object.values(next.generation.topology))if(row.state==='current'&&before.generation.version===4&&Object.hasOwn(before.generation.topology,row.id)){row.state='historical';cost++;changed=true}
   const assertRuleUnlocked = (ruleId: string) => {
     const rule = before.generation.rules[ruleId]
     if (rule && (rule.editLocked || before.userLayers[rule.layerId]?.editLocked)) throw new Error(`生成规则或其图层已锁定，不能隐式改写人工记录：${ruleId}。`)

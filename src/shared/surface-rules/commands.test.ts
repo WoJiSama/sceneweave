@@ -66,6 +66,17 @@ function polygonArea(regions: SurfaceRuleRegion[]): bigint {
 }
 
 describe('v8 surface-rule command transactions', () => {
+  it('accepts a diagonal support crossing through the full scene command validator', () => {
+    const scene = fixture(), area = scene.terrainAreas.ground
+    area.boundaryMm = [p(0, 0), p(10000, 3001), p(0, 10000)].map((positionMm, index) => ({ id: `diagonal-point-${index}`, segmentId: `diagonal-segment-${index}`, positionMm }))
+    const command = vegetation(scene, { id: 'diagonal', field: 'trees', area: region(1000, 1000, 8000, 7000) })
+    const before = cloneJson(scene), after = applyCommands(scene, [command], context())
+    expect(scene).toEqual(before)
+    expect(validateSceneDocument(after).ok).toBe(true)
+    expect(after.surfaceRules['diagonal-rule'].regionsMm[0].outerMm).not.toContainEqual(p(9000, 3701))
+    expect(after.terrainAreas).toEqual(before.terrainAreas)
+  })
+
   it('retains native world bounds when fixed root-anchored paint would fit beyond them', () => {
     const scene = fixture(), tree = scene.propDefinitions[terrainVariantDefinitionId('tree-wind-oak')]
     tree.defaultVisualBoundsMm = { x: -1000, y: -2000, width: 2000, height: 4000 }

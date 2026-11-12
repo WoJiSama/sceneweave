@@ -10,6 +10,7 @@ import { composeTerrainDocument } from './compose.js'
 import { generateTerrainDocument } from './generate.js'
 import { prepareTerrainEdit, terrainEditRequestSchema } from './edit.js'
 import { canRegenerateProp, surroundingsEntityHash, surroundingsOutputHash, surroundingsRequestSchema } from './surroundings.js'
+import { detachChangedOutputs } from './integrity.js'
 import { terrainPoints } from '../geometry/geometry.js'
 
 const bounds = { x: 0, y: 0, width: 24000, height: 18000 }
@@ -61,6 +62,17 @@ describe('T-S06 existing-building surroundings regeneration', () => {
     const current = Object.values(next.generation.legacy.surroundings).find(row => row.state === 'current')!
     expect(current.preserved.some(row => row.collection === 'rooms' && row.entityId === 'outpost-west')).toBe(true)
     expect(current.outputHash).toBe(surroundingsOutputHash(next, current))
+    detachChangedOutputs(scene,next)
+    expect(getLegacyGeneration(next)!.version).toBe(3)
+    expect(next.generation.legacy.surroundings[current.id].state).toBe('current')
+    const forged=cloneJson(next)
+    if(forged.generation.legacy.version!==3)throw new Error('fixture surroundings missing')
+    forged.generation.legacy.surroundings[current.id].outputHash='0'.repeat(64)
+    detachChangedOutputs(scene,forged)
+    expect(validateSceneDocument(forged).ok).toBe(false)
+    const edited=cloneJson(next);edited.title+=' manual edit';detachChangedOutputs(next,edited)
+    if(edited.generation.legacy.version!==3)throw new Error('fixture surroundings missing')
+    expect(edited.generation.legacy.surroundings[current.id].state).toBe('historical')
     expect(validateSceneDocument(JSON.parse(canonicalJson(next))).ok).toBe(true)
     expect(canonicalJson(scene)).toBe(before)
   })

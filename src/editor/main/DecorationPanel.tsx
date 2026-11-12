@@ -120,7 +120,7 @@ export default function DecorationPanel({ scene, layerId, disabled, onCreate, on
         {surfaceMode === 'paint' && surfaceField === 'trees' && <label>树木素材<select aria-label="区域树木素材" value={surfaceTreeId} onChange={event => setSurfaceTreeId(event.target.value)}><option value="">选择树木素材</option>{treeDefinitions.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>}
         {surfaceMode === 'paint' && surfaceField !== 'material' && <>
           {surfaceMissing.length > 0 && <button type="button" className="secondary asset-wide" onClick={() => onPrepareSources(surfaceMissing)}>预览所需固定植被素材 · {surfaceMissing.length} 项</button>}
-          <label>目标覆盖率 <output>{(surfaceCoveragePpm / 10_000).toFixed(0)}%</output><input aria-label="区域植被目标覆盖率" type="range" min="0" max="1_000_000" step="10_000" value={surfaceCoveragePpm} onChange={event => setSurfaceCoveragePpm(Number(event.target.value))}/></label>
+          <label>目标覆盖率 <output>{(surfaceCoveragePpm / 10_000).toFixed(0)}%</output><input aria-label="区域植被目标覆盖率" type="range" min={0} max={1_000_000} step={10_000} value={surfaceCoveragePpm} onChange={event => setSurfaceCoveragePpm(Number(event.target.value))}/></label>
           <label>植被种子<input aria-label="区域植被种子" maxLength={128} value={surfaceSeed} onChange={event => setSurfaceSeed(event.target.value)}/></label>
           <label>净空余量 mm<input aria-label="区域植被净空" type="number" min="0" max="10000" step="50" value={surfaceClearanceMm} onChange={event => setSurfaceClearanceMm(Number(event.target.value))}/></label>
         </>}
