@@ -1,5 +1,7 @@
 # 测试导航与复现
 
+长历史后台审计的正常生产故障回归为`history-audit-worker.spec.ts`：真实专属Worker构造后注入原生事务中止、未知计量结果或pagehide，核当前修订、历史数、块数和epoch不变、内存编辑仍可撤销且Worker终止。存储侧`history-audit-{client,transaction}.test.ts`覆盖串行准入、取消／异常／超时、异步只读／写事务上下文及双连接CAS；`content-validation.test.ts`核公开完整校验每调用仍执行、同次身份检查仅复用自身解析的确切不可变场景，返回内容可变且与源隔离。正式范围见[09](../docs/09-quality-plan.md#history-audit-remediation-acceptance)。
+
 本页只维护测试入口、覆盖范围和运行方法；开发任务归[路线图](../docs/07-roadmap.md#development)，全部验收归[质量计划](../docs/09-quality-plan.md#acceptance)，实际通过、失败、跳过和冻结指纹归[历史台账](../docs/archive/README.md)。发现/加载的用例数不等于执行结果，历史测试数字不在本页滚动维护。
 
 当前产品只保留首页`#home`与统一工作区`#workspace`，正常工程只读写当前完整v1；旧整页工作台和旧文件导入不作为产品入口。首页另有独立的一次性本机迁入工具，使用只读源与隔离目标。未知hash回首页，活动草稿经过离开守卫；实际支持及拒绝范围归04/06。
@@ -7,6 +9,10 @@
 当前工具入口按[交互与架构](../docs/reference/editor-and-architecture.md#current-task-navigation)定位：模块、场景对象分类、建筑/室外/视觉参数与场景设置使用 `workspace-navigation-helpers.ts`，明确受众导出、新建与工程管理重开使用 `workspace-ux-helpers.ts`。当前左右两栏分别承载内容与详情，候选在右侧审阅；窄屏只使用这两个抽屉。UX定向单测为 `src/editor/main/{opening-placement,catalog-categories,entity-label}.test.ts` 与 `src/editor/native-canvas/length-input.test.ts`。入口同步与 `--list` 只证明用例可解析，不代表浏览器组通过。
 
 当前创作旅程直接创建完整v1，不再通过已退役的逐级“保存独立副本”按钮启用地形、曲线或布景。算法/配方重放、历史身份和数据库结构版本仍分别检查；旧格式只在明确的兼容转换或独立迁入用例构造严格历史夹具。新增实体夹具应通过完整命令或真实身份推进补齐出生，预算断言计入所有身份池。取消与存储故障注入须命中实际异步边界/原生事务，并断言命中、迟到拒绝与失败保全。产品缺陷继续保留为回归失败，不通过删除、skip或放宽预算/超时来清理。
+
+地图收口的验收入口见[09对应矩阵](../docs/09-quality-plan.md#map-completion-acceptance)，实际轮次见[主题证据](../docs/archive/workspace-content-validation.md#map-completion-20261112)。`vegetation-slider.spec.ts`检查真实ppm范围及鼠标／键盘；`island-dressing.spec.ts`保留原完整树冠绘制旅程，`shared/surface-rules/{regions,commands}.test.ts`检查斜边整数裁切同时不超出支撑和原笔迹、孔洞／断开分量及非法输入。室内5／地形建筑4／混合4沿`generation/domains/{interior,mixed}`及registry／intent核对整椅与600mm使用区、真实通路、旧配方hash和严格映射；`natural-detail-queue.spec.ts`明确保留旧混合3重放并另断言新默认4。迁入、窄屏焦点、建筑批次与生成回执继续运行原用例，不能以新小测试替代完整旅程。
+
+服务端`private-storage.test.ts`在当前系统检查实际权限及链接／越界拒绝；`svg-artifacts.test.ts`覆盖真实文件额外BOM和持久字节，`image-edit.test.ts`与`app.test.ts`核对服务资源、预算／任务保全。Windows不能以POSIX mode位代替DACL证据，未运行的Linux检查须另标明。AI任务256上限测试保留默认5秒等待，首次超时及后续复验一并保全，不将单项筛选运行的其他跳过项算作整套通过。
 
 AI场景HTTP旅程使用[当前创作4](../docs/05-ai-and-generation.md#current-authoring-contract)，素材创作保持禁用且`artwork:null`。`m2-assimilation-acceptance.spec.ts`与`m23-m24-authoring.spec.ts`中的SVG/同化部分明确测试内部保留配方重放：使用真实浏览器SVG/图片适配器、保护快照、CAS和冷读，保全固定源、许可、冻结范围与离线历史；不伪装公开新建AI任务。直接保全后重开不提供撤销记录，后续普通编辑及局部恢复另核对撤销语义。
 
@@ -62,6 +68,8 @@ AI场景HTTP旅程使用[当前创作4](../docs/05-ai-and-generation.md#current-
 
 ## 运行规则
 
+`prop-paint-clip.spec.ts`是4K俯视图片绘制范围的实际Canvas专项：透明/纯色背景、旋转、方向阴影、画布边缘及近侧视保持，与只关闭新增矩形裁剪的独立原生参考逐像素核对。该夹具没有其他裁剪操作，逐项核对裁剪次数，直接后端调用不代替公开工程验证、正常生产性能或完整玩家秘密矩阵。冷审计/内部导入/批量资源写入用 `shared/project/delta.test.ts` 与 browser `storage/{incremental-history,repository}.test.ts`；正常八操作前后旅程从[性能工具](../tools/performance/README.md)运行。
+
 开发期按[最小自检策略](../docs/07-roadmap.md#development-self-check-policy)只运行本次直接相关检查；下列全量/专项命令是可选入口，不是每步必跑清单。完整验收在后续开发完成后按09统一执行。
 
 - 普通Vitest、AI和Playwright测试使用受控输入/provider，不调用真实付费模型。真实模型验收必须另行明确发起，未知计费请求不自动重发。
@@ -114,6 +122,8 @@ AI场景HTTP旅程使用[当前创作4](../docs/05-ai-and-generation.md#current-
 | 素材批量导入与形状变体 | `asset-batch`、`terrain-variants`、`u2-catalog`；application `asset-batch/workspace-catalog-budget`、browser `assets/batch-source/content/terrain-variant-catalog` | 多文件/文件夹/ZIP、所选项原子采用与撤销、严格SVG/原始源/PNG/许可、图像与占地/根锚分开、公共256来源预算、当前完整表现字段、空库备份、实际透明轮廓与近侧视/俯视旋转；真实dist纯UI烟测与DEV读取分别报告 |
 | 曲线连接与程序组件变形 | `curved-connections`、`stair-cliff`；application `curved-connections`、shared `geometry/connection-route/visual/deformation` | 当前完整v1及完整来源/版本图保全、真实双支撑/足宽/单次高差、世界弧长三风格、控制柄/单段拉伸、真实派生刷新及锁/预算、完整包/冷读/撤销恢复、私密成对像素及旧崖口不变；生产dist纯UI单独记录 |
 | 轻量实例与簇状布景 | `decoration-clusters`、`decoration-island`、`island-dressing`；application `terrain-dressing`、shared `decorations/generate/presentation` | 当前完整v1/identity5及全图/原件保全、固定完整树岩与轻量职责、真实道路/曲线楼梯/活动区净空、逐件移动删除/锁/退出/层独立、实际费用不重复计量及生成回执失效；`island-dressing`覆盖算法5岩岛当前完整候选、十二固定源采用、两簇同候选、撤销重做、完整包/冷读/双受众4K及当前工程AI候选；开发自检不作容量/P3/真实模型承诺 |
+
+`vegetation-slider.spec.ts`单独检查植被覆盖率的合法HTML范围、初始ppm、鼠标、Home/End和方向键；不依赖完整岩岛布景旅程的后续绘制成功。四项地图编辑修复的正式范围见[09](../docs/09-quality-plan.md#map-edit-quality-regressions)，实际自检与独立绘制失败分别保留。
 
 上表名称省略`.spec.ts`。地形路线单元另覆盖`t3-matrix`、`t3-route-generation`和`src/shared/geometry/terrain-travel.test.ts`：全转角带、障碍/连接、有限搜索、真实指定路线与伪造回执拒绝。有限搜索或某组样板通过不证明任意输入都可生成。
 
@@ -279,3 +289,5 @@ SCENEWEAVE_TERRAIN_KINDS=river,lake,forest,hill,mixed SCENEWEAVE_TERRAIN_ROUTE=1
 `generation-cancel-ux.spec.ts`验证自然/组合运行中Esc与真实迟到Worker响应；`domain-cancel-ux.spec.ts`覆盖室内/森林/火山/混合的重试期间旧响应隔离；`regional-cancel-ux.spec.ts`仅延迟原生PNG fulfillment，验证区域资源准备阶段取消，不能外推同步几何可抢占。`fill-handle-ux.spec.ts`使用正常UI组合和实际完整备份核对拖柄旅程。范围与冻结归[本轮台账](../docs/archive/workspace-content-validation.md#ux-five-recovery-20261106)。
 
 `export-privacy-ux.spec.ts`在正常生产包以真实UI建立公开/私密对照，检查双受众4K PNG的实际RGBA/容器、遮罩删除拒绝，以及完整工程真实下载→空存储导入副本→刷新冷开后的文档/资源/许可/身份/外观。使用`SCENEWEAVE_TEST_BASE_URL`指定包含部署base的冻结地址，默认后台运行；不得启动可见独立窗口。未通过的原生失焦探索保存在被忽略的`work/ux-audit/`，不加入默认测试套件。已验证与待实测边界见[接续记录](../docs/archive/workspace-content-validation.md#ux-export-native-20261106)。
+
+`image-repair-scope.spec.ts`用自制木板夹具经正常页面绘制独立移除／保护范围，验证未完成点保存、刷新接续、撤销清除、保留选区、完整工程采用／移动／撤销重做和首页冷重开，并在空存储恢复制作包。真实私图椅子案例、页面／MCP实际PNG一致及已知真值A/B对照的有限开发结果见[图片制作主题台账](../docs/archive/workspace-content-validation.md#image-item-workflow-20261112)；合成用例通过不授予自然补底或新手全链路通过。

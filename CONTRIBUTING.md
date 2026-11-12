@@ -89,6 +89,43 @@ node tools/image-import/replay.mjs --image /absolute/map.jpg --recipe /absolute/
 
 成功输出 `map.sceneweave`、`preview.png` 和 `result.json`。只有结果为 `complete` 才表示落盘复读、独立页面完整冷导入和2048预览RGBA一致通过。工具仅写指定文件目录，输入原件保留；失败保留结果，修正后另选新目录运行。工程可从正常页面“打开工程文件”继续编辑，输入素材及实际样板均在被忽略的 `work/image-to-project/`。两点标定、样板的编辑粒度、比例及视觉差异见[设计](docs/reference/image-to-project.md#sample-tool)，开发状态见[07](docs/07-roadmap.md#image-to-project-plan)。
 
+<a id="image-item-workflow-tools"></a>
+### 可接续的图片 item 制作
+
+共同操作协议见[图片 item 工作流](docs/reference/image-item-workflow.md)，仓库助手入口为 `.agents/skills/sceneweave-image-items/SKILL.md`。普通场景工程、个人素材库和 `.sceneweave-image-work` 制作工作包分别保存；后者保全原图、辅助笔迹、未完成选区、问题与下一步，不是新的场景工程版本。页面“从图片新建场景”可自动保存、继续上次拆分及打开／导出制作工作包。
+
+项目 stdio MCP 可向实际具备工具与视觉能力的模型提供相同工作流、参数与检查点。下面路径须替换为已有绝对文件／输出目录：
+
+```sh
+node tools/image-import/server.mjs --image ABS_IMAGE --license-file ABS_LICENSE --attribution TEXT --output EXISTING_OUTPUT_DIRECTORY
+node tools/image-import/server.mjs --resume ABS_WORK_PACKAGE --output EXISTING_OUTPUT_DIRECTORY
+```
+
+可选离线CPU语义分割由宿主另外显式启用，不替换页面默认算法。准备Python 3.12及独立依赖目录，例如手动运行 `python -m pip install --target ABS_DEPENDENCY_DIR numpy==2.3.2 onnxruntime==1.23.2 Pillow==11.3.0`。依赖安装与公开权重下载只在准备时进行；实际推理不联网、不自动安装或重试。模型使用Apache-2.0的[ONNX仓库](https://huggingface.co/Xenova/slimsam-77-uniform/tree/5850ab45f587c112167512ffef949107115e26a0/onnx)，固定revision `5850ab45f587c112167512ffef949107115e26a0`，仅下载下表两文件到本机模型目录；保留模型许可与来源，权重不提交Git。
+
+| 文件 | 字节 | SHA-256 |
+|---|---:|---|
+| `vision_encoder.onnx` | 23276014 | `9f8433273a6750b587779baa0cf5508111001bf7e7acfcf585d370139fd366d0` |
+| `prompt_encoder_mask_decoder.onnx` | 16557892 | `f4514391764fbd56e08e119060d874ecd7d52994bfb1968af159e12d4943b5bb` |
+
+```sh
+node tools/image-import/server.mjs --resume ABS_WORK_PACKAGE --output EXISTING_OUTPUT_DIRECTORY --local-model-dir ABS_MODEL_DIR --python ABS_PYTHON --python-path ABS_DEPENDENCY_DIR
+node --test tools/image-import/local-segmentation.test.mjs
+```
+
+只有启用时，`tools/list` 才提供 `image_import_local_segment`。它返回3份候选及预览，不自动采用；返回的 `selectionMask` 和 `selectionOrigin` 可经共同工具采用并存入独立工作包，页面继续精修无需再次推理。每次请求单独进程，默认30秒，最多4线程，原图坐标、目标25万像素、输入64KiB与输出8MiB预算；错误、取消或超时不修改草稿。模型文件共约39.8MB，但开发机单Python进程实测峰值工作集约1.9GiB／提交约2.9GiB，不能据权重大小称低内存或浏览器可用。耗时仅本机开发诊断，正式性能另行冻结；换权重须重新评估，不接受同名替换。当前工具无浏览器直连Python或普通应用聊天入口。
+
+先发现工具，再调用 `image_import_workflow` 读取当前代次和下一步；成功修改后宿主写新检查点，返回 `checkpointError` 时先导出保全再退出。普通应用聊天尚未接入图片工具，配置模型不会自动启用。原图不自动发送到外部服务。开发自检按影响范围运行，真实裁片和补底须分别看图：
+
+工作流返回项目默认制作总则和图片专用指引；应用内新建普通聊天及有限草稿任务自动加载同源规范，不追加图片执行权限。切后可调用 `image_import_enhancement_candidates({target,direction,count,scale?})`，其中 `count` 为2/3，`scale` 为1/2；`contour` 用于有实心支撑的部分二值斜角，`edge` 只调已有半透明带。输出独立 `enhancement-代次-随机身份/`，包含确切 `source.png`、各候选与换底PNG、绑定父源/配方/摘要的 `candidates.json`，均写后复读。工具只读，不修改蒙版、复核或制作包；采用需在统一素材页基于确切父源和同配方审阅。候选目录不在严格三条目工作包内，需要接续比较时单独携带。零变化不算提升，插值放大不称恢复细节。
+
+```sh
+npx vitest run src/shared/image-import src/platform/browser/content/image-item-workflow-session.test.ts src/platform/browser/content/image-workflow-store.test.ts
+npx playwright test tests/image-item-workflow.spec.ts tests/image-import-selection.spec.ts tests/image-import-draft-protection.spec.ts tests/image-import-quality.spec.ts
+```
+
+系统 Chrome 可用时设置 `SCENEWEAVE_BROWSER_CHANNEL=chrome`；使用现有独立页面时设置 `SCENEWEAVE_TEST_BASE_URL`。多个 Vite 运行实例使用各自缓存目录，避免依赖预构建互相失效。工具检查和冷读通过不能替代09的视觉、独立试做及用户P3。
+
 <a id="legacy-svg-recovery"></a>
 ## 旧 SVG 的独立恢复工具
 
@@ -114,6 +151,8 @@ node tools/migration/migrate-legacy-svg.mjs --input "/absolute/source.sceneweave
 使用`.nvmrc`指定的Node版本。Node/Hono服务提供流式对话和隔离草稿，协议、工具、预算与保留期归[AI合同](docs/05-ai-and-generation.md)。`node:sqlite`在该Node版本仍有experimental提示。服务单实例独占一个数据目录，主工程与个人素材仍在浏览器。
 
 首次配置且`.env.ai`不存在时，将`.env.example`复制为`.env.ai`并设为0600，在文件里填写`SCENEWEAVE_AI_PROVIDER_BASE_URL`、`PROVIDER_API_KEY`、`PROVIDER_MODEL`及独立随机`SCENEWEAVE_AI_ACCESS_TOKEN`（所有变量均带`SCENEWEAVE_AI_`前缀）。可选`SCENEWEAVE_AI_PROVIDER_VISION_MODEL`固定视觉模型，未填时沿用文字模型；完整请求历史含图片时选择视觉模型，带图历史的后续答仍走该模型。连接信息会显示实际配置，前端不能修改provider模型。后端默认127.0.0.1:8787、数据根local-data/ai；允许Origin必须精确到协议/主机/端口，不含Pages路径。保留现有配置，不盲目覆盖；真实配置被Git忽略，provider key不能使用VITE_前缀。
+
+Windows服务私有数据使用实际NTFS DACL：依赖系统PowerShell/.NET，仅当前服务账户及SYSTEM完全控制配置数据根，已有内容先核验／加固，新文件及SQLite日志继承权限；无法建立证明时明确拒绝。不要把`.env.ai`的POSIX0600显示值当作Windows权限检查，凭据文件也应由维护者设置仅服务账户可读。源素材及许可的确切字节由`.gitattributes`保留LF；不得为检出换行差异改素材清单hash。
 
 ```sh
 npm run ai:build
@@ -324,6 +363,8 @@ node tools/testing/sample-load-diagnostic.mjs --runs 1 --samples study --delay-m
 
 <a id="current-formal-acceptance"></a>
 ## 当前完整v1容量、性能与视觉验收命令
+
+跨电脑的单项开发前后对照另见[可携带对照工具](tools/performance/README.md#当前完整v1单项开发对照)：重新准备当前许可输入、隔离反转单项patch、正常构建与AB／BA真实UI；Windows诊断RSS明确缺测，不替代下述正式验收。当前冷开首笔额外完整哈希的定向入口为`src/platform/browser/storage/content-encoding-reuse.test.ts`。
 
 先完成[当前主路径回归](#当前主路径回归)及受影响的正确性检查，再冻结源码、固定素材、工具和正常`dist`。正式采样独占串行执行：夹具准备、smoke、性能矩阵、视觉三引擎分别结束并关闭浏览器后才进入下一项；期间不并行测试、构建、模型任务或其他自动浏览器。共享目录仍有源码/工具编辑时先使用独立完整副本，不能在采样中更新输入。以下命令均从仓库根目录执行，使用`.nvmrc`的Node、系统Chrome及新的空绝对输出目录；当前性能进程树RSS仅支持macOS。命令定义不表示已执行或通过，正式结论从[09](docs/09-quality-plan.md#aggregate-capacity-acceptance)及[性能记录](docs/reference/performance.md)追溯。
 
