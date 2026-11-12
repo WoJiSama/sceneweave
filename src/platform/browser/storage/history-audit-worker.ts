@@ -1,9 +1,8 @@
-import { auditHistoryRecords, type HistoryHead, type HistoryVersion, type HistoryPin } from './history-records.js'
+import { auditHistoryMessage, type HistoryAuditMessage } from './history-audit-message.js'
 
-self.onmessage = (event: MessageEvent<{ owner: string; head: HistoryHead | null; versions: HistoryVersion[]; pins: HistoryPin[] }>) => {
+self.onmessage = async (event: MessageEvent<HistoryAuditMessage>) => {
   try {
-    const { owner, head, versions, pins } = event.data
-    const result = auditHistoryRecords(owner, head, versions, pins)
+    const result = await auditHistoryMessage(event.data)
     self.postMessage({ ok: true, documentBytes: result.documentBytes })
   } catch (error) {
     self.postMessage({ ok: false, message: error instanceof Error ? error.message : '增量历史完整检查失败。' })

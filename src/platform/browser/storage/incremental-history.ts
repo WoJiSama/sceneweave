@@ -10,7 +10,7 @@ import { canonicalProjectCoordinates } from '../../../shared/aggregates/scene-co
 import { captureJson, cloneJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
 import type { ProjectDatabase, StoredAutomatic, StoredProject, StoredSnapshot } from './database.js'
 import { assertFixedProjectCompatible, createFixedProjectFamilyCheck, FixedProjectFamilyIndex, hasAddedFixedProjectDefinitions, validateSnapshotSummary } from '../../../shared/project/history.js'
-import { matchingEncodedSnapshot } from './content-context.js'
+import { consumeEncodedProjectDelta, matchingEncodedSnapshot, type PreparedProjectDelta } from './content-context.js'
 import type { CancellationSignal } from '../../../shared/ports/resources.js'
 import { auditHistoryInWorker } from './history-audit-client.js'
 import { waitForStorageTransaction } from './transaction-lifetime.js'
@@ -209,7 +209,7 @@ export class IncrementalHistory {
     if (!active || active.version.contentHash !== currentHash) throw new Error('增量历史迁移当前版本冷读不符。')
     await this.database.historyHeads.put(seal({ ...head, status: 'ready' as const }))
   }
-  async append(current: StoredProject, previous: StoredProject | null, versionId: string, parentId?: string, localSource?: ProjectData): Promise<HistoryVersion> {
+  async append(current: StoredProject, previous: StoredProject | null, versionId: string, parentId?: string, localSource?: ProjectData, preparedDelta?: PreparedProjectDelta): Promise<HistoryVersion> {
     assertProject(current, this.hashContent)
     const snapshot = Dexie.currentTransaction && matchingEncodedSnapshot(Dexie.currentTransaction.idbtrans, current.project)
     const checkpointProject = () => snapshot?.project ?? validateProjectData(current.project)
@@ -265,8 +265,12 @@ export class IncrementalHistory {
         const hasLocalEvidence = localSource && (getProjectLocalTransaction(localSource) || getProjectTransactionReceipt(localSource))
         const baselineSnapshot = hasLocalEvidence && Dexie.currentTransaction && matchingEncodedSnapshot(Dexie.currentTransaction.idbtrans, parent.project)
         const encodings = baselineSnapshot && snapshot ? { before: baselineSnapshot.encoded, after: snapshot.encoded } : undefined
-        try { delta = (localSource ? tryCreateLocalProjectDelta(parent.project, current.project, localSource, encodings) : undefined)
-          ?? createProjectDelta(parent.project, current.project) }
+        try {
+          const local = localSource ? tryCreateLocalProjectDelta(parent.project, current.project, localSource, encodings) : undefined
+          const prepared = local === undefined && Dexie.currentTransaction
+            ? consumeEncodedProjectDelta(Dexie.currentTransaction.idbtrans, preparedDelta, parent.project, current.project) : undefined
+          delta = local ?? (prepared ? prepared.delta : createProjectDelta(parent.project, current.project))
+        }
         catch (error) { if (!(error instanceof DeltaSizeError)) throw error }
         checkpoint = delta === null
         if (delta !== null) {

@@ -4,10 +4,13 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { fixture, runtime, validation } from '../../../application/workspace/test-fixtures.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import { cloneJson } from '../../../shared/validation/json.js'
-import { auditHistoryRecords } from './history-records.js'
+import { auditHistoryMessage, type HistoryAuditMessage } from './history-audit-message.js'
 import { disposeHistoryAudits } from './history-audit-client.js'
 import { ProjectRepository } from './repository.js'
 import * as storageAudit from './storage-audit.js'
+import { canonicalJson, encodeUtf8 } from '../../../shared/validation/json.js'
+import { sha256Bytes } from '../../../shared/validation/hash.js'
+import { isProjectBlockManifest } from './content-blocks.js'
 
 class AuditingWorker {
   static instances: AuditingWorker[] = []
@@ -16,19 +19,18 @@ class AuditingWorker {
   onerror: ((event: { preventDefault(): void }) => void) | null = null
   onmessageerror: (() => void) | null = null
   stopped = false
+  message?: HistoryAuditMessage
   terminate = vi.fn(() => { this.stopped = true })
   constructor() { AuditingWorker.instances.push(this) }
-  postMessage(value: Parameters<typeof auditHistoryInMessage>[0]) {
+  postMessage(value: HistoryAuditMessage) {
     const captured = structuredClone(value)
-    AuditingWorker.release = () => {
+    this.message = captured
+    AuditingWorker.release = async () => {
       if (this.stopped) return
-      try { this.onmessage?.({ data: { ok: true, ...auditHistoryInMessage(captured) } }) }
+      try { this.onmessage?.({ data: { ok: true, ...await auditHistoryMessage(captured) } }) }
       catch (error) { this.onmessage?.({ data: { ok: false, message: String(error) } }) }
     }
   }
-}
-function auditHistoryInMessage(value: { owner: string; head: Parameters<typeof auditHistoryRecords>[1]; versions: Parameters<typeof auditHistoryRecords>[2]; pins: Parameters<typeof auditHistoryRecords>[3] }) {
-  return auditHistoryRecords(value.owner, value.head, value.versions, value.pins)
 }
 const repositories: ProjectRepository[] = [], names = new Set<string>()
 function repository(name = `history-audit-${crypto.randomUUID()}`) {
@@ -151,6 +153,31 @@ it('releases the capture transaction before the worker so an independent native 
   expect((await repo.database.projects.get(input.project.document.sceneId))!.revision).toBe(1)
 })
 
+it('services cancellation between captured records before starting the history worker', async () => {
+  const repo = repository(), input = fixture(); await repo.save(input, null)
+  const rows = await new Promise<Map<string, unknown[]>>((resolve, reject) => {
+    const names = repo.database.tables.map(table => table.name), captured = new Map<string, unknown[]>()
+    const tx = repo.database.backendDB().transaction(names, 'readonly')
+    for (const name of names) {
+      const request = tx.objectStore(name).getAll()
+      request.onsuccess = () => { captured.set(name, request.result) }
+    }
+    tx.oncomplete = () => resolve(captured); tx.onabort = () => reject(tx.error)
+  })
+  vi.stubGlobal('Worker', AuditingWorker)
+  let elapsed = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 13)
+  const controller = new AbortController()
+  // A browser task must run between records, rather than only promise jobs.
+  const cancellation = setTimeout(() => controller.abort(), 0)
+  try {
+    const auditing = repo as unknown as { auditCapturedTotals(rows: ReadonlyMap<string, readonly unknown[]>, signal: AbortSignal): Promise<unknown> }
+    await expect(auditing.auditCapturedTotals(rows, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+    expect(AuditingWorker.instances).toHaveLength(0)
+    expect((await repo.database.projects.get(input.project.document.sceneId))!.revision).toBe(0)
+  } finally { clearTimeout(cancellation) }
+})
+
 it('re-reads actual block bytes even when a native writer keeps every declared hash and epoch unchanged', async () => {
   const repo = repository(), input = fixture(); await repo.save(input, null); repo.close(); await repo.open()
   vi.stubGlobal('Worker', AuditingWorker)
@@ -190,4 +217,61 @@ it('cancels an admitted full audit, rolls back the atomic save and terminates it
   expect(AuditingWorker.instances[0].terminate).toHaveBeenCalledOnce()
   expect((await repo.database.projects.get(input.project.document.sceneId))!.revision).toBe(0)
   expect(await repo.database.historyVersions.count()).toBe(1)
+})
+
+it('sends all owners, branches and pins compactly, omits unreferenced blocks and agrees with the no-Worker fallback', async () => {
+  const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+  await repo.save(input, null)
+  const root = (await repo.listHistoryVersions(owner)).versions[0]
+  await repo.createSnapshot(input, 'named root', { expectedRevision: 0, expectedMetadataVersion: 0 })
+  await repo.createSnapshot(input, 'protected root', { kind: 'protection', expectedRevision: 0, expectedMetadataVersion: 1 })
+  for (let n = 1; n <= 5; n++) await repo.save(revision(input, n), n - 1)
+  await repo.save(revision(input, 6), 5, { historyParentId: root.id, historyParentHash: root.contentHash })
+  const second = { ...input, project: cloneJson(input.project) }; second.project.document.sceneId += '-other'
+  await repo.save(second, null); await repo.save(revision(second, 1), 0)
+  await repo.createSnapshot(revision(second, 1), 'other pin', { expectedRevision: 1, expectedMetadataVersion: 0 })
+  const bytes = encodeUtf8('{"unused":true}'), unused = { sha256: sha256Bytes(bytes), bytes }
+  await repo.database.projectContentBlocks.put(unused)
+  const expected = await repo.usage(owner)
+  repo.close(); await repo.open(); vi.stubGlobal('Worker', AuditingWorker)
+  const pending = repo.usage(owner); await started()
+  const message = AuditingWorker.instances[0].message!
+  expect('kind' in message && message.kind).toBe('captured-history')
+  if (!('kind' in message)) throw new Error('expected native compact message')
+  expect(message.heads).toHaveLength(2); expect(message.versions).toHaveLength(9); expect(message.pins).toHaveLength(3)
+  const manifests = message.versions.filter(row => isProjectBlockManifest(row.checkpoint))
+  expect(manifests.length).toBeGreaterThan(1)
+  const required = new Set(manifests.flatMap(row => isProjectBlockManifest(row.checkpoint) ? row.checkpoint.fields.flatMap(field => field.blocks.map(ref => ref.sha256)) : []))
+  expect(new Set(message.blocks.map(block => block.sha256))).toEqual(required)
+  expect(message.blocks.some(block => block.sha256 === unused.sha256)).toBe(false)
+  AuditingWorker.release!(); expect(await pending).toEqual(expected)
+  expect((await repo.database.projectContentBlocks.get(unused.sha256))!.bytes).toEqual(bytes)
+  expect((await repo.loadHistoryVersion(owner, root.id))!.project).toEqual(input.project)
+  vi.unstubAllGlobals(); repo.close(); expect(await repo.usage(owner)).toEqual(expected)
+})
+
+it.each(['inactive branch', 'pin target'] as const)('rejects resealed %s corruption in the compact full graph', async kind => {
+  const repo = repository(), input = fixture(), owner = input.project.document.sceneId
+  await repo.save(input, null)
+  const root = (await repo.listHistoryVersions(owner)).versions[0]
+  await repo.save(revision(input, 1), 0)
+  await repo.createSnapshot(revision(input, 1), 'retained branch', { expectedRevision: 1, expectedMetadataVersion: 0 })
+  await repo.save(revision(input, 2), 1, { historyParentId: root.id, historyParentHash: root.contentHash })
+  const reseal = <T extends { recordHash: string }>(row: T): T => {
+    const { recordHash: _old, ...payload } = row
+    return { ...row, recordHash: sha256Bytes(encodeUtf8(canonicalJson(payload))) }
+  }
+  if (kind === 'inactive branch') {
+    const old = (await repo.database.historyVersions.toArray()).find(row => row.revision === 1)!
+    old.delta!.afterHash = '0'.repeat(64)
+    await repo.database.historyVersions.put(reseal(old))
+  } else {
+    const pin = (await repo.database.historyPins.toArray())[0]; pin.sourceRevision = 0
+    await repo.database.historyPins.put(reseal(pin))
+  }
+  repo.close(); await repo.open(); vi.stubGlobal('Worker', AuditingWorker)
+  const pending = repo.save(revision(input, 3), 2), rejected = expect(pending).rejects.toThrow()
+  await started(); AuditingWorker.release!(); await rejected
+  expect((await repo.database.projects.get(owner))!.revision).toBe(2)
+  expect(await repo.database.historyVersions.count()).toBe(3)
 })

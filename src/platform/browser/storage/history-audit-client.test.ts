@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { auditHistoryInWorker, disposeHistoryAudits } from './history-audit-client.js'
+import { auditCapturedHistoryInWorker, auditHistoryInWorker, disposeHistoryAudits } from './history-audit-client.js'
 
 class FakeWorker {
   static instances: FakeWorker[] = []
@@ -28,6 +28,16 @@ describe('transaction-bound complete history worker lifecycle', () => {
     expect(worker.terminate).toHaveBeenCalledOnce(); expect(FakeWorker.instances).toHaveLength(2)
     FakeWorker.instances[1].reply(); await second
     expect(FakeWorker.instances[1].terminate).toHaveBeenCalledOnce()
+  })
+
+  it('uses the same queue and cancellation lifetime for compact messages without transferring original bytes', async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const message = { kind: 'captured-history' as const, heads: [], versions: [], pins: [], blocks: [{ sha256: '0'.repeat(64), bytes }] }
+    const task = auditCapturedHistoryInWorker(message); await drain()
+    expect(FakeWorker.instances[0].postMessage).toHaveBeenCalledWith(message)
+    expect(bytes.byteLength).toBe(3)
+    FakeWorker.instances[0].reply(); await task
+    expect(FakeWorker.instances[0].terminate).toHaveBeenCalledOnce()
   })
 
   it.each([-1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1, '12', undefined])('rejects malformed accounting result %s', async value => {

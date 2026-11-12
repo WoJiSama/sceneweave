@@ -2,9 +2,10 @@ import type { ProjectData } from '../../../shared/model/project.js'
 import { canonicalProjectCoordinates, encodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
 import { parseBoundedJson } from '../../../shared/project/json.js'
+import { PACKAGE_LIMITS } from '../../../shared/project/limits.js'
 import { getProjectLocalTransaction } from '../../../shared/project/validate.js'
 import { encodeProjectContentData, getOwnedProjectEncoding, type OwnedProjectEncoding } from '../../../shared/project/encoding.js'
-import { canonicalJson, captureJson, cloneJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
+import { canonicalJson, captureJson, cloneJson, encodeUtf8, equalOwnedJson, freezeJson } from '../../../shared/validation/json.js'
 
 export const CONTENT_BLOCK_FORMAT = 'sceneweave-project-content-blocks' as const
 // Storage blocks are not domain JSON partitions. The complete validator still
@@ -160,8 +161,8 @@ export function prepareLocalProjectContent(originalAfter: ProjectData, fullyVali
     // forged angle (for example 450 -> 90). Already-local storage copies must
     // likewise equal the exact local result, without a second normalization.
     if (!owned) {
-      const actual = canonicalJson(fullyValidatedAfter)
-      if (actual !== canonicalJson(transaction.result) && actual !== targetCanonical) return
+      const actual = captureJson(fullyValidatedAfter)
+      if (!equalOwnedJson(actual, transaction.result) && !equalOwnedJson(actual, target)) return
     }
     const prepared = encoded && encodedContents.get(encoded)?.checked
     if (prepared && prepared.canonical !== targetCanonical) return
@@ -270,22 +271,28 @@ export function checkedContentBlock(input: unknown, expected?: BlockRef): Projec
   if (!bytes.length || sha256Bytes(bytes) !== input.sha256 || expected && (expected.sha256 !== input.sha256 || expected.byteLength !== bytes.length)) throw new Error('工程内容块实际字节hash或长度损坏。')
   return { sha256: input.sha256, bytes }
 }
-export async function materializeProjectContent(input: unknown, read: (hash: string) => Promise<ProjectContentBlock | undefined>): Promise<ProjectData> {
-  const manifest = validateProjectBlockManifest(input), output: Record<string, unknown> = {}, cache = new Map<string, unknown>()
-  const budget = { values: 0 }
+interface ParsedBlock { value: unknown; byteLength: number; values: number; retainedBytes: number }
+type BlockReader = (hash: string) => Promise<ProjectContentBlock | undefined>
+async function parseContentBlock(ref: BlockRef, read: BlockReader): Promise<ParsedBlock> {
+  const checked = checkedContentBlock(await read(ref.sha256), ref), budget = { values: 0 }
+  const value = parseBoundedJson(checked.bytes, budget)
+  if (canonicalJson(value) !== new TextDecoder('utf-8', { fatal: true }).decode(checked.bytes)) throw new Error('工程内容块不是规范JSON字节。')
+  return { value: freezeJson(value), byteLength: checked.bytes.length, values: budget.values,
+    retainedBytes: checked.bytes.length * 2 + budget.values * 32 + 160 }
+}
+async function assembleProjectContent(input: unknown, read: (ref: BlockRef) => Promise<ParsedBlock>, maximumValues: number = PACKAGE_LIMITS.jsonValues): Promise<ProjectData> {
+  const manifest = validateProjectBlockManifest(input), output: Record<string, unknown> = {}, distinct = new Set<string>()
+  let valuesUsed = 0
   for (const field of manifest.fields) {
     const values: unknown[] = []
     for (const ref of field.blocks) {
-      if (!cache.has(ref.sha256)) {
-        const checked = checkedContentBlock(await read(ref.sha256), ref)
-        const value = parseBoundedJson(checked.bytes, budget)
-        if (canonicalJson(value) !== new TextDecoder('utf-8', { fatal: true }).decode(checked.bytes)) throw new Error('工程内容块不是规范JSON字节。')
-        cache.set(ref.sha256, value)
-      } else {
-        const bytes = encodeUtf8(canonicalJson(cache.get(ref.sha256)))
-        if (bytes.length !== ref.byteLength) throw new Error('工程内容块引用长度不一致。')
-      }
-      values.push(cache.get(ref.sha256))
+      const block = await read(ref)
+      if (block.byteLength !== ref.byteLength) throw new Error('工程内容块引用长度不一致。')
+      // The original budget charged each distinct actual block once per
+      // manifest. A hit from another version must pay that same charge again.
+      if (!distinct.has(ref.sha256)) { distinct.add(ref.sha256); valuesUsed += block.values }
+      if (valuesUsed > maximumValues) throw new Error('JSON 深度或累计节点数量超过保护值。')
+      values.push(block.value)
     }
     let value = values[0]
     if (field.mode === 'record') {
@@ -313,6 +320,51 @@ export async function materializeProjectContent(input: unknown, read: (hash: str
   const bytes = encodeUtf8(canonicalProjectCoordinates(project))
   if (bytes.length !== manifest.byteLength || sha256Bytes(bytes) !== manifest.contentHash) throw new Error('工程内容块重建的完整hash或长度不符。')
   return project
+}
+export async function materializeProjectContent(input: unknown, read: BlockReader): Promise<ProjectData> {
+  const cache = new Map<string, ParsedBlock>()
+  return assembleProjectContent(input, async ref => {
+    let block = cache.get(ref.sha256)
+    if (!block) { block = await parseContentBlock(ref, read); cache.set(ref.sha256, block) }
+    return block
+  })
+}
+
+export const MATERIALIZATION_CACHE_BYTES = 64 * 1024 * 1024
+/** One captured read operation owns this proof. Each miss captures and hashes
+ * actual bytes, strictly parses them, and privately freezes the result. It is
+ * never evidence of current DB freshness. Callers retain their raw capture for
+ * final exact confirmation, and close this bounded optional cache in finally. */
+export function createProjectMaterializer(read: BlockReader, limits: { retainedBytes?: number; values?: number } = {}) {
+  const maximum = limits.retainedBytes ?? MATERIALIZATION_CACHE_BYTES
+  const maximumValues = limits.values ?? PACKAGE_LIMITS.jsonValues
+  if (!Number.isSafeInteger(maximum) || maximum < 0 || maximum > MATERIALIZATION_CACHE_BYTES
+    || !Number.isSafeInteger(maximumValues) || maximumValues < 1 || maximumValues > PACKAGE_LIMITS.jsonValues) throw new Error('物化缓存保护限制无效。')
+  const cache = new Map<string, ParsedBlock>()
+  let retained = 0, closed = false
+  return Object.freeze({
+    materialize(input: unknown): Promise<ProjectData> {
+      if (closed) return Promise.reject(new Error('物化上下文已释放。'))
+      return assembleProjectContent(input, async ref => {
+        if (closed) throw new Error('物化上下文已释放。')
+        let block = cache.get(ref.sha256)
+        if (block) { cache.delete(ref.sha256); cache.set(ref.sha256, block); return block }
+        block = await parseContentBlock(ref, read)
+        if (closed) throw new Error('物化上下文已释放。')
+        const concurrent = cache.get(ref.sha256)
+        if (concurrent) return concurrent
+        if (block.retainedBytes <= maximum) {
+          while (retained + block.retainedBytes > maximum && cache.size) {
+            const first = cache.keys().next().value!, old = cache.get(first)!
+            cache.delete(first); retained -= old.retainedBytes
+          }
+          cache.set(ref.sha256, block); retained += block.retainedBytes
+        }
+        return block
+      }, maximumValues)
+    },
+    close(): void { closed = true; cache.clear(); retained = 0 },
+  })
 }
 export function manifestStorageBytes(project: ProjectData): number {
   return encodeUtf8(canonicalJson(partitionProjectContent(project).manifest)).length

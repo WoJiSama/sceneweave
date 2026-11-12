@@ -11,12 +11,12 @@ import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
 import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, consumeHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
 import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
-import { checkedContentBlock, isProjectBlockManifest, materializeProjectContent, partitionProjectContent, validateProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
+import { checkedContentBlock, createProjectMaterializer, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
 import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
 import { waitForStorageTransaction } from './transaction-lifetime.js'
-import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot } from './content-context.js'
+import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedProjectDelta, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot, type PreparedProjectDelta } from './content-context.js'
 import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
-import { projectContentHash, validateProjectData, releaseProjectLocalTransaction, releaseProjectTransactionReceipt } from '../../../shared/project/validate.js'
+import { getProjectLocalTransaction, getProjectTransactionReceipt, projectContentHash, validateProjectData, releaseProjectLocalTransaction, releaseProjectTransactionReceipt } from '../../../shared/project/validate.js'
 import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
@@ -29,8 +29,9 @@ import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT
 
 import { StorageAccounting, type StorageTotals } from './storage-accounting.js'
 import { prepareStorageAudit, StorageAuditConflictError, type StorageAuditPreparation } from './storage-audit.js'
-import { auditHistoryInWorker } from './history-audit-client.js'
-import type { HistoryHead, HistoryPin, HistoryVersion } from './history-records.js'
+import { auditCapturedHistoryInWorker } from './history-audit-client.js'
+import type { CapturedHistoryVersion } from './history-audit-message.js'
+import type { HistoryHead, HistoryPin } from './history-records.js'
 import { IncrementalHistory, migrationManifest, historyVersionBytes, historyHeadBytes, historyPinBytes, type HistoryReadSession, type HistoryVersionSummary } from './incremental-history.js'
 import { collectUnusedResources, type UnusedResourceCollection } from './history-maintenance.js'
 import { readProjectDirectory, readHistoryDirectory } from './directory.js'
@@ -709,10 +710,27 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
    * The final transaction must compare all captured rows and actual bytes. */
   private async auditCapturedTotals(rows: ReadonlyMap<string, readonly unknown[]>, signal: CancellationSignal): Promise<StorageTotals> {
     const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
+    // These loops no longer get cursor event boundaries from a live database
+    // transaction. Yield between actual records so resolved promises cannot
+    // turn the entire captured database into one long main-thread task.
+    let sliceStart = performance.now()
+    const yieldAudit = async () => {
+      checkCancelled(signal)
+      if (performance.now() - sliceStart >= 12) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0))
+        checkCancelled(signal); sliceStart = performance.now()
+      }
+    }
     const blocks = new Map<string, ProjectContentBlock>(), hydrated = new Map<string, ProjectData>()
     for (const raw of rows.get('projectContentBlocks') ?? []) {
       checkCancelled(signal); const block = checkedContentBlock(raw); blocks.set(block.sha256, block)
+      // Includes unreferenced blocks. No stored counter or declared hash can
+      // replace this complete actual-byte check and physical accounting.
+      totals.documentBytes += block.bytes.length
+      await yieldAudit()
     }
+    const materializer = createProjectMaterializer(async hash => blocks.get(hash))
+    try {
     const readRows = new Map<string, unknown[]>()
     const materialize = async (table: string, raw: unknown): Promise<unknown> => {
       const field = CONTENT_PAYLOAD_FIELDS[table]
@@ -724,14 +742,14 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
         const key = canonicalJson(value)
         const known = hydrated.get(key)
         if (known) return { ...row, [field]: known }
-        project = await materializeProjectContent(value, async hash => blocks.get(hash))
+        project = await materializer.materialize(value)
         if (project.document.aggregateCoordinates?.encoding === 'local') project = decodeProjectCoordinates(project)
         // Only this audit owns these objects. Consumers never mutate a raw row.
         hydrated.set(key, project)
       } else if (project?.document?.aggregateCoordinates?.encoding === 'local') project = decodeProjectCoordinates(project)
       return { ...row, [field]: project }
     }
-    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
+    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins']) {
       const actual: unknown[] = []; readRows.set(table, actual)
       for (const raw of rows.get(table) ?? []) {
         checkCancelled(signal)
@@ -739,24 +757,39 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
         const cost = this.rowCost(table, row)
         if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
         else if (cost) totals[cost.kind] += cost.bytes
+        await yieldAudit()
       }
     }
-    const versions: HistoryVersion[] = []
+    const versions: CapturedHistoryVersion[] = [], required = new Set<string>()
     for (const raw of rows.get('historyVersions') ?? []) {
       checkCancelled(signal); totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
-      versions.push(await materialize('historyVersions', raw) as HistoryVersion)
+      const version = raw as CapturedHistoryVersion
+      if (isProjectBlockManifest(version.checkpoint)) {
+        for (const field of validateProjectBlockManifest(version.checkpoint).fields) for (const ref of field.blocks) required.add(ref.sha256)
+      }
+      versions.push(version)
+      await yieldAudit()
     }
     const heads = readRows.get('historyHeads') as HistoryHead[], pins = readRows.get('historyPins') as HistoryPin[]
     const owners = new Set(heads.map(head => head.ownerSceneId)), currents = readRows.get('projects') as StoredProject[]
+    if (versions.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史缺少所属活动分支。')
+    if (pins.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史快照缺少所属分支。')
+    // Only needed content blocks cross the boundary. Resources and the entire
+    // native capture stay on this page; ordinary clone never detaches bytes.
+    const historyBlocks: ProjectContentBlock[] = []
+    for (const hash of required) {
+      const block = blocks.get(hash)
+      if (!block) throw new Error('完整历史内容块缺失。')
+      historyBlocks.push(block); await yieldAudit()
+    }
+    if (heads.length) await auditCapturedHistoryInWorker({ kind: 'captured-history', heads, versions, pins, blocks: historyBlocks }, signal)
     for (const head of heads) {
       checkCancelled(signal)
-      await auditHistoryInWorker(head.ownerSceneId, head, versions.filter(row => row.ownerSceneId === head.ownerSceneId), pins.filter(row => row.ownerSceneId === head.ownerSceneId), signal)
       const current = currents.find(row => row.sceneId === head.ownerSceneId)
       if (!current || current.revision !== head.savedRevision || current.contentHash !== head.contentHash) throw new Error('历史活动版本与完整当前工程不一致。')
     }
-    if (versions.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史缺少所属活动分支。')
-    if (pins.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史快照缺少所属分支。')
     return totals
+    } finally { materializer.close(); blocks.clear(); hydrated.clear() }
   }
   private async usageInTransaction(ownerSceneId: string, prepared?: StorageAuditPreparation): Promise<StorageUsage> {
     const totals = await this.accounting.totals(prepared), metadata = await this.database.historyMetadata.get(ownerSceneId)
@@ -807,13 +840,13 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       return metadata.metadataVersion
     })
   }
-  private async addCurrent(bundle: ProjectBundle, hash: string, savedAt: string, conversionJobId: string | null, previous: StoredProject | null, parentId?: string, localSource?: ProjectData): Promise<void> {
+  private async addCurrent(bundle: ProjectBundle, hash: string, savedAt: string, conversionJobId: string | null, previous: StoredProject | null, parentId?: string, localSource?: ProjectData, preparedDelta?: PreparedProjectDelta): Promise<void> {
     const project = bundle.project, owner = project.document.sceneId
     const row: StoredProject = { sceneId: owner, revision: project.document.revision, savedAt, contentHash: hash, status: 'ready', conversionJobId, project }
     if (previous) await this.database.projects.put(row)
     else await this.database.projects.add(row)
     await this.database.resourceBindings.put(binding(project, owner, 'current', 'current'))
-    await this.history.append(row, previous, this.options.runtime.ids.nextId(), parentId, localSource)
+    await this.history.append(row, previous, this.options.runtime.ids.nextId(), parentId, localSource, preparedDelta)
   }
   private async installFamily(bundle: ProjectBundle, hash: string, savedAt: string, status: StoredProject['status'], conversionJobId: string | null, snapshots: readonly SnapshotBundle[]): Promise<void> {
     const owner = bundle.project.document.sceneId
@@ -871,6 +904,13 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     const validatedJson = encodedSnapshot.encoded.canonical
     const checked: CheckedContent = { hash: encodedSnapshot.encoded.contentHash, byteLength: encodedSnapshot.encoded.byteLength }, hash = checked.hash
     try {
+    // Existing executor receipts already have a local delta path. Prepare only
+    // the ordinary warm generic case, using the actual complete encoding that
+    // save validation produced. Branch parents retain their explicit reader.
+    const preparedDelta = baseline && historyParentId === undefined && expectedRevision === baseline.project.document.revision
+      && owner === baseline.project.document.sceneId && !(localSource && (getProjectLocalTransaction(localSource) || getProjectTransactionReceipt(localSource)))
+      ? prepareEncodedProjectDelta(baseline, encodedSnapshot) : undefined
+    checkCancelled(options.signal)
     await this.ensureHistory(owner, options)
     if (preservation) await this.ensureHistory(preservation.sceneId, options)
     await this.atomic(options, async () => {
@@ -911,7 +951,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
         await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
       }
       await this.putResources([bundle], options)
-      await this.addCurrent(bundle, hash, savedAt, previous?.conversionJobId ?? null, previous ?? null, historyParentId, localSource)
+      await this.addCurrent(bundle, hash, savedAt, previous?.conversionJobId ?? null, previous ?? null, historyParentId, localSource, preparedDelta)
       await this.assertBudgets(owner)
     }, true)
     // Publish optional reuse only after native commit. A failed save keeps the

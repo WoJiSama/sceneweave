@@ -150,6 +150,16 @@ describe('local complete-content block preparation', () => {
     expect(prepareLocalProjectContent(after, encodeProjectCoordinates(after))).toBeDefined()
   })
 
+  it('compares only independently captured descriptor values for local preparation', () => {
+    const before = source(40, true), after = moved(before), validated = validateProjectData(after)
+    const get = vi.fn(() => { throw new Error('uncaptured caller read') })
+    expect(prepareLocalProjectContent(after, new Proxy(validated, { get }))).toBeDefined()
+    expect(get).not.toHaveBeenCalled()
+    const changed = cloneJson(validated); changed.document.title += 'different'
+    expect(prepareLocalProjectContent(after, new Proxy(changed, { get }))).toBeUndefined()
+    expect(get).not.toHaveBeenCalled()
+  })
+
   it('owns cached manifests, indexes and bytes independently of every returned mutable value', async () => {
     const before = source(), after = moved(before)
     const baseline = partitionProjectContent(before)
