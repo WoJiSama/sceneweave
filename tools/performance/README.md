@@ -6,7 +6,17 @@
 
 ## 当前完整v1单项开发对照
 
+物化／紧凑Worker／通用差量复用使用`baselines/history-boundaries-20261112.patch`及`--optimization history-boundaries`；准备器在隔离副本反向重建基线，运行器严格要求13个src产品／测试文件差异。普通生产20／44／66深度分别AB／BA／AB，源码组件另用`run-storage-scale.mjs --matrix 1:20,2:8 --edit-mode unique-prop`核每笔不同几何及多owner，标题组件仍分别测。此scope是三项收窄方案的整体产品比较，不以先前研究原型代替结果。保留普通复制／最终原字节确认，不启用transfer；已有UI局部路径不新增通用差量准备。完整delta封装和兼容检查仍在最终事务；页面heap、进程树Working Set及私有提交分开报告。源码、输入、工具冻结后串行采样，原型工具继续只作研究。
+
+完整内容判等优化使用`baselines/content-equality-20261112.patch`及`--optimization content-equality`，范围严格为storage下content-context／content-blocks、content-block-local测试及新content-equality测试4文件。已验不可变输入直接全量结构判等，未知输入先完整独立描述符捕获；不省略实际字节／SHA／许可／CAS，不按归一坐标或声明hash匹配。正常UI、独特几何／多owner与13输入旅程保持同冻结串行；分段工具另外观察prepareEncodedSnapshot／matchingEncodedSnapshot／prepareLocalProjectContent／snapshotContentPartition，插桩结果不混正常UI分布。
+
+历史编码与同步摘要继续优化采用`baselines/replay-encoding-20261112.patch`，`prepare-production-pair.mjs --optimization replay-encoding`在隔离副本还原本轮之前实现；产品范围严格限于`validation/hash.ts`、其测试与`project/delta.ts`、其测试4文件。`run-production-pair.mjs --optimization replay-encoding --history-depth 20`按同一正常生产路径对照；20／44／66分别AB／BA／AB。SHA仍为完整实际SHA-256，减少块内临时数组和全输入填充复制；编码片段只在重放内部已验不可变完整非元数据引用一致时复用，每个结果仍完整UTF8及SHA。公开validate/save、坏块／实际字节／许可、全历史分支与CAS保持。
+
+`run-storage-scale.mjs --edit-mode unique-prop --matrix 1:20,2:8`另测每笔实际几何均不同和多owner全库审计，显式目标默认`capacity-mixed-remote-0000`；每次沿X+1mm，不做两状态往返，末尾完整冷读逐字段一致、owner／保留版本数与最终位置核对。它调用源码仓库API，未携editor即时事务回执，不能当正常UI数据或与标题诊断拼分布；默认`title`保持旧输入方法。组件诊断与正常构建均单独冻结，图／profile只留忽略目录。
+
 长历史总耗时三步整改使用`baselines/history-total-20261112.patch`，`prepare-production-pair.mjs --optimization history-total`可在新隔离副本反向还原改前实现，保留全部13个产品／测试文件的确切差异；临时Git库显式关闭换行转换，正反向逐字节核对。`run-production-pair.mjs --optimization history-total --history-depth 20`只接受该范围内12个src文件差异，页面测试第13文件另由生产专项执行。20／44／66深度分别运行AB／BA／AB；这是三项合并整改的对照，不能归因成某一个小改动的独立收益。往返一毫米会重复两个实际领域状态，缓存收益不能外推到每次都产生不同领域内容的长历史；任意实际内容变化仍完整校验。
+
+事务外捕获核账在实际记录之间按约12ms检查调度切片并以浏览器任务让出，单条记录仍完整执行；这不是单条工作耗时上限。每次让出前后检查取消，不在最终原子写事务中插入此类计时等待。首轮未让出的页面长任务退步保留；最终对照须采用含调度修复的同一冻结，不能用旧版更低总等待掩盖交互阻塞。
 
 `run-history-cause-analysis.mjs`现同时观察旧`scanTotals`／`history.audit`与新`prepareAccounting`／`auditCapturedTotals`，保留冷首写实际原生事务完成跨度、审计期间另一原生连接readwrite的获得／完成等待，以及原保活空读次数。锁探针只读epoch、不写入内容；它会扰动调度，跨度仍含克隆、加载、等待和GC，只作单独组件归因，不能与正常生产UI耗时拼接。旧实际图／profile及旧版本工具指纹保留，新增结果按本轮冻结记录，方法与边界见[三步整改](../../docs/reference/performance.md#history-total-remediation-20261112)。
 
@@ -33,6 +43,21 @@ node tools/performance/summarize-production-pair.mjs D:\code\sceneweave\work\new
 这是低样本开发诊断，未接入独占系统负载guard，不可关闭正式性能或宣称稳定净收益。macOS仍采专属进程树RSS；2026-11-12起本开发对照在Windows单独采Working Set和私有提交，其他未支持平台显式`rssMode:unavailable`，缺值为null。原`run-current-formal.mjs`默认macOS RSS要求保持，Windows不能直接并入旧RSS分布。旧Windows缺测结果见[原记录](../../docs/reference/performance.md#encoding-owner-windows-20261111)，新方法/限制见[三步接续](../../docs/reference/performance.md#three-steps-20261112)。
 
 `--optimization workflow`使用`baselines/workflow-20261112.patch`重建2026-11-12四条路径的整体改前版本。准备器捕获所有未忽略源码/测试，运行器严格要求7产品+4测试文件差异；其他模式的单项白名单保持。它比较整组整改，不能将合并前后数字当作其中某个微优化的独立收益。新补丁已独立正反向应用并核对完整文本，Windows Git换行归一与原始源码SHA分开记录；不把文本相等声称为所有换行字节相等。后续源码演进先反向`--check`，上下文不兼容时显式适配，不能覆盖日常工作区。具体数值及撤回候选见[本轮整改](../../docs/reference/performance.md#workflow-remediation-20261112)。
+
+<a id="history-boundary-research"></a>
+## 历史物化、Worker与保存准备的研究原型
+
+`research-history-boundaries.mjs`和`research-history-kernel.ts`仅用于隔离研究，正常应用不引用。工具将指定冻结源码复制到新的忽略输出，向副本repository和incremental-history加明确研究入口，创建自己的合成数据库；不修改日常src、生产dist或用户数据库，不提供产品性能API。
+
+```powershell
+node tools/performance/research-history-boundaries.mjs --source D:\code\sceneweave\work\frozen-source --input D:\code\sceneweave\work\fixtures\mixed-2000.sceneweave --output D:\code\sceneweave\work\history-research-new --history 20 --history-edit title --rounds 3 --save-rounds 2
+```
+
+路径必须绝对，输出必须是仓库work/下的新空目录。输入需为有许可的严格完整合成工程，默认显式公开物件`capacity-mixed-remote-0000`可用`--prop-id`替换，移动+1mm仍须满足领域约束；不自动删历史／资源来通过。`--history-edit geometry`每笔移动该物件，覆盖低复用命中；`--rounds`1–10，`--save-rounds`0–10，0只跳过三臂暖保存计时，仍执行独立反例／局部路径检查。源码、输入、研究工具和副本指纹在运行前后核对；模块变化导致入口不匹配时拒绝，需人工适配研究副本，不覆盖产品。
+
+四路径交替比较原页面物化、页面共享解析、紧凑历史普通复制、私有字节副本transfer；当前研究只传完整历史所需闭包，原始捕获实际字节保留且结束重核实际摘要，未引用块也检查，图片资源不加入Worker任务。三臂保存比较原通用差量、同计算前移、私有已验端点／编码消费，其他实际块／资源／保护／预算／CAS和append保持；检查旧准备冲突、实际坏块、取消及普通Workspace局部命中。该工具覆盖有限原型反例，不代替09全部分支／故障／像素验收。
+
+`report.json`、`resources.json`保存原始每轮值、实际块解析次数、完整审计计量及源码模块边界。Windows进程树Working Set／私有提交与页面heap分别采样；真实间隔、跨阶段样本、缺样及后台负载保持。工具共用同一页面和模块缓存、每次Worker新建，不强制GC，无独占guard；不是正常生产UI或正式性能／容量判定。当前结果与拒绝的假设见[研究台账](../../docs/reference/performance.md#history-boundary-research-results)，原始输入／输出仍不随Git，换电脑重新冻结，不能直接复用历史通过结论。
 
 <a id="storage-responsiveness-capacity"></a>
 ## 保存规模、后台计算和资源连续旅程

@@ -1,0 +1,191 @@
+diff --git a/src/platform/browser/storage/content-block-local.test.ts b/src/platform/browser/storage/content-block-local.test.ts
+index 3103be1..934a73a 100644
+--- a/src/platform/browser/storage/content-block-local.test.ts
++++ b/src/platform/browser/storage/content-block-local.test.ts
+@@ -150,6 +150,16 @@ describe('local complete-content block preparation', () => {
+     expect(prepareLocalProjectContent(after, encodeProjectCoordinates(after))).toBeDefined()
+   })
+ 
++  it('compares only independently captured descriptor values for local preparation', () => {
++    const before = source(40, true), after = moved(before), validated = validateProjectData(after)
++    const get = vi.fn(() => { throw new Error('uncaptured caller read') })
++    expect(prepareLocalProjectContent(after, new Proxy(validated, { get }))).toBeDefined()
++    expect(get).not.toHaveBeenCalled()
++    const changed = cloneJson(validated); changed.document.title += 'different'
++    expect(prepareLocalProjectContent(after, new Proxy(changed, { get }))).toBeUndefined()
++    expect(get).not.toHaveBeenCalled()
++  })
++
+   it('owns cached manifests, indexes and bytes independently of every returned mutable value', async () => {
+     const before = source(), after = moved(before)
+     const baseline = partitionProjectContent(before)
+diff --git a/src/platform/browser/storage/content-blocks.ts b/src/platform/browser/storage/content-blocks.ts
+index 9145847..1d05f04 100644
+--- a/src/platform/browser/storage/content-blocks.ts
++++ b/src/platform/browser/storage/content-blocks.ts
+@@ -4,7 +4,7 @@ import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
+ import { parseBoundedJson } from '../../../shared/project/json.js'
+ import { getProjectLocalTransaction } from '../../../shared/project/validate.js'
+ import { encodeProjectContentData, getOwnedProjectEncoding, type OwnedProjectEncoding } from '../../../shared/project/encoding.js'
+-import { canonicalJson, captureJson, cloneJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
++import { canonicalJson, captureJson, cloneJson, encodeUtf8, equalOwnedJson, freezeJson } from '../../../shared/validation/json.js'
+ 
+ export const CONTENT_BLOCK_FORMAT = 'sceneweave-project-content-blocks' as const
+ // Storage blocks are not domain JSON partitions. The complete validator still
+@@ -160,8 +160,8 @@ export function prepareLocalProjectContent(originalAfter: ProjectData, fullyVali
+     // forged angle (for example 450 -> 90). Already-local storage copies must
+     // likewise equal the exact local result, without a second normalization.
+     if (!owned) {
+-      const actual = canonicalJson(fullyValidatedAfter)
+-      if (actual !== canonicalJson(transaction.result) && actual !== targetCanonical) return
++      const actual = captureJson(fullyValidatedAfter)
++      if (!equalOwnedJson(actual, transaction.result) && !equalOwnedJson(actual, target)) return
+     }
+     const prepared = encoded && encodedContents.get(encoded)?.checked
+     if (prepared && prepared.canonical !== targetCanonical) return
+diff --git a/src/platform/browser/storage/content-context.ts b/src/platform/browser/storage/content-context.ts
+index d044022..35309bc 100644
+--- a/src/platform/browser/storage/content-context.ts
++++ b/src/platform/browser/storage/content-context.ts
+@@ -1,6 +1,6 @@
+ import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
+ import { getVerifiedProjectBundle } from '../../../shared/project/resources.js'
+-import { canonicalJson, cloneJson } from '../../../shared/validation/json.js'
++import { captureJson, cloneJson, equalOwnedJson } from '../../../shared/validation/json.js'
+ import { encodeProjectContent, partitionEncodedProjectContent, prepareLocalProjectContent, type EncodedProjectContent, type ProjectContentPartition } from './content-blocks.js'
+ 
+ /** A private operation result. Encoding identity and actual IDB freshness are
+@@ -12,7 +12,6 @@ export interface EncodedSnapshot {
+ const snapshots = new WeakSet<EncodedSnapshot>()
+ const partitions = new WeakMap<EncodedSnapshot, ProjectContentPartition>()
+ const ownedProjects = new WeakMap<ProjectData, EncodedSnapshot>()
+-const worldJson = new WeakMap<EncodedSnapshot, string>()
+ export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: ProjectBundle, baseline?: EncodedSnapshot): EncodedSnapshot {
+   const verified = getVerifiedProjectBundle(bundle)
+   if (!verified) throw new Error('保存编码须来自本次不可变工程校验结果。')
+@@ -20,7 +19,7 @@ export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: Proje
+   // Public save still fully validates a detached copy. Preserve the original
+   // validator-owned immutable endpoint only after complete raw equality, before
+   // coordinate conversion could normalize a different world representation.
+-  const encodingSource = source && (source === verified.project || canonicalJson(source) === canonicalJson(verified.project))
++  const encodingSource = source && equalOwnedJson(source, verified.project)
+     ? source : verified.project
+   // Each operation owns an independent lease; one concurrent repository save
+   // cannot release another save's prepared state for the same project object.
+@@ -49,7 +48,6 @@ export function canRetainEncodedSnapshot(snapshot: EncodedSnapshot): boolean {
+ export function releaseEncodedSnapshot(snapshot: EncodedSnapshot): void {
+   if (ownedProjects.get(snapshot.project) === snapshot) ownedProjects.delete(snapshot.project)
+   if (ownedProjects.get(snapshot.encoded.stored) === snapshot) ownedProjects.delete(snapshot.encoded.stored)
+-  worldJson.delete(snapshot)
+ }
+ 
+ export type ContentSlot = 'result' | 'baseline' | 'branch'
+@@ -67,19 +65,18 @@ export function pinEncodedSnapshot(transaction: IDBTransaction, slot: ContentSlo
+   }
+   content.slots.set(slot, snapshot)
+ }
+-/** Exact complete text equality, never a caller's ID/hash/frozen marker. Raw
++/** Exact complete owned JSON equality, never a caller's ID/hash/frozen marker. Raw
+  * middleware must still read and compare every referenced actual block. */
+ export function matchingEncodedSnapshot(transaction: IDBTransaction, project: ProjectData): EncodedSnapshot | undefined {
+   const content = transactions.get(transaction)
+   if (!content) return
+   const own = exactEncodedSnapshot(transaction, project)
+   if (own) return own
+-  const json = canonicalJson(project)
++  // Capture every descriptor once before comparison. Mutable caller objects,
++  // including Proxies, cannot swap a checked value during serialization.
++  const captured = captureJson(project)
+   for (const snapshot of content.slots.values()) {
+-    if (json === snapshot.encoded.canonical) return snapshot
+-    let world = worldJson.get(snapshot)
+-    if (world === undefined) { world = canonicalJson(snapshot.project); worldJson.set(snapshot, world) }
+-    if (json === world) return snapshot
++    if (equalOwnedJson(captured, snapshot.encoded.stored) || equalOwnedJson(captured, snapshot.project)) return snapshot
+   }
+ }
+ /** Exact immutable references only. Middleware uses this after its complete
+diff --git a/src/platform/browser/storage/content-equality.test.ts b/src/platform/browser/storage/content-equality.test.ts
+new file mode 100644
+index 0000000..21e139a
+--- /dev/null
++++ b/src/platform/browser/storage/content-equality.test.ts
+@@ -0,0 +1,78 @@
++import 'fake-indexeddb/auto'
++import Dexie from 'dexie'
++import { expect, it, vi } from 'vitest'
++import { fixture, runtime, validation } from '../../../application/workspace/test-fixtures.js'
++import { createCompositionContent } from '../../../shared/appearance/graph.js'
++import type { ProjectData } from '../../../shared/model/project.js'
++import { validateProjectBundle } from '../../../shared/project/resources.js'
++import { canonicalJson, cloneJson } from '../../../shared/validation/json.js'
++import { matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedSnapshot, releaseEncodedSnapshot } from './content-context.js'
++import { ProjectRepository } from './repository.js'
++
++it('matches complete strict world/local JSON with reordered numeric and special IDs, without changing stored bytes', async () => {
++  const input = fixture({ image: true }), document = input.project.document
++  document.aggregateCoordinates = { encoding: 'world', groups: { group: { id: 'group', floorId: document.props.item.floorId,
++    parentId: null, frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
++  for (const id of ['10', '2', '01', 'constructor', 'prototype']) document.userLayers[id] = {
++    ...Object.values(document.userLayers)[0], id, name: '完整 😀 "\\\n' + id, order: Object.keys(document.userLayers).length }
++  Object.assign(input.project, createCompositionContent(document, runtime))
++  const bundle = await validateProjectBundle(input, validation), snapshot = prepareEncodedSnapshot(bundle)
++  const repo = new ProjectRepository({ name: `content-equality-${crypto.randomUUID()}`, runtime, validation })
++  try {
++    await repo.database.open()
++    await repo.database.transaction('rw', repo.database.storageState, async transaction => {
++      pinEncodedSnapshot(transaction.idbtrans, 'result', snapshot)
++      for (const representation of [snapshot.project, snapshot.encoded.stored]) {
++        const copy = cloneJson(representation)
++        copy.document.userLayers = Object.fromEntries(Object.entries(copy.document.userLayers).reverse())
++        expect(matchingEncodedSnapshot(transaction.idbtrans, copy)).toBe(snapshot)
++        expect(canonicalJson(snapshot.encoded.stored)).toBe(snapshot.encoded.canonical)
++        const changed = cloneJson(copy); changed.document.title += 'different'
++        expect(matchingEncodedSnapshot(transaction.idbtrans, changed)).toBeUndefined()
++        const unknown = { ...copy, extra: true } as ProjectData
++        expect(matchingEncodedSnapshot(transaction.idbtrans, unknown)).toBeUndefined()
++      }
++      const changedGeometry = cloneJson(bundle.project); changedGeometry.document.props.item.rotationDeg += 360
++      expect(matchingEncodedSnapshot(transaction.idbtrans, changedGeometry)).toBeUndefined()
++      const changedIdentity = cloneJson(bundle.project); changedIdentity.historyIdentity.lineageId += '-other'
++      expect(matchingEncodedSnapshot(transaction.idbtrans, changedIdentity)).toBeUndefined()
++      const changedResources = cloneJson(bundle.project); changedResources.licenses = {}
++      expect(Object.keys(bundle.project.licenses).length).toBeGreaterThan(0)
++      expect(matchingEncodedSnapshot(transaction.idbtrans, changedResources)).toBeUndefined()
++    })
++    await repo.database.transaction('r', repo.database.storageState, transaction => {
++      expect(matchingEncodedSnapshot(transaction.idbtrans, cloneJson(bundle.project))).toBeUndefined()
++    })
++  } finally { releaseEncodedSnapshot(snapshot); repo.close(); await Dexie.delete(repo.database.name) }
++})
++
++it('captures descriptor values once, rejects hidden/accessor/symbol input and keeps independent transaction slots', async () => {
++  const bundle = await validateProjectBundle(fixture(), validation), snapshot = prepareEncodedSnapshot(bundle)
++  const different = cloneJson(bundle.project); different.document.title += ' branch'
++  const other = prepareEncodedSnapshot(await validateProjectBundle({ project: different, resources: bundle.resources }, validation))
++  const repo = new ProjectRepository({ name: `content-equality-${crypto.randomUUID()}`, runtime, validation })
++  const get = vi.fn(() => { throw new Error('caller property read') }), getter = vi.fn(() => bundle.project.document)
++  try {
++    await repo.database.open()
++    await repo.database.transaction('rw', repo.database.storageState, transaction => {
++      pinEncodedSnapshot(transaction.idbtrans, 'baseline', snapshot)
++      pinEncodedSnapshot(transaction.idbtrans, 'result', other)
++      const proxy = new Proxy(cloneJson(bundle.project), { get })
++      expect(matchingEncodedSnapshot(transaction.idbtrans, proxy)).toBe(snapshot)
++      expect(get).not.toHaveBeenCalled()
++      expect(matchingEncodedSnapshot(transaction.idbtrans, cloneJson(other.project))).toBe(other)
++      const invalid = [
++        Object.defineProperty(cloneJson(bundle.project), 'document', { enumerable: true, get: getter }),
++        Object.defineProperty(cloneJson(bundle.project), 'extra', { value: true }),
++        Object.assign(cloneJson(bundle.project), { [Symbol('hidden')]: true }),
++      ]
++      for (const candidate of invalid) expect(() => matchingEncodedSnapshot(transaction.idbtrans, candidate)).toThrow()
++      expect(getter).not.toHaveBeenCalled()
++      // A mutable match does not gain reference authority for subsequent edits.
++      const mutable = cloneJson(bundle.project)
++      expect(matchingEncodedSnapshot(transaction.idbtrans, mutable)).toBe(snapshot)
++      mutable.document.props.item.rotationDeg += 1
++      expect(matchingEncodedSnapshot(transaction.idbtrans, mutable)).toBeUndefined()
++    })
++  } finally { releaseEncodedSnapshot(snapshot); releaseEncodedSnapshot(other); repo.close(); await Dexie.delete(repo.database.name) }
++})

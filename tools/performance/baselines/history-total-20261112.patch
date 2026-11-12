@@ -1,5 +1,5 @@
 diff --git a/src/platform/browser/storage/history-audit-transaction.test.ts b/src/platform/browser/storage/history-audit-transaction.test.ts
-index 876afdc..2e7b23c 100644
+index 876afdc..7a230ea 100644
 --- a/src/platform/browser/storage/history-audit-transaction.test.ts
 +++ b/src/platform/browser/storage/history-audit-transaction.test.ts
 @@ -7,6 +7,7 @@ import { cloneJson } from '../../../shared/validation/json.js'
@@ -31,7 +31,7 @@ index 876afdc..2e7b23c 100644
    vi.stubGlobal('Worker', AuditingWorker)
    const transact = IDBDatabase.prototype.transaction
    let writing: IDBTransaction | undefined
-@@ -106,6 +109,78 @@ it.each(['save', 'usage'] as const)('observes native transaction abort during %s
+@@ -106,6 +109,103 @@ it.each(['save', 'usage'] as const)('observes native transaction abort during %s
    expect(await repo.database.historyVersions.count()).toBe(1)
  })
  
@@ -75,6 +75,31 @@ index 876afdc..2e7b23c 100644
 +  expect(AuditingWorker.instances[0].terminate).not.toHaveBeenCalled()
 +  AuditingWorker.release!(); await pending
 +  expect((await repo.database.projects.get(input.project.document.sceneId))!.revision).toBe(1)
++})
++
++it('services cancellation between captured records before starting the history worker', async () => {
++  const repo = repository(), input = fixture(); await repo.save(input, null)
++  const rows = await new Promise<Map<string, unknown[]>>((resolve, reject) => {
++    const names = repo.database.tables.map(table => table.name), captured = new Map<string, unknown[]>()
++    const tx = repo.database.backendDB().transaction(names, 'readonly')
++    for (const name of names) {
++      const request = tx.objectStore(name).getAll()
++      request.onsuccess = () => { captured.set(name, request.result) }
++    }
++    tx.oncomplete = () => resolve(captured); tx.onabort = () => reject(tx.error)
++  })
++  vi.stubGlobal('Worker', AuditingWorker)
++  let elapsed = 0
++  vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 13)
++  const controller = new AbortController()
++  // A browser task must run between records, rather than only promise jobs.
++  const cancellation = setTimeout(() => controller.abort(), 0)
++  try {
++    const auditing = repo as unknown as { auditCapturedTotals(rows: ReadonlyMap<string, readonly unknown[]>, signal: AbortSignal): Promise<unknown> }
++    await expect(auditing.auditCapturedTotals(rows, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
++    expect(AuditingWorker.instances).toHaveLength(0)
++    expect((await repo.database.projects.get(input.project.document.sceneId))!.revision).toBe(0)
++  } finally { clearTimeout(cancellation) }
 +})
 +
 +it('re-reads actual block bytes even when a native writer keeps every declared hash and epoch unchanged', async () => {
@@ -145,7 +170,7 @@ index d6e91ee..8646662 100644
      ;(repo as unknown as { accounting: { invalidate(): void } }).accounting.invalidate()
      await expect(repo.renameSnapshot(owner, snapshot.id, 'longer snapshot name', snapshot.contentHash, 1)).rejects.toThrow(/累计预算/)
 diff --git a/src/platform/browser/storage/repository.ts b/src/platform/browser/storage/repository.ts
-index c5cae95..4097c3e 100644
+index c5cae95..eb3c84e 100644
 --- a/src/platform/browser/storage/repository.ts
 +++ b/src/platform/browser/storage/repository.ts
 @@ -11,7 +11,7 @@ import { checkCancelled } from '../../../shared/ports/resources.js'
@@ -240,7 +265,7 @@ index c5cae95..4097c3e 100644
    }
    private async assembled(project: ProjectData, owner: string, kind: BindingKind, recordId: string, shared?: ResourceAssembly, expectedBytes?: ReadonlyMap<string, Uint8Array>): Promise<ProjectBundle> {
      assertBinding(await this.database.resourceBindings.get([owner, kind, recordId]), project, owner, kind, recordId)
-@@ -672,8 +704,62 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+@@ -672,8 +704,76 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
      await scanRows(this.database.historyPins, row => { if (!owners.has(row.ownerSceneId)) throw new Error('增量历史快照缺少所属分支。') })
      return totals
    }
@@ -251,9 +276,21 @@ index c5cae95..4097c3e 100644
 +   * The final transaction must compare all captured rows and actual bytes. */
 +  private async auditCapturedTotals(rows: ReadonlyMap<string, readonly unknown[]>, signal: CancellationSignal): Promise<StorageTotals> {
 +    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
++    // These loops no longer get cursor event boundaries from a live database
++    // transaction. Yield between actual records so resolved promises cannot
++    // turn the entire captured database into one long main-thread task.
++    let sliceStart = performance.now()
++    const yieldAudit = async () => {
++      checkCancelled(signal)
++      if (performance.now() - sliceStart >= 12) {
++        await new Promise<void>(resolve => setTimeout(resolve, 0))
++        checkCancelled(signal); sliceStart = performance.now()
++      }
++    }
 +    const blocks = new Map<string, ProjectContentBlock>(), hydrated = new Map<string, ProjectData>()
 +    for (const raw of rows.get('projectContentBlocks') ?? []) {
 +      checkCancelled(signal); const block = checkedContentBlock(raw); blocks.set(block.sha256, block)
++      await yieldAudit()
 +    }
 +    const readRows = new Map<string, unknown[]>()
 +    const materialize = async (table: string, raw: unknown): Promise<unknown> => {
@@ -281,12 +318,14 @@ index c5cae95..4097c3e 100644
 +        const cost = this.rowCost(table, row)
 +        if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
 +        else if (cost) totals[cost.kind] += cost.bytes
++        await yieldAudit()
 +      }
 +    }
 +    const versions: HistoryVersion[] = []
 +    for (const raw of rows.get('historyVersions') ?? []) {
 +      checkCancelled(signal); totals.documentBytes += encodeUtf8(canonicalJson(raw)).length
 +      versions.push(await materialize('historyVersions', raw) as HistoryVersion)
++      await yieldAudit()
 +    }
 +    const heads = readRows.get('historyHeads') as HistoryHead[], pins = readRows.get('historyPins') as HistoryPin[]
 +    const owners = new Set(heads.map(head => head.ownerSceneId)), currents = readRows.get('projects') as StoredProject[]
@@ -305,7 +344,7 @@ index c5cae95..4097c3e 100644
      // A primary-key existence query has no project payload to hydrate.
      if (await this.database.projects.where('sceneId').equals(ownerSceneId).count()) assertMetadata(metadata, ownerSceneId)
      const head = await this.history.head(ownerSceneId)
-@@ -690,7 +776,12 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+@@ -690,7 +790,12 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
    }
    async usage(ownerSceneId: string): Promise<StorageUsage> {
      id(ownerSceneId); await this.open()

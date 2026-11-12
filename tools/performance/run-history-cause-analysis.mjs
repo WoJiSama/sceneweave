@@ -45,8 +45,11 @@ await fs.symlink(path.join(source, 'public'), path.join(diagnostic, 'public'), '
 // All selected bodies are synchronous. The observer uses one stack, so selected
 // descendants can be subtracted without summing overlapping inclusive spans.
 const targets = {
+  'platform/browser/storage/content-context.ts': ['prepareEncodedSnapshot', 'matchingEncodedSnapshot', 'snapshotContentPartition'],
+  'platform/browser/storage/content-blocks.ts': ['prepareLocalProjectContent', 'encodeProjectContent'],
   'platform/browser/storage/history-records.ts': ['checkVersionRecord', 'remember', 'readCheckpoint', 'rebuildFromMap', 'auditHistoryRecords'],
   'shared/project/delta.ts': ['canonicalOwned', 'validateProjectDelta', 'applyChanges', 'remember', 'capture', 'encodedRepresentation', 'world', 'apply'],
+  'shared/project/json.ts': ['parseBoundedJson'],
   'shared/project/validate.ts': ['readProjectData'],
   'shared/project/history.ts': ['include'],
   'shared/validation/json.ts': ['inspectJsonInput', 'captureJson', 'canonicalJson', 'encodeUtf8'],
@@ -69,6 +72,11 @@ const targets = {
 report.boundaries = []
 for (const [relative, names] of Object.entries(targets)) {
   const file = path.join(diagnostic, 'src', relative), code = await fs.readFile(file, 'utf8')
+  // Later implementations add these synchronous boundaries. Keep the same
+  // driver usable on a frozen baseline where the functions did not yet exist.
+  const optional = relative.endsWith('content-context.ts') ? ['prepareEncodedProjectDelta', 'consumeEncodedProjectDelta']
+    : relative.endsWith('project/delta.ts') ? ['diffProjectData', 'tryCreateVerifiedProjectDelta'] : []
+  names.push(...optional.filter(name => code.includes(`function ${name}(`)))
   const ast = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true), edits = new MagicString(code), found = new Set()
   function visit(node) {
     const label = (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && node.name ? node.name.getText(ast)
@@ -117,11 +125,14 @@ const workerFile = path.join(diagnostic, 'src/platform/browser/storage/history-a
 const workerCode = await fs.readFile(workerFile, 'utf8')
 // Keep the normal two-field result and error response intact; emit diagnostics
 // over the browser console, after measuring the original audit call.
-await fs.writeFile(workerFile, observerCode + workerCode.replace('const result = auditHistoryRecords(owner, head, versions, pins)',
+const compactBoundary = workerCode.includes('const result = await auditHistoryMessage(event.data)')
+const auditCall = compactBoundary ? 'const result = await auditHistoryMessage(event.data)' : 'const result = auditHistoryRecords(owner, head, versions, pins)'
+if (!workerCode.includes(auditCall)) throw new Error('Unknown history Worker boundary; cannot silently skip instrumentation')
+await fs.writeFile(workerFile, observerCode + workerCode.replace(auditCall,
   `const __received=performance.timeOrigin+performance.now();const __start=performance.now();
-    const result = auditHistoryRecords(owner, head, versions, pins)
+    ${auditCall}
     const __end=performance.now();console.log('SCENEWEAVE_HISTORY_CAUSE '+JSON.stringify({receivedAt:__received,computeMs:__end-__start,trace:globalThis.__historyCauseTrace.result(),documentBytes:result.documentBytes}))`))
-await fs.writeFile(path.join(diagnostic, 'cause-bridge.ts'), `import Dexie from 'dexie';export {Dexie};export {waitForStorageTransaction} from './src/platform/browser/storage/transaction-lifetime.ts';export {auditHistoryInWorker} from './src/platform/browser/storage/history-audit-client.ts';export {auditHistoryRecords} from './src/platform/browser/storage/history-records.ts';`)
+await fs.writeFile(path.join(diagnostic, 'cause-bridge.ts'), `import Dexie from 'dexie';export {Dexie};export {waitForStorageTransaction} from './src/platform/browser/storage/transaction-lifetime.ts';export {auditHistoryInWorker${compactBoundary ? ',auditCapturedHistoryInWorker' : ''}} from './src/platform/browser/storage/history-audit-client.ts';export {auditHistoryRecords} from './src/platform/browser/storage/history-records.ts';${compactBoundary ? "export {auditHistoryMessage} from './src/platform/browser/storage/history-audit-message.ts';" : ''}`)
 report.diagnosticFiles = await fingerprintPaths(diagnostic, ['src', 'cause-bridge.ts'])
 report.status = 'running'; await write()
 let tooling, browser
@@ -135,6 +146,20 @@ try {
   })
   page.on('pageerror', error => report.events.push({ type: 'page-error', message: error.message }))
   await page.goto(tooling.url); await page.evaluate(installTrace)
+  // Install before loading Dexie: it captures this native method when opening
+  // its connection, so a later prototype patch sees only the independent probe.
+  await page.evaluate(() => {
+    const transact = IDBDatabase.prototype.transaction
+    IDBDatabase.prototype.transaction = function (...args) {
+      const tx = transact.apply(this, args), state = globalThis.__historyCause
+      if (state?.stage === 'cold-save') {
+        const row = { mode: tx.mode, stores: [...tx.objectStoreNames], startedAt: performance.now() }; state.transactions.push(row)
+        tx.addEventListener('complete', () => { row.completeMs = performance.now() - row.startedAt })
+        tx.addEventListener('abort', () => { row.abortMs = performance.now() - row.startedAt })
+      }
+      return tx
+    }
+  })
   console.log(`Preparing real native history (${history} saves)`)
   report.setup = await page.evaluate(async ({ base64, history }) => {
     const [{ importProject }, { tryDerivedProjectBundle, validateProjectSnapshot }, { ProjectRepository }, { runtime, validation }, bridge] = await Promise.all([
@@ -152,16 +177,6 @@ try {
     current = await validateProjectSnapshot(await repo.load(current.project.document.sceneId), validation)
     globalThis.__historyCause = { repo, current, next, bridge, name, workers: [], spans: [], transactions: [], stage: 'idle', spinCount: 0 }
     const state = globalThis.__historyCause, NativeWorker = globalThis.Worker, nativeGet = IDBObjectStore.prototype.get
-    const nativeTransaction = IDBDatabase.prototype.transaction
-    IDBDatabase.prototype.transaction = function (...args) {
-      const tx = nativeTransaction.apply(this, args)
-      if (state.stage === 'cold-save') {
-        const row = { mode: tx.mode, stores: [...tx.objectStoreNames], startedAt: performance.now() }; state.transactions.push(row)
-        tx.addEventListener('complete', () => { row.completeMs = performance.now() - row.startedAt })
-        tx.addEventListener('abort', () => { row.abortMs = performance.now() - row.startedAt })
-      }
-      return tx
-    }
     IDBObjectStore.prototype.get = function(key) { if (key === -Infinity) state.spinCount++; return nativeGet.call(this, key) }
     globalThis.Worker = class extends NativeWorker {
       constructor(...args) {
@@ -170,7 +185,7 @@ try {
         this.addEventListener('message', () => { row.receivedAt = performance.timeOrigin + performance.now() })
       }
       postMessage(value, ...rest) {
-        if (value && Object.hasOwn(value, 'versions') && Object.hasOwn(value, 'head')) {
+        if (value && Object.hasOwn(value, 'versions') && (Object.hasOwn(value, 'head') || value.kind === 'captured-history')) {
           state.graph = value; this.__cause.versions = value.versions.length
           if (state.stage === 'cold-save' && !state.coldLockProbe) {
             const probeStart = performance.now()
@@ -194,7 +209,21 @@ try {
     for (const [object, name, label] of [[repo, 'scanTotals'], [repo, 'prepareAccounting'], [repo, 'auditCapturedTotals'], [repo, 'putResources'], [repo, 'saveWithValidation'], [repo.history, 'audit', 'history.audit']]) {
       const original = object[name]
       if (typeof original !== 'function') continue
-      object[name] = async function(...args) { const start = performance.now(); try { return await original.apply(this, args) } finally { state.spans.push({ stage: state.stage, name: label ?? name, ms: performance.now() - start }) } }
+      object[name] = async function(...args) {
+        const start = performance.now()
+        try {
+          const result = await original.apply(this, args)
+          if (name === 'prepareAccounting' && result) return {
+            async confirm(...parameters) {
+              const confirmedAt = performance.now()
+              try { return await result.confirm(...parameters) }
+              finally { state.spans.push({ stage: state.stage, name: 'finalActualConfirmation', ms: performance.now() - confirmedAt }) }
+            },
+            release() { return result.release() },
+          }
+          return result
+        } finally { state.spans.push({ stage: state.stage, name: label ?? name, ms: performance.now() - start }) }
+      }
     }
     state.bridge.Dexie.ignoreTransaction(() => {})
     return { preparedMs: performance.now() - start, owner: current.project.document.sceneId, revision: current.project.document.revision, props: Object.keys(current.project.document.props).length }
@@ -230,7 +259,7 @@ try {
       const s = globalThis.__historyCause, { auditHistoryInWorker, Dexie, waitForStorageTransaction } = s.bridge, g = s.graph
       s.stage = `${mode}-${s.workers.length}`; const start = performance.now(), spins = s.spinCount
       let result, lockProbe
-      const compute = () => auditHistoryInWorker(g.owner, g.head, g.versions, g.pins)
+      const compute = () => g.kind === 'captured-history' ? s.bridge.auditCapturedHistoryInWorker(g) : auditHistoryInWorker(g.owner, g.head, g.versions, g.pins)
       if (mode === 'standalone') result = await compute()
       else result = await s.repo.database.transaction('rw', s.repo.database.tables, async () => {
         // Acquire this connection's native write lock before the other probe.
@@ -259,7 +288,7 @@ try {
   await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 1000 })
   await page.evaluate(() => { globalThis.__historyCauseTrace.enable(false) })
   await cdp.send('Profiler.start')
-  report.directPageAudit = await page.evaluate(() => { const g = globalThis.__historyCause.graph, start = performance.now(); const result = globalThis.__historyCause.bridge.auditHistoryRecords(g.owner, g.head, g.versions, g.pins); return { ms: performance.now() - start, result } })
+  report.directPageAudit = await page.evaluate(async () => { const g = globalThis.__historyCause.graph, start = performance.now(), bridge = globalThis.__historyCause.bridge; const result = g.kind === 'captured-history' ? await bridge.auditHistoryMessage(g) : bridge.auditHistoryRecords(g.owner, g.head, g.versions, g.pins); return { ms: performance.now() - start, result } })
   const { profile } = await cdp.send('Profiler.stop'); await fs.writeFile(path.join(output, 'same-graph-page.cpuprofile'), JSON.stringify(profile), { flag: 'wx' })
   report.workers = await page.evaluate(() => globalThis.__historyCause.workers)
   report.outputConsistency = [...report.comparisons.map(r => r.result.documentBytes), report.directPageAudit.result.documentBytes]

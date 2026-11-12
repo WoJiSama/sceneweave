@@ -8,13 +8,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
 const argument = (name, fallback = '') => args.includes(name) ? args[args.indexOf(name) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/prepare-production-pair.mjs --output ABS_EMPTY_DIRECTORY --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-total')
+  console.log('node tools/performance/prepare-production-pair.mjs --output ABS_EMPTY_DIRECTORY --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-total|replay-encoding|content-equality|history-boundaries')
   console.log('Copies current tracked files and performance tools into two isolated repositories, reverse-checks/applies only the selected baseline patch, and runs the normal architecture/type/Vite build steps serially. The live workspace is never reverted. Dependencies are linked from the existing locked installation.')
   process.exit(0)
 }
 const output = argument('--output'), optimization = argument('--optimization')
 check(output && path.isAbsolute(output) && output.startsWith(`${root}${path.sep}work${path.sep}`), 'Expected an isolated absolute --output under repository work/')
-check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-total'].includes(optimization), 'Choose an explicit optimization scope')
+check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries'].includes(optimization), 'Choose an explicit optimization scope')
 await fs.mkdir(output, { recursive: true })
 check((await fs.readdir(output)).length === 0, 'Existing evidence will not be overwritten')
 const record = { format: 'sceneweave-normal-production-pair-preparation', version: 1, status: 'running', optimization,
@@ -52,7 +52,7 @@ try {
     for (const side of ['before', 'after']) { const target = path.join(output, side, file); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, bytes, { flag: 'wx' }) }
   }
   record.sourceFingerprint = sha(JSON.stringify(record.files))
-  record.patch = `tools/performance/baselines/${optimization}-${['workflow', 'representation-worker', 'history-endpoint', 'history-total'].includes(optimization) ? '20261112' : '20261111'}.patch`
+  record.patch = `tools/performance/baselines/${optimization}-${['workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries'].includes(optimization) ? '20261112' : '20261111'}.patch`
   record.patchSha256 = sha(await fs.readFile(path.join(root, record.patch)))
   for (const side of ['before', 'after']) {
     const directory = path.join(output, side)
