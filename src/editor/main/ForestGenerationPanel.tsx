@@ -26,6 +26,7 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
   const [entranceSide, setEntranceSide] = useState<ForestGenerationUiRequest['entranceSide']>('west')
   const [routeWidthMm, setRouteWidthMm] = useState(1800)
   const [treeCoveragePpm, setTreeCoveragePpm] = useState(80000), [shrubCoveragePpm, setShrubCoveragePpm] = useState(10000), [grassCoveragePpm, setGrassCoveragePpm] = useState(1000)
+  const [woodlandDistribution, setWoodlandDistribution] = useState<NonNullable<ForestGenerationUiRequest['woodlandDistribution']>>('uniform')
   const nextClearing = useRef(2)
   const validationId = useId()
   const locked = busy || disabled, cleanTitle = title.trim(), cleanSeed = seed.trim()
@@ -44,9 +45,14 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
     }
     if (!(Number.isSafeInteger(routeWidthMm) && routeWidthMm > 0 && routeWidthMm <= 10000)) return '路线净宽须大于0且不超过10米，请调整净宽。'
     if (![treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000)) return '树木、灌木和草簇的目标覆盖须为0–100%，请调整覆盖比例。'
+    if (woodlandDistribution === 'copses' && (widthMm < 16000 || heightMm < 16000)) return '疏密林地需要宽和高至少16米，请扩大地图或选择均匀散布。'
     return null
   })()
   const valid = validationReason === null
+  const vegetationTotals = candidate && ['tree', 'shrub', 'grass'].map(role => ({ role,
+    requested: candidate.report.vegetation.filter(row => row.role === role).reduce((sum, row) => sum + row.requested, 0),
+    placed: candidate.report.vegetation.filter(row => row.role === role).reduce((sum, row) => sum + row.placed, 0),
+  }))
   const feedback = error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消森林与营地」返回当前工程。</p></>
   const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消森林与营地</button>
   return <section className="terrain-generation-panel forest-generation-panel" aria-label="森林与营地生成">
@@ -54,7 +60,7 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
     <p>先留出活动空地与入口路线，再在真实地面上布置树木、灌木和草簇。</p>
     <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">覆盖目标与实际数量分别显示。空间不足会说明缺项；保存后可继续移动或删除，不会自动补回。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
-    <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, clearings: clearings.map(row => ({ ...row, boundsMm: { ...row.boundsMm } })), entranceSide, routeWidthMm, treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm }) }}>
+    <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, clearings: clearings.map(row => ({ ...row, boundsMm: { ...row.boundsMm } })), entranceSide, routeWidthMm, treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm, woodlandDistribution }) }}>
       <fieldset disabled={locked}>
         <legend>地图与活动空间</legend>
         <label>工程名称<input aria-label="森林工程名称" value={title} maxLength={120} onChange={event => change(() => setTitle(event.target.value))}/></label>
@@ -87,6 +93,8 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
         <label>入口方向<select aria-label="森林入口方向" value={entranceSide} onChange={event => change(() => setEntranceSide(event.target.value as ForestGenerationUiRequest['entranceSide']))}><option value="west">西侧</option><option value="east">东侧</option><option value="north">北侧</option><option value="south">南侧</option></select></label>
         <label>路线净宽（米）<input aria-label="森林路线净宽米" type="number" min="0.1" max="10" step="0.1" value={routeWidthMm / 1000} onChange={event => change(() => setRouteWidthMm(mm(event.target.value)))}/></label>
         <h3>植被覆盖目标</h3>
+        <label>植被分布<select aria-label="森林植被分布" value={woodlandDistribution} onChange={event => change(() => setWoodlandDistribution(event.target.value as NonNullable<ForestGenerationUiRequest['woodlandDistribution']>))}><option value="uniform">均匀散布</option><option value="copses">疏密林地</option></select></label>
+        {woodlandDistribution === 'copses' && <p className="asset-muted">把同一目标数量集中到两片不规则树群，外围布置灌木和草簇。活动空地与路线继续保留；目标过高或区域不足时会说明，实际数量以候选为准。</p>}
         <label>树木（%）<input aria-label="森林树木覆盖百分比" type="number" min="0" max="100" step="0.1" value={treeCoveragePpm / 10000} onChange={event => change(() => setTreeCoveragePpm(ppm(event.target.value)))}/></label>
         <div className="forest-field-pair">
           <label>灌木（%）<input aria-label="森林灌木覆盖百分比" type="number" min="0" max="100" step="0.1" value={shrubCoveragePpm / 10000} onChange={event => change(() => setShrubCoveragePpm(ppm(event.target.value)))}/></label>
@@ -101,7 +109,7 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
     {candidate && <WorkspaceReview><div className="forest-generation-panel workspace-review-panel">{feedback}<div className="forest-candidate" aria-label="森林与营地候选摘要"><div className="workspace-review-body"><h3>候选 · {candidate.input.parameters.clearings.length} 处空地</h3>
       <p>画布展示完整候选，当前工程尚未改变。</p>
       <p aria-label="森林实际生成结果">实际安排 {candidate.report.pathIds.length} 条路线、{candidate.report.propIds.length} 棵树和 {candidate.report.decorationIds.length} 处轻量草灌。</p>
-      <ul aria-label="森林植被目标与实际数量">{candidate.report.vegetation.map(row => <li key={`${row.zoneId}:${row.role}:${row.ruleId}`}>{roleName(row.role)}：目标 {row.requested}，实际 {row.placed}。</li>)}</ul>
+      <ul aria-label="森林植被目标与实际数量">{vegetationTotals?.map(row => <li key={row.role}>{roleName(row.role)}：目标 {row.requested}，实际 {row.placed}。</li>)}</ul>
       {candidate.report.notes.length > 0 && <div aria-label="森林未完成建议"><h3>布置说明</h3><ul>{candidate.report.notes.map((note, index) => <li key={index}>{note}</li>)}</ul></div>}
       <p className="asset-muted">保存后可自由修改空地、道路或植被，已删除的内容不会在重开时自动恢复。</p>
       </div>

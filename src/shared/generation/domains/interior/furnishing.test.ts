@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyCommands } from '../../../commands/commands.js'
 import { taskBudgetProfile } from '../../../budget/task-budget.js'
-import { polygonDistance, polygonInside, propFootprint, roomPoints, supportedPolygon } from '../../../geometry/geometry.js'
+import { polygonDistance, polygonInside, polygonsOverlap, propFootprint, roomPoints, supportedPolygon } from '../../../geometry/geometry.js'
 import { toCurrentSceneDocument } from '../../../model/current-scene.js'
 import type { PropDefinition, SceneDocument } from '../../../model/scene.js'
 import { canonicalJson } from '../../../validation/json.js'
@@ -11,6 +11,7 @@ import { arrangeInteriorConnections, checkInteriorCirculation, type InteriorConn
 import type { InteriorGenerationInput, InteriorLayout } from './contracts.js'
 import { interiorEntityId } from './layout.js'
 import { furnitureBoundsPolygon, furniturePoseCandidates, type FurnitureAnchor } from './furnishing-poses.js'
+import { furnitureUseSpacePolygon, furnitureWorkingSpacePolygon } from './furnishing-use-space.js'
 
 const stamp = '2026-11-05T00:00:00.000Z', profile = taskBudgetProfile('small'), options = { profile, checkCancelled: () => {} }
 const context = { ids: { nextId: () => { throw new Error('native room IDs must be explicit') } }, clock: { now: () => stamp } }
@@ -94,6 +95,68 @@ describe('initial interior furniture suggestions', () => {
     const checked = checkInteriorCirculation(result.document, value.input, value.layout, connected.report)
     expect(checked.routes.every((route, at) => connected.report.routes[at].status !== 'clear' || route.status === 'clear')).toBe(true)
     expect(() => furnishInterior(value.document, value.input, value.layout, connected.report, { profile, checkCancelled: () => { throw new Error('cancelled') } })).toThrow('cancelled')
+  })
+})
+
+describe('interior-layout@5 functional use-space reservations', () => {
+  it('keeps a full standing work strip in a kitchen without inventing seated-work suggestions or persistent rules', () => {
+    const value = fixture(6000, 7500)
+    value.input.algorithmVersion = 5; value.input.parameters.rooms[0].purpose = '厨房'
+    const result = furnishInterior(value.document, value.input, value.layout, emptyConnectivity, options)
+    const work = result.report.rooms[0].placed.filter(row => row.role === 'work' || row.role === 'hearth').map(row => result.document.props[row.propId])
+    expect(work.length).toBeGreaterThanOrEqual(2)
+    expect(result.report.rooms[0].recommended).not.toContain('seat')
+    for (const anchor of work) {
+      const usePolygon = furnitureWorkingSpacePolygon(anchor, anchor)
+      expect(polygonInside(usePolygon, roomPoints(result.document, result.document.rooms[anchor.roomId!]))).toBe(true)
+      for (const other of Object.values(result.document.props).filter(prop => prop.id !== anchor.id)) expect(polygonsOverlap(usePolygon, propFootprint(other))).toBe(false)
+    }
+    expect(result.document.constraints).toEqual(value.document.constraints)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+  })
+
+  it('reserves whole chairs and their 600mm rear use space before filling a study with more anchors and storage', () => {
+    for (const [width, height, seed] of [[8000, 8000, 'use-space-study'], [6500, 9500, 'independent-use-space']] as const) {
+      const value = fixture(width, height, true)
+      value.input.algorithmVersion = 5; value.input.seed = seed
+      for (const room of value.input.parameters.rooms) room.purpose = '书房与工作室'
+      const before = canonicalJson(value.document), connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+      const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+      for (const row of result.report.rooms) {
+        const work = row.placed.filter(p => p.role === 'work').map(p => result.document.props[p.propId])
+        const seats = row.placed.filter(p => p.role === 'seat').map(p => result.document.props[p.propId])
+        expect(work.length).toBeGreaterThanOrEqual(2)
+        expect(seats.length).toBeGreaterThanOrEqual(work.length)
+        for (const anchor of work) expect(Math.min(...seats.map(seat => polygonDistance(propFootprint(seat), propFootprint(anchor))))).toBeLessThanOrEqual(500)
+        for (const seat of seats) {
+          const usePolygon = furnitureUseSpacePolygon(seat, seat)
+          expect(polygonInside(usePolygon, roomPoints(result.document, result.document.rooms[seat.roomId!]))).toBe(true)
+          for (const other of Object.values(result.document.props).filter(prop => prop.id !== seat.id)) {
+            expect(polygonsOverlap(usePolygon, propFootprint(other))).toBe(false)
+            expect(polygonsOverlap(usePolygon, furnitureBoundsPolygon(other.visualBoundsMm, other))).toBe(false)
+          }
+          expect(seat.footprintMm).toEqual(value.document.propDefinitions.seat.defaultFootprintMm)
+        }
+      }
+      expect(checkInteriorCirculation(result.document, value.input, value.layout, connected.report).routes.every((route, index) => connected.report.routes[index].status !== 'clear' || route.status === 'clear')).toBe(true)
+      expect(validateSceneDocument(result.document).ok).toBe(true)
+      expect(canonicalJson(value.document)).toBe(before)
+      expect(furnishInterior(connected.document, value.input, value.layout, connected.report, options)).toEqual(result)
+    }
+  }, 30000)
+
+  it('keeps an unseatable work group visibly unfilled rather than pinning the table against a wall', () => {
+    const value = fixture(3200, 3200)
+    value.input.algorithmVersion = 5; value.input.parameters.rooms[0].purpose = '书房'
+    Object.assign(value.document.propDefinitions.work, {
+      defaultFootprintMm: { width: 2400, height: 2400 }, defaultVisualBoundsMm: { x: -1200, y: -1200, width: 2400, height: 2400 },
+    })
+    const legacy = furnishInterior(value.document, { ...value.input, algorithmVersion: 4 }, value.layout, emptyConnectivity, options)
+    const current = furnishInterior(value.document, value.input, value.layout, emptyConnectivity, options)
+    expect(legacy.report.rooms[0].placed.some(row => row.role === 'work')).toBe(true)
+    expect(current.report.rooms[0].placed.some(row => row.role === 'work')).toBe(false)
+    expect(current.report.notes.join()).toContain('座位使用空间')
+    expect(validateSceneDocument(current.document).ok).toBe(true)
   })
 })
 

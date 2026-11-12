@@ -54,3 +54,9 @@ export function defaultMixedInput(document: SceneDocument, environment: 'forest'
 export function defaultMixedInputV3(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
   return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 3 }
 }
+
+/** The current composition combines seat/use-space reservations with the
+ * established normal doorway approach and tree-first vegetation generation. */
+export function defaultMixedInputV4(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 4 }
+}

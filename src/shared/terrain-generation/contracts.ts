@@ -54,14 +54,16 @@ const interiorGenerationRecipeV2Schema = naturalGenerationRecipeSchema.extend({
 // a recipeVersion from one algorithm with an algorithmVersion from another.
 const interiorGenerationRecipeV3Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
 const interiorGenerationRecipeV4Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(4), algorithmVersion: z.literal(4) }).strict()
-export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema, interiorGenerationRecipeV4Schema])
+const interiorGenerationRecipeV5Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(5), algorithmVersion: z.literal(5) }).strict()
+export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema, interiorGenerationRecipeV4Schema, interiorGenerationRecipeV5Schema])
 const supportedInteriorGenerationRecipeV1Schema = interiorGenerationRecipeV2Schema.extend({
   recipeVersion: z.literal(1), algorithmId: z.literal('supported-interior'), algorithmVersion: z.literal(1),
   parameters: supportedInteriorParametersSchema,
 }).strict()
 const supportedInteriorGenerationRecipeV2Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
 const supportedInteriorGenerationRecipeV3Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
-export const supportedInteriorGenerationRecipeSchema = z.union([supportedInteriorGenerationRecipeV1Schema, supportedInteriorGenerationRecipeV2Schema, supportedInteriorGenerationRecipeV3Schema])
+const supportedInteriorGenerationRecipeV4Schema = supportedInteriorGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(4), algorithmVersion: z.literal(4) }).strict()
+export const supportedInteriorGenerationRecipeSchema = z.union([supportedInteriorGenerationRecipeV1Schema, supportedInteriorGenerationRecipeV2Schema, supportedInteriorGenerationRecipeV3Schema, supportedInteriorGenerationRecipeV4Schema])
 const forestGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: forestParametersSchema,
@@ -84,7 +86,8 @@ const mixedGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
 }).strict()
 const mixedGenerationRecipeV2Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
 const mixedGenerationRecipeV3Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(3), algorithmVersion: z.literal(3) }).strict()
-export const mixedGenerationRecipeSchema = z.union([mixedGenerationRecipeV1Schema, mixedGenerationRecipeV2Schema, mixedGenerationRecipeV3Schema])
+const mixedGenerationRecipeV4Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(4), algorithmVersion: z.literal(4) }).strict()
+export const mixedGenerationRecipeSchema = z.union([mixedGenerationRecipeV1Schema, mixedGenerationRecipeV2Schema, mixedGenerationRecipeV3Schema, mixedGenerationRecipeV4Schema])
 export const generationRecipeSchema = z.union([naturalGenerationRecipeSchema, interiorGenerationRecipeSchema, supportedInteriorGenerationRecipeSchema, forestGenerationRecipeSchema, volcanoGenerationRecipeSchema, mixedGenerationRecipeSchema])
 export type NaturalGenerationRecipe = z.infer<typeof naturalGenerationRecipeSchema>
 export const generationIntentSchema = z.object({ id, floorId: id, visibility, boundsMm: bounds,
