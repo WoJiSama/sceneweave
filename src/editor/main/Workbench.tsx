@@ -56,6 +56,8 @@ import { exportProject, exportHistoryArchive } from '../../shared/project/file'
 import { validateProjectBundle } from '../../shared/project/resources'
 import { projectRepository, validation, runtime } from '../../platform/browser/runtime'
 import { createBlankProject, createSampleProject } from '../../platform/browser/content/factories'
+import { createHomeShowcaseProject } from '../../platform/browser/content/home-showcase'
+import homeShowcase from '../../platform/browser/content/home-showcase-manifest.json'
 import type { ContentLoadProgress } from '../../platform/browser/content/load-resources'
 import { inspectOutdoorChanges, isOutdoorCommand, type OutdoorCommand } from '../../shared/commands/outdoor'
 import { outdoorPreviewError } from './outdoor-preview-error'
@@ -1019,6 +1021,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     else if (requested.type === 'generate') { if (guard()) { setAudience('gm'); openResources('generate') } }
     else if (requested.type === 'import') requestImport()
     else if (requested.type === 'image-import') { if (guard('imageImport')) { setAudience('gm'); setSidebar('scene'); openResources('scene'); setImageImportRequest(value => value + 1) } }
+    else if (requested.type === 'showcase') prepare((signal, progress) => createHomeShowcaseProject(requested.sample, signal, progress), homeShowcase.entries[requested.sample].description)
     else if (requested.type === 'open') openReference(requested.sceneId)
     else if (requested.type === 'open-project') {
       if (!guardAssetEditorDeparture()) return

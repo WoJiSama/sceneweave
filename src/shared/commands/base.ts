@@ -14,7 +14,7 @@ export type BaseSceneCommand =
   | { type: 'reverseWall'; id: string }
   | { type: 'splitWall'; id: string; positionMm: PointMm; newVertexId: string; newWallId: string }
   | { type: 'setSurfaceMaterial'; kind: SurfaceKind | 'wall'; id: string; materialRef: VersionRef }
-  | { type: 'setSurfacePaint'; kind: SurfaceKind; id: string; changes: { rotationDeg?: number; originMm?: PointMm; tileSizeMm?: SizeMm } }
+  | { type: 'setSurfacePaint'; kind: SurfaceKind | 'wall'; id: string; changes: { rotationDeg?: number; originMm?: PointMm; tileSizeMm?: SizeMm } }
   | { type: 'moveTerrainPoint'; areaId: string; pointId: string; positionMm: PointMm }
   | { type: 'setTerrainElevation'; id: string; groundElevationMm: number }
   | { type: 'setConnectionBlocked'; id: string; blocksMovement: boolean }
@@ -46,7 +46,7 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('reverseWall'), id }).strict(),
   z.object({ type: z.literal('splitWall'), id, positionMm: point, newVertexId: id, newWallId: id }).strict(),
   z.object({ type: z.literal('setSurfaceMaterial'), kind: z.enum(['room', 'terrainArea', 'wall']), id, materialRef: version }).strict(),
-  z.object({ type: z.literal('setSurfacePaint'), kind, id, changes: z.object({ rotationDeg: angle.optional(), originMm: point.optional(), tileSizeMm: size.optional() }).strict() }).strict(),
+  z.object({ type: z.literal('setSurfacePaint'), kind: z.enum(['room', 'terrainArea', 'wall']), id, changes: z.object({ rotationDeg: angle.optional(), originMm: point.optional(), tileSizeMm: size.optional() }).strict() }).strict(),
   z.object({ type: z.literal('moveTerrainPoint'), areaId: id, pointId: id, positionMm: point }).strict(),
   z.object({ type: z.literal('setTerrainElevation'), id, groundElevationMm: integer }).strict(),
   z.object({ type: z.literal('setConnectionBlocked'), id, blocksMovement: z.boolean() }).strict(),

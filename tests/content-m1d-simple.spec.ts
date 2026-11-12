@@ -1,5 +1,5 @@
 import { acknowledgeAssetQuality } from './asset-quality-helpers'
-import { openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
+import { openSamples, openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
@@ -46,8 +46,10 @@ async function adopt(page: Page) {
 for (const sample of [{ name: '苔石墓园', kind: 'graveyard' }, { name: '灰烬熔脉', kind: 'volcano' }]) {
   test(`content simple: ${sample.name} opens a real editable sample and saves a property edit`, async ({ page }, info) => {
     test.setTimeout(90000)
-    await page.goto('/#home')
-    await home(page).getByRole('button', { name: sample.name, exact: true }).click()
+    await blank(page, sample.kind)
+    await openSamples(page)
+    await page.getByTestId('workspace-inspector').getByRole('region', { name: '场景样板', exact: true })
+      .getByRole('button', { name: sample.name + ' · 内容小样', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '确认打开工程', exact: true })
     await expect(dialog).toBeVisible({ timeout: 30000 })
     await dialog.getByRole('button', { name: '保存并打开副本', exact: true }).click()
@@ -106,7 +108,7 @@ for (const sample of [{ name: '苔石墓园', kind: 'graveyard' }, { name: '灰�
     expect((await current(page)).document.props[id]).toEqual(before.document.props[id])
     await page.getByRole('button', { name: '返回工程信息', exact: true }).click()
     await info.attach(`${sample.kind}.png`, { body: await page.screenshot(), contentType: 'image/png' })
-    await info.attach(`${sample.kind}.json`, { body: JSON.stringify({ method: 'Home review, actual PNG render, normal property edit, native save and undo; DEV observation only.', before, after }), contentType: 'application/json' })
+    await info.attach(`${sample.kind}.json`, { body: JSON.stringify({ method: 'Normal blank creation and file-menu legacy sample review, actual PNG render, normal property edit, native save and undo; DEV observation only.', before, after }), contentType: 'application/json' })
   })
 }
 

@@ -32,17 +32,18 @@ function fixture() {
 }
 
 describe('explicit saved rock rendering profiles', () => {
-  it('keeps the same full physical connection band while opt-in profiles reach both audience projections', () => {
+  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4'] as const)('keeps the same full physical connection band while %s reaches both audience projections', profile => {
     const scene = fixture(), source = structuredClone(scene), old = connectionFootprint(scene.terrainConnections['q1-stairs'])
-    scene.terrainConnections['q1-stairs'].route!.renderProfile = 'naturalRockSteps2'
-    visualBase(scene)!.edgeLooks['q1-crown-cliff'].renderProfile = 'rockRelief2'
+    const cliffProfile = profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
+    scene.terrainConnections['q1-stairs'].route!.renderProfile = profile
+    visualBase(scene)!.edgeLooks['q1-crown-cliff'].renderProfile = cliffProfile
     expect(validateSceneDocument(scene).ok).toBe(true)
     expect(polygonBoolean({ operation: 'difference', subject: [old], clip: [connectionFootprint(scene.terrainConnections['q1-stairs'])] }).polygons).toEqual([])
     for (const audience of ['gm', 'player'] as const) {
       const projection = projectScene(scene, audience), previous = projectScene(source, audience)
-      expect(projection.connections.find(row => row.id === 'q1-stairs')!.route!.renderProfile).toBe('naturalRockSteps2')
+      expect(projection.connections.find(row => row.id === 'q1-stairs')!.route!.renderProfile).toBe(profile)
       expect(projection.connections.map(row => { const copy = structuredClone(row); if (copy.route) delete copy.route.renderProfile; return copy })).toEqual(previous.connections)
-      expect(projection.visual!.edgeLooks.find(row => row.id === 'q1-crown-cliff')!.renderProfile).toBe('rockRelief2')
+      expect(projection.visual!.edgeLooks.find(row => row.id === 'q1-crown-cliff')!.renderProfile).toBe(cliffProfile)
       expect(projectionAssetConsumers(projection).complete).toBe(true)
     }
   })
@@ -59,25 +60,27 @@ describe('explicit saved rock rendering profiles', () => {
     const grass = validateSceneDocument(scene)
     expect(!grass.ok && grass.errors.some(row => row.code === 'VISUAL_RENDER_PROFILE')).toBe(true)
   })
-  it('uses ordinary transactions and complete source identity without mutating the original model or fixed assets', () => {
+  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4'] as const)('uses ordinary transactions and complete source identity for %s without mutating the original model or fixed assets', profile => {
     const scene = fixture(), before = canonicalJson(scene); let n = 0
     const runtime = { ids: { nextId: () => `detail-profile-token-${++n}` }, clock: { now: () => scene.updatedAt } }
     const content = createCompositionContent(scene, runtime), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
-    const next = applyCompositionCommands(content, [{ type: 'updateTerrainConnection', id: 'q1-stairs', changes: { route: { ...scene.terrainConnections['q1-stairs'].route!, renderProfile: 'naturalRockSteps2' } } },
-      { type: 'upsertVisualEdgeLook', edgeLook: { ...edge, renderProfile: 'rockRelief2' } }], runtime)
+    const cliffProfile = profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
+    const next = applyCompositionCommands(content, [{ type: 'updateTerrainConnection', id: 'q1-stairs', changes: { route: { ...scene.terrainConnections['q1-stairs'].route!, renderProfile: profile } } },
+      { type: 'upsertVisualEdgeLook', edgeLook: { ...edge, renderProfile: cliffProfile } }], runtime)
     expect(next.historyIdentity).toEqual(content.historyIdentity)
     expect(next.document.assets).toEqual(scene.assets); expect(next.document.materials).toEqual(scene.materials)
     expect(next.document.props).toEqual(scene.props); expect(next.document.terrainAreas).toEqual(scene.terrainAreas)
     const cold = JSON.parse(canonicalJson(next.document))
     expect(validateSceneDocument(cold).ok).toBe(true)
-    expect(cold.terrainConnections['q1-stairs'].route.renderProfile).toBe('naturalRockSteps2')
+    expect(visualBase(cold)!.edgeLooks['q1-crown-cliff'].renderProfile).toBe(cliffProfile)
+    expect(cold.terrainConnections['q1-stairs'].route.renderProfile).toBe(profile)
     expect(canonicalJson(scene)).toBe(before)
   })
   it('keeps private profile edits out of the player projection and does not expand the AI visual protocol', () => {
     const scene = fixture(), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
     edge.visibility = 'gm'
     const before = canonicalJson(projectScene(scene, 'player'))
-    edge.renderProfile = 'rockRelief2'
+    edge.renderProfile = 'rockRelief4'
     expect(canonicalJson(projectScene(scene, 'player'))).toBe(before)
     const { floorId: _floor, layerId: _layer, visibility: _visibility, editLocked: _lock, kind, ...fields } = edge
     expect(VisualAuthoringOperationSchema.safeParse({ kind: 'visualEdge', edgeKind: kind, ...fields }).success).toBe(false)

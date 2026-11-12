@@ -3,7 +3,9 @@ import type { MaterialRef, PointMm, SurfaceStyle, TerrainArea } from '../model/s
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { pathJunctionOutlines } from '../../platform/browser/render/path-junctions.js'
 import { pathPolygon } from '../geometry/geometry.js'
+import { applyCommands } from '../commands/commands.js'
 import { canonicalJson } from '../validation/json.js'
+import { validateSceneDocument } from '../validation/scene.js'
 import { visualBase } from '../visual/base.js'
 import type { VisualFilter } from '../visual/types.js'
 import { projectionAssetConsumers } from './presentation-contract.js'
@@ -59,6 +61,38 @@ describe('audience-owned road to terrain join relationships', () => {
     expect(editor.paths).toEqual([])
     expect(pathJunctionOutlines(editor).size).toBe(0)
     expect(projectEditorScene(scene, { hiddenLayerIds: new Set([layerId]) }).pathTerrainJoins).toBeUndefined()
+  })
+  it.each(['campLayer', 'roomLayer', 'roadLayer'])('omits a room-supported road when its %s is hidden without changing formal output or the stored scene', hiddenLayerId => {
+    const { scene: source, floorId, layerId } = fixture()
+    delete source.paths.road; delete source.entityLayers.road
+    for (const id of ['campLayer', 'roomLayer', 'roadLayer']) {
+      source.userLayers[id] = { id, floorId, name: id, order: Object.keys(source.userLayers).length, editLocked: false }
+    }
+    source.entityLayers.camp = 'campLayer'
+    const scene = applyCommands(source, [{ type: 'createRoom', id: 'camp-room', floorId, layerId: 'roomLayer',
+      boundaryMm: rect(11000, 7000, 4000, 3000), thicknessMm: 200, visibility: 'public', supportRef: { kind: 'terrainArea', id: 'camp' } }],
+    { ids: { nextId: () => 'room-road-generated-id' }, clock: { now: () => '2026-11-12T00:00:00.000Z' } })
+    const road = (id: string, centerlineMm: PointMm[], supportRef: { kind: 'room' | 'terrainArea'; id: string }, roadLayer: string) => {
+      scene.paths[id] = { id, floorId, editLocked: false, visibility: 'public', centerlineMm, widthMm: 400,
+        supportRefs: [supportRef], surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 }
+      scene.entityLayers[id] = roadLayer
+    }
+    road('room-road-a', [{ x: 12000, y: 8000 }, { x: 14000, y: 8000 }], { kind: 'room', id: 'camp-room' }, 'roadLayer')
+    road('room-road-b', [{ x: 13000, y: 7500 }, { x: 13000, y: 9500 }], { kind: 'room', id: 'camp-room' }, 'roadLayer')
+    road('outside-road', [{ x: 2000, y: 2000 }, { x: 4000, y: 2000 }], { kind: 'terrainArea', id: 'ground' }, layerId)
+    expect(validateSceneDocument(scene).ok).toBe(true)
+    const before = canonicalJson(scene), gm = projectScene(scene, 'gm'), player = projectScene(scene, 'player')
+    expect(gm.paths.map(path => path.id)).toEqual(['outside-road', 'room-road-a', 'room-road-b'])
+    expect(gm.pathJoinGroups).toEqual([['outside-road', 'room-road-a', 'room-road-b']])
+    const hidden = projectEditorScene(scene, { hiddenLayerIds: new Set([hiddenLayerId]) })
+    expect(hidden.paths.map(path => path.id)).toEqual(['outside-road'])
+    expect(hidden.pathJoinGroups).toBeUndefined()
+    expect(hidden.pathJoinPaintOrder).not.toContain('room-road-a')
+    expect(hidden.pathJoinPaintOrder).not.toContain('room-road-b')
+    expect(projectEditorScene(scene)).toEqual(gm)
+    expect(projectScene(scene, 'gm')).toEqual(gm)
+    expect(projectScene(scene, 'player')).toEqual(player)
+    expect(canonicalJson(scene)).toBe(before)
   })
   it('does not join multi-height roads and requires complete Floor ranges plus an explicit multi-Floor target', () => {
     const { scene, floorId, layerId } = fixture()

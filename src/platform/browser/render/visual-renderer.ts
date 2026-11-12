@@ -8,12 +8,14 @@ import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { cliffRelief } from './cliff-relief.js'
 import { cliffReliefV2 } from './cliff-relief-v2.js'
 import { cliffReliefV3 } from './cliff-relief-v3.js'
+import { cliffReliefV4 } from './cliff-relief-v4.js'
 import { connectionBand, corridor } from '../../../shared/geometry/geometry.js'
 import { grassEdgeRings } from './grass-edge.js'
 import { terrainTransitionStrokePolygon } from '../../../shared/visual/transition.js'
 import { edgeLookPaintPadding } from '../../../shared/visual/paint-envelopes.js'
 import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
+import { cliffHighGround, type CliffHighGround } from './cliff-high-ground.js'
 
 const TAU = Math.PI * 2
 const minMaxBounds = (points: PointMm[], padding = 0): BoundsMm => { const x = Math.min(...points.map(p => p.x)) - padding, y = Math.min(...points.map(p => p.y)) - padding; return { x, y, width: Math.max(...points.map(p => p.x)) + padding - x, height: Math.max(...points.map(p => p.y)) + padding - y } }
@@ -57,13 +59,12 @@ function band(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, 
   if (featherMm) { const transform = ctx.getTransform(); ctx.filter = `blur(${featherMm * Math.max(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d))}px)` }
   ctx.fill(ringsPath(rings), 'evenodd'); ctx.restore()
 }
-function excludeHighGround(ctx: CanvasRenderingContext2D, projection: Projection, boundary: ProjectedVisualBoundary): void {
-  const terrain = boundary.terrainAreaIds.map(id => projection.terrain.find(area => area.id === id)).filter((a): a is NonNullable<typeof a> => !!a)
-  if (!terrain.length) return
-  const maximum = Math.max(...terrain.map(area => area.elevationMm))
-  for (const high of terrain.filter(area => area.elevationMm === maximum)) {
-    const path = new Path2D(); path.rect(projection.bounds.x - 100000, projection.bounds.y - 100000, projection.bounds.width + 200000, projection.bounds.height + 200000); addRing(path, high.points); ctx.clip(path, 'evenodd')
-  }
+function excludeHighGround(ctx: CanvasRenderingContext2D, projection: Projection, high: CliffHighGround): void {
+  if (!high.excludedRings.length) return
+  const path = new Path2D()
+  path.rect(projection.bounds.x - 100000, projection.bounds.y - 100000, projection.bounds.width + 200000, projection.bounds.height + 200000)
+  for (const points of high.excludedRings) addRing(path, points)
+  ctx.clip(path, 'evenodd')
 }
 function connectionsFor(projection: Projection, boundary: ProjectedVisualBoundary): ProjectedConnection[] {
   return boundaryConnections(projection.connections, boundary.points, boundary.closed, boundary.terrainAreaIds)
@@ -109,16 +110,43 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
     return `rgb(${reliefRgb.map(channel => Math.round(Math.max(0, Math.min(255, channel * factor)))).join(',')})`
   }
   for (const sign of sides(look)) {
-    if (look.renderProfile === 'rockRelief2' || look.renderProfile === 'rockRelief3') {
+    if (look.renderProfile === 'rockRelief2' || look.renderProfile === 'rockRelief3' || look.renderProfile === 'rockRelief4') {
       const openingPolygons = connections.map(connection => connection.route
         ? connectionBand(connection.route.centerlineMm, connection.widthMm)
         : corridor(connection.start, connection.end, connection.widthMm))
-      const relief = (look.renderProfile === 'rockRelief3' ? cliffReliefV3 : cliffReliefV2)(boundary, look, sign, { openingPolygons, ...(dropMm === undefined ? {} : { dropMm }) })
+      const options = { openingPolygons, ...(dropMm === undefined ? {} : { dropMm }) }
+      const relief = look.renderProfile === 'rockRelief4' ? cliffReliefV4(boundary, look, sign, { ...options, lightDirectionDeg: directionDeg })
+        : (look.renderProfile === 'rockRelief3' ? cliffReliefV3 : cliffReliefV2)(boundary, look, sign, options)
       if (!relief.faceRings.length) continue
       const face = ringsPath(relief.faceRings)
       ctx.fillStyle = look.color; ctx.globalAlpha = look.opacity * relief.baseOpacity; ctx.fill(face, 'evenodd')
       ctx.save(); ctx.clip(face, 'evenodd')
       try {
+        if (relief.version === 4) {
+          const transform = ctx.getTransform(), sx = Math.hypot(transform.a, transform.b), sy = Math.hypot(transform.c, transform.d)
+          const planned = relief.shadeCells.map(cell => { const bounds = minMaxBounds(cell.rings.flat(), 2)
+            return { cell, bounds, width: Math.max(1, Math.ceil(bounds.width * sx)), height: Math.max(1, Math.ceil(bounds.height * sy)) } })
+          const width = Math.max(1, ...planned.map(row => row.width)), height = Math.max(1, ...planned.map(row => row.height))
+          if (width * height > 16777216) throw new Error('第四版崖面受光缓冲超过16M局部像素预算。')
+          const scratch = makeCanvas(width, height), target = ctx2d(scratch)
+          try { for (const { cell, bounds, width: usedWidth, height: usedHeight } of planned) {
+          target.resetTransform(); target.clearRect(0, 0, width, height); target.globalCompositeOperation = 'source-over'
+          target.setTransform(sx, 0, 0, sy, -bounds.x * sx, -bounds.y * sy)
+          const gradient = target.createLinearGradient(cell.fromMm.x, cell.fromMm.y, cell.toMm.x, cell.toMm.y)
+          for (const stop of cell.stops) {
+            const accent = colorRgb(look.accentColor)
+            const channels = reliefRgb.map((value, index) => Math.round(Math.max(0, Math.min(255,
+              value * stop.shade * (1 - stop.accent) + accent[index] * stop.accent))))
+            gradient.addColorStop(stop.offset, `rgba(${channels.join(',')},${stop.opacity})`)
+          }
+          target.fillStyle = gradient; target.fill(ringsPath(cell.rings), 'evenodd')
+          const feather = target.createLinearGradient(cell.featherFromMm.x, cell.featherFromMm.y, cell.featherToMm.x, cell.featherToMm.y)
+          feather.addColorStop(0, '#FFFFFF00'); feather.addColorStop(.24, '#FFFFFF'); feather.addColorStop(.76, '#FFFFFF'); feather.addColorStop(1, '#FFFFFF00')
+          target.globalCompositeOperation = 'destination-in'; target.fillStyle = feather
+          target.fillRect(bounds.x, bounds.y, bounds.width, bounds.height)
+          ctx.globalAlpha = look.opacity; ctx.drawImage(scratch, 0, 0, usedWidth, usedHeight, bounds.x, bounds.y, usedWidth / sx, usedHeight / sy)
+          } } finally { release(scratch) }
+        }
         for (const facet of relief.facets) {
           ctx.fillStyle = shade(facet.normal, (facet.shade - 1) * .55)
           ctx.globalAlpha = look.opacity * facet.opacity; ctx.fill(ringsPath([facet.polygon]))
@@ -188,6 +216,15 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
   const visual = projection.visual
   if (!visual) return
   const byId = new Map(visual.boundaries.map(boundary => [boundary.id, boundary]))
+  const highGroundCache = new Map<string, CliffHighGround>()
+  const highGround = (boundary: ProjectedVisualBoundary) => {
+    let high = highGroundCache.get(boundary.id)
+    if (!high) {
+      const padding = Math.max(1, ...visual.edgeLooks.filter(look => look.kind === 'cliff' && look.boundaryId === boundary.id).map(edgeLookPaintPadding))
+      high = cliffHighGround(projection, boundary, padding); highGroundCache.set(boundary.id, high)
+    }
+    return high
+  }
   const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0)
   if (cliffs.length) {
     const allPoints = cliffs.flatMap(look => byId.get(look.boundaryId)?.points ?? []), padding = Math.max(...cliffs.map(edgeLookPaintPadding))
@@ -199,7 +236,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       for (const look of cliffs) {
         const boundary = byId.get(look.boundaryId)
         if (!boundary) continue
-        buffer.ctx.save(); buffer.ctx.fillStyle = `rgb(${Math.round(255 * (1 - look.opacity * .23))},${Math.round(255 * (1 - look.opacity * .21))},${Math.round(255 * (1 - look.opacity * .21))})`; excludeHighGround(buffer.ctx, projection, boundary); clipConnectionOpenings(buffer.ctx, projection.bounds, connectionsFor(projection, boundary))
+        buffer.ctx.save(); buffer.ctx.fillStyle = `rgb(${Math.round(255 * (1 - look.opacity * .23))},${Math.round(255 * (1 - look.opacity * .21))},${Math.round(255 * (1 - look.opacity * .21))})`; excludeHighGround(buffer.ctx, projection, highGround(boundary)); clipConnectionOpenings(buffer.ctx, projection.bounds, connectionsFor(projection, boundary))
         const shift = look.widthMm * .85, dx = Math.cos(direction) * shift, dy = Math.sin(direction) * shift
         // A neutral-white darken mask takes the maximum shadow at joins, then multiplies once.
         for (let i = 0; i < boundary.points.length - (boundary.closed ? 0 : 1); i++) {
@@ -242,11 +279,10 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     ctx.save()
     try {
     clipConnectionOpenings(ctx, projection.bounds, connections)
-    if (look.kind === 'cliff') excludeHighGround(ctx, projection, boundary)
+    if (look.kind === 'cliff') excludeHighGround(ctx, projection, highGround(boundary))
     if (look.kind === 'cliff') {
       // Only elevations already visible to this audience may affect pixels.
-      const elevations = boundary.terrainAreaIds.flatMap(id => projection.terrain.filter(area => area.id === id).map(area => area.elevationMm))
-      const dropMm = elevations.length >= 2 ? Math.max(...elevations) - Math.min(...elevations) : undefined
+      const { dropMm } = highGround(boundary)
       drawCliffFace(ctx, boundary, look, visual.environment.lightDirectionDeg, connections, dropMm)
       continue
     }

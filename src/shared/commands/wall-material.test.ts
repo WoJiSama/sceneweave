@@ -59,9 +59,33 @@ describe('native wall material command', () => {
       expect(() => apply(locked, [command])).toThrow(/锁定/)
       expect(canonicalJson(locked)).toBe(serialized)
     }
-    // Only material assignment gained a wall target. Other surface commands keep their contract.
-    expect(() => apply(project, [{ type: 'setSurfacePaint', kind: 'wall', id, changes: { rotationDeg: 45 } } as unknown as CompositionCommand])).toThrow()
+    // Wall overlays still have no editable polygon target.
     expect(() => apply(project, [{ type: 'setOverlayBoundary', kind: 'wall', id, overlayId: 'overlay', boundaryMm: [] } as unknown as CompositionCommand])).toThrow()
     expect(canonicalJson(project)).toBe(before)
+  })
+
+  it('edits wall paint through the strict transaction while retaining structure, opening width, source ancestry and locks', () => {
+    const id = 'house:wall:0', initial = fixture()
+    const project = apply(initial, [{ type: 'addOpening', id: 'door', wallId: id, offsetReferenceVertexId: initial.document.walls[id].startVertexId, offsetMm: 1000, widthMm: 1200, kind: 'door' }])
+    expect(() => apply(project, [{ type: 'setSurfacePaint', kind: 'wall', id, changes: { rotationDeg: 45 } }])).toThrow(/底材/)
+    const before = apply(project, [{ type: 'setSurfaceMaterial', kind: 'wall', id, materialRef: { id: 'b2-m-04', version: 1 } }])
+    const command: CompositionCommand = { type: 'setSurfacePaint', kind: 'wall', id,
+      changes: { rotationDeg: 90, tileSizeMm: { width: 1440, height: 1440 }, originMm: { x: 2000, y: 2000 } } }
+    const serialized = canonicalJson(before), parentId = before.appearance.surfaceSources[id]
+    const after = apply(before, [command]), expected = cloneJson(before.document)
+    Object.assign(expected.walls[id].topStyle!.base, command.changes)
+    expect(after.document).toEqual(expected)
+    expect(after.historyIdentity).toEqual(before.historyIdentity)
+    expect(after.appearance.sources[after.appearance.surfaceSources[id]]).toMatchObject({
+      kind: 'surface', parentSourceId: parentId, snapshot: expected.walls[id].topStyle,
+    })
+    expect(after.appearance.sources[parentId]).toEqual(before.appearance.sources[parentId])
+    for (const lock of [
+      { type: 'setEditLock', kind: 'wall', id, locked: true },
+      { type: 'setLayerLock', id: 'layer-default-0', locked: true },
+    ] satisfies CompositionCommand[]) expect(() => apply(apply(before, [lock]), [command])).toThrow(/锁定/)
+    expect(() => apply(before, [command, { ...command, changes: { tileSizeMm: { width: 0, height: 1440 } } }])).toThrow()
+    expect(() => apply(before, [{ ...command, changes: { rotationDeg: 360 } }])).toThrow()
+    expect(canonicalJson(before)).toBe(serialized)
   })
 })

@@ -93,6 +93,16 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
     signal.throwIfAborted()
     if (current()) { download(`outpost-natural-detail-${outpostVegetation}.sceneweave`, new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })); setMessage('自然编排哨站已下载，固定素材、实际植被与地表均保存在完整工程中。') }
   })
+  const naturalVolcano = () => void perform(async (signal, current) => {
+    const [{ createNaturalVolcanoProject }, { exportProject }, { toBundle }, { validation }] = await Promise.all([
+      import('../../platform/browser/content/natural-volcano'), import('../../shared/project/file'),
+      import('../../application/workspace/project'), import('../../platform/browser/runtime'),
+    ])
+    const project = await createNaturalVolcanoProject(signal)
+    const bytes = await exportProject(toBundle(project), { ...validation, signal })
+    signal.throwIfAborted()
+    if (current()) { download('natural-volcano.sceneweave', new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })); setMessage('自然火山完整工程已下载，可从工程导入入口打开并编辑。') }
+  })
   const vegetationDetails = () => void perform(async (signal, current) => {
     const { createVegetationDetailCatalogProject } = await import('../../platform/browser/content/vegetation-detail-catalog')
     const source = await createVegetationDetailCatalogProject(signal)
@@ -125,6 +135,32 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
       return prepared
     }, signal)
     if (current()) setMessage('四种手绘材质已准备，请审阅图像、平铺尺寸与许可后采用。')
+  })
+  const architecturalWalls = () => void perform(async (signal, current) => {
+    const { createArchitecturalWallSurfacesCatalogProject } = await import('../../platform/browser/content/architectural-wall-surfaces-catalog')
+    const source = await createArchitecturalWallSurfacesCatalogProject(signal)
+    await onAdopt(async adoptionSignal => {
+      const prepared: PreparedCatalogEntryV1[] = []
+      for (const definition of Object.values(source.document.materials)) {
+        adoptionSignal.throwIfAborted()
+        prepared.push(await prepareCatalogEntry(source, { kind: 'material', definitionId: definition.id }, adoptionSignal))
+      }
+      return prepared
+    }, signal)
+    if (current()) setMessage('四种墙顶材质已准备，采用后可在墙的表面设置中选择。')
+  })
+  const volcanicSurfaces = () => void perform(async (signal, current) => {
+    const { createVolcanicSurfacesCatalogProject } = await import('../../platform/browser/content/volcanic-surfaces-catalog')
+    const source = await createVolcanicSurfacesCatalogProject(signal)
+    await onAdopt(async adoptionSignal => {
+      const prepared: PreparedCatalogEntryV1[] = []
+      for (const definition of Object.values(source.document.materials)) {
+        adoptionSignal.throwIfAborted()
+        prepared.push(await prepareCatalogEntry(source, { kind: 'material', definitionId: definition.id }, adoptionSignal))
+      }
+      return prepared
+    }, signal)
+    if (current()) setMessage('五种火山材质已准备，请审阅图像、平铺尺寸与许可后采用。')
   })
   const choices = selectThemePacks(THEME_PACK_CATALOGS, { query }), metadata = THEME_PACK_CATALOGS.find(pack => pack.id === packId)!
   const plan = THEME_PACK_PLANS.find(plan => plan.id === metadata.planId)!
@@ -161,6 +197,8 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
     <details><summary>植被细节 · 六件独立变体</summary><p>三种树冠、缺口灌丛、疏展蕨与弯叶草簇，保留独立根锚、占地及许可。先预览添加，再从素材库逐件放置。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={vegetationDetails}>预览添加六件植被细节变体</button></details>
     <details><summary>羽叶蕨 · 清晰叶面变体</summary><p>独立的新固定蕨叶，保留有面积的叶面与根锚。采用后可放置，也可加入群落编排；旧素材与实例保持。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={leafyFern}>预览添加清晰羽叶蕨</button></details>
     <details><summary>手绘基础材质 · 木板、石板与灰泥</summary><p>四种可独立采用的手绘材质，带有固定平铺尺寸与完整来源。采用后可在房间、墙顶、地形和道路的表面设置中使用。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={handdrawnSurfaces}>预览添加四种手绘基础材质</button></details>
+    <details><summary>墙顶材质 · 砖墙、混凝土与砌石</summary><p>旧宅抹面砖、现代混凝土、旅舍暖色砌石和遗迹破损石灰岩，按窄墙顶的真实尺度制作接缝与细节。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={architecturalWalls}>预览添加四种墙顶材质</button></details>
+    <details><summary>火山 · 灰岩、冷壳与熔岩</summary><p>五种可独立采用的火山材质，以及包含自然火口、熔岩池和通路的可编辑场景。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={volcanicSurfaces}>预览添加五种火山材质</button><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={naturalVolcano}>下载场景 · 自然火口与熔岩池</button></details>
     {pending && <div role="status">正在准备真实资源…<button type="button" onClick={cancel}>取消主题包准备</button></div>}
     {error && <p role="alert" className="asset-form-error">{error}</p>}{message && <p role="status">{message}</p>}
   </details></section>

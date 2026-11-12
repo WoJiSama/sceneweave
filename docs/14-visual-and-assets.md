@@ -433,6 +433,8 @@ T4新增六件独立原创素材：南望苔橡、分层矮松、西倾风樟、
 
 `rockRelief3`是cliff的新增可选画法，以较小非对称岩片、低对比色差和更疏的层纹减少分块感；沿用`rockRelief2`相同的真实崖面/开口裁切包络，旧2与无profile路径不改。普通边带面板可显式切换，保存/PNG共用该profile。实际视觉是否满足参考图仍待09与用户P3，不能由几何或像素差异自动签收。
 
+自然火山新模板显式选择`rockRelief4`／`naturalRockSteps4`。前者按弧段法线与环境光向产生明暗，并在既有真实face／开口／高侧裁剪内表达崖顶、立面与崖脚深度；后者沿相同踏数、弧长站位和完整连接带绘制1–3块不等宽错列踏石、局部立沿与断续亮唇。profile4在绘制踏石前，以真实路线距离场生成有界临时蒙版，仅羽化底材侧边；实际足宽、高差、支撑、landing与完整物理裁剪保持。旧缺省及2/3画法不改义。周期纹理、宽环带与短矩形落地仍须实际审阅，不以此关闭正式验收或用户P3。
+
 独立固定变体「舒叶羽状蕨」key为`shrub-splayed-fern-leafy`，制作源为[leafy-fern-art.ts](../src/shared/visual/leafy-fern-art.ts)，批次`leafy-fern-v1`、目录`prop.sceneweave.leafy-fern-v1.*`、版本1，规范PNG512×512。采用7条主羽轴和98片闭合实心羽叶，根锚(256,288)px，图像1200×1250mm、相对bounds(-600,-703,1200,1250)mm、真实占地420×420mm；ground/topDown，不阻挡且无投影。它有独立原创源、固定字节和完整许可，不改原六件素材中的细线蕨；普通素材面板「羽叶蕨 · 清晰叶面变体」采用后可供放置或群落palette选择。开发规则初筛与页面出图只用于自检，仍属待人工P3素材。
 
 #### 背景分为三类
@@ -706,6 +708,17 @@ T4新增六件独立原创素材：南望苔橡、分层矮松、西倾风樟、
 固定asset为`handdrawn-surfaces-v1-art-<key>`，material为`handdrawn-surfaces-v1-material-<key>`，目录身份为`material.sceneweave.handdrawn-surfaces.<key>@1`，许可引用`MIT-Sceneweave-Handdrawn-Surfaces-1`。完整声明与MIT正文由`HANDDRAWN_SURFACE_LICENSE`随工程绑定，不替换旧主题、其他原创批次或用户数据。普通入口从「素材与布景→主题素材包→手绘基础材质」准备四份候选，按原子采用／撤销／保存流程入工程，再选择目标表面应用；不会自动替换既有实例或主题。
 
 真实页面初筛发现512像素对应木板80px/m、石板约107px/m，低于128px/m参考。共用[素材物化器](../src/platform/browser/content/visual-art-project.ts)因此新增每批显式512／1024／2048像素选项，缺省512保持旧固定输出；非法值在任一素材栅格化或场景修改前整批拒绝。新独立批次明确选择1024，目标分别160、约213和约284px/m；这增加原创矢量源的实际采样精度，不增加材质的美术细节。各冻结实际像素、采用／冷读及限制归[主题证据](archive/workspace-content-validation.md#theme-driven-interior-20261111)，开发接续只归[07](07-roadmap.md#theme-driven-development)，正式复验和用户P3只归[09](09-quality-plan.md#theme-driven-acceptance)。
+
+<a id="architectural-volcanic-surfaces-v1"></a>
+### 墙顶与火山的独立材质候选
+
+墙顶不依赖放大地板纹理表现。新增[墙顶来源](../src/shared/visual/architectural-wall-surfaces.ts)四项：`old-house-plastered-brick`、`modern-cast-concrete`、`tavern-warm-masonry`、`ruins-fractured-limestone`，仅适用于wall；整张周期分别为1440、1600、1440、1440mm，实际栅格1024×1024。asset／material前缀为`architectural-walls-v1-art-`／`architectural-walls-v1-material-`，目录为`material.sceneweave.architectural-walls.<key>@1`，许可`MIT-Sceneweave-Architectural-Wall-Surfaces-1`。普通主题素材面板准备候选后采用，墙体详情可明确设置沿墙方向、尺寸和原点；图案始终裁于真实厚墙及门窗之外，不用装饰扩大墙厚。
+
+新增[火山来源](../src/shared/visual/volcanic-surfaces.ts)五项：`wind-laid-ash`、`fractured-basalt`、`cooled-lava-crust`、`molten-lava`、`worn-ash-path`，用于terrain／path；周期分别8000、8000、7000、5600、6000mm，实际栅格1024×1024。asset／material前缀为`volcanic-surfaces-v1-art-`／`volcanic-surfaces-v1-material-`，目录为`material.sceneweave.volcanic-surfaces.<key>@1`，许可`MIT-Sceneweave-Volcanic-Surfaces-1`。两批均保留独立规范化SVG、PNG、摘要和完整原创MIT正文，不重释旧主题固定材质。两批当前为开发候选；入库、冷读或像素一致不作为用户P3。
+
+结构可以采用多边形或折线，最终外观由其真实边界派生纹理、岩层、破损和接触阴影。新增[自然轮廓作者工具](../src/shared/visual/natural-contours.ts)只生成显式草稿，采用后保存完整控制源与整数采样；大轮廓变化同步地形／道路及依赖，不能仅在渲染中扩大水域、崖面或可站立空间。既有边界的柔和／自然草稿保留稳定锚点和绑定；新作者输入可在有限段预算内增加起伏点，实际自交、足宽带区、支撑、锁和总成本仍由普通预览检查。
+
+同Floor、单一同高程的公开道路允许跨可见编辑图层共享兼容描边接缝；图层仍决定绘制和编辑顺序。不同材质、私密支撑、隐藏层、实体滤镜及高差不隐式合并；交叠处按公共实际绘制顺序保留可见分界，真实方端帽道路带和命中范围保持。自然圆弧接头须显式写回完整物理中心线，不能仅在图面抹平方帽。`naturalRockSteps3`是另存的深灰岩阶画法，复用细化踏石、真实全宽带和落地遮罩；旧缺省及`naturalRockSteps2`保留原浅色画法，改变色调不改真实宽度、高程或通行。
 
 ### 九题材候选的实际画面债务
 
@@ -1018,7 +1031,9 @@ SCN-04候选把整组放在院子有效支撑区域内并留开道路，实际�
 <a id="doc-15-2026-10-24-首页火山热裂候选"></a>
 ### 2026-10-24 首页火山热裂候选
 
-首页展示改为六份真实完整场景图与详情；灰烬熔脉使用独立 `material.sw.lava-hot@1` 热裂候选，橙红熔流与炭黑冷壳区分危险外观。源SVG、PNG及独立manifest分别位于 `assets/sceneweave-handdrawn-content/` 与 `public/assets/sceneweave-handdrawn-content/` 的 `lava-hot` 文件；项目原创、MIT、无外部抽取，来源记录绑定保留的 `lava.svg` 源hash。
+早期首页展示采用六份真实完整场景图与详情；灰烬熔脉使用独立 `material.sw.lava-hot@1` 热裂候选，橙红熔流与炭黑冷壳区分危险外观。源SVG、PNG及独立manifest分别位于 `assets/sceneweave-handdrawn-content/` 与 `public/assets/sceneweave-handdrawn-content/` 的 `lava-hot` 文件；项目原创、MIT、无外部抽取，来源记录绑定保留的 `lava.svg` 源hash。
+
+当前首页已用八份2026-11-12阶段成果替换旧六卡。固定完整归档在`public/assets/home-scenes/projects/`，同源缩略图与主持人4K详情从[生成工具](../tools/build-home-showcase.mjs)重新完整验证后生成，事实与hash归[固定清单](../src/platform/browser/content/home-showcase-manifest.json)。用户认可作为阶段成果并授权本次提交／推送，周期纹理、环带与落地等限制仍按[主题证据](archive/workspace-content-validation.md#theme-visual-remediation-20261112)保留，未外推素材P3或完整正式矩阵。
 
 旧lava v1源/PNG/manifest及目录身份保持；热裂材质只加入原生火山样板闭包，保留旧材质和固定父源，样板闭包58张图片，内置目录仍62项/57图。轮廓、物理支撑、高程和危险区不因换外观改变。生成与完整资源校验入口为 `tools/build-themed-art.mjs --lava-hot`、`tools/build-volcano-variant.mjs` 与 `tools/build-home-showcase.mjs`。新图仍为P2候选，开发目视检查不替代人工P3签收。
 

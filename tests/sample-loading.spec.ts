@@ -56,7 +56,7 @@ async function placeExistingLamp(page: Page) {
   await lib.getByLabel('搜索组件素材', { exact: true }).fill('')
 }
 
-test('sample loading shows preparation before blocked image bytes and cancels without changing the current branch', async ({ page }, info) => {
+test('sample loading shows preparation before blocked archive bytes and cancels without changing the current branch', async ({ page }, info) => {
   test.setTimeout(120_000)
   await createBlank(page, '加载取消保护当前工程')
   await placeExistingLamp(page)
@@ -67,7 +67,7 @@ test('sample loading shows preparation before blocked image bytes and cancels wi
 
   let heldUrl = '', release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
-  const pattern = '**/assets/sceneweave-handdrawn/*.png'
+  const pattern = '**/assets/home-scenes/projects/investigation.sceneweave'
   await page.route(pattern, async route => {
     if (heldUrl) { await route.continue(); return }
     heldUrl = route.request().url()
@@ -77,7 +77,7 @@ test('sample loading shows preparation before blocked image bytes and cancels wi
     await route.fulfill({ response }).catch(() => {})
   })
   try {
-    await home(page).getByRole('button', { name: '书房与露台', exact: true }).click()
+    await home(page).getByRole('button', { name: '雨夜旧宅调查所', exact: true }).click()
     const preparation = page.getByRole('dialog', { name: '准备打开工程', exact: true })
     await expect(preparation).toBeVisible()
     await expect(preparation.getByLabel('工程准备进度', { exact: true })).toBeVisible()
@@ -96,7 +96,7 @@ test('sample loading shows preparation before blocked image bytes and cancels wi
   }
 
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
-  await home(page).getByRole('button', { name: '书房与露台', exact: true }).click()
+  await home(page).getByRole('button', { name: '雨夜旧宅调查所', exact: true }).click()
   const candidate = page.getByRole('dialog', { name: '确认打开工程', exact: true })
   await expect(candidate).toBeVisible({ timeout: 30_000 })
   expect(await current(page)).toEqual(before)
