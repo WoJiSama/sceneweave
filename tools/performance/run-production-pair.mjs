@@ -8,7 +8,8 @@ import { isDeepStrictEqual } from 'node:util'
 import { chromium } from '@playwright/test'
 import { createCurrentFormalObserver } from './current-formal-observer.mjs'
 import { closeMeasuredBrowser } from './close-browser.mjs'
-import { check, sha, readPackage, comparablePackage, assertJourney, auditPng, summarizePair } from './production-pair-audit.mjs'
+import { check, sha, readPackage, comparablePackage, assertJourney, auditPng, summarizePair, assertSameBuildControl } from './production-pair-audit.mjs'
+import { createWarmSaveDiagnostic } from './warm-save-diagnostic.mjs'
 
 // Diagnostic normal-production UI only. No automatic retry, product hooks,
 // CPU profiler, forced GC, source-module import or mutation of product storage.
@@ -16,19 +17,24 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
 const argument = (key, fallback = '') => args.includes(key) ? args[args.indexOf(key) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/run-production-pair.mjs --before-source ABS --after-source ABS --before-dist ABS --after-dist ABS --fixtures ABS --output ABS --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-audit|history-total|replay-encoding|content-equality|history-boundaries [--case mixed-2000] [--pairs 3] [--history-depth 2] [--channel chrome] [--timeout-ms 180000]')
-  console.log('AB/BA alternating independent browsers. Import -> first +1mm -> warm reset -> dual 4K -> page-reset cold open -> cold first +1mm -> cold warm reset. Stop product sampling before complete-package download; audit PNG/package in Node after browser exit. macOS RSS / Windows Working Set are distinct metrics. Diagnostic only; cannot close formal capacity/performance gates.')
+  console.log('node tools/performance/run-production-pair.mjs --before-source ABS --after-source ABS --before-dist ABS --after-dist ABS --fixtures ABS --output ABS --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-audit|history-total|replay-encoding|content-equality|history-boundaries|storage-footprint|cooperative-audit-prototype|prop-replay-prototype|content-block-batch-prototype|same-build-control [--case mixed-2000] [--pairs 3] [--history-depth 2] [--history-pattern toggle|distinct] [--diagnostic-replay|--diagnostic-warm] [--channel chrome] [--timeout-ms 180000]')
+  console.log('AB/BA alternating independent browsers. Import -> first +1mm -> selected history pattern with a final reset -> dual 4K -> page-reset cold open -> cold first +1mm -> cold warm reset. Stop product sampling before complete-package download; audit PNG/package in Node after browser exit. macOS RSS / Windows Working Set are distinct metrics. Diagnostic only; cannot close formal capacity/performance gates.')
   process.exit(0)
 }
 const optimization = argument('--optimization'), fixtureName = argument('--case', 'mixed-2000')
 const output = argument('--output'), fixtures = argument('--fixtures'), channel = argument('--channel', 'chrome')
 const pairs = Number(argument('--pairs', '3')), timeoutMs = Number(argument('--timeout-ms', '180000'))
 const historyDepth = Number(argument('--history-depth', '2'))
+const historyPattern = argument('--history-pattern', 'toggle')
+const diagnosticReplay = args.includes('--diagnostic-replay')
+const diagnosticWarm = args.includes('--diagnostic-warm')
+check(!(diagnosticReplay && diagnosticWarm), 'Keep replay instrumented builds and normal-build warm tracing separate')
 const firstSide = argument('--first-side', 'before')
 const sources = Object.fromEntries(['before', 'after'].map(side => [side, argument(`--${side}-source`)]))
 const builds = Object.fromEntries(['before', 'after'].map(side => [side, argument(`--${side}-dist`)]))
-check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-audit', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries'].includes(optimization), 'Choose an explicit optimization scope')
+check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-audit', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries', 'storage-footprint', 'cooperative-audit-prototype', 'prop-replay-prototype', 'content-block-batch-prototype', 'same-build-control'].includes(optimization), 'Choose an explicit optimization scope')
 check(Number.isSafeInteger(historyDepth) && historyDepth >= 2 && historyDepth <= 100 && historyDepth % 2 === 0, 'History depth must be an even count from 2 to 100')
+check(['toggle', 'distinct'].includes(historyPattern), 'Choose toggle or distinct history positions')
 check(['before', 'after'].includes(firstSide), 'Invalid first side')
 check([output, fixtures, ...Object.values(sources), ...Object.values(builds)].every(value => value && path.isAbsolute(value)), 'All directory arguments must be absolute')
 check(Number.isSafeInteger(pairs) && pairs >= 1 && pairs <= 10 && Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 600000, 'Invalid pairs/timeout')
@@ -57,11 +63,12 @@ async function inputs() {
     after: { source: await sourceFingerprint(sources.after), build: await fingerprint(builds.after) },
     tools: await fingerprint(path.join(root, 'tools/performance')), fixtures: await fingerprint(fixtures) }
 }
-const manifest = { format: 'sceneweave-production-single-optimization-pair', version: 1, status: 'running', measurementClass: 'diagnostic-only',
+const manifest = { format: 'sceneweave-production-single-optimization-pair', version: 1, status: 'running', measurementClass: diagnosticReplay ? 'instrumented-replay-attribution-only' : diagnosticWarm ? 'traced-warm-save-attribution-only' : 'diagnostic-only',
   startedAt: new Date().toISOString(), optimization, pairs, fixtureName, runs: [],
   device: { platform: os.platform(), release: os.release(), arch: os.arch(), cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem(), node: process.version },
   sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-  config: { channel, historyDepth, firstSide, viewport: { width: 1512, height: 982 }, dpr: 1, timeoutMs, order: 'Alternating AB/BA from firstSide; a fresh dedicated browser/profile per side.',
+  config: { channel, historyDepth, historyPattern, diagnosticReplay, diagnosticWarm, firstSide, viewport: { width: 1512, height: 982 }, dpr: 1, timeoutMs, order: 'Alternating AB/BA from firstSide; a fresh dedicated browser/profile per side.',
+    historyPositions: historyPattern === 'distinct' ? 'X +1,+2,...,+(depth-1),0 mm; all prior geometry bodies differ until the final real reset.' : 'X +1,0,+1,0 mm; two repeatedly reused geometry bodies.',
     input: 'Trusted import-button click includes chooser automation; Enter is the trusted edit intent; exact DOM transaction revision and timestamp, saved/raster state and double-rAF are observed.',
     cache: 'HTTP cache disabled. OS cache not purged. Cold open uses a complete page/module reset in the same browser process, not an OS or process cold start.',
     rssMode: process.platform === 'darwin' ? 'macos-process-tree' : process.platform === 'win32' ? 'windows-process-tree' : 'unavailable', heapIntervalMs: 200 },
@@ -72,16 +79,29 @@ const manifest = { format: 'sceneweave-production-single-optimization-pair', ver
     'Actual polling intervals and phase-crossing samples are retained. Short phases may have no heap samples.',
     'Double-rAF is a scheduling proxy, not presentation. Intervals to domain, raster and saved overlap and must not be added.',
     'PNG/package audit occurs after product sampling and browser teardown. Package download itself is a separate audit operation.',
-    'Independent public Prop X +1mm/reset does not cover free drag, grouped edits, histories, failure matrices, full privacy mutation checks or all of 09.'] }
+    'Independent public Prop positions do not cover free drag, grouped edits, all historical graphs, failure matrices, full privacy mutation checks or all of 09.'] }
 await write('manifest.json', manifest)
-let server, ownedBrowser, browser, observer, activePage, interrupted = false
+let server, ownedBrowser, browser, observer, activePage, warmDiagnostic, interrupted = false
 const interrupt = () => { interrupted = true }
 process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt)
 try {
   const frozen = await inputs(); manifest.frozen = frozen; manifest.fingerprint = sha(JSON.stringify(frozen))
   const before = new Map(frozen.before.source.map(row => [row.path, row.sha256])), after = new Map(frozen.after.source.map(row => [row.path, row.sha256]))
   const differences = [...new Set([...before.keys(), ...after.keys()])].filter(name => before.get(name) !== after.get(name)).sort()
-  const expected = optimization === 'history-boundaries' ? [
+  const expected = optimization === 'same-build-control' ? [] : optimization === 'content-block-batch-prototype' ? [
+    'src/platform/browser/storage/content-block-middleware.ts', 'src/platform/browser/storage/content-block-batch.test.ts',
+  ].sort() : optimization === 'prop-replay-prototype' ? [
+    'src/shared/validation/snapshots.ts', 'src/shared/validation/content.ts',
+    'src/shared/project/validate.ts', 'src/shared/project/replay-geometry.test.ts',
+  ].sort() : optimization === 'cooperative-audit-prototype' ? [
+    'src/platform/browser/storage/history-records.ts', 'src/platform/browser/storage/history-audit-message.ts',
+    'src/platform/browser/storage/history-audit-cooperative.test.ts',
+  ].sort() : optimization === 'storage-footprint' ? [
+    'src/platform/browser/storage/content-blocks.ts', 'src/platform/browser/storage/content-context.ts',
+    'src/platform/browser/storage/content-block-local.test.ts',
+    'src/platform/browser/storage/repository.ts', 'src/platform/browser/storage/history-audit-message.ts',
+    'src/platform/browser/storage/history-audit-transaction.test.ts',
+  ].sort() : optimization === 'history-boundaries' ? [
     'src/platform/browser/storage/content-blocks.ts', 'src/platform/browser/storage/content-context.ts',
     'src/platform/browser/storage/content-materialization.test.ts', 'src/platform/browser/storage/content-generic-delta.test.ts',
     'src/platform/browser/storage/history-audit-client.ts', 'src/platform/browser/storage/history-audit-client.test.ts',
@@ -129,6 +149,14 @@ try {
     : ['src/platform/browser/render/canvas-renderer.ts']
   check(isDeepStrictEqual(differences, expected), `Unexpected source differences: ${differences.join(', ')}`)
   manifest.sourceDifferences = differences
+  if (optimization === 'same-build-control') {
+    assertSameBuildControl(frozen.before, frozen.after)
+    manifest.scope = 'Same actual source/build on both labeled sides; observed differences describe repetition/background variation, not an optimization.'
+  }
+  if (diagnosticReplay) manifest.limitations.push('Explicit instrumented replay attribution: counters/timers and extra observer reads change costs. Never treat its timings as normal-build before/after evidence.')
+  if (diagnosticWarm) manifest.limitations.push('Explicit normal-build warm tracing/native API observation changes costs and scheduling. No CPU sampling profiler or forced GC. Its whole journey timings must remain separate from untraced runs; nested GC is measured by interval union, not inclusive sums.')
+  if (optimization === 'prop-replay-prototype') manifest.scope = 'Unadopted finite Prop/frame replay experiment; original diagnostic scope prop-replay. Ordinary product sources do not include it.'
+  if (optimization === 'content-block-batch-prototype') manifest.scope = 'Isolated native block-read batch continuation experiment. Every actual block read/hash and final CAS remain; ordinary source adoption requires separate evidence.'
   if (optimization === 'workflow') manifest.scope = 'Combined cold history audit, internal verified import handoff, transactional resource reads and formal sprite paint bounds; not attribution to one micro-optimization.'
   const fixtureManifest = JSON.parse(await fs.readFile(path.join(fixtures, 'manifest.json'), 'utf8'))
   check(fixtureManifest.status === 'complete', 'Incomplete fixture preparation')
@@ -146,6 +174,7 @@ try {
   for (const side of ['before', 'after']) {
     const html = await fs.readFile(path.join(builds[side], 'index.html'), 'utf8')
     check(!html.includes('/@vite/client') && !(await fs.readdir(builds[side])).includes('diagnostic-stages.json'), 'Expected normal production build')
+    check((await fs.readdir(builds[side])).includes('diagnostic-replay.json') === diagnosticReplay, 'Replay diagnostics require an explicit marked build and --diagnostic-replay; ordinary measurements reject it')
     urls[side] = /<script[^>]+src="([^"]+\/assets\/)/.exec(html)?.[1]?.replace(/assets\/$/, '') ?? '/'
   }
   let servedSide = 'before'
@@ -167,7 +196,7 @@ try {
       check(!interrupted, 'Interrupted')
       check(isDeepStrictEqual(frozen, await inputs()), 'Frozen input/source/build/tool drift before run')
       servedSide = side
-      const stem = `pair-${pair}-${side}`, result = { pair, side, status: 'running', pngs: [] }
+      const stem = `pair-${pair}-${side}`, result = { pair, side, status: 'running', pngs: [], ...(diagnosticReplay ? { diagnosticOperations: [], workerDiagnostics: [] } : {}), ...(diagnosticWarm ? {warmDiagnostics: []} : {}) }
       manifest.runs.push(result); await write('manifest.json', manifest)
       console.log(`Production pair: ${stem}`)
       let packageFile
@@ -177,8 +206,39 @@ try {
         result.rootPid = ownedBrowser.process().pid; await write('manifest.json', manifest)
         const context = await browser.newContext({ acceptDownloads: true, viewport: manifest.config.viewport, deviceScaleFactor: 1, locale: 'zh-CN' })
         const page = activePage = await context.newPage(); page.setDefaultTimeout(timeoutMs)
+        let diagnosticPhase = 'setup'
+        if (diagnosticReplay) page.on('console', event => {
+          const prefix = 'SCENEWEAVE_REPLAY_DIAGNOSTIC '
+          if (event.text().startsWith(prefix)) result.workerDiagnostics.push({ phase: diagnosticPhase, ...JSON.parse(event.text().slice(prefix.length)) })
+        })
         await page.route('**/*', route => { const target = new URL(route.request().url()); return target.origin === origin || ['blob:', 'data:'].includes(target.protocol) ? route.continue() : route.abort('blockedbyclient') })
         observer = await createCurrentFormalObserver({ page, browser, rootPid: ownedBrowser.process().pid, timeoutMs, rssMode: manifest.config.rssMode })
+        if (diagnosticWarm) {
+          warmDiagnostic = await createWarmSaveDiagnostic(page, name => path.join(output, name))
+          const original = observer
+          observer = {...original, async measure(kind, config, action) {
+            if (!['adopted-warm-edit', 'cold-warm-edit'].includes(kind)) return original.measure(kind, config, action)
+            let value
+            const detail = await warmDiagnostic.measure(`${stem}-${kind}`, async () => {value = await original.measure(kind, config, action); return value})
+            result.warmDiagnostics.push({kind, ...detail})
+            return value
+          }}
+        }
+        if (diagnosticReplay) {
+          const original = observer
+          observer = { ...original, async measure(kind, config, action) {
+            diagnosticPhase = kind
+            await page.evaluate(() => Reflect.get(globalThis, '__sceneweaveReplayDiagnostic')?.reset())
+            const workerStart = result.workerDiagnostics.length
+            try { return await original.measure(kind, config, action) }
+            finally {
+              const trace = await page.evaluate(() => Reflect.get(globalThis, '__sceneweaveReplayDiagnostic')?.snapshot())
+              check(trace && trace.open === 0, 'Missing or unfinished page replay diagnostics')
+              result.diagnosticOperations.push({ kind, trace, workers: result.workerDiagnostics.slice(workerStart) })
+              diagnosticPhase = 'between-operations'
+            }
+          } }
+        }
         const url = `${origin}${urls[side]}#home`
         await page.goto(url)
         await observer.measure('import-project', { start: { event: 'click', selector: 'button', label: '打开工程文件' }, expectedRevision: input.scene.revision, requireSaved: true }, async () => {
@@ -193,19 +253,22 @@ try {
           await panel.getByRole('searchbox', { name: '搜索场景对象', exact: true }).fill(propId)
           await panel.locator(`.asset-virtual-row[data-entity-id="${propId}"]`).click(); await observer.ready()
         }
+        let currentOffset = 0
         const edit = async (kind, offset) => {
           const field = page.getByRole('spinbutton', { name: '物件 X', exact: true }), state = await observer.snapshot()
           const unit = input.scene.units.display === 'ft' ? 304.8 : 1000
           const current = Math.round(Number(await field.inputValue()) * unit)
-          check(current === prop.positionMm.x + (offset ? 0 : 1), 'Unexpected original world X')
+          check(current === prop.positionMm.x + currentOffset, 'Unexpected original world X')
           const target = prop.positionMm.x + offset
           await field.fill(String(target / unit))
           await observer.measure(kind, { start: { event: 'keydown', selector: 'input', key: 'Enter' }, expectedRevision: state.revision + 1,
             domainCommit: true, requireSaved: true, requireRaster: true, rejectText: '候选未通过，工程未修改', until: { preview: false } }, () => field.press('Enter'))
           check(Math.round(Number(await field.inputValue()) * unit) === target, 'Wrong edited world X')
+          currentOffset = offset
         }
-        await selectProp(); await edit('adopted-first-edit', 1); await edit('adopted-warm-edit', 0)
-        for (let prepared = 2; prepared < historyDepth; prepared++) await edit(`history-preparation-${prepared + 1}`, prepared % 2 ? 0 : 1)
+        await selectProp(); await edit('adopted-first-edit', 1); await edit('adopted-warm-edit', historyPattern === 'distinct' && historyDepth > 2 ? 2 : 0)
+        for (let prepared = 2; prepared < historyDepth; prepared++) await edit(`history-preparation-${prepared + 1}`,
+          historyPattern === 'distinct' ? (prepared + 1 === historyDepth ? 0 : prepared + 1) : prepared % 2 ? 0 : 1)
         for (const audience of ['gm', 'player']) {
           const menu = page.locator('details.workspace-export-menu')
           if (await menu.getAttribute('open') === null) await menu.locator('summary').click()
@@ -230,6 +293,10 @@ try {
           () => row.getByRole('button', { name: '打开', exact: true }).click())
         await selectProp(); await edit('cold-first-edit', 1); await edit('cold-warm-edit', 0)
         result.metrics = await observer.stop(); observer = null
+        if (diagnosticReplay || diagnosticWarm) {
+          result.metrics.measurementClass = manifest.measurementClass
+          for (const row of result.metrics.samples) row.measurementClass = manifest.measurementClass
+        }
         const phaseRows = Object.entries(result.metrics.resources.summary.byPhase).filter(([name]) => !['idle', 'setup', 'setup-download', 'setup-page-reset'].includes(name))
         const peak = key => { const values = phaseRows.map(([, value]) => value[key]).filter(Number.isFinite); return values.length ? Math.max(...values) : null }
         result.productResources = { rssSampledPeakBytes: peak('rssPeakBytes'), jsHeapSampledPeakBytes: peak('jsHeapPeakUsedBytes'),
@@ -245,6 +312,7 @@ try {
       } catch (error) {
         result.status = 'failed'; result.error = error.stack ?? String(error)
       } finally {
+        if (warmDiagnostic) {try {await warmDiagnostic.close()} catch (error) {result.warmDiagnosticCleanupError=String(error);result.status='failed'};warmDiagnostic=null}
         if (observer) { try { result.metrics = await observer.stop() } catch (error) { result.observerError = String(error) }; observer = null }
         if (result.status === 'failed' && activePage) { try { await activePage.screenshot({ path: path.join(output, `${stem}-failure.png`), fullPage: true }); result.failureText = await activePage.locator('body').innerText() } catch {} }
         result.teardown = await closeMeasuredBrowser(ownedBrowser, browser); ownedBrowser = browser = activePage = null
@@ -270,7 +338,7 @@ try {
 } catch (error) { manifest.status = interrupted ? 'interrupted' : 'failed'; manifest.error = error.stack ?? String(error); process.exitCode = 1; console.error(error) }
 finally {
   process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt)
-  try { if (observer) await observer.stop(); await closeMeasuredBrowser(ownedBrowser, browser) } catch (error) { manifest.cleanupError = String(error); manifest.status = 'failed'; process.exitCode = 1 }
+  try { if (warmDiagnostic) await warmDiagnostic.close(); if (observer) await observer.stop(); await closeMeasuredBrowser(ownedBrowser, browser) } catch (error) { manifest.cleanupError = String(error); manifest.status = 'failed'; process.exitCode = 1 }
   if (server) await new Promise(resolve => server.close(resolve))
   manifest.endedAt = new Date().toISOString()
   await write('manifest.json', manifest); await write('summary.json', summarizePair(manifest))

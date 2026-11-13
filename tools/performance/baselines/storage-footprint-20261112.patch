@@ -1,0 +1,246 @@
+diff --git a/src/platform/browser/storage/content-block-local.test.ts b/src/platform/browser/storage/content-block-local.test.ts
+index 934a73a..cf00466 100644
+--- a/src/platform/browser/storage/content-block-local.test.ts
++++ b/src/platform/browser/storage/content-block-local.test.ts
+@@ -52,6 +52,34 @@ async function restored(partition: ReturnType<typeof partitionProjectContent>) {
+ const propField = (partition: ReturnType<typeof partitionProjectContent>) => partition.manifest.fields.find(field => field.path.join('.') === 'document.props')!
+ 
+ describe('local complete-content block preparation', () => {
++  it('isolates returned bytes across local versions and preserves an encoding after LRU eviction', async () => {
++    const before = source(180, true), after = moved(before, ['item', 'detail-17'])
++    const encoding = contentBlocks.encodeProjectContent(before)
++    const initial = contentBlocks.partitionEncodedProjectContent(encoding)
++    expect(prepareLocalProjectContent(after, validateProjectData(after))?.reusedBlocks).toBeGreaterThan(20)
++    const nextEncoding = contentBlocks.encodeProjectContent(after)
++    const next = contentBlocks.partitionEncodedProjectContent(nextEncoding)
++    // Poison both consuming copies, including the blocks reused by the local
++    // producer. Neither producer nor the other version may observe the write.
++    initial.blocks.forEach(block => block.bytes.fill(0))
++    initial.manifest.fields[0].path[0] = 'poisoned'
++    next.blocks.forEach(block => block.bytes.fill(1))
++    next.manifest.contentHash = '0'.repeat(64)
++    for (let index = 0; index <= CONTENT_BLOCK_CACHE_LIMITS.entries; index++) {
++      const unrelated = cloneJson(before); unrelated.document.title = `evict private partition ${index}`
++      partitionProjectContent(unrelated)
++    }
++    const old = contentBlocks.partitionEncodedProjectContent(encoding)
++    const current = contentBlocks.partitionEncodedProjectContent(nextEncoding)
++    expect(canonicalProjectCoordinates(await restored(old))).toBe(canonicalProjectCoordinates(before))
++    expect(canonicalProjectCoordinates(await restored(current))).toBe(canonicalProjectCoordinates(after))
++    // A new local preparation can repopulate an evicted baseline without
++    // changing either already-admitted encoding lease.
++    expect(prepareLocalProjectContent(after, validateProjectData(after))).toBeDefined()
++    expect(contentBlocks.partitionEncodedProjectContent(encoding)).toEqual(old)
++    expect(contentBlocks.partitionEncodedProjectContent(nextEncoding)).toEqual(current)
++  })
++
+   it('reencodes only changed Prop buckets and revision fields, then consumes an exact detached DB copy', async () => {
+     const before = source(), after = moved(before), expected = partitionProjectContent(cloneJson(after))
+     const initial = partitionProjectContent(before), prepared = prepareLocalProjectContent(after, validateProjectData(after))!
+diff --git a/src/platform/browser/storage/content-blocks.ts b/src/platform/browser/storage/content-blocks.ts
+index e909a8d..55dcf91 100644
+--- a/src/platform/browser/storage/content-blocks.ts
++++ b/src/platform/browser/storage/content-blocks.ts
+@@ -30,7 +30,7 @@ export interface ProjectContentPartition { manifest: ProjectBlockManifest; block
+ /** An owned encoding, not a semantic or database validation certificate. Bytes
+  * and partition state stay private; callers cannot substitute a declared hash. */
+ export type EncodedProjectContent = OwnedProjectEncoding
+-const encodedContents = new WeakMap<EncodedProjectContent, { checked: ReturnType<typeof checkedCanonical>; partition?: ProjectContentPartition }>()
++const encodedContents = new WeakMap<EncodedProjectContent, { checked: ReturnType<typeof checkedCanonical>; partition?: OwnedPartition }>()
+ export const CONTENT_BLOCK_CACHE_LIMITS = Object.freeze({ entries: 4, retainedBytes: 64 * 1024 * 1024 })
+ interface OwnedPartition extends ProjectContentPartition {
+   canonical: string
+@@ -68,9 +68,11 @@ function rememberPartition(partition: OwnedPartition): boolean {
+   return true
+ }
+ function ownPartition(canonical: string, manifest: ProjectBlockManifest, blocks: ProjectContentBlock[], buckets: OwnedPartition['buckets']): OwnedPartition {
+-  // Capture before publishing anything. Typed-array bytes are deliberately
+-  // private copies because Object.freeze cannot make their elements immutable.
+-  const owned = { manifest: validateProjectBlockManifest(manifest), blocks: blocks.map(block => ({ sha256: block.sha256, bytes: block.bytes.slice() })) }
++  // Both private producers supply only freshly encoded blocks or blocks from
++  // an existing private partition. They never mutate these bytes. Share that
++  // closure across local edits; every public return still copies all bytes.
++  // No caller-provided block or mutable returned buffer can enter this path.
++  const owned = { manifest: validateProjectBlockManifest(manifest), blocks: blocks.slice() }
+   const retainedBytes = canonical.length * 2 + JSON.stringify(owned.manifest).length * 2
+     + owned.blocks.reduce((sum, block) => sum + block.bytes.length, 0)
+     + [...buckets.values()].reduce((sum, value) => sum + value.size * 160, 0)
+@@ -124,17 +126,29 @@ export function encodeProjectContent(input: ProjectData): EncodedProjectContent
+   encodedContents.set(result, { checked: result })
+   return result
+ }
+-/** Only encodings produced above can reuse canonical bytes and their digest. */
+-export function partitionEncodedProjectContent(input: EncodedProjectContent): ProjectContentPartition {
++function encodedPartition(input: EncodedProjectContent): OwnedPartition {
+   const state = encodedContents.get(input)
+   if (!state) throw new Error('工程编码快照不是本模块拥有的实际内容。')
+   if (!state.partition) {
+     const known = cachedPartition(state.checked.canonical), partition = known ?? fullPartition(state.checked)
+     if (!known) rememberPartition(partition)
+-    state.partition = copyPartition(partition)
++    state.partition = partition
+   }
+-  // The receiving storage context owns this copy for its whole operation.
+-  return copyPartition(state.partition)
++  return state.partition
++}
++/** Eagerly prepare before the final transaction, retaining only the producer's
++ * private closure. This conservative admission estimate still charges shared
++ * bytes in full and does not increase either optional cache's memory budget. */
++export function prepareEncodedProjectContent(input: EncodedProjectContent): number {
++  const partition = encodedPartition(input)
++  return input.canonical.length * 4 + partition.blocks.reduce((sum, block) => sum + block.bytes.length, 0)
++    + JSON.stringify(partition.manifest).length * 2
++}
++/** Only encodings produced above can reuse canonical bytes and their digest.
++ * Independent mutable copies are made at the consuming boundary, never held
++ * again in an encoding or save snapshot merely to copy them a second time. */
++export function partitionEncodedProjectContent(input: EncodedProjectContent): ProjectContentPartition {
++  return copyPartition(encodedPartition(input))
+ }
+ 
+ export interface LocalProjectContentPreparation {
+diff --git a/src/platform/browser/storage/content-context.ts b/src/platform/browser/storage/content-context.ts
+index 79fe13d..ed18ba5 100644
+--- a/src/platform/browser/storage/content-context.ts
++++ b/src/platform/browser/storage/content-context.ts
+@@ -1,8 +1,8 @@
+ import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
+ import { getVerifiedProjectBundle } from '../../../shared/project/resources.js'
+ import { DeltaSizeError, tryCreateVerifiedProjectDelta, type JsonDelta } from '../../../shared/project/delta.js'
+-import { captureJson, cloneJson, equalOwnedJson, freezeJson } from '../../../shared/validation/json.js'
+-import { encodeProjectContent, partitionEncodedProjectContent, prepareLocalProjectContent, type EncodedProjectContent, type ProjectContentPartition } from './content-blocks.js'
++import { captureJson, equalOwnedJson, freezeJson } from '../../../shared/validation/json.js'
++import { encodeProjectContent, partitionEncodedProjectContent, prepareEncodedProjectContent, prepareLocalProjectContent, type EncodedProjectContent, type ProjectContentPartition } from './content-blocks.js'
+ 
+ /** A private operation result. Encoding identity and actual IDB freshness are
+  * deliberately separate: this handle never certifies a persisted row/block. */
+@@ -11,7 +11,7 @@ export interface EncodedSnapshot {
+   readonly encoded: EncodedProjectContent
+ }
+ const snapshots = new WeakSet<EncodedSnapshot>()
+-const partitions = new WeakMap<EncodedSnapshot, ProjectContentPartition>()
++const partitionSizes = new WeakMap<EncodedSnapshot, number>()
+ const ownedProjects = new WeakMap<ProjectData, EncodedSnapshot>()
+ export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: ProjectBundle, baseline?: EncodedSnapshot): EncodedSnapshot {
+   const verified = getVerifiedProjectBundle(bundle)
+@@ -27,24 +27,21 @@ export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: Proje
+   const encoded = encodeProjectContent(encodingSource)
+   if (source) prepareLocalProjectContent(source, verified.project, encoded, baseline && snapshots.has(baseline) ? baseline.encoded : undefined)
+   const snapshot = Object.freeze({ project: encodingSource, encoded })
+-  partitions.set(snapshot, partitionEncodedProjectContent(encoded))
++  partitionSizes.set(snapshot, prepareEncodedProjectContent(encoded))
+   snapshots.add(snapshot); ownedProjects.set(snapshot.project, snapshot); ownedProjects.set(encoded.stored, snapshot)
+   return snapshot
+ }
+ /** Typed-array elements cannot be frozen. Never publish the private closure. */
+ export function snapshotContentPartition(snapshot: EncodedSnapshot): ProjectContentPartition {
+-  const partition = partitions.get(snapshot)
+-  if (!partition) throw new Error('编码快照的私有内容块已失效。')
+-  return { manifest: cloneJson(partition.manifest), blocks: partition.blocks.map(block => ({ sha256: block.sha256, bytes: block.bytes.slice() })) }
++  if (!snapshots.has(snapshot)) throw new Error('编码快照的私有内容块已失效。')
++  return partitionEncodedProjectContent(snapshot.encoded)
+ }
+ export function ownedEncodedSnapshot(project: ProjectData): EncodedSnapshot | undefined { return ownedProjects.get(project) }
+ /** Optional inter-save retention is bounded; required in-flight endpoints are
+  * still owned by their operation even when this optional lease cannot fit. */
+ export function canRetainEncodedSnapshot(snapshot: EncodedSnapshot): boolean {
+-  const partition = partitions.get(snapshot)
+-  return !!partition && snapshot.encoded.canonical.length * 4
+-    + partition.blocks.reduce((sum, block) => sum + block.bytes.length, 0)
+-    + JSON.stringify(partition.manifest).length * 2 <= 64 * 1024 * 1024
++  const size = partitionSizes.get(snapshot)
++  return size !== undefined && size <= 64 * 1024 * 1024
+ }
+ export function releaseEncodedSnapshot(snapshot: EncodedSnapshot): void {
+   if (ownedProjects.get(snapshot.project) === snapshot) ownedProjects.delete(snapshot.project)
+diff --git a/src/platform/browser/storage/history-audit-message.ts b/src/platform/browser/storage/history-audit-message.ts
+index b570946..3362305 100644
+--- a/src/platform/browser/storage/history-audit-message.ts
++++ b/src/platform/browser/storage/history-audit-message.ts
+@@ -48,6 +48,10 @@ export async function auditHistoryMessage(message: HistoryAuditMessage, signal?:
+         if (checkpoint?.document.aggregateCoordinates?.encoding === 'local') checkpoint = decodeProjectCoordinates(checkpoint)
+         versions.push({ ...row, checkpoint }); await yieldPage()
+       }
++      // Every output field owns its copy. After the final owner's manifests
++      // are assembled, no remaining audit consumes the parse cache or checked
++      // block copies. Earlier owners keep cross-owner reuse intact.
++      if (head === message.heads[message.heads.length - 1]) { materializer.close(); blocks.clear() }
+       checkCancelled(signal)
+       documentBytes += auditHistoryRecords(head.ownerSceneId, head, versions, message.pins.filter(pin => pin.ownerSceneId === head.ownerSceneId)).documentBytes
+       await yieldPage()
+diff --git a/src/platform/browser/storage/history-audit-transaction.test.ts b/src/platform/browser/storage/history-audit-transaction.test.ts
+index 619325e..b051f66 100644
+--- a/src/platform/browser/storage/history-audit-transaction.test.ts
++++ b/src/platform/browser/storage/history-audit-transaction.test.ts
+@@ -11,6 +11,8 @@ import * as storageAudit from './storage-audit.js'
+ import { canonicalJson, encodeUtf8 } from '../../../shared/validation/json.js'
+ import { sha256Bytes } from '../../../shared/validation/hash.js'
+ import { isProjectBlockManifest } from './content-blocks.js'
++import * as contentBlocks from './content-blocks.js'
++import * as historyRecords from './history-records.js'
+ 
+ class AuditingWorker {
+   static instances: AuditingWorker[] = []
+@@ -234,7 +236,20 @@ it('sends all owners, branches and pins compactly, omits unreferenced blocks and
+   await repo.database.projectContentBlocks.put(unused)
+   const expected = await repo.usage(owner)
+   repo.close(); await repo.open(); vi.stubGlobal('Worker', AuditingWorker)
++  const contexts: { closed: boolean }[] = [], createMaterializer = contentBlocks.createProjectMaterializer
++  vi.spyOn(contentBlocks, 'createProjectMaterializer').mockImplementation((...args) => {
++    const actual = createMaterializer(...args), state = { closed: false }; contexts.push(state)
++    return { materialize: actual.materialize, close() { state.closed = true; actual.close() } }
++  })
++  const audit = historyRecords.auditHistoryRecords, auditClosures: boolean[] = []
++  vi.spyOn(historyRecords, 'auditHistoryRecords').mockImplementation((...args) => {
++    auditClosures.push(contexts.at(-1)!.closed)
++    return audit(...args)
++  })
+   const pending = repo.usage(owner); await started()
++  // The real background boundary is paused here. Page parsing must already
++  // be released without losing the original captured bytes used by confirm.
++  expect(contexts).toHaveLength(1); expect(contexts[0].closed).toBe(true)
+   const message = AuditingWorker.instances[0].message!
+   expect('kind' in message && message.kind).toBe('captured-history')
+   if (!('kind' in message)) throw new Error('expected native compact message')
+@@ -245,6 +260,8 @@ it('sends all owners, branches and pins compactly, omits unreferenced blocks and
+   expect(new Set(message.blocks.map(block => block.sha256))).toEqual(required)
+   expect(message.blocks.some(block => block.sha256 === unused.sha256)).toBe(false)
+   AuditingWorker.release!(); expect(await pending).toEqual(expected)
++  expect(auditClosures).toEqual([false, true]) // Keep reuse until the last owner.
++  expect(contexts.every(context => context.closed)).toBe(true)
+   expect((await repo.database.projectContentBlocks.get(unused.sha256))!.bytes).toEqual(bytes)
+   expect((await repo.loadHistoryVersion(owner, root.id))!.project).toEqual(input.project)
+   vi.unstubAllGlobals(); repo.close(); expect(await repo.usage(owner)).toEqual(expected)
+diff --git a/src/platform/browser/storage/repository.ts b/src/platform/browser/storage/repository.ts
+index 77471dd..4a770d1 100644
+--- a/src/platform/browser/storage/repository.ts
++++ b/src/platform/browser/storage/repository.ts
+@@ -771,7 +771,10 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+       await yieldAudit()
+     }
+     const heads = readRows.get('historyHeads') as HistoryHead[], pins = readRows.get('historyPins') as HistoryPin[]
+-    const owners = new Set(heads.map(head => head.ownerSceneId)), currents = readRows.get('projects') as StoredProject[]
++    // Full current payloads have already passed rowCost's complete validation.
++    // Only scalar head identity is needed after the Worker boundary.
++    const owners = new Set(heads.map(head => head.ownerSceneId))
++    const currents = new Map((readRows.get('projects') as StoredProject[]).map(row => [row.sceneId, { revision: row.revision, contentHash: row.contentHash }]))
+     if (versions.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史缺少所属活动分支。')
+     if (pins.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史快照缺少所属分支。')
+     // Only needed content blocks cross the boundary. Resources and the entire
+@@ -782,10 +785,14 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+       if (!block) throw new Error('完整历史内容块缺失。')
+       historyBlocks.push(block); await yieldAudit()
+     }
++    // No more page materialization follows. Release parsed and hydrated copies
++    // before the Worker allocates its complete graph; retain all native capture
++    // rows unchanged for the final transaction's exact byte confirmation.
++    materializer.close(); hydrated.clear(); readRows.clear(); blocks.clear()
+     if (heads.length) await auditCapturedHistoryInWorker({ kind: 'captured-history', heads, versions, pins, blocks: historyBlocks }, signal)
+     for (const head of heads) {
+       checkCancelled(signal)
+-      const current = currents.find(row => row.sceneId === head.ownerSceneId)
++      const current = currents.get(head.ownerSceneId)
+       if (!current || current.revision !== head.savedRevision || current.contentHash !== head.contentHash) throw new Error('历史活动版本与完整当前工程不一致。')
+     }
+     return totals

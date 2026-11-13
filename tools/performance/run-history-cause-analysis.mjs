@@ -13,11 +13,13 @@ import { fingerprintPaths, assertFrozen } from './frozen-input.mjs'
 const toolRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2), arg = (key, fallback) => args.includes(key) ? args[args.indexOf(key) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/run-history-cause-analysis.mjs --source ABS_FROZEN --input ABS_SYNTHETIC_SCENEWEAVE --output ABS_NEW [--history 20] [--channel chrome]')
+  console.log('node tools/performance/run-history-cause-analysis.mjs --source ABS_FROZEN --input ABS_SYNTHETIC_SCENEWEAVE --output ABS_NEW [--history 20] [--edit metadata|prop] [--prop-id ID] [--channel chrome]')
   console.log('Copies frozen src into output, instruments synchronous coarse boundaries, prepares actual native history, measures cold save, then ABBA identical-graph worker audits with/without transaction keepalive and a separate page CPU profile. Not production UI or formal performance. Captured synthetic graph/profile remain in output.')
   process.exit(0)
 }
 const source = arg('--source'), input = arg('--input'), output = arg('--output'), history = Number(arg('--history', '20'))
+const edit = arg('--edit', 'metadata'), propId = arg('--prop-id', 'capacity-mixed-remote-0000')
+if (!['metadata', 'prop'].includes(edit)) throw new Error('Use metadata or prop edits')
 if (![source, input, output].every(v => v && path.isAbsolute(v)) || !Number.isSafeInteger(history) || history < 0 || history > 100) throw new Error('Use absolute paths and history 0–100')
 if (!path.resolve(output).startsWith(path.join(toolRoot, 'work') + path.sep)) throw new Error('Keep diagnostic source/data inside ignored work/')
 await fs.mkdir(output, { recursive: true }); if ((await fs.readdir(output)).length) throw new Error('Use a new empty output directory')
@@ -26,10 +28,10 @@ const frozenPaths = ['src', 'package.json', 'package-lock.json']
 const toolPaths = ['tools/performance/run-history-cause-analysis.mjs', 'tools/performance/prepare-native-m2-fixture.mjs', 'tools/performance/frozen-input.mjs']
 const fingerprint = async () => ({ source: await fingerprintPaths(source, frozenPaths), tools: await fingerprintPaths(toolRoot, toolPaths), input: sha(await fs.readFile(input)) })
 const frozen = await fingerprint(), bytes = await fs.readFile(input), diagnostic = path.join(output, 'diagnostic-source')
-const report = { format: 'sceneweave-history-cause-analysis', version: 1, status: 'preparing', startedAt: new Date().toISOString(), source, history,
+const report = { format: 'sceneweave-history-cause-analysis', version: 1, status: 'preparing', startedAt: new Date().toISOString(), source, history, edit, propId,
   input: { sha256: sha(bytes), byteLength: bytes.length }, frozen,
   device: { platform: os.platform(), cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem(), node: process.version },
-  limitations: ['Synthetic fixture, title-only repository edits, source-module diagnosis; not production UI or formal performance.',
+  limitations: ['Synthetic fixture, selected metadata or geometry repository edits, source-module diagnosis; not production UI or formal performance.',
     'Synchronous timers report inclusive and self within selected boundaries; self still contains uninstrumented descendants and GC/scheduling.',
     'No recursive clone/freeze/point timers. Instrumentation changes timing; CPU profile is a separate direct-page audit with stage timers disabled.',
     'Transaction/no-transaction comparison uses exactly the same actual-read graph; standalone mode is diagnosis only, never a save implementation.',
@@ -161,13 +163,19 @@ try {
     }
   })
   console.log(`Preparing real native history (${history} saves)`)
-  report.setup = await page.evaluate(async ({ base64, history }) => {
+  report.setup = await page.evaluate(async ({ base64, history, edit, propId }) => {
     const [{ importProject }, { tryDerivedProjectBundle, validateProjectSnapshot }, { ProjectRepository }, { runtime, validation }, bridge] = await Promise.all([
       import('/src/shared/project/file.ts'), import('/src/shared/project/resources.ts'), import('/src/platform/browser/storage/repository.ts'), import('/src/platform/browser/runtime.ts'), import('/cause-bridge.ts')])
     const original = await importProject(Uint8Array.from(atob(base64), c => c.charCodeAt(0)), validation)
     const name = `sceneweave-projects-dev-v1-${crypto.randomUUID().replaceAll('-', '')}`, make = () => new ProjectRepository({ name, runtime, validation })
     const next = (bundle, title) => {
-      const derived = tryDerivedProjectBundle({ project: { ...bundle.project, document: { ...bundle.project.document, title, revision: bundle.project.document.revision + 1, updatedAt: new Date().toISOString() } }, resources: bundle.resources }, bundle)
+      const document = { ...bundle.project.document, title, revision: bundle.project.document.revision + 1, updatedAt: new Date().toISOString() }
+      if (edit === 'prop') {
+        const prop = document.props[propId]
+        if (!prop || prop.editLocked || prop.visibility !== 'public') throw new Error('Choose an unlocked public Prop')
+        document.props = { ...document.props, [propId]: { ...prop, positionMm: { ...prop.positionMm, x: prop.positionMm.x + 1 } } }
+      }
+      const derived = tryDerivedProjectBundle({ project: { ...bundle.project, document }, resources: bundle.resources }, bundle)
       if (!derived) throw new Error('Exact resource closure proof missing'); return derived
     }
     let repo = make(), current = (await repo.importSnapshotArchive({ current: original, snapshots: [] })).project
@@ -227,7 +235,7 @@ try {
     }
     state.bridge.Dexie.ignoreTransaction(() => {})
     return { preparedMs: performance.now() - start, owner: current.project.document.sceneId, revision: current.project.document.revision, props: Object.keys(current.project.document.props).length }
-  }, { base64: bytes.toString('base64'), history })
+  }, { base64: bytes.toString('base64'), history, edit, propId })
   console.log('Measuring instrumented cold save')
   report.coldSave = await page.evaluate(async () => {
     const s = globalThis.__historyCause; s.stage = 'cold-save'; globalThis.__historyCauseTrace.reset()

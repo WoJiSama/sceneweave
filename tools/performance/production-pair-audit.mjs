@@ -4,6 +4,12 @@ import { unzipSync, unzlibSync } from 'fflate'
 
 export const check = (condition, message) => { if (!condition) throw new Error(message) }
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex')
+/** A self-comparison must use the same actual source and build bytes. Labels,
+ * paths or a caller's description do not establish an A/A control. */
+export function assertSameBuildControl(before, after) {
+  check(isDeepStrictEqual(before.source, after.source) && isDeepStrictEqual(before.build, after.build),
+    'Same-build control requires identical source and build fingerprints')
+}
 export function readPackage(bytes) {
   const entries = unzipSync(new Uint8Array(bytes))
   const read = name => { check(entries[name], `Missing ${name}`); return JSON.parse(Buffer.from(entries[name]).toString('utf8')) }

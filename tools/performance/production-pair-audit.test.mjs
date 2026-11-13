@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { zipSync, zlibSync } from 'fflate'
-import { sha, readPackage, assertJourney, comparablePackage, auditPng, summarizePair } from './production-pair-audit.mjs'
+import { sha, readPackage, assertJourney, comparablePackage, auditPng, summarizePair, assertSameBuildControl } from './production-pair-audit.mjs'
+
+test('same-build controls reject changed source or build bytes regardless of side labels', () => {
+  const a = { source: [{ path: 'src/main.ts', sha256: 'a' }], build: [{ path: 'main.js', sha256: 'b' }] }
+  assertSameBuildControl(a, structuredClone(a))
+  for (const field of ['source', 'build']) {
+    const b = structuredClone(a); b[field][0].sha256 = 'changed'
+    assert.throws(() => assertSameBuildControl(a, b), /identical source and build/)
+  }
+})
 
 function project({ sceneId = 'source', revision = 0, secret = 'keep' } = {}) {
   const scene = { schemaVersion: 1, sceneId, revision, createdAt: sceneId, updatedAt: sceneId, props: { private: { secret } } }

@@ -8,3 +8,4 @@ public/assets/**/LICENSE.txt text eol=lf
 
 # Frozen comparison patches retain their exact bytes, including mixed newlines.
 tools/performance/baselines/*-20261112.patch -text
+tools/performance/experiments/*.patch -text
