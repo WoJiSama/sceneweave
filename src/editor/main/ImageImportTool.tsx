@@ -4,9 +4,9 @@ import type { EditableProject } from '../../application/workspace/project'
 import type { ImagePoint } from '../../shared/image-import/calibration'
 import { imagePolygonMask, suggestImageRegion, type ImagePixelMask, type PixelBounds } from '../../shared/image-import/pixels'
 import { paintImageSelection, snapImageContour } from '../../shared/image-import/selection'
-import { decodeSelectionMask, encodeSelectionMask, type ImageSelectionMask } from '../../shared/image-import/selection-mask'
+import { decodeSelectionMask, encodeSelectionMask, IMAGE_SELECTION_LIMITS, type ImageSelectionMask } from '../../shared/image-import/selection-mask'
 import { parseImageImportRecipe, type ImageImportRecipe } from '../../shared/image-import/recipe'
-import { replayImageLayers } from '../../shared/image-import/layer-replay'
+import { previewImageImportSubject, replayImageSubjectLayers } from '../../shared/image-import/subject-refinement'
 import type { ImageVectorOptions } from '../../shared/image-import/vector'
 import { loadImageImportSource, loadImageImportWorkSource, prepareImageImportRecipe, prepareImageImportFidelityPreview, replayImageImportRecipe } from '../../platform/browser/content/image-import-session'
 import './image-import-tool.css'
@@ -23,6 +23,7 @@ import { analyzeImageImportRepair } from '../../shared/image-import/neighborhood
 import type { NeighborhoodRepairConflict } from '../../shared/image-import/neighborhood-repair'
 import ImageRepairNeighborhoodReview from './ImageRepairNeighborhoodReview'
 import { imageSurfaceGuidanceSchema } from '../../shared/image-import/surfaces'
+import ImageSubjectRefinementReview from './ImageSubjectRefinementReview'
 
 interface Props {
   disabled?: boolean
@@ -56,11 +57,13 @@ interface Layer {
   protectionMask?: ImageSelectionMask
   guidedSelection?: GuidedSelectionInput
   selectionOrigin?: ImageImportRecipe['layers'][number]['selectionOrigin']
+  subjectRefinement?: ImageImportRecipe['layers'][number]['subjectRefinement']
 }
-interface Preview { floor: Raster; layers: Array<{ raster: Raster; boundsPx: Layer['donor']; id: string }> }
+interface Preview { floor: Raster; layers: Array<{ raster: Raster; boundsPx: Layer['donor']; id: string; mask: ImagePixelMask }> }
 interface PointEdit { mode: PointMode; points: ImagePoint[]; mask?: ImagePixelMask | null; guidance?: Guidance | null; scope?: ImageSelectionMask; cleanupPx?: number }
 type Guidance = NonNullable<NonNullable<ImageWorkState['active']>['guided']>
 type Drag = { pointerId: number; kind: 'vertex'; mode: PointMode; index: number; before: ImagePoint[]; beforeMask: ImagePixelMask | null; beforeScope?: ImageSelectionMask; beforeCleanupPx: number; moved: boolean }
+  | { pointerId: number; kind: 'subject-protection'; mode: 'keep' | 'remove'; before: string; painted: ImagePixelMask; previous: ImagePoint; points: number }
   | { pointerId: number; kind: 'guide'; mode: 'foreground' | 'background'; points: ImagePoint[] }
   | { pointerId: number; kind: 'pan'; clientX: number; clientY: number; scrollLeft: number; scrollTop: number }
   | { pointerId: number; kind: 'selection'; mode: 'magnetic' | 'keep' | 'remove'; points: ImagePoint[]; beforePoints: ImagePoint[]; beforeMask: ImagePixelMask | null; painted: ImagePixelMask | null }
@@ -78,9 +81,9 @@ const rectangle = (points: ImagePoint[]) => ({ x: Math.floor(Math.min(points[0].
   width: Math.ceil(Math.abs(points[0].x - points[1].x)), height: Math.ceil(Math.abs(points[0].y - points[1].y)) })
 
 function previewLayers(source: Source, layers: Layer[], surfaces?: ImageImportRecipe['repairSurfaces'], evidenceLayers: readonly Layer[] = layers): Preview {
-  const replay = replayImageLayers(source, layers, surfaces, { evidenceLayers })
+  const replay = replayImageSubjectLayers(source, layers, surfaces, { evidenceLayers })
   return { floor: replay.remaining, layers: replay.layers.map(({ layer, extracted }) =>
-    ({ id: layer.id, raster: extracted.layer, boundsPx: extracted.layer.boundsPx })) }
+    ({ id: layer.id, raster: extracted.layer, boundsPx: extracted.layer.boundsPx, mask: extracted.mask })) }
 }
 
 function drawRaster(context: CanvasRenderingContext2D, raster: Raster, x = 0, y = 0, width = raster.width, height = raster.height): void {
@@ -142,14 +145,27 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
   const [brushCursor, setBrushCursor] = useState<ImagePoint | null>(null)
   const [gestureActive, setGestureActive] = useState(false), [reviewSelection, setReviewSelection] = useState(false)
   const [layers, setLayers] = useState<Layer[]>([]), [preview, setPreview] = useState<Preview | null>(null)
-  const [neighborhoodResult, setNeighborhoodResult] = useState<{ key: string; source: Source; targetName: string; analysis: ReturnType<typeof analyzeImageImportRepair>; current: Raster } | null>(null)
+  const [neighborhoodResult, setNeighborhoodResult] = useState<{ key: string; source: Source; targetId: string; targetName: string; analysis: ReturnType<typeof analyzeImageImportRepair>; current: Raster } | null>(null)
   const [neighborhoodLocation, setNeighborhoodLocation] = useState<{ key: string; bounds: PixelBounds; label: string; request: number } | null>(null)
+  const [subjectTargetId, setSubjectTargetId] = useState<string | null>(null)
+  const [subjectBand, setSubjectBand] = useState<1 | 2>(1), [subjectStrength, setSubjectStrength] = useState<'gentle' | 'balanced' | 'strong'>('balanced')
+  const [subjectMethod, setSubjectMethod] = useState<'subject-matte-v1' | 'subject-contour-v1'>('subject-contour-v1')
+  const [subjectInputNote, setSubjectInputNote] = useState('')
+  const [subjectProtection, setSubjectProtection] = useState(''), [subjectExcluded, setSubjectExcluded] = useState(''), [subjectError, setSubjectError] = useState('')
+  const [subjectBrush, setSubjectBrush] = useState<'keep' | 'remove' | null>(null), [subjectBrushRadius, setSubjectBrushRadius] = useState(1)
+  const subjectProtectionRaster = useMemo(() => {
+    if (!source || !subjectProtection.trim()) return null
+    try { return decodeSelectionMask(JSON.parse(subjectProtection) as ImageSelectionMask, source) } catch { return null }
+  }, [source, subjectProtection])
+  const subjectProtectionPixels = subjectProtectionRaster?.data.reduce((total, value) => total + (value > 0 ? 1 : 0), 0) ?? 0
+  const [subjectResult, setSubjectResult] = useState<{ key: string; source: Source; options: NonNullable<Layer['subjectRefinement']>; result: ReturnType<typeof previewImageImportSubject> } | null>(null)
   const [mode, setMode] = useState<Mode>('room'), [view, setView] = useState<View>('source')
   const [name, setName] = useState('物件 1'), [renderLayer, setRenderLayer] = useState<'ground' | 'object'>('object')
   const [movement, setMovement] = useState(true), [tolerance, setTolerance] = useState('32')
   const [customFootprint, setCustomFootprint] = useState(false)
   const [footprintPx, setFootprintPx] = useState<NonNullable<Layer['footprintPx']>>({ x: 0, y: 0, width: 1, height: 1 })
   const [repair, setRepair] = useState<NonNullable<Layer['repair']>>('seamless'), [editingLayerId, setEditingLayerId] = useState<string | null>(null)
+  const [draftSubjectRefinement, setDraftSubjectRefinement] = useState<Layer['subjectRefinement']>()
   const [cleanupPx, setCleanupPx] = useState(0)
   const [removalPoints, setRemovalPoints] = useState<ImagePoint[]>([]), [protectionPoints, setProtectionPoints] = useState<ImagePoint[]>([])
   const [savedRemoval, setSavedRemoval] = useState<ImageSelectionMask>(), [savedProtection, setSavedProtection] = useState<ImageSelectionMask>()
@@ -214,6 +230,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     const current = drag.current
     if (current?.kind === 'vertex') { setPoints(current.mode, current.before); restoreScope(current.mode, current.beforeScope); setCleanupPx(current.beforeCleanupPx); if (current.mode === 'object') setSelection(current.beforeMask) }
     if (current?.kind === 'selection') { setPolygon(current.beforePoints); setSelection(current.beforeMask) }
+    if (current?.kind === 'subject-protection') setSubjectProtection(current.before)
     drag.current = null
     setSelectionStroke([]); setGestureActive(false)
     const target = canvas.current
@@ -235,17 +252,18 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
   }, [focusRequest, stage])
   const locate = (next: Stage, target?: string) => {
     cancelGesture(); setStage(next)
+    if (next !== 'objects') setSubjectBrush(null)
     if (target) setFocusRequest({ target })
   }
   const chooseMode = (next: Mode) => {
-    cancelGesture(); setMode(next)
+    cancelGesture(); setSubjectBrush(null); setMode(next)
     if (next === 'source-boundary' || next === 'room' || next === 'ruler') setStage('structure')
     else if (next !== 'pan') setStage('objects')
     if (next !== 'pan') { setView('source'); setShowAnnotations(true) }
   }
-  const chooseView = (next: View) => { cancelGesture(); setView(next) }
+  const chooseView = (next: View) => { cancelGesture(); setSubjectBrush(null); setView(next) }
   const close = () => {
-    cancelGesture()
+    cancelGesture(); setSubjectBrush(null)
     generation.current++; controller.current?.abort(); setPending(false); setOpen(false)
   }
   const act = (action: () => void) => { setError(''); setNotice(''); try { action() } catch (error) { setError(failureText(error)) } }
@@ -267,6 +285,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
       setLayers([]); setPreview({ floor: next, layers: [] }); setHidden([]); setMode('room'); setView('source')
       setPointHistory([]); setEditingLayerId(null); setZoom('fit'); setRepair('seamless'); setCleanupPx(0); resetRepairScopes()
       setObjectFieldsDirty(false)
+      setDraftSubjectRefinement(undefined); setSubjectTargetId(null); setSubjectBrush(null); setSubjectResult(null); setSubjectError('')
       setFills([]); setFillPolygon([]); setFillDonor([])
       setVector(undefined); setFloorVector(undefined); setFidelityResult(null)
       setSourceBoundary([]); setOutputScale(1); setShowAnnotations(true); setMode('source-boundary')
@@ -277,6 +296,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     finally { if (stamp === generation.current) { setPending(false); controller.current = null } }
   }
   const hasVector = !!floorVector || layers.some(layer => !!layer.vector)
+  const hasSubjectRefinement = layers.some(layer => !!layer.subjectRefinement)
   const captureWork = (): ImageWorkState => {
     if (!source?.originalBytes || !source.normalizedBytes) throw new Error('请先载入并保全原图。')
     const calibration = ruler.length === 2 && Number.isSafeInteger(Number(distance)) && Number(distance) > 0
@@ -288,6 +308,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
       ...(removalMask ? { removalMask } : {}), ...(protectionMask ? { protectionMask } : {}),
       ...(selection ? selectedPixels ? { selectionMask: encodeSelectionMask(selection) } : { emptySelectionBounds: selection.boundsPx } : {}), ...(guidance ? { guided: guidance } : {}), ...(maskOrigin && selection && selectedPixels ? { selectionOrigin: maskOrigin } : {}),
       ...(customFootprint ? { footprintPx } : {}), ...(editingLayerId ? { editingLayerId } : {}),
+      ...(draftSubjectRefinement ? { subjectRefinement: draftSubjectRefinement } : {}),
     } : undefined
     return parseImageWorkState({ format: 'sceneweave-image-work', version: 1, id: workflowId.current, revision: ++workRevision.current,
       image: { sha256: source.sha256, pixelWidth: source.width, pixelHeight: source.height },
@@ -298,7 +319,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
       notes: workNotes, nextAction, scaleStatus, journal: workJournal.current, reviews: workReviews.current })
   }
   const workKey = JSON.stringify({ title, room, ruler, distance, origin, floorVector, polygon, donor, selection: selection ? selectionRecord(selection) : null,
-    layers, sourceBoundary, outputScale, repairSurfaces, appearanceSource, repairSurfaceIds, name, renderLayer, movement, repair, cleanupPx, removalMask, protectionMask, removalPoints, protectionPoints, fills, fillPolygon, fillDonor, guidance, maskOrigin, customFootprint, footprintPx, editingLayerId, objectFieldsDirty, license, attribution, embed, workNotes, nextAction, scaleStatus })
+    layers, sourceBoundary, outputScale, repairSurfaces, appearanceSource, repairSurfaceIds, name, renderLayer, movement, repair, cleanupPx, removalMask, protectionMask, removalPoints, protectionPoints, fills, fillPolygon, fillDonor, guidance, maskOrigin, customFootprint, footprintPx, editingLayerId, objectFieldsDirty, draftSubjectRefinement, license, attribution, embed, workNotes, nextAction, scaleStatus })
   const latestWorkKey = useRef(workKey)
   latestWorkKey.current = workKey
   useEffect(() => {
@@ -345,6 +366,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     setPolygon(active?.polygon ?? []); setDonor(active?.donor ?? []); setSelection(mask); setGuidance(active?.guided ?? null); setMaskOrigin(active?.selectionOrigin)
     setName(active?.name ?? `物件 ${state.draft.layers.length + 1}`); setRenderLayer(active?.renderLayer ?? 'object'); setMovement(active?.blocksMovement ?? true)
     setRepair(active?.repair ?? 'seamless'); setCleanupPx(active?.cleanupPx ?? 0); setFills(active?.fills ?? [])
+    setDraftSubjectRefinement(active?.subjectRefinement); setSubjectTargetId(null); setSubjectBrush(null); setSubjectResult(null); setSubjectError('')
     setRemovalPoints(active?.removalPointsPx ?? []); setProtectionPoints(active?.protectionPointsPx ?? [])
     setSavedRemoval(active?.removalMask); setSavedProtection(active?.protectionMask)
     setCustomFootprint(!!active?.footprintPx); if (active?.footprintPx) setFootprintPx(active.footprintPx)
@@ -385,14 +407,20 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
   const fidelityKey = JSON.stringify({ source: source?.sha256, title, room, sourceBoundary, outputScale, repairSurfaces, ruler, distance, origin, floorVector, layers })
   const neighborhoodKey = useMemo(() => sha256Text(JSON.stringify({ source: source?.sha256 ?? null, layers, repairSurfaces,
     active: { polygon, donor, editingLayerId, selection: selection ? selectionRecord(selection) : null, removalMask, protectionMask, removalPoints, protectionPoints, objectFieldsDirty,
-      fillPolygon, fillDonor, guidance, name, repair, cleanupPx, fills, appearanceSource, repairSurfaceIds, renderLayer, movement, customFootprint, footprintPx, surfaceGuidance } })),
-  [source, layers, repairSurfaces, polygon, donor, editingLayerId, selection, removalMask, protectionMask, removalPoints, protectionPoints, objectFieldsDirty, fillPolygon, fillDonor, guidance, name, repair, cleanupPx, fills, appearanceSource, repairSurfaceIds, renderLayer, movement, customFootprint, footprintPx, surfaceGuidance])
+      fillPolygon, fillDonor, guidance, name, repair, cleanupPx, fills, appearanceSource, repairSurfaceIds, renderLayer, movement, customFootprint, footprintPx, surfaceGuidance, draftSubjectRefinement } })),
+  [source, layers, repairSurfaces, polygon, donor, editingLayerId, selection, removalMask, protectionMask, removalPoints, protectionPoints, objectFieldsDirty, fillPolygon, fillDonor, guidance, name, repair, cleanupPx, fills, appearanceSource, repairSurfaceIds, renderLayer, movement, customFootprint, footprintPx, surfaceGuidance, draftSubjectRefinement])
   const neighborhood = neighborhoodResult?.source === source && neighborhoodResult.key === neighborhoodKey ? neighborhoodResult : null
   const neighborhoodFocus = neighborhoodLocation?.key === neighborhoodKey ? neighborhoodLocation : null
   useEffect(() => {
     setNeighborhoodResult(value => value && (value.key !== neighborhoodKey || value.source !== source) ? null : value)
     setNeighborhoodLocation(value => value && value.key !== neighborhoodKey ? null : value)
   }, [neighborhoodKey, source])
+  const subjectKey = useMemo(() => sha256Text(JSON.stringify({ neighborhoodKey, subjectTargetId, subjectMethod, subjectBand, subjectStrength, subjectProtection, subjectExcluded })), [neighborhoodKey, subjectTargetId, subjectMethod, subjectBand, subjectStrength, subjectProtection, subjectExcluded])
+  const subjectCandidate = subjectResult?.source === source && subjectResult.key === subjectKey ? subjectResult : null
+  const subjectTarget = layers.find(layer => layer.id === subjectTargetId)
+  useEffect(() => {
+    setSubjectResult(value => value && (value.source !== source || value.key !== subjectKey) ? null : value)
+  }, [source, subjectKey])
   useEffect(() => {
     setFidelityResult(null); setFidelityError('')
     if (!open || !source || room.length < 3 || ruler.length !== 2) { setFidelityPending(false); return }
@@ -417,7 +445,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     context.clearRect(0, 0, target.width, target.height)
     if (view === 'source') drawRaster(context, source)
     else {
-      if (generated && (view === 'difference' || view === 'inference' || (view === 'composite' && !hidden.length))) {
+      if (generated && (view === 'difference' || view === 'inference' || (view === 'composite' && !hidden.length && !hasSubjectRefinement))) {
         drawRaster(context, generated[view === 'difference' ? 'difference' : view === 'inference' ? 'inference' : 'composite'])
       } else if (view === 'floor' || view === 'composite') {
         if (sourceBoundary.length >= 3) { context.beginPath(); context.moveTo(sourceBoundary[0].x, sourceBoundary[0].y); sourceBoundary.slice(1).forEach(point => context.lineTo(point.x, point.y)); context.closePath(); context.clip() }
@@ -482,12 +510,25 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
         context.save(); context.strokeStyle = '#ab5ef5'; context.lineWidth = 1.5 / (target.getBoundingClientRect().width / source.width || 1)
         context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height); context.restore()
       }
+      for (const surface of repairSurfaces) for (const patch of surface.guided?.detailPatches ?? []) {
+        context.save(); context.lineWidth = 1.5 / (target.getBoundingClientRect().width / source.width || 1)
+        const r = patch.reference, t = patch.target
+        context.strokeStyle = '#ab5ef5'; context.strokeRect(r.x, r.y, r.width, r.height)
+        context.strokeStyle = '#ff9a40'; context.strokeRect(t.x, t.y, r.width, r.height)
+        context.restore()
+      }
       if (fillDonor.length === 2) { const bounds = rectangle(fillDonor); context.strokeStyle = '#D4A8FF'; context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height) }
-      if (brushCursor && (mode === 'keep' || mode === 'remove') && Number.isFinite(brushRadius) && brushRadius > 0) {
+      if (stage === 'objects' && subjectTarget && subjectProtectionRaster) {
+        const mask = subjectProtectionRaster, overlay = { width: mask.width, height: mask.height, data: new Uint8ClampedArray(mask.width * mask.height * 4) }
+        for (let index = 0; index < mask.data.length; index++) if (mask.data[index]) overlay.data.set([255, 218, 45, 155], index * 4)
+        drawRaster(context, overlay, mask.boundsPx.x, mask.boundsPx.y)
+      }
+      const cursorRadius = subjectBrush ? subjectBrushRadius : brushRadius
+      if (brushCursor && (subjectBrush || mode === 'keep' || mode === 'remove') && Number.isFinite(cursorRadius) && cursorRadius > 0) {
         const scale = target.getBoundingClientRect().width / source.width || 1
-        context.beginPath(); context.arc(brushCursor.x, brushCursor.y, brushRadius, 0, Math.PI * 2)
+        context.beginPath(); context.arc(brushCursor.x, brushCursor.y, cursorRadius, 0, Math.PI * 2)
         context.strokeStyle = '#fff'; context.lineWidth = 3 / scale; context.stroke()
-        context.strokeStyle = mode === 'keep' ? '#286f4a' : '#b12842'; context.lineWidth = 1.5 / scale; context.stroke()
+        context.strokeStyle = subjectBrush ? '#af7800' : mode === 'keep' ? '#286f4a' : '#b12842'; context.lineWidth = 1.5 / scale; context.stroke()
       }
     }
     if (view === 'source' && showAnnotations && guidance) {
@@ -504,7 +545,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
       context.setLineDash([5 / scale, 3 / scale]); context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height)
       context.restore()
     }
-  }, [source, preview, room, sourceBoundary, ruler, polygon, selection, selectionStroke, donor, fillPolygon, fillDonor, hidden, view, open, zoom, cleanupPx, removalMask, protectionMask, removalPoints, protectionPoints, fidelityResult, fidelityKey, showAnnotations, brushCursor, brushRadius, mode, guidance, guideUncertainty, showUncertain, neighborhoodFocus, neighborhood, repairSurfaces])
+  }, [source, preview, room, sourceBoundary, ruler, polygon, selection, selectionStroke, donor, fillPolygon, fillDonor, hidden, view, open, zoom, cleanupPx, removalMask, protectionMask, removalPoints, protectionPoints, fidelityResult, fidelityKey, showAnnotations, brushCursor, brushRadius, mode, guidance, guideUncertainty, showUncertain, neighborhoodFocus, neighborhood, repairSurfaces, hasSubjectRefinement, stage, subjectTarget, subjectProtectionRaster, subjectBrush, subjectBrushRadius])
   useLayoutEffect(() => {
     const anchor = zoomAnchor.current, frame = viewport.current, target = canvas.current
     if (!anchor || !source || !frame || !target) return
@@ -567,6 +608,13 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     return { x: Math.max(0, Math.min(source.width - 1, Math.round((event.clientX - bounds.left) * source.width / bounds.width))),
       y: Math.max(0, Math.min(source.height - 1, Math.round((event.clientY - bounds.top) * source.height / bounds.height))) }
   }
+  const paintSubjectProtection = (mask: ImagePixelMask, points: ImagePoint[], paintMode: 'keep' | 'remove') => {
+    if (!source) throw new Error('请先载入原图。')
+    const painted = paintImageSelection(source, mask, { points, mode: paintMode, radiusPx: subjectBrushRadius })
+    const binary = { ...painted, data: painted.data.map(value => value >= 128 ? 255 : 0) }
+    setSubjectProtection(binary.data.some(value => value > 0) ? JSON.stringify(encodeSelectionMask(binary)) : '')
+    return binary
+  }
   const point = (event: React.PointerEvent<HTMLCanvasElement>) => act(() => {
     if (!source || occupied || drag.current) return
     if (mode === 'pan' || event.button === 1) {
@@ -577,6 +625,15 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     }
     if (view !== 'source' || !showAnnotations || event.button !== 0) return
     const position = imagePoint(event)
+    if (subjectBrush && subjectTarget && stage === 'objects') {
+      if (objectDraft || fillPolygon.length || fillDonor.length) throw new Error('请先应用或取消当前物件标注；主体保护不会改动该标注。')
+      if (subjectProtection.trim() && !subjectProtectionRaster) throw new Error('主体保护蒙版无效，请修正高级输入或清空主体保护。')
+      const previous = { x: position.x + .5, y: position.y + .5 }
+      const before = subjectProtectionRaster ?? { width: 1, height: 1, boundsPx: { ...position, width: 1, height: 1 }, data: new Uint8Array(1) }
+      const painted = paintSubjectProtection(before, [previous], subjectBrush)
+      drag.current = { pointerId: event.pointerId, kind: 'subject-protection', mode: subjectBrush, before: subjectProtection, painted, previous, points: 1 }
+      setSubjectResult(null); setSubjectError(''); setGestureActive(true); event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); return
+    }
     if (mode === 'foreground' || mode === 'background') {
       if (polygon.length < 3) throw new Error('先用物件轮廓画一个包含物件和少量背景的粗范围。')
       // Seed strokes target pixel centres, including a .5px single click.
@@ -625,13 +682,21 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     }
   })
   const movePointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (mode === 'keep' || mode === 'remove' || mode === 'foreground' || mode === 'background') setBrushCursor(imagePoint(event))
+    if (subjectBrush || mode === 'keep' || mode === 'remove' || mode === 'foreground' || mode === 'background') setBrushCursor(imagePoint(event))
     const current = drag.current
     if (!current || current.pointerId !== event.pointerId) return
     if (current.kind === 'pan') {
       const frame = viewport.current!
       frame.scrollLeft = current.scrollLeft + current.clientX - event.clientX
       frame.scrollTop = current.scrollTop + current.clientY - event.clientY
+    } else if (current.kind === 'subject-protection') {
+      const position = imagePoint(event), next = { x: position.x + .5, y: position.y + .5 }
+      if (next.x === current.previous.x && next.y === current.previous.y) return
+      try {
+        if (++current.points > 4096) throw new Error('主体保护笔画过长，请分成较短的笔画。')
+        current.painted = paintSubjectProtection(current.painted, [current.previous, next], current.mode)
+        current.previous = next
+      } catch (error) { cancelGesture(); setSubjectError(failureText(error)) }
     } else if (current.kind === 'vertex') {
       const position = imagePoint(event)
       current.moved = current.moved || position.x !== current.before[current.index].x || position.y !== current.before[current.index].y
@@ -704,7 +769,8 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     if (!editingLayerId && layers.length >= 63) throw new Error('地板材质与拆出物件合计最多64项。')
     if (customFootprint && (!Object.values(footprintPx).every(Number.isFinite) || footprintPx.x < 0 || footprintPx.y < 0
       || footprintPx.width <= 0 || footprintPx.height <= 0 || footprintPx.x + footprintPx.width > source.width || footprintPx.y + footprintPx.height > source.height)) throw new Error('物理占地须为原图内的正宽高矩形。')
-    const layer = { id: editingLayerId ?? activeItemId.current, name: name.trim(), polygon: [...polygon], donor: rectangle(donor), renderLayer, blocksMovement: movement, repair, cleanupPx, appearanceSource, ...(repairSurfaceIds.length ? { repairSurfaceIds } : {}), ...(removalMask ? { removalMask } : {}), ...(protectionMask ? { protectionMask } : {}), ...(fills.length ? { fills } : {}), ...(vector ? { vector } : {}), ...(customFootprint ? { footprintPx: { ...footprintPx } } : {}), ...(selection ? { selectionMask: encodeSelectionMask(selection) } : {}), ...(guidance ? { guidedSelection: guidance as GuidedSelectionInput } : {}), ...(maskOrigin && selection ? { selectionOrigin: maskOrigin } : {}) }
+    const existingSubject = draftSubjectRefinement
+    const layer = { id: editingLayerId ?? activeItemId.current, name: name.trim(), polygon: [...polygon], donor: rectangle(donor), renderLayer, blocksMovement: movement, repair, cleanupPx, appearanceSource, ...(repairSurfaceIds.length ? { repairSurfaceIds } : {}), ...(removalMask ? { removalMask } : {}), ...(protectionMask ? { protectionMask } : {}), ...(fills.length ? { fills } : {}), ...(vector ? { vector } : {}), ...(customFootprint ? { footprintPx: { ...footprintPx } } : {}), ...(selection ? { selectionMask: encodeSelectionMask(selection) } : {}), ...(guidance ? { guidedSelection: guidance as GuidedSelectionInput } : {}), ...(maskOrigin && selection ? { selectionOrigin: maskOrigin } : {}), ...(existingSubject ? { subjectRefinement: existingSubject } : {}) }
     const next = editingLayerId ? layers.map(item => item.id === editingLayerId ? layer : item) : [...layers, layer]
     const result = previewLayers(source, next, repairSurfaces)
     if (ruler.length === 2 && room.length >= 3) replayImageImportRecipe({ pixels: source,
@@ -714,6 +780,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     activeItemId.current = `image-item-${crypto.randomUUID()}`
     setLayers(next); setPreview(result); setPolygon([]); setDonor([]); setName(`物件 ${next.length + 1}`)
     setGuidance(null); setGuideReport('')
+    setDraftSubjectRefinement(undefined)
     setSelection(null); setMaskOrigin(undefined); setReviewSelection(false)
     setEditingLayerId(null); setPointHistory([]); setRepair('seamless'); setCleanupPx(0); resetRepairScopes()
     setAppearanceSource(renderLayer === 'ground' ? 'working' : 'original'); setRepairSurfaceIds([])
@@ -728,6 +795,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     const next = layers.slice(0, -1)
     setLayers(next); setPreview(previewLayers(source, next, repairSurfaces)); setHidden(current => current.filter(id => next.some(layer => layer.id === id)))
     setEditingLayerId(null); setPointHistory([]); setPolygon([]); setDonor([]); resetRepairScopes()
+    setDraftSubjectRefinement(undefined)
     setSelection(null); setMaskOrigin(undefined); setReviewSelection(false)
     setFills([]); setFillPolygon([]); setFillDonor([])
     setCustomFootprint(false)
@@ -738,6 +806,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     setEditingLayerId(layer.id); setName(layer.name); setPolygon([...layer.polygon])
     const prior = source ? layer.appearanceSource === 'original' ? source : previewLayers(source, layers.slice(0, layers.findIndex(item => item.id === layer.id)), repairSurfaces, layers).floor : null
     setAppearanceSource(layer.appearanceSource ?? 'working'); setRepairSurfaceIds(layer.repairSurfaceIds ?? [])
+    setDraftSubjectRefinement(layer.subjectRefinement)
     setSelection(prior && layer.selectionMask ? decodeSelectionMask(layer.selectionMask, prior)
       : prior && layer.guidedSelection ? guidedImageSelection(prior, layer.guidedSelection).mask : null); setReviewSelection(false)
     setGuidance(layer.guidedSelection ?? null); setMaskOrigin(layer.selectionOrigin); setGuideReport('')
@@ -790,18 +859,35 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
         const kind = operation === 'guidance' ? 'guided' : surfaceKind
         return [{ ...rest, kind, ...(kind === 'guided' ? { guided: imageSurfaceGuidanceSchema.parse(JSON.parse(surfaceGuidance)) } : {}) }]
       }
-      if (operation === 'exclude') return [{ ...surface, excludedEvidenceMask: protectionMask }]
+      if (operation === 'exclude') {
+        const masks = [surface.excludedEvidenceMask, protectionMask].filter((mask): mask is ImageSelectionMask => !!mask).map(mask => decodeSelectionMask(mask, source))
+        const x = Math.min(...masks.map(mask => mask.boundsPx.x)), y = Math.min(...masks.map(mask => mask.boundsPx.y))
+        const width = Math.max(...masks.map(mask => mask.boundsPx.x + mask.width)) - x
+        const height = Math.max(...masks.map(mask => mask.boundsPx.y + mask.height)) - y
+        if (width * height > IMAGE_SELECTION_LIMITS.pixels) throw new Error('追加后的取证排除图框超过100万像素，请缩小新增范围；原取证排除已保留。')
+        const data = new Uint8Array(width * height)
+        for (const mask of masks) for (let row = 0; row < mask.height; row++) for (let column = 0; column < mask.width; column++) {
+          if (mask.data[row * mask.width + column]) data[(mask.boundsPx.y + row - y) * width + mask.boundsPx.x + column - x] = 255
+        }
+        return [{ ...surface, excludedEvidenceMask: encodeSelectionMask({ width, height, boundsPx: { x, y, width, height }, data }) }]
+      }
       const { excludedEvidenceMask: ignored, ...rest } = surface
       return [rest]
     })
-    parseImageImportRecipe({ ...recipe(), repairSurfaces: surfaces })
-    const result = previewLayers(source, layers, surfaces)
+    let result: Preview
+    try {
+      parseImageImportRecipe({ ...recipe(), repairSurfaces: surfaces })
+      result = previewLayers(source, layers, surfaces)
+    } catch (error) {
+      if (operation === 'exclude') throw new Error(`追加取证排除失败，原有排除和物件已保留。${failureText(error)}`, { cause: error })
+      throw error
+    }
     recordWorkOperation('change-surface', { id, operation, surface: surfaces.find(surface => surface.id === id) ?? null }, repairSurfaces, surfaces)
     setRepairSurfaces(surfaces); setPreview(result)
     if (operation === 'remove') setRepairSurfaceIds(ids => ids.filter(value => value !== id))
     if (operation === 'geometry') { setFillPolygon([]); setFillDonor([]); setPointHistory([]) }
     if (operation === 'sample') { setFillDonor([]); setPointHistory([]) }
-    setNotice('已更新补底表面并重放物件。输入已改变，请重新查看裁片与露底。')
+    setNotice(operation === 'exclude' ? '已把保护范围追加到取证排除，原有排除区域已保留，并已重放物件。输入已改变，请重新查看裁片与露底。' : '已更新补底表面并重放物件。输入已改变，请重新查看裁片与露底。')
   })
   const recipe = (selectedLayers: Layer[] = layers): ImageImportRecipe => {
     if (!source || ruler.length !== 2) throw new Error('请载入原图并点选两个比例尺端点。')
@@ -833,6 +919,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     setLayers(next); setPreview(result); setPolygon([]); setDonor([]); setHidden([]); setView('composite'); setError('')
       setSelection(null); setMaskOrigin(undefined); setReviewSelection(false)
       setPointHistory([]); setEditingLayerId(null); setRepair('seamless'); setCleanupPx(0); resetRepairScopes()
+      setDraftSubjectRefinement(undefined); setSubjectTargetId(null); setSubjectBrush(null); setSubjectResult(null); setSubjectError('')
       setObjectFieldsDirty(false)
       setFills([]); setFillPolygon([]); setFillDonor([])
       setVector(undefined); setFloorVector(value.floorVector)
@@ -866,26 +953,26 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     setView('source'); setShowAnnotations(true); setPointHistory(current => current.slice(0, -1))
   }
   const objectDraft = !!polygon.length || !!selection || !!editingLayerId || objectFieldsDirty || !!removalPoints.length || !!protectionPoints.length || !!removalMask || !!protectionMask
-  const analyzeNeighborhood = (layer: Layer) => act(() => {
+  const analyzeNeighborhood = (layer: Layer, surfaceId?: string) => act(() => {
     if (!source) throw new Error('请先打开原图。')
     if (objectDraft || fillPolygon.length || fillDonor.length || gestureActive) {
       setNotice('当前还有未应用的标注。请先应用或取消当前物件与分区标注，再分析已拆物件；当前标注已保留。')
       locate('objects', 'current-object'); return
     }
-    const analysis = analyzeImageImportRepair(source, layers, repairSurfaces, layer.id)
+    const analysis = analyzeImageImportRepair(source, layers, repairSurfaces, layer.id, undefined, surfaceId)
     const index = layers.findIndex(item => item.id === layer.id)
     const current = previewLayers(source, layers.slice(0, index + 1), repairSurfaces, layers).floor
-    setNeighborhoodResult({ key: neighborhoodKey, source, targetName: layer.name, analysis, current })
+    setNeighborhoodResult({ key: neighborhoodKey, source, targetId: layer.id, targetName: layer.name, analysis, current })
     setNeighborhoodLocation(null); setMode('pan'); setView('floor'); locate('objects', 'neighborhood')
     setNotice('已比较同组可信区域。请展开参考理由、冲突和待判断的小范围；分析不会自动采用候选。')
   })
   const locateNeighborhood = (bounds: PixelBounds, label: string, targetView: 'source' | 'floor') => {
-    cancelGesture(); setView(targetView); setZoom('400'); setShowAnnotations(true)
+    cancelGesture(); setSubjectBrush(null); setView(targetView); setZoom('400'); setShowAnnotations(true)
     setNeighborhoodLocation(previous => ({ key: neighborhoodKey, bounds, label, request: (previous?.request ?? 0) + 1 }))
   }
   const assistNeighborhood = (surfaceId: string, conflict: NeighborhoodRepairConflict) => {
     const nextMode = conflict.action === 'mark-material' ? 'fill-region' : conflict.action === 'exclude-evidence' ? 'protection' : 'fill-donor'
-    chooseMode(nextMode); locateNeighborhood(conflict.boundsPx, conflict.message, 'source')
+    chooseMode(nextMode); locateNeighborhood(conflict.boundsPx, conflict.id.startsWith('tone-observation-') ? '底色取证疑点' : conflict.message, 'source')
     locate('objects', `surface-${surfaceId}`)
     const details = inspector.current?.querySelector<HTMLDetailsElement>('details.image-import-fill-settings')
     if (details) details.open = true
@@ -898,6 +985,95 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     const details = inspector.current?.querySelector<HTMLDetailsElement>('details.image-import-fill-settings')
     if (details) details.open = true
     setNotice('已定位参考起点，尚未采用。请框选足够大的干净取样，再点击对应底材的“仅更新干净取样”；范围和所有引用物件将重新校验。')
+  }
+  const subjectDraftGuard = () => {
+    if (objectDraft || fillPolygon.length || fillDonor.length || gestureActive) throw new Error('当前还有未应用的标注。请先应用或取消当前物件与分区标注，再处理主体精修；标注已保留。')
+  }
+  const openSubject = (layer: Layer) => act(() => {
+    subjectDraftGuard()
+    if (!source) throw new Error('请先载入原图。')
+    setSubjectBrush(null)
+    const options = layer.subjectRefinement
+    // Existing replay already resolved guided and polygon coverage. Reuse that
+    // exact mask instead of replaying earlier repairs when opening this panel.
+    const replayed = preview?.layers.find(row => row.id === layer.id)
+    const savedMask = layer.selectionMask ? decodeSelectionMask(layer.selectionMask, source) : replayed?.mask
+    const mask = savedMask ?? (layer.guidedSelection ? guidedImageSelection(source, layer.guidedSelection).mask : imagePolygonMask(source, layer.polygon))
+    const partial = mask.data.some(alpha => alpha > 0 && alpha < 255)
+    const translucentSource = mask.data.some((alpha, index) => alpha > 0 && source.data[((mask.boundsPx.y + Math.floor(index / mask.width)) * source.width + mask.boundsPx.x + index % mask.width) * 4 + 3] !== 255)
+      || !options && !!replayed && mask.data.some((alpha, index) => alpha === 255 && replayed.raster.data[index * 4 + 3] !== 255)
+    const unconfirmedWorking = layer.appearanceSource !== 'original' && !replayed
+    const contourSuitable = !partial && !translucentSource && !unconfirmedWorking
+    setSubjectMethod(options?.method ?? (contourSuitable ? 'subject-contour-v1' : 'subject-matte-v1'))
+    setSubjectInputNote(partial
+      ? `当前选区已有半透明覆盖，不适用只接受二值选区的几何轮廓方式。原有透明度保持，${options ? '已采用配方继续使用原方法。' : '默认使用颜色混合估计。'}`
+      : translucentSource ? `选中原图像素含透明度，不适用要求不透明原前景的几何轮廓方式。原有透明度保持，${options ? '已采用配方继续使用原方法。' : '默认使用颜色混合估计。'}`
+        : unconfirmedWorking ? '尚未确认此前补底后的主体像素是否不透明，默认使用颜色混合估计；原选区和已采用方法保持。' : '')
+    setSubjectTargetId(layer.id); setSubjectBand(options?.bandPx ?? 1); setSubjectStrength(options?.strength ?? 'balanced')
+    setSubjectProtection(options?.foregroundProtectionMask ? JSON.stringify(options.foregroundProtectionMask) : '')
+    setSubjectExcluded(options?.excludedEvidenceMask ? JSON.stringify(options.excludedEvidenceMask) : '')
+    setSubjectResult(null); setSubjectError(''); locate('objects', 'subject-refinement')
+  })
+  const chooseSubjectBrush = (next: 'keep' | 'remove' | null) => {
+    setSubjectError('')
+    try {
+      cancelGesture()
+      if (!next) { setSubjectBrush(null); setMode('pan'); return }
+      if (!source || !subjectTarget) throw new Error('请先选择要保护描边的主体。')
+      subjectDraftGuard()
+      if (subjectProtection.trim() && !subjectProtectionRaster) throw new Error('主体保护蒙版无效，请修正高级输入或清空主体保护。')
+      const selection = subjectTarget.selectionMask
+      const bounds = selection ? { x: selection.x, y: selection.y, width: selection.width, height: selection.height }
+        : { x: Math.floor(Math.min(...subjectTarget.polygon.map(point => point.x))), y: Math.floor(Math.min(...subjectTarget.polygon.map(point => point.y))), ...localVectorSize(subjectTarget.polygon)! }
+      locateNeighborhood(bounds, `${subjectTarget.name} · 主体描边保护`, 'source')
+      setMode('object'); setSubjectBrush(next); setBrushCursor(null)
+      setNotice(next === 'keep' ? '在原图局部涂过必须保留的描边。黄色为主体保护，只在显式采用精修后保存。' : '在黄色范围拖画以擦除主体保护。原选区与补底范围保持。')
+    } catch (error) { setSubjectError(failureText(error)) }
+  }
+  const resetSubjectProtection = (toAdopted: boolean) => {
+    cancelGesture(); setSubjectBrush(null); setMode('pan')
+    const adopted = toAdopted ? subjectTarget?.subjectRefinement?.foregroundProtectionMask : undefined
+    setSubjectProtection(adopted ? JSON.stringify(adopted) : ''); setSubjectError('')
+  }
+  const generateSubject = () => {
+    setSubjectError(''); setError('')
+    try {
+      if (!source || !subjectTarget) throw new Error('请先在对象清单选择要精修的主体。')
+      subjectDraftGuard()
+      setSubjectBrush(null)
+      const options: NonNullable<Layer['subjectRefinement']> = { method: subjectMethod, bandPx: subjectBand, strength: subjectStrength,
+        ...(subjectProtection.trim() ? { foregroundProtectionMask: JSON.parse(subjectProtection) as ImageSelectionMask } : {}),
+        ...(subjectExcluded.trim() ? { excludedEvidenceMask: JSON.parse(subjectExcluded) as ImageSelectionMask } : {}) }
+      const result = previewImageImportSubject(source, layers, repairSurfaces, subjectTarget.id, options)
+      setSubjectResult({ key: subjectKey, source, options: result.recipe, result }); locate('objects', 'subject-refinement')
+      setNotice(result.method === 'subject-contour-v1'
+        ? '已生成只读轮廓候选。两个派生阶段相同，尚未去混色；外侧新增覆盖属于推断，请对齐原图网格换底检查。'
+        : '已生成只读主体候选。请在相同倍率的黑白与棋盘背景检查三个阶段，采用前物件保持。')
+    } catch (error) { setSubjectError(failureText(error)) }
+  }
+  const applySubject = (restore: boolean) => {
+    setSubjectError(''); setError('')
+    try {
+      if (!source || !subjectTarget) throw new Error('主体目标已变化，请重新选择物件。')
+      subjectDraftGuard()
+      if (!restore && !subjectCandidate) throw new Error('候选输入已变化，请重新生成主体精修候选。')
+      const next = layers.map(layer => {
+        if (layer.id !== subjectTarget.id) return layer
+        const { subjectRefinement: previous, ...original } = layer
+        return restore ? original : { ...original, subjectRefinement: subjectCandidate!.options }
+      })
+      parseImageImportRecipe({ format: 'sceneweave-image-import-recipe', version: 1, image: { sha256: source.sha256, pixelWidth: source.width, pixelHeight: source.height }, title,
+        calibration: ruler.length === 2 ? { first: ruler[0], second: ruler[1], distanceMm: Number(distance) } : { first: { x: 0, y: 0 }, second: { x: 1, y: 0 }, distanceMm: 1 },
+        roomPointsPx: room.length >= 3 ? room : [{ x: 0, y: 0 }, { x: source.width, y: 0 }, { x: 0, y: source.height }], layers: next, repairSurfaces })
+      const result = previewLayers(source, next, repairSurfaces)
+      recordWorkOperation(restore ? 'restore-subject-source' : 'adopt-subject-refinement', { target: subjectTarget.id, options: restore ? null : subjectCandidate!.options }, layers, next)
+      setLayers(next); setPreview(result); setSubjectResult(null); setSubjectBrush(null); setView('composite'); setNeighborhoodLocation(null)
+      const adoptedMethod = restore ? null : subjectCandidate!.options.method
+      setNextAction(adoptedMethod === 'subject-contour-v1'
+        ? `检查“${subjectTarget.name}”的轮廓覆盖与外侧1像素推断：三个阶段对齐原图网格，以黑白底审阅；尚未去混色。`
+        : `检查“${subjectTarget.name}”的主体边带：原始裁片、覆盖度、去混色与黑白底分别审阅。`)
+      setNotice(restore ? '已恢复原始裁片；原选区与补底保持。' : '已显式采用主体派生外观；原始裁片与补底保持，派生结果用于预览和工程输出，仍待视觉审核。')
+    } catch (error) { setSubjectError(failureText(error)) }
   }
   const report = fidelityResult?.key === fidelityKey ? fidelityResult.data.report : null
   const validDistance = Number.isFinite(Number(distance)) && Number(distance) > 0
@@ -917,6 +1093,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     setEditingLayerId(null); setPointHistory([]); setFills([]); setFillPolygon([]); setFillDonor([])
     setVector(undefined); setCustomFootprint(false); setRepair('seamless'); setCleanupPx(0); resetRepairScopes()
     setObjectFieldsDirty(false)
+    setDraftSubjectRefinement(undefined)
     setName(`物件 ${layers.length + 1}`); setNotice('当前物件的未应用标注已取消，已拆图层保持。')
   }
   const startObject = () => {
@@ -947,6 +1124,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
         <label className="image-import-check" title="在合成图中显示"><input type="checkbox" checked={!hidden.includes(layer.id)} disabled={occupied} aria-label={`显示${layer.name}`} onChange={event => { setView('composite'); setHidden(current => event.target.checked ? current.filter(id => id !== layer.id) : [...current, layer.id]) }}/></label>
         <button type="button" disabled={occupied} aria-label={`精修${layer.name}轮廓`} aria-pressed={editingLayerId === layer.id} onClick={() => selectLayer(layer)}><span>{layer.name}</span><small>{index + 1} · {layer.renderLayer === 'ground' ? '地面' : '物件'}{layer.selectionMask ? ' · 精细选区' : ''}</small></button>
         <button type="button" className="image-import-neighborhood-button" disabled={occupied || gestureActive} aria-label={`分析${layer.name}补底与邻域`} onClick={() => analyzeNeighborhood(layer)}>分析补底</button>
+        <button type="button" className="image-import-subject-button" disabled={occupied || gestureActive} aria-label={`精修${layer.name}主体边带`} onClick={() => openSubject(layer)}>主体精修{layer.subjectRefinement ? ' · 已采用' : ''}</button>
       </div>)}</div>
       {!layers.length && <p>按遮挡顺序拆出物件。已有内容会一直保留在这里。</p>}
       <button type="button" disabled={occupied || !layers.length || objectDraft} onClick={undoLayer}>撤销最近拆层</button>
@@ -971,6 +1149,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
       <div className="image-import-zoom"><label>图像缩放<select aria-label="图片缩放" value={zoom} disabled={!source} onChange={event => changeZoom(event.target.value)}><option value="fit">适应宽度</option><option value="100">100%</option><option value="200">200%</option><option value="400">400%</option></select></label>{view === 'source' && <label className="image-import-check"><input type="checkbox" checked={showAnnotations} onChange={event => { cancelGesture(); setShowAnnotations(event.target.checked) }}/>显示标注</label>}</div>
     </div>
     {neighborhoodFocus && <p className="image-import-neighborhood-locate" aria-label="邻域定位范围">{neighborhoodFocus.label} · 原图 ({neighborhoodFocus.bounds.x}, {neighborhoodFocus.bounds.y}) · {neighborhoodFocus.bounds.width} × {neighborhoodFocus.bounds.height} px · 青色虚线框</p>}
+    {hasSubjectRefinement && view === 'composite' && <p className="image-import-subject-preview-note">合成预览含已采用主体派生外观，原图保真对照仍按原始裁片校验。</p>}
     <div ref={viewport} className="image-import-canvas">{source ? <canvas ref={canvas} style={{ width: zoom === 'fit' ? '100%' : source.width * Number(zoom) / 100, cursor: mode === 'pan' ? 'grab' : 'crosshair' }} onPointerDown={point} onPointerMove={movePointer} onPointerLeave={() => setBrushCursor(null)} onPointerUp={event => releasePointer(event)} onPointerCancel={event => releasePointer(event, true)} onLostPointerCapture={event => releasePointer(event, true)} data-neighborhood-bounds={neighborhoodFocus ? JSON.stringify(neighborhoodFocus.bounds) : undefined} aria-label="图片标注画布"/> : <div className="image-import-empty"><h3>从一张俯视地图开始</h3><p>保留原图的颜色与笔触，拆出独立物件，检查它们下面的地面。</p><button type="button" onClick={() => locate('source', 'source')}>选择原图</button></div>}</div>
     <div className="image-import-canvas-status">{pending ? <p role="status">正在规范化并读取图片…</p> : error ? <p role="alert" className="image-import-error">{error}</p> : notice ? <p role="status">{notice}</p> : <p>{mode === 'donor' ? '点两个对角，选取露出的同一底材；不要包含当前物件。' : mode === 'fill-region' || mode === 'fill-donor' ? '橙线为补底分区，紫框为该分区取样；后加入分区优先。' : mode === 'magnetic' ? '沿外沿拖画并松开闭合；弱边界请用画笔核对。' : '原图坐标标注 · 拖动顶点精修 · 平移工具或滚动条移动视图'}</p>}</div>
   </section>
@@ -986,15 +1165,16 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
         })}>导出给模型的接续说明</button><p>说明与工作包交给具备看图和工具能力的模型；不会自动外发原图。</p></details>
         <p>制作工作包包含原图和笔迹。场景工程保存采用后的内容，两者分别导出。</p></>}
     </section>
-    {stage === 'objects' && neighborhood && <ImageRepairNeighborhoodReview evidence={neighborhood.source} current={neighborhood.current} analysis={neighborhood.analysis} targetName={neighborhood.targetName} disabled={occupied || gestureActive} onLocate={locateNeighborhood} onAssist={assistNeighborhood} onSample={sampleNeighborhood}/>}
+    {stage === 'objects' && subjectTarget && <ImageSubjectRefinementReview targetName={subjectTarget.name} adopted={subjectTarget.subjectRefinement} method={subjectMethod} inputNote={subjectInputNote} bandPx={subjectBand} strength={subjectStrength} protection={subjectProtection} protectionPixels={subjectProtectionPixels} brush={subjectBrush} brushRadius={subjectBrushRadius} excluded={subjectExcluded} candidate={subjectCandidate?.result ?? null} error={subjectError} disabled={occupied || gestureActive} onMethod={value => { setSubjectMethod(value); if (value === 'subject-contour-v1') setSubjectBand(1); setSubjectError('') }} onBand={value => { setSubjectBand(value); setSubjectError('') }} onStrength={value => { setSubjectStrength(value); setSubjectError('') }} onProtection={value => { setSubjectProtection(value); setSubjectError('') }} onBrush={chooseSubjectBrush} onBrushRadius={setSubjectBrushRadius} onResetProtection={resetSubjectProtection} onExcluded={value => { setSubjectExcluded(value); setSubjectError('') }} onGenerate={generateSubject} onAdopt={() => applySubject(false)} onRestore={() => applySubject(true)} onLocate={(bounds, label) => locateNeighborhood(bounds, label, 'source')}/>}
+    {stage === 'objects' && neighborhood && <ImageRepairNeighborhoodReview evidence={neighborhood.source} current={neighborhood.current} analysis={neighborhood.analysis} targetName={neighborhood.targetName} disabled={occupied || gestureActive} onLocate={locateNeighborhood} onAssist={assistNeighborhood} onSample={sampleNeighborhood} onFocus={surfaceId => { const layer = layers.find(item => item.id === neighborhood.targetId); if (layer) analyzeNeighborhood(layer, surfaceId) }}/>}
     {stage === 'structure' && source && <label>比例依据<select aria-label="图片比例依据" value={scaleStatus} onChange={event => setScaleStatus(event.target.value as 'provisional' | 'measured')}><option value="provisional">暂定比例 · 待实际尺寸标定</option><option value="measured">已知实际尺寸</option></select></label>}
     {stage === 'objects' && source && <section className="image-guided-selection"><h4>辅助选区</h4><p>先圈粗范围，绿色标记物体，红色标记背景。物体有多种颜色时分别点几处；孔洞中补背景标记。</p><p>前景 {guidance?.foreground.length ?? 0} 笔 · 背景 {guidance?.background.length ?? 0} 笔</p><label><input type="checkbox" checked={guidance?.edgeCoverage === 'boundary'} disabled={occupied || gestureActive || !guidance || guidance.algorithmVersion !== 2} onChange={event => { if (guidance) { const { edgeCoverage: previous, ...rest } = guidance; setGuidance(event.target.checked ? { ...rest, edgeCoverage: 'boundary' } : rest) } }}/>透明过渡仅保留在外缘</label><p>内部保持实心；关闭时沿用旧候选的透明过渡。更改后重新生成选区并看图。</p><label>暗色描边保留（像素）<input aria-label="暗色描边保留范围" type="number" min={0} max={3} step={1} disabled={occupied || gestureActive || !!guidance && guidance.algorithmVersion !== 2} value={guidance ? guidance.outlineRadiusPx ?? 0 : outlineRadius} onChange={event => { const value = Math.max(0, Math.min(3, Math.round(Number(event.target.value)) || 0)); setOutlineRadius(value); if (guidance) setGuidance({ ...guidance, outlineRadiusPx: value }) }}/></label><p>仅在主体附近保留暗边；橙色新增区域仍需检查。地板线被带入时可设为0，再补背景标记。</p><button type="button" disabled={occupied || gestureActive || !guidance?.foreground.length || !guidance?.background.length} onClick={runGuidedSelection}>生成辅助选区</button><button type="button" disabled={occupied || gestureActive || !guidance} onClick={() => { setPointHistory(history => [...history, { mode: 'object' as const, points: polygon, mask: selection, guidance }].slice(-64)); setGuidance(null) }}>清除辅助标记</button>{guideReport && <p>{guideReport}</p>}{guideUncertainty?.selection === selection && guideUncertainty?.guidance === guidance && <label><input type="checkbox" checked={showUncertain} onChange={event => setShowUncertain(event.target.checked)}/>显示橙色待判断区域</label>}</section>}
     <div className="image-import-section-heading"><h3>{stage === 'objects' ? editingLayerId ? '当前物件修正' : '新物件' : stages.find(row => row[0] === stage)?.[1]}</h3><span>{stage === 'objects' && selectedPixels ? `${selectedPixels} px` : ''}</span></div>
     {stage === 'source' && <><fieldset disabled={occupied || gestureActive}><label>原图<input data-import-target="source" type="file" accept="image/png,image/jpeg,image/webp" aria-label="图片转工程原图" disabled={!!source} onChange={event => { const file = event.target.files?.[0]; if (file) void load(file); event.target.value = '' }}/></label>{source && <p>{source.width} × {source.height} px · 已拆 {layers.length} 层。更换原图前需明确丢弃当前草稿。</p>}<label>工程名称<input value={title} maxLength={120} onChange={event => setTitle(event.target.value)}/></label><OriginalAppearance label="地面外观" legacy={floorVector}/>{source && <><label>输出分辨率<select aria-label="原色像素放大倍数" value={outputScale} onChange={event => setOutputScale(Number(event.target.value) as 1 | 2 | 4)}><option value={1}>1× · 原图像素</option><option value={2}>2× · 原色像素放大</option><option value={4}>4× · 原色像素放大</option></select></label><p>输出 {source.width * outputScale} × {source.height * outputScale} 像素。像素放大不生成新细节，遮挡补底仍需审阅。</p></>}</fieldset><details><summary>模型拆解提案 JSON</summary><p>载入同一原图的严格配方。载入后可继续标注和审阅。</p><label>载入提案<input type="file" accept="application/json,.json" disabled={occupied || !source} onChange={event => { const file = event.target.files?.[0]; if (file) void importRecipe(file); event.target.value = '' }}/></label><button type="button" disabled={occupied || !source || objectDraft} onClick={exportRecipe}>导出当前拆解提案</button></details><p className="asset-editor-note">原图、辅助标记和未完成选区会保存为独立制作进度。跨电脑请导出制作工作包。</p></>}
     {stage === 'structure' && <fieldset disabled={occupied || gestureActive || !source}><p>保留外框包含原画墙沿；房间使用内边界，比例尺决定实际毫米尺寸。</p><div className="image-import-structure-row"><div><strong>原图保留范围</strong><small>{sourceBoundary.length} 点 · 包含墙沿</small></div><button data-import-target="boundary" type="button" onClick={() => chooseMode('source-boundary')}>编辑保留范围</button></div><div className="image-import-structure-row"><div><strong>房间内边界</strong><small>{room.length} 点</small></div><button data-import-target="room" type="button" onClick={() => chooseMode('room')}>编辑房间轮廓</button></div><div className="image-import-structure-row"><div><strong>比例尺</strong><small>{ruler.length}/2 点</small></div><button type="button" onClick={() => chooseMode('ruler')}>编辑比例尺</button></div><label>两点间实际距离（毫米）<input data-import-target="ruler" type="number" min={1} step={1} value={distance} onChange={event => setDistance(event.target.value)}/></label>{physicalScale && Number.isFinite(physicalScale) ? <p>当前比例：1个原图像素约 {physicalScale.toFixed(2)} mm。</p> : <p>在图上选择两个已知距离端点，再输入实际毫米距离。</p>}<p>保留范围 {sourceBoundary.length} 点 · 房间 {room.length} 点 · 比例尺 {ruler.length}/2 点 · 当前物件 {polygon.length} 点 · 取样 {donor.length}/2 点</p></fieldset>}
-    {stage === 'objects' && <><fieldset disabled={occupied || gestureActive || !source} onChangeCapture={event => { if (!(event.target as HTMLElement).closest(".image-import-fill-settings")) setObjectFieldsDirty(true) }}><label>物件名称<input data-import-target="current-object" value={name} maxLength={80} onChange={event => setName(event.target.value)}/></label><label>绘制位置<select aria-label="绘制位置" value={renderLayer} onChange={event => { const next = event.target.value as 'ground' | 'object'; setRenderLayer(next); setAppearanceSource(next === 'ground' ? 'working' : 'original'); if (next === 'ground') setMovement(false) }}><option value="object">物件</option><option value="ground">地面装饰／地毯</option></select></label><OriginalAppearance label="物件外观" legacy={vector}/><label>裁片来源<select aria-label="裁片来源" value={appearanceSource} onChange={event => setAppearanceSource(event.target.value as 'original' | 'working')}><option value="original">原图 · 保留家具原色</option><option value="working">已补底背景 · 地毯或被遮挡下层</option></select></label><label className="image-import-check"><input type="checkbox" checked={movement} onChange={event => setMovement(event.target.checked)}/>阻挡移动</label><label className="image-import-check"><input type="checkbox" checked={customFootprint} onChange={event => { setCustomFootprint(event.target.checked); const size = localVectorSize(polygon); if (event.target.checked && size) setFootprintPx({ x: Math.floor(Math.min(...polygon.map(point => point.x))) + size.width * .1, y: Math.floor(Math.min(...polygon.map(point => point.y))) + size.height * .1, width: size.width * .8, height: size.height * .8 }) }}/>自定义物理占地</label>{objectSize && physicalScale && Number.isFinite(physicalScale) && <p>图像范围约 {Math.round(objectSize.width * physicalScale)} × {Math.round(objectSize.height * physicalScale)} mm；物理占地独立。</p>}{customFootprint && <div><p>从原图左上角计，填写实际占地；图像轮廓独立保留。</p><div className="image-import-zone-coordinates">{([['x', 'X'], ['y', 'Y'], ['width', '宽'], ['height', '高']] as const).map(([key, label]) => <label key={key}>{label}（像素）<input aria-label={`物理占地原图${label}`} type="number" min={key === 'width' || key === 'height' ? .01 : 0} step="any" value={footprintPx[key]} onChange={event => setFootprintPx(current => ({ ...current, [key]: Number(event.target.value) }))}/></label>)}</div></div>}<h4>下层纹理与补底</h4><label>补底方式<select aria-label="补底方式" value={repair} onChange={event => setRepair(event.target.value as NonNullable<Layer['repair']>)}><option value="seamless">纹理衔接</option><option value="aligned">对齐纹理接缝</option><option value="surfaces">按下层表面补底</option><option value="structure">结构与底色分离 · 单一底材</option><option value="context">完整纹理补片 · 单一底材</option><option value="texture">保留纹理补片</option><option value="tile">重复取样</option></select></label>{repair === 'surfaces' && <div><p>按下层材质分别处理，范围重叠时列表中靠前的表面优先。隐藏区域仍是推断，修改表面后须重新审核。</p>{repairSurfaces.map(surface => <label className="image-import-check" key={surface.id}><input type="checkbox" checked={repairSurfaceIds.includes(surface.id)} onChange={event => setRepairSurfaceIds(ids => event.target.checked ? [...ids, surface.id] : ids.filter(id => id !== surface.id))}/>{surface.name}</label>)}</div>}{repair === 'texture' && <p>从同材质取样复制原尺寸笔触，不抹平颜色。木纹和板缝仍需检查；取样至少3×3像素。</p>}{repair === 'aligned' && <p>在所选同材质取样中寻找贴合接缝的位置，不旋转或重画。隐藏区域仍是推断。</p>}{repair === 'structure' && <p>只连接两侧都有可见依据的邻近板缝，单侧线段短距渐隐；底色与细纹理分别处理，隐藏板头仍是推断。仅适合单一底材。</p>}{repair === 'context' && <p>从大块干净取样中选择一整块原尺寸补片，对照周围板缝；取样宽高须比移除范围各多4像素。遮挡内容仍是推断。</p>}<div role="group" aria-label="移除与保护工具"><p>橙色移除范围包含物件和要去除的残影；青色保护范围保留邻物，且不参与取样与边界判断。物件选区独立。</p><button type="button" aria-pressed={mode === 'removal'} onClick={() => chooseMode('removal')}>画移除范围</button><button type="button" onClick={() => editPoints('removal', [])}>清除移除范围</button><button type="button" aria-pressed={mode === 'protection'} onClick={() => chooseMode('protection')}>画保护范围</button><button type="button" onClick={() => editPoints('protection', [])}>清除保护范围</button><p>{removalMask ? '已设独立移除范围' : removalPoints.length ? '移除范围待闭合' : '按物件选区移除'} · {protectionMask ? '已设保护范围' : protectionPoints.length ? '保护范围待闭合' : '未设保护范围'}</p></div><label>残影清理范围（像素）<input disabled={!!removalMask || !!removalPoints.length} type="number" min={0} max={8} step={1} value={cleanupPx} onChange={event => setCleanupPx(Number(event.target.value))}/></label><label>相似颜色容差<input type="number" min={0} max={255} value={tolerance} onChange={event => setTolerance(event.target.value)}/></label><details className="image-import-fill-settings"><summary>分区补底</summary><p>跨越地毯和木板时分别圈出分区，再选择各自露出的纹理。后加入分区优先。</p><button type="button" aria-pressed={mode === 'fill-region'} onClick={() => chooseMode('fill-region')}>画补底分区</button><button type="button" aria-pressed={mode === 'fill-donor'} onClick={() => chooseMode('fill-donor')}>分区取样</button><button type="button" onClick={addFill}>添加补底分区</button><label>共用底材名称<input aria-label="共用底材名称" value={surfaceName} maxLength={120} onChange={event => setSurfaceName(event.target.value)}/></label><label>底材类型<select aria-label="底材类型" value={surfaceKind} onChange={event => setSurfaceKind(event.target.value as NonNullable<ImageImportRecipe['repairSurfaces']>[number]['kind'])}><option value="guided">结构辅助 · 显式推断路径</option><option value="neighbors-soft">同组邻域 · 织物与连续色面</option><option value="neighbors-planks">同组邻域 · 木板结构</option><option value="soft">织物或连续色面</option><option value="planks">窄板缝接续 · 小范围</option><option value="patches">原尺寸纹理拼接 · 至少8×8取样</option></select></label>{surfaceKind === 'guided' && <section className="image-import-structure-guidance" aria-label="底材结构辅助"><h4>结构辅助</h4><p>方向 horizontal 为水平板缝、vertical 为竖向板缝、soft 为连续底材。guides 最多32条，每条 points 为2–16个原图坐标，axis 是参考线方向，reference 是完整可见参考框，reason 说明判断依据。参考框沿线至少3像素、横跨至少5像素，最多4096像素。</p><p>这些引导会改变隐藏结构的推断。请先对照原图确认参考与路径，再应用；分数与保存成功不代表视觉通过。未应用的JSON只在此编辑框暂存，跨电脑前先应用或另存JSON。</p><label>结构辅助 JSON<textarea aria-label="结构辅助JSON" rows={12} maxLength={65536} spellCheck={false} value={surfaceGuidance} onChange={event => setSurfaceGuidance(event.target.value)}/></label><button type="button" onClick={() => { const url = URL.createObjectURL(new Blob([surfaceGuidance], { type: 'application/json' })), anchor = document.createElement('a'); anchor.href = url; anchor.download = 'surface-structure-guidance.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000) }}>另存结构辅助JSON</button><label>载入结构辅助JSON<input type="file" accept="application/json,.json" aria-label="载入结构辅助JSON" onChange={event => { const file = event.target.files?.[0]; if (file) { if (file.size > 65536) setError('结构辅助JSON最多64KiB。'); else void file.text().then(text => act(() => { const parsed = imageSurfaceGuidanceSchema.parse(JSON.parse(text)); setSurfaceGuidance(JSON.stringify(parsed, null, 2)); setNotice('已载入结构辅助编辑框，尚未应用。请对照参考和路径后重放。') })).catch(error => setError(failureText(error))) } event.target.value = '' }}/></label></section>}<button type="button" onClick={addSurface}>保存为共用底材表面</button><p>底材范围须包含隐藏部分；取样选择露出的干净区域。当前保护范围也会保存为禁止取证范围，用来排除家具、阴影和未确认补底。共用表面随制作包保存。</p>{repairSurfaces.map(surface => <div className="image-import-fill-row" role="group" aria-label={`底材表面 ${surface.name}`} data-import-target={`surface-${surface.id}`} tabIndex={-1} key={surface.id}><span>{surface.name} · {surfaceKindLabels[surface.kind]} · {surface.excludedEvidenceMask ? "已有取证排除" : "尚无取证排除"}</span><button type="button" onClick={() => changeSurface(surface.id, "geometry")}>用当前标注更新范围与取样</button><button type="button" onClick={() => { setSurfaceKind('guided'); setSurfaceGuidance(JSON.stringify(surface.guided ?? { orientation: 'soft', guides: [] }, null, 2)); setNotice('已把此表面结构辅助载入编辑框，尚未更改补底。') }}>载入结构辅助到编辑框</button><button type="button" onClick={() => changeSurface(surface.id, "guidance")}>应用结构辅助并重放</button>{surface.guided && <details><summary>已采用结构辅助 · {surface.guided.orientation} · {surface.guided.guides.length}条</summary>{surface.guided.guides.map((guide, index) => <p key={index}>路径{index + 1}：{guide.reason}。参考 ({guide.reference.x}, {guide.reference.y}) {guide.reference.width}×{guide.reference.height}px · {guide.axis} · {guide.points.map(point => `(${point.x}, ${point.y})`).join(' → ')}</p>)}</details>}<button type="button" onClick={() => changeSurface(surface.id, "kind")}>
-改为所选底材类型</button><button type="button" onClick={() => changeSurface(surface.id, "sample")}>仅更新干净取样</button><button type="button" onClick={() => changeSurface(surface.id, "exclude")}>用保护范围更新取证排除</button><button type="button" disabled={!surface.excludedEvidenceMask} onClick={() => changeSurface(surface.id, "clear-exclude")}>清除取证排除</button><button type="button" onClick={() => changeSurface(surface.id, "remove")}>删除表面</button></div>)}{fills.map((fill, index) => <div className="image-import-fill-row" key={index}><span>分区 {index + 1} · {fill.polygon.length} 点</span><button type="button" onClick={() => setFills(current => current.filter((_, fillIndex) => fillIndex !== index))}>移除分区 {index + 1}</button></div>)}</details>{selection && <p role="status">精细选区 · {selectedPixels} 个原图像素。孔洞与分离部分一并保留。</p>}<div className="image-import-object-actions"><button type="button" className="primary" disabled={!selectedPixels || donor.length !== 2} onClick={addLayer}>{editingLayerId ? '应用物件修正并补底' : '拆出物件并补底'}</button><button type="button" disabled={!objectDraft} onClick={cancelObjectDraft}>取消当前物件标注</button></div></fieldset><p className="asset-editor-note">选进背景时，用画笔修正选区；贴体边缘已混色时另行审阅颜色。不要为消除色边削掉黑描边、细枝或真实阴影。</p>{reviewSelection && selectionSource && effectiveSelection && !!selectedPixels && !gestureActive && <ImageSelectionReview image={selectionSource} mask={effectiveSelection}/>}</>}
-    {stage === 'overview' && <><section className="image-import-fidelity" aria-label="原图保真对照" data-import-target="fidelity" tabIndex={-1}><h4>原图保真与推断</h4>{fidelityPending ? <p role="status">正在按原图同坐标比较拆层结果…</p> : report ? <div role="status"><p>{report.passed ? '同坐标像素检查通过' : '同坐标像素检查未通过'} · 比较 {report.comparedPixels} 像素 · 改变 {report.changedPixels} 像素</p><p>推断 {report.inferredPixels} 像素，遮挡 {report.occlusionPixels} 像素。推断区仅标明补底范围，内容仍待人工核对。</p><div aria-label="拆层来源检查" data-import-target="source-report" tabIndex={-1}><p>来源检查：裁片中有 {report.sourceReport.extractedInferencePixels} 个像素来自前序补底。来源检查不能判断轮廓是否准确或木纹是否自然。</p>{report.sourceReport.layers.some(row => row.declaredDonors.some(donor => donor.priorInferencePixels > 0)) ? <ul>{report.sourceReport.layers.flatMap(row => row.declaredDonors.filter(donor => donor.priorInferencePixels > 0).map(donor => <li key={`${row.layerId}-${donor.index}`}><button type="button" className="image-import-report-link" onClick={() => { const layer = layers.find(layer => layer.id === row.layerId); if (layer) selectLayer(layer) }}>{layers.find(layer => layer.id === row.layerId)?.name ?? row.layerId} · 取样 {donor.index + 1}</button>框内 {donor.priorInferencePixels} 个像素来自前序补底，请核对是否应换用原图中露出的底材。这是取样框交集，尚未统计算法实际读取量。</li>))}</ul> : <p>当前取样框未与前序补底区域相交；原图中的取样仍需核对材质、阴影和方向。</p>}</div></div> : <p>完成房间轮廓和比例尺后，可对照同坐标差异和推断区。</p>}{fidelityError && <p role="alert" className="image-import-error">{fidelityError}</p>}<div className="image-import-review-actions"><button type="button" disabled={!source} onClick={() => chooseView('difference')}>查看像素差异</button><button type="button" disabled={!source} onClick={() => chooseView('inference')}>查看推断范围</button></div></section>{hasVector && <div className="image-import-legacy-warning" data-import-target="legacy" tabIndex={-1} role="alert"><p>旧提案含矢量描摹或材质重绘，会改变原画，采用已暂停。</p><button type="button" onClick={() => { setFloorVector(undefined); setVector(undefined); setLayers(current => current.map(layer => { const { vector: ignored, ...rest } = layer; return rest })) }}>恢复原图外观</button></div>}<fieldset disabled={occupied} data-import-target="rights" tabIndex={-1}><h4>来源与许可</h4><label>署名与来源<input value={attribution} onChange={event => setAttribution(event.target.value)}/></label><label>完整许可<textarea rows={4} value={license} onChange={event => setLicense(event.target.value)}/></label><label className="image-import-check"><input type="checkbox" checked={embed} onChange={event => setEmbed(event.target.checked)}/>我确认有权将这些像素和派生素材嵌入工程及个人素材库</label></fieldset><p>准备后将审阅独立完整工程，保存并采用成功后才清除本次图片草稿。</p><p className="image-import-storage-note">保存、重开检查在工程创建后执行，结果另行记录。</p></>}
+    {stage === 'objects' && <><fieldset disabled={occupied || gestureActive || !source} onChangeCapture={event => { if (!(event.target as HTMLElement).closest(".image-import-fill-settings")) setObjectFieldsDirty(true) }}><label>物件名称<input data-import-target="current-object" value={name} maxLength={80} onChange={event => setName(event.target.value)}/></label><label>绘制位置<select aria-label="绘制位置" value={renderLayer} onChange={event => { const next = event.target.value as 'ground' | 'object'; setRenderLayer(next); setAppearanceSource(next === 'ground' ? 'working' : 'original'); if (next === 'ground') setMovement(false) }}><option value="object">物件</option><option value="ground">地面装饰／地毯</option></select></label><OriginalAppearance label="物件外观" legacy={vector}/><label>裁片来源<select aria-label="裁片来源" value={appearanceSource} onChange={event => setAppearanceSource(event.target.value as 'original' | 'working')}><option value="original">原图 · 保留家具原色</option><option value="working">已补底背景 · 地毯或被遮挡下层</option></select></label><label className="image-import-check"><input type="checkbox" checked={movement} onChange={event => setMovement(event.target.checked)}/>阻挡移动</label><label className="image-import-check"><input type="checkbox" checked={customFootprint} onChange={event => { setCustomFootprint(event.target.checked); const size = localVectorSize(polygon); if (event.target.checked && size) setFootprintPx({ x: Math.floor(Math.min(...polygon.map(point => point.x))) + size.width * .1, y: Math.floor(Math.min(...polygon.map(point => point.y))) + size.height * .1, width: size.width * .8, height: size.height * .8 }) }}/>自定义物理占地</label>{objectSize && physicalScale && Number.isFinite(physicalScale) && <p>图像范围约 {Math.round(objectSize.width * physicalScale)} × {Math.round(objectSize.height * physicalScale)} mm；物理占地独立。</p>}{customFootprint && <div><p>从原图左上角计，填写实际占地；图像轮廓独立保留。</p><div className="image-import-zone-coordinates">{([['x', 'X'], ['y', 'Y'], ['width', '宽'], ['height', '高']] as const).map(([key, label]) => <label key={key}>{label}（像素）<input aria-label={`物理占地原图${label}`} type="number" min={key === 'width' || key === 'height' ? .01 : 0} step="any" value={footprintPx[key]} onChange={event => setFootprintPx(current => ({ ...current, [key]: Number(event.target.value) }))}/></label>)}</div></div>}<h4>下层纹理与补底</h4><label>补底方式<select aria-label="补底方式" value={repair} onChange={event => setRepair(event.target.value as NonNullable<Layer['repair']>)}><option value="seamless">纹理衔接</option><option value="aligned">对齐纹理接缝</option><option value="surfaces">按下层表面补底</option><option value="structure">结构与底色分离 · 单一底材</option><option value="context">完整纹理补片 · 单一底材</option><option value="texture">保留纹理补片</option><option value="tile">重复取样</option></select></label>{repair === 'surfaces' && <div><p>按下层材质分别处理，范围重叠时列表中靠前的表面优先。隐藏区域仍是推断，修改表面后须重新审核。</p>{repairSurfaces.map(surface => <label className="image-import-check" key={surface.id}><input type="checkbox" checked={repairSurfaceIds.includes(surface.id)} onChange={event => setRepairSurfaceIds(ids => event.target.checked ? [...ids, surface.id] : ids.filter(id => id !== surface.id))}/>{surface.name}</label>)}</div>}{repair === 'texture' && <p>从同材质取样复制原尺寸笔触，不抹平颜色。木纹和板缝仍需检查；取样至少3×3像素。</p>}{repair === 'aligned' && <p>在所选同材质取样中寻找贴合接缝的位置，不旋转或重画。隐藏区域仍是推断。</p>}{repair === 'structure' && <p>只连接两侧都有可见依据的邻近板缝，单侧线段短距渐隐；底色与细纹理分别处理，隐藏板头仍是推断。仅适合单一底材。</p>}{repair === 'context' && <p>从大块干净取样中选择一整块原尺寸补片，对照周围板缝；取样宽高须比移除范围各多4像素。遮挡内容仍是推断。</p>}<div role="group" aria-label="移除与保护工具"><p>橙色移除范围包含物件和要去除的残影；青色保护范围保留邻物，且不参与取样与边界判断。物件选区独立。</p><button type="button" aria-pressed={mode === 'removal'} onClick={() => chooseMode('removal')}>画移除范围</button><button type="button" onClick={() => editPoints('removal', [])}>清除移除范围</button><button type="button" aria-pressed={mode === 'protection'} onClick={() => chooseMode('protection')}>画保护范围</button><button type="button" onClick={() => editPoints('protection', [])}>清除保护范围</button><p>{removalMask ? '已设独立移除范围' : removalPoints.length ? '移除范围待闭合' : '按物件选区移除'} · {protectionMask ? '已设保护范围' : protectionPoints.length ? '保护范围待闭合' : '未设保护范围'}</p></div><label>残影清理范围（像素）<input disabled={!!removalMask || !!removalPoints.length} type="number" min={0} max={8} step={1} value={cleanupPx} onChange={event => setCleanupPx(Number(event.target.value))}/></label><label>相似颜色容差<input type="number" min={0} max={255} value={tolerance} onChange={event => setTolerance(event.target.value)}/></label><details className="image-import-fill-settings"><summary>分区补底</summary><p>跨越地毯和木板时分别圈出分区，再选择各自露出的纹理。后加入分区优先。</p><button type="button" aria-pressed={mode === 'fill-region'} onClick={() => chooseMode('fill-region')}>画补底分区</button><button type="button" aria-pressed={mode === 'fill-donor'} onClick={() => chooseMode('fill-donor')}>分区取样</button><button type="button" onClick={addFill}>添加补底分区</button><label>共用底材名称<input aria-label="共用底材名称" value={surfaceName} maxLength={120} onChange={event => setSurfaceName(event.target.value)}/></label><label>底材类型<select aria-label="底材类型" value={surfaceKind} onChange={event => setSurfaceKind(event.target.value as NonNullable<ImageImportRecipe['repairSurfaces']>[number]['kind'])}><option value="guided">结构辅助 · 显式推断路径</option><option value="neighbors-soft">同组邻域 · 织物与连续色面</option><option value="neighbors-planks">同组邻域 · 木板结构</option><option value="soft">织物或连续色面</option><option value="planks">窄板缝接续 · 小范围</option><option value="patches">原尺寸纹理拼接 · 至少8×8取样</option></select></label>{surfaceKind === 'guided' && <section className="image-import-structure-guidance" aria-label="底材结构辅助"><h4>结构辅助</h4><p>方向 horizontal 为水平板缝、vertical 为竖向板缝、soft 为连续底材。guides 最多32条，每条 points 为2–16个原图坐标，axis 是参考线方向，reference 是完整可见参考框，reason 说明判断依据。参考框沿线至少3像素、横跨至少5像素，最多4096像素。 可选 stroke:original-segment 保留完整原尺寸二维接缝片段；此时参考沿线至少5像素、横跨5–31像素，路径沿 axis 严格单调。连续可写段超过参考长度会拒绝，不重复短线。可选 paper:two-sided 从来源两侧底色分离笔迹，横跨至少9px；每列两端各2行须是干净底色，交叉笔或饰边可能影响估计。省略保持旧取墨。接头只比较可信原图，隐藏结构仍是推断。</p><p>可选 detailPatches 为完整二维笔迹：每项含 role（board-end、nails 或 gap）、reference、target（整数 x/y）和 reason。参考宽高5–64像素，最多16块，与路径合计最多32项；橙框是原尺寸目标，紫框是可信原图来源。缺省只加深笔触。显式 mode:replace-ink 可替换本次生成墨迹，保留分别估计的底色与细纹；来源空隙也会替换旧生成线。gap 必须显式替换，允许无墨同材质参考。可选 blendPx:1–4 在可写边界与保护空隙内过渡生成墨迹，先试3；宽高各须至少2×blendPx+3，保留来源核心，省略保持硬替换。底色与细纹不参与混合。不能擦改范围外原图；框错会擦断长缝。目标不重叠且不增加移除权限。这些引导会改变隐藏结构的推断。请先对照原图确认参考与路径，再应用；分数与保存成功不代表视觉通过。未应用的JSON只在此编辑框暂存，跨电脑前先应用或另存JSON。</p><label>结构辅助 JSON<textarea aria-label="结构辅助JSON" rows={12} maxLength={65536} spellCheck={false} value={surfaceGuidance} onChange={event => setSurfaceGuidance(event.target.value)}/></label><button type="button" onClick={() => { const url = URL.createObjectURL(new Blob([surfaceGuidance], { type: 'application/json' })), anchor = document.createElement('a'); anchor.href = url; anchor.download = 'surface-structure-guidance.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000) }}>另存结构辅助JSON</button><label>载入结构辅助JSON<input type="file" accept="application/json,.json" aria-label="载入结构辅助JSON" onChange={event => { const file = event.target.files?.[0]; if (file) { if (file.size > 65536) setError('结构辅助JSON最多64KiB。'); else void file.text().then(text => act(() => { const parsed = imageSurfaceGuidanceSchema.parse(JSON.parse(text)); setSurfaceGuidance(JSON.stringify(parsed, null, 2)); setNotice('已载入结构辅助编辑框，尚未应用。请对照参考和路径后重放。') })).catch(error => setError(failureText(error))) } event.target.value = '' }}/></label></section>}<button type="button" onClick={addSurface}>保存为共用底材表面</button><p>底材范围须包含隐藏部分；取样选择露出的干净区域。当前保护范围也会保存为禁止取证范围，用来排除家具、阴影和未确认补底。共用表面随制作包保存。</p>{repairSurfaces.map(surface => <div className="image-import-fill-row" role="group" aria-label={`底材表面 ${surface.name}`} data-import-target={`surface-${surface.id}`} tabIndex={-1} key={surface.id}><span>{surface.name} · {surfaceKindLabels[surface.kind]} · {surface.excludedEvidenceMask ? "已有取证排除" : "尚无取证排除"}</span><button type="button" onClick={() => changeSurface(surface.id, "geometry")}>用当前标注更新范围与取样</button><button type="button" onClick={() => { setSurfaceKind('guided'); setSurfaceGuidance(JSON.stringify(surface.guided ?? { orientation: 'soft', guides: [] }, null, 2)); setNotice('已把此表面结构辅助载入编辑框，尚未更改补底。') }}>载入结构辅助到编辑框</button><button type="button" onClick={() => changeSurface(surface.id, "guidance")}>应用结构辅助并重放</button>{surface.guided && <details><summary>已采用结构辅助 · {surface.guided.orientation} · {surface.guided.guides.length}条</summary>{surface.guided.guides.map((guide, index) => <p key={index}>路径{index + 1}{guide.stroke === 'original-segment' ? ' · 原尺寸二维接缝' : ''}{guide.paper === 'two-sided' ? ' · 两侧底色取墨' : ''}：{guide.reason}。参考 ({guide.reference.x}, {guide.reference.y}) {guide.reference.width}×{guide.reference.height}px · {guide.axis} · {guide.points.map(point => `(${point.x}, ${point.y})`).join(' → ')}</p>)}{surface.guided.detailPatches?.map((patch, index) => <p key={`detail-${index}`}>二维笔迹{index + 1} · {patch.role}：{patch.reason}。原图 ({patch.reference.x}, {patch.reference.y}) {patch.reference.width}×{patch.reference.height}px → 目标 ({patch.target.x}, {patch.target.y})；{patch.mode === 'replace-ink' ? '替换生成笔迹，保留底色与细纹' : '仅合入深色笔触'}{patch.blendPx ? `，过渡${patch.blendPx}px` : ''}，位置仍属推断。</p>)}</details>}<button type="button" onClick={() => changeSurface(surface.id, "kind")}>
+改为所选底材类型</button><button type="button" onClick={() => changeSurface(surface.id, "sample")}>仅更新干净取样</button><button type="button" disabled={!protectionMask} onClick={() => changeSurface(surface.id, "exclude")}>把保护范围追加到取证排除</button><button type="button" disabled={!surface.excludedEvidenceMask} onClick={() => changeSurface(surface.id, "clear-exclude")}>清除取证排除</button><button type="button" onClick={() => changeSurface(surface.id, "remove")}>删除表面</button></div>)}{fills.map((fill, index) => <div className="image-import-fill-row" key={index}><span>分区 {index + 1} · {fill.polygon.length} 点</span><button type="button" onClick={() => setFills(current => current.filter((_, fillIndex) => fillIndex !== index))}>移除分区 {index + 1}</button></div>)}</details>{selection && <p role="status">精细选区 · {selectedPixels} 个原图像素。孔洞与分离部分一并保留。</p>}<div className="image-import-object-actions"><button type="button" className="primary" disabled={!selectedPixels || donor.length !== 2} onClick={addLayer}>{editingLayerId ? '应用物件修正并补底' : '拆出物件并补底'}</button><button type="button" disabled={!objectDraft} onClick={cancelObjectDraft}>取消当前物件标注</button></div></fieldset><p className="asset-editor-note">选进背景时，用画笔修正选区；贴体边缘已混色时另行审阅颜色。不要为消除色边削掉黑描边、细枝或真实阴影。</p>{reviewSelection && selectionSource && effectiveSelection && !!selectedPixels && !gestureActive && <ImageSelectionReview image={selectionSource} mask={effectiveSelection}/>}</>}
+    {stage === 'overview' && <><section className="image-import-fidelity" aria-label="原图保真对照" data-import-target="fidelity" tabIndex={-1}><h4>原图保真与推断</h4>{hasSubjectRefinement && <p className="image-import-subject-fidelity" role="note">仅原始裁片与补底校验，主体边带派生另审。物件预览与工程会使用已采用的派生外观；这里的像素通过不覆盖派生颜色或透明度。</p>}{fidelityPending ? <p role="status">正在按原图同坐标比较拆层结果…</p> : report ? <div role="status"><p>{report.passed ? '同坐标像素检查通过' : '同坐标像素检查未通过'} · 比较 {report.comparedPixels} 像素 · 改变 {report.changedPixels} 像素</p><p>推断 {report.inferredPixels} 像素，遮挡 {report.occlusionPixels} 像素。推断区仅标明补底范围，内容仍待人工核对。</p><div aria-label="拆层来源检查" data-import-target="source-report" tabIndex={-1}><p>来源检查：裁片中有 {report.sourceReport.extractedInferencePixels} 个像素来自前序补底。来源检查不能判断轮廓是否准确或木纹是否自然。</p>{report.sourceReport.layers.some(row => row.declaredDonors.some(donor => donor.priorInferencePixels > 0)) ? <ul>{report.sourceReport.layers.flatMap(row => row.declaredDonors.filter(donor => donor.priorInferencePixels > 0).map(donor => <li key={`${row.layerId}-${donor.index}`}><button type="button" className="image-import-report-link" onClick={() => { const layer = layers.find(layer => layer.id === row.layerId); if (layer) selectLayer(layer) }}>{layers.find(layer => layer.id === row.layerId)?.name ?? row.layerId} · 取样 {donor.index + 1}</button>框内 {donor.priorInferencePixels} 个像素来自前序补底，请核对是否应换用原图中露出的底材。这是取样框交集，尚未统计算法实际读取量。</li>))}</ul> : <p>当前取样框未与前序补底区域相交；原图中的取样仍需核对材质、阴影和方向。</p>}</div></div> : <p>完成房间轮廓和比例尺后，可对照同坐标差异和推断区。</p>}{fidelityError && <p role="alert" className="image-import-error">{fidelityError}</p>}<div className="image-import-review-actions"><button type="button" disabled={!source} onClick={() => chooseView('difference')}>查看像素差异</button><button type="button" disabled={!source} onClick={() => chooseView('inference')}>查看推断范围</button></div></section>{hasVector && <div className="image-import-legacy-warning" data-import-target="legacy" tabIndex={-1} role="alert"><p>旧提案含矢量描摹或材质重绘，会改变原画，采用已暂停。</p><button type="button" onClick={() => { setFloorVector(undefined); setVector(undefined); setLayers(current => current.map(layer => { const { vector: ignored, ...rest } = layer; return rest })) }}>恢复原图外观</button></div>}<fieldset disabled={occupied} data-import-target="rights" tabIndex={-1}><h4>来源与许可</h4><label>署名与来源<input value={attribution} onChange={event => setAttribution(event.target.value)}/></label><label>完整许可<textarea rows={4} value={license} onChange={event => setLicense(event.target.value)}/></label><label className="image-import-check"><input type="checkbox" checked={embed} onChange={event => setEmbed(event.target.checked)}/>我确认有权将这些像素和派生素材嵌入工程及个人素材库</label></fieldset><p>准备后将审阅独立完整工程，保存并采用成功后才清除本次图片草稿。</p><p className="image-import-storage-note">保存、重开检查在工程创建后执行，结果另行记录。</p></>}
     {draftToken.current && <div className="image-import-draft-note"><p>图片草稿尚未采用，收起后可继续。</p><button type="button" disabled={occupied} onClick={() => { close(); onDraftChange(null) }}>丢弃图片草稿</button></div>}
   </div>
   return <>

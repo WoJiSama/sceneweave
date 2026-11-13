@@ -1,0 +1,23 @@
+.image-subject-review { border: 1px solid #7792a6; border-radius: 8px; padding: 12px; margin: 12px 0; min-width: 0; }
+.image-subject-review h3, .image-subject-review h4 { margin: 6px 0 10px; }
+.image-subject-review p, .image-subject-review li { line-height: 1.55; overflow-wrap: anywhere; }
+.image-subject-review details { margin: 10px 0; }
+.image-subject-review summary { cursor: pointer; line-height: 1.5; }
+.image-subject-settings, .image-subject-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0; }
+.image-subject-settings > label { flex: 1 1 100px; min-width: 0; }
+.image-subject-protection { border-left: 3px solid #d4ad26; padding: 4px 8px; background: #fff9df; }
+.image-subject-protection input { width: 78px; }
+.image-subject-protection button[aria-pressed="true"] { background: #f3d66b; color: #342900; border-color: #977613; }
+.image-subject-stage { margin: 12px 0; min-width: 0; }
+.image-subject-stage figcaption { font-weight: 600; margin-bottom: 6px; }
+.image-subject-scroller { max-height: 320px; overflow: auto; background: #c8cfcc; padding: 8px; }
+.image-subject-pixels { position: relative; background-color: #eee; background-image: conic-gradient(#bbc3bf 25%, #f6f7f4 0 50%, #bbc3bf 0 75%, #f6f7f4 0); background-size: 16px 16px; }
+.image-subject-pixels[data-background="black"] { background: #000; }
+.image-subject-pixels[data-background="white"] { background: #fff; }
+.image-subject-pixels canvas { display: block; max-width: none; image-rendering: pixelated; }
+.image-subject-pixels canvas.image-subject-uncertainty { position: absolute; inset: 0; pointer-events: none; }
+.image-subject-issues > details { border-left: 3px solid #e2ac59; padding: 8px; }
+.image-import-workbench .image-import-layer-row { flex-wrap: wrap; }
+.image-import-workbench .image-import-layer-row > button.image-import-subject-button { flex: 0 0 auto; font-size: 12px; padding: 5px; }
+.image-import-subject-preview-note { margin: 0; padding: 7px 12px; background: #edf2f6; color: #28404e; font-size: 12px; }
+.image-import-subject-fidelity { padding: 9px; border-left: 3px solid #7792a6; background: #edf2f6; }

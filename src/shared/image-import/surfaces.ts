@@ -13,8 +13,15 @@ const reference = z.strictObject({ x: z.number().int().nonnegative(), y: z.numbe
 export const imageSurfaceGuidanceSchema = z.strictObject({
   orientation: z.enum(['horizontal', 'vertical', 'soft']),
   guides: z.array(z.strictObject({ points: z.array(z.strictObject({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() })).min(2).max(16),
-    reference, axis: z.enum(['horizontal', 'vertical']), reason: z.string().trim().min(1).max(400) })).max(32),
-})
+    reference, axis: z.enum(['horizontal', 'vertical']), stroke: z.literal('original-segment').optional(), paper: z.literal('two-sided').optional(), reason: z.string().trim().min(1).max(400) })
+    .refine(value => value.paper === undefined || value.stroke === 'original-segment' && (value.axis === 'horizontal' ? value.reference.height : value.reference.width) >= 9,
+      '两侧底色须显式用于原尺寸接缝，参考横跨至少9px。')).max(32),
+  detailPatches: z.array(z.strictObject({ role: z.enum(['board-end', 'nails', 'gap']), mode: z.literal('replace-ink').optional(), blendPx: z.number().int().min(1).max(4).optional(), reference: reference.extend({ width: z.number().int().min(5).max(64), height: z.number().int().min(5).max(64) }),
+    target: z.strictObject({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative() }), reason: z.string().trim().min(1).max(400) })
+    .refine(value => value.role !== 'gap' || value.mode === 'replace-ink', '断口必须显式替换生成笔迹，不能仅加深。')
+    .refine(value => value.blendPx === undefined || value.mode === 'replace-ink' && Math.min(value.reference.width, value.reference.height) >= value.blendPx * 2 + 3,
+      '笔迹过渡须显式用于替换模式，且宽高各保留至少3像素不混合核心。')).max(16).optional(),
+}).refine(value => value.guides.length + (value.detailPatches?.length ?? 0) <= 32, '路径与二维笔迹合计最多32项。')
 export const imageRepairSurfaceSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), name: z.string().min(1).max(120),
   kind: z.enum(['soft', 'planks', 'patches', 'neighbors-soft', 'neighbors-planks', 'guided']), mask: binary,
@@ -42,8 +49,24 @@ export function validateImageRepairSurfaces(image: { width: number; height: numb
       for (const point of guide.points) if (point.x >= image.width || point.y >= image.height || !maskCoverage(mask, Math.floor(point.x), Math.floor(point.y))) throw new Error('结构辅助坐标须位于原图内且属于当前底材范围。')
       const bounds = guide.reference, along = guide.axis === 'horizontal' ? bounds.width : bounds.height, cross = guide.axis === 'horizontal' ? bounds.height : bounds.width
       if (along < 3 || cross < 5 || bounds.width * bounds.height > 4096 || bounds.x + bounds.width > image.width || bounds.y + bounds.height > image.height) throw new Error('结构参考须位于原图内，沿线至少3像素、横跨至少5像素且最多4096像素。')
+      if (guide.stroke === 'original-segment') {
+        if (along < 5 || cross > 31) throw new Error('原尺寸接缝参考沿线至少5px、横跨5至31px。')
+        const positions = guide.points.map(p => guide.axis === 'horizontal' ? p.x : p.y), direction = Math.sign(positions.at(-1)! - positions[0])
+        if (!direction || positions.some((value, i) => i > 0 && Math.sign(value - positions[i - 1]) !== direction)) throw new Error('原尺寸接缝路径须沿参考方向单调，不能折返或有同轴重合段。')
+      }
       for (let y = bounds.y; y < bounds.y + bounds.height; y++) for (let x = bounds.x; x < bounds.x + bounds.width; x++) {
         if (!maskCoverage(mask, x, y) || maskCoverage(excluded, x, y)) throw new Error('结构参考整块须位于可信同材质范围，不能跨过取证排除区。')
+      }
+    }
+    const targets: Array<{ x: number; y: number; width: number; height: number }> = []
+    for (const patch of surface.guided?.detailPatches ?? []) {
+      const b = patch.reference, t = { ...patch.target, width: b.width, height: b.height }
+      if (b.x + b.width > image.width || b.y + b.height > image.height || t.x + t.width > image.width || t.y + t.height > image.height) throw new Error('二维笔迹参考和目标须在原图内。')
+      if (targets.some(other => t.x < other.x + other.width && t.x + t.width > other.x && t.y < other.y + other.height && t.y + t.height > other.y)) throw new Error('二维笔迹目标不能重叠。')
+      targets.push(t)
+      for (let y = 0; y < b.height; y++) for (let x = 0; x < b.width; x++) {
+        if (!maskCoverage(mask, b.x + x, b.y + y) || maskCoverage(excluded, b.x + x, b.y + y)) throw new Error('二维笔迹参考整块须位于可信同材质范围。')
+        if (!maskCoverage(mask, t.x + x, t.y + y)) throw new Error('二维笔迹目标整块须在当前底材范围内。')
       }
     }
   }
@@ -75,7 +98,7 @@ export function repairImageSurfaces(image: ImagePixels, repair: ImagePixelMask, 
               || neighborhood.priorInference?.[y * image.width + x] || image.data[(y * image.width + x) * 4 + 3] !== 255) throw new Error(`结构参考${index + 1}整块须为可见可信原像素，不能取自移除、保护、排除、前序推断或未移走的物件；不可信像素(${x}, ${y})。`)
           }
         }
-        return repairGuidedImageSurface(image, part, surface.donor, { ...neighborhoodEvidence, pattern: surface.guided!.orientation === 'soft' ? 'soft' : 'planks', orientation: surface.guided!.orientation, guides: surface.guided!.guides })
+        return repairGuidedImageSurface(image, part, surface.donor, { ...neighborhoodEvidence, pattern: surface.guided!.orientation === 'soft' ? 'soft' : 'planks', orientation: surface.guided!.orientation, guides: surface.guided!.guides, detailPatches: surface.guided!.detailPatches })
       } catch (error) {
         if (neighborhood.signal?.aborted || error instanceof Error && error.name === 'AbortError') throw error
         const references = surface.guided!.guides.map((guide, index) => `${index + 1}:(${guide.reference.x}, ${guide.reference.y}) ${guide.reference.width}×${guide.reference.height}px ${guide.axis}`).join('；')

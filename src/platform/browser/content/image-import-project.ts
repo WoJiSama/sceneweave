@@ -34,6 +34,9 @@ export interface ImageImportLayer extends ImageImportRaster {
   renderLayer: 'ground' | 'object'
   blocksMovement: boolean
   footprintPx?: PixelBounds
+  /** Original visual bounds used only to keep the implicit physical footprint
+   * fixed when an appearance derivative needs an extra raster edge pixel. */
+  footprintBasisPx?: PixelBounds
 }
 export interface ImageImportProjectInput {
   title: string
@@ -78,9 +81,10 @@ function captureInput(input: ImageImportProjectInput): ImageImportProjectInput {
     roomBoundaryPx: z.array(z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() }).strict()).min(3).max(257) }).strict().parse(captureJson(input.sourceArtwork))
   if (sourceArtwork && canonicalJson(sourceArtwork.roomBoundaryPx) !== canonicalJson(input.roomPointsPx)) throw new Error('源建筑外观必须关联当前真实房间轮廓。')
   const layers = input.layers.map(layer => ({ ...captureRaster(layer),
-    ...z.object({ id: idSchema, name: z.string().trim().min(1).max(120), renderLayer: z.enum(['ground', 'object']), blocksMovement: z.boolean(), footprintPx: pixelBoundsSchema.optional() }).strict()
+    ...z.object({ id: idSchema, name: z.string().trim().min(1).max(120), renderLayer: z.enum(['ground', 'object']), blocksMovement: z.boolean(), footprintPx: pixelBoundsSchema.optional(), footprintBasisPx: pixelBoundsSchema.optional() }).strict()
       .parse({ id: layer.id, name: layer.name, renderLayer: layer.renderLayer, blocksMovement: layer.blocksMovement,
-        ...(layer.footprintPx !== undefined ? { footprintPx: captureJson(layer.footprintPx) } : {}) }) }))
+        ...(layer.footprintPx !== undefined ? { footprintPx: captureJson(layer.footprintPx) } : {}),
+        ...(layer.footprintBasisPx !== undefined ? { footprintBasisPx: captureJson(layer.footprintBasisPx) } : {}) }) }))
   if (new Set(layers.map(layer => layer.id)).size !== layers.length) throw new Error('图片物件身份重复。')
   return { ...z.object({ title: z.string().trim().min(1).max(120), licenseText: z.string().min(1).refine(value => value.trim().length > 0), attribution: z.string().trim().min(1),
     sceneId: idSchema.optional(), now: z.string().datetime().optional() }).strict()
@@ -151,7 +155,12 @@ function buildDocument(input: ImageImportProjectInput, sourceArt?: ImageImportRa
     const assetId = addAsset(layer), size = scene.assets[assetId].logicalSizeMm
     const visualBoundsMm = { x: -Math.round(size.width / 2), y: -Math.round(size.height / 2), ...size }
     const positionMm = imagePointToWorldMm(calibration, { x: layer.boundsPx.x + layer.boundsPx.width / 2, y: layer.boundsPx.y + layer.boundsPx.height / 2 })
-    let footprintMm = { width: Math.max(1, Math.round(size.width * .8)), height: Math.max(1, Math.round(size.height * .8)) }, footprintOffsetMm = { x: 0, y: 0 }
+    const basis = layer.footprintBasisPx ?? layer.boundsPx
+    assertImagePoint(calibration, { x: basis.x, y: basis.y })
+    assertImagePoint(calibration, { x: basis.x + basis.width, y: basis.y + basis.height })
+    const basisCenter = imagePointToWorldMm(calibration, { x: basis.x + basis.width / 2, y: basis.y + basis.height / 2 })
+    let footprintMm = { width: Math.max(1, Math.round(imageDistanceToMm(calibration, basis.width) * .8)), height: Math.max(1, Math.round(imageDistanceToMm(calibration, basis.height) * .8)) }
+    let footprintOffsetMm = { x: basisCenter.x - positionMm.x, y: basisCenter.y - positionMm.y }
     if (layer.footprintPx) {
       assertImagePoint(calibration, { x: layer.footprintPx.x, y: layer.footprintPx.y })
       assertImagePoint(calibration, { x: layer.footprintPx.x + layer.footprintPx.width, y: layer.footprintPx.y + layer.footprintPx.height })

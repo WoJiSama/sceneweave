@@ -62,11 +62,11 @@ async function executeInBrowser({ name, input }) {
     const { bytes, ...metadata } = result
     return { neighborhood: { ...metadata, reviewBase64: encode(bytes) } }
   }
-  if (name === 'image_import_enhancement_candidates' || name === 'image_import_matte_candidates') {
+  if (name === 'image_import_enhancement_candidates' || name === 'image_import_matte_candidates' || name === 'image_import_subject_candidates') {
     const { sourceBytes, candidates, ...metadata } = result
     return { enhancements: { ...metadata, sourceBase64: encode(sourceBytes), candidates: candidates.map(candidate => {
-      const { bytes, reviewBytes, ...info } = candidate
-      return { ...info, pngBase64: encode(bytes), reviewBase64: encode(reviewBytes) }
+      const { bytes, reviewBytes, coverageBytes, ...info } = candidate
+      return { ...info, pngBase64: encode(bytes), reviewBase64: encode(reviewBytes), ...(coverageBytes ? { coverageBase64: encode(coverageBytes) } : {}) }
     }) } }
   }
   if (name === 'image_import_preview' || name === 'image_import_item_preview') {
@@ -268,11 +268,13 @@ async function serve(options) {
           const source = await writeVerified(directory, 'source.png', Buffer.from(sourceBase64, 'base64'))
           const records = [], images = []
           for (const [index, candidate] of candidates.entries()) {
-            const { pngBase64, reviewBase64, ...info } = candidate
+            const { pngBase64, reviewBase64, coverageBase64, ...info } = candidate
             const png = await writeVerified(directory, `candidate-${index}.png`, Buffer.from(pngBase64, 'base64'))
             const review = await writeVerified(directory, `candidate-${index}-review.png`, Buffer.from(reviewBase64, 'base64'))
             if (png.record.sha256 !== info.pngSha256) throw new Error('增强候选落盘摘要不一致。')
-            records.push({ ...info, png: png.record, review: review.record })
+            const coverage = coverageBase64 ? await writeVerified(directory, `candidate-${index}-coverage.png`, Buffer.from(coverageBase64, 'base64')) : undefined
+            if (coverage && coverage.record.sha256 !== info.coverageSha256) throw new Error('主体覆盖阶段落盘摘要不一致。')
+            records.push({ ...info, png: png.record, review: review.record, ...(coverage ? { coverage: coverage.record } : {}) })
             images.push({ type: 'image', mimeType: 'image/png', data: reviewBase64 })
           }
           if (source.record.sha256 !== metadata.sourceItemSha256) throw new Error('增强原件落盘摘要不一致。')
