@@ -44,6 +44,7 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   // Never feed the extra parameter into strict interior-layout@2 inputs.
   const parameters = cloneJson(recipe.parameters)
   if ('supportRef' in parameters) delete (parameters as Partial<typeof parameters>).supportRef
+  if ('entranceApproach' in parameters) delete (parameters as Partial<typeof parameters>).entranceApproach
   const input: InteriorGenerationInput = { version: 1, algorithmVersion: recipe.algorithmId === 'supported-interior' ? supportedInteriorLayoutVersion(recipe.algorithmVersion) : recipe.algorithmVersion, seed: recipe.seed, parameters }
   const boundsMm = realRectangle(before, room.id), wallThickness = Math.max(input.parameters.wallThicknessMm, ...Object.values(before.walls).filter(wall => room.boundaryVertexIds.some((id, index, ring) =>
     id === wall.startVertexId && ring[(index + 1) % ring.length] === wall.endVertexId || id === wall.endVertexId && ring[(index + 1) % ring.length] === wall.startVertexId)).map(wall => wall.thicknessMm))
@@ -143,5 +144,5 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   finishLocalOwnership(result.document, result.document, [], recipe.id)
   const checked = validateSceneDocument(result.document)
   if (!checked.ok) throw new Error(`局部家具完整结果无效：${checked.errors.map(issue => issue.message).join('；')}`)
-  return { document: result.document, writes, readIds: [...readIds].sort(), notes: [...notes, ...connectivity.notes, ...result.report.notes] }
+  return { document: result.document, writes, readIds: [...readIds].sort(), notes: [...notes, ...(result.connectivity ?? connectivity).notes, ...result.report.notes] }
 }

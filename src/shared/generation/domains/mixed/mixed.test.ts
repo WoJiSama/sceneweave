@@ -21,7 +21,7 @@ const source = (kind: 'forest' | 'volcano') => {
   return base
 }
 describe('real mixed module composition', () => {
-  it.each([['forest', 4], ['volcano', 4], ['forest', 5], ['volcano', 5], ['forest', 6], ['volcano', 6], ['forest', 7], ['volcano', 7], ['forest', 8], ['volcano', 8], ['forest', 9], ['volcano', 9]] as const)('%s version %s joins actual vegetation, editable functional groups and the full-width exterior approach', (kind, version) => {
+  it.each([['forest', 4], ['volcano', 4], ['forest', 5], ['volcano', 5], ['forest', 6], ['volcano', 6], ['forest', 7], ['volcano', 7], ['forest', 8], ['volcano', 8], ['forest', 9], ['volcano', 9], ['forest', 10], ['volcano', 10], ['forest', 11], ['volcano', 11], ['forest', 12], ['volcano', 12], ['forest', 13], ['volcano', 13], ['forest', 14], ['volcano', 14], ['forest', 15], ['volcano', 15], ['forest', 16], ['volcano', 16], ['forest', 17], ['volcano', 17], ['forest', 18], ['volcano', 18], ['forest', 19], ['volcano', 19]] as const)('%s version %s joins actual vegetation, editable functional groups and the full-width exterior approach', (kind, version) => {
     const base = source(kind), input = defaultMixedInputV4(base, kind, 'functional-outpost-v4')
     input.algorithmVersion = version
     for (const role of ['table', 'seat', 'storage'] as const) base.propDefinitions[`group-${role}`] = {

@@ -21,7 +21,22 @@ let sequence = 0
 const runtime = { ids: { nextId: () => `interior-token-${sequence++}` }, clock: { now: () => '2026-11-05T00:00:00.000Z' } }
 
 describe('parameterized finite interior generation', () => {
-  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10] as const)('persists and replays version %s without accepting mismatched selectors', algorithmVersion => {
+  it.each(([12, 13, 14, 15, 16, 17, 18, 19] as const).flatMap(version => (['none', 'horizontal', 'vertical'] as const).map(axis => ({ version, axis }))))('preserves the v11 structural layout when v$version changes furniture with corridor axis $axis', ({ version, axis }) => {
+    const input = request(4)
+    input.seed = 'composition-layout-heldout'
+    input.parameters.corridor.axis = axis
+    input.parameters.arrangement.doors = true
+    input.parameters.arrangement.entrance = true
+    const before = runInteriorGeneration(source(), { ...input, algorithmVersion: 11 }, options)
+    const after = runInteriorGeneration(source(), { ...input, algorithmVersion: version }, options)
+    expect(after.layout).toEqual(before.layout)
+    expect(Object.keys(before.candidate.document.openings).length).toBeGreaterThan(0)
+    for (const collection of ['vertices', 'walls', 'rooms', 'openings'] as const) {
+      expect(after.candidate.document[collection]).toEqual(before.candidate.document[collection])
+    }
+  })
+
+  it.each([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] as const)('persists and replays version %s without accepting mismatched selectors', algorithmVersion => {
     const input = request(); input.algorithmVersion = algorithmVersion
     const generated = runInteriorGeneration(source(), input, options)
     const recipe = Object.values(getLegacyGeneration(cloneJson(generated.candidate.document) as SceneDocument)!.recipes)[0]

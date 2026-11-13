@@ -15,7 +15,7 @@ import { regenerateRoomFurniture } from './local-interior.js'
 
 const stamp = '2026-11-05T00:00:00.000Z', profile = taskBudgetProfile('standard'), options = { profile, checkCancelled() {} }
 function runtime() { let next = 0; return { ids: { nextId: () => `local-interior-identity-${++next}` }, clock: { now: () => stamp } } }
-function fixture(furniture = true, doors = false, algorithmVersion: InteriorGenerationInput['algorithmVersion'] = 2) {
+function fixture(furniture = true, doors = false, algorithmVersion: InteriorGenerationInput['algorithmVersion'] = 2, purpose = '公共室') {
   const bounds = { x: 0, y: 0, width: 24000, height: 16000 }, origin = { kind: 'original' as const, attribution: 'test fixture', canEmbed: true }
   const definitions: Record<string, PropDefinition> = Object.fromEntries((['table', 'seat', 'storage'] as const).map(role => [role, {
     id: role, catalogId: `local-test-${role}`, version: 1, licenseRef: 'MIT', origin, name: role, tags: [],
@@ -31,7 +31,7 @@ function fixture(furniture = true, doors = false, algorithmVersion: InteriorGene
     presetSnapshot: { presetId: 'test', presetVersion: 1, distanceMode: 'metric', source: 'original fixture', gridSizeMm: 1000 }, constraints: { entranceOpeningIds: [], wallEndClearanceMm: 0, pathChecks: [] } })
   const input: InteriorGenerationInput = { version: 1, algorithmVersion, seed: 'local-furniture', parameters: {
     floorId: 'floor', layerId: 'layer', boundsMm: { x: 1000, y: 1000, width: 22000, height: 14000 }, wallThicknessMm: 200,
-    rooms: ['selected', 'outside'].map(id => ({ id, purpose: '公共室', minAreaMm2: 4_000_000, maxAreaMm2: 400_000_000, minClearSideMm: 1000 })), relations: [],
+    rooms: ['selected', 'outside'].map(id => ({ id, purpose, minAreaMm2: 4_000_000, maxAreaMm2: 400_000_000, minClearSideMm: 1000 })), relations: [],
     corridor: { axis: 'none', clearWidthMm: 1200 }, materials: { floor: null, wall: null }, arrangement: { doors, entrance: false, furniture, doorWidthMm: 1200, clearWidthMm: 1000,
       palette: Object.keys(definitions).map(role => ({ role: role as 'table' | 'seat' | 'storage', ref: { id: role, version: 1 } })) },
   } }
@@ -95,8 +95,8 @@ describe('selected generated-room furniture regeneration', () => {
     expect(completed.appearance).toEqual(f.content.appearance)
   })
 
-  it.each([2, 6, 7, 8, 9, 10] as const)('preserves moved, deleted, locked and appearance-adjusted furniture slots at version %s', algorithmVersion => {
-    const f = fixture(true, false, algorithmVersion), props = Object.values(f.content.document.props).filter(prop => prop.roomId === f.roomId)
+  const checkManualProtection = (algorithmVersion: InteriorGenerationInput['algorithmVersion']) => {
+    const f = fixture(true, false, algorithmVersion, algorithmVersion >= 19 ? '接待会客室' : algorithmVersion >= 18 ? '餐厅' : '公共室'), props = Object.values(f.content.document.props).filter(prop => prop.roomId === f.roomId)
     const accounting = algorithmVersion >= 6 ? {budget:selectManualTransactionBudget(f.content.document)} : undefined
     expect(props.length).toBeGreaterThanOrEqual(5)
     let content = applyCompositionCommands(f.content, [
@@ -111,7 +111,12 @@ describe('selected generated-room furniture regeneration', () => {
     expect(result.document.props[props[1].id]).toBeUndefined()
     expect(result.writes.every(row => !props.slice(0, 4).some(prop => prop.id === row.entityId))).toBe(true)
     expect(validateSceneDocument(result.document).ok).toBe(true)
-  })
+  }
+  it.each([2, 6, 7, 8, 9, 10] as const)('preserves moved, deleted, locked and appearance-adjusted furniture slots at version %s', checkManualProtection)
+  // New v17 cases include full generation and multiple local transactions.
+  // Their measured 9–12s combined work needs its own explicit unit-test budget;
+  // retain the original 5s limits of all existing replay cases.
+  it.each([17, 18, 19] as const)('preserves moved, deleted, locked and appearance-adjusted furniture slots at version %s', checkManualProtection, 20000)
 
   it('assigns genuinely fresh identities to unfilled suggestions and preserves stable slot keys', () => {
     const f = fixture(false), request = { recipeId: f.recipeId, roomId: f.roomId, variation: 'arrangement-new' }
@@ -135,8 +140,8 @@ describe('selected generated-room furniture regeneration', () => {
     }
   })
 
-  it.each([2, 6, 7, 8, 9, 10] as const)('keeps closed or deleted doors as user edits and rejects cancellation without mutation at version %s', algorithmVersion => {
-    const f = fixture(true, true, algorithmVersion), openingId = Object.keys(f.content.document.openings)[0]
+  const checkDoorProtection = (algorithmVersion: InteriorGenerationInput['algorithmVersion']) => {
+    const f = fixture(true, true, algorithmVersion, algorithmVersion >= 19 ? '接待会客室' : algorithmVersion >= 18 ? '餐厅' : '公共室'), openingId = Object.keys(f.content.document.openings)[0]
     expect(openingId).toBeDefined()
     const closed = applyCompositionCommands(f.content, [{ type: 'updateOpening', id: openingId, changes: { state: 'closed', locked: true } }], f.context)
     const request = { recipeId: f.recipeId, roomId: f.roomId, variation: 'arrangement-door' }, before = canonicalJson(closed)
@@ -148,5 +153,7 @@ describe('selected generated-room furniture regeneration', () => {
     expect(afterDelete.document.openings[openingId]).toBeUndefined()
     expect(() => regenerateRoomFurniture(closed, request, f.context, { profile, checkCancelled() { throw new Error('cancelled') } })).toThrow('cancelled')
     expect(canonicalJson(closed)).toBe(before)
-  })
+  }
+  it.each([2, 6, 7, 8, 9, 10] as const)('keeps closed or deleted doors as user edits and rejects cancellation without mutation at version %s', checkDoorProtection)
+  it.each([17, 18, 19] as const)('keeps closed or deleted doors as user edits and rejects cancellation without mutation at version %s', checkDoorProtection, 20000)
 })

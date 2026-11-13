@@ -53,9 +53,13 @@ export function normalizeInteriorInput(raw: unknown): InteriorGenerationInput {
 export function normalizeSupportedInteriorInput(raw: unknown): SupportedInteriorGenerationInput {
   let input: SupportedInteriorGenerationInput
   try { input = supportedInteriorGenerationInputSchema.parse(captureJson(raw)) } catch (error) { throw new InteriorGenerationError('invalid-input', `地形建筑输入无效：${error instanceof Error ? error.message : String(error)}`) }
-  const { supportRef, ...parameters } = input.parameters
+  const { supportRef, ...withApproach } = input.parameters
+  if ('entranceApproach' in input.parameters && (!input.parameters.arrangement.entrance || input.parameters.arrangement.doorWidthMm < input.parameters.entranceApproach.widthMm)) throw new InteriorGenerationError('contradiction', '外门接入需要启用真实入口且门洞净宽足够。')
+  const parameters = 'entranceApproach' in withApproach ? (({ entranceApproach: _approach, ...rest }) => rest)(withApproach) : withApproach
   const normalized = normalizeInteriorInput({ version: 1, algorithmVersion: supportedInteriorLayoutVersion(input.algorithmVersion), seed: input.seed, parameters })
-  return freezeJson({ version: 1, algorithmVersion: input.algorithmVersion, seed: normalized.seed, parameters: { ...cloneJson(normalized.parameters), supportRef } })
+  return freezeJson(input.algorithmVersion === 10 || input.algorithmVersion === 11 || input.algorithmVersion === 12 || input.algorithmVersion === 13 || input.algorithmVersion === 14 || input.algorithmVersion === 15 || input.algorithmVersion === 16 || input.algorithmVersion === 17 || input.algorithmVersion === 18 || input.algorithmVersion === 19
+    ? { version: 1, algorithmVersion: input.algorithmVersion, seed: normalized.seed, parameters: { ...cloneJson(normalized.parameters), supportRef, entranceApproach: input.parameters.entranceApproach } }
+    : { version: 1, algorithmVersion: input.algorithmVersion, seed: normalized.seed, parameters: { ...cloneJson(normalized.parameters), supportRef } })
 }
 
 type InteriorInput = InteriorGenerationInput | SupportedInteriorGenerationInput
@@ -63,7 +67,8 @@ const isSupported = (input: InteriorInput): input is SupportedInteriorGeneration
 type InteriorOptions = { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: { readonly aborted: boolean } }
 function layoutInput(input: InteriorInput): InteriorGenerationInput {
   if (!isSupported(input)) return input
-  const { supportRef: _supportRef, ...parameters } = input.parameters
+  const { supportRef: _supportRef, ...withApproach } = input.parameters
+  const parameters = 'entranceApproach' in withApproach ? (({ entranceApproach: _approach, ...rest }) => rest)(withApproach) : withApproach
   return { version: 1, algorithmVersion: supportedInteriorLayoutVersion(input.algorithmVersion), seed: input.seed, parameters }
 }
 
@@ -103,8 +108,8 @@ function persistGeneration(document: SceneDocument, input: InteriorInput, layout
   const bindings = { materials: Object.entries(p.materials).flatMap(([role, ref]) => ref ? [{ role: role as 'floor' | 'wall', ref: cloneJson(ref) }] : []), props: cloneJson(p.arrangement.palette), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   const common = { id: recipeId, domain: 'interior' as const, mapMode: 'scene' as const, seed: input.seed, ...bindings }
   const recipe: GenerationRecipe = isSupported(input)
-    ? { ...common, ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : { recipeVersion: 9 as const, algorithmVersion: 9 as const }), algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) }
-    : { ...common, ...(input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : input.algorithmVersion === 9 ? { recipeVersion: 9 as const, algorithmVersion: 9 as const } : { recipeVersion: 10 as const, algorithmVersion: 10 as const }), algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) }
+    ? input.algorithmVersion === 19 ? { ...common, recipeVersion: 19, algorithmVersion: 19, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 18 ? { ...common, recipeVersion: 18, algorithmVersion: 18, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 17 ? { ...common, recipeVersion: 17, algorithmVersion: 17, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 16 ? { ...common, recipeVersion: 16, algorithmVersion: 16, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 15 ? { ...common, recipeVersion: 15, algorithmVersion: 15, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 14 ? { ...common, recipeVersion: 14, algorithmVersion: 14, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 13 ? { ...common, recipeVersion: 13, algorithmVersion: 13, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 12 ? { ...common, recipeVersion: 12, algorithmVersion: 12, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 11 ? { ...common, recipeVersion: 11, algorithmVersion: 11, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : input.algorithmVersion === 10 ? { ...common, recipeVersion: 10, algorithmVersion: 10, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : { ...common, ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : { recipeVersion: 9 as const, algorithmVersion: 9 as const }), algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) }
+    : { ...common, ...(input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : input.algorithmVersion === 9 ? { recipeVersion: 9 as const, algorithmVersion: 9 as const } : input.algorithmVersion === 10 ? { recipeVersion: 10 as const, algorithmVersion: 10 as const } : input.algorithmVersion === 11 ? { recipeVersion: 11 as const, algorithmVersion: 11 as const } : input.algorithmVersion === 12 ? { recipeVersion: 12 as const, algorithmVersion: 12 as const } : input.algorithmVersion === 13 ? { recipeVersion: 13 as const, algorithmVersion: 13 as const } : input.algorithmVersion === 14 ? { recipeVersion: 14 as const, algorithmVersion: 14 as const } : input.algorithmVersion === 15 ? { recipeVersion: 15 as const, algorithmVersion: 15 as const } : input.algorithmVersion === 16 ? { recipeVersion: 16 as const, algorithmVersion: 16 as const } : input.algorithmVersion === 17 ? { recipeVersion: 17 as const, algorithmVersion: 17 as const } : input.algorithmVersion === 18 ? { recipeVersion: 18 as const, algorithmVersion: 18 as const } : { recipeVersion: 19 as const, algorithmVersion: 19 as const }), algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) }
   gen.recipes[recipeId] = recipe
   const roomKeys = new Map([...layout.rooms.map(row => [row.roomId, `room:${row.requirementId}`] as const), ...layout.corridors.map(row => [row.roomId, 'corridor'] as const)])
   const fields: GenerationFieldGroup[] = ['geometry', 'properties', 'surface', 'source']
@@ -169,7 +174,12 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
     writes: ({ document }) => generationCreationWrites(document, ['vertices', 'rooms', 'walls']),
     parseParameters,
     run(context) {
-      layout = solveInteriorLayout(document.sceneId, interior, profile, context.deriveSeed('rectangular-layout'), context.checkCancelled)
+      // v12–v15 change furnishing only. Keep v11's explicit layout seed and
+      // rectangular family, so a furniture update does not reshuffle rooms.
+      // v16 keeps that seed and adds only conservative partial-relation pruning.
+      const layoutSeed = version >= 12 ? hashGenerationValue([input.seed, structureId, 11, 'layout', structureId, 11, 1, 'rectangular-layout'])
+        : context.deriveSeed('rectangular-layout')
+      layout = solveInteriorLayout(document.sceneId, interior, profile, layoutSeed, context.checkCancelled)
       return { outputs: [...layout.rooms.map(row => ({ ...row, purpose: p.rooms.find(r => r.id === row.requirementId)!.purpose })), ...layout.corridors.map(row => ({ ...row, purpose: '通道' }))].map(row => ({ id: `plan:${row.roomId}`, owner: 'structure', kind: 'plan-region', payload: { coordinateFrame: 'scene-mm', floorId: p.floorId, visibility: 'public', domain: 'building', purpose: row.purpose, boundaryMm: rectanglePoints(row.boundsMm) } } as ArtifactInput)) }
     },
     materialize({ document: before, context }) {
@@ -195,7 +205,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
       if (!layout) throw new InteriorGenerationError('invalid-input', '室内布局阶段没有结果。')
-      const result = arrangeInteriorConnections(cloneJson(before) as SceneDocument, interior, layout, { profile, checkCancelled: context.checkCancelled })
+      const result = arrangeInteriorConnections(cloneJson(before) as SceneDocument, interior, layout, { profile, checkCancelled: context.checkCancelled, ...(isSupported(input) && 'entranceApproach' in input.parameters ? { entranceApproach: input.parameters.entranceApproach } : {}) })
       connectivity = result.report
       persist(result.document)
       return result.document
@@ -209,6 +219,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
       if (!layout || !connectivity) throw new InteriorGenerationError('invalid-input', '室内门路阶段没有结果。')
       const result = furnishInterior(cloneJson(before) as SceneDocument, interior, layout, connectivity, { profile, checkCancelled: context.checkCancelled })
       furnishing = result.report
+      connectivity = result.connectivity ?? connectivity
       persist(result.document)
       return result.document
     },

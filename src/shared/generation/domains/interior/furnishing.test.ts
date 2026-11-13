@@ -16,6 +16,7 @@ import { furnitureUseSpacePolygon, furnitureWorkingSpacePolygon } from './furnis
 import { bedroomStorageCandidates, planBedroomAccess } from './furnishing-bedroom.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { hashGenerationValue } from '../../contracts.js'
+import { kitchenCornerCandidates } from './furnishing-groups.js'
 
 const stamp = '2026-11-05T00:00:00.000Z', profile = taskBudgetProfile('small'), options = { profile, checkCancelled: () => {} }
 const context = { ids: { nextId: () => { throw new Error('native room IDs must be explicit') } }, clock: { now: () => stamp } }
@@ -45,6 +46,206 @@ function fixture(widthMm: number, heightMm = widthMm, twoRooms = false): { docum
       palette: Object.keys(definitions).map(role => ({ role: role as InteriorGenerationInput['parameters']['arrangement']['palette'][number]['role'], ref: { id: role, version: 1 } })) } } }
   return { document, input, layout: { rooms: roomRows, corridors: [] } }
 }
+
+describe('functional furniture versions 11 through 18', () => {
+  it.each([
+    { width: 7600, height: 10400, seed: 'kitchen-galley-heldout', version: 15 as const },
+    { width: 13300, height: 8600, seed: 'kitchen-wide-heldout', version: 15 as const },
+    { width: 7600, height: 10400, seed: 'kitchen-galley-heldout', version: 17 as const },
+    { width: 13300, height: 8600, seed: 'kitchen-wide-heldout', version: 17 as const },
+    { width: 7600, height: 10400, seed: 'kitchen-galley-heldout', version: 18 as const },
+    { width: 13300, height: 8600, seed: 'kitchen-wide-heldout', version: 18 as const },
+  ])('keeps full kitchen use, door access and stable slots at $width by $height for algorithm $version', ({ width, height, seed, version }) => {
+    const value = fixture(width, height)
+    value.input.algorithmVersion = version; value.input.seed = seed
+    value.input.parameters.rooms[0].purpose = '厨房'; value.input.parameters.arrangement.entrance = true
+    for (const [role, w, h] of [['work', 2600, 1050], ['hearth', 1700, 1650], ['storage', 1600, 900], ['shelf', 2300, 800]] as const) {
+      Object.assign(value.document.propDefinitions[role], { defaultVisualBoundsMm: { x: -w / 2 + 70, y: -h / 2 - 40, width: w, height: h },
+        defaultFootprintMm: { width: w - 100, height: h - 80 }, defaultFootprintOffsetMm: { x: 120, y: 30 } })
+    }
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options), before = canonicalJson(connected.document)
+    const calls: { role: string; index: number }[] = []
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, { ...options,
+      propIdForSlot: slot => {
+        calls.push(slot)
+        // A manually deleted storage slot remains excluded after reordering.
+        return slot.index === 1 ? null : interiorEntityId(connected.document.sceneId, seed, `furniture:${slot.requirementId}:${slot.role}:${slot.index}`)
+      },
+    })
+    const row = result.report.rooms[0]
+    expect(row.placed.filter(p => p.role === 'work').length).toBeGreaterThanOrEqual(2)
+    expect(row.placed.some(p => p.role === 'hearth')).toBe(true)
+    expect(row.placed.some(p => p.role === 'storage')).toBe(true)
+    expect(calls.map(c => c.index).sort((a, b) => a - b)).toEqual(row.recommended.map((_, i) => i))
+    const remainingWork = calls.filter(c => c.index > 2 && c.role === 'work')
+    const optional = calls.filter(c => c.index > 2 && c.role !== 'work' && c.role !== 'hearth')
+    expect(Math.max(...remainingWork.map(c => calls.indexOf(c)))).toBeLessThan(Math.min(...optional.map(c => calls.indexOf(c))))
+    expect(row.placed.map(p => p.propId)).not.toContain(interiorEntityId(connected.document.sceneId, seed, `furniture:requirement-0:storage:1`))
+    for (const route of row.circulation!) {
+      expect(route.status).toBe('clear')
+      const prop = result.document.props[route.propId], definition = result.document.propDefinitions[prop.definitionRef!.id]
+      expect(prop.visualBoundsMm).toEqual(definition.defaultVisualBoundsMm)
+      expect(prop.footprintMm).toEqual(definition.defaultFootprintMm)
+      expect(prop.footprintOffsetMm).toEqual(definition.defaultFootprintOffsetMm)
+      expect(checkTerrainRoute(result.document, { floorId: prop.floorId, pointsMm: route.pointsMm, widthMm: 600 }).ok).toBe(true)
+      const use = furnitureWorkingSpacePolygon(prop, prop)
+      expect(polygonInside(use, roomPoints(result.document, result.document.rooms[prop.roomId!]))).toBe(true)
+      for (const other of Object.values(result.document.props).filter(p => p.id !== prop.id)) {
+        expect(polygonsOverlap(use, propFootprint(other))).toBe(false)
+        expect(polygonsOverlap(use, furnitureBoundsPolygon(other.visualBoundsMm, other))).toBe(false)
+      }
+    }
+    expect(canonicalJson(connected.document)).toBe(before)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+    const actual = checkInteriorCirculation(result.document, value.input, value.layout, result.connectivity ?? connected.report)
+    expect(actual.routes.every(route => route.status === 'clear')).toBe(true)
+    if (version >= 17) expect(result.connectivity).toEqual(actual)
+  })
+
+  it.each([{ width: 9100, height: 10700, purpose: '接待会客室' }, { width: 10700, height: 9100, purpose: '研究办公室' }])('keeps complete seated units and actual door routes in a held-out $purpose at $width by $height', ({ width, height, purpose }) => {
+    const value = fixture(width, height)
+    value.input.algorithmVersion = 19; value.input.seed = 'seated-units-independent-input'
+    value.input.parameters.rooms[0].purpose = purpose; value.input.parameters.arrangement.entrance = true
+    for (const role of ['work', 'table']) Object.assign(value.document.propDefinitions[role], {
+      defaultVisualBoundsMm: { x: -950, y: -420, width: 2000, height: 950 },
+      defaultFootprintMm: { width: 1800, height: 800 }, defaultFootprintOffsetMm: { x: 100, y: 50 },
+    })
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options), before = canonicalJson(connected.document)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const row = result.report.rooms[0], surfaces = row.placed.filter(p => p.role === 'table' || p.role === 'work')
+    const seats = row.placed.filter(p => p.role === 'seat')
+    expect(surfaces.length).toBeGreaterThanOrEqual(2); expect(seats.length).toBeGreaterThanOrEqual(surfaces.length)
+    for (const surface of surfaces) expect(seats.some(s => polygonDistance(propFootprint(result.document.props[s.propId]), propFootprint(result.document.props[surface.propId])) < 500)).toBe(true)
+    for (const p of row.placed) {
+      const prop = result.document.props[p.propId], definition = value.document.propDefinitions[p.definitionRef.id]
+      expect(prop.visualBoundsMm).toEqual(definition.defaultVisualBoundsMm)
+      expect(prop.footprintMm).toEqual(definition.defaultFootprintMm)
+      expect(prop.footprintOffsetMm).toEqual(definition.defaultFootprintOffsetMm)
+      if (p.role !== 'seat') continue
+      const use = furnitureUseSpacePolygon(prop, prop)
+      expect(polygonInside(use, roomPoints(result.document, result.document.rooms[prop.roomId!]))).toBe(true)
+      for (const other of Object.values(result.document.props).filter(p => p.id !== prop.id)) {
+        expect(polygonsOverlap(use, propFootprint(other))).toBe(false)
+        expect(polygonsOverlap(use, furnitureBoundsPolygon(other.visualBoundsMm, other))).toBe(false)
+      }
+    }
+    for (const route of row.circulation!) {
+      expect(route.status).toBe('clear')
+      expect(checkTerrainRoute(result.document, { floorId: 'floor', pointsMm: route.pointsMm, widthMm: 600 }).ok).toBe(true)
+    }
+    expect(checkInteriorCirculation(result.document, value.input, value.layout, result.connectivity!).routes.every(r => r.status === 'clear')).toBe(true)
+    expect(canonicalJson(connected.document)).toBe(before)
+    expect(() => furnishInterior(connected.document, value.input, value.layout, connected.report, { ...options, checkCancelled() { throw Error('cancelled') } })).toThrow('cancelled')
+    expect(canonicalJson(connected.document)).toBe(before)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+  })
+
+  it.each([{ width: 7300, height: 12300 }, { width: 12300, height: 7300 }])('places complete fitting long-bench groups with independent full-width routes at $width by $height', ({ width, height }) => {
+    const value = fixture(width, height)
+    value.input.algorithmVersion = 18; value.input.seed = 'long-bench-groups-heldout'
+    value.input.parameters.rooms[0].purpose = '餐厅'; value.input.parameters.arrangement.entrance = true
+    Object.assign(value.document.propDefinitions.table, { defaultVisualBoundsMm: { x: -1350, y: -650, width: 2700, height: 1300 },
+      defaultFootprintMm: { width: 2500, height: 1100 } })
+    Object.assign(value.document.propDefinitions.seat, { defaultVisualBoundsMm: { x: -1150, y: -350, width: 2300, height: 700 },
+      defaultFootprintMm: { width: 2100, height: 500 } })
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options), before = canonicalJson(connected.document)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const tables = result.report.rooms[0].placed.filter(p => p.role === 'table').map(p => result.document.props[p.propId])
+    const seats = result.report.rooms[0].placed.filter(p => p.role === 'seat').map(p => result.document.props[p.propId])
+    expect(tables.length).toBeGreaterThanOrEqual(2); expect(seats.length).toBeGreaterThanOrEqual(4)
+    for (const seat of seats) {
+      const table = [...tables].sort((a, b) => polygonDistance(propFootprint(seat), propFootprint(a)) - polygonDistance(propFootprint(seat), propFootprint(b)))[0]
+      expect((seat.rotationDeg - table.rotationDeg + 360) % 180).toBe(0)
+      expect(seat.visualBoundsMm).toEqual(value.document.propDefinitions.seat.defaultVisualBoundsMm)
+      const use = furnitureUseSpacePolygon(seat, seat)
+      expect(polygonInside(use, roomPoints(result.document, result.document.rooms[seat.roomId!]))).toBe(true)
+      for (const other of Object.values(result.document.props).filter(p => p.id !== seat.id)) {
+        expect(polygonsOverlap(use, propFootprint(other))).toBe(false)
+        expect(polygonsOverlap(use, furnitureBoundsPolygon(other.visualBoundsMm, other))).toBe(false)
+      }
+    }
+    for (const table of tables) expect(seats.filter(seat => polygonDistance(propFootprint(seat), propFootprint(table)) < 500).length).toBeGreaterThanOrEqual(2)
+    expect(checkInteriorCirculation(result.document, value.input, value.layout, result.connectivity!).routes.every(r => r.status === 'clear')).toBe(true)
+    expect(result.report.rooms[0].circulation!.every(r => r.status === 'clear')).toBe(true)
+    expect(canonicalJson(connected.document)).toBe(before)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+  })
+
+  it.each(['dining-direction-north', 'dining-direction-south'])('keeps actual elongated dining tables parallel with complete seats and door routes at %s', seed => {
+    const value = fixture(12800, 11400)
+    value.input.algorithmVersion = 14; value.input.seed = seed
+    value.input.parameters.rooms[0].purpose = '餐厅'; value.input.parameters.arrangement.entrance = true
+    Object.assign(value.document.propDefinitions.table, {
+      defaultVisualBoundsMm: { x: -1250, y: -550, width: 2500, height: 1100 },
+      defaultFootprintMm: { width: 2300, height: 1000 },
+    })
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const before = canonicalJson(connected.document)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const tables = result.report.rooms[0].placed.filter(row => row.role === 'table').map(row => result.document.props[row.propId])
+    const seats = result.report.rooms[0].placed.filter(row => row.role === 'seat')
+    expect(tables.length).toBeGreaterThan(1)
+    expect(new Set(tables.map(table => table.rotationDeg % 180)).size).toBe(1)
+    expect(seats.length).toBeGreaterThanOrEqual(tables.length)
+    for (const route of result.report.rooms[0].circulation!) {
+      expect(route.status).toBe('clear')
+      expect(checkTerrainRoute(result.document, { floorId: 'floor', pointsMm: route.pointsMm, widthMm: 600 }).ok).toBe(true)
+    }
+    expect(canonicalJson(connected.document)).toBe(before)
+  })
+
+  it.each(([11, 12, 13, 14, 15, 16, 17, 18, 19] as const).flatMap(version => ['客房', '餐厅', '厨房'].map(purpose => ({ version, purpose }))))('keeps complete $purpose furniture use areas, door routes and immutable dimensions at version $version', ({ version, purpose }) => {
+    const value = fixture(11424, 8070)
+    value.input.algorithmVersion = version; value.input.seed = 'functional-heldout'; value.input.parameters.rooms[0].purpose = purpose
+    value.input.parameters.arrangement.entrance = true
+    for (const [role, width, height, bodyW, bodyH] of [
+      ['bed', 1850, 2700, 1660, 2470], ['storage', 1850, 1000, 1650, 850], ['table', 1500, 1500, 1340, 1340],
+      ['seat', 820, 900, 620, 710], ['work', 2900, 1150, 2690, 980], ['hearth', 2000, 1750, 1780, 1550],
+    ] as const) Object.assign(value.document.propDefinitions[role], {
+      defaultVisualBoundsMm: { x: -width / 2, y: -height / 2, width, height }, defaultFootprintMm: { width: bodyW, height: bodyH },
+    })
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options), before = canonicalJson(connected.document)
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, options)
+    const roles = result.report.rooms[0].placed.map(p => p.role)
+    expect(roles).toContain(purpose === '厨房' ? 'work' : 'table')
+    expect(roles).toContain(purpose === '厨房' ? 'hearth' : 'seat')
+    if (purpose === '客房') expect(roles).toContain('bed')
+    expect(result.report.rooms[0].circulation!.every(route => route.status === 'clear')).toBe(true)
+    for (const route of result.report.rooms[0].circulation!) {
+      const prop = result.document.props[route.propId], definition = result.document.propDefinitions[prop.definitionRef!.id]
+      expect(prop.visualBoundsMm).toEqual(definition.defaultVisualBoundsMm)
+      expect(prop.footprintMm).toEqual(definition.defaultFootprintMm)
+      expect(checkTerrainRoute(result.document, { floorId: prop.floorId, pointsMm: route.pointsMm, widthMm: 600 }).ok).toBe(true)
+      if (route.role === 'bed') continue
+      const use = route.role === 'seat' ? furnitureUseSpacePolygon(prop, prop) : furnitureWorkingSpacePolygon(prop, prop)
+      expect(polygonInside(use, roomPoints(result.document, result.document.rooms[prop.roomId!]))).toBe(true)
+      for (const other of Object.values(result.document.props).filter(p => p.id !== prop.id)) {
+        expect(polygonsOverlap(use, propFootprint(other))).toBe(false)
+        expect(polygonsOverlap(use, furnitureBoundsPolygon(other.visualBoundsMm, other))).toBe(false)
+        expect(polygonDistance(use, propFootprint(other))).toBeGreaterThanOrEqual(100)
+      }
+    }
+    expect(canonicalJson(connected.document)).toBe(before)
+    expect(validateSceneDocument(result.document).ok).toBe(true)
+  })
+
+  it('turns a fixed kitchen station beyond the full operating strip and honours retained angles', () => {
+    const bounds = { x: 0, y: 0, width: 8000, height: 8000 }
+    const shape = { visualBoundsMm: { x: -1000, y: -875, width: 2000, height: 1750 },
+      footprintMm: { width: 1780, height: 1550 }, footprintOffsetMm: { x: 0, y: 0 } }
+    const anchor = { role: 'work' as const, positionMm: { x: 6350, y: 775 }, rotationDeg: 0,
+      visualBoundsMm: { x: -1450, y: -575, width: 2900, height: 1150 }, footprintMm: { width: 2690, height: 980 }, footprintOffsetMm: { x: 0, y: 0 } }
+    const poses = kitchenCornerCandidates(bounds, shape, 200, 'hearth', [anchor], key => key)
+    expect(poses.length).toBeGreaterThan(0)
+    for (const pose of poses) {
+      const body = furnitureBoundsPolygon(shape.visualBoundsMm, pose)
+      expect(polygonsOverlap(body, furnitureWorkingSpacePolygon(anchor, anchor))).toBe(false)
+      expect(polygonDistance(body, furnitureWorkingSpacePolygon(anchor, anchor))).toBeGreaterThanOrEqual(100)
+    }
+    expect(kitchenCornerCandidates(bounds, shape, 200, 'hearth', [anchor], key => key, 37)).toEqual([])
+    expect(kitchenCornerCandidates(bounds, shape, 200, 'hearth', [{ ...anchor, rotationDeg: 37 }], key => key)).toEqual([])
+  })
+})
 
 describe('initial interior furniture suggestions', () => {
   it.each(['客房', '餐厅', '厨房'])('keeps exact established %s furniture and reports when the new algorithm prunes distant room geometry', purpose => {

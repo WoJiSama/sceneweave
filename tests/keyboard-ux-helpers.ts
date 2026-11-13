@@ -61,7 +61,7 @@ export async function selectKeyboardProp(page: Page, id: string): Promise<void> 
   if (await allLayers.isVisible()) await allLayers.click()
   await navigation.getByRole('group', { name: '场景对象分类', exact: true }).getByRole('button', { name: '物件与装饰', exact: true }).click()
   await navigation.getByLabel('搜索场景对象', { exact: true }).fill(id)
-  await navigation.locator('.asset-entity-list [data-entity-id]').click()
+  await navigation.locator(`.asset-entity-list [data-entity-id=${JSON.stringify(id)}]`).click()
 }
 
 /** Facts come only from an actual normal-UI complete-project download. */
