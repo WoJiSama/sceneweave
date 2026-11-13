@@ -8,13 +8,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
 const argument = (name, fallback = '') => args.includes(name) ? args[args.indexOf(name) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/prepare-production-pair.mjs --output ABS_EMPTY_DIRECTORY --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-total|replay-encoding|content-equality|history-boundaries')
-  console.log('Copies current tracked files and performance tools into two isolated repositories, reverse-checks/applies only the selected baseline patch, and runs the normal architecture/type/Vite build steps serially. The live workspace is never reverted. Dependencies are linked from the existing locked installation.')
+  console.log('node tools/performance/prepare-production-pair.mjs --output ABS_EMPTY_DIRECTORY --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-total|replay-encoding|content-equality|history-boundaries|storage-footprint|cooperative-audit-prototype|prop-replay-prototype|content-block-batch-prototype')
+  console.log('Copies current tracked files and performance tools into two isolated repositories. Adopted optimizations reverse their selected patch on before; explicit prototype scopes apply their unadopted experiment forward on after only. Runs normal architecture/type/Vite builds serially. The live workspace is never reverted; locked dependencies are linked.')
   process.exit(0)
 }
 const output = argument('--output'), optimization = argument('--optimization')
 check(output && path.isAbsolute(output) && output.startsWith(`${root}${path.sep}work${path.sep}`), 'Expected an isolated absolute --output under repository work/')
-check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries'].includes(optimization), 'Choose an explicit optimization scope')
+check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries', 'storage-footprint', 'cooperative-audit-prototype', 'prop-replay-prototype', 'content-block-batch-prototype'].includes(optimization), 'Choose an explicit optimization scope')
+const prototypePatch = { 'cooperative-audit-prototype': 'cooperative-audit-20261112', 'prop-replay-prototype': 'prop-replay-20261112', 'content-block-batch-prototype': 'content-block-batch-20261113' }[optimization]
 await fs.mkdir(output, { recursive: true })
 check((await fs.readdir(output)).length === 0, 'Existing evidence will not be overwritten')
 const record = { format: 'sceneweave-normal-production-pair-preparation', version: 1, status: 'running', optimization,
@@ -52,7 +53,9 @@ try {
     for (const side of ['before', 'after']) { const target = path.join(output, side, file); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, bytes, { flag: 'wx' }) }
   }
   record.sourceFingerprint = sha(JSON.stringify(record.files))
-  record.patch = `tools/performance/baselines/${optimization}-${['workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries'].includes(optimization) ? '20261112' : '20261111'}.patch`
+  record.patch = prototypePatch
+    ? `tools/performance/experiments/${prototypePatch}.patch`
+    : `tools/performance/baselines/${optimization}-${['workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries', 'storage-footprint'].includes(optimization) ? '20261112' : '20261111'}.patch`
   record.patchSha256 = sha(await fs.readFile(path.join(root, record.patch)))
   for (const side of ['before', 'after']) {
     const directory = path.join(output, side)
@@ -61,8 +64,16 @@ try {
     await fs.symlink(path.join(root, 'node_modules'), path.join(directory, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   }
   const baseline = path.join(output, 'before'), patch = path.join(root, record.patch)
-  execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: baseline })
-  execFileSync('git', ['apply', '--reverse', patch], { cwd: baseline })
+  if (prototypePatch) {
+    // Rejected product candidate: opt-in forward application to after only.
+    // Ordinary sources remain unchanged; this is never a shipped baseline.
+    record.measurementClass = 'research-prototype-not-adopted'
+    execFileSync('git', ['apply', '--check', patch], { cwd: path.join(output, 'after') })
+    execFileSync('git', ['apply', patch], { cwd: path.join(output, 'after') })
+  } else {
+    execFileSync('git', ['apply', '--reverse', '--check', patch], { cwd: baseline })
+    execFileSync('git', ['apply', '--reverse', patch], { cwd: baseline })
+  }
   if (optimization === 'encoding-owner') {
     // The new regression test calls the optimized bundle signature, which did
     // not exist before this patch. Preserve it outside the baseline source;

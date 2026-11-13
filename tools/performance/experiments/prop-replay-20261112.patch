@@ -1,0 +1,461 @@
+diff --git a/src/shared/project/replay-geometry.test.ts b/src/shared/project/replay-geometry.test.ts
+new file mode 100644
+index 0000000..438670a
+--- /dev/null
++++ b/src/shared/project/replay-geometry.test.ts
+@@ -0,0 +1,237 @@
++import { describe, expect, it, vi } from 'vitest'
++import { fixture, runtime } from '../../application/workspace/test-fixtures.js'
++import { applyCompositionCommands } from '../appearance/commands.js'
++import { createCompositionContent } from '../appearance/graph.js'
++import type { ProjectData } from '../model/project.js'
++import { canonicalJson, cloneJson, freezeJson } from '../validation/json.js'
++import * as scene from '../validation/scene.js'
++import { getPropUpdateTransaction, tryApplyPropUpdatesSnapshot, tryValidatePropReplaySnapshot, validateFreshSceneSnapshot } from '../validation/snapshots.js'
++import { certifyCompositionContent, getPropUpdateCompositionTransaction, tryCertifyPropReplayContent } from '../validation/content.js'
++import { decodeProjectCoordinates, encodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
++import { createProjectDelta, createProjectDeltaReplay } from './delta.js'
++import { createProjectReplayValidator, getProjectLocalTransaction, PROJECT_REPLAY_CACHE_LIMITS, validateProjectData } from './validate.js'
++import { groupLayerSceneV3, scatterLayerSceneV3 } from '../../core/v3/test-fixtures.js'
++import { toCurrentSceneDocument } from '../model/current-scene.js'
++import { constraintInputHash } from '../terrain-generation/integrity.js'
++import { imageFixtureV6 } from '../../core/v6/test-fixtures.js'
++import { propAppearanceSnapshot } from '../appearance/graph.js'
++import { presentationSourceId } from '../appearance/presentation.js'
++
++function project(group = false): ProjectData {
++  const source = fixture({ building: true }).project
++  if (!group) return source
++  const content = applyCompositionCommands(candidateContent(source), [{ type: 'createAggregateGroup', group: {
++    id: 'replay-group', floorId: 'blank-floor', parentId: null,
++    frame: { translationMm: { x: 6000, y: 6000 }, quarterTurns: 0 },
++    members: [{ kind: 'prop', id: 'item' }, { kind: 'prop', id: 'other' }], editLocked: false,
++  } }], runtime)
++  return { ...source, ...content }
++}
++function moved(source: ProjectData, x = 4500): ProjectData {
++  const result = cloneJson(source)
++  result.document.props.item.positionMm.x = x; result.document.revision++
++  return result
++}
++
++describe('finite audit-local geometry replay', () => {
++  it('uses actual different geometry, canonical key order and full hashes without an edit receipt', () => {
++    const source = project(), next = JSON.parse(canonicalJson(moved(source))), validator = createProjectReplayValidator()
++    const full = vi.spyOn(scene, 'validateSceneDocument')
++    try {
++      validator.validate(source)
++      validator.validate(moved(source, 4300)); expect(full).toHaveBeenCalledTimes(2)
++      const result = validator.validate(next)
++      expect(result).toEqual(validateProjectData(next)); expect(full).toHaveBeenCalledTimes(4) // two original bodies + lazy baseline proof + independent oracle
++      const following = validator.validate(moved(source, 4700))
++      expect(full).toHaveBeenCalledTimes(4)
++      expect(following.document.rooms).toBe(result.document.rooms)
++      expect(following.document.props.other).toBe(result.document.props.other)
++      expect(getPropUpdateTransaction(result.document)).toBeUndefined()
++      expect(getPropUpdateCompositionTransaction(result)).toBeUndefined()
++      expect(getProjectLocalTransaction(result)).toBeUndefined()
++      next.document.props.item.positionMm.x = -10000
++      expect(result.document.props.item.positionMm.x).toBe(4500)
++      expect(Object.isFrozen(result.document.props.item.positionMm)).toBe(true)
++      const delta = createProjectDelta(source, moved(source)), replay = createProjectDeltaReplay()
++      const captured = replay.capture(source, delta.beforeHash)
++      expect(replay.apply(captured, delta)).toEqual(moved(source))
++      const sibling = createProjectDelta(source, moved(source, 4600))
++      expect(replay.apply(captured, sibling)).toEqual(moved(source, 4600))
++      expect(() => replay.apply(captured, { ...delta, afterHash: 'f'.repeat(64) })).toThrow(/hash/)
++      expect(() => replay.apply(captured, { ...delta, beforeHash: 'e'.repeat(64) })).toThrow(/hash/)
++    } finally { full.mockRestore() }
++  })
++
++  it('accepts real group frame translation/rotation and nested frames while local members stay exact', () => {
++    const source = project(true), validator = createProjectReplayValidator(); validator.validate(source)
++    validator.validate(moved(source, 4400))
++    const local = encodeProjectCoordinates(source), group = local.document.aggregateCoordinates!.groups['replay-group']
++    group.frame.translationMm = { x: 7500, y: 7500 }; group.frame.quarterTurns = 1
++    const next = decodeProjectCoordinates(local); next.document.revision++
++    const result = validator.validate(JSON.parse(canonicalJson(next)))
++    expect(result).toEqual(validateProjectData(next))
++    const laterLocal = encodeProjectCoordinates(next); laterLocal.document.aggregateCoordinates!.groups['replay-group'].frame.translationMm.x++
++    expect(validator.validate(decodeProjectCoordinates(laterLocal)).document.rooms).toBe(result.document.rooms)
++    expect(encodeProjectCoordinates(result).document.props).toEqual(encodeProjectCoordinates(source).document.props)
++    const nested = cloneJson(source)
++    nested.document.aggregateCoordinates!.groups.parent = { id: 'parent', floorId: 'blank-floor', parentId: null,
++      frame: { translationMm: { x: 0, y: 0 }, quarterTurns: 0 }, members: [], editLocked: false }
++    nested.document.aggregateCoordinates!.groups['replay-group'].parentId = 'parent'
++    const content = createCompositionContent(nested.document, runtime), own = certifyCompositionContent(content)
++    const encoded = encodeProjectCoordinates({ ...nested, ...own })
++    encoded.document.aggregateCoordinates!.groups.parent.frame.translationMm.x += 100
++    const candidate = decodeProjectCoordinates(encoded)
++    expect(tryCertifyPropReplayContent(candidateContent(candidate), own)?.document).toEqual(candidate.document)
++  })
++
++  it('validates historical positions independently of edit permissions, which remain enforced by commands', () => {
++    const source = project(); source.document.props.item.editLocked = true
++    const validator = createProjectReplayValidator(); validator.validate(source)
++    validator.validate(moved(source, 4400)); const next = moved(source)
++    const result = validator.validate(next)
++    expect(result).toEqual(validateProjectData(next)); expect(validator.validate(moved(source, 4600)).document.rooms).toBe(result.document.rooms)
++    expect(() => tryApplyPropUpdatesSnapshot(result.document, [{ type: 'updateProp', id: 'item', changes: { positionMm: { x: 4600, y: 4000 } } }])).toThrow(/锁/)
++  })
++
++  it.each([
++    ['identity', (p: ProjectData) => { delete p.historyIdentity.propTokens.item }],
++    ['appearance', (p: ProjectData) => { delete p.appearance.propSources.item }],
++    ['resources', (p: ProjectData) => { p.assets['a'.repeat(64)] = { sha256: 'a'.repeat(64), mimeType: 'image/png', sizeBytes: 1, pixelWidth: 1, pixelHeight: 1 } }],
++    ['license', (p: ProjectData) => { p.licenses['a'.repeat(64)] = { sha256: 'a'.repeat(64), text: 'bad' } }],
++    ['extra field', (p: ProjectData) => { Object.assign(p.document.props.item, { unknown: true }) }],
++    ['deleted field', (p: ProjectData) => { delete (p.document.props.item as Partial<typeof p.document.props.item>).rotationDeg }],
++    ['support', (p: ProjectData) => { p.document.props.item.supportRef.id = 'missing' }],
++    ['floor', (p: ProjectData) => { p.document.props.item.floorId = 'missing' }],
++    ['position shape', (p: ProjectData) => { Object.assign(p.document.props.item.positionMm, { z: 1 }) }],
++    ['fractional position', (p: ProjectData) => { p.document.props.item.positionMm.x = 4500.5 }],
++    ['angle', (p: ProjectData) => { p.document.props.item.rotationDeg = 360 }],
++    ['budget', (p: ProjectData) => { p.document.title = 'x'.repeat(21 * 1024 * 1024) }],
++  ] as const)('falls back and rejects invalid %s changes', (_label, mutate) => {
++    const source = project(), validator = createProjectReplayValidator(); validator.validate(source); validator.validate(moved(source, 4400))
++    const next = moved(source); mutate(next)
++    expect(() => validator.validate(next)).toThrow()
++  })
++
++  it('falls back for changed locks, physical structures and group ownership; validates the exact replacement', () => {
++    for (const mutate of [
++      (p: ProjectData) => { p.document.props.item.editLocked = true },
++      (p: ProjectData) => { p.document.rooms.room.purpose = 'changed room' },
++      (p: ProjectData) => { p.document.aggregateCoordinates!.groups['replay-group'].members = [{ kind: 'prop', id: 'other' }] },
++    ]) {
++      const source = project(true), validator = createProjectReplayValidator(), first = validator.validate(source), next = moved(source)
++      mutate(next); const result = validator.validate(next)
++      expect(result).toEqual(validateProjectData(next)); expect(result.document.rooms).not.toBe(first.document.rooms)
++    }
++  })
++
++  it('rejects moved support violations and unsafe/cyclic frames even when all local member bytes match', () => {
++    const source = project(true), validator = createProjectReplayValidator(); validator.validate(source)
++    for (const modify of [
++      (p: ProjectData) => { p.document.aggregateCoordinates!.groups['replay-group'].frame.translationMm.x = 50000 },
++      (p: ProjectData) => { p.document.aggregateCoordinates!.groups['replay-group'].frame.translationMm.x = Number.MAX_SAFE_INTEGER },
++      (p: ProjectData) => { p.document.aggregateCoordinates!.groups['replay-group'].parentId = 'replay-group' },
++    ]) {
++      const encoded = encodeProjectCoordinates(source); modify(encoded)
++      expect(() => validator.validate(decodeProjectCoordinates(encoded))).toThrow()
++    }
++    expect(() => validator.validate(moved(source, -10000))).toThrow(/边界|支撑|占地/)
++  })
++
++  it('rejects caller substitutes and captures without invoking getters', () => {
++    const source = project(), validator = createProjectReplayValidator(); validator.validate(source)
++    expect(tryValidatePropReplaySnapshot(moved(source).document, freezeJson(cloneJson(source.document)))).toBeUndefined()
++    for (const decorate of [
++      (p: ProjectData) => Object.defineProperty(p.document.props.item.positionMm, 'x', { enumerable: true, get: getter }),
++      (p: ProjectData) => Object.defineProperty(p.document.props.item, 'hidden', { value: true }),
++      (p: ProjectData) => { Object.assign(p.document.props.item, { [Symbol('bad')]: true }) },
++      (p: ProjectData) => Object.setPrototypeOf(p.document.props.item, { bad: true }),
++    ]) {
++      const next = moved(source); decorate(next); expect(() => validator.validate(next)).toThrow()
++    }
++    expect(getter).not.toHaveBeenCalled()
++  })
++
++  it('keeps prefab/scatter and generation dependent moves outside the finite boundary', () => {
++    for (const input of [groupLayerSceneV3(), scatterLayerSceneV3(1)]) {
++      const before = certifyCompositionContent(createCompositionContent(toCurrentSceneDocument({ ...cloneJson(input), format: 'sceneweave-scene' }), runtime))
++      const next = cloneJson(before), id = next.document.props.left ? 'left' : 'scatter-item-0'
++      next.document.props[id].positionMm.x += 100
++      expect(tryCertifyPropReplayContent(next, before)).toBeUndefined()
++    }
++  })
++
++  it('does not reuse a passed whole-scene generation receipt for a changed Prop', () => {
++    const document = cloneJson(project().document), legacy = document.generation.legacy
++    legacy.constraints.activity = { id: 'activity', floorId: 'blank-floor', visibility: 'public', strength: 'hard', kind: 'activityArea',
++      boundaryMm: [{ x: 1000, y: 1000 }, { x: 2000, y: 1000 }, { x: 2000, y: 2000 }, { x: 1000, y: 2000 }], clearanceMm: 100 }
++    legacy.checks.receipt = { id: 'receipt', constraintId: 'activity', state: 'passed', algorithmId: 'clearance', algorithmVersion: 1,
++      inputHash: constraintInputHash(document, 'activity'), issues: [] }
++    const baseline = validateFreshSceneSnapshot(document)
++    if (!baseline.ok) throw Error(JSON.stringify(baseline.errors))
++    const next = cloneJson(baseline.document); next.props.item.positionMm.x += 100
++    expect(tryValidatePropReplaySnapshot(next, baseline.document)).toBeUndefined()
++    expect(scene.validateSceneDocument(next).ok).toBe(false)
++  })
++
++  it('rechecks an external connection band after a new blocking footprint enters it', () => {
++    const document = cloneJson(fixture().project.document), layer = document.entityLayers.item
++    document.props.item.blocksMovement = true
++    document.terrainAreas.high = { id: 'high', floorId: 'blank-floor', editLocked: false, visibility: 'public',
++      boundaryMm: [{ x: 10000, y: 0 }, { x: 20000, y: 0 }, { x: 20000, y: 20000 }, { x: 10000, y: 20000 }]
++        .map((positionMm, i) => ({ id: `high-p-${i}`, segmentId: `high-s-${i}`, positionMm })),
++      groundElevationMm: 1000, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
++    document.props.other.supportRef = { kind: 'floor', id: 'blank-floor' }
++    document.terrainConnections.stairs = { id: 'stairs', floorId: 'blank-floor', editLocked: false, visibility: 'public', kind: 'stairs',
++      from: { surfaceRef: { kind: 'floor', id: 'blank-floor' }, positionMm: { x: 7000, y: 15000 } },
++      to: { surfaceRef: { kind: 'terrainArea', id: 'high' }, positionMm: { x: 13000, y: 15000 } },
++      widthMm: 1000, openingId: null, blocksMovement: false, movementCostMultiplier: 1, surfaceStyle: null }
++    document.entityLayers.high = document.entityLayers.stairs = layer
++    const baseline = validateFreshSceneSnapshot(document)
++    if (!baseline.ok) throw Error(JSON.stringify(baseline.errors))
++    const next = cloneJson(baseline.document); next.props.item.positionMm = { x: 8000, y: 15000 }
++    expect(tryValidatePropReplaySnapshot(next, baseline.document)).toBeUndefined()
++    const full = scene.validateSceneDocument(next)
++    expect(!full.ok && full.errors.some(error => error.code === 'CONNECTION_OBSTACLE')).toBe(true)
++  })
++
++  it('retains fixed near-side upright requirements after complete appearance equality', () => {
++    const document = toCurrentSceneDocument({ ...cloneJson(imageFixtureV6().document), format: 'sceneweave-scene' })
++    const draft = createCompositionContent(document, runtime), old = draft.appearance.sources[draft.appearance.propSources.item]
++    if (old.kind !== 'prop') throw Error('fixture')
++    draft.document.props.item.footprintOffsetMm = { x: 0, y: 0 }
++    const presentation = { mode: 'nearSide' as const, rootAnchorMm: { x: 0, y: 0 }, orientation: 'fixedUpright' as const,
++      fixedRotationDeg: 0 as const, footprintAxes: 'world' as const, groundShadowMm: null }
++    const id = presentationSourceId(propAppearanceSnapshot(old.snapshot), old.parentSourceId, presentation)
++    draft.appearance.sources[id] = { ...old, id }; draft.appearance.propSources.item = id; draft.appearance.presentations![id] = presentation
++    const baseline = certifyCompositionContent(draft), moved = cloneJson(baseline)
++    moved.document.props.item.positionMm.x += 100
++    expect(tryCertifyPropReplayContent(moved, baseline)).toBeDefined()
++    moved.document.props.item.rotationDeg = 90
++    expect(() => tryCertifyPropReplayContent(moved, baseline)).toThrow(/旋转/)
++  })
++
++  it('clears/evicts operation-local baselines and never certifies public mutable validation results', () => {
++    const source = project(), validator = createProjectReplayValidator(), full = vi.spyOn(scene, 'validateSceneDocument')
++    try {
++      validator.validate(source)
++      for (let i = 0; i <= PROJECT_REPLAY_CACHE_LIMITS.entries; i++) {
++        const next = cloneJson(source); next.document.rooms.room.purpose = `body ${i}`; validator.validate(next)
++      }
++      const calls = full.mock.calls.length; validator.validate(source); expect(full).toHaveBeenCalledTimes(calls + 1)
++      validator.clear(); validator.validate(moved(source)); expect(full).toHaveBeenCalledTimes(calls + 2)
++      const publicProject = validateProjectData(source)
++      expect(tryValidatePropReplaySnapshot(moved(source).document, publicProject.document)).toBeUndefined()
++    } finally { full.mockRestore() }
++  })
++
++  it('does not retain projects above the original conservative replay byte limit', () => {
++    const source = project(); source.document.title = 'x'.repeat(6 * 1024 * 1024)
++    const validator = createProjectReplayValidator(), full = vi.spyOn(scene, 'validateSceneDocument')
++    try {
++      validator.validate(source); validator.validate(moved(source))
++      expect(full).toHaveBeenCalledTimes(2)
++    } finally { full.mockRestore() }
++  })
++})
++const getter = vi.fn(() => 4500)
++const candidateContent = (p: ProjectData) => ({ document: p.document, historyIdentity: p.historyIdentity, appearance: p.appearance })
+diff --git a/src/shared/project/validate.ts b/src/shared/project/validate.ts
+index 68db52e..e69b28f 100644
+--- a/src/shared/project/validate.ts
++++ b/src/shared/project/validate.ts
+@@ -15,6 +15,7 @@ import { PACKAGE_LIMITS } from './limits.js'
+ import { projectSourceRecords } from './source-resources.js'
+ import { legacyTerrainView } from '../terrain-generation/composition-contracts.js'
+ import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
++import { tryCertifyPropReplayContent } from '../validation/content.js'
+ 
+ const MiB = 1024 * 1024
+ export const PROJECT_DATA_LIMITS = Object.freeze({ jsonBytes: 20 * MiB, imageBytes: 20 * MiB, imageSide: 8192, imagePixels: 32_000_000,
+@@ -246,13 +247,30 @@ export const PROJECT_REPLAY_CACHE_LIMITS = Object.freeze({ entries: 4, retainedB
+  * equality, not a digest, delta path, caller flag or revision, establishes that
+  * all non-metadata validation inputs are unchanged. The three excluded scene
+  * metadata fields have their actual strict schema and size budgets checked.
+- * Any other change falls back to the public complete validator, including
+- * identity, locks, topology, coordinate frames, resources and license changes. */
++ * A finite Prop/frame change may instead consume the snapshot owner's complete
++ * comparison and fresh geometry checks. Identity, locks, topology, ownership,
++ * appearance, resource and license changes still run complete validation.
++ * Replay proof never authorizes an edit or exempts actual bytes/full hashes. */
+ export function createProjectReplayValidator() {
+   const entries: { project: ProjectData; body: unknown; bytes: number }[] = []
+-  let retained = 0
++  let retained = 0, completeMisses = 0
+   const body = (project: ProjectData): unknown => ({ ...project, document: { ...project.document,
+     title: null, revision: null, updatedAt: null } })
++  // Eligibility only, over our already independently captured input. Reject
++  // unsupported changes before the content owner captures its own proof data.
++  // The owner still checks every masked field; this view grants no certificate.
++  const propReplayBody = (project: ProjectData): unknown => ({ ...project, document: { ...project.document,
++    title: null, revision: null, updatedAt: null, props: null, aggregateCoordinates: null } })
++  const propReplayFieldsMatch = (before: ProjectData, after: ProjectData): boolean => {
++    const props = after.document.props
++    if (!props || typeof props !== 'object' || Array.isArray(props) || Object.keys(props).length !== Object.keys(before.document.props).length) return false
++    return Object.entries(before.document.props).every(([id, prop]) => {
++      const next = Object.hasOwn(props, id) ? props[id] : undefined
++      return !!next && typeof next === 'object' && !Array.isArray(next) && Object.keys(prop).length === Object.keys(next).length
++        && (Object.keys(prop) as (keyof typeof prop)[]).every(key => Object.hasOwn(next, key)
++          && (key === 'positionMm' || key === 'rotationDeg' || equalOwnedJson(prop[key], next[key])))
++    })
++  }
+   const metadata = (project: ProjectData) => ({ title: project.document.title,
+     revision: project.document.revision, updatedAt: project.document.updatedAt })
+   return Object.freeze({
+@@ -274,7 +292,24 @@ export function createProjectReplayValidator() {
+           return result
+         }
+       }
+-      const project = freezeJson(readProjectData(captured, false, true))
++      let derived: ProjectData | undefined
++      const previous = entries.at(-1)?.project
++      // Preserve the original complete/metadata paths for small state families
++      // and unsupported edits. This count is only an optimization admission
++      // heuristic, never validation evidence. Proof is established lazily below.
++      if (hasDocument && previous && completeMisses >= 2 && equalOwnedJson(propReplayBody(captured), propReplayBody(previous))
++        && propReplayFieldsMatch(previous, captured)) {
++        const baseline = certifyCompositionContent(projectContent(previous))
++        const content = tryCertifyPropReplayContent({ document: captured.document, historyIdentity: captured.historyIdentity, appearance: captured.appearance }, baseline)
++        if (content) {
++          const sizes = projectSizes.get(previous)!, documentBytes = ownedJsonByteLength(content.document)
++          const expandedBytes = sizes.expandedBytes + documentBytes - sizes.documentBytes
++          if (documentBytes > PROJECT_DATA_LIMITS.jsonBytes || expandedBytes > PROJECT_DATA_LIMITS.expandedBytes) throw new Error('工程声明展开字节或场景JSON超过保护预算。')
++          derived = freezeJson({ ...previous, ...content }); projectSizes.set(derived, { documentBytes, expandedBytes })
++        }
++      }
++      const project = derived ?? freezeJson(readProjectData(captured, false, true))
++      if (!derived) completeMisses++
+       const bytes = JSON.stringify(project).length * 3
+       if (bytes <= PROJECT_REPLAY_CACHE_LIMITS.retainedBytes) {
+         while (entries.length >= PROJECT_REPLAY_CACHE_LIMITS.entries || retained + bytes > PROJECT_REPLAY_CACHE_LIMITS.retainedBytes) retained -= entries.shift()!.bytes
+@@ -282,7 +317,7 @@ export function createProjectReplayValidator() {
+       }
+       return project
+     },
+-    clear(): void { entries.length = 0; retained = 0 },
++    clear(): void { entries.length = 0; retained = 0; completeMisses = 0 },
+   })
+ }
+ 
+diff --git a/src/shared/validation/content.ts b/src/shared/validation/content.ts
+index 97b727c..acdee62 100644
+--- a/src/shared/validation/content.ts
++++ b/src/shared/validation/content.ts
+@@ -3,7 +3,8 @@ import { associateScenePresentations, inheritPropUpdatePresentations, propPresen
+ import { presentationRecordSchema } from '../terrain-generation/contracts.js'
+ import { validateCompositionIdentityContracts } from '../terrain-generation/composition-integrity.js'
+ import { z } from 'zod'
+-import { cloneJson, freezeJson, inspectJsonInput } from './json.js'
++import { captureJson, cloneJson, equalOwnedJson, freezeJson, inspectJsonInput } from './json.js'
++import { tryValidatePropReplaySnapshot } from './snapshots.js'
+ import { sceneSchema } from './scene.js'
+ import { reviseSceneSnapshot, tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot, validateFreshSceneSnapshot, getPropUpdateTransaction, releasePropUpdateTransaction, type PropUpdateTransaction, type PropUpdateStep } from './snapshots.js'
+ import { enumerateLayerEntities } from '../commands/layers.js'
+@@ -91,6 +92,22 @@ export function certifyCompositionContent(input: unknown): CompositionContent {
+   if (known) return known
+   return registerContent(readCompositionContent(input, true))
+ }
++/** Finite history replay only. Exact unchanged identity/appearance plus the
++ * snapshot owner's independently established Prop/frame delta preserve all
++ * resolved sources and lifecycle meanings. No command receipt is issued. */
++export function tryCertifyPropReplayContent(input: unknown, previous: CompositionContent): CompositionContent | undefined {
++  const baseline = getCertifiedCompositionContent(previous)
++  if (!baseline) return
++  const captured = captureJson(input)
++  const fields = captureContentFields(captured)
++  if (!fields || !equalOwnedJson(fields.historyIdentity, baseline.historyIdentity) || !equalOwnedJson(fields.appearance, baseline.appearance)) return
++  const document = tryValidatePropReplaySnapshot(fields.document, baseline.document)
++  if (!document) return
++  // Presentation orientation is the only appearance invariant that reads these
++  // changed fields. All source/override bytes were compared in full above.
++  validatePresentations(baseline.appearance, document)
++  return registerOwnedContent(certifiedContents, { document, historyIdentity: baseline.historyIdentity, appearance: baseline.appearance })
++}
+ /** Independent domain parsing, identity and appearance references, then immutable draft ownership. */
+ export function certifyCompositionDraft(input: unknown): CompositionContent {
+   const known = knownContent(input, [certifiedContents, certifiedDrafts])
+diff --git a/src/shared/validation/snapshots.ts b/src/shared/validation/snapshots.ts
+index c4e1c8a..a827307 100644
+--- a/src/shared/validation/snapshots.ts
++++ b/src/shared/validation/snapshots.ts
+@@ -1,5 +1,9 @@
+ import { inspectSceneDocumentDomains, parseSceneDocument, sceneDocumentSchema, validateSceneDocument, type ValidationResult } from './scene.js'
+-import { freezeJson, inspectJsonInput } from './json.js'
++import { captureJson, equalOwnedJson, freezeJson, inspectJsonInput } from './json.js'
++import { angle, point } from './primitives.js'
++import { aggregateCoordinatesSchema } from '../aggregates/schema.js'
++import { assertCoordinateRoundTrip } from '../aggregates/scene-coordinates.js'
++import { validateAggregateCoordinates } from '../aggregates/state.js'
+ import { validateGeometry, validatePropMoveGeometry } from '../geometry/geometry.js'
+ import type { Prop, SceneDocument } from '../model/scene.js'
+ import { assertIndependentPropUpdateUnlocked } from '../commands/base.js'
+@@ -40,6 +44,84 @@ export function validateFreshSceneSnapshot(input: unknown): ValidationResult {
+   return result.ok ? certify(result.document, result.warnings) : result
+ }
+ 
++const replaySceneMetadataSchema = z.object({ title: sceneDocumentSchema.shape.title,
++  revision: sceneDocumentSchema.shape.revision, updatedAt: sceneDocumentSchema.shape.updatedAt }).strict()
++const sameKeys = (left: object, right: object) => Object.keys(left).length === Object.keys(right).length
++  && Object.keys(left).every(key => Object.hasOwn(right, key))
++
++/** Audit-local finite validation, not an edit executor or edit permission.
++ * Independently capture and compare every field against our exact certified
++ * baseline. Only metadata, Prop positions/angles and aggregate frames may vary.
++ * No caller-supplied changed IDs, paths, hashes or frozen flags are consumed.
++ * Unsupported domains return undefined so the owning replay runs full checks. */
++export function tryValidatePropReplaySnapshot(input: unknown, baseline: SceneDocument): SceneDocument | undefined {
++  const original = snapshots.get(baseline)
++  if (!original || baseline.mapMode !== 'scene') return
++  const candidate = captureJson(input) as SceneDocument
++  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) || !sameKeys(baseline, candidate)) return
++  for (const key of Object.keys(baseline) as (keyof SceneDocument)[]) {
++    if (!['title', 'revision', 'updatedAt', 'props', 'aggregateCoordinates'].includes(key)
++      && !equalOwnedJson(baseline[key], candidate[key])) return
++  }
++  const metadata = replaySceneMetadataSchema.safeParse({ title: candidate.title, revision: candidate.revision, updatedAt: candidate.updatedAt })
++  if (!metadata.success || !candidate.props || typeof candidate.props !== 'object' || Array.isArray(candidate.props)
++    || !sameKeys(baseline.props, candidate.props)) return
++  const changed: string[] = [], props = { ...baseline.props }
++  for (const [id, next] of Object.entries(candidate.props)) {
++    const before = baseline.props[id]
++    if (equalOwnedJson(before, next)) continue
++    if (!next || typeof next !== 'object' || Array.isArray(next) || !sameKeys(before, next)) return
++    for (const key of Object.keys(before) as (keyof Prop)[]) {
++      if (key !== 'positionMm' && key !== 'rotationDeg' && !equalOwnedJson(before[key], next[key])) return
++    }
++    const position = point.safeParse(next.positionMm), rotation = angle.safeParse(next.rotationDeg)
++    if (!position.success || !rotation.success || !independentPropUpdateSupported(baseline, before, next)) return
++    props[id] = { ...before, positionMm: position.data, rotationDeg: rotation.data }; changed.push(id)
++  }
++  let aggregateCoordinates = baseline.aggregateCoordinates
++  const framesChanged = !equalOwnedJson(aggregateCoordinates, candidate.aggregateCoordinates)
++  if (framesChanged) {
++    if (!aggregateCoordinates) return
++    const parsed = aggregateCoordinatesSchema.safeParse(candidate.aggregateCoordinates)
++    if (!parsed.success || parsed.data.encoding !== 'world' || !sameKeys(aggregateCoordinates.groups, parsed.data.groups)) return
++    for (const [id, next] of Object.entries(parsed.data.groups)) {
++      const before = aggregateCoordinates.groups[id]
++      if (!sameKeys(before, next)) return
++      for (const key of Object.keys(before) as (keyof typeof before)[]) {
++        if (key !== 'frame' && !equalOwnedJson(before[key], next[key])) return
++      }
++    }
++    aggregateCoordinates = parsed.data
++  }
++  const document: SceneDocument = { ...baseline, ...metadata.data, props,
++    ...(aggregateCoordinates ? { aggregateCoordinates } : {}) }
++  // Frames are independent of physical ownership. A moved mixed group changes
++  // other world geometry and already failed the complete comparison above.
++  // Even frame-only changes must prove exact full coordinate representability.
++  if (framesChanged) {
++    if (validateAggregateCoordinates(document).length) return
++    try { assertCoordinateRoundTrip(document) } catch { return }
++  } else if (aggregateCoordinates && changed.length) {
++    const frames = aggregateWorldFrames(aggregateCoordinates)
++    const owners = new Map<string, string>()
++    for (const group of Object.values(aggregateCoordinates.groups)) for (const member of group.members) if (member.kind === 'prop') owners.set(member.id, group.id)
++    for (const id of changed) {
++      const owner = owners.get(id)
++      if (!owner) continue
++      const frame = frames.get(owner)!, prop = props[id]
++      try {
++        const position = localToWorldPoint(frame, worldToLocalPoint(frame, prop.positionMm))
++        const localAngle = ((prop.rotationDeg - frame.quarterTurns * 90) % 360 + 360) % 360
++        if (position.x !== prop.positionMm.x || position.y !== prop.positionMm.y
++          || ((localAngle + frame.quarterTurns * 90) % 360 + 360) % 360 !== prop.rotationDeg) return
++      } catch { return }
++    }
++  }
++  const geometry = validatePropMoveGeometry(document, changed, original.warnings)
++  if (geometry.errors.length) return
++  return certify(document, geometry.warnings).document
++}
++
+ export interface SceneDerivationEvidence {
+   algorithmContract: 'aggregate-prop-move-geometry@1'
+   baseline: { sceneId: string; revision: number }

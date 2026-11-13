@@ -1,0 +1,155 @@
+diff --git a/src/platform/browser/storage/content-block-batch.test.ts b/src/platform/browser/storage/content-block-batch.test.ts
+new file mode 100644
+index 0000000..8b5a35d
+--- /dev/null
++++ b/src/platform/browser/storage/content-block-batch.test.ts
+@@ -0,0 +1,75 @@
++import 'fake-indexeddb/auto'
++import Dexie from 'dexie'
++import { afterEach, expect, it, vi } from 'vitest'
++import { fixture, runtime, validation } from '../../../application/workspace/test-fixtures.js'
++import { createCompositionContent } from '../../../shared/appearance/graph.js'
++import { ProjectRepository } from './repository.js'
++import { PROJECT_TABLES } from './database.js'
++import { partitionProjectContent } from './content-blocks.js'
++
++const opened: ProjectRepository[] = []
++const make = () => { const repo = new ProjectRepository({ name: `block-batch-${crypto.randomUUID()}`, runtime, validation }); opened.push(repo); return repo }
++afterEach(async () => { vi.restoreAllMocks(); for (const repo of opened.splice(0)) { const name = repo.database.name; repo.close(); await Dexie.delete(name) } })
++function source() {
++  const bundle = fixture(), scene = bundle.project.document
++  for (let index = 0; index < 100; index++) {
++    const id = `batch-${index}`
++    scene.props[id] = { ...structuredClone(scene.props.item), id }
++    scene.entityLayers[id] = scene.entityLayers.item
++  }
++  Object.assign(bundle.project, createCompositionContent(scene, runtime)); return bundle
++}
++
++it('shares pending blocks across concurrent different manifests and keeps returned versions independent', async () => {
++  const repo = make(), input = source(), owner = input.project.document.sceneId
++  await repo.save(input, null)
++  const root = (await repo.database.historyHeads.get(owner))!.activeVersionId
++  const changed = structuredClone(input.project); changed.document.title = 'new title'; changed.document.revision++
++  await repo.save({ project: changed, resources: input.resources }, 0)
++  const native = IDBObjectStore.prototype.get, keys: string[] = []
++  vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key) {
++    if (this.name === 'projectContentBlocks') keys.push(String(key))
++    return native.call(this, key)
++  })
++  await repo.database.transaction('r', PROJECT_TABLES, async () => {
++    const [current, checkpoint] = await Promise.all([repo.database.projects.get(owner), repo.database.historyVersions.get([owner, root])])
++    expect(current!.project).toEqual(changed); expect(checkpoint!.checkpoint).toEqual(input.project)
++    current!.project.document.props.item.rotationDeg = 90
++    expect(checkpoint!.checkpoint!.document.props.item.rotationDeg).toBe(0)
++    expect((await repo.database.projects.get(owner))!.project).toEqual(changed)
++  })
++  const expected = new Set([...partitionProjectContent(input.project).blocks, ...partitionProjectContent(changed).blocks].map(row => row.sha256))
++  expect(new Set(keys)).toEqual(expected); expect(keys).toHaveLength(expected.size)
++}, 30000)
++
++for (const mode of ['missing', 'corrupt'] as const) it(`rejects a ${mode} block at the end of a batch and rolls back earlier writes`, async () => {
++  const repo = make(), input = source(), owner = input.project.document.sceneId
++  await repo.save(input, null)
++  const partition = partitionProjectContent(input.project), block = partition.blocks.at(-1)!
++  expect(partition.blocks.length).toBeGreaterThan(20)
++  await expect(repo.database.transaction('rw', PROJECT_TABLES, async () => {
++    await repo.database.projects.get(owner) // Fill the first transaction cache.
++    if (mode === 'missing') await repo.database.projectContentBlocks.delete(block.sha256)
++    else { const changed = { sha256: block.sha256, bytes: block.bytes.slice() }; changed.bytes[0] ^= 1; await repo.database.projectContentBlocks.put(changed) }
++    await Promise.all([repo.database.projects.get(owner), repo.database.projects.get(owner)])
++  })).rejects.toThrow(/块|hash|字节/)
++  expect((await repo.load(owner))!.project).toEqual(input.project)
++  expect(await repo.database.projectContentBlocks.get(block.sha256)).toEqual(block)
++}, 30000)
++
++it('rejects a failed native read batch without publishing project or history writes', async () => {
++  const repo = make(), input = source(), owner = input.project.document.sceneId
++  let fail = false
++  repo.database.use({ stack: 'dbcore', name: 'failed-content-batch', level: .5, create: down => ({ ...down, table: name => {
++    const table = down.table(name)
++    return name !== 'projectContentBlocks' ? table : { ...table, getMany: request => fail
++      ? Dexie.Promise.reject(new DOMException('simulated native read failure', 'UnknownError')) : table.getMany(request) }
++  } }) })
++  await repo.save(input, null)
++  const changed = structuredClone(input.project); changed.document.title = 'uncommitted'; changed.document.revision++
++  fail = true
++  await expect(repo.save({ project: changed, resources: input.resources }, 0)).rejects.toThrow(/read failure/)
++  fail = false
++  expect((await repo.load(owner))!.project).toEqual(input.project)
++  expect((await repo.listHistoryVersions(owner)).versions).toHaveLength(1)
++}, 30000)
+diff --git a/src/platform/browser/storage/content-block-middleware.ts b/src/platform/browser/storage/content-block-middleware.ts
+index e961a0a..8016122 100644
+--- a/src/platform/browser/storage/content-block-middleware.ts
++++ b/src/platform/browser/storage/content-block-middleware.ts
+@@ -20,7 +20,7 @@ export function contentBlockMiddleware(
+     const blockTable = () => down.table(CONTENT_BLOCK_STORE)
+     // Native transaction isolation makes one actual read sufficient until one
+     // of our own writes changes that row. Returned objects never alias these.
+-    const reads = new WeakMap<DBCoreTransaction, { rows: Map<string, Map<string, any>>; pendingRows: Map<string, Map<string, Promise<any>>>; blocks: Map<string, ProjectContentBlock | undefined>; pendingBlocks: Map<string, Promise<ProjectContentBlock | undefined>>; hydrated: Map<string, ProjectData>; pendingHydrated: Map<string, Promise<ProjectData>>; retained: number }>()
++    const reads = new WeakMap<DBCoreTransaction, { rows: Map<string, Map<string, any>>; pendingRows: Map<string, Map<string, Promise<any>>>; blocks: Map<string, ProjectContentBlock | undefined>; pendingBlocks: Map<string, Promise<Map<string, ProjectContentBlock | undefined>>>; hydrated: Map<string, ProjectData>; pendingHydrated: Map<string, Promise<ProjectData>>; retained: number }>()
+     const limit = 64 * 1024 * 1024
+     const state = (trans: DBCoreTransaction) => {
+       let value = reads.get(trans)
+@@ -55,25 +55,43 @@ export function contentBlockMiddleware(
+       }))
+     }
+     const readBlocks = (hashes: string[], trans: DBCoreTransaction): Promise<Map<string, ProjectContentBlock | undefined>> => {
+-      const cached = state(trans), store = (trans as IDBTransaction).objectStore(CONTENT_BLOCK_STORE)
+-      const read = (hash: string): Promise<ProjectContentBlock | undefined> => {
+-        if (cached.blocks.has(hash)) return Dexie.Promise.resolve(cached.blocks.get(hash))
+-        const pending = cached.pendingBlocks.get(hash)
+-        if (pending) return pending
+-        const request = new Dexie.Promise<ProjectContentBlock | undefined>((resolve, reject) => {
+-          const request = store.get(hash)
+-          request.onsuccess = () => { try { resolve(request.result === undefined ? undefined : checkedContentBlock(request.result, { sha256: hash, byteLength: request.result.bytes?.length })) } catch (error) { reject(error) } }
+-          request.onerror = () => reject(request.error)
+-        }).then(row => {
+-          if (cached.retained + (row?.bytes.length ?? 0) + 160 <= limit) {
+-            cached.blocks.set(hash, row); cached.retained += (row?.bytes.length ?? 0) + 160
++      const cached = state(trans), result = new Map<string, ProjectContentBlock | undefined>()
++      const missing: string[] = [], pending = new Set<Promise<Map<string, ProjectContentBlock | undefined>>>()
++      for (const hash of new Set(hashes)) {
++        if (cached.blocks.has(hash)) result.set(hash, cached.blocks.get(hash))
++        else {
++          const batch = cached.pendingBlocks.get(hash)
++          if (batch) pending.add(batch)
++          else missing.push(hash)
++        }
++      }
++      if (missing.length) {
++        // DBCore still reads each actual key. One shared batch continuation
++        // replaces per-block Promise chains; byte/hash checks remain complete.
++        const batch = Dexie.Promise.resolve(blockTable().getMany({ trans, keys: missing })).then(rows => {
++          const checked = new Map<string, ProjectContentBlock | undefined>()
++          for (let index = 0; index < missing.length; index++) {
++            const hash = missing[index], value = rows[index]
++            const row = value === undefined ? undefined : checkedContentBlock(value, { sha256: hash, byteLength: value.bytes?.length })
++            checked.set(hash, row)
++            if (cached.retained + (row?.bytes.length ?? 0) + 160 <= limit) {
++              cached.blocks.set(hash, row); cached.retained += (row?.bytes.length ?? 0) + 160
++            }
+           }
+-          return row
+-        }).finally(() => { cached.pendingBlocks.delete(hash) })
+-        cached.pendingBlocks.set(hash, request)
+-        return request
++          return checked
++        }).finally(() => { for (const hash of missing) cached.pendingBlocks.delete(hash) })
++        for (const hash of missing) cached.pendingBlocks.set(hash, batch)
++        pending.add(batch)
+       }
+-      return Dexie.Promise.all(hashes.map(read)).then(rows => new Map(hashes.map((hash, index) => [hash, rows[index]])))
++      if (!pending.size) return Dexie.Promise.resolve(result)
++      return Dexie.Promise.all([...pending]).then(batches => {
++        for (const hash of hashes) if (!result.has(hash)) {
++          const batch = batches.find(batch => batch.has(hash))
++          if (!batch) throw new Error('工程内容块批次缺少读取结果。')
++          result.set(hash, batch.get(hash))
++        }
++        return result
++      })
+     }
+     const invalidate = (trans: DBCoreTransaction, table: string) => {
+       // Keep accounting conservative after invalidation rather than retaining

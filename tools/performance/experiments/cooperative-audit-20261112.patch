@@ -1,0 +1,281 @@
+diff --git a/src/platform/browser/storage/history-audit-cooperative.test.ts b/src/platform/browser/storage/history-audit-cooperative.test.ts
+new file mode 100644
+index 0000000..486e0b8
+--- /dev/null
++++ b/src/platform/browser/storage/history-audit-cooperative.test.ts
+@@ -0,0 +1,103 @@
++import { afterEach, expect, it, vi } from 'vitest'
++import { layerSceneV3 } from '../../../core/v3/test-fixtures.js'
++import { createCompositionContent } from '../../../shared/appearance/graph.js'
++import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
++import type { ProjectData } from '../../../shared/model/project.js'
++import type { SceneDocument } from '../../../shared/model/scene.js'
++import { createProjectDelta, projectDeltaBytes } from '../../../shared/project/delta.js'
++import { projectContentHash, validateProjectData } from '../../../shared/project/validate.js'
++import { cloneJson } from '../../../shared/validation/json.js'
++import { auditHistoryMessage } from './history-audit-message.js'
++import { auditHistoryRecords, auditHistoryRecordsWithYield, ReconstructionCache, seal, type HistoryGraph, type HistoryVersion } from './history-records.js'
++
++const NOW = '2026-11-12T00:00:00.000Z'
++let sequence = 0
++function graph(owner = 'cooperative-owner'): HistoryGraph {
++  const document = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' }) as SceneDocument
++  document.sceneId = owner; document.revision = 0
++  document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
++  const content = createCompositionContent(document, { ids: { nextId: () => `audit-token-${++sequence}` }, clock: { now: () => NOW } })
++  const root = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
++    assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} })
++  const versions: HistoryVersion[] = [], projects: ProjectData[] = []
++  for (let n = 0; n < 4; n++) {
++    const project = cloneJson(root); project.document.revision = n; project.document.title = `version ${n}`
++    projects.push(project)
++    // v2 is an inactive sibling; v3 continues v1. Pins keep the sibling visible.
++    const parent = n === 3 ? versions[1] : n ? versions[0] : null
++    const delta = parent ? createProjectDelta(projects[parent.revision], project) : null
++    versions.push(seal({ format: 'sceneweave-history-version' as const, version: 1 as const, ownerSceneId: owner,
++      id: `${owner}-v${n}`, revision: n, savedAt: NOW, contentHash: projectContentHash(project),
++      parentId: parent?.id ?? null, parentHash: parent?.contentHash ?? null, checkpoint: delta ? null : project, delta,
++      depth: parent ? parent.depth + 1 : 0, chainBytes: parent ? parent.chainBytes + projectDeltaBytes(delta) : 0, automatic: true }))
++  }
++  const active = versions[3], pinned = versions[2]
++  return { head: seal({ format: 'sceneweave-history-head' as const, version: 1 as const, ownerSceneId: owner, status: 'ready' as const,
++    activeVersionId: active.id, savedRevision: active.revision, contentHash: active.contentHash, migration: null }), versions,
++    pins: [seal({ format: 'sceneweave-history-pin' as const, version: 1 as const, id: `${owner}-pin`, ownerSceneId: owner,
++      versionId: pinned.id, lineageId: root.historyIdentity.lineageId, sourceRevision: pinned.revision,
++      name: 'retained sibling', kind: 'named' as const, createdAt: NOW, contentHash: pinned.contentHash })] }
++}
++const synchronous = (g: HistoryGraph) => auditHistoryRecords(g.head.ownerSceneId, g.head, g.versions, g.pins)
++const cooperative = (g: HistoryGraph, schedule: () => Promise<void> = async () => {}) => auditHistoryRecordsWithYield(g.head.ownerSceneId, g.head, g.versions, g.pins, schedule)
++afterEach(() => vi.restoreAllMocks())
++
++it('keeps complete counts, retained siblings and pins identical while yielding through both audit passes', async () => {
++  const g = graph(), schedule = vi.fn(async () => {})
++  expect(await cooperative(g, schedule)).toEqual(synchronous(g))
++  expect(schedule.mock.calls.length).toBeGreaterThan(g.versions.length * 2)
++})
++
++it('owns head, checkpoints, delta preconditions, pins and arrays before a scheduling callback can mutate their originals', async () => {
++  const g = graph(), expected = synchronous(g)
++  let first = true
++  expect(await cooperative(g, async () => {
++    if (!first) return
++    first = false
++    g.head.contentHash = 'f'.repeat(64)
++    g.versions[0].checkpoint!.document.title = 'external mutation'
++    g.versions[1].delta!.changes[0].before = { present: false }
++    g.pins[0].versionId = 'missing'
++    g.versions.length = 0
++  })).toEqual(expected)
++})
++
++it('clears reconstruction state when scheduling rejects after reconstruction, and allows a fresh complete retry', async () => {
++  const g = graph(), remember = vi.spyOn(ReconstructionCache.prototype, 'remember'), clear = vi.spyOn(ReconstructionCache.prototype, 'clear')
++  await expect(cooperative(g, async () => { if (remember.mock.calls.length) throw new Error('cancel scheduling') })).rejects.toThrow('cancel scheduling')
++  expect(clear).toHaveBeenCalledOnce()
++  expect(await cooperative(g)).toEqual(synchronous(g))
++})
++
++it.each(['record hash', 'inactive branch', 'pin target', 'missing parent'] as const)('still rejects %s through the same full audit', async kind => {
++  const g = graph(), branch = g.versions[2]
++  if (kind === 'record hash') branch.recordHash = 'f'.repeat(64)
++  if (kind === 'inactive branch') {
++    branch.delta!.changes[0].after = { present: true, value: 'tampered sibling' }
++    const { recordHash: _hash, ...body } = branch; g.versions[2] = seal(body)
++  }
++  if (kind === 'pin target') { const { recordHash: _hash, ...body } = g.pins[0]; g.pins[0] = seal({ ...body, versionId: 'missing' }) }
++  if (kind === 'missing parent') g.versions.shift()
++  expect(() => synchronous(g)).toThrow()
++  await expect(cooperative(g)).rejects.toThrow()
++})
++
++it.each(['accessor', 'hidden', 'symbol', 'prototype'] as const)('rejects unsafe checkpoint %s before yielding without executing getters', async kind => {
++  const g = graph(), checkpoint = g.versions[0].checkpoint!, getter = vi.fn(), schedule = vi.fn(async () => {})
++  if (kind === 'accessor') Object.defineProperty(checkpoint, 'bad', { enumerable: true, get: getter })
++  if (kind === 'hidden') Object.defineProperty(checkpoint, 'bad', { value: true })
++  if (kind === 'symbol') Object.defineProperty(checkpoint, Symbol('bad'), { value: true, enumerable: true })
++  if (kind === 'prototype') Object.setPrototypeOf(checkpoint, { bad: true })
++  await expect(cooperative(g, schedule)).rejects.toThrow()
++  expect(getter).not.toHaveBeenCalled(); expect(schedule).not.toHaveBeenCalled()
++})
++
++it('cooperatively checks every owner and its retained branches, and observes cancellation between records', async () => {
++  const left = graph('left'), right = graph('right')
++  const message = { kind: 'captured-history' as const, heads: [left.head, right.head], versions: [...left.versions, ...right.versions],
++    pins: [...left.pins, ...right.pins], blocks: [] }
++  expect(await auditHistoryMessage(message, undefined, async () => {})).toEqual({ documentBytes: synchronous(left).documentBytes + synchronous(right).documentBytes })
++  const signal = { aborted: false }, remember = vi.spyOn(ReconstructionCache.prototype, 'remember')
++  await expect(auditHistoryMessage(message, signal, async () => { if (remember.mock.calls.length) signal.aborted = true })).rejects.toMatchObject({ name: 'AbortError' })
++  expect(await auditHistoryMessage(message)).toEqual({ documentBytes: synchronous(left).documentBytes + synchronous(right).documentBytes })
++})
+diff --git a/src/platform/browser/storage/history-audit-message.ts b/src/platform/browser/storage/history-audit-message.ts
+index 3362305..c65fbfd 100644
+--- a/src/platform/browser/storage/history-audit-message.ts
++++ b/src/platform/browser/storage/history-audit-message.ts
+@@ -2,7 +2,7 @@ import type { ProjectData } from '../../../shared/model/project.js'
+ import { decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
+ import { checkCancelled, type CancellationSignal } from '../../../shared/ports/resources.js'
+ import { checkedContentBlock, createProjectMaterializer, isProjectBlockManifest, type ProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
+-import { auditHistoryRecords, type HistoryHead, type HistoryVersion, type HistoryPin } from './history-records.js'
++import { auditHistoryRecords, auditHistoryRecordsWithYield, type HistoryHead, type HistoryVersion, type HistoryPin } from './history-records.js'
+ 
+ export interface ExpandedHistoryAudit {
+   owner: string; head: HistoryHead | null; versions: HistoryVersion[]; pins: HistoryPin[]
+@@ -21,16 +21,20 @@ export type HistoryAuditMessage = ExpandedHistoryAudit | CapturedHistoryAudit
+  * The message owns ordinary structured clones; original capture bytes remain
+  * on the page for exact confirmation in the eventual database transaction. */
+ export async function auditHistoryMessage(message: HistoryAuditMessage, signal?: CancellationSignal,
+-  yieldPage: () => Promise<void> = async () => {}): Promise<{ documentBytes: number }> {
++  yieldPage?: () => Promise<void>): Promise<{ documentBytes: number }> {
+   checkCancelled(signal)
+-  if (!('kind' in message)) return auditHistoryRecords(message.owner, message.head, message.versions, message.pins)
++  const yieldAudit = async () => { checkCancelled(signal); await yieldPage?.(); checkCancelled(signal) }
++  const audit = (owner: string, head: HistoryHead | null, versions: HistoryVersion[], pins: HistoryPin[]) => yieldPage
++    ? auditHistoryRecordsWithYield(owner, head, versions, pins, yieldAudit)
++    : auditHistoryRecords(owner, head, versions, pins)
++  if (!('kind' in message)) return audit(message.owner, message.head, message.versions, message.pins)
+   if (message.kind !== 'captured-history') throw new Error('完整历史后台请求无效。')
+   const blocks = new Map<string, ProjectContentBlock>()
+   for (const raw of message.blocks) {
+     checkCancelled(signal)
+     const block = checkedContentBlock(raw)
+     if (blocks.has(block.sha256)) throw new Error('完整历史内容块重复。')
+-    blocks.set(block.sha256, block); await yieldPage()
++    blocks.set(block.sha256, block); await yieldAudit()
+   }
+   const materializer = createProjectMaterializer(async hash => blocks.get(hash))
+   try {
+@@ -46,15 +50,15 @@ export async function auditHistoryMessage(message: HistoryAuditMessage, signal?:
+         let checkpoint = row.checkpoint
+         if (isProjectBlockManifest(checkpoint)) checkpoint = await materializer.materialize(checkpoint)
+         if (checkpoint?.document.aggregateCoordinates?.encoding === 'local') checkpoint = decodeProjectCoordinates(checkpoint)
+-        versions.push({ ...row, checkpoint }); await yieldPage()
++        versions.push({ ...row, checkpoint }); await yieldAudit()
+       }
+       // Every output field owns its copy. After the final owner's manifests
+       // are assembled, no remaining audit consumes the parse cache or checked
+       // block copies. Earlier owners keep cross-owner reuse intact.
+       if (head === message.heads[message.heads.length - 1]) { materializer.close(); blocks.clear() }
+       checkCancelled(signal)
+-      documentBytes += auditHistoryRecords(head.ownerSceneId, head, versions, message.pins.filter(pin => pin.ownerSceneId === head.ownerSceneId)).documentBytes
+-      await yieldPage()
++      documentBytes += (await audit(head.ownerSceneId, head, versions, message.pins.filter(pin => pin.ownerSceneId === head.ownerSceneId))).documentBytes
++      await yieldAudit()
+     }
+     checkCancelled(signal)
+     return { documentBytes }
+diff --git a/src/platform/browser/storage/history-records.ts b/src/platform/browser/storage/history-records.ts
+index aa51613..164cd52 100644
+--- a/src/platform/browser/storage/history-records.ts
++++ b/src/platform/browser/storage/history-records.ts
+@@ -368,7 +368,7 @@ export function migrationManifest(current: StoredProject, automatic: StoredAutom
+ /** Complete graph validation over one transaction's actual captured rows.
+  * The worker and the nonbrowser fallback run this exact implementation. No
+  * declared digest, persisted byte count or active-branch shortcut is trusted. */
+-export function auditHistoryRecords(owner: string, head: HistoryHead | null, rows: HistoryVersion[], pins: HistoryPin[]): { documentBytes: number } {
++function* historyAuditSteps(owner: string, head: HistoryHead | null, rows: HistoryVersion[], pins: HistoryPin[]): Generator<void, { documentBytes: number }> {
+   if (!validId(owner)) throw new Error('增量历史工程ID无效。')
+   if (!head) {
+     if (rows.length || pins.length) throw new Error('增量历史存在无活动根的孤立记录。')
+@@ -382,6 +382,7 @@ export function auditHistoryRecords(owner: string, head: HistoryHead | null, row
+     const checked = checkVersionRecord(row, owner)
+     if (byteLengths.has(row.id)) throw new Error('增量历史图版本ID重复。')
+     byteLengths.set(row.id, encodeUtf8(checked.json).length)
++    yield
+   }
+   const byId = new Map(rows.map(row => [row.id, row])), cache = new ReconstructionCache(), replay = createProjectDeltaReplay()
+   try {
+@@ -394,6 +395,7 @@ export function auditHistoryRecords(owner: string, head: HistoryHead | null, row
+       }
+       includeFixedMeanings(project)
+       documentBytes += byteLengths.get(row.id)!
++      yield
+     }
+     const ids = new Set<string>(), counts = { named: 0, protection: 0, 'imported-auto': 0 }
+     for (const pin of pins) {
+@@ -405,6 +407,7 @@ export function auditHistoryRecords(owner: string, head: HistoryHead | null, row
+       if (byId.get(pin.versionId)!.contentHash !== pin.contentHash || project.document.revision !== pin.sourceRevision
+         || project.historyIdentity.lineageId !== pin.lineageId) throw new Error('增量历史快照在审计时内容或身份不符。')
+       documentBytes += historyPinBytes(pin)
++      yield
+     }
+     const active = byId.get(head.activeVersionId)
+     if (!active || active.contentHash !== head.contentHash || active.revision !== head.savedRevision || !active.automatic) throw new Error('增量历史活动根与持久修订不符。')
+@@ -412,3 +415,39 @@ export function auditHistoryRecords(owner: string, head: HistoryHead | null, row
+   } finally { cache.clear(); replay.clear() }
+ }
+ 
++/** Synchronous consumers and the Worker drain the same complete audit. */
++export function auditHistoryRecords(owner: string, head: HistoryHead | null, rows: HistoryVersion[], pins: HistoryPin[]): { documentBytes: number } {
++  const steps = historyAuditSteps(owner, head, rows, pins)
++  let step = steps.next()
++  while (!step.done) step = steps.next()
++  return step.value
++}
++
++/** Cooperative page fallback owns all inputs before its first yield. A caller
++ * can change its original graph while the page runs another task, but cannot
++ * change any checkpoint, delta, head or pin consumed by this audit. Project
++ * and delta payloads keep their separate input budgets. No authority survives
++ * completion, failure or a rejected scheduling callback. */
++export async function auditHistoryRecordsWithYield(owner: string, head: HistoryHead | null, rows: HistoryVersion[], pins: HistoryPin[],
++  yieldPage: () => Promise<void>): Promise<{ documentBytes: number }> {
++  const capturedHead = head === null ? null : captureJson(head)
++  const capturedRows = captureRows(rows, INCREMENTAL_HISTORY_LIMITS.versions, input => {
++    exact(input, VERSION_FIELDS)
++    const descriptors = Object.getOwnPropertyDescriptors(input)
++    if (!VERSION_FIELDS.every(key => descriptors[key]?.enumerable && 'value' in descriptors[key])) throw new Error('增量历史含非数据字段。')
++    const values = Object.fromEntries(VERSION_FIELDS.map(key => [key, descriptors[key].value]))
++    const checkpoint = values.checkpoint === null ? null : captureJson(values.checkpoint) as ProjectData
++    const delta = values.delta === null ? null : validateProjectDelta(values.delta)
++    const envelope = captureJson({ ...values, checkpoint: null, delta: null })
++    return { ...envelope, checkpoint, delta } as HistoryVersion
++  })
++  const capturedPins = captureRows(pins, 84, input => captureJson(input) as HistoryPin)
++  const steps = historyAuditSteps(owner, capturedHead, capturedRows, capturedPins)
++  try {
++    await yieldPage()
++    let step = steps.next()
++    while (!step.done) { await yieldPage(); step = steps.next() }
++    return step.value
++  } finally { steps.return({ documentBytes: 0 }) }
++}
++
+diff --git a/tests/history-audit-fallback.spec.ts b/tests/history-audit-fallback.spec.ts
+new file mode 100644
+index 0000000..a900384
+--- /dev/null
++++ b/tests/history-audit-fallback.spec.ts
+@@ -0,0 +1,33 @@
++import { expect, test } from '@playwright/test'
++import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel, placeKeyboardLamp, selectKeyboardProp } from './keyboard-ux-helpers'
++
++test('production without Worker preserves cold-save content, resources, undo and a second cold open', async ({ page }, info) => {
++  await createKeyboardProject(page, '无后台完整历史保存')
++  await placeKeyboardLamp(page)
++  const before = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
++  const owner = before.document.sceneId, [prop] = Object.keys(before.document.props)
++  await page.addInitScript(() => { Reflect.set(globalThis, 'Worker', undefined) })
++  let opens = 0
++  const open = async () => {
++    await page.goto(`./?history-audit-fallback=${++opens}#home`)
++    await page.getByTestId('workspace-home').locator(`[data-project-key="native:${owner}"]`).getByRole('button', { name: '打开', exact: true }).click()
++    await keyboardWorkspaceSaved(page)
++  }
++  await open(); await selectKeyboardProp(page, prop)
++  const angle = (await openKeyboardPanel(page, 'inspector')).getByLabel('物件旋转', { exact: true })
++  await angle.fill('15'); await angle.press('Tab'); await keyboardWorkspaceSaved(page)
++  const saved = await keyboardProjectBackup(page, info.outputPath('saved.sceneweave'))
++  expect(saved.document.props[prop].rotationDeg).toBe(15)
++  expect(saved.document.revision).toBe(before.document.revision + 1)
++  expect(keyboardResourceHashes(saved.hashes)).toEqual(keyboardResourceHashes(before.hashes))
++  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
++  const undone = await keyboardProjectBackup(page, info.outputPath('undone.sceneweave'))
++  expect(undone.document.props[prop]).toEqual(before.document.props[prop])
++  expect(undone.document.revision).toBe(saved.document.revision + 1)
++  await open()
++  const reopened = await keyboardProjectBackup(page, info.outputPath('reopened.sceneweave'))
++  expect(reopened.document).toEqual(undone.document)
++  expect(reopened.identity).toEqual(undone.identity)
++  expect(reopened.appearance).toEqual(undone.appearance)
++  expect(keyboardResourceHashes(reopened.hashes)).toEqual(keyboardResourceHashes(undone.hashes))
++})

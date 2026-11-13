@@ -6,7 +6,69 @@
 
 ## 当前完整v1单项开发对照
 
+最终写事务归因新增`run-content-transaction-analysis.mjs --source ABS_FROZEN --input ABS_SCENEWEAVE --output ABS_NEW_WORK [--history 20]`，在忽略输出副本插入粗函数inclusive墙钟及缓存计数，原src／正常dist不动。独立Chrome／空临时库建立标题历史，重开后cold／warm1／warm2各保存一次，末尾核完整冷读及实际版本数。原生观察按事务计算块get唯一／重复次数，key仅留短时页面Set、不输出key／值、不额外读库；实际块捕获／SHA、资源／许可、预算及CAS保持。源组件没有编辑器局部回执，嵌套／async inclusive不可相加，未采全机背景CPU，不以它替代正常页面或精确CPU／分配。当前证据见[性能主题](../../docs/reference/performance.md#content-transaction-20261113)，开发决定见[07](../../docs/07-roadmap.md#content-transaction-20261113)。
+
+原实现已证明每笔1582次实际块get都在最终写事务且重复0，另1576次需求命中缓存，暖物化解析0；不能再提加相同缓存。收敛Promise批次候选通过30项单元／正常构建／8项生产故障专项，固定两对正常对照4包／8图实际像素保持，但采用后首笔+2.63%、暖+0.19%，页面heap两对+9.87%／+21.06%；冷后暖虽−15.84%，全机负载不等，不判稳定净收益。**候选未采用**，完整两文件及4新测试保全`experiments/content-block-batch-20261113.patch`，不是发布基线；测量版工具单独在忽略证据根`measured-tools/`保全，收尾修改不回写历史manifest。
+
+`prepare-production-pair.mjs --optimization content-block-batch-prototype`仅在新隔离after正向应用实验、before保留当前实现，正常构建后运行器同scope严格要求content-block-middleware与新content-block-batch测试两份src差异。诊断源组件与正常页面分别使用新空输出，先测试／构建，再逐条串行测量，事前固定轮数，不追加有利样本。下例fixtures仍先按本页容量准备器在本机重建；当前副本变更后patch不匹配须显式适配，不能回退普通工作区：
+
+```powershell
+node tools/performance/prepare-production-pair.mjs --optimization content-block-batch-prototype --output D:\code\sceneweave\work\new-content-batch\builds
+node tools/performance/run-content-transaction-analysis.mjs --source D:\code\sceneweave\work\new-content-batch\builds\before --input D:\code\sceneweave\work\new-pair\fixtures\mixed-2000.sceneweave --output D:\code\sceneweave\work\new-content-batch\diagnostic-before --history 20
+node tools/performance/run-production-pair.mjs --optimization content-block-batch-prototype --before-source D:\code\sceneweave\work\new-content-batch\builds\before --after-source D:\code\sceneweave\work\new-content-batch\builds\after --before-dist D:\code\sceneweave\work\new-content-batch\builds\before\dist --after-dist D:\code\sceneweave\work\new-content-batch\builds\after\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern toggle --pairs 2 --output D:\code\sceneweave\work\new-content-batch\normal-ab
+```
+
+暖保存归因可显式加`--diagnostic-warm`，只消费正常未插桩dist，与`--diagnostic-replay`互斥。运行器仅在采用后暖笔／冷后暖笔开启CDP时间线及原生API计数，输出独立trace和native JSON，结果标`traced-warm-save-attribution-only`；整次旅程计时都不混正常分布。原生观测不读取额外记录或保存键／值，记录事务／请求／游标、120ms定时器排队及Worker时刻；Chrome目标页user timing mark对齐后，主线程task／GC按区间并集计算，嵌套inclusive表不可相加。没有强制GC、CPU采样器或产品计时钩子；堆变化不等于分配总字节，事务寿命不等于CPU／磁盘／精确持锁时间。固定A/A及A/B研究状态见[07](../../docs/07-roadmap.md#warm-save-attribution-20261112)，证据归[性能主题](../../docs/reference/performance.md#warm-save-attribution-20261112)。
+
+该暖保存固定矩阵已完成，独立于后文未插桩控制研究：8侧208操作、8包／16图及16暖trace核对通过。逐对请求18类计数一致、暖窗新Worker均0；GC并集16.77–48.03ms，真实A/B一笔多159.2ms而GC少4.14ms，不能据此把退步归因全部回收或新增历史审计。原型继续不采用，未改产品。测量版工具在忽略证据根`warm-measured-tools/`独立保全，最终README更新不改历史manifest。GC子事件数不等于回收次数，120ms按delay观察不构成save身份；同计数不保证CPU／分配等价，已有同事务块缓存不能忽略。
+
+同一正常冻结上分别建立暖trace A/A和A/B；先完成准备／构建／工具检查，轮数事前固定，两命令串行且测量期间不修改本目录。下例沿用后文的隔离原型准备目录与重新生成的fixtures，两个输出都须新空目录；不使用`diagnostic-before`／`diagnostic-after`插桩产物：
+
+```powershell
+node --test tools/performance/warm-save-diagnostic.test.mjs tools/performance/production-pair-audit.test.mjs tools/performance/resources.test.mjs tools/performance/windows-process-sampler.test.mjs
+node tools/performance/run-production-pair.mjs --optimization same-build-control --diagnostic-warm --before-source D:\code\sceneweave\work\new-prop-replay\builds\before --after-source D:\code\sceneweave\work\new-prop-replay\builds\before --before-dist D:\code\sceneweave\work\new-prop-replay\builds\before\dist --after-dist D:\code\sceneweave\work\new-prop-replay\builds\before\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern toggle --pairs 2 --output D:\code\sceneweave\work\new-prop-replay\warm-traced-aa
+node tools/performance/run-production-pair.mjs --optimization prop-replay-prototype --diagnostic-warm --before-source D:\code\sceneweave\work\new-prop-replay\builds\before --after-source D:\code\sceneweave\work\new-prop-replay\builds\after --before-dist D:\code\sceneweave\work\new-prop-replay\builds\before\dist --after-dist D:\code\sceneweave\work\new-prop-replay\builds\after\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern toggle --pairs 2 --output D:\code\sceneweave\work\new-prop-replay\warm-traced-ab
+```
+
+控制退步归因新增`run-production-pair.mjs --optimization same-build-control`：两侧必须实际源码及dist指纹完全相同，仍各新Chrome/profile、交替标签和完整UI旅程；路径或标签相同不能代替字节检查。该模式测重复／背景波动，不表示任何优化收益。与真实before／after对照分别用新输出目录，事前固定轮数，不补测择优。
+
+本轮固定矩阵已完成：A/A冷保存两对−9.89%／+7.45%；真实双状态冷−0.13%／−28.68%，暖+5.01%／+2.92%；不同位置冷−31.23%／−19.01%（两侧中位−24.49%）。诊断确认双状态前后完整验证／捕获／SHA量相同、有限尝试0，暖笔没有历史Worker／replay；不同位置19份有限复用成功。背景高负载与分配／GC／调度的具体贡献仍未确定，自比波动不是无退步界限；原型继续未采用。逐对、逐阶段负载、内存及首败见[归因结果](../../docs/reference/performance.md#replay-control-attribution-20261112)，原工具在忽略证据根的`measured-tools/`保全，收尾README更新不改历史manifest。
+
+`build-replay-diagnostic.mjs --source ABS_FROZEN --output ABS_NEW_DIST`在独立产物中为主页面和各Worker安装粗边界计数／计时，不改原src／正常dist；记录replay完整回退、metadata命中、有限尝试／成功及严格验证、独立捕获、坐标、预算、UTF8／SHA边界。诊断产物带`diagnostic-replay.json`，只有运行器显式`--diagnostic-replay`才可消费；普通运行拒绝诊断产物，诊断结果归`instrumented-replay-attribution-only`，不能混进正常性能分布。逐UI操作分别收主页面与真实历史Worker的计数，Worker返回协议／实际审计／完整hash不变；记录不含工程或资源值。阶段self仍含未插桩工作、调度与GC，不能将包含关系相加。源、正常产物、工具和实际输入分别冻结；新研究状态从[07](../../docs/07-roadmap.md#replay-control-attribution-20261112)接续。
+
+**有限历史几何／分组核心原型未采用**，保全于`experiments/prop-replay-20261112.patch`（3产品＋1新测试，24项）。`prepare-production-pair.mjs --optimization prop-replay-prototype`在新隔离副本的after正向应用，before保留当前产品；`run-production-pair.mjs`同名scope严格要求validation/snapshots、validation/content、project/validate及project/replay-geometry测试4份src差异。上一轮普通不同位置20历史冷保存改善约22%，双状态控制冷／暖仍+7.50%／+6.76%；上述新归因对照仍不足以确认常用路径无退步，因此不接入普通产品，不列入baselines。338项定向、两侧正常构建、8项生产专项和原8包／16张实际4K一致均不替代性能条件；原始图／冻结仍在忽略目录。原反证与方法见[主题记录](../../docs/reference/performance.md#finite-history-geometry-20261112)。测量时旧诊断scope名为`prop-replay`，收尾明确改名prototype；原工具版本随忽略证据另行保全，不改历史manifest。
+
+`capture-prop-replay-history.mjs --source ABS --input ABS --output ABS_NEW --edit prop|metadata|group-translate|group-rotate|mixed-translate --history 20 --members 32`从严格完整合成输入创建真实仓库历史，在一次冷保存捕获实际Worker图，末尾完整冷读核对。纯物件组通过正式分组命令建立真实身份，再改变唯一local frame，逐笔全验／保存，核所有成员local实际内容精确保持；它是源模块诊断，不新增普通页面组移动入口。默认使用混合容量输入的远端完整Prop，不能用任意不含这些显式ID／组的输入冒充该负载；真实混合组另用正式自然组命令及原预算建立随动历史。纯物件frame为整数平移／quarterTurns四方向，外部支撑／Floor／连接／nearSide仍检查，建筑／地形随动仍完整回退。输出图保全全部owner／版本／pin／实际块，用下面的`compare-history-audit.mjs`做同图AB／BA；独立输入／源码指纹和准备失败保留，不能仅复制旧图的hash当实际输入。
+
+正常生产对照新增`--history-pattern toggle|distinct`，默认toggle保留旧两状态往返；distinct每笔实际X偏移+1,+2,…,+(depth−1),0mm，最终真实归零，原完整包与双受众像素审计继续适用。每个历史起点跟踪当前实际偏移，不能沿用只在0／1往返的假设。两种模式分别用新输出目录，不混分布；准备、构建、测试与正式采样串行，Windows参数使用本机原生绝对路径。复建未采用实验示例：
+
+```powershell
+node tools/performance/prepare-production-pair.mjs --optimization prop-replay-prototype --output D:\code\sceneweave\work\new-prop-replay\builds
+node tools/performance/run-production-pair.mjs --optimization prop-replay-prototype --before-source D:\code\sceneweave\work\new-prop-replay\builds\before --after-source D:\code\sceneweave\work\new-prop-replay\builds\after --before-dist D:\code\sceneweave\work\new-prop-replay\builds\before\dist --after-dist D:\code\sceneweave\work\new-prop-replay\builds\after\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern distinct --pairs 2 --output D:\code\sceneweave\work\new-prop-replay\distinct
+```
+
+在同一冻结上补同构建自比及独立插桩归因示例；输入仍先按容量工具重新建立。下列输出目录必须不存在或为空，先完成构建，再逐条串行测量，避免改动已冻结的`tools/performance/`。诊断示例为toggle，若事前同时研究distinct，另用新输出目录执行；普通A/B的toggle和distinct也各自新目录、固定轮数，不拼分布：
+
+```powershell
+node tools/performance/build-replay-diagnostic.mjs --source D:\code\sceneweave\work\new-prop-replay\builds\before --output D:\code\sceneweave\work\new-prop-replay\diagnostic-before
+node tools/performance/build-replay-diagnostic.mjs --source D:\code\sceneweave\work\new-prop-replay\builds\after --output D:\code\sceneweave\work\new-prop-replay\diagnostic-after
+node tools/performance/run-production-pair.mjs --optimization prop-replay-prototype --diagnostic-replay --before-source D:\code\sceneweave\work\new-prop-replay\builds\before --after-source D:\code\sceneweave\work\new-prop-replay\builds\after --before-dist D:\code\sceneweave\work\new-prop-replay\diagnostic-before --after-dist D:\code\sceneweave\work\new-prop-replay\diagnostic-after --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern toggle --pairs 1 --output D:\code\sceneweave\work\new-prop-replay\diagnosis-toggle
+node tools/performance/run-production-pair.mjs --optimization same-build-control --before-source D:\code\sceneweave\work\new-prop-replay\builds\before --after-source D:\code\sceneweave\work\new-prop-replay\builds\before --before-dist D:\code\sceneweave\work\new-prop-replay\builds\before\dist --after-dist D:\code\sceneweave\work\new-prop-replay\builds\before\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern toggle --pairs 2 --output D:\code\sceneweave\work\new-prop-replay\normal-aa-toggle
+```
+
+**未接入产品的研究候选**保留在`experiments/cooperative-audit-20261112.patch`。`prepare-production-pair.mjs --optimization cooperative-audit-prototype`只在新隔离副本的after正向应用此实验，before保持当前源码；与其他已采用优化反向重建基线的方向不同。差异严格为history-records、history-audit-message与新history-audit-cooperative测试3份src文件，另保留正常页面history-audit-fallback测试。候选正常Worker仍同步消费同一完整审计算法，无Worker才在记录摘要／版本重建／pin之间检查12ms调度预算；单个完整版本不是12ms上限。每owner的异步入口第一次让出前独立捕获其head、每份checkpoint／delta及pin，完成／取消清理重建缓存，原始数据库确认字节保持。本轮普通生产两对冷保存均退步，未满足性能条件，所以主工作区已恢复；此patch是可复现实验，不是已采用优化或发布基线。正常生产比较可选`run-production-pair.mjs --optimization cooperative-audit-prototype`，不能把无Worker响应改善外推普通保存加速。
+
+`compare-history-audit.mjs --before-source ABS --after-source ABS --graph ABS_ACTUAL_READ_JSON --output ABS_NEW --mode worker|fallback|both --rounds 2`在同一实际捕获历史图上串行AB／BA，各侧／模式新Chrome，重建Uint8Array实际块，不连接用户数据库。分别记录审计总等待、页面长任务、16ms心跳真实间隔、进程树及页面heap采样；全部owner／分支／pin计量和原始图不变才成功。组件测量不包含完整保存或正常UI，未独占负载不能签收性能门。实际图由`run-history-cause-analysis.mjs`捕获，后者可选`--edit metadata|prop --prop-id ID`建立仅元数据或每笔不同几何历史；插桩／CPU诊断与不插桩的同图比较分开。源码、图及工具指纹与失效样本保持，图／profile仍放忽略目录。
+
+保存分块占用整改使用`baselines/storage-footprint-20261112.patch`及`--optimization storage-footprint`，严格差异为content-blocks、content-context、repository、history-audit-message及content-block-local／history-audit-transaction测试6文件。生产者私有块在编码／快照之间及连续局部版本间共享，消费边界仍复制；页面物化完成后、后台最后一个owner物化完成后释放各自解析暂存，跨owner复用保留到最后使用。不调整缓存上限、不转移最终确认原始字节、不改数据库格式或清理历史。正常生产比较沿用本节运行器，分别检查耗时、页面任务和实际进程／页面占用。
+
+`run-storage-footprint-analysis.mjs --before-source ABS --after-source ABS --input ABS_SCENEWEAVE --output ABS_NEW_DIRECTORY --history 20,44,66 --rounds 2 --edits 6 --mode local`提供独立源码组件分析。各侧新Chrome／空profile先真实建立指定次数的不同几何历史，关闭仓库并冷读，再通过实际Workspace执行一笔冷和多笔暖的X+1mm编辑；`--mode generic`另测通用保存。默认优先夹具中独立的`capacity-mixed-remote-0000`，否则选首个未锁公开物件，可用`--prop-id ID`明确指定；每笔Workspace提交记录实际局部回执是否存在，不能把进入Workspace等同于命中局部保存。AB／BA串行，记录领域提交／总保存／原生事务／页面任务，并单列打开后、保存中、保存后空闲的页面heap和进程树Working Set／私有提交。Windows实际进程采样不快于500ms，页面heap不含Worker／图片／GPU，跨phase样本不并入单阶段峰值；背景负载与有限样本限制保留。
+
+同一工具在计时／采样停止后只读捕获全部原生表，分别记录JSON逻辑字节和binary payload，遍历全部保留清单的真实块引用并核实际SHA／长度，报告可达／无引用块以及浏览器空间估算；不删除数据、不访问用户profile，也不把逻辑量称作磁盘文件大小。最终完整冷读、实际版本数／坐标以及最早／中间／最新历史的完整hash逐项核对。可选`--heap-diagnostic`仅在测量结束后强制GC并保留完整`.heapsnapshot`及ArrayBuffer backing bytes统计，不将其当自然空闲占用／长期无泄漏证据。`--copy-diagnostic`在上述测量及快照全部结束后，只围住同步自有编码准备／消费返回统计`Uint8Array.prototype.slice`实际复制次数与输出字节，并立即还原原型；它不计其他分配，耗时也不混入产品结果。诊断快照和原始输入留在忽略目录，不随Git携带。每次用新输出目录，采样失败保留并终止，不自动重试。
+
 物化／紧凑Worker／通用差量复用使用`baselines/history-boundaries-20261112.patch`及`--optimization history-boundaries`；准备器在隔离副本反向重建基线，运行器严格要求13个src产品／测试文件差异。普通生产20／44／66深度分别AB／BA／AB，源码组件另用`run-storage-scale.mjs --matrix 1:20,2:8 --edit-mode unique-prop`核每笔不同几何及多owner，标题组件仍分别测。此scope是三项收窄方案的整体产品比较，不以先前研究原型代替结果。保留普通复制／最终原字节确认，不启用transfer；已有UI局部路径不新增通用差量准备。完整delta封装和兼容检查仍在最终事务；页面heap、进程树Working Set及私有提交分开报告。源码、输入、工具冻结后串行采样，原型工具继续只作研究。
+
+`run-save-transaction-analysis.mjs --before-source ABS --after-source ABS --input ABS_SCENEWEAVE --output ABS_NEW_JSON --rounds 2 --history 20`另核暖通用保存的真实原生事务寿命。每轮AB／BA交替，新独立浏览器先建立指定实际标题历史、重开后完成一笔冷保存和两笔暖保存，记录保存总等待及每个原生readonly／readwrite的创建至complete跨度；最终完整冷读与保留版本数相同才记录成功。没有editor局部回执、CPU插桩、强制GC或自动重试，源模块测量不当正常生产UI；事务寿命包含调度、克隆和请求等待，不是纯磁盘或精确CPU／锁占用。输入、各侧源码及运行器SHA保留，独立于原型及正常UI分布。
 
 完整内容判等优化使用`baselines/content-equality-20261112.patch`及`--optimization content-equality`，范围严格为storage下content-context／content-blocks、content-block-local测试及新content-equality测试4文件。已验不可变输入直接全量结构判等，未知输入先完整独立描述符捕获；不省略实际字节／SHA／许可／CAS，不按归一坐标或声明hash匹配。正常UI、独特几何／多owner与13输入旅程保持同冻结串行；分段工具另外观察prepareEncodedSnapshot／matchingEncodedSnapshot／prepareLocalProjectContent／snapshotContentPartition，插桩结果不混正常UI分布。
 
