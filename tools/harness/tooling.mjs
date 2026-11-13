@@ -20,7 +20,12 @@ export async function startHarnessTooling(root, listen = false) {
   try {
     server = await createServer({
       root, configFile: false, base: '/', cacheDir: cacheDirectory, logLevel: 'error',
-      server: { host: '127.0.0.1', port: listen ? await privatePort() : 0, strictPort: true, hmr: false, fs: { strict: true, allow: [root, cacheDirectory] } },
+      server: { host: '127.0.0.1', port: listen ? await privatePort() : 0, strictPort: true, hmr: false,
+        // Host-captured inputs, model dependencies and generated evidence are
+        // data, not application modules. Watching them makes each output wake
+        // another source scan during long image workflows.
+        watch: { ignored: ['**/work/**', '**/local-data/**'] },
+        fs: { strict: true, allow: [root, cacheDirectory] } },
       optimizeDeps: { noDiscovery: true, include: ['dexie', 'fflate', 'zod', 'polygon-clipping'] },
       plugins: [{ name: 'semantic-generation-harness', configureServer(instance) {
         instance.middlewares.use((request, response, next) => {

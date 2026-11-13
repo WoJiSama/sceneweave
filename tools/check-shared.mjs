@@ -45,7 +45,7 @@ try {
   const compiled = spawnSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--project', 'tsconfig.shared.json', '--noEmit', 'false', '--outDir', temporary], { cwd: root, encoding: 'utf8' })
   if (compiled.status !== 0) throw new Error(compiled.stdout + compiled.stderr)
   await writeFile(join(temporary, 'package.json'), '{"type":"module"}\n')
-  await symlink(join(root, 'node_modules'), join(temporary, 'node_modules'), 'dir')
+  await symlink(join(root, 'node_modules'), join(temporary, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   const entry = pathToFileURL(join(temporary, 'index.js')).href
   const currentScene = pathToFileURL(join(temporary, 'model/current-scene.js')).href
   const smoke = `
