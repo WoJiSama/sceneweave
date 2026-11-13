@@ -771,7 +771,10 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       await yieldAudit()
     }
     const heads = readRows.get('historyHeads') as HistoryHead[], pins = readRows.get('historyPins') as HistoryPin[]
-    const owners = new Set(heads.map(head => head.ownerSceneId)), currents = readRows.get('projects') as StoredProject[]
+    // Full current payloads have already passed rowCost's complete validation.
+    // Only scalar head identity is needed after the Worker boundary.
+    const owners = new Set(heads.map(head => head.ownerSceneId))
+    const currents = new Map((readRows.get('projects') as StoredProject[]).map(row => [row.sceneId, { revision: row.revision, contentHash: row.contentHash }]))
     if (versions.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史缺少所属活动分支。')
     if (pins.some(row => !owners.has(row.ownerSceneId))) throw new Error('增量历史快照缺少所属分支。')
     // Only needed content blocks cross the boundary. Resources and the entire
@@ -782,10 +785,14 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       if (!block) throw new Error('完整历史内容块缺失。')
       historyBlocks.push(block); await yieldAudit()
     }
+    // No more page materialization follows. Release parsed and hydrated copies
+    // before the Worker allocates its complete graph; retain all native capture
+    // rows unchanged for the final transaction's exact byte confirmation.
+    materializer.close(); hydrated.clear(); readRows.clear(); blocks.clear()
     if (heads.length) await auditCapturedHistoryInWorker({ kind: 'captured-history', heads, versions, pins, blocks: historyBlocks }, signal)
     for (const head of heads) {
       checkCancelled(signal)
-      const current = currents.find(row => row.sceneId === head.ownerSceneId)
+      const current = currents.get(head.ownerSceneId)
       if (!current || current.revision !== head.savedRevision || current.contentHash !== head.contentHash) throw new Error('历史活动版本与完整当前工程不一致。')
     }
     return totals

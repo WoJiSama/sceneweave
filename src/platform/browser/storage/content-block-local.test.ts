@@ -52,6 +52,34 @@ async function restored(partition: ReturnType<typeof partitionProjectContent>) {
 const propField = (partition: ReturnType<typeof partitionProjectContent>) => partition.manifest.fields.find(field => field.path.join('.') === 'document.props')!
 
 describe('local complete-content block preparation', () => {
+  it('isolates returned bytes across local versions and preserves an encoding after LRU eviction', async () => {
+    const before = source(180, true), after = moved(before, ['item', 'detail-17'])
+    const encoding = contentBlocks.encodeProjectContent(before)
+    const initial = contentBlocks.partitionEncodedProjectContent(encoding)
+    expect(prepareLocalProjectContent(after, validateProjectData(after))?.reusedBlocks).toBeGreaterThan(20)
+    const nextEncoding = contentBlocks.encodeProjectContent(after)
+    const next = contentBlocks.partitionEncodedProjectContent(nextEncoding)
+    // Poison both consuming copies, including the blocks reused by the local
+    // producer. Neither producer nor the other version may observe the write.
+    initial.blocks.forEach(block => block.bytes.fill(0))
+    initial.manifest.fields[0].path[0] = 'poisoned'
+    next.blocks.forEach(block => block.bytes.fill(1))
+    next.manifest.contentHash = '0'.repeat(64)
+    for (let index = 0; index <= CONTENT_BLOCK_CACHE_LIMITS.entries; index++) {
+      const unrelated = cloneJson(before); unrelated.document.title = `evict private partition ${index}`
+      partitionProjectContent(unrelated)
+    }
+    const old = contentBlocks.partitionEncodedProjectContent(encoding)
+    const current = contentBlocks.partitionEncodedProjectContent(nextEncoding)
+    expect(canonicalProjectCoordinates(await restored(old))).toBe(canonicalProjectCoordinates(before))
+    expect(canonicalProjectCoordinates(await restored(current))).toBe(canonicalProjectCoordinates(after))
+    // A new local preparation can repopulate an evicted baseline without
+    // changing either already-admitted encoding lease.
+    expect(prepareLocalProjectContent(after, validateProjectData(after))).toBeDefined()
+    expect(contentBlocks.partitionEncodedProjectContent(encoding)).toEqual(old)
+    expect(contentBlocks.partitionEncodedProjectContent(nextEncoding)).toEqual(current)
+  })
+
   it('reencodes only changed Prop buckets and revision fields, then consumes an exact detached DB copy', async () => {
     const before = source(), after = moved(before), expected = partitionProjectContent(cloneJson(after))
     const initial = partitionProjectContent(before), prepared = prepareLocalProjectContent(after, validateProjectData(after))!
