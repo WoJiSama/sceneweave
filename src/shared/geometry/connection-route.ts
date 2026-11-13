@@ -8,7 +8,7 @@ const routeShape = z.object({ version: z.literal(1), kind: z.enum(['polyline', '
   segments: z.array(segment).min(1).max(16), sampleSpacingMm: z.number().int().min(4).max(20_000),
   toleranceMm: z.number().int().min(1).max(1000), centerlineMm: z.array(point).min(2).max(256),
   stairStyle: z.enum(['stone', 'wood', 'naturalRock']), treadDepthMm: z.number().int().min(50).max(2000),
-  renderProfile: z.enum(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4']).optional(),
+  renderProfile: z.enum(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4', 'naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8']).optional(),
 }).strict()
 export type ConnectionRoute = z.infer<typeof routeShape>
 export const CONNECTION_ROUTE_LIMITS = Object.freeze({ segments: 16, samples: 256, treads: 512 })

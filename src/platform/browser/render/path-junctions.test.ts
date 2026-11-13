@@ -194,16 +194,16 @@ describe('same-paint road and camp exterior', () => {
     expect(segments.some(([a, b]) => a.x === 2500 && b.x === 2500)).toBe(true)
     expect(segments.some(([a, b]) => a.x === 0 && b.x === 500 || a.x === 500 && b.x === 0)).toBe(false)
   })
-  it('requires the exact opaque world paint with no overlay or rule patch conflict', () => {
+  it('requires exact opaque world paint and retains uncertain overlay or rule patch edges', () => {
     const changes = [
       (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.opacity = .8 },
       (value: ReturnType<typeof fixture>) => { value.terrain[0].style!.base.opacity = .8 },
       (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.rotationDeg = 90 },
       (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.originMm.x = 10 },
       (value: ReturnType<typeof fixture>) => { value.paths[0].style.base.alignment = 'surface' },
-      (value: ReturnType<typeof fixture>) => { value.terrain[0].style!.overlays.push({ id: 'paint', paint: structuredClone(style.base), boundaryMm: rectangle(0, 0, 100, 100), blendWidthMm: 0, renderOrder: 0 }) },
+      (value: ReturnType<typeof fixture>) => { value.terrain[0].style!.overlays.push({ id: 'paint', paint: structuredClone(style.base), boundaryMm: rectangle(0, 0, 100, 100), blendWidthMm: 100, renderOrder: 0 }) },
       (value: ReturnType<typeof fixture>) => { value.paths[0].style.overlays.push({ id: 'paint', paint: structuredClone(style.base), boundaryMm: rectangle(0, 0, 100, 100), blendWidthMm: 0, renderOrder: 0 }) },
-      (value: ReturnType<typeof fixture>) => { value.terrain[0].materialPatches = [{ regionsMm: [{ outerMm: rectangle(0, 0, 100, 100), holesMm: [] }], paint: structuredClone(style.base), blendWidthMm: 0 }] },
+      (value: ReturnType<typeof fixture>) => { value.terrain[0].materialPatches = [{ regionsMm: [{ outerMm: rectangle(0, 0, 100, 100), holesMm: [] }], paint: structuredClone(style.base), blendWidthMm: 100 }] },
     ]
     for (const change of changes) {
       const projection = fixture(); change(projection)
@@ -213,6 +213,53 @@ describe('same-paint road and camp exterior', () => {
       const projection = { ...fixture(), visual: { filters: [{ sourceEntityIds: [id] }] } as Projection['visual'] }
       expect(pathJunctionOutlines(projection).size).toBe(0)
     }
+  })
+  it('resolves a matching hard overlay over different base paint, splitting at its real boundary', () => {
+    const projection = fixture(), camp = projection.terrain[0]
+    camp.style!.base.tint = '#BBAA88'
+    camp.style!.overlays.push({ id: 'working-apron', paint: structuredClone(style.base), boundaryMm: rectangle(500, -2000, 2000, 4000), blendWidthMm: 0, renderOrder: 0 })
+    const before = JSON.stringify(projection), segments = pathJunctionOutlines(projection).get('road')!
+    expect(totalLength(segments)).toBe(10000)
+    expect(containsPoint(segments, p(0, 500))).toBe(true)
+    expect(containsPoint(segments, p(1000, 500))).toBe(false)
+    // The end cap lies exactly on the overlay's far boundary: one side still
+    // exposes the different ground, so this exterior edge must remain.
+    expect(containsPoint(segments, p(2500, 0))).toBe(true)
+    expect(JSON.stringify(projection)).toBe(before)
+  })
+  it('allows a later opaque core to cover earlier feathering and respects later conflicting paint', () => {
+    const projection = fixture(), camp = projection.terrain[0]
+    camp.style!.base.tint = '#BBAA88'
+    camp.style!.overlays.push(
+      { id: 'soft-shoulder', paint: structuredClone(style.base), boundaryMm: rectangle(0, -2000, 4000, 4000), blendWidthMm: 300, renderOrder: 0 },
+      { id: 'hard-core', paint: structuredClone(style.base), boundaryMm: rectangle(500, -2000, 3500, 4000), blendWidthMm: 0, renderOrder: 1 },
+    )
+    const segments = pathJunctionOutlines(projection).get('road')!
+    expect(totalLength(segments)).toBe(9000)
+    expect(containsPoint(segments, p(2500, 0))).toBe(false)
+    camp.style!.overlays.push({ id: 'later-stain', paint: { ...structuredClone(style.base), opacity: .5 }, boundaryMm: rectangle(1800, -900, 900, 1800), blendWidthMm: 0, renderOrder: 2 })
+    const stained = pathJunctionOutlines(projection).get('road')!
+    expect(containsPoint(stained, p(2500, 0))).toBe(true)
+    expect(containsPoint(stained, p(1000, 500))).toBe(false)
+  })
+  it('resolves hard rule regions including erased holes, without joining through the hole', () => {
+    const projection = fixture(), camp = projection.terrain[0]
+    camp.style!.base.tint = '#BBAA88'
+    camp.materialPatches = [{ paint: structuredClone(style.base), blendWidthMm: 0,
+      regionsMm: [{ outerMm: rectangle(0, -2000, 4000, 4000), holesMm: [rectangle(1000, -1000, 500, 2000)] }] }]
+    const segments = pathJunctionOutlines(projection).get('road')!
+    expect(totalLength(segments)).toBe(9000)
+    expect(containsPoint(segments, p(1250, 500))).toBe(true)
+    expect(containsPoint(segments, p(750, 500))).toBe(false)
+    expect(containsPoint(segments, p(2500, 0))).toBe(false)
+    camp.materialPatches[0].blendWidthMm = 50
+    expect(pathJunctionOutlines(projection).size).toBe(0)
+  })
+  it('preserves all outlines when optional surface paint exceeds its finite allowance', () => {
+    const projection = fixture(), camp = projection.terrain[0]
+    camp.style!.overlays = Array.from({ length: 129 }, (_, index) => ({ id: `paint-${index}`, paint: structuredClone(style.base),
+      boundaryMm: rectangle(0, -2000, 4000, 4000), blendWidthMm: 0, renderOrder: index }))
+    expect(pathJunctionOutlines(projection).size).toBe(0)
   })
   it('does not consume private or hidden terrain, and fails closed if a public cover was dropped downstream', () => {
     const projection = fixture(), original = pathJunctionOutlines(projection)

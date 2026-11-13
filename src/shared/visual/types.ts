@@ -48,7 +48,7 @@ export interface VisualEdgeLook extends VisualEntity {
   repeatMm: number
   enabled: boolean
   /** Explicit saved paint algorithm. Absent retains the original fixed look. */
-  renderProfile?: 'rockRelief2' | 'rockRelief3' | 'rockRelief4'
+  renderProfile?: 'rockRelief2' | 'rockRelief3' | 'rockRelief4' | 'rockRelief5' | 'rockRelief6' | 'rockRelief7' | 'rockRelief8' | 'rockRelief9'
 }
 export interface VisualLight extends VisualEntity {
   positionMm: PointMm

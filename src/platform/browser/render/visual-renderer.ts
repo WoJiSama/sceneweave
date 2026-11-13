@@ -16,6 +16,9 @@ import { edgeLookPaintPadding } from '../../../shared/visual/paint-envelopes.js'
 import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
 import { cliffHighGround, type CliffHighGround } from './cliff-high-ground.js'
+import { planTerrainCliffs } from '../../../shared/visual/terrain-cliff-plan.js'
+import { drawTerrainCliffFace } from './terrain-cliff-renderer.js'
+import { cliffRibbon, cliffRibbonPaints, type CliffRibbon } from '../../../shared/visual/cliff-ribbon.js'
 
 const TAU = Math.PI * 2
 const minMaxBounds = (points: PointMm[], padding = 0): BoundsMm => { const x = Math.min(...points.map(p => p.x)) - padding, y = Math.min(...points.map(p => p.y)) - padding; return { x, y, width: Math.max(...points.map(p => p.x)) + padding - x, height: Math.max(...points.map(p => p.y)) + padding - y } }
@@ -71,6 +74,37 @@ function connectionsFor(projection: Projection, boundary: ProjectedVisualBoundar
 }
 const sides = (look: VisualEdgeLook) => look.side === 'both' ? [-1, 1] : [look.side === 'left' ? 1 : -1]
 
+/** Fixed world-pixel tiles keep Canvas path clipping/rasterization independent
+ * of the viewport edges. A short-lived scratch surface is reused and released;
+ * this is not a bitmap cache. Every tile applies the real audience-owned clips. */
+function drawRibbonTiles(ctx: CanvasRenderingContext2D, projection: Projection, boundary: ProjectedVisualBoundary,
+  look: VisualEdgeLook, high: CliffHighGround, connections: ProjectedConnection[], ribbons: Map<number, CliffRibbon> | undefined): void {
+  const scaleX = ctx.canvas.width / projection.bounds.width, scaleY = ctx.canvas.height / projection.bounds.height
+  const visible = intersection(projection.bounds, minMaxBounds(boundary.points, edgeLookPaintPadding(look)))
+  if (!visible) return
+  const size = 512, guard = 4, surface = makeCanvas(size + guard * 2, size + guard * 2), target = ctx2d(surface)
+  try {
+    const firstX = Math.floor(visible.x * scaleX / size), firstY = Math.floor(visible.y * scaleY / size)
+    const lastX = Math.ceil((visible.x + visible.width) * scaleX / size), lastY = Math.ceil((visible.y + visible.height) * scaleY / size)
+    for (let y = firstY; y < lastY; y++) for (let x = firstX; x < lastX; x++) {
+      target.resetTransform(); target.clearRect(0, 0, surface.width, surface.height)
+      target.save()
+      try {
+        target.setTransform(scaleX, 0, 0, scaleY, guard - x * size, guard - y * size)
+        const tileProjection = { ...projection, bounds: { x: (x * size - guard) / scaleX, y: (y * size - guard) / scaleY,
+          width: surface.width / scaleX, height: surface.height / scaleY } }
+        clipConnectionOpenings(target, tileProjection.bounds, connections); excludeHighGround(target, tileProjection, high)
+        drawCliffFace(target, boundary, look, projection.visual!.environment.lightDirectionDeg, connections, high.dropMm, ribbons)
+      } finally { target.restore() }
+      ctx.save()
+      try {
+        ctx.resetTransform()
+        ctx.drawImage(surface, guard, guard, size, size, x * size - projection.bounds.x * scaleX, y * size - projection.bounds.y * scaleY, size, size)
+      } finally { ctx.restore() }
+    }
+  } finally { release(surface) }
+}
+
 /** Deterministic edge detail along one cumulative arc, independent of zoom, crop and output resolution. */
 function edgeDetails(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook): void {
   const total = boundary.lengthMm
@@ -102,7 +136,7 @@ function edgeDetails(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBou
 }
 
 /** One joined face with variable ledges and broken strata, rather than repeated cliff stickers. */
-function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number, connections: ProjectedConnection[], dropMm?: number): void {
+function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number, connections: ProjectedConnection[], dropMm?: number, ribbons?: Map<number, CliffRibbon>): void {
   const angle = directionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }, reliefRgb = colorRgb(look.color)
   const shade = (normal: PointMm, variation: number) => {
     const facing = normal.x * light.x + normal.y * light.y
@@ -110,6 +144,38 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
     return `rgb(${reliefRgb.map(channel => Math.round(Math.max(0, Math.min(255, channel * factor)))).join(',')})`
   }
   for (const sign of sides(look)) {
+    if (look.renderProfile === 'rockRelief5') {
+      const relief = ribbons?.get(sign) ?? cliffRibbon(boundary, look, sign as 1 | -1)
+      if (!relief.rings.length) continue
+      const face = ringsPath(relief.rings)
+      const rgb = colorRgb(look.color), accent = colorRgb(look.accentColor)
+      const color = (factor: number, blend = 0) => `rgb(${rgb.map((v, i) => Math.round(Math.max(0, Math.min(255, v * factor * (1 - blend) + accent[i] * blend)))).join(',')})`
+      ctx.save()
+      try {
+        ctx.globalAlpha = look.opacity; ctx.fillStyle = color(.94); ctx.fill(face, 'evenodd'); ctx.clip(face, 'evenodd')
+        const lightAngle = directionDeg * Math.PI / 180, light = { x: Math.cos(lightAngle), y: Math.sin(lightAngle) }
+        // Each finite ribbon shares a joined, clipped face. A small tangent
+        // overlap hides antialias seams without extending the union envelope.
+        for (const cell of relief.cells) {
+          const from = { x: (cell.crest[0].x + cell.crest[1].x) / 2, y: (cell.crest[0].y + cell.crest[1].y) / 2 }
+          const to = { x: (cell.foot[0].x + cell.foot[1].x) / 2, y: (cell.foot[0].y + cell.foot[1].y) / 2 }
+          const facing = cell.normal.x * light.x + cell.normal.y * light.y, factor = .9 + facing * .13
+          const gradient = ctx.createLinearGradient(from.x, from.y, to.x, to.y)
+          gradient.addColorStop(0, color(factor * 1.12, .68)); gradient.addColorStop(.28, color(factor * 1.04, .33))
+          gradient.addColorStop(.62, color(factor * .94, .06)); gradient.addColorStop(1, color(factor * .78))
+          ctx.fillStyle = gradient; ctx.strokeStyle = gradient; ctx.lineWidth = 3; ctx.lineJoin = 'round'
+          const path = ringsPath([cell.polygon]); ctx.fill(path); ctx.stroke(path)
+        }
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = color(.59); ctx.lineWidth = Math.max(9, look.widthMm * .012)
+        ctx.globalAlpha = look.opacity * Math.min(1, look.intensity) * .8
+        for (const points of relief.fractures) ctx.stroke(linePath(points))
+        ctx.globalAlpha = look.opacity * Math.min(1, look.intensity) * .57; ctx.strokeStyle = color(.64); ctx.lineWidth = Math.max(9, look.widthMm * .013)
+        for (const points of relief.ledges) ctx.stroke(linePath(points))
+        ctx.globalAlpha = look.opacity * .7; ctx.strokeStyle = look.accentColor; ctx.lineWidth = Math.max(9, look.widthMm * .018)
+        ctx.stroke(linePath(boundary.points, boundary.closed))
+      } finally { ctx.restore() }
+      continue
+    }
     if (look.renderProfile === 'rockRelief2' || look.renderProfile === 'rockRelief3' || look.renderProfile === 'rockRelief4') {
       const openingPolygons = connections.map(connection => connection.route
         ? connectionBand(connection.route.centerlineMm, connection.widthMm)
@@ -216,6 +282,16 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
   const visual = projection.visual
   if (!visual) return
   const byId = new Map(visual.boundaries.map(boundary => [boundary.id, boundary]))
+  // Share only geometry across compatible directed endpoints. Each record
+  // still paints at its original position with its own high-side/opening clip.
+  const ribbonByLook = new Map<string, Map<number, CliffRibbon>>()
+  const runs = visual.edgeLooks.flatMap(look => {
+    const boundary = byId.get(look.boundaryId)
+    return look.renderProfile === 'rockRelief5' && look.kind === 'cliff' && boundary ? [{ look, boundary }] : []
+  })
+  for (const side of [-1, 1] as const) for (const [id, ribbon] of cliffRibbonPaints(runs.filter(run => sides(run.look).includes(side)), side)) {
+    const parts = ribbonByLook.get(id) ?? new Map<number, CliffRibbon>(); parts.set(side, ribbon); ribbonByLook.set(id, parts)
+  }
   const highGroundCache = new Map<string, CliffHighGround>()
   const highGround = (boundary: ProjectedVisualBoundary) => {
     let high = highGroundCache.get(boundary.id)
@@ -225,7 +301,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     }
     return high
   }
-  const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0)
+  const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0 && look.renderProfile !== 'rockRelief5' && look.renderProfile !== 'rockRelief6' && look.renderProfile !== 'rockRelief7' && look.renderProfile !== 'rockRelief8' && look.renderProfile !== 'rockRelief9')
   if (cliffs.length) {
     const allPoints = cliffs.flatMap(look => byId.get(look.boundaryId)?.points ?? []), padding = Math.max(...cliffs.map(edgeLookPaintPadding))
     const buffer = allPoints.length ? localBuffer(ctx, projection, minMaxBounds(allPoints, padding), readFrequently) : null
@@ -254,6 +330,27 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     ctx.save(); if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
     drawTerrainTransition(ctx, transition); ctx.restore()
   }
+  // The height-aware profile resolves all face intersections together before
+  // any face is painted; subsequent shore/grass records retain their order.
+  const terrainCliffs = planTerrainCliffs(projection)
+  for (const face of terrainCliffs) {
+    if (!face.shadowRings.length) continue
+    const boundary = byId.get(face.look.boundaryId)
+    ctx.save()
+    try {
+      if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
+      ctx.globalAlpha = face.look.opacity * .08; ctx.fillStyle = '#294B61'; ctx.fill(ringsPath(face.shadowRings), 'evenodd')
+    } finally { ctx.restore() }
+  }
+  for (const face of terrainCliffs) {
+    checkCancelled(signal)
+    const boundary = byId.get(face.look.boundaryId)
+    ctx.save()
+    try {
+      if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
+      drawTerrainCliffFace(ctx, face, visual.environment.lightDirectionDeg)
+    } finally { ctx.restore() }
+  }
   const looksById = new Map(visual.edgeLooks.map(look => [look.id, look]))
   const materializedById = new Map((visual.materializedEdges ?? []).map(edge => [edge.id, edge]))
   const paintOrder = visual.edgePaintOrder ?? [
@@ -272,10 +369,14 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       continue
     }
     const look = looksById.get(entry.id)
-    if (!look) continue
+    if (!look || look.renderProfile === 'rockRelief6' || look.renderProfile === 'rockRelief7' || look.renderProfile === 'rockRelief8' || look.renderProfile === 'rockRelief9') continue
     const boundary = byId.get(look.boundaryId)
     if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, edgeLookPaintPadding(look)), projection.bounds)) continue
     const connections = connectionsFor(projection, boundary)
+    if (look.kind === 'cliff' && look.renderProfile === 'rockRelief5') {
+      drawRibbonTiles(ctx, projection, boundary, look, highGround(boundary), connections, ribbonByLook.get(look.id))
+      continue
+    }
     ctx.save()
     try {
     clipConnectionOpenings(ctx, projection.bounds, connections)
@@ -283,7 +384,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     if (look.kind === 'cliff') {
       // Only elevations already visible to this audience may affect pixels.
       const { dropMm } = highGround(boundary)
-      drawCliffFace(ctx, boundary, look, visual.environment.lightDirectionDeg, connections, dropMm)
+      drawCliffFace(ctx, boundary, look, visual.environment.lightDirectionDeg, connections, dropMm, ribbonByLook.get(look.id))
       continue
     }
     for (const sign of sides(look)) {
