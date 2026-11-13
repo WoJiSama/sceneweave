@@ -22,6 +22,24 @@ const solve = (value: InteriorGenerationInput, cancelled = () => {}) => solveInt
 const corridorArea = (layout: InteriorLayout) => layout.corridors.reduce((n, c) => n + (c.boundsMm.width - 200) * (c.boundsMm.height - 200), 0)
 
 describe('bounded room proportions and corridor families', () => {
+  it('lets a middle storage requirement take the long strip rather than spending all four comparisons on a long kitchen', () => {
+    const value = input(); value.algorithmVersion = 11; value.parameters.corridor.axis = 'none'
+    value.parameters.boundsMm = { x: 26500, y: 8360, width: 19000, height: 16340 }
+    value.parameters.rooms = [
+      { id: 'room-1', purpose: '值守卧室', minAreaMm2: 12_710_000, maxAreaMm2: 114_390_000, minClearSideMm: 2200 },
+      { id: 'room-2', purpose: '补给仓库', minAreaMm2: 12_710_000, maxAreaMm2: 114_390_000, minClearSideMm: 2200 },
+      { id: 'room-3', purpose: '厨房', minAreaMm2: 12_710_000, maxAreaMm2: 114_390_000, minClearSideMm: 2200 },
+    ]
+    let attempts = 0, nodes = 0
+    const result = withExecutionWorkObserver(delta => { attempts += delta.candidateAttempts ?? 0; nodes += delta.gridNodes ?? 0 }, () => solve(value))
+    expect(checkInteriorLayout(value, result)).toEqual([])
+    const kitchen = result.rooms.find(r => r.requirementId === 'room-3')!.boundsMm
+    expect(Math.max(kitchen.width - 200, kitchen.height - 200) / Math.min(kitchen.width - 200, kitchen.height - 200)).toBeLessThan(1.8)
+    expect(attempts).toBe(4); expect(nodes).toBeLessThanOrEqual(8192)
+    const reordered = cloneJson(value); reordered.parameters.rooms.reverse()
+    expect(solve(reordered)).toEqual(result)
+  })
+
   it.each(['horizontal', 'vertical'] as const)('shortens a real %s corridor while preserving all room areas, full-wall bounds and complete tiling', axis => {
     const value = input(); value.parameters.corridor.axis = axis
     if (axis === 'vertical') value.parameters.boundsMm = { x: -1200, y: 3000, width: 16000, height: 20000 }

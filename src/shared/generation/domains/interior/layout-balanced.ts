@@ -2,6 +2,7 @@ import type { InteriorGenerationInput, InteriorLayout, InteriorRectangle, Interi
 import { captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/task-budget.js'
 import { hashGenerationValue } from '../../contracts.js'
 import { checkInteriorLayout, clearArea, interiorEntityId, InteriorGenerationError, sharedWallLength } from './layout.js'
+import { partialInteriorRelationsPossible } from './layout-relations.js'
 
 type Group = { rooms: readonly InteriorRoomRequirement[]; bounds: InteriorRectangle }
 type Placed = InteriorLayout['rooms'][number]
@@ -31,6 +32,9 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
   if (root.width <= t || root.height <= t || p.rooms.some(r => Math.min(root.width, root.height) - t < r.minClearSideMm)
     || p.rooms.reduce((n, r) => n + r.minAreaMm2, 0) > root.width * root.height) throw new InteriorGenerationError('contradiction', '输入矛盾：建筑范围无法容纳最小净边长或最小面积总和。')
   const rank = (key: string) => hashGenerationValue([seed, key])
+  const relationAware = input.algorithmVersion >= 16 && p.relations.some(relation => relation.kind !== 'no-direct-connection')
+  const relationsPossible = (groups: readonly Group[]) => !relationAware || partialInteriorRelationsPossible(groups, p.relations, checkCancelled, () => meter.charge({ fieldEvaluations: 1 }))
+  const placedGroups = (rows: readonly Placed[]): Group[] => rows.map(row => ({ rooms: [p.rooms.find(room => room.id === row.requirementId)!], bounds: row.boundsMm }))
   const remaining = [...p.rooms].sort((a, b) => compare(rank(a.id), rank(b.id))), ordered: InteriorRoomRequirement[] = []
   while (remaining.length) {
     const last = ordered.at(-1)
@@ -54,6 +58,7 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
   const addPlan = (groups: Group[], corridor: InteriorRectangle | undefined, family: Plan['family'], key: string) => {
     tick(groups.length + p.relations.length)
     if (groups.some(g => !possible(g))) return
+    if (!relationsPossible(groups)) return
     // Different rectangular groups cannot become adjacent through a corridor.
     // Reject this partial plan before spending a complete-layout attempt.
     for (const relation of p.relations.filter(r => r.kind === 'adjacent')) {
@@ -103,16 +108,23 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
       }
     }
   }
-  function* partition(rooms: readonly InteriorRoomRequirement[], b: InteriorRectangle, stopAt: number): Generator<Placed[]> {
+  function* partition(rooms: readonly InteriorRoomRequirement[], b: InteriorRectangle, stopAt: number, depth = 0, outside: readonly Group[] = []): Generator<Placed[]> {
     if (nodes >= stopAt) return
     tick(rooms.length)
     if (!possible({ rooms, bounds: b })) return
     if (rooms.length === 1) { yield [{ requirementId: rooms[0].id, roomId: interiorEntityId(sceneId, input.seed, `room:${rooms[0].id}`), boundsMm: b, clearAreaMm2: clearArea(b, t) }]; return }
     const splits: { a: Group; b: Group; score: number; key: string }[] = []
-    for (const axis of ['x', 'y'] as const) for (let count = 1; count < rooms.length; count++) {
+    const divisions = Array.from({ length: rooms.length - 1 }, (_, i) => ({ left: rooms.slice(0, i + 1), right: rooms.slice(i + 1), key: String(i + 1) }))
+    // A seeded contiguous order cannot isolate a middle room. In v11 every
+    // room can be an end group, without enumerating permutations or complete
+    // trial layouts in a score. All partial work shares the same node budget.
+    if (input.algorithmVersion >= 11 && p.corridor.axis === 'none' && depth === 0) for (const room of rooms.slice(1, -1)) {
+      divisions.push({ left: [room], right: rooms.filter(r => r !== room), key: `single:${room.id}` })
+    }
+    for (const axis of ['x', 'y'] as const) for (const division of divisions) {
       if (nodes >= stopAt) return
       tick(rooms.length)
-      const left = rooms.slice(0, count), right = rooms.slice(count), size = axis === 'x' ? b.width : b.height, cross = axis === 'x' ? b.height : b.width
+      const { left, right } = division, size = axis === 'x' ? b.width : b.height, cross = axis === 'x' ? b.height : b.width
       const weight = (rs: readonly InteriorRoomRequirement[]) => rs.reduce((n, r) => n + targetArea(r), 0)
       const positions = [Math.round(size * weight(left) / weight(rooms)), Math.floor(size / 2)]
       for (const [rs, reverse] of [[left, false], [right, true]] as const) if (rs.length === 1) {
@@ -130,13 +142,37 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
         const a = { rooms: left, bounds: { ...b, ...(axis === 'x' ? { width: position } : { height: position }) } }
         const c = { rooms: right, bounds: { ...b, ...(axis === 'x' ? { x: b.x + position, width: size - position } : { y: b.y + position, height: size - position }) } }
         const score = groupScore(a) + groupScore(c)
-        if (Number.isFinite(score)) splits.push({ a, b: c, score, key: `${axis}/${count}/${position}` })
+        if (Number.isFinite(score) && !relationsPossible([...outside, a, c])) continue
+        if (Number.isFinite(score)) splits.push({ a, b: c, score, key: `${axis}/${division.key}/${position}` })
       }
     }
     splits.sort((a, b) => a.score - b.score || compare(rank(a.key), rank(b.key)))
+    if (input.algorithmVersion >= 11 && p.corridor.axis === 'none' && depth === 0) {
+      // Give distinct root groupings a real comparison before exploring many
+      // millimetre variants of one cut. Suspended generators do no hidden work;
+      // each yielded full layout is charged by the existing caller.
+      const families = new Set<string>(), first: typeof splits = [], rest: typeof splits = []
+      for (const split of splits) {
+        const family = JSON.stringify([split.a.bounds.x !== split.b.bounds.x ? 'x' : 'y', split.a.rooms.map(r => r.id)])
+        if (families.has(family)) rest.push(split)
+        else { families.add(family); first.push(split) }
+      }
+      for (const split of [...first, ...rest]) {
+        if (nodes >= stopAt) return
+        const rows = (function* (): Generator<Placed[]> {
+          for (const a of partition(split.a.rooms, split.a.bounds, stopAt, depth + 1, relationAware ? [...outside, split.b] : []))
+            for (const b of partition(split.b.rooms, split.b.bounds, stopAt, depth + 1, relationAware ? [...outside, ...placedGroups(a)] : [])) yield [...a, ...b]
+        })()
+        // This branch offers one full comparison per root cut. The remaining
+        // budget moves to another cut, rather than repeatedly changing a child.
+        const value = rows.next()
+        if (!value.done) yield value.value
+      }
+      return
+    }
     for (const split of splits) {
       if (nodes >= stopAt) return
-      for (const a of partition(split.a.rooms, split.a.bounds, stopAt)) for (const b of partition(split.b.rooms, split.b.bounds, stopAt)) yield [...a, ...b]
+      for (const a of partition(split.a.rooms, split.a.bounds, stopAt, depth + 1, relationAware ? [...outside, split.b] : [])) for (const b of partition(split.b.rooms, split.b.bounds, stopAt, depth + 1, relationAware ? [...outside, ...placedGroups(a)] : [])) yield [...a, ...b]
     }
   }
   function* complete(plan: Plan, stopAt: number, at = 0, placed: Placed[] = []): Generator<InteriorLayout> {
@@ -145,7 +181,7 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
       return
     }
     const group = plan.groups[at]
-    for (const rows of partition(group.rooms, group.bounds, stopAt)) yield* complete(plan, stopAt, at + 1, [...placed, ...rows])
+    for (const rows of partition(group.rooms, group.bounds, stopAt, 0, relationAware ? [...placedGroups(placed), ...plan.groups.slice(at + 1)] : [])) yield* complete(plan, stopAt, at + 1, [...placed, ...rows])
   }
   plans.sort((a, b) => a.estimate - b.estimate || compare(rank(a.key), rank(b.key)))
   // Compare the best member of each family before spending the remaining

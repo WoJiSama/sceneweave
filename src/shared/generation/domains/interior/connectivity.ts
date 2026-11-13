@@ -1,11 +1,15 @@
 import type { PointMm, SceneDocument, Wall } from '../../../model/scene.js'
+import { LAYER_ENTITY_COLLECTIONS } from '../../../model/scene.js'
 import { applyCommands } from '../../../commands/commands.js'
-import { captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { captureExecutionBudget, measureBudgetGeometry, type TaskBudgetProfile } from '../../../budget/task-budget.js'
 import { cloneJson, canonicalJson } from '../../../validation/json.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { corridor, coveredEverywhere, openingEndpoints, pathPolygon, pointInPolygon, roomPoints } from '../../../geometry/geometry.js'
-import { interiorEntityId } from './layout.js'
-import type { InteriorGenerationInput, InteriorLayout } from './contracts.js'
+import { resolveBuildingEntrancePort } from '../../building-port.js'
+import { interiorEntityId, InteriorGenerationError } from './layout.js'
+import { rankExteriorEntranceProposals } from './entrance-selection.js'
+import type { BuildingEntranceApproach, InteriorGenerationInput, InteriorLayout } from './contracts.js'
+import { replanInteriorRoomRoute } from './connectivity-routing.js'
 
 export interface InteriorCirculationRoute {
   id: string
@@ -26,7 +30,7 @@ export interface InteriorConnectivityReport {
   routes: InteriorCirculationRoute[]
   notes: string[]
 }
-type Options = { profile: TaskBudgetProfile; checkCancelled: () => void }
+type Options = { profile: TaskBudgetProfile; checkCancelled: () => void; entranceApproach?: BuildingEntranceApproach; avoidPaintedBodies?: boolean }
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 const unique = (messages: string[]) => [...new Set(messages)]
 const same = (a: PointMm, b: PointMm) => a.x === b.x && a.y === b.y
@@ -111,6 +115,48 @@ export function checkInteriorCirculation(document: SceneDocument, input: Interio
     notes: unique([...report.notes.filter(note => !note.startsWith('通路建议未完成：')), ...routes.filter(route => route.status !== 'clear').map(route => `通路建议未完成：${route.notes.join('；')}`)]) }
 }
 
+/** v17 may replace the generation-time path while retaining its exact door,
+ * endpoints, rooms and full width. No document or incoming report is mutated.
+ * Each joined alternative still reaches the independent complete route check. */
+export function replanInteriorCirculation(document: SceneDocument, input: InteriorGenerationInput, layout: InteriorLayout,
+  report: InteriorConnectivityReport, options: Options): InteriorConnectivityReport {
+  const meter = captureExecutionBudget(options.profile)
+  const sceneWork = Object.keys(document.walls).length + Object.keys(document.props).length + Object.keys(document.regions).length + Object.keys(document.rooms).length
+  const chargeCheck = (routes: InteriorCirculationRoute[]) => {
+    for (const route of routes) { options.checkCancelled(); meter.charge({ fieldEvaluations: sceneWork + route.pointsMm.length }) }
+  }
+  chargeCheck(report.routes)
+  const checked = checkInteriorCirculation(document, input, layout, report)
+  for (const route of checked.routes) {
+    options.checkCancelled(); meter.charge({ fieldEvaluations: 1 })
+    if (route.status === 'clear') continue
+    const opening = document.openings[route.openingId]
+    if (!opening || opening.kind !== 'door' || opening.state !== 'open' || opening.locked || opening.widthMm < route.widthMm
+      || !document.rooms[route.toRoomId] || route.fromRoomId !== null && !document.rooms[route.fromRoomId]) continue
+    const wall = document.walls[opening.wallId]
+    if (!wall) continue
+    const attached = owners(document, wall)
+    if (!attached.includes(route.toRoomId) || (route.fromRoomId === null ? attached.length !== 1 : !attached.includes(route.fromRoomId))) continue
+    const { midpoint, normal, depth } = openingFrame(document, route.openingId, route.widthMm)
+    const toAnchor = roomAnchor(document, route.toRoomId, midpoint, normal, depth)
+    const fromAnchor = route.fromRoomId ? roomAnchor(document, route.fromRoomId, midpoint, normal, depth)
+      : { x: midpoint.x - (toAnchor.x - midpoint.x), y: midpoint.y - (toAnchor.y - midpoint.y) }
+    const to = replanInteriorRoomRoute(document, { roomId: route.toRoomId, openingId: route.openingId,
+      start: toAnchor, end: route.to, widthMm: route.widthMm }, options)
+    if (!to) continue
+    const from = route.fromRoomId ? replanInteriorRoomRoute(document, { roomId: route.fromRoomId, openingId: route.openingId,
+      start: fromAnchor, end: route.from, widthMm: route.widthMm }, options) : [fromAnchor]
+    if (!from) continue
+    const pointsMm = compact([...from].reverse().concat(to))
+    options.checkCancelled()
+    meter.charge({ fieldEvaluations: sceneWork + pointsMm.length })
+    const notes = checkRoute(document, input, { ...route, pointsMm })
+    if (!notes.length) { route.pointsMm = pointsMm; route.status = 'clear'; route.notes = [] }
+  }
+  chargeCheck(checked.routes)
+  return checkInteriorCirculation(document, input, layout, checked)
+}
+
 /** Full aperture and approach footprints for optional furnishing placement.
  * These are transient reservations, not persistent required path checks. */
 export function interiorDoorReservations(document: SceneDocument, report: InteriorConnectivityReport, widthMm: number): PointMm[][] {
@@ -149,8 +195,11 @@ export function inspectInteriorConnections(document: SceneDocument, input: Inter
     report.routes.push(route)
     if (fromRoomId === null && report.entranceOpeningId === null) report.entranceOpeningId = opening.id
   }
-  report.notes = report.routes.filter(route => route.status !== 'clear').map(route => `当前通路建议未完成：${route.notes.join('；')}`)
-  return report
+  // A current-route inspection proves physical passage. Pure image overhangs
+  // are placement preferences and cannot invalidate otherwise clear travel.
+  const result = input.algorithmVersion >= 17 ? replanInteriorCirculation(document, input, layout, report, { ...options, avoidPaintedBodies: false }) : report
+  result.notes = result.routes.filter(route => route.status !== 'clear').map(route => `当前通路建议未完成：${route.notes.join('；')}`)
+  return result
 }
 
 export function arrangeInteriorConnections(document: SceneDocument, input: InteriorGenerationInput, layout: InteriorLayout, options: Options): { document: SceneDocument; report: InteriorConnectivityReport } {
@@ -171,18 +220,23 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
     const stableKey = canonicalJson([[start.xMm, start.yMm], [end.xMm, end.yMm]].sort((a, b) => a[0] - b[0] || a[1] - b[1]))
     return { wall, rooms, stableKey, length: Math.abs(end.xMm - start.xMm) + Math.abs(end.yMm - start.yMm) }
   }).sort((a, b) => b.length - a.length || compare(input.algorithmVersion === 2 ? a.wall.id : a.stableKey, input.algorithmVersion === 2 ? b.wall.id : b.stableKey))
-  const createDoor = (wall: Wall): string | null => {
+  const createDoorDraft = (wall: Wall, offsetMm?: number): { id: string; document: SceneDocument } | null => {
     tick()
     const a = next.vertices[wall.startVertexId], b = next.vertices[wall.endVertexId]
     if (a.xMm !== b.xMm && a.yMm !== b.yMm) { notes.push('当前建议门只支持已物化的正交墙段。'); return null }
     const length = Math.abs(a.xMm - b.xMm) + Math.abs(a.yMm - b.yMm), clearance = Math.max(next.constraints.wallEndClearanceMm, Math.ceil(wall.thicknessMm / 2) + 1)
     if (arrangement.doorWidthMm < (next.constraints.minDoorWidthMm ?? 1) || length < arrangement.doorWidthMm + 2 * clearance) return null
     const id = interiorEntityId(next.sceneId, input.seed, `door:${wall.id}`)
-    const offset = Math.floor((length - arrangement.doorWidthMm) / 2)
-    next = applyCommands(next, [{ type: 'addOpening', id, wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: offset, widthMm: arrangement.doorWidthMm,
+    const offset = offsetMm ?? Math.floor((length - arrangement.doorWidthMm) / 2)
+    const result = applyCommands(next, [{ type: 'addOpening', id, wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: offset, widthMm: arrangement.doorWidthMm,
       kind: 'door', state: 'open', locked: false, secret: false, revealed: false, layerId: p.layerId }], { ids: { nextId: () => id }, clock: { now: () => document.updatedAt } }, { budget: options.profile })
-    report.openingIds.push(id)
-    return id
+    return { id, document: result }
+  }
+  const createDoor = (wall: Wall): string | null => {
+    const result = createDoorDraft(wall)
+    if (!result) return null
+    next = result.document; report.openingIds.push(result.id)
+    return result.id
   }
   const routesFor = (openingId: string, fromRoomId: string | null, toRoomId: string): InteriorCirculationRoute => {
     const widthMm = arrangement.clearWidthMm, { midpoint, normal, depth } = openingFrame(next, openingId, widthMm)
@@ -216,7 +270,28 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
   }
   if (arrangement.doors && roomIds.length > 1 && new Set(roomIds.map(root)).size > 1) notes.push('部分房间未找到足长、满足端部间隙且允许连接的共墙；保留布局，可手工调整门。')
   if (arrangement.entrance) {
-    for (const row of walls) {
+    if (options.entranceApproach) {
+      const approach = options.entranceApproach
+      if (arrangement.doorWidthMm < approach.widthMm) throw new InteriorGenerationError('contradiction', '实际门洞净宽小于接入路线。')
+      const proposals = rankExteriorEntranceProposals(next, walls, p.boundsMm, arrangement.doorWidthMm, approach, options)
+      const retainedSegments = LAYER_ENTITY_COLLECTIONS.reduce((sum, key) => sum + Object.values(next[key]).reduce((n, row) => n + measureBudgetGeometry(row).geometrySegments, 0), 0)
+      const failures: string[] = []
+      for (const proposal of proposals) {
+        tick(); meter.charge({ gridNodes: 1, fieldEvaluations: Object.keys(next.walls).length + Object.keys(next.props).length + proposal.pointsMm.length,
+          intersectionPairs: 2 * (retainedSegments + 6 * (proposal.pointsMm.length + 1)) ** 2 })
+        const draft = createDoorDraft(proposal.wall, proposal.offsetMm)
+        if (!draft) continue
+        let port
+        try { port = resolveBuildingEntrancePort(draft.document, draft.id, approach.widthMm) }
+        catch (error) { failures.push(error instanceof Error ? error.message : String(error)); continue }
+        const route = checkTerrainRoute(draft.document, { floorId: p.floorId, pointsMm: proposal.pointsMm, widthMm: approach.widthMm })
+        const joined = checkTerrainRoute(draft.document, { floorId: p.floorId, pointsMm: [...proposal.pointsMm, port.insideMm], widthMm: approach.widthMm })
+        if (!route.ok || !joined.ok) { failures.push(...route.issues.map(row => row.message), ...joined.issues.map(row => row.message)); continue }
+        next = draft.document; report.openingIds.push(draft.id); report.entranceOpeningId = draft.id
+        report.routes.push(routesFor(draft.id, null, port.roomId)); break
+      }
+      if (!report.entranceOpeningId) throw new InteriorGenerationError('search-exhausted', `有限外门与接入候选未找到完整净宽路线：${unique(failures).join('；') || '请调整入口、折点或建筑范围。'}`)
+    } else for (const row of walls) {
       if (row.rooms.length !== 1) continue
       const id = createDoor(row.wall)
       if (!id) continue

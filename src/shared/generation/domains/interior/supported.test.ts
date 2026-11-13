@@ -136,8 +136,9 @@ describe('supported-interior@1 composition adapter', () => {
     expect(validateSceneDocument(second.candidate.document).ok).toBe(true)
   })
 
-  for (const version of [1, 2, 3, 4, 5, 6, 7, 8, 9] as const) it(`reuses D6 furniture on elevated support at version ${version} and preserves manual or deleted slots`, () => {
-    const input = request(); input.algorithmVersion = version
+  for (const version of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] as const) it(`reuses D6 furniture on elevated support at version ${version} and preserves manual or deleted slots`, () => {
+    const original = request()
+    const input: SupportedInteriorGenerationInput = version === 10 || version === 11 || version === 12 || version === 13 || version === 14 || version === 15 || version === 16 || version === 17 || version === 18 || version === 19 ? { ...original, algorithmVersion: version, parameters: { ...original.parameters, entranceApproach: { fromMm: { x: 1000, y: 8000 }, viaMm: [], widthMm: 1000 } } } : { ...original, algorithmVersion: version }
     const generated = runSupportedInteriorGeneration(terrain(), input, options), context = runtime()
     const content = createCompositionContent(cloneJson(generated.candidate.document) as SceneDocument, context), roomId = generated.layout.rooms[0].roomId
     const props = Object.values(content.document.props).filter(prop => prop.roomId === roomId)
@@ -154,6 +155,7 @@ describe('supported-interior@1 composition adapter', () => {
     expect(result.document.props[props[0].id]).toBeUndefined()
     expect(result.document.props[props[1].id]).toEqual(edited.document.props[props[1].id])
     expect(result.document.rooms).toEqual(edited.document.rooms)
+    expect(result.document.openings).toEqual(edited.document.openings)
     expect(result.document.terrainAreas).toEqual(edited.document.terrainAreas)
     for (const [id, prop] of Object.entries(edited.document.props)) if (result.document.props[id]) expect({ ...result.document.props[id], positionMm: prop.positionMm }).toEqual(prop)
     expect(result.readIds).toContain('support')

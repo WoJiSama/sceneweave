@@ -83,6 +83,9 @@ type Options = {
   roomPolygon: PointMm[]; blockers: readonly PointMm[][]; ports: readonly RoomDoorPort[]; targetMm: PointMm; widthMm?: number
   /** Previously found candidate, always checked again against current geometry. */
   retainedRoute?: FurnitureAccessRoute
+  /** Explicit new recipe behavior: admit at most 4096 reached intersections
+   * instead of requiring the entire Cartesian coordinate product to fit. */
+  graphMode?: 'bounded-lazy'
   checkCancelled: () => void; chargeNode: () => void; chargePair: () => void
   checkNative: (pointsMm: PointMm[], widthMm: number) => boolean
 }
@@ -101,10 +104,24 @@ export function findFurnitureAccess(options: Options): FurnitureAccessRoute | un
     options.checkCancelled(); options.chargePair()
     return polygonsOverlap(polygon, options.roomPolygon)
   })
+  // New recipes cache complete bounds for conservative pair rejection. A
+  // strictly disjoint bounding box proves that the exact polygons cannot
+  // intersect. Touching/overlapping boxes still run the original full check;
+  // native support always receives the complete current scene.
+  const bounds = (polygon: PointMm[]) => ({
+    minX: Math.min(...polygon.map(p => p.x)), maxX: Math.max(...polygon.map(p => p.x)),
+    minY: Math.min(...polygon.map(p => p.y)), maxY: Math.max(...polygon.map(p => p.y)),
+  })
+  const blockerBounds = options.graphMode === 'bounded-lazy' ? blockers.map(bounds) : undefined
   const clear = (polygon: PointMm[]) => {
     options.checkCancelled()
     if (!polygonInside(polygon, options.roomPolygon)) return false
-    for (const blocker of blockers) {
+    const bandBounds = blockerBounds ? bounds(polygon) : undefined
+    for (const [index, blocker] of blockers.entries()) {
+      if (bandBounds && blockerBounds) {
+        const other = blockerBounds[index]
+        if (bandBounds.maxX < other.minX || other.maxX < bandBounds.minX || bandBounds.maxY < other.minY || other.maxY < bandBounds.minY) continue
+      }
       options.chargePair()
       if (polygonsOverlap(polygon, blocker)) return false
     }
@@ -150,9 +167,10 @@ export function findFurnitureAccess(options: Options): FurnitureAccessRoute | un
   const minX = Math.min(...options.roomPolygon.map(p => p.x)) + radius, maxX = Math.max(...options.roomPolygon.map(p => p.x)) - radius
   const minY = Math.min(...options.roomPolygon.map(p => p.y)) + radius, maxY = Math.max(...options.roomPolygon.map(p => p.y)) - radius
   const x = [...xs].filter(v => v >= minX && v <= maxX).sort((a, b) => a - b), y = [...ys].filter(v => v >= minY && v <= maxY).sort((a, b) => a - b)
-  // This finite candidate family admits at most 4096 coordinate intersections.
-  // A larger graph remains an unfilled suggestion, never a false clear route.
-  if (x.length * y.length > 4096) return undefined
+  // Legacy recipes require the whole coordinate product to fit 4096 nodes.
+  // The explicit sparse mode admits only reached intersections, with the same
+  // 4096 ceiling enforced below. Every returned route still checks its full band.
+  if (options.graphMode !== 'bounded-lazy' && x.length * y.length > 4096) return undefined
   const index = (p: PointMm) => y.indexOf(p.y) * x.length + x.indexOf(p.x), point = (id: number) => ({ x: x[id % x.length], y: y[Math.floor(id / x.length)] })
   const targetIndex = index(target), roots = new Map(ports.map(port => [index(port.pointMm), port]))
   const cost = new Map<number, number>([[targetIndex, 0]]), parent = new Map<number, number>(), edgeCache = new Map<string, boolean>()
@@ -201,6 +219,11 @@ export function findFurnitureAccess(options: Options): FurnitureAccessRoute | un
       const key = current.id < next ? `${current.id}/${next}` : `${next}/${current.id}`
       if (!edgeCache.has(key)) edgeCache.set(key, clear(furnitureAccessBand([a, b], width)))
       if (!edgeCache.get(key)) continue
+      // The sparse graph has the same finite node ceiling. Rejected solids do
+      // not become nodes, and reaching the ceiling cannot grant clearance.
+      // Existing admitted nodes may still improve; every completed full band
+      // continues through the same geometry and native support checks.
+      if (options.graphMode === 'bounded-lazy' && !cost.has(next) && cost.size >= 4096) continue
       cost.set(next, candidateCost); parent.set(next, current.id); push({ id: next, cost: candidateCost, priority: candidateCost + heuristic(next) })
     }
   }

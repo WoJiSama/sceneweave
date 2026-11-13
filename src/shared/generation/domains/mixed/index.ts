@@ -19,9 +19,10 @@ import { normalizeForestInput, runForestGeneration, forestEntityId, forestRectan
 import { normalizeVolcanoInput, runVolcanoGeneration, checkVolcanoResult, volcanoEntityId } from '../volcano/index.js'
 import { mixedGenerationInputSchema, mixedFixedBindings, type MixedGenerationInput, type MixedReport } from './contracts.js'
 import { planBuildingEntranceApproaches } from './entrance-approach.js'
+import { entranceRouteLength } from '../interior/entrance-selection.js'
 
 export * from './contracts.js'
-export { defaultMixedInput, defaultMixedInputV3, defaultMixedInputV4, defaultMixedInputV5, defaultMixedInputV6, defaultMixedInputV7, defaultMixedInputV8, defaultMixedInputV9 } from './defaults.js'
+export { defaultMixedInput, defaultMixedInputV3, defaultMixedInputV4, defaultMixedInputV5, defaultMixedInputV6, defaultMixedInputV7, defaultMixedInputV8, defaultMixedInputV9, defaultMixedInputV10, defaultMixedInputV11, defaultMixedInputV12, defaultMixedInputV13, defaultMixedInputV14, defaultMixedInputV15, defaultMixedInputV16, defaultMixedInputV17, defaultMixedInputV18, defaultMixedInputV19 } from './defaults.js'
 export const mixedEntityId = (sceneId: string, seed: string, key: string) => `mixed-${hashGenerationValue([sceneId, seed, key]).slice(0, 32)}`
 const moduleSeed = (seed: string, module: string) => hashGenerationValue(['mixed-layout', 1, seed, module])
 const equal = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
@@ -45,7 +46,7 @@ export function normalizeMixedInput(raw: unknown): MixedGenerationInput {
  * modules retain their own strict recipes and finite output ownership. */
 function persist(document: SceneDocument, input: MixedGenerationInput, supportAreaId: string, entranceOpeningId?: string): void {
   const p = input.parameters, gen = getLegacyGeneration(document)!, id = (key: string) => mixedEntityId(document.sceneId, input.seed, key), recipeId = id('recipe')
-  const recipe: GenerationRecipe = { id: recipeId, domain: 'mixed', ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : { recipeVersion: 9 as const, algorithmVersion: 9 as const }), algorithmId: 'mixed-layout', mapMode: 'scene', seed: input.seed,
+  const recipe: GenerationRecipe = { id: recipeId, domain: 'mixed', ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : input.algorithmVersion === 9 ? { recipeVersion: 9 as const, algorithmVersion: 9 as const } : input.algorithmVersion === 10 ? { recipeVersion: 10 as const, algorithmVersion: 10 as const } : input.algorithmVersion === 11 ? { recipeVersion: 11 as const, algorithmVersion: 11 as const } : input.algorithmVersion === 12 ? { recipeVersion: 12 as const, algorithmVersion: 12 as const } : input.algorithmVersion === 13 ? { recipeVersion: 13 as const, algorithmVersion: 13 as const } : input.algorithmVersion === 14 ? { recipeVersion: 14 as const, algorithmVersion: 14 as const } : input.algorithmVersion === 15 ? { recipeVersion: 15 as const, algorithmVersion: 15 as const } : input.algorithmVersion === 16 ? { recipeVersion: 16 as const, algorithmVersion: 16 as const } : input.algorithmVersion === 17 ? { recipeVersion: 17 as const, algorithmVersion: 17 as const } : input.algorithmVersion === 18 ? { recipeVersion: 18 as const, algorithmVersion: 18 as const } : { recipeVersion: 19 as const, algorithmVersion: 19 as const }), algorithmId: 'mixed-layout', mapMode: 'scene', seed: input.seed,
     parameters: cloneJson(p), ...mixedFixedBindings(p), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   gen.recipes[recipeId] = recipe
   const addRule = (key: string, kind: 'terrainArea' | 'path', entityId: string, inputs: GenerationReference[]) => {
@@ -97,6 +98,7 @@ function runAdapter(source: SceneDocument, input: MixedGenerationInput, supportA
           ...[b.x - margin, b.x + b.width + margin].map(x => [from, { x, y: from.y }, { x, y: to.y }, to]),
           ...[b.y - margin, b.y + b.height + margin].map(y => [from, { x: from.x, y }, { x: to.x, y }, to]),
         ]
+        if (input.algorithmVersion >= 10) variants.sort((a, b) => entranceRouteLength(a) - entranceRouteLength(b) || a.length - b.length)
         let selected: { pointsMm: PointMm[]; supportRefs: ReturnType<typeof checkTerrainRoute>['supportRefs'] } | undefined
         const notes: string[] = []
         // Each new full-band check also validates the retained physical scene.
@@ -149,7 +151,7 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
     volcano = execution.run('outdoor', (current, opts) => runVolcanoGeneration(current, { version: 1, algorithmVersion: 1, seed: outdoorSeed, parameters }, opts))
   }
   const buildingVersion = input.algorithmVersion >= 4 ? input.algorithmVersion : input.algorithmVersion === 3 ? 2 : input.algorithmVersion
-  const building = execution.run('building', (current, opts) => runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: buildingVersion, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId } } }, opts))
+  const building = execution.run('building', (current, opts) => runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: buildingVersion, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId }, ...(input.algorithmVersion >= 10 ? { entranceApproach: { fromMm: p.approach.fromMm, viaMm: p.approach.viaMm, widthMm: p.approach.widthMm } } : {}) } }, opts))
   const entranceOpeningId = building.report.connectivity.entranceOpeningId
   if (!entranceOpeningId) throw new GenerationError('candidate-invalid', '初次混合候选未找到可接入的真实外门；请调整建筑尺寸或门建议参数。')
   execution.run('approach', (current, opts) => ({ candidate: runAdapter(current, input, supportAreaId, opts, entranceOpeningId) }))

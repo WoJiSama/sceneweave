@@ -29,7 +29,7 @@ for(const domain of ['interior','mixed'] as const)test(`${domain} functional gro
     await expect(page.getByRole('alert').filter({hasText:'室内布局已完整保存'})).toBeVisible({timeout:60000})
   }else{
     const panel=page.getByRole('region',{name:'混合场景生成',exact:true,includeHidden:true})
-    await expect(panel.getByLabel('混合接路算法版本',{exact:true})).toHaveValue('9')
+    await expect(panel.getByLabel('混合接路算法版本',{exact:true})).toHaveValue('19')
     await panel.getByLabel('混合工程名称',{exact:true}).fill(title)
     await panel.getByLabel('混合建筑房间用途',{exact:true}).fill('厨房')
     await panel.getByRole('button',{name:'预览混合场景',exact:true}).click()
@@ -41,8 +41,8 @@ for(const domain of ['interior','mixed'] as const)test(`${domain} functional gro
   await keyboardWorkspaceSaved(page)
   const generated=await keyboardProjectBackup(page,info.outputPath(`${domain}-generated.sceneweave`))
   const recipes=Object.values(getLegacyGeneration(generated.document)!.recipes)
-  expect(recipes.find(r=>r.algorithmId===(domain==='interior'?'interior-layout':'supported-interior'))).toMatchObject({recipeVersion:domain==='interior'?10:9,algorithmVersion:domain==='interior'?10:9})
-  if(domain==='mixed')expect(recipes.find(r=>r.algorithmId==='mixed-layout')).toMatchObject({recipeVersion:9,algorithmVersion:9})
+  expect(recipes.find(r=>r.algorithmId===(domain==='interior'?'interior-layout':'supported-interior'))).toMatchObject({recipeVersion:19,algorithmVersion:19})
+  if(domain==='mixed')expect(recipes.find(r=>r.algorithmId==='mixed-layout')).toMatchObject({recipeVersion:19,algorithmVersion:19})
   const furniture=Object.values(generated.document.props).filter(p=>p.supportRef.kind==='room')
   expect(furniture.length).toBeGreaterThan(2)
   const target=furniture[0]

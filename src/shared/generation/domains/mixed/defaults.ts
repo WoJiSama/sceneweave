@@ -86,3 +86,53 @@ export function defaultMixedInputV8(document: SceneDocument, environment: 'fores
 export function defaultMixedInputV9(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
   return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 9 }
 }
+
+/** Joint exterior door and approach selection; legacy defaults remain exact. */
+export function defaultMixedInputV10(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 10 }
+}
+
+/** Diverse room groups and functional furnishing; old templates stay exact. */
+export function defaultMixedInputV11(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 11 }
+}
+
+/** Aligned full dining groups; v11 rectangular layout is retained. */
+export function defaultMixedInputV12(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 12 }
+}
+
+/** Bound actual reached route intersections; all prior templates stay exact. */
+export function defaultMixedInputV13(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 13 }
+}
+
+/** Rank all dining table poses by their shared actual world long axis. */
+export function defaultMixedInputV14(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 14 }
+}
+
+/** Kitchen runs with complete fixed depths; old defaults remain replayable. */
+export function defaultMixedInputV15(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 15 }
+}
+
+/** Prune provably impossible partial room contacts without expanding search limits. */
+export function defaultMixedInputV16(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 16 }
+}
+
+/** Retain full-width structural connections while trying alternative furniture layouts. */
+export function defaultMixedInputV17(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 17 }
+}
+
+/** Prefer complete dining seats and kitchen functions with full-width connections. */
+export function defaultMixedInputV18(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 18 }
+}
+
+/** Compose finite complete seated-work candidates with the existing outdoor domain. */
+export function defaultMixedInputV19(document: SceneDocument, environment: 'forest' | 'volcano', seed = 'mixed-1'): MixedGenerationInput {
+  return { ...defaultMixedInput(document, environment, seed), algorithmVersion: 19 }
+}

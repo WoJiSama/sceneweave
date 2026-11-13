@@ -33,15 +33,16 @@ export const definitionFurnishingShape = (definition: PropDefinition): Furnishin
  * The caller additionally checks the native candidate and its real routes. */
 export function planFurnitureSeats(options: { anchorKey: string; anchor: FurnitureAnchor; seats: readonly PropDefinition[]; count: number; bounds: InteriorRectangle; inset: number;
   roomPolygon: PointMm[]; blockers: PointMm[][]; routeBands: PointMm[][]; rank: (key: string) => string;
-  checkCancelled: () => void; chargeCandidate: () => void; chargePair: () => void }): FurnitureSeatReservation[] {
+  checkCancelled: () => void; chargeCandidate: () => void; chargePair: () => void; fitSeatToEdge?: boolean; seatRotationDeg?: number }): FurnitureSeatReservation[] {
   const planned: FurnitureSeatReservation[] = []
   for (let slot = 0; slot < options.count; slot++) {
     let found = false
     for (const definition of options.seats) {
       const shape = definitionFurnishingShape(definition)
-      const poses = furniturePoseCandidates(options.bounds, shape, options.inset, 'seat', [options.anchor], options.rank, undefined, options.count > 1)
+      const poses = furniturePoseCandidates(options.bounds, shape, options.inset, 'seat', [options.anchor], options.rank, undefined, options.count > 1, options.fitSeatToEdge)
       for (const pose of poses) {
         options.checkCancelled(); options.chargeCandidate()
+        if (options.seatRotationDeg !== undefined && pose.rotationDeg !== options.seatRotationDeg) continue
         const usePolygon = furnitureUseSpacePolygon(shape, pose), painted = furnitureBoundsPolygon(shape.visualBoundsMm, pose)
         const physical = furnitureBoundsPolygon({ x: shape.footprintOffsetMm.x - shape.footprintMm.width / 2,
           y: shape.footprintOffsetMm.y - shape.footprintMm.height / 2, ...shape.footprintMm }, pose)
