@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { repairGuidedImageSurface, type GuidedSurfaceRepairOptions, type ImageSurfaceStructureGuide } from './guided-surface-repair.js'
+import { inspectGuidedImageSurfaceTone, repairGuidedImageSurface, type GuidedSurfaceRepairOptions, type ImageSurfaceStructureGuide } from './guided-surface-repair.js'
 import type { ImagePixelMask, ImagePixels } from './pixels.js'
 import { maskCoverage } from './repair-scope.js'
 
@@ -27,6 +27,78 @@ const guide: ImageSurfaceStructureGuide = { points: [{ x: 22, y: 42 }, { x: 57, 
 const rgba = (image: ImagePixels, x: number, y: number) => [...image.data.slice((y * image.width + x) * 4, (y * image.width + x) * 4 + 4)]
 
 describe('guided original-only surface synthesis', () => {
+  it('explains actual nearby tone observations without changing synthesis or authorizing writes', () => {
+    const image = fixture(), options: GuidedSurfaceRepairOptions = { surfaceMask, pattern: 'soft', orientation: 'soft' }
+    // A visible dark material edge beside the hole is legal original evidence,
+    // but differs strongly from the nearby material. It is not hidden truth.
+    for (let y = 28; y < 56; y++) for (let x = 55; x < 62; x++) image.data.set([35, 37, 40, 255], (y * image.width + x) * 4)
+    const before = image.data.slice(), plain = repairGuidedImageSurface(image, removal, donor, options)
+    const inspected = inspectGuidedImageSurfaceTone(image, removal, donor, options)
+    expect(inspected.pixels).toEqual(plain)
+    expect(inspected.report.observations.length).toBeGreaterThan(0)
+    expect(inspected.report.observations.length).toBeLessThanOrEqual(8)
+    for (const pair of inspected.report.observations) {
+      expect(pair.source.samples.length + pair.neighbor.samples.length).toBeLessThanOrEqual(8)
+      expect(pair.channelDifference).toBeGreaterThanOrEqual(18)
+      for (const observation of [pair.source, pair.neighbor]) {
+        expect(observation.usedPixels).toBeGreaterThanOrEqual(observation.samples.length)
+        expect(observation.boundsPx.width).toBeLessThanOrEqual(8)
+        expect(observation.boundsPx.height).toBeLessThanOrEqual(8)
+        for (const sample of observation.samples) {
+          expect(sample.rgb).toEqual(rgba(image, sample.x, sample.y).slice(0, 3))
+          expect(maskCoverage(surfaceMask, sample.x, sample.y)).toBe(255)
+          expect(maskCoverage(removal, sample.x, sample.y)).toBe(0)
+        }
+      }
+    }
+    for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) if (!maskCoverage(removal, x, y)) expect(rgba(inspected.pixels, x, y)).toEqual(rgba(image, x, y))
+    expect(image.data).toEqual(before)
+    inspected.report.observations[0].source.samples[0].rgb[0] = 255
+    expect(repairGuidedImageSurface(image, removal, donor, options)).toEqual(plain)
+    expect(inspectGuidedImageSurfaceTone(image, removal, donor, options).report).not.toEqual(inspected.report)
+  })
+
+  it('isolates generated colours and tone reports from unknown, protected, excluded and inferred RGB', () => {
+    const a = fixture(), b = fixture(), protectionMask = box(40, 33, 3, 8), excludedEvidenceMask = box(56, 30, 5, 24), priorInference = new Uint8Array(a.width * a.height)
+    for (let y = 15; y < 26; y++) for (let x = 24; x < 32; x++) { a.data.set([35, 37, 40, 255], (y * a.width + x) * 4); b.data.set([35, 37, 40, 255], (y * b.width + x) * 4) }
+    for (let y = 20; y < 29; y++) for (let x = 18; x < 22; x++) priorInference[y * a.width + x] = 1
+    for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) if (!maskCoverage(surfaceMask, x, y) || maskCoverage(removal, x, y) || maskCoverage(protectionMask, x, y) || maskCoverage(excludedEvidenceMask, x, y) || priorInference[y * a.width + x]) {
+      a.data.set([255, 0, 255, 255], (y * a.width + x) * 4); b.data.set([0, 255, 0, 255], (y * b.width + x) * 4)
+    }
+    const options: GuidedSurfaceRepairOptions = { surfaceMask, protectionMask, excludedEvidenceMask, priorInference, pattern: 'soft', orientation: 'soft' }
+    const left = inspectGuidedImageSurfaceTone(a, removal, donor, options), right = inspectGuidedImageSurfaceTone(b, removal, donor, options)
+    expect(left.report.observations.length).toBeGreaterThan(0)
+    expect(left.report).toEqual(right.report)
+    for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) if (maskCoverage(removal, x, y) && !maskCoverage(protectionMask, x, y)) expect(rgba(left.pixels, x, y)).toEqual(rgba(right.pixels, x, y))
+    else expect(rgba(left.pixels, x, y)).toEqual(rgba(a, x, y))
+    for (const pair of left.report.observations) for (const observation of [pair.source, pair.neighbor]) for (const sample of observation.samples) {
+      expect(maskCoverage(removal, sample.x, sample.y) || maskCoverage(protectionMask, sample.x, sample.y) || maskCoverage(excludedEvidenceMask, sample.x, sample.y) || priorInference[sample.y * a.width + sample.x]).toBe(0)
+    }
+  })
+
+  it('treats genuine steep material gradients as a diagnostic uncertainty without flattening them', () => {
+    const image = fixture(), options: GuidedSurfaceRepairOptions = { surfaceMask, pattern: 'soft', orientation: 'soft' }
+    for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) image.data.set([20 + x * 2, 25 + x * 2, 30 + x * 2, 255], (y * image.width + x) * 4)
+    const before = image.data.slice(), plain = repairGuidedImageSurface(image, removal, donor, options), inspected = inspectGuidedImageSurfaceTone(image, removal, donor, options)
+    expect(inspected.report.observations.length).toBeGreaterThan(0)
+    expect(inspected.pixels).toEqual(plain)
+    expect(rgba(inspected.pixels, 50, 40)[0] - rgba(inspected.pixels, 28, 40)[0]).toBeGreaterThan(35)
+    expect(image.data).toEqual(before)
+  })
+
+  it('retains hard guards and cancellation during optional report collection without returning a partial result', () => {
+    const image = fixture(), before = image.data.slice(), options: GuidedSurfaceRepairOptions = { surfaceMask, pattern: 'soft', orientation: 'soft' }
+    let normalChecks = 0
+    repairGuidedImageSurface(image, removal, donor, { ...options, signal: { aborted: false, throwIfAborted() { normalChecks++ } } })
+    let diagnosticChecks = 0
+    expect(() => inspectGuidedImageSurfaceTone(image, removal, donor, { ...options, signal: { aborted: false, throwIfAborted() { if (++diagnosticChecks > normalChecks + 2) throw new Error('diagnostic aborted') } } })).toThrow('diagnostic aborted')
+    expect(diagnosticChecks).toBeGreaterThan(normalChecks)
+    const large = fixture(600, 520)
+    expect(() => inspectGuidedImageSurfaceTone(large, box(0, 0, 501, 500), { x: 550, y: 10, width: 20, height: 20 }, { surfaceMask: box(0, 0, 600, 520), pattern: 'soft' })).toThrow('25万')
+    expect(() => inspectGuidedImageSurfaceTone(image, removal, donor, { ...options, guides: Array(33).fill(guide) })).toThrow('最多32')
+    expect(image.data).toEqual(before)
+  })
+
   it('keeps every forbidden source out of tone, texture and line evidence and writes only the permitted material', () => {
     const a = fixture(), b = fixture(), protectionMask = box(48, 30, 7, 15), excludedEvidenceMask = box(10, 28, 7, 31), priorInference = new Uint8Array(a.width * a.height)
     addReferenceLine(a); addReferenceLine(b)

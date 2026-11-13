@@ -1,17 +1,41 @@
 import type { NeighborhoodRepairOptions } from './neighborhood-repair.js'
 import type { ImagePixelMask, ImagePixels, PixelBounds } from './pixels.js'
 import { maskCoverage } from './repair-scope.js'
+import { prepareImageSurfaceDetailPatches, applyImageSurfaceDetailPatches, replaceImageSurfaceDetailInk, type ImageSurfaceDetailPatch } from './guided-detail-patches.js'
+import { prepareOriginalSurfaceStroke, rasterOriginalSurfaceStroke } from './guided-original-stroke.js'
 
 export interface ImageSurfaceStructureGuide {
   points: Array<{ x: number; y: number }>
   reference: PixelBounds
   axis: 'horizontal' | 'vertical'
+  stroke?: 'original-segment'
+  /** Estimate reference paper from both sides; only for original-segment. */
+  paper?: 'two-sided'
   /** An explicit human inference, not a claim to recover the hidden source. */
   reason: string
 }
 export interface GuidedSurfaceRepairOptions extends NeighborhoodRepairOptions {
   orientation?: 'horizontal' | 'vertical' | 'soft'
   guides?: ImageSurfaceStructureGuide[]
+  detailPatches?: ImageSurfaceDetailPatch[]
+}
+export interface GuidedToneObservation {
+  boundsPx: PixelBounds
+  /** Mean of every paper sample actually used, not merely the displayed subset. */
+  rgb: number[]
+  usedPixels: number
+  samples: Array<{ x: number; y: number; rgb: number[] }>
+}
+export interface GuidedToneReport {
+  algorithm: 'guided-tone-observations-v1'
+  /** Fixed diagnostic gates; these are neither material classification nor confidence. */
+  gates: { channelDifference: 18; luminanceDifference: 12; radiusPx: 24 }
+  observations: Array<{
+    source: GuidedToneObservation
+    neighbor: GuidedToneObservation
+    channelDifference: number
+    luminanceDifference: number
+  }>
 }
 interface ToneGrid { width: number; height: number; known: Uint8Array; rgb: Float32Array }
 interface Profile { centre: number; values: number[][]; radius: number }
@@ -29,6 +53,17 @@ const hash = (x: number, y: number, salt: number) => {
  * explicitly inferred structure. All source observations are captured before
  * synthesis. This opt-in algorithm does not change older recipe meanings. */
 export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, donor: PixelBounds, options: GuidedSurfaceRepairOptions): ImagePixels {
+  return solveGuidedImageSurface(image, removal, donor, options, false).pixels
+}
+
+/** Same solve and permissions, with at most eight read-only original-observation
+ * comparisons. No callback can inspect or mutate intermediate computation. */
+export function inspectGuidedImageSurfaceTone(image: ImagePixels, removal: ImagePixelMask, donor: PixelBounds, options: GuidedSurfaceRepairOptions): { pixels: ImagePixels; report: GuidedToneReport } {
+  const result = solveGuidedImageSurface(image, removal, donor, options, true)
+  return { pixels: result.pixels, report: result.report! }
+}
+
+function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, donor: PixelBounds, options: GuidedSurfaceRepairOptions, collectTone: boolean): { pixels: ImagePixels; report?: GuidedToneReport } {
   const cancel = () => {
     options?.signal?.throwIfAborted?.()
     if (options?.signal?.aborted) throw new Error('辅助结构补底已取消，原图保持。')
@@ -48,12 +83,16 @@ export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixel
   if (options.priorInference && (!(options.priorInference instanceof Uint8Array) || options.priorInference.length !== image.width * image.height)) throw new Error('前序推断范围须逐原图像素绑定。')
   const guides = options.guides ?? []
   if (!Array.isArray(guides) || guides.length > 32) throw new Error('辅助结构最多32条标注。')
+  if (!Array.isArray(options.detailPatches ?? []) || guides.length + (options.detailPatches?.length ?? 0) > 32) throw new Error('路径与二维笔迹合计最多32项。')
   let structureWork = 0
   for (const guide of guides) {
     if (!guide || guide.axis !== 'horizontal' && guide.axis !== 'vertical' || typeof guide.reason !== 'string' || !guide.reason.trim() || guide.reason.length > 400
       || !Array.isArray(guide.points) || guide.points.length < 2 || guide.points.length > 16 || guide.points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.y < 0 || p.x >= image.width || p.y >= image.height)
       || !validBounds(guide.reference) || guide.reference.width * guide.reference.height > 4096
       || (guide.axis === 'horizontal' ? guide.reference.width < 3 || guide.reference.height < 5 : guide.reference.height < 3 || guide.reference.width < 5)) throw new Error('结构标注须含2至16个原图内点、明确理由及至少3×5的有界线参考。')
+    if (guide.stroke !== undefined && guide.stroke !== 'original-segment') throw new Error('结构笔触仅支持显式original-segment，缺省保持原截面方法。')
+    if (guide.paper !== undefined && (guide.paper !== 'two-sided' || guide.stroke !== 'original-segment'
+      || (guide.axis === 'horizontal' ? guide.reference.height : guide.reference.width) < 9)) throw new Error('两侧底色须显式用于原尺寸接缝，参考横跨至少9px。')
     let length = 0
     for (let i = 1; i < guide.points.length; i++) {
       const a = guide.points[i - 1], b = guide.points[i]
@@ -90,11 +129,20 @@ export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixel
   }
   verifyReference(donor)
   for (const guide of guides) verifyReference(guide.reference)
+  const detailPatches = prepareImageSurfaceDetailPatches(image, options.detailPatches ?? [], trusted,
+    (x, y) => !!maskCoverage(options.surfaceMask, x, y), cancel)
+  // Each patch scans at most 49 source + 49 inferred-paper samples per pixel.
+  budget(detailPatches.reduce((sum, patch) => sum + patch.target.width * patch.target.height * (patch.blendPx ? 108 : 98), 0))
 
   // Quantile observations remove narrow ink before fitting the broad paper tone.
   // A shared luminance ordering preserves channel relationships of actual pixels.
   const cell = 4, gw = Math.ceil(sw / cell), gh = Math.ceil(sh / cell)
   const grid: ToneGrid = { width: gw, height: gh, known: new Uint8Array(gw * gh), rgb: new Float32Array(gw * gh * 3) }
+  // Optional compact evidence capture: < 66,000 cells, four original indexes
+  // per cell. Normal repair allocates none and performs no diagnostic scan.
+  const toneSamples = collectTone ? new Uint32Array(gw * gh * 4) : undefined
+  const toneSampleCounts = collectTone ? new Uint8Array(gw * gh) : undefined
+  const toneUsedCounts = collectTone ? new Uint8Array(gw * gh) : undefined
   const donorColors: number[][] = [[], [], []]
   for (let y = donor.y; y < donor.y + donor.height; y++) for (let x = donor.x; x < donor.x + donor.width; x++) for (let c = 0; c < 3; c++) donorColors[c].push(rgb(x, y, c))
   const base = donorColors.map(v => quantile(v, .65))
@@ -114,6 +162,14 @@ export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixel
       // paper colour: copying it makes every repair a brighter rectangle.
       const paper = pixels.filter(p => p.lum >= chosen.lum - 8 && p.lum <= chosen.lum + 8)
       const color = [0, 1, 2].map(c => paper.reduce((sum, p) => sum + rgb(p.x, p.y, c), 0) / paper.length)
+      if (toneSamples && toneSampleCounts && toneUsedCounts) {
+        const count = Math.min(4, paper.length)
+        toneSampleCounts[at] = count; toneUsedCounts[at] = paper.length
+        for (let sample = 0; sample < count; sample++) {
+          const pixel = paper[Math.floor(sample * paper.length / count)]
+          toneSamples[at * 4 + sample] = pixel.y * image.width + pixel.x
+        }
+      }
       grid.known[at] = 1; grid.rgb.set(color, at * 3)
       centers.push({ x: gx, y: gy, color })
     }
@@ -343,6 +399,7 @@ export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixel
   }
   const strokes: Stroke[] = []
   for (const guide of guides) {
+    if (guide.stroke === 'original-segment') continue
     const r = guide.reference, horizontal = guide.axis === 'horizontal', n = horizontal ? r.height : r.width, length = horizontal ? r.width : r.height, colors: number[][] = []
     for (let v = 0; v < n; v++) {
       const channels: number[][] = [[], [], []]
@@ -390,12 +447,18 @@ export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixel
       if (!right) continue
       used.add(right.i)
       const mid = { x: (left.point.x + right.v.point.x) / 2, y: (left.point.y + right.v.point.y) / 2 }
-      if (strokes.some(stroke => stroke.explicit && stroke.points.some((point, i) => i > 0 && segmentDistance(mid.x, mid.y, stroke.points[i - 1], point).distance < Math.max(7, stroke.profile.radius + 2)))) continue
+      if (strokes.some(stroke => stroke.explicit && stroke.points.some((point, i) => i > 0 && segmentDistance(mid.x, mid.y, stroke.points[i - 1], point).distance < Math.max(7, stroke.profile.radius + 2)))
+        || guides.some(guide => guide.stroke === 'original-segment' && guide.points.some((point, i) => i > 0 && segmentDistance(mid.x, mid.y, guide.points[i - 1], point).distance < 9))) continue
       strokes.push({ points: [left.point, right.v.point], profile: left.profile, endProfile: right.v.profile, explicit: false, axis: orientation })
       if (strokes.length >= 96) break
     }
   }
   const ink = new Float32Array(writeMap.length * 3)
+  for (const guide of guides) if (guide.stroke === 'original-segment') {
+    const reference = prepareOriginalSurfaceStroke(image, guide.reference, guide.axis, cancel, guide.paper)
+    budget(guide.reference.width * guide.reference.height * (guide.paper ? 9 : 6))
+    rasterOriginalSurfaceStroke(reference, guide.points, b, writable, (x, y, c) => trusted(x, y) ? Math.max(0, tone(x, y, c) - rgb(x, y, c)) : undefined, ink, budget, cancel)
+  }
   const profileAt = (profile: Profile, offset: number, c: number) => {
     const position = profile.centre + offset, first = Math.floor(position), t = position - first
     return (profile.values[first]?.[c] ?? 0) * (1 - t) + (profile.values[first + 1]?.[c] ?? 0) * t
@@ -420,6 +483,7 @@ export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixel
       }
     }
   }
+  replaceImageSurfaceDetailInk(ink, b, detailPatches, writable, cancel)
   const data = image.data.slice()
   for (let y = 0; y < removal.height; y++) {
     cancel()
@@ -431,7 +495,56 @@ export function repairGuidedImageSurface(image: ImagePixels, removal: ImagePixel
       data[at + 3] = 255
     }
   }
-  cancel(); return { width: image.width, height: image.height, data }
+  cancel()
+  const pixels = applyImageSurfaceDetailPatches({ width: image.width, height: image.height, data }, detailPatches, writable, trusted, cancel)
+  if (!toneSamples || !toneSampleCounts || !toneUsedCounts) return { pixels }
+  // Capture comparison colours from the original observations, never from the
+  // subsequently solved grid or any generated pixel. Fixed 24px neighbors,
+  // <= 25 write-membership probes per cell and <= 20 comparison probes bound
+  // diagnostics independently of texture/guide work, with no extra RGB scan.
+  const observed = new Map(centers.map(sample => [sample.y * gw + sample.x, sample]))
+  type TonePair = { source: number; neighbor: number; channel: number; luminance: number }
+  const selected: TonePair[] = []
+  const nearWrite = (gx: number, gy: number) => {
+    for (let dy = -8; dy <= 8; dy += 4) for (let dx = -8; dx <= 8; dx += 4) if (writable(surface.x + gx * cell + 1 + dx, surface.y + gy * cell + 1 + dy)) return true
+    return false
+  }
+  for (const sample of centers) {
+    cancel()
+    if (!nearWrite(sample.x, sample.y)) continue
+    const source = sample.y * gw + sample.x
+    let best: TonePair | undefined
+    for (let radius = 2; radius <= 6; radius++) for (const [dx, dy] of steps) {
+      const x = sample.x + dx * radius, y = sample.y + dy * radius
+      if (x < 0 || y < 0 || x >= gw || y >= gh) continue
+      const other = observed.get(y * gw + x)
+      if (!other) continue
+      const channel = Math.max(...other.color.map((value, c) => Math.abs(value - sample.color[c])))
+      const luminance = other.color.reduce((sum, value, c) => sum + value - sample.color[c], 0) / 3
+      if (channel < 18 || luminance < 12) continue
+      if (!best || channel > best.channel) best = { source, neighbor: y * gw + x, channel, luminance }
+    }
+    if (!best) continue
+    // Keep eight separated sites, preferring the strongest observed conflict.
+    // This does not classify any dark original line or shadow as removable.
+    const nearby = selected.findIndex(pair => Math.hypot(pair.source % gw - sample.x, Math.floor(pair.source / gw) - sample.y) < 3)
+    if (nearby >= 0) { if (best.channel > selected[nearby].channel) selected[nearby] = best }
+    else selected.push(best)
+    selected.sort((a, b) => b.channel - a.channel || a.source - b.source)
+    if (selected.length > 8) selected.pop()
+  }
+  const describe = (at: number): GuidedToneObservation => {
+    const sample = observed.get(at)!, samples: GuidedToneObservation['samples'] = []
+    for (let i = 0; i < toneSampleCounts[at]; i++) {
+      const source = toneSamples[at * 4 + i], x = source % image.width, y = Math.floor(source / image.width)
+      samples.push({ x, y, rgb: [0, 1, 2].map(c => rgb(x, y, c)) })
+    }
+    const x = Math.max(surface.x, surface.x + sample.x * cell - 2), y = Math.max(surface.y, surface.y + sample.y * cell - 2)
+    return { boundsPx: { x, y, width: Math.min(surface.x + sw, surface.x + sample.x * cell + 6) - x, height: Math.min(surface.y + sh, surface.y + sample.y * cell + 6) - y }, rgb: [...sample.color], usedPixels: toneUsedCounts[at], samples }
+  }
+  const report: GuidedToneReport = { algorithm: 'guided-tone-observations-v1', gates: { channelDifference: 18, luminanceDifference: 12, radiusPx: 24 },
+    observations: selected.map(pair => ({ source: describe(pair.source), neighbor: describe(pair.neighbor), channelDifference: pair.channel, luminanceDifference: pair.luminance })) }
+  cancel(); return { pixels, report }
 }
 
 function segmentDistance(x: number, y: number, a: { x: number; y: number }, b: { x: number; y: number }) {

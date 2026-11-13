@@ -11,6 +11,7 @@ import { imageImportLayerSchema, imageImportRecipeSchema, parseImageImportRecipe
 import { imageSelectionMaskSchema, decodeSelectionMask, assertSelectionMaskBudget } from './selection-mask.js'
 import { GUIDED_SELECTION_LIMITS, guidedSelectionSchema } from './guided-selection.js'
 import { imageSelectionOriginSchema, assertImageSelectionOrigin } from './selection-origin.js'
+import { validateImageSubjectRefinement } from './subject-refinement.js'
 
 export const IMAGE_WORK_LIMITS = Object.freeze({ stateBytes: 8 * 1024 * 1024, imageBytes: 20 * 1024 * 1024,
   packageBytes: 49 * 1024 * 1024, journal: 2048, reviews: 1024 })
@@ -40,6 +41,7 @@ const activeSchema = z.strictObject({ id: id.optional(), name: z.string().max(12
   emptySelectionBounds: guidedSelectionSchema.shape.bounds.optional(),
   fills: imageImportLayerSchema.shape.fills, repair: imageImportLayerSchema.shape.repair,
   appearanceSource: imageImportLayerSchema.shape.appearanceSource, repairSurfaceIds: imageImportLayerSchema.shape.repairSurfaceIds,
+  subjectRefinement: imageImportLayerSchema.shape.subjectRefinement,
   cleanupPx: imageImportLayerSchema.shape.cleanupPx, renderLayer: z.enum(['ground', 'object']), blocksMovement: z.boolean(),
   footprintPx: imageImportLayerSchema.shape.footprintPx, editingLayerId: id.optional() })
 
@@ -73,6 +75,7 @@ export function parseImageWorkState(input: unknown): ImageWorkState {
     calibration: draft.calibration ?? { first: { x: 0, y: 0 }, second: { x: image.pixelWidth, y: 0 }, distanceMm: image.pixelWidth },
     roomPointsPx: [{ x: 0, y: 0 }, { x: image.pixelWidth, y: 0 }, { x: image.pixelWidth, y: image.pixelHeight }], layers: draft.layers, ...(draft.repairSurfaces ? { repairSurfaces: draft.repairSurfaces } : {}) })
   if (active) {
+    validateImageSubjectRefinement({ width: image.pixelWidth, height: image.pixelHeight }, active.subjectRefinement)
     if (active.repairSurfaceIds && (new Set(active.repairSurfaceIds).size !== active.repairSurfaceIds.length || active.repairSurfaceIds.some(id => !draft.repairSurfaces?.some(surface => surface.id === id)))) throw new Error('当前物件引用了不存在或重复的补底表面。')
     inImage(active.polygon); inImage(active.donor)
     inImage(active.fillPolygonPx ?? []); inImage(active.fillDonorPx ?? [])
@@ -116,7 +119,7 @@ export function parseImageWorkState(input: unknown): ImageWorkState {
       }
     }
   }
-  assertSelectionMaskBudget([...draft.layers.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask]), ...(draft.repairSurfaces ?? []).flatMap(surface => [surface.mask, surface.excludedEvidenceMask]), active?.selectionMask, active?.removalMask, active?.protectionMask])
+  assertSelectionMaskBudget([...draft.layers.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask, layer.subjectRefinement?.foregroundProtectionMask, layer.subjectRefinement?.excludedEvidenceMask]), ...(draft.repairSurfaces ?? []).flatMap(surface => [surface.mask, surface.excludedEvidenceMask]), active?.selectionMask, active?.removalMask, active?.protectionMask, active?.subjectRefinement?.foregroundProtectionMask, active?.subjectRefinement?.excludedEvidenceMask])
   for (const event of state.journal) if (event.paramsJson !== undefined) {
     if (encodeUtf8(event.paramsJson).length > 256 * 1024) throw new Error('单次操作参数超过256KiB。')
     captureJson(parseBoundedJson(encodeUtf8(event.paramsJson)))

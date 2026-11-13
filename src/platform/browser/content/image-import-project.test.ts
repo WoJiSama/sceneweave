@@ -63,4 +63,28 @@ describe('generic image import project preparation', () => {
     options.layers[0].blocksMovement = false
     expect(() => createImageImportDocument(options)).toThrow('支撑面')
   })
+
+  it('preserves the implicit physical footprint and its world center when an appearance raster expands', () => {
+    const baseline = input(), expanded = input()
+    // A non-integer calibration and asymmetric expansion expose independent
+    // rounding of the visual center and the original physical footprint.
+    baseline.calibration = { ...baseline.calibration, distanceMm: 731 }
+    expanded.calibration = { ...expanded.calibration, distanceMm: 731 }
+    const originalBounds = { ...expanded.layers[0].boundsPx }
+    expanded.layers[0].boundsPx = { x: originalBounds.x - 1, y: originalBounds.y, width: originalBounds.width + 1, height: originalBounds.height + 2 }
+    expanded.layers[0].footprintBasisPx = originalBounds
+    const a = createImageImportDocument(baseline).props['custom-piano']
+    const scene = createImageImportDocument(expanded), b = scene.props['custom-piano']
+    expect(b.visualBoundsMm).not.toEqual(a.visualBoundsMm)
+    expect(b.footprintMm).toEqual(a.footprintMm)
+    const center = (p: typeof a) => ({ x: p.positionMm.x + p.footprintOffsetMm.x, y: p.positionMm.y + p.footprintOffsetMm.y })
+    expect(center(b)).toEqual(center(a))
+    expect(b.supportRef).toEqual(a.supportRef)
+    expect(b.blocksMovement).toBe(a.blocksMovement)
+    const definition = scene.propDefinitions[b.definitionRef!.id]
+    expect(definition.defaultFootprintMm).toEqual(a.footprintMm)
+    expect(definition.defaultFootprintOffsetMm).toEqual(b.footprintOffsetMm)
+    expanded.layers[0].footprintBasisPx = { ...originalBounds, x: 999 }
+    expect(() => createImageImportDocument(expanded)).toThrow('范围')
+  })
 })
