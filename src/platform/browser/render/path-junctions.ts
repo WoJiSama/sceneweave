@@ -1,5 +1,5 @@
-import type { PointMm, SurfaceStyle } from '../../../shared/model/scene.js'
-import type { ProjectedPath, Projection } from '../../../shared/projection/types.js'
+import type { MaterialPaint, PointMm, SurfaceStyle } from '../../../shared/model/scene.js'
+import type { ProjectedPath, ProjectedSurface, Projection } from '../../../shared/projection/types.js'
 import { pointInPolygon } from '../../../shared/geometry/geometry.js'
 import { canonicalJson } from '../../../shared/validation/json.js'
 
@@ -97,6 +97,35 @@ export function pathJunctionOutlines(projection: Pick<Projection, 'paths' | 'pat
 const opaqueWorldPaint = (style: SurfaceStyle | null) => style && style.base.opacity === 1
   && style.base.alignment === 'world' && !style.overlays.length ? canonicalJson(style.base) : null
 
+/** Resolve only a provable final opaque paint. A later hard opaque patch can
+ * cover earlier feathering, but uncertain alpha/blur never exposes a lower
+ * match. This consumes projection-owned paint, without reading hidden rules. */
+function surfacePaint(area: ProjectedSurface) {
+  const overlays = [...(area.style?.overlays ?? [])].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))
+  const layers = [
+    ...overlays.map(overlay => ({ paint: overlay.paint, feather: overlay.blendWidthMm, regions: [{ outerMm: overlay.boundaryMm, holesMm: [] as PointMm[][] }] })),
+    ...(area.materialPatches ?? []).map(patch => ({ paint: patch.paint, feather: patch.blendWidthMm, regions: patch.regionsMm })),
+  ]
+  const rings = layers.flatMap(layer => layer.regions.flatMap(region => [region.outerMm, ...region.holesMm]))
+  // Optional outline cleanup stays bounded; exceeding this allowance preserves
+  // every existing edge instead of simplifying or sampling the saved content.
+  if (layers.length > 128 || rings.reduce((sum, ring) => sum + ring.length, 0) > 8192) return null
+  const key = (paint: MaterialPaint | undefined) => paint?.opacity === 1 && paint.alignment === 'world' ? canonicalJson(paint) : null
+  return { edges: rings.flatMap(edges), at(point: PointMm): string | null {
+    for (let index = layers.length - 1; index >= 0; index--) {
+      const layer = layers[index]
+      if (layer.paint.opacity === 0) continue
+      // Feather can affect pixels outside the stored boundary. Do not infer a
+      // hard blur cutoff from distance or from the current output resolution.
+      if (layer.feather) return null
+      const inside = layer.regions.some(region => pointInPolygon(point, region.outerMm, false)
+        && !region.holesMm.some(hole => pointInPolygon(point, hole, false)))
+      if (inside) return key(layer.paint)
+    }
+    return key(area.style?.base)
+  } }
+}
+
 /** A road keeps its original fill and hit polygon. Only its already-computed
  * exterior stroke is shortened where both sides share the same exposed paint. */
 function trimTerrainInteriors(projection: Pick<Projection, 'paths'> & Partial<Pick<Projection, 'terrain' | 'rooms' | 'pathTerrainJoins'>>,
@@ -111,10 +140,11 @@ function trimTerrainInteriors(projection: Pick<Projection, 'paths'> & Partial<Pi
   for (const join of joins.paths) {
     const path = pathById.get(join.pathId), paint = path && opaqueWorldPaint(path.style)
     if (!path || !paint || filtered.has(path.id)) continue
-    const candidates = new Set(join.terrainIds.filter(id => {
-      const area = byId.get(id)
-      return !!area && !filtered.has(id) && !area.materialPatches?.length && opaqueWorldPaint(area.style) === paint
+    const paints = new Map(join.terrainIds.filter(id => !filtered.has(id)).flatMap(id => {
+      const area = byId.get(id), resolved = area && surfacePaint(area)
+      return resolved ? [[id, resolved] as const] : []
     }))
+    const candidates = new Set(paints.keys())
     if (!candidates.size) continue
     const pathBounds = bounds(path), covers = terrain.filter(area => overlaps(pathBounds, bounds(area)))
     const roomCovers = rooms.filter(room => overlaps(pathBounds, bounds(room)))
@@ -123,6 +153,7 @@ function trimTerrainInteriors(projection: Pick<Projection, 'paths'> & Partial<Pi
     // seams; terrain trimming must not remove the remaining incompatible seam.
     const roadCovers = publicPaths.filter(other => other.id !== path.id && overlaps(pathBounds, bounds(other)))
     const coverEdges = [...covers, ...roomCovers, ...roadCovers].flatMap(area => edges(area.points))
+      .concat(covers.flatMap(area => paints.get(area.id)?.edges ?? []))
     const exposedMatch = (point: PointMm): boolean => {
       if (roadCovers.some(road => pointInPolygon(point, road.points, false))) return false
       if (roomCovers.some(room => pointInPolygon(point, room.points, false))) return false
@@ -130,6 +161,7 @@ function trimTerrainInteriors(projection: Pick<Projection, 'paths'> & Partial<Pi
       // lower surface; private and hidden geometry never entered this ID list.
       for (let index = covers.length - 1; index >= 0; index--) {
         if (pointInPolygon(point, covers[index].points, false)) return candidates.has(covers[index].id)
+          && paints.get(covers[index].id)!.at(point) === paint
       }
       return false
     }

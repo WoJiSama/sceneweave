@@ -62,6 +62,26 @@ describe('audience-owned road to terrain join relationships', () => {
     expect(pathJunctionOutlines(editor).size).toBe(0)
     expect(projectEditorScene(scene, { hiddenLayerIds: new Set([layerId]) }).pathTerrainJoins).toBeUndefined()
   })
+  it('joins an exact public overlay without letting a GM-only rule alter either public outline', () => {
+    const { scene } = fixture()
+    const camp = scene.terrainAreas.camp, road = scene.paths.road
+    camp.surfaceStyle!.base = structuredClone(scene.terrainAreas.ground.surfaceStyle!.base)
+    camp.surfaceStyle!.overlays.push({ id: 'public-apron-core', paint: structuredClone(road.surfaceStyle!.base),
+      boundaryMm: rect(10500, 6500, 5000, 4000), blendWidthMm: 0, renderOrder: 0 })
+    const expected = pathJunctionOutlines(projectScene(scene, 'player'))
+    expect(expected.has('road')).toBe(true)
+    scene.surfaceRules ??= {}
+    scene.surfaceRules['private-apron-canary'] = { id: 'private-apron-canary', floorId: camp.floorId, editLocked: false, visibility: 'gm',
+      supportRef: { kind: 'terrainArea', id: camp.id }, field: 'material', paintOrder: 1,
+      regionsMm: [{ outerMm: rect(10000, 6000, 6000, 5000), holesMm: [] }], paint: { ...structuredClone(road.surfaceStyle!.base), tint: '#ABCDEF' }, blendWidthMm: 0 }
+    scene.entityLayers['private-apron-canary'] = scene.entityLayers.camp
+    // The GM can see the private paint, but it must not dictate the public
+    // seam. With the uncertain GM-only cover, retaining that edge is safe.
+    const player = projectScene(scene, 'player')
+    expect(pathJunctionOutlines(player)).toEqual(expected)
+    expect(JSON.stringify(player)).not.toContain('private-apron-canary')
+    expect(pathJunctionOutlines(projectScene(scene, 'gm')).has('road')).toBe(false)
+  })
   it.each(['campLayer', 'roomLayer', 'roadLayer'])('omits a room-supported road when its %s is hidden without changing formal output or the stored scene', hiddenLayerId => {
     const { scene: source, floorId, layerId } = fixture()
     delete source.paths.road; delete source.entityLayers.road

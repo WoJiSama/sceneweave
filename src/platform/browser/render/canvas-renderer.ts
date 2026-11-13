@@ -23,6 +23,7 @@ import { connectionLandingBlend, connectionLandingDepthMm } from '../../../share
 import { naturalRockTreads } from './cliff-relief.js'
 import { drawNaturalRockSteps } from './natural-rock-steps.js'
 import { drawNaturalRockStepsV4 } from './natural-rock-steps-v4.js'
+import { drawTerracedRockSteps } from './terraced-rock-steps.js'
 import { planRockStepSideMask } from './rock-step-surface-mask.js'
 import { paintConnectionLandingMask } from './connection-landing-mask.js'
 import { editorResidentAssetIds } from './aggregate-residency.js'
@@ -556,15 +557,20 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
     const target = context(surface, raster.readFrequently), maskContext = context(mask, raster.readFrequently)
     const local = { ...projection, bounds: { x: projection.bounds.x + left / sx, y: projection.bounds.y + top / sy, width: surface.width / sx, height: surface.height / sy } }
     worldTransform(target, local.bounds, sx, sy)
-    const palette = route.stairStyle === 'wood' ? { base: '#AB9165', dark: '#65523E', light: '#E1C693' }
-      : route.stairStyle === 'naturalRock' ? route.renderProfile === 'naturalRockSteps4'
+    const palette = route.renderProfile === 'naturalRockSteps8' ? { base: '#D8C5A1', dark: '#A89B7E', light: '#EDDCB8' }
+      : route.stairStyle === 'wood' ? { base: '#AB9165', dark: '#65523E', light: '#E1C693' }
+      : route.stairStyle === 'naturalRock' ? route.renderProfile === 'naturalRockSteps6' || route.renderProfile === 'naturalRockSteps7'
+        ? { base: '#D9C9A3', dark: '#998064', light: '#E8DDB7' }
+        : route.renderProfile === 'naturalRockSteps5'
+        ? { base: '#C4B997', dark: '#9D937C', light: '#E4D4AE' }
+        : route.renderProfile === 'naturalRockSteps4'
         ? { base: '#666D67', dark: '#303C36', light: '#9CA396' }
         : route.renderProfile === 'naturalRockSteps3'
         ? { base: '#777B72', dark: '#424B47', light: '#AAA999' }
         : { base: '#B6B094', dark: '#606D5E', light: '#E4D4A9' }
         : { base: '#AAA98E', dark: '#59665D', light: '#E4D9B5' }
     fillSurface(target, path, c.style, local, raster, palette.base)
-    if (route.renderProfile === 'naturalRockSteps4') {
+    if (route.renderProfile === 'naturalRockSteps4' || route.renderProfile === 'naturalRockSteps6' || route.renderProfile === 'naturalRockSteps7' || route.renderProfile === 'naturalRockSteps8') {
       const plan = planRockStepSideMask({ bounds: local.bounds, width: surface.width, height: surface.height,
         centerlineMm: route.centerlineMm, widthMm: c.widthMm })
       const sideMask = canvas(plan.width, plan.height)
@@ -602,7 +608,13 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
       }
       if (route.stairStyle === 'naturalRock') {
         const seed = `${c.id}/${route.centerlineMm.map(p => `${p.x},${p.y}`).join(';')}`
-        if (route.renderProfile === 'naturalRockSteps4') drawNaturalRockStepsV4(target, { frame, widthMm: c.widthMm, count, seed, bandMm: polygon, palette })
+        if (route.renderProfile === 'naturalRockSteps6' || route.renderProfile === 'naturalRockSteps7' || route.renderProfile === 'naturalRockSteps8') drawTerracedRockSteps(target, { frame, widthMm: c.widthMm, count,
+          riseMm: Math.abs(c.toElevationMm - c.fromElevationMm), seed, bandMm: polygon, palette,
+          lightDirectionDeg: projection.visual?.environment.lightDirectionDeg, profile: route.renderProfile })
+        else if (route.renderProfile === 'naturalRockSteps5') drawTerracedRockSteps(target, { frame, widthMm: c.widthMm, count,
+          riseMm: Math.abs(c.toElevationMm - c.fromElevationMm), seed, bandMm: polygon, palette,
+          lightDirectionDeg: projection.visual?.environment.lightDirectionDeg })
+        else if (route.renderProfile === 'naturalRockSteps4') drawNaturalRockStepsV4(target, { frame, widthMm: c.widthMm, count, seed, bandMm: polygon, palette })
         else if (route.renderProfile === 'naturalRockSteps2' || route.renderProfile === 'naturalRockSteps3') drawNaturalRockSteps(target, { frame, widthMm: c.widthMm, count, seed, bandMm: polygon, palette })
         else {
         const treads = naturalRockTreads(frame, c.widthMm, seed, count)
@@ -631,7 +643,7 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
       target.strokeStyle = palette.dark; target.lineWidth = 25; target.globalAlpha = .65; target.setLineDash([110, 85]); target.stroke(line); target.setLineDash([])
     }
     target.strokeStyle = palette.dark
-    if (route.renderProfile === 'naturalRockSteps2' || route.renderProfile === 'naturalRockSteps3' || route.renderProfile === 'naturalRockSteps4') {
+    if (route.renderProfile === 'naturalRockSteps2' || route.renderProfile === 'naturalRockSteps3' || route.renderProfile === 'naturalRockSteps4' || route.renderProfile === 'naturalRockSteps5' || route.renderProfile === 'naturalRockSteps6' || route.renderProfile === 'naturalRockSteps7' || route.renderProfile === 'naturalRockSteps8') {
       // This profile already paints finite contacts; keep both landings open.
     } else if (route.stairStyle === 'naturalRock') {
       // Short contacts follow each real route leg. No closed frame or end-cap
@@ -902,10 +914,43 @@ export async function renderRasterProjection(sources: RasterSources, projection:
       // masks, material feathers and shadows before the final view is cut out.
       // Extremely large world shadows reduce this disposable preview's raster
       // density rather than allocating an unbounded intermediate surface.
-      const paintBounds = drawingProjection.bounds, paintRatio = Math.min(ratio, PNG_MAX_LONG_EDGE / Math.max(paintBounds.width, paintBounds.height))
-      padded = canvas(Math.max(1, Math.round(paintBounds.width * paintRatio)), Math.max(1, Math.round(paintBounds.height * paintRatio)))
+      let paintBounds = drawingProjection.bounds
+      let paintRatio = Math.min(ratio, PNG_MAX_LONG_EDGE / Math.max(paintBounds.width, paintBounds.height))
+      let paintWidth = Math.max(1, Math.round(paintBounds.width * paintRatio)), paintHeight = Math.max(1, Math.round(paintBounds.height * paintRatio))
+      let paintProjection = drawingProjection
+      if (publicCropMm) {
+        // Public feedback at an existing output pixel scale must retain that
+        // world pixel grid. Rounding a padded canvas size while keeping its old
+        // world extent changes scale and resamples every material and cliff.
+        // Editor previews deliberately keep their previous allocation policy.
+        const sourceBounds = paintBounds, origin = projection.bounds
+        const aligned = (scale: number) => {
+          const left = Math.floor((sourceBounds.x - origin.x) * scale), top = Math.floor((sourceBounds.y - origin.y) * scale)
+          const right = Math.ceil((sourceBounds.x + sourceBounds.width - origin.x) * scale), bottom = Math.ceil((sourceBounds.y + sourceBounds.height - origin.y) * scale)
+          return { bounds: { x: origin.x + left / scale, y: origin.y + top / scale, width: (right - left) / scale, height: (bottom - top) / scale },
+            width: Math.max(1, right - left), height: Math.max(1, bottom - top) }
+        }
+        const fullWidth = Math.max(1, Math.round(origin.width * ratio)), fullHeight = Math.max(1, Math.round(origin.height * ratio))
+        // A bounded complete frame also preserves Canvas's gradient sampling
+        // origin: translated gradients may quantize differently even after
+        // their geometry and pixel scale were aligned. At an existing formal
+        // output density this gives the exact original frame, then an integer
+        // pixel crop. Higher-density small feedback views retain bounded work.
+        const completeFrameFits = fullWidth <= PNG_MAX_LONG_EDGE && fullHeight <= PNG_MAX_LONG_EDGE && fullWidth * fullHeight <= PNG_MAX_PIXELS
+        let allocation = completeFrameFits ? { bounds: origin, width: fullWidth, height: fullHeight } : aligned(paintRatio)
+        if (allocation.width > PNG_MAX_LONG_EDGE || allocation.height > PNG_MAX_LONG_EDGE) {
+          // Leave two pixels for outward alignment when the requested density
+          // already exhausted the bounded temporary-canvas long edge.
+          paintRatio = Math.min(paintRatio, (PNG_MAX_LONG_EDGE - 2) / Math.max(sourceBounds.width, sourceBounds.height))
+          allocation = aligned(paintRatio)
+        }
+        if (allocation.width > PNG_MAX_LONG_EDGE || allocation.height > PNG_MAX_LONG_EDGE || allocation.width * allocation.height > PNG_MAX_PIXELS) throw new Error('公开视口临时缓冲超过有界像素预算。')
+        paintBounds = allocation.bounds; paintWidth = allocation.width; paintHeight = allocation.height
+        paintProjection = { ...drawingProjection, bounds: paintBounds }
+      }
+      padded = canvas(paintWidth, paintHeight)
       const paintContext = context(padded, raster.readFrequently), drawStarted = metrics ? performance.now() : 0
-      drawProjection(paintContext, drawingProjection, raster, options.signal, propDetails)
+      drawProjection(paintContext, paintProjection, raster, options.signal, propDetails)
       const sx = padded.width / paintBounds.width, sy = padded.height / paintBounds.height
       ctx.drawImage(padded, (outputBounds.x - paintBounds.x) * sx, (outputBounds.y - paintBounds.y) * sy, outputBounds.width * sx, outputBounds.height * sy, 0, 0, width, height)
       if (metrics) metrics.drawSubmissionMs = performance.now() - drawStarted

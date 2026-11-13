@@ -32,9 +32,29 @@ function fixture() {
 }
 
 describe('explicit saved rock rendering profiles', () => {
-  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4'] as const)('keeps the same full physical connection band while %s reaches both audience projections', profile => {
+  it.each(['rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9'] as const)('keeps %s cliffs in ordinary transactions and both projections without changing terrain or fixed sources', profile => {
+    const scene = fixture(), original = structuredClone(scene), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
+    let n = 0
+    const runtime = { ids: { nextId: () => `ribbon-token-${++n}` }, clock: { now: () => scene.updatedAt } }
+    const before = createCompositionContent(scene, runtime), next = applyCompositionCommands(before,
+      [{ type: 'upsertVisualEdgeLook', edgeLook: { ...edge, renderProfile: profile } }], runtime)
+    const cold = JSON.parse(canonicalJson(next.document))
+    expect(validateSceneDocument(cold).ok).toBe(true)
+    expect(next.historyIdentity).toEqual(before.historyIdentity)
+    expect(next.document.terrainAreas).toEqual(original.terrainAreas)
+    expect(next.document.terrainEdges).toEqual(original.terrainEdges)
+    expect(next.document.terrainConnections).toEqual(original.terrainConnections)
+    expect(next.document.materials).toEqual(original.materials)
+    expect(next.document.props).toEqual(original.props); expect(next.document.assets).toEqual(original.assets)
+    for (const audience of ['gm', 'player'] as const) expect(projectScene(cold, audience).visual!.edgeLooks
+      .find(row => row.id === edge.id)!.renderProfile).toBe(profile)
+    visualBase(cold)!.edgeLooks[edge.id].visibility = 'gm'
+    expect(projectScene(cold, 'player').visual!.edgeLooks.some(row => row.id === edge.id)).toBe(false)
+    expect(scene).toEqual(original)
+  })
+  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4', 'naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8'] as const)('keeps the same full physical connection band while %s reaches both audience projections', profile => {
     const scene = fixture(), source = structuredClone(scene), old = connectionFootprint(scene.terrainConnections['q1-stairs'])
-    const cliffProfile = profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
+    const cliffProfile = profile === 'naturalRockSteps8' ? 'rockRelief9' : profile === 'naturalRockSteps7' ? 'rockRelief8' : profile === 'naturalRockSteps6' ? 'rockRelief7' : profile === 'naturalRockSteps5' ? 'rockRelief6' : profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
     scene.terrainConnections['q1-stairs'].route!.renderProfile = profile
     visualBase(scene)!.edgeLooks['q1-crown-cliff'].renderProfile = cliffProfile
     expect(validateSceneDocument(scene).ok).toBe(true)
@@ -60,11 +80,11 @@ describe('explicit saved rock rendering profiles', () => {
     const grass = validateSceneDocument(scene)
     expect(!grass.ok && grass.errors.some(row => row.code === 'VISUAL_RENDER_PROFILE')).toBe(true)
   })
-  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4'] as const)('uses ordinary transactions and complete source identity for %s without mutating the original model or fixed assets', profile => {
+  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4', 'naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8'] as const)('uses ordinary transactions and complete source identity for %s without mutating the original model or fixed assets', profile => {
     const scene = fixture(), before = canonicalJson(scene); let n = 0
     const runtime = { ids: { nextId: () => `detail-profile-token-${++n}` }, clock: { now: () => scene.updatedAt } }
     const content = createCompositionContent(scene, runtime), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
-    const cliffProfile = profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
+    const cliffProfile = profile === 'naturalRockSteps8' ? 'rockRelief9' : profile === 'naturalRockSteps7' ? 'rockRelief8' : profile === 'naturalRockSteps6' ? 'rockRelief7' : profile === 'naturalRockSteps5' ? 'rockRelief6' : profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
     const next = applyCompositionCommands(content, [{ type: 'updateTerrainConnection', id: 'q1-stairs', changes: { route: { ...scene.terrainConnections['q1-stairs'].route!, renderProfile: profile } } },
       { type: 'upsertVisualEdgeLook', edgeLook: { ...edge, renderProfile: cliffProfile } }], runtime)
     expect(next.historyIdentity).toEqual(content.historyIdentity)
@@ -74,15 +94,40 @@ describe('explicit saved rock rendering profiles', () => {
     expect(validateSceneDocument(cold).ok).toBe(true)
     expect(visualBase(cold)!.edgeLooks['q1-crown-cliff'].renderProfile).toBe(cliffProfile)
     expect(cold.terrainConnections['q1-stairs'].route.renderProfile).toBe(profile)
+    const expectedConnection = structuredClone(scene.terrainConnections['q1-stairs'])
+    expectedConnection.route!.renderProfile = profile
+    expect(cold.terrainConnections['q1-stairs']).toEqual(expectedConnection)
+    for (const audience of ['gm', 'player'] as const) {
+      const projection = projectScene(cold, audience)
+      expect(projection.connections.find(row => row.id === 'q1-stairs')!.route!.renderProfile).toBe(profile)
+      expect(projection.visual!.edgeLooks.find(row => row.id === edge.id)!.renderProfile).toBe(cliffProfile)
+    }
     expect(canonicalJson(scene)).toBe(before)
   })
-  it('keeps private profile edits out of the player projection and does not expand the AI visual protocol', () => {
+  it.each(['rockRelief4', 'rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9'] as const)('keeps private %s profile edits out of the player projection and does not expand the AI visual protocol', profile => {
     const scene = fixture(), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
     edge.visibility = 'gm'
     const before = canonicalJson(projectScene(scene, 'player'))
-    edge.renderProfile = 'rockRelief4'
+    edge.renderProfile = profile
     expect(canonicalJson(projectScene(scene, 'player'))).toBe(before)
     const { floorId: _floor, layerId: _layer, visibility: _visibility, editLocked: _lock, kind, ...fields } = edge
     expect(VisualAuthoringOperationSchema.safeParse({ kind: 'visualEdge', edgeKind: kind, ...fields }).success).toBe(false)
+  })
+  it.each(['naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8'] as const)('keeps private %s stairs and their profile metadata out of the player projection', profile => {
+    const scene = fixture(), connection = scene.terrainConnections['q1-stairs']
+    connection.visibility = 'gm'
+    const points = connectionFootprint(connection), minX = Math.floor(Math.min(...points.map(p => p.x))) - 30,
+      minY = Math.floor(Math.min(...points.map(p => p.y))) - 30,
+      maxX = Math.ceil(Math.max(...points.map(p => p.x))) + 30, maxY = Math.ceil(Math.max(...points.map(p => p.y))) + 30
+    scene.regions['private-stair-mask'] = { id: 'private-stair-mask', floorId: connection.floorId, editLocked: false,
+      visibility: 'gm', kind: 'manualMask', blocksMovement: false, movementCostMultiplier: 1,
+      boundaryMm: [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY }] }
+    scene.entityLayers['private-stair-mask'] = scene.entityLayers[connection.id]
+    const before = canonicalJson(projectScene(scene, 'player'))
+    connection.route!.renderProfile = profile
+    const cold = JSON.parse(canonicalJson(scene))
+    expect(validateSceneDocument(cold).ok).toBe(true)
+    expect(canonicalJson(projectScene(cold, 'player'))).toBe(before)
+    expect(projectScene(cold, 'gm').connections.find(row => row.id === connection.id)!.route!.renderProfile).toBe(profile)
   })
 })

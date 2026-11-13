@@ -88,7 +88,10 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
       totalDecorations += repeats
       if (repeats > VISUAL_LIMITS.decorationsPerEdge) add('VISUAL_BUDGET', '单条边缘外观重复数超过1024，请增大间距。', edge.id)
       // Prevent unbounded offset loops and hairpin bands. Hard corners remain renderer-owned bevels.
-      if (edge.widthMm > sampled.lengthMm / 2) add('VISUAL_EDGE', '边带宽度超过曲线长度的一半。', edge.id)
+        // The ribbon profile unions bounded segment quads with shared feet rather
+      // than a self-crossing offset loop. Short source runs can therefore join
+      // without shrinking their width; old offset profiles keep their guard.
+      if (edge.renderProfile !== 'rockRelief5' && edge.renderProfile !== 'rockRelief6' && edge.renderProfile !== 'rockRelief7' && edge.renderProfile !== 'rockRelief8' && edge.renderProfile !== 'rockRelief9' && edge.widthMm > sampled.lengthMm / 2) add('VISUAL_EDGE', '边带宽度超过曲线长度的一半。', edge.id)
     } catch { /* Boundary diagnostics already report the cause. */ }
   }
   if (totalDecorations > 8192) add('VISUAL_BUDGET', '全图边缘装饰重复数超过8192。')
