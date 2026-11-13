@@ -16,9 +16,15 @@
 
 `interior/layout-balanced.test.ts`核横纵走廊缩短、1–24房、准确净面积及完整分区、硬关系、单房最大面积扣除走廊、取消与同一四候选预算；独立真实工程新旧重放及普通保存冷开继续另证，不把比例评分等同美术签收。
 
-`bedroom-groups.spec.ts`走正常室内／混合客房入口，核当前室内10／地形建筑及混合9配方、实际床、删除／撤销重做／保存和首页冷开；`furniture-groups.spec.ts`继续覆盖厨房／餐厅入口。真实床侧600mm使用带、旧版到中心的有限路线、储物取物区、旋转／偏心和不可放置边界由`interior/furnishing-bedroom.test.ts`及`furnishing.test.ts`独立读实际几何；`furnishing-bedroom-group.test.ts`另核床柜完整包络、横纵原图、偏心／四向、取物区及过大／非正交回退；`furnishing.test.ts`保留修改前算法8三用途真实门口指纹并覆盖新9的独立房间尺寸与功能组。`furnishing-circulation.test.ts`另覆盖新版真实门口连接、交错绕行、599／600mm临界口、凹房／转角、原生拒绝及预算／取消。`furnishing.test.ts`核客房／餐厅／厨房／库房实际门与全带物理／绘制不相交，人工保护、关门／删门与完整物理只读依赖由`local-interior.test.ts`覆盖。普通入口通过不自动证明完整床侧／美术矩阵或全图可达。
+`interior/layout-relations.test.ts`覆盖新16五房邻接漏解、横纵转置、真实父组共边临界、几何分离与禁开门区别、有效切分前沿保全、输入重排确定性及取消；完整候选仍走独立计量门。严格配方／重放、地形支撑与混合组合沿各领域原测试覆盖16，完整普通工程与实际画面仍另证。
 
-`furniture-groups.spec.ts`从普通室内与混合表单生成厨房／餐厅，实际采用并下载完整包核对当前室内10／地形建筑9／混合9的确切配方，真实删除家具、一次撤销／重做、保存首页冷开及全部包条目hash保持。只读下载来自正常UI，不使用DEV句柄或数据库注入。纯共享`interior/furnishing-groups`及`furnishing`另核完整偏心图框、四向接续／长墙端点起排、工作净空／实际通路、多座具预留兑现，以及修改前冻结的旧2–5餐厅／厨房结果指纹；技术检查不替代成图目视与用户P3。
+`interior/connectivity.test.ts`另核新17在原门洞、原端点及原净宽下绕开物理障碍，最终整带及重开后的当前内容重搜、纯图框外伸与物理通行区分、关门／锁／过窄／删除／错门／端点阻挡／整房分断，以及节点计量与取消无修改。`furnishing.test.ts`的独立厨房尺寸核最终返回的连接报告与实际场景全验相等；`local-interior.test.ts`核新17的人工移动、删除、锁与外观、当前关门／删门及取消。新17两项多事务用例实测超原5秒，单独使用20秒单元测试时限；旧2／6–10用例原5秒及生成任务预算均保留，不把单元用例时限视作产品性能通过。
+
+`bedroom-groups.spec.ts`走正常室内／混合客房入口，核当前室内19／地形建筑及混合19配方、实际床、删除／撤销重做／保存和首页冷开；`furniture-groups.spec.ts`继续覆盖厨房／餐厅入口。真实床侧600mm使用带、旧版到中心的有限路线、储物取物区、旋转／偏心和不可放置边界由`interior/furnishing-bedroom.test.ts`及`furnishing.test.ts`独立读实际几何；`furnishing-bedroom-group.test.ts`另核床柜完整包络、横纵原图、偏心／四向、取物区及过大／非正交回退；`furnishing.test.ts`保留修改前算法8三用途真实门口指纹并覆盖新9的独立房间尺寸与功能组。`furnishing-circulation.test.ts`另覆盖新13超过笛卡尔4096准入的真实绕行、4096实际节点上限、障碍重排／平移及旧版保持，以及新版真实门口连接、交错绕行、599／600mm临界口、凹房／转角、原生拒绝及预算／取消。`furnishing.test.ts`核客房／餐厅／厨房／库房实际门与全带物理／绘制不相交，人工保护、关门／删门与完整物理只读依赖由`local-interior.test.ts`覆盖。普通入口通过不自动证明完整床侧／美术矩阵或全图可达。
+
+`seated-work-groups.spec.ts`走普通室内／混合办公与接待入口，核当前19确切配方、实际桌椅邻接、删除／一次撤销重做／保存首页冷开及完整下载资源，不使用DEV句柄或数据库注入。`furnishing-composition.test.ts`核四向单侧工作单元的完整偏心包络／真实座具及600mm起身区、正方形／非正交中性；`furnishing.test.ts`用未调参办公／接待两房尺寸核原生支撑和600mm实际路线、缺项与取消；`local-interior.test.ts`的新19检查保全人工移动／删除／锁／外观和关门／删门。真实完整工程、旧18重放、逐房柜架取舍及首败归[本轮证据](../docs/archive/workspace-content-validation.md#seated-units-20261112)，不代替09整体验收。
+
+`furniture-groups.spec.ts`从普通室内与混合表单生成厨房／餐厅，实际采用并下载完整包核对当前室内19／地形建筑19／混合19的确切配方，真实删除家具、一次撤销／重做、保存首页冷开及全部包条目hash保持。只读下载来自正常UI，不使用DEV句柄或数据库注入。纯共享`interior/furnishing-groups`及`furnishing`另核完整偏心图框、四向接续／长墙端点起排、工作净空／实际通路、多座具预留兑现，以及修改前冻结的旧2–5餐厅／厨房结果指纹；`furnishing-kitchen-rows.test.ts`另核新15不同台面深度／偏心占地的共同对排后沿、四向完整操作区、贴边候选及取消／预算传播；`furnishing.test.ts`的两个独立尺寸／种子厨房核真实门路、固定尺寸与人工删除槽位保留。技术检查不替代成图目视与用户P3。
 
 服务端`private-storage.test.ts`在当前系统检查实际权限及链接／越界拒绝；`svg-artifacts.test.ts`覆盖真实文件额外BOM和持久字节，`image-edit.test.ts`与`app.test.ts`核对服务资源、预算／任务保全。Windows不能以POSIX mode位代替DACL证据，未运行的Linux检查须另标明。AI任务256上限测试保留默认5秒等待，首次超时及后续复验一并保全，不将单项筛选运行的其他跳过项算作整套通过。
 
@@ -299,3 +305,11 @@ SCENEWEAVE_TERRAIN_KINDS=river,lake,forest,hill,mixed SCENEWEAVE_TERRAIN_ROUTE=1
 `export-privacy-ux.spec.ts`在正常生产包以真实UI建立公开/私密对照，检查双受众4K PNG的实际RGBA/容器、遮罩删除拒绝，以及完整工程真实下载→空存储导入副本→刷新冷开后的文档/资源/许可/身份/外观。使用`SCENEWEAVE_TEST_BASE_URL`指定包含部署base的冻结地址，默认后台运行；不得启动可见独立窗口。未通过的原生失焦探索保存在被忽略的`work/ux-audit/`，不加入默认测试套件。已验证与待实测边界见[接续记录](../docs/archive/workspace-content-validation.md#ux-export-native-20261106)。
 
 `image-repair-scope.spec.ts`用自制木板夹具经正常页面绘制独立移除／保护范围，验证未完成点保存、刷新接续、撤销清除、保留选区、完整工程采用／移动／撤销重做和首页冷重开，并在空存储恢复制作包。真实私图椅子案例、页面／MCP实际PNG一致及已知真值A/B对照的有限开发结果见[图片制作主题台账](../docs/archive/workspace-content-validation.md#image-item-workflow-20261112)；合成用例通过不授予自然补底或新手全链路通过。
+
+`interior/entrance-selection.test.ts`覆盖地形建筑10四向实际到达、显式折点保全、真实障碍／支持／整宽穿门、严格版本字段、取消及原工作预算；`supported.test.ts`的新10局部家具分支另核人工移动／删除及当前门保持。`mixed.test.ts`同时覆盖森林／火山新10的全宽外接及公共执行重放，旧1–9结果仍独立保全。
+
+`layout-balanced.test.ts`与`furnishing.test.ts`补充室内11无走廊根分组、完整桌椅、正交厨房转角及后放主体对预留区100mm间隔的定向检查；`supported.test.ts`／`mixed.test.ts`覆盖11的真实支撑、严格配方、完整接路与局改人工保全。旧版指纹继续保留，独立成图证据和正式待验范围分别从07／09追溯。
+
+`furnishing-composition.test.ts`另核室内18的四向完整长凳与实际可用桌边、沿边错位余量、完整桌组中心／两侧平移、未调参长凳房间及真实全宽通路；`local-interior.test.ts`核18餐厅人工移动、删除、锁和外观保全。17／18四题材完整包与双受众像素、普通生产四条生成编辑保存冷开旅程的本轮结果归[开发证据](../docs/archive/workspace-content-validation.md#dining-kitchen-groups-20261112)，不代替09整体或用户P3。
+
+`furnishing-composition.test.ts`覆盖室内12餐桌组完整偏心范围、真实座具深度与后方600mm、组间800mm、锚点重排／保留角度／有限预算取消，以及厨房面对面两排的完整主体1600mm与操作带400mm间隔。`furnishing.test.ts`在11／12分别检查客房、餐厅、厨房的完整使用区与实际600mm路线；`interior.test.ts`覆盖12严格配方和重放，并核有／无走廊时家具更新沿用11房间／墙／门。
