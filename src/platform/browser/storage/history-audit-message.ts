@@ -48,6 +48,10 @@ export async function auditHistoryMessage(message: HistoryAuditMessage, signal?:
         if (checkpoint?.document.aggregateCoordinates?.encoding === 'local') checkpoint = decodeProjectCoordinates(checkpoint)
         versions.push({ ...row, checkpoint }); await yieldPage()
       }
+      // Every output field owns its copy. After the final owner's manifests
+      // are assembled, no remaining audit consumes the parse cache or checked
+      // block copies. Earlier owners keep cross-owner reuse intact.
+      if (head === message.heads[message.heads.length - 1]) { materializer.close(); blocks.clear() }
       checkCancelled(signal)
       documentBytes += auditHistoryRecords(head.ownerSceneId, head, versions, message.pins.filter(pin => pin.ownerSceneId === head.ownerSceneId)).documentBytes
       await yieldPage()

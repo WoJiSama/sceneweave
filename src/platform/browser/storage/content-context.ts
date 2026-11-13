@@ -1,8 +1,8 @@
 import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
 import { getVerifiedProjectBundle } from '../../../shared/project/resources.js'
 import { DeltaSizeError, tryCreateVerifiedProjectDelta, type JsonDelta } from '../../../shared/project/delta.js'
-import { captureJson, cloneJson, equalOwnedJson, freezeJson } from '../../../shared/validation/json.js'
-import { encodeProjectContent, partitionEncodedProjectContent, prepareLocalProjectContent, type EncodedProjectContent, type ProjectContentPartition } from './content-blocks.js'
+import { captureJson, equalOwnedJson, freezeJson } from '../../../shared/validation/json.js'
+import { encodeProjectContent, partitionEncodedProjectContent, prepareEncodedProjectContent, prepareLocalProjectContent, type EncodedProjectContent, type ProjectContentPartition } from './content-blocks.js'
 
 /** A private operation result. Encoding identity and actual IDB freshness are
  * deliberately separate: this handle never certifies a persisted row/block. */
@@ -11,7 +11,7 @@ export interface EncodedSnapshot {
   readonly encoded: EncodedProjectContent
 }
 const snapshots = new WeakSet<EncodedSnapshot>()
-const partitions = new WeakMap<EncodedSnapshot, ProjectContentPartition>()
+const partitionSizes = new WeakMap<EncodedSnapshot, number>()
 const ownedProjects = new WeakMap<ProjectData, EncodedSnapshot>()
 export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: ProjectBundle, baseline?: EncodedSnapshot): EncodedSnapshot {
   const verified = getVerifiedProjectBundle(bundle)
@@ -27,24 +27,21 @@ export function prepareEncodedSnapshot(bundle: ProjectBundle, localInput?: Proje
   const encoded = encodeProjectContent(encodingSource)
   if (source) prepareLocalProjectContent(source, verified.project, encoded, baseline && snapshots.has(baseline) ? baseline.encoded : undefined)
   const snapshot = Object.freeze({ project: encodingSource, encoded })
-  partitions.set(snapshot, partitionEncodedProjectContent(encoded))
+  partitionSizes.set(snapshot, prepareEncodedProjectContent(encoded))
   snapshots.add(snapshot); ownedProjects.set(snapshot.project, snapshot); ownedProjects.set(encoded.stored, snapshot)
   return snapshot
 }
 /** Typed-array elements cannot be frozen. Never publish the private closure. */
 export function snapshotContentPartition(snapshot: EncodedSnapshot): ProjectContentPartition {
-  const partition = partitions.get(snapshot)
-  if (!partition) throw new Error('编码快照的私有内容块已失效。')
-  return { manifest: cloneJson(partition.manifest), blocks: partition.blocks.map(block => ({ sha256: block.sha256, bytes: block.bytes.slice() })) }
+  if (!snapshots.has(snapshot)) throw new Error('编码快照的私有内容块已失效。')
+  return partitionEncodedProjectContent(snapshot.encoded)
 }
 export function ownedEncodedSnapshot(project: ProjectData): EncodedSnapshot | undefined { return ownedProjects.get(project) }
 /** Optional inter-save retention is bounded; required in-flight endpoints are
  * still owned by their operation even when this optional lease cannot fit. */
 export function canRetainEncodedSnapshot(snapshot: EncodedSnapshot): boolean {
-  const partition = partitions.get(snapshot)
-  return !!partition && snapshot.encoded.canonical.length * 4
-    + partition.blocks.reduce((sum, block) => sum + block.bytes.length, 0)
-    + JSON.stringify(partition.manifest).length * 2 <= 64 * 1024 * 1024
+  const size = partitionSizes.get(snapshot)
+  return size !== undefined && size <= 64 * 1024 * 1024
 }
 export function releaseEncodedSnapshot(snapshot: EncodedSnapshot): void {
   if (ownedProjects.get(snapshot.project) === snapshot) ownedProjects.delete(snapshot.project)

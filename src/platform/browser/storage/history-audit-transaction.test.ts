@@ -11,6 +11,8 @@ import * as storageAudit from './storage-audit.js'
 import { canonicalJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { sha256Bytes } from '../../../shared/validation/hash.js'
 import { isProjectBlockManifest } from './content-blocks.js'
+import * as contentBlocks from './content-blocks.js'
+import * as historyRecords from './history-records.js'
 
 class AuditingWorker {
   static instances: AuditingWorker[] = []
@@ -234,7 +236,20 @@ it('sends all owners, branches and pins compactly, omits unreferenced blocks and
   await repo.database.projectContentBlocks.put(unused)
   const expected = await repo.usage(owner)
   repo.close(); await repo.open(); vi.stubGlobal('Worker', AuditingWorker)
+  const contexts: { closed: boolean }[] = [], createMaterializer = contentBlocks.createProjectMaterializer
+  vi.spyOn(contentBlocks, 'createProjectMaterializer').mockImplementation((...args) => {
+    const actual = createMaterializer(...args), state = { closed: false }; contexts.push(state)
+    return { materialize: actual.materialize, close() { state.closed = true; actual.close() } }
+  })
+  const audit = historyRecords.auditHistoryRecords, auditClosures: boolean[] = []
+  vi.spyOn(historyRecords, 'auditHistoryRecords').mockImplementation((...args) => {
+    auditClosures.push(contexts.at(-1)!.closed)
+    return audit(...args)
+  })
   const pending = repo.usage(owner); await started()
+  // The real background boundary is paused here. Page parsing must already
+  // be released without losing the original captured bytes used by confirm.
+  expect(contexts).toHaveLength(1); expect(contexts[0].closed).toBe(true)
   const message = AuditingWorker.instances[0].message!
   expect('kind' in message && message.kind).toBe('captured-history')
   if (!('kind' in message)) throw new Error('expected native compact message')
@@ -245,6 +260,8 @@ it('sends all owners, branches and pins compactly, omits unreferenced blocks and
   expect(new Set(message.blocks.map(block => block.sha256))).toEqual(required)
   expect(message.blocks.some(block => block.sha256 === unused.sha256)).toBe(false)
   AuditingWorker.release!(); expect(await pending).toEqual(expected)
+  expect(auditClosures).toEqual([false, true]) // Keep reuse until the last owner.
+  expect(contexts.every(context => context.closed)).toBe(true)
   expect((await repo.database.projectContentBlocks.get(unused.sha256))!.bytes).toEqual(bytes)
   expect((await repo.loadHistoryVersion(owner, root.id))!.project).toEqual(input.project)
   vi.unstubAllGlobals(); repo.close(); expect(await repo.usage(owner)).toEqual(expected)

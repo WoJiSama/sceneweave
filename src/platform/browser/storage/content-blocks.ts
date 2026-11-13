@@ -30,7 +30,7 @@ export interface ProjectContentPartition { manifest: ProjectBlockManifest; block
 /** An owned encoding, not a semantic or database validation certificate. Bytes
  * and partition state stay private; callers cannot substitute a declared hash. */
 export type EncodedProjectContent = OwnedProjectEncoding
-const encodedContents = new WeakMap<EncodedProjectContent, { checked: ReturnType<typeof checkedCanonical>; partition?: ProjectContentPartition }>()
+const encodedContents = new WeakMap<EncodedProjectContent, { checked: ReturnType<typeof checkedCanonical>; partition?: OwnedPartition }>()
 export const CONTENT_BLOCK_CACHE_LIMITS = Object.freeze({ entries: 4, retainedBytes: 64 * 1024 * 1024 })
 interface OwnedPartition extends ProjectContentPartition {
   canonical: string
@@ -68,9 +68,11 @@ function rememberPartition(partition: OwnedPartition): boolean {
   return true
 }
 function ownPartition(canonical: string, manifest: ProjectBlockManifest, blocks: ProjectContentBlock[], buckets: OwnedPartition['buckets']): OwnedPartition {
-  // Capture before publishing anything. Typed-array bytes are deliberately
-  // private copies because Object.freeze cannot make their elements immutable.
-  const owned = { manifest: validateProjectBlockManifest(manifest), blocks: blocks.map(block => ({ sha256: block.sha256, bytes: block.bytes.slice() })) }
+  // Both private producers supply only freshly encoded blocks or blocks from
+  // an existing private partition. They never mutate these bytes. Share that
+  // closure across local edits; every public return still copies all bytes.
+  // No caller-provided block or mutable returned buffer can enter this path.
+  const owned = { manifest: validateProjectBlockManifest(manifest), blocks: blocks.slice() }
   const retainedBytes = canonical.length * 2 + JSON.stringify(owned.manifest).length * 2
     + owned.blocks.reduce((sum, block) => sum + block.bytes.length, 0)
     + [...buckets.values()].reduce((sum, value) => sum + value.size * 160, 0)
@@ -124,17 +126,29 @@ export function encodeProjectContent(input: ProjectData): EncodedProjectContent 
   encodedContents.set(result, { checked: result })
   return result
 }
-/** Only encodings produced above can reuse canonical bytes and their digest. */
-export function partitionEncodedProjectContent(input: EncodedProjectContent): ProjectContentPartition {
+function encodedPartition(input: EncodedProjectContent): OwnedPartition {
   const state = encodedContents.get(input)
   if (!state) throw new Error('工程编码快照不是本模块拥有的实际内容。')
   if (!state.partition) {
     const known = cachedPartition(state.checked.canonical), partition = known ?? fullPartition(state.checked)
     if (!known) rememberPartition(partition)
-    state.partition = copyPartition(partition)
+    state.partition = partition
   }
-  // The receiving storage context owns this copy for its whole operation.
-  return copyPartition(state.partition)
+  return state.partition
+}
+/** Eagerly prepare before the final transaction, retaining only the producer's
+ * private closure. This conservative admission estimate still charges shared
+ * bytes in full and does not increase either optional cache's memory budget. */
+export function prepareEncodedProjectContent(input: EncodedProjectContent): number {
+  const partition = encodedPartition(input)
+  return input.canonical.length * 4 + partition.blocks.reduce((sum, block) => sum + block.bytes.length, 0)
+    + JSON.stringify(partition.manifest).length * 2
+}
+/** Only encodings produced above can reuse canonical bytes and their digest.
+ * Independent mutable copies are made at the consuming boundary, never held
+ * again in an encoding or save snapshot merely to copy them a second time. */
+export function partitionEncodedProjectContent(input: EncodedProjectContent): ProjectContentPartition {
+  return copyPartition(encodedPartition(input))
 }
 
 export interface LocalProjectContentPreparation {
