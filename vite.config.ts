@@ -6,6 +6,9 @@ export default defineConfig({
   // dev/测试保持根路径（e2e 与性能工具按根路径访问模块）。素材加载统一走 import.meta.env.BASE_URL
   base: process.env.NODE_ENV === 'production' ? '/sceneweave/' : '/',
   plugins: [react()],
+  // Image work packages, model environments and review outputs are data. They
+  // must not trigger source watching while the local editor is being used.
+  server: { watch: { ignored: ['**/work/**', '**/local-data/**'] } },
   build: { rollupOptions: { output: { manualChunks: {
     'react-vendor': ['react', 'react-dom', 'zustand'],
     'canvas-vendor': ['konva', 'react-konva'],
