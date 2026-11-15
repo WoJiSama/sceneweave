@@ -123,6 +123,19 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
       prepareCatalogEntry(source, { kind: 'prop', definitionId: definition.id }, adoptionSignal))), signal)
     if (current()) setMessage('新羽叶蕨已准备；旧蕨叶与已有实例保留，请审阅新固定素材后采用。')
   })
+  const wholePlants = () => void perform(async (signal, current) => {
+    const { createWholePlantCatalogProject } = await import('../../platform/browser/content/whole-plant-catalog')
+    const source = await createWholePlantCatalogProject(signal)
+    await onAdopt(async adoptionSignal => {
+      const prepared: PreparedCatalogEntryV1[] = []
+      for (const definition of Object.values(source.document.propDefinitions)) {
+        adoptionSignal.throwIfAborted()
+        prepared.push(await prepareCatalogEntry(source, { kind: 'prop', definitionId: definition.id }, adoptionSignal))
+      }
+      return prepared
+    }, signal)
+    if (current()) setMessage('十二种整株植物已准备，采用后可从素材库直接放置整棵树、整丛灌木或完整草本。')
+  })
   const handdrawnSurfaces = () => void perform(async (signal, current) => {
     const { createHanddrawnSurfacesCatalogProject } = await import('../../platform/browser/content/handdrawn-surfaces-catalog')
     const source = await createHanddrawnSurfacesCatalogProject(signal)
@@ -194,6 +207,7 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
       {metadata.scenarios.map((scene, index) => <button className="secondary asset-wide" key={scene.id} type="button" disabled={disabled || pending || reviewPending} onClick={() => sample(index as 0 | 1)}>下载场景 · {scene.name}</button>)}
       {packId === 'wilderness' && <button className="secondary asset-wide" type="button" disabled={disabled || pending || reviewPending} onClick={() => sample(0, true)}>下载场景 · 林中哨站 · 清朗白昼</button>}{packId === 'wilderness' && <button className="secondary asset-wide" type="button" disabled={disabled || pending || reviewPending} onClick={naturalOutpost}>下载场景 · 林中哨站 · 自然编排</button>}
     </details>
+    <details><summary>整株植物 · 十二种林地与河岸植物</summary><p>栎、桦、松、柳，榛叶、荆棘、杜松，以及整株蕨、酸模、苔草、芦苇和野花丛。每件可直接摆放、旋转和复制，树冠与根部占地分别标定。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={wholePlants}>预览添加十二种整株植物</button></details>
     <details><summary>植被细节 · 六件独立变体</summary><p>三种树冠、缺口灌丛、疏展蕨与弯叶草簇，保留独立根锚、占地及许可。先预览添加，再从素材库逐件放置。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={vegetationDetails}>预览添加六件植被细节变体</button></details>
     <details><summary>羽叶蕨 · 清晰叶面变体</summary><p>独立的新固定蕨叶，保留有面积的叶面与根锚。采用后可放置，也可加入群落编排；旧素材与实例保持。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={leafyFern}>预览添加清晰羽叶蕨</button></details>
     <details><summary>手绘基础材质 · 木板、石板与灰泥</summary><p>四种可独立采用的手绘材质，带有固定平铺尺寸与完整来源。采用后可在房间、墙顶、地形和道路的表面设置中使用。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={handdrawnSurfaces}>预览添加四种手绘基础材质</button></details>
