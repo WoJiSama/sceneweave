@@ -14,6 +14,7 @@ import { emptyVisualSystem } from '../visual/types.js'
 import { distanceToTerrainSegment, extractTerrainContours, simplifyTerrainContour, terrainHash32, terrainRandomUnit, terrainValueNoise } from './field.js'
 import { sandCoastSegmentsV2, shorelineFieldV2 } from './shoreline-v2.js'
 import { islandSkeletonV3 } from './shoreline-v3.js'
+import { forestSkeletonV8, type ForestSkeletonV8 } from './forest-layout-v8.js'
 
 import { BudgetUsageSchema, TaskBudgetProfileSchema, taskBudgetProfile, measureTaskBudget, assertTaskBudget, captureExecutionBudget, type ExecutionBudget, type BudgetUsage } from '../budget/task-budget.js'
 export const TERRAIN_GENERATOR_VERSION = 'terrain-scene-v1' as const
@@ -31,7 +32,10 @@ export const terrainGenerationInputV4Schema = z.object({ ...terrainGenerationInp
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '首批地形范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV4 = z.infer<typeof terrainGenerationInputV4Schema>
 export type TerrainGenerationInputV5 = Omit<TerrainGenerationInputV4,'algorithmVersion'> & {algorithmVersion:5}
-export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5
+export const terrainGenerationInputV8Schema = z.object({ ...terrainGenerationInputV4Schema.shape, kind:z.literal('forest'), algorithmVersion:z.literal(8) }).strict()
+  .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '森林范围宽高比须为1–1.8。')
+export type TerrainGenerationInputV8 = z.infer<typeof terrainGenerationInputV8Schema>
+export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5 | TerrainGenerationInputV8
 export interface TerrainManagedTarget { kind: 'terrainArea' | 'terrainConnection' | 'path' | 'prop' | 'visualBoundary' | 'visualEdgeLook'; id: string }
 export interface TerrainGenerationResult {
   document: SceneDocument
@@ -206,7 +210,7 @@ function chargeGeometryCheck(scene:SceneDocument,meter?:ExecutionBudget):void {
     +Object.values(scene.regions).reduce((sum,row)=>sum+row.boundaryMm.length,0)
   meter.charge({intersectionPairs:edges*edges})
 }
-function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget): void {
+function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget,kind:'stairs'|'ramp'='stairs'): void {
   const ring = terrainPoints(high), scale = Math.min(input.widthMm / 24000, input.heightMm / 18000)
   let lastErrors = ''
   const candidates: { index: number; length: number; a: PointMm; b: PointMm }[] = ring.map((a, index) => {
@@ -230,7 +234,7 @@ function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, i
       if (!pointOnSurface(scene, from, { kind: 'terrainArea', id: low.id }, FLOOR) || !pointOnSurface(scene, to, { kind: 'terrainArea', id: high.id }, FLOOR)) continue
       if (polygonDistance(corridor(from, to, 1500), activity.boundaryMm) < 100) continue
       const value = 'terrain-stairs'
-      scene.terrainConnections[value] = { id: value, floorId: FLOOR, editLocked: false, visibility: 'public', kind: 'stairs', from: { surfaceRef: { kind: 'terrainArea', id: low.id }, positionMm: from },
+      scene.terrainConnections[value] = { id: value, floorId: FLOOR, editLocked: false, visibility: 'public', kind, from: { surfaceRef: { kind: 'terrainArea', id: low.id }, positionMm: from },
         to: { surfaceRef: { kind: 'terrainArea', id: high.id }, positionMm: to }, widthMm: 1500, openingId: null, blocksMovement: false, movementCostMultiplier: 1, surfaceStyle: paint(scene, materialKey(input.kind, 'low')) }
       scene.entityLayers[value] = GROUND
       chargeGeometryCheck(scene,meter)
@@ -407,13 +411,13 @@ function addT3Route(scene: SceneDocument, input: TerrainGenerationInput,meter?:E
   return { pointsMm: found.points.map(point => ({ ...point })), widthMm: request.widthMm, expandedNodes: found.expandedNodes }
 }
 
-function generateT3TerrainDocument(blank: SceneDocument, input: TerrainGenerationInput, variant: number, bay: PointMm,meter?:ExecutionBudget): TerrainGenerationResult {
+function generateT3TerrainDocument(blank: SceneDocument, input: TerrainGenerationInput, variant: number, bay: PointMm,meter?:ExecutionBudget,forestLayout?:ForestSkeletonV8): TerrainGenerationResult {
   const { widthMm: width, heightMm: height, seed } = input, scene = cloneJson(blank), bounds = t3Rectangle(0, 0, width, height)
   const low = addTerrain(scene, 'terrain-low', bounds, input, 'low')
-  const highCenter = input.kind === 'lake' ? p(width * .76, height * .72) : input.kind === 'river' || input.kind === 'mixed' ? p(width * .8, height * (.28 + (variant % 2) * .025))
-    : input.kind === 'forest' ? p(width * .72, height * .45) : p(width * (.5 + (variant - 2) * .035), height * .45)
+  const highCenter = forestLayout?.plateauCenterMm ?? (input.kind === 'lake' ? p(width * .76, height * .72) : input.kind === 'river' || input.kind === 'mixed' ? p(width * .8, height * (.28 + (variant % 2) * .025))
+    : input.kind === 'forest' ? p(width * .72, height * .45) : p(width * (.5 + (variant - 2) * .035), height * .45))
   const highHalfWidth = width * (input.kind === 'river' || input.kind === 'mixed' ? .13 : .18)
-  const high = addTerrain(scene, 'terrain-high', [p(highCenter.x - highHalfWidth, highCenter.y - height * .1),
+  const high = addTerrain(scene, 'terrain-high', forestLayout?.plateauPointsMm ?? [p(highCenter.x - highHalfWidth, highCenter.y - height * .1),
     p(highCenter.x - width * .025, highCenter.y - height * .16), p(highCenter.x + highHalfWidth, highCenter.y - height * .07),
     p(highCenter.x + highHalfWidth - width * .015, highCenter.y + height * .1), p(highCenter.x - width * .035, highCenter.y + height * .16),
     p(highCenter.x - highHalfWidth, highCenter.y + height * .1)], input, 'high', { coveragePriority: 4 })
@@ -424,18 +428,20 @@ function generateT3TerrainDocument(blank: SceneDocument, input: TerrainGeneratio
     addT3Boundary(scene, 'terrain-lake-curve', lake, input, 'shore')
   }
   if (input.kind === 'forest' || input.kind === 'mixed' || input.kind === 'lake') {
-    const forestPoints = input.kind === 'lake' ? [p(width * .62, height * .12), p(width * .83, height * .1), p(width * .92, height * .23), p(width * .88, height * .42), p(width * .63, height * .4), p(width * .59, height * .25)] : [p(width * .08, height * .16), p(width * .28, height * .1), p(width * .34, height * .28), p(width * .3, height * .55),
-      p(width * .13, height * .62), p(width * .05, height * .4)]
+    const forestPoints = forestLayout?.forestPointsMm ?? (input.kind === 'lake' ? [p(width * .62, height * .12), p(width * .83, height * .1), p(width * .92, height * .23), p(width * .88, height * .42), p(width * .63, height * .4), p(width * .59, height * .25)] : [p(width * .08, height * .16), p(width * .28, height * .1), p(width * .34, height * .28), p(width * .3, height * .55),
+      p(width * .13, height * .62), p(width * .05, height * .4)])
     const forest = addTerrain(scene, 'terrain-forest', forestPoints, input, 'low', { coveragePriority: 2, blocksMovement: false, movementCostMultiplier: 1.35 })
     forest.surfaceStyle = paint(scene, materialKey(input.kind, 'high'))
     addT3Boundary(scene, 'terrain-forest-curve', forest, input, 'grass')
   }
   const activity = activityArea(scene, highCenter, input)
-  addT3Ramp(scene, low, high, input,meter)
+  if(forestLayout)findStairs(scene,low,high,input,activity,meter,'ramp')
+  else addT3Ramp(scene, low, high, input,meter)
   const route = addT3Route(scene, input,meter)
   placeProps(scene, input, activity,meter)
   const fixedIndex = TERRAIN_FIXED_SEEDS.indexOf(seed), direction = variants[fixedIndex >= 0 ? fixedIndex : variant].bay
-  return finalizeT3Result(scene, blank, input, variant, direction, highCenter, activity, route,meter)
+  const result=finalizeT3Result(scene, blank, input, variant, direction, highCenter, activity, route,meter)
+  return forestLayout ? {...result,skeleton:{...result.skeleton,name:forestLayout.name}} : result
 }
 
 /** Pure complete-result generator. No clock, DOM, bitmap, network or shared mutable PRNG is read. */
@@ -446,7 +452,12 @@ export function generateTerrainDocumentV4(base: SceneDocument, rawInput: unknown
   const input=terrainGenerationInputV4Schema.parse(captureJson(rawInput))
   return generateTerrainCore(base,input)
 }
-function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput):TerrainGenerationResult {
+/** Only the independent v8 entry can select a new forest skeleton. */
+export function generateForestGeometryV8(base:SceneDocument,rawInput:unknown):TerrainGenerationResult {
+  const input=terrainGenerationInputV8Schema.parse(captureJson(rawInput))
+  return generateTerrainCore(base,{...input,algorithmVersion:4},true)
+}
+function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,forestV8=false):TerrainGenerationResult {
   const blank = assertBlank(base, input)
   const budget = input.algorithmVersion === 4 ? taskBudgetProfile(input.budgetProfileId) : undefined
   const meter = budget ? captureExecutionBudget(budget) : undefined
@@ -456,7 +467,7 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput):Te
   const recipe = variants[variant], bayLength = Math.hypot(recipe.bay.x, recipe.bay.y), bay = { x: recipe.bay.x / bayLength, y: recipe.bay.y / bayLength }
   if (['river', 'lake', 'forest', 'hill', 'mixed'].includes(input.kind)) {
     meter?.charge({candidateAttempts:1})
-    const result=generateT3TerrainDocument(blank,input,variant,bay,meter)
+    const result=generateT3TerrainDocument(blank,input,variant,bay,meter,forestV8?forestSkeletonV8(input,variant):undefined)
     if(budget)assertTaskBudget(budget,measureTaskBudget(blank,result.document,undefined,meter!.snapshot()))
     return meter?{...result,executionUsage:meter.snapshot()}:result
   }

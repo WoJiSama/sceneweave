@@ -1,4 +1,5 @@
 import { terrainGenerationInputV5Schema, terrainGenerationResultV5Schema, generateTerrainDocumentV5, compositionPresetV5Schema, compositionPresetV5, materializeTerrainCompositionV5 } from './surface-generation.js'
+import { terrainGenerationInputV8Schema, terrainGenerationResultV8Schema, generateTerrainDocumentV8 } from './forest-generation-v8.js'
 import { terrainGenerationInputV6Schema, terrainGenerationResultV6Schema, generateTerrainDocumentV6,
   compositionPresetV6Schema, compositionPresetV6, materializeTerrainCompositionV6 } from './surface-rule-generation.js'
 import { terrainGenerationInputV7Schema, terrainGenerationResultV7Schema, generateTerrainDocumentV7,
@@ -19,16 +20,16 @@ import { bindTerrainVariantPresentations, bindTerrainVariantV2Presentations } fr
 export const BASE_MAP_V3_LIMITS = Object.freeze({ requestBytes:24*1024*1024, resultBytes:32*1024*1024 })
 const id=z.string().min(1).max(256).refine(v=>v!=='__proto__'),hash=z.string().regex(/^[a-f0-9]{64}$/),count=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const generationSchema=z.discriminatedUnion('kind',[
- z.object({kind:z.literal('terrain'),input:z.union([terrainGenerationInputV4Schema,terrainGenerationInputV5Schema,terrainGenerationInputV6Schema,terrainGenerationInputV7Schema])}).strict(),
+ z.object({kind:z.literal('terrain'),input:z.union([terrainGenerationInputV4Schema,terrainGenerationInputV5Schema,terrainGenerationInputV6Schema,terrainGenerationInputV7Schema,terrainGenerationInputV8Schema])}).strict(),
  z.object({kind:z.literal('composition'),input:z.union([compositionPresetV4Schema,compositionPresetV5Schema,compositionPresetV6Schema,compositionPresetV7Schema])}).strict(),
 ])
-const algorithmSchema=z.object({id:z.enum(['terrain-scene','terrain-scene-t3','terrain-compose']),version:z.union([z.literal(1),z.literal(4),z.literal(5),z.literal(6),z.literal(7)]),recipeVersion:z.union([z.literal(4),z.literal(5),z.literal(6),z.literal(7)])}).strict()
+const algorithmSchema=z.object({id:z.enum(['terrain-scene','terrain-scene-t3','terrain-compose']),version:z.union([z.literal(1),z.literal(4),z.literal(5),z.literal(6),z.literal(7),z.literal(8)]),recipeVersion:z.union([z.literal(4),z.literal(5),z.literal(6),z.literal(7),z.literal(8)])}).strict()
 const context={requestId:id,workspaceSceneId:id,checkpoint:count,operationEpoch:count,flowId:id}
 const stamp={...context,inputHash:hash,baseHash:hash,paletteHash:hash,profileHash:hash,algorithm:algorithmSchema}
 export const BaseMapRequestV3Schema=z.object({protocol:z.literal('sceneweave-base-map'),version:z.literal(3),type:z.literal('generate'),...stamp,profile:TaskBudgetProfileSchema,base:sceneDocumentSchema,generation:generationSchema}).strict()
 export type BaseMapRequestV3=z.infer<typeof BaseMapRequestV3Schema>
 const resultSchema=z.discriminatedUnion('kind',[
- z.object({kind:z.literal('terrain'),terrain:z.preprocess(terrainMapOrder,z.union([terrainGenerationResultV4Schema,terrainGenerationResultV5Schema,terrainGenerationResultV6Schema,terrainGenerationResultV7Schema]))}).strict(),
+ z.object({kind:z.literal('terrain'),terrain:z.preprocess(terrainMapOrder,z.union([terrainGenerationResultV4Schema,terrainGenerationResultV5Schema,terrainGenerationResultV6Schema,terrainGenerationResultV7Schema,terrainGenerationResultV8Schema]))}).strict(),
  z.object({kind:z.literal('composition'),document:nativeSceneSchema,plan:compositionPlanSchema}).strict(),
 ])
 const domainCost=z.object({items:z.record(z.string().min(1).max(768),z.literal(1)),total:count.max(2048),limit:z.union([z.literal(512),z.literal(1024),z.literal(2048)]),finalAdoptionCostChecked:z.literal(false)}).strict()
@@ -66,8 +67,8 @@ function evaluate(request:BaseMapRequestV3):BaseMapResponseV3{
    result={kind:'terrain',terrain:terrainGenerationResultV6Schema.parse(terrain)}
    document=terrain.document;execution=terrain.executionUsage
   }else{
-   const terrain=version===5?generateTerrainDocumentV5(request.base,request.generation.input):generateTerrainDocumentV4(request.base,request.generation.input)
-   result={kind:'terrain',terrain:(version===5?terrainGenerationResultV5Schema:terrainGenerationResultV4Schema).parse(terrainMapOrder(terrain))}
+   const terrain=version===8?generateTerrainDocumentV8(request.base,request.generation.input):version===5?generateTerrainDocumentV5(request.base,request.generation.input):generateTerrainDocumentV4(request.base,request.generation.input)
+   result={kind:'terrain',terrain:(version===8?terrainGenerationResultV8Schema:version===5?terrainGenerationResultV5Schema:terrainGenerationResultV4Schema).parse(terrainMapOrder(terrain))}
    document=composeTerrainDocument(request.base,terrain,`base-map3-${request.inputHash}`,request.profile).document;execution=terrain.executionUsage
   }
  }else{

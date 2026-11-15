@@ -1,4 +1,5 @@
 import { terrainGenerationInputV5Schema, terrainGenerationResultV5Schema, generateTerrainDocumentV5, type TerrainGenerationResultV5 } from '../../shared/terrain-generation/surface-generation.js'
+import { terrainGenerationInputV8Schema, terrainGenerationResultV8Schema, generateTerrainDocumentV8 } from '../../shared/terrain-generation/forest-generation-v8.js'
 import { terrainGenerationInputV6Schema, terrainGenerationResultV6Schema, generateTerrainDocumentV6, type TerrainGenerationResultV6,
   compositionPresetV6Schema } from '../../shared/terrain-generation/surface-rule-generation.js'
 import { terrainGenerationInputV7Schema, terrainGenerationResultV7Schema, generateTerrainDocumentV7, type TerrainGenerationResultV7,
@@ -42,7 +43,7 @@ export type TerrainPreview=TerrainPreviewBase & ({result:TerrainGenerationResult
 export async function prepareTerrainProject(base:EditableProject,input:unknown,options:{runtime:PreparationContext;validation:CompleteValidationOptions;result?:TerrainGenerationResult | TerrainGenerationResultV5 | TerrainGenerationResultV6 | TerrainGenerationResultV7;budget?:TaskBudgetProfile;birthToken?:string}) {
   const owned=await validateEditableProject(captureEditableDraft(base),options.validation), raw=captureJson(input)
   const version=options.budget&&raw&&typeof raw==='object'&&'algorithmVersion'in raw?raw.algorithmVersion:undefined
-  const request=options.budget?(version===7?terrainGenerationInputV7Schema:version===6?terrainGenerationInputV6Schema:version===5?terrainGenerationInputV5Schema:terrainGenerationInputV4Schema).parse(raw):terrainGenerationInputSchema.parse(raw)
+  const request=options.budget?(version===8?terrainGenerationInputV8Schema:version===7?terrainGenerationInputV7Schema:version===6?terrainGenerationInputV6Schema:version===5?terrainGenerationInputV5Schema:terrainGenerationInputV4Schema).parse(raw):terrainGenerationInputSchema.parse(raw)
   if (options.budget && request.algorithmVersion===7) {
     if (options.budget.profileId!==request.budgetProfileId) throw new Error('自动地表配方7与选定预算档位不同。')
     const result=terrainGenerationResultV7Schema.parse(generateTerrainDocumentV7(owned.document,request,options.birthToken))
@@ -67,11 +68,11 @@ export async function prepareTerrainProject(base:EditableProject,input:unknown,o
     if(cost.total!==result.cost.total)throw new Error('完整工程资源与历史物化后的自动地表成本不同。')
     return {project:materialized,cost,result:freezeJson(result),input:freezeJson(request),usage}
   }
-  const generated=options.budget?(request.algorithmVersion===5?generateTerrainDocumentV5(owned.document,request):generateTerrainDocumentV4(owned.document,request)):generateTerrainDocument(owned.document,request)
+  const generated=options.budget?(request.algorithmVersion===8?generateTerrainDocumentV8(owned.document,request):request.algorithmVersion===5?generateTerrainDocumentV5(owned.document,request):generateTerrainDocumentV4(owned.document,request)):generateTerrainDocument(owned.document,request)
   // Match the new transport's strict managed-map boundary. The composer owns
   // stable recipe-array order; legacy algorithms retain their original path.
-  const result=options.budget?(request.algorithmVersion===5?terrainGenerationResultV5Schema:terrainGenerationResultV4Schema).parse(terrainMapOrder(generated)):generated
-  if(options.result && canonicalJson(result)!==canonicalJson((options.budget?(request.algorithmVersion===5?terrainGenerationResultV5Schema:terrainGenerationResultV4Schema):terrainGenerationResultSchema).parse(captureJson(options.result))))throw new Error('地形计算结果与确定性重放不符。')
+  const result=options.budget?(request.algorithmVersion===8?terrainGenerationResultV8Schema:request.algorithmVersion===5?terrainGenerationResultV5Schema:terrainGenerationResultV4Schema).parse(terrainMapOrder(generated)):generated
+  if(options.result && canonicalJson(result)!==canonicalJson((options.budget?(request.algorithmVersion===8?terrainGenerationResultV8Schema:request.algorithmVersion===5?terrainGenerationResultV5Schema:terrainGenerationResultV4Schema):terrainGenerationResultSchema).parse(captureJson(options.result))))throw new Error('地形计算结果与确定性重放不符。')
   const {document,cost}=composeTerrainDocument(owned.document,result,options.runtime.ids.nextId(),options.budget)
   const labels = { island: '岩岛', coast: '海岸', river: '河谷', lake: '内湖', forest: '森林', hill: '丘陵', mixed: '混合地貌' } as const
   document.title=`${labels[request.kind]} · ${result.skeleton.name}`

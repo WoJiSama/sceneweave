@@ -112,15 +112,19 @@ function restyleAncillary(document:SceneDocument):void {
   }
   for(const collection of [document.terrainEdges,document.terrainConnections,document.paths])for(const row of Object.values(collection))paint(row.surfaceStyle)
 }
-function checkedSurfaceDocument(original:SceneDocument,seed:string,meter:ReturnType<typeof captureExecutionBudget>):SceneDocument {
-  const document=cloneJson(applyShoreSurfaceRecipe(original,seed,{meter}))
+function checkedSurfaceDocument(original:SceneDocument,seed:string,meter:ReturnType<typeof captureExecutionBudget>,edgeDetailScale=1):SceneDocument {
+  const document=cloneJson(applyShoreSurfaceRecipe(original,seed,{meter,edgeDetailScale}))
   restyleAncillary(document);assertPhysicalPreservation(original,document)
   return document
 }
 export function generateTerrainDocumentV5(base:SceneDocument,raw:unknown):TerrainGenerationResultV5 {
-  const input=terrainGenerationInputV5Schema.parse(captureJson(raw)),profile=taskBudgetProfile(input.budgetProfileId)
-  const physical=generateTerrainDocumentV4(base,{...input,algorithmVersion:4}),meter=captureExecutionBudget(profile)
-  const document=checkedSurfaceDocument(physical.document,input.seed,meter),managedTargets=sortedManagedTargets(document)
+  const input=terrainGenerationInputV5Schema.parse(captureJson(raw))
+  return styleTerrainGeometryV5(base,generateTerrainDocumentV4(base,{...input,algorithmVersion:4}),input)
+}
+/** Shared fixed surface recipe; selecting the physical algorithm is the caller's responsibility. */
+export function styleTerrainGeometryV5(base:SceneDocument,physical:TerrainGenerationResult,input:TerrainGenerationInputV5,edgeDetailScale=1):TerrainGenerationResultV5 {
+  const profile=taskBudgetProfile(input.budgetProfileId),meter=captureExecutionBudget(profile)
+  const document=checkedSurfaceDocument(physical.document,input.seed,meter,edgeDetailScale),managedTargets=sortedManagedTargets(document)
   const executionUsage=addExecutionUsage(physical.executionUsage,meter.snapshot())
   assertTaskBudget(profile,measureTaskBudget(base,document,undefined,executionUsage))
   return terrainGenerationResultV5Schema.parse({...physical,input,document,managedTargets,executionUsage,cost:resultCost(document,physical,managedTargets)})

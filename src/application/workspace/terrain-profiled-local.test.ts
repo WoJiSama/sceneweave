@@ -86,9 +86,9 @@ describe('persisted new4/new5 maps remain manually editable under a frozen local
     expect(workspace.getState().project!.appearance).toEqual(before.appearance)
     expect(workspace.getDocument()!.revision).toBe(before.document.revision + 2)
   }, 120000)
-  it.each([4,5] as const)('cold reads algorithm%s, binds one profile, adopts a real edit and undoes once', async version => {
-    const profile=version===5?TASK_BUDGET_PROFILES.standard:TASK_BUDGET_PROFILES.small
-    const base = await blank(version), generated = await prepareTerrainProject(base, { sceneId: base.document.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: version, budgetProfileId: profile.profileId, quality: 'standard' }, { runtime, validation, budget: profile })
+  it.each([4,5,8] as const)('cold reads algorithm%s, binds one profile, adopts a real edit and undoes once', async version => {
+    const profile=version>=5?TASK_BUDGET_PROFILES.standard:TASK_BUDGET_PROFILES.small
+    const base = await blank(version===8?5:version), generated = await prepareTerrainProject(base, { sceneId: base.document.sceneId, kind: version===8?'forest':'island', seed: 'terrain-v1-0', algorithmVersion: version, budgetProfileId: profile.profileId, quality: 'standard' }, { runtime, validation, budget: profile })
     const { workspace, repo } = await session(generated.project), before = toBundle(workspace.getState().project!).project
     const prop = Object.values(before.document.props)[0], request = { kind: 'brush' as const, sceneId: before.document.sceneId, operationId: 'manual-new4-clear', floorId: 'visual-floor', scopeMm: before.document.exportBoundsMm,
       linkMode: 'scenery' as const, mode: 'clearArea' as const, targetAreaId: prop.supportRef.kind === 'terrainArea' ? prop.supportRef.id : 'terrain-low', materialRef: null, elevationMm: null, strokes: [{ pointsMm: [prop.positionMm], radiusMm: 300 }] }
@@ -96,7 +96,7 @@ describe('persisted new4/new5 maps remain manually editable under a frozen local
     expect(preview.profileHash).toBe(profile.profileHash); expect(preview.cost.limit).toBe(profile.semanticTargets)
     expect(preview.usage!.assetBytes).toBe(Object.values(before.assets).reduce((sum, row) => sum + row.sizeBytes, 0))
     expect(preview.document.props[prop.id]).toBeUndefined()
-    await expect(workspace.previewTerrainEdit(request, { result: preview.result, budget: version===5?TASK_BUDGET_PROFILES.expanded:TASK_BUDGET_PROFILES.standard })).rejects.toThrow(/重放不符/)
+    await expect(workspace.previewTerrainEdit(request, { result: preview.result, budget: version>=5?TASK_BUDGET_PROFILES.expanded:TASK_BUDGET_PROFILES.standard })).rejects.toThrow(/重放不符/)
     const adopted = await workspace.adoptTerrainEdit(preview); await adopted.save
     expect((await repo.load(before.document.sceneId))!.project.document.props[prop.id]).toBeUndefined()
     workspace.undo(); expect(workspace.getDocument()!.props).toEqual(before.document.props)

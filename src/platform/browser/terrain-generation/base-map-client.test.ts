@@ -324,6 +324,22 @@ describe('profile-bound v3 base-map transport', () => {
         sceneId: base.sceneId, kind: 'island', seed: 'terrain-v1-0', algorithmVersion: 7, budgetProfileId: 'standard', quality: 'standard', widthMm: 24000, heightMm: 18000,
       } } : { kind, input: { sceneId: base.sceneId, preset: 'archipelago', seed: 'terrain-compose-0', recipeVersion: 7, budgetProfileId: 'standard', quality: 'standard', widthMm: 24000, heightMm: 18000, islandCount: 3 } } })
   }
+  it('requires the exact forest8 server selector and never retries an unknown result', async () => {
+    const base=createShoreBlankDocument('island',{title:'森林8能力检查',sceneId:'forest8-capability',now:'2026-11-14T00:00:00.000Z',widthMm:24000,heightMm:18000,preset:'narrative'})
+    const request=prepareBaseMapRequestV3({requestId:'forest8-cap-request',flowId:'forest8-cap-flow',workspaceSceneId:'current-workspace',checkpoint:4,operationEpoch:7,
+      profile:TASK_BUDGET_PROFILES.standard,base,generation:{kind:'terrain',input:{sceneId:base.sceneId,kind:'forest',seed:'terrain-v1-0',algorithmVersion:8,budgetProfileId:'standard',quality:'standard',widthMm:24000,heightMm:18000}}})
+    const old=vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities())),oldClient=setup({fetcher:old})
+    await expect(oldClient.client.generate(request,{server})).rejects.toMatchObject({code:'unavailable'})
+    expect(old.mock.calls.map(([url])=>String(url))).toEqual(['https://ai.example.test/v1/capabilities?baseMapSelector=terrain-scene-v8'])
+    expect(oldClient.createWorker).not.toHaveBeenCalled()
+    const current=vi.fn<typeof fetch>().mockImplementation(url=>Promise.resolve(String(url).includes('/capabilities?')
+      ?jsonResponse(capabilities({baseMapSelectors:['terrain-scene-v8'],budgetProfileHashes:[request.profileHash]})):new Response('',{status:503})))
+    const currentClient=setup({fetcher:current})
+    await expect(currentClient.client.generate(request,{server})).rejects.toMatchObject({code:'generation_failed'})
+    expect(current.mock.calls.map(([url])=>String(url))).toEqual(['https://ai.example.test/v1/capabilities?baseMapSelector=terrain-scene-v8','https://ai.example.test/v1/terrain/basemap?baseMapVersion=3'])
+    expect(current.mock.calls[1][1]?.body).toBe(canonicalJson(request))
+    expect(currentClient.createWorker).not.toHaveBeenCalled()
+  })
   it.each(['terrain', 'composition'] as const)('refuses new %s surface semantics before POST when a v3 server ignores the additional opt-in', async kind => {
     const request = surfaceRequest(kind), fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities())), { client, createWorker } = setup({ fetcher })
     await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })

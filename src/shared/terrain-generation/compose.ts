@@ -25,7 +25,7 @@ export function composeTerrainDocument(base:SceneDocument,result:TerrainGenerati
   const roughness = !t3 && algorithmVersion >= 2 ? result.input.kind === 'island' ? .018 : .008 : .18
   const primaryBoundary = visualBase(result.document)!.boundaries[t3 ? 'terrain-high-curve' : 'terrain-coast-curve']
   if (!primaryBoundary) throw new Error('生成结果缺少确切主轮廓。')
-  const surfaceMaterials=algorithmVersion===5?new Set([
+  const surfaceMaterials=algorithmVersion===5||algorithmVersion===8?new Set([
     ...Object.values(document.terrainAreas),...Object.values(document.terrainEdges),...Object.values(document.terrainConnections),...Object.values(document.paths),
   ].flatMap(row=>row.surfaceStyle?[row.surfaceStyle.base.materialRef.id,...row.surfaceStyle.overlays.map(overlay=>overlay.paint.materialRef.id)]:[])):null
   system.recipes[recipeId]={id:recipeId,recipeVersion:algorithmVersion,algorithmId,algorithmVersion,mapMode:'scene',seed:result.input.seed,
@@ -33,7 +33,7 @@ export function composeTerrainDocument(base:SceneDocument,result:TerrainGenerati
     materials:Object.values(document.materials).filter(m=>surfaceMaterials?surfaceMaterials.has(m.id):Object.values(document.terrainAreas).some(a=>a.surfaceStyle?.base.materialRef.id===m.id)).map((m):NaturalGenerationRecipe['materials'][number]=>({role:m.tags.includes('water')||m.tags.includes('水')?'water':m.tags.includes('sand')?'sand':m.tags.includes('grass')||m.id.includes('moss')?'grass':'rock',ref:{id:m.id,version:m.version}})),
     props:[...new Set(Object.values(document.props).flatMap(p=>p.definitionRef?[p.definitionRef.id]:[]))].map((id):NaturalGenerationRecipe['props'][number]=>({role:id.includes('tree-')?'tree':id.includes('grass-')?'shrub':'rock',ref:{id,version:document.propDefinitions[id].version}})),
     precision:{sampleSpacingMm:primaryBoundary.sampleSpacingMm,toleranceMm:primaryBoundary.toleranceMm,noiseCellMm:Math.round(Math.min(result.input.widthMm/result.skeleton.gridColumns,result.input.heightMm/result.skeleton.gridRows))}}
-  if (algorithmVersion === 4 || algorithmVersion === 5) {
+  if (algorithmVersion === 4 || algorithmVersion === 5 || algorithmVersion === 8) {
     // JSON object order cannot decide persisted recipe-array meaning. The new
     // algorithm keeps its material/definition recipe in deterministic ID order;
     // legacy algorithms retain their original declared array order.
@@ -58,7 +58,7 @@ export function composeTerrainDocument(base:SceneDocument,result:TerrainGenerati
   const rule=system.rules[ruleId];rule.inputHash=generationInputHash(document,rule);rule.managedOutputHash=managedOutputHash(document,rule)
   system.checks['terrain-activity-check']={id:'terrain-activity-check',constraintId,state:'passed',algorithmId,algorithmVersion,inputHash:constraintInputHash(document,constraintId),issues:[]}
   const empty=emptyTerrainDocument(base);empty.visual={version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}
-  if(result.input.algorithmVersion===4||result.input.algorithmVersion===5){
+  if(result.input.algorithmVersion===4||result.input.algorithmVersion===5||result.input.algorithmVersion===8){
     const profile=budget??taskBudgetProfile(result.input.budgetProfileId)
     if(profile.profileId!==result.input.budgetProfileId)throw new Error('生成预算档位不同。')
     const usage=assertTaskBudget(profile,measureTaskBudget(empty,document,undefined,result.executionUsage))

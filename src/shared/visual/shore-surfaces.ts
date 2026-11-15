@@ -14,7 +14,7 @@ type PaletteKey = keyof typeof SHORE_MATERIAL_IDS
 type Ring = PointMm[]
 type RawRing = [number, number][]
 type OverlayPiece = { points: Ring; blendWidthMm: number }
-export interface ShoreSurfaceOptions { meter?: ExecutionBudget }
+export interface ShoreSurfaceOptions { meter?: ExecutionBudget; edgeDetailScale?: number }
 export const SHORE_SURFACE_LIMITS = Object.freeze({ overlaysPerArea: 128, pointsPerOverlay: 512 })
 const same = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const q = (p: PointMm): PointMm => ({ x: Math.round(p.x), y: Math.round(p.y) })
@@ -200,6 +200,8 @@ function preserveRepresentation(scene: SceneDocument, boundaryId: string, kind: 
 /** A frozen generation-5 recipe. It saves ordinary paints, overlays and looks;
  * the renderer never regenerates these choices or reinterprets old artwork. */
 export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, options: ShoreSurfaceOptions = {}): SceneDocument {
+  const edgeDetailScale=options.edgeDetailScale??1
+  if(!Number.isFinite(edgeDetailScale)||edgeDetailScale<1||edgeDetailScale>5)throw new Error('岸面边缘细节倍率须为1–5。')
   if (!seed || seed.length > 128) throw new Error('新岸崖配方需要1–128字符固定种子。')
   const scene = cloneJson(document), visual = visualBase(scene)
   if (!visual) throw new Error('新岸崖配方需要现存严格视觉系统。')
@@ -296,7 +298,7 @@ export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, o
         color: lookKind === 'cliff' ? '#65706F' : lookKind === 'grass' ? '#84A663' : '#87BFC2',
         accentColor: lookKind === 'cliff' ? '#D3C49A' : lookKind === 'grass' ? '#C2D28F' : '#D3E5D7',
         opacity: lookKind === 'cliff' ? .94 : lookKind === 'grass' ? .70 : .50,
-        intensity: lookKind === 'shore' ? .22 : .72, repeatMm: lookKind === 'cliff' ? 320 : lookKind === 'grass' ? 270 : 1450,
+        intensity: lookKind === 'shore' ? .22 : .72, repeatMm: Math.round((lookKind === 'cliff' ? 320 : lookKind === 'grass' ? 270 : 1450)*edgeDetailScale),
         seed: token(seed, 'paint', boundary.id, lookKind), enabled: true }
       if (look.widthMm > sampleVisualBoundary(boundary).lengthMm / 2) throw new Error('新岸崖外观宽度超出原生边界长度保护。')
       visual.edgeLooks[id] = look

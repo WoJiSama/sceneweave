@@ -86,7 +86,7 @@ export function replayBaseMapSourceV3(input: BaseMapSourceV3) {
   } }, clock: { now: () => source.preparedAt } }
   let content: CompositionContent
   if (response.result.kind === 'terrain' && request.generation.kind === 'terrain') {
-    if (response.result.terrain.input.algorithmVersion >= 6) {
+    if (response.result.terrain.input.algorithmVersion === 6 || response.result.terrain.input.algorithmVersion === 7) {
       const labels = { island: '岩岛', coast: '海岸', river: '河谷', lake: '内湖', forest: '森林', hill: '丘陵', mixed: '混合地貌' }
       const document = cloneJson(response.result.terrain.document)
       document.title = `${labels[request.generation.input.kind]} · ${response.result.terrain.skeleton.name}`

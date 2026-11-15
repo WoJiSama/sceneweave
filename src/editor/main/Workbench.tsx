@@ -779,7 +779,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       const quality = connection.quality ?? 'standard'
       const profile = selectBrowserGenerationBudget({ widthMm: input.widthMm, heightMm: input.heightMm, quality, ...(surfaceVersion >= 5 ? { surfaceRecipe: 1 as const } : {}), mode: connection.budgetMode })
       const normalized = ownedGeneration.kind === 'terrain'
-        ? { kind: 'terrain' as const, input: { ...ownedGeneration.input, sceneId, algorithmVersion: surfaceVersion, budgetProfileId: profile.profileId, quality } }
+        ? { kind: 'terrain' as const, input: { ...ownedGeneration.input, sceneId, algorithmVersion: surfaceVersion===5&&ownedGeneration.input.kind==='forest'?8 as const:surfaceVersion, budgetProfileId: profile.profileId, quality } }
         : { kind: 'composition' as const, input: { ...ownedGeneration.input, sceneId, recipeVersion: surfaceVersion, budgetProfileId: profile.profileId, quality } }
       const request = prepareBaseMapRequestV3({ requestId: runtime.ids.nextId(), flowId: runtime.ids.nextId(), profile,
         workspaceSceneId, checkpoint, operationEpoch: epoch, base: base.document, generation: normalized })

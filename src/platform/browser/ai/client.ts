@@ -28,7 +28,7 @@ export function supportsCurrentAuthoring(info: ConnectionInfo, completeVersion: 
     && (profileHash === undefined || info.capabilities.budgetProfileHashes?.includes(profileHash) === true)
     && (surfaceVersion === undefined || info.capabilities.surfaceRecipeVersions?.includes(surfaceVersion) === true)
 }
-export function supportsBaseMapSelector(info: ConnectionInfo, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7', profileHash: string): boolean {
+export function supportsBaseMapSelector(info: ConnectionInfo, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8', profileHash: string): boolean {
   return info.capabilities.baseMapVersions?.includes(3) === true
     && info.capabilities.budgetProfileHashes?.includes(profileHash) === true
     && info.capabilities.baseMapSelectors?.includes(selector) === true
@@ -180,7 +180,7 @@ export class AiClient {
     catch (error) { aborted(signal); if (method === 'POST') throw new AiClientError('protocol', '服务器已接收请求，但响应尚未确认。请保留同一请求 ID 重试或刷新任务。', 'unknown'); throw error }
   }
   capabilities(signal?: AbortSignal, version: 2 | 3 | 4 = 4, surfaceVersion?: 1): Promise<ConnectionInfo> { return this.#json(`capabilities?authoringVersion=${version}${surfaceVersion === undefined ? '' : `&surfaceVersion=${surfaceVersion}`}`, ConnectionInfoSchema, 'GET', undefined, signal) }
-  baseMapCapabilities(signal: AbortSignal | undefined, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7'): Promise<ConnectionInfo> {
+  baseMapCapabilities(signal: AbortSignal | undefined, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8'): Promise<ConnectionInfo> {
     return this.#json(`capabilities?baseMapSelector=${selector}`, ConnectionInfoSchema, 'GET', undefined, signal)
   }
   async create(request: CreateTaskRequest, signal?: AbortSignal, beforeSend?: () => void): Promise<TaskSnapshot> {
