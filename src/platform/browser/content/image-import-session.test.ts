@@ -62,6 +62,68 @@ describe('host-owned image import tool session', () => {
     expect(result.generation).toBe(before.generation)
   })
 
+  it('turns a visual model boundary proposal into a read-only, replayable selection candidate', async () => {
+    const input = source()
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) input.pixels.data.set([230, 40, 30, 255], (y * 8 + x) * 4)
+    const session = new ImageImportToolSession(input, rights), before = session.inspect()
+    const result = await session.execute('image_import_vision_boundary', {
+      generation: 0, proposalId: 'chair-1', candidateIndex: 0,
+      model: { provider: 'self-hosted', id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'local-no-upload' },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 0, y: 0, width: 8, height: 8 },
+      guide: { bounds: { x: 0, y: 0, width: 8, height: 8 }, boundaryPx: [{ x: 1.5, y: 1.5 }, { x: 6.5, y: 1.5 }, { x: 6.5, y: 6.5 }, { x: 1.5, y: 6.5 }],
+        foreground: [{ points: [{ x: 3, y: 3 }], radiusPx: 1 }], background: [{ points: [{ x: 0, y: 0 }], radiusPx: 1 }],
+        algorithmVersion: 2, edgeCoverage: 'boundary' },
+    }) as { generation: number; readOnly: boolean; adopted: boolean; selectionMask: NonNullable<ImageImportRecipe['layers'][number]['selectionMask']>; selectionOrigin: { method: string; model: { id: string } } }
+    expect(result).toMatchObject({ generation: 0, readOnly: true, adopted: false, selectionOrigin: { method: 'vision-boundary-v1', model: { id: 'vision-boundary-test' } } })
+    expect(result.selectionMask.runs.some((value, index) => index % 2 === 1 && value > 0)).toBe(true)
+    expect(session.inspect()).toEqual(before)
+  })
+
+  it('rejects an external visual proposal without explicit image-upload disclosure', async () => {
+    const session = new ImageImportToolSession(source(), rights), before = session.inspect()
+    await expect(session.execute('image_import_vision_boundary', {
+      generation: 0, proposalId: 'chair-1', candidateIndex: 0,
+      model: { provider: 'external', id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'local-no-upload' },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 1, y: 1, width: 2, height: 2 },
+      guide: { bounds: { x: 0, y: 0, width: 8, height: 8 }, boundaryPx: [{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 3, y: 3 }],
+        foreground: [{ points: [{ x: 2, y: 2 }], radiusPx: 1 }], background: [{ points: [{ x: 0, y: 0 }], radiusPx: 1 }], algorithmVersion: 2, edgeCoverage: 'boundary' },
+    })).rejects.toThrow()
+    expect(session.inspect()).toEqual(before)
+  })
+
+  it('keeps external vision upload disabled by default even when disclosure is explicit', async () => {
+    const args = {
+      generation: 0, proposalId: 'chair-1', candidateIndex: 0,
+      model: { provider: 'external' as const, id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'explicit-image-upload' as const },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 0, y: 0, width: 8, height: 8 },
+      guide: { bounds: { x: 0, y: 0, width: 8, height: 8 }, boundaryPx: [{ x: 1, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 7 }, { x: 1, y: 7 }],
+        foreground: [{ points: [{ x: 3, y: 3 }], radiusPx: 1 }], background: [{ points: [{ x: 0, y: 0 }], radiusPx: 1 }], algorithmVersion: 2 as const, edgeCoverage: 'boundary' as const },
+    }
+    const session = new ImageImportToolSession(source(), rights), before = session.inspect()
+    await expect(session.execute('image_import_vision_boundary', args)).rejects.toThrow('未授权')
+    expect(session.inspect()).toEqual(before)
+
+    const authorized = new ImageImportToolSession(source(), rights, { allowExternalVisionUpload: true })
+    const result = await authorized.execute('image_import_vision_boundary', args) as { readOnly: boolean; adopted: boolean; selectionOrigin: { model: { provider: string; disclosure: string } } }
+    expect(result).toMatchObject({ readOnly: true, adopted: false, selectionOrigin: { model: { provider: 'external', disclosure: 'explicit-image-upload' } } })
+  })
+
+  it('adopts a reviewed visual boundary through the ordinary set-selection transaction', async () => {
+    const input = source()
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) input.pixels.data.set([230, 40, 30, 255], (y * 8 + x) * 4)
+    const session = new ImageImportToolSession(input, rights)
+    await session.execute('image_import_extract_item', { generation: 0, id: 'chair', name: '椅', polygon: [{ x: 2, y: 2 }, { x: 6, y: 2 }, { x: 6, y: 6 }, { x: 2, y: 6 }], donor: { x: 0, y: 0, width: 1, height: 1 }, renderLayer: 'object', blocksMovement: true })
+    const candidate = await session.execute('image_import_vision_boundary', {
+      generation: 1, target: 'chair', proposalId: 'chair-1', candidateIndex: 0,
+      model: { provider: 'self-hosted', id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'local-no-upload' },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 0, y: 0, width: 8, height: 8 },
+      guide: { bounds: { x: 0, y: 0, width: 8, height: 8 }, boundaryPx: [{ x: 1.5, y: 1.5 }, { x: 6.5, y: 1.5 }, { x: 6.5, y: 6.5 }, { x: 1.5, y: 6.5 }],
+        foreground: [{ points: [{ x: 3, y: 3 }], radiusPx: 1 }], background: [{ points: [{ x: 0, y: 0 }], radiusPx: 1 }], algorithmVersion: 2, edgeCoverage: 'boundary' },
+    }) as { selectionMask: NonNullable<ImageImportRecipe['layers'][number]['selectionMask']>; selectionOrigin: unknown }
+    await session.execute('image_import_set_selection', { generation: 1, target: 'chair', selectionMask: candidate.selectionMask, selectionOrigin: candidate.selectionOrigin })
+    expect(session.inspect()).toMatchObject({ generation: 2, draft: { layers: [{ id: 'chair', selectionMask: candidate.selectionMask }] } })
+  })
+
   it('captures image identity and returns independent frozen draft snapshots', async () => {
     const input = source(), session = new ImageImportToolSession(input, rights)
     input.image.sha256 = 'b'.repeat(64)

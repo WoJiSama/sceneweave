@@ -62,7 +62,7 @@ async function executeInBrowser({ name, input }) {
     const { bytes, ...metadata } = result
     return { neighborhood: { ...metadata, reviewBase64: encode(bytes) } }
   }
-  if (name === 'image_import_enhancement_candidates' || name === 'image_import_matte_candidates' || name === 'image_import_subject_candidates') {
+  if (name === 'image_import_enhancement_candidates' || name === 'image_import_matte_candidates' || name === 'image_import_subject_candidates' || name === 'image_import_surface_candidate') {
     const { sourceBytes, candidates, ...metadata } = result
     return { enhancements: { ...metadata, sourceBase64: encode(sourceBytes), candidates: candidates.map(candidate => {
       const { bytes, reviewBytes, coverageBytes, ...info } = candidate
@@ -96,13 +96,17 @@ async function executeInBrowser({ name, input }) {
     recipe: result.recipe,
     generation: result.generation,
     sourceFidelity: result.sourceFidelity,
+    ...(result.subjectDerivation ? { subjectDerivation: result.subjectDerivation } : {}),
+    ...(result.surfaceDerivation ? { surfaceDerivation: result.surfaceDerivation } : {}),
   }
 }
 
 async function saveCandidate(response, output, context, tooling) {
   const directory = path.join(output, 'candidate-' + response.generation + '-' + randomUUID())
   await fs.mkdir(directory, { mode: 0o700 })
-  const record = { status: 'running', generation: response.generation, projectHash: response.projectHash, sourceFidelity: response.sourceFidelity }
+  const record = { status: 'running', generation: response.generation, projectHash: response.projectHash, sourceFidelity: response.sourceFidelity,
+    ...(response.subjectDerivation ? { subjectDerivation: response.subjectDerivation } : {}),
+    ...(response.surfaceDerivation ? { surfaceDerivation: response.surfaceDerivation } : {}) }
   try {
     await fs.writeFile(path.join(directory, 'result.json'), JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 })
     const archive = await writeVerified(directory, 'map.sceneweave', Buffer.from(response.archiveBase64, 'base64'))
@@ -296,6 +300,7 @@ async function serve(options) {
           content = [{ type: 'text', text: JSON.stringify(response.value) }]
         }
         if (Object.hasOwn(params.arguments ?? {}, 'generation') && params.name !== 'image_import_build_project'
+          && params.name !== 'image_import_vision_boundary'
           && !(params.name === 'image_import_guided_selection' && !params.arguments?.target)) {
           try { content.push({ type: 'text', text: JSON.stringify({ checkpoint: await saveWork() }) }) }
           catch (error) { content.push({ type: 'text', text: JSON.stringify({ checkpointError: String(error), nextAction: '当前候选仍在进程中；先导出工作包再结束会话。' }) }) }

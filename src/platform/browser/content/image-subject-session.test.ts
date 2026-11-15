@@ -25,6 +25,62 @@ type Preview = { inputHash: string; itemSha256: string; backgroundSha256: string
 type Candidates = { inputHash: string; sourceItemSha256: string; sourceBytes: Uint8Array; candidates: Array<{ recipe: ImageSubjectRefinement; bytes: Uint8Array; coverageBytes: Uint8Array; pngSha256: string; coverageSha256: string; metrics: { alphaChangedPixels: number; rgbChangedPixels: number } }> }
 
 describe('staged source-aware subject workflow', () => {
+  it('rejects an unavailable distant reference in tool candidates and cold restoration without replacing the open task', async () => {
+    const { source, session: initial } = await fixture(), oldState = initial.captureWorkState()
+    const width = 128, height = source.pixels.height, data = new Uint8ClampedArray(width * height * 4)
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) data.set(x < source.pixels.width
+      ? source.pixels.data.subarray((y * source.pixels.width + x) * 4, (y * source.pixels.width + x) * 4 + 4) : [90, 135, 160, 255], (y * width + x) * 4)
+    const pixels = { width, height, data }, bytes = await encodeImageImportPixels(pixels), hash = sha256Bytes(bytes)
+    const wide: ImageImportSource = { ...source, pixels, image: { ...source.image, pixelWidth: width, sha256: hash }, originalBytes: bytes, normalizedBytes: bytes }
+    const layer = oldState.draft.layers[0], neighbor = { ...layer, id: 'neighbor', name: '邻物', polygon: [{ x: 75, y: 16 }, { x: 78, y: 16 }, { x: 78, y: 19 }, { x: 75, y: 19 }], selectionMask: { x: 75, y: 16, width: 3, height: 3, runs: [9, 255] } }
+    const state = { ...oldState, image: wide.image, original: { ...oldState.original, sha256: hash, sizeBytes: bytes.length }, draft: { ...oldState.draft, layers: [layer, neighbor] } }
+    const session = new ImageImportToolSession(wide, rights); session.restoreWork(state)
+    const before = session.captureWorkState(), referenceGuidance = { base: 'original' as const, foreground: { x: 16, y: 16, width: 3, height: 1, runs: [3, 255] },
+      background: { x: 75, y: 16, width: 3, height: 1, runs: [3, 255] }, mixed: { x: 35, y: 16, width: 1, height: 8, runs: [8, 255] } }
+    await expect(session.execute('image_import_subject_candidates', { target: layer.id, method: 'subject-reference-v1', bandPx: 1, count: 2, referenceGuidance })).rejects.toThrow('原图参考(75,16)')
+    expect(session.captureWorkState()).toEqual(before)
+    expect(() => session.restoreWork({ ...state, draft: { ...state.draft, layers: [{ ...layer, subjectRefinement: { method: 'subject-reference-v1', bandPx: 1, strength: 'strong', referenceGuidance } }, neighbor] } })).toThrow('原图参考(75,16)')
+    expect(session.captureWorkState()).toEqual(before)
+  })
+  it('adopts bounded colour/role guidance through the shared tool, restores exact bytes cold and invalidates a stale candidate', async () => {
+    const { source, session } = await fixture(), original = await session.execute('image_import_item_preview', { target: 'subject' }) as Preview
+    const referenceGuidance = { base: 'original' as const, foreground: { x: 16, y: 16, width: 3, height: 1, runs: [3, 255] },
+      background: { x: 7, y: 16, width: 3, height: 1, runs: [3, 255] }, mixed: { x: 12, y: 16, width: 1, height: 8, runs: [8, 255] } }
+    const candidates = await session.execute('image_import_subject_candidates', { target: 'subject', count: 2, bandPx: 1, method: 'subject-reference-v1', referenceGuidance }) as Candidates
+    const chosen = candidates.candidates[1]
+    expect(chosen.metrics.alphaChangedPixels).toBe(8)
+    expect(chosen.recipe.referenceGuidance).toEqual(referenceGuidance)
+    await session.execute('image_import_set_subject_refinement', { generation: session.inspect().generation, target: 'subject', inputHash: candidates.inputHash, refinement: chosen.recipe })
+    const adopted = await session.execute('image_import_item_preview', { target: 'subject' }) as Preview
+    expect(adopted.itemSha256).toBe(chosen.pngSha256); expect(adopted.backgroundSha256).toBe(original.backgroundSha256)
+    const cold = new ImageImportToolSession(source, rights), pkg = await readImageWorkPackage(await session.exportWork())
+    cold.restoreWork(pkg.state)
+    expect((await cold.execute('image_import_item_preview', { target: 'subject' }) as Preview).itemSha256).toBe(chosen.pngSha256)
+    const before = cold.captureWorkState()
+    await expect(cold.execute('image_import_set_subject_refinement', { generation: cold.inspect().generation, target: 'subject', inputHash: candidates.inputHash, refinement: chosen.recipe })).rejects.toThrow()
+    expect(cold.captureWorkState()).toEqual(before)
+    await expect(cold.execute('image_import_subject_candidates', { target: 'subject', count: 2, bandPx: 1, method: 'subject-reference-v1', referenceGuidance: null })).rejects.toThrow('局部参考方式')
+    expect(cold.captureWorkState()).toEqual(before)
+    const cleared = await cold.execute('image_import_subject_candidates', { target: 'subject', count: 2, method: 'subject-matte-v1' }) as Candidates
+    expect(cleared.candidates[0].recipe.referenceGuidance).toBeUndefined()
+    await session.execute('image_import_undo', { generation: session.inspect().generation })
+    expect((await session.execute('image_import_item_preview', { target: 'subject' }) as Preview).itemSha256).toBe(original.itemSha256)
+  })
+  it('uses the geometric evidence scope for a contour baseline independently from colour-reference exclusions', async () => {
+    const { source, session } = await fixture(), layer = session.captureWorkState().draft.layers[0]
+    const neighbor = { ...layer, id: 'neighbor', polygon: [{ x: 38, y: 24 }, { x: 41, y: 24 }, { x: 41, y: 29 }, { x: 38, y: 29 }],
+      selectionMask: { x: 38, y: 24, width: 3, height: 5, runs: [15, 255] }, removalMask: { x: 34, y: 24, width: 7, height: 5, runs: [35, 255] } }
+    const referenceGuidance = { base: 'contour' as const, foreground: { x: 16, y: 16, width: 3, height: 1, runs: [3, 255] },
+      background: { x: 7, y: 16, width: 3, height: 1, runs: [3, 255] }, mixed: { x: 12, y: 16, width: 1, height: 8, runs: [8, 255] } }
+    const contour = previewImageImportSubject(source.pixels, [layer, neighbor], [], 'subject', { method: 'subject-contour-v1', strength: 'strong', bandPx: 1 })
+    const guided = previewImageImportSubject(source.pixels, [layer, neighbor], [], 'subject', { method: 'subject-reference-v1', strength: 'strong', bandPx: 1, referenceGuidance })
+    expect(guided.pixels.boundsPx).toEqual(contour.pixels.boundsPx)
+    for (let y = 0; y < guided.pixels.height; y++) for (let x = 0; x < guided.pixels.width; x++) {
+      const sx = guided.pixels.boundsPx.x + x, sy = guided.pixels.boundsPx.y + y, at = (y * guided.pixels.width + x) * 4
+      if (sx === 12 && sy >= 16 && sy < 24) continue
+      expect(guided.pixels.data.slice(at, at + 4)).toEqual(contour.pixels.data.slice(at, at + 4))
+    }
+  })
   it('adopts geometric coverage with inferred outer pixels and cold-replays expanded raster coordinates', async () => {
     const { source, session } = await fixture(), state = session.captureWorkState()
     const boundsPx = { x: 10, y: 11, width: 28, height: 27 }, data = new Uint8Array(boundsPx.width * boundsPx.height)
