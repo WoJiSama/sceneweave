@@ -17,6 +17,7 @@ import { selectionScene } from '../../editor/native-canvas/selection-scene.js'
 import { hitTestAll, selectInBounds } from '../../editor/native-canvas/selection.js'
 import { isCertifiedSceneSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
 import { previewOutdoorCommands, type OutdoorCommand } from '../commands/outdoor.js'
+import { advanceHistoryIdentity } from '../history/identity.js'
 
 const stamp = '2026-10-26T00:00:00.000Z'
 let sequence = 0
@@ -143,6 +144,31 @@ describe('T0/T1 generated-result lifecycle through appearance and history', () =
     expect(getLegacyGeneration(plan.document)!.ownership.owner.managedFields).toEqual([])
     expect(getLegacyGeneration(plan.document)!.rules.rule.state).toBe('paused')
     expect(validateSceneDocument(plan.document).ok).toBe(true)
+  })
+
+  it.each([false, true])('deletes a restored generated prop again without reusing an exclusion tombstone (fresh import: %s)', freshImport => {
+    const original = content(), first = applyCompositionCommands(original, [{ type: 'deleteProp', id: 'item' }], runtime())
+    const firstExclusion = Object.values(first.document.generation.legacy.exclusions)[0]
+    expect(firstExclusion).toMatchObject({ candidateKey: original.document.generation.legacy.ownership.owner.outputKey, reason: 'delete' })
+    const document = cloneJson(original.document)
+    document.revision = first.document.revision + 1
+    const historyIdentity = advanceHistoryIdentity(first.historyIdentity, first.document, document, runtime(), { allowResurrection: true })
+    if (freshImport) { document.sceneId = 'fresh-import'; document.revision = 0 }
+    const restored = validateCompositionContent({ document, historyIdentity, appearance: original.appearance })
+    expect(restored.historyIdentity.generationTokens![firstExclusion.id]).toEqual(first.historyIdentity.generationTokens![firstExclusion.id])
+    const second = applyCompositionCommands(restored, [{ type: 'deleteProp', id: 'item' }], runtime())
+    expect(second.document.props.item).toBeUndefined()
+    const secondExclusion = Object.values(second.document.generation.legacy.exclusions)[0]
+    expect(secondExclusion.id).not.toBe(firstExclusion.id)
+    expect({ ...secondExclusion, id: firstExclusion.id }).toEqual(firstExclusion)
+    expect(second.historyIdentity.generationTokens![firstExclusion.id]).toEqual(first.historyIdentity.generationTokens![firstExclusion.id])
+    const repeatedPreview = applyCompositionCommands(restored, [{ type: 'deleteProp', id: 'item' }], runtime())
+    expect(repeatedPreview.document.generation.legacy.exclusions).toEqual(second.document.generation.legacy.exclusions)
+    // The identity barrier must still reject an actual attempt to revive the old ID.
+    const forged = cloneJson(second.document)
+    delete forged.generation.legacy.exclusions[secondExclusion.id]
+    forged.generation.legacy.exclusions[firstExclusion.id] = firstExclusion
+    expect(() => advanceHistoryIdentity(restored.historyIdentity, restored.document, forged, runtime())).toThrow(/出生身份不能复用/)
   })
 
   it.each(['effectiveLocks', 'layerOrder'] as const)('keeps the %s inspector disposable while preserving generated source hashes', option => {

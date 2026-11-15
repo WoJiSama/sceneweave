@@ -370,6 +370,11 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
 
 /** Ordinary manual edits preserve results and explicitly stop affected generation; never rebuild geometry. */
 export type GenerationAppearanceChange = Omit<GenerationReference, 'fieldGroup'> & { fieldGroup: 'appearance' | 'surface' | 'source' }
+/** The same candidate baseline is deterministic; undo and fresh imports must
+ * not revive the identity tombstone of an earlier deletion exclusion. */
+export function deletionExclusionId(scene: Pick<SceneDocument, 'sceneId' | 'revision'>, outputKey: string): string {
+  return `terrain-delete-${hashValue([scene.sceneId, scene.revision, outputKey]).slice(0, 24)}`
+}
 export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: SceneDocument, appearanceChanges: readonly GenerationAppearanceChange[] = []): number {
   const before = terrain(beforeInput), originalGeneration = getLegacyGeneration(nextInput)!
   // Write the owned legacy partition into the real candidate, never save the compatibility view.
@@ -413,7 +418,7 @@ export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: Scen
       if(row.target.kind==='prop'&&before.props[row.target.entityId]){
         const prop=before.props[row.target.entityId],angle=prop.rotationDeg*Math.PI/180,offset=prop.footprintOffsetMm,w=prop.footprintMm.width/2,h=prop.footprintMm.height/2
         const ring=[{x:offset.x-w,y:offset.y-h},{x:offset.x+w,y:offset.y-h},{x:offset.x+w,y:offset.y+h},{x:offset.x-w,y:offset.y+h}].map(p=>({x:Math.round(prop.positionMm.x+p.x*Math.cos(angle)-p.y*Math.sin(angle)),y:Math.round(prop.positionMm.y+p.x*Math.sin(angle)+p.y*Math.cos(angle))}))
-        const id=`terrain-delete-${hashValue(row.outputKey).slice(0,24)}`
+        const id=deletionExclusionId(beforeInput,row.outputKey)
         if(!next.generation.exclusions[id]){next.generation.exclusions[id]={id,key:row.outputKey,floorId:prop.floorId,visibility:prop.visibility,boundaryMm:ring,reason:'delete',candidateKey:row.outputKey,birthToken:row.birthToken};cost++}
       }
     }

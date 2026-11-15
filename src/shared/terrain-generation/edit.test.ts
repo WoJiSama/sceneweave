@@ -13,6 +13,7 @@ import { sampleVisualBoundary } from '../visual/geometry.js'
 import { propFootprint, supportedPolygon } from '../geometry/geometry.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { projectScene } from '../projection/projection.js'
+import { advanceHistoryIdentity, createHistoryIdentity } from '../history/identity.js'
 
 const base = () => { const blank=createRefinedBlankDocument('island',{title:'T2 core',sceneId:'terrain-edit-core',now:'2026-10-26T00:00:00.000Z',widthMm:24000,heightMm:18000,preset:'narrative'});return composeTerrainDocument(blank,generateTerrainDocument(blank,{sceneId:blank.sceneId,kind:'island',seed:TERRAIN_FIXED_SEEDS[0]}),'test-birth').document }
 function brush(scene:ReturnType<typeof base>,mode:'addLand'|'digWater'|'paintGrass'|'clearArea',point={x:2000,y:2000},radiusMm=300):TerrainEditRequest{return terrainEditRequestSchema.parse({kind:'brush',sceneId:scene.sceneId,operationId:`test-${mode}`,floorId:'visual-floor',scopeMm:scene.exportBoundsMm,linkMode:'scenery',mode,targetAreaId:'terrain-low',materialRef:null,elevationMm:null,strokes:[{pointsMm:[point],radiusMm}]})}
@@ -122,6 +123,24 @@ describe('bounded terrain editing T2 pure core',()=>{
   expect(deleted.document.props[managedId]).toBeUndefined()
   const owner=Object.values(getLegacyGeneration(deleted.document)!.ownership).find(owner=>owner.target.entityId===managedId)!
   expect(owner.state).toBe('deleted');expect(Object.values(getLegacyGeneration(deleted.document)!.exclusions).some(row=>row.candidateKey===owner.outputKey&&row.boundaryMm.length===4)).toBe(true)
+ })
+ it('gives a later clear brush a fresh exclusion identity after undo restores managed props',()=>{
+  let sequence=0
+  const scene=base(),prop=scene.props[Object.keys(scene.props)[2]],context={ids:{nextId:()=>`clear-token-${++sequence}`},clock:{now:()=>scene.updatedAt}}
+  const originalIdentity=createHistoryIdentity(scene,context),firstRequest=brush(scene,'clearArea',prop.positionMm,1500)
+  firstRequest.operationId='first-clear'
+  const first=prepareTerrainEdit(scene,firstRequest).document,firstIdentity=advanceHistoryIdentity(originalIdentity,scene,first,context)
+  const originalExclusion=Object.values(first.generation.legacy.exclusions).find(row=>row.candidateKey&&row.birthToken===Object.values(scene.generation.legacy.ownership).find(owner=>owner.target.entityId===prop.id)!.birthToken)!
+  expect(originalExclusion).toBeDefined()
+  const restored=cloneJson(scene);restored.revision=first.revision+1
+  const restoredIdentity=advanceHistoryIdentity(firstIdentity,first,restored,context,{allowResurrection:true})
+  const nextRequest=brush(restored,'clearArea',prop.positionMm,1500);nextRequest.operationId='clear-after-undo'
+  const second=prepareTerrainEdit(restored,nextRequest).document
+  expect(second.props[prop.id]).toBeUndefined()
+  const nextExclusion=Object.values(second.generation.legacy.exclusions).find(row=>row.candidateKey===originalExclusion.candidateKey)!
+  expect(nextExclusion.id).not.toBe(originalExclusion.id)
+  const identity=advanceHistoryIdentity(restoredIdentity,restored,second,context)
+  expect(identity.generationTokens![originalExclusion.id]).toEqual(firstIdentity.generationTokens![originalExclusion.id])
  })
  it('rejects out of scope changes, rule locks, manual shoreline auto changes and budgets atomically',()=>{
   const scene=base(),before=canonicalJson(scene),curve=visualBase(scene)!.boundaries['terrain-coast-curve'],point=curve.segments[0].control1,request=brush(scene,'addLand',point,700)

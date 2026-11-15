@@ -15,7 +15,7 @@ import { sha256Text } from '../geometry/scatter.js'
 import { cloneJson, canonicalJson, inspectJsonInput } from '../validation/json.js'
 import { sceneDocumentSchema, validateSceneDocument } from '../validation/scene.js'
 import { terrainCommandCost } from './cost.js'
-import { constraintInputHash, generationInputHash, managedOutputHash, materializedBoundaryHash, resolveGenerationEntity, resolveGenerationTarget } from './integrity.js'
+import { constraintInputHash, deletionExclusionId, generationInputHash, managedOutputHash, materializedBoundaryHash, resolveGenerationEntity, resolveGenerationTarget } from './integrity.js'
 import { terrainTopologyRequestSchema, type GenerationReference, type GenerationSystem2, type GenerationSystem3, type GenerationSystem4, type TerrainTopologyRequest } from './contracts.js'
 import { applyTerrainTopology } from './topology.js'
 import { normalizeTerrainStroke, terrainStrokePolygon } from './stroke.js'
@@ -119,6 +119,7 @@ export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneD
     const supportedTerrainAlgorithm = recipe.algorithmId === 'terrain-scene' && [1, 2, 3].includes(recipe.algorithmVersion)
       || recipe.algorithmId === 'terrain-scene-t3' && recipe.algorithmVersion === 1
       || !!budget && ['terrain-scene','terrain-scene-t3'].includes(recipe.algorithmId) && [4,5].includes(recipe.algorithmVersion) && recipe.recipeVersion === recipe.algorithmVersion
+      || !!budget && recipe.algorithmId==='terrain-scene-t3' && recipe.algorithmVersion===8 && recipe.recipeVersion===8 && recipe.parameters.terrainKind==='forest'
     if(inputHash!==rule.inputHash||rule.kind!=='terrain'||!supportedTerrainAlgorithm)fail(`相关规则须独立重算，当前局部编辑不支持：${rule.id}。`)
     rule.managedOutputHash=outputHash
   }
@@ -280,7 +281,7 @@ function deleteManagedProp(scene:SceneDocument,propId:string):void{
   assertWritable(scene,propId);assertWritable(scene,owner.ruleId)
   if(Object.values(scene.notes).some(note=>note.anchor.type==='entity'&&note.anchor.entityId===propId)||Object.values(scene.prefabInstances).some(group=>Object.values(group.members).some(member=>member.propId===propId)))fail(`自动物件仍有注记或组合依赖：${propId}。`)
   for(const group of Object.values(scene.scatterGroups))for(const member of Object.values(group.members))if(member.propId===propId){assertWritable(scene,group.id);member.propId=null;member.state='deleted';member.overrideFields=[]}
-  const exclusionId=generatedId(owner.outputKey,'deleted')
+  const exclusionId=deletionExclusionId(scene,owner.outputKey)
   getLegacyGeneration(scene)!.exclusions[exclusionId]={id:exclusionId,key:owner.outputKey,floorId:prop.floorId,visibility:prop.visibility,boundaryMm:propFootprint(prop).map(p=>({x:Math.round(p.x),y:Math.round(p.y)})),reason:'delete',candidateKey:owner.outputKey,birthToken:owner.birthToken}
   owner.state='deleted';owner.managedFields=[];delete scene.props[propId];delete scene.entityLayers[propId]
 }
