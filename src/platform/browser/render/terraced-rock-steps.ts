@@ -115,7 +115,10 @@ export function planTerracedRockSteps(input: TerracedRockStepInput): TerracedRoc
       const downhill = { x: (a.x - b.x) / length, y: (a.y - b.y) / length }
       const facing = downhill.x * light.x + downhill.y * light.y
       const exposure = Math.max(0, downhill.x * view.x + downhill.y * view.y)
-      const height = Math.min(riserHeightMm, depth * .7)
+      // Rise is converted into a shorter displacement by the oblique view.
+      // Bound that projected cut, so an ordinary 200 mm riser is not flattened
+      // before its actual face would approach the next tread.
+      const height = Math.min(riserHeightMm, depth * .7 / Math.hypot(view.x, view.y))
       const blend = Math.min(1, (i + 1) / 1.5, (count - i) / 1.5)
       // The cut faces are filled areas, not wide strokes along a route normal.
       // Back-facing risers disappear as a northward stair turns eastward.

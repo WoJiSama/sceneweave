@@ -249,17 +249,28 @@ function makeFace(run: Run, sharedNormal: (point: PointMm) => PointMm | undefine
   }
   const natural = look.renderProfile === NATURAL_TERRAIN_CLIFF_PROFILE || look.renderProfile === LAYERED_TERRAIN_CLIFF_PROFILE || look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE
   const layered = look.renderProfile === LAYERED_TERRAIN_CLIFF_PROFILE || look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE
+  const sculpted = look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE
+  const erosion = (point: PointMm, size: number) => {
+    const x = point.x / size, y = point.y / size, ix = Math.floor(x), iy = Math.floor(y), tx = x - ix, ty = y - iy
+    const value = (x: number, y: number) => {
+      let h = seed ^ Math.imul(x, 73856093) ^ Math.imul(y, 19349663)
+      h ^= h >>> 16; h = Math.imul(h, 0x7feb352d); h ^= h >>> 15
+      return (h >>> 0) / 4294967296 * 2 - 1
+    }
+    return value(ix, iy) * (1 - tx) * (1 - ty) + value(ix + 1, iy) * tx * (1 - ty)
+      + value(ix, iy + 1) * (1 - tx) * ty + value(ix + 1, iy + 1) * tx * ty
+  }
   // Height controls both the shoulder and exposed face; look.widthMm is a
   // bounded artistic maximum, not an invented physical terrace or elevation.
   const inner = points.map((a, i) => {
-    const variation = layered
+    const variation = sculpted ? .86 + erosion(a, 950) * .24 + erosion(a, 360) * .09 : layered
       ? .86 + .17 * Math.sin(a.x / 850 + a.y / 1200 + phase) + .07 * Math.sin(a.x / 240 - a.y / 330 + phase)
       : .91 + .08 * Math.sin(a.x / 850 + a.y / 1200 + phase) + .04 * Math.sin(a.x / 240 - a.y / 330 + phase)
     return add(a, normalsAt[i], -Math.min(look.widthMm * 1.65, dropAt(i) * (natural ? .94 : .58)) * variation)
   })
   const feet = points.map((a, i) => {
     const n = normalsAt[i], facing = .26 + .74 * (.5 + .5 * n.y)
-    const variation = layered
+    const variation = sculpted ? .80 + erosion(a, 700) * .28 + erosion(a, 260) * .14 : layered
       ? .80 + .16 * Math.sin(a.x / 700 + a.y / 1100 + phase) + .08 * Math.cos(a.x / 230 - a.y / 380 + phase)
       : .88 + .08 * Math.sin(a.x / 700 + a.y / 1100 + phase) + .06 * Math.cos(a.x / 230 - a.y / 380 + phase)
     return add(a, n, Math.min(look.widthMm, dropAt(i) * (natural ? .85 : .48)) * facing * variation)

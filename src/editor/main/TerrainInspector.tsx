@@ -3,6 +3,7 @@ import type { SceneCommand } from '../../shared/commands/commands'
 import type { EditableProject } from '../../application/workspace/project'
 import { NumberInput } from '../native-canvas/controls'
 import { terrainName, terrainPointCommands } from './terrain-editing'
+import TerrainCliffStylePanel from './TerrainCliffStylePanel'
 
 type Props = {
   project: EditableProject; selected: string; busy: boolean
@@ -31,6 +32,7 @@ export default function TerrainInspector({ project, selected, busy, onSelect, on
         </>}
         {style?.overlays.filter(overlay => overlay.id !== 'island-shallow-water').map(overlay => <details className="asset-details asset-overlay-editor" key={overlay.id}><summary>{scene.materials[overlay.paint.materialRef.id].name}覆盖边界</summary><p className="asset-muted">覆盖层在表面范围内裁剪，不改变物理高度。</p>{overlay.boundaryMm.map((point, index) => <div key={index} className="asset-overlay-point"><strong>边界点 {index + 1}</strong><NumberInput label={`覆盖点 ${index + 1} X`} value={point.x} onCommit={x => onPreview([{ type: 'setOverlayBoundary', kind: 'terrainArea', id: area.id, overlayId: overlay.id, boundaryMm: overlay.boundaryMm.map((p, i) => i === index ? { ...p, x } : p) }], '调整草岩交界')}/><NumberInput label={`覆盖点 ${index + 1} Y`} value={point.y} onCommit={y => onPreview([{ type: 'setOverlayBoundary', kind: 'terrainArea', id: area.id, overlayId: overlay.id, boundaryMm: overlay.boundaryMm.map((p, i) => i === index ? { ...p, y } : p) }], '调整草岩交界')}/></div>)}</details>)}
       </fieldset>
+      <TerrainCliffStylePanel key={area.id} scene={scene} areaId={area.id} disabled={busy || area.editLocked} onPreview={onPreview}/>
       <dl className="asset-facts"><dt>普通移动</dt><dd>{area.blocksMovement ? '阻挡' : '可站立'}</dd><dt>当前高程</dt><dd>{area.groundElevationMm / 1000} m</dd><dt>材质覆盖</dt><dd>{style?.overlays.length ?? 0} 层</dd></dl>
       {!!Object.values(scene.scatterGroups).filter(group => group.domain.kind === 'area' && group.domain.areaId === area.id).length && <><h3>表面散布</h3>{Object.values(scene.scatterGroups).filter(group => group.domain.kind === 'area' && group.domain.areaId === area.id).map(group => <button className="asset-group-link asset-wide" key={group.id} disabled={busy} onClick={() => onSelect(group.id)}><Layers3 size={14}/>管理散布 · {Object.values(group.members).filter(member => member.propId).length} 件</button>)}</>}
       {clear}</>

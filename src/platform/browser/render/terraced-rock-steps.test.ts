@@ -37,11 +37,11 @@ describe('continuous carved rock stairs', () => {
     expect(first.shapes.filter(s => s.kind === 'tread')).toHaveLength(north.count)
     expect(first.riserHeightMm * north.count).toBe(north.riseMm)
     expect(planTerracedRockSteps({ ...north, profile: 'naturalRockSteps8' })).toEqual(first)
-    const tall = inside({ ...north, profile: 'naturalRockSteps8', riseMm: 3000 })
+    const tall = inside({ ...north, profile: 'naturalRockSteps8', riseMm: 4000 })
     const area = (plan: typeof first) => plan.shapes.filter(s => s.kind === 'riser').reduce((sum, s) => sum + Math.abs(s.ringsMm[0].reduce((a, p, i, ring) => {
       const q = ring[(i + 1) % ring.length]; return a + p.x * q.y - q.x * p.y
     }, 0)) / 2, 0)
-    expect(area(tall)).toBeGreaterThan(area(first) * 1.4)
+    expect(area(tall)).toBeGreaterThan(area(first) * 1.8)
     expect(planTerracedRockSteps({ ...north, profile: 'naturalRockSteps8', lightDirectionDeg: 60 }).shapes)
       .not.toEqual(first.shapes)
     const route = { version: 1 as const, kind: 'polyline' as const, segments: [{ id: 'oblique-rise', start: p(0, 6000), control1: p(0, 6000), control2: p(0, 0), end: p(0, 0) }],

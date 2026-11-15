@@ -1,0 +1,62 @@
+import { expect, test, type Page } from '@playwright/test'
+import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
+import { openSamples, openSceneObjects } from './workspace-navigation-helpers'
+
+async function select(page: Page, id: string, category: '组合' | '物件与装饰') {
+  const objects = await openSceneObjects(page, category)
+  await objects.getByLabel('搜索场景对象', { exact: true }).fill(id)
+  await objects.locator(`[data-entity-id="${id}"]`).click()
+}
+async function adopt(page: Page) {
+  const review = page.locator('.workspace-candidate-review')
+  await expect(review.getByRole('button', { name: '采用室外修改', exact: true })).toBeVisible()
+  await review.getByLabel('确认完整影响范围', { exact: true }).check()
+  await review.getByRole('button', { name: '采用室外修改', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+}
+
+test('ordinary scatter regeneration retains a fixed member while group and layer locks still block the entry', async ({ page }, info) => {
+  test.setTimeout(120_000)
+  await createKeyboardProject(page, '固定成员与重新散布')
+  await openSamples(page)
+  await page.getByTestId('workspace-inspector').getByRole('region', { name: '场景样板', exact: true }).getByRole('button', { name: '海岸哨所', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '确认打开工程', exact: true })
+  await dialog.getByRole('button', { name: '保存并打开副本', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const original = await keyboardProjectBackup(page, info.outputPath('original.sceneweave'))
+  const group = original.document.scatterGroups['outpost-trees'], member = Object.values(group.members).find(row => row.propId)!
+  await select(page, member.propId!, '物件与装饰')
+  await page.getByRole('button', { name: '固定此物件', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const fixed = await keyboardProjectBackup(page, info.outputPath('fixed.sceneweave'))
+  expect(fixed.document.props[member.propId!].editLocked).toBe(true)
+  await select(page, group.id, '组合')
+  const inspector = page.getByRole('region', { name: '室外对象属性', exact: true })
+  await expect(inspector.getByRole('button', { name: '预览对象修改', exact: true })).toBeDisabled()
+  await expect(inspector.getByLabel('对象散布密度', { exact: true })).toBeEnabled()
+  await expect(inspector.getByRole('button', { name: '预览重新散布', exact: true })).toBeEnabled()
+  await inspector.getByLabel('对象散布密度', { exact: true }).fill('.65')
+  await inspector.getByRole('button', { name: '预览重新散布', exact: true }).click()
+  await page.getByRole('button', { name: '取消室外预览', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  expect((await keyboardProjectBackup(page, info.outputPath('cancelled.sceneweave'))).hashes).toEqual(fixed.hashes)
+  await inspector.getByRole('button', { name: '预览重新散布', exact: true }).click(); await adopt(page)
+  const regenerated = await keyboardProjectBackup(page, info.outputPath('regenerated.sceneweave'))
+  expect(regenerated.document.props[member.propId!]).toEqual(fixed.document.props[member.propId!])
+  expect(regenerated.document.scatterGroups[group.id].densityFactor).toBe(.65)
+  expect(Object.values(regenerated.document.scatterGroups[group.id].members).filter(row => row.propId).length).toBeGreaterThan(Object.values(group.members).filter(row => row.propId).length)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  const undone = await keyboardProjectBackup(page, info.outputPath('undone.sceneweave'))
+  expect(undone.document.props).toEqual(fixed.document.props); expect(undone.document.scatterGroups).toEqual(fixed.document.scatterGroups)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  expect((await keyboardProjectBackup(page, info.outputPath('redone.sceneweave'))).document.props).toEqual(regenerated.document.props)
+  await select(page, group.id, '组合')
+  await inspector.getByRole('button', { name: '锁定对象编辑', exact: true }).click(); await adopt(page)
+  await expect(inspector.getByLabel('对象散布密度', { exact: true })).toBeDisabled()
+  await expect(inspector.getByRole('button', { name: '预览重新散布', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  const layer = regenerated.document.entityLayers[group.id], nav = await openSceneObjects(page, '组合')
+  await nav.getByRole('button', { name: `锁定图层 ${regenerated.document.userLayers[layer].name}`, exact: true }).click(); await keyboardWorkspaceSaved(page)
+  await expect(inspector.getByLabel('对象散布密度', { exact: true })).toBeDisabled()
+  await expect(inspector.getByRole('button', { name: '预览重新散布', exact: true })).toBeDisabled()
+})

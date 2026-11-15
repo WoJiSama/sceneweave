@@ -72,6 +72,25 @@ function excludeHighGround(ctx: CanvasRenderingContext2D, projection: Projection
 function connectionsFor(projection: Projection, boundary: ProjectedVisualBoundary): ProjectedConnection[] {
   return boundaryConnections(projection.connections, boundary.points, boundary.closed, boundary.terrainAreaIds)
 }
+/** A continuous surface decoration cannot paint through terrain drawn over
+ * all of its bound supports. Use only this audience's actual terrain order;
+ * elevation alone does not establish coverage. Each exclusion is intersected
+ * separately so overlapping covers cannot reopen an even-odd hole. */
+function clipBoundaryTerrainCovers(ctx: CanvasRenderingContext2D, projection: Projection, boundary: ProjectedVisualBoundary, padding: number): void {
+  const bound = new Set(boundary.terrainAreaIds)
+  if (!bound.size) return // Unbound decorative curves have no inferred owner.
+  let lastSupport = -1
+  for (let index = 0; index < projection.terrain.length; index++) if (bound.has(projection.terrain[index].id)) lastSupport = index
+  if (lastSupport < 0) return
+  const scope = minMaxBounds(boundary.points, padding), bounds = projection.bounds
+  for (let index = lastSupport + 1; index < projection.terrain.length; index++) {
+    const surface = projection.terrain[index]
+    if (!surface.points.length || !intersectsVisualBounds(scope, minMaxBounds(surface.points))) continue
+    const path = new Path2D()
+    path.rect(bounds.x - padding - 1, bounds.y - padding - 1, bounds.width + padding * 2 + 2, bounds.height + padding * 2 + 2)
+    addRing(path, surface.points); ctx.clip(path, 'evenodd')
+  }
+}
 const sides = (look: VisualEdgeLook) => look.side === 'both' ? [-1, 1] : [look.side === 'left' ? 1 : -1]
 
 /** Fixed world-pixel tiles keep Canvas path clipping/rasterization independent
@@ -380,6 +399,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     ctx.save()
     try {
     clipConnectionOpenings(ctx, projection.bounds, connections)
+    if (look.kind !== 'cliff') clipBoundaryTerrainCovers(ctx, projection, boundary, edgeLookPaintPadding(look))
     if (look.kind === 'cliff') excludeHighGround(ctx, projection, highGround(boundary))
     if (look.kind === 'cliff') {
       // Only elevations already visible to this audience may affect pixels.

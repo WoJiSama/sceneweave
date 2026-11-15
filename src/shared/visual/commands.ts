@@ -115,6 +115,9 @@ function replaceTerrainChain(scene: SceneDocument, boundary: VisualBoundary, sid
   const area = own(scene.terrainAreas, side.areaId)
   if (!area || area.floorId !== boundary.floorId) throw new Error('曲线绑定地形不存在或跨Floor。')
   const old = terrainBoundaryChain(area, side, boundary.closed), positions = chainSamplePositions(boundary, side.reverse)
+  // Creating a style binding over the exact existing chain must not rotate
+  // the saved ring or replace its geometry identities just to attach paint.
+  if (old.length === positions.length && old.every((point, index) => same(point.positionMm, positions[index]))) return
   const start = area.boundaryMm.findIndex(p => p.id === side.startPointId), oldByPosition = new Map(old.map(point => [`${point.positionMm.x},${point.positionMm.y}`, point]))
   const allocated = new Set<string>(), vertices: TerrainArea['boundaryMm'] = []
   for (const [index, positionMm] of positions.entries()) {

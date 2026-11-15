@@ -159,7 +159,7 @@ describe('v8 surface-rule command transactions', () => {
     const treeId = Object.values(cluster.members).find(member => member.entityId && member.state === 'managed')?.entityId
     expect(treeId).toBeTruthy()
     const dependent = cloneJson(planted)
-    dependent.constraints.pathChecks.push({ id: 'tree-route-check', from: { type: 'entity', entityKind: 'prop', entityId: treeId! },
+    dependent.constraints.pathChecks.push({ id: 'tree-route-check', floorId: dependent.props[treeId!].floorId, from: { type: 'entity', entityKind: 'prop', entityId: treeId! },
       to: { type: 'point', positionMm: p(25000, 25000) }, clearanceMm: 1, mode: 'current', assumedOpenDoorIds: [] })
     expect(() => applySurfaceRuleCommand(dependent, { type: 'updateSurfaceVegetation', id: 'tree-dependency-rule', coveragePpm: 0 }, context())).toThrow(/注记或路径依赖/)
 
