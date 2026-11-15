@@ -408,7 +408,7 @@ function manualRestoreBudget(current: EditableProject, historic: EditableProject
       for (const opening of Object.values(document.openings)) if (walls.has(opening.wallId)) affected.add(opening.id)
     }
   }
-  return selectManualTransactionBudget(current.document, affected.size)
+  return selectManualTransactionBudget(current, affected.size)
 }
 
 /** Owns native complete-v1 history, byte closures and session-only structural evidence. */
@@ -450,7 +450,7 @@ export class Workspace {
   private validateCandidate = (document: SceneDocument) => this.options.validateCandidate?.(document)
   private validation = () => this.options.validation
   private preparation = (baseline?: EditableProject) => ({ validation: this.options.validation, runtime: this.options.runtime, ...(baseline ? { baseline } : {}) })
-  getManualBudget = (requestedTargets = 0): ManualTransactionBudget => selectManualTransactionBudget(this.requireProject().document, requestedTargets)
+  getManualBudget = (requestedTargets = 0): ManualTransactionBudget => selectManualTransactionBudget(this.requireProject(), requestedTargets)
   private manualPreparation = (baseline?: EditableProject, budget = this.getManualBudget()) => ({ ...this.preparation(baseline), budget })
   getDocument = () => this.state.project?.document ?? null
   open = (project: EditableProject) => this.openPersisted(project)
@@ -1219,7 +1219,7 @@ export class Workspace {
     const sourceCost = catalogAdditionCost(current, catalog)
     if (sourceCost > 256) throw new Error('地形布景固定源新增记录超过256条操作预算。')
     const planned = planTerrainDressing({ document: catalog.document, appearance: catalog.appearance }, capturedInput)
-    const commands = captureCommands(planned.commands), budget = selectManualCommandBudget(catalog.document, commands)
+    const commands = captureCommands(planned.commands), budget = selectManualCommandBudget(catalog, commands)
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
     let total = sourceCost, preparedUsage: CommandBudgetUsage | undefined, executionReceipt: TransactionReceipt | undefined
     const candidate = await prepareCompositionCommands(catalog, commands, { ...this.manualPreparation(undefined, budget), signal,
@@ -1247,7 +1247,7 @@ export class Workspace {
     const sourceCost = catalogAdditionCost(current, catalog)
     if (sourceCost > CATALOG_ADOPTION_LIMIT) throw new Error('轻量布景固定源新增记录超过256条操作预算。')
     let total = sourceCost, preparedUsage: CommandBudgetUsage | undefined, executionReceipt: TransactionReceipt | undefined
-    const budget = selectManualCommandBudget(catalog.document, commands)
+    const budget = selectManualCommandBudget(catalog, commands)
     const candidate = await prepareCompositionCommands(catalog, commands, { ...this.manualPreparation(undefined, budget), signal, onOperationCost: cost => { total = cost }, onBudgetUsage: usage => { preparedUsage = usage }, onTransactionReceipt: receipt => { executionReceipt = receipt } })
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
     const preview = await this.registerPrepared(candidate, `固定素材与场景编辑 · ${total}/${budget.semanticTargets} 个编辑对象`, checkpoint, commands, budget, undefined, preparedUsage, executionReceipt)
@@ -1296,7 +1296,7 @@ export class Workspace {
   }
   async preview(commands: readonly CompositionCommand[]): Promise<CompositionPreview> {
     const current = this.requireProject(), checkpoint = this.checkpoint(), frozenCommands = captureCommands(commands)
-    const tracedStructureIds = new Set<string>(), budget = selectManualCommandBudget(current.document, frozenCommands)
+    const tracedStructureIds = new Set<string>(), budget = selectManualCommandBudget(current, frozenCommands)
     let aggregateBoundaryImpact: AggregateEditBoundaryImpact | undefined, preparedUsage: CommandBudgetUsage | undefined, executionReceipt: TransactionReceipt | undefined
     const candidate = await prepareCompositionCommands(current, frozenCommands, { ...this.manualPreparation(undefined, budget),
       onStructureInvalidations: ids => { for (const id of ids) tracedStructureIds.add(id) },
@@ -1354,7 +1354,7 @@ export class Workspace {
     // Preparation fully validates both the captured input and the materialized
     // candidate. Only validator-owned immutable byte/original closures are reused.
     // Immediate commands have no user-visible preview lifetime to register/recheck.
-    const tracedStructureIds = new Set<string>(), budget = selectManualCommandBudget(current.document, frozenCommands)
+    const tracedStructureIds = new Set<string>(), budget = selectManualCommandBudget(current, frozenCommands)
     let executionReceipt: TransactionReceipt | undefined
     const candidate = await prepareCompositionCommands(current, frozenCommands, { ...this.manualPreparation(undefined, budget),
       onStructureInvalidations: ids => { for (const id of ids) tracedStructureIds.add(id) }, onTransactionReceipt: receipt => { executionReceipt = receipt } })

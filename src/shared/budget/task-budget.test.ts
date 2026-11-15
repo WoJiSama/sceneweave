@@ -4,13 +4,19 @@ import { canonicalJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { BUDGET_DIMENSIONS, TASK_BUDGET_PROFILES, TaskBudgetProfileSchema, assertTaskBudget, captureExecutionBudget,
-  emptyBudgetUsage, getTaskBudgetProfile, measureTaskBudget, selectTaskBudget, taskSemanticTargets } from './task-budget.js'
+  emptyBudgetUsage, getTaskBudgetProfile, measureBudgetDependencies, measureTaskBudget, selectTaskBudget, taskSemanticTargets } from './task-budget.js'
 import { withExecutionWorkObserver, type BudgetUsage } from './task-budget.js'
 
 const blank = () => createRefinedBlankDocument('island', { sceneId: 'budget-model', title: '预算',
   now: '2026-10-30T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' })
 
 describe('registered task budget admission', () => {
+  it('counts retained references identically across nested records and arrays, excluding plain IDs and null references', () => {
+    expect(measureBudgetDependencies({ id: 'own', parentId: 'parent', definitionRef: { id: 'definition', version: 1 },
+      ignoredRef: null, inputs: [{ kind: 'prop', id: 'input' }], supportRefs: [{ kind: 'floor', id: 'floor' }],
+      memberIds: ['a', 'b'], nested: [{ floorId: 'floor', reads: [{ id: 'read', targetId: 'target' }] }] })).toBe(9)
+  })
+
   it('binds complete independent limits to a versioned immutable profile hash', () => {
     for (const profile of Object.values(TASK_BUDGET_PROFILES)) {
       const { profileHash, ...body } = profile

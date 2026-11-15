@@ -209,6 +209,21 @@ const retainedGeometry = new WeakMap<SceneDocument, number>()
 /** Measured by the full meter; consumers must additionally require a private domain witness. */
 export const measuredRetainedSegments = (document: SceneDocument): number | undefined => retainedGeometry.get(document)
 
+/** The same retained-reference accounting is used before selecting a manual
+ * envelope and by the final meter. It does not validate or authorize a write. */
+export function measureBudgetDependencies(value: unknown): number {
+  if (!value || typeof value !== 'object') return 0
+  if (Array.isArray(value)) return value.reduce((sum, row) => sum + measureBudgetDependencies(row), 0)
+  let count = 0
+  for (const [key, row] of Object.entries(value)) {
+    if (key.endsWith('Ref') && row && typeof row === 'object') count++
+    if (key !== 'id' && key.endsWith('Id') && typeof row === 'string') count++
+    if ((['inputs', 'outputs', 'outputRefs', 'reads', 'writes', 'supportRefs'].includes(key) || key.endsWith('Ids')) && Array.isArray(row)) count += row.length
+    count += measureBudgetDependencies(row)
+  }
+  return count
+}
+
 /** Structural delta and retained closures. Runtime decodes/time must be metered by their executor. */
 export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {}): BudgetUsage {
   const usage = emptyBudgetUsage(); usage.semanticTargets = taskSemanticTargets(before,after).length
@@ -266,17 +281,8 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
     sources:{materials:after.materials,propDefinitions:after.propDefinitions,prefabDefinitions:after.prefabDefinitions,assets:after.assets,styleThemes:after.styleThemes,
       regionalSymbolDefinitions:after.regional?.symbolDefinitions??{}}}
   tree(data);usage.metadataBytes=encodeUtf8(canonicalJson(data)).length
-  const dependencies=(value:unknown)=>{
-    if(!value||typeof value!=='object')return
-    if(Array.isArray(value)){for(const row of value)dependencies(row);return}
-    for(const [key,row]of Object.entries(value)){
-      if(key.endsWith('Ref')&&row&&typeof row==='object')usage.dependencyRefs++
-      if(key!=='id'&&key.endsWith('Id')&&typeof row==='string')usage.dependencyRefs++
-      if((['inputs','outputs','outputRefs','reads','writes','supportRefs'].includes(key)||key.endsWith('Ids'))&&Array.isArray(row))usage.dependencyRefs+=row.length
-      dependencies(row)
-    }
-  }
-  dependencies(after);dependencies(metadata?.after.historyIdentity);dependencies(metadata?.after.appearance)
+  usage.dependencyRefs = measureBudgetDependencies(after) + measureBudgetDependencies(metadata?.after.historyIdentity)
+    + measureBudgetDependencies(metadata?.after.appearance)
   const assets=metadata?.after.assets
   if(assets){for(const record of Object.values(assets)){usage.assetBytes+=record.sizeBytes;usage.decodePixels+=record.pixelWidth*record.pixelHeight}}
   else{const unique=new Map(Object.values(after.assets).map(record=>[record.sha256,record]));for(const record of unique.values())usage.decodePixels+=record.pixelWidth*record.pixelHeight}

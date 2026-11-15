@@ -11,7 +11,7 @@ import { visualBase } from '../visual/base.js'
 import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { getCertifiedCompositionContent, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction } from '../validation/content.js'
 import { BUDGET_DIMENSIONS, BudgetUsageSchema, TASK_BUDGET_PROFILES, assertTaskBudget, measureTaskBudget,
-  measureBudgetGeometry, measuredRetainedSegments, parseTaskBudgetProfile, semanticTargetEntries, type BudgetUsage, type TaskBudgetMetadata, type TaskBudgetProfile } from './task-budget.js'
+  measureBudgetDependencies, measureBudgetGeometry, measuredRetainedSegments, parseTaskBudgetProfile, semanticTargetEntries, type BudgetUsage, type TaskBudgetMetadata, type TaskBudgetProfile } from './task-budget.js'
 
 /** Runtime admission policy only; never changes a saved document or an AI ledger. */
 export const MANUAL_TRANSACTION_BUDGET = freezeJson({
@@ -48,13 +48,22 @@ export const manualTransactionBudget = (tier: ManualBudgetTier): ManualTransacti
   if (!Object.hasOwn(MANUAL_TRANSACTION_BUDGETS, tier)) throw new Error('普通事务档位不存在。')
   return MANUAL_TRANSACTION_BUDGETS[tier]
 }
-export function selectManualTransactionBudget(document: SceneDocument, requestedTargets = 0, groupMembers = 0): ManualTransactionBudget {
+const retainedDependencyCounts = new WeakMap<SceneDocument, { identity: CompositionContent['historyIdentity']; appearance: AppearanceGraph; count: number }>()
+export function selectManualTransactionBudget(input: SceneDocument | CompositionContent, requestedTargets = 0, groupMembers = 0): ManualTransactionBudget {
   if (![requestedTargets, groupMembers].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error('普通事务请求范围无效。')
+  const document = 'document' in input ? input.document : input
+  const content = 'document' in input ? { document, historyIdentity: input.historyIdentity, appearance: input.appearance } : undefined
+  // Only the validator-owned immutable triple can reuse a count. Caller-owned
+  // mutable/frozen lookalikes are measured again and never seed this cache.
+  const certified = content && getCertifiedCompositionContent(content), known = certified && retainedDependencyCounts.get(document)
+  const dependencyRefs = certified && known?.identity === certified.historyIdentity && known.appearance === certified.appearance ? known.count
+    : measureBudgetDependencies(document) + measureBudgetDependencies(content?.historyIdentity) + measureBudgetDependencies(content?.appearance)
+  if (certified) retainedDependencyCounts.set(document, { identity: certified.historyIdentity, appearance: certified.appearance, count: dependencyRefs })
   const retained = LAYER_ENTITY_COLLECTIONS.reduce((count, key) => count + Object.keys(document[key]).length, 0)
     + Object.keys(document.decorations).length + Object.keys(document.decorationClusters).length
     + Object.keys(document.surfaceRules).length
-  return manualTransactionBudget(requestedTargets > 512 || retained > 1024 || groupMembers > 16384 ? 'expanded'
-    : requestedTargets > 256 || retained > 256 || groupMembers > 4096 ? 'standard' : 'compact')
+  return manualTransactionBudget(requestedTargets > 512 || retained > 1024 || groupMembers > 16384 || dependencyRefs > MANUAL_TRANSACTION_BUDGETS.standard.limits.dependencyRefs ? 'expanded'
+    : requestedTargets > 256 || retained > 256 || groupMembers > 4096 || dependencyRefs > MANUAL_TRANSACTION_BUDGET.limits.dependencyRefs ? 'standard' : 'compact')
 }
 /** Manual-only counters; immutable AI/task schemas and ledgers remain unchanged. */
 export type CommandBudgetUsage = BudgetUsage & { groupMembers?: number; externalDependencies?: number }

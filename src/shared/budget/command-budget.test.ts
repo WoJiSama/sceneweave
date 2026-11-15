@@ -7,10 +7,44 @@ import { applyCommands, type SceneCommand } from '../commands/commands.js'
 import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
 import { naturalAggregateMembers } from '../aggregates/domain-adapters.js'
 import { cloneJson } from '../validation/json.js'
+import { certifyCompositionContent } from '../validation/content.js'
+import { selectManualCommandBudget } from './manual-request.js'
 import { emptyBudgetUsage, measureTaskBudget, taskBudgetProfile } from './task-budget.js'
 import { MANUAL_TRANSACTION_BUDGET, assertCommandBudget, commandSelectionLimit, manualChangedTargets, manualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, selectManualTransactionBudget } from './command-budget.js'
 
 describe('ordinary transaction admission', () => {
+  it('selects before execution from retained fixed-source dependencies even with only two scene props', () => {
+    const project = fixture({ image: true }).project, content = { document: project.document, historyIdentity: project.historyIdentity, appearance: project.appearance }
+    const source = content.appearance.sources[content.appearance.propSources.item]
+    if (source.kind !== 'prop') throw new Error('Expected fixed prop source')
+    for (let index = 0; index < 1400; index++) addPropAppearanceSource(content.appearance,
+      { ...source.snapshot, appearance: { ...source.snapshot.appearance, opacity: (index + 1) / 1401 } }, source.id)
+    expect(Object.keys(content.document.props)).toHaveLength(2)
+    expect(selectManualTransactionBudget(content.document)).toBe(MANUAL_TRANSACTION_BUDGET)
+    const usage = measureTaskBudget(content.document, content.document, { before: content, after: content })
+    expect(usage.dependencyRefs).toBeGreaterThan(MANUAL_TRANSACTION_BUDGET.limits.dependencyRefs)
+    const commands = [{ type: 'deleteProp' as const, id: 'item' }], budget = selectManualCommandBudget(content, commands)
+    expect(budget).toBe(manualTransactionBudget('standard'))
+    const after = applyCompositionCommands(content, commands, runtime, { budget })
+    expect(after.document.props.item).toBeUndefined()
+    expect(() => assertCommandBudget(MANUAL_TRANSACTION_BUDGET, measureCommandBudget(content.document, after.document, { before: content, after }))).toThrow(/dependencyRefs/)
+    expect(() => assertCommandBudget(budget, { ...usage, dependencyRefs: budget.limits.dependencyRefs + 1 })).toThrow(/dependencyRefs/)
+  })
+
+  it('does not reuse a certified triple count for changed caller-owned metadata sharing its document', () => {
+    const base = fixture({ image: true }).project, certified = certifyCompositionContent({ document: base.document, historyIdentity: base.historyIdentity, appearance: base.appearance })
+    expect(selectManualTransactionBudget(certified)).toBe(MANUAL_TRANSACTION_BUDGET)
+    const appearance = cloneJson(certified.appearance), source = appearance.sources[appearance.propSources.item]
+    if (source.kind !== 'prop') throw new Error('Expected fixed prop source')
+    const wrapper = Object.freeze({ ...certified, appearance: Object.freeze(appearance) })
+    for (let index = 0; index < 1400; index++) addPropAppearanceSource(appearance,
+      { ...source.snapshot, appearance: { ...source.snapshot.appearance, opacity: (index + 1) / 1401 } }, source.id)
+    expect(selectManualTransactionBudget(wrapper)).toBe(manualTransactionBudget('standard'))
+    expect(selectManualTransactionBudget(certified)).toBe(MANUAL_TRANSACTION_BUDGET)
+    for (const id of Object.keys(appearance.sources)) if (!Object.hasOwn(certified.appearance.sources, id)) delete appearance.sources[id]
+    expect(selectManualTransactionBudget(wrapper)).toBe(MANUAL_TRANSACTION_BUDGET)
+  })
+
   it('selects registered ordinary tiers from retained and requested load without repricing task policies', () => {
     const scene = fixture().project.document
     expect(selectManualTransactionBudget(scene)).toBe(MANUAL_TRANSACTION_BUDGET)

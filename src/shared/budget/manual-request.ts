@@ -1,4 +1,4 @@
-import type { AdjustmentKind, CompositionCommand } from '../model/appearance.js'
+import type { AdjustmentKind, CompositionCommand, CompositionContent } from '../model/appearance.js'
 import type { AggregateGroup } from '../model/aggregate.js'
 import type { SceneDocument } from '../model/scene.js'
 import { layerMoveClosure } from '../commands/layers.js'
@@ -168,10 +168,11 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
   return freezeJson({ semanticTargets, groupMembers: groupImpact.size })
 }
 
-export function selectManualCommandBudget(document: SceneDocument, commands: readonly CompositionCommand[]): ManualTransactionBudget {
+export function selectManualCommandBudget(input: SceneDocument | CompositionContent, commands: readonly CompositionCommand[]): ManualTransactionBudget {
+  const document = 'document' in input ? input.document : input
   const work = planManualCommandWork(document, commands)
   if (requestsPathAttachmentTransaction(document, commands)) return MANUAL_TRANSACTION_BUDGET
   if (work.semanticTargets > 1024) throw new Error(`普通事务请求展开超限[semanticTargets]：${work.semanticTargets}/1024，保留当前成果。`)
   if (work.groupMembers > 65536) throw new Error(`普通事务请求展开超限[groupMembers]：${work.groupMembers}/65536，保留当前成果。`)
-  return selectManualTransactionBudget(document, work.semanticTargets, work.groupMembers)
+  return selectManualTransactionBudget(input, work.semanticTargets, work.groupMembers)
 }
