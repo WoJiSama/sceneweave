@@ -3,7 +3,8 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './tests',
   // Frozen-input production checks have their own explicit configurations.
-  testIgnore: ['**/formal-visual.spec.ts', '**/svg-determinism.spec.ts'],
+  // The seven-kind/five-seed terrain matrix is also an explicit acceptance run.
+  testIgnore: ['**/formal-visual.spec.ts', '**/svg-determinism.spec.ts', '**/fixed-sample-privacy*.spec.ts', '**/complete-project-history.spec.ts', '**/complete-project-import-safety.spec.ts', '**/complete-project-cas.spec.ts', '**/complete-project-save-abort.spec.ts', '**/current-library-journey.spec.ts', '**/current-terrain-matrix.spec.ts', '**/forest-layout-production.spec.ts'],
   timeout: 45_000,
   expect: { timeout: 8000 },
   fullyParallel: false,
