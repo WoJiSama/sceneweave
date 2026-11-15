@@ -52,7 +52,7 @@ export function propPaintEnvelope(prop: Prop, presentation: PaintPresentation | 
   const contactBlur = full && presentation?.mode === 'nearSide' && shadow && environment?.contactShadowOpacity ? environment.contactShadowMm : null
   const near = nearSidePaintEnvelope(prop, presentation, full ? shadow : null, environment?.lightDirectionDeg, contactBlur)
   const padding = Math.max(full && shadow?.opacity ? Math.abs(shadow.offsetMm) + shadow.blurMm * 4 : 0,
-    environment?.contactShadowOpacity && prop.renderLayer !== 'ground' ? environment.contactShadowMm * 4 : 0,
+    environment?.contactShadowOpacity && prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' ? environment.contactShadowMm * 4 : 0,
     options.outlinePaddingMm ?? 0)
   return near ? inflate(near, options.outlinePaddingMm ?? 0) : presentationBounds([...propPaintPolygon(prop, presentation), ...presentationContact(prop, presentation)], padding)!
 }
