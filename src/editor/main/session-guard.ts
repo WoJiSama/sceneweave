@@ -13,6 +13,7 @@ export const workspaceFormDraftLabels = {
   selectionForm: { name: '多选批量参数', cancel: '取消批量参数草稿' },
   visualForm: { name: '视觉效果与曲线', cancel: '取消视觉草稿' },
   displayForm: { name: '单位与格线设置', cancel: '取消显示设置草稿' },
+  pathCheckForm: { name: '指定通路', cancel: '取消通路声明草稿' },
   titleForm: { name: '工程名称', cancel: '取消改名草稿' },
 } as const
 export type WorkspaceFormDraft = keyof typeof workspaceFormDraftLabels

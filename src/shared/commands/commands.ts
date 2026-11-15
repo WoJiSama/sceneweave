@@ -1,4 +1,5 @@
 import { floorCommandSchemas, isFloorCommand, applyFloorCommand, type FloorCommand } from '../floors/commands.js'
+import {pathCheckCommandSchemas,isPathCheckCommand,applyPathCheckCommand,type PathCheckCommand} from './path-checks.js'
 import { pathAttachmentCommandSchemas, isPathAttachmentCommand, applyPathAttachmentCommand, type PathAttachmentCommand } from '../path-attachments/commands.js'
 import { followPathAttachments } from '../path-attachments/state.js'
 import { createPathAttachmentTransactionBudget, pathAttachmentRowsChanged, mayMutatePathAttachments, type PathAttachmentTransactionBudget } from '../path-attachments/transaction-budget.js'
@@ -40,6 +41,7 @@ export type SceneCommand =
   | (Extract<BaseSceneCommand, { type: 'addProp' }> & { layerId?: string })
   | BuildingCommand
   | FloorCommand
+  | PathCheckCommand
   | PathAttachmentCommand
   | { type: 'initializeStructureIdentity' }
   | AggregateRepresentationCommand
@@ -106,6 +108,7 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     ...decorationCommandSchemas,
     ...surfaceRuleCommandSchemas,
     ...floorCommandSchemas,
+    ...pathCheckCommandSchemas,
     ...pathAttachmentCommandSchemas,
     z.object({ type: z.literal('initializeStructureIdentity') }).strict(),
     canvasBoundsCommandSchema,
@@ -132,6 +135,7 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
     z.object({ type: z.literal('unpackPrefab'), id }).strict(),
     z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
+    z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
     z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
     z.object({ type: z.literal('createLayer'), id, floorId: id, name }).strict(),
     z.object({ type: z.literal('renameLayer'), id, name }).strict(),
@@ -159,9 +163,9 @@ const equal = (a: unknown, b: unknown): boolean => {
   return ak.length === bk.length && ak.every(key => Object.hasOwn(b, key) && equal((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
 }
 const layerTypes = new Set(['createLayer', 'renameLayer', 'reorderLayers', 'moveEntitiesToLayer', 'removeLayer'])
-const category = (command: SceneCommand) => command.type === 'setSceneDisplay' || command.type === 'setSceneBackground' || command.type === 'renameScene' ? 'display' : command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
+const category = (command: SceneCommand) => isPathCheckCommand(command) ? 'path-constraint' : command.type === 'setSceneDisplay' || command.type === 'setSceneBackground' || command.type === 'renameScene' ? 'display' : command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
 const needsOutdoorExpansion = (scene: SceneDocument, command: SceneCommand): command is OutdoorCommand => isOutdoorCommand(command)
-  && ((command.type !== 'deleteProp' && command.type !== 'updateProp' && command.type !== 'replacePropAppearance') || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === command.id)))
+  && ((command.type !== 'deleteProp' && command.type !== 'updateProp' && command.type !== 'setPropBlocking' && command.type !== 'replacePropAppearance') || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === command.id)))
 
 /** Internal detached-candidate hook, shared with complete prefab/appearance edits. */
 export function refreshNativeDerivedTransitions(before: SceneDocument, after: SceneDocument): number {
@@ -183,7 +187,8 @@ function checkedCommands(commands: readonly SceneCommand[], budget?: CommandBudg
   if (!checked.success) throw new Error(`编辑指令无效：${checked.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
   const parsed = checked.data as SceneCommand[]
   if (parsed.some(command => command.type === 'bindPathAttachment' || command.type === 'initializeStructureIdentity') && parsed.length !== 1) throw new Error('建立结构身份或门路绑定须独立预览采用；绑定命令内部一次修改道路与关系。')
-  if (new Set(parsed.map(category)).size > 1) throw new Error('显示设置、图层组织、内容编辑、实体锁和图层锁须分别独立提交；不能同批解锁后编辑。')
+  if (parsed.some(isPathCheckCommand) && parsed.length > COMMAND_LIMIT) throw new Error('通路声明事务最多256条操作，不能借普通编辑档位扩大。')
+  if (new Set(parsed.map(category)).size > 1) throw new Error('显示设置、图层组织、通路声明、内容编辑、实体锁和图层锁须分别独立提交；不能同批解除约束或解锁后编辑。')
   return parsed
 }
 function requiredLayer(scene: SceneDocument, id: string) {
@@ -298,7 +303,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     return next
   }
   let next = cloneJson(scene), cost = 0
-  const consume = (amount: number) => { cost += amount; if (!options?.budget && !relationBudget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (amount: number) => { cost += amount; if ((commands.some(isPathCheckCommand) || !options?.budget && !relationBudget) && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
     const beforeTerrain=cloneJson(next)
     let commandCost: number
@@ -307,6 +312,8 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     if (command.type === 'initializeStructureIdentity') {
       if (!options?.historyIdentity) throw new Error('建立当前结构身份必须从完整工程事务准备。')
       commandCost = 1
+    } else if (isPathCheckCommand(command)) {
+      commandCost=applyPathCheckCommand(next,command).commandCost
     } else if (isFloorCommand(command)) {
       commandCost = applyFloorCommand(next, command, { appearance: options?.appearance }).commandCost
     } else if (isPathAttachmentCommand(command)) {
@@ -454,7 +461,7 @@ function candidate(scene: SceneDocument, commands: readonly SceneCommand[], cont
     }
     return next
   }
-  return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock') ? applyContent(scene, commands, context, options, relationBudget) : applyOrganization(scene, commands, options)
+  return commands.length && (category(commands[0]) === 'content' || category(commands[0]) === 'entity-lock' || category(commands[0]) === 'path-constraint') ? applyContent(scene, commands, context, options, relationBudget) : applyOrganization(scene, commands, options)
 }
 
 /** An internal meter observes real owned steps before a read-only callback can

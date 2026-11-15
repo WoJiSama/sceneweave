@@ -1,4 +1,4 @@
-import { openingEndpoints, propFootprint } from './geometry.js'
+import { openingEndpoints, propFootprint, wallOffsetPoint } from './geometry.js'
 import type { PointMm, SceneDocument, Wall } from '../model/scene.js'
 
 export interface DoorwayFixture {
@@ -9,7 +9,6 @@ export interface DoorwayFixture {
 }
 type WallShape = { wall: Wall; start: PointMm; end: PointMm; polygons: PointMm[][] }
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
-const at = (a: PointMm, b: PointMm, t: number): PointMm => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
 /** Every shape here is convex. SAT avoids roundoff turning a shared slanted edge into an overlap. */
 function overlaps(a: PointMm[], b: PointMm[]): boolean {
   if (a.length < 3 || b.length < 3) return false
@@ -44,7 +43,7 @@ function wallShapes(scene: SceneDocument, current = false, fullEnvelope = false)
     let cursor = 0
     for (const [near, far] of gaps) { if (near > cursor) solids.push([cursor, near]); cursor = Math.max(cursor, far) }
     if (cursor < length) solids.push([cursor, length])
-    return { wall, start, end, polygons: solids.map(([near, far]) => band(at(start, end, near / length), at(start, end, far / length), wall.thicknessMm)) }
+    return { wall, start, end, polygons: solids.map(([near, far]) => band(wallOffsetPoint(start, end, near), wallOffsetPoint(start, end, far), wall.thicknessMm)) }
   })
 }
 

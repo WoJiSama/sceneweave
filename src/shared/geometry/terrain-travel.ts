@@ -1,5 +1,5 @@
 import { wallMovementPolygons } from './doorway-clearance.js'
-import { connectionFootprint, connectionBand, corridor, coveredEverywhere, pathPolygon, pointInPolygon, polygonsOverlap, propFootprint, segmentCuts, supportSurfaceAt, terrainPoints, validateGeometry } from './geometry.js'
+import { connectionFootprint, connectionBand, corridor, coveredEverywhere, openingEndpoints, pathPolygon, pointInPolygon, polygonsOverlap, propFootprint, segmentCuts, supportSurfaceAt, terrainPoints, validateGeometry } from './geometry.js'
 import { connectionCenterline, connectionArcFrame } from './connection-route.js'
 import type { Issue, Path, PointMm, SceneDocument, SurfaceRef, TerrainConnection } from '../model/scene.js'
 
@@ -200,7 +200,9 @@ function routeMetrics(scene: SceneDocument, floorId: string, points: readonly Po
   return { lengthMm, movementCostMm, supportRefs: [...supports].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, ref]) => ref), connectionIds: [...connectionIds].sort() }
 }
 
-function checkRouteOnValidScene(scene: SceneDocument, request: TerrainRouteRequest): TerrainRouteResult {
+/** Internal physical evaluator after the owning validator has checked geometry.
+ * This issues no document or resource certificate. Public callers use checkTerrainRoute. */
+export function checkRouteOnValidScene(scene: SceneDocument, request: TerrainRouteRequest): TerrainRouteResult {
   const { floorId, pointsMm, widthMm } = request
   if (!scene.floors[floorId] || !Array.isArray(pointsMm) || pointsMm.length < 2 || pointsMm.length > TERRAIN_ROUTE_LIMITS.points
     || !Number.isSafeInteger(widthMm) || widthMm <= 0 || pointsMm.some(point => !point || ![point.x, point.y].every(Number.isSafeInteger))) {
@@ -234,6 +236,14 @@ export function checkTerrainRoute(scene: SceneDocument, request: TerrainRouteReq
  * need to show the returned polyline and adopt it through the normal transaction.
  */
 export function searchTerrainRoute(scene: SceneDocument, request: TerrainRouteSearchRequest): TerrainRouteSearchResult {
+  const geometry = validateGeometry(scene)
+  if (geometry.errors.length) return { ok: false, points: [], expandedNodes: 0, status: 'invalid', issues: geometry.errors }
+  return searchRouteOnValidScene(scene, request)
+}
+
+/** Internal search shares the exact physical evaluator, with no recursive domain
+ * validation. Its caller must first check all non-path geometry. No certificate. */
+export function searchRouteOnValidScene(scene: SceneDocument, request: TerrainRouteSearchRequest): TerrainRouteSearchResult {
   const gridMm = request.gridMm ?? 1000, maxNodes = request.maxNodes ?? 4096, maxSegments = request.maxSegments ?? TERRAIN_ROUTE_LIMITS.points - 1
   const invalid = (message: string): TerrainRouteSearchResult => ({ ok: false, points: [], expandedNodes: 0,
     status: 'invalid', issues: [{ code: 'INVALID_TERRAIN_ROUTE', message }] })
@@ -245,8 +255,6 @@ export function searchTerrainRoute(scene: SceneDocument, request: TerrainRouteSe
     return invalid('路线端点必须位于指定 Floor 的世界范围内。')
   }
   if (gridMm > TERRAIN_ROUTE_LIMITS.gridMm || maxNodes > TERRAIN_ROUTE_LIMITS.nodes || maxSegments >= TERRAIN_ROUTE_LIMITS.points) return invalid('有限路线搜索参数超过保护上限。')
-  const geometry = validateGeometry(scene)
-  if (geometry.errors.length) return { ok: false, points: [], expandedNodes: 0, status: 'invalid', issues: geometry.errors }
   const check = (pointsMm: PointMm[]) => checkRouteOnValidScene(scene, { floorId: request.floorId, pointsMm, widthMm: request.widthMm })
   const direct = check([request.from, request.to])
   const hasCosts = [...Object.values(scene.terrainAreas), ...Object.values(scene.regions), ...Object.values(scene.paths), ...Object.values(scene.terrainConnections)]
@@ -256,7 +264,20 @@ export function searchTerrainRoute(scene: SceneDocument, request: TerrainRouteSe
   const connections = Object.values(scene.terrainConnections).filter(connection => connection.floorId === request.floorId && connection.widthMm >= request.widthMm && connectionOpen(scene, connection))
     .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   for (const connection of connections) for (const point of connectionCenterline(connection)) anchors.set(routeKey(point), point)
-  if (anchors.size > 129) return { ok: false, points: [], expandedNodes: 0, status: 'budget', issues: [{ code: 'TERRAIN_ROUTE_ANCHOR_LIMIT', message: '本次路线搜索的有效连接端点超过128个保护上限。' }] }
+  // Exact integer landings let off-lattice orthogonal doors participate. Every
+  // edge still passes the complete band checker; never quantize a landing.
+  for (const door of Object.values(scene.openings)) {
+    if (door.floorId !== request.floorId || door.kind !== 'door' || door.state !== 'open' || door.locked || door.widthMm < request.widthMm) continue
+    const wall = scene.walls[door.wallId], [a,b] = openingEndpoints(scene,door)
+    const mid = {x:(a.x+b.x)/2,y:(a.y+b.y)/2}, length = Math.hypot(b.x-a.x,b.y-a.y)
+    if (!length) continue
+    const distance = Math.ceil((wall.thicknessMm+request.widthMm)/2)+1
+    for (const sign of [-1,1]) {
+      const point = {x:mid.x-sign*(b.y-a.y)/length*distance,y:mid.y+sign*(b.x-a.x)/length*distance}
+      if ([point.x,point.y].every(Number.isSafeInteger) && routeBoundsContain(point,scene.floors[request.floorId].boundsMm)) anchors.set(routeKey(point),point)
+    }
+  }
+  if (anchors.size > 129) return { ok: false, points: [], expandedNodes: 0, status: 'budget', issues: [{ code: 'TERRAIN_ROUTE_ANCHOR_LIMIT', message: '本次路线搜索的有效连接／门接入点超过128个保护上限。' }] }
   const orderedAnchors = [...anchors.values()].sort((a, b) => a.y - b.y || a.x - b.x)
 
   const startKey = routeKey(request.from), goalKey = routeKey(request.to)

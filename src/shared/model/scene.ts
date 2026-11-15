@@ -159,8 +159,12 @@ export interface Note extends Editable { anchor: Anchor; kind: 'note' | 'clue' |
 /** User organization is separate from system render bands, Floor and elevation. */
 export interface UserLayer { id: Id; floorId: Id; name: string; order: number; editLocked: boolean }
 export interface PathCheck {
-  id: Id; from: Anchor; to: Anchor; clearanceMm: number
+  id: Id; floorId: Id; from: Anchor; to: Anchor; clearanceMm: number
+  /** Optional editor label; does not change identity, geometry or map output. */
+  name?: string
   mode: 'structural' | 'current'; assumedOpenDoorIds: Id[]
+  /** Optional positive-route candidate; always rechecked, then search may find another. */
+  routeHintMm?: PointMm[]
 }
 /** Output paint only; transparency never removes physical ground or privacy masks. */
 export type SceneOutputBackground = { mode: 'solid'; color: string } | { mode: 'transparent' }

@@ -61,6 +61,7 @@ const baseSchemas = [
   z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
   z.object({ type: z.literal('deleteProp'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: z.number().finite().min(0).lt(360).optional() }).strict() }).strict(),
+  z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
   z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
 ] as const
 export const outdoorCommandSchema = z.discriminatedUnion('type', [...outdoorCommandSchemas, ...baseSchemas])
@@ -465,7 +466,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
     case 'setTerrainElevation': required(scene.terrainAreas, command.id, '地形').groundElevationMm = command.groundElevationMm; break
     case 'setConnectionBlocked': required(scene.terrainConnections, command.id, '连接').blocksMovement = command.blocksMovement; break
     case 'removeTerrainConnection': mutate(scene, { type: 'deleteOutdoorEntity', kind: 'terrainConnection', id: command.id }, context); break
-    case 'detachScatterMember': case 'deleteProp': case 'updateProp': case 'replacePropAppearance': {
+    case 'detachScatterMember': case 'deleteProp': case 'updateProp': case 'setPropBlocking': case 'replacePropAppearance': {
       const actualLocks = new Map([...entities(scene)].map(([id, entity]) => [id, entity.editLocked]))
       const domain = applyCommandDraft(cloneJson(geometryDocumentForValidation(scene, true)), [command as BaseSceneCommand], context)
       scene.props = domain.props; scene.scatterGroups = domain.scatterGroups; scene.prefabInstances = domain.prefabInstances
@@ -487,7 +488,7 @@ export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorComman
   impact.commandCost += derived.commandCost
   if (!impact.commandCost) return impact
   // Locked retained/manual scatter members are read-only obstacles, not edits.
-  const memberCommand = command.type === 'detachScatterMember' || command.type === 'deleteProp' || command.type === 'updateProp' || command.type === 'replacePropAppearance'
+  const memberCommand = command.type === 'detachScatterMember' || command.type === 'deleteProp' || command.type === 'updateProp' || command.type === 'setPropBlocking' || command.type === 'replacePropAppearance'
   const memberParents = memberCommand ? Object.values(before.scatterGroups).filter(group => Object.values(group.members).some(member => member.propId !== null && roots.includes(member.propId))).map(group => group.id) : []
   const configurationGroup = command.type === 'createScatter' ? scene.scatterGroups[command.id]
     : command.type === 'upsertScatterExclusion' || command.type === 'removeScatterExclusion' ? scene.scatterGroups[command.groupId] : undefined

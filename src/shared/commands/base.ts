@@ -29,6 +29,7 @@ export type BaseSceneCommand =
   | { type: 'transformPrefab'; id: string; anchorMm?: PointMm; rotationDeg?: number }
   | { type: 'unpackPrefab'; id: string }
   | { type: 'updateProp'; id: string; changes: { positionMm?: PointMm; rotationDeg?: number } }
+  | { type: 'setPropBlocking'; id: string; blocksMovement: boolean }
   | { type: 'replacePropAppearance'; id: string; definitionRef: VersionRef }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -61,6 +62,7 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
+  z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
   z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
 ])).max(256, '单次事务最多 256 个操作')
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
@@ -519,6 +521,14 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
       }
       case 'transformPrefab': transformPrefab(next, command, fixedUprightPropIds); break
       case 'unpackPrefab': unpackPrefab(next, requireEntity(next.prefabInstances, command.id, '组合')); break
+      case 'setPropBlocking': {
+        const prop = requireEntity(next.props, command.id, '物件')
+        if (prop.blocksMovement === command.blocksMovement) break
+        assertUnlocked(next, [prop], true)
+        prop.blocksMovement = command.blocksMovement
+        addOverrides(memberRecord(next, prop.id), ['blocksMovement'])
+        break
+      }
       case 'updateProp': case 'replacePropAppearance': {
         const prop = requireEntity(next.props, command.id, '物件')
         const member = memberRecord(next, prop.id)

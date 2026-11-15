@@ -111,6 +111,8 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
   if (layerChanges.length) summary.push(`调整${layerChanges.length}个图层`)
   if (addedDefinitions > 0) summary.push(`添加${addedDefinitions}项素材`)
   if (structureIdentityCreated) summary.push(`为当前 ${Object.keys(candidate.historyIdentity.structureTokens!).length} 个结构建立出生与拓扑记录；不补写旧历史`)
+  const pathChecksChanged = JSON.stringify(current.document.constraints.pathChecks) !== JSON.stringify(candidate.document.constraints.pathChecks)
+  if (pathChecksChanged) summary.push('调整指定通路声明')
   if (displayChanged) summary.push('更新显示设置')
   if (backgroundChanged) summary.push('更新输出背景')
   if (aggregateChanges.length) summary.push(`调整${aggregateChanges.length}个分组`)
@@ -120,6 +122,7 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
   const namedChanges = objectChanges.some(change => change.collection !== 'walls') ? objectChanges.filter(change => change.collection !== 'walls') : objectChanges
   const changeSummary = namedChanges.slice(0, 3).map(change => `${actionName(change.before, change.after)}${collectionNames[change.collection] ?? '对象'}「${(change.after ? candidateName : currentName)(change.id)}」`)
   return <section aria-label="修改内容摘要">{summary.length > 0 && <p>{summary.join('；')}。</p>}
+    {pathChecksChanged && <details open aria-label="通路声明变化"><summary>通路声明 · 采用前后</summary><p>端点、净宽和门假设随完整工程保存。删除声明后，后续修改不再受该条通路限制。</p><label>采用前<textarea aria-label="采用前通路声明" readOnly rows={5} value={JSON.stringify(current.document.constraints.pathChecks,null,2)}/></label><label>采用后<textarea aria-label="采用后通路声明" readOnly rows={5} value={JSON.stringify(candidate.document.constraints.pathChecks,null,2)}/></label></details>}
     {aggregateChanges.length > 0 && <div aria-label="分组变化">{aggregateChanges.map(change => <p key={change.id}>{change.before ? change.after ? '更新分组位置或归属' : '解除分组' : '创建分组'} · {(change.after ?? change.before).members.length} 个直接成员。成员仍可单独编辑，整体操作按完整关联范围检查。</p>)}</div>}
     {changeSummary.length > 0 && <p>{changeSummary.join('；')}{namedChanges.length > 3 ? '；其余对象见完整变化。' : '。'}</p>}
     {newlyPublic > 0 && <p role="alert" className="history-limit">其中 {newlyPublic} 个对象将新增公开内容，请核对可见范围。</p>}

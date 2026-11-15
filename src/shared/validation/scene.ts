@@ -22,6 +22,7 @@ import { inspectJsonInput } from './json.js'
 import { validateGeometry } from '../geometry/geometry.js'
 import { geometryDocumentForValidation } from '../commands/domain.js'
 import { inspectDependencies } from '../commands/dependencies.js'
+import {pathCheckSchema,PATH_CHECK_LIMITS} from '../geometry/path-check-contracts.js'
 import { USER_LAYER_LIMIT, type SceneDocument, type Issue } from '../model/scene.js'
 import {
   id, int, positive, nonnegative, rank, angle, opacity, color, point, size, bounds, unique, ids, strings,
@@ -89,7 +90,7 @@ const sceneShape = {
   }).strict()),
   activeStyleThemeRef: versionRef.nullable(),
   constraints: z.object({ entranceOpeningIds: ids, wallEndClearanceMm: nonnegative, minDoorWidthMm: positive.optional(), minPathWidthMm: positive.optional(),
-    pathChecks: z.array(z.object({ id, from: anchor, to: anchor, clearanceMm: positive, mode: z.enum(['structural', 'current']), assumedOpenDoorIds: ids }).strict()) }).strict(),
+    pathChecks: z.array(pathCheckSchema).max(PATH_CHECK_LIMITS.checks) }).strict(),
 
   userLayers: record(userLayerSchema), entityLayers: record(id),
   visual: createVisual3Schema(createVisual2Schema(visualSystemSchema)),

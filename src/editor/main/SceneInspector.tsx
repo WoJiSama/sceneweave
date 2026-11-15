@@ -104,6 +104,8 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
       {owner && <button className="asset-group-link" onClick={() => onSelect(owner.id)}><Layers3 size={14}/>选择整个{groupName(project, owner.id)}</button>}
       {scatterOwner && <button className="asset-group-link" disabled={busy} onClick={() => onSelect(scatterOwner.id)}><Sprout size={14}/>管理{scatterName(scene, scatterOwner)}</button>}
       <fieldset disabled={busy || effectivelyLocked}>
+        <button className="secondary asset-wide" onClick={() => onPreview([{ type: 'setPropBlocking', id: selected, blocksMovement: !prop.blocksMovement }], prop.blocksMovement ? '物件改为不阻挡移动' : '物件改为阻挡移动')}>{prop.blocksMovement ? '预览改为不阻挡移动' : '预览改为阻挡移动'}</button>
+        <p className="asset-muted">仅修改当前物件的通行标记，保留实际占地和图像。</p>
         <div className="workspace-field-pair" role="group" aria-label="物件位置"><NumberInput displayUnit={scene.units.display} label="物件 X" value={prop.positionMm.x} onCommit={x => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, x } } }], scatterOwner ? '移动散布成员' : '移动物件')}/>
         <NumberInput displayUnit={scene.units.display} label="物件 Y" value={prop.positionMm.y} onCommit={y => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, y } } }], scatterOwner ? '移动散布成员' : '移动物件')}/></div>
         {propPresentation(project.appearance, prop.id)?.mode === 'nearSide' ? <p className="asset-muted">近侧视素材保持直立，位置为树根；选择固定变体改变树形。</p> : <NumberInput label="物件旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => editProp([{ type: 'updateProp', id: selected, changes: { rotationDeg } }], scatterOwner ? '旋转散布成员' : '旋转物件')}/>}

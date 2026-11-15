@@ -3,6 +3,7 @@ import { connectionCenterline, connectionRouteSchema, type ConnectionRouteGeomet
 import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
 import { visualBase } from '../visual/base.js'
 import { validateFloorSettings } from '../floors/output.js'
+import {inspectPathChecks} from './path-checks.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -31,6 +32,12 @@ const properCross = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean =>
 const meet = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean => properCross(a, b, c, d) || onSegment(a, c, d) || onSegment(b, c, d) || onSegment(c, a, b) || onSegment(d, a, b)
 const edges = (polygon: PointMm[]): [PointMm, PointMm][] => polygon.map((p, i) => [p, polygon[(i + 1) % polygon.length]])
 const at = (a: PointMm, b: PointMm, t: number): PointMm => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+/** Keep axis-aligned millimetre offsets exact; diagonal derived points remain fractional. */
+export function wallOffsetPoint(a: PointMm, b: PointMm, distanceMm: number): PointMm {
+  if (a.x === b.x) return { x: a.x, y: a.y + Math.sign(b.y - a.y) * distanceMm }
+  if (a.y === b.y) return { x: a.x + Math.sign(b.x - a.x) * distanceMm, y: a.y }
+  return at(a, b, distanceMm / Math.hypot(b.x - a.x, b.y - a.y))
+}
 const boundsContain = (p: PointMm, b: BoundsMm): boolean => p.x >= b.x - EPS && p.y >= b.y - EPS && p.x <= b.x + b.width + EPS && p.y <= b.y + b.height + EPS
 const boundsPolygon = (b: BoundsMm): PointMm[] => [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }]
 const edgeKey = (a: string, b: string): string => [a, b].sort().join('\0')
@@ -112,7 +119,7 @@ export function openingEndpoints(scene: Pick<SceneDocument, 'vertices' | 'walls'
   if (!reference || !other) throw new Error('开口附着墙缺少顶点。')
   const a = { x: reference.xMm, y: reference.yMm }, b = { x: other.xMm, y: other.yMm }, length = Math.hypot(b.x - a.x, b.y - a.y)
   if (!length) throw new Error('开口附着墙不能为零长。')
-  return [at(a, b, opening.offsetMm / length), at(a, b, (opening.offsetMm + opening.widthMm) / length)]
+  return [wallOffsetPoint(a, b, opening.offsetMm), wallOffsetPoint(a, b, opening.offsetMm + opening.widthMm)]
 }
 export function supportSurfaceAt(scene: SceneDocument, point: PointMm, floorId: string): GroundSurfaceRef | null {
   const floor = own(scene.floors, floorId)
@@ -302,6 +309,7 @@ export function validatePropMoveGeometry(scene: SceneDocument, changedIds: reado
       errors.push({ code: 'CONNECTION_OBSTACLE', message: '连接净宽带被物件占地阻挡。', entityId: connection.id })
     }
   }
+  if(!errors.length&&scene.constraints.pathChecks.length)errors.push(...inspectPathChecks(scene).errors)
   return { errors, warnings: baselineWarnings.map(warning => ({ ...warning })) }
 }
 
@@ -325,7 +333,6 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   for (const floor of Object.values(scene.floors)) validBounds(floor.boundsMm, floor.id)
   for (const definition of Object.values(scene.propDefinitions)) validBounds(definition.defaultVisualBoundsMm, definition.id)
   for (const definition of Object.values(scene.prefabDefinitions)) for (const member of definition.members) validBounds(member.propTemplate.visualBoundsMm, definition.id)
-  if (scene.constraints.pathChecks.length) error('UNSUPPORTED_PATH_CHECK', 'B1 尚未实现通用占地/门状态路径求解，不能接受 pathChecks 硬声明。')
   if (scene.constraints.minPathWidthMm !== undefined) error('UNSUPPORTED_PATH_CLEARANCE', 'B1 尚未实现全图通行净宽求解，不能接受 minPathWidthMm 硬声明。')
   const styleGeometry = (style: SurfaceStyle | null) => { if (style) for (const overlay of style.overlays) polygon(overlay.boundaryMm, overlay.id, false) }
   const areas = Object.values(scene.terrainAreas), validAreas: TerrainArea[] = []
@@ -596,5 +603,6 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
       }
     }
   }
+  if(!errors.length&&scene.constraints.pathChecks.length)errors.push(...inspectPathChecks(scene).errors)
   return { errors, warnings }
 }
