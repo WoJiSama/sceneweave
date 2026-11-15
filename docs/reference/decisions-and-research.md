@@ -152,6 +152,19 @@
 
 研究形成的设计分别回到[交互](editor-and-architecture.md#detail-workflow-and-road-tools)、[地形](terrain-generation.md#terrain-sculpting-tools)和[视觉](../14-visual-and-assets.md#map-detail-visual-design)，本页不再复制任务列表。
 
+<a id="terrain-fusion-study"></a>
+### 地形融合与叠层的结构研究（2026-11-13）
+
+用户要求先判断两个贴近崖壁的形体关系，再决定实现，不继续以画法补丁替代结构设计。本次读取当前地表支撑/投影与崖面规划源码，并读取下列官方文档；未安装运行对应软件、未复用其代码，也未形成产品实现或性能结论。实际网页快照、摘要及结构图保留在本机忽略目录`work/reference-rock-island-20261112/terrain-composition-study/`；以下来源为在线latest页面，版本按本次页面标题记录。
+
+| 来源 | 本次能确认的内容 | 对Sceneweave的判断 |
+|---|---|---|
+| [Blender 5.3 Boolean Modifier](https://docs.blender.org/manual/en/latest/modeling/modifiers/generate/booleans.html) | Union组合网格并移除内部面；Difference切去源体积；官方同时列出有效网格与求解器限制 | 借鉴“先确定组合实体，再生成外表面”的思路。不能把二维画面去重称为实体融合；不因此引入Blender或完整网格CSG |
+| [Houdini 22.0 HeightField Layer](https://www.sidefx.com/docs/houdini/nodes/sop/heightfield_layer.html) | 合成base/layer两输入的高度场层，可用mask限制作用范围，并对输入/结果偏移、缩放；Blend参数定义两输入权重 | 地形叠加应有明确输入、合成语义及范围。Sceneweave当前是离散地表与coveragePriority，不能把两个绝对高程相加、总取最高值或默认平滑；本次页面未列全所有Layer Mode选项，不据此补写模式清单 |
+| [Unity 6.6 Terrain Layers](https://docs.unity3d.com/Manual/class-TerrainLayer.html) | Terrain Layer保存表面纹理与材质参数，支持不同地表的渐变及复用；法线纹理与地形高度图分别说明 | 草岩材质融合与高程/形体合成分别设计，不能靠纹理、透明度或法线细节替代真实外露崖面 |
+
+本项目研究按“有效地表分区 → 共享邻接与外露高度区间 → 外表面造型 → 材质与明暗”拆开关系与表现，具体关系、来源保全和现有范围限制只在[地形设计](terrain-generation.md#terrain-fusion-and-stacking)定义。距离近不构成自动融合条件；表面连通不自动授予足宽通行。原型、共享分区和后续完整材质试画的冻结、首败与未采用原因归[同主题台账](../archive/workspace-content-validation.md#reference-rock-island-20261112)，其计算通过不证明自然形体收益。共同高度投影等对照尚无采用依据，继续保持正常二维俯视XY合同；不将原型缺陷自动转为坐标/3D架构前置。用户补充的[可选崖壁样式](terrain-generation.md#terrain-cliff-style-authoring)把基础造型与接头交给编辑器生成，手工塑形为可选调整。官方方法的存在、当前辅助核心或旧固定画法都不能推定新流程已整合、性能达标或视觉合格；实际开发状态与正式验收分别只从07/09追溯。
+
 <a id="doc-12-三个参考项目"></a>
 ### 三个参考项目
 

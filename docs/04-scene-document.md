@@ -37,7 +37,7 @@
 <a id="detail-render-profiles"></a>
 #### 显式细节表现（当前完整v1）
 
-`VisualEdgeLook.renderProfile?: "rockRelief2" | "rockRelief3" | "rockRelief4" | "rockRelief5" | "rockRelief6" | "rockRelief7"`只适用于cliff边带；`ConnectionRoute.renderProfile?: "naturalRockSteps2" | "naturalRockSteps3" | "naturalRockSteps4" | "naturalRockSteps5" | "naturalRockSteps6"`只适用于stairs连接且stairStyle为naturalRock，2为浅色层岩，3为深灰火山岩，4为错列凿岩阶，5为连续立面岩阶，6为风化凿岩阶。自然火山新模板显式选择rockRelief4／naturalRockSteps4：前者在原有完整崖面与连接开口内按环境光向和崖顶至崖脚深度绘制主面；后者仅在绘制踏石前，用有界临时蒙版羽化底材侧边，实际足宽、高差、支撑、landing和完整物理裁剪保持。字段缺省、旧rockRelief2–6和naturalRockSteps2–5保留各自原算法/原固定像素路径；新配方显式选择新算法，不从实体ID、seed前缀或调用方标记猜测。它们是外观算法轴，不增加工程容器版本；严格模型/schema、命令、受众投影、当前编辑表单与完整I/O同步。改变profile不改变物理轮廓、高程、支撑、净宽、通行或资源身份，仍重验完整工程/许可/锁/基线和实际像素。AI视觉协议暂不声明新profile，拒绝对带新profile边带的隐式重写，手工入口可明确切换。
+`VisualEdgeLook.renderProfile?: "rockRelief2" | "rockRelief3" | "rockRelief4" | "rockRelief5" | "rockRelief6" | "rockRelief7" | "rockRelief8" | "rockRelief9"`只适用于cliff边带；`ConnectionRoute.renderProfile?: "naturalRockSteps2" | "naturalRockSteps3" | "naturalRockSteps4" | "naturalRockSteps5" | "naturalRockSteps6" | "naturalRockSteps7" | "naturalRockSteps8"`只适用于stairs连接且stairStyle为naturalRock，2为浅色层岩，3为深灰火山岩，4为错列凿岩阶，5为连续立面岩阶，6为风化凿岩阶。自然火山新模板显式选择rockRelief4／naturalRockSteps4：前者在原有完整崖面与连接开口内按环境光向和崖顶至崖脚深度绘制主面；后者仅在绘制踏石前，用有界临时蒙版羽化底材侧边，实际足宽、高差、支撑、landing和完整物理裁剪保持。字段缺省、旧rockRelief2–6和naturalRockSteps2–5保留各自原算法/原固定像素路径；新配方显式选择新算法，不从实体ID、seed前缀或调用方标记猜测。它们是外观算法轴，不增加工程容器版本；严格模型/schema、命令、受众投影、当前编辑表单与完整I/O同步。改变profile不改变物理轮廓、高程、支撑、净宽、通行或资源身份，仍重验完整工程/许可/锁/基线和实际像素。AI视觉协议暂不声明新profile，拒绝对带新profile边带的隐式重写，手工入口可明确切换。
 
 `VisualEdgeLook.renderProfile`另允许显式`rockRelief5`连续岩崖画法，仅适用于cliff。共享纯几何以有界单侧四边带、连续脚线、屏幕近远侧宽度与弧长岩层表达外观；同Floor、层、受众、样式、种子及真实terrain绑定集合，只有确切无歧义的有向端点可共享接头几何。每条原记录仍在原绘制槽位消费自己的几何分片及高侧/连接开口裁剪，不前移整条合并带、不跨支撑/分支/缺口猜接；旧profile与固定素材不改。原生Canvas对该新画法使用世界像素网格的短命局部缓冲，保证受测同尺度裁图的崖面像素一致；不建立长期位图缓存。源投影≤4096点、每次合并≤128条、派生≤65536点，仍受现有全图/资源/实际输出预算约束。宽度只定义外观包络，不能反推真实高程或通行；短源段不沿用旧偏移环的半长度宽度限制。普通预览/采用/撤销、双受众投影、严格v1保存/冷读共用现有路径，AI协议边界不扩大。
 
@@ -48,6 +48,10 @@
 显式`naturalRockSteps5`复用保存的完整曲线中心线、真实净宽与从低支撑到高支撑的累计弧长，按实际高差/级数绘制连续踏面和立面，随路线转向，并保留端部材质过渡及有限侧部岩体。它不修改路线源、采样、支撑、阻挡或通行；临时绘制平台不授予额外物理落脚面，不为凑画面缩窄走廊或把台阶改成独立Prop。数值稳定的临时细节裁剪允许低于`1e-6 mm`的工作坐标吸附，最终像素仍裁在原始完整物理带区内。两种新profile仍经普通原子预览/采用、撤销/重做、严格v1完整保存/冷读和双受众投影；这些元数据和视觉派生不暗改资源字节/许可、固定源、历史身份或物理通行。通用多高程与曲线台阶的视觉效果须按09另行验收，字段可读和技术检查不授予画面通过。
 
 显式`naturalRockSteps6`沿用同一完整曲线、累计弧长、级数、实际高差与精确物理带区，采用共享的不规则阶沿连接宽踏面，以局部断续的浅立面、亮唇、少量边缘缺口和端部岩纹表达风化凿岩阶；不绘制连续深色侧轨。底材仅使用有界临时侧边蒙版羽化，踏面及细节最终仍由原始完整带区裁切；外观缺口不缩窄真实净宽，也不新增支撑、修改通行或改变崖面开口。它是独立显式画法，不重释已保存的5或更早画法，不改路线源、资源身份/许可及历史身份；普通原子预览/采用、撤销/重做、严格v1完整保存/冷读及双受众投影继续使用同一合同。断沿、端部融合及与山体的自然衔接须在整图和世界尺度局部实际审阅，技术与像素保全检查不授予视觉验收通过。
+
+显式`rockRelief8`在7的曲面采样上增加独立错落岩台与短立面；`rockRelief9`另以共享前沿组织坡面、宽岩台与陡壁，世界坐标种子起伏调整岩肩／坡脚，闭合前沿保持接头。联合可见面、顶部覆盖、真实开口、世界尺度及131072完整点预算沿用高差规划合同。9的临时投影布尔运算按1e-5mm精度收束，仍仅用于绘制；不修改保存的整数毫米地形，不对旧画法套用该精度。8与此前画法保留各自算法路径，有限画面质量须按09实际审阅。
+
+显式`naturalRockSteps7`保留磨蚀连续岩面的独立画法；`naturalRockSteps8`按同一俯视斜向投影解释每级踏面、立面及可见侧面，立面随真实每级高差变化，朝向改变时背向立面消失，侧面继续表达厚度。先绘完整踏面再绘局部切面，避免下一级踏面覆盖上一级立面；共享不规则阶沿、有限磨蚀断口及上下接入保持。艺术投影在每级内有界，最终所有像素仍裁在原始完整连接带内，不累计移动中心线、端点或物理支撑；图像立面不授予带外通行。2–7及旧固定资源保持原义，唯一完整工程v1、普通表单／原子事务／撤销／严格保存与双受众过滤同源；不扩展AI视觉协议。程序化形体、可编辑性与像素保全不授予自然岩阶或参考画风通过。
 
 <a id="detail-followup-contracts"></a>
 #### 局部覆盖、持续附着与独立多Floor合同
@@ -75,6 +79,19 @@ Floor预设槽位绑定structureTokens中的真实出生身份，以floorId+birt
 保存、冷读、历史、双受众输出与失败保全见[06](06-storage-and-export.md#map-detail-persistence-boundary)；完整正式检查归[09](09-quality-plan.md#map-detail-acceptance)。
 
 <a id="generation-staging"></a>
+<a id="explicit-path-check-contract"></a>
+### 用户明确声明的通路（当前完整v1）
+
+`constraints.pathChecks`在同一严格完整v1中保存最多16条声明，每条含唯一`id`、明确`floorId`、`from/to`点或实体锚、正整数`clearanceMm`、`mode: current | structural`及不重复的`assumedOpenDoorIds`。可选`name`为1–80字符且不能全为空白，用于编辑器选择、候选摘要与失败诊断；可重名，不参与身份、通行或地图输出，未命名声明保持有效。可选`routeHintMm`为2–128个整数毫米世界点，只提供候选，不是认证凭据。旧内部算法输入只有空声明可直接构造；缺少Floor的非空旧声明不猜楼层、不丢字段，公开入口仍严格拒绝。`minPathWidthMm`的全图任意通道语义继续明确拒绝。
+
+无声明草稿不自动产生必达义务。声明存在时，完整领域检查及受信物件移动／派生路径都重新证明两端之间存在足宽路线：先检查提示及实际端点直线，再用有界搜索找替代路线；始终核对方端帽、miterLimit2/bevel转角、Floor边界、真实旋转占地、阻挡区域、水、墙／门及足宽高差连接。导出裁剪不改变结果。每条最多512个搜索节点，本次累计4096；有限搜索未找到记`PATH_CHECK_UNPROVED`，超预算记`PATH_CHECK_BUDGET`，两者均拒绝采用，但不声称数学无解。错误列声明ID，并可列提示／直线候选的真实障碍ID；不能把候选障碍说成所有替代路线唯一阻挡。
+
+`current`使用实际门开闭／锁，仅额外假设明确列出的同Floor真实door可解锁打开；`structural`假设同Floor全部door可开启，额外列表必须为空。假设只存在于独立检查视图，不改现场state、locked、secret或编辑锁；窗口不能作为假设门。物理编辑仍执行原锁／依赖／资源／许可／身份／CAS与一次撤销语义。新增、修改、删除通路声明是独立事务类别，不与物理编辑、解锁或显示调整混批；声明事务实际展开上限256，不借普通大档位扩大。声明只读取锚点，不改实体，读取锁定实体本身不等同于修改它。
+
+点锚绑定声明Floor；实体须存在且同Floor，Note递归跟随原锚并拒绝循环。vertex取真实坐标，prop／prefab取实例位置，opening／wall／terrainConnection取实际端点中心，room／region／terrainArea／path取实际几何包围盒中心，terrainEdge取来源边段中心，scatterGroup取按成员key排序的首个存活非detached物件位置。中心无法精确表示为整数毫米时拒绝并要求明确坐标；不将阻挡物件自身临时移除，也不猜旁边可站位置。删除、跨Floor或失效实体不会隐式变成点锚。聚合local/world存储转换保留声明点及路线提示的世界坐标，实体锚从当前world实体重新解析。声明及诊断不进入玩家投影或PNG元数据。
+
+普通入口、预览与范围见[交互合同](reference/editor-and-architecture.md#explicit-path-check-ui)，保存／冷读见[06](06-storage-and-export.md#explicit-path-check-persistence)，实施状态只归[07](07-roadmap.md#explicit-path-checks-20261114)，验证从[09](09-quality-plan.md#explicit-path-check-acceptance)执行。本合同支持明确两端的保通，不自动修复布局，也不关闭整图任意最小宽度、全部D-M03／N-N02或P3。
+
 ### 通用生成的临时候选与持久责任
 
 D1的请求/步骤依赖、13类临时空间产物、只读候选快照及阶段hash回执仅存在于会话，不加入工程、历史或导出字段。算子物化到私有完整SceneDocument，后续阶段读取实际墙门、支撑和占地；主工程身份/revision/Floor不变。`prepared`不是可采用凭据，仍须沿完整ProjectData的身份、资源/许可/像素、范围/锁、预算、保护/CAS及一次撤销路径准备与采用。具体接口及旧自然协议桥见[生成设计](reference/general-map-generation.md#d1-stage-contract)。
@@ -279,6 +296,8 @@ processor2在生产、PNG编码/解码和源关联验证中采用固定软件RGB
 <a id="image-to-project-model"></a>
 ### 图片制作状态与当前工程实体
 
+地面item可显式保存`surfaceRefinement`的有限`cloth-surface-v1`配方：同材质表面、干净原图取样、固定seed、可见布缝／针脚角色及理由、有限隐藏连接和可选保护。完整选区须在声明材质内，与主体边带／矢量配方互斥；它只派生外观，保留选区、背景移除、补底保护、alpha与物理占地。同一严格制作v1包冷重放，普通完整v1工程／个人库保存实际固定派生及推断来源，不依赖制作包。精确字段、预算和取证角色归[净毯表面合同](reference/image-item-workflow.md#cloth-surface-refinement)。
+
 图片拆分的持续制作状态采用独立的 `sceneweave-image-work` 工作包，不并入普通场景工程。当前严格状态为 `format/version/id/revision`、规范化 `image`、原始文件 `original`、`rights`、`draft`、可选未完成 `active`、`notes/nextAction/scaleStatus`、`journal` 与 `reviews`。`draft` 保存题名、完整或未完成的标尺、房间／外框、已拆图层与输出设置；`active` 保存当前粗范围、不完整取样、辅助输入、最终蒙版、补底、占地和精修目标。原始文件与规范化源有独立摘要；未知实际尺寸以 `provisional` 明示，不把暂定值写成实测。
 
 可选本机分割的 `selectionOrigin` 属于独立制作状态，记录规范化源及实际推理输入SHA、先前图层摘要、固定模型文件身份、上下文／目标范围、辅助点、候选编号和显式小孔／孤岛处理；采用时核对实际输入及先前层基线，失败不替换草稿。最终 `selectionMask` 与后续画笔journal一起保全，初始模型输入不能替代人工修正后的确切蒙版。此记录不增加普通完整工程版本，不使任何候选免于领域、资源或视觉校验。
@@ -362,6 +381,8 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 程序底图使用独立传输协议`sceneweave-base-map@1|@2|@3`，不扩充持久工程格式。以下为@1兼容合同；@2在严格请求中加入flowId与完整冻结policy，结果hash另覆盖generationBudget的语义目标/成本及复杂度，完整来源与分类接续见[F节](#capacity-budget-evolution)和[05](05-ai-and-generation.md#budget-continuation-contract)。严格请求区分当前`workspaceSceneId/checkpoint/operationEpoch`与独立空白`base.sceneId`；只接受无实体/注记/锁/历史标记的SceneDocument2/visual1。`generation`明确为普通terrain输入或composition配方，省略旧算法/配方版本仍保持1含义。`inputHash`覆盖完整规范generation，`baseHash`覆盖完整空白，`paletteHash`覆盖固定assets/materials/propDefinitions/prefabDefinitions/styleThemes及activeStyleThemeRef；响应`resultHash`覆盖`{generation,result,domainCost}`。普通结果保留完整TerrainGenerationResult，组合保留完整领域文档和严格plan；服务端与Worker使用同一纯执行器。协议请求/结果分别限4/8MiB，不能用摘要代替实际领域结果。@3明确使用算法4/配方4、完整注册profile及profileHash；inputHash绑定generation和profileHash，结果hash覆盖独立usage及语义成本，领域cost不再表示旧混合展开量；具体限额与兼容归F节。
 
 @3明确分派算法/配方6与7，不改变更早选择器、缺省含义或重放结果。算法6/配方6继续使用`terrain-scene-v6` / `terrain-compose-v6`；算法7/配方7分别使用`GET /v1/capabilities?baseMapSelector=terrain-scene-v7` / `terrain-compose-v7`精确协商，核对返回的单一`baseMapSelectors`、底图协议版本和本次注册profile hash后才发送原样@3请求。旧服务缺少确切选择器时，显式服务端生成在POST前失败，不静默改走Worker。v7只把规则驱动的材质/植被和目标岩岛视觉派生放入新结果；固定seed及出生令牌可确定性重放，候选仍需浏览器完整重放、资源/许可/像素校验及最终成本复核。v6输出及历史保持原义，不按新规则重解释；v7不升级工程schema，也不授予AI修改严格v8工程的能力，AI完整工程版本仍限3–7。算法/配方5原有`surfaceRecipeVersions:[1]`协商只用于其旧地表含义，保持独立。
+
+独立森林算法8沿同一@3协议使用`terrain-scene-v8`精确协商，不新增组合选择器或工程版本。严格输入限`kind:forest / algorithmVersion:8`；结果使用`terrain-scene-t3 / algorithmVersion:8 / recipeVersion:8`持久配对，保存完整林缘／高台／活动区／坡道／布景及固定地表闭包。林缘、空地、高台骨架共同选择后仍须完整几何／支撑／预算检查；较大画布的边缘笔触间距按尺寸／细节计算，原生每边1024次限制不变，旧5默认间距不变。结果成本与本机完整重放不能凭重算resultHash跳过；采用仍物化真实资源与许可，有限局部编辑只在确切配方和实际依赖可重验时刷新规则。算法8不表示旧完整工程v8，也不扩大AI创作协议权限；普通工程仍唯一完整v1。
 
 `domainCost`包含完整领域展开，组合使用真实临时计数图的identity/appearance元数据，但仍标`finalAdoptionCostChecked:false`；不返回或安装这些计数身份。浏览器须重放完整结果、物化并校验真实资源，再核对实际成本。通过后，独立候选的会话回执绑定真实完整`projectHash`与`initialOperationCost/operationLimit=256/remainingOperationCost`；采用继续用当前会话凭证，网络JSON不能直接成为可采用凭证。回执不是工程永久容量或后续AI账本，也不进入严格文档、历史或导出；跨冷读继续同一生成/AI流程须后续显式可重放合同，不从当前实体数或seed猜测初始成本。
 
@@ -455,7 +476,7 @@ M2-0e已在shared/library直接实现算法1及严格完整v1中性载体，不�
 | 唯一资源保留字节 / 像素 | 300MiB / 64000000 | 同左 | 同左 |
 | 候选尝试 / 主动执行毫秒 | 4 / 300000 | 同左 | 同左 |
 
-准备前静态展开明确请求：图层/外观成员、组合成员、拆合/换父级、真实新副本与容器，以及组整体变换的完整子树。超过512请求目标、1024保留实体或16384组内影响选expanded，否则超过256请求目标、256保留实体或4096组内影响选standard，其余compact；未知输出的有限领域命令一次保守选择expanded。恢复在读取真实快照后展开当前/历史图层、组合/散布成员和结构关联范围，再固定档位。候选/恢复预览携带确切冻结profile，采用复用同一档；不先试跑、捕获超限再升级重跑，也不拆批。填充每份计真实存活成员及新容器；原始命令、请求选择、实际展开和组内影响各自保护。纯素材入库256新增记录、组合自身128成员、房间顶点/连接采样等单对象保护保持；默认共享及旧TaskProfile入口保留其原256解析。
+准备前静态展开明确请求：图层/外观成员、组合成员、拆合/换父级、真实新副本与容器，以及组整体变换的完整子树。工作区同时按最终计量器的同一规则读取当前document／historyIdentity／appearance完整保留依赖，不能仅以对象数判断小档足够。超过512请求目标、1024保留实体、16384组内影响或32768保留依赖选expanded，否则超过256请求目标、256保留实体、4096组内影响或4096保留依赖选standard，其余compact；未知输出的有限领域命令一次保守选择expanded。只在校验器持有的确切不可变三元对象上复用依赖读数，可变／伪冻结对象及元数据替换重新计量；该读数不授予校验或写入凭证。恢复在读取真实快照后展开当前/历史图层、组合/散布成员和结构关联范围，再固定档位。候选/恢复预览携带确切冻结profile，采用复用同一档；不先试跑、捕获超限再升级重跑，也不拆批。候选新增依赖及其他分量仍按原注册上限完整拒绝。填充每份计真实存活成员及新容器；原始命令、请求选择、实际展开和组内影响各自保护。纯素材入库256新增记录、组合自身128成员、房间顶点/连接采样等单对象保护保持；默认共享及旧TaskProfile入口保留其原256解析。
 
 点/段完整计源与实际样本，简化/删除也检查旧几何，同批重复修改累计几何工作。求交使用保守结构估计和已有执行观测，不能当作端到端耗时；未观测的计时也不能据此宣称已测性能。只读依赖不占对象额度，但核对完整闭包。变化元数据包含增删和键字节，未变化记录不重复占增量额度；完整工程JSON/身份限制另外执行。资源按完整真实闭包核对，不扩大原字节、hash、许可或像素准入。各维独立拒绝，不合成总分。
 

@@ -100,6 +100,8 @@ v2/v3工具轮异常时，实际工具尝试和已完成provider用量仍落入�
 
 算法6/配方6和算法7/配方7的底图@3分别使用`terrain-scene-v6` / `terrain-compose-v6`与`terrain-scene-v7` / `terrain-compose-v7`显式协商相应`baseMapSelectors`及profile hash。旧服务缺少匹配能力时，显式服务端生成在POST前只读失败；不静默改走本机Worker。新增v7仅授权确定性程序底图，不扩展AI创作能力：完整工程版本仍仅支持3–7，浏览器和服务端拒绝严格v8 AI任务；树冠/连续地表规则仍缺AI操作、scope、预算、完整重放和玩家输出授权。底图与authoring协议仍为3，策略2/计数2及16/64/300秒保持。
 
+自然地形森林算法8另使用`GET /v1/capabilities?baseMapSelector=terrain-scene-v8`核确切选择器／profile，再发送原样底图@3；旧服务缺能力时在POST前拒绝，不降级或自动改走Worker。只新增森林程序底图选择器，没有`terrain-compose-v8`或新的AI工程权限。来源接续将8按其真实旧领域文档／生成记录闭包重放，不误走算法6／7的领域分支；当前完整v1、原authoring协议和各预算轴保持。完整森林结果／本机重放、许可与像素、局改保护及最终采用条件仍归[04](04-scene-document.md#program-base-map-protocol)。实际模型任务与服务端／Worker全矩阵仍须独立验收。
+
 新3客户端以`GET /v1/capabilities?authoringVersion=3`协商profile与policy两个独立hash注册表；BaseMap用`POST /v1/terrain/basemap?baseMapVersion=3`选择24MiB reader，AI创建用`POST /v1/tasks?authoringVersion=3`选择48MiB reader，并严格要求body版本一致。已有2连接遇到3候选时可追加只读能力查询，未匹配不发送新来源、不降级或重发。新3的来源/步骤usage、执行workUsage、四hash及采用凭证分别严格分派，账本不混入失败编辑；真实执行工作在检查点中跨失败/预演/重放累计。
 
 新版客户端以`GET /v1/capabilities?authoringVersion=2`显式协商；裸请求保留旧字段集合，未知版本拒绝。旧服务忽略query返回旧结构时，新客户端识别未支持，不重发或改走另一算法。旧bundle可继续建连，但不能读取其未支持的v2/v3/v4任务；混合任务库须使用支持对应协议的客户端，不能删字段伪装成旧版本。
@@ -148,6 +150,7 @@ v2以`authoring_checkpoint`事件一次更新创作摘要、usage与executionChe
 图片拆解提供项目自带stdio MCP宿主，与页面手工入口共用严格配方、辅助选区、像素拆层与完整工程工厂。新建宿主明确指定原图、来源／许可及输出目录，或以 `--resume` 读取独立 `.sceneweave-image-work`；工具参数只包含获准源图内的坐标、取样区、有限属性和草稿代次，不包含任意文件路径或权限字段。工具先由 `tools/list` 发现，模型再读 `image_import_workflow` 获取流程、断点和下一步。`image_import_guided_selection` 提出前景／背景约束候选，`image_import_item_preview` 返回真实换底PNG与摘要，`image_import_review_item` 将助手目视复核绑定确切输入／输出；`image_import_set_checkpoint` 和 `image_import_export_work` 保全问题及制作资料。完整步骤和参数归[通用工作流](reference/image-item-workflow.md)，启动命令归[工具说明](../CONTRIBUTING.md#image-import-mcp)。
 
 宿主可另外显式指定本机Python与固定模型目录，开放离线CPU `image_import_local_segment`。该工具只读获准输入、返回全部3个候选及真实400%图，不按分数自动选取或采用，不调用付费provider或上传原图；`image_import_set_selection`／新件提取在共同会话中校验确切源、先前层及代次后采用。模型点不等于硬保留笔，选区及补底仍须实际视觉审核。未启用时不提供该能力，普通聊天和浏览器没有直接启动本机Python的入口。配置、模型许可及内存限制归[工具准备](../CONTRIBUTING.md#image-item-workflow-tools)，实际质量状态归07。
+图片拆解的主要模型辅助路径现在优先是 `image_import_vision_boundary`：视觉模型只返回单件粗边界、少量前景/背景点和可追溯响应摘要，宿主在当前真实输入上运行共享算法2生成只读 `selectionMask` 候选，再由用户审阅后交给 `extract_item`／`set_selection`。该工具不自动采用、不按confidence选最高项，`selectionOrigin`绑定源图、实际输入、先前拆分、模型版本和响应SHA，工作包可离线重放。外部provider必须有本次明确图片上传授权；未授权时使用本机/自托管模型或人工粗圈。普通应用聊天仍未直接接入图片制作工具，不能仅凭存在视觉模型配置声称已看图或已拆分。
 
 原有标定、房间、拆层、精修、保真评估、预览、撤销及配方重放继续共用执行链；build只交付完整候选，普通页面采用后保存本机工程与item。保真入口拒绝改变可见原画的描摹／程序材质，独立[素材精修](reference/image-to-project.md#asset-refinement-routes)另按其来源和采用合同执行。工具工作流不调用图像生成服务，页面人工制作不依赖模型在线。
 

@@ -7,6 +7,9 @@
 
 正常工程入口只按[04唯一完整v1](04-scene-document.md#development-single-v1)读写当前完整内容和明确选择的历史，不维护各开发版本文件兼容。开发期间功能继续在同一schema迭代，不再为启用视觉、地形、曲线、装饰或规则创建工程升级副本。`.sceneweave`、完整/所选历史包、真实资源/许可/像素、CAS、原子采用、冷读及双受众输出继续保留。
 
+<a id="explicit-path-check-persistence"></a>
+明确[通路声明](04-scene-document.md#explicit-path-check-contract)随当前完整v1的`scene.json`、快照及历史保存；公开validate/save、冷读、导入／导出仍实际全验领域、资源字节／像素及许可，不能凭已保存提示或调用方标记跳过通路证明。内部预览／自动保存只消费自身校验器签发的确切不可变快照；物件移动／派生认证在签发前同样检查声明。采用失败不修改当前或已保存工程，导入失败不损坏已打开内容，声明修改沿同一次revision、撤销、历史及CAS链。无声明旧工程仍可作为合法草稿；缺Floor的旧非空声明不自动迁成有效声明。声明／路线提示为主持人编辑数据，不进入玩家绘制内容或PNG元数据。
+
 用户选择保留独立一次性IndexedDB迁入工具。目标是保全本机成果并转换为单一当前合同，不是恢复退役工作台、自动接受任意旧文件或无限期维护旧格式。采用以下边界：
 
 1. **源只读、目标隔离。** 旧主库、个人库、原始包、历史/原件及资源保持只读；目标使用隔离的开发存储命名空间，避免早期旧v1与目标完整v1同号混存。数据库结构版本沿其实际表结构演进，不随工程编号重置；默认新库为`sceneweave-projects-dev-v1` / `sceneweave-library-dev-v1`；迁入目标以完整源指纹为同后缀，原库仍为`sceneweave-projects` / `sceneweave-library`。普通打开/保存不会悄悄触发迁入或清库。
@@ -123,6 +126,8 @@ manifest版本匹配当前ProjectData与SceneDocument版本；每份所选历史
 ### 图片制作进度、结果采用与双受众输出
 
 图片制作进度另存 `.sceneweave-image-work`，其ZIP严格包含 `state.json`、`original.bin` 和 `normalized.png`，分别保全[04定义的制作状态](04-scene-document.md#image-to-project-model)、原始文件和规范化源。实际字节数、SHA-256、ZIP目录／CRC、图片格式／尺寸与严格状态预算均校验；浏览器发布或恢复前还实际解码，对照原文件规范化后的像素与包内规范化PNG。共享无DOM读写不冒充已完成真实解码。未知条目、重复JSON字段、坏字节或越界标记拒绝，不以更粗选区替代失败输入。
+
+显式净毯`surfaceRefinement`随同一严格制作v1状态保存，仍只用上述三个ZIP条目；冷恢复按原图、完整选区／材质和配方重新生成，不把任意研究PNG冒充配方重放。普通完整v1工程／个人库只保存实际固定派生和推断署名，原图保真回执限原始裁片／背景基线，构建回执另列`surfaceDerivation`；详见[净毯表面合同](reference/image-item-workflow.md#cloth-surface-refinement)。
 
 已采用的本机模型候选以确切蒙版、`selectionOrigin` 和后续修正参数保全；恢复后可继续画笔编辑、导出或采用，不需要权重文件在线或重新推理。尚未采用的三份候选、输入PNG和预览另存宿主独立输出目录，继续比较旧候选时须另携带；不能宣称三条目工作包已保存全部候选图。普通场景工程仍只携带最终采用资源和必要来源，不依赖Python、模型权重或工作包。
 
