@@ -122,7 +122,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '室内布局'), palette = captureJson(content.palette)
       return { kind: 'new-project', domain: 'interior', base: content.base, profile: profile(), input: {
-        version: 1, algorithmVersion: 19, seed: owned.seed, parameters: {
+        version: 1, algorithmVersion: 20, seed: owned.seed, parameters: {
           floorId: floor.id, layerId: layer.id, boundsMm: { ...floor.boundsMm }, wallThicknessMm: owned.wallThicknessMm,
           rooms: owned.rooms, relations: owned.relations, corridor: owned.corridor,
           materials: { floor: null, wall: null }, arrangement: { ...owned.arrangement, palette },

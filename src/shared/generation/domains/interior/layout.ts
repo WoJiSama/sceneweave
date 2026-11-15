@@ -32,6 +32,13 @@ export function checkInteriorLayout(input: InteriorGenerationInput, layout: Inte
     if (!row || !fits(room, row.boundsMm, p.wallThicknessMm) || row.clearAreaMm2 !== clearArea(row.boundsMm, p.wallThicknessMm)) issues.push(`房间${room.id}的净面积或最小净边长不符`)
   }
   const all = [...layout.rooms, ...layout.corridors], inset = Math.ceil(p.wallThicknessMm / 2), bounds = p.boundsMm
+  const entranceRoomId = p.arrangement.entranceRoomRequirementId
+  if (entranceRoomId !== undefined) {
+    const row = rows.get(entranceRoomId), b = row?.boundsMm
+    const minimumWallMm = p.arrangement.doorWidthMm + 2 * (inset + 1)
+    if (!b || !((b.x === bounds.x + inset || b.x + b.width === bounds.x + bounds.width - inset) && b.height >= minimumWallMm
+      || (b.y === bounds.y + inset || b.y + b.height === bounds.y + bounds.height - inset) && b.width >= minimumWallMm)) issues.push('指定入口房间没有足长的建筑外侧边；请调整房间关系、门宽或建筑范围')
+  }
   for (const row of all) {
     const b = row.boundsMm
     if (![b.x, b.y, b.width, b.height].every(Number.isSafeInteger) || b.width <= p.wallThicknessMm || b.height <= p.wallThicknessMm || b.x < bounds.x + inset || b.y < bounds.y + inset || b.x + b.width > bounds.x + bounds.width - inset || b.y + b.height > bounds.y + bounds.height - inset) issues.push('房间或通道越过完整墙厚边界')

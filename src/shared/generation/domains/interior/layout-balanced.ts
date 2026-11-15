@@ -210,5 +210,5 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
     if (attempts >= maxAttempts || nodes >= limit) break
   }
   if (best) return { rooms: [...best.rooms].sort((a, b) => compare(a.requirementId, b.requirementId)), corridors: best.corridors }
-  throw new InteriorGenerationError('search-exhausted', '有限比例与走廊布局搜索未找到符合全部净面积和关系要求的结果；可调整范围或需求，这不证明需求不可行。')
+  throw new InteriorGenerationError('search-exhausted', `有限比例与走廊布局搜索未找到符合全部净面积和关系${p.arrangement.entranceRoomRequirementId === undefined ? '' : '及指定入口房间外墙'}要求的结果；可调整范围或需求，这不证明需求不可行。`)
 }

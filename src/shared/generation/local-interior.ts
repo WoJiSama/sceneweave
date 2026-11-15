@@ -45,6 +45,9 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   const parameters = cloneJson(recipe.parameters)
   if ('supportRef' in parameters) delete (parameters as Partial<typeof parameters>).supportRef
   if ('entranceApproach' in parameters) delete (parameters as Partial<typeof parameters>).entranceApproach
+  // This is a furniture-only request for one current room. The first entrance
+  // demand belongs to the preserved recipe, not to this temporary input.
+  if ('entranceRoomRequirementId' in parameters.arrangement) delete parameters.arrangement.entranceRoomRequirementId
   const input: InteriorGenerationInput = { version: 1, algorithmVersion: recipe.algorithmId === 'supported-interior' ? supportedInteriorLayoutVersion(recipe.algorithmVersion) : recipe.algorithmVersion, seed: recipe.seed, parameters }
   const boundsMm = realRectangle(before, room.id), wallThickness = Math.max(input.parameters.wallThicknessMm, ...Object.values(before.walls).filter(wall => room.boundaryVertexIds.some((id, index, ring) =>
     id === wall.startVertexId && ring[(index + 1) % ring.length] === wall.endVertexId || id === wall.endVertexId && ring[(index + 1) % ring.length] === wall.startVertexId)).map(wall => wall.thicknessMm))

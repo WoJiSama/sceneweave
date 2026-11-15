@@ -43,14 +43,16 @@ async function environment() {
 describe('application generation intent preparation', () => {
   it('captures nested user intent before asynchronous content preparation and isolates supplied palettes', async () => {
     const env = await environment(), input = interior(), original = cloneJson(input)
+    input.arrangement.entranceRoomRequirementId = 'room-1'
+    original.arrangement.entranceRoomRequirementId = 'room-1'
     let release!: () => void
     const gate = new Promise<void>(resolve => { release = resolve }), prepare = env.content.interior
     env.content.interior = vi.fn(async (request, options) => { await gate; return prepare(request, options) })
     const pending = prepareGenerationIntent({ domain: 'interior', request: input }, env)
-    input.rooms[0].purpose = 'Changed during load'; input.arrangement.furniture = false
+    input.rooms[0].purpose = 'Changed during load'; input.arrangement.furniture = false; delete input.arrangement.entranceRoomRequirementId
     release()
     const result = await pending
-    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 19, seed: original.seed,
+    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 20, seed: original.seed,
       parameters: { rooms: original.rooms, corridor: original.corridor, arrangement: { ...original.arrangement, palette: env.palette } } } })
     expect(env.content.interior).toHaveBeenCalledWith(expect.objectContaining({ title: original.title, preset: 'narrative', gridVisible: false, seed: original.seed }), expect.any(Object))
     expect(env.selectBudget).toHaveBeenCalledExactlyOnceWith({ widthMm: 12000, heightMm: 8000, quality: 'standard', mode: 'auto' })

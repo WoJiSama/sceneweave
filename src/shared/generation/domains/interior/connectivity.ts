@@ -210,6 +210,7 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
   const roomOrder = (a: string, b: string) => input.algorithmVersion === 2 ? compare(a, b) : compare(semanticRooms.get(a)!, semanticRooms.get(b)!)
   const roomIds = [...layout.rooms, ...layout.corridors].map(row => row.roomId).sort(roomOrder), actual = new Set(roomIds)
   const roomByDemand = new Map(layout.rooms.map(room => [room.requirementId, room.roomId]))
+  if (arrangement.entranceRoomRequirementId !== undefined && (!arrangement.entrance || !roomByDemand.has(arrangement.entranceRoomRequirementId))) throw new InteriorGenerationError('invalid-input', '指定入口房间须引用现存需求，并启用对外入口。')
   const forbidden = new Set(p.relations.filter(row => row.kind === 'no-direct-connection').map(row => [roomByDemand.get(row.a), roomByDemand.get(row.b)].sort().join('\0')))
   const tick = () => { options.checkCancelled(); meter.charge({ fieldEvaluations: 1 }) }
   const walls = Object.values(next.walls).filter(wall => wall.floorId === p.floorId).map(wall => {
@@ -270,10 +271,12 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
   }
   if (arrangement.doors && roomIds.length > 1 && new Set(roomIds.map(root)).size > 1) notes.push('部分房间未找到足长、满足端部间隙且允许连接的共墙；保留布局，可手工调整门。')
   if (arrangement.entrance) {
+    const requiredRoomId = arrangement.entranceRoomRequirementId === undefined ? undefined : roomByDemand.get(arrangement.entranceRoomRequirementId)
+    const entranceWalls = requiredRoomId === undefined ? walls : walls.filter(row => row.rooms.length === 1 && row.rooms[0] === requiredRoomId)
     if (options.entranceApproach) {
       const approach = options.entranceApproach
       if (arrangement.doorWidthMm < approach.widthMm) throw new InteriorGenerationError('contradiction', '实际门洞净宽小于接入路线。')
-      const proposals = rankExteriorEntranceProposals(next, walls, p.boundsMm, arrangement.doorWidthMm, approach, options)
+      const proposals = rankExteriorEntranceProposals(next, entranceWalls, p.boundsMm, arrangement.doorWidthMm, approach, options)
       const retainedSegments = LAYER_ENTITY_COLLECTIONS.reduce((sum, key) => sum + Object.values(next[key]).reduce((n, row) => n + measureBudgetGeometry(row).geometrySegments, 0), 0)
       const failures: string[] = []
       for (const proposal of proposals) {
@@ -291,13 +294,16 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
         report.routes.push(routesFor(draft.id, null, port.roomId)); break
       }
       if (!report.entranceOpeningId) throw new InteriorGenerationError('search-exhausted', `有限外门与接入候选未找到完整净宽路线：${unique(failures).join('；') || '请调整入口、折点或建筑范围。'}`)
-    } else for (const row of walls) {
+    } else for (const row of entranceWalls) {
       if (row.rooms.length !== 1) continue
       const id = createDoor(row.wall)
       if (!id) continue
       report.entranceOpeningId = id; report.routes.push(routesFor(id, null, row.rooms[0])); break
     }
-    if (report.entranceOpeningId === null) notes.push('未找到足长且满足端部间隙的外墙入口；保留布局，可手工添加入口。')
+    if (arrangement.entranceRoomRequirementId !== undefined) {
+      if (requiredRoomId === undefined || report.entranceOpeningId === null) throw new InteriorGenerationError('search-exhausted', '指定入口房间没有可采用的足宽外门；未改用其他房间，请调整需求。')
+      next = applyCommands(next, [{ type: 'setEntranceOpenings', ids: [...next.constraints.entranceOpeningIds, report.entranceOpeningId] }], { ids: { nextId: () => report.entranceOpeningId! }, clock: { now: () => document.updatedAt } }, { budget: options.profile })
+    } else if (report.entranceOpeningId === null) notes.push('未找到足长且满足端部间隙的外墙入口；保留布局，可手工添加入口。')
   }
   for (const route of report.routes) if (route.status !== 'clear') notes.push(`通路建议未完成：${route.notes.join('；')}`)
   options.checkCancelled()
