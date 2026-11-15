@@ -1,0 +1,6 @@
+.asset-note-privacy{flex:none;max-height:min(28vh,200px);overflow:auto;background:#faf1df;color:#72542d;border-bottom:1px solid #e2cda5;padding:7px 12px;font-size:12px;overflow-wrap:anywhere}
+.asset-note-privacy summary{cursor:pointer;font-weight:600}
+.asset-note-privacy p{margin:7px 0}
+.asset-note-privacy ul{margin:4px 0;padding-left:20px}
+.asset-note-privacy button{max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;background:none;border:0;color:inherit;cursor:pointer;text-decoration:underline;padding:4px 0;font:inherit}
+.asset-note-privacy button:disabled{cursor:default;opacity:.6}

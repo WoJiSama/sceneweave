@@ -28,6 +28,7 @@ import { planRockStepSideMask } from './rock-step-surface-mask.js'
 import { paintConnectionLandingMask } from './connection-landing-mask.js'
 import { editorResidentAssetIds } from './aggregate-residency.js'
 import { paintWithPreservedAlpha } from './alpha-preservation.js'
+import { noteLabelPositions } from './note-label-layout.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -854,8 +855,10 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
     for (let y = Math.ceil(bounds.y / grid) * grid; y <= bounds.y + bounds.height; y += grid) { ctx.moveTo(bounds.x, y); ctx.lineTo(bounds.x + bounds.width, y) }
     ctx.stroke(); ctx.restore()
   }
+  const labelPositions = noteLabelPositions(projection.notes)
   for (const note of projection.notes) {
-    ctx.save(); ctx.translate(note.positionMm.x, note.positionMm.y); ctx.font = '500 155px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    const labelPosition = labelPositions.get(note.id)!
+    ctx.save(); ctx.translate(labelPosition.x, labelPosition.y); ctx.font = '500 155px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
     const text = [...note.text].slice(0, note.kind === 'label' ? 50 : 36).join(''), textWidth = Math.min(4600, ctx.measureText(text).width)
     ctx.fillStyle = '#F2EAD4'; ctx.globalAlpha = .94; ctx.fillRect(-textWidth / 2 - 75, -110, textWidth + 150, 220); ctx.globalAlpha = 1; ctx.fillStyle = note.visibility === 'gm' ? '#8B683F' : '#39443E'; ctx.fillText(text, 0, 0, 4600); ctx.restore()
   }

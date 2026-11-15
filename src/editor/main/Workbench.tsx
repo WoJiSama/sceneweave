@@ -1,5 +1,6 @@
 import { visualBase } from '../../shared/visual/base'
 import PathAttachmentTools from './PathAttachmentTools'
+import AssociatedNotes from './AssociatedNotes'
 import FloorTools from './FloorTools'
 import { resolveFloorOutput } from '../../shared/floors/output'
 import ImageImportTool from './ImageImportTool'
@@ -151,7 +152,7 @@ import PlacementInspector from './PlacementInspector'
 import SelectionInspector from './SelectionInspector'
 import SceneContextMenu, { type SceneMenu } from './SceneContextMenu'
 import { normalizeSelection } from '../native-canvas/selection'
-import { selectionActionBehavior, selectionCommands, type SelectionAction } from '../native-canvas/selection-actions'
+import { selectionActionBehavior, selectionActionReason, selectionCommands, type SelectionAction } from '../native-canvas/selection-actions'
 import { captureSceneClipboard, pasteSceneClipboard, type SceneClipboard } from './scene-clipboard'
 import { SelectionSession } from '../native-canvas/selection-session'
 import { SelectionSubscriber } from '../native-canvas/SelectionSubscriber'
@@ -1818,6 +1819,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       .map(kind => ({ kind, id: selected })).find(target => target.kind === 'prop' ? !!completeProject.document.props[target.id] : target.kind === 'room' ? !!completeProject.document.rooms[target.id] : target.kind === 'wall' ? !!completeProject.document.walls[target.id] : !!completeProject.document.terrainAreas[target.id]) : undefined
     return <aside className="asset-inspector">
       {enhancement && audience === 'gm' && <button type="button" className="secondary asset-wide" disabled={editDisabled} onClick={() => { if (guardAssetEditorDeparture() && guard()) setEnhancementTarget(enhancement) }}>编辑素材</button>}
+      {completeProject && selected && audience === 'gm' && !openingTool && !placement && <AssociatedNotes scene={completeProject.document} selectedId={selected} onSelect={select}/>}
       {openingTool ? <OpeningPlacementPanel value={openingTool} unit={completeProject?.document.units.display ?? 'm'} disabled={busy} onChange={setOpeningTool} onCancel={() => setOpeningTool(null)}/> : project && placement && audience === 'gm' ? <PlacementInspector scene={project.document} prop={placement.prop} busy={busy} ready={placementReady} onChange={changes => setPlacement(current => current ? { ...current, prop: { ...current.prop, ...changes } } : null)} onPlace={() => placeAt(placement.prop.positionMm)} onCancel={() => setPlacement(null)}/>
             : visibleProject && selectedIds.length > 1 && audience === 'gm' ? <div onChangeCapture={() => markFormDraft('selectionForm')}><SelectionInspector key={`${panelKey}-${formReset.selectionForm}`} scene={project!.document} ids={selectedIds} summaryReader={selectionSummaryReader} busy={toolDisabled(['selectionForm'])} onAction={batchAction} onClear={() => select(null)}/></div>
               : completeProject && selected && audience === 'gm' && (completeProject.document.decorations?.[selected] || completeProject.document.decorationClusters?.[selected]) ? <div onChangeCapture={() => markFormDraft('outdoorInspector')}><DecorationInspector onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.outdoorInspector}`} scene={completeProject.document} id={selected} disabled={toolDisabled(['outdoorInspector'])} onPreview={(commands, label) => previewDecorations(commands, label, 'outdoorInspector')} onSelect={select}/></div>
@@ -1887,6 +1889,13 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
               previewBuilding(commands, '拖动墙边，核对共享结构、门窗与支撑依赖', 'buildingInspector')
             }}
             onCopySelection={copySelection} onPasteSelection={pasteSelection}
+            onSelectionDragStart={ids => {
+              if (!active || !project || audience !== 'gm' || editDisabled || !guard()) return null
+              const targets = [...ids], checkpoint = compositionWorkspace.checkpoint()
+              const reason = selectionActionReason(project.document, targets, 'move', compositionWorkspace.getManualBudget(targets.length))
+              if (reason) { setMessage(reason); return null }
+              return offsetMm => batchAction('move', { dx: offsetMm.x, dy: offsetMm.y }, targets, checkpoint)
+            }}
             onDeleteSelection={() => {
               if (!active || editDisabled || document.querySelector('[role="dialog"],[role="menu"],.workspace-help[open],.workspace-export-menu[open]')) return
               batchAction('delete')

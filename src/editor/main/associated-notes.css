@@ -1,0 +1,8 @@
+.associated-notes { min-width: 0; margin-bottom: 1rem; padding-bottom: .8rem; border-bottom: 1px solid var(--border, #d2d5d0); }
+.associated-notes h2 { margin: .5rem 0; font-size: 1rem; }
+.associated-notes-door { padding: .5rem; margin-bottom: .5rem; background: var(--surface-alt, #f0f1eb); border-radius: .35rem; }
+.associated-note { margin: .5rem 0; padding: .5rem; border: 1px solid var(--border, #d2d5d0); border-radius: .35rem; }
+.associated-note summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.associated-note-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; user-select: text; }
+.associated-note-links { display: flex; flex-wrap: wrap; gap: .4rem .8rem; }
+.associated-note-links button, .associated-notes-door button { min-width: 0; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
