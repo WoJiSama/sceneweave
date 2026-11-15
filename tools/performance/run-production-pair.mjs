@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
 const argument = (key, fallback = '') => args.includes(key) ? args[args.indexOf(key) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/run-production-pair.mjs --before-source ABS --after-source ABS --before-dist ABS --after-dist ABS --fixtures ABS --output ABS --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-audit|history-total|replay-encoding|content-equality|history-boundaries|storage-footprint|cooperative-audit-prototype|prop-replay-prototype|content-block-batch-prototype|same-build-control [--case mixed-2000] [--pairs 3] [--history-depth 2] [--history-pattern toggle|distinct] [--diagnostic-replay|--diagnostic-warm] [--channel chrome] [--timeout-ms 180000]')
+  console.log('node tools/performance/run-production-pair.mjs --before-source ABS --after-source ABS --before-dist ABS --after-dist ABS --fixtures ABS --output ABS --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-audit|history-total|replay-encoding|content-equality|history-boundaries|storage-footprint|cooperative-audit-prototype|prop-replay-prototype|content-block-batch-prototype|accounting-snapshot-prototype|accounting-copy-prototype|same-build-control [--case mixed-2000] [--pairs 3] [--history-depth 2] [--history-pattern toggle|distinct] [--diagnostic-replay|--diagnostic-warm] [--channel chrome] [--timeout-ms 180000]')
   console.log('AB/BA alternating independent browsers. Import -> first +1mm -> selected history pattern with a final reset -> dual 4K -> page-reset cold open -> cold first +1mm -> cold warm reset. Stop product sampling before complete-package download; audit PNG/package in Node after browser exit. macOS RSS / Windows Working Set are distinct metrics. Diagnostic only; cannot close formal capacity/performance gates.')
   process.exit(0)
 }
@@ -32,7 +32,7 @@ check(!(diagnosticReplay && diagnosticWarm), 'Keep replay instrumented builds an
 const firstSide = argument('--first-side', 'before')
 const sources = Object.fromEntries(['before', 'after'].map(side => [side, argument(`--${side}-source`)]))
 const builds = Object.fromEntries(['before', 'after'].map(side => [side, argument(`--${side}-dist`)]))
-check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-audit', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries', 'storage-footprint', 'cooperative-audit-prototype', 'prop-replay-prototype', 'content-block-batch-prototype', 'same-build-control'].includes(optimization), 'Choose an explicit optimization scope')
+check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-audit', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries', 'storage-footprint', 'cooperative-audit-prototype', 'prop-replay-prototype', 'content-block-batch-prototype', 'accounting-snapshot-prototype', 'accounting-copy-prototype', 'same-build-control'].includes(optimization), 'Choose an explicit optimization scope')
 check(Number.isSafeInteger(historyDepth) && historyDepth >= 2 && historyDepth <= 100 && historyDepth % 2 === 0, 'History depth must be an even count from 2 to 100')
 check(['toggle', 'distinct'].includes(historyPattern), 'Choose toggle or distinct history positions')
 check(['before', 'after'].includes(firstSide), 'Invalid first side')
@@ -88,7 +88,11 @@ try {
   const frozen = await inputs(); manifest.frozen = frozen; manifest.fingerprint = sha(JSON.stringify(frozen))
   const before = new Map(frozen.before.source.map(row => [row.path, row.sha256])), after = new Map(frozen.after.source.map(row => [row.path, row.sha256]))
   const differences = [...new Set([...before.keys(), ...after.keys()])].filter(name => before.get(name) !== after.get(name)).sort()
-  const expected = optimization === 'same-build-control' ? [] : optimization === 'content-block-batch-prototype' ? [
+  const expected = optimization === 'same-build-control' ? [] : optimization === 'accounting-copy-prototype' ? [
+    'src/platform/browser/storage/repository.ts', 'src/platform/browser/storage/storage-accounting.ts', 'src/platform/browser/storage/accounting-copy.test.ts',
+  ].sort() : optimization === 'accounting-snapshot-prototype' ? [
+    'src/platform/browser/storage/repository.ts', 'src/platform/browser/storage/accounting-snapshot.test.ts',
+  ].sort() : optimization === 'content-block-batch-prototype' ? [
     'src/platform/browser/storage/content-block-middleware.ts', 'src/platform/browser/storage/content-block-batch.test.ts',
   ].sort() : optimization === 'prop-replay-prototype' ? [
     'src/shared/validation/snapshots.ts', 'src/shared/validation/content.ts',
@@ -157,6 +161,8 @@ try {
   if (diagnosticWarm) manifest.limitations.push('Explicit normal-build warm tracing/native API observation changes costs and scheduling. No CPU sampling profiler or forced GC. Its whole journey timings must remain separate from untraced runs; nested GC is measured by interval union, not inclusive sums.')
   if (optimization === 'prop-replay-prototype') manifest.scope = 'Unadopted finite Prop/frame replay experiment; original diagnostic scope prop-replay. Ordinary product sources do not include it.'
   if (optimization === 'content-block-batch-prototype') manifest.scope = 'Isolated native block-read batch continuation experiment. Every actual block read/hash and final CAS remain; ordinary source adoption requires separate evidence.'
+  if (optimization === 'accounting-snapshot-prototype') manifest.scope = 'Isolated accounting experiment: complete captured local JSON matching precedes reuse of this transaction\'s private world endpoint. Unknown inputs retain full decoding; native block freshness and CAS remain. Adoption is decided separately.'
+  if (optimization === 'accounting-copy-prototype') manifest.scope = 'Isolated final immutable replacement accounting experiment. Only exact transaction-owned endpoints avoid cloning discarded old payloads; other updates, full validation and actual block/resource/CAS checks remain. Adoption is decided separately.'
   if (optimization === 'workflow') manifest.scope = 'Combined cold history audit, internal verified import handoff, transactional resource reads and formal sprite paint bounds; not attribution to one micro-optimization.'
   const fixtureManifest = JSON.parse(await fs.readFile(path.join(fixtures, 'manifest.json'), 'utf8'))
   check(fixtureManifest.status === 'complete', 'Incomplete fixture preparation')

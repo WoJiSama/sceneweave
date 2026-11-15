@@ -8,14 +8,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
 const argument = (name, fallback = '') => args.includes(name) ? args[args.indexOf(name) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/prepare-production-pair.mjs --output ABS_EMPTY_DIRECTORY --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-total|replay-encoding|content-equality|history-boundaries|storage-footprint|cooperative-audit-prototype|prop-replay-prototype|content-block-batch-prototype')
+  console.log('node tools/performance/prepare-production-pair.mjs --output ABS_EMPTY_DIRECTORY --optimization encoding-owner|wall-paint|workflow|representation-worker|history-endpoint|history-total|replay-encoding|content-equality|history-boundaries|storage-footprint|cooperative-audit-prototype|prop-replay-prototype|content-block-batch-prototype|accounting-snapshot-prototype|accounting-copy-prototype')
   console.log('Copies current tracked files and performance tools into two isolated repositories. Adopted optimizations reverse their selected patch on before; explicit prototype scopes apply their unadopted experiment forward on after only. Runs normal architecture/type/Vite builds serially. The live workspace is never reverted; locked dependencies are linked.')
   process.exit(0)
 }
 const output = argument('--output'), optimization = argument('--optimization')
 check(output && path.isAbsolute(output) && output.startsWith(`${root}${path.sep}work${path.sep}`), 'Expected an isolated absolute --output under repository work/')
-check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries', 'storage-footprint', 'cooperative-audit-prototype', 'prop-replay-prototype', 'content-block-batch-prototype'].includes(optimization), 'Choose an explicit optimization scope')
-const prototypePatch = { 'cooperative-audit-prototype': 'cooperative-audit-20261112', 'prop-replay-prototype': 'prop-replay-20261112', 'content-block-batch-prototype': 'content-block-batch-20261113' }[optimization]
+check(['encoding-owner', 'wall-paint', 'workflow', 'representation-worker', 'history-endpoint', 'history-total', 'replay-encoding', 'content-equality', 'history-boundaries', 'storage-footprint', 'cooperative-audit-prototype', 'prop-replay-prototype', 'content-block-batch-prototype', 'accounting-snapshot-prototype', 'accounting-copy-prototype'].includes(optimization), 'Choose an explicit optimization scope')
+const prototypePatch = { 'cooperative-audit-prototype': 'cooperative-audit-20261112', 'prop-replay-prototype': 'prop-replay-20261112', 'content-block-batch-prototype': 'content-block-batch-20261113', 'accounting-snapshot-prototype': 'accounting-snapshot-20261113', 'accounting-copy-prototype': 'accounting-copy-20261113' }[optimization]
 await fs.mkdir(output, { recursive: true })
 check((await fs.readdir(output)).length === 0, 'Existing evidence will not be overwritten')
 const record = { format: 'sceneweave-normal-production-pair-preparation', version: 1, status: 'running', optimization,

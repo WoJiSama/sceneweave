@@ -1,0 +1,120 @@
+diff --git a/src/platform/browser/storage/accounting-snapshot.test.ts b/src/platform/browser/storage/accounting-snapshot.test.ts
+new file mode 100644
+index 0000000..c3b36cd
+--- /dev/null
++++ b/src/platform/browser/storage/accounting-snapshot.test.ts
+@@ -0,0 +1,95 @@
++import 'fake-indexeddb/auto'
++import Dexie from 'dexie'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { fixture, runtime, validation } from '../../../application/workspace/test-fixtures.js'
++import { createCompositionContent } from '../../../shared/appearance/graph.js'
++import * as coordinates from '../../../shared/aggregates/scene-coordinates.js'
++import { validateProjectSnapshot } from '../../../shared/project/resources.js'
++import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
++import { pinEncodedSnapshot, prepareEncodedSnapshot, type EncodedSnapshot } from './content-context.js'
++import type { StoredProject } from './database.js'
++import { ProjectRepository } from './repository.js'
++
++const repositories: ProjectRepository[] = []
++afterEach(async () => {
++  vi.restoreAllMocks()
++  for (const repository of repositories.splice(0)) { const name = repository.database.name; repository.close(); await Dexie.delete(name) }
++})
++async function setup() {
++  const input = fixture(), scene = input.project.document
++  scene.aggregateCoordinates = { encoding: 'world', groups: { local: { id: 'local', floorId: 'blank-floor', parentId: null,
++    frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
++  Object.assign(input.project, createCompositionContent(scene, runtime))
++  const bundle = await validateProjectSnapshot(input, validation), snapshot = prepareEncodedSnapshot(bundle)
++  const repository = new ProjectRepository({ name: `accounting-snapshot-${crypto.randomUUID()}`, runtime, validation }); repositories.push(repository); await repository.open()
++  const row: StoredProject = { sceneId: bundle.project.document.sceneId, revision: bundle.project.document.revision, savedAt: '2026-11-06T05:00:00.000Z',
++    contentHash: snapshot.encoded.contentHash, status: 'ready', conversionJobId: null, project: cloneJson(snapshot.encoded.stored) }
++  const cost = (value: unknown) => (repository as unknown as { rowCost(table: string, value: unknown): { kind: string; bytes: number } }).rowCost('projects', value)
++  const run = <T>(operation: () => T, pinned?: EncodedSnapshot) => repository.database.transaction('rw', repository.database.projects, repository.database.projectContentBlocks, () => {
++    if (pinned) pinEncodedSnapshot(Dexie.currentTransaction!.idbtrans, 'result', pinned)
++    return operation()
++  })
++  return { repository, bundle, snapshot, row, cost, run }
++}
++
++describe('accounting of exact transaction-owned local snapshots', () => {
++  it('measures the complete grouped payload without converting its already-proven world endpoint again', async () => {
++    const { bundle, snapshot, row, cost, run } = await setup(), decode = vi.spyOn(coordinates, 'decodeProjectCoordinates')
++    const expectedBytes = encodeUtf8(coordinates.canonicalProjectCoordinates(bundle.project)).length
++    expect(row.project.document.props.item.positionMm).not.toEqual(bundle.project.document.props.item.positionMm)
++    const original = canonicalJson(row)
++    await run(() => { expect(cost(row)).toEqual({ kind: 'documentBytes', bytes: expectedBytes }) }, snapshot)
++    expect(decode).not.toHaveBeenCalled()
++    expect(canonicalJson(row)).toBe(original)
++  })
++
++  it('rechecks the same mutable local record after a previous exact match', async () => {
++    const { snapshot, row, cost, run } = await setup()
++    await run(() => {
++      expect(cost(row).bytes).toBeGreaterThan(0)
++      row.project.document.props.item.positionMm.x += 1
++      expect(() => cost(row)).toThrow(/hash/)
++    }, snapshot)
++  })
++
++  it('rejects changed content with the same claimed complete hash and revision', async () => {
++    const { snapshot, row, cost, run } = await setup()
++    row.project.document.title = 'forged metadata match'
++    await expect(run(() => cost(row), snapshot)).rejects.toThrow(/hash/)
++  })
++
++  it('still checks row identity and revision after matching the complete payload', async () => {
++    const { snapshot, row, cost, run } = await setup()
++    for (const invalid of [{ ...row, sceneId: 'another-scene' }, { ...row, revision: row.revision + 1 }]) {
++      await expect(run(() => cost(invalid), snapshot)).rejects.toThrow(/身份|版本/)
++    }
++  })
++
++  it('does not consume getters hidden behind an otherwise matching payload', async () => {
++    const { snapshot, row, cost, run } = await setup(), getter = vi.fn(() => 'unexpected')
++    Object.defineProperty(row.project.document, 'title', { get: getter, enumerable: true, configurable: true })
++    await expect(run(() => cost(row), snapshot)).rejects.toThrow(/访问器|JSON/)
++    expect(getter).not.toHaveBeenCalled()
++  })
++
++  it('fully decodes an unpinned local row in a later transaction and rejects domain corruption', async () => {
++    const { snapshot, row, cost, run } = await setup(), decode = vi.spyOn(coordinates, 'decodeProjectCoordinates')
++    await run(() => cost(row), snapshot)
++    decode.mockClear()
++    await run(() => { expect(cost(row).bytes).toBeGreaterThan(0) })
++    expect(decode).toHaveBeenCalled()
++    row.project.document.props.item.positionMm.x = 0.25
++    await expect(run(() => cost(row))).rejects.toThrow()
++  })
++
++  it('saves and cold-loads complete grouped geometry through the real repository hooks', async () => {
++    const { repository, bundle } = await setup()
++    await repository.saveSnapshot(bundle, null)
++    const input = { project: cloneJson(bundle.project), resources: bundle.resources }
++    input.project.document.revision++; input.project.document.title = 'saved through hooks'
++    const next = await validateProjectSnapshot(input, validation)
++    await repository.saveSnapshot(next, bundle.project.document.revision)
++    repository.close()
++    expect((await repository.load(bundle.project.document.sceneId))?.project).toEqual(next.project)
++  })
++})
+diff --git a/src/platform/browser/storage/repository.ts b/src/platform/browser/storage/repository.ts
+index 4a770d1..7efec9c 100644
+--- a/src/platform/browser/storage/repository.ts
++++ b/src/platform/browser/storage/repository.ts
+@@ -661,7 +661,13 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+     const runtimeRecord = (row: unknown) => {
+       if (!row || typeof row !== 'object') return row
+       const record = row as Record<string, unknown>, project = record.project as ProjectData | undefined
+-      return project?.document?.aggregateCoordinates?.encoding === 'local' ? { ...record, project: decodeProjectCoordinates(project) } : row
++      if (project?.document?.aggregateCoordinates?.encoding !== 'local') return row
++      // Compare the complete captured local representation before reusing the
++      // transaction's private validated world endpoint. Unknown rows still
++      // decode and validate in full; native block freshness is independent.
++      const transaction = Dexie.currentTransaction
++      const prepared = transaction && matchingEncodedSnapshot(transaction.idbtrans, project)
++      return { ...record, project: prepared?.project ?? decodeProjectCoordinates(project) }
+     }
+     if (table === 'projects') assertCurrent(runtimeRecord(value) as StoredProject, content)
+     else if (table === 'automaticSnapshots') assertAutomatic(runtimeRecord(value) as StoredAutomatic, content)

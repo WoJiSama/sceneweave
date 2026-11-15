@@ -6,6 +6,59 @@
 
 ## 当前完整v1单项开发对照
 
+冷首写与内存接续已完成一轮独立研究，见[07决定](../../docs/07-roadmap.md#cold-first-memory-study-20261113)、[冷首写分段](../../docs/reference/performance.md#cold-first-save-20261113)及[生命周期](../../docs/reference/performance.md#memory-lifecycle-20261113)。本轮只新增诊断／汇总工具，没有接入新产品候选，不重复下文未采用微优化。普通七storage模块不变；新的原始源码／输入／采样仍在忽略work，其他电脑须重建新冻结，旧组件数字不替代正常UI或正式验收。
+
+`run-cold-save-analysis.mjs --config ABS_JSON --output ABS_NEW_WORK`在输出副本插桩页面／Worker粗边界，不改原src或正常dist。配置为`source`、`rounds`（1–3）及`cases`；每项含唯一`name`、实际工程`input`、`owners`（1–4）、`history`（0–66）、`edit`（metadata或prop），prop可指定`propId`。第2轮倒序、每项新浏览器／临时库，真实准备后重开，测冷＋两暖，结束完整冷读全部工程并核早／中／晚历史hash。记录capture超限回退、原生表数量／binary字节、页面／Worker完整边界及进程／heap实际采样；inclusive不相加，不把资源两组总差归为纯图片数效应。校准键序误判及修正见主题，缺样保持null。
+
+`run-memory-lifecycle-analysis.mjs --config ABS_JSON --output ABS_NEW_WORK`目前显式要求Windows以覆盖关闭页面后的进程观察，消费未插桩源模块。配置为`source`、`input`、`history`（0–44）、`cycles`（1–20）、`editsPerCycle`（1–3）、`rounds`（1–2）、`idleMs`（1000–10000），历史＋循环编辑不超过104。本轮为20／8／3／2／4000：固定组反复只读重开／完整核账／native readonly confirm／release，以前后所有原生行及实际字节摘要证明没有删除或修改历史；增长组实际保存全部新增几何版本。每循环自然空闲，最后15秒空闲／切工程10秒／release10秒，完整核对在采样结束后执行，关页另仅采进程5秒再核专用根退出。无强制GC或产品测量API，有限循环和实际Worker退出不证明完整UI小时级无泄漏，未测Worker独立heap／native／GPU。
+
+`summarize-storage-lifecycle.mjs [--cold ABS_ANALYSIS_JSON] [--memory ABS_ANALYSIS_JSON] --output ABS_NEW_JSON`读取完整报告，拒绝缺轮次或失败矩阵，输出报告与汇总器SHA；保留缺样null，内存纯空闲窗口按phase marker＋预声明时长裁切，不把下一次switch准备混进旧phase。汇总版本独立于测量工具冻结，不改原始report。首次先按本页已有准备方法建立合法fixtures及隔离正常源码冻结，随后以本机绝对路径写配置，例如：
+
+```json
+{
+  "source": "D:\\code\\sceneweave\\work\\frozen-current",
+  "rounds": 2,
+  "cases": [
+    { "name": "mixed-h20", "input": "D:\\code\\sceneweave\\work\\new-fixtures\\mixed-2000.sceneweave", "owners": 1, "history": 20, "edit": "metadata" }
+  ]
+}
+```
+
+内存配置使用同一`source`和`input`，另填`history:20, cycles:8, editsPerCycle:3, rounds:2, idleMs:4000`。输入／工具／源码和配置在每次测量结束核指纹，输出必须新目录；先检查工具，再依次串行运行，测量期间不要修改本工具目录、构建／测试或另开浏览器：
+
+```powershell
+node --test tools/performance/cold-save-analysis.test.mjs tools/performance/storage-lifecycle-summary.test.mjs
+node tools/performance/run-cold-save-analysis.mjs --config D:\code\sceneweave\work\cold-config.json --output D:\code\sceneweave\work\new-cold-report
+node tools/performance/run-memory-lifecycle-analysis.mjs --config D:\code\sceneweave\work\memory-config.json --output D:\code\sceneweave\work\new-memory-report
+node tools/performance/summarize-storage-lifecycle.mjs --cold D:\code\sceneweave\work\new-cold-report\analysis.json --memory D:\code\sceneweave\work\new-memory-report\analysis.json --output D:\code\sceneweave\work\new-storage-summary.json
+```
+
+保存剩余成本工具`run-save-cost-analysis.mjs --source ABS_FROZEN --input ABS_SCENEWEAVE --output ABS_NEW_WORK --mode profile|native|boundaries|hooks --history 20`将观察分开：profile消费未改源码，仅CDP主线程CPU；native仅在隔离页面包装原生请求提交／事件／首次result／同步onsuccess与显式structuredClone，不额外读库或保存key／值；boundaries仅在输出副本为记账／资源／历史和编码函数包粗边界；hooks另围住坐标／记账钩子的old／envelope clone并仅统计changes数量、nested数量及完整payload是否末项，不记录字段名和值，源码边界漂移即拒绝。每次新Chrome／临时库先建立实际标题历史，冷读后保存cold和两warm，最后核24版本及完整冷读。CPU区间还包候选创建／CDP往返，总保存仅saveSnapshot，不能混算占比；原生等待重叠、回调含核块、函数inclusive嵌套都不相加。结果不是正常生产UI、精确数据库线程CPU或浏览器全部反序列化成本，未知／idle／GC帧保持，没有独占负载证明。
+
+钩子复制研究已完成，本轮微优化收口：第一份坐标clone收到完整nested差异仍必要；第二份记账clone约11ms复制后即被末项完整project覆盖。最小候选只对本事务确切私有不可变末项替换省旧payload副本，并令rowCost仅确切引用消费world端点；未知对象直接原转换，不叠加下面完整捕获匹配实验。31项相关单元／正常构建／8项生产专项／9项工具检查通过，固定两对104操作／4包／8图一致。正常暖中位−15.73%、冷后暖−10.86%，Working Set两对−12.45%／−8.48%，但冷开+24.40%／−0.13%、冷首写+18.78%／−1.56%，私有提交第二对+3.85%，冷后暖一笔无进程样本保留null。**本候选不采用，不追加有利轮次**，普通七存储模块不改；完整结果归[主题](../../docs/reference/performance.md#accounting-hook-copy-20261113)，后续转向冷首写／长期内存分析，证据范围归[收口表](../../docs/reference/performance.md#performance-capacity-closure-20261113)。
+
+`experiments/accounting-copy-20261113.patch`保全两产品＋新测试（6项），保留CRLF并正反向逐字节核对。`accounting-copy-prototype`准备器只向隔离after正向应用，运行器严格要求repository、storage-accounting、accounting-copy测试三份src差异；不是已采用基线，不在普通工作区反向应用。先按本页容量准备器在本机生成fixtures，轮数事前固定，正常测量期间不修改工具目录，原始源码／产物／包／日志仍留忽略work：
+
+```powershell
+node --test tools/performance/save-cost-analysis.test.mjs tools/performance/production-pair-audit.test.mjs
+node tools/performance/prepare-production-pair.mjs --optimization accounting-copy-prototype --output D:\code\sceneweave\work\new-hook-copy\builds
+node tools/performance/run-save-cost-analysis.mjs --source D:\code\sceneweave\work\new-hook-copy\builds\before --input D:\code\sceneweave\work\new-pair\fixtures\mixed-2000.sceneweave --output D:\code\sceneweave\work\new-hook-copy\diagnostic-before --mode hooks --history 20
+node tools/performance/run-production-pair.mjs --optimization accounting-copy-prototype --before-source D:\code\sceneweave\work\new-hook-copy\builds\before --after-source D:\code\sceneweave\work\new-hook-copy\builds\after --before-dist D:\code\sceneweave\work\new-hook-copy\builds\before\dist --after-dist D:\code\sceneweave\work\new-hook-copy\builds\after\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern toggle --pairs 2 --output D:\code\sceneweave\work\new-hook-copy\normal-ab
+```
+
+本轮暖记账先local→world再捕获匹配约67ms；隔离候选先完整匹配本事务私有local端点再消费其world视图，暖边界降至0.1–0.3ms，但组件整笔仍更慢。54项相关单元、正常构建及8项生产专项通过；固定正常两对104操作／4包／8图实际RGBA一致，采用后暖中位−5.76%、冷后暖−10.01%，首次一升一降基本持平；进程Working Set两对+4.77%／+5.73%，页面heap−6.56%／+24.72%。**候选不采用**，不把局部边界或暖笔收益当全部性能／内存通过，普通七存储模块不改。状态／全部数值见[07](../../docs/07-roadmap.md#save-cost-20261113)与[主题](../../docs/reference/performance.md#save-cost-20261113)。
+
+`experiments/accounting-snapshot-20261113.patch`含1产品＋1测试（7项），CRLF原样正反向逐字节验证。`prepare-production-pair.mjs --optimization accounting-snapshot-prototype`只在隔离after正向应用；同scope正常运行器严格只允许repository和accounting-snapshot测试两份src不同。实验不是发布基线，不能反向回退普通工作区；旧失败补丁和测量时工具另存忽略证据，最终修正不改旧manifest。换电脑先按本页容量准备器生成实际输入，再以新空目录串行运行，测量期间不要修改本工具目录：
+
+```powershell
+node --test tools/performance/save-cost-analysis.test.mjs tools/performance/production-pair-audit.test.mjs
+node tools/performance/prepare-production-pair.mjs --optimization accounting-snapshot-prototype --output D:\code\sceneweave\work\new-save-cost\builds
+node tools/performance/run-save-cost-analysis.mjs --source D:\code\sceneweave\work\new-save-cost\builds\before --input D:\code\sceneweave\work\new-pair\fixtures\mixed-2000.sceneweave --output D:\code\sceneweave\work\new-save-cost\profile --mode profile --history 20
+node tools/performance/run-save-cost-analysis.mjs --source D:\code\sceneweave\work\new-save-cost\builds\before --input D:\code\sceneweave\work\new-pair\fixtures\mixed-2000.sceneweave --output D:\code\sceneweave\work\new-save-cost\native --mode native --history 20
+node tools/performance/run-save-cost-analysis.mjs --source D:\code\sceneweave\work\new-save-cost\builds\before --input D:\code\sceneweave\work\new-pair\fixtures\mixed-2000.sceneweave --output D:\code\sceneweave\work\new-save-cost\boundaries --mode boundaries --history 20
+node tools/performance/run-production-pair.mjs --optimization accounting-snapshot-prototype --before-source D:\code\sceneweave\work\new-save-cost\builds\before --after-source D:\code\sceneweave\work\new-save-cost\builds\after --before-dist D:\code\sceneweave\work\new-save-cost\builds\before\dist --after-dist D:\code\sceneweave\work\new-save-cost\builds\after\dist --fixtures D:\code\sceneweave\work\new-pair\fixtures --history-depth 20 --history-pattern toggle --pairs 2 --output D:\code\sceneweave\work\new-save-cost\normal-ab
+```
+
 最终写事务归因新增`run-content-transaction-analysis.mjs --source ABS_FROZEN --input ABS_SCENEWEAVE --output ABS_NEW_WORK [--history 20]`，在忽略输出副本插入粗函数inclusive墙钟及缓存计数，原src／正常dist不动。独立Chrome／空临时库建立标题历史，重开后cold／warm1／warm2各保存一次，末尾核完整冷读及实际版本数。原生观察按事务计算块get唯一／重复次数，key仅留短时页面Set、不输出key／值、不额外读库；实际块捕获／SHA、资源／许可、预算及CAS保持。源组件没有编辑器局部回执，嵌套／async inclusive不可相加，未采全机背景CPU，不以它替代正常页面或精确CPU／分配。当前证据见[性能主题](../../docs/reference/performance.md#content-transaction-20261113)，开发决定见[07](../../docs/07-roadmap.md#content-transaction-20261113)。
 
 原实现已证明每笔1582次实际块get都在最终写事务且重复0，另1576次需求命中缓存，暖物化解析0；不能再提加相同缓存。收敛Promise批次候选通过30项单元／正常构建／8项生产故障专项，固定两对正常对照4包／8图实际像素保持，但采用后首笔+2.63%、暖+0.19%，页面heap两对+9.87%／+21.06%；冷后暖虽−15.84%，全机负载不等，不判稳定净收益。**候选未采用**，完整两文件及4新测试保全`experiments/content-block-batch-20261113.patch`，不是发布基线；测量版工具单独在忽略证据根`measured-tools/`保全，收尾修改不回写历史manifest。

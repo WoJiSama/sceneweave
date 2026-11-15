@@ -1,0 +1,194 @@
+diff --git a/src/platform/browser/storage/accounting-copy.test.ts b/src/platform/browser/storage/accounting-copy.test.ts
+new file mode 100644
+index 0000000..3fb675c
+--- /dev/null
++++ b/src/platform/browser/storage/accounting-copy.test.ts
+@@ -0,0 +1,121 @@
++import 'fake-indexeddb/auto'
++import Dexie from 'dexie'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { fixture, runtime, validation } from '../../../application/workspace/test-fixtures.js'
++import { createCompositionContent } from '../../../shared/appearance/graph.js'
++import { validateProjectSnapshot } from '../../../shared/project/resources.js'
++import { canonicalJson, cloneJson, encodeUtf8, freezeJson } from '../../../shared/validation/json.js'
++import type { ProjectDatabase, StoredProject } from './database.js'
++import { pinEncodedSnapshot, prepareEncodedSnapshot, type EncodedSnapshot } from './content-context.js'
++import { StorageAccounting } from './storage-accounting.js'
++import { ProjectRepository } from './repository.js'
++
++const databases: Dexie[] = [], repositories: ProjectRepository[] = []
++afterEach(async () => {
++  vi.restoreAllMocks()
++  for (const repo of repositories.splice(0)) { const name = repo.database.name; repo.close(); await Dexie.delete(name) }
++  for (const db of databases.splice(0)) { const name = db.name; db.close(); await Dexie.delete(name) }
++})
++async function prepared() {
++  const input = fixture(), scene = input.project.document
++  scene.aggregateCoordinates = { encoding: 'world', groups: { local: { id: 'local', floorId: 'blank-floor', parentId: null,
++    frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
++  Object.assign(input.project, createCompositionContent(scene, runtime))
++  const bundle = await validateProjectSnapshot(input, validation), snapshot = prepareEncodedSnapshot(bundle)
++  return { bundle, snapshot }
++}
++async function accountRows() {
++  const db = new Dexie(`account-copy-${crypto.randomUUID()}`); databases.push(db)
++  db.version(1).stores({ projects: 'sceneId', storageState: 'key' }); await db.open()
++  const measured: { before: unknown; value: any }[] = [], accounting = new StorageAccounting(db as ProjectDatabase,
++    async () => ({ documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }), (table, value) => {
++      if (table === 'projects') { measured.push({ before: cloneJson(value), value }); return { kind: 'documentBytes', bytes: encodeUtf8(canonicalJson(value)).length } }
++      return null
++    })
++  const run = async (row: any, changes: Record<string, unknown>, snapshot?: EncodedSnapshot) => {
++    await db.transaction('rw', db.tables, async () => accounting.run(async () => {
++      const tx = Dexie.currentTransaction!
++      if (snapshot) pinEncodedSnapshot(tx.idbtrans, 'result', snapshot)
++      // Exercise the actual registered accounting hook, including its pending
++      // transaction and complete before/after measurement. Coordinate handling
++      // is covered separately through the real repository below.
++      db.table('projects').hook.updating.fire.call({}, changes, row.sceneId, row, tx)
++    }))
++  }
++  return { run, measured }
++}
++
++describe('accounting final immutable replacement ownership', () => {
++  it('does not copy discarded old payloads and preserves complete old/new rows and metadata', async () => {
++    const { snapshot } = await prepared(), { run, measured } = await accountRows()
++    const before = { sceneId: 'old', project: cloneJson(snapshot.encoded.stored), meta: { nested: { value: 1 }, list: [1, 2, 3] } }, original = cloneJson(before)
++    const changes = { 'project.document.title': 'overwritten', 'meta.nested.value': 2, 'meta.list.1': undefined, project: snapshot.encoded.stored }
++    const copy = vi.spyOn(globalThis, 'structuredClone')
++    await run(before, changes, snapshot)
++    expect(copy.mock.calls.some(([value]) => value === before)).toBe(false)
++    const next = measured.at(-1)!.value
++    expect(next.project).toBe(snapshot.encoded.stored)
++    expect(next.meta).toEqual({ nested: { value: 2 }, list: [1, 3] })
++    expect(before).toEqual(original)
++    next.meta.nested.value = 9
++    expect(before.meta.nested.value).toBe(1)
++    expect(snapshot.encoded.stored.document.title).not.toBe('overwritten')
++  })
++
++  it('retains complete clone and ordered updates when a nested change follows the full replacement', async () => {
++    const { snapshot } = await prepared(), { run, measured } = await accountRows()
++    const before = { sceneId: 'old', project: cloneJson(snapshot.encoded.stored) }, copy = vi.spyOn(globalThis, 'structuredClone')
++    await run(before, { project: cloneJson(snapshot.encoded.stored), 'project.document.title': 'last nested value' }, snapshot)
++    expect(copy.mock.calls.some(([value]) => value === before)).toBe(true)
++    expect(measured.at(-1)!.value.project.document.title).toBe('last nested value')
++    expect(before.project.document.title).not.toBe('last nested value')
++  })
++
++  it('does not inherit private ownership from mutable copies, frozen copies or an earlier transaction', async () => {
++    const { snapshot } = await prepared(), { run } = await accountRows(), copy = vi.spyOn(globalThis, 'structuredClone')
++    for (const [replacement, pin] of [
++      [cloneJson(snapshot.encoded.stored), snapshot], [freezeJson(cloneJson(snapshot.encoded.stored)), snapshot], [snapshot.encoded.stored, undefined],
++    ] as const) {
++      const before = { sceneId: 'old', project: cloneJson(snapshot.encoded.stored) }
++      await run(before, { project: replacement }, pin)
++      expect(copy.mock.calls.some(([value]) => value === before)).toBe(true)
++    }
++  })
++
++  it('uses general clone semantics for nested payload edits and deletions', async () => {
++    const { snapshot } = await prepared(), { run, measured } = await accountRows()
++    const before = { sceneId: 'old', project: cloneJson(snapshot.encoded.stored), metadata: { keep: 1, remove: 2 } }, original = cloneJson(before)
++    await run(before, { 'project.document.title': 'nested edit', 'metadata.remove': undefined }, snapshot)
++    expect(measured.at(-1)!.value).toMatchObject({ project: { document: { title: 'nested edit' } }, metadata: { keep: 1 } })
++    expect(Object.hasOwn(measured.at(-1)!.value.metadata, 'remove')).toBe(false)
++    expect(before).toEqual(original)
++  })
++
++  it('real repository preserves complete grouped local storage and world cold reads', async () => {
++    const { bundle } = await prepared(), repo = new ProjectRepository({ name: `account-copy-repo-${crypto.randomUUID()}`, runtime, validation }); repositories.push(repo)
++    await repo.saveSnapshot(bundle, null)
++    const next = { project: cloneJson(bundle.project), resources: bundle.resources }
++    next.project.document.revision++; next.project.document.title = 'next title'
++    next.project.document.props.item.positionMm.x += 10
++    await repo.saveSnapshot(await validateProjectSnapshot(next, validation), bundle.project.document.revision)
++    repo.close()
++    expect((await repo.load(bundle.project.document.sceneId))!.project).toEqual(next.project)
++  })
++
++  it('exact local snapshot accounting still rejects wrong row identity, revision or full content hash', async () => {
++    const { snapshot } = await prepared(), repo = new ProjectRepository({ name: `account-copy-invalid-${crypto.randomUUID()}`, runtime, validation }); repositories.push(repo); await repo.open()
++    const row: StoredProject = { sceneId: snapshot.project.document.sceneId, revision: snapshot.project.document.revision, savedAt: '2026-11-06T05:00:00.000Z',
++      contentHash: snapshot.encoded.contentHash, status: 'ready', conversionJobId: null, project: snapshot.encoded.stored }
++    const cost = (value: unknown) => (repo as unknown as { rowCost(table: string, value: unknown): unknown }).rowCost('projects', value)
++    await repo.database.transaction('rw', repo.database.tables, () => {
++      pinEncodedSnapshot(Dexie.currentTransaction!.idbtrans, 'result', snapshot)
++      expect(() => cost({ ...row, sceneId: 'wrong' })).toThrow()
++      expect(() => cost({ ...row, revision: row.revision + 1 })).toThrow()
++      expect(() => cost({ ...row, contentHash: '0'.repeat(64) })).toThrow(/hash/)
++      const mutable = cloneJson(row)
++      expect(() => cost(mutable)).not.toThrow()
++      mutable.project.document.title = 'changed after checking'
++      expect(() => cost(mutable)).toThrow(/hash/)
++    })
++  })
++})
+diff --git a/src/platform/browser/storage/repository.ts b/src/platform/browser/storage/repository.ts
+index 4a770d1..26033fb 100644
+--- a/src/platform/browser/storage/repository.ts
++++ b/src/platform/browser/storage/repository.ts
+@@ -14,7 +14,7 @@ import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBun
+ import { checkedContentBlock, createProjectMaterializer, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
+ import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
+ import { waitForStorageTransaction } from './transaction-lifetime.js'
+-import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedProjectDelta, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot, type PreparedProjectDelta } from './content-context.js'
++import { canRetainEncodedSnapshot, exactEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedProjectDelta, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot, type PreparedProjectDelta } from './content-context.js'
+ import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
+ import { getProjectLocalTransaction, getProjectTransactionReceipt, projectContentHash, validateProjectData, releaseProjectLocalTransaction, releaseProjectTransactionReceipt } from '../../../shared/project/validate.js'
+ import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
+@@ -661,7 +661,12 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore,
+     const runtimeRecord = (row: unknown) => {
+       if (!row || typeof row !== 'object') return row
+       const record = row as Record<string, unknown>, project = record.project as ProjectData | undefined
+-      return project?.document?.aggregateCoordinates?.encoding === 'local' ? { ...record, project: decodeProjectCoordinates(project) } : row
++      if (project?.document?.aggregateCoordinates?.encoding !== 'local') return row
++      // Only an exact transaction-owned immutable payload can retain its
++      // validated world endpoint. Unknown rows still decode in full.
++      const transaction = Dexie.currentTransaction
++      const prepared = transaction && exactEncodedSnapshot(transaction.idbtrans, project)
++      return { ...record, project: prepared?.project ?? decodeProjectCoordinates(project) }
+     }
+     if (table === 'projects') assertCurrent(runtimeRecord(value) as StoredProject, content)
+     else if (table === 'automaticSnapshots') assertAutomatic(runtimeRecord(value) as StoredAutomatic, content)
+diff --git a/src/platform/browser/storage/storage-accounting.ts b/src/platform/browser/storage/storage-accounting.ts
+index 316491b..80b1919 100644
+--- a/src/platform/browser/storage/storage-accounting.ts
++++ b/src/platform/browser/storage/storage-accounting.ts
+@@ -1,6 +1,8 @@
+ import Dexie, { type Transaction } from 'dexie'
+ import type { ProjectDatabase } from './database.js'
+ import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
++import { exactEncodedSnapshot } from './content-context.js'
++import type { ProjectData } from '../../../shared/model/project.js'
+ import type { StorageAuditPreparation } from './storage-audit.js'
+ 
+ export interface StorageTotals { documentBytes: number; resourceBytes: number; legacyBytes: number }
+@@ -38,8 +40,24 @@ export class StorageAccounting {
+         // Dexie supplies a detached old record and dotted-path updates. Preserve it
+         // while independently measuring the exact value Dexie will persist.
+         if (!this.pending.has(tx)) { this.changed(tx, name, undefined, undefined); return }
+-        const next = structuredClone(value)
+-        for (const [path, update] of Object.entries(changes)) Dexie.setByKeyPath(next, path, update)
++        const entries = Object.entries(changes), field = CONTENT_PAYLOAD_FIELDS[name]
++        const last = entries.at(-1), replacement = field && last?.[0] === field ? last[1] as ProjectData : undefined
++        // The preceding coordinate hook appends the final complete payload.
++        // Earlier child changes are overwritten by it. Keep this private
++        // immutable endpoint and avoid cloning the old payload just to discard
++        // it. Unknown replacements and other ordering retain the general path.
++        const prepared = replacement && exactEncodedSnapshot(tx.idbtrans, replacement)
++        let next: typeof value
++        if (prepared) {
++          const { [field]: discarded, ...envelope } = value
++          void discarded
++          next = structuredClone(envelope)
++          next[field] = replacement
++          for (const [path, update] of entries) if (path !== field && !path.startsWith(`${field}.`)) Dexie.setByKeyPath(next, path, update)
++        } else {
++          next = structuredClone(value)
++          for (const [path, update] of entries) Dexie.setByKeyPath(next, path, update)
++        }
+         this.changed(tx, name, value, next)
+       })
+     }
