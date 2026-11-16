@@ -117,6 +117,7 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     z.object({ type: z.literal('renameScene'), title: z.string().trim().min(1).max(120) }).strict(),
     z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
     z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
+  z.object({ type: z.literal('setWallEdgeProfile'), id, profile: z.enum(['straight', 'stone-blocks-v1']) }).strict(),
     z.object({ type: z.literal('reverseWall'), id }).strict(),
     z.object({ type: z.literal('splitWall'), id, positionMm: point, newVertexId: id, newWallId: id }).strict(),
     z.object({ type: z.literal('setSurfaceMaterial'), kind: z.enum(['room', 'terrainArea', 'wall']), id, materialRef: version }).strict(),

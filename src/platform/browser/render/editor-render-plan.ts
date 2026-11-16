@@ -1,3 +1,4 @@
+import { WALL_RELIEF_LIMIT_MM } from '../../../shared/appearance/wall-edge-profile.js'
 import { effectivePropShadow, propPaintPolygon } from '../../../shared/appearance/presentation.js'
 import type { BoundsMm, Prop } from '../../../shared/model/scene.js'
 import { transformedVisualBounds } from './geometry'
@@ -40,6 +41,7 @@ export function editorPaintBounds(projection: Projection, plan: Pick<EditorRende
   const shadowPadding = (shadow: { opacity: number; offsetMm: number; blurMm: number } | undefined | null) => shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : 0
   const theme = projection.theme
   padding = Math.max(padding, shadowPadding(theme?.shadowPresets.wall), theme?.outline.widthMm ?? 24)
+  if (projection.walls.some(wall => wall.edgeProfile)) padding += WALL_RELIEF_LIMIT_MM
   if (theme?.terrainCliff.opacity) padding = Math.max(padding, theme.terrainCliff.maxOffsetMm + theme.terrainCliff.blurMm * 4)
   for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(effectivePropShadow(entry.prop, projection.propPresentations?.[entry.prop.id], theme?.shadowPresets[entry.prop.shadowClass])))
   const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style), ...projection.paths.map(path => path.style)]

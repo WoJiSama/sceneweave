@@ -1,4 +1,5 @@
 import type { AggregateEntityRef } from '../model/aggregate.js'
+import { WALL_RELIEF_LIMIT_MM } from '../appearance/wall-edge-profile.js'
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
 import { connectionFootprint, pathPolygon, propFootprint, roomPoints, terrainPoints } from '../geometry/geometry.js'
 import { openingEnvelopePolygon, wallEnvelopePolygons } from '../geometry/doorway-clearance.js'
@@ -148,7 +149,11 @@ function deriveEnvelopes(scene: SceneDocument, audience: AggregateSpatialAudienc
       const points = pointsByWall.get(shape.entityId) ?? []
       points.push(...shape.polygon); pointsByWall.set(shape.entityId, points)
     }
-    for (const wall of requestedWalls) addPoints('wall', wall.id, wall.floorId, 'boundary', pointsByWall.get(wall.id) ?? [])
+    for (const wall of requestedWalls) {
+      const points = pointsByWall.get(wall.id) ?? []
+      addPoints('wall', wall.id, wall.floorId, 'boundary', points)
+      if (wall.edgeProfile) addPoints('wall', wall.id, wall.floorId, 'visual', points, WALL_RELIEF_LIMIT_MM)
+    }
   }
   for (const opening of records(scene.openings, 'opening')) {
     if (!visible('opening', opening.id)) continue

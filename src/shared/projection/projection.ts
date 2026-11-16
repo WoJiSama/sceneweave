@@ -3,6 +3,7 @@ import { associateScenePresentations, copyScenePresentations, effectivePropShado
 import { visualBase } from '../visual/base.js'
 import { projectVisualSystem } from '../visual/projection.js'
 import { cloneJson } from '../validation/json.js'
+import { WALL_RELIEF_LIMIT_MM } from '../appearance/wall-edge-profile.js'
 import type { BoundsMm, EdgeStyle, Note, PointMm, Prop, ShadowStyle, SurfaceRef, SurfaceStyle, TerrainArea, TerrainEdge } from '../model/scene.js'
 import type { SceneDocument } from '../model/scene.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
@@ -74,7 +75,7 @@ function canonicalWalls(walls: ProjectedWall[], compareLayer: (a: { id: string }
   for (const wall of walls) {
     const previous = result.find(item => {
       const dx = item.end.x - item.start.x, dy = item.end.y - item.start.y
-      return compareLayer(item, wall) === 0 && item.thicknessMm === wall.thicknessMm && styleKey(item.style) === styleKey(wall.style) && item.blocksLight === wall.blocksLight && close(item.end, wall.start) && Math.abs(dx * (wall.end.y - wall.start.y) - dy * (wall.end.x - wall.start.x)) < EPS * Math.hypot(dx, dy)
+      return compareLayer(item, wall) === 0 && item.thicknessMm === wall.thicknessMm && item.edgeProfile === wall.edgeProfile && styleKey(item.style) === styleKey(wall.style) && item.blocksLight === wall.blocksLight && close(item.end, wall.start) && Math.abs(dx * (wall.end.y - wall.start.y) - dy * (wall.end.x - wall.start.x)) < EPS * Math.hypot(dx, dy)
     })
     if (previous) { previous.end = wall.end; previous.sourceIds.push(...wall.sourceIds); previous.openings.push(...wall.openings) }
     else result.push(wall)
@@ -314,7 +315,13 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
     if (audience === 'player') {
       const neighbors = allRoomEdges.get(edgeKey(wall.startVertexId, wall.endVertexId)) ?? []
       if (neighbors.length && !neighbors.some(roomPublic)) continue
-      if (!neighbors.length && boundsCovered(inflate(pointsBounds([start, end]), wall.thicknessMm / 2 + shadowPadding(theme?.shadowPresets.wall)), rectangles)) continue
+      if (!neighbors.length) {
+        const bodyPadding = wall.thicknessMm / 2 + shadowPadding(theme?.shadowPresets.wall)
+        if (boundsCovered(inflate(pointsBounds([start, end]), bodyPadding), rectangles)) {
+          if (wall.edgeProfile && !boundsCovered(inflate(pointsBounds([start, end]), bodyPadding + WALL_RELIEF_LIMIT_MM), rectangles)) throw new Error('玩家输出不安全：固定遮罩还需覆盖块石外缘。')
+          continue
+        }
+      }
     }
     visibleWallIds.add(wall.id)
     const openings = (openingsByWall.get(wall.id) ?? []).map(o => {
@@ -322,7 +329,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       const [a, b] = openingEndpoints(scene, o)
       return { id: o.id, start: { ...a }, end: { ...b }, widthMm: o.widthMm, kind: o.kind, state: o.state, secret: audience === 'gm' && o.secret, ...(!entityShown(o.id) ? { paintSymbol: false } : {}) }
     })
-    walls.push({ id: wall.id, sourceIds: [wall.id], blocksLight: wall.blocksSight, start, end, thicknessMm: wall.thicknessMm, style: clone(wall.topStyle), openings })
+    walls.push({ id: wall.id, sourceIds: [wall.id], blocksLight: wall.blocksSight, start, end, thicknessMm: wall.thicknessMm, ...(wall.edgeProfile ? { edgeProfile: wall.edgeProfile } : {}), style: clone(wall.topStyle), openings })
   }
   const regionVisible = (id: string) => scene.regions[id]?.kind !== 'manualMask' && scene.regions[id]?.visibility === 'public'
   const visibleWallVertices = new Set([...visibleWallIds].flatMap(id => [scene.walls[id].startVertexId, scene.walls[id].endVertexId]))
@@ -365,7 +372,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
     const privateBounds: BoundsMm[] = []
     for (const room of floorValues(scene.rooms)) if (!roomPublic(room.id)) {
       const adjacent = floorValues(scene.walls).filter(w => allRoomEdges.get(edgeKey(w.startVertexId, w.endVertexId))?.includes(room.id))
-      privateBounds.push(inflate(pointsBounds(roomPoints(scene, room)), Math.max(0, ...adjacent.map(w => w.thicknessMm)) / 2 * 2 + shadowPadding(theme?.shadowPresets.wall)))
+      privateBounds.push(inflate(pointsBounds(roomPoints(scene, room)), Math.max(0, ...adjacent.map(w => w.thicknessMm)) / 2 * 2 + (adjacent.some(w => w.edgeProfile) ? WALL_RELIEF_LIMIT_MM : 0) + shadowPadding(theme?.shadowPresets.wall)))
     }
     for (const prop of floorValues(scene.props)) if (!propPublic(prop)) {
       const presentation = scenePresentation(scene, prop.id), shadow = effectivePropShadow(prop, presentation, theme?.shadowPresets[prop.shadowClass])

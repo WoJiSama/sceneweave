@@ -10,6 +10,8 @@ import { cloneJson, canonicalJson } from '../validation/json.js'
 import { sampleVisualBoundary } from '../visual/geometry.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import { applyCompositionCommands, applyCompositionDraftCommands } from '../appearance/commands.js'
+import { WALL_RELIEF_MATERIAL_ID } from '../appearance/wall-edge-profile.js'
+import nativeScenes from '../../platform/browser/content/scenes-data.json'
 
 const floorId = 'blank-floor', layerId = 'layer-default-0'
 let sequence = 0
@@ -174,6 +176,23 @@ describe('native building edits', () => {
     const impact = previewBuildingCommands(source, [{ type: 'repairBuildingTopology', id: 'long-room', operation: 'mergeCollinear' }])
     expect(impact.reason).toMatch(/墙锚定注记/)
     expect(canonicalJson(source)).toBe(before)
+  })
+
+  it('does not merge differently selected wall edges and preserves a common edge selection when merging', () => {
+    let source = apply(fixture(), room('long-room', [{ x: 2000, y: 2000 }, { x: 4000, y: 2000 }, { x: 8000, y: 2000 }, { x: 8000, y: 8000 }, { x: 2000, y: 8000 }]))
+    const left = wallAt(source, { x: 2000, y: 2000 }, { x: 4000, y: 2000 }), right = wallAt(source, { x: 4000, y: 2000 }, { x: 8000, y: 2000 })
+    const assetId = nativeScenes.scenes.blank.document.materials['b2-m-04'].textureAssetId
+    source.assets[assetId] = cloneJson(nativeScenes.scenes.blank.document.assets[assetId as keyof typeof nativeScenes.scenes.blank.document.assets]) as SceneDocument['assets'][string]
+    source.materials[WALL_RELIEF_MATERIAL_ID] = { ...cloneJson(nativeScenes.scenes.blank.document.materials['b2-m-04']), id: WALL_RELIEF_MATERIAL_ID, version: 1, applicableSurfaces: ['wall'] } as SceneDocument['materials'][string]
+    source = apply(source, ...[left.id, right.id].map(id => ({ type: 'setSurfaceMaterial' as const, kind: 'wall' as const, id, materialRef: { id: WALL_RELIEF_MATERIAL_ID, version: 1 } })),
+      { type: 'setWallEdgeProfile', id: left.id, profile: 'stone-blocks-v1' })
+    const before = canonicalJson(source)
+    expect(() => apply(source, { type: 'repairBuildingTopology', id: 'long-room', operation: 'mergeCollinear' })).toThrow(/无损合并/)
+    expect(canonicalJson(source)).toBe(before)
+    const both = apply(source, { type: 'setWallEdgeProfile', id: right.id, profile: 'stone-blocks-v1' })
+    const merged = apply(both, { type: 'repairBuildingTopology', id: 'long-room', operation: 'mergeCollinear' })
+    expect(merged.walls[left.id].edgeProfile).toBe('stone-blocks-v1')
+    expect(merged.walls[right.id]).toBeUndefined()
   })
 
   it('splits an exact T junction in the same transaction and refuses a split through an opening', () => {

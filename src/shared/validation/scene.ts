@@ -12,6 +12,8 @@ import { validateTerrainContracts } from '../terrain-generation/integrity.js'
 import { createVisual3Schema, generation5Schema, legacyTerrainView } from '../terrain-generation/composition-contracts.js'
 import { validateCompositionContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
+import { supportsWallReliefStyle } from '../appearance/wall-edge-profile.js'
+import { inspectSceneWallReliefBudget } from '../appearance/wall-relief-budget.js'
 import { aggregateCoordinatesSchema } from '../aggregates/schema.js'
 import { sceneOutputBackgroundSchema } from './scene-background.js'
 import { validateAggregateCoordinates } from '../aggregates/state.js'
@@ -52,7 +54,7 @@ const sceneShape = {
   presetSnapshot: z.object({ presetId: id, presetVersion: positive, distanceMode: z.enum(['metric', 'grid', 'abstract']), source: z.string(), gridSizeMm: positive }).strict(),
   rooms: record(z.object({ ...editable, boundaryVertexIds: ids.min(3).max(256), purpose: z.string(), visibility,
     accessExpectation: z.enum(['unspecified', 'required', 'intentionalIsolation']), supportRef: groundRef, groundElevationMm: int, floorStyle: style }).strict()),
-  walls: record(z.object({ ...editable, startVertexId: id, endVertexId: id, thicknessMm: positive, blocksMovement: z.boolean(), blocksSight: z.boolean(), topStyle: style }).strict()),
+  walls: record(z.object({ ...editable, startVertexId: id, endVertexId: id, thicknessMm: positive, blocksMovement: z.boolean(), blocksSight: z.boolean(), topStyle: style, edgeProfile: z.literal('stone-blocks-v1').optional() }).strict().refine(wall => !wall.edgeProfile || supportsWallReliefStyle(wall.topStyle), '块石外缘需要遗迹石灰岩墙顶材质；更换材质前请先恢复平直外缘。')),
   openings: record(z.object({ ...editable, wallId: id, offsetReferenceVertexId: id, offsetMm: nonnegative, widthMm: positive,
     kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean() }).strict()),
   props: record(z.object({ ...editable, ...templateShape, visibility, supportRef: surfaceRef, roomId: id.optional() }).strict()),
@@ -126,7 +128,7 @@ export function parseSceneDocument(input: unknown): { ok: true; document: SceneD
  * supply geometry established by its private, constrained derivation proof. */
 export function inspectSceneDocumentDomains(document: SceneDocument, geometry: ReturnType<typeof validateGeometry>): ValidationResult {
   const dependencies = inspectDependencies(document)
-  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document)]
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document), ...inspectSceneWallReliefBudget(geometryDocumentForValidation(document))]
   if (!errors.length) try { assertCoordinateRoundTrip(document) } catch (cause) { errors.push({ code: 'AGGREGATE_COORDINATES', message: cause instanceof Error ? cause.message : String(cause) }) }
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }

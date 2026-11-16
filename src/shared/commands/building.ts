@@ -548,7 +548,7 @@ function mergeCollinearWalls(scene: SceneDocument, seedId: string, affected: Set
     if (incident.length !== 2) continue
     const [left, right] = [...incident].sort((a, b) => a.id.localeCompare(b.id)), otherLeft = left.startVertexId === vertexId ? left.endVertexId : left.startVertexId, otherRight = right.startVertexId === vertexId ? right.endVertexId : right.startVertexId
     const p = position(scene, vertexId), a = position(scene, otherLeft), b = position(scene, otherRight)
-    if (cross(a, p, b) !== 0n || projection(p, a, b) >= 0n || left.floorId !== right.floorId || left.thicknessMm !== right.thicknessMm || left.blocksMovement !== right.blocksMovement || left.blocksSight !== right.blocksSight || scene.entityLayers[left.id] !== scene.entityLayers[right.id] || !equal(left.topStyle, right.topStyle)) continue
+    if (cross(a, p, b) !== 0n || projection(p, a, b) >= 0n || left.floorId !== right.floorId || left.thicknessMm !== right.thicknessMm || left.blocksMovement !== right.blocksMovement || left.blocksSight !== right.blocksSight || left.edgeProfile !== right.edgeProfile || scene.entityLayers[left.id] !== scene.entityLayers[right.id] || !equal(left.topStyle, right.topStyle)) continue
     const leftRooms = Object.values(scene.rooms).filter(room => roomOwnsWall(room, left)).map(room => room.id).sort(), rightRooms = Object.values(scene.rooms).filter(room => roomOwnsWall(room, right)).map(room => room.id).sort()
     if (!equal(leftRooms, rightRooms) || leftRooms.some(roomId => !scene.rooms[roomId].boundaryVertexIds.includes(vertexId))) continue
     const wallNotes = [...anchoredNotes(scene, 'wall', left.id), ...anchoredNotes(scene, 'wall', right.id)]

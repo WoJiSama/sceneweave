@@ -18,7 +18,7 @@ export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; star
   surfaceIds?: [string, string]
 }
 export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean; /** Editor-only symbol suppression preserves the physical wall hole. */ paintSymbol?: boolean }
-export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; style: SurfaceStyle | null; openings: ProjectedOpening[] }
+export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; edgeProfile?: 'stone-blocks-v1'; style: SurfaceStyle | null; openings: ProjectedOpening[] }
 export interface ProjectedNote { id: string; positionMm: PointMm; text: string; kind: Note['kind']; visibility: 'gm' | 'public' }
 export interface ProjectedRegion { id: string; points: PointMm[]; kind: 'terrain' | 'hazard' }
 /** Disposable fixed-image paint values; no source, cluster, support or manual-state metadata. */

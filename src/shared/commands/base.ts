@@ -11,6 +11,7 @@ type SurfaceKind = 'room' | 'terrainArea'
 export type BaseSceneCommand =
   | { type: 'moveVertex'; id: string; positionMm: PointMm }
   | { type: 'setWallThickness'; id: string; thicknessMm: number }
+  | { type: 'setWallEdgeProfile'; id: string; profile: 'straight' | 'stone-blocks-v1' }
   | { type: 'reverseWall'; id: string }
   | { type: 'splitWall'; id: string; positionMm: PointMm; newVertexId: string; newWallId: string }
   | { type: 'setSurfaceMaterial'; kind: SurfaceKind | 'wall'; id: string; materialRef: VersionRef }
@@ -44,6 +45,7 @@ const kind = z.enum(['room', 'terrainArea'])
 const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
   z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
+  z.object({ type: z.literal('setWallEdgeProfile'), id, profile: z.enum(['straight', 'stone-blocks-v1']) }).strict(),
   z.object({ type: z.literal('reverseWall'), id }).strict(),
   z.object({ type: z.literal('splitWall'), id, positionMm: point, newVertexId: id, newWallId: id }).strict(),
   z.object({ type: z.literal('setSurfaceMaterial'), kind: z.enum(['room', 'terrainArea', 'wall']), id, materialRef: version }).strict(),
@@ -417,6 +419,15 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
         const rooms = Object.values(next.rooms).filter(room => room.boundaryVertexIds.includes(vertex.id))
         assertUnlocked(next, [vertex, ...rooms, ...architecturalDependants(next, walls)], true)
         vertex.xMm = command.positionMm.x; vertex.yMm = command.positionMm.y
+        break
+      }
+      case 'setWallEdgeProfile': {
+        const wall = requireEntity(next.walls, command.id, '墙')
+        const profile = command.profile === 'straight' ? undefined : command.profile
+        if (wall.edgeProfile === profile) break
+        assertUnlocked(next, architecturalDependants(next, [wall]), true)
+        if (profile) wall.edgeProfile = profile
+        else delete wall.edgeProfile
         break
       }
       case 'setWallThickness': case 'reverseWall': {

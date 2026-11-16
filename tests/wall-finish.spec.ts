@@ -1,13 +1,15 @@
 import { test, expect } from '@playwright/test'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, keyboardResourceHashes } from './keyboard-ux-helpers'
 import { openWorkspaceModule, openBuildingTask, openSceneObjects } from './workspace-navigation-helpers'
 import { acknowledgeAssetQuality } from './asset-quality-helpers'
 import { architecturalWallDefinitionId } from '../src/shared/visual/architectural-wall-surfaces'
+import { mapExportButton } from './workspace-ux-helpers'
 
 const physical = (document: Awaited<ReturnType<typeof keyboardProjectBackup>>['document']) => {
   const scene = structuredClone(document)
-  for (const wall of Object.values(scene.walls)) wall.topStyle = null
+  for (const wall of Object.values(scene.walls)) { wall.topStyle = null; delete wall.edgeProfile }
   return Object.fromEntries((['floors', 'vertices', 'rooms', 'walls', 'openings', 'props', 'terrainAreas', 'entityLayers', 'constraints'] as const).map(key => [key, scene[key]]))
 }
 async function number(page: Parameters<typeof keyboardWorkspaceSaved>[0], name: string, value: string) {
@@ -18,7 +20,7 @@ async function adopt(page: Parameters<typeof keyboardWorkspaceSaved>[0]) {
   await page.getByRole('button', { name: '采用结构修改', exact: true }).click(); await keyboardWorkspaceSaved(page)
 }
 
-test('ordinary wall material adoption, real paint scale/direction, undo/redo and saved cold reopen preserve structure', async ({ page }, info) => {
+test('ordinary wall material and stone edge adoption, real paint scale/direction, undo/redo and saved cold reopen preserve structure', async ({ page }, info) => {
   test.setTimeout(240000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await createKeyboardProject(page, '墙顶材质与真实平铺自检')
@@ -40,7 +42,7 @@ test('ordinary wall material adoption, real paint scale/direction, undo/redo and
   await page.screenshot({ path: info.outputPath('wall-library-candidate.png') })
   await page.getByRole('button', { name: '采用组件修改', exact: true }).click(); await keyboardWorkspaceSaved(page)
   const adopted = await keyboardProjectBackup(page, info.outputPath('adopted.sceneweave'))
-  const definitionId = architecturalWallDefinitionId('tavern-warm-masonry')
+  const definitionId = architecturalWallDefinitionId('ruins-fractured-limestone')
   expect(adopted.document.materials[definitionId]).toMatchObject({ applicableSurfaces: ['wall'], defaultTileSizeMm: { width: 1440, height: 1440 } })
   const wallId = Object.keys(adopted.document.walls)[0]
   const objects = await openSceneObjects(page, '结构')
@@ -61,22 +63,52 @@ test('ordinary wall material adoption, real paint scale/direction, undo/redo and
   await page.getByText('墙顶纹理方向与尺寸', { exact: true }).click()
   await page.getByLabel('墙顶平铺长度', { exact: true }).scrollIntoViewIfNeeded()
   await page.screenshot({ path: info.outputPath('wall-painted.png') })
+  await page.getByText('墙体外缘', { exact: true }).click()
+  await page.getByRole('button', { name: '预览块石外缘', exact: true }).click()
+  await page.getByRole('button', { name: '取消结构预览', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  expect((await keyboardProjectBackup(page, info.outputPath('edge-cancelled.sceneweave'))).hashes).toEqual(painted.hashes)
+  await page.getByRole('button', { name: '预览块石外缘', exact: true }).click(); await adopt(page)
+  const edged = await keyboardProjectBackup(page, info.outputPath('edged.sceneweave'))
+  expect(edged.document.walls[wallId].edgeProfile).toBe('stone-blocks-v1')
+  expect(physical(edged.document)).toEqual(physical(original.document))
+  expect(edged.identity).toEqual(original.identity)
+  expect(keyboardResourceHashes(edged.hashes)).toEqual(keyboardResourceHashes(painted.hashes))
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  const edgeUndone = await keyboardProjectBackup(page, info.outputPath('edge-undone.sceneweave'))
+  expect(edgeUndone.document.walls[wallId]).toEqual(painted.document.walls[wallId])
   await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
   const undone = await keyboardProjectBackup(page, info.outputPath('undone.sceneweave'))
   expect(undone.document.walls[wallId].topStyle).toEqual(material.document.walls[wallId].topStyle)
   await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
   const redone = await keyboardProjectBackup(page, info.outputPath('redone.sceneweave'))
   expect(redone.document.walls[wallId].topStyle).toEqual(painted.document.walls[wallId].topStyle)
+  expect(redone.document.walls[wallId].edgeProfile).toBe('stone-blocks-v1')
+  const exportHashes = async (phase: string) => {
+    const hashes = []
+    for (const audience of ['gm', 'player'] as const) {
+      const downloading = page.waitForEvent('download'); await (await mapExportButton(page, audience)).click()
+      const path = info.outputPath(`${phase}-${audience}.png`)
+      await (await downloading).saveAs(path); await keyboardWorkspaceSaved(page)
+      await page.locator('.workspace-export-menu > summary').click()
+      hashes.push(createHash('sha256').update(await readFile(path)).digest('hex'))
+    }
+    return hashes
+  }
+  const pictures = await exportHashes('redone')
   await page.reload(); await page.getByRole('button', { name: '回到首页', exact: true }).click()
   await page.getByTestId('workspace-home').locator(`[data-project-key="native:${redone.document.sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click(); await keyboardWorkspaceSaved(page)
   const cold = await keyboardProjectBackup(page, info.outputPath('cold.sceneweave'))
   expect(cold.hashes).toEqual(redone.hashes)
   expect(keyboardResourceHashes(cold.hashes)).toEqual(keyboardResourceHashes(adopted.hashes))
+  expect(await exportHashes('cold')).toEqual(pictures)
   const reopenedObjects = await openSceneObjects(page, '结构')
   await reopenedObjects.locator(`[data-entity-id="${wallId}"]`).click()
   await page.getByText('墙顶纹理方向与尺寸', { exact: true }).click()
   await expect(page.getByLabel('墙顶纹理方向', { exact: true })).toHaveValue('90')
   await expect(page.getByLabel('墙顶平铺宽度', { exact: true })).toHaveValue('1.6')
+  await page.getByText('墙体外缘', { exact: true }).click()
+  await expect(page.getByRole('button', { name: '预览恢复平直外缘', exact: true })).toBeVisible()
   await page.getByLabel('墙顶平铺长度', { exact: true }).scrollIntoViewIfNeeded()
   await page.screenshot({ path: info.outputPath('wall-cold.png') })
   await writeFile(info.outputPath('result.json'), JSON.stringify({ passed: true, formalAcceptance: false, ordinaryUI: true, adoptedDefinitionId: definitionId, wallId, preservedGeometry: true, preservedIdentity: true, undoRedo: true, coldExactArchiveEntries: true, errors }, null, 2))

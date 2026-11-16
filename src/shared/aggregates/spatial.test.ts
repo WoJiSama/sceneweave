@@ -3,6 +3,8 @@ import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
 import { fixture as workspaceFixture } from '../../application/workspace/test-fixtures.js'
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { cloneJson } from '../validation/json.js'
+import { WALL_RELIEF_MATERIAL_ID } from '../appearance/wall-edge-profile.js'
+import nativeScenes from '../../platform/browser/content/scenes-data.json'
 import {
   buildAggregateSpatialIndex, createAggregateSpatialSnapshot, deriveAggregateEntityEnvelopes, queryAggregateSpatialChange, queryAggregateSpatialIndex,
   type AggregateSpatialEntityRef,
@@ -22,6 +24,22 @@ function fixture() {
 }
 
 describe('aggregate broad-phase spatial index', () => {
+  it('keeps wall physical envelopes and indexes the full opted-in visual reach separately', () => {
+    const scene = workspaceFixture({ building: true }).project.document
+    const before = deriveAggregateEntityEnvelopes(scene, [{ kind: 'wall', id: 'wall-0' }])
+    const assetId = nativeScenes.scenes.blank.document.materials['b2-m-04'].textureAssetId
+    scene.assets[assetId] = cloneJson(nativeScenes.scenes.blank.document.assets[assetId as keyof typeof nativeScenes.scenes.blank.document.assets]) as typeof scene.assets[string]
+    scene.materials[WALL_RELIEF_MATERIAL_ID] = { ...cloneJson(nativeScenes.scenes.blank.document.materials['b2-m-04']), id: WALL_RELIEF_MATERIAL_ID, version: 1, applicableSurfaces: ['wall'] } as typeof scene.materials[string]
+    scene.walls['wall-0'].edgeProfile = 'stone-blocks-v1'
+    scene.walls['wall-0'].topStyle = { base: { materialRef: { id: WALL_RELIEF_MATERIAL_ID, version: 1 }, tileSizeMm: { width: 1440, height: 1440 }, rotationDeg: 0, alignment: 'world', originMm: { x: 0, y: 0 }, opacity: 1, tint: null }, overlays: [] }
+    const after = deriveAggregateEntityEnvelopes(scene, [{ kind: 'wall', id: 'wall-0' }])
+    expect(after.find(row => row.role === 'boundary')).toEqual(before[0])
+    const physical = before[0].boundsMm
+    expect(after.find(row => row.role === 'visual')?.boundsMm).toEqual({ x: physical.x - 45, y: physical.y - 45, width: physical.width + 90, height: physical.height + 90 })
+    const snapshot = createAggregateSpatialSnapshot(scene, { audience: 'gm' })
+    expect(snapshot.query({ floorId: 'blank-floor', roles: ['visual'], boundsMm: { x: physical.x - 44, y: physical.y, width: 1, height: 1 } })).toContainEqual(after.find(row => row.role === 'visual'))
+  })
+
   it('indexes complete path and footprint envelopes across every intersected cell', () => {
     const scene = fixture(), index = buildAggregateSpatialIndex(scene, { audience: 'gm', cellSizeMm: 2000 })
     const candidates = queryAggregateSpatialIndex(index, scene, { floorId: 'blank-floor', boundsMm: { x: 8800, y: 9600, width: 300, height: 800 } })
