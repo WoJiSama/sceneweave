@@ -2,6 +2,11 @@
 
 本文件汇集原始批次记录，正文中的“当前”、未通过项、发布授权和测试数字只属于各自日期及冻结。现行顺序以[路线图](../07-roadmap.md)为准；不把历史通过数拼成新验收。
 
+- [四项连续实施的可靠基线（2026-11-16）](#remaining-baseline-20261116)
+- [墙门共同块石外缘的当前整合（2026-11-16）](#wall-edge-integration-20261116)
+- [图片自动RGB角色的独立真值与共享链（2026-11-16）](#image-rgb-roles-20261116)
+- [通用附着与连续凿岩山路首片（2026-11-16）](#attachment-carved-rock-20261116)
+
 - [完整作品的晚期保存事务中止（2026-11-14）](#complete-project-save-abort-20261114)
 - [完整作品的跨标签冲突与独立副本（2026-11-14）](#complete-project-cas-20261114)
 - [完整作品的普通导入失败保全（2026-11-14）](#complete-project-import-safety-20261114)
@@ -29,6 +34,120 @@
 - [图片分层琴房样板开发自检（2026-11-10）](#image-room-sample-20261110)
 - [项目图片拆解工具与本地item开发自检（2026-11-10）](#image-import-tool-20261110)
 - [图片拆解画面质量整改（2026-11-10）](#image-import-quality-20261110)
+
+<a id="remaining-baseline-20261116"></a>
+## 四项连续实施的可靠基线（2026-11-16）
+
+从main `56f640189ddd345a2f3c06837be092c0c2e8eed0`继续。首先实际复现`directed-entrance.test.ts`原9项中的两项失败（7通过/2失败），原日志保留在`work/goal-remaining-20261116-entrance-before.log`。reception路线起点x499mm、study起点x19501mm，1000mm完整方端帽分别到x−1/20001mm，而Floor为0–20000mm；`TERRAIN_NOT_WALKABLE`符合真实净宽合同，与island预设或缺少terrain无关。只将正例建筑范围由(1000,1000,18000,14000)改为(1500,1500,17000,13000)，保留原几何为两条负例，分别断言完整带的−1/20001mm、指定房间归属、合法草稿与来源不变。生成算法、旧配方及通行校验未改。
+
+整合既有图片两文件补丁：视觉边界图割返回的完整上下文蒙版逐alpha映射到已声明目标框，透明边距移除，任何目标外非零像素仍拒绝。6×6目标/8×8上下文逐源网格alpha相等、真实越界拒绝和普通采用均覆盖，不放宽来源/框守卫。执行`npm exec vitest -- run src/shared/generation/domains/interior/directed-entrance.test.ts src/platform/browser/content/image-import-session.test.ts src/shared/geometry/terrain-travel.test.ts`，三文件41项通过，4.76秒，日志`work/goal-remaining-20261116-baseline-tests.log`。这是开发必要自检，不替代完整09、图像质量或P3；旧361/363记录保持原冻结。未提交、推送或部署。
+
+<a id="wall-edge-integration-20261116"></a>
+## 墙门共同块石外缘的当前整合（2026-11-16）
+
+采用既有13文件隔离补丁的显式固定遗迹石灰岩外缘，补齐[04字段/预算](../04-scene-document.md#wall-edge-profile-contract)、06保存与14表现边界；按[09方法](../09-quality-plan.md#theme-driven-acceptance)只做必要影响自检。整合审查发现并修复：小材质周期/累计墙网原可通过领域校验而绘制时报错，现以共享保守源边/固定短段预算在采用与冷文档校验前拒绝；门框固定110mm沿墙宽可在近端门外伸90mm，现夹到实际可用实墙段，门/窗及双向回归保持45mm和净开口。未揭示大门过滤填回实墙后的新长边也计入预算；同Floor启用外缘限512墙/512开口，采样/源边/累计片另限。预算保守拒绝不降画质，不扩大其他材质或派生材质支持。
+
+原生墙体绘制几何提到共享纯`wall-paint-geometry.ts`，渲染器仍重导出相同函数；物理通行不改。共线合并增加edgeProfile兼容检查，避免丢弃人工外缘选择；空间索引另加45mm视觉包络，原物理包络不改。新增测试夹具最初缺材质元数据，随后误带无引用资源，两次失败日志均在work保留；只修夹具到确切已引用资源，没有放宽资源验证。首轮类型检查也保留，修正测试中的枚举/只读类型，未改领域类型绕过。
+
+当前整合9文件118项通过（`work/goal-remaining-20261116-integrated-tests.log`）；最终外缘安全与canonical两文件27项通过（`work/goal-remaining-20261116-wall-safety-tests.log`），不是可相加的独立覆盖数。`npm run build`通过架构398模块、完整TypeScript/AI类型与正常Vite，原大chunk警告保持；日志`work/goal-remaining-20261116-build.log`。正常生产Chrome的`tests/wall-finish.spec.ts`单项1/1、43.5秒：真实四材质目录采用→石灰岩墙材质/方向周期→外缘取消逐entry保持→采用→两步撤销/重做→保存首页冷开；物理/身份/资源保持，双受众PNG冷前后SHA相同，页面错误0。制品在`work/goal-remaining-20261116/wall-production-01/`；1716份src/dist冻结归同目录上级`stage-2-freeze.json`。这不是性能测量、整浏览器重启或完整故障/CAS验收。
+
+独立留出建筑为新三房折角大厅/书库/东翼，3房12墙3开口，11墙启用/1墙保持平直，派生404片。最终`wall-heldout/run-04`七关键源码SHA前后相同；完整共享命令、实际四材质资源、导出再冷读、物理墙两模式/门包络、资源许可/身份/外观全部保持。秘密门变位/宽度/门态及遮罩内新增墙两组玩家投影与1024实际RGBA相同。独立审计两包各18entry CRC，仅scene/manifest变化，其余16entry字节相同；10张PNG真实解码/CRC/无文字EXIF并与浏览器RGBA一致。2400×1800整图及2000×1707近景已实际看图，近景直切边有所改善，整图变化细微，周期纹理/竖墙裁砖继续存在。run-01的混合rename/内容事务拒绝和后续各冻结保全，最终审阅页在`work/goal-remaining-20261116/wall-heldout/index.html`，1440/390px已检查。技术通过不授予全材质、整图美术或用户P3；未提交、推送、部署或外发原图。
+
+<a id="image-rgb-roles-20261116"></a>
+## 图片自动RGB角色的独立真值与共享链（2026-11-16）
+
+本项将语义归属与颜色角色分开验证。新增共享纯`proposeVisionColourRoles`只消费当前原图像素、上下文及粗多边形，以内外RGB富集和颜色差异选择至多3个前景/4个背景的真实像素代表，再使用原算法2图割；不是最终轮廓或语义证明。公开`image_import_vision_boundary`显式二选一使用原guide或`roleMapping:{algorithm:'polygon-rgb-roles-v1',boundaryPx}`。25万上下文像素、原生独立字节、简单多边形及来源守卫前置，弱内外证据拒绝；原guide与旧图割路径保持。工作包保存实际guide及角色版本，冷重放不依赖模型在线。合同与使用入口归[图片工作流](../reference/image-item-workflow.md)。
+
+证据根`work/goal-remaining-20261116/image-groundtruth/`。独立作者冻结原图/粗圈输入与分离oracle，预测进程不读取真值、名称、手工细圈或控制点。4项诊断经冻结原型后移植共享TS，guide/代表/诊断及每个alpha与原型相同；代码冻结后2项留出各运行一次，未回调参。六项各自二值IoU达到1、黑描边/细杆召回1、孔/邻物二值误入0，满足预先冻结门槛；孔边仍有部分透明alpha，不能写成所有非零alpha都为零。首次移植核对脚本误把解码灰度三通道当单通道，保全失败后仅修读通道。共享mapper/session/workflow/source四文件48项通过，日志`work/goal-remaining-20261116-image-role-integration.log`；后续typecheck通过，日志`work/goal-remaining-20261116-image-typecheck.log`。这些结果不证明真实地图语义、自然低分辨率边缘或完整09。
+
+正常`npm run build`通过架构399模块、完整TypeScript/AI类型及Vite，常规大chunk警告保持，日志`work/goal-remaining-20261116-image-build.log`。共享链实际浏览器证据在`work/goal-remaining-20261116/image-role-lifecycle/run-04/`：原创双色箱体及作者粗圈→自动只读候选→extract采用→undo→旧代次拒绝→当前代次显式reapply→工作包新session冷重放→完整工程冷读→个人库backup/capsule冷读→普通updateProp移转20°→再次工程冷读。目录无redo，因此只报告reapply。13份制品独立核SHA/长度，工作原件字节/normalized像素与origin实际guide保持，5426个选中像素RGB/alpha逐像素源一致，选区外补底变化0；两工程ZIP CRC正确，移转只改变scene/manifest，其他7entry字节一致，3份实际图片资源及MIT许可保持。库capsule只含所选item，图像字节等于透明裁片；4张双受众输出实际RGBA匹配浏览器。6关键源码运行前后SHA相同，页面错误/外联均0。此处为源码共享工具及文件冷读，不冒充普通生产UI或IndexedDB保存验证。
+
+已实际回看黑/白/棋盘与露底、移转图，红/赭/浅黄锁扣及黑描边保留，蓝邻物未带入；tile补底仍有明显地板接缝，保持needs-work。run-01缺build generation、run-02房墙边界越Floor、run-03移动透明框越Floor均为作者脚本首败，原证据保全且未放宽产品守卫。语义线独立使用冻结Florence2的phrase-grounding：4原创诊断主名词框可定位但属性框含邻物，真实64×64木凳主框近整上下文，图割前拒绝；5次本机调用、零联网推理、零付费，详见`work/goal-remaining-20261116/image-semantics/`。更强本机模型评估仍在独立进行，本节不能授予真实语义、整件真实收益、美术或P3通过。原87件工程、旧失败与个人库保全，未提交、推送、部署或外发原图。
+
+随后固定单一`Qwen3-VL-2B-Instruct-GGUF`的Q4_K_M与匹配F16视觉投影、官方llama.cpp b12420/a68799c60 Windows Vulkan便携运行时。原模型及转换卡为Apache-2.0，权重使用明确的ModelScope镜像提交`1d49f1a70c0c1ea52f82fd46ea44b388183aa16c`，未冒称未知HF提交；三份下载共1.830GiB、全部SHA核对，解包后占用约1.930GiB，均留在忽略work目录。许可受限的Qwen2.5VL3B未下载。运行时读到RX9070 XT 16304MiB；4线程CPU离线READY自检也实际成功。首次CLI只进chat未生成，失败保全后仅修stdin调用，没有用用户图自检。完整来源/命令/失败和226项摘要归`work/goal-remaining-20261116/image-semantics-strong-local/`，没有改变系统PATH、根依赖或内置产品模型。
+
+新模型4项原创诊断和真实花枝各一次主名词JSON框，5次均结构有效且实际定位正确，没有额外属性框并集；仅证明粗定位。统一框适配先冻结为floor左上/ceil右下并外扩4原像素、夹上下文，target保留完整context。4诊断进入原RGB角色/图割2均满足原门槛；真实花枝只剩3个非零alpha种子，整件提取失败，不采用或磨同图参数。观测注入保持最终alpha与冻结完全相同：初始geodesic为810像素，首轮图割810→3、第二轮3→3，连通删除0；首轮初始分区能量为unary143.958+pairwise1900.026，种子分区为589.926+186.740，约90%被删像素的unary仍偏前景。该证据定位到软色差/小主体的周长惩罚，而非alpha或模型找错；810个初始像素本身尚不证明完整主体。当前开始独立软边/纹理诊断组及两个事前冻结方法比较，真实失败继续保留，不能由合成通过改记真实通过。全部推理使用`--offline`与本机绝对模型/投影/PNG，没有URL/远程模型参数或付费调用；未采网络trace，不将该命令证据写成抓包结论。
+
+独立soft组随后冻结113文件（`image-soft-groundtruth/freeze.json` SHA `71080d6d0b0c1594f8e3dfd78c0fc702f1ad708a4438aa2443abe3db8a3047b5`）：4诊断为细花枝、灯笼、草篮和搪瓷壶，8倍作者几何下采样、显式F/B/alpha、微纹理及同色暗邻物；2留出未揭示。作者没有读取真实细mask或预测。A原图割2、B仅跳过图割、C仅将两处边界系数16改1.6均在读取soft输入前冻结；共同4次RGB角色、12次guided预测全部冻结后，另进程执行12次原门槛评分。12/12均失败，IoU按四件分别A=.330/.966/.546/.821、B=.303/.562/.510/.504、C=.275/.871/.546/.808；A灯笼虽IoU高，细杆召回.941仍低于.95，C灯笼/壶补回细杆却增加邻物误入。实际400%黑白棋盘已回看，花枝/草篮混入同色暗板并填孔，B普遍丢主体。三法均不选、不增加产品算法3、不降低门槛、不跑B/C真实图或揭示留出；原2与RGB1源码保持。证据归`strong-local/soft-prototypes/`，115文件摘要和12份完整context RGB/alpha一致性核对通过，不将存档正确误写成画质通过。下一步核实已有本机特征分割器的bbox能力，停止继续调整颜色路径参数。
+
+另补齐自动角色工具的失败边界：当最终非零选中像素不多于硬前景提示像素时，明确拒绝“自动分割退化为提示点”，不返回可采用候选；此条件不用于原guide模式或旧保存重放，也不将更多像素认证为好选区。使用同一冻结真实花枝/模型响应/粗圈实际复现前3像素、修后拒绝，两次均原图/草稿/代次保持，模型调用0；记录`work/goal-remaining-20261116/image-seed-collapse-{before-run-02,after}/result.json`。首个Node共享session诊断bundle漏配wasm loader而未执行，失败保全后只补loader；修前日志与脚本均留存。修后四文件48项通过，日志`work/goal-remaining-20261116-image-collapse-tests.log`；先前正常build与生命周期仍按其旧源码冻结理解，不冒称覆盖这条新增拒绝分支。
+
+特征分割路线核实了实际接口：现有39.8MB SlimSAM导出虽可缩放框坐标，但decoder没有2/3角点的真实权重分支，未把错误提示输入当成box测试。另固定`onnx-community/sam2.1-hiera-tiny-ONNX`的HF提交`814a066640debee5a91e70aa401fb8e17e030503`与ModelScope镜像`31bb4f18cb9df5094570412f8dde509826240a12`，4份FP32图/外置字节155.61MB全部SHA相同；Meta原checkpoint Apache-2.0、转换来源与完整许可分别保全，没有宣称Meta制作该ONNX导出。复用隔离ORT Node1.21，无新根依赖；真实`input_boxes`和4×256角点嵌入已检查，原创运行自检成功。实际预处理按其配置1024方形warp、x/y分别缩放，不套旧SAM的longest-side padding；输出三头全保留，固定head0、零阈值、无后处理/目标后裁。
+
+该方案4soft各一次、预测全部冻结后独立12头评分，默认0头为0/4通过：IoU .300/.627/.526/.741，邻物误入.893/.577/.093/.407；其余头也没有完整门槛通过，不按分数或GT换头。实际黑白棋盘可见背板/邻墙混入、零件丢失与孔洞错误，主代理另实际回看花枝三头对照，保留失败且不揭示heldout/运行真实图。证据归`strong-local/box-sam/`；接着仅评估一次固定的Qwen语义少量正负点+SAM原生联合提示，不继续下载/调参或把该模型自动接入产品。整体第3项继续未完成。
+
+最后一次固定比较采用Qwen语义框与最多3个前景/4个背景点，再接原生SAM box+points。4soft各调用Qwen一次，响应JSON均结构有效，但全部将原像素框数值错用为bbox_1000、前景点在框外，前三项另有同像素正负冲突；按事前规则全部拒绝，没有手工校点、重问或重试。SAM encoder/decoder、评分、heldout和真实用户图调用均0，因此不伪造这轮联合分割分数。`strong-local/box-sam/qwen-points/`51文件及摘要保持，既有box-only148文件SHA不变。本轮方法试探到此停止，第3项真实整件提取与补底接缝继续未完成；后续不得把再下载模型当成默认接续。自动退化拒绝分支已由随后附着整合的正常build覆盖，旧生命周期仍只按其原冻结理解。
+
+<a id="attachment-carved-rock-20261116"></a>
+## 通用附着与连续凿岩山路首片（2026-11-16）
+
+第3项固定方法比较均未通过后保留缺口，先推进用户已授权的第4项；可选顺序询问没有收到答复，不冒称追加确认。[04附着合同](../04-scene-document.md#general-attachment-development-contract)、[06保存](../06-storage-and-export.md#development-single-v1-import)与[地形专题](../reference/terrain-generation.md#carved-mountain-path-contract)直接演进唯一完整工程v1。新增显式表面/关系、出生及拓扑证明、根基与实际接触分判，支持桌面承托、墙侧悬挂和岩面嵌入；有环、私密宿主与原有效公开子件、完整占地/高度不符、锁/层锁和预算冲突均拒绝。人工位置/站点优先保留；有限follow仅作可证明的刚体XY随动。附着闭包复制和保留切口的拆离编辑尚未提供，相关普通命令明确拒绝；山路删除须显式选择回填源岩体。
+
+`rockBody`保存有限岩底，顶高沿真实terrain；`carved-strip1@1`保存完整XYZ顶点、站点、步行三角面和实际切削walk/apron。首片限单host、同向共线正交源边链、沿源轴单向连续爬升，允许真实等高正交入口，拒绝紧回折、超切、交叠和虚构floor端口。实际净宽/连续高程、内外切壁和端点共同求形；apron有真实高程但不授予步行，不能凭同rootSupportRef横穿切壁。聚合、命中、普通画布/PNG均保留世界XY；玩家先移除私密切削与附着祖先，再生成实际可见面。第一版动态paint消费同一共同wall与host种子；它仅是初版绘制，不是自然岩体达标声明。
+
+事务接线包含候选依赖披露、256实际展开、身份追踪、资源完整校验、原子采用/撤销与CAS。发现并修复公开child因继承宿主私密性而被误判为合法、已有关系工程仍可进入独立Prop快路径、创建表面/挂接连续撤销重做后拓扑proof陈旧等问题。表面/关系出生证明只在真实trace.capture后同步，既有claim不无条件刷新；undo/redo仍推进新令牌。严格schema窄导入避免模块初始化环，连接与地形的新增限制放领域层，不破坏既有严格outdoor schema的omit消费。
+
+必要技术自检最终13文件134项通过（`work/goal-remaining-20261116-attachment-integration-tests-02.log`）；首轮公开child反例失败保全。另一组几何/通行与调用方16文件159项通过，两组有重叠，不相加。378共享模块无DOM检查通过。正常`npm run build`最终通过416模块架构、完整TypeScript/AI类型与Vite（`work/goal-remaining-20261116-attachment-build-02.log`），原大chunk警告保持。这些均为开发自检，没有执行完整09、正式性能或P3。
+
+普通生产Chrome的`tests/attachment-tools.spec.ts`首轮两败保全于`attachment-production-01`：山路真实React相邻组件重复key造成重复输入，现改为独立key；桌面脚本错误期待raw ID而非界面名称，仅修定位。第二轮桌面通过11.6秒，山路因含option文本的label定位失败，未放宽产品；改用实际combobox后第三轮单独山路通过13.5秒（整体15.0秒）。结果分轮记录，不拼成原合跑全过。证据在`work/goal-remaining-20261116/attachment-production-{01,02,03}/`及对应根日志。
+
+山路从普通首页新建24×18m，普通地形轮廓→岩体→山路取消/采用→保存、undo/redo→双受众PNG→首页页面刷新冷开。两实际站点/六面；取消完整包不变，撤销重做有真实新拓扑令牌，cold完整条目保持。两受众与冷前后PNG均665496字节，SHA `fd1a5e5026be87b38950bc24a67210983d574f2e5487cb3b8e6542b64d8efef3`，页面错误0。桌面fixture仅在Node准备合法工程，经普通首页导入/顶面/绑定UI，宿主移动并旋转90°后子件实际到(7000,6700)、挂高800mm，undo/redo与cold完整包保持，页面错误0。此处页面刷新不冒充整浏览器重启，文件SHA相等不冒充独立RGBA审计。
+
+主代理已实际回看生产山路整图、cold界面和原岩岛参考：当前路线是连续坡面，但外壁仍像窄倒角框，顶面近大平板，不满足大形/岩肩岩台/坡脚的自然体积要求。此结论不由技术成功覆盖。复杂形体图证首轮在第二独立轮廓的完整净宽检查拒绝，`rock-visual-review/run-01/failure.json`及源冻结保全；原因和后续图证另按实际结果记录，不绕过守卫。第3、4及整体Goal继续active；没有提交、推送、部署、原图外发或付费调用，原工程/历史/个人库与todo保全。
+
+**后续真实侧壳与保全。** 不继续用paint外伸解决体积，新增`rock-shell1@1`完整实际顶/肩/膝/脚XYZ、剖面、面邻接和人工状态。原顶面保持，新增外带是非步行真实占地，完整支撑、碰撞、选择/空间索引、聚合local编码、身份/预算/保存/玩家遮罩共同消费。只认同Floor零高脚面及有限正交无洞；先生成侧壳、再添加源表面/山路，源崖及所有实际切面触及入口整边明确排除并保持竖直。尚不提供切削面延长穿过侧壳，旧表面/山路阻止隐式重生；不能由生成成功扩大支持范围。剩余256预算前置包含完整内部结果，超限0身份分配。
+
+复杂轮廓首败复核为独立例末端方帽越崖143.19mm，仅将末延伸由(20500,6475)改到合法(20300,6460)，不改路面/净宽/守卫；几何诊断与`run-02`保留。`shell-01`首次实际玩家像素不等，原因是热态faces顺序与canonical冷排序不同；固定面ID遍历后修复。`shell-02`完整通过但存在大黑楔/宽裙边，`shell-03`按高度采样、共同转角与凹角半平面限制，以及Canvas同色共同面/opaque底形修正假白缝，没有放宽完整面无重叠。`shell-03/result.json`为两例、16张PNG、6完整包、页面错误/外联0；`independent-audit.json`逐ZIP CRC/SHA及实际RGBA核22制品，公开GM/player一致，私密cut玩家逐像素等于无cut同形岩体。已实际看两张完整玩家图：大楔减轻，仍明显斜裙边/平板，视觉失败；仅是合成合法形体，未复现原参考岩岛。
+
+**最终缺陷修复与当前生产闭环。** 只读审查确认岩底/侧壳专用命令漏宿主递归注记锁、自然组合已同变完整侧壳后再次follow误拒绝。现共用真实宿主依赖闭包，合法锁定注记/递归注记/独立锁层下四种岩底/侧壳变更均拒绝且0ID分配；组合完整壳只接受逐字段相同的刚性XY平移/四向旋转，夹带Z/配方/人工状态改写拒绝。最终16文件138项通过11.96秒（`work/goal-remaining-20261116-shell-final-integration-01.log`）；正常build通过423共享/应用模块边界、完整前后端类型与Vite，原警告保持（`work/goal-remaining-20261116-shell-build-03.log`）。旧独立组有重叠，不拼相加。
+
+墙灯production04的label误定位首败、05通过均保留；production06合跑3通过/1失败，真实侧壳项停在测试脚本未重新展开父details，尚未执行壳操作，仅修展开定位。最终同正常dist的`attachment-production-07`四项全部通过52.2秒：普通山路13.6秒、真实侧壳山路15.5秒、桌面10.5秒、墙灯10.8秒。两山路均普通首页新建/候选取消采用/undo/redo/保存/页面冷读/双受众PNG；真实侧壳完整顶缘不缩移、脚面与外占地保持，冷热GM/player PNG各778295字节、SHA `d15a42bdc932f0f36bf1c96456521b129403eab76f2649b47071ea5e38855e61`。桌面接触800mm、宿主90°后子件(7000,6700)；墙灯门洞冲突拒绝且包保持，挂高1800mm/高度范围400mm，墙厚200→400mm后位置(5000,3200)，撤销重做/冷读保持。所有页面错误0。独立`audit-production07.py`核29完整包全部entry长度/SHA/ZIP CRC、35唯一素材实际解码尺寸及原许可绑定，15实际PNG及四对山路冷热RGBA相同；不是整浏览器重启、正式性能或完整09。
+
+最终src/dist/tests一致性快照在`stage-4-freeze-{before,after}.json`，明确为build及production07之后的核对，不能冒称其事前冻结。原模型试探仍停止，第3真实整件提取及第4自然岩体视觉保持未完成；后续只先判断冻结主崖/局部坡脚结构样板的表达能力，不加裂纹代替大形结论。没有提交、推送、部署或付费调用。
+
+**有限结构反证已执行，未采用为生成器。** 仅在忽略work目录创建固定manual完整mesh，不改产品或用户原工程。保留两例原顶缘、净宽/中心XYZ、源崖及入口，主崖承担大部分高差，多数肩/脚XY带收为零，只留短肩与两段局部脚线；主例18剖面/57节点/78面，其中15站无肩、13站无脚；独立例20/64/88，其中16站无肩、15站无脚。`manual-cliff-check-01…03`原失败保留：直接换已有path宿主正确使嵌入摘要陈旧、复制旧source proof正确失效，未手改摘要或凭证。最终先从独立副本移除旧关系/表面，新建实验scene与fresh身份，再经公开addSurface/createPath重建；`manual-cliff-check-04.json`两例完整几何、新身份严格冷读、原全宽路线及每个实际面z/nonwalk采样通过。
+
+随后`manual-01`通过真实browser全量资源字节/像素验证、完整export/import和正式render，2完整包/12张PNG、错误/外联0。独立审计14制品ZIP CRC/manifest SHA和实际RGBA，四对manual/cold双受众逐像素保持，原两山路中心XYZ保持；源码前后SHA无变。已实际看两张manual玩家全图及与原版并列图`structure-comparison.png`：裙边收窄，但仍呈边框平板，视觉失败。停止扩调当前正交平顶/径向剖面方案，不推广默认、不增加裂纹/换seed；下一步须先解决真实曲折顶缘、岩脊/凹湾与受保护路线的共同几何。该反证没有覆盖非正交顶缘，不证明必须更换统一场景投影，也不赋予普通UI手工mesh编辑能力。原完整工程、失败与第3停止路线保持，当前产品冻结未改变，Goal仍active。
+
+随后扩展非正交宿主：山路仍只认显式连续共线轴向源与真实等高入口，其余轮廓允许斜边，完整walk/apron按真实多边形而非中心或bounds核对。侧壳斜站点严格取源线整数格点，真实沿边距离唯一冷解、共径向整数节点及一般凹角扇区完整保存；新`cornerJoin`只在原miter>2拒绝域采用原顶点竖直收束，冷验强制四层同XY，非邻边干涉仍拒绝，未提高原miter门槛或隐式bevel。`orth-replay-pinch-01-result.json`与`general-before-pinch-01-after.json`核两份真实旧正交包、两份扩展前已接受一般角完整actual及原ID序列逐字段保持；仅此四例，不外推全部历史。
+
+`rock-nonorthogonal-review/`先冻结1554份src后才揭示原11点独立例；初跑确在p4凹湾miter2.573704573拒绝，estimate/generate分配侧壳ID为0。路径完整mesh/top与独立预期一致，267个1200mm全宽样本通过；`FAILURE-REVIEW.md`、`failure-audit.json`和原日志保留。加入竖直收束后只记`revealed-product-regression.json`，不覆写首败。新`joint-holdout-02/`由独立作者仅用数学封存10点/真实超限尖角，源码/1781个src与tests在读取前保持冻结；fixture SHA `c748587dcc89aba46851fb2e4d6cd6e5b5650c98eae0d66e631ccff0512a7329`，首次产品运行完整role XYZ/station/三角面、walk/apron/cut/top及339个1000mm全宽样本一致，侧壳20剖面/71节点/102面、保守cost221，预算拒绝0 ID，实际脚面/冷sampler/全入口有效。`product-first-run.json`明确只证明有限几何，不代表视觉或正式验收。
+
+最后必要自检`work/goal-remaining-20261116-nonorth-integration-02.log`为15文件146项、正常`nonorth-build-01.log`与无DOM386模块检查通过。新增非正交自然组合实际平移+90°保持完整节点、方向、人工状态和local往返；初版正例因20m Floor不足拒绝，只扩大夹具Floor至24m，不改顶缘/核/守卫。正常产物生产08为5通过1失败（斜option原生disabled已真，Playwright通用disabled断言不适用）；09单例因原24×18m画布不足拒绝，10留足36×24m后因切口碰未预留斜边拒绝。上述失败完整保留；11把同一未预留切口保留为原子拒绝反例，合法17m终点完成普通预览/取消/采用/撤销/重做/保存首页冷开及双受众PNG，1/1、17.3s。各轮都用同一正常build，src/dist冻结未变，仅spec逐轮修正，不拼作一次6/6。`audit-production-artifacts.py`独立审08/09/10/11分别32/2/3/9完整包、17/1/1/6 PNG、4/0/0/2冷热实际RGBA对；逐ZIP CRC、manifest SHA/size、真实资源解码/像素及许可文本/绑定保持，11拒绝前后完整包字节相同，失败制品SHA保全。审计仅证明制品完整性。
+
+`nonorth-diagnostic-01`先因原26×18m Floor不足安全拒绝，仅把作者画布扩大32×24m后的`nonorth-diagnostic-02`为1例8图3包；`joint-review-01`按原sealed尺寸/高程/宽度/方向/seed运行原已揭示例和新增独立例，2例16图6完整包、错误/外联0，公开通路/接触/命中、完整文件冷读、私密cut玩家RGBA均保持。独立`audit.py`核22制品ZIP CRC/SHA及实际RGBA。已实际查看诊断及两尖角完整玩家图：轮廓更曲折，仍为大平板围边，视觉失败；不把新尖角支持或保存成功称为自然岩体。下一步在独立work原型固定实际多高程岩脊/岩台与受保护路线，先验证形体表达；尚未进入当前工程持久语义，也未复现原参考岩岛。Goal保持active，第3模型停止路线、原工程/个人库及既有失败保全。
+
+`rock-macro-relief-review/`按先写`intent.md`的固定结构完成两条不同高度/尺度的屋脊形实际面及一个短岩台，原cut后top减底域再完整补回，不叠paint冒充高程。最终`geometry-02`为A162面/B210面、26个新增macro面、实际最高3400mm；完整walk/apron/cut-wall逐字段相同，1000mm上端L形接入仍恒原高，整数XYZ共享、顶域无缺口/重叠、三点内采样z/法向及JSON冷读保持。`visual-01`同普通光照/底色、世界XY、无纹理/裂纹/阴影绘两张PNG，错误/外联0；独立CRC/解码/RGBA审计通过，原诊断完整包SHA保持，src/dist/tests及原型源码前后冻结一致。已实际看两张全图：起伏可见，但B仍像三个独立棱块放在大板上，形体未通过，`visual-01-review.md`保留。该work实际网格没有写入当前工程，不是生产渲染或通用生成/独立留出证据。下一种结构假设先固定连续高低变化与外缘/侧壁共形，保护原路线和完整接入，不调本图颜色/种子来追通过。
+
+连续场首轮保护域1000mm与真实1004mm末截面产生T接、缺top面误判及浮动side节点漏拒等失败分别保留；`geometry-03`只是后来反例推翻的中间报告。最终`connected-field-01/geometry-06`冻结actual SHA `dd3fe832e08a07a7a6069052f15d0e5a64ba585d3d54368bb89f987300cd6909`：A/B各258面、121顶面、最高3500mm，19处顶侧接合、1处原cut替代列，原walk/apron/cut及整宽上端接入保持；缺顶面、改变保护walk、浮动侧节点三反例均拒绝。独立审查进一步核88源侧面、4崖面及27条三维边界共线覆盖。`visual-01`源面见证前检失败保留；`visual-02`两张1800×1367 PNG错误/外联0、禁止IDB，独立CRC/实际RGBA及前后源码/原包hash保持。已实际看两整图：连续起伏连到外缘，但仍像宽三角坡板，视觉未通过。该258面work网格不是当前完整工程，且未建立当前领域候选/实际manual计量；面数不能直接等同编辑目标或宣称超过256。停止依据是视觉失败及缺少当前领域语义，不扩产品模型或调色/种子追通过；旧预算误判和修正依据保全见下文。
+
+重新实际查看原参考与旧candidate09玩家缩图，`rock-reference-diagnosis/`独立判断活动台地大部平缓，体积集中于曲折崖顶、主壁、局部肩脚及真实相邻台差；没有证据要求全岛连续内部起伏。旧成图整圈软倒角、连续高亮边与同节奏裂纹更直接阻塞目标。下一步仅在隔离work复用现有受众过滤的共同外露面和开口做一次线面证明，固定右上高台西南至中央凹湾局部，并同步看全图；若仍包边/低多边形或仅近景线多而全图无收益，停止该画法。不得把新画法当真实物理变化或正式生产一致性。
+
+`road-ramp-01/`另保留原参考路线的独立最小候选：从旧candidate09源码只改stairs→ramp并移除`naturalRockSteps6`，保留33点、1500mm宽及2200→4200mm端点高差。同页内存字节的公开完整export/import内容hash保持，0错误/外联；工程SHA `4b52770c3c616d759d4f00baa0ed24039949c50e6a9ad2ffa97f1ec7fd0a17e9`，2048玩家PNG SHA `a657e8735cf35c8c05b27bd6b9ef848ca2ad62b7f2d325483b5a74b9ac5b9c8e`。独立审计48个ZIP条目实际CRC/manifest SHA/尺寸、14张素材PNG和29条声明许可绑定保持，实际玩家RGBA SHA `69b24c5f9c1830db6120fbd1a45a7117e003739a28d5f36c14944c1647d40b74`；没有磁盘重导入、IDB、撤销或冷热RGBA比较证明。实际整图重复踏步消失，但浅色带仍有虚线中心，按事前判据视觉失败。它是重建的work副本，未通过普通事务采用进原工程，也未生成该弯曲源的真实carvedStrip；`result.json`继承的旧stairProfile/physicalBaseline等specification仅作原始记录，不能作新候选的准确说明。独立派生说明与审计保留于其目录；不重新运行覆盖首轮结果，不修改旧原件/许可。产品src/dist/tests仍以1984项`nonorth-after-production-11-freeze.json`为基线，第3停止路线和第4视觉缺口保持，Goal仍active。
+
+`cliff-line-mass-01/`进一步按冻结intent只做一次现有共同外露面线面画法A/B。候选模块SHA `fea5052c04522503a3cb2eb83c9a9e4af5fc6c28b6eb2ccbc060cb331cdeeea0`，消费真实5face/820cell，固定35°及4.0–6.2m规则派生107主壁块/35短线/3588点；严格类型、纯plan确定性/JSON冷读通过。root独占Chrome只在B替换一次draw入口；同一真实ramp包公开import及render，工程hash均`1494b0f03c29614aeb82bb0bb4723e4a9eb4b9bc17fc4bf88151d7156a5573ef`，原high/low、owned rings、开口、路径、地形/草树/水/光照保持，0错误/外联、禁止IDB，未改产品或实际物理。`visual-01`两2048×1991全图、两796×1024原生局部及一owned mask共5PNG；独立审计真实CRC/RGBA、裁切精确，baseline与原ramp PNG实际RGBA相同。before/after共1991项（1984产品/工具、5原型、2保全输入）当前字节保持；1,407,238变化像素全部在原owned mask内，范围外0、alpha保持。
+
+root与独立作者已实际看四图：B减少软渐变/长裂纹，却成为更平蓝灰宽圈，主崖体积减弱，局部硬拼块/尖缺，按事前标准视觉失败并停止，不改色阶/阈值/seed重跑。`visual-01/REVIEW.md`及`POST-VISUAL-CAUSAL-REVIEW.md`记录确切判断；原出图报告visualReviewPerformed:false仅是出图时状态，不覆写成后验通过。旧cells内外边仍是paint footprint而非RockShell实际脚线，不能据失败扩大物理模型。下一动作收窄至既有参考西侧路口、西南台差、中央凹湾三处真实关系/绘制包络及原路线完整带区支撑诊断，不新造岛或继续换笔法。原型/产品、技术/视觉/09/P3边界保持，Goal仍active。
+
+原参考路线的只读物理诊断归`reference-path-feasibility-01/`：旧33点真实带区长6724.053389mm、面积10.086080m²；按实际可见terrain做完整布尔交差，main占53.922063%、high占46.077937%，海/其他0；32片并集XOR为0。两个1500mm端截面和向外750mm深接入矩形均100%落各自main/high，端口不是缺口。若按旧制作估计2200→4200及明确弧长线性插值，低台段需实际抬基，高台段才需切削；这是诊断假设，不是用户实测或已保存的连续高程。完整带区与高台实际203–207五条相邻源边相交，属两个近直斜段，在(19000,6833)转32.908572°，不能笼统推断必须高阶曲面。原high212/main671点仍全部保留且无rockBody，现128宿主点/共线轴向源/单向推进均不接受；原32段191.760267–233.950850mm全部小于半宽750。照搬33站现模板的记录下界391（未算apron）只是旧混合计量，不能当当前manual硬上限或由此要求简化原曲线。32项数值/源hash/链接自检通过，未生成实体候选或改schema，完整apron尚未求解。
+
+root另实际看`cliff-line-mass-01/relationships-existing-inputs.png`三处诊断表：原参考按旧标定并列现有成图和真实crest/旧paint-foot/owned域/完整路廊，不做配准拟合或从图测高；原输入hash保持。西路口跨台坡基/切削确有物理缺口；西南相邻台差与中央凹湾的真实高低关系本来存在，主要不符在匀宽可见侧带/岩脚组织，不能由笔迹自动赋予可走实体。`RELATIONSHIP-DECISION.md`据此把下一物理开发收窄到原路线局部，崖壁视觉缺口保持；不再扩全岛topField或同mask换笔法。四项目标仍未全部完成，未提交/推送/部署/付费调用。
+
+**预算口径修正及实际复现。** [04 F](../04-scene-document.md#manual-transaction-budget)的当前普通manual按独立目标、几何、依赖及元数据分别保护；旧专用mixed总分不是通用硬门。`reference-path-feasibility-01/manual-meter-proof/`固定合法矩形/20站/无回折路线，在同一公开`applyCompositionDraftCommands`分别无budget及显式compact manual执行：前者以256混合拒绝，后者331专用mixed记录完整通过，实际3目标/84点/346段/807依赖/21元数据均在注册限制；场景、几何、附着、proof、通路与全宽接触样本通过，输入hash保持。没有浏览器/构建/保存包或原33点可用证明，不改变shell自己的20剖面/80点/120面及明确transactionBudget。该结果纠正“258面必超256”和“391必拒绝所有入口”的错误推断，不视为漏洞收紧manual。子任务一度误加5产品预算补丁，已逐字节撤回，`RETRACTED.json`及`BUDGET-CORRECTION-AUDIT.json`保留；root重核1984项产品冻结全部相同。旧诊断稿按hash归档，原数值报告/失败不覆写，没有新增产品改变或测试通过数；下一在当前真实manual合同内处理路线物理缺口，不因错误计数强推简化或解析新模型。
+
+`dense-path-01/`随后针对可确证的密度误拒绝实施小修正：只移除`routeChecks`的`span < width/2`标量拒绝，零长、miter2、实际全宽、simple完整带、固定相邻三角拓扑、全部朝上正面积、联合无叠无洞及共享XYZ、完整apron/host/源轴守卫保持，不改模型/采样点/生成结果或预算策略。新增33点200mm间隔平顺曲线逐点/JSON冷读、288个全宽实际面查询、缩窄/缺面/急折回拒绝；另通过完整composition的33点375mm间隔正例证明明确compact manual准入（真实3独立目标），旧无budget仍按mixed拒绝。`targeted-01.log`为5文件51项；正常`build-01.log`通过423模块架构、完整TypeScript/AI及Vite，原chunk/依赖注释警告保持。`replay-old.mjs`从四份真实旧正交/非正交/独立尖角包恢复完整站/顶点/面/cell ID序列，当前生成actual与原保存值精确相同，原包SHA保持；`old-replay-result.json`保留范围，不外推全部历史。没有普通生产UI、正式09/性能或新的自然视觉通过；原参考仍有跨台实体/斜源/宿主范围缺口，Goal继续active。
+
+`cross-terrace-01/`已形成原路线的真实局部填切：`geometry-04`保留双壁槽反例；`geometry-06`固定第17右肩→原p208..p0→有限K/E帽→原右肩32..18，22整数节点/20非步行apron三角/2.7995945m²，保留原33点、两段控制源、1500mm目标净宽和900原边。高度按原弧长2200→4200取整，apron原链延拓及cap都是未测量/未获用户确认的制作假设。保守肩点半径752mm使逐段最小实际净宽1502.766169mm，相对旧浮点显示带最大偏移2.585616mm，XOR27239.001572mm²；不能宣称带区完全相同。实际128walk+20apron，经原671/212点源分为155单元/169top；填方2.939008764546m³、切方2.839518167739m³，含apron额外0.006476149892m³填入和0.687219927529m³移除。原203..211共15实际变化区间、16段walk/apron共享零台差、两端完整帽/750mm等高接入及288全宽查询有效。
+
+独立`cross-terrace-01/independent-review/`核四份填入/移除/前态/后态实际mesh的反向双面、vertex流形/连通、Euler2、无孤点/重复面/3D T接点及非法实际三角交叉，另以逐源积分和换原点mesh体积验证守恒；4破坏负例拒绝。源包48ZIP/manifest/CRC、14实际PNG和29许可绑定保持，不扩原参考图权利。根实际查看`geometry-06/actual-geometry.png`两朝向三角检查图，高台外侧第二高壁消除，但低段仍是窄坡基、开口有显著三角面，未作自然视觉或用户P3通过判断；Z=2000仅view裁切底，不是岩体base，也非产品投影。冻结片段误用scene.id省略sceneId，完整源包/scene SHA保持，另在`kernel-05/SOURCE-CORRECTION.json`补真实字段，原失败/制品不覆写。
+
+新增共享`terrain-inlay`仅为开发内核，无活动SceneDocument字段或命令；两完整源、整数actual面/影响及walk边界独立捕获，全覆盖/共享XYZ/T接点/正负材料及共线原边来源有限求解。`kernel-05`以真实105整数顶点/148面、671/212原源复现155cell/15interval与上述独立体积，JSON重读精确/288查询保持。人工改共同Z可成为另一合法几何，不冒称有当前场景身份/proof/锁授权；完整采用仍待实现。独立代码审查曾复现被覆盖low原边错误回退1000mm，根修为核原边两侧可见owner、跳过隐藏raw边，原失败保留；`review-fix-01.json`是揭示后复验，包含反向绕行/域内外样本。材料侧界明确命名`materialBoundaries`，不能直接当最终after外露壁；两者须与可见邻面共同求解。最终`targeted-04.log`为3文件43项，9个新内核用例包括零体积分割、缺面/重叠/反转/T接点、隐藏原边、getter/隐藏字段、实际参与及工作预算；旧carved/support回归保持。正式build/无DOM检查与最终冻结按本目录日志追溯，不继承为普通UI/完整工程冷读、正式09/性能或自然视觉通过；后续继续同一v1来源/actual及双源事务/玩家/通路链，Goal active。
+
+### 2026-11-16 提交整理的独立冻结自检
+
+本次按用户明确要求分块提交并推送；源码冻结取暂存树`976ff1ae3045efa811835dd88097e583bf20eca1`，与代码提交`0755a7a`的`src/tests`逐项一致，副本位于被忽略的`work/commit-push-20261116/frozen/`。首次构建发现新增投影测试的坐标数组推断不满足`MultiPolygon`，已补明确二元组类型；随后独立副本的24文件271项定向Vitest、正常`npm run build`及`npm run check:shared`通过，分别包含429模块架构边界、392模块无DOM编译和Node原生ESM/工程往返。构建保留既有依赖注释及大块提示。新增本地文档链接36处存在性/锚点检查及119个变更文件的凭据特征检查通过；这些只是必要开发自检。
+
+浏览器首轮默认Chromium缺少本机可执行文件，7项均在启动阶段失败，未执行产品断言；改用本机Chrome串行运行两文件，6通过、1项全斜源边面板summary点击超时。该轮工作区同时存在并行写入，不能作为冻结源码的完整通过记录。仅将此失败项移到上述独立副本复查，1项通过（11.7秒）；不把两轮拼成一次7项全绿，也不据此确认超时根因。原失败附件在`work/commit-push-20261116/chrome-e2e/`，独立复查输出在`work/commit-push-20261116/frozen-e2e/`。暂存后继续变化的四个源码/测试文件保留在原工作区，不纳入本次已验证冻结。原参考整件、自然视觉、正式09与用户P3仍未完成，推送不等于验收或已发布。
 
 <a id="complete-project-save-abort-20261114"></a>
 ## 完整作品的晚期保存事务中止（2026-11-14）
