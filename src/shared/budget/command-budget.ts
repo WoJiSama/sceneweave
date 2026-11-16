@@ -123,6 +123,7 @@ function manualEntries(document: SceneDocument, graph?: AppearanceGraph) {
   const { schemaVersion: _version, sceneId: _id, revision: _revision, vertices: _vertices, rooms: _rooms,
     walls: _walls, openings: _openings, props: _props, regions: _regions, notes: _notes, floors: _floors,
     terrainAreas: _areas, terrainEdges: _edges, terrainConnections: _connections, paths: _paths, pathAttachments: _pathAttachments,
+    attachmentSurfaces: _attachmentSurfaces, attachments: _attachments,
     prefabInstances: _prefabs, scatterGroups: _scatters, userLayers: _layers, entityLayers: _membership,
     assets: _assets, materials: _materials, propDefinitions: _propDefinitions, prefabDefinitions: _prefabDefinitions,
     styleThemes: _themes, generation: _generation, visual: _visual, regional: _regional,
@@ -390,6 +391,7 @@ export function measureCommandBudget(before: SceneDocument, after: SceneDocument
   const recordData = (document: SceneDocument, identity?: CommandBudgetMetadata['before']) => ({
     generation: document.generation ?? null, identity: identity?.historyIdentity ?? null, appearance: identity?.appearance ?? null,
     pathAttachments: document.pathAttachments ?? null,
+    attachmentSurfaces: document.attachmentSurfaces ?? null, attachments: document.attachments ?? null,
     assets: document.assets, materials: document.materials, propDefinitions: document.propDefinitions,
     prefabDefinitions: document.prefabDefinitions, styleThemes: document.styleThemes,
     regionalSymbolDefinitions: document.regional?.symbolDefinitions ?? null,

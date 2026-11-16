@@ -118,6 +118,12 @@ export function semanticTargetEntries(document: SceneDocument): Map<string, { id
     }
     rows.set(`${kindFor[key]}:${id}`, { id, value: { row: value, layerId: document.entityLayers[id], ...(key === 'props' ? { memberships: memberships.get(id) ?? [] } : {}) } })
   }
+  for (const area of Object.values(document.terrainAreas)) if (area.rockBody?.shell) {
+    const shell = area.rockBody.shell
+    for (const [id, row] of Object.entries(shell.verticesMm)) rows.set(`rockShellVertex:${id}`, { id: area.id, value: row })
+    for (const [id, row] of Object.entries(shell.faces)) rows.set(`rockShellFace:${id}`, { id: area.id, value: row })
+    for (const row of shell.sections) rows.set(`rockShellSection:${row.id}`, { id: area.id, value: row })
+  }
   for (const key of DECORATION_COLLECTIONS) for (const [id, row] of Object.entries(document[key] ?? {})) {
     if (key === 'decorationClusters') { const { members: _members, ...properties } = row as unknown as Record<string, unknown>; rows.set(`decorationCluster:${id}`, { id, value: { row: properties, layerId: document.entityLayers[id] } }) }
     else rows.set(`decoration:${id}`, { id, value: { row, layerId: document.entityLayers[id], memberships: Object.values(document.decorationClusters ?? {}).flatMap(group => Object.entries(group.members).filter(([, member]) => member.entityId === id).map(([candidateKey, member]) => ({ clusterId: group.id, candidateKey, member }))) } })
@@ -125,6 +131,8 @@ export function semanticTargetEntries(document: SceneDocument): Map<string, { id
   for (const key of SURFACE_RULE_COLLECTIONS) for (const [id, row] of Object.entries(document[key] ?? {})) rows.set(`surfaceRule:${id}`, { id, value: { row, layerId: document.entityLayers[id] } })
   for (const [id, row] of Object.entries(document.floors)) rows.set(`floor:${id}`, { id, value: row })
   for (const [id, row] of Object.entries(document.pathAttachments ?? {})) rows.set(`pathAttachment:${id}`, { id, value: row })
+  for (const [id, row] of Object.entries(document.attachmentSurfaces ?? {})) rows.set(`attachmentSurface:${id}`, { id, value: row })
+  for (const [id, row] of Object.entries(document.attachments ?? {})) rows.set(`attachment:${id}`, { id, value: row })
   for (const [id, row] of Object.entries(document.userLayers)) rows.set(`layer:${id}`, { id, value: row })
   const visual = visualBase(document)
   for (const key of ['boundaries', 'edgeLooks', 'lights', 'fogs', 'filters'] as const) for (const [id, row] of Object.entries(visual?.[key] ?? {})) rows.set(`visual.${key}:${id}`, { id, value: row })
@@ -195,6 +203,24 @@ export const measureBudgetGeometry = (value: unknown): Pick<BudgetUsage,'geometr
     if (row.footprintMm || row.from && row.to && row.widthMm) {result.geometryPoints+=4;result.geometrySegments+=4}
     if (row.segments && Array.isArray(row.segments)) { result.curveSegments+=row.segments.length; result.geometryPoints+=row.segments.length*4;result.geometrySegments+=row.segments.length }
     if (row.route && typeof row.route === 'object') add(row.route)
+    if (row.terrainInlay && typeof row.terrainInlay === 'object') {
+      const inlay = row.terrainInlay as { geometry: { verticesMm: Record<string, unknown>; faces: Record<string, unknown>; sources: unknown[] }; originalConnection: unknown }
+      result.geometryPoints += Object.keys(inlay.geometry.verticesMm).length
+      result.geometrySegments += Object.keys(inlay.geometry.faces).length * 3
+      for (const source of inlay.geometry.sources) add(source)
+      add(inlay.originalConnection)
+    }
+    if (row.carvedStrip && typeof row.carvedStrip === 'object') {
+      const strip = row.carvedStrip as { verticesMm: Record<string, unknown>; faces: Record<string, unknown> }
+      result.geometryPoints += Object.keys(strip.verticesMm).length
+      result.geometrySegments += Object.keys(strip.faces).length * 3
+    }
+    const shell = (row.rockBody as { shell?: { verticesMm: Record<string, unknown>; faces: Record<string, unknown> } } | undefined)?.shell
+    if (shell) { result.geometryPoints += Object.keys(shell.verticesMm).length; result.geometrySegments += Object.keys(shell.faces).length * 3 }
+    if (row.feature && typeof row.feature === 'object') {
+      const feature = row.feature as { polygonLocalMm?: unknown[] }
+      if (feature.polygonLocalMm) add({ boundaryMm: feature.polygonLocalMm })
+    }
     if (row.polygons && Array.isArray(row.polygons)) for (const polygon of row.polygons) add({boundaryMm: polygon.pointsMm ?? polygon})
     if (row.strokes && Array.isArray(row.strokes)) for (const stroke of row.strokes) add({pointsMm: stroke.pointsMm})
     if(row.target&&typeof row.target==='object'&&Array.isArray((row.target as {boundaryMm?:unknown}).boundaryMm))add(row.target)
@@ -245,6 +271,9 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
     addChanged(before[collection]?.[id], after[collection]?.[id]); retainedSegments += measureBudgetGeometry(after[collection]?.[id]).geometrySegments
   }
   const av=visualBase(before),bv=visualBase(after)
+  for (const collection of ['attachmentSurfaces', 'attachments'] as const) for (const id of new Set([...Object.keys(before[collection] ?? {}), ...Object.keys(after[collection] ?? {})])) {
+    addChanged(before[collection]?.[id], after[collection]?.[id]); retainedSegments += measureBudgetGeometry(after[collection]?.[id]).geometrySegments
+  }
   for(const collection of ['boundaries','edgeLooks','lights','fogs','filters'] as const)
     for (const id of new Set([...Object.keys(av?.[collection]??{}),...Object.keys(bv?.[collection]??{})])) {
       addChanged(av?.[collection][id],bv?.[collection][id]);retainedSegments+=measureBudgetGeometry(bv?.[collection][id]).geometrySegments
@@ -277,6 +306,7 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
     }
   }
   const data={generation:after.generation??null,historyIdentity:metadata?.after.historyIdentity??null,appearance:metadata?.after.appearance??null,
+    attachmentSurfaces: after.attachmentSurfaces ?? null, attachments: after.attachments ?? null,
     ...(after.aggregateCoordinates ? { aggregateCoordinates: after.aggregateCoordinates } : {}),
     sources:{materials:after.materials,propDefinitions:after.propDefinitions,prefabDefinitions:after.prefabDefinitions,assets:after.assets,styleThemes:after.styleThemes,
       regionalSymbolDefinitions:after.regional?.symbolDefinitions??{}}}

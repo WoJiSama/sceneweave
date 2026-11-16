@@ -81,6 +81,11 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
     }
     for (const item of style.overlays) register(item.id)
   }
+  // An inactive original remains restorable source evidence. Its material
+  // closure must survive later appearance edits of the active connection.
+  for (const connection of Object.values(scene.terrainConnections)) if (connection.terrainInlay) {
+    checkStyle(connection.terrainInlay.originalConnection.surfaceStyle, 'path', connection.id)
+  }
   const semanticIdentities = new Map<string, string>()
   const adopted = (kind: LicenseSubject['subjectKind'], definition: DefinitionIdentity) => {
     subjects.push({ subjectKind: kind, subjectId: definition.id, licenseRef: definition.licenseRef })

@@ -65,6 +65,7 @@ export function aggregateEntityRelations(scene: SceneDocument): AggregateEntityR
     const from = { kind: 'terrainConnection' as const, id: connection.id }
     for (const end of ['from', 'to'] as const) support(from, connection[end].surfaceRef, `${end}.surfaceRef`)
     if (connection.openingId !== null) add(from, { kind: 'opening', id: connection.openingId }, 'attachment', 'openingId')
+    for (const source of connection.terrainInlay?.geometry.sources ?? []) add(from, { kind: 'terrainArea', id: source.id }, 'attachment', 'terrainInlay.geometry.sources')
   }
   for (const path of Object.values(scene.paths)) for (const ref of path.supportRefs) support({ kind: 'path', id: path.id }, ref, 'supportRefs')
   for (const group of Object.values(scene.prefabInstances)) for (const member of Object.values(group.members)) if (member.propId !== null) add({ kind: 'prefabInstance', id: group.id }, { kind: 'prop', id: member.propId }, 'membership', 'members')

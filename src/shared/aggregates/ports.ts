@@ -3,6 +3,8 @@ import type { AggregateEntityRef, AggregatePort, AggregatePortGeometry } from '.
 import type { PointMm, SceneDocument, SurfaceRef } from '../model/scene.js'
 import { openingEndpoints, pointOnSurface } from '../geometry/geometry.js'
 import { connectionCenterline } from '../geometry/connection-route.js'
+import { carvedStripCenterline } from '../carved-rock/index.js'
+import { createSupportQuery } from '../geometry/support-sample.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { captureJson, freezeJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -99,13 +101,15 @@ function pathEndpoint(scene: SceneDocument, pathId: string, end: 'start' | 'end'
 }
 
 function connectionEndpoint(scene: SceneDocument, connectionId: string, end: 'from' | 'to') {
-  const connection = scene.terrainConnections[connectionId], points = connectionCenterline(connection)
+  const connection = scene.terrainConnections[connectionId], points = connection.carvedStrip ? carvedStripCenterline(connection.carvedStrip) : connectionCenterline(connection)
   if (points.length < 2) throw new Error('高差连接端口缺少完整中心线。')
   const index = end === 'from' ? 0 : points.length - 1, tangentIndex = end === 'from' ? 1 : points.length - 2
   const positionMm = points[index], next = points[tangentIndex]
   // Both ends expose a direction away from the connector and into their surface.
   const directionDeg = directionDegrees(next, positionMm)
-  const endpoint = connection[end], elevationMm = surfaceElevation(scene, endpoint.surfaceRef)
+  const endpoint = connection[end], query = createSupportQuery(scene, connection.floorId), actual = connection.carvedStrip || connection.terrainInlay ? query.sample(positionMm) : null
+  if ((connection.carvedStrip || connection.terrainInlay) && (!actual || actual.sourceConnectionId !== connection.id || Math.abs(actual.zMm - surfaceElevation(scene, endpoint.surfaceRef)) > 1e-7)) throw new Error('连续岩台端口必须由自身实际端面和声明接入高程证明，不能仅使用根基常高。')
+  const elevationMm = actual?.zMm ?? surfaceElevation(scene, endpoint.surfaceRef)
   const opposite = connection[end === 'from' ? 'to' : 'from']
   const oppositeElevation = surfaceElevation(scene, opposite.surfaceRef)
   if (elevationMm === oppositeElevation || sameSurface(endpoint.surfaceRef, opposite.surfaceRef)) throw new Error('高差连接端口要求两个不同且高程不同的真实支撑面。')

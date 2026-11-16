@@ -8,6 +8,9 @@ import type { AggregateCoordinates } from './aggregate.js'
 import type { VisualEnvironment } from '../visual/types.js'
 import type { ImageEnhancementMetadata } from '../image-enhancement/metadata.js'
 import type { AssetRefinementMetadata } from '../asset-refinement/metadata.js'
+import type { Attachment, AttachmentSurface } from '../attachments/contracts.js'
+import type { RockBody, CarvedStrip } from '../carved-rock/contracts.js'
+import type { TerrainInlay } from '../terrain-inlay/persistence.js'
 
 /** All world coordinates and dimensions are integer millimetres. */
 export type Id = string
@@ -85,6 +88,8 @@ export interface TerrainPoint { id: Id; segmentId: Id; positionMm: PointMm }
 export interface TerrainArea extends Editable {
   visibility: Visibility; boundaryMm: TerrainPoint[]; groundElevationMm: number; coveragePriority: number
   surfaceStyle: SurfaceStyle | null; blocksMovement: boolean; blocksSight: boolean; movementCostMultiplier: number
+  /** Explicit finite solid. Ordinary terrain remains a flat support surface. */
+  rockBody?: RockBody
 }
 export interface EdgeStyle { strokeWidthMm: number; color: string; bandWidthMm: number }
 export interface TerrainEdge extends Editable {
@@ -98,6 +103,10 @@ export interface TerrainConnection extends Editable {
   widthMm: number; openingId: Id | null; blocksMovement: boolean; movementCostMultiplier: number; surfaceStyle: SurfaceStyle | null
   /** Present only in strict Scene5+; absent preserves the original straight connection. */
   route?: ConnectionRoute
+  /** Actual continuous walk faces and removed rock; exclusive with stair routes. */
+  carvedStrip?: CarvedStrip
+  /** Complete multi-source fill/cut mesh; original connection is inactive evidence. */
+  terrainInlay?: TerrainInlay
 }
 export interface Path extends Editable {
   visibility: Visibility; centerlineMm: PointMm[]; widthMm: number; supportRefs: SurfaceRef[]
@@ -172,6 +181,9 @@ export interface PathCheck {
 export type SceneOutputBackground = { mode: 'solid'; color: string } | { mode: 'transparent' }
 /** Complete, independent persisted model. No legacy view is used by the native path. */
 export interface SceneDocument {
+  /** Instance-owned contact surfaces and explicit support/hang/embed relations. */
+  attachmentSurfaces?: Record<Id, AttachmentSurface>
+  attachments?: Record<Id, Attachment>
   /** Explicit exterior door/path relation; no layer membership or player metadata. */
   pathAttachments?: Record<Id, PathAttachment>
   format: 'sceneweave-scene'; schemaVersion: 1; sceneId: Id; revision: number

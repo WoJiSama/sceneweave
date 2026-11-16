@@ -42,6 +42,18 @@ export function editorPaintBounds(projection: Projection, plan: Pick<EditorRende
   const theme = projection.theme
   padding = Math.max(padding, shadowPadding(theme?.shadowPresets.wall), theme?.outline.widthMm ?? 24)
   if (projection.walls.some(wall => wall.edgeProfile)) padding += WALL_RELIEF_LIMIT_MM
+  if (projection.rocks?.length) padding = Math.max(padding, 1100)
+  for (const inlay of projection.inlays ?? []) {
+    const b = inlay.paintBoundsMm, footprint = inlay.footprintMm
+    padding = Math.max(padding, Math.min(...footprint.map(p => p.x)) - b.x, Math.min(...footprint.map(p => p.y)) - b.y,
+      b.x + b.width - Math.max(...footprint.map(p => p.x)), b.y + b.height - Math.max(...footprint.map(p => p.y)))
+  }
+  for (const rock of projection.rocks ?? []) {
+    const top = projection.terrain.find(area => area.id === rock.id)?.points
+    if (!top?.length) continue
+    const left = Math.min(...top.map(p => p.x)), right = Math.max(...top.map(p => p.x)), upper = Math.min(...top.map(p => p.y)), lower = Math.max(...top.map(p => p.y))
+    for (const facet of rock.facets) for (const point of facet.pointsMm) padding = Math.max(padding, left - point.x, point.x - right, upper - point.y, point.y - lower)
+  }
   if (theme?.terrainCliff.opacity) padding = Math.max(padding, theme.terrainCliff.maxOffsetMm + theme.terrainCliff.blurMm * 4)
   for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(effectivePropShadow(entry.prop, projection.propPresentations?.[entry.prop.id], theme?.shadowPresets[entry.prop.shadowClass])))
   const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style), ...projection.paths.map(path => path.style)]

@@ -267,6 +267,7 @@ function buildAddedProp(scene: SceneDocument, command: Extract<BaseSceneCommand,
 
 function copyProp(scene: SceneDocument, command: Extract<BaseSceneCommand, { type: 'copyProp' }>): Prop {
   const source = requireEntity(scene.props, command.id, '源物件')
+  if (Object.values(scene.attachments ?? {}).some(row => row.child.id === source.id) || Object.values(scene.attachmentSurfaces ?? {}).some(row => row.owner.id === source.id)) throw new Error('附着物件及表面宿主的复制需要完整关系候选；请先明确解绑并移除表面。')
   if (hasId(scene, command.newId)) throw new Error('副本必须使用工程中未占用的独立 ID。')
   const clustered = Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.kind === 'prop' && member.entityId === source.id && member.state !== 'detached' && member.state !== 'deleted'))
   if (memberRecord(scene, source.id) || clustered) throw new Error('此复制入口只支持独立物件；组合、散布或布景簇成员须先明确拆开或脱离。')

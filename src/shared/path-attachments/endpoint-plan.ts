@@ -4,6 +4,8 @@ import { resolveBuildingStructurePort, type BuildingStructurePort } from '../gen
 import { checkTerrainRoute, TERRAIN_ROUTE_LIMITS } from '../geometry/terrain-travel.js'
 import { pathPolygon, polygonDistance, propFootprint, terrainPoints } from '../geometry/geometry.js'
 import { wallMovementPolygons } from '../geometry/doorway-clearance.js'
+import { carvedStripCutFootprints } from '../carved-rock/index.js'
+import { createSupportQuery, levelGroundPolygon } from '../geometry/support-sample.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { canonicalJson, captureJson, cloneJson as clone, encodeUtf8 } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
@@ -71,6 +73,7 @@ function checkedPath(scene: SceneDocument, pathId: string, port: BuildingStructu
   if (!path.supportRefs.some(ref => ref.kind === 'terrainArea' && ref.id === port.supportRef.id)
     || path.supportRefs.some(ref => ref.kind !== 'terrainArea' || !visible.terrainArea(ref.id) || scene.terrainAreas[ref.id].floorId !== path.floorId
       || scene.terrainAreas[ref.id].groundElevationMm !== port.elevationMm || scene.terrainAreas[ref.id].blocksMovement)) throw new Error('端点接续须保留与门口相容的同高程公开真实地形支撑，不能暗改支撑。')
+  if (!levelGroundPolygon(scene, path.floorId, pathPolygon(path), path.supportRefs, port.elevationMm)) throw new Error('门路端点接续只支持完整真实同高道路，不能以根基常高覆盖实际切口或坡面。')
   return path
 }
 
@@ -110,18 +113,27 @@ export function planPathAttachmentEndpoint(inputScene: SceneDocument, input: Pat
   } else displacement(points[0], port.outsideMm, request.maxDisplacementMm)
   const tail = points.slice(request.mode === 'bind' ? 1 : 2), nextOriented = [clone(port.outsideMm), lead, ...tail]
   const centerlineMm = request.end === 'start' ? nextOriented : [...nextOriented].reverse()
-  const band = pathPolygon({ ...path, centerlineMm }), retainedSegments = Object.values(scene.terrainAreas).filter(area => area.floorId === path.floorId).reduce((sum, area) => sum + area.boundaryMm.length, 0)
+  const band = pathPolygon({ ...path, centerlineMm }), cutRows = Object.values(scene.terrainConnections).filter(row => row.floorId === path.floorId && row.carvedStrip).map(connection => ({ connection, footprints: carvedStripCutFootprints(connection.carvedStrip!) }))
+  const supportQuery = createSupportQuery(scene, path.floorId)
+  const retainedSegments = Object.values(scene.terrainAreas).filter(area => area.floorId === path.floorId).reduce((sum, area) => sum + area.boundaryMm.length, 0)
     + Object.values(scene.regions).filter(region => region.floorId === path.floorId).reduce((sum, region) => sum + region.boundaryMm.length, 0)
     + Object.values(scene.walls).filter(wall => wall.floorId === path.floorId).length * 4 + Object.values(scene.props).filter(prop => prop.floorId === path.floorId && prop.blocksMovement).length * 4
+    + cutRows.reduce((sum, row) => sum + row.footprints.reduce((count, polygon) => count + polygon.length, 0), 0)
+    + supportQuery.shellBoundaries.reduce((sum, polygon) => sum + polygon.length, 0)
   const work = emptyBudgetUsage()
   work.semanticTargets = 1; work.geometryPoints = points.length + centerlineMm.length + band.length + tail.length + 3
   work.geometrySegments = points.length + centerlineMm.length + band.length; work.intersectionPairs = (retainedSegments + band.length) ** 2
   assertCommandBudget(MANUAL_TRANSACTION_BUDGET, work)
   const route = checkTerrainRoute(scene, { floorId: path.floorId, pointsMm: centerlineMm, widthMm: path.widthMm })
   if (!route.ok) throw new Error(`门前完整室外道路带区不合法：${route.issues.map(issue => issue.message).join('；')}`)
+  if (!levelGroundPolygon(scene, path.floorId, band, path.supportRefs, port.elevationMm)) throw new Error('门路新候选完整带区触及真实切口或连续坡面，当前平面接续不能采用。')
   const declared = new Set(path.supportRefs.map(ref => `${ref.kind}:${ref.id}`))
   if (route.supportRefs.some(ref => !declared.has(`${ref.kind}:${ref.id}`))) throw new Error('有限接续需要新的支撑面，未改写道路原支撑。')
   for (const ref of path.supportRefs) dependencies.add(ref.id)
+  for (const row of cutRows) if (row.footprints.some(polygon => polygonDistance(band, polygon) < 1e-7)) {
+    dependencies.add(row.connection.id); dependencies.add(row.connection.carvedStrip!.hostAreaId); dependencies.add(row.connection.carvedStrip!.walkSurfaceId); dependencies.add(row.connection.carvedStrip!.attachmentId)
+  }
+  for (const row of supportQuery.shells) if (row.sampler.triangles.some(face => polygonDistance(band, face.verticesMm.map(({ x, y }) => ({ x, y }))) < 1e-7)) dependencies.add(row.area.id)
   for (const area of Object.values(scene.terrainAreas)) if (area.floorId === path.floorId && polygonDistance(band, terrainPoints(area)) < 1e-7) dependencies.add(area.id)
   for (const prop of Object.values(scene.props)) if (prop.floorId === path.floorId && prop.blocksMovement && polygonDistance(band, propFootprint(prop)) < 1e-7) dependencies.add(prop.id)
   for (const region of Object.values(scene.regions)) if (region.floorId === path.floorId && region.blocksMovement && polygonDistance(band, region.boundaryMm) < 1e-7) dependencies.add(region.id)

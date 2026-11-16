@@ -7,6 +7,9 @@ import type { VisualSystem } from './types.js'
 import { getLegacyVisual } from '../terrain-generation/composition-contracts.js'
 import { decorationPaintPolygon } from '../decorations/presentation.js'
 import { resolveFloorOutput, type FloorOutput } from '../floors/output.js'
+import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
+import { planTerrainCliffs } from './terrain-cliff-plan.js'
+import { terrainTransitionStrokePolygon } from './transition.js'
 
 const copy = <T>(value: T): T => cloneJson(value)
 const bounds = (points: PointMm[]): BoundsMm => ({ x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)), width: Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)), height: Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y)) })
@@ -76,7 +79,9 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     targetRings.set(wall.id, [[{ x: a.xMm + nx, y: a.yMm + ny }, { x: b.xMm + nx, y: b.yMm + ny }, { x: b.xMm - nx, y: b.yMm - ny }, { x: a.xMm - nx, y: a.yMm - ny }]])
   }
   for (const connection of projection.connections) {
-    if (connection.route) targetRings.set(connection.id, [connectionBand(connection.route.centerlineMm, connection.widthMm)])
+    const inlay = projection.inlays?.find(row => row.id === connection.id)
+    if (inlay) targetRings.set(connection.id, [copy(inlay.footprintMm)])
+    else if (connection.route) targetRings.set(connection.id, [connectionBand(connection.route.centerlineMm, connection.widthMm)])
     else {
       const dx = connection.end.x - connection.start.x, dy = connection.end.y - connection.start.y, l = Math.hypot(dx, dy), nx = -dy / l * connection.widthMm / 2, ny = dx / l * connection.widthMm / 2
       targetRings.set(connection.id, [[{ x: connection.start.x + nx, y: connection.start.y + ny }, { x: connection.end.x + nx, y: connection.end.y + ny }, { x: connection.end.x - nx, y: connection.end.y - ny }, { x: connection.start.x - nx, y: connection.start.y - ny }]])
@@ -117,13 +122,90 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     const targetBoundsMm = rings ? bounds(rings.flat()) : copy(output.boundsMm)
     filters.push({ ...copy(parameters), ...(sourceEntityIds ? { sourceEntityIds } : {}), ...(target.kind === 'region' ? { regionFeatherMm: Math.min(1200, Math.min(targetBoundsMm.width, targetBoundsMm.height) * .16) } : {}), targetRings: rings, targetBoundsMm })
   }
-  return { environment: copy(output.environment), boundsMm: copy(output.boundsMm), boundaries, transitions, edgeLooks,
+  const result: ProjectedVisualSystem = { environment: copy(output.environment), boundsMm: copy(output.boundsMm), boundaries, transitions, edgeLooks,
     ...(legacyVisual ? { materializedEdges, edgePaintOrder } : {}),
     lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !projection.masks.some(mask => { const b = bounds(mask); return light.positionMm.x >= b.x && light.positionMm.y >= b.y && light.positionMm.x <= b.x + b.width && light.positionMm.y <= b.y + b.height }))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
     fogs: Object.values(visual.fogs).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).map(copy), filters,
     occluderRings: [...projectedWallFootprints(projection), ...projectedPropFootprints(projection)],
     contactRings: projection.props.filter(prop => prop.renderLayer !== 'ground' && prop.shadowClass !== 'none').map(propVisualRing),
-    suppressedTerrainEdgeIds: projection.edges.filter(edge => replacedSegments.has(segmentKey(edge.start, edge.end))).map(edge => edge.id) }
+    suppressedTerrainEdgeIds: projection.edges.filter(edge => replacedSegments.has(segmentKey(edge.start, edge.end)) || projection.inlays?.length && boundaries.some(boundary => decorated.has(boundary.id)
+      && boundary.points.some((a, i) => {
+        if (!boundary.closed && i === boundary.points.length - 1) return false
+        const b = boundary.points[(i + 1) % boundary.points.length], dx = b.x - a.x, dy = b.y - a.y, square = dx * dx + dy * dy
+        return square > 0 && [edge.start, edge.end].every(p => Math.abs(dx * (p.y - a.y) - dy * (p.x - a.x)) <= 1e-6 * Math.sqrt(square)
+          && (p.x - a.x) * dx + (p.y - a.y) * dy >= -1e-6 && (p.x - b.x) * dx + (p.y - b.y) * dy <= 1e-6)
+      }))).map(edge => edge.id) }
+  if (projection.inlays?.length) result.inlayExclusions = projectInlayExclusions(projection, result)
+  return result
+}
+
+const clipPolygon = (ps: PointMm[]): MultiPolygon => [[ps.map(p => [p.x, p.y])]]
+const clipArea = (regions: MultiPolygon): number => regions.reduce((sum, poly) => sum + poly.reduce((s, ring, i) => s + (i ? -1 : 1)
+  * Math.abs(ring.reduce((a, p, j) => a + p[0] * ring[(j + 1) % ring.length][1] - ring[(j + 1) % ring.length][0] * p[1], 0) / 2), 0), 0)
+const clipUnion = (polys: MultiPolygon[]): MultiPolygon => polys.length ? polygonClipping.union(polys[0], ...polys.slice(1)) : []
+const clipRings = (rings: PointMm[][]): MultiPolygon => rings.length ? polygonClipping.xor(clipPolygon(rings[0]), ...rings.slice(1).map(clipPolygon)) : []
+const interpolate = (a: PointMm, b: PointMm, t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+
+/** Preserve the original complete boundary/station/seed. Exclusions are actual
+ * old face ownership sliced by changed physical carriers, never a broad box.
+ * Keeping the original plan also leaves all untouched procedural detail stable. */
+function projectInlayExclusions(projection: Projection, visual: ProjectedVisualSystem): NonNullable<ProjectedVisualSystem['inlayExclusions']> {
+  const inlays = projection.inlays!, influence = clipUnion(inlays.map(inlay => clipPolygon(inlay.footprintMm)))
+  const carriers = inlays.flatMap(inlay => inlay.changedCarriers)
+  const overlapRange = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): [number, number] | null => {
+    const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy)
+    if (!length || [c, d].some(p => Math.abs(dx * (p.y - a.y) - dy * (p.x - a.x)) > 1e-5 * length)) return null
+    const t = (p: PointMm) => ((p.x - a.x) * dx + (p.y - a.y) * dy) / length ** 2
+    const from = Math.max(0, Math.min(t(c), t(d))), to = Math.min(1, Math.max(t(c), t(d)))
+    return (to - from) * length > 1e-6 ? [from, to] : null
+  }
+  const exclusions = new Map<string, MultiPolygon[]>(visual.edgeLooks.filter(look => look.kind === 'cliff').map(look => [look.id, [influence]]))
+  // Saved materialized/transition output has no per-carrier ownership proof in
+  // this first slice. Refuse an overlap; retain every untouched saved result.
+  for (const value of visual.materializedEdges ?? []) {
+    const polygons = value.polygons.map(clipPolygon).concat(value.strokes.map(stroke => clipPolygon(terrainTransitionStrokePolygon(stroke.pointsMm, stroke.widthMm))))
+    if (polygons.some(poly => clipArea(polygonClipping.intersection(poly, influence)) > 1e-5)) throw Error('跨台实际域触及已保存的物化边；请先明确移除或重新制作该表现。')
+  }
+  for (const value of visual.transitions ?? []) {
+    const polygons = value.polygons.map(poly => clipPolygon(poly.pointsMm)).concat(value.strokes.map(stroke => clipPolygon(terrainTransitionStrokePolygon(stroke.pointsMm, stroke.widthMm))))
+    if (polygons.some(poly => clipArea(polygonClipping.intersection(poly, influence)) > 1e-5)) throw Error('跨台实际域触及已保存的常高过渡；请先明确移除或重新制作该表现。')
+  }
+  // Non-cliff authoring stays intact. This first slice cannot recast a saved
+  // grass/shore/fence decoration as terrain generated by a changed carrier.
+  for (const look of visual.edgeLooks) if (look.kind !== 'cliff') {
+    const boundary = visual.boundaries.find(row => row.id === look.boundaryId)
+    if (!boundary) continue
+    const rings = boundary.points.slice(1).map((b, i) => clipPolygon(terrainTransitionStrokePolygon([boundary.points[i], b], look.widthMm)))
+    if (boundary.closed) rings.push(clipPolygon(terrainTransitionStrokePolygon([boundary.points.at(-1)!, boundary.points[0]], look.widthMm)))
+    if (rings.some(poly => clipArea(polygonClipping.intersection(poly, influence)) > 1e-5)) throw Error('跨台实际域触及既有草带、岸线或其他装饰；请明确保留/调整该表现后再采用。')
+  }
+  for (const look of visual.edgeLooks) if (look.kind === 'cliff' && !['rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9'].includes(look.renderProfile ?? '')) {
+    const boundary = visual.boundaries.find(row => row.id === look.boundaryId)
+    if (boundary && boundary.points.some((a, i) => (boundary.closed || i < boundary.points.length - 1)
+      && carriers.some(carrier => overlapRange(a, boundary.points[(i + 1) % boundary.points.length], carrier.a, carrier.b)))) {
+      throw Error('跨台实际域触及尚未提供逐段归属的旧崖画法；请先明确调整该表现。')
+    }
+  }
+  for (const face of planTerrainCliffs({ terrain: projection.terrain, visual })) {
+    const selected: MultiPolygon[] = []
+    for (const cell of face.cells) for (const carrier of carriers) {
+      const range = overlapRange(...cell.crest, carrier.a, carrier.b)
+      if (!range) continue
+      const [from, to] = range
+      selected.push(clipPolygon([interpolate(...cell.inner, from), interpolate(...cell.inner, to), interpolate(...cell.foot, to), interpolate(...cell.foot, from)]))
+    }
+    if (!selected.length) continue
+    const region = clipUnion(selected), owned = polygonClipping.intersection(region, clipRings(face.rings))
+    const cuts = exclusions.get(face.look.id)!
+    if (owned.length) cuts.push(owned)
+    const angle = visual.environment.lightDirectionDeg * Math.PI / 180, reach = Math.min(face.look.widthMm * .6, (face.highMm - face.lowMm) * .18)
+    const shifted = region.map(poly => poly.map(ring => ring.map(([x, y]) => [x - Math.cos(angle) * reach, y - Math.sin(angle) * reach] as [number, number])))
+    const shadow = polygonClipping.intersection(shifted, clipRings(face.shadowRings))
+    if (shadow.length) cuts.push(shadow)
+  }
+  return [...exclusions].map(([paintId, polys]) => ({ paintId, regionsMm: clipUnion(polys).map(poly => ({
+    outerMm: poly[0].map(([x, y]) => ({ x, y })), holesMm: poly.slice(1).map(ring => ring.map(([x, y]) => ({ x, y }))),
+  })) }))
 }
 
 /** Contact and point-light occlusion use physical footprints, independent of editor LOD. */

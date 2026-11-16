@@ -5,7 +5,7 @@ export type OutdoorIdentityKind = 'terrainArea' | 'terrainPoint' | 'terrainSegme
 export interface OutdoorIdentityToken { kind: OutdoorIdentityKind; token: string; topologyToken: string; topologyHash: string }
 export interface DecorationIdentityToken { kind: 'decoration' | 'decorationCluster'; token: string; topologyToken: string; topologyHash: string }
 export interface SurfaceRuleIdentityToken { kind: 'surfaceRule'; token: string; topologyToken: string; topologyHash: string }
-export type StructureIdentityKind = 'floor' | 'room' | 'wall' | 'vertex' | 'opening' | 'pathAttachment'
+export type StructureIdentityKind = 'floor' | 'room' | 'wall' | 'vertex' | 'opening' | 'pathAttachment' | 'attachmentSurface' | 'attachment'
 export interface StructureIdentityToken { kind: StructureIdentityKind; token: string; topologyToken: string; topologyHash: string }
 /** Birth records include deleted entities. Tokens and topology evidence are never reassigned. */
 export interface HistoryIdentity {

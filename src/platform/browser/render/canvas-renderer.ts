@@ -110,6 +110,12 @@ function addRing(path: Path2D, points: PointMm[]): void {
   positiveRing(points).forEach((p, i) => i ? path.lineTo(p.x, p.y) : path.moveTo(p.x, p.y)); path.closePath()
 }
 function polygonPath(points: PointMm[]): Path2D { const path = new Path2D(); addRing(path, points); return path }
+function surfacePath(area: ProjectedSurface): Path2D {
+  if (!area.regionsMm) return polygonPath(area.points)
+  const path = new Path2D()
+  for (const region of area.regionsMm) { addRing(path, region.outerMm); for (const hole of region.holesMm) addRing(path, hole) }
+  return path
+}
 function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX: number, scaleY: number) { ctx.setTransform(scaleX, 0, 0, scaleY, -bounds.x * scaleX, -bounds.y * scaleY) }
 
 interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean }
@@ -398,8 +404,8 @@ function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoratio
     } finally { target.restore() }
   }, !!raster.readFrequently)
 }
-export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm' | 'route'>): PointMm[] {
-  return connection.route ? connectionBand(connection.route.centerlineMm, connection.widthMm) : wallBand(connection.start, connection.end, connection.widthMm)
+export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm' | 'route' | 'carvedFootprintMm' | 'inlayFootprintMm'>): PointMm[] {
+  return connection.inlayFootprintMm ?? connection.carvedFootprintMm ?? (connection.route ? connectionBand(connection.route.centerlineMm, connection.widthMm) : wallBand(connection.start, connection.end, connection.widthMm))
 }
 function linePath(a: PointMm, b: PointMm): Path2D { const path = new Path2D(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); return path }
 function excludeRing(ctx: CanvasRenderingContext2D, ring: PointMm[], bounds: BoundsMm): void {
@@ -709,6 +715,16 @@ function maskNaturalRockLanding(layer: CanvasRenderingContext2D, connection: Pro
   } finally { disposeCanvas(mask) }
 }
 function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
+  if (c.inlayFootprintMm) {
+    if (c.style) fillSurface(ctx, polygonPath(c.inlayFootprintMm), c.style, projection, raster, '#B5A281')
+    if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 35; ctx.stroke(polygonPath(c.inlayFootprintMm)); ctx.restore() }
+    return
+  }
+  if (c.carvedFootprintMm) {
+    if (c.style) fillSurface(ctx, polygonPath(c.carvedFootprintMm), c.style, projection, raster, '#B5A281')
+    if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 35; ctx.stroke(polygonPath(c.carvedFootprintMm)); ctx.restore() }
+    return
+  }
   if (c.route) return drawRoutedConnectionBody(ctx, projection, raster, c)
   const frame = connectionFrame(c), half = c.widthMm / 2, polygon = [frame.at(0, half), frame.at(0, -half), frame.at(frame.length, -half), frame.at(frame.length, half)], path = polygonPath(polygon)
   // A bounded local surface lets the two landings blend into their real support
@@ -757,6 +773,77 @@ function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projectio
 function drawConnections(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
   for (const c of projection.connections) drawVisualEntity(ctx, projection, c.id, expandedBounds(connectionPolygon(c), 85), (target, local) => drawConnectionBody(target, local, raster, c), !!raster.readFrequently)
 }
+function drawRockBody(ctx: CanvasRenderingContext2D, rock: NonNullable<Projection['rocks']>[number]) {
+  ctx.save()
+  // Cut shoulders use actual affine geometry but grant no walkable width.
+  const apron = new Path2D()
+  for (const patch of rock.patches) if (patch.kind === 'apron') addRing(apron, patch.pointsMm)
+  ctx.fillStyle = '#8E816B'; ctx.fill(apron)
+  // A single opaque footprint prevents native antialiasing between actual
+  // adjacent triangles from exposing the background as false cracks.
+  const base = new Path2D()
+  for (const facet of rock.facets) addRing(base, facet.pointsMm)
+  ctx.fillStyle = '#756A58'; ctx.fill(base)
+  const fills: { fill: string; opacity: number; path: Path2D }[] = []
+  for (const facet of rock.facets) {
+    let entry = fills.at(-1)
+    if (!entry || entry.fill !== facet.fill || entry.opacity !== facet.opacity) { entry = { fill: facet.fill, opacity: facet.opacity, path: new Path2D() }; fills.push(entry) }
+    addRing(entry.path, facet.pointsMm)
+  }
+  for (const entry of fills) { ctx.fillStyle = entry.fill; ctx.globalAlpha = entry.opacity; ctx.fill(entry.path) }
+  for (const stroke of rock.strokes) { ctx.strokeStyle = stroke.color; ctx.lineWidth = stroke.widthMm; ctx.globalAlpha = stroke.opacity; const path = new Path2D(); stroke.pointsMm.forEach((p, i) => i ? path.lineTo(p.x, p.y) : path.moveTo(p.x, p.y)); ctx.stroke(path) }
+  ctx.globalAlpha = 1
+  // All walk triangles are filled as one path. Shared diagonals introduce no
+  // edge marks, and wall decoration never narrows the actual visible corridor.
+  const path = new Path2D()
+  for (const patch of rock.patches) if (patch.kind === 'walk') addRing(path, patch.pointsMm)
+  ctx.fillStyle = '#B5A281'; ctx.fill(path)
+  ctx.restore()
+}
+/** Height-aware finite after walls. Decorations remain outside the complete
+ * actual walk; the geometry is never reconstructed from the inactive route. */
+function drawTerrainInlays(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
+  for (const inlay of projection.inlays ?? []) drawVisualEntity(ctx, projection, inlay.id, inlay.paintBoundsMm, (target, local) => {
+    const apron = new Path2D(), walk = new Path2D()
+    for (const patch of inlay.patches) addRing(patch.kind === 'walk' ? walk : apron, patch.pointsMm)
+    target.save()
+    try {
+      target.fillStyle = '#8E816B'; target.fill(apron)
+      for (const wall of inlay.walls) {
+        const lower = [wall.a, wall.b].map((p, i) => {
+          const reach = Math.min(600, Math.max(0, wall.highMm[i] - wall.lowMm[i]) * .18)
+          return point(p.x + wall.normal.x * reach, p.y + wall.normal.y * reach)
+        })
+        const footprint = polygonPath([wall.a, wall.b, lower[1], lower[0]])
+        target.save()
+        try {
+          // A cut wall may occupy only the nonwalk apron; a fill wall may
+          // occupy only its real, untouched lower visible source top.
+          if (wall.lowSourceAreaId === null) target.clip(polygonPath(inlay.footprintMm))
+          else {
+            const low = local.terrain.find(area => area.id === wall.lowSourceAreaId)
+            if (!low) throw Error('实际外露壁缺少已过滤的低侧顶面。')
+            target.clip(surfacePath(low), 'evenodd')
+            const rank = local.terrain.indexOf(low)
+            for (const cover of local.terrain.slice(rank + 1)) {
+              // Sequential exclusions preserve holes instead of reopening
+              // overlapping higher-priority coverage with one even-odd mask.
+              const exclude = new Path2D(); exclude.rect(local.bounds.x - 10000, local.bounds.y - 10000, local.bounds.width + 20000, local.bounds.height + 20000)
+              exclude.addPath(surfacePath(cover)); target.clip(exclude, 'evenodd')
+            }
+          }
+          excludeRing(target, inlay.walkFootprintMm, local.bounds)
+          const top = point((wall.a.x + wall.b.x) / 2, (wall.a.y + wall.b.y) / 2), foot = point((lower[0].x + lower[1].x) / 2, (lower[0].y + lower[1].y) / 2)
+          if (Math.hypot(top.x - foot.x, top.y - foot.y) <= EPS) continue
+          const shade = target.createLinearGradient(top.x, top.y, foot.x, foot.y)
+          shade.addColorStop(0, '#AA9A7B'); shade.addColorStop(.4, '#756D5D'); shade.addColorStop(1, '#4E5147')
+          target.fillStyle = shade; target.fill(footprint)
+        } finally { target.restore() }
+      }
+      target.fillStyle = '#B5A281'; target.fill(walk)
+    } finally { target.restore() }
+  }, !!raster.readFrequently)
+}
 function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, signal?: AbortSignal, propDetails?: ReadonlyMap<string, EditorPropDetail>, clipBoundsMm?: BoundsMm) {
   const bounds = projection.bounds, sx = ctx.canvas.width / bounds.width, sy = ctx.canvas.height / bounds.height
   const sprites: ({ kind: 'prop'; value: Prop } | { kind: 'decoration'; value: ProjectedDecoration })[] = [
@@ -782,9 +869,14 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   // content beyond the original fixed export rectangle.
   if (clipBoundsMm) { ctx.save(); ctx.beginPath(); ctx.rect(clipBoundsMm.x, clipBoundsMm.y, clipBoundsMm.width, clipBoundsMm.height); ctx.clip() }
   if (projection.regional) drawRegionalProjection(ctx, projection, sx, sy, raster.byAssetId)
-  for (const area of projection.terrain) drawVisualEntity(ctx, projection, area.id, expandedBounds(area.points, 0), (target, local) => fillSurface(target, polygonPath(area.points), area.style, local, raster, '#C3BEA8', area.materialPatches), !!raster.readFrequently)
+  for (const area of projection.terrain) drawVisualEntity(ctx, projection, area.id, expandedBounds([...area.points, ...(projection.rocks?.find(rock => rock.id === area.id)?.facets.flatMap(facet => facet.pointsMm) ?? [])], projection.rocks?.some(rock => rock.id === area.id) ? 1100 : 0), (target, local) => {
+    fillSurface(target, surfacePath(area), area.style, local, raster, '#C3BEA8', area.materialPatches)
+    const rock = projection.rocks?.find(rock => rock.id === area.id)
+    if (rock) drawRockBody(target, rock)
+  }, !!raster.readFrequently)
   drawTerrainEdges(ctx, projection, raster, sx, sy)
   drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently)
+  drawTerrainInlays(ctx, projection, raster)
   // Keep historical scenes without paths on their old paint order. The
   // audience-owned flag survives temporary hiding of the last editor path.
   const pathsOverRooms = projection.pathPaintOrder !== undefined

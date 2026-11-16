@@ -97,6 +97,11 @@ const changedPropFields = (before: Prop, after: Prop): PropUpdateField[] => [
  * arbitrary changed document and rediscovering its write set. Unsupported
  * dependency closures return undefined before exposing any intermediate state. */
 export function tryApplyPropUpdatesSnapshot(baseline: SceneDocument, inputCommands: unknown): PropUpdateTransaction | undefined {
+  // Contact descendants and instance surfaces require the general transaction
+  // owner to follow and validate their complete closure before certification.
+  if (Object.keys(baseline.attachments ?? {}).length || Object.keys(baseline.attachmentSurfaces ?? {}).length) return
+  if (Object.values(baseline.terrainAreas).some(area => area.rockBody?.shell)) return
+  if (Object.values(baseline.terrainConnections).some(connection => connection.terrainInlay)) return
   const original = snapshots.get(baseline)
   if (!original || baseline.mapMode !== 'scene') return
   if (inspectJsonInput(inputCommands)) return

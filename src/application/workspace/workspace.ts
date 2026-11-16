@@ -58,7 +58,8 @@ import { surfaceStyle } from '../../shared/appearance/graph.js'
 import { inspectDependencies } from '../../shared/geometry/dependencies.js'
 import { reviseSceneSnapshot } from '../../shared/validation/snapshots.js'
 import { assertAllFloorPlayerProjections } from '../../shared/projection/projection.js'
-import { advanceHistoryIdentity, mergeIdentityRecords, mergeHistoryIdentities } from '../../shared/history/identity.js'
+import { createHistoryIdentityTrace, mergeIdentityRecords, mergeHistoryIdentities } from '../../shared/history/identity.js'
+import { syncNewAttachmentProofs } from '../../shared/attachments/identity.js'
 import { buildRestorePlan, generationRestoreChanges, type RestorePlan, type RestoreRequest } from '../../shared/history/restore.js'
 import { terrainCommandCost } from '../../shared/terrain-generation/cost.js'
 import { pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
@@ -1395,7 +1396,12 @@ export class Workspace {
     // tokens. Keep continuity monotonic by pausing any active composition
     // whose frozen output receipt no longer matches the restored identity.
     pauseChangedCompositions(current.document, draft.document)
-    const historyIdentity = advanceHistoryIdentity(current.historyIdentity, current.document, draft.document, this.options.runtime, { allowResurrection: true })
+    const identityTrace = createHistoryIdentityTrace(current.historyIdentity, current.document, this.options.runtime, { allowResurrection: true })
+    const observedIdentity = identityTrace.capture(draft.document)
+    // This candidate is owned undo/redo history. Only rows absent in the
+    // current scene can acquire proofs for their newly restored real births.
+    syncNewAttachmentProofs(current.document, draft.document, observedIdentity)
+    const historyIdentity = identityTrace.finish(draft.document)
     if (Object.keys(draft.document.pathAttachments ?? {}).length) draft.document = rebindPathAttachmentProofs(draft.document, historyIdentity)
     protectLocalGenerationContinuity(draft.document, candidate.historyIdentity, historyIdentity)
     {

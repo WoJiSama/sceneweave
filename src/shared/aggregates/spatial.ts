@@ -168,7 +168,9 @@ function deriveEnvelopes(scene: SceneDocument, audience: AggregateSpatialAudienc
     addPoints('prop', prop.id, prop.floorId, 'visual', corners)
   }
   for (const region of records(scene.regions, 'region')) if (visible('region', region.id)) addPoints('region', region.id, region.floorId, 'boundary', region.boundaryMm)
-  for (const area of records(scene.terrainAreas, 'terrainArea')) if (visible('terrainArea', area.id)) addPoints('terrainArea', area.id, area.floorId, 'surface', terrainPoints(area))
+  for (const area of records(scene.terrainAreas, 'terrainArea')) if (visible('terrainArea', area.id)) {
+    addPoints('terrainArea', area.id, area.floorId, 'surface', [...terrainPoints(area), ...Object.values(area.rockBody?.shell?.verticesMm ?? {})].map(({ x, y }) => ({ x, y })))
+  }
   for (const edge of records(scene.terrainEdges, 'terrainEdge')) {
     if (!visible('terrainEdge', edge.id)) continue
     const area = scene.terrainAreas[edge.source.areaId], index = area?.boundaryMm.findIndex(point => point.segmentId === edge.source.segmentId) ?? -1
@@ -177,7 +179,8 @@ function deriveEnvelopes(scene: SceneDocument, audience: AggregateSpatialAudienc
   for (const connection of records(scene.terrainConnections, 'terrainConnection')) {
     if (!visible('terrainConnection', connection.id)) continue
     const route = connection.route ? connectionRouteSchema.parse(connection.route) : undefined
-    addPoints('terrainConnection', connection.id, connection.floorId, 'route', connectionFootprint({ from: connection.from, to: connection.to, widthMm: connection.widthMm, route }))
+    addPoints('terrainConnection', connection.id, connection.floorId, 'route', connectionFootprint({ from: connection.from, to: connection.to, widthMm: connection.widthMm, route, carvedStrip: connection.carvedStrip, terrainInlay: connection.terrainInlay }))
+    if (connection.terrainInlay) addPoints('terrainConnection', connection.id, connection.floorId, 'surface', Object.values(connection.terrainInlay.geometry.verticesMm))
   }
   for (const path of records(scene.paths, 'path')) if (visible('path', path.id)) addPoints('path', path.id, path.floorId, 'route', pathPolygon(path))
   for (const cluster of records(scene.decorationClusters ?? {}, 'decorationCluster')) if (visible('decorationCluster', cluster.id)) add('decorationCluster', cluster.id, cluster.floorId, 'visual', cluster.boundsMm)

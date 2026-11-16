@@ -24,9 +24,9 @@ const point = z.object({ x: integer, y: integer }).strict()
 const version = z.object({ id, version: positive }).strict()
 const visibility = z.enum(['public', 'gm'])
 const base = { id, floorId: id, layerId: id.optional() }
-const areaFields = sceneSchema.shape.terrainAreas.valueType.omit({ id: true, floorId: true, editLocked: true })
+const areaFields = sceneSchema.shape.terrainAreas.valueType.omit({ id: true, floorId: true, editLocked: true, rockBody: true })
 const edgeFields = sceneSchema.shape.terrainEdges.valueType.omit({ id: true, floorId: true, editLocked: true })
-const connectionFields = sceneSchema.shape.terrainConnections.valueType.omit({ id: true, floorId: true, editLocked: true }).extend({ route: connectionRouteSchema.optional() })
+const connectionFields = sceneSchema.shape.terrainConnections.valueType.omit({ id: true, floorId: true, editLocked: true, carvedStrip: true, terrainInlay: true }).extend({ route: connectionRouteSchema.optional() })
 const pathFields = sceneSchema.shape.paths.valueType.omit({ id: true, floorId: true, editLocked: true })
 const scatterFields = sceneSchema.shape.scatterGroups.valueType.omit({ id: true, floorId: true, editLocked: true, members: true, exclusions: true, algorithmVersion: true })
 const regionFields = sceneSchema.shape.regions.valueType.omit({ id: true, floorId: true, editLocked: true }).extend({ kind: z.enum(['terrain', 'hazard']) })
@@ -480,6 +480,8 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
 
 /** Detached draft mutation; the native command entry validates the complete batch once. */
 export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext, budget?: CommandBudgetProfile): OutdoorImpact {
+  if ((command.type === 'removeTerrainConnection' || command.type === 'deleteOutdoorEntity' && command.kind === 'terrainConnection') && scene.terrainConnections[command.id]?.terrainInlay) throw new Error('跨台山路须显式恢复原连接及源地形，不能隐式删除填切结果。')
+  if ((command.type === 'removeTerrainConnection' || command.type === 'deleteOutdoorEntity' && command.kind === 'terrainConnection') && scene.terrainConnections[command.id]?.carvedStrip) throw new Error('连续山路的移除须明确选择回填源岩体。')
   if (budget) parseCommandBudgetProfile(budget)
   const before = cloneJson(scene), roots = rootsFor(command)
   mutate(scene, command, context)

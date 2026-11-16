@@ -34,9 +34,13 @@ export const connectionRouteSchema = routeShape.superRefine((route, context) => 
 })
 export interface ConnectionRouteGeometry {
   from: { positionMm: PointMm }; to: { positionMm: PointMm }; widthMm: number; route?: ConnectionRoute
+  terrainInlay?: import('../terrain-inlay/persistence.js').TerrainInlay
 }
 /** Absent route retains the old endpoint contract and old fixed pixels. */
-export function connectionCenterline(connection: Pick<ConnectionRouteGeometry, 'from' | 'to' | 'route'>): PointMm[] {
+export function connectionCenterline(connection: Pick<ConnectionRouteGeometry, 'from' | 'to' | 'route' | 'terrainInlay'>): PointMm[] {
+  if (connection.terrainInlay) return connection.terrainInlay.centerlineVertexIds.map(id => {
+    const point = connection.terrainInlay!.geometry.verticesMm[id]; return { x: point.x, y: point.y }
+  })
   return connection.route ? connection.route.centerlineMm.map(p => ({ ...p })) : [{ ...connection.from.positionMm }, { ...connection.to.positionMm }]
 }
 

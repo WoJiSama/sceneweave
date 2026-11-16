@@ -3,6 +3,7 @@ import { propPaintPolygon, scenePresentation } from '../../shared/appearance/pre
 import { isEntityEditLocked as isEntityEditLockedV2 } from '../../shared/commands/base.js'
 import { isCertifiedSceneSnapshot as isCertifiedSceneSnapshotV2 } from '../../shared/validation/snapshots.js'
 import { connectionFootprint, corridor, openingEndpoints as openingEndpointsV2, pathPolygon as pathPolygonV2, pointInPolygon as pointInPolygonV2, polygonDistance, roomPoints as roomPointsV2, terrainPoints as terrainPointsV2 } from '../../shared/geometry/geometry.js'
+import { terrainInlayFootprint } from '../../shared/terrain-inlay/scene.js'
 import type { BoundsMm, Editable, PointMm, Prop as PropV2, SceneDocument as SceneDocumentV2 } from '../../shared/model/scene.js'
 import { orderedPropsV2, wallOrderV2 } from './projection'
 import type { ProjectedWallV2 } from './projection'
@@ -164,7 +165,9 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     if (terrainPoint) return [[{ ...terrainPoint }]]
     const room = own(scene.rooms, id), area = own(scene.terrainAreas, id)
     if (room) return [clonePoints(roomPointsV2(scene, room))]
-    if (area) return [clonePoints(terrainPointsV2(area))]
+    if (area) return [clonePoints(terrainPointsV2(area)), ...Object.values(area.rockBody?.shell?.faces ?? {}).map(face => face.vertexIds.map(id => {
+      const point = area.rockBody!.shell!.verticesMm[id]; return { x: point.x, y: point.y }
+    }))]
     const opening = own(scene.openings, id)
     if (opening) return [corridor(...openingEndpointsV2(scene, opening), scene.walls[opening.wallId].thicknessMm)]
     if (own(scene.walls, id)) {
@@ -180,7 +183,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
       return i < 0 ? [] : [[{ ...boundary[i].positionMm }, { ...boundary[(i + 1) % boundary.length].positionMm }]]
     }
     const connection = own(scene.terrainConnections, id)
-    if (connection) return [connectionFootprint(connection)]
+    if (connection) return [connection.terrainInlay ? terrainInlayFootprint(connection) : connectionFootprint(connection)]
     const path = own(scene.paths, id), region = own(scene.regions, id)
     if (path) return [pathPolygonV2(path)]
     if (region) return [clonePoints(region.boundaryMm)]
@@ -250,9 +253,9 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
       const padding = Math.max(wall.thicknessMm, wallPadding.get(wall.startVertexId) ?? 0, wallPadding.get(wall.endVertexId) ?? 0)
       bounds = pointsBounds([scene.vertices[wall.startVertexId], scene.vertices[wall.endVertexId]].map(point => ({ x: point.xMm, y: point.yMm })), padding)
     } else if (room) bounds = pointsBounds(roomPointsV2(scene, room))
-    else if (area) bounds = pointsBounds(area.boundaryMm.map(point => point.positionMm))
+    else if (area) bounds = pointsBounds([...area.boundaryMm.map(point => point.positionMm), ...Object.values(area.rockBody?.shell?.verticesMm ?? {}).map(({ x, y }) => ({ x, y }))])
     else if (opening) bounds = pointsBounds(openingEndpointsV2(scene, opening), scene.walls[opening.wallId].thicknessMm)
-    else if (connection) bounds = pointsBounds(connection.route ? connection.route.segments.flatMap(segment => [segment.start, segment.control1, segment.control2, segment.end]) : [connection.from.positionMm, connection.to.positionMm], connection.widthMm)
+    else if (connection) bounds = connection.terrainInlay ? pointsBounds(terrainInlayFootprint(connection)) : connection.carvedStrip ? pointsBounds(connectionFootprint(connection)) : pointsBounds(connection.route ? connection.route.segments.flatMap(segment => [segment.start, segment.control1, segment.control2, segment.end]) : [connection.from.positionMm, connection.to.positionMm], connection.widthMm)
     else if (path) bounds = pointsBounds(path.centerlineMm, path.widthMm)
     else if (region) bounds = pointsBounds(region.boundaryMm)
     else if (edge) {

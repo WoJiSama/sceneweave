@@ -72,6 +72,19 @@ function excludeHighGround(ctx: CanvasRenderingContext2D, projection: Projection
 function connectionsFor(projection: Projection, boundary: ProjectedVisualBoundary): ProjectedConnection[] {
   return boundaryConnections(projection.connections, boundary.points, boundary.closed, boundary.terrainAreaIds)
 }
+/** Each record is a disjoint union with explicit holes, already produced from
+ * this audience's old owned face cells and the complete new influence. */
+function clipInlayPaint(ctx: CanvasRenderingContext2D, projection: Projection, paintId: string): void {
+  const exclusions = projection.visual?.inlayExclusions?.find(row => row.paintId === paintId)
+  if (!exclusions?.regionsMm.length) return
+  const b = projection.bounds, path = new Path2D()
+  path.rect(b.x - 100000, b.y - 100000, b.width + 200000, b.height + 200000)
+  for (const region of exclusions.regionsMm) {
+    addRing(path, region.outerMm)
+    for (const hole of region.holesMm) addRing(path, hole)
+  }
+  ctx.clip(path, 'evenodd')
+}
 /** A continuous surface decoration cannot paint through terrain drawn over
  * all of its bound supports. Use only this audience's actual terrain order;
  * elevation alone does not establish coverage. Each exclusion is intersected
@@ -112,7 +125,7 @@ function drawRibbonTiles(ctx: CanvasRenderingContext2D, projection: Projection, 
         target.setTransform(scaleX, 0, 0, scaleY, guard - x * size, guard - y * size)
         const tileProjection = { ...projection, bounds: { x: (x * size - guard) / scaleX, y: (y * size - guard) / scaleY,
           width: surface.width / scaleX, height: surface.height / scaleY } }
-        clipConnectionOpenings(target, tileProjection.bounds, connections); excludeHighGround(target, tileProjection, high)
+        clipInlayPaint(target, tileProjection, look.id); clipConnectionOpenings(target, tileProjection.bounds, connections); excludeHighGround(target, tileProjection, high)
         drawCliffFace(target, boundary, look, projection.visual!.environment.lightDirectionDeg, connections, high.dropMm, ribbons)
       } finally { target.restore() }
       ctx.save()
@@ -331,7 +344,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       for (const look of cliffs) {
         const boundary = byId.get(look.boundaryId)
         if (!boundary) continue
-        buffer.ctx.save(); buffer.ctx.fillStyle = `rgb(${Math.round(255 * (1 - look.opacity * .23))},${Math.round(255 * (1 - look.opacity * .21))},${Math.round(255 * (1 - look.opacity * .21))})`; excludeHighGround(buffer.ctx, projection, highGround(boundary)); clipConnectionOpenings(buffer.ctx, projection.bounds, connectionsFor(projection, boundary))
+        buffer.ctx.save(); clipInlayPaint(buffer.ctx, projection, look.id); buffer.ctx.fillStyle = `rgb(${Math.round(255 * (1 - look.opacity * .23))},${Math.round(255 * (1 - look.opacity * .21))},${Math.round(255 * (1 - look.opacity * .21))})`; excludeHighGround(buffer.ctx, projection, highGround(boundary)); clipConnectionOpenings(buffer.ctx, projection.bounds, connectionsFor(projection, boundary))
         const shift = look.widthMm * .85, dx = Math.cos(direction) * shift, dy = Math.sin(direction) * shift
         // A neutral-white darken mask takes the maximum shadow at joins, then multiplies once.
         for (let i = 0; i < boundary.points.length - (boundary.closed ? 0 : 1); i++) {
@@ -346,7 +359,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
   for (const transition of visual.transitions ?? []) {
     checkCancelled(signal)
     const boundary = byId.get(transition.boundaryId)
-    ctx.save(); if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
+    ctx.save(); clipInlayPaint(ctx, projection, transition.id); if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
     drawTerrainTransition(ctx, transition); ctx.restore()
   }
   // The height-aware profile resolves all face intersections together before
@@ -357,6 +370,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     const boundary = byId.get(face.look.boundaryId)
     ctx.save()
     try {
+      clipInlayPaint(ctx, projection, face.look.id)
       if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
       ctx.globalAlpha = face.look.opacity * .08; ctx.fillStyle = '#294B61'; ctx.fill(ringsPath(face.shadowRings), 'evenodd')
     } finally { ctx.restore() }
@@ -366,6 +380,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     const boundary = byId.get(face.look.boundaryId)
     ctx.save()
     try {
+      clipInlayPaint(ctx, projection, face.look.id)
       if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
       drawTerrainCliffFace(ctx, face, visual.environment.lightDirectionDeg)
     } finally { ctx.restore() }
@@ -382,7 +397,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       const edge = materializedById.get(entry.id)
       if (edge) {
         const boundary = edge.boundaryId ? byId.get(edge.boundaryId) : undefined
-        ctx.save(); if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
+        ctx.save(); clipInlayPaint(ctx, projection, edge.id); if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
         drawMaterializedEdge(ctx, edge); ctx.restore()
       }
       continue
@@ -398,6 +413,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     }
     ctx.save()
     try {
+    clipInlayPaint(ctx, projection, look.id)
     clipConnectionOpenings(ctx, projection.bounds, connections)
     if (look.kind !== 'cliff') clipBoundaryTerrainCovers(ctx, projection, boundary, edgeLookPaintPadding(look))
     if (look.kind === 'cliff') excludeHighGround(ctx, projection, highGround(boundary))

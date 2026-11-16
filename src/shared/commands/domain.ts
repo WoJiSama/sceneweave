@@ -39,6 +39,13 @@ export function geometryIdentityIds(scene: SceneDocument): Set<string> {
   }
   const { userLayers: _layers, entityLayers: _members, ...domain } = scene
   visit(domain)
+  for (const connection of Object.values(scene.terrainConnections)) if (connection.carvedStrip) {
+    for (const id of Object.keys(connection.carvedStrip.verticesMm)) ids.add(id)
+  }
+  for (const connection of Object.values(scene.terrainConnections)) if (connection.terrainInlay) {
+    for (const id of Object.keys(connection.terrainInlay.geometry.verticesMm)) ids.add(id)
+  }
+  for (const area of Object.values(scene.terrainAreas)) if (area.rockBody?.shell) for (const id of Object.keys(area.rockBody.shell.verticesMm)) ids.add(id)
   ids.add(scene.sceneId)
   return ids
 }

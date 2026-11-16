@@ -34,6 +34,10 @@ export function connectionSideSegments(connection: ProjectedConnection): [PointM
 export function boundaryConnections(connections: readonly ProjectedConnection[], points: readonly PointMm[], closed: boolean, surfaceIds: readonly string[]): ProjectedConnection[] {
   if (points.length < 2 || !surfaceIds.length) return []
   return connections.filter(connection => {
+    // Actual multi-source cuts have already replaced precisely the changed
+    // source intervals and owned old paint. Never make an additional ordinary
+    // route opening or draw cheek lines through their complete after geometry.
+    if (connection.inlayFootprintMm) return false
     if (!connection.surfaceIds?.some(id => surfaceIds.includes(id))) return false
     if (closed && pointInPolygon(connection.start, [...points], false) === pointInPolygon(connection.end, [...points], false)) return false
     const centerline = connection.route?.centerlineMm ?? [connection.start, connection.end]
@@ -70,6 +74,7 @@ export function boundaryConnections(connections: readonly ProjectedConnection[],
 /** Sequential differences give union semantics even where two openings overlap. */
 export function clipConnectionOpenings(ctx: CanvasRenderingContext2D, bounds: { x: number; y: number; width: number; height: number }, connections: readonly ProjectedConnection[]): void {
   for (const connection of connections) {
+    if (connection.inlayFootprintMm) continue
     const { sides } = connectionFrame(connection), ring = connection.route ? connectionBand(connection.route.centerlineMm, connection.widthMm) : [sides[0][0], sides[0][1], sides[1][1], sides[1][0]], path = new Path2D()
     path.rect(bounds.x - 100000, bounds.y - 100000, bounds.width + 200000, bounds.height + 200000)
     ring.forEach((p, i) => i ? path.lineTo(p.x, p.y) : path.moveTo(p.x, p.y)); path.closePath()

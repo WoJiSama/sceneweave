@@ -7,7 +7,9 @@ import { planPathAttachmentEndpoint } from './endpoint-plan.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../model/scene.js'
 import { canonicalJson, captureJson, cloneJson as clone, encodeUtf8 } from '../validation/json.js'
-import { pathPolygon } from '../geometry/geometry.js'
+import { pathPolygon, polygonDistance } from '../geometry/geometry.js'
+import { carvedStripCutFootprints } from '../carved-rock/index.js'
+import { createSupportQuery } from '../geometry/support-sample.js'
 import { id, nonnegative, positive } from '../validation/primitives.js'
 import { MANUAL_TRANSACTION_BUDGET, assertCommandBudget } from '../budget/command-budget.js'
 import { emptyBudgetUsage } from '../budget/task-budget.js'
@@ -70,6 +72,7 @@ export function createPathAttachmentPlan(content: Pick<CompositionContent, 'docu
 
 function geometrySignature(scene: AttachmentScene, row: PathAttachment): string {
   const path = scene.paths[row.pathId], opening = scene.openings[row.openingId], wall = opening && scene.walls[opening.wallId], room = scene.rooms[row.anchor.roomId]
+  const band = path ? pathPolygon(path) : []
   return canonicalJson({ path: path ? { floorId: path.floorId, centerlineMm: path.centerlineMm, widthMm: path.widthMm, supportRefs: path.supportRefs, visibility: path.visibility } : null,
     opening: opening ? { floorId: opening.floorId, wallId: opening.wallId, offsetReferenceVertexId: opening.offsetReferenceVertexId, offsetMm: opening.offsetMm, widthMm: opening.widthMm, kind: opening.kind, secret: opening.secret, revealed: opening.revealed } : null,
     wall: wall ? { floorId: wall.floorId, startVertexId: wall.startVertexId, endVertexId: wall.endVertexId, thicknessMm: wall.thicknessMm } : null,
@@ -79,7 +82,9 @@ function geometrySignature(scene: AttachmentScene, row: PathAttachment): string 
     }), supports: (path?.supportRefs ?? []).map(ref => {
       const area = ref.kind === 'terrainArea' ? scene.terrainAreas[ref.id] : undefined
       return area ? [ref, area.floorId, area.groundElevationMm, area.visibility, area.blocksMovement, area.coveragePriority, area.boundaryMm] : [ref, null]
-    }) })
+    }), actualCuts: Object.values(scene.terrainConnections).filter(connection => connection.floorId === path?.floorId && connection.carvedStrip
+      && carvedStripCutFootprints(connection.carvedStrip).some(polygon => polygonDistance(band, polygon) < 1e-7)).map(connection => [connection.id, connection.carvedStrip]),
+    actualShells: path ? createSupportQuery(scene, path.floorId).shells.filter(row => row.sampler.triangles.some(face => polygonDistance(band, face.verticesMm.map(({ x, y }) => ({ x, y }))) < 1e-7)).map(row => [row.area.id, row.area.rockBody!.shell]) : [] })
 }
 
 /** Internal atomic-command step: primary/input lifecycle -> finite follow ->
@@ -103,6 +108,7 @@ export function followPathAttachments(beforeInput: AttachmentScene, afterInput: 
     const retainedSegments = Object.values(after.terrainAreas).filter(area => area.floorId === path.floorId).reduce((sum, area) => sum + area.boundaryMm.length, 0)
       + Object.values(after.regions).filter(region => region.floorId === path.floorId).reduce((sum, region) => sum + region.boundaryMm.length, 0)
       + Object.values(after.walls).filter(wall => wall.floorId === path.floorId).length * 4 + Object.values(after.props).filter(prop => prop.floorId === path.floorId && prop.blocksMovement).length * 4
+      + createSupportQuery(after, path.floorId).shellBoundaries.reduce((sum, polygon) => sum + polygon.length, 0)
     execution.semanticTargets += 2
     execution.geometryPoints += before.paths[row.pathId].centerlineMm.length + plan.centerlineMm.length + band.length + plan.preservedTail.count + 3
     execution.geometrySegments += before.paths[row.pathId].centerlineMm.length + plan.centerlineMm.length + band.length

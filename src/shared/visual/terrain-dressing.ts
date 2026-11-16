@@ -10,6 +10,8 @@ import { definitionPresentation, presentationBounds, propPresentation } from '..
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
+import { carvedStripCutFootprints } from '../carved-rock/index.js'
+import { createSupportQuery } from '../geometry/support-sample.js'
 
 export const terrainDressingInputSchema = z.object({ sceneId: z.string().min(1).max(256), floorId: z.string().min(1).max(256), seed: z.string().min(1).max(128) }).strict()
 export type TerrainDressingInput = z.infer<typeof terrainDressingInputSchema>
@@ -49,6 +51,9 @@ export function planTerrainDressing(content:Pick<CompositionContent,'document'|'
   }
   for(const area of land){
     if(locked(area.id)){report.preservedIds.push(area.id);continue}
+    if(area.rockBody?.shell||Object.values(scene.terrainConnections).some(row=>row.floorId===floor.id&&row.carvedStrip?.hostAreaId===area.id)){
+      report.notes.push(`${area.id}已有实际岩体${area.rockBody?.shell?'侧壳':'切口'}，保留既有记录，不新增把整圈当常高崖面的旧边带。`);continue
+    }
     const points=terrainPoints(area)
     let boundary=Object.values(visual.boundaries).find(row=>row.visibility==='public'&&row.binding.kind==='terrain'&&row.binding.sides.some(side=>side.areaId===area.id))
     if(!boundary){
@@ -78,7 +83,8 @@ export function planTerrainDressing(content:Pick<CompositionContent,'document'|'
   const sorted=[...land].sort((a,b)=>Math.abs(signedVisualArea(terrainPoints(b)))-Math.abs(signedVisualArea(terrainPoints(a))))
   const selected=sorted.slice(0,3) // Separate supports retain separate persistent groups.
   const reserved:PointMm[][]=[]
-  for(const c of Object.values(scene.terrainConnections))if(c.floorId===floor.id&&c.visibility==='public'&&visibility.surface(c.from.surfaceRef)&&visibility.surface(c.to.surfaceRef)&&(!c.openingId||!scene.openings[c.openingId]?.secret||scene.openings[c.openingId]?.revealed))reserved.push(connectionFootprint(c))
+  for(const row of createSupportQuery(scene,floor.id).shells)if(visibility.terrainArea(row.area.id))reserved.push(...row.sampler.triangles.map(face=>face.verticesMm.map(({x,y})=>({x,y}))))
+  for(const c of Object.values(scene.terrainConnections))if(c.floorId===floor.id&&c.visibility==='public'&&visibility.surface(c.from.surfaceRef)&&visibility.surface(c.to.surfaceRef)&&(!c.openingId||!scene.openings[c.openingId]?.secret||scene.openings[c.openingId]?.revealed))reserved.push(...(c.carvedStrip?carvedStripCutFootprints(c.carvedStrip):[connectionFootprint(c)]))
   for(const path of Object.values(scene.paths))if(path.floorId===floor.id&&visibility.path(path.id))reserved.push(pathPolygon(path))
   for(const room of Object.values(scene.rooms))if(room.floorId===floor.id&&visibility.room(room.id))reserved.push(room.boundaryVertexIds.map(id=>({x:scene.vertices[id].xMm,y:scene.vertices[id].yMm})))
   for(const constraint of Object.values(getLegacyGeneration(scene)?.constraints??{}))if(constraint.floorId===floor.id&&constraint.visibility==='public'&&constraint.kind==='activityArea'){
@@ -87,6 +93,9 @@ export function planTerrainDressing(content:Pick<CompositionContent,'document'|'
   }
   for(const area of selected){
     if(locked(area.id)){report.preservedIds.push(area.id);continue}
+    if(Object.values(scene.terrainConnections).some(row=>row.floorId===floor.id&&row.carvedStrip?.hostAreaId===area.id&&!visibility.terrainConnection(row.id))){
+      report.preservedIds.push(area.id);report.notes.push(`${area.id}含非公开实际切口，当前公开布景不据此生成或留出图案。`);continue
+    }
     const id=token('grove',area.id),existing=scene.scatterGroups[id]
     if(existing){
       if(existing.domain.kind!=='area'||existing.domain.areaId!==area.id)throw new Error('布景组身份已被其他内容使用。')

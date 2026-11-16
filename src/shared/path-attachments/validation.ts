@@ -7,6 +7,8 @@ import { geometryIdentityIds } from '../commands/domain.js'
 import { structureIdentityDescriptors } from '../history/structure-identity.js'
 import { canonicalJson, captureJson, cloneJson as clone } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
+import { pathPolygon } from '../geometry/geometry.js'
+import { levelGroundPolygon } from '../geometry/support-sample.js'
 
 export type AttachmentScene = SceneDocument & { pathAttachments?: Record<string, PathAttachment> }
 type Token = { kind: string; token: string; topologyToken: string; topologyHash: string }
@@ -38,6 +40,7 @@ function actualAnchor(view: SceneDocument, row: PathAttachment): PathAttachmentA
   if (!path.supportRefs.some(ref => ref.kind === 'terrainArea' && ref.id === port.supportRef.id)
     || path.supportRefs.some(ref => ref.kind !== 'terrainArea' || !visible.terrainArea(ref.id) || view.terrainAreas[ref.id].floorId !== path.floorId
       || view.terrainAreas[ref.id].groundElevationMm !== port.elevationMm || view.terrainAreas[ref.id].blocksMovement)) throw new Error('门路附着支撑不再是相容的同高程公开地形，不能隐式换支撑。')
+  if (!levelGroundPolygon(view, path.floorId, pathPolygon(path), path.supportRefs, port.elevationMm)) throw new Error('门路附着完整道路必须保持真实同高平面，不能凭地形根基穿过实际切口或山路。')
   const points = orient(path, row.end), outwardNormal = { x: Math.sign(port.outsideMm.x - port.positionMm.x), y: Math.sign(port.outsideMm.y - port.positionMm.y) }
   const lead = { x: port.outsideMm.x + outwardNormal.x * row.leadLengthMm, y: port.outsideMm.y + outwardNormal.y * row.leadLengthMm }
   if (points.length < 3 || points.length > 128 || !same(points[0], port.outsideMm) || !same(points[1], lead)) throw new Error('门路附着的两个受管端点与真实结构门口/法向引导点不一致。')

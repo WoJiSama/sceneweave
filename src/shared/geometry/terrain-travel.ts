@@ -1,6 +1,8 @@
 import { wallMovementPolygons } from './doorway-clearance.js'
-import { connectionFootprint, connectionBand, corridor, coveredEverywhere, openingEndpoints, pathPolygon, pointInPolygon, polygonsOverlap, propFootprint, segmentCuts, supportSurfaceAt, terrainPoints, validateGeometry } from './geometry.js'
+import { connectionFootprint, connectionBand, corridor, coveredEverywhere, openingEndpoints, pathPolygon, pointInPolygon, polygonsOverlap, propFootprint, segmentCuts, validateGeometry } from './geometry.js'
 import { connectionCenterline, connectionArcFrame } from './connection-route.js'
+import { carvedStripCenterline } from '../carved-rock/index.js'
+import { createSupportQuery, type SupportSample } from './support-sample.js'
 import type { Issue, Path, PointMm, SceneDocument, SurfaceRef, TerrainConnection } from '../model/scene.js'
 
 export interface TerrainTravelRequest { floorId: string; from: PointMm; to: PointMm; widthMm: number }
@@ -38,11 +40,8 @@ const at = (a: PointMm, b: PointMm, t: number): PointMm => ({ x: a.x + (b.x - a.
 const edges = (polygon: PointMm[]): [PointMm, PointMm][] => polygon.map((point, index) => [point, polygon[(index + 1) % polygon.length]])
 const groundRef = (scene: SceneDocument, ref: SurfaceRef): SurfaceRef => ref.kind === 'room' ? scene.rooms[ref.id].supportRef : ref
 const sameRef = (a: SurfaceRef | null, b: SurfaceRef | null): boolean => !!a && !!b && a.kind === b.kind && a.id === b.id
-const elevation = (scene: SceneDocument, ref: SurfaceRef) => ref.kind === 'floor' ? 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm : scene.terrainAreas[ref.id]?.groundElevationMm
-const isWalkable = (scene: SceneDocument, p: PointMm, floorId: string): boolean => {
-  const support = supportSurfaceAt(scene, p, floorId)
-  return !!support && (support.kind !== 'terrainArea' || !scene.terrainAreas[support.id].blocksMovement)
-}
+const actualCenterline = (connection: TerrainConnection) => connection.carvedStrip ? carvedStripCenterline(connection.carvedStrip) : connectionCenterline(connection)
+const boundaryHeight = (sample: SupportSample, atPoint: PointMm, boundaryPoint: PointMm) => sample.zMm - (sample.normal.x * (boundaryPoint.x - atPoint.x) + sample.normal.y * (boundaryPoint.y - atPoint.y)) / sample.normal.z
 function connectionOpen(scene: SceneDocument, connection: TerrainConnection): boolean {
   if (connection.blocksMovement) return false
   if (connection.openingId === null) return true
@@ -71,33 +70,49 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
   const issues: Issue[] = [], issue = (code: string, message: string, entityId?: string) => {
     if (!issues.some(existing => existing.code === code && existing.entityId === entityId)) issues.push({ code, message, ...(entityId ? { entityId } : {}) })
   }
-  const areas = Object.values(scene.terrainAreas).filter(area => area.floorId === floorId), boundaries = areas.map(terrainPoints)
+  const areas = Object.values(scene.terrainAreas).filter(area => area.floorId === floorId), query = createSupportQuery(scene, floorId), boundaries = query.boundaries
   const usable = Object.values(scene.terrainConnections).filter(connection => connection.floorId === floorId && connection.widthMm >= widthMm && connectionOpen(scene, connection)).map(connection => ({ connection, polygon: connectionFootprint(connection) }))
-  if (!coveredEverywhere(band, boundaries, p => isWalkable(scene, p, floorId))) issue('TERRAIN_NOT_WALKABLE', '整条净宽带必须留在世界内的可步行有效支撑面；水面或阻挡地形不能普通穿越。')
+  if (!coveredEverywhere(band, boundaries, p => {
+    const sample = query.sample(p)
+    return !!sample?.walkable && (!sample.sourceConnectionId || usable.some(row => row.connection.id === sample.sourceConnectionId))
+  })) issue('TERRAIN_NOT_WALKABLE', '整条净宽带必须留在世界内的实际可步行面；水面、岩体侧壳、切口外肩或不足宽/阻挡连接不能普通穿越。')
   for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.blocksMovement && polygonsOverlap(band, propFootprint(prop))) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被物件的真实旋转占地阻挡。', prop.id)
   for (const region of Object.values(scene.regions)) if (region.floorId === floorId && region.blocksMovement && polygonsOverlap(band, region.boundaryMm)) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被阻挡区域侵入。', region.id)
   for (const wall of wallMovementPolygons(scene, true)) if (wall.floorId === floorId && polygonsOverlap(band, wall.polygon)) issue('TERRAIN_TRAVEL_WALL', '有限通行净宽被实际墙体、转角或未打开的门窗阻挡。', wall.entityId)
   const allBoundaries = [...boundaries, band, ...usable.map(item => item.polygon)]
   const allEdges = allBoundaries.flatMap(edges)
-  for (const area of areas) for (let index = 0; index < area.boundaryMm.length; index++) {
-    const a = area.boundaryMm[index].positionMm, b = area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm, length = Math.hypot(b.x - a.x, b.y - a.y)
+  const physicalEdges = [...areas.flatMap(area => area.boundaryMm.map((row, index) => ({ a: row.positionMm, b: area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm, area, index }))),
+    ...query.strips.flatMap(row => row.sampler.cutFootprints.flatMap(polygon => edges(polygon).map(([a, b]) => ({ a, b, area: undefined, index: -1 })))),
+    ...query.shellBoundaries.flatMap(polygon => edges(polygon).map(([a, b]) => ({ a, b, area: undefined, index: -1 }))), ...query.inlayBoundaries.flatMap(polygon => edges(polygon).map(([a, b]) => ({ a, b, area: undefined, index: -1 })))]
+  for (const boundary of physicalEdges) {
+    const { a, b, area, index } = boundary, length = Math.hypot(b.x - a.x, b.y - a.y)
     if (!length) continue
     const cuts = segmentCuts(a, b, allEdges)
     for (let i = 1; i < cuts.length; i++) {
       const point = at(a, b, (cuts[i - 1] + cuts[i]) / 2)
       if (!pointInPolygon(point, band, false)) continue
-      const offset = Math.min(0.01, length * (cuts[i] - cuts[i - 1]) / 10)
-      const inside = supportSurfaceAt(scene, { x: point.x - (b.y - a.y) / length * offset, y: point.y + (b.x - a.x) / length * offset }, floorId)
-      const outside = supportSurfaceAt(scene, { x: point.x + (b.y - a.y) / length * offset, y: point.y - (b.x - a.x) / length * offset }, floorId)
-      if (!inside || !outside || sameRef(inside, outside)) continue
-      const heightChange = elevation(scene, inside) !== elevation(scene, outside)
-      const declared = Object.values(scene.terrainEdges).find(edge => edge.source.areaId === area.id && edge.source.segmentId === area.boundaryMm[index].segmentId || edge.source.areaId === outside.id && edge.neighborAreaId === area.id && (() => {
+      let offset = Math.min(0.01, length * (cuts[i] - cuts[i - 1]) / 10)
+      for (const [c, d] of allEdges) {
+        const dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((point.x - c.x) * dx + (point.y - c.y) * dy) / l2)) : 0
+        const distance = Math.hypot(point.x - c.x - dx * t, point.y - c.y - dy * t)
+        if (distance > EPS) offset = Math.min(offset, distance / 4)
+      }
+      const insidePoint = { x: point.x - (b.y - a.y) / length * offset, y: point.y + (b.x - a.x) / length * offset }, outsidePoint = { x: point.x + (b.y - a.y) / length * offset, y: point.y - (b.x - a.x) / length * offset }
+      const insideSample = query.sample(insidePoint), outsideSample = query.sample(outsidePoint)
+      if (!insideSample || !outsideSample) continue
+      const inside = insideSample.rootSupportRef, outside = outsideSample.rootSupportRef
+      const heightChange = Math.abs(boundaryHeight(insideSample, insidePoint, point) - boundaryHeight(outsideSample, outsidePoint, point)) > 1e-6
+      const declared = area && Object.values(scene.terrainEdges).find(edge => edge.source.areaId === area.id && edge.source.segmentId === area.boundaryMm[index].segmentId || edge.source.areaId === outside.id && edge.neighborAreaId === area.id && (() => {
         const source = scene.terrainAreas[edge.source.areaId], sourceIndex = source?.boundaryMm.findIndex(p => p.segmentId === edge.source.segmentId) ?? -1
         return !!source && sourceIndex >= 0 && pointInPolygon(point, corridor(source.boundaryMm[sourceIndex].positionMm, source.boundaryMm[(sourceIndex + 1) % source.boundaryMm.length].positionMm, 0.001))
       })())
-      if (!heightChange && !declared?.blocksMovement) continue
-      const allowed = heightChange && usable.some(item => pointInPolygon(point, item.polygon) && [inside, outside].every(ref => sameRef(ref, groundRef(scene, item.connection.from.surfaceRef)) || sameRef(ref, groundRef(scene, item.connection.to.surfaceRef))))
-      if (!allowed) issue(heightChange ? 'TERRAIN_HEIGHT_CONNECTION' : 'TERRAIN_EDGE_BLOCKED', heightChange ? '跨高差的完整净宽必须经过有效、未阻挡且足宽的台阶或坡道。' : '当前显式地形边缘阻挡移动。', declared?.id ?? area.id)
+      const cutOpening = !heightChange && usable.some(item => (item.connection.carvedStrip || item.connection.terrainInlay) && (insideSample.sourceConnectionId === item.connection.id || outsideSample.sourceConnectionId === item.connection.id) && pointInPolygon(point, item.polygon))
+      if (!heightChange && (!declared?.blocksMovement || cutOpening)) continue
+      // A saved cut is actual sloping ground; its same root ID can never grant
+      // permission to jump a side wall. Only legacy explicit connections bridge
+      // the two original constant surfaces.
+      const allowed = heightChange && !insideSample.sourceConnectionId && !outsideSample.sourceConnectionId && usable.some(item => !item.connection.carvedStrip && !item.connection.terrainInlay && pointInPolygon(point, item.polygon) && [inside, outside].every(ref => sameRef(ref, groundRef(scene, item.connection.from.surfaceRef)) || sameRef(ref, groundRef(scene, item.connection.to.surfaceRef))))
+      if (!allowed) issue(heightChange ? 'TERRAIN_HEIGHT_CONNECTION' : 'TERRAIN_EDGE_BLOCKED', heightChange ? '跨实际高差或切壁的完整净宽必须经过有效连接，不能从同岩体根基离路跨越。' : '当前显式地形边缘阻挡移动。', declared?.id ?? area?.id)
     }
   }
   return { ok: !issues.length, issues }
@@ -114,7 +129,7 @@ export function assertTerrainConnectionClearances(scene: SceneDocument, fixtures
     const connection = scene.terrainConnections[fixture.connectionId]
     if (!connection) throw new Error(`声明 required 的地形连接不存在：${fixture.connectionId}。`)
     if (connection.widthMm < fixture.minWidthMm) throw new Error(`连接 ${connection.id} 净宽不足 ${fixture.minWidthMm} mm。`)
-    const points = connectionCenterline(connection), a = points[0], b = points.at(-1)!, frame = connectionArcFrame(points)
+    const points = actualCenterline(connection), a = points[0], b = points.at(-1)!, frame = connectionArcFrame(points)
     const first = frame.station(0).tangent, last = frame.station(frame.length).tangent
     const dx = first.x * fixture.approachDepthMm, dy = first.y * fixture.approachDepthMm
     // The fixture uses integer endpoints. Refuse an unrepresentable extension rather
@@ -122,10 +137,10 @@ export function assertTerrainConnectionClearances(scene: SceneDocument, fixtures
     // New routes derive full-width tangent extensions directly, without any
     // rounding or persistence of the possibly fractional paint/check geometry.
     const from = { x: a.x - dx, y: a.y - dy }, to = { x: b.x + last.x * fixture.approachDepthMm, y: b.y + last.y * fixture.approachDepthMm }
-    if (!connection.route && ![from.x, from.y, to.x, to.y].every(Number.isSafeInteger)) throw new Error(`连接 ${connection.id} 的有限接入区需要可精确表达的整数端点。`)
+    if (!connection.route && !connection.carvedStrip && !connection.terrainInlay && ![from.x, from.y, to.x, to.y].every(Number.isSafeInteger)) throw new Error(`连接 ${connection.id} 的有限接入区需要可精确表达的整数端点。`)
     if (![from.x, from.y, to.x, to.y].every(Number.isFinite)) throw new Error(`连接 ${connection.id} 的派生切线接入区无效。`)
-    const geometry = connection.route ? validateGeometry(scene) : undefined
-    const check = connection.route ? geometry!.errors.length ? { ok: false, issues: geometry!.errors } : checkTerrainBand(scene, connection.floorId, connectionBand([from, ...points, to], connection.widthMm), connection.widthMm) : checkTerrainTravel(scene, { floorId: connection.floorId, from, to, widthMm: connection.widthMm })
+    const geometry = connection.route || connection.carvedStrip || connection.terrainInlay ? validateGeometry(scene) : undefined
+    const check = geometry ? geometry.errors.length ? { ok: false, issues: geometry.errors } : checkTerrainBand(scene, connection.floorId, connectionBand([from, ...points, to], connection.widthMm), connection.widthMm) : checkTerrainTravel(scene, { floorId: connection.floorId, from, to, widthMm: connection.widthMm })
     if (!check.ok) throw new Error(`连接 ${connection.id} 的 ${connection.widthMm} mm 净宽及两端 ${fixture.approachDepthMm} mm 接入区未通过：${check.issues.map(item => item.message).join('；')}`)
   }
 }
@@ -174,19 +189,19 @@ function routePath(points: readonly PointMm[], floorId: string, widthMm: number)
 /** Integrates the centreline over exact boundary intervals. Overlapping costs
  * combine by maximum, so a drawn road never lowers another declared cost. */
 function routeMetrics(scene: SceneDocument, floorId: string, points: readonly PointMm[], widthMm: number): Omit<TerrainRouteResult, 'ok' | 'issues'> {
-  const areas = Object.values(scene.terrainAreas).filter(area => area.floorId === floorId)
   const regions = Object.values(scene.regions).filter(region => region.floorId === floorId && !region.blocksMovement)
   const paths = Object.values(scene.paths).filter(path => path.floorId === floorId).map(path => ({ path, polygon: pathPolygon(path) }))
   const connections = Object.values(scene.terrainConnections).filter(connection => connection.floorId === floorId && connection.widthMm >= widthMm && connectionOpen(scene, connection))
     .map(connection => ({ connection, polygon: connectionFootprint(connection) }))
-  const boundaries = [...areas.map(terrainPoints), ...regions.map(region => region.boundaryMm), ...paths.map(item => item.polygon), ...connections.map(item => item.polygon)]
+  const query = createSupportQuery(scene, floorId)
+  const boundaries = [...query.boundaries, ...regions.map(region => region.boundaryMm), ...paths.map(item => item.polygon), ...connections.map(item => item.polygon)]
   const allEdges = boundaries.flatMap(edges), supports = new Map<string, SurfaceRef>(), connectionIds = new Set<string>()
   let lengthMm = 0, movementCostMm = 0
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1], b = points[i], length = routeDistance(a, b), cuts = segmentCuts(a, b, allEdges)
     lengthMm += length
     for (let j = 1; j < cuts.length; j++) {
-      const point = at(a, b, (cuts[j - 1] + cuts[j]) / 2), support = supportSurfaceAt(scene, point, floorId)
+      const point = at(a, b, (cuts[j - 1] + cuts[j]) / 2), sample = query.sample(point), support = sample?.rootSupportRef
       if (support) supports.set(support.kind + '/' + support.id, support)
       let factor = support?.kind === 'terrainArea' ? scene.terrainAreas[support.id].movementCostMultiplier : 1
       for (const region of regions) if (pointInPolygon(point, region.boundaryMm)) factor = Math.max(factor, region.movementCostMultiplier)
@@ -213,8 +228,9 @@ export function checkRouteOnValidScene(scene: SceneDocument, request: TerrainRou
   if (!band.length || !simpleRoutePoints(band, true)) return emptyRoute([{ code: 'TERRAIN_ROUTE_SELF_OVERLAP', message: '路线的方端帽、miterLimit2/bevel完整净宽带不能自交或自接触。' }])
   const checked = checkTerrainBand(scene, floorId, band, widthMm)
   const metrics = routeMetrics(scene, floorId, pointsMm, widthMm), supports = new Map<string, SurfaceRef>()
-  coveredEverywhere(band, Object.values(scene.terrainAreas).filter(area => area.floorId === floorId).map(terrainPoints), point => {
-    const support = supportSurfaceAt(scene, point, floorId)
+  const query = createSupportQuery(scene, floorId)
+  coveredEverywhere(band, query.boundaries, point => {
+    const support = query.sample(point)?.rootSupportRef
     if (support) supports.set(support.kind + '/' + support.id, support)
     return true
   })
@@ -263,7 +279,7 @@ export function searchRouteOnValidScene(scene: SceneDocument, request: TerrainRo
   const anchors = new Map<string, PointMm>([[routeKey(request.to), request.to]])
   const connections = Object.values(scene.terrainConnections).filter(connection => connection.floorId === request.floorId && connection.widthMm >= request.widthMm && connectionOpen(scene, connection))
     .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  for (const connection of connections) for (const point of connectionCenterline(connection)) anchors.set(routeKey(point), point)
+  for (const connection of connections) for (const point of actualCenterline(connection)) anchors.set(routeKey(point), point)
   // Exact integer landings let off-lattice orthogonal doors participate. Every
   // edge still passes the complete band checker; never quantize a landing.
   for (const door of Object.values(scene.openings)) {

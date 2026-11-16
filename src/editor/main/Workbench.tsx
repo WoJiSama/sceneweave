@@ -81,6 +81,7 @@ import { prepareRoadDoorStart, type RoadDoorStartRequest, type RoadDoorStart } f
 import { createTerrainElevationToolState, sampleTerrainElevation, stepTerrainElevation, type TerrainElevationToolState } from './terrain-elevation-tools'
 import { terrainPoints } from '../../shared/geometry/geometry'
 import OutdoorInspector, { outdoorEntityKind } from './OutdoorInspector'
+import { inspectAttachmentChanges } from '../../shared/attachments/review'
 import SceneDisplayPanel from './SceneDisplayPanel'
 import PathChecksPanel from './PathChecksPanel'
 import ProjectTitleForm from './ProjectTitleForm'
@@ -1125,6 +1126,12 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       const visual = commands.filter(isVisualCommand)
       const environmentFloors = new Set(commands.flatMap(command => command.type === 'setFloorEnvironment' ? [command.id] : []))
       let impact = visual.length ? inspectVisualChanges(completeProject.document, prepared.document, visual) : null
+      const attachmentImpact = inspectAttachmentChanges(completeProject.document, prepared.document)
+      if (attachmentImpact.changedIds.length) {
+        const base = impact ?? inspectVisualChanges(completeProject.document, prepared.document, [])
+        impact = { ...base, affectedIds: [...new Set([...base.affectedIds, ...attachmentImpact.affectedIds])].sort(),
+          layerIds: [...new Set([...base.layerIds, ...attachmentImpact.layerIds])].sort() }
+      }
       if (environmentFloors.size) {
         const base = impact ?? inspectVisualChanges(completeProject.document, prepared.document, [])
         const affected = new Set([...base.affectedIds, ...environmentFloors]), layers = new Set(base.layerIds)
@@ -1426,6 +1433,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       for (const command of commands) if (command.type === 'setCanvasBounds') for (const [id, layerId] of Object.entries(before.entityLayers)) if (before.userLayers[layerId]?.floorId === command.floorId) affected.add(id)
       for (const command of commands) if (command.type === 'setEntranceOpenings') for (const id of [...before.constraints.entranceOpeningIds, ...document.constraints.entranceOpeningIds]) affected.add(id)
       for (const key of ['floors', 'pathAttachments'] as const) for (const id of new Set([...Object.keys(before[key] ?? {}), ...Object.keys(document[key] ?? {})])) if (JSON.stringify(before[key]?.[id]) !== JSON.stringify(document[key]?.[id])) affected.add(id)
+      for (const id of inspectAttachmentChanges(before, document).affectedIds) affected.add(id)
       const impact = inspectBuildingChanges(before, document, [...affected])
       if (!impact.affectedIds.length && JSON.stringify(before.aggregateCoordinates) === JSON.stringify(document.aggregateCoordinates) && JSON.stringify(before.constraints) === JSON.stringify(document.constraints) && JSON.stringify(before.exportBoundsMm) === JSON.stringify(document.exportBoundsMm) && JSON.stringify(before.floors) === JSON.stringify(document.floors) && JSON.stringify(before.pathAttachments) === JSON.stringify(document.pathAttachments) && JSON.stringify(completeProject.historyIdentity) === JSON.stringify(prepared.project.historyIdentity)) throw new Error('参数与当前工程一致，无需采用。')
       setStructure({ prepared, checkpoint, commands, document, description, kind: 'building', scopeIds: impact.affectedIds, layerIds: impact.layerIds, confirmed: false })

@@ -8,7 +8,27 @@ export interface ProjectedMaterialPatch {
   paint: MaterialPaint
   blendWidthMm: number
 }
-export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number; materialPatches?: ProjectedMaterialPatch[] }
+export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number; materialPatches?: ProjectedMaterialPatch[]
+  /** Actual audience-owned top after visible cuts; source footprint stays in points for selection. */
+  regionsMm?: { outerMm: PointMm[]; holesMm: PointMm[][] }[]
+}
+export interface ProjectedRock {
+  id: string
+  patches: { kind: 'walk' | 'apron'; pointsMm: PointMm[]; elevationsMm: number[] }[]
+  facets: { id: string; pointsMm: PointMm[]; fill: string; opacity: number; kind: 'wall' | 'stratum' | 'joint' }[]
+  strokes: { id: string; pointsMm: PointMm[]; color: string; widthMm: number; opacity: number }[]
+}
+/** Audience-owned actual geometry only; no frozen source, identity or recipe. */
+export interface ProjectedTerrainInlay {
+  id: string
+  footprintMm: PointMm[]
+  walkFootprintMm: PointMm[]
+  patches: { kind: 'walk' | 'apron'; pointsMm: PointMm[]; elevationsMm: number[] }[]
+  walls: { a: PointMm; b: PointMm; highMm: [number, number]; lowMm: [number, number]; normal: PointMm; lowSourceAreaId: string | null }[]
+  /** Only the changed carriers; original raw source identities never leave the domain. */
+  changedCarriers: { a: PointMm; b: PointMm }[]
+  paintBoundsMm: BoundsMm
+}
 export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
 export interface ProjectedPath { id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle }
 export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null
@@ -16,6 +36,11 @@ export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; star
   route?: Pick<import('../geometry/connection-route.js').ConnectionRoute, 'centerlineMm' | 'stairStyle' | 'treadDepthMm' | 'renderProfile'>
   /** Disposable endpoint support IDs, included only after this audience's dependency filtering. */
   surfaceIds?: [string, string]
+  /** Exact butt-ended physical polygon, never redrawn as a regular stair band. */
+  carvedFootprintMm?: PointMm[]
+  /** A multi-source actual walk, never reconstructed as a stair/straight band. */
+  inlayFootprintMm?: PointMm[]
+  inlayCenterlineMm?: PointMm[]
 }
 export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean; /** Editor-only symbol suppression preserves the physical wall hole. */ paintSymbol?: boolean }
 export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; edgeProfile?: 'stone-blocks-v1'; style: SurfaceStyle | null; openings: ProjectedOpening[] }
@@ -49,6 +74,8 @@ export interface Projection {
   /** GM editor session only; ignored by formal exports. */
   groundView?: boolean
   edges: ProjectedTerrainEdge[]; paths: ProjectedPath[]; connections: ProjectedConnection[]
+  rocks?: ProjectedRock[]
+  inlays?: ProjectedTerrainInlay[]
   /** Same-floor/elevation public paths across visible editing layers, after audience and editor filtering.
    * Only visible IDs survive; style/filter compatibility is checked at paint time. */
   pathJoinGroups?: string[][]
@@ -107,6 +134,8 @@ export interface ProjectedVisualFilter extends Omit<VisualFilter, 'target' | 'fl
   regionFeatherMm?: number
 }
 export interface ProjectedVisualSystem {
+  /** Exact owned old paint replaced by visible inlays, indexed by paint ID. */
+  inlayExclusions?: { paintId: string; regionsMm: { outerMm: PointMm[]; holesMm: PointMm[][] }[] }[]
   materializedEdges?: (Pick<import('../terrain-generation/contracts.js').MaterializedEdge,'id'|'kind'|'polygons'|'strokes'|'fillColor'|'opacity'> & {
     /** Source boundary is already visible to this audience; absent on older disposable projections. */
     boundaryId?: string

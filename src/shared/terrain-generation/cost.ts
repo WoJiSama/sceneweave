@@ -46,7 +46,14 @@ function decorationRecordCost(before: SceneDocument, after: SceneDocument): numb
 export function terrainCommandCost(before:SceneDocument,after:SceneDocument,metadata?:TerrainCostMetadata) {
   const originalBefore=before,originalAfter=after
   const beforeLegacy=legacyTerrainView(before),afterLegacy=legacyTerrainView(after)
-  const items:Record<string,number>={physicalAndVisual:visualCommandCost(originalBefore,originalAfter)+decorationRecordCost(originalBefore,originalAfter)}
+  const items:Record<string,number>={physicalAndVisual:visualCommandCost(originalBefore,originalAfter)+decorationRecordCost(originalBefore,originalAfter)
+    + recordDiff(originalBefore.attachmentSurfaces ?? {}, originalAfter.attachmentSurfaces ?? {})
+    + recordDiff(originalBefore.attachments ?? {}, originalAfter.attachments ?? {})}
+  for (const id of new Set([...Object.keys(originalBefore.terrainAreas), ...Object.keys(originalAfter.terrainAreas)])) {
+    const a = originalBefore.terrainAreas[id]?.rockBody?.shell, b = originalAfter.terrainAreas[id]?.rockBody?.shell
+    items.physicalAndVisual += recordDiff(a?.verticesMm ?? {}, b?.verticesMm ?? {}) + recordDiff(a?.faces ?? {}, b?.faces ?? {})
+      + recordDiff(Object.fromEntries((a?.sections ?? []).map(row => [row.id, row])), Object.fromEntries((b?.sections ?? []).map(row => [row.id, row])))
+  }
   // References are finite closed-over dependencies, not free opaque arrays.
   const ruleGeometry=(v:unknown)=>geometry(v)+((v as {inputs?:unknown[];outputs?:unknown[]}|undefined)?.inputs?.length??0)+((v as {outputs?:unknown[]}|undefined)?.outputs?.length??0)
   for(const key of ['recipes','intents','rules','ownership','exclusions','constraints','checks','sourceLinks'] as const) items[`generation.${key}`]=recordDiff(beforeLegacy.generation?.[key]??{},afterLegacy.generation?.[key]??{},key==='rules'?ruleGeometry:geometry)

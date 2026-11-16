@@ -1,4 +1,8 @@
 import { floorCommandSchemas, isFloorCommand, applyFloorCommand, type FloorCommand } from '../floors/commands.js'
+import { attachmentCommandSchemas, isAttachmentCommand, applyAttachmentCommand, followAttachments, type AttachmentCommand } from '../attachments/index.js'
+import { followRockShells } from '../rock-shell/state.js'
+import { carvedRockCommandSchemas, isCarvedRockCommand, applyCarvedRockCommand, type CarvedRockCommand } from './carved-rock.js'
+import { terrainInlayCommandSchemas, isTerrainInlayCommand, applyTerrainInlayCommand, type TerrainInlayCommand } from './terrain-inlay.js'
 import {pathCheckCommandSchemas,isPathCheckCommand,applyPathCheckCommand,type PathCheckCommand} from './path-checks.js'
 import { pathAttachmentCommandSchemas, isPathAttachmentCommand, applyPathAttachmentCommand, type PathAttachmentCommand } from '../path-attachments/commands.js'
 import { followPathAttachments } from '../path-attachments/state.js'
@@ -43,6 +47,9 @@ export type SceneCommand =
   | FloorCommand
   | PathCheckCommand
   | PathAttachmentCommand
+  | AttachmentCommand
+  | CarvedRockCommand
+  | TerrainInlayCommand
   | { type: 'initializeStructureIdentity' }
   | AggregateRepresentationCommand
   | NaturalAggregateCommand
@@ -73,8 +80,13 @@ export interface ApplyCommandsOptions {
   appearance?: AppearanceGraph
   /** Captured by the complete-composition owner; required by finite bind intent. */
   historyIdentity?: HistoryIdentity
+  /** Complete-composition owner signs new rows only after observing real births.
+   * This hook never replaces scene/resource/identity validation. */
+  finalizeNativeDraft?: (before: SceneDocument, after: SceneDocument) => HistoryIdentity
   /** Explicit transaction envelope; omission retains the legacy expanded budget. */
   budget?: CommandBudgetProfile
+  /** Internal complete owner supplies the unspent expanded-operation budget. */
+  remainingOperationBudget?: () => number
   /** Internal complete-composition semantics for explicit group rotations. */
   fixedUprightPropIds?: ReadonlySet<string>
   /** Complete accounting evidence after the owning composition synchronizes
@@ -110,6 +122,9 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     ...floorCommandSchemas,
     ...pathCheckCommandSchemas,
     ...pathAttachmentCommandSchemas,
+    ...attachmentCommandSchemas,
+    ...carvedRockCommandSchemas,
+    ...terrainInlayCommandSchemas,
     z.object({ type: z.literal('initializeStructureIdentity') }).strict(),
     canvasBoundsCommandSchema,
     sceneDisplayCommandSchema,
@@ -320,6 +335,13 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     } else if (isPathAttachmentCommand(command)) {
       const impact = applyPathAttachmentCommand(next, command, options?.historyIdentity)
       commandCost = impact.commandCost
+    } else if (isAttachmentCommand(command)) {
+      commandCost = applyAttachmentCommand(next, command, context, options?.historyIdentity).commandCost
+    } else if (isTerrainInlayCommand(command)) {
+      commandCost = applyTerrainInlayCommand(next, command, context, options?.historyIdentity).commandCost
+    } else if (isCarvedRockCommand(command)) {
+      commandCost = applyCarvedRockCommand(next, command, context, options?.historyIdentity,
+        Math.min(256 - cost, options?.remainingOperationBudget?.() ?? 256)).commandCost
     } else if (isAggregateRepresentationCommand(command)) {
       commandCost = applyAggregateRepresentationCommand(next, command).commandCost
     } else if (isNaturalAggregateCommand(command)) {
@@ -363,6 +385,14 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       next = applyNativeContent(next, [command], context, options)
       commandCost = nativeCommandCost(before, next)
     }
+    followRockShells(beforeTerrain, next)
+    if (Object.keys(beforeTerrain.attachments ?? {}).length || Object.keys(next.attachments ?? {}).length) {
+      const impact = followAttachments(beforeTerrain, next, options?.historyIdentity)
+      commandCost += impact.commandCost
+      // Every changed child and read dependency participates in receipt scope.
+      scope = undefined
+    }
+    if (options?.finalizeNativeDraft) options.historyIdentity = options.finalizeNativeDraft(beforeTerrain, next)
     if (Object.keys(beforeTerrain.pathAttachments ?? {}).length || Object.keys(next.pathAttachments ?? {}).length) {
       // Keep the complete physical calculation scene coherent before the
       // finite planner reads it; follow changes are reconciled again below.
@@ -532,7 +562,8 @@ export function applySnapshotCommands(scene: SceneDocument, commands: readonly S
   const checked = checkedCommands(commands, options.budget)
   if (!checked.length) return source.document
   const relationScope = pathAttachmentBudgetScope(source.document, checked, options), observedOptions = relationScope?.options ?? options
-  const propTransaction = tryApplyPropUpdatesSnapshot(source.document, checked)
+  const propTransaction = Object.keys(source.document.attachments ?? {}).length || Object.keys(source.document.attachmentSurfaces ?? {}).length
+    ? undefined : tryApplyPropUpdatesSnapshot(source.document, checked)
   if (propTransaction && (propTransaction.result !== source.document || options.preserveNoopIdentity !== false)) {
     for (const step of propTransaction.steps) observedOptions.onSceneDraft?.(step.after, step.command, 1)
     relationScope?.finish(propTransaction.result)

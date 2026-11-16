@@ -59,6 +59,17 @@ function convert(scene: SceneDocument, to: 'world' | 'local'): SceneDocument {
         case 'terrainArea': {
           const row = scene.terrainAreas[ref.id]
           for (const point of row.boundaryMm) point.positionMm = transform(frame, point.positionMm)
+          if (row.rockBody?.shell) {
+            const shell = row.rockBody.shell
+            for (const point of shell.sourceBoundaryMm) point.positionMm = transform(frame, point.positionMm)
+            for (const vertex of Object.values(shell.verticesMm)) {
+              const xy = transform(frame, { x: vertex.x, y: vertex.y }); vertex.x = xy.x; vertex.y = xy.y
+            }
+            const turns = (to === 'world' ? frame.quarterTurns : 4 - frame.quarterTurns) % 4
+            let { x, y } = shell.recipe.direction
+            for (let i = 0; i < turns; i++) { const priorX = x; x = -y; y = priorX }
+            shell.recipe.direction = { x: x || 0, y: y || 0 }
+          }
           style(frame, row.surfaceStyle); break
         }
         case 'terrainEdge': style(frame, scene.terrainEdges[ref.id].surfaceStyle); break
@@ -68,6 +79,14 @@ function convert(scene: SceneDocument, to: 'world' | 'local'): SceneDocument {
           if (row.route) {
             for (const segment of row.route.segments) for (const key of ['start', 'control1', 'control2', 'end'] as const) segment[key] = transform(frame, segment[key])
             row.route.centerlineMm = points(frame, row.route.centerlineMm)
+          }
+          if (row.carvedStrip) for (const vertex of Object.values(row.carvedStrip.verticesMm)) {
+            const xy = transform(frame, { x: vertex.x, y: vertex.y }); vertex.x = xy.x; vertex.y = xy.y
+          }
+          // Frozen source areas and original connection remain world-space
+          // evidence. Only the active owned mesh follows this storage frame.
+          if (row.terrainInlay) for (const vertex of Object.values(row.terrainInlay.geometry.verticesMm)) {
+            const xy = transform(frame, { x: vertex.x, y: vertex.y }); vertex.x = xy.x; vertex.y = xy.y
           }
           style(frame, row.surfaceStyle); break
         }

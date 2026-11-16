@@ -4,6 +4,7 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { canonicalJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 import { geometryIdentityIds } from '../commands/domain.js'
+import { attachmentSurfaceTopology, attachmentTopology, type AttachmentScene } from '../attachments/topology.js'
 
 export interface StructureDescriptor { kind: StructureIdentityKind; topologyHash: string }
 export type StructureDescriptors = Record<string, StructureDescriptor>
@@ -37,11 +38,16 @@ export function structureIdentityDescriptors(scene: Readonly<SceneDocument>): St
     (vertexWalls.get(vertex.id) ?? []).sort(), (vertexRooms.get(vertex.id) ?? []).sort()])
   for (const opening of Object.values(scene.openings)) add(opening.id, 'opening', [opening.floorId, opening.kind, opening.wallId, opening.offsetReferenceVertexId])
   for (const row of Object.values(scene.pathAttachments ?? {})) add(row.id, 'pathAttachment', [row.floorId, row.pathId, row.openingId, row.end, row.anchor.wallId, row.anchor.roomId])
+  for (const surface of Object.values((scene as AttachmentScene).attachmentSurfaces ?? {})) add(surface.id, 'attachmentSurface', attachmentSurfaceTopology(surface))
+  for (const row of Object.values((scene as AttachmentScene).attachments ?? {})) add(row.id, 'attachment', attachmentTopology(row))
   return result
 }
 
 export function validateStructureIdentities(identity: HistoryIdentity, scene: SceneDocument): void {
-  if (!identity.structureTokens) return
+  if (!identity.structureTokens) {
+    if (Object.keys((scene as AttachmentScene).attachmentSurfaces ?? {}).length || Object.keys((scene as AttachmentScene).attachments ?? {}).length) throw new Error('附着表面与关系必须有真实结构出生身份。')
+    return
+  }
   const descriptors = structureIdentityDescriptors(scene), occupied = geometryIdentityIds(scene)
   for (const id of Object.keys(scene.userLayers)) occupied.add(id)
   for (const [id, descriptor] of Object.entries(descriptors)) {
@@ -62,7 +68,12 @@ export function advanceStructureIdentities(identity: HistoryIdentity, before: St
     if (record) {
       if (record.kind !== descriptor.kind || previous && previous.kind !== descriptor.kind || !previous && !allowResurrection) throw new Error(`普通编辑不能复用退休结构ID：${id}。`)
       if (!previous || record.topologyHash !== descriptor.topologyHash) pool[id] = { ...record, topologyHash: descriptor.topologyHash, topologyToken: context.ids.nextId() }
-    } else pool[id] = { ...descriptor, token: context.ids.nextId(), topologyToken: context.ids.nextId() }
+    } else {
+      if ((descriptor.kind === 'attachmentSurface' || descriptor.kind === 'attachment') && (Object.hasOwn(identity.propTokens, id) || Object.hasOwn(identity.prefabTokens, id)
+        || Object.hasOwn(identity.outdoorTokens, id) || Object.hasOwn(identity.aggregateTokens ?? {}, id)
+        || ['generationTokens', 'regionalTokens', 'presentationTokens', 'terrainTokens', 'decorationTokens', 'surfaceRuleTokens'].some(field => Object.hasOwn((identity as unknown as Record<string, Record<string, unknown>>)[field] ?? {}, id)))) throw new Error(`新附着身份与已分配实体/墓碑冲突：${id}。`)
+      pool[id] = { ...descriptor, token: context.ids.nextId(), topologyToken: context.ids.nextId() }
+    }
   }
 }
 

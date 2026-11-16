@@ -1,4 +1,7 @@
 import { pathAttachmentSchema } from '../path-attachments/contracts.js'
+import { attachmentSurfaceRecordSchema, attachmentRecordSchema } from '../attachments/contracts.js'
+import { rockBodySchema, carvedStripSchema } from '../carved-rock/contracts.js'
+import { terrainInlaySchema } from '../terrain-inlay/persistence.js'
 import { imageEnhancementMetadataSchema } from '../image-enhancement/metadata.js'
 import { assetRefinementMetadataSchema } from '../asset-refinement/metadata.js'
 import { validatePathAttachmentGeometry } from '../path-attachments/validation.js'
@@ -12,6 +15,7 @@ import { validateTerrainContracts } from '../terrain-generation/integrity.js'
 import { createVisual3Schema, generation5Schema, legacyTerrainView } from '../terrain-generation/composition-contracts.js'
 import { validateCompositionContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
+import { inspectAttachments } from '../attachments/validation.js'
 import { supportsWallReliefStyle } from '../appearance/wall-edge-profile.js'
 import { inspectSceneWallReliefBudget } from '../appearance/wall-relief-budget.js'
 import { aggregateCoordinatesSchema } from '../aggregates/schema.js'
@@ -64,12 +68,16 @@ const sceneShape = {
   materials: record(z.object({ ...identity, name: z.string(), tags: strings, textureAssetId: id, defaultTileSizeMm: size,
     applicableSurfaces: z.array(z.enum(['room', 'wall', 'terrain', 'path'])).min(1).refine(unique, '适用表面不能重复') }).strict()),
   terrainAreas: record(z.object({ ...editable, visibility, boundaryMm: z.array(z.object({ id, segmentId: id, positionMm: point }).strict()).min(3).max(2048),
-    groundElevationMm: int, coveragePriority: rank, surfaceStyle: style, blocksMovement: z.boolean(), blocksSight: z.boolean(), movementCostMultiplier: movementCost }).strict()),
+    groundElevationMm: int, coveragePriority: rank, surfaceStyle: style, blocksMovement: z.boolean(), blocksSight: z.boolean(), movementCostMultiplier: movementCost,
+    rockBody: rockBodySchema.optional() }).strict()),
   terrainEdges: record(z.object({ ...editable, visibility, source: z.object({ areaId: id, segmentId: id }).strict(), neighborAreaId: id.nullable(),
     kind: z.enum(['shore', 'cliff', 'materialTransition']), shoreline: z.boolean(), blocksMovement: z.boolean(), blocksSight: z.boolean(), surfaceStyle: style, styleOverride: edgeStyle.nullable() }).strict()),
   terrainConnections: record(z.object({ ...editable, visibility, kind: z.enum(['stairs', 'ramp']), from: z.object({ surfaceRef, positionMm: point }).strict(), to: z.object({ surfaceRef, positionMm: point }).strict(),
-    widthMm: positive, openingId: id.nullable(), blocksMovement: z.boolean(), movementCostMultiplier: movementCost, surfaceStyle: style, route: connectionRouteSchema.optional() }).strict()),
+    widthMm: positive, openingId: id.nullable(), blocksMovement: z.boolean(), movementCostMultiplier: movementCost, surfaceStyle: style, route: connectionRouteSchema.optional(),
+    carvedStrip: carvedStripSchema.optional(), terrainInlay: terrainInlaySchema.optional() }).strict()),
   pathAttachments: record(pathAttachmentSchema).optional(),
+  attachmentSurfaces: attachmentSurfaceRecordSchema.optional(),
+  attachments: attachmentRecordSchema.optional(),
   paths: record(z.object({ ...editable, visibility, centerlineMm: z.array(point).min(2).max(256), widthMm: positive, supportRefs: z.array(surfaceRef).min(1).refine(unique, '支撑引用不能重复'),
     surfaceStyle: style, movementCostMultiplier: movementCost, renderOrder: rank }).strict()),
   prefabDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, members: z.array(z.object({ key: id, propTemplate: z.object(templateShape).strict() }).strict()).min(1).max(128) }).strict()),
@@ -109,7 +117,7 @@ export const sceneDocumentSchema = z.object({ ...sceneShape,
 }).strict().superRefine((value, ctx) => {
   if (value.aggregateCoordinates?.encoding === 'local') ctx.addIssue({ code: 'custom', message: '局部存储须先解码为完整世界视图。' })
   if ((value.mapMode === 'scene') !== (value.regional === null)) ctx.addIssue({ code: 'custom', message: '场景模式不携带区域数据，区域模式必须携带regional。' })
-  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters','surfaceRules','pathAttachments'].some(key => Object.keys(value[key as 'props'] ?? {}).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体、轻量装饰或地表规则。' })
+  if (value.mapMode === 'regional' && ['vertices','rooms','walls','openings','props','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','regions','decorations','decorationClusters','surfaceRules','pathAttachments','attachmentSurfaces','attachments'].some(key => Object.keys(value[key as 'props'] ?? {}).length)) ctx.addIssue({ code: 'custom', message: '区域模式不得携带物理场景实体、轻量装饰或地表规则。' })
 })
 export const nativeSceneSchema = sceneDocumentSchema
 
@@ -128,7 +136,7 @@ export function parseSceneDocument(input: unknown): { ok: true; document: SceneD
  * supply geometry established by its private, constrained derivation proof. */
 export function inspectSceneDocumentDomains(document: SceneDocument, geometry: ReturnType<typeof validateGeometry>): ValidationResult {
   const dependencies = inspectDependencies(document)
-  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document), ...inspectSceneWallReliefBudget(geometryDocumentForValidation(document))]
+  const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document), ...inspectAttachments(document), ...inspectSceneWallReliefBudget(geometryDocumentForValidation(document))]
   if (!errors.length) try { assertCoordinateRoundTrip(document) } catch (cause) { errors.push({ code: 'AGGREGATE_COORDINATES', message: cause instanceof Error ? cause.message : String(cause) }) }
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }

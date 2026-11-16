@@ -8,6 +8,8 @@ import { assertSimpleVisualPolyline, sampleVisualBoundary } from './geometry.js'
 import type { SampledBoundary, VisualBoundary } from './types.js'
 import { visualBoundarySchema } from './schema.js'
 import { visualBase } from './base.js'
+import { carvedStripCutFootprints } from '../carved-rock/index.js'
+import { createSupportQuery } from '../geometry/support-sample.js'
 
 /**
  * T10's transition builder is deliberately a pure, DOM-free geometry boundary.
@@ -200,7 +202,7 @@ export function terrainTransitionStrokePolygon(points: readonly PointMm[], width
   return area(result) < 0 ? result.reverse() : result
 }
 
-const connectionPolygon = (scene: SceneDocument, connection: TerrainConnection): Polygon => (connection.route ? connectionFootprint({ ...connection, widthMm: connection.widthMm + 2 }) : corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm + 2, true)).map(qPoint)
+const connectionPolygon = (scene: SceneDocument, connection: TerrainConnection): Polygon => (connection.carvedStrip ? connectionFootprint(connection) : connection.route ? connectionFootprint({ ...connection, widthMm: connection.widthMm + 2 }) : corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm + 2, true)).map(qPoint)
 function wallPolygon(scene: SceneDocument, wall: SceneDocument['walls'][string]): Polygon | undefined {
   const a = own(scene.vertices, wall.startVertexId), b = own(scene.vertices, wall.endVertexId); if (!a || !b) return undefined
   return corridor({ x: a.xMm, y: a.yMm }, { x: b.xMm, y: b.yMm }, wall.thicknessMm, true).map(qPoint)
@@ -349,6 +351,9 @@ function materializeInternal(scene: SceneDocument, request: TerrainTransitionReq
     for (const [index, polygon] of materializeBand(center, range.widthMm, request.clipMm, collected.masks).entries()) allPolygons.push({ id: `${request.id}-polygon-${allPolygons.length}`, pointsMm: polygon, fillColor: palette[sign > 0 ? sources.left.surface : sources.right.surface], opacity: request.opacity ?? .78, materialRef: null })
   }
   if (!allPolygons.length) throw new Error('过渡裁剪后没有可保存的几何。')
+  for (const connection of Object.values(scene.terrainConnections)) if (connection.floorId === outputFloorId && connection.carvedStrip
+    && carvedStripCutFootprints(connection.carvedStrip).some(cut => allPolygons.some(polygon => polygonsOverlap(polygon.pointsMm, cut)))) throw new Error('常高地形过渡的实际输出触及山路或切口；请使用同一岩体实际面，不能把切削下表面绘成原顶面。')
+  if (createSupportQuery(scene, outputFloorId).shellBoundaries.some(face => allPolygons.some(polygon => polygonsOverlap(polygon.pointsMm, face)))) throw new Error('常高地形过渡的实际输出触及岩体真实侧壳，不能把斜面绘成常高平面。')
   if (allPolygons.length > 128) throw new Error('过渡多边形超过128条预算。')
   const common = { id: request.id, floorId: outputFloorId, layerId: outputLayerId, visibility: request.visibility ?? boundary.visibility, editLocked: request.editLocked ?? boundary.editLocked, enabled: request.enabled ?? true, boundaryId: request.boundaryId, kind: request.kind, side: request.side, leftSurface: sources.left.surface, rightSurface: sources.right.surface, leftElevationMm: sources.left.elevationMm, rightElevationMm: sources.right.elevationMm, widthMm: range.widthMm, distanceSource: { algorithmId: 'terrain-distance' as const, algorithmVersion: 1 as const, metric: 'euclidean-mm' as const, boundaryHash: field.boundaryHash, clipMm: cloneJson(request.clipMm), reachMm: range.reachMm, sampleSpacingMm: range.spacing, inputHash: field.inputHash }, polygons: allPolygons, strokes: [] as TerrainTransitionStroke[] }
   const { polygons: _polygons, strokes: _strokes, ...input } = common

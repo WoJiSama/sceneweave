@@ -1,4 +1,5 @@
 import { reconcileDecorationMembers } from '../decorations/commands.js'
+import { syncNewAttachmentProofs } from '../attachments/index.js'
 import { reconcileAggregateMembers } from '../aggregates/state.js'
 import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { definitionPresentation, propPresentation } from './presentation.js'
@@ -228,6 +229,8 @@ function instantiate(content: CompositionContent, command: Extract<CompositionCo
 }
 function duplicate(content: CompositionContent, command: Extract<CompositionCommand, { type: 'duplicatePrefab' }>): number {
   const document = content.document, graph = content.appearance, source = required(document.prefabInstances, command.id, '组合'), entries = Object.entries(source.members).filter(([, member]) => member.propId !== null)
+  const memberIds = new Set(entries.map(([, member]) => member.propId!))
+  if (Object.values(document.attachments ?? {}).some(row => memberIds.has(row.child.id)) || Object.values(document.attachmentSurfaces ?? {}).some(row => memberIds.has(row.owner.id))) throw new Error('附着组合的复制需要明确完整关系候选；请先处理其附着。')
   if (!memberIdsMatch(entries.map(([key]) => key), command.memberIds) || Object.values(command.memberIds).includes(command.newId)) throw new Error('复制组合须为实际活成员明确给出不同新ID；已删除槽保持删除。')
   assertUnlocked(document, [source.id, ...entries.map(([, member]) => member.propId!) ]); assertFresh(content, command.newId)
   const visibility = createPublicVisibility(document), group = cloneJson(source)
@@ -313,7 +316,8 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   if (!commands.length) { accounting?.onOperationCost?.(initialCost); return getCertifiedCompositionContent(input) ?? source }
   // This owner consumes the real write set before any whole-document clone,
   // appearance reconciliation or identity trace loses the baseline references.
-  const propTransaction = ownedDraft ? tryApplyPropUpdateCompositionTransaction(source, commands) : undefined
+  const propTransaction = ownedDraft && !Object.keys(source.document.attachments ?? {}).length && !Object.keys(source.document.attachmentSurfaces ?? {}).length
+    ? tryApplyPropUpdateCompositionTransaction(source, commands) : undefined
   if (propTransaction) {
     accounting?.onPropUpdateTransaction?.(propTransaction)
     const operationCost = manual ? propTransaction.changes.length : propTransaction.steps.length
@@ -349,7 +353,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     observedContent = after
     accounting?.onTransactionStep?.(step)
   }
-  const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context, { initializeStructures: commands.some(command => command.type === 'initializeStructureIdentity' || ['createFloor', 'renameFloor', 'setFloorOutputBounds', 'setFloorEnvironment', 'deleteEmptyFloor'].includes(command.type)) })
+  const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context, { initializeStructures: commands.some(command => command.type === 'initializeStructureIdentity' || ['createFloor', 'renameFloor', 'setFloorOutputBounds', 'setFloorEnvironment', 'deleteEmptyFloor', 'addAttachmentSurface', 'bindPropAttachment', 'createCarvedMountainPath'].includes(command.type)) })
   const consume = (value: number) => { cost += value; if (!budget && initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
@@ -362,11 +366,18 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       ...Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'),
       ...Object.values(source.document.decorations ?? {}).filter(row => definitionPresentation(source.appearance, row.definitionRef)?.mode === 'nearSide').map(row => row.id),
     ])
-    let accounting = source
+    let accounting = source, expandedPreflightCost = initialCost
     const observer = { budget, fixedUprightPropIds, appearance: source.appearance, historyIdentity: source.historyIdentity,
+      remainingOperationBudget: () => Math.max(0, 256 - expandedPreflightCost),
+      finalizeNativeDraft: (before: SceneDocument, after: SceneDocument) => {
+        const current = identityTrace.capture(after)
+        syncNewAttachmentProofs(before, after, current)
+        return current
+      },
       budgetContent: { before: source, after: () => accounting },
       onSceneDraft: (draft: Readonly<SceneDocument>, command: Readonly<SceneCommand>, commandCost: number, scope?: TransactionExecutionScope) => {
       onSceneDraft?.(draft, command, commandCost)
+        expandedPreflightCost += commandCost
 
         // Intermediate geometry can require a later command's junction repair.
         // Capture real identities for accounting now; finish validates the

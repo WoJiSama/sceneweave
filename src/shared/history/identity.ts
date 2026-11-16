@@ -12,6 +12,8 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { COMPOSITION_LIMITS } from '../model/appearance.js'
 import type { HistoryIdentity, OutdoorIdentityKind, OutdoorIdentityToken, DecorationIdentityToken, SurfaceRuleIdentityToken } from '../model/history.js'
 import { advanceStructureIdentities, mergeStructureIdentityRecords, structureIdentityDescriptors, validateStructureIdentities } from './structure-identity.js'
+import { validateAttachmentProofs } from '../attachments/identity.js'
+import { validateTerrainInlayProofs } from '../terrain-inlay/scene.js'
 
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留 ID')
@@ -24,7 +26,7 @@ export const historyIdentity4Schema = historyIdentity3Schema.extend({ version: z
 export const surfaceRuleIdentityTokenSchema = z.object({ kind: z.literal('surfaceRule'), token: id, topologyToken: id, topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
 export const historyIdentity5Schema = historyIdentity4Schema.extend({ version: z.literal(5), surfaceRuleTokens: z.record(id, surfaceRuleIdentityTokenSchema),
   aggregateTokens: z.record(id, id).optional(),
-  structureTokens: z.record(id, z.object({ kind: z.enum(['floor', 'room', 'wall', 'vertex', 'opening', 'pathAttachment']), token: id, topologyToken: id,
+  structureTokens: z.record(id, z.object({ kind: z.enum(['floor', 'room', 'wall', 'vertex', 'opening', 'pathAttachment', 'attachmentSurface', 'attachment']), token: id, topologyToken: id,
     topologyHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).optional(),
 }).strict()
 export const nativeHistoryIdentitySchema = historyIdentity5Schema
@@ -42,7 +44,12 @@ export function outdoorIdentityDescriptors(document: Readonly<SceneDocument>): R
     // cyclic change of the coordinate editor's first row.
     const ring = area.boundaryMm.map(point => [point.id, point.segmentId])
     const first = ring.reduce((best, point, i) => point[0] < ring[best][0] ? i : best, 0)
-    add(area.id, 'terrainArea', [area.floorId, [...ring.slice(first), ...ring.slice(0, first)]])
+    const topology: unknown[] = [area.floorId, [...ring.slice(first), ...ring.slice(0, first)]]
+    const shell = area.rockBody?.shell
+    if (shell) topology.push(['rock-shell', shell.algorithmId, shell.algorithmVersion, shell.footSurfaceRef,
+      shell.sections.map(section => [section.id, section.sourceSegmentId, section.topVertexId, section.shoulderVertexId, section.kneeVertexId, section.footVertexId]),
+      Object.keys(shell.verticesMm).sort(), Object.fromEntries(Object.entries(shell.faces).map(([key, face]) => [key, [face.id, face.vertexIds, face.sourceSegmentId, face.sectionIds]]))])
+    add(area.id, 'terrainArea', topology)
     area.boundaryMm.forEach((point, i) => { add(point.id, 'terrainPoint', [area.id, area.floorId]); add(point.segmentId, 'terrainSegment', [area.id, area.floorId, point.id, area.boundaryMm[(i + 1) % area.boundaryMm.length].id]) })
   }
   for (const edge of Object.values(document.terrainEdges)) add(edge.id, 'terrainEdge', [edge.floorId, edge.source, edge.neighborAreaId])
@@ -52,6 +59,23 @@ export function outdoorIdentityDescriptors(document: Readonly<SceneDocument>): R
     // presentation edits retain birth; changing source kind or ordered segment
     // identities permanently changes continuity, even if undone in this batch.
     if (connection.route) topology.push(['connection-route', connection.route.kind, connection.route.segments.map(segment => segment.id)])
+    if (connection.carvedStrip) {
+      const strip = connection.carvedStrip
+      // Persisted incidence is topology. Millimetre measurements, station
+      // ownership state and width remain ordinary edits of that exact mesh.
+      topology.push(['carved-strip', strip.algorithmId, strip.algorithmVersion, strip.attachmentId, strip.walkSurfaceId,
+        strip.hostAreaId, strip.sourceSegmentIds, strip.cutSide,
+        strip.stations.map(station => [station.id, station.centerVertexId, station.leftVertexId, station.rightVertexId]),
+        Object.keys(strip.verticesMm).sort(),
+        Object.fromEntries(Object.entries(strip.faces).map(([key, face]) => [key, [face.id, face.vertexIds]])),
+        strip.walkFaceIds, strip.cutCells.map(cell => [cell.id, cell.kind, cell.lowerFaceId, cell.sourceAreaId])])
+    }
+    if (connection.terrainInlay) {
+      const inlay = connection.terrainInlay, geometry = inlay.geometry
+      topology.push(['terrain-inlay', inlay.algorithmId, inlay.algorithmVersion, geometry.sources.map(source => source.id),
+        Object.keys(geometry.verticesMm).sort(), Object.fromEntries(Object.entries(geometry.faces).map(([id, face]) => [id, [face.kind, face.vertexIds]])),
+        geometry.footprintVertexIds, geometry.walkBoundaryVertexIds, inlay.centerlineVertexIds])
+    }
     add(connection.id, 'terrainConnection', topology)
   }
   for (const path of Object.values(document.paths)) add(path.id, 'path', [path.floorId, path.supportRefs])
@@ -104,6 +128,8 @@ export function validateHistoryIdentity(input: unknown, document: SceneDocument)
   if (!checked.ok) throw new Error(`历史身份对应场景无效：${checked.errors.map(issue => issue.message).join('；')}`)
   if (identity.version !== 5) throw new Error('场景与历史身份版本必须严格匹配。')
   validateStructureIdentities(identity, checked.document)
+  const attachmentIssues = [...validateAttachmentProofs(checked.document, identity), ...validateTerrainInlayProofs(checked.document, identity)]
+  if (attachmentIssues.length) throw new Error(attachmentIssues.map(issue => issue.message).join('；'))
   const descriptors3 = extendedIdentityDescriptors(checked.document)
   for (const [id, descriptor] of Object.entries(descriptors3)) {
     const pool = identity[descriptor.field]

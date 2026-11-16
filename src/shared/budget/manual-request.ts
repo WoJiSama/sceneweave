@@ -106,7 +106,7 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
       }
       case 'copyProp': targets.add(command.newId); break
       case 'transformBuilding': add(buildingAggregateMembers(document, command.id).filter(ref => ref.kind !== 'vertex').map(ref => ref.id)); break
-      case 'moveVertex': case 'setWallThickness': case 'reverseWall': case 'splitWall': {
+      case 'moveVertex': case 'setWallEdgeProfile': case 'setWallThickness': case 'reverseWall': case 'splitWall': {
         const vertexIds = command.type === 'moveVertex' ? [command.id] : [document.walls[command.id]?.startVertexId, document.walls[command.id]?.endVertexId]
         const walls = Object.values(document.walls).filter(wall => command.type === 'moveVertex'
           ? vertexIds.includes(wall.startVertexId) || vertexIds.includes(wall.endVertexId) : wall.id === command.id)

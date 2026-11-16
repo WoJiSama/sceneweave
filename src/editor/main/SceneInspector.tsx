@@ -14,6 +14,7 @@ import { effectiveEditLocked, effectiveLayerLocked } from '../../shared/commands
 import { assertDecorationMemberUnlocked } from '../../shared/decorations/commands'
 import { appearanceSwapInfo } from './appearance-swap-info'
 import EntityLockNotice from './EntityLockNotice'
+import AttachmentTools from './AttachmentTools'
 
 export const propName = (project: EditableProject, id: string) => {
   const prop = project.document.props[id]
@@ -57,7 +58,7 @@ function FillCopyControls({ scene, sourceId, busy, onFill, onNumeric }: { scene:
 }
 
 export default function SceneInspector(props: Props) {
-  return <><EntityLockNotice scene={props.project.document} id={props.selected} onSelect={props.onSelect} onOpenLayers={props.onOpenLayers}/><SceneInspectorContent {...props}/></>
+  return <><EntityLockNotice scene={props.project.document} id={props.selected} onSelect={props.onSelect} onOpenLayers={props.onOpenLayers}/><SceneInspectorContent {...props}/>{props.project.document.props[props.selected] && <AttachmentTools key={props.selected} scene={props.project.document} id={props.selected} disabled={props.busy} onPreview={(commands, label) => props.onPreview(commands, label)}/>}</>
 }
 
 function SceneInspectorContent({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {

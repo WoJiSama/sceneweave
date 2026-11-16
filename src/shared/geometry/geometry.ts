@@ -4,6 +4,12 @@ import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
 import { visualBase } from '../visual/base.js'
 import { validateFloorSettings } from '../floors/output.js'
 import {inspectPathChecks} from './path-checks.js'
+import { createSupportQuery, rootSurfaceElevation } from './support-sample.js'
+import { carvedStripCenterline, carvedStripFootprint, inspectCarvedStrip } from '../carved-rock/index.js'
+import { inspectTerrainInlay, terrainInlayFootprint } from '../terrain-inlay/scene.js'
+import { createRockShellSampler, inspectRockShell } from '../rock-shell/index.js'
+import { assertRockShellCutClearance } from '../rock-shell/dependencies.js'
+import { resolvePropContact } from '../attachments/contact.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -122,13 +128,9 @@ export function openingEndpoints(scene: Pick<SceneDocument, 'vertices' | 'walls'
   return [wallOffsetPoint(a, b, opening.offsetMm), wallOffsetPoint(a, b, opening.offsetMm + opening.widthMm)]
 }
 export function supportSurfaceAt(scene: SceneDocument, point: PointMm, floorId: string): GroundSurfaceRef | null {
-  const floor = own(scene.floors, floorId)
-  if (!floor || !boundsContain(point, floor.boundsMm)) return null
-  const areas = Object.values(scene.terrainAreas).filter(item => item.floorId === floorId && pointInPolygon(point, terrainPoints(item)))
-  areas.sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
-  return areas.length ? { kind: 'terrainArea', id: areas[0].id } : { kind: 'floor', id: floorId }
+  return createSupportQuery(scene, floorId).rootAt(point)
 }
-const elevation = (scene: SceneDocument, ref: SurfaceRef): number | undefined => ref.kind === 'floor' ? own(scene.floors, ref.id) && 0 : ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id)?.groundElevationMm : own(scene.rooms, ref.id)?.groundElevationMm
+const elevation = rootSurfaceElevation
 const refEqual = (a: SurfaceRef, b: SurfaceRef): boolean => a.kind === b.kind && a.id === b.id
 export function pointOnSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string): boolean {
   const floor = own(scene.floors, floorId)
@@ -139,7 +141,7 @@ export function pointOnSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef
   }
   const candidate = ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id) : undefined
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !pointInPolygon(p, terrainPoints(candidate))) return false
-  return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && pointInPolygon(p, terrainPoints(item), false))
+  return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && pointInPolygon(p, terrainPoints(item), false)) && createSupportQuery(scene, floorId).flatOn(p, ref)
 }
 export function supportedPolygon(scene: SceneDocument, polygon: PointMm[], ref: SurfaceRef, floorId: string): boolean {
   if (ref.kind === 'room') {
@@ -149,7 +151,10 @@ export function supportedPolygon(scene: SceneDocument, polygon: PointMm[], ref: 
   const floor = own(scene.floors, floorId), candidate = ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id) : undefined
   if (!floor || polygon.some(p => !boundsContain(p, floor.boundsMm))) return false
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !polygonInside(polygon, terrainPoints(candidate))) return false
-  return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && polygonsOverlap(polygon, terrainPoints(item)))
+  if (Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && polygonsOverlap(polygon, terrainPoints(item)))) return false
+  const query = createSupportQuery(scene, floorId)
+  return !query.strips.length && !Object.values(scene.terrainAreas).some(area => area.floorId === floorId && area.rockBody?.shell)
+    || coveredEverywhere(polygon, query.boundaries, point => query.flatOn(point, ref))
 }
 export function corridor(a: PointMm, b: PointMm, width: number, squareCaps = false): PointMm[] {
   const length = Math.hypot(b.x - a.x, b.y - a.y)
@@ -205,15 +210,19 @@ export function connectionBand(points: readonly PointMm[], widthMm: number): Poi
   }
   return polylineBand(reduced, widthMm)
 }
-export function connectionFootprint(connection: ConnectionRouteGeometry): PointMm[] {
-  return connection.route ? connectionBand(connectionCenterline(connection), connection.widthMm) : corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm)
+export function connectionFootprint(connection: ConnectionRouteGeometry & { carvedStrip?: import('../carved-rock/contracts.js').CarvedStrip }): PointMm[] {
+  if (connection.terrainInlay) return connection.terrainInlay.geometry.walkBoundaryVertexIds.map(id => {
+    const point = connection.terrainInlay!.geometry.verticesMm[id]; return { x: point.x, y: point.y }
+  })
+  return connection.carvedStrip ? carvedStripFootprint(connection.carvedStrip) : connection.route ? connectionBand(connectionCenterline(connection), connection.widthMm) : corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm)
 }
 /** Current born IDs only. References and dependency/history snapshots are not
  * traversed: their repeated IDs are evidence, not additional live entities. */
 function connectionRouteReservedIds(scene: SceneDocument): Set<string> {
   const ids = new Set<string>([scene.sceneId])
   for (const key of ['floors', 'vertices', 'rooms', 'walls', 'openings', 'props', 'regions', 'notes', 'assets', 'propDefinitions', 'materials', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'prefabDefinitions', 'prefabInstances', 'scatterGroups', 'styleThemes', 'userLayers'] as const) for (const id of Object.keys(scene[key])) ids.add(id)
-  for (const record of [scene.decorations ?? {}, scene.decorationClusters ?? {}]) for (const id of Object.keys(record)) ids.add(id)
+  for (const record of [scene.decorations ?? {}, scene.decorationClusters ?? {}, scene.surfaceRules ?? {}, scene.aggregateCoordinates?.groups ?? {}]) for (const id of Object.keys(record)) ids.add(id)
+  for (const record of [scene.attachmentSurfaces ?? {}, scene.attachments ?? {}, scene.pathAttachments ?? {}]) for (const id of Object.keys(record)) ids.add(id)
   for (const row of Object.values(scene.terrainAreas)) for (const point of row.boundaryMm) { ids.add(point.id); ids.add(point.segmentId) }
   for (const check of scene.constraints.pathChecks) ids.add(check.id)
   for (const row of [...Object.values(scene.rooms), ...Object.values(scene.walls), ...Object.values(scene.terrainAreas), ...Object.values(scene.terrainEdges), ...Object.values(scene.terrainConnections), ...Object.values(scene.paths)]) {
@@ -289,7 +298,10 @@ export function validatePropGeometry(scene: SceneDocument, props: readonly Prop[
     if (!Number.isSafeInteger(prop.visualBoundsMm.x + prop.visualBoundsMm.width) || !Number.isSafeInteger(prop.visualBoundsMm.y + prop.visualBoundsMm.height)) error('UNSAFE_BOUNDS', '边界端点超出安全整数范围。', prop.id)
     const physical = propFootprint(prop)
     withinFloor(physical, prop); withinFloor(transformBounds(prop.visualBoundsMm, prop.positionMm, prop.rotationDeg), prop)
-    if (!supportedPolygon(scene, physical, prop.supportRef, prop.floorId)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
+    const attached = Object.values(scene.attachments ?? {}).some(row => row.child.kind === 'prop' && row.child.id === prop.id)
+    if (attached) {
+      try { resolvePropContact(scene, prop.id) } catch (cause) { error('PROP_SUPPORT', cause instanceof Error ? cause.message : '附着物件实际接触校验失败。', prop.id) }
+    } else if (!supportedPolygon(scene, physical, prop.supportRef, prop.floorId)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
   }
   return errors
 }
@@ -336,7 +348,29 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   if (scene.constraints.minPathWidthMm !== undefined) error('UNSUPPORTED_PATH_CLEARANCE', 'B1 尚未实现全图通行净宽求解，不能接受 minPathWidthMm 硬声明。')
   const styleGeometry = (style: SurfaceStyle | null) => { if (style) for (const overlay of style.overlays) polygon(overlay.boundaryMm, overlay.id, false) }
   const areas = Object.values(scene.terrainAreas), validAreas: TerrainArea[] = []
-  for (const item of areas) { if (polygon(terrainPoints(item), item.id)) validAreas.push(item); withinFloor(terrainPoints(item), item.floorId, item.id); styleGeometry(item.surfaceStyle) }
+  for (const item of areas) {
+    if (polygon(terrainPoints(item), item.id)) validAreas.push(item)
+    withinFloor(terrainPoints(item), item.floorId, item.id); styleGeometry(item.surfaceStyle)
+    if (item.rockBody && item.rockBody.baseElevationMm >= item.groundElevationMm) error('ROCK_BODY_HEIGHT', '有限岩体底高必须严格低于顶高。', item.id)
+  }
+  const shellRows: { area: TerrainArea; triangles: PointMm[][] }[] = []
+  for (const item of areas) if (item.rockBody?.shell) {
+    const shell = item.rockBody.shell
+    const host = { id: item.id, floorId: item.floorId, boundaryMm: item.boundaryMm, groundElevationMm: item.groundElevationMm, rockBody: item.rockBody }
+    const issues = inspectRockShell(host, shell)
+    errors.push(...issues.map(issue => ({ ...issue, entityId: item.id })))
+    withinFloor(Object.values(shell.verticesMm).map(({ x, y }) => ({ x, y })), item.floorId, item.id)
+    if (issues.length) continue
+    const triangles = createRockShellSampler(shell).triangles.map(face => face.verticesMm.map(({ x, y }) => ({ x, y })))
+    shellRows.push({ area: item, triangles })
+    if (areas.some(other => other.id !== item.id && other.floorId === item.floorId && triangles.some(face => polygonsOverlap(face, terrainPoints(other))))) {
+      error('ROCK_SHELL_TERRAIN_OVERLAP', '岩体实际侧壳只能落在同 Floor 的零高空地，不能侵入其他地形的真实占地。', item.id)
+    }
+  }
+  for (let i = 0; i < shellRows.length; i++) for (let j = i + 1; j < shellRows.length; j++) {
+    const a = shellRows[i], b = shellRows[j]
+    if (a.area.floorId === b.area.floorId && a.triangles.some(face => b.triangles.some(other => polygonsOverlap(face, other)))) error('ROCK_SHELL_OVERLAP', '不同岩体的实际外侧壳不可互相侵入。', b.area.id)
+  }
   for (let i = 0; i < validAreas.length; i++) for (let j = i + 1; j < validAreas.length; j++) {
     const a = validAreas[i], b = validAreas[j], ap = terrainPoints(a), bp = terrainPoints(b)
     if (a.floorId !== b.floorId) continue
@@ -354,6 +388,11 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   for (const item of validAreas) {
     const boundaries=terrainBoundariesByFloor.get(item.floorId)??[]
     boundaries.push(terrainPoints(item));terrainBoundariesByFloor.set(item.floorId,boundaries)
+  }
+  const supportQueries = new Map(Object.keys(scene.floors).map(id => [id, createSupportQuery(scene, id)]))
+  for (const [floorId, query] of supportQueries) {
+    const boundaries = terrainBoundariesByFloor.get(floorId) ?? []
+    boundaries.push(...query.strips.flatMap(row => row.sampler.cutFootprints), ...query.shellBoundaries, ...query.inlayBoundaries); terrainBoundariesByFloor.set(floorId, boundaries)
   }
   const terrainBoundaries = (floorId: string): PointMm[][] => terrainBoundariesByFloor.get(floorId)??[]
   const edgeSources = new Set<string>()
@@ -427,9 +466,10 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (new Set(rooms.map(room => room.groundElevationMm)).size > 1) error('SHARED_WALL_ELEVATION', '共墙两室须在相同高度。', wallId)
   }
   for (const item of wallGeometry) {
-    const expected = wallRooms.get(item.wall.id)?.[0]?.groundElevationMm ?? (supportSurfaceAt(scene, at(item.a, item.b, 0.5), item.wall.floorId) ? elevation(scene, supportSurfaceAt(scene, at(item.a, item.b, 0.5), item.wall.floorId)!) : undefined)
+    const query = supportQueries.get(item.wall.floorId)!
+    const expected = wallRooms.get(item.wall.id)?.[0]?.groundElevationMm ?? query.sample(at(item.a, item.b, 0.5))?.zMm
     withinFloor(item.polygon, item.wall.floorId, item.wall.id)
-    if (expected !== undefined && !coveredEverywhere(item.polygon, terrainBoundaries(item.wall.floorId), p => { const support = supportSurfaceAt(scene, p, item.wall.floorId); return !!support && elevation(scene, support) === expected })) error('WALL_SUPPORT_ELEVATION', '真实厚墙带区不能悬在不同高程地面上。', item.wall.id)
+    if (expected !== undefined && !coveredEverywhere(item.polygon, terrainBoundaries(item.wall.floorId), p => { const support = query.sample(p); return !!support && Math.abs(support.zMm - expected) <= EPS && Math.abs(support.normal.x) <= EPS && Math.abs(support.normal.y) <= EPS })) error('WALL_SUPPORT_ELEVATION', '真实厚墙带区不能悬在不同高程或连续斜面上。', item.wall.id)
   }
   const wallJoins: { floorId: string; polygon: PointMm[]; wallId: string }[] = []
   for (let i = 0; i < wallGeometry.length; i++) for (let j = i + 1; j < wallGeometry.length; j++) {
@@ -450,8 +490,9 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
       const join = Math.hypot(miter.x - point.x, miter.y - point.y) <= 2 * Math.max(rA, rB) + EPS ? [point, p, miter, q] : [point, p, q]
       if (Math.abs(area(join)) <= EPS) continue
       withinFloor(join, a.wall.floorId, a.wall.id)
-      const expected = wallRooms.get(a.wall.id)?.[0]?.groundElevationMm ?? (supportSurfaceAt(scene, at(a.a, a.b, 0.5), a.wall.floorId) ? elevation(scene, supportSurfaceAt(scene, at(a.a, a.b, 0.5), a.wall.floorId)!) : undefined)
-      if (expected !== undefined && !coveredEverywhere(join, terrainBoundaries(a.wall.floorId), p => { const support = supportSurfaceAt(scene, p, a.wall.floorId); return !!support && elevation(scene, support) === expected })) error('WALL_SUPPORT_ELEVATION', '厚墙转角的 miter/bevel 区域不能悬跨不同高程地面。', a.wall.id)
+      const query = supportQueries.get(a.wall.floorId)!
+      const expected = wallRooms.get(a.wall.id)?.[0]?.groundElevationMm ?? query.sample(at(a.a, a.b, 0.5))?.zMm
+      if (expected !== undefined && !coveredEverywhere(join, terrainBoundaries(a.wall.floorId), p => { const support = query.sample(p); return !!support && Math.abs(support.zMm - expected) <= EPS && Math.abs(support.normal.x) <= EPS && Math.abs(support.normal.y) <= EPS })) error('WALL_SUPPORT_ELEVATION', '厚墙转角的 miter/bevel 区域不能悬跨不同高程或连续斜面。', a.wall.id)
       wallJoins.push({ floorId: a.wall.floorId, polygon: join, wallId: a.wall.id })
     }
   }
@@ -490,10 +531,42 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   for (const room of Object.values(scene.rooms)) if (room.accessExpectation === 'required' && !reachable.has(room.id)) error('REQUIRED_UNREACHABLE', 'required 房间须结构连接到显式外部入口；这不证明空间寻路。', room.id)
   errors.push(...validatePropGeometry(scene, Object.values(scene.props)))
   const connectionPolygons = new Map<string, PointMm[]>()
-  const connectionRouteIds = Object.values(scene.terrainConnections).some(connection => connection.route) ? connectionRouteReservedIds(scene) : new Set<string>()
+  const connectionRouteIds = Object.values(scene.terrainConnections).some(connection => connection.route || connection.carvedStrip || connection.terrainInlay) || areas.some(area => area.rockBody?.shell) ? connectionRouteReservedIds(scene) : new Set<string>()
+  for (const area of areas) if (area.rockBody?.shell) {
+    const shell = area.rockBody.shell
+    for (const id of [...Object.keys(shell.verticesMm), ...Object.keys(shell.faces), ...shell.sections.map(row => row.id)]) {
+      if (connectionRouteIds.has(id)) error('ROCK_SHELL_ID', '岩体侧壳实际顶点、面与剖面ID须在全部场景实体、附着及路线中全局唯一。', id)
+      connectionRouteIds.add(id)
+    }
+  }
+  for (const connection of Object.values(scene.terrainConnections)) if (connection.carvedStrip) {
+    const strip = connection.carvedStrip
+    for (const id of [...Object.keys(strip.verticesMm), ...Object.keys(strip.faces), ...strip.stations.map(row => row.id), ...strip.cutCells.map(row => row.id)]) {
+      if (connectionRouteIds.has(id)) error('CARVED_STRIP_ID', '山路实际顶点、面、站点和切削ID须在全部场景实体、附着记录及其他路线中全局唯一。', id)
+      connectionRouteIds.add(id)
+    }
+  }
   for (const connection of Object.values(scene.terrainConnections)) {
     styleGeometry(connection.surfaceStyle)
     const { from, to } = connection
+    const carved = !!connection.carvedStrip
+    const inlay = !!connection.terrainInlay, actual = carved || inlay
+    if (inlay) {
+      const issues = inspectTerrainInlay(scene, connection); errors.push(...issues)
+      if (issues.length) continue
+      for (const id of [...Object.keys(connection.terrainInlay!.geometry.verticesMm), ...Object.keys(connection.terrainInlay!.geometry.faces)]) {
+        if (connectionRouteIds.has(id)) error('TERRAIN_INLAY_ID', '跨台山路实际顶点和面须使用全局唯一的活动身份。', id)
+        connectionRouteIds.add(id)
+      }
+      withinFloor(terrainInlayFootprint(connection), connection.floorId, connection.id)
+    }
+    if (carved) {
+      const issues = inspectCarvedStrip(scene, connection); errors.push(...issues)
+      if (issues.length) continue
+      try { assertRockShellCutClearance(scene.terrainAreas[connection.carvedStrip!.hostAreaId], [connection.carvedStrip!]) }
+      catch (cause) { error('ROCK_SHELL_CUT_CLEARANCE', cause instanceof Error ? cause.message : String(cause), connection.id); continue }
+      if (connection.openingId !== null || from.surfaceRef.kind === 'room' || to.surfaceRef.kind === 'room') { error('CARVED_CONNECTION_ENDPOINT', '首片连续岩台只支持同Floor的地面/地形端点，不能绕过房间真实门。', connection.id); continue }
+    }
     if (connection.route) {
       if (connection.route.renderProfile && connection.kind !== 'stairs') error('CONNECTION_RENDER_PROFILE', '细化自然踏面仅用于楼梯连接。', connection.id)
       const checked = connectionRouteSchema.safeParse(connection.route)
@@ -504,13 +577,27 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
       }
       if (!same(connection.route.centerlineMm[0], from.positionMm) || !same(connection.route.centerlineMm.at(-1)!, to.positionMm)) { error('CONNECTION_ROUTE_ENDPOINT', '连接实际中心线首尾须精确等于两端支撑坐标。', connection.id); continue }
     }
-    const centerline = connectionCenterline(connection), band = connectionFootprint(connection)
+    const centerline = carved ? carvedStripCenterline(connection.carvedStrip!) : connectionCenterline(connection), band = connectionFootprint(connection)
     connectionPolygons.set(connection.id, band)
+    withinFloor(band, connection.floorId, connection.id)
     if (connection.route && !polygon(band, connection.id)) { error('CONNECTION_WIDTH', '连接完整净宽转角自交、过窄或折返，请放宽回折间距。', connection.id); continue }
     if (!band.length || refEqual(from.surfaceRef, to.surfaceRef) || elevation(scene, from.surfaceRef) === undefined || elevation(scene, from.surfaceRef) === elevation(scene, to.surfaceRef)) error('CONNECTION_HEIGHT', '连接须具有不同有效支撑面、不同高度与非零长度。', connection.id)
-    if (!pointOnSurface(scene, from.positionMm, from.surfaceRef, connection.floorId) || !pointOnSurface(scene, to.positionMm, to.surfaceRef, connection.floorId)) error('CONNECTION_ENDPOINT', '连接两端须落在各自的有效支撑面内。', connection.id)
+    if (!actual && (!pointOnSurface(scene, from.positionMm, from.surfaceRef, connection.floorId) || !pointOnSurface(scene, to.positionMm, to.surfaceRef, connection.floorId))) error('CONNECTION_ENDPOINT', '连接两端须落在各自的有效支撑面内。', connection.id)
     const refs = [from.surfaceRef, to.surfaceRef]
-    if (!coveredEverywhere(band, [...terrainBoundaries(connection.floorId), ...validRooms.filter(item=>item.room.floorId===connection.floorId).map(item => item.points)], p => refs.some(ref => pointOnSurface(scene, p, ref, connection.floorId)))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
+    if (actual) {
+      const query = supportQueries.get(connection.floorId)!
+      if (!coveredEverywhere(band, query.boundaries, p => { const sample = query.sample(p); return !!sample && sample.sourceConnectionId === connection.id && (!carved || sample.actualSurfaceId === connection.carvedStrip!.walkSurfaceId) })) error('CARVED_CONNECTION_SUPPORT', '连续岩台完整净宽必须来自自身实际步行面，不得被其他覆盖面或切口替代。', connection.id)
+      for (const [index, end] of [[0, from], [centerline.length - 1, to]] as const) {
+        const neighbor = centerline[index === 0 ? 1 : index - 1], p = centerline[index], length = Math.hypot(p.x - neighbor.x, p.y - neighbor.y), depth = Math.max(1, connection.widthMm / 2)
+        const outward = { x: (p.x - neighbor.x) / length, y: (p.y - neighbor.y) / length }, outside = { x: p.x + outward.x * depth, y: p.y + outward.y * depth }, approach = corridor(p, outside, connection.widthMm), z = elevation(scene, end.surfaceRef)
+        if (!coveredEverywhere(approach, query.boundaries, point => {
+          const actual = query.sample(point)
+          if (!actual || z === undefined || Math.abs(actual.zMm - z) > EPS) return false
+          const cap = Math.abs((point.x - p.x) * outward.x + (point.y - p.y) * outward.y) <= EPS
+          return cap && actual.sourceConnectionId === connection.id || refEqual(actual.rootSupportRef, end.surfaceRef) && Math.abs(actual.normal.x) <= EPS && Math.abs(actual.normal.y) <= EPS
+        })) error('CARVED_CONNECTION_APPROACH', '连续岩台端面及半净宽深度的真实接入地面必须完整同高、同根基且不悬空。', connection.id)
+      }
+    } else if (!coveredEverywhere(band, [...terrainBoundaries(connection.floorId), ...validRooms.filter(item=>item.room.floorId===connection.floorId).map(item => item.points)], p => refs.some(ref => pointOnSurface(scene, p, ref, connection.floorId)))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
     const transitions: string[] = []
     for (let segment = 1; segment < centerline.length; segment++) {
       const a = centerline[segment - 1], b = centerline[segment], cuts = segmentCuts(a, b, terrainBoundaries(connection.floorId).flatMap(edges))
@@ -519,7 +606,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
         if (transitions.at(-1) !== key) transitions.push(key)
       }
     }
-    if (transitions.length !== 2) error('CONNECTION_TRANSITIONS', '连接必须恰好跨越一条有效地面邻接边。', connection.id)
+    if (!actual && transitions.length !== 2) error('CONNECTION_TRANSITIONS', '连接必须恰好跨越一条有效地面邻接边。', connection.id)
     const roomEnds = refs.filter(ref => ref.kind === 'room')
     const opening = connection.openingId ? own(scene.openings, connection.openingId) : undefined
     if (roomEnds.length > 1 || (roomEnds.length === 0 && connection.openingId !== null) || (roomEnds.length === 1 && (!opening || opening.kind !== 'door' || !(wallRooms.get(opening.wallId) ?? []).some(room => room.id === roomEnds[0].id) || opening.widthMm < connection.widthMm))) error('CONNECTION_OPENING', '至多一端为 Room，且该端须绑定足够净宽的真实门；无 Room 端时 openingId=null。', connection.id)
