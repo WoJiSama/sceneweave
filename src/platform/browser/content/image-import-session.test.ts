@@ -5,6 +5,7 @@ import { decodeCanonicalPng } from '../../../shared/project/png-rgba.js'
 import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
 import { unzlibSync } from 'fflate'
 import { decodeSelectionMask } from '../../../shared/image-import/selection-mask.js'
+import { guidedImageSelection } from '../../../shared/image-import/guided-selection.js'
 
 function source(): ImageImportSource {
   const data = new Uint8ClampedArray(8 * 8 * 4)
@@ -69,13 +70,28 @@ describe('host-owned image import tool session', () => {
     const result = await session.execute('image_import_vision_boundary', {
       generation: 0, proposalId: 'chair-1', candidateIndex: 0,
       model: { provider: 'self-hosted', id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'local-no-upload' },
-      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 0, y: 0, width: 8, height: 8 },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 1, y: 1, width: 6, height: 6 },
       guide: { bounds: { x: 0, y: 0, width: 8, height: 8 }, boundaryPx: [{ x: 1.5, y: 1.5 }, { x: 6.5, y: 1.5 }, { x: 6.5, y: 6.5 }, { x: 1.5, y: 6.5 }],
         foreground: [{ points: [{ x: 3, y: 3 }], radiusPx: 1 }], background: [{ points: [{ x: 0, y: 0 }], radiusPx: 1 }],
         algorithmVersion: 2, edgeCoverage: 'boundary' },
-    }) as { generation: number; readOnly: boolean; adopted: boolean; selectionMask: NonNullable<ImageImportRecipe['layers'][number]['selectionMask']>; selectionOrigin: { method: string; model: { id: string } } }
+    }) as { generation: number; readOnly: boolean; adopted: boolean; selectionMask: NonNullable<ImageImportRecipe['layers'][number]['selectionMask']>; selectionOrigin: { method: string; model: { id: string }; guide: Parameters<typeof guidedImageSelection>[1] } }
     expect(result).toMatchObject({ generation: 0, readOnly: true, adopted: false, selectionOrigin: { method: 'vision-boundary-v1', model: { id: 'vision-boundary-test' } } })
     expect(result.selectionMask.runs.some((value, index) => index % 2 === 1 && value > 0)).toBe(true)
+    // Context and target are distinct. Removing empty margins must preserve
+    // every source-grid alpha, including holes and fractional coverage.
+    const expected = guidedImageSelection(input.pixels, result.selectionOrigin.guide).mask
+    const actual = decodeSelectionMask(result.selectionMask, input.pixels)
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+      const mx = x - actual.boundsPx.x, my = y - actual.boundsPx.y
+      const alpha = mx < 0 || my < 0 || mx >= actual.width || my >= actual.height ? 0 : actual.data[my * actual.width + mx]
+      expect(alpha).toBe(expected.data[y * 8 + x])
+    }
+    await expect(session.execute('image_import_vision_boundary', {
+      generation: 0, proposalId: 'outside-target', candidateIndex: 0,
+      model: { provider: 'self-hosted', id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'local-no-upload' },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 3, y: 3, width: 1, height: 1 },
+      guide: result.selectionOrigin.guide,
+    })).rejects.toThrow('视觉边界选中了目标范围外的像素')
     expect(session.inspect()).toEqual(before)
   })
 
@@ -108,6 +124,32 @@ describe('host-owned image import tool session', () => {
     expect(result).toMatchObject({ readOnly: true, adopted: false, selectionOrigin: { model: { provider: 'external', disclosure: 'explicit-image-upload' } } })
   })
 
+  it('maps distinct interior RGB roles through the public boundary tool and stores the exact guide for offline replay', async () => {
+    const input = source()
+    for (let y = 1; y < 7; y++) for (let x = 1; x < 7; x++) input.pixels.data.set([20, 25, 20, 255], (y * 8 + x) * 4)
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) input.pixels.data.set([230, 40, 30, 255], (y * 8 + x) * 4)
+    const session = new ImageImportToolSession(input, rights), before = session.inspect()
+    const args = { generation: 0, proposalId: 'rgb-roles', candidateIndex: 0,
+      model: { provider: 'self-hosted' as const, id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'local-no-upload' as const },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 1, y: 1, width: 6, height: 6 },
+      roleMapping: { algorithm: 'polygon-rgb-roles-v1' as const, boundaryPx: [{ x: 1, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 7 }, { x: 1, y: 7 }] } }
+    const candidate = await session.execute('image_import_vision_boundary', args) as { guide: Parameters<typeof guidedImageSelection>[1];
+      selectionMask: NonNullable<ImageImportRecipe['layers'][number]['selectionMask']>; selectionOrigin: unknown; readOnly: boolean; adopted: boolean }
+    expect(candidate).toMatchObject({ readOnly: true, adopted: false, selectionOrigin: { roleMapping: 'polygon-rgb-roles-v1', guide: candidate.guide } })
+    expect(candidate.guide.foreground).toHaveLength(2)
+    const mask = decodeSelectionMask(candidate.selectionMask, input.pixels), replay = guidedImageSelection(input.pixels, candidate.guide).mask
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) expect(mask.data[y * 6 + x]).toBe(replay.data[(y + 1) * 8 + x + 1])
+    expect(mask.data.every(alpha => alpha === 255)).toBe(true)
+    expect(session.inspect()).toEqual(before)
+    await expect(session.execute('image_import_vision_boundary', { ...args, guide: candidate.guide })).rejects.toThrow(/选择/)
+    const { roleMapping: _mapping, ...missing } = args
+    await expect(session.execute('image_import_vision_boundary', missing)).rejects.toThrow(/选择/)
+    await session.execute('image_import_extract_item', { generation: 0, id: 'rgb-item', name: '多色物件', polygon: args.roleMapping.boundaryPx,
+      donor: { x: 0, y: 0, width: 1, height: 1 }, renderLayer: 'object', blocksMovement: true,
+      selectionMask: candidate.selectionMask, selectionOrigin: candidate.selectionOrigin })
+    expect(session.inspect().draft.layers[0]).toMatchObject({ selectionOrigin: { roleMapping: 'polygon-rgb-roles-v1', guide: candidate.guide } })
+  })
+
   it('adopts a reviewed visual boundary through the ordinary set-selection transaction', async () => {
     const input = source()
     for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) input.pixels.data.set([230, 40, 30, 255], (y * 8 + x) * 4)
@@ -116,7 +158,7 @@ describe('host-owned image import tool session', () => {
     const candidate = await session.execute('image_import_vision_boundary', {
       generation: 1, target: 'chair', proposalId: 'chair-1', candidateIndex: 0,
       model: { provider: 'self-hosted', id: 'vision-boundary-test', revision: 'fixture-1', responseSha256: 'c'.repeat(64), disclosure: 'local-no-upload' },
-      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 0, y: 0, width: 8, height: 8 },
+      contextBounds: { x: 0, y: 0, width: 8, height: 8 }, targetBounds: { x: 1, y: 1, width: 6, height: 6 },
       guide: { bounds: { x: 0, y: 0, width: 8, height: 8 }, boundaryPx: [{ x: 1.5, y: 1.5 }, { x: 6.5, y: 1.5 }, { x: 6.5, y: 6.5 }, { x: 1.5, y: 6.5 }],
         foreground: [{ points: [{ x: 3, y: 3 }], radiusPx: 1 }], background: [{ points: [{ x: 0, y: 0 }], radiusPx: 1 }], algorithmVersion: 2, edgeCoverage: 'boundary' },
     }) as { selectionMask: NonNullable<ImageImportRecipe['layers'][number]['selectionMask']>; selectionOrigin: unknown }

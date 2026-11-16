@@ -39,6 +39,7 @@ const visionBoundaryOriginSchema = z.strictObject({
   method: z.literal('vision-boundary-v1'), sourceSha256: hash, inputSha256: hash, priorLayersHash: hash,
   model: modelIdentity, contextBounds: bounds, targetBounds: bounds,
   boundaryPx: z.array(imagePointSchema).min(3).max(256), guide: guidedSelectionSchema,
+  roleMapping: z.literal('polygon-rgb-roles-v1').optional(),
   proposalId: z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_.:-]+$/),
   candidateIndex: z.number().int().min(0).max(31), appearanceSource: z.enum(['original', 'working']),
 }).superRefine((value, context) => {

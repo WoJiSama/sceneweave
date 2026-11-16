@@ -68,6 +68,10 @@ node tools/image-import/replay.mjs --image ABS_IMAGE --recipe ABS_RECIPE --licen
 
 ### 视觉大模型边界辅助
 
+当模型只提供粗范围、尚未给出可靠颜色角色时，`image_import_vision_boundary`可显式使用`roleMapping:{algorithm:'polygon-rgb-roles-v1',boundaryPx}`代替`guide`，两者不能同时提供。共享纯算法在当前原尺寸像素及该粗范围内外做有界RGB聚类与频率对比，最多提出3个前景/4个背景实像素点（半径0.5px），再运行原算法2；不会用同一种颜色的几个明度分位冒充多色主体，也不按黑色自动决定归属。上下文最多25万像素，须在原图内并有真实内外颜色证据；退化/自交粗范围及弱依据拒绝。该算法只分配颜色角色，语义粗范围仍须由实际模型或人工明确提出并审阅；背景墙与主体同色、低对比、少数细部或遮挡仍可能失败。
+
+自动模式返回完整实际`guide`、角色点及诊断；`selectionOrigin.roleMapping:'polygon-rgb-roles-v1'`与确切guide、粗范围和来源摘要一起保全。选区若退化到不多于前景提示点像素，工具直接拒绝，不交付可采用的物件候选；更多像素也不代表质量通过。离线重放消费这些实际输入，不要求重新运行模型或角色采样；旧guide模式和旧图割配方保持原像素语义。自动采样不产生新的采用权或视觉通过状态，仍查看黑白/棋盘、孔洞、细杆、移动/旋转与露底，再显式采用/撤销和冷读。模型定位、颜色角色、最终选区与补底分别评分，不能用理想粗框控制图的通过代替真实定位质量。
+
 视觉大模型的职责是“看懂这件物件在哪里并提出边界”，不是直接生成或写入最终素材。宿主把获准的当前输入交给实际具备视觉能力的模型，模型返回一个 `proposalId`、模型版本和响应摘要、`contextBounds`／`targetBounds`、3–256个 `boundaryPx` 粗多边形以及少量前景／背景笔迹；随后调用 `image_import_vision_boundary`，由共享算法2在本机真实像素上生成候选选区。模型不得返回路径、文件名、权限、工程字段或直接的场景写入命令。
 
 该工具只读，候选包含 `selectionMask`、可选 `uncertainMask`、诊断和 `selectionOrigin`，不推进工作包代次，也不按模型 confidence 自动采用。必须查看全部候选的原图、黑底、白底和棋盘边缘，确认后才把同一份 `selectionMask` 与 `selectionOrigin` 交给 `image_import_extract_item` 或 `image_import_set_selection`；随后仍执行物件移动/旋转、露底和冷读检查。粗边界只是搜索上限，内部像素由共享图割和人工点共同决定，模型点不等于硬保留笔画。

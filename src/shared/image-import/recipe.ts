@@ -102,15 +102,20 @@ const visionBoundary = z.strictObject({ ...generation,
   target: z.string().min(1).max(80).optional(), appearanceSource: z.enum(['original', 'working']).default('working'),
   proposalId: z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_.:-]+$/), candidateIndex: z.number().int().min(0).max(31),
   model: visionBoundaryModelSchema, contextBounds: imageSelectionBoundsSchema, targetBounds: imageSelectionBoundsSchema,
-  guide: guidedSelectionSchema,
+  guide: guidedSelectionSchema.optional(),
+  roleMapping: z.strictObject({ algorithm: z.literal('polygon-rgb-roles-v1'), boundaryPx: points }).optional(),
 }).superRefine((value, context) => {
-  if (value.guide.algorithmVersion !== 2 || !value.guide.boundaryPx) context.addIssue({ code: 'custom', path: ['guide'], message: '视觉边界提案必须使用算法2并携带粗边界。' })
+  if (Boolean(value.guide) === Boolean(value.roleMapping)) context.addIssue({ code: 'custom', message: '视觉提案必须明确选择已有guide或自动RGB角色映射，不能同时提供。' })
+  if (value.guide && (value.guide.algorithmVersion !== 2 || !value.guide.boundaryPx)) context.addIssue({ code: 'custom', path: ['guide'], message: '视觉边界提案必须使用算法2并携带粗边界。' })
   const outer = value.contextBounds, target = value.targetBounds
-  if (value.guide.bounds.x !== outer.x || value.guide.bounds.y !== outer.y || value.guide.bounds.width !== outer.width || value.guide.bounds.height !== outer.height) {
+  if (value.guide && (value.guide.bounds.x !== outer.x || value.guide.bounds.y !== outer.y || value.guide.bounds.width !== outer.width || value.guide.bounds.height !== outer.height)) {
     context.addIssue({ code: 'custom', path: ['guide', 'bounds'], message: '视觉提案的guide范围必须与上下文范围一致。' })
   }
   if (target.x < outer.x || target.y < outer.y || target.x + target.width > outer.x + outer.width || target.y + target.height > outer.y + outer.height) {
     context.addIssue({ code: 'custom', path: ['targetBounds'], message: '视觉模型目标范围必须位于上下文范围内。' })
+  }
+  if (value.roleMapping && (outer.width * outer.height > 250_000 || value.roleMapping.boundaryPx.some(point => point.x < outer.x || point.y < outer.y || point.x > outer.x + outer.width || point.y > outer.y + outer.height))) {
+    context.addIssue({ code: 'custom', path: ['roleMapping'], message: 'RGB角色映射粗范围必须在上下文内，计算范围最多25万像素。' })
   }
   if (value.model.provider === 'external' && value.model.disclosure !== 'explicit-image-upload') {
     context.addIssue({ code: 'custom', path: ['model', 'disclosure'], message: '向外部视觉模型发送图片必须有本次明确授权。' })
@@ -169,7 +174,7 @@ export const IMAGE_IMPORT_TOOLS = Object.entries(imageImportToolArguments).map((
     image_import_export_work: '保存独立制作工作包，包含原图、辅助输入和断点；普通工程不包含这些制作资料。',
     image_import_set_checkpoint: '记录尚未解决的问题、下一操作与暂定/实测比例，不授予视觉通过。',
     image_import_guided_selection: '在局部粗框中用少量前景/背景笔迹生成多色与边缘约束选区。新请求默认算法2；建议显式edgeCoverage:boundary防止内部半透明，回传guide供保存。旧配方未写版本仍按算法1重放，缺edgeCoverage保持旧边缘。未指定target时只返回候选；指定已有item时原子重放后更新。',
-    image_import_vision_boundary: '接收视觉模型对当前原图提出的粗边界和少量前景/背景点，用同一算法2图割生成可审阅选区候选。只读、不自动采用、不按confidence选最高项；返回selectionMask、uncertainMask和可离线重放的模型来源。外部模型必须有本次明确图片上传授权；没有授权时使用本机/自托管模型或改用页面人工辅助。候选随后交给extract_item或set_selection。',
+    image_import_vision_boundary: '接收视觉模型对当前原图提出的粗边界。明确二选一：guide提供少量前景/背景点，或roleMapping:{algorithm:polygon-rgb-roles-v1,boundaryPx}按真实内外RGB对比自动提出至多3前景/4背景角色，再运行同一算法2图割；自动角色不证明语义归属，弱依据拒绝。只读、不自动采用、不按confidence选最高项；返回实际guide、selectionMask、uncertainMask和可离线重放的模型来源。外部模型必须有本次明确图片上传授权；没有授权时使用本机/自托管模型或改用页面人工辅助。候选随后交给extract_item或set_selection。',
     image_import_set_selection: '将已查看的本机模型候选选区用于已有物件，保留确切来源、点与模型摘要；按当前代次原子重放，不修改源RGB或授予视觉通过。新物件用extract_item携带相同selectionMask及selectionOrigin。',
     image_import_set_repair_scope: '独立设置物件移除和邻物保护蒙版；null清除该范围，可同时选择取样和方式。移除须覆盖物件、保护不得与物件冲突；保护区不写入或作为取样证据。重放后一次采用，可撤销。context只用单材质完整取样补片，不恢复未知细节。',
     image_import_item_preview: '读取指定item的400%黑底/白底/棋盘预览与确切输入、PNG及补底摘要，供真实视觉复核。',

@@ -16,6 +16,7 @@ import { replayImageLayers } from '../../../shared/image-import/layer-replay.js'
 import { scaleSourcePixels } from '../../../shared/image-import/sampling.js'
 import { assertSourcePreservingRecipe, compareImageFidelity, IMAGE_IMPORT_FIDELITY_RULES, ImageFidelityError } from '../../../shared/image-import/fidelity.js'
 import { guidedImageSelection, type GuidedSelectionInput } from '../../../shared/image-import/guided-selection.js'
+import { proposeVisionColourRoles } from '../../../shared/image-import/vision-colour-roles.js'
 import { assertImageSelectionOrigin } from '../../../shared/image-import/selection-origin.js'
 import { IMAGE_ITEM_WORKFLOW } from '../../../shared/image-import/workflow-instructions.js'
 import { PROJECT_CREATION_WORKFLOW } from '../../../shared/ai/project-workflow.js'
@@ -482,14 +483,33 @@ export class ImageImportToolSession {
         : this.source.pixels
       const base = priorLayers.length ? await encodeImageImportPixels(pixels, signal)
         : this.source.normalizedBytes ?? await encodeImageImportPixels(this.source.pixels, signal)
-      const guide: GuidedSelectionInput = { ...options.guide, algorithmVersion: 2, edgeCoverage: 'boundary' }
+      const roleProposal = options.roleMapping ? proposeVisionColourRoles(pixels, options.contextBounds, options.roleMapping.boundaryPx) : undefined
+      const guide: GuidedSelectionInput = { ...(roleProposal?.guide ?? options.guide!), algorithmVersion: 2, edgeCoverage: 'boundary' }
       const result = guidedImageSelection(pixels, guide)
-      const selectionMask = encodeSelectionMask(result.mask)
+      if (roleProposal && result.diagnostics.selectedPixels <= result.diagnostics.foregroundSeedPixels) {
+        throw new Error('自动分割退化为提示点，未形成物件选区；请换用分割方法或人工辅助。')
+      }
+      // Graph-cut returns the full context grid, including its transparent
+      // padding. Keep the recorded single-item target without discarding any
+      // selected pixel outside it or weakening the origin bounds check.
+      const target = options.targetBounds, contextMask = result.mask
+      const targetData = new Uint8Array(target.width * target.height)
+      for (let y = 0; y < contextMask.height; y++) for (let x = 0; x < contextMask.width; x++) {
+        const alpha = contextMask.data[y * contextMask.width + x]
+        if (!alpha) continue
+        const targetX = x + contextMask.boundsPx.x - target.x, targetY = y + contextMask.boundsPx.y - target.y
+        if (targetX < 0 || targetY < 0 || targetX >= target.width || targetY >= target.height) {
+          throw new Error('视觉边界选中了目标范围外的像素，请调整提案范围。')
+        }
+        targetData[targetY * target.width + targetX] = alpha
+      }
+      const selectionMask = encodeSelectionMask({ width: target.width, height: target.height, boundsPx: target, data: targetData })
       const selectionOrigin = {
         method: 'vision-boundary-v1' as const, sourceSha256: this.source.image.sha256, inputSha256: sha256Bytes(base),
         priorLayersHash: hashJson(priorLayers), model: options.model, contextBounds: options.contextBounds,
         targetBounds: options.targetBounds, boundaryPx: guide.boundaryPx!, guide, proposalId: options.proposalId,
         candidateIndex: options.candidateIndex, appearanceSource,
+        ...(options.roleMapping ? { roleMapping: options.roleMapping.algorithm } : {}),
       }
       assertImageSelectionOrigin(selectionOrigin, this.source.image, selectionMask)
       assertCurrent()
@@ -497,6 +517,7 @@ export class ImageImportToolSession {
         visualQualityPassed: false, guide, selectionMask, selectionOrigin,
         ...(result.uncertainMask.data.some(value => value > 0) ? { uncertainMask: encodeSelectionMask(result.uncertainMask) } : {}),
         diagnostics: result.diagnostics,
+        ...(roleProposal ? { roleMapping: roleProposal } : {}),
         nextAction: '先看全部视觉边界候选的原图、黑白与棋盘预览；模型边界和confidence只是提案。确认后把selectionMask与selectionOrigin原样交给extract_item或set_selection，仍需实际移动/旋转与露底审核。' }
     }
     if (name === 'image_import_assess_fidelity') {
