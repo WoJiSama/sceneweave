@@ -7,6 +7,7 @@ import { validateSceneDocument } from '../../../validation/scene.js'
 import { generationRecipeSchema } from '../../../terrain-generation/contracts.js'
 import { getLegacyGeneration } from '../../../terrain-generation/composition-contracts.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
+import { pathPolygon } from '../../../geometry/geometry.js'
 import { resolveBuildingEntrancePort } from '../../building-port.js'
 import { createDomainExecutionRequest, executeDomainExecutionRequest, parseDomainExecutionResponse } from '../../execution.js'
 import type { SceneDocument } from '../../../model/scene.js'
@@ -17,7 +18,8 @@ const options = { profile: taskBudgetProfile('small'), nowMilliseconds: () => 0 
 const source = (sceneId = 'directed-entry') => createShoreBlankDocument('island', { sceneId, title: '入口房间', now: '2026-11-14T00:00:00.000Z', widthMm: 20000, heightMm: 16000, preset: 'narrative' })
 function request(entranceRoomRequirementId?: string): InteriorGenerationInput {
   return { version: 1, algorithmVersion: 20, seed: 'directed-entrance', parameters: {
-    floorId: 'visual-floor', layerId: 'visual-layer-ground', boundsMm: { x: 1000, y: 1000, width: 18000, height: 14000 }, wallThicknessMm: 200,
+    // Leave room for the outside approach and its full square end cap.
+    floorId: 'visual-floor', layerId: 'visual-layer-ground', boundsMm: { x: 1500, y: 1500, width: 17000, height: 13000 }, wallThicknessMm: 200,
     rooms: ['reception', 'study'].map(id => ({ id, purpose: '同名房间', minAreaMm2: 4_000_000, maxAreaMm2: 240_000_000, minClearSideMm: 1500 })),
     relations: [], corridor: { axis: 'none', clearWidthMm: 1200 }, materials: { floor: null, wall: null },
     arrangement: { doors: true, entrance: true, furniture: false, doorWidthMm: 1400, clearWidthMm: 1000, palette: [], ...(entranceRoomRequirementId ? { entranceRoomRequirementId } : {}) },
@@ -54,6 +56,22 @@ describe('explicit first entrance room at interior algorithm20', () => {
     const edited = applyCommands(d, [{ type: 'updateOpening', id: entranceId, changes: { state: 'closed', locked: true } }], { ids: { nextId: () => 'unused' }, clock: { now: () => d.updatedAt } })
     expect(validateSceneDocument(edited).ok).toBe(true)
     expect(getLegacyGeneration(edited)!.recipes).toEqual(getLegacyGeneration(d)!.recipes)
+  })
+
+  it.each(['reception', 'study'])('reports the original edge-adjacent %s approach unavailable when its end cap exceeds the world by 1mm', selected => {
+    const base = source(), before = canonicalJson(base), input = request(selected)
+    input.parameters.boundsMm = { x: 1000, y: 1000, width: 18000, height: 14000 }
+    const result = runInteriorGeneration(base, input, options), document = cloneJson(result.candidate.document) as SceneDocument
+    const route = result.report.connectivity.routes.find(row => row.openingId === result.report.connectivity.entranceOpeningId)!
+    const band = pathPolygon({ id: 'entrance-band', floorId: 'visual-floor', editLocked: false, visibility: 'public',
+      centerlineMm: route.pointsMm, widthMm: route.widthMm, supportRefs: [{ kind: 'floor', id: 'visual-floor' }],
+      surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 })
+    expect(selected === 'reception' ? Math.min(...band.map(p => p.x)) : Math.max(...band.map(p => p.x))).toBe(selected === 'reception' ? -1 : 20001)
+    expect(route).toMatchObject({ fromRoomId: null, status: 'unavailable' })
+    expect(checkTerrainRoute(document, { floorId: 'visual-floor', pointsMm: route.pointsMm, widthMm: route.widthMm }).issues).toContainEqual(expect.objectContaining({ code: 'TERRAIN_NOT_WALKABLE' }))
+    expect(entranceOwner(document, route.openingId)).toEqual([result.layout.rooms.find(room => room.requirementId === selected)!.roomId])
+    expect(validateSceneDocument(document).ok).toBe(true)
+    expect(canonicalJson(base)).toBe(before)
   })
 
   it('leaves unselected20 geometry and first arrangement identical to19', () => {
