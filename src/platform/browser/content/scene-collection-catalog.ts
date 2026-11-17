@@ -39,6 +39,8 @@ import { SURFACES_TRACES_ART, SURFACES_TRACES_LICENSE, SURFACES_TRACES_LICENSE_R
 import { FURNITURE_COLLECTION_ART, FURNITURE_COLLECTION_LICENSE, FURNITURE_COLLECTION_LICENSE_REF } from '../../../shared/visual/furniture-collection-art.js'
 import type { VisualSampleArt } from '../../../shared/visual/sample-art.js'
 import { HANDDRAWN_SURFACE_ART, handdrawnSurfaceDefinitionId } from '../../../shared/visual/handdrawn-surfaces.js'
+import { MARINE_ART, MARINE_LICENSE, MARINE_LICENSE_REF } from '../../../shared/visual/marine-collection-art.js'
+import { marineAssetId, marineDefinitionId } from '../../../shared/assets/marine-collection.js'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { runtime } from '../runtime.js'
 import { appendHanddrawnSurfaceDefinitions, HANDDRAWN_SURFACES_BATCH } from './handdrawn-surfaces-catalog.js'
@@ -77,7 +79,7 @@ function appendArt(scene: SceneDocument, artwork: readonly VisualSampleArt[], ke
     }
     return scene
   }
-  const names: Record<string, string> = { trade: '商贸', kitchen: '厨房', wash: '卫浴', lighting: '照明', farm: '农牧', workshop:'工坊', adventure:'军营地牢野营', ritual:'祭仪', 'furnishing-details':'家具细类', 'period-equipment':'1920年代设备', architecture:'建筑构件', nature:'自然', transport:'交通与公共设施', 'surfaces-traces':'地材与痕迹' }
+  const names: Record<string, string> = { trade: '商贸', kitchen: '厨房', wash: '卫浴', lighting: '照明', farm: '农牧', workshop:'工坊', adventure:'军营地牢野营', ritual:'祭仪', 'furnishing-details':'家具细类', 'period-equipment':'1920年代设备', architecture:'建筑构件', nature:'自然', marine:'海洋', transport:'交通与公共设施', 'surfaces-traces':'地材与痕迹' }
   const sourceOrigin = sourceFamily === 'storage' ? origin : { ...origin, attribution: `Sceneweave${names[sourceFamily] ?? sourceFamily}系列v1；原创静态SVG；代码辅助创作，用户美术签收独立` }
   for (const art of artwork.filter(row => keys.includes(row.key))) {
     const assetId = assetKey(art.key), id = definitionKey(art.key)
@@ -100,6 +102,7 @@ function appendArt(scene: SceneDocument, artwork: readonly VisualSampleArt[], ke
 const appendStorage = (scene: SceneDocument, keys: readonly string[]) => appendArt(scene, STORAGE_COLLECTION_ART, keys, storageAssetId, storageDefinitionId, STORAGE_COLLECTION_LICENSE_REF, 'storage')
 const appendTrade = (scene: SceneDocument, keys: readonly string[]) => appendArt(scene, TRADE_COLLECTION_ART, keys, tradeAssetId, tradeDefinitionId, TRADE_COLLECTION_LICENSE_REF, 'trade')
 const families = [
+  { id: 'marine', artwork: MARINE_ART, assetId: marineAssetId, definitionId: marineDefinitionId, licenseRef: MARINE_LICENSE_REF, licenseText: MARINE_LICENSE },
   { id:'furniture',artwork:FURNITURE_COLLECTION_ART,assetId:furnitureAssetId,definitionId:furnitureDefinitionId,licenseRef:FURNITURE_COLLECTION_LICENSE_REF,licenseText:FURNITURE_COLLECTION_LICENSE },
   { id: 'storage', artwork: STORAGE_COLLECTION_ART, assetId: storageAssetId, definitionId: storageDefinitionId, licenseRef: STORAGE_COLLECTION_LICENSE_REF, licenseText: STORAGE_COLLECTION_LICENSE },
   { id: 'trade', artwork: TRADE_COLLECTION_ART, assetId: tradeAssetId, definitionId: tradeDefinitionId, licenseRef: TRADE_COLLECTION_LICENSE_REF, licenseText: TRADE_COLLECTION_LICENSE },

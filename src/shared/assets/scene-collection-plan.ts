@@ -10,9 +10,9 @@ export interface SceneCollectionCategory {
 }
 export interface SceneCollectionGroup { id: string; name: string; categories: readonly SceneCollectionCategory[] }
 const group = (id: string, name: string, major: readonly (readonly [string, string, number?])[],
-  detail: readonly (readonly [string, string])[] = []): SceneCollectionGroup => ({ id, name,
+  detail: readonly (readonly [string, string, number?])[] = []): SceneCollectionGroup => ({ id, name,
   categories: [...major.map(([id, name, target = 24]) => ({ id, name, target, tier: 'major' as const })),
-    ...detail.map(([id, name]) => ({ id, name, target: 8, tier: 'detail' as const }))] })
+    ...detail.map(([id, name, target = 8]) => ({ id, name, target, tier: 'detail' as const }))] })
 
 export const SCENE_COLLECTION_GROUPS: readonly SceneCollectionGroup[] = freezeJson([
   group('architecture', '建筑与户外构件', [
@@ -52,10 +52,10 @@ export const SCENE_COLLECTION_GROUPS: readonly SceneCollectionGroup[] = freezeJs
     ['altar', '祭坛'], ['statue', '神像'], ['sarcophagus', '石棺'], ['headstone', '墓碑'], ['offering-table', '供桌'],
     ['pulpit', '讲坛'], ['alchemy-bench', '炼金台'], ['crystal-device', '水晶装置'],
   ], [['magic-circle', '法阵'], ['relic', '圣物'], ['potion', '药剂'], ['scroll-book', '书卷']]),
-  group('nature', '自然地貌与植被', [
+  group('nature', '自然地貌、植被与海洋生物', [
     ['tree', '树木', 30], ['shrub', '灌木', 30], ['rock', '岩石', 30], ['fallen-log', '倒木'], ['stump', '树桩'], ['stalagmite', '洞穴石笋'],
   ], [['grass-clump', '草丛'], ['fern-clump', '蕨丛'], ['flower-clump', '花丛'], ['fungus-clump', '菌簇'],
-    ['reed-clump', '芦苇'], ['leaf-litter', '枝叶'], ['shore-detail', '岸边小物']]),
+    ['reed-clump', '芦苇'], ['leaf-litter', '枝叶'], ['shore-detail', '岸边小物'], ['marine-life', '海洋生物与海怪', 6]]),
   group('transport', '交通、街道与公共设施', [
     ['wagon', '马车', 20], ['handcart', '手推车', 20], ['boat', '舟船', 20], ['period-car', '1920年代汽车', 20],
     ['motorcycle', '1920年代摩托', 20], ['bicycle', '自行车', 20], ['rail-vehicle', '轨道车辆', 20],

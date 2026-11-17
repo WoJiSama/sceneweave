@@ -15,6 +15,7 @@ import { TRANSPORT_CATEGORIES, TRANSPORT_DESIGNS, transportAssetId, transportDef
 import { SURFACES_TRACES_CATEGORIES, SURFACES_TRACES_DESIGNS, surfacesTracesAssetId, surfacesTracesDefinitionId } from './surfaces-traces-collection.js'
 import { FURNITURE_CATEGORIES, FURNITURE_STYLES, furnitureKey, furnitureAssetId, furnitureDefinitionId } from './furniture-collection.js'
 import { freezeJson } from '../validation/json.js'
+import { MARINE_CATEGORIES, MARINE_DESIGNS, marineAssetId, marineDefinitionId } from './marine-collection.js'
 
 /** Authored candidates, separate from the larger coverage plan and art approval. */
 interface Design { key: string; category: string; name: string; era: 'medieval' | 'fantasy' | '1920s'; design: string; widthMm: number; heightMm: number }
@@ -23,6 +24,7 @@ const family = (sourceFamily: string, group: string, categories: readonly { id: 
   categories: categories.map(row => ({ ...row, group, count: designs.filter(item => item.category === row.id).length })),
 })
 const families = [
+  family('marine', 'nature', MARINE_CATEGORIES, MARINE_DESIGNS, marineAssetId, marineDefinitionId),
   family('furniture', 'furnishing', FURNITURE_CATEGORIES, FURNITURE_STYLES.flatMap(style => FURNITURE_CATEGORIES.map(category => ({
     key: furnitureKey(category.id, style.id), category: category.id, name: `${style.name} · ${style.designs[category.id]}`, era: style.era,
     design: style.designs[category.id], widthMm: style.sizes[category.id][0], heightMm: style.sizes[category.id][1],

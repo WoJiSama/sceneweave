@@ -27,9 +27,9 @@ describe('whole-scene coverage and storage candidates', () => {
     expect(() => createSceneCollectionDocument('not-available')).toThrow(/尚无可加载/)
   })
   it('registers the complete finite coverage without counting materials as placed objects or source variants as new designs', () => {
-    expect(SCENE_COLLECTION_AVAILABLE_CATEGORIES).toHaveLength(164)
-    expect(SCENE_COLLECTION_ITEMS).toHaveLength(3030)
-    expect(new Set(SCENE_COLLECTION_ITEMS.map(row => row.assetId)).size).toBe(3030)
+    expect(SCENE_COLLECTION_AVAILABLE_CATEGORIES).toHaveLength(165)
+    expect(SCENE_COLLECTION_ITEMS).toHaveLength(3036)
+    expect(new Set(SCENE_COLLECTION_ITEMS.map(row => row.assetId)).size).toBe(3036)
     for (const category of SCENE_COLLECTION_CATEGORIES) {
       expect(SCENE_COLLECTION_AVAILABLE_CATEGORIES.find(row => row.id === category.id)?.count).toBe(category.target)
       const scene = createSceneCollectionDocument(category.id)
