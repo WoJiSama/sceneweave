@@ -27,6 +27,8 @@
 
 ## 按需参考
 
+主题内容与跨工程场景模板见[设计](reference/scene-templates.md)、[开发顺序](07-roadmap.md#scene-template-development)和[统一验收](09-quality-plan.md#scene-template-acceptance)。现有房间按用途布置、完整旅舍、功能素材及模板图库／画布操作另沿[四项工作](07-roadmap.md#existing-room-furnishing-development)和[对应验收](09-quality-plan.md#existing-room-furnishing-acceptance)接续。当前结果布景、完整结构模板、固定素材和生成配方分别有明确合同。
+
 | 场景 | 参考 |
 |---|---|
 | 让仓库助手或应用内模型按默认步骤制作 | [项目默认制作总则](reference/project-creation-workflow.md) · [仓库约定](../AGENTS.md)；新建普通聊天和有限草稿任务自动加载指引，真实执行能力以各自工具为准，具体任务进度另存 |
