@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { createEntityLabeler } from './entity-label'
 import { NumberInput } from '../native-canvas/controls'
+import { OceanCreateTools } from './OceanTools'
+import type { SceneCommand } from '../../shared/commands/commands'
 import OutdoorCoordinates from './OutdoorCoordinates'
 import { outdoorPoints, pointText } from './outdoor-coordinates'
 export { outdoorPoints, pointText } from './outdoor-coordinates'
@@ -41,6 +43,7 @@ type Props = {
   scene: SceneDocument; layerId: string; disabled: boolean; sketch: OutdoorSketch | null
   onSketch: (sketch: OutdoorSketch | null) => void
   onPreview: (commands: OutdoorCommand[], description: string) => void
+  onOceanPreview?: (commands: SceneCommand[], description: string) => void
   onSelect: (id: string) => void
   onBoundaryEditor?: (editor: VisualBoundaryEditor | null) => void
   onFinishReady?: (finish: (() => void) | null) => void
@@ -52,7 +55,7 @@ type Props = {
   onBrowseScene?: () => void
 }
 export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, onSketch, onPreview, onSelect, onBoundaryEditor, onFinishReady, onRoadSettings,
-  roadStart, onRoadStartConsumed, detailsTarget, detailsActive = true, activeTask, onTaskChange, onBrowseScene }: Props) {
+  roadStart, onRoadStartConsumed, detailsTarget, detailsActive = true, activeTask, onTaskChange, onBrowseScene, onOceanPreview }: Props) {
   const split = detailsTarget !== undefined
   const [localTool, setLocalTool] = useState<OutdoorTask>('terrain'), [error, setError] = useState<string | null>(null)
   const tool = activeTask ?? localTool
@@ -145,6 +148,7 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
   const parameters = <section className="outdoor-panel workspace-tool-parameters" aria-label={split ? `${taskLabels[tool]}参数` : '室外制作工具'} hidden={split && !detailsActive} inert={split && !detailsActive}>
     <div className="asset-section-heading"><Mountain size={17}/><h2>{split ? taskLabels[tool] : '室外制作'}</h2></div>
     {split && <p className="asset-muted">目标图层 · {scene.userLayers[layerId]?.name ?? '未选择'}。预览后确认采用。</p>}
+    {tool === 'terrain' && onOceanPreview && <OceanCreateTools scene={scene} layerId={layerId} disabled={disabled} onPreview={onOceanPreview}/>}
     <fieldset disabled={disabled}>
       {!split && <label>制作工具<select aria-label="室外制作工具" value={tool} onChange={event => chooseTask(event.target.value as OutdoorTask)}>{Object.entries(taskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
       {tool === 'terrain' && <div className="workspace-form-pair">

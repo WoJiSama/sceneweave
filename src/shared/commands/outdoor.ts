@@ -24,7 +24,7 @@ const point = z.object({ x: integer, y: integer }).strict()
 const version = z.object({ id, version: positive }).strict()
 const visibility = z.enum(['public', 'gm'])
 const base = { id, floorId: id, layerId: id.optional() }
-const areaFields = sceneSchema.shape.terrainAreas.valueType.omit({ id: true, floorId: true, editLocked: true, rockBody: true })
+const areaFields = sceneSchema.shape.terrainAreas.valueType.omit({ id: true, floorId: true, editLocked: true, rockBody: true, waterSurface: true })
 const edgeFields = sceneSchema.shape.terrainEdges.valueType.omit({ id: true, floorId: true, editLocked: true })
 const connectionFields = sceneSchema.shape.terrainConnections.valueType.omit({ id: true, floorId: true, editLocked: true, carvedStrip: true, terrainInlay: true }).extend({ route: connectionRouteSchema.optional() })
 const pathFields = sceneSchema.shape.paths.valueType.omit({ id: true, floorId: true, editLocked: true })
@@ -368,7 +368,8 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
         return { id: pointId, segmentId, positionMm }
       })
       scene.terrainAreas[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, boundaryMm, visibility: command.visibility ?? 'public', groundElevationMm: command.groundElevationMm ?? 0,
-        coveragePriority: command.coveragePriority ?? 1, surfaceStyle: cloneJson(command.surfaceStyle === undefined ? styleFor(scene, command.materialRef, 'terrain') : command.surfaceStyle), blocksMovement: command.blocksMovement ?? false, blocksSight: command.blocksSight ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1 }
+        coveragePriority: command.coveragePriority ?? 1, surfaceStyle: cloneJson(command.surfaceStyle === undefined ? styleFor(scene, command.materialRef, 'terrain') : command.surfaceStyle), blocksMovement: command.blocksMovement ?? false, blocksSight: command.blocksSight ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1,
+        ...(command.boundaryBlendMm !== undefined ? { boundaryBlendMm: command.boundaryBlendMm } : {}) }
       scene.entityLayers[command.id] = layer; break
     }
     case 'updateTerrainArea': Object.assign(required(scene.terrainAreas, command.id, '地形'), cloneJson(command.changes)); break

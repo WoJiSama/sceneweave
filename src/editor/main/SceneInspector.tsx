@@ -15,6 +15,7 @@ import { assertDecorationMemberUnlocked } from '../../shared/decorations/command
 import { appearanceSwapInfo } from './appearance-swap-info'
 import EntityLockNotice from './EntityLockNotice'
 import AttachmentTools from './AttachmentTools'
+import { WaterPropTools } from './OceanTools'
 
 export const propName = (project: EditableProject, id: string) => {
   const prop = project.document.props[id]
@@ -63,13 +64,14 @@ export default function SceneInspector(props: Props) {
 
 function SceneInspectorContent({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {
   const [appearanceChoice, setAppearanceChoice] = useState<{ propId: string; definitionId: string } | null>(null)
+  const [waterDirty, setWaterDirty] = useState(false)
   const appearanceDraftCallback = useRef(onAppearanceDraftChange)
   appearanceDraftCallback.current = onAppearanceDraftChange
   const scene = project.document, prop = scene.props[selected], vertex = scene.vertices[selected], wall = scene.walls[selected]
   const appearanceDirty = !!onAppearanceDraftChange && appearanceChoice?.propId === selected
     && !!scene.propDefinitions[appearanceChoice.definitionId] && appearanceChoice.definitionId !== prop?.definitionRef?.id
-  useEffect(() => { setAppearanceChoice(null) }, [appearanceResetKey, selected])
-  useEffect(() => { appearanceDraftCallback.current?.(appearanceDirty) }, [appearanceDirty])
+  useEffect(() => { setAppearanceChoice(null); setWaterDirty(false) }, [appearanceResetKey, selected])
+  useEffect(() => { appearanceDraftCallback.current?.(appearanceDirty || waterDirty) }, [appearanceDirty, waterDirty])
   useEffect(() => () => { appearanceDraftCallback.current?.(false) }, [])
   const group = scene.prefabInstances[selected], room = scene.rooms[selected], area = scene.terrainAreas[selected]
   const terrain = Object.values(scene.terrainAreas).find(area => area.boundaryMm.some(point => point.id === selected))
@@ -125,6 +127,7 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
       {onFillCopy && !owner && !scatterOwner && !clusteredProp && <FillCopyControls key={`prop-fill-${selected}`} scene={scene} sourceId={selected} busy={busy || fillCopyBusy || effectivelyLocked} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}
       {!scatterOwner && <button className="secondary asset-wide" disabled={busy || effectivelyLocked} onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除物件', null)}>删除物件</button>}
       {scatterOwner && <><fieldset disabled={busy || effectivelyLocked}><button className="secondary asset-wide" onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除散布成员并保留排除区', scatterOwner.id)}>删除并保留排除区</button><button className="secondary asset-wide" onClick={() => editProp([{ type: 'detachScatterMember', groupId: scatterOwner.id, propId: selected }], '退出散布并保留物件', null)}>退出散布，保留物件</button></fieldset><p className="asset-muted">手工修改后会保留实际位置。删除与退出记录可撤销，重新散布不会生成副本。</p></>}
+      <WaterPropTools key={`water-${selected}-${appearanceResetKey}`} scene={scene} id={selected} disabled={busy} onDraftChange={setWaterDirty} onPreview={onPreview}/>
       <dl className="asset-facts"><dt>物理占地</dt><dd>{prop.footprintMm.width} × {prop.footprintMm.height} mm</dd><dt>图像范围</dt><dd>{prop.visualBoundsMm.width} × {prop.visualBoundsMm.height} mm</dd><dt>阻挡移动</dt><dd>{prop.blocksMovement ? '是' : '否'}</dd><dt>可见范围</dt><dd>{createPublicVisibility(scene).prop(prop) ? '公开' : '仅主持人'}</dd></dl>{clear}</>
   }
   if (group) return <><div className="asset-section-heading"><Layers3 size={16}/><h2>组合属性</h2></div><h3>{groupName(project, selected)}</h3><p className="asset-muted">成员以实际位置保存。整体变换遵守每一件成员的编辑锁。</p><button className="secondary asset-wide" disabled={busy || effectiveLayerLocked(scene, selected)} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prefabInstance', id: selected, locked: !group.editLocked }]))}><LockKeyhole size={14}/>{group.editLocked ? '解除组合编辑锁' : '锁定组合编辑'}</button>{onFillCopy && <FillCopyControls key={`prefab-fill-${selected}`} scene={scene} sourceId={selected} busy={busy || fillCopyBusy || effectiveEditLocked(scene, selected)} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}<fieldset disabled={busy || effectiveEditLocked(scene, selected)}>

@@ -33,9 +33,9 @@ async function blank(palette:'island'|'coast'='island',composition=false):Promis
   const content=createCompositionContent(document,runtime),text='Sceneweave original program base-map test',licenseHash=sha256Bytes(encodeUtf8(text))
   return fromBundle({project:{format:'sceneweave-complete-project',schemaVersion:1,...content,assets:{[hash]:{sha256:hash,mimeType:'image/png',sizeBytes:bytes.length,pixelWidth:1,pixelHeight:1}},licenses:{[licenseHash]:{sha256:licenseHash,text}},licenseBindings:inspectDependencies(content.document).subjects.map(subject=>({...subject,licensePath:`licenses/${licenseHash}.txt`,embedding:'allowed' as const})),authoringSources:{}},resources:createMemoryResources(new Map([[hash,bytes]]))},validation)
 }
-async function recipe6Blank(): Promise<EditableProject> {
+async function recipe6Blank(widthMm = 24000, heightMm = 18000): Promise<EditableProject> {
   const document = createShoreBlankDocument('island', { sceneId: runtime.ids.nextId(), title: '算法6底图重放', now: NOW,
-    widthMm: 24000, heightMm: 18000, preset: 'narrative' }, true)
+    widthMm, heightMm, preset: 'narrative' }, true)
   const bytes = pixelPng([74, 108, 61, 255]), hash = sha256Bytes(bytes)
   for (const asset of Object.values(document.assets)) Object.assign(asset, { sha256: hash, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1 })
   const content = createCompositionContent(document, runtime), text = 'Sceneweave algorithm6 replay fixture', licenseHash = sha256Bytes(encodeUtf8(text))
@@ -54,6 +54,20 @@ function request(base:EditableProject,kind:'island'|'coast'|'archipelago'|'tidal
 function rehash(response:BaseMapResponse){response.resultHash=sha256Text(canonicalJson({generation:response.generation,result:response.result,domainCost:response.domainCost}));return response}
 
 describe('verified program base-map preparation',()=>{
+  it('measures an ocean post-step once within the frozen tier and binds its actual project without a terrain-only continuation', async () => {
+    const base = await recipe6Blank(36000, 20000), profile = taskBudgetProfile('standard')
+    const input = prepareBaseMapRequestV3({ requestId: 'ocean-budget-regression', flowId: 'ocean-budget-flow', workspaceSceneId: 'empty-workspace', checkpoint: 0, operationEpoch: 1,
+      base: base.document, profile, generation: { kind: 'terrain', input: { sceneId: base.document.sceneId, seed: 'terrain-v1-0', kind: 'island', algorithmVersion: 5, widthMm: 36000, heightMm: 20000, quality: 'standard', budgetProfileId: profile.profileId } } })
+    const response = executeBaseMapRequestV3(input), source = canonicalJson({ input, response })
+    const dressed = await prepareBaseMapProject(base, input, response, { runtime, validation, ocean: { settings: { recipeVersion: 1, seed: 'terrain-v1-0', preset: 'calm', boat: false, creatures: false }, entries: [] } })
+    expect(dressed.usage!.intersectionPairs).toBeLessThanOrEqual(profile.limits.intersectionPairs)
+    expect(dressed.baseMap.projectHash).toBe(projectContentHash(toBundle(dressed.project).project))
+    expect(dressed.baseMap.oceanStage?.report.waterCount).toBeGreaterThan(0)
+    expect(dressed.continuationSource).toBeUndefined()
+    expect(canonicalJson({ input, response })).toBe(source)
+    const cold = await importProject(await exportProject(toBundle(dressed.project), validation), validation)
+    expect(projectContentHash(cold.project)).toBe(dressed.baseMap.projectHash)
+  })
   async function continuation(kind: 'island' | 'archipelago' = 'island', empty = false, profileId?: TaskBudgetProfileId) {
     const repo = new ProjectRepository({ name: `base-map-continuation-${crypto.randomUUID()}`, runtime, validation }); repos.push(repo)
     const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)

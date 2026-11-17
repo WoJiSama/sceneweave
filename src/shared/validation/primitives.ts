@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { PROP_OVERRIDE_FIELDS } from '../model/scene.js'
+import { waterAppearanceSchema } from '../ocean/contracts.js'
 
 export const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留键不能用作 ID')
 export const int = z.number().finite().refine(Number.isSafeInteger, '必须是安全整数')
@@ -34,6 +35,7 @@ export const overlay = z.object({ id, boundaryMm: z.array(point).min(3).max(512)
 export const style = z.object({ base: paint, overlays: z.array(overlay) }).strict().nullable()
 export const edgeStyle = z.object({ strokeWidthMm: nonnegative, color, bandWidthMm: nonnegative }).strict()
 export const templateShape = {
+  waterAppearance: waterAppearanceSchema.optional(),
   definitionRef: versionRef.nullable(), appearance, positionMm: point, rotationDeg: angle, visualBoundsMm: bounds,
   footprintMm: size, footprintOffsetMm: point, blocksMovement: z.boolean(), blocksSight: z.boolean(),
   renderLayer: layer, renderOrder: rank, shadowClass, shadowOverride: shadow.nullable(),

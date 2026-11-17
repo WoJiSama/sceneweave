@@ -1,4 +1,7 @@
 import { wallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
+import { drawOceanWaves, drawWaterProp } from './ocean-renderer.js'
+import { drawSurfaceRuleMask } from './surface-mask.js'
+export { drawSurfaceRuleMask } from './surface-mask.js'
 import type { WallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
 export { wallGeometry }
 export type { WallGeometry }
@@ -179,20 +182,10 @@ function paintImage(ctx: CanvasRenderingContext2D, paint: MaterialPaint, project
   }
   return raster.paintCache.image
 }
-/** The same even-odd world-space mask is used for every disconnected patch and hole. */
-export function drawSurfaceRuleMask(ctx: CanvasRenderingContext2D, bounds: BoundsMm, widthPx: number, heightPx: number,
-  regions: NonNullable<ProjectedSurface['materialPatches']>[number]['regionsMm'], blendWidthMm: number): void {
-  const path = new Path2D()
-  for (const region of regions) { addRing(path, region.outerMm); for (const hole of region.holesMm) addRing(path, hole) }
-  const sx = widthPx / bounds.width, sy = heightPx / bounds.height
-  worldTransform(ctx, bounds, sx, sy); ctx.fillStyle = '#fff'
-  if (blendWidthMm) ctx.filter = `blur(${blendWidthMm * .5 * Math.max(sx, sy)}px)`
-  ctx.fill(path, 'evenodd'); ctx.filter = 'none'
-}
-function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: SurfaceStyle | null, projection: Projection, raster: RasterSet, fallback: string, materialPatches: ProjectedSurface['materialPatches'] = []): void {
+function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: SurfaceStyle | null, projection: Projection, raster: RasterSet, fallback: string, materialPatches: ProjectedSurface['materialPatches'] = [], baseColor?: string): void {
   ctx.save(); ctx.clip(path); ctx.fillStyle = fallback
   const b = projection.bounds; ctx.fillRect(b.x, b.y, b.width, b.height)
-  if (style) {
+  if (style && !baseColor) {
     ctx.save(); ctx.resetTransform(); ctx.globalAlpha = style.base.opacity; ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0); ctx.restore()
   }
     for (const overlay of [...(style?.overlays ?? [])].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) drawOverlay(overlay)
@@ -206,14 +199,29 @@ function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D, style: Surface
         if ('regionsMm' in overlay) {
           drawSurfaceRuleMask(maskCtx, b, mask.width, mask.height, overlay.regionsMm, overlay.blendWidthMm)
         } else {
-          if (overlay.blendWidthMm) maskCtx.filter = `blur(${overlay.blendWidthMm * .5 * Math.max(sx, sy)}px)`
-          maskCtx.fill(polygonPath(overlay.boundaryMm)); maskCtx.filter = 'none'
+          drawSurfaceRuleMask(maskCtx, b, mask.width, mask.height, [{ outerMm: overlay.boundaryMm, holesMm: [] }], overlay.blendWidthMm)
         }
         layerCtx.drawImage(paintImage(ctx, overlay.paint, projection, raster), 0, 0); layerCtx.globalCompositeOperation = 'destination-in'; layerCtx.drawImage(mask, 0, 0)
         ctx.save(); ctx.resetTransform(); ctx.globalAlpha = overlay.paint.opacity; ctx.drawImage(layer, 0, 0); ctx.restore()
       } finally { disposeCanvas(layer); disposeCanvas(mask) }
     }
   ctx.restore()
+}
+
+/** Terrain colors, water colors and material overlays share the same paint and mask. */
+function drawTerrainSurface(ctx: CanvasRenderingContext2D, area: ProjectedSurface, projection: Projection, raster: RasterSet): void {
+  const paint = (target: CanvasRenderingContext2D) => fillSurface(target, surfacePath(area), area.style, projection, raster,
+    area.waterSurface?.color ?? '#C3BEA8', area.materialPatches, area.waterSurface?.color)
+  if (!area.boundaryBlendMm) { paint(ctx); return }
+  const layer = canvas(ctx.canvas.width, ctx.canvas.height), mask = canvas(ctx.canvas.width, ctx.canvas.height)
+  try {
+    const target = context(layer, raster.readFrequently), masking = context(mask, raster.readFrequently)
+    target.setTransform(ctx.getTransform()); paint(target)
+    drawSurfaceRuleMask(masking, projection.bounds, mask.width, mask.height,
+      area.regionsMm ?? [{ outerMm: area.points, holesMm: [] }], area.boundaryBlendMm, true)
+    target.resetTransform(); target.globalCompositeOperation = 'destination-in'; target.drawImage(mask, 0, 0)
+    ctx.save(); ctx.resetTransform(); ctx.drawImage(layer, 0, 0); ctx.restore()
+  } finally { disposeCanvas(layer); disposeCanvas(mask) }
 }
 
 /** Equal opaque floor paints share one clip, so a shared edge is covered once.
@@ -371,6 +379,7 @@ function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Pro
   ctx.restore()
 }
 function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, detail: EditorPropDetail = 'full'): void {
+  if (prop.waterAppearance) { drawOceanSprite(ctx, prop, projection, raster, 'over'); return }
   const clipped = raster.readFrequently && prop.appearance.kind === 'image'
   if (!projection.visual && !clipped) { drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail); return }
   const envelope = propPresentationEnvelope(projection, prop, { full: detail === 'full', outlinePaddingMm: detail === 'outline' ? .5 / Math.max(scaleX, scaleY) : 0 })
@@ -394,6 +403,13 @@ function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Project
     if (!projection.visual) drawPropBody(ctx, prop, projection, raster, scaleX, scaleY, detail)
     else drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawPropBody(target, prop, local, raster, scaleX, scaleY, detail), !!raster.readFrequently)
   } finally { if (clipped) ctx.restore() }
+}
+function drawOceanSprite(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, phase: 'under' | 'over'): void {
+  if (prop.appearance.kind !== 'image') throw new Error('水中物件需要实际图片。')
+  const bitmap = raster.byAssetId.get(prop.appearance.assetId)
+  if (!bitmap) throw new Error('水中物件所需位图没有完成解码。')
+  const envelope = propPresentationEnvelope(projection, prop, { full: false })
+  drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawWaterProp(target, prop, local, bitmap, phase), !!raster.readFrequently)
 }
 function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoration, projection: Projection, raster: RasterSet): void {
   const bitmap = raster.byAssetId.get(value.assetId)
@@ -895,10 +911,16 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   if (clipBoundsMm) { ctx.save(); ctx.beginPath(); ctx.rect(clipBoundsMm.x, clipBoundsMm.y, clipBoundsMm.width, clipBoundsMm.height); ctx.clip() }
   if (projection.regional) drawRegionalProjection(ctx, projection, sx, sy, raster.byAssetId)
   for (const area of projection.terrain) drawVisualEntity(ctx, projection, area.id, expandedBounds([...area.points, ...(projection.rocks?.find(rock => rock.id === area.id)?.facets.flatMap(facet => facet.pointsMm) ?? [])], projection.rocks?.some(rock => rock.id === area.id) ? 1100 : 0), (target, local) => {
-    fillSurface(target, surfacePath(area), area.style, local, raster, '#C3BEA8', area.materialPatches)
+    drawTerrainSurface(target, area, local, raster)
     const rock = projection.rocks?.find(rock => rock.id === area.id)
     if (rock) drawRockBody(target, rock)
   }, !!raster.readFrequently)
+  for (const prop of projection.props) if (prop.waterAppearance && prop.waterAppearance.mode !== 'surface') {
+    checkCancelled(signal); drawOceanSprite(ctx, prop, projection, raster, 'under')
+  }
+  for (const area of projection.terrain) if (area.waterSurface) {
+    drawVisualEntity(ctx, projection, area.id, expandedBounds(area.points, 0), (target, local) => drawOceanWaves(target, area, local), !!raster.readFrequently)
+  }
   drawTerrainEdges(ctx, projection, raster, sx, sy)
   drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently)
   drawTerrainInlays(ctx, projection, raster)
@@ -917,7 +939,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   if (projection.visual) {
     const contacts = walls.flatMap(wall => wall.polygons)
     drawVisualContacts(ctx, projection, contacts, !!raster.readFrequently, (target, local) => {
-      for (const prop of projection.props) if (prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' && !projection.propPresentations?.[prop.id]) drawPropBody(target, prop, local, raster, sx, sy, 'image', false)
+      for (const prop of projection.props) if (!prop.waterAppearance && prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' && !projection.propPresentations?.[prop.id]) drawPropBody(target, prop, local, raster, sx, sy, 'image', false)
     })
   }
   drawWallBody(ctx, projection, raster, sx, sy, projection.walls.some(wall => wall.edgeProfile) ? planWallRelief(walls).geometry : walls)

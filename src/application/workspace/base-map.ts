@@ -14,6 +14,10 @@ import { captureBaseMapSourceV3 } from '../../shared/ai/continuation-v3.js'
 import type { BaseMapSourceV3 } from '../../shared/ai/continuation-protocol-v3.js'
 import { baseMapResourceClosureHash, captureBaseMapSource } from '../../shared/ai/continuation.js'
 import type { BaseMapSource } from '../../shared/ai/continuation-protocol.js'
+import { prepareOceanGeneration } from './ocean-generation.js'
+import { oceanDressingSettingsSchema, type OceanDressingSettings } from '../../shared/ocean/generation.js'
+import type { PreparedLibraryEntry } from '../../shared/library/types.js'
+import { assertTaskBudget, measureTaskBudget, taskSemanticTargets } from '../../shared/budget/task-budget.js'
 
 export interface BaseMapPreparationOptions {
   runtime: PreparationContext
@@ -21,6 +25,7 @@ export interface BaseMapPreparationOptions {
   source?: 'worker' | 'server'
   preservation?: BaseMapSource['preservation']
   generationExecution?: { startedAt: string; activeRuntimeMs: number; generationCalls: number }
+  ocean?: { settings: OceanDressingSettings; entries: PreparedLibraryEntry[] }
 }
 
 /** A transport result never becomes a credential: replay it with owned bytes,
@@ -32,6 +37,7 @@ export async function prepareBaseMapProject(
   options: BaseMapPreparationOptions,
 ) {
   const started = performance.now()
+  const oceanSettings = options.ocean ? oceanDressingSettingsSchema.parse(captureJson(options.ocean.settings)) : undefined
   checkCancelled(options.validation.signal)
   const capturedRequest = captureJson(rawRequest), capturedResponse = captureJson(rawResponse)
   const request = capturedRequest.version === 3 ? parseBaseMapRequestV3(capturedRequest) : capturedRequest.version === 2 ? parseBaseMapRequestV2(capturedRequest) : prepareBaseMapRequest({ requestId: capturedRequest.requestId, workspaceSceneId: capturedRequest.workspaceSceneId,
@@ -92,6 +98,24 @@ export async function prepareBaseMapProject(
       checkCancelled(options.validation.signal)
       continuationError = error instanceof Error ? error.message : String(error)
     }
+  }
+  if (options.ocean) {
+    if (request.version !== 3 || request.generation.kind !== 'terrain' || !['island', 'coast'].includes(request.generation.input.kind)) throw new Error('海洋布景步骤需要当前海岸或岩岛底图。')
+    const stageStarted = performance.now()
+    const dressed = await prepareOceanGeneration(prepared.project, oceanSettings!, options.ocean.entries, { runtime: options.runtime, validation: options.validation })
+    // A measured usage already includes final geometry/resource estimates.
+    // Only raw executor work can be supplied as execution to the next measure.
+    const execution = response.version === 3 && response.result.kind === 'terrain' ? response.result.terrain.executionUsage : undefined
+    const usage = assertTaskBudget(request.profile, measureTaskBudget(base.document, dressed.project.document, { before: base, after: dressed.project }, { ...execution,
+      activeExecutionMs: (execution?.activeExecutionMs ?? 0) + Math.ceil(performance.now() - stageStarted),
+      candidateAttempts: (execution?.candidateAttempts ?? 0) + 1, fieldEvaluations: (execution?.fieldEvaluations ?? 0) + dressed.report.attempts }))
+    const targets = taskSemanticTargets(base.document, dressed.project.document)
+    // The original transport only attests the terrain stage. Do not present it
+    // as a replay certificate for the appended, fully validated dressing.
+    return { ...prepared, project: dressed.project, usage, cost: { items: Object.fromEntries(targets.map(id => [id, 1])), total: targets.length, limit: request.profile.semanticTargets },
+      baseMap: { ...baseMap, projectHash: projectContentHash(toBundle(dressed.project).project), initialOperationCost: targets.length, remainingOperationCost: request.profile.semanticTargets - targets.length,
+        budgetUsage: usage, oceanStage: { settings: oceanSettings!, report: dressed.report } },
+      continuationSource: undefined, ocean: dressed.report, continuationError: '已追加海洋布景步骤；旧底图接续凭证只覆盖地形阶段，请保存后使用普通编辑。' }
   }
   return { ...prepared, baseMap, ...(continuationSource ? { continuationSource } : {}), ...(continuationError ? { continuationError } : {}) }
 }

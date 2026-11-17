@@ -23,6 +23,7 @@ import { emptyVisualSystem } from '../../shared/visual/types.js'
 import { bindTerrainVariantPresentations, bindTerrainVariantV2Presentations } from '../../shared/visual/terrain-variant-presentations.js'
 import type { BaseMapRequest } from '../../shared/terrain-generation/base-map.js'
 export interface BaseMapGenerationReceipt {
+  oceanStage?: { settings: import('../../shared/ocean/generation.js').OceanDressingSettings; report: ReturnType<typeof import('../../shared/ocean/generation.js').planOceanDressing>['report'] }
   version: 1 | 2 | 3; source: 'worker' | 'server'; requestId: string; workspaceSceneId: string
   checkpoint: number; operationEpoch: number; inputHash: string; baseHash: string; paletteHash: string
   algorithm: BaseMapRequest['algorithm'] | import('../../shared/terrain-generation/base-map-v3.js').BaseMapRequestV3['algorithm']; generation: BaseMapRequest['generation'] | import('../../shared/terrain-generation/base-map-v3.js').BaseMapRequestV3['generation']; resultHash: string; projectHash: string
@@ -38,6 +39,7 @@ export interface TerrainPreviewBase {
   /** Full task provenance stays in this session, outside saved project data. */
   continuationSource?: import('../../shared/ai/continuation-protocol.js').BaseMapSource | import('../../shared/ai/continuation-protocol-v3.js').BaseMapSourceV3
   continuationError?: string
+  ocean?: { recipeVersion: 1; seed: string; waterCount: number; placed: string[]; skipped: string[]; attempts: number }
 }
 export type TerrainPreview=TerrainPreviewBase & ({result:TerrainGenerationResult | TerrainGenerationResultV5 | TerrainGenerationResultV6 | TerrainGenerationResultV7;composition?:undefined}|{result:{plan:import('../../shared/terrain-generation/composition-field.js').TerrainCompositionPlan;route?:undefined};composition:import('../../shared/terrain-generation/composition-presets.js').CompositionPresetInput | import('../../shared/terrain-generation/surface-generation.js').CompositionPresetInputV5 | import('../../shared/terrain-generation/surface-rule-generation.js').CompositionPresetInputV6 | import('../../shared/terrain-generation/surface-rule-generation-v7.js').CompositionPresetInputV7})
 export async function prepareTerrainProject(base:EditableProject,input:unknown,options:{runtime:PreparationContext;validation:CompleteValidationOptions;result?:TerrainGenerationResult | TerrainGenerationResultV5 | TerrainGenerationResultV6 | TerrainGenerationResultV7;budget?:TaskBudgetProfile;birthToken?:string}) {

@@ -38,6 +38,11 @@ function content(): CompositionContent {
 }
 
 describe('fixed near-side prop presentations', () => {
+  it('refuses a waterline on an actual fixed near-side source', () => {
+    const source = content()
+    source.document.props['near-tree'].waterAppearance = { mode: 'surface' }
+    expect(() => validatePresentations(source.appearance, source.document)).toThrow(/水中效果.*俯视/)
+  })
   it('binds a stable source identity and paints from the root anchor', () => {
     const source = content(), prop = source.document.props['near-tree'], presentation = propPresentation(source.appearance, prop.id)
     if (!presentation || presentation.mode !== 'nearSide') throw new Error('near-side presentation missing')

@@ -12,6 +12,7 @@ import type { Attachment, AttachmentSurface } from '../attachments/contracts.js'
 import type { RockBody, CarvedStrip } from '../carved-rock/contracts.js'
 import type { TerrainInlay } from '../terrain-inlay/persistence.js'
 import type { RoomFurnishingPlan } from '../furnishing/contracts.js'
+import type { WaterSurface, WaterAppearance } from '../ocean/contracts.js'
 
 /** All world coordinates and dimensions are integer millimetres. */
 export type Id = string
@@ -82,6 +83,7 @@ export interface Opening extends Editable {
   kind: 'door' | 'window'; state: 'open' | 'closed'; locked: boolean; secret: boolean; revealed: boolean
 }
 export interface Prop extends Editable {
+  waterAppearance?: WaterAppearance
   definitionRef: VersionRef | null; appearance: Appearance; visualBoundsMm: BoundsMm
   positionMm: PointMm; rotationDeg: number; footprintMm: SizeMm; footprintOffsetMm: PointMm
   blocksMovement: boolean; blocksSight: boolean; visibility: Visibility; roomId?: Id; supportRef: SurfaceRef
@@ -89,6 +91,9 @@ export interface Prop extends Editable {
 }
 export interface TerrainPoint { id: Id; segmentId: Id; positionMm: PointMm }
 export interface TerrainArea extends Editable {
+  /** Paint-only inward feather. Uses the same mask as local material overlays. */
+  boundaryBlendMm?: number
+  waterSurface?: WaterSurface
   visibility: Visibility; boundaryMm: TerrainPoint[]; groundElevationMm: number; coveragePriority: number
   surfaceStyle: SurfaceStyle | null; blocksMovement: boolean; blocksSight: boolean; movementCostMultiplier: number
   /** Explicit finite solid. Ordinary terrain remains a flat support surface. */
@@ -115,9 +120,9 @@ export interface Path extends Editable {
   visibility: Visibility; centerlineMm: PointMm[]; widthMm: number; supportRefs: SurfaceRef[]
   surfaceStyle: SurfaceStyle | null; movementCostMultiplier: number; renderOrder: number
 }
-export type PropTemplate = Pick<Prop, 'definitionRef' | 'appearance' | 'positionMm' | 'rotationDeg' | 'visualBoundsMm' | 'footprintMm' | 'footprintOffsetMm' | 'blocksMovement' | 'blocksSight' | 'renderLayer' | 'renderOrder' | 'shadowClass' | 'shadowOverride'>
+export type PropTemplate = Pick<Prop, 'definitionRef' | 'appearance' | 'positionMm' | 'rotationDeg' | 'visualBoundsMm' | 'footprintMm' | 'footprintOffsetMm' | 'blocksMovement' | 'blocksSight' | 'renderLayer' | 'renderOrder' | 'shadowClass' | 'shadowOverride' | 'waterAppearance'>
 export interface PrefabDefinition extends DefinitionIdentity { name: string; tags: string[]; members: { key: string; propTemplate: PropTemplate }[] }
-export const PROP_OVERRIDE_FIELDS = ['definitionRef', 'supportRef', 'roomId', 'visibility', 'appearance', 'visualBoundsMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder'] as const
+export const PROP_OVERRIDE_FIELDS = ['definitionRef', 'supportRef', 'roomId', 'visibility', 'appearance', 'visualBoundsMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'waterAppearance'] as const
 export type PropOverrideField = typeof PROP_OVERRIDE_FIELDS[number]
 export interface PrefabInstance extends Editable {
   visibility: Visibility; definitionRef: VersionRef; anchorMm: PointMm; rotationDeg: number

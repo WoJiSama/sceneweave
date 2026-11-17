@@ -274,7 +274,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   const audienceTerrain = floorValues(scene.terrainAreas).filter(a => audience === 'gm' || areaPublic(a.id))
   const visibleTerrain = audienceTerrain.filter(a => entityShown(a.id))
   const rooms = visibleRooms.map(r => ({ id: r.id, points: simplify(roomPoints(scene, r)), style: clone(r.floorStyle), elevationMm: r.groundElevationMm, priority: 0 })).sort((a, b) => compareLayer(a, b) || roomOrder.get(a.id)! - roomOrder.get(b.id)! || a.id.localeCompare(b.id))
-  const terrain: ProjectedSurface[] = visibleTerrain.map(a => ({ id: a.id, points: simplify(terrainPoints(a)), style: clone(a.surfaceStyle), elevationMm: a.groundElevationMm, priority: a.coveragePriority })).sort((a, b) => a.priority - b.priority || compareLayer(a, b) || a.id.localeCompare(b.id))
+  const terrain: ProjectedSurface[] = visibleTerrain.map(a => ({ id: a.id, points: simplify(terrainPoints(a)), style: clone(a.surfaceStyle), elevationMm: a.groundElevationMm, priority: a.coveragePriority, ...(a.boundaryBlendMm ? { boundaryBlendMm: a.boundaryBlendMm } : {}), ...(a.waterSurface ? { waterSurface: clone(a.waterSurface) } : {}) })).sort((a, b) => a.priority - b.priority || compareLayer(a, b) || a.id.localeCompare(b.id))
   {
     const byId = new Map(terrain.map(area => [area.id, area]))
     for (const { rule, regionsMm } of resolveSurfaceRules(scene, floorValues(scene.surfaceRules), { audience, hiddenLayerIds })) {
@@ -399,7 +399,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
     if (joins.length) pathTerrainJoins = { terrainPaintOrder: publicJoinTerrain.map(area => area.id),
       roomIds: publicJoinRooms.map(room => room.id), paths: joins }
   }
-  const visibleProps = floorValues(scene.props).filter(p => entityShown(p.id) && clusterMemberShown(p.id) && attachmentVisible(p.id, audience === 'player') && (audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm)))
+  const visibleProps = floorValues(scene.props).filter(p => entityShown(p.id) && (!p.waterAppearance || entityShown(p.supportRef.id)) && clusterMemberShown(p.id) && attachmentVisible(p.id, audience === 'player') && (audience === 'gm' || propPublic(p) && !maskedPoint(p.positionMm)))
   const props = visibleProps.map(clone).sort((a, b) => propLayer[a.renderLayer] - propLayer[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id))
   const visiblePropIds = new Set(props.map(p => p.id))
   const decorationPublic = (value: NonNullable<SceneDocument['decorations']>[string]) => value.visibility === 'public' && surfacePublic(value.supportRef) && !groupHiddenDecorations.has(value.id)

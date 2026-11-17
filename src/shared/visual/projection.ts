@@ -128,7 +128,7 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !projection.masks.some(mask => { const b = bounds(mask); return light.positionMm.x >= b.x && light.positionMm.y >= b.y && light.positionMm.x <= b.x + b.width && light.positionMm.y <= b.y + b.height }))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
     fogs: Object.values(visual.fogs).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).map(copy), filters,
     occluderRings: [...projectedWallFootprints(projection), ...projectedPropFootprints(projection)],
-    contactRings: projection.props.filter(prop => prop.renderLayer !== 'ground' && prop.shadowClass !== 'none').map(propVisualRing),
+    contactRings: projection.props.filter(prop => !prop.waterAppearance && prop.renderLayer !== 'ground' && prop.shadowClass !== 'none').map(propVisualRing),
     suppressedTerrainEdgeIds: projection.edges.filter(edge => replacedSegments.has(segmentKey(edge.start, edge.end)) || projection.inlays?.length && boundaries.some(boundary => decorated.has(boundary.id)
       && boundary.points.some((a, i) => {
         if (!boundary.closed && i === boundary.points.length - 1) return false

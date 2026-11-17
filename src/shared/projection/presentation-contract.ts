@@ -2,6 +2,7 @@ import type { BoundsMm, PointMm, Prop, ShadowStyle } from '../model/scene.js'
 import type { PaintPresentation } from '../appearance/presentation.js'
 import { effectivePropShadow, nearSidePaintEnvelope, propPaintPolygon, presentationContact } from '../appearance/presentation.js'
 import { decorationPaintBounds } from '../decorations/presentation.js'
+import { waterVisualBounds } from '../ocean/presentation.js'
 import { edgeLookPaintPadding } from '../visual/paint-envelopes.js'
 import { terrainTransitionStrokePolygon } from '../visual/transition.js'
 import type { Audience, ProjectedDecoration, ProjectedVisualSystem, Projection } from './types.js'
@@ -48,6 +49,7 @@ function envelope(projection: Projection, kind: PresentationKind, id: string, bo
 export function propPaintEnvelope(prop: Prop, presentation: PaintPresentation | undefined, shadow: ShadowStyle | null,
   environment: { lightDirectionDeg?: number; contactShadowOpacity: number; contactShadowMm: number } | undefined,
   options: { full?: boolean; outlinePaddingMm?: number } = {}): BoundsMm {
+  if (prop.waterAppearance) return presentationBounds(propPaintPolygon({ ...prop, visualBoundsMm: waterVisualBounds(prop) }), options.outlinePaddingMm ?? 0)!
   const full = options.full !== false
   const contactBlur = full && presentation?.mode === 'nearSide' && shadow && environment?.contactShadowOpacity ? environment.contactShadowMm : null
   const near = nearSidePaintEnvelope(prop, presentation, full ? shadow : null, environment?.lightDirectionDeg, contactBlur)
@@ -59,10 +61,10 @@ export function propPaintEnvelope(prop: Prop, presentation: PaintPresentation | 
 export function propPresentationEnvelope(projection: Projection, prop: Prop, options: { full?: boolean; outlinePaddingMm?: number } = {}): PresentationEnvelope {
   const presentation = projection.propPresentations?.[prop.id], shadow = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
   const bounds = propPaintEnvelope(prop, presentation, shadow, projection.visual?.environment, options)
-  const contact = !projection.visual?.environment.contactShadowOpacity ? 'none'
+  const contact = prop.waterAppearance || !projection.visual?.environment.contactShadowOpacity ? 'none'
     : presentation?.mode === 'nearSide' ? options.full !== false && shadow ? 'physical-footprint' : 'none'
       : prop.renderLayer !== 'ground' && prop.shadowClass !== 'none' ? 'source-alpha' : 'none'
-  return envelope(projection, 'prop', prop.id, bounds, [], prop.appearance.kind === 'image' ? [prop.appearance.assetId] : [], prop.renderLayer, contact)
+  return envelope(projection, 'prop', prop.id, bounds, prop.waterAppearance ? [prop.supportRef.id] : [], prop.appearance.kind === 'image' ? [prop.appearance.assetId] : [], prop.renderLayer, contact)
 }
 export function decorationPresentationEnvelope(projection: Projection, decoration: ProjectedDecoration): PresentationEnvelope {
   return envelope(projection, 'decoration', decoration.id, decorationPaintBounds(decoration), [], [decoration.assetId], decoration.renderLayer)

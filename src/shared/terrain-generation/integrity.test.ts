@@ -4,6 +4,7 @@ import type { SceneDocument } from '../model/scene.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { createEmptyGeneration, type GenerationRule } from './contracts.js'
 import { createEmptyGeneration5 } from './composition-contracts.js'
+import { WATER_PRESETS } from '../ocean/contracts.js'
 import { constraintInputHash, detachChangedOutputs, generationInputHash, managedOutputHash, materializedBoundaryHash,
   resolveGenerationTarget, validateTerrainContracts, type TerrainContractDocument } from './integrity.js'
 
@@ -59,6 +60,22 @@ describe('terrain persisted integrity', () => {
     expect(current.generation.legacy.rules['land-rule'].state).toBe('paused'); expect(current.generation.legacy.checks.check.state).toBe('unchecked')
     expect(after.terrainAreas.land.boundaryMm[0].positionMm.x).toBe(2100)
     expect(validateTerrainContracts(current)).toEqual([])
+  })
+  it.each(['feather', 'water'] as const)('protects a manual %s edit from subsequent terrain generation', kind => {
+    const before = native(fixture()), generation = before.generation.legacy, rule = generation.rules['land-rule']
+    rule.outputs[0].fieldGroup = 'surface'
+    generation.ownership.owner.target.fieldGroup = 'surface'
+    generation.ownership.owner.managedFields = ['surface']
+    rule.managedOutputHash = managedOutputHash(before, rule)
+    expect(validateTerrainContracts(before)).toEqual([])
+    const after = structuredClone(before)
+    if (kind === 'feather') after.terrainAreas.land.boundaryBlendMm = 900
+    else after.terrainAreas.land.waterSurface = { ...WATER_PRESETS.shallow }
+    expect(validateTerrainContracts(after).some(issue => issue.code === 'TERRAIN_OUTPUT_HASH')).toBe(true)
+    expect(detachChangedOutputs(before, after)).toBeGreaterThan(0)
+    expect(after.generation.legacy.ownership.owner).toMatchObject({ state: 'manual', managedFields: [], manualFields: ['surface'] })
+    expect(after.generation.legacy.rules['land-rule'].state).toBe('paused')
+    expect(validateTerrainContracts(after)).toEqual([])
   })
   it.each([7, 8] as const)('keeps legacy generation integrity active inside a strict scene%d envelope', schemaVersion => {
     const original = fixture(), before = structuredClone(original) as unknown as SceneDocument

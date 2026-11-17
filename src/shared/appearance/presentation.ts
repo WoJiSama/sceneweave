@@ -110,6 +110,7 @@ export function validatePresentations(graph: AppearanceGraph, document: SceneDoc
   }
   for (const source of Object.values(graph.sources)) if (source.kind === 'prop' && !graph.presentations?.[source.id]) throw new Error('固定物件外观源缺少明确表现。')
   for (const prop of Object.values(document.props)) if (propPresentation(graph, prop.id)?.mode === 'nearSide') {
+    if (prop.waterAppearance) throw new Error('水中效果当前只支持俯视图片物件，不能将近侧视根锚转为水线。')
     if (prop.rotationDeg !== 0 || prop.footprintOffsetMm.x !== 0 || prop.footprintOffsetMm.y !== 0) throw new Error('近侧视物件须保持零旋转和以树根为中心的世界轴占地。')
   }
   for (const value of Object.values(document.decorations ?? {})) if (definitionPresentation(graph, value.definitionRef)?.mode === 'nearSide' && value.rotationDeg !== 0) throw new Error('近侧视轻量装饰须保持零旋转；根锚由固定源确定。')

@@ -751,7 +751,7 @@ export class Workspace {
   cancelMixedGeneration(preview: MixedPreview) { this.cancelDomainGeneration('mixed', preview) }
   adoptMixedGeneration(preview: MixedPreview, options: ResourceOptions = {}) { return this.adoptDomainGeneration('mixed', preview, options) }
   /** A generated map is previewed independently; current edits are saved before switching. */
-  async previewBaseMapGeneration(base: EditableProject, request: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3, response: unknown, options: { signal?: ResourceOptions['signal']; source?: 'worker' | 'server'; generationExecution?: BaseMapPreparationOptions['generationExecution'] } = {}): Promise<TerrainPreview> {
+  async previewBaseMapGeneration(base: EditableProject, request: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3, response: unknown, options: { signal?: ResourceOptions['signal']; source?: 'worker' | 'server'; generationExecution?: BaseMapPreparationOptions['generationExecution']; ocean?: BaseMapPreparationOptions['ocean'] } = {}): Promise<TerrainPreview> {
     this.assertWritable()
     const capturedRequest = captureJson(request), capturedResponse = captureJson(response)
     const checkpoint = this.checkpoint(), current = this.state.project
@@ -762,7 +762,7 @@ export class Workspace {
       if (capturedRequest.checkpoint !== checkpoint || capturedRequest.workspaceSceneId !== (current?.document.sceneId ?? 'empty-workspace')) throw new Error('程序底图请求已过期，请基于当前工程重新生成。')
       checkCancelled(signal)
       const prepared = await prepareBaseMapProject(base, capturedRequest, capturedResponse, { runtime: this.options.runtime, validation: { ...this.validation(), signal }, source: options.source,
-        generationExecution: options.generationExecution, preservation: { sceneId: current?.document.sceneId ?? null,
+        ocean: options.ocean, generationExecution: options.generationExecution, preservation: { sceneId: current?.document.sceneId ?? null,
           revision: current?.document.revision ?? null, contentHash: current ? authoringProjectHash(pureProject(current)) : null, checkpoint } })
       checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
       if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('程序底图必须具有独立的新工程身份。')

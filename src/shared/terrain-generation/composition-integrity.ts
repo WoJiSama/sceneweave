@@ -27,8 +27,8 @@ const building = new Set(['vertex', 'room', 'wall', 'opening', 'note', 'prefabIn
 const fields = {
   geometry: ['boundaryMm', 'centerlineMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'widthMm', 'from', 'to', 'segments', 'closed', 'pointsMm', 'polygons', 'strokes', 'visualBoundsMm', 'groundElevationMm', 'side', 'sampleSpacingMm', 'toleranceMm'],
   properties: ['floorId', 'layerId', 'visibility', 'editLocked', 'blocksMovement', 'blocksSight', 'movementCostMultiplier', 'kind', 'coveragePriority', 'name', 'description', 'purpose', 'relativeElevationMm', 'flow', 'displayWidthMm', 'actualWidthMm', 'shoreline', 'enabled', 'openingId'],
-  surface: ['surfaceStyle', 'floorStyle', 'topStyle', 'style', 'paint', 'blendWidthMm', 'materialRef', 'fillColor', 'opacity'],
-  appearance: ['appearance', 'definitionRef', 'visualBoundsMm', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'color', 'accentColor', 'opacity', 'intensity', 'seed', 'repeatMm', 'enabled', 'fillColor'],
+  surface: ['surfaceStyle', 'floorStyle', 'topStyle', 'style', 'paint', 'blendWidthMm', 'boundaryBlendMm', 'waterSurface', 'materialRef', 'fillColor', 'opacity'],
+  appearance: ['appearance', 'waterAppearance', 'definitionRef', 'visualBoundsMm', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'color', 'accentColor', 'opacity', 'intensity', 'seed', 'repeatMm', 'enabled', 'fillColor'],
   membership: ['members', 'domain', 'palette', 'portIds', 'connectedLineIds', 'areaId', 'managementKey'], exclusions: ['exclusions'],
   presentation: ['rootAnchorMm', 'orientation', 'groundShadowMm', 'fixedRotationDeg', 'footprintAxes'],
   source: ['source', 'neighborAreaId', 'binding', 'boundaryId', 'inputHash', 'materialRef', 'definitionRef', 'sourceRef', 'supportRef', 'supportRefs', 'roomId', 'algorithmVersion', 'gridOriginMm', 'cellSizeMm', 'densityFactor', 'minDistanceMm', 'rotationRangeDeg'],

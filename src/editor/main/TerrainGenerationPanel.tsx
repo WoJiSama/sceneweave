@@ -6,7 +6,7 @@ import './terrain-generation.css'
 import { TaskBudgetProfileSchema, type TaskBudgetProfile } from '../../shared/budget/task-budget'
 
 export type TerrainGenerationKind = 'island' | 'coast' | 'river' | 'lake' | 'forest' | 'hill' | 'mixed'
-export type TerrainGenerationRequest = Pick<TerrainGenerationInput, 'seed' | 'kind' | 'widthMm' | 'heightMm' | 'route'>
+export type TerrainGenerationRequest = Pick<TerrainGenerationInput, 'seed' | 'kind' | 'widthMm' | 'heightMm' | 'route'> & { ocean?: boolean }
 export const TERRAIN_GENERATION_REVIEW_SEEDS = TERRAIN_FIXED_SEEDS
 const KIND_OPTIONS: readonly { value: TerrainGenerationKind; label: string; detail: string }[] = [
   { value: 'island', label: '岩岛', detail: '海湾 · 高台 · 登高通路' },
@@ -74,6 +74,7 @@ export default function TerrainGenerationPanel({
   const [customWidthMm, setCustomWidthMm] = useState(24000)
   const [customHeightMm, setCustomHeightMm] = useState(18000)
   const [routeEnabled, setRouteEnabled] = useState(false)
+  const [ocean, setOcean] = useState(false)
   const [route, setRoute] = useState<NonNullable<TerrainGenerationInput['route']>>({ from: { x: 3000, y: 13500 }, to: { x: 21000, y: 13500 }, widthMm: 1000, crossing: 'ford' })
   const [pending, setPending] = useState<'generate' | 'adopt' | 'export' | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -93,13 +94,14 @@ export default function TerrainGenerationPanel({
     && Number.isSafeInteger(heightMm) && heightMm >= 18000 && heightMm <= 90000
     && widthMm / heightMm >= 1 && widthMm / heightMm <= 1.8
   const supportsRoute = kind !== 'island' && kind !== 'coast'
+  const activeOcean = !supportsRoute && ocean
   const activeRoute = supportsRoute && routeEnabled ? route : undefined
   const validRoute = !activeRoute || [route.from.x, route.from.y, route.to.x, route.to.y, route.widthMm].every(Number.isSafeInteger)
     && route.widthMm >= 400 && route.widthMm <= 3000 && [route.from.x, route.to.x].every(value => value >= 0 && value <= widthMm)
     && [route.from.y, route.to.y].every(value => value >= 0 && value <= heightMm) && (route.from.x !== route.to.x || route.from.y !== route.to.y)
   const selectedIndex = TERRAIN_GENERATION_REVIEW_SEEDS.findIndex(value => value === cleanSeed)
   const candidateMatches = candidate !== null && candidate.seed === cleanSeed && candidate.kind === kind
-    && candidate.widthMm === widthMm && candidate.heightMm === heightMm && JSON.stringify(candidate.route) === JSON.stringify(activeRoute)
+    && candidate.widthMm === widthMm && candidate.heightMm === heightMm && JSON.stringify(candidate.route) === JSON.stringify(activeRoute) && !!candidate.ocean === activeOcean
   const registered = TaskBudgetProfileSchema.safeParse(candidate?.budgetProfile)
   const requestedLimit = candidate?.cost.limit ?? 256
   const costLimit = registered.success && requestedLimit === registered.data.semanticTargets ? requestedLimit
@@ -127,7 +129,7 @@ export default function TerrainGenerationPanel({
   const generate = (nextSeed = cleanSeed) => {
     if (!nextSeed.trim() || nextSeed.trim().length > 128 || !validSize || !validRoute) return
     setSeed(nextSeed.trim())
-    void run('generate', () => onGenerate({ seed: nextSeed.trim(), kind, widthMm, heightMm, ...(activeRoute ? { route: structuredClone(activeRoute) } : {}) }))
+    void run('generate', () => onGenerate({ seed: nextSeed.trim(), kind, widthMm, heightMm, ...(activeOcean ? { ocean: true } : {}), ...(activeRoute ? { route: structuredClone(activeRoute) } : {}) }))
   }
   const cancel = () => {
     if (pending === 'adopt' || pending === 'export') return
@@ -177,6 +179,8 @@ export default function TerrainGenerationPanel({
         </div>}
         <small className="terrain-generation-hint">宽24–120米、高18–90米，宽高比1–1.8。预算会结合范围、细节和本机探针在开始前选定，也可在程序生成设置中选择档位；预览后保持该档位。</small>
         {!validSize && <p className="terrain-generation-notice" role="alert">请填写允许范围内的画布尺寸，宽高比须为1–1.8（宽度不少于高度）。</p>}
+        {!supportsRoute && <label><input type="checkbox" aria-label="生成海洋水面与布景" checked={ocean} onChange={event => setOcean(event.target.checked)}/>添加静态海面、浅水浪纹与舟船／海洋生物布景</label>}
+        {activeOcean && <p className="terrain-generation-hint">保留底图轮廓、岸线和通行。舟船与生物使用普通素材，空间不足会列出缺项；保存后可逐件编辑。</p>}
         {supportsRoute && <div className="terrain-generation-route">
           <label className="terrain-route-toggle"><input type="checkbox" aria-label="生成指定路线" checked={routeEnabled} onChange={event => setRouteEnabled(event.target.checked)}/>生成指定路线</label>
           {routeEnabled && <>

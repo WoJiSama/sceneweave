@@ -1,6 +1,8 @@
 import { pathAttachmentSchema } from '../path-attachments/contracts.js'
 import { roomFurnishingPlanSchema } from '../furnishing/contracts.js'
+import { waterSurfaceSchema } from '../ocean/contracts.js'
 import { floorLinksSchema } from '../floors/links.js'
+import { validateOcean } from '../ocean/validation.js'
 import { attachmentSurfaceRecordSchema, attachmentRecordSchema } from '../attachments/contracts.js'
 import { rockBodySchema, carvedStripSchema } from '../carved-rock/contracts.js'
 import { terrainInlaySchema } from '../terrain-inlay/persistence.js'
@@ -71,7 +73,7 @@ const sceneShape = {
     applicableSurfaces: z.array(z.enum(['room', 'wall', 'terrain', 'path'])).min(1).refine(unique, '适用表面不能重复') }).strict()),
   terrainAreas: record(z.object({ ...editable, visibility, boundaryMm: z.array(z.object({ id, segmentId: id, positionMm: point }).strict()).min(3).max(2048),
     groundElevationMm: int, coveragePriority: rank, surfaceStyle: style, blocksMovement: z.boolean(), blocksSight: z.boolean(), movementCostMultiplier: movementCost,
-    rockBody: rockBodySchema.optional() }).strict()),
+    rockBody: rockBodySchema.optional(), boundaryBlendMm: int.min(0).max(10000).optional(), waterSurface: waterSurfaceSchema.optional() }).strict()),
   terrainEdges: record(z.object({ ...editable, visibility, source: z.object({ areaId: id, segmentId: id }).strict(), neighborAreaId: id.nullable(),
     kind: z.enum(['shore', 'cliff', 'materialTransition']), shoreline: z.boolean(), blocksMovement: z.boolean(), blocksSight: z.boolean(), surfaceStyle: style, styleOverride: edgeStyle.nullable() }).strict()),
   terrainConnections: record(z.object({ ...editable, visibility, kind: z.enum(['stairs', 'ramp']), from: z.object({ surfaceRef, positionMm: point }).strict(), to: z.object({ surfaceRef, positionMm: point }).strict(),
@@ -138,7 +140,10 @@ export function parseSceneDocument(input: unknown): { ok: true; document: SceneD
  * supply geometry established by its private, constrained derivation proof. */
 export function inspectSceneDocumentDomains(document: SceneDocument, geometry: ReturnType<typeof validateGeometry>): ValidationResult {
   const dependencies = inspectDependencies(document)
+  const oceanErrors = validateOcean(document)
   const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document), ...inspectAttachments(document), ...inspectSceneWallReliefBudget(geometryDocumentForValidation(document))]
+  errors.push(...oceanErrors)
+  for (const area of Object.values(document.terrainAreas)) if (area.boundaryBlendMm && area.rockBody) errors.push({ code: 'TERRAIN_BLEND', entityId: area.id, message: '实体岩体使用真实侧壳，不能套用平面地形边缘羽化。' })
   if (!errors.length) try { assertCoordinateRoundTrip(document) } catch (cause) { errors.push({ code: 'AGGREGATE_COORDINATES', message: cause instanceof Error ? cause.message : String(cause) }) }
   return errors.length ? { ok: false, errors } : { ok: true, document, warnings: geometry.warnings }
 }

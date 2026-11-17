@@ -9,6 +9,8 @@ export interface ProjectedMaterialPatch {
   blendWidthMm: number
 }
 export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number; materialPatches?: ProjectedMaterialPatch[]
+  boundaryBlendMm?: number
+  waterSurface?: import('../ocean/contracts.js').WaterSurface
   /** Actual audience-owned top after visible cuts; source footprint stays in points for selection. */
   regionsMm?: { outerMm: PointMm[]; holesMm: PointMm[][] }[]
 }

@@ -8,13 +8,14 @@ import { SHORE_MATERIAL_IDS } from './shore-art.js'
 import { visualBase } from './base.js'
 import { sampleVisualBoundary, signedVisualArea } from './geometry.js'
 import { VISUAL_LIMITS, type VisualBoundary, type VisualEdgeLook, type VisualSystem } from './types.js'
+import { terrainValueNoise } from '../terrain-generation/field.js'
 
 type Surface = 'rock' | 'grass' | 'water' | 'shallow' | 'sand' | 'other'
 type PaletteKey = keyof typeof SHORE_MATERIAL_IDS
 type Ring = PointMm[]
 type RawRing = [number, number][]
 type OverlayPiece = { points: Ring; blendWidthMm: number }
-export interface ShoreSurfaceOptions { meter?: ExecutionBudget; edgeDetailScale?: number }
+export interface ShoreSurfaceOptions { meter?: ExecutionBudget; edgeDetailScale?: number; shoreProfile?: 'natural2' }
 export const SHORE_SURFACE_LIMITS = Object.freeze({ overlaysPerArea: 128, pointsPerOverlay: 512 })
 const same = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const q = (p: PointMm): PointMm => ({ x: Math.round(p.x), y: Math.round(p.y) })
@@ -43,8 +44,9 @@ function materialRole(scene: SceneDocument, area: TerrainArea): Surface {
   if (has('grass', 'meadow', 'moss', 'forest', '草', '苔', '草地', '苔草', '森林')) return 'grass'
   return 'other'
 }
-function classify(scene: SceneDocument, area: TerrainArea): Surface {
+export function terrainSurfaceRole(scene: SceneDocument, area: TerrainArea): Surface {
   const role = materialRole(scene, area)
+  if (area.waterSurface) return role === 'shallow' ? 'shallow' : 'water'
   if ((area.id === 'terrain-shallow' || area.id.startsWith('t9-shallow-')) && area.groundElevationMm === 200 && !area.blocksMovement) return 'shallow'
   if (role === 'water' || role === 'shallow') {
     // Earlier palettes reused a "shallows" picture for the whole sea. New5
@@ -57,6 +59,7 @@ function classify(scene: SceneDocument, area: TerrainArea): Surface {
   }
   return role
 }
+const classify = terrainSurfaceRole
 function paint(scene: SceneDocument, key: PaletteKey, opacity = 1): MaterialPaint {
   const material = scene.materials[SHORE_MATERIAL_IDS[key]]
   if (!material) throw new Error(`新岸崖配方缺少固定材质：${key}。`)
@@ -122,26 +125,30 @@ function edgeFrame(area: TerrainArea, a: PointMm, b: PointMm) {
 }
 /** A chunk owns joined neighboring strips, not independently feathered edge
  * stickers. Partial adjacent edges extend both caps by three feather widths. */
-function continuousBand(area: TerrainArea, indices: number[], coastal: Set<number>, near: number, far: number, overlapMm: number): Ring[] {
+function continuousBand(area: TerrainArea, indices: number[], coastal: Set<number>, near: number, far: number, overlapMm: number, variation?: (point: PointMm) => number): Ring[] {
   const all = edges(area), segments = indices.map(i => all[i]), first = segments[0], last = segments.at(-1)!
   const core = new Set(indices)
   for (const direction of [-1, 1]) {
     let remaining = overlapMm, i = ((direction < 0 ? first.i : last.i) + direction + all.length) % all.length
     while (remaining > 0 && coastal.has(i) && !core.has(i)) {
       const edge = all[i], length = Math.hypot(edge.b.x - edge.a.x, edge.b.y - edge.a.y), used = Math.min(length, remaining), fraction = used / length
-      if (direction < 0) segments.unshift({ ...edge, a: q({ x: edge.b.x + (edge.a.x - edge.b.x) * fraction, y: edge.b.y + (edge.a.y - edge.b.y) * fraction }) })
-      else segments.push({ ...edge, b: q({ x: edge.a.x + (edge.b.x - edge.a.x) * fraction, y: edge.a.y + (edge.b.y - edge.a.y) * fraction }) })
+      const extended = direction < 0 ? { ...edge, a: q({ x: edge.b.x + (edge.a.x - edge.b.x) * fraction, y: edge.b.y + (edge.a.y - edge.b.y) * fraction }) }
+        : { ...edge, b: q({ x: edge.a.x + (edge.b.x - edge.a.x) * fraction, y: edge.a.y + (edge.b.y - edge.a.y) * fraction }) }
+      // A sub-mm remainder can round back to its existing endpoint. It owns
+      // no polygon and must not be sent to a zero-length normal calculation.
+      if (!same(extended.a, extended.b)) { if (direction < 0) segments.unshift(extended); else segments.push(extended) }
       remaining -= used; i = (i + direction + all.length) % all.length
     }
   }
   const result: Ring[] = []
+  const outer = (point: PointMm) => far * (variation?.(point) ?? 1)
   for (const [index, segment] of segments.entries()) {
     const frame = edgeFrame(area, segment.a, segment.b)
-    result.push([frame.at(segment.a, near), frame.at(segment.b, near), frame.at(segment.b, far), frame.at(segment.a, far)])
+    result.push([frame.at(segment.a, near), frame.at(segment.b, near), frame.at(segment.b, outer(segment.b)), frame.at(segment.a, outer(segment.a))])
     const next = segments[index + 1]
     if (next && (segment.i + 1) % all.length === next.i && same(segment.b, next.a)) {
       const nextFrame = edgeFrame(area, next.a, next.b)
-      result.push([frame.at(segment.b, near), nextFrame.at(next.a, near), nextFrame.at(next.a, far), frame.at(segment.b, far)])
+      result.push([frame.at(segment.b, near), nextFrame.at(next.a, near), nextFrame.at(next.a, outer(next.a)), frame.at(segment.b, outer(segment.b))])
     }
   }
   return result
@@ -203,6 +210,7 @@ export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, o
   const edgeDetailScale=options.edgeDetailScale??1
   if(!Number.isFinite(edgeDetailScale)||edgeDetailScale<1||edgeDetailScale>5)throw new Error('岸面边缘细节倍率须为1–5。')
   if (!seed || seed.length > 128) throw new Error('新岸崖配方需要1–128字符固定种子。')
+  if (options.shoreProfile !== undefined && options.shoreProfile !== 'natural2') throw new Error('未知岸带材质配方。')
   const scene = cloneJson(document), visual = visualBase(scene)
   if (!visual) throw new Error('新岸崖配方需要现存严格视觉系统。')
   const areas = Object.values(scene.terrainAreas).sort((a, b) => a.id.localeCompare(b.id))
@@ -255,14 +263,19 @@ export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, o
     const coastal = new Set(coastalEdges)
     for (const group of edgeGroups(coastalEdges, ring.length)) {
       const id = token(seed, 'coast-chunk', area.id, group[0], group.at(-1)!)
-      const bands = continuousBand(area, group, coastal, -70, -(reef ? 500 : 1400), 600)
+      // Explicit new authoring profile; legacy calls retain their exact rings.
+      // Both sides of a joined vertex evaluate the same world-space width.
+      const variation = options.shoreProfile === 'natural2' ? (point: PointMm) => .95 + terrainValueNoise(seed, 'shore-natural2-broad', point.x / 6000, point.y / 6000) * .4
+        + terrainValueNoise(seed, 'shore-natural2-local', point.x / 1700, point.y / 1700) * .12 : undefined
+      const bandWidth = options.shoreProfile === 'natural2' ? (reef ? 300 : 900) : (reef ? 500 : 1400)
+      const bands = continuousBand(area, group, coastal, -70, -bandWidth, 600, variation)
       for (const target of water.filter(value => value.floorId === area.floorId)) {
         const excludes = areas.filter(value => value.floorId === area.floorId && !isWater(value) && value.coveragePriority > target.coveragePriority)
         // Opaque immutable world-phase tiles make overlapping chunk caps
         // idempotent in their interiors; only the saved outer feather blends.
         add(target, bands, 'waterShallow', 1, 190, `${id}-${target.id}`, excludes)
       }
-      if (kind === 'rock' || kind === 'sand') add(area, continuousBand(area, group, coastal, 0, reef ? 120 : 240, 360),
+      if (kind === 'rock' || kind === 'sand') add(area, continuousBand(area, group, coastal, 0, reef ? 120 : 240, 360, variation),
         kind === 'sand' ? 'sandWet' : 'rockWet', .46, 100, `${id}-wet`)
     }
     const represented = Object.values(visual.boundaries).some(boundary => boundary.binding.kind === 'terrain' && boundary.binding.sides.some(side => side.areaId === area.id))

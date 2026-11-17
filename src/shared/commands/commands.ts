@@ -1,4 +1,5 @@
 import { floorCommandSchemas, isFloorCommand, applyFloorCommand, type FloorCommand } from '../floors/commands.js'
+import { waterCommandSchemas, isWaterCommand, applyWaterCommand, type WaterCommand } from '../ocean/commands.js'
 import { attachmentCommandSchemas, isAttachmentCommand, applyAttachmentCommand, followAttachments, type AttachmentCommand } from '../attachments/index.js'
 import { followRockShells } from '../rock-shell/state.js'
 import { carvedRockCommandSchemas, isCarvedRockCommand, applyCarvedRockCommand, type CarvedRockCommand } from './carved-rock.js'
@@ -45,6 +46,7 @@ export type SceneCommand =
   | (Extract<BaseSceneCommand, { type: 'addProp' }> & { layerId?: string })
   | BuildingCommand
   | FloorCommand
+  | WaterCommand
   | PathCheckCommand
   | PathAttachmentCommand
   | AttachmentCommand
@@ -120,6 +122,7 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     ...decorationCommandSchemas,
     ...surfaceRuleCommandSchemas,
     ...floorCommandSchemas,
+    ...waterCommandSchemas,
     ...pathCheckCommandSchemas,
     ...pathAttachmentCommandSchemas,
     ...attachmentCommandSchemas,
@@ -332,6 +335,8 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       commandCost=applyPathCheckCommand(next,command).commandCost
     } else if (isFloorCommand(command)) {
       commandCost = applyFloorCommand(next, command, { appearance: options?.appearance }).commandCost
+    } else if (isWaterCommand(command)) {
+      commandCost = applyWaterCommand(next, command).commandCost
     } else if (isPathAttachmentCommand(command)) {
       const impact = applyPathAttachmentCommand(next, command, options?.historyIdentity)
       commandCost = impact.commandCost

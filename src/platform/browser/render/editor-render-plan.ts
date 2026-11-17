@@ -100,7 +100,7 @@ export function createEditorRenderPlan(projection: Projection, options: EditorRe
     const minX = Math.min(...corners.map(p => p.x)), minY = Math.min(...corners.map(p => p.y))
     const visualBoundsMm = presentation ? { x: minX, y: minY, width: Math.max(...corners.map(p => p.x)) - minX, height: Math.max(...corners.map(p => p.y)) - minY } : transformedVisualBounds(prop)
     const screenSizePx = Math.max(visualBoundsMm.width, visualBoundsMm.height) * options.screenScalePxPerMm
-    const detail: EditorPropDetail = screenSizePx < EDITOR_OUTLINE_THRESHOLD_PX ? 'outline' : screenSizePx < EDITOR_FULL_THRESHOLD_PX ? 'image' : 'full'
+    const detail: EditorPropDetail = prop.waterAppearance ? 'image' : screenSizePx < EDITOR_OUTLINE_THRESHOLD_PX ? 'outline' : screenSizePx < EDITOR_FULL_THRESHOLD_PX ? 'image' : 'full'
     const envelope = propPresentationEnvelope(projection, prop, { full: detail === 'full', outlinePaddingMm: detail === 'outline' ? .5 / options.screenScalePxPerMm : 0 }), paintBoundsMm = envelope.boundsMm
     if (!presentationOverlaps(paintBoundsMm, boundsMm)) continue
     detailCounts[detail]++; props.push({ prop, detail, screenSizePx, visualBoundsMm, paintBoundsMm }); presentations.push(envelope)

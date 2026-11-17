@@ -16,6 +16,7 @@ import EntityLockNotice from './EntityLockNotice'
 import TerrainCliffStylePanel from './TerrainCliffStylePanel'
 import CarvedMountainTools from './CarvedMountainTools'
 import TerrainInlayTools from './TerrainInlayTools'
+import { WaterSurfaceTools } from './OceanTools'
 
 export const outdoorEntityKind = (scene: SceneDocument, id: string) => scene.terrainAreas[id] ? 'terrainArea' : scene.terrainEdges[id] ? 'terrainEdge' : scene.terrainConnections[id] ? 'terrainConnection' : scene.paths[id] ? 'path' : scene.scatterGroups[id] ? 'scatterGroup' : scene.regions[id] && scene.regions[id].kind !== 'manualMask' ? 'region' : null
 
@@ -34,6 +35,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
   const [density, setDensity] = useState(String(scatter?.densityFactor ?? 0.4)), [spacing, setSpacing] = useState(String(scatter?.minDistanceMm ?? 300)), [cell, setCell] = useState(String(scatter?.cellSizeMm ?? 2500))
   const [extraBoundary, setExtraBoundary] = useState(''), [extraMaterial, setExtraMaterial] = useState(''), [blend, setBlend] = useState('150'), [segment, setSegment] = useState(area?.boundaryMm[0]?.segmentId ?? ''), [exclusionReason, setExclusionReason] = useState<'manual' | 'entrance'>('manual')
   const [error, setError] = useState<string | null>(null), [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [boundaryBlend, setBoundaryBlend] = useState(area?.boundaryBlendMm ?? 0)
   const relatedEdges = area ? Object.values(scene.terrainEdges).filter(item => item.source.areaId === id || item.neighborAreaId === id) : []
   const [remapEdges, setRemapEdges] = useState(false), [edgeSegments, setEdgeSegments] = useState<Record<string, number>>({})
   const [edgeSource, setEdgeSource] = useState(edge ? `${edge.source.areaId}\n${edge.source.segmentId}` : '')
@@ -52,7 +54,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     if (area) {
       const next = outdoorPoints(points)
       const boundaryMm = reconcileTerrainBoundary(area.boundaryMm, next, runtime)
-      const changes = { boundaryMm, groundElevationMm: Number(elevation), coveragePriority: Number(priority), surfaceStyle: styleFor(scene, material, surface), visibility, blocksMovement: blocking, movementCostMultiplier: Number(cost) }
+      const changes = { boundaryMm, groundElevationMm: Number(elevation), coveragePriority: Number(priority), surfaceStyle: styleFor(scene, material, surface), visibility, blocksMovement: blocking, movementCostMultiplier: Number(cost), ...(boundaryBlend || area.boundaryBlendMm !== undefined ? { boundaryBlendMm: boundaryBlend } : {}) }
       const commands: SceneCommand[] = [{ type: 'updateTerrainArea', id, changes }]
       if (remapEdges) {
         const candidate = structuredClone(scene); Object.assign(candidate.terrainAreas[id], changes)
@@ -95,6 +97,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     <fieldset disabled={disabled || locked}>
       {(area || edge || connection || path) && <><MaterialSelect scene={scene} value={material} onChange={setMaterial} label="对象表面材质"/><small>更换底材保留铺法、着色和局部覆盖；选择“无铺装”移除全部铺装。</small></>}
       {area && <NumberInput label="地面高度" ariaLabel="对象地形高程" displayUnit={scene.units.display} value={Number(elevation)} onCommit={value => setElevation(String(value))}/>}
+      {area && !area.rockBody && <><NumberInput label="边缘羽化宽度" ariaLabel="地形边缘羽化宽度" displayUnit={scene.units.display} value={boundaryBlend} onCommit={setBoundaryBlend}/><small>地材与水面共用。0为硬边；向当前地形内部柔化，轮廓、支撑与通行保持。</small></>}
       {(path || connection && !connection.terrainInlay) && <NumberInput label="通路净宽" ariaLabel="对象通路净宽" displayUnit={scene.units.display} value={Number(width)} onCommit={value => setWidth(String(value))}/>}
       {connection && !connection.terrainInlay && <><label>连接类型<select aria-label="对象连接类型" value={connectionKind} onChange={event => setConnectionKind(event.target.value as typeof connectionKind)}><option value="stairs">台阶</option><option value="ramp">坡道</option></select></label><SurfaceSelect scene={scene} floorId={entity.floorId} value={support} onChange={setSupport} label="对象连接起点表面"/><SurfaceSelect scene={scene} floorId={entity.floorId} value={toSupport} onChange={setToSupport} label="对象连接终点表面"/></>}
       {path && <><SurfaceMultiSelect scene={scene} floorId={entity.floorId} values={pathSupports} onChange={setPathSupports} label="对象道路支撑"/><small>按住 Ctrl / ⌘ 可多选。整条道路须位于所选支撑面的并集内。</small></>}
@@ -117,6 +120,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
       {edge && <details><summary>关联地形</summary><p className="asset-muted">来源 {name(edge.source.segmentId)}；邻接 {edge.neighborAreaId ? name(edge.neighborAreaId) : '基础地面'}。来源和相邻关系在轮廓编辑中重新校验。</p></details>}
       <button className="secondary outdoor-delete asset-wide" disabled={!!connection?.terrainInlay} onClick={() => setDeleteConfirm(value => !value)}><Trash2 size={13}/>删除此对象</button>{deleteConfirm && <><p className="asset-muted">有支撑、成员或注记依赖时将拒绝。预览不会删除当前内容。</p><button className="secondary outdoor-delete asset-wide" onClick={() => run(() => [{ type: 'deleteOutdoorEntity', kind, id }], '删除室外对象')}>预览删除室外对象</button></>}
     </fieldset>
+    {area && <WaterSurfaceTools key={`water-${id}`} scene={scene} id={id} disabled={disabled} onPreview={onVisualPreview ?? onPreview}/>}
     {connection && <TerrainInlayTools key={`inlay-${id}-${!!connection.terrainInlay}`} scene={scene} id={id} disabled={disabled} onPreview={onVisualPreview ?? onPreview}/>}
     {(area || connection?.carvedStrip) && <CarvedMountainTools key={`carved-${id}`} scene={scene} id={id} disabled={disabled} onPreview={onVisualPreview ?? onPreview}/>}
     {area && !area.rockBody && onVisualPreview && <TerrainCliffStylePanel key={`cliff-${area.id}`} scene={scene} areaId={area.id} disabled={disabled || effectiveEditLocked(scene, id)} onPreview={onVisualPreview}/>}
