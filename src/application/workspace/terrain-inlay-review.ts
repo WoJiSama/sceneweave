@@ -9,6 +9,10 @@ import type { EditableProject } from './project.js'
 export interface TerrainInlayReview {
   connectionId: string
   restoring: boolean
+  appearanceOnly?: boolean
+  sourceGround?: boolean
+  finishOnly?: boolean
+  finishKind?: 'slope' | 'steps'
   sourceIds: string[]
   sourceIntervals: TerrainInlaySourceInterval[]
   scopedPaintIds: string[]
@@ -20,7 +24,7 @@ export interface TerrainInlayReview {
  * from a React render or from a caller-manufactured source proof. */
 export function inspectTerrainInlayChanges(before: EditableProject, after: EditableProject, commands: readonly CompositionCommand[]): TerrainInlayReview[] {
   return commands.flatMap(command => {
-    if (command.type !== 'adoptTerrainInlay' && command.type !== 'restoreTerrainInlaySource') return []
+    if (command.type !== 'adoptTerrainInlay' && command.type !== 'restoreTerrainInlaySource' && command.type !== 'setTerrainInlayAppearance' && command.type !== 'setTerrainInlayFinish') return []
     const restoring = command.type === 'restoreTerrainInlaySource', project = restoring ? before : after
     const scene = project.document, connection = scene.terrainConnections[command.id], inlay = connection?.terrainInlay
     if (!inlay) throw Error('连续山路审阅缺少已校验的实际结果。')
@@ -38,6 +42,9 @@ export function inspectTerrainInlayChanges(before: EditableProject, after: Edita
       if (scene.userLayers[id]) layerIds.add(id)
     }
     return [{ connectionId: connection.id, restoring, sourceIds,
+      ...(command.type === 'setTerrainInlayAppearance' ? { appearanceOnly: true, sourceGround: inlay.appearance === 'source-ground' } : {}),
+      ...(command.type === 'setTerrainInlayFinish' ? { finishOnly: true } : {}),
+      ...(inlay.finish ? { finishKind: inlay.finish.kind } : {}),
       sourceIntervals: plan.sourceIntervals, scopedPaintIds: [...scopedPaintIds].sort(),
       dependencyIds: [...dependencies].filter(id => id !== connection.id && !scene.userLayers[id]).sort(), layerIds: [...layerIds].sort() }]
   })

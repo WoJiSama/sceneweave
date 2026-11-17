@@ -3,6 +3,8 @@ import type { SceneDocument } from '../../shared/model/scene'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { createTerrainInlayCommand } from '../../shared/terrain-inlay/create'
 import { effectiveEditLocked } from '../../shared/commands/layers'
+import { terrainInlayHash } from '../../shared/terrain-inlay/scene'
+import TerrainSlopeTools from './TerrainSlopeTools'
 
 export default function TerrainInlayTools({ scene, id, disabled, onPreview }: {
   scene: SceneDocument; id: string; disabled: boolean; onPreview: (commands: SceneCommand[], description: string) => void
@@ -14,7 +16,12 @@ export default function TerrainInlayTools({ scene, id, disabled, onPreview }: {
   const [error, setError] = useState<string | null>(null)
   if (!connection || connection.carvedStrip) return null
   if (connection.terrainInlay) return <details className="asset-details" data-terrain-inlay-tools><summary>连续填切山路</summary>
+    <TerrainSlopeTools scene={scene} id={id} disabled={disabled || effectiveEditLocked(scene, id)} onPreview={onPreview}/>
     <p className="asset-muted">沿原路线平顺爬升，低处补岩基、高处切入。两块源地形和原连接已完整保留。</p>
+    <p className="asset-muted">当前路面：{connection.terrainInlay.appearance === 'source-ground' ? '融入山体' : '单独铺装'}。融入山体时沿用周围地表的材质和涂层，原有路宽与坡度保持。</p>
+    <button className="secondary asset-wide" disabled={disabled || effectiveEditLocked(scene, id)} onClick={() => onPreview([
+      { type: 'setTerrainInlayAppearance', id, appearance: connection.terrainInlay!.appearance === 'source-ground' ? null : 'source-ground', expectedConnectionHash: terrainInlayHash(connection) },
+    ], connection.terrainInlay!.appearance === 'source-ground' ? '恢复山路单独铺装' : '让山路融入周围地表')}>{connection.terrainInlay.appearance === 'source-ground' ? '预览单独铺装' : '预览融入山体'}</button>
     <button className="secondary asset-wide" disabled={disabled || effectiveEditLocked(scene, id)} onClick={() => onPreview([
       { type: 'restoreTerrainInlaySource', id, disposition: 'restore-original-connection-and-ground' },
     ], '恢复原连接与填切前地形')}>预览恢复原连接和地形</button></details>
@@ -23,6 +30,7 @@ export default function TerrainInlayTools({ scene, id, disabled, onPreview }: {
   const source = sources.find(area => area.id === sourceId) ?? sources.at(-1)
   const stationCount = connection.route?.centerlineMm.length ?? 2
   return <details className="asset-details" data-terrain-inlay-tools><summary>改为连续山路</summary><fieldset disabled={disabled || effectiveEditLocked(scene, id)}>
+    <TerrainSlopeTools scene={scene} id={id} disabled={disabled || effectiveEditLocked(scene, id)} onPreview={onPreview}/>
     <p className="asset-muted">保留完整弯曲走向和净宽，在两端地形高度之间平顺爬升。可先预览，再采用或取消。</p>
     <label><input type="checkbox" checked={opening} onChange={event => setOpening(event.target.checked)}/>同时打开一侧崖壁</label>
     {opening && <><label>开口朝向<select value={side} onChange={event => setSide(event.target.value as typeof side)}><option value="right">沿路线右侧</option><option value="left">沿路线左侧</option></select></label>

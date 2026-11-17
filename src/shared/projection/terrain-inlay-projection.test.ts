@@ -79,6 +79,25 @@ function lockedVisual(content: ReturnType<typeof authoredSource>['before'], targ
 }
 
 describe('cross-terrace actual projection and editor geometry', () => {
+  it('paints explicit source-ground across the complete walk/apron with original disjoint source ownership', () => {
+    const { after } = setup(), old = projectScene(after.document, 'gm')
+    expect(old.inlays![0].groundSurfaces).toBeUndefined()
+    expect(old.connections[0].inlayAppearance).toBeUndefined()
+    const updated = applyCompositionDraftCommands(after, [{ type: 'setTerrainInlayAppearance', id: 'road', appearance: 'source-ground',
+      expectedConnectionHash: terrainInlayHash(after.document.terrainConnections.road) }], runtime)
+    const projected = projectScene(updated.document, 'gm'), inlay = projected.inlays![0]
+    expect(projected.connections[0].inlayAppearance).toBe('source-ground')
+    expect(inlay.patches).toEqual(old.inlays![0].patches)
+    expect(inlay.walls).toEqual(old.inlays![0].walls)
+    expect(inlay.walkFootprintMm).toEqual(old.inlays![0].walkFootprintMm)
+    expect(inlay.apronSurfaces).toEqual(old.inlays![0].apronSurfaces)
+    const regions = inlay.groundSurfaces!.map(surface => surface.regionsMm.map(r => [r.outerMm.map(p => [p.x, p.y] as [number, number]), ...r.holesMm.map(ring => ring.map(p => [p.x, p.y] as [number, number]))]))
+    expect(area(polygonClipping.intersection(regions[0], regions[1]))).toBeCloseTo(0, 6)
+    expect(area(polygonClipping.xor(polygonClipping.union(regions[0], regions[1]), poly(inlay.footprintMm)))).toBeCloseTo(0, 6)
+    const hidden = cloneJson(updated.document); hidden.terrainConnections.road.visibility = 'gm'
+    expect(projectScene(hidden, 'player').inlays).toBeUndefined()
+    expect(projectScene(hidden, 'player').connections).toEqual([])
+  })
   it('cuts both source tops including apron, preserves untouched original edges and replaces only exact changed intervals', () => {
     const { before, after } = setup(), original = canonicalJson(after.document), old = projectScene(before.document, 'gm'), projected = projectScene(after.document, 'gm')
     const inlay = projected.inlays![0]

@@ -21,11 +21,17 @@ export interface ProjectedRock {
 /** Audience-owned actual geometry only; no frozen source, identity or recipe. */
 export interface ProjectedTerrainInlay {
   id: string
+  finish?: import('../terrain-inlay/persistence.js').TerrainInlayFinish
+  /** Complete audience-owned walk and width, only for explicit surface finish. */
+  finishRoute?: { centerlineMm: PointMm[]; widthMm: number }
   footprintMm: PointMm[]
   walkFootprintMm: PointMm[]
   patches: { kind: 'walk' | 'apron'; pointsMm: PointMm[]; elevationsMm: number[] }[]
   /** Disjoint actual apron ownership, already filtered with both source tops. */
   apronSurfaces: { sourceAreaId: string; regionsMm: NonNullable<ProjectedSurface['regionsMm']> }[]
+  /** Present only for explicit continuous source-ground paint. Covers both
+   * walk and apron without turning their classification into a painted seam. */
+  groundSurfaces?: { sourceAreaId: string; regionsMm: NonNullable<ProjectedSurface['regionsMm']> }[]
   walls: { a: PointMm; b: PointMm; highMm: [number, number]; lowMm: [number, number]; normal: PointMm; lowSourceAreaId: string | null }[]
   /** Only the changed carriers; original raw source identities never leave the domain. */
   changedCarriers: { a: PointMm; b: PointMm }[]
@@ -46,6 +52,8 @@ export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; star
   /** A multi-source actual walk, never reconstructed as a stair/straight band. */
   inlayFootprintMm?: PointMm[]
   inlayCenterlineMm?: PointMm[]
+  /** Source-ground is already painted by the actual inlay, before connections. */
+  inlayAppearance?: 'source-ground'
 }
 export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean; /** Editor-only symbol suppression preserves the physical wall hole. */ paintSymbol?: boolean }
 export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; edgeProfile?: 'stone-blocks-v1'; style: SurfaceStyle | null; openings: ProjectedOpening[] }

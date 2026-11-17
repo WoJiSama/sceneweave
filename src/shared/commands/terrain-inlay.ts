@@ -5,7 +5,7 @@ import type { HistoryIdentity } from '../model/history.js'
 import type { SceneDocument } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { terrainInlayRequestSchema } from '../terrain-inlay/contracts.js'
-import { terrainInlayOriginalSchema } from '../terrain-inlay/persistence.js'
+import { terrainInlayOriginalSchema, terrainInlayFinishSchema } from '../terrain-inlay/persistence.js'
 import { inspectTerrainInlay, terrainInlayHash } from '../terrain-inlay/scene.js'
 import { attachmentOwnerDependencyIds, assertAttachmentLocks } from '../attachments/dependencies.js'
 import { geometryIdentityIds } from './domain.js'
@@ -13,8 +13,13 @@ import { assertTerrainInlayVisualLocks, inspectTerrainInlayVisualScope } from '.
 
 export const terrainInlayCommandSchemas = [
   z.object({ type: z.literal('adoptTerrainInlay'), id, geometry: terrainInlayRequestSchema,
+    appearance: z.literal('source-ground').optional(), finish: terrainInlayFinishSchema.optional(),
     centerlineVertexIds: z.array(id).min(2).max(256), expectedConnectionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ type: z.literal('restoreTerrainInlaySource'), id, disposition: z.literal('restore-original-connection-and-ground') }).strict(),
+  z.object({ type: z.literal('setTerrainInlayAppearance'), id, appearance: z.literal('source-ground').nullable(),
+    expectedConnectionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  z.object({ type: z.literal('setTerrainInlayFinish'), id, finish: terrainInlayFinishSchema.nullable(),
+    expectedConnectionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
 ] as const
 export type TerrainInlayCommand = z.infer<typeof terrainInlayCommandSchemas[number]>
 export const isTerrainInlayCommand = (row: { type: string }): row is TerrainInlayCommand => terrainInlayCommandSchemas.some(schema => schema.shape.type.value === row.type)
@@ -33,6 +38,20 @@ export function applyTerrainInlayCommand(scene: SceneDocument, raw: TerrainInlay
   assertAttachmentLocks(scene, [...dependencies])
   const visualGeometry = command.type === 'adoptTerrainInlay' ? command.geometry : connection.terrainInlay?.geometry
   if (visualGeometry) assertTerrainInlayVisualLocks(scene, inspectTerrainInlayVisualScope(scene, connection.id, visualGeometry))
+  if (command.type === 'setTerrainInlayAppearance') {
+    if (!connection.terrainInlay) throw Error('只有已采用的连续填切山路可以切换地表表现。')
+    if (terrainInlayHash(connection) !== command.expectedConnectionHash) throw Error('山路已在外观候选之后改变，请重新准备。')
+    if (command.appearance === null) delete connection.terrainInlay.appearance
+    else connection.terrainInlay.appearance = command.appearance
+    return { commandCost: 1 }
+  }
+  if (command.type === 'setTerrainInlayFinish') {
+    if (!connection.terrainInlay) throw Error('只有已采用的坡体可以设置山径或踏步表面。')
+    if (terrainInlayHash(connection) !== command.expectedConnectionHash) throw Error('坡体已在表面候选之后改变，请重新准备。')
+    if (command.finish === null) delete connection.terrainInlay.finish
+    else connection.terrainInlay.finish = cloneJson(command.finish)
+    return { commandCost: 1 }
+  }
   if (Object.values(scene.attachmentSurfaces ?? {}).some(surface => surface.owner.kind === 'terrainConnection' && surface.owner.id === connection.id)
     || Object.values(scene.attachments ?? {}).some(row => row.child.id === connection.id)) throw Error('原连接已有附着依赖，须先显式解除后再转换或回填。')
   if (command.type === 'restoreTerrainInlaySource') {
@@ -60,6 +79,7 @@ export function applyTerrainInlayCommand(scene: SceneDocument, raw: TerrainInlay
   geometry.walkBoundaryVertexIds = geometry.walkBoundaryVertexIds.map(id => map.get(id)!)
   const centerlineVertexIds = command.centerlineVertexIds.map(id => { const actual = map.get(id); if (!actual) throw Error('中心线引用缺少实际顶点。'); return actual })
   connection.terrainInlay = { algorithmId: 'terrain-inlay1', algorithmVersion: 1, geometry, centerlineVertexIds,
+    ...(command.appearance ? { appearance: command.appearance } : {}), ...(command.finish ? { finish: cloneJson(command.finish) } : {}),
     originalConnection: original, originalConnectionHash: terrainInlayHash(original), connectionBirthToken: record.token, lineageId: identity.lineageId,
     sourceProofs: geometry.sources.map(source => {
       const proof = identity.outdoorTokens[source.id]

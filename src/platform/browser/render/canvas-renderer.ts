@@ -35,6 +35,7 @@ import { editorResidentAssetIds } from './aggregate-residency.js'
 import { paintWithPreservedAlpha } from './alpha-preservation.js'
 import { noteLabelPositions } from './note-label-layout.js'
 import { terrainInlayWallPaint, type InlayWallPaintPiece } from '../../../shared/terrain-inlay/wall-paint.js'
+import { drawTerrainSlopeFinish } from './terrain-slope-renderer.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -717,7 +718,7 @@ function maskNaturalRockLanding(layer: CanvasRenderingContext2D, connection: Pro
 }
 function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
   if (c.inlayFootprintMm) {
-    if (c.style) fillSurface(ctx, polygonPath(c.inlayFootprintMm), c.style, projection, raster, '#B5A281')
+    if (c.inlayAppearance !== 'source-ground' && !projection.inlays?.some(inlay => inlay.id === c.id && inlay.finish) && c.style) fillSurface(ctx, polygonPath(c.inlayFootprintMm), c.style, projection, raster, '#B5A281')
     if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 35; ctx.stroke(polygonPath(c.inlayFootprintMm)); ctx.restore() }
     return
   }
@@ -812,13 +813,13 @@ function drawTerrainInlays(ctx: CanvasRenderingContext2D, projection: Projection
       // Actual source ownership supplies the same world-aligned material and
       // authored overlays as the adjacent top; a uniform rock-colored fill
       // would turn even a shallow, continuous opening into a dark board.
-      for (const patch of inlay.apronSurfaces) {
+      for (const patch of inlay.groundSurfaces ?? inlay.apronSurfaces) {
         const source = local.terrain.find(area => area.id === patch.sourceAreaId)
         if (!source) throw Error('实际开口缺少已过滤的来源材质。')
         const path = new Path2D()
         for (const region of patch.regionsMm) { addRing(path, region.outerMm); for (const hole of region.holesMm) addRing(path, hole) }
         target.save()
-        try { target.clip(path, 'evenodd'); fillSurface(target, apron, source.style, local, raster, '#C3BEA8', source.materialPatches) }
+        try { target.clip(path, 'evenodd'); fillSurface(target, inlay.groundSurfaces ? polygonPath(inlay.footprintMm) : apron, source.style, local, raster, '#C3BEA8', source.materialPatches) }
         finally { target.restore() }
       }
       const wallGroups = new Map<string | null, InlayWallPaintPiece[]>()
@@ -859,7 +860,12 @@ function drawTerrainInlays(ctx: CanvasRenderingContext2D, projection: Projection
           }
         } finally { target.restore() }
       }
-      target.fillStyle = '#B5A281'; target.fill(walk)
+      if (!inlay.groundSurfaces) {
+        const style = inlay.finish && local.connections.find(c => c.id === inlay.id)?.style
+        if (style) fillSurface(target, walk, style, local, raster, '#B5A281')
+        else { target.fillStyle = '#B5A281'; target.fill(walk) }
+      }
+      drawTerrainSlopeFinish(target, inlay, local.visual?.environment.lightDirectionDeg ?? 315)
     } finally { target.restore() }
   }, !!raster.readFrequently)
 }

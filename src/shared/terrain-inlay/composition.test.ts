@@ -62,6 +62,26 @@ afterEach(async () => {
 })
 
 describe('complete cross-terrace inlay transactions', () => {
+  it('switches explicit source-ground paint without changing real walk, fill/cut, proofs or physical identity', () => {
+    const { result } = prepared(), adopted = applyCompositionDraftCommands(result, [command(result.document)], runtime)
+    const original = cloneJson(adopted), row = adopted.document.terrainConnections.road
+    const change: CompositionCommand = { type: 'setTerrainInlayAppearance', id: 'road', appearance: 'source-ground', expectedConnectionHash: terrainInlayHash(row) }
+    const after = applyCompositionDraftCommands(adopted, [change], runtime, { budget: MANUAL_TRANSACTION_BUDGET })
+    expect(after.document.terrainConnections.road.terrainInlay!.appearance).toBe('source-ground')
+    const connection = cloneJson(after.document.terrainConnections.road); delete connection.terrainInlay!.appearance
+    expect(connection).toEqual(row)
+    expect(after.historyIdentity).toEqual(adopted.historyIdentity)
+    expect(after.document.terrainAreas).toEqual(adopted.document.terrainAreas)
+    expect(adopted).toEqual(original)
+    physical(after.document)
+    expect(validateTerrainInlayProofs(after.document, after.historyIdentity)).toEqual([])
+    expect(() => applyCompositionDraftCommands(after, [change], runtime)).toThrow(/候选之后改变/)
+    const restored = applyCompositionDraftCommands(after, [{ ...change, appearance: null, expectedConnectionHash: terrainInlayHash(after.document.terrainConnections.road) }], runtime)
+    expect(restored.document).toEqual(adopted.document)
+    const locked = applyCompositionDraftCommands(adopted, [{ type: 'setEditLock', kind: 'terrainArea', id: 'low', locked: true }], runtime)
+    expect(() => applyCompositionDraftCommands(locked, [change], runtime)).toThrow(/锁/)
+    expect(() => applyCompositionDraftCommands(result, [change], runtime)).toThrow(/已采用/)
+  })
   it('replaces one connection, retaining complete source evidence, real support and side-wall rejection', () => {
     const { result } = prepared(), before = cloneJson(result), input = command(result.document)
     const after = applyCompositionDraftCommands(result, [input], runtime, { budget: MANUAL_TRANSACTION_BUDGET })
@@ -225,6 +245,13 @@ describe('complete cross-terrace inlay transactions', () => {
     physical(workspace.getDocument()!)
     workspace.undo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toBeUndefined()
     workspace.redo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toEqual(actual)
+    const paint = await workspace.preview([{ type: 'setTerrainInlayAppearance', id: 'road', appearance: 'source-ground',
+      expectedConnectionHash: terrainInlayHash(workspace.getDocument()!.terrainConnections.road) }])
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.appearance).toBeUndefined()
+    await workspace.adoptPreview(paint)
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.appearance).toBe('source-ground')
+    workspace.undo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toEqual(actual)
+    workspace.redo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.appearance).toBe('source-ground')
     await workspace.flush()
     const cold = (await repository.load(workspace.getDocument()!.sceneId))!
     expect(cold.project.document).toEqual(workspace.getDocument())

@@ -295,7 +295,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       && (!c.openingId || !!opening && (!opening.secret || opening.revealed))
   }
   const surfaceElevation = (ref: SurfaceRef) => ref.kind === 'terrainArea' ? scene.terrainAreas[ref.id]?.groundElevationMm ?? 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm ?? 0 : 0
-  const connections: ProjectedConnection[] = floorValues(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.terrainInlay || c.terrainInlay.geometry.sources.every(source => entityShown(source.id))) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle), surfaceIds: [c.from.surfaceRef.id, c.to.surfaceRef.id] as [string, string], ...(c.terrainInlay ? { inlayFootprintMm: terrainInlayFootprint(c, true), inlayCenterlineMm: terrainInlayCenterline(c) } : {}), ...(c.route ? { route: { centerlineMm: clone(c.route.centerlineMm), stairStyle: c.route.stairStyle, treadDepthMm: c.route.treadDepthMm, ...(c.route.renderProfile ? { renderProfile: c.route.renderProfile } : {}) } } : {}) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
+  const connections: ProjectedConnection[] = floorValues(scene.terrainConnections).filter(c => entityShown(c.id) && entityShown(c.from.surfaceRef.id) && entityShown(c.to.surfaceRef.id) && (!c.terrainInlay || c.terrainInlay.geometry.sources.every(source => entityShown(source.id))) && (!c.openingId || entityShown(c.openingId) && entityShown(scene.openings[c.openingId].wallId)) && (audience === 'gm' || connectionPublic(c.id))).map(c => ({ id: c.id, kind: c.kind, start: clone(c.from.positionMm), end: clone(c.to.positionMm), widthMm: c.widthMm, fromElevationMm: surfaceElevation(c.from.surfaceRef), toElevationMm: surfaceElevation(c.to.surfaceRef), blocksMovement: c.blocksMovement, style: clone(c.surfaceStyle), surfaceIds: [c.from.surfaceRef.id, c.to.surfaceRef.id] as [string, string], ...(c.terrainInlay ? { inlayFootprintMm: terrainInlayFootprint(c, true), inlayCenterlineMm: terrainInlayCenterline(c), ...(c.terrainInlay.appearance ? { inlayAppearance: c.terrainInlay.appearance } : {}) } : {}), ...(c.route ? { route: { centerlineMm: clone(c.route.centerlineMm), stairStyle: c.route.stairStyle, treadDepthMm: c.route.treadDepthMm, ...(c.route.renderProfile ? { renderProfile: c.route.renderProfile } : {}) } } : {}) })).sort((a, b) => compareLayer(a, b) || a.id.localeCompare(b.id))
   const paths = floorValues(scene.paths).filter(path => entityShown(path.id) && path.supportRefs.every(surfaceShown) && (audience === 'gm' || pathPublic(path.id))).sort((a, b) => compareLayer(a, b) || a.renderOrder - b.renderOrder || a.id.localeCompare(b.id)).map(path => projectPath(path, theme))
   const visibleConnectionIds = new Set(connections.map(row => row.id))
   const rocks: NonNullable<Projection['rocks']> = []
@@ -349,11 +349,16 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       return { x: p.x + wall.normal.x * depth, y: p.y + wall.normal.y * depth }
     }))]
     inlays.push({ id: connection.id, footprintMm, walkFootprintMm: terrainInlayFootprint(connection, true),
+      ...(connection.terrainInlay.finish ? { finish: clone(connection.terrainInlay.finish), finishRoute: { centerlineMm: terrainInlayCenterline(connection), widthMm: connection.widthMm } } : {}),
       patches: Object.values(geometry.faces).sort((a, b) => a.id.localeCompare(b.id)).map(face => ({ kind: face.kind, pointsMm: face.vertexIds.map(id => ({ x: geometry.verticesMm[id].x, y: geometry.verticesMm[id].y })), elevationsMm: face.vertexIds.map(id => geometry.verticesMm[id].z) })),
       apronSurfaces: geometry.sources.map(source => {
         const cells = plan.cells.filter(cell => cell.kind === 'apron' && cell.sourceAreaId === source.id).map(cell => polygonRegion(cell.ringMm))
         return { sourceAreaId: source.id, regionsMm: cells.length ? projectedRegions(polygonClipping.union(cells[0], ...cells.slice(1))) : [] }
       }),
+      ...(connection.terrainInlay.appearance === 'source-ground' ? { groundSurfaces: geometry.sources.map(source => {
+        const cells = plan.cells.filter(cell => cell.sourceAreaId === source.id).map(cell => polygonRegion(cell.ringMm))
+        return { sourceAreaId: source.id, regionsMm: cells.length ? projectedRegions(polygonClipping.union(cells[0], ...cells.slice(1))) : [] }
+      }) } : {}),
       walls, changedCarriers: plan.sourceIntervals.map(row => ({ a: clone(row.a), b: clone(row.b) })), paintBoundsMm: inflate(pointsBounds(paintPoints), 24) })
   }
   if (changedIntervals.length) edges.splice(0, edges.length, ...splitInlaySourceEdges(edges, scene, changedIntervals))

@@ -7,6 +7,7 @@ import { coveredEverywhere, connectionBand, pointInPolygon, polygonDistance, pol
 import { planTerrainInlay } from './geometry.js'
 import { TERRAIN_INLAY_LIMITS, type TerrainInlaySource } from './contracts.js'
 import { terrainInlaySchema } from './persistence.js'
+import { connectionArcFrame } from '../geometry/connection-route.js'
 
 export const terrainInlayHash = (value: unknown) => sha256Text(canonicalJson(value))
 export function terrainInlaySource(area: TerrainArea): TerrainInlaySource {
@@ -54,6 +55,8 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
     assert(terrainInlayHash(originalLine[0]) === terrainInlayHash(original.from.positionMm)
       && terrainInlayHash(originalLine.at(-1)) === terrainInlayHash(original.to.positionMm), '冻结原路线首尾须精确等于原连接端点。')
     assert(terrainInlayHash(line) === terrainInlayHash(originalLine), '跨台山路须保全冻结控制源的完整实际中心线。')
+    if (inlay.finish?.kind === 'steps') assert(Math.ceil(connectionArcFrame(line).length / inlay.finish.treadDepthMm) <= 512,
+      '坡面踏步超过512级绘制预算。')
     const walk = terrainInlayFootprint(connection, true), footprint = terrainInlayFootprint(connection)
     const band = connectionBand(line, connection.widthMm)
     assert(coveredEverywhere(band, [walk], point => pointInPolygon(point, walk)), '跨台山路实际步行面未完整覆盖原净宽带。')

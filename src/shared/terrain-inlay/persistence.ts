@@ -12,8 +12,18 @@ export const terrainInlayOriginalSchema = z.object({ ...editable, visibility, ki
 }).strict()
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
 const sourceProof = z.object({ areaId: id, birthToken: id, topologyToken: id, topologyHash: hash, geometryHash: hash }).strict()
+/** Surface treatment over the saved continuous physical slope. Steps are a
+ * drawn stone finish; they do not replace its support mesh or grant access. */
+export const terrainInlayFinishSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('slope') }).strict(),
+  z.object({ kind: z.literal('steps'), treadDepthMm: z.number().int().min(50).max(2000) }).strict(),
+])
+export type TerrainInlayFinish = z.infer<typeof terrainInlayFinishSchema>
 export const terrainInlaySchema = z.object({
   algorithmId: z.literal('terrain-inlay1'), algorithmVersion: z.literal(1),
+  /** Explicit paint intent. Omission retains the saved independent road style. */
+  appearance: z.literal('source-ground').optional(),
+  finish: terrainInlayFinishSchema.optional(),
   geometry: terrainInlayRequestSchema,
   centerlineVertexIds: z.array(id).min(2).max(256),
   originalConnection: terrainInlayOriginalSchema,
