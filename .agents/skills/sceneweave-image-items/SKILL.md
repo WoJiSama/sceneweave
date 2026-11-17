@@ -5,7 +5,7 @@ description: 在 Sceneweave 中从地图图片制作、审阅和交付可编辑 
 
 # Sceneweave 图片 item 制作
 
-先读取仓库 `AGENTS.md`、项目默认的[制作总则](../../../docs/reference/project-creation-workflow.md)、当前[开发入口](../../../docs/07-roadmap.md#image-to-project-plan)及[图片专用步骤](../../../docs/reference/image-item-workflow.md)。这些规范随项目维护，供用户、项目内模型和外部助手共同使用；本 skill 负责接入它们，不另建审核标准。独立工作包只保存具体制作任务的进度，不是规范本体。正式验收从[09](../../../docs/09-quality-plan.md#image-to-project-acceptance)执行。
+先读取仓库 `AGENTS.md`、项目默认的[制作总则](../../../docs/reference/project-creation-workflow.md)、当前[开发入口](../../../docs/roadmap.md#image-work)及[图片专用步骤](../../../docs/reference/image-item-workflow.md)。这些规范随项目维护，供用户、项目内模型和外部助手共同使用；本 skill 负责接入它们，不另建审核标准。独立工作包只保存具体制作任务的进度，不是规范本体。正式验收从[09](../../../docs/testing.md)执行。
 
 ## 开始或接续
 

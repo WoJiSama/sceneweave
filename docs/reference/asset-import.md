@@ -1,6 +1,6 @@
 # 自定义素材导入指南
 
-从工作台「素材」打开「导入自有素材」或「批量导入图片／SVG」。先预览，确认后一次采用到当前工程；失败和取消保留当前工程。技术合同归[14](../14-visual-and-assets.md#custom-asset-import-contract)，许可要求归[10](../10-rules-assets-and-licensing.md#asset-review-and-rights)。
+从工作台「素材」打开「导入自有素材」或「批量导入图片／SVG」。先预览，确认后一次采用到当前工程；失败和取消保留当前工程。技术合同归[14](../assets.md)，许可要求归[10](../assets.md)。
 
 ## 准备图片和名字
 

@@ -1,7 +1,11 @@
 # 工作区、素材库与内容历史台账
 
+> 文档清理通知（2026-11-17）：用户要求删除完成流水与无用归档。本路径因海洋/SVG、岩体山路会话仍在使用而暂留，正文内容保留供当前工作接续。新的能力只简记到[已完成功能](../completed.md)，未解决事项记到[剩余事项](../roadmap.md)，当前约束见[当前架构](../architecture.md)；无需继续追加旧批次报告。当前会话结束后，本过渡文件可以删除。
+
 本文件汇集原始批次记录，正文中的“当前”、未通过项、发布授权和测试数字只属于各自日期及冻结。现行顺序以[路线图](../07-roadmap.md)为准；不把历史通过数拼成新验收。
 
+- [共用地形、近岸海战与三层船图开发自检（2026-11-17）](#ocean-refinement-20261117)
+- [静态海洋成图的开发自检（2026-11-17）](#ocean-scene-development-20261117)
 - [房间布置流程与模板多维预算（2026-11-16）](#furnishing-workflow-budget-20261116)
 - [现有房间用途布置与完整旅舍（2026-11-16）](#room-furnishing-20261116)
 - [床桌椅柜各24款与视觉复核（2026-11-16）](#deep-asset-collection-20261116)
@@ -44,6 +48,47 @@
 - [图片分层琴房样板开发自检（2026-11-10）](#image-room-sample-20261110)
 - [项目图片拆解工具与本地item开发自检（2026-11-10）](#image-import-tool-20261110)
 - [图片拆解画面质量整改（2026-11-10）](#image-import-quality-20261110)
+
+<a id="ocean-refinement-20261117"></a>
+## 共用地形、近岸海战与三层船图开发自检（2026-11-17）
+
+承接用户“浅深水与岸线是地形工具的问题，不要所有东西单独写一套”及“全部开发完成”，完成[07同一海洋工作](../07-roadmap.md#ocean-scene-development)内的公共地形羽化／材质与岸线复用、物件波纹／水线／静态尾流、近岸样板和静态三层船图／通用楼层总览。沿唯一完整v1、现存候选／资源／身份／撤销／保存CAS；未新增海洋地形引擎、船内专用工程或AI权限。上一[首片冻结](#ocean-scene-development-20261117)及`work/ocean-development/`原件保持。本线保全共享工作流、AI、图片与地形的并发修改及独立todo；未提交、推送、发布或付费调用。本节只记开发自检，正式验收与P3仍从09执行。
+
+**共享接入。** 普通`TerrainArea.boundaryBlendMm`为0–10000整数毫米的外观字段，普通地形详情和编辑命令共用；地形、局部覆盖与地表规则使用同一世界尺度／even-odd孔遮罩，向实际地形内侧羽化，不扩大表现或物理范围。水色仅替换底材绘制，既有材质覆盖继续显示。岸边曲线与湿沙／浅水／岸崖复用原Sampler及`applyShoreSurfaceRecipe`保存实际结果。生成surface组同步纳入羽化与水面、appearance组纳入浸水字段，人工修改仍暂停受影响生成并保全。物件可选波纹／尾流不拆成碎图，裁到当前受众真实水域；完整旋转表现包络纳入保密／剔除，物理占地不扩。
+
+**样板与楼层。** “碎潮礁湾 · 近岸海战”为40×30m，5个普通地形、8个船与生物，使用已有SHORE材质及真实曲线。“逐潮号 · 三层船图”为三个14×30m Floor，3个对齐船壳、5个普通房间、3扇真实门、34件普通家具／储物／梯子，A／B梯口同XY对应。场景左栏总览临时渲染每层实际主持人图，可切层独立编辑；没有用图层排序模拟Floor，也未授予跨层通行。
+
+**最终定向自检。** `unit-final.json`记录11个文件94项全部通过：海洋／近岸与船图、共用岸面、表现包络／Floor／地表规则投影、生成完整性／人工生命周期／建筑所有权／地形编辑和原生地表遮罩。覆盖非法羽化／尾流、图层锁、生成摘要变动与人工保护、旋转保密范围、物理不变及楼层隔离。正常`npm run build -- --outDir work/ocean-refinement/build-final`通过工作流同步、493模块边界、应用／服务类型与Vite；`npm run check:shared`通过453纯模块、无DOM编译和Node ESM／ZIP往返。原Zod注释、混合导入和大chunk提示保持；不称全仓回归或正式性能通过。
+
+**实际像素与普通生产。** 开发服务Chrome的`ocean raster`最终一项通过，核水下／浪纹层序、旋转部分出水、陆地遮挡／孔、水色上的原材质覆盖、普通陆地羽化、公开同密度局部像素及图像范围外尾流。此项动态读取源码，不记为生产运行。随后独立`build-final/`正常产物在5183预览，Chrome158.0.8127.37、单worker、retries0，`--grep 'normal ocean|blank scene|nearshore battle|three ship'`四条普通生产旅程全部通过（40.1／51.4／30.4／11.9秒，总2.3分钟），输出归`work/ocean-refinement/production-reviewed/`：从样板保全／打开、公共羽化预览采用与撤销、尾流调整与冷开；总览三张真实图／切层、独立旋转船舱椅子／范围外层保持、撤销／冷开、三个Floor双受众输出和新context完整导入；原海洋样板与空白铺海／目录鱼放置继续通过。普通导入依法分配新sceneId与创建／更新时间，只这三项审计元数据不同，实际文档其余字段保持；导入后底舱player PNG与原输出确切一致。冷开是同context刷新／首页再打开，不冒充整浏览器或离线应用启动。
+
+**首败与修正。** 工厂初检发现岸面选项不完整、梯子key错误、层／实体ID冲突及蝠鲼超支撑，按真实目录／几何修正后复测。首条船图总览藏于场景设置，移到普通场景左栏后复验。全公开舱内GM／player PNG逐字节相等的初始断言失败：现存玩家规范墙序与GM墙序在少数抗锯齿接点有差异；改核实际RGBA（最大通道差≤5、变化像素<0.01%）并保留同受众导入前后确切PNG检查，未改保密或渲染守卫。导入身份断言按既有独立副本合同修正。实际图审发现降低相邻岸带覆盖透明度造成叠色接缝，恢复原配方不透明／世界相位铺法，保留普通边带尺寸调整，并重建、重跑最终四旅程及94项单元。复建期间遇并发AI新测试的字面量类型错误；其工作线修正后本线正常重建通过，未替它认领功能验证。早期失败／trace、先前四旅程及`*-preliminary.json`均保全，不与最终冻结拼成通过数。
+
+**实际交付。** 全部来自最终普通生产页面下载，归`work/ocean-refinement/delivery/`，完整集合为同目录上级`海洋与三层船图-完整交付.zip`：
+
+- `碎潮礁湾.sceneweave`：607462字节，SHA256 `03d1517467b0e30bd31fe88f84f8762f4d6dd0b228e6b63ef472f20f73f4ed70`；52个清单entry、15张真实图片及3份实际许可。
+- `逐潮号.sceneweave`：874184字节，SHA256 `40b71a39852d373545c9aab854865379a5d4bfd0541f46b423cfb93c687050a4`；38个清单entry、10张真实图片及4份实际许可。
+
+近岸双受众4096×3072，三Floor各自双受众1911×4096，共8张实际PNG。`audit.py`复读真实ZIP CRC、全部清单大小／SHA、PNG尺寸、原始／规范化SVG与实际MIT条款／允许嵌入绑定；PNG无EXIF／XMP／说明元数据。近岸／甲板GM与player RGBA一致；船舱299像素最大通道差4、底舱24像素最大差1，明确保留，不写成完全相同。结果归`artifact-audit.json`；`build-fingerprints.json`记录210份最终独立产物，`source-fingerprints.json`仅记录本线拥有的14份源码且复核未变，排除并发修改的共有集成文件，不称全仓源码冻结。
+
+已实际查看最终近岸整图预览及由三个实际Floor PNG排成的联系图，深浅水／曲线岸边、船周波纹／尾流、部分出水与逐层结构可辨。采用简洁矢量表达，岸带仍较均匀，甲板布景较疏，专用桅杆／索具／火炮美术不由本次示例保证；技术通过和开发目视不替代用户P3。操作说明、实际工程、原PNG和缩放预览保存在同一工作目录；11份相关文档1847个本地文件链接、8个海洋唯一锚点及默认仓库行尾配置的`git diff --check`通过，新源码另查尾随空白。未实现动态海浪／航行／浮力、船体整体运动或跨层／水下寻路；正式09全矩阵、跨引擎、异常／并发存储、性能、UVTT目标软件导入及P3分别待验。
+
+<a id="ocean-scene-development-20261117"></a>
+## 静态海洋成图的开发自检（2026-11-17）
+
+消费用户“先形成海洋成图能力”与[07开发范围](../07-roadmap.md#ocean-scene-development)，交付静态水面／浪纹、普通舟船、水面／水下生物及有限部分出水。唯一严格完整v1直接保留水面与物件字段；图层、Floor、高程和玩家保密保持独立。没有新增多层船内、航行／浮力、动画、寻路或AI执行权限。工作区有其他会话的共享工作流、图片和地形修改，本线保全这些修改及独立todo；未提交、推送、部署或付费调用。正式范围只从[09海洋验收](../09-quality-plan.md#ocean-scene-acceptance)执行，本节是必要开发自检，不是P3或发布。
+
+**实际能力与候选。** 三组水面预设及颜色、清澈度、浪间距／方向／强度可改，波形由世界坐标和固定seed产生；采样预算单面4096、整图16384。水下图像在浪纹下着色衰减，水上图像在浪纹上；部分出水仍是一件物件，局部分界随其旋转，深度为0–1视觉参数。显式绑定同Floor真实水面，缺水面、依赖／图层锁、阻挡型水下布景、近侧视和附件关系均沿严格校验拒绝。地形工具铺海、地形详情调水、物件详情调浸水共用现有候选、一次采用／撤销和保存CAS。普通舟船复用原固定设计，新增六款原创海洋生物；许可与实际来源归[14](../14-visual-and-assets.md#ocean-scene-assets)，原164类／3030设计未改义，现165类／3036设计。
+
+**定向自检。** 目录与初轮海洋测试两文件186项通过；新增跨Floor检查后，最终`ocean-sample.test.ts`、`floor-projection.test.ts`、`presentation-contract.test.ts`、`appearance/presentation.test.ts`、`validation/prop-updates.test.ts`和`aggregates/natural-transform.test.ts`六文件51项通过，范围有交叉，不累计为独立总覆盖。覆盖字段／原物理数据保持、非法支撑／锁、依赖删除原子拒绝、复制旋转、隐层／私密支撑投影、独立Floor及固定浪形。正常`npm run build`通过工作流投影、491模块边界、应用／服务类型和Vite；`npm run check:shared`通过451纯模块无DOM编译及Node ESM。原Zod注释、混合导入和大chunk提示仍在。没有全仓回归或正式性能结论。
+
+**真实Canvas及普通生产闭环。** 开发环境Chrome的`tests/ocean-scene.spec.ts`三项通过：实际像素检查水下／水上与浪纹顺序、清澈度0、单张部分出水及90°旋转、陆地遮挡、公开同像素密度裁剪一致；普通样板从保全原工程开始，双受众PNG、调浸水、撤销重做、调水取消及采用、刷新首页冷开、独立browser context文件导入和原工程保全；空白图铺海、从目录采用银鳞鱼群、明确选水面放置并设水下。冷开是同context页面刷新／重新打开，不冒充整浏览器或离线应用冷启动。普通生产首轮样板通过，空白路径遇并发重建公共dist造成wasm临时404，原失败／trace保留在`work/ocean-development/production-tests/`；未改功能或放宽守卫。随后`npm run build -- --outDir work/ocean-development/build`独立正常构建，5183生产预览、Chrome158.0.8127.37、单worker、retries0，`--grep 'normal ocean|blank scene'`两项均通过（31.5／12.5秒，总45.3秒），输出归`production-isolated-tests/`。实际像素项使用源码动态导入，生产两旅程不把它冒充第三次生产运行。
+
+初期失败中，缺默认Playwright浏览器改用已安装Chrome；固定素材缺年代标签、共享地形边段和SVG渐变stop缺offset均已修正后复测。私密样板无固定遮罩被正确拒绝，交付改为全公开示例，秘密投影另用真实固定遮罩测试；脚本取消比较改为当时重做后的真实快照，裁剪像素比较使用公开同密度输出，未改变保密／裁剪合同。补充文件审计首轮误要求许可含“MIT License”标题，修为核真实MIT条款；原许可全文未改。
+
+**真实交付与目视。** `work/ocean-development/潮影航路.sceneweave`是普通生产页面实际下载的40×30m完整工程，两个水面、两船和六生物均独立可编辑；450789字节，SHA256 `4af72df15a33400c1a20238051c36f1158f6f48bcdda4a731682d9db50eaf51a`。实际GM／player各4096×3072；本示例全部公开，RGBA及PNG字节相同。独立context导入经过应用完整资源／像素／许可校验，补充`audit.py`另复读ZIP CRC、30个清单entry大小／SHA、8张真实PNG尺寸、16份原始／规范化SVG、两份实际许可及绑定，双受众RGBA一致且无EXIF／XMP／说明元数据，结果归`artifact-audit.json`。`build-fingerprints.json`记录210份独立生产产物，摘要在复验后采集；`source-fingerprints.json`仅覆盖41份本任务相关源码／测试／文档，复核前40份无变化，不称全仓冻结。
+
+已实际打开GM完整输出、由该输出生成的1200×900预览和六生物按声明图像比例排列的真实PNG联系图；舟船、半出水海怪、水下衰减可辨，采用简洁矢量风格，深浅水交界为折线硬边，细节较疏，没有连续水深渐变或岸边碎浪，不宣称写实水体或美术通过。操作README与可编辑工程／实际图均归同目录。相关九份文档1664个本地文件链接、八个海洋唯一锚点与显式锚点重复检查通过，`git diff --check`通过。正式09全矩阵、跨引擎、异常／并发存储、正式性能、UVTT目标软件导入及用户P3仍分别待验；本例不继承其他工作线的冻结和发布结论。
 
 <a id="room-furnishing-20261116"></a>
 ## 现有房间用途布置与完整旅舍（2026-11-16）
@@ -127,7 +172,7 @@
 <a id="scene-templates-20261116"></a>
 ## 灰橡主题与跨工程场景模板（2026-11-16）
 
-按[07工作线](../07-roadmap.md#scene-template-development)完成当前布景捕获、依赖完整的有限房间／建筑模板、独立本机库及六套主题样例；合同归[模板专题](../reference/scene-templates.md)，验收仍只沿[09](../09-quality-plan.md#scene-template-acceptance)。保全main上的其他会话修改，未承接墙门表面、图片整件质量、附着／山径／地形嵌入，不改其结论；没有提交、推送、部署或付费模型调用。
+按[07工作线](../07-roadmap.md#scene-template-development)完成当前布景捕获、依赖完整的有限房间／建筑模板、独立本机库及六套主题样例；合同归[模板专题](../architecture.md#geometry)，验收仍只沿[09](../09-quality-plan.md#scene-template-acceptance)。保全main上的其他会话修改，未承接墙门表面、图片整件质量、附着／山径／地形嵌入，不改其结论；没有提交、推送、部署或付费模型调用。
 
 **实际实现。** 布景以普通拆组／建立固定组合命令在脱离源工程的候选上冻结当前外观、摆位和现存成员，再进入既有个人库；原工程不落新revision。场景模板使用中性严格完整v1 ZIP，提取真实顶点、唯一墙段、开口、家具、完整固定组合及明确注记／遮罩；新身份、同Floor支撑和单目标图层重绑，直角旋转，不自动缩放、合墙或补散布。锁、外部共墙、跨界组合和未支持依赖明确拒绝。实际源／派生／许可闭包全验，采用仍走工作区基线、普通预览、一次撤销与保存CAS；32MiB单模板、32项／128MiB库、256项实际展开为保护值。模板库独立Dexie、同事务revision比较；不改旧工程／个人库。
 
@@ -787,7 +832,7 @@ Chrome headless、固定软件Canvas2D（`--disable-accelerated-2d-canvas`）、
 
 候选交付完整性首查真实拒绝：两份台阶文件在源码冻结后被并发调整，立面高度按实际投影长度限幅，测试重新覆盖4000mm高差。原20份冻结不覆盖；变更前后hash及当前两份副本保存于`revalidation-source.json`／`revalidation-source/`。当前4文件50项独立复跑通过（`sculpted21-riser-bound-unit.json`），当前21实际2048／4096 PNG字节0差异（`riser-bound-render-recheck.json`），新正常构建`sculpted21-riser-bound-build.log`通过；旧两组浏览器和UI只归其原冻结，未冒称已在新源码整轮复跑。交付最终核对41份原文件、20份当前源码、7条链接，1512／390px各3图加载、无溢出／pageerror；另存完整性记录成为第42文件。`delivery-integrity.json`明确列出两文件并发差异与新验证，仍`visualAcceptance:not-passed`／`goalComplete:false`，不是原冻结与当前源码相同或视觉通过。
 
-**地形融合与叠层隔离原型（2026-11-13，产品未整合）。** 用户要求先研究真实岩体关系；此前run独立扩面后裁重叠的结论及官方来源归[研究](../reference/decisions-and-research.md#terrain-fusion-study)。原型与最终证据在本机`work/reference-rock-island-20261112/terrain-composition-study/prototype-05/`，不新增工程格式/产品画法，不写当前工程、IndexedDB或正式输出。源21包实际SHA仍`84ac7e02c15fd7d744596b8dfb40145561421c443b755bad0dd541915360546f`，本次经正常`importProject`及browserProjectValidation实际冷读，再从projectScene玩家投影提取原地表、高程、中心线和原生connectionBand。输入保留于`actual-input.json`/`all-inputs.json`；物理轮廓、来源、实体与资源原包不改。
+**地形融合与叠层隔离原型（2026-11-13，产品未整合）。** 用户要求先研究真实岩体关系；此前run独立扩面后裁重叠的结论及官方来源归[研究](../architecture.md)。原型与最终证据在本机`work/reference-rock-island-20261112/terrain-composition-study/prototype-05/`，不新增工程格式/产品画法，不写当前工程、IndexedDB或正式输出。源21包实际SHA仍`84ac7e02c15fd7d744596b8dfb40145561421c443b755bad0dd541915360546f`，本次经正常`importProject`及browserProjectValidation实际冷读，再从projectScene玩家投影提取原地表、高程、中心线和原生connectionBand。输入保留于`actual-input.json`/`all-inputs.json`；物理轮廓、来源、实体与资源原包不改。
 
 原型按覆盖优先级求有效地表，按各高度截面并集消去内部面，交点分段/共节点后按真实两侧高程复核外露区间；相同边段的连续高度区间合成完整壁，再以同一有限倾斜观察及深度比较绘制顶面/壁面。真实楼梯的完整带区分成逐级顶面，作为派生地表参与同一组合，不再给楼梯后补独立崖面遮罩。`results.json`同次11例完成：六个矩形关系的解析外露壁面积分别70.4/149.6/153.6/96.8/179.2/144m²与计算相符；独立凹岬角、原岛无阶梯/有阶梯、独立曲阶及反向另有完整PNG和mesh。原岛仍长5954.873mm、净宽1500mm、升高2000mm，14级，踏面并集相对原生带区面积差约2.98×10^-8 mm²；独立路线约6617.096mm、净宽1500mm、升高2500mm，反向实际PNG SHA相同。单独边界检查保留1mm真实缝隙及两侧外壁、点接触分量、同优先级重叠拒绝和负高程高优先级洼地。只证明该隔离模型，不是产品通行/完整玩家保密验收。
 
@@ -1098,7 +1143,7 @@ AI256任务只读诊断见`ai/retention-analysis.md`：目标直接调用store�
 <a id="theme-driven-interior-20261111"></a>
 ## 主题作品驱动的代码与算法开发自检（2026-11-11）
 
-用户要求在本会话持续制作各主题精美完整作品，并明确以创作暴露问题、持续改进项目代码和算法为重点；最后由用户审核效果。本轮先以近代调查、现代城市、奇幻城镇三类室内研究候选检验通用家具摆位，未把候选、自动检查或生成数量记为成品/P3。开发状态只归[07](../07-roadmap.md#theme-driven-development)，实际算法边界归[室内设计](../reference/general-map-generation.md#d-interior-layout)，正式验收仍归[09](../09-quality-plan.md#theme-driven-acceptance)。
+用户要求在本会话持续制作各主题精美完整作品，并明确以创作暴露问题、持续改进项目代码和算法为重点；最后由用户审核效果。本轮先以近代调查、现代城市、奇幻城镇三类室内研究候选检验通用家具摆位，未把候选、自动检查或生成数量记为成品/P3。开发状态只归[07](../07-roadmap.md#theme-driven-development)，实际算法边界归[室内设计](../architecture.md#geometry)，正式验收仍归[09](../09-quality-plan.md#theme-driven-acceptance)。
 
 两项可复现缺口为旧家具始终0°、座椅与桌面各自优先贴墙而可能分处房间两端。本批室内算法4新增有限四向姿态及先主体后座椅的邻近候选，完整旋转占地/绘制边界、支撑、100mm物理间隔、门前带与已通过路线继续检查；有同室桌面却无法邻近安置座椅时列缺项，不回退远墙孤椅。新建默认接入室内4，旧室内2/3与地形建筑1/2完整结果保留；新增地形建筑3显式映射室内4，混合3仍使用地形建筑2。工程容器仍为唯一完整v1，局部重排现存家具只改位置、保留其任意旋转与人工保护。
 
@@ -1302,7 +1347,7 @@ review-2技术整合冻结的7文件48项定向检查通过：`npx vitest run sr
 
 收尾 `verification/final-integrity.json`记录本任务源码无漂移、177份生产产物hash保持、605个本地文档文件目标存在、`todo.md`不变及`git diff --check`通过。构建及截图期间其他活动会话仍在修改无关生成模块和旧测试，因此未宣称全工作区不可变冻结。预览端口5403／5404已停止。
 
-下一算法方向归[设计边界](../reference/image-to-project.md#layer-source-evidence)与[路线图](../07-roadmap.md#image-to-project-plan)。来源报告只帮助识别证据循环，不能判断琴沿是否准确、木纹是否自然。真实蓝边、木纹接缝和暗带仍未解决；前景／背景引导候选、结构补底、未参与调参组合与异画风盲测尚待继续。开发自检与截图不关闭09或用户P3。
+下一算法方向归[设计边界](../completed.md#assets)与[路线图](../07-roadmap.md#image-to-project-plan)。来源报告只帮助识别证据循环，不能判断琴沿是否准确、木纹是否自然。真实蓝边、木纹接缝和暗带仍未解决；前景／背景引导候选、结构补底、未参与调参组合与异画风盲测尚待继续。开发自检与截图不关闭09或用户P3。
 
 <a id="image-quality-followup-20261111"></a>
 ## 图片色边、纹理接缝与草稿保护接续（2026-11-11）
@@ -1445,7 +1490,7 @@ MCP宿主的首轮EOF测试还定位了私有Vite默认stdin结束监听抢先�
 <a id="image-room-sample-20261110"></a>
 ## 图片分层琴房样板开发自检（2026-11-10）
 
-用户授权先实现右上房间的移琴露毯、移毯露板及保存重开续编，并行推进独立基础。实现包括 `image-room-sample.ts` 工厂、`shared/image-import/` 标定与标注草稿、`tools/image-import/build-room-sample.mjs`。固定图摘要及设计见[专题](../reference/image-to-project.md#sample)，开发状态只在[07](../07-roadmap.md#image-to-project-plan)维护。
+用户授权先实现右上房间的移琴露毯、移毯露板及保存重开续编，并行推进独立基础。实现包括 `image-room-sample.ts` 工厂、`shared/image-import/` 标定与标注草稿、`tools/image-import/build-room-sample.mjs`。固定图摘要及设计见[专题](../completed.md#assets)，开发状态只在[07](../07-roadmap.md#image-to-project-plan)维护。
 
 | 实际检查 | 观察与边界 |
 |---|---|
@@ -1703,7 +1748,7 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 - 来源组合续测按分组2＋1收口，不写作单次3/3。`work/general-provenance/channel-disclosure-integration.log`保留森林、手工两条完整通过及第三条中断；本轮哨站用Node24.14.1同冻结/同测试复跑，`outpost-integration-node24.log`最终1/1、3.1分钟、退出0。森林/手工/哨站四通道实际数依次为0/2/8/5、0/1/2/4、0/1/3/0，零件均明确显示“本次未生成”，森林390px候选无溢出。每一步采用、撤销、重做、完整冷读及玩家PNG断言完成；redo与cold分别127/59/109个ZIP条目逐字节相同，既有源祖先和生成记录保持。`work/general-provenance/resume-20261111-facts.json`关联完整附件及源码/产物同一性。Node26首次哨站续测打印通过后runner未退出，SIGINT退出130，原日志与附件保留；未据此判定产品缺陷或进程成功，也未复跑未变化的岩岛。
 - Firefox哨站已有整合冻结上的独立1/1通过，`visual/firefox-outpost-integration.log`为3.7分钟，原90秒就绪断言没有放宽。本轮`visual/firefox-resume-audit.json`重核176项产物、与原Chromium相同的输入SHA、5个完整包逐条目、12份实际PNG文件及RGBA、6份旧素材和4个真实通道，页面异常为空；未重复启动长链。旧trace仅证明当次保存就绪标志未出现，根因仍无确证。功能兼容复验收口，不将其当作性能正常或完整冷重开矩阵通过。
 - `resume-integrity-audit.json`核对1815份冻结输入和176份产物均未变，接续时工作区产品源码亦相同；独立`todo.md`仍为`c80b1d29…e49b6`。只读画面复核确认profile3仍调用连续侧壁描线，原岛线宽87mm、alpha约0.441；落地带同时消费每端928mm支撑混合、自然岩阶蒙版与两片固定落地覆盖，尚未消融区分贡献。后续视觉开发先用原输入分别隔离这些层，再以显式新画法/配方改善，不能全局改写旧保存语义或以端帽修复关闭美术/P3。
-- 性能前置首败保存在`performance-resume-node24-smoke/`：原复用输入`debc756d…d2b7`含旧版SVG固定资源，普通导入明确拒绝，180秒就绪等待后退出1，未产生编辑样本。没有扩大等待或旁路校验。独立准备脚本仅从冻结的当前准备器选取`natural-500`，`performance-resume-inputs/preparation.json`完整退出，500完整Prop、0轻量替代、14份真实图片及完整冷读/许可验证；实际新包SHA为`47502d58…9063`。随后新输入smoke及三轮正式运行均退出0，共510个操作观察、完整冷读和六张实际4K PNG，原始结果与重算汇总一致；分布与子门边界归[性能参考](../reference/performance.md#map-detail-natural-500-20261111)。新输入与旧分布分开，不能用此次测量宣称历史提速。
+- 性能前置首败保存在`performance-resume-node24-smoke/`：原复用输入`debc756d…d2b7`含旧版SVG固定资源，普通导入明确拒绝，180秒就绪等待后退出1，未产生编辑样本。没有扩大等待或旁路校验。独立准备脚本仅从冻结的当前准备器选取`natural-500`，`performance-resume-inputs/preparation.json`完整退出，500完整Prop、0轻量替代、14份真实图片及完整冷读/许可验证；实际新包SHA为`47502d58…9063`。随后新输入smoke及三轮正式运行均退出0，共510个操作观察、完整冷读和六张实际4K PNG，原始结果与重算汇总一致；分布与子门边界归性能参考。新输入与旧分布分开，不能用此次测量宣称历史提速。
 - `resume-final-audit.json`确认三轮原始文件及PNG实际SHA、冷读全条目、浏览器退出及冻结源/产物完整性。工作区图片导入线后续修改了8份产品/测试文件，未进入隔离测量源码与产物；不把本次结果外推到这些编辑。全部本会话进程已结束，独立`todo.md`哈希保持，未提交、推送或部署。
 
 <a id="generation-certificate-20261110"></a>
@@ -1726,7 +1771,7 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 | 重复校验复现及同案修复 | `red-generation.log`在原实现对同一已认证1px资源预览断言失败，实际decode调用3次。实现后`green-generation.log`同案通过：预览不重复解码，采用时公开save及真实cold load仍解码2次。首败是整改前目标复现，未删除/弱化断言。 |
 | 相关集成回归 | `unit-integration.log`同轮7文件52项通过，串行maxWorkers1/testTimeout30000；覆盖应用资源交接、四生成领域、语义生成入口与共享快照能力生命周期。新增未知/克隆/换reader、坏字节/许可、getter不执行、缓存取消、执行器await更换实际方法、冷读后更换能力/取消及未知冷读返回；现有重算公开hash的恶意提案仍被本机重放拒绝，过期/保存/冷读失败保全与删除/撤销保持。 |
 | 正常生产构建 | `build-normal.log`退出0，架构284模块、应用/AI类型及正常Vite通过；既有包体积/重复导入告警保留，没有性能构建或探针。 |
-| 真实UI生成及前后观察 | 原九参数表单路径，前后各三轮空context，正常生产页面实际预览、采用保存、完整工程及4096玩家PNG下载均complete，页面异常0，无自动重试。设备、全量样本、计时终点及后台负载限制统一归[性能参考](../reference/performance.md#generation-certificate-observation-20261110)，不在此重复数表或关闭正式性能。 |
+| 真实UI生成及前后观察 | 原九参数表单路径，前后各三轮空context，正常生产页面实际预览、采用保存、完整工程及4096玩家PNG下载均complete，页面异常0，无自动重试。设备、全量样本、计时终点及后台负载限制统一归性能参考，不在此重复数表或关闭正式性能。 |
 | 六包独立冷导入/资源/实际PNG | `verification.log`及六份`baseline/proof-*`、`after/proof-*`均verified；每份实际包经真实资源/许可全验，实际下载的4096×3277玩家PNG与重渲染RGBA一致。六份限定几何、56PNG+112SVG源共168资源与实际RGBA一致，原完整工程/文档规范内容及比较排除项独立保留于proof，不宣称全元数据或原包二进制完全相同。 |
 
 本轮开发缩样不替代真人时间、真实模型、全跨浏览器、完整视觉/P3、存储故障/容量或09正式性能。未更改源码中的通行、固定源/许可、人工编辑保护和公开验证边界；素材工厂与正式输出仍有完整验证开销。后续从07当前主线接续，需要继续性能整改时另立确切输入及正常生产证据。
@@ -1764,14 +1809,14 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 
 旧用途缺件、正视营帐与稀疏林缘已有具体整改；程序化叠色仍有形状简化，河岸/道路仍为折线，不据此宣称自然水彩目标、美术审核或P3通过。其他五包及完整世界尺度/旋转/状态、跨浏览器和故障矩阵仍按09接续。独立`todo.md`和无关编辑保留。
 
-共同生成链路的单次隔离诊断、设备/方法、首败及局限集中在[性能参考](../reference/performance.md#generation-validation-diagnosis-20261110)。预览/采用保存观察为22.67/23.98秒，主要成本证据是重复真实像素/SVG校验；未修改产品验证链路，没有已提速结论。诊断实际包与原机器样例的几何、168资源及4096RGBA一致，不重发模型、不替换旧计时，也不将本轮自动化视为真人研究。
+共同生成链路的单次隔离诊断、设备/方法、首败及局限集中在性能参考。预览/采用保存观察为22.67/23.98秒，主要成本证据是重复真实像素/SVG校验；未修改产品验证链路，没有已提速结论。诊断实际包与原机器样例的几何、168资源及4096RGBA一致，不重发模型、不替换旧计时，也不将本轮自动化视为真人研究。
 
 收尾`final-integrity.json`复核1142份产品源/配置及176份固定生产文件无漂移；25份任务前保全文件只有本轮拥有的07、09及素材源入口发生预期变化，其余哈希不变，独立`todo.md`保持。五份相关文档749条本地链接/锚点无错误，`git diff --check`通过。补入性能段后重新运行`gallery-check.mjs`，全部有src图片解码、全部链接HTTP200、1440/390布局无横溢、放大/Escape及页面异常检查通过，最终桌面/手机截图已实际核看。
 
 <a id="validation-tool-remediation-20261110"></a>
 ## 性能运行器草稿退出工具整改（2026-11-10）
 
-本项按用户明确选择的两项并行工具整改实施，当前状态归[07](../07-roadmap.md#validation-tool-remediation)，视觉诊断另归[视觉台账](visual-quality-validation.md#visual-progress-tooling-20261110)。不修改产品/素材/生成算法，不提交、推送或发布；另一活跃会话的生产运行不作为本项证据。
+本项按用户明确选择的两项并行工具整改实施，当前状态归[07](../07-roadmap.md#validation-tool-remediation)，视觉诊断另归视觉台账。不修改产品/素材/生成算法，不提交、推送或发布；另一活跃会话的生产运行不作为本项证据。
 
 原失败位于`work/snapshot-remediation-20261109/baseline-normal/building-500-run1.json`：组预览因预算/几何等受支持的拒绝结束后，建筑表单输入仍保留，首次`canvas-prop-selection`被导航守卫阻止，180秒超时。原完整失败文本明确要求“取消建筑草稿”；失败冻结、该组无性能结论及其他已完成mixed结果均保持。
 
@@ -1800,7 +1845,7 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 | 实际坏块/缺块 | 上述首轮两项已验证热保存及冷打开拒绝，最后仍要求首页全量读块，与新目录not-checked合同冲突而失败。只改测试末尾：刷新后保留工程行并说明内容未检查，再实际打开拒绝；同一dist定向复验`production-integrity-confirm.log`2/2通过。实际块原生get、hash/长度、内存revision/undo、原行和故障块不被覆盖均保留，没有为通过修改产品。 |
 | 双标签CAS | `production-cas.log`独立单项通过：先热保存15°，第二标签30°成功，旧标签45°及撤销回15°均冲突；旧标签内存/递增revision/备份保持，第三冷页面逐条目hash与30°赢家一致。真实共享origin/IDB，无状态或故障注入。 |
 
-三组浏览器运行各自保留，不宣称同轮5/5。`production-test-overlay.json`、测试源码副本及`production-safety-audit.json`绑定实际用例与facts；未访问用户库、连接模型或启动用户外部浏览器。独占正常生产低样本、输出等价和剩余热点归[本次性能记录](../reference/performance.md#snapshot-remediation-20261109)，不以调用数或本节正确性检查关闭旧正式失败、全部性能/内存、视觉/P3或其他09矩阵。
+三组浏览器运行各自保留，不宣称同轮5/5。`production-test-overlay.json`、测试源码副本及`production-safety-audit.json`绑定实际用例与facts；未访问用户库、连接模型或启动用户外部浏览器。独占正常生产低样本、输出等价和剩余热点归本次性能记录，不以调用数或本节正确性检查关闭旧正式失败、全部性能/内存、视觉/P3或其他09矩阵。
 
 最终`closeout-facts.json`复核1607份after冻结输入、175份产物均无漂移，本轮10个目录/编码/保存运行时文件与根工作区相同，生产测试overlay保持；四份相关文档563条本地链接（499个Markdown锚点）无错误，`git diff --check`通过，独立`todo.md` SHA256保持`c80b1d29ebf3a264ff21bf943fe779c7bf00b21e4f86a2e1bf980504224e49b6`。测量后根工作区已有其他任务7份素材导入/准备相关文件变化，另有本轮测试overlay；明确列入漂移清单，不将冻结产品结论外推为不断变化的根目录全量通过。
 
@@ -1844,7 +1889,7 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 <a id="workspace-information-architecture-implementation"></a>
 ## 工作台信息架构与左右分工实施（2026-11-08）
 
-用户授权完成[07实施计划](../07-roadmap.md#workspace-information-architecture-plan)的1–8项。本节只记录该工作线的开发自检，需求及归属见[01](../01-product.md#workspace-information-architecture-requirements)和[架构参考](../reference/editor-and-architecture.md#workspace-information-architecture)；[09正式矩阵](../09-quality-plan.md#workspace-information-architecture-acceptance)、P3及发布保持独立。原始日志、截图、下载工程和指纹保存在被Git忽略的`work/workspace-ia-implementation-20261108/`。
+用户授权完成[07实施计划](../07-roadmap.md#workspace-information-architecture-plan)的1–8项。本节只记录该工作线的开发自检，需求及归属见[01](../completed.md)和[架构参考](../reference/editor-and-architecture.md#workspace-information-architecture)；[09正式矩阵](../09-quality-plan.md#workspace-information-architecture-acceptance)、P3及发布保持独立。原始日志、截图、下载工程和指纹保存在被Git忽略的`work/workspace-ia-implementation-20261108/`。
 
 ### 实施范围
 
@@ -1905,11 +1950,11 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 
 原始证据集中在被忽略的`work/snapshot-architecture-20261108/`。首轮旧decode调用数断言、测试tuple类型及SVG旧字段夹具已按实际能力/严格模型修正；共享层计时器导致无DOM编译失败后改为结构取消订阅，完整共享检查复验通过，没有加DOM全局声明。概览存在性查询由两次严格读取降为一次后同步旧次数断言，实际坏块、资源与事务反例保持。
 
-生产运行器适配了并行任务的新导航入口；首轮因外层详情与内部内容同名“候选审阅”产生严格选择器冲突，失败目录`production-smoke/`原样保留。后续仅限定真实候选内容选择器，产品源码/dist未改变，工具调整单列`source-snapshot-tool-adjustments.json`。`production-smoke-confirm/`运行期间检测到另一个浏览器回归，整轮只作正确性证据；其耗时不纳入独占性能结论，冲突记录见`measurement-concurrency-note.json`。生产完整旅程及独占耗时的最终结果见[性能记录](../reference/performance.md#workspace-snapshot-20261108)。
+生产运行器适配了并行任务的新导航入口；首轮因外层详情与内部内容同名“候选审阅”产生严格选择器冲突，失败目录`production-smoke/`原样保留。后续仅限定真实候选内容选择器，产品源码/dist未改变，工具调整单列`source-snapshot-tool-adjustments.json`。`production-smoke-confirm/`运行期间检测到另一个浏览器回归，整轮只作正确性证据；其耗时不纳入独占性能结论，冲突记录见`measurement-concurrency-note.json`。生产完整旅程及独占耗时的最终结果见性能记录。
 
 首次及接续独占尝试均在监测到外部构建后停止，原始失败/中断和已完成子项保留，不拼接为本轮通过。用户随后明确授权协调测试/构建暂停；Git提交和推送可以继续。`production-exclusive-resume-confirm-20261108`于2026-11-08 20:48:49–20:51:28 +0800完整结束：监控/运行器退出0，两档均complete、失败0、clockGaps为空；先等60秒空闲并每2秒排查其他测试/构建及自动化浏览器，测量期间未检测到并行负载，结束已通知恢复。
 
-新轮输入指纹仍为`3a580fd610118f85156401f6971e5ca6340ff3d6c3a31bc761c3efdcf627b62b`，前后未变；开始前核对冻结产品1478文件、保存/预览9个核心文件与当前工作区一致。两档完整包/实际块/资源许可、组变换和撤销重做、冷开与双受众4K通过；输入包及四张4K PNG与11月7日normal-control逐字节相同，比较脚本同时核对设备/浏览器、视口及操作次数一致。保存/画布的低样本前后区间、采样内存及剩余长任务只归[性能记录](../reference/performance.md#workspace-snapshot-20261108)，原值汇总为`exclusive-before-after-comparison-20261108.json`。2000档采样RSS较旧轮上升，保留为待复验风险；未以单轮判断泄漏或预先迁移Worker。
+新轮输入指纹仍为`3a580fd610118f85156401f6971e5ca6340ff3d6c3a31bc761c3efdcf627b62b`，前后未变；开始前核对冻结产品1478文件、保存/预览9个核心文件与当前工作区一致。两档完整包/实际块/资源许可、组变换和撤销重做、冷开与双受众4K通过；输入包及四张4K PNG与11月7日normal-control逐字节相同，比较脚本同时核对设备/浏览器、视口及操作次数一致。保存/画布的低样本前后区间、采样内存及剩余长任务只归性能记录，原值汇总为`exclusive-before-after-comparison-20261108.json`。2000档采样RSS较旧轮上升，保留为待复验风险；未以单轮判断泄漏或预先迁移Worker。
 
 本项实现、正确性及受影响的独占低样本观察已经收口；该轮不替代正式性能/内存和完整安全/失败矩阵。用户随后授权的集成冻结、正确性复验及六组正式性能见下节，视觉/P3及其余验收状态保持。
 
@@ -1932,7 +1977,7 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 
 2026-11-09归档本项完整正式复测：`performance-coordinated/`于2026-11-08 16:03:11–17:23:09 UTC结束，18/18轮complete、失败0，运行器/监控器均退出0，无外部负载事件，独占窗口已通知恢复。1546份输入/工具/产品文件复核无漂移；18份raw的SHA及压缩后内容与manifest相等，冻结工具重算summary也一致。所有完整包编辑后/冷读摘要及资源许可源闭包核对通过；36张真实4096×4096 PNG大小/SHA有效，同case同受众三轮字节一致。该配对只证明重复轮输出保持，不代替私密变形对照或用户P3。
 
-六组矩阵完整不等于全部验收通过：三类500的固定独立Prop即刻字段编辑100ms及连续帧33ms子项通过；混合2000第三轮及合并帧33.4ms、两处短暂选择阶段缺内存样本、CPU辅助进程连续性提示和剩余长任务均保留，具体数值与原始证据只归[性能参考](../reference/performance.md#workspace-snapshot-integrated-20261108)。前两次被外部tsc/Vitest中断的目录原样保留、不拼入新轮。
+六组矩阵完整不等于全部验收通过：三类500的固定独立Prop即刻字段编辑100ms及连续帧33ms子项通过；混合2000第三轮及合并帧33.4ms、两处短暂选择阶段缺内存样本、CPU辅助进程连续性提示和剩余长任务均保留，具体数值与原始证据只归性能参考。前两次被外部tsc/Vitest中断的目录原样保留、不拼入新轮。
 
 本轮只调整测试入口、增加隔离故障用例并维护现有证据文档，后续核心收束代码不计入该产品冻结；用户脏树/独立todo保持，未提交、推送或发布。
 
@@ -1948,7 +1993,7 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 
 必要自检：工作区/局部准备/历史差异3文件55项、SVG/投影/预算/PNG/道路9文件73项、内容块及真实Workspace保存2文件21项、校正后的artwork7项通过；另有资源、旧SVG迁入及视觉投影定向用例通过。正常构建和228模块共享边界检查通过。预览采用不再重复解码、canonical不再调用原生PNG编码器，两处旧故障注入/调用数断言随实际协议更新后复验通过；没有放松保存或冷读解码断言。
 
-实际生产输入及代码分别冻结在`work/root-remediation-20261106/fixtures/`与`workspace/`；完整源快照清单见`source-snapshot.json`。建筑500/2000低样本完成且包/冷读一致，领域提交为19.1–19.7/87.2–98.8ms，但保存与绘制仍秒级，详见[性能观察](../reference/performance.md#root-remediation-20261106)，不关闭正式门。五类三引擎长链视觉复验已保留5项Chromium通过、Firefox室内超时/岩岛中断及其余未运行；五类普通图及恢复包的正常生产三引擎SVG/冷读专项18/18通过，完整领域/资源/许可和冷读条目hash保持，详情及独立源码冻结归[视觉台账](visual-quality-validation.md#root-remediation-20261106)，不替代完整视觉长链。用户P3、真实模型、全部09及VTT仍分别待验收。
+实际生产输入及代码分别冻结在`work/root-remediation-20261106/fixtures/`与`workspace/`；完整源快照清单见`source-snapshot.json`。建筑500/2000低样本完成且包/冷读一致，领域提交为19.1–19.7/87.2–98.8ms，但保存与绘制仍秒级，详见性能观察，不关闭正式门。五类三引擎长链视觉复验已保留5项Chromium通过、Firefox室内超时/岩岛中断及其余未运行；五类普通图及恢复包的正常生产三引擎SVG/冷读专项18/18通过，完整领域/资源/许可和冷读条目hash保持，详情及独立源码冻结归视觉台账，不替代完整视觉长链。用户P3、真实模型、全部09及VTT仍分别待验收。
 
 <a id="current-formal-acceptance-20261106"></a>
 ## 当前完整v1容量、性能与视觉验收前置及结果（2026-11-06）
@@ -1971,20 +2016,20 @@ mixed原算法1/2已经使用真实门端口和足宽检查，本项只补真实
 
 `fixtures-second/preparation.json`为complete：建筑/自然/混合各恰好500/2000完整Prop、零Decoration；另有mixed500远端增加500完整Prop，以及16条真实局部外接支撑连接。完整资源/许可/来源和既有人工记录保留。范围180×180m、3.6m显示网格，实际50×50格；原细节集中在合法focus/remote支撑范围，不能冒充全图均匀可见密度。局部连接组变换必须因外部支撑不完整而拒绝，是安全负例。准备器移除了会全量重绑既有森林缩放素材的生成专用bind调用，保留原固定快照；由Decoration转成完整Prop的新输入不宣称与旧j样本逐像素相同。
 
-三类500正常生产冒烟`smoke-second`均complete、无失败，仅每类2次组内预览/采用和2次独立即刻编辑，不作为正式p95。正式性能使用同一冻结输入、正常dist，六组各三轮，每轮30次组内预览/采用和30次独立即刻编辑，连续输入、选择、冷读与双受众4K分列；实际结论归[性能参考](../reference/performance.md)。正式采样期间本任务不并行测试、构建、准备器或其他自动化浏览器，OS及其他应用背景另记录。艺术近景按实际几何固定，技术检查与用户P3分开，结果归[视觉台账](visual-quality-validation.md)。
+三类500正常生产冒烟`smoke-second`均complete、无失败，仅每类2次组内预览/采用和2次独立即刻编辑，不作为正式p95。正式性能使用同一冻结输入、正常dist，六组各三轮，每轮30次组内预览/采用和30次独立即刻编辑，连续输入、选择、冷读与双受众4K分列；实际结论归性能参考。正式采样期间本任务不并行测试、构建、准备器或其他自动化浏览器，OS及其他应用背景另记录。艺术近景按实际几何固定，技术检查与用户P3分开，结果归视觉台账。
 
 ### 正式运行结果与复验边界
 
-性能原六组冻结A在natural-2000第3轮期间由测量运行器V8内存溢出退出134；之前已有合盖睡眠与超时失败，原日志、电源事实和采样缺口保持。产品Chrome内存与Node运行器内存分开，不把工具OOM记为产品OOM。仅修正工具在raw落盘后的重复资源序列保留方式，11份既有结果raw/compact汇总深相等；随后只运行原来尚未启动的mixed两组，各三轮独立冻结B。两份summary均failed，实际分布、失败及完整矩阵缺口只在[性能台账](../reference/performance.md#current-formal-acceptance-20261106)维护，不能拼成一轮全绿或自动补跑替换失败。500完整Prop三类的即刻编辑均未达到100ms目标，容量与性能未签收。
+性能原六组冻结A在natural-2000第3轮期间由测量运行器V8内存溢出退出134；之前已有合盖睡眠与超时失败，原日志、电源事实和采样缺口保持。产品Chrome内存与Node运行器内存分开，不把工具OOM记为产品OOM。仅修正工具在raw落盘后的重复资源序列保留方式，11份既有结果raw/compact汇总深相等；随后只运行原来尚未启动的mixed两组，各三轮独立冻结B。两份summary均failed，实际分布、失败及完整矩阵缺口只在性能台账维护，不能拼成一轮全绿或自动补跑替换失败。500完整Prop三类的即刻编辑均未达到100ms目标，容量与性能未签收。
 
-最终视觉输入单独冻结，沿同一正常dist执行三引擎四类样图。Chromium四类完成普通/中性全景、真实结构与物件编辑、冷读/空库导入、双受众4K及私密物件移动配对；代理目视复核发现成图缺口，用户P3未签收。跨引擎实际失败、固定近景和观察记录只在[视觉台账](visual-quality-validation.md#current-formal-visual-20261106)维护；本节不把秘密位移配对外推为完整09保密矩阵通过。
+最终视觉输入单独冻结，沿同一正常dist执行三引擎四类样图。Chromium四类完成普通/中性全景、真实结构与物件编辑、冷读/空库导入、双受众4K及私密物件移动配对；代理目视复核发现成图缺口，用户P3未签收。跨引擎实际失败、固定近景和观察记录只在视觉台账维护；本节不把秘密位移配对外推为完整09保密矩阵通过。
 
 收口审核：最终视觉源码/构建/工具1474文件及输入38文件hash与集合无漂移；实际PNG附件hash/尺寸、16个原生近景和八份失败截图/trace均已核对。运行器与汇总工具`node --check`、共享工作区`git diff --check`通过；七份相关文档586个本地文件/锚点链接零错误。`visual-final-audit.json`、`document-final-check.json`和普通样图复核页`review.html`留在本轮忽略目录；复核页59个本地附件链接全部存在，本机HTTP读取成功，已请求在当前会话Codex侧栏展示。正式测试preview已停止，其他任务实例保留；未提交、推送或发布。
 
 <a id="aggregate-integration-j-20261106"></a>
 ## 层级组合代表性整合与开发交接（2026-11-06，j）
 
-本轮消费[07的a–i](../07-roadmap.md#t2-implementation)，新增复杂负载夹具与隔离正常生产观察工具，完成登记范围的j开发交接。未为观察修改产品实现、数据库结构或任何保护，未操作用户库；方法、实际负载/CPU/内存/逻辑字节只在[性能参考](../reference/performance.md#aggregate-integration-j-20261106)定义，正式矩阵继续归[09](../09-quality-plan.md#aggregate-capacity-acceptance)。
+本轮消费[07的a–i](../07-roadmap.md#t2-implementation)，新增复杂负载夹具与隔离正常生产观察工具，完成登记范围的j开发交接。未为观察修改产品实现、数据库结构或任何保护，未操作用户库；方法、实际负载/CPU/内存/逻辑字节只在性能参考定义，正式矩阵继续归[09](../09-quality-plan.md#aggregate-capacity-acceptance)。
 
 | 开发核对 | 最终证据与边界 |
 |---|---|
@@ -2039,7 +2084,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="aggregate-contract-20261105"></a>
 ## 层级组合运行时合同开发自检（2026-11-05，a）
 
-本次接续关联会话确认的容量大步骤a，新增`shared/model/aggregate.ts`、`shared/aggregates/contracts.ts`、`relations.ts`及共享出口。字段/拒绝边界归[04](../04-scene-document.md#aggregate-coordinate-contract)，存储目标归[06](../06-storage-and-export.md#aggregate-chunk-storage)，使用方映射归[设计3.8.9](../reference/general-map-generation.md#aggregate-consumer-map)，实施状态只在[07](../07-roadmap.md#t2-implementation)维护。
+本次接续关联会话确认的容量大步骤a，新增`shared/model/aggregate.ts`、`shared/aggregates/contracts.ts`、`relations.ts`及共享出口。字段/拒绝边界归[04](../04-scene-document.md#aggregate-coordinate-contract)，存储目标归[06](../06-storage-and-export.md#aggregate-chunk-storage)，使用方映射归[设计3.8.9](../architecture.md#geometry)，实施状态只在[07](../07-roadmap.md#t2-implementation)维护。
 
 | 必要开发自检 | 实际结果及边界 |
 |---|---|
@@ -2057,7 +2102,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="aggregate-coordinates-20261105"></a>
 ## 局部坐标与完整工程表示开发自检（2026-11-05，b）
 
-本项承接[07的T2-b](../07-roadmap.md#t2-implementation)及[设计3.8](../reference/general-map-generation.md#aggregate-spatial-capacity)，依赖a的聚合合同。运行时以world视图供既有领域/渲染/命中消费；完整v1包、IndexedDB工程/快照/自动快照/导入快照及增量历史检查点以唯一local坐标保存。坐标字段和换算归[04](../04-scene-document.md#aggregate-coordinate-contract)，存储目标归[06](../06-storage-and-export.md#aggregate-chunk-storage)，正式容量与失败验收归[09](../09-quality-plan.md#aggregate-capacity-acceptance)。
+本项承接[07的T2-b](../07-roadmap.md#t2-implementation)及[设计3.8](../architecture.md#geometry)，依赖a的聚合合同。运行时以world视图供既有领域/渲染/命中消费；完整v1包、IndexedDB工程/快照/自动快照/导入快照及增量历史检查点以唯一local坐标保存。坐标字段和换算归[04](../04-scene-document.md#aggregate-coordinate-contract)，存储目标归[06](../06-storage-and-export.md#aggregate-chunk-storage)，正式容量与失败验收归[09](../09-quality-plan.md#aggregate-capacity-acceptance)。
 
 | 必要开发自检 | 实际结果及边界 |
 |---|---|
@@ -2072,7 +2117,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="aggregate-boundaries-20261105"></a>
 ## 边界接口、空间候选与失效服务开发自检（2026-11-05，c首段）
 
-本轮承接[07的T2-c](../07-roadmap.md#t2-implementation)及[设计3.8](../reference/general-map-generation.md#aggregate-spatial-capacity)。新增共享只读服务并把实际端口几何接入a合同检查；实现状态与待接线项只在07维护，正式覆盖矩阵归[09](../09-quality-plan.md#aggregate-capacity-acceptance)。
+本轮承接[07的T2-c](../07-roadmap.md#t2-implementation)及[设计3.8](../architecture.md#geometry)。新增共享只读服务并把实际端口几何接入a合同检查；实现状态与待接线项只在07维护，正式覆盖矩阵归[09](../09-quality-plan.md#aggregate-capacity-acceptance)。
 
 | 必要开发自检 | 实际结果及边界 |
 |---|---|
@@ -2122,7 +2167,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 
 ### 受约束候选内部几何复用接续（2026-11-06）
 
-本接续保留上述两次冻结记录，完成c的有限候选复用路径。范围只含既有持久归组、且未被Prefab/scatter/decorationCluster任何成员记录引用的独立prop位置/角度修改；结构与其他变更继续完整几何。当前状态与下一步归[07](../07-roadmap.md#t2-implementation)，合同归[04](../04-scene-document.md#aggregate-coordinate-contract)及[设计3.8.4](../reference/general-map-generation.md#aggregate-spatial-capacity)，正式覆盖矩阵仍归09。
+本接续保留上述两次冻结记录，完成c的有限候选复用路径。范围只含既有持久归组、且未被Prefab/scatter/decorationCluster任何成员记录引用的独立prop位置/角度修改；结构与其他变更继续完整几何。当前状态与下一步归[07](../07-roadmap.md#t2-implementation)，合同归[04](../04-scene-document.md#aggregate-coordinate-contract)及[设计3.8.4](../architecture.md#geometry)，正式覆盖矩阵仍归09。
 
 | 范围 | 实现及本次证据 |
 |---|---|
@@ -2162,7 +2207,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="e-mixed-generation-20261105"></a>
 ## E有限混合与完整交付开发自检（2026-11-05）
 
-范围对应[07的E](../07-roadmap.md#general-map-generation-priority)和[设计11.8](../reference/general-map-generation.md#e-mixed-delivery)：同一完整v1中组合一个建筑与森林或火山；使用可编辑参数调用领域算法，未复制样板几何。`supported-interior@1`绑定真实地形高程与完整足迹，`mixed-layout@1`连接真实外门、全宽室外路线及实际穿门转角，再生成避让植被或复核原火山道路/连接。独立模块保留自己的配方/归属/人工记录；组合不接管子配方，D6不提供整图或任意建筑拓扑重建。旧室内算法2精确结果和原自然算法路径保持；AI工具仍为空。
+范围对应[07的E](../07-roadmap.md#general-map-generation-priority)和[设计11.8](../architecture.md#geometry)：同一完整v1中组合一个建筑与森林或火山；使用可编辑参数调用领域算法，未复制样板几何。`supported-interior@1`绑定真实地形高程与完整足迹，`mixed-layout@1`连接真实外门、全宽室外路线及实际穿门转角，再生成避让植被或复核原火山道路/连接。独立模块保留自己的配方/归属/人工记录；组合不接管子配方，D6不提供整图或任意建筑拓扑重建。旧室内算法2精确结果和原自然算法路径保持；AI工具仍为空。
 
 公共direct/Worker/显式HTTP及主机完整资源准备、私有候选见证、采用前本机重放、独立保存和冷读后切换继续复用。室内素材建立独立`mixed-interior-v1`固定副本及目录，按原许可全文hash隔离引用，保留原署名/快照ID及实际图片/SVG字节；不修改旧定义或将同名MIT的不同正文混为一份。混合结果持久化完整实体、身份、配方与实际成员；手工删除、关闭门或修改建议不自动补回。
 
@@ -2187,7 +2232,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="d7-generation-execution-20261105"></a>
 ## D7统一入口与领域执行端开发自检（2026-11-05）
 
-范围对应[07的D7](../07-roadmap.md#d-domain-implementation)，精确协议、权限与存储归[04](../04-scene-document.md#domain-generation-protocol)、[05](../05-ai-and-generation.md#domain-generation-authority)和[06](../06-storage-and-export.md#domain-generation-storage)，模块交接归[设计11.7](../reference/general-map-generation.md#d-delivery)。仅开发必要自检，没有执行E、提交、推送、部署或读取真实用户库。
+范围对应[07的D7](../07-roadmap.md#d-domain-implementation)，精确协议、权限与存储归[04](../04-scene-document.md#domain-generation-protocol)、[05](../architecture.md#ai)和[06](../06-storage-and-export.md#domain-generation-storage)，模块交接归[设计11.7](../architecture.md#geometry)。仅开发必要自检，没有执行E、提交、推送、部署或读取真实用户库。
 
 共享领域注册表/严格请求与结果绑定interior@2、forest@1、volcano@1、规范输入、完整候选基底、profile与请求/工作区/基线/代次；计时与确定性hash分开。Worker和认证HTTP直接运行相同函数，公共主机准备完整资源/许可/像素、身份与固定表现；UI默认Worker，服务端显式协商并选择，无回退/自动重发。公共新建/当前目标进入各自原私有凭据、采用前本机重放、新建保存冷读或保护/CAS/一次撤销链。D6只声明direct，aiTools为空；旧AI能力响应、自然底图及算法6领域重放保持。
 
@@ -2207,7 +2252,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="d6-local-generation-20261105"></a>
 ## D6归属与受限局部重生成开发自检（2026-11-05）
 
-范围对应[07的D6](../07-roadmap.md#d-domain-implementation)，四类操作与有限边界归[设计11.6](../reference/general-map-generation.md#d-regeneration)，持久归属及候选事务分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#local-generation-storage)。本轮只有开发必要自检，未读取真实用户库或调用模型，没有提交、推送或部署，D7/E未提前实施。
+范围对应[07的D6](../07-roadmap.md#d-domain-implementation)，四类操作与有限边界归[设计11.6](../architecture.md#geometry)，持久归属及候选事务分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#local-generation-storage)。本轮只有开发必要自检，未读取真实用户库或调用模型，没有提交、推送或部署，D7/E未提前实施。
 
 **实现**：共享`runLocalGeneration`直接从当前完整v1计算选定房间家具、林区单通道密度/成员、火山底材及火口同拓扑轮廓，不重新生成整图。复用当前规则/ownership、真实身份与原生命令，授权字段只从此前仍受管字段认领；旧manual/deleted/detached不清零。家具保留存活ID及位置之外字段，未出生建议分配fresh ID和稳定槽位键；林区槽位保留移动/删除/锁/退出/附注成员。火山材质保持物理/Region策略，已有人工外观覆盖拒绝；火口保留点/段与连接端点/支撑引用，同轮廓受管Region只随动几何，支撑/流道/完整路线冲突拒绝。原配方保存首次输入，当前规则/实体保存实际局部结果，旧自然投影及v6领域hash不改。
 
@@ -2227,7 +2272,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="d5-volcano-20261105"></a>
 ## D5火山结构与独立危险策略开发自检（2026-11-05）
 
-范围对应[07的D5](../07-roadmap.md#d-domain-implementation)，实现与有限输入归[设计11.5](../reference/general-map-generation.md#d-volcano)，持久数据与候选保存归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#volcano-generation-storage)。本轮仅开发必要自检，隔离夹具与浏览器不读取真实用户库，没有提交、推送或部署；D6/D7未提前实施。
+范围对应[07的D5](../07-roadmap.md#d-domain-implementation)，实现与有限输入归[设计11.5](../architecture.md#geometry)，持久数据与候选保存归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#volcano-generation-storage)。本轮仅开发必要自检，隔离夹具与浏览器不读取真实用户库，没有提交、推送或部署；D6/D7未提前实施。
 
 **实现**：独立`volcano-layout@1`通过结构→连接两个共同编排阶段，参数直接物化真实山体、低火口、同高程平台及火口内流道，真实cliff来源段、stairs/ramp和两条全宽Path；完整净宽/转角、两端接入、实际支撑与显式阻挡均检查。流道的有限控制线带区规范到整数毫米，必须严格留在火口同高程表面；跨高差流道明确拒绝。危险、阻挡及移动代价分别写Region，四种既有固定火山材质只决定外观，不复制样板几何或新增素材。逐实际产出记录有限规则与人工/删除归属，地形使用现有出生/拓扑身份；完整工程仍唯一v1，旧自然投影及算法6保留。
 
@@ -2247,7 +2292,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="d4-forest-20261105"></a>
 ## D4森林空地、路线与真实植被开发自检（2026-11-05）
 
-范围对应[07的D4](../07-roadmap.md#d-domain-implementation)，算法/API/有限支持归[设计11.4](../reference/general-map-generation.md#d-forest)，完整归属与保存分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#forest-generation-storage)。本轮只做开发必要自检，没有使用真实用户库或模型，没有提交、推送或部署；正式验收未开始。
+范围对应[07的D4](../07-roadmap.md#d-domain-implementation)，算法/API/有限支持归[设计11.4](../architecture.md#geometry)，完整归属与保存分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#forest-generation-storage)。本轮只做开发必要自检，没有使用真实用户库或模型，没有提交、推送或部署；正式验收未开始。
 
 **实现**：独立`forest-layout@1`消费严格林区/空地/入口/显式折点路线与固定三通道palette，复用D1阶段私有物化和既有几何/植被系统。地面→路线→内容三个算子依次发布真实支撑/计划区、入口/完整道路带、实际植被；空地/入口为soft首次保留。Path不是通行图片，指定全宽路线被阻挡或缺合法高差连接时拒绝。SurfaceRule/DecorationCluster保存完整树Prop、轻量草灌Decoration及真实槽位，完整足迹与支撑、精确固定根锚绘制和原生图像边界检查均保留；目标超过保护上限拒绝，有限空间落不满列实际缺项。没有从材质标签猜种植区，没有使用会清空旧成员的自动岩岛流程。
 
@@ -2271,7 +2316,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="d3-interior-suggestions-20261105"></a>
 ## D3初次门路与用途家具建议开发自检（2026-11-05）
 
-范围对应[07的D3](../07-roadmap.md#d-domain-implementation)，算法及有限支持边界归[设计11.3](../reference/general-map-generation.md#d-interior)，完整数据与保存合同分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#interior-generation-storage)。按用户本轮补充，门、入口、通路和用途家具只作为初次生成建议：依据用途、净面积、实际墙段/支撑/占地尽量安排，放不下或缺建议角色素材则说明原因，合法布局仍可采用；之后用户移动、关闭或删除不自动补回，不落永久必达/必需家具约束。
+范围对应[07的D3](../07-roadmap.md#d-domain-implementation)，算法及有限支持边界归[设计11.3](../architecture.md#geometry)，完整数据与保存合同分别归[04](../04-scene-document.md#generation-staging)和[06](../06-storage-and-export.md#interior-generation-storage)。按用户本轮补充，门、入口、通路和用途家具只作为初次生成建议：依据用途、净面积、实际墙段/支撑/占地尽量安排，放不下或缺建议角色素材则说明原因，合法布局仍可采用；之后用户移动、关闭或删除不自动补回，不落永久必达/必需家具约束。
 
 **实现**：室内算法/配方2复用D1的结构→连接→内容三阶段，工程仍为唯一完整v1。真实共墙/外墙经原生`addOpening`建立附墙门；指定房间中心/门锚点只尝试三类有限路线，用完整带区、转角、真实墙厚/门状态及旋转家具检查净宽，并约束在实际相邻房间及明确入口短预留带内。路线为只读建议证据，不创建可见室内Path，不写`constraints.pathChecks/entranceOpeningIds`或房间必达状态。clear只证明指定端点和当前几何，不承诺任意全局寻路；例如外墙紧贴Floor边界时，外部引道缺支撑会如实列缺项。
 
@@ -2298,7 +2343,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="d2-interior-20261105"></a>
 ## D2室内需求与有限布局开发自检（2026-11-05）
 
-范围对应[07的D2](../07-roadmap.md#d-domain-implementation)，实际接口及有限搜索边界归[设计11.3](../reference/general-map-generation.md#d-interior)，持久归属归[04](../04-scene-document.md#generation-staging)，保存归[06](../06-storage-and-export.md#interior-generation-storage)。本轮只做必要开发自检，未读取真实用户库、调用模型、提交、推送或部署；不是正式验收或视觉/P3签收。
+范围对应[07的D2](../07-roadmap.md#d-domain-implementation)，实际接口及有限搜索边界归[设计11.3](../architecture.md#geometry)，持久归属归[04](../04-scene-document.md#generation-staging)，保存归[06](../06-storage-and-export.md#interior-generation-storage)。本轮只做必要开发自检，未读取真实用户库、调用模型、提交、推送或部署；不是正式验收或视觉/P3签收。
 
 **实现**：严格可变房间需求/净面积/净边长、共墙/分离关系、可选横/纵走廊，经确定性有限矩形切分与有界回溯，原生`createRoom`生成实际房间、顶点及唯一共享墙。实际环形状、精确面积、墙厚边界与走廊净宽独立复核。结果保存规范参数、固定材质、building规则/ownership与真实generationTokens；人工用途/间接几何修改脱管，删除保留墓碑，逐命令拓扑变化及撤销/重做不回退旧令牌。当前无门/路线/家具，必开门、必达、必需家具请求拒绝；有限搜索未找到不证明需求不可行。没有新增工程版本或平行身份池，原自然分支保持。
 
@@ -2321,7 +2366,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="d1-generation-stages-20261105"></a>
 ## D1共用接口与阶段候选开发自检（2026-11-05）
 
-本项对应[07的D1](../07-roadmap.md#d-domain-implementation)，接口及限制归[生成设计](../reference/general-map-generation.md#d1-stage-contract)，持久责任归[04](../04-scene-document.md#generation-staging)。执行范围仅D1：共用编排能在私有完整文档上逐步物化，后项读取真实前项事实；没有实现D2室内布局、增加工程持久字段、读取用户数据库或执行提交/推送/部署。正式验收仍从09统一执行。
+本项对应[07的D1](../07-roadmap.md#d-domain-implementation)，接口及限制归[生成设计](../architecture.md#geometry)，持久责任归[04](../04-scene-document.md#generation-staging)。执行范围仅D1：共用编排能在私有完整文档上逐步物化，后项读取真实前项事实；没有实现D2室内布局、增加工程持久字段、读取用户数据库或执行提交/推送/部署。正式验收仍从09统一执行。
 
 **实现与边界**：步骤依赖及输入绑定具体stepId、精确算子版本、产物基数/ID/Floor/坐标框架；完整候选逐阶段独立捕获/冻结、校验场景和实际预算，提取新的事实并形成文档/输入/输出hash回执。前序事实失效、越阶段写域、硬约束、失败或取消均拒绝整套结果，source保持不变。墙门事实及实际全厚度/miter/bevel转角参与边界检查；未显式发布的物化事实也检查。当前不提供增量缓存或自动重算调度，改变上游参数以新请求重新执行。候选仍为prepared，完整工程身份/资源/许可/像素、授权/锁及保护/CAS/撤销检查不省略。
 
@@ -2380,7 +2425,7 @@ d的有限首条闭环实现与必要开发自检完成；下一执行点是e多
 <a id="doc-36-首页统一工作区与素材组织讨论稿"></a>
 ## 首页、统一工作区与素材组织：讨论稿
 
-> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](m2-project-validation.md#doc-46-7-按用户要求执行清理)。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见清理记录。
 
 状态：2026-10-23 根据用户对首页、侧栏、素材标签/颜色、火山/墓地内容和测试数据的反馈整理。本文是设计与排期建议，尚未实施；不改写[07现行路线](../07-roadmap.md)、既有验收结论或格式合同。本轮仅只读审查、制作讨论草图和记录建议，未删除数据、修改产品代码或提交推送。
 
@@ -2520,11 +2565,11 @@ U1稳定后，可并行做U2与素材样品；大规模入库等标签合同确�
 <a id="doc-37-首页统一工作区与素材库准备交接"></a>
 ## 首页、统一工作区与素材库：准备交接
 
-> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](m2-project-validation.md#doc-46-7-按用户要求执行清理)。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见清理记录。
 
 日期：2026-10-23。状态：准备已完成；U1/U2尚未实现、产品验收未运行。用户已接受[36讨论稿](#doc-36)后的建议顺序，并要求“先做准备”。本批只保全和核对当前成果、确定设计边界、接回主需求/路线/验收，不修改产品代码、测试、配置或素材，不删除数据，不提交推送。36保留讨论时原文，35及更早报告/证据保持历史原样。
 
-本交接确定下一批可实施的行为与分工；领域字段主定义仍归[04](../04-scene-document.md)，存储与迁移归[06](../06-storage-and-export.md)，交互归[02](../reference/editor-and-architecture.md#doc-02)，状态职责归[03](../reference/editor-and-architecture.md#doc-03)，需求/顺序/验收分别归[01](../01-product.md)、[07](../07-roadmap.md)、[09](../09-quality-plan.md)。本文不另建工程格式或替代这些主定义。
+本交接确定下一批可实施的行为与分工；领域字段主定义仍归[04](../04-scene-document.md)，存储与迁移归[06](../06-storage-and-export.md)，交互归[02](../reference/editor-and-architecture.md#doc-02)，状态职责归[03](../reference/editor-and-architecture.md#doc-03)，需求/顺序/验收分别归[01](../completed.md)、[07](../07-roadmap.md)、[09](../09-quality-plan.md)。本文不另建工程格式或替代这些主定义。
 
 
 <a id="doc-37-1-已有成果与剩余责任"></a>
@@ -2538,7 +2583,7 @@ U1稳定后，可并行做U2与素材样品；大规模入库等标签合同确�
 | 当前素材目录 | 34张原始PNG、23个物件、11种材质、3种组合，实际资源和许可随工程保全 | 尚无独立个人全库、入库后个人整理、批量打标与颜色筛选；现有全部预装策略先保持 |
 | 首批验证 | 35记录1008项单元、175项Chrome及正常构建/生产UI通过；有空白关键结构与样板编辑/恢复/离线/4K证据 | 属于35冻结版本的历史结果，本轮不重跑、不改写；两条旅程不能拼成完整SCN-04手工验收 |
 | 美术/通行/恢复 | 既有P2技术候选、有限通行和有限恢复可复用 | P3视觉签收、C4-N02图片与占地差异提示、通用寻路、持久建筑/任意拓扑恢复仍开放；按既有功能责任分批处理 |
-| C5性能 | 联合功能与资源复用结果保留 | 完整性能门未通过；按[34](../reference/performance.md#doc-34)继续后置，功能重构不补造正式性能结果 |
+| C5性能 | 联合功能与资源复用结果保留 | 完整性能门未通过；按34继续后置，功能重构不补造正式性能结果 |
 
 已有M1-D未提交成果是本轮需要保护的基线，准备完成不以先提交或清理磁盘为条件；后续提交推送仍按实际授权执行。
 
@@ -2673,7 +2718,7 @@ U2最小连续旅程：选择确切素材 → 个人打标/多色/收藏 → 跨
 <a id="doc-38-u1a-首页统一工程入口与连续会话验证"></a>
 ## U1a 首页、统一工程入口与连续会话验证
 
-> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](m2-project-validation.md#doc-46-7-按用户要求执行清理)。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见清理记录。
 
 日期：2026-10-23。本地版本：`0.2.0-m1-u1a`。用户在[37准备交接](#doc-37)后明确要求“做 U1a 吧，先完成首页、统一工程入口和编辑会话”。本批实现U1a；U1b固定分栏/布局偏好与U2目录/标签/颜色/备份仍待后续。37和36保留准备/讨论历史，35和既有证据不覆写，不删除工程或旧数据，不自动commit/push。
 
@@ -2757,7 +2802,7 @@ U1b/U2尚未开始。本批代码未commit/push，旧证据与todo保持。
 <a id="doc-39-u1b-固定分栏与本机布局偏好"></a>
 ## U1b 固定分栏与本机布局偏好
 
-> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](m2-project-validation.md#doc-46-7-按用户要求执行清理)。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见清理记录。
 
 日期：2026-10-23。本地版本：`0.2.0-m1-u1b`。用户明确要求完成固定分栏、面板调宽折叠和布局偏好，**只做简单测试，完整回归等用户通知后统一执行**。本批功能已实现，不把简单检查计为QA-WS-04/06、完整M1或正式性能验收通过。U1a结果与待验证事项仍归[38](#doc-38)，37/36保留准备/讨论历史。
 
@@ -2805,7 +2850,7 @@ QA-WS-04只记录上述简单子项；200%浏览器缩放、复杂候选/菜单�
 <a id="doc-40-u2a独立素材目录与完整库合同-v1"></a>
 ## U2a：独立素材目录与完整库合同 v1
 
-M2-0进度补充（2026-10-24）：本文以下保留**U2历史合同**sceneweave-catalog-v1、中性v6载体及旧严格备份，未原地换义。现行默认UI已由f切到sceneweave-library、新完整v1中性载体和sceneweave-asset-library所选备份，精确字段与保全转换以04/06为主；e模块历史见[51](m2-project-validation.md#doc-51)，f实际个人组织/organization-only备份、主会话采用及旧库保全转换子项与最终批次见[52](m2-project-validation.md#doc-52)。算法1精确身份、原显示文本/顺序、全部组织和安装状态保持；旧库仅只读捕获转换，不自动迁移真实用户数据。本文历史运行仍见41/44，不当作新内核验证；后续M2-1后端/流式连接，顺序见[47](m2-project-validation.md#doc-47)、07。
+M2-0进度补充（2026-10-24）：本文以下保留**U2历史合同**sceneweave-catalog-v1、中性v6载体及旧严格备份，未原地换义。现行默认UI已由f切到sceneweave-library、新完整v1中性载体和sceneweave-asset-library所选备份，精确字段与保全转换以04/06为主；e模块历史见51，f实际个人组织/organization-only备份、主会话采用及旧库保全转换子项与最终批次见52。算法1精确身份、原显示文本/顺序、全部组织和安装状态保持；旧库仅只读捕获转换，不自动迁移真实用户数据。本文历史运行仍见41/44，不当作新内核验证；后续M2-1后端/流式连接，顺序见47、07。
 
 2026-10-23 用户授权U2a/U2b。本合同在新目录写入器之前冻结；本文件定义本批可执行边界，实现与简单测试另归41。严格完整工程v6、identity3、appearance1和有效SceneDocument v3保持，不在工程内添加个人整理字段。完整回归等用户通知，性能继续按34后置。
 
@@ -2851,11 +2896,11 @@ M2-0进度补充（2026-10-24）：本文以下保留**U2历史合同**sceneweav
 <a id="doc-41-u2b三库个人整理与完整库备份"></a>
 ## U2b：三库、个人整理与完整库备份
 
-> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](m2-project-validation.md#doc-46-7-按用户要求执行清理)。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见清理记录。
 
 2026-10-23，用户授权“做u2a和u2b”。当前本地版本`0.2.0-m1-u2`。先在[40](#doc-40)及04/06冻结独立catalog v1合同，再实现内容、仓库和界面。U1a/U1b及此前M1-D未提交工作保留；本批未commit/push或发布。
 
-用户已要求先需求开发与简单测试，完整回归等通知。本报告只记录本批定向检查和两个Chrome冒烟，不关闭完整QA-CAT、QA-WS-06、完整M1、C5或性能门。[34](../reference/performance.md#doc-34)的性能后置安排保持，35–39及更早记录和证据不改写。
+用户已要求先需求开发与简单测试，完整回归等通知。本报告只记录本批定向检查和两个Chrome冒烟，不关闭完整QA-CAT、QA-WS-06、完整M1、C5或性能门。34的性能后置安排保持，35–39及更早记录和证据不改写。
 
 
 <a id="doc-41-当前实现"></a>
@@ -2974,7 +3019,7 @@ C4-N02提示比较新固定源的默认图像范围、当前图像映射及物�
 <a id="doc-43-内容补标题材小样精修与m1-d续批记录"></a>
 ## 内容补标、题材小样、精修与M1-D续批记录
 
-> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](m2-project-validation.md#doc-46-7-按用户要求执行清理)。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见清理记录。
 
 2026-10-23；本地版本`0.2.0-m1-d2`。用户授权“既有素材补标＋墓地小样＋火山小样”，完成后精修旧素材，再开始M1-D完整续批；六项精修由实现方选择。范围与只读补标合同见[42](#doc-42)。本批完成需求实现与下述简单检查，**完整回归仍等用户通知**；未自动commit/push，不据本批关闭完整M1、P3或C5/性能门。
 
@@ -3071,7 +3116,7 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome SCENEWEAVE_EVIDENCE_DIR=work/content-20261023/
 
 本批完成补标、两题材小样、六精修与M1-D基础阶段制作功能，尚不关闭无引导手工SCN-01/04、所有固定交互/通行输入、跨新内容的完整工程/所选历史离线往返与恢复/失败/CAS矩阵、双受众4K/秘密对照、窄屏/键盘/跨浏览器联合和真实小团。上述完整回归待用户通知后统一运行；旧35/41结果不能直接充当本版通过。
 
-P3/参考效果仍需用户看实际图与地图签收，自动化只确认所列技术与简单使用。余下性能按[34](../reference/performance.md#doc-34)暂缓，C5与QA-PERF-01/04未通过。下一步收集本批素材/制作流程反馈并整理M1-D剩余验收输入；M2仍依路线中的固定源、明确范围、候选采用和部分恢复合同推进单件生成/同化准备，不在本轮接入模型。
+P3/参考效果仍需用户看实际图与地图签收，自动化只确认所列技术与简单使用。余下性能按34暂缓，C5与QA-PERF-01/04未通过。下一步收集本批素材/制作流程反馈并整理M1-D剩余验收输入；M2仍依路线中的固定源、明确范围、候选采用和部分恢复合同推进单件生成/同化准备，不在本轮接入模型。
 
 
 <a id="doc-44"></a>
@@ -3079,7 +3124,7 @@ P3/参考效果仍需用户看实际图与地图签收，自动化只确认所�
 <a id="doc-44-020-m1-d2-全量自动化回归"></a>
 ## 0.2.0-m1-d2 全量自动化回归
 
-> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见[清理记录](m2-project-validation.md#doc-46-7-按用户要求执行清理)。
+> 资料状态（2026-10-23后续清理）：用户已明确要求删除`work/`与`docs/evidence/`原始附件。本报告保留当时的结果、失败和限制；文内旧路径是历史记录，不再提供对应附件。必要测试夹具已独立保留，详见清理记录。
 
 2026-10-23，用户明确要求“全量回归”，启动此前38/39/41/43后置的自动化检查。当前功能版本保持`0.2.0-m1-d2`，起始HEAD为`e749faba64ab2b6d15b1db6c25caa50d60a061ce`，包含上一批未提交素材与功能。本轮不开发M2、不自动commit/push、不执行34中暂缓的正式性能专项。
 
@@ -3173,9 +3218,9 @@ SCENEWEAVE_BROWSER_CHANNEL=chrome SCENEWEAVE_EVIDENCE_DIR=work/regression-202610
 <a id="doc-14-9-实施顺序"></a>
 ### 9. 实施顺序
 
-M1-A历史批次交付本文数值规范、15制作台账，以及04/06契约与迁移/输出规则，当时不产出代码或正式图片。后续B1实现新格式基础，B2制作室内P2候选并搭建可编辑VIS-01；B3室外可编辑样板与首轮检查见19，B4三组48格隐私/完整存档矩阵见[20](m0-m1-validation.md#doc-20)，B5真实负载/资源观测、候选比较及缺证据见[21](m0-m1-validation.md#doc-21)。M1-B可使用聚焦样板的受控编辑入口，不要求完整笔刷/工具库；烘焙成图或只可拖整图的演示不能代替可编辑样板。有限负载观测不等于最终画面、完整M1-B或全交互性能验收。
+M1-A历史批次交付本文数值规范、15制作台账，以及04/06契约与迁移/输出规则，当时不产出代码或正式图片。后续B1实现新格式基础，B2制作室内P2候选并搭建可编辑VIS-01；B3室外可编辑样板与首轮检查见19，B4三组48格隐私/完整存档矩阵见20，B5真实负载/资源观测、候选比较及缺证据见21。M1-B可使用聚焦样板的受控编辑入口，不要求完整笔刷/工具库；烘焙成图或只可拖整图的演示不能代替可编辑样板。有限负载观测不等于最终画面、完整M1-B或全交互性能验收。
 
-M1-C在C0基础上已实现空白放置闭环（C1a）、框选与右键（C1b）、图层（C1c）、命名快照与独立物件局部恢复（C1d），C2补建筑工具与有限同会话结构恢复。C3组件库、固定参数派生、非破坏外观及有限组合/人工覆盖恢复见[29](m0-m1-validation.md#doc-29)，C4室外与连续身份/散布有限恢复见[31](m0-m1-validation.md#doc-31)，C5联合功能与未通过的性能门见32/33。2026-10-23按用户安排暂缓余下性能专项，保留未通过结论与[34后续入口](../reference/performance.md#doc-34)，继续其他需求。M1-D本批提供海岸哨所原创追加包、补给组合与可编辑混合场景候选，联合验收结果归35；完整雾灯宅与M1验收仍需各自证据。M2按07/45的新顺序先统一v1/共享核心，再后端、草稿、场景工具和SVG/渐进同化；旧可选M2-L并入主线，生图API首版排除。
+M1-C在C0基础上已实现空白放置闭环（C1a）、框选与右键（C1b）、图层（C1c）、命名快照与独立物件局部恢复（C1d），C2补建筑工具与有限同会话结构恢复。C3组件库、固定参数派生、非破坏外观及有限组合/人工覆盖恢复见29，C4室外与连续身份/散布有限恢复见31，C5联合功能与未通过的性能门见32/33。2026-10-23按用户安排暂缓余下性能专项，保留未通过结论与34后续入口，继续其他需求。M1-D本批提供海岸哨所原创追加包、补给组合与可编辑混合场景候选，联合验收结果归35；完整雾灯宅与M1验收仍需各自证据。M2按07/45的新顺序先统一v1/共享核心，再后端、草稿、场景工具和SVG/渐进同化；旧可选M2-L并入主线，生图API首版排除。
 
 上述规范不自行授予功能通过状态，P2素材保持P2；技术检查不替代用户对参考效果的签收。C0至C4各批适用结果见22–29/31，C5见32/33，当前滚动计划见[07](../07-roadmap.md)，每周10小时只是投入假设，按每个切片的实际投入、返工和素材供给校准；不虚构已发生工时或承诺日历。对应原视觉需求PRD-021—028及新增编辑/渐进同化需求，质量证据归[09](../09-quality-plan.md)，既有批次与原始证据独立保留，不因新增P2资源、候选混合场景或性能后置安排而将完整主题P3、SCN-01/04、QA-PERF-01/04或完整M1标为通过。
 
@@ -3241,9 +3286,9 @@ U2现已实现三库的固定源实图、人工文字多色和个人标签/收�
 
 后续M2-Q0–Q5见[54](../14-visual-and-assets.md#visual-quality)：先固定风格卡和审阅近景，以双层岩岛形成第一份精修标杆，再扩展海岸与多房间室内。重点是自然大轮廓、既有材质覆盖、崖面收口/明暗、独立形状变体与按用途布景；现有曲线/光雾/滤镜继续复用。开发复核记录构图、贴边、层次、尺度、疏密和可编辑性，用户P3单独签收。
 
-新素材使用独立固定版本；新采样/渲染算法或持续材质绑定需先定严格版本与原工程保全，不能重释旧参数。Q0/Q1未新增严格字段或改采样/渲染算法；独立13素材及精修岩岛、实际中性/效果四框、离线双受众4K和开发复核见[54第10节](visual-quality-validation.md#doc-54-10-q0q1实际实施与交付2026-10-26)。规则崖分格/简洁踏面仍为视觉审阅项，O/P2不自动升级P3。
+新素材使用独立固定版本；新采样/渲染算法或持续材质绑定需先定严格版本与原工程保全，不能重释旧参数。Q0/Q1未新增严格字段或改采样/渲染算法；独立13素材及精修岩岛、实际中性/效果四框、离线双受众4K和开发复核见54第10节。规则崖分格/简洁踏面仍为视觉审阅项，O/P2不自动升级P3。
 
-Q2另制15项海岸素材与23项室内素材，分别形成「潮痕浅湾 · 精修版」和「灯下旅舍 · 精修版」可编辑作品；实际固定版本、尺寸/占地/许可清单归[15](../14-visual-and-assets.md#doc-15-q2海岸与室内精修制作2026-10-26)，成图、往返和适用检查归[54第11节](visual-quality-validation.md#doc-54-11-q2素材作品与同源空白实际交付2026-10-26)。海岸的干湿沙/浅深水使用既有共享曲线、边带与4个显式覆盖；这4个覆盖不持续绑定岸线，后续任意改岸须单独审阅覆盖。室内以实际家具区分五处用途，保留五个固定组合及可编辑成员，门前后按旋转物理占地检查净空。没有暗改旧24件源或通用边带算法。
+Q2另制15项海岸素材与23项室内素材，分别形成「潮痕浅湾 · 精修版」和「灯下旅舍 · 精修版」可编辑作品；实际固定版本、尺寸/占地/许可清单归[15](../14-visual-and-assets.md#doc-15-q2海岸与室内精修制作2026-10-26)，成图、往返和适用检查归54第11节。海岸的干湿沙/浅深水使用既有共享曲线、边带与4个显式覆盖；这4个覆盖不持续绑定岸线，后续任意改岸须单独审阅覆盖。室内以实际家具区分五处用途，保留五个固定组合及可编辑成员，门前后按旋转物理占地检查净空。没有暗改旧24件源或通用边带算法。
 
 同一「新建空白场景」对话框的「原创素材组」现可选择通用视觉24项、岬湾苔岛13项、潮痕浅湾15项或灯下旅舍23项。精修空白复用对应样板的固定源、许可和实际PNG物化流程，只复制固定定义；室内固定组合模板可供新建，但没有实际组合成员。新工程没有房间、地形、物件、曲线或效果，环境中性，也不复制样板历史/人工记录。准备、资源校验和保存成功后才切换；取消保留当前工程。三精修作品仍从工程页独立审阅、保存副本，不能用样板实体复制冒充AI从空白制作。旧62项/57图目录与旧24项集合保持；新增入口、技术检查和开发目视不替代用户P3或09的完整QA-VIS-09至14。
 
@@ -3282,17 +3327,17 @@ ART-00至ART-03是素材制作批次，与16中的开发切片B1至B5分别编�
 
 每批生产记录需列实际文件、作者/来源、许可/嵌入条件、目录版本、真实hash、PNG像素与解码字节、采用的世界范围/占地、样板引用、评审截图及结果。P0计划行不生成假证明；记录可在后续单独证据目录维护，未通过条目保留失败原因。
 
-M1-A退出检查只确认规范和契约可交接；当时条目均为P0。后续B2的4材质、11物件、2组定义及室内结构表现为P2候选，来源/解码/视觉与工程子项的实际证据见18，B3的6材质/7物件及室外结构表现同为P2候选（见19）。2026-10-23混合追加1材质/5物件与补给固定定义已形成O/P2，SCN-04首批实际联合结果归35。B5技术负载与资源观测归21，完整主题P3、用户美术签收及完整M1仍待验收。M1-B边界、固定取景与艺术检查见14，运行/隐私/性能门槛见09，M1-D当前入口与滚动计划见07；余下性能专项按[34](../reference/performance.md#doc-34)暂缓，不据开发顺序调整推定通过。
+M1-A退出检查只确认规范和契约可交接；当时条目均为P0。后续B2的4材质、11物件、2组定义及室内结构表现为P2候选，来源/解码/视觉与工程子项的实际证据见18，B3的6材质/7物件及室外结构表现同为P2候选（见19）。2026-10-23混合追加1材质/5物件与补给固定定义已形成O/P2，SCN-04首批实际联合结果归35。B5技术负载与资源观测归21，完整主题P3、用户美术签收及完整M1仍待验收。M1-B边界、固定取景与艺术检查见14，运行/隐私/性能门槛见09，M1-D当前入口与滚动计划见07；余下性能专项按34暂缓，不据开发顺序调整推定通过。
 
 
 <a id="doc-15-7-b5技术负载与m1-c素材交接"></a>
 ### 7. B5技术负载与M1-C素材交接
 
-B5使用本清单既有真实资源构成VIS-01/02各500/2000实例变体，保留固定定义、组合/散布及许可闭包，不通过重复一张极小图片冒充真实素材。实际hash去重数量/像素、资产实例分布、透明与潜在可见口径、完整工程和双受众4K观测归[21](m0-m1-validation.md#doc-21)。增加实例不是新增独立素材，也不是原样板艺术构图或推荐密度；本表不增加假hash、未制作条目或P3状态。
+B5使用本清单既有真实资源构成VIS-01/02各500/2000实例变体，保留固定定义、组合/散布及许可闭包，不通过重复一张极小图片冒充真实素材。实际hash去重数量/像素、资产实例分布、透明与潜在可见口径、完整工程和双受众4K观测归21。增加实例不是新增独立素材，也不是原样板艺术构图或推荐密度；本表不增加假hash、未制作条目或P3状态。
 
 v2使用原生Canvas2D、M0使用Konva；当前无持久ImageBitmap缓存。渲染/IO现共用原生解码槽，并修复临时画布提前登记所有权；同尺寸paintCanvas重用试验已撤回，三构建比较见21。不从实现形式推定速度、资源收益或完整容量。保护限额仍归06；500为后续工作目标、2000为压力观察，不是2000张独立图或256张/64M像素容量承诺。B5受测时缺少平移/缩放/自由拖动，当时commit与显示代理不含命令准备及面板输入成本，不能据提交子区间低于100ms关闭端到端编辑目标。RSS/JS堆采样不能代替GPU峰值验收；JS堆全程汇总含tooling-audit、下载和idle，产品阶段需从byPhase单列，方法边界见09/21。
 
-M1-C/C0已实现性能与视口基础，输入/命令准备与真实工作台观测见[22](m0-m1-validation.md#doc-22)，未新增或升级任何素材。C1a复用本台账18件既有单件素材提供空白放置闭环，证据见[23](m0-m1-validation.md#doc-23)，没有新增或升级素材。C1b有限选择/批改/菜单复用原素材，适用验证归[24](m0-m1-validation.md#doc-24)，没有新增美术或提升P2签收。后续C1c–d及C2–C5按[07](../07-roadmap.md)调整后的依赖推进；旧W2–W8占位不再适用。C3先提供参数/派生变体，M2再做单件→组合→明确范围渐进同化。单维护者每周10小时是假设，素材处理/返工计入同一预算，没有额外美术人力或承诺日期；逐切片据实际投入校准。技术验证使用的P2仍为P2，完整P3和用户视觉签收独立执行，SCN-04混合验收在M1-D，真实小团在M3。13/17/18/19/20与其原始证据保留历史，不以B5重写。
+M1-C/C0已实现性能与视口基础，输入/命令准备与真实工作台观测见22，未新增或升级任何素材。C1a复用本台账18件既有单件素材提供空白放置闭环，证据见23，没有新增或升级素材。C1b有限选择/批改/菜单复用原素材，适用验证归24，没有新增美术或提升P2签收。后续C1c–d及C2–C5按[07](../07-roadmap.md)调整后的依赖推进；旧W2–W8占位不再适用。C3先提供参数/派生变体，M2再做单件→组合→明确范围渐进同化。单维护者每周10小时是假设，素材处理/返工计入同一预算，没有额外美术人力或承诺日期；逐切片据实际投入校准。技术验证使用的P2仍为P2，完整P3和用户视觉签收独立执行，SCN-04混合验收在M1-D，真实小团在M3。13/17/18/19/20与其原始证据保留历史，不以B5重写。
 
 
 <a id="doc-15-u1u2-准备交接既有补标与题材小样计划未制作"></a>
@@ -3374,7 +3419,7 @@ T0/T1本批未追加一套近侧视树或区域图符生产包。岩岛生成复
 <a id="fill-copy-subgrid-20261102"></a>
 ### 子格吸附与填充柄复制（2026-11-02 开发自检）
 
-范围为[07分支计划](../07-roadmap.md#branch-plan)第7项；确认的产品行为归[01](../01-product.md#branch-feature-scope)，定向验收矩阵继续归[09](../09-quality-plan.md#branch-feature-acceptance)。子格细分与格线/格心锚点为编辑会话状态，不修改工程格式或原始网格。拖拽或数值入口均检查实际新增数量、坐标、依赖与层/实体锁、物理支撑、旋转占地及重叠，并在同一候选内完整计量；独立物件和组合分别使用现有受限复制命令，成员人工字段、定义引用和新身份保留。超出实际事务预算时整笔拒绝，未采用候选不写工程，采用后一次撤销完整填充。
+范围为[07分支计划](../07-roadmap.md#branch-plan)第7项；确认的产品行为归[01](../completed.md)，定向验收矩阵继续归[09](../09-quality-plan.md#branch-feature-acceptance)。子格细分与格线/格心锚点为编辑会话状态，不修改工程格式或原始网格。拖拽或数值入口均检查实际新增数量、坐标、依赖与层/实体锁、物理支撑、旋转占地及重叠，并在同一候选内完整计量；独立物件和组合分别使用现有受限复制命令，成员人工字段、定义引用和新身份保留。超出实际事务预算时整笔拒绝，未采用候选不写工程，采用后一次撤销完整填充。
 
 最终定向证据保留于`work/fill-copy-20261102/`：`unit-verified.log`中`src/application/workspace/fill-copy.test.ts`和`src/editor/native-canvas/subgrid.test.ts`共12项通过；`browser-complete.log`中正常Chromium开发工作台的`tests/fill-copy.spec.ts`两项通过；截图为`browser-complete/`下的`prefab-fill-preview.png`。浏览器覆盖格心子格放置、拖拽取消/地图外松开、Escape、数值位置、候选未变、独立物件单次采用/撤销以及双成员组合拖拽预览、位置/预算展示、单次采用/撤销/重做，另检查格距改成1毫米后1/8选项禁用、旧子格关闭。最终`typecheck-final.log`是最后代码编辑后的完整前后端类型检查结果；`git-diff-check.log`为最后文档与代码状态检查。
 
@@ -3385,7 +3430,7 @@ T0/T1本批未追加一套近侧视树或区域图符生产包。岩岛生成复
 <a id="building-edit-20261102"></a>
 ### 建筑编辑补齐（2026-11-02 开发自检）
 
-范围为[07分支计划](../07-roadmap.md#branch-plan)第8项，行为和影响约束归[04](../04-scene-document.md)、[产品范围](../01-product.md#branch-feature-scope)及[交互参考](../reference/editor-and-architecture.md#doc-02-42-调整与删除)，正式验收矩阵仍只由[09](../09-quality-plan.md#branch-feature-acceptance)维护。五类能力均已实现：正交绘制、直接拖墙边、受依赖约束的房间/墙删除、整栋90度倍数平移/旋转，以及两种明确的精确拓扑修复（合并共线冗余接点、同批移动后拆分精确T接点）。候选显示几何、实体、用户图层、跨层曲线/边带及派生过渡的实际影响；共享墙和门窗使用稳定端点/整数距离，支撑、递归注记、实体/图层锁、完整事务预算和拓扑连续性均在采用前复核。固定表面对齐材质及局部覆盖通过不可变源派生跟随建筑变换；旧v1/v3与新版本的多次命令逐步保持实际拓扑范围，不覆盖旧源、有效材料/参数调整或未移动表面。
+范围为[07分支计划](../07-roadmap.md#branch-plan)第8项，行为和影响约束归[04](../04-scene-document.md)、[产品范围](../completed.md)及[交互参考](../reference/editor-and-architecture.md#doc-02-42-调整与删除)，正式验收矩阵仍只由[09](../09-quality-plan.md#branch-feature-acceptance)维护。五类能力均已实现：正交绘制、直接拖墙边、受依赖约束的房间/墙删除、整栋90度倍数平移/旋转，以及两种明确的精确拓扑修复（合并共线冗余接点、同批移动后拆分精确T接点）。候选显示几何、实体、用户图层、跨层曲线/边带及派生过渡的实际影响；共享墙和门窗使用稳定端点/整数距离，支撑、递归注记、实体/图层锁、完整事务预算和拓扑连续性均在采用前复核。固定表面对齐材质及局部覆盖通过不可变源派生跟随建筑变换；旧v1/v3与新版本的多次命令逐步保持实际拓扑范围，不覆盖旧源、有效材料/参数调整或未移动表面。
 
 最终开发证据保留于`work/building-edit-20261102/`：`unit-final.log`中9个定向测试文件共83项通过，覆盖建筑领域事务、正交/拖边算法、工作区历史失效、固定材质源和派生调整、presentation、历史等价、草稿证明及准备链；`browser-final.log`中Chromium `tests/building-edit.spec.ts` 5项通过，覆盖真实工作台UI草图/预览/采用/撤销，含一个由DEV工作区构造后再经UI操作的跨层曲线/边带候选。`typecheck-final.log`前后端类型检查通过；`shared-final.log`共享158个源码模块的无DOM/Node边界、原生ESM与资源/存档烟测通过；`build-final.log`记录正常生产构建。几何单测含极大安全整数坐标：门窗末端恰在T接点且`offsetMm + widthMm`超过JavaScript安全整数精度时，精确拆分仍保留原墙基准和开口计量。`git-diff-check.log`覆盖最后文档与代码差异。
 
@@ -4088,7 +4133,7 @@ VoiceOver实际启动尝试记录于`voiceover-live-preflight`与`voiceover-star
 <a id="asset-expansion-20261109"></a>
 ## 六主题素材与自定义导入全流程开发自检（2026-11-09）
 
-用户授权场景与画风同时扩展、先形成六个主题包，并把用户自有素材导入、名字、格式和配套流程一并实现。开发状态只归[07](../07-roadmap.md#asset-expansion-implementation)，合同归[14](../14-visual-and-assets.md#asset-theme-expansion)与[10](../10-rules-assets-and-licensing.md#asset-review-and-rights)，操作归[导入指南](../reference/asset-import.md)，正式验收按[09](../09-quality-plan.md#asset-expansion-acceptance)。本节是开发自检，不授予P2/P3或发布状态。
+用户授权场景与画风同时扩展、先形成六个主题包，并把用户自有素材导入、名字、格式和配套流程一并实现。开发状态只归[07](../07-roadmap.md#asset-expansion-implementation)，合同归[14](../14-visual-and-assets.md#asset-theme-expansion)与[10](../assets.md)，操作归[导入指南](../reference/asset-import.md)，正式验收按[09](../09-quality-plan.md#asset-expansion-acceptance)。本节是开发自检，不授予P2/P3或发布状态。
 
 实现包含：严格`sceneweave-assets.json`、多来源精确路径与许可映射；单图/批量名称原文、物理标定与表现语义；六包按需来源和选择闭包采用；当前工程固定素材只读审核、单件/整包四维记录及独立用户签收、本机持久化/导出。清单只预填，不授予嵌入权/原创/P3；公开validate、完整字节/像素、来源/许可、原子采用、撤销及CAS保护保持。素材为120份原创静态SVG经固定处理器物化的PNG候选，另有18个真实组合、12份可编辑工程；没有调用生图服务，完整目标画风、用途/状态和美术仍未完成签收。
 
@@ -4127,7 +4172,7 @@ VoiceOver实际启动尝试记录于`voiceover-live-preflight`与`voiceover-star
 <a id="asset-quality-20261109"></a>
 ## 新素材共同质量初筛与六主题第一轮初审（2026-11-09）
 
-用户授权执行六包初审，并将部分质量规则落入代码，使AI制作或用户导入均先检查。合同归[14共同初筛](../14-visual-and-assets.md#asset-quality-screening)、[AI边界](../05-ai-and-generation.md#asset-quality-authoring)和[导入指南](../reference/asset-import.md)，开发归[07](../07-roadmap.md#asset-expansion-implementation)，完整矩阵仍归[09](../09-quality-plan.md#asset-expansion-acceptance)。本节不覆盖前轮素材扩展冻结，也不授予美术或用户P3。
+用户授权执行六包初审，并将部分质量规则落入代码，使AI制作或用户导入均先检查。合同归[14共同初筛](../14-visual-and-assets.md#asset-quality-screening)、[AI边界](../architecture.md#ai)和[导入指南](../reference/asset-import.md)，开发归[07](../07-roadmap.md#asset-expansion-implementation)，完整矩阵仍归[09](../09-quality-plan.md#asset-expansion-acceptance)。本节不覆盖前轮素材扩展冻结，也不授予美术或用户P3。
 
 ### 实现与信任边界
 
@@ -4250,7 +4295,7 @@ AI两文件31项的代理先行结果另保留于`work/asset-expansion-20261109/
 <a id="image-enhancement-20261111"></a>
 ### 2026-11-11画质方向、少量候选与可编辑采用（开发自检）
 
-接续用户确认的“选择方向→2/3个同基线候选→真实场景比较→采用后继续编辑”，并行完成本机算法、严格固定来源和页面。支持图片Prop、房间地板、地形和墙面，原件保留，三方向为2倍受限双三次、半透明边带alpha精修和弱保边去噪；局部画笔、当前/原图依据、黑白棋盘背景及同步倍率均为显式操作。元数据直接演进当前完整工程v1，算法配方独立v1；合同归[04](../04-scene-document.md#image-enhancement-model)、[06](../06-storage-and-export.md#image-to-project-save)及[工具说明](../reference/image-to-project.md#image-enhancement)，正式检查归09。
+接续用户确认的“选择方向→2/3个同基线候选→真实场景比较→采用后继续编辑”，并行完成本机算法、严格固定来源和页面。支持图片Prop、房间地板、地形和墙面，原件保留，三方向为2倍受限双三次、半透明边带alpha精修和弱保边去噪；局部画笔、当前/原图依据、黑白棋盘背景及同步倍率均为显式操作。元数据直接演进当前完整工程v1，算法配方独立v1；合同归[04](../04-scene-document.md#image-enhancement-model)、[06](../06-storage-and-export.md#image-to-project-save)及[工具说明](../completed.md#assets)，正式检查归09。
 
 证据根为本机忽略目录 `work/image-enhancement-20261111/`。原会话中断前的单项结果不拼接为本次完整通过。接续后核心与严格元数据2文件29项通过，含三方向连续两代2倍增强及局部蒙版完整包冷读；平台/Worker/命令准备/快照4文件33项通过（`integration-final.log`）；导入会话/选区2文件23项通过（`import-regression.log`）；个人库与位图管线2文件4项、恶意依赖1文件1项分别通过。上述是分组执行的90项定向检查，不是完整回归。许可、原件、伪造输出、坏来源、循环/深度、颜色覆盖只应用一次、局部范围外像素及无关编辑/锁/旧基线均有针对证据。
 
@@ -5720,7 +5765,7 @@ verified只覆盖after的`src/application/workspace/generation-intent.test.ts`�
 
 **实际空白制作。** `build/results.json`普通生产1/1、42.0秒，无重试／跳过：初始r0，20次实际阶段预览／确认／采用到r20，same sceneId，每步完整下载。最终36×28m，2房／7墙／2开口、3地形／9来源边、1道路／1台阶、2组合、3散布、28物件及3注记。空白已经具备本例所需固定素材，没有额外目录采用。它是现有辅助教程的当前入口证据，不是无引导真人制作，也不重写旧v6历史结果。
 
-**道路首败和独立修正。** 原`routes.json`success:false，9条声明中道路2000mm正例被outpost-room:wall:2拒绝，其余符合预期。原道路首点(9000,14000)的方端帽下探到y13000，而200mm墙体外缘为y13100，门两侧合计真实侵入80000mm²。没有复用上轮浮点尾差解释真实碰撞。严格候选`road-candidate.json`分别检查y14000／14099／14100；独立有理数求交分别80000／800／0mm²。仅在独立可编辑工程把首点外移100mm，保持原2000mm宽、其余控制点、墙／门、全部支撑与高程；[固定SCN-04](../reference/acceptance-scenarios.md#scn-04-海岸哨所)输入与教程未改，原首败仍有效，不能称原夹具通过。
+**道路首败和独立修正。** 原`routes.json`success:false，9条声明中道路2000mm正例被outpost-room:wall:2拒绝，其余符合预期。原道路首点(9000,14000)的方端帽下探到y13000，而200mm墙体外缘为y13100，门两侧合计真实侵入80000mm²。没有复用上轮浮点尾差解释真实碰撞。严格候选`road-candidate.json`分别检查y14000／14099／14100；独立有理数求交分别80000／800／0mm²。仅在独立可编辑工程把首点外移100mm，保持原2000mm宽、其余控制点、墙／门、全部支撑与高程；[固定SCN-04](../testing.md)输入与教程未改，原首败仍有效，不能称原夹具通过。
 
 **固定成员UI缺口及修复。** 当前通用室外属性用整个依赖锁闭包禁用所有控件，固定单棵树后密度与重新散布也禁用；底层regenerateScatter已经按真实变化保留锁定成员。`edit-final`在真实固定／人工移动／删除后复现；新增`tests/scatter-retained-lock.spec.ts`在旧正常产物也明确失败于密度控件disabled。现只将密度／重新散布放到按组自身和所属图层锁控制的独立fieldset，配置、排除、删除仍按原完整锁闭包禁用；相关锁来源清单和可定位按钮保留，针对此操作说明差别，其他EntityLockNotice默认文案保持。共同候选准备／领域／资源／许可／预算、完整锁和采用基线未改。独立正常构建、5文件31项定向检查通过；同一新增普通生产回归修复后1/1、33.8秒，覆盖取消逐entry不变、固定成员采用后逐字段保持、撤销重做、整组锁及图层锁禁用。
 
@@ -6444,3 +6489,24 @@ Windows／Node24.14.0／Chrome158.0.8127.37，单worker、零自动重试。各�
 **统一审阅与边界。** `local-data/scenes/素材库扩充-20261117/index.html`按14用途／164具体类／年代／名称查找全部3030原图，可跳24场景和96材质对照。四个桌面／窄屏页面实际解码、筛选、当前链接及3030×3全部资产／来源／元数据链接检查通过；完整审计与coverage清单随入口。汽车类真实20款，审阅页首轮测试误要求24，仅纠正测试到清单20，页面及计数未改。千项发现按类按需，不要求3030全部装入个人库；512项／128MiB及事务预算保持，个人库未来扩容另立容量验证。
 
 本次关闭的是开发制作与必要自检范围；保持简洁矢量，部分地材图案较强、港站等地面偏疏、材质远景收益轻，未宣称写实。开凿洞室不冒充自然曲折洞群，静态车辆／设备／楼梯／机关不授予通行或模拟。正式09及用户P3独立，用户签收数0、未发布；todo SHA始终`c70db7b7ff8e2cfb340e224568249bc651f87abfaf127dc5b8f9863bd850c7e6`，无付费调用、提交、推送或部署。所有前稿、首败、旧源和其他会话编辑保全。
+
+<a id="ocean-continuation-20261117"></a>
+## 海洋生成接续、公共羽化与普通楼层入口
+
+2026-11-17完成用户设定的四步会话目标，开发范围归[07](../07-roadmap.md#ocean-continuation-development)，本轮受影响技术验收从[09](../09-quality-plan.md#ocean-continuation-acceptance)执行。当前完整工程仍为严格v1，沿用公共地形、固定素材、普通Floor、原子命令、撤销与保存冷读；前两轮海洋证据、独立todo及其他会话编辑保全，没有提交、推送、部署或付费模型调用。
+
+**公共实现。** 普通自然地形的海岸／岩岛生成增加可选海洋步骤：原算法与重放不变，完成后用同一材质角色判断、`setWaterSurface`／`updateTerrainArea`、固定素材入库和组合准备命令追加水面、浅水羽化、小舟及生物。保留已有材质覆盖、真实轮廓、高程与阻挡；按旋转后的完整图像检查可见水面和布景避让，最多每件96个位置尝试，不能缩小图片或暗换支撑来凑数。实际生成例均放置小舟、海豚、礁鲨和鱼群，海怪因完整水域空间不足明确列缺项。新`sceneweave-ocean-map`共享工作流只发现实际能力；网页之外的入口不伪造执行工具。海洋追加后不复用原本仅认证地形结果的AI接续凭证。
+
+普通Floor可保存两端整数毫米坐标和目标Floor的入口关联，一份记录双向解析；同世界坐标或分别指定端点均可。场景面板可定位本端、跳转目标、增加或移除入口，沿普通候选／采用／撤销／CAS和依赖锁检查，删除空Floor也检查入向／出向关联。定位标记为会话暂态，入口名称与导航关系不进入玩家投影或PNG，不授予物理通行或跨层寻路。三层船样板复用该入口；交付船图有原A／B及普通页面新增检修口共3条关联。
+
+公共地形遮罩修复了局部视口先裁输入、模糊采样到透明外边的缺口：先按3sigma加2像素补足输入，再模糊和裁切；孔、内收和真实轮廓不变，补边画布仍限16384单边／64Mi像素。Chrome同密度复现从64912个变化像素、最大alpha差189、角点244对66，降到9个变化像素、最大差1、角点均244。海岸、河湖与草地共用此路径，没有另写海洋岸线系统。
+
+**最终冻结与技术验收。** `work/ocean-continuation/build-delivery/`为最终正常生产构建；架构496模块、shared无DOM455模块通过。`unit-reviewed.json`10文件117项及`shore-unit.json`原岸线配方14项，共131项通过，包含严格入口／锁／删除依赖／玩家投影／撤销冷读、海洋支撑及追加预算回归。`raster-final/`原生Chrome两项通过，覆盖公共裁切羽化和实际水下／浪纹／水线／陆地裁剪。Chrome158.0.8127.37、`chrome`通道、单worker运行同一最终正常构建，`production-delivery/`六条普通页面旅程全部通过：海岸取消候选保全；海岸与岩岛生成、普通编辑撤销／保存冷读／独立上下文导入／双受众PNG；河谷、内湖、森林生成冷读及PNG；船图双向跳转、定位标记、新增入口／撤销重做／冷读／独立导入和三层PNG。三个独立导入旅程是海岸、岩岛和船图，不扩写为六例全部独立导入。
+
+`integration-source-fingerprints.json`保全1696个实际集成输入，`build-fingerprints.json`保全210个正常构建产物，`test-fingerprints.json`保全7份测试／配置／助手；包括共享文件的同期集成状态，不主张其他会话改动所有权。`audit.py`独立复读6个完整工程的ZIP CRC、各entry大小与SHA、实际PNG解码／尺寸、许可绑定和入口端点，并核对上述冻结。输出为6份完整v1工程与16张PNG：五地形36×20米、4096×2276像素，三层船各14×30米、1911×4096像素。五地形冷读、海岸／岩岛独立导入的player PNG由页面测试逐字节核对；船图在冷读后输出三层双受众图，独立导入核Floor内容和入口跳转，未宣称船图导入前后像素全矩阵。GM／player直接对比中船舱299像素最大通道差4、底舱24像素最大差1来自现有玩家墙序规范化，其余六组相同，不能把微差说成入口泄漏或双受众逐字节全等。
+
+**交付与图审。** `work/ocean-continuation/index.html`集中审阅6份可编辑工程、16张逐层双受众图及使用说明，`artifact-audit.json`保存实际摘要，`verification.json`区分最终通过与保留失败。`海洋后续-完整交付.zip`为38514034字节，SHA256 `71a1339504d91279b8b92386a62adc25f825e09334ac60bbef4e3fd3b048789b`。已实际查看海岸／岩岛整图及河谷、湖、森林和三层船联系图；保持简洁矢量、多边形轮廓、均匀岸带和较疏甲板，不宣称自然岸线美术精修或用户P3。
+
+审阅页使用系统Chrome实际打开1512／390像素两种宽度，6卡、8张预览真实解码、33个文件链接存在且无横向溢出；`review-page-check.json`及桌面／窄屏整页截图保存，已实际查看两张截图。该页面只展示交付，不改工程或正式PNG。
+
+**首败与边界。** `raster-before/`保留修复前实际alpha差189。`ui-development/`原把位置采样记入整候选尝试而报131/4，修为一次整候选和独立位置工作；`production/`岩岛原将已汇总usage再次当原执行量累计，导致求交4787148/4000000，改取原始executionUsage再加海洋工作并补应用回归；预算上限未放宽。早期类型检查和失败构建保留，最终记录不拼接旧冻结。只关闭09本轮列出的受影响技术子项，完整海洋／全项目09、其他浏览器、正式性能、真实模型／VTT及用户P3独立待验；静态海浪／尾流／水下图像不代表航行、浮力或跨层寻路，发布未授权。
