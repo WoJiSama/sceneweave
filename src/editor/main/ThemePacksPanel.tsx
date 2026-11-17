@@ -6,6 +6,8 @@ import type { OutpostVegetationDensity } from '../../platform/browser/content/ou
 import type { PreparedCatalogEntryV1 } from './catalog'
 import { prepareCatalogEntry } from './catalog'
 import AssetReviewPanel from './AssetReviewPanel'
+import FurnitureCollectionPanel from './FurnitureCollectionPanel'
+import SceneCollectionPanel from './SceneCollectionPanel'
 import './theme-packs.css'
 
 interface Props {
@@ -177,7 +179,7 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
   })
   const choices = selectThemePacks(THEME_PACK_CATALOGS, { query }), metadata = THEME_PACK_CATALOGS.find(pack => pack.id === packId)!
   const plan = THEME_PACK_PLANS.find(plan => plan.id === metadata.planId)!
-  return <section aria-label="主题素材包" className="theme-packs-panel"><details>
+  return <><SceneCollectionPanel disabled={disabled || pending || reviewPending} onAdopt={onAdopt} onPendingChange={onPendingChange}/><FurnitureCollectionPanel disabled={disabled || pending || reviewPending} onAdopt={onAdopt} onPendingChange={onPendingChange}/><section aria-label="主题素材包" className="theme-packs-panel"><details>
     <summary>主题素材包 · 场景与画风</summary>
     <p>六套独立候选。当前所选包含{metadata.counts.materials}种材质、{metadata.counts.props}件物件和{metadata.counts.prefabs}个可拆组合，另有两份可编辑场景。按需加载，再选择需要的内容添加。</p>
     <label>查找主题<input aria-label="查找主题包" value={query} onChange={event => setQuery(event.target.value)} placeholder="主题、场景或画风"/></label>
@@ -215,5 +217,5 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
     <details><summary>火山 · 灰岩、冷壳与熔岩</summary><p>五种可独立采用的火山材质，以及包含自然火口、熔岩池和通路的可编辑场景。</p><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={volcanicSurfaces}>预览添加五种火山材质</button><button type="button" className="secondary asset-wide" disabled={disabled || pending || reviewPending} onClick={naturalVolcano}>下载场景 · 自然火口与熔岩池</button></details>
     {pending && <div role="status">正在准备真实资源…<button type="button" onClick={cancel}>取消主题包准备</button></div>}
     {error && <p role="alert" className="asset-form-error">{error}</p>}{message && <p role="status">{message}</p>}
-  </details></section>
+  </details></section></>
 }
