@@ -5,6 +5,7 @@ import { sha256Bytes } from '../../../shared/validation/hash.js'
 import { captureBytes } from '../../../shared/project/binary.js'
 import { checkCancelled, type CancellationSignal, type RasterImage } from '../../../shared/ports/resources.js'
 import { decodeCanonicalPng, encodeCanonicalPng } from '../../../shared/project/png-rgba.js'
+import { encodeUtf8 } from '../../../shared/validation/json.js'
 
 export interface SvgRasterOptions { longEdgePx: number; signal?: CancellationSignal }
 export type SvgRasterResult = CanonicalSvgProcessor & {
@@ -58,7 +59,8 @@ export async function rasterizeCanonicalSvgPixels(input: NormalizedStaticSvg, di
   if (Math.max(1, Math.round(normalized.viewBox.width * scale)) !== width || Math.max(1, Math.round(normalized.viewBox.height * scale)) !== height) throw new Error('SVG PNG尺寸必须保持规范化viewBox比例。')
   await ensureRasterizer(); checkCancelled(signal)
   const source = normalized.normalizedSource.replace(/^<svg\s/, `<svg height="${height}" width="${width}" `)
-  const renderer = new Resvg(source, { fitTo: { mode: 'original' }, dpi: 96,
+  // Pass owned UTF-8 bytes rather than borrowing the string conversion bridge.
+  const renderer = new Resvg(encodeUtf8(source), { fitTo: { mode: 'original' }, dpi: 96,
     font: { fontBuffers: [] }, shapeRendering: 2, textRendering: 2, imageRendering: 0 })
   try {
     if (renderer.width !== width || renderer.height !== height || renderer.imagesToResolve().length) throw new Error('固定SVG栅格器尺寸或外部资源不符。')
@@ -75,11 +77,12 @@ export async function rasterizeCanonicalSvgPixels(input: NormalizedStaticSvg, di
   } finally { renderer.free() }
 }
 
-export async function rasterizeNormalizedSvg(input: NormalizedStaticSvg, options: SvgRasterOptions): Promise<SvgRasterResult> {
+export async function rasterizeNormalizedSvg(input: NormalizedStaticSvg, options: SvgRasterOptions,
+  rasterize: typeof rasterizeCanonicalSvgPixels = rasterizeCanonicalSvgPixels): Promise<SvgRasterResult> {
   if (!Number.isSafeInteger(options.longEdgePx) || options.longEdgePx < 1 || options.longEdgePx > STATIC_SVG_LIMITS.rasterSide) throw new Error('SVG输出长边超出4096像素保护预算。')
   checkCancelled(options.signal)
   const normalized = verifyNormalizedStaticSvg(input), scale = options.longEdgePx / Math.max(normalized.viewBox.width, normalized.viewBox.height)
-  const image = await rasterizeCanonicalSvgPixels(normalized, { width: Math.max(1, Math.round(normalized.viewBox.width * scale)), height: Math.max(1, Math.round(normalized.viewBox.height * scale)) }, options.signal)
+  const image = await rasterize(normalized, { width: Math.max(1, Math.round(normalized.viewBox.width * scale)), height: Math.max(1, Math.round(normalized.viewBox.height * scale)) }, options.signal)
   const pngBytes = encodeCanonicalPng(image)
   checkCancelled(options.signal)
   return Object.freeze({ ...CANONICAL_SVG_PROCESSOR, mimeType: 'image/png', pngBytes, sha256: sha256Bytes(pngBytes),

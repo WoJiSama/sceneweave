@@ -21,15 +21,23 @@ describe('bounded fixed SVG worker lifecycle', () => {
   beforeEach(() => { vi.useFakeTimers(); FakeWorker.instances = []; FakeWorker.failPost = false; vi.stubGlobal('Worker', FakeWorker) })
   afterEach(async () => { disposeCanonicalSvgWorkers(); await drain(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
-  it('bounds work to two workers, transfers real pixels, reuses and releases idle WASM', async () => {
+  it('serializes canonical WASM work, reuses one idle instance and releases it', async () => {
     const first = run(), second = run(), third = run()
-    await drain(); expect(FakeWorker.instances).toHaveLength(2)
-    FakeWorker.instances[0].reply(); expect((await first).rgba).toHaveLength(32)
-    await drain(); expect(FakeWorker.instances).toHaveLength(2)
-    expect(FakeWorker.instances[0].postMessage).toHaveBeenCalledTimes(2)
-    FakeWorker.instances[0].reply(); FakeWorker.instances[1].reply()
-    await Promise.all([second, third]); await vi.advanceTimersByTimeAsync(5000)
-    expect(FakeWorker.instances.every(worker => worker.terminate.mock.calls.length === 1)).toBe(true)
+    await drain(); expect(FakeWorker.instances).toHaveLength(1)
+    const worker = FakeWorker.instances[0]
+    worker.reply(); expect((await first).rgba).toHaveLength(32)
+    await drain(); expect(FakeWorker.instances).toHaveLength(1)
+    expect(worker.postMessage).toHaveBeenCalledTimes(2)
+    worker.reply(); await second; await drain()
+    expect(worker.postMessage).toHaveBeenCalledTimes(3)
+    worker.reply(); await third; await vi.advanceTimersByTimeAsync(20_000)
+    expect(worker.terminate).not.toHaveBeenCalled()
+    const delayed = run(); await drain()
+    expect(FakeWorker.instances).toHaveLength(1)
+    worker.reply(); await delayed; await vi.advanceTimersByTimeAsync(59_999)
+    expect(worker.terminate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(worker.terminate).toHaveBeenCalledOnce()
   })
 
   it('rejects malformed dimensions and worker messages before returning usable pixels', async () => {

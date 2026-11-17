@@ -10,6 +10,7 @@ import { createMemoryResources } from '../../../shared/project/resources.js'
 import { fromBundle, type EditableProject } from '../../../application/workspace/project.js'
 import { materializeProject } from '../../../application/workspace/prepare.js'
 import { rasterizeNormalizedSvg } from '../ai/svg-raster.js'
+import { rasterizeCanonicalSvgInWorker } from '../ai/svg-worker-client.js'
 import { runtime, validation } from '../runtime.js'
 
 export interface VisualArtBatch {
@@ -47,7 +48,9 @@ export async function materializeVisualArtBatches(scene: SceneDocument, batches:
       const id = batch.assetId(art.key)
       if (!scene.assets[id]) throw new Error(`原创素材缺少固定定义：${id}`)
       if (assetLicenses.has(id)) throw new Error(`原创素材固定身份重复：${id}`)
-      const normalized = normalizeStaticSvg(art.sourceSvg), output = await rasterizeNormalizedSvg(normalized, { longEdgePx: batch.rasterLongEdgePx ?? 512, signal })
+      const normalized = normalizeStaticSvg(art.sourceSvg)
+      const output = await rasterizeNormalizedSvg(normalized, { longEdgePx: batch.rasterLongEdgePx ?? 512, signal }, rasterizeCanonicalSvgInWorker)
+        .catch(error => { signal?.throwIfAborted(); throw new Error(`素材准备失败：${id}；${error instanceof Error ? error.message : String(error)}`, { cause: error }) })
       assetLicenses.set(id, licensePath)
       Object.assign(scene.assets[id], { sha256: output.sha256, pixelWidth: output.pixelWidth, pixelHeight: output.pixelHeight })
       assets[output.sha256] = { sha256: output.sha256, mimeType: output.mimeType, sizeBytes: output.pngBytes.length, pixelWidth: output.pixelWidth, pixelHeight: output.pixelHeight }
