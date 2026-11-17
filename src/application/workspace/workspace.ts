@@ -1,4 +1,5 @@
 import { rebindPathAttachmentProofs } from '../../shared/path-attachments/state.js'
+import { prepareSceneTemplatePlacement, type SceneTemplatePlacement, type SceneTemplatePreparationControl } from '../../shared/scene-templates/content.js'
 import { isDecorationCommand } from '../../shared/decorations/commands.js'
 import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
@@ -69,6 +70,7 @@ import { buildStructureRestorePlan, inspectStructureRestoreScope, type Structure
 import { validateHistoryArchive, type HistoryArchive } from '../../shared/project/history.js'
 import { captureJson } from '../../shared/validation/json.js'
 import { prepareFillCopy, type FillCopyReport, type FillCopyRequest } from './fill-copy.js'
+import { prepareBuildingFurnishing } from './furnishing.js'
 import type { AuthoringDraft, AuthoringScope, AuthoringStart, DraftLease } from '../../shared/ai/authoring-protocol.js'
 import { AuthoringScopeSchema } from '../../shared/ai/authoring-protocol.js'
 import { authoringProjectHash } from '../../shared/ai/authoring.js'
@@ -1255,7 +1257,39 @@ export class Workspace {
     if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
     return preview
   }
-  /** Only the command preparation path may register candidates that change scene semantics. */
+  /** User-visible room configurations are planned against one private baseline.
+   * Planning work remains charged across rooms and into final preparation. */
+  async previewBuildingFurnishing(catalogInput: EditableProject, input: unknown, options: { checkpoint?: number; signal?: ResourceOptions['signal']; cooperate?: () => Promise<void> } = {}) {
+    this.assertWritable()
+    const current = this.requireProject(), checkpoint = options.checkpoint ?? this.checkpoint(), signal = this.atomicSignal(options.signal)
+    this.assertCheckpoint(checkpoint); checkCancelled(signal)
+    const captured = captureEditableDraft(catalogInput), rows = captureJson(input)
+    const catalog = await validateEditableProject(captured, { ...this.validation(), signal })
+    checkCancelled(signal); this.assertCatalogImport(catalog, checkpoint)
+    if (catalogAdditionCost(current, catalog) > CATALOG_ADOPTION_LIMIT) throw new Error('轻量布景固定源新增记录超过256条操作预算。')
+    const result = await prepareBuildingFurnishing(catalog, rows, { ...this.manualPreparation(), signal,
+      assertBaseline: () => this.assertCheckpoint(checkpoint), cooperate: options.cooperate })
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    if (!result.project) return { ...result, preview: undefined }
+    const preview = await this.registerPrepared(result.project, `用途布置 · ${result.review.summary}`, checkpoint, result.commands, result.budget, undefined, result.budgetUsage, result.executionReceipt)
+    if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
+    return { ...result, preview }
+  }
+  /** The finite template executor owns fresh identities, complete resource closure,
+   * explicit target rebinding and the same preview/adopt/undo/save baseline. */
+  async previewSceneTemplate(bytes: Uint8Array, input: SceneTemplatePlacement, options: { signal?: ResourceOptions['signal'] } & SceneTemplatePreparationControl = {}): Promise<{ preview: CompositionPreview; addedIds: string[]; operationCost: number }> {
+    this.assertWritable()
+    const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const result = await prepareSceneTemplatePlacement(toBundle(current), bytes, input, { validation: { ...this.validation(), signal }, runtime: this.options.runtime,
+      onProgress: options.onProgress, cooperate: async () => { this.assertCheckpoint(checkpoint); await options.cooperate?.(); this.assertCheckpoint(checkpoint) } })
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const candidate = fromVerifiedBundle(result.bundle, { signal })
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const preview = await this.registerPrepared(candidate, `场景模板 · ${result.operationCost}/${result.budgetProfile.semanticTargets}个编辑对象`, checkpoint, [], result.budgetProfile, undefined, result.budgetUsage)
+    if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
+    return { preview, addedIds: result.addedIds, operationCost: result.operationCost }
+  }
+  /** Only trusted bounded preparation paths may register candidates that change scene semantics. */
   private async registerPrepared(input: EditableProject, description: string, checkpoint: number, commands: readonly CompositionCommand[] = [], budget?: ManualTransactionBudget, aggregateBoundaryImpact?: AggregateEditBoundaryImpact, preparedUsage?: CommandBudgetUsage, executionReceipt?: TransactionReceipt): Promise<CompositionPreview> {
     this.assertCandidateBaseline(input, checkpoint)
     const candidate = getVerifiedEditableProject(input) ?? await validateEditableProject(input, this.validation())

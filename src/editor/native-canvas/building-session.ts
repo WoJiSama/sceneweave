@@ -7,6 +7,7 @@ export type CanvasWorldTool = Omit<BuildingSketch, 'kind'> & {
   snapMm: number
   road?: { floorId: string; widthMm: number; supportRefs: readonly SurfaceRef[]; visibility: 'public' | 'gm' }
   elevation?: { mode: 'elevate' | 'sample'; scopeMm?: PointMm[]; onStep: (direction: -1 | 1) => void }
+  template?: { polygons: PointMm[][]; issues: string[]; onRotate: () => void }
   onPoint: (point: PointMm) => void
   onMove: (point: PointMm) => void
   onClearCursor?: () => void

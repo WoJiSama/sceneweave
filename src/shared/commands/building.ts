@@ -2,6 +2,7 @@ import { assertCommandBudget, commandSelectionLimit, measureCommandBudget, type 
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
+import { roomFurnishingPlanSchema } from '../furnishing/contracts.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { polygonsOverlap, roomPoints } from '../geometry/geometry.js'
 import type { Editable, GroundSurfaceRef, Opening, PointMm, Room, SurfaceStyle, VersionRef, Wall } from '../model/scene.js'
@@ -24,7 +25,7 @@ import { assertAggregateBuildingClearance } from '../aggregates/building-clearan
 
 export type BuildingCommand =
   | { type: 'createRoom'; id: string; floorId: string; boundaryMm: PointMm[]; thicknessMm: number; layerId?: string; purpose?: string; visibility?: Room['visibility']; accessExpectation?: Room['accessExpectation']; supportRef?: GroundSurfaceRef; materialRef?: VersionRef }
-  | { type: 'updateRoom'; id: string; changes: Partial<Pick<Room, 'purpose' | 'visibility' | 'accessExpectation'>> }
+  | { type: 'updateRoom'; id: string; changes: Partial<Pick<Room, 'purpose' | 'visibility' | 'accessExpectation' | 'furnishingPlan'>> }
   | { type: 'deleteRoom'; id: string; removeOrphanWalls?: boolean }
   | { type: 'deleteWall'; id: string }
   | { type: 'transformBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
@@ -47,7 +48,7 @@ const openingFields = { wallId: id, offsetReferenceVertexId: id, offsetMm: nonne
 export const buildingCommandSchemas = [
   z.object({ type: z.literal('createRoom'), id, floorId: id, boundaryMm: z.array(point).min(3).max(256), thicknessMm: positive, layerId: id.optional(), purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional(),
     supportRef: z.object({ kind: z.enum(['floor', 'terrainArea']), id }).strict().optional(), materialRef: z.object({ id, version: positive }).strict().optional() }).strict(),
-  z.object({ type: z.literal('updateRoom'), id, changes: z.object({ purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional() }).strict() }).strict(),
+  z.object({ type: z.literal('updateRoom'), id, changes: z.object({ purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional(), furnishingPlan: roomFurnishingPlanSchema.optional() }).strict() }).strict(),
   z.object({ type: z.literal('deleteRoom'), id, removeOrphanWalls: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('deleteWall'), id }).strict(),
   z.object({ type: z.literal('transformBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
@@ -703,7 +704,10 @@ function mutate(scene: SceneDocument, command: BuildingCommand, affected: Set<st
       const room = requireEntity(scene.rooms, command.id, '房间')
       if (Object.entries(command.changes).every(([key, value]) => equal(room[key as keyof Room], value))) break
       const walls = Object.values(scene.walls).filter(wall => roomOwnsWall(room, wall))
-      assertUnlocked(scene, buildingDependants(scene, walls.map(wall => wall.id), [room.id]), affected, ignoreLocks)
+      // Advisory furnishing memory changes no geometry, privacy or dependent
+      // furniture. Read-only locked furniture must remain usable as obstacles.
+      const memoryOnly = Object.keys(command.changes).every(key => key === 'furnishingPlan')
+      assertUnlocked(scene, memoryOnly ? [room.id] : buildingDependants(scene, walls.map(wall => wall.id), [room.id]), affected, ignoreLocks)
       Object.assign(room, cloneJson(command.changes)); break
     }
     case 'deleteRoom': deleteRoom(scene, command, affected, ignoreLocks); break

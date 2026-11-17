@@ -62,8 +62,8 @@ function fixedAssetRoots(document: SceneDocument): Set<string> {
 }
 
 /** Only fixed roots participate. Live instance/layer mappings are deliberately never traversed. */
-function extractClosure(source: ProjectData, selectorInput: CatalogSelector): ProjectData {
-  const selector = selectorSchema.parse(selectorInput), result = neutralProject(), document = result.document, graph = result.appearance
+export function extractTemplateFixedContent(source: ProjectData, selectors: readonly CatalogSelector[], sourceIds: readonly string[] = []): ProjectData {
+  const selected = selectors.map(value => selectorSchema.parse(value)), result = neutralProject(), document = result.document, graph = result.appearance
   const activatePresentations = () => {
     for (const sourceId of Object.keys(graph.sources)) if (graph.sources[sourceId].kind === 'prop') graph.presentations![sourceId] = cloneJson(source.appearance.presentations?.[sourceId] ?? { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null })
   }
@@ -122,9 +122,12 @@ function extractClosure(source: ProjectData, selectorInput: CatalogSelector): Pr
       }
     }
   }
-  if (selector.kind === 'prop') addProp(selector.definitionId)
-  else if (selector.kind === 'material') addMaterial(selector.definitionId)
-  else addPrefab(selector.definitionId)
+  for (const selector of selected) {
+    if (selector.kind === 'prop') addProp(selector.definitionId)
+    else if (selector.kind === 'material') addMaterial(selector.definitionId)
+    else addPrefab(selector.definitionId)
+  }
+  for (const id of sourceIds) addSource(id)
   // Ancestor and non-active variant bytes must retain real native-v3 editing roots, not temporary image caches.
   for (;;) {
     const roots = fixedAssetRoots(document), missing = sorted(Object.keys(document.assets).filter(id => !roots.has(id)))
@@ -155,6 +158,10 @@ function extractClosure(source: ProjectData, selectorInput: CatalogSelector): Pr
   result.licenseBindings.sort((a, b) => compare(canonicalJson(a), canonicalJson(b)))
   for (const asset of Object.values(document.assets)) result.assets[asset.sha256] = own(source.assets, asset.sha256)
   return result
+}
+
+function extractClosure(source: ProjectData, selectorInput: CatalogSelector): ProjectData {
+  return extractTemplateFixedContent(source, [selectorInput])
 }
 
 function resourceMetadata(project: ProjectData) {

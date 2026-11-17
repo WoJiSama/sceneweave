@@ -11,6 +11,7 @@ import type { AssetRefinementMetadata } from '../asset-refinement/metadata.js'
 import type { Attachment, AttachmentSurface } from '../attachments/contracts.js'
 import type { RockBody, CarvedStrip } from '../carved-rock/contracts.js'
 import type { TerrainInlay } from '../terrain-inlay/persistence.js'
+import type { RoomFurnishingPlan } from '../furnishing/contracts.js'
 
 /** All world coordinates and dimensions are integer millimetres. */
 export type Id = string
@@ -67,6 +68,7 @@ export interface Room extends Editable {
   boundaryVertexIds: Id[]; purpose: string; visibility: Visibility
   accessExpectation: 'unspecified' | 'required' | 'intentionalIsolation'
   supportRef: GroundSurfaceRef; groundElevationMm: number; floorStyle: SurfaceStyle | null
+  furnishingPlan?: RoomFurnishingPlan
 }
 export interface Wall extends Editable {
   startVertexId: Id; endVertexId: Id; thicknessMm: number; blocksMovement: boolean; blocksSight: boolean

@@ -121,6 +121,8 @@ export interface InteriorFurnishingOptions {
   propIdForSlot?: (slot: InteriorFurnitureSlot) => string | null
   existingPropForSlot?: (slot: InteriorFurnitureSlot) => string | null
   rankSalt?: string
+  /** Explicit existing-room functions; absent retains every legacy replay. */
+  rolesForRoom?: (roomId: string) => InteriorFurnitureRole[]
 }
 export function furnishInterior(document: SceneDocument, input: InteriorGenerationInput, layout: InteriorLayout, connectivity: InteriorConnectivityReport,
   options: InteriorFurnishingOptions): { document: SceneDocument; report: InteriorFurnishingReport; connectivity?: InteriorConnectivityReport } {
@@ -153,7 +155,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
       .filter(prop => relevant(propFootprint(prop)) || prop.renderLayer !== 'ground' && relevant(furnitureBoundsPolygon(prop.visualBoundsMm, prop))).map(prop => prop.id) : [])
     const spatialProps = (document = next) => input.algorithmVersion >= 10 ? Object.values(document.props).filter(prop => nearExternal.has(prop.id)
       || prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId) : Object.values(document.props)
-    const roomReport: InteriorFurnishingRoom = { requirementId: row.requirementId, roomId: row.roomId, recommended: recommendInteriorFurniture(requirement.purpose, row.clearAreaMm2, input.algorithmVersion), placed: [], notes: [] }
+    const roomReport: InteriorFurnishingRoom = { requirementId: row.requirementId, roomId: row.roomId, recommended: options.rolesForRoom?.(row.roomId) ?? recommendInteriorFurniture(requirement.purpose, row.clearAreaMm2, input.algorithmVersion), placed: [], notes: [] }
     report.rooms.push(roomReport)
     const slots = roomReport.recommended.map((role, index) => ({ role, index }))
     // Resolve every work/table anchor before its seats. Keep the original slot

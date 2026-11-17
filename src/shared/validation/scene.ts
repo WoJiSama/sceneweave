@@ -1,4 +1,5 @@
 import { pathAttachmentSchema } from '../path-attachments/contracts.js'
+import { roomFurnishingPlanSchema } from '../furnishing/contracts.js'
 import { attachmentSurfaceRecordSchema, attachmentRecordSchema } from '../attachments/contracts.js'
 import { rockBodySchema, carvedStripSchema } from '../carved-rock/contracts.js'
 import { terrainInlaySchema } from '../terrain-inlay/persistence.js'
@@ -57,7 +58,7 @@ const sceneShape = {
     pixelWidth: positive, pixelHeight: positive, logicalSizeMm: size, licenseRef: id, origin, imageEnhancement: imageEnhancementMetadataSchema.optional(), imageRefinement: assetRefinementMetadataSchema.optional() }).strict()),
   presetSnapshot: z.object({ presetId: id, presetVersion: positive, distanceMode: z.enum(['metric', 'grid', 'abstract']), source: z.string(), gridSizeMm: positive }).strict(),
   rooms: record(z.object({ ...editable, boundaryVertexIds: ids.min(3).max(256), purpose: z.string(), visibility,
-    accessExpectation: z.enum(['unspecified', 'required', 'intentionalIsolation']), supportRef: groundRef, groundElevationMm: int, floorStyle: style }).strict()),
+    accessExpectation: z.enum(['unspecified', 'required', 'intentionalIsolation']), supportRef: groundRef, groundElevationMm: int, floorStyle: style, furnishingPlan: roomFurnishingPlanSchema.optional() }).strict()),
   walls: record(z.object({ ...editable, startVertexId: id, endVertexId: id, thicknessMm: positive, blocksMovement: z.boolean(), blocksSight: z.boolean(), topStyle: style, edgeProfile: z.literal('stone-blocks-v1').optional() }).strict().refine(wall => !wall.edgeProfile || supportsWallReliefStyle(wall.topStyle), '块石外缘需要遗迹石灰岩墙顶材质；更换材质前请先恢复平直外缘。')),
   openings: record(z.object({ ...editable, wallId: id, offsetReferenceVertexId: id, offsetMm: nonnegative, widthMm: positive,
     kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean() }).strict()),
