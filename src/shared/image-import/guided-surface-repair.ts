@@ -11,6 +11,8 @@ export interface ImageSurfaceStructureGuide {
   stroke?: 'original-segment'
   /** Estimate reference paper from both sides; only for original-segment. */
   paper?: 'two-sided'
+  /** Only complete trusted RGB columns may register a two-sided native seam. */
+  registration?: 'complete-profile'
   /** An explicit human inference, not a claim to recover the hidden source. */
   reason: string
 }
@@ -95,6 +97,7 @@ function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, do
     if (guide.stroke !== undefined && guide.stroke !== 'original-segment') throw new Error('结构笔触仅支持显式original-segment，缺省保持原截面方法。')
     if (guide.paper !== undefined && (guide.paper !== 'two-sided' || guide.stroke !== 'original-segment'
       || (guide.axis === 'horizontal' ? guide.reference.height : guide.reference.width) < 9)) throw new Error('两侧底色须显式用于原尺寸接缝，参考横跨至少9px。')
+    if (guide.registration !== undefined && (guide.registration !== 'complete-profile' || guide.stroke !== 'original-segment' || guide.paper !== 'two-sided')) throw new Error('完整截面配准须显式用于two-sided原尺寸接缝。')
     let length = 0
     for (let i = 1; i < guide.points.length; i++) {
       const a = guide.points[i - 1], b = guide.points[i]
@@ -460,7 +463,8 @@ function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, do
   for (const [guideIndex, guide] of guides.entries()) if (guide.stroke === 'original-segment') {
     const reference = prepareOriginalSurfaceStroke(image, guide.reference, guide.axis, cancel, guide.paper)
     budget(guide.reference.width * guide.reference.height * (guide.paper ? 9 : 6))
-    const registration = rasterOriginalSurfaceStroke(reference, guide.points, b, writable, (x, y, c) => trusted(x, y) ? Math.max(0, tone(x, y, c) - rgb(x, y, c)) : undefined, ink, budget, cancel, collectTone)
+    const registration = rasterOriginalSurfaceStroke(reference, guide.points, b, writable, (x, y, c) => trusted(x, y) ? Math.max(0, tone(x, y, c) - rgb(x, y, c)) : undefined, ink, budget, cancel, collectTone,
+      guide.registration ? { mode: guide.registration, observedRgb: (x, y) => trusted(x, y) ? [rgb(x, y, 0), rgb(x, y, 1), rgb(x, y, 2)] : undefined } : undefined)
     strokeRegistration.totalRuns += registration.totalRuns
     for (const run of registration.runs) if (strokeRegistration.runs.length < 6) strokeRegistration.runs.push({ ...run, guideIndex })
   }

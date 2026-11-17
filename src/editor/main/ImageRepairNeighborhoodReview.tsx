@@ -61,8 +61,10 @@ export default function ImageRepairNeighborhoodReview({ evidence, current, analy
             <p>{side.side === 'start' ? '轴向低坐标端' : '轴向高坐标端'}：原图依据 {side.observedPixels} px，人工路径中心附近 {side.corePixels} px；参考采样偏移 {side.appliedShiftPx.toFixed(2)} px。</p>
             {!side.observedPixels && <p>没有读到该端原图接头。</p>}
             {!!side.observedPixels && !side.corePixels && <p>没有读到人工路径中心附近的原线，周围暗点不能证明接头位置。</p>}
-            {!!side.observedPixels && !side.completeSampledColumns && <p>各列仅有零散像素可读，没有一列完整覆盖当前11行采样窗。</p>}
-            {!side.weightedPixels && <p>没有足够深的原图残差，线心使用人工路径作为先验。</p>}
+            {!!side.observedPixels && !side.completeSampledColumns && <p>各列仅有零散像素可读，没有一列完整覆盖当前{run.sampledCrossPx}行采样窗。</p>}
+            {side.basis === 'observed-profile' && <p>{side.qualifiedColumns}列完整原图截面具有可辨窄线及两侧底色，参与接头配准；隐藏段仍属推断。</p>}
+            {side.basis === 'manual-fallback' && <p>没有完整且无歧义的窄线依据，此端沿人工路径定位；来源片段取确定的连续相位，不能视为原接缝位置已测得。</p>}
+            {!side.basis && !side.weightedPixels && <p>没有足够深的原图残差，线心使用人工路径作为先验。</p>}
             {side.warnings.includes('shift-clipped') && <p>估计的参考采样偏移 {side.rawShiftPx.toFixed(2)} px 已被限制到 ±3 px，仍可能错高，不能视为接线成功。</p>}
           </div>)}
           <button type="button" disabled={disabled} onClick={() => onLocate(run.boundsPx, `引导 ${run.guideIndex + 1} 的接头位置依据`, 'floor')}>定位该段补图</button>

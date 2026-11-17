@@ -13,9 +13,10 @@ const reference = z.strictObject({ x: z.number().int().nonnegative(), y: z.numbe
 export const imageSurfaceGuidanceSchema = z.strictObject({
   orientation: z.enum(['horizontal', 'vertical', 'soft']),
   guides: z.array(z.strictObject({ points: z.array(z.strictObject({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() })).min(2).max(16),
-    reference, axis: z.enum(['horizontal', 'vertical']), stroke: z.literal('original-segment').optional(), paper: z.literal('two-sided').optional(), reason: z.string().trim().min(1).max(400) })
+    reference, axis: z.enum(['horizontal', 'vertical']), stroke: z.literal('original-segment').optional(), paper: z.literal('two-sided').optional(), registration: z.literal('complete-profile').optional(), reason: z.string().trim().min(1).max(400) })
     .refine(value => value.paper === undefined || value.stroke === 'original-segment' && (value.axis === 'horizontal' ? value.reference.height : value.reference.width) >= 9,
-      '两侧底色须显式用于原尺寸接缝，参考横跨至少9px。')).max(32),
+      '两侧底色须显式用于原尺寸接缝，参考横跨至少9px。')
+    .refine(value => value.registration === undefined || value.stroke === 'original-segment' && value.paper === 'two-sided', '完整截面配准须显式用于two-sided原尺寸接缝。')).max(32),
   detailPatches: z.array(z.strictObject({ role: z.enum(['board-end', 'nails', 'gap']), mode: z.literal('replace-ink').optional(), blendPx: z.number().int().min(1).max(4).optional(), reference: reference.extend({ width: z.number().int().min(5).max(64), height: z.number().int().min(5).max(64) }),
     target: z.strictObject({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative() }), reason: z.string().trim().min(1).max(400) })
     .refine(value => value.role !== 'gap' || value.mode === 'replace-ink', '断口必须显式替换生成笔迹，不能仅加深。')

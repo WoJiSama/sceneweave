@@ -77,6 +77,9 @@ export function analyzeImageImportRepair(source: ImagePixels, layers: readonly I
       if (surface.guided!.guides.some(guide => guide.paper === 'two-sided')) {
         report.summary.push('部分原尺寸接缝显式以两侧原图底色估计笔迹：每列两端各2行拟合底色，减少把木板明暗差复制为宽墨带。参考横跨至少9px；接头位置和隐藏笔迹仍为推断，宽暗带、真实饰边与两侧受污染情况须看图判断。')
       }
+      if (surface.guided!.guides.some(guide => guide.registration === 'complete-profile')) {
+        report.summary.push('部分接头显式只用逐列完整的原图RGB截面配准；宽影、底色阶跃、双线及不完整列不参与位移或相位。缺少合格依据时沿人工路径推断，完整列冲突或偏离超过3px则拒绝，不夹限。')
+      }
       for (const [i, patch] of (surface.guided!.detailPatches ?? []).entries()) {
         const r = patch.reference, t = patch.target
         report.summary.push(`二维笔迹${i + 1}（${patch.role}）：原图(${r.x},${r.y}) ${r.width}×${r.height}px原尺寸移至(${t.x},${t.y})，${patch.mode === 'replace-ink' ? '仅替换本次生成笔迹，保留分别估计的底色与细纹，来源空隙也会替换旧生成线' : '只在当前获准补区合入深色笔触'}。理由：${patch.reason}`)

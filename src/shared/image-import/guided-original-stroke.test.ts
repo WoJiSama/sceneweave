@@ -124,8 +124,9 @@ describe('finite original surface strokes', () => {
     for (let y = 0; y < 80; y++) for (let x = 0; x < 100; x++) if (x >= 43 && x < 65 && y >= 35 && y < 53 || priorInference[y * 100 + x]) {
       a.data.set([255, 0, 255, 255], (y * 100 + x) * 4); b.data.set([0, 255, 0, 255], (y * 100 + x) * 4)
     }
-    for (const paper of [undefined, 'two-sided'] as const) {
-      const extra = { ...options, guides: [{ ...guide, ...(paper ? { paper } : {}) }], protectionMask, priorInference }
+    for (const mode of ['legacy', 'two-sided', 'complete-profile'] as const) {
+      const extra = { ...options, guides: [{ ...guide, ...(mode !== 'legacy' ? { paper: 'two-sided' as const } : {}),
+        ...(mode === 'complete-profile' ? { registration: 'complete-profile' as const } : {}) }], protectionMask, priorInference }
       const left = repairGuidedImageSurface(a, removal, donor, extra), right = repairGuidedImageSurface(b, removal, donor, extra)
       for (let y = 35; y < 53; y++) for (let x = 43; x < 65; x++) {
         if (x >= 47 && x < 49 && y >= 40 && y < 45) expect(rgba(left, x, y)).toEqual(rgba(a, x, y))

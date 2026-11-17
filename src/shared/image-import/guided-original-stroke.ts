@@ -1,11 +1,13 @@
 import type { ImagePixels, PixelBounds } from './pixels.js'
+import { rasterCompleteOriginalStroke } from './complete-stroke-registration.js'
 
 export interface OriginalStrokeReference { length: number; cross: number; centre: number; ink: Float32Array; axis: 'horizontal' | 'vertical' }
 export interface OriginalStrokeRegistration {
   boundsPx: PixelBounds
   sourceOffsetPx: number
   referenceCrossPx: number
-  sampledCrossPx: 11
+  sampledCrossPx: number
+  registrationMode?: 'complete-profile'
   sides: Array<{
     side: 'start' | 'end'
     observedPixels: number
@@ -17,6 +19,8 @@ export interface OriginalStrokeRegistration {
     rawShiftPx: number
     appliedShiftPx: number
     warnings: string[]
+    basis?: 'observed-profile' | 'manual-fallback'
+    qualifiedColumns?: number
   }>
 }
 export interface OriginalStrokeRegistrations { runs: OriginalStrokeRegistration[]; totalRuns: number; unlistedRuns: number }
@@ -72,7 +76,9 @@ export function prepareOriginalSurfaceStroke(image: ImagePixels, bounds: PixelBo
  * influence the joint comparison. A source too short rejects the solve. */
 export function rasterOriginalSurfaceStroke(reference: OriginalStrokeReference, points: readonly Point[], bounds: PixelBounds,
   writable: (x: number, y: number) => boolean, observedInk: (x: number, y: number, c: number) => number | undefined,
-  targetInk: Float32Array, budget: (n: number) => void, cancel: () => void, collectRegistration = false): OriginalStrokeRegistrations {
+  targetInk: Float32Array, budget: (n: number) => void, cancel: () => void, collectRegistration = false,
+  registration?: { mode: 'complete-profile'; observedRgb: (x: number, y: number) => readonly [number, number, number] | undefined }): OriginalStrokeRegistrations {
+  if (registration) return rasterCompleteOriginalStroke(reference, points, bounds, writable, registration.observedRgb, targetInk, budget, cancel, collectRegistration)
   const registrations: OriginalStrokeRegistration[] = []
   let totalRuns = 0
   const horizontal = reference.axis === 'horizontal', along = (p: Point) => horizontal ? p.x : p.y, across = (p: Point) => horizontal ? p.y : p.x
