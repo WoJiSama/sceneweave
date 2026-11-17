@@ -34,6 +34,7 @@ import { paintConnectionLandingMask } from './connection-landing-mask.js'
 import { editorResidentAssetIds } from './aggregate-residency.js'
 import { paintWithPreservedAlpha } from './alpha-preservation.js'
 import { noteLabelPositions } from './note-label-layout.js'
+import { terrainInlayWallPaint, type InlayWallPaintPiece } from '../../../shared/terrain-inlay/wall-paint.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -808,20 +809,32 @@ function drawTerrainInlays(ctx: CanvasRenderingContext2D, projection: Projection
     for (const patch of inlay.patches) addRing(patch.kind === 'walk' ? walk : apron, patch.pointsMm)
     target.save()
     try {
-      target.fillStyle = '#8E816B'; target.fill(apron)
-      for (const wall of inlay.walls) {
-        const lower = [wall.a, wall.b].map((p, i) => {
-          const reach = Math.min(600, Math.max(0, wall.highMm[i] - wall.lowMm[i]) * .18)
-          return point(p.x + wall.normal.x * reach, p.y + wall.normal.y * reach)
-        })
-        const footprint = polygonPath([wall.a, wall.b, lower[1], lower[0]])
+      // Actual source ownership supplies the same world-aligned material and
+      // authored overlays as the adjacent top; a uniform rock-colored fill
+      // would turn even a shallow, continuous opening into a dark board.
+      for (const patch of inlay.apronSurfaces) {
+        const source = local.terrain.find(area => area.id === patch.sourceAreaId)
+        if (!source) throw Error('实际开口缺少已过滤的来源材质。')
+        const path = new Path2D()
+        for (const region of patch.regionsMm) { addRing(path, region.outerMm); for (const hole of region.holesMm) addRing(path, hole) }
+        target.save()
+        try { target.clip(path, 'evenodd'); fillSurface(target, apron, source.style, local, raster, '#C3BEA8', source.materialPatches) }
+        finally { target.restore() }
+      }
+      const wallGroups = new Map<string | null, InlayWallPaintPiece[]>()
+      for (const piece of terrainInlayWallPaint(inlay.walls)) {
+        if (Math.hypot(piece.topMm.x - piece.footMm.x, piece.topMm.y - piece.footMm.y) <= EPS) continue
+        const group = wallGroups.get(piece.lowSourceAreaId) ?? []
+        group.push(piece); wallGroups.set(piece.lowSourceAreaId, group)
+      }
+      for (const [lowSourceAreaId, pieces] of wallGroups) {
         target.save()
         try {
           // A cut wall may occupy only the nonwalk apron; a fill wall may
           // occupy only its real, untouched lower visible source top.
-          if (wall.lowSourceAreaId === null) target.clip(polygonPath(inlay.footprintMm))
+          if (lowSourceAreaId === null) target.clip(polygonPath(inlay.footprintMm))
           else {
-            const low = local.terrain.find(area => area.id === wall.lowSourceAreaId)
+            const low = local.terrain.find(area => area.id === lowSourceAreaId)
             if (!low) throw Error('实际外露壁缺少已过滤的低侧顶面。')
             target.clip(surfacePath(low), 'evenodd')
             const rank = local.terrain.indexOf(low)
@@ -833,11 +846,17 @@ function drawTerrainInlays(ctx: CanvasRenderingContext2D, projection: Projection
             }
           }
           excludeRing(target, inlay.walkFootprintMm, local.bounds)
-          const top = point((wall.a.x + wall.b.x) / 2, (wall.a.y + wall.b.y) / 2), foot = point((lower[0].x + lower[1].x) / 2, (lower[0].y + lower[1].y) / 2)
-          if (Math.hypot(top.x - foot.x, top.y - foot.y) <= EPS) continue
-          const shade = target.createLinearGradient(top.x, top.y, foot.x, foot.y)
-          shade.addColorStop(0, '#AA9A7B'); shade.addColorStop(.4, '#756D5D'); shade.addColorStop(1, '#4E5147')
-          target.fillStyle = shade; target.fill(footprint)
+          // One opaque footprint prevents independently antialiased strips
+          // from exposing the source top at their shared diagonals/corners.
+          const footprint = new Path2D()
+          for (const piece of pieces) addRing(footprint, piece.pointsMm)
+          target.fillStyle = '#756D5D'; target.fill(footprint)
+          for (const piece of pieces) {
+            const top = piece.topMm, foot = piece.footMm
+            const shade = target.createLinearGradient(top.x, top.y, foot.x, foot.y)
+            shade.addColorStop(0, '#AA9A7B'); shade.addColorStop(.4, '#756D5D'); shade.addColorStop(1, '#4E5147')
+            target.fillStyle = shade; target.fill(polygonPath(piece.pointsMm))
+          }
         } finally { target.restore() }
       }
       target.fillStyle = '#B5A281'; target.fill(walk)

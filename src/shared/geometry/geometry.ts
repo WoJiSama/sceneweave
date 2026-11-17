@@ -132,28 +132,37 @@ export function supportSurfaceAt(scene: SceneDocument, point: PointMm, floorId: 
 }
 const elevation = rootSurfaceElevation
 const refEqual = (a: SurfaceRef, b: SurfaceRef): boolean => a.kind === b.kind && a.id === b.id
+type SupportQuery = ReturnType<typeof createSupportQuery>
 export function pointOnSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string): boolean {
+  return pointOnQueriedSurface(scene, p, ref, floorId, createSupportQuery(scene, floorId))
+}
+function pointOnQueriedSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string, query: SupportQuery | undefined): boolean {
   const floor = own(scene.floors, floorId)
   if (!floor || !boundsContain(p, floor.boundsMm)) return false
   if (ref.kind === 'room') {
     const room = own(scene.rooms, ref.id)
-    return !!room && room.floorId === floorId && pointInPolygon(p, roomPoints(scene, room)) && pointOnSurface(scene, p, room.supportRef, floorId)
+    return !!room && room.floorId === floorId && pointInPolygon(p, roomPoints(scene, room)) && pointOnQueriedSurface(scene, p, room.supportRef, floorId, query)
   }
   const candidate = ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id) : undefined
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !pointInPolygon(p, terrainPoints(candidate))) return false
-  return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && pointInPolygon(p, terrainPoints(item), false)) && createSupportQuery(scene, floorId).flatOn(p, ref)
+  return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && pointInPolygon(p, terrainPoints(item), false)) && !!query?.flatOn(p, ref)
 }
 export function supportedPolygon(scene: SceneDocument, polygon: PointMm[], ref: SurfaceRef, floorId: string): boolean {
+  return polygonOnQueriedSurface(scene, polygon, ref, floorId, createSupportQuery(scene, floorId))
+}
+function polygonOnQueriedSurface(scene: SceneDocument, polygon: PointMm[], ref: SurfaceRef, floorId: string, query: SupportQuery | undefined): boolean {
   if (ref.kind === 'room') {
     const room = own(scene.rooms, ref.id)
-    return !!room && polygonInside(polygon, roomPoints(scene, room)) && supportedPolygon(scene, polygon, room.supportRef, floorId)
+    return !!room && room.floorId === floorId && polygonInside(polygon, roomPoints(scene, room)) && polygonOnQueriedSurface(scene, polygon, room.supportRef, floorId, query)
   }
   const floor = own(scene.floors, floorId), candidate = ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id) : undefined
   if (!floor || polygon.some(p => !boundsContain(p, floor.boundsMm))) return false
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !polygonInside(polygon, terrainPoints(candidate))) return false
   if (Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && polygonsOverlap(polygon, terrainPoints(item)))) return false
-  const query = createSupportQuery(scene, floorId)
-  return !query.strips.length && !Object.values(scene.terrainAreas).some(area => area.floorId === floorId && area.rockBody?.shell)
+  if (!query) return false
+  // Failed samplers are absent from query arrays but must still reject support.
+  return !Object.values(scene.terrainConnections).some(row => row.floorId === floorId && (row.carvedStrip || row.terrainInlay))
+    && !Object.values(scene.terrainAreas).some(row => row.floorId === floorId && row.rockBody?.shell)
     || coveredEverywhere(polygon, query.boundaries, point => query.flatOn(point, ref))
 }
 export function corridor(a: PointMm, b: PointMm, width: number, squareCaps = false): PointMm[] {
@@ -288,6 +297,11 @@ export function coveredEverywhere(polygon: PointMm[], boundaries: PointMm[][], p
 /** Exact local geometry checks shared by complete and proven position-only
  * candidate validation. This helper grants no scene certification. */
 export function validatePropGeometry(scene: SceneDocument, props: readonly Prop[]): Issue[] {
+  const queries = new Map([...new Set(props.map(prop => prop.floorId))].map(id => [id, createSupportQuery(scene, id)]))
+  return validateQueriedPropGeometry(scene, props, queries)
+}
+/** Reuse only queries built for this synchronous validation and exact scene. */
+function validateQueriedPropGeometry(scene: SceneDocument, props: readonly Prop[], queries: ReadonlyMap<string, SupportQuery>): Issue[] {
   const errors: Issue[] = []
   const error = (code: string, message: string, entityId: string) => errors.push({ code, message, entityId })
   const withinFloor = (points: PointMm[], prop: Prop) => {
@@ -301,7 +315,7 @@ export function validatePropGeometry(scene: SceneDocument, props: readonly Prop[
     const attached = Object.values(scene.attachments ?? {}).some(row => row.child.kind === 'prop' && row.child.id === prop.id)
     if (attached) {
       try { resolvePropContact(scene, prop.id) } catch (cause) { error('PROP_SUPPORT', cause instanceof Error ? cause.message : '附着物件实际接触校验失败。', prop.id) }
-    } else if (!supportedPolygon(scene, physical, prop.supportRef, prop.floorId)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
+    } else if (!polygonOnQueriedSurface(scene, physical, prop.supportRef, prop.floorId, queries.get(prop.floorId))) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
   }
   return errors
 }
@@ -408,8 +422,9 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!length) continue
     let offset = Math.min(0.1, length / 100)
     for (const boundary of terrainBoundaries(edge.floorId)) for (const [c, d] of edges(boundary)) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
-    const inside = supportSurfaceAt(scene, { x: midpoint.x - (b.y - a.y) / length * offset, y: midpoint.y + (b.x - a.x) / length * offset }, edge.floorId)
-    const outside = supportSurfaceAt(scene, { x: midpoint.x + (b.y - a.y) / length * offset, y: midpoint.y - (b.x - a.x) / length * offset }, edge.floorId)
+    const query = supportQueries.get(edge.floorId)
+    const inside = query?.rootAt({ x: midpoint.x - (b.y - a.y) / length * offset, y: midpoint.y + (b.x - a.x) / length * offset }) ?? null
+    const outside = query?.rootAt({ x: midpoint.x + (b.y - a.y) / length * offset, y: midpoint.y - (b.x - a.x) / length * offset }) ?? null
     if (inside?.kind !== 'terrainArea' || inside.id !== source.id || !outside || refEqual(inside, outside)) { error('COVERED_EDGE_SOURCE', '源边段必须是暴露的有效支撑面边界，不能保留被覆盖边缘。', edge.id); continue }
     const neighborId = outside.kind === 'terrainArea' ? outside.id : null
     if (edge.neighborAreaId !== neighborId) error('EDGE_NEIGHBOR', '边缘邻接与有效地形覆盖不一致。', edge.id)
@@ -450,7 +465,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     const points = roomPoints(scene, room)
     if (polygon(points, room.id)) {
       validRooms.push({ room, points })
-      if (!supportedPolygon(scene, points, room.supportRef, room.floorId)) error('ROOM_SUPPORT', '房间完整内部须落在声明的有效支撑面内。', room.id)
+      if (!polygonOnQueriedSurface(scene, points, room.supportRef, room.floorId, supportQueries.get(room.floorId))) error('ROOM_SUPPORT', '房间完整内部须落在声明的有效支撑面内。', room.id)
     }
     if (room.groundElevationMm !== elevation(scene, room.supportRef)) error('ROOM_ELEVATION', '房间高度须等于支撑面高度。', room.id)
     for (let i = 0; i < room.boundaryVertexIds.length; i++) {
@@ -529,7 +544,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   const queue = [...reachable]
   for (let i = 0; i < queue.length; i++) for (const next of graph.get(queue[i]) ?? []) if (!reachable.has(next)) { reachable.add(next); queue.push(next) }
   for (const room of Object.values(scene.rooms)) if (room.accessExpectation === 'required' && !reachable.has(room.id)) error('REQUIRED_UNREACHABLE', 'required 房间须结构连接到显式外部入口；这不证明空间寻路。', room.id)
-  errors.push(...validatePropGeometry(scene, Object.values(scene.props)))
+  errors.push(...validateQueriedPropGeometry(scene, Object.values(scene.props), supportQueries))
   const connectionPolygons = new Map<string, PointMm[]>()
   const connectionRouteIds = Object.values(scene.terrainConnections).some(connection => connection.route || connection.carvedStrip || connection.terrainInlay) || areas.some(area => area.rockBody?.shell) ? connectionRouteReservedIds(scene) : new Set<string>()
   for (const area of areas) if (area.rockBody?.shell) {
@@ -582,7 +597,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     withinFloor(band, connection.floorId, connection.id)
     if (connection.route && !polygon(band, connection.id)) { error('CONNECTION_WIDTH', '连接完整净宽转角自交、过窄或折返，请放宽回折间距。', connection.id); continue }
     if (!band.length || refEqual(from.surfaceRef, to.surfaceRef) || elevation(scene, from.surfaceRef) === undefined || elevation(scene, from.surfaceRef) === elevation(scene, to.surfaceRef)) error('CONNECTION_HEIGHT', '连接须具有不同有效支撑面、不同高度与非零长度。', connection.id)
-    if (!actual && (!pointOnSurface(scene, from.positionMm, from.surfaceRef, connection.floorId) || !pointOnSurface(scene, to.positionMm, to.surfaceRef, connection.floorId))) error('CONNECTION_ENDPOINT', '连接两端须落在各自的有效支撑面内。', connection.id)
+    if (!actual && (!pointOnQueriedSurface(scene, from.positionMm, from.surfaceRef, connection.floorId, supportQueries.get(connection.floorId)) || !pointOnQueriedSurface(scene, to.positionMm, to.surfaceRef, connection.floorId, supportQueries.get(connection.floorId)))) error('CONNECTION_ENDPOINT', '连接两端须落在各自的有效支撑面内。', connection.id)
     const refs = [from.surfaceRef, to.surfaceRef]
     if (actual) {
       const query = supportQueries.get(connection.floorId)!
@@ -597,12 +612,12 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
           return cap && actual.sourceConnectionId === connection.id || refEqual(actual.rootSupportRef, end.surfaceRef) && Math.abs(actual.normal.x) <= EPS && Math.abs(actual.normal.y) <= EPS
         })) error('CARVED_CONNECTION_APPROACH', '连续岩台端面及半净宽深度的真实接入地面必须完整同高、同根基且不悬空。', connection.id)
       }
-    } else if (!coveredEverywhere(band, [...terrainBoundaries(connection.floorId), ...validRooms.filter(item=>item.room.floorId===connection.floorId).map(item => item.points)], p => refs.some(ref => pointOnSurface(scene, p, ref, connection.floorId)))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
+    } else if (!coveredEverywhere(band, [...terrainBoundaries(connection.floorId), ...validRooms.filter(item=>item.room.floorId===connection.floorId).map(item => item.points)], p => refs.some(ref => pointOnQueriedSurface(scene, p, ref, connection.floorId, supportQueries.get(connection.floorId))))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
     const transitions: string[] = []
     for (let segment = 1; segment < centerline.length; segment++) {
       const a = centerline[segment - 1], b = centerline[segment], cuts = segmentCuts(a, b, terrainBoundaries(connection.floorId).flatMap(edges))
       for (let i = 1; i < cuts.length; i++) {
-        const p = at(a, b, (cuts[i - 1] + cuts[i]) / 2), support = supportSurfaceAt(scene, p, connection.floorId), key = support ? `${support.kind}\0${support.id}` : 'outside'
+        const p = at(a, b, (cuts[i - 1] + cuts[i]) / 2), support = supportQueries.get(connection.floorId)?.rootAt(p) ?? null, key = support ? `${support.kind}\0${support.id}` : 'outside'
         if (transitions.at(-1) !== key) transitions.push(key)
       }
     }
@@ -630,12 +645,12 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!polygon(band, path.id)) continue
     const crossing = path.centerlineMm.slice(1).some((b, i) => path.centerlineMm.slice(i + 3).some((d, k) => meet(path.centerlineMm[i], b, path.centerlineMm[i + 2 + k], d)))
     if (crossing) error('PATH_SELF_OVERLAP', '路径中心线/带区不能自交或折返。', path.id)
-    if (!coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item=>item.room.floorId===path.floorId).map(item => item.points)], p => path.supportRefs.some(ref => pointOnSurface(scene, p, ref, path.floorId)))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
+    if (!coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item=>item.room.floorId===path.floorId).map(item => item.points)], p => path.supportRefs.some(ref => pointOnQueriedSurface(scene, p, ref, path.floorId, supportQueries.get(path.floorId))))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
     let previousPathSurface: SurfaceRef | null = null
     for (let i = 1; i < path.centerlineMm.length; i++) {
       const a = path.centerlineMm[i - 1], b = path.centerlineMm[i], cuts = segmentCuts(a, b, terrainBoundaries(path.floorId).flatMap(edges))
       for (let j = 1; j < cuts.length; j++) {
-        const support = supportSurfaceAt(scene, at(a, b, (cuts[j - 1] + cuts[j]) / 2), path.floorId)
+        const support = supportQueries.get(path.floorId)?.rootAt(at(a, b, (cuts[j - 1] + cuts[j]) / 2)) ?? null
         if (support && previousPathSurface && elevation(scene, support) !== elevation(scene, previousPathSurface)) {
           const p = at(a, b, cuts[j - 1])
           if (!Object.values(scene.terrainConnections).some(connection => connection.floorId === path.floorId && connection.widthMm >= path.widthMm && pointInPolygon(p, connectionPolygons.get(connection.id) ?? []))) error('PATH_HEIGHT_TRANSITION', '路径跨高差必须位于独立有效连接的足宽走廊中。', path.id)

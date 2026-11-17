@@ -349,7 +349,11 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       return { x: p.x + wall.normal.x * depth, y: p.y + wall.normal.y * depth }
     }))]
     inlays.push({ id: connection.id, footprintMm, walkFootprintMm: terrainInlayFootprint(connection, true),
-      patches: Object.values(geometry.faces).map(face => ({ kind: face.kind, pointsMm: face.vertexIds.map(id => ({ x: geometry.verticesMm[id].x, y: geometry.verticesMm[id].y })), elevationsMm: face.vertexIds.map(id => geometry.verticesMm[id].z) })),
+      patches: Object.values(geometry.faces).sort((a, b) => a.id.localeCompare(b.id)).map(face => ({ kind: face.kind, pointsMm: face.vertexIds.map(id => ({ x: geometry.verticesMm[id].x, y: geometry.verticesMm[id].y })), elevationsMm: face.vertexIds.map(id => geometry.verticesMm[id].z) })),
+      apronSurfaces: geometry.sources.map(source => {
+        const cells = plan.cells.filter(cell => cell.kind === 'apron' && cell.sourceAreaId === source.id).map(cell => polygonRegion(cell.ringMm))
+        return { sourceAreaId: source.id, regionsMm: cells.length ? projectedRegions(polygonClipping.union(cells[0], ...cells.slice(1))) : [] }
+      }),
       walls, changedCarriers: plan.sourceIntervals.map(row => ({ a: clone(row.a), b: clone(row.b) })), paintBoundsMm: inflate(pointsBounds(paintPoints), 24) })
   }
   if (changedIntervals.length) edges.splice(0, edges.length, ...splitInlaySourceEdges(edges, scene, changedIntervals))

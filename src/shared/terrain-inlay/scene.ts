@@ -1,10 +1,11 @@
 import type { HistoryIdentity } from '../model/history.js'
+import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
 import type { Issue, PointMm, SceneDocument, TerrainArea, TerrainConnection } from '../model/scene.js'
 import { canonicalJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 import { coveredEverywhere, connectionBand, pointInPolygon, polygonDistance, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
 import { planTerrainInlay } from './geometry.js'
-import type { TerrainInlaySource } from './contracts.js'
+import { TERRAIN_INLAY_LIMITS, type TerrainInlaySource } from './contracts.js'
 import { terrainInlaySchema } from './persistence.js'
 
 export const terrainInlayHash = (value: unknown) => sha256Text(canonicalJson(value))
@@ -31,6 +32,8 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
       '跨台山路只保留一条活动坡道，不能叠加旧路线、单宿主切口或门。')
     assert(original.id === connection.id && original.floorId === connection.floorId && terrainInlayHash(original) === inlay.originalConnectionHash,
       '跨台山路的冻结原连接或摘要不完整。')
+    assert(original.openingId === null, '跨台山路冻结原连接不能保留房间门引用。')
+    assert(!original.route?.renderProfile || original.kind === 'stairs', '冻结原连接的细化踏面只适用于楼梯。')
     assert(original.widthMm === connection.widthMm && terrainInlayHash([original.from, original.to]) === terrainInlayHash([connection.from, connection.to]),
       '跨台山路不能隐式移动冻结路线端点、根基或净宽。')
     assert(connection.from.surfaceRef.kind === 'terrainArea' && connection.to.surfaceRef.kind === 'terrainArea'
@@ -48,6 +51,8 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
     assert(new Set(inlay.centerlineVertexIds).size === inlay.centerlineVertexIds.length
       && inlay.centerlineVertexIds.every(id => Object.hasOwn(geometry.verticesMm, id)), '跨台山路中心线须引用不同现存实际顶点。')
     const line = terrainInlayCenterline(connection), originalLine = original.route?.centerlineMm ?? [original.from.positionMm, original.to.positionMm]
+    assert(terrainInlayHash(originalLine[0]) === terrainInlayHash(original.from.positionMm)
+      && terrainInlayHash(originalLine.at(-1)) === terrainInlayHash(original.to.positionMm), '冻结原路线首尾须精确等于原连接端点。')
     assert(terrainInlayHash(line) === terrainInlayHash(originalLine), '跨台山路须保全冻结控制源的完整实际中心线。')
     const walk = terrainInlayFootprint(connection, true), footprint = terrainInlayFootprint(connection)
     const band = connectionBand(line, connection.widthMm)
@@ -56,13 +61,64 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
     assert(floor && Object.values(geometry.verticesMm).every(point => point.x >= floor.boundsMm.x && point.y >= floor.boundsMm.y
       && point.x <= floor.boundsMm.x + floor.boundsMm.width && point.y <= floor.boundsMm.y + floor.boundsMm.height), '跨台山路完整实际面越出Floor。')
     const ids = new Set(geometry.sources.map(source => source.id))
-    for (const area of Object.values(scene.terrainAreas)) if (area.floorId === connection.floorId && !ids.has(area.id)) {
+    const poly = (points: PointMm[]): MultiPolygon => [[points.map(point => [point.x, point.y])]]
+    // The two-source kernel does not bound interactions with the rest of the
+    // scene. Meter this separate visible-owner proof before clipping/pair work.
+    let scenePairs = 0
+    const spend = (pairs: number) => {
+      scenePairs += pairs
+      assert(scenePairs <= TERRAIN_INLAY_LIMITS.intersectionPairs, '跨台山路与当前场景的真实邻面检查超过有限工作预算。')
+    }
+    const pointSegmentDistance = (p: PointMm, a: PointMm, b: PointMm) => {
+      const dx = b.x - a.x, dy = b.y - a.y, span2 = dx * dx + dy * dy
+      const t = span2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / span2)) : 0
+      return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy)
+    }
+    const ringDistance = (a: PointMm[], b: PointMm[]) => {
+      spend(a.length * b.length)
+      let distance = Infinity
+      const same = (a: PointMm, b: PointMm) => a.x === b.x && a.y === b.y
+      for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) {
+        const p = a[i], q = a[(i + 1) % a.length], r = b[j], s = b[(j + 1) % b.length]
+        const shared = [p, q].find(point => same(point, r) || same(point, s))
+        if (shared) {
+          const u = same(shared, p) ? q : p, v = same(shared, r) ? s : r
+          const cross = (u.x - shared.x) * (v.y - shared.y) - (u.y - shared.y) * (v.x - shared.x)
+          const dot = (u.x - shared.x) * (v.x - shared.x) + (u.y - shared.y) * (v.y - shared.y)
+          // An exact isolated shared vertex changes no open wall interval or
+          // support area. A shared ray still requires the third source owner.
+          if (cross !== 0 || dot < 0) continue
+        }
+        distance = Math.min(distance, pointSegmentDistance(p, r, s), pointSegmentDistance(q, r, s), pointSegmentDistance(r, p, q), pointSegmentDistance(s, p, q))
+      }
+      return distance
+    }
+    let covered: MultiPolygon = []
+    const sortedAreas = Object.values(scene.terrainAreas).filter(area => area.floorId === connection.floorId)
+      .sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
+    assert(sortedAreas.reduce((sum, area) => sum + area.boundaryMm.length, footprint.length) <= TERRAIN_INLAY_LIMITS.segments,
+      '跨台山路真实邻面检查超过完整点边保护值。')
+    for (const area of sortedAreas) {
+      const raw = poly(terrainPoints(area)), coveredPoints = covered.reduce((sum, region) => sum + region.reduce((n, ring) => n + ring.length, 0), 0)
+      spend(area.boundaryMm.length * coveredPoints * 2)
+      const visible = covered.length ? polygonClipping.difference(raw, covered) : raw
+      covered = covered.length ? polygonClipping.union(covered, raw) : raw
+      if (ids.has(area.id)) continue
       // The outside visible owner matters even when only touching the inlay.
       // Refuse an unlisted side, including sub-mm slivers, instead of computing
       // walls against a two-source world that differs from the real scene.
-      assert(polygonDistance(footprint, terrainPoints(area)) > .02, '跨台山路影响域或外侧邻面与第三地形相交或接触；须显式纳入来源再制作。')
+      for (const region of visible) {
+        const outer = region[0].map(([x, y]) => ({ x, y })), holes = region.slice(1).map(ring => ring.map(([x, y]) => ({ x, y })))
+        // A lower background may be fully hidden by both explicit sources.
+        // Compare the REAL visible region, including its holes and near sides.
+        spend(footprint.length * region.reduce((sum, ring) => sum + ring.length, 0))
+        const intersection = polygonClipping.intersection(poly(footprint), [region])
+        assert(intersection.length === 0 && [outer, ...holes].every(ring => ringDistance(footprint, ring) > .02),
+        '跨台山路影响域或外侧邻面与第三可见地形相交或接触；须显式纳入来源再制作。')
+      }
       if (area.rockBody?.shell) for (const face of Object.values(area.rockBody.shell.faces)) {
         const points = face.vertexIds.map(id => area.rockBody!.shell!.verticesMm[id])
+        spend(footprint.length * points.length)
         assert(polygonDistance(footprint, points) > .02, '跨台山路影响域与已有岩体侧壳相交或接触。')
       }
     }
@@ -70,7 +126,7 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
       const otherFootprints = other.terrainInlay ? [terrainInlayFootprint(other)] : other.carvedStrip
         ? other.carvedStrip.cutCells.map(cell => other.carvedStrip!.faces[cell.lowerFaceId].vertexIds.map(id => other.carvedStrip!.verticesMm[id]))
         : [connectionBand(other.route?.centerlineMm ?? [other.from.positionMm, other.to.positionMm], other.widthMm)]
-      assert(otherFootprints.every(points => !polygonsOverlap(footprint, points)), '跨台山路影响域不能与另一连接或切口重叠。')
+      assert(otherFootprints.every(points => { spend(footprint.length * points.length); return !polygonsOverlap(footprint, points) }), '跨台山路影响域不能与另一连接或切口重叠。')
     }
     planTerrainInlay(geometry)
     return []

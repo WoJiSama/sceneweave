@@ -67,6 +67,18 @@ describe('local terrain cut and fill development kernel', () => {
     expect(plan.exposedWalls.filter(w => w.high.kind === 'source')).toHaveLength(2)
   })
 
+  it('keeps derived cells, walls and volume order exact after record-key canonicalization', () => {
+    const input = fixture()
+    input.verticesMm.e = { x: 2000, y: 1000, z: 1000 }; input.verticesMm.f = { x: 8000, y: 1000, z: 3000 }
+    input.faces.f3 = { id: 'f3', kind: 'apron', vertexIds: ['e', 'f', 'b'] }
+    input.faces.f4 = { id: 'f4', kind: 'apron', vertexIds: ['e', 'b', 'a'] }
+    input.footprintVertexIds = ['e', 'f', 'b', 'c', 'd', 'a']
+    const reordered = copy(input)
+    reordered.faces = Object.fromEntries(Object.entries(reordered.faces).reverse())
+    reordered.verticesMm = Object.fromEntries(Object.entries(reordered.verticesMm).reverse())
+    expect(planTerrainInlay(reordered)).toEqual(planTerrainInlay(input))
+  })
+
   it('retains a real source cliff when actual equals the inside ground and erases it when actual meets the outside', () => {
     const input = fixture()
     // The north-east side of the actual boundary follows the original high

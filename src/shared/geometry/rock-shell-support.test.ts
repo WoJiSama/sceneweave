@@ -37,6 +37,15 @@ const item = (positionMm: PointMm, supportRef: Prop['supportRef']): Prop => ({ i
   visibility: 'public', supportRef, renderLayer: 'object', renderOrder: 0, shadowClass: 'none', shadowOverride: null })
 
 describe('persistent rock shell physical support', () => {
+  it('does not fall back to flat support when the declared shell cannot be sampled', () => {
+    const scene = cloneJson(fixture()), ref = { kind: 'terrainArea' as const, id: 'rock' }, p = { x: 12000, y: 9000 }
+    expect(supportedPolygon(scene, rect(p.x - 10, p.y - 10, 20, 20), ref, floorId)).toBe(true)
+    scene.terrainAreas.rock.rockBody!.shell!.faces = {}
+    expect(pointOnSurface(scene, p, ref, floorId)).toBe(false)
+    expect(supportedPolygon(scene, rect(p.x - 10, p.y - 10, 20, 20), ref, floorId)).toBe(false)
+    expect(validatePropGeometry(scene, [item(p, ref)]).some(issue => issue.code === 'PROP_SUPPORT')).toBe(true)
+  })
+
   it('keeps the original top ring and returns the shell owner with its actual height and normal', () => {
     const scene = fixture(), p = sidePoint(scene), rock = scene.terrainAreas.rock, actual = createRockShellSampler(rock.rockBody!.shell!).sample(p)!
     expect(terrainPoints(rock)).toEqual(rect(6000, 4000, 14000, 10000))

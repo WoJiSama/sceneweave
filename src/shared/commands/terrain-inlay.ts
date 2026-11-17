@@ -9,6 +9,7 @@ import { terrainInlayOriginalSchema } from '../terrain-inlay/persistence.js'
 import { inspectTerrainInlay, terrainInlayHash } from '../terrain-inlay/scene.js'
 import { attachmentOwnerDependencyIds, assertAttachmentLocks } from '../attachments/dependencies.js'
 import { geometryIdentityIds } from './domain.js'
+import { assertTerrainInlayVisualLocks, inspectTerrainInlayVisualScope } from '../terrain-inlay/visual-scope.js'
 
 export const terrainInlayCommandSchemas = [
   z.object({ type: z.literal('adoptTerrainInlay'), id, geometry: terrainInlayRequestSchema,
@@ -30,6 +31,8 @@ export function applyTerrainInlayCommand(scene: SceneDocument, raw: TerrainInlay
   for (const areaId of areaIds) for (const id of attachmentOwnerDependencyIds(scene, areaId)) dependencies.add(id)
   for (const edge of Object.values(scene.terrainEdges)) if (areaIds.includes(edge.source.areaId) || areaIds.includes(edge.neighborAreaId ?? '')) { dependencies.add(edge.id); dependencies.add(scene.entityLayers[edge.id]) }
   assertAttachmentLocks(scene, [...dependencies])
+  const visualGeometry = command.type === 'adoptTerrainInlay' ? command.geometry : connection.terrainInlay?.geometry
+  if (visualGeometry) assertTerrainInlayVisualLocks(scene, inspectTerrainInlayVisualScope(scene, connection.id, visualGeometry))
   if (Object.values(scene.attachmentSurfaces ?? {}).some(surface => surface.owner.kind === 'terrainConnection' && surface.owner.id === connection.id)
     || Object.values(scene.attachments ?? {}).some(row => row.child.id === connection.id)) throw Error('原连接已有附着依赖，须先显式解除后再转换或回填。')
   if (command.type === 'restoreTerrainInlaySource') {

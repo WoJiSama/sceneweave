@@ -11,13 +11,16 @@ import { certifyCompositionContent } from '../validation/content.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { validateHistoryIdentity } from '../history/identity.js'
 import { cloneJson } from '../validation/json.js'
+import { createTerrainInlayCommand } from './create.js'
+import { encodeSceneCoordinates, decodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
+import { exportProject, importProject } from '../project/file.js'
 import { supportSampleAt } from '../geometry/support-sample.js'
-import { validateGeometry } from '../geometry/geometry.js'
+import { pointOnSurface, supportedPolygon, validateGeometry, validatePropGeometry } from '../geometry/geometry.js'
 import { checkTerrainRoute, checkTerrainTravel } from '../geometry/terrain-travel.js'
 import { MANUAL_TRANSACTION_BUDGET, measureCommandBudget } from '../budget/command-budget.js'
 import type { CompositionCommand } from '../model/appearance.js'
 import type { TerrainInlayRequest } from './contracts.js'
-import { terrainInlayHash, terrainInlaySource, validateTerrainInlayProofs } from './scene.js'
+import { inspectTerrainInlay, terrainInlayHash, terrainInlaySource, validateTerrainInlayProofs } from './scene.js'
 
 const floorId = 'blank-floor'
 function prepared() {
@@ -110,6 +113,105 @@ describe('complete cross-terrace inlay transactions', () => {
     expect(() => applyCompositionDraftCommands(after, [{ type: 'removeTerrainConnection', id: 'road' }], runtime)).toThrow(/显式恢复/)
   })
 
+  it('does not grant a former constant-height prop or room support on the actual new slope', () => {
+    const { result } = prepared(), after = applyCompositionDraftCommands(result, [command(result.document)], runtime)
+    const polygon = [{ x: 2800, y: 4800 }, { x: 3200, y: 4800 }, { x: 3200, y: 5200 }, { x: 2800, y: 5200 }]
+    const support = { kind: 'terrainArea' as const, id: 'low' }
+    expect(supportedPolygon(result.document, polygon, support, floorId)).toBe(true)
+    expect(supportedPolygon(after.document, polygon, support, floorId)).toBe(false)
+    const scene = cloneJson(after.document), prop = cloneJson(fixture().project.document.props.item)
+    delete prop.roomId
+    scene.props.item = { ...prop, positionMm: { x: 3000, y: 5000 }, supportRef: support,
+      footprintMm: { width: 400, height: 400 }, footprintOffsetMm: { x: 0, y: 0 }, visualBoundsMm: { x: -200, y: -200, width: 400, height: 400 } }
+    scene.entityLayers.item = scene.entityLayers.low
+    expect(validateGeometry(scene).errors.some(issue => issue.entityId === 'item' && /支撑/.test(issue.message))).toBe(true)
+    const damaged = cloneJson(scene)
+    damaged.terrainConnections.road.terrainInlay!.geometry.faces = {}
+    expect(pointOnSurface(damaged, { x: 3000, y: 5000 }, support, floorId)).toBe(false)
+    expect(supportedPolygon(damaged, polygon, support, floorId)).toBe(false)
+    expect(validatePropGeometry(damaged, [damaged.props.item]).some(issue => issue.code === 'PROP_SUPPORT')).toBe(true)
+    scene.props = {}; delete scene.entityLayers.item
+    const points = polygon.map((point, i) => { const id = `room-vertex-${i}`; scene.vertices[id] = { id, floorId, editLocked: false, xMm: point.x, yMm: point.y }; scene.entityLayers[id] = scene.entityLayers.low; return id })
+    scene.rooms.room = { id: 'room', floorId, editLocked: false, boundaryVertexIds: points, purpose: 'slope support refusal',
+      visibility: 'public', accessExpectation: 'unspecified', supportRef: support, groundElevationMm: 1000, floorStyle: null }
+    scene.entityLayers.room = scene.entityLayers.low
+    expect(validateGeometry(scene).errors.some(issue => issue.entityId === 'room' && /支撑/.test(issue.message))).toBe(true)
+  })
+
+  it('bounds the visible-owner proof against the entire current scene before large clipping work', () => {
+    const { result } = prepared(), after = applyCompositionDraftCommands(result, [command(result.document)], runtime)
+    const scene = cloneJson(after.document)
+    const corners = [{ x: 1000, y: 1000 }, { x: 10000, y: 1000 }, { x: 10000, y: 9000 }, { x: 1000, y: 9000 }]
+    for (const id of ['hidden-a', 'hidden-b']) {
+      scene.terrainAreas[id] = { ...cloneJson(scene.terrainAreas.low), id, coveragePriority: 0,
+        boundaryMm: corners.flatMap((a, edge) => Array.from({ length: 512 }, (_, i) => {
+          const b = corners[(edge + 1) % 4]
+          return { id: `${id}-p-${edge}-${i}`, segmentId: `${id}-s-${edge}-${i}`,
+            positionMm: { x: Math.round(a.x + (b.x - a.x) * i / 512), y: Math.round(a.y + (b.y - a.y) * i / 512) } }
+        })) }
+      scene.entityLayers[id] = scene.entityLayers.low
+    }
+    expect(inspectTerrainInlay(scene, scene.terrainConnections.road)).toEqual([
+      expect.objectContaining({ code: 'TERRAIN_INLAY', message: expect.stringMatching(/完整点边保护值/) }),
+    ])
+  })
+
+  it('generates conservative dense integer end caps, freezes original fields and roundtrips owned aggregate geometry', () => {
+    const { result } = prepared(), scene = cloneJson(result.document), original = scene.terrainConnections.road
+    original.from.positionMm = { x: 2500, y: 4801 }; original.to.positionMm = { x: 8000, y: 5107 }
+    const source = certifyCompositionContent(createCompositionContent(scene, runtime)), input = createTerrainInlayCommand(scene, 'road')
+    const after = applyCompositionDraftCommands(source, [input], runtime)
+    expect(validateGeometry(after.document).errors).toEqual([])
+    const world = cloneJson(after.document)
+    world.aggregateCoordinates = { encoding: 'world', groups: { group: { id: 'group', floorId, parentId: null,
+      frame: { translationMm: { x: 1307, y: -519 }, quarterTurns: 1 }, editLocked: false, members: [{ kind: 'terrainConnection', id: 'road' }] } } }
+    const local = encodeSceneCoordinates(world)
+    expect(local.terrainConnections.road.terrainInlay!.geometry.verticesMm).not.toEqual(world.terrainConnections.road.terrainInlay!.geometry.verticesMm)
+    expect(local.terrainConnections.road.terrainInlay!.geometry.sources).toEqual(world.terrainConnections.road.terrainInlay!.geometry.sources)
+    expect(local.terrainConnections.road.terrainInlay!.originalConnection).toEqual(original)
+    expect(decodeSceneCoordinates(local)).toEqual(world)
+    const damagedOpening = cloneJson(after.document), inlay = damagedOpening.terrainConnections.road.terrainInlay!
+    inlay.originalConnection.openingId = 'missing-door'; inlay.originalConnectionHash = terrainInlayHash(inlay.originalConnection)
+    expect(validateSceneDocument(damagedOpening).ok).toBe(false)
+    const damagedEnd = cloneJson(after.document), row = damagedEnd.terrainConnections.road.terrainInlay!
+    row.originalConnection.from.positionMm.y++; row.originalConnectionHash = terrainInlayHash(row.originalConnection)
+    expect(validateSceneDocument(damagedEnd).ok).toBe(false)
+  })
+
+  it('continues route heights toward a differently oriented source chain without changing any walk node or face', () => {
+    const { result } = prepared(), scene = cloneJson(result.document), high = scene.terrainAreas.high
+    const old = high.boundaryMm[0]
+    high.boundaryMm.unshift({ ...old, id: 'chain-leading-point', segmentId: 'chain-leading-edge', positionMm: { x: 5000, y: 3000 } })
+    const before = cloneJson(scene), plain = createTerrainInlayCommand(scene, 'road')
+    const intent = { side: 'right' as const, startStation: 0, endStation: 1, sourceAreaId: 'high',
+      sourcePointIds: high.boundaryMm.slice(0, 3).map(p => p.id), connectorsMm: [] }
+    const opened = createTerrainInlayCommand(scene, 'road', intent), geometry = opened.geometry
+    expect([0, 1, 2].map(i => geometry.verticesMm[`opening-source-${i}`].z)).toEqual([2000, 2000, 3000])
+    for (const [id, p] of Object.entries(plain.geometry.verticesMm)) expect(geometry.verticesMm[id]).toEqual(p)
+    expect(Object.values(geometry.faces).filter(f => f.kind === 'walk')).toEqual(Object.values(plain.geometry.faces))
+    expect(geometry.walkBoundaryVertexIds).toEqual(plain.geometry.walkBoundaryVertexIds)
+    expect(createTerrainInlayCommand(scene, 'road', intent)).toEqual(opened)
+    expect(scene).toEqual(before)
+    const source = certifyCompositionContent(createCompositionContent(scene, runtime))
+    const after = applyCompositionDraftCommands(source, [opened], runtime)
+    expect(validateGeometry(after.document).errors).toEqual([])
+    expect(after.document.terrainAreas).toEqual(scene.terrainAreas)
+  })
+
+  it('rejects an opening equally near different-height route branches instead of silently choosing a branch', () => {
+    const { result } = prepared(), scene = cloneJson(result.document), road = scene.terrainConnections.road
+    road.to.positionMm = { x: 2000, y: 7000 }
+    const line = [road.from.positionMm, { x: 4000, y: 5000 }, { x: 4000, y: 7000 }, road.to.positionMm]
+    road.route = { version: 1, kind: 'polyline', centerlineMm: line, sampleSpacingMm: 20000, toleranceMm: 1,
+      segments: line.slice(1).map((end, i) => ({ id: `branch-${i}`, start: line[i], control1: line[i], control2: end, end })),
+      stairStyle: 'stone', treadDepthMm: 300 }
+    scene.terrainAreas.high.boundaryMm[0].positionMm = { x: 3000, y: 6000 }
+    const before = cloneJson(scene)
+    expect(() => createTerrainInlayCommand(scene, 'road', { side: 'right', startStation: 0, endStation: 3, sourceAreaId: 'high',
+      sourcePointIds: scene.terrainAreas.high.boundaryMm.slice(0, 2).map(p => p.id), connectorsMm: [] })).toThrow(/等距.*不同高度/)
+    expect(scene).toEqual(before)
+  })
+
   it('uses preview/adoption, undo/redo and repository cold load with complete stored geometry and proofs', async () => {
     const { result, bundle } = prepared()
     Object.assign(bundle.project, result)
@@ -128,5 +230,8 @@ describe('complete cross-terrace inlay transactions', () => {
     expect(cold.project.document).toEqual(workspace.getDocument())
     expect(validateTerrainInlayProofs(cold.project.document, cold.project.historyIdentity)).toEqual([])
     physical(cold.project.document)
+    const bytes = await exportProject(cold, validation), imported = await importProject(bytes, validation)
+    expect(imported.project.document).toEqual(cold.project.document)
+    expect(imported.project.historyIdentity).toEqual(cold.project.historyIdentity)
   }, 30000)
 })

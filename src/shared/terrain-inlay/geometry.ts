@@ -56,7 +56,10 @@ function affine([a, b, c]: [TerrainInlayPoint, TerrainInlayPoint, TerrainInlayPo
 const faceContains = ([a, b, c]: [PointMm, PointMm, PointMm], p: PointMm) => cross(a, b, p) >= -EPS && cross(b, c, p) >= -EPS && cross(c, a, p) >= -EPS
 
 function prepare(input: TerrainInlayRequest) {
-  const request = freezeJson(captureTerrainInlayRequest(input)), vertices = Object.values(request.verticesMm), faces = Object.values(request.faces)
+  const request = freezeJson(captureTerrainInlayRequest(input)), vertices = Object.values(request.verticesMm)
+  // Persistent canonical JSON may reorder record keys. Derived cell/wall and
+  // paint ordering must depend on stable face identity, never insertion order.
+  const faces = Object.values(request.faces).sort((a, b) => a.id.localeCompare(b.id))
   assert(vertices.length >= 3 && vertices.length <= LIMITS.vertices && faces.length >= 1 && faces.length <= LIMITS.faces, '局部填切实际点面超过有限保护值。')
   assert(new Set(request.sources.map(a => a.id)).size === request.sources.length && new Set(request.sources.map(a => a.floorId)).size === 1, '实际填切须引用不同的同Floor源面。')
   const reserved = request.sources.flatMap(a => [a.id, ...a.boundaryMm.flatMap(p => [p.id, p.segmentId])])

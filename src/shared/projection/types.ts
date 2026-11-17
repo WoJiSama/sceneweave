@@ -24,10 +24,15 @@ export interface ProjectedTerrainInlay {
   footprintMm: PointMm[]
   walkFootprintMm: PointMm[]
   patches: { kind: 'walk' | 'apron'; pointsMm: PointMm[]; elevationsMm: number[] }[]
+  /** Disjoint actual apron ownership, already filtered with both source tops. */
+  apronSurfaces: { sourceAreaId: string; regionsMm: NonNullable<ProjectedSurface['regionsMm']> }[]
   walls: { a: PointMm; b: PointMm; highMm: [number, number]; lowMm: [number, number]; normal: PointMm; lowSourceAreaId: string | null }[]
   /** Only the changed carriers; original raw source identities never leave the domain. */
   changedCarriers: { a: PointMm; b: PointMm }[]
   paintBoundsMm: BoundsMm
+  /** Existing source-bound paint locally covered by the actual influence;
+   * preserved in the source and explicitly listed for candidate review. */
+  scopedPaintIds?: string[]
 }
 export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
 export interface ProjectedPath { id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle }

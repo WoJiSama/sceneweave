@@ -131,6 +131,8 @@ import { authoringStageKind } from './authoring-recipes'
 import AppearancePanel from './AppearancePanel'
 import PrefabPanel from './PrefabPanel'
 import CompositionChangesPanel from './CompositionChangesPanel'
+import TerrainInlayReviewPanel from './TerrainInlayReviewPanel'
+import { inspectTerrainInlayChanges, type TerrainInlayReview } from '../../application/workspace/terrain-inlay-review'
 import type { AssetImportFields } from './AssetImportForm'
 import BuildingPanel, { type BuildingTask } from './BuildingPanel'
 import SceneBoundsPanel from './SceneBoundsPanel'
@@ -199,7 +201,7 @@ const download = (blob: Blob, name: string) => {
 }
 type Candidate = { project: EditableProject; checkpoint: number; description: string; imageDraftToken?: string }
 type CatalogUse = { selector: CatalogSelectorV1; layerId: string; ids: string[] }
-type StructurePreview = { assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display' | 'path-check' | 'image-enhancement'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
+type StructurePreview = { inlayReview?: TerrainInlayReview[]; assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display' | 'path-check' | 'image-enhancement'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
 function AffectedObjectNames({ before, after, ids }: { before: SceneDocument; after: SceneDocument; ids: readonly string[] }) {
   const labels = useMemo(() => {
     const previousName = createEntityLabeler(before), nextName = createEntityLabeler(after)
@@ -1122,10 +1124,18 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       const checkpoint = structure?.checkpoint ?? compositionWorkspace.checkpoint()
       compositionWorkspace.assertCheckpoint(checkpoint)
       const prepared = await compositionWorkspace.preview(commands)
+      let inlayReview: TerrainInlayReview[]
+      try { inlayReview = inspectTerrainInlayChanges(completeProject, prepared.project, commands) }
+      catch (error) { compositionWorkspace.cancelPreview(prepared); throw error }
       if (structure) compositionWorkspace.cancelPreview(structure.prepared)
       const visual = commands.filter(isVisualCommand)
       const environmentFloors = new Set(commands.flatMap(command => command.type === 'setFloorEnvironment' ? [command.id] : []))
       let impact = visual.length ? inspectVisualChanges(completeProject.document, prepared.document, visual) : null
+      if (inlayReview.length) {
+        const base = impact ?? inspectVisualChanges(completeProject.document, prepared.document, [])
+        impact = { ...base, affectedIds: [...new Set([...base.affectedIds, ...inlayReview.flatMap(row => [row.connectionId, ...row.sourceIds, ...row.dependencyIds])])].sort(),
+          layerIds: [...new Set([...base.layerIds, ...inlayReview.flatMap(row => row.layerIds)])].sort() }
+      }
       const attachmentImpact = inspectAttachmentChanges(completeProject.document, prepared.document)
       if (attachmentImpact.changedIds.length) {
         const base = impact ?? inspectVisualChanges(completeProject.document, prepared.document, [])
@@ -1144,7 +1154,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
         }
         impact = { ...base, affectedIds: [...affected].sort(), layerIds: [...layers].sort() }
       }
-      setStructure({ prepared, checkpoint, commands, document: prepared.document, description, ...(impact ? { kind: 'visual' as const, scopeIds: impact.affectedIds, layerIds: impact.layerIds, confirmed: false } : commands.every(command => command.type === 'upsertPathCheck' || command.type === 'deletePathCheck') ? { kind: 'path-check' as const } : commands.every(command => command.type === 'setSceneDisplay' || command.type === 'setSceneBackground') ? { kind: 'display' as const } : scopeIds ? { kind: 'layer' as const, scopeIds } : {}) })
+      setStructure({ prepared, checkpoint, commands, document: prepared.document, description, inlayReview, ...(impact ? { kind: 'visual' as const, scopeIds: impact.affectedIds, layerIds: impact.layerIds, confirmed: false } : commands.every(command => command.type === 'upsertPathCheck' || command.type === 'deletePathCheck') ? { kind: 'path-check' as const } : commands.every(command => command.type === 'setSceneDisplay' || command.type === 'setSceneBackground') ? { kind: 'display' as const } : scopeIds ? { kind: 'layer' as const, scopeIds } : {}) })
       if (completingPrefab) setPrefabPlacement(null)
       if (form) finishFormDraft(form, form === 'propAppearanceForm' || form === 'pathCheckForm')
     }, '候选未通过，工程未修改')
@@ -1854,6 +1864,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             <div className="workspace-candidate-body">
               <strong className="workspace-candidate-title">{structure.description} · 候选预览</strong>
               <p className="workspace-confirm-help">尚未写入工程。采用会形成一次编辑，可从顶部撤销；自动保存状态见右上角。</p>
+              {!!structure.inlayReview?.length && <TerrainInlayReviewPanel scene={structure.prepared.document} rows={structure.inlayReview}/>}
               {!!structure.assetQuality?.length && <AssetQualityReview resources={structure.prepared.project.resources} assessments={structure.assetQuality} acknowledgedKeys={structure.qualityAcknowledgments ?? []} disabled={busy} onAcknowledgedKeysChange={keys => setStructure(current => current?.prepared === structure.prepared ? { ...current, qualityAcknowledgments: keys } : current)}/>}
               <CompositionChangesPanel current={completeProject!} candidate={structure.prepared.project} commands={structure.commands} budgetUsage={structure.prepared.budgetUsage} budgetProfile={structure.prepared.budgetProfile} aggregateBoundaryImpact={structure.prepared.aggregateBoundaryImpact}/>{structure.layerIds && <span>{structure.layerIds.map(id => completeProject?.document.userLayers[id]?.name ?? id).join(' · ')}</span>}{structure.scopeIds && <AffectedObjectNames before={completeProject!.document} after={structure.document} ids={structure.scopeIds}/>}{structure.scopeIds && <details className="layer-preview-scope"><summary>实际操作范围 · {structure.scopeIds.length} 项</summary><textarea readOnly aria-label={structure.kind === 'building' ? '待采用建筑操作 ID' : structure.kind === 'visual' ? '待采用视觉操作 ID' : structure.kind === 'outdoor' ? '待采用室外操作 ID' : '待采用图层操作 ID'} rows={4} value={structure.scopeIds.join('\n')}/></details>}
               {structure.fillCopy && <div className="fill-copy-summary" aria-label="填充复制参数"><strong>填充复制 · {structure.fillCopy.report.sourceKind === 'prefab' ? '组合' : '独立物件'} · 新增 {structure.fillCopy.report.count} 份 · 独立编辑对象 {structure.fillCopy.cost.total}/{structure.fillCopy.cost.limit}</strong>

@@ -52,6 +52,22 @@ function withRealAttachmentProofs(scene: SceneDocument) {
 }
 
 describe('actual carved ground support and complete-width travel', () => {
+  it('rejects room support from another Floor even when its footprint and root coordinates coincide', () => {
+    const scene = fixture(), p = { x: 12000, y: 9000 }, polygon = rect(11500, 8500, 1000, 1000)
+    scene.floors.other = { ...cloneJson(scene.floors[floorId]), id: 'other' }
+    const boundaryVertexIds = polygon.map((point, i) => {
+      const id = 'other-room-v' + i
+      scene.vertices[id] = { id, floorId: 'other', editLocked: false, xMm: point.x, yMm: point.y }
+      return id
+    })
+    scene.rooms.other = { id: 'other', floorId: 'other', editLocked: false, boundaryVertexIds, purpose: 'other Floor',
+      visibility: 'public', accessExpectation: 'unspecified', supportRef: { kind: 'terrainArea', id: 'rock' }, groundElevationMm: 2000, floorStyle: null }
+    const ref = { kind: 'room' as const, id: 'other' }, prop = { ...item(p), supportRef: ref }
+    expect(pointOnSurface(scene, p, ref, floorId)).toBe(false)
+    expect(supportedPolygon(scene, polygon, ref, floorId)).toBe(false)
+    expect(validatePropGeometry(scene, [prop]).some(issue => issue.code === 'PROP_SUPPORT')).toBe(true)
+  })
+
   it('returns root identity separately from interpolated height, slope and apron capability', () => {
     const scene = fixture(), p = { x: 12000, y: 6000 }
     expect(supportSurfaceAt(scene, p, floorId)).toEqual({ kind: 'terrainArea', id: 'rock' })

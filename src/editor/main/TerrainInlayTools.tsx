@@ -31,7 +31,7 @@ export default function TerrainInlayTools({ scene, id, disabled, onPreview }: {
       <label>连接到源崖<select value={source?.id ?? ''} onChange={event => setSourceId(event.target.value)}>{sources.map(area => <option key={area.id} value={area.id}>{area.id}</option>)}</select></label>
       <label>源崖起点序号<input type="number" min="1" max={source?.boundaryMm.length ?? 1} value={first} onChange={event => setFirst(event.target.value)}/></label>
       <label>源崖终点序号<input type="number" min="1" max={source?.boundaryMm.length ?? 1} value={last} onChange={event => setLast(event.target.value)}/></label>
-      <p className="asset-muted">按原轮廓顺序连接两点之间的整段崖缘，经过末点后可接回第一点。开口区域不自动成为可走道路。</p>
+      <p className="asset-muted">按原轮廓顺序连接两点之间的整段崖缘，经过末点后可接回第一点。开口沿所选范围内的附近路段延续爬升；超出路宽的区域不能行走。</p>
       <label>开口末端连接点（可选，每行 X Y，毫米）<textarea rows={2} value={connectors} onChange={event => setConnectors(event.target.value)}/></label></>}
     <button className="secondary asset-wide" onClick={() => {
       try {
@@ -50,7 +50,8 @@ export default function TerrainInlayTools({ scene, id, disabled, onPreview }: {
           }) : []
           intent = { side, startStation: Number(start) - 1, endStation: (end ? Number(end) : stationCount) - 1, sourceAreaId: source.id, sourcePointIds, connectorsMm }
         }
-        onPreview([createTerrainInlayCommand(scene, id, intent)], '连续山路、补岩基与切入高台')
+        const command = createTerrainInlayCommand(scene, id, intent)
+        onPreview([command], '连续山路、补岩基与切入高台；保留源岸线，填切域内由新面覆盖、范围外保留')
       } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     }}>预览连续山路</button>
     {error && <p role="alert" className="asset-form-error">{error}</p>}

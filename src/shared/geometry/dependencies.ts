@@ -72,19 +72,19 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
     if (!target) error('MISSING_SUPPORT', '支撑面引用不存在。', owner.id)
     else if (ref.kind === 'floor' ? target.id !== owner.floorId : ('floorId' in target && target.floorId !== owner.floorId)) error('CROSS_FLOOR_REFERENCE', '支撑面必须与实体同 Floor。', owner.id)
   }
-  const checkStyle = (style: SurfaceStyle | null, kind: 'room' | 'wall' | 'terrain' | 'path', owner: string) => {
+  const checkStyle = (style: SurfaceStyle | null, kind: 'room' | 'wall' | 'terrain' | 'path', owner: string, registerOverlays = true) => {
     if (!style) return
     if (style.base.opacity !== 1) error('TRANSLUCENT_BASE', '地面基础铺装必须不透明。', owner)
     for (const [index, paint] of [style.base, ...style.overlays.map(item => item.paint)].entries()) {
       const material = checkVersion(paint.materialRef, scene.materials, owner)
       if (material && !material.applicableSurfaces.includes(kind)) error('MATERIAL_SURFACE', `材质不适用于 ${kind} 表面（层 ${index}）。`, owner)
     }
-    for (const item of style.overlays) register(item.id)
+    if (registerOverlays) for (const item of style.overlays) register(item.id)
   }
   // An inactive original remains restorable source evidence. Its material
   // closure must survive later appearance edits of the active connection.
   for (const connection of Object.values(scene.terrainConnections)) if (connection.terrainInlay) {
-    checkStyle(connection.terrainInlay.originalConnection.surfaceStyle, 'path', connection.id)
+    checkStyle(connection.terrainInlay.originalConnection.surfaceStyle, 'path', connection.id, false)
   }
   const semanticIdentities = new Map<string, string>()
   const adopted = (kind: LicenseSubject['subjectKind'], definition: DefinitionIdentity) => {

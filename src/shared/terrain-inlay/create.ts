@@ -32,7 +32,35 @@ function triangulate(raw: string[], vertices: Record<string, TerrainInlayPoint>)
     ring.splice(ear, 1)
   }
   assert(ring.length === 3 && cross(...ring.map(id => vertices[id]) as [TerrainInlayPoint, TerrainInlayPoint, TerrainInlayPoint]) > 1e-7, '外侧开口末片退化。')
-  result.push(ring as [string, string, string]); return result
+  result.push(ring as [string, string, string])
+  // Improve only internal apron diagonals. Source/shoulder boundaries and all
+  // walk faces remain exact. Ear clipping alone can fan the whole curved
+  // shoulder into one remote boundary vertex and create artificial steep fins.
+  let checks = 0, flips = 0
+  for (;;) {
+    const edges = new Map<string, { a: string; b: string; c: string; index: number }>()
+    let changed = false
+    scan: for (const [index, ids] of result.entries()) for (let i = 0; i < 3; i++) {
+      assert(++checks <= 2_000_000, '外侧开口分面超过有限翻边工作预算。')
+      const a = ids[i], b = ids[(i + 1) % 3], c = ids[(i + 2) % 3], key = [a, b].sort().join('|'), other = edges.get(key)
+      if (!other) { edges.set(key, { a, b, c, index }); continue }
+      const d = other.c, [pa, pb, pc, pd] = [a, b, c, d].map(id => vertices[id])
+      // The replacement diagonal must lie in a strictly convex quadrilateral.
+      if (cross(pc, pd, pa) * cross(pc, pd, pb) >= -1e-7) continue
+      const scale = Math.max(length(pa, pd), length(pb, pd), length(pc, pd))
+      const [x, y, u, v, s, t] = [(pa.x - pd.x) / scale, (pa.y - pd.y) / scale,
+        (pb.x - pd.x) / scale, (pb.y - pd.y) / scale, (pc.x - pd.x) / scale, (pc.y - pd.y) / scale]
+      const determinant = (x * x + y * y) * (u * t - v * s) - (u * u + v * v) * (x * t - y * s) + (s * s + t * t) * (x * v - y * u)
+      // Keep cocircular/numerically uncertain diagonals stable. Strict local
+      // improvement and a fresh adjacency map after EACH flip prevent cycles.
+      if (determinant <= 1e-10) continue
+      assert(++flips <= result.length * result.length * 4, '外侧开口分面未能在有限预算内稳定。')
+      const oriented = (ids: [string, string, string]): [string, string, string] => cross(...ids.map(id => vertices[id]) as [TerrainInlayPoint, TerrainInlayPoint, TerrainInlayPoint]) > 0 ? ids : [ids[0], ids[2], ids[1]]
+      result[index] = oriented([c, d, a]); result[other.index] = oriented([d, c, b])
+      changed = true; break scan
+    }
+    if (!changed) return result
+  }
 }
 
 /** Finite smooth-rise proposal from the full original XY route. This creates
@@ -58,19 +86,6 @@ export function createTerrainInlayCommand(scene: SceneDocument, connectionId: st
     geometry.verticesMm[center] = { ...points[i], z }
     geometry.verticesMm[left] = { x: points[i].x + offset.x, y: points[i].y + offset.y, z }
     geometry.verticesMm[right] = { x: points[i].x - offset.x, y: points[i].y - offset.y, z }
-    if (i === 0 || i === points.length - 1) {
-      const tangent = i === 0 ? directions[0] : directions.at(-1)!, sign = i === 0 ? -1 : 1
-      // Integer lateral rounding may move a shoulder just inside the original
-      // transverse cap. Move only that shoulder outward on the dominant axis,
-      // preserving the exact centre node and full requested end cross-section.
-      for (const id of [left, right]) {
-        const vertex = geometry.verticesMm[id], projection = sign * ((vertex.x - points[i].x) * tangent.x + (vertex.y - points[i].y) * tangent.y)
-        if (projection < 0) {
-          const axis = Math.abs(tangent.x) >= Math.abs(tangent.y) ? 'x' : 'y'
-          vertex[axis] += sign * Math.sign(tangent[axis]) * Math.ceil(-projection / Math.abs(tangent[axis]))
-        }
-      }
-    }
     centerlineVertexIds.push(center); shoulders.push({ left, right, center })
   }
   const addFace = (raw: [string, string, string], kind: 'walk' | 'apron') => {
@@ -81,6 +96,22 @@ export function createTerrainInlayCommand(scene: SceneDocument, connectionId: st
     const a = shoulders[i - 1], b = shoulders[i], span = length(points[i - 1], points[i])
     for (const row of [a, b]) assert(cross(points[i - 1], points[i], geometry.verticesMm[row.left]) / span >= connection.widthMm / 2
       && -cross(points[i - 1], points[i], geometry.verticesMm[row.right]) / span >= connection.widthMm / 2, '整数路肩不足完整请求净宽。')
+  }
+  // A short, level integer collar straddles each original transverse cap. It
+  // covers lateral rounding slivers without placing a sloped triangle inside
+  // the level approach. Original centre nodes and all interior stations remain.
+  const collar = (row: typeof shoulders[number], tangent: PointMm, sign: number, label: string) => {
+    const shift = { x: Math.round(tangent.x * sign * 3), y: Math.round(tangent.y * sign * 3) }
+    const result = { left: `${label}-left`, right: `${label}-right`, center: `${label}-center` }
+    for (const key of ['left', 'right', 'center'] as const) { const point = geometry.verticesMm[row[key]]; geometry.verticesMm[result[key]] = { x: point.x + shift.x, y: point.y + shift.y, z: point.z } }
+    return result
+  }
+  assert(length(points[0], points[1]) > 16 && length(points.at(-2)!, points.at(-1)!) > 16, '两端完整路线段须长于16毫米，以容纳整数等高接入。')
+  const firstOuter = collar(shoulders[0], directions[0], -1, 'from-outer'), firstInner = collar(shoulders[0], directions[0], 1, 'from-inner')
+  const lastInner = collar(shoulders.at(-1)!, directions.at(-1)!, -1, 'to-inner'), lastOuter = collar(shoulders.at(-1)!, directions.at(-1)!, 1, 'to-outer')
+  const walkStations = [firstOuter, shoulders[0], firstInner, ...shoulders.slice(1, -1), lastInner, shoulders.at(-1)!, lastOuter]
+  for (let i = 1; i < walkStations.length; i++) {
+    const a = walkStations[i - 1], b = walkStations[i]
     for (const ids of [[a.left, a.center, b.center], [a.left, b.center, b.left], [a.center, a.right, b.right], [a.center, b.right, b.center]]) addFace(ids as [string, string, string], 'walk')
   }
   if (opening) {
@@ -90,16 +121,31 @@ export function createTerrainInlayCommand(scene: SceneDocument, connectionId: st
     assert(source && opening.sourcePointIds.length >= 2 && opening.sourcePointIds.length <= 64 && new Set(opening.sourcePointIds).size === opening.sourcePointIds.length, '外侧开口须明确选择同一源面的2–64个连续原边点。')
     const indices = opening.sourcePointIds.map(id => source!.boundaryMm.findIndex(point => point.id === id))
     assert(indices.every((index, i) => index >= 0 && (!i || index === (indices[i - 1] + 1) % source!.boundaryMm.length)), '外侧开口源点必须按原环正向连续，不能暗中重映射。')
-    const chosen = indices.map(index => source!.boundaryMm[index].positionMm), distances = [0]
-    for (let i = 1; i < chosen.length; i++) distances.push(distances.at(-1)! + length(chosen[i - 1], chosen[i]))
+    const chosen = indices.map(index => source!.boundaryMm[index].positionMm)
     const shoulder = (i: number) => shoulders[i][opening.side], start = shoulder(opening.startStation), end = shoulder(opening.endStation)
-    const z0 = geometry.verticesMm[start].z, z1 = geometry.verticesMm[end].z, ring = [start]
+    // This is an explicit new-candidate construction rule, not a resampling of
+    // a saved result: continue the selected route's longitudinal rise toward
+    // the chosen source chain. Source arc length is unrelated to route station
+    // and can otherwise force a short cliff chain to climb the whole route.
+    const openingHeight = (point: PointMm) => {
+      const candidates = points.slice(opening.startStation + 1, opening.endStation + 1).map((b, index) => {
+        const i = opening.startStation + index, a = points[i], dx = b.x - a.x, dy = b.y - a.y
+        const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy)))
+        const za = geometry.verticesMm[shoulders[i].center].z, zb = geometry.verticesMm[shoulders[i + 1].center].z
+        return { distance: Math.hypot(point.x - a.x - t * dx, point.y - a.y - t * dy), z: Math.round(za + (zb - za) * t) }
+      })
+      const distance = Math.min(...candidates.map(row => row.distance)), nearest = candidates.filter(row => row.distance <= distance + 1e-6)
+      assert(nearest.every(row => row.z === nearest[0].z), '外侧开口点等距对应不同高度的路线分支，请缩小开口范围或调整边点。')
+      return nearest[0].z
+    }
+    const ring = [start]
     for (const [i, point] of chosen.entries()) {
-      const id = `opening-source-${i}`; geometry.verticesMm[id] = { ...point, z: Math.round(z0 + (z1 - z0) * distances[i] / distances.at(-1)!) }; ring.push(id)
+      const id = `opening-source-${i}`; geometry.verticesMm[id] = { ...point, z: openingHeight(point) }; ring.push(id)
     }
     assert(opening.connectorsMm.length <= 8 && opening.connectorsMm.every(point => Number.isSafeInteger(point.x) && Number.isSafeInteger(point.y)), '外侧开口最多8个明确整数连接点。')
-    for (const [i, point] of opening.connectorsMm.entries()) { const id = `opening-connector-${i}`; geometry.verticesMm[id] = { ...point, z: z1 }; ring.push(id) }
-    ring.push(end, ...Array.from({ length: opening.endStation - opening.startStation - 1 }, (_, i) => shoulder(opening.endStation - i - 1)))
+    for (const [i, point] of opening.connectorsMm.entries()) { const id = `opening-connector-${i}`; geometry.verticesMm[id] = { ...point, z: openingHeight(point) }; ring.push(id) }
+    const expandedShoulder = walkStations.map(row => row[opening.side]), startIndex = expandedShoulder.indexOf(start), endIndex = expandedShoulder.indexOf(end)
+    ring.push(end, ...expandedShoulder.slice(startIndex + 1, endIndex).reverse())
     for (const face of triangulate(ring, geometry.verticesMm)) addFace(face, 'apron')
   }
   const entries = new Map<string, { a: string; b: string; kind: string }[]>()

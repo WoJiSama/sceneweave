@@ -2,8 +2,8 @@ import { z } from 'zod'
 import type { PointMm } from '../model/scene.js'
 import { captureJson } from '../validation/json.js'
 
-/** Development kernel envelope, independent of project and recipe versions.
- * No active SceneDocument field or edit command accepts this preparation yet. */
+/** Bounded geometry algorithm, independent of the project container version.
+ * Adoption captures complete geometry and source evidence in the current v1. */
 export const TERRAIN_INLAY_LIMITS = Object.freeze({
   sources: 2, sourcePoints: 2048, vertices: 512, faces: 512,
   segments: 4096, intersectionPairs: 2_000_000,
