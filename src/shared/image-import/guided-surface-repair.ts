@@ -2,7 +2,7 @@ import type { NeighborhoodRepairOptions } from './neighborhood-repair.js'
 import type { ImagePixelMask, ImagePixels, PixelBounds } from './pixels.js'
 import { maskCoverage } from './repair-scope.js'
 import { prepareImageSurfaceDetailPatches, applyImageSurfaceDetailPatches, replaceImageSurfaceDetailInk, type ImageSurfaceDetailPatch } from './guided-detail-patches.js'
-import { prepareOriginalSurfaceStroke, rasterOriginalSurfaceStroke } from './guided-original-stroke.js'
+import { prepareOriginalSurfaceStroke, rasterOriginalSurfaceStroke, type OriginalStrokeRegistration } from './guided-original-stroke.js'
 
 export interface ImageSurfaceStructureGuide {
   points: Array<{ x: number; y: number }>
@@ -36,6 +36,8 @@ export interface GuidedToneReport {
     channelDifference: number
     luminanceDifference: number
   }>
+  /** Captured from this same solve; no extra RGB or source permissions. */
+  strokeRegistration: { runs: Array<OriginalStrokeRegistration & { guideIndex: number }>; totalRuns: number; unlistedRuns: number }
 }
 interface ToneGrid { width: number; height: number; known: Uint8Array; rgb: Float32Array }
 interface Profile { centre: number; values: number[][]; radius: number }
@@ -454,11 +456,15 @@ function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, do
     }
   }
   const ink = new Float32Array(writeMap.length * 3)
-  for (const guide of guides) if (guide.stroke === 'original-segment') {
+  const strokeRegistration: GuidedToneReport['strokeRegistration'] = { runs: [], totalRuns: 0, unlistedRuns: 0 }
+  for (const [guideIndex, guide] of guides.entries()) if (guide.stroke === 'original-segment') {
     const reference = prepareOriginalSurfaceStroke(image, guide.reference, guide.axis, cancel, guide.paper)
     budget(guide.reference.width * guide.reference.height * (guide.paper ? 9 : 6))
-    rasterOriginalSurfaceStroke(reference, guide.points, b, writable, (x, y, c) => trusted(x, y) ? Math.max(0, tone(x, y, c) - rgb(x, y, c)) : undefined, ink, budget, cancel)
+    const registration = rasterOriginalSurfaceStroke(reference, guide.points, b, writable, (x, y, c) => trusted(x, y) ? Math.max(0, tone(x, y, c) - rgb(x, y, c)) : undefined, ink, budget, cancel, collectTone)
+    strokeRegistration.totalRuns += registration.totalRuns
+    for (const run of registration.runs) if (strokeRegistration.runs.length < 6) strokeRegistration.runs.push({ ...run, guideIndex })
   }
+  strokeRegistration.unlistedRuns = strokeRegistration.totalRuns - strokeRegistration.runs.length
   const profileAt = (profile: Profile, offset: number, c: number) => {
     const position = profile.centre + offset, first = Math.floor(position), t = position - first
     return (profile.values[first]?.[c] ?? 0) * (1 - t) + (profile.values[first + 1]?.[c] ?? 0) * t
@@ -542,7 +548,7 @@ function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, do
     const x = Math.max(surface.x, surface.x + sample.x * cell - 2), y = Math.max(surface.y, surface.y + sample.y * cell - 2)
     return { boundsPx: { x, y, width: Math.min(surface.x + sw, surface.x + sample.x * cell + 6) - x, height: Math.min(surface.y + sh, surface.y + sample.y * cell + 6) - y }, rgb: [...sample.color], usedPixels: toneUsedCounts[at], samples }
   }
-  const report: GuidedToneReport = { algorithm: 'guided-tone-observations-v1', gates: { channelDifference: 18, luminanceDifference: 12, radiusPx: 24 },
+  const report: GuidedToneReport = { algorithm: 'guided-tone-observations-v1', gates: { channelDifference: 18, luminanceDifference: 12, radiusPx: 24 }, strokeRegistration,
     observations: selected.map(pair => ({ source: describe(pair.source), neighbor: describe(pair.neighbor), channelDifference: pair.channel, luminanceDifference: pair.luminance })) }
   cancel(); return { pixels, report }
 }

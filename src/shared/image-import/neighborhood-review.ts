@@ -13,6 +13,7 @@ export function imageNeighborhoodReviewSheet(source: ImagePixels, repaired: Imag
   const structureEndpoints = analysis.surfaces.flatMap(surface => (surface.structureEndpoints ?? []).map(endpoint => ({ surfaceId: surface.surfaceId, ...endpoint })))
   const boundaryEvidence = analysis.surfaces.flatMap(surface => surface.boundaryEvidence ? [{ surfaceId: surface.surfaceId, ...surface.boundaryEvidence }] : [])
   const structureMotifs = analysis.surfaces.flatMap(surface => surface.structureMotifs ? [{ surfaceId: surface.surfaceId, ...surface.structureMotifs }] : [])
+  const strokeRegistration = analysis.surfaces.flatMap(surface => surface.strokeRegistration ? [{ surfaceId: surface.surfaceId, ...surface.strokeRegistration }] : [])
   const rowHeight = 92, width = Math.max(w * 2 + gap * 3, 600), height = h + gap * 2 + sites.length * rowHeight
   const data = new Uint8ClampedArray(width * height * 4)
   for (let at = 0; at < data.length; at += 4) data.set([238, 240, 244, 255], at)
@@ -53,5 +54,6 @@ export function imageNeighborhoodReviewSheet(source: ImagePixels, repaired: Imag
     overviewScale: scale, detailScale: 4, detailColumns: ['原图目标（含遮挡，仅供查看）', '当前补底', '候选1（只读）', '候选2（只读）'], rows,
     ...(boundaryEvidence.length ? { boundaryEvidence, boundaryMarkMeaning: '青框为前序补底接头，不是原图取证' } : {}),
     ...(structureMotifs.length ? { structureMotifs, motifMarkMeaning: '橙框为原图锚点不足的补图笔迹，不代表笔迹错误或隐藏角色已识别' } : {}),
+    ...(strokeRegistration.length ? { strokeRegistration } : {}),
     ...(additionalToneFindings.length ? { additionalToneFindings } : {}), ...(structureReferences.length ? { structureReferences } : {}), ...(structureEndpoints.length ? { structureEndpoints } : {}), limitedToFirstSites: 6, candidateIsSuggestion: true } }
 }

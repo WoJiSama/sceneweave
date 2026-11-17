@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { repairGuidedImageSurface, type ImageSurfaceStructureGuide } from './guided-surface-repair.js'
-import { prepareOriginalSurfaceStroke, rasterOriginalSurfaceStroke } from './guided-original-stroke.js'
+import { prepareOriginalSurfaceStroke, rasterOriginalSurfaceStroke, type OriginalStrokeReference } from './guided-original-stroke.js'
 import { imageSurfaceGuidanceSchema } from './surfaces.js'
 import type { ImagePixelMask, ImagePixels } from './pixels.js'
 
@@ -22,6 +22,48 @@ const removal = box(43, 35, 22, 18), options = { pattern: 'soft' as const, orien
 const rgba = (im: ImagePixels, x: number, y: number) => [...im.data.slice((y * im.width + x) * 4, (y * im.width + x) * 4 + 4)]
 
 describe('finite original surface strokes', () => {
+  it('reports sparse side evidence and a clipped shift without extra observation reads or changing failed pixels', () => {
+    const reference: OriginalStrokeReference = { length: 8, cross: 13, centre: 6, axis: 'horizontal', ink: new Float32Array(8 * 13 * 3) }
+    for (let u = 0; u < 8; u++) reference.ink.fill(60, (u * 13 + 6) * 3, (u * 13 + 7) * 3)
+    const bounds = { x: 42, y: 35, width: 8, height: 18 }, points = [{ x: 42, y: 43 }, { x: 49, y: 43 }]
+    const writable = (x: number, y: number) => x >= 42 && x < 50 && y >= 35 && y < 53
+    const solve = (capture: boolean) => {
+      const reads: number[][] = [], ink = new Float32Array(8 * 18 * 3)
+      const result = rasterOriginalSurfaceStroke(reference, points, bounds, writable, (x, y, c) => {
+        reads.push([x, y, c])
+        // Only paper residuals away from the hidden core are readable. Three
+        // RGB values per pixel must not be counted as three original pixels.
+        return x >= 50 && x <= 52 && [38, 47, 48].includes(y) ? y === 47 ? 9 : y === 48 ? 10 : 1 : undefined
+      }, ink, () => {}, () => {}, capture)
+      return { reads, ink, result }
+    }
+    const old = solve(false), captured = solve(true)
+    expect(captured.reads).toEqual(old.reads); expect(captured.ink).toEqual(old.ink)
+    expect(old.result.totalRuns).toBe(0)
+    expect(captured.result).toMatchObject({ totalRuns: 1, unlistedRuns: 0, runs: [{ referenceCrossPx: 13, sampledCrossPx: 11, sourceOffsetPx: 0 }] })
+    const [start, end] = captured.result.runs[0].sides
+    expect(start).toMatchObject({ observedPixels: 0, weightedPixels: 0, corePixels: 0, appliedShiftPx: 0 })
+    expect(start.warnings).toContain('target-centre-defaulted-to-guide')
+    expect(end).toMatchObject({ observedPixels: 9, weightedPixels: 6, corePixels: 0, completeSampledColumns: 0, appliedShiftPx: -3 })
+    expect(end.targetCentre).toBeCloseTo(200 / 19)
+    expect(end.rawShiftPx).toBeCloseTo(6 - 200 / 19)
+    expect(end.warnings).toEqual(expect.arrayContaining(['no-observations-at-guide-core', 'only-partial-sampled-columns', 'shift-clipped', 'reference-cross-exceeds-sampled-window']))
+  })
+
+  it('distinguishes complete sampled columns and actual source gaps, and bounds listed run diagnostics', () => {
+    const reference: OriginalStrokeReference = { length: 8, cross: 9, centre: 4, axis: 'horizontal', ink: new Float32Array(8 * 9 * 3) }
+    for (let u = 0; u < 8; u++) reference.ink.fill(60, (u * 9 + 4) * 3, (u * 9 + 5) * 3)
+    const points = [{ x: 10, y: 15 }, { x: 29, y: 15 }], bounds = { x: 10, y: 8, width: 20, height: 15 }, ink = new Float32Array(20 * 15 * 3)
+    const report = rasterOriginalSurfaceStroke(reference, points, bounds, (x, y) => x >= 10 && x < 30 && x % 2 === 0 && y >= 8 && y < 23,
+      (_x, y) => y === 15 ? 60 : 0, ink, () => {}, () => {}, true)
+    expect(report.totalRuns).toBe(10); expect(report.runs).toHaveLength(6); expect(report.unlistedRuns).toBe(4)
+    expect(report.runs[0].sides[0]).toMatchObject({ observedPixels: 33, corePixels: 9, weightedPixels: 3, completeSampledColumns: 3, rawShiftPx: 0, appliedShiftPx: 0, warnings: [] })
+    const gapReference = { ...reference, ink: new Float32Array(reference.ink.length) }
+    const gap = rasterOriginalSurfaceStroke(gapReference, points.slice(0, 1).concat({ x: 11, y: 15 }), bounds,
+      (x, y) => x === 10 && y >= 8 && y < 23, () => undefined, new Float32Array(ink.length), () => {}, () => {}, true)
+    expect(gap.runs[0].sides[0]).toMatchObject({ sourceCentre: null, rawShiftPx: 0, appliedShiftPx: 0, observedPixels: 0 })
+  })
+
   it('separates a two-sided paper slope from the finite original stroke and preserves native gaps', () => {
     const input = image(), bounds = { x: 4, y: 6, width: 32, height: 13 }
     for (let u = 0; u < bounds.width; u++) for (let v = 0; v < bounds.height; v++) {

@@ -1,6 +1,25 @@
 import type { ImagePixels, PixelBounds } from './pixels.js'
 
 export interface OriginalStrokeReference { length: number; cross: number; centre: number; ink: Float32Array; axis: 'horizontal' | 'vertical' }
+export interface OriginalStrokeRegistration {
+  boundsPx: PixelBounds
+  sourceOffsetPx: number
+  referenceCrossPx: number
+  sampledCrossPx: 11
+  sides: Array<{
+    side: 'start' | 'end'
+    observedPixels: number
+    corePixels: number
+    completeSampledColumns: number
+    weightedPixels: number
+    targetCentre: number
+    sourceCentre: number | null
+    rawShiftPx: number
+    appliedShiftPx: number
+    warnings: string[]
+  }>
+}
+export interface OriginalStrokeRegistrations { runs: OriginalStrokeRegistration[]; totalRuns: number; unlistedRuns: number }
 type Point = { x: number; y: number }
 const median = (values: number[]) => values.sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)]
 
@@ -53,7 +72,9 @@ export function prepareOriginalSurfaceStroke(image: ImagePixels, bounds: PixelBo
  * influence the joint comparison. A source too short rejects the solve. */
 export function rasterOriginalSurfaceStroke(reference: OriginalStrokeReference, points: readonly Point[], bounds: PixelBounds,
   writable: (x: number, y: number) => boolean, observedInk: (x: number, y: number, c: number) => number | undefined,
-  targetInk: Float32Array, budget: (n: number) => void, cancel: () => void): void {
+  targetInk: Float32Array, budget: (n: number) => void, cancel: () => void, collectRegistration = false): OriginalStrokeRegistrations {
+  const registrations: OriginalStrokeRegistration[] = []
+  let totalRuns = 0
   const horizontal = reference.axis === 'horizontal', along = (p: Point) => horizontal ? p.x : p.y, across = (p: Point) => horizontal ? p.y : p.x
   const forward = along(points.at(-1)!) >= along(points[0]) ? points : [...points].reverse()
   if (forward.some((p, i) => i > 0 && along(p) <= along(forward[i - 1]))) throw new Error('原尺寸接缝路径须沿参考方向单调，不能折返或有同轴重合段。')
@@ -78,10 +99,14 @@ export function rasterOriginalSurfaceStroke(reference: OriginalStrokeReference, 
     if (length > reference.length) throw new Error(`原尺寸接缝可写段长${length}px，超过可信原参考${reference.length}px；请补更长参考或减少本次路径，不重复短线填满。`)
     // Sample at most three original columns just outside each writable run.
     const observations: Array<{ side: number; v: number; c: number; value: number }> = []
+    const sampledColumns = collectRegistration && totalRuns < 6 ? [new Map<number, number>(), new Map<number, number>()] : undefined
     for (const side of [0, 1]) for (let k = 1; k <= 3; k++) {
       const u = side ? u0 + length - 1 + k : u0 - k, mid = pointAt(u)
       for (let d = -5; d <= 5; d++) { const v = Math.round(mid) + d, [x, y] = coords(u, v)
-        for (let c = 0; c < 3; c++) { const value = observedInk(x, y, c); if (value !== undefined) observations.push({ side, v: reference.centre + v - mid, c, value }) }
+        for (let c = 0; c < 3; c++) { const value = observedInk(x, y, c); if (value !== undefined) {
+          observations.push({ side, v: reference.centre + v - mid, c, value })
+          if (c === 0 && sampledColumns) sampledColumns[side].set(u, (sampledColumns[side].get(u) ?? 0) + 1)
+        } }
       }
     }
     const at = (u: number, v: number, c: number) => {
@@ -119,6 +144,39 @@ export function rasterOriginalSurfaceStroke(reference: OriginalStrokeReference, 
       score += ((Math.imul(u0 + offset * 17, 1103515245) >>> 0) % 997) * .00001
       if (score < bestScore) { best = offset; bestScore = score; bestShifts = shifts }
     }
+    if (collectRegistration) totalRuns++
+    if (sampledColumns) {
+      // Capture only observations that the existing solve actually used. No
+      // extra RGB access, wider permission, registration change or threshold
+      // is introduced by this diagnostic. Eleven sampled rows are not a full
+      // reference profile when the reference has more than eleven rows.
+      budget(observations.length * 2 + reference.cross * 2)
+      registrations.push({ boundsPx: horizontal ? { x: u0, y: bounds.y, width: length, height: bounds.height }
+        : { x: bounds.x, y: u0, width: bounds.width, height: length }, sourceOffsetPx: best,
+      referenceCrossPx: reference.cross, sampledCrossPx: 11, sides: [0, 1].map(side => {
+        const pixels = observations.filter(o => o.side === side && o.c === 0), weighted = pixels.filter(o => o.value >= 8)
+        const corePixels = pixels.filter(o => Math.abs(o.v - reference.centre) <= 1).length
+        let weight = 0, position = 0
+        for (let v = 0; v < reference.cross; v++) {
+          const value = at(best + (side ? length - 1 : 0), v, 0)
+          if (value >= 8) { weight += value; position += v * value }
+        }
+        const sourceCentre = weight ? position / weight : null
+        const rawShiftPx = sourceCentre === null ? 0 : sourceCentre - originalCentres[side]
+        const completeSampledColumns = [...sampledColumns![side].values()].filter(count => count === 11).length
+        const warnings = [
+          ...(!pixels.length ? ['no-original-observations'] : []),
+          ...(pixels.length && !corePixels ? ['no-observations-at-guide-core'] : []),
+          ...(pixels.length && !completeSampledColumns ? ['only-partial-sampled-columns'] : []),
+          ...(!weighted.length ? ['target-centre-defaulted-to-guide'] : []),
+          ...(reference.cross > 11 ? ['reference-cross-exceeds-sampled-window'] : []),
+          ...(Math.abs(rawShiftPx) > 3 ? ['shift-clipped'] : []),
+        ]
+        return { side: side ? 'end' as const : 'start' as const, observedPixels: pixels.length, corePixels,
+          completeSampledColumns, weightedPixels: weighted.length, targetCentre: originalCentres[side], sourceCentre,
+          rawShiftPx, appliedShiftPx: bestShifts[side], warnings }
+      }) })
+    }
     cancel()
     for (let du = 0; du < length; du++) {
       const u = u0 + du, mid = pointAt(u)
@@ -132,4 +190,5 @@ export function rasterOriginalSurfaceStroke(reference: OriginalStrokeReference, 
     first = last - 1
   }
   cancel()
+  return { runs: registrations, totalRuns, unlistedRuns: totalRuns - registrations.length }
 }

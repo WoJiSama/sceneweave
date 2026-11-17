@@ -47,10 +47,29 @@ export default function ImageRepairNeighborhoodReview({ evidence, current, analy
     </select><small>每次只额外检查一块底材的原图底色依据及适用的笔迹。其他底材仍需另选检查，选择不改补图。</small></label>}
     <ul>{analysis.summary.map((message, index) => <li key={index}>{message}</li>)}</ul>
     {analysis.unassignedBoundsPx && <p className="image-neighborhood-guidance">这部分移除范围没有可解释的底材表面。<button type="button" disabled={disabled} onClick={() => onLocate(analysis.unassignedBoundsPx!, '待标底材范围', 'source')}>定位待标范围</button></p>}
-    {analysis.surfaces.map(({ surfaceId, surfaceName, report, additionalToneFindings, structureReferences, structureEndpoints, boundaryEvidence, structureMotifs }) => <section key={surfaceId} aria-label={`邻域底材 ${surfaceName}`}>
+    {analysis.surfaces.map(({ surfaceId, surfaceName, report, additionalToneFindings, structureReferences, structureEndpoints, boundaryEvidence, structureMotifs, strokeRegistration }) => <section key={surfaceId} aria-label={`邻域底材 ${surfaceName}`}>
       <h4>{surfaceName} · {report.status === 'needs-guidance' ? '需要补充判断' : '需要看图复核'}</h4>
       <ul>{report.summary.map((message, index) => <li key={index}>{message}</li>)}</ul>
       <p>可信像素 {report.counts.trustedPixels} · 候选参考块 {report.counts.candidatePatches} · 排除的前序推断像素 {report.counts.excludedInferencePixels}</p>
+      {strokeRegistration && <details aria-label={`接头配准依据 ${surfaceName}`}>
+        <summary>接头位置依据 · {strokeRegistration.totalRuns} 段 · 列出 {strokeRegistration.runs.length} 段</summary>
+        <p>这里只说明当前补图怎样接线。两端按参考方向的坐标从小到大排列，与路径绘制顺序无关；参考采样偏移与画面中的移动方向相反。零散暗点也可能是底色差，缺少原缝中心或偏移达到限制时，应先检查依据。没有提示也须看图。</p>
+        {strokeRegistration.runs.map((run, index) => <article key={index} aria-label={`接头配准 ${surfaceId} ${index + 1}`}>
+          <p>引导 {run.guideIndex + 1} · {coordinates(run.boundsPx)}</p>
+          {run.referenceCrossPx > run.sampledCrossPx && <p>当前只比较横向 {run.sampledCrossPx} 行，参考共 {run.referenceCrossPx} 行，并非完整参考截面。</p>}
+          {run.sides.map(side => <div key={side.side}>
+            <p>{side.side === 'start' ? '轴向低坐标端' : '轴向高坐标端'}：原图依据 {side.observedPixels} px，人工路径中心附近 {side.corePixels} px；参考采样偏移 {side.appliedShiftPx.toFixed(2)} px。</p>
+            {!side.observedPixels && <p>没有读到该端原图接头。</p>}
+            {!!side.observedPixels && !side.corePixels && <p>没有读到人工路径中心附近的原线，周围暗点不能证明接头位置。</p>}
+            {!!side.observedPixels && !side.completeSampledColumns && <p>各列仅有零散像素可读，没有一列完整覆盖当前11行采样窗。</p>}
+            {!side.weightedPixels && <p>没有足够深的原图残差，线心使用人工路径作为先验。</p>}
+            {side.warnings.includes('shift-clipped') && <p>估计的参考采样偏移 {side.rawShiftPx.toFixed(2)} px 已被限制到 ±3 px，仍可能错高，不能视为接线成功。</p>}
+          </div>)}
+          <button type="button" disabled={disabled} onClick={() => onLocate(run.boundsPx, `引导 ${run.guideIndex + 1} 的接头位置依据`, 'floor')}>定位该段补图</button>
+          <button type="button" disabled={disabled} onClick={() => onLocate(run.boundsPx, `引导 ${run.guideIndex + 1} 的原遮挡`, 'source')}>对照原遮挡</button>
+        </article>)}
+        {!!strokeRegistration.unlistedRuns && <p>另有 {strokeRegistration.unlistedRuns} 段未列出。最多展示六段，未列不代表已检查通过。</p>}
+      </details>}
       {structureMotifs && <details aria-label={`补图笔迹角色 ${surfaceName}`}>
         <summary>补图笔迹角色 · {structureMotifs.counts.uncertainComponents} 组需要局部判断</summary>
         <p>颜色接近仍可能换掉板头或带入钉点。下面仅按深色笔迹的局部对比、连通形状和少量原图锚点指出小范围；长线上的分叉另查，不能借长线的锚点通过。不能识别隐藏的真实角色，也不自动补线或擦除。</p>

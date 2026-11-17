@@ -20,6 +20,21 @@ function fixture() {
 function overlap(a: PixelBounds, b: PixelBounds) { return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height }
 
 describe('same-material actual replay analysis', () => {
+  it('carries same-solve registration evidence through MCP layout without changing recipe or replay', () => {
+    const { image, surface, layer } = fixture()
+    for (let x = 5; x < 21; x++) image.data.set([30, 35, 40, 255], (12 * image.width + x) * 4)
+    const material: ImageRepairSurface = { ...surface, kind: 'guided', guided: { orientation: 'soft', guides: [{ axis: 'horizontal',
+      points: [{ x: 29, y: 30 }, { x: 41, y: 30 }], reference: { x: 5, y: 6, width: 16, height: 13 }, stroke: 'original-segment', paper: 'two-sided', reason: '有限人工隐藏路径，接头仍须看图。' }] } }
+    const before = replayImageLayers(image, [layer], [material]).remaining, recipe = JSON.stringify(material), pixels = image.data.slice()
+    const analysis = analyzeImageImportRepair(image, [layer], [material], layer.id), result = analysis.surfaces[0]
+    expect(result.strokeRegistration).toMatchObject({ totalRuns: 1, unlistedRuns: 0, runs: [{ guideIndex: 0, referenceCrossPx: 13, sampledCrossPx: 11 }] })
+    expect(result.report.status).toBe('needs-guidance')
+    expect(result.report.limitations.join('')).toContain('不重复计RGB通道')
+    const sheet = imageNeighborhoodReviewSheet(image, before, analysis)
+    expect(sheet.layout.strokeRegistration).toEqual([{ surfaceId: material.id, ...result.strokeRegistration }])
+    expect(replayImageLayers(image, [layer], [material]).remaining).toEqual(before)
+    expect(JSON.stringify(material)).toBe(recipe); expect(image.data).toEqual(pixels)
+  })
   it('keeps unanchored motif roles separate from 24 conflicts and exports their locations without changing replay', () => {
     const { image, surface, layer } = fixture()
     for (let y = 12; y < 14; y++) for (let x = 5; x < 14; x++) image.data.set([40, 50, 65, 255], (y * image.width + x) * 4)

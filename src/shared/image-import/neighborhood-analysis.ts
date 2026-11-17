@@ -5,7 +5,7 @@ import { maskCoverage } from './repair-scope.js'
 import type { ImageRepairSurface } from './surfaces.js'
 import { analyzeImageRepairNeighborhood, type NeighborhoodRepairConflict, type NeighborhoodRepairReport } from './neighborhood-repair.js'
 import { imageNeighborhoodExcludedEvidence, imageNeighborhoodObjectEvidence, type ImageNeighborhoodSignal } from './neighborhood-evidence.js'
-import { inspectGuidedImageSurfaceTone, type GuidedToneObservation } from './guided-surface-repair.js'
+import { inspectGuidedImageSurfaceTone, type GuidedToneObservation, type GuidedToneReport } from './guided-surface-repair.js'
 import { inspectImageStructureReferences, type StructureReferenceObservation } from './structure-reference-analysis.js'
 import { inspectImageStructureEndpoints, type StructureEndpointObservation } from './structure-endpoint-analysis.js'
 import { inspectImageRepairBoundaryEvidence, type RepairBoundaryEvidence } from './repair-boundary-evidence.js'
@@ -21,6 +21,7 @@ interface SurfaceAnalysis {
   structureEndpoints?: StructureEndpointObservation[]
   boundaryEvidence?: RepairBoundaryEvidence
   structureMotifs?: StructureMotifReport
+  strokeRegistration?: GuidedToneReport['strokeRegistration']
 }
 
 /** Read-only analysis of the actual input and output at one replay step. Earlier
@@ -108,6 +109,14 @@ export function analyzeImageImportRepair(source: ImagePixels, layers: readonly I
       pattern: surface.guided!.orientation === 'soft' ? 'soft' : 'planks', orientation: surface.guided!.orientation,
       guides: surface.guided!.guides, detailPatches: surface.guided!.detailPatches, signal,
     }).report
+    if (diagnostic.strokeRegistration.totalRuns) {
+      const registration = diagnostic.strokeRegistration
+      results.find(result => result.surfaceId === surface.id)!.strokeRegistration = registration
+      const uncertain = registration.runs.filter(run => run.sides.some(side => side.warnings.length)).length
+      if (uncertain || registration.unlistedRuns) report.status = 'needs-guidance'
+      report.summary.push(`原尺寸接头实际求解共${registration.totalRuns}段，列出${registration.runs.length}段，${registration.unlistedRuns}段未列；已列${uncertain}段存在观察缺口或位移截限，请展开接头配准依据。它不证明线心正确，也不自动修改路径。`)
+      report.limitations.push('接头配准只记录该次求解已读取的原图残差和红通道加权线心；像素数不重复计RGB通道。固定11行采样不等于完整参考横截面；零散暗点、底色残差和截限仍可能产生错高斜钩。无加权依据时使用人工路径先验，不是已观察接头。没有警告也不证明窄线归属或视觉通过。')
+    }
     const rgb = (color: number[]) => `[${color.map(value => Math.round(value * 10) / 10).join(',')}]`
     const describe = (observation: GuidedToneObservation) => `(${observation.boundsPx.x},${observation.boundsPx.y}) ${observation.boundsPx.width}×${observation.boundsPx.height}px，实际${observation.usedPixels}个底色样本平均${rgb(observation.rgb)}；展示${observation.samples.length}个原像素：${observation.samples.map(pixel => `(${pixel.x},${pixel.y})${rgb(pixel.rgb)}`).join('、')}`
     // Keep the regular list <=24 without displacing existing findings. Up to
