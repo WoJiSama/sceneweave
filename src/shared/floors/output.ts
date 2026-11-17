@@ -2,6 +2,7 @@ import type { BoundsMm, Issue, SceneDocument } from '../model/scene.js'
 import type { VisualEnvironment } from '../visual/types.js'
 import { visualEnvironmentSchema } from '../visual/schema.js'
 import { visualBase } from '../visual/base.js'
+import { floorContainsPoint } from './links.js'
 
 export interface FloorOutput {
   floorId: string
@@ -26,7 +27,15 @@ export function validateFloorSettings(scene: SceneDocument): Issue[] {
       error('FLOOR_OUTPUT_BOUNDS','Floor固定输出范围须为正尺寸、安全整数端点且完整位于自身世界边界内。',floor.id)
     }
     if(floor.environment!==undefined && !visualEnvironmentSchema.safeParse(floor.environment).success) error('FLOOR_ENVIRONMENT','Floor环境覆盖须为完整且严格的六字段环境值。',floor.id)
+    const ids = new Set<string>()
+    for (const link of floor.links ?? []) {
+      const target = scene.floors[link.targetFloorId]
+      if (ids.has(link.id) || !target || target.id === floor.id || !floorContainsPoint(floor, link.fromMm) || !floorContainsPoint(target, link.toMm))
+        error('FLOOR_LINK', '入口须使用层内唯一ID、两个不同且现存的楼层及各自边界内的整数毫米坐标。', floor.id)
+      ids.add(link.id)
+    }
   }
+  if (floors.reduce((sum, floor) => sum + (floor.links?.length ?? 0), 0) > 256) error('FLOOR_LINK_BUDGET', '跨层入口总数超过256。')
   return errors
 }
 

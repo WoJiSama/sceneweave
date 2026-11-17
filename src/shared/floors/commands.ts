@@ -6,6 +6,7 @@ import { bounds, id } from '../validation/primitives.js'
 import { canonicalJson, captureJson } from '../validation/json.js'
 import { visualEnvironmentSchema } from '../visual/schema.js'
 import { resolveFloorOutput, validateFloorSettings } from './output.js'
+import { floorLinksSchema } from './links.js'
 
 const name=z.string().min(1).max(80).refine(value=>value.trim()===value,'名称须去除首尾空白且非空')
 export const floorCommandSchemas = [
@@ -14,6 +15,7 @@ export const floorCommandSchemas = [
   z.object({type:z.literal('setFloorOutputBounds'),id,outputBoundsMm:bounds}).strict(),
   z.object({type:z.literal('setFloorEnvironment'),id,environment:visualEnvironmentSchema.nullable()}).strict(),
   z.object({type:z.literal('deleteEmptyFloor'),id}).strict(),
+  z.object({type:z.literal('setFloorLinks'),id,links:floorLinksSchema}).strict(),
 ] as const
 export type FloorCommand = z.infer<typeof floorCommandSchemas[number]>
 export interface FloorCommandOptions { appearance?: AppearanceGraph }
@@ -50,10 +52,11 @@ function assertEmpty(scene:SceneDocument,floorId:string,appearance:AppearanceGra
     if(!value||typeof value!=='object'||visited.has(value))return false
     visited.add(value)
     const row=value as Record<string,unknown>
-    if(row.floorId===floorId||row.kind==='floor'&&row.id===floorId)return true
+    if(row.floorId===floorId||row.targetFloorId===floorId||row.kind==='floor'&&row.id===floorId)return true
     return Object.values(row).some(references)
   }
   if(references(content))throw new Error('Floor仍有物理、视觉、注记、生成或聚合依赖，不能作为空层删除。')
+  if(scene.floors[floorId].links?.length || Object.values(scene.floors).some(floor=>floor.links?.some(link=>link.targetFloorId===floorId)))throw new Error('Floor仍有跨层入口关联，请先移除入口。')
   return layers
 }
 
@@ -84,6 +87,13 @@ export function applyFloorCommand(scene:SceneDocument,input:FloorCommand,options
     if(!floor)throw new Error('目标Floor不存在。')
     assertFloorUnlocked(scene,floor.id)
     switch(command.type) {
+      case 'setFloorLinks': {
+        if (!same(floor.links ?? [], command.links)) {
+          for (const target of new Set([...(floor.links ?? []), ...command.links].map(link => link.targetFloorId))) assertFloorUnlocked(scene, target)
+          floors[floor.id] = { ...floor, links: cloneLinks(command.links) }; commandCost += 1 + (floor.links?.length ?? 0) + command.links.length
+        }
+        break
+      }
       case 'renameFloor':if(floor.name!==command.name){floors[floor.id]={...floor,name:command.name};commandCost++}break
       case 'setFloorOutputBounds':if(!same(floor.outputBoundsMm,command.outputBoundsMm)){floors[floor.id]={...floor,outputBoundsMm:{...command.outputBoundsMm}};commandCost++}break
       case 'setFloorEnvironment':
@@ -108,3 +118,4 @@ export function applyFloorCommand(scene:SceneDocument,input:FloorCommand,options
   if(commandCost){scene.floors=floors;scene.userLayers=layers}
   return {commandCost}
 }
+const cloneLinks = (links: import('./links.js').FloorLink[]) => links.map(link => ({ ...link, fromMm: { ...link.fromMm }, toMm: { ...link.toMm } }))

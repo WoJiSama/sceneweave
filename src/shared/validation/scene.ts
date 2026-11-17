@@ -1,5 +1,6 @@
 import { pathAttachmentSchema } from '../path-attachments/contracts.js'
 import { roomFurnishingPlanSchema } from '../furnishing/contracts.js'
+import { floorLinksSchema } from '../floors/links.js'
 import { attachmentSurfaceRecordSchema, attachmentRecordSchema } from '../attachments/contracts.js'
 import { rockBodySchema, carvedStripSchema } from '../carved-rock/contracts.js'
 import { terrainInlaySchema } from '../terrain-inlay/persistence.js'
@@ -48,7 +49,7 @@ const sceneShape = {
   units: z.object({ world: z.literal('mm'), display: z.enum(['m', 'ft']), gridSizeMm: positive, snapMm: positive, gridVisible: z.boolean() }).strict(),
   exportBoundsMm: bounds,
   outputBackground: sceneOutputBackgroundSchema.optional(),
-  floors: record(z.object({ id, name: z.string(), boundsMm: bounds, outputBoundsMm: bounds.optional(), environment: visualEnvironmentSchema.optional() }).strict()),
+  floors: record(z.object({ id, name: z.string(), boundsMm: bounds, outputBoundsMm: bounds.optional(), environment: visualEnvironmentSchema.optional(), links: floorLinksSchema.optional() }).strict()),
   vertices: record(z.object({ ...editable, xMm: int, yMm: int }).strict()),
   regions: record(z.object({ ...editable, boundaryMm: z.array(point).min(3), kind: z.enum(['terrain', 'hazard', 'manualMask']),
     blocksMovement: z.boolean(), movementCostMultiplier: z.number().finite().min(1), visibility }).strict()),

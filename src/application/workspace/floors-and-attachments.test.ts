@@ -43,6 +43,26 @@ afterEach(async () => {
 })
 
 describe('ordinary multi-Floor and persisted door/path workspace lifecycle', () => {
+  it('persists bidirectional editor entrances with undo, full cold read and no player projection metadata', async () => {
+    const { workspace, repo } = await setup()
+    const boundsMm = { x: 0, y: 0, width: 12000, height: 15000 }
+    await workspace.execute([{ type: 'createFloor', id: 'cellar', name: '下层', boundsMm, outputBoundsMm: boundsMm, newLayerId: 'cellar-layer', layerName: '下层地面' }])
+    const before = projectScene(workspace.getDocument()!, 'player', undefined, { floorId: 'cellar' })
+    const links = [{ id: 'stairs', name: '秘密楼梯', targetFloorId: 'cellar', fromMm: { x: 4000, y: 5000 }, toMm: { x: 6000, y: 7000 } }]
+    await workspace.execute([{ type: 'setFloorLinks', id: 'blank-floor', links }]); await workspace.flush()
+    expect((await repo.load(workspace.getDocument()!.sceneId))!.project.document.floors['blank-floor'].links).toEqual(links)
+    const after = projectScene(workspace.getDocument()!, 'player', undefined, { floorId: 'cellar' })
+    expect({ ...after, sourceRevision: before.sourceRevision }).toEqual(before)
+    expect(JSON.stringify(after)).not.toContain('秘密楼梯')
+    workspace.undo(); expect(workspace.getDocument()!.floors['blank-floor'].links).toBeUndefined()
+    workspace.redo(); expect(workspace.getDocument()!.floors['blank-floor'].links).toEqual(links)
+    await expect(workspace.execute([{ type: 'deleteEmptyFloor', id: 'cellar' }])).rejects.toThrow(/入口/)
+    for (const invalid of [ { ...links[0], targetFloorId: 'missing' }, { ...links[0], targetFloorId: 'blank-floor' }, { ...links[0], toMm: { x: 13000, y: 7000 } } ])
+      await expect(workspace.execute([{ type: 'setFloorLinks', id: 'blank-floor', links: [invalid] }])).rejects.toThrow()
+    await workspace.execute([{ type: 'setLayerLock', id: 'cellar-layer', locked: true }])
+    await expect(workspace.execute([{ type: 'setFloorLinks', id: 'blank-floor', links: [] }])).rejects.toThrow(/锁定/)
+    expect(workspace.getDocument()!.floors['blank-floor'].links).toEqual(links)
+  })
   it('creates an independent layer, saves all Floors, isolates output and undoes/redoes without reusing Floor continuity', async () => {
     const { workspace, repo, project } = await setup()
     const before = cloneJson(project.document), boundsMm = { x: 0, y: 0, width: 12000, height: 15000 }

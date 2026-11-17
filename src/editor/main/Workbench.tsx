@@ -10,6 +10,8 @@ import { furnishingPaletteProject } from '../../platform/browser/content/furnish
 import type { SceneTemplateEntry, SceneTemplatePlacement } from '../../shared/scene-templates/content'
 import { loadSceneTemplate } from '../../shared/scene-templates/content'
 import { describeSceneTemplate, sceneTemplatePlacementSketch, type SceneTemplateSketch } from '../../shared/scene-templates/preview'
+import FloorOverview from './FloorOverview'
+import FloorLinks from './FloorLinks'
 import { createWaysideInnProject, WAYSIDE_INN_NAME } from '../../platform/browser/content/wayside-inn'
 import { STYLED_BUILDING_SHELLS, createStyledBuildingShellProject } from '../../platform/browser/content/styled-building-shells'
 import AssociatedNotes from './AssociatedNotes'
@@ -360,6 +362,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const setSelected = (id: string | null) => selectionSession.set(id ? [id] : [])
   const [layerMoveRequest, setLayerMoveRequest] = useState(0)
   const [memberMode, setMemberMode] = useState(false), [menu, setMenu] = useState<SceneMenu | null>(null), [fitRequest, setFitRequest] = useState(0)
+  const [floorFocus, setFloorFocus] = useState<{ floorId: string; sceneId: string; positionMm: PointMm; sequence: number }>()
   const [terrainPreview, setTerrainPreview] = useState<TerrainPreview | null>(null)
   const [localGenerationPreview, setLocalGenerationPreview] = useState<LocalGenerationPreview | null>(null), [localGenerationBusy, setLocalGenerationBusy] = useState(false), [localGenerationError, setLocalGenerationError] = useState<string | null>(null)
   const [localGenerationDraft, setLocalGenerationDraft] = useState(false), [localGenerationReset, setLocalGenerationReset] = useState(0)
@@ -1766,9 +1769,15 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const panelKey = `${completeProject?.document.sceneId ?? 'empty'}-${sessionGeneration}-${activeFloorId}`
   const changeFloor = (floorId: string) => {
     if (!completeProject?.document.floors[floorId] || floorId === activeFloorId || !guard()) return
-    setChosenFloorId(floorId); setCurrentLayerId(Object.values(completeProject.document.userLayers).find(layer => layer.floorId === floorId)?.id ?? '')
+    setFloorFocus(undefined); setChosenFloorId(floorId); setCurrentLayerId(Object.values(completeProject.document.userLayers).find(layer => layer.floorId === floorId)?.id ?? '')
     selectionSession.set([]); setInspectedLayerId(''); setSoloLayerId(null); setCurrentOnly(false); setMenu(null); clipboard.current = null
     setMessage(`当前楼层：${completeProject.document.floors[floorId].name}。编辑、预览和PNG使用此层。`)
+  }
+  const navigateEntrance = (floorId: string, positionMm: PointMm) => {
+    if (!completeProject || !guard()) return
+    if (floorId !== activeFloorId) changeFloor(floorId)
+    setFloorFocus({ floorId, sceneId: completeProject.document.sceneId, positionMm, sequence: performance.now() })
+    setMessage(`入口定位：${completeProject.document.floors[floorId].name} (${positionMm.x}, ${positionMm.y}) mm。`)
   }
   const layerPanel = completeProject && audience === 'gm' ? <UserLayerPanel activeFloorId={activeFloorId} key={panelKey} scene={completeProject.document} session={selectionSession}
     currentLayerId={currentLayerId} inspectedLayerId={inspectedLayerId} onInspect={id => { if (id !== inspectedLayerId && formDrafts.appearanceForm) { setMessage('请先预览或取消当前图层外观草稿，再查看其他图层参数。'); return }; setInspectedLayerId(id); inspect('layer') }} hiddenLayerIds={hiddenLayerIds} soloLayerId={soloLayerId} currentOnly={currentOnly}
@@ -1932,7 +1941,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           <div hidden={sidebar !== 'visual' || audience !== 'gm'} onChangeCapture={() => markFormDraft('visualForm')}>{completeProject && <SelectionSubscriber session={selectionSession}>{ids => <VisualPanel surfaceRequest={surfaceRequest} detailsTarget={visualTarget} detailsActive={detailMode === 'visual' && !catalogDetailOpen} activeTab={visualTab} onTabChange={tab => { if (tab !== visualTab && !guard('visualForm')) return; setVisualTab(tab); inspect('visual') }} onInspect={() => inspect('visual')} key={`${panelKey}-${completeProject.document.revision}-${formReset.visualForm}`} scene={completeProject.document} appearance={completeProject.appearance} historyIdentity={completeProject.historyIdentity} layerId={currentLayerId} selectedIds={ids} disabled={toolDisabled(['visualForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'visualForm')}  onBoundaryEditor={setBoundaryEditor} onDraftChange={() => markFormDraft('visualForm')}/>}</SelectionSubscriber>}</div>
           <div hidden={sidebar !== 'generate' || audience !== 'gm'}>{generationTools}</div>
           <div hidden={sidebar !== 'history' || audience !== 'gm'}>{historyBrowser}</div>
-          <div hidden={sidebar !== 'scene' && audience === 'gm'}>{audience === 'gm' && <><ImageImportTool key={imageImportReset} disabled={toolDisabled(['imageImport'])} requestKey={imageImportRequest} onDraftChange={updateImageImportDraft} onPrepare={(factory, description, token) => prepare(factory, description, token)}/>{imageLibraryStatus && imageLibraryStatus.sceneId === project?.document.sceneId && <div role="status" className="asset-muted"><p>{imageLibraryStatus.message}</p>{imageLibraryStatus.failed && <button className="secondary" disabled={editDisabled} onClick={() => { if (project) void syncImageItems(project.document.sceneId, Object.keys(project.document.props)) }}>重试保存拆解素材</button>}</div>}</>}<div className="workspace-scene-actions"><button className="secondary" disabled={!project || audience === 'player'} onClick={showSettings}>场景设置</button></div>{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
+          <div hidden={sidebar !== 'scene' && audience === 'gm'}>{audience === 'gm' && <><ImageImportTool key={imageImportReset} disabled={toolDisabled(['imageImport'])} requestKey={imageImportRequest} onDraftChange={updateImageImportDraft} onPrepare={(factory, description, token) => prepare(factory, description, token)}/>{imageLibraryStatus && imageLibraryStatus.sceneId === project?.document.sceneId && <div role="status" className="asset-muted"><p>{imageLibraryStatus.message}</p>{imageLibraryStatus.failed && <button className="secondary" disabled={editDisabled} onClick={() => { if (project) void syncImageItems(project.document.sceneId, Object.keys(project.document.props)) }}>重试保存拆解素材</button>}</div>}</>}<div className="workspace-scene-actions"><button className="secondary" disabled={!project || audience === 'player'} onClick={showSettings}>场景设置</button></div>{completeProject && audience === 'gm' && <><FloorOverview project={completeProject} floorId={activeFloorId} disabled={editDisabled} onNavigate={changeFloor}/><FloorLinks key={`${panelKey}-${completeProject.document.revision}`} scene={completeProject.document} floorId={activeFloorId} disabled={toolDisabled(['displayForm'])} onDraftChange={() => markFormDraft('displayForm')} onPreview={(commands, label) => previewBuilding(commands, label, 'displayForm')} onNavigate={navigateEntrance}/></>}{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
         </div>
   const editInspectorProp = (selected: string, commands: SceneCommand[], description: string, selectionAfterCommit?: string | null) => {
     if (!completeProject) return
@@ -2049,7 +2058,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
               batchAction('delete')
             }}
             selected={null} selectionSession={selectionSession} onSelect={select} onSelectMany={selectMany} onContext={openMenu} memberMode={memberMode} onMemberMode={setMemberMode}
-            fitRequest={fitRequest} audience={audience} disabled={busy || terrainEditBusy || (!!terrainEditCanvas ? false : editingBlocked) || !!prefabPlacement || audience === 'player'}
+            focusPoint={floorFocus?.floorId === visibleFloorId && floorFocus.sceneId === visibleProject.document.sceneId ? floorFocus : undefined} fitRequest={fitRequest} audience={audience} disabled={busy || terrainEditBusy || (!!terrainEditCanvas ? false : editingBlocked) || !!prefabPlacement || audience === 'player'}
             placement={placement?.prop} onPlacementMove={positionMm => setPlacement(current => current ? { ...current, prop: { ...current.prop, positionMm } } : null)} onPlace={placeAt}
             onPlacementReady={setPlacementReady} onPlacementError={error => { setPlacement(null); setMessage(error) }} onCancelPlacement={() => setPlacement(null)}/>
             : visibleProject ? <div className="asset-empty" role="status"><p>当前楼层将在此候选中移除；请核对楼层与依赖差异后采用，或取消返回原楼层。</p></div> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>从一张空白画布开始</span><p>手工绘制房间与地形，或先生成一张地图再继续编辑。</p><div className="workspace-start-actions"><button className="primary" disabled={busy} onClick={openNewScene}>新建场景</button><button className="secondary" disabled={busy} onClick={() => request({ type: 'generate' })}>生成地图</button><button className="secondary" disabled={busy} onClick={showSamples}>从样板开始</button></div></div>}</div>

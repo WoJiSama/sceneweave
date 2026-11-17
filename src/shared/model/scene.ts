@@ -23,6 +23,7 @@ export interface Floor {
   id: Id; name: string; boundsMm: BoundsMm
   outputBoundsMm?: BoundsMm
   environment?: VisualEnvironment
+  links?: import('../floors/links.js').FloorLink[]
 }
 export interface Vertex extends Editable { xMm: number; yMm: number }
 export interface AssetRef {
