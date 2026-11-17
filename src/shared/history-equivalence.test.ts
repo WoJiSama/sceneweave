@@ -3,6 +3,7 @@ import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { scatterLayerSceneV3, symbolPropV3 } from '../core/v3/test-fixtures.js'
 import type { SceneDocumentV3 } from '../core/v3/types.js'
+import { sceneSchemaV3 } from '../core/v3/schema.js'
 import { createHistoryIdentityV4 } from '../core/v4/identity.js'
 import { StructureContinuitySessionV4 } from '../core/v4/structure-continuity.js'
 import { buildStructureRestorePlanV4 } from '../core/v4/structure-restore.js'
@@ -54,7 +55,9 @@ function legacy(input: CompositionContent): CompositionContentV6 {
   expect(Object.keys(presentationTokens ?? {})).toEqual(Object.values(document.terrainAreas).flatMap(area => (area.surfaceStyle?.overlays ?? []).map(overlay => overlay.id)))
   const { presentations, ...appearance } = copy.appearance
   expect(presentations).toEqual(Object.fromEntries(Object.values(appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])))
-  return { document: { ...document, format: 'sceneweave', schemaVersion: 3 }, historyIdentity: { ...identity, version: 3 }, appearance: { ...appearance, version: 1 } }
+  // These differential fixtures only use historical fields. The strict reader
+  // rejects any current-only field instead of asserting away new union members.
+  return { document: sceneSchemaV3.parse({ ...document, format: 'sceneweave', schemaVersion: 3 }), historyIdentity: { ...identity, version: 3 }, appearance: { ...appearance, version: 1 } }
 }
 const legacyAppearance = (appearance: CompositionContent['appearance']) => {
   const { presentations, ...fields } = appearance

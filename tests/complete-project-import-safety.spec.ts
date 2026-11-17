@@ -11,7 +11,7 @@ import { keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved }
 import { closeWorkspaceDrawers, openSceneObjects, openSceneSettings, openVisualTask } from './workspace-navigation-helpers'
 import { mapExportButton } from './workspace-ux-helpers'
 
-type Input = { input: string; roomId: string; props: number }
+type Input = { input: string; roomId: string; props: number; floorId?: string }
 type Backup = Awaited<ReturnType<typeof keyboardProjectBackup>>
 const inputs: Record<string, Input> = process.env.SCENEWEAVE_IMPORT_SAFETY_CASES
   ? JSON.parse(readFileSync(process.env.SCENEWEAVE_IMPORT_SAFETY_CASES, 'utf8')) : {}
@@ -138,6 +138,7 @@ for (const [key, width] of [['fantasy', 1512], ['modern', 390]] as const) test(`
     expect(keyboardResourceHashes(edited.hashes)).toEqual(keyboardResourceHashes(initial.hashes))
 
     stage = 'visual-candidate'
+    if (input.floorId) { await page.getByLabel('当前楼层', { exact: true }).selectOption(input.floorId); await keyboardWorkspaceSaved(page) }
     const objects = await openSceneObjects(page)
     const allLayers = objects.getByRole('button', { name: '显示所有图层的对象', exact: true })
     if (await allLayers.isVisible()) await allLayers.click()
@@ -208,6 +209,7 @@ for (const [key, width] of [['fantasy', 1512], ['modern', 390]] as const) test(`
     await page.locator(`[data-project-key="native:${redone.document.sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click()
     await keyboardWorkspaceSaved(page)
     expect((await backup('cold')).hashes).toEqual(redone.hashes)
+    if (input.floorId) { await page.getByLabel('当前楼层', { exact: true }).selectOption(input.floorId); await keyboardWorkspaceSaved(page) }
     expect(await picture(page, 'gm', info.outputPath('cold-gm.png'))).toEqual(baselineImages.gm)
     expect(await picture(page, 'player', info.outputPath('cold-player.png'))).toEqual(baselineImages.player)
 

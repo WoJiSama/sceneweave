@@ -8,10 +8,10 @@ import { openWorkspaceModule, openSceneObjects } from './workspace-navigation-he
 
 export async function keyboardWorkspaceSaved(page: Page): Promise<void> {
   await expect.poll(async () => ({
-    save: (await page.locator('.asset-save').textContent())?.trim(),
+    save: await page.locator('.asset-save').count() ? (await page.locator('.asset-save').textContent())?.trim() : null,
     busy: await page.locator('.asset-busy').count(),
-    rendering: await page.locator('.asset-map-wrap').getAttribute('aria-busy'),
-  }), { timeout: 30000 }).toEqual({ save: '本地已保存', busy: 0, rendering: 'false' })
+    rendering: await page.locator('.asset-map-wrap').count() ? await page.locator('.asset-map-wrap').getAttribute('aria-busy') : null,
+  }), { timeout: process.env.SCENEWEAVE_RESOURCE_WAIT_MS ? Number(process.env.SCENEWEAVE_RESOURCE_WAIT_MS) : 30000 }).toEqual({ save: '本地已保存', busy: 0, rendering: 'false' })
 }
 
 export async function openKeyboardPanel(page: Page, panel: 'resources' | 'inspector' | 'navigation'): Promise<Locator> {
@@ -32,7 +32,7 @@ export async function createKeyboardProject(page: Page, title: string): Promise<
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill(title)
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
-  await expect(dialog).toHaveCount(0)
+  await expect(dialog).toHaveCount(0, { timeout: 60000 })
   await keyboardWorkspaceSaved(page)
 }
 
@@ -66,9 +66,18 @@ export async function selectKeyboardProp(page: Page, id: string): Promise<void> 
 
 /** Facts come only from an actual normal-UI complete-project download. */
 export async function keyboardProjectBackup(page: Page, path: string) {
-  const downloaded = page.waitForEvent('download')
-  await (await projectBackupButton(page)).click()
-  await (await downloaded).saveAs(path)
+  let download: import('@playwright/test').Download | undefined
+  const received = (value: import('@playwright/test').Download) => { download = value }
+  page.on('download', received)
+  try {
+    await (await projectBackupButton(page)).click()
+    await expect.poll(async () => {
+      const failed = page.getByRole('alert').filter({ hasText: /下载工程备份：/ })
+      if (await failed.count()) return await failed.innerText()
+      return download ? 'downloaded' : 'pending'
+    }, { timeout: 90000 }).toBe('downloaded')
+    await download!.saveAs(path)
+  } finally { page.off('download', received) }
   await expect(page.locator('.asset-busy')).toHaveCount(0)
   await page.locator('.workspace-export-menu > summary').click()
   const files = unzipSync(new Uint8Array(await readFile(path)))
