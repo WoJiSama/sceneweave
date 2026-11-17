@@ -16,6 +16,10 @@ import { CONTINUATION_POLICY, BUDGET_POLICY_HASHES, createContinuationPolicyV2 }
 import { TASK_BUDGET_PROFILES } from '../../src/shared/budget/task-budget.js'
 import type { ProviderAdapter, ProviderCompletion, ProviderInput, ProviderToolCall } from './provider-types.js'
 import { DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS } from '../../src/shared/ai/project-workflow.js'
+import { beginForestAction, completeForestGeneration, createForestLoop, forestLoopContext, FOREST_ACTION_TOOL } from '../../src/shared/ai/forest-loop.js'
+import { semanticGenerationExample } from '../../src/shared/generation/semantic-request.js'
+import { workflowBinding } from '../../src/shared/ai/workflows/catalog.js'
+import type { ForestFurnitureDiagnostics } from '../../src/shared/generation/forest-furniture-contract.js'
 
 const tokenA = 'a'.repeat(40), tokenB = 'b'.repeat(40), origin = 'https://editor.example.test'
 const cleanups: (() => void)[] = []
@@ -37,14 +41,113 @@ const done = (text = '', toolCalls: ProviderToolCall[] = []): ProviderCompletion
 async function waitStatus(store: TaskStore, id: string, status: string) { await vi.waitFor(() => expect(store.read(id).snapshot.status).toBe(status), { timeout: 3000, interval: 5 }); return store.read(id).snapshot }
 
 describe('private AI task HTTP service', () => {
-  it('loads project and image-item procedures into a new conversation without granting image execution', async () => {
+  it('negotiates forest decisions explicitly and preserves the cached strict capability response', async () => {
+    const { request } = setup()
+    expect((await (await request('/v1/capabilities?workflowVersion=1')).json()).capabilities).not.toHaveProperty('forestLoop')
+    expect((await (await request('/v1/capabilities?authoringVersion=4&workflowVersion=1&forestLoopVersion=1')).json()).capabilities).toMatchObject({ forestLoop: 1, workflowDiscovery: 1 })
+    for (const query of ['forestLoopVersion=2', 'forestLoopVersion=', 'forestLoopVersion=1&forestLoopVersion=1']) expect((await request(`/v1/capabilities?${query}`)).status).toBe(400)
+  })
+  it('accepts exactly one real forest action without issuing a provider summary request', async () => {
+    const context = forestLoopContext(createForestLoop(semanticGenerationExample()))
+    const complete = vi.fn(async (input: ProviderInput) => {
+      expect(input.tools.map(tool => tool.name)).toEqual([FOREST_ACTION_TOOL.name])
+      expect(input.messages[0].content).toContain('Current bounded forest host state')
+      expect(input.messages[0].content).toContain(context.stateHash)
+      return done('', [{ id: 'forest-generate', name: FOREST_ACTION_TOOL.name, arguments: JSON.stringify({ kind: 'generate', stateHash: context.stateHash, seed: context.request.parameters.seed, reason: '按原目标生成实际候选。' }) }])
+    })
+    const { request, store } = setup({ complete })
+    const payload = { ...taskRequest(), forestLoop: context }
+    const first = await (await request('/v1/tasks', 'POST', payload)).json() as TaskSnapshot
+    const completed = await waitStatus(store, first.id, 'completed')
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(completed.usage).toMatchObject({ requests: 1, unknown: false })
+    expect(completed.tools).toHaveLength(1)
+    expect(JSON.parse(completed.tools[0].output)).toMatchObject({ acceptedForHost: true, executed: false, action: { kind: 'generate', stateHash: context.stateHash } })
+    expect(store.read(first.id).forestAction?.kind).toBe('generate')
+    expect((await (await request('/v1/tasks', 'POST', payload)).json()).id).toBe(first.id)
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+  it('returns real candidate diagnostics for the next bounded decision and accepts explicit selection only', async () => {
+    const initial = createForestLoop(semanticGenerationExample())
+    const pending = beginForestAction(initial, { kind: 'generate', stateHash: forestLoopContext(initial).stateHash, seed: initial.request.parameters.seed, reason: '首轮' })
+    const state = completeForestGeneration(pending, { candidateId: 'c'.repeat(64), requestHash: pending.pending!.requestHash, seed: pending.pending!.seed, entities: { rooms: 2, props: 44 }, notes: ['两处座椅找不到合法位置。'] })
+    const context = forestLoopContext(state)
+    const { request, store } = setup({ complete: async input => {
+      expect(input.messages[0].content).toContain('两处座椅找不到合法位置')
+      return done('', [{ id: 'forest-finish', name: FOREST_ACTION_TOOL.name, arguments: JSON.stringify({ kind: 'finish', stateHash: context.stateHash, candidateId: state.receipts[0].candidateId, reason: '保留实际可编辑候选，座椅缺项未解决。' }) }])
+    } })
+    const first = await (await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: context })).json() as TaskSnapshot
+    expect((await waitStatus(store, first.id, 'completed')).tools[0]).toMatchObject({ name: FOREST_ACTION_TOOL.name, success: true })
+  })
+  it('accepts a current diagnosed room repair as one host request without claiming execution', async () => {
+    const initial = createForestLoop(semanticGenerationExample())
+    const pending = beginForestAction(initial, { kind: 'generate', stateHash: forestLoopContext(initial).stateHash, seed: initial.request.parameters.seed, reason: '首轮' })
+    const diagnostics: ForestFurnitureDiagnostics = { structureHash: '1'.repeat(64), outcomeHash: '2'.repeat(64), deficit: 2,
+      rooms: [0, 1].map(index => ({ roomId: `room-${index}`, recipeId: 'building', requirementId: `requirement-${index}`, purpose: initial.request.parameters.purpose,
+        repairable: true, roles: [{ role: 'seat', expected: 4, actual: 3, deficit: 1, rejections: [{ reason: 'seat-group-unavailable', count: 12 }] }], notes: [] })) }
+    const state = completeForestGeneration(pending, { candidateId: 'c'.repeat(64), requestHash: pending.pending!.requestHash, seed: pending.pending!.seed,
+      entities: { rooms: 2, props: 44 }, notes: ['两处座椅找不到合法位置。'], diagnostics })
+    const context = forestLoopContext(state), action = { kind: 'repair-furniture', stateHash: context.stateHash, candidateId: state.receipts[0].candidateId,
+      roomId: 'room-0', reason: '用固定策略补齐该房间座椅并保留建筑。' }
+    const complete = vi.fn(async (input: ProviderInput) => {
+      expect(input.messages[0].content).toContain('seat-group-unavailable')
+      expect(input.messages[0].content).toContain('repairTargets')
+      expect(input.tools[0].parameters).toMatchObject({ properties: { kind: { enum: ['generate', 'repair-furniture', 'finish'] } } })
+      return done('', [{ id: 'forest-repair', name: FOREST_ACTION_TOOL.name, arguments: JSON.stringify(action) }])
+    })
+    const { request, store } = setup({ complete })
+    const first = await (await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: context })).json() as TaskSnapshot
+    const completed = await waitStatus(store, first.id, 'completed')
+    expect(completed.tools[0]).toMatchObject({ name: FOREST_ACTION_TOOL.name, success: true })
+    expect(JSON.parse(completed.tools[0].output)).toMatchObject({ acceptedForHost: true, executed: false, action })
+    expect(completed.usage).toMatchObject({ requests: 1, unknown: false })
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+  it('rejects forest decisions carrying scene or other authorizations before any provider request', async () => {
+    const complete = vi.fn(async () => done())
+    const { request } = setup({ complete })
+    const context = forestLoopContext(createForestLoop(semanticGenerationExample()))
+    expect((await request('/v1/tasks', 'POST', { ...taskRequest({ sceneId: 'scene', revision: 1, audience: 'public' }), forestLoop: context })).status).toBe(400)
+    expect((await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: { ...context, stateHash: '0'.repeat(64) } })).status).toBe(400)
+    expect(complete).not.toHaveBeenCalled()
+  })
+  it.each(['missing', 'multiple', 'stale'] as const)('stops a %s forest action after its single known provider request', async mode => {
+    const context = forestLoopContext(createForestLoop(semanticGenerationExample()))
+    const call = { id: 'decision', name: FOREST_ACTION_TOOL.name, arguments: JSON.stringify({ kind: 'generate', stateHash: mode === 'stale' ? '0'.repeat(64) : context.stateHash, seed: context.request.parameters.seed, reason: '生成' }) }
+    const complete = vi.fn(async () => done('', mode === 'missing' ? [] : mode === 'multiple' ? [call, { ...call, id: 'decision-2' }] : [call]))
+    const { request, store } = setup({ complete })
+    const first = await (await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: context })).json() as TaskSnapshot
+    const failed = await waitStatus(store, first.id, 'failed')
+    expect(failed.usage).toMatchObject({ requests: 1, unknown: false })
+    expect(failed.error?.requestState).toBe('finished')
+    expect(store.read(first.id).forestAction).toBeUndefined()
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+  it('preserves an interrupted forest task and refuses resume without another paid request', async () => {
+    let pending: ProviderInput | undefined
+    const complete = vi.fn((input: ProviderInput) => { pending = input; return new Promise<ProviderCompletion>(() => {}) })
+    const { request, store } = setup({ complete })
+    const context = forestLoopContext(createForestLoop(semanticGenerationExample()))
+    const first = await (await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: context })).json() as TaskSnapshot
+    await vi.waitFor(() => expect(pending).toBeDefined())
+    const paused = await (await request(`/v1/tasks/${first.id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: first.generation, action: 'pause' })).json() as TaskSnapshot
+    expect(pending!.signal.aborted).toBe(true)
+    const before = structuredClone(store.read(first.id).snapshot)
+    const resumed = await request(`/v1/tasks/${first.id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: paused.generation, action: 'resume' })
+    expect(resumed.status).toBe(409)
+    expect((await resumed.json()).error.code).toBe('forest_decision_single_request')
+    expect(store.read(first.id).snapshot).toEqual(before)
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+  it('loads the brief workflow directory on a new conversation without granting image execution', async () => {
     const inputs: ProviderInput[] = []
     const { create, store } = setup({ complete: async input => {
       inputs.push(input)
       expect(input.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining(DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS) })
       expect(input.messages[0].content).toContain('sceneweave-project-creation@1')
       expect(input.messages[0].content).toContain('sceneweave-image-items@1')
-      expect(input.tools.map(tool => tool.name)).toEqual(['sceneweave_connection_info'])
+      expect(input.tools.map(tool => tool.name)).toEqual(['sceneweave_connection_info', 'sceneweave_workflow'])
+      expect(input.messages[0].content).not.toContain('subject-contour-v1')
       return inputs.length === 1 ? done('', [{ id: 'image-request', name: 'image_import_extract_item', arguments: '{}' }]) : done()
     } })
     const created = await (await create()).json() as TaskSnapshot
@@ -53,6 +156,48 @@ describe('private AI task HTTP service', () => {
     expect(completed.tools).toEqual([expect.objectContaining({ name: 'image_import_extract_item', success: false })])
     expect(JSON.parse(completed.tools[0].output).error.code).toBe('unsupported_tool')
     expect(store.read(created.id).authoring).toBeUndefined()
+  })
+  it('discovers read-only workflow details, pins the definition and persists actual checkpoints', async () => {
+    let round = 0
+    const { create, store, request } = setup({ complete: async input => {
+      round++
+      if (round === 1) return done('', [{ id: 'workflow-read', name: 'sceneweave_workflow', arguments: JSON.stringify({ action: 'read', workflowId: 'sceneweave-image-items' }) }])
+      const message = input.messages.find(value => value.toolCallId === 'workflow-read')!
+      const details = JSON.parse(message.content!)
+      expect(details.steps[0].requirements[0].state).toBe('not-connected')
+      return done()
+    } })
+    const created = await (await create()).json() as TaskSnapshot
+    const completed = await waitStatus(store, created.id, 'completed')
+    expect(completed.tools).toEqual([expect.objectContaining({ name: 'sceneweave_workflow', success: true })])
+    expect(store.read(created.id).workflowBindings).toEqual([workflowBinding('sceneweave-image-items')])
+    expect((await (await request('/v1/capabilities?authoringVersion=4')).json()).capabilities).not.toHaveProperty('workflowDiscovery')
+    expect((await (await request('/v1/capabilities?authoringVersion=4&workflowVersion=1')).json()).capabilities.workflowDiscovery).toBe(1)
+    const stale = { ...taskRequest(), workflow: { ...workflowBinding('sceneweave-image-items'), definitionHash: '0'.repeat(64) } }
+    expect((await request('/v1/tasks', 'POST', stale)).status).toBe(400)
+    expect(round).toBe(2)
+  })
+  it('preserves the real paused checkpoint and refuses stale workflow resume without another provider request', async () => {
+    let pending: ProviderInput | undefined
+    const complete = vi.fn(async (input: ProviderInput) => {
+      if (complete.mock.calls.length === 1) return done('', [{ id: 'workflow-list', name: 'sceneweave_workflow', arguments: '{"action":"list"}' }])
+      pending = input
+      return new Promise<ProviderCompletion>(() => {})
+    })
+    const { request, store } = setup({ complete })
+    const binding = workflowBinding('sceneweave-scene-edit')
+    const created = await (await request('/v1/tasks', 'POST', { ...taskRequest(), workflow: binding })).json() as TaskSnapshot
+    await vi.waitFor(() => expect(pending).toBeDefined())
+    expect(store.read(created.id).snapshot.tools[0]).toMatchObject({ name: 'sceneweave_workflow', success: true })
+    const paused = await (await request(`/v1/tasks/${created.id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: 1, action: 'pause' })).json() as TaskSnapshot
+    expect(pending!.signal.aborted).toBe(true)
+    store.change(created.id, paused.generation, task => { task.workflowBindings = [{ ...binding, definitionHash: '0'.repeat(64) }]; return [] })
+    const beforeResume = structuredClone(store.read(created.id).snapshot)
+    const response = await request(`/v1/tasks/${created.id}/control`, 'POST', { schemaVersion: 1, expectedGeneration: paused.generation, action: 'resume' })
+    expect(response.status).toBe(409)
+    expect((await response.json()).error.code).toBe('workflow_changed')
+    expect(store.read(created.id).snapshot).toEqual(beforeResume)
+    expect(complete).toHaveBeenCalledTimes(2)
   })
   it('requires a distinct bearer, exact Origin and restrictive preflight; health never reveals configuration', async () => {
     const { app, request } = setup()
@@ -84,7 +229,7 @@ describe('private AI task HTTP service', () => {
     expect(negotiated.capabilities).toMatchObject({ baseMapVersions: [1, 2], budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] })
     expect(negotiated.capabilities).not.toHaveProperty('budgetProfileHashes')
     const current = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=3')).json())
-    const { surfaceRecipeVersions: _surfaces, baseMapSelectors: _selectors, currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, ...rest } = engine.connectionInfo.capabilities
+    const { workflowDiscovery: _workflow, forestLoop: _forest, surfaceRecipeVersions: _surfaces, baseMapSelectors: _selectors, currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, ...rest } = engine.connectionInfo.capabilities
     const prior = { ...rest }; delete prior.authoringVersions
     expect(current).toEqual({ ...engine.connectionInfo, capabilities: prior })
     expect(current.capabilities).not.toHaveProperty('surfaceRecipeVersions')

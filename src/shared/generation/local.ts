@@ -17,7 +17,7 @@ export const localGenerationRequestSchema = z.discriminatedUnion('operation', [
   z.object({ ...common, operation: z.literal('volcano-material'), areaId: id, materialRef: z.object({ id, version: z.number().int().positive().safe() }).strict() }).strict(),
   z.object({ ...common, operation: z.literal('volcano-boundary'), areaId: id, positionsMm: z.array(point).min(3).max(64) }).strict(),
   z.object({ ...common, operation: z.literal('forest-density'), zoneId: id, role: z.enum(['tree', 'shrub', 'grass']), coveragePpm: z.number().int().min(0).max(1_000_000) }).strict(),
-  z.object({ ...common, operation: z.literal('interior-furniture'), roomId: id, variation: z.string().min(1).max(128) }).strict(),
+  z.object({ ...common, operation: z.literal('interior-furniture'), roomId: id, variation: z.string().min(1).max(128), strategy: z.literal('seating-v1').optional() }).strict(),
 ])
 export type LocalGenerationRequest = z.infer<typeof localGenerationRequestSchema>
 export function runLocalGeneration(content: CompositionContent, raw: unknown, runtime: PreparationContext, options: { profile: TaskBudgetProfile; checkCancelled: () => void }) {

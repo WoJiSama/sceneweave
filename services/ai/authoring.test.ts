@@ -1037,7 +1037,7 @@ describe('isolated AI prop authoring backend', () => {
     const completed = await wait(subject.store, snapshot.id, 'completed'), task = subject.store.read(snapshot.id)
     expect(inputs).toHaveLength(2)
     for (const input of inputs) {
-      expect(input.tools.map(value => value.name)).toEqual(['sceneweave_connection_info'])
+      expect(input.tools.map(value => value.name)).toEqual(['sceneweave_connection_info', 'sceneweave_workflow'])
       expect(input.maxOutputTokens).toBe(AI_LIMITS.maxOutputTokensPerRequest)
       expect(input.messages.filter(message => message.role === 'system')).toHaveLength(1)
     }

@@ -12,6 +12,9 @@ import { renderPublicVision } from '../../platform/browser/ai/public-vision'
 import type { VisionInput } from '../../shared/ai/vision'
 import AiDraftReview from './AiDraftReview'
 import './ai-conversation.css'
+import WorkflowGuide from './WorkflowGuide'
+import { workflowBinding } from '../../shared/ai/workflows/catalog'
+import { toolWorkflowHost } from '../../shared/ai/workflows/hosts'
 
 export interface AiConnection { client: AiClient; info: ConnectionInfo }
 export interface AiConversationPanelProps { context: TaskContext; disabled?: boolean; authoring?: AiAuthoringHost; onConnectionChange?: (connection: AiConnection | null) => void }
@@ -29,6 +32,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   const [client, setClient] = useState<AiClient | null>(null), [connection, setConnection] = useState<ConnectionInfo | null>(null)
   const [task, setTask] = useState<TaskSnapshot | null>(null), [tasks, setTasks] = useState<TaskSnapshot[]>([])
   const [prompt, setPrompt] = useState(''), [addition, setAddition] = useState(''), [pending, setPending] = useState<CreateTaskRequest | null>(null)
+  const [workflowId, setWorkflowId] = useState('sceneweave-forest-building')
   const [lookupId, setLookupId] = useState('')
   const [busy, setBusy] = useState(false), [activity, setActivity] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const [streamState, setStreamState] = useState<'idle' | 'connected' | 'reconnecting' | 'disconnected'>('idle')
@@ -157,7 +161,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   const send = async (retry?: CreateTaskRequest) => {
     if (!client || busy || disabled || !retry && pending || task && ['running', 'paused', 'waiting_browser', 'ready', 'applying'].includes(task.status)) return
     let payload: CreateTaskRequest
-    try { payload = retry ?? CreateTaskSchema.parse({ schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: contextRef.current, ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}) }) }
+    try { payload = retry ?? CreateTaskSchema.parse({ schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: contextRef.current, ...(selectedReasoningEffort ? { reasoningEffort: selectedReasoningEffort } : {}), ...(connection?.capabilities.workflowDiscovery === 1 ? { workflow: workflowBinding(workflowId) } : {}) }) }
     catch { setError('请输入本次对话文字，UTF-8 大小最多 16KiB。'); return }
     if (sceneOf(payload.context) !== sceneRef.current) return
     const active = client, action = begin(retry ? '正在按原请求 ID 重试；不会创建第二个付费任务…' : '正在提交新任务…'); stopReading(); setPending(payload)
@@ -237,6 +241,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
             : '任务状态已同步'
   return <section className="ai-conversation" aria-label="AI 对话面板">
     <header className="workspace-panel-heading"><h2><MessageSquare size={16}/>AI 对话</h2><p className="workspace-panel-intro">流式对话与独立场景草稿</p></header>
+    <WorkflowGuide workflowId={workflowId} onSelect={setWorkflowId} host={toolWorkflowHost('conversation', [])} task={task}/>
     <details className="ai-connection" open={!connected}>
       <summary>连接设置{connected ? ` · ${connection.model}` : ' · 尚未连接'}</summary>
       <label>自有后端地址<input aria-label="AI 后端地址" type="url" disabled={busy || !!pending || disabled} value={baseUrl} placeholder="https://ai.example.com" autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setBaseUrl(event.target.value) }} /></label>
@@ -276,7 +281,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       {!deleteConfirmation ? <button type="button" className="ai-delete" disabled={!connected || busy || disabled || task.status === 'applying'} onClick={() => setDeleteConfirmation(true)}>删除服务器任务</button> : <div className="ai-delete-confirm"><p>删除会终止此任务，并删除服务器保存的对话、草稿、检查点与私有制品。{continuationIdentity(task.authoring) && '此流程不含对话与工程正文的防重置摘要保留至七日到期，删除不会重置预算。'}此操作不能恢复。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void remove()}>确认删除服务器任务</button><button type="button" disabled={busy} onClick={() => setDeleteConfirmation(false)}>保留任务</button></div></div>}
     </article>}
     {pending ? <div className="ai-pending"><p>本次创建请求尚未确认。重试使用同一个请求 ID，不会主动创建另一个任务。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void send(pending)}>重试本次发送</button><button type="button" disabled={busy} onClick={() => { setPending(null); setNotice('已停止本地重试。服务器可能已创建任务，请先查询最近任务；不会自动取消服务器任务。') }}>停止本地重试</button></div></div> : <form className="ai-compose" onSubmit={event => { event.preventDefault(); void send() }}><label>本次对话<textarea aria-label="AI 对话输入" value={prompt} maxLength={AI_LIMITS.promptBytes} disabled={busy || disabled} placeholder="描述你的想法，或请求检查连接…" onChange={event => setPrompt(event.target.value)} /></label><small>{promptBytes}/{AI_LIMITS.promptBytes} 字节</small>{activeTask && <p>当前任务尚未结束。暂停后可补充并明确继续，或取消后再发送新任务。</p>}<button type="submit" disabled={!connected || busy || disabled || !!activeTask || !prompt.trim() || promptBytes > AI_LIMITS.promptBytes}>发送新任务</button></form>}
-    <AiAuthoringPane reasoningEffort={selectedReasoningEffort} visionEnabled={visionSupported} continuationSupported={continuationSupported} currentAuthoringSupported={currentAuthoringSupported} client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
+    <AiAuthoringPane workflowDiscovery={connection?.capabilities.workflowDiscovery === 1} reasoningEffort={selectedReasoningEffort} visionEnabled={visionSupported} continuationSupported={continuationSupported} currentAuthoringSupported={currentAuthoringSupported} client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
     <p className="ai-footnote">草稿支持明确授权的物件、建筑、室外、组合、散布、主持人文字，以及 SVG 制作和素材风格同化。隐藏面板保留对话；断开连接或切换工程只停止本地读取，取消服务器任务请使用“取消任务”。</p>
   </section>
 }

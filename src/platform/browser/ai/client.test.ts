@@ -50,6 +50,22 @@ describe('current authoring capability and screenshot checkpoint', () => {
       currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [1], visualReviewVersions: [1],
       budgetPolicyHashes: [CONTINUATION_POLICY.policyHash] }, retentionDays: 7,
     limits: { modelRequests: 4, toolCalls: 8, executionMs: 120000, promptBytes: 16384, outputBytes: 65536 } })
+  it('falls back only after an explicit read-only workflow negotiation rejection', async () => {
+    const urls: string[] = [], methods: string[] = []
+    const fetcher = mockFetch((url, init) => {
+      urls.push(url); methods.push(init?.method ?? 'GET')
+      return url.includes('workflowVersion=1')
+        ? json({ schemaVersion: 1, error: { code: 'invalid_request', message: 'invalid_request', retryable: false, requestState: 'not_sent' } }, 400)
+        : json(capabilities())
+    })
+    const client = new AiClient('https://ai.example.com', 'token', fetcher)
+    expect((await client.capabilities()).capabilities).not.toHaveProperty('workflowDiscovery')
+    expect(urls).toEqual(['https://ai.example.com/v1/capabilities?authoringVersion=4&workflowVersion=1', 'https://ai.example.com/v1/capabilities?authoringVersion=4'])
+    expect(methods).toEqual(['GET', 'GET'])
+    const failure = mockFetch(() => json({ schemaVersion: 1, error: { code: 'provider_failed', message: 'failed', retryable: false, requestState: 'unknown' } }, 503))
+    await expect(new AiClient('https://ai.example.com', 'token', failure).capabilities()).rejects.toMatchObject({ code: 'provider_failed' })
+    expect(failure).toHaveBeenCalledOnce()
+  })
   it('requires the exact current contract, complete version and policy before admitting metadata', () => {
     expect(supportsCurrentAuthoring(capabilities(), 1)).toBe(true)
     expect(supportsCurrentAuthoring(capabilities(), 2)).toBe(false)
@@ -106,7 +122,7 @@ describe('current authoring capability and screenshot checkpoint', () => {
     const calls: { url: string; body: unknown }[] = []
     const fetcher = mockFetch((url, init) => { calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null }); return json(url.includes('/capabilities?') ? info : response) })
     await expect(new AiClient('https://ai.example.com', 'token', fetcher).create(input)).resolves.toEqual(response)
-    expect(calls.map(call => call.url)).toEqual(['https://ai.example.com/v1/capabilities?authoringVersion=4', 'https://ai.example.com/v1/tasks?authoringVersion=4'])
+    expect(calls.map(call => call.url)).toEqual(['https://ai.example.com/v1/capabilities?authoringVersion=4&workflowVersion=1', 'https://ai.example.com/v1/tasks?authoringVersion=4'])
     expect(calls[1].body).toEqual(input)
     expect(receipt.sourceHash).toBe(sha256Text(canonicalJson(authoring.source)))
   })
@@ -516,14 +532,14 @@ describe('strict v3 classified task transport', () => {
     expect(requiredSurfaceRecipeVersion({ kind: 'composition', input: { recipeVersion: 4 } })).toBeUndefined()
     const prior = capabilities(), fetcher = mockFetch(() => json({ ...prior, capabilities: { ...prior.capabilities, surfaceRecipeVersions: [1] } }))
     await new AiClient('https://ai.example.com', 'token', fetcher).capabilities(undefined, 3, 1)
-    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3&surfaceVersion=1')
+    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3&surfaceVersion=1&workflowVersion=1')
     expect(supportsContinuation(prior, 'authoring', policy, 3, 1)).toBe(false)
     expect(supportsContinuation({ ...prior, capabilities: { ...prior.capabilities, surfaceRecipeVersions: [1] } }, 'authoring', policy, 3, 1)).toBe(true)
   })
   it('uses explicit v3 capabilities and distinguishes profile hashes from policy hashes', async () => {
     const fetcher = mockFetch(() => json(capabilities())), client = new AiClient('https://ai.example.com', 'token', fetcher)
     await client.capabilities(undefined, 3)
-    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3')
+    expect((fetcher as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('https://ai.example.com/v1/capabilities?authoringVersion=3&workflowVersion=1')
     expect(supportsContinuation(capabilities(), 'authoring', policy, 3)).toBe(true)
     expect(supportsContinuation(capabilities(), 'baseMap', { policyHash: policy.profile.profileHash }, 3)).toBe(true)
     expect(supportsContinuation(capabilities(), 'baseMap', policy, 3)).toBe(false)

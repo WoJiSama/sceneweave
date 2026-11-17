@@ -9,7 +9,7 @@ export async function generateInBrowser({ request, authorization, budget }) {
   const filePath = '/src/shared/project/file.ts'
   const hashPath = '/src/shared/project/validate.ts'
   const rendererPath = '/src/platform/browser/render/renderer.ts'
-  const { generateSemanticProject } = await import(semanticPath)
+  const { generateSemanticProject, forestFurnitureNotes } = await import(semanticPath)
   const { browserGenerationContent } = await import(contentPath)
   const { browserProjectValidation } = await import(validationPath)
   const { toBundle } = await import(projectPath)
@@ -36,12 +36,61 @@ export async function generateInBrowser({ request, authorization, budget }) {
     for (let offset = 0; offset < bytes.length; offset += 0x8000) value += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
     return btoa(value)
   }
-  const document = cold.project.document
+  const document = cold.project.document, diagnostics = candidate.furnitureDiagnostics
   return { archiveBase64: base64(archive), previewBase64: base64(png),
     result: { requestHash: generated.requestHash, resultHash: candidate.resultHash, projectHash,
       sceneId: document.sceneId, title: document.title, target: generated.kind,
       entities: Object.fromEntries(['rooms', 'walls', 'openings', 'props', 'terrainAreas', 'paths', 'decorations', 'surfaceRules'].map(key => [key, Object.keys(document[key]).length])),
-      notes: candidate.report.notes, limitations: generated.limitations, profile: candidate.profile, usage: candidate.usage,
+      notes: forestFurnitureNotes(diagnostics, candidate.report.notes), diagnostics, limitations: generated.limitations, profile: candidate.profile, usage: candidate.usage,
+      timings: { generationMs, packageExportMs, memoryColdImportMs, previewMs, browserTotalMs: elapsed(started) } } }
+}
+
+/** Repairs only generated furniture in one exact cold-imported candidate. The
+ * application helper owns managed/manual/lock protection and full validation. */
+export async function repairInBrowser({ archiveBase64, roomId, budget }) {
+  const semanticPath = '/src/application/workspace/semantic-generation.ts'
+  const validationPath = '/src/platform/browser/project-validation.ts'
+  const projectPath = '/src/application/workspace/project.ts'
+  const budgetPath = '/src/shared/budget/task-budget.ts'
+  const filePath = '/src/shared/project/file.ts'
+  const hashPath = '/src/shared/project/validate.ts'
+  const rendererPath = '/src/platform/browser/render/renderer.ts'
+  const { prepareForestFurnitureRepair, forestFurnitureNotes } = await import(semanticPath)
+  const { browserProjectValidation } = await import(validationPath)
+  const { fromVerifiedBundle, toBundle } = await import(projectPath)
+  const { taskBudgetProfile } = await import(budgetPath)
+  const { exportProject, importProject } = await import(filePath)
+  const { projectContentHash } = await import(hashPath)
+  const { exportPng } = await import(rendererPath)
+  const elapsed = start => Math.round((performance.now() - start) * 1000) / 1000
+  const runtime = { ids: { nextId: () => crypto.randomUUID() }, clock: { now: () => new Date().toISOString() } }
+  const started = performance.now()
+  const parent = await importProject(Uint8Array.from(atob(archiveBase64), character => character.charCodeAt(0)), browserProjectValidation)
+  const parentCandidateId = projectContentHash(parent.project)
+  const candidate = await prepareForestFurnitureRepair(fromVerifiedBundle(parent), roomId, {
+    runtime, profile: taskBudgetProfile(budget), validation: browserProjectValidation,
+  })
+  const generationMs = elapsed(started), bundle = toBundle(candidate.project), projectHash = projectContentHash(bundle.project)
+  const exportStarted = performance.now(), archive = await exportProject(bundle, browserProjectValidation)
+  const packageExportMs = elapsed(exportStarted), coldStarted = performance.now()
+  const cold = await importProject(archive, browserProjectValidation)
+  if (projectContentHash(cold.project) !== projectHash) throw new Error('In-memory repaired package roundtrip changed project content')
+  const memoryColdImportMs = elapsed(coldStarted), previewStarted = performance.now()
+  const png = new Uint8Array(await (await exportPng(cold, { audience: 'player', longEdgePx: 2048 })).arrayBuffer())
+  const previewMs = elapsed(previewStarted)
+  const base64 = bytes => {
+    let value = ''
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) value += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+    return btoa(value)
+  }
+  const document = cold.project.document, diagnostics = candidate.furnitureDiagnostics
+  return { archiveBase64: base64(archive), previewBase64: base64(png),
+    result: { resultHash: candidate.result.resultHash, projectHash, parentCandidateId, repairRoomId: roomId,
+      sceneId: document.sceneId, title: document.title, target: 'candidate-repair',
+      entities: Object.fromEntries(['rooms', 'walls', 'openings', 'props', 'terrainAreas', 'paths', 'decorations', 'surfaceRules'].map(key => [key, Object.keys(document[key]).length])),
+      notes: forestFurnitureNotes(diagnostics, candidate.result.notes), diagnostics,
+      limitations: ['Furniture-only bounded repair; preserved manual edits and locks may leave unmet targets.', 'Preview pixels were checked; visual quality and user acceptance remain unverified.'],
+      profile: candidate.budgetProfile, usage: candidate.usage,
       timings: { generationMs, packageExportMs, memoryColdImportMs, previewMs, browserTotalMs: elapsed(started) } } }
 }
 

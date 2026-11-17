@@ -4,6 +4,8 @@ import { AUTHORING_LIMITS, AuthoringStartSchema, AuthoringSummarySchema, Authori
 import { VisionInputSchema } from './vision.js'
 import { canonicalJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
+import { WorkflowBindingSchema } from './workflows/catalog.js'
+import { ForestLoopContextSchema } from './forest-loop.js'
 
 // Conversation and explicitly scoped scene/artwork drafts use separate execution budgets.
 export const AI_LIMITS = Object.freeze({ promptBytes: 16_384, requestBytes: 32_768, outputBytes: 65_536,
@@ -15,7 +17,9 @@ const prompt = z.string().trim().min(1).max(16_384).refine(value => utf8Size(val
 export const TaskContextSchema = z.object({ sceneId: id, revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), audience: z.literal('public') }).strict().nullable()
 export const ReasoningEffortSchema = z.enum(['low', 'high', 'max'])
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
-export const CreateTaskSchema = z.object({ schemaVersion: z.literal(1), clientRequestId: z.string().uuid(), prompt, context: TaskContextSchema, reasoningEffort: ReasoningEffortSchema.optional(), authoring: AuthoringStartSchema.optional(), vision: VisionInputSchema.optional() }).strict()
+export const CreateTaskSchema = z.object({ schemaVersion: z.literal(1), clientRequestId: z.string().uuid(), prompt, context: TaskContextSchema, reasoningEffort: ReasoningEffortSchema.optional(), authoring: AuthoringStartSchema.optional(), vision: VisionInputSchema.optional(), workflow: WorkflowBindingSchema.optional(), forestLoop: ForestLoopContextSchema.optional() }).strict().superRefine((value, ctx) => {
+  if (value.forestLoop && (value.context !== null || value.authoring || value.vision || !value.forestLoop.nextActions.length)) ctx.addIssue({ code: 'custom', path: ['forestLoop'], message: '林中建筑决策仅接受独立新工程上下文，不能附带场景、创作或图片授权。' })
+})
 export type CreateTaskRequest = z.infer<typeof CreateTaskSchema>
 export type TaskContext = z.infer<typeof TaskContextSchema>
 export const TaskStatusSchema = z.enum(['running', 'paused', 'completed', 'cancelled', 'failed', 'expired', 'waiting_browser', 'ready', 'applying', 'applied'])
@@ -67,7 +71,7 @@ export const TaskEventSchema = z.discriminatedUnion('type', [
     || value.data.executionCheckpoint.generation !== value.generation)) ctx.addIssue({ code: 'custom', message: 'Atomic checkpoint event identity is inconsistent.' })
 })
 export type TaskEvent = z.infer<typeof TaskEventSchema>
-export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, clientRequestId: z.string().uuid(), context: TaskContextSchema, reasoningEffort: ReasoningEffortSchema.nullable().optional(),
+export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, clientRequestId: z.string().uuid(), context: TaskContextSchema, reasoningEffort: ReasoningEffortSchema.nullable().optional(), workflow: WorkflowBindingSchema.optional(),
   status: TaskStatusSchema, generation: z.number().int().positive(), lastSequence: z.number().int().min(0),
   text: z.string().refine(value => utf8Size(value) <= AI_LIMITS.outputBytes), tools: z.array(ToolResultSchema).max(AUTHORING_LIMITS.toolCalls),
   usage: TaskUsageSchema, error: AiErrorSchema.nullable(), createdAt: z.number().int().min(0), updatedAt: z.number().int().min(0), expiresAt: z.number().int().min(0), authoring: AuthoringSummarySchema.optional(), executionCheckpoint: TaskExecutionCheckpointSchema.optional() }).strict().superRefine((value, ctx) => {
@@ -83,7 +87,7 @@ export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>
 export const ControlTaskSchema = z.object({ schemaVersion: z.literal(1), expectedGeneration: z.number().int().positive(), action: z.enum(['pause', 'cancel', 'resume']), prompt: prompt.optional(), vision: VisionInputSchema.optional() }).strict()
 export type ControlTaskRequest = z.infer<typeof ControlTaskSchema>
 export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), visionModel: z.string().min(1).max(128).optional(), reasoningEffort: ReasoningEffortSchema.nullable().optional(), authoringOutputTokens: z.number().int().min(1).max(AUTHORING_LIMITS.maxOutputTokensPerRequest).optional(), protocol: z.literal('chat-completions'),
-  capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']), taskReasoningEffort: z.literal(true).optional(),
+  capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']), taskReasoningEffort: z.literal(true).optional(), workflowDiscovery: z.literal(1).optional(), forestLoop: z.literal(1).optional(),
     surfaceRecipeVersions: z.array(z.literal(1)).min(1).max(1).optional(),
     baseMapSelectors: z.array(z.enum(['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8'])).min(1).max(5).refine(values => new Set(values).size === values.length).optional(),
     authoringVersions: z.array(z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])).min(1).max(4).refine(values => new Set(values).size === values.length).optional(),

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { workflowBinding } from '../../shared/ai/workflows/catalog'
 import { CreateTaskSchema, isTerminalTask, type CreateTaskRequest, type TaskSnapshot } from '../../shared/ai/protocol.js'
 import { generationParameterBaseline, generationParameterPrompt, parseGenerationParameterResponse,
   GENERATION_PARAMETER_LABELS, type GenerationParameters, type GenerationParameterDraft } from '../../shared/ai/generation-parameters.js'
@@ -71,7 +72,8 @@ export default function GenerationParameterAssistant({ connection, parameters, f
     try {
       const baseline = generationParameterBaseline(parameters), captured = JSON.parse(baseline) as GenerationParameters
       request = { payload: CreateTaskSchema.parse({ schemaVersion: 1, clientRequestId: crypto.randomUUID(),
-        prompt: generationParameterPrompt(description, captured), context: null }), baseline, parameters: captured,
+        prompt: generationParameterPrompt(description, captured), context: null,
+        ...(connection.info.capabilities.workflowDiscovery === 1 ? { workflow: workflowBinding('sceneweave-forest-building') } : {}) }), baseline, parameters: captured,
         description, formRevision, baseUrl: client.baseUrl }
     } catch (failure) { setError(failure instanceof Error ? failure.message : '请检查地图需求与当前表单。'); return }
     pendingRef.current = request; setPending(request); taskRef.current = null; setTask(null); setCandidate(null)

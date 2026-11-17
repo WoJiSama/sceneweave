@@ -40,6 +40,8 @@ export async function startHarnessTooling(root, listen = false) {
     return {
       origin, url: origin && `${origin}${pathname}`,
       sdk: () => server.ssrLoadModule('/src/application/workspace/semantic-generation.ts'),
+      workflows: () => server.ssrLoadModule('/src/shared/ai/workflows/entry.ts'),
+      forestLoop: () => server.ssrLoadModule('/src/shared/ai/forest-loop.ts'),
       budget: () => server.ssrLoadModule('/src/shared/budget/task-budget.ts'),
       close: async () => { try { await server.close() } finally { await rm(cacheDirectory, { recursive: true, force: true }) } },
     }

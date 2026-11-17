@@ -20,7 +20,7 @@ import { createImageEditService, ImageEditFault } from './image-edit.js'
 
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
-    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified', taskReasoningEffort: true,
+    capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified', taskReasoningEffort: true, workflowDiscovery: 1, forestLoop: 1,
       surfaceRecipeVersions: [1], baseMapSelectors: ['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8'], currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [1], visualReviewVersions: [1], authoringVersions: [4], baseMapVersions: [1, 2, 3], budgetPolicyHashes: BUDGET_POLICY_HASHES, budgetProfileHashes: Object.values(TASK_BUDGET_PROFILES).map(profile => profile.profileHash) }, retentionDays: AI_LIMITS.retentionDays,
     limits: { modelRequests: AI_LIMITS.modelRequests, toolCalls: AI_LIMITS.toolCalls, executionMs: AI_LIMITS.executionMs, promptBytes: AI_LIMITS.promptBytes, outputBytes: AI_LIMITS.outputBytes } })
 }
@@ -91,16 +91,23 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
   })
   app.post('/v1/image-edit', async context => context.json(await imageEdit.edit(context.req.raw, context.get('owner'))))
   app.get('/v1/capabilities', context => {
-    if (Object.keys(context.req.query()).some(key => !['authoringVersion', 'surfaceVersion', 'baseMapSelector'].includes(key))
-      || ['authoringVersion', 'surfaceVersion', 'baseMapSelector'].some(key => (context.req.queries(key)?.length ?? 0) > 1)) throw new TaskFault('invalid_request', 400)
+    if (Object.keys(context.req.query()).some(key => !['authoringVersion', 'surfaceVersion', 'baseMapSelector', 'workflowVersion', 'forestLoopVersion'].includes(key))
+      || ['authoringVersion', 'surfaceVersion', 'baseMapSelector', 'workflowVersion', 'forestLoopVersion'].some(key => (context.req.queries(key)?.length ?? 0) > 1)) throw new TaskFault('invalid_request', 400)
+    const workflowVersion = context.req.query('workflowVersion')
+    if (workflowVersion !== undefined && workflowVersion !== '1') throw new TaskFault('invalid_request', 400)
+    const forestLoopVersion = context.req.query('forestLoopVersion')
+    if (forestLoopVersion !== undefined && forestLoopVersion !== '1') throw new TaskFault('invalid_request', 400)
+    const { workflowDiscovery, forestLoop, ...withoutWorkflow } = engine.connectionInfo.capabilities
+    const info = { ...engine.connectionInfo, capabilities: { ...withoutWorkflow,
+      ...(workflowVersion === '1' ? { workflowDiscovery } : {}), ...(forestLoopVersion === '1' ? { forestLoop } : {}) } }
     const requestedSelector = context.req.query('baseMapSelector')
     if (requestedSelector !== undefined) {
       if (Object.keys(context.req.query()).length !== 1) throw new TaskFault('invalid_request', 400)
       if (!(['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8'] as const).includes(requestedSelector as 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8')) throw new TaskFault('unsupported_base_map_selector', 400)
       if (!engine.connectionInfo.capabilities.baseMapSelectors?.includes(requestedSelector as 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8')) throw new TaskFault('unsupported_base_map_selector', 400)
       const { currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, surfaceRecipeVersions: _surfaces, baseMapSelectors: _baseMapSelectors,
-        ...priorCapabilities } = engine.connectionInfo.capabilities
-      return context.json({ ...engine.connectionInfo, capabilities: {
+        ...priorCapabilities } = info.capabilities
+      return context.json({ ...info, capabilities: {
         ...priorCapabilities, authoringVersions: priorCapabilities.authoringVersions?.filter(value => value !== 4).length ? priorCapabilities.authoringVersions.filter(value => value !== 4) : undefined,
         baseMapSelectors: [requestedSelector],
       } })
@@ -109,22 +116,22 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     if (version !== undefined && version !== '2' && version !== '3' && version !== '4') throw new TaskFault('unsupported_authoring_version', 400)
     if (surfaceVersion !== undefined && (surfaceVersion !== '1' || version !== '3' && version !== '4')) throw new TaskFault('unsupported_surface_version', 400)
     if (version === '4') {
-      const { baseMapSelectors: _baseMapSelectors, surfaceRecipeVersions: _surfaceVersions, ...currentCapabilities } = engine.connectionInfo.capabilities
-      return context.json({ ...engine.connectionInfo, capabilities: { ...currentCapabilities, ...(surfaceVersion === '1' ? { surfaceRecipeVersions: [1] } : {}) } })
+      const { baseMapSelectors: _baseMapSelectors, surfaceRecipeVersions: _surfaceVersions, ...currentCapabilities } = info.capabilities
+      return context.json({ ...info, capabilities: { ...currentCapabilities, ...(surfaceVersion === '1' ? { surfaceRecipeVersions: [1] } : {}) } })
     }
-    const { currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, baseMapSelectors: _baseMapSelectors, ...oldCapabilities } = engine.connectionInfo.capabilities
+    const { currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, baseMapSelectors: _baseMapSelectors, ...oldCapabilities } = info.capabilities
     const legacyCapabilities = { ...oldCapabilities, authoringVersions: oldCapabilities.authoringVersions?.filter(value => value !== 4).length ? oldCapabilities.authoringVersions.filter(value => value !== 4) : undefined }
-    if (version === '3' && surfaceVersion === '1') return context.json({ ...engine.connectionInfo, capabilities: { ...legacyCapabilities, surfaceRecipeVersions: [1] } })
+    if (version === '3' && surfaceVersion === '1') return context.json({ ...info, capabilities: { ...legacyCapabilities, surfaceRecipeVersions: [1] } })
     const { surfaceRecipeVersions: _surfaces, ...priorCapabilities } = legacyCapabilities
-    if (version === '3') return context.json({ ...engine.connectionInfo, capabilities: priorCapabilities })
+    if (version === '3') return context.json({ ...info, capabilities: priorCapabilities })
     if (version === '2') {
       const { budgetProfileHashes: _profiles, ...capabilities } = priorCapabilities
-      return context.json({ ...engine.connectionInfo, capabilities: { ...capabilities, authoringVersions: capabilities.authoringVersions?.filter(value => value !== 3), baseMapVersions: capabilities.baseMapVersions?.filter(value => value !== 3), budgetPolicyHashes: capabilities.budgetPolicyHashes?.filter(value => value === CONTINUATION_POLICY.policyHash) } })
+      return context.json({ ...info, capabilities: { ...capabilities, authoringVersions: capabilities.authoringVersions?.filter(value => value !== 3), baseMapVersions: capabilities.baseMapVersions?.filter(value => value !== 3), budgetPolicyHashes: capabilities.budgetPolicyHashes?.filter(value => value === CONTINUATION_POLICY.policyHash) } })
     }
     // Existing cached clients parse this response strictly. New capabilities
     // require explicit negotiation; the engine itself retains the full grant.
     const { authoringVersions: _authoring, baseMapVersions: _baseMap, budgetPolicyHashes: _policies, budgetProfileHashes: _profiles, ...capabilities } = priorCapabilities
-    return context.json({ ...engine.connectionInfo, capabilities })
+    return context.json({ ...info, capabilities })
   })
   app.post('/v1/terrain/basemap', async context => context.body(await baseMaps.generate(context.req.raw, context.get('owner')), 200, { 'Content-Type': 'application/json; charset=utf-8' }))
   app.get('/v1/generation/capabilities', context => {

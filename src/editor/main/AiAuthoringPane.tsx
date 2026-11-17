@@ -27,6 +27,7 @@ import type { CurrentAuthoringScope } from '../../shared/ai/authoring-protocol-v
 import { hasReviewableDraftRevision } from './ai-draft-reviewability'
 import AssetQualityReview from './AssetQualityReview'
 import { assetQualityAcknowledgmentsComplete } from '../../shared/assets/quality-review'
+import { workflowBinding } from '../../shared/ai/workflows/catalog'
 
 export interface AiAuthoringHost {
   workspace: Workspace
@@ -41,7 +42,7 @@ export interface AiAuthoringHost {
   onAdopted: () => void
   onCritical: (busy: boolean) => void
 }
-interface Props { client: AiClient | null; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; reasoningEffort?: ReasoningEffort; visionEnabled?: boolean; continuationSupported?: boolean; currentAuthoringSupported?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
+interface Props { client: AiClient | null; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; reasoningEffort?: ReasoningEffort; visionEnabled?: boolean; continuationSupported?: boolean; currentAuthoringSupported?: boolean; workflowDiscovery?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
 const message = (error: unknown) => error instanceof Error && error.name !== 'AiClientError' ? error.message : safeAiError(error)
 const budgetFields = (value: unknown) => {
   const identity = continuationIdentity(value)
@@ -69,7 +70,7 @@ const requirementLabel = { pending: '待完成', claimed: 'AI 已标记，待人
 
 
 /** Server metadata is untrusted: replay against the exact local grant and owned image bytes. */
-export default function AiAuthoringPane({ client, task, host, disabled, reasoningEffort, visionEnabled = false, continuationSupported = false, currentAuthoringSupported = false, onTask }: Props) {
+export default function AiAuthoringPane({ client, task, host, disabled, reasoningEffort, visionEnabled = false, continuationSupported = false, currentAuthoringSupported = false, workflowDiscovery = false, onTask }: Props) {
   const [extended, setExtended] = useState(initialExtendedScope)
   const [recipe, setRecipe] = useState<AuthoringBrief['recipe']>('custom'), [requirements, setRequirements] = useState('')
   const [checks, setChecks] = useState<AuthoringEvidenceCheck[]>([])
@@ -191,7 +192,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
         const preservation = isClassifiedAuthoring(grant.start) ? grant.start.source.preservation : null
         const currentSceneId = preservation ? preservation.sceneId : grant.currentSceneId, currentRevision = preservation ? preservation.revision : grant.currentRevision
         if (currentSceneId !== null && currentRevision === null) throw new Error('原工程的保全修订不完整，请重新准备底图。')
-        payload = { schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: currentSceneId === null ? null : { sceneId: currentSceneId, revision: currentRevision!, audience: 'public' }, authoring: grant.start, ...(reasoningEffort ? { reasoningEffort } : {}) }
+        payload = { schemaVersion: 1, clientRequestId: crypto.randomUUID(), prompt, context: currentSceneId === null ? null : { sceneId: currentSceneId, revision: currentRevision!, audience: 'public' }, authoring: grant.start, ...(reasoningEffort ? { reasoningEffort } : {}), ...(workflowDiscovery ? { workflow: workflowBinding('sceneweave-scene-edit') } : {}) }
         if (sendVision) {
           if (!visionEnabled) throw new Error('当前渠道尚未启用图片输入，可继续使用结构诊断。')
           if (!scope.visual && !scope.scene && !scope.artwork && !scope.placement) throw new Error('发送截图前，请在视觉、场景、素材或放置工具中明确授权矩形范围。')

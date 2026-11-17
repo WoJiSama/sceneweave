@@ -18,8 +18,9 @@ import { bedroomStorageCandidates, isBedroomPurpose, planBedroomAccess, type Bed
 import { findFurnitureAccess, furnitureApproachPoint, roomDoorPorts, type FurnitureAccessRoute, type InteriorFurnitureAccess } from './furnishing-circulation.js'
 import { bedroomGroupPoseCandidates } from './furnishing-bedroom-group.js'
 import { mayAffectInteriorRoom } from './furnishing-spatial.js'
-import { diningGroupCandidates, isDiningPurpose, isSeatedGroupPurpose, preferDiningOrientation, singleSidedSeatRotation } from './furnishing-composition.js'
+import { diningGroupCandidates, isDiningPurpose, isSeatedGroupPurpose, preferDiningOrientation, singleSidedSeatRotation, seatedRepairCandidates } from './furnishing-composition.js'
 import { kitchenParallelRunCandidates, kitchenWallRowCandidates } from './furnishing-kitchen-rows.js'
+import type { FurnitureRejectionReason } from '../../forest-furniture-contract.js'
 
 export interface InteriorFurnishingRoom {
   requirementId: string
@@ -123,6 +124,12 @@ export interface InteriorFurnishingOptions {
   rankSalt?: string
   /** Explicit existing-room functions; absent retains every legacy replay. */
   rolesForRoom?: (roomId: string) => InteriorFurnitureRole[]
+  /** Independent opt-in repair identity; legacy generation/replay stays exact. */
+  strategy?: 'seating-v1'
+  seatingPairOverhangMm?: 0 | 200
+  /** Only still-managed room members, already checked by the local host. */
+  repackPropIds?: ReadonlySet<string>
+  onRejection?: (roomId: string, role: InteriorFurnitureRole, reason: FurnitureRejectionReason) => void
 }
 export function furnishInterior(document: SceneDocument, input: InteriorGenerationInput, layout: InteriorLayout, connectivity: InteriorConnectivityReport,
   options: InteriorFurnishingOptions): { document: SceneDocument; report: InteriorFurnishingReport; connectivity?: InteriorConnectivityReport } {
@@ -153,8 +160,13 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
     // the complete current document, including distant resources and obstacles.
     const nearExternal = new Set(input.algorithmVersion >= 10 ? Object.values(next.props).filter(prop => prop.floorId === p.floorId)
       .filter(prop => relevant(propFootprint(prop)) || prop.renderLayer !== 'ground' && relevant(furnitureBoundsPolygon(prop.visualBoundsMm, prop))).map(prop => prop.id) : [])
-    const spatialProps = (document = next) => input.algorithmVersion >= 10 ? Object.values(document.props).filter(prop => nearExternal.has(prop.id)
-      || prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId) : Object.values(document.props)
+    const pendingRepack = new Set(options.strategy === 'seating-v1' ? options.repackPropIds : [])
+    let evaluatingId: string | null = null
+    const physicalDocument = (document: SceneDocument, include: string | null = evaluatingId): SceneDocument => pendingRepack.size
+      ? { ...document, props: Object.fromEntries(Object.entries(document.props).filter(([id]) => !pendingRepack.has(id) || id === include)) } : document
+    const spatialProps = (document = next) => (input.algorithmVersion >= 10 ? Object.values(document.props).filter(prop => nearExternal.has(prop.id)
+      || prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId) : Object.values(document.props))
+      .filter(prop => !pendingRepack.has(prop.id) || document !== next && prop.id === evaluatingId)
     const roomReport: InteriorFurnishingRoom = { requirementId: row.requirementId, roomId: row.roomId, recommended: options.rolesForRoom?.(row.roomId) ?? recommendInteriorFurniture(requirement.purpose, row.clearAreaMm2, input.algorithmVersion), placed: [], notes: [] }
     report.rooms.push(roomReport)
     const slots = roomReport.recommended.map((role, index) => ({ role, index }))
@@ -189,7 +201,8 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
     const bedroom = input.algorithmVersion >= 7 && isBedroomPurpose(requirement.purpose)
     const connectedUse = input.algorithmVersion >= 8
     const completeDining = input.algorithmVersion >= 18 && isDiningPurpose(requirement.purpose)
-    const completeSeatedRoom = input.algorithmVersion >= 19 && isSeatedGroupPurpose(requirement.purpose)
+    const completeSeatedRoom = input.algorithmVersion >= 19 && (isSeatedGroupPurpose(requirement.purpose)
+      || options.strategy === 'seating-v1' && /休息|公共|rest|common/i.test(requirement.purpose))
     const bedAccess = new Map<string, BedroomAccess>()
     const accessRoutes = new Map<string, FurnitureAccessRoute>()
     const seatCount = slots.filter(slot => slot.role === 'seat').length
@@ -218,7 +231,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
       checkNative: (pointsMm, widthMm) => {
         meter.charge({ fieldEvaluations: Object.keys(document.walls).length + Object.keys(document.props).length + Object.keys(document.terrainAreas).length + pointsMm.length })
         options.checkCancelled()
-        return checkTerrainRoute(document, { floorId: p.floorId, pointsMm, widthMm }).ok
+        return checkTerrainRoute(physicalDocument(document), { floorId: p.floorId, pointsMm, widthMm }).ok
       },
     })
     const planBed = (prop: Prop, rank: (key: string) => string) => planBedroomAccess({ shape: prop, pose: prop, roomPolygon: roomPoints(next, room),
@@ -255,11 +268,15 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
     }
     for (const { index, role } of slots) {
       options.checkCancelled()
+      const reject = (reason: FurnitureRejectionReason) => options.onRejection?.(row.roomId, role, reason)
       if (report.propIds.length >= 64) { roomReport.notes.push('已达到本次64件家具建议上限，其余建议保留为空。'); break }
       const slot = { requirementId: row.requirementId, role, index }, existingId = options.existingPropForSlot?.(slot) ?? null
       const propId = options.propIdForSlot ? options.propIdForSlot(slot) : interiorEntityId(document.sceneId, input.seed, `furniture:${row.requirementId}:${role}:${index}`)
-      if (propId === null) { roomReport.notes.push(`${roleName[role]}槽位已人工保留、锁定或删除，本次不改写。`); continue }
+      if (propId === null) { reject('protected-slot'); roomReport.notes.push(options.strategy === 'seating-v1' && !['seat', 'table', 'work'].includes(role)
+        ? `${roleName[role]}属于座位组范围外家具，本次保留。` : `${roleName[role]}槽位已人工保留、锁定或删除，本次不改写。`); continue }
       const existing = existingId ? next.props[existingId] : undefined
+      evaluatingId = propId
+      const retainedRotation = options.strategy === 'seating-v1' && pendingRepack.has(propId) ? undefined : existing?.rotationDeg
       if (existingId && (!existing || existingId !== propId)) throw new InteriorGenerationError('invalid-input', '局部家具槽位引用缺少对应存活物件。')
       const available = palette.filter(item => item.role === role && (!existing || item.ref.id === existing.definitionRef?.id && item.ref.version === existing.definitionRef.version))
       if (input.algorithmVersion >= 4) available.sort((a, b) => purposePreference(requirement.purpose, role, next.propDefinitions[a.ref.id])
@@ -268,14 +285,14 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
           hashGenerationValue(['interior-furniture', input.seed, row.requirementId, role, index, b.ref])))
       if (functionalGroups && role === 'seat') {
         const promisedDefinition = (ref: VersionRef) => useSpaces.some(space => !space.claimed && space.definitionRef.id === ref.id
-          && space.definitionRef.version === ref.version && (existing === undefined || existing.rotationDeg === space.rotationDeg))
+          && space.definitionRef.version === ref.version && (retainedRotation === undefined || retainedRotation === space.rotationDeg))
         available.sort((a, b) => Number(promisedDefinition(b.ref)) - Number(promisedDefinition(a.ref)))
       }
-      if (!available.length) { roomReport.notes.push(`未提供${roleName[role]}的固定素材，本次保留空位。`); continue }
+      if (!available.length) { reject('missing-definition'); roomReport.notes.push(`未提供${roleName[role]}的固定素材，本次保留空位。`); continue }
       let placed = false, invalid = false
       for (const item of available) {
         const definition = next.propDefinitions[item.ref.id]
-        if (!definition || definition.version !== item.ref.version) { invalid = true; continue }
+        if (!definition || definition.version !== item.ref.version) { reject('missing-definition'); invalid = true; continue }
         const rank = (key: string) => {
           const positionKey = options.rankSalt === undefined ? `position:${row.requirementId}:${role}:${index}:${key}` : `position:${row.requirementId}:${role}:${index}:${options.rankSalt}:${key}`
           // Entity identity stays scene-scoped; layout choice belongs to the
@@ -312,39 +329,39 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
               && item.ref.id === prop.definitionRef?.id && item.ref.version === prop.definitionRef.version)
             return entry ? [{ ...prop, role: entry.role }] : []
           }) : []
-        const rowOptions = { bounds: row.boundsMm, shape, inset, role, anchors: kitchenAnchors, rank, retainedRotation: existing?.rotationDeg,
+        const rowOptions = { bounds: row.boundsMm, shape, inset, role, anchors: kitchenAnchors, rank, retainedRotation,
           checkCancelled: options.checkCancelled, charge: () => meter.charge({ fieldEvaluations: 1 }) }
         const kitchenShapes = input.algorithmVersion >= 15 && kitchen ? palette.filter(entry => ['work', 'hearth', 'storage', 'shelf'].includes(entry.role)).flatMap(entry => {
           const fixed = next.propDefinitions[entry.ref.id]
           return fixed?.version === entry.ref.version ? [{ visualBoundsMm: fixed.defaultVisualBoundsMm,
             footprintMm: fixed.defaultFootprintMm, footprintOffsetMm: fixed.defaultFootprintOffsetMm }] : []
         }) : []
-        const groupPoses = kitchen ? [...kitchenFurnitureGroupCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, existing?.rotationDeg),
+        const groupPoses = kitchen ? [...kitchenFurnitureGroupCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, retainedRotation),
           ...(input.algorithmVersion >= 15 ? kitchenParallelRunCandidates({ ...rowOptions, shapes: kitchenShapes }) : []),
           ...(input.algorithmVersion >= 15 ? kitchenWallRowCandidates(rowOptions) : []),
-          ...(input.algorithmVersion >= 12 ? kitchenOpposingCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, existing?.rotationDeg) : []),
-          ...(input.algorithmVersion >= 11 ? kitchenCornerCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, existing?.rotationDeg) : [])] : []
+          ...(input.algorithmVersion >= 12 ? kitchenOpposingCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, retainedRotation) : []),
+          ...(input.algorithmVersion >= 11 ? kitchenCornerCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, retainedRotation) : [])] : []
         const beds = bedroom && role === 'storage' ? roleProps('bed').map(bed => ({ ...bed, storageLoad: 0 })) : []
         for (const storage of beds.length ? roleProps('storage').filter(prop => prop.id !== existingId) : []) {
           const nearest = beds.map(bed => ({ bed, distance: polygonDistance(propFootprint(storage), propFootprint(bed)) }))
             .sort((a, b) => a.distance - b.distance || a.bed.positionMm.y - b.bed.positionMm.y || a.bed.positionMm.x - b.bed.positionMm.x)[0]
           if (nearest && nearest.distance <= 900) nearest.bed.storageLoad++
         }
-        const bedsidePoses = beds.length ? bedroomStorageCandidates(row.boundsMm, shape, inset, beds, rank, existing?.rotationDeg) : []
-        const poses = composed ? furniturePoseCandidates(row.boundsMm, shape, inset, role, anchors, rank, existing?.rotationDeg,
-          roomReport.recommended.filter(role => role === 'seat').length > 1, completeDining)
-          : placementPositions(row.boundsMm, definition, inset, rank).map(positionMm => ({ positionMm, rotationDeg: existing?.rotationDeg ?? 0 }))
+        const bedsidePoses = beds.length ? bedroomStorageCandidates(row.boundsMm, shape, inset, beds, rank, retainedRotation) : []
+        const poses = composed ? furniturePoseCandidates(row.boundsMm, shape, inset, role, anchors, rank, retainedRotation,
+          roomReport.recommended.filter(role => role === 'seat').length > 1, completeDining, options.strategy === 'seating-v1' ? options.seatingPairOverhangMm ?? 200 : 0)
+          : placementPositions(row.boundsMm, definition, inset, rank).map(positionMm => ({ positionMm, rotationDeg: retainedRotation ?? 0 }))
         const seatedGroup = completeSeatedRoom && (role === 'table' || role === 'work')
         const seatedAnchors = seatedGroup ? anchors.map(anchor => ({ ...anchor, role: 'table' as const })) : anchors
         const seatedPoses = seatedGroup ? diningGroupCandidates({ bounds: row.boundsMm, inset, shape, seats: seatDefinitions,
-          anchors: seatedAnchors, tableCount: anchorCount, rank, retainedRotation: existing?.rotationDeg,
+          anchors: seatedAnchors, tableCount: anchorCount, rank, retainedRotation,
           alignToBounds: true, singleSided: role === 'work', checkCancelled: options.checkCancelled,
           charge: () => meter.charge({ fieldEvaluations: 1 }) }) : []
         const poseKey = (pose: { positionMm: PointMm; rotationDeg: number }) => `${pose.positionMm.x}/${pose.positionMm.y}/${pose.rotationDeg}`
         const seatedPoseKeys = new Set(seatedPoses.map(poseKey))
         const diningPoses = input.algorithmVersion >= 12 && role === 'table' && isDiningPurpose(requirement.purpose)
           ? diningGroupCandidates({ bounds: row.boundsMm, inset, shape, seats: seatDefinitions, anchors, tableCount: anchorCount, rank,
-            retainedRotation: existing?.rotationDeg, alignToBounds: completeDining, checkCancelled: options.checkCancelled,
+            retainedRotation, alignToBounds: completeDining, checkCancelled: options.checkCancelled,
             charge: () => meter.charge({ fieldEvaluations: 1 }) }) : []
         if (input.algorithmVersion >= 12 && role === 'table' && isDiningPurpose(requirement.purpose)) {
           const orientation = anchors.filter(a => a.role === 'table' && Number.isInteger(a.rotationDeg / 90))
@@ -369,7 +386,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
           poses.sort((a, b) => distances.get(a)! - distances.get(b)!)
         }
         const promised = reserveUseSpace && role === 'seat' ? useSpaces.filter(space => !space.claimed && space.definitionRef.id === definition.id
-          && space.definitionRef.version === definition.version && (existing?.rotationDeg === undefined || existing.rotationDeg === space.rotationDeg)) : []
+          && space.definitionRef.version === definition.version && (retainedRotation === undefined || retainedRotation === space.rotationDeg)) : []
         // Give each reserved work/table group its first real chair before
         // filling the second place of an already served group.
         promised.sort((a, b) => useSpaces.filter(space => space.claimed && space.anchorKey === a.anchorKey).length
@@ -381,8 +398,10 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             const source = next.propDefinitions[item.ref.id]
             return source?.version === item.ref.version ? [{ visualBoundsMm: source.defaultVisualBoundsMm,
               footprintMm: source.defaultFootprintMm, footprintOffsetMm: source.defaultFootprintOffsetMm }] : []
-          }), inset, rank, existing?.rotationDeg) : []
-        const allPoses = [...groupedBeds, ...promised, ...groupPoses, ...bedsidePoses, ...diningPoses, ...seatedPoses, ...poses, ...(connectedUse && existing ? [existing] : [])]
+          }), inset, rank, retainedRotation) : []
+        const repairPoses = options.strategy === 'seating-v1' && role === 'table' ? seatedRepairCandidates(row.boundsMm, shape, inset, seatDefinitions, rank,
+          options.checkCancelled, () => meter.charge({ fieldEvaluations: 1 })) : []
+        const allPoses = [...groupedBeds, ...promised, ...repairPoses, ...groupPoses, ...bedsidePoses, ...diningPoses, ...seatedPoses, ...poses, ...(connectedUse && existing ? [existing] : [])]
         let orderedPoses = input.algorithmVersion >= 9 ? [...new Map(allPoses.map(pose => [`${pose.positionMm.x}/${pose.positionMm.y}/${pose.rotationDeg}`, pose])).values()] : allPoses
         if (input.algorithmVersion >= 14 && role === 'table' && isDiningPurpose(requirement.purpose) || seatedGroup) {
           orderedPoses = preferDiningOrientation({ poses: orderedPoses, shape, anchors: seatedAnchors, checkCancelled: options.checkCancelled,
@@ -390,19 +409,20 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
         }
         // Prefer a complete two-seat dining group across the finite poses.
         // A single-seat group remains an explicit fallback in smaller rooms.
-        const seatMinimums = (completeDining || seatedGroup) && role === 'table' && !existing ? [2, 1] : [1]
+        const seatMinimums = options.strategy === 'seating-v1' && role === 'table' ? [Math.min(4, seatsPerAnchor), 2, 1]
+          : (completeDining || seatedGroup) && role === 'table' && !existing ? [2, 1] : [1]
         const seatPasses = seatMinimums.flatMap(minimumSeats => orderedPoses.map(pose => ({ ...pose, minimumSeats })))
         for (const { positionMm, rotationDeg, minimumSeats } of seatPasses) {
           options.checkCancelled(); report.testedPlacements++; meter.charge({ gridNodes: 1, fieldEvaluations: 1 })
-          const prop = existing ? { ...cloneJson(existing), positionMm } : createBasePlacedProp(next, definition.id, positionMm, context, { id: propId, rotationDeg, supportRef: { kind: 'room', id: row.roomId } })
+          const prop = existing ? { ...cloneJson(existing), positionMm, ...(options.strategy === 'seating-v1' ? { rotationDeg } : {}) } : createBasePlacedProp(next, definition.id, positionMm, context, { id: propId, rotationDeg, supportRef: { kind: 'room', id: row.roomId } })
           const physical = propFootprint(prop), visual = composed ? furnitureBoundsPolygon(prop.visualBoundsMm, prop)
             : rectangle({ x: positionMm.x + prop.visualBoundsMm.x, y: positionMm.y + prop.visualBoundsMm.y, width: prop.visualBoundsMm.width, height: prop.visualBoundsMm.height })
-          if (!supportedPolygon(next, physical, prop.supportRef, p.floorId) || !polygonInside(visual, floorPolygon) || !polygonInside(physical, roomPoints(next, room))) continue
-          if (composed && !polygonInside(visual, roomPoints(next, room))) continue
+          if (!supportedPolygon(next, physical, prop.supportRef, p.floorId) || !polygonInside(visual, floorPolygon) || !polygonInside(physical, roomPoints(next, room))) { reject('support-or-bounds'); continue }
+          if (composed && !polygonInside(visual, roomPoints(next, room))) { reject('support-or-bounds'); continue }
           const ownUseSpace = reserveUseSpace && role === 'seat' ? promised.find(space => space.positionMm.x === positionMm.x && space.positionMm.y === positionMm.y && space.rotationDeg === rotationDeg) : undefined
           const usePolygon = !reserveUseSpace ? undefined : role === 'seat' ? furnitureUseSpacePolygon(prop, prop)
             : role === 'hearth' || role === 'work' && seatCount === 0 || bedroom && role === 'storage' || connectedUse && (role === 'storage' || role === 'shelf') ? furnitureWorkingSpacePolygon(prop, prop) : undefined
-          if (usePolygon && !polygonInside(usePolygon, roomPoints(next, room))) continue
+          if (usePolygon && !polygonInside(usePolygon, roomPoints(next, room))) { reject('use-space-outside'); continue }
           const other = spatialProps().filter(value => value.floorId === p.floorId && value.id !== existingId).map(propFootprint)
           const blockers = [...solids, ...reservations, ...other]
           let blocked = false
@@ -410,7 +430,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
             if (polygonsOverlap(physical, polygon) || polygonDistance(physical, polygon) < 100) { blocked = true; break }
           }
-          if (blocked) continue
+          if (blocked) { reject('physical-clearance'); continue }
           if (bedroom) for (const [id, access] of bedAccess) {
             if (id === existingId) continue
             for (const polygon of connectedUse ? [access.usePolygon] : [access.usePolygon, access.routePolygon]) {
@@ -419,7 +439,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             }
             if (blocked) break
           }
-          if (blocked) continue
+          if (blocked) { reject('bed-access-unavailable'); continue }
           if (reserveUseSpace) {
             for (const space of useSpaces) {
               if (space === ownUseSpace || connectedUse && space.anchorKey === existingId) continue
@@ -427,13 +447,13 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
               if (polygonsOverlap(usePolygon ?? physical, space.usePolygon) || polygonsOverlap(visual, space.usePolygon)
                 || input.algorithmVersion >= 11 && (polygonDistance(physical, space.usePolygon) < 100 || polygonDistance(visual, space.usePolygon) < 100)) { blocked = true; break }
             }
-            if (blocked) continue
+            if (blocked) { reject('reserved-use-space'); continue }
             if (usePolygon) for (const polygon of [...blockers, ...spatialProps().filter(value => value.floorId === p.floorId
               && value.id !== existingId && value.blocksMovement && value.renderLayer !== 'ground').map(value => furnitureBoundsPolygon(value.visualBoundsMm, value))]) {
               meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
               if (polygonsOverlap(usePolygon, polygon) || polygonDistance(usePolygon, polygon) < 100) { blocked = true; break }
             }
-            if (blocked) continue
+            if (blocked) { reject('reserved-use-space'); continue }
           }
           if (composed) {
             const paintedBlockers = [...solids, ...reservations, ...spatialProps().filter(value => value.floorId === p.floorId
@@ -442,11 +462,11 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
               meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 })
               if (polygonsOverlap(visual, polygon)) { blocked = true; break }
             }
-            if (blocked) continue
+            if (blocked) { reject('painted-overlap'); continue }
           }
           const anchorsLeft = slots.slice(slots.findIndex(slot => slot.index === index)).filter(slot => slot.role === 'table' || slot.role === 'work').length
           const seatQuota = functionalGroups ? Math.min(4, Math.ceil(Math.max(0, seatCount - useSpaces.filter(space => !space.claimed).length) / Math.max(1, anchorsLeft))) : seatsPerAnchor
-          const needsSeatPlan = reserveUseSpace && !existing && (role === 'table' || role === 'work') && seatQuota > 0 && seatDefinitions.length > 0
+          const needsSeatPlan = reserveUseSpace && (!existing || options.strategy === 'seating-v1') && (role === 'table' || role === 'work') && seatQuota > 0 && seatDefinitions.length > 0
           const isSeatedPose = seatedGroup && seatedPoseKeys.has(poseKey(prop))
           const proposedSeatRotation = isSeatedPose && role === 'work' ? singleSidedSeatRotation(shape, prop) : undefined
           const planned = needsSeatPlan
@@ -455,27 +475,27 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
                 ...spatialProps().filter(value => value.floorId === p.floorId && value.id !== existingId && value.blocksMovement
                   && value.renderLayer !== 'ground').map(value => furnitureBoundsPolygon(value.visualBoundsMm, value))],
               routeBands: [...(completeDining || isSeatedPose ? [] : routeBands), ...[...bedAccess.values()].flatMap(access => connectedUse ? [access.usePolygon] : [access.usePolygon, access.routePolygon])], rank,
-              fitSeatToEdge: completeDining, seatRotationDeg: proposedSeatRotation,
+              fitSeatToEdge: completeDining, seatRotationDeg: proposedSeatRotation, seatPairOverhangMm: options.strategy === 'seating-v1' ? options.seatingPairOverhangMm ?? 200 : 0,
               checkCancelled: options.checkCancelled, chargeCandidate: () => { report.testedPlacements++; meter.charge({ gridNodes: 1, fieldEvaluations: 1 }) },
               chargePair: () => meter.charge({ intersectionPairs: 1, fieldEvaluations: 1 }) }) : []
-          if (needsSeatPlan && planned.length < Math.min(minimumSeats, seatQuota)) continue
+          if (needsSeatPlan && planned.length < Math.min(minimumSeats, seatQuota)) { reject('seat-group-unavailable'); continue }
           const bedsideAccess = bedroom && role === 'bed' ? planBed(prop, rank) : undefined
-          if (bedroom && role === 'bed' && !bedsideAccess) continue
+          if (bedroom && role === 'bed' && !bedsideAccess) { reject('bed-access-unavailable'); continue }
           // Native creation performs complete support/lock/definition validation.
           // Its failures are data/budget failures and must not be swallowed.
-          const candidate = applyCommands(next, existingId ? [{ type: 'updateProp', id: existingId, changes: { positionMm } }] : [{ type: 'addProp', id: propId, floorId: p.floorId, layerId: p.layerId, definitionRef: cloneJson(item.ref), positionMm,
+          const candidate = applyCommands(next, existingId ? [{ type: 'updateProp', id: existingId, changes: { positionMm, ...(options.strategy === 'seating-v1' ? { rotationDeg } : {}) } }] : [{ type: 'addProp', id: propId, floorId: p.floorId, layerId: p.layerId, definitionRef: cloneJson(item.ref), positionMm,
             rotationDeg, supportRef: { kind: 'room', id: row.roomId } }], context, { budget: options.profile })
           if (bedsideAccess) {
             meter.charge({ fieldEvaluations: Object.keys(candidate.walls).length + Object.keys(candidate.props).length + bedsideAccess.pointsMm.length })
-            if (!checkTerrainRoute(candidate, { floorId: p.floorId, pointsMm: bedsideAccess.pointsMm, widthMm: 600 }).ok) continue
+            if (!checkTerrainRoute(candidate, { floorId: p.floorId, pointsMm: bedsideAccess.pointsMm, widthMm: 600 }).ok) { reject('bed-access-unavailable'); continue }
           }
           meter.charge({ fieldEvaluations: currentConnectivity.routes.reduce((sum, route) => sum + route.pointsMm.length, 0) })
           options.checkCancelled()
           // Read-only physical preview includes the promised whole seat bodies.
           // A table cannot claim a route that its reserved chairs would block.
-          let routeDocument = candidate
+          let routeDocument = physicalDocument(candidate)
           if (completeDining || completeSeatedRoom) {
-            routeDocument = { ...candidate, props: { ...candidate.props } }
+            routeDocument = { ...routeDocument, props: { ...routeDocument.props } }
             for (const [i, space] of [...useSpaces.filter(space => !space.claimed && space !== ownUseSpace), ...planned].entries()) {
               options.checkCancelled(); meter.charge({ fieldEvaluations: 1 })
               let attempt = 0, id: string
@@ -491,7 +511,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
           const checked = input.algorithmVersion >= 17 ? replanInteriorCirculation(routeDocument, input, layout, currentConnectivity, options)
             : checkInteriorCirculation(candidate, input, layout, connectivity)
           options.checkCancelled()
-          if (!checked.routes.every((route, at) => currentConnectivity.routes[at]?.status !== 'clear' || route.status === 'clear')) continue
+          if (!checked.routes.every((route, at) => currentConnectivity.routes[at]?.status !== 'clear' || route.status === 'clear')) { reject('circulation'); continue }
           const newRoutes = new Map<string, FurnitureAccessRoute>()
           if (connectedUse && ports.length) {
             const pendingSeats = [...useSpaces.filter(space => !space.claimed && space !== ownUseSpace), ...planned]
@@ -512,11 +532,11 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
               if (!replacement) { blocked = true; break }
               newRoutes.set(id, replacement)
             }
-            if (blocked) continue
+            if (blocked) { reject('furniture-access'); continue }
             const target = bedsideAccess?.pointsMm.at(-1) ?? (usePolygon ? furnitureApproachPoint(prop, prop, role === 'seat') : undefined)
             if (target) {
               const route = findAccess(target, candidate, plannedBlockers)
-              if (!route) continue
+              if (!route) { reject('furniture-access'); continue }
               newRoutes.set(propId, route)
             }
             const seatShapes = planned.map(space => ({ space, shape: next.propDefinitions[space.definitionRef.id] }))
@@ -526,7 +546,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
               if (!route) { blocked = true; break }
               newRoutes.set(`planned:${space.anchorKey}:${space.positionMm.x}/${space.positionMm.y}/${space.rotationDeg}`, route)
             }
-            if (blocked) continue
+            if (blocked) { reject('furniture-access'); continue }
           }
           if (reserveUseSpace && usePolygon) {
             if (ownUseSpace) ownUseSpace.claimed = true
@@ -549,7 +569,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
           }
           if (completeDining && needsSeatPlan && planned.length < Math.min(2, seatQuota)) roomReport.notes.push('完整两席座位组在有限候选中未找到合法位置，本桌保留已验证的较少座位。')
           if (input.algorithmVersion >= 17) currentConnectivity = checked
-          next = candidate; report.propIds.push(propId); roomReport.placed.push({ propId, role, definitionRef: cloneJson(item.ref) }); placed = true; break
+          next = candidate; pendingRepack.delete(propId); report.propIds.push(propId); roomReport.placed.push({ propId, role, definitionRef: cloneJson(item.ref) }); placed = true; break
         }
         if (placed) break
       }

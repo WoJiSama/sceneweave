@@ -7,12 +7,32 @@ import { parseArguments, readBounded, readRequest, writeVerified, replaceResult,
 
 test('generation needs separate explicit authorization, budget and absolute paths', () => {
   const args = ['generate', '--input', '/tmp/in.json', '--output', '/tmp/new-output', '--allow', 'forest-building', '--budget', 'standard']
-  assert.deepEqual(parseArguments(args), { command: 'generate', input: '/tmp/in.json', output: '/tmp/new-output', budget: 'standard' })
+  assert.deepEqual(parseArguments(args), { command: 'generate', input: path.resolve('/tmp/in.json'), output: path.resolve('/tmp/new-output'), budget: 'standard' })
   for (const invalid of [args.slice(0, -2), args.slice(0, -4), [...args, '--budget', 'expanded'],
     args.map(value => value === '/tmp/in.json' ? 'in.json' : value), args.map(value => value === 'forest-building' ? 'anything' : value),
     args.map(value => value === 'standard' ? 'unbounded' : value), [...args, '--endpoint', 'https://example.invalid'], ['capabilities', '--budget', 'small']]) {
     assert.throws(() => parseArguments(invalid))
   }
+})
+
+test('workflow discovery is read-only and rejects ambiguous selectors', () => {
+  assert.deepEqual(parseArguments(['workflows']), { command: 'workflows', query: { action: 'list' } })
+  assert.deepEqual(parseArguments(['workflows', '--id', 'sceneweave-image-items', '--step', 'review']), {
+    command: 'workflows', query: { action: 'step', workflowId: 'sceneweave-image-items', stepId: 'review' },
+  })
+  for (const args of [['--step', 'review'], ['--id', 'image', '--step', 'review', '--effects'], ['--id', 'image', '--query', 'forest'], ['--schema'], ['--output', '/tmp/out']]) {
+    assert.throws(() => parseArguments(['workflows', ...args]))
+  }
+})
+
+test('furniture repair requires an exact archive, one explicit room and registered budget', () => {
+  const args = ['repair-furniture', '--input', path.resolve('parent.sceneweave'), '--room', 'room-a', '--output', path.resolve('repair-output'), '--allow', 'forest-building', '--budget', 'standard']
+  assert.equal(parseArguments(args).command, 'repair-furniture')
+  assert.equal(parseArguments(args).roomId, 'room-a')
+  assert.throws(() => parseArguments(args.filter((_, index) => index !== 3 && index !== 4)))
+  assert.throws(() => parseArguments([...args, '--strategy', 'skip-clearance']))
+  assert.throws(() => parseArguments(args.map(value => value === 'room-a' ? '__proto__' : value)))
+  assert.throws(() => parseArguments(['generate', ...args.slice(1)]))
 })
 
 test('input reads are bounded and output creation never overwrites previous bytes', async () => {

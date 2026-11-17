@@ -3,9 +3,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { chromium } from '@playwright/test'
-import { assert, MAX_ARCHIVE_BYTES, parseArguments, readRequest, replaceResult, usage, writeVerified } from './io.mjs'
+import { assert, digest, MAX_ARCHIVE_BYTES, parseArguments, readBounded, readRequest, replaceResult, usage, writeVerified } from './io.mjs'
 import { startHarnessTooling } from './tooling.mjs'
-import { generateInBrowser, verifyDiskDelivery } from './browser.mjs'
+import { generateInBrowser, repairInBrowser, verifyDiskDelivery } from './browser.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -21,22 +21,35 @@ async function run(args) {
   const interrupt = () => stop('Operation cancelled by user')
   process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt)
   try {
+    const repairing = options.command === 'repair-furniture'
     const raw = options.command === 'generate' ? await readRequest(options.input) : undefined
-    tooling = await startHarnessTooling(root, options.command === 'generate')
+    const parentArchive = repairing ? await readBounded(options.input, MAX_ARCHIVE_BYTES) : undefined
+    tooling = await startHarnessTooling(root, options.command === 'generate' || repairing)
+    if (options.command === 'workflows') {
+      const { queryWorkflow, harnessWorkflowHost } = await tooling.workflows()
+      process.stdout.write(`${JSON.stringify(queryWorkflow(options.query, harnessWorkflowHost()), null, 2)}\n`)
+      return
+    }
     const sdk = await tooling.sdk()
     if (options.command === 'capabilities' || options.command === 'example') {
       const value = options.command === 'capabilities' ? sdk.semanticGenerationCapabilities() : sdk.semanticGenerationExample()
       process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
       return
     }
-    const request = sdk.parseSemanticGenerationRequest(raw), requestHash = sdk.semanticGenerationRequestHash(request)
+    const request = repairing ? { version: 1, operation: 'forest-furniture-repair', parentArchiveSha256: digest(parentArchive),
+      parentArchiveBytes: parentArchive.length, roomId: options.roomId, variation: 'forest-repair-seating-v1', strategy: 'seating-v1' }
+      : sdk.parseSemanticGenerationRequest(raw)
+    const requestHash = repairing ? digest(Buffer.from(JSON.stringify(request))) : sdk.semanticGenerationRequestHash(request)
+    const { workflowBinding } = await tooling.workflows()
+    const workflow = workflowBinding('sceneweave-forest-building')
     const authorization = { capabilityId: 'sceneweave-forest-building@1', contentId: 'builtin-mixed-forest@1', requestHash }
     assert(!stopReason, stopReason)
     // mkdir is exclusive; no recursive creation, reuse, truncation or overwrite.
     await fs.mkdir(options.output, { mode: 0o700 }); output = options.output
     record = { format: 'sceneweave-local-generation-result', version: 1, status: 'running', startedAt: new Date().toISOString(),
-      requestHash, authorization, budget: options.budget, modelRequests: 0, formalAcceptance: false,
-      scope: 'Independent new project using built-in fixed content. No current-project or browser database access.',
+      requestHash, authorization, workflow, workflowProgress: { lastCompletedStep: 'parameters', nextAction: '生成独立候选，读取真实诊断与预览。' }, budget: options.budget, modelRequests: 0, formalAcceptance: false,
+      scope: repairing ? 'Furniture-only repair of one exact read-only candidate archive. No current-project or browser database access.'
+        : 'Independent new project using built-in fixed content. No current-project or browser database access.',
       timings: {}, files: {} }
     await fs.writeFile(path.join(output, 'result.json'), `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
     const savedRequest = await writeVerified(output, 'request.json', Buffer.from(`${JSON.stringify(request, null, 2)}\n`))
@@ -44,7 +57,7 @@ async function run(args) {
     // This is a single execution. A late result fails rather than initiating a retry.
     timer = setTimeout(() => stop('Local generation exceeded its 360-second delivery deadline'), 360000)
     const browserStarted = performance.now()
-    browser = await chromium.launch({ headless: true })
+    browser = await chromium.launch({ headless: true, ...(process.env.SCENEWEAVE_BROWSER_CHANNEL ? { channel: process.env.SCENEWEAVE_BROWSER_CHANNEL } : {}) })
     assert(!stopReason, stopReason)
     context = await browser.newContext({ serviceWorkers: 'block' })
     const browserErrors = []
@@ -58,7 +71,10 @@ async function run(args) {
     })
     const page = await context.newPage()
     await page.goto(tooling.url)
-    const generated = await page.evaluate(generateInBrowser, { request, authorization, budget: options.budget })
+    const generated = repairing
+      ? await page.evaluate(repairInBrowser, { archiveBase64: parentArchive.toString('base64'), roomId: options.roomId, budget: options.budget })
+      : await page.evaluate(generateInBrowser, { request, authorization, budget: options.budget })
+    record.workflowProgress = { lastCompletedStep: 'generate', nextAction: '完成落盘、独立冷读与实际像素核对；视觉质量另验。' }
     assert(!stopReason, stopReason)
     const archive = Buffer.from(generated.archiveBase64, 'base64'), png = Buffer.from(generated.previewBase64, 'base64')
     assert(archive.length <= MAX_ARCHIVE_BYTES && png.length <= MAX_ARCHIVE_BYTES, 'Generated delivery exceeds file protection limit')
@@ -76,7 +92,9 @@ async function run(args) {
     checkStopped()
     const budgetUsage = assertTaskBudget(generated.result.profile, { ...generated.result.usage,
       activeExecutionMs: generated.result.usage.activeExecutionMs + Math.ceil(deliveryWorkMs) })
-    record = { ...record, ...generated.result, status: 'complete', completedAt: new Date().toISOString(),
+    record = { ...record, ...generated.result, ...(repairing ? { parentArchiveSha256: request.parentArchiveSha256, strategy: request.strategy, variation: request.variation } : {}),
+      status: 'complete', completedAt: new Date().toISOString(),
+      workflowProgress: { lastCompletedStep: 'deliver', nextAction: '在普通页面导入map.sceneweave、审阅实际预览并继续编辑；用户P3未签收。' },
       usage: budgetUsage,
       browser: { engine: 'chromium', version: browser.version(), isolated: true },
       files: { request: savedRequest.record, project: savedArchive.record, preview: savedPreview.record },
@@ -86,7 +104,8 @@ async function run(args) {
         commandTotalMs: Math.round((performance.now() - started) * 1000) / 1000 } }
     await replaceResult(output, record, { checkCurrent: checkStopped, onPublished: () => { publicationComplete = true } })
     process.stdout.write(`${JSON.stringify({ status: record.status, output, requestHash, projectHash: record.projectHash,
-      entities: record.entities, limitations: record.limitations, timings: record.timings }, null, 2)}\n`)
+      ...(repairing ? { parentCandidateId: record.parentCandidateId, repairRoomId: record.repairRoomId } : {}),
+      entities: record.entities, diagnostics: record.diagnostics, notes: record.notes, limitations: record.limitations, timings: record.timings }, null, 2)}\n`)
   } catch (error) {
     const message = stopReason ?? (error instanceof Error ? error.message : 'Local generation failed')
     if (record && output) {

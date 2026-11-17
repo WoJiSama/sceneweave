@@ -8,7 +8,8 @@ import { fixture, runtime, validation } from './test-fixtures.js'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
 import { inspectDependencies } from '../../shared/geometry/dependencies.js'
-import { taskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { captureExecutionBudget, taskBudgetProfile } from '../../shared/budget/task-budget.js'
+import * as localGeneration from '../../shared/generation/local.js'
 import { projectContentHash } from '../../shared/project/validate.js'
 import { canonicalJson, cloneJson } from '../../shared/validation/json.js'
 import { getLegacyGeneration } from '../../shared/terrain-generation/composition-contracts.js'
@@ -90,6 +91,37 @@ async function setup(dense = false) {
   return { repo, workspace, material, boundary, areaId }
 }
 describe('bounded domain local generation lifecycle', () => {
+  it('retains actual local search work and elapsed preparation time independently of deterministic replay hashes', async () => {
+    const { workspace, material } = await setup(), actual = localGeneration.runLocalGeneration
+    vi.spyOn(localGeneration, 'runLocalGeneration').mockImplementation((...args) => {
+      const meter = captureExecutionBudget(args[3].profile)
+      meter.charge({ gridNodes: 17, fieldEvaluations: 29, candidateAttempts: 1 })
+      return actual(...args)
+    })
+    const preview = await workspace.previewLocalGeneration(material)
+    expect(preview.usage).toMatchObject({ gridNodes: 17, fieldEvaluations: 29, candidateAttempts: 1 })
+    expect(preview.usage.activeExecutionMs).toBeGreaterThan(0)
+    const replay = await workspace.previewLocalGeneration(material)
+    expect(replay.result.resultHash).toBe(preview.result.resultHash)
+    expect(projectContentHash(toBundle(replay.project).project)).toBe(projectContentHash(toBundle(preview.project).project))
+    expect(replay.usage).toMatchObject({ gridNodes: 17, fieldEvaluations: 29, candidateAttempts: 1 })
+  }, 30000)
+
+  it('rejects cumulative local execution work as soon as separate individually legal search meters exceed the profile', async () => {
+    const { repo, workspace, material } = await setup(), before = workspace.getState().project!, checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'saveSnapshot')
+    const actual = localGeneration.runLocalGeneration, enteredSecond = vi.fn(), afterSecondCharge = vi.fn()
+    vi.spyOn(localGeneration, 'runLocalGeneration').mockImplementation((...args) => {
+      captureExecutionBudget(args[3].profile).charge({ gridNodes: 30000 })
+      enteredSecond()
+      captureExecutionBudget(args[3].profile).charge({ gridNodes: 30000 })
+      afterSecondCharge()
+      return actual(...args)
+    })
+    await expect(workspace.previewLocalGeneration(material)).rejects.toThrow(/gridNodes/)
+    expect(enteredSecond).toHaveBeenCalledOnce(); expect(afterSecondCharge).not.toHaveBeenCalled()
+    expect(workspace.getState().project).toBe(before); expect(workspace.checkpoint()).toBe(checkpoint); expect(save).not.toHaveBeenCalled()
+  }, 30000)
+
   it('privately previews exact full changes, replays and adopts a material with one undo unit and cold preservation', async () => {
     const { repo, workspace, material, areaId } = await setup(), before = workspace.getState().project!, checkpoint = workspace.checkpoint(), save = vi.spyOn(repo, 'saveSnapshot')
     const decode = vi.spyOn(validation.images, 'decode')

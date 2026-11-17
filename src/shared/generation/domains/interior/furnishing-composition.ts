@@ -12,6 +12,28 @@ const envelope = (shape: FurnishingShape, pose: FurnishingPose) => {
     top: Math.min(...points.map(p => p.y)), bottom: Math.max(...points.map(p => p.y)) }
 }
 
+/** Repair-only partial-sided anchor proposals. Unlike a four-sided envelope,
+ * these allow an unused side against a wall. The caller still reserves and
+ * verifies each complete actual chair and its use/access space. */
+export function seatedRepairCandidates(bounds: InteriorRectangle, shape: FurnishingShape, inset: number, seats: readonly PropDefinition[], rank: (key: string) => string,
+  checkCancelled: () => void, charge: () => void): FurnishingPose[] {
+  const depth = Math.max(0, ...seats.map(seat => Math.max(seat.defaultVisualBoundsMm.height, seat.defaultFootprintMm.height))) + 780
+  const poses: FurnishingPose[] = []
+  for (const rotationDeg of [0, 90]) {
+    const own = envelope(shape, { positionMm: { x: 0, y: 0 }, rotationDeg })
+    const left = bounds.x + inset - own.left, right = bounds.x + bounds.width - inset - own.right
+    const top = bounds.y + inset - own.top, bottom = bounds.y + bounds.height - inset - own.bottom
+    const xs = [...new Set([left, left + depth, (left + right) / 2, right - depth, right])]
+    const ys = [...new Set([top, top + depth, (top + bottom) / 2, bottom - depth, bottom])]
+    for (const x of xs) for (const y of ys) {
+      checkCancelled(); charge()
+      if (x < left || x > right || y < top || y > bottom) continue
+      poses.push({ positionMm: { x: Math.round(x), y: Math.round(y) }, rotationDeg })
+    }
+  }
+  return poses.sort((a, b) => compare(rank(`${a.positionMm.x}/${a.positionMm.y}/${a.rotationDeg}`), rank(`${b.positionMm.x}/${b.positionMm.y}/${b.rotationDeg}`)))
+}
+
 /** A proposed single-sided work unit uses this geometric edge for its seats.
  * This is neither an authored usable-side claim nor a permanent relationship.
  * Square and retained arbitrary-angle surfaces keep neutral seat suggestions. */

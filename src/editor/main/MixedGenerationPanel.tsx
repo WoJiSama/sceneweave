@@ -2,6 +2,9 @@ import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useState } from 'react'
 import type { MixedPreview } from '../../application/workspace/workspace'
 import GenerationParameterAssistant from './GenerationParameterAssistant'
+import ForestLoopAssistant, { type RunForestLoop } from './ForestLoopAssistant'
+import { parseSemanticGenerationRequest, type SemanticGenerationRequest } from '../../shared/generation/semantic-request'
+import WorkflowGuide from './WorkflowGuide'
 import type { AiConnection } from './AiConversationPanel'
 import './terrain-generation.css'
 import './volcano-generation.css'
@@ -10,9 +13,10 @@ import type { MixedGenerationUiRequest } from '../../application/workspace/gener
 export type { MixedGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 const initial = (): MixedGenerationUiRequest => ({ title: '林中驿站', environment: 'forest', widthMm: 40000, heightMm: 32000, seed: 'mixed-1', roomCount: 1, purpose: '驿站休息室', furniture: true, vegetationMultiplier: 1, algorithmVersion: 19, woodlandDistribution: 'uniform' })
 
-export default function MixedGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange, aiConnection = null }: {
+export default function MixedGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange, aiConnection = null, onRunForestLoop }: {
   busy: boolean; disabled: boolean; error: string | null; candidate: MixedPreview | null; dirty: boolean
   aiConnection?: AiConnection | null
+  onRunForestLoop?: RunForestLoop
   onGenerate: (input: MixedGenerationUiRequest) => void | Promise<void>
   onAdopt: () => void | Promise<void>; onCancel: () => void; onChange: () => void
 }) {
@@ -35,13 +39,21 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
     return null
   })()
   const valid = validationReason === null
+  let forestRequest: SemanticGenerationRequest | null = null
+  if (input.environment === 'forest' && valid) forestRequest = parseSemanticGenerationRequest({ capabilityId: 'sceneweave-forest-building@1', target: 'new-project', parameters: assistantParameters })
+  const forestUnavailable = !valid ? validationReason : algorithmVersion !== 19 || woodlandDistribution !== 'uniform'
+    ? '自动候选当前使用「办公与接待完整单元」及「均匀散布」。请在下方明确选择后开始，或沿当前设置手工预览。' : null
   const feedback = error && <><p className="asset-error" role="alert">{error}</p><p className="asset-muted">请按提示修改参数后重新预览，或选择「取消混合场景」返回当前工程。</p></>
   const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消混合场景</button>
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="混合场景生成">
     <h2>混合场景</h2>
     <p>把真实地面、建筑外门和室外路线组合为同一张可编辑地图；森林植被会避开实际建筑和通路。</p>
+    {input.environment === 'forest' && <WorkflowGuide workflowId="sceneweave-forest-building" feedback={candidate
+      ? `真实候选：${candidate.report.roomIds.length}个房间、${candidate.report.propIds.length}件物件；请查看画面与缺项后保存为新工程。`
+      : busy ? '现有生成器正在执行；当前工程保持。' : error ? `本次生成未通过：${error}` : '先检查下方参数，再预览；尚未生成本次候选。'}/>}
     <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次建议的门、家具和路线保存后可自由删改；不会自动补回。新版在门外预留直入段，沿门面垂直方向接入，并核查完整净宽。当前支持一个建筑与同楼层的森林或火山。</p></details>
     <div hidden={input.environment !== 'forest'}><GenerationParameterAssistant connection={aiConnection} parameters={{ ...assistantParameters, environment: 'forest' }} formRevision={formRevision} disabled={locked || input.environment !== 'forest'} onApply={parameters => { if (!locked) { onChange(); setFormRevision(value => value + 1); setInput(current => ({ ...current, ...parameters })) } }}/></div>
+    {input.environment === 'forest' && onRunForestLoop && <ForestLoopAssistant connection={aiConnection} request={forestRequest} unavailableReason={forestUnavailable} disabled={locked} onRun={onRunForestLoop}/>}
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ ...input, title: input.title.trim(), seed: input.seed.trim(), purpose: input.purpose.trim() }) }}>
       <fieldset disabled={locked}><legend>场景与建筑需求</legend>

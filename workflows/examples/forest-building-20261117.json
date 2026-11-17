@@ -1,0 +1,1085 @@
+{
+  "format": "sceneweave-workflow-example",
+  "version": 1,
+  "checkedOn": "2026-11-17",
+  "request": {
+    "capabilityId": "sceneweave-forest-building@1",
+    "target": "new-project",
+    "parameters": {
+      "title": "林中哨站 · 建筑与树林",
+      "environment": "forest",
+      "widthMm": 40000,
+      "heightMm": 32000,
+      "seed": "forest-outpost-1",
+      "roomCount": 2,
+      "purpose": "哨站休息室",
+      "furniture": true,
+      "vegetationMultiplier": 1
+    }
+  },
+  "requestHash": "e1e76990c71bb7b7c2aa9e0feddad9465279bd3921a9b768d4f4389c5533118c",
+  "workflowAtExecution": {
+    "id": "sceneweave-forest-building",
+    "version": 1,
+    "definitionHash": "6e6d1df063a29bb0ec8f43e5f68e036cf9097306e6230933a96b7c84eec7aa62"
+  },
+  "capability": {
+    "capabilityId": "sceneweave-forest-building@1",
+    "contentId": "builtin-mixed-forest@1",
+    "requestHash": "e1e76990c71bb7b7c2aa9e0feddad9465279bd3921a9b768d4f4389c5533118c"
+  },
+  "profileHash": "383d87e0003326de4e7b75ebcf83c3f2cf8715dcf2fa17d4f0228fabb4aee9de",
+  "projectHash": "9a4cdd5cce4359c2129eaa462f3551858fa6f726debe46cbf0372a0b9b1dd40b",
+  "projectArchive": {
+    "file": "map.sceneweave",
+    "sha256": "7e3ef05ff417eacfc063bb2baf1a58006b546f649e0d9a1c92cbb1443c481816",
+    "byteLength": 1078924
+  },
+  "generationRecipes": {
+    "forest-8f09632627a1df499cfc3cbee227c9b2": {
+      "algorithmId": "forest-layout",
+      "algorithmVersion": 2,
+      "domain": "forest",
+      "id": "forest-8f09632627a1df499cfc3cbee227c9b2",
+      "mapMode": "scene",
+      "materials": [
+        {
+          "ref": {
+            "id": "shore-v1-material-sand-dry",
+            "version": 1
+          },
+          "role": "path"
+        }
+      ],
+      "parameters": {
+        "boundsMm": {
+          "height": 32000,
+          "width": 40000,
+          "x": 0,
+          "y": 0
+        },
+        "clearings": [
+          {
+            "anchorMm": {
+              "x": 12400,
+              "y": 20000
+            },
+            "boundaryMm": [
+              {
+                "x": 8000,
+                "y": 16000
+              },
+              {
+                "x": 16800,
+                "y": 16000
+              },
+              {
+                "x": 16800,
+                "y": 24000
+              },
+              {
+                "x": 8000,
+                "y": 24000
+              }
+            ],
+            "clearanceMm": 200,
+            "id": "camp",
+            "supportRef": {
+              "id": "mixed-ddc628ccb36316f8d561aec06176f5b4",
+              "kind": "terrainArea"
+            }
+          }
+        ],
+        "entrances": [
+          {
+            "directionDeg": 0,
+            "id": "entry",
+            "positionMm": {
+              "x": 3200,
+              "y": 20800
+            },
+            "supportRef": {
+              "id": "mixed-ddc628ccb36316f8d561aec06176f5b4",
+              "kind": "terrainArea"
+            },
+            "widthMm": 1400
+          }
+        ],
+        "floorId": "visual-floor",
+        "ground": {
+          "kind": "existing"
+        },
+        "layerId": "visual-layer-ground",
+        "routes": [
+          {
+            "fromEntranceId": "entry",
+            "id": "camp-route",
+            "materialRef": {
+              "id": "shore-v1-material-sand-dry",
+              "version": 1
+            },
+            "toClearingId": "camp",
+            "viaMm": [],
+            "widthMm": 1200
+          }
+        ],
+        "zones": [
+          {
+            "boundaryMm": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 40000,
+                "y": 0
+              },
+              {
+                "x": 40000,
+                "y": 32000
+              },
+              {
+                "x": 0,
+                "y": 32000
+              }
+            ],
+            "id": "woodland",
+            "supportRef": {
+              "id": "mixed-ddc628ccb36316f8d561aec06176f5b4",
+              "kind": "terrainArea"
+            },
+            "vegetation": [
+              {
+                "clearanceMm": 180,
+                "clusterRadiusMm": 3000,
+                "coveragePpm": 1000,
+                "palette": [
+                  {
+                    "definitionRef": {
+                      "id": "terrain-variants-v1-prop-grass-sedge-fan",
+                      "version": 1
+                    },
+                    "key": "grass",
+                    "kind": "decoration",
+                    "weight": 1
+                  }
+                ],
+                "role": "grass",
+                "spacingMm": 300
+              },
+              {
+                "clearanceMm": 180,
+                "clusterRadiusMm": 4000,
+                "coveragePpm": 4000,
+                "palette": [
+                  {
+                    "definitionRef": {
+                      "id": "terrain-variants-v1-prop-shrub-heath-mound",
+                      "version": 1
+                    },
+                    "key": "shrub",
+                    "kind": "decoration",
+                    "weight": 1
+                  }
+                ],
+                "role": "shrub",
+                "spacingMm": 800
+              },
+              {
+                "clearanceMm": 200,
+                "clusterRadiusMm": 6000,
+                "coveragePpm": 50000,
+                "palette": [
+                  {
+                    "definitionRef": {
+                      "id": "terrain-variants-v2-prop-tree-highland-copse",
+                      "version": 1
+                    },
+                    "key": "tree",
+                    "kind": "prop",
+                    "weight": 1
+                  }
+                ],
+                "role": "tree",
+                "spacingMm": 2500
+              }
+            ]
+          }
+        ]
+      },
+      "precision": {
+        "noiseCellMm": 1,
+        "sampleSpacingMm": 1,
+        "toleranceMm": 1
+      },
+      "props": [
+        {
+          "ref": {
+            "id": "terrain-variants-v1-prop-grass-sedge-fan",
+            "version": 1
+          },
+          "role": "grass"
+        },
+        {
+          "ref": {
+            "id": "terrain-variants-v1-prop-shrub-heath-mound",
+            "version": 1
+          },
+          "role": "shrub"
+        },
+        {
+          "ref": {
+            "id": "terrain-variants-v2-prop-tree-highland-copse",
+            "version": 1
+          },
+          "role": "tree"
+        }
+      ],
+      "recipeVersion": 2,
+      "seed": "a28260af2a84a604d195faaafc2321a186c3bd910491e976b23d7e567b85ec80"
+    },
+    "interior-acf869d6301a8819cfc02dce02f9849da81988fa": {
+      "algorithmId": "supported-interior",
+      "algorithmVersion": 19,
+      "domain": "interior",
+      "id": "interior-acf869d6301a8819cfc02dce02f9849da81988fa",
+      "mapMode": "scene",
+      "materials": [],
+      "parameters": {
+        "arrangement": {
+          "clearWidthMm": 1000,
+          "doorWidthMm": 1400,
+          "doors": true,
+          "entrance": true,
+          "furniture": true,
+          "palette": [
+            {
+              "ref": {
+                "id": "mixed-interior-v1-refined-prop-interior-bed-indigo",
+                "version": 1
+              },
+              "role": "bed"
+            },
+            {
+              "ref": {
+                "id": "mixed-interior-v1-refined-prop-interior-chair-slat",
+                "version": 1
+              },
+              "role": "seat"
+            },
+            {
+              "ref": {
+                "id": "mixed-interior-v1-refined-prop-interior-counter-kitchen",
+                "version": 1
+              },
+              "role": "work"
+            },
+            {
+              "ref": {
+                "id": "mixed-interior-v1-refined-prop-interior-cupboard-linen",
+                "version": 1
+              },
+              "role": "storage"
+            },
+            {
+              "ref": {
+                "id": "mixed-interior-v1-refined-prop-interior-shelf-books",
+                "version": 1
+              },
+              "role": "shelf"
+            },
+            {
+              "ref": {
+                "id": "mixed-interior-v1-refined-prop-interior-stove-masonry",
+                "version": 1
+              },
+              "role": "hearth"
+            },
+            {
+              "ref": {
+                "id": "mixed-interior-v1-refined-prop-interior-table-round",
+                "version": 1
+              },
+              "role": "table"
+            }
+          ]
+        },
+        "boundsMm": {
+          "height": 8000,
+          "width": 10000,
+          "x": 24000,
+          "y": 5760
+        },
+        "corridor": {
+          "axis": "none",
+          "clearWidthMm": 1200
+        },
+        "entranceApproach": {
+          "fromMm": {
+            "x": 3200,
+            "y": 20800
+          },
+          "viaMm": [],
+          "widthMm": 1000
+        },
+        "floorId": "visual-floor",
+        "layerId": "visual-layer-ground",
+        "materials": {
+          "floor": null,
+          "wall": null
+        },
+        "relations": [],
+        "rooms": [
+          {
+            "id": "room-1",
+            "maxAreaMm2": 76440000,
+            "minAreaMm2": 12740000,
+            "minClearSideMm": 1200,
+            "purpose": "哨站休息室"
+          },
+          {
+            "id": "room-2",
+            "maxAreaMm2": 76440000,
+            "minAreaMm2": 12740000,
+            "minClearSideMm": 1200,
+            "purpose": "哨站休息室"
+          }
+        ],
+        "supportRef": {
+          "id": "mixed-ddc628ccb36316f8d561aec06176f5b4",
+          "kind": "terrainArea"
+        },
+        "wallThicknessMm": 200
+      },
+      "precision": {
+        "noiseCellMm": 1,
+        "sampleSpacingMm": 1,
+        "toleranceMm": 1
+      },
+      "props": [
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-bed-indigo",
+            "version": 1
+          },
+          "role": "bed"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-chair-slat",
+            "version": 1
+          },
+          "role": "seat"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-counter-kitchen",
+            "version": 1
+          },
+          "role": "work"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-cupboard-linen",
+            "version": 1
+          },
+          "role": "storage"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-shelf-books",
+            "version": 1
+          },
+          "role": "shelf"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-stove-masonry",
+            "version": 1
+          },
+          "role": "hearth"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-table-round",
+            "version": 1
+          },
+          "role": "table"
+        }
+      ],
+      "recipeVersion": 19,
+      "seed": "36459fa8cb964f3115560a0798c7a8ad74e3a849a78321912a431b51f7a42aa5"
+    },
+    "mixed-4ec91138a901cce2a29d6707400618fc": {
+      "algorithmId": "mixed-layout",
+      "algorithmVersion": 19,
+      "domain": "mixed",
+      "id": "mixed-4ec91138a901cce2a29d6707400618fc",
+      "mapMode": "scene",
+      "materials": [
+        {
+          "ref": {
+            "id": "shore-v1-material-grass",
+            "version": 1
+          },
+          "role": "ground"
+        },
+        {
+          "ref": {
+            "id": "shore-v1-material-sand-dry",
+            "version": 1
+          },
+          "role": "approach"
+        },
+        {
+          "ref": {
+            "id": "shore-v1-material-sand-dry",
+            "version": 1
+          },
+          "role": "path"
+        }
+      ],
+      "parameters": {
+        "approach": {
+          "fromMm": {
+            "x": 3200,
+            "y": 20800
+          },
+          "materialRef": {
+            "id": "shore-v1-material-sand-dry",
+            "version": 1
+          },
+          "viaMm": [],
+          "widthMm": 1000
+        },
+        "building": {
+          "arrangement": {
+            "clearWidthMm": 1000,
+            "doorWidthMm": 1400,
+            "doors": true,
+            "entrance": true,
+            "furniture": true,
+            "palette": [
+              {
+                "ref": {
+                  "id": "mixed-interior-v1-refined-prop-interior-bed-indigo",
+                  "version": 1
+                },
+                "role": "bed"
+              },
+              {
+                "ref": {
+                  "id": "mixed-interior-v1-refined-prop-interior-chair-slat",
+                  "version": 1
+                },
+                "role": "seat"
+              },
+              {
+                "ref": {
+                  "id": "mixed-interior-v1-refined-prop-interior-counter-kitchen",
+                  "version": 1
+                },
+                "role": "work"
+              },
+              {
+                "ref": {
+                  "id": "mixed-interior-v1-refined-prop-interior-cupboard-linen",
+                  "version": 1
+                },
+                "role": "storage"
+              },
+              {
+                "ref": {
+                  "id": "mixed-interior-v1-refined-prop-interior-shelf-books",
+                  "version": 1
+                },
+                "role": "shelf"
+              },
+              {
+                "ref": {
+                  "id": "mixed-interior-v1-refined-prop-interior-stove-masonry",
+                  "version": 1
+                },
+                "role": "hearth"
+              },
+              {
+                "ref": {
+                  "id": "mixed-interior-v1-refined-prop-interior-table-round",
+                  "version": 1
+                },
+                "role": "table"
+              }
+            ]
+          },
+          "boundsMm": {
+            "height": 8000,
+            "width": 10000,
+            "x": 24000,
+            "y": 5760
+          },
+          "corridor": {
+            "axis": "none",
+            "clearWidthMm": 1200
+          },
+          "floorId": "visual-floor",
+          "layerId": "visual-layer-ground",
+          "materials": {
+            "floor": null,
+            "wall": null
+          },
+          "relations": [],
+          "rooms": [
+            {
+              "id": "room-1",
+              "maxAreaMm2": 76440000,
+              "minAreaMm2": 12740000,
+              "minClearSideMm": 1200,
+              "purpose": "哨站休息室"
+            },
+            {
+              "id": "room-2",
+              "maxAreaMm2": 76440000,
+              "minAreaMm2": 12740000,
+              "minClearSideMm": 1200,
+              "purpose": "哨站休息室"
+            }
+          ],
+          "wallThicknessMm": 200
+        },
+        "outdoor": {
+          "kind": "forest",
+          "parameters": {
+            "boundsMm": {
+              "height": 32000,
+              "width": 40000,
+              "x": 0,
+              "y": 0
+            },
+            "clearings": [
+              {
+                "anchorMm": {
+                  "x": 12400,
+                  "y": 20000
+                },
+                "boundaryMm": [
+                  {
+                    "x": 8000,
+                    "y": 16000
+                  },
+                  {
+                    "x": 16800,
+                    "y": 16000
+                  },
+                  {
+                    "x": 16800,
+                    "y": 24000
+                  },
+                  {
+                    "x": 8000,
+                    "y": 24000
+                  }
+                ],
+                "clearanceMm": 200,
+                "id": "camp",
+                "supportRef": {
+                  "kind": "generated-ground"
+                }
+              }
+            ],
+            "entrances": [
+              {
+                "directionDeg": 0,
+                "id": "entry",
+                "positionMm": {
+                  "x": 3200,
+                  "y": 20800
+                },
+                "supportRef": {
+                  "kind": "generated-ground"
+                },
+                "widthMm": 1400
+              }
+            ],
+            "floorId": "visual-floor",
+            "ground": {
+              "elevationMm": 0,
+              "kind": "new",
+              "materialRef": {
+                "id": "shore-v1-material-grass",
+                "version": 1
+              }
+            },
+            "layerId": "visual-layer-ground",
+            "routes": [
+              {
+                "fromEntranceId": "entry",
+                "id": "camp-route",
+                "materialRef": {
+                  "id": "shore-v1-material-sand-dry",
+                  "version": 1
+                },
+                "toClearingId": "camp",
+                "viaMm": [],
+                "widthMm": 1200
+              }
+            ],
+            "zones": [
+              {
+                "boundaryMm": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 40000,
+                    "y": 0
+                  },
+                  {
+                    "x": 40000,
+                    "y": 32000
+                  },
+                  {
+                    "x": 0,
+                    "y": 32000
+                  }
+                ],
+                "id": "woodland",
+                "supportRef": {
+                  "kind": "generated-ground"
+                },
+                "vegetation": [
+                  {
+                    "clearanceMm": 180,
+                    "clusterRadiusMm": 3000,
+                    "coveragePpm": 1000,
+                    "palette": [
+                      {
+                        "definitionRef": {
+                          "id": "terrain-variants-v1-prop-grass-sedge-fan",
+                          "version": 1
+                        },
+                        "key": "grass",
+                        "kind": "decoration",
+                        "weight": 1
+                      }
+                    ],
+                    "role": "grass",
+                    "spacingMm": 300
+                  },
+                  {
+                    "clearanceMm": 180,
+                    "clusterRadiusMm": 4000,
+                    "coveragePpm": 4000,
+                    "palette": [
+                      {
+                        "definitionRef": {
+                          "id": "terrain-variants-v1-prop-shrub-heath-mound",
+                          "version": 1
+                        },
+                        "key": "shrub",
+                        "kind": "decoration",
+                        "weight": 1
+                      }
+                    ],
+                    "role": "shrub",
+                    "spacingMm": 800
+                  },
+                  {
+                    "clearanceMm": 200,
+                    "clusterRadiusMm": 6000,
+                    "coveragePpm": 50000,
+                    "palette": [
+                      {
+                        "definitionRef": {
+                          "id": "terrain-variants-v2-prop-tree-highland-copse",
+                          "version": 1
+                        },
+                        "key": "tree",
+                        "kind": "prop",
+                        "weight": 1
+                      }
+                    ],
+                    "role": "tree",
+                    "spacingMm": 2500
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "precision": {
+        "noiseCellMm": 1,
+        "sampleSpacingMm": 1,
+        "toleranceMm": 1
+      },
+      "props": [
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-bed-indigo",
+            "version": 1
+          },
+          "role": "bed"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-chair-slat",
+            "version": 1
+          },
+          "role": "seat"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-counter-kitchen",
+            "version": 1
+          },
+          "role": "work"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-cupboard-linen",
+            "version": 1
+          },
+          "role": "storage"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-shelf-books",
+            "version": 1
+          },
+          "role": "shelf"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-stove-masonry",
+            "version": 1
+          },
+          "role": "hearth"
+        },
+        {
+          "ref": {
+            "id": "mixed-interior-v1-refined-prop-interior-table-round",
+            "version": 1
+          },
+          "role": "table"
+        },
+        {
+          "ref": {
+            "id": "terrain-variants-v1-prop-grass-sedge-fan",
+            "version": 1
+          },
+          "role": "grass"
+        },
+        {
+          "ref": {
+            "id": "terrain-variants-v1-prop-shrub-heath-mound",
+            "version": 1
+          },
+          "role": "shrub"
+        },
+        {
+          "ref": {
+            "id": "terrain-variants-v2-prop-tree-highland-copse",
+            "version": 1
+          },
+          "role": "tree"
+        }
+      ],
+      "recipeVersion": 19,
+      "seed": "forest-outpost-1"
+    }
+  },
+  "actualAssets": [
+    {
+      "file": "assets/008c415a119168305f74e658faee4df6db006772d028294dbfad71077587880f.png",
+      "sha256": "008c415a119168305f74e658faee4df6db006772d028294dbfad71077587880f"
+    },
+    {
+      "file": "assets/093f5db3450f9b8711c67ffe5106e263d03cda6875dff51deaa64da0f23605fb.png",
+      "sha256": "093f5db3450f9b8711c67ffe5106e263d03cda6875dff51deaa64da0f23605fb"
+    },
+    {
+      "file": "assets/0999a2810832d513ca648c21a0994d96a855019310ef90aba9efc31978210e15.png",
+      "sha256": "0999a2810832d513ca648c21a0994d96a855019310ef90aba9efc31978210e15"
+    },
+    {
+      "file": "assets/0ac214379d79a2022cf021bcb3dc881fcaebce43ecba3393becf389770ae92e4.png",
+      "sha256": "0ac214379d79a2022cf021bcb3dc881fcaebce43ecba3393becf389770ae92e4"
+    },
+    {
+      "file": "assets/110c4b37e0e111aa749d8bebce7287aafe13905605af73c104c69d941d6f4aca.png",
+      "sha256": "110c4b37e0e111aa749d8bebce7287aafe13905605af73c104c69d941d6f4aca"
+    },
+    {
+      "file": "assets/11e37a43daa0c6535a537b46ff1ba7bebbe3120aaa5dcb8921b48fcdaba40e47.png",
+      "sha256": "11e37a43daa0c6535a537b46ff1ba7bebbe3120aaa5dcb8921b48fcdaba40e47"
+    },
+    {
+      "file": "assets/169b5e00c0d1325bfd253871d04296f1ed3e8a90341e6d9c38234d30382549b6.png",
+      "sha256": "169b5e00c0d1325bfd253871d04296f1ed3e8a90341e6d9c38234d30382549b6"
+    },
+    {
+      "file": "assets/1a724e5ec8bd59d885dd5fa38a9d191a3105cd9d3b9d7f0b2ee23d52b6f109b3.png",
+      "sha256": "1a724e5ec8bd59d885dd5fa38a9d191a3105cd9d3b9d7f0b2ee23d52b6f109b3"
+    },
+    {
+      "file": "assets/1ebe3a6bedc8e44576a2ab459b2aafac8afee4a4cb0d844d6d2de302de109394.png",
+      "sha256": "1ebe3a6bedc8e44576a2ab459b2aafac8afee4a4cb0d844d6d2de302de109394"
+    },
+    {
+      "file": "assets/20231ae587dd0bdf39ae959b377bb5994232f37751cf934fd24b47cc2dbbc853.png",
+      "sha256": "20231ae587dd0bdf39ae959b377bb5994232f37751cf934fd24b47cc2dbbc853"
+    },
+    {
+      "file": "assets/23ecb8e05ee240be61a60293c12125c2920ace966a301a78e5f46cb2c99e185c.png",
+      "sha256": "23ecb8e05ee240be61a60293c12125c2920ace966a301a78e5f46cb2c99e185c"
+    },
+    {
+      "file": "assets/253716dee0284c1710f736a201dc6caa78e009db3142a8067f69b56f1162fb4a.png",
+      "sha256": "253716dee0284c1710f736a201dc6caa78e009db3142a8067f69b56f1162fb4a"
+    },
+    {
+      "file": "assets/2f7982a53992b9c5c7a36ba12aeda6f72c47343159a3a77053beae18b62d81ae.png",
+      "sha256": "2f7982a53992b9c5c7a36ba12aeda6f72c47343159a3a77053beae18b62d81ae"
+    },
+    {
+      "file": "assets/3b3a83a35a38993cc405f68a75ece3e6d24b3ec83d7c75a3c3cf57a60f399f4b.png",
+      "sha256": "3b3a83a35a38993cc405f68a75ece3e6d24b3ec83d7c75a3c3cf57a60f399f4b"
+    },
+    {
+      "file": "assets/3c51ceab6b26ac085e70befd6aa309f1755da250c85ac584750f588cf3a7b68f.png",
+      "sha256": "3c51ceab6b26ac085e70befd6aa309f1755da250c85ac584750f588cf3a7b68f"
+    },
+    {
+      "file": "assets/48f3bb81a39c07ba7180be7aaa01c86c76aa4d7673354d74d4ae04730fc06402.png",
+      "sha256": "48f3bb81a39c07ba7180be7aaa01c86c76aa4d7673354d74d4ae04730fc06402"
+    },
+    {
+      "file": "assets/4fb0e6c359ad5192e703757b7fa0d9488670f178abab4e7dbc0959f7e36cbf5c.png",
+      "sha256": "4fb0e6c359ad5192e703757b7fa0d9488670f178abab4e7dbc0959f7e36cbf5c"
+    },
+    {
+      "file": "assets/4fc1a6c02eca606794adec54d341983045757a9d89f91949cac2fae9bfd305dc.png",
+      "sha256": "4fc1a6c02eca606794adec54d341983045757a9d89f91949cac2fae9bfd305dc"
+    },
+    {
+      "file": "assets/529d6afb363ec1a372258e83ccd3fe5f73dec903a15cf4691e99a909c7b2e397.png",
+      "sha256": "529d6afb363ec1a372258e83ccd3fe5f73dec903a15cf4691e99a909c7b2e397"
+    },
+    {
+      "file": "assets/56952103ae831f8df376e14e9ec3983e52c8127c023dc31694f1dc9baba61c65.png",
+      "sha256": "56952103ae831f8df376e14e9ec3983e52c8127c023dc31694f1dc9baba61c65"
+    },
+    {
+      "file": "assets/5d71ecd70c23b817989ee755355a4435182d59647e7c4e904c895083ccac2595.png",
+      "sha256": "5d71ecd70c23b817989ee755355a4435182d59647e7c4e904c895083ccac2595"
+    },
+    {
+      "file": "assets/6634aa0b91bbb293707dcb0dbb6016c1e43dc92590913219391bd8bddd446cbd.png",
+      "sha256": "6634aa0b91bbb293707dcb0dbb6016c1e43dc92590913219391bd8bddd446cbd"
+    },
+    {
+      "file": "assets/6d189d19bd3ca0eaafdaf4483cd2f8f0e46d91c416f8e9b379cb30af74c22364.png",
+      "sha256": "6d189d19bd3ca0eaafdaf4483cd2f8f0e46d91c416f8e9b379cb30af74c22364"
+    },
+    {
+      "file": "assets/6f863a9d8b813863befd16bd4d989bc8eb9b3c50f348684eab1ab2f4a6f9770a.png",
+      "sha256": "6f863a9d8b813863befd16bd4d989bc8eb9b3c50f348684eab1ab2f4a6f9770a"
+    },
+    {
+      "file": "assets/7614435648aada92a646d1b02f5ccede415d7af11707d3d5287242f8e2875953.png",
+      "sha256": "7614435648aada92a646d1b02f5ccede415d7af11707d3d5287242f8e2875953"
+    },
+    {
+      "file": "assets/844e2176dcfbb9a57a6c42c9c20737ec5db6e26e73a64cfdba3a2b75b24ec40e.png",
+      "sha256": "844e2176dcfbb9a57a6c42c9c20737ec5db6e26e73a64cfdba3a2b75b24ec40e"
+    },
+    {
+      "file": "assets/898908be1692db72ce2202789825699b75e0961173b06950bde643aaff0a920a.png",
+      "sha256": "898908be1692db72ce2202789825699b75e0961173b06950bde643aaff0a920a"
+    },
+    {
+      "file": "assets/8a4826fc94632ded1424acbe7f07f775717a682db67cf447264fab381abaadbd.png",
+      "sha256": "8a4826fc94632ded1424acbe7f07f775717a682db67cf447264fab381abaadbd"
+    },
+    {
+      "file": "assets/8ddb5b79387c7f0de9e34aaf4d2bd06a15536dc05cea9a8d2f6d4d4df8b899f0.png",
+      "sha256": "8ddb5b79387c7f0de9e34aaf4d2bd06a15536dc05cea9a8d2f6d4d4df8b899f0"
+    },
+    {
+      "file": "assets/904c6bd2a9550f8f09cad2a72a3342bc4c7dffaf35a2491ef1bf6c1e6d906780.png",
+      "sha256": "904c6bd2a9550f8f09cad2a72a3342bc4c7dffaf35a2491ef1bf6c1e6d906780"
+    },
+    {
+      "file": "assets/909cbe4306fa95314329ffcc4e169bbcb798950529e2a4b7af51535601e44b75.png",
+      "sha256": "909cbe4306fa95314329ffcc4e169bbcb798950529e2a4b7af51535601e44b75"
+    },
+    {
+      "file": "assets/91488b28739132fbdb681067cb3785cf00b03a7c3103e10181cf1e6a71a4361c.png",
+      "sha256": "91488b28739132fbdb681067cb3785cf00b03a7c3103e10181cf1e6a71a4361c"
+    },
+    {
+      "file": "assets/998f4dc67924b489c69d90981f5f9e41bb9be09d1e5042d739a647da1540c9dd.png",
+      "sha256": "998f4dc67924b489c69d90981f5f9e41bb9be09d1e5042d739a647da1540c9dd"
+    },
+    {
+      "file": "assets/9aa4256edbd7c8076807bab04513c8fd4e1a025629fb7e3e6fbab56b375f2426.png",
+      "sha256": "9aa4256edbd7c8076807bab04513c8fd4e1a025629fb7e3e6fbab56b375f2426"
+    },
+    {
+      "file": "assets/9dbe4df958a8c1953b134b037e3248a641ca1c22be74ebc4ad735ddd3bf9edb9.png",
+      "sha256": "9dbe4df958a8c1953b134b037e3248a641ca1c22be74ebc4ad735ddd3bf9edb9"
+    },
+    {
+      "file": "assets/a1220222d684ca8bd022dca220e4f409d95b7faab374149b3fcef51fb6740e41.png",
+      "sha256": "a1220222d684ca8bd022dca220e4f409d95b7faab374149b3fcef51fb6740e41"
+    },
+    {
+      "file": "assets/a753a4883f6dc71c99a4bb68753b80597b4e08bf0af892cfbb1285646a9b4221.png",
+      "sha256": "a753a4883f6dc71c99a4bb68753b80597b4e08bf0af892cfbb1285646a9b4221"
+    },
+    {
+      "file": "assets/a87ad71ca190b51d9afd69513a04c81dd0b821a22e9598b82009bc84d39379da.png",
+      "sha256": "a87ad71ca190b51d9afd69513a04c81dd0b821a22e9598b82009bc84d39379da"
+    },
+    {
+      "file": "assets/a8f750d489fa71ac448c9009b708426f82856042285c2ade406c02a4b6d726ae.png",
+      "sha256": "a8f750d489fa71ac448c9009b708426f82856042285c2ade406c02a4b6d726ae"
+    },
+    {
+      "file": "assets/ac57271e85a2981740771d8a082a8495a119e75492d4001049ffa43e2766d2a1.png",
+      "sha256": "ac57271e85a2981740771d8a082a8495a119e75492d4001049ffa43e2766d2a1"
+    },
+    {
+      "file": "assets/acedc48f72416c4e8c0b6ccae7082d390fed918f349e2dfa5e6569f000b5340a.png",
+      "sha256": "acedc48f72416c4e8c0b6ccae7082d390fed918f349e2dfa5e6569f000b5340a"
+    },
+    {
+      "file": "assets/b7b91b8371d0581ce728aa875a17953420d9513f7c1fa9a80205f4749eb7cfb3.png",
+      "sha256": "b7b91b8371d0581ce728aa875a17953420d9513f7c1fa9a80205f4749eb7cfb3"
+    },
+    {
+      "file": "assets/ba7513b3fc4e01bc4c109f7e4db63cba3a99f70a2c28b927685ec38df3db93b3.png",
+      "sha256": "ba7513b3fc4e01bc4c109f7e4db63cba3a99f70a2c28b927685ec38df3db93b3"
+    },
+    {
+      "file": "assets/baa754fcf066ed8e2987d5f02814b242e429c566fecc7c73963d6e0c04f23fac.png",
+      "sha256": "baa754fcf066ed8e2987d5f02814b242e429c566fecc7c73963d6e0c04f23fac"
+    },
+    {
+      "file": "assets/be9c33cd4e0543e479c94460664321767ea704fc264f742b26fdf15845e83305.png",
+      "sha256": "be9c33cd4e0543e479c94460664321767ea704fc264f742b26fdf15845e83305"
+    },
+    {
+      "file": "assets/bf5421e41b7c221a8a57f3f0d41c6e9b3921e72f430b50fb0eef13b346ba17ea.png",
+      "sha256": "bf5421e41b7c221a8a57f3f0d41c6e9b3921e72f430b50fb0eef13b346ba17ea"
+    },
+    {
+      "file": "assets/bfc57177ca4d6ba82f90526ac31ac63cdbefdd5a33bb548eb70bf5d39c6aecef.png",
+      "sha256": "bfc57177ca4d6ba82f90526ac31ac63cdbefdd5a33bb548eb70bf5d39c6aecef"
+    },
+    {
+      "file": "assets/cd89ffbf0ec3c300e769150cac1649c7ec6d41db8aa529959d46268a9ffe3ebb.png",
+      "sha256": "cd89ffbf0ec3c300e769150cac1649c7ec6d41db8aa529959d46268a9ffe3ebb"
+    },
+    {
+      "file": "assets/d7e921289185a125b4d800322ffff56011d26da2aaee391b2dcf0f2be7858bd4.png",
+      "sha256": "d7e921289185a125b4d800322ffff56011d26da2aaee391b2dcf0f2be7858bd4"
+    },
+    {
+      "file": "assets/ea877a63d83cd3d318e5b2f3888d888262e03360db91c9934e7ee3b4f635dd54.png",
+      "sha256": "ea877a63d83cd3d318e5b2f3888d888262e03360db91c9934e7ee3b4f635dd54"
+    },
+    {
+      "file": "assets/ecb70db58c310caf66036bba42a7594f9f3a3b056aeff0f355f0fd3e60f23615.png",
+      "sha256": "ecb70db58c310caf66036bba42a7594f9f3a3b056aeff0f355f0fd3e60f23615"
+    },
+    {
+      "file": "assets/ed281ac6fd17f54d6f3d887b3c9c73e7e0f9a3140e3708c37c901a460eee0063.png",
+      "sha256": "ed281ac6fd17f54d6f3d887b3c9c73e7e0f9a3140e3708c37c901a460eee0063"
+    },
+    {
+      "file": "assets/f8e58f7c3cd52c113ff6860a42206484fc642fa415762ba13e24635adf875062.png",
+      "sha256": "f8e58f7c3cd52c113ff6860a42206484fc642fa415762ba13e24635adf875062"
+    },
+    {
+      "file": "assets/fbbbe3be71c99860b05dc483bea2171f3ac7fc92a2c17d9f4286f6685eb836de.png",
+      "sha256": "fbbbe3be71c99860b05dc483bea2171f3ac7fc92a2c17d9f4286f6685eb836de"
+    },
+    {
+      "file": "assets/fdb7392c6a6ec93df20e91990ac1b12ea694986dfa05a45dbbe11f2760399c0c.png",
+      "sha256": "fdb7392c6a6ec93df20e91990ac1b12ea694986dfa05a45dbbe11f2760399c0c"
+    },
+    {
+      "file": "assets/ffa7a2b1179e73d38905f211e2c78ecf9d684f785a49838183c9fe029eb5b2d2.png",
+      "sha256": "ffa7a2b1179e73d38905f211e2c78ecf9d684f785a49838183c9fe029eb5b2d2"
+    }
+  ],
+  "entities": {
+    "rooms": 2,
+    "walls": 7,
+    "openings": 2,
+    "props": 44,
+    "terrainAreas": 1,
+    "paths": 2,
+    "decorations": 6,
+    "surfaceRules": 3
+  },
+  "notes": [
+    "哨站休息室：座椅在有限摆位中未找到同时满足支撑、门前带和通路净空及座位使用空间的位置。",
+    "哨站休息室：座椅在有限摆位中未找到同时满足支撑、门前带和通路净空及座位使用空间的位置。"
+  ],
+  "limitations": [
+    "仅新建一个同楼层的林中建筑，不读取或修改已打开工程。",
+    "房间共用一个用途；不支持逐房间用途、指定邻接或任意建筑位置。",
+    "预留活动空地并连接道路；不生成帐篷、篝火等营地物件。",
+    "家具按现有用途规则建议，缺项以实际生成报告为准。",
+    "使用固定内置素材；不接收个人图片、历史、GM内容或原AI任务续作。"
+  ],
+  "preview": {
+    "path": "public/assets/workflows/forest-building-20261117.png",
+    "sha256": "8a43ed9f926dfa7b5514c98a205c1209af07cc1d26c5b2b3e4f53e9fcc0c1d84",
+    "width": 2048,
+    "height": 1638,
+    "audience": "player",
+    "caption": "2026-11-17真实CLI样例：林中哨站，2房间与44物件；座椅摆位有缺项，视觉与P3未签收。",
+    "provenance": "workflows/examples/forest-building-20261117.json"
+  },
+  "technicalVerification": {
+    "projectHash": "9a4cdd5cce4359c2129eaa462f3551858fa6f726debe46cbf0372a0b9b1dd40b",
+    "coldImportMs": 2813.1,
+    "coldImportAndPixelComparisonMs": 4921.6,
+    "width": 2048,
+    "height": 1638,
+    "changedPixels": 0,
+    "diskShaReread": true
+  },
+  "visualReview": "unverified",
+  "userAcceptance": "unverified",
+  "modelRequests": 0,
+  "formalAcceptance": false,
+  "timing": null,
+  "cost": null,
+  "licenses": [
+    {
+      "file": "licenses/542ed1c5ebec18b77d792a96a165bd92c43821eed850e3b073ac3fc8d0670727.txt",
+      "text": "Sceneweave Refined Island Artwork, version 1\nCopyright (c) 2026 Sceneweave contributors\n\nOriginal deterministic SVG artwork for the M2-Q1 refined island asset batch, created for Sceneweave with coding assistance. No reference-map imagery or third-party assets are embedded.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+    },
+    {
+      "file": "licenses/60a74e201408b9dcdc73c0e631f55e0d4b655d1a8a844ae0c916b4984ca8cf2e.txt",
+      "text": "MIT License\n\nSceneweave Terrain Variant Artwork, version 2\nCopyright (c) 2026 Sceneweave contributors\n\nOriginal deterministic SVG artwork for the compact highland tree, created for Sceneweave with coding assistance. It is an independent source with fixed image dimensions, root anchor, physical footprint, presentation and actual PNG; it does not reuse reference-map pixels, traced imagery or third-party assets. This source is registered separately from terrain-variants-v1 so the earlier fixed catalogue and recipe remain unchanged.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+    },
+    {
+      "file": "licenses/61700687cdc70176944b915ee818a143b444a844326a0ee4754c8ca28867f778.txt",
+      "text": "Sceneweave Shore Surface Artwork, version 1\nCopyright (c) 2026 Sceneweave contributors\n\nOriginal deterministic SVG surface artwork created for Sceneweave with coding assistance. No reference-map pixels, traced source imagery or third-party assets are embedded. All seven opaque periodic tiles retain their actual source SVG, normalized SVG and PNG bytes.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+    },
+    {
+      "file": "licenses/a1a1945f121aea52b138f3be0b1c62a87d21b80a2c46df89600abd2486063065.txt",
+      "text": "MIT License\n\nSceneweave Terrain Variant Artwork, version 1\nCopyright (c) 2026 Sceneweave contributors\n\nOriginal deterministic SVG tree, rock, shrub, grass-edge and scree drawings created for Sceneweave with coding assistance. These twelve sources use independently drawn outlines, not repainted or scaled old artwork, reference-map pixels, traced source imagery or third-party assets. Raw SVG, normalized SVG, actual PNG, fixed millimetre dimensions, roots and declared physical defaults remain together.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+    },
+    {
+      "file": "licenses/e34c463bd7123995c0952c674399c192d7c111be01f999175de776f342c20ac8.txt",
+      "text": "Sceneweave Refined Interior Artwork, version 1\nCopyright (c) 2026 Sceneweave contributors\n\nOriginal deterministic SVG artwork for the Q2 refined interior asset batch, created for Sceneweave with coding assistance. No reference-map imagery or third-party assets are embedded.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+    }
+  ]
+}

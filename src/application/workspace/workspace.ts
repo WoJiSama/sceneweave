@@ -14,6 +14,7 @@ import type { ForestCandidate } from './forest.js'
 import type { VolcanoCandidate } from './volcano.js'
 import type { MixedCandidate } from './mixed.js'
 import { prepareDomainProject, type DomainGenerationExecutor } from './generation.js'
+import { prepareMixedForestFurnitureRepair, prepareForestCandidateDiagnostics } from './forest-repair.js'
 import { getCompositionTransactionReceipt, isIssuedCompositionTransactionReceipt, releaseCompositionTransactionReceipt } from '../../shared/appearance/commands.js'
 import type { TransactionReceipt } from '../../shared/transaction/receipt.js'
 import type { DomainGenerationKind } from '../../shared/generation/execution.js'
@@ -419,7 +420,7 @@ export class Workspace {
   private state: WorkspaceState = { project: null, status: 'empty', error: null, canUndo: false, canRedo: false, lastTransaction: null }
   private readonly listeners = new Set<() => void>()
   private readonly terrainPreviews = new WeakMap<TerrainPreview, PreviewStatus>()
-  private readonly domainPreviews = new WeakMap<object, { domain: DomainGenerationKind; status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[] }>()
+  private readonly domainPreviews = new WeakMap<object, { domain: DomainGenerationKind; status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[]; repairs: string[]; forestDiagnostics?: boolean }>()
   private readonly terrainEditPreviews = new WeakMap<TerrainEditPreview, PreviewStatus>()
   private readonly terrainLocalPreviews = new WeakMap<TerrainLocalPreview, PreviewStatus>()
   private readonly localGenerationPreviews = new WeakMap<LocalGenerationPreview, PreviewStatus>()
@@ -677,7 +678,7 @@ export class Workspace {
     this.validateCandidate(prepared.project.document); assertAllFloorPlayerProjections(prepared.project.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null,
       baseContentHash: current ? projectContentHash(toBundle(current).project) : null }) as DomainPreviewMap[K]
-    this.domainPreviews.set(preview, { domain, status: 'active', base: owned, preparedAt, identityAllocation })
+    this.domainPreviews.set(preview, { domain, status: 'active', base: owned, preparedAt, identityAllocation, repairs: [] })
     return preview
   }
   private cancelDomainGeneration(domain: DomainGenerationKind, preview: DomainPreviewMap[DomainGenerationKind]) {
@@ -705,7 +706,13 @@ export class Workspace {
         if (!id) throw new Error('生成候选身份分配与确定性重放不同。')
         return id
       } } }
-      const replay = await prepareDomainProject(domain, witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
+      let replay = await prepareDomainProject(domain, witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
+      if (witness.forestDiagnostics) replay = prepareForestCandidateDiagnostics(replay as MixedCandidate, signal)
+      for (const roomId of witness.repairs) {
+        if (domain !== 'mixed') throw new Error('家具修正只属于本会话的混合生成候选。')
+        replay = await prepareMixedForestFurnitureRepair(replay as MixedCandidate, roomId, { runtime, validation: this.validation(), signal })
+        assertActive()
+      }
       assertActive()
       if (allocationIndex !== witness.identityAllocation.length) throw new Error('生成候选身份分配次数与确定性重放不同。')
       const project = await consumeEditableSnapshot(preview.project, { ...this.validation(), signal })
@@ -750,6 +757,32 @@ export class Workspace {
   }
   cancelMixedGeneration(preview: MixedPreview) { this.cancelDomainGeneration('mixed', preview) }
   adoptMixedGeneration(preview: MixedPreview, options: ResourceOptions = {}) { return this.adoptDomainGeneration('mixed', preview, options) }
+  async previewForestLoopGeneration(request: NewGenerationRequest<'mixed'>, options: GenerationPreviewOptions = {}): Promise<MixedPreview> {
+    const parent = await this.previewDomainGeneration('mixed', request.base, request.input, request.profile, options)
+    try {
+      const observed = prepareForestCandidateDiagnostics(parent, options.signal)
+      checkCancelled(options.signal); this.assertCheckpoint(parent.checkpoint)
+      const preview = freeze({ ...parent, ...observed }) as MixedPreview
+      this.domainPreviews.set(preview, { ...this.domainPreviews.get(parent)!, forestDiagnostics: true })
+      this.cancelMixedGeneration(parent)
+      return preview
+    } catch (error) { this.cancelMixedGeneration(parent); throw error }
+  }
+  async previewForestFurnitureRepair(parent: MixedPreview, roomId: string, options: ResourceOptions = {}): Promise<MixedPreview> {
+    this.assertWritable()
+    const witness = this.domainPreviews.get(parent), signal = this.atomicSignal(options.signal)
+    if (!witness || witness.domain !== 'mixed' || witness.status !== 'active' || parent.report.environment !== 'forest') throw new Error('家具修正须使用本会话尚未采用的林中建筑候选。')
+    const current = this.state.project
+    this.assertCheckpoint(parent.checkpoint)
+    if ((current?.document.sceneId ?? null) !== parent.currentSceneId || (current ? projectContentHash(toBundle(current).project) : null) !== parent.baseContentHash) throw new Error('候选基线已变化，请重新开始。')
+    const prepared = await prepareMixedForestFurnitureRepair(parent, roomId, { runtime: this.options.runtime, validation: this.validation(), signal })
+    checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(parent.checkpoint)
+    if (witness.status !== 'active') throw new Error('父候选已取消，家具修正不再可用。')
+    this.validateCandidate(prepared.project.document); assertAllFloorPlayerProjections(prepared.project.document)
+    const preview = freeze({ ...parent, ...prepared }) as MixedPreview
+    this.domainPreviews.set(preview, { ...witness, repairs: [...witness.repairs, roomId] })
+    return preview
+  }
   /** A generated map is previewed independently; current edits are saved before switching. */
   async previewBaseMapGeneration(base: EditableProject, request: BaseMapRequest | BaseMapRequestV2 | BaseMapRequestV3, response: unknown, options: { signal?: ResourceOptions['signal']; source?: 'worker' | 'server'; generationExecution?: BaseMapPreparationOptions['generationExecution']; ocean?: BaseMapPreparationOptions['ocean'] } = {}): Promise<TerrainPreview> {
     this.assertWritable()
@@ -978,8 +1011,8 @@ export class Workspace {
       const replayed = await prepareLocalGenerationProject(this.requireProject(), preview.input, { runtime: this.options.runtime, validation: this.validation(), budget: preview.budgetProfile, signal })
       assertActive()
       if (projectContentHash(toBundle(replayed.project).project) !== projectContentHash(toBundle(preview.project).project)
-        || canonical({ result: replayed.result, changes: replayed.changes, readIds: replayed.readIds, writeIds: replayed.writeIds, cost: replayed.cost, profileHash: replayed.profileHash, usage: replayed.usage })
-          !== canonical({ result: preview.result, changes: preview.changes, readIds: preview.readIds, writeIds: preview.writeIds, cost: preview.cost, profileHash: preview.profileHash, usage: preview.usage })) throw new Error('局部生成的完整候选、依赖或预算与确定性重放不符，请重新预览。')
+        || canonical({ result: replayed.result, changes: replayed.changes, readIds: replayed.readIds, writeIds: replayed.writeIds, cost: replayed.cost, profileHash: replayed.profileHash, usage: { ...replayed.usage, activeExecutionMs: 0 } })
+          !== canonical({ result: preview.result, changes: preview.changes, readIds: preview.readIds, writeIds: preview.writeIds, cost: preview.cost, profileHash: preview.profileHash, usage: { ...preview.usage, activeExecutionMs: 0 } })) throw new Error('局部生成的完整候选、依赖或预算与确定性重放不符，请重新预览。')
       const project = await validateEditableProject(preview.project, { ...this.validation(), signal })
       assertActive()
       if (equalOwnedContent(this.requireProject(), project)) throw new Error('本次局部生成没有实际变化，无需采用。')

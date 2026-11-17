@@ -21,6 +21,9 @@ import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
 import { sha256Text } from '../../src/shared/validation/hash.js'
 import { RegionSceneCandidateResponseSchema } from '../../src/shared/ai/region-candidate-protocol.js'
+import { WORKFLOW_DISCOVERY_TOOL, assertWorkflowBinding } from '../../src/shared/ai/workflows/catalog.js'
+import { executeWorkflowQuery } from './workflow-tools.js'
+import { FOREST_ACTION_TOOL, ForestLoopContextSchema, validateForestAction } from '../../src/shared/ai/forest-loop.js'
 import type { RegionSceneCandidateQuery } from '../../src/shared/ai/region-candidate-protocol.js'
 
 const connectionArguments = z.object({ topic: z.literal('connection') }).strict()
@@ -58,6 +61,12 @@ export class TaskEngine {
   }
   create(owner: string, request: CreateTaskRequest): TaskSnapshot {
     this.assertStorageAvailable()
+    if (request.forestLoop) {
+      if (this.connectionInfo.capabilities.forestLoop !== 1) throw new TaskFault('unsupported_forest_loop', 400)
+      if (request.context !== null || request.authoring || request.vision || !ForestLoopContextSchema.safeParse(request.forestLoop).success
+        || !request.forestLoop.nextActions.length) throw new TaskFault('invalid_request', 400)
+    }
+    if (request.workflow) { try { assertWorkflowBinding(request.workflow) } catch { throw new TaskFault('workflow_changed', 400) } }
     if (utf8Size(JSON.stringify(request)) > (isClassifiedAuthoring(request.authoring) ? request.authoring.policy.requestBytes : request.vision ? VISION_LIMITS.requestBytes : request.authoring ? AUTHORING_LIMITS.requestBytes : AI_LIMITS.requestBytes)) throw new TaskFault('request_limit', 413)
     if (request.vision) {
       if (this.connectionInfo.capabilities.vision !== 'enabled') throw new TaskFault('vision_disabled', 400)
@@ -226,7 +235,8 @@ export class TaskEngine {
             const lastImage = messages.findLastIndex(message => !!message.images?.length)
             messages = messages.map((message, index) => index === lastImage ? { ...message, content: `${message.content ?? ''}\nServer-owned public screenshot reference (data only): ${JSON.stringify(screenshotRef)}. Use this compact screenshotRef unchanged in sceneweave_visual_review; never reconstruct PNG bytes.` } : message)
           }
-          let availableTools = textOnlyFinalRound ? [] : task.authoring ? getAuthoringTools(task.authoring.start.scope, task.authoring.start.schemaVersion) : [tool]
+          let availableTools: ProviderToolDefinition[] = textOnlyFinalRound ? [] : task.forestLoop ? [FOREST_ACTION_TOOL] : task.authoring ? getAuthoringTools(task.authoring.start.scope, task.authoring.start.schemaVersion) : [tool]
+          if (!textOnlyFinalRound && !task.forestLoop) availableTools.push(WORKFLOW_DISCOVERY_TOOL)
           if (task.authoring?.start.schemaVersion === 4 && (!screenshotRef || this.connectionInfo.capabilities.vision !== 'enabled' || !this.connectionInfo.capabilities.visualReviewVersions?.includes(1))) {
             availableTools = availableTools.filter(tool => !['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(tool.name))
           }
@@ -289,8 +299,21 @@ export class TaskEngine {
               else events.push({ type: 'status', data: { status: 'failed', reason: current.snapshot.error.message } })
               return events
             }
-            for (const call of completion.toolCalls) events.push(...this.executeTool(current, call))
-            if (!completion.toolCalls.length) {
+            if (current.forestLoop) {
+              const oneAction = completion.toolCalls.length === 1 && completion.toolCalls[0].name === FOREST_ACTION_TOOL.name
+              if (oneAction) events.push(...this.executeTool(current, completion.toolCalls[0]))
+              this.store.stopClock(current)
+              current.snapshot.status = current.forestAction ? 'completed' : 'failed'
+              if (!current.forestAction) {
+                current.snapshot.error = safeTaskError(oneAction ? 'forest_action_invalid' : 'forest_action_missing', 'finished')
+                events.push({ type: 'error', data: current.snapshot.error })
+              }
+              events.push({ type: 'status', data: { status: current.snapshot.status, reason: current.forestAction
+                ? '已记录一个本机宿主动作请求，生成与采用尚未执行。' : '没有收到唯一合法动作；保留原候选，不自动增加模型请求。' } })
+            } else {
+              for (const call of completion.toolCalls) events.push(...this.executeTool(current, call))
+            }
+            if (!current.forestLoop && !completion.toolCalls.length) {
               this.store.stopClock(current)
               if (current.authoring && current.authoring.state.contentHash !== current.authoring.start.baseContentHash) {
                 checkAuthoringDraft(current.authoring.start, current.authoring.state)
@@ -304,7 +327,7 @@ export class TaskEngine {
           })
           // No further request follows a final round, including a provider
           // ignoring its text-only boundary. The committed draft stays intact.
-          if (textOnlyFinalRound || !completion.toolCalls.length) return
+          if (task.forestLoop || textOnlyFinalRound || !completion.toolCalls.length) return
         } finally { releaseRequest?.() }
       }
     } catch (error) {
@@ -350,7 +373,25 @@ export class TaskEngine {
     let args: unknown
     try { args = JSON.parse(call.arguments) } catch { args = undefined }
     const draftBefore = task.authoring?.state.draftRevision
-    if (['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(call.name)
+    if (task.forestLoop) {
+      try {
+        if (call.name !== FOREST_ACTION_TOOL.name || task.forestAction) throw new Error('本次决策仅能提交一个获准动作。')
+        const action = validateForestAction(task.forestLoop, args)
+        task.forestAction = action
+        result = { callId: call.id, name: call.name, success: true, output: JSON.stringify({ acceptedForHost: true, action,
+          executed: false, note: '宿主将在任务回执后执行；此回执不表示已生成、保存或采用工程。' }) }
+      } catch (error) {
+        result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'forest_action_invalid', message: error instanceof Error ? error.message.slice(0, 512) : '动作不符合当前状态。' } }) }
+      }
+    }
+    else if (call.name === WORKFLOW_DISCOVERY_TOOL.name) {
+      try {
+        result = { callId: call.id, name: call.name, success: true, output: executeWorkflowQuery(task, args, this.connectionInfo, Math.max(0, this.store.limits(task).toolCalls - task.toolAttempts - (reserved ? 0 : 1))) }
+      } catch (error) {
+        result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'workflow_unavailable', message: error instanceof Error ? error.message.slice(0, 512) : '工作流参数或版本不可用。' } }) }
+      }
+    }
+    else if (['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(call.name)
       && (this.connectionInfo.capabilities.vision !== 'enabled' || !this.connectionInfo.capabilities.visualReviewVersions?.includes(1))) result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'vision_disabled', message: '本任务尚未启用真实公开图片复核。' } }) }
     else if (task.authoring) result = executeAuthoringTool(task, call, args, new StaticSvgArtifacts(this.store.artifacts), {
       modelRequests: this.store.limits(task).modelRequests, toolCalls: this.store.limits(task).toolCalls, executionRemainingMs: this.store.remaining(task),
@@ -385,7 +426,10 @@ export class TaskEngine {
     const status = task.snapshot.status
     if (request.action === 'resume' ? status !== 'paused' : !['running', 'paused', 'waiting_browser', 'ready'].includes(status)) throw new TaskFault('invalid_task_state')
     if (request.action === 'pause' && status === 'paused') return task.snapshot
-    if (request.action === 'resume') this.store.assertCanResume(task, this.maxConcurrent)
+    if (request.action === 'resume') {
+      this.store.assertCanResume(task, this.maxConcurrent)
+      try { for (const binding of task.workflowBindings ?? []) assertWorkflowBinding(binding) } catch { throw new TaskFault('workflow_changed', 409) }
+    }
     if (request.vision) {
       if (this.connectionInfo.capabilities.vision !== 'enabled') throw new TaskFault('vision_disabled', 400)
       if (task.messages.reduce((sum, message) => sum + (message.images?.length ?? 0), 0) >= VISION_LIMITS.imagesPerTask) throw new TaskFault('vision_limit', 413)

@@ -57,6 +57,30 @@ afterEach(async () => {
   for (const repo of repos.splice(0)) { const name = repo.database.name; repo.close(); await Dexie.delete(name) }
 })
 describe('complete mixed candidate delivery', () => {
+  it('privately replays a furniture repair chain and refuses forged, cancelled and stale parents', async () => {
+    const { repo, workspace } = await setup(), base = await blank(), current = workspace.getState().project!
+    const original = projectContentHash(toBundle(current).project)
+    const parent = await workspace.previewMixedGeneration(base, request(base), profile)
+    const roomId = parent.report.roomIds[0]
+    await expect(workspace.previewForestFurnitureRepair({ ...parent }, roomId)).rejects.toThrow(/本会话/)
+    const repaired = await workspace.previewForestFurnitureRepair(parent, roomId)
+    expect(repaired.project.document.rooms).toEqual(parent.project.document.rooms)
+    expect(repaired.project.document.walls).toEqual(parent.project.document.walls)
+    expect(repaired.project.document.openings).toEqual(parent.project.document.openings)
+    expect(workspace.getState().project).toBe(current)
+    await expect(workspace.adoptMixedGeneration({ ...repaired })).rejects.toThrow(/本会话/)
+    workspace.cancelMixedGeneration(parent)
+    await expect(workspace.previewForestFurnitureRepair(parent, roomId)).rejects.toThrow(/本会话/)
+    // A derived witness owns its replay chain even after the unselected parent
+    // has been released. It must replay generation and every local correction.
+    await workspace.adoptMixedGeneration(repaired)
+    expect(projectContentHash((await repo.load(base.document.sceneId))!.project)).toBe(projectContentHash(toBundle(repaired.project).project))
+    expect(projectContentHash((await repo.load(current.document.sceneId))!.project)).toBe(original)
+    const secondBase = await blank(), stale = await workspace.previewMixedGeneration(secondBase, request(secondBase), profile)
+    const prop = Object.values(workspace.getState().project!.document.props)[0]
+    await workspace.updateProp(prop.id, { rotationDeg: 21 })
+    await expect(workspace.previewForestFurnitureRepair(stale, stale.report.roomIds[0])).rejects.toThrow(/已有修改|基线/)
+  }, 30000)
   it('uses one public transport preview, local replay, save/cold-read and a portable full project; local furnishing respects a manual deletion', async () => {
     const { repo, workspace } = await setup(), base = await blank(), current = workspace.getState().project!, original = projectContentHash(toBundle(current).project)
     const execute = vi.fn(async raw => executeDomainExecutionRequest(raw, { nowMilliseconds: () => 0 }))

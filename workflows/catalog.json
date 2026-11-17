@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "workflows": [
+    {
+      "id": "sceneweave-forest-building",
+      "version": 2,
+      "title": "生成林中建筑",
+      "summary": "用规范参数生成一个同楼层林中建筑，审阅真实预览后交付可编辑工程。",
+      "tags": [
+        "地图",
+        "生成",
+        "森林",
+        "建筑",
+        "forest",
+        "generate"
+      ],
+      "bodyFile": "forest-building.md",
+      "inputSchemaRef": "semanticGenerationRequestSchema",
+      "steps": [
+        {
+          "id": "parameters",
+          "title": "明确目标与参数",
+          "requires": [
+            "forest-parameters"
+          ],
+          "produces": "通过严格schema的参数；歧义和不支持要求"
+        },
+        {
+          "id": "generate",
+          "title": "生成独立候选",
+          "requires": [
+            "forest-generation"
+          ],
+          "produces": "真实生成结果、诊断和候选身份"
+        },
+        {
+          "id": "review",
+          "title": "检查实际结果",
+          "requires": [
+            "project-preview"
+          ],
+          "produces": "预览、缺项与技术检查结果；视觉结论另判"
+        },
+        {
+          "id": "deliver",
+          "title": "保存与冷读交付",
+          "requires": [
+            "project-delivery"
+          ],
+          "produces": "完整工程、输出与实际冷读结果"
+        }
+      ],
+      "effects": [
+        {
+          "id": "forest-delivery",
+          "status": "historical",
+          "versionScope": "2026-11-10冻结的林中建筑配方；不自动覆盖后续算法",
+          "inputScope": "内置固定素材、一个同楼层建筑、所有房间共用用途",
+          "summary": "历史窄样例九次页面交付的几何、资源与4096玩家像素一致；页面AI未显示机器提速，真人收益未测。",
+          "limitations": [
+            "不支持逐房间空间约束或完整营地",
+            "当前配方须按实际结果重新检查",
+            "视觉P3未签收"
+          ],
+          "reference": "docs/completed.md#forest-building",
+          "checkedOn": "2026-11-10",
+          "previews": []
+        },
+        {
+          "id": "forest-example-20261117",
+          "status": "partial",
+          "versionScope": "2026-11-17确切CLI样例；算法、固定素材、输入及摘要见provenance，后续改版不自动继承",
+          "inputScope": "内置严格example参数，2房间林中哨站，standard预算",
+          "summary": "真实完整工程与玩家预览已落盘及冷读，2048×1638像素一致；座椅摆位有缺项，视觉与用户P3未通过验收。",
+          "limitations": [
+            "只代表此输入和实际固定资源",
+            "冷读一致不等于美术通过",
+            "没有真实模型提速或成本比较"
+          ],
+          "reference": "docs/completed.md#shared-workflows",
+          "checkedOn": "2026-11-17",
+          "previews": [
+            {
+              "path": "public/assets/workflows/forest-building-20261117.png",
+              "sha256": "8a43ed9f926dfa7b5514c98a205c1209af07cc1d26c5b2b3e4f53e9fcc0c1d84",
+              "width": 2048,
+              "height": 1638,
+              "audience": "player",
+              "caption": "2026-11-17真实CLI样例：林中哨站，2房间与44物件；座椅摆位有缺项，视觉与P3未签收。",
+              "provenance": "workflows/examples/forest-building-20261117.json"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sceneweave-scene-edit",
+      "version": 1,
+      "title": "有限修改现有场景",
+      "summary": "读取已授权范围，在隔离草稿中小步修改、检查差异，保护当前工程后采用。",
+      "tags": [
+        "编辑",
+        "局部",
+        "草稿",
+        "edit",
+        "draft"
+      ],
+      "bodyFile": "scene-edit.md",
+      "inputSchemaRef": "current-authoring-scope",
+      "steps": [
+        {
+          "id": "inspect",
+          "title": "确认基线与授权",
+          "requires": [
+            "draft-read"
+          ],
+          "produces": "当前草稿身份、范围和支持操作"
+        },
+        {
+          "id": "edit",
+          "title": "有限原子修改",
+          "requires": [
+            "draft-edit"
+          ],
+          "produces": "实际修改、诊断与新草稿身份"
+        },
+        {
+          "id": "check",
+          "title": "检查草稿",
+          "requires": [
+            "draft-check"
+          ],
+          "produces": "完整领域检查结果与未完成要求"
+        },
+        {
+          "id": "adopt",
+          "title": "本机审阅与保护采用",
+          "requires": [
+            "page-adopt"
+          ],
+          "produces": "本机资源检查、差异及一次采用/撤销结果"
+        }
+      ],
+      "effects": [
+        {
+          "id": "edit-boundary",
+          "status": "unverified",
+          "versionScope": "sceneweave-current-authoring@1；实际scope和严格工具schema",
+          "inputScope": "本次明确授权的对象、有限操作、资源和基线",
+          "summary": "工具支持有限草稿编辑；完整任务质量和真实模型收益须逐项检查。",
+          "limitations": [
+            "工作流不新增操作权限",
+            "普通聊天没有场景编辑授权",
+            "结构检查不能代替实际看图"
+          ],
+          "reference": "docs/architecture.md#ai",
+          "checkedOn": null,
+          "previews": []
+        }
+      ]
+    },
+    {
+      "id": "sceneweave-image-items",
+      "version": 1,
+      "title": "从图片制作可编辑item",
+      "summary": "核对原图与比例，辅助选区、切割和补底，查看换底/移转预览，保存制作工作包。",
+      "tags": [
+        "图片",
+        "拆解",
+        "切割",
+        "素材",
+        "image",
+        "item"
+      ],
+      "bodyFile": "image-items.md",
+      "inputSchemaRef": "image-import-tools",
+      "steps": [
+        {
+          "id": "inspect",
+          "title": "读取原图与有效断点",
+          "requires": [
+            "image-read"
+          ],
+          "produces": "实际图片摘要、比例、generation和下一步"
+        },
+        {
+          "id": "extract",
+          "title": "选区、切割与补底",
+          "requires": [
+            "image-select"
+          ],
+          "produces": "真实选区、裁片、补底和来源记录"
+        },
+        {
+          "id": "review",
+          "title": "换底与移转审阅",
+          "requires": [
+            "image-preview"
+          ],
+          "produces": "原色/黑白/棋盘预览、缺陷和绑定确切输入的审核"
+        },
+        {
+          "id": "deliver",
+          "title": "保全进度与工程",
+          "requires": [
+            "image-build"
+          ],
+          "produces": "独立制作工作包、完整工程候选及资源"
+        }
+      ],
+      "effects": [
+        {
+          "id": "image-quality",
+          "status": "partial",
+          "versionScope": "实际image_import_workflow及配方声明的算法/输入",
+          "inputScope": "已获准原图；边界和补底按具体物件检查",
+          "summary": "页面与MCP共用切割和工作包。主体边缘、邻物归属、隐藏补底及新手稳定质量仍须逐件审阅。",
+          "limitations": [
+            "普通应用聊天尚无图片执行工具",
+            "模型分数和工具成功不等于视觉通过",
+            "隐藏区域属于推断，插值不恢复缺失细节"
+          ],
+          "reference": "docs/reference/image-item-workflow.md",
+          "checkedOn": null,
+          "previews": []
+        }
+      ]
+    },
+    {
+      "id": "sceneweave-asset-refinement",
+      "version": 1,
+      "title": "素材局部优化",
+      "summary": "保全原件，按实际缺陷选择有限处理候选，同尺度比较后保存新副本。",
+      "tags": [
+        "素材",
+        "修边",
+        "增强",
+        "优化",
+        "asset",
+        "refine"
+      ],
+      "bodyFile": "asset-refinement.md",
+      "inputSchemaRef": "image-enhancement-tools",
+      "steps": [
+        {
+          "id": "candidate",
+          "title": "定位缺陷与生成候选",
+          "requires": [
+            "asset-refine"
+          ],
+          "produces": "绑定原件及参数的有限候选"
+        },
+        {
+          "id": "review",
+          "title": "同尺度查看改善",
+          "requires": [
+            "image-preview"
+          ],
+          "produces": "实际前后预览、缺陷与不确定性"
+        },
+        {
+          "id": "adopt",
+          "title": "保存固定新副本",
+          "requires": [
+            "page-adopt"
+          ],
+          "produces": "新副本或实例派生，原件与物理字段保持"
+        }
+      ],
+      "effects": [
+        {
+          "id": "refinement-limit",
+          "status": "partial",
+          "versionScope": "实际有限图像处理方法与固定派生",
+          "inputScope": "原件可读取，具体边缘/色边/弱噪声问题已定位",
+          "summary": "现有有限处理可产生候选；改善必须看真实图，部分色边与木纹接缝仍未解决。",
+          "limitations": [
+            "插值不增加细节",
+            "主体错选须先修选区",
+            "模型补画需独立配置及本次明确外发授权"
+          ],
+          "reference": "docs/completed.md#assets",
+          "checkedOn": null,
+          "previews": []
+        }
+      ]
+    },
+    {
+      "id": "sceneweave-ocean-map",
+      "version": 1,
+      "title": "海洋成图与多层地图",
+      "summary": "沿现有岩岛或海岸生成静态海洋场景，审阅布景缺项；普通Floor入口双向定位并逐层交付。",
+      "tags": [
+        "海洋",
+        "海岸",
+        "岩岛",
+        "船",
+        "楼层",
+        "ocean",
+        "ship",
+        "floor"
+      ],
+      "bodyFile": "ocean-map.md",
+      "inputSchemaRef": "oceanDressingSettingsSchema",
+      "steps": [
+        {
+          "id": "generate",
+          "title": "生成底图和海洋候选",
+          "requires": [
+            "ocean-generation"
+          ],
+          "produces": "真实地形与水面、独立物件和空间不足清单"
+        },
+        {
+          "id": "review",
+          "title": "审阅与保存",
+          "requires": [
+            "project-preview",
+            "page-adopt"
+          ],
+          "produces": "实际画面、缺项与保存后的完整可编辑工程"
+        },
+        {
+          "id": "floors",
+          "title": "关联入口与定位",
+          "requires": [
+            "floor-navigation"
+          ],
+          "produces": "两层入口坐标、双向跳转及保全的编辑事务"
+        },
+        {
+          "id": "deliver",
+          "title": "逐层输出与冷读",
+          "requires": [
+            "project-delivery"
+          ],
+          "produces": "完整工程与各层主持人/玩家PNG、实际重开验证"
+        }
+      ],
+      "effects": [
+        {
+          "id": "ocean-continuation",
+          "status": "unverified",
+          "versionScope": "海洋布景步骤recipe1；原地形算法保持独立",
+          "inputScope": "普通页面海岸/岩岛；静态地图与普通Floor",
+          "summary": "本轮实现和受影响验收按09记录；技术可用与用户视觉签收分别判断。",
+          "limitations": [
+            "动态海浪、航行与跨层寻路不支持",
+            "空间不足明确报告缺项",
+            "外部CLI和普通聊天未开放此执行工具",
+            "用户P3未签收"
+          ],
+          "reference": "docs/completed.md#ocean",
+          "checkedOn": null,
+          "previews": []
+        }
+      ]
+    }
+  ]
+}

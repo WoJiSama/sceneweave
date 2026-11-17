@@ -179,7 +179,20 @@ export class AiClient {
     try { return parseSchema(schema, parseJson(await boundedText(response, signal, max))) }
     catch (error) { aborted(signal); if (method === 'POST') throw new AiClientError('protocol', '服务器已接收请求，但响应尚未确认。请保留同一请求 ID 重试或刷新任务。', 'unknown'); throw error }
   }
-  capabilities(signal?: AbortSignal, version: 2 | 3 | 4 = 4, surfaceVersion?: 1): Promise<ConnectionInfo> { return this.#json(`capabilities?authoringVersion=${version}${surfaceVersion === undefined ? '' : `&surfaceVersion=${surfaceVersion}`}`, ConnectionInfoSchema, 'GET', undefined, signal) }
+  async capabilities(signal?: AbortSignal, version: 2 | 3 | 4 = 4, surfaceVersion?: 1): Promise<ConnectionInfo> {
+    const path = `capabilities?authoringVersion=${version}${surfaceVersion === undefined ? '' : `&surfaceVersion=${surfaceVersion}`}`
+    try { return await this.#json(`${path}&workflowVersion=1`, ConnectionInfoSchema, 'GET', undefined, signal) }
+    catch (error) {
+      // Read-only capability negotiation may fall back to an older task service;
+      // no task creation, provider request or scene data is repeated here.
+      if (!(error instanceof AiClientError) || error.code !== 'invalid_request' || error.status !== 400) throw error
+      return this.#json(path, ConnectionInfoSchema, 'GET', undefined, signal)
+    }
+  }
+  /** This opt-in loop never falls back to a conversation that lacks its action tool. */
+  forestLoopCapabilities(signal?: AbortSignal): Promise<ConnectionInfo> {
+    return this.#json('capabilities?authoringVersion=4&workflowVersion=1&forestLoopVersion=1', ConnectionInfoSchema, 'GET', undefined, signal)
+  }
   baseMapCapabilities(signal: AbortSignal | undefined, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8'): Promise<ConnectionInfo> {
     return this.#json(`capabilities?baseMapSelector=${selector}`, ConnectionInfoSchema, 'GET', undefined, signal)
   }

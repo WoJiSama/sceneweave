@@ -1,4 +1,4 @@
-import { IMAGE_ITEM_WORKFLOW } from '../image-import/workflow-instructions.js'
+import { WORKFLOW_DISCOVERY_INSTRUCTIONS } from './workflows/catalog.js'
 
 /** Product-owned defaults for creation tasks, independent of model, scene files and task history. */
 export const PROJECT_CREATION_WORKFLOW = Object.freeze({
@@ -14,11 +14,9 @@ export const PROJECT_CREATION_WORKFLOW = Object.freeze({
   ].join('\n'),
 })
 
-/** Injected into new built-in conversation and authoring tasks; it adds guidance, never tools. */
+/** New tasks load the small catalogue; specialist procedures are read on demand. */
 export const DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS = [
   `Project creation workflow: ${PROJECT_CREATION_WORKFLOW.id}@${PROJECT_CREATION_WORKFLOW.version}`,
   PROJECT_CREATION_WORKFLOW.instructions,
-  `Image-item task procedure: ${IMAGE_ITEM_WORKFLOW.id}@${IMAGE_ITEM_WORKFLOW.version}`,
-  '以下图片步骤在当前宿主实际开放image_import_*工具时执行；当前工具目录没有它们时，用这些步骤指导页面制作或交接给项目图片工具，明确尚未执行。图片步骤仅在相关任务使用，不要求无关地图编辑执行切割。',
-  IMAGE_ITEM_WORKFLOW.instructions,
+  WORKFLOW_DISCOVERY_INSTRUCTIONS,
 ].join('\n\n')

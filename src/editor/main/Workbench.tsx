@@ -52,6 +52,10 @@ import InteriorGenerationPanel, { type InteriorGenerationUiRequest } from './Int
 import ForestGenerationPanel, { type ForestGenerationUiRequest } from './ForestGenerationPanel'
 import VolcanoGenerationPanel, { type VolcanoGenerationUiRequest } from './VolcanoGenerationPanel'
 import MixedGenerationPanel, { type MixedGenerationUiRequest } from './MixedGenerationPanel'
+import type { RunForestLoop } from './ForestLoopAssistant'
+import { runForestWorkflow, type ForestLoopOutcome } from '../../platform/browser/ai/forest-loop'
+import { prepareSemanticGenerationIntent, semanticGenerationRequestHash, diagnoseForestFurniture, forestFurnitureNotes } from '../../application/workspace/semantic-generation'
+import { taskBudgetProfile } from '../../shared/budget/task-budget'
 import { prepareGenerationIntent } from '../../application/workspace/generation-intent.js'
 import { browserGenerationContent } from '../../platform/browser/content/generation-intent.js'
 import LocalGenerationPanel from './LocalGenerationPanel'
@@ -72,7 +76,8 @@ import { assessAddedCatalogQuality } from '../../application/workspace/asset-qua
 import { assertAssetQualityAccepted, assetQualityAcknowledgmentsComplete, type AssetQualityAssessment } from '../../shared/assets/quality-review'
 import AssetQualityReview from './AssetQualityReview'
 import { toBundle, type EditableProject } from '../../application/workspace/project'
-import { exportProject, exportHistoryArchive } from '../../shared/project/file'
+import { exportProject, exportHistoryArchive, importProject } from '../../shared/project/file'
+import { projectContentHash } from '../../shared/project/validate'
 import { validateProjectBundle } from '../../shared/project/resources'
 import { projectRepository, validation, runtime } from '../../platform/browser/runtime'
 import { createBlankProject, createSampleProject } from '../../platform/browser/content/factories'
@@ -770,6 +775,63 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     lease.assertCurrent()
     return compositionWorkspace.previewGeneration(request, { signal: lease.signal, epoch: lease.epoch, execute: domainExecutor(lease) })
   })
+  const runForestCandidateLoop: RunForestLoop = async (input, observer, userSignal) => {
+    const connection = parameterAiConnection
+    if (!connection) throw new Error('请先连接AI后端。')
+    let outcome: ForestLoopOutcome<DomainPreviewMap['mixed']> | null = null
+    await generateDomain('mixed', input, async (owned, lease) => {
+      const signal = AbortSignal.any([userSignal, lease.signal])
+      const held = new Set<DomainPreviewMap['mixed']>()
+      let selected: DomainPreviewMap['mixed'] | undefined
+      const deliver = async (preview: DomainPreviewMap['mixed'], seed: string, requestHash: string, generationSignal: AbortSignal,
+        parent?: { candidateId: string; roomId: string }) => {
+        held.add(preview)
+        try {
+          const bundle = toBundle(preview.project), candidateId = projectContentHash(bundle.project)
+          const archive = await exportProject(bundle, { ...validation, signal: generationSignal })
+          const cold = await importProject(archive, { ...validation, signal: generationSignal })
+          lease.assertCurrent(); generationSignal.throwIfAborted()
+          if (projectContentHash(cold.project) !== candidateId) throw new Error('候选完整工程冷读发生变化，保留原候选。')
+          const image = await exportPng(cold, { audience: 'player', longEdgePx: 2048 })
+          const diagnostics = preview.furnitureDiagnostics ?? diagnoseForestFurniture(cold.project.document, { profile: preview.profile, checkCancelled: () => generationSignal.throwIfAborted() })
+          lease.assertCurrent(); generationSignal.throwIfAborted()
+          return { preview, archive, image, receipt: { candidateId, requestHash, seed, diagnostics,
+            ...(parent ? { parentCandidateId: parent.candidateId, repairRoomId: parent.roomId } : {}),
+            entities: { rooms: Object.keys(cold.project.document.rooms).length, props: Object.keys(cold.project.document.props).length },
+            notes: forestFurnitureNotes(diagnostics, preview.report.notes).slice(0, 16).map(note => note.slice(0, 512)) } }
+        } catch (error) {
+          compositionWorkspace.cancelGeneration({ kind: 'new-project', domain: 'mixed', preview }); held.delete(preview)
+          throw error
+        }
+      }
+      try {
+        outcome = await runForestWorkflow({ request: owned, client: connection.client, signal, assertCurrent: lease.assertCurrent, onUpdate: observer,
+          generate: async (semantic, generationSignal) => {
+            const request = await prepareSemanticGenerationIntent(semantic, { runtime, content: browserGenerationContent,
+              authorization: { capabilityId: semantic.capabilityId, contentId: 'builtin-mixed-forest@1', requestHash: semanticGenerationRequestHash(semantic) },
+              profile: taskBudgetProfile('standard'), signal: generationSignal })
+            lease.assertCurrent(); generationSignal.throwIfAborted()
+            const preview = await compositionWorkspace.previewForestLoopGeneration(request, { signal: generationSignal, epoch: lease.epoch, execute: domainExecutor(lease) })
+            return deliver(preview, semantic.parameters.seed, request.requestHash, generationSignal)
+          },
+          repair: async (parent, roomId, generationSignal) => {
+            const preview = await compositionWorkspace.previewForestFurnitureRepair(parent.preview, roomId, { signal: generationSignal })
+            return deliver(preview, parent.receipt.seed, parent.receipt.requestHash, generationSignal, { candidateId: parent.receipt.candidateId, roomId })
+          },
+        })
+        lease.assertCurrent()
+        // Stopping is not success: retain the last real candidate for manual
+        // review, with the stopped status and every prior archive still visible.
+        const final = outcome.candidates.find(value => value.receipt.candidateId === outcome!.state.selectedCandidateId) ?? outcome.candidates.at(-1)
+        if (!final) throw new Error(outcome.state.stopReason ?? '本轮未形成可审阅候选，当前工程保留。')
+        selected = final.preview
+        return selected
+      } finally {
+        for (const preview of held) if (preview !== selected) compositionWorkspace.cancelGeneration({ kind: 'new-project', domain: 'mixed', preview })
+      }
+    })
+    return outcome
+  }
   const adoptMixed = () => adoptDomain('mixed', preview => compositionWorkspace.adoptGeneration({ kind: 'new-project', domain: 'mixed', preview }),
     '混合场景已完整保存并打开。首次建议的门、家具和接入路线可继续修改、删除，不会自动补回。', '保存混合场景', '正在保存混合场景并准备打开…')
   const generateForest = (input: ForestGenerationUiRequest) => generateDomain('forest', input, async (owned, lease) => {
@@ -1905,7 +1967,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     <div className="workspace-task-section" hidden={generationTab !== 'interior'}><InteriorGenerationPanel key={`interior-${interiorReset}`} busy={interiorBusy || busy} disabled={audience !== 'gm' || aiCritical || !!generationTransitionReason('interior')} dirty={interiorDraft} error={interiorError} candidate={interiorPreview} onChange={changeInterior} onGenerate={generateInterior} onAdopt={adoptInterior} onCancel={() => cancelInterior()}/></div>
     <div className="workspace-task-section" hidden={generationTab !== 'forest'}><ForestGenerationPanel key={`forest-${forestReset}`} busy={forestBusy || busy} disabled={audience !== 'gm' || aiCritical || !!generationTransitionReason('forest')} dirty={forestDraft} error={forestError} candidate={forestPreview} onChange={changeForest} onGenerate={generateForest} onAdopt={adoptForest} onCancel={() => cancelForest()}/></div>
     <div className="workspace-task-section" hidden={generationTab !== 'volcano'}><VolcanoGenerationPanel key={`volcano-${volcanoReset}`} busy={mixedBusy || volcanoBusy || busy} disabled={audience !== 'gm' || aiCritical || !!generationTransitionReason('volcano')} dirty={volcanoDraft} error={volcanoError} candidate={volcanoPreview} onChange={changeVolcano} onGenerate={generateVolcano} onAdopt={adoptVolcano} onCancel={() => cancelVolcano()}/></div>
-    <div className="workspace-task-section" hidden={generationTab !== 'mixed'}><MixedGenerationPanel key={`mixed-${mixedReset}`} busy={mixedBusy || busy} disabled={audience !== 'gm' || aiCritical || !!generationTransitionReason('mixed')} dirty={mixedDraft} error={mixedError} candidate={mixedPreview} aiConnection={parameterAiConnection} onChange={changeMixed} onGenerate={generateMixed} onAdopt={adoptMixed} onCancel={() => cancelMixed(true, true)}/></div>
+    <div className="workspace-task-section" hidden={generationTab !== 'mixed'}><MixedGenerationPanel key={`mixed-${mixedReset}`} busy={mixedBusy || busy} disabled={audience !== 'gm' || aiCritical || !!generationTransitionReason('mixed')} dirty={mixedDraft} error={mixedError} candidate={mixedPreview} aiConnection={parameterAiConnection} onRunForestLoop={runForestCandidateLoop} onChange={changeMixed} onGenerate={generateMixed} onAdopt={adoptMixed} onCancel={() => cancelMixed(true, true)}/></div>
     <div className="workspace-task-section" hidden={generationTab !== 'natural'}><TerrainGenerationPanel busy={terrainBusy || busy || aiCritical} error={terrainError} disabled={!terrainPreview && !terrainBusy && !!workspaceTransitionReason(transient())} disabledReason={workspaceTransitionReason(transient()) ?? undefined} candidate={terrainPreview && !terrainPreview.composition ? { id: terrainPreview.project.document.sceneId, name: terrainPreview.project.document.title, ...terrainPreview.input, ocean: !!terrainPreview.ocean, terrainCount: Object.keys(terrainPreview.project.document.terrainAreas).length, propCount: Object.keys(terrainPreview.project.document.props).length, connectionCount: Object.keys(terrainPreview.project.document.terrainConnections).length, budgetProfile: terrainPreview.baseMap?.budgetProfile, cost: { ...terrainPreview.cost, items: Object.entries(terrainPreview.cost.items).filter(([, value]) => value > 0).map(([label, value]) => ({ label, value })) }, checks: [{ label: '活动空地与合法登高连接', status: 'passed', detail: '登高连接净宽 1.5 米；完整支撑与几何已检查。' }, ...(terrainPreview.result.route ? [{ label: '指定路线与完整转角净宽', status: 'passed' as const, detail: `净宽 ${terrainPreview.result.route.widthMm / 1000} 米；${terrainPreview.result.route.pointsMm.length - 1} 段道路已检查。` }] : [])] } : null} onGenerate={generateTerrain} onAdopt={adoptTerrain} onCancel={cancelTerrain} onExport={exportTerrain}/>{terrainPreview?.ocean && <div role="status" className="terrain-generation-notice"><p>海洋步骤：{terrainPreview.ocean.waterCount}处水域；已放置{terrainPreview.ocean.placed.join('、') || '无'}。</p>{terrainPreview.ocean.skipped.map(text => <p key={text}>{text}</p>)}</div>}</div>
     <div className="workspace-task-section" hidden={generationTab !== 'composition'}><TerrainCompositionPanel busy={terrainBusy || busy || aiCritical} error={terrainError} disabled={!terrainPreview?.composition && !terrainBusy && !!workspaceTransitionReason(transient())} disabledReason={workspaceTransitionReason(transient())} candidate={terrainPreview?.composition?terrainPreview:null} onGenerate={generateComposition} onAdopt={adoptTerrain} onCancel={cancelTerrain} onExport={exportTerrain}/></div>
     <div className="workspace-task-section" hidden={generationTab !== 'regional'}>{audience === 'gm' && <RegionalPanel key={panelKey + '-regional-' + regionalReset} document={completeProject?.document ?? null} busy={regionalBusy || busy} disabled={!!workspaceTransitionReason({ ...transient(), terrainPreview: !!localGenerationPreviewRef.current || localGenerationDraftRef.current || domainOperations.summary().blocking || !!terrainPreview || !!terrainEditPreview || terrainEditDraft, busy: busy || localGenerationBusy || domainOperations.summary().busy || terrainBusy || terrainEditBusy || catalogBusy || aiCritical })} error={regionalError} candidate={regionalPreview} sourceComparison={regionalComparison} onPreviewCreate={input => previewRegional('create', input)} onPreviewEdit={input => previewRegional('edit', input)} onPreviewDrillDown={input => previewRegional('drillDown', input)} onCompareSource={compareRegional} onAdopt={adoptRegional} onCancel={cancelRegional} onDraftChange={setRegionalDraft}/>}</div>

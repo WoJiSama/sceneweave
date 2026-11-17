@@ -10,12 +10,15 @@ export const assert = (condition, message) => { if (!condition) throw new Error(
 export const usage = `Usage:
   node tools/harness/sceneweave.mjs capabilities
   node tools/harness/sceneweave.mjs example
+  node tools/harness/sceneweave.mjs workflows [--query TEXT | --id WORKFLOW_ID [--step STEP_ID | --effects | --schema]]
   node tools/harness/sceneweave.mjs generate --input ABS_JSON --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded
+  node tools/harness/sceneweave.mjs repair-furniture --input ABS_SCENEWEAVE --room ROOM_ID --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded
 
 Generation creates an independent project from the explicitly authorized built-in
 forest-building catalogue. Input JSON supplies semantic parameters only. Output
 must not exist and its parent must exist. Actual image/pixel checks and rendering
-use an isolated bundled Chromium; install it with npx playwright install chromium.
+use isolated Chromium; install it with npx playwright install chromium, or set
+SCENEWEAVE_BROWSER_CHANNEL=chrome to use installed Chrome with a fresh profile.
 No model, external provider, current project, or user browser database is used.
 No request is retried automatically. Only result.json status complete confirms
 disk reread, native cold import, and matching preview pixels. This is development
@@ -24,12 +27,27 @@ review and continue editing.`
 
 export function parseArguments(args) {
   const [command, ...rest] = args
+  if (command === 'workflows') {
+    const values = new Map()
+    for (let index = 0; index < rest.length; index++) {
+      const key = rest[index]
+      assert(['--query', '--id', '--step', '--effects', '--schema'].includes(key) && !values.has(key), `Unknown or repeated workflow argument: ${key}`)
+      const value = ['--effects', '--schema'].includes(key) ? true : rest[++index]
+      assert(value === true || value && !value.startsWith('--'), `Missing workflow argument: ${key}`)
+      values.set(key, value)
+    }
+    const workflowId = values.get('--id'), stepId = values.get('--step'), query = values.get('--query')
+    const views = ['--step', '--effects', '--schema'].filter(key => values.has(key))
+    assert(views.length <= 1 && (!views.length || workflowId) && !(query && workflowId), 'Choose a query or one workflow with one optional detail view')
+    return { command, query: workflowId ? { action: stepId ? 'step' : values.has('--effects') ? 'effects' : values.has('--schema') ? 'schema' : 'read', workflowId, ...(stepId ? { stepId } : {}) }
+      : { action: 'list', ...(query ? { query } : {}) } }
+  }
   if (command === 'capabilities' || command === 'example') {
     assert(rest.length === 0, `Unexpected arguments.\n${usage}`)
     return { command }
   }
-  assert(command === 'generate', usage)
-  const values = new Map(), allowed = new Set(['--input', '--output', '--allow', '--budget'])
+  assert(command === 'generate' || command === 'repair-furniture', usage)
+  const values = new Map(), allowed = new Set(['--input', '--output', '--allow', '--budget', ...(command === 'repair-furniture' ? ['--room'] : [])])
   for (let index = 0; index < rest.length; index += 2) {
     const key = rest[index], value = rest[index + 1]
     assert(allowed.has(key) && !values.has(key) && value && !value.startsWith('--'), `Unknown, repeated, or missing argument: ${key}\n${usage}`)
@@ -41,7 +59,9 @@ export function parseArguments(args) {
   assert(values.get('--allow') === 'forest-building', 'Expected explicit --allow forest-building')
   assert(['small', 'standard', 'expanded'].includes(budget), 'Expected explicit --budget small|standard|expanded')
   assert(path.resolve(input) !== path.resolve(output), 'Input file and output directory must be different')
-  return { command, input: path.resolve(input), output: path.resolve(output), budget }
+  const roomId = values.get('--room')
+  if (command === 'repair-furniture') assert(typeof roomId === 'string' && roomId.length > 0 && roomId.length <= 256 && roomId !== '__proto__', 'Expected explicit --room ROOM_ID')
+  return { command, input: path.resolve(input), output: path.resolve(output), budget, ...(roomId ? { roomId } : {}) }
 }
 
 /** A regular file is captured read-only and bounded before JSON is interpreted. */

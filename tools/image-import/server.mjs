@@ -8,6 +8,7 @@ import { startHarnessTooling } from '../harness/tooling.mjs'
 import { verifyDiskDelivery } from '../harness/browser.mjs'
 import { readBounded, replaceResult, writeVerified } from '../harness/io.mjs'
 import { executeLocalSegmentation, LOCAL_SEGMENTATION_TOOL } from './local-tool.mjs'
+import { readWorkflowCompanion, writeWorkflowCompanion } from '../harness/workflow-checkpoint.mjs'
 
 const usage = 'node tools/image-import/server.mjs (--image ABS_IMAGE --license-file ABS_LICENSE --attribution TEXT | --resume ABS_WORK_PACKAGE) --output EXISTING_OUTPUT_DIRECTORY [--local-model-dir ABS_DIR --python ABS_PYTHON [--python-path ABS_DEPENDENCY_DIR]]'
 
@@ -153,6 +154,10 @@ async function serve(options) {
   let browser
   let lines
   try {
+    const workflowSdk = await tooling.workflows()
+    const restoredWorkflow = options.resume ? await readWorkflowCompanion(options.resume, work, workflowSdk.assertWorkflowBinding) : { status: 'new', binding: null }
+    const workflow = restoredWorkflow.binding ?? workflowSdk.workflowBinding('sceneweave-image-items')
+    if (workflow.id !== 'sceneweave-image-items') throw new Error('工作包绑定的主工作流与图片制作入口不符。')
     try { browser = await chromium.launch({ headless: true, ...(process.env.SCENEWEAVE_BROWSER_CHANNEL ? { channel: process.env.SCENEWEAVE_BROWSER_CHANNEL } : {}) }) }
     catch (error) {
       if (process.env.SCENEWEAVE_BROWSER_CHANNEL || !String(error).includes("Executable doesn't exist")) throw error
@@ -166,7 +171,7 @@ async function serve(options) {
     })
     const page = await context.newPage()
     await page.goto(tooling.url)
-    const definitions = await page.evaluate(async ({ base64, workBase64, rights, originalName }) => {
+    const definitions = await page.evaluate(async ({ base64, workBase64, rights, originalName, savedGeneration }) => {
       const sessionPath = '/src/platform/browser/content/image-import-session.ts'
       const schemaPath = '/src/shared/image-import/recipe.ts'
       const { ImageImportToolSession, loadImageImportSource, loadImageImportWorkSource } = await import(sessionPath)
@@ -174,6 +179,7 @@ async function serve(options) {
       if (workBase64) {
         const { readBrowserImageWorkPackage } = await import('/src/platform/browser/content/image-workflow-store.ts')
         const work = await readBrowserImageWorkPackage(unpack(workBase64))
+        if (savedGeneration !== undefined && work.state.revision !== savedGeneration) throw new Error('工作流伴随记录与工作包实际代次不符。')
         const source = await loadImageImportWorkSource(work)
         source.originalName = work.state.original.name
         window.imageImportTools = new ImageImportToolSession(source, work.state.rights)
@@ -186,15 +192,21 @@ async function serve(options) {
         window.imageImportSource = source
       }
       return (await import(schemaPath)).IMAGE_IMPORT_TOOLS
-    }, { base64: image?.toString('base64'), workBase64: work?.toString('base64'), rights: { licenseText, attribution: options.attribution }, originalName: options.image ? path.basename(options.image) : '' })
+    }, { base64: image?.toString('base64'), workBase64: work?.toString('base64'), rights: { licenseText, attribution: options.attribution }, originalName: options.image ? path.basename(options.image) : '',
+      savedGeneration: restoredWorkflow.status === 'bound' ? restoredWorkflow.generation : undefined })
     if (options.localModelDir) definitions.push(LOCAL_SEGMENTATION_TOOL)
+    const workflowTools = definitions.map(tool => ({ name: tool.name, parameters: tool.inputSchema }))
+    definitions.push({ name: workflowSdk.WORKFLOW_DISCOVERY_TOOL.name, description: workflowSdk.WORKFLOW_DISCOVERY_TOOL.description,
+      inputSchema: workflowSdk.WORKFLOW_DISCOVERY_TOOL.parameters })
 
     const saveWork = async () => {
       const response = await page.evaluate(executeInBrowser, { name: 'image_import_export_work', input: {} })
       if (response.toolError) throw new Error(response.toolError.message)
       const filename = `work-${response.generation}-${randomUUID()}.sceneweave-image-work`
       const written = await writeVerified(options.output, filename, Buffer.from(response.workBase64, 'base64'))
-      return { path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation }
+      const companion = await writeWorkflowCompanion(path.join(options.output, filename), written.bytes, workflow, response.generation)
+      return { path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation,
+        workflow, workflowCompanion: path.join(options.output, companion.record.file) }
     }
 
     const handleLine = async line => {
@@ -244,6 +256,18 @@ async function serve(options) {
         return
       }
       try {
+        if (params.name === workflowSdk.WORKFLOW_DISCOVERY_TOOL.name) {
+          const inspection = await page.evaluate(() => ({ ...window.imageImportTools.inspect(), id: window.imageImportTools.captureWorkState().id }))
+          const host = workflowSdk.toolWorkflowHost('image-mcp', workflowTools, { hasImageItems: inspection.draft.layers.length > 0, progress: {
+            taskId: inspection.id, generation: inspection.generation, status: 'draft', baselineHash: inspection.image.sha256,
+            draftRevision: inspection.generation, lastTool: null, unknown: true, remainingToolCalls: null,
+          } })
+          const value = workflowSdk.queryWorkflow(params.arguments ?? {}, host)
+          send({ jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ ...value, binding: workflow,
+            resumeBindingStatus: restoredWorkflow.status,
+            continuation: '详细断点与未决问题读取image_import_workflow。跨电脑同时携带工作包与.workflow.json；缺少伴随记录时只证明工程输入，不证明旧流程定义。' }) }] } })
+          return
+        }
         if (params.name === LOCAL_SEGMENTATION_TOOL.name) {
           const content = await executeLocalSegmentation(page, options, params.arguments ?? {})
           send({ jsonrpc: '2.0', id: request.id, result: { content } })
@@ -288,7 +312,9 @@ async function serve(options) {
         } else if (response.workBase64) {
           const filename = `work-${response.generation}-${randomUUID()}.sceneweave-image-work`
           const written = await writeVerified(options.output, filename, Buffer.from(response.workBase64, 'base64'))
-          content = [{ type: 'text', text: JSON.stringify({ path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation }) }]
+          const companion = await writeWorkflowCompanion(path.join(options.output, filename), written.bytes, workflow, response.generation)
+          content = [{ type: 'text', text: JSON.stringify({ path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation,
+            workflow, workflowCompanion: path.join(options.output, companion.record.file) }) }]
         } else if (response.archiveBase64) {
           content = await saveCandidate(response, options.output, context, tooling)
         } else if (response.previewBase64) {

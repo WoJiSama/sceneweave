@@ -31,7 +31,7 @@ function envelope(shape: FurnishingShape, rotationDeg: number) {
  * lock state, rotated geometry, door reservations and full-width circulation. */
 export function furniturePoseCandidates(bounds: InteriorRectangle, shape: FurnishingShape, inset: number,
   role: InteriorFurnitureRole, anchors: readonly FurnitureAnchor[], rank: (key: string) => string,
-  retainedRotation?: number, allowPairedSeats = true, fitSeatToEdge = false): FurnishingPose[] {
+  retainedRotation?: number, allowPairedSeats = true, fitSeatToEdge = false, seatPairOverhangMm = 0): FurnishingPose[] {
   type Candidate = FurnishingPose & { priority: number; key: string; neighbour: boolean }
   const candidates: Candidate[] = []
   const add = (x: number, y: number, rotationDeg: number, priority: number, neighbour = false) => {
@@ -74,7 +74,8 @@ export function furniturePoseCandidates(bounds: InteriorRectangle, shape: Furnis
       // v18 dining groups do not place a full bench across a shorter table
       // end. Keep the complete authored body and other fitting edges instead.
       if (fitSeatToEdge && cardinal && seatSpan > edgeSpan) continue
-      const pairFits = allowPairedSeats && longAxis !== null && !shortEnd && edgeSpan >= seatSpan * 2 + 100
+      const pairFits = allowPairedSeats && (longAxis !== null && !shortEnd || seatPairOverhangMm > 0)
+        && edgeSpan + 2 * seatPairOverhangMm >= seatSpan * 2 + 100
       if (pairFits) {
         const spread = (seatSpan + 100) / 2
         for (const sign of [-1, 1]) add(px + (side % 2 ? 0 : sign * spread), py + (side % 2 ? sign * spread : 0), rotation, priority, true)

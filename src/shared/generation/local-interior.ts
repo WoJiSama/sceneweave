@@ -27,8 +27,9 @@ function realRectangle(document: SceneDocument, roomId: string) {
 }
 
 /** Regenerate a single generated room's still-managed furniture slots. Existing
- * props retain their exact identities and every field other than position. */
-export function regenerateRoomFurniture(content: CompositionContent, request: { recipeId: string; roomId: string; variation: string }, runtime: PreparationContext,
+ * props retain identities and business fields; legacy requests only move,
+ * while the explicit seating strategy may rotate managed seated geometry. */
+export function regenerateRoomFurniture(content: CompositionContent, request: { recipeId: string; roomId: string; variation: string; strategy?: 'seating-v1' }, runtime: PreparationContext,
   options: { profile: TaskBudgetProfile; checkCancelled: () => void }): LocalDomainResult {
   options.checkCancelled()
   if (!request.variation || request.variation.length > 128) throw new Error('家具变化种子须为1–128字符。')
@@ -116,8 +117,13 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
         || Object.values(before.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === prop.id))
         || Object.values(before.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === prop.id))) suppressed = true
     }
+    // This strategy only rearranges seated groups; retained cupboards/other
+    // functions remain real read-only obstacles instead of being displaced by
+    // a late successful chair reservation.
+    const preservedFunction = request.strategy === 'seating-v1' && prop && !['seat', 'table', 'work'].includes(role)
+    if (preservedFunction) suppressed = true
     slots.set(key, { owner, prop, propId: prop?.id, suppressed })
-    if (suppressed) notes.push(`保留人工修改、删除、退出或锁定家具槽位：${key}`)
+    if (suppressed) notes.push(`${preservedFunction ? '保留座位组范围外家具槽位' : '保留人工修改、删除、退出或锁定家具槽位'}：${key}`)
   }
   const allocate = (slot: InteriorFurnitureSlot): string | null => {
     const row = slots.get(slotKey(slot))!
@@ -125,7 +131,8 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
     if (!row.propId) { const fresh = runtime.ids.nextId(); if (used.has(fresh)) throw new Error('新家具须分配未使用的真实出生身份。'); used.add(fresh); row.propId = fresh }
     return row.propId
   }
-  const result = furnishInterior(before, input, layout, connectivity, { ...options, rankSalt: request.variation, propIdForSlot: allocate,
+  const repackPropIds = new Set([...slots.values()].filter(row => !row.suppressed && row.prop).map(row => row.prop!.id))
+  const result = furnishInterior(before, input, layout, connectivity, { ...options, strategy: request.strategy, repackPropIds, rankSalt: request.variation, propIdForSlot: allocate,
     existingPropForSlot: slot => slots.get(slotKey(slot))?.prop?.id ?? null })
   const writes: LocalWrite[] = []
   for (const row of slots.values()) if (!row.suppressed && row.propId) {

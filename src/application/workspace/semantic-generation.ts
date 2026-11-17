@@ -7,10 +7,14 @@ import type { PreparationContext } from '../../shared/ports/runtime.js'
 import { captureJson } from '../../shared/validation/json.js'
 import { prepareGenerationIntent, type GenerationContentPort, type MixedGenerationUiRequest } from './generation-intent.js'
 import { prepareDomainProject } from './generation.js'
+import { prepareForestCandidateDiagnostics } from './forest-repair.js'
 
 import { SEMANTIC_GENERATION_CAPABILITY, SEMANTIC_GENERATION_CONTENT, parseSemanticGenerationRequest, semanticGenerationCapabilities } from '../../shared/generation/semantic-request.js'
 export { SEMANTIC_GENERATION_CAPABILITY, SEMANTIC_GENERATION_CONTENT, parseSemanticGenerationRequest, semanticGenerationCapabilities, semanticGenerationExample, semanticGenerationRequestHash } from '../../shared/generation/semantic-request.js'
 export type { SemanticGenerationRequest } from '../../shared/generation/semantic-request.js'
+export { prepareForestFurnitureRepair } from './forest-repair.js'
+export { diagnoseForestFurniture, forestFurnitureNotes } from '../../shared/generation/forest-furniture.js'
+export { combineForestCandidateUsage } from '../../shared/generation/forest-budget.js'
 const authorizationSchema = z.object({
   capabilityId: z.literal(SEMANTIC_GENERATION_CAPABILITY), contentId: z.literal(SEMANTIC_GENERATION_CONTENT),
   requestHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -69,9 +73,10 @@ export async function generateSemanticProject(raw: unknown, options: SemanticGen
     return clock()
   }
   budgetClock()
-  const candidate = await prepareDomainProject(prepared.domain, prepared.base, prepared.input, {
+  const generated = await prepareDomainProject(prepared.domain, prepared.base, prepared.input, {
     runtime: options.runtime, validation: options.validation, signal, profile: prepared.profile, nowMilliseconds: budgetClock,
   })
+  const candidate = prepareForestCandidateDiagnostics(generated, signal)
   checkCancelled(signal)
   const usage = assertTaskBudget(prepared.profile, { ...candidate.usage, activeExecutionMs: Math.max(candidate.usage.activeExecutionMs, elapsed()) })
   return { kind: 'new-project' as const, request: prepared.request, requestHash: prepared.requestHash,

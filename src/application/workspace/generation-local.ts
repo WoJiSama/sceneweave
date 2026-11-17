@@ -1,4 +1,4 @@
-import { assertTaskBudget, measureTaskBudget, parseTaskBudgetProfile, taskBudgetProfile, type BudgetUsage, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { assertTaskBudget, emptyBudgetUsage, measureTaskBudget, parseTaskBudgetProfile, taskBudgetProfile, withAdditionalExecutionWorkObserver, type BudgetUsage, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
 import { syncAppearanceGraph } from '../../shared/appearance/graph.js'
 import { advanceHistoryIdentity } from '../../shared/history/identity.js'
 import { sha256Text } from '../../shared/geometry/scatter.js'
@@ -90,6 +90,7 @@ export async function prepareLocalGenerationProject(base: EditableProject, raw: 
   signal?: ResourceOptions['signal']
   budget?: TaskBudgetProfile
 }): Promise<LocalGenerationCandidate> {
+  const started = performance.now(), elapsed = () => Math.max(0, Math.ceil(performance.now() - started))
   const input = localGenerationRequestSchema.parse(captureJson(raw))
   const budgetProfile = options.budget ? parseTaskBudgetProfile(options.budget) : taskBudgetProfile('standard')
   const validation = { ...options.validation, signal: options.signal ?? options.validation.signal }
@@ -97,7 +98,13 @@ export async function prepareLocalGenerationProject(base: EditableProject, raw: 
   const owned = getVerifiedEditableProject(base) ?? await validateEditableProject(base, validation)
   checkCancelled(validation.signal)
   const runtime = replayRuntime(owned, input)
-  const result = runLocalGeneration(owned, input, runtime, { profile: budgetProfile, checkCancelled: () => checkCancelled(validation.signal) })
+  let execution = emptyBudgetUsage()
+  const result = withAdditionalExecutionWorkObserver(delta => {
+    checkCancelled(validation.signal)
+    const next = { ...execution, activeExecutionMs: elapsed() }
+    for (const [key, amount] of Object.entries(delta) as [keyof BudgetUsage, number][]) next[key] += amount
+    execution = assertTaskBudget(budgetProfile, next)
+  }, () => runLocalGeneration(owned, input, runtime, { profile: budgetProfile, checkCancelled: () => checkCancelled(validation.signal) }))
   const historyIdentity = advanceHistoryIdentity(owned.historyIdentity, owned.document, result.document, runtime)
   const content = syncAppearanceGraph({ document: result.document, historyIdentity, appearance: owned.appearance }, owned.document, result.commands ?? [])
   // This is an authorized generation transaction, already reconciled by the
@@ -108,7 +115,6 @@ export async function prepareLocalGenerationProject(base: EditableProject, raw: 
   // Profiles bound generation search/resources; they never increase the normal
   // transaction's full entity/geometry/source/identity cost beyond 256.
   const cost = assertTerrainBudget(owned.document, project.document, { before: owned, after: project })
-  const usage = assertTaskBudget(budgetProfile, measureTaskBudget(owned.document, project.document, { before: owned, after: project }))
   const changes = exactChanges(toBundle(owned).project, toBundle(project).project)
   const writeIds = [...new Set([...changes.map(change => change.id), ...result.writes.map(write => write.entityId)])].sort()
   const reads = new Set(result.readIds)
@@ -122,6 +128,7 @@ export async function prepareLocalGenerationProject(base: EditableProject, raw: 
     }
   }
   const writes = new Set(writeIds)
+  const usage = assertTaskBudget(budgetProfile, measureTaskBudget(owned.document, project.document, { before: owned, after: project }, { ...execution, activeExecutionMs: elapsed() }))
   return { project, document: project.document, input: result.request, result, cost, changes,
     readIds: [...reads].filter(id => !writes.has(id)).sort(), writeIds, budgetProfile, profileHash: budgetProfile.profileHash, usage }
 }
