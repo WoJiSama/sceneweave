@@ -1,0 +1,128 @@
+import { freezeJson } from '../validation/json.js'
+
+export const STORAGE_CATEGORIES = [
+  { id: 'chest', name: '箱', use: '住宅、仓库、军营与旅行' },
+  { id: 'barrel', name: '桶', use: '厨房、酿造、农场与货场' },
+  { id: 'basket', name: '篮', use: '厨房、洗衣、集市与收获' },
+  { id: 'sack', name: '袋', use: '粮食、商贸、工具与野营' },
+] as const
+export type StorageCategory = typeof STORAGE_CATEGORIES[number]['id']
+export type CollectionEra = 'medieval' | 'fantasy' | '1920s'
+export interface StorageDesign {
+  key: string; category: StorageCategory; name: string; era: CollectionEra
+  widthMm: number; heightMm: number; design: string; material: 'oak' | 'pine' | 'darkwood' | 'wicker' | 'leather' | 'iron' | 'stone' | 'ceramic' | 'cloth'
+}
+type Row = readonly [id: string, name: string, era: CollectionEra, width: number, height: number, material: StorageDesign['material'], design: string]
+const category = (category: StorageCategory, rows: readonly Row[]): StorageDesign[] => rows.map(([id, name, era, widthMm, heightMm, material, design]) =>
+  ({ key: `${category}-${id}`, category, name, era, widthMm, heightMm, material, design }))
+
+/** Names describe construction, shape and use, not colour/state permutations. */
+export const STORAGE_DESIGNS: readonly StorageDesign[] = freezeJson([
+  ...category('chest', [
+    ['plank', '农舍横板铁箍箱', 'medieval', 1100, 650, 'oak', '横向拼板平盖，双窄铁箍，独立门鼻'],
+    ['dovetail', '木匠燕尾榫方箱', 'medieval', 850, 650, 'pine', '宽边框与四角燕尾榫，嵌板盖面'],
+    ['coffer', '弧顶雕花钱箱', 'medieval', 950, 600, 'darkwood', '弧形长边与三道镂纹铁带，中央宽锁板'],
+    ['wicker-trunk', '编藤布草大箱', 'medieval', 1200, 750, 'wicker', '粗藤椭圆角盖、周边捆边与双编绳提手'],
+    ['hide-trunk', '缝皮游牧行装箱', 'medieval', 1000, 650, 'leather', '折角皮盖、交叉皮带、外露缝线与侧提环'],
+    ['domed-iron', '铁脊拱盖军需箱', 'medieval', 1300, 720, 'iron', '凸脊盖面、五肋宽铁带与双锁'],
+    ['sea-chest', '收腰航海长箱', 'medieval', 1400, 700, 'oak', '两端收窄梯形盖与粗绳侧柄，宽木楔'],
+    ['reliquary', '鎏饰圣物匣', 'medieval', 800, 500, 'darkwood', '八角端部、小型柱状角扣与对称金属嵌条'],
+    ['leaf-coffer', '精灵叶缘藏箱', 'fantasy', 1100, 650, 'oak', '尖叶两端、弧形藤肋与叶片锁板'],
+    ['hex-vault', '矮人六角铸箱', 'fantasy', 1200, 850, 'stone', '六角厚壁、金属角块与三重机械锁'],
+    ['bone-chest', '兽骨绑木战利箱', 'fantasy', 1450, 950, 'leather', '不对称皮盖、两道真实骨肋与绳缠连接'],
+    ['octagon-case', '法师八角符匣', 'fantasy', 900, 900, 'darkwood', '规则八角框、中央符盘与四向小锁槽'],
+    ['buttress', '哥特扶壁圣匣', 'fantasy', 1300, 700, 'darkwood', '尖拱肋条与外伸扶壁角座，长条分格盖'],
+    ['scale-trunk', '龙鳞护角宝箱', 'fantasy', 1400, 900, 'iron', '翼角斜边盖、层叠鳞片与爪形端锁'],
+    ['bark-pod', '妖精荚壳收纳箱', 'fantasy', 850, 600, 'oak', '两瓣荚壳的不对称外形与茎结闭合'],
+    ['round-store', '半身人圆腹粮箱', 'fantasy', 1000, 800, 'pine', '鼓腹短圆盖、宽榫条、环扣与曲柄'],
+    ['steamer', '汽船黄铜包角行李箱', '1920s', 1150, 750, 'leather', '矩形硬壳、黄铜包角、纵向双皮带与三锁'],
+    ['footlocker', '铆接军用脚柜箱', '1920s', 1000, 600, 'iron', '折边钢盖、边角铆钉、双扣与凹置提手'],
+    ['document', '橡木分格档案箱', '1920s', 800, 600, 'oak', '书脊式双脊盖、横列标牌与小型锁眼'],
+    ['instrument', '精密仪器运输箱', '1920s', 900, 700, 'pine', '四周厚保护木条、六个转扣与宽底座'],
+    ['deco-case', '阶缘镶木珠宝箱', '1920s', 650, 450, 'darkwood', '三级阶梯外框、放射镶木与小型黄铜锁'],
+    ['cedar', '雪松宽框被褥箱', '1920s', 1400, 650, 'pine', '宽平盖、四幅纵板与内嵌边框，左右长合页'],
+    ['valise', '双瓣硬皮旅行衣箱', '1920s', 1050, 700, 'leather', '圆角双瓣箱壳、中央开合缝、双扣和独立手柄'],
+    ['strongbox', '三铰链黄铜保险匣', '1920s', 750, 550, 'iron', '厚金属双层框、三铰链和转轮式锁'],
+  ]),
+  ...category('barrel', [
+    ['ale-cask', '酿酒交木盖圆桶', 'medieval', 850, 850, 'oak', '圆形桶沿、分瓣木盖与交叉压木'],
+    ['water-tub', '椭口提耳储水桶', 'medieval', 1000, 850, 'pine', '椭圆口、厚壁窄板、两只外伸木耳与水面'],
+    ['butter-churn', '窄身搅乳桶', 'medieval', 550, 650, 'oak', '窄椭圆木盖、中央搅杆、皮封口与短横柄'],
+    ['half-tun', '宽口浸泡大木桶', 'medieval', 1400, 1200, 'oak', '宽阔敞口、多拼板厚壁与四段加强木箍'],
+    ['wine-cask', '卧架长身酒桶', 'medieval', 1500, 850, 'darkwood', '纵卧鼓腹桶身、三箍、上置木塞与双托架'],
+    ['travel-keg', '绳兜旅行小酒桶', 'medieval', 750, 600, 'oak', '短卧桶身、交织绳兜与两侧绳环'],
+    ['salt-tub', '方圆口盐渍桶', 'medieval', 950, 800, 'pine', '圆角方口、厚切板壁与双杠可卸盖'],
+    ['lidded-vat', '双瓣盖粮食大桶', 'medieval', 1300, 1100, 'oak', '宽桶双叶顶盖、中央合页与独立转扣'],
+    ['elven-vat', '精灵叶口酿露桶', 'fantasy', 1000, 850, 'oak', '尖叶椭口、沿口交枝和侧置细流槽'],
+    ['stone-vat', '矮人切角石酒桶', 'fantasy', 1200, 1100, 'stone', '八角厚石桶口、三组铆接金属角与方形塞'],
+    ['bone-vat', '兽人骨箍皮酒桶', 'fantasy', 1200, 1000, 'leather', '不规则绷皮桶壁、外露粗骨箍及绑结'],
+    ['arcane-jar', '法师六棱封液桶', 'fantasy', 850, 850, 'ceramic', '六边陶桶、双层封盖与独立符印封口'],
+    ['gothic-basin', '尖瓣石沿集水桶', 'fantasy', 1100, 1000, 'stone', '四叶口厚石沿、四道径向石肋与内凹水面'],
+    ['dragon-vat', '龙鳞黄铜贮液桶', 'fantasy', 1150, 1000, 'iron', '重叠六瓣金属壁、厚圆盖与爪形三扣'],
+    ['fey-vessel', '妖精果壳露水桶', 'fantasy', 800, 700, 'oak', '裂果状有机双瓣口、茎柄和树脂封边'],
+    ['halfling-press', '半身人榨果桶', 'fantasy', 1050, 900, 'pine', '外伸木压架、中央螺杆压盘与出汁槽'],
+    ['steel-drum', '铆边钢制货运桶', '1920s', 700, 700, 'iron', '同心卷边钢盖、大小双旋塞与边缘铆点'],
+    ['milk-churn', '双耳镀锡运奶桶', '1920s', 650, 650, 'iron', '肩部收颈圆盖、双矩形耳柄及扣盖环'],
+    ['enamel-pail', '搪瓷提梁清洁桶', '1920s', 600, 650, 'ceramic', '白色薄壁开口、深色包边和横跨提梁'],
+    ['coal-hod', '斜口镀锌运煤桶', '1920s', 700, 850, 'iron', '一端尖嘴斜口、宽背、拱提柄与煤块'],
+    ['metal-wash-tub', '双把椭圆洗衣桶', '1920s', 1300, 850, 'iron', '宽椭圆卷边、短端双把与底部洗衣板纹'],
+    ['ceramic-crock', '釉陶厚沿腌菜桶', '1920s', 800, 800, 'ceramic', '厚陶口、嵌盖、两耳小把与釉流痕'],
+    ['fiber-drum', '纤维板封箍储货桶', '1920s', 800, 750, 'cloth', '压纸纤维筒、金属扣环封盖和带扣接头'],
+    ['fuel-can', '椭圆双柄燃料桶', '1920s', 700, 500, 'iron', '扁椭圆罐顶、顶边压筋、侧置旋盖与双提手'],
+  ]),
+  ...category('basket', [
+    ['round-willow', '粗柳圆口采收篮', 'medieval', 750, 650, 'wicker', '圆口双编边、厚实交织底与双侧短柄'],
+    ['oval-laundry', '长椭圆布草篮', 'medieval', 1100, 650, 'wicker', '长椭圆深口、弧形双提手与宽编边'],
+    ['square-reed', '芦苇方形货篮', 'medieval', 850, 750, 'wicker', '方口四角包边、平直格编与对侧条柄'],
+    ['harvest-trug', '木条浅身采果篮', 'medieval', 900, 550, 'pine', '浅长舟形木条底与横跨拱柄'],
+    ['fish-creel', '窄口编柳鱼篓', 'medieval', 750, 600, 'wicker', '宽腹收口、独立鱼口圆盖与肩带扣'],
+    ['bread-tray', '分栏面包扁篮', 'medieval', 1100, 650, 'wicker', '圆角矩形浅边与两道内编分栏'],
+    ['shoulder-pannier', '背负高口藤篓', 'medieval', 850, 700, 'wicker', '前窄后宽梯形口与背部双肩带'],
+    ['lidded-hamper', '合页盖野餐篮', 'medieval', 900, 650, 'wicker', '双叶编盖、中央宽提手与两个皮扣'],
+    ['elven-leaf', '精灵叶编收获篮', 'fantasy', 850, 600, 'wicker', '尖叶舟形外缘与弯曲单藤柄'],
+    ['dwarven-wire', '矮人六角铁丝筐', 'fantasy', 850, 800, 'iron', '六角金属粗框、编网底与两只折柄'],
+    ['orc-hide', '兽人骨框皮篓', 'fantasy', 1000, 800, 'leather', '粗骨四边框、缝皮内兜与绳捆端角'],
+    ['arcanist', '法师分格药草篮', 'fantasy', 850, 700, 'wicker', '六瓣编边与中央十字分格和环柄'],
+    ['gothic', '尖拱藤编供奉篮', 'fantasy', 800, 700, 'wicker', '四叶形底、双尖拱细柄与深色窄编边'],
+    ['draconic', '龙翼柄金属礼篮', 'fantasy', 950, 750, 'iron', '折角六边碗体、鳞格底与翼形两柄'],
+    ['fey-petal', '妖精花瓣露珠篮', 'fantasy', 650, 650, 'wicker', '五瓣有机编壁与中央花蕊浅底'],
+    ['halfling', '半身人双耳麦穗篮', 'fantasy', 900, 700, 'wicker', '豆形宽口、麦穗编边与两条交接细柄'],
+    ['laundry-wicker', '长方硬藤洗衣篮', '1920s', 1000, 700, 'wicker', '圆角长方底、双层粗框与端部挖手'],
+    ['wire-market', '折柄铁丝购物篮', '1920s', 750, 550, 'iron', '矩形包边细铁网与相叠双折柄'],
+    ['picnic-case', '皮扣藤编野餐箱篮', '1920s', 1000, 650, 'wicker', '收角硬盖、纵向皮带与顶置短皮柄'],
+    ['postal', '分格邮政文件篮', '1920s', 900, 600, 'wicker', '一侧低口长方编框、五道细分栏与边角钢扣'],
+    ['deco', '阶缘铜网果篮', '1920s', 700, 600, 'iron', '八角阶边、放射铜条底与直角双耳'],
+    ['wastepaper', '锥形编纸废纸篓', '1920s', 650, 650, 'wicker', '大口小底圆编圈、窄内底与竖编侧壁'],
+    ['millinery', '圆顶帽店藤篮', '1920s', 850, 850, 'wicker', '大圆编盖、八向放射编条与细皮提带'],
+    ['surgical', '提耳器械清洁筐', '1920s', 700, 450, 'iron', '薄钢圆角框、密排网底与两只内折提耳'],
+  ]),
+  ...category('sack', [
+    ['grain', '粗麻束颈粮袋', 'medieval', 650, 900, 'cloth', '宽肩鼓腹、短束颈、单结麻绳与厚侧缝'],
+    ['flour', '平缝长身面粉袋', 'medieval', 650, 1000, 'cloth', '平直缝口、长方鼓面、宽折角袋底'],
+    ['coin', '圆腹抽绳钱袋', 'medieval', 400, 450, 'leather', '短圆底、六褶收口、双抽绳与小结'],
+    ['salt', '双耳运盐麻袋', 'medieval', 750, 850, 'cloth', '平顶翻折口、左右提耳、梯形袋腹'],
+    ['spice', '方底系带香料袋', 'medieval', 500, 650, 'cloth', '四角方底、斜折口与横向宽扎带'],
+    ['charcoal', '窄口缝皮木炭袋', 'medieval', 750, 1100, 'leather', '细长锥颈、下宽不规则皮片拼缝与提圈'],
+    ['seed', '斜挂播种腰袋', 'medieval', 650, 700, 'leather', '不对称宽开口、月牙袋底与长肩背带'],
+    ['saddlebag', '双囊马鞍行装袋', 'medieval', 1200, 650, 'leather', '成对独立翻盖囊由宽中桥连接，双皮扣'],
+    ['elven', '精灵叶瓣抽带袋', 'fantasy', 550, 750, 'cloth', '尖叶下摆、三瓣叠口与细藤抽带'],
+    ['dwarven', '矮人铆边矿石袋', 'fantasy', 750, 900, 'leather', '六角加固袋底、宽铁口与铆接横带'],
+    ['orc', '兽人缝骨猎获袋', 'fantasy', 950, 1100, 'leather', '不规则缝皮、骨扣翻盖与粗绳背带'],
+    ['spell-pouch', '法师多格施法腰囊', 'fantasy', 650, 650, 'cloth', '四个放射小囊、中央系结与分格封片'],
+    ['gothic', '尖瓣礼仪封口袋', 'fantasy', 550, 850, 'cloth', '窄长尖瓣袋底、双襟盖与三道金属闭扣'],
+    ['dragon', '龙鳞护片运宝袋', 'fantasy', 850, 950, 'leather', '重叠鳞甲皮片、三角口与双爪扣'],
+    ['fey', '妖精果实茎结囊', 'fantasy', 450, 550, 'cloth', '偏心圆荚袋、茎绕小结与花瓣开口'],
+    ['halfling', '半身人卷口食粮袋', 'fantasy', 650, 750, 'cloth', '宽豆形袋腹、双卷口与侧置束结'],
+    ['postal', '厚帆布邮运长袋', '1920s', 750, 1100, 'cloth', '金属鸡眼束口、长条加固缝与独立邮牌'],
+    ['duffel', '圆底帆布旅行袋', '1920s', 650, 1000, 'cloth', '圆底筒身、上置钢环束口与长背带'],
+    ['doctor', '硬口皮革出诊包', '1920s', 800, 550, 'leather', '方底鼓腹、铰接金属硬口与双短提柄'],
+    ['tool-roll', '绑带皮制工具卷', '1920s', 850, 450, 'leather', '长椭圆卷体、两道皮带与外露卷边端面'],
+    ['dispatch', '翻盖皮制公文包', '1920s', 650, 550, 'leather', '矩形包体、三角长盖与宽口平提柄'],
+    ['laundry', '双提耳洗衣布袋', '1920s', 850, 950, 'cloth', '宽口布翻边、双粗提耳与深方底'],
+    ['carpetbag', '毯织硬口旅行包', '1920s', 800, 600, 'cloth', '鼓腹弧边、金属口架与双皮柄，织毯拼片'],
+    ['sandbag', '折口帆布防洪沙袋', '1920s', 1000, 650, 'cloth', '低矮长方鼓袋、一侧封扎、四角折布缝'],
+  ]),
+])
+
+export const storageAssetId = (key: string) => `storage-collection-v1-art-${key}`
+export const storageDefinitionId = (key: string) => `storage-collection-v1-prop-${key}`
