@@ -1,9 +1,15 @@
 import { createAggregateObserver } from './aggregate-observer.mjs'
 
+export function currentFormalRssMode(platform = process.platform) {
+  if (platform === 'win32') return 'windows-process-tree'
+  if (platform === 'darwin') return 'macos-process-tree'
+  throw new Error(`Current formal process sampling is unsupported on ${platform}; use an explicit unavailable RSS mode only for diagnostics.`)
+}
+
 /** Same read-only trusted-event/CPU/block observer, with explicit current-matrix
  * provenance and a host-suspension guard. This wrapper never changes the product. */
 export async function createCurrentFormalObserver(options) {
-  const observer = await createAggregateObserver(options)
+  const observer = await createAggregateObserver({ ...options, rssMode: options.rssMode ?? currentFormalRssMode() })
   const clockGaps = []
   let last = performance.now(), phase = 'setup'
   const timer = setInterval(() => {

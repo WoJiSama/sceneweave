@@ -13,6 +13,7 @@ import { diffAggregateBlocks } from './aggregate-observer.mjs'
 import { createCurrentFormalObserver } from './current-formal-observer.mjs'
 import { summarizeCurrentFormal, compactFormalRunForManifest } from './summarize-current-formal.mjs'
 import { runAggregateWithDraftCleanup } from './aggregate-draft-cleanup.mjs'
+import { worldDeltaToLocal, propDragPlan, currentMeasurementPolicy, exclusiveWindowArgument, stopFileArgument } from './current-formal-interactions.mjs'
 
 // Current complete-v1 production runner. Fixture preparation is a separate,
 // already-closed process; no product hook, injected state, retry or reduced load.
@@ -20,8 +21,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
 const argument = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback
 if (args.includes('--help')) {
-  console.log('node tools/performance/run-current-formal.mjs --fixtures ABS --output ABS [--dist ABS] [--channel chrome] [--timeout-ms 180000] [--cases building-500,building-2000,natural-500,natural-2000,mixed-500,mixed-2000] [--smoke]')
-  console.log('Formal: 3 independent runs per case, 30 grouped preview/adopt edits plus 30 independent immediate full-Prop edits and 60 object-list selections per run, real canvas selection, 3 x 30 pan moves and 3 x 20 wheel inputs, group/undo/redo, cold open, dual 4K PNG and exact package/storage audits. --smoke is diagnostic only: one run, 2 edits per flow and 4 list selections. Run exclusively and serially, without other automated browsers, builds or tests. Failures are retained, never retried. This measured subset cannot close all of 09 or P3.')
+  console.log('node tools/performance/run-current-formal.mjs --fixtures ABS --output ABS [--dist ABS] [--channel chrome] [--timeout-ms 180000] [--cases building-500,building-2000,natural-500,natural-2000,mixed-500,mixed-2000] [--smoke] [--profile] [--exclusive-window CONFIRMATION] [--stop-file ABS]')
+  console.log('Full: 3 independent runs per case, 30 grouped preview/adopt edits plus 30 independent immediate full-Prop edits and 60 object-list selections per run, real canvas selection, 3 x 30 pan/Prop-drag moves and 3 x 20 wheel inputs, group/undo/redo, cold open, dual 4K PNG and exact package/storage audits. --smoke is diagnostic only: one run, 2 edits per flow and 4 list selections. --profile adds a target CPU profile of each domain-committing edit/adoption/history operation and always remains diagnostic. Formal classification requires --exclusive-window recording an actually confirmed exclusive window; absence stays diagnostic even with full repetitions. Run serially, without other automated browsers, builds or tests. Failures are retained, never retried. This measured subset cannot close all of 09 or P3.')
   process.exit(0)
 }
 const check = (value, message) => { if (!value) throw new Error(message) }
@@ -29,12 +30,22 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const output = argument('--output', ''), fixtureDirectory = argument('--fixtures', '')
 const dist = path.resolve(argument('--dist', path.join(root, 'dist'))), channel = argument('--channel', 'chrome')
 const timeoutMs = Number(argument('--timeout-ms', '180000')), smoke = args.includes('--smoke')
+const policy = currentMeasurementPolicy({ smoke, profile: args.includes('--profile'), exclusiveWindow: exclusiveWindowArgument(args) })
+const stopFile = stopFileArgument(args)
 const cases = argument('--cases', 'building-500,building-2000,natural-500,natural-2000,mixed-500,mixed-2000').split(',')
 const runCount = smoke ? 1 : 3, editCount = smoke ? 2 : 30, selectionCount = smoke ? 4 : 60
 check(path.isAbsolute(output) && path.isAbsolute(fixtureDirectory), '--fixtures and --output must be absolute')
 check(output !== fixtureDirectory && !output.startsWith(`${fixtureDirectory}${path.sep}`), 'Output must be separate from frozen fixture inputs')
 check(cases.length > 0 && new Set(cases).size === cases.length && cases.every(value => /^(building|natural|mixed)-(500|2000)(-remote|-local-ports)?$/.test(value)), 'Expected unique full-Prop cases')
 check(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 600000, 'Invalid timeout')
+if (stopFile) {
+  check(path.isAbsolute(stopFile), '--stop-file must be absolute')
+  const normalized = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value)
+  const target = normalized(stopFile)
+  check(![fixtureDirectory, dist, ...['src', 'public', 'assets', 'tools'].map(name => path.join(root, name))].some(directory => {
+    const parent = normalized(directory); return target === parent || target.startsWith(`${parent}${path.sep}`)
+  }), '--stop-file must be outside frozen input/source/build/tool directories')
+}
 try { check((await fs.readdir(output)).length === 0, 'Existing evidence will not be overwritten') } catch (error) { if (error.code !== 'ENOENT') throw error }
 await fs.mkdir(output, { recursive: true })
 const write = (name, value) => fs.writeFile(path.join(output, name), JSON.stringify(value, null, 2))
@@ -53,6 +64,7 @@ async function inputs() {
     tools: await Promise.all(['tools/performance/run-current-formal.mjs', 'tools/performance/aggregate-draft-cleanup.mjs', 'tools/performance/current-formal-observer.mjs',
       'tools/performance/summarize-current-formal.mjs', 'tools/performance/aggregate-observer.mjs', 'tools/performance/native-m2-observer.mjs',
       'tools/performance/resources.mjs', 'tools/performance/close-browser.mjs', 'tools/testing/formal-capacity-fixtures.ts',
+      'tools/performance/current-formal-interactions.mjs', 'tools/performance/windows-process-sampler.mjs',
       'tools/testing/aggregate-capacity-fixtures.ts', 'package.json', 'package-lock.json', 'vite.config.ts']
       .map(async name => ({ path: name, sha256: hash(await fs.readFile(path.join(root, name))) }))) }
 }
@@ -61,22 +73,24 @@ check(!html.includes('/@vite/client') && !(await fs.readdir(dist)).includes('dia
 const base = /<script[^>]+src="([^"]+\/assets\/)/.exec(html)?.[1]?.replace(/assets\/$/, '') ?? '/'
 const frozen = await inputs()
 const manifest = { format: 'sceneweave-current-formal-performance', version: 1, startedAt: new Date().toISOString(), status: 'running',
-  measurementClass: smoke ? 'diagnostic-current-v1-production-ui-smoke' : 'formal-current-v1-production-ui-observation',
+  measurementClass: policy.measurementClass,
   sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceDirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }), frozen, inputFingerprint: hash(JSON.stringify(frozen)),
   device: { platform: os.platform(), release: os.release(), arch: os.arch(), cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem(), node: process.version },
   config: { cases, channel, timeoutMs, viewport: { width: 1512, height: 982 }, dpr: 1, runCount, editCount, immediateEditCount: editCount, selectionCount, base,
+    exclusiveWindow: policy.exclusiveWindow, cpuProfile: policy.profile, stopFile,
     cache: 'New dedicated Chrome headless process/profile for each case/run; HTTP cache disabled. OS cache is not purged. Page reload before cold open resets page/module/decoded-image state; same browser process remains.',
     ordinary: 'Grouped public full Prop world X alternates +1mm/back. Enter prepares a preview; trusted adoption click commits. Preview, adoption-click-to-domain and Enter-to-domain including review/automation delay are retained separately.',
     immediate: 'Fixed independent controls.remoteEntityId public full Prop world X alternates +1mm/back. Trusted Enter commits directly. Enter-to-validated-domain, saved, raster-ready and display-proxy intervals are retained separately; the 500-Prop 100ms ordinary-edit gate uses the complete Enter-to-domain interval.',
+    propDrag: 'The same independent full Prop is moved -800mm into its frozen empty margin by 30 trusted pointer moves, previews on release, adopts once, then undoes once. Each of 3 segments independently audits exact changed Prop fields and restored complete content/resources. Camera setup/zoom is outside measured segments.',
     frames: 'Nearest-rank browser rAF intervals overlapping actual trusted continuous pointer/wheel input only; double-rAF is a scheduling proxy, not presentation/GPU completion.',
     storage: 'Native readonly committed rows; SHA-verified immutable content payloads and distinct changed final JSON rows, never physical disk I/O.',
     aggregateDraftExit: 'After a completed or explicitly refused group attempt, dismiss only its remaining form through the ordinary cancel button. Cancellation is setup outside measured samples; unchanged revision/selection and exact complete-package payloads are audited before canvas selection. Unexpected failures are not discarded or retried.',
-    limitations: ['RSS is the dedicated macOS process-tree sum and may double-count shared mappings; target JS heap excludes GPU/other targets.',
-      'CPU brackets include automation, observer/CDP waits and retain process births/exits/resets; no profiler or forced GC.',
+    limitations: ['Process memory uses the dedicated Windows Working Set/private commit or macOS RSS process-tree sum and may double-count shared mappings; target JS heap excludes GPU/other targets.',
+      'CPU brackets include automation, observer/CDP waits and retain process births/exits/resets; optional target profiles are diagnostic only. No forced GC.',
       'Tooling package/pixel/hash/storage audit and setup phases are excluded from product peaks.',
       'Predeclared replicate failures are retained and independent runs continue; there are no automatic retries.'] },
-  omittedCoverage: ['Free Prop drag and broad marquee are not established by these grouped preview/adopt and independent immediate full-Prop X field edits.',
+  omittedCoverage: ['Broad marquee and arbitrary multi-object drag are not established by the fixed independent full-Prop drag.',
     'Continuous contour/curve edits, layer visibility/order, appearance editing, named/protected history, restoration depth/branches and failure matrices remain separate 09 work.',
     'Original SCN-01/02/03, VIS-01/02 and SCN-04 exact visual fixtures, cross-browser and physical display/GPU timings are not replaced by this corpus.',
     'Player PNG metadata/dimensions are checked; paired private-mutation pixel equality, privacy geometry/shadows, human visual quality and user P3 need independent evidence.',
@@ -85,8 +99,19 @@ await write('manifest.json', manifest)
 let ownedServer, browser, observer, httpServer, interrupted = false
 const sleepGuard = process.platform === 'darwin' ? spawn('caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' }) : null
 sleepGuard?.on('error', () => {})
-const interrupt = () => { interrupted = true; void ownedServer?.kill() }
+const interrupt = () => { interrupted = true; manifest.interruption ??= { reason: 'process-signal', at: new Date().toISOString() }; void ownedServer?.kill() }
 process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt)
+async function ensureRunning() {
+  if (!interrupted && stopFile) {
+    try {
+      await fs.access(stopFile)
+      interrupted = true
+      manifest.interruption = { reason: 'stop-file', at: new Date().toISOString(), file: stopFile,
+        boundary: 'Observed between bounded operations; current input archives/source/build remain unchanged, followed by normal resource/browser/server cleanup.' }
+    } catch (error) { if (error.code !== 'ENOENT') throw error }
+  }
+  if (interrupted) { const error = new Error('Performance run interrupted'); error.name = 'AbortError'; throw error }
+}
 async function launch() {
   ownedServer = await chromium.launchServer({ channel, headless: true })
   browser = await chromium.connect(ownedServer.wsEndpoint())
@@ -202,7 +227,7 @@ function assertCore(a, b, controls) {
   check(b.scene.props[controls.privateMemberId]?.visibility === 'gm' && b.scene.notes[controls.secretNoteId]?.text === 'CAPACITY_PRIVATE_SENTINEL'
     && isDeepStrictEqual(a.scene.notes[controls.secretNoteId], b.scene.notes[controls.secretNoteId]), 'Private persisted records changed')
 }
-function assertOnlyProps(a, b, ids) {
+function assertOnlyProps(a, b, ids, worldDelta = { x: 1, y: 0 }) {
   const expected = structuredClone(a.scene)
   expected.revision = b.scene.revision; expected.updatedAt = b.scene.updatedAt
   for (const id of ids) {
@@ -218,7 +243,7 @@ function assertOnlyProps(a, b, ids) {
     }
     // A trusted world +X millimetre has one exact displacement in each local frame.
     const delta = { x: after.positionMm.x - prior.positionMm.x, y: after.positionMm.y - prior.positionMm.y }
-    const expectedDelta = [{ x: 1, y: 0 }, { x: 0, y: -1 }, { x: -1, y: 0 }, { x: 0, y: 1 }][rotation]
+    const expectedDelta = worldDeltaToLocal(worldDelta, rotation)
     check(isDeepStrictEqual(delta, expectedDelta), `Unexpected local displacement: ${id}`)
     expectedProp.positionMm = after.positionMm
     check(isDeepStrictEqual(expectedProp, after), `Local edit changed business fields: ${id}`)
@@ -251,6 +276,7 @@ async function openSceneObjects(page) {
   return panel
 }
 async function download(page, stem) {
+  await ensureRunning()
   observer.setPhase('tooling-package-audit')
   const menu = page.locator('details.workspace-export-menu'); await details(menu)
   const pending = page.waitForEvent('download')
@@ -344,7 +370,7 @@ function canvasSelectionIds(name) {
   check(ids?.length === 2 && new Set(ids).size === 2, `Missing fixed canvas targets for ${name}`)
   return ids
 }
-function immediatePropPreflight(data, id) {
+function immediatePropPreflight(data, id, offsetsMm = [0, 1]) {
   const scene = data.scene, prop = scene.props[id]
   check(prop?.visibility === 'public' && !prop.editLocked && !scene.userLayers[scene.entityLayers[id]]?.editLocked,
     `Immediate edit target must be an existing public unlocked full Prop: ${id}`)
@@ -371,7 +397,7 @@ function immediatePropPreflight(data, id) {
   const floor = scene.floors[prop.floorId]?.boundsMm, angle = prop.rotationDeg * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle)
   const footprint = { x: prop.footprintOffsetMm.x - prop.footprintMm.width / 2,
     y: prop.footprintOffsetMm.y - prop.footprintMm.height / 2, ...prop.footprintMm }
-  for (const offsetMm of [0, 1]) {
+  for (const offsetMm of offsetsMm) {
     const polygon = [[footprint.x, footprint.y], [footprint.x + footprint.width, footprint.y],
       [footprint.x + footprint.width, footprint.y + footprint.height], [footprint.x, footprint.y + footprint.height]]
       .map(([x, y]) => ({ x: prop.positionMm.x + offsetMm + x * c - y * s, y: prop.positionMm.y + x * s + y * c }))
@@ -388,7 +414,7 @@ function immediatePropPreflight(data, id) {
       `Immediate edit fixture needs an unoccluded frozen support at world X+${offsetMm}mm: ${id}`)
   }
   return { fullPropId: id, supportRef: prop.supportRef, originalWorldPositionMm: prop.positionMm,
-    supportedWorldXOffsetsMm: [0, 1], independentOfAggregateAndManagedContainers: true }
+    supportedWorldXOffsetsMm: offsetsMm, independentOfAggregateAndManagedContainers: true }
 }
 function worldProp(data, id) {
   const prop = structuredClone(data.scene.props[id]); check(prop, `Missing full Prop ${id}`)
@@ -404,15 +430,84 @@ function worldProp(data, id) {
   }
   return prop
 }
-function canvasTarget(data, id) {
+function canvasTarget(data, id, minimumVisualMm = 1000) {
   const prop = worldProp(data, id), presentation = data.appearance.presentations?.[data.appearance.propSources[id]]
   check(prop.visibility === 'public' && !prop.editLocked && !data.scene.userLayers[data.scene.entityLayers[id]]?.editLocked
     && ['object', 'canopy'].includes(prop.renderLayer), `Canvas target must be a public unlocked object/canopy Prop: ${id}`)
-  check(prop.appearance.kind === 'image' && Math.min(prop.visualBoundsMm.width, prop.visualBoundsMm.height) >= 1000,
-    `Fixed canvas target must have an image with a visual short side of at least 1000mm: ${id}`)
+  check(prop.appearance.kind === 'image' && Math.min(prop.visualBoundsMm.width, prop.visualBoundsMm.height) >= minimumVisualMm,
+    `Fixed canvas target must have an image with a visual short side of at least ${minimumVisualMm}mm: ${id}`)
   const b = prop.visualBoundsMm, near = presentation?.mode === 'nearSide', angle = (near ? 0 : prop.rotationDeg) * Math.PI / 180
   const x = b.x + b.width / 2 - (near ? presentation.rootAnchorMm.x : 0), y = b.y + b.height / 2 - (near ? presentation.rootAnchorMm.y : 0)
   return { x: prop.positionMm.x + x * Math.cos(angle) - y * Math.sin(angle), y: prop.positionMm.y + x * Math.sin(angle) + y * Math.cos(angle) }
+}
+
+async function continuousPropDrag(page, fixture, baseline, result, stem) {
+  const id = fixture.controls.remoteEntityId, distanceMm = -800
+  const preflight = immediatePropPreflight(baseline, id, [0, distanceMm])
+  const target = canvasTarget(baseline, id, 1), bounds = baseline.scene.exportBoundsMm
+  const prop = baseline.scene.props[id], shortSideMm = Math.min(prop.visualBoundsMm.width, prop.visualBoundsMm.height)
+  result.coverage.propDrag = { status: 'running', count: 0, expectedCount: smoke ? 1 : 3, movesPerSegment: 30,
+    fullPropId: id, worldOffsetMm: { x: distanceMm, y: 0 }, ...preflight, segments: [] }
+  for (let segment = 0; segment < (smoke ? 1 : 3); segment++) {
+    await selectMember(page, id)
+    await page.getByRole('button', { name: '适应全图', exact: true }).click(); await observer.ready()
+    const viewport = page.locator('.asset-viewport'), canvas = page.locator('canvas[aria-label="材质场景主持人预览"]')
+    let box = await canvas.boundingBox(), view = await viewport.boundingBox()
+    check(box && view, 'Missing drag viewport/canvas')
+    const screen = { x: box.x + (target.x - bounds.x) / bounds.width * box.width,
+      y: box.y + (target.y - bounds.y) / bounds.height * box.height }
+    // Center the frozen target using ordinary pan before zooming. No camera or
+    // selection state is injected, and no target is selected from observed hits.
+    const center = { x: view.x + view.width / 2, y: view.y + view.height / 2 }
+    await page.getByRole('button', { name: '平移地图', exact: true }).click()
+    await page.mouse.move(center.x, center.y); await page.mouse.down()
+    await page.mouse.move(center.x + center.x - screen.x, center.y + center.y - screen.y, { steps: 10 }); await page.mouse.up()
+    await page.getByRole('button', { name: '选择地图对象', exact: true }).click()
+    await page.getByRole('combobox', { name: '子格细分', exact: true }).selectOption('0')
+    for (let step = 0; step < 32; step++) {
+      box = await canvas.boundingBox()
+      if (box && box.width / bounds.width * Math.abs(distanceMm) >= 12 && box.width / bounds.width * shortSideMm >= 12) break
+      const zoom = page.getByRole('button', { name: '放大地图', exact: true })
+      check(await zoom.isEnabled(), 'Fixed Prop drag target cannot be made large enough through ordinary zoom')
+      await zoom.click()
+    }
+    await observer.ready(); box = await canvas.boundingBox(); view = await viewport.boundingBox()
+    const plan = propDragPlan({ target, bounds, canvas: box, viewport: view, distanceMm, snapMm: baseline.scene.units.snapMm })
+    const before = await observer.snapshot()
+    check(before.selection === JSON.stringify([id]), 'Drag setup changed the explicit full Prop selection')
+    await page.mouse.move(plan.start.x, plan.start.y)
+    const measured = await observer.measure('continuous-prop-drag', { start: { event: 'pointerdown', selector: '.asset-viewport', button: 0 },
+      eventScope: '.asset-viewport', endEvent: { event: 'pointerup', selector: '.asset-viewport', button: 0 },
+      expectedRevision: before.revision, unchangedDocument: true, requireSaved: true,
+      rejectText: '整批未采用，工程未修改', until: { preview: true } }, async () => {
+      await page.mouse.down()
+      for (let move = 1; move <= 30; move++) {
+        await page.evaluate(() => new Promise(requestAnimationFrame))
+        await page.mouse.move(plan.start.x + (plan.end.x - plan.start.x) * move / 30, plan.start.y)
+      }
+      check((await page.getByTestId('selection-drag-status').innerText()).includes(`ΔX ${distanceMm} · ΔY 0 mm`), 'Actual transient drag differs from the frozen exact offset')
+      await page.mouse.up()
+    })
+    check(measured.sample.eventCounts.pointermove >= 30 && measured.sample.eventCounts.pointerup >= 1, 'Prop drag lacks a real continuous input sequence')
+    measured.sample.activeInputStartMs = measured.sample.intent.captureMs
+    measured.sample.activeInputEndMs = measured.sample.endInput.captureMs
+    await adoptReview(page, 'prop-drag-adopt', before.revision + 1, '采用批量修改')
+    const moved = await download(page, `${stem}-drag${segment + 1}-moved`)
+    assertOnlyProps(baseline, moved, [id], plan.offsetMm); sameResources(baseline, moved)
+    const state = await observer.snapshot()
+    await observer.measure('prop-drag-undo', { start: { event: 'click', selector: 'button', label: '撤销编辑' },
+      expectedRevision: state.revision + 1, domainCommit: true, requireSaved: true },
+    () => page.getByRole('button', { name: '撤销编辑', exact: true }).click())
+    const restored = await download(page, `${stem}-drag${segment + 1}-restored`)
+    sameContent(baseline, restored, 'Prop drag undo')
+    check(restored.scene.revision === before.revision + 2, 'Prop drag adoption/undo must each advance exactly one revision')
+    result.coverage.propDrag.segments.push({ segment: segment + 1, plan, beforeRevision: before.revision,
+      adoptedRevision: moved.scene.revision, undoneRevision: restored.scene.revision, exactMovedPropAndRestoredCompleteContent: true })
+    result.coverage.propDrag.count++
+  }
+  result.coverage.propDrag.status = 'complete'
+  result.coverage.propDrag.exactFirstEditAndFinalContent = true
+  return download(page, `${stem}-post-drag`)
 }
 async function continuousViewport(page, result) {
   const fit = page.getByRole('button', { name: '适应全图', exact: true }), viewport = page.locator('.asset-viewport')
@@ -497,15 +592,19 @@ async function exportPng(page, data, audience, stem) {
 }
 
 try {
+  await ensureRunning()
   const previous = JSON.parse(await fs.readFile(path.join(fixtureDirectory, 'manifest.json'), 'utf8'))
   check(['sceneweave-current-formal-fixtures', 'sceneweave-aggregate-development-observation'].includes(previous.format), 'Expected frozen current complete-v1 fixture manifest')
+  check(previous.status === 'complete', 'Fixture preparation must complete without source drift or cleanup failure')
   const available = previous.cases ?? previous.fixtures; check(Array.isArray(available), 'Fixture cases missing')
   for (const name of cases) {
     const row = available.find(value => value.name === name); check(row?.summary && row?.controls, `Missing formal fixture ${name}`)
     const sourceFile = row.file ?? row.artifact?.path; check(typeof sourceFile === 'string', `Missing fixture package ${name}`)
     const bytes = await fs.readFile(path.resolve(fixtureDirectory, sourceFile)), data = packageData(bytes)
-    const expectedHash = row.package?.sha256 ?? row.artifact?.sha256 ?? row.summary.packageSha256
+    const expectedHash = row.sha256 ?? row.package?.sha256 ?? row.artifact?.sha256 ?? row.summary.packageSha256
     check(typeof expectedHash === 'string' && hash(bytes) === expectedHash, `Frozen fixture SHA mismatch ${name}`)
+    const expectedBytes = row.byteLength ?? row.package?.bytes ?? row.summary.packageBytes
+    check(Number.isSafeInteger(expectedBytes) && expectedBytes === bytes.length, `Frozen fixture byte length mismatch ${name}`)
     const expectedCount = Number(name.split('-')[1]) + (name.endsWith('-remote') ? 500 : 0)
     check(Object.keys(data.scene.props).length === expectedCount && Object.keys(data.scene.decorations).length === 0, `Fixture ${name} is not the declared complete-Prop load`)
     check(data.scene.schemaVersion === 1 && data.manifest.schemaVersion === 1, 'Frozen fixture must be current complete v1')
@@ -530,14 +629,40 @@ try {
   await new Promise((resolve, reject) => { httpServer.once('error', reject); httpServer.listen(0, '127.0.0.1', resolve) })
   const origin = `http://127.0.0.1:${httpServer.address().port}`, url = `${origin}${base}#home`
   for (const fixture of manifest.fixtures) for (let run = 1; run <= runCount; run++) {
-    if (interrupted) throw new Error('Interrupted')
+    await ensureRunning()
     const stem = `${fixture.name}-run${run}`, result = { name: fixture.name, run, status: 'running', storage: {}, coverage: {}, exports: [] }
     manifest.results.push(result); console.log(`Current formal: ${stem}`)
-    let page
+    let page, profileCdp, profileIndex, profileKind
+    const profileCounts = new Map()
+    async function beginProfile(kind) {
+      check(!profileCdp, 'Diagnostic CPU profiles must not overlap')
+      profileKind = kind; profileIndex = (profileCounts.get(kind) ?? 0) + 1; profileCounts.set(kind, profileIndex)
+      profileCdp = await page.context().newCDPSession(page)
+      await profileCdp.send('Profiler.enable'); await profileCdp.send('Profiler.setSamplingInterval', { interval: 1000 }); await profileCdp.send('Profiler.start')
+    }
+    async function finishProfile() {
+      if (!profileCdp) return
+      const session = profileCdp; profileCdp = null
+      try {
+        const { profile } = await session.send('Profiler.stop')
+        const file = `${stem}-${profileKind}-${profileIndex}.cpuprofile`, bytes = JSON.stringify(profile)
+        await fs.writeFile(path.join(output, file), bytes, { flag: 'wx' })
+        ;(result.diagnosticProfiles ??= []).push({ file, sha256: hash(bytes), bytes: Buffer.byteLength(bytes), kind: profileKind, ordinal: profileIndex,
+          scope: 'Target renderer CPU around one domain-committing operation, including observer/automation and save/display waits; complete-package/storage audits are outside. This window does not isolate domain-only CPU. Profiling overhead invalidates formal timing. Not browser/GPU/OS CPU.' })
+      } finally { await session.detach() }
+    }
     try {
       page = await launch(); result.browserVersion = browser.version()
       await page.route('**/*', route => { const target = new URL(route.request().url()); return target.origin === origin || ['blob:', 'data:'].includes(target.protocol) ? route.continue() : route.abort('blockedbyclient') })
       observer = await createCurrentFormalObserver({ page, browser, rootPid: ownedServer.process().pid, timeoutMs })
+      const measure = observer.measure.bind(observer)
+      observer.measure = async (kind, options, action) => {
+        await ensureRunning()
+        if (!policy.profile || !options.domainCommit) return measure(kind, options, action)
+        await beginProfile(kind)
+        try { return await measure(kind, options, action) }
+        finally { await finishProfile() }
+      }
       observer.setPhase('setup-import'); const importStartedNodeMs = performance.now(); await page.goto(url)
       const chooser = page.waitForEvent('filechooser')
       await page.getByTestId('workspace-home').getByRole('button', { name: '打开工程文件', exact: true }).click()
@@ -629,11 +754,14 @@ try {
           result.storage.firstImmediatePropEdit = diffAggregateBlocks(afterBlocks, await observer.blockSnapshot(afterBlocks.databaseName))
         }
       }
-      const edited = await download(page, `${stem}-edited`); sameContent(groupedEdited, edited, 'Alternating independent immediate edits')
+      await finishProfile()
+      let edited = await download(page, `${stem}-edited`); sameContent(groupedEdited, edited, 'Alternating independent immediate edits')
       check(edited.scene.revision === groupedEdited.scene.revision + editCount, 'Immediate edits did not produce one revision each')
       const finalBlocks = await observer.blockSnapshot(afterBlocks.databaseName)
       result.storage.allImmediatePropEdits = diffAggregateBlocks(afterBlocks, finalBlocks); result.storage.afterEdits = finalBlocks
       result.coverage.immediateOrdinary.status = 'complete'; result.coverage.immediateOrdinary.exactFirstEditAndFinalContent = true
+      edited = await continuousPropDrag(page, fixture, edited, result, stem)
+      result.storage.allPropDrags = diffAggregateBlocks(finalBlocks, await observer.blockSnapshot(finalBlocks.databaseName))
       await continuousViewport(page, result)
       result.exports.push(await exportPng(page, edited, 'gm', stem)); result.exports.push(await exportPng(page, edited, 'player', stem))
       check(result.exports[0].decoded.rgbaSha256 !== result.exports[1].decoded.rgbaSha256, 'Secret-bearing fixture produced identical GM/player pixels')
@@ -653,6 +781,7 @@ try {
       try { observer?.setPhase('tooling-failure'); await page.screenshot({ path: path.join(output, `${stem}-failure.png`), fullPage: true }); result.failureText = await page.locator('body').innerText() } catch {}
       manifest.failures.push({ name: fixture.name, run, error: result.error })
     } finally {
+      try { await finishProfile() } catch (error) { result.profileError = String(error); result.status = 'failed'; manifest.failures.push({ name: fixture.name, run, error: result.profileError }) }
       try { if (observer) result.metrics = await observer.stop() } catch (error) { result.status = 'failed'; result.observerError = String(error); manifest.failures.push({ name: fixture.name, run, error: result.observerError }) }
       observer = null
       try { result.teardown = await closeBrowser() } catch (error) { result.status = 'failed'; result.teardownError = String(error); manifest.failures.push({ name: fixture.name, run, error: result.teardownError }) }
@@ -671,11 +800,12 @@ try {
       await write('manifest.json', manifest)
     }
     check(isDeepStrictEqual(frozen, await inputs()), 'Source/build/tool/fixture bytes drifted during measurement')
+    await ensureRunning()
   }
   manifest.status = manifest.failures.length ? 'failed' : 'complete'
   if (manifest.failures.length) process.exitCode = 1
 } catch (error) {
-  manifest.status = interrupted ? 'interrupted' : 'failed'; manifest.error = error.stack ?? String(error); process.exitCode = 1; console.error(error)
+  manifest.status = interrupted ? 'interrupted' : 'failed'; manifest.error = error.stack ?? String(error); process.exitCode = interrupted ? 130 : 1; console.error(error)
 } finally {
   const errors = []
   for (const [name, action] of [['observer', () => observer?.stop()], ['browser', async () => { if (ownedServer) manifest.finalTeardown = await closeBrowser() }],

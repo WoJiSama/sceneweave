@@ -75,6 +75,14 @@ function sampleReference(sample, field) {
   } : null
 }
 
+/** A poll may leave and return to the same named phase before it completes. */
+export function observationPhaseAttribution(startedElapsedMs, endedElapsedMs, phaseMarkers) {
+  const startIndex = phaseMarkers.findLastIndex(marker => marker.elapsedMs <= startedElapsedMs)
+  const endIndex = phaseMarkers.findLastIndex(marker => marker.elapsedMs <= endedElapsedMs)
+  return { phase: phaseMarkers[startIndex]?.phase ?? 'idle', phaseAtEnd: phaseMarkers[endIndex]?.phase ?? 'idle',
+    phaseBoundary: startIndex !== endIndex }
+}
+
 function summarize(samples, heapSamples, errors, config, phaseMarkers) {
   const usable = samples.filter(sample => sample.rootPresent)
   const rssPeak = maxSample(usable, 'rssBytes'), heapPeak = maxSample(heapSamples, 'heapUsedBytes')
@@ -84,9 +92,11 @@ function summarize(samples, heapSamples, errors, config, phaseMarkers) {
     const heapPhase = heapSamples.filter(sample => sample.phase === phase && !sample.phaseBoundary)
     byPhase[phase] = {
       processSampleCount: processPhase.length, heapSampleCount: heapPhase.length,
+      heapValueSampleCount: heapPhase.filter(sample => Number.isFinite(sample.heapUsedBytes)).length,
       rssPeakBytes: maxSample(processPhase, 'rssBytes')?.rssBytes ?? null,
       privateCommitPeakBytes: maxSample(processPhase, 'privateBytes')?.privateBytes ?? null,
-      backgroundBrowserProcessMax: processPhase.length ? Math.max(...processPhase.map(row => row.background?.browserProcessCount ?? 0)) : null,
+      backgroundBrowserProcessMax: processPhase.some(row => Number.isFinite(row.background?.browserProcessCount))
+        ? Math.max(...processPhase.map(row => row.background?.browserProcessCount).filter(Number.isFinite)) : null,
       systemCpuBusyFractionMax: processPhase.some(row => Number.isFinite(row.background?.systemCpuBusyFraction))
         ? Math.max(...processPhase.map(row => row.background?.systemCpuBusyFraction).filter(Number.isFinite)) : null,
       jsHeapPeakUsedBytes: maxSample(heapPhase, 'heapUsedBytes')?.heapUsedBytes ?? null,
@@ -110,8 +120,10 @@ function summarize(samples, heapSamples, errors, config, phaseMarkers) {
     processMetric: config.processMetric,
     workingSetSampledPeakBytes: config.processMetric === 'windows-working-set' ? rssPeak?.rssBytes ?? null : null,
     privateCommitSampledPeakBytes: maxSample(usable, 'privateBytes')?.privateBytes ?? null,
-    backgroundObservation: { browserProcessMax: usable.length ? Math.max(...usable.map(row => row.background?.browserProcessCount ?? 0)) : null,
-      nodeProcessMax: usable.length ? Math.max(...usable.map(row => row.background?.nodeProcessCount ?? 0)) : null,
+    backgroundObservation: { browserProcessMax: usable.some(row => Number.isFinite(row.background?.browserProcessCount))
+      ? Math.max(...usable.map(row => row.background?.browserProcessCount).filter(Number.isFinite)) : null,
+      nodeProcessMax: usable.some(row => Number.isFinite(row.background?.nodeProcessCount))
+        ? Math.max(...usable.map(row => row.background?.nodeProcessCount).filter(Number.isFinite)) : null,
       systemCpuBusyFraction: distribution(usable.map(row => row.background?.systemCpuBusyFraction).filter(Number.isFinite)),
       noOtherBrowserObserved: config.processMetric === 'windows-working-set' && usable.length > 0 && usable.every(row => row.background.browserProcessCount === 0),
       note: 'Counts alone do not establish exclusive load. System CPU includes the sampler, automation and unrelated work. No unrelated command lines or process identities are retained.' },
@@ -223,8 +235,7 @@ export function startResourceSampling({ rootPid, cdp, intervalMs = 100, heapInte
         const timing = startObservation(), ended = finishObservation(timing)
         // WMI rows are collected over an interval, not at the delivery instant.
         ended.startedAtMs -= parsed.nativePollDurationMs; ended.startedElapsedMs -= parsed.nativePollDurationMs; ended.durationMs += parsed.nativePollDurationMs
-        const startedPhase = phaseMarkers.findLast(marker => marker.elapsedMs <= ended.startedElapsedMs)?.phase
-        ended.phase = startedPhase ?? 'idle'; ended.phaseBoundary = ended.phase !== phase
+        Object.assign(ended, observationPhaseAttribution(ended.startedElapsedMs, ended.endedElapsedMs, phaseMarkers))
         samples.push({ ...ended, ...parsed })
       }, onError(error) { recordError('WINDOWS_PROCESS_SNAPSHOT_FAILED', error, startObservation()) } })
     config.processTargetIntervalMs = windowsSampler.actualIntervalMs

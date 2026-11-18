@@ -2,8 +2,10 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { chromium } from '@playwright/test'
 import { startNativeFixtureTooling } from './prepare-native-m2-fixture.mjs'
+import { fingerprintPaths, MODULE_SOURCE_PATHS, assertFrozen } from './frozen-input.mjs'
 
 // Tooling-only browser. It closes before any normal-production measurement.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -29,13 +31,25 @@ const record = { format: 'sceneweave-current-formal-preparation', version: 1, st
   scope: 'Isolated tooling preparation of complete current-v1 archives with actual byte/pixel/license validation. No product performance observations.', results: [] }
 const write = (name, value) => fs.writeFile(path.join(output, name), JSON.stringify(value, null, 2))
 await write('preparation.json', record)
+const sourcePaths = [...MODULE_SOURCE_PATHS, 'tools/performance/prepare-current-formal.mjs',
+  'tools/performance/prepare-native-m2-fixture.mjs', 'tools/performance/frozen-input.mjs']
+const capacity = { format: 'sceneweave-current-formal-fixtures', version: 1, status: 'running', cases: [] }
+const visual = { format: 'sceneweave-formal-visual-fixtures', version: 1, status: 'running', cases: [] }
 let tooling, browser
 try {
+  const frozen = await fingerprintPaths(root, sourcePaths)
+  await write('preparation-inputs.json', frozen)
+  record.source = {
+    revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+    dirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }),
+    fingerprint: sha(JSON.stringify(frozen)), manifest: 'preparation-inputs.json',
+    boundary: 'Exact product source, public resources, assets, fixture/tooling sources and dependency declarations before preparation; checked again before either corpus is complete.',
+  }
+  capacity.preparationSource = visual.preparationSource = record.source
+  await write('preparation.json', record)
   tooling = await startNativeFixtureTooling({ root })
   browser = await chromium.launch({ channel, headless: true })
   record.browser = browser.version()
-  const capacity = { format: 'sceneweave-current-formal-fixtures', version: 1, status: 'running', cases: [] }
-  const visual = { format: 'sceneweave-formal-visual-fixtures', version: 1, status: 'running', cases: [] }
   async function prepare(modulePath, exportName, parameters) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 982 }, deviceScaleFactor: 1, locale: 'zh-CN' })
     try {
@@ -80,10 +94,9 @@ try {
       const saved = await saveBlob(`${name}.sceneweave`, item)
       capacity.cases.push({ ...saved, name })
       record.results.push({ kind: 'capacity', name, sha256: saved.sha256 })
+      await write('manifest.json', capacity)
       await write('preparation.json', record)
     }
-    capacity.status = 'complete'
-    await write('manifest.json', capacity)
   }
   if (mode !== 'capacity') {
     for (const kind of ['interior', 'island', 'coast', 'mixed', 'current-island']) {
@@ -99,21 +112,32 @@ try {
       const entry = { name: kind, kind, controls: item.controls, summary: item.summary, variants, views }
       visual.cases.push(entry)
       record.results.push({ kind: 'visual', name: kind, variants: Object.keys(variants), views: views.length })
+      await write('formal-visual-fixtures.json', visual)
       await write('preparation.json', record)
     }
-    visual.status = 'complete'
-    await write('formal-visual-fixtures.json', visual)
   }
+  const finalInputs = await fingerprintPaths(root, sourcePaths)
+  await write('preparation-inputs-final.json', finalInputs)
+  assertFrozen(frozen, finalInputs, 'fixture preparation source/resources/tooling')
+  record.source.unchanged = true
+  if (mode !== 'visual') { capacity.status = 'complete'; await write('manifest.json', capacity) }
+  if (mode !== 'capacity') { visual.status = 'complete'; await write('formal-visual-fixtures.json', visual) }
   record.status = 'complete'
 } catch (error) {
   record.status = 'failed'; record.error = error.stack ?? String(error); process.exitCode = 1
+  if (mode !== 'visual') { capacity.status = 'failed'; capacity.error = record.error; await write('manifest.json', capacity) }
+  if (mode !== 'capacity') { visual.status = 'failed'; visual.error = record.error; await write('formal-visual-fixtures.json', visual) }
   console.error(error)
 } finally {
   const errors = []
   for (const [owner, action] of [['browser', () => browser?.close()], ['tooling', () => tooling?.close()]]) {
     try { await action() } catch (error) { errors.push({ owner, error: String(error) }) }
   }
-  if (errors.length) { record.cleanupErrors = errors; record.status = 'failed'; process.exitCode = 1 }
+  if (errors.length) {
+    record.cleanupErrors = errors; record.status = 'failed'; process.exitCode = 1
+    if (mode !== 'visual') { capacity.status = 'failed'; capacity.cleanupErrors = errors; await write('manifest.json', capacity) }
+    if (mode !== 'capacity') { visual.status = 'failed'; visual.cleanupErrors = errors; await write('formal-visual-fixtures.json', visual) }
+  }
   record.endedAt = new Date().toISOString()
   await write('preparation.json', record)
 }

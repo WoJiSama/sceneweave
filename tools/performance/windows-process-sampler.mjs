@@ -3,8 +3,9 @@ import path from 'node:path'
 import os from 'node:os'
 
 /** Input contains names/counters only. Never request or retain command lines. */
-export function parseWindowsProcessSnapshot(input, rootPid) {
+export function parseWindowsProcessSnapshot(input, rootPid, expectedRootStarted) {
   if (!Array.isArray(input)) throw new TypeError('Invalid Windows process snapshot')
+  if (expectedRootStarted !== undefined && !/^[1-9]\d*$/.test(expectedRootStarted)) throw new TypeError('Invalid Windows root identity')
   const rows = input.map(row => {
     if (!['pid', 'ppid', 'workingSetBytes', 'privateBytes', 'cpu100ns'].every(key => /^\d+$/.test(String(row[key])))) throw new TypeError('Missing Windows process counters')
     const result = { pid: Number(row.pid), ppid: Number(row.ppid), rssBytes: Number(row.workingSetBytes),
@@ -15,14 +16,26 @@ export function parseWindowsProcessSnapshot(input, rootPid) {
       || !/^[^\x00-\x1f\\/:]{1,260}$/.test(result.comm)) throw new TypeError('Malformed Windows process counters')
     return result
   })
-  const children = new Map()
+  const byId = new Map(rows.map(row => [row.pid, row])), children = new Map()
+  if (byId.size !== rows.length) throw new TypeError('Duplicate Windows process identity')
   for (const row of rows) { const list = children.get(row.ppid) ?? []; list.push(row.pid); children.set(row.ppid, list) }
-  const included = new Set([rootPid]), queue = [rootPid]
-  for (let i = 0; i < queue.length; i++) for (const pid of children.get(queue[i]) ?? []) if (!included.has(pid)) { included.add(pid); queue.push(pid) }
+  const root = byId.get(rootPid), rootIdentityChanged = !!root && expectedRootStarted !== undefined && root.started !== expectedRootStarted
+  const included = new Set(root && !rootIdentityChanged ? [rootPid] : []), queue = [...included]
+  let rejectedReusedParentEdges = 0, unknownBirthEdges = 0
+  for (let i = 0; i < queue.length; i++) for (const pid of children.get(queue[i]) ?? []) if (!included.has(pid)) {
+    const parent = byId.get(queue[i]), child = byId.get(pid)
+    // ParentProcessId survives parent exit. A newly recycled PID must not
+    // graft older, unrelated processes (and their descendants) into Chrome.
+    // Windows ticks exceed Number's exact range, so compare their integers.
+    if (parent.started === '0' || child.started === '0') { unknownBirthEdges++; continue }
+    if (BigInt(child.started) < BigInt(parent.started)) { rejectedReusedParentEdges++; continue }
+    included.add(pid); queue.push(pid)
+  }
   const processes = rows.filter(row => included.has(row.pid)).map(row => ({ ...row, type: row.pid === rootPid ? 'browser' : 'child' })).sort((a, b) => a.pid - b.pid)
   // Aggregate background process counts only: no names, IDs or user paths.
   const outside = rows.filter(row => !included.has(row.pid))
   return { rootPresent: processes.some(row => row.pid === rootPid), malformedRows: 0, processes,
+    lineage: { rootIdentityChanged, rootBirthKnown: !!root && root.started !== '0', rejectedReusedParentEdges, unknownBirthEdges },
     rssBytes: processes.reduce((sum, row) => sum + row.rssBytes, 0), privateBytes: processes.reduce((sum, row) => sum + row.privateBytes, 0),
     background: { processCount: outside.length, browserProcessCount: outside.filter(row => /^(chrome|msedge|chromium)\.exe$/i.test(row.comm)).length,
       nodeProcessCount: outside.filter(row => /^node\.exe$/i.test(row.comm)).length } }
@@ -49,7 +62,7 @@ export function startWindowsProcessSampling({ rootPid, intervalMs, onSnapshot, o
   const executable = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
   const child = spawn(executable, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
     { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
-  let buffer = '', stopped = false, previous = systemCounters(), lastError = false
+  let buffer = '', stopped = false, previous = systemCounters(), lastError = false, rootStarted
   const fail = error => { if (!stopped && !lastError) { lastError = true; onError(error) } }
   child.stdout.setEncoding('utf8')
   child.stdout.on('data', chunk => {
@@ -60,7 +73,10 @@ export function startWindowsProcessSampling({ rootPid, intervalMs, onSnapshot, o
       const line = buffer.slice(0, end).trim(); buffer = buffer.slice(end + 1)
       if (!line || stopped) continue
       try {
-        const value = JSON.parse(line), parsed = parseWindowsProcessSnapshot(value.rows, rootPid), current = systemCounters()
+        const value = JSON.parse(line), parsed = parseWindowsProcessSnapshot(value.rows, rootPid, rootStarted), current = systemCounters()
+        if (parsed.lineage.rootIdentityChanged) throw new Error('Windows measured browser PID was reused')
+        if (parsed.rootPresent && (!parsed.lineage.rootBirthKnown || parsed.lineage.unknownBirthEdges)) throw new Error('Windows process lineage has unknown birth times')
+        if (parsed.rootPresent) rootStarted ??= parsed.processes.find(row => row.pid === rootPid).started
         const total = current.total - previous.total, idle = current.idle - previous.idle
         parsed.background.systemCpuBusyFraction = total > 0 ? Math.max(0, Math.min(1, 1 - idle / total)) : null
         previous = current
