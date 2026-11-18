@@ -253,7 +253,7 @@ export class ImageImportToolSession {
     const index = this.draft.layers.findIndex(layer => layer.id === target)
     if (index < 0) throw new Error('物件不存在。')
     const prefix = this.draft.layers.slice(0, index + 1)
-    const neighborhood = prefix.some(layer => layer.renderLayer === 'ground' || layer.subjectRefinement || layer.surfaceRefinement || layer.repair === 'surfaces' && layer.repairSurfaceIds?.some(id => this.draft.repairSurfaces?.some(surface => surface.id === id && (surface.kind.startsWith('neighbors-') || surface.kind === 'guided'))))
+    const neighborhood = prefix.some(layer => layer.renderLayer === 'ground' || layer.subjectRefinement || layer.surfaceRefinement || layer.repair === 'context-blend' || layer.repair === 'surfaces' && layer.repairSurfaceIds?.some(id => this.draft.repairSurfaces?.some(surface => surface.id === id && (surface.kind.startsWith('neighbors-') || surface.kind === 'guided'))))
     return hashJson({ image: this.source.image, calibration: this.draft.calibration, outputScale: this.draft.outputScale ?? 1,
       algorithm: 'image-item-review@1/guided-geodesic@1', layers: prefix,
       ...(neighborhood ? { neighborhoodAlgorithm: 'neighborhood-surface-v1', neighborhoodEvidenceLayers: this.draft.layers } : {}),

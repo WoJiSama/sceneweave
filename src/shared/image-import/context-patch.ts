@@ -1,20 +1,22 @@
 import type { ImagePixelMask, ImagePixels, PixelBounds } from './pixels.js'
 import { maskCoverage } from './repair-scope.js'
+import type { ImageNeighborhoodSignal } from './neighborhood-evidence.js'
 
 /** Fixed context-patch-v1: one unscaled translated patch, selected by visible boundary context.
  * Reads no removed/protected pixel as evidence. Robust low-frequency boundary colour matching
  * leaves copied texture contrast intact. No tile, mirror, warp or generated fine detail.
  */
-export function repairContextPatch(image: ImagePixels, mask: ImagePixelMask, donor: PixelBounds,
-  protection?: ImagePixelMask): ImagePixels {
+export function selectContextPatch(image: ImagePixels, mask: ImagePixelMask, donor: PixelBounds,
+  protection?: ImagePixelMask, excluded?: (x: number, y: number) => boolean, signal?: ImageNeighborhoodSignal) {
   const { x, y, width, height } = mask.boundsPx
   if (width * height > 250_000) throw new Error('完整纹理补片最多25万像素，请缩小移除范围。')
   const margin = 2, dw = donor.width - width - margin * 2, dh = donor.height - height - margin * 2
   if (dw < 0 || dh < 0) throw new Error('完整纹理取样须比移除范围宽高各多4像素，请扩大干净木板取样。')
   const evidence: Array<{ x: number; y: number; index: number }> = []
   for (let sy = Math.max(0, y - margin); sy < Math.min(image.height, y + height + margin); sy++) {
+    signal?.throwIfAborted()
     for (let sx = Math.max(0, x - margin); sx < Math.min(image.width, x + width + margin); sx++) {
-      if (maskCoverage(mask, sx, sy) || maskCoverage(protection, sx, sy)) continue
+      if (maskCoverage(mask, sx, sy) || maskCoverage(protection, sx, sy) || excluded?.(sx, sy)) continue
       let near = false
       for (let dy = -margin; dy <= margin && !near; dy++) for (let dx = -margin; dx <= margin; dx++) {
         if (maskCoverage(mask, sx + dx, sy + dy)) { near = true; break }
@@ -27,11 +29,12 @@ export function repairContextPatch(image: ImagePixels, mask: ImagePixelMask, don
   const maxCandidates = 8192, stride = Math.max(1, Math.ceil(Math.sqrt((dw + 1) * (dh + 1) / maxCandidates)))
   let best = { dx: 0, dy: 0, score: Infinity }
   const consider = (left: number, top: number) => {
+    signal?.throwIfAborted()
     const dx = left - x, dy = top - y
     let score = 0
     for (const point of samples) {
       const sx = point.x + dx, sy = point.y + dy
-      if (maskCoverage(mask, sx, sy) || maskCoverage(protection, sx, sy)) return
+      if (maskCoverage(mask, sx, sy) || maskCoverage(protection, sx, sy) || excluded?.(sx, sy)) return
       const at = (sy * image.width + sx) * 4
       if (image.data[at + 3] !== 255) return
       for (let c = 0; c < 3; c++) {
@@ -52,6 +55,14 @@ export function repairContextPatch(image: ImagePixels, mask: ImagePixelMask, don
     }
   }
   if (!Number.isFinite(best.score)) throw new Error('取样没有可用的完整纹理补片。')
+  return { ...best, evidence }
+}
+
+/** Original context-patch-v1 lighting and exact scan order remain unchanged. */
+export function repairContextPatch(image: ImagePixels, mask: ImagePixelMask, donor: PixelBounds,
+  protection?: ImagePixelMask): ImagePixels {
+  const { x, y, width, height } = mask.boundsPx
+  const best = selectContextPatch(image, mask, donor, protection), { evidence } = best
   // Estimate broad lighting from four visible sides. Reject large residuals (ink,
   // missing joints and other objects); they are not a lighting estimate.
   const sides: number[][][] = Array.from({ length: 4 }, () => [[], [], []])

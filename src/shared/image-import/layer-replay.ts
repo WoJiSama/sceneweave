@@ -160,7 +160,7 @@ export function replayImageLayers<T extends ImageReplayLayer>(source: ImagePixel
     const selectedSurfaces = layer.repairSurfaceIds?.map(id => { const surface = surfaces.find(s => s.id === id); if (!surface) throw new Error('物件引用了不存在的补底表面。'); return surface })
     if (layer.repair === 'surfaces' && (!selectedSurfaces?.length || layer.fills?.length)) throw new Error('按表面补底须指定表面身份，不能同时使用旧分区fills。')
     const evidenceLayers = context.evidenceLayers ?? input, evidenceIndex = evidenceLayers.findIndex(candidate => candidate.id === layer.id)
-    const neighborhoodEvidence = layer.repair === 'surfaces' && selectedSurfaces?.some(surface => surface.kind.startsWith('neighbors-') || surface.kind === 'guided')
+    const neighborhoodEvidence = layer.repair === 'context-blend' || layer.repair === 'surfaces' && selectedSurfaces?.some(surface => surface.kind.startsWith('neighbors-') || surface.kind === 'guided')
       ? { priorInference: provenance, objectEvidence: imageNeighborhoodObjectEvidence(source, evidenceLayers.slice(evidenceIndex + 1)), signal: context.signal } : undefined
     const extracted = extractImageLayer(remaining, layer.polygon, layer.donor,
       { repair: layer.repair, repairSurfaces: selectedSurfaces, appearanceImage: appearance, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask, removalMask: layer.removalMask, protectionMask: layer.protectionMask, neighborhoodEvidence })
